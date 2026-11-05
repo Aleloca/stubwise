@@ -303,10 +303,10 @@ async function main() {
             });
             await page.waitForTimeout(400);
             await page.getByRole("button", { name: /^(History|Cronologia)$/ }).click();
-            const list = page.getByRole("listbox");
-            await list.waitFor();
-            await list.getByRole("option").nth(0).click();
-            await list.getByRole("option").nth(1).click();
+            const rows = page.locator("[data-history-row]");
+            await rows.first().waitFor();
+            await rows.nth(0).click();
+            await rows.nth(1).click();
             await page.waitForTimeout(300);
           },
         },
@@ -348,6 +348,15 @@ async function main() {
           },
         },
       ];
+      // [PE 20] a 1200: con la colonna agganciata la lettura scenderebbe sotto
+      // 520, quindi l'albero passa a cassetto («Pages» nella barra).
+      if (!only || only.test("a11a-comments-pe20-1200-light-en.png")) {
+        const { page, context } = await open("light", { width: 1200, height: 800 }, SIGNIN, { persona: "Laura" });
+        await commentsRegion(page).getByRole("article").first().waitFor();
+        await page.waitForTimeout(400);
+        await shot(page, "a11a-comments-pe20-1200-light-en.png");
+        await context.close();
+      }
       for (const v of variants) {
         for (const scene of scenes) {
           const name = `a11a-comments-${scene.name}-${v.suffix}.png`;
