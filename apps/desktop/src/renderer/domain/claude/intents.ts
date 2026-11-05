@@ -2,6 +2,8 @@ import type { ScriptStep } from "../../data/types";
 import { toSteps, type Answer } from "./answers";
 import type { IntentContext } from "./context";
 import {
+  HOWTO_STATE_VERBS,
+  HOWTO_VERBS,
   QUESTION,
   STATUS,
   TODAY,
@@ -86,7 +88,8 @@ const CREATE =
 const CREATE_INF =
   /^(creare|crearmi|crearla|crearne|aggiungere|aggiungermi|aggiungerla|aprire|aprirmi|aprirne)\b/;
 
-const HOWTO = /\b(how (do|does|can|to|is|are)|come (funziona|funzionano|si|faccio|posso|fare))\b/;
+/** Una domanda «come si fa» ovunque nel testo: spesa e fermi sono già provati prima. */
+const HOWTO = new RegExp(`\\b(?:${HOWTO_VERBS}|${HOWTO_STATE_VERBS})\\b`);
 /** Una task o una richiesta nominata senza codice: «spiegami la richiesta», «avvia la task». */
 const OBJECT = /\b(task|request|ticket|richiesta)\b/;
 const EXPLAIN = /\b(explain|tell me about|summari[sz]e|spiega\w*|raccontami|riassumi)\b/;

@@ -1,10 +1,9 @@
 import type { CitationRef, DocPage, Project } from "../../../data/types";
 import { labelled, resulted, type Answer } from "../answers";
 import type { IntentContext, T } from "../context";
-import { findProject, normalize, topicWords } from "../parse";
+import { findProject, HOWTO_STATE_VERBS, HOWTO_VERBS, normalize, topicWords } from "../parse";
 
-const HOWTO_LEAD =
-  /^.*?\b(how (?:do|does|can|to|is|are)|come (?:funziona|funzionano|si|faccio|posso|fare))\b/i;
+const HOWTO_LEAD = new RegExp(`^.*?\\b(?:${HOWTO_VERBS}|${HOWTO_STATE_VERBS})\\b`, "i");
 
 /**
  * «Come funziona <tema> [in <progetto>]»: cerca nei Docs del progetto (o di

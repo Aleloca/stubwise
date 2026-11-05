@@ -37,11 +37,21 @@ export function stripCourtesy(plain: string): { polite: boolean; command: string
   return { polite, command };
 }
 /**
- * Il lead di una domanda «come si fa / come funziona». Non «how is / how
- * are»: chiedono com'è una cosa («How are we spending on AI?»), non come si fa.
+ * I verbi che aprono una domanda «come si fa / come funziona»: la fonte UNICA
+ * da cui nascono le tre regex (questa, `HOWTO` del router in `intents.ts` e
+ * `HOWTO_LEAD` di `intents/howto.ts`). Erano tre copie, e divergendo «How
+ * should I…» e «Come devo…» finivano a `general` (review finale, 1).
  */
-const HOWTO_QUESTION =
-  /^(how (do|does|can|to|should)|come (funziona|funzionano|si|faccio|posso|fare|devo))\b/;
+export const HOWTO_VERBS =
+  "how (?:do|does|can|to|should)|come (?:funziona|funzionano|si|faccio|posso|fare|devo)";
+/**
+ * «How is / how are» chiedono com'è una cosa («How are we spending on AI?»),
+ * non come si fa: il router li accetta solo DOPO spesa e fermi, e il tema
+ * della domanda li toglie; `isHowToQuestion` no.
+ */
+export const HOWTO_STATE_VERBS = "how (?:is|are)";
+/** Il lead di una domanda «come si fa / come funziona», in testa. */
+const HOWTO_QUESTION = new RegExp(`^(?:${HOWTO_VERBS})\\b`);
 /**
  * Una domanda «come si fa / come funziona» in testa (dopo saluti e
  * cortesie): «How do I mark a task as stalled?», «Come si imposta il

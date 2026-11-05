@@ -14,6 +14,7 @@ import { usd } from "../../i18n/money";
 import { stallOf } from "../stalled";
 import { toSteps } from "./answers";
 import { recognize, respond, type IntentContext } from "./intents";
+import { howtoTopic } from "./intents/howto";
 import { isHowToQuestion } from "./parse";
 
 // Le risposte di Claude sui dati (area 10b, Task 6): la risposta onesta (S0),
@@ -151,6 +152,11 @@ describe("il riconoscimento (P10)", () => {
     "Come si imposta il budget dei consumi?",
     "How does AI usage work?",
     "Come funzionano i consumi dell'AI?",
+    // «should / devo» (review finale, 1): le tre regex divergevano, e queste
+    // finivano a `general` (S0) invece che nei Docs.
+    "How should I set up the AI budget?",
+    "Come devo impostare il budget dei consumi?",
+    "How should I create an automation?",
   ]) {
     it(`«${text}» è howto, non stalled né spend`, () => {
       expect(isHowToQuestion(text)).toBe(true);
@@ -168,6 +174,10 @@ describe("il riconoscimento (P10)", () => {
       expect(recognize(text, new Set(["AUD"]))).toBe(intent);
     });
   }
+  it("il tema di «How should I…» non contiene «should» (review finale, 1)", () => {
+    expect(howtoTopic("How should I set up the AI budget?")).not.toMatch(/should/i);
+    expect(howtoTopic("Come devo impostare il budget dei consumi?")).not.toMatch(/devo/i);
+  });
   // Lo stesso controllo vale per le automazioni (T5 I3), e non scambia «How much…».
   it("«Come si crea un'automazione?» e «How do I create an automation?» non sono automazioni", () => {
     for (const text of ["Come si crea un'automazione?", "How do I create an automation?"]) {
