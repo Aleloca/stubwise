@@ -100,10 +100,13 @@ describe("letture e visibilità", () => {
       // Area 10b: le due nate dal supporto, in coda.
       "ACQ-S5": "request_open",
       "ACQ-S6": "request_open",
+      // 5 nov 2026: la seconda che aspetta noi, senza bozza di Claude.
+      "ACQ-S7": "waiting_us",
     });
     // Ordine dei gruppi: aspetta noi, in triage, non concluse, richiesta aperta (la più recente prima), risposte.
     expect(list.map((c) => c.code)).toEqual([
       "ACQ-S2",
+      "ACQ-S7",
       "ACQ-S1",
       "ACQ-S3",
       "ACQ-S6",
@@ -154,7 +157,7 @@ describe("letture e visibilità", () => {
     const list = await support.listWidgets(ACQ);
     expect(list.canManage).toBe(true);
     expect(list.widgets).toEqual([
-      expect.objectContaining({ id: "wdg-acq-portal", conversationCount: 5 }),
+      expect.objectContaining({ id: "wdg-acq-portal", conversationCount: 6 }),
     ]);
   });
 
@@ -169,7 +172,7 @@ describe("letture e visibilità", () => {
 
   it("Clienti in attesa: aspetta noi, dove ho support.reply", async () => {
     as("p-matteo");
-    expect((await support.listWaitingCustomers()).map((c) => c.code)).toEqual(["ACQ-S2"]);
+    expect((await support.listWaitingCustomers()).map((c) => c.code)).toEqual(["ACQ-S2", "ACQ-S7"]);
     as("p-sara");
     expect(await support.listWaitingCustomers()).toEqual([]);
   });
@@ -439,7 +442,7 @@ describe("scritture", () => {
     expect((await support.updateWidget(w.id, { name: "Site 2" })).name).toBe("Site 2");
     await support.deleteWidget("wdg-acq-portal");
     expect(state.supportWidgets.map((x) => x.id)).toEqual([w.id]);
-    expect(state.supportConversations).toHaveLength(6);
+    expect(state.supportConversations).toHaveLength(7);
     const s1 = (await support.getSupportConversation("ACQ-S1"))!;
     expect(s1.widgetName).toBeNull();
   });

@@ -806,9 +806,14 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     const acq = SUPPORT_CONVERSATIONS.filter((c) => c.projectId === ACQ);
     // In triage: nessuna richiesta, il cliente non se n'è andato.
     expect(acq.some((c) => c.channel === "widget" && !c.requestId && !c.leftAt)).toBe(true);
-    // Aspetta noi: richiesta aperta, l'ultimo messaggio è del cliente, bozza di Claude.
-    const waiting = acq.find((c) => c.requestId && c.messages.at(-1)!.from === "customer")!;
-    expect(waiting.claudeDraft).toBeTruthy();
+    // Aspettano noi (richiesta aperta, l'ultimo messaggio è del cliente) in
+    // due: ACQ-S2 con la bozza di Claude pronta, ACQ-S7 senza. La riga
+    // «Claude can help you write the reply» si vede solo sulla seconda.
+    const waiting = acq.filter((c) => c.requestId && c.messages.at(-1)!.from === "customer");
+    expect(waiting.map((c) => [c.code, c.claudeDraft !== null])).toEqual([
+      ["ACQ-S2", true],
+      ["ACQ-S7", false],
+    ]);
     // Non conclusa: se n'è andato, nessuna richiesta.
     const left = acq.find((c) => c.leftAt)!;
     expect(left.requestId).toBeNull();
@@ -825,8 +830,8 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
       const c = SUPPORT_CONVERSATIONS.find((x) => x.id === r.origin!.conversationId)!;
       expect(c.requestId).toBe(r.id);
     }
-    // Area 10b: più ACQ-S5 e ACQ-S6.
-    expect(REQUESTS.filter((r) => r.origin)).toHaveLength(4);
+    // Area 10b: più ACQ-S5 e ACQ-S6; poi ACQ-S7 (5 nov 2026).
+    expect(REQUESTS.filter((r) => r.origin)).toHaveLength(5);
   });
 
   it("R-K11: l'avviso support.request porta il codice della richiesta e il link alla richiesta", () => {
@@ -883,7 +888,7 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     expect(state.notificationMarks.size).toBe(0);
     expect(state.releaseCodeSeq.get(AUD)).toBe(3);
     expect(state.releaseCodeSeq.get(STW)).toBe(2);
-    expect(state.supportCodeSeq.get(ACQ)).toBe(6);
+    expect(state.supportCodeSeq.get(ACQ)).toBe(7);
     // Copie: cambiare lo stato non tocca il seme.
     state.releases[0]!.title = "changed";
     expect(RELEASES[0]!.title).not.toBe("changed");

@@ -2628,8 +2628,9 @@ registro del piano).
   la proposta per quella risposta. La regola sta in `suggestionFor`
   (`data/claude/suggestions.ts`), provata in `suggestions.test.ts` e
   `ClaudeSuggestionRow.test.tsx`; la pagina non la ricalcola. ACQ-S2 nel
-  seme ha la bozza, quindi la riga non c'è finché la bozza non è usata
-  (gli scatti `a10b-sugg-support*` la tolgono a mano). *Se sbagliata*: chi
+  seme ha la bozza, quindi lì la riga non c'è finché la bozza non è usata;
+  ACQ-S7 aspetta noi senza bozza, ed è lì che la riga si vede (scatti
+  `a10b-sugg-support*`, senza più toccare il seme a mano). *Se sbagliata*: chi
   vuole chiedere a Claude qualcosa di diverso dalla bozza pronta passa dal
   riquadro.
 - **S3 oltre cinque progetti resta senza link «apri l'elenco»**
@@ -2637,12 +2638,13 @@ registro del piano).
   progetto a chi non ha `usage.view` (solo Impostazioni → Consumi di ogni
   progetto), e un link prometterebbe un elenco che non esiste. *Se
   sbagliata*: chi vuole il dettaglio apre i progetti uno per uno.
-- **Una seconda conversazione in attesa senza bozza, rimandata**: con la
-  regola qui sopra nessuna pagina di Supporto del seme mostra la riga
-  «Claude can help you write the reply». Si aggiunge (per esempio ACQ-S7,
-  `waiting_us`, senza `claudeDraft`, con `seed.test.ts` e i conteggi del
-  Supporto) la prossima volta che si tocca il seme. *Se sbagliata*: la
-  riga si vede solo nei test e negli scatti.
+- **Una seconda conversazione in attesa senza bozza — corretto (5 nov
+  2026)**: ACQ-S7 (Marta Colombo, dal widget, richiesta ACQ-R5 `medium`,
+  Davide ha già risposto una volta) è `waiting_us` senza `claudeDraft`, e
+  mostra la riga «Claude can help you write the reply». Conteggi del
+  Supporto e di «Customers waiting» aggiornati (due in attesa, S2 prima
+  perché aspetta da più tempo). *Se sbagliata*: la Home di chi ha
+  `support.reply` in ACQ mostra due clienti in attesa invece di uno.
 
 ### Dalla ri-revisione finale (5 nov 2026)
 

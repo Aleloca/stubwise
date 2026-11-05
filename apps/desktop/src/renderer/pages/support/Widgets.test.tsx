@@ -58,7 +58,7 @@ describe("Support — Widget", () => {
     const row = within(list).getByRole("listitem");
     expect(row).toHaveTextContent("Customer portal help");
     expect(row).toHaveTextContent("On");
-    expect(row).toHaveTextContent("5 conversations");
+    expect(row).toHaveTextContent("6 conversations");
   });
 
   it("Edit: i campi del web, lo snippet e la guida; salvare cambia il widget", async () => {

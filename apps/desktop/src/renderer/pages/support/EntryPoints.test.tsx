@@ -58,7 +58,10 @@ describe("Home — «Customers waiting»", () => {
 
   it("vuoto: «No customer is waiting»", async () => {
     homeWithWaiting("p-matteo");
-    state.supportConversations = state.supportConversations.filter((c) => c.code !== "ACQ-S2");
+    // Le due che aspettano noi: ACQ-S2 e ACQ-S7 (5 nov 2026).
+    state.supportConversations = state.supportConversations.filter(
+      (c) => c.code !== "ACQ-S2" && c.code !== "ACQ-S7",
+    );
     renderRoute("/home", "p-matteo");
     const block = await screen.findByRole("region", { name: /^Customers waiting/ });
     expect(await within(block).findByText("No customer is waiting")).toBeInTheDocument();

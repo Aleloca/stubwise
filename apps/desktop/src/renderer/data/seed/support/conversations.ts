@@ -10,6 +10,8 @@ import { daysFromToday } from "../dates";
 // - ACQ-S3: dal widget, il cliente se n'è andato prima della fine del triage:
 //   non conclusa, nessuna richiesta.
 // - ACQ-S4: dal server MCP, la richiesta è nata con la conversazione allegata.
+// - ACQ-S5, ACQ-S6: dal widget, le due richieste in coda (area 10b).
+// - ACQ-S7: dal widget, aspetta una nostra risposta SENZA bozza di Claude.
 
 /** Le richieste nate da una conversazione (in `requests.ts`, con `origin`). */
 export const SUPPORT_REQUEST_IDS = {
@@ -18,6 +20,8 @@ export const SUPPORT_REQUEST_IDS = {
   // Area 10b: le due richieste in coda, `high` (convertita in task) e `low`.
   reminder: "req-acq-3",
   dark: "req-acq-4",
+  // 5 nov 2026: quella di ACQ-S7, che aspetta noi senza bozza.
+  billingEmail: "req-acq-5",
 } as const;
 
 export const SUPPORT_CONVERSATION_IDS = {
@@ -27,6 +31,7 @@ export const SUPPORT_CONVERSATION_IDS = {
   mcp: "sup-acq-4",
   reminder: "sup-acq-5",
   dark: "sup-acq-6",
+  billingEmail: "sup-acq-7",
 } as const;
 
 const at = (days: number, hm: string) => `${daysFromToday(-days)}T${hm}:00Z`;
@@ -229,6 +234,57 @@ export const SUPPORT_CONVERSATIONS: SupportConversation[] = [
     leftAt: null,
     confirmedAt: at(1, "08:44"),
     followerIds: [],
+    claudeDraft: null,
+  },
+  // 5 nov 2026: la seconda che aspetta noi, SENZA bozza di Claude. Con la
+  // bozza pronta la riga «Claude can help you write the reply» non compare
+  // (maintainer, 5 nov 2026), quindi ACQ-S2 non la mostra mai: è qui che si
+  // vede. Davide ha già risposto una volta, il cliente ha riscritto.
+  {
+    id: SUPPORT_CONVERSATION_IDS.billingEmail,
+    code: "ACQ-S7",
+    projectId: "prj-acq",
+    channel: "widget",
+    widgetId: "wdg-acq-portal",
+    customer: { name: "Marta Colombo", email: "marta.colombo@example.com" },
+    messages: messages(SUPPORT_CONVERSATION_IDS.billingEmail, [
+      [
+        "customer",
+        null,
+        "My bills still go to my old email address, and I can't change it from the portal.",
+        at(6, "09:20"),
+      ],
+      [
+        "triage",
+        null,
+        "Would you like to change it yourself from the portal, or should the team change it for you this time?",
+        at(6, "09:21"),
+      ],
+      ["customer", null, "From the portal, so I can change it again myself.", at(6, "09:25")],
+      [
+        "triage",
+        null,
+        "Got it: I passed your request to the team. You'll find the answer here.",
+        at(6, "09:26"),
+      ],
+      [
+        "team",
+        "p-davide",
+        "Thanks Marta, for now we changed it for you: the next bill goes to the new address.",
+        at(5, "14:10"),
+      ],
+      [
+        "customer",
+        null,
+        "Thank you! Will I be able to change it from the portal myself next time?",
+        at(0, "09:05"),
+      ],
+    ]),
+    rewrittenWish: "Change the email address that receives the bills from the customer portal.",
+    requestId: SUPPORT_REQUEST_IDS.billingEmail,
+    leftAt: null,
+    confirmedAt: at(6, "09:25"),
+    followerIds: ["p-davide"],
     claudeDraft: null,
   },
 ];

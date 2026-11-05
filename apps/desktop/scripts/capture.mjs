@@ -638,13 +638,13 @@ async function main() {
 
     // Area 10b, Task 12 (`CAPTURE_A10B_SUGG=1`): la riga «Claude can help
     // you…» nelle cinque pagine di partenza (shape `claude-suggestions.md`).
-    // Matteo su ACQ-S2 (Davide non è fra i «vedi come»), Laura sulla PR #77
+    // Matteo su ACQ-S7 (Davide non è fra i «vedi come»), Laura sulla PR #77
     // e sulle Automations di ACQ, Giulia sull'Overview di MKX, Roberta su
-    // Consumi; poi il clic su ACQ-S2: il riquadro con la conversazione nuova
+    // Consumi; poi il clic su ACQ-S7: il riquadro con la conversazione nuova
     // e la richiesta non inviata. Con la bozza di Claude già pronta la riga
-    // non c'è (maintainer, 5 nov 2026): ACQ-S2 nel seme ce l'ha, quindi
-    // `support` e `support-click` la tolgono prima (`noDraft`), e
-    // `support-draft` mostra il seme com'è, senza la riga.
+    // non c'è (maintainer, 5 nov 2026): ACQ-S7 aspetta noi SENZA bozza nel
+    // seme, e `support-draft` mostra ACQ-S2, che la bozza ce l'ha, senza la
+    // riga. Nessuno scatto tocca più il seme a mano.
     // Scatti `a10b-sugg-*`.
     if (process.env.CAPTURE_A10B_SUGG) {
       const variants = [
@@ -656,7 +656,7 @@ async function main() {
       ];
       const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
       const scenes = [
-        { name: "support", persona: "Matteo", hash: "/p/ACQ/support/ACQ-S2", noDraft: true },
+        { name: "support", persona: "Matteo", hash: "/p/ACQ/support/ACQ-S7" },
         { name: "support-draft", persona: "Matteo", hash: "/p/ACQ/support/ACQ-S2", noRow: true },
         { name: "pr", persona: "Laura", hash: "/p/ACQ/releases?pr=opr-acq-77" },
         { name: "automations", persona: "Laura", hash: "/p/ACQ/automations" },
@@ -665,9 +665,8 @@ async function main() {
         {
           name: "support-click",
           persona: "Matteo",
-          hash: "/p/ACQ/support/ACQ-S2",
+          hash: "/p/ACQ/support/ACQ-S7",
           click: true,
-          noDraft: true,
         },
       ];
       for (const v of variants) {
@@ -678,17 +677,6 @@ async function main() {
             lang: v.lang,
             persona: scene.persona,
           });
-          if (scene.noDraft) {
-            // La bozza del seme tolta, e la pagina riletta (via e ritorno).
-            await page.evaluate(async (h) => {
-              const { state } = await import("/data/store.ts");
-              state.supportConversations.find((c) => c.code === "ACQ-S2").claudeDraft = null;
-              window.location.hash = "/p/ACQ/support";
-              await new Promise((r) => setTimeout(r, 400));
-              window.location.hash = h;
-            }, scene.hash);
-            await page.waitForTimeout(900);
-          }
           const row = page.locator("[data-claude-suggestion]");
           if (scene.noRow) {
             await page.getByRole("button", { name: /^(Use draft|Usa la bozza)$/ }).waitFor();
@@ -697,7 +685,7 @@ async function main() {
           if (scene.click) {
             await row.getByRole("button").first().click();
             await page.locator("#claude-panel textarea").last().waitFor();
-            // Il chip della pagina, riletto all'apertura: «ACQ-S2 · support conversation».
+            // Il chip della pagina, riletto all'apertura: «ACQ-S7 · support conversation».
             await page.locator("#claude-panel [data-context-chip]").waitFor();
             await page.waitForTimeout(500);
           }

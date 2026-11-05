@@ -40,6 +40,8 @@ const ROWS: Row[] = [
   // convertita in una task) e `low`.
   ["req-acq-3", "ACQ", "Text message before the bill is due", [], "converted", "high", null, null, ["t-acq-7"], 3],
   ["req-acq-4", "ACQ", "A dark appearance for the portal", [], "new", "low", null, null, [], 1],
+  // 5 nov 2026: quella di ACQ-S7, che aspetta noi senza bozza di Claude.
+  ["req-acq-5", "ACQ", "Change the billing email from the portal", [], "new", "medium", null, null, [], 6],
 ];
 
 // Le richieste nate da una conversazione di Support (area 8a): nessun

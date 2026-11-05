@@ -84,7 +84,10 @@ describe("Support — l'elenco", () => {
       "Not concluded",
       "Request open",
     ]);
-    const s2 = within(groups[0]!).getByRole("option");
+    // ACQ-S2 aspetta da più tempo di ACQ-S7 (5 nov 2026): è la prima.
+    const waiting = within(groups[0]!).getAllByRole("option");
+    expect(waiting.map((o) => o.dataset.supportRow)).toEqual(["ACQ-S2", "ACQ-S7"]);
+    const s2 = waiting[0]!;
     expect(s2).toHaveAccessibleName(
       /^Waiting on you, ACQ-S2, Lucia Benedetti, Widget, Waiting on us, waiting 3 h/,
     );
@@ -119,6 +122,8 @@ describe("Support — l'elenco", () => {
     list.focus();
     await user.keyboard("j");
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S2"));
+    await user.keyboard("j");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S7"));
     await user.keyboard("j");
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/ACQ/support/ACQ-S1"));
   });

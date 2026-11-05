@@ -129,6 +129,13 @@ describe("Supporto con la bozza di Claude già pronta (maintainer, 5 nov 2026)",
     await new Promise((r) => setTimeout(r, 50));
     expect(row()).toBeNull();
   });
+
+  it("ACQ-S7 col seme così com'è (nessuna bozza): la riga c'è, senza «Use draft»", async () => {
+    renderRoute("/p/ACQ/support/ACQ-S7", DAVIDE);
+    await screen.findByRole("form", { name: /^Reply to / });
+    await suggestionButton("Claude can help you write the reply");
+    expect(screen.queryByRole("button", { name: "Use draft" })).toBeNull();
+  });
 });
 
 describe("le cinque pagine: c'è col permesso, mai un «Who?»", () => {

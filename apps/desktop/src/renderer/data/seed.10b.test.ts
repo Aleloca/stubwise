@@ -99,7 +99,19 @@ describe("ACQ", () => {
     );
     expect(byConversation).toMatchObject({ "ACQ-S5": "high", "ACQ-S6": "low" });
     as(ROBERTA);
-    expect((await listRequests(ACQ)).filter((r) => r.origin?.kind === "support")).toHaveLength(4);
+    // ACQ-S2, ACQ-S4, ACQ-S5, ACQ-S6 e ACQ-S7.
+    expect((await listRequests(ACQ)).filter((r) => r.origin?.kind === "support")).toHaveLength(5);
+  });
+
+  it("ACQ-S7 aspetta il team SENZA bozza di Claude: lì si vede la riga di suggerimento", async () => {
+    as(DAVIDE);
+    const view = (await support.getSupportConversation("ACQ-S7"))!;
+    expect(view.state).toBe("waiting_us");
+    expect(state.supportConversations.find((c) => c.code === "ACQ-S7")!.claudeDraft).toBeNull();
+    // La sua richiesta non è `high`: il filtro dell'automazione di prova lo
+    // passa solo `req-acq-3`.
+    const request = state.requests.find((r) => r.origin?.conversationId === "sup-acq-7")!;
+    expect(request.urgency).not.toBe("high");
   });
 
   it("ACQ-S2 aspetta il team: è la conversazione che le scene del supporto usano", async () => {
