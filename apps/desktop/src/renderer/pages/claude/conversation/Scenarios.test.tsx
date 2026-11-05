@@ -451,6 +451,54 @@ describe("S4, la nota senza `codes` (fixture senza il campo nuovo)", () => {
   });
 });
 
+describe("codici e nomi in evidenza nelle schede di S4 e S5 (Impeccable 6, shape §3.7–3.8)", () => {
+  it("«Archive **ORT** Orto Social» e «Add **Luca Bianchi** to **ACQ** as Developer»", async () => {
+    await injected(LAURA, [
+      {
+        type: "proposal",
+        proposalId: "prop-bold",
+        requesterId: LAURA,
+        actions: [
+          {
+            fn: "archiveProject",
+            args: { projectId: ACQ },
+            summary: "Archive ORT Orto Social",
+            summaryText: {
+              key: "claude.answers.archive.summary",
+              params: { code: "ORT", name: "Orto Social" },
+            },
+          },
+          {
+            fn: "addMember",
+            args: { projectId: ACQ, personId: "p-luca", roleId: "r" },
+            summary: "Add Luca Bianchi to ACQ as Developer",
+            summaryText: {
+              key: "claude.answers.member.summary",
+              params: { name: "Luca Bianchi", code: "ACQ", role: "Developer", context: "vowel" },
+            },
+          },
+        ],
+        status: "open",
+        cls: "C",
+        reasons: [],
+      },
+    ]);
+    const card = await screen.findByRole("region", { name: /Claude proposes/ });
+    const strong = [...card.querySelectorAll(".font-semibold")].map((e) => e.textContent);
+    expect(strong).toEqual(expect.arrayContaining(["ORT", "Luca Bianchi", "ACQ"]));
+    expect(card).toHaveTextContent("Archive ORT Orto Social");
+    expect(card).toHaveTextContent("Add Luca Bianchi to ACQ as Developer");
+    expect(card).not.toHaveTextContent("**");
+    const ort = [...card.querySelectorAll(".font-semibold")].find((e) => e.textContent === "ORT")!;
+    expect(ort.className).toMatch(/\bnum\b/);
+    // In italiano «ad» davanti a una vocale, anche nella forma in evidenza.
+    await act(() => i18n.changeLanguage("it"));
+    await waitFor(() =>
+      expect(card).toHaveTextContent("Aggiungi Luca Bianchi ad ACQ come Developer"),
+    );
+  });
+});
+
 describe("S5, la scheda bloccata", () => {
   it("Confirm spento con la frase dell'`escalation`, senza «Who?»; Cancel resta", async () => {
     const developer = state.access.roles.find((r) => r.key === "developer")!;

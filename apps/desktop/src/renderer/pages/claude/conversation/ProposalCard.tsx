@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import {
   useCancelProposal,
   useCompleteEditedProposal,
@@ -202,7 +202,7 @@ export function ProposalCardView({
   /** La riga per chi l'ha chiesta e non può più agire. */
   cantActNote?: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const requester = usePersonName(event.requesterId);
   const [selected, setSelected] = useState<boolean[]>(() => event.actions.map(() => true));
   const [error, setError] = useState<string | null>(null);
@@ -241,6 +241,28 @@ export function ProposalCardView({
   const summary = (text: string) => {
     const said = event.undoOf ? t("claude.conversation.undo.proposalRow", { action: text }) : text;
     return renderText ? renderText(said) : said;
+  };
+  // Il riassunto di una riga: col codice e il nome in evidenza dove la frase
+  // ha la sua forma «Rich» (S4, S5: «Archive **ORT** Orto Social»,
+  // Impeccable 6). Solo nel riquadro e nella pagina: la Chat ha la sua resa
+  // dei codici (`renderText`), e un «Annulla» la sua frase.
+  const rowSummary = (action: ProposedAction) => {
+    const text = action.summaryText;
+    const rich = text && `${text.key}Rich`;
+    if (rich && !renderText && !event.undoOf && i18n.exists(rich)) {
+      return (
+        <Trans
+          i18nKey={rich}
+          values={text.params}
+          {...(typeof text.params?.context === "string" ? { context: text.params.context } : {})}
+          components={{
+            code: <span className="num font-semibold text-ink" />,
+            b: <span className="font-semibold text-ink" />,
+          }}
+        />
+      );
+    }
+    return summary(spoken(t, action.summaryText, action.summary));
   };
 
   const fail = (e: Error) =>
@@ -392,7 +414,7 @@ export function ProposalCardView({
                     className={`flex min-w-0 flex-col [overflow-wrap:anywhere] transition-colors duration-[var(--duration-fast)] ease-out ${out ? "text-ink-faint" : ""}`}
                   >
                     <span>
-                      {summary(spoken(t, action.summaryText, action.summary))}
+                      {rowSummary(action)}
                       {out && (
                         <span className="sr-only">
                           {` · ${t(masculine ? "claude.conversation.proposal.excludedMasculine" : "claude.conversation.proposal.excluded")}`}
@@ -406,7 +428,7 @@ export function ProposalCardView({
                 <span
                   className={`flex min-w-0 flex-col [overflow-wrap:anywhere] ${ran === false ? "text-ink-faint line-through decoration-ink/30" : ""}`}
                 >
-                  <span>{summary(spoken(t, action.summaryText, action.summary))}</span>
+                  <span>{rowSummary(action)}</span>
                   {open && why}
                 </span>
               )}

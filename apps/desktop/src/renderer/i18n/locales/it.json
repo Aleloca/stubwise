@@ -3569,6 +3569,7 @@
         "one": "{{code}} è senza attività da {{period}}:",
         "none": "Nessun progetto che gestisci è senza attività da {{period}}.",
         "summary": "Archivia {{code}} {{name}}",
+        "summaryRich": "Archivia <code>{{code}}</code> {{name}}",
         "notManageable_one": "{{count}} progetto inattivo che non puoi archiviare",
         "notManageable_other": "{{count}} progetti inattivi che non puoi archiviare",
         "busy": {
@@ -3586,6 +3587,8 @@
         "exists": "{{name}} è già in Stubwise, quindi non serve un invito.",
         "summary": "Aggiungi {{name}} a {{code}} come {{role}}",
         "summary_vowel": "Aggiungi {{name}} ad {{code}} come {{role}}",
+        "summaryRich": "Aggiungi <b>{{name}}</b> a <code>{{code}}</code> come {{role}}",
+        "summaryRich_vowel": "Aggiungi <b>{{name}}</b> ad <code>{{code}}</code> come {{role}}",
         "already": "{{name}} è già in {{code}} come {{role}}.",
         "whichPerson": "Quale {{name}} aggiungo a {{code}}?",
         "whichPerson_vowel": "Quale {{name}} aggiungo ad {{code}}?",
