@@ -12235,6 +12235,30 @@
       "joined": "{{name}} è nella pagina",
       "writingHere_one": "{{names}} sta scrivendo qui",
       "writingHere_other": "{{names}} stanno scrivendo qui"
+    },
+    "export": {
+      "button": "Esporta",
+      "menu": "Esporta",
+      "preparing": "Preparo…",
+      "thisPage": "Questa pagina",
+      "wholeSpace": "Tutto lo spazio",
+      "pdf": "PDF",
+      "word": "Word (.docx)",
+      "treeOrder_one": "{{count}} pagina, nell'ordine dell'albero",
+      "treeOrder_other": "{{count}} pagine, nell'ordine dell'albero",
+      "noComments": "I commenti non sono inclusi.",
+      "spaceTitle": "{{code}} Prodotto",
+      "savedPdf": "PDF salvato",
+      "savedWord": "File Word salvato",
+      "savedWordLeftOut_one": "File Word salvato. {{count}} immagine è rimasta fuori (WebP).",
+      "savedWordLeftOut_other": "File Word salvato. {{count}} immagini sono rimaste fuori (WebP).",
+      "failed": "Esportazione non riuscita",
+      "retry": "Riprova",
+      "fileLine": "File: {{name}} ({{code}})",
+      "fileGone": "File: {{code}} (non disponibile)",
+      "decisionLine": "Decisione: {{title}}",
+      "decisionHidden": "Decisione: non disponibile",
+      "printLabel": "Vista di stampa"
     }
   }
 }

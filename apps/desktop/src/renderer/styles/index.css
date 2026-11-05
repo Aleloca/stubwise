@@ -584,3 +584,131 @@
     animation: none;
   }
 }
+
+/*
+ * L'esportazione in PDF (area 11a, Task 12): la vista di stampa vive in
+ * `#print-root`, invisibile a schermo, montata solo durante l'esportazione.
+ * Con `body[data-printing]` la stampa mostra lei sola, sempre su carta
+ * bianca e in inchiostro scuro, qualunque sia il tema dell'app.
+ */
+#print-root {
+  display: none;
+}
+
+@media print {
+  html:has(body[data-printing]),
+  body[data-printing] {
+    background: #fff !important;
+    color-scheme: light;
+  }
+  body[data-printing] > :not(#print-root) {
+    display: none !important;
+  }
+  body[data-printing] > #print-root {
+    display: block;
+  }
+}
+
+.print-view {
+  --print-ink: oklch(0.2 0.005 265);
+  --print-muted: oklch(0.44 0.006 265);
+  --print-rule: oklch(0.2 0.005 265 / 0.2);
+  font-family: var(--font-sans);
+  font-size: 11pt;
+  line-height: 1.5;
+  color: var(--print-ink);
+  background: #fff;
+
+  & h1,
+  & h2,
+  & h3,
+  & h4,
+  & h5,
+  & h6 {
+    font-weight: 600;
+    line-height: 1.25;
+    margin: 1.4em 0 0.4em;
+    break-after: avoid;
+    text-wrap: balance;
+  }
+  & h1 {
+    font-size: 22pt;
+    margin-top: 0;
+  }
+  & h2 {
+    font-size: 16pt;
+  }
+  & h3 {
+    font-size: 13.5pt;
+  }
+  & h4,
+  & h5,
+  & h6 {
+    font-size: 11.5pt;
+  }
+  & p,
+  & ul,
+  & ol,
+  & blockquote,
+  & table,
+  & figure {
+    margin: 0 0 0.6em;
+  }
+  & .print-page + .print-page {
+    break-before: page;
+  }
+  & .print-code {
+    font-size: 9pt;
+    font-variant-numeric: tabular-nums;
+    color: var(--print-muted);
+    margin: 0 0 0.4em;
+  }
+  & a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  & blockquote {
+    padding-left: 12pt;
+    border-left: 2pt solid var(--print-rule);
+    color: var(--print-muted);
+  }
+  & hr {
+    border: 0;
+    border-top: 1px solid var(--print-rule);
+    margin: 1em 0;
+  }
+  & table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  & td {
+    border: 1px solid var(--print-rule);
+    padding: 4pt 6pt;
+    vertical-align: top;
+  }
+  & img {
+    max-width: 100%;
+    height: auto;
+  }
+  & figure {
+    break-inside: avoid;
+  }
+  & figcaption {
+    font-size: 9.5pt;
+    color: var(--print-muted);
+  }
+  /* Il preflight di Tailwind toglie i segni degli elenchi: sulla carta servono. */
+  & ul {
+    list-style: disc;
+    padding-left: 18pt;
+  }
+  & ol {
+    list-style: decimal;
+    padding-left: 18pt;
+  }
+  & .print-todo {
+    list-style: none;
+    padding-left: 0;
+  }
+}

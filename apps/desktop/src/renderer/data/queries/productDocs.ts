@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import * as api from "../api";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
 import type { ProductBlockOp } from "../types";
@@ -60,6 +60,26 @@ export function useProductPage(code: string, { enabled = true }: { enabled?: boo
     queryFn: () => api.productDocs.getProductPage(code),
     enabled,
   });
+}
+
+/**
+ * La lettura dell'esportazione (Task 12, P20), al momento del gesto: una
+ * pagina (`pageId`) o lo spazio intero, già risolti per chi esporta. Sempre
+ * fresca (`staleTime: 0`): si esporta la pagina com'è adesso.
+ */
+export function useReadProductExport() {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  return useCallback(
+    (projectId: string, { pageId }: { pageId?: string } = {}) =>
+      client.fetchQuery({
+        queryKey: ["as", me, "productDocs", "export", projectId, pageId ?? null] as const,
+        queryFn: () => api.productDocs.getProductExport(projectId, pageId === undefined ? {} : { pageId }),
+        staleTime: 0,
+        retry: false,
+      }),
+    [client, me],
+  );
 }
 
 /** La cronologia di una pagina, dalla più recente. */

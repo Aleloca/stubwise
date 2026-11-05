@@ -1,11 +1,22 @@
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
 import { buildMenuTemplate } from "./menu";
-import { isExternalOpenAllowed, isNavigationAllowed } from "./security";
+import {
+  isExternalOpenAllowed,
+  isNavigationAllowed,
+  parseSaveFileRequest,
+  safeFileName,
+  saveFilterFor,
+  withExtension,
+  type SaveFileResult,
+} from "./security";
 import { groundFor, isResolvedTheme, overlayFor, themeFromDark, windowOptions } from "./window";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
+const devUrl = process.env["ELECTRON_RENDERER_URL"];
+const packagedFile = join(here, "../renderer/index.html");
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -21,9 +32,6 @@ function createWindow(): BrowserWindow {
       sandbox: true,
     },
   });
-
-  const devUrl = process.env["ELECTRON_RENDERER_URL"];
-  const packagedFile = join(here, "../renderer/index.html");
 
   // Nessuna nuova finestra: i link http(s) vanno al browser di sistema (mai
   // dentro l'app), ogni altro schema è scartato.
@@ -49,6 +57,40 @@ ipcMain.on("theme:changed", (event, theme: unknown) => {
   if (!win) return;
   win.setBackgroundColor(groundFor(theme));
   if (process.platform === "win32") win.setTitleBarOverlay(overlayFor(theme));
+});
+
+/**
+ * «Salva questo file» (area 11a, decisione 8): l'unico canale nuovo. La
+ * richiesta si valida per prima (`parseSaveFileRequest`), e viene solo dal
+ * renderer dell'app (stessa regola della navigazione). Il PDF lo stampa la
+ * finestra che chiede (la vista di stampa è montata in quel momento); il
+ * Word arriva coi suoi byte. Si scrive SOLO dove la persona sceglie nella
+ * finestra di salvataggio; il percorso non torna mai al renderer.
+ */
+ipcMain.handle("file:save", async (event, raw: unknown): Promise<SaveFileResult> => {
+  const req = parseSaveFileRequest(raw);
+  if (!req) return { saved: false, reason: "invalid" };
+  const sender = event.senderFrame?.url ?? "";
+  if (!isNavigationAllowed(sender, { devUrl, packagedUrl: pathToFileURL(packagedFile).href })) {
+    return { saved: false, reason: "invalid" };
+  }
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return { saved: false, reason: "invalid" };
+  try {
+    const data =
+      req.format === "pdf"
+        ? await event.sender.printToPDF({ printBackground: true, pageSize: "A4" })
+        : req.data;
+    const choice = await dialog.showSaveDialog(win, {
+      defaultPath: join(app.getPath("downloads"), safeFileName(req.name, req.format)),
+      filters: [saveFilterFor(req.format)],
+    });
+    if (choice.canceled || !choice.filePath) return { saved: false, reason: "canceled" };
+    await writeFile(withExtension(choice.filePath, req.format), data);
+    return { saved: true };
+  } catch {
+    return { saved: false, reason: "failed" };
+  }
 });
 
 function installMenu(): void {

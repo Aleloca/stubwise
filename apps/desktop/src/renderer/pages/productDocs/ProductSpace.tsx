@@ -28,6 +28,7 @@ import { FollowButton, pageBarButton } from "./FollowButton";
 import { SideColumnFrame, useSideColumn, type SideColumn } from "./SideColumn";
 import { CommentsColumn } from "./comments/CommentsColumn";
 import { HistoryPanel } from "./history/HistoryPanel";
+import { ExportMenu } from "./export/ExportMenu";
 import {
   type CommentsBridge,
   DeletePageDialog,
@@ -327,6 +328,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
           sideShown={sideShown}
           commentsButton={commentsButton}
           historyButton={historyButton}
+          pageCount={space.pageCount}
         />
         <div className="flex min-h-0 flex-1">
           {treeDocked && (
@@ -381,8 +383,8 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
  * [PE 20]), «Product» e le briciole della pagina aperta; a destra i gesti
  * della pagina, nell'ordine di [PS 8]: lo stato di salvataggio dell'editor,
  * gli avatar degli altri presenti (Task 11), Follow, Comments N (i fili aperti), History,
- * (Export, Task 12), il «⋯» (Copy link, Delete page… per chi scrive).
- * Sull'indice «Search ⌘K». Una pagina che non c'è perde i gesti e le briciole.
+ * «Export ▾» (Task 12), il «⋯» (Copy link, Delete page… per chi scrive).
+ * Sull'indice «Search ⌘K» ed «Export ▾» col solo WHOLE SPACE. Una pagina che non c'è perde i gesti e le briciole.
  */
 function SpaceBar({
   project,
@@ -397,6 +399,7 @@ function SpaceBar({
   sideShown,
   commentsButton,
   historyButton,
+  pageCount,
 }: {
   project: Project;
   pageCode: string | null;
@@ -410,6 +413,8 @@ function SpaceBar({
   sideShown: boolean;
   commentsButton: RefObject<HTMLButtonElement | null>;
   historyButton: RefObject<HTMLButtonElement | null>;
+  /** Le pagine dello spazio, per «9 pages, in tree order» del menu Export. */
+  pageCount: number;
 }) {
   const { t } = useTranslation();
   // La stessa lettura della pagina aperta (la cache la condivide con la vista).
@@ -453,6 +458,7 @@ function SpaceBar({
             <kbd className="num ml-1.5 font-sans text-xs text-ink-faint">⌘K</kbd>
           </button>
         )}
+        {pageCode === null && <ExportMenu project={project} page={null} pageCount={pageCount} />}
         {view && editorStatus && <SaveStatus status={editorStatus} />}
         {view && <PresenceAvatars page={view} />}
         {view && <FollowButton page={view} />}
@@ -480,6 +486,14 @@ function SpaceBar({
             <HistoryGlyph />
             {t("productDocs.space.history")}
           </button>
+        )}
+        {view && (
+          <ExportMenu
+            key={view.id}
+            project={project}
+            page={{ id: view.id, code: view.code, title: view.title }}
+            pageCount={pageCount}
+          />
         )}
         {view && <PageMenu project={project} page={view} docked={docked} onDeleted={onDeleted} />}
       </span>

@@ -3795,6 +3795,19 @@ export interface ProductSpaceView {
   permissions: { edit: boolean };
 }
 
+/**
+ * Quello che si esporta (Task 12, ruling P20): le pagine nell'ordine
+ * dell'albero con la profondità, e i file del Drive e le decisioni citati,
+ * già risolti per chi esporta (`null` = non li vede: nessun nome né titolo,
+ * R-G5). Le frasi («File: …») le compone la pagina, in en o it, a lettura.
+ */
+export interface ProductExportView {
+  projectCode: string;
+  pages: { page: ProductPage; depth: number }[];
+  files: Record<string, { name: string } | null>;
+  decisions: Record<string, { title: string } | null>;
+}
+
 export interface ProductPageView extends ProductPage {
   /** Gli antenati, dalla radice al genitore. */
   breadcrumbs: ProductPageRef[];

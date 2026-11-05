@@ -1,10 +1,12 @@
 import { excerptOfBlocks } from "../../domain/productDocs/blocks";
-import { buildProductTree } from "../../domain/productDocs/tree";
+import { buildProductTree, flattenTree } from "../../domain/productDocs/tree";
 import { visiblePeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
+import { driveFileFor } from "../drive/visibility";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, state, visibleProjectIds } from "../store";
 import type {
+  ProductExportView,
   ProductPage,
   ProductPageRef,
   ProductPageView,
@@ -139,6 +141,57 @@ export async function getProductPage(code: string): Promise<ProductPageView | nu
     ).length,
     followers: followersVisibleTo(me, page),
     lastRevision: lastRevisionOf(page.id),
+  };
+}
+
+/**
+ * Quello che si esporta (Task 12, ruling P20): una pagina (`pageId`) o lo
+ * spazio intero nell'ordine dell'albero, come lo legge chi esporta. Un file
+ * del Drive è letto come lo legge il blocco della pagina (nascosto, tolto o
+ * di un progetto che non vede → `null`); una decisione come la legge la
+ * pagina (`decisionFor`). Commenti, presenza e chi segue non ci sono.
+ * `null` dove lo spazio (o la pagina) non c'è per chi guarda; `forbidden`
+ * in un progetto visibile senza `docs.view`.
+ */
+export async function getProductExport(
+  projectId: string,
+  { pageId }: { pageId?: string } = {},
+): Promise<ProductExportView | null> {
+  const me = await gate("productDocs.getProductExport");
+  const access = docsAccess(me, projectId);
+  if (access === "forbidden") throw forbidden();
+  if (access === "none") return null;
+  const all = productPagesOf(projectId);
+  let pages: { page: ProductPage; depth: number }[];
+  if (pageId !== undefined) {
+    const page = all.find((p) => p.id === pageId);
+    if (!page) return null;
+    pages = [{ page, depth: 0 }];
+  } else {
+    const byId = new Map(all.map((p) => [p.id, p]));
+    pages = flattenTree(buildProductTree(all.map(productPageRef))).map(({ page, depth }) => ({
+      page: byId.get(page.id)!,
+      depth,
+    }));
+  }
+  const files: ProductExportView["files"] = {};
+  const decisions: ProductExportView["decisions"] = {};
+  for (const { page } of pages) {
+    for (const block of page.blocks) {
+      if (block.type === "drive") {
+        const file = driveFileFor(me, block.fileId);
+        files[block.fileId] = file && !file.hidden ? { name: file.name } : null;
+      } else if (block.type === "decision") {
+        const d = decisionFor(me, block.decisionId);
+        decisions[block.decisionId] = d ? { title: d.title } : null;
+      }
+    }
+  }
+  return {
+    projectCode: state.projectsById.get(projectId)!.code,
+    pages: pages.map(({ page, depth }) => ({ page: copy(page), depth })),
+    files,
+    decisions,
   };
 }
 

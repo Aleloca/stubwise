@@ -12235,6 +12235,30 @@
       "joined": "{{name}} joined",
       "writingHere_one": "{{names}} is writing here",
       "writingHere_other": "{{names}} are writing here"
+    },
+    "export": {
+      "button": "Export",
+      "menu": "Export",
+      "preparing": "Preparing…",
+      "thisPage": "This page",
+      "wholeSpace": "Whole space",
+      "pdf": "PDF",
+      "word": "Word (.docx)",
+      "treeOrder_one": "{{count}} page, in tree order",
+      "treeOrder_other": "{{count}} pages, in tree order",
+      "noComments": "Comments aren't included.",
+      "spaceTitle": "{{code}} Product",
+      "savedPdf": "Saved the PDF",
+      "savedWord": "Saved the Word file",
+      "savedWordLeftOut_one": "Saved the Word file. {{count}} image was left out (WebP).",
+      "savedWordLeftOut_other": "Saved the Word file. {{count}} images were left out (WebP).",
+      "failed": "Couldn't export",
+      "retry": "Retry",
+      "fileLine": "File: {{name}} ({{code}})",
+      "fileGone": "File: {{code}} (not available)",
+      "decisionLine": "Decision: {{title}}",
+      "decisionHidden": "Decision: not available",
+      "printLabel": "Print view"
     }
   }
 }

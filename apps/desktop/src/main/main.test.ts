@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { MenuItemConstructorOptions } from "electron";
 import { describe, expect, it, vi } from "vitest";
 import { buildMenuTemplate, MENU_ASK_CLAUDE, MENU_PREFERENCES, MENU_SEARCH } from "./menu";
@@ -95,4 +97,38 @@ describe("menu dell'applicazione", () => {
       expect(send.mock.calls).toEqual([[MENU_ASK_CLAUDE]]);
     },
   );
+});
+
+// I canali IPC, letti dal sorgente: `theme:changed`, i `menu:*` e, dall'area
+// 11a, il solo `file:save` (decisione 8 della spec). Un canale in più (o
+// scelto dal renderer) fa fallire questo test. Il preload espone solo
+// `window.stubwise` con le sue quattro voci.
+describe("canali IPC", () => {
+  const read = (rel: string) => readFileSync(resolve(__dirname, rel), "utf8");
+  const main = read("./index.ts");
+  const preload = read("../preload/index.ts");
+  const EXPECTED = ["file:save", "menu:ask-claude", "menu:preferences", "menu:search", "theme:changed"];
+
+  /** I nomi dei canali: ogni stringa `<parola>:<parola>` che non sia un import `node:`. */
+  const channelsIn = (source: string) =>
+    [...source.matchAll(/["'`]([a-z]+:[a-z-]+)["'`]/g)].map((m) => m[1]!).filter((c) => !c.startsWith("node:"));
+
+  it("main e preload nominano solo i canali attesi, file:save compreso", () => {
+    const all = new Set([...channelsIn(main), ...channelsIn(preload), ...Object.values({ MENU_SEARCH, MENU_PREFERENCES, MENU_ASK_CLAUDE })]);
+    expect([...all].sort()).toEqual(EXPECTED);
+    expect(main).toMatch(/ipcMain\.handle\("file:save",/);
+    expect(preload).toMatch(/ipcRenderer\.invoke\("file:save",/);
+  });
+
+  it("nessuna chiamata IPC con un canale che non sia letterale (tranne i menu della lista fissa)", () => {
+    const calls = [...`${main}\n${preload}`.matchAll(/ipc(?:Main|Renderer)\.(on|handle|send|invoke|once)\(\s*([^,)]+)/g)];
+    const dynamic = calls.map((m) => m[2]!.trim()).filter((arg) => !/^"[a-z]+:[a-z-]+"$/.test(arg));
+    expect(dynamic).toEqual(["channel"]);
+  });
+
+  it("il preload espone solo platform, setTheme, onMenu e saveFile", () => {
+    const exposed = preload.match(/exposeInMainWorld\("stubwise", \{([\s\S]*)\}\);/)?.[1] ?? "";
+    const keys = [...exposed.matchAll(/^ {2}([a-zA-Z]+):/gm)].map((m) => m[1]);
+    expect(keys).toEqual(["platform", "setTheme", "onMenu", "saveFile"]);
+  });
 });

@@ -2,6 +2,7 @@
 // `api.productDocs.<funzione>`. Chi vede che cosa lo decide `docsAccess`
 // (`docs/reads.ts`), la stessa funzione dei Docs, per letture e scritture.
 export {
+  getProductExport,
   getProductPage,
   getProductSpace,
   productPageByCode,

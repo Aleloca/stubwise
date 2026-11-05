@@ -37,6 +37,7 @@
     "@stubwise/shared": "workspace:*",
     "@tanstack/react-query": "^5.102.8",
     "@tanstack/react-router": "^1.170.15",
+    "docx": "^9.15.2",
     "i18next": "^26.3.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

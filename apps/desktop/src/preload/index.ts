@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { SaveFileRequest, SaveFileResult } from "../main/security";
 
 type ResolvedTheme = "light" | "dark";
 type MenuChannel = "menu:search" | "menu:preferences" | "menu:ask-claude";
@@ -25,4 +26,7 @@ contextBridge.exposeInMainWorld("stubwise", {
       for (const [channel, handler] of handlers) ipcRenderer.removeListener(channel, handler);
     };
   },
+  // Esportazione (area 11a): il main valida, stampa il PDF e apre la finestra
+  // di salvataggio; qui torna solo l'esito, mai il percorso.
+  saveFile: (req: SaveFileRequest): Promise<SaveFileResult> => ipcRenderer.invoke("file:save", req),
 });
