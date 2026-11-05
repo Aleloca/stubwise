@@ -3636,7 +3636,6 @@
         "needFilter": "Ask me to filter the tasks first (for example “show the open tasks of a project”), then to save the filter.",
         "needName": "What should I call the filter? For example: save this filter as “My open tasks”.",
         "saveSummary": "Save the filter “{{name}}” · only you see it",
-        "saved": "Done: “{{name}}” is in your filters.",
         "proposed": "Here's the filter I'd save. Confirm below."
       }
     },

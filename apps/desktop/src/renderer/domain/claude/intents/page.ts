@@ -227,6 +227,8 @@ async function saveFilter(text: string, ctx: IntentContext): Promise<Answer> {
     args: { name, visibility: "private", criteria, view: "list", groupBy: "status" },
     ...summarized(t, `${K}.saveSummary`, { name }),
   };
-  const verdict = await byClass(ctx, action, t(`${K}.saved`, { name }), t(`${K}.proposed`));
+  // Eseguito, niente frase «fatto»: la riga eseguita dice già «Saved the filter
+  // … · only you see it» e si rilegge nella lingua di adesso (Impeccable 3).
+  const verdict = await byClass(ctx, action, "", t(`${K}.proposed`));
   return { actions: [], ...verdict };
 }

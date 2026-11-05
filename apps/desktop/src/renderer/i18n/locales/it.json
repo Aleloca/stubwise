@@ -3636,7 +3636,6 @@
         "needFilter": "Prima chiedimi di filtrare le task (per esempio «mostrami le task aperte di un progetto»), poi di salvare il filtro.",
         "needName": "Come chiamo il filtro? Per esempio: salva questo filtro come «Le mie task aperte».",
         "saveSummary": "Salva il filtro «{{name}}» · lo vedi solo tu",
-        "saved": "Fatto: «{{name}}» è fra i tuoi filtri.",
         "proposed": "Ecco il filtro che salverei. Conferma qui sotto."
       }
     },

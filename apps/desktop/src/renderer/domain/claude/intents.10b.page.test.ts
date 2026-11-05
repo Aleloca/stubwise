@@ -277,6 +277,9 @@ describe("il filtro salvato («questo filtro», P21)", () => {
     });
     expect(kinds(steps)).not.toContain("proposal");
     expect(pageEvents(steps)).toEqual([]);
+    // Nessuna frase «fatto»: lo dice la riga eseguita, che si rilegge nella
+    // lingua di adesso (Impeccable 3; shape `claude-scenarios.md` §3.10).
+    expect(steps.filter((s) => s.step === "say")).toEqual([]);
   });
 
   it("il nome fra virgolette, in inglese", async () => {
