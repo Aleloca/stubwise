@@ -258,7 +258,9 @@ export async function automation(text: string, ctx: IntentContext): Promise<Answ
       ask: {
         text: t(`${K}.ask.${which}`),
         options: ordered.map((d) =>
-          d.id === recommended?.id ? { label: d.name, recommended: true } : { label: d.name },
+          d.id === recommended?.id
+            ? { label: d.name, departmentId: d.id, recommended: true }
+            : { label: d.name, departmentId: d.id },
         ),
       },
     };
@@ -347,7 +349,9 @@ async function departmentCantSee(
       return !issues.some((i) => i.code === "department_cant_see");
     }),
   );
-  const options = departments.filter((_, i) => sees[i]).map((d) => ({ label: d.name }));
+  const options = departments
+    .filter((_, i) => sees[i])
+    .map((d) => ({ label: d.name, departmentId: d.id }));
   if (options.length === 0) return say(t(`${K}.stillNeed.departmentCantSee`, params));
   return {
     actions: [],

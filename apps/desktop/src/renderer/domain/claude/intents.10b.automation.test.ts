@@ -144,7 +144,11 @@ describe("S1 di Laura, contesto ACQ", () => {
         const [q, ...more] = events(steps, "question");
         expect(more).toEqual([]);
         expect(q!.text).toBe(t("claude.answers.automation.ask.department"));
-        expect(q!.options[0]).toEqual({ label: "Support", recommended: true });
+        expect(q!.options[0]).toEqual({
+          label: "Support",
+          departmentId: "dep-support",
+          recommended: true,
+        });
         expect(q!.options.filter((o) => o.recommended)).toHaveLength(1);
         expect(q!.options.map((o) => o.label).sort()).toEqual(
           state.departments.map((d) => d.name).sort(),

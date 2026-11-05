@@ -91,7 +91,13 @@ export interface Answer {
   /** Una domanda a chi chiama (solo con `ctx.asks`): la risposta continua il lavoro. */
   ask?: {
     text: string;
-    options: { label: string; consequence?: string; recommended?: boolean }[];
+    options: {
+      label: string;
+      consequence?: string;
+      recommended?: boolean;
+      /** L'opzione è un reparto (S1): la scheda ne disegna la striscia. */
+      departmentId?: string;
+    }[];
     /**
      * Area 10b, la richiesta da riprendere dopo la risposta (solo nella
      * libera, `ctx.classify`). Assente: il messaggio a cui si risponde.

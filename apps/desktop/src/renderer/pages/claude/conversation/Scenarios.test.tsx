@@ -709,6 +709,29 @@ describe("S1 nel riquadro: il costruttore si apre da sé (D2)", () => {
     expect(pathOf(router)).toBe("/p/ACQ/support");
   });
 
+  it("la domanda del reparto: ogni opzione con la striscia 3px del suo reparto (Impeccable 4, shape §3.6)", async () => {
+    const user = userEvent.setup();
+    renderRoute("/p/ACQ/support", LAURA);
+    await screen.findAllByRole("heading");
+    await user.keyboard("{Control>}j{/Control}");
+    await waitFor(() => expect(panelBox()).toHaveFocus());
+    await user.type(panelBox(), `${S1_TEXT}{Enter}`);
+    const card = await within(panel()).findByRole(
+      "region",
+      { name: "Claude asks" },
+      { timeout: 4000 },
+    );
+    const support = within(card).getByRole("button", { name: /^Support/ });
+    const strip = await waitFor(() => {
+      const el = support.querySelector<HTMLElement>("[data-department-strip]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    const dep = state.departments.find((d) => d.name === "Support")!;
+    expect(strip.style.background).toBe(`var(${dep.colorToken})`);
+    expect(strip).toHaveAttribute("aria-hidden", "true");
+  });
+
   it("la riga eseguita dice «Created ACQ-A… “…” · draft, off», col codice che apre il costruttore (Impeccable 1)", async () => {
     const { trial } = await s1InPanel();
     const row = await waitFor(() => {

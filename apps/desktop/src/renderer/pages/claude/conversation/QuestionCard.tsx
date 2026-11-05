@@ -1,7 +1,7 @@
 import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { WhoCanLink } from "../../../components/WhoCanLink";
-import { useAnswerQuestion } from "../../../data/queries";
+import { useAnswerQuestion, useDepartments } from "../../../data/queries";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import type { Ev } from "./flow";
 import {
@@ -169,7 +169,10 @@ export function QuestionCardView({
           const content = (
             <>
               <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
-                <span className="font-medium text-ink">{option.label}</span>
+                <span className="flex min-w-0 items-center gap-2 font-medium text-ink">
+                  {option.departmentId && <DepartmentStrip id={option.departmentId} />}
+                  {option.label}
+                </span>
                 {option.recommended && (
                   <span className="text-xs font-semibold text-ink-muted">
                     {t("claude.conversation.question.recommended")}
@@ -259,5 +262,19 @@ export function QuestionCardView({
       )}
       {!canAnswer && <p className="text-sm text-ink-muted">{note}</p>}
     </section>
+  );
+}
+
+/** La striscia 3px del reparto di un'opzione (shape `claude-automations.md` §3.6), come nel costruttore. */
+function DepartmentStrip({ id }: { id: string }) {
+  const department = useDepartments().data?.find((d) => d.id === id);
+  if (!department) return null;
+  return (
+    <span
+      aria-hidden="true"
+      data-department-strip
+      className="h-3 w-[3px] shrink-0 rounded-[1px]"
+      style={{ background: `var(${department.colorToken})` }}
+    />
   );
 }

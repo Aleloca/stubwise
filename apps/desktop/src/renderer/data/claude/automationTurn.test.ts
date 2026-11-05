@@ -127,7 +127,11 @@ describe("S1: Laura dalla pagina Support di ACQ", () => {
 
         // La scheda del reparto, Support consigliato; niente ancora creato.
         const [q] = ofType(id, "question");
-        expect(q!.options[0]).toEqual({ label: "Support", recommended: true });
+        expect(q!.options[0]).toEqual({
+          label: "Support",
+          departmentId: "dep-support",
+          recommended: true,
+        });
         expect(state.automations).toHaveLength(automationsBefore);
         expect(ofType(id, "trial")).toEqual([]);
 

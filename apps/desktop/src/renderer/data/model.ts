@@ -1087,7 +1087,13 @@ export type ConversationEvent =
       type: "question";
       questionId: string;
       text: string;
-      options: { label: string; consequence?: string; recommended?: boolean }[];
+      options: {
+        label: string;
+        consequence?: string;
+        recommended?: boolean;
+        /** Area 10b: l'opzione è un reparto (S1), la scheda ne disegna la striscia. */
+        departmentId?: string;
+      }[];
       answer: { optionIndex: number | null; text: string | null; byId: string; at: string } | null;
       /**
        * Area 10b, solo nella libera: la richiesta da riprendere. La risposta
