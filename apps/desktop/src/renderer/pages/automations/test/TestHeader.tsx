@@ -39,6 +39,10 @@ export interface TestHeaderProps {
   busy: boolean;
 }
 
+/** Un pezzo della riga sotto il titolo, col suo «·» davanti (tagliato in testa a una riga). */
+const META_ITEM =
+  "relative min-w-0 pl-4 before:absolute before:left-[5px] before:content-['·'] before:text-ink-muted";
+
 export function TestHeader(p: TestHeaderProps) {
   const { t } = useTranslation();
   const ctx = useTest();
@@ -134,35 +138,34 @@ export function TestHeader(p: TestHeaderProps) {
             )}
           </div>
         </div>
-        {/* Ogni «·» sta col pezzo che lo segue: andando a capo non resta
-            appeso in fondo a una riga né in testa da solo (Impeccable 11). */}
-        <p className="flex flex-wrap items-baseline gap-x-2 text-sm text-ink-muted">
-          <span data-version-line>{p.versionLine}</span>
-          {p.exampleLine !== null && (
-            <span className="min-w-0">
-              <span aria-hidden="true" className="mr-2">
-                ·
-              </span>
-              <span data-example-line>{p.exampleLine}</span>
+        {/* I «·» stanno davanti a ogni pezzo e il contenitore taglia quello
+            in testa a una riga: andando a capo nessun «·» resta appeso, né in
+            fondo né all'inizio (Impeccable 11). */}
+        <div className="-my-1 overflow-hidden py-1 pr-1 text-sm text-ink-muted">
+          <p className="-ml-4 flex flex-wrap items-baseline">
+            <span data-version-line className={META_ITEM}>
+              {p.versionLine}
             </span>
-          )}
-          {p.onChangeExample && !p.changeExamplePrimary && (
-            <span className="whitespace-nowrap">
-              <span aria-hidden="true" className="mr-2">
-                ·
+            {p.exampleLine !== null && (
+              <span data-example-line className={META_ITEM}>
+                {p.exampleLine}
               </span>
-              <button
-                type="button"
-                data-change-example
-                disabled={p.busy}
-                onClick={p.onChangeExample}
-                className="text-ink underline decoration-ink/30 underline-offset-4 hover:decoration-ink disabled:opacity-40"
-              >
-                {t("automations.test.meta.change")}
-              </button>
-            </span>
-          )}
-        </p>
+            )}
+            {p.onChangeExample && !p.changeExamplePrimary && (
+              <span className={`${META_ITEM} whitespace-nowrap`}>
+                <button
+                  type="button"
+                  data-change-example
+                  disabled={p.busy}
+                  onClick={p.onChangeExample}
+                  className="text-ink underline decoration-ink/30 underline-offset-4 hover:decoration-ink disabled:opacity-40"
+                >
+                  {t("automations.test.meta.change")}
+                </button>
+              </span>
+            )}
+          </p>
+        </div>
       </div>
       <TestBand />
     </header>
