@@ -271,6 +271,26 @@ describe("file del Drive ([PE 10])", () => {
     expect(within(shell).queryByRole("button", { name: /open/i })).toBeNull();
   });
 
+  // Revisione finale F10: la verifica del Task 9 a livello di superficie.
+  // Laura vede AUD e cita un suo file; Sara non vede AUD.
+  it("un file di un progetto che chi legge non vede (AUD-F7 per Sara): la riga «no longer available», il solo codice", async () => {
+    const file = state.driveFiles.find((f) => f.id === "drv-aud-7")!;
+    expect(file.code).toBe("AUD-F7");
+    const overview = pageOf("Overview");
+    api.productDocs.writeProductBlocksAs(
+      LAURA,
+      overview.id,
+      [{ op: "insert", afterId: overview.blocks[0]!.id, block: { id: "b-aud-file", type: "drive", fileId: file.id, code: file.code } }],
+      {},
+    );
+    await open("Overview", SARA);
+    const shell = shellOf("b-aud-file");
+    await waitFor(() => expect(shell).toHaveTextContent("This file is no longer available"));
+    expect(shell).toHaveTextContent("AUD-F7");
+    expect(shell.innerHTML.toLowerCase()).not.toContain(file.name.toLowerCase());
+    expect(within(shell).queryByRole("button", { name: /open/i })).toBeNull();
+  });
+
   it("anche per chi legge (Sara): la stessa riga, «Open» compreso", async () => {
     await open("Overview", SARA);
     const shell = shellOf(driveBlock().id);
