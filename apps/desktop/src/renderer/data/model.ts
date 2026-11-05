@@ -1713,7 +1713,12 @@ export interface DocsAnswer {
   answeredAt: string;
   text: string;
   refs: CitationRef[];
-  sources: { pageId: string; repositoryName: string }[];
+  /**
+   * La fonte di ogni pagina citata: il repository, oppure `space: "product"`
+   * per una pagina di prodotto (allora `repositoryName` è vuoto). Facoltativo:
+   * una risposta senza il campo è dei soli repository.
+   */
+  sources: { pageId: string; repositoryName: string; space?: "product" }[];
 }
 
 export interface ManualPageInput {
@@ -3650,6 +3655,14 @@ export interface ProductPageRef {
   excerpt: string;
   updatedAt: string;
   updatedById: string;
+}
+
+/** Un risultato della ricerca nelle pagine di prodotto (⌘K): come `DocSearchHit`, senza repository. */
+export interface ProductSearchHit {
+  page: ProductPageRef;
+  projectCode: string;
+  /** La frase che ha corrisposto (testo semplice, mai segni né indirizzi), una riga. */
+  passage: string;
 }
 
 export interface ProductTreeNode {

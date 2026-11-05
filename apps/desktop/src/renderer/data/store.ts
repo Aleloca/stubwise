@@ -398,6 +398,7 @@ export type ApiFnName =
   // Lo spazio Prodotto (area 11a)
   | "productDocs.getProductSpace"
   | "productDocs.getProductPage"
+  | "productDocs.searchProductPages"
   | "productDocs.listProductRevisions"
   | "productDocs.createProductPage"
   | "productDocs.renameProductPage"

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import * as api from "../api";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
@@ -31,11 +31,24 @@ const docsModuleAreas = (): readonly string[] => [
 ];
 
 /** Lo spazio Prodotto di un progetto; `null` dove non esiste per chi guarda. */
-export function useProductSpace(projectId: string) {
+export function useProductSpace(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: ["as", me, "productDocs", "space", projectId] as const,
     queryFn: () => api.productDocs.getProductSpace(projectId),
+    enabled,
+  });
+}
+
+/** La ricerca nelle pagine di prodotto (⌘K); con `projectId` solo in quello spazio. */
+export function useProductSearch(q: string, projectId: string | null, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "productDocs", "search", q, projectId] as const,
+    queryFn: () => api.productDocs.searchProductPages(q, projectId ? { projectId } : {}),
+    enabled: enabled && q.trim().length > 0,
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
 }
 

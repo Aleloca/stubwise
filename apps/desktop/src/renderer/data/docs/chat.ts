@@ -6,19 +6,26 @@ import {
   filesFoundText,
   findInFiles,
 } from "../../domain/claude/intents/files";
-import { docsAnswer } from "../../domain/claude/intents/howto";
+import {
+  docAnswerPage,
+  docsAnswer,
+  productAnswerPage,
+  type DocsAnswerPage,
+} from "../../domain/claude/intents/howto";
 import type { T } from "../../domain/claude/intents";
 import i18n from "../../i18n";
 import { readsAs } from "../api-mutations";
+import { readableProductPages } from "../productDocs/reads";
 import { gate, now, state } from "../store";
 import type { DocsAnswer, DocsQuestion } from "../types";
 import { docsAccess, docSpaceOf, repositoryById } from "./reads";
 
-// La chat dei Docs (area 5): del progetto (tutti i suoi repository) o di un
-// repository solo. Il prototipo non chiama un modello: la risposta viene dal
-// motore di intenti (`docsAnswer`), che legge come chi chiede — le pagine
-// che lui legge, e basta — e cita le pagine per codice. Serve un provider
-// con chiave API (`state.docsChatProvider`): senza, `chat_unavailable`.
+// La chat dei Docs (area 5): del progetto (tutti i suoi repository e,
+// dall'area 11a, le sue pagine di prodotto) o di un repository solo (solo le
+// pagine di quel repository). Il prototipo non chiama un modello: la risposta
+// viene dal motore di intenti (`docsAnswer`), che legge come chi chiede — le
+// pagine che lui legge, e basta — e cita le pagine per codice. Serve un
+// provider con chiave API (`state.docsChatProvider`): senza, `chat_unavailable`.
 
 const notFound = () => new Error("not_found");
 
@@ -37,19 +44,28 @@ export async function askDocs({
   }
   if (state.docsChatProvider === null) throw new Error("chat_unavailable");
   const project = state.projectsById.get(projectId)!;
-  const pages = (await readsAs(me).listDocPages(projectId)).filter(
-    (p) => repositoryId === undefined || p.repositoryId === repositoryId,
-  );
   const repoName = (id: string) => repositoryById(id)?.name ?? "";
   const t = i18n.t.bind(i18n) as T;
-  const answer = docsAnswer(question, pages, t, {
+  const docPages = (await readsAs(me).listDocPages(projectId))
+    .filter((p) => repositoryId === undefined || p.repositoryId === repositoryId)
+    .map((p) => docAnswerPage(p, repoName(p.repositoryId)));
+  // Le pagine di prodotto solo nella chat del progetto, mai in quella di un
+  // repository. `readableProductPages` le filtra come chi chiede.
+  const productPages: DocsAnswerPage[] =
+    repositoryId === undefined
+      ? readableProductPages(me)
+          .filter((p) => p.projectId === projectId)
+          .map((p) => productAnswerPage(p, t("docs.space.product")))
+      : [];
+  const productIds = new Set(productPages.map((p) => p.id));
+  const answer = docsAnswer(question, [...productPages, ...docPages], t, {
     scope: repositoryId ? repoName(repositoryId) : project.code,
-    repoName,
   });
-  const sources = answer.pages.map((p) => ({
-    pageId: p.id,
-    repositoryName: repoName(p.repositoryId),
-  }));
+  const sources = answer.pages.map((p) =>
+    productIds.has(p.id)
+      ? { pageId: p.id, repositoryName: "", space: "product" as const }
+      : { pageId: p.id, repositoryName: p.spaceName },
+  );
   // Le fonti possono essere anche i file del Drive del progetto (shape
   // drive-search.md): letti come chi chiede, senza contare aperture. Se un
   // file risponde, la risposta parte da lui e le pagine trovate seguono;

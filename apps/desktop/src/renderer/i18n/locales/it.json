@@ -125,6 +125,7 @@
       "messages": "Messaggi",
       "more": "Altro",
       "pages": "Pagine",
+      "productPages": "Pagine di prodotto",
       "files": "File",
       "mail": "Posta",
       "automations": "Automazioni",
@@ -184,7 +185,10 @@
       "everywhere": "Ovunque",
       "widen": "Tab: cerca ovunque",
       "narrow": "Tab: cerca nei documenti di {{repo}}",
-      "placeholder": "Cerca nei documenti di {{repo}}…"
+      "placeholder": "Cerca nei documenti di {{repo}}…",
+      "product": "Nel Prodotto",
+      "narrowProduct": "Tab: cerca nel Prodotto",
+      "placeholderProduct": "Cerca nelle pagine di prodotto…"
     },
     "searchAllFiles": "Cerca «{{query}}» in tutti i file",
     "notInProject": "Non in un progetto",
@@ -5011,13 +5015,13 @@
     "kinds": {
       "technical": "Tecniche",
       "functional": "Funzionali",
-      "product": "Prodotto",
+      "product": "Panoramica di prodotto",
       "manual": "Manuali"
     },
     "kind": {
       "technical": "Tecnica",
       "functional": "Funzionale",
-      "product": "Prodotto",
+      "product": "Panoramica di prodotto",
       "manual": "Manuale"
     },
     "generation": {
@@ -5061,6 +5065,8 @@
     "space": {
       "pages_one": "{{count}} pagina",
       "pages_other": "{{count}} pagine",
+      "product": "Prodotto",
+      "productDetail": "{{code}} · Prodotto",
       "index": "Indice",
       "pagesToggle": "Pagine",
       "bar": "Documenti di {{name}}",

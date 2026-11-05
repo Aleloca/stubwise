@@ -76,12 +76,14 @@ export function useMentionSuggestions(
         // Pagine e file del Drive hanno il loro codice (`AUD-D3`, `AUD-F7`), come le task.
         code: kind === "file" ? null : r.code,
         label: r.label,
-        // Un file del Drive: «Google document · AUD».
+        // Un file del Drive: «Google document · AUD»; una pagina di prodotto: «ACQ · Product».
         detail: r.drive
           ? [t(`drive.${r.drive.google ? "googleTypes" : "types"}.${r.drive.type}`), r.detail]
               .filter(Boolean)
               .join(" · ")
-          : r.detail,
+          : r.space === "product"
+            ? t("docs.space.productDetail", { code: r.detail ?? "" })
+            : r.detail,
         insert: kind === "file" ? r.label : [r.code, r.label].filter(Boolean).join(" "),
         ref: r.ref,
         projectId: r.projectId,

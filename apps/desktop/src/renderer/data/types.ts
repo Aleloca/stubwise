@@ -496,6 +496,8 @@ export interface MentionResult {
   projectId: string | null;
   /** Solo un file del Drive: il tipo, per la riga «codice · nome · tipo · progetto». */
   drive?: { type: DriveFileType; google: boolean };
+  /** Solo una pagina di prodotto (area 11a): la riga dice «ACQ · Product», composta in lettura. */
+  space?: "product";
 }
 
 /** Il risultato di «Rendi pubblica»: la prima volta chiede di confermare i progetti toccati. */

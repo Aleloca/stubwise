@@ -20,6 +20,8 @@ import {
   useChatSearch,
   useDocSearch,
   useDocSpaces,
+  useProductSearch,
+  useProductSpace,
   useDriveSearch,
   useMailSearch,
   usePeople,
@@ -63,7 +65,15 @@ export const GROUP_LIMIT = 5;
 /** Attesa dopo l'ultimo tasto prima di cercare. */
 export const SEARCH_DEBOUNCE_MS = 120;
 /** I gruppi di oggetti che, trovati, partono selezionati prima dei comandi (R-H4). */
-const PRESELECT_GROUPS = ["whoCan", "projects", "tasks", "requests", "pages", "people"] as const;
+const PRESELECT_GROUPS = [
+  "whoCan",
+  "projects",
+  "tasks",
+  "requests",
+  "pages",
+  "productPages",
+  "people",
+] as const;
 
 type Step = "root" | "viewAs" | "filters" | "channels";
 type GroupId =
@@ -72,6 +82,7 @@ type GroupId =
   | "tasks"
   | "requests"
   | "pages"
+  | "productPages"
   | "files"
   | "mail"
   | "people"
@@ -283,15 +294,30 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   // Docs senza `docs.view` o spazi ancora in lettura → ricerca senza ambito.
   const scopeSpace = scopeSpaces.data?.find((s) => s.name === docsRepoName) ?? null;
   const scopeRepo = scopeSpace?.name ?? null;
+  // Dentro lo spazio Prodotto (`/p/<CODE>/docs/product…`, area 11a) l'ambito
+  // è «In Product»: solo le pagine di prodotto. C'è solo se chi guarda legge
+  // lo spazio (`getProductSpace` dà `null` o `forbidden` altrimenti).
+  const inProduct = docsRepoName === "product" && !!scopeProject;
+  const productSpace = useProductSpace(scopeProject?.id ?? "", { enabled: inProduct });
+  const scopeProduct = inProduct && !!productSpace.data;
+  const hasScope = !!scopeRepo || scopeProduct;
   const [widened, setWidened] = useState(false);
   const scoped = step === "root" && !!scopeSpace && !widened;
+  const productScoped = step === "root" && scopeProduct && !widened;
   // Con l'ambito si cerca da un carattere; senza, le pagine arrivano da due (come i messaggi).
   const trimmed = step === "root" ? debounced.trim() : "";
-  const pagesQuery = scoped || trimmed.length >= MIN_QUERY ? trimmed : "";
+  const pagesQuery = !productScoped && (scoped || trimmed.length >= MIN_QUERY) ? trimmed : "";
   const pageSearch = useDocSearch(pagesQuery, scoped && scopeSpace ? scopeSpace.repositoryId : null);
+  // Le pagine di prodotto: con l'ambito del Prodotto da un carattere, senza
+  // ambito da due accanto alle altre pagine; mai dentro lo spazio di un repository.
+  const productQuery = productScoped || (!scoped && trimmed.length >= MIN_QUERY) ? trimmed : "";
+  const productSearch = useProductSearch(
+    productQuery,
+    productScoped && scopeProject ? scopeProject.id : null,
+  );
   // I file del Drive (da 2 caratteri, mai con l'ambito di uno spazio Docs):
   // la stessa ricerca del campo del Drive. Mostrarli non conta un'apertura.
-  const filesQuery = !scoped && trimmed.length >= MIN_QUERY ? trimmed : "";
+  const filesQuery = !scoped && !productScoped && trimmed.length >= MIN_QUERY ? trimmed : "";
   const fileSearch = useDriveSearch(filesQuery, undefined, !!filesQuery);
   const openDriveFile = useOpenDriveFile();
 
@@ -401,6 +427,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       tasks: [],
       requests: [],
       pages: [],
+      productPages: [],
       files: [],
       mail: [],
       people: [],
@@ -469,6 +496,37 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       );
     }
     if (scoped) return byGroup.pages.length > 0 ? [{ id: "pages", items: byGroup.pages }] : [];
+    // Le pagine di prodotto: codice · titolo (· «ACQ · Product», senza ambito) e il passaggio.
+    if (productQuery) {
+      const words = searchWords(productQuery);
+      byGroup.productPages = (productSearch.data ?? []).slice(0, GROUP_LIMIT).map(
+        (hit): Item => ({
+          key: `product-${hit.page.id}`,
+          code: hit.page.code,
+          label: `${hit.page.code} ${hit.page.title}`,
+          page: {
+            code: hit.page.code,
+            title: hit.page.title,
+            path: null,
+            project: productScoped
+              ? null
+              : t("docs.space.productDetail", { code: hit.projectCode }),
+            passage: hit.passage,
+            words,
+          },
+          fromSearch: true,
+          select: () => {
+            router.history.push(`/p/${hit.projectCode}/docs/product/${hit.page.code}`);
+            onClose();
+          },
+        }),
+      );
+    }
+    if (productScoped) {
+      return byGroup.productPages.length > 0
+        ? [{ id: "productPages", items: byGroup.productPages }]
+        : [];
+    }
     // I file del Drive: al più 5 righe, quelli fuori dai progetti per ultimi.
     if (filesQuery) {
       const words = searchWords(filesQuery);
@@ -758,6 +816,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         "tasks",
         "requests",
         "pages",
+        "productPages",
         "files",
         "mail",
         "people",
@@ -806,6 +865,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     pageSearch.data,
     scoped,
     scopeProject,
+    productQuery,
+    productSearch.data,
+    productScoped,
     filesQuery,
     fileSearch.data,
     openDriveFile,
@@ -816,7 +878,7 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   // sfarfallio) ma non si scelgono. Le azioni sono sempre valide.
   const stale =
     step === "root" &&
-    (searching || scoped) &&
+    (searching || scoped || productScoped) &&
     (query !== debounced ||
       search.isPlaceholderData ||
       chatSearch.isPlaceholderData ||
@@ -825,7 +887,8 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
       releaseSearch.isPlaceholderData ||
       supportSearch.isPlaceholderData ||
       serverSearch.isPlaceholderData ||
-      pageSearch.isPlaceholderData ||
+      (!!pagesQuery && pageSearch.isPlaceholderData) ||
+      (!!productQuery && productSearch.isPlaceholderData) ||
       (!!filesQuery && fileSearch.isPlaceholderData));
 
   const items = useMemo(() => groups.flatMap((g) => g.items), [groups]);
@@ -861,21 +924,27 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
   const pagesSettled =
     !pagesQuery ||
     (pageSearch.isSuccess && !pageSearch.isPlaceholderData && !pageSearch.isFetching);
+  const productSettled =
+    !productQuery ||
+    (productSearch.isSuccess && !productSearch.isPlaceholderData && !productSearch.isFetching);
   const filesSettled =
     !filesQuery ||
     (fileSearch.isSuccess && !fileSearch.isPlaceholderData && !fileSearch.isFetching);
   const settled = scoped
     ? query === debounced && pagesSettled
-    : query === debounced &&
+    : productScoped
+      ? query === debounced && productSettled
+      : query === debounced &&
       search.isSuccess &&
       !search.isPlaceholderData &&
       !search.isFetching &&
-      chatSettled &&
-      pagesSettled &&
-      filesSettled;
+        chatSettled &&
+        pagesSettled &&
+        productSettled &&
+        filesSettled;
   const showEmpty =
     step === "root" &&
-    (scoped ? !!pagesQuery : searching) &&
+    (scoped ? !!pagesQuery : productScoped ? !!productQuery : searching) &&
     settled &&
     items.every((item) => item.fallback);
   const showEmptySecond = step !== "root" && items.length === 0;
@@ -932,9 +1001,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
         break;
       case "Tab":
         // Il solo elemento a fuoco è il campo: il fuoco non esce dal dialog.
-        // Dentro uno spazio dei Docs, Tab alterna l'ambito (spazio ↔ ovunque).
+        // Dentro uno spazio dei Docs (o il Prodotto), Tab alterna l'ambito (spazio ↔ ovunque).
         e.preventDefault();
-        if (step === "root" && scopeRepo) {
+        if (step === "root" && hasScope) {
           setWidened((w) => !w);
           setActive(null);
         }
@@ -965,12 +1034,16 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
               {t(`palette.groups.${step}`)}
             </span>
           )}
-          {step === "root" && scopeRepo && (
+          {step === "root" && hasScope && (
             <span
               aria-live="polite"
               className="max-w-[200px] shrink-0 truncate rounded-md border border-rule-strong px-2 py-0.5 text-xs font-semibold text-ink"
             >
-              {scoped ? t("palette.scope.space", { repo: scopeRepo }) : t("palette.scope.everywhere")}
+              {scoped
+                ? t("palette.scope.space", { repo: scopeRepo })
+                : productScoped
+                  ? t("palette.scope.product")
+                  : t("palette.scope.everywhere")}
             </span>
           )}
           <input
@@ -991,7 +1064,9 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
                     ? t("palette.channelPlaceholder")
                     : scoped
                       ? t("palette.scope.placeholder", { repo: scopeRepo })
-                      : t("palette.placeholder")
+                      : productScoped
+                        ? t("palette.scope.placeholderProduct")
+                        : t("palette.placeholder")
             }
             spellCheck={false}
             autoComplete="off"
@@ -1273,9 +1348,13 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
               <Kbd>Esc</Kbd>
               {step !== "root" ? t("palette.hints.back") : t("palette.hints.close")}
             </span>
-            {step === "root" && scopeRepo && (
+            {step === "root" && hasScope && (
               <span className="ml-auto min-w-0 truncate">
-                {scoped ? t("palette.scope.widen") : t("palette.scope.narrow", { repo: scopeRepo })}
+                {scoped || productScoped
+                  ? t("palette.scope.widen")
+                  : scopeRepo
+                    ? t("palette.scope.narrow", { repo: scopeRepo })
+                    : t("palette.scope.narrowProduct")}
               </span>
             )}
           </div>

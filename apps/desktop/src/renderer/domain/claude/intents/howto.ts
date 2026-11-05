@@ -1,4 +1,5 @@
-import type { CitationRef, DocPage, Project } from "../../../data/types";
+import type { CitationRef, DocPage, ProductPage, Project } from "../../../data/types";
+import { excerptOfBlocks, plainTextOf } from "../../productDocs/blocks";
 import { labelled, resulted, type Answer } from "../answers";
 import type { IntentContext, T } from "../context";
 import { findProject, HOWTO_STATE_VERBS, HOWTO_VERBS, normalize, topicWords } from "../parse";
@@ -63,18 +64,61 @@ export async function howto(text: string, ctx: IntentContext): Promise<Answer> {
 }
 
 /**
+ * Una pagina come la legge la chat dei Docs: dei repository (`docAnswerPage`)
+ * o di prodotto (`productAnswerPage`). `spaceName` è da dove viene — il nome
+ * del repository, o quello dello spazio Prodotto —; `path` è il percorso
+ * nell'albero della categoria (`""` per una pagina di prodotto); `body` il
+ * testo semplice.
+ */
+export interface DocsAnswerPage {
+  id: string;
+  code: string;
+  title: string;
+  path: string;
+  excerpt: string;
+  body: string;
+  spaceName: string;
+}
+
+/** Una pagina dei Docs di un repository per la chat. */
+export function docAnswerPage(page: DocPage, repoName: string): DocsAnswerPage {
+  return {
+    id: page.id,
+    code: page.code,
+    title: page.title,
+    path: page.path,
+    excerpt: page.excerpt,
+    body: page.body,
+    spaceName: repoName,
+  };
+}
+
+/** Una pagina di prodotto per la chat: l'estratto e il testo dai blocchi, senza segni. */
+export function productAnswerPage(page: ProductPage, spaceName: string): DocsAnswerPage {
+  return {
+    id: page.id,
+    code: page.code,
+    title: page.title,
+    path: "",
+    excerpt: excerptOfBlocks(page.blocks),
+    body: plainTextOf(page.blocks),
+    spaceName,
+  };
+}
+
+/**
  * La risposta della chat dei Docs (del progetto o di un repository): ogni
  * domanda è una ricerca nelle pagine che chi chiede legge — `pages` arriva
  * già filtrato —, e la risposta cita le pagine per codice (`AUD-D1`) col
- * loro repository. Se le pagine non ne parlano lo dice: non inventa.
+ * loro spazio. Se le pagine non ne parlano lo dice: non inventa.
  * `scope` è come si chiama il perimetro («AUD», «audin-app»).
  */
 export function docsAnswer(
   text: string,
-  pages: readonly DocPage[],
+  pages: readonly DocsAnswerPage[],
   t: T,
-  { scope, repoName }: { scope: string; repoName: (repositoryId: string) => string },
-): { text: string; refs: CitationRef[]; pages: DocPage[] } {
+  { scope }: { scope: string },
+): { text: string; refs: CitationRef[]; pages: DocsAnswerPage[] } {
   const topic = howtoTopic(text);
   const words = topicWords(topic);
   if (words.length === 0) {
@@ -89,7 +133,7 @@ export function docsAnswer(
     t("claude.answers.docs.found", {
       code: page.code,
       title: page.title,
-      repo: repoName(page.repositoryId),
+      repo: page.spaceName,
     }),
     "",
     `> ${page.excerpt}`,
@@ -127,7 +171,10 @@ export function howtoTopic(text: string, project: Project | null = null): string
  * Le pagine per pertinenza: ogni parola del tema che compare (per radice,
  * le prime 5 lettere delle parole lunghe) vale 1, 2 se è nel titolo.
  */
-function rank(pages: DocPage[], words: string[]): DocPage[] {
+function rank<P extends { title: string; path: string; excerpt: string }>(
+  pages: P[],
+  words: string[],
+): P[] {
   const roots = words.map((w) => (w.length > 5 ? w.slice(0, 5) : w));
   return pages
     .map((page) => {

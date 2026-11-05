@@ -272,20 +272,32 @@ const PASSAGE = 160;
  * a lei; senza corrispondenza nel testo (il codice, il titolo) l'estratto.
  */
 export function passageOf(page: DocPage, words: readonly string[]): string {
-  const lines = [page.excerpt, ...page.body.split("\n")]
-    .map((l) =>
-      l
-        .replace(/^[#>\-*\d.\s]+/, "")
-        .replace(/[*_`]/g, "")
-        .trim(),
-    )
-    .filter(Boolean);
+  const lines = [page.excerpt, ...page.body.split("\n")].map((l) =>
+    l
+      .replace(/^[#>\-*\d.\s]+/, "")
+      .replace(/[*_`]/g, "")
+      .trim(),
+  );
+  return passageIn(lines, words, page.excerpt);
+}
+
+/**
+ * Lo stesso passaggio da righe di testo semplice già pronte (le pagine di
+ * prodotto: `plainTextOf`, niente segni da togliere); senza corrispondenza
+ * `fallback`, tagliato.
+ */
+export function passageIn(
+  rawLines: readonly string[],
+  words: readonly string[],
+  fallback: string,
+): string {
+  const lines = rawLines.map((l) => l.trim()).filter(Boolean);
   // `fold` toglie gli accenti senza cambiare la lunghezza delle lettere che
   // contano qui, quindi l'indice nella riga piegata vale anche nell'originale.
   const found = lines
     .map((line) => ({ line, at: Math.min(...hitsIn(fold(line), words)) }))
     .find((l) => Number.isFinite(l.at));
-  if (!found) return page.excerpt.slice(0, PASSAGE);
+  if (!found) return fallback.slice(0, PASSAGE);
   const { line, at } = found;
   if (line.length <= PASSAGE) return line;
   const start = Math.max(0, Math.min(at - 40, line.length - PASSAGE));

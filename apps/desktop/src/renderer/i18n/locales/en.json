@@ -125,6 +125,7 @@
       "messages": "Messages",
       "more": "More",
       "pages": "Pages",
+      "productPages": "Product pages",
       "files": "Files",
       "mail": "Mail",
       "automations": "Automations",
@@ -184,7 +185,10 @@
       "everywhere": "Everywhere",
       "widen": "Tab: search everything",
       "narrow": "Tab: search in {{repo}} docs",
-      "placeholder": "Search the {{repo}} docs…"
+      "placeholder": "Search the {{repo}} docs…",
+      "product": "In Product",
+      "narrowProduct": "Tab: search in Product",
+      "placeholderProduct": "Search the product pages…"
     },
     "searchAllFiles": "Search all files for “{{query}}”",
     "notInProject": "Not in a project",
@@ -5011,13 +5015,13 @@
     "kinds": {
       "technical": "Technical",
       "functional": "Functional",
-      "product": "Product",
+      "product": "Product overview",
       "manual": "Manual"
     },
     "kind": {
       "technical": "Technical",
       "functional": "Functional",
-      "product": "Product",
+      "product": "Product overview",
       "manual": "Manual"
     },
     "generation": {
@@ -5061,6 +5065,8 @@
     "space": {
       "pages_one": "{{count}} page",
       "pages_other": "{{count}} pages",
+      "product": "Product",
+      "productDetail": "{{code}} · Product",
       "index": "Index",
       "pagesToggle": "Pages",
       "bar": "{{name}} docs",

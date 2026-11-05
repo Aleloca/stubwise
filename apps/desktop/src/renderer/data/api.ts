@@ -24,6 +24,11 @@ import { deliveredTo } from "./alerts/reads";
 import { whyReceives } from "./alerts/visibility";
 import { linkAccessHrefOf } from "./servers/visibility";
 import { presentProductMention } from "./productDocs/comments";
+import {
+  productPageByCode,
+  productPageById,
+  readableProductPages,
+} from "./productDocs/reads";
 import { aiBlockFor } from "./instance/blocks";
 import { waitingBlockIn } from "./instance/queue";
 import { assigneeStatusOf } from "./admin/people";
@@ -1311,7 +1316,7 @@ export async function search(q: string): Promise<SearchResult[]> {
 const projectCodeOf = (projectId: string) => state.projectsById.get(projectId)?.code ?? null;
 
 /**
- * I codici di task, richieste, pagine dei Docs e file del Drive scritti a
+ * I codici di task, richieste, pagine dei Docs (anche di prodotto) e file del Drive scritti a
  * mano in un testo («AUD-88», «AUD-D12», «AUD-F7») che chi guarda VEDE: codice + nome, apribili. Uno che
  * non vede e uno che non esiste non tornano, e nello stesso modo (R-G5):
  * altrimenti, scrivendo un codice a caso, la differenza direbbe che cosa
@@ -1324,7 +1329,7 @@ export async function resolveCodes(codes: string[]): Promise<CitationView[]> {
     if (task) return [{ kind: "task", id: task.id }];
     const request = state.requests.find((r) => r.code === code);
     if (request) return [{ kind: "request", id: request.id }];
-    const page = docPageByCode(code);
+    const page = docPageByCode(code) ?? productPageByCode(code);
     if (page) return [{ kind: "doc", id: page.id }];
     // Un file del Drive (`AUD-F7`): un nascosto vale come uno che non c'è.
     const file = state.driveFiles.find((f) => f.code === code);
@@ -1393,7 +1398,21 @@ export async function resolveCitations(refs: CitationRef[]): Promise<CitationVie
       case "doc": {
         // Una pagina eliminata, o di Docs che chi guarda non legge: niente.
         const d = docPageById(ref.id);
-        if (!d || !canReadDocPage(me, d)) return hidden(ref);
+        if (!d) {
+          // Una pagina di prodotto (area 11a): stessa regola, la sua route.
+          const p = productPageById(ref.id);
+          if (!p || docsAccess(me, p.projectId) !== "read") return hidden(ref);
+          const project = projectCodeOf(p.projectId)!;
+          return {
+            ...hidden(ref),
+            visible: true,
+            code: p.code,
+            name: p.title,
+            projectCode: project,
+            route: `#/p/${project}/docs/product/${p.code}`,
+          };
+        }
+        if (!canReadDocPage(me, d)) return hidden(ref);
         const project = projectCodeOf(d.projectId)!;
         return {
           ...hidden(ref),
@@ -1516,7 +1535,7 @@ export const MENTION_LIMIT = 6;
 
 /**
  * I risultati dei menu della casella, cercando mentre si scrive: «#» task,
- * richieste, pagine dei Docs, file del Drive (per nome e codice, mai i
+ * richieste, pagine dei Docs (anche di prodotto), file del Drive (per nome e codice, mai i
  * nascosti), file dei repository (con `repos.view`) e progetti; «@» le persone. Solo ciò che chi guarda può vedere; al massimo
  * `MENTION_LIMIT` per gruppo.
  */
@@ -1575,6 +1594,20 @@ export async function searchMentions(
         projectId: d.projectId,
       }),
     );
+  // Le pagine di prodotto (area 11a) con le altre pagine, per codice e
+  // titolo; la riga «ACQ · Product» la compone chi la mostra (`space`).
+  const productPages = readableProductPages(me)
+    .filter((p) => has(p.code, p.title))
+    .map(
+      (p): MentionResult => ({
+        ref: { kind: "doc", id: p.id },
+        code: p.code,
+        label: p.title,
+        detail: projectCodeOf(p.projectId),
+        projectId: p.projectId,
+        space: "product",
+      }),
+    );
   // I file del Drive: per nome e codice, mai per contenuto (il menu è veloce;
   // la ricerca per contenuto è del Drive e di ⌘K). Mai un nascosto.
   const driveFiles = state.driveFiles
@@ -1610,5 +1643,5 @@ export async function searchMentions(
       detail: p.clientName ?? null,
       projectId: p.id,
     }));
-  return [tasks, requests, docs, driveFiles, files, projects].flatMap(take);
+  return [tasks, requests, [...docs, ...productPages], driveFiles, files, projects].flatMap(take);
 }

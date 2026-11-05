@@ -317,25 +317,27 @@ function Answer({ turn, onRetry }: { turn: Turn; onRetry: () => void }) {
         streaming={false}
         showUsed={false}
       />
-      <Sources answer={answer} />
+      <DocsAnswerSources answer={answer} />
     </div>
   );
 }
 
 /**
  * «Used:» con le pagine lette: codice + titolo (si aprono nella colonna di
- * lettura, la chat resta) e «from audin-app»; una pagina che chi guarda non
- * legge più è il codice tenue che non si apre (R-E9); un file del Drive che
- * non vede più, il codice registrato con la citazione (R-H5).
+ * lettura, la chat resta) e «from audin-app» — «from Product» per una pagina
+ * di prodotto (area 11a), composto qui dal valore stabile `space`; una pagina
+ * che chi guarda non legge più è il codice tenue che non si apre (R-E9); un
+ * file del Drive che non vede più, il codice registrato con la citazione (R-H5).
  */
-function Sources({ answer }: { answer: DocsAnswer }) {
+export function DocsAnswerSources({ answer }: { answer: DocsAnswer }) {
   const { t } = useTranslation();
   const index = useCitationIndex();
   const rows = answer.refs.flatMap((ref, i) => {
     const view = index.byRef.get(refKey(ref));
-    return view
-      ? [{ view: withRecordedCode(view, ref), repo: answer.sources[i]?.repositoryName }]
-      : [];
+    const source = answer.sources[i];
+    const repo =
+      source?.space === "product" ? t("docs.space.product") : source?.repositoryName;
+    return view ? [{ view: withRecordedCode(view, ref), repo }] : [];
   });
   if (rows.length === 0) return null;
   return (

@@ -9,6 +9,7 @@ export {
   productPageRef,
   readableProductPages,
 } from "./reads";
+export { searchProductPages } from "./search";
 export {
   createProductPage,
   createProductPageAs,
