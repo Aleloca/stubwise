@@ -137,6 +137,73 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 11a, Task 12 (`CAPTURE_A11A_EXPORT=1`): l'esportazione. Laura su
+    // «Sign-in»: il menu «Export ▾» aperto (THIS PAGE e WHOLE SPACE), lo
+    // stato «Preparing…» (un `saveFile` finto che non risponde) e l'errore
+    // «Couldn't export · Retry» (un `saveFile` che risponde `failed`); il menu
+    // sull'indice dello spazio, col solo WHOLE SPACE. Scatti `a11a-export-*`.
+    if (process.env.CAPTURE_A11A_EXPORT) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const exportButton = (page) => page.getByRole("button", { name: /^(Export|Esporta|Preparing…|Preparo…)/ });
+      /** Il ponte del preload, finto: `pending` non risponde mai, `failed` risponde l'errore. */
+      const bridge = (page, mode) =>
+        page.evaluate((m) => {
+          window.stubwise = {
+            platform: "web",
+            saveFile: () => (m === "pending" ? new Promise(() => {}) : Promise.resolve({ saved: false, reason: "failed" })),
+          };
+        }, mode);
+      async function pick(page, lang, format) {
+        await exportButton(page).click();
+        const menu = page.getByRole("menu");
+        const group = menu.getByRole("group", { name: lang === "it" ? "Questa pagina" : "This page" });
+        await group.getByRole("menuitem", { name: format }).click();
+      }
+      const scenes = [
+        { name: "menu", hash: "/p/ACQ/docs/product/ACQ-D5", run: async (page) => exportButton(page).click() },
+        {
+          name: "preparing",
+          hash: "/p/ACQ/docs/product/ACQ-D5",
+          run: async (page, v) => {
+            await bridge(page, "pending");
+            await pick(page, v.lang, "Word (.docx)");
+            await page.getByRole("button", { name: /^(Preparing…|Preparo…)/ }).waitFor();
+          },
+        },
+        {
+          name: "error",
+          hash: "/p/ACQ/docs/product/ACQ-D5",
+          run: async (page, v) => {
+            await bridge(page, "failed");
+            await pick(page, v.lang, "Word (.docx)");
+            await page.getByRole("alert").waitFor();
+          },
+        },
+        { name: "index", hash: "/p/ACQ/docs/product", run: async (page) => exportButton(page).click() },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a11a-export-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, { lang: v.lang, persona: "Laura" });
+          await page.getByRole("heading", { level: 1 }).first().waitFor();
+          await page.waitForTimeout(600);
+          await scene.run(page, v);
+          await page.waitForTimeout(250);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 11a, Task 7 (`CAPTURE_A11A_SPACE=1`): lo spazio Prodotto nei Docs.
     // La pagina iniziale di ACQ (PRODUCT sopra CODE), lo spazio di ACQ su
     // «Sign-in» (Laura scrive: maniglie e «⋯» al passaggio), lo stesso per
