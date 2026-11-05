@@ -137,6 +137,61 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 11a, Task 13 (`CAPTURE_A11A_EXTRA=1`): le due scene che mancavano
+    // agli insiemi dei Task 7–12. Sara su «Sign-in» con il «Who?» della riga di
+    // sola lettura aperto, e Laura nello spazio Prodotto con ⌘K scritto «bill»
+    // (l'ambito «In Product»). Scatti `a11a-extra-*`.
+    if (process.env.CAPTURE_A11A_EXTRA) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const scenes = [
+        {
+          name: "who",
+          hash: "/p/ACQ/docs/product",
+          persona: "Sara",
+          run: async (page) => {
+            await page.locator('[data-who-can="editDocs"]').first().click();
+            await page.locator('[data-who-can-popover="editDocs"]').waitFor();
+          },
+        },
+        {
+          name: "palette",
+          hash: "/p/ACQ/docs/product/ACQ-D5",
+          persona: "Laura",
+          run: async (page) => {
+            await page.keyboard.press("Control+k");
+            const dialog = page.getByRole("dialog", { name: /^(Search and commands|Cerca e comandi)/ });
+            await dialog.waitFor();
+            await dialog.getByRole("combobox").fill("bill");
+            await dialog.getByRole("option").first().waitFor();
+          },
+        },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a11a-extra-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          await page.getByRole("heading", { level: 1 }).first().waitFor();
+          await page.waitForTimeout(600);
+          await scene.run(page, v);
+          await page.waitForTimeout(300);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 11a, Task 12 (`CAPTURE_A11A_EXPORT=1`): l'esportazione. Laura su
     // «Sign-in»: il menu «Export ▾» aperto (THIS PAGE e WHOLE SPACE), lo
     // stato «Preparing…» (un `saveFile` finto che non risponde) e l'errore
