@@ -14,7 +14,18 @@ export type FlowItem =
   | { kind: "claude"; key: string; at: string }
   | { kind: "assistant"; key: string; event: Ev<"assistant">; refs: CitationRef[] }
   | { kind: "actions"; key: string; actions: Ev<"action">[] }
-  | { kind: "citation"; key: string; refs: CitationRef[] }
+  | {
+      kind: "citation";
+      key: string;
+      refs: CitationRef[];
+      /**
+       * Il testo della risposta di Claude dello stesso turno a cui le fonti
+       * appartengono, quando la riga sta da sola (dopo «Hypothesis»/«Details»
+       * o dopo una scheda): «Used» non ripete i progetti delle sue righe di
+       * catalogo (Impeccable 5).
+       */
+      answer?: string;
+    }
   | {
       kind: "phase";
       key: string;
@@ -61,6 +72,8 @@ const CLAUDE_TYPES = new Set<ConversationEvent["type"]>([
 export function flowItems(events: readonly ConversationEvent[]): FlowItem[] {
   const out: FlowItem[] = [];
   let claudeTurn = false;
+  // Il testo dell'ultima risposta di Claude del turno, per le fonti a parte.
+  let answer: string | null = null;
   const opened = new Map<string, string>();
   const ordinals = new Map<string, number>();
 
@@ -78,15 +91,23 @@ export function flowItems(events: readonly ConversationEvent[]): FlowItem[] {
     switch (event.type) {
       case "user":
         claudeTurn = false;
+        answer = null;
         out.push({ kind: "user", key: event.id, event });
         break;
       case "assistant":
+        answer = event.text;
         out.push({ kind: "assistant", key: event.id, event, refs: [] });
         break;
       case "citation": {
         const last = out.at(-1);
         if (last?.kind === "assistant") last.refs = [...last.refs, ...event.refs];
-        else out.push({ kind: "citation", key: event.id, refs: event.refs });
+        else
+          out.push({
+            kind: "citation",
+            key: event.id,
+            refs: event.refs,
+            ...(answer !== null ? { answer } : {}),
+          });
         break;
       }
       case "action": {
@@ -142,7 +163,7 @@ function usedAfterCards(items: FlowItem[]): FlowItem[] {
       const tail: FlowItem[] = [];
       turn = turn.map((i) => {
         if (i.kind !== "assistant" || i.refs.length === 0) return i;
-        tail.push({ kind: "citation", key: `used-${i.key}`, refs: i.refs });
+        tail.push({ kind: "citation", key: `used-${i.key}`, refs: i.refs, answer: i.event.text });
         return { ...i, refs: [] };
       });
       turn.push(...tail);

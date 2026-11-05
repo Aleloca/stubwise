@@ -151,6 +151,38 @@ describe("I1: le righe dell'elenco di S2/S3 (shape §3.1)", () => {
     expect(used).not.toHaveTextContent(/\bACQ\b(?!-)|\bAUD\b/);
   });
 
+  it("anche con «Hypothesis» e «Details» fra la risposta e le fonti, come la vera S2 (Impeccable 5)", async () => {
+    const acq = state.projects.find((p) => p.code === "ACQ")!;
+    const aud = state.projects.find((p) => p.code === "AUD")!;
+    const task = state.tasks.find((t) => t.projectId === acq.id)!;
+    await injected(ROBERTA, [
+      {
+        type: "assistant",
+        text: "2 projects have stalled tasks\n\n- **ACQ** — 4 stalled tasks\n- **AUD** — 3 stalled tasks",
+        done: true,
+      },
+      { type: "aside", kind: "hypothesis", text: "Maybe" },
+      { type: "aside", kind: "details", text: "How it's counted" },
+      {
+        type: "citation",
+        refs: [
+          { kind: "project", id: acq.id },
+          { kind: "project", id: aud.id },
+          { kind: "task", id: task.id },
+        ],
+      },
+    ]);
+    const used = await waitFor(() => {
+      const el = [...document.querySelectorAll("p")].find((p) =>
+        p.textContent?.startsWith("Used:"),
+      );
+      expect(el).toBeDefined();
+      return el!;
+    });
+    await waitFor(() => expect(used).toHaveTextContent(task.code));
+    expect(used).not.toHaveTextContent(/\bACQ\b(?!-)|\bAUD\b/);
+  });
+
   it("un elenco qualunque resta col suo punto", async () => {
     await injected(ROBERTA, [
       { type: "assistant", text: "Here:\n\n- one thing\n- another", done: true },

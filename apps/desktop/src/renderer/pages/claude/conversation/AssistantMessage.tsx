@@ -7,6 +7,7 @@ import {
   type ListRenderer,
   type TextDecorator,
 } from "../../../tasks-ui/Markdown";
+import type { CitationRef } from "../../../data/types";
 import { Avatar } from "../../../tasks-ui/PersonChip";
 import { actionById, useOpenRoutes, usePeople } from "../../../data/queries";
 import {
@@ -80,15 +81,7 @@ export function AssistantMessage({
   const cursor = streaming && !event.done;
   const link = useInternalLinks(event.text);
   const rows = useCatalogRows(event.text);
-  // «Used» non ripete i progetti che le righe di S2/S3 già linkano (Impeccable 5).
-  const used = useMemo(() => {
-    const rowCodes = new Set([...event.text.matchAll(CATALOG_CODE)].map((m) => m[1]));
-    if (rowCodes.size === 0) return refs;
-    return refs.filter((ref) => {
-      const code = ref.kind === "project" ? index.byRef.get(refKey(ref))?.code : null;
-      return !code || !rowCodes.has(code);
-    });
-  }, [event.text, refs, index]);
+  const used = useMemo(() => withoutRowCodes(refs, event.text, index), [event.text, refs, index]);
   return (
     <div className="event-enter flex min-w-0 flex-col gap-2" data-assistant={event.id}>
       <div className="min-w-0">
@@ -246,11 +239,34 @@ function useCatalogRows(text: string): ListRenderer {
 
 /** Una citazione senza messaggio davanti: la sola riga «Used». */
 export function CitationRow({ item }: { item: Extract<FlowItem, { kind: "citation" }> }) {
+  const index = useCitationIndex();
+  const refs = useMemo(
+    () => (item.answer ? withoutRowCodes(item.refs, item.answer, index) : item.refs),
+    [item.refs, item.answer, index],
+  );
+  if (refs.length === 0) return null;
   return (
     <div className="event-enter">
-      <UsedLine refs={item.refs} />
+      <UsedLine refs={refs} />
     </div>
   );
+}
+
+/**
+ * «Used» non ripete i progetti che le righe di catalogo di S2/S3 della
+ * risposta già linkano (Impeccable 5): restano le altre fonti.
+ */
+function withoutRowCodes(
+  refs: readonly CitationRef[],
+  text: string,
+  index: ReturnType<typeof useCitationIndex>,
+): CitationRef[] {
+  const rowCodes = new Set([...text.matchAll(CATALOG_CODE)].map((m) => m[1]));
+  if (rowCodes.size === 0) return [...refs];
+  return refs.filter((ref) => {
+    const code = ref.kind === "project" ? index.byRef.get(refKey(ref))?.code : null;
+    return !code || !rowCodes.has(code);
+  });
 }
 
 /** L'inizio di un turno di Claude: l'avatar con l'anello tratteggiato, «Claude · 10:41». */
