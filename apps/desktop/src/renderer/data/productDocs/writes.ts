@@ -2,7 +2,8 @@ import { applyBlockOps, blockChanges } from "../../domain/productDocs/blocks";
 import { safeLinkHref } from "../../domain/productDocs/richText";
 import { canMoveUnder } from "../../domain/productDocs/tree";
 import { docsAccess } from "../docs/reads";
-import { copy, newId, now, state } from "../store";
+import { driveFileFor } from "../drive/visibility";
+import { copy, newId, now, state, visibleProjectIds } from "../store";
 import type {
   InlineMark,
   ProductBlock,
@@ -306,6 +307,19 @@ export function writeProductBlocksAs(
   for (const change of changes) {
     if (change.after && !richOf(change.after).every(validRich)) throw invalid("marks");
     if (change.after?.type === "image" && !validImageSrc(change.after.src)) throw invalid("image");
+    // I riferimenti si controllano qui, non nel selettore della UI (nel 11b
+    // scrive anche Claude): il file c'è, chi scrive lo vede e il codice è il
+    // suo; la decisione c'è e il suo progetto chi scrive lo vede. Solo i
+    // blocchi cambiati: un file nascosto dopo non blocca gli altri blocchi.
+    if (change.after?.type === "drive") {
+      const file = driveFileFor(me, change.after.fileId);
+      if (!file || file.code !== change.after.code) throw invalid("drive");
+    }
+    if (change.after?.type === "decision") {
+      const { decisionId } = change.after;
+      const decision = state.decisionLog.find((d) => d.id === decisionId);
+      if (!decision || !visibleProjectIds(me).has(decision.projectId)) throw invalid("decision");
+    }
   }
   if (JSON.stringify(blocks) === JSON.stringify(page.blocks)) return { ...copy(page), revisionId: null };
 

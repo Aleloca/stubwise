@@ -4,7 +4,7 @@ import { docs, productDocs, projectSettings, resetApi, setLatency } from "../api
 import type { ProductBlock } from "../model";
 import { CLAUDE_ID } from "../seed/people";
 import { setSessionPersonId } from "../session";
-import { emptyStore, state } from "../store";
+import { emptyStore, state, visibleProjectIds } from "../store";
 import { revokeProjectPermission } from "../viewer";
 
 // Lo spazio Prodotto nel livello dati (area 11a, Task 2): letture, scritture
@@ -442,6 +442,75 @@ describe("i blocchi", () => {
       {},
     );
     expect(page.blocks.some((b) => b.id === "b-img")).toBe(true);
+  });
+
+  // Revisione finale F4: i riferimenti si validano nel livello dati, non nel
+  // selettore della UI (nel 11b scrive anche Claude con writeProductBlocksAs).
+  it("un file del Drive col codice sbagliato, inesistente o di un progetto che chi scrive non vede: invalid: drive", async () => {
+    const { payments } = await featuresAndPayments();
+    const id = payments.blocks[0]!.id;
+    const drive = (fileId: string, code: string): ProductBlock => ({ id: "b-drv", type: "drive", fileId, code });
+    await rejects(
+      productDocs.saveProductBlocks(payments.id, [{ op: "insert", afterId: id, block: drive("drv-acq-1", "ACQ-F99") }], {
+        sessionId: "s1",
+      }),
+      "invalid: drive",
+    );
+    await rejects(
+      productDocs.saveProductBlocks(payments.id, [{ op: "insert", afterId: id, block: drive("drv-nope", "ACQ-F1") }], {
+        sessionId: "s1",
+      }),
+      "invalid: drive",
+    );
+    // Marco scrive in ACQ ma non vede MKX.
+    as(MARCO);
+    await rejects(
+      productDocs.saveProductBlocks(payments.id, [{ op: "insert", afterId: id, block: drive("drv-mkx-1", "MKX-F1") }], {
+        sessionId: "s-marco",
+      }),
+      "invalid: drive",
+    );
+    // Il file vero, col suo codice: sì.
+    const ok = await productDocs.saveProductBlocks(
+      payments.id,
+      [{ op: "insert", afterId: id, block: drive("drv-acq-1", "ACQ-F1") }],
+      { sessionId: "s-marco" },
+    );
+    expect(ok.blocks.some((b) => b.id === "b-drv")).toBe(true);
+  });
+
+  it("una decisione inesistente o di un progetto che chi scrive non vede: invalid: decision", async () => {
+    const { payments } = await featuresAndPayments();
+    const id = payments.blocks[0]!.id;
+    const decision = (decisionId: string): ProductBlock => ({ id: "b-dec", type: "decision", decisionId });
+    await rejects(
+      productDocs.saveProductBlocks(payments.id, [{ op: "insert", afterId: id, block: decision("dl-nope") }], {
+        sessionId: "s1",
+      }),
+      "invalid: decision",
+    );
+    // Marco scrive in ACQ; una decisione di un progetto che non vede.
+    const unseen = state.decisionLog.find((d) => !visibleProjectIds(MARCO).has(d.projectId))!;
+    expect(unseen).toBeDefined();
+    expect(() =>
+      productDocs.writeProductBlocksAs(MARCO, payments.id, [{ op: "insert", afterId: id, block: decision(unseen.id) }], {}),
+    ).toThrow("invalid: decision");
+  });
+
+  it("un blocco invariato con un file poi nascosto non blocca la modifica di un paragrafo", async () => {
+    const { payments } = await featuresAndPayments();
+    const id = payments.blocks[0]!.id;
+    await productDocs.saveProductBlocks(
+      payments.id,
+      [{ op: "insert", afterId: id, block: { id: "b-drv", type: "drive", fileId: "drv-acq-1", code: "ACQ-F1" } }],
+      { sessionId: "s1" },
+    );
+    state.driveFiles.find((f) => f.id === "drv-acq-1")!.hidden = true;
+    as(MARCO);
+    const page = await productDocs.saveProductBlocks(payments.id, [{ op: "set", block: para(id, "Edited") }], {
+      sessionId: "s-marco",
+    });
+    expect(page.blocks.some((b) => b.id === "b-drv")).toBe(true);
   });
 
   it("un merge chiama gli spostamenti d'ancora registrati, dentro la stessa scrittura", async () => {
