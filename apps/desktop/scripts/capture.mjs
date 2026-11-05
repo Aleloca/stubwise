@@ -137,6 +137,54 @@ async function main() {
       console.log("scritto", name);
     };
 
+    // Area 11a, Task 7 (`CAPTURE_A11A_SPACE=1`): lo spazio Prodotto nei Docs.
+    // La pagina iniziale di ACQ (PRODUCT sopra CODE), lo spazio di ACQ su
+    // «Sign-in» (Laura scrive: maniglie e «⋯» al passaggio), lo stesso per
+    // Sara (la riga di sola lettura), lo spazio vuoto di VRD per chi scrive
+    // (Laura) e per chi legge (Sara), e i Docs spenti di MKX (Giulia).
+    // Scatti `a11a-space-*`.
+    if (process.env.CAPTURE_A11A_SPACE) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const scenes = [
+        { name: "home", hash: "/p/ACQ/docs", persona: "Laura" },
+        { name: "page", hash: "/p/ACQ/docs/product/ACQ-D5", persona: "Laura", hover: "Bills" },
+        { name: "reader", hash: "/p/ACQ/docs/product/ACQ-D5", persona: "Sara" },
+        { name: "index", hash: "/p/ACQ/docs/product", persona: "Laura" },
+        { name: "vrd-writer", hash: "/p/VRD/docs/product", persona: "Laura" },
+        { name: "vrd-reader", hash: "/p/VRD/docs/product", persona: "Sara" },
+        { name: "vrd-home", hash: "/p/VRD/docs", persona: "Laura" },
+        { name: "off", hash: "/p/MKX/docs", persona: "Giulia" },
+        { name: "general", hash: "/p/MKX/settings/general", persona: "Giulia" },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a11a-space-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          await page.getByRole("heading", { level: 1 }).first().waitFor();
+          await page.waitForTimeout(600);
+          if (scene.hover) {
+            const node = page.getByRole("treeitem", { name: scene.hover });
+            if (await node.isVisible()) await node.locator("[data-row]").hover();
+            await page.waitForTimeout(200);
+          }
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 10b, Task 2 (`CAPTURE_A10B_AUTOMATIONS=1`): il motore delle
     // automazioni. La bozza STW-A1 diventa, nel livello dati della pagina,
     // «una richiesta urgente dal supporto → task per Support e avviso a
