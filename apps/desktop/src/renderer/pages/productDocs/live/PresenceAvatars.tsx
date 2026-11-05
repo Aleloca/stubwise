@@ -10,14 +10,13 @@ import { presenceColor } from "./presenceColor";
 // salvataggio (shape product-editor.md §3.13, [PE 16]): gli ALTRI presenti
 // (mai chi guarda: la sua presenza conta per il segnale della sezione, non
 // qui), 24 px, iniziali 11 px 600, anello di 2 px nel colore della persona,
-// sovrapposti di 2 px (emendamento del controller, 5 nov 2026); al più quattro e «+N». Il nome sempre nel `title` e
+// sovrapposti di 2 px (emendamento del controller, 5 nov 2026); al più quattro e «+N»
+// (a 1024 al più due, [PS 10]: `max`). Il nome sempre nel `title` e
 // nel nome accessibile: «Marco Bellini · writing in Rules», «Matteo Conti ·
 // reading». Le persone arrivano da `getProductPresence` (filtrate per chi
 // guarda, R-G5), mai dal segnale di sezione del livello dati, che non lo è. Entrano ed escono in
 // dissolvenza di 150 ms (niente col movimento ridotto); un arrivo si dice
 // una volta («Marco Bellini joined»).
-
-const MAX = 4;
 
 /** Il titolo della sezione in cui scrive (testo della pagina: chi guarda lo legge già). */
 function sectionTitle(blocks: readonly ProductBlock[], anchorId: string): string | null {
@@ -27,7 +26,7 @@ function sectionTitle(blocks: readonly ProductBlock[], anchorId: string): string
   return text === "" ? null : text;
 }
 
-export function PresenceAvatars({ page }: { page: ProductPageView }) {
+export function PresenceAvatars({ page, max = 4 }: { page: ProductPageView; max?: number }) {
   const { t } = useTranslation();
   const presence = useProductPresence(page.id);
   const people = presence.data ?? [];
@@ -74,8 +73,8 @@ export function PresenceAvatars({ page }: { page: ProductPageView }) {
     return () => all.forEach(clearTimeout);
   }, []);
 
-  const shown = people.slice(0, MAX);
-  const rest = people.slice(MAX);
+  const shown = people.slice(0, max);
+  const rest = people.slice(max);
   const fading = leaving.filter((p) => !people.some((q) => q.personId === p.personId));
   return (
     <>

@@ -249,11 +249,12 @@ export function useProductPageEvents(pageId: string) {
 }
 
 /** Gli altri presenti nella pagina (non chi guarda); dal vivo con `useProductPageEvents` montato. */
-export function useProductPresence(pageId: string) {
+export function useProductPresence(pageId: string, { enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: ["as", me, "productDocs", "presence", pageId] as const,
     queryFn: () => api.productDocs.getProductPresence(pageId),
+    enabled,
   });
 }
 

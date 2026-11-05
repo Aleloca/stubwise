@@ -13,7 +13,10 @@ import type { ProductPageView } from "../../data/types";
 // fili aperti i commenti si aprono da soli, senza restano chiusi. «Comments»
 // e × si ricordano PER PERSONA (non per pagina) in `localStorage`, e
 // prevalgono sulla regola automatica; senza archivio (bloccato, privato) vale
-// la regola. La cronologia non si apre mai da sola.
+// la regola. La cronologia non si apre mai da sola. Emendamento del
+// controller (6 nov 2026): la regola automatica e il gesto ricordato valgono
+// dove la colonna si aggancia (da 1200); sotto, sovrapposta, si apre solo
+// con un gesto («Comments», il segno, «Comment», `?comment=`).
 
 export type Side = "comments" | "history" | null;
 
@@ -102,11 +105,14 @@ export function useSideColumn({
   page,
   commentParam,
   taskOpen,
+  docked,
 }: {
   personId: string;
   page: ProductPageView | null;
   commentParam: string | undefined;
   taskOpen: boolean;
+  /** Da 1200 px: la colonna si aggancia, e solo allora si apre da sola. */
+  docked: boolean;
 }): SideColumn {
   const [stored, setStored] = useState<State>(() => ({
     key: null,
@@ -128,12 +134,12 @@ export function useSideColumn({
   // passa davanti. Tutto dipende solo dallo stato di prima (disegno puro).
   let s = stored;
   if (s.key !== key) {
-    const pref = page ? readCommentsPref(personId) : null;
-    const auto = page !== null && page.openComments > 0;
+    const pref = page && docked ? readCommentsPref(personId) : null;
+    const auto = page !== null && docked && page.openComments > 0;
     s = {
       ...s,
       key,
-      side: (pref === null ? auto : pref === "open") ? "comments" : null,
+      side: docked && (pref === null ? auto : pref === "open") ? "comments" : null,
       draft: null,
       focus: null,
       active: null,

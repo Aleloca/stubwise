@@ -115,6 +115,16 @@ codici `ACQ-D3n` sono segnaposti del seme.
   persona** (non per pagina) e prevale sull'apertura automatica; la
   memoria sta in `localStorage` dentro try/catch, e senza archivio vale la
   regola automatica. La cronologia non si apre mai da sola.
+  - *Emendamento del controller (6 nov 2026, revisione Impeccable finale
+    dell'area 11a).* L'apertura automatica e il gesto ricordato valgono
+    **da 1200**, dove la colonna si aggancia: la domanda al maintainer era
+    «La colonna dei commenti **a 1440**». A 1024 la colonna è sovrapposta
+    (360, [PE 22]) e coprirebbe da sola il testo che si sta scrivendo:
+    si apre **solo con un gesto** («Comments», il segno del blocco,
+    «Comment» sulla selezione, ⌥⌘M, `?comment=`). Barra della selezione,
+    menu «/» e selettori dell'editor stanno sempre **sopra** la colonna
+    sovrapposta. *Se sbagliata*: a 1024 chi apre una pagina con fili aperti
+    non li vede finché non preme «Comments» (il numero nella barra lo dice).
 - **Ordine e posizione** **[PC 5]**:
   1. i **fili aperti** con l'ancora viva, nell'ordine delle ancore nella
      pagina, ciascuno con il bordo alto **allineato** alla prima riga del

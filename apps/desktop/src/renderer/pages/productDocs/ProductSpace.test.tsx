@@ -328,3 +328,116 @@ describe("⌘K porta alla pagina (il link del Task 6)", () => {
     expect(router.state.location.pathname).toBe("/p/ACQ/docs/product/ACQ-D6");
   });
 });
+
+// Impeccable P1 #1 ([PS 10]): a 1024 la barra della pagina non va a capo e
+// non si sovrappone. happy-dom non impagina: ogni pezzo è largo quanto il
+// suo testo (8 px a carattere + 16), la barra quanto dice il test.
+describe("la barra della pagina a 1024 ([PS 10])", () => {
+  const proto = HTMLElement.prototype;
+  let restore: () => void = () => {};
+  function barWidth(nav: number) {
+    const offset = Object.getOwnPropertyDescriptor(proto, "offsetWidth");
+    const client = Object.getOwnPropertyDescriptor(proto, "clientWidth");
+    Object.defineProperty(proto, "offsetWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return (this.textContent ?? "").length * 8 + 16;
+      },
+    });
+    Object.defineProperty(proto, "clientWidth", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.tagName === "NAV" && /^(Pagine di prodotto|Product pages) of|^Pagine di prodotto di/.test(this.getAttribute("aria-label") ?? "")
+          ? nav
+          : 0;
+      },
+    });
+    restore = () => {
+      for (const [key, original] of [
+        ["offsetWidth", offset],
+        ["clientWidth", client],
+      ] as const) {
+        if (original) Object.defineProperty(proto, key, original);
+        else delete (proto as unknown as Record<string, unknown>)[key];
+      }
+      restore = () => {};
+    };
+  }
+  afterEach(() => restore());
+
+  /** Tre persone su Sign-in, oltre a chi guarda. */
+  function present() {
+    const id = page("ACQ-D5").id;
+    ["p-marco", "p-matteo", "p-federico"].forEach((personId, i) =>
+      state.productPresence.push({ pageId: id, personId, anchorId: null, offset: 0, selection: null, seq: 900 + i }),
+    );
+  }
+  const bar = () => screen.getByRole("navigation", { name: "Pagine di prodotto di ACQ" });
+
+  it("in italiano, stretta: Commenti, Cronologia ed Esporta nel «⋯», in quest'ordine prima di «Copia il link»; restano briciola, avatar (2 e «+1») e Segui", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    act(() => setLanguage("it"));
+    present();
+    barWidth(480);
+    renderRoute("/p/ACQ/docs/product/ACQ-D5", LAURA);
+    await screen.findByRole("heading", { level: 1, name: "Sign-in" });
+    const people = await within(bar()).findByRole("group", { name: "Persone nella pagina" });
+    await waitFor(() => expect(within(people).getAllByRole("img")).toHaveLength(3));
+    expect(within(people).getAllByRole("img")[2]).toHaveTextContent("+1");
+    await waitFor(() => expect(within(bar()).queryByRole("button", { name: /^Commenti/ })).toBeNull());
+    expect(within(bar()).queryByRole("button", { name: "Cronologia" })).toBeNull();
+    expect(within(bar()).queryByRole("button", { name: /^Esporta/ })).toBeNull();
+    expect(within(bar()).getByRole("button", { name: /^Segui/ })).toBeInTheDocument();
+    const crumbs = within(bar()).getByRole("navigation", { name: "Dove sta questa pagina" });
+    expect(crumbs).toHaveTextContent("Sign-in");
+    // Le intermedie diventano «…».
+    expect(within(crumbs).queryByRole("link", { name: "Features" })).toBeNull();
+
+    const user = userEvent.setup();
+    await user.click(within(bar()).getByRole("button", { name: "Altro per questa pagina" }));
+    const menu = await screen.findByRole("menu", { name: "Altro per questa pagina" });
+    const items = [...menu.querySelectorAll('[role^="menuitem"]')].map((el) => el.textContent);
+    expect(items.slice(0, 2)).toEqual(["Commenti (1)", "Cronologia"]);
+    const copy = items.indexOf("Copia il link");
+    expect(copy).toBeGreaterThan(2);
+    expect(items.slice(2, copy)).toEqual(expect.arrayContaining(["PDF", "Word (.docx)"]));
+    expect(within(menu).getByRole("group", { name: "Questa pagina" })).toBeInTheDocument();
+    // «Commenti (1)» apre la colonna; chiusa con ×, il fuoco torna al «⋯».
+    await user.click(within(menu).getByRole("menuitemcheckbox", { name: "Commenti (1)" }));
+    const col = await screen.findByRole("region", { name: "Commenti" });
+    await user.click(within(col).getByRole("button", { name: "Chiudi i commenti" }));
+    await waitFor(() =>
+      expect(within(bar()).getByRole("button", { name: "Altro per questa pagina" })).toHaveFocus(),
+    );
+  });
+
+  it("a 1024 con posto: tutto nella barra, e le briciole intere", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    act(() => setLanguage("it"));
+    barWidth(2000);
+    renderRoute("/p/ACQ/docs/product/ACQ-D5", LAURA);
+    await screen.findByRole("heading", { level: 1, name: "Sign-in" });
+    await waitFor(() => expect(within(bar()).getByRole("link", { name: "Features" })).toBeInTheDocument());
+    expect(within(bar()).getByRole("button", { name: /^Commenti/ })).toBeInTheDocument();
+    expect(within(bar()).getByRole("button", { name: "Cronologia" })).toBeInTheDocument();
+    expect(within(bar()).getByRole("button", { name: /^Esporta/ })).toBeInTheDocument();
+  });
+
+  it("a 1440 gli avatar arrivano a quattro prima di «+N»", async () => {
+    present();
+    renderRoute("/p/ACQ/docs/product/ACQ-D5", LAURA);
+    await screen.findByRole("heading", { level: 1, name: "Sign-in" });
+    const people = await screen.findByRole("group", { name: "People on this page" });
+    await waitFor(() => expect(within(people).getAllByRole("img")).toHaveLength(3));
+    expect(within(people).queryByText(/^\+/)).toBeNull();
+  });
+});
+
+// Impeccable P2 #9: uno spazio senza pagine non offre «Export», come non offre la ricerca.
+describe("l'indice di uno spazio vuoto", () => {
+  it("niente «Export»", async () => {
+    renderRoute("/p/VRD/docs/product", LAURA);
+    await screen.findByRole("heading", { name: /no product pages yet/i });
+    expect(screen.queryByRole("button", { name: /^Export/ })).toBeNull();
+  });
+});

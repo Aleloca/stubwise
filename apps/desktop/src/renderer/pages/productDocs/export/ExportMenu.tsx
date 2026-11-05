@@ -8,11 +8,67 @@ import { PrintView } from "./PrintView";
 
 // «Export ▾» nella barra dello spazio Prodotto (shape product-space.md §3.8,
 // [PS 17], [PS 18]): un menu di 240 px con THIS PAGE (sulla pagina) e WHOLE
-// SPACE × PDF / Word, la riga «8 pages, in tree order» e «Comments aren't
-// included.». In corso il bottone dice «Preparing…» col cerchio d'attesa
-// neutro, ed è spento con `aria-disabled` (non `disabled`): il fuoco ci
-// resta sopra, e un clic non apre nulla. Il fuoco torna qui alla chiusura del
-// menu e alla fine dell'esportazione.
+// SPACE × PDF / Word, la riga «8 pages, in tree order» subito sotto WHOLE
+// SPACE (vale per i due formati) e «Comments aren't included.». Uno spazio
+// senza pagine non ha «Export» (come non ha la ricerca). In
+// corso il bottone dice «Preparing…» col cerchio d'attesa neutro, ed è
+// spento con `aria-disabled` (non `disabled`): il fuoco ci resta sopra, e un
+// clic non apre nulla. Il fuoco torna qui alla chiusura del menu e alla fine
+// dell'esportazione. A 1024, se la barra non ci sta, gli stessi gruppi
+// stanno nel «⋯» della pagina ([PS 10], `ExportGroups`).
+
+/**
+ * I gruppi dell'esportazione, nel menu «Export ▾» o nel «⋯» della pagina:
+ * THIS PAGE (se c'è una pagina) e WHOLE SPACE, ciascuno con PDF e Word.
+ * `busy`: un'esportazione in corso, le voci sono spente (con la frase).
+ */
+export function ExportGroups({
+  hasPage,
+  pageCount,
+  busy = false,
+  onChoose,
+}: {
+  hasPage: boolean;
+  pageCount: number;
+  busy?: boolean;
+  onChoose: (scope: ExportScope, format: ExportFormat) => void;
+}) {
+  const { t } = useTranslation();
+  const items = (scope: ExportScope) => (
+    <>
+      {(["pdf", "docx"] as const).map((format) => (
+        <button
+          key={format}
+          type="button"
+          role="menuitem"
+          tabIndex={-1}
+          aria-disabled={busy || undefined}
+          className={`${itemClass} aria-disabled:text-ink-muted aria-disabled:hover:bg-transparent`}
+          onClick={() => {
+            if (!busy) onChoose(scope, format);
+          }}
+        >
+          {t(format === "pdf" ? "productDocs.export.pdf" : "productDocs.export.word")}
+        </button>
+      ))}
+    </>
+  );
+  return (
+    <>
+      {hasPage && <MenuGroup label={t("productDocs.export.thisPage")}>{items("page")}</MenuGroup>}
+      <MenuGroup label={t("productDocs.export.wholeSpace")}>
+        {/* Sotto il titolo, prima dei formati: vale per il PDF come per il Word (Impeccable 15). */}
+        <span className="num px-2 pb-1 text-xs text-ink-faint">
+          {t("productDocs.export.treeOrder", { count: pageCount })}
+        </span>
+        {items("space")}
+      </MenuGroup>
+      <div className="mt-1 border-t border-rule pt-1">
+        <MenuNote>{t("productDocs.export.noComments")}</MenuNote>
+      </div>
+    </>
+  );
+}
 
 export function ExportMenu({
   project,
@@ -42,16 +98,6 @@ export function ExportMenu({
     close(true);
     void start(scope, format);
   };
-  const items = (scope: ExportScope) => (
-    <>
-      <button type="button" role="menuitem" tabIndex={-1} className={itemClass} onClick={() => choose(scope, "pdf")}>
-        {t("productDocs.export.pdf")}
-      </button>
-      <button type="button" role="menuitem" tabIndex={-1} className={itemClass} onClick={() => choose(scope, "docx")}>
-        {t("productDocs.export.word")}
-      </button>
-    </>
-  );
 
   return (
     // Aperto, il menu sta sopra la colonna dei commenti sovrapposta (z-45, sotto i 1200).
@@ -83,16 +129,7 @@ export function ExportMenu({
       {open && !busy && (
         <Menu label={t("productDocs.export.menu")} onClose={close} align="right">
           <div className="flex w-[228px] flex-col">
-            {page && <MenuGroup label={t("productDocs.export.thisPage")}>{items("page")}</MenuGroup>}
-            <MenuGroup label={t("productDocs.export.wholeSpace")}>
-              {items("space")}
-              <span className="num px-2 pb-1 text-xs text-ink-faint">
-                {t("productDocs.export.treeOrder", { count: pageCount })}
-              </span>
-            </MenuGroup>
-            <div className="mt-1 border-t border-rule pt-1">
-              <MenuNote>{t("productDocs.export.noComments")}</MenuNote>
-            </div>
+            <ExportGroups hasPage={page !== null} pageCount={pageCount} onChoose={choose} />
           </div>
         </Menu>
       )}

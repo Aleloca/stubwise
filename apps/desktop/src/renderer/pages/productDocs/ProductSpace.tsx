@@ -1,10 +1,11 @@
 import { Link, Outlet, useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useProject,
   useProductComments,
   useProductPage,
+  useProductPresence,
   useProductSpace,
   useSessionPersonId,
 } from "../../data/queries";
@@ -12,12 +13,11 @@ import type { ProductPageView, ProductSpaceView, Project } from "../../data/type
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { openPalette } from "../../layout/useShortcuts";
-import { itemClass } from "../../tasks-ui/Menu";
+import { Chevron, itemClass, Menu, MenuGroup } from "../../tasks-ui/Menu";
 import { PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
 import { copyText } from "../../tasks-ui/exportFile";
 import { MoreIcon } from "../task/parts";
-import { MenuButton } from "../tasks/controls";
 import { DocTreeSkeleton } from "../docs/DocTree";
 import { Resizer, TREE_DEFAULT } from "../docs/DocSpace";
 import { DocsForbidden, ReadingSkeleton, isForbidden } from "../docs/parts";
@@ -28,7 +28,11 @@ import { FollowButton, pageBarButton } from "./FollowButton";
 import { SideColumnFrame, useSideColumn, type SideColumn } from "./SideColumn";
 import { CommentsColumn } from "./comments/CommentsColumn";
 import { HistoryPanel } from "./history/HistoryPanel";
-import { ExportMenu } from "./export/ExportMenu";
+import { ExportGroups, ExportMenu } from "./export/ExportMenu";
+import { useProductExport } from "./export/exportProduct";
+import { PrintView } from "./export/PrintView";
+import { overflowingBarItems } from "../../domain/docs";
+import { Spinner } from "../drive/glyphs";
 import {
   type CommentsBridge,
   DeletePageDialog,
@@ -140,6 +144,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   const pagesButton = useRef<HTMLButtonElement>(null);
   const commentsButton = useRef<HTMLButtonElement>(null);
   const historyButton = useRef<HTMLButtonElement>(null);
+  const moreButton = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
   const root = useRef<HTMLDivElement>(null);
 
@@ -154,6 +159,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
     page: view,
     commentParam: search.comment,
     taskOpen: !!search.task,
+    docked,
   });
   // Agganciata, un gesto dei commenti (o «History») vince sul pannello della
   // task, che ne occupa il posto: una colonna sola ([PE 19]), l'ultima aperta.
@@ -284,14 +290,15 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
     />
   );
 
-  // Chiudere la colonna riporta il fuoco al suo bottone nella barra ([PC 13]).
+  // Chiudere la colonna riporta il fuoco al suo bottone nella barra ([PC 13]);
+  // se il bottone è passato nel «⋯» ([PS 10]), al «⋯».
   const closeComments = () => {
     side.closeComments();
-    commentsButton.current?.focus();
+    (commentsButton.current ?? moreButton.current)?.focus();
   };
   const closeHistory = () => {
     side.closeHistory();
-    historyButton.current?.focus();
+    (historyButton.current ?? moreButton.current)?.focus();
   };
   const sideContent =
     view && side.side === "comments" ? (
@@ -319,6 +326,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
           project={project}
           pageCode={pageCode}
           docked={treeDocked}
+          narrow={!docked}
           pagesButton={treeDocked ? null : pagesButton}
           drawer={drawer}
           onPages={() => (drawer ? closeDrawer(false) : setDrawer(true))}
@@ -328,6 +336,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
           sideShown={sideShown}
           commentsButton={commentsButton}
           historyButton={historyButton}
+          moreButton={moreButton}
           pageCount={space.pageCount}
         />
         <div className="flex min-h-0 flex-1">
@@ -377,6 +386,13 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   );
 }
 
+/** I gesti della pagina che possono finire nel «⋯», dal più importante ([PS 10]). */
+const OPTIONAL_PAGE_BAR = ["comments", "history", "export"] as const;
+type OptionalPageItem = (typeof OPTIONAL_PAGE_BAR)[number];
+/** L'ultima briciola non scende sotto questa larghezza (il titolo, con l'ellissi). */
+const LAST_CRUMB_MIN = 96;
+const BAR_GAP = 4;
+
 /**
  * La barra dello spazio (40 px, una sola per spazio e pagina, [PS 8]): a
  * sinistra «Pages» (sotto i 1200, o quando la colonna laterale la chiede,
@@ -384,12 +400,22 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
  * della pagina, nell'ordine di [PS 8]: lo stato di salvataggio dell'editor,
  * gli avatar degli altri presenti (Task 11), Follow, Comments N (i fili aperti), History,
  * «Export ▾» (Task 12), il «⋯» (Copy link, Delete page… per chi scrive).
- * Sull'indice «Search ⌘K» ed «Export ▾» col solo WHOLE SPACE. Una pagina che non c'è perde i gesti e le briciole.
+ * Sull'indice «Search ⌘K» ed «Export ▾» col solo WHOLE SPACE (se ci sono pagine).
+ * Una pagina che non c'è perde i gesti e le briciole.
+ *
+ * La barra non va a capo ([PS 10]): si misura come quella dello spazio di un
+ * repository (`OPTIONAL_BAR` di `DocSpace`), con una copia invisibile dei
+ * gesti che possono uscire. Prima le briciole intermedie diventano «…» (solo
+ * se l'ultima scenderebbe sotto i 96 px); poi Export, History e Comments, in
+ * quest'ordine, passano nel «⋯», che resta sempre. Restano sempre «Pages»,
+ * «Product», l'ultima briciola, lo stato di salvataggio, gli avatar (a 1024
+ * al più 2 e «+N») e Follow.
  */
 function SpaceBar({
   project,
   pageCode,
   docked,
+  narrow,
   pagesButton,
   drawer,
   onPages,
@@ -399,11 +425,14 @@ function SpaceBar({
   sideShown,
   commentsButton,
   historyButton,
+  moreButton,
   pageCount,
 }: {
   project: Project;
   pageCode: string | null;
   docked: boolean;
+  /** Sotto i 1200 px: gli avatar al più 2 e «+N» ([PS 10]). */
+  narrow: boolean;
   pagesButton: RefObject<HTMLButtonElement | null> | null;
   drawer: boolean;
   onPages: () => void;
@@ -413,22 +442,135 @@ function SpaceBar({
   sideShown: boolean;
   commentsButton: RefObject<HTMLButtonElement | null>;
   historyButton: RefObject<HTMLButtonElement | null>;
+  moreButton: RefObject<HTMLButtonElement | null>;
   /** Le pagine dello spazio, per «9 pages, in tree order» del menu Export. */
   pageCount: number;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   // La stessa lettura della pagina aperta (la cache la condivide con la vista).
   const page = useProductPage(pageCode ?? "", { enabled: pageCode !== null });
   const view = pageCode && page.data && inSpace(page.data, project) ? page.data : null;
+  const nav = useRef<HTMLElement>(null);
+  const keep = useRef<HTMLSpanElement>(null);
+  const measure = useRef<HTMLDivElement>(null);
+  // Prima di una misura (o dove non si impagina) vale la regola di prima:
+  // nessun gesto nel «⋯», briciole corte quando l'albero è un cassetto.
+  const [fit, setFit] = useState<{ hidden: readonly OptionalPageItem[]; compact: boolean } | null>(null);
+
+  const measureBar = useCallback(() => {
+    const bar = nav.current;
+    const copy = measure.current;
+    if (!bar || !copy || bar.clientWidth === 0) return;
+    const width = (el: Element | null | undefined) => (el instanceof HTMLElement ? el.offsetWidth : 0);
+    const copyWidth = (id: string) => width(copy.querySelector(`[data-bar="${id}"]`));
+    const style = getComputedStyle(bar);
+    const available =
+      bar.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+    // Ciò che resta sempre: i pezzi segnati `data-bar-keep`, misurati dal vivo
+    // (lo stato di salvataggio e gli avatar cambiano larghezza da soli).
+    const kept = [...bar.querySelectorAll("[data-bar-keep]")].reduce((sum, el) => sum + width(el) + BAR_GAP, 0);
+    const last = copyWidth("last");
+    const lastMin = Math.min(last, copyWidth("separator") + LAST_CRUMB_MIN);
+    const ellipsis = copyWidth("ellipsis");
+    const optional = OPTIONAL_PAGE_BAR.map((id) => ({ id, width: copyWidth(id) }));
+    const hidden = overflowingBarItems(available, kept + ellipsis + lastMin, optional, 0, BAR_GAP) as OptionalPageItem[];
+    const shown = optional.filter((o) => !hidden.includes(o.id)).reduce((sum, o) => sum + o.width + BAR_GAP, 0);
+    const room = available - kept - shown;
+    const compact = room - copyWidth("ancestors") < lastMin;
+    setFit((prev) =>
+      prev && prev.compact === compact && prev.hidden.join() === hidden.join() ? prev : { hidden, compact },
+    );
+  }, []);
+
+  // Si rimisura quando cambia ciò che occupa la barra (lingua, briciole,
+  // numero dei commenti, stato di salvataggio, chi è presente: la stessa
+  // lettura degli avatar) e a ogni cambio di larghezza.
+  const ancestors = view?.breadcrumbs.map((a) => a.title).join("/") ?? "";
+  const presentCount = useProductPresence(view?.id ?? "", { enabled: view !== null }).data?.length ?? 0;
+  const saveState = editorStatus
+    ? `${editorStatus.state} ${editorStatus.skipped} ${editorStatus.dropped}`
+    : "";
+  useLayoutEffect(measureBar, [
+    measureBar,
+    i18n.language,
+    view?.title,
+    ancestors,
+    view?.openComments,
+    pagesButton,
+    presentCount,
+    saveState,
+  ]);
+  const hasView = view !== null;
+  useEffect(() => {
+    const els = [nav.current, keep.current].filter((el): el is HTMLElement => el !== null);
+    if (els.length === 0 || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => measureBar());
+    for (const el of els) observer.observe(el);
+    return () => observer.disconnect();
+  }, [measureBar, hasView]);
+
+  const hidden = view ? (fit?.hidden ?? []) : [];
+  const shows = (id: OptionalPageItem) => !hidden.includes(id);
+  const compact = fit ? fit.compact : !docked;
+  const separator = <span className="px-0.5">›</span>;
+
   return (
     <nav
+      ref={nav}
       aria-label={t("productDocs.space.bar", { code: project.code })}
       className="page-header relative flex min-h-10 shrink-0 items-center gap-1 border-b border-rule pl-3 [--page-header-pr:16px]"
     >
+      {/* La copia da misurare: i gesti che possono uscire e le briciole,
+          invisibile, fuori dal flusso e dentro una scatola di 0 px. */}
+      {view && (
+        <div aria-hidden="true" className="absolute top-0 left-0 h-0 w-0 overflow-hidden">
+          <div
+            ref={measure}
+            inert
+            className="pointer-events-none invisible flex w-max items-center gap-1 text-sm whitespace-nowrap"
+          >
+            <span data-bar="separator">{separator}</span>
+            <span data-bar="ellipsis" className="flex">
+              {view.breadcrumbs.length > 0 && (
+                <>
+                  {separator}
+                  <span className="px-1">…</span>
+                </>
+              )}
+            </span>
+            <span data-bar="ancestors" className="flex">
+              {view.breadcrumbs.map((a) => (
+                <span key={a.id} className="flex">
+                  {separator}
+                  <span className="max-w-[160px] truncate px-1">{a.title}</span>
+                </span>
+              ))}
+            </span>
+            <span data-bar="last" className="flex">
+              {separator}
+              <span className="px-1">{view.title}</span>
+            </span>
+            <span data-bar="comments" className={pageBarButton}>
+              <CommentGlyph />
+              {t("productDocs.space.comments")}
+              {view.openComments > 0 && <span className="num">{view.openComments}</span>}
+            </span>
+            <span data-bar="history" className={pageBarButton}>
+              <HistoryGlyph />
+              {t("productDocs.space.history")}
+            </span>
+            <span data-bar="export" className={pageBarButton}>
+              {t("productDocs.export.button")}
+              <Chevron />
+            </span>
+          </div>
+        </div>
+      )}
       {pagesButton && (
         <button
           ref={pagesButton}
           type="button"
+          data-bar-keep=""
           aria-expanded={drawer}
           aria-keyshortcuts="Meta+Backslash"
           title={`${t("docs.space.pagesToggle")} · ⌘\\`}
@@ -440,13 +582,14 @@ function SpaceBar({
       )}
       <Link
         {...productIndexLink(project.code)}
+        data-bar-keep=""
         activeOptions={{ exact: true }}
         className="inline-flex h-7 shrink-0 items-center rounded-md px-2 text-md font-semibold text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
       >
         {t("productDocs.space.title")}
       </Link>
-      {view && <Breadcrumbs project={project} page={view} compact={!docked} />}
-      <span className="ml-auto flex shrink-0 items-center gap-1">
+      {view && <Breadcrumbs project={project} page={view} compact={compact} />}
+      <span ref={keep} className="ml-auto flex shrink-0 items-center gap-1">
         {pageCode === null && (
           <button
             type="button"
@@ -458,11 +601,23 @@ function SpaceBar({
             <kbd className="num ml-1.5 font-sans text-xs text-ink-faint">⌘K</kbd>
           </button>
         )}
-        {pageCode === null && <ExportMenu project={project} page={null} pageCount={pageCount} />}
-        {view && editorStatus && <SaveStatus status={editorStatus} />}
-        {view && <PresenceAvatars page={view} />}
-        {view && <FollowButton page={view} />}
+        {pageCode === null && pageCount > 0 && <ExportMenu project={project} page={null} pageCount={pageCount} />}
+        {view && editorStatus && (
+          <span data-bar-keep="" className="flex shrink-0">
+            <SaveStatus status={editorStatus} />
+          </span>
+        )}
         {view && (
+          <span data-bar-keep="" className="flex shrink-0">
+            <PresenceAvatars page={view} max={narrow ? 2 : 4} />
+          </span>
+        )}
+        {view && (
+          <span data-bar-keep="" className="flex shrink-0">
+            <FollowButton page={view} />
+          </span>
+        )}
+        {view && shows("comments") && (
           <button
             ref={commentsButton}
             type="button"
@@ -475,7 +630,7 @@ function SpaceBar({
             {view.openComments > 0 && <span className="num text-ink-faint">{view.openComments}</span>}
           </button>
         )}
-        {view && (
+        {view && shows("history") && (
           <button
             ref={historyButton}
             type="button"
@@ -487,7 +642,7 @@ function SpaceBar({
             {t("productDocs.space.history")}
           </button>
         )}
-        {view && (
+        {view && shows("export") && (
           <ExportMenu
             key={view.id}
             project={project}
@@ -495,7 +650,19 @@ function SpaceBar({
             pageCount={pageCount}
           />
         )}
-        {view && <PageMenu project={project} page={view} docked={docked} onDeleted={onDeleted} />}
+        {view && (
+          <PageMenu
+            project={project}
+            page={view}
+            docked={docked}
+            onDeleted={onDeleted}
+            button={moreButton}
+            overflow={hidden}
+            side={side}
+            sideShown={sideShown}
+            pageCount={pageCount}
+          />
+        )}
       </span>
     </nav>
   );
@@ -521,8 +688,9 @@ function HistoryGlyph() {
 
 /**
  * Le briciole («Features › Sign-in»), `ink-muted`: ogni antenato porta alla
- * sua pagina; le intermedie si accorciano con l'ellissi (e a 1024 restano
- * solo «…» e l'ultima), il titolo intero nel `title`.
+ * sua pagina; le intermedie si accorciano con l'ellissi, e quando l'ultima
+ * scenderebbe sotto i 96 px (la misura della barra) restano solo «…» e
+ * l'ultima, il titolo intero nel `title`.
  */
 function Breadcrumbs({
   project,
@@ -566,7 +734,7 @@ function Breadcrumbs({
         )}
         <li className="flex min-w-0 items-center">
           {separator}
-          <span aria-current="page" title={page.title} className="min-w-0 truncate px-1 text-ink">
+          <span aria-current="page" title={page.title} className="min-w-[60px] truncate px-1 text-ink">
             {page.title}
           </span>
         </li>
@@ -579,80 +747,161 @@ function Breadcrumbs({
  * Il «⋯» della pagina: Copy link; Delete page… per chi può eliminare, spento
  * con la sua frase (senza «Who?»: è una regola) se ha sottopagine. Chi legge
  * soltanto ha solo Copy link. Dopo un'eliminazione si apre il genitore (o
- * l'indice) e il fuoco va al suo nodo.
+ * l'indice) e il fuoco va al suo nodo. Quando la barra non ci sta ([PS 10])
+ * in testa ci sono i gesti usciti, in quest'ordine: «Comments (2)»,
+ * «History», poi i gruppi dell'esportazione. Resta sempre nella barra.
  */
 function PageMenu({
   project,
   page,
   docked,
   onDeleted,
+  button,
+  overflow,
+  side,
+  sideShown,
+  pageCount,
 }: {
   project: Project;
   page: ProductPageView;
   docked: boolean;
   onDeleted: (parentId: string | null) => void;
+  button: RefObject<HTMLButtonElement | null>;
+  overflow: readonly OptionalPageItem[];
+  side: SideColumn;
+  sideShown: boolean;
+  pageCount: number;
 }) {
   const { t } = useTranslation();
   const toast = useToast();
   const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const parent = page.breadcrumbs.at(-1) ?? null;
+  // L'esportazione dal «⋯» (quando «Export ▾» non ci sta): il fuoco torna qui.
+  const exporting = useProductExport({
+    projectId: project.id,
+    projectCode: project.code,
+    page: { id: page.id, code: page.code, title: page.title },
+    button,
+  });
   const copyLink = () =>
     copyText(productPageHref(project.code, page.code)).then(
       () => toast.show(t("docs.page.linkCopied", { code: page.code })),
       () => toast.error(t("docs.page.copyFailed")),
     );
+  const close = (restore: boolean) => {
+    setOpen(false);
+    if (restore) button.current?.focus();
+  };
+  const has = (id: OptionalPageItem) => overflow.includes(id);
+  const more = t("productDocs.space.more");
   return (
     <>
-      <MenuButton
-        menuLabel={t("productDocs.space.more")}
-        ariaLabel={t("productDocs.space.more")}
-        title={t("productDocs.space.more")}
-        align="right"
-        className="grid size-7 shrink-0 place-items-center rounded-md text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/10 aria-expanded:text-ink"
-        wrapperClassName="inline-flex shrink-0"
-        label={<MoreIcon />}
-      >
-        {(close) => (
-          <>
-            <button
-              type="button"
-              role="menuitem"
-              className={itemClass}
-              onClick={() => {
-                close();
-                void copyLink();
-              }}
-            >
-              {t("productDocs.space.copyLink")}
-            </button>
-            {page.permissions.edit &&
-              (page.permissions.deleteBlocked ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  aria-disabled="true"
-                  className={`${itemClass} cursor-default flex-col items-start gap-0 hover:bg-transparent`}
-                >
-                  <span className="text-ink-muted">{t("productDocs.space.deletePage")}</span>
-                  <span className="text-xs text-ink-muted">{t("productDocs.tree.hasChildren")}</span>
-                </button>
-              ) : page.permissions.delete ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={`${itemClass} text-critical`}
-                  onClick={() => {
-                    close();
-                    setDeleting(true);
+      {/* Aperto, il menu sta sopra la colonna dei commenti sovrapposta (z-45, sotto i 1200). */}
+      <span data-bar-keep="" className={`relative inline-flex shrink-0 ${open ? "z-50" : ""}`}>
+        <button
+          ref={button}
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          aria-label={exporting.busy ? `${more} · ${t("productDocs.export.preparing")}` : more}
+          title={more}
+          onClick={() => setOpen((o) => !o)}
+          className="grid size-7 shrink-0 place-items-center rounded-md text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/10 aria-expanded:text-ink"
+        >
+          {exporting.busy ? <Spinner /> : <MoreIcon />}
+        </button>
+        {open && (
+          <Menu label={more} onClose={close} align="right">
+            {(has("comments") || has("history")) && (
+              <MenuGroup>
+                {has("comments") && (
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={sideShown && side.side === "comments"}
+                    className={itemClass}
+                    onClick={() => {
+                      close(true);
+                      side.toggleComments();
+                    }}
+                  >
+                    {page.openComments > 0
+                      ? t("productDocs.space.commentsCount", { count: page.openComments })
+                      : t("productDocs.space.comments")}
+                  </button>
+                )}
+                {has("history") && (
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={sideShown && side.side === "history"}
+                    className={itemClass}
+                    onClick={() => {
+                      close(true);
+                      side.toggleHistory();
+                    }}
+                  >
+                    {t("productDocs.space.history")}
+                  </button>
+                )}
+              </MenuGroup>
+            )}
+            {has("export") && (
+              <div role="group" aria-label={t("productDocs.export.menu")} className="flex flex-col">
+                <ExportGroups
+                  hasPage
+                  pageCount={pageCount}
+                  busy={exporting.busy}
+                  onChoose={(scope, format) => {
+                    close(true);
+                    void exporting.start(scope, format);
                   }}
-                >
-                  {t("productDocs.space.deletePage")}
-                </button>
-              ) : null)}
-          </>
+                />
+              </div>
+            )}
+            <MenuGroup>
+              <button
+                type="button"
+                role="menuitem"
+                className={itemClass}
+                onClick={() => {
+                  close(true);
+                  void copyLink();
+                }}
+              >
+                {t("productDocs.space.copyLink")}
+              </button>
+              {page.permissions.edit &&
+                (page.permissions.deleteBlocked ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    aria-disabled="true"
+                    className={`${itemClass} cursor-default flex-col items-start gap-0 hover:bg-transparent`}
+                  >
+                    <span className="text-ink-muted">{t("productDocs.space.deletePage")}</span>
+                    <span className="text-xs text-ink-muted">{t("productDocs.tree.hasChildren")}</span>
+                  </button>
+                ) : page.permissions.delete ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`${itemClass} text-critical`}
+                    onClick={() => {
+                      close(true);
+                      setDeleting(true);
+                    }}
+                  >
+                    {t("productDocs.space.deletePage")}
+                  </button>
+                ) : null)}
+            </MenuGroup>
+          </Menu>
         )}
-      </MenuButton>
+        {exporting.printing && <PrintView doc={exporting.printing} label={t("productDocs.export.printLabel")} />}
+      </span>
       {deleting && (
         <DeletePageDialog
           page={page}

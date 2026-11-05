@@ -11975,6 +11975,7 @@
       "blockDrive": "File del Drive {{code}}",
       "blockDecision": "Decisione",
       "comments": "Commenti",
+      "commentsCount": "Commenti ({{count}})",
       "history": "Cronologia"
     },
     "tree": {

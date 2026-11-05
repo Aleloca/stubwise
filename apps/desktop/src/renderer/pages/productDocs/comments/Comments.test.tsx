@@ -406,6 +406,25 @@ describe("la colonna si apre da sola (PC 14)", () => {
     expect(await column()).toBeInTheDocument();
   });
 
+  // Ruling del controller (6 nov 2026, emendamento datato a [PC 14]): la
+  // regola automatica vale a 1440 (dove la colonna si aggancia); a 1024 la
+  // colonna sovrapposta si apre solo con un gesto, anche se «open» è ricordato.
+  it("a 1024 Sign-in (fili aperti) non la apre da sola, nemmeno con «open» ricordato; «Comments» e `?comment=` sì", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    await open(SIGNIN);
+    expect(queryColumn()).toBeNull();
+    cleanup();
+    window.localStorage.setItem(commentsPrefKey(LAURA), "open");
+    await open(SIGNIN);
+    expect(queryColumn()).toBeNull();
+    const user = userEvent.setup();
+    await user.click(within(bar()).getByRole("button", { name: /^Comments/ }));
+    expect(await column()).toBeInTheDocument();
+    cleanup();
+    await open(SIGNIN, LAURA, `?comment=${SIGNIN_ROOT}`);
+    expect(await column()).toBeInTheDocument();
+  });
+
   it("per persona: chiusa da Laura, come Marco Sign-in si apre da sola", async () => {
     window.localStorage.setItem(commentsPrefKey(LAURA), "closed");
     await open(SIGNIN, MARCO);
@@ -459,6 +478,8 @@ describe("una colonna alla volta, e a 1024 (PE 19, PE 22)", () => {
   it("a 1024 la colonna è sovrapposta 360; col pannello della task vince l'ultimo aperto", async () => {
     setMatchMedia(DOCKED_PANEL_QUERY, false);
     const router = await open(SIGNIN);
+    // A 1024 si apre solo col gesto (emendamento a [PC 14]).
+    await userEvent.setup().click(within(bar()).getByRole("button", { name: /^Comments/ }));
     const col = await column();
     const frame = col.closest<HTMLElement>("[data-product-side]")!;
     expect(frame).toHaveAttribute("data-product-side", "overlay");
