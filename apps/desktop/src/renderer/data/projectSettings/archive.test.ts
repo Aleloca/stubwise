@@ -987,6 +987,10 @@ describe("Delete di RNC: lo spazio Prodotto (area 11a, ruling P13)", () => {
       quote: "",
       body: "Which payment methods?",
     });
+    // Area 11a, Task 5 (P13): anche la presenza ha solo `pageId`.
+    await productDocs.joinProductPage(child.id);
+    const events: string[] = [];
+    productDocs.subscribeProductPage(child.id, (e) => events.push(e));
     as(LAURA);
     const kept = await productDocs.createProductPage(ACQ, { title: "Kept" });
     const keptComment = await productDocs.addProductComment(kept.id, {
@@ -994,6 +998,7 @@ describe("Delete di RNC: lo spazio Prodotto (area 11a, ruling P13)", () => {
       quote: "",
       body: "Stays.",
     });
+    await productDocs.joinProductPage(kept.id);
     const commentsBefore = state.productComments.length;
     as(ROBERTA);
     await projectSettings.archiveProject(RNC);
@@ -1015,5 +1020,10 @@ describe("Delete di RNC: lo spazio Prodotto (area 11a, ruling P13)", () => {
     expect(state.productComments.map((c) => c.id)).not.toContain(comment.id);
     expect(state.productComments.map((c) => c.id)).toContain(keptComment.id);
     expect(state.productComments).toHaveLength(commentsBefore - 1);
+    expect(state.productPresence.filter((p) => gone.has(p.pageId))).toEqual([]);
+    expect(state.productPresence).toEqual([
+      expect.objectContaining({ pageId: kept.id, personId: LAURA }),
+    ]);
+    expect(events).toContain("gone");
   });
 });

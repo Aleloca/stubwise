@@ -13,6 +13,7 @@ import type {
   ProductPage,
 } from "../types";
 import { invalid, notFound, writer } from "../writer";
+import { emitProductPage } from "./events";
 import { productPageById } from "./reads";
 import { editablePage, onAnchorsMerged } from "./writes";
 
@@ -210,6 +211,7 @@ export function addProductCommentAs(
   };
   state.productComments.push(comment);
   publishMentions(me, page, comment);
+  emitProductPage(page.id, "comments");
   return copy(comment);
 }
 
@@ -257,13 +259,18 @@ function editableRoot(me: string, rootId: string): ProductComment {
 export async function resolveProductComment(rootId: string): Promise<void> {
   const me = await writer("productDocs.resolveProductComment");
   const root = editableRoot(me, rootId);
-  if (root.resolved === null) root.resolved = { byId: me, at: now() };
+  if (root.resolved !== null) return;
+  root.resolved = { byId: me, at: now() };
+  emitProductPage(root.pageId, "comments");
 }
 
 /** «Reopen»: il filo torna fra gli aperti. */
 export async function reopenProductComment(rootId: string): Promise<void> {
   const me = await writer("productDocs.reopenProductComment");
-  editableRoot(me, rootId).resolved = null;
+  const root = editableRoot(me, rootId);
+  if (root.resolved === null) return;
+  root.resolved = null;
+  emitProductPage(root.pageId, "comments");
 }
 
 // --- la notifica a lettura -------------------------------------------------------

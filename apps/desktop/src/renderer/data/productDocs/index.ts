@@ -35,3 +35,14 @@ export {
   reopenProductComment,
   resolveProductComment,
 } from "./comments";
+export {
+  getProductPresence,
+  joinProductPage,
+  leaveProductPage,
+  leaveProductPageAs,
+  onProductPresence,
+  setProductPresence,
+  subscribeProductPage,
+  whenProductIdle,
+  writersNear,
+} from "./presence";

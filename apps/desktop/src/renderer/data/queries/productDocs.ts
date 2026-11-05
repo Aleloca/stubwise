@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import * as api from "../api";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
 import type { ProductBlockOp } from "../types";
@@ -168,5 +169,80 @@ export function useProductMentionCandidates(projectId: string, q: string) {
   return useQuery({
     queryKey: ["as", me, "productDocs", "mentionCandidates", projectId, q] as const,
     queryFn: () => api.productDocs.productMentionCandidates(projectId, q),
+  });
+}
+
+// --- la presenza e la scrittura dal vivo (Task 5) -------------------------------
+
+/**
+ * Gli altri presenti nella pagina (non chi guarda), dal vivo: l'iscrizione
+ * alla pagina ricarica la presenza a ogni `presence`; `blocks` e `comments`
+ * ricaricano pagina, commenti e cronologia; `gone` tutto lo spazio Prodotto
+ * di chi guarda (la pagina dice «non trovata», l'albero la perde).
+ */
+export function useProductPresence(pageId: string) {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  useEffect(() => {
+    const area = ["as", me, "productDocs"] as const;
+    return api.productDocs.subscribeProductPage(pageId, (event) => {
+      if (event === "presence") {
+        void client.invalidateQueries({ queryKey: [...area, "presence", pageId] });
+        return;
+      }
+      if (event === "gone") {
+        void client.invalidateQueries({ queryKey: area });
+        return;
+      }
+      void client.invalidateQueries({ queryKey: [...area, "page"] });
+      void client.invalidateQueries({ queryKey: [...area, "comments", pageId] });
+      void client.invalidateQueries({ queryKey: [...area, "revisions", pageId] });
+    });
+  }, [client, me, pageId]);
+  return useQuery({
+    queryKey: ["as", me, "productDocs", "presence", pageId] as const,
+    queryFn: () => api.productDocs.getProductPresence(pageId),
+  });
+}
+
+/**
+ * Entra nella pagina al montaggio (e avvia il suo copione) ed esce allo
+ * smontaggio, al cambio di pagina e al cambio di persona. L'uscita nomina la
+ * persona di quando si è entrati: al cambio col «vedi come» la sessione è
+ * già dell'altra. Un ingresso ancora in volo quando si esce si ritira appena
+ * arriva, così nessuna presenza resta appesa.
+ */
+export function useJoinProductPage(pageId: string | null) {
+  const me = useSessionPersonId();
+  useEffect(() => {
+    if (!pageId) return;
+    let left = false;
+    api.productDocs.joinProductPage(pageId).then(
+      () => {
+        if (left) api.productDocs.leaveProductPageAs(me, pageId);
+      },
+      // Una pagina che chi guarda non legge: niente presenza, la pagina lo dice da sé.
+      () => undefined,
+    );
+    return () => {
+      left = true;
+      api.productDocs.leaveProductPageAs(me, pageId);
+    };
+  }, [me, pageId]);
+}
+
+/**
+ * Dove scrive chi guarda (`null` = c'è ma non scrive). Nessuna area da
+ * ricaricare: la presenza la porta l'iscrizione (`useProductPresence`).
+ */
+export function useSetProductPresence() {
+  return useMutation({
+    mutationFn: ({
+      pageId,
+      at,
+    }: {
+      pageId: string;
+      at: { anchorId: string; offset: number; selection?: [number, number] | null } | null;
+    }) => api.productDocs.setProductPresence(pageId, at),
   });
 }

@@ -3742,6 +3742,33 @@ export type ProductScriptStep =
   | { step: "type"; personId: string; anchorId: string; text: string }
   | { step: "leave"; personId: string };
 
+/**
+ * Chi è in una pagina di prodotto adesso (area 11a, Task 5). Una riga per
+ * persona e pagina; ogni cambio prende un `nextSeq()` nuovo (mai l'orologio).
+ */
+export interface ProductPresence {
+  pageId: string;
+  personId: string;
+  /** Dove scrive; `null` = c'è ma non scrive. */
+  anchorId: string | null;
+  offset: number;
+  selection: [number, number] | null;
+  seq: number;
+}
+
+export interface ProductPresenceView extends ProductPresence {
+  name: string;
+  initials: string;
+  /** Uno dei colori della presenza (`--presence-1`…`--presence-6`), stabile per persona. */
+  color: 1 | 2 | 3 | 4 | 5 | 6;
+}
+
+/**
+ * Cosa è cambiato in una pagina, per chi è iscritto: il corpo (o titolo e
+ * posto), la presenza, i commenti, o la pagina che non c'è più.
+ */
+export type ProductPageEvent = "blocks" | "presence" | "comments" | "gone";
+
 export interface ProductSpaceView {
   projectId: string;
   projectCode: string;

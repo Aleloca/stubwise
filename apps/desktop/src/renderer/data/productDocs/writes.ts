@@ -14,6 +14,7 @@ import type {
 } from "../types";
 import { can, viewerFor } from "../viewer";
 import { forbidden, invalid, notFound, writer } from "../writer";
+import { emitPresenceChanged, emitProductPage } from "./events";
 import { followAs } from "./follows";
 import { childrenOf, productPageById, productPageRef, productPagesOf } from "./reads";
 import { recordRevision } from "./revisions";
@@ -25,7 +26,9 @@ import { recordRevision } from "./revisions";
 // o col modulo spento sono identici), `forbidden` senza `docs.edit`,
 // `invalid: <cosa>` per l'input — e solo dopo lo stato: dopo un rifiuto lo
 // stato è intatto. Le forme `…As` sono sincrone, per chi ha già passato il
-// cancello (i copioni, e nel 11b Claude «per conto di»).
+// cancello (i copioni, e nel 11b Claude «per conto di»). Ogni scrittura che
+// cambia una pagina lo dice ai suoi iscritti (Task 5): `blocks` per corpo,
+// titolo e posto, `gone` per l'eliminazione.
 
 /** Il progetto in cui si scrive: chi agisce ne legge i Docs e li scrive. */
 function editableProject(me: string, projectId: string): void {
@@ -133,6 +136,7 @@ export function renameProductPageAs(me: string, pageId: string, title: string): 
   page.updatedAt = now();
   page.updatedById = me;
   recordRevision(me, page.id, [], { kind: "rename", title: { before, after } });
+  emitProductPage(page.id, "blocks");
   return copy(page);
 }
 
@@ -166,13 +170,15 @@ export async function moveProductPage(
     page.updatedById = me;
     recordRevision(me, page.id, [], { kind: "move", parent: { beforeId, afterId: parentId } });
   }
+  emitProductPage(page.id, "blocks");
   return copy(page);
 }
 
 /**
  * Elimina una pagina senza sottopagine (`invalid: has_children`): via la
- * pagina, le sue revisioni, chi la segue e i suoi commenti (la presenza la
- * toglie chi la introduce, Task 5: ruling P10). Il codice non si riusa, e
+ * pagina, le sue revisioni, chi la segue, i suoi commenti e chi c'è dentro
+ * (Task 5, ruling P10: gli iscritti ricevono `gone`, e un copione in corso
+ * si ferma al passo dopo). Il codice non si riusa, e
  * gli id dei suoi blocchi restano dati; una citazione della pagina si legge
  * come una pagina che non c'è, e una notifica di menzione come un commento
  * che non c'è più (`objectGone`, a lettura).
@@ -185,7 +191,12 @@ export async function deleteProductPage(pageId: string): Promise<void> {
   state.productRevisions = state.productRevisions.filter((r) => r.pageId !== page.id);
   state.productFollows = state.productFollows.filter((f) => f.pageId !== page.id);
   state.productComments = state.productComments.filter((c) => c.pageId !== page.id);
+  const present = state.productPresence.length;
+  state.productPresence = state.productPresence.filter((p) => p.pageId !== page.id);
   renumber(childrenOf(page.projectId, page.parentId));
+  emitProductPage(page.id, "gone");
+  // Chi aspetta una sezione libera (`onProductPresence`, il 11b) riprova.
+  if (state.productPresence.length !== present) emitPresenceChanged(page.id);
 }
 
 // --- il corpo ----------------------------------------------------------------
@@ -289,6 +300,7 @@ export function writeProductBlocksAs(
           console.error("onAnchorsMerged: a listener failed", error);
         }
       }
+  emitProductPage(page.id, "blocks");
   return copy(page);
 }
 

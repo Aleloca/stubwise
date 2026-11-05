@@ -2,6 +2,7 @@ import { visitSteps } from "../../domain/automations/fields";
 import { forgetSecret } from "../admin/secrets";
 import { writeAccess } from "../access/index";
 import type { Project } from "../model";
+import { emitPresenceChanged, emitProductPage } from "../productDocs/events";
 import { now, reindex, state } from "../store";
 import { notConfiguredWebhook } from "./repositories";
 
@@ -152,6 +153,12 @@ export function purgeProject(project: Project, me: string): number {
   // Le righe del progetto e dei suoi figli, in ogni tabella.
   dropRows(id, gone);
   state.automationRuns = state.automationRuns.filter((r) => !runIds.has(r.id));
+  // Chi ha aperta una pagina di prodotto del progetto la vede andarsene, come
+  // con «Delete page» (area 11a, Task 5); le presenze sono già andate con `pageId`.
+  for (const pageId of gone.pageId) {
+    emitProductPage(pageId, "gone");
+    emitPresenceChanged(pageId);
+  }
 
   // I riferimenti al progetto nelle righe che restano.
   for (const c of state.conversations) {

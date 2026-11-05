@@ -127,6 +127,7 @@ import type {
   DocPage,
   DocSpace,
   ProductComment,
+  ProductPresence,
   ProductFollow,
   ProductPage,
   ProductRevision,
@@ -410,6 +411,10 @@ export type ApiFnName =
   | "productDocs.resolveProductComment"
   | "productDocs.reopenProductComment"
   | "productDocs.productMentionCandidates"
+  | "productDocs.joinProductPage"
+  | "productDocs.leaveProductPage"
+  | "productDocs.setProductPresence"
+  | "productDocs.getProductPresence"
   // Drive (area 5)
   | "drive.listDriveFiles"
   | "drive.getDriveFile"
@@ -1055,6 +1060,12 @@ interface State {
    * `CHILD_KEYS`, con il progetto (ruling P13).
    */
   productComments: ProductComment[];
+  /**
+   * Chi è in quale pagina di prodotto adesso (Task 5): una riga per persona
+   * e pagina. Non è nel seme (la portano i copioni e chi apre la pagina), e
+   * con `pageId` va via con la pagina e con il progetto (ruling P13).
+   */
+  productPresence: ProductPresence[];
   // --- Drive (area 5) ---
   driveFiles: DriveFile[];
   /** Le aperture contate, in ordine di tempo. */
@@ -1306,6 +1317,7 @@ function freshState(): State {
     productFollows: PRODUCT_FOLLOWS.map(copy),
     productBlockIds: productSeedBlockIds(),
     productComments: PRODUCT_COMMENTS.map(copy),
+    productPresence: [],
     driveFiles: DRIVE_FILES.map(copy),
     driveOpens: DRIVE_OPENS.map(copy),
     googleAccounts: GOOGLE_ACCOUNTS.map(copy),
