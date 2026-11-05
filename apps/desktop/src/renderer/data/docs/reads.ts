@@ -1,5 +1,6 @@
 import { buildDocTree } from "../../domain/docs";
 import { fold, searchWords } from "../../pages/chat/search";
+import { lastChangeOf } from "../productDocs/lastChange";
 import { copy, gate, state, visibleProjectIds } from "../store";
 import type {
   DocKind,
@@ -219,7 +220,7 @@ export async function getProjectDocsHome(projectId: string): Promise<ProjectDocs
     ),
     product: {
       pageCount: productPages.length,
-      updatedAt: productPages.map((p) => p.updatedAt).sort().at(-1) ?? null,
+      updatedAt: productPages.map((p) => lastChangeOf(p).at).sort().at(-1) ?? null,
       canEdit: can(viewerFor(me), "docs.edit", projectId),
     },
   };

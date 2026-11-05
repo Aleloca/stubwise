@@ -3,6 +3,7 @@ import { buildProductTree, flattenTree } from "../../domain/productDocs/tree";
 import { visiblePeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
 import { driveFileFor } from "../drive/visibility";
+import { lastChangeOf, lastRevisionOf } from "./lastChange";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, state, visibleProjectIds } from "../store";
 import type {
@@ -34,6 +35,7 @@ export const readableProductPages = (me: string): ProductPage[] =>
   state.productPages.filter((p) => docsAccess(me, p.projectId) === "read");
 
 export function productPageRef(page: ProductPage): ProductPageRef {
+  const last = lastChangeOf(page);
   return {
     id: page.id,
     code: page.code,
@@ -42,8 +44,8 @@ export function productPageRef(page: ProductPage): ProductPageRef {
     order: page.order,
     title: page.title,
     excerpt: excerptOfBlocks(page.blocks),
-    updatedAt: page.updatedAt,
-    updatedById: page.updatedById,
+    updatedAt: last.at,
+    updatedById: last.byId,
   };
 }
 
@@ -57,7 +59,7 @@ export const childrenOf = (projectId: string, parentId: string | null): ProductP
     .sort((a, b) => a.order - b.order || a.code.localeCompare(b.code, "en", { numeric: true }));
 
 /** Le pagine più recenti prima; a pari data il codice più alto (la più nuova). */
-const byRecent = (a: ProductPage, b: ProductPage) =>
+const byRecent = (a: ProductPageRef, b: ProductPageRef) =>
   b.updatedAt.localeCompare(a.updatedAt) || b.code.localeCompare(a.code, "en", { numeric: true });
 
 /** Lo spazio Prodotto di un progetto; `null` dove non esiste per chi guarda, `forbidden` senza `docs.view`. */
@@ -73,7 +75,7 @@ export async function getProductSpace(projectId: string): Promise<ProductSpaceVi
     projectCode: project.code,
     tree: buildProductTree(pages.map(productPageRef)),
     pageCount: pages.length,
-    recent: [...pages].sort(byRecent).slice(0, 5).map(productPageRef),
+    recent: pages.map(productPageRef).sort(byRecent).slice(0, 5),
     permissions: { edit: can(viewerFor(me), "docs.edit", projectId) },
   };
 }
@@ -204,12 +206,4 @@ function followersVisibleTo(me: string, page: ProductPage): { id: string; name: 
     const person = PEOPLE.find((p) => p.id === f.personId);
     return person ? [{ id: person.id, name: person.name }] : [];
   });
-}
-
-/** L'ultima revisione della pagina (per `lastSeq`, ruling P12). */
-function lastRevisionOf(pageId: string): { at: string; actorId: string } | null {
-  let last: { lastSeq: number; at: string; actorId: string } | null = null;
-  for (const r of state.productRevisions)
-    if (r.pageId === pageId && (!last || r.lastSeq > last.lastSeq)) last = r;
-  return last ? { at: last.at, actorId: last.actorId } : null;
 }

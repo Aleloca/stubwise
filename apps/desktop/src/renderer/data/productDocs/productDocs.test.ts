@@ -4,7 +4,7 @@ import { docs, productDocs, projectSettings, resetApi, setLatency } from "../api
 import type { ProductBlock } from "../model";
 import { CLAUDE_ID } from "../seed/people";
 import { setSessionPersonId } from "../session";
-import { emptyStore, state, visibleProjectIds } from "../store";
+import { advanceNow, emptyStore, state, visibleProjectIds } from "../store";
 import { revokeProjectPermission } from "../viewer";
 
 // Lo spazio Prodotto nel livello dati (area 11a, Task 2): letture, scritture
@@ -767,6 +767,44 @@ describe("la pagina iniziale dei Docs", () => {
     });
     as(SARA);
     expect((await docs.getProjectDocsHome(ACQ))!.product).toMatchObject({ canEdit: false });
+  });
+
+  // Revisione finale F5: «Updated … by …» di recenti, indice e Docs dice
+  // l'ultima revisione, come la meta della pagina; uno spostamento di soli
+  // blocchi non è una revisione.
+  it("uno spostamento di soli blocchi non cambia l'ultimo autore né la data; una modifica vera sì", async () => {
+    const { payments } = await featuresAndPayments();
+    const first = payments.blocks[0]!.id;
+    await productDocs.saveProductBlocks(
+      payments.id,
+      [{ op: "insert", afterId: first, block: para("b-two", "Two") }],
+      { sessionId: "s-laura" },
+    );
+    const recentOf = async () =>
+      (await productDocs.getProductSpace(ACQ))!.recent.find((r) => r.id === payments.id)!;
+    const before = await recentOf();
+    const homeBefore = (await docs.getProjectDocsHome(ACQ))!.product.updatedAt;
+    expect(before.updatedById).toBe(LAURA);
+    advanceNow(60_000);
+    as(MARCO);
+    await productDocs.saveProductBlocks(payments.id, [{ op: "move", blockId: "b-two", afterId: null }], {
+      sessionId: "s-marco",
+    });
+    expect(await recentOf()).toMatchObject({ updatedById: LAURA, updatedAt: before.updatedAt });
+    expect((await docs.getProjectDocsHome(ACQ))!.product.updatedAt).toBe(homeBefore);
+    // L'indice (l'albero) dice lo stesso.
+    const flat = JSON.stringify((await productDocs.getProductSpace(ACQ))!.tree);
+    expect(flat).toContain(`"code":"${payments.code}","projectId":"${ACQ}","parentId":"${payments.parentId}"`);
+    const node = flat.slice(flat.indexOf(`"id":"${payments.id}"`));
+    expect(node.slice(0, node.indexOf("}"))).toContain(`"updatedById":"${LAURA}"`);
+    // Una modifica vera di Marco: sì.
+    await productDocs.saveProductBlocks(payments.id, [{ op: "set", block: para("b-two", "Two, edited") }], {
+      sessionId: "s-marco",
+    });
+    const after = await recentOf();
+    expect(after.updatedById).toBe(MARCO);
+    expect(after.updatedAt > before.updatedAt).toBe(true);
+    expect((await docs.getProjectDocsHome(ACQ))!.product.updatedAt).toBe(after.updatedAt);
   });
 });
 
