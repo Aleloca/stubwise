@@ -31,6 +31,22 @@ export const TEMPLATE_STATUSES: Record<ProjectTemplate, { name: string; family: 
     ],
   };
 
+/**
+ * Il posto di ogni modulo nell'elenco di un progetto. Un `Record` su tutta
+ * l'unione: un modulo nuovo senza il suo posto non compila.
+ */
+const MODULE_RANK: Record<ProjectModule, number> = {
+  docs: 0,
+  releases: 1,
+  support: 2,
+  servers: 3,
+};
+
+/** I moduli nell'ordine in cui un progetto li elenca (quello di `TEMPLATE_MODULES`). */
+export const MODULE_ORDER: readonly ProjectModule[] = (
+  Object.keys(MODULE_RANK) as ProjectModule[]
+).sort((a, b) => MODULE_RANK[a] - MODULE_RANK[b]);
+
 /** I moduli accesi alla creazione, per modello. */
 export const TEMPLATE_MODULES: Record<ProjectTemplate, ProjectModule[]> = {
   software: ["docs", "releases", "support", "servers"],

@@ -121,7 +121,9 @@ export async function getProductPage(code: string): Promise<ProductPageView | nu
     permissions: {
       edit,
       delete: edit && !hasChildren,
-      deleteBlocked: hasChildren ? "has_children" : null,
+      // La regola vale solo per chi potrebbe eliminare: senza `docs.edit` il
+      // bottone è spento per il permesso (con «Who?»), non per le sottopagine.
+      deleteBlocked: edit && hasChildren ? "has_children" : null,
     },
     following: state.productFollows.some((f) => f.pageId === page.id && f.personId === me),
     decisions,

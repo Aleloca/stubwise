@@ -276,10 +276,17 @@ export function writeProductBlocksAs(
     undoOf: meta.undoOf,
     sessionId: meta.sessionId,
   });
+  // La scrittura è già fatta: un ascoltatore che lancia non la fa fallire né
+  // toglie la sua parte agli altri (lo si dice in console, non si tace).
   for (const change of changes)
     if (change.mergedFrom)
-      for (const fn of anchorListeners)
-        fn(page.id, change.mergedFrom.anchorId, change.blockId, change.mergedFrom.offset);
+      for (const fn of anchorListeners) {
+        try {
+          fn(page.id, change.mergedFrom.anchorId, change.blockId, change.mergedFrom.offset);
+        } catch (error) {
+          console.error("onAnchorsMerged: a listener failed", error);
+        }
+      }
   return copy(page);
 }
 

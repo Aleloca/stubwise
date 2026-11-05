@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { plain } from "../../domain/productDocs/richText";
 import { docs, productDocs, projectSettings, resetApi, setLatency } from "../api";
 import type { ProductBlock } from "../model";
@@ -122,6 +122,12 @@ describe("chi legge senza scrivere", () => {
     expect(space.pageCount).toBe(2);
     const page = (await productDocs.getProductPage(payments.code))!;
     expect(page.permissions).toEqual({ edit: false, delete: false, deleteBlocked: null });
+    // Con sottopagine: senza docs.edit il bottone è spento per il permesso, non per la regola.
+    expect((await productDocs.getProductPage(features.code))!.permissions).toEqual({
+      edit: false,
+      delete: false,
+      deleteBlocked: null,
+    });
     const blockId = payments.blocks[0]!.id;
 
     await rejects(productDocs.createProductPage(ACQ, { title: "Mine" }), "forbidden");
@@ -373,6 +379,42 @@ describe("i blocchi", () => {
   });
 });
 
+describe("chi tiene ancore e lancia", () => {
+  it("un ascoltatore che lancia non fa fallire una scrittura già fatta; gli altri lo sentono", async () => {
+    const { payments } = await featuresAndPayments();
+    const first = payments.blocks[0]!.id;
+    await productDocs.saveProductBlocks(
+      payments.id,
+      [
+        { op: "set", block: para(first, "Hello ") },
+        { op: "insert", afterId: first, block: para("b-second", "world") },
+      ],
+      { sessionId: "s1" },
+    );
+    const heard: string[] = [];
+    const stopBad = productDocs.onAnchorsMerged(() => {
+      throw new Error("listener broke");
+    });
+    const stopGood = productDocs.onAnchorsMerged((_p, from) => heard.push(from));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const page = await productDocs.saveProductBlocks(
+        payments.id,
+        [{ op: "merge", firstId: first, secondId: "b-second" }],
+        { sessionId: "s1" },
+      );
+      expect(page.blocks).toEqual([para(first, "Hello world")]);
+      expect(logged).toHaveBeenCalledTimes(1);
+    } finally {
+      stopBad();
+      stopGood();
+      logged.mockRestore();
+    }
+    expect(heard).toEqual(["b-second"]);
+    expect(state.productPages.find((p) => p.id === payments.id)!.blocks).toHaveLength(1);
+  });
+});
+
 describe("rinominare, spostare, eliminare", () => {
   it("rinominare scrive una revisione rename; un titolo vuoto è invalid: title", async () => {
     const { payments } = await featuresAndPayments();
@@ -472,8 +514,11 @@ describe("chi segue", () => {
     await productDocs.unfollowProductPage(payments.id);
     expect(productDocs.followersOf(payments.id)).toEqual([]);
     const recipients = productDocs.productDocRecipients(payments.id);
-    expect(recipients).toContain(LAURA);
-    expect(recipients).toContain(MARCO);
+    // Chi legge i Docs di ACQ e li scrive: i membri con docs.edit e Roberta
+    // (full admin, membro implicito). Sara (Contributor) e Claude no.
+    expect([...recipients].sort()).toEqual(
+      ["p-davide", "p-federico", LAURA, MARCO, "p-matteo", "p-roberta"].sort(),
+    );
     expect(recipients).not.toContain(SARA);
     expect(recipients).not.toContain(CLAUDE_ID);
   });

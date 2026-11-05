@@ -18,7 +18,7 @@ import { productPageById } from "./reads";
 // L'unione: una scrittura di blocchi si aggiunge all'ultima revisione della
 // pagina se quella ha la stessa `sessionId`, lo stesso `actorId`, nessun
 // `via` e `kind: "edit"` (e la scrittura nuova è anch'essa un `edit` senza
-// `via`). Per blocco resta il primo `before` e l'ultimo `after`; un blocco
+// `via`, `source`, `groupId` né `undoOf`). Per blocco resta il primo `before` e l'ultimo `after`; un blocco
 // tornato com'era esce dai cambi. Le ancore toccate si ricalcolano fra quei
 // due estremi.
 
@@ -84,6 +84,10 @@ export function recordRevision(
   const joins =
     fields.kind === "edit" &&
     fields.via === undefined &&
+    // Una fonte, un gruppo o un annullamento sono della SINGOLA scrittura: unita, li perderebbe.
+    fields.source === undefined &&
+    fields.groupId === undefined &&
+    fields.undoOf === undefined &&
     fields.sessionId !== undefined &&
     last !== undefined &&
     last.kind === "edit" &&

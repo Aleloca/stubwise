@@ -143,6 +143,31 @@ describe("l'unione per sessione", () => {
   });
 });
 
+describe("una scrittura con source, groupId o undoOf non si unisce", () => {
+  it("nella stessa sessione nasce una revisione nuova, che tiene i suoi campi", async () => {
+    const { page: p, a } = await page();
+    await productDocs.saveProductBlocks(p.id, [{ op: "set", block: para(a, "One") }], {
+      sessionId: "s-laura",
+    });
+    const metas = [
+      { source: { kind: "email" as const, id: "mail-1" } },
+      { groupId: "grp-1" },
+      { undoOf: "prev-1" },
+    ];
+    metas.forEach((meta, i) =>
+      productDocs.writeProductBlocksAs(LAURA, p.id, [{ op: "set", block: para(a, `Two ${i}`) }], {
+        sessionId: "s-laura",
+        ...meta,
+      }),
+    );
+    const laura = editsOf(p.id).filter((r) => r.sessionId === "s-laura");
+    expect(laura).toHaveLength(4);
+    expect(laura[1]).toMatchObject(metas[0]!);
+    expect(laura[2]).toMatchObject(metas[1]!);
+    expect(laura[3]).toMatchObject(metas[2]!);
+  });
+});
+
 describe("touchedAfter", () => {
   it("la revisione di Marco dopo seq su quell'ancora; null se dopo hanno toccato solo altre ancore", async () => {
     const { page: p, a, b } = await page();

@@ -1,6 +1,6 @@
 import { recordChange } from "../changelog/index";
 import { encodeSwitch } from "../changelog/settingValues";
-import type { ProjectModule } from "../model";
+import { MODULE_ORDER } from "../../domain/templates";
 import { writer } from "../writer";
 import { managedProject, projectObject, refuse } from "./common";
 import type { ProjectResult } from "./types";
@@ -65,9 +65,6 @@ export function updateProjectGeneralAs(
     });
   return { ok: true };
 }
-
-/** L'ordine dei moduli di un progetto, come li accende un modello (`TEMPLATE_MODULES`). */
-const MODULE_ORDER: readonly ProjectModule[] = ["docs", "releases", "support", "servers"];
 
 /**
  * L'interruttore «Docs» di General (area 11a, Q4): spento nasconde i Docs e
