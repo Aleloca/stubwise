@@ -940,12 +940,15 @@ describe("area 10b: la prova col filtro dell'inizio (D3)", () => {
     // Non è arrivata alla fine: la riga «End» non ha la spunta.
     expect(row("end")).toHaveAccessibleName("End, Not reached yet");
     expect(document.querySelector("[data-test-final]")).toBeNull();
-    // [AU 10]: niente «Turn on», «Change example» è il primario della testata.
+    // [AU 10]: niente «Turn on». Un solo primario sullo schermo (Impeccable 7):
+    // «Change example» è secondario nella testata, primario nel riepilogo
+    // accanto a «Try an example that matches the start filter».
     expect(document.querySelector("[data-finish-action]")).toBeNull();
     expect(document.querySelector("[data-test-again]")).toBeNull();
     const controls = screen.getByRole("group", { name: "Test controls" });
     const change = within(controls).getByRole("button", { name: "Change example" });
-    expect(change.className).toContain("bg-ink");
+    expect(change.className).not.toMatch(/(^|\s)bg-ink(\s|$)/);
+    expect(change.className).toContain("border-rule-strong");
     // I2: lo stesso comando, primario, anche nel riepilogo (a 1024 il pannello copre la testata).
     expect(within(summary).getByRole("button", { name: "Change example" }).className).toContain(
       "bg-ink",

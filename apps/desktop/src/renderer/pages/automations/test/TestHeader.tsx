@@ -109,11 +109,13 @@ export function TestHeader(p: TestHeaderProps) {
                 {t("automations.test.commands.again")}
               </button>
             )}
+            {/* Secondario: il primario è nel riepilogo, accanto a «Try an example
+                that matches…» — un solo primario sullo schermo (Impeccable 7). */}
             {p.changeExamplePrimary && p.onChangeExample && (
               <button
                 type="button"
                 data-change-example
-                className={`${primaryButton} disabled:opacity-40`}
+                className={`${secondaryButton} disabled:opacity-40`}
                 disabled={p.busy}
                 onClick={p.onChangeExample}
               >
