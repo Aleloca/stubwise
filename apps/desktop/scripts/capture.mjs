@@ -185,6 +185,187 @@ async function main() {
       return;
     }
 
+    // Area 11a, Task 10 (`CAPTURE_A11A_COMMENTS=1`): commenti, cronologia e
+    // «Segui». Laura su Sign-in (la colonna aperta da sola, col filo e la
+    // risposta di Marco; «Comment» su «Google account» con «@Mar» e il menu
+    // delle persone), Bills coi due fili risolti aperti, Phases col filo
+    // «Sentence deleted», Sara che legge Sign-in, la cronologia di Sign-in
+    // (un grassetto di Laura, «Formatting changed», e la riga di Marco con
+    // Before/After), Sara su Bills dopo «Follow», la card della menzione di
+    // Marco e la sua variante «non più disponibile». A 1024 la colonna è
+    // sovrapposta. Scatti `a11a-comments-*`.
+    if (process.env.CAPTURE_A11A_COMMENTS) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const SIGNIN = "/p/ACQ/docs/product/ACQ-D5";
+      const commentsRegion = (page) => page.getByRole("region", { name: /^(Comments|Commenti)$/ });
+      const scenes = [
+        {
+          name: "column",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await commentsRegion(page).getByRole("article").first().waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "mention",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            // A 1024 la colonna sovrapposta copre la lettura: si chiude, e «Comment» la riapre.
+            const overlay = page.locator('[data-product-side="overlay"]');
+            if (await overlay.isVisible()) await overlay.getByRole("button", { name: /^(Close comments|Chiudi i commenti)$/ }).click();
+            await page.locator('[data-block-text="blk-acq-signin-2"]').click();
+            await page.locator("[data-editing]").waitFor();
+            await page.keyboard.press("Home");
+            for (let i = 0; i < 29; i++) await page.keyboard.press("ArrowRight");
+            for (let i = 0; i < 14; i++) await page.keyboard.press("Shift+ArrowRight");
+            await page.getByRole("toolbar").getByRole("button", { name: /^(Comment|Commenta)$/ }).click();
+            const box = commentsRegion(page).getByRole("combobox", { name: /^(Add a comment|Aggiungi un commento)/ });
+            await box.waitFor();
+            await box.type("@Mar");
+            await page.getByRole("listbox").waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "resolved",
+          hash: "/p/ACQ/docs/product/ACQ-D6",
+          persona: "Laura",
+          run: async (page) => {
+            await page.evaluate(async () => {
+              const api = await import("/data/api.ts");
+              const p = api.productDocs.productPageByCode("ACQ-D6");
+              const anchor = p.blocks.find((b) => b.type === "paragraph").id;
+              const c = api.productDocs.addProductCommentAs("p-matteo", p.id, {
+                anchorId: anchor,
+                quote: "",
+                body: "Do we show the due date in the subject line too?",
+              });
+              const store = await import("/data/store.ts");
+              store.state.productComments.find((x) => x.id === c.id).resolved = { byId: "p-laura", at: c.createdAt };
+            });
+            await page.evaluate(() => {
+              window.location.hash = "/p/ACQ/docs/product/ACQ-D5";
+            });
+            await page.getByRole("heading", { level: 1, name: "Sign-in" }).waitFor();
+            await page.evaluate(() => {
+              window.location.hash = "/p/ACQ/docs/product/ACQ-D6";
+            });
+            await page.getByRole("heading", { level: 1, name: "Bills" }).waitFor();
+            const region = commentsRegion(page);
+            if (!(await region.isVisible())) await page.getByRole("button", { name: /^(Comments|Commenti)/ }).click();
+            await region.getByRole("button", { name: /^2 (resolved|risolti)$/ }).click();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "deleted",
+          hash: "/p/ACQ/docs/product/ACQ-D11",
+          persona: "Laura",
+          run: async (page) => {
+            await commentsRegion(page).getByText(/Sentence deleted|Frase eliminata/).waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "reader",
+          hash: SIGNIN,
+          persona: "Sara",
+          run: async (page) => {
+            await commentsRegion(page).getByRole("article").first().waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "history",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await page.evaluate(async () => {
+              const api = await import("/data/api.ts");
+              const p = api.productDocs.productPageByCode("ACQ-D5");
+              const b = p.blocks.find((x) => x.id === "blk-acq-signin-4");
+              api.productDocs.writeProductBlocksAs(
+                "p-laura",
+                p.id,
+                [{ op: "set", block: { ...b, content: { ...b.content, marks: [{ type: "bold", start: 0, end: 4 }] } } }],
+                {},
+              );
+            });
+            await page.waitForTimeout(400);
+            await page.getByRole("button", { name: /^(History|Cronologia)$/ }).click();
+            const list = page.getByRole("listbox");
+            await list.waitFor();
+            await list.getByRole("option").nth(0).click();
+            await list.getByRole("option").nth(1).click();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "follow",
+          hash: "/p/ACQ/docs/product/ACQ-D6",
+          persona: "Sara",
+          run: async (page) => {
+            await page.getByRole("button", { name: /^(Follow|Segui)\b/ }).first().click();
+            await page.waitForTimeout(500);
+          },
+        },
+        {
+          name: "mention-card",
+          hash: "/home",
+          persona: "Marco",
+          run: async (page) => {
+            await page.getByRole("button", { name: /^(Notifications|Notifiche)/ }).click();
+            const card = page.getByRole("dialog").getByText(/mentioned you in|ti ha menzionato in/).first();
+            await card.waitFor();
+            await card.scrollIntoViewIfNeeded();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "mention-card-gone",
+          hash: "/home",
+          persona: "Marco",
+          run: async (page) => {
+            await page.evaluate(async () => {
+              const store = await import("/data/store.ts");
+              store.state.productComments = store.state.productComments.filter((c) => !c.id.startsWith("pc-acq-signin"));
+            });
+            await page.getByRole("button", { name: /^(Notifications|Notifiche)/ }).click();
+            const card = page.getByRole("dialog").getByText(/A comment you were mentioned in|Un commento in cui eri menzionato/).first();
+            await card.waitFor();
+            await card.scrollIntoViewIfNeeded();
+            await page.waitForTimeout(300);
+          },
+        },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a11a-comments-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          await page.getByRole("heading", { level: 1 }).first().waitFor();
+          await page.waitForTimeout(600);
+          if (scene.run) await scene.run(page);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 11a, Task 9 (`CAPTURE_A11A_BLOCKS=1`): i blocchi del design e dei
     // collegamenti. Laura su Screens (un'immagine con la didascalia, una con
     // la didascalia vuota, un'immagine da 6 MB rifiutata), Overview (il file
