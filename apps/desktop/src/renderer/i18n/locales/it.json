@@ -12232,7 +12232,7 @@
       "writingIn": "{{name}} · scrive in {{section}}",
       "more_one": "+{{count}} altra persona: {{names}}",
       "more_other": "+{{count}} altre persone: {{names}}",
-      "joined": "{{name}} è arrivato",
+      "joined": "{{name}} è nella pagina",
       "writingHere_one": "{{names}} sta scrivendo qui",
       "writingHere_other": "{{names}} stanno scrivendo qui"
     }

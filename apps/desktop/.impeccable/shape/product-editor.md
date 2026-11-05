@@ -318,7 +318,10 @@ blocchi scalano da h2 **[PE 3]**.
   nel colore della persona, sovrapposti di 4px; al più 4 e «+N». `title` e
   nome accessibile: «Marco Bellini · writing in Rules» / «Marco Bellini ·
   scrive in Rules», o «Matteo Conti · reading» / «Matteo Conti · legge»
-  **[PE 16]**. Entrano e escono in dissolvenza 150ms.
+  **[PE 16]**. Entrano e escono in dissolvenza 150ms. *Emendamento del
+  controller (5 nov 2026, Task 11 fix round 1): la sovrapposizione è di
+  **2 px**, non 4: con 4 px (più il filetto di fondo) la seconda iniziale
+  restava coperta.*
 - **Cursore altrui** nel testo letto: barra 2px nel colore della persona,
   alta la riga, all'offset; sopra, l'**etichetta col nome** (12px 600,
   fondo nel colore della persona, testo a contrasto ≥ 4.5:1, raggio 4). Il

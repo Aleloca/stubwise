@@ -28,7 +28,7 @@ import { BlockBody, ReadOnlyBody, blockLabel, layoutOf, numbersOf, textClassOf }
 import { useProductSpaceContext } from "../parts";
 import { CommentMark } from "../comments/CommentMark";
 import { useCommentGesture } from "../comments/SelectionCommentButton";
-import { RemoteBlockNote } from "../live/RemoteBlockNote";
+import { LiveNoteRegion, RemoteBlockNote } from "../live/RemoteBlockNote";
 import { RemoteCursors } from "../live/RemoteCursor";
 import { useSendPresence } from "../live/useSendPresence";
 import { BlockHandle } from "./BlockHandle";
@@ -243,17 +243,25 @@ function WritableBody({
   // Uscire dalla pagina (o cambiare persona) salva ciò che resta.
   useEffect(() => () => flush(), [flush]);
 
+  // La cella di tabella col fuoco (le celle hanno il loro fuoco, in `TableBlock`):
+  // anche lì chi guarda scrive, e gli altri non devono leggerlo come «reading».
+  const [cellFocus, setCellFocus] = useState<{ id: string; start: number; end: number } | null>(null);
+
   // Dove scrive chi guarda, per gli altri: lo scarto entro la frase salvata
-  // (una bozza più lunga non è ancora sul «server»).
-  const savedLength = focus ? (anchorText(session.blocks, focus.id)?.length ?? 0) : 0;
+  // (una bozza più lunga non è ancora sul «server»). Nel blocco tenuto
+  // ([PE 18]) lo scarto è contato sulla frase disegnata, che può non essere
+  // quella vera: limitato alla sua lunghezza, il cursore che vedono gli altri
+  // è approssimato finché non si esce dal blocco.
+  const here = focus ?? cellFocus;
+  const savedLength = here ? (anchorText(session.blocks, here.id)?.length ?? 0) : 0;
   useSendPresence(
     page.id,
-    focus
+    here
       ? {
-          anchorId: focus.id,
-          offset: Math.min(focus.end, savedLength),
+          anchorId: here.id,
+          offset: Math.min(here.end, savedLength),
           selection:
-            focus.start !== focus.end ? [Math.min(focus.start, savedLength), Math.min(focus.end, savedLength)] : null,
+            here.start !== here.end ? [Math.min(here.start, savedLength), Math.min(here.end, savedLength)] : null,
         }
       : null,
   );
@@ -492,6 +500,7 @@ function WritableBody({
       else sessionRef.current.redo();
     },
     touch: () => sessionRef.current.touch(),
+    focusCell: setCellFocus,
   });
 
   // --- il disegno ------------------------------------------------------------
@@ -820,6 +829,7 @@ function WritableBody({
           if (id && files.length > 0) addImages(files.slice(0, 1), { replaceId: id });
         }}
       />
+      <LiveNoteRegion people={focus ? writersIn(others, focus.id) : []} />
       {showBar && focusedText && (
         <SelectionBar
           content={focusedText.content}

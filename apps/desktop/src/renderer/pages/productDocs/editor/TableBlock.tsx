@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProductBlock, RichText } from "../../../data/types";
 import { makeBlockId } from "../../../domain/productDocs/blocks";
@@ -46,6 +46,8 @@ export interface TableEditing {
   touch(): void;
   /** Le immagini incollate in una cella: vanno sotto la tabella. */
   images(files: File[]): void;
+  /** La cella col fuoco e il cursore (`null` = nessuna): la presenza di chi scrive (Task 11). */
+  focusCell(at: { id: string; start: number; end: number } | null): void;
 }
 
 interface CellFocus extends Selection {
@@ -123,6 +125,12 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
     setFocus(null);
     editingRef.current.exit(dir);
   };
+
+  // La cella col fuoco va all'editor, che la manda agli altri come presenza.
+  useEffect(() => {
+    editingRef.current.focusCell(focus ? { id: focus.id, start: focus.start, end: focus.end } : null);
+  }, [focus?.id, focus?.start, focus?.end]);
+  useEffect(() => () => editingRef.current.focusCell(null), []);
 
   const handlers: RichBlockHandlers = {
     enter(id, sel) {

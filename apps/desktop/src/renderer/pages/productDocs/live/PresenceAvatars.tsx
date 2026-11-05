@@ -10,7 +10,7 @@ import { presenceColor } from "./presenceColor";
 // salvataggio (shape product-editor.md §3.13, [PE 16]): gli ALTRI presenti
 // (mai chi guarda: la sua presenza conta per il segnale della sezione, non
 // qui), 24 px, iniziali 11 px 600, anello di 2 px nel colore della persona,
-// sovrapposti di 4 px; al più quattro e «+N». Il nome sempre nel `title` e
+// sovrapposti di 2 px (emendamento del controller, 5 nov 2026); al più quattro e «+N». Il nome sempre nel `title` e
 // nel nome accessibile: «Marco Bellini · writing in Rules», «Matteo Conti ·
 // reading». Le persone arrivano da `getProductPresence` (filtrate per chi
 // guarda, R-G5), mai dal segnale di sezione del livello dati, che non lo è. Entrano ed escono in
@@ -79,7 +79,7 @@ export function PresenceAvatars({ page }: { page: ProductPageView }) {
   const fading = leaving.filter((p) => !people.some((q) => q.personId === p.personId));
   return (
     <>
-      <span aria-live="polite" className="sr-only">
+      <span aria-live="polite" data-presence-announce="" className="sr-only">
         {announce}
       </span>
       {(people.length > 0 || fading.length > 0) && (
@@ -99,7 +99,7 @@ export function PresenceAvatars({ page }: { page: ProductPageView }) {
                 names: rest.map(labelOf).join(", "),
               })}
               title={rest.map(labelOf).join("\n")}
-              className="num relative -ml-1 grid size-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--ink)_10%,var(--ground))] text-[11px] font-semibold text-ink-muted ring-2 ring-ground"
+              className="num relative -ml-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--ink)_10%,var(--ground))] text-[11px] font-semibold text-ink-muted ring-2 ring-ground"
             >
               +{rest.length}
             </span>
@@ -130,7 +130,7 @@ function Avatar({
       aria-hidden={gone ? "true" : undefined}
       title={label ?? undefined}
       data-presence-avatar={person.personId}
-      className={`relative grid size-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--ink)_10%,var(--ground))] text-[11px] font-semibold text-ink ${first ? "" : "-ml-1"} ${gone ? "presence-leave" : "event-enter"}`}
+      className={`relative grid size-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--ink)_10%,var(--ground))] text-[11px] font-semibold text-ink ${first ? "" : "-ml-0.5"} ${gone ? "presence-leave" : "event-enter"}`}
       // L'anello di 2 px nel colore della persona, e 1 px di fondo che separa i sovrapposti.
       style={{
         boxShadow: `0 0 0 1px var(--ground), inset 0 0 0 2px ${presenceColor(person.color)}`,

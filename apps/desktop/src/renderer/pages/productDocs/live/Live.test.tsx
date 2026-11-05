@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory } from "@tanstack/react-router";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
@@ -269,8 +269,10 @@ describe("nello stesso blocco ([PE 18], Review Focus 1)", () => {
       expect(state.productPresence.find((p) => p.personId === LAURA)?.anchorId).toBe(SCRIPTED),
     );
 
-    const note = await within(blockEl(SCRIPTED)!).findByText("Marco Bellini is writing here");
-    expect(note.closest("[aria-live]")).toHaveAttribute("aria-live", "polite");
+    await within(blockEl(SCRIPTED)!).findByText("Marco Bellini is writing here");
+    expect(document.querySelector("[data-live-note]")).toHaveTextContent(
+      "Marco Bellini is writing here",
+    );
     // Niente barra di Marco dentro il blocco in modifica.
     expect(blockEl(SCRIPTED)!.querySelector(`[data-remote-cursor="${MARCO}"]`)).toBeNull();
 
@@ -343,10 +345,141 @@ describe("il «vedi come»", () => {
       expect(screen.queryByRole("heading", { level: 1, name: "Meter reading" })).toBeNull(),
     );
     expect(people()).toBeNull();
+    // Ciò che vede davvero: la pagina «non trovata» dello spazio Prodotto, alla lettera.
+    expect(
+      await screen.findByRole("heading", {
+        level: 1,
+        name: "This page doesn't exist or you can't see it",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("It may have been deleted, or it belongs to docs you can't read."),
+    ).toBeInTheDocument();
     const page = document.body.innerHTML.toLowerCase();
     expect(page).not.toContain("matteo");
     expect(page).not.toContain("meter reading");
   });
+});
+
+describe("fix round 1", () => {
+  it("in italiano l'arrivo di una donna si dice «Sara Montanari è nella pagina» (nessun participio)", async () => {
+    act(() => setLanguage("it"));
+    await open();
+    await productDocs.whenProductIdle();
+    await waitFor(() => expect(avatars()).toEqual(["Matteo Conti · legge"]));
+    const region = document.querySelector<HTMLElement>("[data-presence-announce]")!;
+    expect(region).toHaveAttribute("aria-live", "polite");
+    setSessionPersonId(SARA);
+    const joined = productDocs.joinProductPage(METER);
+    setSessionPersonId(LAURA);
+    await joined;
+    await waitFor(() => expect(region.textContent).toBe("Sara Montanari è nella pagina"));
+    // Nessuna frase nuova in italiano ha un participio o un articolo con genere.
+    const it = (await import("../../../i18n/locales/it.json")).default as {
+      productDocs: { live: Record<string, string> };
+    };
+    for (const text of Object.values(it.productDocs.live))
+      expect(text).not.toMatch(/\b(arrivat[oa]|entrat[oa]|uscit[oa]|il|la|lo)\b/i);
+  });
+
+  it("la nota arriva in una regione `polite` che c'era già, vuota, prima della nota", async () => {
+    stall();
+    await open();
+    await steps(5);
+    await waitFor(() => expect(blockEl(SCRIPTED)).toHaveTextContent("Readings sent"));
+    const region = document.querySelector<HTMLElement>("[data-live-note]")!;
+    expect(region).not.toBeNull();
+    expect(region).toHaveAttribute("aria-live", "polite");
+    expect(region.textContent).toBe("");
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(blockEl(SCRIPTED)!.querySelector<HTMLElement>("[data-block-text]")!);
+    await waitFor(() => expect(region.textContent).toBe("Marco Bellini is writing here"));
+    expect(document.querySelector("[data-live-note]")).toBe(region);
+    // La nota visibile non si annuncia una seconda volta.
+    expect(document.querySelector("[data-remote-note]")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("gli avatar si sovrappongono di 2 px (emendamento del controller a [PE 16])", async () => {
+    stall();
+    await open();
+    await steps(5);
+    await waitFor(() => expect(avatars()).toHaveLength(2));
+    const second = document.querySelector<HTMLElement>(`[data-presence-avatar="${MARCO}"]`)!;
+    expect(second.className.split(/\s+/)).toContain("-ml-0.5");
+    expect(second.className.split(/\s+/)).not.toContain("-ml-1");
+  });
+
+  it("chi scrive in una cella di tabella è presente sulla cella (non «reading»)", async () => {
+    await open();
+    await productDocs.whenProductIdle();
+    const cell = body().querySelector<HTMLElement>("[data-table-cell] [role=textbox]")!;
+    const cellId = cell.closest("[data-anchor-id]")!.getAttribute("data-anchor-id");
+    const user = userEvent.setup();
+    await user.click(cell);
+    await waitFor(() =>
+      expect(state.productPresence.find((p) => p.personId === LAURA)?.anchorId).toBe(cellId),
+    );
+    // Marco la vede scrivere nella sezione della tabella.
+    setSessionPersonId(MARCO);
+    const seen = await productDocs.getProductPresence(METER);
+    setSessionPersonId(LAURA);
+    expect(seen.find((p) => p.personId === LAURA)?.anchorId).toBe(cellId);
+  });
+
+  it("Invio senza bozza nel blocco tenuto, dopo che Marco l'ha cambiato: la pagina ha la testa e la coda disegnate, la frase di Marco resta in cronologia", async () => {
+    stall();
+    await open();
+    await steps(5);
+    await waitFor(() => expect(blockEl(SCRIPTED)).toHaveTextContent("Readings sent"));
+    const user = userEvent.setup({ advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+    await user.click(blockEl(SCRIPTED)!.querySelector<HTMLElement>("[data-block-text]")!);
+    await waitFor(() => expect(editing()).not.toBeNull());
+    act(() => placeCaret(editing()!, 9));
+    await steps(6);
+    await waitFor(() => expect(textOf(meter().blocks.find((b) => b.id === SCRIPTED))).toBe(FULL));
+    act(() => {
+      fireEvent.keyDown(editing()!, { key: "Enter" });
+    });
+    await waitFor(() =>
+      expect(textOf(meter().blocks.find((b) => b.id === SCRIPTED))).toBe("Readings "),
+    );
+    const at = meter().blocks.findIndex((b) => b.id === SCRIPTED);
+    expect(textOf(meter().blocks[at + 1])).toBe("sent ");
+    // La frase intera di Marco non si perde: sta in una revisione.
+    const kept = state.productRevisions
+      .filter((r) => r.pageId === METER)
+      .flatMap((r) => r.changes)
+      .some((c) => textOf(c.before ?? undefined) === FULL || textOf(c.after ?? undefined) === FULL);
+    expect(kept).toBe(true);
+  });
+
+  it.each([
+    ["eliminato", (id: string) => [{ op: "delete" as const, blockId: id }]],
+    [
+      "unito al blocco sopra",
+      (id: string) => [{ op: "merge" as const, firstId: "blk-acq-meter-3", secondId: id }],
+    ],
+  ])(
+    "il blocco col fuoco %s da un altro: il fuoco va al blocco vicino, mai sul body",
+    async (_, ops) => {
+      await open();
+      await productDocs.whenProductIdle();
+      const target = "blk-acq-meter-4";
+      const user = userEvent.setup();
+      await user.click(blockEl(target)!.querySelector<HTMLElement>("[data-block-text]")!);
+      await waitFor(() => expect(editing()).not.toBeNull());
+      act(() => {
+        productDocs.writeProductBlocksAs(MARCO, METER, ops(target), { sessionId: "ses-marco" });
+      });
+      await waitFor(() => expect(blockEl(target)).toBeNull());
+      await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+      const active = document.activeElement as HTMLElement;
+      expect(active.closest("[data-block-id]")?.getAttribute("data-block-id")).toBe(
+        "blk-acq-meter-3",
+      );
+      expect(active).toHaveAttribute("data-editing");
+    },
+  );
 });
 
 describe("i confini", () => {
