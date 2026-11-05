@@ -207,4 +207,21 @@ export const DOC_SPACES: DocSpace[] = [
     releases: [],
     graph: { status: "disabled" },
   },
+  // Area 11a: ACQ, mai generato, due pagine scritte a mano (P2).
+  {
+    repositoryId: "repo-acq",
+    projectId: "prj-acq",
+    name: "portale-utenti",
+    generation: {
+      status: "never",
+      lastAt: null,
+      commit: null,
+      costUsd: null,
+      provider: null,
+      reason: null,
+    },
+    brief: null,
+    releases: [],
+    graph: { status: "disabled" },
+  },
 ];

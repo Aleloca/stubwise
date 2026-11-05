@@ -25,6 +25,7 @@ import {
   SEED_MAX_SEQ,
 } from "./seed/claudeActions";
 import { CLOCK_START } from "./seed/dates";
+import { PRODUCT_REVISIONS } from "./seed/productDocs";
 import { nextSeq, state } from "./store";
 import type { ConversationEvent } from "./types";
 
@@ -155,7 +156,9 @@ describe("coerenza degli ordini e delle date", () => {
     ];
     expect(new Set(seqs).size).toBe(seqs.length);
     expect(Math.max(...seqs)).toBe(SEED_MAX_SEQ);
-    expect(nextSeq()).toBe(SEED_MAX_SEQ + 1);
+    // Dall'area 11a lo store parte dal massimo dei `seq` del seme di Claude e
+    // di quello del Prodotto (ruling P4).
+    expect(nextSeq()).toBe(Math.max(SEED_MAX_SEQ, ...PRODUCT_REVISIONS.map((r) => r.lastSeq)) + 1);
   });
 
   it("l'ordine dei `seq` segue quello dei fatti: esecuzione, riga dell'azione, «Annulla»", () => {

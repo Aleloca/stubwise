@@ -3712,6 +3712,18 @@ export interface ProductFollow {
   since: string;
 }
 
+/**
+ * I passi dei copioni del seme (una persona che entra in una pagina, scrive
+ * un paragrafo e se ne va). Il tipo è del 11a (ruling P11): il seme lo
+ * dichiara, il Task 5 lo esegue. L'id del blocco di un `insert` sta FUORI
+ * da `productBlockIds`, altrimenti la scrittura darebbe `block_id_taken`.
+ */
+export type ProductScriptStep =
+  | { step: "enter"; personId: string; anchorId: string | null }
+  | { step: "insert"; personId: string; afterId: string; blockId: string }
+  | { step: "type"; personId: string; anchorId: string; text: string }
+  | { step: "leave"; personId: string };
+
 export interface ProductSpaceView {
   projectId: string;
   projectCode: string;

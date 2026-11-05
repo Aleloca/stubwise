@@ -133,11 +133,11 @@ function stall(t: Task) {
 
 describe("seed: progetti e persone", () => {
   it("ha 50 progetti aperti e uno archiviato (RNC, area 9c), con codici univoci di 2–4 maiuscole", () => {
-    // Area 10b: più i quattro inattivi (ORT, SPZ, LNT, BSC), in fondo.
-    expect(PROJECTS).toHaveLength(55);
+    // Area 10b: più i quattro inattivi (ORT, SPZ, LNT, BSC), in fondo; area 11a: VRD.
+    expect(PROJECTS).toHaveLength(56);
     expect(PROJECTS.filter((p) => p.archived).map((p) => p.code)).toEqual(["RNC"]);
     const codes = PROJECTS.map((p) => p.code);
-    expect(new Set(codes).size).toBe(55);
+    expect(new Set(codes).size).toBe(56);
     for (const c of codes) expect(c).toMatch(/^[A-Z]{2,4}$/);
   });
 

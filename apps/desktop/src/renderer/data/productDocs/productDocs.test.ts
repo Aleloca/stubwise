@@ -13,7 +13,8 @@ import { revokeProjectPermission } from "../viewer";
 // `project.settings.manage`), Sara (Contributor in ACQ: `docs.view` senza
 // `docs.edit`), Marco (Developer in ACQ: `docs.edit`, non gestisce il
 // progetto), Giulia (Project Lead di MKX, che nasce senza il modulo Docs).
-// Il seme del Prodotto è del Task 3: qui le pagine si creano nei test.
+// Il seme del Prodotto (Task 3) ha le nove pagine di ACQ: i test che contano
+// le pagine di ACQ partono da `seedCount()`.
 
 const LAURA = "p-laura";
 const SARA = "p-sara";
@@ -38,6 +39,9 @@ const snapshot = () =>
     ids: [...state.productBlockIds],
     modules: state.projectsById.get(ACQ)!.modules,
   });
+
+/** Le pagine di Prodotto che ACQ ha dal seme. */
+const seedCount = (): number => state.productPages.filter((p) => p.projectId === ACQ).length;
 
 async function rejects(p: Promise<unknown>, message: string): Promise<void> {
   const before = snapshot();
@@ -105,21 +109,26 @@ describe("creare una pagina", () => {
 
   it("l'indice sceglie il posto fra i fratelli", async () => {
     as(LAURA);
+    const roots = state.productPages
+      .filter((p) => p.projectId === ACQ && p.parentId === null)
+      .sort((x, y) => x.order - y.order)
+      .map((p) => p.id);
     const a = await productDocs.createProductPage(ACQ, { title: "A" });
     const b = await productDocs.createProductPage(ACQ, { title: "B" });
     const first = await productDocs.createProductPage(ACQ, { title: "First", index: 0 });
     const space = (await productDocs.getProductSpace(ACQ))!;
-    expect(space.tree.map((n) => n.page.id)).toEqual([first.id, a.id, b.id]);
+    expect(space.tree.map((n) => n.page.id)).toEqual([first.id, ...roots, a.id, b.id]);
   });
 });
 
 describe("chi legge senza scrivere", () => {
   it("Sara (Contributor): edit falso, ogni scrittura forbidden e stato invariato; seguire riesce", async () => {
+    const base = seedCount();
     const { features, payments } = await featuresAndPayments();
     as(SARA);
     const space = (await productDocs.getProductSpace(ACQ))!;
     expect(space.permissions.edit).toBe(false);
-    expect(space.pageCount).toBe(2);
+    expect(space.pageCount).toBe(base + 2);
     const page = (await productDocs.getProductPage(payments.code))!;
     expect(page.permissions).toEqual({ edit: false, delete: false, deleteBlocked: null });
     // Con sottopagine: senza docs.edit il bottone è spento per il permesso, non per la regola.
@@ -557,6 +566,7 @@ describe("il modulo Docs", () => {
   });
 
   it("Marco in ACQ: forbidden; spento e riacceso da Laura, le pagine ci sono", async () => {
+    const base = seedCount();
     const { payments } = await featuresAndPayments();
     as(MARCO);
     expect(await projectSettings.setDocsModule(ACQ, false)).toEqual({
@@ -569,20 +579,22 @@ describe("il modulo Docs", () => {
     expect(await productDocs.getProductPage(payments.code)).toBeNull();
     expect(await docs.getProjectDocsHome(ACQ)).toBeNull();
     expect(productDocs.followersOf(payments.id)).toEqual([]);
-    expect(state.productPages).toHaveLength(2);
+    expect(seedCount()).toBe(base + 2);
     expect(await projectSettings.setDocsModule(ACQ, true)).toEqual({ ok: true });
-    expect((await productDocs.getProductSpace(ACQ))!.pageCount).toBe(2);
+    expect((await productDocs.getProductSpace(ACQ))!.pageCount).toBe(base + 2);
     expect(state.projectsById.get(ACQ)!.modules).toEqual(["docs", "releases", "support", "servers"]);
   });
 });
 
 describe("la pagina iniziale dei Docs", () => {
   it("ACQ: product con pageCount, updatedAt e canEdit", async () => {
+    const base = seedCount();
     await featuresAndPayments();
     const home = (await docs.getProjectDocsHome(ACQ))!;
     expect(home.product).toEqual({
-      pageCount: 2,
-      updatedAt: state.productPages[1]!.updatedAt,
+      pageCount: base + 2,
+      // «Payments» è l'ultima scritta: la più recente.
+      updatedAt: state.productPages.at(-1)!.updatedAt,
       canEdit: true,
     });
     as(SARA);

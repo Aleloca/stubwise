@@ -40,6 +40,9 @@ const ROWS: Row[] = [
   ["MKX", 2, "manual", 3, "Print stays in the media plan", "Keep the trade press: dealers read it more than social.", null, "p-paolo", 8, null],
   ["MKX", 3, "manual", 1, "Kitchens and living get separate creatives", "Two creative lines after all; the media plan keeps one budget.", "Mix Cucine changed its mind at the review meeting.", "p-giulia", 6, null],
   ["MKX", 4, "pulse", 9, "Restart from the showroom newsletter", "Accepted: plan the newsletter for the showroom week.", null, "p-giulia", 4, null],
+  // Area 11a: le due decisioni del cliente che la doc di prodotto di ACQ cita.
+  ["ACQ", 1, "manual", null, "Sign-in only with Google", "Customers sign in with their Google account; no password of our own.", "The utility does not want to answer for lost passwords.", "p-laura", 30, null],
+  ["ACQ", 2, "manual", null, "Readings close on the 25th", "Meter readings close on the 25th of each month; later ones count for the next bill.", "The billing run starts on the 26th.", "p-laura", 22, null],
 ];
 
 export const DECISION_LOG: DecisionLogEntry[] = ROWS.map(

@@ -47,7 +47,8 @@ function inactiveFor(personId: string): string[] {
 describe("i progetti inattivi", () => {
   it("sono in fondo, dopo RNC: gli indici di prima non si spostano", () => {
     const codes = state.projects.map((p) => p.code);
-    expect(codes.slice(-5)).toEqual(["RNC", "ORT", "SPZ", "LNT", "BSC"]);
+    // Area 11a: VRD viene dopo, ancora in fondo.
+    expect(codes.slice(-6)).toEqual(["RNC", "ORT", "SPZ", "LNT", "BSC", "VRD"]);
   });
 
   it("Roberta ne vede esattamente quattro (RNC, archiviato, no)", () => {

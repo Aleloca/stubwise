@@ -87,7 +87,9 @@ describe("parità con la can() delle aree 2–8 (fixture generato prima del camb
     // Stessa cosa per ORT, SPZ, LNT e BSC, i quattro inattivi del 10b (ruling
     // del controller (pre-flight), P1): il fixture non si rigenera, e un
     // progetto nuovo sfugge al confronto di parità.
-    const afterFixture = new Set(["prj-rnc", "prj-ort", "prj-spz", "prj-lnt", "prj-bsc"]);
+    // E per VRD (area 11a, ruling del controller (pre-flight), P9): il progetto
+    // senza repository del Prodotto, aggiunto dopo la generazione del fixture.
+    const afterFixture = new Set(["prj-rnc", "prj-ort", "prj-spz", "prj-lnt", "prj-bsc", "prj-vrd"]);
     expect(PARITY_PROJECT_IDS).toEqual(
       PROJECTS.filter((p) => !afterFixture.has(p.id)).map((p) => p.id),
     );

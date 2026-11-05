@@ -32,6 +32,12 @@ import { DAILY_REPORTS, PR_FACTS, PULL_REQUEST_EVENTS } from "./seed/timeline";
 import { DOC_PAGES } from "./seed/docPages";
 import { DOC_SPACES } from "./seed/docs/spaces";
 import {
+  PRODUCT_FOLLOWS,
+  PRODUCT_PAGES,
+  PRODUCT_REVISIONS,
+  productSeedBlockIds,
+} from "./seed/productDocs";
+import {
   DRIVE_FILES,
   DRIVE_HIDDEN,
   DRIVE_OPENS,
@@ -1174,7 +1180,9 @@ function initialAutomationCodeSeq(): Map<string, number> {
 
 function initialDocCodeSeq(): Map<string, number> {
   const seq = new Map<string, number>();
-  for (const page of DOC_PAGES) {
+  // Le pagine di Prodotto stanno nella stessa serie (ruling P3): se non
+  // contassero, la prima pagina nuova riprenderebbe un codice già dato.
+  for (const page of [...DOC_PAGES, ...PRODUCT_PAGES]) {
     const n = Number(page.code.slice(page.code.lastIndexOf("-D") + 2));
     seq.set(page.projectId, Math.max(seq.get(page.projectId) ?? 0, n));
   }
@@ -1269,17 +1277,17 @@ function freshState(): State {
     releasePages: RELEASE_PAGES.map(copy),
     chatSeq: 0,
     // Il seme ha già degli `seq` (azioni di Claude, area 10a): i nuovi vengono dopo.
-    alertSeq: SEED_MAX_SEQ,
+    // Il massimo dei `seq` del seme, di Claude e del Prodotto (ruling P4).
+    alertSeq: Math.max(SEED_MAX_SEQ, ...PRODUCT_REVISIONS.map((r) => r.lastSeq)),
     docPages: DOC_PAGES.map(copy),
     docSpaces: DOC_SPACES.map(copy),
     docCodeSeq: initialDocCodeSeq(),
     docGenerationLog: new Map(),
     docsChatProvider: "Team API key",
-    // Il seme del Prodotto è del Task 3: le pagine, e i loro id in `productBlockIds`.
-    productPages: [],
-    productRevisions: [],
-    productFollows: [],
-    productBlockIds: new Set(),
+    productPages: PRODUCT_PAGES.map(copy),
+    productRevisions: PRODUCT_REVISIONS.map(copy),
+    productFollows: PRODUCT_FOLLOWS.map(copy),
+    productBlockIds: productSeedBlockIds(),
     driveFiles: DRIVE_FILES.map(copy),
     driveOpens: DRIVE_OPENS.map(copy),
     googleAccounts: GOOGLE_ACCOUNTS.map(copy),

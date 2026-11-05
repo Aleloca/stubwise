@@ -190,7 +190,7 @@ describe("Drive: elenco e dettaglio", () => {
   it("senza progetto: i file di tutti i progetti che vedo", async () => {
     as("p-marco");
     const all = await drive.listDriveFiles({ sort: "name" });
-    expect(new Set(all.map((f) => f.projectId))).toEqual(new Set([AUD, STW]));
+    expect(new Set(all.map((f) => f.projectId))).toEqual(new Set([AUD, STW, "prj-acq"]));
   });
 
   it("il dettaglio: totale da sempre e storico solo con drive.history", async () => {

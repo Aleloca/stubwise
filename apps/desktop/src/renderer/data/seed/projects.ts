@@ -72,6 +72,14 @@ const ROWS: Row[] = [
   ["SPZ", "Ordini online Spezieria Zanetti", "Spezieria Zanetti Srl", "client"],
   ["LNT", "Catalogo Lampadari Nuova Torre", "Lampadari Nuova Torre Srl", "client"],
   ["BSC", "Prenotazioni Bagni Scoglio Chiaro", "Bagni Scoglio Chiaro Snc", "software"],
+  // Area 11a: il progetto senza repository, dove lo spazio Prodotto nasce
+  // vuoto (il 11b lo riempie con la prima versione di Claude). In fondo.
+  [
+    "VRD",
+    "App prenotazioni Palestra Verde Città",
+    "Palestra Verde Città Srl",
+    "client",
+  ],
 ];
 
 /**
@@ -140,6 +148,10 @@ const REFERENCE_MEMBERS: Record<string, string[]> = {
   SPZ: ["p-marco", "p-elena", "p-paolo"],
   LNT: ["p-laura", "p-marco", "p-chiara"],
   BSC: ["p-marco", "p-federico", "p-paolo", CLAUDE_ID],
+  // Area 11a (ruling del controller (pre-flight), P9): VRD ha i membri scritti.
+  // I ruoli tipici danno Project Lead a Laura, Developer a Marco e Contributor
+  // a Sara, quindi `access/seed.ts` non cambia.
+  VRD: ["p-laura", "p-marco", "p-sara"],
 };
 
 /**

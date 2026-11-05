@@ -263,6 +263,31 @@ const ROWS: Record<string, Row[]> = {
       views: 3,
     },
   ],
+  // Area 11a: ACQ ha anche uno spazio Codice, due pagine scritte a mano
+  // (ruling del controller (pre-flight), P2). In fondo: le serie `-D` di
+  // ACQ cominciano da qui e le pagine di Prodotto vengono dopo.
+  ACQ: [
+    {
+      id: "doc-acq-local-setup",
+      kind: "manual",
+      title: "Local setup",
+      path: "Guide / Setup",
+      excerpt: "Install the dependencies with the package manager and start the portal against the staging API.",
+      body: "Install the dependencies with the package manager and start the portal against the **staging API**.\n\nThe environment file is not committed: ask the team lead for a copy.",
+      updated: 40,
+      views: 5,
+    },
+    {
+      id: "doc-acq-test-accounts",
+      kind: "manual",
+      title: "Test accounts",
+      path: "Guide / Setup",
+      excerpt: "Staging has three customer accounts with bills in every state.",
+      body: "Staging has three customer accounts with bills in every state.\n\nNever use a real customer's data in staging.",
+      updated: 36,
+      views: 4,
+    },
+  ],
 };
 
 /** Il commit da cui sono state generate le pagine di un repository. */

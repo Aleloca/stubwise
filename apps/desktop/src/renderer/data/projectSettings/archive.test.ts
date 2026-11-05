@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { __secretValuesForTest } from "../admin/secrets";
 import { accessState } from "../access/index";
+import { PRODUCT_FOLLOWS, PRODUCT_PAGES } from "../seed/productDocs";
 import { configErrorsOf } from "../automations/reads";
 import { visiblePeopleFor, whoCan } from "../access/whoCan";
 import { currentWeek } from "../../domain/weeks";
@@ -986,12 +987,17 @@ describe("Delete di RNC: lo spazio Prodotto (area 11a, ruling P13)", () => {
     expect(await projectSettings.deleteProject(RNC, { confirmCode: "RNC" })).toEqual({ ok: true });
 
     const gone = new Set([parent.id, child.id]);
-    expect(state.productPages.map((p) => p.id)).toEqual([kept.id]);
+    // Quelle di ACQ nel seme (area 11a, Task 3) restano, come «Kept».
+    expect(state.productPages.map((p) => p.id)).toEqual([
+      ...PRODUCT_PAGES.map((p) => p.id),
+      kept.id,
+    ]);
     expect(state.productRevisions.filter((r) => gone.has(r.pageId))).toEqual([]);
     expect(state.productFollows.filter((f) => gone.has(f.pageId))).toEqual([]);
     expect(state.productRevisions.some((r) => r.pageId === kept.id)).toBe(true);
-    expect(state.productFollows).toEqual([
+    expect(state.productFollows.filter((f) => f.pageId === kept.id)).toEqual([
       expect.objectContaining({ pageId: kept.id, personId: LAURA }),
     ]);
+    expect(state.productFollows).toHaveLength(PRODUCT_FOLLOWS.length + 1);
   });
 });
