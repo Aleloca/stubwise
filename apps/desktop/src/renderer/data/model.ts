@@ -3541,3 +3541,94 @@ export interface SupportWidget {
   dailyRequestCap: number | null;
   createdAt: string;
 }
+
+// --- Doc di prodotto (area 11) -----------------------------------------------
+
+/**
+ * Un segno dentro una frase, sull'intervallo [start, end) del testo. Un link
+ * ha solo un indirizzo http(s) (`safeLinkHref`): ogni altro schema si rifiuta
+ * scrivendo e si scarta incollando.
+ */
+export type InlineMark =
+  | { type: "bold" | "italic"; start: number; end: number }
+  | { type: "link"; start: number; end: number; href: string };
+
+/**
+ * Una frase: testo semplice più segni [start, end), normalizzati (ordinati,
+ * mai vuoti, mai sovrapposti fra segni dello stesso tipo). I segni non
+ * entrano mai nel testo: niente «**», niente tag.
+ */
+export interface RichText {
+  text: string;
+  marks: InlineMark[];
+}
+
+export interface ProductTableCell {
+  id: string;
+  content: RichText;
+}
+
+export interface ProductTableRow {
+  id: string;
+  cells: ProductTableCell[];
+}
+
+/**
+ * Un blocco della doc di prodotto. L'id è la verità: dividere tiene l'id
+ * sulla prima parte, unire tiene quello del primo, e un id (di blocco o di
+ * cella) non si riusa mai. Il 11b aggiunge `{ type: "wireframe"; … }` in coda.
+ */
+export type ProductBlock =
+  | { id: string; type: "heading"; level: 1 | 2 | 3; content: RichText }
+  | { id: string; type: "paragraph" | "quote"; content: RichText }
+  | { id: string; type: "bullet" | "numbered"; content: RichText; indent: 0 | 1 | 2 }
+  | { id: string; type: "todo"; content: RichText; checked: boolean }
+  | { id: string; type: "divider" }
+  | { id: string; type: "table"; rows: ProductTableRow[] }
+  | { id: string; type: "image"; src: string; caption: string; alt: string }
+  | { id: string; type: "drive"; fileId: string; code: string }
+  | { id: string; type: "decision"; decisionId: string };
+
+export type ProductBlockType = ProductBlock["type"];
+
+/** Le operazioni con cui si scrive una pagina: ognuna nomina i blocchi per id. */
+export type ProductBlockOp =
+  | { op: "set"; block: ProductBlock }
+  | { op: "insert"; afterId: string | null; block: ProductBlock }
+  | { op: "delete"; blockId: string }
+  | { op: "move"; blockId: string; afterId: string | null }
+  /** Q3: unisce `secondId` in `firstId` (id e tipo del primo); chi scrive sposta sul primo le ancore del secondo. */
+  | { op: "merge"; firstId: string; secondId: string };
+
+export interface ProductBlockChange {
+  blockId: string;
+  before: ProductBlock | null;
+  after: ProductBlock | null;
+  /** Le ancore (blocco, o celle di una tabella) il cui testo, i cui segni o la cui presenza sono cambiati. */
+  anchors: string[];
+  /**
+   * Solo per un `merge`: l'ancora assorbita e dove cominciano le sue lettere
+   * nel blocco unito. Nasce SOLO da un'operazione `merge` (`applyBlockOps`),
+   * mai dal confronto di due elenchi: da due array un'unione e «elimina e
+   * riscrivi» sono indistinguibili.
+   */
+  mergedFrom?: { anchorId: string; offset: number };
+}
+
+/** Una pagina di prodotto vista da fuori: albero, recenti, briciole (Task 2 la legge). */
+export interface ProductPageRef {
+  id: string;
+  code: string;
+  projectId: string;
+  parentId: string | null;
+  order: number;
+  title: string;
+  excerpt: string;
+  updatedAt: string;
+  updatedById: string;
+}
+
+export interface ProductTreeNode {
+  page: ProductPageRef;
+  children: ProductTreeNode[];
+}

@@ -1,4 +1,5 @@
 import type { CitationRef, ConversationEvent } from "../../../data/types";
+import { CODE_TOKEN_RE } from "../../../domain/productDocs/richText";
 
 // Dal flusso di eventi alle righe che la conversazione disegna: azioni
 // consecutive in un gruppo, la citazione attaccata al messaggio che la
@@ -229,9 +230,11 @@ export function citedRefs(events: readonly ConversationEvent[]): CitationRef[] {
 
 /**
  * I codici di catalogo in un testo («AUD-12», «STW-R4», la pagina dei Docs
- * «AUD-D3», il file del Drive «AUD-F7»).
+ * «AUD-D3», il file del Drive «AUD-F7», la conversazione di supporto
+ * «AUD-S2»). È la regex unica dei codici, `CODE_TOKEN_RE` della doc di
+ * prodotto (`domain/productDocs/richText.ts`): non una copia.
  */
-export const CODE_IN_TEXT = /\b[A-Z]{2,4}-[RDF]?\d+\b/g;
+export const CODE_IN_TEXT = CODE_TOKEN_RE;
 
 /** Durata fra due istanti, in minuti interi (almeno 1). */
 export function minutesBetween(from: string, to: string): number {
