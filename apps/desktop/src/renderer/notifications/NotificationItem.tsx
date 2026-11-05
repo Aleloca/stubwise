@@ -89,13 +89,17 @@ export function NotificationItem({
     }
   }
 
+  // Area 11a (Q1): una menzione in un commento della doc di prodotto.
+  const productMention = n.kind === "product_doc.mention";
   // Testo secondario: il progetto; senza progetto, la provenienza dell'evento.
+  // Una menzione di prodotto dice lo spazio, «Product» (shape §3.9).
   const prefix = n.objectCode.split("-")[0];
-  const secondary =
-    project?.name ??
-    (prefix && i18n.exists(`notifications.sources.${prefix}`)
-      ? t(`notifications.sources.${prefix}`)
-      : undefined);
+  const secondary = productMention
+    ? t("notifications.productDocMention.source")
+    : (project?.name ??
+      (prefix && i18n.exists(`notifications.sources.${prefix}`)
+        ? t(`notifications.sources.${prefix}`)
+        : undefined));
 
   // I tipi con una frase propria (area 10a: `task.assigned`,
   // `planning.changed`) si compongono a lettura nella lingua di chi guarda,
@@ -140,12 +144,15 @@ export function NotificationItem({
         {!n.read && <span className="sr-only">{t("notifications.unread")}</span>}
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline gap-2">
-            <span
-              data-object-code
-              className={`num shrink-0 text-sm font-semibold ${closed ? "text-ink-faint" : "text-ink"}`}
-            >
-              {n.objectCode}
-            </span>
+            {/* Una menzione che non apre più niente non ha codice (R-G5). */}
+            {n.objectCode && (
+              <span
+                data-object-code
+                className={`num shrink-0 text-sm font-semibold ${closed ? "text-ink-faint" : "text-ink"}`}
+              >
+                {n.objectCode}
+              </span>
+            )}
             {secondary && (
               <span className="min-w-0 truncate text-xs text-ink-muted">{secondary}</span>
             )}
@@ -156,7 +163,9 @@ export function NotificationItem({
           >
             {title}
           </span>
-          <span className="line-clamp-2 text-sm text-ink-muted">{body}</span>
+          <span className="line-clamp-2 text-sm text-ink-muted">
+            {productMention && !gone ? <WithMentions text={body} names={n.mentionNames} /> : body}
+          </span>
           {/* «Undone by» [CT 10]: derivato a lettura, senza data; la notifica
               resta letta o non letta com'era e apre ancora l'oggetto. */}
           {n.undoneByName && (
@@ -167,7 +176,7 @@ export function NotificationItem({
               </span>
             </span>
           )}
-          {gone && (
+          {gone && !productMention && (
             <span data-object-gone className="mt-1 block text-xs text-ink-muted">
               {t("task.delete.after.notification")}
             </span>
@@ -320,6 +329,26 @@ function composedOf(
   t: (key: string, options?: Record<string, unknown>) => string,
 ): { title: string; body: string } | null {
   const byHand = n.actorName !== undefined && !n.viaClaude;
+  // Area 11a (Q1, P19): la menzione in un commento, col titolo di adesso
+  // della pagina; pagina o filo che non ci sono più, una frase senza codice,
+  // titolo né nome (R-G5). Una riga nata prima, senza quei valori, resta com'è.
+  if (n.kind === "product_doc.mention") {
+    if (n.objectGone)
+      return {
+        title: t("notifications.productDocMention.goneTitle"),
+        body: t("notifications.productDocMention.goneBody"),
+      };
+    if (n.productPageTitle !== undefined)
+      return {
+        title: t("notifications.productDocMention.title", {
+          name: n.actorName ?? t("notifications.direct.someone"),
+          code: n.objectCode,
+          title: n.productPageTitle,
+        }),
+        body: n.body,
+      };
+    return null;
+  }
   // Area 10b (D4): `member.added`, col nome di adesso del ruolo ([SC 15]:
   // eliminato, la frase lo dice) e «ad» davanti a una vocale in italiano.
   if (n.kind === "member.added" && n.roleName !== undefined && (n.viaClaude || byHand)) {
@@ -386,6 +415,31 @@ function viaClaudeBody(
   if (n.viaClaudeName && n.body.includes(n.viaClaudeName))
     return n.body.replace(n.viaClaudeName, t("notifications.viaClaude.actor", { name }));
   return t("notifications.viaClaude.lead", { name, body: n.body });
+}
+
+/**
+ * Il testo di un commento con le menzioni («@Marco Bellini») in 600 (shape
+ * product-comments-history §3.9): solo i nomi che il livello dati dà
+ * (`mentionNames`, quelli che chi guarda vede); il resto resta com'è.
+ */
+function WithMentions({ text, names }: { text: string; names: string[] | undefined }) {
+  const tokens = (names ?? []).map((name) => `@${name}`);
+  if (tokens.length === 0) return <>{text}</>;
+  const alternatives = tokens.map((tok) => tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const parts = text.split(new RegExp(`(${alternatives})(?![\\p{L}\\p{N}_])`, "u"));
+  return (
+    <>
+      {parts.map((part, i) =>
+        tokens.includes(part) ? (
+          <span key={i} data-mention className="font-semibold text-ink">
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
 }
 
 /** ↺: l'azione che ha fatto partire la notifica è stata annullata. */

@@ -184,6 +184,24 @@ export interface AppNotification {
    * non apre niente. Mai salvato.
    */
   notOpenable?: boolean;
+  /**
+   * Area 11a (Q1, ruling P19): solo `product_doc.mention`, la pagina e il
+   * filo (la radice) della menzione, come valori stabili scritti al
+   * momento. Titolo, corpo e `objectGone` si derivano a lettura da qui.
+   * Assente sulle altre.
+   */
+  productComment?: { pageId: string; rootId: string };
+  /**
+   * Area 11a, solo a lettura: il titolo di adesso della pagina della
+   * menzione (rinominata, quello nuovo). Assente se la notifica non apre
+   * più niente (`objectGone`): chi non legge la pagina non ne sa il titolo.
+   */
+  productPageTitle?: string;
+  /**
+   * Area 11a, solo a lettura: i nomi menzionati nel commento che chi guarda
+   * vede (R-G5), perché la card li scriva in 600. Mai salvato.
+   */
+  mentionNames?: string[];
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
@@ -3744,10 +3762,47 @@ export interface ProductPageView extends ProductPage {
     string,
     { title: string; decidedAt: string; decidedByName: string | null } | null
   >;
-  /** Fili aperti, per la barra. Li conta il Task 4: fino ad allora 0 (ruling P10). */
+  /** I fili aperti della pagina (radici non risolte, con l'ancora viva o no), per la barra. */
   openComments: number;
 }
 
 export interface ProductRevisionView extends ProductRevision {
   actorName: string;
+}
+
+/**
+ * Un commento di una pagina di prodotto (area 11a, Task 4). È ancorato a un
+ * blocco o a una cella (decisione 4), non a un intervallo di caratteri: la
+ * `quote` è la memoria di cosa si guardava, e resta com'era quando l'ancora
+ * cambia, si unisce a un'altra (Q3) o sparisce.
+ */
+export interface ProductComment {
+  id: string;
+  pageId: string;
+  /** L'id d'ancora (blocco o cella). */
+  anchorId: string;
+  /** La frase scelta al momento del commento (≤ 200): resta anche se l'ancora sparisce. */
+  quote: string;
+  authorId: string;
+  body: string;
+  createdAt: string;
+  seq: number;
+  /** Risposte in fila: solo a una radice. */
+  replyToId: string | null;
+  /** Solo la radice. */
+  resolved: { byId: string; at: string } | null;
+  /** Chi il testo menziona e leggeva i Docs del progetto quando è stato scritto; mai chi scrive. */
+  mentionIds: string[];
+  // Il 11b aggiunge `question?: …` (le domande di Claude).
+}
+
+export interface ProductCommentView extends ProductComment {
+  authorName: string;
+}
+
+export interface ProductCommentThread {
+  root: ProductCommentView;
+  replies: ProductCommentView[];
+  /** L'ancora non c'è più: «Frase eliminata». Derivato a lettura. */
+  anchorGone: boolean;
 }

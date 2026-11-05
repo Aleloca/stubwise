@@ -269,6 +269,12 @@
       "bodyVia": "Claude per conto di {{name}} ti ha aggiunto a {{code}} come {{role}}.",
       "bodyVia_vowel": "Claude per conto di {{name}} ti ha aggiunto ad {{code}} come {{role}}.",
       "noRole": "un ruolo che non esiste più"
+    },
+    "productDocMention": {
+      "title": "{{name}} ti ha menzionato in {{code}} · {{title}}",
+      "source": "Prodotto",
+      "goneTitle": "Un commento in cui eri menzionato",
+      "goneBody": "Questo commento non è più disponibile."
     }
   },
   "placeholder": {

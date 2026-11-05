@@ -13,6 +13,7 @@ import { skillsForRun } from "./projectSettings/plugins";
 import { COMMITS } from "./seed/commits";
 import { CONVERSATION_EVENTS, CONVERSATIONS } from "./seed/conversations";
 import { DOC_PAGES } from "./seed/docPages";
+import { PRODUCT_PAGES } from "./seed/productDocs";
 import { TODAY, daysFromToday } from "./seed/dates";
 import { DECISION_REQUESTS } from "./seed/decisions";
 import { DEPARTMENT_ROLES } from "./access/index";
@@ -475,6 +476,8 @@ describe("seed: notifiche", () => {
       ...RELEASES.map((r) => ({ code: r.code, projectId: r.projectId })),
       ...SUPPORT_CONVERSATIONS.map((c) => ({ code: c.code, projectId: c.projectId })),
       ...REQUESTS.filter((r) => r.origin).map((r) => ({ code: r.code, projectId: r.projectId })),
+      // Area 11a (Q1): una menzione in un commento porta la pagina di prodotto.
+      ...PRODUCT_PAGES.map((p) => ({ code: p.code, projectId: p.projectId })),
     ];
     for (const n of NOTIFICATIONS) {
       const task = TASKS.find((t) => t.code === n.objectCode);

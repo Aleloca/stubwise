@@ -197,6 +197,8 @@ export interface AppSearch {
   range?: string;
   check?: string;
   section?: string;
+  /** Una pagina di prodotto (area 11a): il filo di un commento da aprire (l'id della radice). */
+  comment?: string;
   /** Departments (area 9a): il pannello del reparto aperto. */
   department?: string;
   /** Amministrazione → AI (area 9b): la scheda aperta (`AI_TABS`; una sconosciuta apre la prima visibile). */
@@ -228,6 +230,7 @@ export interface AppSearch {
 
 const SEARCH_KEYS = [
   "task",
+  "comment",
   "newTask",
   "project",
   "newRequest",
@@ -317,7 +320,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "message" ||
       key === "pr" ||
       key === "widget" ||
-      key === "check"
+      key === "check" ||
+      key === "comment"
         ? /^[\w-]+$/.test(value)
         : key === "range"
           ? /^(1h|24h|7d|30d|90d|month|custom)$/.test(value)

@@ -257,6 +257,14 @@ function isMembersPath(path: string): boolean {
   return /^p\/[A-Z]{2,4}\/settings\/members$/.test(path);
 }
 
+/**
+ * Una pagina di prodotto (area 11a): `p/ACQ/docs/product/ACQ-D5`. La sua
+ * route nasce coi Task 6/7; il link di una menzione (`?comment=`) ci porta già.
+ */
+function isProductPagePath(path: string): boolean {
+  return /^p\/[A-Z]{2,4}\/docs\/product\/[A-Z]{2,4}-D\d+$/.test(path);
+}
+
 /** Il codice di una task: `<CODE>-<n>`. */
 export const TASK_CODE_RE = /^[A-Z]{2,4}-\d+$/;
 
@@ -357,6 +365,9 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
     case "refine":
       return /^p\/[A-Z]{2,4}\/requests$/.test(path) && value === "1";
     // «Record a decision» dell'Overview, aperto da una riga D di Claude (area 10a).
+    // Una pagina di prodotto aperta sul filo di un commento (area 11a, P19).
+    case "comment":
+      return isProductPagePath(path) && /^[\w-]+$/.test(value);
     case "recordDecision":
       return /^p\/[A-Z]{2,4}\/overview$/.test(path) && value === "1";
     case "brief":
@@ -517,6 +528,8 @@ export function isAppRoute(route: string): boolean {
   if (isAutomationsPath(path)) return true;
   // Il dettaglio di un rilascio (area 8a): `#/p/AUD/releases/AUD-V3`.
   if (/^p\/[A-Z]{2,4}\/releases\/[A-Z]{2,4}-V\d+$/.test(path)) return true;
+  // Una pagina di prodotto (area 11a): `#/p/ACQ/docs/product/ACQ-D5`.
+  if (isProductPagePath(path)) return true;
   // Una conversazione di Support (area 8a): `#/p/ACQ/support/ACQ-S2`.
   if (/^p\/[A-Z]{2,4}\/support\/[A-Z]{2,4}-S\d+$/.test(path)) return true;
   // Il dettaglio di un server (area 8b): `#/p/STW/servers/SRV-2` (codice d'istanza).

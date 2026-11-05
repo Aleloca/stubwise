@@ -269,6 +269,12 @@
       "bodyVia": "Claude on behalf of {{name}} added you to {{code}} as {{role}}.",
       "bodyVia_vowel": "Claude on behalf of {{name}} added you to {{code}} as {{role}}.",
       "noRole": "a role that no longer exists"
+    },
+    "productDocMention": {
+      "title": "{{name}} mentioned you in {{code}} · {{title}}",
+      "source": "Product",
+      "goneTitle": "A comment you were mentioned in",
+      "goneBody": "This comment is no longer available."
     }
   },
   "placeholder": {

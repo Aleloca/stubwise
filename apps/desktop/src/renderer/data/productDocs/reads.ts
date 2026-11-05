@@ -127,7 +127,9 @@ export async function getProductPage(code: string): Promise<ProductPageView | nu
     },
     following: state.productFollows.some((f) => f.pageId === page.id && f.personId === me),
     decisions,
-    // I fili li conta il Task 4 (ruling P10): la tabella dei commenti non c'è ancora.
-    openComments: 0,
+    // I fili aperti: le radici non risolte, con l'ancora viva o no.
+    openComments: state.productComments.filter(
+      (c) => c.pageId === page.id && c.replyToId === null && c.resolved === null,
+    ).length,
   };
 }

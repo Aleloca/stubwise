@@ -3,6 +3,7 @@ import { ALERT_NOTIFICATIONS } from "./alerts";
 import { CLAUDE_NOTIFICATIONS } from "./claudeActions";
 import { CLOCK_START, isoWeek, TODAY } from "./dates";
 import { PEOPLE } from "./people";
+import { PRODUCT_NOTIFICATIONS } from "./productDocs";
 import { PROJECTS } from "./projects";
 import { SERVER_ALERT_NOTIFICATIONS } from "./servers/alerts";
 import { TASKS } from "./tasks";
@@ -54,6 +55,9 @@ export const LOCAL_NOTIFICATION_KINDS = [
   "server.down",
   "server.recovered",
   "server.diagnosis_ready",
+  // Area 11a (Q1): una @menzione in un commento della doc di prodotto. Per il
+  // motore è un `notification_kind` nuovo, con la regola di rollback del CLAUDE.md.
+  "product_doc.mention",
 ] as const;
 
 // [kind, codice progetto, codice oggetto, titolo, corpo, ore fa, letta, destinatari?, valori stabili?]
@@ -395,6 +399,8 @@ export const NOTIFICATIONS: AppNotification[] = [
   ...SERVER_ALERT_NOTIFICATIONS,
   // Area 10a: la notifica di Marco per un'azione di Claude, poi annullata.
   ...CLAUDE_NOTIFICATIONS,
+  // Area 11a: la menzione di Marco in un commento di Sign-in.
+  ...PRODUCT_NOTIFICATIONS,
 ];
 
 /** Il numero più alto dei codici `SEC-n` del seme: gli avvisi di sicurezza nuovi continuano da qui. */

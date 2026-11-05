@@ -980,8 +980,21 @@ describe("Delete di RNC: lo spazio Prodotto (area 11a, ruling P13)", () => {
     const child = await productDocs.createProductPage(RNC, { title: "Cart", parentId: parent.id });
     as(GIULIA);
     await productDocs.followProductPage(child.id);
+    // Area 11a, Task 4 (P13): i commenti hanno solo `pageId`, e vanno via con la pagina.
+    as(ROBERTA);
+    const comment = await productDocs.addProductComment(child.id, {
+      anchorId: child.blocks[0]!.id,
+      quote: "",
+      body: "Which payment methods?",
+    });
     as(LAURA);
     const kept = await productDocs.createProductPage(ACQ, { title: "Kept" });
+    const keptComment = await productDocs.addProductComment(kept.id, {
+      anchorId: kept.blocks[0]!.id,
+      quote: "",
+      body: "Stays.",
+    });
+    const commentsBefore = state.productComments.length;
     as(ROBERTA);
     await projectSettings.archiveProject(RNC);
     expect(await projectSettings.deleteProject(RNC, { confirmCode: "RNC" })).toEqual({ ok: true });
@@ -999,5 +1012,8 @@ describe("Delete di RNC: lo spazio Prodotto (area 11a, ruling P13)", () => {
       expect.objectContaining({ pageId: kept.id, personId: LAURA }),
     ]);
     expect(state.productFollows).toHaveLength(PRODUCT_FOLLOWS.length + 1);
+    expect(state.productComments.map((c) => c.id)).not.toContain(comment.id);
+    expect(state.productComments.map((c) => c.id)).toContain(keptComment.id);
+    expect(state.productComments).toHaveLength(commentsBefore - 1);
   });
 });

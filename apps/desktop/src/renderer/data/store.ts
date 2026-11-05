@@ -32,6 +32,7 @@ import { DAILY_REPORTS, PR_FACTS, PULL_REQUEST_EVENTS } from "./seed/timeline";
 import { DOC_PAGES } from "./seed/docPages";
 import { DOC_SPACES } from "./seed/docs/spaces";
 import {
+  PRODUCT_COMMENTS,
   PRODUCT_FOLLOWS,
   PRODUCT_PAGES,
   PRODUCT_REVISIONS,
@@ -125,6 +126,7 @@ import type {
   DocGeneration,
   DocPage,
   DocSpace,
+  ProductComment,
   ProductFollow,
   ProductPage,
   ProductRevision,
@@ -403,6 +405,11 @@ export type ApiFnName =
   | "productDocs.saveProductBlocks"
   | "productDocs.followProductPage"
   | "productDocs.unfollowProductPage"
+  | "productDocs.listProductComments"
+  | "productDocs.addProductComment"
+  | "productDocs.resolveProductComment"
+  | "productDocs.reopenProductComment"
+  | "productDocs.productMentionCandidates"
   // Drive (area 5)
   | "drive.listDriveFiles"
   | "drive.getDriveFile"
@@ -1042,6 +1049,12 @@ interface State {
    * (`invalid: block_id_taken`).
    */
   productBlockIds: Set<string>;
+  /**
+   * I commenti delle pagine di prodotto (Task 4): radici e risposte, in
+   * ordine di nascita. Hanno solo `pageId`: vanno via con la pagina e, con
+   * `CHILD_KEYS`, con il progetto (ruling P13).
+   */
+  productComments: ProductComment[];
   // --- Drive (area 5) ---
   driveFiles: DriveFile[];
   /** Le aperture contate, in ordine di tempo. */
@@ -1278,7 +1291,11 @@ function freshState(): State {
     chatSeq: 0,
     // Il seme ha già degli `seq` (azioni di Claude, area 10a): i nuovi vengono dopo.
     // Il massimo dei `seq` del seme, di Claude e del Prodotto (ruling P4).
-    alertSeq: Math.max(SEED_MAX_SEQ, ...PRODUCT_REVISIONS.map((r) => r.lastSeq)),
+    alertSeq: Math.max(
+      SEED_MAX_SEQ,
+      ...PRODUCT_REVISIONS.map((r) => r.lastSeq),
+      ...PRODUCT_COMMENTS.map((c) => c.seq),
+    ),
     docPages: DOC_PAGES.map(copy),
     docSpaces: DOC_SPACES.map(copy),
     docCodeSeq: initialDocCodeSeq(),
@@ -1288,6 +1305,7 @@ function freshState(): State {
     productRevisions: PRODUCT_REVISIONS.map(copy),
     productFollows: PRODUCT_FOLLOWS.map(copy),
     productBlockIds: productSeedBlockIds(),
+    productComments: PRODUCT_COMMENTS.map(copy),
     driveFiles: DRIVE_FILES.map(copy),
     driveOpens: DRIVE_OPENS.map(copy),
     googleAccounts: GOOGLE_ACCOUNTS.map(copy),

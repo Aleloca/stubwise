@@ -115,3 +115,58 @@ export function useSetDocsModule() {
     docsModuleAreas(),
   );
 }
+
+// --- i commenti (Task 4) -------------------------------------------------------
+
+/**
+ * Un commento cambia la pagina (i fili aperti nella barra) e l'inbox di chi
+ * è menzionato; non cambia citazioni né Docs.
+ */
+const COMMENT_AREAS: readonly string[] = ["productDocs", "notifications"];
+
+/** I fili di una pagina, aperti e risolti. */
+export function useProductComments(pageId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "productDocs", "comments", pageId] as const,
+    queryFn: () => api.productDocs.listProductComments(pageId),
+  });
+}
+
+/**
+ * Commenta o risponde. Un doppio clic riceve la stessa scrittura
+ * (`addProductComment` tiene quelle in volo); la pagina spegne comunque
+ * «Comment» con `isPending`.
+ */
+export function useAddProductComment() {
+  return useWrite(
+    ({
+      pageId,
+      ...input
+    }: {
+      pageId: string;
+      anchorId: string;
+      quote: string;
+      body: string;
+      replyToId?: string;
+    }) => api.productDocs.addProductComment(pageId, input),
+    COMMENT_AREAS,
+  );
+}
+
+export function useResolveProductComment() {
+  return useWrite((rootId: string) => api.productDocs.resolveProductComment(rootId), COMMENT_AREAS);
+}
+
+export function useReopenProductComment() {
+  return useWrite((rootId: string) => api.productDocs.reopenProductComment(rootId), COMMENT_AREAS);
+}
+
+/** Chi si può menzionare nel progetto (chi ne legge i Docs), per «@». */
+export function useProductMentionCandidates(projectId: string, q: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "productDocs", "mentionCandidates", projectId, q] as const,
+    queryFn: () => api.productDocs.productMentionCandidates(projectId, q),
+  });
+}

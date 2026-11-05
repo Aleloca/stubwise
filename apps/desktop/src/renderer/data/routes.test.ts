@@ -17,6 +17,15 @@ describe("route grammar", () => {
     expect(isAppRoute("#/people/x")).toBe(false);
   });
 
+  it("area 11a: una pagina di prodotto, anche aperta sul filo di un commento (P19)", () => {
+    expect(isAppRoute("#/p/ACQ/docs/product/ACQ-D5")).toBe(true);
+    expect(isAppRoute("#/p/ACQ/docs/product/ACQ-D5?comment=pc-acq-signin-1")).toBe(true);
+    // `comment` vale solo su una pagina di prodotto, e il codice è una pagina `-D`.
+    expect(isAppRoute("#/p/ACQ/tasks?comment=pc-1")).toBe(false);
+    expect(isAppRoute("#/p/ACQ/docs/product/ACQ-5")).toBe(false);
+    expect(isAppRoute("#/p/ACQ/docs/product/ACQ-D5?comment=a b")).toBe(false);
+  });
+
   it("area 9a: le sei sezioni delle Preferenze, e All projects coi soli fissati", () => {
     for (const s of ["notifications", "account", "security", "tokens", "claude-code", "look"]) {
       expect(isAppRoute(`#/preferences/${s}`), s).toBe(true);

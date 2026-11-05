@@ -1,7 +1,9 @@
 import { blockChanges } from "../../../domain/productDocs/blocks";
 import type {
+  AppNotification,
   InlineMark,
   ProductBlock,
+  ProductComment,
   ProductFollow,
   ProductPage,
   ProductRevision,
@@ -96,6 +98,11 @@ interface Edit {
   blockId: string;
   /** Il blocco com'era prima; `null` = aggiunto con questa modifica. */
   earlier: ProductBlock | null;
+  /**
+   * Il blocco l'ha TOLTO questa modifica (non è nel corpo di adesso): prima
+   * stava dopo il blocco con questo id. `earlier` è com'era.
+   */
+  removedAfter?: string;
 }
 
 interface Spec {
@@ -374,6 +381,9 @@ function decisionsPage(): Spec {
   };
 }
 
+/** Il passo di Phases che Matteo ha tolto: c'era, e il suo id resta dato. */
+const PHASES_REMOVED = "blk-acq-phases-paper";
+
 function phasesPage(): Spec {
   const id = ids("phases");
   const reading = "blk-acq-phases-reading";
@@ -399,6 +409,16 @@ function phasesPage(): Spec {
         blockId: reading,
         earlier: todo(reading, "Phase 1: meter readings", false),
       },
+      // Matteo toglie il passo che Laura aveva commentato: il filo resta,
+      // e si legge «Frase eliminata» (Task 4).
+      {
+        by: MATTEO,
+        days: 4,
+        time: "11:05",
+        blockId: PHASES_REMOVED,
+        earlier: todo(PHASES_REMOVED, "Phase 3: paper bills by post", false),
+        removedAfter: "blk-acq-phases-5",
+      },
     ],
   };
 }
@@ -423,8 +443,19 @@ const at = (days: number, time: string) => `${daysFromToday(-days)}T${time}:00Z`
 function initialBlocks(spec: Spec): ProductBlock[] {
   const added = new Set(spec.edits?.filter((e) => e.earlier === null).map((e) => e.blockId));
   const earlier = new Map(spec.edits?.map((e) => [e.blockId, e.earlier]));
-  return spec.blocks.filter((b) => !added.has(b.id)).map((b) => earlier.get(b.id) ?? b);
+  const blocks = spec.blocks.filter((b) => !added.has(b.id)).map((b) => earlier.get(b.id) ?? b);
+  // I blocchi tolti dopo c'erano: tornano al loro posto.
+  for (const e of spec.edits ?? []) {
+    if (e.removedAfter === undefined || e.earlier === null) continue;
+    blocks.splice(blocks.findIndex((b) => b.id === e.removedAfter) + 1, 0, e.earlier);
+  }
+  return blocks;
 }
+
+/** Gli id dei blocchi tolti da una modifica del seme: sono stati dati, e non si riusano. */
+export const PRODUCT_REMOVED_BLOCK_IDS: string[] = SPECS.flatMap((s) =>
+  (s.edits ?? []).filter((e) => e.removedAfter !== undefined).map((e) => e.blockId),
+);
 
 const lastEdit = (spec: Spec): Edit | undefined =>
   [...(spec.edits ?? [])].sort((a, b) => a.days - b.days)[0];
@@ -503,4 +534,95 @@ export const PRODUCT_FOLLOWS: ProductFollow[] = [
     since: p.createdAt,
   })),
   { pageId: PID.signIn, personId: MARCO, since: at(25, "09:00") },
+];
+
+// --- i commenti (Task 4) -------------------------------------------------------
+
+/**
+ * Tre fili: su Sign-in uno aperto di Laura che menziona Marco, con la sua
+ * risposta; su Bills uno risolto da Laura; su Phases uno sul passo che
+ * Matteo ha tolto dopo («Frase eliminata»). I `seq` vengono dopo quelli
+ * delle revisioni: lo store parte dal massimo (P4).
+ */
+const commentSeq = Math.max(...PRODUCT_REVISIONS.map((r) => r.lastSeq));
+
+const SIGN_IN_ROOT = "pc-acq-signin-1";
+
+export const PRODUCT_COMMENTS: ProductComment[] = [
+  {
+    id: SIGN_IN_ROOT,
+    pageId: PID.signIn,
+    anchorId: "blk-acq-signin-2",
+    quote: "Google account",
+    authorId: LAURA,
+    body: "@Marco Bellini does this cover customers who use a Google Workspace address?",
+    createdAt: at(3, "10:20"),
+    replyToId: null,
+    resolved: null,
+    mentionIds: [MARCO],
+  },
+  {
+    id: "pc-acq-signin-2",
+    pageId: PID.signIn,
+    anchorId: "blk-acq-signin-2",
+    quote: "Google account",
+    authorId: MARCO,
+    body: "Yes: any Google account works, Workspace included.",
+    createdAt: at(2, "09:45"),
+    replyToId: SIGN_IN_ROOT,
+    resolved: null,
+    mentionIds: [],
+  },
+  {
+    id: "pc-acq-bills-1",
+    pageId: PID.bills,
+    anchorId: "blk-acq-bills-6",
+    quote: "stored in UTC, shown in local time",
+    authorId: LAURA,
+    body: "Matteo, is this the same rule as the reminders?",
+    createdAt: at(8, "15:10"),
+    replyToId: null,
+    resolved: { byId: LAURA, at: at(7, "09:30") },
+    mentionIds: [],
+  },
+  {
+    id: "pc-acq-phases-1",
+    pageId: PID.phases,
+    anchorId: PHASES_REMOVED,
+    quote: "Phase 3: paper bills by post",
+    authorId: LAURA,
+    body: "Is this still in scope? The client has not asked for it again.",
+    createdAt: at(6, "12:00"),
+    replyToId: null,
+    resolved: null,
+    mentionIds: [],
+  },
+].map((c, i) => ({ ...c, seq: commentSeq + 1 + i }));
+
+const signInPageCode = PRODUCT_PAGES.find((p) => p.id === PID.signIn)!.code;
+
+/**
+ * La card di Marco per la menzione del seme, nella forma che scrive
+ * `addProductComment`: titolo e corpo salvati sono la resa inglese, la
+ * card li compone a lettura dai valori stabili (`actorId`,
+ * `productComment`).
+ */
+export const PRODUCT_NOTIFICATIONS: AppNotification[] = [
+  {
+    id: "n-acq-product-mention-1",
+    kind: "product_doc.mention",
+    projectId: "prj-acq",
+    objectCode: signInPageCode,
+    departmentId: null,
+    recipientIds: [MARCO],
+    title: `Laura Costa mentioned you in ${signInPageCode} · Sign-in`,
+    body: PRODUCT_COMMENTS[0]!.body,
+    createdAt: PRODUCT_COMMENTS[0]!.createdAt,
+    read: false,
+    archived: false,
+    snoozedUntil: null,
+    link: `#/p/ACQ/docs/product/${signInPageCode}?comment=${SIGN_IN_ROOT}`,
+    actorId: LAURA,
+    productComment: { pageId: PID.signIn, rootId: SIGN_IN_ROOT },
+  },
 ];

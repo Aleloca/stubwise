@@ -23,6 +23,7 @@ import { presentChatNotification } from "./chat/reads";
 import { deliveredTo } from "./alerts/reads";
 import { whyReceives } from "./alerts/visibility";
 import { linkAccessHrefOf } from "./servers/visibility";
+import { presentProductMention } from "./productDocs/comments";
 import { aiBlockFor } from "./instance/blocks";
 import { waitingBlockIn } from "./instance/queue";
 import { assigneeStatusOf } from "./admin/people";
@@ -669,6 +670,9 @@ export async function listNotifications(): Promise<AppNotification[]> {
       if (n.roleId !== undefined)
         out.roleName = accessState().roles.find((r) => r.id === n.roleId)?.name ?? null;
       if (n.projectId && !visibleProjectIds(me).has(n.projectId)) out.notOpenable = true;
+      // Area 11a (Q1, P19): una menzione in un commento di prodotto, letta
+      // dalla pagina e dal filo di adesso (`objectGone` se non ci sono più).
+      presentProductMention(me, out);
       return [out];
     }
     const shown = presentChatNotification(me, delivered);

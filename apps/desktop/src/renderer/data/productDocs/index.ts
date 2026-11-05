@@ -27,3 +27,11 @@ export {
   productDocRecipients,
   unfollowProductPage,
 } from "./follows";
+export {
+  addProductComment,
+  addProductCommentAs,
+  listProductComments,
+  productMentionCandidates,
+  reopenProductComment,
+  resolveProductComment,
+} from "./comments";

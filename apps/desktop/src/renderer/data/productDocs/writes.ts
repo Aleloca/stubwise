@@ -35,8 +35,8 @@ function editableProject(me: string, projectId: string): void {
   if (!can(viewerFor(me), "docs.edit", projectId)) throw forbidden();
 }
 
-/** La pagina su cui si scrive. */
-function editablePage(me: string, pageId: string): ProductPage {
+/** La pagina su cui si scrive (anche un commento: `comments.ts`). */
+export function editablePage(me: string, pageId: string): ProductPage {
   const page = productPageById(pageId);
   if (!page) throw notFound();
   editableProject(me, page.projectId);
@@ -171,10 +171,11 @@ export async function moveProductPage(
 
 /**
  * Elimina una pagina senza sottopagine (`invalid: has_children`): via la
- * pagina, le sue revisioni e chi la segue (commenti e presenza li toglie
- * chi li introduce, Task 4 e 5: ruling P10). Il codice non si riusa, e gli
- * id dei suoi blocchi restano dati; una citazione della pagina si legge
- * come una pagina che non c'è.
+ * pagina, le sue revisioni, chi la segue e i suoi commenti (la presenza la
+ * toglie chi la introduce, Task 5: ruling P10). Il codice non si riusa, e
+ * gli id dei suoi blocchi restano dati; una citazione della pagina si legge
+ * come una pagina che non c'è, e una notifica di menzione come un commento
+ * che non c'è più (`objectGone`, a lettura).
  */
 export async function deleteProductPage(pageId: string): Promise<void> {
   const me = await writer("productDocs.deleteProductPage");
@@ -183,6 +184,7 @@ export async function deleteProductPage(pageId: string): Promise<void> {
   state.productPages = state.productPages.filter((p) => p.id !== page.id);
   state.productRevisions = state.productRevisions.filter((r) => r.pageId !== page.id);
   state.productFollows = state.productFollows.filter((f) => f.pageId !== page.id);
+  state.productComments = state.productComments.filter((c) => c.pageId !== page.id);
   renumber(childrenOf(page.projectId, page.parentId));
 }
 

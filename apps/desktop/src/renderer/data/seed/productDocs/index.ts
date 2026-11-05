@@ -1,7 +1,20 @@
 import type { ProductBlock } from "../../types";
-import { PRODUCT_FOLLOWS, PRODUCT_PAGES, PRODUCT_REVISIONS } from "./acq";
+import {
+  PRODUCT_COMMENTS,
+  PRODUCT_FOLLOWS,
+  PRODUCT_NOTIFICATIONS,
+  PRODUCT_PAGES,
+  PRODUCT_REMOVED_BLOCK_IDS,
+  PRODUCT_REVISIONS,
+} from "./acq";
 
-export { PRODUCT_FOLLOWS, PRODUCT_PAGES, PRODUCT_REVISIONS };
+export {
+  PRODUCT_COMMENTS,
+  PRODUCT_FOLLOWS,
+  PRODUCT_NOTIFICATIONS,
+  PRODUCT_PAGES,
+  PRODUCT_REVISIONS,
+};
 export { PRODUCT_SCRIPTS } from "./presence";
 
 const idsOf = (b: ProductBlock): string[] =>
@@ -10,8 +23,9 @@ const idsOf = (b: ProductBlock): string[] =>
     : [b.id];
 
 /**
- * Gli id di blocco, di riga e di cella del seme: un id dato non si riusa mai.
- * Il blocco che un copione inserisce NON è qui (ruling P11).
+ * Gli id di blocco, di riga e di cella del seme: un id dato non si riusa mai,
+ * neanche quello di un blocco che una modifica del seme ha tolto. Il blocco
+ * che un copione inserisce NON è qui (ruling P11).
  */
 export const productSeedBlockIds = (): Set<string> =>
-  new Set(PRODUCT_PAGES.flatMap((p) => p.blocks.flatMap(idsOf)));
+  new Set([...PRODUCT_PAGES.flatMap((p) => p.blocks.flatMap(idsOf)), ...PRODUCT_REMOVED_BLOCK_IDS]);
