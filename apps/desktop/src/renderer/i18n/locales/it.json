@@ -12182,6 +12182,8 @@
       "posted": "Commento inviato",
       "resolved": "Risolto",
       "reopened": "Riaperto",
+      "resolveFailed": "Impossibile risolvere il filo.",
+      "reopenFailed": "Impossibile riaprire il filo.",
       "send": "Rispondi",
       "behindTask": "{{code}} ha del testo non salvato. I commenti si aprono quando lo chiudi."
     },

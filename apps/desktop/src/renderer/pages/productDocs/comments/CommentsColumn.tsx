@@ -9,6 +9,7 @@ import {
 import type { ProductCommentThread, ProductPageView, Project } from "../../../data/types";
 import { anchorIdsOf } from "../../../domain/productDocs/blocks";
 import { WhoCanLink } from "../../../components/WhoCanLink";
+import { useToast } from "../../../tasks-ui/Toast";
 import { CloseIcon } from "../../task/parts";
 import type { CommentDraft, ThreadFocus } from "../SideColumn";
 import { CommentComposer, type CommentComposerHandle } from "./CommentComposer";
@@ -58,6 +59,7 @@ export function CommentsColumn({
   headingRef?: RefObject<HTMLDivElement | null>;
 }) {
   const { t } = useTranslation();
+  const toast = useToast();
   const comments = useProductComments(page.id);
   const add = useAddProductComment();
   const resolve = useResolveProductComment();
@@ -188,30 +190,41 @@ export function CommentsColumn({
   // La promessa di OGNI chiamata si chiude: un secondo `mutate` sullo stesso
   // hook staccherebbe le callback per-chiamata del primo (TanStack Query 5),
   // e il suo filo resterebbe bloccato. `mutateAsync(...).finally` no.
-  const once = (rootId: string, run: () => Promise<unknown>) => {
+  // Un rifiuto non tace: l'avviso lo dice, con «Retry» (revisione finale F2).
+  const once = (rootId: string, run: () => Promise<unknown>, failed: string, retry: () => void) => {
     if (writing.current.has(rootId)) return;
     writing.current.add(rootId);
     run()
-      .catch(() => undefined)
+      .catch(() => {
+        toast.error(t(failed), { action: { label: t("productDocs.comments.retry"), run: retry } });
+      })
       .finally(() => writing.current.delete(rootId));
   };
   const doResolve = (rootId: string) => {
     const i = live.findIndex((th) => th.root.id === rootId);
     const next = live[i + 1] ?? gone.find((th) => th.root.id !== rootId) ?? null;
-    once(rootId, () =>
-      resolve.mutateAsync(rootId).then(() => {
-        setAnnounce(t("productDocs.comments.resolved"));
-        pending.current = next ? { kind: "thread", id: next.root.id } : { kind: "resolved" };
-        if (active === rootId) onActive(null);
-      }),
+    once(
+      rootId,
+      () =>
+        resolve.mutateAsync(rootId).then(() => {
+          setAnnounce(t("productDocs.comments.resolved"));
+          pending.current = next ? { kind: "thread", id: next.root.id } : { kind: "resolved" };
+          if (active === rootId) onActive(null);
+        }),
+      "productDocs.comments.resolveFailed",
+      () => doResolve(rootId),
     );
   };
   const doReopen = (rootId: string) =>
-    once(rootId, () =>
-      reopen.mutateAsync(rootId).then(() => {
-        setAnnounce(t("productDocs.comments.reopened"));
-        pending.current = { kind: "action", id: rootId };
-      }),
+    once(
+      rootId,
+      () =>
+        reopen.mutateAsync(rootId).then(() => {
+          setAnnounce(t("productDocs.comments.reopened"));
+          pending.current = { kind: "action", id: rootId };
+        }),
+      "productDocs.comments.reopenFailed",
+      () => doReopen(rootId),
     );
 
 

@@ -284,6 +284,43 @@ describe("la colonna", () => {
     expect(state.productComments.find((c) => c.id === SIGNIN_ROOT)!.resolved).toBeNull();
   });
 
+  // Revisione finale F2: un rifiuto non tace.
+  it("«Resolve» che fallisce lo dice, con «Retry»; «Retry» lo risolve", async () => {
+    const spy = vi.spyOn(api.productDocs, "resolveProductComment").mockRejectedValueOnce(new Error("failed"));
+    await open(SIGNIN);
+    const col = await column();
+    const thread = await within(col).findByRole("article", { name: /Comment by Laura Costa on “Google account”/ });
+    const user = userEvent.setup();
+    await user.click(within(thread).getByRole("button", { name: "Resolve" }));
+    const message = await screen.findByText("Couldn't resolve the thread.");
+    expect(state.productComments.find((c) => c.id === SIGNIN_ROOT)!.resolved).toBeNull();
+    const toast = message.closest("[data-toast]") ?? message.parentElement!;
+    await user.click(within(toast as HTMLElement).getByRole("button", { name: "Retry" }));
+    await within(col).findByRole("button", { name: "1 resolved" });
+    expect(state.productComments.find((c) => c.id === SIGNIN_ROOT)!.resolved).not.toBeNull();
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it("«Reopen» che fallisce lo dice, con «Retry»; in italiano «Impossibile riaprire il filo.»", async () => {
+    await setLanguage("it");
+    const spy = vi.spyOn(api.productDocs, "reopenProductComment").mockRejectedValueOnce(new Error("failed"));
+    const bills = pageByTitle("Bills");
+    await open(bills.code);
+    const user = userEvent.setup();
+    await user.click(within(bar()).getByRole("button", { name: /^Commenti/ }));
+    const col = await column();
+    await user.click(await within(col).findByRole("button", { name: "1 risolto" }));
+    const closed = await within(col).findByRole("article");
+    await user.click(within(closed).getByRole("button", { name: "Riapri" }));
+    const message = await screen.findByText("Impossibile riaprire il filo.");
+    const rootId = state.productComments.find((c) => c.pageId === bills.id && c.replyToId === null)!.id;
+    expect(state.productComments.find((c) => c.id === rootId)!.resolved).not.toBeNull();
+    const toast = message.closest("[data-toast]") ?? message.parentElement!;
+    await user.click(within(toast as HTMLElement).getByRole("button", { name: "Riprova" }));
+    await waitFor(() => expect(state.productComments.find((c) => c.id === rootId)!.resolved).toBeNull());
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
   it("× della colonna: il fuoco torna a «Comments» nella barra", async () => {
     await open(SIGNIN);
     const col = await column();

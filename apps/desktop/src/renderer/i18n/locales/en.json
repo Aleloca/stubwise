@@ -12182,6 +12182,8 @@
       "posted": "Comment posted",
       "resolved": "Resolved",
       "reopened": "Reopened",
+      "resolveFailed": "Couldn't resolve the thread.",
+      "reopenFailed": "Couldn't reopen the thread.",
       "send": "Reply",
       "behindTask": "{{code}} has text you haven't saved. The comments open when you close it."
     },
