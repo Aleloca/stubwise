@@ -1,5 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import { ThreadTint } from "../comments/CommentMark";
 
 // L'involucro di un blocco per chi scrive: il gruppo che si seleziona come
 // oggetto con Esc ([PE 5], `role="group"` col nome del tipo) e che si
@@ -59,8 +60,9 @@ export function BlockShell({
       aria-label={label}
       onKeyDown={onKeyDown}
       style={style}
-      className={`group/block relative rounded-lg focus:outline-2 focus:outline-offset-2 focus:outline-focus focus:outline-solid ${isDragging ? "opacity-40" : ""} ${tinted ? "bg-ink/6" : ""}`}
+      className={`group/block relative rounded-lg focus:outline-2 focus:outline-offset-2 focus:outline-focus focus:outline-solid ${isDragging ? "opacity-40" : ""} isolate`}
     >
+      {tinted && <ThreadTint />}
       {dropLine && (
         <span
           aria-hidden="true"

@@ -382,6 +382,13 @@ costruttore)*.
 - A 1440 con l'albero trascinato a 360 e i commenti aperti, la lettura
   scenderebbe sotto 520: l'albero passa a cassetto finché la colonna è
   aperta, e torna com'era chiudendola **[PE 20]**.
+- *Emendamento del controller (5 nov 2026, Task 10 dell'area 11a).* A
+  **1200**, con la colonna del progetto di 240, l'albero affiancato non ci
+  sta mai insieme alla colonna dei commenti: 1200 − 64 (binario) − 240
+  (colonna del progetto) − 240 (albero) − 296 (commenti) = 360 < 520. Per
+  [PE 20] l'albero è quindi un cassetto («Pages») finché la colonna laterale
+  è aperta, e torna affiancato chiudendola; la riga «1200 · albero 240» della
+  tabella vale con la colonna laterale chiusa.
 - A **1024** la colonna laterale (commenti o cronologia) è sovrapposta
   360 dal bordo destro; col pannello della task vince l'ultimo aperto,
   l'altro resta montato dietro; il riquadro di Claude sta alla loro

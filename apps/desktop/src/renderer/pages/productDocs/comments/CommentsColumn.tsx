@@ -185,31 +185,35 @@ export function CommentsColumn({
 
   // Un filo alla volta: un doppio clic su «Resolve» / «Reopen» scrive una volta sola.
   const writing = useRef(new Set<string>());
-  const once = (rootId: string, run: (done: () => void) => void) => {
+  // La promessa di OGNI chiamata si chiude: un secondo `mutate` sullo stesso
+  // hook staccherebbe le callback per-chiamata del primo (TanStack Query 5),
+  // e il suo filo resterebbe bloccato. `mutateAsync(...).finally` no.
+  const once = (rootId: string, run: () => Promise<unknown>) => {
     if (writing.current.has(rootId)) return;
     writing.current.add(rootId);
-    run(() => writing.current.delete(rootId));
+    run()
+      .catch(() => undefined)
+      .finally(() => writing.current.delete(rootId));
   };
   const doResolve = (rootId: string) => {
     const i = live.findIndex((th) => th.root.id === rootId);
     const next = live[i + 1] ?? gone.find((th) => th.root.id !== rootId) ?? null;
-    once(rootId, (done) => resolve.mutate(rootId, {
-      onSettled: done,
-      onSuccess: () => {
+    once(rootId, () =>
+      resolve.mutateAsync(rootId).then(() => {
         setAnnounce(t("productDocs.comments.resolved"));
         pending.current = next ? { kind: "thread", id: next.root.id } : { kind: "resolved" };
         if (active === rootId) onActive(null);
-      },
-    }));
+      }),
+    );
   };
   const doReopen = (rootId: string) =>
-    once(rootId, (done) => reopen.mutate(rootId, {
-      onSettled: done,
-      onSuccess: () => {
+    once(rootId, () =>
+      reopen.mutateAsync(rootId).then(() => {
         setAnnounce(t("productDocs.comments.reopened"));
         pending.current = { kind: "action", id: rootId };
-      },
-    }));
+      }),
+    );
+
 
   const threadProps = (th: ProductCommentThread, isResolved: boolean) => ({
     thread: th,

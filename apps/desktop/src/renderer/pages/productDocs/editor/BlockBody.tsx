@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProductBlock, ProductPageView, RichText } from "../../../data/types";
 import { anchorIdsOf, isTextBlock } from "../../../domain/productDocs/blocks";
-import { CommentMark } from "../comments/CommentMark";
+import { CommentMark, ThreadTint } from "../comments/CommentMark";
 import { useProductSpaceContext } from "../parts";
 import { DecisionBlock } from "./DecisionBlock";
 import { DriveBlock } from "./DriveBlock";
@@ -93,8 +93,9 @@ export function ReadOnlyBody({ page }: { page: ProductPageView }) {
             key={block.id}
             data-block-id={block.id}
             style={{ paddingTop: pt, paddingBottom: pb, ["--block-pt" as string]: `${gutterTop}px` }}
-            className={`relative rounded-lg ${tinted ? "bg-ink/6" : ""}`}
+            className="relative isolate rounded-lg"
           >
+            {tinted && <ThreadTint />}
             <CommentMark anchorIds={anchors} below={block.type === "table"} />
             <BlockBody block={block} page={page} number={numbers[i]!}>
               {isTextBlock(block) && (

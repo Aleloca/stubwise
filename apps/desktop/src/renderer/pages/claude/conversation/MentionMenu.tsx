@@ -129,23 +129,11 @@ export function SuggestionMenu({
     row?.scrollIntoView?.({ block: "nearest" });
   }, [id, active, groups]);
   let index = -1;
-  return (
-    <div
-      id={id}
-      ref={list}
-      role="listbox"
-      aria-label={label}
-      className="menu-enter absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-[320px] max-w-full flex-col overflow-y-auto rounded-lg border border-rule-strong bg-surface p-1.5 shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
-    >
-      {header && (
-        <p title={header} className="truncate px-2 pt-1 pb-1.5 text-xs text-ink-faint">
-          {header}
-        </p>
-      )}
-      {groups.length === 0 && empty && (
-        <p className="px-2 py-1.5 text-sm text-ink-muted">{empty}</p>
-      )}
-      {groups.map((group) => (
+  // Con la riga in testa (`header`), la superficie la tiene FUORI dal
+  // `listbox` (che ha solo gruppi e opzioni), e il `listbox` prende il nome
+  // da lei invece di ripeterlo. Senza, la superficie è il `listbox`.
+  const headerId = `${id}-header`;
+  const rows = groups.map((group) => (
         <div
           key={group.label}
           role="group"
@@ -199,7 +187,30 @@ export function SuggestionMenu({
             );
           })}
         </div>
-      ))}
+      ));
+  return (
+    <div
+      id={header ? undefined : id}
+      ref={list}
+      role={header ? undefined : "listbox"}
+      aria-label={header ? undefined : label}
+      className="menu-enter absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-[320px] max-w-full flex-col overflow-y-auto rounded-lg border border-rule-strong bg-surface p-1.5 shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
+    >
+      {header && (
+        <p id={headerId} title={header} className="truncate px-2 pt-1 pb-1.5 text-xs text-ink-faint">
+          {header}
+        </p>
+      )}
+      {groups.length === 0 && empty && (
+        <p className="px-2 py-1.5 text-sm text-ink-muted">{empty}</p>
+      )}
+      {header ? (
+        <div id={id} role="listbox" aria-labelledby={headerId} className="flex flex-col">
+          {rows}
+        </div>
+      ) : (
+        rows
+      )}
       {note && <p className="border-t border-rule px-2 pt-2 pb-1 text-xs text-ink-muted">{note}</p>}
     </div>
   );

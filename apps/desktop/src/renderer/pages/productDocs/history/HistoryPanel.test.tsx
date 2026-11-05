@@ -153,13 +153,12 @@ describe("i segni", () => {
 });
 
 describe("la tastiera e il fuoco", () => {
-  it("↑/↓ fra le righe, Invio apre, ← chiude; × riporta il fuoco a «History»", async () => {
+  it("Tab fra le righe (fix round 2: ogni riga è un punto di Tab), Invio apre, ← chiude; × riporta il fuoco a «History»", async () => {
     const { region, list, user, bar } = await openHistory("Meter reading");
     const all = rows(list);
-    // Un solo punto di Tab: la prima riga.
-    expect(all.map((r) => r.tabIndex)).toEqual([0, ...all.slice(1).map(() => -1)]);
+    expect(all.map((r) => r.tabIndex)).toEqual(all.map(() => 0));
     act(() => all[0]!.focus());
-    await user.keyboard("{ArrowDown}");
+    await user.tab();
     expect(document.activeElement).toBe(all[1]);
     await user.keyboard("{Enter}");
     expect(all[1]!).toHaveAttribute("aria-expanded", "true");

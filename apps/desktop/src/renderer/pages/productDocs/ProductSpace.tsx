@@ -109,6 +109,20 @@ function SpaceGate({ project }: { project: Project }) {
   return <SpaceShell project={project} space={space.data} />;
 }
 
+/**
+ * Il pannello della task ha del testo che si perderebbe chiudendolo: un
+ * campo con del testo (il commento nuovo, la sua risposta) o in modifica (un
+ * commento, la descrizione). Si legge dal DOM del pannello: le bozze sono
+ * stato dei suoi componenti, e questa è la sola domanda che lo spazio gli fa.
+ */
+function taskPanelHasText(): boolean {
+  const panel = document.querySelector("[data-detail-panel]");
+  if (!panel) return false;
+  return [...panel.querySelectorAll<HTMLTextAreaElement | HTMLElement>("textarea, [contenteditable=true]")].some(
+    (el) => (el instanceof HTMLTextAreaElement ? el.value : (el.textContent ?? "")).trim() !== "",
+  );
+}
+
 function SpaceShell({ project, space }: { project: Project; space: ProductSpaceView }) {
   const { t } = useTranslation();
   const me = useSessionPersonId();
@@ -144,16 +158,26 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   // Sovrapposta il pannello resta montato dietro ([PE 22]).
   const navigate = useNavigate();
   const raisedSeen = useRef(0);
+  // Il pannello si chiude con un passo nuovo nella cronologia (Indietro lo
+  // riporta). Se ha del testo non salvato (un commento a metà, uno in
+  // modifica, la descrizione aperta) NON si chiude: resta, la colonna aspetta
+  // dietro di lui (si apre alla sua chiusura) e un avviso lo dice. Scelta del
+  // fix round 2: perdere in silenzio un testo scritto altrove è peggio di un
+  // gesto che chiede un passo in più.
+  const toast = useToast();
   useEffect(() => {
     if (side.raised === raisedSeen.current) return;
     raisedSeen.current = side.raised;
     if (!docked || !search.task) return;
+    if (taskPanelHasText()) {
+      toast.show(t("productDocs.comments.behindTask", { code: search.task }));
+      return;
+    }
     void navigate({
       to: ".",
       search: (prev: Record<string, unknown>) => ({ ...prev, task: undefined }),
-      replace: true,
     } as never);
-  }, [side.raised, docked, search.task, navigate]);
+  }, [side.raised, docked, search.task, navigate, toast, t]);
   const comments = useProductComments(view?.id ?? "", { enabled: view !== null });
   const bridge = ((): CommentsBridge | null => {
     if (!view) return null;

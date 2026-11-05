@@ -12182,7 +12182,8 @@
       "posted": "Commento inviato",
       "resolved": "Risolto",
       "reopened": "Riaperto",
-      "send": "Rispondi"
+      "send": "Rispondi",
+      "behindTask": "{{code}} ha del testo non salvato. I commenti si aprono quando lo chiudi."
     },
     "history": {
       "title": "Cronologia",

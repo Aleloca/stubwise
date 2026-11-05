@@ -115,7 +115,7 @@ describe("commentare una frase", () => {
 
     await user.type(box, "@Mar");
     const menu = await screen.findByRole("listbox");
-    expect(within(menu).getByText("People who can read ACQ's docs")).toBeInTheDocument();
+    expect(screen.getByText("People who can read ACQ's docs")).toBeInTheDocument();
     await user.click(within(menu).getByRole("option", { name: /Marco Bellini/ }));
     expect(box).toHaveValue("@Marco Bellini ");
     await user.type(box, "is this right?");
@@ -596,13 +596,13 @@ describe("fix round 1", () => {
     await user.click(within(await screen.findByRole("toolbar")).getByRole("button", { name: "Comment" }));
     const box = await within(await column()).findByRole("combobox", { name: /Add a comment/ });
     await user.type(box, "@zzz");
-    const menu = await screen.findByRole("listbox");
-    const header = within(menu).getByText("People who can read ACQ's docs");
+    await screen.findByRole("listbox");
+    const header = screen.getByText("People who can read ACQ's docs");
     expect(header.className).toContain("text-xs");
     expect(header.className).toContain("text-ink-faint");
     expect(header.className).toContain("truncate");
     expect(header.className).not.toContain("heading-group");
-    expect(within(menu).getByText("Nobody here matches “zzz”")).toBeInTheDocument();
+    expect(screen.getByText("Nobody here matches “zzz”")).toBeInTheDocument();
   });
 
   it("⌥⌘M: nel paragrafo apre la casella; su una tabella scelta come oggetto non fa niente e non si prende il tasto", async () => {
@@ -697,5 +697,94 @@ describe("fix round 1", () => {
     const source = await import("../SideColumn.tsx?raw");
     expect(source.default).not.toMatch(/^let \w+ = 0;/m);
     expect(source.default).not.toMatch(/\+\+counter/);
+  });
+});
+
+describe("fix round 2", () => {
+  const searchOf = (router: ReturnType<typeof renderRoute>) =>
+    router.state.location.search as Record<string, unknown>;
+
+  it("«Comments» chiude il pannello della task con un passo nuovo: Indietro lo riporta", async () => {
+    const router = await open(SIGNIN, LAURA, "?task=ACQ-1");
+    await waitFor(() => expect(document.querySelector("[data-detail-panel]")).not.toBeNull());
+    const user = userEvent.setup();
+    await user.click(within(bar()).getByRole("button", { name: /^Comments/ }));
+    await waitFor(() => expect(searchOf(router).task).toBeUndefined());
+    expect(await column()).toBeInTheDocument();
+    act(() => router.history.back());
+    await waitFor(() => expect(searchOf(router).task).toBe("ACQ-1"));
+    await waitFor(() => expect(document.querySelector("[data-detail-panel]")).not.toBeNull());
+  });
+
+  it("col testo non salvato nel pannello della task il pannello resta; un avviso lo dice, e i commenti si aprono alla sua chiusura", async () => {
+    const router = await open(SIGNIN, LAURA, "?task=ACQ-1");
+    const user = userEvent.setup();
+    await waitFor(() => expect(document.querySelector("[data-detail-panel] textarea")).not.toBeNull());
+    await user.type(document.querySelector<HTMLTextAreaElement>("[data-detail-panel] textarea")!, "Half a thought");
+    await user.click(within(bar()).getByRole("button", { name: /^Comments/ }));
+    expect(
+      await screen.findByText("ACQ-1 has text you haven't saved. The comments open when you close it."),
+    ).toBeInTheDocument();
+    expect(searchOf(router).task).toBe("ACQ-1");
+    expect(document.querySelector<HTMLTextAreaElement>("[data-detail-panel] textarea")!.value).toBe("Half a thought");
+    expect(queryColumn()).toBeNull();
+    await act(() =>
+      router.navigate({ to: ".", search: (prev: Record<string, unknown>) => ({ ...prev, task: undefined }) } as never),
+    );
+    expect(await column()).toBeInTheDocument();
+  });
+
+  it("risolto A, poi B prima che A finisca: A si riapre (il lucchetto per filo si libera sempre)", async () => {
+    seedBlock(LOGIN_ID, LOGIN);
+    productDocs.addProductCommentAs(LAURA, signIn().id, { anchorId: LOGIN_ID, quote: "", body: "Second thread" });
+    const reopen = vi.spyOn(api.productDocs, "reopenProductComment");
+    await open(SIGNIN);
+    const col = await column();
+    const a = await within(col).findByRole("article", { name: /Google account/ });
+    const b = await within(col).findByRole("article", { name: new RegExp(LOGIN) });
+    act(() => {
+      fireEvent.click(within(a).getByRole("button", { name: "Resolve" }));
+      fireEvent.click(within(b).getByRole("button", { name: "Resolve" }));
+    });
+    const toggle = await within(col).findByRole("button", { name: "2 resolved" });
+    fireEvent.click(toggle);
+    const closedA = await within(col).findByRole("article", { name: /Google account/ });
+    fireEvent.click(within(closedA).getByRole("button", { name: "Reopen" }));
+    await waitFor(() => expect(reopen).toHaveBeenCalledTimes(1));
+    expect(reopen).toHaveBeenCalledWith(SIGNIN_ROOT);
+    await waitFor(() => expect(state.productComments.find((c) => c.id === SIGNIN_ROOT)!.resolved).toBeNull());
+  });
+
+  it("la riga in testa del menu delle menzioni sta fuori dal `listbox`, che ne prende il nome senza ripeterlo", async () => {
+    seedBlock(LOGIN_ID, LOGIN);
+    await open(SIGNIN);
+    await enter(LOGIN, 6, 22);
+    const user = userEvent.setup();
+    await user.click(within(await screen.findByRole("toolbar")).getByRole("button", { name: "Comment" }));
+    const box = await within(await column()).findByRole("combobox", { name: /Add a comment/ });
+    await user.type(box, "@Mar");
+    const menu = await screen.findByRole("listbox", { name: "People who can read ACQ's docs" });
+    const header = screen.getByText("People who can read ACQ's docs");
+    expect(menu.contains(header)).toBe(false);
+    expect(menu.getAttribute("aria-label")).toBeNull();
+    expect(menu.getAttribute("aria-labelledby")).toBe(header.id);
+    // Solo gruppi e opzioni dentro il listbox.
+    for (const child of menu.children) expect(child.getAttribute("role")).toBe("group");
+  });
+
+  it("la tinta del filo attivo è a tutta larghezza: fin sotto il segno, dietro al testo", async () => {
+    await open(SIGNIN, LAURA, `?comment=${SIGNIN_ROOT}`);
+    const col = await column();
+    await within(col).findByRole("article", { name: /Google account/ });
+    const shell = body().querySelector<HTMLElement>('[data-block-id="blk-acq-signin-2"]')!;
+    const tint = await waitFor(() => {
+      const el = shell.querySelector<HTMLElement>("[data-thread-tint]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(tint.className).toContain("-right-7");
+    expect(tint.className).toContain("-z-10");
+    expect(shell.className).toContain("isolate");
+    expect(shell.className).not.toContain("bg-ink/6");
   });
 });

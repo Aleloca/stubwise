@@ -18,6 +18,21 @@ export function useOpenThreads(anchorIds: readonly string[]): { count: number; a
   return { count, active };
 }
 
+/**
+ * La tinta del blocco col filo attivo ([PC 6]): ink 6 % a TUTTA larghezza,
+ * fin sotto il segno (i 28 px che il corpo tiene a destra), dietro al testo
+ * (`isolate` sul blocco, `-z-10` qui).
+ */
+export function ThreadTint() {
+  return (
+    <span
+      aria-hidden="true"
+      data-thread-tint=""
+      className="pointer-events-none absolute inset-y-0 left-0 -right-7 -z-10 rounded-lg bg-ink/6"
+    />
+  );
+}
+
 export function CommentMark({ anchorIds, below = false }: { anchorIds: readonly string[]; below?: boolean }) {
   const { t } = useTranslation();
   const { comments } = useProductSpaceContext();

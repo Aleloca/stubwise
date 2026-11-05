@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type KeyboardEvent, type RefObject } from "react";
+import { useId, useState, type KeyboardEvent, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { now } from "../../../data/dates";
 import { usePeople, useProductRevisions } from "../../../data/queries";
@@ -160,9 +160,7 @@ export function HistoryPanel({
   const people = usePeople().data ?? [];
   const [limit, setLimit] = useState(FIRST);
   const [openRows, setOpenRows] = useState<ReadonlySet<string>>(new Set());
-  const [cursor, setCursor] = useState(0);
   const listId = useId();
-  const rows = useRef(new Map<string, HTMLButtonElement>());
 
   const all = revisions.data ?? [];
   const shown = all.slice(0, limit);
@@ -178,16 +176,12 @@ export function HistoryPanel({
 
   // Le righe sono bottoni che aprono il loro dettaglio (un elenco a
   // tendina, non un `listbox`: il dettaglio, coi suoi bottoni, non è
-  // un'opzione). Un solo punto di Tab (fuoco itinerante), ↑/↓ fra le righe,
-  // Invio o → apre, ← chiude.
+  // un'opzione). Ogni riga è un punto di Tab, come i bottoni del dettaglio
+  // che segue (fix round 2: niente fuoco itinerante senza un ruolo composito);
+  // Invio o Spazio aprono e chiudono, → apre, ← chiude.
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const r = shown[index];
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      const next = Math.min(Math.max(index + (e.key === "ArrowDown" ? 1 : -1), 0), shown.length - 1);
-      setCursor(next);
-      rows.current.get(shown[next]!.id)?.focus();
-    } else if (r && e.key === "ArrowRight") {
+    if (r && e.key === "ArrowRight") {
       e.preventDefault();
       toggle(r.id, true);
     } else if (r && e.key === "ArrowLeft") {
@@ -247,22 +241,13 @@ export function HistoryPanel({
                     return (
                       <li key={r.id} className="flex flex-col">
                         <button
-                          ref={(el) => {
-                            if (el) rows.current.set(r.id, el);
-                            else rows.current.delete(r.id);
-                          }}
                           type="button"
                           id={rowId(r)}
                           data-history-row=""
-                          tabIndex={index === cursor ? 0 : -1}
                           aria-expanded={isOpen}
                           aria-controls={`${rowId(r)}-details`}
-                          onFocus={() => setCursor(index)}
                           onKeyDown={(e) => onKeyDown(e, index)}
-                          onClick={() => {
-                            setCursor(index);
-                            toggle(r.id);
-                          }}
+                          onClick={() => toggle(r.id)}
                           className="mx-1.5 flex cursor-default items-start gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/5 aria-expanded:bg-ink/6"
                         >
                           <span
