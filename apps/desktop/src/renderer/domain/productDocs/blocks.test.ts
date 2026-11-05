@@ -115,6 +115,16 @@ describe("applyBlockOps", () => {
     ).toThrow("invalid: op");
   });
 
+  it("un insert dell'id che un merge ha assorbito nella stessa scrittura lancia `invalid: op`", () => {
+    const blocks = [para("a", "A"), para("b", "B")];
+    expect(() =>
+      applyBlockOps(blocks, [
+        { op: "merge", firstId: "a", secondId: "b" },
+        { op: "insert", afterId: "a", block: para("b", "B again") },
+      ]),
+    ).toThrow("invalid: op");
+  });
+
   it("delete e poi insert scritti a mano non sono un merge: nessun mergedFrom", () => {
     const blocks = [para("f", "Login only"), para("s", "with Google")];
     const { changes } = applyBlockOps(blocks, [

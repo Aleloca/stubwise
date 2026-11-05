@@ -106,10 +106,20 @@ export function useDeleteProductPage() {
   return useWrite((pageId: string) => api.productDocs.deleteProductPage(pageId), PRODUCT_AREAS);
 }
 
+/** La scrittura del corpo dall'editor; `undoOf` per ⌘Z / ⇧⌘Z dell'editor (Task 8). */
 export function useSaveProductBlocks() {
   return useWrite(
-    ({ pageId, ops, sessionId }: { pageId: string; ops: ProductBlockOp[]; sessionId: string }) =>
-      api.productDocs.saveProductBlocks(pageId, ops, { sessionId }),
+    ({
+      pageId,
+      ops,
+      sessionId,
+      undoOf,
+    }: {
+      pageId: string;
+      ops: ProductBlockOp[];
+      sessionId: string;
+      undoOf?: string;
+    }) => api.productDocs.saveProductBlocks(pageId, ops, undoOf ? { sessionId, undoOf } : { sessionId }),
     PRODUCT_AREAS,
   );
 }

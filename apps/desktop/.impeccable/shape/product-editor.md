@@ -303,8 +303,12 @@ blocchi scalano da h2 **[PE 3]**.
   blocco da annullare è stato cambiato da altri dopo, quel passo si salta,
   si toglie dalla pila e lo stato dice «Changed by someone else, not
   undone» / «Cambiato da altri, non annullato».
-- Un blocco eliminato torna con un id **nuovo** (gli id non si riusano):
-  i suoi fili restano «Sentence deleted».
+- Un blocco eliminato (o assorbito da un'unione) torna con il **suo
+  stesso id**, e i suoi fili tornano con lui *(ruling del controller, 5 nov
+  2026: è lo stesso blocco che torna, non un riuso; «gli id non si
+  riusano» vale fra blocchi diversi)*. Il livello dati lo permette solo a
+  una scrittura con `undoOf` della stessa sessione e della stessa persona,
+  per un id che quella sessione ha tolto.
 - Si svuota cambiando pagina o persona. Pila vuota: ⌘Z non fa niente.
 
 ### 3.13 La scrittura dal vivo

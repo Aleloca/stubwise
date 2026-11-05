@@ -86,3 +86,24 @@ describe("filterSlashItems", () => {
     expect(filterSlashItems("xyz", label("en"))).toEqual([]);
   });
 });
+
+describe("SLASH_ITEMS: i gruppi dello shape (§3.4)", () => {
+  it("TEXT fino al separatore, INSERT da «table»: ogni voce dice il suo gruppo", () => {
+    expect(SLASH_ITEMS.map((i) => `${i.group}:${i.id}`)).toEqual([
+      "text:heading1",
+      "text:heading2",
+      "text:heading3",
+      "text:paragraph",
+      "text:bullet",
+      "text:numbered",
+      "text:todo",
+      "text:quote",
+      "text:divider",
+      "insert:table",
+      "insert:image",
+      "insert:drive",
+      "insert:link",
+      "insert:decision",
+    ]);
+  });
+});

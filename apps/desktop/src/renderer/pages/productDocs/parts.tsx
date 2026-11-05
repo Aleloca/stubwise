@@ -1,15 +1,8 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { createContext, useContext, useRef, type ReactNode } from "react";
+import { createContext, useContext, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { richSegments } from "../../domain/productDocs/richText";
 import { useCreateProductPage, useDeleteProductPage, usePeople } from "../../data/queries";
-import type {
-  ProductBlock,
-  ProductPageView,
-  ProductSpaceView,
-  Project,
-  RichText,
-} from "../../data/types";
+import type { ProductPageView, ProductSpaceView, Project } from "../../data/types";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { dangerButton } from "../task/parts";
@@ -18,15 +11,29 @@ import { DocNotFound, backLinkClass } from "../docs/parts";
 
 // I pezzi comuni dello spazio Prodotto (shape product-space.md): lo spazio
 // aperto per le viste figlie, i link, la creazione di una pagina, la pagina
-// che non c'è, il dialogo d'eliminazione e la lettura del corpo finché
-// l'editor (Task 8) non la sostituisce. Le regole (chi scrive, chi elimina,
-// cosa si vede) arrivano dalla vista: qui non si ricalcola niente.
+// che non c'è e il dialogo d'eliminazione. Il corpo è dell'editor
+// (`editor/BlockEditor`). Le regole (chi scrive, chi elimina, cosa si vede)
+// arrivano dalla vista: qui non si ricalcola niente.
+
+/**
+ * Lo stato di salvataggio dell'editor della pagina aperta, per la barra
+ * dello spazio ([PE 15]): la barra è una sola per spazio e pagina, l'editor
+ * sta nella lettura.
+ */
+export interface EditorStatus {
+  state: "idle" | "saving" | "saved" | "error";
+  /** L'ultimo ⌘Z / ⇧⌘Z saltato perché altri hanno cambiato quei blocchi. */
+  skipped: boolean;
+  retry: () => void;
+}
 
 export interface ProductSpaceContextValue {
   project: Project;
   space: ProductSpaceView;
   /** Apre i genitori di una pagina nell'albero (dopo «+» o un'apertura da fuori). */
   reveal: (pageId: string) => void;
+  /** L'editor della pagina aperta dice come va il salvataggio (`null` = nessun editor). */
+  setEditorStatus: (status: EditorStatus | null) => void;
 }
 
 export const ProductSpaceContext = createContext<ProductSpaceContextValue | null>(null);
@@ -46,8 +53,8 @@ export const productPageLink = (code: string, page: string) =>
 /** Il link da copiare (hash dell'app), lo stesso delle citazioni e di ⌘K. */
 export const productPageHref = (code: string, page: string) => `#/p/${code}/docs/product/${page}`;
 
-// Le pagine appena create: il loro h1 prende il fuoco quando si aprono (il
-// titolo modificabile arriva col Task 8, P17). Una sola volta per pagina.
+// Le pagine appena create: il loro titolo prende il fuoco quando si aprono,
+// col testo selezionato per chi scrive ([PE 2]). Una sola volta per pagina.
 const fresh = new Set<string>();
 
 export const markFresh = (code: string) => void fresh.add(code);
@@ -196,136 +203,5 @@ export function DeletePageDialog({
     >
       {null}
     </Dialog>
-  );
-}
-
-/** Una frase coi suoi segni: grassetto, corsivo, link (sempre http(s): il dato lo garantisce). */
-function Rich({ content }: { content: RichText }) {
-  return (
-    <>
-      {richSegments(content).map((s, i) => {
-        let node: ReactNode = s.text;
-        if (s.bold) node = <strong className="font-semibold">{node}</strong>;
-        if (s.italic) node = <em>{node}</em>;
-        if (s.href)
-          node = (
-            <a
-              href={s.href}
-              target="_blank"
-              rel="noreferrer"
-              className="text-ink underline decoration-ink/40 underline-offset-4 hover:decoration-ink"
-            >
-              {node}
-            </a>
-          );
-        return <span key={i}>{node}</span>;
-      })}
-    </>
-  );
-}
-
-/** Un blocco che non è testo, finché i Task 8 e 9 non lo disegnano: una riga tenue. */
-function Placeholder({ children }: { children: ReactNode }) {
-  return (
-    <p className="rounded-md border border-dashed border-rule px-3 py-2 text-sm text-ink-muted">
-      {children}
-    </p>
-  );
-}
-
-function Block({
-  block,
-  page,
-  number,
-}: {
-  block: ProductBlock;
-  page: ProductPageView;
-  /** Il numero di una voce numerata (le voci di fila allo stesso rientro). */
-  number: number;
-}) {
-  const { t } = useTranslation();
-  switch (block.type) {
-    case "heading": {
-      const size = ["text-xl", "text-lg", "text-md"][block.level - 1];
-      const Tag = (["h2", "h3", "h4"] as const)[block.level - 1]!;
-      return (
-        <Tag className={`${size} mt-4 font-semibold text-balance text-ink`}>
-          <Rich content={block.content} />
-        </Tag>
-      );
-    }
-    case "paragraph":
-      return (
-        <p className="text-md text-pretty text-ink">
-          <Rich content={block.content} />
-        </p>
-      );
-    case "quote":
-      return (
-        <blockquote className="border-l-2 border-rule-strong pl-3 text-md text-ink-muted">
-          <Rich content={block.content} />
-        </blockquote>
-      );
-    case "bullet":
-    case "numbered":
-      return (
-        <p style={{ paddingLeft: 24 + block.indent * 20 }} className="relative text-md text-ink">
-          <span
-            aria-hidden="true"
-            style={{ left: 4 + block.indent * 20 }}
-            className="num absolute text-ink-muted"
-          >
-            {block.type === "bullet" ? "•" : `${number}.`}
-          </span>
-          <Rich content={block.content} />
-        </p>
-      );
-    case "todo":
-      return (
-        <p className="flex items-start gap-2 text-md text-ink">
-          <span
-            aria-hidden="true"
-            className={`mt-1 grid size-3.5 shrink-0 place-items-center rounded-[3px] border ${block.checked ? "border-ink bg-ink" : "border-rule-strong"}`}
-          />
-          <span className={block.checked ? "text-ink-muted line-through" : undefined}>
-            <Rich content={block.content} />
-          </span>
-        </p>
-      );
-    case "divider":
-      return <hr className="my-2 border-rule" />;
-    case "table":
-      return <Placeholder>{t("productDocs.space.blockTable")}</Placeholder>;
-    case "image":
-      return <Placeholder>{block.caption || t("productDocs.space.blockImage")}</Placeholder>;
-    case "drive":
-      return <Placeholder>{t("productDocs.space.blockDrive", { code: block.code })}</Placeholder>;
-    case "decision": {
-      // Una decisione che chi legge non vede non dice titolo né data (R-G5).
-      const d = page.decisions[block.decisionId];
-      return <Placeholder>{d ? d.title : t("productDocs.space.blockDecision")}</Placeholder>;
-    }
-  }
-}
-
-/** Il corpo da leggere (Task 7): l'editor del Task 8 lo sostituisce. */
-export function ReadBody({ page }: { page: ProductPageView }) {
-  // Le voci numerate contano di fila, per rientro; un altro blocco riparte da 1.
-  const counters: number[] = [];
-  const numbers = page.blocks.map((block) => {
-    if (block.type !== "numbered") {
-      counters.length = 0;
-      return 0;
-    }
-    counters.length = block.indent + 1;
-    counters[block.indent] = (counters[block.indent] ?? 0) + 1;
-    return counters[block.indent]!;
-  });
-  return (
-    <div className="flex flex-col gap-3">
-      {page.blocks.map((block, i) => (
-        <Block key={block.id} block={block} page={page} number={numbers[i]!} />
-      ))}
-    </div>
   );
 }

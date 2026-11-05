@@ -16,8 +16,10 @@ import { DocTreeSkeleton } from "../docs/DocTree";
 import { Resizer, TREE_DEFAULT } from "../docs/DocSpace";
 import { DocsForbidden, ReadingSkeleton, isForbidden } from "../docs/parts";
 import { ProductTree, type FocusRequest } from "./ProductTree";
+import { SaveStatus } from "./SaveStatus";
 import {
   DeletePageDialog,
+  type EditorStatus,
   ProductNotFound,
   ProductSpaceContext,
   inSpace,
@@ -105,6 +107,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   const [drawer, setDrawer] = useState(false);
   const [expandNonce, setExpandNonce] = useState<{ pageId: string; nonce: number } | null>(null);
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
+  const [editorStatus, setEditorStatus] = useState<EditorStatus | null>(null);
   const pagesButton = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
 
@@ -181,7 +184,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   );
 
   return (
-    <ProductSpaceContext.Provider value={{ project, space, reveal }}>
+    <ProductSpaceContext.Provider value={{ project, space, reveal, setEditorStatus }}>
       <div className="relative flex h-full min-h-0 flex-col">
         <SpaceBar
           project={project}
@@ -191,6 +194,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
           drawer={drawer}
           onPages={() => (drawer ? closeDrawer(false) : setDrawer(true))}
           onDeleted={(parentId) => focusNode(parentId)}
+          editorStatus={editorStatus}
         />
         <div className="flex min-h-0 flex-1">
           {docked && (
@@ -227,10 +231,12 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
 /**
  * La barra dello spazio (40 px, una sola per spazio e pagina, [PS 8]): a
  * sinistra «Pages» (sotto i 1200), «Product» e le briciole della pagina
- * aperta; a destra i gesti della pagina. Nel 11a ci sono quelli che esistono
- * già: il «⋯» (Copy link, Delete page… per chi scrive); stato di
- * salvataggio, presenza, Follow, Comments, History ed Export arrivano coi
- * Task 8, 10, 11 e 12, in quest'ordine prima del «⋯». Sull'indice «Search ⌘K».
+ * aperta; a destra i gesti della pagina, nell'ordine di [PS 8]: per primo
+ * lo stato di salvataggio dell'editor (Task 8: «Saving…» / «Saved»,
+ * l'errore con «Retry», il passo di ⌘Z saltato), poi il «⋯» (Copy link,
+ * Delete page… per chi scrive). Presenza, Follow, Comments, History ed
+ * Export arrivano coi Task 10, 11 e 12, fra lo stato e il «⋯». Sull'indice
+ * «Search ⌘K».
  * Una pagina che non c'è perde i gesti e le briciole.
  */
 function SpaceBar({
@@ -241,6 +247,7 @@ function SpaceBar({
   drawer,
   onPages,
   onDeleted,
+  editorStatus,
 }: {
   project: Project;
   pageCode: string | null;
@@ -249,6 +256,7 @@ function SpaceBar({
   drawer: boolean;
   onPages: () => void;
   onDeleted: (parentId: string | null) => void;
+  editorStatus: EditorStatus | null;
 }) {
   const { t } = useTranslation();
   // La stessa lettura della pagina aperta (la cache la condivide con la vista).
@@ -292,6 +300,7 @@ function SpaceBar({
             <kbd className="num ml-1.5 font-sans text-xs text-ink-faint">⌘K</kbd>
           </button>
         )}
+        {view && editorStatus && <SaveStatus status={editorStatus} />}
         {view && <PageMenu project={project} page={view} docked={docked} onDeleted={onDeleted} />}
       </span>
     </nav>

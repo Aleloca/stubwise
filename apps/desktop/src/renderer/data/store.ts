@@ -1056,6 +1056,13 @@ interface State {
    */
   productBlockIds: Set<string>;
   /**
+   * Gli id che ogni sessione dell'editor ha tolto da una pagina (eliminati,
+   * assorbiti da un merge, righe e celle tolte), con chi scriveva: ⌘Z li
+   * può rimettere, con lo STESSO id, solo dalla stessa sessione e persona
+   * e dichiarando `undoOf` (ruling del controller, 5 nov 2026).
+   */
+  productSessionDeletes: Map<string, { actorId: string; pageId: string; ids: Set<string> }>;
+  /**
    * I commenti delle pagine di prodotto (Task 4): radici e risposte, in
    * ordine di nascita. Hanno solo `pageId`: vanno via con la pagina e, con
    * `CHILD_KEYS`, con il progetto (ruling P13).
@@ -1317,6 +1324,7 @@ function freshState(): State {
     productRevisions: PRODUCT_REVISIONS.map(copy),
     productFollows: PRODUCT_FOLLOWS.map(copy),
     productBlockIds: productSeedBlockIds(),
+    productSessionDeletes: new Map(),
     productComments: PRODUCT_COMMENTS.map(copy),
     productPresence: [],
     driveFiles: DRIVE_FILES.map(copy),

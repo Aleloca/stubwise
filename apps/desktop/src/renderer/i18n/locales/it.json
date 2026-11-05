@@ -12012,6 +12012,75 @@
       "deleted": "Pagina eliminata",
       "instructions": "Trascina una pagina dalla sua maniglia per spostarla; trascinala di lato per cambiarne il livello. Da tastiera, usa il menu Altro della pagina.",
       "moved": "Spostata {{title}}"
+    },
+    "editor": {
+      "placeholder": "Scrivi / per i blocchi",
+      "body": "Corpo della pagina",
+      "blocks": {
+        "heading": "Titolo {{level}}",
+        "paragraph": "Paragrafo",
+        "bullet": "Voce di elenco puntato, livello {{level}}",
+        "numbered": "Voce di elenco numerato, livello {{level}}",
+        "todo": "Da fare",
+        "quote": "Citazione",
+        "divider": "Separatore",
+        "done": "Fatto"
+      },
+      "slash": {
+        "label": "Blocchi",
+        "text": "Testo",
+        "insert": "Inserisci",
+        "empty": "Nessun blocco per «{{q}}»",
+        "heading1": "Titolo 1",
+        "heading2": "Titolo 2",
+        "heading3": "Titolo 3",
+        "paragraph": "Testo",
+        "bullet": "Elenco puntato",
+        "numbered": "Elenco numerato",
+        "todo": "Lista di controllo",
+        "quote": "Citazione",
+        "divider": "Separatore",
+        "table": "Tabella",
+        "image": "Immagine",
+        "drive": "File del Drive",
+        "link": "Collega a…",
+        "decision": "Decisione"
+      },
+      "selection": {
+        "toolbar": "Formatta la selezione",
+        "bold": "Grassetto",
+        "italic": "Corsivo",
+        "link": "Link"
+      },
+      "link": {
+        "field": "Incolla o scrivi un link",
+        "apply": "Applica",
+        "remove": "Togli il link",
+        "refused": "Solo link http e https"
+      },
+      "handle": {
+        "add": "Aggiungi un blocco sotto",
+        "menu": "Menu del blocco",
+        "turnInto": "Trasforma in",
+        "moveUp": "Sposta su",
+        "moveDown": "Sposta giù",
+        "duplicate": "Duplica",
+        "delete": "Elimina",
+        "alreadyFirst": "È già il primo",
+        "alreadyLast": "È già l'ultimo"
+      },
+      "save": {
+        "saving": "Salvataggio…",
+        "saved": "Salvato",
+        "failed": "Salvataggio non riuscito",
+        "retry": "Riprova",
+        "notUndone": "Cambiato da altri, non annullato"
+      },
+      "title": {
+        "field": "Titolo della pagina",
+        "needsTitle": "Una pagina ha bisogno di un titolo",
+        "renameFailed": "Non è stato possibile rinominare la pagina"
+      }
     }
   }
 }

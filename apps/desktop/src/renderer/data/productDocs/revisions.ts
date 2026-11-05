@@ -67,19 +67,22 @@ function mergeChanges(
 }
 
 /**
- * Scrive la revisione di una scrittura (o la unisce all'ultima). Nessuna
- * revisione per una scrittura di blocchi che non cambia niente.
+ * Scrive la revisione di una scrittura (o la unisce all'ultima) e dice l'id
+ * della revisione in cui è finita: anche quando l'unione, tornata tutta
+ * com'era, la toglie (la scrittura c'è stata, e ⌘Z dell'editor la nomina
+ * con `undoOf`). `null` solo per una scrittura di blocchi che non cambia
+ * niente.
  */
 export function recordRevision(
   me: string,
   pageId: string,
   changes: readonly ProductBlockChange[],
   meta: RevisionMeta,
-): void {
+): string | null {
   const fields = Object.fromEntries(
     Object.entries(meta).filter(([, v]) => v !== undefined),
   ) as RevisionMeta;
-  if (fields.kind === "edit" && changes.length === 0) return;
+  if (fields.kind === "edit" && changes.length === 0) return null;
   const last = lastOf(pageId);
   const joins =
     fields.kind === "edit" &&
@@ -101,11 +104,12 @@ export function recordRevision(
     // Tornato tutto com'era: la revisione non dice più niente.
     if (last.changes.length === 0)
       state.productRevisions = state.productRevisions.filter((r) => r !== last);
-    return;
+    return last.id;
   }
   const seq = nextSeq();
+  const id = newId("prev");
   state.productRevisions.push({
-    id: newId("prev"),
+    id,
     pageId,
     seq,
     lastSeq: seq,
@@ -114,6 +118,7 @@ export function recordRevision(
     ...fields,
     changes: [...changes],
   });
+  return id;
 }
 
 /** Le revisioni di una pagina, dalla più recente (`lastSeq`). */

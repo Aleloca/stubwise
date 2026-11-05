@@ -18,36 +18,41 @@ export type SlashItemId =
   | "link"
   | "decision";
 
+/** Il gruppo del menu: TEXT / TESTO cambia il blocco, INSERT / INSERISCI mette un oggetto. */
+export type SlashGroup = "text" | "insert";
+
 export interface SlashItem {
   id: SlashItemId;
+  group: SlashGroup;
   /** La chiave i18n del nome (le chiavi nascono col menu, Task 8). */
   labelKey: string;
   /** Parole in più che il filtro riconosce, uguali in ogni lingua. */
   keywords: string[];
 }
 
-const item = (id: SlashItemId, keywords: string[]): SlashItem => ({
+const item = (id: SlashItemId, group: SlashGroup, keywords: string[]): SlashItem => ({
   id,
+  group,
   labelKey: `productDocs.editor.slash.${id}`,
   keywords,
 });
 
-/** Le voci nell'ordine dello shape: TEXT, poi INSERT (da «table»). Il 11b aggiunge "wireframe". */
+/** Le voci nell'ordine dello shape: TEXT, poi INSERT (da «table»). Il 11b aggiunge "wireframe" in INSERT. */
 export const SLASH_ITEMS: readonly SlashItem[] = [
-  item("heading1", ["h1", "#"]),
-  item("heading2", ["h2", "##"]),
-  item("heading3", ["h3", "###"]),
-  item("paragraph", ["p"]),
-  item("bullet", ["ul", "-"]),
-  item("numbered", ["ol", "1."]),
-  item("todo", ["[]", "checkbox"]),
-  item("quote", [">"]),
-  item("divider", ["hr", "---"]),
-  item("table", []),
-  item("image", ["png", "jpeg", "gif", "webp"]),
-  item("drive", []),
-  item("link", []),
-  item("decision", []),
+  item("heading1", "text", ["h1", "#"]),
+  item("heading2", "text", ["h2", "##"]),
+  item("heading3", "text", ["h3", "###"]),
+  item("paragraph", "text", ["p"]),
+  item("bullet", "text", ["ul", "-"]),
+  item("numbered", "text", ["ol", "1."]),
+  item("todo", "text", ["[]", "checkbox"]),
+  item("quote", "text", [">"]),
+  item("divider", "text", ["hr", "---"]),
+  item("table", "insert", []),
+  item("image", "insert", ["png", "jpeg", "gif", "webp"]),
+  item("drive", "insert", []),
+  item("link", "insert", []),
+  item("decision", "insert", []),
 ];
 
 /**

@@ -114,7 +114,8 @@ const invalidOp = (): never => {
 /**
  * Applica le operazioni in ordine e restituisce la pagina nuova coi suoi
  * cambi. Lancia `invalid: op` per un id che manca, un `insert` di un id già
- * presente (anche come cella: le ancore di una pagina sono uniche), un
+ * presente (anche come cella: le ancore di una pagina sono uniche) o di
+ * un id che un `merge` ha assorbito nella stessa scrittura, un
  * `move` dopo sé stesso, un `merge` di un blocco senza testo, o un `merge`
  * che tocca un blocco già unito nella stessa scrittura (le ancore assorbite
  * due volte non avrebbero un solo punto d'arrivo).
@@ -144,7 +145,9 @@ export function applyBlockOps(
         list[indexOf(op.block.id)] = op.block;
         break;
       case "insert":
-        if (list.some((b) => b.id === op.block.id)) invalidOp();
+        // Un id assorbito da un merge della stessa scrittura non rientra:
+        // `mergedFrom` lo dà per unito, e le sue ancore sono già sul primo.
+        if (list.some((b) => b.id === op.block.id) || inMerge.has(op.block.id)) invalidOp();
         insertAfter(op.afterId, op.block);
         break;
       case "delete":

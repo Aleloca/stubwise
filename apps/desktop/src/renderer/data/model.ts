@@ -3605,7 +3605,10 @@ export interface ProductTableRow {
 /**
  * Un blocco della doc di prodotto. L'id è la verità: dividere tiene l'id
  * sulla prima parte, unire tiene quello del primo, e un id (di blocco o di
- * cella) non si riusa mai. Il 11b aggiunge `{ type: "wireframe"; … }` in coda.
+ * cella) non si riusa mai per un blocco diverso. L'unica eccezione è lo
+ * stesso blocco che torna: ⌘Z dell'editor rimette un blocco tolto con il
+ * suo id, e i suoi commenti con lui (`writeProductBlocksAs`, `undoOf`).
+ * Il 11b aggiunge `{ type: "wireframe"; … }` in coda.
  */
 export type ProductBlock =
   | { id: string; type: "heading"; level: 1 | 2 | 3; content: RichText }

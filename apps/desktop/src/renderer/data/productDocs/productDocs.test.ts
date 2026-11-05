@@ -282,6 +282,81 @@ describe("i blocchi", () => {
     );
   });
 
+  // Ruling del controller (5 nov 2026): ⌘Z di un'eliminazione nella stessa
+  // sessione dell'editor rimette il blocco con lo STESSO id, così i suoi
+  // commenti tornano. È un'eccezione stretta: solo con `undoOf`, solo la
+  // sessione (e la persona) che ha tolto quell'id, solo su quella pagina.
+  it("⌘Z: lo stesso id torna solo con undoOf, dalla sessione e dalla persona che l'ha tolto", async () => {
+    const { features, payments } = await featuresAndPayments();
+    const first = payments.blocks[0]!.id;
+    await productDocs.saveProductBlocks(
+      payments.id,
+      [{ op: "insert", afterId: first, block: para("b-undo", "Soon deleted") }],
+      { sessionId: "s-laura" },
+    );
+    const written = await productDocs.saveProductBlocks(payments.id, [{ op: "delete", blockId: "b-undo" }], {
+      sessionId: "s-laura",
+    });
+    // Inserito e tolto nella stessa sessione: l'unione torna com'era e la
+    // revisione sparisce, ma la scrittura ne dice comunque l'id.
+    expect(written.revisionId).toEqual(expect.any(String));
+    const back = [{ op: "insert" as const, afterId: first, block: para("b-undo", "Soon deleted") }];
+    // Senza undoOf, da un'altra sessione, da un'altra persona, su un'altra pagina: no.
+    await rejects(productDocs.saveProductBlocks(payments.id, back, { sessionId: "s-laura" }), "invalid: block_id_taken");
+    await rejects(
+      productDocs.saveProductBlocks(payments.id, back, { sessionId: "s-other", undoOf: written.revisionId! }),
+      "invalid: block_id_taken",
+    );
+    await rejects(
+      productDocs.saveProductBlocks(
+        features.id,
+        [{ op: "insert", afterId: null, block: para("b-undo", "Elsewhere") }],
+        { sessionId: "s-laura", undoOf: written.revisionId! },
+      ),
+      "invalid: block_id_taken",
+    );
+    as(MARCO);
+    await rejects(
+      productDocs.saveProductBlocks(payments.id, back, { sessionId: "s-laura", undoOf: written.revisionId! }),
+      "invalid: block_id_taken",
+    );
+    as(LAURA);
+    const restored = await productDocs.saveProductBlocks(payments.id, back, {
+      sessionId: "s-laura",
+      undoOf: written.revisionId!,
+    });
+    expect(restored.blocks.map((b) => b.id)).toContain("b-undo");
+    // Una scrittura con undoOf lascia la sua revisione (non si unisce).
+    const revisions = await productDocs.listProductRevisions(payments.id);
+    expect(revisions[0]!.undoOf).toBe(written.revisionId);
+    expect(revisions[0]!.sessionId).toBe("s-laura");
+  });
+
+  it("⌘Z di un merge: il blocco assorbito torna col suo id (anche la memoria vale per il merge)", async () => {
+    const { payments } = await featuresAndPayments();
+    const first = payments.blocks[0]!.id;
+    await productDocs.saveProductBlocks(
+      payments.id,
+      [{ op: "insert", afterId: first, block: para("b-second", "two") }],
+      { sessionId: "s-m" },
+    );
+    const before = (await productDocs.getProductPage(payments.code))!.blocks.find((b) => b.id === first)!;
+    const merged = await productDocs.saveProductBlocks(
+      payments.id,
+      [{ op: "merge", firstId: first, secondId: "b-second" }],
+      { sessionId: "s-m" },
+    );
+    const back = await productDocs.saveProductBlocks(
+      payments.id,
+      [
+        { op: "set", block: before },
+        { op: "insert", afterId: first, block: para("b-second", "two") },
+      ],
+      { sessionId: "s-m", undoOf: merged.revisionId! },
+    );
+    expect(back.blocks.map((b) => b.id).slice(0, 2)).toEqual([first, "b-second"]);
+  });
+
   it("un link javascript: o un segno oltre la fine del testo: invalid: marks, pagina invariata", async () => {
     const { payments } = await featuresAndPayments();
     const id = payments.blocks[0]!.id;

@@ -1131,8 +1131,8 @@ export interface UndoEntry {
   before: Record<string, ProductBlock | null>; after: Record<string, ProductBlock | null>;
 }
 export interface UndoStack { undo: UndoEntry[]; redo: UndoEntry[] }
-/** La voce di una scrittura della sessione; `null` se non cambia niente. Un blocco eliminato torna con un id nuovo (`makeBlockId`): gli id non si riusano. */
-export function undoEntryOf(blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[], makeId: () => string): UndoEntry | null;
+/** La voce di una scrittura della sessione; `null` se non cambia niente. Un blocco eliminato torna con il SUO id (ruling del controller, 5 nov 2026: lo stesso blocco, coi suoi commenti; la scrittura dichiara `undoOf`). */
+export function undoEntryOf(blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[]): UndoEntry | null;
 /** Si può annullare (o rifare) solo se i blocchi toccati sono ancora com'erano dopo (o prima). */
 export function stillAsLeft(blocks: readonly ProductBlock[], expected: Record<string, ProductBlock | null>): boolean;
 export function pushEntry(stack: UndoStack, entry: UndoEntry): UndoStack; // svuota `redo`, al più 100 voci
@@ -1221,7 +1221,7 @@ Test:
 - [ ] Il titolo: modificato e uscito, `renameProductPage`; vuoto, torna a
   quello di prima con la frase.
 - [ ] `undoEntryOf`: un `set` dà `backward` = il `set` del blocco di prima;
-  un `delete` dà un `insert` con un id **nuovo** (diverso da quello tolto);
+  un `delete` dà un `insert` con lo **stesso** id (ruling del controller);
   una scrittura che non cambia niente → `null`. `stillAsLeft` falso se il
   blocco è cambiato o sparito; `pushEntry` svuota `redo`.
 - [ ] `editorKey`: ⌘Z → `undo`, ⇧⌘Z → `redo`.

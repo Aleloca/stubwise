@@ -8,9 +8,11 @@ import { useToast } from "../../tasks-ui/Toast";
 import { copyText } from "../../tasks-ui/exportFile";
 import { DocCode, ReadingSkeleton } from "../docs/parts";
 import { ReadOnlyLine } from "./ReadOnlyLine";
+import { TitleField } from "./TitleField";
+import { BlockEditor, type BlockEditorHandle } from "./editor/BlockEditor";
+import { useEditorSession } from "./editor/useEditorSession";
 import {
   ProductNotFound,
-  ReadBody,
   inSpace,
   productPageHref,
   takeFresh,
@@ -22,7 +24,9 @@ import {
 // Product» (il codice copia il link), l'h1, la meta, la riga di sola
 // lettura per chi non scrive, il corpo. Una pagina eliminata da un altro,
 // un codice inventato o una pagina che chi guarda non legge dicono la stessa
-// cosa ([PS 20]). L'editor e il titolo modificabile arrivano col Task 8.
+// cosa ([PS 20]). Per chi scrive il titolo è un campo della stessa
+// tipografia e il corpo è l'editor a blocchi (Task 8, product-editor.md):
+// la pagina letta e la pagina scritta sono la stessa pagina.
 
 export function ProductPageRoute({ code }: { code: string }) {
   const { t } = useTranslation();
@@ -42,17 +46,39 @@ export function ProductPageRoute({ code }: { code: string }) {
 
 function PageBody({ page }: { page: ProductPageView }) {
   const { t, i18n } = useTranslation();
-  const { project } = useProductSpaceContext();
+  const { project, setEditorStatus } = useProductSpaceContext();
   const toast = useToast();
   const nameOf = usePersonName();
   const heading = useRef<HTMLHeadingElement>(null);
+  const editor = useRef<BlockEditorHandle>(null);
+  const session = useEditorSession(page);
+  const editable = page.permissions.edit;
   // L'iscrizione alla pagina: una pagina eliminata da un altro mentre è
   // aperta (`gone`) ricarica la lettura, che dice «non trovata».
   useProductPresence(page.id);
 
-  // Una pagina appena creata: il fuoco va al suo titolo, mai sul body.
+  // Lo stato del salvataggio va nella barra dello spazio (una sola barra).
+  const retry = useRef(session.retry);
+  retry.current = session.retry;
   useEffect(() => {
-    if (takeFresh(page.code)) heading.current?.focus();
+    if (!editable) return;
+    setEditorStatus({ state: session.state, skipped: session.skipped, retry: () => retry.current() });
+  }, [editable, session.state, session.skipped, setEditorStatus]);
+  useEffect(() => () => setEditorStatus(null), [setEditorStatus]);
+
+  // Una pagina appena creata: il fuoco va al suo titolo (per chi scrive col
+  // testo selezionato, [PE 2]), mai sul body.
+  useEffect(() => {
+    if (!takeFresh(page.code)) return;
+    const el = heading.current;
+    if (!el) return;
+    el.focus();
+    if (editable) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      document.getSelection()?.removeAllRanges();
+      document.getSelection()?.addRange(range);
+    }
   }, [page.code]);
 
   const copyLink = () => {
@@ -85,13 +111,17 @@ function PageBody({ page }: { page: ProductPageView }) {
           <span aria-hidden="true">·</span>
           <span>{t("docs.space.product")}</span>
         </p>
-        <h1
-          ref={heading}
-          tabIndex={-1}
-          className="text-[28px] leading-9 font-semibold text-balance text-ink outline-none [overflow-wrap:anywhere]"
-        >
-          {page.title}
-        </h1>
+        {editable ? (
+          <TitleField ref={heading} page={page} onEnter={() => editor.current?.focusFirst()} />
+        ) : (
+          <h1
+            ref={heading}
+            tabIndex={-1}
+            className="text-[28px] leading-9 font-semibold text-balance text-ink outline-none [overflow-wrap:anywhere]"
+          >
+            {page.title}
+          </h1>
+        )}
         <p className="num flex flex-wrap items-baseline gap-x-1.5 text-sm text-ink-muted">
           <span>
             {t("productDocs.space.updated", {
@@ -114,7 +144,7 @@ function PageBody({ page }: { page: ProductPageView }) {
         )}
       </header>
       <div className="mt-6">
-        <ReadBody page={page} />
+        <BlockEditor page={page} session={session} editable={editable} handle={editor} />
       </div>
     </article>
   );

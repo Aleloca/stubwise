@@ -251,6 +251,17 @@ const richOf = (block: ProductBlock): RichText[] =>
  * sono validi (`invalid: marks`), qualunque strada abbia preso la
  * scrittura. Ogni `mergedFrom` sposta le ancore registrate dentro la stessa
  * scrittura. Una scrittura che non cambia niente non scrive nulla.
+ *
+ * L'unica eccezione agli id già dati è ⌘Z dell'editor (ruling del
+ * controller, 5 nov 2026): una scrittura con `undoOf` e `sessionId` può
+ * rimettere, con lo STESSO id, un blocco (o una riga, una cella) che quella
+ * sessione ha tolto da questa pagina, se a scrivere è la stessa persona. È
+ * lo stesso blocco che torna, coi suoi commenti: gli id restano unici fra
+ * blocchi diversi. Ogni scrittura con `sessionId` ricorda gli id che toglie
+ * (`state.productSessionDeletes`).
+ *
+ * Restituisce la pagina e l'id della revisione in cui è finita la scrittura
+ * (`recordRevision`; `null` se non c'era niente da scrivere).
  */
 export function writeProductBlocksAs(
   me: string,
@@ -264,24 +275,43 @@ export function writeProductBlocksAs(
     groupId?: string;
     undoOf?: string;
   },
-): ProductPage {
+): ProductPage & { revisionId: string | null } {
   const page = editablePage(me, pageId);
   const onPage = new Set(page.blocks.flatMap(idsOf));
+  const session = meta.sessionId === undefined ? undefined : state.productSessionDeletes.get(meta.sessionId);
+  const restorable = (id: string) =>
+    meta.undoOf !== undefined &&
+    session !== undefined &&
+    session.actorId === me &&
+    session.pageId === page.id &&
+    session.ids.has(id);
   for (const op of ops) {
     if (op.op !== "insert" && op.op !== "set") continue;
     const fresh = idsOf(op.block).filter((id) => op.op === "insert" || !onPage.has(id));
-    if (fresh.some((id) => state.productBlockIds.has(id))) throw invalid("block_id_taken");
+    if (fresh.some((id) => state.productBlockIds.has(id) && !restorable(id))) throw invalid("block_id_taken");
   }
   const { blocks, changes } = applyBlockOps(page.blocks, ops);
   for (const change of changes)
     if (change.after && !richOf(change.after).every(validRich)) throw invalid("marks");
-  if (JSON.stringify(blocks) === JSON.stringify(page.blocks)) return copy(page);
+  if (JSON.stringify(blocks) === JSON.stringify(page.blocks)) return { ...copy(page), revisionId: null };
 
   page.blocks = blocks;
   page.updatedAt = now();
   page.updatedById = me;
-  for (const block of blocks) for (const id of idsOf(block)) state.productBlockIds.add(id);
-  recordRevision(me, page.id, changes, {
+  const kept = new Set(blocks.flatMap(idsOf));
+  for (const id of kept) state.productBlockIds.add(id);
+  if (meta.sessionId !== undefined) {
+    const gone = [...onPage].filter((id) => !kept.has(id));
+    if (gone.length > 0) {
+      const memory =
+        session && session.actorId === me && session.pageId === page.id
+          ? session
+          : { actorId: me, pageId: page.id, ids: new Set<string>() };
+      for (const id of gone) memory.ids.add(id);
+      state.productSessionDeletes.set(meta.sessionId, memory);
+    }
+  }
+  const revisionId = recordRevision(me, page.id, changes, {
     kind: meta.kind ?? "edit",
     via: meta.via,
     source: meta.source,
@@ -301,15 +331,21 @@ export function writeProductBlocksAs(
         }
       }
   emitProductPage(page.id, "blocks");
-  return copy(page);
+  return { ...copy(page), revisionId };
 }
 
+/**
+ * La scrittura del corpo dalla pagina (l'editor). `undoOf` = ⌘Z / ⇧⌘Z
+ * dell'editor: la revisione che si annulla, e il permesso di rimettere gli
+ * id che questa sessione ha tolto (vedi `writeProductBlocksAs`).
+ */
 export async function saveProductBlocks(
   pageId: string,
   ops: ProductBlockOp[],
-  opts: { sessionId: string },
-): Promise<ProductPage> {
+  opts: { sessionId: string; undoOf?: string },
+): Promise<ProductPage & { revisionId: string | null }> {
   return writeProductBlocksAs(await writer("productDocs.saveProductBlocks"), pageId, ops, {
     sessionId: opts.sessionId,
+    undoOf: opts.undoOf,
   });
 }

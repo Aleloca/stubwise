@@ -12012,6 +12012,75 @@
       "deleted": "Page deleted",
       "instructions": "Drag a page by its handle to move it; drag sideways to change its level. From the keyboard, use the page's More menu.",
       "moved": "Moved {{title}}"
+    },
+    "editor": {
+      "placeholder": "Type / for blocks",
+      "body": "Page body",
+      "blocks": {
+        "heading": "Heading {{level}}",
+        "paragraph": "Paragraph",
+        "bullet": "Bulleted list item, level {{level}}",
+        "numbered": "Numbered list item, level {{level}}",
+        "todo": "To-do",
+        "quote": "Quote",
+        "divider": "Divider",
+        "done": "Done"
+      },
+      "slash": {
+        "label": "Blocks",
+        "text": "Text",
+        "insert": "Insert",
+        "empty": "No blocks match “{{q}}”",
+        "heading1": "Heading 1",
+        "heading2": "Heading 2",
+        "heading3": "Heading 3",
+        "paragraph": "Text",
+        "bullet": "Bulleted list",
+        "numbered": "Numbered list",
+        "todo": "To-do list",
+        "quote": "Quote",
+        "divider": "Divider",
+        "table": "Table",
+        "image": "Image",
+        "drive": "Drive file",
+        "link": "Link to…",
+        "decision": "Decision"
+      },
+      "selection": {
+        "toolbar": "Format the selection",
+        "bold": "Bold",
+        "italic": "Italic",
+        "link": "Link"
+      },
+      "link": {
+        "field": "Paste or type a link",
+        "apply": "Apply",
+        "remove": "Remove link",
+        "refused": "Only http and https links"
+      },
+      "handle": {
+        "add": "Add a block below",
+        "menu": "Block menu",
+        "turnInto": "Turn into",
+        "moveUp": "Move up",
+        "moveDown": "Move down",
+        "duplicate": "Duplicate",
+        "delete": "Delete",
+        "alreadyFirst": "Already first",
+        "alreadyLast": "Already last"
+      },
+      "save": {
+        "saving": "Saving…",
+        "saved": "Saved",
+        "failed": "Couldn't save",
+        "retry": "Retry",
+        "notUndone": "Changed by someone else, not undone"
+      },
+      "title": {
+        "field": "Page title",
+        "needsTitle": "A page needs a title",
+        "renameFailed": "Couldn't rename the page"
+      }
     }
   }
 }
