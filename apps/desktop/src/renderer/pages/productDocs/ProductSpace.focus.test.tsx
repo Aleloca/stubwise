@@ -127,6 +127,66 @@ describe("il cassetto sotto i 1200 px", () => {
   });
 });
 
+// Revisione finale F1: la pagina aperta che diventa «non trovata» smonta
+// ciò che aveva il fuoco (editor, titolo, colonna): il fuoco va all'h1 della
+// pagina che non c'è, mai sul body; se era altrove, resta dov'era.
+describe("il fuoco quando la pagina aperta diventa «non trovata»", () => {
+  const remove = (code: string) => {
+    const id = page(code).id;
+    act(() => {
+      state.productPages = state.productPages.filter((p) => p.id !== id);
+      emitProductPage(id, "gone");
+    });
+  };
+  const firstBlockText = () =>
+    document.querySelector<HTMLElement>("[data-editor-body] [data-block-text]")!;
+
+  for (const [label, wide] of [
+    ["1440", true],
+    ["1024", false],
+  ] as const) {
+    it(`${label}: col fuoco nell'editor, il fuoco va all'h1 della pagina che non c'è`, async () => {
+      if (!wide) narrow();
+      const user = userEvent.setup();
+      renderRoute("/p/ACQ/docs/product/ACQ-D7", LAURA);
+      await screen.findByRole("heading", { level: 1, name: "Meter reading" });
+      await user.click(firstBlockText());
+      await waitFor(() =>
+        expect(document.querySelector("[data-editor-body]")!.contains(document.activeElement)).toBe(true),
+      );
+      remove("ACQ-D7");
+      const heading = await screen.findByRole("heading", { level: 1, name: NOT_FOUND });
+      await waitFor(() => expect(heading).toHaveFocus());
+      expect(document.activeElement).not.toBe(document.body);
+    });
+
+    it(`${label}: col fuoco nella colonna dei commenti, il fuoco va all'h1 della pagina che non c'è`, async () => {
+      if (!wide) narrow();
+      renderRoute("/p/ACQ/docs/product/ACQ-D5?comment=pc-acq-signin-1", LAURA);
+      await screen.findByRole("heading", { level: 1, name: "Sign-in" });
+      const col = await screen.findByRole("region", { name: "Comments" });
+      const resolve = await within(col).findByRole("button", { name: "Resolve" });
+      act(() => resolve.focus());
+      expect(col.contains(document.activeElement)).toBe(true);
+      remove("ACQ-D5");
+      const heading = await screen.findByRole("heading", { level: 1, name: NOT_FOUND });
+      await waitFor(() => expect(heading).toHaveFocus());
+    });
+  }
+
+  it("col fuoco su un elemento della barra che resta, il fuoco resta lì", async () => {
+    renderRoute("/p/ACQ/docs/product/ACQ-D7", LAURA);
+    await screen.findByRole("heading", { level: 1, name: "Meter reading" });
+    const product = within(
+      screen.getByRole("navigation", { name: "Product pages of ACQ" }),
+    ).getByRole("link", { name: "Product" });
+    act(() => product.focus());
+    remove("ACQ-D7");
+    await screen.findByRole("heading", { level: 1, name: NOT_FOUND });
+    expect(product).toHaveFocus();
+  });
+});
+
 describe("i confini dello spazio", () => {
   it("R-G5: un codice di un altro progetto nell'indirizzo di ACQ è una pagina che non c'è", async () => {
     const aud = createProductPageAs("p-roberta", "prj-aud", { title: "Audin overview" });

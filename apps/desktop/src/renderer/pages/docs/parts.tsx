@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
-import { createContext, useContext, useId, type ReactNode } from "react";
+import { createContext, useContext, useId, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   DocGeneration,
@@ -235,11 +235,24 @@ export function MinorMark() {
  * Pagina (o repository) che non c'è, o che chi guarda non legge: la stessa
  * frase per i due casi (R-G5), e il ritorno all'indice.
  */
-export function DocNotFound({ back }: { back: ReactNode }) {
+export function DocNotFound({
+  back,
+  headingRef,
+}: {
+  back: ReactNode;
+  /** Chi deve poterci mettere il fuoco (lo spazio Prodotto): l'h1 diventa focalizzabile da script. */
+  headingRef?: RefObject<HTMLHeadingElement | null>;
+}) {
   const { t } = useTranslation();
   return (
     <section className="flex flex-col items-start gap-2 pt-8">
-      <h1 className="text-2xl font-semibold text-ink">{t("docs.page.notFound")}</h1>
+      <h1
+        ref={headingRef}
+        tabIndex={headingRef ? -1 : undefined}
+        className="text-2xl font-semibold text-ink outline-none"
+      >
+        {t("docs.page.notFound")}
+      </h1>
       <p className="text-md text-ink-muted">{t("docs.page.notFoundBody")}</p>
       {back}
     </section>

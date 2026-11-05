@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { createContext, useContext, useRef } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateProductPage, useDeleteProductPage, usePeople } from "../../data/queries";
 import type { ProductPageView, ProductSpaceView, Project } from "../../data/types";
@@ -140,8 +140,18 @@ export const indexFreshKey = (code: string) => `index:${code}`;
  */
 export function ProductNotFound({ code, outside = false }: { code: string; outside?: boolean }) {
   const { t } = useTranslation();
+  // Una pagina aperta che diventa «non trovata» smonta ciò che aveva il fuoco
+  // (editor, titolo, colonna dei commenti o della cronologia): il fuoco
+  // finirebbe sul body, e va all'h1. Se il fuoco è altrove (la barra, la
+  // palette, il cassetto), resta dov'è (revisione finale F1).
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body || !active.isConnected) heading.current?.focus();
+  }, []);
   return (
     <DocNotFound
+      headingRef={heading}
       back={
         <Link
           {...(outside ? ({ to: "/p/$code/docs", params: { code } } as const) : productIndexLink(code))}
