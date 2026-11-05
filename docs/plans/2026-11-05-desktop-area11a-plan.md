@@ -805,6 +805,9 @@ Regole:
   `invalid: anchor` per una radice (una risposta a un filo con l'ancora
   sparita si può ancora scrivere); `replyToId` di una risposta → `invalid:
   reply`;
+- commentare, rispondere ed essere menzionati **non** scrivono un
+  `ProductFollow` *(maintainer, 5 nov 2026)*: seguono solo chi crea la
+  pagina e chi chiama `followProductPage`;
 - `mentionIds` = `directMentionIds(body)` filtrato su chi legge i Docs del
   progetto e diverso da chi scrive;
 - per ogni menzionato una notifica diretta `product_doc.mention`
@@ -850,6 +853,8 @@ Test:
   (la condizione che il test prova).
 - [ ] `productMentionCandidates(ACQ, "ma")`: comprende Marco Bellini e
   Matteo Conti, nessuno che non legge i Docs di ACQ, mai Claude.
+- [ ] Nessun seguire implicito: Matteo commenta Bills e menziona Sara;
+  `followersOf(Bills)` resta com'era (né Matteo né Sara).
 - [ ] Menzioni (Q1): «@Marco Bellini» (due volte nel testo) → una sola
   notifica `product_doc.mention` a Marco, nessuna a chi scrive né a un nome
   che non legge ACQ; la pagina eliminata → `objectGone`; la card in it dice
@@ -1069,9 +1074,10 @@ Segue lo shape `product-editor.md`.
 
 **Files:**
 - Create: `pages/productDocs/editor/{BlockEditor,RichBlock,RichView,SelectionBar,LinkField,SlashMenu,BlockHandle,useEditorSession}.tsx`,
-  `pages/productDocs/editor/{keys,input,domRange}.ts`; test
+  `pages/productDocs/editor/{keys,input,domRange,undo}.ts`; test
   `pages/productDocs/editor/keys.test.ts`,
   `pages/productDocs/editor/input.test.ts`,
+  `pages/productDocs/editor/undo.test.ts`,
   `pages/productDocs/editor/BlockEditor.test.tsx`.
 - Modify: `pages/productDocs/ProductPageRoute.tsx` (titolo modificabile,
   editor); i18n `productDocs.editor.*`; `styles/tokens.css` se lo shape
@@ -1102,6 +1108,7 @@ export type EditorKeyResult =
   | { kind: "moveBlock"; dir: "up" | "down" }
   | { kind: "toggleMark"; mark: "bold" | "italic" }
   | { kind: "openSlash" }
+  | { kind: "undo" | "redo" }                 // ⌘Z / ⇧⌘Z (shape [PE 21])
   | { kind: "none" };
 export function editorKey(e: { key: string; shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean }, ctx: { text: string; caret: number; type: ProductBlockType; slashOpen: boolean }): EditorKeyResult;
 /** Gli appunti in blocchi: con `text/html` le frasi di `richFromHtml`, altrimenti una riga di `text/plain` per paragrafo (righe vuote saltate). */
@@ -1112,7 +1119,23 @@ export function useEditorSession(page: ProductPageView): {
   save(ops: ProductBlockOp[]): void;          // in fila, una alla volta
   state: "idle" | "saving" | "saved" | "error";
   retry(): void;
+  undo(): void; redo(): void;                 // solo le operazioni di questa sessione
+  canUndo: boolean; canRedo: boolean;
+  /** L'ultimo ⌘Z/⇧⌘Z saltato perché altri hanno cambiato quei blocchi. */
+  skipped: boolean;
 };
+// pages/productDocs/editor/undo.ts — pura (shape [PE 21], maintainer 5 nov 2026)
+export interface UndoEntry {
+  forward: ProductBlockOp[]; backward: ProductBlockOp[];
+  /** I blocchi toccati prima e dopo (`null` = non c'era / non c'è). */
+  before: Record<string, ProductBlock | null>; after: Record<string, ProductBlock | null>;
+}
+export interface UndoStack { undo: UndoEntry[]; redo: UndoEntry[] }
+/** La voce di una scrittura della sessione; `null` se non cambia niente. Un blocco eliminato torna con un id nuovo (`makeBlockId`): gli id non si riusano. */
+export function undoEntryOf(blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[], makeId: () => string): UndoEntry | null;
+/** Si può annullare (o rifare) solo se i blocchi toccati sono ancora com'erano dopo (o prima). */
+export function stillAsLeft(blocks: readonly ProductBlock[], expected: Record<string, ProductBlock | null>): boolean;
+export function pushEntry(stack: UndoStack, entry: UndoEntry): UndoStack; // svuota `redo`, al più 100 voci
 ```
 
 Regole:
@@ -1144,6 +1167,15 @@ Regole:
   cambiano il tipo appena scritte;
 - incollare: `pasteBlocks`; dentro una frase una sola riga si inserisce al
   cursore coi suoi segni, più righe diventano blocchi dopo quello corrente;
+- ⌘Z / ⇧⌘Z *(maintainer, 5 nov 2026, shape [PE 21])*: una pila per pagina
+  e per sessione dell'editor, riempita **solo** da `save()` di questa
+  sessione (le scritture altrui, anche dal vivo, non entrano); annullare
+  manda `backward` con `saveProductBlocks` (una revisione come le altre),
+  rifare `forward`; la pila si svuota cambiando pagina o persona. Se un
+  blocco da annullare è stato cambiato da altri dopo (`stillAsLeft` falso
+  sui blocchi di `useProductPage`), quel passo si salta e si toglie dalla
+  pila, nessuna scrittura, e lo stato dice «Changed by someone else, not
+  undone» / «Cambiato da altri, non annullato»;
 - per chi legge soltanto nessun `contenteditable`: solo `RichView`.
 
 I test guidano l'editor con `InputEvent("beforeinput", { inputType, data })`
@@ -1188,6 +1220,19 @@ Test:
   «Saved».
 - [ ] Il titolo: modificato e uscito, `renameProductPage`; vuoto, torna a
   quello di prima con la frase.
+- [ ] `undoEntryOf`: un `set` dà `backward` = il `set` del blocco di prima;
+  un `delete` dà un `insert` con un id **nuovo** (diverso da quello tolto);
+  una scrittura che non cambia niente → `null`. `stillAsLeft` falso se il
+  blocco è cambiato o sparito; `pushEntry` svuota `redo`.
+- [ ] `editorKey`: ⌘Z → `undo`, ⇧⌘Z → `redo`.
+- [ ] Laura scrive «x» in un paragrafo di Sign-in, esce, ⌘Z: un secondo
+  `saveProductBlocks` con il testo di prima e la stessa `sessionId`;
+  ⇧⌘Z lo rimette.
+- [ ] Marco (copione, `writeProductBlocksAs`) cambia lo stesso blocco dopo
+  Laura: ⌘Z di Laura non scrive, dice «Changed by someone else, not
+  undone», e la pila non ha più quel passo. La scrittura di Marco non è
+  nella pila di Laura (la condizione che il test prova: le due scritture
+  hanno `sessionId` diverse).
 - [ ] Sara: nessun `contenteditable` nella pagina, nessuna barra della
   selezione per i segni; grassetto, corsivo e link si leggono; i codici sono
   link per ciò che vede, tenui per `STW-…`.
@@ -1289,7 +1334,14 @@ Regole:
   «Formatting changed» / «Formattazione cambiata»; immagine: «Image: <didascalia>»; tolta: solo
   «Before»; aggiunta: solo «After»). Il 11b ci aggiunge «per conto di»,
   fonte e «Annulla»: qui non c'è;
-- «Follow» / «Following» con `aria-pressed`, anche per chi legge soltanto.
+- «Follow» / «Following» con `aria-pressed`, anche per chi legge soltanto;
+- la colonna dei commenti *(maintainer, 5 nov 2026, shape [PC 14])*: si apre
+  da sola aprendo una pagina con fili aperti, chiusa senza; aprirla o
+  chiuderla a mano si ricorda **per persona**, in `localStorage`
+  (`stubwise.productComments.<personId>` = `open` | `closed`) dentro
+  try/catch, e prevale sull'apertura automatica; senza archivio vale la
+  regola automatica. A 1024 è sovrapposta 360 e col pannello della task
+  vince l'ultimo aperto ([PE 22]).
 
 Test:
 - [ ] Laura sceglie «only with Google» in Sign-in → «Comment» → scrive
@@ -1315,6 +1367,10 @@ Test:
   `sessionId`, apposta, si disegna.
 - [ ] «Follow» su Bills come Sara: «Following», premuto; ricaricata la
   pagina resta.
+- [ ] Colonna (PC 14): Sign-in (fili aperti) la apre da sola, Overview (nessun
+  filo) no; Laura la chiude su Sign-in, apre Bills: chiusa (ricordato per
+  persona); come Marco, Sign-in si apre da sola; con `localStorage` che
+  lancia, la pagina si disegna con la regola automatica.
 - [ ] Commit `feat(desktop): commenti con menzioni, cronologia e «Segui» nelle pagine di prodotto`.
 
 ### Task 11: La scrittura dal vivo (UI)
@@ -1328,7 +1384,9 @@ Segue lo shape `product-editor.md`.
   gli avatar), `pages/productDocs/editor/{RichBlock,BlockEditor}.tsx` (la
   presenza di chi guarda con `useSetProductPresence`, al più una ogni 150
   ms; i cursori degli altri); `styles/tokens.css` (`--presence-1`…`--presence-6`,
-  chiaro e scuro); i18n `productDocs.live.*`.
+  chiaro e scuro, dalle tinte dei reparti 1–6 con nomi propri, usati solo
+  nell'editor e sempre accanto al nome: «The Presence Exception» di
+  `apps/desktop/DESIGN.md`, shape [PE 17]); i18n `productDocs.live.*`.
 
 Regole:
 - gli avatar in cima: gli altri presenti (non chi guarda), al più 4 e «+N»,
@@ -1629,5 +1687,30 @@ Ognuna è segnata nel testo come *(maintainer, 5 nov 2026, Qn)*.
 
 ## Decisioni del maintainer sugli shape del Task 0
 
-*(Da scrivere dopo l'approvazione degli shape `product-space.md`,
-`product-editor.md`, `product-comments-history.md`.)*
+Gli shape `product-space.md`, `product-editor.md` e
+`product-comments-history.md` sono approvati *(maintainer, 5 nov 2026)*,
+con la risposta consigliata a tutte e cinque le domande:
+
+1. **Colori della presenza** (`product-editor.md`): sei token
+   `--presence-1…6`, solo dentro l'editor, sempre accanto al nome;
+   l'eccezione è scritta in `apps/desktop/DESIGN.md` («The Presence
+   Exception»). Task 11.
+2. **Commenti e cronologia a 1024** (`product-editor.md`): colonna
+   sovrapposta 360 dal bordo destro; col pannello della task vince l'ultimo
+   aperto; il riquadro di Claude sta alla sua sinistra. Task 10.
+3. **⌘Z / ⇧⌘Z** (`product-editor.md`): annulla e rifà per pagina e per
+   sessione dell'editor, sulle stesse `ProductBlockOp`, solo le operazioni
+   della propria sessione. Task 8.
+4. **La colonna dei commenti a 1440** (`product-comments-history.md`): si
+   apre da sola se la pagina ha fili aperti; il gesto a mano si ricorda per
+   persona. Task 10.
+5. **Chi segue** (`product-comments-history.md`): solo chi crea la pagina e
+   chi preme «Follow»; commentare o essere menzionati non fa seguire.
+   Task 4.
+
+Approvate anche le scelte del costruttore negli shape, fra cui: la barra
+unica della pagina e il suo ordine (stato di salvataggio, avatar, Follow,
+Comments, History, Export, «⋯»); nell'albero Invio apre e F2 rinomina
+(Invio salva dentro la rinomina); al più una colonna a destra della lettura
+(commenti, cronologia o pannello della task); il gruppo «Code» al posto di
+«Spaces» e la prima pagina radice del Prodotto in START HERE.

@@ -179,6 +179,8 @@ A near-monochrome neutral field (cool, hue 265, chroma under 0.01) with eight de
 
 **The Hue-Neutral Claude Rule.** "Claude working" is ink, not a hue: no hue was at least 30 degrees clear of all eight departments and the statuses in both themes. Claude is told apart by shape (a 2px dashed pulsing ring), against the solid dot of "waiting on you".
 
+**The Presence Exception.** Inside the product-docs editor only, other people's cursors, name labels and avatar rings use six presence colors (`--presence-1` to `--presence-6`, taken from department hues 1-6 under their own names), always next to the person's name. They appear nowhere else, and the color is never the only signal (maintainer decision, 5 Nov 2026).
+
 **The Focus-Only Blue Rule.** `--focus` is for `:focus-visible` rings (2px, 2px offset) and nothing else.
 
 **The Amber-On-The-Logo Rule.** Brand amber is the logo's alone.
