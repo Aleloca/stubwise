@@ -820,6 +820,62 @@ si riscrivono.
   gli elenchi di `docs/invariants/permissions.md`; i test R-G5 non
   distinguono maiuscole e minuscole.
 
+- **§19 — il corpo di una pagina di prodotto: costruita nel prototipo
+  (11a), da scrivere prima del motore** in `docs/invariants/`, accanto a «Un
+  commento eliminato non ha più testo, in nessun posto».
+  **Il corpo di una pagina di prodotto è un documento a blocchi con id
+  stabili che non si riusano mai; ogni ancora (commento, presenza, segno)
+  sta su un id di blocco o di cella; unendo due blocchi le ancore del
+  secondo passano al blocco unito, un'ancora cancellata si dice «Frase
+  eliminata»; il testo di una frase è testo più segni a intervalli, e un
+  link è solo http(s)** *(maintainer, 5 nov 2026, Q2 e Q3)*. Nel prototipo
+  (`domain/productDocs/blocks.ts`, `richText.ts`; `data/productDocs/writes.ts`):
+  - un id di blocco non si riusa, né nella stessa pagina né in un'altra:
+    `insert` con un id già usato o già eliminato dà `invalid: block_id_taken`.
+    **Eccezione unica e dichiarata**: ⌘Z di una cancellazione nella stessa
+    sessione dell'editor rimette il blocco con lo STESSO id (ruling del
+    controller, 5 nov 2026), perché i suoi commenti tornino; la memoria è per
+    sessione (`productSessionDeletes`), e «gli id non si riusano» vale per
+    blocchi **diversi**;
+  - l'**unione** è un'operazione (`merge`), e `mergedFrom` nasce SOLO da lì:
+    da due array non si distingue un'unione da «elimina e riscrivi». I
+    commenti del secondo blocco passano al blocco unito (`onAnchorsMerged`);
+    se invece qualcuno cancella a mano, i fili dicono «Frase eliminata» e
+    non sono ricostruibili. Una scrittura contiene al più un `merge`;
+  - il testo di una frase è `RichText` (testo più intervalli di grassetto,
+    corsivo e link), **mai HTML salvato**; un link è accettato solo se
+    `safeLinkHref` lo dà per http(s), e la stessa regola vale per un link
+    scritto da Claude. Una regola copiata in due posti (renderer e processo
+    principale) ha una sola tabella di casi nei test; sul server ne serve una
+    terza (`area11-parity.md`);
+  - l'ancora di un commento è un id di blocco **o di cella**; chi la legge
+    deriva `anchorGone` dal documento di adesso, non lo salva;
+  - la ricerca legge il testo senza segni: l'indirizzo di un link non si
+    trova.
+- **§20 — l'app desktop esce dal renderer verso il disco solo dal canale
+  `file:save`: costruita nel prototipo (11a), da scrivere prima del motore**
+  in `docs/invariants/`. **L'app desktop esce dal renderer verso il disco
+  solo dal canale `file:save`, validato nel processo principale; il percorso
+  scelto non torna al renderer** *(decisione 8 della spec)*. Nel prototipo
+  (`src/main/security.ts`, `index.ts`, `src/preload/index.ts`):
+  - il canale è UNO (`main/main.test.ts` verifica sul sorgente che i canali
+    nominati da main e preload siano `file:save`, `menu:*` e `theme:changed`,
+    e nessun altro): un canale in più è una decisione, non un dettaglio;
+  - il frame mittente si controlla PRIMA di leggere gli argomenti
+    (`isNavigationAllowed`), e la richiesta si valida subito dopo
+    (`parseSaveFileRequest`: formato, nome ≤ 120 senza caratteri di
+    controllo, nessun campo in più, `data` solo per il Word, firma zip,
+    tetto 25 MB);
+  - si scrive SOLO dove la persona sceglie nella finestra di salvataggio
+    (`showSaveDialog`); il renderer riceve `{saved}` o un motivo, mai il
+    percorso; il PDF lo stampa il processo principale (`printToPDF`).
+- **§21 — rinviata al 11b** *(P34, 5 nov 2026)*. La decisione 1 della spec
+  (l'apertura di email e riunioni private nella doc, accanto
+  all'invariante `mailbox_owner`) la scrive il piano 11b **prima del
+  motore**: il 11a non legge né cita posta o riunioni, quindi non c'è
+  nulla da scrivere ora. Se il 11b non parte, la nota resta qui come
+  promemoria che quella regola manca.
+
 ## Area 8b — minori aperti
 
 Parità e copertura: `area8-parity.md` (sezione «Server → area 8b»). Qui solo
@@ -2787,3 +2843,266 @@ registro del piano).
   del Task 0 (S0 a nove voci, «Non ora» per oggetto, l'origine «Created by
   Claude on behalf of …» che resta, «Ask Claude» nel Supporto, `codes` sulla
   nota `not_manageable`, ⌘J al riquadro).
+
+## Area 11a — minori aperti
+
+Parità e copertura: `area11-parity.md`. Le invarianti da riscrivere prima del
+motore sono §19 (il corpo di una pagina di prodotto: id stabili, ancore,
+segni) e §20 (il solo canale `file:save`), sotto «Invarianti del CLAUDE.md da
+riscrivere prima del motore»; la §21 (decisione 1 della spec, l'apertura di
+email e riunioni private nella doc) la scrive il piano 11b prima del
+motore, e qui resta il promemoria. Qui: le scelte del costruttore del piano,
+i ruling del controller sui Task 1–12, i minori rimandati alla revisione
+finale, ciò che va verso il 11b, e in fondo le decisioni del maintainer.
+Ognuna delle scelte ha il suo costo se è sbagliata. Dettaglio per task:
+`.superpowers/sdd/2026-11-05-desktop-area11a-plan/task-N-review.md`.
+
+### Scelte del costruttore del piano
+
+- **Nessuna libreria d'editor: un `contenteditable` controllato per blocco,
+  con `beforeinput` e il ridisegno dal modello.** Il modello (`RichText` per
+  blocco) è la verità e il DOM si ridisegna da lì; ProseMirror, Slate o
+  TipTap avrebbero un modello proprio da far coesistere con gli id stabili,
+  i commenti ancorati e le operazioni di Claude del 11b. *Se sbagliata*: il
+  caret, l'IME e il correttore vanno rifiniti a mano (il codice sta in
+  `pages/productDocs/editor/`, `BlockEditor.tsx` ha più di 850 righe); il
+  motore vero sul web potrebbe voler una libreria, e portare gli id stabili
+  dentro costa più di averli fin dall'inizio.
+- **⌘K resta alla palette; il link si mette solo dalla barra della
+  selezione.** ⌘K è già «Search and commands» in tutta l'app, e un editor che
+  se lo prende sul testo avrebbe due significati. *Se sbagliata*: chi viene
+  da Notion o Google Docs preme ⌘K sul testo e apre la ricerca; costa un
+  gesto e una frase nel tooltip, non dati.
+- **L'incolla tiene solo grassetto, corsivo e link** (`richFromHtml`: legge
+  anche `style` per Google Docs e ignora l'involucro `docs-internal-guid`;
+  Office ha un suo frammento). Titoli, elenchi nidificati e tabelle
+  incollati diventano paragrafi. *Se sbagliata*: una pagina portata da Google
+  Docs perde titoli e tabelle e va rifatta a mano; il frammento di prova è
+  scritto a mano, non catturato (vedi «Da fare a mano»).
+- **Una revisione per sessione dell'editor** (le scritture della stessa
+  sessione si uniscono: primo `before`, ultimo `after`, `last_seq` per
+  l'ordine; una scrittura con fonte non si unisce mai). Una cronologia con una
+  riga per tasto sarebbe illeggibile. *Se sbagliata*: «cosa ha scritto chi» è
+  meno fine, e «Annulla» del 11b (che usa `touchedAfter` sull'ultima
+  scrittura) lavora su pezzi più grossi.
+- **Niente modifica né eliminazione dei commenti**, uno per uno. Si risolvono
+  e si riaprono. *Se sbagliata*: un refuso nel commento resta; il 11b che
+  vorrà modificarlo avrà bisogno di un `commentId` nella notifica di
+  menzione (oggi tiene la radice del filo), e il testo salvato della card
+  potrebbe non essere più quello di adesso.
+- **Niente «Ripristina» nella cronologia**: si legge «Before» / «After», non
+  si torna indietro. ⌘Z copre la sessione corrente. *Se sbagliata*: chi
+  sbaglia ieri non ha un gesto per tornare; il 11b ha «Annulla» solo per le
+  modifiche di Claude.
+- **Una pagina con sottopagine non si elimina** (`invalid: has_children`;
+  «Delete» spento con la sua frase, senza «Who?»). *Se sbagliata*: per
+  eliminare un ramo si elimina foglia per foglia; l'alternativa (eliminare a
+  cascata o riattaccare le figlie) è una scelta di prodotto con un costo
+  d'errore alto.
+- **La chat di un repository non cita le pagine di prodotto** (la fonte
+  «from Product» c'è solo nella chat del progetto). *Se sbagliata*: una
+  domanda fatta dal repository non vede la doc scritta a mano; si apre la chat
+  del progetto.
+- **La serie `-D` è condivisa** fra i Docs dei repository e quelli di
+  prodotto (`initialDocCodeSeq()` legge `DOC_PAGES` **e** `PRODUCT_PAGES`,
+  P3). *Se sbagliata*: i codici di un progetto saltano numeri quando le due
+  specie si mescolano; il contrario (due serie) avrebbe due `ACQ-D5` e
+  `resolveCodes` aprirebbe la pagina sbagliata.
+- **Il nome `product` è riservato** per i repository (`name_reserved`), e la
+  categoria «Product» dei Docs dei repository è «Product overview» /
+  «Panoramica di prodotto» *(maintainer, 5 nov 2026, P26)*. *Se sbagliata*:
+  due «Product» fianco a fianco nella stessa sezione e nei risultati di
+  ricerca; un repository già chiamato «product» nel motore andrebbe
+  rinominato in migrazione.
+- **Il WebP resta fuori dal Word**: PNG, JPEG e GIF entrano con le loro
+  dimensioni lette dai byte d'intestazione; un WebP o un SVG esce con la sola
+  didascalia, e l'avviso finale dice «1 image was left out of the Word file».
+  *Se sbagliata*: un Word con immagini mancanti; il PDF le ha tutte.
+- **`docx` solo con uscite senza `Buffer`** (Blob o ArrayBuffer) e importato
+  dinamicamente all'esportazione (P36): il renderer è `sandbox` senza Node e
+  `docx` pesa. *Se sbagliata*: il Word esce in dev e si rompe impacchettato.
+- **Il colore della presenza esiste solo dentro l'editor** (sei token
+  `--presence-1…6`, sempre accanto al nome; «The Presence Exception» in
+  `DESIGN.md`) *(maintainer, 5 nov 2026)*. *Se sbagliata*: un colore di
+  persona fuori dall'editor va a cozzare con il resto del design, che non ne
+  ha.
+- **A 1024 la colonna dei commenti è sovrapposta, 360 dal bordo destro**; col
+  pannello della task vince l'ultimo aperto, e il riquadro di Claude sta alla
+  sua sinistra. A 1200 con la barra di progetto l'albero è un cassetto
+  quando la colonna dei commenti è aperta (emendamento del controller,
+  aritmetica di PE 20). *Se sbagliata*: sovrapposta copre la lettura, e i
+  fili non sono allineati ai blocchi.
+- **La colonna dei commenti a 1440 si apre da sola** se la pagina ha fili
+  aperti, e il gesto a mano si ricorda per persona *(maintainer, 5 nov
+  2026)*. *Se sbagliata*: chi non la vuole la chiude ogni volta.
+- **Si segue solo creando la pagina o premendo «Follow»**: commentare o essere
+  menzionati non fa seguire *(maintainer, 5 nov 2026)*. *Se sbagliata*:
+  chi commenta non riceve gli aggiornamenti del 11b senza premere il bottone.
+- **⌘Z e ⇧⌘Z fanno parte del 11a**, per pagina e per sessione dell'editor,
+  sulle stesse `ProductBlockOp`, solo le operazioni della propria sessione
+  *(maintainer, 5 nov 2026)*.
+- **⌘Z di una cancellazione rimette il blocco con lo STESSO id**, nella stessa
+  sessione (ruling del controller; è l'eccezione unica di §19). *Se
+  sbagliata*: un'eccezione al «gli id non si riusano» da ricordare, ma
+  perdere i commenti con ⌘Z è un errore che la persona non si aspetta.
+- **ACQ ha nove pagine di prodotto** (ruling del controller: vale l'albero del
+  brief, non il numero 8; codici ACQ-D3..D11, prossimo ACQ-D12). *Se
+  sbagliata*: un numero nei test.
+- **Gli avatar della presenza si sovrappongono di 2 px** (emendamento datato
+  dello shape: la seconda iniziale resta leggibile; a 4 px ne copriva una).
+- **Trascinare un blocco per ⋮⋮ sta nel Task 8** (ruling del controller:
+  nessun task successivo lo copriva). *Se sbagliata*: lo spostamento resta a
+  ⌥⇧↑/↓ e al menu del blocco.
+- **La pulizia di un progetto eliminato** toglie pagine, revisioni, commenti,
+  seguaci e presenze con `pageId` in `purge.ts` (P13); il motore lo fa con le
+  chiavi esterne. *Se sbagliata*: righe orfane che `followersOf` e la
+  cronologia vedrebbero come pagine che non esistono.
+
+### Ruling del controller sui Task 1–12 (accettati, rimandati, limiti)
+
+Dettaglio in `task-N-review.md`. I minori **rimandati alla revisione finale**
+(«minor (deferred, final)») sono qui perché sopravvivano al branch:
+
+- **Task 1**: un NBSP letterale in `richText.ts` da scrivere come escape;
+  `plainTextOf` quadratico sulle tabelle; nessun test del nuovo `-S`
+  `CodeLink` in `AsideRow`/`ProposalCard`. La regex dei codici unica **cambia
+  la Chat e Claude** (un `ACQ-S2` diventa un `CodeLink`): voluto (P7, scelta
+  (a): `ISO-8601` e `COVID-19` si leggono come codici spenti, coerente con
+  R-G5).
+- **Task 2**: quattro risposte diverse per un id inesistente e per uno non
+  leggibile (`listProductRevisions`, follow); uno spostamento o una sessione
+  annullata aggiornano `updatedAt` senza scrivere una revisione (la cronologia
+  non mostra un riordino); `getProductPage` risponde `forbidden` anche per un
+  codice che non c'è, per non rivelare se esiste.
+- **Task 3**: `acq.ts` con `3+i` codificato; il test di `nextSeq` sul seme
+  con disuguaglianza.
+- **Task 4**: `comments.ts` scrive frasi inglesi in titolo e corpo a lettura
+  (meglio vuoti: l'inglese in `objectGone` non arriva mai a chi legge in
+  italiano); il test della card «gone» è sensibile alle maiuscole; un
+  commento «ridondante apposta» su `!p.isClaude`; una menzione scritta a
+  mano non è filtrata per chi il mittente vede.
+- **Task 5**: `writersNear` esportato senza filtro per chi guarda (id di
+  persone, mai nomi, e `docs.edit` non controllato); il `catch` muto del
+  copione da loggare; il test R-G5 di `presence` non discrimina
+  `visiblePeopleFor` (nessuno è invisibile nel seme); `moveProductPage` emette
+  `blocks` senza uno spostamento; nessun `onAnchorsMerged` per la presenza.
+- **Task 6**: nessun test del vecchio caso «ab poi a» in ⌘K; la parola
+  Product/Prodotto fissata nel testo della risposta (un follow-up composto a
+  lettura); nel menu `#` le pagine di prodotto vengono dopo quelle dei
+  repository nel limite di 6; la palette carica gli spazi dei repository
+  dentro lo spazio Prodotto.
+- **Task 7**: le guardie del doppio clic (`DocsTurnedOff` in volo, target di
+  General) restano bloccate se la rilettura non conferma mai; il caso `-240`
+  di `treeMoves` non discrimina; `getProductSpace` forbidden/null verso il
+  Task 2 da verificare nella revisione finale.
+- **Task 8**: nessun avviso di modifiche non salvate all'uscita (le bozze si
+  salvano allo smontaggio; un errore a pagina chiusa non si vede più);
+  `undoOf` può nominare una revisione rimossa da un'unione; un `op` `invalid`
+  fa cadere tutto il lotto di bozze, e il messaggio «la pagina era
+  cambiata» compare anche per `invalid marks` e `block_id_taken`; la voce di
+  undo di una scrittura scartata resta; `not_found` e `forbidden` ancora in
+  «Retry»; ↑/↓ cambiano blocco solo con il cursore a 0 / alla fine del
+  testo (niente righe visive nel prototipo, P41).
+- **Task 9**: un file copiato dal Finder porta anche il nome in testo
+  semplice, quindi l'incolla può inserire il nome invece dell'immagine; uscendo
+  dalla tabella la cella ricordata non si azzera; il campo link in una cella
+  più un clic su un altro blocco lascia due `data-editing`; l'altezza minima
+  del menu tolta; una decisione appena scelta mostra lo scheletro fino alla
+  rilettura (accettato, nota per il 11b); verificare `page.decisions` null
+  per una decisione invisibile e `useDriveFile` vuoto per un file di un
+  progetto invisibile.
+- **Task 10**: `taskPanelHasText` considera non salvata anche una descrizione
+  aperta e invariata; il ramo `contenteditable` non trova nulla e salta i
+  valori vuoto/`plaintext-only`; la lettura del DOM del pannello è fragile
+  (meglio un segnale esplicito di bozza). A 1024 i fili non sono allineati ai
+  blocchi (stanno in fila); il segno del blocco sta nei 32 px di margine
+  destro (`-right-8`).
+- **Task 11**: l'etichetta del cursore copre la riga sopra; `savedLength`
+  sposta di poco il cursore remoto; `useProductPresence` è montato due volte;
+  l'avatar che esce sfuma dopo il «+N»; nessun cursore altrui dentro una
+  cella (il seme non ha copioni sulle celle).
+- **Task 12**: `withExtension` può sovrascrivere `X.docx` se si scrive `X`;
+  nel `preview:web` il PDF chiama `window.print()` e non dà nessun avviso (non
+  si può sapere l'esito); a 1024 «Export ▾» resta nella barra (Comments e
+  History non vanno nel «⋯» perché ci stanno).
+- **Task 13**: la palette sale a `z-50` perché la colonna dei commenti
+  sovrapposta (`z-[45]`) ne copriva il bordo destro sotto i 1200 px; trovato
+  dallo scatto `a11a-extra-palette-narrow-*`.
+
+### Verso il 11b
+
+Il 11b non cambia le interfacce del 11a (le usa e aggiunge in coda: «Cosa il
+piano 11b consuma» nel piano). Da ricordare:
+
+- **Il campo del segno a margine** non c'è in 11a (P14): il 11b lo aggiunge in
+  coda, facoltativo. Un campo vuoto senza forma non servirebbe a niente.
+- **`wireframe`** è il solo tipo di blocco che il 11b aggiunge a
+  `ProductBlock` e a `SLASH_ITEMS`; l'esportazione (`blockOf`) dovrà
+  aggiungere un caso, e le bozze di schermata escono come immagini.
+- **La cronologia del 11b** aggiunge «per conto di», la fonte e «Annulla»; il
+  `kind: "undo"` del 11b deve decidere come mostrare le scritture di ⌘Z, che
+  nel 11a sono `kind: "edit"` con `undoOf`.
+- **Il gutter destro** per il segno di Claude va ripensato: il segno del
+  commento sta già nei 32 px di margine.
+- **Il segnale dal vivo**: il 11b ascolti anche `blocks` (una sezione si
+  libera anche con una scrittura o con la perdita di `docs.view`, senza un
+  evento di presenza); `writersNear` non controlla `docs.edit`.
+- **Le notifiche**: `product_doc.updated` e `product_doc.question` seguono la
+  forma di `product_doc.mention` (composizione a lettura, `objectGone`).
+- **La modifica o l'eliminazione dei commenti** vorranno `commentId` e corpo
+  derivato a lettura.
+- **La scrittura di Claude sulle ancore**: `merge` per scrittura, rifiutare un
+  `insert` di un id assorbito, un gruppo TEXT/INSERT in `SLASH_ITEMS`.
+- **§21**: scritta prima del motore del 11b.
+
+### Da fare a mano, a fine area (aperti per il maintainer)
+
+Il 11a non può chiudere da solo tre prove che vogliono una persona davanti a
+una finestra vera (ruling del controller, 5 nov 2026):
+
+1. **L'esportazione in Electron**, a mano: PDF di una pagina e dello spazio,
+   Word con le immagini PNG, «Annulla» nella finestra di salvataggio, e un
+   PDF **chiaro** con l'app scura. Il percorso Electron vero (`printToPDF`, la
+   finestra, la scrittura, il controllo del frame) non lo esegue nessun test:
+   sono coperte la validazione pura, i test sul sorgente dei canali e il
+   renderer con un `saveFile` finto. *Se sbagliata la prova mancata*: il
+   Word o il PDF escono rotti solo nell'app impacchettata.
+2. **⌘Z dal menu Modifica di Electron** (Task 8): il `keydown` annullato non
+   dovrebbe arrivare anche al ruolo `undo` del menu, ma non è stato provato
+   nell'app, solo nel browser degli scatti. *Se sbagliata*: ⌘Z annulla due
+   volte, o il grassetto non si mette (P18).
+3. **L'incolla vero da Google Docs e dal Finder** (Task 1, 8, 9): il
+   frammento HTML di prova è scritto a mano nella forma che Google Docs
+   produce in Chrome, e un file copiato dal Finder può portare il nome in
+   testo semplice insieme all'immagine. *Se sbagliata*: il caso d'uso
+   centrale (la doc portata da Google Docs) perde i segni, o incolla il nome
+   invece dell'immagine.
+
+Gli scatti `a11a-*` non hanno prodotto lo scenario «Elena» (MKX, membro senza
+la gestione di Docs): Elena non è fra le persone di «vedi come», ed è coperto
+dal test di `ProductSpace.test.tsx`.
+
+### Decisioni del maintainer (5 nov 2026)
+
+- **Q1 — una @menzione avvisa la persona**: notifica diretta
+  `product_doc.mention`, il primo dei tre `notification_kind` dell'area (gli
+  altri due sono del 11b), con la regola di rollback e i cambi additivi verso
+  l'app in `area11-parity.md`.
+- **Q2 — grassetto, corsivo e link dentro una frase, come in Notion**: il
+  testo di ogni frase è `RichText`; gli id dei blocchi restano la verità; i
+  link sono solo http(s). §19.
+- **Q3 — unendo due blocchi, i commenti del secondo passano al blocco
+  unito**; «Frase eliminata» resta per un'ancora cancellata. §19.
+- **Q4 — l'interruttore «Docs» sta in Settings → General**: spento, nasconde
+  Docs e Prodotto e **tiene le pagine**; riacceso, le pagine ci sono.
+- **Shape del Task 0** (approvati con la risposta consigliata): colori della
+  presenza solo nell'editor; colonna sovrapposta 360 a 1024; ⌘Z / ⇧⌘Z in
+  11a; la colonna dei commenti si apre da sola; si segue solo creando o
+  premendo «Follow». Più le scelte del costruttore degli shape: la barra
+  unica della pagina e il suo ordine (stato di salvataggio, avatar, Follow,
+  Comments, History, Export, «⋯»), Invio che apre e F2 che rinomina
+  nell'albero, al più una colonna a destra della lettura, il gruppo «Code»
+  al posto di «Spaces» e la prima pagina radice del Prodotto in START HERE.
+- **P26**: la categoria «Product» dei Docs dei repository si rinomina
+  «Product overview» / «Panoramica di prodotto»; «Product / Prodotto» è solo
+  lo spazio nuovo.

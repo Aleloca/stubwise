@@ -2,11 +2,12 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { roleIdOf } from "./data/access/index";
-import { resetApi, setLatency, setStreamLatency } from "./data/api";
+import { productDocs, resetApi, setLatency, setStreamLatency } from "./data/api";
 import { suggestionFor } from "./data/claude/suggestions";
 import * as auth from "./data/auth/index";
 import { PROJECT_SETTINGS_SECTIONS } from "./data/routes";
 import { PEOPLE } from "./data/seed/people";
+import { state } from "./data/store";
 import { PROJECTS } from "./data/seed/projects";
 import i18n from "./i18n";
 import { renderRoute } from "./test/renderRoute";
@@ -329,6 +330,44 @@ describe("l'istanza vuota, dopo il primo avvio", () => {
       timeout: 5000,
     });
     expect(panel.querySelector("[data-assistant]")!.textContent).not.toBe("");
+    expect(seedNamesShown("/home")).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  });
+
+  // Area 11a, Task 13: la doc di prodotto sull'istanza vuota. Non ci sono
+  // spazi Prodotto (nessuna pagina, revisione, filo, presenza né chi segue),
+  // ⌘K non trova pagine di prodotto e nessun copione parte: entrare in una
+  // pagina che non c'è è rifiutato, e dopo aver aspettato che tutto si fermi
+  // non è comparsa nessuna presenza né nessuna revisione.
+  it("la doc di prodotto è vuota: nessuno spazio, ⌘K senza pagine di prodotto, nessun copione", async () => {
+    expect(state.productPages).toHaveLength(0);
+    expect(state.productRevisions).toHaveLength(0);
+    expect(state.productComments).toHaveLength(0);
+    expect(state.productFollows).toHaveLength(0);
+    expect(state.productPresence).toHaveLength(0);
+    expect(await productDocs.searchProductPages("sign")).toEqual([]);
+    const refused = await productDocs.joinProductPage("pp-acq-meter-reading").then(
+      () => "joined",
+      () => "refused",
+    );
+    expect(refused).toBe("refused");
+    await productDocs.whenProductIdle();
+    expect(state.productPresence).toHaveLength(0);
+    expect(state.productRevisions).toHaveLength(0);
+
+    const user = userEvent.setup();
+    renderRoute("/home", adminId);
+    await screen.findByRole("button", { name: "Search and commands" });
+    await user.keyboard("{Control>}k{/Control}");
+    const dialog = await screen.findByRole("dialog", { name: "Search and commands" });
+    const field = within(dialog).getByRole("combobox");
+    for (const word of ["sign-in", "bills", "meter"]) {
+      await user.clear(field);
+      await user.type(field, word);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(within(dialog).queryByRole("group", { name: "Product pages" })).toBeNull();
+      expect(dialog.textContent ?? "").not.toMatch(/ACQ-D\d/i);
+    }
     expect(seedNamesShown("/home")).toEqual([]);
     expect(consoleErrors).toEqual([]);
   });
