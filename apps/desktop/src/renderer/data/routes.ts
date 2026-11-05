@@ -259,7 +259,7 @@ function isMembersPath(path: string): boolean {
 
 /**
  * Una pagina di prodotto (area 11a): `p/ACQ/docs/product/ACQ-D5`. La sua
- * route nasce coi Task 6/7; il link di una menzione (`?comment=`) ci porta già.
+ * route è del Task 7 (`router.tsx`); il link di una menzione (`?comment=`) ci porta.
  */
 function isProductPagePath(path: string): boolean {
   return /^p\/[A-Z]{2,4}\/docs\/product\/[A-Z]{2,4}-D\d+$/.test(path);
@@ -528,8 +528,10 @@ export function isAppRoute(route: string): boolean {
   if (isAutomationsPath(path)) return true;
   // Il dettaglio di un rilascio (area 8a): `#/p/AUD/releases/AUD-V3`.
   if (/^p\/[A-Z]{2,4}\/releases\/[A-Z]{2,4}-V\d+$/.test(path)) return true;
-  // Una pagina di prodotto (area 11a): `#/p/ACQ/docs/product/ACQ-D5`.
+  // Una pagina di prodotto (area 11a): `#/p/ACQ/docs/product/ACQ-D5`; e
+  // l'indice dello spazio (Task 7): `#/p/ACQ/docs/product`.
   if (isProductPagePath(path)) return true;
+  if (/^p\/[A-Z]{2,4}\/docs\/product$/.test(path)) return true;
   // Una conversazione di Support (area 8a): `#/p/ACQ/support/ACQ-S2`.
   if (/^p\/[A-Z]{2,4}\/support\/[A-Z]{2,4}-S\d+$/.test(path)) return true;
   // Il dettaglio di un server (area 8b): `#/p/STW/servers/SRV-2` (codice d'istanza).

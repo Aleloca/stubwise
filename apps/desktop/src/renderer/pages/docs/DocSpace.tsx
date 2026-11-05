@@ -56,7 +56,7 @@ import {
 
 const TREE_MIN = 200;
 const TREE_MAX = 360;
-const TREE_DEFAULT = 240;
+export const TREE_DEFAULT = 240;
 
 /** Una voce della barra secondaria: testo, tinta al passaggio, corrente in tinta piena. */
 const barItem =
@@ -602,7 +602,7 @@ function SpaceBar({
 }
 
 /** Il bordo destro dell'albero: si trascina (o ←/→ col fuoco) fra 200 e 360 px. */
-function Resizer({ width, onWidth }: { width: number; onWidth: (w: number) => void }) {
+export function Resizer({ width, onWidth }: { width: number; onWidth: (w: number) => void }) {
   const { t } = useTranslation();
   const clamp = (w: number) => Math.max(TREE_MIN, Math.min(TREE_MAX, Math.round(w)));
   const start = (e: ReactPointerEvent<HTMLDivElement>) => {

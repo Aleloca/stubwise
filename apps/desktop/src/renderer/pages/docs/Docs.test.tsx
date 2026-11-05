@@ -1,6 +1,7 @@
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as api from "../../data/api";
 import { failNext, resetApi, setLatency } from "../../data/api";
 import { state } from "../../data/store";
 import { revokeProjectPermission, resetViewerGrants } from "../../data/viewer";
@@ -31,13 +32,32 @@ beforeEach(() => {
   // 1440: l'albero sta accanto alla lettura (sotto i 1200 è un cassetto).
   setMatchMedia(DOCKED_PANEL_QUERY, true);
 });
-afterEach(() => resetViewerGrants());
+afterEach(() => {
+  resetViewerGrants();
+  vi.restoreAllMocks();
+});
+
+/**
+ * Una lettura della pagina iniziale senza `product` (cambio additivo): lo
+ * stato vuoto di prima vale per lei. Con lo spazio Prodotto (area 11a) un
+ * progetto senza repository ha il gruppo PRODUCT, non lo stato vuoto.
+ */
+function withoutProduct() {
+  const real = api.docs.getProjectDocsHome;
+  vi.spyOn(api.docs, "getProjectDocsHome").mockImplementation(async (projectId) => {
+    const home = await real(projectId);
+    if (!home) return home;
+    const rest = { ...home };
+    delete rest.product;
+    return rest;
+  });
+}
 
 describe("Docs — pagina iniziale", () => {
   it("identità, inizia da qui, spazi con lo stato in parole, decisioni e novità", async () => {
     renderRoute("/p/AUD/docs", "p-laura");
     expect(await screen.findByRole("heading", { level: 1, name: "Docs" })).toBeInTheDocument();
-    const spaces = await screen.findByRole("list", { name: "Spaces" });
+    const spaces = await screen.findByRole("list", { name: "Code" });
     const row = within(spaces).getByRole("link", { name: /audin-app/ });
     expect(row).toHaveTextContent("Paused: usage limit");
     expect(row).toHaveTextContent(/\d+ pages/);
@@ -48,7 +68,7 @@ describe("Docs — pagina iniziale", () => {
 
   it("uno spazio porta all'indice del repository", async () => {
     const router = renderRoute("/p/AUD/docs", "p-laura");
-    const spaces = await screen.findByRole("list", { name: "Spaces" });
+    const spaces = await screen.findByRole("list", { name: "Code" });
     await userEvent.click(within(spaces).getByRole("link", { name: /audin-app/ }));
     expect(await screen.findByRole("heading", { level: 1, name: "audin-app" })).toBeInTheDocument();
     expect(path(router)).toBe("/p/AUD/docs/audin-app");
@@ -58,13 +78,15 @@ describe("Docs — pagina iniziale", () => {
     );
   });
 
-  it("vuoto: nessun repository con documentazione", async () => {
+  it("vuoto (lettura senza `product`): nessun repository con documentazione", async () => {
+    withoutProduct();
     state.docSpaces = state.docSpaces.filter((s) => s.projectId !== "prj-cbv");
     renderRoute("/p/CBV/docs", "p-roberta");
     expect(await screen.findByText("No repository has documentation yet")).toBeInTheDocument();
   });
 
-  it("«Add a repository» porta a Settings → Repositories (col modulo Releases), se no a Statuses", async () => {
+  it("«Add a repository» (lettura senza `product`) porta a Settings → Repositories (col modulo Releases), se no a Statuses", async () => {
+    withoutProduct();
     state.docSpaces = state.docSpaces.filter((s) => s.projectId !== "prj-cbv");
     const cbv = state.projectsById.get("prj-cbv")!;
     if (!cbv.modules.includes("releases")) cbv.modules.push("releases");
@@ -95,7 +117,7 @@ describe("Docs — pagina iniziale", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Couldn't load the docs.");
     await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
-    expect(await screen.findByRole("list", { name: "Spaces" })).toBeInTheDocument();
+    expect(await screen.findByRole("list", { name: "Code" })).toBeInTheDocument();
   });
 
   it("un progetto senza il modulo Docs: la colonna non ha la sezione, l'indirizzo lo dice", async () => {
@@ -104,18 +126,18 @@ describe("Docs — pagina iniziale", () => {
       await screen.findByRole("heading", { level: 1, name: "Docs isn't turned on for MKX" }),
     ).toBeInTheDocument();
     expect(path(router)).toBe("/p/MKX/docs");
-    await userEvent.click(screen.getByRole("link", { name: "Turn it on in Settings" }));
-    await screen.findByRole("heading", { level: 1, name: "Statuses" });
-    expect(path(router)).toBe("/p/MKX/settings/statuses");
+    // Area 11a (P27): si accende sul posto, non più da un link alle impostazioni.
+    expect(screen.getByRole("button", { name: "Turn on Docs" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /turn it on in settings/i })).toBeNull();
     const sections = screen.getByRole("navigation", { name: /sections/i });
     expect(within(sections).queryByRole("link", { name: "Docs" })).toBeNull();
   });
 
-  it("modulo spento, senza project.settings.manage: nessun «Turn it on»", async () => {
+  it("modulo spento, senza project.settings.manage: nessun «Turn on Docs»", async () => {
     revokeProjectPermission("p-giulia", "prj-mkx", "project.settings.manage" as never);
     renderRoute("/p/MKX/docs/whatever", "p-giulia");
     await screen.findByRole("heading", { level: 1, name: "Docs isn't turned on for MKX" });
-    expect(screen.queryByRole("link", { name: "Turn it on in Settings" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /turn on docs/i })).toBeNull();
   });
 });
 
@@ -517,7 +539,7 @@ describe("Docs — aggiornamento notturno spento (area 9c, Task 6)", () => {
   it("STW spento: DocsHome lo dice sotto la testata e non promette niente «every night»", async () => {
     nightly("prj-stw", false);
     renderRoute("/p/STW/docs", "p-laura");
-    await screen.findByRole("list", { name: "Spaces" });
+    await screen.findByRole("list", { name: "Code" });
     await waitFor(() => expect(offLine()).not.toBeNull());
     expect(offLine()).toHaveTextContent(
       "The nightly update is off for STW: pages don't change with new commits, and no release notes are written. Settings → Automations",
@@ -527,7 +549,7 @@ describe("Docs — aggiornamento notturno spento (area 9c, Task 6)", () => {
 
   it("STW acceso: la frase non c'è", async () => {
     renderRoute("/p/STW/docs", "p-laura");
-    await screen.findByRole("list", { name: "Spaces" });
+    await screen.findByRole("list", { name: "Code" });
     expect(offLine()).toBeNull();
   });
 

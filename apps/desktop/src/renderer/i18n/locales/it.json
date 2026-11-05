@@ -2704,7 +2704,11 @@
       "descriptionError": "Tieni la descrizione entro 1.000 caratteri.",
       "noDescription": "Nessuna descrizione.",
       "code": "Codice",
-      "codeHint": "Il codice non cambia mai: è in ogni codice di task, come {{code}}-57, e nei link che le persone hanno salvato."
+      "codeHint": "Il codice non cambia mai: è in ogni codice di task, come {{code}}-57, e nei link che le persone hanno salvato.",
+      "modules": "Moduli",
+      "docs": "Docs",
+      "docsHint": "Pagine di prodotto e documentazione dei repository.",
+      "docsKept": "Le pagine restano. Riaccendendo i Docs tornano visibili."
     },
     "ai": {
       "intro": "Con quale account AI lavora Claude su {{code}}.",
@@ -5004,13 +5008,14 @@
     "minor": "Minore",
     "groups": {
       "startHere": "Inizia da qui",
-      "spaces": "Spazi",
       "decisions": "Decisioni",
       "whatsNew": "Novità",
       "categories": "Categorie",
       "recent": "Aggiornate di recente",
       "mostRead": "Più lette",
-      "linked": "Pagine collegate"
+      "linked": "Pagine collegate",
+      "product": "Prodotto",
+      "code": "Codice"
     },
     "kinds": {
       "technical": "Tecniche",
@@ -5060,7 +5065,12 @@
       "someone": "una persona che non c'è più",
       "noDecisions": "Nessuna decisione registrata.",
       "noReleases": "Ancora nessuna nota di rilascio: si scrivono ogni notte dai commit nuovi.",
-      "indexOf": "Tutto in {{name}}"
+      "indexOf": "Tutto in {{name}}",
+      "productName": "Prodotto",
+      "productUpdated": "Aggiornata il {{date}} da {{name}}",
+      "productNoPages": "Nessuna pagina",
+      "productStart": "Inizia da una pagina vuota",
+      "productTag": "Prodotto"
     },
     "space": {
       "pages_one": "{{count}} pagina",
@@ -5162,9 +5172,12 @@
     },
     "off": {
       "title": "I documenti non sono attivi per {{code}}",
-      "body": "Questo progetto non usa la documentazione. Un project lead può attivarla.",
-      "bodyManage": "Questo progetto non usa ancora la documentazione. Puoi attivarla nelle impostazioni del progetto.",
-      "turnOn": "Attivali nelle impostazioni"
+      "bodyManageDocs": "Questo progetto non usa ancora la documentazione. Accendila per scrivere le pagine di prodotto e leggere i documenti dei repository.",
+      "bodyOthers": "Questo progetto non usa la documentazione. Può accenderla chi gestisce le impostazioni di {{code}}.",
+      "turnOnDocs": "Accendi i Docs",
+      "turningOn": "Accendo…",
+      "turnOnFailed": "Non sono riuscito ad accendere i Docs",
+      "turnOnRetry": "Riprova"
     },
     "panel": {
       "title": "Generazione",
@@ -11922,5 +11935,82 @@
     "viaClaude": "con Claude",
     "onBehalf": "Claude per conto di {{name}}",
     "deletedTask": "{{name}} ha eliminato <code>{{code}}</code> «{{title}}»"
+  },
+  "productDocs": {
+    "space": {
+      "title": "Prodotto",
+      "bar": "Pagine di prodotto di {{code}}",
+      "breadcrumbs": "Dove sta questa pagina",
+      "treeLabel": "Pagine di prodotto di {{code}}",
+      "more": "Altro per questa pagina",
+      "copyLink": "Copia il link",
+      "deletePage": "Elimina la pagina…",
+      "meta_one": "{{count}} pagina · Aggiornata il {{date}} da {{name}}",
+      "meta_other": "{{count}} pagine · Aggiornata il {{date}} da {{name}}",
+      "updated": "Aggiornata il {{date}} da {{name}}",
+      "created": "Creata da {{name}}",
+      "someone": "una persona che non c'è più",
+      "newPage": "Nuova pagina",
+      "recent": "Aggiornate di recente",
+      "allPages": "Tutte le pagine",
+      "emptyTitle": "Ancora nessuna pagina di prodotto",
+      "emptyWrite": "Scrivi cosa deve fare il prodotto, le sue schermate, le decisioni prese col cliente e le fasi. Inizia da una pagina vuota e aggiungi le sottopagine man mano.",
+      "emptyRead": "Quando qualcuno scrive la prima pagina, compare qui.",
+      "startBlank": "Inizia da una pagina vuota",
+      "ways": "Da dove cominciare",
+      "readOnlyPage": "Puoi leggere questa pagina. Scrivere è di chi ha Modifica Docs in {{code}}",
+      "readOnlyIndex": "Puoi leggere queste pagine. Scrivere è di chi ha Modifica Docs in {{code}}",
+      "loadError": "Non sono riuscito a caricare le pagine di prodotto",
+      "createFailed": "Non sono riuscito a creare la pagina",
+      "untitled": "Senza titolo",
+      "deleteTitle": "Eliminare «{{title}}»?",
+      "deleteBody": "Vengono eliminati anche i suoi commenti e la cronologia, e i link ad {{code}} smettono di funzionare. Non si può annullare.",
+      "cancel": "Annulla",
+      "delete": "Elimina",
+      "deleting": "Elimino…",
+      "deleted": "Pagina eliminata",
+      "deleteFailed": "Non sono riuscito a eliminare «{{title}}». È ancora lì.",
+      "blockTable": "Tabella",
+      "blockImage": "Immagine",
+      "blockDrive": "File del Drive {{code}}",
+      "blockDecision": "Decisione"
+    },
+    "tree": {
+      "pages": "Pagine",
+      "newPage": "Nuova pagina",
+      "newSubpage": "Nuova sottopagina",
+      "addSubpage": "Nuova sottopagina in {{title}}",
+      "more": "Altro per {{title}}",
+      "handle": "Sposta {{title}}",
+      "rename": "Rinomina",
+      "renameField": "Titolo di {{title}}",
+      "moveUp": "Sposta su",
+      "moveDown": "Sposta giù",
+      "indent": "Rientra",
+      "outdent": "Riduci rientro",
+      "copyLink": "Copia il link",
+      "delete": "Elimina…",
+      "alreadyFirst": "È già la prima",
+      "alreadyLast": "È già l'ultima",
+      "needsAbove": "Serve una pagina sopra sotto cui metterla",
+      "alreadyTop": "È già al primo livello",
+      "hasChildren": "Sposta o elimina prima le sue sottopagine",
+      "checking": "Controllo…",
+      "needsTitle": "Una pagina ha bisogno di un titolo",
+      "moveFailed": "Non sono riuscito a spostare «{{title}}»",
+      "renameFailed": "Non sono riuscito a rinominare «{{title}}»",
+      "retry": "Riprova",
+      "movedBefore": "Spostata {{title}} prima di {{other}}",
+      "movedAfter": "Spostata {{title}} dopo {{other}}",
+      "movedInside": "Spostata {{title}} dentro {{other}}",
+      "dropBefore": "Prima di {{name}}",
+      "dropAfter": "Dopo {{name}}",
+      "dropInside": "Dentro {{name}}",
+      "dragging": "Sposto {{title}}",
+      "dropCancelled": "{{title}} resta dov'era",
+      "renamed": "Rinominata in {{title}}",
+      "deleted": "Pagina eliminata",
+      "instructions": "Trascina una pagina dalla sua maniglia per spostarla; trascinala di lato per cambiarne il livello. Da tastiera, usa il menu Altro della pagina."
+    }
   }
 }

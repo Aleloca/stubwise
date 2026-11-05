@@ -2704,7 +2704,11 @@
       "descriptionError": "Keep the description within 1,000 characters.",
       "noDescription": "No description.",
       "code": "Code",
-      "codeHint": "The code never changes: it's in every task code, like {{code}}-57, and in links people have saved."
+      "codeHint": "The code never changes: it's in every task code, like {{code}}-57, and in links people have saved.",
+      "modules": "Modules",
+      "docs": "Docs",
+      "docsHint": "Product pages and the repositories' documentation.",
+      "docsKept": "Pages are kept. Turning Docs back on shows them again."
     },
     "ai": {
       "intro": "Which AI account Claude uses for {{code}}'s work.",
@@ -5004,13 +5008,14 @@
     "minor": "Minor",
     "groups": {
       "startHere": "Start here",
-      "spaces": "Spaces",
       "decisions": "Decisions",
       "whatsNew": "What's new",
       "categories": "Categories",
       "recent": "Recently updated",
       "mostRead": "Most read",
-      "linked": "Linked pages"
+      "linked": "Linked pages",
+      "product": "Product",
+      "code": "Code"
     },
     "kinds": {
       "technical": "Technical",
@@ -5060,7 +5065,12 @@
       "someone": "someone no longer here",
       "noDecisions": "No decisions recorded yet.",
       "noReleases": "No release notes yet: they're written every night from new commits.",
-      "indexOf": "Everything in {{name}}"
+      "indexOf": "Everything in {{name}}",
+      "productName": "Product",
+      "productUpdated": "Updated {{date}} by {{name}}",
+      "productNoPages": "No pages yet",
+      "productStart": "Start from a blank page",
+      "productTag": "Product"
     },
     "space": {
       "pages_one": "{{count}} page",
@@ -5162,9 +5172,12 @@
     },
     "off": {
       "title": "Docs isn't turned on for {{code}}",
-      "body": "This project doesn't use the documentation. A project lead can turn it on.",
-      "bodyManage": "This project doesn't use the documentation yet. You can turn it on in the project settings.",
-      "turnOn": "Turn it on in Settings"
+      "bodyManageDocs": "This project doesn't use the documentation yet. Turn it on to write product pages and read the repositories' docs.",
+      "bodyOthers": "This project doesn't use the documentation. It can be turned on by people who manage {{code}}'s settings.",
+      "turnOnDocs": "Turn on Docs",
+      "turningOn": "Turning on…",
+      "turnOnFailed": "Couldn't turn on Docs",
+      "turnOnRetry": "Retry"
     },
     "panel": {
       "title": "Generation",
@@ -11922,5 +11935,82 @@
     "viaClaude": "with Claude",
     "onBehalf": "Claude on behalf of {{name}}",
     "deletedTask": "{{name}} deleted <code>{{code}}</code> “{{title}}”"
+  },
+  "productDocs": {
+    "space": {
+      "title": "Product",
+      "bar": "Product pages of {{code}}",
+      "breadcrumbs": "Where this page is",
+      "treeLabel": "Product pages of {{code}}",
+      "more": "More for this page",
+      "copyLink": "Copy link",
+      "deletePage": "Delete page…",
+      "meta_one": "{{count}} page · Updated {{date}} by {{name}}",
+      "meta_other": "{{count}} pages · Updated {{date}} by {{name}}",
+      "updated": "Updated {{date}} by {{name}}",
+      "created": "Created by {{name}}",
+      "someone": "someone no longer here",
+      "newPage": "New page",
+      "recent": "Recently updated",
+      "allPages": "All pages",
+      "emptyTitle": "No product pages yet",
+      "emptyWrite": "Write what the product must do, its screens, the decisions taken with the client and the phases. Start from a blank page and add subpages as you go.",
+      "emptyRead": "When someone writes the first page, it shows up here.",
+      "startBlank": "Start from a blank page",
+      "ways": "Ways to start",
+      "readOnlyPage": "You can read this page. Editing is for people with Edit docs in {{code}}",
+      "readOnlyIndex": "You can read these pages. Editing is for people with Edit docs in {{code}}",
+      "loadError": "Couldn't load the product pages",
+      "createFailed": "Couldn't create the page",
+      "untitled": "Untitled",
+      "deleteTitle": "Delete “{{title}}”?",
+      "deleteBody": "Its comments and history are deleted too, and links to {{code}} stop working. This can't be undone.",
+      "cancel": "Cancel",
+      "delete": "Delete",
+      "deleting": "Deleting…",
+      "deleted": "Page deleted",
+      "deleteFailed": "Couldn't delete “{{title}}”. It's still there.",
+      "blockTable": "Table",
+      "blockImage": "Image",
+      "blockDrive": "Drive file {{code}}",
+      "blockDecision": "Decision"
+    },
+    "tree": {
+      "pages": "Pages",
+      "newPage": "New page",
+      "newSubpage": "New subpage",
+      "addSubpage": "New subpage under {{title}}",
+      "more": "More for {{title}}",
+      "handle": "Move {{title}}",
+      "rename": "Rename",
+      "renameField": "Title of {{title}}",
+      "moveUp": "Move up",
+      "moveDown": "Move down",
+      "indent": "Indent",
+      "outdent": "Outdent",
+      "copyLink": "Copy link",
+      "delete": "Delete…",
+      "alreadyFirst": "Already first",
+      "alreadyLast": "Already last",
+      "needsAbove": "Needs a page above it to go under",
+      "alreadyTop": "Already at the top level",
+      "hasChildren": "Move or delete its subpages first",
+      "checking": "Checking…",
+      "needsTitle": "A page needs a title",
+      "moveFailed": "Couldn't move “{{title}}”",
+      "renameFailed": "Couldn't rename “{{title}}”",
+      "retry": "Retry",
+      "movedBefore": "Moved {{title}} before {{other}}",
+      "movedAfter": "Moved {{title}} after {{other}}",
+      "movedInside": "Moved {{title}} inside {{other}}",
+      "dropBefore": "Before {{name}}",
+      "dropAfter": "After {{name}}",
+      "dropInside": "Inside {{name}}",
+      "dragging": "Moving {{title}}",
+      "dropCancelled": "{{title}} stays where it was",
+      "renamed": "Renamed to {{title}}",
+      "deleted": "Page deleted",
+      "instructions": "Drag a page by its handle to move it; drag sideways to change its level. From the keyboard, use the page's More menu."
+    }
   }
 }

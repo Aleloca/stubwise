@@ -72,6 +72,9 @@ import { DocGraph } from "./pages/docs/DocGraph";
 import { DocReleases } from "./pages/docs/DocReleases";
 import { RepoBrief } from "./pages/docs/RepoBrief";
 import { EditManualPageRoute, NewManualPageRoute } from "./pages/docs/ManualPageForm";
+import { ProductSpace } from "./pages/productDocs/ProductSpace";
+import { ProductIndex } from "./pages/productDocs/ProductIndex";
+import { ProductPageRoute } from "./pages/productDocs/ProductPageRoute";
 import { DrivePage } from "./pages/drive/DrivePage";
 import { DRIVE_SEARCH_KEYS, isDriveSearchValue } from "./pages/drive/driveFilters";
 import { MailPage } from "./pages/mail/MailPage";
@@ -1061,6 +1064,43 @@ const docsHomeRoute = createRoute({
   component: DocsHomeRoutePage,
 });
 
+/**
+ * Lo spazio Prodotto (area 11a): l'indice e una pagina per codice. La rotta
+ * letterale `docs/product` vince su `docs/$repo` per specificità, come le
+ * altre letterali qui sopra; un repository chiamato «product» non può
+ * esistere (riservato dal livello dati). Cambiare persona rimonta lo spazio:
+ * la `key` porta la persona, così le pagine non leggono chi guarda (P25).
+ */
+function ProductSpaceRoutePage() {
+  const { code } = productSpaceRoute.useParams();
+  const { viewer } = useViewer();
+  return <ProductSpace key={`${code}:${viewer.personId}`} code={code} />;
+}
+
+const productSpaceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/p/$code/docs/product",
+  beforeLoad: ({ params, location }) => upperCaseDocsCode(params.code, location.pathname),
+  component: ProductSpaceRoutePage,
+});
+
+const productIndexRoute = createRoute({
+  getParentRoute: () => productSpaceRoute,
+  path: "/",
+  component: ProductIndex,
+});
+
+function ProductPageRoutePage() {
+  const { page } = productPageRoute.useParams();
+  return <ProductPageRoute key={page} code={page} />;
+}
+
+const productPageRoute = createRoute({
+  getParentRoute: () => productSpaceRoute,
+  path: "$page",
+  component: ProductPageRoutePage,
+});
+
 const docSpaceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/p/$code/docs/$repo",
@@ -1305,6 +1345,7 @@ const routeTree = rootRoute.addChildren([
   serverRoute,
   supportConversationRoute,
   docsHomeRoute,
+  productSpaceRoute.addChildren([productIndexRoute, productPageRoute]),
   docSpaceRoute.addChildren([
     docSpaceIndexRoute,
     docNewPageRoute,

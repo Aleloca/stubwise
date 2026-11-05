@@ -53,11 +53,12 @@ export function useProductSearch(q: string, projectId: string | null, enabled = 
 }
 
 /** Una pagina di prodotto per codice; `null` se non c'è per chi guarda. */
-export function useProductPage(code: string) {
+export function useProductPage(code: string, { enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: ["as", me, "productDocs", "page", code] as const,
     queryFn: () => api.productDocs.getProductPage(code),
+    enabled,
   });
 }
 

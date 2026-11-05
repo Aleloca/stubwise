@@ -4,6 +4,7 @@ import {
   DESCRIPTION_MAX,
   NAME_MAX,
   useProjectSettings,
+  useSetDocsModule,
   useUpdateProjectGeneral,
   type ProjectSettingsView,
 } from "../../data/queries";
@@ -11,6 +12,7 @@ import type { Project } from "../../data/types";
 import { ErrorLine } from "../entry/parts";
 import { queryState } from "../home/blocks/BlockSection";
 import { useFlash } from "../preferences/parts";
+import { Switch } from "../preferences/SubscriptionRow";
 import { primaryButton } from "../tasks/controls";
 import {
   LeaveConfirm,
@@ -44,11 +46,14 @@ export function GeneralSettings({ project }: { project: Project }) {
         rows={3}
       >
         {settings.data && (
-          <GeneralForm
-            // Una lettura nuova dopo un salvataggio non rimonta: la bozza la azzera chi salva.
-            view={settings.data}
-            onReload={() => void settings.refetch()}
-          />
+          <>
+            <GeneralForm
+              // Una lettura nuova dopo un salvataggio non rimonta: la bozza la azzera chi salva.
+              view={settings.data}
+              onReload={() => void settings.refetch()}
+            />
+            <DocsModule view={settings.data} onReload={() => void settings.refetch()} />
+          </>
         )}
       </SettingsState>
     </SettingsFrame>
@@ -251,5 +256,69 @@ function CodeRow({ code }: { code: string }) {
         </span>
       </dd>
     </Row>
+  );
+}
+
+/**
+ * Il modulo Docs (area 11a, maintainer, 5 nov 2026, Q4): una riga con
+ * l'interruttore, che scrive subito (nessun dialogo: è reversibile e non
+ * perde dati). Spento, o mentre lo si spegne, la riga dice che le pagine
+ * restano [PS 7]. Chi non gestisce le impostazioni vede l'interruttore
+ * spento con la frase della riga di sola lettura qui sopra.
+ */
+function DocsModule({ view, onReload }: { view: ProjectSettingsView; onReload: () => void }) {
+  const { t } = useTranslation();
+  const access = view.access.general;
+  const setDocs = useSetDocsModule();
+  const write = useSettingsWrite(view.code, onReload);
+  const hintId = useId();
+  // Una lettura senza `docsModule` (cambio additivo) non disegna la riga.
+  if (view.docsModule === undefined) return null;
+  // Mentre scrive, l'interruttore mostra già dove va.
+  const on = setDocs.isPending ? (setDocs.variables?.on ?? view.docsModule) : view.docsModule;
+  const readOnlyWhy = access.canEdit
+    ? undefined
+    : t(`settings.viewOnly.lines.${access.editAction ?? "manageProjectSettings"}`, {
+        code: view.code,
+      });
+  return (
+    <section aria-labelledby={`${hintId}-title`} className="mt-10 flex flex-col">
+      <h2 id={`${hintId}-title`} className="heading-group pb-2">
+        {t("settings.general.modules")}
+      </h2>
+      <div className="flex items-start gap-4 border-y border-rule py-3.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span aria-hidden="true" className="text-md font-semibold text-ink">
+            {t("settings.general.docs")}
+          </span>
+          <p id={hintId} className="max-w-[64ch] text-sm text-pretty text-ink-muted">
+            {t("settings.general.docsHint")}
+          </p>
+          {!on && (
+            <p className="max-w-[64ch] text-sm text-pretty text-ink-muted">
+              {t("settings.general.docsKept")}
+            </p>
+          )}
+        </div>
+        <span className="flex h-6 shrink-0 items-center">
+          <Switch
+            checked={on}
+            label={t("settings.general.docs")}
+            describedBy={hintId}
+            // Spento per permesso: la frase della riga di sola lettura (col suo «Who?»).
+            disabledReason={readOnlyWhy}
+            onChange={(next) => {
+              // Un doppio clic non fa due scritture.
+              if (setDocs.isPending) return;
+              void write.run(
+                () => setDocs.mutateAsync({ projectId: view.projectId, on: next }),
+                () => undefined,
+              );
+            }}
+          />
+        </span>
+      </div>
+      {write.message && <div className="mt-3">{write.message}</div>}
+    </section>
   );
 }

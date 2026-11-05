@@ -26,6 +26,15 @@ describe("route grammar", () => {
     expect(isAppRoute("#/p/ACQ/docs/product/ACQ-D5?comment=a b")).toBe(false);
   });
 
+  it("area 11a, Task 7: lo spazio Prodotto, l'indice e una pagina (la rotta della UI)", () => {
+    expect(isAppRoute("#/p/ACQ/docs/product/ACQ-D31")).toBe(true);
+    expect(isAppRoute("#/p/ACQ/docs/product")).toBe(true);
+    // L'indice non apre un filo: `comment` vale solo su una pagina.
+    expect(isAppRoute("#/p/ACQ/docs/product?comment=pc-1")).toBe(false);
+    expect(isAppRoute("#/p/ACQ/docs/product/")).toBe(false);
+    expect(isAppRoute("#/p/ACQ/docs/product/ACQ-D31/edit")).toBe(false);
+  });
+
   it("area 9a: le sei sezioni delle Preferenze, e All projects coi soli fissati", () => {
     for (const s of ["notifications", "account", "security", "tokens", "claude-code", "look"]) {
       expect(isAppRoute(`#/preferences/${s}`), s).toBe(true);

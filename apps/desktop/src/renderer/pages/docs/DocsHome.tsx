@@ -1,15 +1,26 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import {
   usePeople,
   useProject,
   useProjectDocsHome,
   useDocTree,
+  useProductSpace,
   useProjectSwitches,
+  useSetDocsModule,
 } from "../../data/queries";
 import { SwitchOffLine } from "../../components/ProjectSwitchOff";
-import type { Project, ProjectDocsHome } from "../../data/types";
+import { WhoCanLink } from "../../components/WhoCanLink";
+import type { ProductPageRef, Project, ProjectDocsHome } from "../../data/types";
 import { can, useViewer } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
@@ -24,7 +35,10 @@ import {
 import { formatDate } from "../../notifications/time";
 import { PageError } from "../../tasks-ui/PageStates";
 import { ProjectNotFound } from "../ProjectNotFound";
+import { productIndexLink, productPageLink, useCreateAndOpen } from "../productDocs/parts";
+import { primaryButton } from "../tasks/controls";
 import {
+  DocCode,
   DocsForbidden,
   DocsGroup,
   GenerationLine,
@@ -46,10 +60,17 @@ const repositoriesSection = (project: Project) =>
   project.modules.includes("releases") ? "repositories" : "statuses";
 
 /**
+ * Docs appena accesi sul posto (area 11a, [PS 6]): la pagina iniziale porta
+ * il fuoco su «Start from a blank page», così non resta sul body quando il
+ * bottone «Turn on Docs» se ne va.
+ */
+const TurnedOnContext = createContext<{ take: () => boolean }>({ take: () => false });
+
+/**
  * Il progetto di una vista dei Docs: caricamento, errore, progetto che non
  * c'è (o invisibile: identici), modulo spento: la colonna non mostra la
  * sezione, ma un indirizzo diretto dice che i Docs sono spenti e, a chi
- * gestisce il progetto, dove accenderli (shape §5, A 5).
+ * gestisce il progetto, lo accende sul posto (shape §5, A 5; area 11a [PS 6]).
  */
 export function DocsProjectGate({
   code,
@@ -60,6 +81,12 @@ export function DocsProjectGate({
 }) {
   const { t } = useTranslation();
   const { data: project, isPending, isError, refetch } = useProject(code);
+  const turnedOn = useRef(false);
+  const take = useCallback(() => {
+    const was = turnedOn.current;
+    turnedOn.current = false;
+    return was;
+  }, []);
   if (isError) {
     return (
       <div className="page-header pl-4 [--page-header-pt:16px]">
@@ -75,30 +102,81 @@ export function DocsProjectGate({
     );
   }
   if (!project) return <ProjectNotFound />;
-  if (!project.modules.includes("docs")) return <DocsTurnedOff project={project} />;
-  return <>{children(project)}</>;
+  if (!project.modules.includes("docs"))
+    return <DocsTurnedOff project={project} onTurningOn={(on) => (turnedOn.current = on)} />;
+  return <TurnedOnContext.Provider value={{ take }}>{children(project)}</TurnedOnContext.Provider>;
 }
 
-function DocsTurnedOff({ project }: { project: Project }) {
+/**
+ * I Docs spenti ([PS 6]): chi gestisce le impostazioni del progetto li
+ * accende sul posto («Turn on Docs», spento mentre accende: un doppio clic
+ * accende una volta); gli altri leggono chi può farlo, con «Who?».
+ */
+function DocsTurnedOff({
+  project,
+  onTurningOn,
+}: {
+  project: Project;
+  /** Prima della scrittura (la pagina iniziale può montarsi prima della risposta), e `false` se non riesce. */
+  onTurningOn: (on: boolean) => void;
+}) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
   const canManage = can(viewer, "project.settings.manage", project.id);
+  const turnOn = useSetDocsModule();
+  const [failed, setFailed] = useState(false);
+  const run = async () => {
+    if (turnOn.isPending) return;
+    setFailed(false);
+    onTurningOn(true);
+    const result = await turnOn
+      .mutateAsync({ projectId: project.id, on: true })
+      .catch(() => null);
+    if (result && result.ok) return;
+    onTurningOn(false);
+    setFailed(true);
+  };
   return (
     <section className="page-header flex flex-col items-start gap-2 pb-8 pl-8 [--page-header-pr:32px] [--page-header-pt:32px]">
       <h1 className="text-2xl font-semibold text-ink">
         {t("docs.off.title", { code: project.code })}
       </h1>
-      <p className="max-w-[60ch] text-md text-ink-muted">
-        {canManage ? t("docs.off.bodyManage") : t("docs.off.body")}
-      </p>
-      {canManage && (
-        <Link
-          to="/p/$code/settings/$section"
-          params={{ code: project.code, section: repositoriesSection(project) }}
-          className="mt-2 inline-flex h-8 items-center rounded-md border border-rule-strong px-3 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
-        >
-          {t("docs.off.turnOn")}
-        </Link>
+      {canManage ? (
+        <>
+          <p className="max-w-[60ch] text-md text-pretty text-ink-muted">
+            {t("docs.off.bodyManageDocs")}
+          </p>
+          <button
+            type="button"
+            disabled={turnOn.isPending}
+            onClick={() => void run()}
+            className={`${primaryButton} mt-2 disabled:cursor-default disabled:opacity-60`}
+          >
+            {turnOn.isPending ? t("docs.off.turningOn") : t("docs.off.turnOnDocs")}
+          </button>
+          {failed && (
+            <p role="alert" className="flex items-center gap-2 text-sm text-ink">
+              {t("docs.off.turnOnFailed")}
+              <button
+                type="button"
+                disabled={turnOn.isPending}
+                onClick={() => void run()}
+                className="rounded-md border border-rule-strong px-2 py-0.5 text-sm font-medium hover:bg-ink/6"
+              >
+                {t("docs.off.turnOnRetry")}
+              </button>
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="max-w-[60ch] text-md text-pretty text-ink-muted">
+          {t("docs.off.bodyOthers", { code: project.code })}{" "}
+          <WhoCanLink
+            action="manageProjectSettings"
+            projectId={project.id}
+            projectCode={project.code}
+          />
+        </p>
       )}
     </section>
   );
@@ -123,11 +201,11 @@ export function DocsHome({ project }: { project: Project }) {
     <div className="relative flex h-full min-h-0">
       <div className="min-w-0 flex-1 overflow-y-auto">
         <HomeColumn project={project} home={home} />
-        {home.data && home.data.spaces.length > 0 && !docked && (
+        {home.data && hasDocs(home.data) && !docked && (
           <AskTheDocs project={project} home={home.data} chat={chat} />
         )}
       </div>
-      {home.data && home.data.spaces.length > 0 && docked && (
+      {home.data && hasDocs(home.data) && docked && (
         <DocsChatPanel
           chat={chat}
           available={home.data.chatAvailable}
@@ -140,6 +218,13 @@ export function DocsHome({ project }: { project: Project }) {
     </div>
   );
 }
+
+/**
+ * C'è qualcosa da chiedere: uno spazio di repository, o lo spazio Prodotto
+ * (che esiste anche senza repository, decisione 7 della spec). Una lettura
+ * senza `product` (cambio additivo) resta com'era.
+ */
+const hasDocs = (home: ProjectDocsHome) => home.spaces.length > 0 || !!home.product;
 
 /**
  * Sotto i 1200 px la chat del progetto scende sotto il contenuto come
@@ -288,8 +373,15 @@ function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }
   const nightlyOff = useNightlyOff(project.id);
   const { viewer } = useViewer();
   const people = usePeople().data;
+  // Lo spazio Prodotto (area 11a): c'è quando la lettura lo porta; una
+  // lettura senza `product` (cambio additivo) si disegna come prima ([PS 5]).
+  const product = home.product ?? null;
+  const productSpace = useProductSpace(project.id, {
+    enabled: !!product && product.pageCount > 0,
+  });
+  const space = product && product.pageCount > 0 ? (productSpace.data ?? null) : null;
 
-  if (home.spaces.length === 0) {
+  if (home.spaces.length === 0 && !product) {
     const canAdd = can(viewer, "repos.manage", project.id);
     return (
       <div className="flex flex-col items-start gap-2 pt-8">
@@ -315,10 +407,22 @@ function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }
 
   return (
     <>
-      {home.startHere && <StartHere project={project} home={home} />}
+      <StartHere project={project} home={home} first={space?.tree[0]?.page ?? null} />
 
-      <DocsGroup title={t("docs.groups.spaces")} count={home.spaces.length}>
-        <ul aria-label={t("docs.groups.spaces")} className="border-t border-rule">
+      {product && (
+        <ProductGroup
+          project={project}
+          product={product}
+          latest={space?.recent[0] ?? null}
+          nameOf={nameOf}
+        />
+      )}
+
+      {/* Senza repository CODE non c'è, e nemmeno l'invito ad aggiungerne
+          uno: quello vive nelle impostazioni del progetto ([PS 4]). */}
+      {home.spaces.length > 0 && (
+      <DocsGroup title={t("docs.groups.code")} count={home.spaces.length}>
+        <ul aria-label={t("docs.groups.code")} className="border-t border-rule">
           {home.spaces.map((space) => (
             <li key={space.repositoryId}>
               <Link {...spaceLink(project.code, space.name)} className={rowLinkClass}>
@@ -344,6 +448,7 @@ function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }
           ))}
         </ul>
       </DocsGroup>
+      )}
 
       <DocsGroup
         title={t("docs.groups.decisions")}
@@ -411,46 +516,181 @@ function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }
 }
 
 /**
- * «Start here»: le pagine di prodotto del repository principale (codice +
- * titolo); senza, il suo indice. Il brief del progetto entra qui col Task 3.
+ * «Start here»: per prima la prima pagina radice dello spazio Prodotto
+ * ([PS 3]: in un progetto senza repository è l'unica riga), poi il brief e
+ * le pagine di prodotto del repository principale; senza, il suo indice.
+ * Senza pagine e senza repository il gruppo non c'è.
  */
-function StartHere({ project, home }: { project: Project; home: ProjectDocsHome }) {
+function StartHere({
+  project,
+  home,
+  first,
+}: {
+  project: Project;
+  home: ProjectDocsHome;
+  first: ProductPageRef | null;
+}) {
+  if (home.startHere) return <StartHereWithRepo project={project} home={home} first={first} />;
+  if (!first) return null;
+  return <StartHereGroup project={project} first={first} />;
+}
+
+function StartHereGroup({
+  project,
+  first,
+  children,
+}: {
+  project: Project;
+  first: ProductPageRef | null;
+  children?: ReactNode;
+}) {
+  const { t } = useTranslation();
+  return (
+    <DocsGroup title={t("docs.groups.startHere")}>
+      <ul aria-label={t("docs.groups.startHere")} className="border-t border-rule">
+        {first && (
+          <li>
+            <Link {...productPageLink(project.code, first.code)} className={rowLinkClass}>
+              <DocCode code={first.code} />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-md text-ink" title={first.title}>
+                  {first.title}
+                </span>
+                <span className="truncate text-xs text-ink-faint">{t("docs.home.productTag")}</span>
+              </span>
+            </Link>
+          </li>
+        )}
+        {children}
+      </ul>
+    </DocsGroup>
+  );
+}
+
+function StartHereWithRepo({
+  project,
+  home,
+  first,
+}: {
+  project: Project;
+  home: ProjectDocsHome;
+  first: ProductPageRef | null;
+}) {
   const { t } = useTranslation();
   const main = home.startHere!;
   const tree = useDocTree(main.repositoryId);
   if (!tree.data) return null;
   const product = productPages(tree.data);
   return (
-    <DocsGroup title={t("docs.groups.startHere")}>
-      <ul aria-label={t("docs.groups.startHere")} className="border-t border-rule">
-        {main.hasBrief && (
-          <li>
-            <Link
-              to="/p/$code/docs/$repo/brief"
-              params={{ code: project.code, repo: main.name }}
-              className={rowLinkClass}
+    <StartHereGroup project={project} first={first}>
+      {main.hasBrief && (
+        <li>
+          <Link
+            to="/p/$code/docs/$repo/brief"
+            params={{ code: project.code, repo: main.name }}
+            className={rowLinkClass}
+          >
+            {/* Il brief non è una pagina: niente codice, la colonna resta allineata. */}
+            <span aria-hidden="true" className="w-[60px] shrink-0" />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate text-md text-ink">{t("docs.brief.projectBrief")}</span>
+              <span className="truncate text-xs text-ink-faint">{main.name}</span>
+            </span>
+          </Link>
+        </li>
+      )}
+      {product.map((page) => (
+        <PageRefRow key={page.id} page={page} projectCode={project.code} repo={main.name} />
+      ))}
+      {product.length === 0 && (
+        <li>
+          <Link {...spaceLink(project.code, main.name)} className={rowLinkClass}>
+            <span className="min-w-0 truncate text-md text-ink">
+              {t("docs.home.indexOf", { name: main.name })}
+            </span>
+          </Link>
+        </li>
+      )}
+    </StartHereGroup>
+  );
+}
+
+/**
+ * Il gruppo PRODUCT ([PS 2]): una riga da 44 px come quella di uno spazio di
+ * repository — «Product», le pagine, chi ha aggiornato per ultimo; vuoto,
+ * «No pages yet» e, per chi scrive, «Start from a blank page». Dopo
+ * l'accensione sul posto dei Docs il fuoco va su quell'azione.
+ */
+function ProductGroup({
+  project,
+  product,
+  latest,
+  nameOf,
+}: {
+  project: Project;
+  product: NonNullable<ProjectDocsHome["product"]>;
+  latest: ProductPageRef | null;
+  nameOf: (id: string | null) => string;
+}) {
+  const { t, i18n } = useTranslation();
+  const { take } = useContext(TurnedOnContext);
+  const create = useCreateAndOpen(project);
+  const start = useRef<HTMLButtonElement>(null);
+  const row = useRef<HTMLAnchorElement>(null);
+  const empty = product.pageCount === 0;
+  const canStart = empty && product.canEdit;
+  useEffect(() => {
+    if (take()) (start.current ?? row.current)?.focus();
+  }, [take]);
+  return (
+    <DocsGroup title={t("docs.groups.product")} count={product.pageCount}>
+      <ul aria-label={t("docs.groups.product")} className="border-t border-rule">
+        <li className="flex min-w-0 items-center gap-3 border-b border-rule">
+          <Link
+            ref={row}
+            {...productIndexLink(project.code)}
+            className="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-2 py-2 text-left outline-none transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus"
+          >
+            <span className="shrink-0 text-md font-semibold text-ink">
+              {t("docs.home.productName")}
+            </span>
+            <span className="flex min-w-0 items-center gap-2 text-sm">
+              {empty ? (
+                <span className="text-ink-muted">{t("docs.home.productNoPages")}</span>
+              ) : (
+                <>
+                  <span className="num shrink-0 text-ink-faint">
+                    {t("docs.space.pages", { count: product.pageCount })}
+                  </span>
+                  {latest && (
+                    <>
+                      <span aria-hidden="true" className="text-ink-faint">
+                        ·
+                      </span>
+                      <span className="num min-w-0 truncate text-ink-muted">
+                        {t("docs.home.productUpdated", {
+                          date: formatDate(latest.updatedAt, i18n.language),
+                          name: nameOf(latest.updatedById),
+                        })}
+                      </span>
+                    </>
+                  )}
+                </>
+              )}
+            </span>
+          </Link>
+          {canStart && (
+            <button
+              ref={start}
+              type="button"
+              disabled={create.isPending}
+              onClick={() => void create.run(null)}
+              className="mr-2 shrink-0 rounded-sm text-sm font-medium text-ink underline decoration-ink/30 underline-offset-4 hover:decoration-ink disabled:opacity-60"
             >
-              {/* Il brief non è una pagina: niente codice, la colonna resta allineata. */}
-              <span aria-hidden="true" className="w-[60px] shrink-0" />
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-md text-ink">{t("docs.brief.projectBrief")}</span>
-                <span className="truncate text-xs text-ink-faint">{main.name}</span>
-              </span>
-            </Link>
-          </li>
-        )}
-        {product.map((page) => (
-          <PageRefRow key={page.id} page={page} projectCode={project.code} repo={main.name} />
-        ))}
-        {product.length === 0 && (
-          <li>
-            <Link {...spaceLink(project.code, main.name)} className={rowLinkClass}>
-              <span className="min-w-0 truncate text-md text-ink">
-                {t("docs.home.indexOf", { name: main.name })}
-              </span>
-            </Link>
-          </li>
-        )}
+              {t("docs.home.productStart")}
+            </button>
+          )}
+        </li>
       </ul>
     </DocsGroup>
   );

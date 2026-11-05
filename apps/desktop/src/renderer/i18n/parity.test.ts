@@ -50,6 +50,7 @@ describe("parità delle chiavi en/it", () => {
         "palette",
         "placeholder",
         "prefs",
+        "productDocs",
         "releases",
         "servers",
         "support",
