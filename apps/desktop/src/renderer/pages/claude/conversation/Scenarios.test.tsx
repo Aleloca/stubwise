@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { focusManager } from "@tanstack/react-query";
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -706,6 +707,27 @@ describe("S1 nel riquadro: il costruttore si apre da sé (D2)", () => {
     expect(document.activeElement).not.toBe(document.body);
     await new Promise((r) => setTimeout(r, 50));
     expect(pathOf(router)).toBe("/p/ACQ/support");
+  });
+
+  it("«Back to» con «Other…» aperto nel flusso: il fuoco torna nella CASELLA (review finale, 2)", async () => {
+    const { user, trial } = await s1InPanel();
+    const id = [...state.conversationEvents].find(([, evs]) => evs.includes(trial))![0];
+    // Una domanda aperta nel flusso, con «Other…»: la sua textarea sta PRIMA della casella.
+    const seeded = [...state.conversationEvents.values()]
+      .flat()
+      .find((e) => e.type === "question" && e.answer === null)!;
+    const draft: Record<string, unknown> = { ...structuredClone(seeded), questionId: "q-back" };
+    for (const k of ["id", "at", "resume"]) delete draft[k];
+    await act(() => api.runScript(id, [{ step: "event", event: draft as never }]));
+    // La conversazione è ferma (`idle`): la scheda si rilegge al ritorno del fuoco sulla finestra.
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await user.click(await within(panel()).findByRole("button", { name: "Other…" }));
+    expect(panel().querySelectorAll("textarea")[0]).not.toHaveAttribute("data-claude-box");
+    await user.click(within(panel()).getByRole("button", { name: "Back to ACQ · Support" }));
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("data-claude-box"));
   });
 
   it("riaprendo la conversazione (dopo un ricaricamento del riquadro) non si naviga", async () => {

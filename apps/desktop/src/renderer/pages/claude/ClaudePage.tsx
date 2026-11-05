@@ -286,6 +286,7 @@ export function NewConversationComposer({
       <div className="flex min-w-0 flex-col rounded-lg border border-rule-strong bg-surface transition-colors duration-[var(--duration-fast)] ease-out focus-within:border-ink/45">
         <textarea
           ref={field}
+          data-claude-box
           rows={page ? 3 : 1}
           value={text}
           aria-label={

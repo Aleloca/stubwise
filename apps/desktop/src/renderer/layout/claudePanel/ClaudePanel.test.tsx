@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../data/api";
 import { getSessionPersonId, setSessionPersonId } from "../../data/session";
 import { state } from "../../data/store";
+import { runScript } from "../../data/stream";
 import i18n from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
@@ -340,5 +341,31 @@ describe("a 1024 col pannello della task sovrapposto", () => {
     // 360 sotto i 1440 px; il bordo destro segue la larghezza del pannello (qui 0 in happy-dom).
     expect(panel().style.width).toBe("360px");
     expect(panel().style.right).toMatch(/px$/);
+  });
+});
+
+describe("il fuoco va nella CASELLA, non nella prima textarea (review finale, 2)", () => {
+  it("con una domanda aperta e «Other…» nel flusso: riaperto il riquadro, il fuoco è nella casella", async () => {
+    const user = userEvent.setup();
+    await lauraOnAcq3(user);
+    await ctrlJ(user);
+    await waitFor(() => expect(box()).toHaveFocus());
+    await user.type(box(), "What should I do today?{Enter}");
+    await within(panel()).findByText("What should I do today?");
+    const id = state.conversations.at(-1)!.id;
+    // Una domanda aperta nel flusso, con «Other…»: la sua textarea sta PRIMA della casella.
+    const seeded = [...state.conversationEvents.values()]
+      .flat()
+      .find((e) => e.type === "question" && e.answer === null)!;
+    const draft: Record<string, unknown> = { ...structuredClone(seeded), questionId: "q-focus" };
+    for (const k of ["id", "at", "resume"]) delete draft[k];
+    await act(() => runScript(id, [{ step: "event", event: draft as never }]));
+    await user.click(await within(panel()).findByRole("button", { name: "Other…" }));
+    expect(panel().querySelectorAll("textarea")[0]).not.toHaveAttribute("data-claude-box");
+
+    await user.keyboard("{Escape}");
+    expect(isOpen()).toBe(false);
+    await ctrlJ(user);
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("data-claude-box"));
   });
 });

@@ -58,6 +58,16 @@ const lastConversation = new Map<string, string>();
 onStoreReset(() => lastConversation.clear());
 
 /**
+ * La CASELLA del riquadro (`data-claude-box`), non la prima textarea: nel
+ * flusso ce ne sono altre prima («Other…» di una domanda, il rifiuto di un
+ * piano). Un solo punto per i quattro posti che ci mettono il fuoco o la
+ * leggono (review finale, 2).
+ */
+const claudeBoxIn = (root: HTMLElement | null | undefined) =>
+  root?.querySelector<HTMLTextAreaElement>("textarea[data-claude-box]") ?? null;
+const focusClaudeBox = (root: HTMLElement | null | undefined) => claudeBoxIn(root)?.focus();
+
+/**
  * Dove sta il riquadro: `right` è la larghezza del pannello di dettaglio
  * aperto (la task, una richiesta…), affiancato o sovrapposto, che sta al
  * bordo destro — il riquadro subito alla sua sinistra; `room` è lo spazio
@@ -171,7 +181,7 @@ export function ClaudePanelHost() {
           opener.current = active;
         }
         if (!root?.contains(document.activeElement)) {
-          root?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+          focusClaudeBox(root);
         }
       });
       wasOpen.current = true;
@@ -287,9 +297,7 @@ function PanelBody({
     if (!incoming) return;
     if (incoming.fresh) {
       if (conversationId) {
-        const box = document
-          .getElementById(CLAUDE_PANEL_ID)
-          ?.querySelector<HTMLTextAreaElement>("textarea[data-claude-box]");
+        const box = claudeBoxIn(document.getElementById(CLAUDE_PANEL_ID));
         if (box?.value.trim()) keepUnsent(me, conversationId, box.value);
       }
       startNew();
@@ -362,7 +370,7 @@ function PanelBody({
     const root = document.getElementById(CLAUDE_PANEL_ID);
     if (!refocus.current || !root) return;
     const focusBox = () => {
-      const field = root.querySelector<HTMLTextAreaElement>("textarea");
+      const field = claudeBoxIn(root);
       if (!field) return false;
       refocus.current = false;
       field.focus();
@@ -393,7 +401,7 @@ function PanelBody({
     setBack(null);
     void navigate({ href: back.from } as never);
     // La riga sparisce col fuoco sopra: torna nella casella, mai sul body.
-    requestAnimationFrame(() => root?.querySelector<HTMLTextAreaElement>("textarea")?.focus());
+    requestAnimationFrame(() => focusClaudeBox(root));
   };
 
   const startNew = () => {
