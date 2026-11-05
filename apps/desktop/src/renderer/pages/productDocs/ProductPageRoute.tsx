@@ -62,8 +62,13 @@ function PageBody({ page }: { page: ProductPageView }) {
   retry.current = session.retry;
   useEffect(() => {
     if (!editable) return;
-    setEditorStatus({ state: session.state, skipped: session.skipped, retry: () => retry.current() });
-  }, [editable, session.state, session.skipped, setEditorStatus]);
+    setEditorStatus({
+      state: session.state,
+      skipped: session.skipped,
+      dropped: session.dropped,
+      retry: () => retry.current(),
+    });
+  }, [editable, session.state, session.skipped, session.dropped, setEditorStatus]);
   useEffect(() => () => setEditorStatus(null), [setEditorStatus]);
 
   // Una pagina appena creata: il fuoco va al suo titolo (per chi scrive col

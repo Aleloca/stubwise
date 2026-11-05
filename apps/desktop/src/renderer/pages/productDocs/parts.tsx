@@ -24,6 +24,8 @@ export interface EditorStatus {
   state: "idle" | "saving" | "saved" | "error";
   /** L'ultimo ⌘Z / ⇧⌘Z saltato perché altri hanno cambiato quei blocchi. */
   skipped: boolean;
+  /** L'ultima scrittura rifiutata dal livello dati (`invalid: …`) e scartata. */
+  dropped: boolean;
   retry: () => void;
 }
 

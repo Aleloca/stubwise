@@ -69,7 +69,8 @@ export const TitleField = forwardRef<
       contentEditable="plaintext-only"
       suppressContentEditableWarning
       spellCheck
-      tabIndex={-1}
+      // Nell'ordine di Tab (un campo, [PE 2]): esplicito, perché non tutti trattano «plaintext-only» come focalizzabile.
+      tabIndex={0}
       title={needsTitle ? t("productDocs.editor.title.needsTitle") : undefined}
       onInput={() => setNeedsTitle(typed() === "")}
       onKeyDown={(e) => {

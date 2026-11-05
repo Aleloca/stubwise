@@ -7,27 +7,24 @@ import type { EditorStatus } from "./parts";
 // a riposo niente. L'errore prende il suo posto, 12 px `critical` con
 // l'icona: «Couldn't save · Retry», annunciato `assertive` una volta; Retry
 // rimanda le stesse operazioni. Un ⌘Z saltato perché altri hanno cambiato
-// il blocco lo dice qui ([PE 21]).
+// il blocco lo dice qui ([PE 21]); e così una scrittura che il livello dati
+// rifiuta (`invalid: …`), scartata senza Retry perché riprovare non cambierebbe.
 
 export function SaveStatus({ status }: { status: EditorStatus }) {
   const { t } = useTranslation();
+  if (status.dropped && status.state !== "error") {
+    // Una scrittura rifiutata e scartata: riprovare non servirebbe, quindi niente Retry.
+    return (
+      <span role="alert" className="mr-1 inline-flex shrink-0 items-center gap-1 text-xs whitespace-nowrap text-critical">
+        <AlertIcon />
+        {t("productDocs.editor.save.dropped")}
+      </span>
+    );
+  }
   if (status.state === "error") {
     return (
       <span role="alert" className="mr-1 inline-flex shrink-0 items-center gap-1 text-xs whitespace-nowrap text-critical">
-        <svg
-          viewBox="0 0 16 16"
-          width={12}
-          height={12}
-          fill="none"
-          stroke="currentColor"
-          strokeWidth={1.6}
-          strokeLinecap="round"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <circle cx="8" cy="8" r="6" />
-          <path d="M8 4.8v3.6M8 11h0" />
-        </svg>
+        <AlertIcon />
         {t("productDocs.editor.save.failed")}
         <span aria-hidden="true">·</span>
         <button
@@ -55,5 +52,24 @@ export function SaveStatus({ status }: { status: EditorStatus }) {
     >
       {text}
     </span>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={12}
+      height={12}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.6}
+      strokeLinecap="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4.8v3.6M8 11h0" />
+    </svg>
   );
 }

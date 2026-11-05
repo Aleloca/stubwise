@@ -540,3 +540,170 @@ describe("chi legge soltanto", () => {
     expect(block.textContent).toBe("Login only with Google, see ACQ-7 and AUD-8 here");
   });
 });
+
+// --- Fix round 1 (review del Task 8) ------------------------------------------
+
+describe("una scrittura rifiutata non blocca la fila", () => {
+  it("Laura elimina il blocco, Marco toglie quello prima: ⌘Z non scrive e lo dice; scrivere dopo salva ancora", async () => {
+    seedBlock(LOGIN);
+    await openSignIn();
+    const el = await enter(LOGIN, 0);
+    press(el, "Escape");
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("data-block-id", LOGIN_ID));
+    press(document.activeElement as HTMLElement, "Backspace");
+    await waitFor(() => expect(signIn().blocks.some((b) => b.id === LOGIN_ID)).toBe(false));
+    // Marco toglie il blocco dopo cui il paragrafo tornerebbe.
+    act(() => {
+      api.productDocs.writeProductBlocksAs(MARCO, signIn().id, [{ op: "delete", blockId: "blk-acq-signin-3" }], {
+        sessionId: "script-marco",
+      });
+    });
+    await waitFor(() => expect(body().querySelector('[data-block-id="blk-acq-signin-3"]')).toBeNull());
+    const target = document.activeElement as HTMLElement;
+    expect(target).not.toBe(document.body);
+    press(target, "z", { metaKey: true });
+    await waitFor(async () => expect(await saveStatus()).toHaveTextContent("Changed by someone else, not undone"));
+    expect(saves).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    // La fila non è bloccata: una frase nuova si salva.
+    const again = await enter("Customers sign in with their Google account. There is no password to reset.", 0);
+    input(again, "insertText", "Yes. ");
+    leave(again);
+    await waitFor(() => expect(saves).toHaveBeenCalledTimes(2));
+    await waitFor(async () => expect(await saveStatus()).toHaveTextContent("Saved"));
+  });
+
+  it("un rifiuto `invalid:` del livello dati si scarta (si dice, nessun Retry), e le scritture dopo partono", async () => {
+    seedBlock(LOGIN);
+    await openSignIn();
+    saves.mockRejectedValueOnce(new Error("invalid: op"));
+    const el = await enter(LOGIN, 22);
+    input(el, "insertText", "!");
+    leave(el);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't save a change: the page had changed");
+    expect(within(alert).queryByRole("button", { name: "Retry" })).toBeNull();
+    // La frase torna com'è nella pagina: la modifica scartata non resta sullo schermo.
+    await waitFor(() => expect(textbox(LOGIN)).toBeTruthy());
+    const again = await enter(LOGIN, 0);
+    input(again, "insertText", "A ");
+    leave(again);
+    await waitFor(() => expect(saves).toHaveBeenCalledTimes(2));
+    await waitFor(async () => expect(await saveStatus()).toHaveTextContent("Saved"));
+    expect(loginBlock().content.text).toBe(`A ${LOGIN}`);
+  });
+});
+
+describe("tastiera e lettori di schermo", () => {
+  it("il titolo modificabile si raggiunge con Tab", async () => {
+    await openSignIn();
+    const user = userEvent.setup();
+    const copy = screen.getAllByRole("button").find((b) => b.textContent?.includes("ACQ-D5"))!;
+    act(() => copy.focus());
+    await user.tab();
+    expect(document.activeElement).toBe(screen.getByRole("heading", { level: 1 }));
+  });
+
+  it("un blocco selezionato con Esc ha un ruolo e il suo nome", async () => {
+    seedBlock(LOGIN);
+    await openSignIn();
+    press(await enter(LOGIN, 0), "Escape");
+    await waitFor(() => expect(document.activeElement).toHaveAttribute("data-block-id", LOGIN_ID));
+    expect(document.activeElement).toHaveAttribute("role", "group");
+    expect(document.activeElement).toHaveAccessibleName("Paragraph");
+  });
+});
+
+describe("incollare e «+»", () => {
+  it("più righe incollate sopra una selezione la sostituiscono, come una riga sola", async () => {
+    seedBlock(LOGIN);
+    await openSignIn();
+    const el = await enter(LOGIN, 6, 22);
+    act(() => {
+      fireEvent.paste(el, {
+        clipboardData: { getData: (type: string) => (type === "text/plain" ? "One\nTwo" : "") },
+      });
+    });
+    await waitFor(() => expect(saves).toHaveBeenCalledTimes(1));
+    expect(savedOps()[0]).toMatchObject([
+      { op: "set", block: { id: LOGIN_ID, content: plain("Login ") } },
+      { op: "insert", afterId: LOGIN_ID, block: { content: plain("One") } },
+      { op: "insert", block: { content: plain("Two") } },
+    ]);
+  });
+
+  it("un doppio clic su «+» mette un paragrafo solo", async () => {
+    seedBlock(LOGIN);
+    await openSignIn();
+    const shell = body().querySelector<HTMLElement>(`[data-block-id="${LOGIN_ID}"]`)!;
+    const user = userEvent.setup();
+    await user.dblClick(within(shell).getByRole("button", { name: "Add a block below" }));
+    await waitFor(() => expect(saves).toHaveBeenCalled());
+    await screen.findByRole("listbox", { name: "Blocks" });
+    expect(saves).toHaveBeenCalledTimes(1);
+    expect(savedOps()[0]).toMatchObject([{ op: "insert", afterId: LOGIN_ID }]);
+  });
+});
+
+describe("trascinare un blocco per ⋮⋮ ([PE 4])", () => {
+  /** I blocchi sono alti 40 px, uno sotto l'altro; quello che segue il puntatore sta dove lo mette il suo stile. */
+  function layoutBlocks() {
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+      const overlay = this.closest<HTMLElement>(".product-block-overlay");
+      const shell = this.closest("[data-block-id]");
+      const shells = [...document.querySelectorAll("[data-editor-body] > [data-block-id]")];
+      const shift = overlay
+        ? Number(/translate3d\([-\d.]+px, ([-\d.]+)px/.exec(overlay.style.transform)?.[1] ?? 0)
+        : 0;
+      const top = overlay ? parseFloat(overlay.style.top) + shift : shell ? shells.indexOf(shell) * 40 : 0;
+      return { x: 0, y: top, top, left: 0, right: 720, bottom: top + 40, width: 720, height: 40, toJSON: () => ({}) } as DOMRect;
+    });
+  }
+  const handleOf = (id: string) =>
+    within(body().querySelector<HTMLElement>(`[data-block-id="${id}"]`)!).getByRole("button", { name: /^Block menu/ });
+
+  it("Laura porta l'ultimo paragrafo sopra il primo testo: una sola scrittura, un move", async () => {
+    seedBlock(LOGIN);
+    await openSignIn();
+    layoutBlocks();
+    // LOGIN è il quarto blocco (top 120); «Customers sign in…» il secondo (top 40).
+    const handle = handleOf(LOGIN_ID);
+    fireEvent.pointerDown(handle, { button: 0, isPrimary: true, pointerId: 1, clientX: 10, clientY: 140 });
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 10, clientY: 132 });
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 10, clientY: 60 });
+    await waitFor(() => expect(body().querySelector("[data-drop-line]")).not.toBeNull());
+    expect(body().querySelector('[data-block-id="blk-acq-signin-2"] [data-drop-line]')).toHaveAttribute(
+      "data-drop-line",
+      "top",
+    );
+    fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 60 });
+    await waitFor(() => expect(saves).toHaveBeenCalledTimes(1));
+    expect(savedOps()[0]).toEqual([{ op: "move", blockId: LOGIN_ID, afterId: "blk-acq-signin-1" }]);
+    await waitFor(() => expect(signIn().blocks.map((b) => b.id).indexOf(LOGIN_ID)).toBe(1));
+    expect(screen.queryByRole("menu")).toBeNull();
+  });
+
+  it("lasciato dove era partito: nessuna scrittura, niente in cronologia", async () => {
+    seedBlock(LOGIN);
+    await openSignIn();
+    const revisions = state.productRevisions.length;
+    layoutBlocks();
+    const handle = handleOf(LOGIN_ID);
+    fireEvent.pointerDown(handle, { button: 0, isPrimary: true, pointerId: 1, clientX: 10, clientY: 140 });
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 10, clientY: 150 });
+    fireEvent.pointerMove(document, { pointerId: 1, clientX: 10, clientY: 141 });
+    fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 141 });
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
+    expect(saves).not.toHaveBeenCalled();
+    expect(state.productRevisions.length).toBe(revisions);
+    expect(body().querySelector("[data-drop-line]")).toBeNull();
+  });
+
+  it("un clic su ⋮⋮ apre ancora il menu del blocco", async () => {
+    seedBlock(LOGIN);
+    await openSignIn();
+    const user = userEvent.setup();
+    await user.click(handleOf(LOGIN_ID));
+    expect(await screen.findByRole("menu", { name: "Block menu" })).toBeInTheDocument();
+  });
+});

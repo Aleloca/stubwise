@@ -12067,14 +12067,22 @@
         "duplicate": "Duplicate",
         "delete": "Delete",
         "alreadyFirst": "Already first",
-        "alreadyLast": "Already last"
+        "alreadyLast": "Already last",
+        "hint": "Drag to move · click for the menu",
+        "instructions": "Drag a block by its handle to move it. From the keyboard, select the block with Esc and press Option-Shift-Up or Option-Shift-Down.",
+        "dragging": "Moving {{block}}",
+        "dropBefore": "Before {{block}}",
+        "dropAfter": "After {{block}}",
+        "dropped": "Moved {{block}}",
+        "dropCancelled": "{{block}} stays where it was"
       },
       "save": {
         "saving": "Saving…",
         "saved": "Saved",
         "failed": "Couldn't save",
         "retry": "Retry",
-        "notUndone": "Changed by someone else, not undone"
+        "notUndone": "Changed by someone else, not undone",
+        "dropped": "Couldn't save a change: the page had changed"
       },
       "title": {
         "field": "Page title",

@@ -18,7 +18,13 @@ import { pushEntry, stillAsLeft, undoEntryOf, type UndoEntry, type UndoStack } f
 // il livello dati la lascia come revisione a sé e permette di rimettere con
 // lo stesso id un blocco che questa sessione ha tolto. Se un blocco da
 // annullare è stato cambiato da altri dopo, il passo si salta e si toglie
-// dalla pila, senza scrivere. La sessione nasce col montaggio della pagina:
+// dalla pila, senza scrivere: anche quando le sue operazioni non si
+// applicano più alla pagina (altri hanno tolto il blocco vicino a cui
+// tornerebbe). Un rifiuto del livello dati che non cambierebbe riprovando
+// (`invalid: …`) si scarta: la fila va avanti, e la barra dice «Couldn't
+// save a change: the page had changed» finché non si preme un tasto; la
+// modifica scartata sparisce dallo schermo (la pagina torna quella letta).
+// La sessione nasce col montaggio della pagina:
 // cambiare pagina o persona (lo spazio si rimonta) la svuota.
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
@@ -42,6 +48,19 @@ export function rebase(blocks: readonly ProductBlock[], ops: readonly ProductBlo
   }
   return list;
 }
+
+/** Le operazioni si applicano ancora alla pagina (prova a secco). */
+function applies(blocks: readonly ProductBlock[], ops: readonly ProductBlockOp[]): boolean {
+  try {
+    applyBlockOps(blocks, ops);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Un rifiuto che riprovando non cambierebbe: l'input non vale per la pagina (`invalid: …`). */
+const rejected = (error: unknown): boolean => error instanceof Error && error.message.startsWith("invalid:");
 
 export function useEditorSession(page: ProductPageView) {
   const [sessionId] = useState(() => `ses-${crypto.randomUUID()}`);
@@ -69,6 +88,8 @@ export function useEditorSession(page: ProductPageView) {
   const failed = useRef(false);
   const [state, setState] = useState<SaveState>("idle");
   const [skipped, setSkipped] = useState(false);
+  /** L'ultima scrittura rifiutata dal livello dati e scartata. */
+  const [dropped, setDropped] = useState(false);
   const stackRef = useRef<UndoStack>({ undo: [], redo: [] });
   const [stack, setStackState] = useState<UndoStack>(stackRef.current);
   const setStack = (next: UndoStack) => {
@@ -108,8 +129,17 @@ export function useEditorSession(page: ProductPageView) {
       busy.current = false;
       if (queue.current.length > 0) void pump();
       else setState("saved");
-    } catch {
+    } catch (error) {
       busy.current = false;
+      if (rejected(error)) {
+        // Riprovare darebbe lo stesso rifiuto: la scrittura esce dalla fila.
+        queue.current.shift();
+        setPending(queue.current.map((b) => b.ops));
+        setDropped(true);
+        if (queue.current.length > 0) void pump();
+        else setState("idle");
+        return;
+      }
       failed.current = true;
       setState("error");
     }
@@ -128,6 +158,7 @@ export function useEditorSession(page: ProductPageView) {
   const save = (ops: ProductBlockOp[]) => {
     if (ops.length === 0) return;
     setSkipped(false);
+    setDropped(false);
     let entry: UndoEntry | null = null;
     try {
       entry = undoEntryOf(current(), ops);
@@ -149,7 +180,7 @@ export function useEditorSession(page: ProductPageView) {
     const entry = list.at(-1);
     setSkipped(false);
     if (!entry) return;
-    if (!stillAsLeft(current(), entry.after)) {
+    if (!stillAsLeft(current(), entry.after) || !applies(current(), entry.backward)) {
       setStack({ undo: list.slice(0, -1), redo });
       setSkipped(true);
       return;
@@ -167,7 +198,7 @@ export function useEditorSession(page: ProductPageView) {
     const entry = again.at(-1);
     setSkipped(false);
     if (!entry) return;
-    if (!stillAsLeft(current(), entry.before)) {
+    if (!stillAsLeft(current(), entry.before) || !applies(current(), entry.forward)) {
       setStack({ undo: list, redo: again.slice(0, -1) });
       setSkipped(true);
       return;
@@ -190,6 +221,7 @@ export function useEditorSession(page: ProductPageView) {
   /** Un tasto: «Saved» resta solo fino al tasto dopo, e così il passo saltato. */
   const touch = () => {
     setSkipped(false);
+    setDropped(false);
     setState((s) => (s === "saved" ? "idle" : s));
   };
 
@@ -208,6 +240,7 @@ export function useEditorSession(page: ProductPageView) {
     canUndo: stack.undo.length > 0,
     canRedo: stack.redo.length > 0,
     skipped,
+    dropped,
     touch,
     /** La pagina con le scritture in fila (quella che l'editor disegna). */
     blocks: view,

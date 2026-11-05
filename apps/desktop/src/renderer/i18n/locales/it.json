@@ -12067,14 +12067,22 @@
         "duplicate": "Duplica",
         "delete": "Elimina",
         "alreadyFirst": "È già il primo",
-        "alreadyLast": "È già l'ultimo"
+        "alreadyLast": "È già l'ultimo",
+        "hint": "Trascina per spostare · clic per il menu",
+        "instructions": "Trascina un blocco per la sua maniglia per spostarlo. Da tastiera, seleziona il blocco con Esc e premi Opzione-Maiuscole-Su o Opzione-Maiuscole-Giù.",
+        "dragging": "Sposti {{block}}",
+        "dropBefore": "Prima di {{block}}",
+        "dropAfter": "Dopo {{block}}",
+        "dropped": "Spostato {{block}}",
+        "dropCancelled": "{{block}} resta dov'era"
       },
       "save": {
         "saving": "Salvataggio…",
         "saved": "Salvato",
         "failed": "Salvataggio non riuscito",
         "retry": "Riprova",
-        "notUndone": "Cambiato da altri, non annullato"
+        "notUndone": "Cambiato da altri, non annullato",
+        "dropped": "Modifica non salvata: la pagina era cambiata"
       },
       "title": {
         "field": "Titolo della pagina",
