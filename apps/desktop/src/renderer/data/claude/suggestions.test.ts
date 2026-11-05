@@ -42,6 +42,10 @@ const taskId = (code: string) => state.tasks.find((t) => t.code === code)!.id;
 beforeEach(() => {
   api.setLatency(0);
   api.resetApi();
+  // ACQ-S2 aspetta il team, ma il seme ha già la bozza di Claude, e con la
+  // bozza la riga non c'è (maintainer, 5 nov 2026): i casi della riga la
+  // leggono senza; quello con la bozza è nel suo `describe`.
+  conv(ACQ_S2).claudeDraft = null;
 });
 
 /** Rende ferma a mano una task aperta del progetto. */
@@ -160,6 +164,16 @@ describe("le cinque righe di partenza: c'è col permesso, non c'è senza", () =>
     expect(suggestionFor(GIULIA, { kind: "automations", projectId: ACQ })).toBeNull();
     expect(suggestionFor(DAVIDE, { kind: "support", conversationId: "sup-none" })).toBeNull();
     expect(suggestionFor(LAURA, { kind: "pr", prId: "opr-none" })).toBeNull();
+  });
+});
+
+describe("il «mai se» del Supporto: una bozza di Claude già pronta (maintainer, 5 nov 2026)", () => {
+  it("ACQ-S2 col «Claude prepared a draft» del seme: nessuna riga; usata la bozza (risposta inviata) o rigenerata, la regola la rilegge", () => {
+    const place: SuggestionPlace = { kind: "support", conversationId: ACQ_S2 };
+    conv(ACQ_S2).claudeDraft = "Hi, thanks for writing…";
+    expect(suggestionFor(DAVIDE, place)).toBeNull();
+    conv(ACQ_S2).claudeDraft = null;
+    expect(suggestionFor(DAVIDE, place)).not.toBeNull();
   });
 });
 

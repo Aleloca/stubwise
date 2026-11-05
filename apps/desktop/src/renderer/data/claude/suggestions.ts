@@ -100,6 +100,10 @@ export function suggestionFor(me: string, place: SuggestionPlace): ClaudeSuggest
       const c = state.supportConversations.find((x) => x.id === place.conversationId);
       if (!c || !sees(me, c.projectId)) return null;
       if (supportState(c) !== "waiting_us" || !holds(me, "support.reply", c.projectId)) return null;
+      // Una bozza di Claude già pronta («Claude prepared a draft · Use draft»)
+      // è già la proposta per quella risposta: niente seconda offerta accanto
+      // (maintainer, 5 nov 2026; shape `claude-suggestions.md`, Impeccable 8).
+      if (c.claudeDraft) return null;
       return suggestion("supportReply", withVowel(c.code));
     }
     case "pr": {

@@ -43,6 +43,9 @@ beforeEach(() => {
   api.setLatency(0);
   api.setStreamLatency(null);
   api.resetApi();
+  // La bozza di Claude del seme su ACQ-S2 toglie la riga (maintainer, 5 nov
+  // 2026): i casi della riga partono senza; quello con la bozza la rimette.
+  state.supportConversations.find((c) => c.id === "sup-acq-2")!.claudeDraft = null;
   resetPanelToggle();
   clearReplyStore();
   window.localStorage.clear();
@@ -115,6 +118,18 @@ const PLACES = [
     line: "Claude can help you summarize this month's spend",
   },
 ] as const;
+
+describe("Supporto con la bozza di Claude già pronta (maintainer, 5 nov 2026)", () => {
+  it("ACQ-S2 col seme: «Claude prepared a draft · Use draft» e nessuna riga accanto", async () => {
+    const c = state.supportConversations.find((x) => x.id === "sup-acq-2")!;
+    c.claudeDraft = "Hi, thanks for writing…";
+    renderRoute("/p/ACQ/support/ACQ-S2", DAVIDE);
+    await screen.findByRole("button", { name: "Use draft" });
+    // Lasciato il tempo alla riga di arrivare: non arriva.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(row()).toBeNull();
+  });
+});
 
 describe("le cinque pagine: c'è col permesso, mai un «Who?»", () => {
   for (const p of PLACES) {
