@@ -60,20 +60,21 @@ ipcMain.on("theme:changed", (event, theme: unknown) => {
 });
 
 /**
- * «Salva questo file» (area 11a, decisione 8): l'unico canale nuovo. La
- * richiesta si valida per prima (`parseSaveFileRequest`), e viene solo dal
- * renderer dell'app (stessa regola della navigazione). Il PDF lo stampa la
+ * «Salva questo file» (area 11a, decisione 8): l'unico canale nuovo. Viene
+ * solo dal renderer dell'app (stessa regola della navigazione: si guarda
+ * per primo), e la richiesta si valida subito dopo (`parseSaveFileRequest`). Il PDF lo stampa la
  * finestra che chiede (la vista di stampa è montata in quel momento); il
  * Word arriva coi suoi byte. Si scrive SOLO dove la persona sceglie nella
  * finestra di salvataggio; il percorso non torna mai al renderer.
  */
 ipcMain.handle("file:save", async (event, raw: unknown): Promise<SaveFileResult> => {
-  const req = parseSaveFileRequest(raw);
-  if (!req) return { saved: false, reason: "invalid" };
+  // Prima chi chiede (solo il renderer dell'app), poi che cosa chiede.
   const sender = event.senderFrame?.url ?? "";
   if (!isNavigationAllowed(sender, { devUrl, packagedUrl: pathToFileURL(packagedFile).href })) {
     return { saved: false, reason: "invalid" };
   }
+  const req = parseSaveFileRequest(raw);
+  if (!req) return { saved: false, reason: "invalid" };
   const win = BrowserWindow.fromWebContents(event.sender);
   if (!win) return { saved: false, reason: "invalid" };
   try {

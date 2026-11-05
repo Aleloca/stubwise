@@ -127,6 +127,44 @@ describe("con la finestra di salvataggio (window.stubwise.saveFile)", () => {
     for (const c of comments) expect(html.toLowerCase()).not.toContain(c);
   });
 
+  it("le voci numerate rientrate ripartono a ogni livello nel PDF, come nel Word: <ol> annidati", async () => {
+    const phases = state.productPages.find((p) => p.title === "Phases")!;
+    const n = (id: string, text: string, indent: 0 | 1 | 2) => ({
+      id,
+      type: "numbered" as const,
+      indent,
+      content: { text, marks: [] },
+    });
+    phases.blocks = [
+      n("blk-n1", "First", 0),
+      n("blk-n2", "First a", 1),
+      n("blk-n3", "First b", 1),
+      n("blk-n4", "First b i", 2),
+      n("blk-n5", "Second", 0),
+      n("blk-n6", "Second a", 1),
+    ];
+    let shape: unknown = null;
+    withBridge(async () => {
+      const top = printRoot()!.querySelector(".print-page > ol")!;
+      const items = (ol: Element) => [...ol.children].filter((c) => c.tagName === "LI");
+      const text = (li: Element) => li.firstChild?.textContent;
+      const tree = (ol: Element): unknown =>
+        items(ol).map((li) => {
+          const sub = [...li.children].find((c) => c.tagName === "OL");
+          return sub ? [text(li), tree(sub)] : text(li);
+        });
+      shape = tree(top);
+      return { saved: true };
+    });
+    await openPage("Phases");
+    await choose("This page", "PDF");
+    await screen.findByText("Saved the PDF");
+    expect(shape).toEqual([
+      ["First", ["First a", ["First b", ["First b i"]]]],
+      ["Second", ["Second a"]],
+    ]);
+  });
+
   it("Word dello spazio: format docx, byte Uint8Array di uno zip, nome «ACQ Product» («ACQ Prodotto» in italiano)", async () => {
     withBridge();
     await openPage("Sign-in");
@@ -148,6 +186,26 @@ describe("con la finestra di salvataggio (window.stubwise.saveFile)", () => {
     expect(saveFile.mock.calls[1]![0]).toMatchObject({ format: "docx", name: "ACQ Prodotto" });
   });
 
+  it("un titolo lungo (I1): il nome proposto sta entro i 120 del processo principale, tagliato fra due parole", async () => {
+    const long = Array.from({ length: 30 }, (_, i) => `Clause${i}`).join(" ");
+    const page = state.productPages.find((p) => p.title === "Sign-in")!;
+    const code = page.code;
+    // Il ponte finto valida come il processo principale (`MAX_NAME = 120`).
+    withBridge(async (req) =>
+      req.name.trim() === "" || req.name.length > 120 ? { saved: false, reason: "invalid" } : { saved: true },
+    );
+    renderRoute(`/p/ACQ/docs/product/${code}`, LAURA);
+    await screen.findByRole("heading", { level: 1, name: "Sign-in" });
+    page.title = long;
+    await choose("This page", "PDF");
+    await screen.findByText("Saved the PDF");
+    const name = saveFile.mock.calls[0]![0].name;
+    const full = `${code} ${long}`;
+    expect(`${name}.pdf`.length).toBeLessThanOrEqual(120);
+    expect(full.startsWith(name)).toBe(true);
+    expect(full[name.length]).toBe(" ");
+  });
+
   it("una WebP resta fuori dal Word e l'avviso lo dice", async () => {
     const screens = state.productPages.find((p) => p.title === "Screens")!;
     screens.blocks = [...screens.blocks, { id: "blk-webp", type: "image", src: "data:image/webp;base64,UklGRg==", caption: "WebP", alt: "" }];
@@ -155,6 +213,30 @@ describe("con la finestra di salvataggio (window.stubwise.saveFile)", () => {
     await openPage("Screens");
     await choose("This page", "Word (.docx)");
     await screen.findByText("Saved the Word file. 1 image was left out (WebP).");
+  });
+
+  it("l'avviso dice il motivo vero: un SVG è «(SVG)», un indirizzo non data: lo dice; in italiano anche", async () => {
+    const screens = state.productPages.find((p) => p.title === "Screens")!;
+    screens.blocks = [
+      ...screens.blocks,
+      { id: "blk-svg", type: "image", src: "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=", caption: "SVG", alt: "" },
+    ];
+    withBridge();
+    await openPage("Screens");
+    await choose("This page", "Word (.docx)");
+    await screen.findByText("Saved the Word file. 1 image was left out (SVG).");
+
+    screens.blocks = [
+      ...screens.blocks,
+      { id: "blk-remote", type: "image", src: "https://example.com/a.png", caption: "Remote", alt: "" },
+    ];
+    act(() => setLanguage("it"));
+    await userEvent.setup().click(await screen.findByRole("button", { name: /^Esporta/ }));
+    const menu = await screen.findByRole("menu", { name: "Esporta" });
+    await userEvent
+      .setup()
+      .click(within(within(menu).getByRole("group", { name: "Questa pagina" })).getByRole("menuitem", { name: "Word (.docx)" }));
+    await screen.findByText("File Word salvato. 2 immagini sono rimaste fuori (SVG, non immagini data:).");
   });
 
   it("finestra annullata: nessun avviso", async () => {
@@ -266,5 +348,24 @@ describe("senza window.stubwise (preview:web)", () => {
     await choose("This page", "Word (.docx)");
     await screen.findByText("Saved the Word file");
     expect(names).toEqual([`${codeOf("Sign-in")} Sign-in.docx`]);
+  });
+
+  it("un titolo lungo scarica un .docx entro 120 caratteri, estensione compresa", async () => {
+    const names: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      names.push(this.download);
+    });
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:x");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    const page = state.productPages.find((p) => p.title === "Sign-in")!;
+    const code = page.code;
+    renderRoute(`/p/ACQ/docs/product/${code}`, LAURA);
+    await screen.findByRole("heading", { level: 1, name: "Sign-in" });
+    page.title = Array.from({ length: 30 }, (_, i) => `Clause${i}`).join(" ");
+    await choose("This page", "Word (.docx)");
+    await screen.findByText("Saved the Word file");
+    expect(names[0]!.endsWith(".docx")).toBe(true);
+    expect(names[0]!.length).toBeLessThanOrEqual(120);
+    expect(names[0]!.startsWith(`${code} Clause0 `)).toBe(true);
   });
 });

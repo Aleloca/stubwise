@@ -9,9 +9,34 @@ export type SaveFileResult = StubwiseSaveFileResult;
 
 const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
+/** Il tetto del processo principale sul nome (`MAX_NAME` in `src/main/security.ts`, che qui non si importa). */
+const MAX_NAME = 120;
+
+/**
+ * Il nome proposto, accorciato perché il processo principale lo accetti
+ * (fix round 1, I1): un titolo di pagina non ha tetto. Con «.<formato>» in
+ * coda resta entro 120. Si taglia davanti a uno spazio (una parola intera);
+ * se l'ultima parola occupa più di metà del posto, fra due caratteri — mai a
+ * metà di una coppia surrogata. Spazi, punti e trattini lasciati in coda dal
+ * taglio si tolgono.
+ */
+export function fitFileName(name: string, format: "pdf" | "docx"): string {
+  const limit = MAX_NAME - format.length - 1;
+  if (name.length <= limit) return name;
+  let prefix = "";
+  for (const ch of name) {
+    if (prefix.length + ch.length > limit) break;
+    prefix += ch;
+  }
+  const atSpace = /\s/.test(name[prefix.length] ?? "");
+  const lastSpace = prefix.search(/\s\S*$/);
+  const cut = atSpace ? prefix : lastSpace >= limit / 2 ? prefix.slice(0, lastSpace) : prefix;
+  return cut.replace(/[\s.\-–—_,;:]+$/u, "") || prefix.trim() || "Stubwise export";
+}
+
 /** Il nome di un file scaricato: niente separatori né caratteri riservati (il browser ripulisce comunque). */
 const downloadName = (name: string) =>
-  `${name.replace(/[\u0000-\u001f\u007f/\\<>:"|?*]/g, "-").trim() || "Stubwise export"}.docx`;
+  `${fitFileName(name.replace(/[\u0000-\u001f\u007f/\\<>:"|?*]/g, "-").trim(), "docx") || "Stubwise export"}.docx`;
 
 /** Con `window.stubwise.saveFile` il canale; senza (preview:web, test) PDF = `window.print()`, Word = un `Blob` coi byte e `a[download]`, come `downloadText`. */
 export async function saveExport(req: SaveFileRequest): Promise<SaveFileResult> {

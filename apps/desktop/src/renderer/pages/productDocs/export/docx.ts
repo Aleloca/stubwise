@@ -71,11 +71,35 @@ export function docxImageOf(
   return size && size.width > 0 && size.height > 0 ? { type, data, ...size } : null;
 }
 
-/** Le immagini che il Word lascia fuori (l'avviso finale le conta). */
+/**
+ * Perché un'immagine resta fuori dal Word: il suo formato (WebP, SVG, …)
+ * oppure un `src` che non è un'immagine `data:`. Un valore stabile: la frase
+ * la compone l'avviso, in en o it.
+ */
+export type WordLeftOut = { format: string } | { notData: true };
+
+const FORMAT_LABELS: Record<string, string> = { webp: "WebP", "svg+xml": "SVG", jpeg: "JPEG" };
+
+function leftOutReasonOf(src: string): WordLeftOut | null {
+  if (docxImageOf(src) !== null) return null;
+  const subtype = /^data:image\/([a-z0-9.+-]+)[;,]/i.exec(src)?.[1]?.toLowerCase();
+  if (!subtype) return { notData: true };
+  return { format: FORMAT_LABELS[subtype] ?? subtype.replace(/\+.*$/, "").toUpperCase() };
+}
+
+/** Le immagini che il Word lascia fuori, nell'ordine del documento, ciascuna col suo motivo. */
+export function wordLeftOutReasons(doc: ExportDoc): WordLeftOut[] {
+  return doc.pages.flatMap((p) =>
+    p.blocks.flatMap((b) => {
+      const reason = b.kind === "image" ? leftOutReasonOf(b.src) : null;
+      return reason ? [reason] : [];
+    }),
+  );
+}
+
+/** Quante immagini il Word lascia fuori (l'avviso finale le conta). */
 export function wordLeftOutImages(doc: ExportDoc): number {
-  return doc.pages
-    .flatMap((p) => p.blocks)
-    .filter((b) => b.kind === "image" && docxImageOf(b.src) === null).length;
+  return wordLeftOutReasons(doc).length;
 }
 
 /** La larghezza utile di un A4 coi margini di Word, in pixel a 96 dpi. */

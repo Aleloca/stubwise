@@ -12250,15 +12250,16 @@
       "spaceTitle": "{{code}} Product",
       "savedPdf": "Saved the PDF",
       "savedWord": "Saved the Word file",
-      "savedWordLeftOut_one": "Saved the Word file. {{count}} image was left out (WebP).",
-      "savedWordLeftOut_other": "Saved the Word file. {{count}} images were left out (WebP).",
+      "savedWordLeftOut_one": "Saved the Word file. {{count}} image was left out ({{reasons}}).",
+      "savedWordLeftOut_other": "Saved the Word file. {{count}} images were left out ({{reasons}}).",
       "failed": "Couldn't export",
       "retry": "Retry",
       "fileLine": "File: {{name}} ({{code}})",
       "fileGone": "File: {{code}} (not available)",
       "decisionLine": "Decision: {{title}}",
       "decisionHidden": "Decision: not available",
-      "printLabel": "Print view"
+      "printLabel": "Print view",
+      "notDataImage": "not data: images"
     }
   }
 }

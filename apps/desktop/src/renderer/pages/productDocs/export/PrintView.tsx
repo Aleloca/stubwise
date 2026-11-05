@@ -37,30 +37,55 @@ type Heading = "h1" | "h2" | "h3" | "h4" | "h5" | "h6";
 /** Il titolo del documento è l'h1; il livello n del modello è un h(n+1). */
 const tagOf = (level: number): Heading => `h${Math.min(level + 1, 6)}` as Heading;
 
-/** I blocchi di una pagina; le voci di un elenco vicine stanno in un solo `<ul>`/`<ol>`. */
+type ListItem = Extract<ExportBlock, { kind: "list" }>;
+
+/**
+ * Le voci di un elenco come le numera il Word: annidate per rientro, così una
+ * voce rientrata riparte da 1 al suo livello. Le voci più rientrate che
+ * seguono una voce fanno da suo sotto-elenco; voci vicine dello
+ * stesso tipo (puntato o numerato) stanno nello stesso `<ul>`/`<ol>`.
+ */
+function ListLevel({ items }: { items: ListItem[] }) {
+  const level = Math.min(...items.map((i) => i.indent));
+  const groups: { head: ListItem | null; rest: ListItem[] }[] = [];
+  for (const item of items) {
+    if (item.indent === level) groups.push({ head: item, rest: [] });
+    else if (groups.length > 0) groups.at(-1)!.rest.push(item);
+    else groups.push({ head: null, rest: [item] });
+  }
+  // Un elenco per fila di voci dello stesso tipo, a questo livello.
+  const runs: { ordered: boolean; groups: typeof groups }[] = [];
+  for (const g of groups) {
+    const ordered = g.head?.ordered ?? g.rest[0]!.ordered;
+    const last = runs.at(-1);
+    if (last && (g.head === null || last.ordered === ordered)) last.groups.push(g);
+    else runs.push({ ordered, groups: [g] });
+  }
+  return runs.map((run, r) => {
+    const List = run.ordered ? "ol" : "ul";
+    return (
+      <List key={r}>
+        {run.groups.map((g, j) => (
+          <li key={j} style={g.head ? undefined : { listStyle: "none" }}>
+            {g.head && <Runs runs={g.head.runs} />}
+            {g.rest.length > 0 && <ListLevel items={g.rest} />}
+          </li>
+        ))}
+      </List>
+    );
+  });
+}
+
+/** I blocchi di una pagina; le voci di un elenco vicine stanno in un elenco solo, annidato per rientro. */
 function Blocks({ doc, depth, blocks }: { doc: ExportDoc; depth: number; blocks: ExportBlock[] }) {
   const out: React.ReactNode[] = [];
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i]!;
     if (b.kind === "list") {
-      const items: Extract<ExportBlock, { kind: "list" }>[] = [];
-      while (i < blocks.length) {
-        const next = blocks[i]!;
-        if (next.kind !== "list" || next.ordered !== b.ordered) break;
-        items.push(next);
-        i++;
-      }
+      const items: ListItem[] = [];
+      while (i < blocks.length && blocks[i]!.kind === "list") items.push(blocks[i++] as ListItem);
       i--;
-      const List = b.ordered ? "ol" : "ul";
-      out.push(
-        <List key={i}>
-          {items.map((item, j) => (
-            <li key={j} style={{ marginLeft: `${item.indent * 18}pt` }}>
-              <Runs runs={item.runs} />
-            </li>
-          ))}
-        </List>,
-      );
+      out.push(<ListLevel key={i} items={items} />);
       continue;
     }
     if (b.kind === "todo") {

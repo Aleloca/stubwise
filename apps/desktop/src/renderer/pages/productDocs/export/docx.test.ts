@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PRODUCT_PAGES } from "../../../data/seed/productDocs";
 import { exportModelOf, exportRunsOf, type ExportDoc } from "../../../domain/productDocs/exportModel";
-import { buildDocx, docxImageOf, docxRunsOf, imageSizeOf, wordLeftOutImages } from "./docx";
+import { buildDocx, docxImageOf, docxRunsOf, imageSizeOf, wordLeftOutImages, wordLeftOutReasons } from "./docx";
 
 // Il Word dell'esportazione (area 11a, Task 12; ruling P36): nel renderer
 // senza Node, quindi niente `Buffer` (le uscite sono `ArrayBuffer`), le
@@ -68,6 +68,36 @@ describe("le immagini nel Word", () => {
       ],
     };
     expect(wordLeftOutImages(doc)).toBe(1);
+  });
+
+  it("il motivo di ogni immagine lasciata fuori: il suo formato, o «non è un'immagine data:»", () => {
+    const image = (src: string) => ({ kind: "image" as const, src, caption: "" });
+    const doc: ExportDoc = {
+      title: "x",
+      pages: [
+        {
+          code: "ACQ-D1",
+          title: "x",
+          depth: 0,
+          blocks: [
+            image(imageSrcs()[0]!),
+            image("data:image/webp;base64,UklGRg=="),
+            image("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="),
+            image("data:image/webp;base64,UklGRg=="),
+            image("https://example.com/a.png"),
+            image("data:image/avif;base64,AAAA"),
+          ],
+        },
+      ],
+    };
+    expect(wordLeftOutReasons(doc)).toEqual([
+      { format: "WebP" },
+      { format: "SVG" },
+      { format: "WebP" },
+      { notData: true },
+      { format: "AVIF" },
+    ]);
+    expect(wordLeftOutImages(doc)).toBe(5);
   });
 });
 

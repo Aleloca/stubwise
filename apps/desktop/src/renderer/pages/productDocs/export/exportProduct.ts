@@ -4,9 +4,9 @@ import { useTranslation } from "react-i18next";
 import { useReadProductExport } from "../../../data/queries";
 import type { ProductExportView } from "../../../data/types";
 import { exportModelOf, type ExportDoc } from "../../../domain/productDocs/exportModel";
-import { saveExport } from "../../../platform/saveFile";
+import { fitFileName, saveExport } from "../../../platform/saveFile";
 import { useToast } from "../../../tasks-ui/Toast";
-import { buildDocx, wordLeftOutImages } from "./docx";
+import { buildDocx, wordLeftOutReasons } from "./docx";
 import { printRoot } from "./PrintView";
 
 // L'esportazione (area 11a, Task 12; shape product-space.md §3.8). Una sola
@@ -93,7 +93,7 @@ export function useProductExport({
             await Promise.all(
               [...printRoot().querySelectorAll("img")].map((img) => img.decode().catch(() => undefined)),
             );
-            const result = await saveExport({ format: "pdf", name });
+            const result = await saveExport({ format: "pdf", name: fitFileName(name, "pdf") });
             if (result.saved) toast.show(t("productDocs.export.savedPdf"));
             else if (result.reason !== "canceled") failed();
           } finally {
@@ -102,12 +102,16 @@ export function useProductExport({
           }
         } else {
           const data = await buildDocx(doc);
-          const result = await saveExport({ format: "docx", name, data });
-          const leftOut = wordLeftOutImages(doc);
+          const result = await saveExport({ format: "docx", name: fitFileName(name, "docx"), data });
+          // L'avviso dice il motivo vero di ogni immagine rimasta fuori (formato, o non `data:`), senza ripeterlo.
+          const leftOut = wordLeftOutReasons(doc);
+          const reasons = [
+            ...new Set(leftOut.map((r) => ("format" in r ? r.format : t("productDocs.export.notDataImage")))),
+          ].join(", ");
           if (result.saved) {
             toast.show(
-              leftOut > 0
-                ? t("productDocs.export.savedWordLeftOut", { count: leftOut })
+              leftOut.length > 0
+                ? t("productDocs.export.savedWordLeftOut", { count: leftOut.length, reasons })
                 : t("productDocs.export.savedWord"),
             );
           } else if (result.reason !== "canceled") failed();

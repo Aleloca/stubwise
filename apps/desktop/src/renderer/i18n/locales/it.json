@@ -12250,15 +12250,16 @@
       "spaceTitle": "{{code}} Prodotto",
       "savedPdf": "PDF salvato",
       "savedWord": "File Word salvato",
-      "savedWordLeftOut_one": "File Word salvato. {{count}} immagine è rimasta fuori (WebP).",
-      "savedWordLeftOut_other": "File Word salvato. {{count}} immagini sono rimaste fuori (WebP).",
+      "savedWordLeftOut_one": "File Word salvato. {{count}} immagine è rimasta fuori ({{reasons}}).",
+      "savedWordLeftOut_other": "File Word salvato. {{count}} immagini sono rimaste fuori ({{reasons}}).",
       "failed": "Esportazione non riuscita",
       "retry": "Riprova",
       "fileLine": "File: {{name}} ({{code}})",
       "fileGone": "File: {{code}} (non disponibile)",
       "decisionLine": "Decisione: {{title}}",
       "decisionHidden": "Decisione: non disponibile",
-      "printLabel": "Vista di stampa"
+      "printLabel": "Vista di stampa",
+      "notDataImage": "non immagini data:"
     }
   }
 }

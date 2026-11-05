@@ -126,6 +126,15 @@ describe("canali IPC", () => {
     expect(dynamic).toEqual(["channel"]);
   });
 
+  it("file:save guarda il frame mittente PRIMA di leggere gli argomenti", () => {
+    const handler = main.slice(main.indexOf('ipcMain.handle("file:save"'));
+    const sender = handler.indexOf("isNavigationAllowed(");
+    const parse = handler.indexOf("parseSaveFileRequest(");
+    expect(sender).toBeGreaterThan(-1);
+    expect(parse).toBeGreaterThan(-1);
+    expect(sender).toBeLessThan(parse);
+  });
+
   it("il preload espone solo platform, setTheme, onMenu e saveFile", () => {
     const exposed = preload.match(/exposeInMainWorld\("stubwise", \{([\s\S]*)\}\);/)?.[1] ?? "";
     const keys = [...exposed.matchAll(/^ {2}([a-zA-Z]+):/gm)].map((m) => m[1]);
