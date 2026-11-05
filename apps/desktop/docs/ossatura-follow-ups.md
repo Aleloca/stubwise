@@ -2500,9 +2500,11 @@ Ognuna delle scelte ha il suo costo se è sbagliata. Dettaglio per task:
 - **Due domande per richiesta, al massimo** (progetto, poi reparto): dopo
   la seconda il riquadro dice cosa manca in una riga invece di chiedere
   ancora. Il contatore riconosce la richiesta dal prefisso del testo (T4
-  m2), e regge finché un solo intento fa domande. *Se sbagliata*: una
-  conversazione chiederebbe tre cose in fila, o un secondo intento con
-  domande farebbe contare male.
+  m2) ed è per richiesta (`freeRequestOf`/`continues` in
+  `api-mutations.ts`), non per intento: regge anche ora che a fare domande
+  sono due intenti, l'automazione (progetto, reparto) e il membro (persona,
+  ruolo). *Se sbagliata*: una conversazione chiederebbe tre cose in fila, o
+  una richiesta cambiata a metà farebbe contare male.
 - **La Chat (@Claude) non ha un clic su S0**: l'elenco delle nove voci è
   testo, senza bottoni né frasi nella casella; `trial`, `draft` e
   `pageAction` non nascono lì e c'è una riga che rimanda al riquadro (P11).
@@ -2611,8 +2613,45 @@ registro del piano).
   costruttore sotto il pannello (emendamento in `claude-automations.md`);
   concern (b) conforme a §6; m2 e m5 accettati come documentati. *Se
   sbagliato*: l'atterraggio di D2 per quel caso.
-- **(T12)** i limiti 1–3 qui sotto accettati come documentati; la voce
+- **(T12)** i limiti 1–4 qui sotto accettati come documentati; la voce
   `ThemeProvider` qui sotto aperta. *Se sbagliati*: vedi ciascuno.
+- **(T13, Consumi)** la riga «Claude can help you…» di Consumi compare per
+  chi ha `usage.view` anche sull'istanza vuota: lo shape
+  `claude-suggestions.md` la vuole «sempre», e il «nessun suggerimento
+  compare» del brief del T13 era impreciso. *Se sbagliata*: una riga che
+  offre il riassunto di una spesa di $0.
+
+### Decisioni del maintainer (5 nov 2026)
+
+- **Sul Supporto, con una bozza di Claude già pronta la riga di suggerimento
+  non compare** (Impeccable 8): «Claude prepared a draft · Use draft» è già
+  la proposta per quella risposta. La regola sta in `suggestionFor`
+  (`data/claude/suggestions.ts`), provata in `suggestions.test.ts` e
+  `ClaudeSuggestionRow.test.tsx`; la pagina non la ricalcola. ACQ-S2 nel
+  seme ha la bozza, quindi la riga non c'è finché la bozza non è usata
+  (gli scatti `a10b-sugg-support*` la tolgono a mano). *Se sbagliata*: chi
+  vuole chiedere a Claude qualcosa di diverso dalla bozza pronta passa dal
+  riquadro.
+- **S3 oltre cinque progetti resta senza link «apri l'elenco»**
+  (`spend.ts`, «and N more»): non c'è una pagina che elenchi la spesa per
+  progetto a chi non ha `usage.view` (solo Impostazioni → Consumi di ogni
+  progetto), e un link prometterebbe un elenco che non esiste. *Se
+  sbagliata*: chi vuole il dettaglio apre i progetti uno per uno.
+
+### Voci del registro del piano che mancavano (revisione finale)
+
+- **(P13)** `mailBody` lo dichiara la pagina della conversazione, e `put`
+  apre «Reply». *Se sbagliata*: una bozza può aprire una risposta che la
+  persona non aveva aperto.
+- **(P14, P15, P20)** la fixture senza i campi nuovi è `PrPanel`/
+  `ReleaseDetail`; `canEditReleaseNotes` sta in `releases/visibility.ts`;
+  `getUsage` usa `groupBy: "project"` nel test. *Se sbagliate*: nessun costo.
+- **(T9)** «nessun test che due runner scrivano una volta»: **chiusa** nella
+  revisione finale (`pageActions.test.tsx`, due runner montati prima del
+  messaggio: una chiusura e un cambio di lingua; `fillable.test.tsx`, la
+  bozza entra una volta). *Se sbagliata*: un doppio runner scrive due volte.
+- **(T10)** tre test scritti dopo il codice, verificati per mutazione. *Se
+  sbagliata*: uno dei tre potrebbe passare per il motivo sbagliato.
 
 ### Limiti documentati del Task 12
 
@@ -2647,14 +2686,17 @@ registro del piano).
 
 - **Tre regex quasi uguali per «come si fa»**: `parse.ts` `HOWTO_QUESTION`,
   `intents.ts` `HOWTO`, `intents/howto.ts` `HOWTO_LEAD` (T6). *Se non si
-  uniscono*: un'altra frase entra in una e non nelle altre.
+  uniscono*: un'altra frase entra in una e non nelle altre. **Corretto nella
+  revisione finale**: una fonte sola dei verbi, `HOWTO_VERBS` in `parse.ts`.
 - **Una prova fallita dice «would fail before the end»** senza passo né
   motivo, perché `TrialOutcome` non ha quei campi (T5). *Se sbagliata*: la
   persona non sa dove correggere senza aprire la prova.
 - **`SourcePanel.tsx` e `builder/issues.ts` leggono ancora `f.label`**, con
   le etichette in italiano anche in en («Titolo della richiesta») (T2). Il
   terzo punto, `FlowSummary.tsx`, è stato sistemato. *Se sbagliata*: un
-  testo in italiano in una pagina inglese.
+  testo in italiano in una pagina inglese. **Corretto nella revisione
+  finale** per i dati della richiesta che S1 usa (`localFieldLabel`); gli
+  altri inizi restano con le etichette del dato (area 7).
 - **A 1024 con l'anteprima chiusa il riepilogo «If this were real» non sta
   nella colonna del flusso** (T11). *Se sbagliata*: a 1024 una parte della
   prova non si legge.
@@ -2664,13 +2706,14 @@ registro del piano).
   (T11).
 - **`data/queries.ts` e `data/queries/instance` si importano a vicenda**
   (T12, import circolare): oggi funziona, ma cambia l'ordine di
-  inizializzazione se uno dei due esegue qualcosa all'import.
+  inizializzazione se uno dei due esegue qualcosa all'import. **Corretto
+  nella revisione finale**: la riga di Claude sta in `data/queries/claude.ts`,
+  e `architecture.queries.test.ts` lo tiene.
 - **Altri minori**: `task-N-review.md` di ogni task, la sezione «Minor».
   Fra quelli con un'indicazione: T1 (`seed.10b.test.ts` non nomina la
   conversazione di posta di Giulia; duplicazione fra `projectActivity.test.ts`
-  e `seed.10b.test.ts`), T2 (la regola del filtro scritta in `simulate.ts` e
-  `sources.ts`; i tre valori dell'urgenza in tre posti; «Test started» per
-  una prova che non è partita), T3 (`saveAutomationDraft` senza controllo
+  e `seed.10b.test.ts`), T2 («Test started» per una prova che non è
+  partita), T3 (`saveAutomationDraft` senza controllo
   del flusso; chiavi `claude.trial.example*` senza lettori), T4 (una ripresa
   che trova il `cut` cambiato ritorna in silenzio), T5 (`catch {}` della
   prova ingoia l'errore; «Ferma» fra calcolo e riga lascia `testedRev` senza
@@ -2679,7 +2722,23 @@ registro del piano).
   i parametri data ISO; etichette uguali nella scheda di scelta), T8
   (`withTailGesture` divide su e/and ovunque), T9 (tema da `localStorage`;
   runner smontato durante l'`await`), T10 (`data-ask-first` senza test
-  diretto; campo occupato da «Ask Claude» → T11/final), T11 (m1, m4).
+  diretto; campo occupato da «Ask Claude» → T11/final), T11 (m1 è la
+  seconda voce di questo elenco, la prova fallita senza passo né motivo; m4
+  è la terza, `f.label`).
+
+- **Esito della revisione finale (5 nov 2026)**: corretti i punti 1–8 di
+  `final-review.md` (le tre regex «come si fa» in una fonte sola, il fuoco
+  nella casella di Claude in tutti e quattro i punti, l'import circolare,
+  `f.label` per i dati della richiesta di S1, il «Who?» nella Chat, il test
+  dei due runner, `__resetFillableForTest` usato, «ad» e i livelli
+  dell'urgenza in un posto solo), più P1–P3 della revisione Impeccable.
+  Restano aperti, coi motivi di `final-review.md`: la prova fallita senza
+  passo né motivo, i tre minori di layout del T11 (1024 a anteprima chiusa,
+  spacer, rientro in `narrow-it`), T1, T2 «Test started», T3, T4, T5, T7,
+  T8, T9 tema/smontaggio, T10 `data-ask-first`, T11 m5, `ThemeProvider` e
+  i limiti 1–4 del T12; la frase dell'esito della prova scritta due volte,
+  il parsing del codice di rotta e `plainName` duplicati, e le etichette
+  degli altri inizi in italiano (modello dell'area 7).
 
 ### Decisioni del maintainer (2 nov 2026)
 

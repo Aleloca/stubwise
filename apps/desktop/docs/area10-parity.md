@@ -29,7 +29,7 @@ Shape: `.impeccable/shape/{claude-panel,claude-actions,claude-trace,task-delete}
 
 ### `task.assigned` contro il web di oggi
 
-Sul web assegnare un ticket **non avvisa nessuno**: `patchTicket`
+Sul web, per quanto risulta, assegnare un ticket **non avvisa nessuno**: `patchTicket`
 (`apps/server/src/services/tickets.ts`) scrive solo l'evento di ticket
 `assignee_changed` (`{ from, to }`), e fra i `notification_kind` di
 `packages/db/src/schema.ts` non ce n'è uno per l'assegnazione. La notifica del
@@ -131,8 +131,9 @@ Piano: `docs/plans/2026-11-02-desktop-area10b-plan.md`. Shape:
   funzione **nuova**, non una parità; per il motore serve un posto dove
   salvarla (un campo sulla PR o sul rilascio) e il permesso
   `canEditReleaseNotes` (`tickets.edit` o `release.merge`).
-- **`member.added`** *(D4)*: come `task.assigned` nel 10a, sul web aggiungere
-  un membro a un progetto **non avvisa nessuno**, e fra i
+- **`member.added`** *(D4)*: come `task.assigned` nel 10a, per quanto
+  risulta, sul web aggiungere un membro a un progetto **non avvisa
+  nessuno**, e fra i
   `notification_kind` di `packages/db/src/schema.ts` non c'è un tipo per
   l'aggiunta. È una cosa nuova, non una parità: per il motore serve un
   `notification_kind` nuovo, con la regola di rollback (scendere d'immagine
