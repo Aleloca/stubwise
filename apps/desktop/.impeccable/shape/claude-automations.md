@@ -414,3 +414,14 @@ Piano 10b: Task 2 (UI), Task 5, Task 11. Spec area 10: parte 6 tutta, S1,
    Claude on behalf of …» / «Creata da Claude per conto di …» resta per
    sempre, nel costruttore e nel dettaglio, anche dopo l'accensione.
 2. Le altre scelte di questo brief sono approvate col brief.
+
+## Emendamenti (ratificati dal controller)
+
+1. **emendamento (ratificato dal controller), 5 nov 2026, Task 11,
+   concern (a)**: quando **nessun esempio passa** il filtro (`openSimId`
+   `null`), D2 non apre la prova ma atterra su **`/edit`**, e il
+   costruttore sta **sotto il pannello** del riquadro ([CP 1]): non c'è
+   una prova da mostrare accanto al flusso, e «Turn on» resta del
+   costruttore. *Se sbagliata*: l'atterraggio di D2 per questo caso e il
+   test «nessun esempio passa (`openSimId` `null`)» di
+   `Scenarios.test.tsx`.

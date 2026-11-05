@@ -66,9 +66,81 @@ comportamento rispetto all'area 3 e al web:
    collegamenti e codici: §15 dei follow-up.
 
 Le altre tre (3, 4 e 5 del design: la risposta onesta, il segno delle bozze
-di Posta e Supporto, i due dati nuovi del motore delle automazioni)
-appartengono al 10b. L'elenco intero di ciò che il piano rinvia al 10b
-(scenari S0–S6b, automazioni dal riquadro, pagine da riempire, «Claude può
-aiutarti a…», righe «Filtro» e «Bozza in un campo», «Bozza di Claude»,
-lingua e tema, azioni in blocco di S4) sta in «Rinviati al 10b» di
-`ossatura-follow-ups.md`.
+di Posta e Supporto, i due dati nuovi del motore delle automazioni) sono
+state costruite nel 10b e stanno nella sezione che segue. L'elenco di ciò
+che il piano 10a rinviava (scenari S0–S6b, automazioni dal riquadro, pagine
+da riempire, «Claude può aiutarti a…», righe «Filtro» e «Bozza in un
+campo», «Bozza di Claude», lingua e tema, azioni in blocco di S4) sta in
+«Rinviati al 10b» di `ossatura-follow-ups.md`.
+
+# Area 10b — parità con il web (5 nov 2026)
+
+Stesso schema del 10a: il web non ha un riquadro di Claude, quindi una riga
+per ogni voce **nuova**, dove vive e il test che la esercita (titolo fra
+virgolette, anche solo l'inizio). Percorsi relativi a `src/renderer/`. Le
+scelte del costruttore e del controller, ognuna col suo costo se sbagliata,
+stanno in `ossatura-follow-ups.md` («Area 10b — minori aperti»); le regole da
+scrivere prima del motore sono le §16–§18 di quel file.
+
+Piano: `docs/plans/2026-11-02-desktop-area10b-plan.md`. Shape:
+`.impeccable/shape/{claude-scenarios,claude-automations,claude-drafts,claude-suggestions}.md`.
+
+| Voce | Dove vive ora | Test |
+|---|---|---|
+| S0, la risposta onesta (nove voci, un clic scrive la frase nella casella) *(differenza 3)* | `domain/claude/intents/general.ts`, `data/claude/answersData.ts`; resa in `pages/claude/conversation/CapabilitiesList.tsx` | `domain/claude/intents.10b.data.test.ts` («S0, la risposta onesta»); `pages/claude/conversation/Scenarios.test.tsx` («S0, la risposta onesta»); `emptyInstance.test.tsx` («S0 risponde, S2 dice «No project has stalled tasks»…») |
+| S1, un'automazione dal riquadro: la scheda di scelta del reparto, la bozza spenta e senza proprietario, la riga della prova | `domain/claude/intents/automation.ts`, `data/claude/catalogMore.ts`, `data/claude/trial.ts`, `domain/automations/draftFlow.ts`; resa in `pages/claude/conversation/QuestionCard.tsx`, `TrialRow.tsx` | `data/claude/automationTurn.test.ts` («S1: Laura dalla pagina Support di ACQ»); `data/claude/automations.test.ts` («createAutomation dal catalogo», «trialAs: la prova senza effetti»); `pages/claude/conversation/TrialRow.test.tsx` («S1: la riga della prova»); `data/claude/neverInCatalog.test.ts` |
+| Il costruttore che si apre da sé dopo la prova (D2) e «Back to <pagina>» | `layout/claudePanel/ClaudePanel.tsx`, `pages/automations/builder/BuilderPage.tsx` | `pages/claude/conversation/Scenarios.test.tsx` («S1 nel riquadro: il costruttore si apre da sé (D2)», «nessun esempio passa (`openSimId` `null`)…») |
+| La prova (anche a mano) dice «Wouldn't start» quando il filtro non passa (D3) | `data/automations/simulate.ts`, `pages/automations/test/*` | `pages/automations/test/Test.test.tsx` («un esempio scritto a mano che il filtro esclude: «Wouldn't start»…»); `pages/claude/conversation/TrialRow.test.tsx` |
+| «Avvisa» un reparto e i due dati di `request_created` (urgenza, dal supporto) *(differenza 5)* | `data/automations/plans.ts` (`planNotify`), `sources.ts`, `domain/automations/triggerFields.ts`, `validate.ts` | `data/automations/people.test.ts` («planNotify»); `domain/automations/validate.test.ts` («department_cant_see: «Avvisa» un reparto di cui nessuno vede il progetto»); `data/automations/simulate.test.ts` |
+| S2, i progetti fermi (ipotesi e «Details», ristretto al progetto del contesto) | `domain/claude/intents/stalled.ts`, `data/claude/answersData.ts` (`stalledProjectsFor`); resa in `AsideRow.tsx`, `AssistantMessage.tsx` | `domain/claude/intents.10b.data.test.ts` («S2, i progetti fermi», «S2 ristretto al progetto del contesto»); `Scenarios.test.tsx` (««Hypothesis» e «Details»») |
+| S3, la spesa del mese (solo con `usage.view`, per gli altri la somma dei loro progetti) | `domain/claude/intents/spend.ts`, `answersData.ts` (`spendThisMonthFor`) | `domain/claude/intents.10b.data.test.ts` («S3, la spesa del mese»); `data/claude/answersData.test.ts` («spendThisMonthFor») |
+| S4 e le schede in blocco (5 righe e «Show N more», righe a parte con «Who?») | `domain/claude/intents/archive.ts`, `answersData.ts` (`archiveCandidatesFor`); resa in `ProposalCard.tsx` | `data/claude/bulk.test.ts` («S4 Roberta: archiviare in blocco»); `Scenarios.test.tsx` («S4, la scheda in blocco») |
+| S5, aggiungere una persona a un progetto (scheda C con la riconferma, o bloccata dall'escalation) | `domain/claude/intents/member.ts`, `data/admin/members.ts` | `Scenarios.test.tsx` («S5, la scheda bloccata»); `pages/claude/conversation/ProposalCard.classes.test.tsx` («scheda C: la riconferma») |
+| `member.added` *(D4, maintainer)*: «You've been added to ACQ as Developer», a mano e da Claude per conto di qualcuno, mai per chi aggiunge sé stesso; «Undone by …» derivato a lettura | `data/admin/members.ts` (`memberAddedRecipientOf`, `writeJoin`), `notifications/NotificationItem.tsx` | `data/admin/memberAdded.test.ts`; `notifications/NotificationItem.memberAdded.test.tsx` |
+| Bozze nei campi e segno unico «Bozza di Claude» *(differenza 4)*: risposta di supporto, note di rilascio, corpo dell'email, descrizione di una task *(D1)*; la riga `draft` («Put it in the field», «Undo» solo a pagina aperta) | `layout/claudePanel/fillable.ts`, `data/claude/drafts.ts`, `domain/claude/intents/draft.ts`; `tasks-ui/ClaudeDraftMark.tsx`; resa in `pages/claude/conversation/DraftRow.tsx` | `layout/claudePanel/fillable.test.tsx` («il runner delle bozze»); `data/claude/drafts.test.ts`; `pages/claude/conversation/DraftRow.test.tsx` («La riga `draft`»); `tasks-ui/ClaudeDraftMark.test.tsx` |
+| Note di rilascio sulla PR (modificabili da chi può, «Save» a mano) | `data/releases/notes.ts`, `visibility.ts` (`canEditReleaseNotes`), `writes.ts` | `data/releases/notes.test.ts` («releaseNotesDraftFor», «setPrReleaseNotes») |
+| Azioni della pagina: filtro, filtro salvato, lingua, tema, ciascuna con «Undo» | `layout/claudePanel/pageActions.ts`, `domain/claude/intents/page.ts`, `data/api-mutations.ts` (`saveFilterAs`); resa in `PageActionRow.tsx` | `layout/claudePanel/pageActions.test.tsx` («il filtro della pagina sotto», «il filtro salvato nella riga eseguita»); `data/claude/savedFilter.test.ts` |
+| «Claude può aiutarti a…» in cinque pagine (con «Not now» per oggetto) | `data/claude/suggestions.ts`; resa in `tasks-ui/ClaudeSuggestionRow.tsx` | `data/claude/suggestions.test.ts` («le cinque righe di partenza», «il «mai se»»); `tasks-ui/ClaudeSuggestionRow.test.tsx` (««Not now»») |
+
+## Le differenze deliberate del design (3, 4, 5) e dove sono costruite
+
+3. **La risposta onesta** *(maintainer)*: una domanda non riconosciuta non
+   riceve più una risposta generica e plausibile, ma l'elenco delle nove cose
+   che Claude sa fare, con una frase d'esempio per voce. Nel prototipo: S0,
+   riga 1 della tabella. Sul web non c'è un confronto: le chat Docs e di
+   progetto rispondono con il modello a ogni domanda.
+4. **Il segno delle bozze di Posta e Supporto** *(scelta del costruttore)*:
+   «Bozza di Claude» è un segno unico, per tutti e quattro i campi, e resta
+   finché il testo è quello di Claude (§16). Nel Supporto il bottone «Claude's
+   draft» diventa «Ask Claude» *([DR 5], maintainer)* e sparisce
+   `support.reply.editedFrom` (P12).
+5. **Il motore delle automazioni** *(scelta del costruttore)*: due dati
+   nuovi su `request_created` (urgenza, dal supporto) e l'avviso a un reparto
+   (`NotifyPlan.personIds`, P23). Per il motore sono cambi additivi agli
+   schemi dell'evento e del passo «Avvisa»: i campi nuovi nascono opzionali
+   (regola dei cambi additivi verso l'app), e un'automazione scritta prima
+   resta valida.
+
+## Cosa fa il web oggi, per le due voci che lo toccano
+
+- **Note di rilascio** *(per quanto risulta da CLAUDE.md)*: sul web la nota
+  di rilascio è del giro notturno del worker, per progetto
+  (`projects.doc_auto_update`): la scrive il modello dai commit, non una
+  persona, e non è un campo della singola PR. Quella del prototipo è un campo
+  della PR che una persona scrive o si fa preparare da Claude: è una
+  funzione **nuova**, non una parità; per il motore serve un posto dove
+  salvarla (un campo sulla PR o sul rilascio) e il permesso
+  `canEditReleaseNotes` (`tickets.edit` o `release.merge`).
+- **`member.added`** *(D4)*: come `task.assigned` nel 10a, sul web aggiungere
+  un membro a un progetto **non avvisa nessuno**, e fra i
+  `notification_kind` di `packages/db/src/schema.ts` non c'è un tipo per
+  l'aggiunta. È una cosa nuova, non una parità: per il motore serve un
+  `notification_kind` nuovo, con la regola di rollback (scendere d'immagine
+  sul server finché ne esistono righe dà 500 su `/api/inbox`) e quella dei
+  cambi additivi verso l'app (§5 dei follow-up: campi nuovi opzionali,
+  `readerSchema` per l'enum). Le sue regole, decise qui: parte quando una
+  persona aggiunge qualcuno, quando lo fa Claude per conto di qualcuno e
+  dalle proposte della posta (`writeJoin`, P25); non parte per chi aggiunge
+  sé stesso né se il destinatario è Claude (P8); il ruolo si legge a lettura
+  (`roleId`, mai il nome salvato); dopo un «Annulla» la notifica resta con
+  «Undone by …» e il codice del progetto diventa testo.

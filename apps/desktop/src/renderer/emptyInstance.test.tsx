@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { roleIdOf } from "./data/access/index";
 import { resetApi, setLatency, setStreamLatency } from "./data/api";
+import { suggestionFor } from "./data/claude/suggestions";
 import * as auth from "./data/auth/index";
 import { PROJECT_SETTINGS_SECTIONS } from "./data/routes";
 import { PEOPLE } from "./data/seed/people";
@@ -105,7 +106,11 @@ const CASES: Case[] = [
   { path: "/chat?view=mentions", empty: "chat.views.mentionsEmpty", seedAs: "p-giulia" },
   { path: "/chat?view=browse", empty: "chat.browse.empty.all" },
   { path: "/chat?view=search", empty: "chat.search.emptyTitle", proof: "general" },
-  { path: "/mail", empty: /Connect your Google account to read your mail here/, seedAs: "p-giulia" },
+  {
+    path: "/mail",
+    empty: /Connect your Google account to read your mail here/,
+    seedAs: "p-giulia",
+  },
   { path: "/calendar", empty: "calendar.connect.title", seedAs: "p-giulia" },
   { path: "/calendar?view=day", empty: "calendar.connect.title", seedAs: "p-giulia" },
   { path: "/calendar?view=week", empty: "calendar.connect.title", seedAs: "p-giulia" },
@@ -113,7 +118,11 @@ const CASES: Case[] = [
   { path: "/drive", empty: "drive.states.emptyAllTitle" },
   // La landing ha sempre «Start conversation»: il vuoto è la colonna senza sessioni.
   { path: "/claude", absent: [/waiting on you/] },
-  { path: "/claude?scope=finished", empty: "claude.destination.states.emptyFinished", seedAs: "p-marco" },
+  {
+    path: "/claude?scope=finished",
+    empty: "claude.destination.states.emptyFinished",
+    seedAs: "p-marco",
+  },
   { path: "/automations", empty: "automations.empty.intro" },
   { path: "/automations?view=runs", empty: "automations.empty.runs" },
   { path: "/automations?view=attention", empty: "automations.empty.attention" },
@@ -166,7 +175,11 @@ const CASES: Case[] = [
   { path: "/admin/ai?tab=usage", empty: "admin.ai.usage.empty" },
   { path: "/admin/git-accounts", empty: "admin.git.empty" },
   { path: "/admin/plugins", empty: "admin.plugins.empty" },
-  { path: "/admin/plugins/plg-superpowers", empty: "admin.plugins.page.notFound", proof: "notFound" },
+  {
+    path: "/admin/plugins/plg-superpowers",
+    empty: "admin.plugins.page.notFound",
+    proof: "notFound",
+  },
   { path: "/admin/google", empty: "admin.google.empty" },
   { path: "/admin/storage", empty: "admin.storage.status.not_set_up" },
   // L'anteprima mostra dati d'esempio dichiarati («Example data», ACQ-42):
@@ -207,7 +220,11 @@ const CASES: Case[] = [
   { path: "/projects?view=archived", empty: "projects.states.emptyTitle" },
   { path: "/archived/RNC", empty: "project.notFound", proof: "notFound" },
   ...PROJECT_SETTINGS_SECTIONS.map(
-    ({ id }): Case => ({ path: `/p/ACQ/settings/${id}`, empty: "project.notFound", proof: "notFound" }),
+    ({ id }): Case => ({
+      path: `/p/ACQ/settings/${id}`,
+      empty: "project.notFound",
+      proof: "notFound",
+    }),
   ),
 ];
 
@@ -313,6 +330,41 @@ describe("l'istanza vuota, dopo il primo avvio", () => {
     });
     expect(panel.querySelector("[data-assistant]")!.textContent).not.toBe("");
     expect(seedNamesShown("/home")).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  });
+
+  // Area 10b, Task 13: gli scenari sull'istanza vuota. S0 risponde con le sue
+  // nove voci e S2 dice che nessun progetto è fermo (una frase, non un elenco
+  // vuoto né un errore). Dei cinque suggerimenti quattro stanno sulla pagina
+  // di un oggetto (conversazione, PR, Automations o Overview di un progetto)
+  // e senza oggetti non compaiono; resta Consumi, che lo shape vuole «sempre»
+  // per chi ha `usage.view`.
+  it("S0 risponde, S2 dice «No project has stalled tasks», i suggerimenti degli oggetti non ci sono", async () => {
+    setStreamLatency(null);
+    const user = userEvent.setup();
+    for (const place of [
+      { kind: "support", conversationId: "sup-acq-2" },
+      { kind: "pr", prId: "opr-acq-77" },
+      { kind: "automations", projectId: "prj-acq" },
+      { kind: "overview", projectId: "prj-acq" },
+    ] as const) {
+      expect(suggestionFor(adminId, place)).toBeNull();
+    }
+    renderRoute("/admin/ai?tab=usage", adminId);
+    await screen.findByText(t("admin.ai.usage.empty"));
+    expect(document.querySelectorAll("[data-claude-suggestion]")).toHaveLength(1);
+    await user.click(await screen.findByRole("button", { name: "Ask Claude" }));
+    const panel = document.getElementById("claude-panel")!;
+    const box = within(panel).getByRole("textbox", { name: "Message to Claude" });
+    await user.type(box, "write me a poem{Enter}");
+    await vi.waitFor(() => expect(panel.querySelector("[data-capabilities]")).not.toBeNull(), {
+      timeout: 5000,
+    });
+    await user.type(box, "which projects are stuck?{Enter}");
+    expect(
+      await within(panel).findAllByText("No project has stalled tasks", {}, { timeout: 5000 }),
+    ).not.toHaveLength(0);
+    expect(seedNamesShown("/admin/ai")).toEqual([]);
     expect(consoleErrors).toEqual([]);
   });
 });

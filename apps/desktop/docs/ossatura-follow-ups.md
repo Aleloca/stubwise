@@ -780,6 +780,45 @@ si riscrivono.
     mai salvato;
   - nessun «Annulla», né a mano né da Claude: la scheda di Claude è B col
     Confirm rosso e «Can't be undone».
+- **§16 — le bozze di Claude: costruita nel prototipo (10b), da scrivere
+  prima del motore** in `docs/invariants/`, accanto a «I campi che un
+  client legge su una card di inbox si derivano a lettura». **Le bozze di
+  Claude vanno solo in un campo dichiarato della pagina aperta (risposta di
+  supporto, note di rilascio, corpo dell'email nella propria casella,
+  descrizione di una task), non si salvano né si inviano da sole, e il
+  segno resta finché il testo è quello di Claude** *(maintainer, D1, 2 nov
+  2026)*. Nel prototipo (`layout/claudePanel/fillable.ts`,
+  `data/claude/drafts.ts`): un campo esiste finché la sua pagina è montata e
+  lo dichiara la pagina, mai il livello dati; la Chat non è un campo; il
+  testo di un'email resta una bozza (inviare è un gesto della persona, classe
+  D) e la descrizione scritta nel campo è classe A, una modifica solo quando
+  la persona salva. Il corpo di un'email lo legge solo il proprietario della
+  casella (`mailbox_owner`), nemmeno chi vede la conversazione; chi non vede
+  l'oggetto del campo legge una riga senza codice né testo (R-G5).
+- **§17 — le automazioni scritte da Claude: costruita nel prototipo (10b),
+  da scrivere prima del motore** in `docs/invariants/`. **Un'automazione
+  scritta da Claude nasce spenta e senza proprietario; la prova di Claude
+  non ha effetti e non approva; accendere è un gesto della persona.** Il
+  test è sul **sorgente**, come §14: `data/claude/neverInCatalog.test.ts`
+  (con `domain/automations/draftFlow.ts` fra i file guardati, ruling T5 I4;
+  la prova sta in `data/claude/trial.ts`, che lo stesso glob legge)
+  verifica che il catalogo, gli intenti e il flusso della bozza non
+  abbiano un riferimento di codice a `activate`, `publish`, `decidePlan`,
+  `sendDraft` e alle altre funzioni vietate; `createAutomation` forza `status:
+  "draft"` e `ownerId: null` qualunque cosa dicano gli argomenti, e rifiuta
+  `projectId: null`. «Created by Claude on behalf of …» resta anche dopo
+  l'accensione *(maintainer, [AU 8])*.
+- **§18 — le risposte sui dati non contano né sommano l'invisibile: costruita
+  nel prototipo (10b), da scrivere prima del motore** in `docs/invariants/`.
+  **Le risposte sui dati non contano né sommano l'invisibile**: la spesa
+  d'istanza solo con `usage.view` (senza, la somma dei progetti che chi
+  chiede vede, nessun totale), «e altri N» sui soli progetti visibili, il
+  motivo di un rifiuto senza nomi invisibili (S2, S3, S4 e le note «On N of
+  these you can't archive», con `codes` facoltativo e solo codici visibili).
+  Un progetto che chi chiede non vede risponde come uno che non esiste.
+  Il motore lo calcola sul server nella WHERE, prima del conteggio, come per
+  gli elenchi di `docs/invariants/permissions.md`; i test R-G5 non
+  distinguono maiuscole e minuscole.
 
 ## Area 8b — minori aperti
 
@@ -2438,3 +2477,229 @@ I ruling del pre-flight (P1–P26) e dei task, uno per riga:
   colonna.
 - **(T9)** i link `#/admin/…` delle righe D solo se chi legge apre quella
   sezione. *Se sbagliata*: solo lavoro in più.
+
+## Area 10b — minori aperti
+
+Parità e copertura: `area10-parity.md`. Le invarianti da riscrivere prima del
+motore sono §16 (le bozze di Claude), §17 (le automazioni scritte da Claude)
+e §18 (le risposte sui dati non contano né sommano l'invisibile), sotto
+«Invarianti del CLAUDE.md da riscrivere prima del motore». Qui: le scelte del
+costruttore del piano, le decisioni del maintainer, i ruling del controller
+sui Task 1–12 (accettati, rimandati, limiti), i limiti documentati del
+Task 12, i minori rimandati alla revisione finale e le decisioni D1–D4.
+Ognuna delle scelte ha il suo costo se è sbagliata. Dettaglio per task:
+`.superpowers/sdd/2026-11-02-desktop-area10b-plan/task-N-review.md`.
+
+### Scelte del costruttore del piano
+
+- **La prova non è una voce del catalogo.** Non scrive nulla da annullare,
+  quindi non ha inverso, e una voce A senza inverso violerebbe il test del
+  registro del 10a; la esegue `freeTurn` dopo il gruppo. *Se sbagliata*: la
+  prova non compare nel registro di Claude né si annulla, e un'azione che
+  produce effetti veri non potrebbe passare da lì.
+- **Due domande per richiesta, al massimo** (progetto, poi reparto): dopo
+  la seconda il riquadro dice cosa manca in una riga invece di chiedere
+  ancora. Il contatore riconosce la richiesta dal prefisso del testo (T4
+  m2), e regge finché un solo intento fa domande. *Se sbagliata*: una
+  conversazione chiederebbe tre cose in fila, o un secondo intento con
+  domande farebbe contare male.
+- **La Chat (@Claude) non ha un clic su S0**: l'elenco delle nove voci è
+  testo, senza bottoni né frasi nella casella; `trial`, `draft` e
+  `pageAction` non nascono lì e c'è una riga che rimanda al riquadro (P11).
+  *Se sbagliata*: chi chiede dalla Chat fa un passo in più.
+- **La memoria del «prima» delle azioni della pagina** (filtro, lingua,
+  tema) vive in memoria nel riquadro, non nel dato: dopo un ricaricamento la
+  riga dice «Can't be undone anymore» (T9, T10 m2). *Se sbagliata*: un
+  «Undo» che sopravvive al ricaricamento chiede un posto dove tenere il
+  valore di prima.
+- **L'ipotesi di S2 solo per `idle` senza settimana** («Maybe it fell out
+  of planning: it has no week»). *Se sbagliata*: una causa plausibile resta
+  non detta, o una ipotesi si afferma dove il dato non la dimostra.
+- **L'«Annulla» di un `removeMember` diventa una scheda** *(ruling del
+  controller (pre-flight), P7)*: annullare un `removeMember` rimette la
+  persona nel progetto, e D4 fa avvisare `addMember`, quindi l'«Annulla»
+  chiede conferma come una scheda. *Se sbagliata*: un «Annulla» in più che
+  chiede conferma.
+- **«Testo generato» non usato**: nessun intento del prototipo scrive un
+  riassunto lungo. *Se sbagliata*: serve un intento che lo scriva, e il
+  tipo di bozza che lo porta.
+- **Il messaggio della Chat fuori dai campi delle bozze** (D1): la Chat non
+  è un campo; una bozza non entra mai nella casella di un messaggio. *Se
+  sbagliata*: «scrivi la risposta» dalla Chat non produce niente di
+  visibile.
+
+### Ruling del controller sui Task 1–12
+
+Ognuno col suo costo se sbagliato (una riga per voce; il testo intero è nel
+registro del piano).
+
+- **(T1)** Davide entra in ACQ e l'eccezione alla parità di
+  `effective.test.ts` vale solo per i guadagni attesi di `p-davide|prj-acq`,
+  non per le perdite. *Se sbagliata*: si usa un'altra persona del Support.
+- **(T1 I3)** Laura in LNT con `support.reply` dal reparto Development è una
+  coppia attesa. *Se sbagliata*: si cambia il seme, non la regola.
+- **(P1)** ORT/SPZ/LNT/BSC esclusi dalla parità di `effective.test.ts`: un
+  progetto nuovo sfugge al confronto. **(P2)** `ValidateContext.departmentSees`
+  facoltativa: un chiamante che dimentica di passarla non lo segnala.
+  **(P3)** dal riquadro non nasce un'automazione generale
+  (`projectId: null` rifiutato). **(P4)** un'eccezione al «Who?» in più
+  (filtri salvati con `whoAction` null). **(P5)** tipi lontani dal loro
+  calcolo (`model.ts` non importa da `domain/`).
+- **(P6)** `oldest.reason` è lo `StallReason` intero, più `thresholdDays`:
+  un campo in più da filtrare per R-G5. **(P8)** i casi «sé stesso» e
+  «Claude» di `member.added` si provano su `memberAddedRecipientOf`: la
+  regola non è provata end-to-end. **(P9)** `inviteProject`, `inviteRole`,
+  `sim` nel router: tre parametri da validare. **(P10)** S2/S3, archivio,
+  membro e pagina si riconoscono dopo `refused` e prima dei comandi: una
+  frase di creazione può essere presa per un intento nuovo.
+- **(P16)** S2 ristretto al progetto del contesto e nessun suggerimento a
+  budget esaurito: una domanda generale fatta dall'Overview riceve una
+  risposta ristretta. **(P17)** `openSimId` null apre `/edit`, `filteredOut`
+  senza «Turn on», menu dell'urgenza: tre stati UI in più da provare.
+  **(P18)** per ciò che il motore non sa fare si costruisce il resto e si
+  nomina `notify` a parole: chi voleva l'avviso deve chiederlo. **(P19)** RF2
+  riscritto: Giulia non vede gli altri, Laura ne vede uno che non gestisce.
+  **(P21)** «questo filtro» è l'ultimo `pageAction` `filter` `done` della
+  conversazione: un filtro fatto a mano non si salva da Claude. **(P22)** in
+  T9 il runner esegue solo i `pageAction`. **(P23)** `NotifyPlan.personIds`:
+  più file toccati. **(P24)** `freeResume` riceve il `cut` di «Ferma».
+  **(P25)** `member.added` anche per le aggiunte dalla posta (`writeJoin`):
+  più notifiche dalla posta. **(P26)** «Save again» / «Salva di nuovo» al
+  posto di «Retry»: `test/noDeploy.ts` vieta «riprova»; una parola diversa dal
+  resto dell'app.
+- **(T2 ⚠️)** le etichette dei campi seguono la lingua di chi legge
+  («Urgency»/«From support» in en, «Urgenza»/«Dal supporto» in it). *Se
+  sbagliata*: solo stringhe.
+- **(T3)** l'inverso di `saveAutomationDraft` su un'automazione accesa senza
+  bozza è `deleteAutomationDraft`, non un risalvataggio identico. *Se
+  sbagliata*: una riga in `catalogMore.ts`.
+- **(T4 ⚠️)** la ripresa dopo una scheda di scelta conta come un turno
+  «chat» nei consumi. *Se sbagliata*: il conteggio raddoppia per le richieste
+  con domanda.
+- **(T5)** le frasi di Claude nella conversazione restano testo nella lingua
+  di chi ha chiesto; la regola «en/it composti in lettura» vale per UI,
+  registro, notifiche ed eventi strutturati. *Se sbagliata*: serve un evento
+  strutturato per ogni frase.
+- **(T5 I2)** `request_created` non ha un indirizzo del cliente: Claude non
+  aggiunge il passo email e lo nomina a parole. *Se sbagliata*: serve un dato
+  «email del cliente» sulla richiesta.
+- **(T6)** `thresholdDays` = `activeDays`; S2 ristretto dà la frase del
+  progetto singolo senza elencare le task; `#/projects?view=stalled` è un
+  indirizzo nuovo. *Se sbagliata*: solo frasi o una rotta.
+- **(T6 I1)** un solo controllo «è una domanda come-si-fa» condiviso da
+  tutti i riconoscitori nuovi. *Se sbagliata*: ogni intento ripete
+  l'esclusione.
+- **(T7)** S4 senza candidati: righe di testo di Claude con un «Who?» per
+  codice (Q1); link di invito solo a chi può invitare (Q2); riga `member.added`
+  nel seme (Q3); la riga del seme è Stefano in AUD (m4). *Se sbagliate*: T11
+  disegna note senza scheda, un link in più, una notifica in più nell'inbox
+  di Davide.
+- **(T8)** `freeReply` non discriminato (difesa in profondità); il «Who?» delle
+  note è chi fa il merge; la frase della Chat accettata. *Se sbagliate*: un
+  giro in più.
+- **(T9 I2)** il runner si monta anche nella pagina intera della
+  conversazione; un `pending` vecchio (seguito da un altro messaggio di una
+  persona) si chiude `failed`. *Se sbagliata*: un'azione può partire in
+  ritardo senza messaggi successivi.
+- **(T9)** M2 accettato (azione idempotente), «Show» dopo `changed_after` e
+  la chiave `page.private` ratificati. *Se sbagliati*: un giro più lungo.
+- **(T10)** m2 «Undo» solo a pagina aperta e «Show» che naviga (emendamento
+  in `claude-drafts.md`); m3 `changed_after` immediato accettato; m10 Matteo
+  negli scatti accettato. *Se sbagliati*: un «Undo» che sopravvive al
+  ricaricamento, o scatti con un'altra persona.
+- **(T11)** concern (a): se nessun esempio passa, D2 atterra su `/edit` col
+  costruttore sotto il pannello (emendamento in `claude-automations.md`);
+  concern (b) conforme a §6; m2 e m5 accettati come documentati. *Se
+  sbagliato*: l'atterraggio di D2 per quel caso.
+- **(T12)** i limiti 1–3 qui sotto accettati come documentati; la voce
+  `ThemeProvider` qui sotto aperta. *Se sbagliati*: vedi ciascuno.
+
+### Limiti documentati del Task 12
+
+- **[SG 6] tiene il testo non inviato della vecchia conversazione solo in
+  memoria, come testo semplice**: i token `#`/`@` tornano a essere parole e
+  un ricaricamento perde il testo. *Se sbagliata*: chi apre un suggerimento
+  con una bozza a metà la ritrova senza `#`/`@` strutturati, o non la
+  ritrova affatto.
+- **Con `fresh`, il testo scritto in una conversazione nuova non ancora
+  inviata viene sostituito dalla richiesta del suggerimento.** *Se
+  sbagliata*: una frase digitata si perde.
+- **Nessuna proposta del polso è nel seme**, quindi il «mai se» dell'Overview
+  è provato dai test (`suggestions.test.ts`) ma non si vede nell'app.
+  *Se sbagliata*: la regola potrebbe non funzionare quando le proposte
+  arrivano dal worker vero e nessuno lo scoprirebbe dal prototipo.
+- **Su una PR, anche una richiesta di decisione aperta fra persone nasconde
+  la riga** («Write the release notes»): il «mai se» guarda `openDecisions`
+  della task, non solo i piani e le domande di Claude. *Se sbagliata*: la
+  riga manca in un caso in cui sarebbe utile.
+
+### Test da rivedere
+
+- **`theme/ThemeProvider.test.tsx` spia `Storage.prototype`**
+  (`getItem`/`setItem` nel caso «un localStorage che lancia»), ma in
+  happy-dom `window.localStorage` non passa da quel prototipo: il test
+  potrebbe non provare ciò che dichiara (un `localStorage` che lancia non
+  rompe niente). *Costo se sbagliata*: la copertura del fallback del tema
+  è solo apparente. Da verificare facendolo fallire apposta (come nella
+  nota del CLAUDE.md sui test che passano per il motivo sbagliato).
+
+### Minori rimandati alla revisione finale (aperti, non corretti nel Task 13)
+
+- **Tre regex quasi uguali per «come si fa»**: `parse.ts` `HOWTO_QUESTION`,
+  `intents.ts` `HOWTO`, `intents/howto.ts` `HOWTO_LEAD` (T6). *Se non si
+  uniscono*: un'altra frase entra in una e non nelle altre.
+- **Una prova fallita dice «would fail before the end»** senza passo né
+  motivo, perché `TrialOutcome` non ha quei campi (T5). *Se sbagliata*: la
+  persona non sa dove correggere senza aprire la prova.
+- **`SourcePanel.tsx` e `builder/issues.ts` leggono ancora `f.label`**, con
+  le etichette in italiano anche in en («Titolo della richiesta») (T2). Il
+  terzo punto, `FlowSummary.tsx`, è stato sistemato. *Se sbagliata*: un
+  testo in italiano in una pagina inglese.
+- **A 1024 con l'anteprima chiusa il riepilogo «If this were real» non sta
+  nella colonna del flusso** (T11). *Se sbagliata*: a 1024 una parte della
+  prova non si legge.
+- **Lo spacer lascia un vuoto quando l'anteprima sovrapposta sposta il
+  pannello** (T11).
+- **Il rientro delle righe di S2 a capo varia di pochi px in `narrow-it`**
+  (T11).
+- **`data/queries.ts` e `data/queries/instance` si importano a vicenda**
+  (T12, import circolare): oggi funziona, ma cambia l'ordine di
+  inizializzazione se uno dei due esegue qualcosa all'import.
+- **Altri minori**: `task-N-review.md` di ogni task, la sezione «Minor».
+  Fra quelli con un'indicazione: T1 (`seed.10b.test.ts` non nomina la
+  conversazione di posta di Giulia; duplicazione fra `projectActivity.test.ts`
+  e `seed.10b.test.ts`), T2 (la regola del filtro scritta in `simulate.ts` e
+  `sources.ts`; i tre valori dell'urgenza in tre posti; «Test started» per
+  una prova che non è partita), T3 (`saveAutomationDraft` senza controllo
+  del flusso; chiavi `claude.trial.example*` senza lettori), T4 (una ripresa
+  che trova il `cut` cambiato ritorna in silenzio), T5 (`catch {}` della
+  prova ingoia l'errore; «Ferma» fra calcolo e riga lascia `testedRev` senza
+  riga; l'email in testa a una richiesta finisce nel rifiuto D dell'invio),
+  T6 (S3 `projects` oltre 5 righe senza link «open the list»), T7 (`spoken` e
+  i parametri data ISO; etichette uguali nella scheda di scelta), T8
+  (`withTailGesture` divide su e/and ovunque), T9 (tema da `localStorage`;
+  runner smontato durante l'`await`), T10 (`data-ask-first` senza test
+  diretto; campo occupato da «Ask Claude» → T11/final), T11 (m1, m4).
+
+### Decisioni del maintainer (2 nov 2026)
+
+- **D1 — i campi delle bozze sono quattro**: risposta di supporto, note di
+  rilascio, corpo dell'email e descrizione di una task; la Chat resta
+  esclusa. Il corpo dell'email resta una bozza (inviare è un gesto della
+  persona, classe D); la descrizione nel campo aperto è classe A e diventa
+  una modifica solo quando la persona salva. §16.
+- **D2 — finita la prova, Claude apre da sé il costruttore**, col riquadro
+  aperto e «Back to <pagina>»; la pagina lasciata ritrova indirizzo e
+  scorrimento, i testi non salvati restano dove la pagina li tiene già.
+- **D3 — il filtro sta sull'inizio**, e la prova (anche a mano) dice
+  «Wouldn't start» / «Non partirebbe» quando il filtro non passa.
+- **D4 — `member.added`**: «You've been added to ACQ as Developer» / «Sei
+  stato aggiunto ad ACQ come Developer». Parte quando una persona aggiunge
+  qualcuno e quando lo fa Claude per conto di qualcuno; non parte per chi
+  aggiunge sé stesso. En e it, test propri, «Undone by …» derivato a
+  lettura. Per il motore è un `notification_kind` nuovo, con la sua regola di
+  rollback (`area10-parity.md`).
+- **Accettate** anche le scelte del costruttore del piano, i quattro shape
+  del Task 0 (S0 a nove voci, «Non ora» per oggetto, l'origine «Created by
+  Claude on behalf of …» che resta, «Ask Claude» nel Supporto, `codes` sulla
+  nota `not_manageable`, ⌘J al riquadro).

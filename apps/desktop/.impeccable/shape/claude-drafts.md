@@ -426,3 +426,14 @@ tratto di **Read** (il testo della bozza).
 2. **[DR 14]** *(confermata dal maintainer il 2 nov 2026)*: ⌘J resta al
    riquadro; Posta e Supporto non lo intercettano più, con un test.
 3. Le altre scelte di questo brief sono approvate col brief.
+
+## Emendamenti (ratificati dal controller)
+
+1. **emendamento (ratificato dal controller), 5 nov 2026, Task 10 m2**:
+   «Undo» su una bozza vale **solo finché la pagina del campo è aperta**
+   (il valore di prima vive nel registro dei campi, in memoria: dopo un
+   ricaricamento o una pagina lasciata la riga dice «Can't be undone
+   anymore» e non ha il bottone), e «Show» **naviga** alla pagina del campo
+   invece di restare una frase. *Se sbagliata*: un «Undo» che sopravvive al
+   ricaricamento chiederebbe di tenere il testo di prima da qualche parte
+   (stessa famiglia del «prima» delle azioni della pagina).
