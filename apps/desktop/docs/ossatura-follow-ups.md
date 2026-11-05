@@ -2655,8 +2655,13 @@ registro del piano).
   (`CreatedAutomation.test.tsx`). *Se sbagliata*: un attimo di codice senza
   link prima che arrivi.
 - **La riga «Used:» del riquadro a 1440 può lasciare un « ·» in fondo a una
-  riga andata a capo** (`UsedLine`, scatto `a10b-scen-s4-light-en`). *Se
-  sbagliata*: un separatore appeso.
+  riga andata a capo — corretto (5 nov 2026)** (`UsedLine`, scatto
+  `a10b-scen-s4-light-en`): il «·» sta in coda al suo pezzo e si spegne
+  (`visibility`, stessa larghezza, quindi l'a capo non cambia) quando il
+  pezzo dopo è sulla riga sotto; misurato all'avvio e a ogni
+  ridimensionamento della riga (`UsedLine.test.tsx`). Non il contenitore che
+  taglia della testata della prova: le anteprime dei codici ne escono. *Se
+  sbagliata*: in fondo a una riga resta uno spazio vuoto largo quanto « · ».
 
 ### Voci del registro del piano che mancavano (revisione finale)
 

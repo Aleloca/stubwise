@@ -3,6 +3,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type ReactNode,
@@ -333,14 +334,47 @@ export function UsedLine({ refs }: { refs: readonly CitationRef[] }): ReactNode 
     const view = index.byRef.get(refKey(ref));
     return view ? [withRecordedCode(view, ref)] : [];
   });
+  const line = useRef<HTMLParagraphElement>(null);
+  const shape = views.map(refKey).join(" ");
+  // Il «·» sta in coda al suo pezzo, e si spegne (senza cambiare larghezza,
+  // quindi senza rifare l'a capo) quando il pezzo dopo è sulla riga sotto:
+  // nessun «·» appeso in fondo a una riga né in testa alla successiva (ri-
+  // revisione finale del 5 nov 2026). Non c'è un contenitore che taglia,
+  // come nella testata della prova: le anteprime dei codici ne escono.
+  useLayoutEffect(() => {
+    const p = line.current;
+    if (!p) return;
+    const mark = () => {
+      const items = [...p.querySelectorAll<HTMLElement>("[data-used-item]")];
+      items.forEach((item, i) => {
+        const sep = item.querySelector<HTMLElement>("[data-used-sep]");
+        const next = items[i + 1];
+        if (!sep || !next) return;
+        const wraps = next.offsetTop >= item.offsetTop + item.offsetHeight / 2;
+        sep.style.visibility = wraps ? "hidden" : "";
+      });
+    };
+    mark();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(mark);
+    observer.observe(p);
+    return () => observer.disconnect();
+  }, [shape]);
   if (views.length === 0) return null;
   return (
-    <p className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5 text-sm text-ink-muted">
+    <p
+      ref={line}
+      className="flex flex-wrap items-baseline gap-x-1 gap-y-0.5 text-sm text-ink-muted"
+    >
       <span>{t("claude.conversation.citation.used")}</span>
       {views.map((view, i) => (
-        <span key={refKey(view)} className="inline">
+        <span key={refKey(view)} className="inline" data-used-item={i}>
           <CitationLink view={view} />
-          {i < views.length - 1 && <span aria-hidden="true"> · </span>}
+          {i < views.length - 1 && (
+            <span aria-hidden="true" data-used-sep>
+              {" · "}
+            </span>
+          )}
         </span>
       ))}
     </p>
