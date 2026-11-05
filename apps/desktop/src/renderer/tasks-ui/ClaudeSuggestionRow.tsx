@@ -150,7 +150,7 @@ export function ClaudeSuggestionRow({
               onClick={open}
               aria-describedby={hintId}
               title={t("claude.suggestions.hint")}
-              className="flex min-w-0 flex-1 items-start gap-2 rounded-sm py-[5px] text-left text-ink-muted decoration-ink/40 underline-offset-2 transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink hover:underline focus-visible:text-ink focus-visible:underline"
+              className="flex min-w-0 flex-1 items-start gap-2 rounded-sm py-[5px] text-left text-ink-muted decoration-ink/40 underline-offset-2 transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink hover:underline focus-visible:text-ink focus-visible:underline focus-visible:outline-offset-[-2px]"
             >
               <span className="flex h-[18px] shrink-0 items-center">
                 <QuietRing />
@@ -163,7 +163,7 @@ export function ClaudeSuggestionRow({
             <button
               type="button"
               onClick={notNow}
-              className="shrink-0 rounded-sm py-[5px] text-xs leading-[18px] text-ink-faint transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink-muted hover:underline focus-visible:text-ink-muted focus-visible:underline underline-offset-2"
+              className="shrink-0 rounded-sm py-[5px] text-xs leading-[18px] text-ink-faint transition-colors duration-[var(--duration-fast)] ease-out hover:text-ink-muted hover:underline focus-visible:text-ink-muted focus-visible:underline focus-visible:outline-offset-[-2px] underline-offset-2"
             >
               {t("claude.suggestions.notNow")}
             </button>

@@ -13,12 +13,19 @@ export function CodeLink({
   code,
   withName = false,
   title,
+  quiet = false,
 }: {
   code: string;
   /** Il nome dopo il codice (titolo della task o della richiesta), se chi guarda la vede. */
   withName?: boolean;
   /** Il nome che sa chi chiama (con le sue note, «(late)»): solo per un oggetto visibile. */
   title?: string;
+  /**
+   * Come nella riga «Used:» della conversazione (`CitationLink`): senza
+   * sottolineatura a riposo, che compare al passaggio e al fuoco
+   * (Impeccable 12: «Used:» si legge uguale ovunque).
+   */
+  quiet?: boolean;
 }) {
   const support = SUPPORT.exec(code);
   const cited = useCodeCitations(support ? [] : [code]).data;
@@ -41,7 +48,11 @@ export function CodeLink({
     <a
       href={href}
       data-code-link="open"
-      className="rounded-sm underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+      className={
+        quiet
+          ? "rounded-[3px] underline decoration-transparent underline-offset-2 transition-colors duration-[var(--duration-fast)] ease-out hover:decoration-ink/60 focus-visible:decoration-ink/60"
+          : "rounded-sm underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+      }
     >
       <span className="num font-semibold text-ink">{code}</span>
       {name && <span className="text-ink"> {name}</span>}

@@ -98,6 +98,8 @@ export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boo
   if (draft !== null) {
     return (
       <Section title={title} sectionRef={sectionRef}>
+        {/* Cresce col testo da 6 a 12 righe: una bozza di Claude si legge
+            senza scorrere dentro il campo (Impeccable 10). */}
         <textarea
           ref={boxRef}
           autoFocus={!byClaude}
@@ -115,7 +117,7 @@ export function DescriptionSection({ task, canEdit }: { task: Task; canEdit: boo
               save();
             }
           }}
-          className={`${inputClass} resize-y`}
+          className={`${inputClass} max-h-[254px] min-h-[134px] resize-y leading-5 [field-sizing:content]`}
         />
         {mark.shown && (
           <ClaudeDraftMark id={markId} action="save" sources={sources.map((code) => ({ code }))} />

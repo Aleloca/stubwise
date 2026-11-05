@@ -134,27 +134,33 @@ export function TestHeader(p: TestHeaderProps) {
             )}
           </div>
         </div>
-        <p className="flex flex-wrap items-center gap-x-2 text-sm text-ink-muted">
+        {/* Ogni «·» sta col pezzo che lo segue: andando a capo non resta
+            appeso in fondo a una riga né in testa da solo (Impeccable 11). */}
+        <p className="flex flex-wrap items-baseline gap-x-2 text-sm text-ink-muted">
           <span data-version-line>{p.versionLine}</span>
           {p.exampleLine !== null && (
-            <>
-              <span aria-hidden="true">·</span>
+            <span className="min-w-0">
+              <span aria-hidden="true" className="mr-2">
+                ·
+              </span>
               <span data-example-line>{p.exampleLine}</span>
-            </>
+            </span>
           )}
           {p.onChangeExample && !p.changeExamplePrimary && (
-            <>
-              <span aria-hidden="true">·</span>
+            <span className="whitespace-nowrap">
+              <span aria-hidden="true" className="mr-2">
+                ·
+              </span>
               <button
                 type="button"
                 data-change-example
                 disabled={p.busy}
                 onClick={p.onChangeExample}
-                className="text-ink underline-offset-4 hover:underline disabled:opacity-40 disabled:hover:no-underline"
+                className="text-ink underline decoration-ink/30 underline-offset-4 hover:decoration-ink disabled:opacity-40"
               >
                 {t("automations.test.meta.change")}
               </button>
-            </>
+            </span>
           )}
         </p>
       </div>

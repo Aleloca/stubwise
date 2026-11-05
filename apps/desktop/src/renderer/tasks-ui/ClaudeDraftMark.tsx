@@ -112,10 +112,11 @@ export function ClaudeDraftMark({
       {sources.length > 0 && (
         <span className="min-w-0 [overflow-wrap:anywhere]">
           {t("claude.drafts.mark.used")}{" "}
+          {/* Come «Used:» nella conversazione: codice in grassetto, « · » fra le fonti. */}
           {shown.map((s, i) => (
             <span key={s.code}>
-              {i > 0 && ", "}
-              <CodeLink code={s.code} withName title={s.title} />
+              {i > 0 && <span aria-hidden="true"> · </span>}
+              <CodeLink code={s.code} withName title={s.title} quiet />
             </span>
           ))}
           {more.length > 0 && (

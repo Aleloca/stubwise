@@ -378,8 +378,10 @@ export function DraftRow({
   })();
 
   return wrap(
-    <div className="event-enter flex min-w-0 flex-wrap items-start gap-x-3 gap-y-1" data-draft-row>
-      <p className="flex min-h-8 min-w-0 flex-[1_1_16rem] items-start gap-2 py-1 text-md text-ink [overflow-wrap:anywhere]">
+    // «Undo» resta sulla prima riga anche a 360: va a capo il testo, non il
+    // comando (Impeccable 14, come `ExecutedRow`).
+    <div className="event-enter flex min-w-0 items-start gap-x-3" data-draft-row>
+      <p className="flex min-h-8 min-w-0 flex-1 items-start gap-2 py-1 text-md text-ink [overflow-wrap:anywhere]">
         <span className="mt-[3px]" aria-hidden="true">
           <CheckGlyph />
         </span>
@@ -401,7 +403,7 @@ export function DraftRow({
           tabIndex={-1}
           aria-live="polite"
           data-undo={outcome}
-          className="ml-auto inline-flex min-h-8 min-w-0 max-w-full items-center justify-end rounded-sm text-sm outline-offset-2 focus-visible:outline-2 focus-visible:outline-focus"
+          className={`ml-auto inline-flex min-h-8 items-center justify-end rounded-sm text-right text-sm outline-offset-2 focus-visible:outline-2 focus-visible:outline-focus ${outcome === "available" ? "shrink-0" : "min-w-0 max-w-[45%]"}`}
         >
           {state}
         </span>
