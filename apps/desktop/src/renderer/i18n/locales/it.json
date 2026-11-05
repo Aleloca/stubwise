@@ -3528,6 +3528,7 @@
         "hypothesis": "{{task}} forse è uscita dalla pianificazione: non ha una settimana",
         "details": "Una task è ferma quando non cambia da più della soglia del suo progetto ({{code}}: {{days}}). Solo progetti aperti.",
         "detailsMixed": "Una task è ferma quando non cambia da più della soglia del suo progetto. Le soglie cambiano da progetto a progetto: le trovi in Impostazioni → Fermo di ognuno. Solo progetti aperti.",
+        "readAt": "Letto alle {{at, datetime(hour: 2-digit; minute: 2-digit; hour12: false; timeZone: UTC)}}.",
         "reason": {
           "manual": "segnata ferma: {{reason}}",
           "decision": "aspetta una decisione di {{name}}",

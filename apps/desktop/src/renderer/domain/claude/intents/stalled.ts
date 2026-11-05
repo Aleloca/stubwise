@@ -84,7 +84,7 @@ export async function stalled(text: string, ctx: IntentContext): Promise<Answer>
       text: t("claude.answers.stalled.hypothesis", { task: outOfPlan.oldest.taskCode }),
     });
   }
-  aside.push({ kind: "details", text: details(t, shown) });
+  aside.push({ kind: "details", text: details(t, shown, await read.now()) });
   return {
     actions,
     text: body,
@@ -109,16 +109,20 @@ function line(t: T, r: StalledProject, reason: string): string {
     : t("claude.answers.stalled.line", { code: r.code, count: r.stalled, days, reason });
 }
 
-/** Come è contato: la soglia del primo progetto, o che cambiano da progetto a progetto ([SC 3]). */
-function details(t: T, shown: StalledProject[]): string {
+/**
+ * Come è contato: la soglia del primo progetto, o che cambiano da progetto a
+ * progetto ([SC 3]); poi l'ora della lettura, come S3 (shape §3.3).
+ */
+function details(t: T, shown: StalledProject[], asOf: string): string {
   const first = shown[0]!;
   const same = shown.every((r) => r.thresholdDays === first.thresholdDays);
-  return same
+  const how = same
     ? t("claude.answers.stalled.details", {
         code: first.code,
         days: t("claude.answers.stalled.days", { count: first.thresholdDays }),
       })
     : t("claude.answers.stalled.detailsMixed");
+  return `${how} ${t("claude.answers.stalled.readAt", { at: new Date(asOf) })}`;
 }
 
 /**

@@ -92,6 +92,11 @@ export interface ReadApi {
    * (P16).
    */
   listStalledProjects(projectId?: string | null): Promise<StalledProject[]>;
+  /**
+   * Area 10b (S2): l'«adesso» del livello dati (l'orologio unico `now()`),
+   * per il «Read at …» dei «Details». Nessun dato.
+   */
+  now(): Promise<string>;
   /** Area 10b (S3): la spesa in AI del mese, come chi chiede la vede in Usage. */
   spendThisMonth(): Promise<SpendView>;
   /**

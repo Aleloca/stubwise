@@ -399,11 +399,13 @@ describe("S2, i progetti fermi", () => {
     const first = (await expectedStalled(GIULIA))[0]!.code;
     const days = state.projectsById.get(projectId(first))!.stallThresholds.activeDays;
     expect(asides(steps, "details")[0]!.text).toBe(
-      `A task counts as stalled when it hasn't changed for longer than its project's threshold (${first}: ${days} days). Only open projects.`,
+      `A task counts as stalled when it hasn't changed for longer than its project's threshold (${first}: ${days} days). Only open projects. Read at 12:00.`,
     );
     state.projectsById.get(projectId("AUD"))!.stallThresholds.activeDays = 3;
     const mixed = await respond("which projects are stuck?", as(GIULIA));
     expect(asides(mixed, "details")[0]!.text).toContain("Thresholds differ by project");
+    // L'ora della lettura (Impeccable 13, shape §3.3), come S3.
+    expect(asides(mixed, "details")[0]!.text).toMatch(/Read at 12:00\.$/);
   });
 
   it("la persona della decisione e la task che blocca, solo se chi chiede le vede", async () => {

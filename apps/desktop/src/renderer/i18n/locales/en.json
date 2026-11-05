@@ -3528,6 +3528,7 @@
         "hypothesis": "{{task}} may have fallen out of planning: it has no week",
         "details": "A task counts as stalled when it hasn't changed for longer than its project's threshold ({{code}}: {{days}}). Only open projects.",
         "detailsMixed": "A task counts as stalled when it hasn't changed for longer than its project's threshold. Thresholds differ by project: see each project's Settings → Stalled. Only open projects.",
+        "readAt": "Read at {{at, datetime(hour: 2-digit; minute: 2-digit; hour12: false; timeZone: UTC)}}.",
         "reason": {
           "manual": "marked stuck: {{reason}}",
           "decision": "waiting for {{name}}'s decision",

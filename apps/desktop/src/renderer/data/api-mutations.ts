@@ -1723,6 +1723,7 @@ export function readsAs(me: string): ReadApi {
     validateAutomationFlow: bind(reads.automations.validateAutomationFlow),
     // Area 10b (S2, S3): letture calcolate a nome di chi chiede, senza latenza propria.
     listStalledProjects: async (projectId) => stalledProjectsFor(me, projectId),
+    now: async () => now(),
     spendThisMonth: async () => spendThisMonthFor(me),
     // Area 10b (S4, S5): le azioni in blocco e i membri, a nome di chi chiede.
     listArchiveCandidates: async (days) => archiveCandidatesFor(me, days),

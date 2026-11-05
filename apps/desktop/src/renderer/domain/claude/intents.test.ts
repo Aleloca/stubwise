@@ -19,7 +19,7 @@ import { mailDraftFor, taskDescriptionDraftFor } from "../../data/claude/drafts"
 import { releaseNotesDraftFor } from "../../data/releases/notes";
 import { supportReplyDraftFor } from "../../data/support/visibility";
 import { getSessionPersonId, setSessionPersonId } from "../../data/session";
-import { state } from "../../data/store";
+import { now, state } from "../../data/store";
 import type { ProposedAction, ScriptStep } from "../../data/types";
 import { recognize, respond, type IntentContext, type ReadApi } from "./intents";
 
@@ -54,6 +54,7 @@ const READ: ReadApi = {
   validateAutomationFlow: api.automations.validateAutomationFlow,
   // Area 10b (S2, S3): calcolate a nome della persona della sessione.
   listStalledProjects: async (projectId) => stalledProjectsFor(getSessionPersonId(), projectId),
+  now: async () => now(),
   spendThisMonth: async () => spendThisMonthFor(getSessionPersonId()),
   // Area 10b (S4, S5): le azioni in blocco e i membri.
   listArchiveCandidates: async (days) => archiveCandidatesFor(getSessionPersonId(), days),
@@ -590,6 +591,8 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       "mailDraft",
       // Area 10b (Task 7): il ruolo di un membro di un progetto che vede.
       "memberRoleOf",
+      // Area 10b (Impeccable 13): l'orologio unico, per «Read at …» di S2. Nessun dato.
+      "now",
       "readDriveFiles",
       // Area 10b (Task 8): le bozze degli altri tre campi, con la visibilità
       // e i permessi di chi chiede; e l'id di una conversazione di supporto
