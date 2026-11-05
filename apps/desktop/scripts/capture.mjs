@@ -286,6 +286,44 @@ async function main() {
             await page.waitForTimeout(300);
           },
         },
+        {
+          // Fix round 1: ⋮⋮ trascinato a metà strada, la linea d'arrivo e il blocco che segue il puntatore.
+          name: "drag",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await page.locator('[data-block-id="blk-acq-signin-4"]').hover();
+            const handle = page.locator('[data-block-id="blk-acq-signin-4"] [aria-haspopup="menu"]');
+            const box = await handle.boundingBox();
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width / 2, box.y - 10, { steps: 4 });
+            await page.mouse.move(box.x + 40, box.y - 70, { steps: 6 });
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          // Fix round 1: ⌘Z dopo che Marco ha tolto il blocco vicino: «Changed by someone else, not undone».
+          name: "not-undone",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await enterLast(page);
+            await page.keyboard.press("Escape");
+            await page.keyboard.press("Backspace");
+            await page.waitForTimeout(800);
+            await page.evaluate(async () => {
+              const api = await import("/data/api.ts");
+              const page = api.productDocs.productPageByCode("ACQ-D5");
+              api.productDocs.writeProductBlocksAs("p-marco", page.id, [{ op: "delete", blockId: "blk-acq-signin-3" }], {
+                sessionId: "script-marco",
+              });
+            });
+            await page.waitForTimeout(800);
+            await page.keyboard.press("Meta+z");
+            await page.waitForTimeout(400);
+          },
+        },
         { name: "table", hash: "/p/ACQ/docs/product/ACQ-D7", persona: "Laura", hover: '[data-block-placeholder="table"]' },
         { name: "decisions", hash: "/p/ACQ/docs/product/ACQ-D10", persona: "Laura" },
         { name: "reader", hash: SIGNIN, persona: "Sara" },
