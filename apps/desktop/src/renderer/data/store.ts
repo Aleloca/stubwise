@@ -119,6 +119,9 @@ import type {
   DocGeneration,
   DocPage,
   DocSpace,
+  ProductFollow,
+  ProductPage,
+  ProductRevision,
   ContentState,
   DriveFile,
   DriveOpen,
@@ -383,6 +386,17 @@ export type ApiFnName =
   | "docs.advanceGeneration"
   /** Un passo della costruzione simulata del grafo. */
   | "docs.advanceGraph"
+  // Lo spazio Prodotto (area 11a)
+  | "productDocs.getProductSpace"
+  | "productDocs.getProductPage"
+  | "productDocs.listProductRevisions"
+  | "productDocs.createProductPage"
+  | "productDocs.renameProductPage"
+  | "productDocs.moveProductPage"
+  | "productDocs.deleteProductPage"
+  | "productDocs.saveProductBlocks"
+  | "productDocs.followProductPage"
+  | "productDocs.unfollowProductPage"
   // Drive (area 5)
   | "drive.listDriveFiles"
   | "drive.getDriveFile"
@@ -761,6 +775,8 @@ export type ApiFnName =
   | "projectSettings.getProjectSettings"
   | "projectSettings.getProjectSwitches"
   | "projectSettings.updateProjectGeneral"
+  /** Area 11a, Q4: l'interruttore «Docs» di General. */
+  | "projectSettings.setDocsModule"
   | "projectSettings.setProjectAi"
   | "projectSettings.saveProjectAutomations"
   | "projectSettings.getProjectUsage"
@@ -1007,6 +1023,19 @@ interface State {
    * nome); `null` = nessuno, e la chat dice che non è disponibile.
    */
   docsChatProvider: string | null;
+  // --- Lo spazio Prodotto (area 11a) ---
+  /** Le pagine di prodotto; il codice è della serie dei Docs (`docCodeSeq`). */
+  productPages: ProductPage[];
+  /** Le revisioni, nell'ordine in cui sono nate (l'ordine vero è `lastSeq`). */
+  productRevisions: ProductRevision[];
+  /** Chi segue quale pagina: chi la crea e chi preme «Follow», mai da solo. */
+  productFollows: ProductFollow[];
+  /**
+   * Ogni id di blocco, di riga o di cella mai dato a una pagina di prodotto:
+   * un id non si riusa, neanche dopo un'eliminazione o in un'altra pagina
+   * (`invalid: block_id_taken`).
+   */
+  productBlockIds: Set<string>;
   // --- Drive (area 5) ---
   driveFiles: DriveFile[];
   /** Le aperture contate, in ordine di tempo. */
@@ -1246,6 +1275,11 @@ function freshState(): State {
     docCodeSeq: initialDocCodeSeq(),
     docGenerationLog: new Map(),
     docsChatProvider: "Team API key",
+    // Il seme del Prodotto è del Task 3: le pagine, e i loro id in `productBlockIds`.
+    productPages: [],
+    productRevisions: [],
+    productFollows: [],
+    productBlockIds: new Set(),
     driveFiles: DRIVE_FILES.map(copy),
     driveOpens: DRIVE_OPENS.map(copy),
     googleAccounts: GOOGLE_ACCOUNTS.map(copy),

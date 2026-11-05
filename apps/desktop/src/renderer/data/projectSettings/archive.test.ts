@@ -22,6 +22,7 @@ import {
   instance,
   listNotifications,
   listProjects,
+  productDocs,
   projectSettings,
   resetApi,
   search,
@@ -966,5 +967,31 @@ describe("Delete di RNC da Roberta", () => {
     // Senza changelog.view né full admin non la legge affatto.
     as(SARA);
     expect(await changelog.listChanges({ kind: "project.deleted" })).toEqual([]);
+  });
+});
+
+describe("Delete di RNC: lo spazio Prodotto (area 11a, ruling P13)", () => {
+  it("pagine, revisioni e seguaci di RNC se ne vanno; quelli di ACQ restano", async () => {
+    as(ROBERTA);
+    markReauthenticated(ROBERTA);
+    await projectSettings.reopenProject(RNC);
+    const parent = await productDocs.createProductPage(RNC, { title: "Shop" });
+    const child = await productDocs.createProductPage(RNC, { title: "Cart", parentId: parent.id });
+    as(GIULIA);
+    await productDocs.followProductPage(child.id);
+    as(LAURA);
+    const kept = await productDocs.createProductPage(ACQ, { title: "Kept" });
+    as(ROBERTA);
+    await projectSettings.archiveProject(RNC);
+    expect(await projectSettings.deleteProject(RNC, { confirmCode: "RNC" })).toEqual({ ok: true });
+
+    const gone = new Set([parent.id, child.id]);
+    expect(state.productPages.map((p) => p.id)).toEqual([kept.id]);
+    expect(state.productRevisions.filter((r) => gone.has(r.pageId))).toEqual([]);
+    expect(state.productFollows.filter((f) => gone.has(f.pageId))).toEqual([]);
+    expect(state.productRevisions.some((r) => r.pageId === kept.id)).toBe(true);
+    expect(state.productFollows).toEqual([
+      expect.objectContaining({ pageId: kept.id, personId: LAURA }),
+    ]);
   });
 });

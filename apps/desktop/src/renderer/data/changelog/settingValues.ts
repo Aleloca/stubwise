@@ -33,6 +33,7 @@
 //
 // Le forme dell'area 9c (Progetto → Settings), per i Task 2–5:
 // - `switch` (`project.switch_changed`, con `params.switch`): `"on"`/`"off"`;
+//   così anche `project.docs_toggled` (area 11a, il modulo Docs), senza params;
 // - `ai_account` (`project.ai_account_changed`): `"auto"` (la catena
 //   dell'istanza) o `"account:<id>"`, con `":exclusive"` in coda se il
 //   progetto usa solo quell'account; il nome lo risolve la lettura (quello
@@ -129,6 +130,8 @@ export const SETTING_KINDS: Readonly<Record<string, SettingValue["type"]>> = {
   "queue.resumed": "queue",
   // Area 9c
   "project.switch_changed": "switch",
+  // Area 11a: il modulo Docs (General).
+  "project.docs_toggled": "switch",
   "project.ai_account_changed": "ai_account",
   "project.pulse_interval_changed": "number",
   "project.correction_cap_changed": "number",

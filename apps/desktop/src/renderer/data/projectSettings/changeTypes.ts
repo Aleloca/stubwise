@@ -51,6 +51,8 @@ const widget = project("repositories", "widget.manage");
 export const PROJECT_CHANGE_TYPES: readonly ChangeType[] = [
   settings("project.renamed"),
   settings("project.description_changed"),
+  // Area 11a, Q4: il modulo Docs acceso o spento da General.
+  settings("project.docs_toggled"),
   settings("project.ai_account_changed"),
   settings("project.switch_changed"),
   settings("project.pulse_interval_changed"),
@@ -131,6 +133,7 @@ export interface ProjectChangeParams {
 export const SECTION_OF_KIND: Readonly<Record<string, ProjectSettingsSection>> = {
   "project.renamed": "general",
   "project.description_changed": "general",
+  "project.docs_toggled": "general",
   "project.ai_account_changed": "ai",
   "project.switch_changed": "automations",
   "project.pulse_interval_changed": "automations",

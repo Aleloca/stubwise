@@ -26,6 +26,8 @@ export interface ProjectSettingsView {
   code: string;
   name: string;
   description: string;
+  /** Area 11a, Q4: il modulo Docs è acceso (l'interruttore di General). */
+  docsModule?: boolean;
   ai: {
     /** `null` = «Automatic». Un account eliminato resta qui: lo dice `chosenUnavailable`. */
     providerId: string | null;
@@ -92,6 +94,7 @@ export async function getProjectSettings(projectId: string): Promise<ProjectSett
     code: project.code,
     name: project.name,
     description: project.description ?? "",
+    docsModule: project.modules.includes("docs"),
     ai: {
       providerId: s.aiProviderId,
       exclusive: s.aiProviderExclusive,

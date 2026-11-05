@@ -140,6 +140,8 @@ export type { ScriptStep, StreamConnection, StreamMode, SubscribeOptions } from 
 export * as chat from "./chat";
 /** I Docs (area 5): `api.docs.listDocSpaces(…)`, `api.docs.createManualPage(…)`… */
 export * as docs from "./docs";
+/** Lo spazio Prodotto (area 11a): `api.productDocs.getProductSpace(…)`, `api.productDocs.saveProductBlocks(…)`… */
+export * as productDocs from "./productDocs";
 /** Il Drive (area 5): `api.drive.listDriveFiles(…)`, `api.drive.uploadFiles(…)`… */
 export * as drive from "./drive";
 /** La Posta (area 6): `api.mail.listMailThreads(…)`, `api.mail.syncMailbox(…)`… */

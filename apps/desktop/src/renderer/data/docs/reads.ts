@@ -194,6 +194,8 @@ export async function getProjectDocsHome(projectId: string): Promise<ProjectDocs
   const spaces = spacesOfProject(me, projectId);
   if (docsAccess(me, projectId) === "none") return null;
   const main = spaces[0] ?? null;
+  // Lo spazio Prodotto (area 11a): qui chi guarda legge i Docs del progetto.
+  const productPages = state.productPages.filter((p) => p.projectId === projectId);
   const decisions = state.decisionLog
     .filter((d) => d.projectId === projectId)
     .sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
@@ -215,6 +217,11 @@ export async function getProjectDocsHome(projectId: string): Promise<ProjectDocs
     chatSuggestions: chatSuggestions(
       state.docPages.filter((p) => spaces.some((s) => s.repositoryId === p.repositoryId)),
     ),
+    product: {
+      pageCount: productPages.length,
+      updatedAt: productPages.map((p) => p.updatedAt).sort().at(-1) ?? null,
+      canEdit: can(viewerFor(me), "docs.edit", projectId),
+    },
   };
 }
 

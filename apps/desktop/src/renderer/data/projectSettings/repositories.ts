@@ -309,6 +309,13 @@ export function reviewAccountChoices(
 /** Il nome di un repository: non vuoto, senza spazi né `/` (è un pezzo dell'indirizzo dei Docs). */
 const validName = (name: string): boolean => name !== "" && !/[\s/]/.test(name);
 
+/**
+ * Un nome che l'indirizzo dei Docs usa già (area 11a): `#/p/<P>/docs/product`
+ * è lo spazio Prodotto, quindi nessun repository si chiama «product», con
+ * qualunque maiuscola (`name_reserved`).
+ */
+const reservedName = (name: string): boolean => name.toLowerCase() === "product";
+
 /** Il nome c'è già nel progetto (senza maiuscole): è nell'indirizzo dei Docs. */
 export const nameTaken = (projectId: string, name: string, exceptId: string | null): boolean =>
   state.repositories.some(
@@ -345,6 +352,7 @@ export async function createRepository(
   if ("reason" in triple) return refuse.invalid(triple.reason);
   const name = input.name.trim();
   if (!validName(name)) return refuse.invalid("name");
+  if (reservedName(name)) return refuse.invalid("name_reserved");
   if (nameTaken(project.id, name, null)) return refuse.invalid("name_taken");
   const checks = state.repositoryChecks;
   const check = checks.checks.find((c) => c.personId === me && c.projectId === project.id);
@@ -442,6 +450,7 @@ export async function updateRepository(
 
   const name = patch.name === undefined ? r.name : patch.name.trim();
   if (!validName(name)) return refuse.invalid("name");
+  if (name !== r.name && reservedName(name)) return refuse.invalid("name_reserved");
   if (nameTaken(project.id, name, r.id)) return refuse.invalid("name_taken");
   const url = patch.url === undefined ? (r.url ?? "") : patch.url.trim();
   if (patch.url !== undefined && !/^https:\/\/\S+$/.test(url)) return refuse.invalid("url");

@@ -164,6 +164,7 @@ function contextOf(entry: ChangeEntryView): string | undefined {
   const after = entry.diff?.kind === "setting" ? entry.diff.after : null;
   switch (entry.kind) {
     case "project.switch_changed":
+    case "project.docs_toggled":
       return after?.type === "switch" ? (after.on ? "on" : "off") : undefined;
     case "repository.webhook_configured":
       return after?.type === "webhook" && after.state === "failed" ? "failed" : undefined;

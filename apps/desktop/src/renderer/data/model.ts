@@ -1666,6 +1666,12 @@ export interface ProjectDocsHome {
   chatAvailable: boolean;
   /** Le pagine da cui nascono le domande suggerite (al più 4, da tutti gli spazi). */
   chatSuggestions: DocPageRef[];
+  /**
+   * Lo spazio Prodotto del progetto (area 11a): quante pagine, l'ultima
+   * modifica, se chi guarda scrive. Facoltativo (cambio additivo): una
+   * lettura senza il campo vale «nessuno spazio Prodotto da mostrare».
+   */
+  product?: { pageCount: number; updatedAt: string | null; canEdit: boolean } | null;
 }
 
 export interface DocSearchHit {
@@ -3631,4 +3637,105 @@ export interface ProductPageRef {
 export interface ProductTreeNode {
   page: ProductPageRef;
   children: ProductTreeNode[];
+}
+
+/**
+ * Una pagina dello spazio Prodotto (area 11a). Il codice è della serie dei
+ * Docs (`<P>-D<n>`, `state.docCodeSeq`) e non si riusa; `order` è la
+ * posizione fra i fratelli (0, 1, 2…). Il corpo sono solo blocchi: nessun
+ * Markdown, in nessun campo.
+ */
+export interface ProductPage {
+  id: string;
+  code: string;
+  projectId: string;
+  parentId: string | null;
+  order: number;
+  title: string;
+  blocks: ProductBlock[];
+  createdById: string;
+  createdAt: string;
+  updatedById: string;
+  updatedAt: string;
+}
+
+/** Una fonte di una modifica (11b). Nel 11a nessuna riga la ha. */
+export type ProductSourceRef =
+  | { kind: "email" | "meeting" | "decision" | "task" | "release"; id: string }
+  | { kind: "first_version"; ids: string[] };
+
+export type ProductRevisionKind =
+  | "create"
+  | "edit"
+  | "rename"
+  | "move"
+  // Le ultime tre le scrive il 11b.
+  | "undo"
+  | "first_version"
+  | "answer";
+
+/**
+ * Una revisione di una pagina di prodotto. I cambi portano i blocchi interi
+ * (`before`/`after` coi segni): un grassetto tolto è un cambio, e il 11b
+ * annulla tornando ai segni di prima.
+ */
+export interface ProductRevision {
+  id: string;
+  pageId: string;
+  /** L'ordine di nascita (`nextSeq()`). */
+  seq: number;
+  /**
+   * L'ordine dell'ULTIMA scrittura che la revisione contiene (ruling P12):
+   * una scrittura unita prende un `nextSeq()` nuovo. «Prima/dopo»
+   * (`touchedAfter`, la cronologia) si leggono da qui, non da `seq`.
+   */
+  lastSeq: number;
+  at: string;
+  /** Chi agisce: la persona (anche quando Claude agisce per lei, 11b) o il Claude collega. */
+  actorId: string;
+  via?: "claude";
+  source?: ProductSourceRef;
+  undoOf?: string;
+  groupId?: string;
+  /** La sessione dell'editor che l'ha scritta: le scritture della stessa sessione si uniscono. */
+  sessionId?: string;
+  kind: ProductRevisionKind;
+  changes: ProductBlockChange[];
+  title?: { before: string; after: string };
+  parent?: { beforeId: string | null; afterId: string | null };
+}
+
+/** Chi segue una pagina: solo chi la crea e chi preme «Follow» (maintainer, 5 nov 2026). */
+export interface ProductFollow {
+  pageId: string;
+  personId: string;
+  since: string;
+}
+
+export interface ProductSpaceView {
+  projectId: string;
+  projectCode: string;
+  tree: ProductTreeNode[];
+  pageCount: number;
+  /** Aggiornate di recente (al più 5). */
+  recent: ProductPageRef[];
+  permissions: { edit: boolean };
+}
+
+export interface ProductPageView extends ProductPage {
+  /** Gli antenati, dalla radice al genitore. */
+  breadcrumbs: ProductPageRef[];
+  permissions: { edit: boolean; delete: boolean; deleteBlocked: "has_children" | null };
+  following: boolean;
+  /** Le decisioni citate, risolte per chi legge; `null` = non visibile (R-G5). */
+  decisions: Record<
+    string,
+    { title: string; decidedAt: string; decidedByName: string | null } | null
+  >;
+  /** Fili aperti, per la barra. Li conta il Task 4: fino ad allora 0 (ruling P10). */
+  openComments: number;
+}
+
+export interface ProductRevisionView extends ProductRevision {
+  actorName: string;
 }

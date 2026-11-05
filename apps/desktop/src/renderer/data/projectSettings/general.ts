@@ -1,4 +1,6 @@
 import { recordChange } from "../changelog/index";
+import { encodeSwitch } from "../changelog/settingValues";
+import type { ProjectModule } from "../model";
 import { writer } from "../writer";
 import { managedProject, projectObject, refuse } from "./common";
 import type { ProjectResult } from "./types";
@@ -61,5 +63,40 @@ export function updateProjectGeneralAs(
       projectId: project.id,
       object: projectObject(project),
     });
+  return { ok: true };
+}
+
+/** L'ordine dei moduli di un progetto, come li accende un modello (`TEMPLATE_MODULES`). */
+const MODULE_ORDER: readonly ProjectModule[] = ["docs", "releases", "support", "servers"];
+
+/**
+ * L'interruttore «Docs» di General (area 11a, Q4): spento nasconde i Docs e
+ * lo spazio Prodotto, e tiene le pagine (riacceso, ci sono). Si scrive con
+ * `project.settings.manage`; una voce `project.docs_toggled` con «on»/«off»
+ * di prima e di dopo, nessuna se non cambia nulla.
+ */
+export async function setDocsModule(projectId: string, on: boolean): Promise<ProjectResult> {
+  return setDocsModuleAs(await writer("projectSettings.setDocsModule"), projectId, on);
+}
+
+/** La forma sincrona di `setDocsModule`, per chi ha già passato il cancello. */
+export function setDocsModuleAs(me: string, projectId: string, on: boolean): ProjectResult {
+  const managed = managedProject(me, projectId);
+  if ("refusal" in managed) return managed.refusal;
+  const { project } = managed;
+  const before = project.modules.includes("docs");
+  if (before === on) return { ok: true };
+  const modules = new Set(project.modules);
+  if (on) modules.add("docs");
+  else modules.delete("docs");
+  project.modules = MODULE_ORDER.filter((m) => modules.has(m));
+  recordChange({
+    kind: "project.docs_toggled",
+    actorId: me,
+    projectId: project.id,
+    object: projectObject(project),
+    before: encodeSwitch(before),
+    after: encodeSwitch(on),
+  });
   return { ok: true };
 }

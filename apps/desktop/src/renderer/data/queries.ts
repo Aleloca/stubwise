@@ -3937,3 +3937,4 @@ export * from "./queries/me";
 export * from "./queries/instance";
 export * from "./queries/projectSettings";
 export * from "./queries/claude";
+export * from "./queries/productDocs";

@@ -57,6 +57,8 @@ const CHILD_KEYS = [
   "repositoryId",
   "environmentId",
   "fileId",
+  // Area 11a (ruling P13): revisioni e seguaci di una pagina di prodotto.
+  "pageId",
 ] as const;
 type ChildKey = (typeof CHILD_KEYS)[number];
 
@@ -103,6 +105,7 @@ export function purgeProject(project: Project, me: string): number {
     repositoryId: new Set(repos.map((r) => r.id)),
     environmentId: ids(state.environments as unknown as Row[], (e) => e.projectId === id),
     fileId: ids(state.driveFiles as unknown as Row[], (f) => f.projectId === id),
+    pageId: ids(state.productPages as unknown as Row[], (p) => p.projectId === id),
   };
   gone.conversationId = new Set(
     state.conversations
