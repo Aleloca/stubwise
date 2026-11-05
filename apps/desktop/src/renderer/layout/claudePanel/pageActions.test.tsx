@@ -272,6 +272,29 @@ describe("la pagina intera della conversazione (I2)", () => {
     );
   });
 
+  it("due runner montati PRIMA del messaggio: la lingua cambia una volta, una sola chiusura (review finale, 6)", async () => {
+    setSessionPersonId("p-laura");
+    const cid = (await api.createConversation()).id;
+    const settle = vi.spyOn(api, "settlePageEvent");
+    const change = vi.spyOn(i18n, "changeLanguage");
+    const a = mountHarness("p-laura", cid);
+    const b = mountHarness("p-laura", cid);
+    await waitFor(() => {
+      expect(a.container.querySelector("[data-harness]")).not.toBeNull();
+      expect(b.container.querySelector("[data-harness]")).not.toBeNull();
+    });
+    await api.sendMessage(cid, { text: "switch to Italian" });
+    await waitFor(() => expect(pageEvents()[0]?.status).toBe("done"));
+    await waitFor(() =>
+      expect(b.container.querySelector("[data-harness]")).not.toHaveAttribute("data-harness", "0"),
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    expect(settle).toHaveBeenCalledTimes(1);
+    expect(change.mock.calls.filter(([lng]) => lng === "it")).toHaveLength(1);
+    a.unmount();
+    b.unmount();
+  });
+
   it("due runner montati: chiuderne uno non spegne l'«Undo» dell'altro", async () => {
     setSessionPersonId("p-laura");
     const cid = (await api.createConversation()).id;

@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import {
   RouterProvider,
   createMemoryHistory,
@@ -14,7 +14,7 @@ import { state } from "../../data/store";
 import type { ConversationEvent, FieldRef } from "../../data/types";
 import { ViewerProvider } from "../../data/viewer";
 import { ThemeProvider } from "../../theme/ThemeProvider";
-import { fillableFor, useFillableField } from "./fillable";
+import { __resetFillableForTest, fillableFor, useFillableField } from "./fillable";
 import {
   __forgetPageEventsForTest,
   answerDraft,
@@ -43,6 +43,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   setSessionPersonId("p-giulia");
+  // Il registro è del modulo: nessun campo resta dichiarato fra un test e l'altro.
+  __resetFillableForTest();
 });
 
 /** Un campo di prova: il testo vivo in un ref, `put` contato. */
@@ -170,6 +172,31 @@ describe("il runner delle bozze", () => {
     expect(toy()).toBe("Claude's text.");
     act(() => setFromOutside("Claude's text."));
     expect(puts).toEqual(["Claude's text."]);
+  });
+
+  it("due runner montati PRIMA della bozza: entra una volta sola (review finale, 6)", async () => {
+    puts.length = 0;
+    setSessionPersonId(LAURA);
+    const cid = (await api.createConversation()).id;
+    const a = mount(LAURA, { conversationId: cid, field: FIELD });
+    const b = mount(LAURA, { conversationId: cid, field: FIELD });
+    await waitFor(() => expect(fillableFor(FIELD)).not.toBeNull());
+    await api.runScript(cid, [
+      {
+        step: "event",
+        event: { type: "draft", field: FIELD, text: "Claude's text.", status: "pending" },
+      },
+    ]);
+    // Un evento scritto dal copione non avvisa le query: le rilegge il ritorno del fuoco.
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(puts).toEqual(["Claude's text."]);
+    a.unmount();
+    b.unmount();
   });
 
   it("mai nel campo di un'altra pagina: senza il suo campo la bozza aspetta (`waiting`)", async () => {
