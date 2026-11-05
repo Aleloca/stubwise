@@ -13,6 +13,14 @@ const DOCX_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingm
 const MAX_NAME = 120;
 
 /**
+ * Il tetto del processo principale sui byte di un Word (`MAX_SAVE_BYTES` in
+ * `src/main/security.ts`, che qui non si importa; un test controlla che
+ * coincidano). Oltre, il main lo rifiuterebbe sempre: l'esportazione lo dice
+ * prima, senza un «Retry» che fallirebbe uguale.
+ */
+export const MAX_SAVE_BYTES = 25 * 1024 * 1024;
+
+/**
  * Il nome proposto, accorciato perché il processo principale lo accetti
  * (fix round 1, I1): un titolo di pagina non ha tetto. Con «.<formato>» in
  * coda resta entro 120. Si taglia davanti a uno spazio (una parola intera);

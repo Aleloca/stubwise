@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -5,6 +7,7 @@ import { resetApi, setLatency } from "../../../data/api";
 import { state } from "../../../data/store";
 import { setLanguage } from "../../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../../layout/useDetailPanel";
+import { MAX_SAVE_BYTES } from "../../../platform/saveFile";
 import { setMatchMedia } from "../../../test/setup";
 import { renderRoute } from "../../../test/renderRoute";
 import * as docx from "./docx";
@@ -284,6 +287,44 @@ describe("con la finestra di salvataggio (window.stubwise.saveFile)", () => {
     await screen.findByText("Saved the Word file");
     expect(docx.buildDocx).toHaveBeenCalledTimes(2);
     expect(saveFile).toHaveBeenCalledTimes(1);
+  });
+
+  // Revisione finale F3: oltre il tetto del processo principale un «Retry»
+  // fallirebbe sempre uguale. L'avviso dice il perché e cosa fare, senza Retry.
+  it("un Word oltre 25 MB: «over 25 MB … PDF instead», nessun Retry, nessun salvataggio", async () => {
+    withBridge();
+    const big = new Uint8Array(MAX_SAVE_BYTES + 1);
+    big.set([0x50, 0x4b, 0x03, 0x04]);
+    vi.mocked(docx.buildDocx).mockResolvedValueOnce(big);
+    await openPage("Sign-in");
+    await choose("This page", "Word (.docx)");
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent!.toLowerCase()).toContain("over 25 mb");
+    expect(alert.textContent!.toLowerCase()).toContain("pdf");
+    expect(within(alert).queryByRole("button", { name: /retry/i })).toBeNull();
+    expect(saveFile).not.toHaveBeenCalled();
+  });
+
+  it("in italiano: «supera i 25 MB»", async () => {
+    withBridge();
+    act(() => setLanguage("it"));
+    const big = new Uint8Array(MAX_SAVE_BYTES + 1);
+    big.set([0x50, 0x4b, 0x03, 0x04]);
+    vi.mocked(docx.buildDocx).mockResolvedValueOnce(big);
+    renderRoute(`/p/ACQ/docs/product/${codeOf("Sign-in")}`, LAURA);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Esporta/ }));
+    const menu = await screen.findByRole("menu", { name: "Esporta" });
+    await user.click(within(within(menu).getByRole("group", { name: "Questa pagina" })).getByRole("menuitem", { name: "Word (.docx)" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent!.toLowerCase()).toContain("supera i 25 mb");
+    expect(within(alert).queryByRole("button", { name: /riprova/i })).toBeNull();
+  });
+
+  it("il tetto del renderer è quello del processo principale", () => {
+    const main = readFileSync(resolve(__dirname, "../../../../main/security.ts"), "utf8");
+    expect(main).toMatch(/export const MAX_SAVE_BYTES = 25 \* 1024 \* 1024;/);
+    expect(MAX_SAVE_BYTES).toBe(25 * 1024 * 1024);
   });
 
   it("in corso: «Preparing…» spento ma col fuoco; un secondo clic non fa una seconda esportazione", async () => {

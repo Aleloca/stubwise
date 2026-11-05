@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useReadProductExport } from "../../../data/queries";
 import type { ProductExportView } from "../../../data/types";
 import { exportModelOf, type ExportDoc } from "../../../domain/productDocs/exportModel";
-import { fitFileName, saveExport } from "../../../platform/saveFile";
+import { fitFileName, MAX_SAVE_BYTES, saveExport } from "../../../platform/saveFile";
 import { useToast } from "../../../tasks-ui/Toast";
 import { buildDocx, wordLeftOutReasons } from "./docx";
 import { printRoot } from "./PrintView";
@@ -16,7 +16,8 @@ import { printRoot } from "./PrintView";
 // in `#print-root` solo per la durata della chiamata; il Word si costruisce
 // col modello e si passa coi suoi byte. Annullata: nessun avviso. Errore
 // (anche un Word che non si costruisce): «Couldn't export · Retry», e Retry
-// rifà la stessa esportazione.
+// rifà la stessa esportazione. Un Word oltre il tetto del processo
+// principale: l'avviso dice il perché e il PDF, senza Retry (fallirebbe uguale).
 
 export type ExportScope = "page" | "space";
 export type ExportFormat = "pdf" | "docx";
@@ -102,6 +103,10 @@ export function useProductExport({
           }
         } else {
           const data = await buildDocx(doc);
+          if (data.byteLength > MAX_SAVE_BYTES) {
+            toast.error(t("productDocs.export.tooLarge"));
+            return;
+          }
           const result = await saveExport({ format: "docx", name: fitFileName(name, "docx"), data });
           // L'avviso dice il motivo vero di ogni immagine rimasta fuori (formato, o non `data:`), senza ripeterlo.
           const leftOut = wordLeftOutReasons(doc);

@@ -12256,6 +12256,7 @@
       "savedWordLeftOut_other": "File Word salvato. {{count}} immagini sono rimaste fuori ({{reasons}}).",
       "failed": "Esportazione non riuscita",
       "retry": "Riprova",
+      "tooLarge": "Il file Word supera i 25 MB. Esporta in PDF.",
       "fileLine": "File: {{name}} ({{code}})",
       "fileGone": "File: {{code}} (non disponibile)",
       "decisionLine": "Decisione: {{title}}",
