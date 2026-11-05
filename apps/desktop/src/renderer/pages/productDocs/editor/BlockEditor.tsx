@@ -17,20 +17,28 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
   type Ref,
 } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProductBlock, ProductBlockOp, ProductPageView } from "../../../data/types";
-import { isTextBlock } from "../../../domain/productDocs/blocks";
+import { isTextBlock, makeBlockId } from "../../../domain/productDocs/blocks";
 import { setLink, toggleMark } from "../../../domain/productDocs/richText";
 import { BlockBody, ReadOnlyBody, blockLabel, layoutOf, numbersOf, textClassOf } from "./BlockBody";
+import { useProductSpaceContext } from "../parts";
 import { BlockHandle } from "./BlockHandle";
-import { dropAfter } from "./blockOps";
+import { dropAfter, insertCode } from "./blockOps";
 import { BlockShell } from "./BlockShell";
+import { DecisionPicker } from "./DecisionPicker";
+import { DrivePicker } from "./DrivePicker";
+import { ImageRefusalRow } from "./ImageBlock";
+import { PRODUCT_IMAGE_TYPES, filesOf, readImageFile, type ImageRefusal } from "./images";
+import { LinkPicker } from "./LinkPicker";
 import { makeGestures, type Focus, type Slash } from "./gestures";
 import { RichBlockEdit, RichBlockRead } from "./RichBlock";
 import { SelectionBar, linkAt } from "./SelectionBar";
 import { SlashMenu, slashOptionId } from "./SlashMenu";
+import type { Table, TableEditing } from "./TableBlock";
 import type { EditorSession } from "./useEditorSession";
 
 // L'editor a blocchi di una pagina di prodotto (shape product-editor.md):
@@ -44,13 +52,19 @@ import type { EditorSession } from "./useEditorSession";
 // scritture in fila) e, sopra, le bozze dei blocchi in cui si sta scrivendo.
 // Una bozza si salva all'uscita dal blocco, a ogni gesto di struttura
 // (dividere, unire, «/», spostare, rientrare) e dopo 800 ms senza tasti
-// ([PE 15]). I blocchi che il Task 9 disegna (tabella, immagine, file del
-// Drive, decisione) qui sono un segnaposto da leggere (ruling P17).
+// ([PE 15]). I blocchi che non sono testo (Task 9): l'immagine (incollata,
+// scelta con «/image» o trascinata come file sulla colonna, [PE 9]), il file
+// del Drive e la decisione (dai loro selettori), la tabella (si scrive cella
+// per cella, [PE 13]); «/link» mette un codice nel testo ([PE 12]).
 // Il disegno dei blocchi sta in `BlockBody`, i gesti in `gestures`, i
 // blocchi che i gesti scrivono in `blockOps`. Un blocco si trascina per ⋮⋮
 // ([PE 4]): una scrittura sola, un `move`; lasciato dov'era, niente.
 
 const SAVE_AFTER_MS = 800;
+/** Il rifiuto di un'immagine resta 6 s, o fino a «Dismiss» (§3.6). */
+const REFUSAL_MS = 6000;
+
+type PickerKind = "drive" | "decision" | "link";
 
 /** I blocchi non si spostano mentre se ne trascina uno: l'arrivo è una linea ([PS 12]). */
 const stillBlocks = () => null;
@@ -112,6 +126,24 @@ function WritableBody({
     setSlashState(next);
   };
   const [linkOpen, setLinkOpen] = useState(false);
+  const { project } = useProductSpaceContext();
+  /** Un selettore aperto al blocco `id`; `at` è il cursore a cui torna il fuoco. */
+  const [picker, setPickerState] = useState<{ kind: PickerKind; id: string; at: number } | null>(null);
+  const pickerRef = useRef(picker);
+  const setPicker = (next: typeof picker) => {
+    pickerRef.current = next;
+    setPickerState(next);
+  };
+  /** Il rifiuto di un'immagine, sotto il blocco dove sarebbe andata. */
+  const [refusal, setRefusal] = useState<{ anchorId: string; reason: ImageRefusal; n: number } | null>(null);
+  const refusalRow = useRef<HTMLDivElement>(null);
+  /** Il blocco sotto cui cadrebbe un file trascinato. */
+  const [fileDrop, setFileDrop] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  /** Il blocco che l'immagine scelta con «/image» sostituisce. */
+  const imageTarget = useRef<string | null>(null);
+  /** Una tabella nuova: il fuoco nella sua prima cella dopo il disegno. */
+  const pendingCell = useRef<string | null>(null);
   /** Un blocco da selezionare come oggetto dopo il prossimo disegno. */
   const pendingShell = useRef<string | null>(null);
   /** Un gesto che sposta il blocco col fuoco: il blur del DOM non è un'uscita. */
@@ -154,6 +186,16 @@ function WritableBody({
     sessionRef.current.save(ops);
   };
 
+  /** Il blocco intero al posto del suo id: la sua bozza se ne va (è dentro), le altre si salvano prima. */
+  const replaceBlock = (block: ProductBlock) => {
+    if (draftsRef.current.has(block.id)) {
+      const rest = new Map(draftsRef.current);
+      rest.delete(block.id);
+      setDrafts(rest);
+    }
+    structure([{ op: "set", block }]);
+  };
+
   const setDraft = (block: ProductBlock) => {
     const next = new Map(draftsRef.current);
     next.set(block.id, block);
@@ -186,6 +228,11 @@ function WritableBody({
   const order = useRef<string[]>([]);
   useLayoutEffect(() => {
     relocating.current = false;
+    if (pendingCell.current && view.find((b) => b.id === pendingCell.current)?.type === "table") {
+      const cell = shells.current.get(pendingCell.current)?.querySelector<HTMLElement>("[data-table-cell] [role=textbox]");
+      pendingCell.current = null;
+      cell?.focus();
+    }
     if (pendingShell.current) {
       const el = shells.current.get(pendingShell.current);
       pendingShell.current = null;
@@ -241,8 +288,151 @@ function WritableBody({
     relocating,
     pendingShell,
     container,
+    pendingCell,
     blockOf,
     indexOf,
+    replaceBlock,
+    addImages: (files, at) => addImages(files, at),
+    chooseImage: (id) => {
+      imageTarget.current = id;
+      fileInput.current?.click();
+    },
+    openPicker: (kind, id) => setPicker({ kind, id, at: focusRef.current?.id === id ? focusRef.current.start : 0 }),
+  });
+
+  // --- immagini ([PE 9]) --------------------------------------------------------
+
+  /**
+   * Le immagini incollate, scelte o trascinate: dopo un blocco, o al posto
+   * del blocco vuoto di «/image». Un file rifiutato non mette niente e lo
+   * dice sotto quel blocco (il primo rifiuto); gli altri entrano.
+   */
+  const addImages = (files: File[], at: { afterId: string } | { replaceId: string }) => {
+    if (files.length === 0) return;
+    void Promise.all(files.map(readImageFile)).then((results) => {
+      const anchorId = "afterId" in at ? at.afterId : at.replaceId;
+      const refused = results.find((r) => !r.ok);
+      setRefusal(refused && !refused.ok ? { anchorId, reason: refused.reason, n: Date.now() } : null);
+      const images: ProductBlock[] = results.flatMap((r) =>
+        r.ok ? [{ id: makeBlockId(), type: "image" as const, src: r.src, caption: "", alt: r.alt }] : [],
+      );
+      if (images.length === 0) return;
+      if (!blockOf(anchorId)) return;
+      if ("replaceId" in at) {
+        const [first, ...rest] = images;
+        const placed = { ...first!, id: at.replaceId } as ProductBlock;
+        if (draftsRef.current.has(at.replaceId)) {
+          const others = new Map(draftsRef.current);
+          others.delete(at.replaceId);
+          setDrafts(others);
+        }
+        flush();
+        let afterId = at.replaceId;
+        sessionRef.current.save([
+          { op: "set", block: placed },
+          ...rest.map((b) => {
+            const op: ProductBlockOp = { op: "insert", afterId, block: b };
+            afterId = b.id;
+            return op;
+          }),
+        ]);
+        selectShell(at.replaceId);
+        return;
+      }
+      let afterId = at.afterId;
+      structure(
+        images.map((b) => {
+          const op: ProductBlockOp = { op: "insert", afterId, block: b };
+          afterId = b.id;
+          return op;
+        }),
+      );
+    });
+  };
+
+  const dismissRefusal = () => {
+    const r = refusal;
+    const hadFocus = !!refusalRow.current?.contains(document.activeElement);
+    setRefusal(null);
+    // Il bottone che sparisce non lascia il fuoco sul body: torna nel blocco.
+    const anchor = r ? blockOf(r.anchorId) : null;
+    if (hadFocus && anchor) focusBlock(anchor, "end");
+  };
+  const dismissRef = useRef(dismissRefusal);
+  dismissRef.current = dismissRefusal;
+  useEffect(() => {
+    if (!refusal) return;
+    const timer = setTimeout(() => dismissRef.current(), REFUSAL_MS);
+    return () => clearTimeout(timer);
+  }, [refusal]);
+
+  const hasFiles = (e: ReactDragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const dropTarget = (e: ReactDragEvent) =>
+    (e.target as Element).closest?.("[data-block-id]")?.getAttribute("data-block-id") ?? viewRef.current.at(-1)?.id ?? null;
+  const onFileDragOver = (e: ReactDragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    const id = dropTarget(e);
+    if (id !== fileDrop) setFileDrop(id);
+  };
+  const onFileDrop = (e: ReactDragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    const id = dropTarget(e);
+    setFileDrop(null);
+    if (id) addImages(filesOf(e.dataTransfer.files), { afterId: id });
+  };
+
+  // --- i selettori ([PE 10], [PE 11], [PE 12]) -----------------------------------
+
+  /** Esc: il selettore si chiude e il fuoco torna nel blocco, al cursore di prima. */
+  const closePicker = () => {
+    const p = pickerRef.current;
+    setPicker(null);
+    if (p) caret(p.id, p.at);
+  };
+  /** Il fuoco è uscito dal selettore: verso il blocco, resta lì; altrove, si esce anche dal blocco. */
+  const leavePicker = (related: Element | null) => {
+    const p = pickerRef.current;
+    setPicker(null);
+    if (!p || related?.closest?.(`[data-block-text="${p.id}"]`)) return;
+    if (related?.closest?.("[data-editor-floating]")) return;
+    flush();
+    setFocus(null);
+  };
+  const pickObject = (block: ProductBlock) => {
+    setPicker(null);
+    replaceBlock(block);
+    selectShell(block.id);
+  };
+  const pickCode = (code: string) => {
+    const p = pickerRef.current;
+    setPicker(null);
+    const block = p ? blockOf(p.id) : null;
+    if (!p || !block || !isTextBlock(block)) return;
+    const out = insertCode(block.content, p.at, code);
+    setDraft({ ...block, content: out.content } as ProductBlock);
+    caret(p.id, out.caret);
+  };
+
+  /** Ciò che una tabella chiede all'editor ([PE 13]). */
+  const tableEditing = (id: string): TableEditing => ({
+    draft: (table: Table) => setDraft(table),
+    replace: (table: Table) => replaceBlock(table),
+    leave: () => flush(),
+    exit: (dir) => {
+      const at = indexOf(id);
+      const next = viewRef.current[dir === "next" ? at + 1 : at - 1];
+      if (next) focusBlock(next, dir === "next" ? "start" : "end");
+      else selectShell(id);
+    },
+    select: () => selectShell(id),
+    history: (kind) => {
+      flush();
+      if (kind === "undo") sessionRef.current.undo();
+      else sessionRef.current.redo();
+    },
+    touch: () => sessionRef.current.touch(),
   });
 
   // --- il disegno ------------------------------------------------------------
@@ -298,7 +488,7 @@ function WritableBody({
       const next = { slash: slashStyle, bar: barStyle };
       return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
     });
-  }, [focus, openSlash, showBar, linkOpen]);
+  }, [focus, openSlash, showBar, linkOpen, picker]);
 
   // --- trascinare per ⋮⋮ ([PE 4]) ---------------------------------------------
 
@@ -338,7 +528,18 @@ function WritableBody({
   const firstEmptyPage = view.length === 1 && isTextBlock(view[0]!) && view[0]!.content.text === "";
 
   return (
-    <div ref={container} data-editor-body="" aria-label={t("productDocs.editor.body")} role="group" className="relative flex flex-col">
+    <div
+      ref={container}
+      data-editor-body=""
+      aria-label={t("productDocs.editor.body")}
+      role="group"
+      className="relative flex flex-col"
+      onDragOver={onFileDragOver}
+      onDragLeave={(e) => {
+        if (!container.current?.contains(e.relatedTarget as Node | null)) setFileDrop(null);
+      }}
+      onDrop={onFileDrop}
+    >
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -390,6 +591,14 @@ function WritableBody({
             return (
               <BlockShell
                 key={block.id}
+                after={
+                  refusal?.anchorId === block.id ? (
+                    <div ref={refusalRow} key={refusal.n}>
+                      <ImageRefusalRow reason={refusal.reason} onDismiss={dismissRefusal} />
+                    </div>
+                  ) : null
+                }
+                dropNote={fileDrop === block.id ? t("productDocs.blocks.image.drop") : null}
                 id={block.id}
                 label={label}
                 register={(el) => {
@@ -397,13 +606,13 @@ function WritableBody({
                   else shells.current.delete(block.id);
                 }}
                 onKeyDown={shellKey(block)}
-                dropLine={drop && drag?.overId === block.id ? drop.edge : null}
+                dropLine={drop && drag?.overId === block.id ? drop.edge : fileDrop === block.id ? "bottom" : null}
                 style={{ paddingTop: layout.pt, paddingBottom: layout.pb, ["--block-pt" as string]: `${layout.gutterTop}px` }}
               >
-                {(dragListeners) => (
+                {(dragHandle) => (
                   <>
                     <BlockHandle
-                      dragListeners={dragListeners}
+                      drag={dragHandle}
                       label={label}
                       line={layout.line}
                       isText={isTextBlock(block)}
@@ -421,6 +630,11 @@ function WritableBody({
                       number={numbers[i]!}
                       onCheck={(checked) => block.type === "todo" && structure([{ op: "set", block: { ...block, checked } }])}
                       onSelectObject={() => selectShell(block.id)}
+                      onCaption={(caption) => {
+                        const now = blockOf(block.id);
+                        if (now?.type === "image") structure([{ op: "set", block: { ...now, caption } }]);
+                      }}
+                      table={block.type === "table" ? tableEditing(block.id) : undefined}
                     >
                       {text}
                     </BlockBody>
@@ -450,6 +664,51 @@ function WritableBody({
           style={floating.slash}
         />
       )}
+      {picker?.kind === "drive" && (
+        <DrivePicker
+          id={`picker-${page.id}`}
+          project={project}
+          style={floating.slash}
+          onPick={(file) => pickObject({ id: picker.id, type: "drive", fileId: file.id, code: file.code })}
+          onClose={closePicker}
+          onLeave={leavePicker}
+        />
+      )}
+      {picker?.kind === "decision" && (
+        <DecisionPicker
+          id={`picker-${page.id}`}
+          project={project}
+          style={floating.slash}
+          onPick={(decisionId) => pickObject({ id: picker.id, type: "decision", decisionId })}
+          onClose={closePicker}
+          onLeave={leavePicker}
+        />
+      )}
+      {picker?.kind === "link" && (
+        <LinkPicker
+          id={`picker-${page.id}`}
+          style={floating.slash}
+          onPick={pickCode}
+          onClose={closePicker}
+          onLeave={leavePicker}
+        />
+      )}
+      {/* «/image»: la scelta del file del sistema (nessun fuoco, nessun posto nella pagina). */}
+      <input
+        ref={fileInput}
+        type="file"
+        accept={PRODUCT_IMAGE_TYPES.join(",")}
+        aria-label={t("productDocs.blocks.image.choose")}
+        tabIndex={-1}
+        hidden
+        onChange={(e) => {
+          const files = filesOf(e.target.files);
+          const id = imageTarget.current;
+          imageTarget.current = null;
+          e.target.value = "";
+          if (id && files.length > 0) addImages(files.slice(0, 1), { replaceId: id });
+        }}
+      />
       {showBar && focusedText && (
         <SelectionBar
           content={focusedText.content}

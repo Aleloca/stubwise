@@ -121,6 +121,7 @@ export function Capped<T>({
   render,
   label,
   closing,
+  initiallyOpen = false,
 }: {
   items: T[];
   render: (item: T) => ReactNode;
@@ -128,9 +129,11 @@ export function Capped<T>({
   label?: string;
   /** Le voci che si stanno chiudendo: restano per l'animazione ma non contano. */
   closing?: (item: T) => boolean;
+  /** Aperto dall'inizio: la voce da portare in vista sta oltre le prime `BLOCK_CAP`. */
+  initiallyOpen?: boolean;
 }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initiallyOpen);
   let counted = 0;
   const shown = items.filter((item) => {
     if (closing?.(item)) return open || counted < BLOCK_CAP;

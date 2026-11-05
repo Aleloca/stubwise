@@ -25,7 +25,7 @@ export function OverviewPage({ projectCode }: { projectCode: string }) {
   const project = useProject(projectCode).data ?? undefined;
   const pulse = useProjectPulse(project?.id ?? "");
   const body = useRef<HTMLDivElement>(null);
-  const search = useSearch({ strict: false }) as { task?: string; recordDecision?: string };
+  const search = useSearch({ strict: false }) as { task?: string; recordDecision?: string; decision?: string };
   const openTask = useOpenTask();
   const navigate = useNavigate();
   // «Record a decision» dal link di una riga D di Claude (area 10a): `task` è
@@ -82,7 +82,12 @@ export function OverviewPage({ projectCode }: { projectCode: string }) {
             <ProgressSection projectId={project.id} projectCode={project.code} />
             <OpenSection projectId={project.id} projectCode={project.code} />
             <ProjectTimeline projectId={project.id} />
-            <DecisionLog projectId={project.id} fromLink={fromLink} onLinkDone={linkDone} />
+            <DecisionLog
+              projectId={project.id}
+              fromLink={fromLink}
+              onLinkDone={linkDone}
+              focusId={search.decision ?? null}
+            />
           </>
         )}
       </div>

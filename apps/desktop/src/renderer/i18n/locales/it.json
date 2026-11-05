@@ -12013,6 +12013,60 @@
       "instructions": "Trascina una pagina dalla sua maniglia per spostarla; trascinala di lato per cambiarne il livello. Da tastiera, usa il menu Altro della pagina.",
       "moved": "Spostata {{title}}"
     },
+    "blocks": {
+      "image": {
+        "caption": "Aggiungi una didascalia",
+        "captionLabel": "Didascalia",
+        "drop": "Rilascia per aggiungere l'immagine",
+        "too_large": "Questa immagine supera i 5 MB",
+        "unsupported": "Solo immagini PNG, JPEG, GIF e WebP",
+        "dismiss": "Chiudi",
+        "choose": "Scegli un'immagine"
+      },
+      "drive": {
+        "find": "Cerca un file nel Drive di {{code}}",
+        "empty": "Ancora nessun file nel Drive di {{code}}",
+        "noMatch": "Nessun file per «{{q}}»",
+        "open": "Apri",
+        "openLabel": "Apri {{name}}",
+        "gone": "Questo file non è più disponibile",
+        "loading": "Caricamento del file",
+        "failed": "Non è stato possibile caricare il file",
+        "listFailed": "Non è stato possibile caricare i file"
+      },
+      "decision": {
+        "label": "Decisione · dal registro",
+        "decidedBy": "decisa da {{name}} · {{date}}",
+        "decidedOn": "decisa il {{date}}",
+        "open": "Apri nel registro",
+        "hidden": "Una decisione che non puoi vedere",
+        "find": "Cerca una decisione nel registro di {{code}}",
+        "empty": "Ancora nessuna decisione nel registro di {{code}}",
+        "noMatch": "Nessuna decisione per «{{q}}»",
+        "row": "{{name}} · {{date}}",
+        "loading": "Caricamento della decisione",
+        "failed": "Non è stato possibile caricare il registro"
+      },
+      "link": {
+        "find": "Cerca una task, una richiesta, una pagina o un file",
+        "noMatch": "Niente per «{{q}}»",
+        "tasks": "Task",
+        "requests": "Richieste",
+        "pages": "Pagine",
+        "productPages": "Pagine di prodotto",
+        "files": "File"
+      },
+      "table": {
+        "menu": "Menu della tabella",
+        "addRow": "Aggiungi riga",
+        "addColumn": "Aggiungi colonna",
+        "removeRow": "Togli la riga",
+        "removeColumn": "Togli la colonna",
+        "minRow": "Una tabella tiene almeno una riga",
+        "minColumn": "Una tabella tiene almeno una colonna",
+        "cell": "Cella della tabella, riga {{row}}, colonna {{column}}"
+      }
+    },
     "editor": {
       "placeholder": "Scrivi / per i blocchi",
       "body": "Corpo della pagina",

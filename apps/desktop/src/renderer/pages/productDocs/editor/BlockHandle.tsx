@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import type { SlashItemId } from "../../../domain/productDocs/shortcuts";
 import { itemClass } from "../../../tasks-ui/Menu";
 import { MenuButton } from "../../tasks/controls";
-import type { DragHandleListeners } from "./BlockShell";
+import type { DragHandle } from "./BlockShell";
 
 // Il gutter di un blocco (shape product-editor.md §3.3, [PE 4]): 48 px a
 // sinistra della colonna, all'altezza della prima riga, solo per chi
@@ -38,7 +38,7 @@ export function BlockHandle({
   onMove,
   onDuplicate,
   onDelete,
-  dragListeners,
+  drag,
 }: {
   /** Di quale blocco (per il nome dei bottoni). */
   label: string;
@@ -52,8 +52,8 @@ export function BlockHandle({
   onMove: (dir: "up" | "down") => void;
   onDuplicate: () => void;
   onDelete: () => void;
-  /** Gli ascoltatori del trascinamento (dnd-kit): un clic senza movimento resta il menu. */
-  dragListeners?: DragHandleListeners;
+  /** Il trascinamento (dnd-kit), sul solo ⋮⋮: un clic senza movimento resta il menu. */
+  drag?: DragHandle;
 }) {
   const { t } = useTranslation();
   const disabled = (reason: string, text: string) => (
@@ -101,52 +101,51 @@ export function BlockHandle({
           <path d="M8 3.5v9M3.5 8h9" />
         </svg>
       </button>
-      <span {...dragListeners} className="inline-flex shrink-0 cursor-grab active:cursor-grabbing">
-        <MenuButton
-          menuLabel={t("productDocs.editor.handle.menu")}
-          ariaLabel={`${t("productDocs.editor.handle.menu")} · ${label}`}
-          title={t("productDocs.editor.handle.hint")}
-          className={gutterButton}
-          wrapperClassName="inline-flex shrink-0"
-          label={
-            <svg viewBox="0 0 16 16" width={14} height={14} fill="currentColor" aria-hidden="true" focusable="false">
-              <circle cx="6" cy="4" r="1.1" />
-              <circle cx="10" cy="4" r="1.1" />
-              <circle cx="6" cy="8" r="1.1" />
-              <circle cx="10" cy="8" r="1.1" />
-              <circle cx="6" cy="12" r="1.1" />
-              <circle cx="10" cy="12" r="1.1" />
-            </svg>
-          }
-        >
-          {(close) => (
-            <>
-              {isText && (
-                <div role="group" aria-label={t("productDocs.editor.handle.turnInto")} className="flex flex-col">
-                  <span aria-hidden="true" className="heading-group px-2 pt-1.5 pb-1">
-                    {t("productDocs.editor.handle.turnInto")}
+      <MenuButton
+        menuLabel={t("productDocs.editor.handle.menu")}
+        ariaLabel={`${t("productDocs.editor.handle.menu")} · ${label}`}
+        title={t("productDocs.editor.handle.hint")}
+        className={`${gutterButton} cursor-grab active:cursor-grabbing`}
+        wrapperClassName="inline-flex shrink-0"
+        buttonProps={{ ...drag?.listeners, "aria-describedby": drag?.describedBy }}
+        label={
+          <svg viewBox="0 0 16 16" width={14} height={14} fill="currentColor" aria-hidden="true" focusable="false">
+            <circle cx="6" cy="4" r="1.1" />
+            <circle cx="10" cy="4" r="1.1" />
+            <circle cx="6" cy="8" r="1.1" />
+            <circle cx="10" cy="8" r="1.1" />
+            <circle cx="6" cy="12" r="1.1" />
+            <circle cx="10" cy="12" r="1.1" />
+          </svg>
+        }
+      >
+        {(close) => (
+          <>
+            {isText && (
+              <div role="group" aria-label={t("productDocs.editor.handle.turnInto")} className="flex flex-col">
+                <span aria-hidden="true" className="heading-group px-2 pt-1.5 pb-1">
+                  {t("productDocs.editor.handle.turnInto")}
+                </span>
+                {TURN_INTO.map((to) => (
+                  <span key={to} className="contents">
+                    {item(t(`productDocs.editor.slash.${to}`), () => onTurnInto(to), close)}
                   </span>
-                  {TURN_INTO.map((to) => (
-                    <span key={to} className="contents">
-                      {item(t(`productDocs.editor.slash.${to}`), () => onTurnInto(to), close)}
-                    </span>
-                  ))}
-                  <div role="separator" className="my-1 h-px bg-rule" />
-                </div>
-              )}
-              {first
-                ? disabled(t("productDocs.editor.handle.alreadyFirst"), t("productDocs.editor.handle.moveUp"))
-                : item(t("productDocs.editor.handle.moveUp"), () => onMove("up"), close)}
-              {last
-                ? disabled(t("productDocs.editor.handle.alreadyLast"), t("productDocs.editor.handle.moveDown"))
-                : item(t("productDocs.editor.handle.moveDown"), () => onMove("down"), close)}
-              {item(t("productDocs.editor.handle.duplicate"), onDuplicate, close)}
-              <div role="separator" className="my-1 h-px bg-rule" />
-              {item(t("productDocs.editor.handle.delete"), onDelete, close, true)}
-            </>
-          )}
-        </MenuButton>
-      </span>
+                ))}
+                <div role="separator" className="my-1 h-px bg-rule" />
+              </div>
+            )}
+            {first
+              ? disabled(t("productDocs.editor.handle.alreadyFirst"), t("productDocs.editor.handle.moveUp"))
+              : item(t("productDocs.editor.handle.moveUp"), () => onMove("up"), close)}
+            {last
+              ? disabled(t("productDocs.editor.handle.alreadyLast"), t("productDocs.editor.handle.moveDown"))
+              : item(t("productDocs.editor.handle.moveDown"), () => onMove("down"), close)}
+            {item(t("productDocs.editor.handle.duplicate"), onDuplicate, close)}
+            <div role="separator" className="my-1 h-px bg-rule" />
+            {item(t("productDocs.editor.handle.delete"), onDelete, close, true)}
+          </>
+        )}
+      </MenuButton>
     </div>
   );
 }

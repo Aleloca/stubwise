@@ -49,9 +49,9 @@ export const SLASH_ITEMS: readonly SlashItem[] = [
   item("quote", "text", [">"]),
   item("divider", "text", ["hr", "---"]),
   item("table", "insert", []),
-  item("image", "insert", ["png", "jpeg", "gif", "webp"]),
+  item("image", "insert", ["image", "png", "jpeg", "gif", "webp"]),
   item("drive", "insert", []),
-  item("link", "insert", []),
+  item("link", "insert", ["link"]),
   item("decision", "insert", []),
 ];
 

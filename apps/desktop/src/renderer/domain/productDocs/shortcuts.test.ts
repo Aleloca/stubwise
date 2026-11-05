@@ -77,6 +77,12 @@ describe("filterSlashItems", () => {
     expect(filterSlashItems("  TIT ", label("it")).map((i) => i.id)).toEqual(["heading1", "heading2", "heading3"]);
   });
 
+  it("«/image», «/drive», «/link», «/decision» (i nomi dello shape) trovano la loro voce anche in it (Task 9)", () => {
+    for (const id of ["image", "drive", "link", "decision"] as const)
+      for (const lang of ["en", "it"] as const)
+        expect(filterSlashItems(id, label(lang)).map((i) => i.id)).toEqual([id]);
+  });
+
   it("le parole chiave: «h2» trova il titolo 2", () => {
     expect(filterSlashItems("h2", label("en")).map((i) => i.id)).toEqual(["heading2"]);
   });

@@ -7,7 +7,16 @@ import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 // l'origine si sbiadisce e l'arrivo è una linea di 2 px d'inchiostro fra i
 // blocchi, come nell'albero ([PS 12]).
 
-export type DragHandleListeners = ReturnType<typeof useSortable>["listeners"];
+/**
+ * Ciò che va sul SOLO ⋮⋮ (rimandi della review del Task 8): gli ascoltatori
+ * del trascinamento — non sul menu che apre, che non è in un portale e in cui
+ * premere e muoversi avrebbe trascinato il blocco — e la descrizione con le
+ * istruzioni per il lettore di schermo.
+ */
+export interface DragHandle {
+  listeners: ReturnType<typeof useSortable>["listeners"];
+  describedBy: string | undefined;
+}
 
 export function BlockShell({
   id,
@@ -16,6 +25,8 @@ export function BlockShell({
   register,
   onKeyDown,
   dropLine,
+  dropNote = null,
+  after = null,
   children,
 }: {
   id: string;
@@ -25,10 +36,14 @@ export function BlockShell({
   onKeyDown: (e: KeyboardEvent<HTMLDivElement>) => void;
   /** La linea d'arrivo su questo blocco, se il trascinato cade qui. */
   dropLine: "top" | "bottom" | null;
-  /** Il contenuto; riceve gli ascoltatori da mettere su ⋮⋮. */
-  children: (handle: DragHandleListeners) => ReactNode;
+  /** La nota sotto la linea d'arrivo di un file («Drop to add the image»). */
+  dropNote?: string | null;
+  /** Ciò che sta subito sotto il blocco (il rifiuto di un'immagine). */
+  after?: ReactNode;
+  /** Il contenuto; riceve ciò che va su ⋮⋮. */
+  children: (handle: DragHandle) => ReactNode;
 }) {
-  const { setNodeRef, listeners, isDragging } = useSortable({ id });
+  const { setNodeRef, listeners, attributes, isDragging } = useSortable({ id });
   return (
     <div
       ref={(el) => {
@@ -50,7 +65,16 @@ export function BlockShell({
           className={`pointer-events-none absolute right-0 left-0 h-0.5 rounded-full bg-ink ${dropLine === "top" ? "-top-px" : "-bottom-px"}`}
         />
       )}
-      {children(listeners)}
+      {dropNote && (
+        <span
+          aria-live="polite"
+          className="pointer-events-none absolute right-0 -bottom-5 z-10 rounded-sm bg-surface px-1 text-xs text-ink-muted"
+        >
+          {dropNote}
+        </span>
+      )}
+      {children({ listeners, describedBy: attributes["aria-describedby"] })}
+      {after}
     </div>
   );
 }

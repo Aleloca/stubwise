@@ -9,7 +9,7 @@ import {
   type SlashItemId,
 } from "../../../domain/productDocs/shortcuts";
 import type { TextBlock } from "./BlockBody";
-import { READY, cloneWithIds, emptyParagraph, emptyTable, insertRich, typed } from "./blockOps";
+import { cloneWithIds, emptyParagraph, emptyTable, insertRich, typed } from "./blockOps";
 import { editorKey, pasteBlocks } from "./keys";
 import type { RichBlockHandlers, Selection } from "./RichBlock";
 import type { EditorSession } from "./useEditorSession";
@@ -55,8 +55,18 @@ export interface GestureContext {
   relocating: RefObject<boolean>;
   pendingShell: RefObject<string | null>;
   container: RefObject<HTMLDivElement | null>;
+  /** Una tabella nuova: il fuoco nella sua prima cella dopo il disegno. */
+  pendingCell: RefObject<string | null>;
   blockOf: (id: string) => ProductBlock | null;
   indexOf: (id: string) => number;
+  /** Il blocco intero al posto del suo id (la sua bozza se ne va): una scrittura. */
+  replaceBlock: (block: ProductBlock) => void;
+  /** Le immagini incollate, scelte o trascinate (Task 9). */
+  addImages: (files: File[], at: { afterId: string } | { replaceId: string }) => void;
+  /** «/image»: la scelta del file del sistema, per il blocco `id`. */
+  chooseImage: (id: string) => void;
+  /** «/drive», «/decision», «/link»: il selettore al blocco `id`. */
+  openPicker: (kind: "drive" | "decision" | "link", id: string) => void;
 }
 
 export function makeGestures(ctx: GestureContext) {
@@ -81,8 +91,13 @@ export function makeGestures(ctx: GestureContext) {
     relocating,
     pendingShell,
     container,
+    pendingCell,
     blockOf,
     indexOf,
+    replaceBlock,
+    addImages,
+    chooseImage,
+    openPicker,
   } = ctx;
 
   // --- i gesti ----------------------------------------------------------------
@@ -188,7 +203,7 @@ export function makeGestures(ctx: GestureContext) {
     return s.viaPlus ? text : text.slice(1);
   };
   const slashItems = (s: Slash | null): SlashItem[] =>
-    filterSlashItems(slashQuery(s), (key) => t(key)).filter((i) => READY.has(i.id));
+    filterSlashItems(slashQuery(s), (key) => t(key));
 
   const pickSlash = (item: SlashItem) => {
     const s = slashRef.current;
@@ -209,8 +224,21 @@ export function makeGestures(ctx: GestureContext) {
       return;
     }
     if (item.id === "table") {
-      sessionRef.current.save([{ op: "set", block: emptyTable(s.id) }]);
-      selectShell(s.id);
+      replaceBlock(emptyTable(s.id));
+      // Il fuoco nella prima cella (§3.10), dopo il disegno.
+      pendingCell.current = s.id;
+      setFocus(null);
+      return;
+    }
+    if (item.id === "image" || item.id === "drive" || item.id === "decision" || item.id === "link") {
+      // Il «/…» se ne va: il blocco resta vuoto finché non si sceglie (annullare lo lascia così).
+      const block = blockOf(s.id);
+      if (block && isTextBlock(block) && block.content.text !== "") {
+        setDraft({ ...block, content: plain("") } as ProductBlock);
+      }
+      caret(s.id, 0);
+      if (item.id === "image") chooseImage(s.id);
+      else openPicker(item.id, s.id);
       return;
     }
     sessionRef.current.save([{ op: "set", block: typed(s.id, item.id, plain("")) }]);
@@ -378,6 +406,11 @@ export function makeGestures(ctx: GestureContext) {
       const block = blockOf(id);
       if (!block || !isTextBlock(block)) return;
       sessionRef.current.touch();
+      // Un'immagine dagli appunti: un blocco dopo quello col fuoco ([PE 9]).
+      if (clip.files && clip.files.length > 0) {
+        addImages(clip.files, { afterId: id });
+        return;
+      }
       const pasted = pasteBlocks(clip, makeBlockId);
       if (pasted.length === 0) return;
       if (pasted.length === 1) {
@@ -450,6 +483,15 @@ export function makeGestures(ctx: GestureContext) {
     } else if (e.key === "Enter" && isTextBlock(block)) {
       e.preventDefault();
       caret(block.id, block.content.text.length);
+    } else if (e.key === "Enter" && (block.type === "table" || block.type === "image")) {
+      // Invio entra nella prima cella, o nella didascalia.
+      const inner = e.currentTarget.querySelector<HTMLElement>(
+        block.type === "table" ? "[data-table-cell] [role=textbox]" : "figcaption input",
+      );
+      if (inner) {
+        e.preventDefault();
+        inner.focus();
+      }
     } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
       const at = indexOf(block.id);
       const next = viewRef.current[e.key === "ArrowUp" ? at - 1 : at + 1];

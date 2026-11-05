@@ -28,7 +28,8 @@ export interface RichBlockHandlers {
   input(id: string, content: RichText, sel: Selection, inputType: string): void;
   /** Un tasto: `true` se l'editor l'ha preso (si annulla). */
   key(id: string, e: ReactKeyboardEvent<HTMLDivElement>, sel: Selection): boolean;
-  paste(id: string, clip: { html: string | null; text: string }, sel: Selection): void;
+  /** Un incolla: l'HTML, il testo e i file (un'immagine dagli appunti, Task 9). */
+  paste(id: string, clip: { html: string | null; text: string; files?: File[] }, sel: Selection): void;
   /** La selezione nel blocco è cambiata (frecce, mouse). */
   select(id: string, sel: Selection): void;
   /** Il fuoco esce dal blocco, verso `related` (o nessuno). */
@@ -218,7 +219,8 @@ export function RichBlockEdit({
       onPaste={(e) => {
         e.preventDefault();
         const html = e.clipboardData.getData("text/html");
-        handlers.paste(id, { html: html || null, text: e.clipboardData.getData("text/plain") }, current());
+        const files = Array.from((e.clipboardData.files ?? []) as ArrayLike<File>);
+        handlers.paste(id, { html: html || null, text: e.clipboardData.getData("text/plain"), files }, current());
       }}
       onDrop={(e) => e.preventDefault()}
       onCompositionStart={() => {

@@ -12013,6 +12013,60 @@
       "instructions": "Drag a page by its handle to move it; drag sideways to change its level. From the keyboard, use the page's More menu.",
       "moved": "Moved {{title}}"
     },
+    "blocks": {
+      "image": {
+        "caption": "Add a caption",
+        "captionLabel": "Caption",
+        "drop": "Drop to add the image",
+        "too_large": "This image is larger than 5 MB",
+        "unsupported": "Only PNG, JPEG, GIF and WebP images",
+        "dismiss": "Dismiss",
+        "choose": "Choose an image"
+      },
+      "drive": {
+        "find": "Find a file in {{code}}'s Drive",
+        "empty": "No files in {{code}}'s Drive yet",
+        "noMatch": "No files match “{{q}}”",
+        "open": "Open",
+        "openLabel": "Open {{name}}",
+        "gone": "This file is no longer available",
+        "loading": "Loading the file",
+        "failed": "Couldn't load the file",
+        "listFailed": "Couldn't load the files"
+      },
+      "decision": {
+        "label": "Decision · from the register",
+        "decidedBy": "decided by {{name}} · {{date}}",
+        "decidedOn": "decided {{date}}",
+        "open": "Open in the register",
+        "hidden": "A decision you can't see",
+        "find": "Find a decision in {{code}}'s register",
+        "empty": "No decisions in {{code}}'s register yet",
+        "noMatch": "No decisions match “{{q}}”",
+        "row": "{{name}} · {{date}}",
+        "loading": "Loading the decision",
+        "failed": "Couldn't load the register"
+      },
+      "link": {
+        "find": "Find a task, request, page or file",
+        "noMatch": "Nothing matches “{{q}}”",
+        "tasks": "Tasks",
+        "requests": "Requests",
+        "pages": "Pages",
+        "productPages": "Product pages",
+        "files": "Files"
+      },
+      "table": {
+        "menu": "Table menu",
+        "addRow": "Add row",
+        "addColumn": "Add column",
+        "removeRow": "Remove row",
+        "removeColumn": "Remove column",
+        "minRow": "A table keeps at least one row",
+        "minColumn": "A table keeps at least one column",
+        "cell": "Table cell, row {{row}}, column {{column}}"
+      }
+    },
     "editor": {
       "placeholder": "Type / for blocks",
       "body": "Page body",

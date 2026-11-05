@@ -25,6 +25,8 @@ export interface Suggestion {
   path?: boolean;
   /** Il codice su una riga, il nome sotto (i comandi: «/nome» e la descrizione). */
   stacked?: boolean;
+  /** Una pagina dello spazio Prodotto (area 11a): «Link to…» la mette nel suo gruppo. */
+  space?: "product";
 }
 
 export interface SuggestionGroup {
@@ -88,6 +90,7 @@ export function useMentionSuggestions(
         ref: r.ref,
         projectId: r.projectId,
         path: kind === "file",
+        space: r.space,
       })),
   })).filter((g) => g.items.length > 0);
   return { groups, loading: query.isPending && enabled };

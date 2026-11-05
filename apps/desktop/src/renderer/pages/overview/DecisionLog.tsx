@@ -14,7 +14,7 @@ import { formatDate } from "../../notifications/time";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
-import { BlockSection, Capped, queryState, useOpenTask } from "../home/blocks/BlockSection";
+import { BLOCK_CAP, BlockSection, Capped, queryState, useOpenTask } from "../home/blocks/BlockSection";
 import { MoreIcon, ghostButton } from "../task/parts";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
 
@@ -36,10 +36,17 @@ export function DecisionLog({
   projectId,
   fromLink = null,
   onLinkDone,
+  focusId = null,
 }: {
   projectId: string;
   fromLink?: { taskCode: string | null } | null;
   onLinkDone?: () => void;
+  /**
+   * La riga da portare in vista e col fuoco (area 11a: «Open in the
+   * register» di un blocco decisione). Una riga che non c'è (o che chi
+   * guarda non vede) non fa niente.
+   */
+  focusId?: string | null;
 }) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
@@ -69,6 +76,16 @@ export function DecisionLog({
   const linkTaskId =
     (fromLink?.taskCode && tasks.data?.find((x) => x.code === fromLink.taskCode)?.id) || null;
   const byId = new Map(entries.map((d) => [d.id, d]));
+  const focusAt = focusId ? entries.findIndex((d) => d.id === focusId) : -1;
+  const focused = useRef<string | null>(null);
+  useEffect(() => {
+    if (focusAt < 0 || focused.current === focusId) return;
+    const row = document.querySelector<HTMLElement>(`[data-decision="${CSS.escape(focusId!)}"]`);
+    if (!row) return;
+    focused.current = focusId;
+    row.scrollIntoView?.({ block: "center" });
+    row.focus();
+  });
 
   const state = queryState([log, tasks, people], {
     when: entries.length === 0,
@@ -95,6 +112,8 @@ export function DecisionLog({
         }
       >
         <Capped
+          key={focusAt >= BLOCK_CAP ? "open" : "capped"}
+          initiallyOpen={focusAt >= BLOCK_CAP}
           items={entries}
           label={t("overview.decisions.title")}
           render={(d) => (
@@ -105,6 +124,7 @@ export function DecisionLog({
               task={tasks.data?.find((x) => x.id === d.taskId)}
               who={people.data?.find((p) => p.id === d.decidedById)?.name}
               entries={canRecord ? entries : undefined}
+              focusable={d.id === focusId}
             />
           )}
         />
@@ -133,6 +153,7 @@ function DecisionRow({
   task,
   who,
   entries,
+  focusable = false,
 }: {
   entry: DecisionLogEntry;
   supersededBy: DecisionLogEntry | undefined;
@@ -140,6 +161,8 @@ function DecisionRow({
   who: string | undefined;
   /** Il registro del progetto, solo per chi ha `decisions.record`: apre il menu della voce. */
   entries?: DecisionLogEntry[];
+  /** La riga citata da un blocco decisione: prende il fuoco all'arrivo (anello di fuoco). */
+  focusable?: boolean;
 }) {
   const { t, i18n } = useTranslation();
   const openTask = useOpenTask();
@@ -148,7 +171,8 @@ function DecisionRow({
     <li
       data-decision={entry.id}
       data-superseded={superseded ? "true" : undefined}
-      className="relative flex flex-col gap-1 border-b border-rule py-3 pr-3 pl-4"
+      tabIndex={focusable ? -1 : undefined}
+      className="relative flex flex-col gap-1 border-b border-rule py-3 pr-3 pl-4 focus:outline-2 focus:-outline-offset-2 focus:outline-focus focus:outline-solid"
     >
       <div
         className={`flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1 ${entries ? "pr-9" : ""}`}

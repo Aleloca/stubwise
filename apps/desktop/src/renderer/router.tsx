@@ -119,6 +119,11 @@ export interface AppSearch {
    * link di una riga D di Claude); con `task` la task scelta, testo vuoto.
    */
   recordDecision?: string;
+  /**
+   * La riga del registro decisioni da portare in vista nell'Overview (l'id):
+   * «Open in the register» di un blocco decisione (area 11a).
+   */
+  decision?: string;
   view?: string;
   group?: string;
   /** Criteri di una pagina di task (oggetto JSON nell'indirizzo). */
@@ -241,6 +246,7 @@ const SEARCH_KEYS = [
   "refine",
   "brief",
   "recordDecision",
+  "decision",
   "view",
   "group",
   "scope",
@@ -324,7 +330,8 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
       key === "pr" ||
       key === "widget" ||
       key === "check" ||
-      key === "comment"
+      key === "comment" ||
+      key === "decision"
         ? /^[\w-]+$/.test(value)
         : key === "range"
           ? /^(1h|24h|7d|30d|90d|month|custom)$/.test(value)

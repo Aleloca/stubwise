@@ -2,14 +2,18 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProductBlock, ProductPageView, RichText } from "../../../data/types";
 import { isTextBlock } from "../../../domain/productDocs/blocks";
+import { useProductSpaceContext } from "../parts";
+import { DecisionBlock } from "./DecisionBlock";
+import { DriveBlock } from "./DriveBlock";
+import { ImageBlock } from "./ImageBlock";
 import { RichReadOnly } from "./RichBlock";
+import { TableBlock, type TableEditing } from "./TableBlock";
 
 // Il disegno dei blocchi, comune a chi legge e a chi scrive (shape
 // product-editor.md §3.2): spazi, tipografia, il nome accessibile, ciò che
 // sta intorno al testo (titolo, segno d'elenco, casella, citazione) e i
-// segnaposti dei blocchi che il Task 9 disegnerà. Più la pagina per chi
-// legge soltanto: nessun `contenteditable`, i blocchi vuoti non occupano
-// spazio.
+// blocchi che non sono testo (Task 9). Più la pagina per chi legge
+// soltanto: nessun `contenteditable`, i blocchi vuoti non occupano spazio.
 
 export type TextBlock = Extract<ProductBlock, { content: RichText }>;
 
@@ -120,7 +124,7 @@ export function blockLabel(block: ProductBlock, t: (key: string, opts?: Record<s
 /**
  * Ciò che sta intorno al testo di un blocco: il titolo (h2–h4), il segno
  * dell'elenco, la casella, il filetto della citazione; e i blocchi che non
- * sono testo, finché il Task 9 non li disegna (un segnaposto da leggere).
+ * sono testo (Task 9): immagine, file del Drive, decisione, tabella.
  */
 export function BlockBody({
   block,
@@ -128,6 +132,8 @@ export function BlockBody({
   number,
   onCheck,
   onSelectObject,
+  onCaption,
+  table,
   children,
 }: {
   block: ProductBlock;
@@ -135,9 +141,14 @@ export function BlockBody({
   number: number;
   onCheck?: (checked: boolean) => void;
   onSelectObject?: () => void;
+  /** Chi scrive: la didascalia nuova di un'immagine. */
+  onCaption?: (caption: string) => void;
+  /** Chi scrive: la tabella si scrive cella per cella. */
+  table?: TableEditing;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
+  const { project } = useProductSpaceContext();
   switch (block.type) {
     case "heading": {
       const Tag = (["h2", "h3", "h4"] as const)[block.level - 1]!;
@@ -177,53 +188,15 @@ export function BlockBody({
       );
     case "divider":
       return <hr className="border-rule" onMouseDown={onSelectObject} />;
-    default:
-      return <Placeholder block={block} page={page} onSelect={onSelectObject} />;
-  }
-}
-
-/** Un blocco che il Task 9 disegnerà: una riga tenue da leggere (ruling P17). */
-function Placeholder({
-  block,
-  page,
-  onSelect,
-}: {
-  block: Exclude<ProductBlock, { content: RichText }>;
-  page: ProductPageView;
-  onSelect?: () => void;
-}) {
-  const { t } = useTranslation();
-  let text: string;
-  switch (block.type) {
-    case "table":
-      text = t("productDocs.space.blockTable");
-      break;
     case "image":
-      text = block.caption || t("productDocs.space.blockImage");
-      break;
+      return <ImageBlock block={block} onCaption={onCaption} onSelect={onSelectObject} />;
     case "drive":
-      text = t("productDocs.space.blockDrive", { code: block.code });
-      break;
-    case "decision": {
-      // Una decisione che chi legge non vede non dice titolo né data (R-G5).
-      const d = page.decisions[block.decisionId];
-      text = d ? d.title : t("productDocs.space.blockDecision");
-      break;
-    }
-    default:
-      text = "";
+      return <DriveBlock block={block} onSelect={onSelectObject} />;
+    case "decision":
+      return (
+        <DecisionBlock block={block} decisions={page.decisions} projectCode={project.code} onSelect={onSelectObject} />
+      );
+    case "table":
+      return <TableBlock block={block} editing={table} />;
   }
-  return (
-    <p
-      data-block-placeholder={block.type}
-      onMouseDown={(e) => {
-        if (!onSelect) return;
-        e.preventDefault();
-        onSelect();
-      }}
-      className="rounded-lg border border-dashed border-rule px-3 py-2 text-sm text-ink-muted"
-    >
-      {text}
-    </p>
-  );
 }

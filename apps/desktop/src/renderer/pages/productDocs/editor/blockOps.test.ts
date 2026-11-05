@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { dropAfter } from "./blockOps";
+import type { ProductBlock } from "../../../data/types";
+import { plain } from "../../../domain/productDocs/richText";
+import { dropAfter, insertCode, tableAdd, tableRemove } from "./blockOps";
 
 // Dove cade un blocco trascinato per ⋮⋮ (shape [PE 4]): il blocco prima di
 // cui va (`afterId`), o `null` se torna dov'era (nessuna scrittura).
@@ -21,5 +23,66 @@ describe("dropAfter", () => {
     expect(dropAfter(IDS, "b", "b")).toBeNull();
     expect(dropAfter(IDS, "b", "z")).toBeNull();
     expect(dropAfter(IDS, "z", "b")).toBeNull();
+  });
+});
+
+// La tabella (shape §3.10, [PE 13]): righe e colonne, ogni cella nuova col
+// suo id; una tabella tiene almeno una riga e una colonna.
+
+type Table = Extract<ProductBlock, { type: "table" }>;
+const table: Table = {
+  id: "t",
+  type: "table",
+  rows: [
+    { id: "r1", cells: [{ id: "c1a", content: plain("A") }, { id: "c1b", content: plain("B") }] },
+    { id: "r2", cells: [{ id: "c2a", content: plain("C") }, { id: "c2b", content: plain("D") }] },
+  ],
+};
+const idsOf = (t: Table) => t.rows.flatMap((r) => [r.id, ...r.cells.map((c) => c.id)]);
+const texts = (t: Table) => t.rows.map((r) => r.cells.map((c) => c.content.text));
+
+describe("tableAdd / tableRemove", () => {
+  it("una riga dopo quella della cella, vuota, con id nuovi e diversi", () => {
+    const out = tableAdd(table, "row", 0);
+    expect(texts(out)).toEqual([["A", "B"], ["", ""], ["C", "D"]]);
+    const ids = idsOf(out);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.filter((id) => !idsOf(table).includes(id))).toHaveLength(3);
+  });
+
+  it("una colonna dopo quella della cella, in ogni riga", () => {
+    const out = tableAdd(table, "column", 0);
+    expect(texts(out)).toEqual([["A", "", "B"], ["C", "", "D"]]);
+    const ids = idsOf(out);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("togliere una riga o una colonna; l'ultima resta (null)", () => {
+    expect(texts(tableRemove(table, "row", 1)!)).toEqual([["A", "B"]]);
+    expect(texts(tableRemove(table, "column", 0)!)).toEqual([["B"], ["D"]]);
+    expect(tableRemove(tableRemove(table, "row", 0)!, "row", 0)).toBeNull();
+    expect(tableRemove(tableRemove(table, "column", 0)!, "column", 0)).toBeNull();
+  });
+
+  it("non cambia la tabella di partenza", () => {
+    tableAdd(table, "row", 1);
+    tableRemove(table, "column", 1);
+    expect(texts(table)).toEqual([["A", "B"], ["C", "D"]]);
+  });
+});
+
+// «Link to…» ([PE 12]): il codice entra al cursore come parola a sé, così il
+// testo lo riconosce come codice.
+describe("insertCode", () => {
+  it("in un blocco vuoto: il solo codice, cursore dopo", () => {
+    expect(insertCode(plain(""), 0, "ACQ-1")).toEqual({ content: plain("ACQ-1"), caret: 5 });
+  });
+  it("attaccato a una parola: uno spazio prima e dopo", () => {
+    const out = insertCode(plain("seeACQ"), 3, "ACQ-1");
+    expect(out.content.text).toBe("see ACQ-1 ACQ");
+    expect(out.caret).toBe(9);
+  });
+  it("dopo uno spazio: niente spazi in più", () => {
+    expect(insertCode(plain("see "), 4, "ACQ-7").content.text).toBe("see ACQ-7");
   });
 });

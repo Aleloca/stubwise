@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Chevron, Menu } from "../../tasks-ui/Menu";
 
 // Controlli comuni della pagina Tasks: i bottoni della barra dei comandi e
@@ -38,6 +38,7 @@ export function MenuButton({
   ariaLabel,
   wrapperClassName = "inline-flex min-w-0",
   disabled = false,
+  buttonProps,
   children,
 }: {
   /** Il contenuto del bottone (ne è anche il nome, se `ariaLabel` manca). */
@@ -52,6 +53,12 @@ export function MenuButton({
   /** Il contenitore del bottone e del menu (di base si stringe sul contenuto). */
   wrapperClassName?: string;
   disabled?: boolean;
+  /**
+   * Attributi in più per il SOLO bottone (non per il menu che apre): gli
+   * ascoltatori di un trascinamento, la sua descrizione. Quelli del
+   * componente vincono.
+   */
+  buttonProps?: ButtonHTMLAttributes<HTMLButtonElement>;
   children: (close: () => void) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -63,6 +70,7 @@ export function MenuButton({
   return (
     <span className={`relative ${wrapperClassName}`}>
       <button
+        {...buttonProps}
         ref={button}
         type="button"
         aria-haspopup="menu"

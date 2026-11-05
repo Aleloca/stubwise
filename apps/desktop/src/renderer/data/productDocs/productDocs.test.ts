@@ -420,6 +420,30 @@ describe("i blocchi", () => {
     );
   });
 
+  it("un'immagine è solo un data:image PNG, JPEG, GIF o WebP fino a 5 MB: altrimenti invalid: image (Task 9)", async () => {
+    const { payments } = await featuresAndPayments();
+    const id = payments.blocks[0]!.id;
+    const image = (src: string): ProductBlock => ({ id: "b-img", type: "image", src, caption: "", alt: "" });
+    const bad = [
+      "https://example.com/a.png",
+      "file:///tmp/a.png",
+      "data:image/svg+xml;base64,PHN2Zy8+",
+      "data:text/html;base64,PGgxPg==",
+      `data:image/png;base64,${"A".repeat(Math.ceil((5 * 1024 * 1024 * 4) / 3) + 8)}`,
+    ];
+    for (const src of bad)
+      expect(() =>
+        productDocs.writeProductBlocksAs(LAURA, payments.id, [{ op: "insert", afterId: id, block: image(src) }], {}),
+      ).toThrow("invalid: image");
+    const page = productDocs.writeProductBlocksAs(
+      LAURA,
+      payments.id,
+      [{ op: "insert", afterId: id, block: image("data:image/png;base64,iVBORw0KGgo=") }],
+      {},
+    );
+    expect(page.blocks.some((b) => b.id === "b-img")).toBe(true);
+  });
+
   it("un merge chiama gli spostamenti d'ancora registrati, dentro la stessa scrittura", async () => {
     const { payments } = await featuresAndPayments();
     const first = payments.blocks[0]!.id;

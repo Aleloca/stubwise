@@ -334,8 +334,9 @@ describe("la tastiera", () => {
     expect(table.rows.every((r) => r.cells.length === 2 && r.cells.every((c) => c.content.text === ""))).toBe(true);
     const ids = table.rows.flatMap((r) => [r.id, ...r.cells.map((c) => c.id)]);
     expect(new Set(ids).size).toBe(6);
-    // Il segnaposto della tabella prende il fuoco come oggetto (mai il body).
-    await waitFor(() => expect(document.activeElement).toHaveAttribute("data-block-id", LOGIN_ID));
+    // Il fuoco va nella prima cella (shape §3.10, Task 9), mai sul body.
+    await waitFor(() => expect(document.activeElement).toHaveAccessibleName("Table cell, row 1, column 1"));
+    expect(document.activeElement?.closest("[data-block-id]")).toHaveAttribute("data-block-id", LOGIN_ID);
   });
 
   it("«/» poi Esc: il menu si chiude e «/» resta nel blocco; nessun blocco per «xyz» lo dice", async () => {

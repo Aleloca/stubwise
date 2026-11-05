@@ -236,6 +236,18 @@ const validRich = (rt: RichText): boolean =>
   Array.isArray(rt.marks) &&
   rt.marks.every((m) => validMark(m, rt.text.length));
 
+/**
+ * L'immagine di un blocco (Task 9, shape product-editor.md §9): sempre un
+ * `data:` URL in base64 di PNG, JPEG, GIF o WebP (niente SVG, niente
+ * indirizzi da caricare), di al più 5 MB — la misura del file, in base64.
+ */
+const IMAGE_SRC = /^data:image\/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/]*={0,2}$/;
+const IMAGE_MAX_BASE64 = Math.ceil((5 * 1024 * 1024) / 3) * 4;
+const validImageSrc = (src: string): boolean =>
+  typeof src === "string" &&
+  src.length - src.indexOf(",") - 1 <= IMAGE_MAX_BASE64 &&
+  IMAGE_SRC.test(src);
+
 /** Le frasi di un blocco: la sua, o quelle delle celle. */
 const richOf = (block: ProductBlock): RichText[] =>
   block.type === "table"
@@ -291,8 +303,10 @@ export function writeProductBlocksAs(
     if (fresh.some((id) => state.productBlockIds.has(id) && !restorable(id))) throw invalid("block_id_taken");
   }
   const { blocks, changes } = applyBlockOps(page.blocks, ops);
-  for (const change of changes)
+  for (const change of changes) {
     if (change.after && !richOf(change.after).every(validRich)) throw invalid("marks");
+    if (change.after?.type === "image" && !validImageSrc(change.after.src)) throw invalid("image");
+  }
   if (JSON.stringify(blocks) === JSON.stringify(page.blocks)) return { ...copy(page), revisionId: null };
 
   page.blocks = blocks;
