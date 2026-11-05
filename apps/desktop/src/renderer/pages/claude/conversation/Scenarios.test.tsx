@@ -1112,4 +1112,70 @@ describe("i file della conversazione non decidono permessi", () => {
   });
 });
 
+// Revisione finale F11 (rimando del Task 1): la regola unica dei codici
+// (`CODE_TOKEN_RE`) ha aggiunto `-S`, quindi un codice di una conversazione
+// di supporto nel testo di Claude diventa un `CodeLink` — apribile per chi
+// la vede, il solo codice tenue per chi no.
+describe("i codici di supporto (-S) nelle righe di Claude", () => {
+  const events = (proposalId: string): EventDraft[] => [
+    { type: "aside", kind: "hypothesis", text: "It started with ACQ-S2 last week" },
+    {
+      type: "proposal",
+      proposalId,
+      requesterId: ROBERTA,
+      actions: [
+        {
+          fn: "archiveProject",
+          args: { projectId: "prj-mkx" },
+          summary: "Archive MKX",
+          summaryText: { key: "claude.answers.archive.summary", params: { code: "MKX", name: "MKX" } },
+          why: { key: "claude.answers.archive.why", params: { date: "2026-07-24" } },
+        },
+      ],
+      status: "open",
+      cls: "B",
+      reasons: [],
+      notes: [
+        {
+          kind: "busy",
+          code: "ACQ",
+          reasons: [{ kind: "claude_session", code: "ACQ-S2", waiting: false } as never],
+        },
+      ],
+    },
+  ];
+  const linkIn = (root: Element) => root.querySelector("[data-code-link]");
+
+  it("chi vede la conversazione: «ACQ-S2» apre il supporto, nell'ipotesi e nella riga a parte", async () => {
+    await injected(ROBERTA, events("prop-s-1"));
+    const hypothesis = await waitFor(() => {
+      const el = document.querySelector("[data-aside='hypothesis']");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    await waitFor(() => expect(linkIn(hypothesis)?.getAttribute("data-code-link")).toBe("open"));
+    expect(linkIn(hypothesis)).toHaveAttribute("href", "#/p/ACQ/support/ACQ-S2");
+    const notes = await screen.findByRole("list", { name: "Left out" });
+    const [busy] = within(notes).getAllByRole("listitem");
+    await waitFor(() => expect(linkIn(busy!)?.getAttribute("data-code-link")).toBe("open"));
+    expect(linkIn(busy!)).toHaveTextContent("ACQ-S2");
+  });
+
+  it("chi non la vede: il solo codice tenue, che non si apre", async () => {
+    await injected("p-giulia", events("prop-s-2"));
+    const hypothesis = await waitFor(() => {
+      const el = document.querySelector("[data-aside='hypothesis']");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(linkIn(hypothesis)).toHaveAttribute("data-code-link", "hidden");
+    expect(hypothesis.querySelector("a")).toBeNull();
+    const notes = await screen.findByRole("list", { name: "Left out" });
+    const [busy] = within(notes).getAllByRole("listitem");
+    expect(linkIn(busy!)).toHaveAttribute("data-code-link", "hidden");
+    expect(linkIn(busy!)).toHaveTextContent("ACQ-S2");
+    expect([...busy!.querySelectorAll("a")].some((a) => a.textContent?.includes("ACQ-S2"))).toBe(false);
+  });
+});
+
 void act;
