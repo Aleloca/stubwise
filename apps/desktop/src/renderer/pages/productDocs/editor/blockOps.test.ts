@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProductBlock } from "../../../data/types";
 import { plain } from "../../../domain/productDocs/richText";
-import { dropAfter, floatingPlacement, insertCode, tableAdd, tableRemove } from "./blockOps";
+import { SLASH_MAX, dropAfter, floatingPlacement, insertCode, tableAdd, tableRemove } from "./blockOps";
 
 // Dove cade un blocco trascinato per ⋮⋮ (shape [PE 4]): il blocco prima di
 // cui va (`afterId`), o `null` se torna dov'era (nessuna scrittura).
@@ -107,5 +107,15 @@ describe("floatingPlacement", () => {
     expect(
       floatingPlacement({ blockTop: 300, blockBottom: 600, viewTop: 40, viewBottom: 680, windowHeight: 680 }),
     ).toEqual({ placement: "above", maxHeight: 300 - 40 - 16 });
+  });
+  // Impeccable 5: il menu «/» mostra tutte le sue voci quando c'è posto (14
+  // righe a 900 di altezza), e scorre solo se la finestra è davvero bassa.
+  it("col tetto del menu «/» (560): tutto il posto che c'è fino a 560", () => {
+    expect(
+      floatingPlacement({ blockTop: 100, blockBottom: 120, viewTop: 40, viewBottom: 900, windowHeight: 900 }, SLASH_MAX),
+    ).toEqual({ placement: "below", maxHeight: 560 });
+    expect(
+      floatingPlacement({ blockTop: 300, blockBottom: 320, viewTop: 40, viewBottom: 680, windowHeight: 680 }, SLASH_MAX),
+    ).toEqual({ placement: "below", maxHeight: 680 - 320 - 16 });
   });
 });

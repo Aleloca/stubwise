@@ -32,7 +32,7 @@ import { LiveNoteRegion, RemoteBlockNote } from "../live/RemoteBlockNote";
 import { RemoteCursors } from "../live/RemoteCursor";
 import { useSendPresence } from "../live/useSendPresence";
 import { BlockHandle } from "./BlockHandle";
-import { dropAfter, floatingPlacement, insertCode } from "./blockOps";
+import { FLOATING_MAX, SLASH_MAX, dropAfter, floatingPlacement, insertCode } from "./blockOps";
 import { BlockShell } from "./BlockShell";
 import { DecisionPicker } from "./DecisionPicker";
 import { DrivePicker } from "./DrivePicker";
@@ -530,13 +530,17 @@ function WritableBody({
       // Lo spazio visibile è quello della colonna che scorre (sotto la barra).
       const r = shell.getBoundingClientRect();
       const view = shell.closest(".overflow-y-auto")?.getBoundingClientRect();
-      const place = floatingPlacement({
-        blockTop: r.top,
-        blockBottom: r.bottom,
-        viewTop: view?.top ?? 0,
-        viewBottom: view?.bottom ?? window.innerHeight,
-        windowHeight: window.innerHeight,
-      });
+      const place = floatingPlacement(
+        {
+          blockTop: r.top,
+          blockBottom: r.bottom,
+          viewTop: view?.top ?? 0,
+          viewBottom: view?.bottom ?? window.innerHeight,
+          windowHeight: window.innerHeight,
+        },
+        // Il menu «/» mostra le sue voci intere; i selettori restano a 320.
+        openSlash ? SLASH_MAX : FLOATING_MAX,
+      );
       slashStyle =
         place.placement === "above"
           ? { top: shell.offsetTop, left: 0, transform: "translateY(-100%)", maxHeight: place.maxHeight }
@@ -545,10 +549,13 @@ function WritableBody({
     setFloating((prev) => {
       // La barra resta dov'è quando il fuoco va nel campo del link (la
       // selezione allora non è più nel blocco): si misura solo lì dentro.
+      // Col campo del link aperto la barra resta ferma dov'era (Impeccable 4):
+      // ancorata dal basso 8 px sopra la selezione, il campo cresce verso l'alto.
       let barStyle = prev.bar;
       const sel = document.getSelection();
       const editingEl = container.current?.querySelector("[data-editing]");
-      if (sel && sel.rangeCount > 0 && editingEl?.contains(sel.getRangeAt(0).startContainer)) {
+      const measure = !linkOpen || prev.bar.top === undefined;
+      if (measure && sel && sel.rangeCount > 0 && editingEl?.contains(sel.getRangeAt(0).startContainer)) {
         const rect = sel.getRangeAt(0).getBoundingClientRect();
         // 8 px sopra la selezione, ancorata dal basso: il campo del link (e il
         // suo rifiuto) crescono verso l'alto, senza coprire la riga.
@@ -562,6 +569,17 @@ function WritableBody({
       return JSON.stringify(prev) === JSON.stringify(next) ? prev : next;
     });
   }, [focus, openSlash, showBar, linkOpen, picker]);
+
+  // La barra (e il campo del link, più largo) non esce dal bordo destro della
+  // colonna di lettura: a 1440 non entra nella colonna dei commenti (Impeccable 4).
+  const barRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    const box = container.current;
+    if (!bar || !box || box.clientWidth === 0 || typeof floating.bar.left !== "number") return;
+    const max = Math.max(0, box.clientWidth - bar.offsetWidth);
+    bar.style.left = `${Math.min(floating.bar.left, max)}px`;
+  });
 
   // --- trascinare per ⋮⋮ ([PE 4]) ---------------------------------------------
 
@@ -832,6 +850,7 @@ function WritableBody({
       <LiveNoteRegion people={focus ? writersIn(others, focus.id) : []} />
       {showBar && focusedText && (
         <SelectionBar
+          ref={barRef}
           content={focusedText.content}
           start={barStart}
           end={barEnd}

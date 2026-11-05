@@ -70,7 +70,7 @@ export const SelectionBar = forwardRef<
       ref={ref}
       data-editor-floating=""
       style={style}
-      className="menu-enter absolute z-30 rounded-lg border border-rule-strong bg-surface shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
+      className="menu-enter absolute z-[46] rounded-lg border border-rule-strong bg-surface shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
     >
       {linkOpen ? (
         <LinkField

@@ -113,25 +113,34 @@ export function insertCode(rt: RichText, at: number, code: string): { content: R
   return { content: insertRich(rt, at, plain(piece)), caret: at + before.length + code.length };
 }
 
-/** L'altezza massima del menu «/» e dei selettori, e lo spazio che tengono dai bordi visibili. */
-const FLOATING_MAX = 320;
+/** L'altezza massima dei selettori, e lo spazio che tengono dai bordi visibili. */
+export const FLOATING_MAX = 320;
+/**
+ * Il menu «/»: le sue 14 voci in due gruppi stanno intere a 900 di altezza
+ * (Impeccable 5: con 320 il gruppo INSERT restava nascosto senza un segno).
+ */
+export const SLASH_MAX = 560;
 const FLOATING_MARGIN = 16;
 
 /**
  * Dove sta un menu del blocco (fix round 1, punto 11): sotto il blocco, alto
- * al più 320 e a 16 px dal fondo visibile (la colonna o la finestra, quello
- * più in alto); sopra se sotto non ci sta tutto e sopra c'è più posto.
+ * al più `max` (320; il menu «/» 560) e a 16 px dal fondo visibile (la
+ * colonna o la finestra, quello più in alto); sopra se sotto non ci sta
+ * tutto e sopra c'è più posto.
  */
-export function floatingPlacement(box: {
-  blockTop: number;
-  blockBottom: number;
-  viewTop: number;
-  viewBottom: number;
-  windowHeight: number;
-}): { placement: "below" | "above"; maxHeight: number } {
+export function floatingPlacement(
+  box: {
+    blockTop: number;
+    blockBottom: number;
+    viewTop: number;
+    viewBottom: number;
+    windowHeight: number;
+  },
+  max = FLOATING_MAX,
+): { placement: "below" | "above"; maxHeight: number } {
   const bottom = Math.min(box.viewBottom, box.windowHeight);
   const below = bottom - box.blockBottom - FLOATING_MARGIN;
   const above = box.blockTop - box.viewTop - FLOATING_MARGIN;
-  if (below < FLOATING_MAX && above > below) return { placement: "above", maxHeight: Math.min(FLOATING_MAX, above) };
-  return { placement: "below", maxHeight: Math.max(0, Math.min(FLOATING_MAX, below)) };
+  if (below < max && above > below) return { placement: "above", maxHeight: Math.min(max, above) };
+  return { placement: "below", maxHeight: Math.max(0, Math.min(max, below)) };
 }

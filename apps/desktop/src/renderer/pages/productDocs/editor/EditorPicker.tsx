@@ -92,7 +92,7 @@ export function EditorPicker({
         if (next && e.currentTarget.contains(next)) return;
         onLeave(next);
       }}
-      className="menu-enter absolute z-30 flex max-h-80 w-[400px] max-w-full flex-col overflow-hidden rounded-lg border border-rule-strong bg-surface shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
+      className="menu-enter absolute z-[46] flex max-h-80 w-[400px] max-w-full flex-col overflow-hidden rounded-lg border border-rule-strong bg-surface shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
     >
       <div className="relative flex shrink-0 items-center border-b border-rule p-1.5">
         <span className="pointer-events-none absolute left-4 text-ink-faint">

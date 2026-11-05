@@ -55,7 +55,7 @@ export function SlashMenu({
       aria-label={t("productDocs.editor.slash.label")}
       data-editor-floating=""
       style={style}
-      className="menu-enter absolute z-30 flex max-h-80 w-[300px] flex-col overflow-y-auto rounded-lg border border-rule-strong bg-surface p-1.5 shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
+      className="menu-enter absolute z-[46] flex max-h-[560px] w-[300px] flex-col overflow-y-auto rounded-lg border border-rule-strong bg-surface p-1.5 shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
     >
       {groups.length === 0 && (
         <p className="px-2 py-1.5 text-sm text-ink-muted">{t("productDocs.editor.slash.empty", { q: query })}</p>
