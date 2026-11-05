@@ -185,6 +185,192 @@ async function main() {
       return;
     }
 
+    // Area 11a, Task 9 (`CAPTURE_A11A_BLOCKS=1`): i blocchi del design e dei
+    // collegamenti. Laura su Screens (un'immagine con la didascalia, una con
+    // la didascalia vuota, un'immagine da 6 MB rifiutata), Overview (il file
+    // del Drive, e lo stesso file nascosto), Client decisions (le decisioni;
+    // Sara con una decisione di AUD, che non vede), Meter reading (una cella
+    // col fuoco e il menu «⋯» della tabella), «Link to…» su Sign-in.
+    // Scatti `a11a-blocks-*`.
+    if (process.env.CAPTURE_A11A_BLOCKS) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const SCREENS = "/p/ACQ/docs/product/ACQ-D9";
+      const OVERVIEW = "/p/ACQ/docs/product/ACQ-D3";
+      const DECISIONS = "/p/ACQ/docs/product/ACQ-D10";
+      const METER = "/p/ACQ/docs/product/ACQ-D7";
+      const SIGNIN = "/p/ACQ/docs/product/ACQ-D5";
+      /** Marco scrive sulla pagina (un copione): la pagina aperta si rilegge da sola. */
+      const marcoWrites = (page, code, ops) =>
+        page.evaluate(
+          async ([c, o]) => {
+            const api = await import("/data/api.ts");
+            const p = api.productDocs.productPageByCode(c);
+            api.productDocs.writeProductBlocksAs("p-marco", p.id, typeof o === "function" ? o(p) : o, {
+              sessionId: "script-marco-shots",
+            });
+          },
+          [code, ops],
+        );
+      /**
+       * Il cursore in fondo al testo con un clic sul suo bordo destro: «End»
+       * in Chromium fa scorrere la colonna fino in fondo quando il cursore è
+       * già a fine riga (vedi il rapporto del Task 9), e lo scatto non lo vuole.
+       */
+      const clickAtEnd = async (locator) => {
+        const box = await locator.boundingBox();
+        await locator.click({ position: { x: box.width - 2, y: Math.min(box.height - 4, 11) } });
+      };
+      const scenes = [
+        {
+          name: "image",
+          hash: SCREENS,
+          persona: "Laura",
+          run: async (page) => {
+            await page.locator("figure img").first().scrollIntoViewIfNeeded();
+            await page.locator("figure").first().hover();
+          },
+        },
+        {
+          name: "image-empty-caption",
+          hash: SCREENS,
+          persona: "Laura",
+          run: async (page) => {
+            await page.evaluate(async () => {
+              const api = await import("/data/api.ts");
+              const p = api.productDocs.productPageByCode("ACQ-D9");
+              const img = p.blocks.filter((b) => b.type === "image")[1];
+              api.productDocs.writeProductBlocksAs("p-marco", p.id, [{ op: "set", block: { ...img, caption: "" } }], {
+                sessionId: "script-marco-shots",
+              });
+            });
+            await page.waitForTimeout(600);
+            await page.locator("figure").nth(1).locator("figcaption").scrollIntoViewIfNeeded();
+            await page.locator("figure").nth(1).hover();
+          },
+        },
+        {
+          name: "too-large",
+          hash: SCREENS,
+          persona: "Laura",
+          run: async (page) => {
+            const first = page.locator("[data-editor-body] [role=textbox]").first();
+            await first.click();
+            await page.locator("[data-editing]").waitFor();
+            await page.evaluate(() => {
+              const el = document.querySelector("[data-editing]");
+              const dt = new DataTransfer();
+              dt.items.add(new File([new Uint8Array(6 * 1024 * 1024)], "screens.png", { type: "image/png" }));
+              el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+            });
+            await page.getByRole("alert").waitFor();
+            await page.waitForTimeout(200);
+          },
+        },
+        {
+          name: "drive",
+          hash: OVERVIEW,
+          persona: "Laura",
+          run: async (page) => {
+            await page.getByRole("button", { name: /^(Open|Apri) Client brief\.pdf$/ }).waitFor();
+            await page.locator('[data-block-id] >> text="Client brief.pdf"').hover();
+          },
+        },
+        {
+          name: "drive-gone",
+          hash: OVERVIEW,
+          persona: "Laura",
+          run: async (page) => {
+            await page.evaluate(async () => {
+              const store = await import("/data/store.ts");
+              store.state.driveFiles.find((f) => f.code === "ACQ-F1").hidden = true;
+            });
+            // Fuori e dentro la pagina: il file si rilegge.
+            await page.evaluate(() => {
+              window.location.hash = "/p/ACQ/docs/product/ACQ-D4";
+            });
+            await page.getByRole("heading", { level: 1, name: "Features" }).waitFor();
+            await page.evaluate(() => {
+              window.location.hash = "/p/ACQ/docs/product/ACQ-D3";
+            });
+            await page.getByText(/This file is no longer available|Questo file non è più disponibile/).waitFor();
+            await page.waitForTimeout(200);
+          },
+        },
+        { name: "decision", hash: DECISIONS, persona: "Laura" },
+        {
+          name: "decision-hidden",
+          hash: DECISIONS,
+          persona: "Sara",
+          run: async (page) => {
+            await marcoWrites(page, "ACQ-D10", [
+              {
+                op: "insert",
+                afterId: null,
+                block: { id: "blk-shot-aud-decision", type: "decision", decisionId: "dl-aud-1" },
+              },
+            ]);
+            await page.getByText(/A decision you can't see|Una decisione che non puoi vedere/).waitFor();
+            await page.waitForTimeout(200);
+          },
+        },
+        {
+          name: "table-editing",
+          hash: METER,
+          persona: "Laura",
+          run: async (page) => {
+            const table = page.locator("[data-table-id]");
+            await table.scrollIntoViewIfNeeded();
+            await clickAtEnd(table.getByRole("textbox").filter({ hasText: /^Household$/ }));
+            await page.locator("[data-editing]").waitFor();
+            await page.keyboard.type(" (one meter)");
+            await table.getByRole("button", { name: /^(Table menu|Menu della tabella)$/ }).click();
+            await page.getByRole("menu").waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "link-to",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await clickAtEnd(page.locator('[data-block-text="blk-acq-signin-4"]'));
+            await page.locator("[data-editing]").waitFor();
+            await page.keyboard.press("Enter");
+            await page.waitForTimeout(400);
+            await page.keyboard.type("/link");
+            await page.waitForTimeout(200);
+            await page.keyboard.press("Enter");
+            await page.getByRole("combobox").waitFor();
+            await page.keyboard.type("ACQ");
+            await page.waitForTimeout(500);
+          },
+        },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a11a-blocks-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          await page.getByRole("heading", { level: 1 }).first().waitFor();
+          await page.waitForTimeout(600);
+          if (scene.run) await scene.run(page);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 11a, Task 8 (`CAPTURE_A11A_EDITOR=1`): l'editor a blocchi delle
     // pagine di prodotto. Laura su «Sign-in» (ACQ-D5): mentre scrive
     // («Saved» nella barra), il menu «/», la barra della selezione, il campo
@@ -324,7 +510,7 @@ async function main() {
             await page.waitForTimeout(400);
           },
         },
-        { name: "table", hash: "/p/ACQ/docs/product/ACQ-D7", persona: "Laura", hover: '[data-block-placeholder="table"]' },
+        { name: "table", hash: "/p/ACQ/docs/product/ACQ-D7", persona: "Laura", hover: "[data-table-id]" },
         { name: "decisions", hash: "/p/ACQ/docs/product/ACQ-D10", persona: "Laura" },
         { name: "reader", hash: SIGNIN, persona: "Sara" },
       ];
