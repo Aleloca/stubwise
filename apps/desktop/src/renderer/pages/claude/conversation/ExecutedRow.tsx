@@ -102,23 +102,35 @@ function ObjectCode({ code, lookup }: { code: string; lookup: Lookup }) {
  */
 function CreatedAutomation({ code }: { code: string }) {
   const { t } = useTranslation();
-  const row = useAutomations().data?.find((a) => a.code === code);
+  const list = useAutomations().data;
+  const row = list?.find((a) => a.code === code);
+  // Finché l'elenco non è arrivato non si sa se chi legge la apre: il codice
+  // resta neutro (inchiostro pieno, niente sottolineatura né «You can't open
+  // this»), non spento — altrimenti lampeggia da invisibile a link
+  // (ri-revisione finale del 5 nov 2026). La sottolineatura trasparente
+  // tiene il posto, così all'arrivo del link non si sposta nulla.
+  const obj = row ? (
+    <a
+      href={`#/automations/${code}/edit`}
+      className="num font-semibold text-ink underline decoration-ink/25 underline-offset-2 hover:decoration-ink/70"
+    >
+      {code}
+    </a>
+  ) : list === undefined ? (
+    <span
+      data-citation="pending"
+      className="num font-semibold text-ink underline decoration-transparent underline-offset-2"
+    >
+      {code}
+    </span>
+  ) : (
+    <HiddenCode code={code} />
+  );
   return (
     <>
       <Trans
         i18nKey="claude.conversation.executed.verb.createAutomation"
-        components={{
-          obj: row ? (
-            <a
-              href={`#/automations/${code}/edit`}
-              className="num font-semibold text-ink underline decoration-ink/25 underline-offset-2 hover:decoration-ink/70"
-            >
-              {code}
-            </a>
-          ) : (
-            <HiddenCode code={code} />
-          ),
-        }}
+        components={{ obj }}
       />
       {row && <> {t("claude.conversation.executed.named", { name: row.name })}</>}
       {row?.status === "draft" && (

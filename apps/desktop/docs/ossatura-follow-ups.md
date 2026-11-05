@@ -2649,8 +2649,11 @@ registro del piano).
 ### Dalla ri-revisione finale (5 nov 2026)
 
 - **`CreatedAutomation` mostra il codice spento finché `useAutomations` non
-  carica**, poi diventa un link: un piccolo lampo. *Se sbagliata*: un
-  attimo di codice grigio nella riga eseguita.
+  carica — corretto (5 nov 2026)**: mentre l'elenco carica il codice è
+  neutro (inchiostro pieno, sottolineatura trasparente, nessun «You can't
+  open this»), poi link o spento secondo il dato
+  (`CreatedAutomation.test.tsx`). *Se sbagliata*: un attimo di codice senza
+  link prima che arrivi.
 - **La riga «Used:» del riquadro a 1440 può lasciare un « ·» in fondo a una
   riga andata a capo** (`UsedLine`, scatto `a10b-scen-s4-light-en`). *Se
   sbagliata*: un separatore appeso.
