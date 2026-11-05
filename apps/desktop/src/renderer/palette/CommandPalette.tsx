@@ -1011,9 +1011,12 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
+  // z-50, non z-40: la colonna dei commenti di una pagina di prodotto, sotto i
+  // 1200 px, è sovrapposta a z-[45] e a z-40 copriva il bordo destro della
+  // palette (scatto a11a-extra-palette-narrow).
   return (
     <div
-      className="palette-backdrop fixed inset-0 z-40 bg-[var(--scrim)]"
+      className="palette-backdrop fixed inset-0 z-50 bg-[var(--scrim)]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
