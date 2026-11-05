@@ -876,6 +876,28 @@ describe("area 10b: la prova col filtro dell'inizio (D3)", () => {
     return a.code;
   }
 
+  it("i dati della richiesta che S1 usa si leggono in inglese: «Request title», mai «Titolo della richiesta» (review finale, 4)", async () => {
+    setSessionPersonId(LAURA);
+    const a = await automationsApi.createAutomation({ name: "Urgenti", projectId: "prj-acq" });
+    await automationsApi.saveDraft(a.id, {
+      trigger: { kind: "stubwise", event: "request_created" },
+      titleTemplate: "{{richiesta.codice}} {{richiesta.titolo}}",
+      steps: [
+        {
+          id: "n",
+          kind: "notify",
+          who: { departmentId: "dep-support" },
+          text: "{{richiesta.titolo}} · {{richiesta.richiedente}} · {{richiesta.progetto}}",
+          approval: AUTO,
+        },
+      ],
+    });
+    await open(`/automations/${a.code}/edit?step=n`, LAURA);
+    await waitFor(() => expect(document.body).toHaveTextContent("Request title"));
+    expect(document.body).not.toHaveTextContent(/Titolo della richiesta|Codice della richiesta/);
+    expect(document.body).not.toHaveTextContent(/Richiedente|Progetto/);
+  });
+
   it("gli esempi recenti sono solo quelli che il filtro fa partire", async () => {
     const code = await urgentDraft();
     await open(`/automations/${code}/test`, LAURA);

@@ -19,7 +19,7 @@ import { useMediaQuery } from "../../layout/useMediaQuery";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
-import { clientOf, runTitle, shortDate } from "./format";
+import { clientOf, localFieldLabel, runTitle, shortDate } from "./format";
 import { MoreGlyph, SourceGlyph, WarningGlyph } from "./glyphs";
 import {
   AutomationStatusWord,
@@ -72,7 +72,7 @@ export function FieldRows({ fields, depth = 0 }: { fields: DataField[]; depth?: 
                 →
               </span>
             )}
-            {f.label}
+            {localFieldLabel(f, t)}
             <span className="text-xs text-ink-muted">{t(`automations.fieldType.${f.type}`)}</span>
           </p>
           {f.of && (

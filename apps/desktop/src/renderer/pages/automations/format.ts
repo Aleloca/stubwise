@@ -184,6 +184,14 @@ export function sendsEmail(flow: AutomationFlow): boolean {
  * T2, area 10b): «Urgency» / «Urgenza». Le altre restano quelle del dato.
  */
 const LOCAL_FIELD_LABELS: Record<string, string> = {
+  // Anche i dati della richiesta che il flusso di Claude (S1) mette nel
+  // titolo e nel messaggio (review finale 10b, 4): gli altri inizi restano
+  // quelli del dato (area 7).
+  "richiesta.codice": "automations.fieldLabels.requestCode",
+  "richiesta.titolo": "automations.fieldLabels.requestTitle",
+  "richiesta.descrizione": "automations.fieldLabels.requestDescription",
+  "richiesta.progetto": "automations.fieldLabels.requestProject",
+  "richiesta.richiedente": "automations.fieldLabels.requester",
   "richiesta.urgenza": "automations.fieldLabels.urgency",
   "richiesta.dal_supporto": "automations.fieldLabels.fromSupport",
 };

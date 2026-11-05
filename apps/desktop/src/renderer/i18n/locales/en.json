@@ -8075,6 +8075,11 @@
       "suspended": "{{code}} is paused: nothing was decided. It can be decided once it's turned on again."
     },
     "fieldLabels": {
+      "requestCode": "Request code",
+      "requestTitle": "Request title",
+      "requestDescription": "Description",
+      "requestProject": "Project",
+      "requester": "Requester",
       "urgency": "Urgency",
       "fromSupport": "From support",
       "inSentence": {

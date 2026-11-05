@@ -8,7 +8,7 @@ import type {
   DataField,
   Step,
 } from "../../../data/types";
-import type { Names } from "../format";
+import { localFieldLabel, type Names } from "../format";
 import { pathsById, refsOf } from "./tree";
 
 // I problemi di configurazione in parole (shape builder §5). Quanti sono e
@@ -235,7 +235,7 @@ export function stepProblems(
         field: "data",
         ref: key,
         text: t("automations.builder.problem.unavailable", {
-          label: ctx.labels.get(key)?.label ?? labelOf(flow, key),
+          label: ctx.labels.get(key)?.label ?? labelOf(flow, key, t),
         }),
       });
     const stepRef = stepRefProblem(flow, path, step, t);
@@ -308,13 +308,13 @@ export function stepProblems(
 }
 
 /** L'etichetta di un dato da qualunque punto del flusso (anche quelli che qui non ci sono). */
-export function labelOf(flow: AutomationFlow, key: string): string {
+export function labelOf(flow: AutomationFlow, key: string, t: TFunction): string {
   for (const path of pathsById(flow.steps).values()) {
     const f = availableFields(flow, path).find((x) => x.key === key);
-    if (f) return f.label;
+    if (f) return localFieldLabel(f, t);
     const s = stepAt(flow.steps, path);
     const own = s?.kind === "claude" ? s.fields.find((x) => x.key === key) : undefined;
-    if (own) return own.label;
+    if (own) return localFieldLabel(own, t);
   }
   return key.split(".").at(-1) ?? key;
 }
