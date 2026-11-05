@@ -535,6 +535,107 @@ async function main() {
       return;
     }
 
+    // Area 10b, Task 13 (`CAPTURE_A10B_GAPS=1`): le due scene degli scenari
+    // che mancavano agli scatti dei Task 7 e 11. S4 con otto progetti: cinque
+    // righe e «Show 3 more» aperto (Roberta, da All projects); S5 col dialogo
+    // della riconferma sopra il riquadro (Roberta aggiunge Luca ad ACQ: la
+    // classe C chiede la verifica in due passaggi). Scatti `a10b-scen-s4-more-*`
+    // e `a10b-scen-s5-reauth-*`.
+    if (process.env.CAPTURE_A10B_GAPS) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const panel = (page) => page.locator("#claude-panel");
+      const take = async (page, name, v) => {
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        if (!only || only.test(name)) await shot(page, name);
+      };
+      for (const v of variants) {
+        const it = v.lang === "it";
+        {
+          const { page, context } = await open(v.scheme, v.viewport, "/projects", {
+            lang: v.lang,
+            persona: "Roberta",
+          });
+          await page.locator("[data-claude-rail]").click();
+          const box = panel(page).locator("textarea").last();
+          await box.waitFor();
+          await box.fill(it ? "archivia i progetti senza attività da 3 mesi" : "archive the projects with no activity for 3 months");
+          await box.press("Enter");
+          await panel(page).locator("[data-proposal]").first().waitFor({ timeout: 10000 });
+          // Otto progetti archiviabili in una scheda B (come nel test dello scenario),
+          // dopo la risposta vera, nella stessa conversazione.
+          await page.evaluate(async () => {
+            const api = await import("/data/api.ts");
+            const { state } = await import("/data/store.ts");
+            const eight = state.projects
+              .filter((p) => !p.archived && api.projectSettings.busyReasonsOf(p.id, "p-roberta").length === 0)
+              .slice(0, 8);
+            const c = state.conversations.filter((x) => x.ownerId === "p-roberta" && x.kind === "free").at(-1);
+            await api.runScript(c.id, [
+              {
+                step: "event",
+                event: {
+                  type: "proposal",
+                  proposalId: "prop-capture-s4",
+                  requesterId: "p-roberta",
+                  actions: eight.map((p) => ({
+                    fn: "archiveProject",
+                    args: { projectId: p.id },
+                    summary: `Archive ${p.code} ${p.name}`,
+                    summaryText: {
+                      key: "claude.answers.archive.summary",
+                      params: { code: p.code, name: p.name },
+                    },
+                    why: { key: "claude.answers.archive.why", params: { date: "2026-07-24" } },
+                  })),
+                  status: "open",
+                  cls: "B",
+                  reasons: [],
+                },
+              },
+            ]);
+          });
+          const card = panel(page).locator("[data-proposal]").last();
+          await card.waitFor();
+          await card.getByRole("button", { name: /^(Show 3 more|Mostra altri 3)$/ }).click();
+          await card.scrollIntoViewIfNeeded();
+          await page.waitForTimeout(500);
+          await take(page, `a10b-scen-s4-more-${v.suffix}.png`, v);
+          await context.close();
+        }
+        {
+          const { page, context } = await open(v.scheme, v.viewport, "/p/ACQ/overview", {
+            lang: v.lang,
+            persona: "Roberta",
+          });
+          await page.locator("[data-claude-rail]").click();
+          const box = panel(page).locator("textarea").last();
+          await box.waitFor();
+          await page.waitForTimeout(400);
+          await box.fill(it ? "aggiungi Luca ad ACQ come Developer" : "add Luca to ACQ as Developer");
+          await box.press("Enter");
+          await panel(page).locator("[data-proposal]").first().waitFor({ timeout: 10000 });
+          await page.waitForTimeout(1200);
+          await panel(page)
+            .locator("[data-proposal]")
+            .last()
+            .getByRole("button", { name: /^(Confirm|Conferma)/ })
+            .click();
+          await page.getByRole("dialog").last().waitFor();
+          await page.waitForTimeout(600);
+          await take(page, `a10b-scen-s5-reauth-${v.suffix}.png`, v);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 10b, Task 12 (`CAPTURE_A10B_SUGG=1`): la riga «Claude can help
     // you…» nelle cinque pagine di partenza (shape `claude-suggestions.md`).
     // Matteo su ACQ-S2 (Davide non è fra i «vedi come»), Laura sulla PR #77
