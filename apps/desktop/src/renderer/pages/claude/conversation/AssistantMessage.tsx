@@ -119,7 +119,7 @@ const whoOf = (href: string) => {
  * `WhoCanLink`, solo se chi legge vede il progetto (d'istanza sempre, area
  * 10b). Mai una scheda né un bottone che faccia il gesto.
  */
-function useInternalLinks(text: string): LinkRenderer {
+export function useInternalLinks(text: string): LinkRenderer {
   const routes = useMemo(() => {
     const out = new Set<string>();
     for (const m of text.matchAll(LINK_TARGET)) {

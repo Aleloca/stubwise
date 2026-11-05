@@ -16,6 +16,7 @@ import { Markdown } from "../../tasks-ui/Markdown";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { ActionRows } from "../claude/conversation/ActionRows";
+import { useInternalLinks } from "../claude/conversation/AssistantMessage";
 import { AsideRow } from "../claude/conversation/AsideRow";
 import {
   HiddenCode,
@@ -118,6 +119,8 @@ export function ClaudeReply({
     return new Set([...(m.hiddenCodes ?? []), ...hiddenCodesOf(index, m.citations)]);
   }, [m.hiddenCodes, m.citations, index]);
   const decorate = useMessageDecorator(mentionNames, hidden);
+  // I «Who?» e i link interni della risposta, come nel riquadro (review finale 10b, 5).
+  const link = useInternalLinks(m.text ?? "");
   /** Riassunti e domande: codice + nome se lo vede, tenue se no. */
   const linked = useCallback((text: string) => <>{decorate(text, "s")}</>, [decorate]);
   /** Le righe d'azione sono bottoni: niente link dentro, solo il codice tenue se non lo vede. */
@@ -227,6 +230,7 @@ export function ClaudeReply({
                 <Markdown
                   source={m.text}
                   decorate={decorate}
+                  link={link}
                   codeLabel={t("claude.conversation.codeBlock")}
                   tableLabel={t("claude.conversation.table")}
                 />
