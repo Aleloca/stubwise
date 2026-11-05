@@ -641,7 +641,10 @@ async function main() {
     // Matteo su ACQ-S2 (Davide non è fra i «vedi come»), Laura sulla PR #77
     // e sulle Automations di ACQ, Giulia sull'Overview di MKX, Roberta su
     // Consumi; poi il clic su ACQ-S2: il riquadro con la conversazione nuova
-    // e la richiesta non inviata.
+    // e la richiesta non inviata. Con la bozza di Claude già pronta la riga
+    // non c'è (maintainer, 5 nov 2026): ACQ-S2 nel seme ce l'ha, quindi
+    // `support` e `support-click` la tolgono prima (`noDraft`), e
+    // `support-draft` mostra il seme com'è, senza la riga.
     // Scatti `a10b-sugg-*`.
     if (process.env.CAPTURE_A10B_SUGG) {
       const variants = [
@@ -653,12 +656,19 @@ async function main() {
       ];
       const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
       const scenes = [
-        { name: "support", persona: "Matteo", hash: "/p/ACQ/support/ACQ-S2" },
+        { name: "support", persona: "Matteo", hash: "/p/ACQ/support/ACQ-S2", noDraft: true },
+        { name: "support-draft", persona: "Matteo", hash: "/p/ACQ/support/ACQ-S2", noRow: true },
         { name: "pr", persona: "Laura", hash: "/p/ACQ/releases?pr=opr-acq-77" },
         { name: "automations", persona: "Laura", hash: "/p/ACQ/automations" },
         { name: "overview", persona: "Giulia", hash: "/p/MKX/overview" },
         { name: "usage", persona: "Roberta", hash: "/admin/ai?tab=usage" },
-        { name: "support-click", persona: "Matteo", hash: "/p/ACQ/support/ACQ-S2", click: true },
+        {
+          name: "support-click",
+          persona: "Matteo",
+          hash: "/p/ACQ/support/ACQ-S2",
+          click: true,
+          noDraft: true,
+        },
       ];
       for (const v of variants) {
         for (const scene of scenes) {
@@ -668,8 +678,22 @@ async function main() {
             lang: v.lang,
             persona: scene.persona,
           });
+          if (scene.noDraft) {
+            // La bozza del seme tolta, e la pagina riletta (via e ritorno).
+            await page.evaluate(async (h) => {
+              const { state } = await import("/data/store.ts");
+              state.supportConversations.find((c) => c.code === "ACQ-S2").claudeDraft = null;
+              window.location.hash = "/p/ACQ/support";
+              await new Promise((r) => setTimeout(r, 400));
+              window.location.hash = h;
+            }, scene.hash);
+            await page.waitForTimeout(900);
+          }
           const row = page.locator("[data-claude-suggestion]");
-          await row.waitFor();
+          if (scene.noRow) {
+            await page.getByRole("button", { name: /^(Use draft|Usa la bozza)$/ }).waitFor();
+            await page.waitForTimeout(400);
+          } else await row.waitFor();
           if (scene.click) {
             await row.getByRole("button").first().click();
             await page.locator("#claude-panel textarea").last().waitFor();
