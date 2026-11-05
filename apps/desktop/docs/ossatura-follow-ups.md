@@ -2637,6 +2637,21 @@ registro del piano).
   progetto a chi non ha `usage.view` (solo Impostazioni → Consumi di ogni
   progetto), e un link prometterebbe un elenco che non esiste. *Se
   sbagliata*: chi vuole il dettaglio apre i progetti uno per uno.
+- **Una seconda conversazione in attesa senza bozza, rimandata**: con la
+  regola qui sopra nessuna pagina di Supporto del seme mostra la riga
+  «Claude can help you write the reply». Si aggiunge (per esempio ACQ-S7,
+  `waiting_us`, senza `claudeDraft`, con `seed.test.ts` e i conteggi del
+  Supporto) la prossima volta che si tocca il seme. *Se sbagliata*: la
+  riga si vede solo nei test e negli scatti.
+
+### Dalla ri-revisione finale (5 nov 2026)
+
+- **`CreatedAutomation` mostra il codice spento finché `useAutomations` non
+  carica**, poi diventa un link: un piccolo lampo. *Se sbagliata*: un
+  attimo di codice grigio nella riga eseguita.
+- **La riga «Used:» del riquadro a 1440 può lasciare un « ·» in fondo a una
+  riga andata a capo** (`UsedLine`, scatto `a10b-scen-s4-light-en`). *Se
+  sbagliata*: un separatore appeso.
 
 ### Voci del registro del piano che mancavano (revisione finale)
 
