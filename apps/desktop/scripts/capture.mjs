@@ -375,6 +375,101 @@ async function main() {
       return;
     }
 
+    // Area 11a, Task 11 (`CAPTURE_A11A_LIVE=1`): la scrittura dal vivo su
+    // Meter reading, a metà del copione di Marco (orologio fermo: latenze a 0
+    // e un passo del copione ogni secondo d'orologio, fatto avanzare con
+    // `drive`). Laura vede gli avatar di Matteo e Marco nella barra e la barra
+    // di Marco con l'etichetta nel paragrafo nuovo di «Rules» («page»); Marco
+    // che sceglie «Readings close» («selection»); Laura col fuoco nel
+    // paragrafo di Marco, con la nota «is writing here» e il suo testo fermo
+    // («same-block»). Scatti `a11a-live-*`.
+    if (process.env.CAPTURE_A11A_LIVE) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const STEP = 1000;
+      const SCRIPTED = "blk-acq-meter-script-1";
+      /** Meter reading per Laura, col copione fermo dopo `n` passi. */
+      async function meterAt(v, n) {
+        const { page, context } = await open(v.scheme, v.viewport, "/p/ACQ/docs/product", { lang: v.lang, frozen: true });
+        const hash = await page.evaluate(async (step) => {
+          const api = await import("/data/api.ts");
+          api.setLatency(0);
+          api.setStreamLatency(step);
+          const store = await import("/data/store.ts");
+          return `/p/ACQ/docs/product/${store.state.productPages.find((p) => p.title === "Meter reading").code}`;
+        }, STEP);
+        await asPerson(page, "Laura", hash);
+        await driveUntil(page, page.getByRole("heading", { level: 1, name: "Meter reading" }));
+        await page.mouse.move(v.viewport.width - 2, v.viewport.height - 2);
+        // Il fuoco tornato sul profilo ne mostrerebbe il suggerimento.
+        await page.evaluate(() => {
+          const active = document.activeElement;
+          if (active instanceof HTMLButtonElement) active.blur();
+        });
+        await drive(page, STEP * n + 200);
+        return { page, context };
+      }
+      const scenes = [
+        {
+          name: "page",
+          run: async (v) => {
+            const at = await meterAt(v, 6);
+            await at.page.locator(`[data-remote-cursor="p-marco"]`).waitFor();
+            await at.page.locator(`[data-block-id="${SCRIPTED}"]`).scrollIntoViewIfNeeded();
+            return at;
+          },
+        },
+        {
+          name: "selection",
+          run: async (v) => {
+            const at = await meterAt(v, 6);
+            await at.page.evaluate(async () => {
+              const store = await import("/data/store.ts");
+              const events = await import("/data/productDocs/events.ts");
+              const row = store.state.productPresence.find((p) => p.personId === "p-marco");
+              Object.assign(row, { anchorId: "blk-acq-meter-3", offset: 14, selection: [0, 14], seq: store.nextSeq() });
+              events.emitProductPage(row.pageId, "presence");
+            });
+            await drive(at.page, 200);
+            await at.page.locator(`[data-remote-selection="p-marco"] span`).first().waitFor();
+            return at;
+          },
+        },
+        {
+          name: "same-block",
+          run: async (v) => {
+            const at = await meterAt(v, 5);
+            const { page } = at;
+            await page.locator(`[data-block-id="${SCRIPTED}"] [data-block-text]`).click();
+            await page.locator("[data-editing]").waitFor();
+            await page.keyboard.press("End");
+            await page.keyboard.type("on time.");
+            // Marco scrive altri tre pezzi: il blocco di Laura resta il suo.
+            await drive(page, STEP * 3);
+            await page.locator("[data-remote-note]").waitFor();
+            return at;
+          },
+        },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a11a-live-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await scene.run(v);
+          await page.waitForTimeout(200);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 11a, Task 9 (`CAPTURE_A11A_BLOCKS=1`): i blocchi del design e dei
     // collegamenti. Laura su Screens (un'immagine con la didascalia, una con
     // la didascalia vuota, un'immagine da 6 MB rifiutata), Overview (il file
