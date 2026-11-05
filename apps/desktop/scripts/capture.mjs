@@ -218,15 +218,6 @@ async function main() {
           },
           [code, ops],
         );
-      /**
-       * Il cursore in fondo al testo con un clic sul suo bordo destro: «End»
-       * in Chromium fa scorrere la colonna fino in fondo quando il cursore è
-       * già a fine riga (vedi il rapporto del Task 9), e lo scatto non lo vuole.
-       */
-      const clickAtEnd = async (locator) => {
-        const box = await locator.boundingBox();
-        await locator.click({ position: { x: box.width - 2, y: Math.min(box.height - 4, 11) } });
-      };
       const scenes = [
         {
           name: "image",
@@ -263,6 +254,7 @@ async function main() {
             const first = page.locator("[data-editor-body] [role=textbox]").first();
             await first.click();
             await page.locator("[data-editing]").waitFor();
+            await page.keyboard.press("End");
             await page.evaluate(() => {
               const el = document.querySelector("[data-editing]");
               const dt = new DataTransfer();
@@ -327,11 +319,27 @@ async function main() {
           run: async (page) => {
             const table = page.locator("[data-table-id]");
             await table.scrollIntoViewIfNeeded();
-            await clickAtEnd(table.getByRole("textbox").filter({ hasText: /^Household$/ }));
+            await table.getByRole("textbox").filter({ hasText: /^Household$/ }).click();
             await page.locator("[data-editing]").waitFor();
+            await page.keyboard.press("End");
             await page.keyboard.type(" (one meter)");
             await table.getByRole("button", { name: /^(Table menu|Menu della tabella)$/ }).click();
             await page.getByRole("menu").waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "table-selection",
+          hash: METER,
+          persona: "Laura",
+          run: async (page) => {
+            const table = page.locator("[data-table-id]");
+            await table.scrollIntoViewIfNeeded();
+            await table.getByRole("textbox").filter({ hasText: /^Business$/ }).click();
+            await page.locator("[data-editing]").waitFor();
+            await page.keyboard.press("End");
+            await page.keyboard.press("Shift+Home");
+            await page.getByRole("toolbar").waitFor();
             await page.waitForTimeout(300);
           },
         },
@@ -340,8 +348,9 @@ async function main() {
           hash: SIGNIN,
           persona: "Laura",
           run: async (page) => {
-            await clickAtEnd(page.locator('[data-block-text="blk-acq-signin-4"]'));
+            await page.locator('[data-block-text="blk-acq-signin-4"]').click();
             await page.locator("[data-editing]").waitFor();
+            await page.keyboard.press("End");
             await page.keyboard.press("Enter");
             await page.waitForTimeout(400);
             await page.keyboard.type("/link");
