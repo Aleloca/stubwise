@@ -30,11 +30,12 @@ async function openHistory(title: string, person = LAURA) {
   const user = userEvent.setup();
   await user.click(within(bar).getByRole("button", { name: /^(History|Cronologia)$/ }));
   const region = await screen.findByRole("region", { name: /^(History|Cronologia)$/ });
-  const list = await within(region).findByRole("listbox");
+  const list = await within(region).findByRole("list", { name: /^(Changes to this page|Modifiche a questa pagina)$/ });
   return { region, list, user, bar };
 }
 
-const rows = (list: HTMLElement) => within(list).getAllByRole("option");
+/** Le righe: bottoni che aprono il loro dettaglio (fix round 1: niente `listbox`). */
+const rows = (list: HTMLElement) => [...list.querySelectorAll<HTMLElement>("[data-history-row]")];
 const rowText = (row: HTMLElement) => (row.textContent ?? "").replace(/\s+/g, " ");
 
 beforeEach(() => {
@@ -155,9 +156,11 @@ describe("la tastiera e il fuoco", () => {
   it("↑/↓ fra le righe, Invio apre, ← chiude; × riporta il fuoco a «History»", async () => {
     const { region, list, user, bar } = await openHistory("Meter reading");
     const all = rows(list);
-    list.focus();
+    // Un solo punto di Tab: la prima riga.
+    expect(all.map((r) => r.tabIndex)).toEqual([0, ...all.slice(1).map(() => -1)]);
+    act(() => all[0]!.focus());
     await user.keyboard("{ArrowDown}");
-    expect(list.getAttribute("aria-activedescendant")).toBe(all[1]!.id);
+    expect(document.activeElement).toBe(all[1]);
     await user.keyboard("{Enter}");
     expect(all[1]!).toHaveAttribute("aria-expanded", "true");
     await user.keyboard("{ArrowLeft}");
@@ -196,6 +199,44 @@ describe("una pagina nuova", () => {
     const { list } = await openHistory(created.title);
     expect(rows(list)).toHaveLength(1);
     expect(rowText(rows(list)[0]!)).toContain("Created the page");
+  });
+});
+
+describe("fix round 1", () => {
+  it("dentro l'elenco solo righe: niente `listbox`, e il dettaglio aperto non sta nella riga", async () => {
+    const { region, list, user } = await openHistory("Meter reading");
+    expect(within(region).queryByRole("listbox")).toBeNull();
+    expect(within(region).queryByRole("option")).toBeNull();
+    const first = rows(list)[0]!;
+    expect(first.tagName).toBe("BUTTON");
+    await user.click(first);
+    const details = document.getElementById(first.getAttribute("aria-controls")!)!;
+    expect(first.contains(details)).toBe(false);
+  });
+
+  it("una tabella senza `anchors` (un dato di prima) conta solo la cella cambiata", async () => {
+    const meter = pageByTitle("Meter reading");
+    const table = meter.blocks.find((b) => b.type === "table") as Extract<ProductBlock, { type: "table" }>;
+    const after = structuredClone(table);
+    after.rows[1]!.cells[2]!.content = { text: "The 24th", marks: [] };
+    const seq = nextSeq();
+    state.productRevisions.push({
+      id: "prev-table-fixture",
+      pageId: meter.id,
+      seq,
+      lastSeq: seq,
+      at: now(),
+      actorId: MARCO,
+      kind: "edit",
+      changes: [{ blockId: table.id, before: table, after, anchors: [] }],
+    });
+    const { list, user } = await openHistory("Meter reading");
+    const first = rows(list)[0]!;
+    expect(rowText(first)).toContain("Edited 1 sentence");
+    await user.click(first);
+    const details = document.getElementById(first.getAttribute("aria-controls")!)!;
+    expect(within(details).getAllByText("Table cell")).toHaveLength(1);
+    expect(details.textContent).toContain("The 24th");
   });
 });
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useFollowProductPage, useUnfollowProductPage } from "../../data/queries";
 import type { ProductPageView } from "../../data/types";
@@ -29,10 +29,17 @@ export function FollowButton({ page }: { page: ProductPageView }) {
     if (optimistic !== null && page.following === optimistic) setOptimistic(null);
   }, [optimistic, page.following]);
 
+  // Una scrittura alla volta: un doppio clic non segue e smette (due scritture).
+  const inFlight = useRef(false);
   const run = (next: boolean) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setOptimistic(next);
     setAnnounce(t(next ? "productDocs.follow.announceOn" : "productDocs.follow.announceOff"));
     (next ? follow : unfollow).mutate(page.id, {
+      onSettled: () => {
+        inFlight.current = false;
+      },
       onError: () => {
         setOptimistic(null);
         setAnnounce("");

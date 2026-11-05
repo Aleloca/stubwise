@@ -1,4 +1,4 @@
-import { useId, useState, type KeyboardEvent, type RefObject } from "react";
+import { useId, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { now } from "../../../data/dates";
 import { usePeople, useProductRevisions } from "../../../data/queries";
@@ -87,7 +87,18 @@ function detailsOf(change: ProductBlockChange, t: (k: string, o?: Record<string,
       new Map(b?.type === "table" ? b.rows.flatMap((r) => r.cells.map((c) => [c.id, rich(c.content)] as const)) : []);
     const was = cells(before);
     const is = cells(after);
-    const ids = change.anchors.length > 0 ? change.anchors : [...new Set([...was.keys(), ...is.keys()])];
+    // Senza `anchors` (un dato di prima) contano solo le celle che sono
+    // davvero cambiate, non tutte; nessuna cambiata: la tabella, una volta.
+    const ids =
+      change.anchors.length > 0
+        ? change.anchors
+        : [...new Set([...was.keys(), ...is.keys()])].filter(
+            (id) => JSON.stringify(was.get(id) ?? null) !== JSON.stringify(is.get(id) ?? null),
+          );
+    if (ids.length === 0) {
+      const label = blockLabel((after ?? before)!, t);
+      return [detail(change.blockId, null, before ? label : null, after ? label : null)];
+    }
     return ids.map((id) => detail(id, t("productDocs.history.tableCell"), was.get(id) ?? null, is.get(id) ?? null));
   }
   const block = after ?? before;
@@ -151,6 +162,7 @@ export function HistoryPanel({
   const [openRows, setOpenRows] = useState<ReadonlySet<string>>(new Set());
   const [cursor, setCursor] = useState(0);
   const listId = useId();
+  const rows = useRef(new Map<string, HTMLButtonElement>());
 
   const all = revisions.data ?? [];
   const shown = all.slice(0, limit);
@@ -164,16 +176,17 @@ export function HistoryPanel({
       return next;
     });
 
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const r = shown[cursor];
+  // Le righe sono bottoni che aprono il loro dettaglio (un elenco a
+  // tendina, non un `listbox`: il dettaglio, coi suoi bottoni, non è
+  // un'opzione). Un solo punto di Tab (fuoco itinerante), ↑/↓ fra le righe,
+  // Invio o → apre, ← chiude.
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const r = shown[index];
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      const next = Math.min(Math.max(cursor + (e.key === "ArrowDown" ? 1 : -1), 0), shown.length - 1);
+      const next = Math.min(Math.max(index + (e.key === "ArrowDown" ? 1 : -1), 0), shown.length - 1);
       setCursor(next);
-      document.getElementById(rowId(shown[next]!))?.scrollIntoView?.({ block: "nearest" });
-    } else if (r && (e.key === "Enter" || e.key === " ")) {
-      e.preventDefault();
-      toggle(r.id);
+      rows.current.get(shown[next]!.id)?.focus();
     } else if (r && e.key === "ArrowRight") {
       e.preventDefault();
       toggle(r.id, true);
@@ -182,6 +195,7 @@ export function HistoryPanel({
       toggle(r.id, false);
     }
   };
+
 
   // Raggruppate per giorno (OGGI, NOV 3).
   const days: { key: string; label: string; rows: ProductRevisionView[] }[] = [];
@@ -221,75 +235,75 @@ export function HistoryPanel({
       )}
       {revisions.data && (
         <div className="flex flex-col pb-6">
-          <div
-            role="listbox"
-            tabIndex={0}
-            aria-label={t("productDocs.history.list")}
-            aria-activedescendant={shown[cursor] ? rowId(shown[cursor]!) : undefined}
-            onKeyDown={onKeyDown}
-            className="flex flex-col outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus"
-          >
+          <ul aria-label={t("productDocs.history.list")} className="flex flex-col">
             {days.map((day) => (
-              <div key={day.key} role="group" aria-label={day.label} className="flex flex-col pt-3">
-                <span aria-hidden="true" className="heading-group px-4 pb-1">
-                  {day.label}
-                </span>
-                {day.rows.map((r) => {
-                  const index = shown.indexOf(r);
-                  const isOpen = openRows.has(r.id);
-                  const person = people.find((p) => p.id === r.actorId);
-                  return (
-                    <div key={r.id} className="flex flex-col">
-                      <div
-                        id={rowId(r)}
-                        role="option"
-                        aria-selected={index === cursor}
-                        aria-expanded={isOpen}
-                        aria-controls={`${rowId(r)}-details`}
-                        onClick={() => {
-                          setCursor(index);
-                          toggle(r.id);
-                        }}
-                        className={`mx-1.5 flex cursor-default items-start gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/5 ${index === cursor ? "bg-ink/6" : ""}`}
-                      >
-                        <span
-                          aria-hidden="true"
-                          className="mt-px grid size-5 shrink-0 place-items-center rounded-full border border-rule-strong text-[10px] font-semibold text-ink-muted"
+              <li key={day.key} className="flex flex-col pt-3">
+                <h3 className="heading-group px-4 pb-1">{day.label}</h3>
+                <ul aria-label={day.label} className="flex flex-col">
+                  {day.rows.map((r) => {
+                    const index = shown.indexOf(r);
+                    const isOpen = openRows.has(r.id);
+                    const person = people.find((p) => p.id === r.actorId);
+                    return (
+                      <li key={r.id} className="flex flex-col">
+                        <button
+                          ref={(el) => {
+                            if (el) rows.current.set(r.id, el);
+                            else rows.current.delete(r.id);
+                          }}
+                          type="button"
+                          id={rowId(r)}
+                          data-history-row=""
+                          tabIndex={index === cursor ? 0 : -1}
+                          aria-expanded={isOpen}
+                          aria-controls={`${rowId(r)}-details`}
+                          onFocus={() => setCursor(index)}
+                          onKeyDown={(e) => onKeyDown(e, index)}
+                          onClick={() => {
+                            setCursor(index);
+                            toggle(r.id);
+                          }}
+                          className="mx-1.5 flex cursor-default items-start gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/5 aria-expanded:bg-ink/6"
                         >
-                          {person?.initials ?? r.actorName.slice(0, 1)}
-                        </span>
-                        <span className="flex min-w-0 flex-1 flex-col">
-                          <span className="truncate font-semibold text-ink">{r.actorName}</span>
-                          <span className="text-ink-muted [overflow-wrap:anywhere]">{summaryOf(r, space.tree, t)}</span>
-                        </span>
-                        <span className="flex shrink-0 items-center gap-1 text-xs text-ink-faint">
-                          <time dateTime={r.at} className="num">
-                            {clock(r.at, i18n.language)}
-                          </time>
-                          <svg
-                            viewBox="0 0 16 16"
-                            width={12}
-                            height={12}
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={1.5}
+                          <span
                             aria-hidden="true"
-                            focusable="false"
-                            className={`transition-transform duration-[var(--duration-fast)] ease-out ${isOpen ? "rotate-90" : ""}`}
+                            className="mt-px grid size-5 shrink-0 place-items-center rounded-full border border-rule-strong text-[10px] font-semibold text-ink-muted"
                           >
-                            <path d="m6 3.5 4.5 4.5L6 12.5" />
-                          </svg>
-                        </span>
-                      </div>
-                      <div id={`${rowId(r)}-details`} hidden={!isOpen}>
-                        {isOpen && <RevisionDetails revision={r} />}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                            {person?.initials ?? r.actorName.slice(0, 1)}
+                          </span>
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate font-semibold text-ink">{r.actorName}</span>
+                            <span className="text-ink-muted [overflow-wrap:anywhere]">{summaryOf(r, space.tree, t)}</span>
+                          </span>
+                          <span className="flex shrink-0 items-center gap-1 text-xs text-ink-faint">
+                            <time dateTime={r.at} className="num">
+                              {clock(r.at, i18n.language)}
+                            </time>
+                            <svg
+                              viewBox="0 0 16 16"
+                              width={12}
+                              height={12}
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth={1.5}
+                              aria-hidden="true"
+                              focusable="false"
+                              className={`transition-transform duration-[var(--duration-fast)] ease-out ${isOpen ? "rotate-90" : ""}`}
+                            >
+                              <path d="m6 3.5 4.5 4.5L6 12.5" />
+                            </svg>
+                          </span>
+                        </button>
+                        <div id={`${rowId(r)}-details`} hidden={!isOpen}>
+                          {isOpen && <RevisionDetails revision={r} />}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </li>
             ))}
-          </div>
+          </ul>
           {all.length > limit && (
             <button
               type="button"
@@ -301,6 +315,7 @@ export function HistoryPanel({
           )}
         </div>
       )}
+
     </section>
   );
 }

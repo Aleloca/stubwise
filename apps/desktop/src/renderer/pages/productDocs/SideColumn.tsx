@@ -60,21 +60,29 @@ interface State {
   active: string | null;
   /** L'ultimo `?comment=` già seguito (si segue una volta). */
   param: string | null;
-  /** Sovrapposta, chi sta davanti fra la colonna e il pannello della task. */
+  /** Chi sta davanti fra la colonna e il pannello della task (l'ultimo aperto). */
   front: "column" | "task";
   taskWas: boolean;
+  /** Un contatore nello stato (niente globali nel disegno: StrictMode resta puro). */
+  seq: number;
+  /** Il `seq` dell'ultima richiesta di portare la colonna davanti. */
+  raised: number;
 }
-
-let counter = 0;
 
 export interface SideColumn {
   side: Side;
   draft: CommentDraft | null;
   focus: ThreadFocus | null;
   active: string | null;
-  /** Sovrapposta: la colonna sta davanti al pannello della task. */
+  /** La colonna sta davanti al pannello della task (o il pannello non c'è). */
   front: boolean;
-  /** «Comments» nella barra: apre o chiude (e lo ricorda); dietro al pannello, la riporta davanti. */
+  /**
+   * Cambia a ogni gesto che porta la colonna davanti («Comments», «History»,
+   * «Comment», il segno, ⌥⌘M, `?comment=`): agganciata, lo spazio chiude il
+   * pannello della task, che ne occupa il posto ([PE 19]: una colonna sola).
+   */
+  raised: number;
+  /** «Comments» nella barra: apre o chiude (e lo ricorda); nascosta o dietro al pannello, la riporta davanti. */
   toggleComments(): void;
   /** × della colonna dei commenti (lo ricorda). */
   closeComments(): void;
@@ -94,13 +102,11 @@ export function useSideColumn({
   page,
   commentParam,
   taskOpen,
-  overlay,
 }: {
   personId: string;
   page: ProductPageView | null;
   commentParam: string | undefined;
   taskOpen: boolean;
-  overlay: boolean;
 }): SideColumn {
   const [stored, setStored] = useState<State>(() => ({
     key: null,
@@ -109,15 +115,17 @@ export function useSideColumn({
     focus: null,
     active: null,
     param: null,
-    front: "column",
+    front: taskOpen ? "task" : "column",
     taskWas: taskOpen,
+    seq: 0,
+    raised: 0,
   }));
   const key = page ? `${personId}:${page.id}` : null;
 
   // Lo stato si deriva durante il disegno (nessun lampo chiuso → aperto):
   // una pagina o una persona nuova ripartono dalla regola; un `?comment=`
   // nuovo apre i commenti su quel filo; un pannello della task appena aperto
-  // passa davanti.
+  // passa davanti. Tutto dipende solo dallo stato di prima (disegno puro).
   let s = stored;
   if (s.key !== key) {
     const pref = page ? readCommentsPref(personId) : null;
@@ -130,11 +138,20 @@ export function useSideColumn({
       focus: null,
       active: null,
       param: null,
-      front: "column",
+      front: taskOpen ? "task" : "column",
     };
   }
   if (page && commentParam && s.param !== commentParam) {
-    s = { ...s, side: "comments", focus: { rootId: commentParam, n: ++counter }, param: commentParam, front: "column" };
+    const seq = s.seq + 1;
+    s = {
+      ...s,
+      side: "comments",
+      focus: { rootId: commentParam, n: seq },
+      param: commentParam,
+      front: "column",
+      seq,
+      raised: seq,
+    };
   }
   if (taskOpen !== s.taskWas) s = { ...s, taskWas: taskOpen, front: taskOpen ? "task" : s.front };
   if (s !== stored) setStored(s);
@@ -142,7 +159,14 @@ export function useSideColumn({
   const latest = useRef(s);
   latest.current = s;
   const update = (patch: Partial<State>) => setStored((prev) => ({ ...prev, ...patch }));
-  const behind = () => overlay && taskOpen && latest.current.front === "task";
+  /** Porta la colonna davanti, con un `seq` nuovo (e `n`, se serve). */
+  const raise = (patch: (seq: number) => Partial<State>) =>
+    setStored((prev) => {
+      const seq = prev.seq + 1;
+      return { ...prev, ...patch(seq), front: "column", seq, raised: seq };
+    });
+  /** Aperta ma non a vista: dietro al pannello (sovrapposta) o al suo posto (agganciata). */
+  const hidden = () => taskOpen && latest.current.front === "task";
 
   return {
     side: s.side,
@@ -150,31 +174,32 @@ export function useSideColumn({
     focus: s.focus,
     active: s.active,
     front: s.front === "column" || !taskOpen,
+    raised: s.raised,
     toggleComments() {
-      if (latest.current.side === "comments" && !behind()) {
+      if (latest.current.side === "comments" && !hidden()) {
         writeCommentsPref(personId, "closed");
         update({ side: null, draft: null });
         return;
       }
       writeCommentsPref(personId, "open");
-      update({ side: "comments", front: "column" });
+      raise(() => ({ side: "comments" }));
     },
     closeComments() {
       writeCommentsPref(personId, "closed");
       update({ side: null, draft: null });
     },
     toggleHistory() {
-      if (latest.current.side === "history" && !behind()) update({ side: null });
-      else update({ side: "history", draft: null, front: "column" });
+      if (latest.current.side === "history" && !hidden()) update({ side: null });
+      else raise(() => ({ side: "history", draft: null }));
     },
     closeHistory() {
       update({ side: null });
     },
     start(anchorId, quote) {
-      update({ side: "comments", draft: { anchorId, quote, n: ++counter }, front: "column" });
+      raise((seq) => ({ side: "comments", draft: { anchorId, quote, n: seq } }));
     },
     focusThread(rootId) {
-      update({ side: "comments", focus: { rootId, n: ++counter }, active: rootId, front: "column" });
+      raise((seq) => ({ side: "comments", focus: { rootId, n: seq }, active: rootId }));
     },
     endDraft() {
       update({ draft: null });
@@ -184,6 +209,7 @@ export function useSideColumn({
     },
   };
 }
+
 
 /**
  * L'involucro della colonna: agganciata (296, dentro lo scorrimento della

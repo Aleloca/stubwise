@@ -105,6 +105,7 @@ export function SuggestionMenu({
   onPick,
   empty,
   note,
+  header,
 }: {
   id: string;
   label: string;
@@ -113,6 +114,12 @@ export function SuggestionMenu({
   onPick: (s: Suggestion) => void;
   empty: string | null;
   note?: string | null;
+  /**
+   * Una riga in testa, sempre (anche senza risultati), 12 px `ink-faint` su
+   * una riga, al posto dei titoli dei gruppi (le menzioni di un commento di
+   * prodotto, area 11a: «People who can read ACQ's docs»).
+   */
+  header?: string;
 }) {
   const people = usePeople().data;
   const list = useRef<HTMLDivElement>(null);
@@ -130,6 +137,11 @@ export function SuggestionMenu({
       aria-label={label}
       className="menu-enter absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-[320px] max-w-full flex-col overflow-y-auto rounded-lg border border-rule-strong bg-surface p-1.5 shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
     >
+      {header && (
+        <p title={header} className="truncate px-2 pt-1 pb-1.5 text-xs text-ink-faint">
+          {header}
+        </p>
+      )}
       {groups.length === 0 && empty && (
         <p className="px-2 py-1.5 text-sm text-ink-muted">{empty}</p>
       )}
@@ -140,9 +152,11 @@ export function SuggestionMenu({
           aria-label={group.label}
           className="flex flex-col not-first:mt-1 not-first:border-t not-first:border-rule not-first:pt-1"
         >
-          <span aria-hidden="true" className="heading-group px-2 pt-1.5 pb-1">
-            {group.label}
-          </span>
+          {!header && (
+            <span aria-hidden="true" className="heading-group px-2 pt-1.5 pb-1">
+              {group.label}
+            </span>
+          )}
           {group.items.map((s) => {
             index += 1;
             const selected = index === active;

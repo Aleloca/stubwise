@@ -183,24 +183,33 @@ export function CommentsColumn({
     el?.focus();
   };
 
+  // Un filo alla volta: un doppio clic su «Resolve» / «Reopen» scrive una volta sola.
+  const writing = useRef(new Set<string>());
+  const once = (rootId: string, run: (done: () => void) => void) => {
+    if (writing.current.has(rootId)) return;
+    writing.current.add(rootId);
+    run(() => writing.current.delete(rootId));
+  };
   const doResolve = (rootId: string) => {
     const i = live.findIndex((th) => th.root.id === rootId);
     const next = live[i + 1] ?? gone.find((th) => th.root.id !== rootId) ?? null;
-    resolve.mutate(rootId, {
+    once(rootId, (done) => resolve.mutate(rootId, {
+      onSettled: done,
       onSuccess: () => {
         setAnnounce(t("productDocs.comments.resolved"));
         pending.current = next ? { kind: "thread", id: next.root.id } : { kind: "resolved" };
         if (active === rootId) onActive(null);
       },
-    });
+    }));
   };
   const doReopen = (rootId: string) =>
-    reopen.mutate(rootId, {
+    once(rootId, (done) => reopen.mutate(rootId, {
+      onSettled: done,
       onSuccess: () => {
         setAnnounce(t("productDocs.comments.reopened"));
         pending.current = { kind: "action", id: rootId };
       },
-    });
+    }));
 
   const threadProps = (th: ProductCommentThread, isResolved: boolean) => ({
     thread: th,

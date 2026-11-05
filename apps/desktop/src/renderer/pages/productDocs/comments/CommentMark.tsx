@@ -2,8 +2,10 @@ import { useTranslation } from "react-i18next";
 import { useProductSpaceContext } from "../parts";
 
 // Il segno di un blocco commentato (shape product-comments-history.md §3.4,
-// [PC 6]): sul bordo destro della colonna di lettura, all'altezza della
-// prima riga, il glifo del commento 14 px `ink-faint` col numero dei fili
+// [PC 6]): sul bordo destro, DENTRO la colonna di lettura (il corpo tiene
+// 28 px a destra apposta: il margine fuori resta al segno di Claude del
+// 11b), all'altezza della prima riga; su una tabella 28 px più giù, sotto
+// il suo «⋯». È il glifo del commento 14 px `ink-faint` col numero dei fili
 // aperti. Clic: la colonna sul primo filo di quel blocco. Per chi scrive e
 // per chi legge. Nessun segno senza fili aperti con l'ancora viva.
 
@@ -16,7 +18,7 @@ export function useOpenThreads(anchorIds: readonly string[]): { count: number; a
   return { count, active };
 }
 
-export function CommentMark({ anchorIds }: { anchorIds: readonly string[] }) {
+export function CommentMark({ anchorIds, below = false }: { anchorIds: readonly string[]; below?: boolean }) {
   const { t } = useTranslation();
   const { comments } = useProductSpaceContext();
   const { count } = useOpenThreads(anchorIds);
@@ -30,7 +32,7 @@ export function CommentMark({ anchorIds }: { anchorIds: readonly string[] }) {
       title={label}
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => comments.openAnchor(anchorIds)}
-      className="absolute top-[var(--block-pt,0px)] -right-8 inline-flex h-6 items-center gap-0.5 rounded-md px-1 text-ink-faint transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
+      className={`absolute -right-7 ${below ? "top-[calc(var(--block-pt,0px)+28px)]" : "top-[var(--block-pt,0px)]"} inline-flex h-6 w-7 items-center justify-center gap-0.5 rounded-md text-ink-faint transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink`}
     >
       <svg viewBox="0 0 16 16" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round" aria-hidden="true" focusable="false">
         <path d="M2.75 3.75h10.5v7h-5.5l-3 2.5v-2.5h-2Z" />

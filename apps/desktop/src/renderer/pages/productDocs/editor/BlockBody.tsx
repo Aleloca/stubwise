@@ -80,7 +80,7 @@ export function ReadOnlyBody({ page }: { page: ProductPageView }) {
   const numbers = numbersOf(page.blocks);
   const { comments } = useProductSpaceContext();
   return (
-    <div data-editor-body="" className="flex flex-col">
+    <div data-editor-body="" className="flex flex-col pr-7">
       {page.blocks.map((block, i) => {
         // I blocchi vuoti non occupano spazio per chi legge (§5).
         if (isTextBlock(block) && block.content.text.trim() === "") return null;
@@ -95,7 +95,7 @@ export function ReadOnlyBody({ page }: { page: ProductPageView }) {
             style={{ paddingTop: pt, paddingBottom: pb, ["--block-pt" as string]: `${gutterTop}px` }}
             className={`relative rounded-lg ${tinted ? "bg-ink/6" : ""}`}
           >
-            <CommentMark anchorIds={anchors} />
+            <CommentMark anchorIds={anchors} below={block.type === "table"} />
             <BlockBody block={block} page={page} number={numbers[i]!}>
               {isTextBlock(block) && (
                 <RichReadOnly content={block.content} className={textClassOf(block, block.type === "todo" && block.checked)} />

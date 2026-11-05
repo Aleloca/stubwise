@@ -138,8 +138,22 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
     page: view,
     commentParam: search.comment,
     taskOpen: !!search.task,
-    overlay: !docked,
   });
+  // Agganciata, un gesto dei commenti (o «History») vince sul pannello della
+  // task, che ne occupa il posto: una colonna sola ([PE 19]), l'ultima aperta.
+  // Sovrapposta il pannello resta montato dietro ([PE 22]).
+  const navigate = useNavigate();
+  const raisedSeen = useRef(0);
+  useEffect(() => {
+    if (side.raised === raisedSeen.current) return;
+    raisedSeen.current = side.raised;
+    if (!docked || !search.task) return;
+    void navigate({
+      to: ".",
+      search: (prev: Record<string, unknown>) => ({ ...prev, task: undefined }),
+      replace: true,
+    } as never);
+  }, [side.raised, docked, search.task, navigate]);
   const comments = useProductComments(view?.id ?? "", { enabled: view !== null });
   const bridge = ((): CommentsBridge | null => {
     if (!view) return null;

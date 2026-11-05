@@ -135,6 +135,7 @@ export const CommentComposer = forwardRef<
       {mentioning && (
         <SuggestionMenu
           id={menuId}
+          header={t("productDocs.comments.people", { code: projectCode })}
           label={t("productDocs.comments.people", { code: projectCode })}
           groups={groups}
           active={activeIndex}

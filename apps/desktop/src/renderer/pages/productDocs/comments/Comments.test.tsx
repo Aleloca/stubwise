@@ -23,6 +23,7 @@ import { commentsPrefKey } from "../SideColumn";
 const LAURA = "p-laura";
 const MARCO = "p-marco";
 const SARA = "p-sara";
+const MATTEO = "p-matteo";
 const SIGNIN = "ACQ-D5";
 const SIGNIN_ROOT = "pc-acq-signin-1";
 const LOGIN_ID = "blk-acq-signin-4";
@@ -66,11 +67,26 @@ async function enter(text: string, at: number, to = at) {
   return editing();
 }
 
+// Chi guarda non vede le persone in `hide.ids` (R-G5 dei seguaci, fix round 1).
+const hide = vi.hoisted(() => ({ ids: new Set<string>() }));
+vi.mock("../../../data/access/whoCan", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../data/access/whoCan")>();
+  return {
+    ...actual,
+    visiblePeopleFor: (viewerId: string) => {
+      const seen = actual.visiblePeopleFor(viewerId);
+      for (const id of hide.ids) seen.delete(id);
+      return seen;
+    },
+  };
+});
+
 beforeEach(() => {
   setLatency(0);
   resetApi();
   window.localStorage.clear();
   setMatchMedia(DOCKED_PANEL_QUERY, true);
+  hide.ids.clear();
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -454,13 +470,232 @@ describe("«Follow»", () => {
     expect(within(bar()).getByRole("button", { name: /^Follow\b/ })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("chi segue e non è visibile a chi guarda non è nominato (R-G5)", async () => {
+  it("chi segue e non è visibile a chi guarda non è nominato (R-G5), né nel title né nel nome", async () => {
     const bills = pageByTitle("Bills");
-    // Un nome che nessuno di ACQ vede: un seguace finto fuori da PEOPLE.
-    state.productFollows.push({ pageId: bills.id, personId: "p-nobody-visible", since: bills.createdAt });
+    // Matteo Conti esiste in PEOPLE e legge i Docs di ACQ: segue Bills. Chi
+    // guarda (Sara) qui non lo vede (`visiblePeopleFor` simulato): solo il
+    // filtro della visibilità lo toglie, nessun altro controllo.
+    state.productFollows.push({ pageId: bills.id, personId: MATTEO, since: bills.createdAt });
+    hide.ids.add(MATTEO);
     await open(bills.code, SARA);
     const follow = within(bar()).getByRole("button", { name: /^Follow\b/ });
-    expect(follow.getAttribute("title")!.toLowerCase()).not.toContain("p-nobody-visible");
-    expect(follow.getAttribute("title")).toContain("Followed by 1 person: Laura Costa");
+    for (const text of [follow.getAttribute("title")!, follow.getAttribute("aria-label")!]) {
+      expect(text.toLowerCase()).not.toContain("matteo");
+      expect(text.toLowerCase()).toContain("followed by 1 person: laura costa");
+    }
+  });
+});
+
+describe("fix round 1", () => {
+  const withTask = `?task=ACQ-1`;
+  const searchOf = (router: ReturnType<typeof renderRoute>) =>
+    router.state.location.search as Record<string, unknown>;
+
+  it("a 1440 col pannello della task: «Comments» riporta la colonna al suo posto e ricorda `open`", async () => {
+    window.localStorage.setItem(commentsPrefKey(LAURA), "closed");
+    const router = await open(SIGNIN, LAURA, withTask);
+    expect(queryColumn()).toBeNull();
+    const user = userEvent.setup();
+    await user.click(within(bar()).getByRole("button", { name: /^Comments/ }));
+    expect(await column()).toBeInTheDocument();
+    expect(window.localStorage.getItem(commentsPrefKey(LAURA))).toBe("open");
+    await waitFor(() => expect(searchOf(router).task).toBeUndefined());
+  });
+
+  it("a 1440 col pannello della task: il segno del blocco e «Comment» sulla selezione aprono la colonna", async () => {
+    seedBlock(LOGIN_ID, LOGIN);
+    const router = await open(SIGNIN, LAURA, withTask);
+    expect(queryColumn()).toBeNull();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "1 comment on this paragraph" }));
+    const col = await column();
+    await within(col).findByRole("article", { name: /Google account/ });
+    await waitFor(() => expect(searchOf(router).task).toBeUndefined());
+    // Di nuovo il pannello, poi «Comment» su una frase: la casella si vede.
+    await act(() =>
+      router.navigate({ to: ".", search: (prev: Record<string, unknown>) => ({ ...prev, task: "ACQ-1" }) } as never),
+    );
+    await waitFor(() => expect(queryColumn()).toBeNull());
+    await enter(LOGIN, 6, 22);
+    await user.click(within(await screen.findByRole("toolbar")).getByRole("button", { name: "Comment" }));
+    expect(await within(await column()).findByRole("combobox", { name: /Add a comment/ })).toBeInTheDocument();
+    expect(window.localStorage.getItem(commentsPrefKey(LAURA))).not.toBe("closed");
+  });
+
+  it("`?comment=` col pannello della task a 1440: la colonna sul filo", async () => {
+    await open(SIGNIN, LAURA, `?task=ACQ-1&comment=${SIGNIN_ROOT}`);
+    const col = await column();
+    const thread = await within(col).findByRole("article", { name: /Google account/ });
+    await waitFor(() => expect(document.activeElement).toBe(thread));
+  });
+
+  it("il segno sta dentro la colonna di lettura ([PC 6]): nel margine interno del corpo, e sotto il «⋯» di una tabella", async () => {
+    await open(SIGNIN);
+    expect(body().className).toContain("pr-7");
+    const mark = screen.getByRole("button", { name: "1 comment on this paragraph" });
+    expect(mark.className).toContain("-right-7");
+    expect(mark.className).not.toContain("-right-8");
+    cleanup();
+    const meter = pageByTitle("Meter reading");
+    const table = meter.blocks.find((b) => b.type === "table") as Extract<ProductBlock, { type: "table" }>;
+    productDocs.addProductCommentAs(LAURA, meter.id, { anchorId: table.rows[1]!.cells[0]!.id, quote: "", body: "Flats too?" });
+    await open(meter.code);
+    const tableMark = within(body().querySelector<HTMLElement>(`[data-block-id="${table.id}"]`)!).getByRole("button", {
+      name: "1 comment on this paragraph",
+    });
+    expect(tableMark.className).toContain("+28px");
+  });
+
+  it("un doppio clic su «Resolve» e su «Reopen» scrive una volta sola", async () => {
+    const resolve = vi.spyOn(api.productDocs, "resolveProductComment");
+    const reopen = vi.spyOn(api.productDocs, "reopenProductComment");
+    await open(SIGNIN);
+    const col = await column();
+    const thread = await within(col).findByRole("article", { name: /Google account/ });
+    const button = within(thread).getByRole("button", { name: "Resolve" });
+    act(() => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+    const toggle = await within(col).findByRole("button", { name: "1 resolved" });
+    expect(resolve).toHaveBeenCalledTimes(1);
+    fireEvent.click(toggle);
+    const closed = await within(col).findByRole("article", { name: /Google account/ });
+    const again = within(closed).getByRole("button", { name: "Reopen" });
+    act(() => {
+      fireEvent.click(again);
+      fireEvent.click(again);
+    });
+    await within(col).findByRole("button", { name: "Resolve" });
+    expect(reopen).toHaveBeenCalledTimes(1);
+  });
+
+  it("un doppio clic su «Follow» segue una volta, e la pagina resta seguita", async () => {
+    const follow = vi.spyOn(api.productDocs, "followProductPage");
+    const unfollow = vi.spyOn(api.productDocs, "unfollowProductPage");
+    const bills = pageByTitle("Bills");
+    await open(bills.code, SARA);
+    const button = within(bar()).getByRole("button", { name: /^Follow\b/ });
+    act(() => {
+      fireEvent.click(button);
+      fireEvent.click(button);
+    });
+    await waitFor(() => expect(follow).toHaveBeenCalledTimes(1));
+    expect(unfollow).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(within(bar()).getByRole("button", { name: /^Following\b/ })).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(state.productFollows.some((f) => f.pageId === bills.id && f.personId === SARA)).toBe(true);
+  });
+
+  it("il menu delle menzioni: la riga in testa (12 px `ink-faint`, una riga) resta anche senza risultati", async () => {
+    seedBlock(LOGIN_ID, LOGIN);
+    await open(SIGNIN);
+    await enter(LOGIN, 6, 22);
+    const user = userEvent.setup();
+    await user.click(within(await screen.findByRole("toolbar")).getByRole("button", { name: "Comment" }));
+    const box = await within(await column()).findByRole("combobox", { name: /Add a comment/ });
+    await user.type(box, "@zzz");
+    const menu = await screen.findByRole("listbox");
+    const header = within(menu).getByText("People who can read ACQ's docs");
+    expect(header.className).toContain("text-xs");
+    expect(header.className).toContain("text-ink-faint");
+    expect(header.className).toContain("truncate");
+    expect(header.className).not.toContain("heading-group");
+    expect(within(menu).getByText("Nobody here matches “zzz”")).toBeInTheDocument();
+  });
+
+  it("⌥⌘M: nel paragrafo apre la casella; su una tabella scelta come oggetto non fa niente e non si prende il tasto", async () => {
+    seedBlock(LOGIN_ID, LOGIN);
+    await open(SIGNIN);
+    const el = await enter(LOGIN, 3);
+    let kept = true;
+    act(() => {
+      kept = fireEvent.keyDown(el, { key: "µ", code: "KeyM", altKey: true, metaKey: true });
+    });
+    expect(kept).toBe(false);
+    expect(await within(await column()).findByRole("combobox", { name: /Add a comment/ })).toBeInTheDocument();
+    cleanup();
+    const meter = pageByTitle("Meter reading");
+    const table = meter.blocks.find((b) => b.type === "table")!;
+    await open(meter.code);
+    const shell = body().querySelector<HTMLElement>(`[data-block-id="${table.id}"]`)!;
+    act(() => {
+      kept = fireEvent.keyDown(shell, { key: "µ", code: "KeyM", altKey: true, metaKey: true });
+    });
+    expect(kept).toBe(true);
+  });
+
+  it("⌥⌘M in una cella: la casella per quella cella", async () => {
+    const meter = pageByTitle("Meter reading");
+    await open(meter.code);
+    const user = userEvent.setup();
+    await user.click(within(body()).getByRole("textbox", { name: "Table cell, row 3, column 1" }));
+    await waitFor(() => expect(editing()).toHaveTextContent("Business"));
+    act(() => {
+      fireEvent.keyDown(editing(), { key: "µ", code: "KeyM", altKey: true, metaKey: true });
+    });
+    const col = await column();
+    await within(col).findByRole("combobox", { name: /Add a comment/ });
+    expect(within(col).getByText("“Business”")).toBeInTheDocument();
+  });
+
+  it("un'immagine si commenta da tastiera: ⋮⋮ → Comment, con la didascalia", async () => {
+    const screens = pageByTitle("Screens");
+    const image = screens.blocks.find((b) => b.type === "image") as Extract<ProductBlock, { type: "image" }>;
+    await open(screens.code);
+    const user = userEvent.setup();
+    const shell = body().querySelector<HTMLElement>(`[data-block-id="${image.id}"]`)!;
+    await user.click(within(shell).getByRole("button", { name: /^Block menu/ }));
+    await user.click(await screen.findByRole("menuitem", { name: "Comment" }));
+    const col = await column();
+    const box = await within(col).findByRole("combobox", { name: /Add a comment/ });
+    expect(within(col).getByText(`“${image.caption}”`)).toBeInTheDocument();
+    await user.type(box, "Bigger button?");
+    await user.click(within(col).getByRole("button", { name: "Comment" }));
+    await within(col).findByRole("article", { name: `Comment by Laura Costa on “${image.caption}”` });
+    expect(state.productComments.find((c) => c.body === "Bigger button?")!.anchorId).toBe(image.id);
+  });
+
+  it("Sara seleziona davvero del testo: nessuna barra, nessun «Comment»", async () => {
+    await open(SIGNIN, SARA);
+    await column();
+    const text = within(body()).getByText(/There is no password to reset/);
+    act(() => {
+      const range = document.createRange();
+      range.selectNodeContents(text);
+      document.getSelection()!.removeAllRanges();
+      document.getSelection()!.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+    });
+    fireEvent.mouseUp(text);
+    expect(document.getSelection()!.toString()).toContain("There is no password");
+    expect(screen.queryByRole("toolbar")).toBeNull();
+    expect(screen.queryByRole("button", { name: /^(Comment|Commenta)$/ })).toBeNull();
+  });
+
+  it("una vista senza `followers` né `lastRevision` (cambio additivo): la riga «Updated» da `updatedAt`, e nessuno che segue", async () => {
+    const original = api.productDocs.getProductPage;
+    vi.spyOn(api.productDocs, "getProductPage").mockImplementation(async (code) => {
+      const view = await original(code);
+      if (!view) return view;
+      // Una lettura di prima: i due campi nuovi non ci sono.
+      const old: Partial<typeof view> = { ...view };
+      delete old.followers;
+      delete old.lastRevision;
+      return old as typeof view;
+    });
+    const signIn = pageByTitle("Sign-in");
+    signIn.updatedById = SARA;
+    await open(SIGNIN);
+    expect(screen.getByText(/^Updated .* by /)).toHaveTextContent("by Sara");
+    const follow = within(bar()).getByRole("button", { name: /^Follow/ });
+    expect(follow.getAttribute("title")).toContain("Nobody follows this page yet");
+  });
+
+  it("StrictMode: lo stato della colonna non usa contatori globali nel disegno", async () => {
+    const source = await import("../SideColumn.tsx?raw");
+    expect(source.default).not.toMatch(/^let \w+ = 0;/m);
+    expect(source.default).not.toMatch(/\+\+counter/);
   });
 });

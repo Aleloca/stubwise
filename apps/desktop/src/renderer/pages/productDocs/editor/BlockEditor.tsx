@@ -22,7 +22,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProductBlock, ProductBlockOp, ProductPageView } from "../../../data/types";
-import { anchorIdsOf, isTextBlock, makeBlockId } from "../../../domain/productDocs/blocks";
+import { anchorIdsOf, anchorText, isTextBlock, makeBlockId } from "../../../domain/productDocs/blocks";
 import { setLink, toggleMark } from "../../../domain/productDocs/richText";
 import { BlockBody, ReadOnlyBody, blockLabel, layoutOf, numbersOf, textClassOf } from "./BlockBody";
 import { useProductSpaceContext } from "../parts";
@@ -70,6 +70,18 @@ type PickerKind = "drive" | "decision" | "link";
 
 /** I blocchi non si spostano mentre se ne trascina uno: l'arrivo è una linea ([PS 12]). */
 const stillBlocks = () => null;
+
+/**
+ * La frase citata di un blocco commentato per intero (⋮⋮ → Comment, ⌥⌘M):
+ * il testo; per un'immagine la didascalia (o «Image»); per gli altri oggetti
+ * il nome del tipo («Drive file ACQ-F1», «Decision»). Mai il titolo di una
+ * decisione: chi legge il filo potrebbe non vederla (R-G5).
+ */
+function commentTextOf(block: ProductBlock, t: (key: string, opts?: Record<string, unknown>) => string): string {
+  if (isTextBlock(block)) return block.content.text;
+  if (block.type === "image" && block.caption.trim() !== "") return block.caption;
+  return blockLabel(block, t);
+}
 
 export interface BlockEditorHandle {
   /** Il fuoco nel primo blocco (Invio dal titolo). */
@@ -550,7 +562,7 @@ function WritableBody({
       data-editor-body=""
       aria-label={t("productDocs.editor.body")}
       role="group"
-      className="relative flex flex-col"
+      className="relative flex flex-col pr-7"
       onKeyDown={(e) => {
         // ⌥⌘M (la scorciatoia di Google Docs, §6): dal blocco col fuoco al
         // suo primo filo, o la casella se non ne ha.
@@ -558,13 +570,27 @@ function WritableBody({
         const id = (e.target as Element).closest?.("[data-block-id]")?.getAttribute("data-block-id");
         const block = id ? blockOf(id) : null;
         if (!block) return;
-        e.preventDefault();
-        const anchors = anchorIdsOf(block);
-        if (anchors.some((a) => (bridge.counts.get(a) ?? 0) > 0)) bridge.openAnchor(anchors);
-        else if (comment && isTextBlock(block)) {
-          flush();
-          comment(block.id, block.content.text);
+        // In una tabella l'ancora è la cella col fuoco.
+        const cellId =
+          block.type === "table"
+            ? ((e.target as Element).closest?.("[data-anchor-id]")?.getAttribute("data-anchor-id") ?? null)
+            : null;
+        const anchors = cellId ? [cellId] : anchorIdsOf(block);
+        if (anchors.some((a) => (bridge.counts.get(a) ?? 0) > 0)) {
+          e.preventDefault();
+          bridge.openAnchor(anchors);
+          return;
         }
+        const target = cellId
+          ? { id: cellId, text: anchorText([block], cellId) ?? "" }
+          : block.type === "table"
+            ? null
+            : { id: block.id, text: commentTextOf(block, t) };
+        // Agisce solo se c'è dove commentare; altrimenti il tasto resta a chi viene dopo.
+        if (!comment || !target) return;
+        e.preventDefault();
+        flush();
+        comment(target.id, target.text);
       }}
       onDragOver={onFileDragOver}
       onDragLeave={(e) => {
@@ -657,16 +683,17 @@ function WritableBody({
                       onDuplicate={() => duplicate(block.id)}
                       onDelete={() => deleteBlock(block.id)}
                       onComment={
-                        comment && isTextBlock(block)
+                        // Ogni blocco che è un'ancora (non la tabella: lì le celle, con ⌥⌘M o la selezione).
+                        comment && block.type !== "table"
                           ? () => {
                               flush();
                               // La frase intera (la bozza compresa: `view` la contiene).
-                              comment(block.id, block.content.text);
+                              comment(block.id, commentTextOf(block, t));
                             }
                           : undefined
                       }
                     />
-                    <CommentMark anchorIds={anchorIdsOf(block)} />
+                    <CommentMark anchorIds={anchorIdsOf(block)} below={block.type === "table"} />
                     <BlockBody
                       block={block}
                       page={page}
