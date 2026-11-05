@@ -323,7 +323,7 @@ describe("subscribeProductPage", () => {
     expect(woke.length).toBeGreaterThan(0);
     expect(new Set(woke)).toEqual(new Set([METER]));
     const count = woke.length;
-    await productDocs.leaveProductPage(METER);
+    productDocs.leaveProductPageAs(LAURA, METER);
     expect(woke).toHaveLength(count);
   });
 });
@@ -336,7 +336,7 @@ describe("la presenza di chi guarda", () => {
       anchorId: null,
       selection: null,
     });
-    await productDocs.leaveProductPage(METER);
+    productDocs.leaveProductPageAs(SARA, METER);
     expect(presenceOn(METER).some((p) => p.personId === SARA)).toBe(false);
   });
 

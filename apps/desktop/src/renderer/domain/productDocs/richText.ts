@@ -297,7 +297,7 @@ export function richFromHtml(html: string): RichText[] {
   };
 
   const append = (raw: string, style: Style) => {
-    let chunk = raw.replace(/ /g, " ").replace(/[\t\n\r\f ]+/g, " ");
+    let chunk = raw.replace(/\u00a0/g, " ").replace(/[\t\n\r\f ]+/g, " ");
     if (text === "" || text.endsWith(" ")) chunk = chunk.replace(/^ /, "");
     if (chunk === "") return;
     const start = text.length;

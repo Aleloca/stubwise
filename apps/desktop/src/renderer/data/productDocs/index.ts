@@ -40,7 +40,6 @@ export {
 export {
   getProductPresence,
   joinProductPage,
-  leaveProductPage,
   leaveProductPageAs,
   onProductPresence,
   setProductPresence,

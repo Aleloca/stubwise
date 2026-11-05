@@ -109,10 +109,6 @@ export function leaveProductPageAs(me: string, pageId: string): void {
   dropPresence(pageId, new Set([me]));
 }
 
-export async function leaveProductPage(pageId: string): Promise<void> {
-  leaveProductPageAs(await writer("productDocs.leaveProductPage"), pageId);
-}
-
 /**
  * Dove scrive chi guarda (`null` = c'è ma non scrive). Con l'ancora chiede
  * `docs.edit`; l'ancora deve esserci adesso, e offset e selezione stanno

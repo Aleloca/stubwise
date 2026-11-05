@@ -414,7 +414,6 @@ export type ApiFnName =
   | "productDocs.reopenProductComment"
   | "productDocs.productMentionCandidates"
   | "productDocs.joinProductPage"
-  | "productDocs.leaveProductPage"
   | "productDocs.setProductPresence"
   | "productDocs.getProductPresence"
   // Drive (area 5)
