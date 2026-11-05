@@ -10,7 +10,8 @@ import type { DragHandle } from "./BlockShell";
 // si trascina (`dragListeners`, [PE 4]) e al clic apre il menu del blocco: Turn into ▸ (i tipi di testo, solo per un
 // blocco di testo) · Move up · Move down · Duplicate · Delete. Le voci
 // impossibili restano, spente con la loro frase. Compare al passaggio e
-// col fuoco nel blocco; «Comment» arriva col Task 10.
+// col fuoco nel blocco. «Comment» (Task 10, P22: il gesto da tastiera,
+// con la frase intera) per chi può commentare un blocco di testo.
 
 /** I tipi in cui si trasforma un blocco di testo, nell'ordine del menu «/». */
 export const TURN_INTO: SlashItemId[] = [
@@ -38,6 +39,7 @@ export function BlockHandle({
   onMove,
   onDuplicate,
   onDelete,
+  onComment,
   drag,
 }: {
   /** Di quale blocco (per il nome dei bottoni). */
@@ -52,6 +54,8 @@ export function BlockHandle({
   onMove: (dir: "up" | "down") => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  /** «Comment» con la frase intera (Task 10); assente per chi non può commentare. */
+  onComment?: () => void;
   /** Il trascinamento (dnd-kit), sul solo ⋮⋮: un clic senza movimento resta il menu. */
   drag?: DragHandle;
 }) {
@@ -141,6 +145,7 @@ export function BlockHandle({
               ? disabled(t("productDocs.editor.handle.alreadyLast"), t("productDocs.editor.handle.moveDown"))
               : item(t("productDocs.editor.handle.moveDown"), () => onMove("down"), close)}
             {item(t("productDocs.editor.handle.duplicate"), onDuplicate, close)}
+            {onComment && item(t("productDocs.comments.comment"), onComment, close)}
             <div role="separator" className="my-1 h-px bg-rule" />
             {item(t("productDocs.editor.handle.delete"), onDelete, close, true)}
           </>

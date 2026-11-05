@@ -36,6 +36,27 @@ export interface ProductSpaceContextValue {
   reveal: (pageId: string) => void;
   /** L'editor della pagina aperta dice come va il salvataggio (`null` = nessun editor). */
   setEditorStatus: (status: EditorStatus | null) => void;
+  /** Il ponte fra il testo e la colonna dei commenti (Task 10); assente fuori da una pagina. */
+  comments?: CommentsBridge | null;
+}
+
+/**
+ * Ciò che il testo sa dei commenti (shape product-comments-history.md §3.1,
+ * §3.4): quanti fili aperti ha ogni ancora (il segno), quale ancora ha il
+ * filo attivo (la tinta), e i due gesti che aprono la colonna. Lo tiene lo
+ * spazio, che possiede la colonna; la pagina e l'editor lo leggono soltanto.
+ */
+export interface CommentsBridge {
+  /** I fili aperti con l'ancora viva, per id d'ancora (blocco o cella). */
+  counts: ReadonlyMap<string, number>;
+  /** L'ancora del filo attivo (fuoco, clic, `?comment=`): il suo blocco ha la tinta. */
+  activeAnchor: string | null;
+  /** Chi guarda può commentare (`docs.edit`, dalla vista). */
+  canComment: boolean;
+  /** «Comment»: la casella nella colonna, per l'ancora e la frase scelta. */
+  start(anchorId: string, quote: string): void;
+  /** Il segno del blocco: la colonna sul primo filo di quelle ancore. */
+  openAnchor(anchorIds: readonly string[]): void;
 }
 
 export const ProductSpaceContext = createContext<ProductSpaceContextValue | null>(null);

@@ -1,5 +1,6 @@
 import { excerptOfBlocks } from "../../domain/productDocs/blocks";
 import { buildProductTree } from "../../domain/productDocs/tree";
+import { visiblePeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, state, visibleProjectIds } from "../store";
@@ -136,5 +137,26 @@ export async function getProductPage(code: string): Promise<ProductPageView | nu
     openComments: state.productComments.filter(
       (c) => c.pageId === page.id && c.replyToId === null && c.resolved === null,
     ).length,
+    followers: followersVisibleTo(me, page),
+    lastRevision: lastRevisionOf(page.id),
   };
+}
+
+/** Chi segue la pagina e la legge adesso, fra chi `me` vede (P33): nessun nome invisibile (R-G5). */
+function followersVisibleTo(me: string, page: ProductPage): { id: string; name: string }[] {
+  const visible = visiblePeopleFor(me);
+  return state.productFollows.flatMap((f) => {
+    if (f.pageId !== page.id || !visible.has(f.personId)) return [];
+    if (docsAccess(f.personId, page.projectId) !== "read") return [];
+    const person = PEOPLE.find((p) => p.id === f.personId);
+    return person ? [{ id: person.id, name: person.name }] : [];
+  });
+}
+
+/** L'ultima revisione della pagina (per `lastSeq`, ruling P12). */
+function lastRevisionOf(pageId: string): { at: string; actorId: string } | null {
+  let last: { lastSeq: number; at: string; actorId: string } | null = null;
+  for (const r of state.productRevisions)
+    if (r.pageId === pageId && (!last || r.lastSeq > last.lastSeq)) last = r;
+  return last ? { at: last.at, actorId: last.actorId } : null;
 }

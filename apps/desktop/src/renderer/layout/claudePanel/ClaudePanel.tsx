@@ -79,18 +79,21 @@ function useDockGeometry(): { right: number; room: number } {
   const [geometry, setGeometry] = useState({ right: 0, room: Number.POSITIVE_INFINITY });
   useEffect(() => {
     let frame = 0;
-    let watched: Element | null = null;
+    let watched: Element[] = [];
     const resize =
       typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => schedule());
     function measure() {
       frame = 0;
-      const el = document.querySelector("[data-detail-panel]");
-      if (el !== watched) {
-        if (watched) resize?.unobserve(watched);
-        if (el) resize?.observe(el);
-        watched = el;
+      // Il pannello di dettaglio e, a 1024, la colonna dei commenti o della
+      // cronologia di una pagina di prodotto, sovrapposta (area 11a, [PE 22]):
+      // il riquadro sta a sinistra della più larga delle due.
+      const els = [...document.querySelectorAll('[data-detail-panel], [data-product-side="overlay"]')];
+      if (els.length !== watched.length || els.some((el, i) => el !== watched[i])) {
+        for (const el of watched) resize?.unobserve(el);
+        for (const el of els) resize?.observe(el);
+        watched = els;
       }
-      const right = el ? Math.round(el.getBoundingClientRect().width) : 0;
+      const right = Math.max(0, ...els.map((el) => Math.round(el.getBoundingClientRect().width)));
       const workLeft =
         document.querySelector('[data-zone="work-row"]')?.getBoundingClientRect().left ?? 0;
       const room = window.innerWidth > 0 ? window.innerWidth - right - workLeft : Infinity;

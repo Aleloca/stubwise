@@ -22,10 +22,12 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProductBlock, ProductBlockOp, ProductPageView } from "../../../data/types";
-import { isTextBlock, makeBlockId } from "../../../domain/productDocs/blocks";
+import { anchorIdsOf, isTextBlock, makeBlockId } from "../../../domain/productDocs/blocks";
 import { setLink, toggleMark } from "../../../domain/productDocs/richText";
 import { BlockBody, ReadOnlyBody, blockLabel, layoutOf, numbersOf, textClassOf } from "./BlockBody";
 import { useProductSpaceContext } from "../parts";
+import { CommentMark } from "../comments/CommentMark";
+import { useCommentGesture } from "../comments/SelectionCommentButton";
 import { BlockHandle } from "./BlockHandle";
 import { dropAfter, floatingPlacement, insertCode } from "./blockOps";
 import { BlockShell } from "./BlockShell";
@@ -126,7 +128,9 @@ function WritableBody({
     setSlashState(next);
   };
   const [linkOpen, setLinkOpen] = useState(false);
-  const { project } = useProductSpaceContext();
+  const { project, comments: bridge } = useProductSpaceContext();
+  /** «Comment» (Task 10): solo per chi può commentare. */
+  const comment = useCommentGesture();
   /** Un selettore aperto al blocco `id`; `at` è il cursore a cui torna il fuoco. */
   const [picker, setPickerState] = useState<{ kind: PickerKind; id: string; at: number } | null>(null);
   const pickerRef = useRef(picker);
@@ -547,6 +551,21 @@ function WritableBody({
       aria-label={t("productDocs.editor.body")}
       role="group"
       className="relative flex flex-col"
+      onKeyDown={(e) => {
+        // ⌥⌘M (la scorciatoia di Google Docs, §6): dal blocco col fuoco al
+        // suo primo filo, o la casella se non ne ha.
+        if (!(e.altKey && (e.metaKey || e.ctrlKey) && e.code === "KeyM") || !bridge) return;
+        const id = (e.target as Element).closest?.("[data-block-id]")?.getAttribute("data-block-id");
+        const block = id ? blockOf(id) : null;
+        if (!block) return;
+        e.preventDefault();
+        const anchors = anchorIdsOf(block);
+        if (anchors.some((a) => (bridge.counts.get(a) ?? 0) > 0)) bridge.openAnchor(anchors);
+        else if (comment && isTextBlock(block)) {
+          flush();
+          comment(block.id, block.content.text);
+        }
+      }}
       onDragOver={onFileDragOver}
       onDragLeave={(e) => {
         if (!container.current?.contains(e.relatedTarget as Node | null)) setFileDrop(null);
@@ -620,6 +639,7 @@ function WritableBody({
                 }}
                 onKeyDown={shellKey(block)}
                 dropLine={drop && drag?.overId === block.id ? drop.edge : fileDrop === block.id ? "bottom" : null}
+                tinted={!!bridge?.activeAnchor && anchorIdsOf(block).includes(bridge.activeAnchor)}
                 style={{ paddingTop: layout.pt, paddingBottom: layout.pb, ["--block-pt" as string]: `${layout.gutterTop}px` }}
               >
                 {(dragHandle) => (
@@ -636,7 +656,17 @@ function WritableBody({
                       onMove={(dir) => moveBlock(block.id, dir)}
                       onDuplicate={() => duplicate(block.id)}
                       onDelete={() => deleteBlock(block.id)}
+                      onComment={
+                        comment && isTextBlock(block)
+                          ? () => {
+                              flush();
+                              // La frase intera (la bozza compresa: `view` la contiene).
+                              comment(block.id, block.content.text);
+                            }
+                          : undefined
+                      }
                     />
+                    <CommentMark anchorIds={anchorIdsOf(block)} />
                     <BlockBody
                       block={block}
                       page={page}
@@ -750,6 +780,15 @@ function WritableBody({
             setLinkOpen(false);
             caret(focusedText.id, focus!.start, focus!.end);
           }}
+          onComment={
+            comment
+              ? () => {
+                  const quote = focusedText.content.text.slice(barStart, barEnd);
+                  flush();
+                  comment(focusedText.id, quote);
+                }
+              : undefined
+          }
         />
       )}
     </div>

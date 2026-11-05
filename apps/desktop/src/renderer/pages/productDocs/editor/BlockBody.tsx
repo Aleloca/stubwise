@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProductBlock, ProductPageView, RichText } from "../../../data/types";
-import { isTextBlock } from "../../../domain/productDocs/blocks";
+import { anchorIdsOf, isTextBlock } from "../../../domain/productDocs/blocks";
+import { CommentMark } from "../comments/CommentMark";
 import { useProductSpaceContext } from "../parts";
 import { DecisionBlock } from "./DecisionBlock";
 import { DriveBlock } from "./DriveBlock";
@@ -77,14 +78,24 @@ export function numbersOf(blocks: readonly ProductBlock[]): number[] {
 
 export function ReadOnlyBody({ page }: { page: ProductPageView }) {
   const numbers = numbersOf(page.blocks);
+  const { comments } = useProductSpaceContext();
   return (
     <div data-editor-body="" className="flex flex-col">
       {page.blocks.map((block, i) => {
         // I blocchi vuoti non occupano spazio per chi legge (§5).
         if (isTextBlock(block) && block.content.text.trim() === "") return null;
-        const { pt, pb } = layoutOf(block);
+        const { pt, pb, gutterTop } = layoutOf(block);
+        const anchors = anchorIdsOf(block);
+        // Il blocco del filo attivo ha la tinta (Task 10, [PC 6]), anche per chi legge.
+        const tinted = !!comments?.activeAnchor && anchors.includes(comments.activeAnchor);
         return (
-          <div key={block.id} data-block-id={block.id} style={{ paddingTop: pt, paddingBottom: pb }}>
+          <div
+            key={block.id}
+            data-block-id={block.id}
+            style={{ paddingTop: pt, paddingBottom: pb, ["--block-pt" as string]: `${gutterTop}px` }}
+            className={`relative rounded-lg ${tinted ? "bg-ink/6" : ""}`}
+          >
+            <CommentMark anchorIds={anchors} />
             <BlockBody block={block} page={page} number={numbers[i]!}>
               {isTextBlock(block) && (
                 <RichReadOnly content={block.content} className={textClassOf(block, block.type === "todo" && block.checked)} />

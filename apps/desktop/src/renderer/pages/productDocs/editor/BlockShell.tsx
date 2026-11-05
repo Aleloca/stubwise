@@ -27,6 +27,7 @@ export function BlockShell({
   dropLine,
   dropNote = null,
   after = null,
+  tinted = false,
   children,
 }: {
   id: string;
@@ -40,6 +41,8 @@ export function BlockShell({
   dropNote?: string | null;
   /** Ciò che sta subito sotto il blocco (il rifiuto di un'immagine). */
   after?: ReactNode;
+  /** Il blocco del filo attivo (Task 10, [PC 6]): la tinta ink 6 % a tutta larghezza. */
+  tinted?: boolean;
   /** Il contenuto; riceve ciò che va su ⋮⋮. */
   children: (handle: DragHandle) => ReactNode;
 }) {
@@ -56,7 +59,7 @@ export function BlockShell({
       aria-label={label}
       onKeyDown={onKeyDown}
       style={style}
-      className={`group/block relative rounded-lg focus:outline-2 focus:outline-offset-2 focus:outline-focus focus:outline-solid ${isDragging ? "opacity-40" : ""}`}
+      className={`group/block relative rounded-lg focus:outline-2 focus:outline-offset-2 focus:outline-focus focus:outline-solid ${isDragging ? "opacity-40" : ""} ${tinted ? "bg-ink/6" : ""}`}
     >
       {dropLine && (
         <span

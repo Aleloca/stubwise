@@ -9,6 +9,7 @@ import { insertRich, tableAdd, tableRemove } from "./blockOps";
 import { pastedImages } from "./images";
 import { pasteBlocks } from "./keys";
 import { RichBlockEdit, RichBlockRead, RichReadOnly, type RichBlockHandlers, type Selection } from "./RichBlock";
+import { useCommentGesture } from "../comments/SelectionCommentButton";
 import { SelectionBar, linkAt } from "./SelectionBar";
 
 // La tabella (shape product-editor.md §3.10, [PE 13]): griglia 1 px `rule`,
@@ -82,6 +83,8 @@ export function TableBlock({ block, editing }: { block: Table; editing?: TableEd
 
 function WritableTable({ block, editing }: { block: Table; editing: TableEditing }) {
   const { t } = useTranslation();
+  /** «Comment» su una selezione nella cella (Task 10): l.ancora è la cella. */
+  const comment = useCommentGesture();
   const [focus, setFocusState] = useState<CellFocus | null>(null);
   const focusRef = useRef(focus);
   const nonce = useRef(0);
@@ -379,6 +382,15 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
             setLinkOpen(false);
             caret(focus.id, focus.start, focus.end);
           }}
+          onComment={
+            comment
+              ? () => {
+                  const quote = editingContent.text.slice(barStart, barEnd);
+                  editingRef.current.leave();
+                  comment(focus.id, quote);
+                }
+              : undefined
+          }
         />
       )}
       <div className="absolute top-0 -right-7 opacity-0 transition-opacity duration-[var(--duration-fast)] ease-out group-focus-within/table:opacity-100 group-hover/table:opacity-100 has-[[aria-expanded=true]]:opacity-100">

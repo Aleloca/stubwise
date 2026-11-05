@@ -1,7 +1,13 @@
-import { Link, Outlet, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, Outlet, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import { useProject, useProductPage, useProductSpace } from "../../data/queries";
+import {
+  useProject,
+  useProductComments,
+  useProductPage,
+  useProductSpace,
+  useSessionPersonId,
+} from "../../data/queries";
 import type { ProductPageView, ProductSpaceView, Project } from "../../data/types";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
@@ -17,7 +23,12 @@ import { Resizer, TREE_DEFAULT } from "../docs/DocSpace";
 import { DocsForbidden, ReadingSkeleton, isForbidden } from "../docs/parts";
 import { ProductTree, type FocusRequest } from "./ProductTree";
 import { SaveStatus } from "./SaveStatus";
+import { FollowButton, pageBarButton } from "./FollowButton";
+import { SideColumnFrame, useSideColumn, type SideColumn } from "./SideColumn";
+import { CommentsColumn } from "./comments/CommentsColumn";
+import { HistoryPanel } from "./history/HistoryPanel";
 import {
+  type CommentsBridge,
   DeletePageDialog,
   type EditorStatus,
   ProductNotFound,
@@ -100,8 +111,10 @@ function SpaceGate({ project }: { project: Project }) {
 
 function SpaceShell({ project, space }: { project: Project; space: ProductSpaceView }) {
   const { t } = useTranslation();
+  const me = useSessionPersonId();
   const docked = useMediaQuery(DOCKED_PANEL_QUERY);
   const params = useParams({ strict: false }) as { page?: string };
+  const search = useSearch({ strict: false }) as { comment?: string; task?: string };
   const pageCode = params.page ?? null;
   const [width, setWidth] = useState(TREE_DEFAULT);
   const [drawer, setDrawer] = useState(false);
@@ -109,7 +122,57 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   const [focusRequest, setFocusRequest] = useState<FocusRequest | null>(null);
   const [editorStatus, setEditorStatus] = useState<EditorStatus | null>(null);
   const pagesButton = useRef<HTMLButtonElement>(null);
+  const commentsButton = useRef<HTMLButtonElement>(null);
+  const historyButton = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
+  const root = useRef<HTMLDivElement>(null);
+
+  // La pagina aperta (la stessa lettura della vista: la cache la condivide).
+  const openPage = useProductPage(pageCode ?? "", { enabled: pageCode !== null });
+  const gone = pageCode !== null && openPage.data !== undefined && !inSpace(openPage.data, project);
+  const view = pageCode && openPage.data && inSpace(openPage.data, project) ? openPage.data : null;
+
+  // La colonna a destra (commenti o cronologia, [PE 19]) e il ponte col testo.
+  const side = useSideColumn({
+    personId: me,
+    page: view,
+    commentParam: search.comment,
+    taskOpen: !!search.task,
+    overlay: !docked,
+  });
+  const comments = useProductComments(view?.id ?? "", { enabled: view !== null });
+  const bridge = ((): CommentsBridge | null => {
+    if (!view) return null;
+    const open = comments.data?.open ?? [];
+    const counts = new Map<string, number>();
+    for (const th of open) if (!th.anchorGone) counts.set(th.root.anchorId, (counts.get(th.root.anchorId) ?? 0) + 1);
+    const activeThread = side.active ? open.find((th) => th.root.id === side.active && !th.anchorGone) : undefined;
+    return {
+      counts,
+      activeAnchor: side.side === "comments" ? (side.draft?.anchorId ?? activeThread?.root.anchorId ?? null) : null,
+      canComment: view.permissions.edit,
+      start: side.start,
+      openAnchor: (ids) => {
+        const th = open.find((x) => !x.anchorGone && ids.includes(x.root.anchorId));
+        if (th) side.focusThread(th.root.id);
+      },
+    };
+  })();
+  // A 1440 il pannello della task prende il posto della colonna, che torna alla sua chiusura.
+  const sideShown = view !== null && side.side !== null && !(docked && !!search.task);
+  const sideDocked = sideShown && docked;
+
+  // [PE 20]: con la colonna agganciata, se la lettura scendesse sotto 520 px
+  // l'albero passa a cassetto finché la colonna è aperta.
+  const [rootWidth, setRootWidth] = useState(0);
+  useEffect(() => {
+    const el = root.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => setRootWidth(el.getBoundingClientRect().width));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const treeDocked = docked && !(sideDocked && rootWidth > 0 && rootWidth - width - 296 < 520);
 
   const reveal = useCallback(
     (pageId: string) => setExpandNonce((prev) => ({ pageId, nonce: (prev?.nonce ?? 0) + 1 })),
@@ -129,7 +192,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   // ⌘\ apre e chiude il cassetto (solo quando l'albero non è affiancato); Esc
   // lo chiude, ma non se sopra c'è un dialogo o un menu; un clic fuori anche.
   useEffect(() => {
-    if (docked) return;
+    if (treeDocked) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "\\" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
@@ -154,12 +217,10 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
       window.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPointer);
     };
-  }, [docked, drawer, closeDrawer]);
+  }, [treeDocked, drawer, closeDrawer]);
 
   // Una pagina che diventa «non trovata» (eliminata da un altro, permesso
   // perso) chiude il cassetto ([PS 20]); il fuoco che c'era dentro va su «Pages».
-  const openPage = useProductPage(pageCode ?? "", { enabled: pageCode !== null });
-  const gone = pageCode !== null && openPage.data !== undefined && !inSpace(openPage.data, project);
   useEffect(() => {
     if (!gone || !drawer) return;
     closeDrawer(!!drawerRef.current?.contains(document.activeElement));
@@ -179,25 +240,57 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
       currentCode={pageCode}
       expandRequest={expandNonce}
       focusRequest={focusRequest}
-      onNavigate={docked ? undefined : () => closeDrawer(true)}
+      onNavigate={treeDocked ? undefined : () => closeDrawer(true)}
     />
   );
 
+  // Chiudere la colonna riporta il fuoco al suo bottone nella barra ([PC 13]).
+  const closeComments = () => {
+    side.closeComments();
+    commentsButton.current?.focus();
+  };
+  const closeHistory = () => {
+    side.closeHistory();
+    historyButton.current?.focus();
+  };
+  const sideContent =
+    view && side.side === "comments" ? (
+      <CommentsColumn
+        key={view.id}
+        page={view}
+        project={project}
+        mode={docked ? "docked" : "overlay"}
+        draft={side.draft}
+        focus={side.focus}
+        active={side.active}
+        onClose={closeComments}
+        onEndDraft={side.endDraft}
+        onActive={side.setActive}
+        onFocusThread={side.focusThread}
+      />
+    ) : view && side.side === "history" ? (
+      <HistoryPanel key={view.id} page={view} onClose={closeHistory} />
+    ) : null;
+
   return (
-    <ProductSpaceContext.Provider value={{ project, space, reveal, setEditorStatus }}>
-      <div className="relative flex h-full min-h-0 flex-col">
+    <ProductSpaceContext.Provider value={{ project, space, reveal, setEditorStatus, comments: bridge }}>
+      <div ref={root} className="relative flex h-full min-h-0 flex-col">
         <SpaceBar
           project={project}
           pageCode={pageCode}
-          docked={docked}
-          pagesButton={docked ? null : pagesButton}
+          docked={treeDocked}
+          pagesButton={treeDocked ? null : pagesButton}
           drawer={drawer}
           onPages={() => (drawer ? closeDrawer(false) : setDrawer(true))}
           onDeleted={(parentId) => focusNode(parentId)}
           editorStatus={editorStatus}
+          side={side}
+          sideShown={sideShown}
+          commentsButton={commentsButton}
+          historyButton={historyButton}
         />
         <div className="flex min-h-0 flex-1">
-          {docked && (
+          {treeDocked && (
             <aside
               aria-label={t("productDocs.space.treeLabel", { code: project.code })}
               style={{ width }}
@@ -208,13 +301,28 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
             </aside>
           )}
           <div className="min-w-0 flex-1 overflow-y-auto">
-            {/* La colonna di lettura: ≤ 720, centrata nel residuo, 48 px a sinistra per le maniglie dei blocchi. */}
-            <div className="mx-auto w-full max-w-[816px] pr-8 pb-16 pl-12">
-              <Outlet />
+            {/* La lettura e, agganciata, la colonna dei commenti: scorrono insieme, così i fili stanno accanto ai blocchi. */}
+            <div className="flex min-h-full">
+              <div className="min-w-0 flex-1">
+                {/* La colonna di lettura: ≤ 720, centrata nel residuo, 48 px a sinistra per le maniglie dei blocchi. */}
+                <div className="mx-auto w-full max-w-[816px] pr-8 pb-16 pl-12">
+                  <Outlet />
+                </div>
+              </div>
+              {sideShown && docked && (
+                <SideColumnFrame mode="docked" front>
+                  {sideContent}
+                </SideColumnFrame>
+              )}
             </div>
           </div>
         </div>
-        {!docked && drawer && (
+        {sideShown && !docked && (
+          <SideColumnFrame mode="overlay" front={side.front}>
+            {sideContent}
+          </SideColumnFrame>
+        )}
+        {!treeDocked && drawer && (
           <aside
             ref={drawerRef}
             aria-label={t("productDocs.space.treeLabel", { code: project.code })}
@@ -230,14 +338,12 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
 
 /**
  * La barra dello spazio (40 px, una sola per spazio e pagina, [PS 8]): a
- * sinistra «Pages» (sotto i 1200), «Product» e le briciole della pagina
- * aperta; a destra i gesti della pagina, nell'ordine di [PS 8]: per primo
- * lo stato di salvataggio dell'editor (Task 8: «Saving…» / «Saved»,
- * l'errore con «Retry», il passo di ⌘Z saltato), poi il «⋯» (Copy link,
- * Delete page… per chi scrive). Presenza, Follow, Comments, History ed
- * Export arrivano coi Task 10, 11 e 12, fra lo stato e il «⋯». Sull'indice
- * «Search ⌘K».
- * Una pagina che non c'è perde i gesti e le briciole.
+ * sinistra «Pages» (sotto i 1200, o quando la colonna laterale la chiede,
+ * [PE 20]), «Product» e le briciole della pagina aperta; a destra i gesti
+ * della pagina, nell'ordine di [PS 8]: lo stato di salvataggio dell'editor,
+ * (gli avatar, Task 11), Follow, Comments N (i fili aperti), History,
+ * (Export, Task 12), il «⋯» (Copy link, Delete page… per chi scrive).
+ * Sull'indice «Search ⌘K». Una pagina che non c'è perde i gesti e le briciole.
  */
 function SpaceBar({
   project,
@@ -248,6 +354,10 @@ function SpaceBar({
   onPages,
   onDeleted,
   editorStatus,
+  side,
+  sideShown,
+  commentsButton,
+  historyButton,
 }: {
   project: Project;
   pageCode: string | null;
@@ -257,6 +367,10 @@ function SpaceBar({
   onPages: () => void;
   onDeleted: (parentId: string | null) => void;
   editorStatus: EditorStatus | null;
+  side: SideColumn;
+  sideShown: boolean;
+  commentsButton: RefObject<HTMLButtonElement | null>;
+  historyButton: RefObject<HTMLButtonElement | null>;
 }) {
   const { t } = useTranslation();
   // La stessa lettura della pagina aperta (la cache la condivide con la vista).
@@ -301,9 +415,53 @@ function SpaceBar({
           </button>
         )}
         {view && editorStatus && <SaveStatus status={editorStatus} />}
+        {view && <FollowButton page={view} />}
+        {view && (
+          <button
+            ref={commentsButton}
+            type="button"
+            aria-pressed={sideShown && side.side === "comments"}
+            onClick={side.toggleComments}
+            className={pageBarButton}
+          >
+            <CommentGlyph />
+            {t("productDocs.space.comments")}
+            {view.openComments > 0 && <span className="num text-ink-faint">{view.openComments}</span>}
+          </button>
+        )}
+        {view && (
+          <button
+            ref={historyButton}
+            type="button"
+            aria-pressed={sideShown && side.side === "history"}
+            onClick={side.toggleHistory}
+            className={pageBarButton}
+          >
+            <HistoryGlyph />
+            {t("productDocs.space.history")}
+          </button>
+        )}
         {view && <PageMenu project={project} page={view} docked={docked} onDeleted={onDeleted} />}
       </span>
     </nav>
+  );
+}
+
+function CommentGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width={16} height={16} fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinejoin="round" aria-hidden="true" focusable="false" className="shrink-0">
+      <path d="M2.75 3.75h10.5v7h-5.5l-3 2.5v-2.5h-2Z" />
+    </svg>
+  );
+}
+
+function HistoryGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width={16} height={16} fill="none" stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" className="shrink-0">
+      <path d="M2.75 8a5.25 5.25 0 1 0 1.6-3.77" />
+      <path d="M2.5 2.75v2.5H5" />
+      <path d="M8 5.25V8l2 1.5" />
+    </svg>
   );
 }
 

@@ -3813,6 +3813,18 @@ export interface ProductPageView extends ProductPage {
   >;
   /** I fili aperti della pagina (radici non risolte, con l'ancora viva o no), per la barra. */
   openComments: number;
+  /**
+   * Chi segue la pagina e la legge, fra le persone che chi guarda vede (P33,
+   * R-G5): il `title` di «Follow». Facoltativo: cambio additivo.
+   */
+  followers?: { id: string; name: string }[];
+  /**
+   * L'ultima revisione (chi e quando, Task 10): la riga «Updated … by …» la
+   * legge da qui, così non afferma una modifica che la cronologia non
+   * mostra (uno spostamento di soli blocchi aggiorna `updatedAt` senza
+   * revisione). `null` = nessuna revisione; facoltativo: cambio additivo.
+   */
+  lastRevision?: { at: string; actorId: string } | null;
 }
 
 export interface ProductRevisionView extends ProductRevision {

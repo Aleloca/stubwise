@@ -1,11 +1,13 @@
 import { forwardRef, useRef, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { InlineMark, RichText } from "../../../data/types";
+import { SelectionCommentButton } from "../comments/SelectionCommentButton";
 import { LinkField } from "./LinkField";
 
 // La barra della selezione (shape product-editor.md §3.5, [PE 7]): sopra
 // una selezione non vuota dentro un blocco, 8 px di distanza, 32 px, la
-// forma di `menu`. B (⌘B) · I (⌘I) · Link. «Comment» arriva col Task 10.
+// forma di `menu`. B (⌘B) · I (⌘I) · Link · divisore · Comment (Task 10, solo
+// per chi può commentare: `onComment`).
 // B e I hanno `aria-pressed` se tutta la selezione ha già il segno; col
 // cursore dentro un link c'è solo Link, premuto. È un `toolbar`: frecce ←/→
 // fra i bottoni, ⌥F10 dal testo. I bottoni non tolgono il fuoco al blocco.
@@ -41,10 +43,12 @@ export const SelectionBar = forwardRef<
     onApplyLink: (href: string) => void;
     onRemoveLink: () => void;
     onCloseLink: () => void;
+    /** «Comment» sulla selezione (Task 10); assente per chi non può commentare. */
+    onComment?: () => void;
     style: React.CSSProperties;
   }
 >(function SelectionBar(
-  { content, start, end, linkOpen, onBold, onItalic, onLink, onApplyLink, onRemoveLink, onCloseLink, style },
+  { content, start, end, linkOpen, onBold, onItalic, onLink, onApplyLink, onRemoveLink, onCloseLink, onComment, style },
   ref,
 ) {
   const { t } = useTranslation();
@@ -108,6 +112,7 @@ export const SelectionBar = forwardRef<
           <BarButton label={t("productDocs.editor.selection.link")} pressed={link !== null} onClick={onLink} wide>
             {t("productDocs.editor.selection.link")}
           </BarButton>
+          {!caretOnly && onComment && <SelectionCommentButton onComment={onComment} />}
         </div>
       )}
     </div>

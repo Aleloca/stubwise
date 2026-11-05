@@ -53,6 +53,12 @@ function PageBody({ page }: { page: ProductPageView }) {
   const editor = useRef<BlockEditorHandle>(null);
   const session = useEditorSession(page);
   const editable = page.permissions.edit;
+  // «Updated … by …» dice l'ultima revisione (rimando del Task 2): uno
+  // spostamento di soli blocchi, o una sessione tornata com'era, aggiornano
+  // `updatedAt` senza una riga in cronologia, e la riga non lo afferma. Una
+  // lettura senza il campo (cambio additivo) usa `updatedAt` come prima.
+  const edited =
+    page.lastRevision === undefined ? { at: page.updatedAt, actorId: page.updatedById } : page.lastRevision;
   // L'iscrizione alla pagina: una pagina eliminata da un altro mentre è
   // aperta (`gone`) ricarica la lettura, che dice «non trovata».
   useProductPresence(page.id);
@@ -128,12 +134,14 @@ function PageBody({ page }: { page: ProductPageView }) {
           </h1>
         )}
         <p className="num flex flex-wrap items-baseline gap-x-1.5 text-sm text-ink-muted">
-          <span>
-            {t("productDocs.space.updated", {
-              date: formatDate(page.updatedAt, i18n.language),
-              name: nameOf(page.updatedById),
-            })}
-          </span>
+          {edited && (
+            <span>
+              {t("productDocs.space.updated", {
+                date: formatDate(edited.at, i18n.language),
+                name: nameOf(edited.actorId),
+              })}
+            </span>
+          )}
           {/* A 1024 la meta lascia cadere «Created by …» ([PS 10]). */}
           <span aria-hidden="true" className="max-[1199px]:hidden">
             ·

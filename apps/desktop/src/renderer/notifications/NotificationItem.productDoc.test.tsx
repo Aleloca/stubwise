@@ -80,7 +80,7 @@ describe("product_doc.mention: la card", () => {
     renderItem(n);
     expect(itemText()).toContain(`Laura Costa ti ha menzionato in ${signIn().code} · Sign-in`);
     expect(itemText()).toContain("Prodotto");
-    expect(itemText()).not.toContain("mentioned");
+    expect(itemText().toLowerCase()).not.toContain("mentioned");
   });
 
   it("la pagina rinominata: il titolo di adesso", async () => {
@@ -100,9 +100,16 @@ describe("product_doc.mention: la card", () => {
     renderItem(n);
     expect(itemText()).toContain("A comment you were mentioned in");
     expect(itemText()).toContain("This comment is no longer available.");
-    expect(itemText().toLowerCase()).not.toContain("sign-in");
-    expect(itemText()).not.toContain(code);
-    expect(itemText()).not.toContain("Laura Costa");
+    // R-G5 in minuscolo (Task 10, rimando del Task 4): né titolo, né codice, né chi ha scritto.
+    const hidden = () => {
+      const text = itemText().toLowerCase();
+      const html = document.querySelector("[data-notification]")!.innerHTML.toLowerCase();
+      for (const word of ["sign-in", code.toLowerCase(), "laura costa", "workspace"]) {
+        expect(text).not.toContain(word);
+        expect(html).not.toContain(word);
+      }
+    };
+    hidden();
     // Non apre niente: la riga principale non è un bottone, e il codice non c'è.
     expect(document.querySelector("[data-notification] > button")).toBeNull();
     expect(document.querySelector("[data-object-code]")).toBeNull();
@@ -111,6 +118,7 @@ describe("product_doc.mention: la card", () => {
     renderItem(n);
     expect(itemText()).toContain("Un commento in cui eri menzionato");
     expect(itemText()).toContain("Questo commento non è più disponibile.");
+    hidden();
   });
 
   it("una riga senza i campi nuovi (`productComment`, `productPageTitle`) resta com'è salvata", () => {

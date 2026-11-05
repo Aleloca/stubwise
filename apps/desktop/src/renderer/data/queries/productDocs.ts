@@ -150,11 +150,12 @@ export function useSetDocsModule() {
 const COMMENT_AREAS: readonly string[] = ["productDocs", "notifications"];
 
 /** I fili di una pagina, aperti e risolti. */
-export function useProductComments(pageId: string) {
+export function useProductComments(pageId: string, { enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: ["as", me, "productDocs", "comments", pageId] as const,
     queryFn: () => api.productDocs.listProductComments(pageId),
+    enabled,
   });
 }
 
