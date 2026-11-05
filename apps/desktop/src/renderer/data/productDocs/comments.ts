@@ -139,7 +139,9 @@ export async function productMentionCandidates(
 /**
  * Le notifiche di un commento nuovo, una per persona menzionata
  * (`mentionIds` è già senza doppioni, senza chi scrive e senza chi non legge
- * i Docs). Titolo e corpo salvati sono la resa inglese.
+ * i Docs). Il titolo salvato è vuoto: la card lo compone in lettura, nella
+ * lingua di chi legge, dai valori stabili (`actorName`, codice, titolo di
+ * adesso). Il corpo è il testo del commento.
  */
 function publishMentions(me: string, page: ProductPage, comment: ProductComment): void {
   const rootId = comment.replyToId ?? comment.id;
@@ -151,7 +153,7 @@ function publishMentions(me: string, page: ProductPage, comment: ProductComment)
       objectCode: page.code,
       departmentId: null,
       recipientIds: [personId],
-      title: `${nameOf(me)} mentioned you in ${page.code} · ${page.title}`,
+      title: "",
       body: comment.body,
       createdAt: comment.createdAt,
       read: false,
@@ -292,8 +294,8 @@ export function presentProductMention(me: string, out: AppNotification): void {
   if (!page || !root || root.pageId !== page.id || docsAccess(me, page.projectId) !== "read") {
     out.objectGone = true;
     out.objectCode = "";
-    out.title = "A comment you were mentioned in";
-    out.body = "This comment is no longer available.";
+    out.title = "";
+    out.body = "";
     out.link = "";
     delete out.actorName;
     return;
@@ -301,7 +303,6 @@ export function presentProductMention(me: string, out: AppNotification): void {
   out.objectCode = page.code;
   out.link = threadLink(page, root.id);
   out.productPageTitle = page.title;
-  out.title = `${out.actorName ?? "Someone"} mentioned you in ${page.code} · ${page.title}`;
   const seen = visiblePeopleFor(me);
   out.mentionNames = directMentionIds(out.body)
     .filter((id) => seen.has(id))

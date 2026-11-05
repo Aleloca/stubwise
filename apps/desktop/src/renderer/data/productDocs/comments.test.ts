@@ -461,7 +461,8 @@ describe("le menzioni (Q1)", () => {
       actorId: LAURA,
       link: `#/p/ACQ/docs/product/${signIn.code}?comment=${c.id}`,
       productComment: { pageId: signIn.id, rootId: c.id },
-      title: `Laura Costa mentioned you in ${signIn.code} · Sign-in`,
+      // Vuoto: la card compone il titolo in lettura (F6).
+      title: "",
     });
   });
 
@@ -521,6 +522,9 @@ describe("le menzioni (Q1)", () => {
     let cards = (await listNotifications()).filter((n) => n.kind === "product_doc.mention");
     expect(cards.every((n) => n.productPageTitle === "Signing in")).toBe(true);
     expect(cards.every((n) => n.mentionNames?.includes("Marco Bellini"))).toBe(true);
+    // Revisione finale F6: il livello dati non compone frasi in una lingua;
+    // la card le compone in lettura (`composedOf`) dai valori stabili.
+    expect(cards.map((n) => n.title)).toEqual(cards.map(() => ""));
 
     as(LAURA);
     await productDocs.deleteProductPage(signIn.id);
@@ -534,6 +538,9 @@ describe("le menzioni (Q1)", () => {
       expect(n.productPageTitle).toBeUndefined();
       expect(n.mentionNames).toBeUndefined();
       expect(n.link).toBe("");
+      expect(n.title).toBe("");
+      expect(n.body).toBe("");
+      expect(n.objectCode).toBe("");
       const text = JSON.stringify(n).toLowerCase();
       expect(text).not.toContain("sign");
       expect(text).not.toContain(signIn.code.toLowerCase());

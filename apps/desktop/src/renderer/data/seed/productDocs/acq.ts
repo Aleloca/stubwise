@@ -615,7 +615,8 @@ export const PRODUCT_NOTIFICATIONS: AppNotification[] = [
     objectCode: signInPageCode,
     departmentId: null,
     recipientIds: [MARCO],
-    title: `Laura Costa mentioned you in ${signInPageCode} · Sign-in`,
+    // Vuoto: la card compone il titolo in lettura (`composedOf`).
+    title: "",
     body: PRODUCT_COMMENTS[0]!.body,
     createdAt: PRODUCT_COMMENTS[0]!.createdAt,
     read: false,
