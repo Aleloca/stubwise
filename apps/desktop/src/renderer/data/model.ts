@@ -507,7 +507,9 @@ export interface DecisionRequest {
 }
 
 export type RequestStatus = "new" | "refining" | "ready" | "converted" | "archived";
-export type RequestLevel = "low" | "medium" | "high";
+/** I tre livelli (urgenza, rischio) di una richiesta: l'unico elenco, in ordine. */
+export const REQUEST_LEVELS = ["low", "medium", "high"] as const;
+export type RequestLevel = (typeof REQUEST_LEVELS)[number];
 
 export interface ProjectRequest {
   id: string;

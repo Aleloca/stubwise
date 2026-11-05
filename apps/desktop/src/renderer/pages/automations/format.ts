@@ -15,6 +15,7 @@ import type {
 } from "../../data/types";
 import { formatDate } from "../../notifications/time";
 import { numberAt } from "./numbering";
+import { REQUEST_LEVELS } from "../../data/types";
 
 // Le parole delle Automations: l'inizio, i passi, le condizioni, la frase di
 // «adesso» di un'esecuzione. Tutto da template i18n e dai dati della riga:
@@ -248,7 +249,7 @@ export const templatePlain = (text: string, labels: Map<string, DataField>) =>
     .join("");
 
 /** L'urgenza di una richiesta (area 10b): tre valori stabili, tradotti in lettura ([AU 9]). */
-const URGENCIES = new Set(["low", "medium", "high"]);
+const URGENCIES = new Set<string>(REQUEST_LEVELS);
 
 function operandWords(
   o: Operand | undefined,

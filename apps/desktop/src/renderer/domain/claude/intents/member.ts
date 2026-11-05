@@ -2,6 +2,7 @@ import type { Department, Person, Project } from "../../../data/types";
 import { labelled, resulted, summarized, type Answer, type ReadAction } from "../answers";
 import type { IntentContext } from "../context";
 import { findProject, isHowToQuestion, normalize, QUESTION, stripCourtesy } from "../parse";
+import { vowelContext } from "../../../i18n/vowel";
 
 // S5 (area 10b, Task 7): «invita Luca come Developer in ACQ», «add Luca to
 // ACQ as Developer». Una persona che chi chiede vede diventa una scheda C con
@@ -42,9 +43,8 @@ export function isMemberRequest(text: string): boolean {
   return invite || AS_ROLE.test(command);
 }
 
-/** Il «a»/«ad» italiano davanti al codice: lo sceglie la frase (contesto `vowel`). */
-const vowel = (code: string): { context?: string } =>
-  /^[AEIOU]/i.test(code) ? { context: "vowel" } : {};
+/** Il «a»/«ad» italiano davanti al codice: lo sceglie la frase (`vowelContext`). */
+const vowel = vowelContext;
 
 const say = (actions: ReadAction[], text: string): Answer => ({ actions, text });
 

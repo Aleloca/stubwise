@@ -18,6 +18,7 @@ import {
 import type { Ev } from "./flow";
 import { ClaudeMark } from "../../../components/ClaudeMark";
 import { CheckGlyph, primaryButton, secondaryButton, UndoneGlyph, WorkingRing } from "./parts";
+import { vowelContext } from "../../../i18n/vowel";
 
 // La riga di una bozza (area 10b, Task 10; shape `claude-drafts.md` §3.3):
 // la stessa forma della riga eseguita del 10a — segno, verbo al passato,
@@ -111,8 +112,8 @@ function useWhere(field: FieldRef | null): Where | null {
   }
 }
 
-/** Il «a»/«ad» italiano davanti al codice: lo sceglie la frase (contesto `vowel`). */
-const vowel = (code: string | undefined) => (code && /^[AEIOU]/i.test(code) ? "vowel" : undefined);
+/** Il «a»/«ad» italiano davanti al codice: lo sceglie la frase (`vowelContext`). */
+const vowel = (code: string | undefined) => vowelContext(code).context;
 
 function Phrase({ state, where }: { state: "pending" | "placed" | "waiting"; where: Where }) {
   return (

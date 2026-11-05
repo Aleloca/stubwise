@@ -5,6 +5,7 @@ import type { Condition, DataField, Operand } from "../../../data/types";
 import { useBuilder } from "./context";
 import { tokenLabel } from "./DataText";
 import { selectClass, smallInput } from "./controls";
+import { REQUEST_LEVELS } from "../../../data/types";
 
 // Il costruttore di condizioni (shape builder §6, [A 18]): righe «[dato]
 // [operatore] [valore]», unite da «All of these» / «Any of these». Un solo
@@ -16,7 +17,7 @@ type Op = NonNullable<Condition["op"]>;
 
 /** L'urgenza di una richiesta (area 10b): un dato di testo con tre valori, scelti da un menu [AU 9]. */
 const URGENCY_KEY = "richiesta.urgenza";
-const URGENCIES = ["low", "medium", "high"] as const;
+const URGENCIES = REQUEST_LEVELS;
 
 const OPS: Record<DataField["type"], Op[]> = {
   text: ["is", "is_not", "contains", "empty", "not_empty"],

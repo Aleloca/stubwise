@@ -6,6 +6,7 @@ import type { AutomationFlow, Condition, SimulationExample, Utterance } from "..
 import { forbidden, invalid, notFound } from "../writer";
 import { happenings, leavesOf, passesStartFilter } from "./sources";
 import { automationById, canManageAutomation, canSeeAutomation, canSeeRun } from "./visibility";
+import { REQUEST_LEVELS } from "../model";
 
 // Gli eventi d'esempio della prova (area 7, shape «Choose an example»): per
 // un inizio da sorgente gli eventi d'esempio della sorgente collegata; per
@@ -187,7 +188,7 @@ export interface TrialExample {
 
 /** I valori noti di un dato che è un elenco chiuso: il «diverso» di un esempio che non passa. */
 const CLOSED_VALUES: Record<string, readonly string[]> = {
-  "richiesta.urgenza": ["low", "medium", "high"],
+  "richiesta.urgenza": REQUEST_LEVELS,
 };
 
 /** Scrive `value` in `event` al percorso puntato di `key` («richiesta.urgenza»). */

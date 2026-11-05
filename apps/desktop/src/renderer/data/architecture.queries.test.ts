@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(resolve(__dirname, "queries.ts"), "utf8");
 
 describe("data/queries.ts non importa dai suoi sotto-moduli", () => {
-  it("solo `export * from \"./queries/…\"`, nessun `import … from \"./queries/…\"`", () => {
+  it('solo `export * from "./queries/…"`, nessun `import … from "./queries/…"`', () => {
     expect(source).not.toMatch(/^\s*import\b[^;]*from\s+["']\.\/queries\//m);
     expect(source).toMatch(/^export \* from "\.\/queries\/claude";$/m);
   });

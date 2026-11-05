@@ -13,6 +13,7 @@ import {
   tabOf,
   type SnoozeOption,
 } from "./time";
+import { vowelContext } from "../i18n/vowel";
 
 export type Change = { read?: boolean; archived?: boolean; snoozedUntil?: string | null };
 
@@ -325,7 +326,7 @@ function composedOf(
     const params = {
       code: n.objectCode,
       role: n.roleName ?? t("notifications.memberAdded.noRole"),
-      ...(/^[AEIOU]/i.test(n.objectCode) ? { context: "vowel" } : {}),
+      ...vowelContext(n.objectCode),
     };
     return {
       title: t("notifications.memberAdded.title", params),

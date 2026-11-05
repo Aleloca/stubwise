@@ -1,5 +1,6 @@
 import type { AutomationFlow, Condition, Step } from "../../data/types";
 import type { T } from "../claude/context";
+import type { RequestLevel } from "../../data/types";
 
 // La bozza che Claude scrive da una frase (area 10b, S1): solo i blocchi che
 // il motore sa fare, niente di inventato. Il filtro sta sull'inizio (D3,
@@ -12,7 +13,7 @@ import type { T } from "../claude/context";
 /** Ciò che Claude ha capito della frase: l'evento, il filtro, i passi in ordine. */
 export interface FlowSpec {
   event: "request_created";
-  when: { fromSupport?: boolean; urgency?: "low" | "medium" | "high" };
+  when: { fromSupport?: boolean; urgency?: RequestLevel };
   steps: (
     | { kind: "createTask"; departmentId: string; dueInDays: number }
     | { kind: "notify"; departmentId: string }

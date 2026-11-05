@@ -12,6 +12,7 @@ import { TubeGlyph } from "../../automations/test/TestHeader";
 import { MarkGlyph } from "../../automations/test/TestFlow";
 import type { Ev } from "./flow";
 import { WorkingRing } from "./parts";
+import { REQUEST_LEVELS } from "../../../data/types";
 
 // La riga della prova di Claude (area 10b, Task 11; shape
 // `claude-automations.md` §3.3). In testa la provetta della fascia TEST e
@@ -38,7 +39,7 @@ function requestData(event: Record<string, unknown> | undefined) {
   const r = event?.richiesta;
   if (!r || typeof r !== "object") return null;
   const { urgenza, dal_supporto } = r as Record<string, unknown>;
-  const urgency = urgenza === "high" || urgenza === "medium" || urgenza === "low" ? urgenza : null;
+  const urgency = REQUEST_LEVELS.find((l) => l === urgenza) ?? null;
   const fromSupport = typeof dal_supporto === "boolean" ? dal_supporto : null;
   return urgency === null && fromSupport === null ? null : { urgency, fromSupport };
 }

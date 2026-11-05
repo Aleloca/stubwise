@@ -6,6 +6,7 @@ import { canEditReleaseNotes } from "../releases/visibility";
 import { eventsOf, openDecisions, openQuestion, pendingPlan, state } from "../store";
 import { can, viewerFor } from "../viewer";
 import { stalledProjectsFor } from "./answersData";
+import { vowelContext } from "../../i18n/vowel";
 
 // I suggerimenti discreti «Claude can help you…» (area 10b, Task 12; shape
 // `claude-suggestions.md`): una riga sotto la testata di cinque pagine di
@@ -64,9 +65,8 @@ const suggestion = (
   ...(params ? { params } : {}),
 });
 
-/** Il «a»/«ad» italiano davanti al codice: lo sceglie la frase (contesto `vowel`). */
-const withVowel = (code: string): Record<string, string> =>
-  /^[AEIOU]/i.test(code) ? { code, context: "vowel" } : { code };
+/** Il codice, col «a»/«ad» italiano che sceglie la frase (`vowelContext`). */
+const withVowel = (code: string): Record<string, string> => ({ code, ...vowelContext(code) });
 
 /**
  * La task ha qualcosa che aspetta una persona: un piano di Claude in attesa,
