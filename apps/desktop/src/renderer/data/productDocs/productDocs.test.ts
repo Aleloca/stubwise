@@ -783,7 +783,7 @@ describe("la pagina iniziale dei Docs", () => {
     const recentOf = async () =>
       (await productDocs.getProductSpace(ACQ))!.recent.find((r) => r.id === payments.id)!;
     const before = await recentOf();
-    const homeBefore = (await docs.getProjectDocsHome(ACQ))!.product.updatedAt;
+    const homeBefore = (await docs.getProjectDocsHome(ACQ))!.product!.updatedAt;
     expect(before.updatedById).toBe(LAURA);
     advanceNow(60_000);
     as(MARCO);
@@ -791,7 +791,7 @@ describe("la pagina iniziale dei Docs", () => {
       sessionId: "s-marco",
     });
     expect(await recentOf()).toMatchObject({ updatedById: LAURA, updatedAt: before.updatedAt });
-    expect((await docs.getProjectDocsHome(ACQ))!.product.updatedAt).toBe(homeBefore);
+    expect((await docs.getProjectDocsHome(ACQ))!.product!.updatedAt).toBe(homeBefore);
     // L'indice (l'albero) dice lo stesso.
     const flat = JSON.stringify((await productDocs.getProductSpace(ACQ))!.tree);
     expect(flat).toContain(`"code":"${payments.code}","projectId":"${ACQ}","parentId":"${payments.parentId}"`);
@@ -804,7 +804,7 @@ describe("la pagina iniziale dei Docs", () => {
     const after = await recentOf();
     expect(after.updatedById).toBe(MARCO);
     expect(after.updatedAt > before.updatedAt).toBe(true);
-    expect((await docs.getProjectDocsHome(ACQ))!.product.updatedAt).toBe(after.updatedAt);
+    expect((await docs.getProjectDocsHome(ACQ))!.product!.updatedAt).toBe(after.updatedAt);
   });
 });
 
