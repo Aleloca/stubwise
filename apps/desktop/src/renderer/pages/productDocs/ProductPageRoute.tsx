@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
-import { useJoinProductPage, useProductPage, useProductPresence } from "../../data/queries";
+import { useJoinProductPage, useProductPage, useProductPageEvents, useProductPresence } from "../../data/queries";
 import type { ProductPageView } from "../../data/types";
 import { formatDate } from "../../notifications/time";
 import { PageError } from "../../tasks-ui/PageStates";
@@ -64,6 +64,7 @@ function PageBody({ page }: { page: ProductPageView }) {
   // entra nella pagina (ed esce allo smontaggio o al cambio di persona): gli
   // altri lo vedono fra gli avatar; i loro cursori vanno all'editor (Task 11).
   useJoinProductPage(page.id);
+  useProductPageEvents(page.id);
   const presence = useProductPresence(page.id);
 
   // Lo stato del salvataggio va nella barra dello spazio (una sola barra).

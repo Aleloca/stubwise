@@ -482,6 +482,17 @@ describe("fix round 1", () => {
   );
 });
 
+describe("revisione finale", () => {
+  it("F7: una sola iscrizione per pagina aperta (avatar e pagina leggono la stessa)", async () => {
+    const spy = vi.spyOn(productDocs, "subscribeProductPage");
+    await open();
+    await waitFor(() => expect(people()).not.toBeNull());
+    const calls = spy.mock.calls.filter(([pageId]) => pageId === METER);
+    expect(calls).toHaveLength(1);
+    spy.mockRestore();
+  });
+});
+
 describe("i confini", () => {
   const root = join(__dirname, "../../..");
   const files = (dir: string): string[] =>

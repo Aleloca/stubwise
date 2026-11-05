@@ -3,7 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { productDocs, resetApi, setLatency } from "../api";
-import { useJoinProductPage, useProductPresence } from "../queries";
+import { useJoinProductPage, useProductPageEvents, useProductPresence } from "../queries";
 import { METER_IDS } from "../seed/productDocs/acq";
 import { state } from "../store";
 import { ViewerProvider, useViewer } from "../viewer";
@@ -63,8 +63,8 @@ describe("useJoinProductPage", () => {
 });
 
 describe("useProductPresence", () => {
-  it("ricarica quando qualcuno entra", async () => {
-    const { result } = renderHook(() => useProductPresence(METER), {
+  it("con l'iscrizione della pagina (`useProductPageEvents`) ricarica quando qualcuno entra", async () => {
+    const { result } = renderHook(() => (useProductPageEvents(METER), useProductPresence(METER)), {
       wrapper: wrapperFor("p-laura"),
     });
     await waitFor(() => expect(result.current.data).toEqual([]));

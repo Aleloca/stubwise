@@ -220,12 +220,14 @@ export function useProductMentionCandidates(projectId: string, q: string) {
 // --- la presenza e la scrittura dal vivo (Task 5) -------------------------------
 
 /**
- * Gli altri presenti nella pagina (non chi guarda), dal vivo: l'iscrizione
- * alla pagina ricarica la presenza a ogni `presence`; `blocks` e `comments`
- * ricaricano pagina, commenti e cronologia; `gone` tutto lo spazio Prodotto
- * di chi guarda (la pagina dice «non trovata», l'albero la perde).
+ * L'iscrizione alla pagina, montata UNA volta per pagina aperta (la pagina):
+ * `presence` ricarica la presenza; `blocks` e `comments` ricaricano pagina,
+ * commenti e cronologia; `gone` tutto lo spazio Prodotto di chi guarda (la
+ * pagina dice «non trovata», l'albero la perde). Chi legge soltanto la
+ * presenza usa `useProductPresence`, che non si iscrive: due iscrizioni
+ * invaliderebbero tutto due volte a ogni evento.
  */
-export function useProductPresence(pageId: string) {
+export function useProductPageEvents(pageId: string) {
   const me = useSessionPersonId();
   const client = useQueryClient();
   useEffect(() => {
@@ -244,6 +246,11 @@ export function useProductPresence(pageId: string) {
       void client.invalidateQueries({ queryKey: [...area, "revisions", pageId] });
     });
   }, [client, me, pageId]);
+}
+
+/** Gli altri presenti nella pagina (non chi guarda); dal vivo con `useProductPageEvents` montato. */
+export function useProductPresence(pageId: string) {
+  const me = useSessionPersonId();
   return useQuery({
     queryKey: ["as", me, "productDocs", "presence", pageId] as const,
     queryFn: () => api.productDocs.getProductPresence(pageId),
@@ -278,7 +285,7 @@ export function useJoinProductPage(pageId: string | null) {
 
 /**
  * Dove scrive chi guarda (`null` = c'è ma non scrive). Nessuna area da
- * ricaricare: la presenza la porta l'iscrizione (`useProductPresence`).
+ * ricaricare: la presenza la porta l'iscrizione (`useProductPageEvents`).
  */
 export function useSetProductPresence() {
   return useMutation({
