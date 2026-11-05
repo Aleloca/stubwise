@@ -1,5 +1,6 @@
 import { useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
+import { useMentionSearch } from "../../../data/queries";
 import { useMentionSuggestions, type Suggestion } from "../../claude/conversation/MentionMenu";
 import { EditorPicker, type PickerGroup } from "./EditorPicker";
 
@@ -46,6 +47,8 @@ export function LinkPicker({
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const { groups, loading } = useMentionSuggestions("objects", query.trim(), true);
+  // La stessa lettura (stessa chiave, in cache): serve a sapere se è fallita.
+  const search = useMentionSearch("objects", query.trim(), true);
   const all = groups.flatMap((g) => g.items);
   const byCode = new Map(all.filter((s) => s.code).map((s) => [s.id, s.code!]));
   const picker: PickerGroup[] = ORDER.map((g) => ({
@@ -71,7 +74,13 @@ export function LinkPicker({
       active={active}
       onActive={setActive}
       loading={loading}
-      note={t("productDocs.blocks.link.noMatch", { q: query.trim() })}
+      note={
+        search.isError
+          ? t("productDocs.blocks.link.failed")
+          : query.trim()
+            ? t("productDocs.blocks.link.noMatch", { q: query.trim() })
+            : t("productDocs.blocks.link.empty")
+      }
       groups={picker}
       onPick={(rowId) => {
         const code = byCode.get(rowId);

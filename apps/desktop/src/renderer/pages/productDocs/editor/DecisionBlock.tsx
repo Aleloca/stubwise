@@ -60,7 +60,7 @@ export function DecisionBlock({
         </span>
       </div>
       <a
-        href={`#/p/${projectCode}/overview?decision=${encodeURIComponent(block.decisionId)}`}
+        href={`#/p/${entry.projectCode ?? projectCode}/overview?decision=${encodeURIComponent(block.decisionId)}`}
         className="shrink-0 rounded-sm text-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 transition-colors duration-[var(--duration-fast)] ease-out hover:decoration-ink"
       >
         {t("productDocs.blocks.decision.open")}

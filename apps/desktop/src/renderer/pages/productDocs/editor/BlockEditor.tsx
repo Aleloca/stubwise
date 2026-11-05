@@ -27,7 +27,7 @@ import { setLink, toggleMark } from "../../../domain/productDocs/richText";
 import { BlockBody, ReadOnlyBody, blockLabel, layoutOf, numbersOf, textClassOf } from "./BlockBody";
 import { useProductSpaceContext } from "../parts";
 import { BlockHandle } from "./BlockHandle";
-import { dropAfter, insertCode } from "./blockOps";
+import { dropAfter, floatingPlacement, insertCode } from "./blockOps";
 import { BlockShell } from "./BlockShell";
 import { DecisionPicker } from "./DecisionPicker";
 import { DrivePicker } from "./DrivePicker";
@@ -207,12 +207,19 @@ function WritableBody({
   // Uscire dalla pagina (o cambiare persona) salva ciò che resta.
   useEffect(() => () => flush(), [flush]);
 
-  /** Seleziona un blocco come oggetto (anello di fuoco), dopo il disegno. */
+  /**
+   * Seleziona un blocco come oggetto (anello di fuoco), dopo il disegno. Il
+   * disegno c'è sempre (`redraw`): da una cella o da una didascalia il fuoco
+   * dell'editor è già `null`, e senza un disegno il guscio non lo prenderebbe
+   * (il fuoco finirebbe sul body, o resterebbe un `pendingShell` vecchio).
+   */
+  const [, redraw] = useState(0);
   const selectShell = (id: string) => {
     pendingShell.current = id;
     setFocus(null);
     setSlash(null);
     setLinkOpen(false);
+    redraw((n) => n + 1);
   };
 
   /** Il fuoco su un blocco: un testo col cursore, un oggetto con l'anello. */
@@ -427,6 +434,7 @@ function WritableBody({
       else selectShell(id);
     },
     select: () => selectShell(id),
+    images: (files) => addImages(files, { afterId: id }),
     history: (kind) => {
       flush();
       if (kind === "undo") sessionRef.current.undo();
@@ -462,12 +470,17 @@ function WritableBody({
       // Lo spazio visibile è quello della colonna che scorre (sotto la barra).
       const r = shell.getBoundingClientRect();
       const view = shell.closest(".overflow-y-auto")?.getBoundingClientRect();
-      const below = (view?.bottom ?? window.innerHeight) - r.bottom - 8;
-      const above = r.top - (view?.top ?? 0) - 8;
+      const place = floatingPlacement({
+        blockTop: r.top,
+        blockBottom: r.bottom,
+        viewTop: view?.top ?? 0,
+        viewBottom: view?.bottom ?? window.innerHeight,
+        windowHeight: window.innerHeight,
+      });
       slashStyle =
-        below < 320 && above > below
-          ? { top: shell.offsetTop, left: 0, transform: "translateY(-100%)", maxHeight: Math.min(320, above) }
-          : { top: shell.offsetTop + shell.offsetHeight, left: 0, maxHeight: Math.max(Math.min(320, below), 160) };
+        place.placement === "above"
+          ? { top: shell.offsetTop, left: 0, transform: "translateY(-100%)", maxHeight: place.maxHeight }
+          : { top: shell.offsetTop + shell.offsetHeight, left: 0, maxHeight: place.maxHeight };
     }
     setFloating((prev) => {
       // La barra resta dov'è quando il fuoco va nel campo del link (la

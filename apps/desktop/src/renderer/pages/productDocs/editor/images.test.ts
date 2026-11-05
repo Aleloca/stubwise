@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES, readImageFile } from "./images";
+import { PRODUCT_IMAGE_MAX_BYTES, PRODUCT_IMAGE_TYPES, pastedImages, readImageFile } from "./images";
 
 // Un file in un blocco immagine (shape product-editor.md §3.6, [PE 9]):
 // sempre un `data:` URL, al più 5 MB, solo PNG, JPEG, GIF e WebP.
@@ -41,5 +41,25 @@ describe("readImageFile", () => {
       ok: false,
       reason: "unsupported",
     });
+  });
+});
+
+// Fix round 1 (review del Task 9, punto 5): incollare da Word o da Excel mette
+// negli appunti anche un'immagine della selezione; il testo vince, e un'immagine
+// entra solo se negli appunti non c'è un testo che conti.
+describe("pastedImages", () => {
+  const img = new File(["x"], "shot.png", { type: "image/png" });
+  it("solo un'immagine (nessun testo, o un HTML che è solo <img>): l'immagine", () => {
+    expect(pastedImages({ html: null, text: "", files: [img] })).toEqual([img]);
+    expect(pastedImages({ html: '<meta charset="utf-8"><img src="blob:x">', text: " ", files: [img] })).toEqual([img]);
+  });
+  it("da Word o Excel (HTML con testo, stile e commenti): nessuna immagine, vince il testo", () => {
+    const word =
+      '<html><head><style>p.MsoNormal{margin:0}</style></head><body><!--StartFragment--><p class="MsoNormal">Totals</p><!--EndFragment--></body></html>';
+    expect(pastedImages({ html: word, text: "Totals", files: [img] })).toEqual([]);
+    expect(pastedImages({ html: null, text: "Totals", files: [img] })).toEqual([]);
+  });
+  it("nessun file: nessuna immagine", () => {
+    expect(pastedImages({ html: null, text: "" })).toEqual([]);
   });
 });

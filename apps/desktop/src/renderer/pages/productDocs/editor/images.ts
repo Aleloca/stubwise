@@ -30,6 +30,31 @@ export function readImageFile(
   });
 }
 
-/** I file immagine fra quelli incollati o trascinati (gli altri si rifiutano come «solo immagini»). */
+/**
+ * I file incollati, trascinati o scelti, come elenco (vuoto senza file). Non
+ * filtra: è `readImageFile` a rifiutare ciò che non è un'immagine.
+ */
 export const filesOf = (list: FileList | readonly File[] | null | undefined): File[] =>
   list ? Array.from(list as ArrayLike<File>) : [];
+
+/** Il testo che conta in un HTML incollato: senza stili, script, commenti e tag. */
+const htmlText = (html: string): string =>
+  html
+    .replace(/<(style|script|head)\b[\s\S]*?<\/\1>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;|&#160;/g, " ")
+    .trim();
+
+/**
+ * Le immagini da mettere per un incolla (fix round 1): Word ed Excel mettono
+ * negli appunti, accanto all'HTML e al testo, un'immagine della selezione.
+ * Il testo vince: i file entrano solo se negli appunti non c'è un testo che
+ * conti (nessun `text/plain`, un HTML che è solo `<img>`).
+ */
+export function pastedImages(clip: { html: string | null; text: string; files?: readonly File[] }): File[] {
+  const files = clip.files ?? [];
+  if (files.length === 0) return [];
+  if (clip.text.trim() !== "" || (clip.html && htmlText(clip.html) !== "")) return [];
+  return [...files];
+}

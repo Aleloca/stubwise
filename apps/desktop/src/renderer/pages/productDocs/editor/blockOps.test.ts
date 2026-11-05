@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProductBlock } from "../../../data/types";
 import { plain } from "../../../domain/productDocs/richText";
-import { dropAfter, insertCode, tableAdd, tableRemove } from "./blockOps";
+import { dropAfter, floatingPlacement, insertCode, tableAdd, tableRemove } from "./blockOps";
 
 // Dove cade un blocco trascinato per ⋮⋮ (shape [PE 4]): il blocco prima di
 // cui va (`afterId`), o `null` se torna dov'era (nessuna scrittura).
@@ -84,5 +84,28 @@ describe("insertCode", () => {
   });
   it("dopo uno spazio: niente spazi in più", () => {
     expect(insertCode(plain("see "), 4, "ACQ-7").content.text).toBe("see ACQ-7");
+  });
+});
+
+// Fix round 1 (punto 11): il menu «/» e i selettori stanno sotto il blocco
+// (sopra se sotto non c'è posto) e tengono 16 px dal fondo visibile — della
+// colonna o della finestra, quello più in alto.
+describe("floatingPlacement", () => {
+  it("sotto, con l'altezza che lascia 16 px dal fondo della finestra", () => {
+    const out = floatingPlacement({ blockTop: 330, blockBottom: 356, viewTop: 40, viewBottom: 700, windowHeight: 680 });
+    expect(out).toEqual({ placement: "below", maxHeight: 680 - 356 - 16 });
+  });
+  it("sotto ci sta tutto: 320", () => {
+    expect(
+      floatingPlacement({ blockTop: 100, blockBottom: 120, viewTop: 40, viewBottom: 900, windowHeight: 900 }),
+    ).toEqual({ placement: "below", maxHeight: 320 });
+  });
+  it("sotto poco, sopra di più: sopra, coi 16 px dalla cima della colonna", () => {
+    expect(
+      floatingPlacement({ blockTop: 600, blockBottom: 622, viewTop: 40, viewBottom: 680, windowHeight: 680 }),
+    ).toEqual({ placement: "above", maxHeight: 320 });
+    expect(
+      floatingPlacement({ blockTop: 300, blockBottom: 600, viewTop: 40, viewBottom: 680, windowHeight: 680 }),
+    ).toEqual({ placement: "above", maxHeight: 300 - 40 - 16 });
   });
 });

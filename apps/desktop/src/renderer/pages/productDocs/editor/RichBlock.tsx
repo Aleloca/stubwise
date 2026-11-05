@@ -38,6 +38,25 @@ export interface RichBlockHandlers {
   history(kind: "undo" | "redo"): void;
 }
 
+/**
+ * Fine e Inizio (⇧ per estendere) portano il cursore al bordo della riga, e
+ * basta: lasciati al browser, con il cursore già lì Chromium fa scorrere la
+ * colonna fino in fondo (o in cima). Si annulla il default solo quando
+ * `Selection.modify` c'è a fare lo stesso lavoro.
+ */
+function lineBoundary(e: ReactKeyboardEvent<HTMLDivElement>): boolean {
+  if ((e.key !== "End" && e.key !== "Home") || e.metaKey || e.ctrlKey || e.altKey) return false;
+  const sel = e.currentTarget.ownerDocument.getSelection() as (globalThis.Selection & { modify?: unknown }) | null;
+  if (!sel || typeof sel.modify !== "function") return false;
+  e.preventDefault();
+  (sel.modify as (alter: string, direction: string, granularity: string) => void)(
+    e.shiftKey ? "extend" : "move",
+    e.key === "End" ? "forward" : "backward",
+    "lineboundary",
+  );
+  return true;
+}
+
 /** Il segnaposto di un blocco vuoto, `ink-faint`, dal `data-placeholder`. */
 const placeholderClass =
   "empty:before:pointer-events-none empty:before:text-ink-faint empty:before:content-[attr(data-placeholder)]";
@@ -214,6 +233,7 @@ export function RichBlockEdit({
       className={`${className} cursor-text whitespace-pre-wrap outline-none [overflow-wrap:anywhere] ${placeholder ? placeholderClass : ""}`}
       onKeyDown={(e) => {
         if (composing.current || e.nativeEvent.isComposing) return;
+        if (lineBoundary(e)) return;
         if (handlers.key(id, e, current())) e.preventDefault();
       }}
       onPaste={(e) => {

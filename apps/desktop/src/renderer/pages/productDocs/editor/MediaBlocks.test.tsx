@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import * as api from "../../../data/api";
 import { resetApi, setLatency } from "../../../data/api";
 import type { ProductBlock, ProductBlockOp, ProductPage, RichText } from "../../../data/types";
-import { state } from "../../../data/store";
+import { failNext, state } from "../../../data/store";
 import { plain } from "../../../domain/productDocs/richText";
 import { setLanguage } from "../../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../../layout/useDetailPanel";
@@ -532,5 +532,209 @@ describe("⋮⋮: solo lui si trascina, e dice come", () => {
     expect(document.getElementById(described!)).toHaveTextContent("Drag a block by its handle to move it.");
     // Il guscio del blocco non le porta (non è lui che si trascina).
     expect(shellOf("blk-acq-signin-4")).not.toHaveAttribute("aria-describedby");
+  });
+});
+
+// --- Fix round 1 (review del Task 9) -------------------------------------------
+
+describe("fix round 1: il fuoco non finisce mai sul body (punto 1)", () => {
+  const TABLE = "blk-acq-meter-table";
+  const cellNamed = (name: string) => within(shellOf(TABLE)).getByRole("textbox", { name });
+
+  it("Esc in una cella non toccata: il fuoco va alla tabella come oggetto", async () => {
+    await open("Meter reading");
+    await userEvent.setup().click(cellNamed("Table cell, row 3, column 1"));
+    await waitFor(() => expect(editing()).toHaveTextContent("Business"));
+    press(editing(), "Escape");
+    await waitFor(() => expect(document.activeElement).toBe(shellOf(TABLE)));
+  });
+
+  it("Tab e ↓ dall'ultima cella di una tabella che è l'ultimo blocco: la tabella, mai il body", async () => {
+    await open("Meter reading");
+    const user = userEvent.setup();
+    await user.click(cellNamed("Table cell, row 3, column 3"));
+    await waitFor(() => expect(editing()).toHaveAccessibleName("Table cell, row 3, column 3"));
+    press(editing(), "Tab");
+    await waitFor(() => expect(document.activeElement).toBe(shellOf(TABLE)));
+    await user.click(cellNamed("Table cell, row 3, column 2"));
+    await waitFor(() => expect(editing()).toHaveAccessibleName("Table cell, row 3, column 2"));
+    act(() => placeCaret(editing(), editing().textContent!.length));
+    press(editing(), "ArrowDown");
+    await waitFor(() => expect(document.activeElement).toBe(shellOf(TABLE)));
+  });
+
+  it("Invio ed Esc nella didascalia: il fuoco va all'immagine; dopo, nessun fuoco rubato", async () => {
+    await open("Screens");
+    const [first, second] = pageOf("Screens").blocks.filter((b) => b.type === "image");
+    const user = userEvent.setup();
+    const caption = within(shellOf(first!.id)).getByRole("textbox", { name: "Caption" });
+    await user.click(caption);
+    press(caption, "Enter");
+    await waitFor(() => expect(document.activeElement).toBe(shellOf(first!.id)));
+    const other = within(shellOf(second!.id)).getByRole("textbox", { name: "Caption" });
+    await user.click(other);
+    press(other, "Escape");
+    await waitFor(() => expect(document.activeElement).toBe(shellOf(second!.id)));
+    // Un disegno qualunque dopo non riporta il fuoco a un'immagine selezionata prima.
+    await user.click(textbox(SCREENS_INTRO));
+    await waitFor(() => expect(editing()).toHaveTextContent(SCREENS_INTRO));
+    input(editing(), "insertText", "x");
+    await act(async () => new Promise((r) => setTimeout(r, 20)));
+    expect(document.activeElement).toBe(editing());
+  });
+});
+
+describe("fix round 1: la barra della selezione nelle celle (punto 2)", () => {
+  const TABLE = "blk-acq-meter-table";
+  it("B in una cella: grassetto; Link https: un <a>; uscita: un set della tabella coi segni", async () => {
+    await open("Meter reading");
+    const user = userEvent.setup();
+    await user.click(within(shellOf(TABLE)).getByRole("textbox", { name: "Table cell, row 3, column 1" }));
+    await waitFor(() => expect(editing()).toHaveTextContent("Business"));
+    act(() => placeCaret(editing(), 0, 8));
+    const bar = await screen.findByRole("toolbar", { name: "Format the selection" });
+    await user.click(within(bar).getByRole("button", { name: "Bold" }));
+    await waitFor(() => expect(editing().querySelector("strong")).toHaveTextContent("Business"));
+    act(() => placeCaret(editing(), 0, 8));
+    await user.click(within(await screen.findByRole("toolbar")).getByRole("button", { name: "Link" }));
+    const field = await screen.findByRole("textbox", { name: "Paste or type a link" });
+    await user.type(field, "https://acq.example{Enter}");
+    await waitFor(() => expect(editing().querySelector("a")).toHaveAttribute("href", "https://acq.example"));
+    act(() => editing().blur());
+    await waitFor(() => expect(saves).toHaveBeenCalledTimes(1));
+    const saved = lastSet() as Extract<ProductBlock, { type: "table" }>;
+    expect(saved.rows[2]!.cells[0]!.content.marks).toEqual(
+      expect.arrayContaining([
+        { type: "bold", start: 0, end: 8 },
+        { type: "link", start: 0, end: 8, href: "https://acq.example" },
+      ]),
+    );
+  });
+});
+
+describe("fix round 1: Fine e Inizio non fanno scorrere la colonna (punto 3)", () => {
+  it("in un blocco e in una cella: il cursore va al bordo della riga (Selection.modify), il default è annullato", async () => {
+    const sel = document.getSelection()!;
+    const modify = vi.fn();
+    (sel as unknown as { modify: typeof modify }).modify = modify;
+    await open("Meter reading");
+    const el = await enter("Readings close on the 25th of each month.", 3);
+    let notPrevented = true;
+    act(() => {
+      notPrevented = fireEvent.keyDown(el, { key: "End" });
+    });
+    expect(notPrevented).toBe(false);
+    expect(modify).toHaveBeenLastCalledWith("move", "forward", "lineboundary");
+    act(() => {
+      fireEvent.keyDown(editing(), { key: "Home", shiftKey: true });
+    });
+    expect(modify).toHaveBeenLastCalledWith("extend", "backward", "lineboundary");
+    await userEvent
+      .setup()
+      .click(within(shellOf("blk-acq-meter-table")).getByRole("textbox", { name: "Table cell, row 2, column 1" }));
+    await waitFor(() => expect(editing()).toHaveTextContent("Household"));
+    act(() => {
+      notPrevented = fireEvent.keyDown(editing(), { key: "End" });
+    });
+    expect(notPrevented).toBe(false);
+    expect(modify).toHaveBeenLastCalledWith("move", "forward", "lineboundary");
+    delete (sel as unknown as { modify?: unknown }).modify;
+  });
+});
+
+describe("fix round 1: incollare (punti 4 e 5)", () => {
+  it("da Word (testo e un'immagine della selezione): entra il testo, nessuna immagine", async () => {
+    await open("Screens");
+    const el = await enter(SCREENS_INTRO, 0);
+    act(() => {
+      fireEvent.paste(el, {
+        clipboardData: {
+          files: [png()],
+          types: ["text/html", "text/plain", "Files"],
+          getData: (type: string) =>
+            type === "text/html" ? '<style>p{margin:0}</style><p class="MsoNormal">Totals</p>' : type === "text/plain" ? "Totals" : "",
+        },
+      });
+    });
+    await waitFor(() => expect(editing().textContent!.startsWith("Totals")).toBe(true));
+    await act(async () => new Promise((r) => setTimeout(r, 20)));
+    expect(savedOps().flat().some((op) => op.op === "insert" && op.block.type === "image")).toBe(false);
+  });
+
+  it("un'immagine incollata in una cella va sotto la tabella", async () => {
+    await open("Meter reading");
+    await userEvent
+      .setup()
+      .click(within(shellOf("blk-acq-meter-table")).getByRole("textbox", { name: "Table cell, row 2, column 1" }));
+    await waitFor(() => expect(editing()).toHaveTextContent("Household"));
+    pasteFiles(editing(), [png()]);
+    await waitFor(() =>
+      expect(savedOps().flat()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ op: "insert", afterId: "blk-acq-meter-table", block: expect.objectContaining({ type: "image" }) }),
+        ]),
+      ),
+    );
+  });
+});
+
+describe("fix round 1: la tabella (punti 6 e 9)", () => {
+  const TABLE = "blk-acq-meter-table";
+  it("«⋯» senza una cella col fuoco agisce sulla prima cella (anche dopo che il fuoco è uscito)", async () => {
+    await open("Meter reading");
+    const user = userEvent.setup();
+    await user.click(within(shellOf(TABLE)).getByRole("textbox", { name: "Table cell, row 3, column 1" }));
+    await waitFor(() => expect(editing()).toHaveTextContent("Business"));
+    await user.click(textbox("Readings close on the 25th of each month."));
+    await waitFor(() => expect(editing()).toHaveTextContent("Readings close"));
+    await user.click(within(shellOf(TABLE)).getByRole("button", { name: "Table menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Remove row" }));
+    await waitFor(() => expect(saves).toHaveBeenCalled());
+    const saved = lastSet() as Extract<ProductBlock, { type: "table" }>;
+    expect(saved.rows.map((r) => r.id)).toEqual(["blk-acq-meter-row-2", "blk-acq-meter-row-3"]);
+  });
+
+  it("⇧Tab dalla prima cella esce al blocco prima, come Tab dall'ultima", async () => {
+    await open("Meter reading");
+    await userEvent.setup().click(within(shellOf(TABLE)).getByRole("textbox", { name: "Table cell, row 1, column 1" }));
+    await waitFor(() => expect(editing()).toHaveTextContent("Meter"));
+    press(editing(), "Tab", { shiftKey: true });
+    await waitFor(() => expect(editing()).toHaveTextContent("Two meters on the same contract are read one after the other."));
+  });
+});
+
+describe("fix round 1: il registro della decisione (punto 7)", () => {
+  it("una decisione di AUD citata in una pagina di ACQ apre il registro di AUD", async () => {
+    const page = pageOf("Client decisions");
+    page.blocks = [...page.blocks, { id: "blk-aud-decision", type: "decision", decisionId: "dl-aud-1" }];
+    await open("Client decisions");
+    const shell = shellOf("blk-aud-decision");
+    await waitFor(() =>
+      expect(within(shell).getByRole("link", { name: /Open in the register/ })).toHaveAttribute(
+        "href",
+        "#/p/AUD/overview?decision=dl-aud-1",
+      ),
+    );
+  });
+});
+
+describe("fix round 1: «Link to…» sa dire l'errore e il vuoto (punto 8)", () => {
+  it("la ricerca non riesce: «Couldn't search», non «nessun risultato»", async () => {
+    failNext("searchMentions");
+    await slash("link");
+    const list = await screen.findByRole("listbox", { name: "Find a task, request, page or file" });
+    await waitFor(() => expect(list).toHaveTextContent("Couldn't search"));
+    expect(list).not.toHaveTextContent("Nothing matches");
+  });
+
+  it("niente che corrisponde: «Nothing matches “zzqq”»", async () => {
+    await slash("link");
+    const field = await screen.findByRole("combobox", { name: "Find a task, request, page or file" });
+    await userEvent.setup().type(field, "zzqq");
+    await waitFor(() =>
+      expect(screen.getByRole("listbox", { name: "Find a task, request, page or file" })).toHaveTextContent(
+        "Nothing matches “zzqq”",
+      ),
+    );
   });
 });

@@ -12054,7 +12054,9 @@
         "requests": "Requests",
         "pages": "Pages",
         "productPages": "Product pages",
-        "files": "Files"
+        "files": "Files",
+        "failed": "Couldn't search",
+        "empty": "Nothing to link yet"
       },
       "table": {
         "menu": "Table menu",

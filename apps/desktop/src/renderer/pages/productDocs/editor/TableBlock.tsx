@@ -1,13 +1,15 @@
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProductBlock, RichText } from "../../../data/types";
 import { makeBlockId } from "../../../domain/productDocs/blocks";
-import { concatRich, deleteRange, plain, toggleMark } from "../../../domain/productDocs/richText";
+import { concatRich, deleteRange, plain, setLink, toggleMark } from "../../../domain/productDocs/richText";
 import { itemClass } from "../../../tasks-ui/Menu";
 import { MenuButton } from "../../tasks/controls";
 import { insertRich, tableAdd, tableRemove } from "./blockOps";
+import { pastedImages } from "./images";
 import { pasteBlocks } from "./keys";
 import { RichBlockEdit, RichBlockRead, RichReadOnly, type RichBlockHandlers, type Selection } from "./RichBlock";
+import { SelectionBar, linkAt } from "./SelectionBar";
 
 // La tabella (shape product-editor.md §3.10, [PE 13]): griglia 1 px `rule`,
 // celle 8×12, 14/20, colonne di almeno 120 e lo scorrimento orizzontale
@@ -16,8 +18,12 @@ import { RichBlockEdit, RichBlockRead, RichReadOnly, type RichBlockHandlers, typ
 // di testo; le bozze della tabella vanno all'editor come bozza del blocco
 // (un `set` della tabella all'uscita). Tab / ⇧Tab fra le celle, a capo di
 // riga; Tab sull'ultima cella esce al blocco dopo; ↑/↓ dalla prima/ultima
-// riga escono. «⋯» in alto a destra: Add row · Add column · Remove row ·
-// Remove column, sulla riga e la colonna dell'ultima cella col fuoco.
+// riga escono, ⇧Tab sulla prima esce al blocco prima. La barra della
+// selezione c'è anche nelle celle (§3.5). Un'immagine incollata in una cella
+// va sotto la tabella (fix round 1). «⋯» in alto a destra: Add row · Add
+// column · Remove row · Remove column, sulla riga e la colonna della cella
+// col fuoco (anche dopo il clic su «⋯»); senza una cella col fuoco, sulla
+// prima cella.
 
 export type Table = Extract<ProductBlock, { type: "table" }>;
 
@@ -37,6 +43,8 @@ export interface TableEditing {
   history(kind: "undo" | "redo"): void;
   /** Un tasto: «Saved» sparisce. */
   touch(): void;
+  /** Le immagini incollate in una cella: vanno sotto la tabella. */
+  images(files: File[]): void;
 }
 
 interface CellFocus extends Selection {
@@ -84,6 +92,8 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
   const caret = (id: string, start: number, end = start) => setFocus({ id, start, end, nonce: ++nonce.current });
   /** La riga e la colonna dell'ultima cella col fuoco: le usa «⋯» anche dopo che il fuoco è andato sul bottone. */
   const [last, setLast] = useState<{ row: number; col: number } | null>(null);
+  const [linkOpen, setLinkOpen] = useState(false);
+  const wrapper = useRef<HTMLDivElement>(null);
 
   const tableRef = useRef(block);
   tableRef.current = block;
@@ -133,7 +143,10 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
       if (!["Shift", "Meta", "Alt", "Control"].includes(e.key)) editingRef.current.touch();
       if (e.key === "Tab") {
         const flat = pos.row * width + pos.col + (e.shiftKey ? -1 : 1);
-        if (flat < 0) return true;
+        if (flat < 0) {
+          exit("prev");
+          return true;
+        }
         if (flat >= rows.length * width) {
           exit("next");
           return true;
@@ -161,6 +174,10 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
         return true;
       }
       if (e.key === "Escape") {
+        if (linkOpen) {
+          setLinkOpen(false);
+          return true;
+        }
         if (sel.start !== sel.end) {
           caret(id, sel.end);
           return true;
@@ -191,6 +208,11 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
       const pos = posOf(id);
       if (!pos) return;
       editingRef.current.touch();
+      const images = pastedImages(clip);
+      if (images.length > 0) {
+        editingRef.current.images(images);
+        return;
+      }
       // In una cella tutto entra al cursore, una riga per a capo.
       const pasted = pasteBlocks(clip, makeBlockId);
       const lines = pasted.map((b) => ("content" in b ? b.content : plain("")));
@@ -209,7 +231,12 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
       if (focusRef.current?.id !== id) return;
       // Verso un'altra cella: è la cella dopo a prendere il fuoco.
       if (related?.closest?.(`[data-table-id="${tableRef.current.id}"] [data-table-cell]`)) return;
+      // Dentro la barra o il campo del link: la cella resta col fuoco.
+      if (related?.closest?.("[data-editor-floating]")) return;
       setFocus(null);
+      setLinkOpen(false);
+      // Fuori dalla tabella (non verso il suo «⋯»): nessuna cella col fuoco.
+      if (!related?.closest?.(`[data-table-id="${tableRef.current.id}"]`)) setLast(null);
       editingRef.current.leave();
     },
     history(kind) {
@@ -221,9 +248,38 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
 
   const rowCount = block.rows.length;
   const colCount = block.rows[0]?.cells.length ?? 0;
+  // La cella col fuoco (o l'ultima, se il fuoco è andato su «⋯»); nessuna: la prima.
   const at = {
-    row: Math.min(last?.row ?? rowCount - 1, rowCount - 1),
-    col: Math.min(last?.col ?? colCount - 1, colCount - 1),
+    row: Math.min(last?.row ?? 0, rowCount - 1),
+    col: Math.min(last?.col ?? 0, colCount - 1),
+  };
+
+  // --- la barra della selezione (§3.5) ---------------------------------------
+  const editingContent = focus ? (posOf(focus.id)?.cell.content ?? null) : null;
+  const linkHere =
+    focus && editingContent && focus.start === focus.end ? linkAt(editingContent, focus.start, focus.end) : null;
+  const showBar = !!focus && !!editingContent && (focus.start !== focus.end || linkHere !== null);
+  const barStart = linkHere ? linkHere.start : (focus?.start ?? 0);
+  const barEnd = linkHere ? linkHere.end : (focus?.end ?? 0);
+  const [barStyle, setBarStyle] = useState<CSSProperties>({});
+  useLayoutEffect(() => {
+    if (!showBar) return;
+    const box = wrapper.current?.getBoundingClientRect();
+    const sel = document.getSelection();
+    const editingEl = wrapper.current?.querySelector("[data-editing]");
+    if (!box || !sel || sel.rangeCount === 0 || !editingEl?.contains(sel.getRangeAt(0).startContainer)) return;
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    const next: CSSProperties = {
+      top: rect.top - box.top - 8,
+      left: Math.max(rect.left - box.left, 0),
+      transform: "translateY(-100%)",
+    };
+    setBarStyle((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+  }, [focus, showBar, linkOpen]);
+  const marked = (content: RichText, sel: Selection) => {
+    if (!focus) return;
+    editingRef.current.draft(withCell(focus.id, content));
+    caret(focus.id, sel.start, sel.end);
   };
   const structure = (next: Table | null) => {
     if (!next) return;
@@ -259,7 +315,7 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
   );
 
   return (
-    <div data-table-id={block.id} className="group/table relative w-fit max-w-full">
+    <div ref={wrapper} data-table-id={block.id} className="group/table relative w-fit max-w-full">
       <div className="overflow-x-auto">
         <table className="border-collapse">
           <tbody>
@@ -301,6 +357,30 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
           </tbody>
         </table>
       </div>
+      {showBar && focus && editingContent && (
+        <SelectionBar
+          content={editingContent}
+          start={barStart}
+          end={barEnd}
+          linkOpen={linkOpen}
+          style={barStyle}
+          onBold={() => marked(toggleMark(editingContent, barStart, barEnd, "bold"), focus)}
+          onItalic={() => marked(toggleMark(editingContent, barStart, barEnd, "italic"), focus)}
+          onLink={() => setLinkOpen(true)}
+          onApplyLink={(href) => {
+            setLinkOpen(false);
+            marked(setLink(editingContent, barStart, barEnd, href), { start: barStart, end: barEnd });
+          }}
+          onRemoveLink={() => {
+            setLinkOpen(false);
+            marked(setLink(editingContent, barStart, barEnd, null), { start: barStart, end: barEnd });
+          }}
+          onCloseLink={() => {
+            setLinkOpen(false);
+            caret(focus.id, focus.start, focus.end);
+          }}
+        />
+      )}
       <div className="absolute top-0 -right-7 opacity-0 transition-opacity duration-[var(--duration-fast)] ease-out group-focus-within/table:opacity-100 group-hover/table:opacity-100 has-[[aria-expanded=true]]:opacity-100">
         <MenuButton
           menuLabel={t("productDocs.blocks.table.menu")}

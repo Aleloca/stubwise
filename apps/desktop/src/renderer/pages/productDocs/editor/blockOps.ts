@@ -112,3 +112,26 @@ export function insertCode(rt: RichText, at: number, code: string): { content: R
   const piece = `${before}${code}${after}`;
   return { content: insertRich(rt, at, plain(piece)), caret: at + before.length + code.length };
 }
+
+/** L'altezza massima del menu «/» e dei selettori, e lo spazio che tengono dai bordi visibili. */
+const FLOATING_MAX = 320;
+const FLOATING_MARGIN = 16;
+
+/**
+ * Dove sta un menu del blocco (fix round 1, punto 11): sotto il blocco, alto
+ * al più 320 e a 16 px dal fondo visibile (la colonna o la finestra, quello
+ * più in alto); sopra se sotto non ci sta tutto e sopra c'è più posto.
+ */
+export function floatingPlacement(box: {
+  blockTop: number;
+  blockBottom: number;
+  viewTop: number;
+  viewBottom: number;
+  windowHeight: number;
+}): { placement: "below" | "above"; maxHeight: number } {
+  const bottom = Math.min(box.viewBottom, box.windowHeight);
+  const below = bottom - box.blockBottom - FLOATING_MARGIN;
+  const above = box.blockTop - box.viewTop - FLOATING_MARGIN;
+  if (below < FLOATING_MAX && above > below) return { placement: "above", maxHeight: Math.min(FLOATING_MAX, above) };
+  return { placement: "below", maxHeight: Math.max(0, Math.min(FLOATING_MAX, below)) };
+}

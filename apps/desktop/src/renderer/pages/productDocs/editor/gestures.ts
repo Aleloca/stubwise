@@ -10,6 +10,7 @@ import {
 } from "../../../domain/productDocs/shortcuts";
 import type { TextBlock } from "./BlockBody";
 import { cloneWithIds, emptyParagraph, emptyTable, insertRich, typed } from "./blockOps";
+import { pastedImages } from "./images";
 import { editorKey, pasteBlocks } from "./keys";
 import type { RichBlockHandlers, Selection } from "./RichBlock";
 import type { EditorSession } from "./useEditorSession";
@@ -407,8 +408,10 @@ export function makeGestures(ctx: GestureContext) {
       if (!block || !isTextBlock(block)) return;
       sessionRef.current.touch();
       // Un'immagine dagli appunti: un blocco dopo quello col fuoco ([PE 9]).
-      if (clip.files && clip.files.length > 0) {
-        addImages(clip.files, { afterId: id });
+      // Il testo vince: Word ed Excel mettono anche un'immagine della selezione.
+      const images = pastedImages(clip);
+      if (images.length > 0) {
+        addImages(images, { afterId: id });
         return;
       }
       const pasted = pasteBlocks(clip, makeBlockId);

@@ -3803,7 +3803,13 @@ export interface ProductPageView extends ProductPage {
   /** Le decisioni citate, risolte per chi legge; `null` = non visibile (R-G5). */
   decisions: Record<
     string,
-    { title: string; decidedAt: string; decidedByName: string | null } | null
+    {
+      title: string;
+      decidedAt: string;
+      decidedByName: string | null;
+      /** Il progetto della decisione (il suo registro); facoltativo: cambio additivo. */
+      projectCode?: string;
+    } | null
   >;
   /** I fili aperti della pagina (radici non risolte, con l'ancora viva o no), per la barra. */
   openComments: number;

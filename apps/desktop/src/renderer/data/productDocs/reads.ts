@@ -87,7 +87,12 @@ function decisionFor(me: string, decisionId: string): ProductPageView["decisions
   const d = state.decisionLog.find((x) => x.id === decisionId);
   if (!d || !visibleProjectIds(me).has(d.projectId)) return null;
   const by = d.decidedById === null ? null : (PEOPLE.find((p) => p.id === d.decidedById) ?? null);
-  return { title: d.title, decidedAt: d.decidedAt, decidedByName: by?.name ?? null };
+  return {
+    title: d.title,
+    decidedAt: d.decidedAt,
+    decidedByName: by?.name ?? null,
+    projectCode: state.projects.find((p) => p.id === d.projectId)?.code,
+  };
 }
 
 /**
