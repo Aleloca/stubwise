@@ -694,7 +694,9 @@ function TreeNode({
           data-row
           title={`${page.code} · ${page.title}`}
           onClick={renaming ? undefined : onOpen}
-          style={{ paddingLeft: indentOf(depth) - (hasChildren ? 16 : 0) }}
+          // La freccia (16) e il suo spazio (4) stanno prima del titolo: foglie e
+          // genitori hanno il titolo sullo stesso bordo (Impeccable 11).
+          style={{ paddingLeft: indentOf(depth) + (hasChildren ? -16 : 4) }}
           className={`relative flex h-7 min-w-0 cursor-default items-center gap-1 rounded-md pr-1 text-sm transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 ${
             selected ? "bg-ink/10 font-semibold text-ink" : "text-ink-muted hover:text-ink"
           } ${dropInside ? "bg-ink/10 ring-1 ring-ink/40 ring-inset" : ""}`}

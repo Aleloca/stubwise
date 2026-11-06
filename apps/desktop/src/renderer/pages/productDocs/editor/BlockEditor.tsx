@@ -728,6 +728,7 @@ function WritableBody({
                 onKeyDown={shellKey(block)}
                 dropLine={drop && drag?.overId === block.id ? drop.edge : fileDrop === block.id ? "bottom" : null}
                 tinted={!!bridge?.activeAnchor && anchorIdsOf(block).includes(bridge.activeAnchor)}
+                text={isTextBlock(block)}
                 style={{ paddingTop: layout.pt, paddingBottom: layout.pb, ["--block-pt" as string]: `${layout.gutterTop}px` }}
               >
                 {(dragHandle) => (

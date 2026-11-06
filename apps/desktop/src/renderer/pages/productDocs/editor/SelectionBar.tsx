@@ -97,7 +97,9 @@ export const SelectionBar = forwardRef<
                 pressed={hasMark(content, start, end, "bold")}
                 onClick={onBold}
               >
-                <span className="font-bold">B</span>
+                <span aria-hidden="true" className="grid size-4 place-items-center text-[15px] leading-none font-bold">
+                  B
+                </span>
               </BarButton>
               <BarButton
                 label={t("productDocs.editor.selection.italic")}
@@ -105,7 +107,7 @@ export const SelectionBar = forwardRef<
                 pressed={hasMark(content, start, end, "italic")}
                 onClick={onItalic}
               >
-                <span className="italic">I</span>
+                <ItalicGlyph />
               </BarButton>
             </>
           )}
@@ -118,6 +120,28 @@ export const SelectionBar = forwardRef<
     </div>
   );
 });
+
+/**
+ * La «I» del corsivo con le grazie in cima e in fondo (Impeccable 6): l'italico
+ * di Archivo è un'asta sola, e accanto al «/» dell'editor si leggeva come una barra.
+ */
+function ItalicGlyph() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={16}
+      height={16}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M7 3h5.5M3.5 13H9M9.75 3 6.25 13" />
+    </svg>
+  );
+}
 
 function BarButton({
   label,

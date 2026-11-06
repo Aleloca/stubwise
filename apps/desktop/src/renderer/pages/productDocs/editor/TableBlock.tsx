@@ -83,6 +83,12 @@ export function TableBlock({ block, editing }: { block: Table; editing?: TableEd
   return <WritableTable block={block} editing={editing} />;
 }
 
+/** Il menu «⋯» della tabella si apre a destra se ci sta (240 px prima del bordo visibile), altrimenti a sinistra. */
+function menuAlignFor(el: HTMLElement): "left" | "right" {
+  const right = el.closest(".overflow-y-auto")?.getBoundingClientRect().right ?? window.innerWidth;
+  return el.getBoundingClientRect().left + 240 <= right ? "left" : "right";
+}
+
 function WritableTable({ block, editing }: { block: Table; editing: TableEditing }) {
   const { t } = useTranslation();
   /** «Comment» su una selezione nella cella (Task 10): l.ancora è la cella. */
@@ -98,6 +104,7 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
   /** La riga e la colonna dell'ultima cella col fuoco: le usa «⋯» anche dopo che il fuoco è andato sul bottone. */
   const [last, setLast] = useState<{ row: number; col: number } | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
+  const [menuAlign, setMenuAlign] = useState<"left" | "right">("left");
   const wrapper = useRef<HTMLDivElement>(null);
 
   const tableRef = useRef(block);
@@ -401,12 +408,19 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
           }
         />
       )}
-      <div className="absolute top-0 -right-7 opacity-0 transition-opacity duration-[var(--duration-fast)] ease-out group-focus-within/table:opacity-100 group-hover/table:opacity-100 has-[[aria-expanded=true]]:opacity-100">
+      <div
+        // Il menu si apre verso il margine libero a destra, non sopra la
+        // tabella che modifica (Impeccable 16); verso sinistra solo se a
+        // destra non c'è posto (si decide prima del clic: passaggio o fuoco).
+        onPointerEnter={(e) => setMenuAlign(menuAlignFor(e.currentTarget))}
+        onFocus={(e) => setMenuAlign(menuAlignFor(e.currentTarget))}
+        className="absolute top-0 -right-7 opacity-0 transition-opacity duration-[var(--duration-fast)] ease-out group-focus-within/table:opacity-100 group-hover/table:opacity-100 has-[[aria-expanded=true]]:opacity-100"
+      >
         <MenuButton
           menuLabel={t("productDocs.blocks.table.menu")}
           ariaLabel={t("productDocs.blocks.table.menu")}
           title={t("productDocs.blocks.table.menu")}
-          align="right"
+          align={menuAlign}
           className="grid size-5 place-items-center rounded-[4px] text-ink-faint transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-expanded:bg-ink/10 aria-expanded:text-ink"
           wrapperClassName="inline-flex shrink-0"
           label={

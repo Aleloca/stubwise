@@ -29,6 +29,7 @@ export function BlockShell({
   dropNote = null,
   after = null,
   tinted = false,
+  text = false,
   children,
 }: {
   id: string;
@@ -44,6 +45,11 @@ export function BlockShell({
   after?: ReactNode;
   /** Il blocco del filo attivo (Task 10, [PC 6]): la tinta ink 6 % a tutta larghezza. */
   tinted?: boolean;
+  /**
+   * Un blocco di testo: scelto come oggetto, l'anello sta 4 px fuori, così
+   * non tocca la prima lettera (Impeccable 12). Gli oggetti restano a 2 px.
+   */
+  text?: boolean;
   /** Il contenuto; riceve ciò che va su ⋮⋮. */
   children: (handle: DragHandle) => ReactNode;
 }) {
@@ -60,7 +66,7 @@ export function BlockShell({
       aria-label={label}
       onKeyDown={onKeyDown}
       style={style}
-      className={`group/block relative rounded-lg focus:outline-2 focus:outline-offset-2 focus:outline-focus focus:outline-solid ${isDragging ? "opacity-40" : ""} isolate`}
+      className={`group/block relative rounded-lg focus:outline-2 ${text ? "focus:outline-offset-4" : "focus:outline-offset-2"} focus:outline-focus focus:outline-solid ${isDragging ? "opacity-40" : ""} isolate`}
     >
       {tinted && <ThreadTint />}
       {dropLine && (
