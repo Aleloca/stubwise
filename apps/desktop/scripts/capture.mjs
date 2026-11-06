@@ -136,6 +136,21 @@ async function main() {
       await page.screenshot({ path: resolve(outDir, name) });
       console.log("scritto", name);
     };
+    // Area 11a, revisione finale ([PS 10]): a 1024 Comments, History ed Export
+    // possono stare nel «⋯» della pagina. Il gesto dalla barra, o dal «⋯».
+    const pageMore = (page) => page.getByRole("button", { name: /^(More for this page|Altro per questa pagina)/ });
+    async function barGesture(page, name) {
+      const inBar = page.getByRole("navigation", { name: /^(Product pages of|Pagine di prodotto di)/ }).getByRole("button", { name });
+      if (await inBar.first().isVisible()) return inBar.first().click();
+      await pageMore(page).click();
+      await page.getByRole("menu").getByRole("menuitemcheckbox", { name }).click();
+    }
+    /** A 1024 la colonna dei commenti si apre solo col gesto (emendamento a [PC 14]). */
+    async function openComments(page) {
+      const region = page.getByRole("region", { name: /^(Comments|Commenti)$/ });
+      if (!(await region.isVisible())) await barGesture(page, /^(Comments|Commenti)/);
+      await region.waitFor();
+    }
 
     // Area 11a, Task 13 (`CAPTURE_A11A_EXTRA=1`): le due scene che mancavano
     // agli insiemi dei Task 7–12. Sara su «Sign-in» con il «Who?» della riga di
@@ -215,21 +230,26 @@ async function main() {
             saveFile: () => (m === "pending" ? new Promise(() => {}) : Promise.resolve({ saved: false, reason: "failed" })),
           };
         }, mode);
+      /** «Export ▾» nella barra, o (a 1024, se non ci sta) i suoi gruppi nel «⋯». */
+      async function openExport(page) {
+        if (await exportButton(page).isVisible()) await exportButton(page).click();
+        else await pageMore(page).click();
+      }
       async function pick(page, lang, format) {
-        await exportButton(page).click();
+        await openExport(page);
         const menu = page.getByRole("menu");
         const group = menu.getByRole("group", { name: lang === "it" ? "Questa pagina" : "This page" });
         await group.getByRole("menuitem", { name: format }).click();
       }
       const scenes = [
-        { name: "menu", hash: "/p/ACQ/docs/product/ACQ-D5", run: async (page) => exportButton(page).click() },
+        { name: "menu", hash: "/p/ACQ/docs/product/ACQ-D5", run: async (page) => openExport(page) },
         {
           name: "preparing",
           hash: "/p/ACQ/docs/product/ACQ-D5",
           run: async (page, v) => {
             await bridge(page, "pending");
             await pick(page, v.lang, "Word (.docx)");
-            await page.getByRole("button", { name: /^(Preparing…|Preparo…)/ }).waitFor();
+            await page.getByRole("button", { name: /(Preparing…|Preparo…)$/ }).waitFor();
           },
         },
         {
@@ -333,6 +353,7 @@ async function main() {
           hash: SIGNIN,
           persona: "Laura",
           run: async (page) => {
+            await openComments(page);
             await commentsRegion(page).getByRole("article").first().waitFor();
             await page.waitForTimeout(300);
           },
@@ -384,7 +405,7 @@ async function main() {
             });
             await page.getByRole("heading", { level: 1, name: "Bills" }).waitFor();
             const region = commentsRegion(page);
-            if (!(await region.isVisible())) await page.getByRole("button", { name: /^(Comments|Commenti)/ }).click();
+            await openComments(page);
             await region.getByRole("button", { name: /^2 (resolved|risolti)$/ }).click();
             await page.waitForTimeout(300);
           },
@@ -394,6 +415,7 @@ async function main() {
           hash: "/p/ACQ/docs/product/ACQ-D11",
           persona: "Laura",
           run: async (page) => {
+            await openComments(page);
             await commentsRegion(page).getByText(/Sentence deleted|Frase eliminata/).waitFor();
             await page.waitForTimeout(300);
           },
@@ -403,6 +425,7 @@ async function main() {
           hash: SIGNIN,
           persona: "Sara",
           run: async (page) => {
+            await openComments(page);
             await commentsRegion(page).getByRole("article").first().waitFor();
             await page.waitForTimeout(300);
           },
@@ -424,7 +447,7 @@ async function main() {
               );
             });
             await page.waitForTimeout(400);
-            await page.getByRole("button", { name: /^(History|Cronologia)$/ }).click();
+            await barGesture(page, /^(History|Cronologia)$/);
             const rows = page.locator("[data-history-row]");
             await rows.first().waitFor();
             await rows.nth(0).click();

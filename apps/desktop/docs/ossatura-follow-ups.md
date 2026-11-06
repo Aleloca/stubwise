@@ -2965,8 +2965,9 @@ Ognuna delle scelte ha il suo costo se è sbagliata. Dettaglio per task:
 - **Gli avatar della presenza si sovrappongono di 2 px** (emendamento datato
   dello shape: la seconda iniziale resta leggibile; a 4 px ne copriva una).
   *Se sbagliata*: il gruppo occupa più posto nella barra a 1024, o le
-  iniziali si coprono. Dalla revisione Impeccable finale (6 nov 2026) il
-  disco è di 28 px con iniziali di 12 px, e a 1024 sono al più 2 e «+N»
+  iniziali si coprono. Dalla revisione Impeccable finale (6 nov 2026)
+  l'anello sta fuori dal disco di 24 px, le iniziali sono di 12 px (la
+  sovrapposizione si misura fra gli anelli), e a 1024 sono al più 2 e «+N»
   (emendamento datato a [PE 16]).
 - **Trascinare un blocco per ⋮⋮ sta nel Task 8** (ruling del controller:
   nessun task successivo lo copriva). *Se sbagliata*: lo spostamento resta a

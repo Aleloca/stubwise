@@ -405,8 +405,10 @@ describe("fix round 1", () => {
     await steps(5);
     await waitFor(() => expect(avatars()).toHaveLength(2));
     const second = document.querySelector<HTMLElement>(`[data-presence-avatar="${MARCO}"]`)!;
-    expect(second.className.split(/\s+/)).toContain("-ml-0.5");
-    expect(second.className.split(/\s+/)).not.toContain("-ml-1");
+    // Dal 6 nov l'anello (2 px + 1 di fondo) sta fuori dal disco: 2 px fra i
+    // dischi fanno 2 px di sovrapposizione fra gli anelli.
+    expect(second.className.split(/\s+/)).toContain("ml-0.5");
+    expect(second.style.boxShadow).toMatch(/^0(px)? 0(px)? 0(px)? 2px/);
   });
 
   it("chi scrive in una cella di tabella è presente sulla cella (non «reading»)", async () => {
