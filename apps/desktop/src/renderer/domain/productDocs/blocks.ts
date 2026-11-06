@@ -81,6 +81,10 @@ function changedAnchors(before: ProductBlock | null, after: ProductBlock | null)
   const out: string[] = [];
   for (const [id, content] of a) if (!b.has(id) || !same(content, b.get(id))) out.push(id);
   for (const id of b.keys()) if (!a.has(id)) out.push(id);
+  // Una bozza di schermata non ha testo: rifatta (variante) o tenuta («Tieni»)
+  // cambia lo stesso la sua ancora, così «Annulla» e «toccata dopo» la vedono.
+  if (before?.type === "wireframe" && after?.type === "wireframe" && !same(before, after) && !out.includes(after.id))
+    out.push(after.id);
   return out;
 }
 

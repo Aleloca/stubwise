@@ -49,6 +49,31 @@ const NO_MARK: ReadonlySet<string> = new Set(["wireframe"]);
 /** Le revisioni che portano il segno e si annullano da qui. */
 export const isClaudeEdit = (r: ProductRevision): boolean => r.via === "claude" && r.kind === "edit";
 
+/**
+ * Il gesto sulla bozza di schermata di una revisione (11b, Task 7): un solo
+ * cambio, su un blocco `wireframe`. Claude la disegna (prima non c'era, o al
+ * posto di un paragrafo) e la rifà; una persona la tiene («Tieni»: solo
+ * `kept` cambia, da assente a vero). `null` per ogni altra revisione, gli
+ * annullamenti compresi.
+ */
+export function wireframeGestureOf(r: ProductRevision): "drew" | "redrew" | "kept" | null {
+  if (r.kind !== "edit" || r.changes.length !== 1) return null;
+  const { before, after } = r.changes[0]!;
+  if (after?.type !== "wireframe") return null;
+  if (r.via === "claude") return before?.type === "wireframe" ? "redrew" : "drew";
+  if (before?.type !== "wireframe" || before.kept === true || after.kept !== true) return null;
+  const same = before.id === after.id && before.wireframeId === after.wireframeId && before.variant === after.variant;
+  return same ? "kept" : null;
+}
+
+/**
+ * Le revisioni che si annullano dalla cronologia: le modifiche di Claude e
+ * «Tieni» sulla bozza di schermata (maintainer, 6 nov 2026: «si annulla
+ * dalla cronologia», e «Annulla» riporta l'etichetta). Solo le prime portano
+ * il segno.
+ */
+export const isUndoableRevision = (r: ProductRevision): boolean => isClaudeEdit(r) || wireframeGestureOf(r) === "kept";
+
 const canEdit = (me: string, projectId: string): boolean =>
   docsAccess(me, projectId) === "read" && can(viewerFor(me), "docs.edit", projectId);
 
@@ -242,7 +267,9 @@ export function claudeRevisionFields(me: string, r: ProductRevision, projectId: 
     (c) => c.pageId === r.pageId && c.question?.answer?.revisionId === r.id,
   );
   if (answered) out.answerOf = answered.id;
-  if (!isClaudeEdit(r)) return out;
+  const wireframe = wireframeGestureOf(r);
+  if (wireframe) out.wireframe = wireframe;
+  if (!isUndoableRevision(r)) return out;
 
   const people = visiblePeopleFor(me);
   const anchors = anchorsOf(r);

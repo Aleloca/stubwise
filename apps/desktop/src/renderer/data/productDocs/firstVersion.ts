@@ -285,7 +285,10 @@ function genericDraft(
  * La bozza preparata, ristretta alle fonti scelte (anti-obiettivo
  * «decisioni inventate»): restano solo i blocchi e le domande la cui fonte
  * è fra le scelte; Overview comincia con la riga che cita le fonti, e una
- * pagina rimasta senza blocchi dice che le fonti non ne parlano.
+ * pagina rimasta senza blocchi dice che le fonti non ne parlano — se
+ * nemmeno una sua sottopagina ne parla: sopra sottopagine con contenuto
+ * la riga sarebbe falsa, e la pagina ha solo un paragrafo vuoto, scritto
+ * anch'esso dalla prima versione (Task 7, minore del Task 6).
  */
 function preparedDraft(
   pages: readonly FirstVersionDraftPage[],
@@ -293,10 +296,16 @@ function preparedDraft(
   refs: readonly FirstVersionSourceRef[],
   keys: ReadonlySet<string>,
 ): FirstVersionDraftPage[] {
+  const chosen = (p: FirstVersionDraftPage) => p.blocks.filter((b) => b.onlyWith !== undefined && keys.has(b.onlyWith));
+  const hasContent = (key: string): boolean =>
+    pages.some((c) => c.parentKey === key && (chosen(c).length > 0 || hasContent(c.key)));
   return pages.map((p, i) => {
-    const blocks = p.blocks.filter((b) => b.onlyWith !== undefined && keys.has(b.onlyWith));
+    const blocks = chosen(p);
     const lead = i === 0 ? [para("fv-cite", citationLine(projectId, refs))] : [];
-    const body = blocks.length > 0 ? blocks : [para("fv-none", FIRST_VERSION_FALLBACK)];
+    const body =
+      blocks.length > 0
+        ? blocks
+        : [hasContent(p.key) ? para("fv-empty", "") : para("fv-none", FIRST_VERSION_FALLBACK)];
     return {
       ...p,
       blocks: [...lead, ...body],

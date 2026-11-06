@@ -174,7 +174,8 @@ describe("la stesura", () => {
   });
 
   // Ogni blocco scritto è un blocco della bozza la cui fonte è stata scelta,
-  // la riga che cita le fonti, o la riga «le fonti non ne parlano».
+  // la riga che cita le fonti, la riga «le fonti non ne parlano», o il
+  // paragrafo vuoto di una pagina le cui sottopagine ne parlano.
   const traceable = async (sources: readonly FirstVersionSource[]) => {
     await written(sources);
     const chosen = new Set(
@@ -189,6 +190,8 @@ describe("la stesura", () => {
       for (const b of page.blocks) {
         if ("content" in b && b.content.text.startsWith(FIRST_VERSION_CITATION_PREFIX)) continue;
         if ("content" in b && b.content.text === FIRST_VERSION_FALLBACK) continue;
+        // Una pagina le cui sottopagine dicono il resto (Features): un paragrafo vuoto.
+        if (b.type === "paragraph" && b.content.text === "") continue;
         const from = allowed.get(shapeOf(b));
         expect(from, `${page.title}: ${JSON.stringify(b).slice(0, 120)}`).toBeDefined();
         expect(chosen.has(from!), `${page.title}: ${from}`).toBe(true);
@@ -229,6 +232,53 @@ describe("la stesura", () => {
     expect(text).not.toContain("49 euros");
     expect(text).not.toContain("spring");
     expect(questionsOf().map((q) => q.question!.factId)).toEqual(["vrd-fv-waiting-list"]);
+  });
+
+  it("Screens: la bozza di schermata di Claude (P33) solo con l'email delle prenotazioni, che descrive la prenotazione; senza, le fonti non ne parlano", async () => {
+    await written([EMAIL]);
+    const screens = pageTitled("Screens").blocks;
+    expect(screens).toEqual([
+      expect.objectContaining({ type: "wireframe", wireframeId: "booking", variant: 0 }),
+    ]);
+    expect(screens[0]).not.toHaveProperty("kept");
+    // Una bozza della prima versione non ha segno (come ogni blocco `first_version`).
+    expect(listProductMarksAs(LAURA, pageTitled("Screens").id)).toEqual([]);
+    await whenFirstVersionIdle();
+    resetApi();
+    setLatency(0);
+    await written([PLANS, DRIVE]);
+    expect(pageTitled("Screens").blocks).toEqual([
+      expect.objectContaining({ content: { text: FIRST_VERSION_FALLBACK, marks: [] } }),
+    ]);
+  });
+
+  it("le due immagini dicono che lo schizzo è di Claude, e il testo alternativo non afferma nulla che le fonti non dicano", async () => {
+    await written();
+    const images = pagesOf()
+      .flatMap((p) => p.blocks)
+      .filter((b): b is Extract<typeof b, { type: "image" }> => b.type === "image");
+    expect(images).toHaveLength(2);
+    for (const img of images) {
+      expect(img.caption.toLowerCase()).toContain("claude's sketch");
+      expect(img.alt.toLowerCase()).toContain("claude's sketch");
+      for (const invented of ["button", "square code", "three class", "caption"])
+        expect(`${img.alt} ${img.caption}`.toLowerCase(), invented).not.toContain(invented);
+    }
+  });
+
+  it("solo l'email delle prenotazioni: Features non dice «le fonti non ne parlano» sopra sottopagine che ne parlano", async () => {
+    await written([EMAIL]);
+    const features = pageTitled("Features");
+    expect(JSON.stringify(features.blocks)).not.toContain(FIRST_VERSION_FALLBACK);
+    expect(features.blocks).toEqual([expect.objectContaining({ type: "paragraph", content: { text: "", marks: [] } })]);
+    expect(JSON.stringify(pageTitled("Class booking").blocks)).toContain("seven days ahead");
+  });
+
+  it("solo il testo incollato: Features lo dice, perché nemmeno le sue sottopagine ne parlano", async () => {
+    await written([TEXT]);
+    expect(pageTitled("Features").blocks).toEqual([
+      expect.objectContaining({ content: { text: FIRST_VERSION_FALLBACK, marks: [] } }),
+    ]);
   });
 
   it("le fonti della riga in cima come le legge chi guarda: Sara non legge l'oggetto dell'email", async () => {

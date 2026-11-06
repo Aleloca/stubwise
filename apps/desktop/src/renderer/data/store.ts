@@ -434,6 +434,11 @@ export type ApiFnName =
   | "productDocs.acceptFirstVersionPage"
   | "productDocs.undoFirstVersion"
   | "productDocs.listOpenProductQuestions"
+  | "productDocs.proposeBacklogFromPage"
+  | "productDocs.listProductLinkedRequests"
+  | "productDocs.drawWireframe"
+  | "productDocs.redrawWireframe"
+  | "productDocs.keepWireframe"
   // Drive (area 5)
   | "drive.listDriveFiles"
   | "drive.getDriveFile"

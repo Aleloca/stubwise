@@ -148,6 +148,8 @@ export function blockLabel(block: ProductBlock, t: (key: string, opts?: Record<s
       return t("productDocs.space.blockDrive", { code: block.code });
     case "decision":
       return t("productDocs.space.blockDecision");
+    case "wireframe":
+      return t("productDocs.space.blockWireframe");
   }
 }
 
@@ -228,5 +230,8 @@ export function BlockBody({
       );
     case "table":
       return <TableBlock block={block} editing={table} />;
+    case "wireframe":
+      // La bozza di schermata (11b): il suo blocco (`WireframeBlock`) è del Task 12.
+      return null;
   }
 }

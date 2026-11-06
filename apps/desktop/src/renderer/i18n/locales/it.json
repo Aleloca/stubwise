@@ -3655,6 +3655,16 @@
         "needName": "Come chiamo il filtro? Per esempio: salva questo filtro come «Le mie task aperte».",
         "saveSummary": "Salva il filtro «{{name}}» · lo vedi solo tu",
         "proposed": "Ecco il filtro che salverei. Conferma qui sotto."
+      },
+      "productDocs": {
+        "backlog": {
+          "why": "Dalla pagina: «{{sentence}}»",
+          "alreadyProposed": "Già proposte da questa pagina: {{codes}}",
+          "alreadyProposedMore_one": "…e un'altra",
+          "alreadyProposedMore_other": "…e altre {{count}}",
+          "alreadyProposedHidden_one": "1 già proposta da questa pagina",
+          "alreadyProposedHidden_other": "{{count}} già proposte da questa pagina"
+        }
       }
     },
     "proposalFailed": {
@@ -11994,7 +12004,8 @@
       "blockDecision": "Decisione",
       "comments": "Commenti",
       "commentsCount": "Commenti ({{count}})",
-      "history": "Cronologia"
+      "history": "Cronologia",
+      "blockWireframe": "Bozza di schermata"
     },
     "tree": {
       "pages": "Pagine",
@@ -12121,7 +12132,8 @@
         "image": "Immagine",
         "drive": "File del Drive",
         "link": "Collega a…",
-        "decision": "Decisione"
+        "decision": "Decisione",
+        "wireframe": "Bozza di schermata"
       },
       "selection": {
         "toolbar": "Formatta la selezione",

@@ -160,6 +160,9 @@ function Block({ doc, depth, block: b }: { doc: ExportDoc; depth: number; block:
     case "list":
     case "todo":
       return null;
+    case "sketch":
+      // La bozza di schermata (11b): la stampa il Task 12, con la sua etichetta se mai tenuta.
+      return null;
   }
 }
 

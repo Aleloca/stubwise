@@ -4,7 +4,7 @@ import { nextSeq, state } from "../store";
 import type { ProductBlock, ProductBlockOp, ProductPage, ProductRevision } from "../types";
 import { invalid, notFound, writer } from "../writer";
 import { emitProductPage } from "./events";
-import { anchorUndo, anchorsOf, changeOf, isClaudeEdit, liveMarks, revisionUndo } from "./marks";
+import { anchorUndo, anchorsOf, changeOf, isUndoableRevision, liveMarks, revisionUndo } from "./marks";
 import { productPageById } from "./reads";
 import { editablePage, writeProductBlocksAs } from "./writes";
 
@@ -73,13 +73,14 @@ function undoOps(page: ProductPage, r: ProductRevision, anchors: readonly string
  * quelle non ancora annullate («Annulla tutto»). Una revisione `kind:
  * "undo"` con `undoOf` = la revisione di Claude, a nome di chi annulla. Un
  * gesto spento lancia `refused: <ragione>` e non scrive; una revisione che
- * non è una modifica di Claude è `invalid: revision`.
+ * non è una modifica di Claude (né «Tieni» di una bozza di schermata, Task
+ * 7: l'etichetta torna) è `invalid: revision`.
  */
 export function undoProductChangeAs(me: string, revisionId: string, anchorId?: string): { revisionId: string } {
   const r = state.productRevisions.find((x) => x.id === revisionId);
   const page = r ? productPageById(r.pageId) : undefined;
   if (!r || !page || docsAccess(me, page.projectId) !== "read") throw notFound();
-  if (!isClaudeEdit(r)) throw invalid("revision");
+  if (!isUndoableRevision(r)) throw invalid("revision");
   const all = anchorsOf(r);
   if (anchorId !== undefined && !all.includes(anchorId)) throw invalid("anchor");
   const people = visiblePeopleFor(me);

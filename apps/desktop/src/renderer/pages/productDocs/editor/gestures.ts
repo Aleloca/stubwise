@@ -203,8 +203,9 @@ export function makeGestures(ctx: GestureContext) {
     const text = block && isTextBlock(block) ? block.content.text : "";
     return s.viaPlus ? text : text.slice(1);
   };
+  // La bozza di schermata (11b) entra nel menu col suo gesto (Task 12, `drawWireframe` con `replaceId`).
   const slashItems = (s: Slash | null): SlashItem[] =>
-    filterSlashItems(slashQuery(s), (key) => t(key));
+    filterSlashItems(slashQuery(s), (key) => t(key)).filter((i) => i.id !== "wireframe");
 
   const pickSlash = (item: SlashItem) => {
     const s = slashRef.current;

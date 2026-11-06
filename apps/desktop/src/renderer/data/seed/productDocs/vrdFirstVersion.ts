@@ -6,7 +6,8 @@ import checkIn from "../../../assets/productDocs/vrd-check-in.png?inline";
 // progetto nuovo senza repository. VRD resta VUOTO nel seme (maintainer, 6
 // nov 2026, Q2): questa è la bozza che Claude scrive quando chi prova l'app
 // lancia «Write the first version with Claude». Dieci pagine, tre domande
-// aperte, due immagini e il file del Drive del progetto.
+// aperte, due immagini, una bozza di schermata e il file del Drive del
+// progetto.
 //
 // Anti-obiettivo «decisioni inventate»: OGNI blocco dice la fonte del seme
 // che lo dice (`onlyWith`) ed entra solo se quella fonte è fra le scelte.
@@ -23,9 +24,10 @@ import checkIn from "../../../assets/productDocs/vrd-check-in.png?inline";
 // (`newId`), così una seconda prima versione dopo «Annulla» non riusa id
 // già dati. Le domande nominano il blocco con il suo id di qui.
 //
-// La bozza di schermata (blocco `wireframe`) NON è qui: il tipo nasce nel
-// Task 7 (ruling del controller P33), che la aggiunge alla pagina «Screens»
-// nel punto segnato più sotto.
+// La bozza di schermata (blocco `wireframe`, Task 7, ruling del controller
+// P33) sta nella pagina «Screens»; le due immagini sono schizzi di Claude, e
+// la didascalia lo dice. Il testo alternativo descrive ciò che le fonti
+// dicono, non i dettagli del disegno.
 
 /** Gli id del seme che la prima versione di VRD usa (fonti, file, progetto). */
 export const VRD_IDS = {
@@ -104,8 +106,8 @@ export const VRD_FIRST_VERSION: FirstVersionDraftPage[] = [
         id: "bk-3",
         type: "image",
         src: booking,
-        caption: "A sketch of the weekly timetable",
-        alt: "A week strip with three class cards and a Book button on the first one",
+        caption: "Claude's sketch of the classes members can book",
+        alt: "Claude's sketch of the booking screen: the classes of the next seven days",
         onlyWith: BOOKING,
       },
     ],
@@ -193,8 +195,8 @@ export const VRD_FIRST_VERSION: FirstVersionDraftPage[] = [
         id: "ci-2",
         type: "image",
         src: checkIn,
-        caption: "A sketch of the membership shown at the desk",
-        alt: "A square code in the middle of the screen with a caption and a button below",
+        caption: "Claude's sketch of the membership shown at the desk",
+        alt: "Claude's sketch of the app showing the membership at the desk",
         onlyWith: BRIEF,
       },
     ],
@@ -209,10 +211,12 @@ export const VRD_FIRST_VERSION: FirstVersionDraftPage[] = [
     key: "screens",
     parentKey: null,
     title: "Screens",
-    // Nessuna fonte descrive le schermate: la pagina dice che le fonti non ne
-    // parlano. Task 7 (P33): qui entra la bozza di schermata di Claude
-    // (blocco `wireframe` del timetable), come primo blocco della pagina.
-    blocks: [],
+    // La bozza di schermata di Claude (Task 7, P33): lo schizzo della
+    // prenotazione, che descrive solo l'email delle prenotazioni (i corsi da
+    // prenotare fino a sette giorni prima). Senza quella fonte la pagina dice
+    // che le fonti non ne parlano. Come ogni bozza nasce con l'etichetta
+    // «Bozza di Claude», da tenere.
+    blocks: [{ id: "sc-1", type: "wireframe", wireframeId: "booking", variant: 0, onlyWith: BOOKING }],
   },
   {
     key: "decisions",

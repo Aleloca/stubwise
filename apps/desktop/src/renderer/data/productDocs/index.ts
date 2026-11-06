@@ -85,3 +85,20 @@ export {
   whenProductIdle,
   writersNear,
 } from "./presence";
+export {
+  listProductLinkedRequests,
+  listProductLinkedRequestsAs,
+  productOriginOf,
+  proposeBacklogFromPage,
+  proposeBacklogFromPageAs,
+} from "./backlog";
+export {
+  drawWireframe,
+  drawWireframeAs,
+  keepWireframe,
+  keepWireframeAs,
+  pickWireframe,
+  redrawWireframe,
+  redrawWireframeAs,
+  wireframeKey,
+} from "./wireframes";

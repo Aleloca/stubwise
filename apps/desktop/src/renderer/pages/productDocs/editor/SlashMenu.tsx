@@ -138,6 +138,13 @@ function SlashGlyph({ id }: { id: SlashItemId }) {
     drive: <path d="M6 3h4l3.5 6-2 3.5h-7L2.5 9z M6 3l3.5 6M2.5 9h7" />,
     link: <path d="M7 9a2.5 2.5 0 0 0 3.5 0l2-2a2.5 2.5 0 0 0-3.5-3.5L8.5 4M9 7a2.5 2.5 0 0 0-3.5 0l-2 2A2.5 2.5 0 0 0 7 12.5l.5-.5" />,
     decision: <path d="M3 3.5h10v6H7l-3 3v-3H3z" />,
+    // La bozza di schermata (11b): un riquadro a fil di ferro.
+    wireframe: (
+      <>
+        <rect x="2.5" y="3" width="11" height="10" rx="1.5" />
+        <path d="M2.5 6h11M4.5 8.5h4M4.5 10.5h2.5M10 8.5h1.5v2H10z" />
+      </>
+    ),
   };
   return (
     <svg

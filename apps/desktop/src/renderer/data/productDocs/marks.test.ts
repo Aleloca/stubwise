@@ -180,8 +180,8 @@ describe("il segno", () => {
       [{ op: "set", block: { ...stores, content: plain("Answered.") } as ProductBlock }],
       { kind: "answer" },
     );
-    // Il blocco `wireframe` arriva col Task 7: qui un blocco con quel tipo basta.
-    const sketch = { id: "blk-sketch-1", type: "wireframe" } as unknown as ProductBlock;
+    // Una bozza di schermata vera (Task 7: la scrittura valida disegno e variante).
+    const sketch: ProductBlock = { id: "blk-sketch-1", type: "wireframe", wireframeId: "bills", variant: 0 };
     writeProductBlocksAs(LAURA, PAGE, [{ op: "insert", afterId: STORES, block: sketch }], {
       kind: "edit",
       via: "claude",

@@ -38,6 +38,7 @@ const WORDS: Record<string, { en: string; it: string }> = {
   drive: { en: "Drive file", it: "File del Drive" },
   link: { en: "Link to…", it: "Collega a…" },
   decision: { en: "Decision", it: "Decisione" },
+  wireframe: { en: "Screen sketch", it: "Bozza di schermata" },
 };
 const label = (lang: "en" | "it") => (key: string) => {
   const id = key.split(".").pop() ?? "";
@@ -63,6 +64,7 @@ describe("filterSlashItems", () => {
       "drive",
       "link",
       "decision",
+      "wireframe",
     ]);
     expect(SLASH_ITEMS.every((i) => i.labelKey === `productDocs.editor.slash.${i.id}`)).toBe(true);
   });
@@ -81,6 +83,12 @@ describe("filterSlashItems", () => {
     for (const id of ["image", "drive", "link", "decision"] as const)
       for (const lang of ["en", "it"] as const)
         expect(filterSlashItems(id, label(lang)).map((i) => i.id)).toEqual([id]);
+  });
+
+  it("«Bozza di schermata» (11b, shape backlog §3.6): in INSERT dopo «Decision», col nome e le parole chiave in en e it", () => {
+    for (const q of ["sketch", "wireframe", "screen", "mockup", "bozza", "schizzo", "schermata"])
+      for (const lang of ["en", "it"] as const)
+        expect(filterSlashItems(q, label(lang)).map((i) => i.id), `${q} ${lang}`).toEqual(["wireframe"]);
   });
 
   it("le parole chiave: «h2» trova il titolo 2", () => {
@@ -110,6 +118,7 @@ describe("SLASH_ITEMS: i gruppi dello shape (§3.4)", () => {
       "insert:drive",
       "insert:link",
       "insert:decision",
+      "insert:wireframe",
     ]);
   });
 });

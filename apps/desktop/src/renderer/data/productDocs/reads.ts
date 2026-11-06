@@ -5,6 +5,7 @@ import { docsAccess } from "../docs/reads";
 import { driveFileFor } from "../drive/visibility";
 import { lastChangeOf, lastRevisionOf } from "./lastChange";
 import { PEOPLE } from "../seed/people";
+import { wireframesOf } from "../seed/productDocs/wireframes";
 import { copy, gate, state, visibleProjectIds } from "../store";
 import type {
   ProductExportView,
@@ -143,6 +144,8 @@ export async function getProductPage(code: string): Promise<ProductPageView | nu
     ).length,
     followers: followersVisibleTo(me, page),
     lastRevision: lastRevisionOf(page.id),
+    // 11b: l'SVG delle bozze di schermata (le pagine non leggono il seme).
+    wireframes: wireframesOf(page.blocks),
   };
 }
 
@@ -151,7 +154,8 @@ export async function getProductPage(code: string): Promise<ProductPageView | nu
  * spazio intero nell'ordine dell'albero, come lo legge chi esporta. Un file
  * del Drive è letto come lo legge il blocco della pagina (nascosto, tolto o
  * di un progetto che non vede → `null`); una decisione come la legge la
- * pagina (`decisionFor`). Commenti, presenza e chi segue non ci sono.
+ * pagina (`decisionFor`); una bozza di schermata col suo SVG del seme (11b,
+ * P36). Commenti, presenza e chi segue non ci sono.
  * `null` dove lo spazio (o la pagina) non c'è per chi guarda; `forbidden`
  * in un progetto visibile senza `docs.view`.
  */
@@ -178,7 +182,9 @@ export async function getProductExport(
   }
   const files: ProductExportView["files"] = {};
   const decisions: ProductExportView["decisions"] = {};
+  const wireframes: NonNullable<ProductExportView["wireframes"]> = {};
   for (const { page } of pages) {
+    Object.assign(wireframes, wireframesOf(page.blocks));
     for (const block of page.blocks) {
       if (block.type === "drive") {
         const file = driveFileFor(me, block.fileId);
@@ -194,6 +200,7 @@ export async function getProductExport(
     pages: pages.map(({ page, depth }) => ({ page: copy(page), depth })),
     files,
     decisions,
+    wireframes,
   };
 }
 

@@ -623,6 +623,14 @@ export interface ProjectRequest {
    */
   origin?: { kind: "support"; conversationId: string } | ProductDocOrigin;
   /**
+   * 11b (P38): la pagina della doc di prodotto da cui nasce, come la legge
+   * chi guarda («Dalla doc: <pagina>»). Derivata a lettura (`getRequest`,
+   * `getRequestByCode`, `listRequests`), mai salvata; assente se non nasce
+   * dalla doc o se chi guarda non legge la pagina (e allora manca anche
+   * l'`origin` grezza della doc: l'id della pagina dice di cosa parla).
+   */
+  productOrigin?: ProductOrigin;
+  /**
    * Area 10a: i codici delle task nate da questa richiesta e poi eliminate.
    * Derivato a lettura da `state.deletedTasks` (`getRequest`,
    * `getRequestByCode`, `listRequests`), mai salvato qui.
@@ -646,6 +654,23 @@ export interface ProductDocOrigin {
   pageId: string;
   anchorId: string | null;
   questionId?: string;
+}
+
+/** «Dalla doc: <pagina>» come lo legge chi guarda (11b, P38): la pagina, mai la frase. */
+export interface ProductOrigin {
+  pageId: string;
+  code: string;
+  title: string;
+}
+
+/** Una richiesta nata da una pagina, nelle voci in fondo alla pagina (11b, shape backlog §3.3). */
+export interface ProductLinkedRequest {
+  id: string;
+  code: string;
+  title: string;
+  status: RequestStatus;
+  /** Le task nate dalla richiesta che esistono ancora. */
+  taskCodes: string[];
 }
 
 /** I metadati proposti dall'intake: solo quelli che cambierebbero, e il perché. */
@@ -3018,7 +3043,13 @@ export type ProposalNote =
       codes?: string[];
     }
   /** Un progetto `busy`, con le ragioni di `busyReasonsOf` come le legge chi chiede. */
-  | { kind: "busy"; code: string; reasons: ClaudeBusyReason[] };
+  | { kind: "busy"; code: string; reasons: ClaudeBusyReason[] }
+  /**
+   * 11b (P35): le frasi della pagina già proposte (una richiesta con la stessa
+   * pagina e ancora). `codes` = quelle che chi chiede vede, `hidden` le altre,
+   * contate e mai nominate.
+   */
+  | { kind: "already_proposed"; codes: string[]; hidden: number };
 
 /**
  * Area 10b (S4): i progetti aperti e visibili senza attività da un numero di
@@ -3674,7 +3705,10 @@ export interface ProductTableRow {
  * cella) non si riusa mai per un blocco diverso. L'unica eccezione è lo
  * stesso blocco che torna: ⌘Z dell'editor rimette un blocco tolto con il
  * suo id, e i suoi commenti con lui (`writeProductBlocksAs`, `undoOf`).
- * Il 11b aggiunge `{ type: "wireframe"; … }` in coda.
+ * Il 11b aggiunge in coda la bozza di schermata di Claude (`wireframe`): il
+ * disegno del seme (`PRODUCT_WIREFRAMES`) e la sua variante; `kept` = chi
+ * scrive l'ha tenuta, e l'etichetta «Bozza di Claude» non c'è più. Facoltativo
+ * (assente = mai tenuta): «Rifai» lo toglie.
  */
 export type ProductBlock =
   | { id: string; type: "heading"; level: 1 | 2 | 3; content: RichText }
@@ -3685,7 +3719,8 @@ export type ProductBlock =
   | { id: string; type: "table"; rows: ProductTableRow[] }
   | { id: string; type: "image"; src: string; caption: string; alt: string }
   | { id: string; type: "drive"; fileId: string; code: string }
-  | { id: string; type: "decision"; decisionId: string };
+  | { id: string; type: "decision"; decisionId: string }
+  | { id: string; type: "wireframe"; wireframeId: string; variant: number; kept?: boolean };
 
 export type ProductBlockType = ProductBlock["type"];
 
@@ -4225,6 +4260,12 @@ export interface ProductExportView {
   pages: { page: ProductPage; depth: number }[];
   files: Record<string, { name: string } | null>;
   decisions: Record<string, { title: string } | null>;
+  /**
+   * 11b (P36): l'SVG di ogni bozza di schermata, per `<wireframeId>:<variant>`
+   * (`wireframeKey`); `null` = un disegno che il seme non ha più.
+   * Facoltativo: un'esportazione senza bozze può non averlo.
+   */
+  wireframes?: Record<string, string | null>;
 }
 
 export interface ProductPageView extends ProductPage {
@@ -4257,6 +4298,13 @@ export interface ProductPageView extends ProductPage {
    * revisione). `null` = nessuna revisione; facoltativo: cambio additivo.
    */
   lastRevision?: { at: string; actorId: string } | null;
+  /**
+   * 11b (Task 7): l'SVG di ogni bozza di schermata della pagina, per
+   * `<wireframeId>:<variant>`; `null` = un disegno che il seme non ha più
+   * («This sketch is no longer available»). Le pagine non leggono il seme.
+   * Facoltativo: cambio additivo.
+   */
+  wireframes?: Record<string, string | null>;
 }
 
 export interface ProductRevisionView extends ProductRevision {
@@ -4278,6 +4326,12 @@ export interface ProductRevisionView extends ProductRevision {
   undoneById?: string;
   /** La revisione è la risposta «Aggiorna così» a una domanda di Claude: l'id del filo (P19). */
   answerOf?: string;
+  /**
+   * 11b (Task 7): la revisione è un gesto sulla bozza di schermata —
+   * disegnata o rifatta da Claude, tenuta da una persona («Tieni»). Derivato
+   * a lettura dai cambi.
+   */
+  wireframe?: "drew" | "redrew" | "kept";
 }
 
 /**

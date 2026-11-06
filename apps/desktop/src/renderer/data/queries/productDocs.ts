@@ -438,3 +438,63 @@ export function useAnswerProductQuestion() {
     ANSWER_AREAS,
   );
 }
+
+// --- dalla doc al backlog e le bozze di schermata (11b, Task 7) ---------------------
+
+/**
+ * Le voci di backlog che la pagina (o la sezione di un titolo) proporrebbe,
+ * con la nota delle già proposte: il «⋯» e il menu del titolo la leggono per
+ * spegnere il gesto quando non c'è niente da proporre. Sta nell'area delle
+ * richieste (una conferma della scheda la rilegge) e si rilegge a ogni
+ * apertura del menu (`enabled`): anche una frase nuova della pagina conta.
+ */
+export function useBacklogProposal(
+  pageId: string,
+  fromAnchorId: string | null,
+  { enabled = true }: { enabled?: boolean } = {},
+) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "requests", "productBacklogProposal", pageId, fromAnchorId] as const,
+    queryFn: () => api.productDocs.proposeBacklogFromPage(pageId, fromAnchorId ?? undefined),
+    enabled,
+    refetchOnMount: "always",
+  });
+}
+
+/** Le richieste nate dalla pagina («From this page»): nell'area delle richieste, che una conferma rilegge. */
+export function useProductLinkedRequests(pageId: string, { enabled = true }: { enabled?: boolean } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "requests", "productLinked", pageId] as const,
+    queryFn: () => api.productDocs.listProductLinkedRequests(pageId),
+    enabled,
+  });
+}
+
+/** «Disegna questa schermata» (`afterId`) o «/» → «Bozza di schermata» (`replaceId`). */
+export function useDrawWireframe() {
+  return useWrite(
+    ({ pageId, at }: { pageId: string; at: { afterId: string | null } | { replaceId: string } }) =>
+      api.productDocs.drawWireframe(pageId, at),
+    PRODUCT_AREAS,
+  );
+}
+
+/** «Rifai»: la variante seguente, e l'etichetta torna. */
+export function useRedrawWireframe() {
+  return useWrite(
+    ({ pageId, blockId }: { pageId: string; blockId: string }) =>
+      api.productDocs.redrawWireframe(pageId, blockId),
+    PRODUCT_AREAS,
+  );
+}
+
+/** «Tieni»: toglie l'etichetta «Bozza di Claude» (si annulla dalla cronologia). */
+export function useKeepWireframe() {
+  return useWrite(
+    ({ pageId, blockId }: { pageId: string; blockId: string }) =>
+      api.productDocs.keepWireframe(pageId, blockId),
+    PRODUCT_AREAS,
+  );
+}

@@ -24,6 +24,7 @@ import { deliveredTo } from "./alerts/reads";
 import { whyReceives } from "./alerts/visibility";
 import { linkAccessHrefOf } from "./servers/visibility";
 import { presentProductQuestion, presentProductUpdate } from "./productDocs/claudeReads";
+import { productOriginOf } from "./productDocs/backlog";
 import { presentProductMention } from "./productDocs/comments";
 import { productQuestionDecisions } from "./productDocs/questions";
 import {
@@ -371,7 +372,7 @@ export async function listDecisionRequests(filter: {
 export async function listRequests(projectId: string): Promise<ProjectRequest[]> {
   const me = await gate("listRequests");
   if (!visibleProjectIds(me).has(projectId)) return [];
-  return state.requests.filter((r) => r.projectId === projectId).map(requestView);
+  return state.requests.filter((r) => r.projectId === projectId).map((r) => requestView(me, r));
 }
 
 /**
@@ -379,8 +380,13 @@ export async function listRequests(projectId: string): Promise<ProjectRequest[]>
  * eliminate (area 10a), derivati da `state.deletedTasks` e mai salvati.
  * Senza task eliminate il campo non c'è.
  */
-function requestView(request: ProjectRequest): ProjectRequest {
+function requestView(me: string, request: ProjectRequest): ProjectRequest {
   const out = copy(request);
+  // 11b (P38): «Dalla doc: <pagina>», solo se chi guarda legge la pagina;
+  // altrimenti nemmeno l'origine grezza (l'id della pagina dice di cosa parla, R-G5).
+  const origin = productOriginOf(me, request);
+  if (origin) out.productOrigin = origin;
+  else if (out.origin?.kind === "product_doc") delete out.origin;
   const deleted = state.deletedTasks
     .filter((d) => request.taskIds.includes(d.id))
     .map((d) => d.code);
@@ -412,14 +418,14 @@ export async function listRequestsToConvert(): Promise<ProjectRequest[]> {
 export async function getRequest(id: string): Promise<ProjectRequest | null> {
   const me = await gate("getRequest");
   const request = state.requests.find((r) => r.id === id);
-  return request && visibleProjectIds(me).has(request.projectId) ? requestView(request) : null;
+  return request && visibleProjectIds(me).has(request.projectId) ? requestView(me, request) : null;
 }
 
 /** Una richiesta per codice (`STW-R4`); invisibile o inesistente: `null`. */
 export async function getRequestByCode(code: string): Promise<ProjectRequest | null> {
   const me = await gate("getRequestByCode");
   const request = state.requests.find((r) => r.code === code.toUpperCase());
-  return request && visibleProjectIds(me).has(request.projectId) ? requestView(request) : null;
+  return request && visibleProjectIds(me).has(request.projectId) ? requestView(me, request) : null;
 }
 
 /**

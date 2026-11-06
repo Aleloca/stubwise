@@ -9,7 +9,7 @@ import { buildDocx, docxImageOf, docxRunsOf, imageSizeOf, wordLeftOutImages, wor
 // quando si costruisce. Le funzioni pure si provano senza `docx`.
 
 const page = (title: string) => PRODUCT_PAGES.find((p) => p.title === title)!;
-const resolve = { driveLine: () => "File: x", decisionLine: () => "Decision: x" };
+const resolve = { driveLine: () => "File: x", decisionLine: () => "Decision: x", wireframe: () => null };
 const modelOf = (title: string): ExportDoc =>
   exportModelOf({ title, pages: [{ page: page(title), depth: 0 }] }, resolve);
 const bytesOf = (src: string) => Uint8Array.from(atob(src.slice(src.indexOf(",") + 1)), (c) => c.charCodeAt(0));

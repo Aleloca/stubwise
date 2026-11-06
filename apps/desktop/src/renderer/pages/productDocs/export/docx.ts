@@ -195,6 +195,9 @@ export async function buildDocx(doc: ExportDoc): Promise<Uint8Array> {
       }
       case "line":
         return [new d.Paragraph({ children: [new d.TextRun(b.line)] })];
+      case "sketch":
+        // La bozza di schermata (11b): la mette il Task 12, come PNG (`svgToPng`) con la sua etichetta.
+        return [];
     }
   };
 

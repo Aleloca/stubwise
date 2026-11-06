@@ -16,7 +16,8 @@ export type SlashItemId =
   | "image"
   | "drive"
   | "link"
-  | "decision";
+  | "decision"
+  | "wireframe";
 
 /** Il gruppo del menu: TEXT / TESTO cambia il blocco, INSERT / INSERISCI mette un oggetto. */
 export type SlashGroup = "text" | "insert";
@@ -37,7 +38,11 @@ const item = (id: SlashItemId, group: SlashGroup, keywords: string[]): SlashItem
   keywords,
 });
 
-/** Le voci nell'ordine dello shape: TEXT, poi INSERT (da «table»). Il 11b aggiunge "wireframe" in INSERT. */
+/**
+ * Le voci nell'ordine dello shape: TEXT, poi INSERT (da «table»). Il 11b
+ * aggiunge in coda a INSERT la bozza di schermata di Claude (shape
+ * product-claude-backlog.md §3.6), che prende il posto del paragrafo vuoto.
+ */
 export const SLASH_ITEMS: readonly SlashItem[] = [
   item("heading1", "text", ["h1", "#"]),
   item("heading2", "text", ["h2", "##"]),
@@ -53,6 +58,7 @@ export const SLASH_ITEMS: readonly SlashItem[] = [
   item("drive", "insert", []),
   item("link", "insert", ["link"]),
   item("decision", "insert", []),
+  item("wireframe", "insert", ["sketch", "wireframe", "screen", "mockup", "bozza", "schizzo", "schermata"]),
 ];
 
 /**

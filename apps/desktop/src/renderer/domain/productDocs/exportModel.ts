@@ -5,8 +5,9 @@ import { richSegments, safeLinkHref } from "./richText";
 // PDF (`PrintView`) e il Word (`docx.ts`) leggono questo modello solo, così
 // le due uscite dicono la stessa cosa. Entrano i blocchi della pagina come li
 // legge chi esporta: grassetto, corsivo e link (http/https soltanto), le
-// immagini, i file del Drive e le decisioni come una riga già composta.
-// Non entrano mai commenti, presenza, chi segue, segni di Claude.
+// immagini, i file del Drive e le decisioni come una riga già composta, e
+// (11b) le bozze di schermata come immagine. Non entrano mai commenti,
+// presenza, chi segue, segni di Claude.
 
 export interface ExportDoc {
   title: string;
@@ -30,11 +31,22 @@ export type ExportBlock =
   | { kind: "table"; rows: ExportRun[][][] }
   | { kind: "image"; src: string; caption: string }
   /** Un file del Drive o una decisione del registro: una riga già composta per chi esporta. */
-  | { kind: "line"; line: string };
+  | { kind: "line"; line: string }
+  /**
+   * 11b (Task 7, P36): la bozza di schermata di Claude come immagine — l'SVG
+   * del seme (PNG per il Word con `svgToPng`, il PDF lo stampa com'è) —
+   * senza testata né bottoni. `label` = mai tenuta: sotto va «Bozza di
+   * Claude · Bozza di schermata», composta da chi stampa (`PrintView`,
+   * `docx.ts`); tenuta, esce come le altre figure (maintainer, 6 nov 2026).
+   * `svg: null` = un disegno che il seme non ha più.
+   */
+  | { kind: "sketch"; svg: string | null; label: boolean };
 
 export interface ExportResolve {
   driveLine(fileId: string, code: string): string;
   decisionLine(decisionId: string): string;
+  /** L'SVG di una bozza di schermata (`ProductExportView.wireframes`); `null` se il seme non l'ha più. */
+  wireframe(wireframeId: string, variant: number): string | null;
 }
 
 /**
@@ -103,6 +115,8 @@ function blockOf(block: ProductBlock, resolve: ExportResolve): ExportBlock {
       return { kind: "line", line: resolve.driveLine(block.fileId, block.code) };
     case "decision":
       return { kind: "line", line: resolve.decisionLine(block.decisionId) };
+    case "wireframe":
+      return { kind: "sketch", svg: resolve.wireframe(block.wireframeId, block.variant), label: block.kept !== true };
   }
 }
 

@@ -59,6 +59,8 @@ export function useProductExport({
               ? t("productDocs.export.decisionLine", { title: decision.title })
               : t("productDocs.export.decisionHidden");
           },
+          // 11b: l'SVG lo dà il livello dati (le pagine non leggono il seme).
+          wireframe: (id, variant) => view.wireframes?.[`${id}:${variant}`] ?? null,
         },
       ),
     [t],

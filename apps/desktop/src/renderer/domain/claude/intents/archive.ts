@@ -112,7 +112,14 @@ export async function archive(text: string, ctx: IntentContext): Promise<Answer>
 }
 
 /** Una riga a parte come testo di Claude (solo senza scheda): il «Who?» per progetto, le ragioni di `busy`. */
-function noteLine(t: T, note: ProposalNote): string {
+export function noteLine(t: T, note: ProposalNote): string {
+  if (note.kind === "already_proposed") {
+    // 11b (P35): i codici che chi chiede vede; gli altri contati, mai nominati.
+    const K = "claude.answers.productDocs.backlog";
+    if (note.codes.length === 0) return t(`${K}.alreadyProposedHidden`, { count: note.hidden });
+    const head = t(`${K}.alreadyProposed`, { codes: note.codes.map((c) => `**${c}**`).join(", ") });
+    return note.hidden > 0 ? `${head} ${t(`${K}.alreadyProposedMore`, { count: note.hidden })}` : head;
+  }
   if (note.kind === "not_manageable") {
     const head = t("claude.answers.archive.notManageable", { count: note.count });
     const codes = note.codes ?? [];

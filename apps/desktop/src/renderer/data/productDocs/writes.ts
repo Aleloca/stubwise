@@ -3,6 +3,7 @@ import { safeLinkHref } from "../../domain/productDocs/richText";
 import { canMoveUnder } from "../../domain/productDocs/tree";
 import { docsAccess } from "../docs/reads";
 import { driveFileFor } from "../drive/visibility";
+import { PRODUCT_WIREFRAMES } from "../seed/productDocs/wireframes";
 import { copy, newId, now, state, visibleProjectIds } from "../store";
 import type {
   InlineMark,
@@ -326,6 +327,15 @@ export function writeProductBlocksAs(
     if (change.after?.type === "drive") {
       const file = driveFileFor(me, change.after.fileId);
       if (!file || file.code !== change.after.code) throw invalid("drive");
+    }
+    // La bozza di schermata (11b, Task 7): un disegno e una variante del seme,
+    // e `kept` solo booleano. Chi la disegna è Claude, ma la strada è questa.
+    if (change.after?.type === "wireframe") {
+      const { wireframeId, variant, kept } = change.after;
+      const known = Object.hasOwn(PRODUCT_WIREFRAMES, wireframeId) ? PRODUCT_WIREFRAMES[wireframeId]! : null;
+      if (!known || !Number.isInteger(variant) || variant < 0 || variant >= known.variants.length)
+        throw invalid("wireframe");
+      if (kept !== undefined && typeof kept !== "boolean") throw invalid("wireframe");
     }
     if (change.after?.type === "decision") {
       const { decisionId } = change.after;

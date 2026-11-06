@@ -3655,6 +3655,16 @@
         "needName": "What should I call the filter? For example: save this filter as “My open tasks”.",
         "saveSummary": "Save the filter “{{name}}” · only you see it",
         "proposed": "Here's the filter I'd save. Confirm below."
+      },
+      "productDocs": {
+        "backlog": {
+          "why": "From the page: “{{sentence}}”",
+          "alreadyProposed": "Already proposed from this page: {{codes}}",
+          "alreadyProposedMore_one": "…and 1 more",
+          "alreadyProposedMore_other": "…and {{count}} more",
+          "alreadyProposedHidden_one": "1 already proposed from this page",
+          "alreadyProposedHidden_other": "{{count}} already proposed from this page"
+        }
       }
     },
     "proposalFailed": {
@@ -11994,7 +12004,8 @@
       "blockDecision": "Decision",
       "comments": "Comments",
       "commentsCount": "Comments ({{count}})",
-      "history": "History"
+      "history": "History",
+      "blockWireframe": "Screen sketch"
     },
     "tree": {
       "pages": "Pages",
@@ -12121,7 +12132,8 @@
         "image": "Image",
         "drive": "Drive file",
         "link": "Link to…",
-        "decision": "Decision"
+        "decision": "Decision",
+        "wireframe": "Screen sketch"
       },
       "selection": {
         "toolbar": "Format the selection",

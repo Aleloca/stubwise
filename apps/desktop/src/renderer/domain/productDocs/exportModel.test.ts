@@ -3,7 +3,9 @@ import { productDocs, resetApi, setLatency } from "../../data/api";
 import type { ProductExportView } from "../../data/model";
 import { PEOPLE } from "../../data/seed/people";
 import { setSessionPersonId } from "../../data/session";
+import { PRODUCT_WIREFRAMES } from "../../data/seed/productDocs/wireframes";
 import { state } from "../../data/store";
+import { drawWireframeAs, keepWireframeAs } from "../../data/productDocs/wireframes";
 import { exportModelOf, type ExportBlock, type ExportDoc, type ExportRun } from "./exportModel";
 
 // Il modello dell'esportazione (area 11a, Task 12): puro. Legge ciò che il
@@ -28,6 +30,7 @@ function modelFor(read: ProductExportView, title = "ACQ Product"): ExportDoc {
         const d = read.decisions[id];
         return d ? `Decision: ${d.title}` : "Decision: not available";
       },
+      wireframe: (id, variant) => read.wireframes?.[`${id}:${variant}`] ?? null,
     },
   );
 }
@@ -150,11 +153,37 @@ describe("exportModelOf", () => {
           },
         ],
       },
-      { driveLine: () => "", decisionLine: () => "" },
+      { driveLine: () => "", decisionLine: () => "", wireframe: () => null },
     );
     const runs = runsOf(doc.pages[0]!.blocks[0]!);
     expect(runs.map((r) => r.text).join("")).toBe("Click here now");
     expect(runs.every((r) => r.href === null)).toBe(true);
     expect(text(doc)).not.toContain("javascript");
+  });
+
+  it("la bozza di schermata è un'immagine (l'SVG del seme), con l'etichetta «Bozza di Claude» finché non è tenuta (maintainer, 6 nov 2026)", async () => {
+    setSessionPersonId(LAURA);
+    const screens = pageOf("Screens");
+    const first = drawWireframeAs(LAURA, screens.id, { afterId: null }).blockId;
+    const second = drawWireframeAs(LAURA, screens.id, { afterId: first }).blockId;
+    keepWireframeAs(LAURA, screens.id, second);
+    const doc = modelFor((await productDocs.getProductExport(ACQ, { pageId: screens.id }))!);
+    const sketches = doc.pages[0]!.blocks.filter((b) => b.kind === "sketch");
+    const block = (id: string) => screens.blocks.find((b) => b.id === id) as Extract<(typeof screens.blocks)[number], { type: "wireframe" }>;
+    expect(sketches).toEqual([
+      { kind: "sketch", svg: PRODUCT_WIREFRAMES[block(first).wireframeId]!.variants[0], label: true },
+      { kind: "sketch", svg: PRODUCT_WIREFRAMES[block(second).wireframeId]!.variants[0], label: false },
+    ]);
+  });
+
+  it("una bozza di un disegno che il seme non ha più: `svg: null`, l'etichetta resta come il blocco la dice", () => {
+    const doc = exportModelOf(
+      {
+        title: "x",
+        pages: [{ depth: 0, page: { ...pageOf("Screens"), blocks: [{ id: "w", type: "wireframe", wireframeId: "gone", variant: 0 }] } }],
+      },
+      { driveLine: () => "", decisionLine: () => "", wireframe: () => null },
+    );
+    expect(doc.pages[0]!.blocks).toEqual([{ kind: "sketch", svg: null, label: true }]);
   });
 });
