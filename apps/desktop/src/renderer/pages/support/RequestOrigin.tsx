@@ -3,6 +3,7 @@ import { useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSupportConversations } from "../../data/queries";
 import type { ProjectRequest } from "../../data/types";
+import { ProductOriginLine } from "../productDocs/claude/ProductOriginLine";
 import { Section } from "../task/parts";
 import { customerName } from "./format";
 import { Messages } from "./Messages";
@@ -11,7 +12,8 @@ import { Messages } from "./Messages";
 // una richiesta nata da una conversazione di Support dice da quale canale e
 // da chi, col link alla conversazione, e la apre sul posto in sola lettura
 // (chiusa di default). La conversazione si cerca fra quelle che chi guarda
-// vede (R-G5): se non c'è, la sezione non c'è.
+// vede (R-G5): se non c'è, la sezione non c'è. Una richiesta nata da una
+// pagina di prodotto (11b) dice «From the doc: …», se chi guarda la pagina la vede.
 
 export function RequestOrigin({ request }: { request: ProjectRequest }) {
   const { t } = useTranslation();
@@ -22,6 +24,14 @@ export function RequestOrigin({ request }: { request: ProjectRequest }) {
   const bodyId = useId();
   const lastRef = useRef<HTMLLIElement>(null);
   const conv = origin ? list.data?.find((c) => c.id === origin.conversationId) : undefined;
+  // 11b ([PB 5]): nata da una pagina di prodotto che chi guarda vede (la lettura lo deriva, P38).
+  if (!conv && request.productOrigin) {
+    return (
+      <Section title={t("support.origin.title")}>
+        <ProductOriginLine origin={request.productOrigin} />
+      </Section>
+    );
+  }
   if (!conv) return null;
   return (
     <Section title={t("support.origin.title")}>

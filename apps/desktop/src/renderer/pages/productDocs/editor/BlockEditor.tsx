@@ -10,6 +10,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext } from "@dnd-kit/sortable";
 import {
+  Fragment,
   useCallback,
   useEffect,
   useImperativeHandle,
@@ -21,7 +22,9 @@ import {
   type Ref,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { useAiBlock, useDrawWireframe, useReplaceWireframeWithImage } from "../../../data/queries";
 import type { ProductBlock, ProductBlockOp, ProductPageView, ProductPresenceView } from "../../../data/types";
+import { useToast } from "../../../tasks-ui/Toast";
 import { anchorIdsOf, anchorText, isTextBlock, makeBlockId } from "../../../domain/productDocs/blocks";
 import { setLink, toggleMark } from "../../../domain/productDocs/richText";
 import { BlockBody, ReadOnlyBody, blockLabel, layoutOf, numbersOf, textClassOf } from "./BlockBody";
@@ -45,6 +48,8 @@ import { SelectionBar, linkAt } from "./SelectionBar";
 import { SlashMenu, slashOptionId } from "./SlashMenu";
 import type { Table, TableEditing } from "./TableBlock";
 import type { EditorSession } from "./useEditorSession";
+import { SketchingPlaceholder } from "./WireframeBlock";
+import { SectionProposeItem } from "../claude/ClaudePageGestures";
 
 // L'editor a blocchi di una pagina di prodotto (shape product-editor.md):
 // una pagina stampata in cui si può scrivere. Nessuna cornice, nessuna
@@ -95,6 +100,12 @@ function commentTextOf(block: ProductBlock, t: (key: string, opts?: Record<strin
 export interface BlockEditorHandle {
   /** Il fuoco nel primo blocco (Invio dal titolo). */
   focusFirst(): void;
+  /**
+   * «⋯» → «Draw this screen» (11b, §3.6): la bozza di Claude dopo il blocco
+   * che ha avuto il cursore per ultimo, o in fondo alla pagina. Un secondo
+   * gesto mentre disegna non fa niente.
+   */
+  drawScreen(): void;
 }
 
 export function BlockEditor({
@@ -145,8 +156,11 @@ function WritableBody({
   const [focus, setFocusState] = useState<Focus | null>(null);
   const focusRef = useRef(focus);
   const nonce = useRef(0);
+  /** L'ultimo blocco che ha avuto il cursore (o è stato scelto): dove va «Draw this screen». */
+  const lastFocused = useRef<string | null>(null);
   const setFocus = (next: Focus | null) => {
     focusRef.current = next;
+    if (next) lastFocused.current = next.id;
     setFocusState(next);
     // Il blocco col fuoco non cambia per mano d'altri finché non lo si lascia ([PE 18]).
     session.hold(next?.id ?? null);
@@ -161,6 +175,11 @@ function WritableBody({
   };
   const [linkOpen, setLinkOpen] = useState(false);
   const { project, comments: bridge, marks } = useProductSpaceContext();
+  const toast = useToast();
+  // Il budget del mese finito spegne «Screen sketch» nel menu «/» (§3.6).
+  const budgetOut = useAiBlock(project.id).data?.reason === "monthly_budget";
+  const budgetOutRef = useRef(budgetOut);
+  budgetOutRef.current = budgetOut;
   /** «Comment» (Task 10): solo per chi può commentare. */
   const comment = useCommentGesture();
   /** Un selettore aperto al blocco `id`; `at` è il cursore a cui torna il fuoco. */
@@ -176,8 +195,19 @@ function WritableBody({
   /** Il blocco sotto cui cadrebbe un file trascinato. */
   const [fileDrop, setFileDrop] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  /** Il blocco che l'immagine scelta con «/image» sostituisce. */
-  const imageTarget = useRef<string | null>(null);
+  /** Il blocco che l'immagine scelta con «/image» (o «Replace with an image» di una bozza) sostituisce. */
+  const imageTarget = useRef<{ id: string; sketch: boolean } | null>(null);
+  /** La bozza sostituita da un'immagine: il fuoco alla didascalia, quando l'immagine c'è. */
+  const pendingCaption = useRef<string | null>(null);
+  /** La bozza appena disegnata: il fuoco su di lei, scelta come oggetto, quando c'è. */
+  const pendingSketch = useRef<string | null>(null);
+  /** Claude sta disegnando: al posto del paragrafo, o dopo un blocco (`null` = in cima). */
+  const [sketching, setSketchingState] = useState<{ replaceId: string } | { afterId: string | null } | null>(null);
+  const sketchingRef = useRef(sketching);
+  const setSketching = (next: typeof sketching) => {
+    sketchingRef.current = next;
+    setSketchingState(next);
+  };
   /** Una tabella nuova: il fuoco nella sua prima cella dopo il disegno. */
   const pendingCell = useRef<string | null>(null);
   /** Un blocco da selezionare come oggetto dopo il prossimo disegno. */
@@ -275,6 +305,7 @@ function WritableBody({
   const [, redraw] = useState(0);
   const selectShell = (id: string) => {
     pendingShell.current = id;
+    lastFocused.current = id;
     setFocus(null);
     setSlash(null);
     setLinkOpen(false);
@@ -304,6 +335,20 @@ function WritableBody({
       pendingShell.current = null;
       el?.focus();
     }
+    // 11b: la bozza nuova, quando la lettura la porta; l'immagine al posto di una bozza, sulla didascalia.
+    const sketchId = pendingSketch.current;
+    if (sketchId && view.find((b) => b.id === sketchId)?.type === "wireframe") {
+      const el = shells.current.get(sketchId);
+      pendingSketch.current = null;
+      el?.focus();
+      el?.scrollIntoView?.({ block: "nearest" });
+    }
+    const captionId = pendingCaption.current;
+    if (captionId && view.find((b) => b.id === captionId)?.type === "image") {
+      const field = shells.current.get(captionId)?.querySelector<HTMLElement>("figcaption input");
+      pendingCaption.current = null;
+      field?.focus();
+    }
     const f = focusRef.current;
     if (f && !view.some((b) => b.id === f.id)) {
       const was = order.current.indexOf(f.id);
@@ -314,10 +359,74 @@ function WritableBody({
     order.current = view.map((b) => b.id);
   });
 
+  // --- le bozze di schermata di Claude (11b, shape product-claude-backlog.md §3.5–3.6) ---
+
+  const draw = useDrawWireframe();
+  const replaceSketch = useReplaceWireframeWithImage();
+  const announce = (text: string) => marks?.announce(text);
+
+  /**
+   * Claude disegna: prima le scritture di questa sessione (la bozza è una
+   * scrittura fuori dalla fila, e non deve arrivare prima di un `set` ancora
+   * in volo), poi il gesto. Una sola alla volta: un doppio clic, un secondo
+   * Invio o «Draw this screen» mentre disegna non fanno niente (M2b).
+   */
+  const drawSketchAt = (at: { replaceId: string } | { afterId: string | null }) => {
+    if (sketchingRef.current) return;
+    setSketching(at);
+    flush();
+    void sessionRef.current
+      .settled()
+      .then(() => draw.mutateAsync({ pageId: page.id, at }))
+      .then(
+        ({ blockId }) => {
+          pendingSketch.current = blockId;
+          announce(t("productDocs.wireframe.added"));
+        },
+        () => toast.error(t("productDocs.wireframe.drawFailed")),
+      )
+      .finally(() => {
+        setSketching(null);
+        redraw((n) => n + 1);
+      });
+  };
+  /** «/» → «Screen sketch»: il paragrafo diventa la bozza; il fuoco sul blocco, che resta lo stesso. */
+  const drawSketch = (id: string) => {
+    selectShell(id);
+    drawSketchAt({ replaceId: id });
+  };
+  /** «Replace with an image»: la scelta del file del sistema, per la bozza `id`. */
+  const chooseSketchImage = (id: string) => {
+    imageTarget.current = { id, sketch: true };
+    fileInput.current?.click();
+  };
+  const placeSketchImage = (id: string, file: File) => {
+    void readImageFile(file).then((r) => {
+      if (!r.ok) {
+        // Rifiutata: la frase sotto il blocco, la bozza resta.
+        setRefusal({ anchorId: id, reason: r.reason, n: Date.now() });
+        return;
+      }
+      setRefusal(null);
+      // Il bottone se ne va con la bozza: prima il fuoco sul blocco, poi sulla didascalia.
+      selectShell(id);
+      pendingCaption.current = id;
+      replaceSketch.mutateAsync({ pageId: page.id, blockId: id, image: { src: r.src, alt: r.alt } }).catch(() => {
+        pendingCaption.current = null;
+        toast.error(t("productDocs.wireframe.replaceFailed"));
+      });
+    });
+  };
+
   useImperativeHandle(handle, () => ({
     focusFirst: () => {
       const first = viewRef.current[0];
       if (first) focusBlock(first, "start");
+    },
+    drawScreen: () => {
+      const list = viewRef.current;
+      const after = list.some((b) => b.id === lastFocused.current) ? lastFocused.current : (list.at(-1)?.id ?? null);
+      drawSketchAt({ afterId: after });
     },
   }));
 
@@ -360,10 +469,12 @@ function WritableBody({
     replaceBlock,
     addImages: (files, at) => addImages(files, at),
     chooseImage: (id) => {
-      imageTarget.current = id;
+      imageTarget.current = { id, sketch: false };
       fileInput.current?.click();
     },
     openPicker: (kind, id) => setPicker({ kind, id, at: focusRef.current?.id === id ? focusRef.current.start : 0 }),
+    drawSketch: (id) => drawSketch(id),
+    sketchBlocked: () => budgetOutRef.current,
   });
 
   // --- immagini ([PE 9]) --------------------------------------------------------
@@ -708,79 +819,114 @@ function WritableBody({
                 />
               )
             ) : null;
+            const drawingHere = !!sketching && "replaceId" in sketching && sketching.replaceId === block.id;
+            const drawingAfter = !!sketching && "afterId" in sketching && sketching.afterId === block.id;
             return (
-              <BlockShell
-                key={block.id}
-                after={
-                  refusal?.anchorId === block.id ? (
-                    <div ref={refusalRow} key={refusal.n}>
-                      <ImageRefusalRow reason={refusal.reason} onDismiss={dismissRefusal} />
-                    </div>
-                  ) : null
-                }
-                dropNote={fileDrop === block.id ? t("productDocs.blocks.image.drop") : null}
-                id={block.id}
-                label={label}
-                register={(el) => {
-                  if (el) shells.current.set(block.id, el);
-                  else shells.current.delete(block.id);
-                }}
-                onKeyDown={shellKey(block)}
-                dropLine={drop && drag?.overId === block.id ? drop.edge : fileDrop === block.id ? "bottom" : null}
-                tinted={!!bridge?.activeAnchor && anchorIdsOf(block).includes(bridge.activeAnchor)}
-                text={isTextBlock(block)}
-                style={{ paddingTop: layout.pt, paddingBottom: layout.pb, ["--block-pt" as string]: `${layout.gutterTop}px` }}
-              >
-                {(dragHandle) => (
-                  <>
-                    <BlockHandle
-                      drag={dragHandle}
-                      label={label}
-                      line={layout.line}
-                      isText={isTextBlock(block)}
-                      first={i === 0}
-                      last={i === view.length - 1}
-                      onAdd={() => addBelow(block.id)}
-                      onTurnInto={(to) => turnInto(block.id, to)}
-                      onMove={(dir) => moveBlock(block.id, dir)}
-                      onDuplicate={() => duplicate(block.id)}
-                      onDelete={() => deleteBlock(block.id)}
-                      onComment={
-                        // Ogni blocco che è un'ancora (non la tabella: lì le celle, con ⌥⌘M o la selezione).
-                        comment && block.type !== "table"
-                          ? () => {
-                              flush();
-                              // La frase intera (la bozza compresa: `view` la contiene).
-                              comment(block.id, commentTextOf(block, t));
-                            }
-                          : undefined
-                      }
-                      onClaudeChange={marks?.byBlock.has(block.id) ? () => marks.setOpen(block.id) : undefined}
-                    />
-                    <CommentMark anchorIds={anchorIdsOf(block)} below={block.type === "table"} />
-                    {isTextBlock(block) &&
-                      (editing ? (
-                        <RemoteBlockNote people={writersIn(others, block.id)} />
-                      ) : (
-                        <RemoteCursors people={writersIn(others, block.id)} contentKey={JSON.stringify(block.content)} />
-                      ))}
-                    <BlockBody
-                      block={block}
-                      page={page}
-                      number={numbers[i]!}
-                      onCheck={(checked) => block.type === "todo" && structure([{ op: "set", block: { ...block, checked } }])}
-                      onSelectObject={() => selectShell(block.id)}
-                      onCaption={(caption) => {
-                        const now = blockOf(block.id);
-                        if (now?.type === "image") structure([{ op: "set", block: { ...now, caption } }]);
-                      }}
-                      table={block.type === "table" ? tableEditing(block.id) : undefined}
-                    >
-                      {text}
-                    </BlockBody>
-                  </>
+              <Fragment key={block.id}>
+                {i === 0 && sketching && "afterId" in sketching && sketching.afterId === null && (
+                  <div className="py-3">
+                    <SketchingPlaceholder />
+                  </div>
                 )}
-              </BlockShell>
+                <BlockShell
+                  after={
+                    refusal?.anchorId === block.id ? (
+                      <div ref={refusalRow} key={refusal.n}>
+                        <ImageRefusalRow reason={refusal.reason} onDismiss={dismissRefusal} />
+                      </div>
+                    ) : null
+                  }
+                  dropNote={fileDrop === block.id ? t("productDocs.blocks.image.drop") : null}
+                  id={block.id}
+                  label={label}
+                  register={(el) => {
+                    if (el) shells.current.set(block.id, el);
+                    else shells.current.delete(block.id);
+                  }}
+                  onKeyDown={shellKey(block)}
+                  dropLine={drop && drag?.overId === block.id ? drop.edge : fileDrop === block.id ? "bottom" : null}
+                  tinted={!!bridge?.activeAnchor && anchorIdsOf(block).includes(bridge.activeAnchor)}
+                  text={isTextBlock(block)}
+                  style={{ paddingTop: layout.pt, paddingBottom: layout.pb, ["--block-pt" as string]: `${layout.gutterTop}px` }}
+                >
+                  {(dragHandle) => (
+                    <>
+                      <BlockHandle
+                        drag={dragHandle}
+                        label={label}
+                        line={layout.line}
+                        isText={isTextBlock(block)}
+                        first={i === 0}
+                        last={i === view.length - 1}
+                        onAdd={() => addBelow(block.id)}
+                        onTurnInto={(to) => turnInto(block.id, to)}
+                        onMove={(dir) => moveBlock(block.id, dir)}
+                        onDuplicate={() => duplicate(block.id)}
+                        onDelete={() => deleteBlock(block.id)}
+                        onComment={
+                          // Ogni blocco che è un'ancora (non la tabella: lì le celle, con ⌥⌘M o la selezione).
+                          comment && block.type !== "table"
+                            ? () => {
+                                flush();
+                                // La frase intera (la bozza compresa: `view` la contiene).
+                                comment(block.id, commentTextOf(block, t));
+                              }
+                            : undefined
+                        }
+                        onClaudeChange={marks?.byBlock.has(block.id) ? () => marks.setOpen(block.id) : undefined}
+                        claudeItem={
+                          block.type === "heading"
+                            ? (close) => (
+                                <SectionProposeItem
+                                  page={page}
+                                  headingId={block.id}
+                                  section={block.content.text}
+                                  close={close}
+                                  beforeOpen={flush}
+                                />
+                              )
+                            : undefined
+                        }
+                      />
+                      <CommentMark anchorIds={anchorIdsOf(block)} below={block.type === "table"} />
+                      {isTextBlock(block) &&
+                        (editing ? (
+                          <RemoteBlockNote people={writersIn(others, block.id)} />
+                        ) : (
+                          <RemoteCursors people={writersIn(others, block.id)} contentKey={JSON.stringify(block.content)} />
+                        ))}
+                      {drawingHere ? (
+                        <SketchingPlaceholder />
+                      ) : (
+                        <BlockBody
+                          block={block}
+                          page={page}
+                          number={numbers[i]!}
+                          onCheck={(checked) => block.type === "todo" && structure([{ op: "set", block: { ...block, checked } }])}
+                          onSelectObject={() => selectShell(block.id)}
+                          onCaption={(caption) => {
+                            const now = blockOf(block.id);
+                            if (now?.type === "image") structure([{ op: "set", block: { ...now, caption } }]);
+                          }}
+                          table={block.type === "table" ? tableEditing(block.id) : undefined}
+                          sketch={
+                            block.type === "wireframe"
+                              ? { replace: () => chooseSketchImage(block.id), announce: (text) => announce(text) }
+                              : undefined
+                          }
+                        >
+                          {text}
+                        </BlockBody>
+                      )}
+                    </>
+                  )}
+                </BlockShell>
+                {drawingAfter && (
+                  <div className="py-3">
+                    <SketchingPlaceholder />
+                  </div>
+                )}
+              </Fragment>
             );
           })}
         </SortableContext>
@@ -802,6 +948,7 @@ function WritableBody({
           query={slashQuery(openSlash)}
           onPick={pickSlash}
           style={floating.slash}
+          disabled={budgetOut ? { wireframe: t("productDocs.wireframe.budget") } : undefined}
         />
       )}
       {picker?.kind === "drive" && (
@@ -843,10 +990,12 @@ function WritableBody({
         hidden
         onChange={(e) => {
           const files = filesOf(e.target.files);
-          const id = imageTarget.current;
+          const target = imageTarget.current;
           imageTarget.current = null;
           e.target.value = "";
-          if (id && files.length > 0) addImages(files.slice(0, 1), { replaceId: id });
+          if (!target || files.length === 0) return;
+          if (target.sketch) placeSketchImage(target.id, files[0]!);
+          else addImages(files.slice(0, 1), { replaceId: target.id });
         }}
       />
       <LiveNoteRegion people={focus ? writersIn(others, focus.id) : []} />

@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 import {
   blockHeadingLevel,
   pageHeadingLevel,
@@ -109,6 +110,7 @@ function Blocks({ doc, depth, blocks }: { doc: ExportDoc; depth: number; blocks:
 }
 
 function Block({ doc, depth, block: b }: { doc: ExportDoc; depth: number; block: ExportBlock }) {
+  const { t } = useTranslation();
   switch (b.kind) {
     case "heading": {
       const H = tagOf(blockHeadingLevel(doc, depth, b.level));
@@ -161,8 +163,23 @@ function Block({ doc, depth, block: b }: { doc: ExportDoc; depth: number; block:
     case "todo":
       return null;
     case "sketch":
-      // La bozza di schermata (11b): la stampa il Task 12, con la sua etichetta se mai tenuta.
-      return null;
+      // La bozza di schermata (11b, §3.7): lo schizzo com'è (linee in `currentColor`,
+      // l'inchiostro della carta), a tutta larghezza; l'etichetta solo se mai tenuta.
+      return (
+        <figure className="print-sketch">
+          {b.svg !== null ? (
+            <div
+              role="img"
+              aria-label={t("productDocs.wireframe.exportLabel")}
+              // Lo schizzo è del seme (`PRODUCT_WIREFRAMES`): SVG fissi, nessun dato di chi scrive.
+              dangerouslySetInnerHTML={{ __html: b.svg }}
+            />
+          ) : (
+            <p>{t("productDocs.wireframe.gone")}</p>
+          )}
+          {b.label && <figcaption>{t("productDocs.wireframe.exportLabel")}</figcaption>}
+        </figure>
+      );
   }
 }
 

@@ -29,6 +29,7 @@ export function SlashMenu({
   query,
   onPick,
   style,
+  disabled = {},
 }: {
   id: string;
   /** Le voci filtrate, nell'ordine; la attiva è `active`. */
@@ -37,6 +38,11 @@ export function SlashMenu({
   query: string;
   onPick: (item: SlashItem) => void;
   style: React.CSSProperties;
+  /**
+   * Le voci spente, con la loro frase sotto il nome (11b: «Screen sketch» col
+   * budget del mese finito). Nessun «Who?»: dentro una `listbox` non ci sono link.
+   */
+  disabled?: Partial<Record<SlashItemId, string>>;
 }) {
   const { t } = useTranslation();
   const activeItem = items[active];
@@ -73,19 +79,28 @@ export function SlashMenu({
           {rows.map((item) => {
             const selected = item === activeItem;
             const shortcut = SHORTCUT[item.id];
+            const off = disabled[item.id];
             return (
               <div
                 key={item.id}
                 id={slashOptionId(id, item.id)}
                 role="option"
                 aria-selected={selected}
+                aria-disabled={off ? true : undefined}
                 // Il clic non toglie il fuoco al blocco.
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => onPick(item)}
-                className={`flex h-8 shrink-0 cursor-default items-center gap-2.5 rounded-md px-2 text-sm text-ink ${selected ? "bg-ink/8" : "hover:bg-ink/5"}`}
+                onClick={() => !off && onPick(item)}
+                className={`flex shrink-0 cursor-default items-center gap-2.5 rounded-md px-2 text-sm ${off ? "min-h-8 py-1.5 text-ink-muted" : "h-8 text-ink"} ${selected ? "bg-ink/8" : off ? "" : "hover:bg-ink/5"}`}
               >
                 <SlashGlyph id={item.id} />
-                <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
+                {off ? (
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate">{t(item.labelKey)}</span>
+                    <span className="text-xs text-pretty text-ink-muted">{off}</span>
+                  </span>
+                ) : (
+                  <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>
+                )}
                 {shortcut && (
                   <kbd className="num rounded-[4px] border border-rule px-1 font-sans text-xs leading-4 text-ink-faint">
                     {shortcut}

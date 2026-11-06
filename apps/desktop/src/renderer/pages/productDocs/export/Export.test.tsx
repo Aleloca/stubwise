@@ -365,6 +365,56 @@ describe("con la finestra di salvataggio (window.stubwise.saveFile)", () => {
   });
 });
 
+describe("la bozza di schermata di Claude (11b, Task 12; shape product-claude-backlog.md §3.7)", () => {
+  /** Due bozze in Bills: una mai tenuta, una tenuta. */
+  function twoSketches() {
+    const bills = state.productPages.find((p) => p.id === "pp-acq-bills")!;
+    bills.blocks = [
+      ...bills.blocks,
+      { id: "blk-sk-draft", type: "wireframe", wireframeId: "bills", variant: 0 },
+      { id: "blk-sk-kept", type: "wireframe", wireframeId: "bills", variant: 1, kept: true },
+    ];
+  }
+
+  it("PDF: lo schizzo com'è, a tutta larghezza; sotto quello mai tenuto «Claude's draft · Screen sketch», sotto quello tenuto niente", async () => {
+    twoSketches();
+    const figures: { svg: boolean; caption: string | null }[] = [];
+    withBridge(async () => {
+      for (const f of printRoot()!.querySelectorAll("figure.print-sketch"))
+        figures.push({ svg: f.querySelector("svg") !== null, caption: f.querySelector("figcaption")?.textContent ?? null });
+      return { saved: true };
+    });
+    await openPage("Bills");
+    await choose("This page", "PDF");
+    await screen.findByText("Saved the PDF");
+    expect(figures).toEqual([
+      { svg: true, caption: "Claude's draft · Screen sketch" },
+      { svg: true, caption: null },
+    ]);
+  });
+
+  it("Word: l'etichetta e il nome composti nella lingua di chi esporta, e lo schizzo da fare PNG", async () => {
+    twoSketches();
+    withBridge();
+    await openPage("Bills");
+    act(() => setLanguage("it"));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /^Esporta/ }));
+    const menu = await screen.findByRole("menu", { name: "Esporta" });
+    await user.click(
+      within(within(menu).getByRole("group", { name: "Questa pagina" })).getByRole("menuitem", { name: "Word (.docx)" }),
+    );
+    await screen.findByText("File Word salvato");
+    const [doc, sketches] = vi.mocked(docx.buildDocx).mock.calls[0]!;
+    expect(doc.pages[0]!.blocks.filter((b) => b.kind === "sketch")).toEqual([
+      { kind: "sketch", svg: expect.stringContaining("<svg"), label: true },
+      { kind: "sketch", svg: expect.stringContaining("<svg"), label: false },
+    ]);
+    expect(sketches).toMatchObject({ label: "Bozza di Claude · Bozza di schermata", name: "Bozza di schermata" });
+    expect(sketches!.toPng).toBe(docx.svgToPng);
+  });
+});
+
 describe("senza window.stubwise (preview:web)", () => {
   it("il PDF apre la stampa del browser con la vista montata; nessun avviso", async () => {
     let during = "";

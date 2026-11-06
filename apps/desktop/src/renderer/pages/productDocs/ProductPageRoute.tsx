@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useJoinProductPage, useProductPage, useProductPageEvents, useProductPresence } from "../../data/queries";
 import type { ProductPageView } from "../../data/types";
@@ -11,6 +11,7 @@ import { ReadOnlyLine } from "./ReadOnlyLine";
 import { FirstVersionBanner } from "./claude/FirstVersionBanner";
 import { TitleField } from "./TitleField";
 import { BlockEditor, type BlockEditorHandle } from "./editor/BlockEditor";
+import { LinkedRequests } from "./claude/LinkedRequests";
 import { useEditorSession } from "./editor/useEditorSession";
 import {
   ProductNotFound,
@@ -47,11 +48,13 @@ export function ProductPageRoute({ code }: { code: string }) {
 
 function PageBody({ page }: { page: ProductPageView }) {
   const { t, i18n } = useTranslation();
-  const { project, setEditorStatus, marks } = useProductSpaceContext();
+  const { project, setEditorStatus, marks, editor: spaceEditor } = useProductSpaceContext();
   const toast = useToast();
   const nameOf = usePersonName();
   const heading = useRef<HTMLHeadingElement>(null);
-  const editor = useRef<BlockEditorHandle>(null);
+  const ownEditor = useRef<BlockEditorHandle>(null);
+  // Lo spazio tiene la maniglia dell'editor: il «⋯» della barra ci disegna (11b).
+  const editor = spaceEditor ?? ownEditor;
   const session = useEditorSession(page);
   const editable = page.permissions.edit;
   // «Updated … by …» dice l'ultima revisione (rimando del Task 2): uno
@@ -81,6 +84,17 @@ function PageBody({ page }: { page: ProductPageView }) {
     });
   }, [editable, session.state, session.skipped, session.dropped, setEditorStatus]);
   useEffect(() => () => setEditorStatus(null), [setEditorStatus]);
+
+  // Il permesso perso mentre si scrive (11b, Task 12): l'editor diventa la
+  // sola lettura e i suoi controlli se ne vanno nello stesso disegno; il
+  // fuoco che era lì va al titolo, non resta sul body.
+  const wasEditable = useRef(editable);
+  useLayoutEffect(() => {
+    const active = document.activeElement;
+    if (wasEditable.current && !editable && (!active || active === document.body || !active.isConnected))
+      heading.current?.focus();
+    wasEditable.current = editable;
+  }, [editable]);
 
   // Una pagina appena creata: il fuoco va al suo titolo (per chi scrive col
   // testo selezionato, [PE 2]), mai sul body.
@@ -176,6 +190,8 @@ function PageBody({ page }: { page: ProductPageView }) {
       <div className="mt-6">
         <BlockEditor page={page} session={session} editable={editable} handle={editor} others={presence.data} />
       </div>
+      {/* Le richieste nate dalla pagina (11b, [PB 4]): fuori dall'editor, dopo l'ultimo blocco. */}
+      <LinkedRequests pageId={page.id} />
     </article>
   );
 }

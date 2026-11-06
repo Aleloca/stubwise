@@ -19,7 +19,7 @@ import type {
 } from "../../../data/types";
 import { spoken } from "../../../domain/claude/answers";
 import type { T } from "../../../domain/claude/context";
-import { busyLine } from "../../../domain/claude/intents/archive";
+import { busyLine, noteLine } from "../../../domain/claude/intents/archive";
 import { nameList } from "../../../domain/names";
 import { useReauth } from "../../../layout/useReauth";
 import { CheckBox } from "../../../tasks-ui/Menu";
@@ -676,6 +676,11 @@ function NoteRows({ notes }: { notes: readonly ProposalNote[] }) {
               {t("claude.conversation.proposal.notes.notManageable", { count: note.count })}
               <WhoForNote note={note} />
             </span>
+          </li>
+        ) : note.kind === "already_proposed" ? (
+          // 11b (P35): le frasi della pagina già proposte. I codici che chi chiede vede, gli altri contati.
+          <li key={`n${i}`} data-note="already_proposed" className="min-w-0 text-sm text-ink-muted [overflow-wrap:anywhere]">
+            {withCodes(noteLine(t as unknown as T, note))}
           </li>
         ) : null,
       )}

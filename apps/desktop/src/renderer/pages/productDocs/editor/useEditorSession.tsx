@@ -102,28 +102,24 @@ export function useEditorSession(page: ProductPageView) {
   const baseRef = useRef(base);
   baseRef.current = base;
 
-  // Il blocco tenuto ([PE 18]) e la pagina da disegnare.
+  // Il blocco tenuto ([PE 18]) e la pagina da disegnare: la pagina vera col
+  // blocco tenuto com'era disegnato (se c'è ancora). Si DERIVA a ogni disegno
+  // invece di tenerne una copia (11b, Task 12): una copia scritta da due
+  // parti — il gesto che lascia il blocco e la lettura nuova arrivata nello
+  // stesso giro, come la bozza di Claude al posto del paragrafo — poteva
+  // tornare alla pagina di prima sopra quella nuova.
   const heldRef = useRef<string | null>(null);
-  const [shown, setShownState] = useState(page.blocks);
-  const shownRef = useRef(shown);
-  const setShown = (next: ProductBlock[]) => {
-    shownRef.current = next;
-    setShownState(next);
-  };
-  /** `incoming` con il blocco tenuto com'era disegnato (se c'è ancora in entrambe). */
-  const keepHeld = (incoming: ProductBlock[]): ProductBlock[] => {
-    const id = heldRef.current;
-    const mine = id ? shownRef.current.find((b) => b.id === id) : undefined;
-    if (!mine) return incoming;
-    return incoming.map((b) => (b.id === id ? mine : b));
-  };
+  const [heldBlock, setHeldBlock] = useState<ProductBlock | null>(null);
+  const shown = useMemo(
+    () => (heldBlock ? base.map((b) => (b.id === heldBlock.id ? heldBlock : b)) : base),
+    [base, heldBlock],
+  );
 
   const [seen, setSeen] = useState(page.blocks);
   if (seen !== page.blocks) {
     setSeen(page.blocks);
     setBase(page.blocks);
     baseRef.current = page.blocks;
-    setShown(keepHeld(page.blocks));
   }
 
   const queue = useRef<Batch[]>([]);
@@ -148,10 +144,34 @@ export function useEditorSession(page: ProductPageView) {
   const view = useMemo(() => rebase(base, pending.flat()), [base, pending]);
   const shownView = useMemo(() => rebase(shown, pending.flat()), [shown, pending]);
 
+  // Chi aspetta che la fila sia vuota (11b, Task 12): un gesto di Claude
+  // sulla pagina (la bozza di schermata) scrive fuori dalla fila e non deve
+  // arrivare prima di una scrittura di questa sessione ancora in volo. Una
+  // fila ferma su un errore li libera lo stesso: il gesto prova, e il
+  // livello dati dice se la pagina gli va ancora bene.
+  const waiters = useRef<(() => void)[]>([]);
+  const release = useCallback(() => {
+    const list = waiters.current;
+    waiters.current = [];
+    for (const done of list) done();
+  }, []);
+  const settled = useCallback(
+    (): Promise<void> =>
+      queue.current.length === 0 && !busy.current
+        ? Promise.resolve()
+        : new Promise<void>((done) => {
+            waiters.current.push(done);
+          }),
+    [],
+  );
+
   const pump = useCallback(async () => {
     if (busy.current || failed.current) return;
     const batch = queue.current[0];
-    if (!batch) return;
+    if (!batch) {
+      release();
+      return;
+    }
     busy.current = true;
     setState("saving");
     try {
@@ -170,13 +190,16 @@ export function useEditorSession(page: ProductPageView) {
       setBase(result.blocks);
       // Una scrittura di questa sessione sul blocco tenuto si vede; le altre lo lasciano com'era.
       const held = heldRef.current;
-      setShown(held && touches(batch.ops, held) ? result.blocks : keepHeld(result.blocks));
+      if (held && touches(batch.ops, held)) setHeldBlock(result.blocks.find((b) => b.id === held) ?? null);
       queue.current.shift();
       setPending(queue.current.map((b) => b.ops));
       batch.onDone?.(result.revisionId);
       busy.current = false;
       if (queue.current.length > 0) void pump();
-      else setState("saved");
+      else {
+        setState("saved");
+        release();
+      }
     } catch (error) {
       busy.current = false;
       if (rejected(error)) {
@@ -185,13 +208,17 @@ export function useEditorSession(page: ProductPageView) {
         setPending(queue.current.map((b) => b.ops));
         setDropped(true);
         if (queue.current.length > 0) void pump();
-        else setState("idle");
+        else {
+          setState("idle");
+          release();
+        }
         return;
       }
       failed.current = true;
       setState("error");
+      release();
     }
-  }, [client, me, sessionId]);
+  }, [client, me, sessionId, release]);
 
   const enqueue = useCallback(
     (batch: Batch) => {
@@ -274,8 +301,7 @@ export function useEditorSession(page: ProductPageView) {
   const hold = useCallback((id: string | null) => {
     if (heldRef.current === id) return;
     heldRef.current = id;
-    shownRef.current = baseRef.current;
-    setShownState(baseRef.current);
+    setHeldBlock(id ? (baseRef.current.find((b) => b.id === id) ?? null) : null);
   }, []);
 
   /** Un tasto: «Saved» resta solo fino al tasto dopo, e così il passo saltato. */
@@ -307,6 +333,8 @@ export function useEditorSession(page: ProductPageView) {
     /** La pagina da disegnare: come `blocks`, ma il blocco tenuto non cambia per mano d'altri ([PE 18]). */
     shown: shownView,
     hold,
+    /** Si risolve quando la fila è vuota (o ferma su un errore): un gesto fuori dalla fila arriva dopo. */
+    settled,
     /** Ci sono scritture non ancora confermate. */
     dirty: pending.length > 0,
   };

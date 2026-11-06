@@ -68,6 +68,10 @@ export interface GestureContext {
   chooseImage: (id: string) => void;
   /** «/drive», «/decision», «/link»: il selettore al blocco `id`. */
   openPicker: (kind: "drive" | "decision" | "link", id: string) => void;
+  /** «/» → «Screen sketch» (11b): Claude disegna al posto del paragrafo `id`. */
+  drawSketch: (id: string) => void;
+  /** La voce «Screen sketch» è spenta (il budget del mese finito): sceglierla non fa nulla. */
+  sketchBlocked: () => boolean;
 }
 
 export function makeGestures(ctx: GestureContext) {
@@ -99,6 +103,8 @@ export function makeGestures(ctx: GestureContext) {
     addImages,
     chooseImage,
     openPicker,
+    drawSketch,
+    sketchBlocked,
   } = ctx;
 
   // --- i gesti ----------------------------------------------------------------
@@ -203,13 +209,13 @@ export function makeGestures(ctx: GestureContext) {
     const text = block && isTextBlock(block) ? block.content.text : "";
     return s.viaPlus ? text : text.slice(1);
   };
-  // La bozza di schermata (11b) entra nel menu col suo gesto (Task 12, `drawWireframe` con `replaceId`).
-  const slashItems = (s: Slash | null): SlashItem[] =>
-    filterSlashItems(slashQuery(s), (key) => t(key)).filter((i) => i.id !== "wireframe");
+  const slashItems = (s: Slash | null): SlashItem[] => filterSlashItems(slashQuery(s), (key) => t(key));
 
   const pickSlash = (item: SlashItem) => {
     const s = slashRef.current;
     if (!s) return;
+    // Spenta (il budget del mese): il menu resta aperto, sulla voce con la sua frase.
+    if (item.id === "wireframe" && sketchBlocked()) return;
     setSlash(null);
     // La bozza «/tab» se ne va: il blocco diventa ciò che si è scelto.
     const rest = new Map(draftsRef.current);
@@ -223,6 +229,11 @@ export function makeGestures(ctx: GestureContext) {
         { op: "insert", afterId: s.id, block: p },
       ]);
       caret(p.id, 0);
+      return;
+    }
+    if (item.id === "wireframe") {
+      // La bozza di Claude al posto del paragrafo da cui si è digitato «/» (§3.6, P37 `replaceId`).
+      drawSketch(s.id);
       return;
     }
     if (item.id === "table") {

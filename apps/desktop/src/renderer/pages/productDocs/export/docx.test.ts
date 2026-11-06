@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { PRODUCT_PAGES } from "../../../data/seed/productDocs";
 import { exportModelOf, exportRunsOf, type ExportDoc } from "../../../domain/productDocs/exportModel";
-import { buildDocx, docxImageOf, docxRunsOf, imageSizeOf, wordLeftOutImages, wordLeftOutReasons } from "./docx";
+import { buildDocx, docxImageOf, docxRunsOf, imageSizeOf, svgToPng, wordLeftOutImages, wordLeftOutReasons } from "./docx";
 
 // Il Word dell'esportazione (area 11a, Task 12; ruling P36): nel renderer
 // senza Node, quindi niente `Buffer` (le uscite sono `ArrayBuffer`), le
@@ -128,5 +128,81 @@ describe("buildDocx", () => {
     );
     const bytes = await buildDocx(doc);
     expect([bytes[0], bytes[1]]).toEqual([0x50, 0x4b]);
+  });
+});
+
+// --- 11b, Task 12: la bozza di schermata nel Word ---------------------------
+
+/** I file di uno zip (il .docx), dalla directory centrale: nome → byte decompressi. */
+async function unzip(bytes: Uint8Array): Promise<Map<string, Uint8Array>> {
+  const { inflateRawSync } = await import("node:zlib");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let end = bytes.length - 22;
+  while (end >= 0 && view.getUint32(end, true) !== 0x06054b50) end--;
+  const count = view.getUint16(end + 10, true);
+  let at = view.getUint32(end + 16, true);
+  const out = new Map<string, Uint8Array>();
+  for (let i = 0; i < count; i++) {
+    const method = view.getUint16(at + 10, true);
+    const size = view.getUint32(at + 20, true);
+    const nameLength = view.getUint16(at + 28, true);
+    const extra = view.getUint16(at + 30, true);
+    const comment = view.getUint16(at + 32, true);
+    const local = view.getUint32(at + 42, true);
+    const name = new TextDecoder().decode(bytes.subarray(at + 46, at + 46 + nameLength));
+    const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+    const raw = bytes.subarray(start, start + size);
+    out.set(name, method === 8 ? new Uint8Array(inflateRawSync(raw)) : raw);
+    at += 46 + nameLength + extra + comment;
+  }
+  return out;
+}
+
+describe("la bozza di schermata nel Word (11b)", () => {
+  const svg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 240" stroke="currentColor"><rect x="1" y="1" width="10" height="10"/></svg>';
+  const png = () => ({ data: bytesOf(imageSrcs()[0]!), width: 480, height: 300 });
+  const sketchDoc = (svgOrNull: string | null, label: boolean): ExportDoc => ({
+    title: "Booking",
+    pages: [{ code: "VRD-D3", title: "Booking", depth: 0, blocks: [{ kind: "sketch", svg: svgOrNull, label }] }],
+  });
+  // Senza apostrofi: nel Word un apostrofo è `&apos;`.
+  const LABEL = "Bozza di Claude · Bozza di schermata";
+  const documentXml = async (bytes: Uint8Array) =>
+    new TextDecoder().decode((await unzip(bytes)).get("word/document.xml")!);
+  const hasMedia = async (bytes: Uint8Array) =>
+    [...(await unzip(bytes)).keys()].some((k) => k.startsWith("word/media/") && k.endsWith(".png"));
+
+  it("mai tenuta: la PNG dello schizzo e, sotto, «Claude's draft · Screen sketch» in corsivo 10 pt", async () => {
+    const toPng = vi.fn(async () => png());
+    const bytes = await buildDocx(sketchDoc(svg, true), { label: LABEL, name: "Bozza di schermata", gone: "gone", toPng });
+    expect(toPng).toHaveBeenCalledWith(svg);
+    expect(await hasMedia(bytes)).toBe(true);
+    expect(await documentXml(bytes)).toMatch(/<w:i\/>.*<w:sz w:val="20"\/>.*Bozza di Claude · Bozza di schermata/s);
+  });
+
+  it("tenuta: la PNG, senza l'etichetta", async () => {
+    const bytes = await buildDocx(sketchDoc(svg, false), { label: LABEL, name: "Bozza di schermata", gone: "gone", toPng: async () => png() });
+    expect(await hasMedia(bytes)).toBe(true);
+    expect(await documentXml(bytes)).not.toContain("Bozza di Claude");
+  });
+
+  it("un disegno che il seme non ha più: la sua riga, e l'etichetta se mai tenuta", async () => {
+    const bytes = await buildDocx(sketchDoc(null, true), {
+      label: LABEL,
+      name: "Bozza di schermata",
+      gone: "This sketch is no longer available",
+      toPng: async () => null,
+    });
+    const xml = await documentXml(bytes);
+    expect(xml).toContain("This sketch is no longer available");
+    expect(xml).toContain(LABEL);
+  });
+
+  it("svgToPng senza una tela (happy-dom): `null`, e il Word ha la sola etichetta", async () => {
+    expect(await svgToPng(svg)).toBeNull();
+    const bytes = await buildDocx(sketchDoc(svg, true), { label: LABEL, name: "Bozza di schermata", gone: "gone", toPng: svgToPng });
+    expect(await hasMedia(bytes)).toBe(false);
+    expect(await documentXml(bytes)).toContain(LABEL);
   });
 });

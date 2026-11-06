@@ -12433,7 +12433,13 @@
       "changedOneNobody": "One was edited afterwards. Undo the others one by one.",
       "undo": "Undo",
       "undoAll": "Undo all",
-      "showUndone": "Show the change that was undone"
+      "showUndone": "Show the change that was undone",
+      "wireframe": {
+        "drew": "Drew a screen sketch",
+        "redrew": "Redrew the screen sketch",
+        "kept": "Kept the screen sketch",
+        "replaced": "Replaced the screen sketch with an image"
+      }
     },
     "follow": {
       "follow": "Follow",
@@ -12613,6 +12619,58 @@
       "queue": "Claude will resume updating the doc when {{name}} resumes the queue",
       "count_one": "{{count}} update waiting",
       "count_other": "{{count}} updates waiting"
+    },
+    "wireframe": {
+      "label": "Claude's draft",
+      "kind": "Screen sketch",
+      "nameDraft": "Claude's draft: {{screen}}",
+      "nameKept": "Screen sketch: {{screen}}",
+      "screens": {
+        "booking": "sketch of the booking screen",
+        "membership": "sketch of the membership screen",
+        "bills": "sketch of the bills screen",
+        "sign-in": "sketch of the sign-in screen",
+        "screen": "sketch of a screen"
+      },
+      "actions": "Sketch actions",
+      "keep": "Keep",
+      "keeping": "Keeping…",
+      "kept": "Kept · the sketch is now a figure of the page",
+      "keepFailed": "Couldn't keep it",
+      "keepForbidden": "Keeping it is for people with Edit docs in {{code}}",
+      "redraw": "Redraw",
+      "redrawing": "Redrawing…",
+      "newSketch": "New sketch",
+      "redrawFailed": "Couldn't redraw",
+      "replace": "Replace with an image",
+      "replaceFailed": "Couldn't replace it",
+      "retry": "Retry",
+      "sketching": "Claude is sketching…",
+      "added": "Sketch added",
+      "drawFailed": "Couldn't draw the sketch. Nothing was changed.",
+      "gone": "This sketch is no longer available",
+      "exportLabel": "Claude's draft · Screen sketch",
+      "budget": "The monthly AI budget is used up"
+    },
+    "backlog": {
+      "group": "Claude",
+      "propose": "Propose backlog items",
+      "proposeSection": "Propose backlog items from this section",
+      "draw": "Draw this screen",
+      "budget": "The monthly AI budget is used up",
+      "noItems": "No list items or to-dos on this page",
+      "noItemsSection": "No list items or to-dos in this section",
+      "fromDoc": "From the doc:",
+      "linked": {
+        "title": "From this page",
+        "showAll": "Show all {{count}}",
+        "loadError": "Couldn't load the linked requests",
+        "retry": "Retry",
+        "open": "Open",
+        "converted": "Converted",
+        "archived": "Archived",
+        "moreTasks": "+{{count}}"
+      }
     }
   }
 }

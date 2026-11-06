@@ -892,6 +892,213 @@ async function main() {
       return;
     }
 
+    // Area 11b, Task 12 (`CAPTURE_A11B_BACKLOG=1`): dalla doc al backlog e le
+    // bozze di schermata. Phases di ACQ: il gruppo CLAUDE del «⋯», la voce
+    // del titolo «Phase 1», la scheda nel riquadro con la nota delle già
+    // proposte, le voci in fondo alla pagina dopo la conferma; «From the doc»
+    // sulla task e sulla richiesta (Marco); Bills senza elenchi (la voce
+    // spenta). Le bozze su Bills: appena disegnata (al passaggio, i gesti),
+    // mentre Claude disegna, Sara, «/» con «Screen sketch», tenuta, sostituita
+    // da un'immagine. Scatti `a11b-backlog-*` e `a11b-wireframe-*`.
+    if (process.env.CAPTURE_A11B_BACKLOG) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const PHASES = "/p/ACQ/docs/product/ACQ-D11";
+      const BILLS = "/p/ACQ/docs/product/ACQ-D6";
+      const SIGNIN = "/p/ACQ/docs/product/ACQ-D5";
+      const moreMenu = async (page) => {
+        await pageMore(page).click();
+        await page.getByRole("menu").waitFor();
+        await page.waitForTimeout(400);
+      };
+      /** Una bozza di Claude per Laura dopo il primo paragrafo di Bills, e la pagina riletta. */
+      async function drawOnBills(page, { kept = false } = {}) {
+        await page.evaluate(async (k) => {
+          const w = await import("/data/productDocs/wireframes.ts");
+          const store = await import("/data/store.ts");
+          const p = store.state.productPages.find((x) => x.id === "pp-acq-bills");
+          const { blockId } = w.drawWireframeAs("p-laura", p.id, { afterId: p.blocks[0].id });
+          if (k) w.keepWireframeAs("p-laura", p.id, blockId);
+        }, kept);
+        await page.evaluate(() => {
+          window.location.hash = "/p/ACQ/docs/product";
+        });
+        await page.waitForTimeout(300);
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, BILLS);
+        await page.getByRole("heading", { level: 1, name: "Bills" }).waitFor();
+        await page.locator("figure").first().waitFor();
+        await page.waitForTimeout(500);
+      }
+      const hoverSketch = async (page) => {
+        await page.locator("figure").first().hover();
+        await page.waitForTimeout(300);
+      };
+      const scenes = [
+        { name: "backlog-menu", hash: PHASES, persona: "Laura", run: moreMenu },
+        {
+          name: "backlog-section",
+          hash: PHASES,
+          persona: "Laura",
+          run: async (page) => {
+            const shell = page.locator('[data-block-id="blk-acq-phases-h1"]');
+            await shell.hover();
+            await shell.getByRole("button", { name: /^(Block menu|Menu del blocco)/ }).click();
+            await page.getByRole("menu").waitFor();
+            await page.getByRole("menuitem", { name: /^(Propose backlog items from this section|Proponi le voci di backlog da questa sezione)/ }).scrollIntoViewIfNeeded();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "backlog-card",
+          hash: PHASES,
+          persona: "Laura",
+          run: async (page) => {
+            await moreMenu(page);
+            await page.getByRole("menuitem", { name: /^(Propose backlog items|Proponi le voci di backlog)$/ }).click();
+            await page.locator("#claude-panel [data-proposal]").waitFor();
+            await page.waitForTimeout(900);
+          },
+        },
+        {
+          name: "backlog-linked",
+          hash: PHASES,
+          persona: "Laura",
+          run: async (page) => {
+            await moreMenu(page);
+            await page.getByRole("menuitem", { name: /^(Propose backlog items|Proponi le voci di backlog)$/ }).click();
+            const card = page.locator("#claude-panel [data-proposal]");
+            await card.waitFor();
+            await page.waitForTimeout(600);
+            await card.getByRole("button", { name: /^(Confirm|Conferma)/ }).click();
+            await page.waitForTimeout(1200);
+            await page.locator("[data-linked-requests]").scrollIntoViewIfNeeded();
+            await page.waitForTimeout(400);
+          },
+        },
+        { name: "backlog-empty", hash: BILLS, persona: "Laura", run: moreMenu },
+        {
+          name: "backlog-task",
+          hash: "/p/ACQ/tasks?task=ACQ-10",
+          persona: "Marco",
+          run: async (page) => {
+            await page.locator("[data-product-origin]").scrollIntoViewIfNeeded();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "backlog-request",
+          hash: "/p/ACQ/requests?request=req-acq-6",
+          persona: "Marco",
+          run: async (page) => {
+            await page.locator("[data-product-origin]").scrollIntoViewIfNeeded();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "wireframe-draft",
+          hash: BILLS,
+          persona: "Laura",
+          run: async (page) => {
+            await drawOnBills(page);
+            await hoverSketch(page);
+          },
+        },
+        {
+          name: "wireframe-sketching",
+          hash: BILLS,
+          persona: "Laura",
+          run: async (page) => {
+            await page.evaluate(async () => {
+              const api = await import("/data/api.ts");
+              api.setLatency(20000);
+            });
+            await moreMenu(page);
+            await page.getByRole("menuitem", { name: /^(Draw this screen|Disegna questa schermata)$/ }).click();
+            await page.locator("[data-sketching]").waitFor();
+            await page.locator("[data-sketching]").scrollIntoViewIfNeeded();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "wireframe-reader",
+          hash: BILLS,
+          persona: "Sara",
+          run: async (page) => {
+            await drawOnBills(page);
+          },
+        },
+        {
+          name: "wireframe-slash",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            const last = page.locator("[data-editor-body] [role=textbox]").last();
+            await last.click();
+            await page.keyboard.press("End");
+            await page.keyboard.press("Enter");
+            await page.keyboard.type("/sketch");
+            await page.getByRole("listbox").waitFor();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "wireframe-kept",
+          hash: BILLS,
+          persona: "Laura",
+          run: async (page) => {
+            await drawOnBills(page, { kept: true });
+            await hoverSketch(page);
+          },
+        },
+        {
+          name: "wireframe-replaced",
+          hash: BILLS,
+          persona: "Laura",
+          run: async (page) => {
+            await drawOnBills(page);
+            await hoverSketch(page);
+            const src = await page.evaluate(async () => {
+              const store = await import("/data/store.ts");
+              return store.state.productPages.find((x) => x.id === "pp-acq-screens").blocks.find((b) => b.type === "image").src;
+            });
+            const chooser = page.waitForEvent("filechooser");
+            await page.getByRole("button", { name: /^(Replace with an image|Sostituisci con un'immagine)$/ }).click();
+            await (await chooser).setFiles({
+              name: "bills-screen.png",
+              mimeType: "image/png",
+              buffer: Buffer.from(src.slice(src.indexOf(",") + 1), "base64"),
+            });
+            await page.locator("figure img").first().waitFor();
+            await page.waitForTimeout(500);
+          },
+        },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a11b-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          await page.getByRole("heading", { level: 1 }).first().waitFor();
+          await page.waitForTimeout(600);
+          await scene.run(page);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 11a, Task 13 (`CAPTURE_A11A_EXTRA=1`): le due scene che mancavano
     // agli insiemi dei Task 7–12. Sara su «Sign-in» con il «Who?» della riga di
     // sola lettura aperto, e Laura nello spazio Prodotto con ⌘K scritto «bill»

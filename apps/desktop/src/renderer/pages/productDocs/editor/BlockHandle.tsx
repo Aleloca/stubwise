@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { SlashItemId } from "../../../domain/productDocs/shortcuts";
 import { itemClass } from "../../../tasks-ui/Menu";
@@ -41,6 +42,7 @@ export function BlockHandle({
   onDelete,
   onComment,
   onClaudeChange,
+  claudeItem,
   drag,
 }: {
   /** Di quale blocco (per il nome dei bottoni). */
@@ -59,6 +61,11 @@ export function BlockHandle({
   onComment?: () => void;
   /** «Claude's change» (11b): apre la nota del segno di Claude; assente senza segno. */
   onClaudeChange?: () => void;
+  /**
+   * 11b: «Propose backlog items from this section», solo sui titoli (dopo
+   * «Comment»). Nasce con il menu aperto: le voci si leggono allora.
+   */
+  claudeItem?: (close: () => void) => ReactNode;
   /** Il trascinamento (dnd-kit), sul solo ⋮⋮: un clic senza movimento resta il menu. */
   drag?: DragHandle;
 }) {
@@ -149,6 +156,7 @@ export function BlockHandle({
               : item(t("productDocs.editor.handle.moveDown"), () => onMove("down"), close)}
             {item(t("productDocs.editor.handle.duplicate"), onDuplicate, close)}
             {onComment && item(t("productDocs.comments.comment"), onComment, close)}
+            {claudeItem?.(close)}
             {onClaudeChange && item(t("productDocs.mark.menu"), onClaudeChange, close)}
             <div role="separator" className="my-1 h-px bg-rule" />
             {item(t("productDocs.editor.handle.delete"), onDelete, close, true)}

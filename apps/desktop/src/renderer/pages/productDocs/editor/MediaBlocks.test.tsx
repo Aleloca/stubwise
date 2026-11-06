@@ -106,7 +106,7 @@ afterEach(() => {
 // --- il menu «/» -------------------------------------------------------------
 
 describe("il menu «/» offre ogni voce (P17)", () => {
-  it("INSERT ha Table, Image, Drive file, Link to… e Decision", async () => {
+  it("INSERT ha Table, Image, Drive file, Link to…, Decision e (11b) Screen sketch", async () => {
     emptySignInBlock();
     await open("Sign-in");
     const user = userEvent.setup();
@@ -120,6 +120,7 @@ describe("il menu «/» offre ogni voce (P17)", () => {
       "Drive file",
       "Link to…",
       "Decision",
+      "Screen sketch",
     ]);
   });
 });

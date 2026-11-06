@@ -21,7 +21,7 @@ import { productPageLink } from "../parts";
 const MAX_INDENT = 4;
 
 /** L'anello di Claude: fermo, o che pulsa mentre scrive («Claude working»). */
-export function ClaudeRing({ size, pulse }: { size: 12 | 16; pulse: boolean }) {
+export function ClaudeRing({ size, pulse }: { size: 12 | 14 | 16; pulse: boolean }) {
   return (
     <span
       aria-hidden="true"

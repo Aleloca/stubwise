@@ -11,6 +11,7 @@ import { DriveBlock } from "./DriveBlock";
 import { ImageBlock } from "./ImageBlock";
 import { RichReadOnly } from "./RichBlock";
 import { TableBlock, type TableEditing } from "./TableBlock";
+import { WireframeBlock, type WireframeEditing } from "./WireframeBlock";
 
 // Il disegno dei blocchi, comune a chi legge e a chi scrive (shape
 // product-editor.md §3.2): spazi, tipografia, il nome accessibile, ciò che
@@ -169,6 +170,7 @@ export function BlockBody({
   onSelectObject,
   onCaption,
   table,
+  sketch,
   children,
 }: {
   block: ProductBlock;
@@ -180,6 +182,8 @@ export function BlockBody({
   onCaption?: (caption: string) => void;
   /** Chi scrive: la tabella si scrive cella per cella. */
   table?: TableEditing;
+  /** Chi scrive: i gesti della bozza di schermata (11b). */
+  sketch?: WireframeEditing;
   children: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -234,7 +238,15 @@ export function BlockBody({
     case "table":
       return <TableBlock block={block} editing={table} />;
     case "wireframe":
-      // La bozza di schermata (11b): il suo blocco (`WireframeBlock`) è del Task 12.
-      return null;
+      return (
+        <WireframeBlock
+          block={block}
+          page={page}
+          projectId={project.id}
+          projectCode={project.code}
+          editing={sketch}
+          onSelect={onSelectObject}
+        />
+      );
   }
 }

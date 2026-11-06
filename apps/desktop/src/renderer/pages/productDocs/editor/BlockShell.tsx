@@ -7,7 +7,9 @@ import { ThreadTint } from "../comments/CommentMark";
 // oggetto con Esc ([PE 5], `role="group"` col nome del tipo) e che si
 // trascina per ⋮⋮ ([PE 4]). Mentre si trascina i blocchi non si spostano:
 // l'origine si sbiadisce e l'arrivo è una linea di 2 px d'inchiostro fra i
-// blocchi, come nell'albero ([PS 12]).
+// blocchi, come nell'albero ([PS 12]). Col menu ⋮⋮ aperto il blocco sta
+// sopra i successivi (11b, Task 12): ogni blocco è un contesto a sé
+// (`isolate`), e senza il menu finiva sotto le righe che seguono.
 
 /**
  * Ciò che va sul SOLO ⋮⋮ (rimandi della review del Task 8): gli ascoltatori
@@ -67,7 +69,7 @@ export function BlockShell({
       aria-label={label}
       onKeyDown={onKeyDown}
       style={style}
-      className={`group/block relative rounded-lg focus:outline-2 ${text ? "focus:outline-offset-4" : "focus:outline-offset-2"} focus:outline-focus focus:outline-solid ${isDragging ? "opacity-40" : ""} isolate`}
+      className={`group/block relative rounded-lg focus:outline-2 ${text ? "focus:outline-offset-4" : "focus:outline-offset-2"} focus:outline-focus focus:outline-solid ${isDragging ? "opacity-40" : ""} isolate has-[[aria-expanded=true]]:z-20`}
     >
       {tinted && <ThreadTint />}
       {dropLine && (

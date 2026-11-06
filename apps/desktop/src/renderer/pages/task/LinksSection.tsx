@@ -8,6 +8,7 @@ import { linksOf, withoutLink, type LinkView } from "../../domain/links";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { AutomationOriginLine } from "../automations/AutomationOrigin";
+import { ProductOriginLine } from "../productDocs/claude/ProductOriginLine";
 import { Chevron, MenuButton } from "../tasks/controls";
 import { useInlineUpdate } from "../tasks/pickers";
 import { CloseIcon, InlineConfirm, PlusIcon, Section, ghostButton, smallSecondary } from "./parts";
@@ -79,6 +80,8 @@ function OriginRequest({ task, requestId }: { task: Task; requestId: string }) {
       ) : (
         <span className="text-sm text-ink-faint">{t("taskDetail.links.originMissing")}</span>
       )}
+      {/* 11b ([PB 5]): la pagina di prodotto da cui è nata la richiesta, se chi guarda la vede. */}
+      {request?.productOrigin && <ProductOriginLine origin={request.productOrigin} />}
     </Section>
   );
 }

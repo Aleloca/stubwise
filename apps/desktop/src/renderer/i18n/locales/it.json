@@ -12433,7 +12433,13 @@
       "changedOneNobody": "Una è stata modificata dopo. Annulla le altre una per una.",
       "undo": "Annulla",
       "undoAll": "Annulla tutto",
-      "showUndone": "Mostra la modifica annullata"
+      "showUndone": "Mostra la modifica annullata",
+      "wireframe": {
+        "drew": "Ha disegnato una bozza di schermata",
+        "redrew": "Ha rifatto la bozza di schermata",
+        "kept": "Ha tenuto la bozza di schermata",
+        "replaced": "Ha sostituito la bozza di schermata con un'immagine"
+      }
     },
     "follow": {
       "follow": "Segui",
@@ -12613,6 +12619,58 @@
       "queue": "Claude riprenderà ad aggiornare la doc quando {{name}} riprende la coda",
       "count_one": "{{count}} aggiornamento in attesa",
       "count_other": "{{count}} aggiornamenti in attesa"
+    },
+    "wireframe": {
+      "label": "Bozza di Claude",
+      "kind": "Bozza di schermata",
+      "nameDraft": "Bozza di Claude: {{screen}}",
+      "nameKept": "Bozza di schermata: {{screen}}",
+      "screens": {
+        "booking": "schizzo della schermata di prenotazione",
+        "membership": "schizzo della schermata dell'abbonamento",
+        "bills": "schizzo della schermata delle bollette",
+        "sign-in": "schizzo della schermata di accesso",
+        "screen": "schizzo di una schermata"
+      },
+      "actions": "Gesti della bozza",
+      "keep": "Tieni",
+      "keeping": "Tengo…",
+      "kept": "Tenuta · ora è una figura della pagina",
+      "keepFailed": "Non sono riuscito a tenerla",
+      "keepForbidden": "Tenerla è di chi ha Modifica Docs in {{code}}",
+      "redraw": "Rifai",
+      "redrawing": "Ridisegno…",
+      "newSketch": "Nuovo schizzo",
+      "redrawFailed": "Non sono riuscito a ridisegnarla",
+      "replace": "Sostituisci con un'immagine",
+      "replaceFailed": "Non sono riuscito a sostituirla",
+      "retry": "Riprova",
+      "sketching": "Claude sta disegnando…",
+      "added": "Bozza aggiunta",
+      "drawFailed": "Non sono riuscito a disegnare la bozza. Nulla è cambiato.",
+      "gone": "Questo schizzo non è più disponibile",
+      "exportLabel": "Bozza di Claude · Bozza di schermata",
+      "budget": "Il budget mensile per l'AI è esaurito"
+    },
+    "backlog": {
+      "group": "Claude",
+      "propose": "Proponi le voci di backlog",
+      "proposeSection": "Proponi le voci di backlog da questa sezione",
+      "draw": "Disegna questa schermata",
+      "budget": "Il budget mensile per l'AI è esaurito",
+      "noItems": "Nessun elenco o lista di controllo in questa pagina",
+      "noItemsSection": "Nessun elenco o lista di controllo in questa sezione",
+      "fromDoc": "Dalla doc:",
+      "linked": {
+        "title": "Da questa pagina",
+        "showAll": "Mostra tutte e {{count}}",
+        "loadError": "Voci collegate non caricate",
+        "retry": "Riprova",
+        "open": "Aperta",
+        "converted": "Convertita",
+        "archived": "Archiviata",
+        "moreTasks": "+{{count}}"
+      }
     }
   }
 }

@@ -1,8 +1,9 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { createContext, useContext, useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useRef, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateProductPage, useDeleteProductPage, usePeople } from "../../data/queries";
 import type { ProductMarkView, ProductPageView, ProductSpaceView, Project } from "../../data/types";
+import type { BlockEditorHandle } from "./editor/BlockEditor";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { dangerButton } from "../task/parts";
@@ -42,6 +43,12 @@ export interface ProductSpaceContextValue {
   marks?: MarksBridge | null;
   /** «Undo the first version»: la conferma, che vive nello spazio (11b, Task 11). */
   askUndoFirstVersion?: () => void;
+  /**
+   * L'editor della pagina aperta (11b, Task 12): il «⋯» della barra gli
+   * chiede «Draw this screen», che sa dov'era il cursore. `null` per chi
+   * legge soltanto o fuori da una pagina.
+   */
+  editor?: RefObject<BlockEditorHandle | null>;
 }
 
 /**

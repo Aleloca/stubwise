@@ -32,6 +32,8 @@ import { SideColumnFrame, useSideColumn, type SideColumn } from "./SideColumn";
 import { CommentsColumn } from "./comments/CommentsColumn";
 import { ClaudeWaitingLine } from "./claude/ClaudeWaitingLine";
 import { FirstVersionUndoDialog } from "./claude/FirstVersionBanner";
+import { PageClaudeGroup } from "./claude/ClaudePageGestures";
+import type { BlockEditorHandle } from "./editor/BlockEditor";
 import { HistoryPanel } from "./history/HistoryPanel";
 import { ExportGroups, ExportMenu } from "./export/ExportMenu";
 import { useProductExport } from "./export/exportProduct";
@@ -45,6 +47,7 @@ import {
   type MarksBridge,
   ProductNotFound,
   ProductSpaceContext,
+  useProductSpaceContext,
   firstVersionWayFreshKey,
   inSpace,
   isFresh,
@@ -159,6 +162,8 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   const moreButton = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLElement>(null);
   const root = useRef<HTMLDivElement>(null);
+  /** L'editor della pagina aperta: «Draw this screen» del «⋯» (11b, Task 12). */
+  const editorRef = useRef<BlockEditorHandle | null>(null);
 
   // La pagina aperta (la stessa lettura della vista: la cache la condivide).
   const openPage = useProductPage(pageCode ?? "", { enabled: pageCode !== null });
@@ -444,6 +449,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
         comments: bridge,
         marks: marksBridge,
         askUndoFirstVersion,
+        editor: editorRef,
       }}
     >
       <div ref={root} className="relative flex h-full min-h-0 flex-col">
@@ -911,6 +917,7 @@ function PageMenu({
   const { t } = useTranslation();
   const toast = useToast();
   const navigate = useNavigate();
+  const { editor } = useProductSpaceContext();
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const parent = page.breadcrumbs.at(-1) ?? null;
@@ -996,6 +1003,10 @@ function PageMenu({
                   }}
                 />
               </div>
+            )}
+            {/* I gesti di Claude (11b, [PB 2]): per chi scrive, prima di Copy link. */}
+            {page.permissions.edit && (
+              <PageClaudeGroup page={page} close={() => close(true)} onDraw={() => editor?.current?.drawScreen()} />
             )}
             <MenuGroup>
               <button

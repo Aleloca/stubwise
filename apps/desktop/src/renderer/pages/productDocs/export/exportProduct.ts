@@ -6,7 +6,7 @@ import type { ProductExportView } from "../../../data/types";
 import { exportModelOf, type ExportDoc } from "../../../domain/productDocs/exportModel";
 import { fitFileName, MAX_SAVE_BYTES, saveExport } from "../../../platform/saveFile";
 import { useToast } from "../../../tasks-ui/Toast";
-import { buildDocx, wordLeftOutReasons } from "./docx";
+import { buildDocx, svgToPng, wordLeftOutReasons } from "./docx";
 import { printRoot } from "./PrintView";
 
 // L'esportazione (area 11a, Task 12; shape product-space.md §3.8). Una sola
@@ -104,7 +104,12 @@ export function useProductExport({
             flushSync(() => setPrinting(null));
           }
         } else {
-          const data = await buildDocx(doc);
+          const data = await buildDocx(doc, {
+            label: t("productDocs.wireframe.exportLabel"),
+            name: t("productDocs.wireframe.kind"),
+            gone: t("productDocs.wireframe.gone"),
+            toPng: svgToPng,
+          });
           if (data.byteLength > MAX_SAVE_BYTES) {
             toast.error(t("productDocs.export.tooLarge"));
             return;

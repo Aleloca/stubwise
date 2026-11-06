@@ -161,6 +161,8 @@ function summaryOf(
       return parent ? t("productDocs.history.moveUnder", { parent }) : t("productDocs.history.moved");
     }
     default: {
+      // La bozza di schermata (11b): disegnata, rifatta, tenuta o sostituita con un'immagine.
+      if (r.wireframe) return t(`productDocs.history.wireframe.${r.wireframe}`);
       const details = r.changes.flatMap((c) => detailsOf(c, t));
       if (details.length > 0 && details.every((d) => d.kind === "formatting")) return t("productDocs.history.formatting");
       return t("productDocs.history.edit", { count: Math.max(details.length, 1) });

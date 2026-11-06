@@ -711,4 +711,15 @@
     list-style: none;
     padding-left: 0;
   }
+  /* La bozza di schermata di Claude (11b): a tutta larghezza, l'etichetta in corsivo 10 pt. */
+  & .print-sketch svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 10cm;
+  }
+  & .print-sketch figcaption {
+    font-size: 10pt;
+    font-style: italic;
+  }
 }

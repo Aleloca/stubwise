@@ -151,6 +151,10 @@ richieste `ACQ-R…` segnaposto del seme.
 - **Confermata**: «Done · 4 requests created» / «Fatto · 4 richieste
   create» con i codici e l'«Undo» del gruppo come oggi; in fondo alla
   pagina le voci compaiono subito (§3.3). Annullata: nulla cambia.
+  - **Emendamento (7 nov 2026, P49):** dopo la conferma **non c'è
+    «Undo»**: `createRequest` ha `undoable: false`, e la scheda B di oggi
+    non lo offre. La scheda confermata dice «Done» coi codici delle
+    richieste nate e «Can't be undone», come ogni scheda B senza inverso.
 - Ogni descrizione creata cita la frase e il titolo della sezione:
   «From ACQ-D11 Phases › Phase 2: “Customers download bills as PDF”» —
   è testo della richiesta, si legge nella sua pagina.
@@ -421,3 +425,31 @@ la bozza un `figure` con `figcaption` = l'etichetta.
 
 Le altre scelte marcate *(scelta del costruttore)* sono da approvare col
 brief.
+
+## Emendamenti del Task 12 (7 nov 2026, scelte del costruttore)
+
+- **Il seme di Phases ha tre voci da proporre, non cinque**: due delle
+  cinque (la fase 2) sono già richieste del seme, e la nota lo dice. Gli
+  esempi «5 requests» / «Confirm 4» di §2 e §3.2 restano illustrativi.
+- **«Keep» rifiutato dal livello dati** (`forbidden`) mentre la vista dice
+  ancora «scrive»: il bottone resta, spento, col fuoco su di sé, e sotto la
+  testata la frase «Keeping it is for people with Edit docs in ACQ · Who?».
+  Quando invece la lettura nuova arriva (il permesso perso davvero), la
+  pagina torna in sola lettura con la sua riga e il suo «Who?» ([PS 13]), i
+  bottoni della bozza se ne vanno e il fuoco va al titolo della pagina: mai
+  sul body. Vale per ogni controllo dell'editor, non solo per la bozza.
+- **Il nome accessibile si compone per disegno** (`wireframeId`: booking,
+  membership, bills, sign-in, schizzo generico), non per variante: le
+  varianti sono la stessa schermata disegnata di nuovo, e «New sketch» lo
+  annuncia.
+- **Un disegno che non riesce** (`drawWireframe` rifiutato, «/» su un
+  paragrafo che nel frattempo ha del testo) e **una sostituzione che non
+  riesce** lo dicono con un avviso («Couldn't draw the sketch. Nothing was
+  changed.» / «Couldn't replace it»); il fuoco resta sul blocco. I rifiuti
+  del file (formato, 5 MB) usano la riga di [PE 9] sotto la bozza, come
+  dice §3.5.
+- **«Draw this screen» nel «⋯»** è spenta col budget finito con la frase e
+  il «Who?», come «Propose backlog items»; per chi legge soltanto il
+  gruppo CLAUDE non c'è.
+- **«From the doc:»** usa `CodeLink` col nome della pagina: il codice 600
+  e il titolo, sottolineati insieme.

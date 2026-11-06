@@ -105,7 +105,67 @@ export function wordLeftOutImages(doc: ExportDoc): number {
 /** La larghezza utile di un A4 coi margini di Word, in pixel a 96 dpi. */
 const MAX_IMAGE_WIDTH = 600;
 
-export async function buildDocx(doc: ExportDoc): Promise<Uint8Array> {
+/** Una PNG pronta per il Word: i byte e le misure in pixel. */
+export interface DocxPng {
+  data: Uint8Array;
+  width: number;
+  height: number;
+}
+
+/**
+ * Le frasi e la conversione delle bozze di schermata (11b, Task 12; shape
+ * product-claude-backlog.md §3.7, P36): l'etichetta «Claude's draft · Screen
+ * sketch» composta da chi esporta nella sua lingua (solo sotto uno schizzo
+ * mai tenuto), la riga di un disegno che il seme non ha più, e lo schizzo
+ * SVG fatto PNG (`svgToPng`; i test ne passano un doppio).
+ */
+export interface DocxSketches {
+  label: string;
+  /** Il nome dell'immagine di uno schizzo tenuto («Screen sketch»): una figura come le altre. */
+  name: string;
+  gone: string;
+  toPng: (svg: string) => Promise<DocxPng | null>;
+}
+
+/**
+ * Lo schizzo SVG del seme come PNG per il Word: linee nere su bianco, anche
+ * nel tema scuro (le linee sono `currentColor`), larga `width` pixel. `null`
+ * dove il renderer non sa disegnarla (nessuna tela: il Word avrà la sola
+ * etichetta).
+ */
+export async function svgToPng(svg: string, width = MAX_IMAGE_WIDTH * 2): Promise<DocxPng | null> {
+  try {
+    const box = /viewBox="\s*[\d.]+\s+[\d.]+\s+([\d.]+)\s+([\d.]+)\s*"/.exec(svg);
+    const w = box ? Number(box[1]) : 360;
+    const h = box ? Number(box[2]) : 240;
+    const height = Math.round((width * h) / w);
+    const black = svg.replace(/currentColor/g, "#000");
+    const img = new Image(width, height);
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(black)}`;
+    await img.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(0, 0, width, height);
+    ctx.drawImage(img, 0, 0, width, height);
+    const blob = await new Promise<Blob | null>((done) => canvas.toBlob(done, "image/png"));
+    if (!blob) return null;
+    return { data: new Uint8Array(await blob.arrayBuffer()), width, height };
+  } catch {
+    return null;
+  }
+}
+
+export async function buildDocx(doc: ExportDoc, sketches?: DocxSketches): Promise<Uint8Array> {
+  // Le PNG delle bozze prima di costruire (la costruzione dei blocchi è sincrona).
+  const pngs = new Map<string, DocxPng | null>();
+  for (const page of doc.pages)
+    for (const b of page.blocks)
+      if (b.kind === "sketch" && b.svg !== null && !pngs.has(b.svg))
+        pngs.set(b.svg, sketches ? await sketches.toPng(b.svg) : null);
   const d = await import("docx");
   const HEADINGS = [
     d.HeadingLevel.TITLE,
@@ -195,9 +255,30 @@ export async function buildDocx(doc: ExportDoc): Promise<Uint8Array> {
       }
       case "line":
         return [new d.Paragraph({ children: [new d.TextRun(b.line)] })];
-      case "sketch":
-        // La bozza di schermata (11b): la mette il Task 12, come PNG (`svgToPng`) con la sua etichetta.
-        return [];
+      case "sketch": {
+        // A tutta larghezza; sotto, in corsivo 10 pt, l'etichetta di uno schizzo mai tenuto (§3.7).
+        const png = b.svg !== null ? (pngs.get(b.svg) ?? null) : null;
+        const label = b.label && sketches ? [new d.Paragraph({ children: [new d.TextRun({ text: sketches.label, italics: true, size: 20 })] })] : [];
+        if (!png) {
+          const gone = b.svg === null && sketches ? [new d.Paragraph({ children: [new d.TextRun({ text: sketches.gone, italics: true })] })] : [];
+          return [...gone, ...label];
+        }
+        const scale = Math.min(1, MAX_IMAGE_WIDTH / png.width);
+        const alt = sketches ? (b.label ? sketches.label : sketches.name) : "";
+        return [
+          new d.Paragraph({
+            children: [
+              new d.ImageRun({
+                type: "png",
+                data: png.data,
+                transformation: { width: Math.round(png.width * scale), height: Math.round(png.height * scale) },
+                altText: { name: alt || "sketch", description: alt, title: alt },
+              }),
+            ],
+          }),
+          ...label,
+        ];
+      }
     }
   };
 
