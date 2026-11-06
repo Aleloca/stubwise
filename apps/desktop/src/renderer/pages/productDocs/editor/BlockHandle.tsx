@@ -40,6 +40,7 @@ export function BlockHandle({
   onDuplicate,
   onDelete,
   onComment,
+  onClaudeChange,
   drag,
 }: {
   /** Di quale blocco (per il nome dei bottoni). */
@@ -56,6 +57,8 @@ export function BlockHandle({
   onDelete: () => void;
   /** «Comment» con la frase intera (Task 10); assente per chi non può commentare. */
   onComment?: () => void;
+  /** «Claude's change» (11b): apre la nota del segno di Claude; assente senza segno. */
+  onClaudeChange?: () => void;
   /** Il trascinamento (dnd-kit), sul solo ⋮⋮: un clic senza movimento resta il menu. */
   drag?: DragHandle;
 }) {
@@ -146,6 +149,7 @@ export function BlockHandle({
               : item(t("productDocs.editor.handle.moveDown"), () => onMove("down"), close)}
             {item(t("productDocs.editor.handle.duplicate"), onDuplicate, close)}
             {onComment && item(t("productDocs.comments.comment"), onComment, close)}
+            {onClaudeChange && item(t("productDocs.mark.menu"), onClaudeChange, close)}
             <div role="separator" className="my-1 h-px bg-rule" />
             {item(t("productDocs.editor.handle.delete"), onDelete, close, true)}
           </>

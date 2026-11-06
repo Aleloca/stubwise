@@ -33,6 +33,12 @@ export interface ThreadFocus {
   n: number;
 }
 
+/** La riga della cronologia da aprire col fuoco (`?history=`, «See it in the history», 11b). */
+export interface HistoryFocus {
+  revisionId: string;
+  n: number;
+}
+
 /** La chiave del gesto a mano: di chi guarda, non della pagina. */
 export const commentsPrefKey = (personId: string) => `stubwise.productComments.${personId}`;
 
@@ -63,6 +69,9 @@ interface State {
   active: string | null;
   /** L'ultimo `?comment=` già seguito (si segue una volta). */
   param: string | null;
+  historyFocus: HistoryFocus | null;
+  /** L'ultimo `?history=` già seguito. */
+  historyParam: string | null;
   /** Chi sta davanti fra la colonna e il pannello della task (l'ultimo aperto). */
   front: "column" | "task";
   taskWas: boolean;
@@ -76,6 +85,8 @@ export interface SideColumn {
   side: Side;
   draft: CommentDraft | null;
   focus: ThreadFocus | null;
+  /** La riga della cronologia da aprire col fuoco (11b). */
+  historyFocus: HistoryFocus | null;
   active: string | null;
   /** La colonna sta davanti al pannello della task (o il pannello non c'è). */
   front: boolean;
@@ -91,6 +102,8 @@ export interface SideColumn {
   closeComments(): void;
   toggleHistory(): void;
   closeHistory(): void;
+  /** La cronologia con la riga di una revisione aperta e col fuoco (11b: il segno, `?history=`). */
+  openHistory(revisionId: string): void;
   /** «Comment» su una frase: la casella nella colonna. */
   start(anchorId: string, quote: string): void;
   /** La colonna su un filo, col fuoco. */
@@ -104,12 +117,15 @@ export function useSideColumn({
   personId,
   page,
   commentParam,
+  historyParam,
   taskOpen,
   docked,
 }: {
   personId: string;
   page: ProductPageView | null;
   commentParam: string | undefined;
+  /** 11b: `?history=<revisione>` (la card «Claude updated»). */
+  historyParam?: string | undefined;
   taskOpen: boolean;
   /** Da 1200 px: la colonna si aggancia, e solo allora si apre da sola. */
   docked: boolean;
@@ -121,6 +137,8 @@ export function useSideColumn({
     focus: null,
     active: null,
     param: null,
+    historyFocus: null,
+    historyParam: null,
     front: taskOpen ? "task" : "column",
     taskWas: taskOpen,
     seq: 0,
@@ -144,6 +162,8 @@ export function useSideColumn({
       focus: null,
       active: null,
       param: null,
+      historyFocus: null,
+      historyParam: null,
       front: taskOpen ? "task" : "column",
     };
   }
@@ -154,6 +174,19 @@ export function useSideColumn({
       side: "comments",
       focus: { rootId: commentParam, n: seq },
       param: commentParam,
+      front: "column",
+      seq,
+      raised: seq,
+    };
+  }
+  if (page && historyParam && s.historyParam !== historyParam) {
+    const seq = s.seq + 1;
+    s = {
+      ...s,
+      side: "history",
+      draft: null,
+      historyFocus: { revisionId: historyParam, n: seq },
+      historyParam,
       front: "column",
       seq,
       raised: seq,
@@ -178,6 +211,7 @@ export function useSideColumn({
     side: s.side,
     draft: s.draft,
     focus: s.focus,
+    historyFocus: s.historyFocus,
     active: s.active,
     front: s.front === "column" || !taskOpen,
     raised: s.raised,
@@ -200,6 +234,9 @@ export function useSideColumn({
     },
     closeHistory() {
       update({ side: null });
+    },
+    openHistory(revisionId) {
+      raise((seq) => ({ side: "history", draft: null, historyFocus: { revisionId, n: seq } }));
     },
     start(anchorId, quote) {
       raise((seq) => ({ side: "comments", draft: { anchorId, quote, n: seq } }));

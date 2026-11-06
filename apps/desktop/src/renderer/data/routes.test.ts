@@ -26,6 +26,15 @@ describe("route grammar", () => {
     expect(isAppRoute("#/p/ACQ/docs/product/ACQ-D5?comment=a b")).toBe(false);
   });
 
+  it("area 11b, Task 9 (P43): `mark` e `history` su una pagina di prodotto, accanto a `comment`", () => {
+    expect(isAppRoute("#/p/ACQ/docs/product/ACQ-D5?mark=blk-acq-signin-5")).toBe(true);
+    expect(isAppRoute("#/p/ACQ/docs/product/ACQ-D5?history=prev-acq11b-signin")).toBe(true);
+    // Solo su una pagina, e solo id.
+    expect(isAppRoute("#/p/ACQ/docs/product?mark=blk-acq-signin-5")).toBe(false);
+    expect(isAppRoute("#/p/ACQ/tasks?history=prev-1")).toBe(false);
+    expect(isAppRoute("#/p/ACQ/docs/product/ACQ-D5?mark=a b")).toBe(false);
+  });
+
   it("area 11a, Task 7: lo spazio Prodotto, l'indice e una pagina (la rotta della UI)", () => {
     expect(isAppRoute("#/p/ACQ/docs/product/ACQ-D31")).toBe(true);
     expect(isAppRoute("#/p/ACQ/docs/product")).toBe(true);

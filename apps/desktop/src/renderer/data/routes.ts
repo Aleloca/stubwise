@@ -367,6 +367,9 @@ export function isValidSearchParam(path: string, key: string, value: string): bo
       return /^p\/[A-Z]{2,4}\/requests$/.test(path) && value === "1";
     // «Record a decision» dell'Overview, aperto da una riga D di Claude (area 10a).
     // Una pagina di prodotto aperta sul filo di un commento (area 11a, P19).
+    // 11b, Task 9 (P43): il segno aperto (`mark`, un id d'ancora) e la riga della cronologia (`history`).
+    case "mark":
+    case "history":
     case "comment":
       return isProductPagePath(path) && /^[\w-]+$/.test(value);
     case "recordDecision":

@@ -152,6 +152,304 @@ async function main() {
       await region.waitFor();
     }
 
+    // Area 11b, Task 9 (`CAPTURE_A11B_MARK=1`): il segno di Claude e le righe
+    // di Claude in cronologia. Sign-in di ACQ col blocco aggiunto dal seme
+    // (Laura: chiuso, aperto; Sara: la fonte senza oggetto e la frase col
+    // «Who?»), una tabella aggiunta da Claude in cui Marco ha scritto un'altra
+    // cella («Undo» spento col suo nome), Fault reports con la fonte sparita,
+    // e a 1024 la cronologia sovrapposta col segno aperto. In cronologia:
+    // tre frasi di Claude con una toccata da Marco (Review Focus 4, «Undo
+    // all» spento), «Undo all» fatto («Undone by» e «Undid Claude's change»),
+    // la risposta a una domanda e la prima versione di VRD. Scatti
+    // `a11b-mark-*` e `a11b-history-*`.
+    if (process.env.CAPTURE_A11B_MARK) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const SIGNIN = "/p/ACQ/docs/product/ACQ-D5";
+      const markButton = (page, blockId) => page.locator(`[data-claude-mark-button="${blockId}"]`);
+      /** Lo stato cambiato dentro la pagina: fuori e dentro di nuovo, perché la lettura si rifaccia. */
+      async function reload(page, hash, title) {
+        await page.evaluate(() => {
+          window.location.hash = "/p/ACQ/docs/product";
+        });
+        await page.waitForTimeout(300);
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.getByRole("heading", { level: 1, name: title }).waitFor();
+        await page.waitForTimeout(500);
+      }
+      /** Claude, per conto di Laura e da una sua email, riscrive tre frasi di Sign-in. */
+      async function threeChanges(page) {
+        await page.evaluate(async () => {
+          const store = await import("/data/store.ts");
+          const helpers = await import("/data/seed/mail/helpers.ts");
+          const claude = await import("/data/productDocs/claude.ts");
+          store.state.mailMessages.push(
+            helpers.mail({
+              id: "mm-capture-signin",
+              threadId: "th-capture-signin",
+              from: helpers.ext("Fabio Rossi", "fabio@cliente.example"),
+              to: [helpers.person("p-laura")],
+              subject: "Login: confirmation",
+              at: "2026-11-04T09:30:00Z",
+              text: "Customers only use Google.",
+              mailboxPersonIds: ["p-laura"],
+              classification: helpers.done(["prj-acq"], "normal"),
+            }),
+          );
+          const replace = (id, anchorId, text) => ({
+            id,
+            pageId: "pp-acq-sign-in",
+            anchorId,
+            clarity: "clear",
+            change: { kind: "replace", text: { text, marks: [] } },
+          });
+          claude.applyProductSource({ kind: "email", id: "mm-capture-signin" }, "prj-acq", [
+            replace("fact-cap-1", "blk-acq-signin-1", "How customers sign in, with Google only"),
+            replace("fact-cap-2", "blk-acq-signin-2", "Customers sign in with their Google account, and nothing else."),
+            replace("fact-cap-3", "blk-acq-signin-4", "Only the name and the email address that Google shares with us, nothing more."),
+          ]);
+        });
+      }
+      async function marcoEdits(page) {
+        await page.evaluate(async () => {
+          const api = await import("/data/api.ts");
+          const p = api.productDocs.productPageByCode("ACQ-D5");
+          const b = p.blocks.find((x) => x.id === "blk-acq-signin-2");
+          api.productDocs.writeProductBlocksAs(
+            "p-marco",
+            p.id,
+            [{ op: "set", block: { ...b, content: { text: "Customers sign in with Google; staff use the admin login.", marks: [] } } }],
+            { sessionId: "s-capture-marco" },
+          );
+        });
+      }
+      async function openHistoryColumn(page) {
+        await barGesture(page, /^(History|Cronologia)$/);
+        const region = page.getByRole("region", { name: /^(History|Cronologia)$/ });
+        await region.locator("[data-history-row]").first().waitFor();
+        return region;
+      }
+      const claudeRow = (region) =>
+        region.locator("[data-history-row]").filter({ hasText: /on behalf of|per conto di/ }).first();
+      const scenes = [
+        {
+          name: "mark-closed",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await markButton(page, "blk-acq-signin-5").waitFor();
+          },
+        },
+        {
+          name: "mark-open",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await markButton(page, "blk-acq-signin-5").click();
+            await page.locator('[data-claude-note="blk-acq-signin-5"]').waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "mark-reader",
+          hash: SIGNIN,
+          persona: "Sara",
+          run: async (page) => {
+            await markButton(page, "blk-acq-signin-5").click();
+            await page.locator('[data-claude-note="blk-acq-signin-5"]').waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "mark-group",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await threeChanges(page);
+            await reload(page, SIGNIN, "Sign-in");
+            await markButton(page, "blk-acq-signin-2").click();
+            await page.locator('[data-claude-note="blk-acq-signin-2"]').waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "mark-disabled",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            const tableId = await page.evaluate(async () => {
+              const store = await import("/data/store.ts");
+              const helpers = await import("/data/seed/mail/helpers.ts");
+              const claude = await import("/data/productDocs/claude.ts");
+              const api = await import("/data/api.ts");
+              store.state.mailMessages.push(
+                helpers.mail({
+                  id: "mm-capture-table",
+                  threadId: "th-capture-table",
+                  from: helpers.ext("Fabio Rossi", "fabio@cliente.example"),
+                  to: [helpers.person("p-laura")],
+                  subject: "Sign-in methods by customer type",
+                  at: "2026-11-04T09:30:00Z",
+                  text: "table",
+                  mailboxPersonIds: ["p-laura"],
+                  classification: helpers.done(["prj-acq"], "normal"),
+                }),
+              );
+              const cell = (id, text) => ({ id, content: { text, marks: [] } });
+              claude.applyProductSource({ kind: "email", id: "mm-capture-table" }, "prj-acq", [
+                {
+                  id: "fact-cap-table",
+                  pageId: "pp-acq-sign-in",
+                  anchorId: "blk-acq-signin-4",
+                  clarity: "clear",
+                  change: {
+                    kind: "insert_after",
+                    block: {
+                      id: "blk-cap-t",
+                      type: "table",
+                      rows: [
+                        { id: "blk-cap-t-r1", cells: [cell("blk-cap-t-a", "Customer"), cell("blk-cap-t-b", "Signs in with")] },
+                        { id: "blk-cap-t-r2", cells: [cell("blk-cap-t-c", "Household"), cell("blk-cap-t-d", "Google account")] },
+                      ],
+                    },
+                  },
+                },
+              ]);
+              const p = api.productDocs.productPageByCode("ACQ-D5");
+              const i = p.blocks.findIndex((b) => b.id === "blk-acq-signin-4");
+              const table = structuredClone(p.blocks[i + 1]);
+              table.rows[1].cells[1].content = { text: "Google account or SPID", marks: [] };
+              api.productDocs.writeProductBlocksAs("p-marco", p.id, [{ op: "set", block: table }], { sessionId: "s-capture-m" });
+              return table.id;
+            });
+            await reload(page, SIGNIN, "Sign-in");
+            await markButton(page, tableId).click();
+            await page.locator(`[data-claude-note="${tableId}"]`).waitFor();
+            await page.locator(`[data-claude-note="${tableId}"]`).scrollIntoViewIfNeeded();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "mark-gone",
+          hash: "/p/ACQ/docs/product/ACQ-D8",
+          persona: "Laura",
+          run: async (page) => {
+            const button = page.locator("[data-claude-mark-button]").first();
+            await button.waitFor();
+            await button.click();
+            await page.locator("[data-claude-note]").first().waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "mark-history",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await threeChanges(page);
+            await reload(page, SIGNIN, "Sign-in");
+            await markButton(page, "blk-acq-signin-2").click();
+            const note = page.locator('[data-claude-note="blk-acq-signin-2"]');
+            await note.waitFor();
+            await note.getByRole("button", { name: /^(See it in the history|Vedila in cronologia)$/ }).click();
+            await page.getByRole("region", { name: /^(History|Cronologia)$/ }).waitFor();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "history-undoall",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await threeChanges(page);
+            await marcoEdits(page);
+            await reload(page, SIGNIN, "Sign-in");
+            const region = await openHistoryColumn(page);
+            await claudeRow(region).click();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "history-undone",
+          hash: SIGNIN,
+          persona: "Laura",
+          run: async (page) => {
+            await threeChanges(page);
+            await reload(page, SIGNIN, "Sign-in");
+            const region = await openHistoryColumn(page);
+            await region.getByRole("button", { name: /^(Undo all|Annulla tutto)$/ }).first().click();
+            await region.getByText(/Undid Claude's change|Ha annullato la modifica di Claude/).first().waitFor();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "history-answer",
+          hash: "/p/ACQ/docs/product/ACQ-D7",
+          persona: "Laura",
+          run: async (page) => {
+            await page.evaluate(async () => {
+              const q = await import("/data/productDocs/questions.ts");
+              q.answerProductQuestionAs("p-laura", "pc-acq11b-meter-q", "apply");
+            });
+            await reload(page, "/p/ACQ/docs/product/ACQ-D7", "Meter reading");
+            const region = await openHistoryColumn(page);
+            await region.getByText(/from Claude's question|dalla domanda di Claude/).first().waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "history-first",
+          hash: "/p/VRD/docs/product",
+          persona: "Laura",
+          run: async (page) => {
+            const code = await page.evaluate(async () => {
+              const fv = await import("/data/productDocs/firstVersion.ts");
+              const store = await import("/data/store.ts");
+              fv.startFirstVersionAs("p-laura", "prj-vrd", [
+                { kind: "email", id: "mm-vrd-booking-rules" },
+                { kind: "text", text: "Classes are booked a week ahead; cancellations up to 12 hours before." },
+                { kind: "drive", fileId: "drv-vrd-1" },
+              ]);
+              await fv.whenFirstVersionIdle();
+              return store.state.productPages.find((p) => p.projectId === "prj-vrd" && p.parentId === null).code;
+            });
+            await page.evaluate((c) => {
+              window.location.hash = `/p/VRD/docs/product/${c}`;
+            }, code);
+            await page.getByRole("heading", { level: 1 }).first().waitFor();
+            await page.waitForTimeout(500);
+            const region = await openHistoryColumn(page);
+            await region.locator("[data-history-row]").filter({ hasText: /Wrote the first version|Ha scritto la prima versione/ }).first().click();
+            await page.waitForTimeout(300);
+          },
+        },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a11b-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          await page.getByRole("heading", { level: 1 }).first().waitFor();
+          await page.waitForTimeout(600);
+          await scene.run(page);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 11a, Task 13 (`CAPTURE_A11A_EXTRA=1`): le due scene che mancavano
     // agli insiemi dei Task 7–12. Sara su «Sign-in» con il «Who?» della riga di
     // sola lettura aperto, e Laura nello spazio Prodotto con ⌘K scritto «bill»

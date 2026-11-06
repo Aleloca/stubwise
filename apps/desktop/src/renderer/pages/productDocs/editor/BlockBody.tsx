@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProductBlock, ProductPageView, ProductPresenceView, RichText } from "../../../data/types";
 import { anchorIdsOf, isTextBlock } from "../../../domain/productDocs/blocks";
+import { ProductClaudeMark } from "../claude/ProductClaudeMark";
 import { CommentMark, ThreadTint } from "../comments/CommentMark";
 import { RemoteCursors } from "../live/RemoteCursor";
 import { useProductSpaceContext } from "../parts";
@@ -120,6 +121,8 @@ export function ReadOnlyBody({
                 />
               )}
             </BlockBody>
+            {/* Il segno di Claude (11b): anche per chi legge soltanto (decisione 5). */}
+            <ProductClaudeMark blockId={block.id} />
           </div>
         );
       })}

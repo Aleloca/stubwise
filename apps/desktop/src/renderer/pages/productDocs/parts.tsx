@@ -2,7 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { createContext, useContext, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateProductPage, useDeleteProductPage, usePeople } from "../../data/queries";
-import type { ProductPageView, ProductSpaceView, Project } from "../../data/types";
+import type { ProductMarkView, ProductPageView, ProductSpaceView, Project } from "../../data/types";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { dangerButton } from "../task/parts";
@@ -38,6 +38,32 @@ export interface ProductSpaceContextValue {
   setEditorStatus: (status: EditorStatus | null) => void;
   /** Il ponte fra il testo e la colonna dei commenti (Task 10); assente fuori da una pagina. */
   comments?: CommentsBridge | null;
+  /** I segni di Claude della pagina aperta (11b, Task 9); assente fuori da una pagina. */
+  marks?: MarksBridge | null;
+}
+
+/**
+ * Ciò che il testo sa dei segni di Claude (shape product-claude-mark.md
+ * §3.2–§3.5): i segni per blocco, come li dà il livello dati
+ * (`listProductMarks`, già letti per chi guarda), la nota aperta (una per
+ * pagina), l'annuncio dopo un gesto e «See it in the history». Lo tiene lo
+ * spazio, che possiede la cronologia; il testo lo legge soltanto.
+ */
+export interface MarksBridge {
+  /** La pagina aperta, a cui appartengono i segni. */
+  pageId: string;
+  /** I segni a vista, per id del blocco (la tabella, per le sue celle). */
+  byBlock: ReadonlyMap<string, readonly ProductMarkView[]>;
+  /** La lettura dei segni non è riuscita: nessun segno, e la riga che lo dice. */
+  failed: boolean;
+  retry(): void;
+  /** Il blocco con la nota aperta; `n` cambia a ogni apertura che porta il fuoco nella nota. */
+  open: { blockId: string; n: number } | null;
+  setOpen(blockId: string | null): void;
+  /** «Marked as reviewed», «Undone: …»: l'annuncio resta anche se il segno se ne va. */
+  announce(text: string): void;
+  /** «See it in the history»: la cronologia con la riga di quella revisione aperta. */
+  seeHistory(revisionId: string): void;
 }
 
 /**

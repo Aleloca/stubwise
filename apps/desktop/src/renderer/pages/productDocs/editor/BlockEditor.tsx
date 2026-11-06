@@ -160,7 +160,7 @@ function WritableBody({
     setSlashState(next);
   };
   const [linkOpen, setLinkOpen] = useState(false);
-  const { project, comments: bridge } = useProductSpaceContext();
+  const { project, comments: bridge, marks } = useProductSpaceContext();
   /** «Comment» (Task 10): solo per chi può commentare. */
   const comment = useCommentGesture();
   /** Un selettore aperto al blocco `id`; `at` è il cursore a cui torna il fuoco. */
@@ -755,6 +755,7 @@ function WritableBody({
                             }
                           : undefined
                       }
+                      onClaudeChange={marks?.byBlock.has(block.id) ? () => marks.setOpen(block.id) : undefined}
                     />
                     <CommentMark anchorIds={anchorIdsOf(block)} below={block.type === "table"} />
                     {isTextBlock(block) &&

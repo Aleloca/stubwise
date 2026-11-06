@@ -4,12 +4,13 @@ import { useTranslation } from "react-i18next";
 import {
   useProject,
   useProductComments,
+  useProductMarks,
   useProductPage,
   useProductPresence,
   useProductSpace,
   useSessionPersonId,
 } from "../../data/queries";
-import type { ProductPageView, ProductSpaceView, Project } from "../../data/types";
+import type { ProductMarkView, ProductPageView, ProductSpaceView, Project } from "../../data/types";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { openPalette } from "../../layout/useShortcuts";
@@ -37,6 +38,7 @@ import {
   type CommentsBridge,
   DeletePageDialog,
   type EditorStatus,
+  type MarksBridge,
   ProductNotFound,
   ProductSpaceContext,
   inSpace,
@@ -134,7 +136,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   const me = useSessionPersonId();
   const docked = useMediaQuery(DOCKED_PANEL_QUERY);
   const params = useParams({ strict: false }) as { page?: string };
-  const search = useSearch({ strict: false }) as { comment?: string; task?: string };
+  const search = useSearch({ strict: false }) as { comment?: string; task?: string; mark?: string; history?: string };
   const pageCode = params.page ?? null;
   const [width, setWidth] = useState(TREE_DEFAULT);
   const [drawer, setDrawer] = useState(false);
@@ -158,6 +160,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
     personId: me,
     page: view,
     commentParam: search.comment,
+    historyParam: search.history,
     taskOpen: !!search.task,
     docked,
   });
@@ -202,6 +205,41 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
         const th = open.find((x) => !x.anchorGone && ids.includes(x.root.anchorId));
         if (th) side.focusThread(th.root.id);
       },
+    };
+  })();
+  // I segni di Claude della pagina aperta (11b, Task 9): la nota aperta è
+  // una per pagina e per persona; `?mark=<ancora>` la apre (una volta) col
+  // fuoco sulla sua prima riga. L'annuncio vive qui: dopo «Looks good» il
+  // segno se ne va, e l'annuncio con lui no.
+  const marksQuery = useProductMarks(view?.id ?? "", { enabled: view !== null });
+  const marksKey = view ? `${me}:${view.id}` : null;
+  const [openMark, setOpenMark] = useState<{ key: string | null; blockId: string; n: number } | null>(null);
+  const markSeq = useRef(0);
+  const markParamSeen = useRef<string | null>(null);
+  const [announcement, setAnnouncement] = useState("");
+  useEffect(() => {
+    if (!marksKey || !search.mark || !marksQuery.data) return;
+    const seen = `${marksKey}:${search.mark}`;
+    if (markParamSeen.current === seen) return;
+    markParamSeen.current = seen;
+    const found = marksQuery.data.find((m) => m.anchorId === search.mark || m.blockId === search.mark);
+    if (found) setOpenMark({ key: marksKey, blockId: found.blockId, n: ++markSeq.current });
+  }, [marksKey, search.mark, marksQuery.data]);
+  const marksBridge = ((): MarksBridge | null => {
+    if (!view) return null;
+    const byBlock = new Map<string, ProductMarkView[]>();
+    for (const m of marksQuery.data ?? []) byBlock.set(m.blockId, [...(byBlock.get(m.blockId) ?? []), m]);
+    const open = openMark && openMark.key === marksKey && byBlock.has(openMark.blockId) ? openMark : null;
+    return {
+      pageId: view.id,
+      byBlock,
+      failed: marksQuery.isError,
+      retry: () => void marksQuery.refetch(),
+      open: open ? { blockId: open.blockId, n: open.n } : null,
+      setOpen: (blockId) =>
+        setOpenMark(blockId ? { key: marksKey, blockId, n: ++markSeq.current } : null),
+      announce: (text) => setAnnouncement(text),
+      seeHistory: (revisionId) => side.openHistory(revisionId),
     };
   })();
   // A 1440 il pannello della task prende il posto della colonna, che torna alla sua chiusura.
@@ -316,12 +354,24 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
         onFocusThread={side.focusThread}
       />
     ) : view && side.side === "history" ? (
-      <HistoryPanel key={view.id} page={view} onClose={closeHistory} />
+      <HistoryPanel
+        key={view.id}
+        page={view}
+        onClose={closeHistory}
+        focus={side.historyFocus}
+        onSeeQuestion={(rootId) => side.focusThread(rootId)}
+        announce={setAnnouncement}
+      />
     ) : null;
 
   return (
-    <ProductSpaceContext.Provider value={{ project, space, reveal, setEditorStatus, comments: bridge }}>
+    <ProductSpaceContext.Provider
+      value={{ project, space, reveal, setEditorStatus, comments: bridge, marks: marksBridge }}
+    >
       <div ref={root} className="relative flex h-full min-h-0 flex-col">
+        <span aria-live="polite" data-marks-announce="" className="sr-only">
+          {announcement}
+        </span>
         <SpaceBar
           project={project}
           pageCode={pageCode}

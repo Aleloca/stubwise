@@ -1,5 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import { ProductClaudeMark } from "../claude/ProductClaudeMark";
 import { ThreadTint } from "../comments/CommentMark";
 
 // L'involucro di un blocco per chi scrive: il gruppo che si seleziona come
@@ -86,6 +87,8 @@ export function BlockShell({
       )}
       {children({ listeners, describedBy: attributes["aria-describedby"] })}
       {after}
+      {/* Il segno di Claude (11b): nella corsia fuori dalla colonna, e la sua nota sotto il blocco. */}
+      <ProductClaudeMark blockId={id} />
     </div>
   );
 }

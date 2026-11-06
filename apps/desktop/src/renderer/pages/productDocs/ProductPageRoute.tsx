@@ -46,7 +46,7 @@ export function ProductPageRoute({ code }: { code: string }) {
 
 function PageBody({ page }: { page: ProductPageView }) {
   const { t, i18n } = useTranslation();
-  const { project, setEditorStatus } = useProductSpaceContext();
+  const { project, setEditorStatus, marks } = useProductSpaceContext();
   const toast = useToast();
   const nameOf = usePersonName();
   const heading = useRef<HTMLHeadingElement>(null);
@@ -160,6 +160,16 @@ function PageBody({ page }: { page: ProductPageView }) {
           </div>
         )}
       </header>
+      {marks?.failed && (
+        // La lettura dei segni non è riuscita: meglio dirlo che mostrare una pagina senza segni (§5).
+        <p role="alert" className="mt-4 flex flex-wrap items-center gap-x-1.5 text-xs text-critical">
+          <span>{t("productDocs.mark.loadError")}</span>
+          <span aria-hidden="true">·</span>
+          <button type="button" onClick={marks.retry} className="font-medium underline underline-offset-2">
+            {t("productDocs.mark.retry")}
+          </button>
+        </p>
+      )}
       <div className="mt-6">
         <BlockEditor page={page} session={session} editable={editable} handle={editor} others={presence.data} />
       </div>

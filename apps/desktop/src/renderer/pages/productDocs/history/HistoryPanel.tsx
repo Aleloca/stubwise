@@ -1,20 +1,30 @@
-import { useId, useState, type KeyboardEvent, type RefObject } from "react";
-import { useTranslation } from "react-i18next";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from "react";
+import { Trans, useTranslation } from "react-i18next";
+import { ClaudeMark } from "../../../components/ClaudeMark";
 import { now } from "../../../data/dates";
-import { usePeople, useProductRevisions } from "../../../data/queries";
+import {
+  usePeople,
+  useProductFirstVersion,
+  useProductRevisions,
+  useUndoProductChange,
+} from "../../../data/queries";
 import type {
   ProductBlock,
   ProductBlockChange,
   ProductPageView,
   ProductRevisionView,
   ProductTreeNode,
+  ProductUndoView,
   RichText,
 } from "../../../data/types";
 import { formatDate } from "../../../notifications/time";
 import { CloseIcon } from "../../task/parts";
+import { UndoReason } from "../claude/ProductClaudeMark";
+import { SourceLine } from "../claude/SourceLine";
 import { blockLabel } from "../editor/BlockBody";
 import { RichView } from "../editor/RichView";
-import { useProductSpaceContext } from "../parts";
+import { usePersonName, useProductSpaceContext } from "../parts";
+import type { HistoryFocus } from "../SideColumn";
 
 // La cronologia di una pagina (shape product-comments-history.md §3.7,
 // [PC 9], [PC 10]): nella stessa colonna dei commenti, una alla volta.
@@ -24,10 +34,23 @@ import { useProductSpaceContext } from "../parts";
 // «After» col testo coi suoi segni (`RichView`); una frase tolta solo
 // «Before» con «Removed», una aggiunta solo «After» con «Added», un cambio
 // di soli segni «Formatting changed» con «After». Più di 5 ancore: le prime
-// 5 e «Show N more». Le parole cambiate non si evidenziano nel 11a. Si
-// legge: niente «Restore» né «Undo» (l'«Annulla» delle modifiche di Claude
-// è del 11b). Una revisione senza `via` né `sessionId`, o con blocchi senza
+// 5 e «Show N more». Le parole cambiate non si evidenziano nel 11a. Niente
+// «Restore». Una revisione senza `via` né `sessionId`, o con blocchi senza
 // `marks`, si disegna come le altre.
+//
+// 11b, Task 9 (shape product-claude-mark.md §3.6, [PM 7]): le righe di
+// Claude. «Claude on behalf of Laura Costa» con le iniziali della persona e
+// l'anello «Made with Claude» sotto l'ora (per il Claude collega, «Claude»);
+// sotto, la fonte (`SourceLine`) e «Undo» / «Undo all» coi loro stati,
+// tutti dal dato (`undo`, `undoByAnchor`, `undoneCount`): se anche una
+// frase l'ha toccata un altro «Undo all» è spento col suo nome e le altre
+// si annullano una per una nella riga aperta (Review Focus 4). La riga
+// annullata dice «Undone by …» (o «1 of 3 undone · …»), e l'annullamento ha
+// la sua riga, «Undid Claude's change», che rimanda a quella annullata. La
+// risposta a una domanda è della persona («Laura Costa, from Claude's
+// question», nessun anello né «Undo»), con «See the question». La prima
+// versione si annulla dalla riga in cima alla pagina, non da qui. Chi legge
+// soltanto la legge: nessun «Undo» e nessuna frase.
 
 const FIRST = 50;
 const ANCHORS = 5;
@@ -126,6 +149,10 @@ function summaryOf(
       return t("productDocs.history.create");
     case "rename":
       return t("productDocs.history.rename", { before: r.title?.before ?? "" });
+    case "undo":
+      return t("productDocs.history.undid");
+    case "first_version":
+      return t("productDocs.history.firstVersion");
     case "move": {
       const to = r.parent?.afterId ?? null;
       if (to === null) return t("productDocs.history.moveTop");
@@ -140,6 +167,31 @@ function summaryOf(
   }
 }
 
+/** Il nome della riga: la persona, «Claude on behalf of …», o «…, from Claude's question». */
+function useRowName() {
+  const { t } = useTranslation();
+  const nameOf = usePersonName();
+  return (r: ProductRevisionView): string =>
+    r.answerOf
+      ? t("productDocs.history.answerFrom", { name: r.actorName })
+      : r.via === "claude" && r.onBehalfOfId
+        ? t("productDocs.history.onBehalfOf", { name: nameOf(r.onBehalfOfId) })
+        : r.actorName;
+}
+
+/** L'anello «ritorna» di un annullamento: disegnato, non un glifo. */
+function UndoGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" width={12} height={12} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false" className="shrink-0">
+      <path d="M5.5 3.5 3 6l2.5 2.5" />
+      <path d="M3 6h6.25a3.75 3.75 0 0 1 0 7.5H6" />
+    </svg>
+  );
+}
+
+const textButton =
+  "inline-flex h-6 shrink-0 items-center rounded-md px-1.5 text-xs font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 aria-disabled:cursor-default aria-disabled:text-ink-faint aria-disabled:hover:bg-transparent";
+
 const clock = (iso: string, language: string) =>
   new Intl.DateTimeFormat(language, { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" }).format(
     new Date(iso),
@@ -149,20 +201,71 @@ export function HistoryPanel({
   page,
   onClose,
   headingRef,
+  focus = null,
+  onSeeQuestion,
+  announce,
 }: {
   page: ProductPageView;
   onClose: () => void;
   headingRef?: RefObject<HTMLDivElement | null>;
+  /** 11b: la riga da aprire col fuoco (`?history=`, «See it in the history»). */
+  focus?: HistoryFocus | null;
+  /** 11b: «See the question» — i commenti sul filo della domanda, al posto della cronologia. */
+  onSeeQuestion?: (rootId: string) => void;
+  /** 11b: l'annuncio dopo «Undo» (vive nello spazio). */
+  announce?: (text: string) => void;
 }) {
   const { t, i18n } = useTranslation();
-  const { space } = useProductSpaceContext();
+  const { space, project } = useProductSpaceContext();
   const revisions = useProductRevisions(page.id);
   const people = usePeople().data ?? [];
   const [limit, setLimit] = useState(FIRST);
   const [openRows, setOpenRows] = useState<ReadonlySet<string>>(new Set());
   const listId = useId();
+  const rowName = useRowName();
 
   const all = revisions.data ?? [];
+  const hasFirstVersion = all.some((r) => r.kind === "first_version");
+  const firstVersion = useProductFirstVersion(project.id, { enabled: hasFirstVersion }).data ?? null;
+
+  // La riga chiesta da fuori: aperta, a vista, col fuoco (una volta per richiesta).
+  const followed = useRef<number | null>(null);
+  const [focusRow, setFocusRow] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focus || followed.current === focus.n || !revisions.data) return;
+    const index = revisions.data.findIndex((r) => r.id === focus.revisionId);
+    followed.current = focus.n;
+    if (index === -1) return;
+    if (index >= limit) setLimit(index + 1);
+    setOpenRows((prev) => new Set(prev).add(focus.revisionId));
+    setFocusRow(focus.revisionId);
+  }, [focus, revisions.data, limit]);
+  // Il fuoco dopo un «Undo» resta sulla riga: sul suo testo nuovo («Undone by …»).
+  const [focusAfter, setFocusAfter] = useState<string | null>(null);
+  useEffect(() => {
+    if (focusRow) {
+      const el = document.getElementById(`${listId}-${focusRow}`);
+      if (el) {
+        el.focus();
+        el.scrollIntoView?.({ block: "nearest" });
+        setFocusRow(null);
+      }
+    }
+    if (focusAfter) {
+      const el = document.querySelector<HTMLElement>(`[data-undone="${focusAfter}"]`);
+      if (el) {
+        el.focus();
+        setFocusAfter(null);
+      }
+    }
+  });
+  /** «Undid: …» porta alla riga annullata e la evidenzia per 1,5 s. */
+  const [flash, setFlash] = useState<string | null>(null);
+  useEffect(() => {
+    if (!flash) return;
+    const timer = setTimeout(() => setFlash(null), 1500);
+    return () => clearTimeout(timer);
+  }, [flash]);
   const shown = all.slice(0, limit);
   const today = now().slice(0, 10);
   const rowId = (r: ProductRevisionView) => `${listId}-${r.id}`;
@@ -238,6 +341,7 @@ export function HistoryPanel({
                     const index = shown.indexOf(r);
                     const isOpen = openRows.has(r.id);
                     const person = people.find((p) => p.id === r.actorId);
+                    const claude = r.via === "claude" && !r.answerOf;
                     return (
                       <li key={r.id} className="flex flex-col">
                         <button
@@ -248,7 +352,7 @@ export function HistoryPanel({
                           aria-controls={`${rowId(r)}-details`}
                           onKeyDown={(e) => onKeyDown(e, index)}
                           onClick={() => toggle(r.id)}
-                          className="mx-1.5 flex cursor-default items-start gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/5 aria-expanded:bg-ink/6"
+                          className={`mx-1.5 flex cursor-default items-start gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/5 aria-expanded:bg-ink/6 ${flash === r.id ? "!bg-ink/10" : ""}`}
                         >
                           <span
                             aria-hidden="true"
@@ -257,10 +361,11 @@ export function HistoryPanel({
                             {person?.initials ?? r.actorName.slice(0, 1)}
                           </span>
                           <span className="flex min-w-0 flex-1 flex-col">
-                            <span className="truncate font-semibold text-ink">{r.actorName}</span>
+                            <span className="font-semibold text-ink [overflow-wrap:anywhere]">{rowName(r)}</span>
                             <span className="text-ink-muted [overflow-wrap:anywhere]">{summaryOf(r, space.tree, t)}</span>
                           </span>
-                          <span className="flex shrink-0 items-center gap-1 text-xs text-ink-faint">
+                          <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-ink-faint">
+                            <span className="flex items-center gap-1">
                             <time dateTime={r.at} className="num">
                               {clock(r.at, i18n.language)}
                             </time>
@@ -277,10 +382,44 @@ export function HistoryPanel({
                             >
                               <path d="m6 3.5 4.5 4.5L6 12.5" />
                             </svg>
+                            </span>
+                            {/* Sotto l'ora, l'anello di Claude ([CT 3]); non per la risposta a una domanda. */}
+                            {claude && <ClaudeMark label={t("productDocs.history.madeWithClaude")} />}
                           </span>
                         </button>
+                        <RowExtras
+                          revision={r}
+                          all={all}
+                          rowName={rowName}
+                          summary={(x) => summaryOf(x, space.tree, t)}
+                          firstVersion={
+                            firstVersion && firstVersion.groupId === r.groupId
+                              ? { sources: firstVersion.sources, atTop: firstVersion.bannerPageIds.includes(page.id) }
+                              : null
+                          }
+                          onSeeQuestion={onSeeQuestion}
+                          onShowUndone={(id) => {
+                            const target = all.findIndex((x) => x.id === id);
+                            if (target === -1) return;
+                            if (target >= limit) setLimit(target + 1);
+                            setFocusRow(id);
+                            setFlash(id);
+                          }}
+                          onUndone={(key, text) => {
+                            announce?.(text);
+                            setFocusAfter(key);
+                          }}
+                        />
                         <div id={`${rowId(r)}-details`} hidden={!isOpen}>
-                          {isOpen && <RevisionDetails revision={r} />}
+                          {isOpen && (
+                            <RevisionDetails
+                              revision={r}
+                              onUndone={(key, text) => {
+                                announce?.(text);
+                                setFocusAfter(key);
+                              }}
+                            />
+                          )}
                         </div>
                       </li>
                     );
@@ -305,10 +444,20 @@ export function HistoryPanel({
   );
 }
 
-function RevisionDetails({ revision }: { revision: ProductRevisionView }) {
+function RevisionDetails({
+  revision,
+  onUndone,
+}: {
+  revision: ProductRevisionView;
+  onUndone: (focusKey: string, announce: string) => void;
+}) {
   const { t } = useTranslation();
   const [all, setAll] = useState(false);
   const details = revision.changes.flatMap((c) => detailsOf(c, t));
+  // La prima versione è l'intera pagina: non si elencano i blocchi (§3.6).
+  if (revision.kind === "first_version") {
+    return <p className="pt-1 pr-4 pb-3 pl-[50px] text-xs text-ink-muted">{t("productDocs.history.wholePage")}</p>;
+  }
   if (details.length === 0) return null;
   const shown = all ? details : details.slice(0, ANCHORS);
   // Una sola ancora coi soli segni cambiati: la riga dice già «Formatting
@@ -328,7 +477,22 @@ function RevisionDetails({ revision }: { revision: ProductRevisionView }) {
           {(d.kind === "changed" || d.kind === "removed") && (
             <Version label={t("productDocs.history.before")} side={d.before} muted />
           )}
-          {d.kind !== "removed" && <Version label={t("productDocs.history.after")} side={d.after} />}
+          {d.kind !== "removed" && (
+            <Version
+              label={t("productDocs.history.after")}
+              side={d.after}
+              trailing={
+                revision.undoByAnchor?.[d.key] ? (
+                  <AnchorUndo
+                    revisionId={revision.id}
+                    anchorId={d.key}
+                    undo={revision.undoByAnchor[d.key]!}
+                    onUndone={onUndone}
+                  />
+                ) : null
+              }
+            />
+          )}
         </div>
       ))}
       {details.length > ANCHORS && !all && (
@@ -344,10 +508,24 @@ function RevisionDetails({ revision }: { revision: ProductRevisionView }) {
   );
 }
 
-function Version({ label, side, muted = false }: { label: string; side: Side; muted?: boolean }) {
+function Version({
+  label,
+  side,
+  muted = false,
+  trailing = null,
+}: {
+  label: string;
+  side: Side;
+  muted?: boolean;
+  /** 11b: l'«Undo» dell'ancora, accanto all'etichetta «After». */
+  trailing?: ReactNode;
+}) {
   return (
     <div className="flex flex-col">
-      <p className="text-xs font-semibold text-ink-muted">{label}</p>
+      <div className="flex flex-wrap items-center justify-between gap-x-2">
+        <p className="text-xs font-semibold text-ink-muted">{label}</p>
+        {trailing}
+      </div>
       <div className={`text-sm leading-[18px] whitespace-pre-wrap [overflow-wrap:anywhere] ${muted ? "text-ink-muted" : "text-ink"}`}>
         {side === null ? null : typeof side === "string" ? side : <RichView content={side} />}
       </div>
@@ -374,4 +552,253 @@ function RowSkeletons() {
       ))}
     </div>
   );
+}
+
+// --- 11b: le righe di Claude -------------------------------------------------------
+
+/** Un gesto d'annullamento che non scrive due volte (un doppio clic: una scrittura). */
+function useUndoOnce(onUndone: (focusKey: string, announce: string) => void) {
+  const { t } = useTranslation();
+  const undo = useUndoProductChange();
+  const inflight = useRef(false);
+  const [failed, setFailed] = useState(false);
+  const run = (revisionId: string, anchorId: string | undefined, focusKey: string) => {
+    if (inflight.current) return;
+    inflight.current = true;
+    setFailed(false);
+    undo.mutateAsync({ revisionId, anchorId }).then(
+      () => onUndone(focusKey, t("productDocs.mark.undone")),
+      () => {
+        inflight.current = false;
+        setFailed(true);
+      },
+    );
+  };
+  return { run, pending: undo.isPending, failed };
+}
+
+function UndoFailed({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <p role="alert" className="flex flex-wrap items-center gap-x-1.5 text-xs text-critical">
+      <span>{t("productDocs.mark.undoFailed")}</span>
+      <span aria-hidden="true">·</span>
+      <button type="button" onClick={onRetry} className="font-medium underline underline-offset-2">
+        {t("productDocs.mark.retry")}
+      </button>
+    </p>
+  );
+}
+
+/** L'«Undo» di un'ancora nella riga aperta: acceso, spento col suo perché, o «Undone». */
+function AnchorUndo({
+  revisionId,
+  anchorId,
+  undo,
+  onUndone,
+}: {
+  revisionId: string;
+  anchorId: string;
+  undo: ProductUndoView;
+  onUndone: (focusKey: string, announce: string) => void;
+}) {
+  const { t } = useTranslation();
+  const reasonId = useId();
+  const key = `${revisionId}:${anchorId}`;
+  const once = useUndoOnce(onUndone);
+  if (!undo.enabled && undo.reason === "no_permission") return null;
+  if (!undo.enabled && undo.reason === "already_undone") {
+    return (
+      <span
+        tabIndex={-1}
+        data-undone={key}
+        className="inline-flex items-center gap-1 rounded-sm text-xs text-ink-muted outline-none focus-visible:outline-2 focus-visible:outline-focus"
+      >
+        <UndoGlyph />
+        {t("productDocs.history.undoneAnchor")}
+      </span>
+    );
+  }
+  const off = undo.enabled ? null : undo;
+  // Nella riga di «After» (che va a capo): il bottone a destra, la frase e
+  // l'errore sotto, a tutta larghezza.
+  return (
+    <>
+      <button
+        type="button"
+        aria-disabled={off || once.pending ? true : undefined}
+        aria-describedby={off ? reasonId : undefined}
+        onClick={() => !off && !once.pending && once.run(revisionId, anchorId, key)}
+        className={`${textButton} -mr-1.5`}
+      >
+        {once.pending ? t("productDocs.mark.undoing") : t("productDocs.history.undo")}
+      </button>
+      {off && (
+        <span className="basis-full">
+          <UndoReason undo={off} id={reasonId} />
+        </span>
+      )}
+      {once.failed && (
+        <span className="basis-full">
+          <UndoFailed onRetry={() => once.run(revisionId, anchorId, key)} />
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
+ * Sotto il bottone della riga: la fonte (o le fonti della prima versione),
+ * «Undo» / «Undo all» o «Undone by …», «Undid: …» di un annullamento,
+ * «See the question» di una risposta.
+ */
+function RowExtras({
+  revision: r,
+  all,
+  rowName,
+  summary,
+  firstVersion,
+  onSeeQuestion,
+  onShowUndone,
+  onUndone,
+}: {
+  revision: ProductRevisionView;
+  all: readonly ProductRevisionView[];
+  rowName: (r: ProductRevisionView) => string;
+  summary: (r: ProductRevisionView) => string;
+  /** La prima versione di questa riga: le sue fonti, e se la riga in cima alla pagina c'è ancora. */
+  firstVersion: { sources: ProductRevisionView["sourceView"][]; atTop: boolean } | null;
+  onSeeQuestion?: (rootId: string) => void;
+  onShowUndone: (revisionId: string) => void;
+  onUndone: (focusKey: string, announce: string) => void;
+}) {
+  const { t } = useTranslation();
+  const nameOf = usePersonName();
+  const reasonId = useId();
+  const once = useUndoOnce(onUndone);
+  const lines: ReactNode[] = [];
+
+  const sources =
+    r.kind === "first_version"
+      ? (firstVersion?.sources ?? []).filter((x): x is NonNullable<typeof x> => !!x)
+      : r.sourceView && !r.answerOf
+        ? [r.sourceView]
+        : [];
+
+  // Lo stato di «Undo» / «Undo all» della riga, dal dato.
+  /** Il bottone, a destra della fonte. */
+  let control: ReactNode = null;
+  /** Uno stato che si legge («Undone by …», «Undo it from the line…»): la sua riga. */
+  let status: ReactNode = null;
+  let reason: ReactNode = null;
+  const count = r.undoneCount?.count ?? 0;
+  const done = r.undoneCount?.done ?? 0;
+  if (r.undo && done > 0) {
+    const by = r.undoneById ? nameOf(r.undoneById) : null;
+    const text =
+      done >= count
+        ? by
+          ? t("productDocs.history.undoneBy", { name: by })
+          : t("productDocs.history.undoneByNobody")
+        : by
+          ? t("productDocs.history.undonePart", { done, count, name: by })
+          : t("productDocs.history.undonePartNobody", { done, count });
+    status = (
+      <span
+        tabIndex={-1}
+        data-undone={r.id}
+        className="inline-flex items-center gap-1 rounded-sm text-xs text-ink-muted outline-none focus-visible:outline-2 focus-visible:outline-focus"
+      >
+        <UndoGlyph />
+        {text}
+      </span>
+    );
+  } else if (r.undo && !(r.undo.enabled === false && r.undo.reason === "no_permission")) {
+    const off = r.undo.enabled ? null : r.undo;
+    control = (
+      <button
+        type="button"
+        aria-disabled={off || once.pending ? true : undefined}
+        aria-describedby={off ? reasonId : undefined}
+        onClick={() => !off && !once.pending && once.run(r.id, undefined, r.id)}
+        className={textButton}
+      >
+        {once.pending
+          ? t("productDocs.mark.undoing")
+          : count > 1
+            ? t("productDocs.history.undoAll")
+            : t("productDocs.history.undo")}
+      </button>
+    );
+    if (off && count > 1 && off.reason === "changed_after") {
+      reason = (
+        <span id={reasonId} className="text-xs text-ink-muted">
+          {off.byId ? (
+            <Trans
+              i18nKey="productDocs.history.changedOne"
+              values={{ name: nameOf(off.byId) }}
+              components={{ b: <strong className="font-semibold text-ink" /> }}
+            />
+          ) : (
+            t("productDocs.history.changedOneNobody")
+          )}
+        </span>
+      );
+    } else if (off) {
+      reason = <UndoReason undo={off} id={reasonId} />;
+    }
+  } else if (r.kind === "first_version" && firstVersion?.atTop) {
+    status = <span className="text-xs text-ink-faint">{t("productDocs.history.undoAtTop")}</span>;
+  }
+
+  if (sources.length > 0 || control) {
+    lines.push(
+      <div key="source" className="flex items-start justify-between gap-2">
+        {sources.length > 0 ? <SourceLine sources={sources} className="flex-1" /> : <span />}
+        {control}
+      </div>,
+    );
+  }
+  if (status) lines.push(<p key="status">{status}</p>);
+  if (reason) lines.push(<p key="reason">{reason}</p>);
+  if (once.failed) lines.push(<UndoFailed key="failed" onRetry={() => once.run(r.id, undefined, r.id)} />);
+
+  if (r.kind === "undo" && r.undoOf) {
+    const undone = all.find((x) => x.id === r.undoOf);
+    if (undone) {
+      lines.push(
+        <p key="undid" className="text-xs text-ink-muted [overflow-wrap:anywhere]">
+          <span className="mr-1 inline-block align-[-2px]">
+            <UndoGlyph />
+          </span>
+          <span>
+            {t("productDocs.history.undidLabel")} {rowName(undone)}
+            <span aria-hidden="true"> · </span>
+            {summary(undone)}
+            <span aria-hidden="true"> · </span>
+          </span>
+          <button
+            type="button"
+            onClick={() => onShowUndone(undone.id)}
+            aria-label={`${t("productDocs.history.showUndone")} · ${t("productDocs.mark.at", { date: Date.parse(undone.at) })}`}
+            className="num rounded-[3px] font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+          >
+            {t("productDocs.mark.at", { date: Date.parse(undone.at) })}
+          </button>
+        </p>,
+      );
+    }
+  }
+  if (r.answerOf && onSeeQuestion) {
+    const rootId = r.answerOf;
+    lines.push(
+      <p key="question">
+        <button type="button" onClick={() => onSeeQuestion(rootId)} className={`${textButton} -ml-1.5`}>
+          {t("productDocs.history.seeQuestion")}
+        </button>
+      </p>,
+    );
+  }
+  if (lines.length === 0) return null;
+  return <div className="flex flex-col gap-1 pr-4 pb-1.5 pl-[50px]">{lines}</div>;
 }
