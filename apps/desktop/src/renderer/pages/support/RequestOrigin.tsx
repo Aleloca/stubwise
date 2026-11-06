@@ -15,7 +15,8 @@ import { Messages } from "./Messages";
 
 export function RequestOrigin({ request }: { request: ProjectRequest }) {
   const { t } = useTranslation();
-  const origin = request.origin;
+  // Solo Support: un'origine della doc di prodotto (11b) la mostra la sua riga.
+  const origin = request.origin?.kind === "support" ? request.origin : undefined;
   const list = useSupportConversations(origin ? request.projectId : undefined);
   const [open, setOpen] = useState(false);
   const bodyId = useId();

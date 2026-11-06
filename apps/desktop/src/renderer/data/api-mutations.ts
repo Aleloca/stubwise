@@ -145,8 +145,10 @@ import type {
   Task,
   TaskPatch,
   TaskSize,
+  ProductDocOrigin,
 } from "./types";
 import { supportState } from "../domain/support/state";
+import { answerProductQuestionWithRequest, checkProductDocOrigin } from "./productDocs/questions";
 import { publishAlert } from "./alerts/publish";
 import { overStubwiseCap } from "./releases/visibility";
 // La correzione dei server (area 8b): usata solo dentro le funzioni, quindi
@@ -874,10 +876,12 @@ export interface NewRequestInput {
   urgency?: ProjectRequest["urgency"];
   /**
    * Una conversazione di Support da allegare (area 8a): il richiedente è il
-   * cliente, quindi nessuna persona fra i richiedenti. Una richiesta non
-   * nasce MAI da un'email: l'unica origine ammessa è `support`.
+   * cliente, quindi nessuna persona fra i richiedenti. Oppure una pagina
+   * della doc di prodotto (11b): il richiedente resta chi la apre, e con
+   * `questionId` la richiesta chiude la domanda di Claude («Apri una
+   * richiesta»). Una richiesta non nasce MAI da un'email.
    */
-  origin?: { kind: "support"; conversationId: string };
+  origin?: { kind: "support"; conversationId: string } | ProductDocOrigin;
 }
 
 export async function createRequest(input: NewRequestInput): Promise<ProjectRequest> {
@@ -899,7 +903,14 @@ export function checkNewRequest(
 
 export function createRequestAs(me: string, input: NewRequestInput): ProjectRequest {
   const project = checkNewRequest(me, input);
-  return insertRequest(project, input, input.origin ? [] : [me]);
+  // Dalla doc di prodotto (11b, P20): pagina e progetto si controllano a
+  // parte, e la domanda (se c'è) si chiude nella stessa scrittura.
+  const fromDoc = input.origin?.kind === "product_doc" ? input.origin : null;
+  if (fromDoc) checkProductDocOrigin(me, project.id, fromDoc);
+  const request = insertRequest(project, input, input.origin?.kind === "support" ? [] : [me]);
+  if (fromDoc?.questionId !== undefined)
+    answerProductQuestionWithRequest(me, fromDoc.questionId, request.id);
+  return request;
 }
 
 /**
@@ -914,7 +925,8 @@ export function createRequestAs(me: string, input: NewRequestInput): ProjectRequ
  * sua strada esplicita (`triage: true`, solo da `data/support/simulate.ts`).
  */
 function supportOriginOf(project: Project, origin: NewRequestInput["origin"], triage: boolean) {
-  if (!origin) return null;
+  // Un'origine della doc di prodotto non è di Support: la controlla `createRequestAs` (P20).
+  if (!origin || origin.kind === "product_doc") return null;
   const conv =
     origin.kind === "support"
       ? state.supportConversations.find((c) => c.id === origin.conversationId)
@@ -963,7 +975,11 @@ export function insertRequest(
     mergedIntoId: null,
     taskIds: [],
     createdAt: now(),
-    ...(conv ? { origin: { kind: "support" as const, conversationId: conv.id } } : {}),
+    ...(conv
+      ? { origin: { kind: "support" as const, conversationId: conv.id } }
+      : input.origin?.kind === "product_doc"
+        ? { origin: productDocOriginOf(input.origin) }
+        : {}),
   };
   state.requests.push(request);
   if (conv) conv.requestId = request.id;
@@ -971,6 +987,14 @@ export function insertRequest(
   signalAutomations({ kind: "request_created", requestId: request.id });
   return request;
 }
+
+/** L'origine della doc da salvare: solo i suoi campi (gli `args` di una scheda possono portarne altri). */
+const productDocOriginOf = (o: ProductDocOrigin): ProductDocOrigin => ({
+  kind: "product_doc",
+  pageId: o.pageId,
+  anchorId: o.anchorId,
+  ...(o.questionId === undefined ? {} : { questionId: o.questionId }),
+});
 
 const LEVELS: RequestLevel[] = ["low", "medium", "high"];
 const SIZES: TaskSize[] = ["XS", "S", "M", "L", "XL"];

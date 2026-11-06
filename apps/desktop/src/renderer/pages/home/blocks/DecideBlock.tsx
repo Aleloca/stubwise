@@ -19,7 +19,7 @@ import type {
   AutomationDecision,
   ChatClaudeQuestion,
   ChatQuestion,
-  ClaudeDecision,
+  ConversationClaudeDecision,
   DecisionRequest,
   MailProposalView,
   Person,
@@ -42,7 +42,7 @@ import { MailDecisionItem } from "./MailDecisionItem";
 
 type Item =
   | { kind: "decision"; id: string; decision: DecisionRequest; task: Task | undefined }
-  | { kind: "claude"; id: string; claude: ClaudeDecision }
+  | { kind: "claude"; id: string; claude: ConversationClaudeDecision }
   | { kind: "chat"; id: string; question: ChatQuestion }
   | { kind: "chatClaude"; id: string; question: ChatClaudeQuestion }
   | { kind: "mail"; id: string; view: MailProposalView }
@@ -93,10 +93,13 @@ export function DecideBlock() {
         task: tasks.data?.find((x) => x.id === d.taskId),
       } satisfies Item,
     })),
-    ...(claude.data ?? []).map((c) => ({
-      at: c.at,
-      item: { kind: "claude", id: c.id, claude: c } satisfies Item,
-    })),
+    // Le domande di Claude sulla doc di prodotto (11b) le mostra il Task 10.
+    ...(claude.data ?? [])
+      .filter((c): c is ConversationClaudeDecision => c.kind !== "productQuestion")
+      .map((c) => ({
+        at: c.at,
+        item: { kind: "claude", id: c.id, claude: c } satisfies Item,
+      })),
     ...(chatQuestions.data ?? []).map((q) => ({
       at: q.createdAt,
       item: { kind: "chat", id: q.id, question: q } satisfies Item,

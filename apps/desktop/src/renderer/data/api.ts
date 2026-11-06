@@ -25,6 +25,7 @@ import { whyReceives } from "./alerts/visibility";
 import { linkAccessHrefOf } from "./servers/visibility";
 import { presentProductQuestion, presentProductUpdate } from "./productDocs/claudeReads";
 import { presentProductMention } from "./productDocs/comments";
+import { productQuestionDecisions } from "./productDocs/questions";
 import {
   productPageByCode,
   productPageById,
@@ -302,11 +303,14 @@ export async function listActivity(taskId: string): Promise<ActivityEntry[]> {
  * Home), dal più vecchio: solo dalle conversazioni che vede, la domanda se
  * può rispondere, il piano se ha `plans.approve`. Rispondere passa dalle
  * stesse scritture della conversazione (`answerQuestion`, `decidePlan`).
+ * Con loro, le domande di Claude sulla doc di prodotto (11b) per chi le
+ * riceve e ha `docs.edit` (`productQuestionDecisions`), a cui si risponde
+ * con `productDocs.answerProductQuestion`.
  */
 export async function listClaudeDecisions(): Promise<ClaudeDecision[]> {
   const me = await gate("listClaudeDecisions");
-  return waitingClaudeEvents(me)
-    .map(({ conversation: c, event }): ClaudeDecision => {
+  const fromConversations = waitingClaudeEvents(me).map(
+    ({ conversation: c, event }): ClaudeDecision => {
       const base = {
         id: `${c.id}:${event.id}`,
         conversationId: c.id,
@@ -336,8 +340,11 @@ export async function listClaudeDecisions(): Promise<ClaudeDecision[]> {
             blockedReason: conversationPermissions(me, c).planBlockedReason,
             serverCode: c.serverFix?.serverCode ?? null,
           };
-    })
-    .sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id));
+    },
+  );
+  return [...fromConversations, ...productQuestionDecisions(me)].sort(
+    (a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id),
+  );
 }
 
 export async function listDecisionRequests(filter: {

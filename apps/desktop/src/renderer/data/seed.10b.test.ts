@@ -94,7 +94,7 @@ describe("ACQ", () => {
     );
     const byConversation = Object.fromEntries(
       fromSupport.map((r) => [
-        state.supportConversations.find((c) => c.id === r.origin!.conversationId)!.code,
+        state.supportConversations.find((c) => c.id === (r.origin as { conversationId: string }).conversationId)!.code,
         r.urgency,
       ]),
     );
@@ -111,7 +111,7 @@ describe("ACQ", () => {
     expect(state.supportConversations.find((c) => c.code === "ACQ-S7")!.claudeDraft).toBeNull();
     // La sua richiesta non è `high`: il filtro dell'automazione di prova lo
     // passa solo `req-acq-3`.
-    const request = state.requests.find((r) => r.origin?.conversationId === "sup-acq-7")!;
+    const request = state.requests.find((r) => r.origin?.kind === "support" && r.origin.conversationId === "sup-acq-7")!;
     expect(request.urgency).not.toBe("high");
   });
 
@@ -189,7 +189,7 @@ describe("coerenza del seme", () => {
     const fromSupport = state.requests.filter((r) => r.origin?.kind === "support");
     expect(fromSupport.length).toBeGreaterThanOrEqual(4);
     for (const r of fromSupport) {
-      const c = state.supportConversations.find((x) => x.id === r.origin!.conversationId)!;
+      const c = state.supportConversations.find((x) => x.id === (r.origin as { conversationId: string }).conversationId)!;
       expect(r.createdAt > c.messages[0]!.at, `${r.code} dopo ${c.code}`).toBe(true);
     }
   });

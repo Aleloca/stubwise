@@ -422,6 +422,7 @@ export type ApiFnName =
   | "productDocs.listProductMarks"
   | "productDocs.acceptProductMark"
   | "productDocs.undoProductChange"
+  | "productDocs.answerProductQuestion"
   // Drive (area 5)
   | "drive.listDriveFiles"
   | "drive.getDriveFile"

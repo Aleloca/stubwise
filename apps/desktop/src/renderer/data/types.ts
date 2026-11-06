@@ -38,6 +38,7 @@ import type {
   RunProvider,
   Task,
   Utterance,
+  ProductQuestionView,
 } from "./model";
 
 // I tipi del modello dell'area 2 stanno in `model.ts`; qui restano quelli
@@ -314,7 +315,36 @@ type QuestionOfClaude = Extract<ConversationEvent, { type: "question" }>;
  * della Home: lo stesso evento della conversazione, con quanto serve a
  * dire di cosa si parla (task o richiesta, o la conversazione libera).
  */
-export type ClaudeDecision = {
+export type ClaudeDecision = ConversationClaudeDecision | ProductQuestionDecision;
+
+/**
+ * Una domanda di Claude sulla doc di prodotto (11b, P17), per «Decide» di
+ * chi la riceve (`productDocRecipients`) e ha `docs.edit` nel progetto. Si
+ * risponde con `answerProductQuestion`; «Open a request» apre il riquadro
+ * con la scheda di `productQuestionRequestDraft`.
+ */
+export type ProductQuestionDecision = {
+  kind: "productQuestion";
+  /** La voce in «Decide» (e nell'«Undo»): `product:<commento>`. */
+  id: string;
+  commentId: string;
+  pageId: string;
+  pageCode: string;
+  pageTitle: string;
+  projectId: string;
+  /** Quando Claude ha chiesto. */
+  at: string;
+  /** La frase citata dal filo. */
+  quote: string;
+  /** La pagina aperta sul filo (`?comment=<id>`). */
+  link: string;
+} & Pick<
+  ProductQuestionView,
+  "reason" | "forName" | "taskCode" | "source" | "apply" | "recommended" | "options" | "applyBlocked"
+>;
+
+/** Una domanda o un piano di Claude in una conversazione, per «Decide». */
+export type ConversationClaudeDecision = {
   /** La voce in «Decide» (e nell'«Undo»): `<conversazione>:<evento>`. */
   id: string;
   conversationId: string;

@@ -616,9 +616,12 @@ export interface ProjectRequest {
   suggestions?: RequestSuggestions | null;
   /**
    * Da dove è nata, se non a mano: una conversazione di Support (widget o
-   * server MCP, area 8a). Una richiesta non nasce MAI da un'email.
+   * server MCP, area 8a), o una pagina della doc di prodotto (11b: «Apri una
+   * richiesta» da una domanda di Claude, le voci proposte da una pagina).
+   * Una richiesta non nasce MAI da un'email: una domanda nata da un'email
+   * porta alla pagina, non all'email.
    */
-  origin?: { kind: "support"; conversationId: string };
+  origin?: { kind: "support"; conversationId: string } | ProductDocOrigin;
   /**
    * Area 10a: i codici delle task nate da questa richiesta e poi eliminate.
    * Derivato a lettura da `state.deletedTasks` (`getRequest`,
@@ -631,6 +634,18 @@ export interface ProjectRequest {
    * assente sulle letture che non lo calcolano (vale allora `taskIds.length`).
    */
   taskCount?: number;
+}
+
+/**
+ * Una richiesta nata dalla doc di prodotto (11b): la pagina, l'ancora (o
+ * `null` = la pagina intera) e, se nasce da «Apri una richiesta», la domanda
+ * di Claude che la richiesta chiude.
+ */
+export interface ProductDocOrigin {
+  kind: "product_doc";
+  pageId: string;
+  anchorId: string | null;
+  questionId?: string;
 }
 
 /** I metadati proposti dall'intake: solo quelli che cambierebbero, e il perché. */
@@ -3815,13 +3830,62 @@ export interface ProductQuestion {
   /** Solo `diverges`: cosa è stato fatto. */
   built: string | null;
   request: { title: string; description: string } | null;
+  /**
+   * Solo un fatto `insert_after` senza `options.apply`: «Aggiorna così»
+   * inserisce una copia di questo blocco (con id nuovi) dopo `afterId`
+   * (`null` = in cima), invece di riscrivere la frase dell'ancora.
+   * Facoltativo: assente, «Aggiorna così» riscrive l'ancora con `apply`.
+   */
+  insert?: { block: ProductBlock; afterId: string | null };
   recommended: ProductAnswerChoice;
-  /** Una sola risposta (Task 4); `revisionId` è la revisione di «Update it» (P19). */
+  /**
+   * Una sola risposta (Task 4); `revisionId` è la revisione di «Update it»
+   * (P19), `requestId` la richiesta aperta da «Open a request».
+   */
   answer: {
     byId: string;
     option: ProductAnswerChoice;
     seq: number;
     revisionId: string | null;
+    requestId?: string;
+  } | null;
+}
+
+/**
+ * Una domanda di Claude come la legge chi guarda il filo (11b, P18): mai la
+ * fonte grezza, ma la sua forma per chi guarda (`sourceViewOf`); le
+ * risposte possibili già in ordine; chi può rispondere e perché «Update it»
+ * è spento. Il testo della domanda lo compone la UI, in en o it, da
+ * `reason`, `forName` e `taskCode`, come la card (`ProductCardView.question`).
+ */
+export interface ProductQuestionView {
+  reason: ProductQuestionReason;
+  /** La persona nominata dalla domanda, se chi guarda la vede. */
+  forId: string | null;
+  forName: string | null;
+  /** Il codice della task di una divergenza (anche invisibile: `CodeLink` lo mostra tenue). */
+  taskCode: string | null;
+  source: ProductSourceView;
+  /** La frase dell'ancora com'è adesso («Now» / «The page says»); `null` se non c'è più. */
+  current: RichText | null;
+  apply: RichText | null;
+  built: string | null;
+  request: { title: string; description: string } | null;
+  /** Il consiglio di Claude; `null` se la sua strada non c'è (shape Q §3.2b). */
+  recommended: ProductAnswerChoice | null;
+  /** Le risposte che hanno una strada, il consiglio per primo, poi apply · keep · request. */
+  options: ProductAnswerChoice[];
+  /** Chi guarda può rispondere adesso (`docs.edit`, domanda aperta). */
+  canAnswer: boolean;
+  /** «Update it» spento: la frase è cambiata dopo la domanda (`byId` se chi guarda lo vede). */
+  applyBlocked: { byId: string | null } | null;
+  answer: {
+    byId: string | null;
+    byName: string | null;
+    option: ProductAnswerChoice;
+    revisionId: string | null;
+    /** Il codice della richiesta aperta da «Open a request» (`CodeLink` lo mostra tenue se invisibile). */
+    requestCode: string | null;
   } | null;
 }
 
@@ -4118,8 +4182,10 @@ export interface ProductComment {
   question?: ProductQuestion;
 }
 
-export interface ProductCommentView extends ProductComment {
+export interface ProductCommentView extends Omit<ProductComment, "question"> {
   authorName: string;
+  /** 11b: la domanda di Claude come la legge chi guarda (mai la fonte grezza). */
+  question?: ProductQuestionView;
 }
 
 export interface ProductCommentThread {

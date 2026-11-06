@@ -52,6 +52,12 @@ export {
   undoProductChangeAs,
 } from "./markGestures";
 export {
+  answerProductQuestion,
+  answerProductQuestionAs,
+  productQuestionDecisions,
+  productQuestionRequestDraft,
+} from "./questions";
+export {
   getProductPresence,
   joinProductPage,
   leaveProductPageAs,

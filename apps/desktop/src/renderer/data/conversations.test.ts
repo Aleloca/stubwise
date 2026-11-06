@@ -1609,7 +1609,7 @@ describe("rassegna del giorno per persona", () => {
 });
 
 describe("«Decide»: domande e piani di Claude per chi guarda (Review Focus 4)", () => {
-  const ids = async () => (await listClaudeDecisions()).map((d) => `${d.kind}:${d.conversationId}`);
+  const ids = async () => (await listClaudeDecisions()).map((d) => `${d.kind}:${d.kind === "productQuestion" ? d.commentId : d.conversationId}`);
 
   it("la domanda a chi può rispondere, il piano solo con plans.approve, dal più vecchio", async () => {
     as("p-marco"); // il richiedente: risponde, ma non approva

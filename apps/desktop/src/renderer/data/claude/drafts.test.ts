@@ -94,7 +94,7 @@ describe("taskDescriptionDraftFor (D1)", () => {
     const task = state.tasksById.get(ACQ_7)!;
     const req = state.requests.find((r) => r.id === task.requestId)!;
     const conversation = state.supportConversations.find(
-      (c) => c.id === req.origin!.conversationId,
+      (c) => c.id === (req.origin as { conversationId: string }).conversationId,
     )!;
     const activity = JSON.stringify(state.activity);
     const draft = taskDescriptionDraftFor("p-laura", ACQ_7);

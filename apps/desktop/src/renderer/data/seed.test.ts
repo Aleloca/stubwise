@@ -834,7 +834,7 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     for (const r of REQUESTS) {
       if (!r.origin) continue;
       expect(r.origin.kind).toBe("support");
-      const c = SUPPORT_CONVERSATIONS.find((x) => x.id === r.origin!.conversationId)!;
+      const c = SUPPORT_CONVERSATIONS.find((x) => x.id === (r.origin as { conversationId: string }).conversationId)!;
       expect(c.requestId).toBe(r.id);
     }
     // Area 10b: più ACQ-S5 e ACQ-S6; poi ACQ-S7 (5 nov 2026).

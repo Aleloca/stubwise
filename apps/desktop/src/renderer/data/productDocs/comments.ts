@@ -14,6 +14,7 @@ import type {
 } from "../types";
 import { invalid, notFound, writer } from "../writer";
 import { emitProductPage } from "./events";
+import { questionViewOf } from "./questions";
 import { productPageById } from "./reads";
 import { editablePage, onAnchorsMerged } from "./writes";
 
@@ -64,10 +65,16 @@ onAnchorsMerged((pageId, from, to) => {
 
 // --- leggere -------------------------------------------------------------------
 
-const viewOf = (c: ProductComment): ProductCommentView => ({
-  ...copy(c),
-  authorName: nameOf(c.authorId),
-});
+/** Un commento come lo legge `me`: una domanda di Claude nella sua vista, mai la fonte grezza (11b). */
+function viewOf(me: string, page: ProductPage, c: ProductComment): ProductCommentView {
+  // La domanda grezza (fonte, fatto) non esce mai: la sua vista la sostituisce.
+  const rest: Omit<ProductComment, "question"> = copy(c);
+  return {
+    ...rest,
+    authorName: nameOf(c.authorId),
+    ...(c.question ? { question: questionViewOf(me, c, page) } : {}),
+  };
+}
 
 /**
  * I fili di una pagina: aperti e risolti. In ognuno, i fili con l'ancora viva
@@ -92,11 +99,11 @@ export async function listProductComments(
     .filter((c) => c.replyToId === null)
     .map(
       (root): ProductCommentThread => ({
-        root: viewOf(root),
+        root: viewOf(me, page, root),
         replies: mine
           .filter((c) => c.replyToId === root.id)
           .sort((a, b) => a.seq - b.seq)
-          .map(viewOf),
+          .map((c) => viewOf(me, page, c)),
         anchorGone: !position.has(root.anchorId),
       }),
     )
@@ -248,12 +255,17 @@ export function addProductComment(
   return write;
 }
 
-/** La radice di un filo su cui si agisce (`docs.edit`); una risposta è `invalid: reply`. */
+/**
+ * La radice di un filo su cui si agisce (`docs.edit`); una risposta è
+ * `invalid: reply`. Una domanda di Claude si chiude rispondendo, non con
+ * «Resolve»/«Reopen»: `invalid: question` (11b, P18).
+ */
 function editableRoot(me: string, rootId: string): ProductComment {
   const root = commentById(rootId);
   if (!root) throw notFound();
   editablePage(me, root.pageId);
   if (root.replyToId !== null) throw invalid("reply");
+  if (root.question) throw invalid("question");
   return root;
 }
 

@@ -299,7 +299,7 @@ describe("RF 1: accesso revocato o non più usabile", () => {
     expect(waitingClaudeEvents("p-laura").map((w) => w.conversation.id)).toContain(c.id);
     expect(waitingOnMe("p-laura").has(ACQ)).toBe(true);
     as("p-laura");
-    const decisions = (await listClaudeDecisions()).filter((d) => d.conversationId === c.id);
+    const decisions = (await listClaudeDecisions()).filter((d) => d.kind !== "productQuestion" && d.conversationId === c.id);
     expect(decisions).toMatchObject([{ kind: "plan", blockedReason: "fix_access_revoked" }]);
     // Il server resta occupato finché il piano aspetta.
     as("p-roberta");

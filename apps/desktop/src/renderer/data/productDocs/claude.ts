@@ -22,6 +22,7 @@ import type {
   ProductComment,
   ProductFact,
   ProductPage,
+  ProductQuestion,
   ProductQuestionReason,
   ProductRevision,
   ProductSourceRef,
@@ -153,6 +154,20 @@ function applyOf(fact: ProductFact): RichText | null {
 }
 
 /**
+ * Un fatto che aggiunge un blocco (senza una frase da riscrivere al suo
+ * posto): «Aggiorna così» lo inserirà dopo il blocco della sua ancora, o in
+ * cima se il fatto non ne ha; un'ancora sparita lo mette dopo il blocco
+ * della domanda.
+ */
+function insertOf(page: ProductPage, fact: ProductFact): Pick<ProductQuestion, "insert"> {
+  const { change } = fact;
+  if (change.kind !== "insert_after" || fact.options?.apply || !isTextBlock(change.block)) return {};
+  const anchor = fact.anchorId === null ? null : anchorOf(page, fact.anchorId);
+  const afterId = anchor === null ? null : (page.blocks.find((b) => anchorIdsOf(b).includes(anchor))?.id ?? null);
+  return { insert: { block: change.block, afterId } };
+}
+
+/**
  * Chiede su un'ancora: un commento di `CLAUDE_ID` con la domanda (il testo
  * lo compone chi la mostra, dalla ragione), e la card
  * `product_doc.question` ai destinatari della pagina. Senza ancora, la
@@ -198,6 +213,7 @@ export function askProductQuestion(
       apply: applyOf(fact),
       built: fact.change.kind === "diverges" ? fact.change.built : null,
       request: fact.options?.request ?? null,
+      ...insertOf(page, fact),
       recommended: recommendedOf(fact, { kind: "question", reason }),
       answer: null,
     },
@@ -218,7 +234,7 @@ export function askProductQuestion(
 // --- la scrittura ---------------------------------------------------------------
 
 /** Un blocco del fatto con id nuovi (blocco, righe e celle): gli id si danno alla scrittura (P46). */
-function freshIds(block: ProductBlock): ProductBlock {
+export function freshIds(block: ProductBlock): ProductBlock {
   if (block.type !== "table") return { ...block, id: newId("blk") };
   return {
     ...block,
@@ -231,7 +247,7 @@ function freshIds(block: ProductBlock): ProductBlock {
 }
 
 /** Il blocco con la frase dell'ancora (il blocco stesso o una sua cella) riscritta; `null` se non ha frase. */
-function withAnchor(block: ProductBlock, anchorId: string, f: (rt: RichText) => RichText): ProductBlock | null {
+export function withAnchor(block: ProductBlock, anchorId: string, f: (rt: RichText) => RichText): ProductBlock | null {
   if (block.type === "table") {
     let hit = false;
     const rows = block.rows.map((r) => ({

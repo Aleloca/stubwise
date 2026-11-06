@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useAnswerQuestionNow, useDecidePlanNow, usePeople } from "../../../data/queries";
-import type { ClaudeDecision, Person } from "../../../data/types";
+import type { ConversationClaudeDecision, Person } from "../../../data/types";
 import { relativeTime } from "../../../notifications/time";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { Avatar } from "../../../tasks-ui/PersonChip";
@@ -10,8 +10,8 @@ import { useToast } from "../../../tasks-ui/Toast";
 import { ghostButton, smallPrimary, smallSecondary } from "../../task/parts";
 import { deferAnswer } from "../pendingAnswers";
 
-type Question = Extract<ClaudeDecision, { kind: "question" }>;
-type Plan = Extract<ClaudeDecision, { kind: "plan" }>;
+type Question = Extract<ConversationClaudeDecision, { kind: "question" }>;
+type Plan = Extract<ConversationClaudeDecision, { kind: "plan" }>;
 
 /**
  * Una domanda o un piano di Claude in «Decide», nella forma di una
@@ -25,7 +25,7 @@ export function ClaudeDecisionItem({
   decision,
   onOpenTask,
 }: {
-  decision: ClaudeDecision;
+  decision: ConversationClaudeDecision;
   onOpenTask: (code: string) => void;
 }) {
   const { t } = useTranslation();
@@ -366,7 +366,7 @@ function Shell({
   content,
   actions,
 }: {
-  decision: ClaudeDecision;
+  decision: ConversationClaudeDecision;
   claude: Person | undefined;
   heading: string;
   onOpenTask: (code: string) => void;

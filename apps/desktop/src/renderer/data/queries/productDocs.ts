@@ -348,3 +348,20 @@ export function useUndoProductChange() {
     MARK_AREAS,
   );
 }
+
+// --- le domande di Claude (11b, Task 4) -------------------------------------------
+
+/**
+ * Una risposta cambia la pagina e la cronologia («Aggiorna così»), la card
+ * («Answered by») e toglie la voce da «Decide» della Home (`conversations`).
+ */
+const ANSWER_AREAS: readonly string[] = [...PRODUCT_AREAS, "notifications", "conversations"];
+
+/** Risponde a una domanda di Claude, dal filo o da «Decide»: `apply` o `keep`. */
+export function useAnswerProductQuestion() {
+  return useWrite(
+    ({ commentId, option }: { commentId: string; option: "apply" | "keep" }) =>
+      api.productDocs.answerProductQuestion(commentId, option),
+    ANSWER_AREAS,
+  );
+}
