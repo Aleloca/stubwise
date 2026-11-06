@@ -45,6 +45,9 @@ export type JobKind =
   | "server_analysis"
   | "server_fix"
   | "automation"
+  // Area 11b: una fonte che aggiorna una pagina di prodotto, ferma per il
+  // budget o la pausa (`applyProductSource`).
+  | "product_doc_update"
   | "nightly";
 
 /**
@@ -68,6 +71,8 @@ export interface HeldJob {
   conversationId: string | null;
   automationRunId: string | null;
   starterId: string;
+  /** Solo `product_doc_update`: la pagina che la fonte aggiornerà (lo Stato dell'istanza la nomina). */
+  productPageId?: string;
   block: AiBlock;
   since: string;
   /** `releasedBy`: chi ha ripreso la coda; `null` se è caduto il budget. */
@@ -101,6 +106,7 @@ const copyOf = (j: HeldJob): Omit<HeldJob, "start"> => ({
   conversationId: j.conversationId,
   automationRunId: j.automationRunId,
   starterId: j.starterId,
+  ...(j.productPageId === undefined ? {} : { productPageId: j.productPageId }),
   block: { ...j.block },
   since: j.since,
 });

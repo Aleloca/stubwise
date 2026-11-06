@@ -192,6 +192,8 @@ export async function deleteProductPage(pageId: string): Promise<void> {
   state.productRevisions = state.productRevisions.filter((r) => r.pageId !== page.id);
   state.productFollows = state.productFollows.filter((f) => f.pageId !== page.id);
   state.productComments = state.productComments.filter((c) => c.pageId !== page.id);
+  // I fatti di Claude che aspettavano una sezione della pagina (11b) non hanno più dove andare.
+  state.productPending = state.productPending.filter((r) => r.pageId !== page.id);
   const present = state.productPresence.length;
   state.productPresence = state.productPresence.filter((p) => p.pageId !== page.id);
   renumber(childrenOf(page.projectId, page.parentId));

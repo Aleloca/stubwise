@@ -260,17 +260,24 @@ function heldJob(h: ReturnType<typeof heldJobs>[number]): Job {
     ? state.conversations.find((c) => c.id === h.conversationId)
     : undefined;
   const task = taskOf(h.taskId);
+  // Area 11b (P9): una fonte che aggiornerà una pagina di prodotto si dice con la pagina.
+  const page = h.productPageId ? state.productPages.find((p) => p.id === h.productPageId) : undefined;
   return {
     id: h.conversationId ?? h.automationRunId ?? h.id,
     kind: h.kind,
     projectId: h.projectId,
     projectCode: codeOf(h.projectId),
-    title: run?.title ?? conversation?.title ?? task?.title ?? "",
-    code: run && automation ? `${automation.code} #${run.n}` : (task?.code ?? null),
+    title: run?.title ?? conversation?.title ?? task?.title ?? page?.title ?? "",
+    code: run && automation ? `${automation.code} #${run.n}` : (task?.code ?? page?.code ?? null),
     state: "waiting",
     waiting: h.block,
     since: h.since,
-    href: run && automation ? runHref(automation.code, run.n) : taskHref(h.taskId),
+    href:
+      run && automation
+        ? runHref(automation.code, run.n)
+        : page
+          ? `#/p/${codeOf(page.projectId)}/docs/product/${page.code}`
+          : taskHref(h.taskId),
     summary: null,
     startFailed: false,
     superseded: false,

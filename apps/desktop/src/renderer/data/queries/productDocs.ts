@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { useCallback, useEffect } from "react";
 import * as api from "../api";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
+import { useInstanceChanges } from "./instance";
 import type { ProductBlockOp } from "../types";
 
 // Gli hook dello spazio Prodotto (area 11a); `data/queries` li ri-esporta.
@@ -297,5 +298,19 @@ export function useSetProductPresence() {
       pageId: string;
       at: { anchorId: string; offset: number; selection?: [number, number] | null } | null;
     }) => api.productDocs.setProductPresence(pageId, at),
+  });
+}
+
+/**
+ * Le fonti che aspettano il budget o la ripresa della coda nello spazio (11b,
+ * P11): la riga dell'attesa in cima. L'area è «instance», così un budget
+ * tornato o una coda ripresa la rileggono da soli (`useInstanceChanges`).
+ */
+export function useProductUpdatesWaiting(projectId: string) {
+  const me = useSessionPersonId();
+  useInstanceChanges();
+  return useQuery({
+    queryKey: ["as", me, "instance", "product-updates-waiting", projectId] as const,
+    queryFn: () => api.productDocs.productUpdatesWaiting(projectId),
   });
 }

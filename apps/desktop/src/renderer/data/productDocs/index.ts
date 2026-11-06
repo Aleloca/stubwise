@@ -38,6 +38,13 @@ export {
   resolveProductComment,
 } from "./comments";
 export {
+  applyProductSource,
+  askProductQuestion,
+  productUpdatesWaiting,
+  whenProductClaudeIdle,
+  type ProductSourceOutcome,
+} from "./claude";
+export {
   getProductPresence,
   joinProductPage,
   leaveProductPageAs,

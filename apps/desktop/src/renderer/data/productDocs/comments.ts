@@ -42,14 +42,14 @@ const nameOf = (personId: string): string =>
 const commentById = (id: string): ProductComment | undefined =>
   state.productComments.find((c) => c.id === id);
 
-/** Senza spazi ai lati e tagliata a `QUOTE_MAX` con «…». */
-function cleanQuote(quote: string): string {
+/** Senza spazi ai lati e tagliata a `QUOTE_MAX` con «…» (anche le domande di Claude, 11b). */
+export function cleanQuote(quote: string): string {
   const q = quote.trim();
   return q.length > QUOTE_MAX ? `${q.slice(0, QUOTE_MAX - 1)}…` : q;
 }
 
 /** L'indirizzo che apre la pagina sul filo (`?comment=<radice>`). */
-const threadLink = (page: ProductPage, rootId: string): string =>
+export const threadLink = (page: ProductPage, rootId: string): string =>
   `#/p/${state.projectsById.get(page.projectId)!.code}/docs/product/${page.code}?comment=${rootId}`;
 
 // --- le ancore dopo un'unione (Q3) ---------------------------------------------

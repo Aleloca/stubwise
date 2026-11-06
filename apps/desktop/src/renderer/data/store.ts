@@ -131,6 +131,7 @@ import type {
   ProductFollow,
   ProductPage,
   ProductMark,
+  ProductPendingFact,
   ProductRevision,
   ContentState,
   DriveFile,
@@ -417,6 +418,7 @@ export type ApiFnName =
   | "productDocs.joinProductPage"
   | "productDocs.setProductPresence"
   | "productDocs.getProductPresence"
+  | "productDocs.productUpdatesWaiting"
   // Drive (area 5)
   | "drive.listDriveFiles"
   | "drive.getDriveFile"
@@ -1050,6 +1052,16 @@ interface State {
   productRevisions: ProductRevision[];
   /** I segni «Claude's change» (11b): una riga per ancora cambiata da Claude. */
   productMarks: ProductMark[];
+  /**
+   * I fatti chiari che aspettano una sezione libera (11b, `writersNear`):
+   * ripartono su `onProductPresence`. Con `pageId`, vanno via col progetto.
+   */
+  productPending: ProductPendingFact[];
+  /**
+   * Le fonti già arrivate, `<kind>:<id>:<projectId>` (11b, preflight P46):
+   * la stessa fonte una seconda volta non scrive di nuovo.
+   */
+  productSourcesSeen: Set<string>;
   /** Chi segue quale pagina: chi la crea e chi preme «Follow», mai da solo. */
   productFollows: ProductFollow[];
   /**
@@ -1326,6 +1338,8 @@ function freshState(): State {
     productPages: PRODUCT_PAGES.map(copy),
     productRevisions: PRODUCT_REVISIONS.map(copy),
     productMarks: [],
+    productPending: [],
+    productSourcesSeen: new Set(),
     productFollows: PRODUCT_FOLLOWS.map(copy),
     productBlockIds: productSeedBlockIds(),
     productSessionDeletes: new Map(),

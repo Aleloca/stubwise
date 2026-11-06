@@ -23,6 +23,7 @@ import { presentChatNotification } from "./chat/reads";
 import { deliveredTo } from "./alerts/reads";
 import { whyReceives } from "./alerts/visibility";
 import { linkAccessHrefOf } from "./servers/visibility";
+import { presentProductQuestion, presentProductUpdate } from "./productDocs/claude";
 import { presentProductMention } from "./productDocs/comments";
 import {
   productPageByCode,
@@ -678,6 +679,9 @@ export async function listNotifications(): Promise<AppNotification[]> {
       // Area 11a (Q1, P19): una menzione in un commento di prodotto, letta
       // dalla pagina e dal filo di adesso (`objectGone` se non ci sono più).
       presentProductMention(me, out);
+      // Area 11b: le card di Claude sulla doc di prodotto, lette per chi riceve.
+      presentProductUpdate(me, out);
+      presentProductQuestion(me, out);
       return [out];
     }
     const shown = presentChatNotification(me, delivered);

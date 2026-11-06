@@ -58,6 +58,11 @@ export const LOCAL_NOTIFICATION_KINDS = [
   // Area 11a (Q1): una @menzione in un commento della doc di prodotto. Per il
   // motore è un `notification_kind` nuovo, con la regola di rollback del CLAUDE.md.
   "product_doc.mention",
+  // Area 11b: Claude ha aggiornato una pagina di prodotto da una fonte, o
+  // chiede su una frase. Per il motore sono due `notification_kind` nuovi,
+  // con la regola di rollback del CLAUDE.md.
+  "product_doc.updated",
+  "product_doc.question",
 ] as const;
 
 // [kind, codice progetto, codice oggetto, titolo, corpo, ore fa, letta, destinatari?, valori stabili?]

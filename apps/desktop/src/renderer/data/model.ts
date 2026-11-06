@@ -202,6 +202,57 @@ export interface AppNotification {
    * vede (R-G5), perché la card li scriva in 600. Mai salvato.
    */
   mentionNames?: string[];
+  /**
+   * Area 11b: solo `product_doc.updated`, la pagina, le revisioni scritte e
+   * le fonti, come valori stabili scritti al momento (una card per fonte;
+   * dopo un rilascio della coda, una per pagina con più fonti). `waited`:
+   * la card arriva dopo un'attesa della coda (budget o pausa). Titolo, corpo
+   * e `objectGone` si derivano a lettura (`presentProductUpdate`). Assente
+   * sulle altre, e una riga senza si legge come `objectGone`.
+   */
+  productUpdate?: {
+    pageId: string;
+    revisionIds: string[];
+    sources: ProductSourceRef[];
+    waited?: AiBlock["reason"];
+  };
+  /**
+   * Area 11b: solo `product_doc.question`, la pagina e il commento-domanda.
+   * Come `productUpdate`, si legge a lettura (`presentProductQuestion`).
+   */
+  productQuestion?: { pageId: string; commentId: string };
+  /**
+   * Area 11b, solo a lettura: quello che la card di `product_doc.updated` o
+   * `product_doc.question` dice, già visto da chi riceve (le fonti nella sua
+   * forma, R-G5 e §21; i nomi solo se li vede). Assente con `objectGone`.
+   * Mai salvato.
+   */
+  productCard?: ProductCardView;
+}
+
+/**
+ * Quello che una card della doc di prodotto (11b) dice, per chi la legge. I
+ * testi li compone la card in en/it da questi valori stabili.
+ */
+export interface ProductCardView {
+  /** Le fonti, ognuna come la legge chi riceve (`sourceViewOf`), in ordine d'arrivo. */
+  sources: ProductSourceView[];
+  /** Quante frasi (ancore) hanno cambiato le revisioni; 0 per una domanda. */
+  changes: number;
+  /** Una fonte sola di una persona: «per conto di» (`null` per Claude o per chi non si vede). */
+  onBehalfOfName: string | null;
+  /** La card arriva dopo un'attesa della coda: il budget o la pausa. */
+  waited: AiBlock["reason"] | null;
+  /** Solo `product_doc.question`. */
+  question?: {
+    reason: ProductQuestionReason;
+    /** La persona nominata dalla domanda (chi ha scritto la frase, o il titolare senza permesso). */
+    forName: string | null;
+    /** Il codice della task di una divergenza (anche invisibile: `CodeLink` lo mostra tenue). */
+    taskCode: string | null;
+    answer: ProductAnswerChoice | null;
+    answeredByName: string | null;
+  };
 }
 
 /** Perché un avviso del catalogo arriva a qualcuno senza iscrizione (area 8a). */
@@ -3741,6 +3792,55 @@ export type ProductFactDecision =
 /** La risposta che Claude può consigliare (o che una persona dà) a una domanda sulla doc. */
 export type ProductAnswerChoice = NonNullable<ProductFact["recommended"]>;
 
+/** Perché un fatto è diventato una domanda (preflight P3). */
+export type ProductQuestionReason = Extract<ProductFactDecision, { kind: "question" }>["reason"];
+
+/**
+ * La domanda di Claude su un'ancora (11b): un commento di `CLAUDE_ID` con
+ * le risposte già scritte. Il testo della domanda NON è nel `body` (vuoto):
+ * lo compone in lettura chi la mostra, in en o it, da questi valori stabili.
+ */
+export interface ProductQuestion {
+  sourceRef: ProductSourceRef;
+  factId: string;
+  reason: ProductQuestionReason;
+  /**
+   * La persona che la domanda nomina: chi ha scritto la frase
+   * (`contradicts_person`) o il titolare senza `docs.edit` (`no_permission`);
+   * altrimenti `null`.
+   */
+  forId: string | null;
+  /** La frase del fatto, parola per parola («Update it»); `null` = nessuna strada. */
+  apply: RichText | null;
+  /** Solo `diverges`: cosa è stato fatto. */
+  built: string | null;
+  request: { title: string; description: string } | null;
+  recommended: ProductAnswerChoice;
+  /** Una sola risposta (Task 4); `revisionId` è la revisione di «Update it» (P19). */
+  answer: {
+    byId: string;
+    option: ProductAnswerChoice;
+    seq: number;
+    revisionId: string | null;
+  } | null;
+}
+
+/**
+ * Un fatto chiaro che aspetta una sezione libera (11b): qualcuno ci scrive
+ * (`writersNear`). Riparte su `onProductPresence`, rivalutando la regola:
+ * se intanto una persona ha toccato l'ancora (dopo `arrivedSeq`), diventa
+ * una domanda.
+ */
+export interface ProductPendingFact {
+  id: string;
+  pageId: string;
+  projectId: string;
+  ref: ProductSourceRef;
+  fact: ProductFact;
+  /** `nextSeq()` all'arrivo del fatto: il «dopo» di `touchedAfter`. */
+  arrivedSeq: number;
+}
+
 /**
  * Una fonte come la legge chi guarda (11b, `sourceViewOf`): UNA funzione
  * per segno, cronologia, card, Home, riga della prima versione e risposte
@@ -3946,7 +4046,8 @@ export interface ProductComment {
   resolved: { byId: string; at: string } | null;
   /** Chi il testo menziona e leggeva i Docs del progetto quando è stato scritto; mai chi scrive. */
   mentionIds: string[];
-  // Il 11b aggiunge `question?: …` (le domande di Claude).
+  /** 11b: la radice è una domanda di Claude (`askProductQuestion`). Facoltativo. */
+  question?: ProductQuestion;
 }
 
 export interface ProductCommentView extends ProductComment {

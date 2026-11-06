@@ -10983,6 +10983,7 @@
           "server_analysis": "Server analysis",
           "server_fix": "Server fix",
           "automation": "Automation",
+          "product_doc_update": "Product doc update",
           "nightly": "Nightly run"
         },
         "state": {

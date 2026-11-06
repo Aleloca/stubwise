@@ -10983,6 +10983,7 @@
           "server_analysis": "Analisi del server",
           "server_fix": "Correzione del server",
           "automation": "Automazione",
+          "product_doc_update": "Aggiornamento della doc di prodotto",
           "nightly": "Giro notturno"
         },
         "state": {

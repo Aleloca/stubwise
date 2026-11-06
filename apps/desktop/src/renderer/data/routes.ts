@@ -232,6 +232,7 @@ export const WORK_KINDS = [
   "server_analysis",
   "server_fix",
   "automation",
+  "product_doc_update",
 ] as const;
 
 /** La forma di un filtro di WORK; la pagina rilegge i valori (un progetto che non vede si ignora). */
