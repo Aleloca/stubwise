@@ -23,7 +23,7 @@ import { presentChatNotification } from "./chat/reads";
 import { deliveredTo } from "./alerts/reads";
 import { whyReceives } from "./alerts/visibility";
 import { linkAccessHrefOf } from "./servers/visibility";
-import { presentProductQuestion, presentProductUpdate } from "./productDocs/claude";
+import { presentProductQuestion, presentProductUpdate } from "./productDocs/claudeReads";
 import { presentProductMention } from "./productDocs/comments";
 import {
   productPageByCode,

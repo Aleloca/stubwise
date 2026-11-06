@@ -40,10 +40,10 @@ export {
 export {
   applyProductSource,
   askProductQuestion,
-  productUpdatesWaiting,
   whenProductClaudeIdle,
   type ProductSourceOutcome,
 } from "./claude";
+export { productUpdatesWaiting } from "./claudeReads";
 export {
   getProductPresence,
   joinProductPage,

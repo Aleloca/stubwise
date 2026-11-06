@@ -3839,6 +3839,8 @@ export interface ProductPendingFact {
   fact: ProductFact;
   /** `nextSeq()` all'arrivo del fatto: il «dopo» di `touchedAfter`. */
   arrivedSeq: number;
+  /** Un gesto del riquadro: chi l'ha chiesto non fa aspettare sé stesso. */
+  requesterId?: string;
 }
 
 /**

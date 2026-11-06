@@ -6,7 +6,7 @@ import { CLAUDE_ID } from "../seed/people";
 import { done, ext, mail, person } from "../seed/mail/helpers";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
-import { revokeProjectPermission } from "../viewer";
+import { grantInstancePermission, revokeProjectPermission } from "../viewer";
 import { applyProductSource, askProductQuestion, whenProductClaudeIdle } from "./claude";
 
 // Il motore degli aggiornamenti (11b, Task 2): i fatti di una fonte sulle
@@ -373,7 +373,7 @@ describe("il budget e la pausa (Review Focus 5)", () => {
   });
 
   it("un gesto del riquadro (`manual`) non passa dalla coda (P41)", () => {
-    const out = applyProductSource(ref("mm-laura-1"), ACQ, [replace(HOW)], { manual: true });
+    const out = applyProductSource(ref("mm-laura-1"), ACQ, [replace(HOW)], { manual: { requesterId: LAURA } });
     expect(out.held).toBe(false);
     expect(out.edits).toHaveLength(1);
     expect(heldJobs()).toEqual([]);
@@ -403,6 +403,101 @@ describe("il budget e la pausa (Review Focus 5)", () => {
       code: page().code,
       href: `#/p/ACQ/docs/product/${page().code}`,
     });
+  });
+});
+
+describe("Fix round 1: lo Stato dell'istanza e R-G5", () => {
+  beforeEach(async () => {
+    as(ROBERTA);
+    await instance.simulateBudgetReached(true);
+    applyProductSource(ref("mm-laura-1"), ACQ, [replace(HOW)]);
+  });
+  const row = async () =>
+    (await instance.getInstanceStatus()).jobs.find((j) => j.kind === "product_doc_update")!;
+
+  it("chi vede lo Stato ma non i Docs di ACQ non legge titolo, codice né link della pagina", async () => {
+    grantInstancePermission(SARA, "instance.status.view");
+    revokeProjectPermission(SARA, ACQ, "docs.view" as never);
+    as(SARA);
+    const job = await row();
+    expect(job).toMatchObject({ title: "", code: null, href: null, state: "waiting" });
+    expect(JSON.stringify(job).toLowerCase()).not.toContain("sign-in");
+  });
+
+  it("con i Docs spenti nemmeno il full admin legge la pagina nella riga", async () => {
+    const project = state.projectsById.get(ACQ)!;
+    project.modules = project.modules.filter((m) => m !== "docs");
+    as(ROBERTA);
+    expect(await row()).toMatchObject({ title: "", code: null, href: null });
+  });
+});
+
+describe("Fix round 1: il gesto del riquadro non scrive due volte", () => {
+  const insert = () => fact({ id: "fact-insert", anchorId: STORES, change: { kind: "insert_after", block: NEW_BLOCK } });
+  const copies = () =>
+    page().blocks.filter((b) => "content" in b && b.content.text === "Apple sign-in is not offered.");
+
+  it("due volte di fila: il paragrafo entra una volta sola", () => {
+    const manual = { manual: { requesterId: LAURA } };
+    expect(applyProductSource(ref("mm-laura-1"), ACQ, [insert()], manual).edits).toHaveLength(1);
+    const again = applyProductSource(ref("mm-laura-1"), ACQ, [insert()], manual);
+    expect(again.edits).toEqual([]);
+    expect(again.none).toBe(1);
+    expect(copies()).toHaveLength(1);
+  });
+
+  it("due volte con Marco nella sezione: una riga in attesa, un paragrafo quando esce", async () => {
+    as(MARCO);
+    await productDocs.setProductPresence(PAGE, { anchorId: STORES, offset: 0 });
+    const manual = { manual: { requesterId: LAURA } };
+    applyProductSource(ref("mm-laura-1"), ACQ, [insert()], manual);
+    const again = applyProductSource(ref("mm-laura-1"), ACQ, [insert()], manual);
+    expect(state.productPending).toHaveLength(1);
+    expect(again.pending).toEqual([state.productPending[0]!.id]);
+    productDocs.leaveProductPageAs(MARCO, PAGE);
+    expect(copies()).toHaveLength(1);
+    expect(claudeRevisions()).toHaveLength(1);
+  });
+
+  it("una fonte ferma per il budget e poi il gesto: al rilascio non scrive di nuovo", async () => {
+    as(ROBERTA);
+    await instance.simulateBudgetReached(true);
+    expect(applyProductSource(ref("mm-laura-1"), ACQ, [insert()]).held).toBe(true);
+    applyProductSource(ref("mm-laura-1"), ACQ, [insert()], { manual: { requesterId: LAURA } });
+    await instance.simulateBudgetReached(false);
+    await whenProductClaudeIdle();
+    expect(copies()).toHaveLength(1);
+    expect(claudeRevisions()).toHaveLength(1);
+    expect(cards("product_doc.updated")).toHaveLength(1);
+  });
+
+  it("chi chiede dal riquadro non fa aspettare sé stesso; un altro nella sezione sì", async () => {
+    as(LAURA);
+    await productDocs.setProductPresence(PAGE, { anchorId: HOW, offset: 0 });
+    const mine = applyProductSource(ref("mm-laura-1"), ACQ, [replace(HOW)], { manual: { requesterId: LAURA } });
+    expect(mine.edits).toHaveLength(1);
+    expect(mine.pending).toEqual([]);
+    as(MARCO);
+    await productDocs.setProductPresence(PAGE, { anchorId: HOW, offset: 0 });
+    const theirs = applyProductSource(ref("mm-laura-1"), ACQ, [replace(HOW, STORES_TEXT)], {
+      manual: { requesterId: LAURA },
+    });
+    expect(theirs.pending).toHaveLength(1);
+    // Marco esce, Laura è ancora lì: chi ha chiesto non conta, il fatto entra.
+    productDocs.leaveProductPageAs(MARCO, PAGE);
+    expect(state.productPending).toEqual([]);
+    expect(contentOf(HOW)).toEqual(STORES_TEXT);
+  });
+});
+
+describe("Fix round 1: la domanda su un'ancora sparita", () => {
+  it("una divergenza su un blocco tolto si appoggia alla prima ancora della pagina, con la sua frase", () => {
+    const out = applyProductSource({ kind: "task", id: TASK_ID }, ACQ, [
+      fact({ anchorId: "blk-gone-forever", change: { kind: "diverges", built: "Apple sign-in" } }),
+    ]);
+    const c = state.productComments.find((x) => x.id === out.questions[0])!;
+    expect(c.anchorId).toBe(page().blocks[0]!.id);
+    expect(c.quote).toBe("How customers sign in");
   });
 });
 

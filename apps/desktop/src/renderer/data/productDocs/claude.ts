@@ -1,13 +1,11 @@
 import { anchorIdsOf, anchorText, applyBlockOps, isTextBlock } from "../../domain/productDocs/blocks";
 import { insertText } from "../../domain/productDocs/richText";
 import { decideFact, recommendedOf } from "../../domain/productDocs/claudeRule";
-import { visiblePeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
 import { aiBlockFor } from "../instance/blocks";
-import { heldJobs, holdJob } from "../instance/queue";
-import { CLAUDE_ID, PEOPLE } from "../seed/people";
+import { holdJob } from "../instance/queue";
+import { CLAUDE_ID } from "../seed/people";
 import {
-  gate,
   newId,
   nextSeq,
   notifyInstanceChange,
@@ -35,6 +33,7 @@ import { cleanQuote, threadLink } from "./comments";
 import { emitProductPage, onProductPresence } from "./events";
 import { productDocRecipients } from "./follows";
 import { writersNear } from "./presence";
+import { productPageHref } from "./claudeReads";
 import { productPageById } from "./reads";
 import { lastRevisionTouching, touchedAfter } from "./revisions";
 import { sourceOwnerOf, sourceViewOf } from "./sources";
@@ -87,8 +86,6 @@ const empty = (): ProductSourceOutcome => ({
   none: 0,
 });
 
-const nameOf = (personId: string): string =>
-  PEOPLE.find((p) => p.id === personId)?.name ?? personId;
 
 const sourceKey = (ref: ProductSourceRef, projectId: string): string =>
   `${ref.kind}:${ref.kind === "first_version" ? ref.ids.join(",") : ref.id}:${projectId}`;
@@ -96,9 +93,6 @@ const sourceKey = (ref: ProductSourceRef, projectId: string): string =>
 const sameRef = (a: ProductSourceRef, b: ProductSourceRef): boolean =>
   sourceKey(a, "") === sourceKey(b, "");
 
-/** L'indirizzo della pagina. */
-const pageHref = (page: ProductPage): string =>
-  `#/p/${state.projectsById.get(page.projectId)?.code ?? ""}/docs/product/${page.code}`;
 
 const docsOn = (projectId: string): boolean =>
   state.projectsById.get(projectId)?.modules.includes("docs") ?? false;
@@ -107,7 +101,14 @@ const docsOn = (projectId: string): boolean =>
 const byPerson = (r: ProductRevision | null): boolean =>
   r !== null && r.via === undefined && r.actorId !== CLAUDE_ID;
 
-/** Una persona ha toccato l'ancora dopo `seq` (le revisioni di Claude non contano). */
+/**
+ * Una persona ha toccato l'ancora dopo `seq` (le revisioni di Claude non
+ * contano). Un falso positivo è possibile, ed è nel verso sicuro: una
+ * revisione di una persona nata PRIMA dell'arrivo che continua a unirsi
+ * (`lastSeq` nuovo) su un'altra ancora della stessa sessione fa sembrare
+ * l'ancora toccata dopo. Il fatto diventa una domanda, mai una
+ * sovrascrittura.
+ */
 function personTouchedAfter(pageId: string, anchorId: string, seq: number): boolean {
   let r = touchedAfter(pageId, anchorId, seq);
   while (r !== null) {
@@ -121,14 +122,23 @@ function personTouchedAfter(pageId: string, anchorId: string, seq: number): bool
 const canEdit = (personId: string, projectId: string): boolean =>
   docsAccess(personId, projectId) === "read" && can(viewerFor(personId), "docs.edit", projectId);
 
-/** L'ancora su cui si aspetta e si chiede: quella del fatto, o la prima della pagina. */
+/**
+ * L'ancora su cui si aspetta e si chiede: quella del fatto se c'è ancora
+ * nella pagina, altrimenti la prima della pagina (una domanda su una frase
+ * tolta si leggerebbe «Frase eliminata», senza la frase).
+ */
 const anchorOf = (page: ProductPage, anchorId: string | null): string | null =>
-  anchorId ?? page.blocks.flatMap(anchorIdsOf)[0] ?? null;
+  (anchorId !== null && anchorText(page.blocks, anchorId) !== null ? anchorId : null) ??
+  page.blocks.flatMap(anchorIdsOf)[0] ??
+  null;
 
-/** Qualcuno scrive nella sezione del fatto (`writersNear`). */
-function sectionBusy(page: ProductPage, fact: ProductFact): boolean {
+/**
+ * Qualcuno scrive nella sezione del fatto (`writersNear`). Chi ha chiesto dal
+ * riquadro (`requesterId`) non conta: non aspetta il proprio cursore.
+ */
+function sectionBusy(page: ProductPage, fact: ProductFact, requesterId: string | undefined): boolean {
   const anchor = anchorOf(page, fact.anchorId);
-  return anchor !== null && writersNear(page.id, anchor).length > 0;
+  return anchor !== null && writersNear(page.id, anchor).some((id) => id !== requesterId);
 }
 
 // --- la domanda ----------------------------------------------------------------
@@ -237,6 +247,14 @@ function withAnchor(block: ProductBlock, anchorId: string, f: (rt: RichText) => 
   return block.id === anchorId && isTextBlock(block) ? { ...block, content: f(block.content) } : null;
 }
 
+/** Il blocco senza i suoi id (blocco, righe, celle): due copie dello stesso blocco sono uguali. */
+const shapeOf = (block: ProductBlock): string =>
+  JSON.stringify(
+    block.type === "table"
+      ? { ...block, id: "", rows: block.rows.map((r) => ({ id: "", cells: r.cells.map((c) => ({ ...c, id: "" })) })) }
+      : { ...block, id: "" },
+  );
+
 const hasCode = (text: string, code: string): boolean =>
   new RegExp(`\\b${code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text);
 
@@ -250,8 +268,13 @@ function opOf(blocks: readonly ProductBlock[], fact: ProductFact): ProductBlockO
       const block = holder && withAnchor(holder, fact.anchorId!, () => change.text);
       return block ? { op: "set", block } : null;
     }
-    case "insert_after":
+    case "insert_after": {
+      // Lo stesso blocco subito dopo l'ancora c'è già (un gesto ripetuto, o
+      // una fonte già scritta che esce dalla coda): niente da scrivere.
+      const next = holder ? blocks[blocks.indexOf(holder) + 1] : blocks[0];
+      if (next && shapeOf(next) === shapeOf(change.block)) return null;
       return { op: "insert", afterId: holder?.id ?? null, block: freshIds(change.block) };
+    }
     case "link_task": {
       const code = change.taskCode;
       const block =
@@ -342,7 +365,7 @@ function publishUpdate(
   state.notifications.push({
     ...cardBase(page, recipientIds),
     kind: "product_doc.updated",
-    link: pageHref(page),
+    link: productPageHref(page),
     productUpdate: {
       pageId: page.id,
       revisionIds,
@@ -404,6 +427,7 @@ function settle(
   items: readonly Item[],
   waited: AiBlock["reason"] | null,
   out: ProductSourceOutcome,
+  requesterId?: string,
 ): void {
   const page = productPageById(pageId);
   if (
@@ -429,10 +453,32 @@ function settle(
     if (decision.kind === "none") {
       out.none += 1;
     } else if (decision.kind === "question") {
-      out.questions.push(askProductQuestion(page.id, anchorId, fact, ref, decision.reason));
-    } else if (sectionBusy(page, fact)) {
+      try {
+        out.questions.push(askProductQuestion(page.id, anchorId, fact, ref, decision.reason));
+      } catch (error) {
+        // Una pagina senza ancore: niente su cui chiedere, e un rilascio non lancia.
+        console.error("applyProductSource: a question could not be asked", error);
+        out.none += 1;
+      }
+    } else if (sectionBusy(page, fact, requesterId)) {
+      // Lo stesso fatto della stessa fonte aspetta una volta sola (un gesto ripetuto).
+      const waiting = state.productPending.find(
+        (r) => r.pageId === page.id && r.fact.id === fact.id && sameRef(r.ref, ref),
+      );
+      if (waiting) {
+        out.pending.push(waiting.id);
+        continue;
+      }
       const id = pendingId ?? newId("ppend");
-      state.productPending.push({ id, pageId: page.id, projectId, ref, fact, arrivedSeq });
+      state.productPending.push({
+        id,
+        pageId: page.id,
+        projectId,
+        ref,
+        fact,
+        arrivedSeq,
+        ...(requesterId === undefined ? {} : { requesterId }),
+      });
       out.pending.push(id);
     } else {
       ready.push(fact);
@@ -458,35 +504,44 @@ function settleSource(
   ref: ProductSourceRef,
   projectId: string,
   facts: readonly ProductFact[],
-  waited: AiBlock["reason"] | null,
+  requesterId: string | undefined,
 ): ProductSourceOutcome {
   const out = empty();
   for (const [pageId, list] of byPage(facts)) {
     const arrivedSeq = nextSeq();
-    settle(pageId, projectId, ref, list.map((fact) => ({ fact, arrivedSeq })), waited, out);
+    settle(pageId, projectId, ref, list.map((fact) => ({ fact, arrivedSeq })), null, out, requesterId);
   }
   return out;
 }
 
 /**
  * Applica i fatti di una fonte arrivata nel progetto. Col budget finito o la
- * coda in pausa aspetta (`held`), un lavoro fermo per pagina; `manual` (un
- * gesto del riquadro di Claude, P41) non passa dalla coda, perché col budget
- * finito lo spegne prima il riquadro (`BudgetBand`), e non si ferma sulla
- * fonte già vista: chi chiede, chiede di nuovo. Aspetta comunque chi scrive.
+ * coda in pausa aspetta (`held`), un lavoro fermo per pagina.
+ *
+ * `manual` è un gesto del riquadro di Claude (P41), con chi l'ha chiesto. Non
+ * passa dalla coda, perché col budget finito lo spegne prima il riquadro
+ * (`BudgetBand`). Non si ferma sulla fonte già vista: chi chiede, chiede di
+ * nuovo. Aspetta chi scrive nella sezione, ma non chi ha chiesto. Ripetuto,
+ * non scrive due volte: `replace` e `link_task` lo sono già, `insert_after`
+ * non inserisce un blocco uguale a quello che segue l'ancora, e lo stesso
+ * fatto aspetta in una riga sola.
+ *
+ * Una fonte arrivata coi Docs spenti si segna come vista e non fa niente:
+ * riaccesi i Docs non si ripesca (scelta del costruttore, come una fonte
+ * arrivata prima che il progetto avesse la doc).
  */
 export function applyProductSource(
   ref: ProductSourceRef,
   projectId: string,
   facts: readonly ProductFact[],
-  opts: { manual?: boolean } = {},
+  opts: { manual?: { requesterId: string } } = {},
 ): ProductSourceOutcome {
   const key = sourceKey(ref, projectId);
   if (!opts.manual && state.productSourcesSeen.has(key)) return empty();
   state.productSourcesSeen.add(key);
   if (!docsOn(projectId)) return { ...empty(), none: facts.length };
   const block = opts.manual ? null : aiBlockFor(projectId);
-  if (!block) return settleSource(ref, projectId, facts, null);
+  if (!block) return settleSource(ref, projectId, facts, opts.manual?.requesterId);
   const starterId = sourceOwnerOf(ref, projectId);
   for (const [pageId, list] of byPage(facts)) {
     // L'arrivo è ADESSO, non al rilascio: chi riscrive il blocco mentre la
@@ -524,134 +579,17 @@ function retryPending(pageId: string): void {
   if (rows.length === 0) return;
   state.productPending = state.productPending.filter((r) => r.pageId !== pageId);
   // Per fonte, nell'ordine d'arrivo: una scrittura (e una card) per fonte.
-  const groups: { ref: ProductSourceRef; projectId: string; items: Item[] }[] = [];
+  const groups: { ref: ProductSourceRef; projectId: string; requesterId?: string; items: Item[] }[] = [];
   for (const r of rows) {
-    const group = groups.find((g) => sameRef(g.ref, r.ref) && g.projectId === r.projectId);
+    const group = groups.find(
+      (g) => sameRef(g.ref, r.ref) && g.projectId === r.projectId && g.requesterId === r.requesterId,
+    );
     const item = { fact: r.fact, arrivedSeq: r.arrivedSeq, pendingId: r.id };
     if (group) group.items.push(item);
-    else groups.push({ ref: r.ref, projectId: r.projectId, items: [item] });
+    else groups.push({ ref: r.ref, projectId: r.projectId, requesterId: r.requesterId, items: [item] });
   }
-  for (const g of groups) settle(pageId, g.projectId, g.ref, g.items, null, empty());
+  for (const g of groups) settle(pageId, g.projectId, g.ref, g.items, null, empty(), g.requesterId);
 }
 
 // Registrato una volta, al caricamento del modulo (l'insieme non si svuota a un ripristino).
 onProductPresence(retryPending);
-
-// --- le letture -----------------------------------------------------------------
-
-/**
- * Quante fonti aspettano il budget o la ripresa della coda nel progetto, e
- * il blocco che vale per la prima (la riga dell'attesa in cima allo spazio,
- * P11). Si contano soltanto: nessuna fonte è nominata. `null` per chi non
- * legge i Docs del progetto (R-G5) o senza attese.
- */
-export async function productUpdatesWaiting(
-  projectId: string,
-): Promise<{ count: number; block: AiBlock } | null> {
-  const me = await gate("productDocs.productUpdatesWaiting");
-  if (docsAccess(me, projectId) !== "read") return null;
-  const jobs = heldJobs().filter(
-    (j) =>
-      j.kind === "product_doc_update" &&
-      j.projectId === projectId &&
-      j.productPageId !== undefined &&
-      productPageById(j.productPageId) !== undefined,
-  );
-  return jobs.length === 0 ? null : { count: jobs.length, block: jobs[0]!.block };
-}
-
-/** La card non apre più niente: nessun codice, titolo, fonte né link (R-G5). */
-function gone(out: AppNotification): void {
-  out.objectGone = true;
-  out.objectCode = "";
-  out.title = "";
-  out.body = "";
-  out.link = "";
-  delete out.actorName;
-  delete out.productPageTitle;
-  delete out.productCard;
-}
-
-/**
- * Chi ha annullato tutte le revisioni della card («↺ Undone by …»): ogni
- * ancora di ognuna è tornata indietro con una revisione `undo` che la
- * nomina (`undoOf`). L'ultimo che ha annullato, se chi guarda lo vede.
- */
-function undoneByOf(revisions: readonly ProductRevision[], people: Set<string>): string | null {
-  if (revisions.length === 0) return null;
-  let last: ProductRevision | null = null;
-  for (const r of revisions) {
-    const undos = state.productRevisions.filter((u) => u.kind === "undo" && u.undoOf === r.id);
-    const back = new Set(undos.flatMap((u) => u.changes.flatMap((c) => c.anchors)));
-    if (!r.changes.every((c) => c.anchors.every((a) => back.has(a)))) return null;
-    for (const u of undos) if (!last || u.lastSeq > last.lastSeq) last = u;
-  }
-  return last && people.has(last.actorId) ? nameOf(last.actorId) : null;
-}
-
-/**
- * Una `product_doc.updated` come la legge `me` (dentro `listNotifications`,
- * su una copia): il codice e il titolo di adesso della pagina, le fonti
- * nella forma di chi riceve (§21), quante frasi, «per conto di» e chi ha
- * annullato. Pagina che non c'è più, o che `me` non legge, o una riga senza
- * `productUpdate`: `objectGone` e nient'altro.
- */
-export function presentProductUpdate(me: string, out: AppNotification): void {
-  if (out.kind !== "product_doc.updated") return;
-  const ref = out.productUpdate;
-  delete out.productUpdate;
-  const page = ref ? productPageById(ref.pageId) : undefined;
-  if (!ref || !page || docsAccess(me, page.projectId) !== "read") return gone(out);
-  out.objectCode = page.code;
-  out.link = pageHref(page);
-  out.productPageTitle = page.title;
-  const revisions = ref.revisionIds.flatMap((id) => state.productRevisions.filter((r) => r.id === id));
-  const people = visiblePeopleFor(me);
-  const persons = [...new Set(revisions.map((r) => r.actorId))].filter((id) => id !== CLAUDE_ID);
-  const onBehalf = ref.sources.length === 1 && persons.length === 1 ? persons[0]! : null;
-  out.undoneByName = undoneByOf(revisions, people);
-  out.productCard = {
-    sources: ref.sources.map((s) => sourceViewOf(me, s, page.projectId)),
-    changes: new Set(revisions.flatMap((r) => r.changes.flatMap((c) => c.anchors))).size,
-    onBehalfOfName: onBehalf && people.has(onBehalf) ? nameOf(onBehalf) : null,
-    waited: ref.waited ?? null,
-  };
-}
-
-/**
- * Una `product_doc.question` come la legge `me`: la pagina e il filo di
- * adesso, la ragione, la persona nominata e chi ha risposto (se li vede), la
- * fonte nella forma di chi riceve. Senza pagina, filo o lettura:
- * `objectGone`.
- */
-export function presentProductQuestion(me: string, out: AppNotification): void {
-  if (out.kind !== "product_doc.question") return;
-  const ref = out.productQuestion;
-  delete out.productQuestion;
-  const page = ref ? productPageById(ref.pageId) : undefined;
-  const comment = ref ? state.productComments.find((c) => c.id === ref.commentId) : undefined;
-  const q = comment?.question;
-  if (!page || !comment || !q || comment.pageId !== page.id || docsAccess(me, page.projectId) !== "read")
-    return gone(out);
-  out.objectCode = page.code;
-  out.link = threadLink(page, comment.id);
-  out.productPageTitle = page.title;
-  const people = visiblePeopleFor(me);
-  const seen = (id: string | null | undefined) => (id && people.has(id) ? nameOf(id) : null);
-  out.productCard = {
-    sources: [sourceViewOf(me, q.sourceRef, page.projectId)],
-    changes: 0,
-    onBehalfOfName: null,
-    waited: null,
-    question: {
-      reason: q.reason,
-      forName: seen(q.forId),
-      taskCode:
-        q.reason === "diverges" && q.sourceRef.kind === "task"
-          ? (state.tasksById.get(q.sourceRef.id)?.code ?? null)
-          : null,
-      answer: q.answer?.option ?? null,
-      answeredByName: seen(q.answer?.byId),
-    },
-  };
-}

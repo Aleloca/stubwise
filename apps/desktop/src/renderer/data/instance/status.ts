@@ -1,6 +1,7 @@
 import type { Conversation } from "../model";
 import { runHref } from "../routes";
 import { canSeeRun, runById } from "../automations/visibility";
+import { docsAccess } from "../docs/reads";
 import { serverHref } from "../servers/visibility";
 import { currentPhase, eventsOf, familyOf, gate, now, state, visibleProjectIds } from "../store";
 import type { ActionAvailability } from "../types";
@@ -347,7 +348,13 @@ export async function getInstanceStatus(): Promise<InstanceStatusView> {
   // Il budget vale per tutti i progetti: una lettura sola per la vista.
   const budget = budgetReached();
   const shown = all.filter(sees);
-  const jobs: InstanceJob[] = shown.map((j) => {
+  // R-G5 (11b): la pagina di prodotto di un aggiornamento fermo si nomina
+  // solo a chi legge i Docs di quel progetto (Docs spenti: nessuno). Agli
+  // altri resta il tipo di lavoro, senza titolo, codice né link.
+  const readsPage = (j: Job): boolean =>
+    j.kind !== "product_doc_update" || (j.projectId !== null && docsAccess(me, j.projectId) === "read");
+  const jobs: InstanceJob[] = shown.map((raw) => {
+    const j = readsPage(raw) ? raw : { ...raw, title: "", code: null, href: null };
     const permitted = permittedOf(j);
     const retryBlock =
       permitted === "allowed" && budget ? { reason: "monthly_budget" as const } : null;
