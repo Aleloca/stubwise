@@ -90,6 +90,10 @@ manca sul server di oggi.
    opzionali di altri workspace (vite, vitest, astro, changesets). Chi porta
    `docx` sul server o sul web tenga l'override, o il lockfile cambia in
    pacchetti che non c'entrano.
+   L'override fissa `@types/node` a `25.9.2`, **fuori dall'intervallo
+   `^26.6.2`** che `docx@9.15.2` dichiara: sono solo tipi (il renderer non usa
+   i tipi di Node, typecheck verde), ma **va tolto quando il monorepo passa a
+   `@types/node` 26**.
 6. **`product_doc.mention`** *(maintainer, 5 nov 2026, Q1)*: un
    `notification_kind` nuovo nello schema condiviso (`packages/shared`,
    `packages/db`).

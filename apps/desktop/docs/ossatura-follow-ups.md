@@ -2935,12 +2935,26 @@ Ognuna delle scelte ha il suo costo se è sbagliata. Dettaglio per task:
 - **La colonna dei commenti a 1440 si apre da sola** se la pagina ha fili
   aperti, e il gesto a mano si ricorda per persona *(maintainer, 5 nov
   2026)*. *Se sbagliata*: chi non la vuole la chiude ogni volta.
+  Emendamento del controller a [PC 14] (6 nov 2026, revisione Impeccable
+  finale): la regola automatica vale da 1200; **a 1024 la colonna
+  sovrapposta si apre solo con un gesto**, e barra della selezione, menu «/»
+  e selettori le stanno sopra. *Se sbagliata*: a 1024 i fili aperti non si
+  vedono finché non si preme «Comments» (il numero nella barra lo dice).
+- **A 1024 la barra della pagina passa i gesti nel «⋯»** ([PS 10], revisione
+  Impeccable finale): si misura come `OPTIONAL_BAR` dello spazio di
+  repository; prima le briciole intermedie diventano «…», poi Export,
+  History e Comments («Comments (N)») vanno nel «⋯», che resta sempre. *Se
+  sbagliata*: un gesto in più per History ed Export in una finestra stretta;
+  la misura è una copia invisibile dei gesti da tenere allineata ai bottoni
+  veri (`ProductSpace.tsx`, `data-bar`).
 - **Si segue solo creando la pagina o premendo «Follow»**: commentare o essere
   menzionati non fa seguire *(maintainer, 5 nov 2026)*. *Se sbagliata*:
   chi commenta non riceve gli aggiornamenti del 11b senza premere il bottone.
 - **⌘Z e ⇧⌘Z fanno parte del 11a**, per pagina e per sessione dell'editor,
   sulle stesse `ProductBlockOp`, solo le operazioni della propria sessione
-  *(maintainer, 5 nov 2026)*.
+  *(maintainer, 5 nov 2026)*. *Se sbagliata*: la pila per sessione è un pezzo
+  d'editor in più da mantenere, e un ⌘Z che il menu Modifica di Electron
+  facesse due volte annullerebbe due passi (vedi «Da fare a mano», 2).
 - **⌘Z di una cancellazione rimette il blocco con lo STESSO id**, nella stessa
   sessione (ruling del controller; è l'eccezione unica di §19). *Se
   sbagliata*: un'eccezione al «gli id non si riusano» da ricordare, ma
@@ -2950,6 +2964,10 @@ Ognuna delle scelte ha il suo costo se è sbagliata. Dettaglio per task:
   sbagliata*: un numero nei test.
 - **Gli avatar della presenza si sovrappongono di 2 px** (emendamento datato
   dello shape: la seconda iniziale resta leggibile; a 4 px ne copriva una).
+  *Se sbagliata*: il gruppo occupa più posto nella barra a 1024, o le
+  iniziali si coprono. Dalla revisione Impeccable finale (6 nov 2026) il
+  disco è di 28 px con iniziali di 12 px, e a 1024 sono al più 2 e «+N»
+  (emendamento datato a [PE 16]).
 - **Trascinare un blocco per ⋮⋮ sta nel Task 8** (ruling del controller:
   nessun task successivo lo copriva). *Se sbagliata*: lo spostamento resta a
   ⌥⇧↑/↓ e al menu del blocco.
@@ -2993,8 +3011,10 @@ Dettaglio in `task-N-review.md`. I minori **rimandati alla revisione finale**
   dentro lo spazio Prodotto.
 - **Task 7**: le guardie del doppio clic (`DocsTurnedOff` in volo, target di
   General) restano bloccate se la rilettura non conferma mai; il caso `-240`
-  di `treeMoves` non discrimina; `getProductSpace` forbidden/null verso il
-  Task 2 da verificare nella revisione finale.
+  di `treeMoves` non discrimina. `getProductSpace` forbidden/null verso il
+  Task 2: **chiuso nella revisione finale** (`forbidden` per un progetto
+  visibile senza `docs.view`, `null` per invisibile, inesistente o modulo
+  spento; `productDocs.test.ts`, «nascosto e inesistente sono identici»).
 - **Task 8**: nessun avviso di modifiche non salvate all'uscita (le bozze si
   salvano allo smontaggio; un errore a pagina chiusa non si vede più);
   `undoOf` può nominare una revisione rimossa da un'unione; un `op` `invalid`
@@ -3008,9 +3028,13 @@ Dettaglio in `task-N-review.md`. I minori **rimandati alla revisione finale**
   dalla tabella la cella ricordata non si azzera; il campo link in una cella
   più un clic su un altro blocco lascia due `data-editing`; l'altezza minima
   del menu tolta; una decisione appena scelta mostra lo scheletro fino alla
-  rilettura (accettato, nota per il 11b); verificare `page.decisions` null
-  per una decisione invisibile e `useDriveFile` vuoto per un file di un
-  progetto invisibile.
+  rilettura (accettato, nota per il 11b). **Chiuso nella revisione finale**:
+  `page.decisions` è `null` per una decisione di un progetto invisibile
+  (`productDocs.test.ts`, «le decisioni citate di un progetto che chi legge
+  non vede sono null»), `useDriveFile` è vuoto per un file di un progetto
+  invisibile (`queries.test.tsx`) e il blocco lo dice in pagina
+  (`MediaBlocks.test.tsx`, «un file di un progetto che chi legge non vede
+  (AUD-F7 per Sara)»).
 - **Task 10**: `taskPanelHasText` considera non salvata anche una descrizione
   aperta e invariata; il ramo `contenteditable` non trova nulla e salta i
   valori vuoto/`plaintext-only`; la lettura del DOM del pannello è fragile
@@ -3023,11 +3047,61 @@ Dettaglio in `task-N-review.md`. I minori **rimandati alla revisione finale**
   cella (il seme non ha copioni sulle celle).
 - **Task 12**: `withExtension` può sovrascrivere `X.docx` se si scrive `X`;
   nel `preview:web` il PDF chiama `window.print()` e non dà nessun avviso (non
-  si può sapere l'esito); a 1024 «Export ▾» resta nella barra (Comments e
-  History non vanno nel «⋯» perché ci stanno).
+  si può sapere l'esito). (Che a 1024 «Export ▾», Comments e History
+  restassero sempre nella barra è stato corretto nella revisione finale:
+  passano nel «⋯» quando non ci stanno, [PS 10].)
 - **Task 13**: la palette sale a `z-50` perché la colonna dei commenti
   sovrapposta (`z-[45]`) ne copriva il bordo destro sotto i 1200 px; trovato
-  dallo scatto `a11a-extra-palette-narrow-*`.
+  dallo scatto `a11a-extra-palette-narrow-*`. *Se sbagliata*: un livello
+  sopra la colonna sovrapposta copre anche ciò che deve stare sopra la
+  palette: **un Dialog aperto prima della palette ora le sta sotto (z-50)**.
+  I livelli flottanti dell'editor (barra della selezione, menu «/»,
+  selettori) stanno a `z-[46]`, sopra la colonna e sotto la palette.
+
+### Dalla revisione finale (6 nov 2026): restano aperti
+
+Corretti nella revisione finale (`final-review.md` e la revisione Impeccable,
+dettaglio in `.superpowers/sdd/2026-11-05-desktop-area11a-plan/final-fix-report.md`): il fuoco quando la pagina diventa «non
+trovata», «Resolve»/«Reopen» che fallivano in silenzio, il Word oltre 25 MB,
+i riferimenti di Drive e decisione validati alla scrittura, «Updated … by …»
+dall'ultima revisione su ogni superficie, le frasi inglesi della menzione nel
+livello dati, la doppia iscrizione alla pagina, NBSP e codice morto, la
+barra a 1024 e le rifiniture visive. Restano aperti, col motivo:
+
+- **⌘Z di un'unione** (rimando Task 8 → Task 10, mai scritto prima): dopo ⌘Z
+  di un `merge` il blocco assorbito torna col suo id, ma i fili spostati da
+  `onAnchorsMerged` restano sul primo blocco (con la loro `quote`, che ora sta
+  nel blocco rimesso). *Se sbagliata*: un filo indica il blocco sbagliato
+  finché qualcuno non lo risolve. La correzione vuole una memoria per
+  sessione dei fili spostati e un `onAnchorsRestored` simmetrico, cioè
+  un'interfaccia nuova che il 11b userebbe anche per il suo segno.
+- **Un riferimento rimesso con ⌘Z** a un file o una decisione che chi scrive
+  non vede più è `invalid: drive` / `invalid: decision` (la regola vale per
+  ogni blocco cambiato): la voce di undo lo dice come le altre scritture
+  rifiutate.
+- **`plainTextOf` quadratico sulle tabelle**: `anchorText([b], id)` per cella
+  è O(celle²), e le tabelle di una doc sono piccole.
+- **Risposte diverse per un id inesistente e uno non leggibile**
+  (`listProductRevisions`, follow): gli id sono opachi; il motore le unifica
+  con le risposte HTTP.
+- **`writersNear`** senza filtro per chi guarda né `docs.edit`: è l'API del
+  11b per costruzione (id, mai nomi).
+- **Il `catch` muto del copione** della presenza: lo stop è il comportamento
+  atteso (pagina tolta); loggarlo sporcherebbe console e test.
+- **Una menzione scritta a mano non filtrata per chi il mittente vede**, e il
+  test R-G5 della presenza che non discrimina: irraggiungibili col seme (chi
+  legge i Docs di un progetto è visibile a ogni scrittore).
+- **`taskPanelHasText`** legge il DOM del pannello: la cura giusta è un
+  segnale esplicito di bozza dal pannello della task, fuori dal perimetro.
+- **`file:save`** non serializza due richieste concorrenti nel main (il
+  renderer ne manda una alla volta) e non rifiuta i nomi riservati di
+  Windows in `defaultPath` (la finestra di sistema li fa cambiare).
+- **Nomi d'autore in commenti e cronologia** non filtrati da
+  `visiblePeopleFor`: è la convenzione dell'app per l'autore di un contenuto
+  di un progetto che si legge.
+- **Il campo del link e il «⋯» della tabella** si collocano dal DOM al
+  momento (bordo della colonna di lettura, margine libero a destra): non c'è
+  un test che li misuri, solo gli scatti.
 
 ### Verso il 11b
 
