@@ -3866,7 +3866,15 @@ export interface ProductQuestionView {
   /** Il codice della task di una divergenza (anche invisibile: `CodeLink` lo mostra tenue). */
   taskCode: string | null;
   source: ProductSourceView;
-  /** La frase dell'ancora com'è adesso («Now» / «The page says»); `null` se non c'è più. */
+  /**
+   * Cosa fa «Update it»: `replace` riscrive la frase dell'ancora con `apply`;
+   * `insert` aggiunge `apply` come frase nuova dopo l'ancora, che resta com'è.
+   */
+  applyMode: "replace" | "insert";
+  /**
+   * La frase dell'ancora com'è adesso («Now» / «The page says»); `null` se
+   * non c'è più, e sempre per `insert` (niente da sostituire: solo «Proposed»).
+   */
   current: RichText | null;
   apply: RichText | null;
   built: string | null;

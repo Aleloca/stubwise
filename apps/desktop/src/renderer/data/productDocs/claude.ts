@@ -31,7 +31,7 @@ import type {
 import { can, viewerFor } from "../viewer";
 import { notFound } from "../writer";
 import { cleanQuote, threadLink } from "./comments";
-import { emitProductPage, onProductPresence } from "./events";
+import { emitProductPage, emitProductQuestionsChanged, onProductPresence } from "./events";
 import { productDocRecipients } from "./follows";
 import { writersNear } from "./presence";
 import { productPageHref } from "./claudeReads";
@@ -228,6 +228,7 @@ export function askProductQuestion(
       productQuestion: { pageId: page.id, commentId: comment.id },
     });
   emitProductPage(page.id, "comments");
+  emitProductQuestionsChanged();
   return comment.id;
 }
 

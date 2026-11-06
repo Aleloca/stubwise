@@ -1489,7 +1489,17 @@ export function useDecidePlan() {
  */
 export function useClaudeDecisions() {
   const me = useSessionPersonId();
+  const client = useQueryClient();
   useConversationChanges();
+  // 11b: anche una domanda di Claude sulla doc di prodotto nata o chiusa,
+  // da chiunque (il motore, un'altra persona).
+  useEffect(
+    () =>
+      api.productDocs.onProductQuestionsChanged(() => {
+        void client.invalidateQueries({ queryKey: queryKeys.claudeDecisions(me) });
+      }),
+    [client, me],
+  );
   return useQuery({
     queryKey: queryKeys.claudeDecisions(me),
     queryFn: api.listClaudeDecisions,

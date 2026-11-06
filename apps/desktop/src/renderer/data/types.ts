@@ -340,7 +340,15 @@ export type ProductQuestionDecision = {
   link: string;
 } & Pick<
   ProductQuestionView,
-  "reason" | "forName" | "taskCode" | "source" | "apply" | "recommended" | "options" | "applyBlocked"
+  | "reason"
+  | "forName"
+  | "taskCode"
+  | "source"
+  | "applyMode"
+  | "apply"
+  | "recommended"
+  | "options"
+  | "applyBlocked"
 >;
 
 /** Una domanda o un piano di Claude in una conversazione, per «Decide». */

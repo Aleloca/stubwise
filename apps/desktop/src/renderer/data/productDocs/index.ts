@@ -51,6 +51,7 @@ export {
   undoProductChange,
   undoProductChangeAs,
 } from "./markGestures";
+export { onProductQuestionsChanged } from "./events";
 export {
   answerProductQuestion,
   answerProductQuestionAs,

@@ -133,12 +133,18 @@ export async function listProductRevisions(pageId: string): Promise<ProductRevis
   return state.productRevisions
     .filter((r) => r.pageId === pageId)
     .sort((a, b) => b.lastSeq - a.lastSeq)
-    .map((r) => ({
-      ...copy(r),
-      actorName: PEOPLE.find((p) => p.id === r.actorId)?.name ?? r.actorId,
-      // 11b: «per conto di», la fonte vista da chi guarda, «Annulla» e la domanda (marks.ts).
-      ...claudeRevisionFields(me, r, page.projectId),
-    }));
+    .map((r) => {
+      const row: ProductRevisionView = {
+        ...copy(r),
+        actorName: PEOPLE.find((p) => p.id === r.actorId)?.name ?? r.actorId,
+        // 11b: «per conto di», la fonte vista da chi guarda, «Annulla» e la domanda (marks.ts).
+        ...claudeRevisionFields(me, r, page.projectId),
+      };
+      // Mai la fonte grezza (R-G5: un id di email o riunione dice di cosa si
+      // parla): chi guarda la legge in `sourceView`.
+      delete row.source;
+      return row;
+    });
 }
 
 /** La revisione ha toccato l'ancora (un blocco, una cella, o un blocco assorbito da un `merge`). */

@@ -52,6 +52,25 @@ export function subscribeProductPage(
   };
 }
 
+// --- le domande di Claude (11b) -------------------------------------------------
+
+const questionListeners = new Set<() => void>();
+
+/**
+ * Una domanda di Claude è nata o ha avuto risposta, in qualunque pagina:
+ * «Decide» della Home ricarica (`useClaudeDecisions`). Non dice quale: chi
+ * ricarica rilegge con i suoi permessi (R-G5). Come `onProductPresence`, gli
+ * ascoltatori restano a un ripristino (sono gli hook montati).
+ */
+export function emitProductQuestionsChanged(): void {
+  for (const fn of [...questionListeners]) call(fn);
+}
+
+export function onProductQuestionsChanged(fn: () => void): () => void {
+  questionListeners.add(fn);
+  return () => questionListeners.delete(fn);
+}
+
 /** Si sveglia quando una presenza cambia (il 11b ci riprova quando la sezione si libera). */
 export function onProductPresence(fn: (pageId: string) => void): () => void {
   presenceListeners.add(fn);

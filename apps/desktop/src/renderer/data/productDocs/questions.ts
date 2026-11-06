@@ -20,7 +20,7 @@ import { can, viewerFor } from "../viewer";
 import { invalid, notFound, writer } from "../writer";
 import { freshIds, withAnchor } from "./claude";
 import { threadLink } from "./comments";
-import { emitProductPage } from "./events";
+import { emitProductPage, emitProductQuestionsChanged } from "./events";
 import { productDocRecipients } from "./follows";
 import { productPageById } from "./reads";
 import { touchedAfter } from "./revisions";
@@ -49,15 +49,22 @@ import { editablePage, writeProductBlocksAs } from "./writes";
 // - la domanda si chiude rispondendo: «Resolve» e «Reopen» la rifiutano
 //   (`comments.ts`);
 // - Claude non scrive mai nel registro decisioni (`neverWritesDecisions.test.ts`).
+//
+// Import circolare con `comments.ts` (lui usa `questionViewOf`, qui si usa
+// `threadLink`): innocuo finché nessuno dei due chiama l'altro al
+// caricamento del modulo. Non aggiungerne.
 
 const ANSWERS: readonly ProductAnswerChoice[] = ["apply", "keep", "request"];
 
 const nameOf = (personId: string): string =>
   PEOPLE.find((p) => p.id === personId)?.name ?? personId;
 
-/** `already_answered` con chi ha risposto e cosa, come le domande di Claude sui task. */
-const alreadyAnswered = (answer: NonNullable<ProductQuestion["answer"]>) =>
-  Object.assign(new Error("already_answered"), { byId: answer.byId, option: answer.option });
+/**
+ * `already_answered` con chi ha risposto (se `me` lo vede, R-G5) e cosa,
+ * come le domande di Claude sui task.
+ */
+const alreadyAnswered = (me: string, answer: NonNullable<ProductQuestion["answer"]>) =>
+  Object.assign(new Error("already_answered"), { byId: seenBy(me)(answer.byId), option: answer.option });
 
 /** «Update it» spento: la frase è cambiata dopo la domanda, e chi l'ha cambiata. */
 const changedAfter = (byId: string | null) => Object.assign(new Error("changed_after"), { byId });
@@ -124,7 +131,8 @@ export function questionViewOf(me: string, comment: ProductComment, page: Produc
         ? (state.tasksById.get(q.sourceRef.id)?.code ?? null)
         : null,
     source: sourceViewOf(me, q.sourceRef, page.projectId),
-    current: structuredClone(anchorRich(page.blocks, comment.anchorId)),
+    applyMode: q.insert ? "insert" : "replace",
+    current: q.insert ? null : structuredClone(anchorRich(page.blocks, comment.anchorId)),
     apply: structuredClone(q.apply),
     built: q.built,
     request: q.request && { ...q.request },
@@ -171,6 +179,7 @@ export function productQuestionDecisions(me: string): ProductQuestionDecision[] 
       forName: view.forName,
       taskCode: view.taskCode,
       source: view.source,
+      applyMode: view.applyMode,
       apply: view.apply,
       recommended: view.recommended,
       options: view.options,
@@ -204,6 +213,7 @@ function close(
   comment.question!.answer = { byId: me, seq: nextSeq(), ...answer };
   comment.resolved = { byId: me, at: now() };
   emitProductPage(comment.pageId, "comments");
+  emitProductQuestionsChanged();
 }
 
 /**
@@ -216,7 +226,7 @@ function close(
 export function answerProductQuestionAs(me: string, commentId: string, option: "apply" | "keep"): void {
   const { comment, q, page } = questionRoot(me, commentId);
   editablePage(me, page.id);
-  if (q.answer !== null) throw alreadyAnswered(q.answer);
+  if (q.answer !== null) throw alreadyAnswered(me, q.answer);
   if (option === "keep") return close(me, comment, { option, revisionId: null });
   if (option !== "apply" || q.apply === null) throw invalid("option");
   const blocker = blockerOf(comment);
@@ -241,7 +251,7 @@ export async function answerProductQuestion(commentId: string, option: "apply" |
 export function productQuestionRequestDraft(me: string, commentId: string): ProposedAction[] {
   const { comment, q, page } = questionRoot(me, commentId);
   editablePage(me, page.id);
-  if (q.answer !== null) throw alreadyAnswered(q.answer);
+  if (q.answer !== null) throw alreadyAnswered(me, q.answer);
   if (q.request === null) throw invalid("option");
   const code = state.projectsById.get(page.projectId)!.code;
   const origin: ProductDocOrigin = {
@@ -282,7 +292,7 @@ export function checkProductDocOrigin(me: string, projectId: string, origin: Pro
   const comment = state.productComments.find((c) => c.id === origin.questionId);
   if (!comment?.question || comment.pageId !== page.id || comment.replyToId !== null) throw invalid("origin");
   editablePage(me, page.id);
-  if (comment.question.answer !== null) throw alreadyAnswered(comment.question.answer);
+  if (comment.question.answer !== null) throw alreadyAnswered(me, comment.question.answer);
   if (comment.question.request === null) throw invalid("origin");
 }
 

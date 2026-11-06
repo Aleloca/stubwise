@@ -9,7 +9,7 @@ import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import type { ClaudeDecision } from "../types";
 import { revokeProjectPermission } from "../viewer";
-import { askProductQuestion, whenProductClaudeIdle } from "./claude";
+import { applyProductSource, askProductQuestion, whenProductClaudeIdle } from "./claude";
 import { listProductMarksAs } from "./marks";
 import { answerProductQuestionAs, productQuestionRequestDraft } from "./questions";
 import { writeProductBlocksAs } from "./writes";
@@ -226,8 +226,33 @@ describe("«Aggiorna così»", () => {
     });
     expect((await productDecisions())[0]).toMatchObject({ commentId: id, applyBlocked: { byId: MARCO } });
 
+    // Anche «Apri una richiesta» resta possibile.
+    const draft = productQuestionRequestDraft(LAURA, id);
+    const request = createRequestAs(LAURA, draft[0]!.args as never);
+    expect(comment(id).question!.answer).toMatchObject({ option: "request", requestId: request.id });
+  });
+
+  it("dopo `changed_after` «Lascia com'è» chiude la domanda", () => {
+    const id = ask();
+    const current = page().blocks.find((b) => b.id === HOW)!;
+    writeProductBlocksAs(MARCO, PAGE, [
+      { op: "set", block: { ...current, content: { text: "Marco's sentence.", marks: [] } } as typeof current },
+    ], {});
+    expect(() => answerProductQuestionAs(LAURA, id, "apply")).toThrow("changed_after");
     answerProductQuestionAs(LAURA, id, "keep");
     expect(comment(id).question!.answer).toMatchObject({ option: "keep" });
+  });
+
+  it("su un fatto `insert_after` la vista dice `insert` e nessuna frase «Now»: la UI non promette una sostituzione", async () => {
+    const block = { id: "blk-of-the-fact", type: "paragraph" as const, content: APPLE };
+    const id = ask(vague({ change: { kind: "insert_after", block }, options: {} }));
+    const replaced = ask(vague({ id: "fact-replace", anchorId: STORES }));
+    as(LAURA);
+    expect((await thread(id)).root.question).toMatchObject({ applyMode: "insert", current: null, apply: APPLE });
+    expect((await thread(replaced)).root.question).toMatchObject({ applyMode: "replace", current: contentOf(STORES) });
+    const decisions = await productDecisions();
+    expect(decisions.find((d) => d.commentId === id)).toMatchObject({ applyMode: "insert" });
+    expect(decisions.find((d) => d.commentId === replaced)).toMatchObject({ applyMode: "replace" });
   });
 
   it("su un fatto `insert_after`: inserisce il blocco del fatto dopo l'ancora, con un id nuovo", () => {
@@ -307,6 +332,21 @@ describe("«Apri una richiesta»", () => {
     const args = { ...(draft[0]!.args as object), projectId: "prj-aud" };
     expect(() => createRequestAs("p-roberta", args as never)).toThrow("invalid: origin");
     expect(comment(id).question!.answer).toBeNull();
+  });
+});
+
+describe("la cronologia per chi non vede la fonte", () => {
+  it("le righe non portano il riferimento grezzo della fonte (Sara non ha l'email)", async () => {
+    applyProductSource(REF, ACQ, [
+      { id: "fact-clear", pageId: PAGE, anchorId: STORES, change: { kind: "replace", text: APPLE }, clarity: "clear" },
+    ]);
+    as(SARA);
+    const rows = await productDocs.listProductRevisions(PAGE);
+    const claudeRow = rows.find((r) => r.via === "claude")!;
+    expect(claudeRow.sourceView).toMatchObject({ kind: "email", link: null });
+    const json = JSON.stringify(rows).toLowerCase();
+    expect(json).not.toContain("mm-laura-q");
+    expect(json).not.toContain(SUBJECT.toLowerCase());
   });
 });
 
