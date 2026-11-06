@@ -186,7 +186,15 @@ export async function moveProductPage(
  * che non c'è più (`objectGone`, a lettura).
  */
 export async function deleteProductPage(pageId: string): Promise<void> {
-  const me = await writer("productDocs.deleteProductPage");
+  deleteProductPageAs(await writer("productDocs.deleteProductPage"), pageId);
+}
+
+/**
+ * La forma sincrona di `deleteProductPage`, per chi ha già passato il
+ * cancello: «Annulla la prima versione» (11b, P32) la usa dalle foglie
+ * verso la radice.
+ */
+export function deleteProductPageAs(me: string, pageId: string): void {
   const page = editablePage(me, pageId);
   if (childrenOf(page.projectId, page.id).length > 0) throw invalid("has_children");
   state.productPages = state.productPages.filter((p) => p.id !== page.id);

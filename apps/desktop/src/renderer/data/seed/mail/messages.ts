@@ -1,6 +1,7 @@
 import type { MailMessage } from "../../types";
 import { daysFromToday } from "../dates";
 import { ACQ_11B } from "../productDocs/facts";
+import { VRD_IDS } from "../productDocs/vrdFirstVersion";
 import { at, done, ext, mail, person } from "./helpers";
 
 // La posta di progetto e il rumore: email su AUD e STW di importanza alta,
@@ -14,6 +15,7 @@ const AUD = "prj-aud";
 const STW = "prj-stw";
 const MKX = "prj-mkx";
 const ACQ = "prj-acq";
+const VRD = VRD_IDS.projectId;
 
 const GIULIA = person("p-giulia");
 const MATTEO = person("p-matteo");
@@ -22,6 +24,7 @@ const SIMONE = person("p-simone");
 const SOFIA = ext("Sofia Marchetti", "sofia.marchetti@audin.example");
 const IVO = ext("Ivo Gentile", "ivo@pixelforge.example");
 const ELISA = ext("Elisa Ferraro", "elisa.ferraro@acquedottocolline.example");
+const NADIA = ext("Nadia Verdi", "nadia.verdi@palestraverde.example");
 
 /** Gli id delle righe che i test e le aree successive cercano per caso. */
 export const MESSAGE_IDS = {
@@ -40,6 +43,9 @@ export const MESSAGE_IDS = {
   context: "mm-stw-preview-schedule",
   /** Area 11b: l'email di ACQ da cui Claude ha aggiornato Sign-in. */
   acqSignIn: ACQ_11B.signInEmailId,
+  /** Area 11b: le due email di VRD fra cui scegliere le fonti della prima versione. */
+  vrdBooking: VRD_IDS.lauraEmailId,
+  vrdPlans: VRD_IDS.plansEmailId,
 } as const;
 
 export const PROJECT_MESSAGES: MailMessage[] = [
@@ -242,5 +248,40 @@ export const PROJECT_MESSAGES: MailMessage[] = [
     mailboxPersonIds: ["p-laura", "p-matteo"],
     readByPersonIds: ["p-laura"],
     classification: done([ACQ], "normal"),
+  }),
+  // Area 11b, la prima versione di VRD: il cliente scrive a Laura, Matteo in
+  // copia (la sua casella ha le proposte attive: l'email va al modello e
+  // prende VRD). Sono le email che Laura può scegliere come fonti; Sara e
+  // Marco non le hanno ricevute. VRD resta vuoto (maintainer, Q2).
+  mail({
+    id: MESSAGE_IDS.vrdBooking,
+    threadId: "th-vrd-booking-rules",
+    from: NADIA,
+    to: [LAURA],
+    cc: [MATTEO],
+    subject: "Booking rules for the classes",
+    at: at(7, "11:20"),
+    text: [
+      "Hi Laura,",
+      "here is how bookings work today, and how we want them in the app. Members book a class up to seven days ahead: bookings open at midnight. They can cancel up to two hours before the class. When a class is full, maybe a waiting list, but we are not sure yet.",
+      "No payments in the app for now: plans are paid at the desk. The app has to be in Italian and English.",
+      "Nadia",
+    ].join("\n\n"),
+    mailboxPersonIds: ["p-laura", "p-matteo"],
+    readByPersonIds: ["p-laura", "p-matteo"],
+    classification: done([VRD], "normal"),
+  }),
+  mail({
+    id: MESSAGE_IDS.vrdPlans,
+    threadId: "th-vrd-membership-plans",
+    from: NADIA,
+    to: [LAURA],
+    cc: [MATTEO],
+    subject: "Membership plans and prices",
+    at: at(8, "15:05"),
+    text: "Hi Laura,\n\nthe plans are two: monthly at 49 euros, all classes, and ten classes at 90 euros. Students get 20% off the monthly plan; we might do the same for members over 65.\n\nNadia",
+    mailboxPersonIds: ["p-laura", "p-matteo"],
+    readByPersonIds: ["p-laura", "p-matteo"],
+    classification: done([VRD], "normal"),
   }),
 ];

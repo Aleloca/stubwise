@@ -134,6 +134,7 @@ import type {
   ProductPresence,
   ProductFollow,
   ProductPage,
+  ProductFirstVersion,
   ProductMark,
   ProductPendingFact,
   ProductRevision,
@@ -427,6 +428,12 @@ export type ApiFnName =
   | "productDocs.acceptProductMark"
   | "productDocs.undoProductChange"
   | "productDocs.answerProductQuestion"
+  | "productDocs.listFirstVersionSources"
+  | "productDocs.startFirstVersion"
+  | "productDocs.getProductFirstVersion"
+  | "productDocs.acceptFirstVersionPage"
+  | "productDocs.undoFirstVersion"
+  | "productDocs.listOpenProductQuestions"
   // Drive (area 5)
   | "drive.listDriveFiles"
   | "drive.getDriveFile"
@@ -1070,6 +1077,11 @@ interface State {
    * la stessa fonte una seconda volta non scrive di nuovo.
    */
   productSourcesSeen: Set<string>;
+  /**
+   * Le prime versioni di Claude (11b, Task 6, P1), una per avvio: con
+   * `projectId`, vanno via col progetto.
+   */
+  productFirstVersions: ProductFirstVersion[];
   /** Chi segue quale pagina: chi la crea e chi preme «Follow», mai da solo. */
   productFollows: ProductFollow[];
   /**
@@ -1350,6 +1362,8 @@ function freshState(): State {
     productPending: [],
     // Le fonti che il seme del 11b ha già fatto passare dal motore.
     productSourcesSeen: new Set(PRODUCT_SOURCES_SEEN_11B),
+    // VRD resta vuoto: la prima versione la lancia chi prova l'app (maintainer, Q2).
+    productFirstVersions: [],
     productFollows: PRODUCT_FOLLOWS.map(copy),
     productBlockIds: productSeedBlockIds(),
     productSessionDeletes: new Map(),

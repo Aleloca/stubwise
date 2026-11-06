@@ -1,7 +1,9 @@
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
+import { canSeeDriveFile } from "../drive/visibility";
 import { canSeeMessage, canSeeTranscript } from "../mail/visibility";
 import { state, visibleProjectIds } from "../store";
 import type {
+  FirstVersionSourceRef,
   MailMessage,
   MeetingTranscript,
   ProductSourceRef,
@@ -85,7 +87,7 @@ export function sourceOwnerOf(ref: ProductSourceRef, projectId: string): string 
 
 const date = (iso: string): number => Date.parse(iso);
 
-const GONE = (kind: ProductSourceRef["kind"]): ProductSourceView => ({
+const GONE = (kind: ProductSourceView["kind"]): ProductSourceView => ({
   kind,
   label: { key: "productDocs.source.gone" },
   code: null,
@@ -102,7 +104,7 @@ const GONE = (kind: ProductSourceRef["kind"]): ProductSourceView => ({
  */
 export function sourceViewOf(
   me: string,
-  ref: ProductSourceRef,
+  ref: ProductSourceRef | FirstVersionSourceRef,
   projectId: string,
 ): ProductSourceView {
   switch (ref.kind) {
@@ -224,6 +226,35 @@ export function sourceViewOf(
         link: null,
         ownerId: CLAUDE_ID,
         at: seen ? r.mergedAt : null,
+        gone: false,
+      };
+    }
+    // Le due fonti che solo la prima versione ha (P31): il testo incollato,
+    // di cui non resta il corpo, e un file del Drive del progetto, col suo
+    // codice anche quando chi guarda non lo vede (`CodeLink` lo mostra tenue).
+    case "text":
+      return {
+        kind: ref.kind,
+        label: { key: "productDocs.source.text" },
+        code: null,
+        link: null,
+        ownerId: null,
+        at: null,
+        gone: false,
+      };
+    case "drive": {
+      const file = state.driveFiles.find((f) => f.id === ref.fileId);
+      if (!file || file.unavailable === "deleted") return GONE(ref.kind);
+      const seen = canSeeDriveFile(me, file, { includeHidden: true });
+      return {
+        kind: ref.kind,
+        label: seen
+          ? { key: "productDocs.source.drive", params: { name: file.name } }
+          : { key: "productDocs.source.driveHidden" },
+        code: file.code,
+        link: null,
+        ownerId: null,
+        at: seen ? file.addedAt : null,
         gone: false,
       };
     }

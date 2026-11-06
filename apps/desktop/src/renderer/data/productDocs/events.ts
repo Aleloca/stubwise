@@ -71,6 +71,25 @@ export function onProductQuestionsChanged(fn: () => void): () => void {
   return () => questionListeners.delete(fn);
 }
 
+// --- la prima versione di Claude (11b, Task 6) -----------------------------------
+
+const firstVersionListeners = new Set<(projectId: string) => void>();
+
+/**
+ * La prima versione di uno spazio è cambiata: una pagina scritta, la fine,
+ * una pagina accettata, l'annullamento. Dice solo il progetto: chi ricarica
+ * rilegge con i suoi permessi (R-G5). Gli ascoltatori restano a un
+ * ripristino, come `onProductQuestionsChanged`.
+ */
+export function emitProductFirstVersion(projectId: string): void {
+  for (const fn of [...firstVersionListeners]) call(() => fn(projectId));
+}
+
+export function onProductFirstVersion(fn: (projectId: string) => void): () => void {
+  firstVersionListeners.add(fn);
+  return () => firstVersionListeners.delete(fn);
+}
+
 /** Si sveglia quando una presenza cambia (il 11b ci riprova quando la sezione si libera). */
 export function onProductPresence(fn: (pageId: string) => void): () => void {
   presenceListeners.add(fn);

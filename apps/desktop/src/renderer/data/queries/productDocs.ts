@@ -3,7 +3,7 @@ import { useCallback, useEffect } from "react";
 import * as api from "../api";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
 import { useInstanceChanges } from "./instance";
-import type { ProductBlockOp } from "../types";
+import type { FirstVersionSource, ProductBlockOp } from "../types";
 
 // Gli hook dello spazio Prodotto (area 11a); `data/queries` li ri-esporta.
 // Le letture stanno nell'area «productDocs». Una scrittura di prodotto
@@ -356,6 +356,79 @@ export function useUndoProductChange() {
  * («Answered by») e toglie la voce da «Decide» della Home (`conversations`).
  */
 const ANSWER_AREAS: readonly string[] = [...PRODUCT_AREAS, "notifications", "conversations"];
+
+// --- la prima versione di Claude (11b, Task 6) -------------------------------------
+
+/** Le fonti fra cui scegliere nella finestra della prima versione: solo ciò che chi guarda vede. */
+export function useFirstVersionSources(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "productDocs", "firstVersionSources", projectId] as const,
+    queryFn: () => api.productDocs.listFirstVersionSources(projectId),
+    enabled,
+  });
+}
+
+/**
+ * La prima versione dello spazio, dal vivo: ogni pagina scritta, la fine,
+ * un «Accetta» o un «Annulla» ricaricano lo spazio Prodotto di chi guarda
+ * (albero, avanzamento, riga in cima, domande da chiudere).
+ */
+export function useProductFirstVersion(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  useEffect(
+    () =>
+      api.productDocs.onProductFirstVersion((changed) => {
+        if (changed === projectId)
+          void client.invalidateQueries({ queryKey: ["as", me, "productDocs"] });
+      }),
+    [client, me, projectId],
+  );
+  return useQuery({
+    queryKey: ["as", me, "productDocs", "firstVersion", projectId] as const,
+    queryFn: () => api.productDocs.getProductFirstVersion(projectId),
+    enabled,
+  });
+}
+
+/** Le domande di Claude da chiudere nello spazio; si rilegge a ogni domanda nuova o risposta. */
+export function useOpenProductQuestions(projectId: string, { enabled = true }: { enabled?: boolean } = {}) {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  const queryKey = ["as", me, "productDocs", "openQuestions", projectId] as const;
+  useEffect(
+    () =>
+      api.productDocs.onProductQuestionsChanged(() => {
+        void client.invalidateQueries({ queryKey: ["as", me, "productDocs", "openQuestions"] });
+      }),
+    [client, me],
+  );
+  return useQuery({
+    queryKey,
+    queryFn: () => api.productDocs.listOpenProductQuestions(projectId),
+    enabled,
+  });
+}
+
+/** «Write the first version»: avvia il copione; le pagine arrivano con `useProductFirstVersion`. */
+export function useStartFirstVersion() {
+  return useWrite(
+    ({ projectId, sources }: { projectId: string; sources: FirstVersionSource[] }) =>
+      api.productDocs.startFirstVersion(projectId, sources),
+    PRODUCT_AREAS,
+  );
+}
+
+/** «Accept» sulla riga in cima a una pagina della prima versione. */
+export function useAcceptFirstVersionPage() {
+  return useWrite((pageId: string) => api.productDocs.acceptFirstVersionPage(pageId), FOLLOW_AREAS);
+}
+
+/** «Undo the first version»: toglie tutte le sue pagine. */
+export function useUndoFirstVersion() {
+  return useWrite((projectId: string) => api.productDocs.undoFirstVersion(projectId), PRODUCT_AREAS);
+}
 
 /** Risponde a una domanda di Claude, dal filo o da «Decide»: `apply` o `keep`. */
 export function useAnswerProductQuestion() {

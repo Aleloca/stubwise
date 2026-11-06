@@ -171,7 +171,9 @@ function insertOf(page: ProductPage, fact: ProductFact): Pick<ProductQuestion, "
  * Chiede su un'ancora: un commento di `CLAUDE_ID` con la domanda (il testo
  * lo compone chi la mostra, dalla ragione), e la card
  * `product_doc.question` ai destinatari della pagina. Senza ancora, la
- * prima della pagina. Restituisce l'id del commento.
+ * prima della pagina. Restituisce l'id del commento. `notify: false` (la
+ * prima versione, Task 6): nessuna card — è un gesto A di chi l'ha chiesta,
+ * che segue le pagine, e le domande si contano in «N questions to close».
  */
 export function askProductQuestion(
   pageId: string,
@@ -179,6 +181,7 @@ export function askProductQuestion(
   fact: ProductFact,
   ref: ProductSourceRef,
   reason: ProductQuestionReason,
+  opts: { notify?: boolean } = {},
 ): string {
   const page = productPageById(pageId);
   const anchor = page ? anchorOf(page, anchorId) : null;
@@ -219,7 +222,7 @@ export function askProductQuestion(
     },
   };
   state.productComments.push(comment);
-  const recipientIds = productDocRecipients(page.id);
+  const recipientIds = opts.notify === false ? [] : productDocRecipients(page.id);
   if (recipientIds.length > 0)
     state.notifications.push({
       ...cardBase(page, recipientIds),

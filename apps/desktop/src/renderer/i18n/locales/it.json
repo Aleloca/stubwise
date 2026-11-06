@@ -11950,6 +11950,9 @@
       "release": "Dal rilascio “{{title}}”",
       "releaseHidden": "Da un rilascio che non puoi vedere",
       "firstVersion": "Dalla prima versione",
+      "text": "Da un testo incollato",
+      "drive": "Dal file “{{name}}”",
+      "driveHidden": "Da un file che non puoi vedere",
       "gone": "Fonte non più disponibile"
     },
     "space": {

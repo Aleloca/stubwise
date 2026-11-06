@@ -15,6 +15,7 @@ export {
   createProductPage,
   createProductPageAs,
   deleteProductPage,
+  deleteProductPageAs,
   moveProductPage,
   onAnchorsMerged,
   renameProductPage,
@@ -51,7 +52,23 @@ export {
   undoProductChange,
   undoProductChangeAs,
 } from "./markGestures";
-export { onProductQuestionsChanged } from "./events";
+export { onProductFirstVersion, onProductQuestionsChanged } from "./events";
+export {
+  acceptFirstVersionPage,
+  acceptFirstVersionPageAs,
+  firstVersionSourcesFor,
+  getProductFirstVersion,
+  listFirstVersionSources,
+  listOpenProductQuestions,
+  openProductQuestions,
+  productFirstVersionOf,
+  startFirstVersion,
+  startFirstVersionAs,
+  undoFirstVersion,
+  undoFirstVersionAs,
+  whenFirstVersionIdle,
+  type FirstVersionSources,
+} from "./firstVersion";
 export {
   answerProductQuestion,
   answerProductQuestionAs,

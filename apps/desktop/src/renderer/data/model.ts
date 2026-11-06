@@ -3923,7 +3923,8 @@ export interface ProductPendingFact {
  * · <data>» e nient'altro: `link: null`, mai l'oggetto né il testo (§21).
  */
 export interface ProductSourceView {
-  kind: ProductSourceRef["kind"];
+  /** Anche le due fonti che solo la prima versione ha: il testo incollato e un file del Drive (P31). */
+  kind: ProductSourceRef["kind"] | "text" | "drive";
   label: Utterance;
   /** Il codice di una task o di un rilascio (anche invisibile, tenue); altrimenti `null`. */
   code: string | null;
@@ -3998,6 +3999,112 @@ export interface ProductMarkView {
   source: ProductSourceView;
   canAccept: boolean;
   undo: ProductUndoView;
+}
+
+/**
+ * Una fonte scelta per la prima versione di Claude (11b, Task 6): le email
+ * e le riunioni del progetto che chi chiede apre, un testo incollato, un
+ * file del Drive del progetto (`firstVersionSourcesFor`).
+ */
+export type FirstVersionSource =
+  | { kind: "email"; id: string }
+  | { kind: "meeting"; id: string }
+  | { kind: "text"; text: string }
+  | { kind: "drive"; fileId: string };
+
+/** La fonte come resta nello stato (P31): il testo incollato senza il suo corpo. */
+export type FirstVersionSourceRef =
+  | Exclude<FirstVersionSource, { kind: "text" }>
+  | { kind: "text" };
+
+/** Una pagina della bozza di una prima versione (il seme, o la bozza generica). */
+export interface FirstVersionDraftPage {
+  /** La chiave della pagina nella bozza (le figlie la nominano in `parentKey`). */
+  key: string;
+  parentKey: string | null;
+  title: string;
+  /**
+   * I blocchi, con id che valgono solo nella bozza: alla scrittura prendono
+   * id nuovi. `onlyWith` = il blocco entra solo se quella fonte è fra le
+   * scelte (`drive:<fileId>`, `email:<id>`…).
+   */
+  blocks: (ProductBlock & { onlyWith?: string })[];
+  /**
+   * Le domande di Claude sulla pagina: ogni dubbio delle fonti, su un blocco
+   * della bozza (`anchorKey` = il suo id nella bozza).
+   */
+  questions?: {
+    anchorKey: string;
+    fact: Pick<ProductFact, "id" | "change" | "options" | "recommended">;
+  }[];
+}
+
+/**
+ * La prima versione di Claude in uno spazio Prodotto (11b, Task 6). Claude
+ * scrive l'albero pagina per pagina per conto di chi l'ha chiesta
+ * (`byId`); `groupId` lega le revisioni `first_version`. Si annulla tutta
+ * insieme (`undone`), finché nessuno ha toccato una pagina.
+ */
+export interface ProductFirstVersion {
+  projectId: string;
+  groupId: string;
+  byId: string;
+  status: "writing" | "done" | "undone";
+  pagesDone: number;
+  pagesTotal: number;
+  sources: FirstVersionSourceRef[];
+  acceptedPageIds: string[];
+  /** Le pagine della bozza, nell'ordine dell'albero (titolo e profondità). */
+  plan: { title: string; depth: number }[];
+  /**
+   * Le pagine create, nell'ordine di `plan`, con la revisione da cui si
+   * misura «toccata dopo»: quella `first_version` (o la `create`, se la
+   * scrittura del corpo non è riuscita).
+   */
+  written: { pageId: string; revisionId: string }[];
+  /** Chi l'ha annullata. */
+  undoneById: string | null;
+  /** Il copione si è fermato prima della fine (una pagina tolta, `docs.edit` perso). */
+  interrupted: boolean;
+}
+
+/**
+ * La prima versione come la legge chi guarda (11b, Task 6): le fonti nella
+ * forma di `sourceViewOf`, le pagine con il loro stato, le pagine che hanno
+ * ancora la riga in cima, «Annulla» già deciso. La pagina non ricalcola
+ * niente.
+ */
+export interface ProductFirstVersionView {
+  projectId: string;
+  groupId: string;
+  byId: string;
+  byName: string;
+  status: ProductFirstVersion["status"];
+  pagesDone: number;
+  pagesTotal: number;
+  interrupted: boolean;
+  sources: ProductSourceView[];
+  pages: {
+    title: string;
+    depth: number;
+    pageId: string | null;
+    code: string | null;
+    state: "written" | "writing" | "waiting";
+  }[];
+  acceptedPageIds: string[];
+  /** Le pagine scritte che hanno ancora la riga «First version written by Claude…». */
+  bannerPageIds: string[];
+  undo: ProductUndoView;
+  permissions: { edit: boolean };
+}
+
+/** Una domanda di Claude ancora aperta nello spazio («N questions to close»). */
+export interface OpenProductQuestion {
+  commentId: string;
+  pageId: string;
+  pageCode: string;
+  pageTitle: string;
+  quote: string;
 }
 
 export type ProductRevisionKind =
