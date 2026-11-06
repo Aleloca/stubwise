@@ -321,7 +321,13 @@ blocchi scalano da h2 **[PE 3]**.
   **[PE 16]**. Entrano e escono in dissolvenza 150ms. *Emendamento del
   controller (5 nov 2026, Task 11 fix round 1): la sovrapposizione è di
   **2 px**, non 4: con 4 px (più il filetto di fondo) la seconda iniziale
-  restava coperta.*
+  restava coperta.* *Emendamento del controller (6 nov 2026, revisione
+  Impeccable finale dell'area 11a, punto 7): il disco è di **28px** (l'altezza
+  dei bottoni della barra) con le iniziali a **12px** 600 — a 24px l'anello
+  interno di 2px lasciava 20px a due iniziali da 11px, che lo toccavano — e
+  a 1024 al più **2** e «+N» ([PS 10]). Le iniziali della cronologia seguono
+  la stessa scala (12px). *Se sbagliata*: il gruppo occupa 8px in più nella
+  barra a 1440, e a 1024 conta già la misura di [PS 10].*
 - **Cursore altrui** nel testo letto: barra 2px nel colore della persona,
   alta la riga, all'offset; sopra, l'**etichetta col nome** (12px 600,
   fondo nel colore della persona, testo a contrasto ≥ 4.5:1, raggio 4). Il

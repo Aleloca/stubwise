@@ -9,7 +9,7 @@ import { presenceColor } from "./presenceColor";
 // Chi c'è nella pagina, nella barra dello spazio dopo lo stato di
 // salvataggio (shape product-editor.md §3.13, [PE 16]): gli ALTRI presenti
 // (mai chi guarda: la sua presenza conta per il segnale della sezione, non
-// qui), 24 px, iniziali 11 px 600, anello di 2 px nel colore della persona,
+// qui), 28 px, iniziali 12 px 600 (emendamento del 6 nov 2026), anello di 2 px nel colore della persona,
 // sovrapposti di 2 px (emendamento del controller, 5 nov 2026); al più quattro e «+N»
 // (a 1024 al più due, [PS 10]: `max`). Il nome sempre nel `title` e
 // nel nome accessibile: «Marco Bellini · writing in Rules», «Matteo Conti ·
@@ -98,7 +98,7 @@ export function PresenceAvatars({ page, max = 4 }: { page: ProductPageView; max?
                 names: rest.map(labelOf).join(", "),
               })}
               title={rest.map(labelOf).join("\n")}
-              className="num relative -ml-0.5 grid size-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--ink)_10%,var(--ground))] text-[11px] font-semibold text-ink-muted ring-2 ring-ground"
+              className="num relative -ml-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--ink)_10%,var(--ground))] text-xs font-semibold text-ink-muted ring-2 ring-ground"
             >
               +{rest.length}
             </span>
@@ -129,7 +129,7 @@ function Avatar({
       aria-hidden={gone ? "true" : undefined}
       title={label ?? undefined}
       data-presence-avatar={person.personId}
-      className={`relative grid size-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--ink)_10%,var(--ground))] text-[11px] font-semibold text-ink ${first ? "" : "-ml-0.5"} ${gone ? "presence-leave" : "event-enter"}`}
+      className={`relative grid size-7 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--ink)_10%,var(--ground))] text-xs font-semibold text-ink ${first ? "" : "-ml-0.5"} ${gone ? "presence-leave" : "event-enter"}`}
       // L'anello di 2 px nel colore della persona, e 1 px di fondo che separa i sovrapposti.
       style={{
         boxShadow: `0 0 0 1px var(--ground), inset 0 0 0 2px ${presenceColor(person.color)}`,

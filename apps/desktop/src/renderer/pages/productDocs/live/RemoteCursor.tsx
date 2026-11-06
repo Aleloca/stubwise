@@ -6,8 +6,10 @@ import { presenceColor } from "./presenceColor";
 // I cursori degli altri in un blocco di testo letto (shape product-editor.md
 // §3.13, [PE 17]): una barra di 2 px nel colore della persona, alta la riga,
 // all'offset; sopra, l'etichetta col NOME (il colore non è mai l'unico
-// segnale). Una selezione altrui: il fondo nel suo colore al 20 %. Fermi:
-// nessun lampeggio, con o senza movimento ridotto.
+// segnale), alta 14 px nello spazio fra le righe, e sotto la barra sulla
+// prima riga di un blocco che ha del testo subito sopra. Una selezione
+// altrui: il fondo nel suo colore al 20 %. Fermi: nessun lampeggio, con o
+// senza movimento ridotto.
 //
 // Il disegno si misura dal DOM del blocco (`rangeIn` sugli scarti del
 // testo), sopra il testo e fuori dal suo flusso: la frase letta non cambia
@@ -20,6 +22,12 @@ interface Caret {
   h: number;
   /** L'etichetta si allinea a destra della barra (vicino al bordo destro). */
   flip: boolean;
+  /**
+   * L'etichetta va sotto la barra: sulla prima riga di un blocco con del
+   * testo subito sopra, dove coprirebbe le lettere dell'altro blocco
+   * (Impeccable 8). Altrove sta sopra, nello spazio fra le righe.
+   */
+  below: boolean;
 }
 
 interface Geometry {
@@ -36,6 +44,18 @@ function lineHeightOf(el: HTMLElement): number {
   return Number.isFinite(value) && value > 0 ? value : 22;
 }
 
+/** Il blocco subito sopra è di testo (nell'ordine dei blocchi del corpo). */
+function textAbove(layer: HTMLElement): boolean {
+  const shell = layer.closest("[data-block-id]");
+  const body = shell?.closest("[data-editor-body]");
+  if (!shell || !body) return false;
+  const blocks = [...body.querySelectorAll("[data-block-id]")].filter(
+    (b) => b.parentElement?.closest("[data-block-id]") === null,
+  );
+  const above = blocks[blocks.indexOf(shell) - 1];
+  return !!above && textIn(above) !== null && above.querySelector("table, img") === null;
+}
+
 function measure(layer: HTMLElement, person: ProductPresenceView): Geometry {
   const text = textIn(layer.parentElement);
   if (!text) return { caret: null, rects: [] };
@@ -44,15 +64,16 @@ function measure(layer: HTMLElement, person: ProductPresenceView): Geometry {
   const length = text.textContent?.length ?? 0;
   const at = Math.min(person.offset, length);
   const line = lineHeightOf(text);
-  let caret: Caret = { x: textBox.left - box.left, y: textBox.top - box.top, h: line, flip: false };
+  let caret: Caret = { x: textBox.left - box.left, y: textBox.top - box.top, h: line, flip: false, below: false };
   const range = rangeIn(text, at);
   if (typeof range.getBoundingClientRect === "function") {
     const r = range.getBoundingClientRect();
     // Un blocco vuoto non ha lettere: la barra sta all'inizio della prima riga.
     if (r.height > 0)
-      caret = { x: r.left - box.left, y: r.top - box.top, h: r.height, flip: false };
+      caret = { x: r.left - box.left, y: r.top - box.top, h: r.height, flip: false, below: false };
   }
   caret.flip = caret.x > box.width - 160;
+  caret.below = caret.y - (textBox.top - box.top) < caret.h / 2 && textAbove(layer);
   const rects: Geometry["rects"] = [];
   const sel = person.selection;
   if (sel && sel[0] !== sel[1]) {
@@ -141,7 +162,7 @@ function RemoteCursor({ person, contentKey }: { person: ProductPresenceView; con
           style={{ background: color }}
         />
         <span
-          className={`absolute bottom-full mb-px rounded-[4px] px-1 text-xs leading-4 font-semibold whitespace-nowrap text-ground ${caret?.flip ? "right-0" : "left-0"}`}
+          className={`absolute rounded-[4px] px-1 py-0 text-xs leading-[14px] font-semibold whitespace-nowrap text-ground ${caret?.below ? "top-full" : "bottom-full"} ${caret?.flip ? "right-0" : "left-0"}`}
           style={{ background: color }}
         >
           {person.name}

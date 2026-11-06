@@ -141,7 +141,9 @@ describe("i segni", () => {
     expect(rowText(first)).toContain("Formatting changed");
     await user.click(first);
     const details = document.getElementById(first.getAttribute("aria-controls")!)!;
-    expect(within(details).getByText("Formatting changed")).toBeInTheDocument();
+    // Impeccable 13: la riga lo dice già; il dettaglio non lo ripete.
+    expect(within(details).queryByText("Formatting changed")).toBeNull();
+    expect(within(details).getByText("After")).toBeInTheDocument();
     expect(within(details).queryByText("Before")).toBeNull();
     expect(details.querySelector("strong")).toHaveTextContent("Only");
   });

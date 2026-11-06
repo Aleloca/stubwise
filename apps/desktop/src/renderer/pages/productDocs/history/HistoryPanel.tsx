@@ -252,7 +252,7 @@ export function HistoryPanel({
                         >
                           <span
                             aria-hidden="true"
-                            className="mt-px grid size-5 shrink-0 place-items-center rounded-full border border-rule-strong text-[10px] font-semibold text-ink-muted"
+                            className="mt-px grid size-6 shrink-0 place-items-center rounded-full border border-rule-strong text-xs font-semibold text-ink-muted"
                           >
                             {person?.initials ?? r.actorName.slice(0, 1)}
                           </span>
@@ -311,15 +311,18 @@ function RevisionDetails({ revision }: { revision: ProductRevisionView }) {
   const details = revision.changes.flatMap((c) => detailsOf(c, t));
   if (details.length === 0) return null;
   const shown = all ? details : details.slice(0, ANCHORS);
+  // Una sola ancora coi soli segni cambiati: la riga dice già «Formatting
+  // changed», il dettaglio non lo ripete (Impeccable 13).
+  const sayKind = (d: Detail) => d.kind !== "changed" && !(details.length === 1 && d.kind === "formatting");
   return (
-    <div className="flex flex-col gap-3 pt-1 pr-4 pb-3 pl-[46px]">
+    <div className="flex flex-col gap-3 pt-1 pr-4 pb-3 pl-[50px]">
       {shown.map((d) => (
         <div key={d.key} className="flex flex-col gap-1">
-          {(d.label || d.kind !== "changed") && (
+          {(d.label || sayKind(d)) && (
             <p className="flex flex-wrap gap-x-1.5 text-xs text-ink-muted">
               {d.label && <span>{d.label}</span>}
-              {d.label && d.kind !== "changed" && <span aria-hidden="true">·</span>}
-              {d.kind !== "changed" && <span>{t(`productDocs.history.${d.kind}`)}</span>}
+              {d.label && sayKind(d) && <span aria-hidden="true">·</span>}
+              {sayKind(d) && <span>{t(`productDocs.history.${d.kind}`)}</span>}
             </p>
           )}
           {(d.kind === "changed" || d.kind === "removed") && (
