@@ -8,6 +8,7 @@ import type {
   ProductRevision,
   ProductRevisionView,
 } from "../types";
+import { claudeRevisionFields } from "./marks";
 import { productPageById } from "./reads";
 
 // Le revisioni della doc di prodotto (area 11a). Ognuna nasce con
@@ -135,6 +136,8 @@ export async function listProductRevisions(pageId: string): Promise<ProductRevis
     .map((r) => ({
       ...copy(r),
       actorName: PEOPLE.find((p) => p.id === r.actorId)?.name ?? r.actorId,
+      // 11b: «per conto di», la fonte vista da chi guarda, «Annulla» e la domanda (marks.ts).
+      ...claudeRevisionFields(me, r, page.projectId),
     }));
 }
 

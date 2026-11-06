@@ -17,6 +17,7 @@ import { can, viewerFor } from "../viewer";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { emitPresenceChanged, emitProductPage } from "./events";
 import { followAs } from "./follows";
+import { recordProductMarks } from "./marks";
 import { childrenOf, productPageById, productPageRef, productPagesOf } from "./reads";
 import { recordRevision } from "./revisions";
 
@@ -192,6 +193,7 @@ export async function deleteProductPage(pageId: string): Promise<void> {
   state.productRevisions = state.productRevisions.filter((r) => r.pageId !== page.id);
   state.productFollows = state.productFollows.filter((f) => f.pageId !== page.id);
   state.productComments = state.productComments.filter((c) => c.pageId !== page.id);
+  state.productMarks = state.productMarks.filter((m) => m.pageId !== page.id);
   // I fatti di Claude che aspettavano una sezione della pagina (11b) non hanno più dove andare.
   state.productPending = state.productPending.filter((r) => r.pageId !== page.id);
   const present = state.productPresence.length;
@@ -349,6 +351,8 @@ export function writeProductBlocksAs(
     undoOf: meta.undoOf,
     sessionId: meta.sessionId,
   });
+  // Il segno di Claude (11b, P14): una riga per ancora che Claude ha cambiato.
+  if (revisionId !== null && meta.via === "claude") recordProductMarks(revisionId);
   // La scrittura è già fatta: un ascoltatore che lancia non la fa fallire né
   // toglie la sua parte agli altri (lo si dice in console, non si tace).
   for (const change of changes)

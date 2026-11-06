@@ -3877,6 +3877,55 @@ export interface ProductMark {
   revisionId: string;
   acceptedById: string | null;
   acceptedSeq: number | null;
+  /**
+   * L'ancora che la revisione ha cambiato, quando un'unione ha spostato il
+   * segno altrove (`anchorId` è allora il blocco unito). Assente finché il
+   * segno resta dov'è nato.
+   */
+  fromAnchorId?: string;
+}
+
+/**
+ * Se chi guarda può annullare una modifica di Claude (un'ancora, o tutta la
+ * revisione con «Annulla tutto»), e se no perché (11b, Task 3). `byId` è
+ * chi ha toccato l'ancora dopo (`changed_after`) o chi l'ha già annullata
+ * (`already_undone`), se chi guarda lo vede; `null` altrimenti, e sempre per
+ * `no_permission`. `pageId`/`pageTitle` (P34) li dà la prima versione, che
+ * tocca più pagine; il segno no.
+ */
+export type ProductUndoView =
+  | { enabled: true }
+  | {
+      enabled: false;
+      reason: "changed_after" | "no_permission" | "already_undone";
+      byId: string | null;
+      pageId?: string;
+      pageTitle?: string;
+    };
+
+/**
+ * Il segno di Claude su un'ancora, come lo legge chi guarda (11b, Task 3,
+ * `listProductMarks`): tutto derivato in lettura, la pagina non confronta
+ * revisioni. Un segno per ancora; per una tabella un segno per cella, con
+ * `cell` (1 = la prima riga, la prima colonna, P45) e `blockId` = la tabella.
+ */
+export interface ProductMarkView {
+  anchorId: string;
+  /** Il blocco che contiene l'ancora (la tabella, per una cella). */
+  blockId: string;
+  cell?: { row: number; col: number };
+  revisionId: string;
+  groupId: string;
+  /** Chi agisce: il titolare, o `CLAUDE_ID`. */
+  actorId: string;
+  /** Il titolare per cui Claude ha agito; `null` per il Claude collega. */
+  onBehalfOfId: string | null;
+  at: string;
+  /** Quante ancore ha cambiato la stessa revisione («Parte di una modifica a 3 frasi»). */
+  groupAnchors: number;
+  source: ProductSourceView;
+  canAccept: boolean;
+  undo: ProductUndoView;
 }
 
 export type ProductRevisionKind =
@@ -4023,6 +4072,23 @@ export interface ProductPageView extends ProductPage {
 
 export interface ProductRevisionView extends ProductRevision {
   actorName: string;
+  /**
+   * 11b (Task 3), tutti facoltativi. `source` e `via` ci sono già (dalla
+   * revisione): la fonte vista da chi guarda è `sourceView` (P2).
+   */
+  sourceView?: ProductSourceView;
+  /** Il titolare per cui Claude ha agito; assente per il Claude collega e per le persone. */
+  onBehalfOfId?: string;
+  /** Solo le modifiche di Claude (`via: "claude"`, `kind: "edit"`): «Annulla» / «Annulla tutto». */
+  undo?: ProductUndoView;
+  /** Lo stato di ogni ancora cambiata, nella riga aperta. */
+  undoByAnchor?: Record<string, ProductUndoView>;
+  /** Quante ancore sono già state annullate, su quante («1 di 3 annullate»). */
+  undoneCount?: { done: number; count: number };
+  /** L'ultimo che ne ha annullato una parte, se chi guarda lo vede. */
+  undoneById?: string;
+  /** La revisione è la risposta «Aggiorna così» a una domanda di Claude: l'id del filo (P19). */
+  answerOf?: string;
 }
 
 /**

@@ -245,6 +245,7 @@ export function useProductPageEvents(pageId: string) {
       void client.invalidateQueries({ queryKey: [...area, "page"] });
       void client.invalidateQueries({ queryKey: [...area, "comments", pageId] });
       void client.invalidateQueries({ queryKey: [...area, "revisions", pageId] });
+      void client.invalidateQueries({ queryKey: [...area, "marks", pageId] });
     });
   }, [client, me, pageId]);
 }
@@ -313,4 +314,37 @@ export function useProductUpdatesWaiting(projectId: string) {
     queryKey: ["as", me, "instance", "product-updates-waiting", projectId] as const,
     queryFn: () => api.productDocs.productUpdatesWaiting(projectId),
   });
+}
+
+// --- il segno di Claude (11b, Task 3) -------------------------------------------
+
+/** I segni di Claude in una pagina, con «Va bene» e «Annulla» già decisi per chi guarda. */
+export function useProductMarks(pageId: string, { enabled = true }: { enabled?: boolean } = {}) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "productDocs", "marks", pageId] as const,
+    queryFn: () => api.productDocs.listProductMarks(pageId),
+    enabled,
+  });
+}
+
+/** «Annulla» cambia anche la card «Undone by» (`product_doc.updated`). */
+const MARK_AREAS: readonly string[] = [...PRODUCT_AREAS, "notifications"];
+
+/** «Va bene» su un segno: una frase alla volta. */
+export function useAcceptProductMark() {
+  return useWrite(
+    ({ pageId, anchorId }: { pageId: string; anchorId: string }) =>
+      api.productDocs.acceptProductMark(pageId, anchorId),
+    FOLLOW_AREAS,
+  );
+}
+
+/** «Annulla» (un'ancora) o «Annulla tutto» (senza `anchorId`). */
+export function useUndoProductChange() {
+  return useWrite(
+    ({ revisionId, anchorId }: { revisionId: string; anchorId?: string }) =>
+      api.productDocs.undoProductChange(revisionId, anchorId),
+    MARK_AREAS,
+  );
 }

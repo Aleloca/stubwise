@@ -44,6 +44,13 @@ export {
   type ProductSourceOutcome,
 } from "./claude";
 export { productUpdatesWaiting } from "./claudeReads";
+export { listProductMarks, listProductMarksAs } from "./marks";
+export {
+  acceptProductMark,
+  acceptProductMarkAs,
+  undoProductChange,
+  undoProductChangeAs,
+} from "./markGestures";
 export {
   getProductPresence,
   joinProductPage,

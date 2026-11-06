@@ -419,6 +419,9 @@ export type ApiFnName =
   | "productDocs.setProductPresence"
   | "productDocs.getProductPresence"
   | "productDocs.productUpdatesWaiting"
+  | "productDocs.listProductMarks"
+  | "productDocs.acceptProductMark"
+  | "productDocs.undoProductChange"
   // Drive (area 5)
   | "drive.listDriveFiles"
   | "drive.getDriveFile"

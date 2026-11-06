@@ -33,8 +33,9 @@ fa lavorare Claude nella doc di prodotto, sopra il 11a:
 - **Una sola strada di scrittura, quella del 11a.** Ogni modifica di Claude
   passa da `writeProductBlocksAs(actorId, pageId, ops, { via: "claude",
   source, groupId, kind })`. Il segno, la cronologia e «Annulla» leggono le
-  revisioni; il segno si salva come riga (`state.productMarks`) solo per
-  ricordare «Va bene».
+  revisioni; il segno si salva come riga (`state.productMarks`), una per
+  ancora cambiata da Claude, al momento della scrittura (P14): ricorda «Va
+  bene» e si sposta con un'unione (`onAnchorsMerged`).
 - **Si deriva a lettura.** Se il segno si vede, se «Annulla» è acceso, chi
   ha toccato il blocco dopo, come si dice la fonte a chi guarda (R-G5 e
   decisione 1), titolo e corpo delle due card: tutto si calcola in lettura
