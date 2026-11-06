@@ -14,6 +14,7 @@ import { state } from "../../../data/store";
 import type { MailMessage, ProductBlock, ProductFact, RichText } from "../../../data/types";
 import { setLanguage } from "../../../i18n";
 import { DOCKED_PANEL_QUERY } from "../../../layout/useDetailPanel";
+import { REDUCED_MOTION_QUERY } from "../../../layout/useMediaQuery";
 import { setMatchMedia } from "../../../test/setup";
 import { renderRoute } from "../../../test/renderRoute";
 
@@ -151,6 +152,35 @@ describe("la riga di una modifica di Claude", () => {
     expect(undoRevisions()).toHaveLength(1);
   });
 
+  it("«Undid: …»: la data porta alla riga annullata e la tinge 1,5 s; col movimento ridotto la tinta resta finché la riga ha il fuoco (Fix round 1)", async () => {
+    setMatchMedia(REDUCED_MOTION_QUERY, true);
+    threeChanges();
+    const { region, user } = await openHistory("/p/ACQ/docs/product/ACQ-D5", "Sign-in");
+    await user.click(within(claudeItem(region)).getByRole("button", { name: /^Undo all$/ }));
+    await waitFor(() => expect(flat(rowsOf(region)[0]!)).toContain("Undid Claude's change"));
+    await user.click(within(itemOf(rowsOf(region)[0]!)).getByRole("button", { name: /^Show the change that was undone/ }));
+    const undone = rowsOf(region).find((r) => flat(r).includes("on behalf of") && flat(itemOf(r)).includes("Undone by"))!;
+    await waitFor(() => expect(document.activeElement).toBe(undone));
+    expect(undone).toHaveAttribute("data-flash");
+    await new Promise((r) => setTimeout(r, 1700));
+    // Fermo: la tinta non se ne va col tempo, solo col fuoco.
+    expect(undone).toHaveAttribute("data-flash");
+    rowsOf(region)[0]!.focus();
+    await waitFor(() => expect(undone).not.toHaveAttribute("data-flash"));
+  });
+
+  it("senza movimento ridotto la tinta se ne va dopo 1,5 s", async () => {
+    threeChanges();
+    const { region, user } = await openHistory("/p/ACQ/docs/product/ACQ-D5", "Sign-in");
+    await user.click(within(claudeItem(region)).getByRole("button", { name: /^Undo all$/ }));
+    await waitFor(() => expect(flat(rowsOf(region)[0]!)).toContain("Undid Claude's change"));
+    await user.click(within(itemOf(rowsOf(region)[0]!)).getByRole("button", { name: /^Show the change that was undone/ }));
+    const undone = rowsOf(region).find((r) => flat(r).includes("on behalf of") && flat(itemOf(r)).includes("Undone by"))!;
+    await waitFor(() => expect(undone).toHaveAttribute("data-flash"));
+    await waitFor(() => expect(undone).not.toHaveAttribute("data-flash"), { timeout: 2500 });
+    expect(document.activeElement).toBe(undone);
+  });
+
   it("un doppio clic su «Undo all» fa una sola scrittura", async () => {
     threeChanges();
     setLatency(60);
@@ -212,6 +242,17 @@ describe("la riga di una modifica di Claude", () => {
     expect(flat(item)).toContain("Claude per conto di Laura Costa");
     expect(within(item).getByTitle("Fatta con Claude")).toBeInTheDocument();
     expect(within(item).getByRole("button", { name: /^Annulla tutto$/ })).toBeInTheDocument();
+  });
+});
+
+describe("il Claude collega (Fix round 1)", () => {
+  it("una decisione portata da Claude: «Claude», l'avatar ad anello di Claude e «Made with Claude»", async () => {
+    const { region } = await openHistory("/p/ACQ/docs/product/ACQ-D10", "Client decisions");
+    const row = rowsOf(region).find((r) => r.querySelector("[data-claude-mark]"))!;
+    expect(row).toBeDefined();
+    expect(row.querySelector("[data-row-name]")?.textContent).toBe("Claude");
+    expect(row.querySelector("[data-claude-ring]")).not.toBeNull();
+    expect(within(row).getByTitle("Made with Claude")).toBeInTheDocument();
   });
 });
 

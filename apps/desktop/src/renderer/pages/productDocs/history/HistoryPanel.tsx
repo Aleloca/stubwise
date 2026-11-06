@@ -19,10 +19,11 @@ import type {
 } from "../../../data/types";
 import { formatDate } from "../../../notifications/time";
 import { CloseIcon } from "../../task/parts";
-import { UndoReason } from "../claude/ProductClaudeMark";
+import { GestureFailed, UndoReason } from "../claude/ProductClaudeMark";
 import { SourceLine } from "../claude/SourceLine";
 import { blockLabel } from "../editor/BlockBody";
 import { RichView } from "../editor/RichView";
+import { REDUCED_MOTION_QUERY, useMediaQuery } from "../../../layout/useMediaQuery";
 import { usePersonName, useProductSpaceContext } from "../parts";
 import type { HistoryFocus } from "../SideColumn";
 
@@ -259,13 +260,17 @@ export function HistoryPanel({
       }
     }
   });
-  /** «Undid: …» porta alla riga annullata e la evidenzia per 1,5 s. */
+  /**
+   * «Undid: …» porta alla riga annullata e la evidenzia per 1,5 s; col
+   * movimento ridotto la tinta è fissa e resta finché la riga ha il fuoco (§7).
+   */
+  const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY);
   const [flash, setFlash] = useState<string | null>(null);
   useEffect(() => {
-    if (!flash) return;
+    if (!flash || reducedMotion) return;
     const timer = setTimeout(() => setFlash(null), 1500);
     return () => clearTimeout(timer);
-  }, [flash]);
+  }, [flash, reducedMotion]);
   const shown = all.slice(0, limit);
   const today = now().slice(0, 10);
   const rowId = (r: ProductRevisionView) => `${listId}-${r.id}`;
@@ -352,16 +357,26 @@ export function HistoryPanel({
                           aria-controls={`${rowId(r)}-details`}
                           onKeyDown={(e) => onKeyDown(e, index)}
                           onClick={() => toggle(r.id)}
+                          onBlur={() => reducedMotion && flash === r.id && setFlash(null)}
+                          data-flash={flash === r.id ? "" : undefined}
                           className={`mx-1.5 flex cursor-default items-start gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/5 aria-expanded:bg-ink/6 ${flash === r.id ? "!bg-ink/10" : ""}`}
                         >
                           <span
                             aria-hidden="true"
-                            className="mt-px grid size-6 shrink-0 place-items-center rounded-full border border-rule-strong text-xs font-semibold text-ink-muted"
+                            data-claude-ring={person?.isClaude ? "" : undefined}
+                            className={`mt-px grid size-6 shrink-0 place-items-center rounded-full text-xs font-semibold ${
+                              // Il Claude collega: il suo avatar ad anello tratteggiato ([CT 6], come `Avatar`).
+                              person?.isClaude
+                                ? "border-[1.5px] border-dashed border-claude text-ink"
+                                : "border border-rule-strong text-ink-muted"
+                            }`}
                           >
                             {person?.initials ?? r.actorName.slice(0, 1)}
                           </span>
                           <span className="flex min-w-0 flex-1 flex-col">
-                            <span className="font-semibold text-ink [overflow-wrap:anywhere]">{rowName(r)}</span>
+                            <span data-row-name="" className="font-semibold text-ink [overflow-wrap:anywhere]">
+                              {rowName(r)}
+                            </span>
                             <span className="text-ink-muted [overflow-wrap:anywhere]">{summaryOf(r, space.tree, t)}</span>
                           </span>
                           <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-ink-faint">
@@ -579,14 +594,20 @@ function useUndoOnce(onUndone: (focusKey: string, announce: string) => void) {
 
 function UndoFailed({ onRetry }: { onRetry: () => void }) {
   const { t } = useTranslation();
+  return <GestureFailed text={t("productDocs.mark.undoFailed")} onRetry={onRetry} />;
+}
+
+/** «Undone», «Undone by …»: il testo nuovo della riga, dove resta il fuoco dopo un «Undo». */
+function UndoneText({ focusKey, children }: { focusKey: string; children: ReactNode }) {
   return (
-    <p role="alert" className="flex flex-wrap items-center gap-x-1.5 text-xs text-critical">
-      <span>{t("productDocs.mark.undoFailed")}</span>
-      <span aria-hidden="true">·</span>
-      <button type="button" onClick={onRetry} className="font-medium underline underline-offset-2">
-        {t("productDocs.mark.retry")}
-      </button>
-    </p>
+    <span
+      tabIndex={-1}
+      data-undone={focusKey}
+      className="inline-flex items-center gap-1 rounded-sm text-xs text-ink-muted outline-none focus-visible:outline-2 focus-visible:outline-focus"
+    >
+      <UndoGlyph />
+      {children}
+    </span>
   );
 }
 
@@ -608,16 +629,7 @@ function AnchorUndo({
   const once = useUndoOnce(onUndone);
   if (!undo.enabled && undo.reason === "no_permission") return null;
   if (!undo.enabled && undo.reason === "already_undone") {
-    return (
-      <span
-        tabIndex={-1}
-        data-undone={key}
-        className="inline-flex items-center gap-1 rounded-sm text-xs text-ink-muted outline-none focus-visible:outline-2 focus-visible:outline-focus"
-      >
-        <UndoGlyph />
-        {t("productDocs.history.undoneAnchor")}
-      </span>
-    );
+    return <UndoneText focusKey={key}>{t("productDocs.history.undoneAnchor")}</UndoneText>;
   }
   const off = undo.enabled ? null : undo;
   // Nella riga di «After» (che va a capo): il bottone a destra, la frase e
@@ -703,16 +715,7 @@ function RowExtras({
         : by
           ? t("productDocs.history.undonePart", { done, count, name: by })
           : t("productDocs.history.undonePartNobody", { done, count });
-    status = (
-      <span
-        tabIndex={-1}
-        data-undone={r.id}
-        className="inline-flex items-center gap-1 rounded-sm text-xs text-ink-muted outline-none focus-visible:outline-2 focus-visible:outline-focus"
-      >
-        <UndoGlyph />
-        {text}
-      </span>
-    );
+    status = <UndoneText focusKey={r.id}>{text}</UndoneText>;
   } else if (r.undo && !(r.undo.enabled === false && r.undo.reason === "no_permission")) {
     const off = r.undo.enabled ? null : r.undo;
     control = (

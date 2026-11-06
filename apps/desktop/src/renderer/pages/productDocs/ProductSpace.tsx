@@ -1,6 +1,8 @@
 import { Link, Outlet, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { flushSync } from "react-dom";
 import {
   useProject,
   useProductComments,
@@ -217,6 +219,25 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   const markSeq = useRef(0);
   const markParamSeen = useRef<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const client = useQueryClient();
+  // Lo stesso annuncio due volte di fila si rilegge: la regione si svuota, poi
+  // al frame dopo riceve il testo (Fix round 1).
+  const announceTimer = useRef<number | null>(null);
+  const announce = useCallback((text: string) => {
+    // Lo svuotamento si scrive subito nel DOM (non insieme al testo nuovo).
+    flushSync(() => setAnnouncement(""));
+    if (announceTimer.current !== null) cancelAnimationFrame(announceTimer.current);
+    announceTimer.current = requestAnimationFrame(() => {
+      announceTimer.current = null;
+      setAnnouncement(text);
+    });
+  }, []);
+  useEffect(
+    () => () => {
+      if (announceTimer.current !== null) cancelAnimationFrame(announceTimer.current);
+    },
+    [],
+  );
   useEffect(() => {
     if (!marksKey || !search.mark || !marksQuery.data) return;
     const seen = `${marksKey}:${search.mark}`;
@@ -238,7 +259,11 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
       open: open ? { blockId: open.blockId, n: open.n } : null,
       setOpen: (blockId) =>
         setOpenMark(blockId ? { key: marksKey, blockId, n: ++markSeq.current } : null),
-      announce: (text) => setAnnouncement(text),
+      hasBlock: (blockId) => {
+        const fresh = client.getQueryData<ProductPageView | null>(["as", me, "productDocs", "page", view.code]);
+        return (fresh ?? view).blocks.some((b) => b.id === blockId);
+      },
+      announce,
       seeHistory: (revisionId) => side.openHistory(revisionId),
     };
   })();
@@ -360,7 +385,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
         onClose={closeHistory}
         focus={side.historyFocus}
         onSeeQuestion={(rootId) => side.focusThread(rootId)}
-        announce={setAnnouncement}
+        announce={announce}
       />
     ) : null;
 

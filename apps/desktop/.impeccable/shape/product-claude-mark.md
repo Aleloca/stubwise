@@ -511,5 +511,12 @@ composti **a lettura** **[PM 8]**:
    c'è un «Looks good» per tutta la modifica, né nella nota né in
    cronologia. → §3.3, §3.5.
 
+Emendamento (controller, 6 nov 2026, fix round 1 del Task 9): nella frase
+di un «Undo» spento per `changed_after` il nome della persona («**Marco
+Bellini** edited it afterwards») è testo in grassetto (600 `ink`), non un
+link alla sua scheda: l'unica scheda di una persona (`/admin/people/…`) non
+la apre chiunque legga la pagina, e la pagina non calcola permessi. Resta
+il «chi» della frase, senza `WhoCanLink`. → §3.5, tabella degli stati spenti.
+
 Le altre scelte marcate *(scelta del costruttore)* sono da approvare col
 brief.

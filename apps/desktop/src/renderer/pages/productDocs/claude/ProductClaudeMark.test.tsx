@@ -279,6 +279,114 @@ describe("«Looks good» e «Undo»", () => {
   });
 });
 
+/**
+ * Registra ogni istante in cui il fuoco è sul body (Fix round 1: nemmeno per
+ * un frame): a ogni cambio del DOM, a ogni `focusout` e a ogni frame.
+ */
+function watchBody() {
+  const hits: string[] = [];
+  const check = (why: string) => {
+    const a = document.activeElement;
+    if (!a || a === document.body) hits.push(why);
+  };
+  const observer = new MutationObserver(() => check("mutation"));
+  observer.observe(document.body, { childList: true, subtree: true });
+  const onOut = () => queueMicrotask(() => check("focusout"));
+  document.addEventListener("focusout", onOut);
+  let live = true;
+  const frame = () => {
+    if (!live) return;
+    check("frame");
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  return {
+    hits,
+    stop() {
+      live = false;
+      observer.disconnect();
+      document.removeEventListener("focusout", onOut);
+    },
+  };
+}
+
+describe("il fuoco non passa mai dal body (Fix round 1)", () => {
+  it("«Looks good»: dal bottone al blocco senza passare dal body", async () => {
+    const user = await openPage(LAURA);
+    const note = await openNote(user, SEEDED);
+    const looks = within(note).getByRole("button", { name: /^Looks good$/ });
+    looks.focus();
+    const watch = watchBody();
+    await user.click(looks);
+    await waitFor(() => expect(markOf(SEEDED)).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(groupOf(SEEDED)));
+    await new Promise((r) => setTimeout(r, 100));
+    watch.stop();
+    expect(watch.hits).toEqual([]);
+  });
+
+  it("«Undo» di una frase riscritta: dal bottone al blocco senza passare dal body", async () => {
+    twoChanges();
+    const user = await openPage(LAURA);
+    const note = await openNote(user, HOW);
+    const undo = within(note).getByRole("button", { name: /^Undo$/ });
+    undo.focus();
+    const watch = watchBody();
+    await user.click(undo);
+    await waitFor(() => expect(markOf(HOW)).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(groupOf(HOW)));
+    await new Promise((r) => setTimeout(r, 100));
+    watch.stop();
+    expect(watch.hits).toEqual([]);
+  });
+
+  it("«Undo» di un blocco aggiunto: al blocco prima senza passare dal body", async () => {
+    const user = await openPage(LAURA);
+    const note = await openNote(user, SEEDED);
+    const undo = within(note).getByRole("button", { name: /^Undo$/ });
+    undo.focus();
+    const watch = watchBody();
+    await user.click(undo);
+    await waitFor(() => expect(groupOf(SEEDED)).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(groupOf(HOW)));
+    await new Promise((r) => setTimeout(r, 100));
+    watch.stop();
+    expect(watch.hits).toEqual([]);
+  });
+
+  it("«Claude's change» dal menu del blocco: dal menu alla nota senza passare dal body", async () => {
+    const user = await openPage(LAURA);
+    await waitFor(() => expect(markOf(SEEDED)).not.toBeNull());
+    await user.click(within(groupOf(SEEDED)!).getByRole("button", { name: /^Block menu · / }));
+    const item = screen.getByRole("menuitem", { name: "Claude's change" });
+    const watch = watchBody();
+    await user.click(item);
+    await waitFor(() => expect(noteOf(SEEDED)!.contains(document.activeElement)).toBe(true));
+    await new Promise((r) => setTimeout(r, 100));
+    watch.stop();
+    expect(watch.hits).toEqual([]);
+  });
+
+  it("lo stesso annuncio due volte di fila si rilegge: la regione si svuota fra i due", async () => {
+    twoChanges();
+    const user = await openPage(LAURA);
+    const region = document.querySelector<HTMLElement>("[data-marks-announce]")!;
+    const seen: string[] = [];
+    const observer = new MutationObserver(() => seen.push(region.textContent ?? ""));
+    observer.observe(region, { childList: true, subtree: true, characterData: true });
+    // Le volte in cui la regione è PASSATA a «Marked as reviewed» (un lettore lo legge a ogni passaggio).
+    const announced = () => seen.filter((s, i) => s === "Marked as reviewed" && seen[i - 1] !== s).length;
+    for (const [i, id] of [HOW, STORES].entries()) {
+      const note = await openNote(user, id);
+      await user.click(within(note).getByRole("button", { name: /^Looks good$/ }));
+      await waitFor(() => expect(markOf(id)).toBeNull());
+      await waitFor(() => expect(announced()).toBe(i + 1), { timeout: 1500 });
+    }
+    observer.disconnect();
+    expect(region.textContent).toBe("Marked as reviewed");
+  });
+});
+
 describe("chi legge soltanto", () => {
   it("Sara: nessun bottone, la frase «Only people who can edit the Docs…» col «Who?», la fonte senza oggetto né link", async () => {
     const user = await openPage(SARA);

@@ -39,32 +39,34 @@ const blockEl = (root: ParentNode, id: string) =>
   root.querySelector<HTMLElement>(`[data-block-id="${id}"]`);
 
 /**
- * Il fuoco dopo «Looks good» o «Undo»: aspetta che la lettura nuova arrivi
- * (il segno se ne va, o il blocco), poi il blocco; se l'«Undo» l'ha tolto,
- * il blocco prima; se era il primo, l'h1. Mai il body.
+ * Il fuoco dopo «Looks good» o «Undo» (Fix round 1: mai sul body, nemmeno per
+ * un frame). Si sposta PRIMA che la nota si chiuda e smonti il bottone che
+ * l'aveva: sul blocco se c'è ancora nella lettura nuova (`stays`, letto dalla
+ * cache che `onSettled` ha già ricaricato), altrimenti sul blocco prima, o
+ * sull'h1 se era il primo. Se il blocco scelto sparisse comunque dal DOM, il
+ * fuoco passa al ripiego nello stesso giro in cui viene tolto (un osservatore
+ * del DOM, che si spegne quando il segno se n'è andato), non a tempo.
  */
-function focusAfter(button: HTMLElement | null, blockId: string) {
+function focusAfter(button: HTMLElement | null, blockId: string, stays: boolean) {
   const article = button?.closest("article") ?? document;
-  const shell = button ? blockEl(article, blockId) : null;
-  const blocks = [...article.querySelectorAll<HTMLElement>("[data-block-id]")].filter(
+  const shell = blockEl(article, blockId);
+  const siblings = [...article.querySelectorAll<HTMLElement>("[data-block-id]")].filter(
     (el) => el.parentElement === shell?.parentElement,
   );
-  const prevId = shell ? (blocks[blocks.indexOf(shell) - 1]?.dataset.blockId ?? null) : null;
-  let frames = 0;
-  const step = () => {
-    const settled =
-      !document.querySelector(`[data-claude-mark-button="${blockId}"]`) || !blockEl(article, blockId);
-    if (!settled && frames++ < 20) {
-      requestAnimationFrame(step);
-      return;
+  const prevId = shell ? (siblings[siblings.indexOf(shell) - 1]?.dataset.blockId ?? null) : null;
+  const fallback = () => (prevId ? blockEl(article, prevId) : null) ?? article.querySelector<HTMLElement>("h1");
+  const target = (stays ? shell : null) ?? fallback();
+  if (!target) return;
+  target.focus({ preventScroll: true });
+  if (typeof MutationObserver === "undefined") return;
+  const root = article instanceof Document ? article.body : article;
+  const observer = new MutationObserver(() => {
+    if (!target.isConnected && (document.activeElement === document.body || !document.activeElement)) {
+      (blockEl(article, blockId) ?? fallback())?.focus({ preventScroll: true });
     }
-    const target =
-      blockEl(article, blockId) ??
-      (prevId ? blockEl(article, prevId) : null) ??
-      article.querySelector<HTMLElement>("h1");
-    target?.focus({ preventScroll: false });
-  };
-  requestAnimationFrame(step);
+    if (!document.querySelector(`[data-claude-mark-button="${blockId}"]`) || !target.isConnected) observer.disconnect();
+  });
+  observer.observe(root, { childList: true, subtree: true });
 }
 
 function Mark({
@@ -124,10 +126,11 @@ function Mark({
     close();
   };
 
-  const done = (text: string) => {
+  const done = (text: string, kind: "accept" | "undo") => {
+    // Prima il fuoco, poi la nota si chiude: il bottone che lo aveva smonta dopo.
+    focusAfter(button.current, blockId, kind === "accept" || bridge.hasBlock(blockId));
     bridge.announce(text);
     bridge.setOpen(null);
-    focusAfter(button.current, blockId);
   };
 
   const table = marks.some((m) => m.cell);
@@ -249,7 +252,7 @@ function MarkActions({
 }: {
   mark: ProductMarkView;
   pageId: string;
-  onDone: (announce: string) => void;
+  onDone: (announce: string, kind: "accept" | "undo") => void;
 }) {
   const { t } = useTranslation();
   const { project } = useProductSpaceContext();
@@ -286,7 +289,7 @@ function MarkActions({
         ? accept.mutateAsync({ pageId, anchorId: mark.anchorId })
         : undo.mutateAsync({ revisionId: mark.revisionId, anchorId: mark.anchorId });
     write.then(
-      () => onDone(t(kind === "accept" ? "productDocs.mark.accepted" : "productDocs.mark.undone")),
+      () => onDone(t(kind === "accept" ? "productDocs.mark.accepted" : "productDocs.mark.undone"), kind),
       () => {
         inflight.current = false;
         setFailed(kind);
@@ -328,18 +331,29 @@ function MarkActions({
       </div>
       {off && off.reason !== "no_permission" && <UndoReason undo={off} id={reasonId} />}
       {failed && (
-        <p role="alert" className="flex flex-wrap items-center gap-x-1.5 text-xs leading-4 text-critical">
-          <svg viewBox="0 0 16 16" width={12} height={12} fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true" focusable="false">
-            <circle cx="8" cy="8" r="6" />
-            <path d="M8 4.75v3.75M8 11h.01" strokeLinecap="round" />
-          </svg>
-          <span>{t(failed === "accept" ? "productDocs.mark.acceptFailed" : "productDocs.mark.undoFailed")}</span>
-          <span aria-hidden="true">·</span>
-          <button type="button" onClick={() => run(failed)} className="font-medium underline underline-offset-2">
-            {t("productDocs.mark.retry")}
-          </button>
-        </p>
+        <GestureFailed
+          text={t(failed === "accept" ? "productDocs.mark.acceptFailed" : "productDocs.mark.undoFailed")}
+          onRetry={() => run(failed)}
+        />
       )}
     </div>
+  );
+}
+
+/** L'errore di un gesto del livello finto, con «Retry» che lo rifà (§3.5): il segno e la cronologia. */
+export function GestureFailed({ text, onRetry }: { text: string; onRetry: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <p role="alert" className="flex flex-wrap items-center gap-x-1.5 text-xs leading-4 text-critical">
+      <svg viewBox="0 0 16 16" width={12} height={12} fill="none" stroke="currentColor" strokeWidth={1.5} aria-hidden="true" focusable="false">
+        <circle cx="8" cy="8" r="6" />
+        <path d="M8 4.75v3.75M8 11h.01" strokeLinecap="round" />
+      </svg>
+      <span>{text}</span>
+      <span aria-hidden="true">·</span>
+      <button type="button" onClick={onRetry} className="font-medium underline underline-offset-2">
+        {t("productDocs.mark.retry")}
+      </button>
+    </p>
   );
 }

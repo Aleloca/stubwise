@@ -60,6 +60,12 @@ export interface MarksBridge {
   /** Il blocco con la nota aperta; `n` cambia a ogni apertura che porta il fuoco nella nota. */
   open: { blockId: string; n: number } | null;
   setOpen(blockId: string | null): void;
+  /**
+   * Il blocco c'è nella lettura più recente della pagina (la cache, già
+   * ricaricata quando un gesto finisce): dopo «Undo» dice se il fuoco può
+   * restare sul blocco o deve andare a quello prima.
+   */
+  hasBlock(blockId: string): boolean;
   /** «Marked as reviewed», «Undone: …»: l'annuncio resta anche se il segno se ne va. */
   announce(text: string): void;
   /** «See it in the history»: la cronologia con la riga di quella revisione aperta. */
