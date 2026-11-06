@@ -12524,6 +12524,94 @@
       "preparing": "A request is being prepared in Claude's panel",
       "announceApply": "Answered · the sentence is updated",
       "announceKeep": "Answered"
+    },
+    "firstVersion": {
+      "way": "Write the first version with Claude",
+      "wayHint": "Claude drafts the pages from the emails, meetings, notes and files you choose. Anything unclear becomes a question.",
+      "wayReadOnly": "Writing the first version is for people with Edit docs in {{code}}",
+      "dialog": {
+        "title": "Write the first version with Claude",
+        "intro": "Choose what Claude reads. It writes only what the sources say clearly; anything unclear becomes a question on the sentence.",
+        "emails": "Emails",
+        "meetings": "Meetings",
+        "text": "Pasted text",
+        "files": "Drive files",
+        "noEmails": "No emails in {{code}} that you can open",
+        "noMeetings": "No meetings in {{code}}",
+        "noFiles": "No files in {{code}}'s Drive yet",
+        "transcript": "transcript",
+        "placeholder": "Paste notes, a brief or minutes…",
+        "privacy": "Everyone who reads {{code}}'s docs will read what Claude writes from these sources. The emails themselves stay visible only to the people who received them.",
+        "count_one": "{{count}} source",
+        "count_other": "{{count}} sources",
+        "none": "Choose at least one source, or paste some text.",
+        "start": "Write the first version",
+        "starting": "Starting…",
+        "cancel": "Cancel",
+        "close": "Close",
+        "spaceNotEmpty": "Someone added a page in the meantime: the first version starts only in an empty space.",
+        "forbidden": "You can no longer edit the docs in {{code}}.",
+        "failed": "Couldn't start",
+        "retry": "Retry",
+        "loadError": "Couldn't load the sources",
+        "loading": "Loading the sources"
+      },
+      "progress": {
+        "title": "Claude is writing the first version",
+        "count": "{{done}} of {{total}} pages",
+        "for": "for {{name}}",
+        "writing": "writing…",
+        "list": "Pages of the first version",
+        "written": "{{title}} written",
+        "doneTitle": "Claude wrote the first version",
+        "stoppedTitle": "Claude stopped the first version",
+        "stoppedCount": "{{done}} of {{total}} pages written",
+        "pages_one": "{{count}} page",
+        "pages_other": "{{count}} pages",
+        "questions_one": "{{count}} question to close",
+        "questions_other": "{{count}} questions to close",
+        "openFirst": "Open the first page"
+      },
+      "banner": {
+        "label": "First version by Claude",
+        "text": "First version written by Claude on behalf of {{name}}",
+        "textNobody": "First version written by Claude",
+        "stopped": "Claude stopped after {{done}} of {{total}} pages.",
+        "accept": "Accept",
+        "accepting": "Accepting…",
+        "accepted": "Accepted",
+        "acceptFailed": "Couldn't accept",
+        "retry": "Retry",
+        "undo": "Undo the first version",
+        "readOnly": "Accepting or undoing it is for people with Edit docs in {{code}}",
+        "touched": {
+          "edit": "<b>{{name}}</b> edited <page>“{{page}}”</page> afterwards",
+          "comment": "<b>{{name}}</b> commented on <page>“{{page}}”</page> afterwards",
+          "answer": "<b>{{name}}</b> answered a question on <page>“{{page}}”</page> afterwards",
+          "page": "<b>{{name}}</b> added <page>“{{page}}”</page> afterwards",
+          "nobody": "A page was edited afterwards",
+          "undone": "<b>{{name}}</b> already undid it",
+          "undoneNobody": "It was already undone"
+        }
+      },
+      "undo": {
+        "title": "Undo the first version?",
+        "body_one": "The page Claude wrote is removed, with its comments and questions. Its code isn't reused. This can't be undone.",
+        "body_other": "All {{count}} pages Claude wrote are removed, with their comments and questions. Their codes aren't reused. This can't be undone.",
+        "cancel": "Cancel",
+        "confirm": "Undo the first version",
+        "undoing": "Undoing…",
+        "failed": "Couldn't undo the first version",
+        "retry": "Retry",
+        "refused": "A page was changed in the meantime: the first version can no longer be undone.",
+        "close": "Close"
+      }
+    },
+    "waiting": {
+      "budget": "Claude will resume updating the doc when the budget is back",
+      "queue": "Claude will resume updating the doc when {{name}} resumes the queue",
+      "count_one": "{{count}} update waiting",
+      "count_other": "{{count}} updates waiting"
     }
   }
 }

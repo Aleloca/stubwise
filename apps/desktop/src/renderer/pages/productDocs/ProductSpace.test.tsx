@@ -212,13 +212,16 @@ describe("lo spazio Prodotto", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Senza titolo" })).toBeInTheDocument();
   });
 
-  it("VRD vuoto, Sara: «No product pages yet», nessun bottone, nessun «Who?»", async () => {
+  // 11b, Task 11 ([PQ 6], emenda [PS 15] per questa sola riga): Sara ha la
+  // prima strada spenta col suo «Who?»; la pagina bianca resta assente.
+  it("VRD vuoto, Sara: «No product pages yet», nessuna pagina bianca; la sola prima versione, spenta col «Who?»", async () => {
     renderRoute("/p/VRD/docs/product", SARA);
     await screen.findByRole("heading", { name: "No product pages yet" });
     expect(screen.getByText("When someone writes the first page, it shows up here.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start from a blank page/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /new page/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^who/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Write the first version with Claude/ })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getAllByRole("button", { name: /^who/i })).toHaveLength(1);
   });
 
   it("l'indice di ACQ: aggiornate di recente e tutte le pagine, «New page» per chi scrive", async () => {

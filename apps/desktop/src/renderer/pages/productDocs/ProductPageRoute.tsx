@@ -8,6 +8,7 @@ import { useToast } from "../../tasks-ui/Toast";
 import { copyText } from "../../tasks-ui/exportFile";
 import { DocCode, ReadingSkeleton } from "../docs/parts";
 import { ReadOnlyLine } from "./ReadOnlyLine";
+import { FirstVersionBanner } from "./claude/FirstVersionBanner";
 import { TitleField } from "./TitleField";
 import { BlockEditor, type BlockEditorHandle } from "./editor/BlockEditor";
 import { useEditorSession } from "./editor/useEditorSession";
@@ -154,6 +155,8 @@ function PageBody({ page }: { page: ProductPageView }) {
             {t("productDocs.space.created", { name: nameOf(page.createdById) })}
           </span>
         </p>
+        {/* La prima versione di Claude ([PQ 9]): prima questa, poi la sola lettura. */}
+        <FirstVersionBanner pageId={page.id} heading={heading} />
         {!page.permissions.edit && (
           <div className="pt-1">
             <ReadOnlyLine projectId={project.id} projectCode={project.code} scope="page" />

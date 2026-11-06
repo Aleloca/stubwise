@@ -12524,6 +12524,94 @@
       "preparing": "Una richiesta è in preparazione nel riquadro di Claude",
       "announceApply": "Risposto · la frase è aggiornata",
       "announceKeep": "Risposto"
+    },
+    "firstVersion": {
+      "way": "Scrivi la prima versione con Claude",
+      "wayHint": "Claude scrive le pagine dalle email, riunioni, note e file che scegli. Ciò che non è chiaro diventa una domanda.",
+      "wayReadOnly": "Scrivere la prima versione è di chi ha Modifica Docs in {{code}}",
+      "dialog": {
+        "title": "Scrivi la prima versione con Claude",
+        "intro": "Scegli cosa legge Claude. Scrive solo ciò che le fonti dicono chiaramente; ciò che non è chiaro diventa una domanda sulla frase.",
+        "emails": "Email",
+        "meetings": "Riunioni",
+        "text": "Testo incollato",
+        "files": "File del Drive",
+        "noEmails": "Nessuna email di {{code}} che puoi aprire",
+        "noMeetings": "Nessuna riunione di {{code}}",
+        "noFiles": "Ancora nessun file nel Drive di {{code}}",
+        "transcript": "trascrizione",
+        "placeholder": "Incolla note, un brief o un verbale…",
+        "privacy": "Chi legge i Docs di {{code}} leggerà ciò che Claude scrive da queste fonti. Le email restano visibili solo a chi le ha ricevute.",
+        "count_one": "{{count}} fonte",
+        "count_other": "{{count}} fonti",
+        "none": "Scegli almeno una fonte, o incolla del testo.",
+        "start": "Scrivi la prima versione",
+        "starting": "Avvio…",
+        "cancel": "Annulla",
+        "close": "Chiudi",
+        "spaceNotEmpty": "Nel frattempo qualcuno ha aggiunto una pagina: la prima versione parte solo in uno spazio vuoto.",
+        "forbidden": "Non puoi più modificare i Docs di {{code}}.",
+        "failed": "Avvio non riuscito",
+        "retry": "Riprova",
+        "loadError": "Fonti non caricate",
+        "loading": "Carico le fonti"
+      },
+      "progress": {
+        "title": "Claude sta scrivendo la prima versione",
+        "count": "{{done}} di {{total}} pagine",
+        "for": "per {{name}}",
+        "writing": "sto scrivendo…",
+        "list": "Pagine della prima versione",
+        "written": "Scritta {{title}}",
+        "doneTitle": "Claude ha scritto la prima versione",
+        "stoppedTitle": "Claude ha interrotto la prima versione",
+        "stoppedCount": "{{done}} di {{total}} pagine scritte",
+        "pages_one": "{{count}} pagina",
+        "pages_other": "{{count}} pagine",
+        "questions_one": "{{count}} domanda da chiudere",
+        "questions_other": "{{count}} domande da chiudere",
+        "openFirst": "Apri la prima pagina"
+      },
+      "banner": {
+        "label": "Prima versione di Claude",
+        "text": "Prima versione scritta da Claude per conto di {{name}}",
+        "textNobody": "Prima versione scritta da Claude",
+        "stopped": "Claude si è fermato dopo {{done}} pagine su {{total}}.",
+        "accept": "Accetta",
+        "accepting": "Accetto…",
+        "accepted": "Accettata",
+        "acceptFailed": "Non accettata",
+        "retry": "Riprova",
+        "undo": "Annulla la prima versione",
+        "readOnly": "Accettarla o annullarla è di chi ha Modifica Docs in {{code}}",
+        "touched": {
+          "edit": "<b>{{name}}</b> ha modificato <page>«{{page}}»</page> dopo",
+          "comment": "<b>{{name}}</b> ha commentato <page>«{{page}}»</page> dopo",
+          "answer": "<b>{{name}}</b> ha risposto a una domanda su <page>«{{page}}»</page> dopo",
+          "page": "<b>{{name}}</b> ha aggiunto <page>«{{page}}»</page> dopo",
+          "nobody": "Una pagina è stata modificata dopo",
+          "undone": "<b>{{name}}</b> l'ha già annullata",
+          "undoneNobody": "È già stata annullata"
+        }
+      },
+      "undo": {
+        "title": "Annullare la prima versione?",
+        "body_one": "La pagina scritta da Claude viene tolta, con i commenti e le domande. Il suo codice non si riusa. Non si può annullare.",
+        "body_other": "Le {{count}} pagine scritte da Claude vengono tolte, con i commenti e le domande. I loro codici non si riusano. Non si può annullare.",
+        "cancel": "Annulla",
+        "confirm": "Annulla la prima versione",
+        "undoing": "Annullo…",
+        "failed": "Prima versione non annullata",
+        "retry": "Riprova",
+        "refused": "Nel frattempo una pagina è cambiata: la prima versione non si può più annullare.",
+        "close": "Chiudi"
+      }
+    },
+    "waiting": {
+      "budget": "Claude riprenderà ad aggiornare la doc quando torna il budget",
+      "queue": "Claude riprenderà ad aggiornare la doc quando {{name}} riprende la coda",
+      "count_one": "{{count}} aggiornamento in attesa",
+      "count_other": "{{count}} aggiornamenti in attesa"
     }
   }
 }

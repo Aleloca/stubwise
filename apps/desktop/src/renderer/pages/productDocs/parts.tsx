@@ -40,6 +40,8 @@ export interface ProductSpaceContextValue {
   comments?: CommentsBridge | null;
   /** I segni di Claude della pagina aperta (11b, Task 9); assente fuori da una pagina. */
   marks?: MarksBridge | null;
+  /** «Undo the first version»: la conferma, che vive nello spazio (11b, Task 11). */
+  askUndoFirstVersion?: () => void;
 }
 
 /**
@@ -114,6 +116,8 @@ const fresh = new Set<string>();
 
 export const markFresh = (code: string) => void fresh.add(code);
 export const takeFresh = (code: string) => fresh.delete(code);
+/** Il segno c'è ancora (nessuno l'ha preso). */
+export const isFresh = (code: string) => fresh.has(code);
 
 /**
  * Crea «Untitled» / «Senza titolo» (in fondo ai fratelli di `parentId`) e la
@@ -163,6 +167,8 @@ export const inSpace = (page: ProductPageView | null, project: Project): page is
 
 /** La chiave «appena aperto» dell'indice dello spazio (dopo l'eliminazione di una radice). */
 export const indexFreshKey = (code: string) => `index:${code}`;
+/** Dopo «Undo the first version»: l'indice vuoto mette il fuoco sulla prima strada (11b, Task 11). */
+export const firstVersionWayFreshKey = (code: string) => `first-version-way:${code}`;
 
 /**
  * La pagina che non c'è, o che chi guarda non legge: la stessa frase (R-G5,

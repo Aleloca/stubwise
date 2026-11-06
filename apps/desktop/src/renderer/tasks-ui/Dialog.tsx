@@ -38,6 +38,7 @@ export function Dialog({
   footer,
   confirmDiscard,
   className = "",
+  scrollBody = false,
   children,
 }: {
   title: string;
@@ -52,6 +53,11 @@ export function Dialog({
    */
   footer?: ReactNode | ((dismiss: () => void) => ReactNode);
   confirmDiscard?: { message: string; keep: string; discard: string };
+  /**
+   * Il corpo scorre dentro sé e la superficie sta in 80vh: titolo e piede
+   * restano a vista (la finestra delle fonti della prima versione, 11b).
+   */
+  scrollBody?: boolean;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -125,9 +131,9 @@ export function Dialog({
         aria-describedby={description ? descriptionId : undefined}
         onKeyDown={onKeyDown}
         style={{ width }}
-        className={`palette-enter mx-auto my-[10vh] flex max-w-full flex-col rounded-xl border border-rule-strong bg-surface text-ink shadow-[0_24px_48px_-16px_oklch(0_0_0/0.45)] ${className}`}
+        className={`palette-enter mx-auto my-[10vh] flex max-w-full flex-col rounded-xl border border-rule-strong bg-surface text-ink shadow-[0_24px_48px_-16px_oklch(0_0_0/0.45)] ${scrollBody ? "max-h-[80vh]" : ""} ${className}`}
       >
-        <header className="flex flex-col gap-1 px-5 pt-5 pb-4">
+        <header className="flex shrink-0 flex-col gap-1 px-5 pt-5 pb-4">
           <h2 id={titleId} className="text-lg font-semibold text-ink">
             {title}
           </h2>
@@ -137,7 +143,12 @@ export function Dialog({
             </p>
           )}
         </header>
-        <div className="flex flex-col gap-4 px-5 pb-5">{children}</div>
+        <div
+          data-dialog-body=""
+          className={`flex flex-col gap-4 px-5 pb-5 ${scrollBody ? "min-h-0 flex-1 overflow-y-auto" : ""}`}
+        >
+          {children}
+        </div>
         {asking ? (
           <footer
             role="group"
@@ -159,7 +170,7 @@ export function Dialog({
           </footer>
         ) : (
           footer && (
-            <footer className="flex items-center justify-end gap-2 border-t border-rule px-5 py-3">
+            <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-rule px-5 py-3">
               {typeof footer === "function" ? footer(dismiss) : footer}
             </footer>
           )

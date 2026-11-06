@@ -1,13 +1,19 @@
 import { Link } from "@tanstack/react-router";
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
+import { WithWho } from "../../components/InstanceBlock";
+import { WhoCanLink } from "../../components/WhoCanLink";
+import { useAiBlock, useProductFirstVersion } from "../../data/queries";
 import { flattenTree } from "../../domain/productDocs/tree";
 import { formatDate } from "../../notifications/time";
 import { PlusIcon } from "../task/parts";
 import { secondaryButton } from "../tasks/controls";
 import { DocCode, DocsGroup, rowLinkClass } from "../docs/parts";
 import { ReadOnlyLine } from "./ReadOnlyLine";
+import { FirstVersionDialog } from "./claude/FirstVersionDialog";
+import { ClaudeRing, FirstVersionProgress } from "./claude/FirstVersionProgress";
 import {
+  firstVersionWayFreshKey,
   indexFreshKey,
   productPageLink,
   takeFresh,
@@ -37,6 +43,46 @@ export function ProductIndex() {
   useEffect(() => {
     if (takeFresh(indexFreshKey(project.code))) heading.current?.focus();
   }, [project.code]);
+
+  // La prima versione di Claude (11b, Task 11, [PQ 6]–[PQ 8]). Mentre scrive
+  // l'indice è l'avanzamento, per tutti; finita (o interrotta), lo resta solo
+  // per chi l'ha vista scrivere in questa visita: dalla successiva l'indice
+  // torna normale.
+  const firstVersion = useProductFirstVersion(project.id).data ?? null;
+  const [witnessed, setWitnessed] = useState(false);
+  if (firstVersion?.status === "writing" && !witnessed) setWitnessed(true);
+  const progress =
+    firstVersion && (firstVersion.status === "writing" || (witnessed && firstVersion.status === "done"))
+      ? firstVersion
+      : null;
+  const [dialog, setDialog] = useState(false);
+  const [focusProgress, setFocusProgress] = useState(false);
+  const way = useRef<HTMLButtonElement>(null);
+  // Dopo «Undo the first version»: il fuoco sulla prima strada dell'indice
+  // vuoto, appena c'è. La lettura dello spazio può arrivare un giro dopo
+  // l'indirizzo (l'indice monta ancora con le pagine): finché la strada non
+  // c'è il segno resta, e la conferma resta aperta col fuoco (la chiude lo
+  // spazio quando il segno è preso), quindi il fuoco non passa dal body.
+  const showsWays = !progress && space.pageCount === 0;
+  useLayoutEffect(() => {
+    if (showsWays && way.current && takeFresh(firstVersionWayFreshKey(project.code))) way.current.focus();
+  }, [project.code, showsWays]);
+  // Chiusa la finestra il fuoco torna alla prima strada (lo fa il dialogo);
+  // se la strada non c'è più (una prima versione partita nel frattempo, una
+  // pagina comparsa) va al titolo, prima che il dialogo smonti.
+  const closeDialog = () => {
+    if (!way.current?.isConnected) heading.current?.focus();
+    setDialog(false);
+  };
+  const onStarted = useCallback(() => {
+    setWitnessed(true);
+    setFocusProgress(true);
+  }, []);
+  // Il titolo dell'avanzamento ha il fuoco: ora la finestra può chiudersi.
+  const onProgressFocused = useCallback(() => {
+    setFocusProgress(false);
+    setDialog(false);
+  }, []);
 
   return (
     <article className="event-enter mx-auto flex w-full max-w-[720px] flex-col">
@@ -75,8 +121,23 @@ export function ProductIndex() {
         </div>
       )}
 
-      {space.pageCount === 0 ? (
-        <EmptySpace edit={edit} pending={create.isPending} onStart={() => void create.run(null)} />
+      {progress ? (
+        <FirstVersionProgress
+          view={progress}
+          projectCode={project.code}
+          focusRequest={focusProgress}
+          onFocused={onProgressFocused}
+        />
+      ) : space.pageCount === 0 ? (
+        <EmptySpace
+          edit={edit}
+          projectId={project.id}
+          projectCode={project.code}
+          pending={create.isPending}
+          onStart={() => void create.run(null)}
+          way={way}
+          onFirstVersion={() => setDialog(true)}
+        />
       ) : (
         <>
           <DocsGroup title={t("productDocs.space.recent")}>
@@ -116,34 +177,86 @@ export function ProductIndex() {
           </DocsGroup>
         </>
       )}
+      {dialog && <FirstVersionDialog project={project} onClose={closeDialog} onStarted={onStarted} />}
     </article>
   );
 }
 
 /**
- * Lo spazio vuoto ([PS 15]): chi scrive ha le strade (righe da 44 px, non
- * card; il 11b ne aggiunge una in testa, «Write the first version with
- * Claude»); chi legge una frase, senza bottoni né «Who?»: non c'è niente da
- * chiedere, lo spazio è vuoto per tutti.
+ * Lo spazio vuoto ([PS 15], [PQ 6]): chi scrive ha le strade (righe da 44
+ * px, non card), per prima «Write the first version with Claude», poi «Start
+ * from a blank page». Chi legge soltanto ha la frase e la sola prima strada,
+ * spenta, col perché e il «Who?»: lì c'è qualcosa da chiedere a qualcuno.
+ * Col budget del mese finito la prima strada è spenta con la frase del
+ * budget; la pausa della coda non la ferma (P48). Spenta resta raggiungibile
+ * (`aria-disabled`); il permesso lo dice la vista dello spazio.
  */
 function EmptySpace({
   edit,
+  projectId,
+  projectCode,
   pending,
   onStart,
+  way,
+  onFirstVersion,
 }: {
   edit: boolean;
+  projectId: string;
+  projectCode: string;
   pending: boolean;
   onStart: () => void;
+  way: RefObject<HTMLButtonElement | null>;
+  onFirstVersion: () => void;
 }) {
   const { t } = useTranslation();
+  const budgetOut = useAiBlock(projectId).data?.reason === "monthly_budget";
+  const whyId = useId();
+  const off = !edit || budgetOut;
   return (
     <section className="flex flex-col gap-2 pt-10">
       <h2 className="text-xl font-semibold text-ink">{t("productDocs.space.emptyTitle")}</h2>
       <p className="max-w-[62ch] text-md text-pretty text-ink-muted">
         {edit ? t("productDocs.space.emptyWrite") : t("productDocs.space.emptyRead")}
       </p>
-      {edit && (
-        <ul aria-label={t("productDocs.space.ways")} className="mt-4 border-t border-rule">
+      <ul aria-label={t("productDocs.space.ways")} className="mt-4 border-t border-rule">
+        <li className="flex flex-col border-b border-rule">
+          <button
+            ref={way}
+            type="button"
+            aria-disabled={off || undefined}
+            aria-describedby={off ? whyId : undefined}
+            onClick={() => !off && onFirstVersion()}
+            className={`${rowLinkClass} w-full border-b-0 aria-disabled:cursor-default aria-disabled:hover:bg-transparent`}
+          >
+            <span className="flex h-5 shrink-0 items-center self-start">
+              <ClaudeRing size={16} pulse={false} />
+            </span>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className={`text-md font-medium ${off ? "text-ink-muted" : "text-ink"}`}>
+                {t("productDocs.firstVersion.way")}
+              </span>
+              {/* Fra due elementi flessibili lo spazio non si vede: separa il nome dalla frase. */}{" "}
+              {!off && (
+                <span className="text-xs text-pretty text-ink-muted">{t("productDocs.firstVersion.wayHint")}</span>
+              )}
+            </span>
+          </button>
+          {off && (
+            // La frase al posto della descrizione, fuori dal bottone: il suo «Who?» è un bottone a sé.
+            <p id={whyId} className="-mt-2 pr-2 pb-2 pl-9 text-xs text-pretty text-ink-muted">
+              {!edit ? (
+                <>
+                  {t("productDocs.firstVersion.wayReadOnly", { code: projectCode })}{" "}
+                  <span aria-hidden="true">· </span>
+                  <WhoCanLink action="editDocs" projectId={projectId} projectCode={projectCode} />
+                </>
+              ) : (
+                <WithWho text={t("claude.panel.budget")} />
+              )}
+            </p>
+          )}
+        </li>
+        {edit && (
           <li>
             <button
               type="button"
@@ -155,8 +268,8 @@ function EmptySpace({
               {t("productDocs.space.startBlank")}
             </button>
           </li>
-        </ul>
-      )}
+        )}
+      </ul>
     </section>
   );
 }

@@ -30,6 +30,8 @@ import { PresenceAvatars } from "./live/PresenceAvatars";
 import { FollowButton, pageBarButton } from "./FollowButton";
 import { SideColumnFrame, useSideColumn, type SideColumn } from "./SideColumn";
 import { CommentsColumn } from "./comments/CommentsColumn";
+import { ClaudeWaitingLine } from "./claude/ClaudeWaitingLine";
+import { FirstVersionUndoDialog } from "./claude/FirstVersionBanner";
 import { HistoryPanel } from "./history/HistoryPanel";
 import { ExportGroups, ExportMenu } from "./export/ExportMenu";
 import { useProductExport } from "./export/exportProduct";
@@ -43,7 +45,9 @@ import {
   type MarksBridge,
   ProductNotFound,
   ProductSpaceContext,
+  firstVersionWayFreshKey,
   inSpace,
+  isFresh,
   indexFreshKey,
   markFresh,
   productIndexLink,
@@ -267,6 +271,24 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
       seeHistory: (revisionId) => side.openHistory(revisionId),
     };
   })();
+  // «Undo the first version?» (11b, Task 11): la conferma vive qui, non
+  // nella pagina, perché confermata le pagine se ne vanno. Annullata, lo
+  // spazio torna all'indice e la conferma resta aperta (col fuoco) finché
+  // l'indice non ha messo il fuoco sulla prima strada e preso il segno: la
+  // lettura dello spazio può arrivare un giro dopo l'indirizzo. Gli effetti
+  // di layout dei figli vengono prima: il fuoco non passa mai dal body.
+  const [undoAsk, setUndoAsk] = useState<"ask" | "undone" | null>(null);
+  const askUndoFirstVersion = useCallback(() => setUndoAsk("ask"), []);
+  const onFirstVersionUndone = () => {
+    markFresh(firstVersionWayFreshKey(project.code));
+    setUndoAsk("undone");
+    void navigate(productIndexLink(project.code));
+  };
+  useLayoutEffect(() => {
+    if (undoAsk === "undone" && pageCode === null && !isFresh(firstVersionWayFreshKey(project.code)))
+      setUndoAsk(null);
+  }, [undoAsk, pageCode, space, project.code]);
+
   // A 1440 il pannello della task prende il posto della colonna, che torna alla sua chiusura.
   const sideShown = view !== null && side.side !== null && !(docked && !!search.task);
   const sideDocked = sideShown && docked;
@@ -391,7 +413,15 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
 
   return (
     <ProductSpaceContext.Provider
-      value={{ project, space, reveal, setEditorStatus, comments: bridge, marks: marksBridge }}
+      value={{
+        project,
+        space,
+        reveal,
+        setEditorStatus,
+        comments: bridge,
+        marks: marksBridge,
+        askUndoFirstVersion,
+      }}
     >
       <div ref={root} className="relative flex h-full min-h-0 flex-col">
         <span aria-live="polite" data-marks-announce="" className="sr-only">
@@ -414,6 +444,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
           moreButton={moreButton}
           pageCount={space.pageCount}
         />
+        <ClaudeWaitingLine projectId={project.id} />
         <div className="flex min-h-0 flex-1">
           {treeDocked && (
             <aside
@@ -446,6 +477,13 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
           <SideColumnFrame mode="overlay" front={side.front}>
             {sideContent}
           </SideColumnFrame>
+        )}
+        {undoAsk !== null && (
+          <FirstVersionUndoDialog
+            project={project}
+            onClose={() => setUndoAsk(null)}
+            onUndone={onFirstVersionUndone}
+          />
         )}
         {!treeDocked && drawer && (
           <aside

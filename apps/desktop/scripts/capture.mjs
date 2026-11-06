@@ -450,6 +450,244 @@ async function main() {
       return;
     }
 
+    // Area 11b, Task 11 (`CAPTURE_A11B_FIRST=1`): la prima versione di Claude
+    // in VRD, vuoto nel seme (le due strade per Laura, per Sara e col budget
+    // finito; la finestra delle fonti; l'avanzamento durante e alla fine; la
+    // riga in cima a una pagina, la conferma di «Undo», «Undo» spento dopo un
+    // tocco di Marco, la riga per Sara) e la riga dell'attesa in cima allo
+    // spazio di ACQ (budget, pausa). Scatti `a11b-first-*`, `a11b-waiting-*`.
+    if (process.env.CAPTURE_A11B_FIRST) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const VRD_INDEX = "/p/VRD/docs/product";
+      const firstWay = (page) =>
+        page.getByRole("button", { name: /^(Write the first version with Claude|Scrivi la prima versione con Claude)/ });
+      /** Lo stato cambiato dentro la pagina: fuori e dentro di nuovo, perché la lettura si rifaccia. */
+      async function reopen(page, hash) {
+        await page.evaluate(() => {
+          window.location.hash = "/home";
+        });
+        await page.waitForTimeout(300);
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.getByRole("heading", { level: 1 }).first().waitFor();
+        await page.waitForTimeout(600);
+      }
+      /** Laura lancia la prima versione dal livello dati e aspetta la fine; restituisce il codice della prima pagina. */
+      async function written(page) {
+        return page.evaluate(async () => {
+          const fv = await import("/data/productDocs/firstVersion.ts");
+          const store = await import("/data/store.ts");
+          fv.startFirstVersionAs("p-laura", "prj-vrd", [
+            { kind: "email", id: "mm-vrd-booking-rules" },
+            { kind: "text", text: "Classes are booked a week ahead; cancellations up to 12 hours before." },
+            { kind: "drive", fileId: "drv-vrd-1" },
+          ]);
+          await fv.whenFirstVersionIdle();
+          return store.state.productPages.find((p) => p.projectId === "prj-vrd" && p.parentId === null).code;
+        });
+      }
+      async function chooseSources(page) {
+        await firstWay(page).click();
+        const dialog = page.getByRole("dialog");
+        await dialog.getByRole("checkbox").first().waitFor();
+        await dialog.getByRole("checkbox").first().check();
+        await dialog
+          .getByRole("textbox")
+          .fill("Kickoff notes: classes are booked a week ahead; cancellations up to 12 hours before.");
+        await dialog.getByRole("checkbox").last().check();
+        return dialog;
+      }
+      /** Due fonti di Laura ferme su Sign-in di ACQ: due aggiornamenti in attesa. */
+      async function twoWaiting(page, mode) {
+        await page.evaluate(async (m) => {
+          const store = await import("/data/store.ts");
+          const helpers = await import("/data/seed/mail/helpers.ts");
+          const claude = await import("/data/productDocs/claude.ts");
+          const queue = await import("/data/instance/queue.ts");
+          if (m === "budget") store.state.instance.simulate.budgetReached = true;
+          else queue.pauseQueueAs("p-roberta", "prj-acq");
+          for (const id of ["mm-capture-wait-1", "mm-capture-wait-2"])
+            store.state.mailMessages.push(
+              helpers.mail({
+                id,
+                threadId: `th-${id}`,
+                from: helpers.ext("Fabio Rossi", "fabio@cliente.example"),
+                to: [helpers.person("p-laura")],
+                subject: "Login",
+                at: "2026-11-04T09:30:00Z",
+                text: "body",
+                mailboxPersonIds: ["p-laura"],
+                classification: helpers.done(["prj-acq"], "normal"),
+              }),
+            );
+          const fact = (id, anchorId, text) => ({
+            id,
+            pageId: "pp-acq-sign-in",
+            anchorId,
+            clarity: "clear",
+            change: { kind: "replace", text: { text, marks: [] } },
+          });
+          claude.applyProductSource({ kind: "email", id: "mm-capture-wait-1" }, "prj-acq", [
+            fact("fact-cap-w1", "blk-acq-signin-2", "Customers sign in with Google only."),
+          ]);
+          claude.applyProductSource({ kind: "email", id: "mm-capture-wait-2" }, "prj-acq", [
+            fact("fact-cap-w2", "blk-acq-signin-4", "Only the name and the email address."),
+          ]);
+          store.notifyInstanceChange();
+        }, mode);
+      }
+      const scenes = [
+        { name: "first-ways", hash: VRD_INDEX, persona: "Laura", run: async () => {} },
+        { name: "first-ways-sara", hash: VRD_INDEX, persona: "Sara", run: async () => {} },
+        {
+          name: "first-ways-budget",
+          hash: VRD_INDEX,
+          persona: "Laura",
+          run: async (page) => {
+            await page.evaluate(async () => {
+              const store = await import("/data/store.ts");
+              store.state.instance.simulate.budgetReached = true;
+              store.notifyInstanceChange();
+            });
+            await page.waitForTimeout(600);
+          },
+        },
+        {
+          name: "first-dialog",
+          hash: VRD_INDEX,
+          persona: "Laura",
+          run: async (page) => {
+            await chooseSources(page);
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "first-during",
+          hash: VRD_INDEX,
+          persona: "Laura",
+          run: async (page) => {
+            const dialog = await chooseSources(page);
+            await page.evaluate(async () => {
+              const store = await import("/data/store.ts");
+              store.setStreamLatency(900);
+            });
+            await dialog.getByRole("button", { name: /^(Write the first version|Scrivi la prima versione)$/ }).click();
+            await page.getByRole("heading", { name: /^(Claude is writing the first version|Claude sta scrivendo la prima versione)$/ }).waitFor();
+            await page.waitForTimeout(3600);
+          },
+        },
+        {
+          name: "first-done",
+          hash: VRD_INDEX,
+          persona: "Laura",
+          run: async (page) => {
+            const dialog = await chooseSources(page);
+            await page.evaluate(async () => {
+              const store = await import("/data/store.ts");
+              store.setStreamLatency(60);
+            });
+            await dialog.getByRole("button", { name: /^(Write the first version|Scrivi la prima versione)$/ }).click();
+            await page.getByRole("heading", { name: /^(Claude wrote the first version|Claude ha scritto la prima versione)$/ }).waitFor({ timeout: 20_000 });
+            await page.waitForTimeout(500);
+          },
+        },
+        {
+          name: "first-banner",
+          hash: VRD_INDEX,
+          persona: "Laura",
+          run: async (page) => {
+            const code = await written(page);
+            await reopen(page, `${VRD_INDEX}/${code}`);
+          },
+        },
+        {
+          name: "first-confirm",
+          hash: VRD_INDEX,
+          persona: "Laura",
+          run: async (page) => {
+            const code = await written(page);
+            await reopen(page, `${VRD_INDEX}/${code}`);
+            await page
+              .getByRole("region", { name: /^(First version by Claude|Prima versione di Claude)$/ })
+              .getByRole("button", { name: /^(Undo the first version|Annulla la prima versione)$/ })
+              .click();
+            await page.getByRole("dialog").waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "first-off",
+          hash: VRD_INDEX,
+          persona: "Laura",
+          run: async (page) => {
+            const code = await written(page);
+            await page.evaluate(async (c) => {
+              const store = await import("/data/store.ts");
+              const writes = await import("/data/productDocs/writes.ts");
+              const p = store.state.productPages.find((x) => x.code === c);
+              const block = structuredClone(p.blocks.find((b) => b.type === "paragraph" && b.content.text !== "") ?? p.blocks[0]);
+              block.content = { text: "Classes open for booking seven days ahead, at 7:00.", marks: [] };
+              writes.writeProductBlocksAs("p-marco", p.id, [{ op: "set", block }], { sessionId: "s-capture-marco" });
+            }, code);
+            await reopen(page, `${VRD_INDEX}/${code}`);
+          },
+        },
+        {
+          name: "first-sara",
+          hash: VRD_INDEX,
+          persona: "Sara",
+          run: async (page) => {
+            const code = await written(page);
+            await reopen(page, `${VRD_INDEX}/${code}`);
+          },
+        },
+        {
+          name: "waiting-budget",
+          hash: "/p/ACQ/docs/product/ACQ-D5",
+          persona: "Laura",
+          run: async (page) => {
+            await twoWaiting(page, "budget");
+            await page.locator("[data-claude-waiting]").waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
+          name: "waiting-pause",
+          hash: "/p/ACQ/docs/product",
+          persona: "Laura",
+          run: async (page) => {
+            await twoWaiting(page, "pause");
+            await page.locator("[data-claude-waiting]").waitFor();
+            await page.waitForTimeout(300);
+          },
+        },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a11b-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          await page.getByRole("heading", { level: 1 }).first().waitFor();
+          await page.waitForTimeout(600);
+          await scene.run(page);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 11b, Task 10 (`CAPTURE_A11B_QUESTIONS=1`): le domande di Claude
     // nella colonna dei commenti (Meter reading: la divergenza da ACQ-8 col
     // prima e dopo; Bills: la frase da aggiungere coi tre bottoni; risposta
