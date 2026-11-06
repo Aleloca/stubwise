@@ -381,6 +381,13 @@ function decisionsPage(): Spec {
   };
 }
 
+/** I titoli delle tre fasi di Phases (11b, Task 7), con id scritti. */
+export const PHASE_HEADINGS = {
+  phase1: "blk-acq-phases-h1",
+  phase2: "blk-acq-phases-h2",
+  phase3: "blk-acq-phases-h3",
+} as const;
+
 /** Il passo di Phases che Matteo ha tolto: c'era, e il suo id resta dato. */
 const PHASES_REMOVED = "blk-acq-phases-paper";
 
@@ -393,12 +400,18 @@ function phasesPage(): Spec {
     parent: null,
     days: 26,
     time: "09:10",
+    // I titoli delle fasi (11b, Task 7: «Proponi le voci di backlog da questa
+    // sezione») hanno id scritti: `id()` è posizionale, e i commenti e i fatti
+    // del seme sono ancorati ai numeri dei passi.
     blocks: [
       para(id(), "The work goes out in three phases. Tick each step when it is live."),
+      h(PHASE_HEADINGS.phase1, 2, "Phase 1"),
       todo(id(), "Phase 1: sign-in and bills", true),
       todo(reading, "Phase 1: meter readings", true),
+      h(PHASE_HEADINGS.phase2, 2, "Phase 2"),
       todo(id(), "Phase 2: fault reports", false),
       todo(id(), "Phase 2: instalment plans", false),
+      h(PHASE_HEADINGS.phase3, 2, "Phase 3"),
       todo(id(), "Phase 3: a dark appearance", false),
     ],
     edits: [

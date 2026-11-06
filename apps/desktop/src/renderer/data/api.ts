@@ -412,7 +412,7 @@ export async function listRequestsToConvert(): Promise<ProjectRequest[]> {
         can(viewer, "tickets.create", r.projectId),
     )
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map(copy);
+    .map((r) => requestView(me, r));
 }
 
 export async function getRequest(id: string): Promise<ProjectRequest | null> {

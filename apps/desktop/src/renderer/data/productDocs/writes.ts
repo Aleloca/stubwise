@@ -330,10 +330,16 @@ export function writeProductBlocksAs(
     }
     // La bozza di schermata (11b, Task 7): un disegno e una variante del seme,
     // e `kept` solo booleano. Chi la disegna è Claude, ma la strada è questa.
+    // Un disegno che il seme non ha più si può ancora tenere: si rivalida
+    // solo il disegno che cambia.
     if (change.after?.type === "wireframe") {
       const { wireframeId, variant, kept } = change.after;
       const known = Object.hasOwn(PRODUCT_WIREFRAMES, wireframeId) ? PRODUCT_WIREFRAMES[wireframeId]! : null;
-      if (!known || !Number.isInteger(variant) || variant < 0 || variant >= known.variants.length)
+      const unchanged =
+        change.before?.type === "wireframe" &&
+        change.before.wireframeId === wireframeId &&
+        change.before.variant === variant;
+      if (!unchanged && (!known || !Number.isInteger(variant) || variant < 0 || variant >= known.variants.length))
         throw invalid("wireframe");
       if (kept !== undefined && typeof kept !== "boolean") throw invalid("wireframe");
     }

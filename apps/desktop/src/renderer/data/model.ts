@@ -4328,10 +4328,10 @@ export interface ProductRevisionView extends ProductRevision {
   answerOf?: string;
   /**
    * 11b (Task 7): la revisione è un gesto sulla bozza di schermata —
-   * disegnata o rifatta da Claude, tenuta da una persona («Tieni»). Derivato
-   * a lettura dai cambi.
+   * disegnata o rifatta da Claude, tenuta da una persona («Tieni») o
+   * sostituita con un'immagine. Derivato a lettura dai cambi.
    */
-  wireframe?: "drew" | "redrew" | "kept";
+  wireframe?: "drew" | "redrew" | "kept" | "replaced";
 }
 
 /**

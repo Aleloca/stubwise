@@ -439,6 +439,7 @@ export type ApiFnName =
   | "productDocs.drawWireframe"
   | "productDocs.redrawWireframe"
   | "productDocs.keepWireframe"
+  | "productDocs.replaceWireframeWithImage"
   // Drive (area 5)
   | "drive.listDriveFiles"
   | "drive.getDriveFile"

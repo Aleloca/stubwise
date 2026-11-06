@@ -481,11 +481,20 @@ export function useDrawWireframe() {
   );
 }
 
-/** «Rifai»: la variante seguente, e l'etichetta torna. */
+/** «Rifai»: la variante seguente, e l'etichetta torna; `fromVariant` = quella vista (doppio clic). */
 export function useRedrawWireframe() {
   return useWrite(
-    ({ pageId, blockId }: { pageId: string; blockId: string }) =>
-      api.productDocs.redrawWireframe(pageId, blockId),
+    ({ pageId, blockId, fromVariant }: { pageId: string; blockId: string; fromVariant?: number }) =>
+      api.productDocs.redrawWireframe(pageId, blockId, fromVariant),
+    PRODUCT_AREAS,
+  );
+}
+
+/** «Sostituisci con un'immagine»: l'immagine al posto della bozza (si annulla dalla cronologia). */
+export function useReplaceWireframeWithImage() {
+  return useWrite(
+    ({ pageId, blockId, image }: { pageId: string; blockId: string; image: { src: string; alt: string } }) =>
+      api.productDocs.replaceWireframeWithImage(pageId, blockId, image),
     PRODUCT_AREAS,
   );
 }

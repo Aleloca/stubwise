@@ -6,7 +6,13 @@ import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import { undoProductChangeAs } from "./markGestures";
 import { listProductMarksAs } from "./marks";
-import { drawWireframeAs, keepWireframeAs, pickWireframe, redrawWireframeAs } from "./wireframes";
+import {
+  drawWireframeAs,
+  keepWireframeAs,
+  pickWireframe,
+  redrawWireframeAs,
+  replaceWireframeWithImageAs,
+} from "./wireframes";
 import { writeProductBlocksAs } from "./writes";
 
 // Le bozze di schermata di Claude (11b, Task 7; shape product-claude-backlog.md
@@ -249,5 +255,87 @@ describe("in lettura", () => {
     expect(stale.wireframes).toEqual({ "gone:0": null });
     const plainPage = (await productDocs.getProductPage(page(SIGN_IN).code))!;
     expect(plainPage.wireframes).toEqual({});
+  });
+});
+
+/** Un PNG di un pixel, come lo dà «/image». */
+const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+describe("«Sostituisci con un'immagine» (fix round 1)", () => {
+  const drawn = () => drawWireframeAs(LAURA, BILLS, { afterId: page(BILLS).blocks[0]!.id }).blockId;
+
+  it("l'immagine prende il posto della bozza (stesso id e punto), con una revisione della persona e la didascalia vuota", () => {
+    const id = drawn();
+    const at = page(BILLS).blocks.findIndex((b) => b.id === id);
+    const { revisionId } = replaceWireframeWithImageAs(LAURA, BILLS, id, { src: PNG, alt: "The bills screen" });
+    expect(page(BILLS).blocks[at]).toEqual({ id, type: "image", src: PNG, caption: "", alt: "The bills screen" });
+    const r = state.productRevisions.find((x) => x.id === revisionId)!;
+    expect(r).toMatchObject({ actorId: LAURA, kind: "edit" });
+    expect(r.via).toBeUndefined();
+  });
+
+  it("si annulla dalla cronologia («ha sostituito la bozza»): la bozza torna, com'era", async () => {
+    const id = drawn();
+    keepWireframeAs(LAURA, BILLS, id);
+    const before = structuredClone(sketch(BILLS, id));
+    const { revisionId } = replaceWireframeWithImageAs(LAURA, BILLS, id, { src: PNG, alt: "" });
+    const rows = await productDocs.listProductRevisions(BILLS);
+    expect(rows[0]).toMatchObject({ id: revisionId, wireframe: "replaced", undo: { enabled: true } });
+    undoProductChangeAs(MARCO, revisionId!);
+    expect(blockOf(BILLS, id)).toEqual(before);
+  });
+
+  it("Sara: `forbidden`, la bozza resta; un'immagine non valida: `invalid: image`; il doppio clic fa una sola scrittura", () => {
+    const id = drawn();
+    expect(() => replaceWireframeWithImageAs(SARA, BILLS, id, { src: PNG, alt: "" })).toThrow("forbidden");
+    expect(() => replaceWireframeWithImageAs(LAURA, BILLS, id, { src: "https://example.com/x.png", alt: "" })).toThrow(
+      "invalid: image",
+    );
+    expect(sketch(BILLS, id).type).toBe("wireframe");
+    const count = revisionsOf(BILLS).length;
+    expect(replaceWireframeWithImageAs(LAURA, BILLS, id, { src: PNG, alt: "" }).revisionId).not.toBeNull();
+    expect(replaceWireframeWithImageAs(LAURA, BILLS, id, { src: PNG, alt: "" })).toEqual({ revisionId: null });
+    expect(revisionsOf(BILLS)).toHaveLength(count + 1);
+    // Un'immagine diversa sul blocco che ormai è un'immagine non è più una sostituzione della bozza.
+    expect(() => replaceWireframeWithImageAs(LAURA, BILLS, id, { src: `${PNG}`, alt: "other" })).toThrow("invalid: wireframe");
+  });
+
+  it("dal cancello: `productDocs.replaceWireframeWithImage`", async () => {
+    const id = drawn();
+    await productDocs.replaceWireframeWithImage(BILLS, id, { src: PNG, alt: "" });
+    expect(blockOf(BILLS, id)!.type).toBe("image");
+  });
+});
+
+describe("i minori del fix round 1", () => {
+  const drawn = () => drawWireframeAs(LAURA, BILLS, { afterId: page(BILLS).blocks[0]!.id }).blockId;
+
+  it("«Rifai» con la variante vista (`fromVariant`): il doppio clic avanza di una sola variante", () => {
+    const id = drawn();
+    const count = revisionsOf(BILLS).length;
+    redrawWireframeAs(LAURA, BILLS, id, 0);
+    redrawWireframeAs(LAURA, BILLS, id, 0);
+    expect(sketch(BILLS, id).variant).toBe(1);
+    expect(revisionsOf(BILLS)).toHaveLength(count + 1);
+  });
+
+  it("«Tieni» su un disegno che il seme non ha più: si tiene lo stesso (la scrittura non rivalida ciò che non cambia)", () => {
+    const id = drawn();
+    sketch(BILLS, id).wireframeId = "gone";
+    const { revisionId } = keepWireframeAs(LAURA, BILLS, id);
+    expect(revisionId).not.toBeNull();
+    expect(sketch(BILLS, id)).toMatchObject({ wireframeId: "gone", kept: true });
+    // Ma un disegno sconosciuto NUOVO resta rifiutato.
+    expect(() =>
+      writeProductBlocksAs(LAURA, BILLS, [{ op: "set", block: { ...sketch(BILLS, id), wireframeId: "other-gone" } }], {}),
+    ).toThrow("invalid: wireframe");
+  });
+
+  it("una scrittura di una persona che cambia insieme `kept` e la variante non è un «Tieni»", async () => {
+    const id = drawn();
+    writeProductBlocksAs(LAURA, BILLS, [{ op: "set", block: { ...sketch(BILLS, id), variant: 1, kept: true } }], {});
+    const rows = await productDocs.listProductRevisions(BILLS);
+    expect(rows[0]).not.toHaveProperty("wireframe");
+    expect(rows[0]).not.toHaveProperty("undo");
   });
 });

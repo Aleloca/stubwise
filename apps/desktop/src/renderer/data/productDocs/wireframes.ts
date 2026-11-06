@@ -115,11 +115,19 @@ export async function drawWireframe(
 /**
  * «Rifai»: la variante seguente (dopo l'ultima, la prima), sul posto, e
  * l'etichetta torna (`kept` assente). Un disegno che il seme non ha più
- * riparte da quello che la pagina dice, variante 0.
+ * riparte da quello che la pagina dice, variante 0. `fromVariant` = la
+ * variante che chi preme vedeva: un doppio clic avanza di una sola.
  */
-export function redrawWireframeAs(me: string, pageId: string, blockId: string): { blockId: string } {
+export function redrawWireframeAs(
+  me: string,
+  pageId: string,
+  blockId: string,
+  fromVariant?: number,
+): { blockId: string } {
   const page = claudeGesturePage(me, pageId);
   const current = sketchOf(page, blockId);
+  // La variante che chi preme vedeva: se è già cambiata (il secondo clic), niente.
+  if (fromVariant !== undefined && current.variant !== fromVariant) return { blockId };
   const known = Object.hasOwn(PRODUCT_WIREFRAMES, current.wireframeId);
   const i = page.blocks.indexOf(current);
   const wireframeId = known ? current.wireframeId : pickWireframe(page.blocks, page.blocks[i - 1]?.id ?? null, page.title);
@@ -130,8 +138,12 @@ export function redrawWireframeAs(me: string, pageId: string, blockId: string): 
   return { blockId };
 }
 
-export async function redrawWireframe(pageId: string, blockId: string): Promise<{ blockId: string }> {
-  return redrawWireframeAs(await writer("productDocs.redrawWireframe"), pageId, blockId);
+export async function redrawWireframe(
+  pageId: string,
+  blockId: string,
+  fromVariant?: number,
+): Promise<{ blockId: string }> {
+  return redrawWireframeAs(await writer("productDocs.redrawWireframe"), pageId, blockId, fromVariant);
 }
 
 /**
@@ -150,4 +162,35 @@ export function keepWireframeAs(me: string, pageId: string, blockId: string): { 
 
 export async function keepWireframe(pageId: string, blockId: string): Promise<{ revisionId: string | null }> {
   return keepWireframeAs(await writer("productDocs.keepWireframe"), pageId, blockId);
+}
+
+/**
+ * «Sostituisci con un'immagine» (shape §3.5): un blocco immagine prende il
+ * posto della bozza, con lo stesso id e la didascalia vuota («Add a
+ * caption»). Una revisione della persona, che si annulla dalla cronologia
+ * come «Tieni» (la bozza torna com'era). Chiede `docs.edit`; l'immagine
+ * passa dalla validazione di sempre (`invalid: image`). Il secondo clic con
+ * la stessa immagine non scrive (`revisionId: null`).
+ */
+export function replaceWireframeWithImageAs(
+  me: string,
+  pageId: string,
+  blockId: string,
+  image: { src: string; alt: string },
+): { revisionId: string | null } {
+  const page = editablePage(me, pageId);
+  const now = page.blocks.find((b) => b.id === blockId);
+  if (now?.type === "image" && now.src === image.src && now.alt === image.alt) return { revisionId: null };
+  const current = sketchOf(page, blockId);
+  const block: ProductBlock = { id: current.id, type: "image", src: image.src, caption: "", alt: image.alt };
+  const { revisionId } = writeProductBlocksAs(me, page.id, [{ op: "set", block }], {});
+  return { revisionId };
+}
+
+export async function replaceWireframeWithImage(
+  pageId: string,
+  blockId: string,
+  image: { src: string; alt: string },
+): Promise<{ revisionId: string | null }> {
+  return replaceWireframeWithImageAs(await writer("productDocs.replaceWireframeWithImage"), pageId, blockId, image);
 }

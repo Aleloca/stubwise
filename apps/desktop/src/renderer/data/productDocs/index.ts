@@ -100,5 +100,7 @@ export {
   pickWireframe,
   redrawWireframe,
   redrawWireframeAs,
+  replaceWireframeWithImage,
+  replaceWireframeWithImageAs,
   wireframeKey,
 } from "./wireframes";

@@ -53,12 +53,17 @@ export const isClaudeEdit = (r: ProductRevision): boolean => r.via === "claude" 
  * Il gesto sulla bozza di schermata di una revisione (11b, Task 7): un solo
  * cambio, su un blocco `wireframe`. Claude la disegna (prima non c'era, o al
  * posto di un paragrafo) e la rifà; una persona la tiene («Tieni»: solo
- * `kept` cambia, da assente a vero). `null` per ogni altra revisione, gli
- * annullamenti compresi.
+ * `kept` cambia, da assente a vero) o la sostituisce con un'immagine sul
+ * posto. `null` per ogni altra revisione, gli annullamenti compresi: si
+ * riconosce dai cambi, e l'editor non scrive mai `kept` (un `kept` scritto
+ * insieme a un'altra modifica non è un «Tieni», e c'è un test).
  */
-export function wireframeGestureOf(r: ProductRevision): "drew" | "redrew" | "kept" | null {
+export function wireframeGestureOf(r: ProductRevision): "drew" | "redrew" | "kept" | "replaced" | null {
   if (r.kind !== "edit" || r.changes.length !== 1) return null;
   const { before, after } = r.changes[0]!;
+  // «Sostituisci con un'immagine»: una persona, la bozza diventa un'immagine sul posto.
+  if (r.via === undefined && before?.type === "wireframe" && after?.type === "image" && before.id === after.id)
+    return "replaced";
   if (after?.type !== "wireframe") return null;
   if (r.via === "claude") return before?.type === "wireframe" ? "redrew" : "drew";
   if (before?.type !== "wireframe" || before.kept === true || after.kept !== true) return null;
@@ -67,12 +72,15 @@ export function wireframeGestureOf(r: ProductRevision): "drew" | "redrew" | "kep
 }
 
 /**
- * Le revisioni che si annullano dalla cronologia: le modifiche di Claude e
- * «Tieni» sulla bozza di schermata (maintainer, 6 nov 2026: «si annulla
+ * Le revisioni che si annullano dalla cronologia: le modifiche di Claude,
+ * «Tieni» e «Sostituisci con un'immagine» sulla bozza di schermata (maintainer, 6 nov 2026: «si annulla
  * dalla cronologia», e «Annulla» riporta l'etichetta). Solo le prime portano
  * il segno.
  */
-export const isUndoableRevision = (r: ProductRevision): boolean => isClaudeEdit(r) || wireframeGestureOf(r) === "kept";
+export const isUndoableRevision = (r: ProductRevision): boolean => {
+  const gesture = wireframeGestureOf(r);
+  return isClaudeEdit(r) || gesture === "kept" || gesture === "replaced";
+};
 
 const canEdit = (me: string, projectId: string): boolean =>
   docsAccess(me, projectId) === "read" && can(viewerFor(me), "docs.edit", projectId);

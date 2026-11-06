@@ -154,6 +154,12 @@ richieste `ACQ-R…` segnaposto del seme.
 - Ogni descrizione creata cita la frase e il titolo della sezione:
   «From ACQ-D11 Phases › Phase 2: “Customers download bills as PDF”» —
   è testo della richiesta, si legge nella sua pagina.
+  - **Emendamento (6 nov 2026, ruling del controller sul fix round 1 del
+    Task 7: R-G5 prevale su questa riga).** La descrizione salvata è la
+    sola frase della pagina, senza codice né titolo della pagina né della
+    sezione: la legge anche chi la pagina non la vede (Docs spenti, senza
+    `docs.view`). Il legame con la pagina è «From the doc: …» (§3.4),
+    derivato a lettura e assente per chi non vede la pagina.
 
 ### 3.3 Le voci collegate in fondo alla pagina (`LinkedRequests`)
 

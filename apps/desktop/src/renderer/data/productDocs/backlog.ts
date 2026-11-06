@@ -20,9 +20,11 @@ import { editablePage } from "./writes";
 //   permesso del backlog lo controlla la scheda alla conferma, come oggi
 //   (`createRequest` del catalogo);
 // - ogni voce è un `createRequest` con `origin.product_doc` (pagina e
-//   ancora): titolo e descrizione vengono dalla frase della pagina
+//   ancora): titolo e descrizione sono la frase della pagina
 //   (`backlogCandidatesOf`), mai un'urgenza o una stima che la pagina non
-//   dice (anti-obiettivo «decisioni inventate»);
+//   dice (anti-obiettivo «decisioni inventate»), e mai il codice o il titolo
+//   della pagina: la descrizione si salva, e la legge anche chi la pagina
+//   non la vede (R-G5);
 // - una frase già proposta (una richiesta con la stessa pagina e la stessa
 //   ancora) non torna: diventa la nota `already_proposed`, coi codici che
 //   chi chiede vede e il numero degli altri;
@@ -55,7 +57,7 @@ export function proposeBacklogFromPageAs(
   const project = state.projectsById.get(page.projectId)!;
   const existing = requestsFromPage(page.id);
   const proposed = new Set(existing.map((r) => originOf(r)!.anchorId));
-  const candidates = backlogCandidatesOf(page.blocks, from, { code: page.code, title: page.title });
+  const candidates = backlogCandidatesOf(page.blocks, from);
 
   const actions: ProposedAction[] = candidates
     .filter((c) => !proposed.has(c.anchorId))
@@ -71,9 +73,7 @@ export function proposeBacklogFromPageAs(
     });
 
   // Le già proposte, nell'ordine della pagina: solo le frasi fra le candidate.
-  const order = new Map(
-    backlogCandidatesOf(page.blocks, from).map((c, i) => [c.anchorId, i] as const),
-  );
+  const order = new Map(candidates.map((c, i) => [c.anchorId, i] as const));
   const already = existing
     .filter((r) => order.has(originOf(r)!.anchorId ?? ""))
     .sort((a, b) => order.get(originOf(a)!.anchorId!)! - order.get(originOf(b)!.anchorId!)!);

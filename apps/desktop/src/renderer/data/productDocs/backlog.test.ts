@@ -4,7 +4,8 @@ import type { T } from "../../domain/claude/context";
 import { noteLine } from "../../domain/claude/intents/archive";
 import { backlogCandidatesOf } from "../../domain/productDocs/backlog";
 import { createRequestAs } from "../api-mutations";
-import { getRequest, getRequestByCode, productDocs, projectSettings, resetApi, setLatency } from "../api";
+import { getRequest, getRequestByCode, listRequests, listRequestsToConvert, productDocs, projectSettings, resetApi, setLatency } from "../api";
+import { PHASE_HEADINGS } from "../seed/productDocs/acq";
 import type { ProductBlock, RichText } from "../model";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
@@ -13,7 +14,6 @@ import {
   productOriginOf,
   proposeBacklogFromPageAs,
 } from "./backlog";
-import { writeProductBlocksAs } from "./writes";
 
 // Le voci di backlog proposte da una pagina o da una sua sezione (11b, Task
 // 7; shape product-claude-backlog.md §3.1–3.4). Pagina: Phases di ACQ (seme
@@ -53,24 +53,13 @@ describe("backlogCandidatesOf (pura)", () => {
     { id: "f", type: "todo", checked: true, content: plain("   ") },
   ];
 
-  it("voci di elenco e liste di controllo della pagina, con la frase come titolo e la frase con la sezione nella descrizione", () => {
+  it("voci di elenco e liste di controllo della pagina: titolo e descrizione sono la frase, senza pagina né sezione (R-G5)", () => {
     const out = backlogCandidatesOf(blocks, null);
-    expect(out.map((c) => [c.anchorId, c.title])).toEqual([
-      ["b", "Customers download bills as PDF"],
-      ["d", "Meter readings from the app"],
-      ["e", "Fault reports with a photo"],
+    expect(out.map((c) => [c.anchorId, c.title, c.description])).toEqual([
+      ["b", "Customers download bills as PDF", "Customers download bills as PDF"],
+      ["d", "Meter readings from the app", "Meter readings from the app"],
+      ["e", "Fault reports with a photo", "Fault reports with a photo"],
     ]);
-    expect(out[0]!.description).toBe("Phase 1: “Customers download bills as PDF”");
-    expect(out[1]!.description).toBe("Later in phase 1: “Meter readings from the app”");
-  });
-
-  it("con la pagina, la descrizione dice codice, titolo e sezione", () => {
-    const [first] = backlogCandidatesOf(blocks, null, { code: "ACQ-D11", title: "Phases" });
-    expect(first!.description).toBe("From ACQ-D11 Phases › Phase 1: “Customers download bills as PDF”");
-    const top: ProductBlock[] = [{ id: "x", type: "bullet", indent: 0, content: plain("Before any heading") }];
-    expect(backlogCandidatesOf(top, null, { code: "ACQ-D11", title: "Phases" })[0]!.description).toBe(
-      "From ACQ-D11 Phases: “Before any heading”",
-    );
   });
 
   it("la sola sezione di un titolo: fino al titolo dello stesso livello, sotto-titoli compresi", () => {
@@ -87,7 +76,7 @@ describe("backlogCandidatesOf (pura)", () => {
     const [c] = backlogCandidatesOf([{ id: "l", type: "bullet", indent: 0, content: plain(long) }], null);
     expect(c!.title).toHaveLength(120);
     expect(c!.title.endsWith("…")).toBe(true);
-    expect(c!.description).toContain(long);
+    expect(c!.description).toBe(long);
     expect(c!.sentence).toBe(long);
   });
 });
@@ -106,7 +95,9 @@ describe("proposeBacklogFromPage", () => {
         projectId: ACQ,
         origin: { kind: "product_doc", pageId: PHASES },
       });
-      expect(a.args.description).toBe(`From ${page().code} Phases: “${a.args.title as string}”`);
+      // La descrizione è la frase: niente codice né titolo della pagina (R-G5,
+      // ruling del controller sul fix round 1); «Dalla doc» si deriva a lettura.
+      expect(a.args.description).toBe(a.args.title);
       // Nessuna urgenza né stima inventata: la pagina non le dice.
       expect(a.args).not.toHaveProperty("urgency");
       expect(a.why).toEqual({ key: "claude.answers.productDocs.backlog.why", params: { sentence: a.args.title } });
@@ -132,36 +123,50 @@ describe("proposeBacklogFromPage", () => {
     expect((again.notes[0] as { codes: string[] }).codes).toContain(made.code);
   });
 
-  it("la sola sezione di una fase: le sue voci, e la sezione nella descrizione", () => {
-    const heading: ProductBlock = { id: "blk-t7-phase2", type: "heading", level: 2, content: plain("Phase 2") };
-    writeProductBlocksAs(LAURA, PHASES, [{ op: "insert", afterId: "blk-acq-phases-reading", block: heading }], {});
-    const { actions, notes } = proposeBacklogFromPageAs(LAURA, PHASES, "blk-t7-phase2");
-    // Sotto «Phase 2» ci sono le rate e i guasti (già proposti) e il tema scuro.
-    expect(actions.map((a) => a.args.title)).toEqual(["Phase 3: a dark appearance"]);
-    expect(actions[0]!.args.description).toBe(
-      `From ${page().code} Phases › Phase 2: “Phase 3: a dark appearance”`,
-    );
-    expect(notes).toEqual([
+  it("dal titolo «Phase 1» del seme: le sue due voci, nessuna nota", () => {
+    const { actions, notes } = proposeBacklogFromPageAs(LAURA, PHASES, PHASE_HEADINGS.phase1);
+    expect(actions.map((a) => a.args.title)).toEqual(["Phase 1: sign-in and bills", "Phase 1: meter readings"]);
+    expect(notes).toEqual([]);
+  });
+
+  it("dal titolo «Phase 2» del seme: tutto già proposto, nessuna azione e la nota coi codici", () => {
+    const out = proposeBacklogFromPageAs(LAURA, PHASES, PHASE_HEADINGS.phase2);
+    expect(out.actions).toEqual([]);
+    expect(out.notes).toEqual([
       { kind: "already_proposed", codes: [request("req-acq-7").code, request("req-acq-6").code], hidden: 0 },
     ]);
   });
 
-  it("tutto già proposto: nessuna azione, e la nota coi codici", () => {
-    const heading: ProductBlock = { id: "blk-t7-faults", type: "heading", level: 3, content: plain("Faults") };
-    writeProductBlocksAs(LAURA, PHASES, [{ op: "insert", afterId: "blk-acq-phases-reading", block: heading }], {});
-    writeProductBlocksAs(
-      LAURA,
-      PHASES,
-      [{ op: "insert", afterId: "blk-acq-phases-3", block: { id: "blk-t7-faults-end", type: "heading", level: 3, content: plain("End") } }],
-      {},
-    );
-    const out = proposeBacklogFromPageAs(LAURA, PHASES, "blk-t7-faults");
-    expect(out.actions).toEqual([]);
-    expect(out.notes).toEqual([{ kind: "already_proposed", codes: [request("req-acq-7").code], hidden: 0 }]);
+  it("dal titolo «Phase 3» del seme: il solo passo del tema scuro", () => {
+    const { actions } = proposeBacklogFromPageAs(LAURA, PHASES, PHASE_HEADINGS.phase3);
+    expect(actions.map((a) => a.args.title)).toEqual(["Phase 3: a dark appearance"]);
+  });
+
+  it("R-G5: una richiesta CREATA da qui, letta da chi non vede la pagina, non nomina né il codice né il titolo della pagina", async () => {
+    const [first] = proposeBacklogFromPageAs(LAURA, PHASES, PHASE_HEADINGS.phase3).actions;
+    const made = createRequestAs(LAURA, first!.args as never);
+    const code = page().code.toLowerCase();
+    expect(await projectSettings.setDocsModule(ACQ, false)).toEqual({ ok: true });
+    for (const who of [LAURA, SARA]) {
+      setSessionPersonId(who);
+      const reads = [
+        await getRequest(made.id),
+        await getRequestByCode(made.code),
+        (await listRequests(ACQ)).find((r) => r.id === made.id),
+        ...(who === LAURA ? [(await listRequestsToConvert()).find((r) => r.id === made.id)] : []),
+      ];
+      for (const read of reads) {
+        expect(read, who).toBeDefined();
+        const text = JSON.stringify(read).toLowerCase();
+        expect(text, who).not.toContain(code);
+        expect(text, who).not.toContain("phases");
+      }
+    }
   });
 
   it("un'ancora che non è un titolo della pagina: `invalid: anchor`; Sara (senza `docs.edit`): `forbidden`; Giulia: `not_found`", () => {
     expect(() => proposeBacklogFromPageAs(LAURA, PHASES, "blk-acq-phases-2")).toThrow("invalid: anchor");
+    expect(() => proposeBacklogFromPageAs(LAURA, PHASES, "blk-nope")).toThrow("invalid: anchor");
     expect(() => proposeBacklogFromPageAs(SARA, PHASES)).toThrow("forbidden");
     expect(() => proposeBacklogFromPageAs(GIULIA, PHASES)).toThrow("not_found");
   });
