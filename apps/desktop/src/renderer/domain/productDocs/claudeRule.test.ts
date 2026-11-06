@@ -104,6 +104,29 @@ describe("decideFact", () => {
   });
 });
 
+describe("un fatto vago non entra mai da sé", () => {
+  const changes: ProductFact["change"][] = [
+    { kind: "replace", text: plain("x") },
+    { kind: "insert_after", block: { id: "n1", type: "paragraph", content: plain("x") } },
+    { kind: "link_task", taskCode: "ACQ-1" },
+    { kind: "diverges", built: "x" },
+  ];
+  it("per ogni tipo di cambio e ognuna delle 16 combinazioni del contesto", () => {
+    for (const change of changes) {
+      for (let bits = 0; bits < 16; bits++) {
+        const c: FactContext = {
+          lastWriterIsPerson: !!(bits & 1),
+          actorCanEdit: !!(bits & 2),
+          changedByPersonSinceArrival: !!(bits & 4),
+          anchorExists: !!(bits & 8),
+        };
+        for (const contradicts of [false, true])
+          expect(decideFact(fact({ change, clarity: "vague", contradicts }), c).kind, `${change.kind} ${bits}`).not.toBe("edit");
+      }
+    }
+  });
+});
+
 describe("recommendedOf (la risposta che Claude consiglia, preflight P30)", () => {
   const q = (reason: "vague" | "contradicts_person" | "contradicts" | "diverges" | "no_permission") =>
     ({ kind: "question", reason }) as const;

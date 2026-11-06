@@ -34,10 +34,6 @@ const transcriptOf = (messageId: string): MeetingTranscript | undefined =>
 const isMember = (personId: string, projectId: string): boolean =>
   !!state.projectsById.get(projectId)?.memberIds.includes(personId);
 
-/** Il primo progetto a cui l'email è stata attribuita; `""` se non è (ancora) classificata. */
-const firstProjectOf = (m: MailMessage): string =>
-  (m.classification.state === "done" ? m.classification.projectIds[0] : undefined) ?? "";
-
 /**
  * Il titolare di una email nel progetto: chi ha scelto il progetto
  * (`MailProposal.projectChosenById`) se c'è, altrimenti il primo dei
@@ -56,14 +52,14 @@ function emailOwner(m: MailMessage, projectId: string): string {
  * senza evento (o senza organizzatore in Stubwise), come per l'email di
  * Gemini che la racconta.
  */
-function meetingOwner(t: MeetingTranscript, projectId: string | null): string {
+function meetingOwner(t: MeetingTranscript, projectId: string): string {
   const event =
     t.eventId === null ? undefined : state.calendarEvents.find((e) => e.id === t.eventId);
   const organizer = event?.attendees.find((a) => a.organizer && a.personId)?.personId;
   if (organizer) return organizer;
   const m = messageById(t.messageId);
   if (!m) return CLAUDE_ID;
-  return emailOwner(m, projectId ?? event?.projectId ?? firstProjectOf(m));
+  return emailOwner(m, projectId);
 }
 
 /**
@@ -100,20 +96,20 @@ const GONE = (kind: ProductSourceRef["kind"]): ProductSourceView => ({
 });
 
 /**
- * La fonte come la legge `me`. `projectId` è il progetto della pagina: dice
- * quale titolare vale quando la stessa email è in più progetti; senza, il
- * primo progetto a cui è stata attribuita.
+ * La fonte come la legge `me`. `projectId` è il progetto della pagina ed è
+ * OBBLIGATORIO: dice quale titolare vale quando la stessa email è in più
+ * progetti, e senza non c'è un titolare giusto da indovinare.
  */
 export function sourceViewOf(
   me: string,
   ref: ProductSourceRef,
-  projectId?: string,
+  projectId: string,
 ): ProductSourceView {
   switch (ref.kind) {
     case "email": {
       const m = messageById(ref.id);
       if (!m) return GONE(ref.kind);
-      const ownerId = emailOwner(m, projectId ?? firstProjectOf(m));
+      const ownerId = emailOwner(m, projectId);
       if (canSeeMessage(me, m)) {
         return {
           kind: ref.kind,
@@ -144,7 +140,7 @@ export function sourceViewOf(
       if (!t || !m) return GONE(ref.kind);
       const event =
         t.eventId === null ? undefined : state.calendarEvents.find((e) => e.id === t.eventId);
-      const ownerId = meetingOwner(t, projectId ?? null);
+      const ownerId = meetingOwner(t, projectId);
       const at = event?.startsAt ?? m.at;
       if (canSeeTranscript(me, t)) {
         return {

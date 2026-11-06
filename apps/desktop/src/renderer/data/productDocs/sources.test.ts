@@ -68,7 +68,7 @@ afterEach(() => resetApi());
 
 describe("sourceViewOf, una email", () => {
   it("Laura, destinataria, vede l'oggetto e il link alla conversazione", () => {
-    const v = sourceViewOf(LAURA, { kind: "email", id: EMAIL.id });
+    const v = sourceViewOf(LAURA, { kind: "email", id: EMAIL.id }, ACQ);
     expect(v).toMatchObject({
       kind: "email",
       code: null,
@@ -81,7 +81,7 @@ describe("sourceViewOf, una email", () => {
   });
 
   it("Sara non l'ha ricevuta: «da un'email di laura costa», senza oggetto, link né testo", () => {
-    const v = sourceViewOf(SARA, { kind: "email", id: EMAIL.id });
+    const v = sourceViewOf(SARA, { kind: "email", id: EMAIL.id }, ACQ);
     expect(v.link).toBeNull();
     expect(say(v, "it").toLowerCase()).toContain("da un'email di laura costa");
     expect(say(v, "en").toLowerCase()).toContain("from an email of laura costa");
@@ -95,9 +95,17 @@ describe("sourceViewOf, una email", () => {
     expect(v.ownerId).toBe(LAURA);
   });
 
+  it("lo stesso messaggio in due progetti: il titolare è quello del progetto della pagina", () => {
+    state.mailProposals.push(
+      proposalFor(EMAIL, { projectId: AUD, projectChosenById: MATTEO }),
+    );
+    expect(sourceViewOf(SARA, { kind: "email", id: EMAIL.id }, ACQ).ownerId).toBe(LAURA);
+    expect(sourceViewOf(SARA, { kind: "email", id: EMAIL.id }, AUD).ownerId).toBe(MATTEO);
+  });
+
   it("un'email tolta dallo stato: «source no longer available», senza titolare", () => {
     state.mailMessages = state.mailMessages.filter((m) => m.id !== EMAIL.id);
-    const v = sourceViewOf(SARA, { kind: "email", id: EMAIL.id });
+    const v = sourceViewOf(SARA, { kind: "email", id: EMAIL.id }, ACQ);
     expect(v).toMatchObject({ gone: true, link: null, code: null, ownerId: null, at: null });
     expect(say(v, "en").toLowerCase()).toBe("source no longer available");
     expect(say(v, "it").toLowerCase()).toBe("fonte non più disponibile");
@@ -109,7 +117,7 @@ describe("sourceViewOf, una riunione", () => {
 
   it("Laura, invitata, vede il titolo e il link; Matteo è l'organizzatore", () => {
     const t = seed();
-    const v = sourceViewOf(LAURA, { kind: "meeting", id: t.messageId });
+    const v = sourceViewOf(LAURA, { kind: "meeting", id: t.messageId }, AUD);
     expect(v.kind).toBe("meeting");
     expect(v.link).toMatch(/^#\/mail\//);
     expect(v.ownerId).toBe(MATTEO);
@@ -119,7 +127,7 @@ describe("sourceViewOf, una riunione", () => {
   it("Alessia è di AUD e non c'era: «da una riunione di matteo conti», senza titolo né link", () => {
     const t = seed();
     expect(visibleProjectIds(ALESSIA).has(AUD)).toBe(true);
-    const v = sourceViewOf(ALESSIA, { kind: "meeting", id: t.messageId });
+    const v = sourceViewOf(ALESSIA, { kind: "meeting", id: t.messageId }, AUD);
     expect(v.link).toBeNull();
     expect(say(v, "it").toLowerCase()).toContain("da una riunione di matteo conti");
     expect(say(v, "en").toLowerCase()).toContain("from a meeting of matteo conti");
@@ -129,7 +137,7 @@ describe("sourceViewOf, una riunione", () => {
   });
 
   it("una riunione che non c'è più è «source no longer available»", () => {
-    const v = sourceViewOf(LAURA, { kind: "meeting", id: "mm-che-non-c-e" });
+    const v = sourceViewOf(LAURA, { kind: "meeting", id: "mm-che-non-c-e" }, AUD);
     expect(v).toMatchObject({ gone: true, link: null });
   });
 });
@@ -144,11 +152,11 @@ describe("sourceViewOf, decisione, task e rilascio", () => {
     const taskBlind = blind(task.projectId);
     const releaseBlind = blind(release.projectId);
 
-    const t = sourceViewOf(taskBlind, { kind: "task", id: task.id });
+    const t = sourceViewOf(taskBlind, { kind: "task", id: task.id }, task.projectId);
     expect(t).toMatchObject({ kind: "task", code: task.code, link: null, gone: false });
     expect(everything(t)).not.toContain(task.title.toLowerCase());
 
-    const r = sourceViewOf(releaseBlind, { kind: "release", id: release.id });
+    const r = sourceViewOf(releaseBlind, { kind: "release", id: release.id }, release.projectId);
     expect(r).toMatchObject({ kind: "release", code: release.code, link: null });
     expect(everything(r)).not.toContain(release.title.toLowerCase());
   });
@@ -158,7 +166,7 @@ describe("sourceViewOf, decisione, task e rilascio", () => {
     const viewer = [...state.projectsById.get(task.projectId)!.memberIds].find(
       (id) => id !== CLAUDE_ID,
     )!;
-    const t = sourceViewOf(viewer, { kind: "task", id: task.id });
+    const t = sourceViewOf(viewer, { kind: "task", id: task.id }, task.projectId);
     expect(t.code).toBe(task.code);
     expect(t.label.params).toMatchObject({ title: task.title });
     expect(t.ownerId).toBe(CLAUDE_ID);
@@ -169,12 +177,12 @@ describe("sourceViewOf, decisione, task e rilascio", () => {
     const seeing = [...state.projectsById.get(d.projectId)!.memberIds].find(
       (id) => id !== CLAUDE_ID,
     )!;
-    const seen = sourceViewOf(seeing, { kind: "decision", id: d.id });
+    const seen = sourceViewOf(seeing, { kind: "decision", id: d.id }, d.projectId);
     expect(seen.label.params).toMatchObject({ title: d.title });
     expect(seen.at).toBe(d.decidedAt);
     expect(seen.code).toBeNull();
 
-    const hidden = sourceViewOf(blind(d.projectId), { kind: "decision", id: d.id });
+    const hidden = sourceViewOf(blind(d.projectId), { kind: "decision", id: d.id }, d.projectId);
     expect(say(hidden, "en").toLowerCase()).toBe("from a decision you can't see");
     expect(hidden.code).toBeNull();
     expect(hidden.link).toBeNull();
@@ -182,7 +190,7 @@ describe("sourceViewOf, decisione, task e rilascio", () => {
   });
 
   it("un task che non esiste più è «source no longer available»", () => {
-    expect(sourceViewOf(LAURA, { kind: "task", id: "tk-che-non-c-e" })).toMatchObject({
+    expect(sourceViewOf(LAURA, { kind: "task", id: "tk-che-non-c-e" }, ACQ)).toMatchObject({
       gone: true,
       code: null,
     });
