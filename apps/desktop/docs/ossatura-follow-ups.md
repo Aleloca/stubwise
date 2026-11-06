@@ -3079,7 +3079,9 @@ barra a 1024 e le rifiniture visive. Restano aperti, col motivo:
 - **Un riferimento rimesso con ⌘Z** a un file o una decisione che chi scrive
   non vede più è `invalid: drive` / `invalid: decision` (la regola vale per
   ogni blocco cambiato): la voce di undo lo dice come le altre scritture
-  rifiutate.
+  rifiutate. Minore: quella frase parla di «cambiato da altri», che per
+  questa causa non è esatto; il motore deve dire «non puoi più vedere il
+  file/la decisione».
 - **`plainTextOf` quadratico sulle tabelle**: `anchorText([b], id)` per cella
   è O(celle²), e le tabelle di una doc sono piccole.
 - **Risposte diverse per un id inesistente e uno non leggibile**
