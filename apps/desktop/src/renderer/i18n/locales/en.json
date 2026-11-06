@@ -12180,6 +12180,7 @@
       "mark_one": "{{count}} comment on this paragraph",
       "mark_other": "{{count}} comments on this paragraph",
       "threadLabel": "Comment by {{name}} on “{{quote}}”",
+      "quoted": "“{{quote}}”",
       "posted": "Comment posted",
       "resolved": "Resolved",
       "reopened": "Reopened",

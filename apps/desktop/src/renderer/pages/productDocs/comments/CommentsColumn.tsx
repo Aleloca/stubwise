@@ -331,7 +331,7 @@ export function CommentsColumn({
                     className="side-thread flex flex-col gap-2 rounded-lg border border-rule-strong bg-surface p-3"
                   >
                     <p title={draft!.quote} className="line-clamp-2 text-xs leading-4 text-ink-muted [overflow-wrap:anywhere]">
-                      {`“${draft!.quote}”`}
+                      {t("productDocs.comments.quoted", { quote: draft!.quote })}
                     </p>
                     <CommentComposer
                       ref={composer}

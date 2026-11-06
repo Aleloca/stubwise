@@ -153,7 +153,7 @@ export const CommentThread = forwardRef<
         </p>
       )}
       <p title={root.quote} className="line-clamp-2 text-xs leading-4 text-ink-muted [overflow-wrap:anywhere]">
-        {`“${root.quote}”`}
+        {t("productDocs.comments.quoted", { quote: root.quote })}
       </p>
       <Line comment={root} action={action} />
       {shown.map((reply, i) => (

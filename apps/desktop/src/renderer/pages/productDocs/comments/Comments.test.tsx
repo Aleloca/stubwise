@@ -229,6 +229,19 @@ describe("la colonna", () => {
     expect(within(col).queryByText("Sentence deleted")).toBeNull();
   });
 
+  // Impeccable 14: la frase citata usa le virgolette della lingua.
+  it("la frase citata: «…» in italiano, “…” in inglese", async () => {
+    act(() => setLanguage("it"));
+    await open(SIGNIN);
+    const col = await column();
+    expect(await within(col).findByText("«Google account»")).toBeInTheDocument();
+    expect(col.textContent).not.toContain("“");
+    cleanup();
+    act(() => setLanguage("en"));
+    await open(SIGNIN);
+    expect(await within(await column()).findByText("“Google account”")).toBeInTheDocument();
+  });
+
   it("unione nella UI (Q3): Backspace in testa a «with Google», che ha un filo: un blocco solo, il filo accanto, nessun «Sentence deleted»; dopo ⌘Z il filo resta sul primo blocco", async () => {
     seedBlock("blk-acq-signin-3", "Login only ");
     seedBlock(LOGIN_ID, "with Google");
