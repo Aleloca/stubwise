@@ -27,6 +27,9 @@ beforeEach(() => {
   // di «Decide» prima di «Show more»: qui si provano le domande di Claude e
   // della Chat, e quelle della posta stanno in `MailBlocks.test.tsx`.
   state.mailProposals.length = 0;
+  // Lo stesso per le domande di Claude sulla doc di prodotto (11b): stanno
+  // in `ClaudeDecisionItem.product.test.tsx`.
+  state.productComments = state.productComments.filter((c) => !c.question);
   setUndoWindow(0);
 });
 

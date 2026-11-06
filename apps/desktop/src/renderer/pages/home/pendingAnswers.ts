@@ -60,6 +60,21 @@ export function usePendingAnswers(): ReadonlySet<string> {
 }
 
 /**
+ * Nasconde subito la decisione e manda la risposta SUBITO, senza finestra
+ * (11b: «Aggiorna così» di una domanda sulla doc, che si annulla dalla
+ * cronologia della pagina). Come `deferAnswer`, la voce resta nascosta
+ * finché il «server» non ha risposto; se non ce la fa torna e `onFail` lo dice.
+ */
+export function answerAtOnce(id: string, send: () => Promise<unknown>, onFail: (error: unknown) => void): void {
+  set(new Set([...pending, id]));
+  const release = () => set(new Set([...pending].filter((x) => x !== id)));
+  send().then(release, (error: unknown) => {
+    release();
+    onFail(error);
+  });
+}
+
+/**
  * Nasconde subito la decisione e manda la risposta allo scadere della
  * finestra. Restituisce l'annullamento (che vale finché non è partita).
  * La voce resta nascosta finché il «server» non ha risposto: se ce la fa,

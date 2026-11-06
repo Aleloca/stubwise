@@ -57,7 +57,8 @@ function CommentBody({ comment }: { comment: ProductCommentView }) {
   );
 }
 
-function Line({ comment, action }: { comment: ProductCommentView; action?: ReactNode }) {
+/** Una riga del filo: nome · ora (e l'azione a destra), poi il testo con le menzioni. */
+export function CommentLine({ comment, action }: { comment: ProductCommentView; action?: ReactNode }) {
   const { i18n } = useTranslation();
   return (
     <div className="flex flex-col gap-1">
@@ -155,7 +156,7 @@ export const CommentThread = forwardRef<
       <p title={root.quote} className="line-clamp-2 text-xs leading-4 text-ink-muted [overflow-wrap:anywhere]">
         {t("productDocs.comments.quoted", { quote: root.quote })}
       </p>
-      <Line comment={root} action={action} />
+      <CommentLine comment={root} action={action} />
       {shown.map((reply, i) => (
         <div key={reply.id} className="flex flex-col gap-2">
           {hidden > 0 && i === 1 && (
@@ -163,7 +164,7 @@ export const CommentThread = forwardRef<
               {t("productDocs.comments.moreReplies", { count: hidden })}
             </button>
           )}
-          <Line comment={reply} />
+          <CommentLine comment={reply} />
         </div>
       ))}
       {canComment && !resolved && onReply && (

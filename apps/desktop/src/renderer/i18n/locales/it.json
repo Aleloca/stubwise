@@ -279,6 +279,28 @@
       "source": "Prodotto",
       "goneTitle": "Un commento in cui eri menzionato",
       "goneBody": "Questo commento non è più disponibile."
+    },
+    "productDocUpdated": {
+      "title": "Claude ha aggiornato {{code}} · {{title}}",
+      "behalf_one": "Claude per conto di {{name}} ha cambiato {{count}} frase.",
+      "behalf_other": "Claude per conto di {{name}} ha cambiato {{count}} frasi.",
+      "claude_one": "Claude ha cambiato {{count}} frase.",
+      "claude_other": "Claude ha cambiato {{count}} frasi.",
+      "sources_one": "Claude ha cambiato {{count}} frase da {{sources}} fonti.",
+      "sources_other": "Claude ha cambiato {{count}} frasi da {{sources}} fonti.",
+      "sourcesBudget_one": "Claude ha cambiato {{count}} frase da {{sources}} fonti, dopo aver aspettato il budget.",
+      "sourcesBudget_other": "Claude ha cambiato {{count}} frasi da {{sources}} fonti, dopo aver aspettato il budget.",
+      "sourcesQueue_one": "Claude ha cambiato {{count}} frase da {{sources}} fonti, dopo la ripresa della coda.",
+      "sourcesQueue_other": "Claude ha cambiato {{count}} frasi da {{sources}} fonti, dopo la ripresa della coda.",
+      "goneTitle": "Una pagina di prodotto aggiornata da Claude",
+      "goneBody": "Questa pagina non è più disponibile."
+    },
+    "productDocQuestion": {
+      "title": "Claude chiede su {{code}} · {{title}}",
+      "goneTitle": "Una domanda di Claude",
+      "goneBody": "Questa pagina non è più disponibile.",
+      "answeredBy": "Ha risposto {{name}}",
+      "answered": "Risposta data"
     }
   },
   "placeholder": {
@@ -1516,6 +1538,11 @@
         "already_handed": "Già passata al progetto da {{name}}. Non è stato creato niente.",
         "openCode": "Apri {{code}}",
         "confirmFailed": "Non è stato possibile completare la proposta per {{code}}. Non è cambiato niente."
+      },
+      "product": {
+        "proposed": "Proposta: «{{text}}»",
+        "updated": "Aggiornata {{code}} · {{title}}. Per annullarla, apri la cronologia della pagina.",
+        "openHistory": "Apri la cronologia"
       }
     },
     "myTasks": {
@@ -4553,7 +4580,12 @@
       "back": "Torna a {{label}}",
       "openedTest": "Aperta {{code}} nel costruttore, sulla prova.",
       "openedBuilder": "Aperta {{code}} nel costruttore.",
-      "backPlain": "Torna alla pagina di prima"
+      "backPlain": "Torna alla pagina di prima",
+      "questions": {
+        "toClose_one": "{{count}} domanda da chiudere nei Docs di {{code}}",
+        "toClose_other": "{{count}} domande da chiudere nei Docs di {{code}}",
+        "showAll": "Mostra tutte e {{count}}"
+      }
     },
     "trial": {
       "example": "{{code}} «{{title}}»",
@@ -12452,6 +12484,44 @@
       "decisionHidden": "Decisione: non disponibile",
       "printLabel": "Vista di stampa",
       "notDataImage": "non immagini data:"
+    },
+    "question": {
+      "reason": {
+        "vague": "La fonte non è chiara su questo. La pagina deve dire così?",
+        "contradicts": "La fonte dice altro rispetto alla pagina. La aggiorno?",
+        "contradicts_person": "La fonte dice altro rispetto a ciò che ha scritto {{name}}. La aggiorno?",
+        "contradicts_personSomeone": "La fonte dice altro rispetto a ciò che una persona ha scritto nella pagina. La aggiorno?",
+        "diverges": "<code>{{code}}</code> è stata fatta diversamente da come dice la pagina. Aggiorno la pagina o apro una richiesta?",
+        "divergesNoCode": "Una task è stata fatta diversamente da come dice la pagina. Aggiorno la pagina o apro una richiesta?",
+        "no_permission": "Viene da {{name}}, che non può modificare i Docs, quindi non ho cambiato la pagina. Deve dire così?",
+        "no_permissionSomeone": "Viene da una persona che non può modificare i Docs, quindi non ho cambiato la pagina. Deve dire così?"
+      },
+      "option": {
+        "apply": "Aggiorna così",
+        "keep": "Lascia com'è",
+        "request": "Apri una richiesta"
+      },
+      "recommended": "Consigliata",
+      "threadLabel": "Domanda di Claude su «{{quote}}»",
+      "answersLabel": "Risposte alla domanda di Claude",
+      "now": "Ora",
+      "proposed": "Proposta",
+      "pageSays": "La pagina dice",
+      "wasBuilt": "È stato fatto",
+      "answering": "Rispondo…",
+      "answeredBy": "Ha risposto {{name}}: {{answer}}",
+      "answeredBySomeone": "Risposta data: {{answer}}",
+      "answeredFirst": "{{name}} ha risposto prima: {{answer}}",
+      "answeredFirstSomeone": "Qualcuno ha risposto prima: {{answer}}",
+      "changedAfter": "La frase è cambiata dopo la domanda: l'ha modificata <b>{{name}}</b>",
+      "changedAfterNobody": "La frase è cambiata dopo la domanda",
+      "forbidden": "Non puoi più rispondere in {{code}}.",
+      "failed": "Risposta non inviata",
+      "retry": "Riprova",
+      "readOnly": "Rispondere è di chi ha Modifica Docs in {{code}}",
+      "preparing": "Una richiesta è in preparazione nel riquadro di Claude",
+      "announceApply": "Risposto · la frase è aggiornata",
+      "announceKeep": "Risposto"
     }
   }
 }

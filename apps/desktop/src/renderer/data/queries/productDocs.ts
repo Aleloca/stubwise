@@ -1,7 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 import * as api from "../api";
-import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
+import { PROJECT_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
 import { useInstanceChanges } from "./instance";
 import type { FirstVersionSource, ProductBlockOp } from "../types";
 
@@ -437,6 +437,48 @@ export function useAnswerProductQuestion() {
       api.productDocs.answerProductQuestion(commentId, option),
     ANSWER_AREAS,
   );
+}
+
+/**
+ * Rispondere a una domanda della doc ADESSO, senza `useMutation`, come
+ * `useAnswerQuestionNow`: per «Decide», dove «Lascia com'è» parte allo
+ * scadere della finestra dell'«Undo» e la chiamata deve leggere la sessione
+ * di chi ha risposto in quell'istante. Poi ricarica le aree delle risposte.
+ */
+export function useAnswerProductQuestionNow() {
+  const invalidate = useInvalidate(ANSWER_AREAS);
+  return async (commentId: string, option: "apply" | "keep") => {
+    try {
+      return await api.productDocs.answerProductQuestion(commentId, option);
+    } finally {
+      await invalidate();
+    }
+  };
+}
+
+/**
+ * Le domande della pagina con una scheda «Apri una richiesta» di chi guarda
+ * ancora aperta nel riquadro: si rilegge a ogni cambio di una conversazione
+ * (la scheda nasce, si conferma, si annulla) e di una domanda.
+ */
+export function useProductRequestsPreparing(pageId: string, { enabled = true }: { enabled?: boolean } = {}) {
+  const me = useSessionPersonId();
+  const client = useQueryClient();
+  const queryKey = ["as", me, "productDocs", "requestsPreparing", pageId] as const;
+  useEffect(() => {
+    const again = () => void client.invalidateQueries({ queryKey: ["as", me, "productDocs", "requestsPreparing"] });
+    const offConversation = api.onConversationChange(again);
+    const offQuestions = api.productDocs.onProductQuestionsChanged(again);
+    return () => {
+      offConversation();
+      offQuestions();
+    };
+  }, [client, me]);
+  return useQuery({
+    queryKey,
+    queryFn: () => api.productDocs.listProductRequestsPreparing(pageId),
+    enabled,
+  });
 }
 
 // --- dalla doc al backlog e le bozze di schermata (11b, Task 7) ---------------------

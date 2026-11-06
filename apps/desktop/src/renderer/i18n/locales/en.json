@@ -279,6 +279,28 @@
       "source": "Product",
       "goneTitle": "A comment you were mentioned in",
       "goneBody": "This comment is no longer available."
+    },
+    "productDocUpdated": {
+      "title": "Claude updated {{code}} · {{title}}",
+      "behalf_one": "Claude on behalf of {{name}} changed {{count}} sentence.",
+      "behalf_other": "Claude on behalf of {{name}} changed {{count}} sentences.",
+      "claude_one": "Claude changed {{count}} sentence.",
+      "claude_other": "Claude changed {{count}} sentences.",
+      "sources_one": "Claude changed {{count}} sentence from {{sources}} sources.",
+      "sources_other": "Claude changed {{count}} sentences from {{sources}} sources.",
+      "sourcesBudget_one": "Claude changed {{count}} sentence from {{sources}} sources, after waiting for the budget.",
+      "sourcesBudget_other": "Claude changed {{count}} sentences from {{sources}} sources, after waiting for the budget.",
+      "sourcesQueue_one": "Claude changed {{count}} sentence from {{sources}} sources, after the queue was resumed.",
+      "sourcesQueue_other": "Claude changed {{count}} sentences from {{sources}} sources, after the queue was resumed.",
+      "goneTitle": "A product page Claude updated",
+      "goneBody": "This page is no longer available."
+    },
+    "productDocQuestion": {
+      "title": "Claude asks about {{code}} · {{title}}",
+      "goneTitle": "A question from Claude",
+      "goneBody": "This page is no longer available.",
+      "answeredBy": "Answered by {{name}}",
+      "answered": "Answered"
     }
   },
   "placeholder": {
@@ -1516,6 +1538,11 @@
         "already_handed": "Already handed to the project by {{name}}. Nothing was created.",
         "openCode": "Open {{code}}",
         "confirmFailed": "The proposal for {{code}} couldn't be completed. Nothing was changed."
+      },
+      "product": {
+        "proposed": "Proposed: “{{text}}”",
+        "updated": "Updated {{code}} · {{title}}. To undo it, open the page history.",
+        "openHistory": "Open history"
       }
     },
     "myTasks": {
@@ -4553,7 +4580,12 @@
       "back": "Back to {{label}}",
       "openedTest": "Opened {{code}} in the builder, on the test.",
       "openedBuilder": "Opened {{code}} in the builder.",
-      "backPlain": "Back to the previous page"
+      "backPlain": "Back to the previous page",
+      "questions": {
+        "toClose_one": "{{count}} question to close in {{code}}'s docs",
+        "toClose_other": "{{count}} questions to close in {{code}}'s docs",
+        "showAll": "Show all {{count}}"
+      }
     },
     "trial": {
       "example": "{{code}} “{{title}}”",
@@ -12452,6 +12484,44 @@
       "decisionHidden": "Decision: not available",
       "printLabel": "Print view",
       "notDataImage": "not data: images"
+    },
+    "question": {
+      "reason": {
+        "vague": "The source isn't clear on this. Should the page say this?",
+        "contradicts": "The source says something different from the page. Should I update it?",
+        "contradicts_person": "The source says something different from what {{name}} wrote. Should I update it?",
+        "contradicts_personSomeone": "The source says something different from what someone wrote on the page. Should I update it?",
+        "diverges": "<code>{{code}}</code> was built differently from what the page says. Should I update the page, or open a request?",
+        "divergesNoCode": "A task was built differently from what the page says. Should I update the page, or open a request?",
+        "no_permission": "This came from {{name}}, who can't edit the Docs, so I didn't change the page. Should it say this?",
+        "no_permissionSomeone": "This came from someone who can't edit the Docs, so I didn't change the page. Should it say this?"
+      },
+      "option": {
+        "apply": "Update it",
+        "keep": "Leave it as is",
+        "request": "Open a request"
+      },
+      "recommended": "Recommended",
+      "threadLabel": "Claude's question on “{{quote}}”",
+      "answersLabel": "Answers to Claude's question",
+      "now": "Now",
+      "proposed": "Proposed",
+      "pageSays": "The page says",
+      "wasBuilt": "Was built",
+      "answering": "Answering…",
+      "answeredBy": "Answered by {{name}}: {{answer}}",
+      "answeredBySomeone": "Answered: {{answer}}",
+      "answeredFirst": "{{name}} answered first: {{answer}}",
+      "answeredFirstSomeone": "Someone answered first: {{answer}}",
+      "changedAfter": "The sentence changed after the question: <b>{{name}}</b> edited it",
+      "changedAfterNobody": "The sentence changed after the question",
+      "forbidden": "You can no longer answer in {{code}}.",
+      "failed": "Couldn't send the answer",
+      "retry": "Retry",
+      "readOnly": "Answering is for people with Edit docs in {{code}}",
+      "preparing": "A request is being prepared in Claude's panel",
+      "announceApply": "Answered · the sentence is updated",
+      "announceKeep": "Answered"
     }
   }
 }

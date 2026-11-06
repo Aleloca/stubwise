@@ -2,7 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "re
 import { useTranslation } from "react-i18next";
 import {
   useAddProductComment,
+  useAnswerProductQuestion,
   useProductComments,
+  useProductRequestsPreparing,
   useReopenProductComment,
   useResolveProductComment,
 } from "../../../data/queries";
@@ -14,6 +16,8 @@ import { CloseIcon } from "../../task/parts";
 import type { CommentDraft, ThreadFocus } from "../SideColumn";
 import { CommentComposer, type CommentComposerHandle } from "./CommentComposer";
 import { CommentThread } from "./CommentThread";
+import { openClaudePanel } from "../../../layout/claudePanel/panelEvents";
+import { QuestionThread, type FirstAnswer } from "./QuestionThread";
 
 // La colonna dei commenti (shape product-comments-history.md §3.3, [PC 4],
 // [PC 5]): una `region` dopo il corpo nell'ordine di Tab. Testata 40 px
@@ -28,6 +32,14 @@ import { CommentThread } from "./CommentThread";
 // La casella di un commento nuovo è un filo in più, al posto del suo blocco.
 // Dopo l'invio il fuoco va sul filo nuovo; «Resolve» lo porta al filo dopo
 // (o a «N resolved»); «Reopen» al «Resolve» del filo riaperto ([PC 13]).
+//
+// 11b (Task 10): una domanda di Claude è un filo con le risposte già
+// scritte (`QuestionThread`, shape product-claude-questions.md §3.1). Si
+// chiude rispondendo: «Update it» porta il fuoco al blocco aggiornato,
+// «Leave it as is» al filo dopo (come «Resolve»), e chi arriva secondo
+// legge chi ha risposto prima nel filo ricaricato fra i risolti, col fuoco
+// sopra. Il filo sparisce dagli aperti nello stesso giro in cui il fuoco
+// passa al suo bersaglio (prima del disegno): mai sul body.
 
 const GAP = 8;
 
@@ -64,6 +76,12 @@ export function CommentsColumn({
   const add = useAddProductComment();
   const resolve = useResolveProductComment();
   const reopen = useReopenProductComment();
+  const answerQuestion = useAnswerProductQuestion();
+  const preparing = useProductRequestsPreparing(page.id);
+  // Chi guarda è arrivato secondo (`already_answered`): il filo ricaricato lo dice.
+  const [firstAnswers, setFirstAnswers] = useState<ReadonlyMap<string, FirstAnswer>>(new Map());
+  // Il fuoco di una risposta: quando il filo lascia gli aperti, va qui.
+  const answering = useRef<{ rootId: string; target: () => HTMLElement | null } | null>(null);
   const canComment = page.permissions.edit;
   const [showResolved, setShowResolved] = useState(false);
   const [stale, setStale] = useState(false);
@@ -110,6 +128,18 @@ export function CommentsColumn({
       const root = want.id;
       onActive(root);
     }
+  });
+
+  // La domanda appena chiusa ha lasciato gli aperti: il fuoco al suo bersaglio
+  // nello stesso giro (layout, prima del disegno), non dopo dal body.
+  useLayoutEffect(() => {
+    const want = answering.current;
+    if (!want || open.some((th) => th.root.id === want.rootId)) return;
+    const el = want.target();
+    if (!el) return;
+    answering.current = null;
+    el.focus({ preventScroll: true });
+    el.scrollIntoView?.({ block: "nearest" });
   });
 
   // --- l'allineamento ai blocchi (agganciata) -------------------------------------
@@ -227,6 +257,77 @@ export function CommentsColumn({
       () => doReopen(rootId),
     );
 
+
+  /** Il blocco (il suo gruppo, per chi scrive) che porta l'ancora della domanda. */
+  const blockOf = (anchorId: string): HTMLElement | null => {
+    const editor = document.querySelector<HTMLElement>("[data-editor-body]");
+    if (!editor) return null;
+    const id = CSS.escape(anchorId);
+    const holder =
+      editor.querySelector<HTMLElement>(`[data-block-id="${id}"]`) ??
+      editor.querySelector<HTMLElement>(`[data-anchor-id="${id}"]`)?.closest<HTMLElement>("[data-block-id]");
+    const blockId = holder?.dataset.blockId;
+    if (!blockId) return null;
+    return editor.querySelector<HTMLElement>(`[role="group"][data-block-id="${CSS.escape(blockId)}"]`) ?? holder;
+  };
+
+  // «Update it» / «Leave it as is» (shape Q §3.3). Il rifiuto lo dice il filo.
+  const doAnswer = (th: ProductCommentThread) => (option: "apply" | "keep") => {
+    const rootId = th.root.id;
+    const i = live.findIndex((x) => x.root.id === rootId);
+    const next = live.slice(i + 1).find((x) => x.root.id !== rootId) ?? gone.find((x) => x.root.id !== rootId) ?? null;
+    answering.current = {
+      rootId,
+      target:
+        option === "apply"
+          ? () => blockOf(th.root.anchorId) ?? resolvedButton.current
+          : () => (next ? (threads.current.get(next.root.id) ?? null) : resolvedButton.current),
+    };
+    return answerQuestion.mutateAsync({ commentId: rootId, option }).then(
+      () => {
+        setAnnounce(t(option === "apply" ? "productDocs.question.announceApply" : "productDocs.question.announceKeep"));
+        if (active === rootId) onActive(null);
+      },
+      (error: unknown) => {
+        answering.current = null;
+        throw error;
+      },
+    );
+  };
+  const alreadyAnswered = (rootId: string) => (first: FirstAnswer) => {
+    setFirstAnswers((was) => new Map(was).set(rootId, first));
+    setShowResolved(true);
+    answering.current = { rootId, target: () => threads.current.get(rootId) ?? null };
+    void comments.refetch();
+  };
+  const questionProps = (th: ProductCommentThread, isResolved: boolean) => ({
+    thread: th,
+    projectId: project.id,
+    projectCode: project.code,
+    canComment,
+    active: active === th.root.id,
+    resolved: isResolved,
+    preparing: preparing.data?.includes(th.root.id) ?? false,
+    firstAnswer: firstAnswers.get(th.root.id) ?? null,
+    onAnswer: doAnswer(th),
+    onRequest: () =>
+      openClaudePanel({
+        draft: t("claude.answers.productDocs.ask.question", { id: th.root.id }),
+        fresh: true,
+        send: true,
+      }),
+    onAlreadyAnswered: alreadyAnswered(th.root.id),
+    onStale: () => void comments.refetch(),
+    onReply: reply(th.root.id, th.root.anchorId, th.root.quote),
+    onActive: () => onActive(th.root.id),
+  });
+  /** Un filo della colonna: la domanda di Claude, o un filo di commenti. */
+  const anyThread = (th: ProductCommentThread, isResolved: boolean, key?: string) =>
+    th.root.question ? (
+      <QuestionThread key={key} ref={register(th.root.id)} {...questionProps(th, isResolved)} />
+    ) : (
+      <CommentThread key={key} ref={register(th.root.id)} {...threadProps(th, isResolved)} />
+    );
 
   const threadProps = (th: ProductCommentThread, isResolved: boolean) => ({
     thread: th,
@@ -353,7 +454,7 @@ export function CommentsColumn({
               const th = it.thread;
               return (
                 <div key={it.key} ref={measure} style={style} className="side-thread">
-                  <CommentThread ref={register(th.root.id)} {...threadProps(th, false)} />
+                  {anyThread(th, false)}
                 </div>
               );
             })}
@@ -361,9 +462,7 @@ export function CommentsColumn({
         )}
         {gone.length > 0 && (
           <div className={`flex flex-col gap-2 ${items.length > 0 ? "border-t border-rule pt-3" : ""}`}>
-            {gone.map((th) => (
-              <CommentThread key={th.root.id} ref={register(th.root.id)} {...threadProps(th, false)} />
-            ))}
+            {gone.map((th) => anyThread(th, false, th.root.id))}
           </div>
         )}
         {resolved.length > 0 && (
@@ -390,10 +489,7 @@ export function CommentsColumn({
                 <path d="m6 3.5 4.5 4.5L6 12.5" />
               </svg>
             </button>
-            {showResolved &&
-              resolved.map((th) => (
-                <CommentThread key={th.root.id} ref={register(th.root.id)} {...threadProps(th, true)} />
-              ))}
+            {showResolved && resolved.map((th) => anyThread(th, true, th.root.id))}
           </div>
         )}
       </div>

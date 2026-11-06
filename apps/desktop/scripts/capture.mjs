@@ -450,6 +450,210 @@ async function main() {
       return;
     }
 
+    // Area 11b, Task 10 (`CAPTURE_A11B_QUESTIONS=1`): le domande di Claude
+    // nella colonna dei commenti (Meter reading: la divergenza da ACQ-8 col
+    // prima e dopo; Bills: la frase da aggiungere coi tre bottoni; risposta
+    // data, «Marco answered first», «Update it» spento, Sara, «Open a
+    // request» con la scheda nel riquadro), «N questions to close» nel
+    // riquadro, le domande in «Decide» della Home e le due card nel pannello
+    // delle notifiche (Laura e Marco: la fonte nella forma di chi riceve).
+    // Scatti `a11b-questions-*`, `a11b-home-*`, `a11b-inbox-*`.
+    if (process.env.CAPTURE_A11B_QUESTIONS) {
+      const variants = [
+        ...["light", "dark"].flatMap((scheme) =>
+          ["en", "it"].map((lang) => ({ scheme, lang, viewport: WIDE, suffix: `${scheme}-${lang}` })),
+        ),
+        { scheme: "dark", lang: "en", viewport: NARROW, suffix: "narrow-en" },
+        { scheme: "light", lang: "it", viewport: NARROW, suffix: "narrow-it" },
+      ];
+      const only = process.env.CAPTURE_ONLY ? new RegExp(process.env.CAPTURE_ONLY) : null;
+      const METER = "/p/ACQ/docs/product/ACQ-D7";
+      const BILLS = "/p/ACQ/docs/product/ACQ-D6";
+      const thread = (page, id) => page.locator(`[data-thread="${id}"]`);
+      async function onThread(page, id) {
+        await openComments(page);
+        await thread(page, id).waitFor();
+        await thread(page, id).scrollIntoViewIfNeeded();
+        await page.waitForTimeout(400);
+      }
+      async function reload(page, hash, title) {
+        await page.evaluate(() => {
+          window.location.hash = "/p/ACQ/docs/product";
+        });
+        await page.waitForTimeout(300);
+        await page.evaluate((h) => {
+          window.location.hash = h;
+        }, hash);
+        await page.getByRole("heading", { level: 1, name: title }).waitFor();
+        await page.waitForTimeout(500);
+      }
+      const scenes = [
+        {
+          name: "questions-diverges",
+          hash: METER,
+          persona: "Laura",
+          run: (page) => onThread(page, "pc-acq11b-meter-q"),
+        },
+        {
+          name: "questions-vague",
+          hash: BILLS,
+          persona: "Laura",
+          run: (page) => onThread(page, "pc-acq11b-bills-q"),
+        },
+        {
+          name: "questions-answered",
+          hash: METER,
+          persona: "Laura",
+          run: async (page) => {
+            await onThread(page, "pc-acq11b-meter-q");
+            await thread(page, "pc-acq11b-meter-q").getByRole("button", { name: /^(Update it|Aggiorna così)/ }).click();
+            const region = page.getByRole("region", { name: /^(Comments|Commenti)$/ });
+            await region.getByRole("button", { name: /resolved|risolt/ }).click();
+            await region.getByText(/Answered by|Ha risposto/).first().waitFor();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "questions-first",
+          hash: METER,
+          persona: "Laura",
+          run: async (page) => {
+            await onThread(page, "pc-acq11b-meter-q");
+            await page.evaluate(async () => {
+              const store = await import("/data/store.ts");
+              const c = store.state.productComments.find((x) => x.id === "pc-acq11b-meter-q");
+              c.question.answer = { byId: "p-marco", option: "keep", seq: 99999, revisionId: null };
+              c.resolved = { byId: "p-marco", at: c.createdAt };
+            });
+            await thread(page, "pc-acq11b-meter-q").getByRole("button", { name: /^(Update it|Aggiorna così)/ }).click();
+            await page.getByText(/answered first|ha risposto prima/).first().waitFor();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "questions-blocked",
+          hash: METER,
+          persona: "Laura",
+          run: async (page) => {
+            await page.evaluate(async () => {
+              const api = await import("/data/api.ts");
+              const p = api.productDocs.productPageByCode("ACQ-D7");
+              const b = p.blocks.find((x) => x.id === "blk-acq-meter-4");
+              api.productDocs.writeProductBlocksAs(
+                "p-marco",
+                p.id,
+                [{ op: "set", block: { ...b, content: { text: "A lower reading is checked by hand before it is accepted.", marks: [] } } }],
+                { sessionId: "s-capture-marco-q" },
+              );
+            });
+            await reload(page, METER, "Meter reading");
+            await onThread(page, "pc-acq11b-meter-q");
+          },
+        },
+        {
+          name: "questions-reader",
+          hash: METER,
+          persona: "Sara",
+          run: (page) => onThread(page, "pc-acq11b-meter-q"),
+        },
+        {
+          name: "questions-request",
+          hash: BILLS,
+          persona: "Laura",
+          run: async (page) => {
+            await onThread(page, "pc-acq11b-bills-q");
+            await thread(page, "pc-acq11b-bills-q").getByRole("button", { name: /^(Open a request|Apri una richiesta)$/ }).click();
+            await page.locator("#claude-panel [data-proposal]").waitFor();
+            await page.waitForTimeout(800);
+          },
+        },
+        {
+          name: "questions-panel",
+          hash: METER,
+          persona: "Laura",
+          run: async (page) => {
+            await page.locator("[data-claude-rail]").click();
+            const row = page.locator("[data-questions-to-close]");
+            await row.waitFor();
+            await row.click();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "home-decide",
+          hash: "/home",
+          persona: "Laura",
+          run: async (page) => {
+            const item = page.locator('[data-claude-decision="product:pc-acq11b-meter-q"]');
+            const more = page.getByRole("region", { name: /^(Decide|Da decidere)$/ }).getByRole("button", { name: /^(Show \d+ more|Mostra altre \d+)$/ });
+            await page.getByRole("region", { name: /^(Decide|Da decidere)$/ }).locator("[data-claude-decision]").first().waitFor();
+            await page.waitForTimeout(500);
+            if (!(await item.isVisible()) && (await more.isVisible())) await more.click();
+            await item.waitFor();
+            await item.scrollIntoViewIfNeeded();
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "home-updated",
+          hash: "/home",
+          persona: "Laura",
+          run: async (page) => {
+            const item = page.locator('[data-claude-decision="product:pc-acq11b-meter-q"]');
+            const more = page.getByRole("region", { name: /^(Decide|Da decidere)$/ }).getByRole("button", { name: /^(Show \d+ more|Mostra altre \d+)$/ });
+            await page.getByRole("region", { name: /^(Decide|Da decidere)$/ }).locator("[data-claude-decision]").first().waitFor();
+            await page.waitForTimeout(500);
+            if (!(await item.isVisible()) && (await more.isVisible())) await more.click();
+            await item.waitFor();
+            await item.scrollIntoViewIfNeeded();
+            await item.getByRole("button", { name: /^(Update it|Aggiorna così)/ }).click();
+            await page.locator("[data-toast]").first().waitFor();
+            await page.waitForTimeout(500);
+          },
+        },
+        {
+          name: "inbox-laura",
+          hash: "/home",
+          persona: "Laura",
+          run: async (page) => {
+            await page.getByRole("button", { name: /^(Notifications|Notifiche)/ }).click();
+            await page.locator('[data-notification="n-acq11b-signin"]').waitFor();
+            // Le card del 11b (Sign-in, la più vecchia, in fondo alla vista): le altre sopra.
+            await page.locator('[data-notification="n-acq11b-signin"]').evaluate((el) => el.scrollIntoView({ block: "end" }));
+            await page.waitForTimeout(400);
+          },
+        },
+        {
+          name: "inbox-marco",
+          hash: "/home",
+          persona: "Marco",
+          run: async (page) => {
+            await page.getByRole("button", { name: /^(Notifications|Notifiche)/ }).click();
+            await page.locator('[data-notification="n-acq11b-signin"]').waitFor();
+            // Le card del 11b (Sign-in, la più vecchia, in fondo alla vista): le altre sopra.
+            await page.locator('[data-notification="n-acq11b-signin"]').evaluate((el) => el.scrollIntoView({ block: "end" }));
+            await page.waitForTimeout(400);
+          },
+        },
+      ];
+      for (const v of variants) {
+        for (const scene of scenes) {
+          const name = `a11b-${scene.name}-${v.suffix}.png`;
+          if (only && !only.test(name)) continue;
+          const { page, context } = await open(v.scheme, v.viewport, scene.hash, {
+            lang: v.lang,
+            persona: scene.persona,
+          });
+          await page.getByRole("heading", { level: 1 }).first().waitFor();
+          await page.waitForTimeout(600);
+          await scene.run(page);
+          await shot(page, name);
+          await context.close();
+        }
+      }
+      return;
+    }
+
     // Area 11a, Task 13 (`CAPTURE_A11A_EXTRA=1`): le due scene che mancavano
     // agli insiemi dei Task 7–12. Sara su «Sign-in» con il «Who?» della riga di
     // sola lettura aperto, e Laura nello spazio Prodotto con ⌘K scritto «bill»

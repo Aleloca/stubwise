@@ -1,4 +1,4 @@
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   useCallback,
   useEffect,
@@ -16,6 +16,7 @@ import {
   useConversation,
   useCreateConversation,
   useDescribeContext,
+  useOpenProductQuestions,
   useProjects,
   useSessionPersonId,
   useTasks,
@@ -302,6 +303,9 @@ function PanelBody({
   // con «Resend» quando il budget è finito.
   const aiBlock = useAiBlock(null);
   const budget = aiBlock.data?.reason === "monthly_budget";
+  // 11b (Task 10): la conversazione nata da una frase mandata dalla pagina
+  // («Open a request»): la sua prima scheda prende il fuoco (shape Q §3.3).
+  const focusCardOf = useRef<string | null>(null);
   const blockKnown = aiBlock.isSuccess || aiBlock.isError;
 
   // Il testo da ⌘K, anche quello che ha fatto nascere il contenuto. Dalla riga
@@ -335,6 +339,7 @@ function PanelBody({
           : {},
         {
           onSuccess: (c) => {
+            focusCardOf.current = c.id;
             handOffFirstMessage(c.id, { text: incoming.text, attachments: [], context: sent.sent });
             created(c.id);
           },
@@ -424,6 +429,28 @@ function PanelBody({
     return () => watch.disconnect();
   }, [conversationId]);
 
+  // La scheda chiesta dalla pagina, appena arriva: il fuoco sul suo titolo
+  // (la `section` della scheda, nominata dal titolo). Solo se il fuoco è
+  // ancora nel riquadro (o perso): chi intanto è andato altrove non lo perde.
+  useEffect(() => {
+    const root = document.getElementById(CLAUDE_PANEL_ID);
+    if (!root || !conversationId || focusCardOf.current !== conversationId) return;
+    const focusCard = () => {
+      const card = root.querySelector<HTMLElement>("[data-proposal]");
+      if (!card) return false;
+      focusCardOf.current = null;
+      const active = document.activeElement;
+      if (!active || active === document.body || root.contains(active)) card.focus();
+      return true;
+    };
+    if (focusCard()) return;
+    const watch = new MutationObserver(() => {
+      if (focusCard()) watch.disconnect();
+    });
+    watch.observe(root, { childList: true, subtree: true });
+    return () => watch.disconnect();
+  }, [conversationId]);
+
   // «Back to» sparisce al primo cambio di pagina fatto dalla persona ([AU 7]).
   const pathname = useRouterState({ select: (st) => st.location.pathname });
   useEffect(() => {
@@ -445,6 +472,7 @@ function PanelBody({
   };
 
   const startNew = () => {
+    focusCardOf.current = null;
     setBack(null);
     lastConversation.delete(me);
     refocus.current = true;
@@ -497,6 +525,7 @@ function PanelBody({
       </header>
       {back && <BackRow back={back} onBack={goBack} />}
       <ContextRow context={context} />
+      <QuestionsToClose context={context} />
       <p role="status" aria-live="polite" className="sr-only" data-panel-announce>
         {announced}
       </p>
@@ -629,6 +658,91 @@ function usePageContext(open: boolean): PageContext {
     setRemoved,
     sent: !removed && description ? ref : null,
   };
+}
+
+/** Quante righe di domande mostra la riga aperta prima di «Show all N». */
+const QUESTIONS_SHOWN = 5;
+
+/**
+ * «3 questions to close in VRD's docs» sotto il chip (11b, Task 10; shape
+ * product-claude-questions.md §3.7, [PQ 10]): quando il chip è una pagina
+ * dei Docs di un progetto con domande di Claude aperte che chi guarda può
+ * chiudere (`openProductQuestions`, `count: 0` senza Modifica Docs). Aperta,
+ * al più cinque righe (codice · pagina · la frase citata) e «Show all N»;
+ * una riga apre il filo (`?comment=`) e il riquadro resta aperto. Non entra
+ * nella conversazione: lì il contesto è già la doc.
+ */
+function QuestionsToClose({ context }: { context: PageContext }) {
+  const { t } = useTranslation();
+  const ref = context.ref;
+  const projectId = ref?.kind === "page" && ref.route === "docs" ? ref.projectId : null;
+  const projects = useProjects().data;
+  const code = projects?.find((p) => p.id === projectId)?.code ?? null;
+  const questions = useOpenProductQuestions(projectId ?? "", { enabled: projectId !== null });
+  const [open, setOpen] = useState(false);
+  const [all, setAll] = useState(false);
+  const listId = useId();
+  const data = projectId ? questions.data : undefined;
+  if (!data || data.count === 0 || !code) return null;
+  const items = all ? data.items : data.items.slice(0, QUESTIONS_SHOWN);
+  return (
+    <div className="shrink-0 border-b border-rule">
+      <button
+        type="button"
+        data-questions-to-close=""
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-9 w-full items-center gap-1.5 px-4 text-left text-sm text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4"
+      >
+        <span className="min-w-0 flex-1 truncate">{t("claude.panel.questions.toClose", { count: data.count, code })}</span>
+        <svg
+          viewBox="0 0 16 16"
+          width={12}
+          height={12}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1.5}
+          aria-hidden="true"
+          focusable="false"
+          className={`shrink-0 text-ink-muted transition-transform duration-[var(--duration-fast)] ease-out ${open ? "rotate-90" : ""}`}
+        >
+          <path d="m6 3.5 4.5 4.5L6 12.5" />
+        </svg>
+      </button>
+      {open && (
+        <ul id={listId} className="flex flex-col pb-1">
+          {items.map((q) => (
+            <li key={q.commentId}>
+              <Link
+                to="/p/$code/docs/product/$page"
+                params={{ code, page: q.pageCode }}
+                search={{ comment: q.commentId } as never}
+                className="flex h-8 min-w-0 items-baseline gap-2 px-4 text-sm leading-8 transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4"
+              >
+                <span className="num shrink-0 text-xs font-semibold text-ink">{q.pageCode}</span>
+                <span className="shrink-0 text-ink">{q.pageTitle}</span>
+                <span className="min-w-0 truncate text-xs text-ink-faint">
+                  {t("productDocs.comments.quoted", { quote: q.quote })}
+                </span>
+              </Link>
+            </li>
+          ))}
+          {!all && data.items.length > QUESTIONS_SHOWN && (
+            <li>
+              <button
+                type="button"
+                onClick={() => setAll(true)}
+                className="mx-2 my-1 inline-flex h-7 items-center rounded-md px-2 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
+              >
+                {t("claude.panel.questions.showAll", { count: data.items.length })}
+              </button>
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
 }
 
 /** «You're looking at: [ACQ-14 · task ×]», o «Not using this page · Use it». Niente per un oggetto che non si vede. */

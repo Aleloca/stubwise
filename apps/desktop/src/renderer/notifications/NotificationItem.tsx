@@ -14,6 +14,7 @@ import {
   type SnoozeOption,
 } from "./time";
 import { vowelContext } from "../i18n/vowel";
+import { questionSentence, sourceText } from "../domain/productDocs/claudeText";
 
 export type Change = { read?: boolean; archived?: boolean; snoozedUntil?: string | null };
 
@@ -91,10 +92,14 @@ export function NotificationItem({
 
   // Area 11a (Q1): una menzione in un commento della doc di prodotto.
   const productMention = n.kind === "product_doc.mention";
+  // Area 11b: le due card di Claude sulla doc (shape product-claude-mark §3.7,
+  // product-claude-questions §3.5).
+  const productClaude = n.kind === "product_doc.updated" || n.kind === "product_doc.question";
+  const product = productMention || productClaude;
   // Testo secondario: il progetto; senza progetto, la provenienza dell'evento.
-  // Una menzione di prodotto dice lo spazio, «Product» (shape §3.9).
+  // Una card della doc di prodotto dice lo spazio, «Product» (shape §3.9).
   const prefix = n.objectCode.split("-")[0];
-  const secondary = productMention
+  const secondary = product
     ? t("notifications.productDocMention.source")
     : (project?.name ??
       (prefix && i18n.exists(`notifications.sources.${prefix}`)
@@ -163,7 +168,7 @@ export function NotificationItem({
           >
             {title}
           </span>
-          <span className="line-clamp-2 text-sm text-ink-muted">
+          <span className="line-clamp-2 text-sm text-ink-muted" title={productClaude && !gone ? body : undefined}>
             {productMention && !gone ? <WithMentions text={body} names={n.mentionNames} /> : body}
           </span>
           {/* «Undone by» [CT 10]: derivato a lettura, senza data; la notifica
@@ -176,7 +181,8 @@ export function NotificationItem({
               </span>
             </span>
           )}
-          {gone && !productMention && (
+          {productClaude && !gone && <ProductCardExtra n={n} />}
+          {gone && !product && (
             <span data-object-gone className="mt-1 block text-xs text-ink-muted">
               {t("task.delete.after.notification")}
             </span>
@@ -332,6 +338,29 @@ function composedOf(
   // Area 11a (Q1, P19): la menzione in un commento, col titolo di adesso
   // della pagina; pagina o filo che non ci sono più, una frase senza codice,
   // titolo né nome (R-G5). Una riga nata prima, senza quei valori, resta com'è.
+  // Area 11b: le card di Claude sulla doc, da `productCard` (le fonti già
+  // nella forma di chi riceve). Senza (pagina sparita, chi riceve non legge
+  // più, una riga nata prima): la frase senza codice, titolo né fonte.
+  if (n.kind === "product_doc.updated" || n.kind === "product_doc.question") {
+    const card = n.productCard;
+    const updated = n.kind === "product_doc.updated";
+    const words = updated ? "notifications.productDocUpdated" : "notifications.productDocQuestion";
+    if (n.objectGone || !card || n.productPageTitle === undefined || (!updated && !card.question))
+      return { title: t(`${words}.goneTitle`), body: t(`${words}.goneBody`) };
+    const title = t(`${words}.title`, { code: n.objectCode, title: n.productPageTitle });
+    const source = card.sources.length === 1 ? ` ${sourceText(t, card.sources[0]!)}.` : "";
+    if (!updated) return { title, body: `${questionSentence(t, card.question!)}${source}` };
+    const count = card.changes;
+    if (card.sources.length > 1) {
+      const which =
+        card.waited === "monthly_budget" ? "sourcesBudget" : card.waited === "queue_paused" ? "sourcesQueue" : "sources";
+      return { title, body: t(`${words}.${which}`, { count, sources: card.sources.length }) };
+    }
+    const lead = card.onBehalfOfName
+      ? t(`${words}.behalf`, { count, name: card.onBehalfOfName })
+      : t(`${words}.claude`, { count });
+    return { title, body: `${lead}${source}` };
+  }
   if (n.kind === "product_doc.mention") {
     if (n.objectGone)
       return {
@@ -392,6 +421,41 @@ function composedOf(
     };
   }
   return null;
+}
+
+/**
+ * Sotto il corpo di una card di Claude sulla doc: per la card con più fonti
+ * una riga per fonte (al più due, poi «+N»), nella forma di chi riceve; per
+ * una domanda già chiusa, chi ha risposto (derivato a lettura).
+ */
+function ProductCardExtra({ n }: { n: AppNotification }) {
+  const { t } = useTranslation();
+  const card = n.productCard;
+  if (!card) return null;
+  if (n.kind === "product_doc.question") {
+    if (!card.question?.answer) return null;
+    const name = card.question.answeredByName;
+    return (
+      <span data-answered-by className="mt-1 block text-xs text-ink-muted">
+        {name
+          ? t("notifications.productDocQuestion.answeredBy", { name })
+          : t("notifications.productDocQuestion.answered")}
+      </span>
+    );
+  }
+  if (card.sources.length < 2) return null;
+  const shown = card.sources.slice(0, 2);
+  const more = card.sources.length - shown.length;
+  return (
+    <span className="mt-1 flex flex-col text-xs text-ink-muted">
+      {shown.map((s, i) => (
+        <span key={i} data-card-source className="line-clamp-1 [overflow-wrap:anywhere]">
+          {sourceText(t, s)}
+          {i === shown.length - 1 && more > 0 && <span className="num"> +{more}</span>}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 /** Il corpo di una notifica nata da Claude per una persona (`viaClaude`). */

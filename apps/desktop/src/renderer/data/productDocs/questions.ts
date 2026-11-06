@@ -2,7 +2,7 @@ import { anchorIdsOf, isTextBlock } from "../../domain/productDocs/blocks";
 import { visiblePeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
-import { nextSeq, now, state } from "../store";
+import { gate, nextSeq, now, state } from "../store";
 import type {
   ProductAnswerChoice,
   ProductBlock,
@@ -223,20 +223,63 @@ function close(
  * `option`), `changed_after` (con `byId`: la frase è cambiata dopo la
  * domanda) e `invalid: option` (una risposta senza strada).
  */
-export function answerProductQuestionAs(me: string, commentId: string, option: "apply" | "keep"): void {
+export function answerProductQuestionAs(
+  me: string,
+  commentId: string,
+  option: "apply" | "keep",
+): { revisionId: string | null } {
   const { comment, q, page } = questionRoot(me, commentId);
   editablePage(me, page.id);
   if (q.answer !== null) throw alreadyAnswered(me, q.answer);
-  if (option === "keep") return close(me, comment, { option, revisionId: null });
+  if (option === "keep") {
+    close(me, comment, { option, revisionId: null });
+    return { revisionId: null };
+  }
   if (option !== "apply" || q.apply === null) throw invalid("option");
   const blocker = blockerOf(comment);
   if (blocker) throw changedAfter(seenBy(me)(blocker.actorId));
   const { revisionId } = writeProductBlocksAs(me, page.id, [applyOp(page, comment, q)], { kind: "answer" });
   close(me, comment, { option, revisionId });
+  // La revisione di «Aggiorna così»: la Home la apre in cronologia («Apri la cronologia»).
+  return { revisionId };
 }
 
-export async function answerProductQuestion(commentId: string, option: "apply" | "keep"): Promise<void> {
-  answerProductQuestionAs(await writer("productDocs.answerProductQuestion"), commentId, option);
+export async function answerProductQuestion(
+  commentId: string,
+  option: "apply" | "keep",
+): Promise<{ revisionId: string | null }> {
+  return answerProductQuestionAs(await writer("productDocs.answerProductQuestion"), commentId, option);
+}
+
+/**
+ * Le domande di una pagina per cui `me` ha una scheda «Apri una richiesta»
+ * ancora aperta nel riquadro di Claude (shape Q §3.3: «Una richiesta è in
+ * preparazione…»): una proposta `open` di `me` con una `createRequest` che
+ * nomina la domanda (`origin.questionId`). Confermata, la domanda si chiude
+ * (`createRequestAs`); annullata, la riga sparisce. Solo le proprie schede:
+ * quelle degli altri non si vedono da qui.
+ */
+export function productRequestsPreparingAs(me: string, pageId: string): string[] {
+  const page = productPageById(pageId);
+  if (!page || docsAccess(me, page.projectId) !== "read") return [];
+  const asked = new Set(
+    state.productComments.filter((c) => c.pageId === pageId && c.question && c.question.answer === null).map((c) => c.id),
+  );
+  const out = new Set<string>();
+  for (const events of state.conversationEvents.values()) {
+    for (const e of events) {
+      if (e.type !== "proposal" || e.status !== "open" || e.requesterId !== me) continue;
+      for (const a of e.actions) {
+        const origin = a.fn === "createRequest" ? (a.args as { origin?: ProductDocOrigin }).origin : undefined;
+        if (origin?.kind === "product_doc" && origin.questionId && asked.has(origin.questionId)) out.add(origin.questionId);
+      }
+    }
+  }
+  return [...out];
+}
+
+export async function listProductRequestsPreparing(pageId: string): Promise<string[]> {
+  return productRequestsPreparingAs(await gate("productDocs.listProductRequestsPreparing"), pageId);
 }
 
 /**

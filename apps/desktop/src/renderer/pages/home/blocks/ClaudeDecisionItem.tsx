@@ -1,14 +1,28 @@
-import { Link } from "@tanstack/react-router";
-import { useId, useState, type ReactNode } from "react";
-import { useTranslation } from "react-i18next";
-import { useAnswerQuestionNow, useDecidePlanNow, usePeople } from "../../../data/queries";
-import type { ConversationClaudeDecision, Person } from "../../../data/types";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { useId, useRef, useState, type ReactNode } from "react";
+import { Trans, useTranslation } from "react-i18next";
+import {
+  useAnswerProductQuestionNow,
+  useAnswerQuestionNow,
+  useDecidePlanNow,
+  usePeople,
+} from "../../../data/queries";
+import type {
+  ClaudeDecision,
+  ConversationClaudeDecision,
+  Person,
+  ProductQuestionDecision,
+} from "../../../data/types";
+import { questionSentence } from "../../../domain/productDocs/claudeText";
+import { openClaudePanel } from "../../../layout/claudePanel/panelEvents";
 import { relativeTime } from "../../../notifications/time";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { Avatar } from "../../../tasks-ui/PersonChip";
 import { useToast } from "../../../tasks-ui/Toast";
+import { SourceLine } from "../../productDocs/claude/SourceLine";
+import { QuestionAnswerButtons, QuestionSentence } from "../../productDocs/comments/QuestionThread";
 import { ghostButton, smallPrimary, smallSecondary } from "../../task/parts";
-import { deferAnswer } from "../pendingAnswers";
+import { answerAtOnce, deferAnswer } from "../pendingAnswers";
 
 type Question = Extract<ConversationClaudeDecision, { kind: "question" }>;
 type Plan = Extract<ConversationClaudeDecision, { kind: "plan" }>;
@@ -22,6 +36,18 @@ type Plan = Extract<ConversationClaudeDecision, { kind: "plan" }>;
  * anche nella conversazione. Chi arriva secondo legge chi è arrivato prima.
  */
 export function ClaudeDecisionItem({
+  decision,
+  onOpenTask,
+}: {
+  decision: ClaudeDecision;
+  onOpenTask: (code: string) => void;
+}) {
+  // 11b: una domanda di Claude sulla doc di prodotto (shape product-claude-questions §3.4).
+  if (decision.kind === "productQuestion") return <ProductQuestionItem decision={decision} />;
+  return <ConversationDecisionItem decision={decision} onOpenTask={onOpenTask} />;
+}
+
+function ConversationDecisionItem({
   decision,
   onOpenTask,
 }: {
@@ -354,6 +380,183 @@ function PlanItem({ decision, claude, onOpenTask, defer, label }: ItemProps<Plan
 }
 
 /**
+ * Una domanda di Claude sulla doc di prodotto in «Decide» (11b, Task 10;
+ * shape product-claude-questions.md §3.4, [PQ 5]): la cornice delle domande
+ * sui task, la domanda, la fonte nella forma di chi guarda, la frase
+ * proposta, la pagina col codice (aperta sul filo) e gli stessi bottoni del
+ * filo con la stessa consigliata, senza «Other…». «Update it» parte SUBITO
+ * (la modifica si annulla dalla cronologia della pagina: il toast ci porta);
+ * «Leave it as is» segue la finestra dell'«Undo» come le altre risposte;
+ * «Open a request» apre il riquadro con la scheda e la voce resta. Chiusa
+ * la voce, il fuoco va alla voce dopo (o al titolo di «Decide»): mai sul body.
+ */
+function ProductQuestionItem({ decision }: { decision: ProductQuestionDecision }) {
+  const { t, i18n } = useTranslation();
+  const toast = useToast();
+  const navigate = useNavigate();
+  const { data: people } = usePeople();
+  const answerNow = useAnswerProductQuestionNow();
+  const root = useRef<HTMLDivElement>(null);
+  const blockedId = useId();
+  const claude = people?.find((p) => p.isClaude);
+  const name = (id: string | null | undefined) =>
+    people?.find((p) => p.id === id)?.name ?? t("taskUi.stall.someone");
+  const code = decision.pageCode;
+  const sentence = questionSentence(t, decision);
+  const page = decision.link.split("?")[0]!.replace(/^#/, "");
+
+  const failed = (error: unknown) => {
+    const e = error as { message?: string; byId?: string | null } | null;
+    if (e?.message === "already_answered") toast.show(t("home.decide.claude.alreadyAnswered", { name: name(e.byId) }));
+    else toast.error(t("home.decide.answerFailed", { code }));
+  };
+  // La voce si chiude: il fuoco alla voce dopo (il suo primo comando), o al titolo del blocco.
+  const moveFocus = () => {
+    const item = root.current?.closest("li");
+    if (!item || !item.contains(document.activeElement)) return;
+    let next = item.nextElementSibling;
+    while (next && next.hasAttribute("data-closed")) next = next.nextElementSibling;
+    const target =
+      next?.querySelector<HTMLElement>("button, a[href]") ??
+      item.closest("section")?.querySelector<HTMLElement>("h2") ??
+      null;
+    if (!target) return;
+    if (target.tagName === "H2") target.setAttribute("tabindex", "-1");
+    target.focus({ preventScroll: true });
+  };
+
+  const answer = (option: "apply" | "keep") => {
+    moveFocus();
+    if (option === "apply") {
+      answerAtOnce(
+        decision.id,
+        () =>
+          answerNow(decision.commentId, "apply").then(({ revisionId }) =>
+            toast.show(t("home.decide.product.updated", { code, title: decision.pageTitle }), {
+              action: {
+                label: t("home.decide.product.openHistory"),
+                run: () =>
+                  void navigate({ href: revisionId ? `${page}?history=${encodeURIComponent(revisionId)}` : page } as never),
+              },
+            }),
+          ),
+        failed,
+      );
+      return;
+    }
+    const cancel = deferAnswer(decision.id, () => answerNow(decision.commentId, "keep"), failed);
+    toast.show(t("home.decide.answered", { code }), { action: { label: t("home.decide.undo"), run: cancel } });
+  };
+
+  return (
+    <div ref={root}>
+      <Frame
+        id={decision.id}
+        at={decision.at}
+        claude={claude}
+        heading={t("home.decide.claude.asks")}
+        content={
+          <>
+            <p title={sentence} className="line-clamp-2 max-w-[72ch] text-lg font-medium text-ink [overflow-wrap:anywhere]">
+              <QuestionSentence words={decision} />
+            </p>
+            <SourceLine sources={[decision.source]} className="max-w-[72ch]" />
+            {decision.apply && (
+              <p
+                title={decision.apply.text}
+                className="max-w-[72ch] truncate text-sm text-ink-muted"
+              >
+                {t("home.decide.product.proposed", { text: decision.apply.text })}
+              </p>
+            )}
+          </>
+        }
+        object={
+          <a
+            href={decision.link}
+            className="flex min-w-0 items-baseline gap-2 self-start rounded-sm text-left text-sm text-ink-muted hover:text-ink"
+          >
+            <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink">{code}</span>
+            <span className="min-w-0 truncate">{decision.pageTitle}</span>
+          </a>
+        }
+        actions={
+          <div className="flex flex-col gap-1.5">
+            <QuestionAnswerButtons
+              options={decision.options}
+              recommended={decision.recommended}
+              busy={null}
+              blocked={decision.applyBlocked !== null}
+              blockedId={blockedId}
+              onAnswer={answer}
+              onRequest={() =>
+                openClaudePanel({
+                  draft: t("claude.answers.productDocs.ask.question", { id: decision.commentId }),
+                  fresh: true,
+                  send: true,
+                })
+              }
+            />
+            {decision.applyBlocked && (
+              <p id={blockedId} className="max-w-[72ch] text-xs text-ink-muted">
+                {decision.applyBlocked.byId ? (
+                  <Trans
+                    i18nKey="productDocs.question.changedAfter"
+                    values={{ name: name(decision.applyBlocked.byId) }}
+                    components={{ b: <strong className="font-semibold text-ink" /> }}
+                  />
+                ) : (
+                  t("productDocs.question.changedAfterNobody")
+                )}
+              </p>
+            )}
+          </div>
+        }
+        language={i18n.language}
+      />
+    </div>
+  );
+}
+
+/** La cornice di una voce di Claude in «Decide»: chi chiede con l'ora, il contenuto, l'oggetto, le risposte. */
+function Frame({
+  id,
+  at,
+  claude,
+  heading,
+  content,
+  object,
+  actions,
+  language,
+}: {
+  id: string;
+  at: string;
+  claude: Person | undefined;
+  heading: string;
+  content: ReactNode;
+  object: ReactNode;
+  actions: ReactNode;
+  language: string;
+}) {
+  const { t } = useTranslation();
+  return (
+    <div data-claude-decision={id} className="flex flex-col gap-2 border-b border-rule py-3 pr-3 pl-4">
+      <div className="flex items-center gap-2 text-sm text-ink-muted">
+        <Avatar person={claude} />
+        <span className="min-w-0 truncate">{heading}</span>
+        <span aria-hidden="true" className="text-ink-faint">
+          ·
+        </span>
+        <span className="num shrink-0 text-ink-faint">{relativeTime(at, t, language)}</span>
+      </div>
+      {content}
+      {object}
+      {actions}
+    </div>
+  );
+}
+
+/**
  * La cornice comune, la stessa di una richiesta di decisione: chi chiede
  * con l'ora, il contenuto, l'oggetto citato col codice (la task apre il
  * pannello; una richiesta o una libera aprono la conversazione).
@@ -389,40 +592,34 @@ function Shell({
     </>
   );
   return (
-    <div
-      data-claude-decision={decision.id}
-      className="flex flex-col gap-2 border-b border-rule py-3 pr-3 pl-4"
-    >
-      <div className="flex items-center gap-2 text-sm text-ink-muted">
-        <Avatar person={claude} />
-        <span className="min-w-0 truncate">{heading}</span>
-        <span aria-hidden="true" className="text-ink-faint">
-          ·
-        </span>
-        <span className="num shrink-0 text-ink-faint">
-          {relativeTime(decision.at, t, i18n.language)}
-        </span>
-      </div>
-      {content}
-      {decision.taskId && decision.objectCode ? (
-        <button
-          type="button"
-          onClick={() => onOpenTask(decision.objectCode!)}
-          className={objectClass}
-        >
-          {object}
-        </button>
-      ) : (
-        <Link
-          to="/claude/$id"
-          params={{ id: decision.conversationId }}
-          title={t("home.decide.claude.openConversation")}
-          className={objectClass}
-        >
-          {object}
-        </Link>
-      )}
-      {actions}
-    </div>
+    <Frame
+      id={decision.id}
+      at={decision.at}
+      claude={claude}
+      heading={heading}
+      content={content}
+      language={i18n.language}
+      actions={actions}
+      object={
+        decision.taskId && decision.objectCode ? (
+          <button
+            type="button"
+            onClick={() => onOpenTask(decision.objectCode!)}
+            className={objectClass}
+          >
+            {object}
+          </button>
+        ) : (
+          <Link
+            to="/claude/$id"
+            params={{ id: decision.conversationId }}
+            title={t("home.decide.claude.openConversation")}
+            className={objectClass}
+          >
+            {object}
+          </Link>
+        )
+      }
+    />
   );
 }

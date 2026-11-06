@@ -5,6 +5,7 @@ import { CLAUDE_ID, PEOPLE } from "../seed/people";
 import { gate, state } from "../store";
 import type { AiBlock, AppNotification, ProductPage, ProductRevision } from "../types";
 import { threadLink } from "./comments";
+import { liveMarks } from "./marks";
 import { productPageById } from "./reads";
 import { sourceViewOf } from "./sources";
 
@@ -87,7 +88,7 @@ export function presentProductUpdate(me: string, out: AppNotification): void {
   const page = ref ? productPageById(ref.pageId) : undefined;
   if (!ref || !page || docsAccess(me, page.projectId) !== "read") return gone(out);
   out.objectCode = page.code;
-  out.link = productPageHref(page);
+  out.link = updateLink(page, ref.revisionIds);
   out.productPageTitle = page.title;
   const revisions = ref.revisionIds.flatMap((id) => state.productRevisions.filter((r) => r.id === id));
   const people = visiblePeopleFor(me);
@@ -100,6 +101,19 @@ export function presentProductUpdate(me: string, out: AppNotification): void {
     onBehalfOfName: onBehalf && people.has(onBehalf) ? nameOf(onBehalf) : null,
     waited: ref.waited ?? null,
   };
+}
+
+/**
+ * Dove porta la card (shape product-claude-mark §3.7): al primo segno di
+ * quelle revisioni ancora a vista (`?mark=<ancora>`), altrimenti alla riga
+ * della cronologia dell'ultima (`?history=<revisione>`): l'indirizzo porta
+ * sempre a ciò che c'è ancora da vedere.
+ */
+function updateLink(page: ProductPage, revisionIds: readonly string[]): string {
+  const mark = liveMarks(page).find((m) => revisionIds.includes(m.revision.id));
+  if (mark) return `${productPageHref(page)}?mark=${encodeURIComponent(mark.mark.anchorId)}`;
+  const last = revisionIds[revisionIds.length - 1];
+  return last ? `${productPageHref(page)}?history=${encodeURIComponent(last)}` : productPageHref(page);
 }
 
 /**
