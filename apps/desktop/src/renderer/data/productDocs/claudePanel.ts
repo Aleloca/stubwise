@@ -3,6 +3,7 @@ import { visiblePeopleFor } from "../access/whoCan";
 import { docsAccess } from "../docs/reads";
 import { canSeeMessage } from "../mail/visibility";
 import { CLAUDE_ID, PEOPLE } from "../seed/people";
+import i18n from "../../i18n";
 import { now, state } from "../store";
 import type {
   FirstVersionPlan,
@@ -10,11 +11,14 @@ import type {
   ProductBacklogDraft,
   ProductPanelPage,
   ProductQuestionRequestDraft,
+  ConversationEvent,
   ProductSourceRef,
-  ProductSourceView,
   ProductUpdateChange,
   ProductUpdatePreview,
+  ProductWeekAnswer,
   ProductWeekChange,
+  ProposedAction,
+  Utterance,
 } from "../types";
 import { can, viewerFor } from "../viewer";
 import { proposeBacklogFromPageAs } from "./backlog";
@@ -206,18 +210,19 @@ export function firstVersionPlanFor(me: string, projectId: string): FirstVersion
   return sources.length === 0 ? { ok: false, reason: "no_sources" } : { ok: true, sources };
 }
 
-/** Una fonte una volta sola (lo stesso testo per chi chiede). */
-const sourceKey = (v: ProductSourceView): string => JSON.stringify([v.label, v.code, v.link]);
+/** Una fonte una volta sola (la stessa riga del registro della pagina). */
+const refKey = (ref: ProductSourceRef): string =>
+  ref.kind === "first_version" ? `first_version:${ref.ids.join(",")}` : `${ref.kind}:${ref.id}`;
 
 /**
  * «Cosa è cambiato nella doc questa settimana»: le pagine che chi chiede
  * legge con revisioni negli ultimi sette giorni (`now()`), dalla più
- * recente; chi ha scritto (le persone che vede) e le fonti delle modifiche
- * di Claude, viste da lui. Mai la fonte grezza.
+ * recente, con chi ha scritto e le fonti come riferimenti. Nomi e frasi
+ * delle fonti li compone la lettura dell'evento, per chi legge
+ * (`presentProductClaudeEvent`): il testo salvato non le ha mai.
  */
 export function productWeekChangesFor(me: string, projectId: string | null): ProductWeekChange[] {
   const since = Date.parse(now()) - 7 * DAY_MS;
-  const people = visiblePeopleFor(me);
   const out: { row: ProductWeekChange; last: number }[] = [];
   for (const page of readableProductPages(me)) {
     if (projectId !== null && page.projectId !== projectId) continue;
@@ -225,21 +230,8 @@ export function productWeekChangesFor(me: string, projectId: string | null): Pro
       (r) => r.pageId === page.id && Date.parse(r.at) >= since,
     );
     if (revisions.length === 0) continue;
-    const byNames = [
-      ...new Set(
-        revisions
-          .map((r) => r.actorId)
-          .filter((id) => id === CLAUDE_ID || people.has(id))
-          .map((id) => nameOf(id))
-          .filter((n): n is string => n !== null),
-      ),
-    ];
-    const sources = new Map<string, ProductSourceView>();
-    for (const r of revisions) {
-      if (!r.source) continue;
-      const view = sourceViewOf(me, r.source, page.projectId);
-      sources.set(sourceKey(view), view);
-    }
+    const sources = new Map<string, ProductSourceRef>();
+    for (const r of revisions) if (r.source) sources.set(refKey(r.source), r.source);
     out.push({
       row: {
         pageId: page.id,
@@ -247,11 +239,109 @@ export function productWeekChangesFor(me: string, projectId: string | null): Pro
         title: page.title,
         projectCode: projectCodeOf(page.projectId),
         changes: revisions.length,
-        byNames,
-        sources: [...sources.values()],
+        byIds: [...new Set(revisions.map((r) => r.actorId))],
+        sourceRefs: [...sources.values()],
       },
       last: Math.max(...revisions.map((r) => r.lastSeq)),
     });
   }
   return out.sort((a, b) => b.last - a.last).map((x) => x.row);
+}
+
+// --- la lettura per chi legge (fix round 1: decisione 1, R-G5, I1) -----------------
+//
+// Una conversazione libera può essere pubblica: chi la legge non è per forza
+// chi ha chiesto, né un destinatario dell'email. Quindi le frasi di
+// un'email e il suo oggetto non stanno MAI nel testo salvato di Claude:
+// stanno nel dato (l'azione proposta, l'evento della risposta) e ogni
+// lettura li ricompone per chi legge, con `sourceViewOf(chi legge)`. Chi non
+// può aprire l'email legge «da un'email di <titolare> · <data>» e quante
+// frasi, mai le frasi; una pagina che non legge non c'è. Il dato esce tolto.
+
+const K = "claude.answers.productDocs";
+const tr = (key: string, params?: Record<string, unknown>): string => i18n.t(key, params);
+
+/** Una riga del blocco che cambierebbe, nella lingua di adesso. */
+function changeLine(c: ProductUpdateChange): string {
+  const clip = (s: string | null) => (s ?? "").trim();
+  if (c.kind === "replace" && c.before !== null)
+    return tr(`${K}.update.change.replace`, { before: clip(c.before), after: clip(c.after) });
+  if (c.kind === "link_task") return tr(`${K}.update.change.linkTask`, { after: clip(c.after) });
+  return tr(`${K}.update.change.insert`, { after: clip(c.after) });
+}
+
+/** Il «perché» della riga della scheda di `updateProductPage`, per chi legge; `null` = nessuno. */
+function updateWhyFor(me: string, action: ProposedAction): Utterance | null {
+  const preview = action.productPreview;
+  const page = typeof action.args.pageId === "string" ? readablePage(me, action.args.pageId) : null;
+  const source = action.args.source as Extract<ProductSourceRef, { id: string }> | undefined;
+  if (!preview || !page || !source || typeof source.id !== "string") return null;
+  const view = sourceViewOf(me, source, page.projectId);
+  const label = tr(view.label.key, view.label.params);
+  if (view.link !== null && !view.gone) {
+    return {
+      key: `${K}.update.why.open`,
+      params: { source: label, sentences: preview.changes.map(changeLine).join(" · ") },
+    };
+  }
+  return { key: `${K}.update.why.hidden`, params: { source: label, count: preview.changes.length } };
+}
+
+/** La risposta della settimana per chi legge: le sue pagine, le persone che vede, le fonti come le legge. */
+function weekTextFor(me: string, week: ProductWeekAnswer): string {
+  const people = visiblePeopleFor(me);
+  const lines = week.rows.flatMap((row) => {
+    const page = readablePage(me, row.pageId);
+    if (!page) return [];
+    const names = row.byIds
+      .filter((id) => id === CLAUDE_ID || people.has(id))
+      .map(nameOf)
+      .filter((n): n is string => n !== null);
+    const sources = [
+      ...new Set(
+        row.sourceRefs.map((ref) => {
+          const view = sourceViewOf(me, ref, page.projectId);
+          return tr(view.label.key, view.label.params);
+        }),
+      ),
+    ];
+    return [
+      [
+        `**${page.code}** ${page.title}`,
+        tr(`${K}.changes.count`, { count: row.changes }),
+        ...(names.length > 0 ? [tr(`${K}.changes.by`, { names: names.join(", ") })] : []),
+        ...sources,
+      ].join(" · "),
+    ];
+  });
+  const code = week.projectCode;
+  if (lines.length === 0) return code ? tr(`${K}.changes.none`, { code }) : tr(`${K}.changes.noneAll`);
+  const shown = lines.slice(0, 8).map((l) => `- ${l}`);
+  if (lines.length > 8) shown.push(`- ${tr("claude.answers.more", { count: lines.length - 8 })}`);
+  const lead = code ? tr(`${K}.changes.lead`, { code }) : tr(`${K}.changes.leadAll`);
+  return `${lead}\n\n${shown.join("\n")}`;
+}
+
+/**
+ * La lettura di un evento di Claude con la doc di prodotto, per chi legge
+ * (`presentEventFor`): ricompone il testo della settimana e il «perché»
+ * dell'aggiornamento, e toglie il dato. Lavora sulla copia della lettura.
+ */
+export function presentProductClaudeEvent(me: string, event: ConversationEvent): void {
+  if (event.type === "assistant" && event.productWeek) {
+    event.text = weekTextFor(me, event.productWeek);
+    delete event.productWeek;
+    return;
+  }
+  if (event.type !== "proposal" && event.type !== "executed") return;
+  if (!event.actions.some((a) => a.productPreview)) return;
+  event.actions = event.actions.map((a) => {
+    if (!a.productPreview) return a;
+    const why = a.fn === "updateProductPage" ? updateWhyFor(me, a) : null;
+    const copy = { ...a };
+    delete copy.productPreview;
+    if (why) copy.why = why;
+    else delete copy.why;
+    return copy;
+  });
 }

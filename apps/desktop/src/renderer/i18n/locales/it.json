@@ -3739,7 +3739,6 @@
           },
           "done": "Aggiorno **{{code}} {{title}}**.",
           "proposed": "Ecco cosa cambierei in **{{code}} {{title}}**.",
-          "lead": "In **{{code}} {{title}}**:",
           "change": {
             "replace": "«{{before}}» diventa «{{after}}»",
             "insert": "Nuova: «{{after}}»",
@@ -3751,7 +3750,14 @@
           "waiting_other": "{{count}} modifiche aspetteranno che nessuno stia scrivendo nella loro sezione.",
           "noSource": "Apri l'email o la riunione nella Posta e chiedimelo di nuovo: aggiorno la pagina da quella che hai aperta.",
           "noFacts": "Quello che hai aperto non dice niente su **{{code}} {{title}}**.",
-          "nothing": "**{{code}} {{title}}** dice già questo: non c'è niente da cambiare."
+          "nothing": "**{{code}} {{title}}** dice già questo: non c'è niente da cambiare.",
+          "why": {
+            "open": "{{source}}: {{sentences}}",
+            "hidden_one": "{{source}} · 1 frase",
+            "hidden_other": "{{source}} · {{count}} frasi"
+          },
+          "count_one": "In **{{code}} {{title}}** cambierebbe 1 frase.",
+          "count_other": "In **{{code}} {{title}}** cambierebbero {{count}} frasi."
         },
         "draw": {
           "summary": "Disegnare una bozza di schermata in {{code}} {{title}}",

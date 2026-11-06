@@ -1,9 +1,4 @@
-import type {
-  ProductPanelPage,
-  ProductUpdateChange,
-  ProductWeekChange,
-  ProposedAction,
-} from "../../../data/types";
+import type { ProductPanelPage, ProductWeekChange, ProposedAction } from "../../../data/types";
 import { bulleted, labelled, resulted, summarized, type Answer } from "../answers";
 import type { IntentContext, T } from "../context";
 import { findProject, normalize, stripCourtesy } from "../parse";
@@ -38,7 +33,11 @@ const FIRST_VERSION =
   /^(?:write|draft|scrivi|scrivimi|scrivere|fai|prepara)\b.*\b(?:first version|prima versione)\b/;
 const UPDATE =
   /^(?:update|aggiorna|aggiornare)\b.*\b(?:from|da|dalla|dall'|con)\s*(?:this|the|questa|quest'|la|l')?\s*(?:e-?mail|mail|meeting|riunione)\b/;
-const BACKLOG = /^(?:propose|suggest|proponi|proporre|suggerisci)\b.*\bbacklog\b/;
+// «from / da»: «Suggest which backlog items to tackle in AUD» non è un gesto della doc.
+const BACKLOG =
+  /^(?:propose|proponi|proporre)\b.*\b(?:backlog items|voci di backlog)\b.*\b(?:from|da|dalla|dal)\b/;
+/** Un codice di task («Aggiorna AUD-4 con la mail di Marco»): non è una pagina della doc. */
+const TASK_CODE = /\b[a-z]{2,4}-\d+\b/;
 const DRAW =
   /^(?:draw|sketch|disegna|disegnami|disegnare|abbozza)\b.*\b(?:screen|sketch|wireframe|schermata|bozza)\b/;
 const CHANGED = /\b(?:changed|cambiat[oaie]|cambiamenti|changes)\b/;
@@ -54,7 +53,7 @@ function gestureOf(text: string): Gesture | null {
   const { command } = stripCourtesy(plain);
   if (QUESTION_REQUEST.test(command)) return "question";
   if (FIRST_VERSION.test(command)) return "firstVersion";
-  if (UPDATE.test(command)) return "update";
+  if (UPDATE.test(command) && !TASK_CODE.test(command)) return "update";
   if (BACKLOG.test(command)) return "backlog";
   if (DRAW.test(command)) return "draw";
   if (CHANGED.test(plain) && THIS_WEEK.test(plain) && DOCS.test(plain)) return "changes";
@@ -102,8 +101,6 @@ const forbidden = (t: T, projectCode: string) =>
   });
 
 const docRef = (page: { id: string }) => ({ kind: "doc" as const, id: page.id });
-
-const quote = (s: string | null) => (s === null ? "" : s.trim());
 
 export async function productDoc(text: string, ctx: IntentContext): Promise<Answer> {
   switch (gestureOf(text)) {
@@ -208,13 +205,6 @@ async function firstVersion(text: string, ctx: IntentContext): Promise<Answer> {
 
 // --- «aggiorna la pagina da questa email o riunione» ----------------------------------
 
-function changeLine(t: T, c: ProductUpdateChange): string {
-  if (c.kind === "replace" && c.before !== null)
-    return t(`${K}.update.change.replace`, { before: quote(c.before), after: quote(c.after) });
-  if (c.kind === "link_task") return t(`${K}.update.change.linkTask`, { after: quote(c.after) });
-  return t(`${K}.update.change.insert`, { after: quote(c.after) });
-}
-
 async function update(text: string, ctx: IntentContext): Promise<Answer> {
   const { t } = ctx;
   const page = await pageOf(text, ctx);
@@ -241,10 +231,19 @@ async function update(text: string, ctx: IntentContext): Promise<Answer> {
   if (preview.changes.length === 0 && preview.questions === 0 && preview.waiting === 0) {
     return say(t(`${K}.update.nothing`, named), { refs: [docRef(page)] });
   }
+  // Le frasi stanno nel dato dell'azione, mai nel testo di Claude: una
+  // conversazione pubblica la legge anche chi non può aprire l'email (I1,
+  // decisione 1). La riga della scheda le dice a chi può aprirla
+  // (`presentProductClaudeEvent`), a chi no «da un'email di …» e quante.
   const action: ProposedAction = {
     fn: "updateProductPage",
     args: { pageId: page.id, source: preview.source },
     ...summarized(t, `${K}.update.summary.${preview.source.kind}`, named),
+    productPreview: {
+      changes: preview.changes,
+      questions: preview.questions,
+      waiting: preview.waiting,
+    },
   };
   const answer = await byClass(
     ctx,
@@ -252,12 +251,10 @@ async function update(text: string, ctx: IntentContext): Promise<Answer> {
     t(`${K}.update.done`, named),
     t(`${K}.update.proposed`, named),
   );
-  // I blocchi, parola per parola, e cosa resta una domanda o aspetta.
   const lines = [
     answer.text,
-    ...(answer.proposal ? [t(`${K}.update.lead`, named)] : []),
     ...(preview.changes.length > 0
-      ? [bulleted(t, preview.changes.map((c) => changeLine(t, c)), 8)]
+      ? [t(`${K}.update.count`, { ...named, count: preview.changes.length })]
       : []),
     ...(preview.questions > 0 ? [t(`${K}.update.questions`, { count: preview.questions })] : []),
     ...(preview.waiting > 0 ? [t(`${K}.update.waiting`, { count: preview.waiting })] : []),
@@ -325,14 +322,9 @@ async function draw(text: string, ctx: IntentContext): Promise<Answer> {
 
 // --- «cosa è cambiato nella doc questa settimana» -------------------------------------
 
+/** La riga di riserva, senza nomi né fonti: le aggiunge la lettura per chi legge. */
 function weekLine(t: T, row: ProductWeekChange): string {
-  const parts = [
-    `**${row.code}** ${row.title}`,
-    t(`${K}.changes.count`, { count: row.changes }),
-    ...(row.byNames.length > 0 ? [t(`${K}.changes.by`, { names: row.byNames.join(", ") })] : []),
-    ...row.sources.map((s) => t(s.label.key, s.label.params)),
-  ];
-  return parts.join(" · ");
+  return [`**${row.code}** ${row.title}`, t(`${K}.changes.count`, { count: row.changes })].join(" · ");
 }
 
 async function changes(text: string, ctx: IntentContext): Promise<Answer> {
@@ -340,12 +332,24 @@ async function changes(text: string, ctx: IntentContext): Promise<Answer> {
   const { project, named } = findProject(text, await read.listProjects(), ctx.contextProjectId);
   if (named && !project) return say(t("claude.answers.status.projectNotFound", { code: named }));
   const rows = await read.productChangesThisWeek(project?.id ?? null);
+  // Nessun conteggio nella riga dell'azione: chi legge una pubblica può
+  // leggere meno pagine di chi ha chiesto (R-G5).
   const action = {
     tool: "list_product_revisions",
     ...(project
       ? labelled(t, `${K}.actions.readChanges`, { code: project.code })
       : labelled(t, `${K}.actions.readAllChanges`)),
-    ...resulted(t, "claude.answers.actions.pages", { count: rows.length }),
+  };
+  // Il testo salvato è una riserva senza fonti né nomi; il dato
+  // (`productWeek`) lo ricompone la lettura per ogni lettore (fix round 1).
+  const productWeek = {
+    projectCode: project?.code ?? null,
+    rows: rows.map(({ pageId, changes: count, byIds, sourceRefs }) => ({
+      pageId,
+      changes: count,
+      byIds,
+      sourceRefs,
+    })),
   };
   if (rows.length === 0) {
     return {
@@ -353,6 +357,7 @@ async function changes(text: string, ctx: IntentContext): Promise<Answer> {
       text: project
         ? t(`${K}.changes.none`, { code: project.code })
         : t(`${K}.changes.noneAll`),
+      productWeek,
     };
   }
   return {
@@ -362,5 +367,6 @@ async function changes(text: string, ctx: IntentContext): Promise<Answer> {
       bulleted(t, rows.map((r) => weekLine(t, r)), 8),
     ].join("\n\n"),
     refs: rows.map((r) => docRef({ id: r.pageId })),
+    productWeek,
   };
 }

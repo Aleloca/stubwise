@@ -3404,7 +3404,9 @@ function snapshotForActions(): () => void {
     // 11b (Task 8): le voci della doc di prodotto (prima versione, bozza,
     // aggiornamento) scrivono pagine, revisioni, segni, domande e fonti
     // viste; senza, un gruppo fallito le lascerebbe, con gli id di
-    // `counter` rimessi e quindi riusati.
+    // `counter` rimessi e quindi riusati. Costo accettato nel prototipo: una
+    // copia di pagine, revisioni e commenti a ogni gruppo, che cresce con la
+    // storia della doc (Minor 5 della review del Task 8).
     productPages: state.productPages,
     productRevisions: state.productRevisions,
     productMarks: state.productMarks,
@@ -3416,6 +3418,11 @@ function snapshotForActions(): () => void {
     productBlockIds: state.productBlockIds,
   });
   const access = structuredClone(accessState());
+  // Una prima versione che sta scrivendo è anche l'oggetto del suo copione
+  // (`play` in `firstVersion.ts`): al ripristino torna LO STESSO oggetto, coi
+  // valori di prima, così il copione continua. Solo una nata nel gruppo
+  // fallito sparisce (e il suo copione si ferma). Fix round 1 del Task 8.
+  const liveFirstVersions = [...state.productFirstVersions];
   const changelog = state.changelog.length;
   const conversations = new Set(state.conversations.map((c) => c.id));
   return () => {
@@ -3425,6 +3432,10 @@ function snapshotForActions(): () => void {
     state.conversations = state.conversations.filter((c) => conversations.has(c.id));
     state.changelog.length = changelog;
     Object.assign(state, snapshot);
+    state.productFirstVersions = state.productFirstVersions.map((saved) => {
+      const live = liveFirstVersions.find((fv) => fv.groupId === saved.groupId);
+      return live ? Object.assign(live, saved) : saved;
+    });
     reindex();
     // Dopo i progetti: l'allineamento di `memberIds` parte dal valore rimesso.
     writeAccess((a) => Object.assign(a, access));

@@ -278,8 +278,16 @@ const shapeOf = (block: ProductBlock): string =>
 const hasCode = (text: string, code: string): boolean =>
   new RegExp(`\\b${code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text);
 
-/** L'operazione di un fatto sui blocchi di adesso; `null` = niente da scrivere. */
-function opOf(blocks: readonly ProductBlock[], fact: ProductFact): ProductBlockOp | null {
+/**
+ * L'operazione di un fatto sui blocchi di adesso; `null` = niente da scrivere.
+ * `fresh: false` (l'anteprima): nessun id nuovo, i blocchi inseriti tengono
+ * quello del seme (una lettura non consuma `counter`).
+ */
+function opOf(
+  blocks: readonly ProductBlock[],
+  fact: ProductFact,
+  { fresh = true }: { fresh?: boolean } = {},
+): ProductBlockOp | null {
   const { change } = fact;
   const holder =
     fact.anchorId === null ? undefined : blocks.find((b) => anchorIdsOf(b).includes(fact.anchorId!));
@@ -293,7 +301,7 @@ function opOf(blocks: readonly ProductBlock[], fact: ProductFact): ProductBlockO
       // una fonte già scritta che esce dalla coda): niente da scrivere.
       const next = holder ? blocks[blocks.indexOf(holder) + 1] : blocks[0];
       if (next && shapeOf(next) === shapeOf(change.block)) return null;
-      return { op: "insert", afterId: holder?.id ?? null, block: freshIds(change.block) };
+      return { op: "insert", afterId: holder?.id ?? null, block: fresh ? freshIds(change.block) : change.block };
     }
     case "link_task": {
       const code = change.taskCode;
@@ -308,7 +316,7 @@ function opOf(blocks: readonly ProductBlock[], fact: ProductFact): ProductBlockO
       return {
         op: "insert",
         afterId: holder?.id ?? null,
-        block: { id: newId("blk"), type: "paragraph", content },
+        block: { id: fresh ? newId("blk") : "blk-preview", type: "paragraph", content },
       };
     }
     case "diverges":
@@ -464,12 +472,7 @@ function settle(
   const ready: ProductFact[] = [];
   for (const { fact, arrivedSeq, pendingId } of items) {
     const anchorId = fact.anchorId;
-    const decision = decideFact(fact, {
-      lastWriterIsPerson: anchorId !== null && byPerson(lastRevisionTouching(page.id, anchorId)),
-      actorCanEdit,
-      changedByPersonSinceArrival: anchorId !== null && personTouchedAfter(page.id, anchorId, arrivedSeq),
-      anchorExists: anchorId === null || anchorText(page.blocks, anchorId) !== null,
-    });
+    const decision = stepOf(page, fact, actorCanEdit, arrivedSeq, requesterId);
     if (decision.kind === "none") {
       out.none += 1;
     } else if (decision.kind === "question") {
@@ -480,7 +483,7 @@ function settle(
         console.error("applyProductSource: a question could not be asked", error);
         out.none += 1;
       }
-    } else if (sectionBusy(page, fact, requesterId)) {
+    } else if (decision.kind === "wait") {
       // Lo stesso fatto della stessa fonte aspetta una volta sola (un gesto ripetuto).
       const waiting = state.productPending.find(
         (r) => r.pageId === page.id && r.fact.id === fact.id && sameRef(r.ref, ref),
@@ -543,21 +546,46 @@ export function planProductSource(
   const actorCanEdit = canEdit(sourceOwnerOf(ref, page.projectId), page.projectId);
   let work = page.blocks;
   return mine.map((fact): ProductFactPlan => {
-    const anchorId = fact.anchorId;
-    const decision = decideFact(fact, {
-      lastWriterIsPerson: anchorId !== null && byPerson(lastRevisionTouching(page.id, anchorId)),
-      actorCanEdit,
-      changedByPersonSinceArrival: false,
-      anchorExists: anchorId === null || anchorText(page.blocks, anchorId) !== null,
-    });
-    if (decision.kind === "none") return { kind: "none", fact };
-    if (decision.kind === "question") return { kind: "question", fact };
-    if (sectionBusy(page, fact, requesterId)) return { kind: "wait", fact };
-    const op = opOf(work, fact);
+    // L'arrivo è adesso: nessuna persona l'ha ancora toccata «dopo».
+    const step = stepOf(page, fact, actorCanEdit, null, requesterId);
+    if (step.kind !== "write") return { kind: step.kind, fact };
+    // Senza id nuovi: una lettura non consuma `counter` (Minor 4 della review).
+    const op = opOf(work, fact, { fresh: false });
     if (!op) return { kind: "none", fact };
     work = applyBlockOps(work, [op]).blocks;
     return { kind: "edit", fact, op };
   });
+}
+
+/**
+ * Cosa fare di UN fatto su una pagina, adesso: la sola sequenza delle regole
+ * (la regola pura, poi chi scrive nella sezione), che il motore (`settle`) e
+ * l'anteprima del riquadro (`planProductSource`) leggono uguale, così la
+ * scheda non promette blocchi diversi da quelli che si scrivono (Minor 3).
+ * `arrivedSeq` `null` = arriva adesso.
+ */
+function stepOf(
+  page: ProductPage,
+  fact: ProductFact,
+  actorCanEdit: boolean,
+  arrivedSeq: number | null,
+  requesterId: string | undefined,
+):
+  | { kind: "none" }
+  | { kind: "question"; reason: ProductQuestionReason }
+  | { kind: "wait" }
+  | { kind: "write" } {
+  const anchorId = fact.anchorId;
+  const decision = decideFact(fact, {
+    lastWriterIsPerson: anchorId !== null && byPerson(lastRevisionTouching(page.id, anchorId)),
+    actorCanEdit,
+    changedByPersonSinceArrival:
+      arrivedSeq !== null && anchorId !== null && personTouchedAfter(page.id, anchorId, arrivedSeq),
+    anchorExists: anchorId === null || anchorText(page.blocks, anchorId) !== null,
+  });
+  if (decision.kind === "none") return { kind: "none" };
+  if (decision.kind === "question") return { kind: "question", reason: decision.reason };
+  return sectionBusy(page, fact, requesterId) ? { kind: "wait" } : { kind: "write" };
 }
 
 /** I fatti per pagina, nell'ordine in cui le pagine compaiono. */

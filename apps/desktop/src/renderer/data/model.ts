@@ -1096,6 +1096,8 @@ export type ProposedAction = {
    * di chi guarda. Assente sulle azioni nate prima.
    */
   why?: Utterance;
+  /** 11b (fix round 1): solo `updateProductPage`, le frasi; il `why` lo compone la lettura per chi legge. */
+  productPreview?: ProductUpdatePreviewData;
 };
 
 /**
@@ -1144,8 +1146,19 @@ export type ConversationEvent =
        */
       context?: ContextRef | null;
     }
-  /** `text` cresce mentre arriva; `done` quando il messaggio è completo. */
-  | { id: string; at: string; type: "assistant"; text: string; done: boolean }
+  /**
+   * `text` cresce mentre arriva; `done` quando il messaggio è completo.
+   * `productWeek` (11b): la risposta come dato, ricomposta per chi legge e
+   * tolta dalla lettura.
+   */
+  | {
+      id: string;
+      at: string;
+      type: "assistant";
+      text: string;
+      done: boolean;
+      productWeek?: ProductWeekAnswer;
+    }
   | {
       id: string;
       at: string;
@@ -1428,7 +1441,7 @@ export type EventPatch = ConversationEvent extends infer E
  * - `state`: lo stato della conversazione (e l'esito, quando finisce).
  */
 export type ScriptStep =
-  | { step: "say"; text: string }
+  | { step: "say"; text: string; productWeek?: ProductWeekAnswer }
   | {
       step: "action";
       tool: string;
@@ -4217,10 +4230,38 @@ export interface ProductWeekChange {
   projectCode: string;
   /** Le revisioni della settimana (le unite contano una volta). */
   changes: number;
-  /** Chi ha scritto, solo le persone che chi chiede vede; Claude compreso. */
-  byNames: string[];
-  /** Le fonti delle modifiche di Claude, viste da chi chiede (decisione 1, R-G5). */
-  sources: ProductSourceView[];
+  /** Chi ha scritto (id, Claude compreso): i nomi li compone chi legge, per chi legge. */
+  byIds: string[];
+  /**
+   * Le fonti delle modifiche di Claude, come riferimenti: la frase («From the
+   * email “…”» o «From an email of …») la compone la lettura dell'evento per
+   * ogni lettore (`sourceViewOf`, decisione 1, R-G5), mai il testo salvato.
+   */
+  sourceRefs: ProductSourceRef[];
+}
+
+/**
+ * 11b (fix round 1 del Task 8): la risposta «cosa è cambiato questa
+ * settimana» come dato, sull'evento `assistant`. Il testo salvato è solo una
+ * riserva senza fonti né nomi; chi legge riceve il testo ricomposto per lui
+ * (`presentProductClaudeEvent`): solo le pagine che legge, le persone che
+ * vede, le fonti come le può leggere. Il dato non esce mai dalla lettura.
+ */
+export interface ProductWeekAnswer {
+  projectCode: string | null;
+  rows: Pick<ProductWeekChange, "pageId" | "changes" | "byIds" | "sourceRefs">[];
+}
+
+/**
+ * 11b (fix round 1): le frasi che «aggiorna da questa email» scriverebbe,
+ * sull'azione proposta. Restano nel dato e non escono mai dalla lettura: chi
+ * legge riceve il `why` composto per lui — le frasi solo se può aprire la
+ * fonte, altrimenti «da un'email di <titolare> · <data>» e quante sono.
+ */
+export interface ProductUpdatePreviewData {
+  changes: ProductUpdateChange[];
+  questions: number;
+  waiting: number;
 }
 
 export type ProductRevisionKind =

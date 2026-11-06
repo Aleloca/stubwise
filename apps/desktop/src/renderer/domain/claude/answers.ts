@@ -3,6 +3,7 @@ import type {
   CitationRef,
   FieldRef,
   PageAction,
+  ProductWeekAnswer,
   ProposalNote,
   ProposedAction,
   ScriptStep,
@@ -138,6 +139,12 @@ export interface Answer {
    * riquadro di chi chiede esegue. Solo nella libera (`ctx.classify`, P11).
    */
   page?: PageAction;
+  /**
+   * 11b (fix round 1 del Task 8): «cosa è cambiato questa settimana» come
+   * dato sul messaggio di Claude; `text` è solo la riserva senza nomi né
+   * fonti, e chi legge riceve il testo ricomposto per lui.
+   */
+  productWeek?: ProductWeekAnswer;
 }
 
 /**
@@ -177,7 +184,13 @@ export function toSteps(answer: Answer, ctx: IntentContext, text: string): Scrip
   const said = answer.place?.route
     ? `${answer.text} [${ctx.t(answer.place.labelKey, answer.place.labelParams)}](${answer.place.route})`
     : answer.text;
-  if (said) steps.push({ step: "say", text: said });
+  if (said) {
+    steps.push({
+      step: "say",
+      text: said,
+      ...(answer.productWeek ? { productWeek: answer.productWeek } : {}),
+    });
+  }
   // L'azione della pagina dopo la sua frase (se c'è): la esegue il riquadro (P22).
   if (answer.page && ctx.classify) {
     steps.push({

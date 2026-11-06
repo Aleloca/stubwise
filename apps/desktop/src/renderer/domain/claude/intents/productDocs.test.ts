@@ -11,7 +11,12 @@ import { ACQ_11B } from "../../../data/seed/productDocs/facts";
 import { withoutSeed11b } from "../../../data/seed/productDocs/without11b";
 import { setSessionPersonId } from "../../../data/session";
 import { state } from "../../../data/store";
-import type { ConversationEvent, ProposedAction, ScriptStep } from "../../../data/types";
+import type {
+  ContextRef,
+  ConversationEvent,
+  ProposedAction,
+  ScriptStep,
+} from "../../../data/types";
 import { revokeProjectPermission } from "../../../data/viewer";
 import { recognize, respond, type IntentContext } from "../intents";
 import { CAPABILITIES } from "./general";
@@ -191,10 +196,18 @@ describe("aggiorna la pagina da questa email (B, avvisa chi segue)", () => {
       pageId: SIGN_IN,
       source: { kind: "email", id: ACQ_11B.signInEmailId },
     });
-    // I blocchi: la frase nuova, parola per parola.
-    expect(said(steps)).toContain(
-      "Google is the only way in: there is no password of our own and no other kind of account.",
-    );
+    // I blocchi: la frase nuova, parola per parola, nel DATO dell'azione (la
+    // riga della scheda la compone la lettura per chi legge); mai nel testo
+    // di Claude, che una pubblica fa leggere ad altri (fix round 1).
+    const sentence =
+      "Google is the only way in: there is no password of our own and no other kind of account.";
+    expect(card.actions[0]!.productPreview).toEqual({
+      changes: [{ kind: "insert", before: null, after: sentence }],
+      questions: 0,
+      waiting: 0,
+    });
+    expect(said(steps)).not.toContain(sentence);
+    expect(said(steps)).toContain("1 sentence would change");
     // Chi viene avvisato: chi segue la pagina, meno chi chiede.
     const cls = classOfGroup(LAURA, card.actions);
     expect(cls.cls).toBe("B");
@@ -261,6 +274,17 @@ describe("aggiorna la pagina da questa email (B, avvisa chi segue)", () => {
     ]);
     expect(done).toMatchObject({ ok: false, code: "not_found" });
     expect(JSON.stringify(pageBlocks(SIGN_IN))).toBe(before);
+  });
+
+  it("fix round 1 (Minor 4): l'anteprima è una lettura, non consuma id", async () => {
+    const counter = structuredClone(state.counter);
+    const ids = state.productBlockIds.size;
+    await respond(
+      "Update ACQ-D5 Sign-in from this email",
+      as(LAURA, en, { context: { kind: "mail", threadId: SIGN_IN_THREAD } }),
+    );
+    expect(state.counter).toEqual(counter);
+    expect(state.productBlockIds.size).toBe(ids);
   });
 
   it("senza un'email aperta chiede di aprirla, senza scheda", async () => {
@@ -366,16 +390,19 @@ describe("cosa è cambiato nella doc questa settimana (una lettura)", () => {
     expect(executedOf(steps)).toBeUndefined();
     const text = said(steps);
     expect(text).toContain("ACQ-D5");
-    expect(text).toContain("Portal sign-in: Google accounts only");
     expect(refsOf(steps)).toContainEqual({ kind: "doc", id: SIGN_IN });
+    // Le fonti come dato (la frase la compone la lettura per chi legge, fix round 1).
+    const say = steps.find((s) => s.step === "say" && s.productWeek);
+    const row = say?.step === "say" ? say.productWeek!.rows.find((r) => r.pageId === SIGN_IN) : undefined;
+    expect(row?.sourceRefs).toContainEqual({ kind: "email", id: ACQ_11B.signInEmailId });
   });
 
-  it("Marco non ha ricevuto l'email: «From an email of Laura Costa», nessuna parola dell'oggetto", async () => {
-    const steps = await respond("What changed in the docs this week?", as(MARCO));
-    const text = said(steps);
-    expect(text).toContain("ACQ-D5");
-    expect(text).toContain("From an email of Laura Costa");
-    expect(JSON.stringify(steps).toLowerCase()).not.toContain("google accounts only");
+  it("il testo salvato non ha né fonti né nomi: nessuna parola dell'oggetto", async () => {
+    const steps = await respond("What changed in the docs this week?", as(LAURA));
+    const text = said(steps).toLowerCase();
+    expect(text).toContain("acq-d5");
+    expect(text).not.toContain("google accounts only");
+    expect(text).not.toContain("laura costa");
   });
 
   it("Sara senza i Docs di ACQ: niente di ACQ, in nessun campo", async () => {
@@ -415,6 +442,101 @@ describe("le risposte del progetto citano anche le pagine di prodotto", () => {
     const steps = await respond("How does sign-in work in ACQ?", as(LAURA));
     expect(refsOf(steps)).toContainEqual({ kind: "doc", id: SIGN_IN });
     expect(said(steps)).toContain("ACQ-D5");
+  });
+});
+
+describe("fix round 1: in una conversazione pubblica le frasi dell'email non escono (decisione 1, I1)", () => {
+  const SUBJECT_WORDS = ["google accounts only", "portal sign-in"];
+  const SENTENCE = "google is the only way in";
+
+  /** Laura chiede nel riquadro, la rende pubblica; la lettura di chi guarda. */
+  async function publicAsk(text: string, context: ContextRef | null) {
+    setSessionPersonId(LAURA);
+    const c = await api.createConversation({ contextProjectId: ACQ });
+    await api.sendMessage(c.id, { text }, { context });
+    for (let i = 0; i < 10; i++) {
+      await api.whenIdle(c.id);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    await api.setVisibility(c.id, "public", { confirmedProjectIds: [ACQ] });
+    return c.id;
+  }
+  const readAs = async (personId: string, id: string) => {
+    setSessionPersonId(personId);
+    return JSON.stringify(await api.getConversation(id)).toLowerCase();
+  };
+
+  it("la scheda dell'aggiornamento: Laura legge le frasi e l'oggetto; Marco no, nemmeno a scheda rifiutata", async () => {
+    withoutSeed11b();
+    const id = await publicAsk("Update ACQ-D5 Sign-in from this email", {
+      kind: "mail",
+      threadId: SIGN_IN_THREAD,
+    });
+    // Nel dato salvato del testo di Claude: nessuna frase, nessun oggetto.
+    const assistant = (state.conversationEvents.get(id) ?? [])
+      .flatMap((e) => (e.type === "assistant" ? [e.text] : []))
+      .join("\n")
+      .toLowerCase();
+    expect(assistant).not.toContain(SENTENCE);
+    for (const w of SUBJECT_WORDS) expect(assistant).not.toContain(w);
+
+    // Chi può aprire l'email legge le frasi nella riga della scheda.
+    const laura = await readAs(LAURA, id);
+    expect(laura).toContain(SENTENCE);
+    expect(laura).toContain("portal sign-in: google accounts only");
+
+    // Marco segue la pagina ma l'email non l'ha ricevuta: «from an email of Laura Costa».
+    const check = async () => {
+      const marco = await readAs(MARCO, id);
+      expect(marco).toContain("ACQ-D5".toLowerCase());
+      expect(marco).toContain("from an email of laura costa");
+      expect(marco).not.toContain(SENTENCE);
+      for (const w of SUBJECT_WORDS) expect(marco).not.toContain(w);
+      expect(marco).not.toContain("productpreview");
+    };
+    await check();
+    // Rifiutata: la riga non c'è più, e comunque niente esce.
+    setSessionPersonId(LAURA);
+    const proposal = (state.conversationEvents.get(id) ?? []).find((e) => e.type === "proposal")!;
+    await api.cancelProposal(id, (proposal as { proposalId: string }).proposalId);
+    await check();
+  });
+
+  it("«cosa è cambiato questa settimana»: Laura legge l'oggetto, Marco «from an email of Laura Costa»", async () => {
+    const id = await publicAsk("What changed in the docs this week?", null);
+    const saved = (state.conversationEvents.get(id) ?? [])
+      .flatMap((e) => (e.type === "assistant" ? [e.text] : []))
+      .join("\n")
+      .toLowerCase();
+    for (const w of SUBJECT_WORDS) expect(saved).not.toContain(w);
+    expect(saved).not.toContain("laura costa");
+
+    expect(await readAs(LAURA, id)).toContain("portal sign-in: google accounts only");
+    const marco = await readAs(MARCO, id);
+    expect(marco).toContain("from an email of laura costa");
+    for (const w of SUBJECT_WORDS) expect(marco).not.toContain(w);
+    expect(marco).not.toContain("productweek");
+  });
+
+  it("chi non legge i Docs di ACQ: nessuna pagina di ACQ nella risposta della settimana", async () => {
+    const id = await publicAsk("What changed in the docs this week?", null);
+    revokeProjectPermission(MARCO, ACQ, "docs.view" as never);
+    setSessionPersonId(MARCO);
+    const detail = await api.getConversation(id);
+    const text = (detail?.events ?? [])
+      .flatMap((e) => (e.type === "assistant" ? [e.text] : []))
+      .join("\n")
+      .toLowerCase();
+    for (const w of ["sign-in", "laura costa", "portal"]) expect(text).not.toContain(w);
+  });
+});
+
+describe("fix round 1: il riconoscimento non ruba le richieste degli altri intenti", () => {
+  it.each([
+    "Aggiorna AUD-4 con la mail di Marco",
+    "Suggest which backlog items to tackle in AUD",
+  ])("«%s» non è un gesto della doc", (text) => {
+    expect(recognize(text, new Set(["AUD", "ACQ"]))).not.toBe("productDoc");
   });
 });
 

@@ -31,6 +31,7 @@ import type {
   Conversation,
   ConversationEvent,
   EventDraft,
+  ProductWeekAnswer,
   RefinePatch,
   ScriptStep,
   Utterance,
@@ -316,7 +317,7 @@ async function play(conversationId: string, steps: ScriptStep[], alive: () => bo
     if (!alive()) return;
     switch (step.step) {
       case "say":
-        await say(conversationId, step.text, alive);
+        await say(conversationId, step.text, alive, step.productWeek);
         break;
       case "action": {
         const draft: EventDraft = {
@@ -444,8 +445,19 @@ function finishAction(
 }
 
 /** Un messaggio di Claude, a pezzi di 3–12 parole sullo stesso evento. */
-async function say(conversationId: string, text: string, alive: () => boolean) {
-  const event = append(conversationId, { type: "assistant", text: "", done: false });
+async function say(
+  conversationId: string,
+  text: string,
+  alive: () => boolean,
+  productWeek?: ProductWeekAnswer,
+) {
+  // 11b: la risposta della settimana come dato (la ricompone la lettura per chi legge).
+  const event = append(conversationId, {
+    type: "assistant",
+    text: "",
+    done: false,
+    ...(productWeek ? { productWeek } : {}),
+  });
   const chunks = chunksOf(text, event.id);
   for (const [i, chunk] of chunks.entries()) {
     if (i > 0) {

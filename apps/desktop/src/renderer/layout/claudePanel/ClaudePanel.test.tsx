@@ -396,6 +396,26 @@ describe("la pagina apre il riquadro e manda la frase (11b, P21: `send`)", () =>
     expect(within(panel()).getByRole("combobox")).toHaveValue("");
   });
 
+  it("fix round 1: budget finito e riquadro che nasce adesso: nessuna conversazione vuota, la frase nella fascia", async () => {
+    const band = () => panel().querySelector<HTMLElement>("[data-budget-band]");
+    await as("p-roberta", () => api.instance.simulateBudgetReached(true));
+    renderRoute("/p/ACQ/docs/product/ACQ-D6", "p-laura");
+    await screen.findByRole("heading", { name: "Bills", level: 1 });
+    const before = state.conversations.length;
+    act(() =>
+      openClaudePanel({
+        draft: "Open a request from question pc-acq11b-bills-q",
+        fresh: true,
+        send: true,
+      }),
+    );
+    await waitFor(() => expect(band()).not.toBeNull());
+    await waitFor(() =>
+      expect(band()).toHaveTextContent("Open a request from question pc-acq11b-bills-q"),
+    );
+    expect(state.conversations).toHaveLength(before);
+  });
+
   it("senza `send` la frase resta nella casella, non inviata (come oggi)", async () => {
     renderRoute("/p/ACQ/docs/product/ACQ-D6", "p-laura");
     await screen.findByRole("heading", { name: "Bills", level: 1 });

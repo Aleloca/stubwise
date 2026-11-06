@@ -3739,7 +3739,6 @@
           },
           "done": "Updating **{{code}} {{title}}**.",
           "proposed": "Here's what I'd change in **{{code}} {{title}}**.",
-          "lead": "In **{{code}} {{title}}**:",
           "change": {
             "replace": "“{{before}}” becomes “{{after}}”",
             "insert": "New: “{{after}}”",
@@ -3751,7 +3750,14 @@
           "waiting_other": "{{count}} changes will wait until nobody is writing in their section.",
           "noSource": "Open the email or the meeting in Mail, then ask me again: I update the page from the one you have open.",
           "noFacts": "What you have open doesn't say anything about **{{code}} {{title}}**.",
-          "nothing": "**{{code}} {{title}}** already says this: there's nothing to change."
+          "nothing": "**{{code}} {{title}}** already says this: there's nothing to change.",
+          "why": {
+            "open": "{{source}}: {{sentences}}",
+            "hidden_one": "{{source}} · 1 sentence",
+            "hidden_other": "{{source}} · {{count}} sentences"
+          },
+          "count_one": "In **{{code}} {{title}}** 1 sentence would change.",
+          "count_other": "In **{{code}} {{title}}** {{count}} sentences would change."
         },
         "draw": {
           "summary": "Draw a screen sketch in {{code}} {{title}}",

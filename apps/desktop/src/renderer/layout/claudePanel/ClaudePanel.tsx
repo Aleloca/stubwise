@@ -297,7 +297,12 @@ function PanelBody({
   const put = (text: string) => setDraft({ text, nonce: (nonce.current += 1) });
   // 11b (P21): la conversazione nuova di una frase mandata dalla pagina.
   const create = useCreateConversation();
-  const budget = useAiBlock(null).data?.reason === "monthly_budget";
+  // Il budget si legge PRIMA di prendere la frase (fix round 1, Minor 3): una
+  // frase arrivata mentre il riquadro nasce non crea una conversazione vuota
+  // con «Resend» quando il budget è finito.
+  const aiBlock = useAiBlock(null);
+  const budget = aiBlock.data?.reason === "monthly_budget";
+  const blockKnown = aiBlock.isSuccess || aiBlock.isError;
 
   // Il testo da ⌘K, anche quello che ha fatto nascere il contenuto. Dalla riga
   // «Claude can help you…» (`fresh`) in una conversazione nuova: il testo non
@@ -307,6 +312,7 @@ function PanelBody({
   // Limite accettato: il testo di una conversazione nuova non ancora inviata
   // lascia il posto alla richiesta (lo shape protegge solo quella di prima).
   useEffect(() => {
+    if (!blockKnown) return;
     const incoming = takeIncoming();
     if (!incoming) return;
     if (incoming.fresh) {
@@ -321,7 +327,7 @@ function PanelBody({
     // 11b (P21): la frase della pagina come primo messaggio, dalla casella
     // della conversazione nuova (`handOffFirstMessage`). Col budget finito
     // resta nella casella: la fascia la mostra e Send è spento.
-    if (incoming.send && !budget) {
+    if (incoming.send && aiBlock.isSuccess && !budget) {
       const sent = contextRef.current;
       create.mutate(
         sent.sent && sent.description?.projectId
@@ -340,7 +346,7 @@ function PanelBody({
     }
     put(incoming.text);
     // Solo a ogni testo nuovo: la conversazione di adesso si legge a quel momento.
-  }, [takeIncoming]);
+  }, [takeIncoming, blockKnown]);
 
   // «Now showing Sara Montanari's conversations.» per 4 s, finché non si scrive.
   const [notice, setNotice] = useState(announce);

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildProductTree, flattenTree } from "../../domain/productDocs/tree";
 import { listClaudeDecisions, productDocs, resetApi, setLatency } from "../api";
+import { applyActions } from "../api-mutations";
 import { setSessionPersonId } from "../session";
 import type { FirstVersionSource, MailMessage } from "../model";
 import { CLAUDE_ID } from "../seed/people";
@@ -675,6 +676,25 @@ describe("il copione interrotto", () => {
     expect(pagesOf()).toHaveLength(2);
     expect(errors).not.toHaveBeenCalled();
     errors.mockRestore();
+  });
+
+  it("fix round 1 del Task 8: un gruppo del riquadro che fallisce altrove non ferma la prima versione", async () => {
+    const stop = productDocs.onProductFirstVersion(() => {
+      if (productFirstVersionOf(LAURA, VRD)?.pagesDone !== 1) return;
+      // Un gruppo che fallisce in un altro progetto: il ripristino rimette lo stato.
+      const failed = applyActions(LAURA, [
+        { fn: "createTask", args: { projectId: STW, title: "  " }, summary: "" },
+      ]);
+      expect(failed.ok).toBe(false);
+    });
+    startFirstVersionAs(LAURA, VRD, ALL);
+    await whenFirstVersionIdle();
+    stop();
+    const view = productFirstVersionOf(LAURA, VRD)!;
+    expect(view.status).toBe("done");
+    expect(view.interrupted).toBe(false);
+    expect(view.pagesDone).toBe(view.pagesTotal);
+    expect(pagesOf()).toHaveLength(view.pagesTotal);
   });
 
   it("lo store ripristinato a metà: nello stato nuovo non scrive niente", async () => {

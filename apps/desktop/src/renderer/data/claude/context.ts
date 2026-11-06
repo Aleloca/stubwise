@@ -1,6 +1,7 @@
 import { sees } from "../access";
 import { automationById, canSeeAutomation } from "../automations/visibility";
 import { threadFor } from "../mail/reads";
+import { presentProductClaudeEvent } from "../productDocs/claudePanel";
 import {
   AI_TABS,
   APP_ROUTES,
@@ -163,6 +164,9 @@ export function presentEventFor(
     event.text = "";
     delete event.sources;
   }
+  // 11b (fix round 1 del Task 8): le frasi di un'email e la fonte di una
+  // modifica della doc si compongono per chi legge, mai dal testo salvato.
+  presentProductClaudeEvent(me, event);
   return event;
 }
 
