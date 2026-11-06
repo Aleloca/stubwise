@@ -394,7 +394,8 @@ composti **a lettura** **[PM 8]**:
 - **Fuori**: la card `product_doc.question` e il filo-domanda
   (`product-claude-questions.md`); la riga della prima versione in cima
   alla pagina (idem); la bozza di schermata, che **non** ha il segno a
-  margine: la sua etichetta «Claude's draft» è il suo segno, e il livello
+  margine: la sua etichetta «Claude's draft» è il suo segno finché non la
+  si tiene («Keep»), e il livello
   dati non dà segni per i blocchi `wireframe` (`product-claude-backlog.md`
   §3.5) *(scelta del costruttore, da allineare nel Task 3)*.
 - **Anti-obiettivi**:
@@ -503,13 +504,12 @@ composti **a lettura** **[PM 8]**:
   1024 con la cronologia) e `a11b-history-*` (Undo all, Undone by, risposta,
   prima versione), più `a11b-inbox-updated-*`.
 
-## Domande per il maintainer
+## Decisioni del maintainer (6 nov 2026)
 
-1. **«Va bene» vale per una frase o per tutta la modifica?** Quando Claude
-   cambia tre frasi dalla stessa email, ognuna ha il suo segno a margine.
-   - **Una frase alla volta** (consigliata): chi rilegge guarda ogni frase
-     e preme «Va bene» su ognuna. È più lento, ma nessuna frase passa senza
-     essere stata guardata, che è proprio il rischio che vuoi evitare.
-   - **Tutta la modifica in un clic**: «Va bene» su una frase toglie il
-     segno anche alle altre due della stessa email. Più veloce, ma si può
-     approvare una frase senza averla letta.
+1. **«Va bene» vale per una frase alla volta** *(maintainer, 6 nov 2026)*:
+   ogni blocco ha il suo «Looks good», che toglie solo il suo segno; non
+   c'è un «Looks good» per tutta la modifica, né nella nota né in
+   cronologia. → §3.3, §3.5.
+
+Le altre scelte marcate *(scelta del costruttore)* sono da approvare col
+brief.

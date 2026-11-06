@@ -61,7 +61,9 @@ piano scrive «Laura Conti»).
   - col budget finito, in cima allo spazio di ACQ: «Claude will resume
     updating the doc when the budget is back · 2 updates waiting».
 - **Verità del prodotto**:
-  - **Claude non sceglie**: nessuna risposta è «consigliata», e la frase
+  - **Claude consiglia, la persona sceglie**: una delle tre risposte è
+    «Recommended» / «Consigliata» come nelle domande sui task *(maintainer,
+    6 nov 2026)*, ma nulla cambia finché una persona non preme; la frase
     proposta è quella del fatto, parola per parola (anti-obiettivo
     «decisioni inventate»);
   - **una domanda ha una sola risposta**: `alreadyAnswered` per il secondo;
@@ -97,12 +99,15 @@ piano scrive «Laura Conti»).
      Per la divergenza le etichette sono «The page says» / «La pagina dice»
      e «Was built» / «È stato fatto»;
   6. **le risposte**, una fila di bottoni che va a capo (la colonna è 296):
-     **Update it** / **Aggiorna così** (secondario piccolo) · **Leave it as
-     is** / **Lascia com'è** (secondario piccolo) · **Open a request** /
-     **Apri una richiesta** (bottone testo). Un bottone c'è solo se la sua
-     strada c'è (`apply`, `request` non nulli); «Leave it as is» c'è
-     sempre. **Nessuno è segnato come consigliato** (vedi la domanda al
-     maintainer);
+     **Update it** / **Aggiorna così** · **Leave it as is** / **Lascia
+     com'è** · **Open a request** / **Apri una richiesta**, tutti e tre
+     secondari piccoli, **della stessa misura**. Un bottone c'è solo se la
+     sua strada c'è (`apply`, `request` non nulli); «Leave it as is» c'è
+     sempre. **La risposta consigliata** (§3.2b) va **per prima** e ha il
+     trattamento di `ClaudeAnswers` (`recommended`): bordo ink 60% e, nel
+     bottone accanto al nome, «Recommended» / «Consigliata» 12px 600
+     `ink-muted` *(maintainer, 6 nov 2026)*; le altre seguono nell'ordine
+     Update it · Leave it as is · Open a request;
   7. le **risposte scritte** delle persone e «Reply…», come ogni filo:
      si può discutere prima di scegliere, con le @menzioni. Claude non
      risponde ai commenti *(scelta del costruttore: nel prototipo non c'è un
@@ -128,6 +133,28 @@ dell'email; il nome è quello del titolare o di chi ha scritto la frase
 
 - Il codice della task nella divergenza è un `CodeLink` (tenue se
   invisibile, senza nome).
+
+### 3.2b La risposta consigliata
+
+Claude consiglia **una** delle tre risposte *(maintainer, 6 nov 2026)*. Il
+consiglio sta nel dato della domanda (`question.recommended`, facoltativo:
+«apply» · «keep» · «request», da aggiungere nel Task 4); lo leggono il filo
+e la Home, e la pagina non lo ricalcola **[PQ 12]**:
+
+| Ragione | Consigliata |
+|---|---|
+| `vague` | **Leave it as is**; **Update it** solo se la fonte sostiene la frase proposta (lo dice il fatto del seme) *(maintainer)* |
+| `diverges` (task chiusa) | la decide il seme, domanda per domanda *(maintainer)* |
+| `contradicts` (una decisione del registro, o una fonte chiara, contro testo non scritto da una persona) | **Update it** *(scelta del costruttore)* |
+| `contradicts_person` | **Leave it as is**: il testo di una persona non si scavalca su consiglio di Claude *(scelta del costruttore)* |
+| `no_permission` | **Update it** se il fatto è chiaro, **Leave it as is** se è vago *(scelta del costruttore)* |
+
+- Un consiglio senza la sua strada (consigliata «apply» con `apply` nullo)
+  non si mostra: nessun bottone è segnato.
+- Con «Update it» spento per `changed_after`, «Recommended» resta sul
+  bottone spento: il consiglio era per la frase di prima, e la frase sotto
+  lo spiega.
+- Senza `recommended` (fixture vecchie) nessun bottone è segnato.
 
 ### 3.3 Rispondere
 
@@ -208,8 +235,9 @@ dell'email; il nome è quello del titolare o di chi ha scritto la frase
     «Bills are sent on the 5th…»», una riga con ellissi;
   - l'oggetto: **ACQ-D6** Bills (codice tnum 600 + titolo), che porta alla
     pagina con `?comment=<id>`;
-  - le risposte: gli stessi tre bottoni del filo, senza «Other…» e senza
-    «Recommended».
+  - le risposte: gli stessi tre bottoni del filo, nello stesso ordine e con
+    **la stessa risposta consigliata** del filo («Recommended», la resa di
+    `ClaudeAnswers`), senza «Other…».
 - **Update it** parte **subito**: niente finestra dell'«Undo» di «Decide»
   (piano, Task 10, *scelta del costruttore*). La voce si chiude in 200ms e
   il toast dice «Updated ACQ-D6 · Bills. To undo it, open the page
@@ -452,8 +480,9 @@ dell'email; il nome è quello del titolare o di chi ha scritto la frase
 - **Fuori**: il segno e la cronologia (`product-claude-mark.md`); backlog e
   bozze (`product-claude-backlog.md`); le frasi del riquadro (Task 8).
 - **Anti-obiettivi**:
-  - una risposta «consigliata» da Claude, o la frase proposta presentata
-    come già decisa;
+  - la risposta consigliata applicata da sola, o la frase proposta
+    presentata come già decisa;
+  - una risposta consigliata diversa fra il filo e la Home;
   - bottoni di risposta nella card d'inbox (Q1);
   - una domanda che sparisce senza una risposta di una persona;
   - una prima versione che si annulla a pezzi, o dopo che qualcuno l'ha
@@ -535,15 +564,15 @@ selezione)*.
   `a11b-first-*` su VRD (strade, finestra, durante, dopo, riga, conferma,
   spenta), `a11b-waiting-*` (budget, pausa).
 
-## Domande per il maintainer
+## Decisioni del maintainer (6 nov 2026)
 
-1. **Claude indica quale risposta preferisce?** Le domande di Claude sui
-   task segnano una risposta come «Consigliata». Qui Claude chiede perché
-   la fonte non è chiara o contraddice la pagina.
-   - **No, nessuna risposta consigliata** (consigliata): Claude mostra la
-     frase che proporrebbe e le tre strade alla pari. Così non spinge mai
-     verso una decisione che nessuno ha preso, che è il rischio che ti
-     preoccupa di più.
-   - **Sì, come nei task**: Claude segna una delle tre strade come
-     consigliata. Si risponde più in fretta, ma la scelta di Claude pesa
-     sulla decisione.
+1. **Claude indica la risposta che preferisce** *(maintainer, 6 nov
+   2026)*: sì, come nelle domande sui task. Una delle tre risposte è
+   «Recommended» / «Consigliata», con la resa di `ClaudeAnswers`
+   (`recommended`), la stessa nel filo e in Home «Decide»; i tre bottoni
+   restano della stessa misura. Vaga → «Lascia com'è», salvo che la fonte
+   sostenga «Aggiorna così»; divergenza da una task chiusa → la decide il
+   seme, domanda per domanda. → §3.1, §3.2b [PQ 12], §3.4.
+
+Le altre scelte marcate *(scelta del costruttore)* sono da approvare col
+brief.

@@ -68,7 +68,8 @@ richieste `ACQ-R…` segnaposto del seme.
     nomina la pagina; la frase sta nella descrizione della richiesta;
   - **una voce già proposta non torna** (richiesta con lo stesso `pageId` e
     `anchorId`);
-  - **la bozza è uno schizzo**: bianco e nero, fil di ferro, etichettato;
+  - **la bozza è uno schizzo**: bianco e nero, fil di ferro, etichettato
+    finché chi scrive non lo tiene;
   - la scheda è **B** (avvisa chi segue il backlog) come oggi; disegnare è
     **A** con «Undo» (decisione 3).
 
@@ -195,8 +196,9 @@ richieste `ACQ-R…` segnaposto del seme.
   - **Testata** 32px dentro il bordo, filetto sotto, 12px: l'anello fermo
     12px · «Claude's draft» / «Bozza di Claude» 600 `ink` · « · Screen
     sketch» / « · Bozza di schermata» `ink-muted`; a destra, per chi
-    scrive, al passaggio o al fuoco: **Redraw** / **Rifai** · **Replace
-    with an image** / **Sostituisci con un'immagine** (bottoni testo).
+    scrive, al passaggio o al fuoco: **Keep** / **Tieni** · **Redraw** /
+    **Rifai** · **Replace with an image** / **Sostituisci con
+    un'immagine** (bottoni testo).
   - **Lo schizzo**: l'SVG del seme, linee 1.5px in `currentColor` = `ink`,
     nessun riempimento colorato, testi segnaposto in grigio `ink-faint`;
     in tema scuro le stesse linee chiare sul fondo scuro (bianco e nero
@@ -206,9 +208,34 @@ richieste `ACQ-R…` segnaposto del seme.
     «Bozza di Claude: schizzo della schermata di prenotazione» (dal
     `keywords` del disegno), `role="img"`.
 - **Nessun segno a margine** sul blocco: l'etichetta «Claude's draft» è il
-  suo segno e resta finché il blocco c'è. Il livello dati non dà segni per
+  suo segno finché qualcuno non la tiene. Il livello dati non dà segni per
   i blocchi `wireframe` (da allineare nel Task 3) *(scelta del
-  costruttore, vedi la domanda al maintainer)*.
+  costruttore)*.
+- **Keep** / **Tieni** *(maintainer, 6 nov 2026)* **[PB 8]**: toglie
+  l'etichetta, e da lì lo schizzo **è una figura come le altre**: bordo 1px
+  `rule`, raggio 8, nessuna testata, nessun anello. Per chi scrive, al
+  passaggio o al fuoco, in alto a destra dentro il bordo restano
+  **Redraw** e **Replace with an image** (piccoli, `ink-muted`), come il
+  «⋯» della tabella. Il nome accessibile diventa «Screen sketch: …» /
+  «Bozza di schermata: …».
+  - Chiede `docs.edit`. Senza (permesso perso fra lettura e clic, o un
+    «vedi come» con chi scrive ma non qui): bottone spento con la frase
+    12px sotto la testata «Keeping it is for people with Edit docs in ACQ ·
+    Who?» / «Tenerla è di chi ha Modifica Docs in ACQ · Chi?»
+    (`WhoCanLink`, `editDocs`). Chi legge soltanto non ha bottoni (sotto).
+  - Lascia una revisione della **persona** (nessun «Claude on behalf
+    of»): in cronologia «Laura Costa · Kept the screen sketch» / «Ha tenuto
+    la bozza di schermata», con **Undo** / **Annulla** nella riga e gli
+    stati di [PM 6] (spento con «Marco Bellini edited it afterwards» se lo
+    schizzo è stato rifatto o sostituito dopo). «Undo» riporta
+    l'etichetta.
+  - In corso «Keeping…» / «Tengo…»; un doppio clic fa una sola scrittura.
+    Fatto: annuncio `polite` «Kept · the sketch is now a figure of the
+    page» / «Tenuta · ora è una figura della pagina»; il **fuoco** va al
+    blocco, scelto come oggetto ([PE 5]). Errore: «Couldn't keep it ·
+    Retry» / «Non sono riuscito a tenerla · Riprova», `role="alert"`.
+  - **Redraw dopo Keep** rimette l'etichetta: lo schizzo nuovo è di nuovo
+    una bozza di Claude, da tenere di nuovo.
 - **Redraw**: la variante seguente (`redrawWireframeAs`), sul posto. In
   corso «Redrawing…» / «Ridisegno…» al posto dei bottoni e l'anello che
   pulsa nella testata; finito, lo schizzo nuovo in dissolvenza 150ms;
@@ -223,7 +250,8 @@ richieste `ACQ-R…` segnaposto del seme.
   blocco, la bozza resta.
 - **Eliminare**: dal menu ⋮⋮ («Delete», come ogni blocco) o Esc + Canc
   ([PE 5]); ⌘Z dell'editor la riporta.
-- **Chi legge soltanto**: testata con la sola etichetta, nessun bottone,
+- **Chi legge soltanto**: testata con la sola etichetta (tenuta, la sola
+  figura), nessun bottone,
   nessun «Who?» (come un'immagine, che non ha gesti per chi legge).
 - **Disegno sconosciuto** (`wireframeId` non nel seme, dati vecchi): il
   riquadro col bordo e, al centro, 13px `ink-muted` «This sketch is no
@@ -279,10 +307,11 @@ richieste `ACQ-R…` segnaposto del seme.
 ### 3.7 Esportazione
 
 - PDF e Word: lo schizzo entra **come immagine** (PNG per il Word,
-  `svgToPng`; il PDF lo stampa com'è), a tutta larghezza, con sotto la
-  didascalia in corsivo 10pt «Sketch by Claude» / «Schizzo di Claude»
-  *(scelta del costruttore: il lettore del file deve sapere che non è un
-  design; la testata con i bottoni non c'è)*. Le voci «From this page» non
+  `svgToPng`; il PDF lo stampa com'è), a tutta larghezza. Uno schizzo
+  **mai tenuto** ha sotto l'etichetta, in corsivo 10pt, «Claude's draft ·
+  Screen sketch» / «Bozza di Claude · Bozza di schermata»; uno **tenuto**
+  esce senza etichetta, come le altre figure *(maintainer, 6 nov 2026)*.
+  La testata con i bottoni non c'è mai. Le voci «From this page» non
   entrano. Nessun segno a margine (spec).
 - Nel tema scuro l'esportazione usa comunque linee nere su bianco.
 
@@ -299,7 +328,9 @@ richieste `ACQ-R…` segnaposto del seme.
   - una voce proposta due volte dalla stessa frase;
   - «From the doc» col nome di una pagina che chi guarda non vede;
   - un bottone nuovo nella barra della pagina;
-  - un segno a margine sopra l'etichetta della bozza.
+  - un segno a margine sopra l'etichetta della bozza;
+  - uno schizzo tenuto che conserva l'etichetta, o uno rifatto che non la
+    riprende.
 
 ## 5. Stati e intervalli, 1440 e 1024
 
@@ -357,7 +388,8 @@ la bozza un `figure` con `figcaption` = l'etichetta.
 | bozza | Claude's draft · Screen sketch · Redraw · Replace with an image · Redrawing… · New sketch · Couldn't redraw · Claude is sketching… · Sketch added · This sketch is no longer available | Bozza di Claude · Bozza di schermata · Rifai · Sostituisci con un'immagine · Ridisegno… · Nuovo schizzo · Non sono riuscito a ridisegnarla · Claude sta disegnando… · Bozza aggiunta · Questo schizzo non è più disponibile |
 | cronologia | Drew a screen sketch · Redrew the screen sketch | Ha disegnato una bozza di schermata · Ha rifatto la bozza di schermata |
 | riquadro | Drew a screen sketch in {{code}} {{title}} | Disegnata una bozza di schermata in {{code}} {{title}} |
-| esportazione | Sketch by Claude | Schizzo di Claude |
+| tenere | Keep · Keeping… · Kept · the sketch is now a figure of the page · Keeping it is for people with Edit docs in {{code}} · Couldn't keep it · Kept the screen sketch | Tieni · Tengo… · Tenuta · ora è una figura della pagina · Tenerla è di chi ha Modifica Docs in {{code}} · Non sono riuscito a tenerla · Ha tenuto la bozza di schermata |
+| esportazione | Claude's draft · Screen sketch (solo se mai tenuta) | Bozza di Claude · Bozza di schermata (solo se mai tenuta) |
 
 ## 9. Vincoli
 
@@ -372,14 +404,14 @@ la bozza un `figure` con `figcaption` = l'etichetta.
   doc» su richiesta e task, 1024) e `a11b-wireframe-*` (bozza, in
   disegno, Sara, «/», sostituita, chiaro e scuro).
 
-## Domande per il maintainer
+## Decisioni del maintainer (6 nov 2026)
 
-1. **L'etichetta «Bozza di Claude» sullo schizzo resta per sempre?** La
-   spec dice che lo schizzo «si tiene, si rifà o si elimina».
-   - **Resta sempre, finché lo schizzo è nella pagina** (consigliata): chi
-     legge la pagina, anche fra mesi o nel PDF, sa che è uno schizzo di
-     Claude e non un design approvato. Per avere una schermata «vera» la si
-     sostituisce con un'immagine.
-   - **Un bottone «Tieni» la toglie**: chi scrive conferma lo schizzo e da
-     lì in poi sembra una figura come le altre. Più pulito, ma uno schizzo
-     di Claude può passare per una decisione di design.
+1. **L'etichetta della bozza si toglie con «Keep» / «Tieni»** *(maintainer,
+   6 nov 2026)*: il bottone toglie «Claude's draft» / «Bozza di Claude» e
+   lo schizzo diventa una figura come le altre. Chiede `docs.edit` (spento
+   con la frase e il «Who?»), si annulla dalla cronologia, e un «Redraw»
+   dopo «Keep» rimette l'etichetta. All'esportazione uno schizzo mai
+   tenuto esce con l'etichetta, uno tenuto senza. → §3.5 [PB 8], §3.7.
+
+Le altre scelte marcate *(scelta del costruttore)* sono da approvare col
+brief.
