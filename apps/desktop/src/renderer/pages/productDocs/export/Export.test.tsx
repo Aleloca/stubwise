@@ -126,7 +126,8 @@ describe("con la finestra di salvataggio (window.stubwise.saveFile)", () => {
     await choose("This page", "PDF");
     await screen.findByText("Saved the PDF");
     expect(html).not.toBe("");
-    const comments = state.productComments.map((c) => c.body.toLowerCase());
+    // Le domande di Claude (seme 11b) hanno il corpo vuoto: il testo si compone a lettura.
+    const comments = state.productComments.filter((c) => c.body !== "").map((c) => c.body.toLowerCase());
     for (const c of comments) expect(html.toLowerCase()).not.toContain(c);
   });
 

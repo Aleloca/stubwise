@@ -1,4 +1,5 @@
 import type { MailMessage, MeetingTranscript } from "../../types";
+import { ACQ_11B } from "../productDocs/facts";
 import { at, done, ext, mail, person } from "./helpers";
 
 // Le riunioni registrate: l'email di Gemini dopo la revisione settimanale di
@@ -23,6 +24,8 @@ export const MEETING_MESSAGE_IDS = {
   transcript: "mm-gemini-aud-review",
   transcriptLastWeek: "mm-gemini-aud-review-1015",
   transcriptUnreachable: "mm-gemini-mkx-sync",
+  /** Area 11b: la revisione del portale di ACQ (Claude ne ha chiesto in Bills). */
+  transcriptAcq: ACQ_11B.meetingId,
 } as const;
 
 export const MEETING_MESSAGES: MailMessage[] = [
@@ -68,6 +71,23 @@ export const MEETING_MESSAGES: MailMessage[] = [
     mailboxPersonIds: ["p-giulia"],
     classification: done(["prj-mkx"], "low"),
   }),
+  // Area 11b: la revisione del portale di ACQ di martedì, organizzata da
+  // Laura. Solo la casella di Matteo (Laura è scaduta, Marco non ha
+  // l'account). Un «forse» detto lì è la domanda di Claude in Bills.
+  mail({
+    id: MEETING_MESSAGE_IDS.transcriptAcq,
+    messageId: "<notes-acq-portal-review.20261020@google.com>",
+    threadId: "th-gemini-acq-review",
+    from: GEMINI,
+    to: [person("p-laura"), person("p-matteo"), person("p-marco")],
+    subject: "Notes: “Portal review with Acquedotto delle Colline”",
+    at: at(3, "15:10"),
+    text: "Meeting notes for “Portal review with Acquedotto delle Colline” are ready. Open the notes in Google Docs to see the summary, the next steps and the transcript.",
+    kind: "transcript",
+    mailboxPersonIds: ["p-matteo"],
+    readByPersonIds: ["p-matteo"],
+    classification: done(["prj-acq"], "normal"),
+  }),
 ];
 
 const AUD_REVIEW_TRANSCRIPT = [
@@ -111,5 +131,35 @@ export const MEETING_TRANSCRIPTS: MeetingTranscript[] = [
     doc: "unreachable",
     transcript: "",
     summary: null,
+  },
+  // Area 11b: le due riunioni di ACQ. La seconda ha l'email di Gemini ancora
+  // in arrivo nella casella di Matteo (`incoming.ts`): il documento è già
+  // letto, e all'arrivo dell'email la riunione diventa una fonte della doc.
+  {
+    messageId: ACQ_11B.meetingId,
+    eventId: ACQ_11B.meetingEventId,
+    docTitle: "Portal review with Acquedotto delle Colline – Notes by Gemini",
+    doc: "ready",
+    transcript: [
+      "Elisa Ferraro: The text message before the due date works well. Maybe the reminder could also go out by email, a week before?",
+      "Laura Costa: We can look at it. Nobody asked for it in writing yet.",
+      "Matteo Conti: Let's keep it as an idea for now.",
+    ].join("\n"),
+    summary:
+      "The bill reminder by text message works. The utility wondered whether it could also go out by email, a week before the due date; nothing was decided.",
+  },
+  {
+    messageId: ACQ_11B.incomingMeetingId,
+    eventId: ACQ_11B.incomingMeetingEventId,
+    docTitle: "Weekly check with Acquedotto delle Colline – Notes by Gemini",
+    doc: "ready",
+    transcript: [
+      "Elisa Ferraro: Some customers asked for a dark appearance. Maybe it could come earlier, in phase 2?",
+      "Laura Costa: Possibly. Let's see how phase 2 goes first.",
+      "Elisa Ferraro: And the paper bills by post, only for the customers who ask.",
+      "Matteo Conti: That step is gone from the plan; we'll talk about it again in the spring.",
+    ].join("\n"),
+    summary:
+      "The utility wondered whether the dark appearance could move to phase 2; nothing was decided. Paper bills by post stay out of the plan for now.",
   },
 ];

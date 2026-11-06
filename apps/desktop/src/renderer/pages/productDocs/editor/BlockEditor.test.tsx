@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import * as api from "../../../data/api";
 import { resetApi, setLatency } from "../../../data/api";
+import { withoutSeed11b } from "../../../data/seed/productDocs/without11b";
 import type { ProductBlock, ProductBlockOp, RichText } from "../../../data/types";
 import { failNext, state } from "../../../data/store";
 import { plain, setLink, toggleMark } from "../../../domain/productDocs/richText";
@@ -664,6 +665,8 @@ describe("trascinare un blocco per ⋮⋮ ([PE 4])", () => {
     within(body().querySelector<HTMLElement>(`[data-block-id="${id}"]`)!).getByRole("button", { name: /^Block menu/ });
 
   it("Laura porta l'ultimo paragrafo sopra il primo testo: una sola scrittura, un move", async () => {
+    // Le posizioni contano: Sign-in senza il paragrafo che Claude aggiunge nel seme 11b.
+    withoutSeed11b();
     seedBlock(LOGIN);
     await openSignIn();
     layoutBlocks();
@@ -685,6 +688,8 @@ describe("trascinare un blocco per ⋮⋮ ([PE 4])", () => {
   });
 
   it("lasciato dove era partito: nessuna scrittura, niente in cronologia", async () => {
+    // Le posizioni contano: Sign-in senza il paragrafo che Claude aggiunge nel seme 11b.
+    withoutSeed11b();
     seedBlock(LOGIN);
     await openSignIn();
     const revisions = state.productRevisions.length;

@@ -1,5 +1,6 @@
 import i18n from "../../i18n";
 import { applyActions } from "../api-mutations";
+import { noteMailSource } from "../productDocs/sourceEvents";
 import { PEOPLE } from "../seed/people";
 import { copy, gate, now, state } from "../store";
 import { forbidden, invalid, notFound, writer } from "../writer";
@@ -468,6 +469,9 @@ function labelMessage(p: MailProposal, projectId: string, drop: string | null): 
     const ids = c.projectIds.filter((id) => keep || id !== drop);
     if (!ids.includes(projectId)) ids.push(projectId);
     m.classification = { ...c, projectIds: ids, uncertainProjectIds: [] };
+    // Attribuita a mano: la doc di prodotto di quel progetto (11b). Una fonte
+    // già passata da lì (spostata e riportata) non riscrive niente.
+    noteMailSource(m, [projectId]);
   }
 }
 

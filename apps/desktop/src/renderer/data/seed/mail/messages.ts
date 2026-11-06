@@ -1,5 +1,6 @@
 import type { MailMessage } from "../../types";
 import { daysFromToday } from "../dates";
+import { ACQ_11B } from "../productDocs/facts";
 import { at, done, ext, mail, person } from "./helpers";
 
 // La posta di progetto e il rumore: email su AUD e STW di importanza alta,
@@ -12,6 +13,7 @@ import { at, done, ext, mail, person } from "./helpers";
 const AUD = "prj-aud";
 const STW = "prj-stw";
 const MKX = "prj-mkx";
+const ACQ = "prj-acq";
 
 const GIULIA = person("p-giulia");
 const MATTEO = person("p-matteo");
@@ -19,6 +21,7 @@ const LAURA = person("p-laura");
 const SIMONE = person("p-simone");
 const SOFIA = ext("Sofia Marchetti", "sofia.marchetti@audin.example");
 const IVO = ext("Ivo Gentile", "ivo@pixelforge.example");
+const ELISA = ext("Elisa Ferraro", "elisa.ferraro@acquedottocolline.example");
 
 /** Gli id delle righe che i test e le aree successive cercano per caso. */
 export const MESSAGE_IDS = {
@@ -35,6 +38,8 @@ export const MESSAGE_IDS = {
   failed: "mm-mkx-order-confirmation",
   lauraOff: "mm-stw-pr-review",
   context: "mm-stw-preview-schedule",
+  /** Area 11b: l'email di ACQ da cui Claude ha aggiornato Sign-in. */
+  acqSignIn: ACQ_11B.signInEmailId,
 } as const;
 
 export const PROJECT_MESSAGES: MailMessage[] = [
@@ -220,5 +225,22 @@ export const PROJECT_MESSAGES: MailMessage[] = [
     mailboxPersonIds: ["p-laura"],
     readByPersonIds: ["p-laura"],
     classification: { state: "off" },
+  }),
+  // Area 11b: il cliente di ACQ conferma a Laura «solo Google», Matteo in
+  // copia (la casella di Matteo ha le proposte attive: l'email va al
+  // modello). Claude ne ha aggiornato Sign-in per conto di Laura, la prima
+  // delle caselle che è membro di ACQ. Sara non l'ha ricevuta.
+  mail({
+    id: MESSAGE_IDS.acqSignIn,
+    threadId: "th-acq-signin-google",
+    from: ELISA,
+    to: [LAURA],
+    cc: [MATTEO],
+    subject: "Portal sign-in: Google accounts only",
+    at: at(6, "10:15"),
+    text: "Hi Laura,\n\nwe confirm what we said at the kick-off: customers of the Acquedotto portal sign in only with Google. We don't want a password of our own, nor other kinds of account.\n\nElisa",
+    mailboxPersonIds: ["p-laura", "p-matteo"],
+    readByPersonIds: ["p-laura"],
+    classification: done([ACQ], "normal"),
   }),
 ];

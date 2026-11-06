@@ -43,6 +43,8 @@ const ROWS: Row[] = [
   // Area 11a: le due decisioni del cliente che la doc di prodotto di ACQ cita.
   ["ACQ", 1, "manual", null, "Sign-in only with Google", "Customers sign in with their Google account; no password of our own.", "The utility does not want to answer for lost passwords.", "p-laura", 30, null],
   ["ACQ", 2, "manual", null, "Readings close on the 25th", "Meter readings close on the 25th of each month; later ones count for the next bill.", "The billing run starts on the 26th.", "p-laura", 22, null],
+  // Area 11b: la decisione che Claude ha portato nella pagina Client decisions.
+  ["ACQ", 3, "manual", null, "Fault photos up to 10 MB", "Customers can attach photos of up to 10 MB each to a fault report.", "Larger photos slowed down the support team's inbox.", "p-laura", 4, null],
 ];
 
 export const DECISION_LOG: DecisionLogEntry[] = ROWS.map(

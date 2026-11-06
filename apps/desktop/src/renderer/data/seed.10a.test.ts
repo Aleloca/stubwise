@@ -25,7 +25,13 @@ import {
   SEED_MAX_SEQ,
 } from "./seed/claudeActions";
 import { CLOCK_START } from "./seed/dates";
-import { PRODUCT_COMMENTS, PRODUCT_REVISIONS } from "./seed/productDocs";
+import {
+  PRODUCT_COMMENTS,
+  PRODUCT_COMMENTS_11B,
+  PRODUCT_MARKS_11B,
+  PRODUCT_REVISIONS,
+  PRODUCT_REVISIONS_11B,
+} from "./seed/productDocs";
 import { nextSeq, state } from "./store";
 import type { ConversationEvent } from "./types";
 
@@ -157,12 +163,14 @@ describe("coerenza degli ordini e delle date", () => {
     expect(new Set(seqs).size).toBe(seqs.length);
     expect(Math.max(...seqs)).toBe(SEED_MAX_SEQ);
     // Dall'area 11a lo store parte dal massimo dei `seq` del seme di Claude e
-    // di quello del Prodotto, revisioni e commenti (ruling P4).
+    // di quello del Prodotto, revisioni e commenti (ruling P4), dal 11b anche
+    // quelli di Claude nella doc e del «Va bene» del seme.
     expect(nextSeq()).toBe(
       Math.max(
         SEED_MAX_SEQ,
-        ...PRODUCT_REVISIONS.map((r) => r.lastSeq),
-        ...PRODUCT_COMMENTS.map((c) => c.seq),
+        ...[...PRODUCT_REVISIONS, ...PRODUCT_REVISIONS_11B].map((r) => r.lastSeq),
+        ...[...PRODUCT_COMMENTS, ...PRODUCT_COMMENTS_11B].map((c) => c.seq),
+        ...PRODUCT_MARKS_11B.map((m) => m.acceptedSeq ?? 0),
       ) + 1,
     );
   });

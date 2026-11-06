@@ -320,13 +320,15 @@ describe("la colonna", () => {
     const bills = pageByTitle("Bills");
     await open(bills.code);
     const user = userEvent.setup();
-    await user.click(within(bar()).getByRole("button", { name: /^Commenti/ }));
+    // Bills ha un filo aperto (la domanda di Claude del seme 11b): la colonna si apre da sola.
     const col = await column();
     await user.click(await within(col).findByRole("button", { name: "1 risolto" }));
-    const closed = await within(col).findByRole("article");
+    const closed = await within(col).findByRole("article", { name: /stored in UTC/ });
     await user.click(within(closed).getByRole("button", { name: "Riapri" }));
     const message = await screen.findByText("Impossibile riaprire il filo.");
-    const rootId = state.productComments.find((c) => c.pageId === bills.id && c.replyToId === null)!.id;
+    const rootId = state.productComments.find(
+      (c) => c.pageId === bills.id && c.replyToId === null && c.resolved !== null,
+    )!.id;
     expect(state.productComments.find((c) => c.id === rootId)!.resolved).not.toBeNull();
     const toast = message.closest("[data-toast]") ?? message.parentElement!;
     await user.click(within(toast as HTMLElement).getByRole("button", { name: "Riprova" }));
@@ -360,7 +362,7 @@ describe("la colonna", () => {
     cleanup();
     await open(pageByTitle("Bills").code, SARA);
     const user = userEvent.setup();
-    await user.click(within(bar()).getByRole("button", { name: /^Comments/ }));
+    // Bills ha un filo aperto (la domanda di Claude del seme 11b): la colonna si apre da sola.
     const bills = await column();
     await user.click(await within(bills).findByRole("button", { name: "1 resolved" }));
     await within(bills).findByRole("article", { name: /stored in UTC/ });

@@ -36,7 +36,7 @@ import {
 } from "./seed/projects";
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
-import { TASKS, TASKS_10B } from "./seed/tasks";
+import { TASKS, TASKS_10B, TASKS_11B } from "./seed/tasks";
 import { BRIEFS } from "./seed/briefs";
 import {
   CHAT_CHANNELS,
@@ -58,6 +58,7 @@ import {
   MAILBOXES,
   MAIL_CASES,
   MAIL_DRAFTS,
+  MAIL_INCOMING,
   MAIL_MESSAGES,
   MAIL_PROPOSALS,
   MEETING_TRANSCRIPTS,
@@ -259,7 +260,7 @@ describe("seed: stati e task", () => {
   it("8–15 task nei progetti di riferimento, 6 nell'archiviato RNC, 5 negli altri (più quelle create dalle automazioni e dai server)", () => {
     // Le task del 10b (i quattro inattivi, la task convertita di ACQ) hanno il loro conteggio sotto.
     const byAutomation = new Set(
-      [...AUTOMATION_TASKS, ...SERVER_TASKS, ...TASKS_10B].map((t) => t.id),
+      [...AUTOMATION_TASKS, ...SERVER_TASKS, ...TASKS_10B, ...TASKS_11B].map((t) => t.id),
     );
     for (const p of PROJECTS) {
       if (["ORT", "SPZ", "LNT", "BSC"].includes(p.code)) continue; // due o tre, in `seed.10b.test.ts`
@@ -522,11 +523,7 @@ describe("seed: notifiche", () => {
     expect(kinds.size).toBeGreaterThanOrEqual(5);
     const valid = new Set<string>([...notificationKindSchema.options, ...LOCAL_NOTIFICATION_KINDS]);
     for (const k of kinds) expect(valid.has(k)).toBe(true);
-    // Le due card del 11b entrano nel seme col Task 5 (`acq11b.ts`), insieme
-    // alle revisioni e ai commenti che le reggono: quel task toglie l'eccezione.
-    const notYetSeeded = new Set(["product_doc.updated", "product_doc.question"]);
-    for (const k of LOCAL_NOTIFICATION_KINDS)
-      if (!notYetSeeded.has(k)) expect(kinds.has(k)).toBe(true);
+    for (const k of LOCAL_NOTIFICATION_KINDS) expect(kinds.has(k), k).toBe(true);
   });
 
   it("nessuna notifica chiede una decisione: quelle vivono in Home e in Mail", () => {
@@ -830,15 +827,20 @@ describe("seed: avvisi, rilasci, PR, ambienti e Support (area 8a)", () => {
     expect(SUPPORT_WIDGETS.filter((w) => w.projectId === ACQ)).toHaveLength(1);
   });
 
-  it("nessuna richiesta nasce da un'email: le sole con un'origine vengono da Support", () => {
+  it("nessuna richiesta nasce da un'email: le sole con un'origine vengono da Support o dalla doc di prodotto", () => {
     for (const r of REQUESTS) {
-      if (!r.origin) continue;
+      if (!r.origin || r.origin.kind === "product_doc") continue;
       expect(r.origin.kind).toBe("support");
       const c = SUPPORT_CONVERSATIONS.find((x) => x.id === (r.origin as { conversationId: string }).conversationId)!;
       expect(c.requestId).toBe(r.id);
     }
     // Area 10b: più ACQ-S5 e ACQ-S6; poi ACQ-S7 (5 nov 2026).
-    expect(REQUESTS.filter((r) => r.origin)).toHaveLength(5);
+    expect(REQUESTS.filter((r) => r.origin?.kind === "support")).toHaveLength(5);
+    // Area 11b: due dalla pagina Phases della doc di prodotto.
+    expect(REQUESTS.filter((r) => r.origin?.kind === "product_doc").map((r) => r.id)).toEqual([
+      "req-acq-6",
+      "req-acq-7",
+    ]);
   });
 
   it("R-K11: l'avviso support.request porta il codice della richiesta e il link alla richiesta", () => {
@@ -1977,7 +1979,12 @@ describe("seed: Posta (area 6)", () => {
     expect(t.summary).toBeNull();
     expect(message(MAIL_CASES.pending).classification.state).toBe("pending");
     expect(message(MAIL_CASES.failed).classification.state).toBe("failed");
-    for (const x of MEETING_TRANSCRIPTS) expect(message(x.messageId).kind).toBe("transcript");
+    // L'email di Gemini di una riunione può essere ancora in arrivo (area 11b).
+    for (const x of MEETING_TRANSCRIPTS)
+      expect(
+        (MAIL_MESSAGES.find((m) => m.id === x.messageId) ??
+          MAIL_INCOMING.find((m) => m.id === x.messageId))!.kind,
+      ).toBe("transcript");
   });
 
   it("contenuti estremi: 60 messaggi, HTML ostile, 40 destinatari", () => {
@@ -2648,8 +2655,8 @@ describe("seed: server (area 8b)", () => {
 
   it("SRV-1: la task è la prossima di ACQ, bug, senza incaricato, di Claude, legata al server", () => {
     const an = SERVER_ANALYSES[0]!;
-    // ACQ-7, la task convertita del 10b, è in coda e non sposta il numero di SRV-1.
-    const later = new Set(TASKS_10B.map((t) => t.id));
+    // ACQ-7, la task convertita del 10b, e quelle del 11b sono in coda e non spostano il numero di SRV-1.
+    const later = new Set([...TASKS_10B, ...TASKS_11B].map((t) => t.id));
     const acqNumbers = TASKS.filter(
       (t) => t.projectId === ACQ && t.id !== an.taskId && !later.has(t.id),
     ).map((t) =>

@@ -1,6 +1,7 @@
 import { beforeEach, expect, it } from "vitest";
 import type { ProductBlock } from "../model";
 import { resetStore, state } from "../store";
+import { withoutSeed11b } from "../seed/productDocs/without11b";
 import { listProductMarksAs } from "./marks";
 import { writeProductBlocksAs } from "./writes";
 
@@ -15,7 +16,11 @@ const PAGE = "pp-acq-sign-in";
 const HEADING = "blk-acq-signin-3";
 const STORES = "blk-acq-signin-4";
 
-beforeEach(() => resetStore());
+beforeEach(() => {
+  resetStore();
+  // Sign-in senza il segno di Claude del seme 11b.
+  withoutSeed11b();
+});
 
 it("un'unione porta il segno sul blocco unito senza l'indice del modulo", () => {
   const page = state.productPages.find((p) => p.id === PAGE)!;

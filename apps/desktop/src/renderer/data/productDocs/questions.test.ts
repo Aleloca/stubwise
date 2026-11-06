@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createRequestAs } from "../api-mutations";
 import { listClaudeDecisions, listNotifications, productDocs, resetApi, setLatency } from "../api";
 import { executeGroup } from "../claude/actions";
+import { withoutSeed11b } from "../seed/productDocs/without11b";
 import { classOfGroup } from "../claude/classes";
 import type { MailMessage, ProductFact, ProductSourceRef, RichText } from "../model";
 import { done, ext, mail, person } from "../seed/mail/helpers";
@@ -88,6 +89,8 @@ async function thread(commentId: string) {
 beforeEach(() => {
   resetApi();
   setLatency(0);
+  // Senza le domande e i segni del seme 11b: qui contano quelli nuovi.
+  withoutSeed11b();
   state.mailMessages.push(email("mm-laura-q", [LAURA]));
 });
 afterEach(async () => {

@@ -1,5 +1,6 @@
 import { PEOPLE } from "../people";
 import type { CalendarEvent } from "../../types";
+import { ACQ_11B } from "../productDocs/facts";
 import { day, event, guest, on, organizer, outsider } from "./helpers";
 
 // Gli eventi singoli del seme (le serie in `series.ts`). Oggi è venerdì 23
@@ -178,4 +179,36 @@ const LATER: CalendarEvent[] = [
   }),
 ];
 
-export const SINGLE_EVENTS: CalendarEvent[] = [...TODAY_EVENTS, ...OVERLAPPING, ...LATER];
+// Area 11b: le due riunioni di ACQ organizzate da Laura, con le note di
+// Gemini (`mail/meetings.ts`): sono le fonti «riunione» della doc di prodotto.
+const ELISA = outsider("Elisa Ferraro", "elisa.ferraro@acquedottocolline.example");
+
+const ACQ_MEETINGS: CalendarEvent[] = [
+  event({
+    id: ACQ_11B.meetingEventId,
+    calendarPersonIds: ["p-laura", "p-matteo"],
+    title: "Portal review with Acquedotto delle Colline",
+    startsAt: on(-3, "14:00"),
+    endsAt: on(-3, "15:00"),
+    meetUrl: "https://meet.google.com/acq-revw-prt",
+    attendees: [organizer("p-laura"), guest("p-matteo"), guest("p-marco"), ELISA],
+    projectId: "prj-acq",
+  }),
+  event({
+    id: ACQ_11B.incomingMeetingEventId,
+    calendarPersonIds: ["p-laura", "p-matteo"],
+    title: "Weekly check with Acquedotto delle Colline",
+    startsAt: on(-1, "10:00"),
+    endsAt: on(-1, "10:45"),
+    meetUrl: "https://meet.google.com/acq-wkly-chk",
+    attendees: [organizer("p-laura"), guest("p-matteo"), ELISA],
+    projectId: "prj-acq",
+  }),
+];
+
+export const SINGLE_EVENTS: CalendarEvent[] = [
+  ...TODAY_EVENTS,
+  ...OVERLAPPING,
+  ...LATER,
+  ...ACQ_MEETINGS,
+];

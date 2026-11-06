@@ -197,10 +197,11 @@ describe("i blocchi del seme", () => {
     expect(blocks.some((b) => b.type === "table")).toBe(true);
   });
 
-  it("Phases ha una lista di controllo, Client decisions due blocchi decisione di ACQ", () => {
+  it("Phases ha una lista di controllo, Client decisions tre blocchi decisione di ACQ", () => {
     expect(byTitle("Phases").blocks.filter((b) => b.type === "todo").length).toBeGreaterThan(2);
     const decisions = byTitle("Client decisions").blocks.filter((b) => b.type === "decision");
-    expect(decisions).toHaveLength(2);
+    // Due del 11a, la terza l'ha portata Claude dal registro (seme 11b).
+    expect(decisions).toHaveLength(3);
     for (const d of decisions) {
       if (d.type !== "decision") continue;
       expect(state.decisionLog.find((e) => e.id === d.decisionId)?.projectId).toBe(ACQ);
@@ -301,9 +302,10 @@ describe("`seq` della sessione (P4)", () => {
 });
 
 describe("le decisioni di ACQ", () => {
-  it("sono due, di ACQ, scritte a mano", () => {
+  it("sono tre, di ACQ, scritte a mano (la terza è del seme 11b)", () => {
     const rows = state.decisionLog.filter((d) => d.projectId === ACQ);
     expect(rows.map((d) => d.title).sort()).toEqual([
+      "Fault photos up to 10 MB",
       "Readings close on the 25th",
       "Sign-in only with Google",
     ]);

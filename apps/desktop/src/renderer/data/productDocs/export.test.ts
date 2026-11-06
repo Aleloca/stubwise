@@ -45,7 +45,8 @@ describe("getProductExport", () => {
       ["Phases", 0],
     ]);
     expect(read.files).toEqual({ "drv-acq-1": { name: "Client brief.pdf" } });
-    expect(Object.keys(read.decisions).sort()).toEqual(["dl-acq-1", "dl-acq-2"]);
+    // dl-acq-3 l'ha portata Claude in Client decisions (seme 11b).
+    expect(Object.keys(read.decisions).sort()).toEqual(["dl-acq-1", "dl-acq-2", "dl-acq-3"]);
     expect(read.decisions["dl-acq-1"]?.title).toBe(state.decisionLog.find((d) => d.id === "dl-acq-1")!.title);
   });
 

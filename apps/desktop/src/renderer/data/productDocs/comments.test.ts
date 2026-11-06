@@ -76,7 +76,8 @@ describe("il seme dei commenti", () => {
   it("Bills ha un filo risolto da Laura; Phases un filo su un blocco che Matteo ha tolto", async () => {
     as(LAURA);
     const bills = await productDocs.listProductComments(page("Bills").id);
-    expect(bills.open).toEqual([]);
+    // Aperta, su Bills, c'è solo la domanda di Claude del seme 11b.
+    expect(bills.open.map((t) => t.root.id)).toEqual(["pc-acq11b-bills-q"]);
     expect(bills.resolved).toHaveLength(1);
     expect(bills.resolved[0]!.root.resolved?.byId).toBe(LAURA);
 

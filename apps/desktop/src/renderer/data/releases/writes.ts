@@ -16,6 +16,7 @@ import "../projectSettings/changeTypes";
 import { alertProjectsOf } from "../../domain/servers/projects";
 import { publishAlert } from "../alerts/publish";
 import { aiBlockFor } from "../instance/blocks";
+import { noteProductSource } from "../productDocs/sourceEvents";
 import { PEOPLE } from "../seed/people";
 import { copy, latestRunOf, newId, now, state, storeGeneration } from "../store";
 import type {
@@ -179,6 +180,8 @@ export async function mergePr(prId: string): Promise<MergeResult> {
     ...(pr.releaseNotes ? { releaseNotes: pr.releaseNotes } : {}),
   };
   state.releases.push(release);
+  // Un rilascio è una fonte della doc di prodotto (11b).
+  noteProductSource({ kind: "release", id: release.id }, [project.id]);
   publishAlert({
     kind: "release.merged",
     projectId: project.id,

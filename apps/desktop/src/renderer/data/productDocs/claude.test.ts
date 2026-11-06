@@ -3,6 +3,7 @@ import { instance, listNotifications, productDocs, resetApi, setLatency } from "
 import { failedHeldStarts, heldJobs, pauseQueueAs, resumeQueueAs } from "../instance/queue";
 import type { MailMessage, ProductBlock, ProductFact, ProductSourceRef, RichText } from "../model";
 import { CLAUDE_ID } from "../seed/people";
+import { withoutSeed11b } from "../seed/productDocs/without11b";
 import { done, ext, mail, person } from "../seed/mail/helpers";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
@@ -84,6 +85,8 @@ const NEW_BLOCK: ProductBlock = {
 beforeEach(() => {
   resetApi();
   setLatency(0);
+  // Sign-in senza la storia di Claude del seme 11b: qui contano le righe nuove.
+  withoutSeed11b();
   state.mailMessages.push(email("mm-laura-1", [LAURA]));
 });
 afterEach(async () => {

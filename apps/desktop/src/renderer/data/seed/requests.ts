@@ -1,4 +1,9 @@
-import type { ProjectRequest, RequestStatus, RequestSuggestions } from "../types";
+import type {
+  ProductDocOrigin,
+  ProjectRequest,
+  RequestStatus,
+  RequestSuggestions,
+} from "../types";
 import { daysFromToday } from "./dates";
 import { SUPPORT_CONVERSATIONS } from "./support/conversations";
 
@@ -42,6 +47,10 @@ const ROWS: Row[] = [
   ["req-acq-4", "ACQ", "A dark appearance for the portal", [], "new", "low", null, null, [], 1],
   // 5 nov 2026: quella di ACQ-S7, che aspetta noi senza bozza di Claude.
   ["req-acq-5", "ACQ", "Change the billing email from the portal", [], "new", "medium", null, null, [], 6],
+  // Area 11b: due richieste aperte da Laura dalla pagina Phases della doc di
+  // prodotto (`origin.product_doc`); dalla prima è nata ACQ-10.
+  ["req-acq-6", "ACQ", "Instalment plan screen for the portal", ["p-laura"], "converted", "medium", null, null, ["t-acq-10"], 4],
+  ["req-acq-7", "ACQ", "Follow a fault report on a map", ["p-laura"], "new", "low", null, null, [], 4],
 ];
 
 // Le richieste nate da una conversazione di Support (area 8a): nessun
@@ -54,6 +63,21 @@ const FROM_SUPPORT: Record<string, { conversationId: string; description: string
       { conversationId: c.id, description: c.rewrittenWish! },
     ]),
   );
+
+// Area 11b: le richieste aperte da una pagina della doc di prodotto (Phases),
+// ciascuna sulla frase da cui è nata. Il testo è di chi l'ha aperta.
+const FROM_PRODUCT_DOC: Record<string, { origin: ProductDocOrigin; description: string }> = {
+  "req-acq-6": {
+    origin: { kind: "product_doc", pageId: "pp-acq-phases", anchorId: "blk-acq-phases-4" },
+    description:
+      "Phase 2 promises instalment plans: customers need a screen to ask for one and to see the instalments left.",
+  },
+  "req-acq-7": {
+    origin: { kind: "product_doc", pageId: "pp-acq-phases", anchorId: "blk-acq-phases-3" },
+    description:
+      "With the fault reports of phase 2, customers would like to follow their report on the map until it is fixed.",
+  },
+};
 
 // Stima e rischio, dove il team li ha già dati (le altre restano «No estimate» / «Not assessed»).
 const META: Record<string, Pick<ProjectRequest, "size" | "risk" | "riskNote">> = {
@@ -121,7 +145,9 @@ export const REQUESTS: ProjectRequest[] = ROWS.map(
     projectId: `prj-${code.toLowerCase()}`,
     title,
     description:
-      FROM_SUPPORT[id]?.description ?? `${title}. Asked by the team; details in the conversation.`,
+      FROM_SUPPORT[id]?.description ??
+      FROM_PRODUCT_DOC[id]?.description ??
+      `${title}. Asked by the team; details in the conversation.`,
     requesterIds,
     status,
     urgency,
@@ -137,6 +163,8 @@ export const REQUESTS: ProjectRequest[] = ROWS.map(
     suggestions: SUGGESTIONS[id] ?? null,
     ...(FROM_SUPPORT[id]
       ? { origin: { kind: "support" as const, conversationId: FROM_SUPPORT[id].conversationId } }
-      : {}),
+      : FROM_PRODUCT_DOC[id]
+        ? { origin: { ...FROM_PRODUCT_DOC[id].origin } }
+        : {}),
   }),
 );

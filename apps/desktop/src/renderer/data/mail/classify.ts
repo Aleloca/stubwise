@@ -25,6 +25,8 @@ const PROJECT_KEYWORDS: Record<string, string[]> = {
   "prj-aud": ["audin", "billing", "callback", "dialer", "vat"],
   "prj-stw": ["stubwise", "desktop preview", "onboarding", "release notes", "copy freeze"],
   "prj-mkx": ["mix cucine", "ordine", "listini", "rivenditori"],
+  // Area 11b: la posta del cliente di ACQ porta le fonti della doc di prodotto.
+  "prj-acq": ["acquedotto", "portale utenti", "meter reading"],
 };
 
 /** Posta automatica: niente progetto, importanza bassa. */

@@ -1609,14 +1609,18 @@ describe("rassegna del giorno per persona", () => {
 });
 
 describe("«Decide»: domande e piani di Claude per chi guarda (Review Focus 4)", () => {
-  const ids = async () => (await listClaudeDecisions()).map((d) => `${d.kind}:${d.kind === "productQuestion" ? d.commentId : d.conversationId}`);
+  // Solo le decisioni delle conversazioni: le domande sulla doc di prodotto (seme 11b) le prova `productDocs/questions.test.ts`.
+  const ids = async () =>
+    (await listClaudeDecisions())
+      .filter((d) => d.kind !== "productQuestion")
+      .map((d) => `${d.kind}:${d.conversationId}`);
 
   it("la domanda a chi può rispondere, il piano solo con plans.approve, dal più vecchio", async () => {
     as("p-marco"); // il richiedente: risponde, ma non approva
     expect(await ids()).toEqual(["question:cv-run-aud-3"]);
     as("p-laura"); // plans.approve in AUD e STW
     expect(await ids()).toEqual(["question:cv-run-aud-3", "plan:cv-run-stw-13"]);
-    const [question, plan] = await listClaudeDecisions();
+    const [question, plan] = (await listClaudeDecisions()).filter((d) => d.kind !== "productQuestion");
     expect(question).toMatchObject({
       kind: "question",
       questionId: "q-aud-3-1",

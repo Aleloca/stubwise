@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { productDocs, resetApi, setLatency } from "../api";
 import type { MailMessage, ProductBlock, ProductFact, ProductSourceRef, RichText } from "../model";
 import { CLAUDE_ID } from "../seed/people";
+import { withoutSeed11b } from "../seed/productDocs/without11b";
 import { done, ext, mail, person } from "../seed/mail/helpers";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
@@ -100,6 +101,8 @@ async function revisionView(me: string, id: string) {
 beforeEach(() => {
   resetApi();
   setLatency(0);
+  // Sign-in senza la storia di Claude del seme 11b: qui contano le righe nuove.
+  withoutSeed11b();
   state.mailMessages.push(email(EMAIL, [LAURA]));
 });
 afterEach(async () => {

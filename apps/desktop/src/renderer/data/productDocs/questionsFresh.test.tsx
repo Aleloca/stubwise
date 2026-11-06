@@ -3,6 +3,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { resetApi, setLatency } from "../api";
+import { withoutSeed11b } from "../seed/productDocs/without11b";
 import { useClaudeDecisions } from "../queries";
 import { ViewerProvider } from "../viewer";
 import { askProductQuestion, whenProductClaudeIdle } from "./claude";
@@ -26,6 +27,8 @@ function wrapper({ children }: { children: ReactNode }) {
 beforeEach(() => {
   resetApi();
   setLatency(0);
+  // Senza le domande del seme 11b: «Decide» parte vuoto.
+  withoutSeed11b();
 });
 afterEach(async () => {
   await whenProductClaudeIdle();

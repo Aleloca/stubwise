@@ -2,6 +2,7 @@ import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { productDocs, resetApi, setLatency } from "../../../data/api";
+import { withoutSeed11b } from "../../../data/seed/productDocs/without11b";
 import { whenProductIdle } from "../../../data/productDocs/presence";
 import { setSessionPersonId } from "../../../data/session";
 import { nextSeq, now, state } from "../../../data/store";
@@ -183,6 +184,8 @@ describe("la tastiera e il fuoco", () => {
 
 describe("rimandi del Task 2", () => {
   it("uno spostamento di soli blocchi non è una riga, e la riga «Updated …» non lo afferma", async () => {
+    // Sign-in come nel 11a: l'ultima revisione è di Marco (nel seme 11b è di Claude per Laura).
+    withoutSeed11b();
     const signIn = pageByTitle("Sign-in");
     const before = state.productRevisions.filter((r) => r.pageId === signIn.id).length;
     productDocs.writeProductBlocksAs(LAURA, signIn.id, [

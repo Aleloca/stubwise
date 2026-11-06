@@ -233,7 +233,8 @@ describe("Posta: caselle e allineamento", () => {
     setLatency(0);
     const [box] = await mail.listMailboxes();
     expect(box).toMatchObject({ sync: "ok", syncedAt: "2026-10-23T12:00:00Z", stale: false });
-    expect(state.mailIncoming).toEqual([]);
+    // In coda resta solo la posta di altre caselle (quella di Matteo, area 11b).
+    expect(state.mailIncoming.filter((m) => m.mailboxPersonIds.includes("p-giulia"))).toEqual([]);
     const row = (await mail.listMailThreads()).find(
       (r) => r.threadId === threadOf(INCOMING_MESSAGE_ID),
     );
@@ -265,7 +266,9 @@ describe("Posta: caselle e allineamento", () => {
     await mail.whenMailIdle();
     const box = state.mailboxes.find((b) => b.personId === "p-giulia")!;
     expect(box).toMatchObject({ sync: "failed", syncedAt: "2026-10-23T11:58:00Z" });
-    expect(state.mailIncoming.map((m) => m.id)).toEqual([INCOMING_MESSAGE_ID]);
+    expect(
+      state.mailIncoming.filter((m) => m.mailboxPersonIds.includes("p-giulia")).map((m) => m.id),
+    ).toEqual([INCOMING_MESSAGE_ID]);
   });
 
   it("una casella di un altro non si aggiorna e non si tocca: not_found", async () => {

@@ -386,6 +386,28 @@ function acqConverted(): Task[] {
   }));
 }
 
+/**
+ * Area 11b: tre task di ACQ che la doc di prodotto conosce, dopo ACQ-7. ACQ-8
+ * è chiusa e costruita diversa da quanto dice Meter reading (la domanda di
+ * Claude nel seme); ACQ-9 è aperta, e chiuderla fa la stessa cosa su un'altra
+ * frase (un copione); ACQ-10 è nata dalla richiesta che viene da Phases.
+ */
+// prettier-ignore
+const ACQ_11B_SPECS: Spec[] = [
+  { title: "Accept a lower reading after a meter change", dept: D, family: "closed", assignee: "p-marco", size: "S", week: null, lastDays: 2, createdDays: 9 },
+  { title: "Send the reading with a photo of the meter", dept: D, family: "active", assignee: "p-marco", size: "M", week: null, lastDays: 1, createdDays: 6 },
+  { title: "Instalment plan screen", dept: D, family: "todo", assignee: "p-laura", size: "M", week: "2026-W44", requestId: "req-acq-6", lastDays: 3, createdDays: 3 },
+];
+
+/** Le task del 11b, in coda a `TASKS` dopo quelle del 10b: i conteggi di prima le escludono. */
+export const TASKS_11B: Task[] = referenceTasks(byCode("ACQ"), ACQ_11B_SPECS).map((t, i) => ({
+  ...t,
+  id: `t-acq-${8 + i}`,
+  code: `ACQ-${8 + i}`,
+  milestoneId: null,
+  attachments: [],
+}));
+
 /** Le task del 10b, in coda a `TASKS`: i conteggi di prima le escludono. */
 export const TASKS_10B: Task[] = [
   ...Object.entries(INACTIVE).flatMap(([code, specs]) => referenceTasks(byCode(code), specs)),
@@ -403,4 +425,6 @@ export const TASKS: Task[] = [
   ...SERVER_TASKS,
   // Area 10b, in coda: gli inattivi e la task di ACQ convertita da una richiesta.
   ...TASKS_10B,
+  // Area 11b, in coda: le task di ACQ che la doc di prodotto conosce.
+  ...TASKS_11B,
 ];

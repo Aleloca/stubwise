@@ -103,8 +103,8 @@ describe("allarme con l'accesso di lettura: l'analisi apre la task", () => {
 
     const task = taskOf(a);
     expect(task).toMatchObject({
-      // ACQ-7 è la task convertita del seme 10b: la prossima è ACQ-8.
-      code: "ACQ-8",
+      // ACQ-7 è la task convertita del seme 10b, ACQ-8…10 sono del seme 11b: la prossima è ACQ-11.
+      code: "ACQ-11",
       projectId: ACQ,
       type: "bug",
       assigneeId: null,

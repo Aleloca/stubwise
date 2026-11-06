@@ -1,4 +1,5 @@
 import { chatNow, gate, newId, now, signalAutomations, state, storeGeneration } from "../store";
+import { noteMailSource } from "../productDocs/sourceEvents";
 import type { Mailbox, MailClassification, MailMessage } from "../types";
 import { classifyMessage, proposalsFromClassification } from "./classify";
 import { canSeeMessage, myMailbox, visibleMessages } from "./visibility";
@@ -101,6 +102,8 @@ async function advanceClassification(ids: readonly string[]): Promise<void> {
     for (const m of analysing()) {
       setClassification(m, classifyMessage(m, members));
       propose(m);
+      // La doc di prodotto dei progetti dell'email (11b): un'incerta non ne ha ancora.
+      if (m.classification.state === "done") noteMailSource(m, m.classification.projectIds);
     }
   } catch {
     if (!alive()) return;

@@ -62,10 +62,12 @@ describe("exportModelOf", () => {
       ["Phases", 0],
     ]);
     expect(doc.pages[0]!.code).toBe(pageOf("Overview").code);
-    const decisions = state.decisionLog.filter((d) => d.id === "dl-acq-1" || d.id === "dl-acq-2");
+    // dl-acq-3 l'ha portata Claude in Client decisions (seme 11b).
+    const ids = ["dl-acq-1", "dl-acq-2", "dl-acq-3"];
+    const decisions = state.decisionLog.filter((d) => ids.includes(d.id));
     expect(lines(doc)).toEqual([
       "File: Client brief.pdf (ACQ-F1)",
-      ...["dl-acq-1", "dl-acq-2"].map((id) => `Decision: ${decisions.find((d) => d.id === id)!.title}`),
+      ...ids.map((id) => `Decision: ${decisions.find((d) => d.id === id)!.title}`),
     ]);
     // Le forme dei blocchi: tabella, immagini, voci, cose da fare, titoli.
     const meter = doc.pages.find((p) => p.title === "Meter reading")!;
@@ -89,7 +91,8 @@ describe("exportModelOf", () => {
     setSessionPersonId(LAURA);
     const doc = text(modelFor((await productDocs.getProductExport(ACQ))!));
     const acqPages = new Set(state.productPages.filter((p) => p.projectId === ACQ).map((p) => p.id));
-    const comments = state.productComments.filter((c) => acqPages.has(c.pageId));
+    // Le domande di Claude (seme 11b) hanno il corpo vuoto: il testo si compone a lettura.
+    const comments = state.productComments.filter((c) => acqPages.has(c.pageId) && c.body !== "");
     expect(comments.length).toBeGreaterThan(0);
     for (const c of comments) expect(doc).not.toContain(c.body.toLowerCase());
     for (const person of PEOPLE) expect(doc).not.toContain(person.name.toLowerCase());

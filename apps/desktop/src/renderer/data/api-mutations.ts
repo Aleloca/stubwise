@@ -162,6 +162,7 @@ import {
 // Members (area 9a): usato solo dentro `createProject`, quindi l'import circolare
 // (members.ts legge lo store) è innocuo.
 import { writeJoin } from "./admin/members";
+import { holdProductSources, noteProductSource } from "./productDocs/sourceEvents";
 import { can, canInDepartment, viewerFor, type Permission } from "./viewer";
 
 // Le scritture del «server» finto. Ognuna passa da `gate()` (quindi `failNext`
@@ -574,6 +575,8 @@ function commitTaskPatch(me: string, task: Task, diffs: Diff[]): void {
   if (oldFamily !== "closed" && familyOf(task) === "closed") {
     void publishChatEvent(task.projectId, "task_closed", { kind: "task", id: task.id });
     signalAutomations({ kind: "task_closed", taskId: task.id });
+    // Il lavoro fatto è una fonte della doc di prodotto (11b).
+    noteProductSource({ kind: "task", id: task.id }, [task.projectId]);
   }
   // Le sistemazioni nei giorni valevano per quella settimana e quell'assegnatario.
   if (diffs.some((d) => d.key === "plannedWeek" || d.key === "assigneeId")) {
@@ -1535,6 +1538,8 @@ function recordDecisionAs(
   };
   state.decisionLog.push(entry);
   if (superseded) superseded.supersededById = entry.id;
+  // Una decisione registrata è una fonte della doc di prodotto (11b).
+  noteProductSource({ kind: "decision", id: entry.id }, [projectId]);
   return entry;
 }
 
@@ -3254,6 +3259,7 @@ export function applyActions(
   }
   const restore = snapshotForActions();
   const signals = holdAutomationSignals();
+  const sources = holdProductSources();
   const catalogRuns: (CatalogRun | null)[] = [];
   const codes: string[] = [];
   const projectIds = new Set<string>();
@@ -3316,10 +3322,12 @@ export function applyActions(
   } catch (error) {
     restore();
     signals.discard();
+    sources.discard();
     const reasons = busyReasonsOf(error);
     return { ok: false, index, code: failureCode(error), ...(reasons ? { reasons } : {}) };
   }
   signals.release();
+  sources.release();
   for (const requestId of closedRequests) closeRefineOfRequest(requestId);
   return { ok: true, codes, projectIds: [...projectIds], runs, catalogRuns, after };
 }

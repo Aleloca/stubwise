@@ -33,9 +33,13 @@ import { DOC_PAGES } from "./seed/docPages";
 import { DOC_SPACES } from "./seed/docs/spaces";
 import {
   PRODUCT_COMMENTS,
+  PRODUCT_COMMENTS_11B,
   PRODUCT_FOLLOWS,
+  PRODUCT_MARKS_11B,
   PRODUCT_PAGES,
   PRODUCT_REVISIONS,
+  PRODUCT_REVISIONS_11B,
+  PRODUCT_SOURCES_SEEN_11B,
   productSeedBlockIds,
 } from "./seed/productDocs";
 import {
@@ -1331,8 +1335,9 @@ function freshState(): State {
     // Il massimo dei `seq` del seme, di Claude e del Prodotto (ruling P4).
     alertSeq: Math.max(
       SEED_MAX_SEQ,
-      ...PRODUCT_REVISIONS.map((r) => r.lastSeq),
-      ...PRODUCT_COMMENTS.map((c) => c.seq),
+      ...[...PRODUCT_REVISIONS, ...PRODUCT_REVISIONS_11B].map((r) => r.lastSeq),
+      ...[...PRODUCT_COMMENTS, ...PRODUCT_COMMENTS_11B].map((c) => c.seq),
+      ...PRODUCT_MARKS_11B.map((m) => m.acceptedSeq ?? 0),
     ),
     docPages: DOC_PAGES.map(copy),
     docSpaces: DOC_SPACES.map(copy),
@@ -1340,14 +1345,15 @@ function freshState(): State {
     docGenerationLog: new Map(),
     docsChatProvider: "Team API key",
     productPages: PRODUCT_PAGES.map(copy),
-    productRevisions: PRODUCT_REVISIONS.map(copy),
-    productMarks: [],
+    productRevisions: [...PRODUCT_REVISIONS, ...PRODUCT_REVISIONS_11B].map(copy),
+    productMarks: PRODUCT_MARKS_11B.map(copy),
     productPending: [],
-    productSourcesSeen: new Set(),
+    // Le fonti che il seme del 11b ha già fatto passare dal motore.
+    productSourcesSeen: new Set(PRODUCT_SOURCES_SEEN_11B),
     productFollows: PRODUCT_FOLLOWS.map(copy),
     productBlockIds: productSeedBlockIds(),
     productSessionDeletes: new Map(),
-    productComments: PRODUCT_COMMENTS.map(copy),
+    productComments: [...PRODUCT_COMMENTS, ...PRODUCT_COMMENTS_11B].map(copy),
     productPresence: [],
     driveFiles: DRIVE_FILES.map(copy),
     driveOpens: DRIVE_OPENS.map(copy),
