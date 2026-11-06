@@ -576,3 +576,27 @@ selezione)*.
 
 Le altre scelte marcate *(scelta del costruttore)* sono da approvare col
 brief.
+
+## Emendamenti (controller, 6 nov 2026, fix round 1 del Task 10)
+
+1. **La divergenza ha tre righe** (§3.1.5): «The page says» / «La pagina
+   dice» (la frase com'è), «Was built» / «È stato fatto» (`built`) e
+   **«Proposed» / «Proposta»** con la frase del fatto (`apply`), quando c'è.
+   «Update it» scrive quella, parola per parola: va mostrata.
+2. **Il filo risolto non mostra più «Now» / «The page says»** (§3.1, §3.3):
+   dopo «Update it» la frase di adesso è già quella proposta, e accanto
+   direbbe il falso. Restano la frase citata in testa, «Was built» e
+   «Proposed», poi «Answered by …».
+3. **La divergenza senza richiesta da proporre non la offre** (§3.2): con
+   `request` nullo la frase è «ACQ-14 was built differently from what the
+   page says. Should I update the page?» / «ACQ-14 è stata fatta
+   diversamente da come dice la pagina. Aggiorno la pagina?» (e la forma
+   senza codice). Vale nel filo, in Home e nella card.
+4. **«N questions to close» segue il chip `page` della sezione Docs del
+   progetto** (§3.7): compare anche sulle pagine dei Docs generati, perché
+   il contesto del riquadro non distingue lo spazio Prodotto (`ContextRef`
+   ha solo `route: "docs"`). La frase («nei Docs di ACQ») resta vera a
+   livello di progetto. Tolto il chip («×»), la riga non c'è.
+5. **Nessuna tinta del «filo attivo» sul blocco dopo «Update it»** (§3.3):
+   la tinta del 11a segue solo i fili aperti (`activeThread` fra gli
+   aperti); il filo risolto non la porta. Il fuoco va al blocco aggiornato.

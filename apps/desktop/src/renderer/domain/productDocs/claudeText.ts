@@ -14,6 +14,12 @@ export interface QuestionWords {
   reason: ProductQuestionReason;
   forName: string | null;
   taskCode: string | null;
+  /**
+   * La domanda ha una strada per «Open a request» (fix round 1, I4): senza,
+   * la divergenza non la offre («…Should I update the page?»). Assente (una
+   * riga nata prima) vale come sì, la frase dello shape.
+   */
+  canRequest?: boolean;
 }
 
 /**
@@ -28,10 +34,12 @@ export function questionKey(q: QuestionWords): { key: string; params: Record<str
     case "contradicts_person":
     case "no_permission":
       return q.forName ? { key: base, params: { name: q.forName } } : { key: `${base}Someone`, params: {} };
-    case "diverges":
+    case "diverges": {
+      const tail = q.canRequest === false ? "NoRequest" : "";
       return q.taskCode
-        ? { key: base, params: { code: q.taskCode } }
-        : { key: "productDocs.question.reason.divergesNoCode", params: {} };
+        ? { key: `${base}${tail}`, params: { code: q.taskCode } }
+        : { key: `productDocs.question.reason.divergesNoCode${tail}`, params: {} };
+    }
     default:
       return { key: base, params: {} };
   }
@@ -48,8 +56,11 @@ export function answerLabel(t: T, option: ProductAnswerChoice): string {
   return t(`productDocs.question.option.${option}`);
 }
 
-/** Le forme visibili che non portano la data nell'etichetta (come `SourceLine`). */
-const DATED: ReadonlySet<string> = new Set([
+/**
+ * Le forme visibili della fonte che non portano la data nell'etichetta: chi
+ * le mostra la aggiunge dal dato (`SourceLine` e `sourceText`, una regola sola).
+ */
+export const DATED_SOURCE_LABELS: ReadonlySet<string> = new Set([
   "productDocs.source.email",
   "productDocs.source.meeting",
   "productDocs.source.decision",
@@ -63,7 +74,7 @@ const DATED: ReadonlySet<string> = new Set([
  */
 export function sourceText(t: T, source: ProductSourceView): string {
   const parts = [t(source.label.key, source.label.params ?? {})];
-  if (source.at && DATED.has(source.label.key)) parts.push(t("productDocs.mark.date", { date: Date.parse(source.at) }));
+  if (source.at && DATED_SOURCE_LABELS.has(source.label.key)) parts.push(t("productDocs.mark.date", { date: Date.parse(source.at) }));
   if (source.code) parts.push(source.code);
   return parts.join(" · ");
 }

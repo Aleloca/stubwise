@@ -1,7 +1,8 @@
-import { forwardRef, useId, useRef, useState } from "react";
+import { forwardRef, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { CodeLink } from "../../../components/CodeLink";
 import { WhoCanLink } from "../../../components/WhoCanLink";
+import { CLAUDE_PANEL_ID } from "../../../layout/claudePanel/panelEvents";
 import { usePeople } from "../../../data/queries";
 import type { ProductAnswerChoice, ProductCommentThread, ProductQuestionView, RichText } from "../../../data/types";
 import { answerLabel, questionKey, type QuestionWords } from "../../../domain/productDocs/claudeText";
@@ -68,8 +69,23 @@ export function QuestionAnswerButtons({
   className?: string;
 }) {
   const { t } = useTranslation();
+  // ←/→ fra le risposte (shape Q §6), in giro; Tab resta di ogni bottone.
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    const buttons = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button[data-answer]")];
+    const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (at === -1) return;
+    e.preventDefault();
+    const step = e.key === "ArrowRight" ? 1 : -1;
+    buttons[(at + step + buttons.length) % buttons.length]!.focus();
+  };
   return (
-    <div role="group" aria-label={t("productDocs.question.answersLabel")} className={`flex flex-wrap gap-2 ${className}`}>
+    <div
+      role="group"
+      aria-label={t("productDocs.question.answersLabel")}
+      onKeyDown={onKeyDown}
+      className={`flex flex-wrap gap-2 ${className}`}
+    >
       {options.map((option) => {
         const off = busy !== null || (option === "apply" && blocked);
         return (
@@ -192,6 +208,16 @@ export const QuestionThread = forwardRef<
   const [busy, setBusy] = useState<ProductAnswerChoice | null>(null);
   const [refusal, setRefusal] = useState<{ kind: "forbidden" } | { kind: "error"; option: Answerable } | null>(null);
   const blockedId = useId();
+  const article = useRef<HTMLElement | null>(null);
+  const setArticle = (el: HTMLElement | null) => {
+    article.current = el;
+    if (typeof ref === "function") ref(el);
+    else if (ref) ref.current = el;
+  };
+  /** Il fuoco sul filo PRIMA che i bottoni spariscano (fix round 1, I1 e M6): mai sul body. */
+  const holdFocus = () => {
+    if (article.current?.contains(document.activeElement)) article.current.focus({ preventScroll: true });
+  };
 
   // Un doppio clic risponde una volta sola: il secondo arriva prima che lo stato spenga i bottoni.
   const inFlight = useRef(false);
@@ -203,10 +229,16 @@ export const QuestionThread = forwardRef<
     onAnswer(option)
       .catch((error: unknown) => {
         const e = error as { message?: string; byId?: string | null; option?: ProductAnswerChoice } | null;
-        if (e?.message === "already_answered") onAlreadyAnswered({ byId: e.byId ?? null, option: e.option ?? option });
-        else if (e?.message === "changed_after") onStale();
-        else if (e?.message === "forbidden") setRefusal({ kind: "forbidden" });
-        else setRefusal({ kind: "error", option });
+        if (e?.message === "already_answered") {
+          holdFocus();
+          onAlreadyAnswered({ byId: e.byId ?? null, option: e.option ?? option });
+        } else if (e?.message === "changed_after") onStale();
+        else if (e?.message === "forbidden") {
+          // Il permesso perso: la frase col «Who?», e il filo si rilegge in sola lettura.
+          holdFocus();
+          setRefusal({ kind: "forbidden" });
+          onStale();
+        } else setRefusal({ kind: "error", option });
       })
       .finally(() => {
         inFlight.current = false;
@@ -230,9 +262,23 @@ export const QuestionThread = forwardRef<
   })();
   const open = !resolved && !firstAnswer && q.answer === null;
 
+  // La scheda «Open a request» annullata (la riga sparisce, la domanda resta
+  // aperta): il fuoco torna al bottone del filo (shape Q §6), se era nel
+  // riquadro o perso; chi intanto è andato altrove lo tiene.
+  const wasPreparing = useRef(preparing);
+  useEffect(() => {
+    const was = wasPreparing.current;
+    wasPreparing.current = preparing;
+    if (!was || preparing || !open) return;
+    const active = document.activeElement;
+    const panel = document.getElementById(CLAUDE_PANEL_ID);
+    if (active && active !== document.body && active.isConnected && !panel?.contains(active)) return;
+    article.current?.querySelector<HTMLElement>('[data-answer="request"]')?.focus();
+  }, [preparing, open]);
+
   return (
     <article
-      ref={ref}
+      ref={setArticle}
       tabIndex={-1}
       data-thread={root.id}
       data-question=""
@@ -256,7 +302,7 @@ export const QuestionThread = forwardRef<
       </p>
       <SourceLine sources={[q.source]} />
       <p className="text-md leading-5 text-pretty text-ink [overflow-wrap:anywhere]">
-        <QuestionSentence words={q} />
+        <QuestionSentence words={{ ...q, canRequest: q.options.includes("request") }} />
       </p>
       <BeforeAfter q={q} closed={!open} />
       {answered && (
@@ -307,7 +353,11 @@ export const QuestionThread = forwardRef<
               <span aria-hidden="true">·</span>
               <button
                 type="button"
-                onClick={() => answer(refusal.option)}
+                onClick={() => {
+                  // Il bottone della risposta prende il fuoco prima che l'avviso sparisca (fix round 1, I2).
+                  article.current?.querySelector<HTMLElement>(`[data-answer="${refusal.option}"]`)?.focus();
+                  answer(refusal.option);
+                }}
                 className="font-medium underline underline-offset-2"
               >
                 {t("productDocs.question.retry")}
@@ -318,7 +368,9 @@ export const QuestionThread = forwardRef<
       )}
       {open && !q.canAnswer && (
         <p className="text-xs leading-4 text-pretty text-ink-muted">
-          {t("productDocs.question.readOnly", { code: projectCode })}{" "}
+          {refusal?.kind === "forbidden"
+            ? t("productDocs.question.forbidden", { code: projectCode })
+            : t("productDocs.question.readOnly", { code: projectCode })}{" "}
           · <WhoCanLink action="editDocs" projectId={projectId} projectCode={projectCode} />
         </p>
       )}

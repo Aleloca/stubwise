@@ -332,6 +332,8 @@ export type ProductQuestionDecision = {
   pageCode: string;
   pageTitle: string;
   projectId: string;
+  /** Il codice del progetto, per gli indirizzi della pagina (la cronologia di «Open history»). */
+  projectCode: string;
   /** Quando Claude ha chiesto. */
   at: string;
   /** La frase citata dal filo. */

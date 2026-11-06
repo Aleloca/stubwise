@@ -150,6 +150,7 @@ export function presentProductQuestion(me: string, out: AppNotification): void {
           : null,
       answer: q.answer?.option ?? null,
       answeredByName: seen(q.answer?.byId),
+      canRequest: q.request !== null,
     },
   };
 }

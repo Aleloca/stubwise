@@ -674,7 +674,8 @@ const QUESTIONS_SHOWN = 5;
  */
 function QuestionsToClose({ context }: { context: PageContext }) {
   const { t } = useTranslation();
-  const ref = context.ref;
+  // Legata al chip (fix round 1, M1): tolto il chip, la riga non c'è.
+  const ref = context.sent;
   const projectId = ref?.kind === "page" && ref.route === "docs" ? ref.projectId : null;
   const projects = useProjects().data;
   const code = projects?.find((p) => p.id === projectId)?.code ?? null;
@@ -682,6 +683,12 @@ function QuestionsToClose({ context }: { context: PageContext }) {
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
   const listId = useId();
+  const list = useRef<HTMLUListElement>(null);
+  // «Show all N» sparisce col fuoco sopra: il fuoco va alla prima riga nuova
+  // nello stesso commit (fix round 1, I3), mai sul body.
+  useLayoutEffect(() => {
+    if (all) list.current?.querySelectorAll<HTMLElement>("a")[QUESTIONS_SHOWN]?.focus();
+  }, [all]);
   const data = projectId ? questions.data : undefined;
   if (!data || data.count === 0 || !code) return null;
   const items = all ? data.items : data.items.slice(0, QUESTIONS_SHOWN);
@@ -711,7 +718,7 @@ function QuestionsToClose({ context }: { context: PageContext }) {
         </svg>
       </button>
       {open && (
-        <ul id={listId} className="flex flex-col pb-1">
+        <ul ref={list} id={listId} className="flex flex-col pb-1">
           {items.map((q) => (
             <li key={q.commentId}>
               <Link
@@ -728,14 +735,14 @@ function QuestionsToClose({ context }: { context: PageContext }) {
               </Link>
             </li>
           ))}
-          {!all && data.items.length > QUESTIONS_SHOWN && (
+          {!all && data.count > QUESTIONS_SHOWN && (
             <li>
               <button
                 type="button"
                 onClick={() => setAll(true)}
                 className="mx-2 my-1 inline-flex h-7 items-center rounded-md px-2 text-sm font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
               >
-                {t("claude.panel.questions.showAll", { count: data.items.length })}
+                {t("claude.panel.questions.showAll", { count: data.count })}
               </button>
             </li>
           )}

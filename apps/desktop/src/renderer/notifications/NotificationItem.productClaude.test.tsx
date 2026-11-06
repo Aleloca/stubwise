@@ -200,8 +200,20 @@ describe("product_doc.question", () => {
     await i18n.changeLanguage("it");
     renderItem(n, LAURA);
     expect(itemText()).toContain(`Claude chiede su ${page("Meter reading").code} · Meter reading`);
+    // Senza richiesta da proporre la frase non la offre (fix round 1, I4).
+    expect(itemText()).toContain("ACQ-8 è stata fatta diversamente da come dice la pagina. Aggiorno la pagina?");
+    expect(itemText()).not.toContain("apro una richiesta");
+  });
+
+  it("fix round 1, I4: con una richiesta da proporre, «…or open a request?» (en)", async () => {
+    state.productComments.find((c) => c.id === "pc-acq11b-meter-q")!.question!.request = {
+      title: "Lower readings after a meter change",
+      description: "Decide whether a lower reading is accepted.",
+    };
+    const n = await cardFor(LAURA, "product_doc.question", "Meter reading");
+    renderItem(n, LAURA);
     expect(itemText()).toContain(
-      "ACQ-8 è stata fatta diversamente da come dice la pagina. Aggiorno la pagina o apro una richiesta?",
+      "ACQ-8 was built differently from what the page says. Should I update the page, or open a request?",
     );
   });
 

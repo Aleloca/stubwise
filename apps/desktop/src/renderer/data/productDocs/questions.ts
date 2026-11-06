@@ -172,6 +172,7 @@ export function productQuestionDecisions(me: string): ProductQuestionDecision[] 
       pageCode: page.code,
       pageTitle: page.title,
       projectId: page.projectId,
+      projectCode: state.projectsById.get(page.projectId)?.code ?? "",
       at: c.createdAt,
       quote: c.quote,
       link: threadLink(page, c.id),

@@ -402,8 +402,8 @@ function ProductQuestionItem({ decision }: { decision: ProductQuestionDecision }
   const name = (id: string | null | undefined) =>
     people?.find((p) => p.id === id)?.name ?? t("taskUi.stall.someone");
   const code = decision.pageCode;
-  const sentence = questionSentence(t, decision);
-  const page = decision.link.split("?")[0]!.replace(/^#/, "");
+  const words = { ...decision, canRequest: decision.options.includes("request") };
+  const sentence = questionSentence(t, words);
 
   const failed = (error: unknown) => {
     const e = error as { message?: string; byId?: string | null } | null;
@@ -421,7 +421,11 @@ function ProductQuestionItem({ decision }: { decision: ProductQuestionDecision }
       item.closest("section")?.querySelector<HTMLElement>("h2") ??
       null;
     if (!target) return;
-    if (target.tagName === "H2") target.setAttribute("tabindex", "-1");
+    if (target.tagName === "H2" && !target.hasAttribute("tabindex")) {
+      // Il titolo prende il fuoco una volta: lasciato, torna com'era.
+      target.setAttribute("tabindex", "-1");
+      target.addEventListener("blur", () => target.removeAttribute("tabindex"), { once: true });
+    }
     target.focus({ preventScroll: true });
   };
 
@@ -436,7 +440,11 @@ function ProductQuestionItem({ decision }: { decision: ProductQuestionDecision }
               action: {
                 label: t("home.decide.product.openHistory"),
                 run: () =>
-                  void navigate({ href: revisionId ? `${page}?history=${encodeURIComponent(revisionId)}` : page } as never),
+                  void navigate({
+                    to: "/p/$code/docs/product/$page",
+                    params: { code: decision.projectCode, page: code },
+                    search: (revisionId ? { history: revisionId } : {}) as never,
+                  }),
               },
             }),
           ),
@@ -458,7 +466,7 @@ function ProductQuestionItem({ decision }: { decision: ProductQuestionDecision }
         content={
           <>
             <p title={sentence} className="line-clamp-2 max-w-[72ch] text-lg font-medium text-ink [overflow-wrap:anywhere]">
-              <QuestionSentence words={decision} />
+              <QuestionSentence words={words} />
             </p>
             <SourceLine sources={[decision.source]} className="max-w-[72ch]" />
             {decision.apply && (

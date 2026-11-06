@@ -7,6 +7,7 @@ import {
   useProductRequestsPreparing,
   useReopenProductComment,
   useResolveProductComment,
+  useSessionPersonId,
 } from "../../../data/queries";
 import type { ProductCommentThread, ProductPageView, Project } from "../../../data/types";
 import { anchorIdsOf } from "../../../domain/productDocs/blocks";
@@ -77,11 +78,17 @@ export function CommentsColumn({
   const resolve = useResolveProductComment();
   const reopen = useReopenProductComment();
   const answerQuestion = useAnswerProductQuestion();
+  const me = useSessionPersonId();
   const preparing = useProductRequestsPreparing(page.id);
   // Chi guarda è arrivato secondo (`already_answered`): il filo ricaricato lo dice.
   const [firstAnswers, setFirstAnswers] = useState<ReadonlyMap<string, FirstAnswer>>(new Map());
   // Il fuoco di una risposta: quando il filo lascia gli aperti, va qui.
-  const answering = useRef<{ rootId: string; target: () => HTMLElement | null } | null>(null);
+  const answering = useRef<{
+    rootId: string;
+    /** La risposta data; `null` per un bersaglio già deciso (il filo, dopo `already_answered`). */
+    option: "apply" | "keep" | null;
+    target: () => HTMLElement | null;
+  } | null>(null);
   const canComment = page.permissions.edit;
   const [showResolved, setShowResolved] = useState(false);
   const [stale, setStale] = useState(false);
@@ -135,6 +142,19 @@ export function CommentsColumn({
   useLayoutEffect(() => {
     const want = answering.current;
     if (!want || open.some((th) => th.root.id === want.rootId)) return;
+    // La rilettura può arrivare prima del rifiuto (`already_answered`): se il
+    // filo è chiuso con una risposta diversa da quella data, il fuoco va al
+    // filo fra i risolti (o, finché non c'è, a «N resolved»), non al blocco.
+    if (want.option !== null) {
+      const done = resolved.find((th) => th.root.id === want.rootId)?.root.question?.answer;
+      if (!done || done.option !== want.option || done.byId !== me) {
+        const rootId = want.rootId;
+        answering.current = { rootId, option: null, target: () => threads.current.get(rootId) ?? null };
+        if (!showResolved) setShowResolved(true);
+        resolvedButton.current?.focus({ preventScroll: true });
+        return;
+      }
+    }
     const el = want.target();
     if (!el) return;
     answering.current = null;
@@ -278,6 +298,7 @@ export function CommentsColumn({
     const next = live.slice(i + 1).find((x) => x.root.id !== rootId) ?? gone.find((x) => x.root.id !== rootId) ?? null;
     answering.current = {
       rootId,
+      option,
       target:
         option === "apply"
           ? () => blockOf(th.root.anchorId) ?? resolvedButton.current
@@ -297,7 +318,7 @@ export function CommentsColumn({
   const alreadyAnswered = (rootId: string) => (first: FirstAnswer) => {
     setFirstAnswers((was) => new Map(was).set(rootId, first));
     setShowResolved(true);
-    answering.current = { rootId, target: () => threads.current.get(rootId) ?? null };
+    answering.current = { rootId, option: null, target: () => threads.current.get(rootId) ?? null };
     void comments.refetch();
   };
   const questionProps = (th: ProductCommentThread, isResolved: boolean) => ({

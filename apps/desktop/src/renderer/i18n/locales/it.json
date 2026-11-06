@@ -12494,7 +12494,9 @@
         "diverges": "<code>{{code}}</code> è stata fatta diversamente da come dice la pagina. Aggiorno la pagina o apro una richiesta?",
         "divergesNoCode": "Una task è stata fatta diversamente da come dice la pagina. Aggiorno la pagina o apro una richiesta?",
         "no_permission": "Viene da {{name}}, che non può modificare i Docs, quindi non ho cambiato la pagina. Deve dire così?",
-        "no_permissionSomeone": "Viene da una persona che non può modificare i Docs, quindi non ho cambiato la pagina. Deve dire così?"
+        "no_permissionSomeone": "Viene da una persona che non può modificare i Docs, quindi non ho cambiato la pagina. Deve dire così?",
+        "divergesNoRequest": "<code>{{code}}</code> è stata fatta diversamente da come dice la pagina. Aggiorno la pagina?",
+        "divergesNoCodeNoRequest": "Una task è stata fatta diversamente da come dice la pagina. Aggiorno la pagina?"
       },
       "option": {
         "apply": "Aggiorna così",

@@ -12494,7 +12494,9 @@
         "diverges": "<code>{{code}}</code> was built differently from what the page says. Should I update the page, or open a request?",
         "divergesNoCode": "A task was built differently from what the page says. Should I update the page, or open a request?",
         "no_permission": "This came from {{name}}, who can't edit the Docs, so I didn't change the page. Should it say this?",
-        "no_permissionSomeone": "This came from someone who can't edit the Docs, so I didn't change the page. Should it say this?"
+        "no_permissionSomeone": "This came from someone who can't edit the Docs, so I didn't change the page. Should it say this?",
+        "divergesNoRequest": "<code>{{code}}</code> was built differently from what the page says. Should I update the page?",
+        "divergesNoCodeNoRequest": "A task was built differently from what the page says. Should I update the page?"
       },
       "option": {
         "apply": "Update it",

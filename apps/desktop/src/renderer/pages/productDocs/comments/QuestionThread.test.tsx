@@ -1,8 +1,10 @@
+import * as React from "react";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { productDocs, resetApi, setLatency } from "../../../data/api";
+import { failNext, productDocs, resetApi, setLatency } from "../../../data/api";
 import { state } from "../../../data/store";
+import { revokeProjectPermission } from "../../../data/viewer";
 import type { ProductBlock } from "../../../data/types";
 import { plain } from "../../../domain/productDocs/richText";
 import { setLanguage } from "../../../i18n";
@@ -10,6 +12,9 @@ import { CLAUDE_PANEL_ID, openClaudePanel } from "../../../layout/claudePanel/pa
 import { DOCKED_PANEL_QUERY } from "../../../layout/useDetailPanel";
 import { setMatchMedia } from "../../../test/setup";
 import { renderRoute } from "../../../test/renderRoute";
+import { renderWithData } from "../../../test/renderWithData";
+import { setSessionPersonId } from "../../../data/session";
+import { QuestionThread } from "./QuestionThread";
 
 // Le domande di Claude nella colonna dei commenti (11b, Task 10; shape
 // product-claude-questions.md §3.1–3.3). Nel seme: Bills ha una domanda
@@ -52,6 +57,28 @@ const thread = (id: string) => document.querySelector<HTMLElement>(`[data-thread
 const panel = () => document.getElementById(CLAUDE_PANEL_ID)!;
 const flat = (el: Element) => (el.textContent ?? "").replace(/\s+/g, " ");
 
+/**
+ * Il fuoco perso sul body anche per un solo giro (fix round 1): a ogni
+ * mutazione del DOM, dopo il commit, si guarda dov'è il fuoco. Un fuoco
+ * rimesso nel layout dello stesso commit non si vede; uno che aspetta la
+ * rilettura sì.
+ */
+function watchBody() {
+  const hits: number[] = [];
+  const observer = new MutationObserver(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body || !active.isConnected) hits.push(hits.length);
+  });
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
+  return { hits, stop: () => observer.disconnect() };
+}
+
+/** Il fuoco è su un elemento vivo della pagina, non sul body né su un nodo tolto. */
+function expectFocusAlive() {
+  const active = document.activeElement;
+  expect(active && active !== document.body && active.isConnected).toBe(true);
+}
+
 async function questionThread(code: string, id: string, person = LAURA) {
   await open(code, person, `?comment=${id}`);
   await column();
@@ -66,9 +93,8 @@ describe("il filo-domanda", () => {
     const text = flat(th);
     expect(text).toContain("Claude");
     expect(th.querySelector("[data-source-line]")).not.toBeNull();
-    expect(text).toContain(
-      "ACQ-8 was built differently from what the page says. Should I update the page, or open a request?",
-    );
+    // Nel seme la divergenza non ha una richiesta da proporre: la frase non la offre (fix round 1, I4).
+    expect(text).toContain("ACQ-8 was built differently from what the page says. Should I update the page?");
     expect(text).toContain(`The page says${METER_LINE}`);
     expect(text).toContain("Was builtA reading lower than the previous one is accepted when the meter was replaced in the same month.");
     expect(text).toContain(`Proposed${METER_APPLY}`);
@@ -157,10 +183,29 @@ describe("il filo-domanda", () => {
     comment.question!.answer = { byId: MARCO, option: "keep", seq: 9_999, revisionId: null };
     comment.resolved = { byId: MARCO, at: comment.createdAt };
     const user = userEvent.setup();
-    await user.click(within(th).getByRole("button", { name: /^Update it/ }));
+    const update = within(th).getByRole("button", { name: /^Update it/ });
+    act(() => update.focus());
+    // Una rilettura lenta: la finestra fra il rifiuto e il filo ricaricato si vede.
+    setLatency(300);
+    // Dove passa il fuoco: mai sul body (un nodo tolto), mai sul blocco della pagina
+    // (la frase non è cambiata: niente da guardare lì).
+    const visited: HTMLElement[] = [];
+    const onFocusIn = (e: FocusEvent) => visited.push(e.target as HTMLElement);
+    document.addEventListener("focusin", onFocusIn);
+    const body = watchBody();
+    await user.click(update);
     const col = await column();
     await waitFor(() => expect(flat(col)).toContain("Marco Bellini answered first: Leave it as is"));
+    // Mai sul body, nemmeno mentre il filo si ricarica (fix round 1, I1): il fuoco è già sul filo.
+    expectFocusAlive();
+    expect(document.activeElement).toBe(thread(METER_Q));
+    await waitFor(() => expect(within(col).getByRole("button", { name: /resolved/ })).toHaveAttribute("aria-expanded", "true"));
     await waitFor(() => expect(document.activeElement).toBe(thread(METER_Q)));
+    expectFocusAlive();
+    document.removeEventListener("focusin", onFocusIn);
+    body.stop();
+    expect(body.hits).toEqual([]);
+    expect(visited.filter((el) => el.closest("[data-editor-body]"))).toEqual([]);
     expect(within(col).queryByRole("group", { name: "Answers to Claude's question" })).toBeNull();
     // Niente è cambiato nella pagina.
     expect(document.querySelector("[data-editor-body]")!.textContent).toContain(METER_LINE);
@@ -258,11 +303,181 @@ describe("«N questions to close» nel riquadro di Claude", () => {
     await waitFor(() => expect(flat(row()!)).toBe("1 domanda da chiudere nei Docs di ACQ"));
   });
 
+  it("I3: «Show all 7» porta il fuoco alla prima riga nuova, mai sul body", async () => {
+    const bills = state.productComments.find((c) => c.id === BILLS_Q)!;
+    for (let i = 1; i <= 5; i++) {
+      state.productComments.push({ ...structuredClone(bills), id: `pc-extra-q-${i}`, seq: bills.seq + 1000 + i });
+    }
+    await open(METER, LAURA);
+    act(() => openClaudePanel());
+    await waitFor(() => expect(row()).not.toBeNull());
+    expect(flat(row()!)).toBe("7 questions to close in ACQ's docs");
+    const user = userEvent.setup();
+    await user.click(row()!);
+    expect(within(panel()).getAllByRole("link", { name: /ACQ-D\d+/ })).toHaveLength(5);
+    const all = within(panel()).getByRole("button", { name: "Show all 7" });
+    act(() => all.focus());
+    const body = watchBody();
+    await user.click(all);
+    const links = within(panel()).getAllByRole("link", { name: /ACQ-D\d+/ });
+    expect(links).toHaveLength(7);
+    body.stop();
+    expect(body.hits).toEqual([]);
+    expect(document.activeElement).toBe(links[5]);
+  });
+
+  it("M1: tolto il chip («×»), la riga non c'è più; rimesso, torna", async () => {
+    await open(METER, LAURA);
+    act(() => openClaudePanel());
+    await waitFor(() => expect(row()).not.toBeNull());
+    const user = userEvent.setup();
+    await user.click(within(panel()).getByRole("button", { name: /^(Don't use this page|Non usare questa pagina)$/ }));
+    await waitFor(() => expect(row()).toBeNull());
+    await user.click(within(panel()).getByRole("button", { name: /^(Use it|Usala)$/ }));
+    await waitFor(() => expect(row()).not.toBeNull());
+  });
+
   it("Sara (senza Modifica Docs) non ha la riga", async () => {
     await open(METER, SARA);
     act(() => openClaudePanel());
     await waitFor(() => expect(panel().getAttribute("data-claude-panel")).toBe("open"));
     await act(async () => {});
     expect(row()).toBeNull();
+  });
+});
+
+describe("fix round 1", () => {
+  it("I2: «Retry» dopo un errore: il fuoco torna al bottone della risposta, mai sul body, e la risposta parte", async () => {
+    const th = await questionThread(BILLS, BILLS_Q);
+    failNext("productDocs.answerProductQuestion");
+    const user = userEvent.setup();
+    await user.click(within(th).getByRole("button", { name: /^Leave it as is/ }));
+    const alert = await within(th).findByRole("alert");
+    expect(flat(alert)).toContain("Couldn't send the answer");
+    const retry = within(alert).getByRole("button", { name: "Retry" });
+    act(() => retry.focus());
+    setLatency(300);
+    await user.click(retry);
+    // Subito, con la risposta in volo: il fuoco sul bottone della risposta, non sul body.
+    expectFocusAlive();
+    expect(document.activeElement).toBe(within(thread(BILLS_Q)!).getByRole("button", { name: /^(Leave it as is|Answering…)/ }));
+    const body = watchBody();
+    await waitFor(() => expect(state.productComments.find((c) => c.id === BILLS_Q)!.question!.answer?.option).toBe("keep"));
+    await waitFor(() => expect(thread(BILLS_Q)).toBeNull());
+    body.stop();
+    expect(body.hits).toEqual([]);
+    expect(document.activeElement).not.toBe(document.body);
+  });
+
+  it("I4: la divergenza senza strada per una richiesta non la offre: «Should I update the page?»; in it «Aggiorno la pagina?»", async () => {
+    const th = await questionThread(METER, METER_Q);
+    expect(flat(th)).toContain("ACQ-8 was built differently from what the page says. Should I update the page?");
+    expect(flat(th)).not.toContain("open a request");
+    act(() => setLanguage("it"));
+    await waitFor(() =>
+      expect(flat(thread(METER_Q)!)).toContain("ACQ-8 è stata fatta diversamente da come dice la pagina. Aggiorno la pagina?"),
+    );
+    expect(flat(thread(METER_Q)!)).not.toContain("apro una richiesta");
+  });
+
+  it("I4: con una richiesta da proporre la frase la offre, e c'è il bottone (en e it)", async () => {
+    state.productComments.find((c) => c.id === METER_Q)!.question!.request = {
+      title: "Lower readings after a meter change",
+      description: "Decide whether a lower reading is accepted.",
+    };
+    const th = await questionThread(METER, METER_Q);
+    expect(flat(th)).toContain("Should I update the page, or open a request?");
+    expect(within(th).getByRole("button", { name: "Open a request" })).toBeInTheDocument();
+    act(() => setLanguage("it"));
+    await waitFor(() => expect(flat(thread(METER_Q)!)).toContain("Aggiorno la pagina o apro una richiesta?"));
+  });
+
+  it("M5a: ←/→ fra i bottoni delle risposte", async () => {
+    const th = await questionThread(BILLS, BILLS_Q);
+    const buttons = within(within(th).getByRole("group", { name: "Answers to Claude's question" })).getAllByRole("button");
+    act(() => buttons[0]!.focus());
+    const user = userEvent.setup();
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(buttons[1]);
+    await user.keyboard("{ArrowRight}{ArrowRight}");
+    expect(document.activeElement).toBe(buttons[0]);
+    await user.keyboard("{ArrowLeft}");
+    expect(document.activeElement).toBe(buttons[2]);
+  });
+
+  it("M5b: annullata la scheda, il fuoco torna a «Open a request» nel filo", async () => {
+    const th = await questionThread(BILLS, BILLS_Q);
+    const user = userEvent.setup();
+    await user.click(within(th).getByRole("button", { name: "Open a request" }));
+    await waitFor(() => expect(document.activeElement).toBe(panel().querySelector("[data-proposal]")));
+    await waitFor(() => expect(flat(thread(BILLS_Q)!)).toContain("A request is being prepared"));
+    await user.click(within(panel().querySelector<HTMLElement>("[data-proposal]")!).getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(thread(BILLS_Q)!).getByRole("button", { name: "Open a request" })),
+    );
+  });
+
+  it("M6: `forbidden` fra lettura e clic: la frase col «Who?», nessun bottone attivo, il fuoco mai sul body", async () => {
+    const th = await questionThread(METER, METER_Q);
+    const update = within(th).getByRole("button", { name: /^Update it/ });
+    // Il permesso si perde fra la lettura e il clic: proprio al clic, prima della chiamata.
+    update.addEventListener("click", () => revokeProjectPermission(LAURA, "prj-acq", "docs.edit" as never), {
+      capture: true,
+      once: true,
+    });
+    act(() => update.focus());
+    const body = watchBody();
+    const user = userEvent.setup();
+    await user.click(update);
+    await waitFor(() => expect(flat(thread(METER_Q)!)).toContain("You can no longer answer in ACQ."));
+    expectFocusAlive();
+    await waitFor(() =>
+      expect(within(thread(METER_Q)!).queryByRole("group", { name: "Answers to Claude's question" })).toBeNull(),
+    );
+    body.stop();
+    expect(body.hits).toEqual([]);
+    expect(within(thread(METER_Q)!).getByRole("button", { name: /who can/i })).toBeInTheDocument();
+  });
+});
+
+describe("fix round 1, I1: il filo da solo, senza rilettura", () => {
+  it("un `already_answered` sposta il fuoco sul filo nello stesso giro in cui i bottoni spariscono", async () => {
+    setSessionPersonId(LAURA);
+    const meter = state.productPages.find((p) => p.code === METER)!;
+    const { open: threads } = await productDocs.listProductComments(meter.id);
+    const th = threads.find((x) => x.root.id === METER_Q)!;
+    const rejected = Object.assign(new Error("already_answered"), { byId: MARCO, option: "keep" as const });
+    let first: unknown = null;
+    function Host() {
+      const [answer, setAnswer] = React.useState<{ byId: string | null; option: "keep" } | null>(null);
+      return (
+        <QuestionThread
+          thread={th}
+          projectId="prj-acq"
+          projectCode="ACQ"
+          canComment
+          active={false}
+          preparing={false}
+          firstAnswer={answer}
+          onAnswer={() => Promise.reject(rejected)}
+          onRequest={() => {}}
+          // La colonna rilegge il filo DOPO: qui la rilettura non arriva mai.
+          onAlreadyAnswered={(f) => {
+            first = f;
+            setAnswer(f as { byId: string | null; option: "keep" });
+          }}
+          onStale={() => {}}
+        />
+      );
+    }
+    renderWithData(<Host />, { personId: LAURA });
+    const update = screen.getByRole("button", { name: /^Update it/ });
+    act(() => update.focus());
+    const user = userEvent.setup();
+    await user.click(update);
+    await waitFor(() => expect(first).not.toBeNull());
+    await waitFor(() => expect(screen.queryByRole("group", { name: "Answers to Claude's question" })).toBeNull());
+    expectFocusAlive();
+    expect(document.activeElement).toBe(document.querySelector(`[data-thread="${METER_Q}"]`));
   });
 });

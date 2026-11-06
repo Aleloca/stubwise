@@ -252,6 +252,8 @@ export interface ProductCardView {
     taskCode: string | null;
     answer: ProductAnswerChoice | null;
     answeredByName: string | null;
+    /** La domanda ha una richiesta da proporre (la frase della divergenza la offre solo allora). */
+    canRequest?: boolean;
   };
 }
 

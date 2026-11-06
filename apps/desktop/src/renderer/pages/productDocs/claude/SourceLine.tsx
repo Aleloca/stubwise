@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { CodeLink } from "../../../components/CodeLink";
 import type { ProductSourceView } from "../../../data/types";
+import { DATED_SOURCE_LABELS } from "../../../domain/productDocs/claudeText";
 
 // La fonte di una modifica di Claude, nelle sue forme (11b, Task 9; shape
 // product-claude-mark.md §3.4, [PM 5]): UNA resa per il segno, la
@@ -16,12 +17,6 @@ import type { ProductSourceView } from "../../../data/types";
 /** Oltre queste fonti, «+N» col `title` delle altre. */
 const SHOWN = 2;
 
-/** Le forme visibili che non portano la data nell'etichetta: la si aggiunge qui, dal dato. */
-const DATED: ReadonlySet<string> = new Set([
-  "productDocs.source.email",
-  "productDocs.source.meeting",
-  "productDocs.source.decision",
-]);
 
 function useSourceText() {
   const { t } = useTranslation();
@@ -31,7 +26,7 @@ function useSourceText() {
 function OneSource({ source }: { source: ProductSourceView }) {
   const { t } = useTranslation();
   const label = useSourceText()(source);
-  const dated = source.at && DATED.has(source.label.key) ? t("productDocs.mark.date", { date: Date.parse(source.at) }) : null;
+  const dated = source.at && DATED_SOURCE_LABELS.has(source.label.key) ? t("productDocs.mark.date", { date: Date.parse(source.at) }) : null;
   return (
     <span data-source-kind={source.gone ? "gone" : source.kind}>
       {source.link ? (

@@ -59,9 +59,8 @@ describe("Decide: le domande di Claude sulla doc", () => {
     const el = await item(METER_Q);
     const meter = state.productPages.find((p) => p.title === "Meter reading")!;
     expect(within(el).getByText("Claude asks")).toBeInTheDocument();
-    expect(flat(el)).toContain(
-      "ACQ-8 was built differently from what the page says. Should I update the page, or open a request?",
-    );
+    expect(flat(el)).toContain("ACQ-8 was built differently from what the page says. Should I update the page?");
+    expect(flat(el)).not.toContain("open a request");
     expect(el.querySelector("[data-source-line]")).not.toBeNull();
     expect(flat(el)).toContain(`Proposed: “${METER_APPLY}”`);
     const link = within(el).getByRole("link", { name: new RegExp(`${meter.code}.*Meter reading`) });
@@ -140,6 +139,16 @@ describe("Decide: le domande di Claude sulla doc", () => {
     await waitFor(() => expect(document.activeElement).toBe(panel.querySelector("[data-proposal]")));
     const decide = await decideBlock();
     expect(decide.querySelector(`[data-claude-decision="product:${BILLS_Q}"]`)).not.toBeNull();
+  });
+
+  it("fix round 1, I4: con una richiesta da proporre la frase la offre e c'è «Open a request»", async () => {
+    state.productComments.find((c) => c.id === METER_Q)!.question!.request = {
+      title: "Lower readings after a meter change",
+      description: "Decide whether a lower reading is accepted.",
+    };
+    const el = await item(METER_Q);
+    expect(flat(el)).toContain("Should I update the page, or open a request?");
+    expect(within(el).getByRole("button", { name: "Open a request" })).toBeInTheDocument();
   });
 
   it("Sara (sola lettura) non ha le domande della doc in «Decide»", async () => {
