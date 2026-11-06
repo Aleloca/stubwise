@@ -22,6 +22,15 @@ export interface ClaudePanelEventDetail {
    * di prima resta in Claude → Mine, col suo testo non inviato ([SG 6]).
    */
   fresh?: boolean;
+  /**
+   * 11b (Task 8, P21): la pagina manda `draft` come PRIMO MESSAGGIO di una
+   * conversazione nuova (vale anche `fresh`), dalla sua casella
+   * (`handOffFirstMessage`): «Delivering…» e, se non va, «Resend». Lo usano i
+   * gesti della doc di prodotto che aprono una scheda («Open a request» di
+   * una domanda, «Propose backlog items»). Col budget del mese finito non
+   * parte: il testo resta nella fascia, come uno scritto a mano.
+   */
+  send?: boolean;
 }
 
 export function openClaudePanel(detail: ClaudePanelEventDetail = {}): void {

@@ -2,7 +2,10 @@ import { memberAddedRecipientOf } from "../admin/members";
 import { splitByVisibility, wouldNotify } from "../alerts/visibility";
 import { assignedRecipientOf, nextTaskNumber, planRecipientsOf } from "../api-mutations";
 import { automationsStartingOn, taskHappening } from "../automations/sources";
+import { docsAccess } from "../docs/reads";
 import type { NewTaskInput, ProposedAction, Task, TaskPatch } from "../model";
+import { productDocRecipients } from "../productDocs/follows";
+import { productPageById } from "../productDocs/reads";
 import { familyOf, state, visibleProjectIds } from "../store";
 import { CLAUDE_CATALOG, declaredClassOf, isCatalogFn } from "./catalog";
 import type { ActionClass, ClassReason } from "./types";
@@ -168,6 +171,16 @@ function dataReasons(me: string, action: Action): ClassReason[] {
       return [
         notifiesOf(me, [personId && memberAddedRecipientOf(me, personId)], projectId),
       ];
+    }
+    case "updateProductPage": {
+      // 11b (decisione 3): l'aggiornamento chiesto nel riquadro avvisa chi
+      // segue la pagina (`product_doc.updated` a `productDocRecipients`,
+      // anche quando sono i `docs.edit` del ripiego). Di una pagina che chi
+      // chiede non legge non si dice niente (R-G5). La voce è dichiarata B:
+      // senza altri destinatari la ragione sparisce, la classe no (P39).
+      const page = typeof args.pageId === "string" ? productPageById(args.pageId) : undefined;
+      if (!page || docsAccess(me, page.projectId) !== "read") return [];
+      return [notifiesOf(me, productDocRecipients(page.id), page.projectId)];
     }
     default:
       return [];

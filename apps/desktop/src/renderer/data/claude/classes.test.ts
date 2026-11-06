@@ -8,7 +8,8 @@ import type { ProposedAction, Task } from "../model";
 import { PEOPLE } from "../seed/people";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
-import { classOf, classOfGroup } from "./classes";
+import { revokeProjectPermission } from "../viewer";
+import { classOf, classOfGroup, type ClassReason } from "./classes";
 
 // La classe calcolata (area 10a, Task 4; Review Focus 1). Un'azione è A
 // solo se non avvisa altre persone e non fa partire un'automazione; la
@@ -315,5 +316,65 @@ describe("R-G5: chi viene avvisato e chi chiede non vede", () => {
       cls: "B",
       reasons: [{ kind: "notifies", personIds: [MATTEO], more: true, projectId: AUD }],
     });
+  });
+});
+
+describe("la doc di prodotto (11b, Task 8; decisione 3)", () => {
+  const LAURA = "p-laura";
+  const SARA = "p-sara";
+  const ACQ = "prj-acq";
+  const SIGN_IN = "pp-acq-sign-in";
+  const update = {
+    fn: "updateProductPage" as const,
+    args: { pageId: SIGN_IN, source: { kind: "email", id: "mm-acq-signin-google" } },
+  };
+  const draw = {
+    fn: "drawWireframe" as const,
+    args: { pageId: "pp-acq-screens", afterId: null },
+  };
+  const follows = (personIds: string[]) => {
+    state.productFollows = state.productFollows.filter((f) => f.pageId !== SIGN_IN);
+    for (const personId of personIds)
+      state.productFollows.push({ pageId: SIGN_IN, personId, since: "2026-11-01T00:00:00Z" });
+  };
+  const people = (c: ReturnType<typeof classOf>) =>
+    (c.reasons[0] as Extract<ClassReason, { kind: "notifies" }>).personIds;
+
+  it("«aggiorna la pagina» è B e dice chi segue la pagina, meno chi chiede", () => {
+    follows([LAURA, MARCO]);
+    expect(classOf(LAURA, update)).toEqual({
+      cls: "B",
+      reasons: [{ kind: "notifies", personIds: [MARCO], more: false }],
+    });
+  });
+
+  it("senza seguaci avvisa chi ha `docs.edit` (il ripiego di `productDocRecipients`): B", () => {
+    follows([]);
+    const cls = classOf(LAURA, update);
+    expect(cls.cls).toBe("B");
+    expect(cls.reasons[0]).toMatchObject({ kind: "notifies" });
+    expect(people(cls)).toContain(MARCO);
+    expect(people(cls)).not.toContain(LAURA);
+  });
+
+  it("chi chiede è l'unico destinatario: la ragione sparisce, la classe resta B (P39)", () => {
+    follows([LAURA]);
+    expect(classOf(LAURA, update)).toEqual({ cls: "B", reasons: [] });
+  });
+
+  it("una pagina che chi chiede non legge non dice chi avviserebbe (R-G5)", () => {
+    follows([LAURA, MARCO]);
+    revokeProjectPermission(SARA, ACQ, "docs.view" as never);
+    expect(classOf(SARA, update)).toEqual({ cls: "B", reasons: [] });
+  });
+
+  it("la prima versione e la bozza di schermata sono A; un gruppo con l'aggiornamento è B", () => {
+    expect(classOf(LAURA, { fn: "writeFirstVersion", args: { projectId: "prj-vrd", sources: [] } })).toEqual(A);
+    expect(classOf(LAURA, draw)).toEqual(A);
+    expect(classOfGroup(LAURA, [draw, update]).cls).toBe("B");
+    // Gli inversi non si annullano a loro volta: B (il riquadro li esegue da «Undo»).
+    for (const fn of ["undoFirstVersion", "undoProductUpdate", "deleteWireframe"] as const) {
+      expect(classOf(LAURA, { fn, args: {} }).cls, fn).toBe("B");
+    }
   });
 });

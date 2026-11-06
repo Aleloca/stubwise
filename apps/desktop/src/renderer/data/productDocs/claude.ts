@@ -513,6 +513,53 @@ function settle(
   else publishUpdate(page, [revisionId], [ref], null);
 }
 
+/** Cosa farebbe adesso un fatto di un gesto del riquadro (`planProductSource`). */
+export type ProductFactPlan =
+  /** Una modifica: l'operazione sui blocchi di adesso. */
+  | { kind: "edit"; fact: ProductFact; op: ProductBlockOp }
+  | { kind: "question"; fact: ProductFact }
+  /** Chiara, ma qualcuno scrive nella sezione: aspetterà. */
+  | { kind: "wait"; fact: ProductFact }
+  | { kind: "none"; fact: ProductFact };
+
+/**
+ * Cosa farebbe ADESSO `applyProductSource(…, { manual: { requesterId } })`
+ * coi fatti di una fonte su UNA pagina, senza scrivere niente: la scheda B
+ * del riquadro (11b, Task 8) dice i blocchi prima della conferma. Le stesse
+ * regole di `settle`, sui dati di adesso (l'arrivo è adesso, quindi nessuno
+ * ha ancora toccato l'ancora «dopo»).
+ */
+export function planProductSource(
+  ref: ProductSourceRef,
+  pageId: string,
+  facts: readonly ProductFact[],
+  requesterId: string,
+): ProductFactPlan[] {
+  const page = productPageById(pageId);
+  const mine = facts.filter((f) => f.pageId === pageId);
+  if (!page || !docsOn(page.projectId) || sourceViewOf(CLAUDE_ID, ref, page.projectId).gone) {
+    return mine.map((fact) => ({ kind: "none", fact }));
+  }
+  const actorCanEdit = canEdit(sourceOwnerOf(ref, page.projectId), page.projectId);
+  let work = page.blocks;
+  return mine.map((fact): ProductFactPlan => {
+    const anchorId = fact.anchorId;
+    const decision = decideFact(fact, {
+      lastWriterIsPerson: anchorId !== null && byPerson(lastRevisionTouching(page.id, anchorId)),
+      actorCanEdit,
+      changedByPersonSinceArrival: false,
+      anchorExists: anchorId === null || anchorText(page.blocks, anchorId) !== null,
+    });
+    if (decision.kind === "none") return { kind: "none", fact };
+    if (decision.kind === "question") return { kind: "question", fact };
+    if (sectionBusy(page, fact, requesterId)) return { kind: "wait", fact };
+    const op = opOf(work, fact);
+    if (!op) return { kind: "none", fact };
+    work = applyBlockOps(work, [op]).blocks;
+    return { kind: "edit", fact, op };
+  });
+}
+
 /** I fatti per pagina, nell'ordine in cui le pagine compaiono. */
 function byPage(facts: readonly ProductFact[]): Map<string, ProductFact[]> {
   const out = new Map<string, ProductFact[]>();

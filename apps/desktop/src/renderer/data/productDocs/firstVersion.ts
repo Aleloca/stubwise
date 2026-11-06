@@ -462,8 +462,11 @@ async function play(
   const pageOfKey = new Map<string, string>();
   for (const [i, page] of draft.entries()) {
     await pause();
-    // Uno stato nuovo non è il suo; una prima versione annullata non scrive più.
-    if (at !== storeGeneration() || fv.status !== "writing") return;
+    // Uno stato nuovo non è il suo; una prima versione annullata non scrive
+    // più; né una che non è più nello stato (un gruppo del riquadro di Claude
+    // fallito dopo l'avvio l'ha tolta col ripristino, Task 8).
+    if (at !== storeGeneration() || fv.status !== "writing" || !state.productFirstVersions.includes(fv))
+      return;
     if (fv.written.some((w) => !productPageById(w.pageId))) return interrupt(fv);
     try {
       writePage(fv, page, pageOfKey, source);
@@ -535,6 +538,20 @@ function firstTouch(fv: ProductFirstVersion): Touch | null {
     });
   }
   return touches.sort((a, b) => a.seq - b.seq)[0] ?? null;
+}
+
+/**
+ * Il primo tocco dopo l'ultima prima versione dello spazio, per il «com'era»
+ * dell'«Undo» del riquadro di Claude (Task 8): le stesse regole del bottone
+ * della pagina. Annullata dalla pagina conta come un tocco di chi l'ha
+ * annullata (il riquadro non la annulla una seconda volta). `null` = nessuno.
+ */
+export function firstVersionTouchOf(projectId: string): { seq: number; byId: string | null } | null {
+  const fv = latestOf(projectId);
+  if (!fv) return null;
+  if (fv.status === "undone") return { seq: Number.MAX_SAFE_INTEGER, byId: fv.undoneById };
+  const touch = firstTouch(fv);
+  return touch && { seq: touch.seq, byId: touch.byId };
 }
 
 function undoViewOf(me: string, fv: ProductFirstVersion): ProductUndoView {

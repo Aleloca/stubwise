@@ -11,6 +11,7 @@ import { GROUP_BYS, TASK_VIEWS } from "../routes";
 import type { Automation, AutomationFlow, AutomationMeta, GroupBy, TaskView } from "../types";
 import { state } from "../store";
 import type { CatalogEntry, CatalogRun } from "./catalog";
+import { PRODUCT_ENTRIES, type ProductCatalogFn } from "./catalogProduct";
 import type { CatalogInverse } from "./types";
 
 // Le voci del catalogo di Claude nate col 10b (`catalog.ts` le unisce alle
@@ -29,7 +30,8 @@ export type MoreCatalogFn =
   | "saveAutomationDraft"
   | "deleteAutomationDraft"
   | "saveFilter"
-  | "deleteFilter";
+  | "deleteFilter"
+  | ProductCatalogFn;
 
 type Args = Record<string, unknown>;
 
@@ -170,4 +172,6 @@ export const MORE_ENTRIES: Record<MoreCatalogFn, Omit<CatalogEntry, "fn">> = {
       return onFilter(id, null);
     },
   },
+
+  ...PRODUCT_ENTRIES,
 };

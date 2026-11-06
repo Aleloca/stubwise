@@ -16,6 +16,14 @@ import {
 } from "../../data/claude/answersData";
 import { contextIdFor, contextOf } from "../../data/claude/context";
 import { mailDraftFor, taskDescriptionDraftFor } from "../../data/claude/drafts";
+import {
+  firstVersionPlanFor,
+  productBacklogDraftFor,
+  productPanelPagesFor,
+  productQuestionRequestFor,
+  productUpdatePreviewFor,
+  productWeekChangesFor,
+} from "../../data/productDocs/claudePanel";
 import { releaseNotesDraftFor } from "../../data/releases/notes";
 import { supportReplyDraftFor } from "../../data/support/visibility";
 import { getSessionPersonId, setSessionPersonId } from "../../data/session";
@@ -75,6 +83,17 @@ const READ: ReadApi = {
   releaseNotesDraft: async (prId) => releaseNotesDraftFor(getSessionPersonId(), prId),
   mailDraft: (threadId, hint) => mailDraftFor(getSessionPersonId(), threadId, hint),
   taskDescriptionDraft: async (taskId) => taskDescriptionDraftFor(getSessionPersonId(), taskId),
+  // 11b (Task 8): la doc di prodotto, a nome della persona della sessione.
+  listProductPages: async (projectId) => productPanelPagesFor(getSessionPersonId(), projectId),
+  productUpdatePreview: async (pageId, threadId) =>
+    productUpdatePreviewFor(getSessionPersonId(), pageId, threadId),
+  productBacklogDraft: async (pageId, section) =>
+    productBacklogDraftFor(getSessionPersonId(), pageId, section),
+  productQuestionRequest: async (commentId) =>
+    productQuestionRequestFor(getSessionPersonId(), commentId),
+  firstVersionPlan: async (projectId) => firstVersionPlanFor(getSessionPersonId(), projectId),
+  productChangesThisWeek: async (projectId) =>
+    productWeekChangesFor(getSessionPersonId(), projectId),
 };
 
 function as(personId: string, t = en, contextProjectId: string | null = null): IntentContext {
@@ -556,6 +575,8 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       "describeContext",
       // Area 10b (Task 7): le persone visibili per nome. Nessuna email.
       "findPeople",
+      // 11b (Task 8): le fonti della prima versione che chi chiede vede.
+      "firstVersionPlan",
       "getLatestBrief",
       "getRequest",
       "getRequestByCode",
@@ -573,6 +594,8 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       "listDocPages",
       "listPeople",
       "listPinnedProjectIds",
+      // 11b (Task 8): le pagine di prodotto che chi chiede legge.
+      "listProductPages",
       "listProjectPulses",
       // Area 10b (Task 7): i ruoli di progetto, dati d'istanza.
       "listProjectRoles",
@@ -593,6 +616,16 @@ describe("la posta e le riunioni di altri non arrivano a Claude (Review Focus 1)
       "memberRoleOf",
       // Area 10b (Impeccable 13): l'orologio unico, per «Read at …» di S2. Nessun dato.
       "now",
+      // 11b (Task 8): la doc di prodotto, letta come chi chiede. Una porta
+      // sulla posta, stretta: «aggiorna da questa email» legge le email della
+      // conversazione aperta che chi chiede vede (`canSeeMessage`) e che sa
+      // aprire (`sourceViewOf`), e restituisce solo le frasi che la pagina
+      // prenderebbe, mai l'email. Le fonti della settimana passano da
+      // `sourceViewOf` (R-G5); la prima versione elenca solo ciò che vede.
+      "productBacklogDraft",
+      "productChangesThisWeek",
+      "productQuestionRequest",
+      "productUpdatePreview",
       "readDriveFiles",
       // Area 10b (Task 8): le bozze degli altri tre campi, con la visibilità
       // e i permessi di chi chiede; e l'id di una conversazione di supporto

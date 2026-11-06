@@ -286,7 +286,7 @@ describe("S0, la risposta onesta", () => {
     await waitFor(() => expect(box.value).toBe("Add [person] to ACQ as [role]"));
   });
 
-  it("nel riquadro (Laura, Support di ACQ): «scrivimi una poesia» dà le nove voci", async () => {
+  it("nel riquadro (Laura, Support di ACQ): «scrivimi una poesia» dà tutte le voci (nove, più le cinque della doc di prodotto del 11b)", async () => {
     const user = userEvent.setup();
     renderRoute("/p/ACQ/overview", LAURA);
     await screen.findAllByRole("heading");
@@ -300,7 +300,7 @@ describe("S0, la risposta onesta", () => {
       { name: "What I can do" },
       { timeout: 4000 },
     );
-    expect(within(list).getAllByRole("button")).toHaveLength(9);
+    expect(within(list).getAllByRole("button")).toHaveLength(14);
   });
 });
 
@@ -675,7 +675,7 @@ describe("nella Chat (@Claude)", () => {
     renderRoute(`/chat/ch-announcements?thread=${callId}`, "p-giulia");
     const panel = await screen.findByRole("region", { name: "Thread" });
     const list = await within(panel).findByRole("list", { name: "Cosa so fare" });
-    expect(within(list).getAllByRole("listitem")).toHaveLength(9);
+    expect(within(list).getAllByRole("listitem")).toHaveLength(14);
     expect(within(list).queryAllByRole("button")).toEqual([]);
     expect(list).toHaveTextContent("Costruire un'automazione e provarla");
     expect(list).not.toHaveTextContent("Quando arriva una richiesta di supporto urgente");

@@ -27,7 +27,20 @@ export async function howto(text: string, ctx: IntentContext): Promise<Answer> {
   }
 
   const scope = project ? [project] : projects.filter((p) => p.modules.includes("docs"));
-  const pages = (await Promise.all(scope.map((p) => read.listDocPages(p.id)))).flat();
+  const inScope = new Set(scope.map((p) => p.id));
+  // 11b (Task 8): anche le pagine di prodotto, prima di quelle dei
+  // repository come nella chat dei Docs; le legge `listProductPages` come
+  // chi chiede, quindi una pagina che non legge non c'è.
+  const product = (await read.listProductPages(project?.id ?? null))
+    .filter((p) => inScope.has(p.projectId))
+    .map((p) => ({ ...productAnswerPage(p, ""), projectId: p.projectId, product: true }));
+  const repo = (await Promise.all(scope.map((p) => read.listDocPages(p.id))))
+    .flat()
+    .map((p) => ({ ...p, product: false }));
+  const pages: { id: string; code: string; title: string; path: string; excerpt: string; projectId: string; product: boolean }[] = [
+    ...product,
+    ...repo,
+  ];
   const found = rank(pages, words).slice(0, 2);
   const action = {
     tool: "search_project_docs",
@@ -44,15 +57,22 @@ export async function howto(text: string, ctx: IntentContext): Promise<Answer> {
         : t("claude.answers.howto.nothingAll", { topic }),
     };
   }
-  const codeOf = (page: DocPage) => projects.find((p) => p.id === page.projectId)?.code ?? "";
+  const codeOf = (page: { projectId: string }) =>
+    projects.find((p) => p.id === page.projectId)?.code ?? "";
   const body = found.flatMap((page, i) => [
     ...(i > 0 ? [""] : []),
-    t("claude.answers.howto.found", {
-      code: codeOf(page),
-      pageCode: page.code,
-      title: page.title,
-      path: page.path,
-    }),
+    page.product
+      ? t("claude.answers.howto.foundProduct", {
+          code: codeOf(page),
+          pageCode: page.code,
+          title: page.title,
+        })
+      : t("claude.answers.howto.found", {
+          code: codeOf(page),
+          pageCode: page.code,
+          title: page.title,
+          path: page.path,
+        }),
     "",
     `> ${page.excerpt}`,
   ]);

@@ -8,7 +8,7 @@ import { runScript } from "../../data/stream";
 import i18n from "../../i18n";
 import { renderRoute } from "../../test/renderRoute";
 import { setMatchMedia } from "../../test/setup";
-import { resetPanelToggle } from "./panelEvents";
+import { openClaudePanel, resetPanelToggle } from "./panelEvents";
 
 // Il riquadro di Claude (area 10a, Task 8, shape claude-panel.md): si apre
 // da ogni pagina (⌘J, il binario, ⌘K), sa cosa si sta guardando, e chiuso
@@ -367,5 +367,41 @@ describe("il fuoco va nella CASELLA, non nella prima textarea (review finale, 2)
     expect(isOpen()).toBe(false);
     await ctrlJ(user);
     await waitFor(() => expect(document.activeElement).toHaveAttribute("data-claude-box"));
+  });
+});
+
+describe("la pagina apre il riquadro e manda la frase (11b, P21: `send`)", () => {
+  it("«Open a request» di una domanda: una conversazione nuova, la frase inviata e la scheda di Claude", async () => {
+    renderRoute("/p/ACQ/docs/product/ACQ-D6", "p-laura");
+    await screen.findByRole("heading", { name: "Bills", level: 1 });
+    const before = state.conversations.length;
+    act(() =>
+      openClaudePanel({
+        draft: i18n.t("claude.answers.productDocs.ask.question", { id: "pc-acq11b-bills-q" }),
+        fresh: true,
+        send: true,
+      }),
+    );
+    await waitFor(() => expect(isOpen()).toBe(true));
+    // La frase è un messaggio di chi chiede, non un testo nella casella.
+    expect(
+      await within(panel()).findByText("Open a request from question pc-acq11b-bills-q"),
+    ).toBeInTheDocument();
+    expect(state.conversations).toHaveLength(before + 1);
+    await waitFor(() => expect(panel().querySelector("[data-proposal]")).not.toBeNull());
+    // La casella della conversazione nuova resta vuota: la frase è partita.
+    expect(panel().querySelector("[data-user-message]")).toHaveTextContent(
+      "Open a request from question pc-acq11b-bills-q",
+    );
+    expect(within(panel()).getByRole("combobox")).toHaveValue("");
+  });
+
+  it("senza `send` la frase resta nella casella, non inviata (come oggi)", async () => {
+    renderRoute("/p/ACQ/docs/product/ACQ-D6", "p-laura");
+    await screen.findByRole("heading", { name: "Bills", level: 1 });
+    const before = state.conversations.length;
+    act(() => openClaudePanel({ draft: "Propose backlog items from ACQ-D6 Bills", fresh: true }));
+    await waitFor(() => expect(box()).toHaveValue("Propose backlog items from ACQ-D6 Bills"));
+    expect(state.conversations).toHaveLength(before);
   });
 });

@@ -111,7 +111,7 @@ export function noteProductSource(ref: ProductSourceRef, projectIds: readonly st
  * solo col documento letto (prima non c'è niente da dire alla doc); ogni
  * altro messaggio è un'email. `null` = non ancora una fonte.
  */
-function refOfMessage(m: MailMessage): ProductSourceRef | null {
+export function productSourceOfMessage(m: MailMessage): ProductSourceRef | null {
   if (m.kind !== "transcript") return { kind: "email", id: m.id };
   const t = state.meetingTranscripts.find((x) => x.messageId === m.id);
   return t?.doc === "ready" ? { kind: "meeting", id: m.id } : null;
@@ -119,6 +119,6 @@ function refOfMessage(m: MailMessage): ProductSourceRef | null {
 
 /** Un messaggio della posta è arrivato (o è stato attribuito) nei progetti `projectIds`. */
 export function noteMailSource(m: MailMessage, projectIds: readonly string[]): void {
-  const ref = refOfMessage(m);
+  const ref = productSourceOfMessage(m);
   if (ref && projectIds.length > 0) noteProductSource(ref, projectIds);
 }

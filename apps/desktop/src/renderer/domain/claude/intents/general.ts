@@ -5,7 +5,7 @@ import type { IntentContext } from "../context";
 /**
  * Le cose che il prototipo sa fare, nell'ordine dell'elenco (maintainer, 2
  * nov 2026: nove voci, con email e descrizione di D1; shape
- * claude-scenarios.md §3.5).
+ * claude-scenarios.md §3.5), più le cinque della doc di prodotto (11b).
  */
 export const CAPABILITIES: readonly CapabilityId[] = [
   "automation",
@@ -17,6 +17,12 @@ export const CAPABILITIES: readonly CapabilityId[] = [
   "releaseNotes",
   "mailBody",
   "taskDescription",
+  // 11b (Task 8): la doc di prodotto.
+  "productFirstVersion",
+  "productUpdate",
+  "productBacklog",
+  "productWireframe",
+  "productChanges",
 ];
 
 /**

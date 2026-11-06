@@ -440,6 +440,8 @@ export type ApiFnName =
   | "productDocs.redrawWireframe"
   | "productDocs.keepWireframe"
   | "productDocs.replaceWireframeWithImage"
+  /** 11b (Task 8): «aggiorna la pagina da questa email o riunione», solo dal riquadro di Claude. */
+  | "productDocs.updateProductPage"
   // Drive (area 5)
   | "drive.listDriveFiles"
   | "drive.getDriveFile"

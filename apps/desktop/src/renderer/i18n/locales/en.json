@@ -3312,7 +3312,8 @@
         "noDocs": "{{code}} has no Docs, so I have nothing to quote. I won't guess: you could ask the team with a request.",
         "nothing": "The {{code}} Docs don't cover “{{topic}}”. I won't guess: try other words, or ask the team with a request.",
         "nothingAll": "The Docs of your projects don't cover “{{topic}}”. I won't guess: try other words, or name the project.",
-        "found": "From the {{code}} Docs, page **{{pageCode}} {{title}}** ({{path}}):"
+        "found": "From the {{code}} Docs, page **{{pageCode}} {{title}}** ({{path}}):",
+        "foundProduct": "From the {{code}} Docs, product page **{{pageCode}} {{title}}**:"
       },
       "run": {
         "noCode": "Which request or task should I start? Give me its code, like STW-R1 or AUD-4.",
@@ -3511,7 +3512,12 @@
           "supportReply": "Write the reply to a support conversation",
           "releaseNotes": "Write a pull request's release notes",
           "mailBody": "Write an email or a reply in Mail",
-          "taskDescription": "Write a task's description"
+          "taskDescription": "Write a task's description",
+          "productFirstVersion": "Write the first version of a project's product docs",
+          "productUpdate": "Update a product page from an email or a meeting",
+          "productBacklog": "Propose backlog items from a product page",
+          "productWireframe": "Draw a screen sketch on a product page",
+          "productChanges": "Tell you what changed in the product docs this week"
         },
         "prompt": {
           "automation": "When an urgent support request arrives, create a task and notify the department",
@@ -3522,7 +3528,12 @@
           "supportReply": "Write the reply",
           "releaseNotes": "Write the release notes",
           "mailBody": "Write an email to [person] saying [what]",
-          "taskDescription": "Write the description of [task]"
+          "taskDescription": "Write the description of [task]",
+          "productFirstVersion": "Write the first version of [project]'s docs",
+          "productUpdate": "Update [page] from this email",
+          "productBacklog": "Propose backlog items from [page]",
+          "productWireframe": "Draw this screen in [page]",
+          "productChanges": "What changed in the docs this week?"
         }
       },
       "stalled": {
@@ -3663,7 +3674,98 @@
           "alreadyProposedMore_one": "…and 1 more",
           "alreadyProposedMore_other": "…and {{count}} more",
           "alreadyProposedHidden_one": "1 already proposed from this page",
-          "alreadyProposedHidden_other": "{{count}} already proposed from this page"
+          "alreadyProposedHidden_other": "{{count}} already proposed from this page",
+          "proposed": {
+            "page_one": "From **{{code}} {{title}}** I'd open 1 request.",
+            "page_other": "From **{{code}} {{title}}** I'd open {{count}} requests.",
+            "section_one": "From the section “{{section}}” of **{{code}}** I'd open 1 request.",
+            "section_other": "From the section “{{section}}” of **{{code}}** I'd open {{count}} requests."
+          },
+          "allProposed": {
+            "page": "Everything on this page is already in the backlog: {{codes}}.",
+            "section": "Everything in this section is already in the backlog: {{codes}}."
+          },
+          "noItems": {
+            "page": "No list items or to-dos on this page.",
+            "section": "No list items or to-dos in this section."
+          },
+          "noSection": "**{{code}}** has no heading “{{section}}”."
+        },
+        "ask": {
+          "question": "Open a request from question {{id}}",
+          "backlog": "Propose backlog items from {{code}} {{title}}",
+          "backlogSection": "Propose backlog items from the section “{{section}}” of {{code}}",
+          "draw": "Draw this screen in {{code}} {{title}}",
+          "update": "Update {{code}} {{title}} from this email",
+          "firstVersion": "Write the first version of {{code}}'s docs",
+          "changes": "What changed in the docs this week?"
+        },
+        "whichPage": "Which page do you mean? Tell me its code or its title.",
+        "whichProject": "Which project's docs? Tell me the project's code.",
+        "forbidden": "Changing the docs is for people with Edit docs in {{code}} · {{who}}",
+        "answer": {
+          "apply": "Update it",
+          "keep": "Leave it as is",
+          "request": "Open a request"
+        },
+        "actions": {
+          "readSources": "Read the sources of {{code}}",
+          "sources_one": "1 source",
+          "sources_other": "{{count}} sources",
+          "readChanges": "Read this week's changes to the {{code}} docs",
+          "readAllChanges": "Read this week's changes to the docs"
+        },
+        "question": {
+          "proposed": "Here's the request for Claude's question on **{{code}} {{title}}**.",
+          "closes": "Confirm it and the question closes with “Open a request”.",
+          "notFound": "I can't find that question, or you can't see it.",
+          "noRequest": "This question has no request to open: answer it in the page.",
+          "answeredBy": "{{name}} already answered this question: {{answer}}.",
+          "answered": "This question has already been answered: {{answer}}."
+        },
+        "firstVersion": {
+          "summary": "Write the first version of {{code}}'s docs",
+          "done_one": "I'm writing the first version of **{{code}}**'s docs from 1 source you can see: the pages arrive one at a time, and Undo removes them all together.",
+          "done_other": "I'm writing the first version of **{{code}}**'s docs from {{count}} sources you can see: the pages arrive one at a time, and Undo removes them all together.",
+          "proposed_one": "I'd write the first version of **{{code}}**'s docs from 1 source you can see.",
+          "proposed_other": "I'd write the first version of **{{code}}**'s docs from {{count}} sources you can see.",
+          "spaceNotEmpty": "**{{code}}** already has pages in its docs: the first version is only for an empty space.",
+          "noSources": "I have nothing to start from in **{{code}}**: no emails, meetings or Drive files that you can see."
+        },
+        "update": {
+          "summary": {
+            "email": "Update {{code}} {{title}} from the email",
+            "meeting": "Update {{code}} {{title}} from the meeting"
+          },
+          "done": "Updating **{{code}} {{title}}**.",
+          "proposed": "Here's what I'd change in **{{code}} {{title}}**.",
+          "lead": "In **{{code}} {{title}}**:",
+          "change": {
+            "replace": "“{{before}}” becomes “{{after}}”",
+            "insert": "New: “{{after}}”",
+            "linkTask": "With the task: “{{after}}”"
+          },
+          "questions_one": "1 point isn't said clearly: I'll ask about it in the page.",
+          "questions_other": "{{count}} points aren't said clearly: I'll ask about them in the page.",
+          "waiting_one": "1 change will wait until nobody is writing in its section.",
+          "waiting_other": "{{count}} changes will wait until nobody is writing in their section.",
+          "noSource": "Open the email or the meeting in Mail, then ask me again: I update the page from the one you have open.",
+          "noFacts": "What you have open doesn't say anything about **{{code}} {{title}}**.",
+          "nothing": "**{{code}} {{title}}** already says this: there's nothing to change."
+        },
+        "draw": {
+          "summary": "Draw a screen sketch in {{code}} {{title}}",
+          "done": "Drawing a screen sketch at the end of **{{code}} {{title}}**.",
+          "proposed": "I'd draw a screen sketch at the end of **{{code}} {{title}}**."
+        },
+        "changes": {
+          "lead": "This week in the {{code}} docs:",
+          "leadAll": "This week in the docs:",
+          "none": "Nothing changed in the {{code}} docs this week.",
+          "noneAll": "Nothing changed in the docs you read this week.",
+          "count_one": "1 change",
+          "count_other": "{{count}} changes",
+          "by": "by {{names}}"
         }
       }
     },

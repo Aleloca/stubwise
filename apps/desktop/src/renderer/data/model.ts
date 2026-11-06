@@ -3030,7 +3030,13 @@ export type CapabilityId =
   | "supportReply"
   | "releaseNotes"
   | "mailBody"
-  | "taskDescription";
+  | "taskDescription"
+  // 11b (Task 8): la doc di prodotto.
+  | "productFirstVersion"
+  | "productUpdate"
+  | "productBacklog"
+  | "productWireframe"
+  | "productChanges";
 
 /** Area 10b (S4): una riga sotto la scheda di un'azione in blocco. */
 export type ProposalNote =
@@ -4150,6 +4156,71 @@ export interface OpenProductQuestion {
   pageCode: string;
   pageTitle: string;
   quote: string;
+}
+
+// --- 11b (Task 8): le letture del riquadro di Claude sulla doc di prodotto ----
+// Le legge il motore puro (`ReadApi`), sempre come chi chiede: una pagina che
+// non legge non c'è, una fonte che non può aprire si legge come una che non c'è.
+
+/** Una pagina di prodotto che chi chiede legge, col suo permesso di scriverla. */
+export interface ProductPanelPage extends ProductPage {
+  projectCode: string;
+  /** `docs.edit` nel progetto (il permesso dei gesti di Claude sulla doc). */
+  canEdit: boolean;
+}
+
+/** Un blocco che l'aggiornamento chiesto cambierebbe, in testo semplice. */
+export interface ProductUpdateChange {
+  kind: "replace" | "insert" | "link_task";
+  /** La frase di adesso (`null` per un blocco nuovo). */
+  before: string | null;
+  after: string;
+}
+
+/** «Aggiorna la pagina da questa email o riunione», prima della scheda. */
+export type ProductUpdatePreview =
+  | {
+      ok: true;
+      source: { kind: "email" | "meeting"; id: string };
+      changes: ProductUpdateChange[];
+      /** I fatti che diventerebbero domande (vaghi, o in contrasto). */
+      questions: number;
+      /** I fatti chiari che aspetterebbero chi scrive nella sezione. */
+      waiting: number;
+    }
+  /** `no_source`: nessuna email o riunione che chi chiede possa aprire (anche una che non vede, R-G5). */
+  | { ok: false; reason: "not_found" | "forbidden" | "no_source" | "no_facts" };
+
+/** «Proponi le voci di backlog» da una pagina o da una sua sezione. */
+export type ProductBacklogDraft =
+  | { ok: true; actions: ProposedAction[]; notes: ProposalNote[] }
+  | { ok: false; reason: "not_found" | "forbidden" | "no_section" };
+
+/** «Apri una richiesta» da una domanda di Claude sulla doc. */
+export type ProductQuestionRequestDraft =
+  | { ok: true; actions: ProposedAction[]; pageCode: string; pageTitle: string }
+  | { ok: false; reason: "not_found" | "no_request" }
+  | { ok: false; reason: "forbidden"; projectCode: string }
+  /** `byName` `null` se chi chiede non vede chi ha risposto. */
+  | { ok: false; reason: "already_answered"; byName: string | null; option: ProductAnswerChoice };
+
+/** «Scrivi la prima versione»: le fonti che Claude userebbe, tutte quelle che chi chiede vede. */
+export type FirstVersionPlan =
+  | { ok: true; sources: FirstVersionSource[] }
+  | { ok: false; reason: "not_found" | "forbidden" | "space_not_empty" | "no_sources" };
+
+/** Una pagina cambiata negli ultimi sette giorni, come la legge chi chiede. */
+export interface ProductWeekChange {
+  pageId: string;
+  code: string;
+  title: string;
+  projectCode: string;
+  /** Le revisioni della settimana (le unite contano una volta). */
+  changes: number;
+  /** Chi ha scritto, solo le persone che chi chiede vede; Claude compreso. */
+  byNames: string[];
+  /** Le fonti delle modifiche di Claude, viste da chi chiede (decisione 1, R-G5). */
+  sources: ProductSourceView[];
 }
 
 export type ProductRevisionKind =

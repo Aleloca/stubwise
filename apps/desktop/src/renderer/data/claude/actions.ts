@@ -4,6 +4,9 @@ import { visiblePeopleFor } from "../access/whoCan";
 import { applyActions, type FailureCode } from "../api-mutations";
 import { requireReauth } from "../auth/reauth";
 import type { ConversationEvent, ProposedAction, ScriptStep, Task, Utterance } from "../model";
+import { docsAccess } from "../docs/reads";
+import { firstVersionTouchOf } from "../productDocs/firstVersion";
+import { productPageById } from "../productDocs/reads";
 import type { BusyReason } from "../projectSettings/types";
 import { PEOPLE } from "../seed/people";
 import {
@@ -369,6 +372,22 @@ function writesOn(record: ClaudeActionRecord, ref: ObjectRef): Write[] {
       );
       return (sub?.history ?? []).filter(withSeq).map((h) => ({ seq: h.seq, byId: sub!.personId }));
     }
+    // 11b (P39): le revisioni della pagina che toccano il blocco (rifatto,
+    // sostituito, cambiato, tolto), per `lastSeq`: una revisione che si
+    // unisce dopo conta dal suo ultimo tocco, come `touchedAfter`.
+    case "productBlock":
+      return state.productRevisions
+        .filter(
+          (r) =>
+            r.pageId === ref.pageId &&
+            r.changes.some((c) => c.blockId === ref.blockId || c.anchors.includes(ref.blockId)),
+        )
+        .map((r) => ({ seq: r.lastSeq, byId: r.actorId }));
+    // La prima versione: il suo primo tocco, con le regole del bottone della pagina.
+    case "productSpace": {
+      const touch = firstVersionTouchOf(ref.projectId);
+      return touch ? [touch] : [];
+    }
     default: {
       // Progetto, membro, impostazioni: le voci del registro sullo STESSO
       // oggetto di quelle che l'azione ha scritto.
@@ -433,6 +452,10 @@ function projectOfRef(ref: ObjectRef): string | null {
     // Un filtro salvato personale non sta in un progetto.
     case "filter":
       return null;
+    case "productBlock":
+      return productPageById(ref.pageId)?.projectId ?? null;
+    case "productSpace":
+      return ref.projectId;
   }
 }
 
@@ -442,7 +465,8 @@ function projectCodeOfRef(ref: ObjectRef): string | null {
     ref.kind === "task" ||
     ref.kind === "request" ||
     ref.kind === "milestone" ||
-    ref.kind === "automation"
+    ref.kind === "automation" ||
+    ref.kind === "productBlock"
   )
     return null;
   const projectId = projectOfRef(ref);
@@ -469,6 +493,11 @@ function codeFor(viewerId: string, ref: ObjectRef): string | null {
       return null;
     case "automation":
       return state.automations.find((a) => a.id === ref.id)?.code ?? null;
+    // 11b: il codice della pagina, solo a chi ne legge i Docs (R-G5).
+    case "productBlock": {
+      const page = productPageById(ref.pageId);
+      return page && docsAccess(viewerId, page.projectId) === "read" ? page.code : null;
+    }
     default:
       return state.projectsById.get(projectId)?.code ?? null;
   }

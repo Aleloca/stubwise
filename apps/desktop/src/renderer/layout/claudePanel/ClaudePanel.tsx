@@ -11,8 +11,10 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  useAiBlock,
   useContextIdOf,
   useConversation,
+  useCreateConversation,
   useDescribeContext,
   useProjects,
   useSessionPersonId,
@@ -23,6 +25,7 @@ import type { ContextRef } from "../../data/types";
 import { NewConversationComposer } from "../../pages/claude/ClaudePage";
 import { keepUnsent, type ComposerDraft } from "../../pages/claude/conversation/Composer";
 import { Conversation } from "../../pages/claude/conversation/Conversation";
+import { handOffFirstMessage } from "../../pages/claude/conversation/handoff";
 import { usePersonName } from "../../pages/claude/conversation/parts";
 import { shortcutLabel } from "../../platform/platform";
 import { useMediaQuery } from "../useMediaQuery";
@@ -116,8 +119,11 @@ function useDockGeometry(): { right: number; room: number } {
   return geometry;
 }
 
-/** Un testo per la casella (⌘K, la riga «Claude can help you…»); `fresh` = in una conversazione nuova. */
-type IncomingDraft = ComposerDraft & { fresh: boolean };
+/**
+ * Un testo per la casella (⌘K, la riga «Claude can help you…»); `fresh` = in
+ * una conversazione nuova; `send` (11b, P21) = mandato come primo messaggio.
+ */
+type IncomingDraft = ComposerDraft & { fresh: boolean; send: boolean };
 
 /** Sotto questa larghezza il riquadro non si stringe più (copre la colonna, piuttosto). */
 const MIN_WIDTH = 300;
@@ -158,10 +164,12 @@ export function ClaudePanelHost() {
   useEffect(() => {
     function onEvent(e: Event) {
       const detail = (e as CustomEvent<ClaudePanelEventDetail>).detail ?? {};
-      if (detail.draft !== undefined || detail.fresh) {
+      if (detail.draft !== undefined || detail.fresh || detail.send) {
         const text = detail.draft ?? "";
-        const fresh = detail.fresh === true;
-        setIncoming((d) => ({ text, nonce: (d?.nonce ?? 0) + 1, fresh }));
+        // Mandare vuol dire una conversazione nuova: la frase è la sua prima.
+        const send = detail.send === true && text.trim() !== "";
+        const fresh = detail.fresh === true || send;
+        setIncoming((d) => ({ text, nonce: (d?.nonce ?? 0) + 1, fresh, send }));
       }
       setOpen((was) => (detail.mode === "toggle" ? !was : true));
     }
@@ -287,6 +295,9 @@ function PanelBody({
   const [draft, setDraft] = useState<ComposerDraft | undefined>(undefined);
   const nonce = useRef(0);
   const put = (text: string) => setDraft({ text, nonce: (nonce.current += 1) });
+  // 11b (P21): la conversazione nuova di una frase mandata dalla pagina.
+  const create = useCreateConversation();
+  const budget = useAiBlock(null).data?.reason === "monthly_budget";
 
   // Il testo da ⌘K, anche quello che ha fatto nascere il contenuto. Dalla riga
   // «Claude can help you…» (`fresh`) in una conversazione nuova: il testo non
@@ -306,6 +317,26 @@ function PanelBody({
       startNew();
       // La richiesta parla della pagina: il chip torna, anche se era stato tolto.
       context.setRemoved(false);
+    }
+    // 11b (P21): la frase della pagina come primo messaggio, dalla casella
+    // della conversazione nuova (`handOffFirstMessage`). Col budget finito
+    // resta nella casella: la fascia la mostra e Send è spento.
+    if (incoming.send && !budget) {
+      const sent = contextRef.current;
+      create.mutate(
+        sent.sent && sent.description?.projectId
+          ? { contextProjectId: sent.description.projectId }
+          : {},
+        {
+          onSuccess: (c) => {
+            handOffFirstMessage(c.id, { text: incoming.text, attachments: [], context: sent.sent });
+            created(c.id);
+          },
+          // Non nata: la frase resta nella casella, da mandare a mano.
+          onError: () => put(incoming.text),
+        },
+      );
+      return;
     }
     put(incoming.text);
     // Solo a ogni testo nuovo: la conversazione di adesso si legge a quel momento.

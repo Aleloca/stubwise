@@ -3312,7 +3312,8 @@
         "noDocs": "{{code}} non ha i Docs, quindi non ho nulla da citare. Non tiro a indovinare: puoi chiederlo al team con una richiesta.",
         "nothing": "I Docs di {{code}} non parlano di «{{topic}}». Non tiro a indovinare: prova con altre parole, o chiedilo al team con una richiesta.",
         "nothingAll": "I Docs dei tuoi progetti non parlano di «{{topic}}». Non tiro a indovinare: prova con altre parole, o dimmi il progetto.",
-        "found": "Dai Docs di {{code}}, pagina **{{pageCode}} {{title}}** ({{path}}):"
+        "found": "Dai Docs di {{code}}, pagina **{{pageCode}} {{title}}** ({{path}}):",
+        "foundProduct": "Dai Docs di {{code}}, pagina di prodotto **{{pageCode}} {{title}}**:"
       },
       "run": {
         "noCode": "Quale richiesta o task devo avviare? Dimmi il codice, come STW-R1 o AUD-4.",
@@ -3511,7 +3512,12 @@
           "supportReply": "Scrivere la risposta a una conversazione di supporto",
           "releaseNotes": "Scrivere le note di rilascio di una pull request",
           "mailBody": "Scrivere un'email o una risposta nella Posta",
-          "taskDescription": "Scrivere la descrizione di una task"
+          "taskDescription": "Scrivere la descrizione di una task",
+          "productFirstVersion": "Scrivere la prima versione della doc di prodotto di un progetto",
+          "productUpdate": "Aggiornare una pagina di prodotto da un'email o da una riunione",
+          "productBacklog": "Proporre le voci di backlog da una pagina di prodotto",
+          "productWireframe": "Disegnare una bozza di schermata in una pagina di prodotto",
+          "productChanges": "Dirti cosa è cambiato nella doc di prodotto questa settimana"
         },
         "prompt": {
           "automation": "Quando arriva una richiesta di supporto urgente, crea una task e avvisa il reparto",
@@ -3522,7 +3528,12 @@
           "supportReply": "Scrivi la risposta",
           "releaseNotes": "Scrivi le note di rilascio",
           "mailBody": "Scrivi un'email a [persona] per dire che [cosa]",
-          "taskDescription": "Scrivi la descrizione di [task]"
+          "taskDescription": "Scrivi la descrizione di [task]",
+          "productFirstVersion": "Scrivi la prima versione della doc di [progetto]",
+          "productUpdate": "Aggiorna [pagina] da questa email",
+          "productBacklog": "Proponi le voci di backlog da [pagina]",
+          "productWireframe": "Disegna questa schermata in [pagina]",
+          "productChanges": "Cosa è cambiato nella doc questa settimana?"
         }
       },
       "stalled": {
@@ -3663,7 +3674,98 @@
           "alreadyProposedMore_one": "…e un'altra",
           "alreadyProposedMore_other": "…e altre {{count}}",
           "alreadyProposedHidden_one": "1 già proposta da questa pagina",
-          "alreadyProposedHidden_other": "{{count}} già proposte da questa pagina"
+          "alreadyProposedHidden_other": "{{count}} già proposte da questa pagina",
+          "proposed": {
+            "page_one": "Da **{{code}} {{title}}** aprirei 1 richiesta.",
+            "page_other": "Da **{{code}} {{title}}** aprirei {{count}} richieste.",
+            "section_one": "Dalla sezione «{{section}}» di **{{code}}** aprirei 1 richiesta.",
+            "section_other": "Dalla sezione «{{section}}» di **{{code}}** aprirei {{count}} richieste."
+          },
+          "allProposed": {
+            "page": "Tutto ciò che c'è in questa pagina è già nel backlog: {{codes}}.",
+            "section": "Tutto ciò che c'è in questa sezione è già nel backlog: {{codes}}."
+          },
+          "noItems": {
+            "page": "Nessun elenco o lista di controllo in questa pagina.",
+            "section": "Nessun elenco o lista di controllo in questa sezione."
+          },
+          "noSection": "**{{code}}** non ha il titolo «{{section}}»."
+        },
+        "ask": {
+          "question": "Apri una richiesta dalla domanda {{id}}",
+          "backlog": "Proponi le voci di backlog da {{code}} {{title}}",
+          "backlogSection": "Proponi le voci di backlog dalla sezione «{{section}}» di {{code}}",
+          "draw": "Disegna questa schermata in {{code}} {{title}}",
+          "update": "Aggiorna {{code}} {{title}} da questa email",
+          "firstVersion": "Scrivi la prima versione della doc di {{code}}",
+          "changes": "Cosa è cambiato nella doc questa settimana?"
+        },
+        "whichPage": "Quale pagina? Dimmi il suo codice o il titolo.",
+        "whichProject": "La doc di quale progetto? Dimmi il codice del progetto.",
+        "forbidden": "Cambiare la doc è di chi ha Modifica Docs in {{code}} · {{who}}",
+        "answer": {
+          "apply": "Aggiorna così",
+          "keep": "Lascia com'è",
+          "request": "Apri una richiesta"
+        },
+        "actions": {
+          "readSources": "Lette le fonti di {{code}}",
+          "sources_one": "1 fonte",
+          "sources_other": "{{count}} fonti",
+          "readChanges": "Lette le modifiche della settimana alla doc di {{code}}",
+          "readAllChanges": "Lette le modifiche della settimana alla doc"
+        },
+        "question": {
+          "proposed": "Ecco la richiesta per la domanda di Claude su **{{code}} {{title}}**.",
+          "closes": "Confermala e la domanda si chiude con «Apri una richiesta».",
+          "notFound": "Non trovo questa domanda, o non puoi vederla.",
+          "noRequest": "Questa domanda non ha una richiesta da aprire: rispondi nella pagina.",
+          "answeredBy": "{{name}} ha già risposto a questa domanda: {{answer}}.",
+          "answered": "A questa domanda è già stata data una risposta: {{answer}}."
+        },
+        "firstVersion": {
+          "summary": "Scrivere la prima versione della doc di {{code}}",
+          "done_one": "Scrivo la prima versione della doc di **{{code}}** da 1 fonte che vedi: le pagine arrivano una alla volta, e Annulla le toglie tutte insieme.",
+          "done_other": "Scrivo la prima versione della doc di **{{code}}** da {{count}} fonti che vedi: le pagine arrivano una alla volta, e Annulla le toglie tutte insieme.",
+          "proposed_one": "Scriverei la prima versione della doc di **{{code}}** da 1 fonte che vedi.",
+          "proposed_other": "Scriverei la prima versione della doc di **{{code}}** da {{count}} fonti che vedi.",
+          "spaceNotEmpty": "La doc di **{{code}}** ha già delle pagine: la prima versione è solo per uno spazio vuoto.",
+          "noSources": "In **{{code}}** non ho niente da cui partire: nessuna email, riunione o file del Drive che tu possa vedere."
+        },
+        "update": {
+          "summary": {
+            "email": "Aggiornare {{code}} {{title}} dall'email",
+            "meeting": "Aggiornare {{code}} {{title}} dalla riunione"
+          },
+          "done": "Aggiorno **{{code}} {{title}}**.",
+          "proposed": "Ecco cosa cambierei in **{{code}} {{title}}**.",
+          "lead": "In **{{code}} {{title}}**:",
+          "change": {
+            "replace": "«{{before}}» diventa «{{after}}»",
+            "insert": "Nuova: «{{after}}»",
+            "linkTask": "Con la task: «{{after}}»"
+          },
+          "questions_one": "1 punto non è detto chiaramente: lo chiederò nella pagina.",
+          "questions_other": "{{count}} punti non sono detti chiaramente: li chiederò nella pagina.",
+          "waiting_one": "1 modifica aspetterà che nessuno stia scrivendo nella sua sezione.",
+          "waiting_other": "{{count}} modifiche aspetteranno che nessuno stia scrivendo nella loro sezione.",
+          "noSource": "Apri l'email o la riunione nella Posta e chiedimelo di nuovo: aggiorno la pagina da quella che hai aperta.",
+          "noFacts": "Quello che hai aperto non dice niente su **{{code}} {{title}}**.",
+          "nothing": "**{{code}} {{title}}** dice già questo: non c'è niente da cambiare."
+        },
+        "draw": {
+          "summary": "Disegnare una bozza di schermata in {{code}} {{title}}",
+          "done": "Disegno una bozza di schermata in fondo a **{{code}} {{title}}**.",
+          "proposed": "Disegnerei una bozza di schermata in fondo a **{{code}} {{title}}**."
+        },
+        "changes": {
+          "lead": "Questa settimana nella doc di {{code}}:",
+          "leadAll": "Questa settimana nella doc:",
+          "none": "Questa settimana nella doc di {{code}} non è cambiato niente.",
+          "noneAll": "Questa settimana nella doc che leggi non è cambiato niente.",
+          "count_one": "1 modifica",
+          "count_other": "{{count}} modifiche",
+          "by": "di {{names}}"
         }
       }
     },

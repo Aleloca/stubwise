@@ -53,7 +53,16 @@ export type ClaudeActionFn =
   | "deleteAutomationDraft"
   // Il filtro salvato personale (area 10b, Task 9): solo privato.
   | "saveFilter"
-  | "deleteFilter";
+  | "deleteFilter"
+  // La doc di prodotto (11b, Task 8): la prima versione e la bozza di
+  // schermata sono A con «Undo»; l'aggiornamento da un'email o da una
+  // riunione è B, perché avvisa chi segue la pagina. Gli inversi sono voci (P39).
+  | "writeFirstVersion"
+  | "undoFirstVersion"
+  | "updateProductPage"
+  | "undoProductUpdate"
+  | "drawWireframe"
+  | "deleteWireframe";
 
 /** Un oggetto toccato da un'azione: il «com'era» di «Annulla» lo confronta con le scritture dopo. */
 export type ObjectRef =
@@ -75,7 +84,15 @@ export type ObjectRef =
    * registro sullo stesso oggetto.
    */
   | { kind: "instanceSetting"; key: string }
-  | { kind: "subscription"; projectId: string; type: string };
+  | { kind: "subscription"; projectId: string; type: string }
+  /**
+   * 11b (P39): un blocco di una pagina di prodotto (la bozza disegnata, un
+   * blocco cambiato da un aggiornamento). Il «com'era» legge le revisioni
+   * della pagina che lo toccano.
+   */
+  | { kind: "productBlock"; pageId: string; blockId: string }
+  /** 11b (P39): lo spazio Prodotto di un progetto (la prima versione): il «com'era» è il suo primo tocco. */
+  | { kind: "productSpace"; projectId: string };
 
 /** L'inverso coi valori di prima, `null` = non si annulla. */
 export type CatalogInverse = { fn: ClaudeActionFn; args: Record<string, unknown> } | null;

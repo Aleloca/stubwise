@@ -19,6 +19,7 @@ import { automation, isAutomationRequest } from "./intents/automation";
 import { draft, isDraftRequest } from "./intents/draft";
 import { isMemberRequest, member } from "./intents/member";
 import { isPageRequest, page } from "./intents/page";
+import { isProductDocRequest, productDoc } from "./intents/productDocs";
 import { assign, create, plan } from "./intents/change";
 import { explain } from "./intents/explain";
 import { fileQuestion, files } from "./intents/files";
@@ -62,6 +63,7 @@ export type Intent =
   | "member"
   | "draft"
   | "page"
+  | "productDoc"
   | "general";
 
 // Le modifiche si riconoscono solo da un COMANDO: il verbo all'imperativo in
@@ -120,6 +122,11 @@ export function recognize(text: string, visibleCodes?: ReadonlySet<string>): Int
   // Area 10b (Task 8): una bozza si prova PRIMA dei gesti delle persone, ma
   // solo con un verbo di scrittura in testa: «scrivi e manda l'email» è la
   // bozza (più la riga D `send`), «manda l'email» da solo resta la riga D.
+  // 11b (Task 8): i gesti della doc di prodotto sono comandi precisi
+  // («scrivi la prima versione», «aggiorna Sign-in da questa email», le
+  // frasi che la pagina manda al riquadro): prima di tutto il resto, così
+  // «write the first version» non è la bozza di un campo.
+  if (isProductDocRequest(text)) return "productDoc";
   if (isDraftRequest(text)) return "draft";
   // Un gesto delle persone (classe D, area 10a) prima di ogni comando: «approva
   // il piano di AUD-4» non diventa mai un'altra cosa.
@@ -183,6 +190,7 @@ const HANDLERS: Record<Intent, (text: string, ctx: IntentContext) => Promise<Ans
   member,
   draft,
   page,
+  productDoc,
   general,
 };
 

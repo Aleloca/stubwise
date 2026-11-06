@@ -11,7 +11,13 @@ import type {
   DocPage,
   DriveFile,
   FilterCriteria,
+  FirstVersionPlan,
   PageAction,
+  ProductBacklogDraft,
+  ProductPanelPage,
+  ProductQuestionRequestDraft,
+  ProductUpdatePreview,
+  ProductWeekChange,
   Person,
   Project,
   ProjectPulse,
@@ -139,6 +145,26 @@ export interface ReadApi {
   ): Promise<
     { ok: true; text: string; used: string[] } | { ok: false; reason: "not_found" | "hint" }
   >;
+  /**
+   * 11b (Task 8): le pagine di prodotto che chi chiede legge (di un
+   * progetto, o di tutti con `null`), con il suo `docs.edit`. Una pagina che
+   * non legge non c'è.
+   */
+  listProductPages(projectId: string | null): Promise<ProductPanelPage[]>;
+  /**
+   * 11b: «aggiorna la pagina da questa email o riunione» — cosa cambierebbe,
+   * dalla conversazione della Posta aperta (`threadId`). Un'email che chi
+   * chiede non può aprire si legge come una che non c'è (`no_source`).
+   */
+  productUpdatePreview(pageId: string, threadId: string | null): Promise<ProductUpdatePreview>;
+  /** 11b: le voci di backlog di una pagina, o della sezione del titolo `section`. */
+  productBacklogDraft(pageId: string, section: string | null): Promise<ProductBacklogDraft>;
+  /** 11b (P21): la richiesta da una domanda di Claude sulla doc. */
+  productQuestionRequest(commentId: string): Promise<ProductQuestionRequestDraft>;
+  /** 11b: le fonti della prima versione di uno spazio vuoto. */
+  firstVersionPlan(projectId: string): Promise<FirstVersionPlan>;
+  /** 11b: le pagine cambiate negli ultimi sette giorni, come le legge chi chiede. */
+  productChangesThisWeek(projectId: string | null): Promise<ProductWeekChange[]>;
   /** Area 10b (D1): la bozza della descrizione di una task, dalle sue fonti. */
   taskDescriptionDraft(
     taskId: string,

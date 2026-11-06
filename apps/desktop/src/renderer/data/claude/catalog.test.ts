@@ -11,6 +11,7 @@ import type { ProposedAction } from "../model";
 import { settingsOf } from "../projectSettings/reads";
 import { capOf } from "../releases/visibility";
 import { AUTOMATION_CASES } from "../seed/automations";
+import { withoutSeed11b } from "../seed/productDocs/without11b";
 import { setSessionPersonId } from "../session";
 import {
   eventsOf,
@@ -229,6 +230,15 @@ const SCENARIOS: Partial<Record<ClaudeActionFn, () => Record<string, unknown>>> 
     name: "Marco in ACQ",
     criteria: { projectIds: [ACQ], assigneeIds: [MARCO], families: ["todo", "active"] },
   }),
+  // La doc di prodotto (11b, Task 8): VRD è vuoto; l'email di Sign-in torna
+  // a dire qualcosa senza il seme del 11b, e Roberta la riceve qui.
+  writeFirstVersion: () => ({ projectId: "prj-vrd", sources: [{ kind: "text", text: "Notes" }] }),
+  updateProductPage: () => {
+    withoutSeed11b();
+    state.mailMessages.find((m) => m.id === "mm-acq-signin-google")!.mailboxPersonIds.push(ROBERTA);
+    return { pageId: "pp-acq-sign-in", source: { kind: "email", id: "mm-acq-signin-google" } };
+  },
+  drawWireframe: () => ({ pageId: "pp-acq-screens", afterId: null }),
 };
 
 /** Un flusso senza problemi per una bozza nuova (`createAutomation` valida prima di scrivere). */

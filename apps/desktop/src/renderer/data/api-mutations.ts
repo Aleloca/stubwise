@@ -149,6 +149,15 @@ import type {
 } from "./types";
 import { supportState } from "../domain/support/state";
 import { answerProductQuestionWithRequest, checkProductDocOrigin } from "./productDocs/questions";
+import {
+  firstVersionPlanFor,
+  productBacklogDraftFor,
+  productPanelPagesFor,
+  productQuestionRequestFor,
+  productUpdatePreviewFor,
+  productWeekChangesFor,
+} from "./productDocs/claudePanel";
+import { productPageById } from "./productDocs/reads";
 import { publishAlert } from "./alerts/publish";
 import { overStubwiseCap } from "./releases/visibility";
 // La correzione dei server (area 8b): usata solo dentro le funzioni, quindi
@@ -1771,6 +1780,13 @@ export function readsAs(me: string): ReadApi {
     releaseNotesDraft: async (prId) => releaseNotesDraftFor(me, prId),
     mailDraft: (threadId, hint) => mailDraftFor(me, threadId, hint),
     taskDescriptionDraft: async (taskId) => taskDescriptionDraftFor(me, taskId),
+    // 11b (Task 8): la doc di prodotto, a nome di chi chiede; nessuna scrive.
+    listProductPages: async (projectId) => productPanelPagesFor(me, projectId),
+    productUpdatePreview: async (pageId, threadId) => productUpdatePreviewFor(me, pageId, threadId),
+    productBacklogDraft: async (pageId, section) => productBacklogDraftFor(me, pageId, section),
+    productQuestionRequest: async (commentId) => productQuestionRequestFor(me, commentId),
+    firstVersionPlan: async (projectId) => firstVersionPlanFor(me, projectId),
+    productChangesThisWeek: async (projectId) => productWeekChangesFor(me, projectId),
   };
 }
 
@@ -1825,7 +1841,8 @@ function projectsOfSteps(steps: ScriptStep[]): string[] {
         if (ref.kind === "task") add(ofTask(ref.id));
         else if (ref.kind === "request") add(ofRequest(ref.id));
         else if (ref.kind === "project") add(ref.id);
-        else if (ref.kind === "doc") add(docPageById(ref.id)?.projectId);
+        else if (ref.kind === "doc")
+          add(docPageById(ref.id)?.projectId ?? productPageById(ref.id)?.projectId);
         else if (ref.kind === "drive")
           add(state.driveFiles.find((f) => f.id === ref.id)?.projectId);
       }
@@ -3384,6 +3401,19 @@ function snapshotForActions(): () => void {
     deletedTasks: state.deletedTasks,
     instance: state.instance,
     googleWorkspaces: state.googleWorkspaces,
+    // 11b (Task 8): le voci della doc di prodotto (prima versione, bozza,
+    // aggiornamento) scrivono pagine, revisioni, segni, domande e fonti
+    // viste; senza, un gruppo fallito le lascerebbe, con gli id di
+    // `counter` rimessi e quindi riusati.
+    productPages: state.productPages,
+    productRevisions: state.productRevisions,
+    productMarks: state.productMarks,
+    productPending: state.productPending,
+    productSourcesSeen: state.productSourcesSeen,
+    productFirstVersions: state.productFirstVersions,
+    productFollows: state.productFollows,
+    productComments: state.productComments,
+    productBlockIds: state.productBlockIds,
   });
   const access = structuredClone(accessState());
   const changelog = state.changelog.length;

@@ -190,7 +190,7 @@ describe("il riconoscimento (P10)", () => {
 });
 
 describe("S0, la risposta onesta", () => {
-  const NINE: CapabilityId[] = [
+  const ALL: CapabilityId[] = [
     "automation",
     "stalled",
     "spend",
@@ -200,6 +200,12 @@ describe("S0, la risposta onesta", () => {
     "releaseNotes",
     "mailBody",
     "taskDescription",
+    // 11b (Task 8): le cinque della doc di prodotto, in coda.
+    "productFirstVersion",
+    "productUpdate",
+    "productBacklog",
+    "productWireframe",
+    "productChanges",
   ];
   for (const [text, t, first] of [
     ["What's the weather like in Milan?", en, "In the prototype I can do these things:"],
@@ -207,10 +213,10 @@ describe("S0, la risposta onesta", () => {
     ["Qual è la capitale del Portogallo?", it_, "Nel prototipo so fare queste cose:"],
     ["scrivimi una poesia", it_, "Nel prototipo so fare queste cose:"],
   ] as const) {
-    it(`«${text}»: la prima riga e le nove voci`, async () => {
+    it(`«${text}»: la prima riga e tutte le voci`, async () => {
       const steps = await respond(text, as(GIULIA, t));
       expect(said(steps)).toBe(first);
-      expect(events(steps, "capabilities")).toEqual([{ type: "capabilities", items: NINE }]);
+      expect(events(steps, "capabilities")).toEqual([{ type: "capabilities", items: ALL }]);
       // Subito dopo il testo.
       const kinds = steps.flatMap((s) =>
         s.step === "say" ? ["say"] : s.step === "event" ? [s.event.type] : [],
@@ -225,7 +231,7 @@ describe("S0, la risposta onesta", () => {
       ...PEOPLE.flatMap((p) => [p.name, p.name.split(" ")[0]!]),
     ].filter((n) => n.length >= 2 && n !== "Claude");
     for (const t of [en, it_]) {
-      for (const id of NINE) {
+      for (const id of ALL) {
         for (const part of ["label", "prompt"]) {
           const line = t(`claude.answers.capabilities.${part}.${id}`);
           expect(line, `${part}.${id}`).not.toMatch(/^claude\./);
@@ -240,7 +246,7 @@ describe("S0, la risposta onesta", () => {
       const steps = await respond("write me a poem", as(GIULIA, t));
       const lines = [
         said(steps),
-        ...NINE.flatMap((id) => [
+        ...ALL.flatMap((id) => [
           t(`claude.answers.capabilities.label.${id}`),
           t(`claude.answers.capabilities.prompt.${id}`),
         ]),
@@ -251,7 +257,7 @@ describe("S0, la risposta onesta", () => {
 
   it("nella Chat (senza `classify`) lo stesso evento", async () => {
     const steps = await respond("write me a poem", as(GIULIA, en, null, { classify: undefined }));
-    expect(events(steps, "capabilities")).toEqual([{ type: "capabilities", items: NINE }]);
+    expect(events(steps, "capabilities")).toEqual([{ type: "capabilities", items: ALL }]);
     // Anche `toSteps` da solo, senza classe: l'evento non dipende dal riquadro.
     const direct = toSteps(
       { actions: [], text: "x", capabilities: ["stalled"] },
