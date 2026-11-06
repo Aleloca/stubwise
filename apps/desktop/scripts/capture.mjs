@@ -786,7 +786,8 @@ async function main() {
             await page.keyboard.type("/link");
             await page.waitForTimeout(200);
             await page.keyboard.press("Enter");
-            await page.getByRole("combobox").waitFor();
+            // Il selettore (la colonna dei commenti aperta ha una sua casella).
+            await page.locator('[role="combobox"][aria-controls^="picker-"]').waitFor();
             await page.keyboard.type("ACQ");
             await page.waitForTimeout(500);
           },
