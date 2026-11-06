@@ -48,6 +48,7 @@ import {
   firstVersionWayFreshKey,
   inSpace,
   isFresh,
+  takeFresh,
   indexFreshKey,
   markFresh,
   productIndexLink,
@@ -63,6 +64,9 @@ import {
 //
 // Un progetto che chi guarda non vede, uno che non esiste e uno col modulo
 // Docs spento rispondono allo stesso modo ([PS 20], R-G5): la pagina non c'è.
+
+/** Quanto la conferma di «Undo the first version» aspetta l'indice vuoto, prima di chiudersi da sola. */
+const UNDO_HANDOFF_MS = 1500;
 
 const barItem =
   "inline-flex h-7 min-w-0 shrink-0 items-center rounded-md px-2 text-sm font-medium whitespace-nowrap text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink";
@@ -277,8 +281,27 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
   // l'indice non ha messo il fuoco sulla prima strada e preso il segno: la
   // lettura dello spazio può arrivare un giro dopo l'indirizzo. Gli effetti
   // di layout dei figli vengono prima: il fuoco non passa mai dal body.
+  // Se la strada non arriva (la lettura dello spazio non torna vuota: una
+  // pagina nata nel frattempo, una lettura fallita), la conferma non resta
+  // su «Undoing…»: dopo `UNDO_HANDOFF_MS` si chiude da sola, e chiusa a mano
+  // (Cancel, Esc) mette il fuoco sull'h1 della lettura quando il bottone da
+  // cui era partita non c'è più; il segno si toglie sempre (fix round 1, M1).
   const [undoAsk, setUndoAsk] = useState<"ask" | "undone" | null>(null);
-  const askUndoFirstVersion = useCallback(() => setUndoAsk("ask"), []);
+  const undoOrigin = useRef<HTMLElement | null>(null);
+  const askUndoFirstVersion = useCallback(() => {
+    undoOrigin.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setUndoAsk("ask");
+  }, []);
+  const closeUndo = useCallback(() => {
+    if (!undoOrigin.current?.isConnected) root.current?.querySelector<HTMLElement>("h1")?.focus();
+    takeFresh(firstVersionWayFreshKey(project.code));
+    setUndoAsk(null);
+  }, [project.code]);
+  useEffect(() => {
+    if (undoAsk !== "undone") return;
+    const timer = window.setTimeout(closeUndo, UNDO_HANDOFF_MS);
+    return () => window.clearTimeout(timer);
+  }, [undoAsk, closeUndo]);
   const onFirstVersionUndone = () => {
     markFresh(firstVersionWayFreshKey(project.code));
     setUndoAsk("undone");
@@ -481,7 +504,7 @@ function SpaceShell({ project, space }: { project: Project; space: ProductSpaceV
         {undoAsk !== null && (
           <FirstVersionUndoDialog
             project={project}
-            onClose={() => setUndoAsk(null)}
+            onClose={closeUndo}
             onUndone={onFirstVersionUndone}
           />
         )}

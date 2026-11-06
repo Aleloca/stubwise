@@ -156,7 +156,7 @@ function Banner({
   );
 }
 
-/** Perché «Undo the first version» è spento: chi ha toccato cosa, il nome in grassetto, la pagina che si apre. */
+/** Perché «Undo the first version» è spento: chi ha toccato cosa, il nome in grassetto, la pagina che si apre, e «Who?». */
 function UndoOff({
   undo,
   id,
@@ -197,9 +197,12 @@ function UndoOff({
   } else {
     text = t("productDocs.firstVersion.banner.touched.nobody");
   }
+  // Il «Who?» dopo chi ha toccato (ruling del controller, fix round 1 del
+  // Task 11: la lezione vincolante e il brief vincono sullo shape [PQ 9]).
   return (
     <span id={id} className="text-xs leading-4 text-ink-muted">
-      {text}
+      {text} <span aria-hidden="true">· </span>
+      <WhoCanLink action="editDocs" projectId={project.id} projectCode={project.code} />
     </span>
   );
 }

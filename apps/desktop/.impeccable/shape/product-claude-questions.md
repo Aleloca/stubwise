@@ -600,3 +600,50 @@ brief.
 5. **Nessuna tinta del «filo attivo» sul blocco dopo «Update it»** (§3.3):
    la tinta del 11a segue solo i fili aperti (`activeThread` fra gli
    aperti); il filo risolto non la porta. Il fuoco va al blocco aggiornato.
+
+## Emendamenti (controller, 6 nov 2026, fix round 1 del Task 11)
+
+1. **La riga in cima: le fonti su una riga a sé** ([PQ 9]). La frase è
+   «First version written by Claude on behalf of Laura Costa» / «Prima
+   versione scritta da Claude per conto di Laura Costa»; sotto, su una riga
+   sua, la `SourceLine` delle fonti («From the email “…” · Oct 16 · From
+   pasted text +1»). Le etichette di `sourceViewOf` cominciano già con
+   «From…» / «Da…»: dopo «from:» si leggerebbero due volte.
+2. **La prima versione interrotta** ([PQ 8], [PQ 9]): mai «wrote».
+   Avanzamento: «Claude stopped the first version» / «Claude ha interrotto
+   la prima versione», riga «2 of 10 pages written» / «2 di 10 pagine
+   scritte» (· le domande da chiudere). Una pagina scritta e poi tolta resta
+   nell'elenco con ✓ tenue, il titolo barrato e «removed» / «tolta» (non è
+   «in attesa»). Riga in cima: dopo la frase, «Claude stopped after 2 of 10
+   pages.» / «Claude si è fermato dopo 2 pagine su 10.».
+3. **«Undo the first version» spento: una frase per tipo di tocco, e il
+   «Who?»** ([PQ 9]; il «Who?» per ruling del controller, che segue il brief
+   e la lezione vincolante «ogni controllo spento ha la sua frase e il
+   Who?»). La frase nomina chi ha toccato (grassetto) e la pagina (link):
+   - modifica: «**Marco Bellini** edited “Bills” afterwards» / «**Marco
+     Bellini** ha modificato «Bills» dopo»;
+   - commento: «… commented on “Bills” afterwards» / «… ha commentato
+     «Bills» dopo»;
+   - risposta di un altro a una domanda di Claude: «… answered a question on
+     “Bills” afterwards» / «… ha risposto a una domanda su «Bills» dopo»;
+   - pagina nuova: «… added “Marco's page” afterwards» / «… ha aggiunto
+     «…» dopo»;
+   - senza nome (pagina tolta, persona che chi guarda non vede): «A page was
+     edited afterwards» / «Una pagina è stata modificata dopo»;
+   poi, sempre, « · Who?» / « · Chi?» (`WhoCanLink`, `editDocs`).
+4. **La finestra delle fonti** ([PQ 7]): il titolo è quello di ogni dialogo
+   dell'app (18px, `Dialog` comune), non 20px. A 1024 la superficie sta in
+   80vh (`scrollBody`): scorrono i gruppi, mentre la nota sulla riservatezza
+   e la riga dei rifiuti (`role="alert"`) stanno in una fascia che non scorre,
+   fra due filetti, subito sopra i bottoni: sempre a vista.
+5. **La conferma «Undo the first version?»** vive nello spazio, non nella
+   pagina (che sparisce con l'annullamento). Se l'indice non torna vuoto
+   (una pagina nata nel frattempo), la conferma non resta su «Undoing…»: si
+   chiude da sola dopo 1,5 s col fuoco sull'h1 dell'indice; chiusa a mano,
+   stesso fuoco se il bottone da cui era partita non c'è più.
+6. **A 1024 il cassetto dell'albero** si apre sopra la riga dell'attesa
+   ([PQ 11]): è un pannello passeggero con l'ombra, copre già la lettura, e
+   la riga torna appena si chiude.
+7. **L'avanzamento che se ne va col fuoco dentro** (la prima versione
+   annullata da un altro mentre si guarda l'indice): il fuoco passa all'h1 e
+   poi alla prima strada dell'indice vuoto, mai al body.

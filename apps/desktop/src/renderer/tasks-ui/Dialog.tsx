@@ -39,6 +39,7 @@ export function Dialog({
   confirmDiscard,
   className = "",
   scrollBody = false,
+  beforeFooter,
   children,
 }: {
   title: string;
@@ -58,6 +59,11 @@ export function Dialog({
    * restano a vista (la finestra delle fonti della prima versione, 11b).
    */
   scrollBody?: boolean;
+  /**
+   * Una fascia fra il corpo e il piede che non scorre mai (con `scrollBody`):
+   * ciò che va detto sopra i bottoni, sempre a vista (11b, fix round 1).
+   */
+  beforeFooter?: ReactNode;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -149,6 +155,11 @@ export function Dialog({
         >
           {children}
         </div>
+        {beforeFooter && (
+          <div data-dialog-before-footer="" className="flex shrink-0 flex-col gap-2 border-t border-rule px-5 py-3">
+            {beforeFooter}
+          </div>
+        )}
         {asking ? (
           <footer
             role="group"

@@ -1,7 +1,12 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { productDocs, resetApi, setLatency, setStreamLatency } from "../../../data/api";
+import { failNext, productDocs, resetApi, setLatency, setStreamLatency } from "../../../data/api";
+import { addProductCommentAs } from "../../../data/productDocs/comments";
+import { answerProductQuestionAs } from "../../../data/productDocs/questions";
+import { createProductPageAs } from "../../../data/productDocs/writes";
+import { revokeProjectPermission } from "../../../data/viewer";
+import { firstVersionWayFreshKey, isFresh } from "../parts";
 import {
   openProductQuestions,
   productFirstVersionOf,
@@ -48,6 +53,8 @@ afterEach(async () => {
 });
 
 const flat = (el: Element) => (el.textContent ?? "").replace(/\s+/g, " ").trim();
+/** Le righe col «·» fra elementi flessibili non hanno spazi nel testo: si normalizza. */
+const dotted = (el: Element) => flat(el).replace(/\s*·\s*/g, " · ");
 const vrdPages = () => state.productPages.filter((p) => p.projectId === VRD);
 
 /** Il fuoco perso sul body anche per un solo giro: a ogni mutazione del DOM si guarda dov'è. */
@@ -411,7 +418,8 @@ describe("la riga in cima alla pagina", () => {
     const undo = within(row).getByRole("button", { name: "Undo the first version" });
     expect(undo).toHaveAttribute("aria-disabled", "true");
     const why = document.getElementById(undo.getAttribute("aria-describedby")!)!;
-    expect(flat(why)).toBe(`Marco Bellini edited “${page.title}” afterwards`);
+    expect(flat(why)).toBe(`Marco Bellini edited “${page.title}” afterwards · Who?`);
+    expect(within(why).getByRole("button", { name: /^Who/ })).toBeInTheDocument();
     expect(within(why).getByRole("link", { name: `“${page.title}”` })).toHaveAttribute("href", `${INDEX}/${page.code}`);
     await userEvent.setup().click(undo);
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -472,5 +480,293 @@ describe("a 1024", () => {
     const footer = dialog.querySelector("footer")!;
     expect(scroller.contains(footer)).toBe(false);
     expect(within(footer).getByRole("button", { name: "Write the first version" })).toBeInTheDocument();
+  });
+});
+
+// --- Fix round 1 del Task 11 ------------------------------------------------------
+
+const vrdQuestions = () => {
+  const ids = new Set(vrdPages().map((p) => p.id));
+  return state.productComments.filter((c) => ids.has(c.pageId) && c.question !== undefined);
+};
+
+/** La frase dello «Undo» spento sulla prima pagina, come la legge Laura. */
+async function undoReason() {
+  await openPage(firstPage().code);
+  const row = await banner();
+  const undo = within(row).getByRole("button", { name: /^(Undo the first version|Annulla la prima versione)$/ });
+  expect(undo).toHaveAttribute("aria-disabled", "true");
+  const why = document.getElementById(undo.getAttribute("aria-describedby")!)!;
+  expect(within(why).getByRole("button", { name: /^(Who|Chi)/ })).toBeInTheDocument();
+  return flat(why);
+}
+
+describe("fix round 1 — «Undo» spento: chi ha toccato, e «Who?» (M3)", () => {
+  it("un commento di Marco", async () => {
+    await written();
+    const page = vrdPages().find((p) => p.title === "Memberships")!;
+    const anchor = page.blocks.find((b) => b.type === "paragraph")!;
+    addProductCommentAs(MARCO, page.id, { anchorId: anchor.id, quote: "plans", body: "Yearly plan?" });
+    expect(await undoReason()).toBe("Marco Bellini commented on “Memberships” afterwards · Who?");
+  });
+
+  it("una risposta di Marco a una domanda di Claude", async () => {
+    await written();
+    const q = vrdQuestions()[0]!;
+    answerProductQuestionAs(MARCO, q.id, "keep");
+    const title = vrdPages().find((p) => p.id === q.pageId)!.title;
+    expect(await undoReason()).toBe(`Marco Bellini answered a question on “${title}” afterwards · Who?`);
+  });
+
+  it("una pagina nuova di Marco", async () => {
+    await written([TEXT]);
+    createProductPageAs(MARCO, VRD, { title: "Marco's page", parentId: null });
+    expect(await undoReason()).toBe("Marco Bellini added “Marco's page” afterwards · Who?");
+  });
+
+  it("una pagina tolta (chi l'ha tolta non si sa più)", async () => {
+    await written([TEXT]);
+    const last = vrdPages().find((p) => p.title === VRD_FIRST_VERSION.at(-1)!.title)!;
+    deleteProductPageAs(MARCO, last.id);
+    expect(await undoReason()).toBe("A page was edited afterwards · Who?");
+  });
+
+  it("in italiano: una modifica", async () => {
+    act(() => setLanguage("it"));
+    await written();
+    const page = firstPage();
+    const block = page.blocks[0]!;
+    writeProductBlocksAs(
+      MARCO,
+      page.id,
+      [{ op: "set", block: { ...block, content: { text: "Parole di Marco", marks: [] } } as ProductBlock }],
+      { sessionId: "s-marco-it" },
+    );
+    expect(await undoReason()).toBe(`Marco Bellini ha modificato «${page.title}» dopo · Chi?`);
+  });
+
+  it("in italiano: una pagina nuova", async () => {
+    act(() => setLanguage("it"));
+    await written([TEXT]);
+    createProductPageAs(MARCO, VRD, { title: "Pagina di Marco", parentId: null });
+    expect(await undoReason()).toBe("Marco Bellini ha aggiunto «Pagina di Marco» dopo · Chi?");
+  });
+
+  it("in italiano: un commento", async () => {
+    act(() => setLanguage("it"));
+    await written();
+    const page = vrdPages().find((p) => p.title === "Memberships")!;
+    const anchor = page.blocks.find((b) => b.type === "paragraph")!;
+    addProductCommentAs(MARCO, page.id, { anchorId: anchor.id, quote: "plans", body: "Annuale?" });
+    expect(await undoReason()).toBe("Marco Bellini ha commentato «Memberships» dopo · Chi?");
+  });
+});
+
+describe("fix round 1 — a 1024 la nota e i rifiuti restano a vista (I1)", () => {
+  it("la nota sulla riservatezza e il rifiuto stanno fuori dal corpo che scorre, sopra i bottoni; il rifiuto è un alert", async () => {
+    setMatchMedia(DOCKED_PANEL_QUERY, false);
+    const user = userEvent.setup();
+    await openIndex();
+    await user.click(firstWay());
+    const dialog = await screen.findByRole("dialog");
+    const body = dialog.querySelector("[data-dialog-body]")!;
+    const privacy = dialog.querySelector("[data-first-version-privacy]")!;
+    expect(body.contains(privacy)).toBe(false);
+    await user.type(within(dialog).getByRole("textbox", { name: "Pasted text" }), "notes");
+    state.instance.simulate.budgetReached = true;
+    await user.click(within(dialog).getByRole("button", { name: "Write the first version" }));
+    const alert = await within(dialog).findByRole("alert");
+    expect(body.contains(alert)).toBe(false);
+    const band = dialog.querySelector("[data-dialog-before-footer]")!;
+    expect(band.contains(alert) && band.contains(privacy)).toBe(true);
+    const footer = dialog.querySelector("footer")!;
+    expect(band.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(alert).toBeVisible();
+  });
+});
+
+describe("fix round 1 — i rifiuti e gli errori (M5)", () => {
+  async function dialogWithText() {
+    const user = userEvent.setup();
+    await openIndex();
+    await user.click(firstWay());
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Pasted text" }), "notes");
+    return { user, dialog };
+  }
+
+  it("avvio rifiutato perché Laura non può più modificare: «You can no longer edit the docs in VRD. · Who?»", async () => {
+    const { user, dialog } = await dialogWithText();
+    revokeProjectPermission(LAURA, VRD, "docs.edit" as never);
+    await user.click(within(dialog).getByRole("button", { name: "Write the first version" }));
+    const alert = await within(dialog).findByRole("alert");
+    expect(flat(alert)).toBe("You can no longer edit the docs in VRD. · Who?");
+    expect(within(alert).getByRole("button", { name: /^Who/ })).toBeInTheDocument();
+    expect(vrdPages()).toEqual([]);
+  });
+
+  it("avvio non riuscito: «Couldn't start · Retry», e «Retry» avvia", async () => {
+    const { user, dialog } = await dialogWithText();
+    failNext("productDocs.startFirstVersion");
+    const start = within(dialog).getByRole("button", { name: "Write the first version" });
+    await user.click(start);
+    const alert = await within(dialog).findByRole("alert");
+    expect(dotted(alert)).toBe("Couldn't start · Retry");
+    expect(start).toHaveFocus();
+    await user.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(
+      await screen.findByRole("heading", { name: /^Claude (is writing|wrote) the first version$/ }),
+    ).toBeInTheDocument();
+    expect(state.productFirstVersions).toHaveLength(1);
+  });
+
+  it("le fonti non caricate: «Couldn't load the sources · Retry», e «Retry» le carica", async () => {
+    failNext("productDocs.listFirstVersionSources");
+    const user = userEvent.setup();
+    await openIndex();
+    await user.click(firstWay());
+    const dialog = await screen.findByRole("dialog");
+    const alert = await within(dialog).findByRole("alert");
+    expect(dotted(alert)).toBe("Couldn't load the sources · Retry");
+    await user.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await within(dialog).findByRole("group", { name: "Emails" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+  });
+
+  async function confirmUndo() {
+    const user = userEvent.setup();
+    await written([TEXT]);
+    await openPage(firstPage().code);
+    const row = await banner();
+    await user.click(within(row).getByRole("button", { name: "Undo the first version" }));
+    const ask = await screen.findByRole("dialog", { name: "Undo the first version?" });
+    return { user, ask };
+  }
+
+  it("annullamento rifiutato (toccata nel frattempo): la frase e «Close», niente tolto, il fuoco resta vivo", async () => {
+    const { user, ask } = await confirmUndo();
+    createProductPageAs(MARCO, VRD, { title: "Marco's page", parentId: null });
+    await user.click(within(ask).getByRole("button", { name: "Undo the first version" }));
+    const alert = await within(ask).findByRole("alert");
+    expect(flat(alert)).toBe("A page was changed in the meantime: the first version can no longer be undone.");
+    expect(within(ask).queryByRole("button", { name: "Undo the first version" })).toBeNull();
+    await user.click(within(ask).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expectFocusAlive();
+    expect(vrdPages().length).toBe(VRD_FIRST_VERSION.length + 1);
+  });
+
+  it("annullamento non riuscito: «Couldn't undo the first version · Retry», e «Retry» annulla", async () => {
+    const { user, ask } = await confirmUndo();
+    failNext("productDocs.undoFirstVersion");
+    await user.click(within(ask).getByRole("button", { name: "Undo the first version" }));
+    const alert = await within(ask).findByRole("alert");
+    expect(dotted(alert)).toBe("Couldn't undo the first version · Retry");
+    expect(vrdPages().length).toBe(VRD_FIRST_VERSION.length);
+    await user.click(within(alert).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(firstWay()).toHaveFocus());
+    expect(vrdPages()).toEqual([]);
+  });
+});
+
+describe("fix round 1 — la conferma non resta su «Undoing…» (M1)", () => {
+  /** L'annullamento riesce, ma una pagina nasce subito dopo: l'indice non torna vuoto. */
+  function undoThenMarcoAddsAPage() {
+    const real = productDocs.undoFirstVersion;
+    vi.spyOn(productDocs, "undoFirstVersion").mockImplementation(async (projectId) => {
+      await real(projectId);
+      createProductPageAs(MARCO, VRD, { title: "Marco's page", parentId: null });
+    });
+  }
+
+  async function confirmAndWatch() {
+    undoThenMarcoAddsAPage();
+    const user = userEvent.setup();
+    await written([TEXT]);
+    await openPage(firstPage().code);
+    await user.click(within(await banner()).getByRole("button", { name: "Undo the first version" }));
+    const ask = await screen.findByRole("dialog");
+    const body = watchBody();
+    await user.click(within(ask).getByRole("button", { name: "Undo the first version" }));
+    return { user, body };
+  }
+
+  it("chiusa a mano (Esc): il fuoco sull'h1 dell'indice, mai sul body, e il segno è tolto", async () => {
+    const { user, body } = await confirmAndWatch();
+    await screen.findByRole("list", { name: "All pages" });
+    expect(screen.getByRole("dialog")).toHaveTextContent("Undoing…");
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Product" })).toHaveFocus();
+    expect(isFresh(firstVersionWayFreshKey("VRD"))).toBe(false);
+    body.stop();
+    expect(body.hits).toEqual([]);
+  });
+
+  it("lasciata lì: si chiude da sola, col fuoco sull'h1, mai sul body", async () => {
+    const { body } = await confirmAndWatch();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 4000 });
+    expect(screen.getByRole("heading", { level: 1, name: "Product" })).toHaveFocus();
+    expect(isFresh(firstVersionWayFreshKey("VRD"))).toBe(false);
+    body.stop();
+    expect(body.hits).toEqual([]);
+  });
+});
+
+describe("fix round 1 — l'avanzamento che cambia sotto il fuoco (M2, M4)", () => {
+  it("interrotta: la pagina scritta e poi tolta è «removed», non in attesa; il fuoco che era sul suo link va al titolo", async () => {
+    setStreamLatency(20);
+    await openIndex();
+    let deleted = false;
+    let focusedLink = false;
+    let body: ReturnType<typeof watchBody> | null = null;
+    const stop = productDocs.onProductFirstVersion(() => {
+      const view = productFirstVersionOf(LAURA, VRD)!;
+      if (view.pagesDone === 2 && !deleted) {
+        deleted = true;
+        // Il fuoco sul link della prima pagina, poi la pagina sparisce.
+        const first = VRD_FIRST_VERSION[0]!.title;
+        const link = screen
+          .queryAllByRole("link")
+          .find((a) => a.closest("ul")?.getAttribute("aria-label") === "Pages of the first version" && a.textContent?.includes(first));
+        link?.focus();
+        focusedLink = !!link && document.activeElement === link;
+        body = watchBody();
+        deleteProductPageAs(LAURA, view.pages[0]!.pageId!);
+      }
+    });
+    act(() => void startFirstVersionAs(LAURA, VRD, [TEXT]));
+    await screen.findByRole("heading", { name: "Claude is writing the first version" });
+    await act(() => whenFirstVersionIdle());
+    stop();
+    const title = await screen.findByRole("heading", { name: "Claude stopped the first version" });
+    const list = screen.getByRole("list", { name: "Pages of the first version" });
+    const removed = list.querySelector("[data-first-version-removed]")!;
+    expect(flat(removed)).toBe(`${VRD_FIRST_VERSION[0]!.title}removed`);
+    expect(screen.getByText(`2 of ${VRD_FIRST_VERSION.length} pages written`)).toBeInTheDocument();
+    expect(within(list).getAllByRole("link")).toHaveLength(1);
+    expect(focusedLink).toBe(true);
+    await waitFor(() => expect(title).toHaveFocus());
+    body!.stop();
+    expect(body!.hits).toEqual([]);
+  });
+
+  it("annullata da un altro mentre il fuoco è nell'avanzamento: il fuoco va alla prima strada, mai sul body", async () => {
+    setStreamLatency(20);
+    const user = userEvent.setup();
+    await openIndex();
+    await user.click(firstWay());
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: "Pasted text" }), "notes");
+    await user.click(within(dialog).getByRole("button", { name: "Write the first version" }));
+    await act(() => whenFirstVersionIdle());
+    const open = await screen.findByRole("link", { name: "Open the first page" });
+    act(() => open.focus());
+    const body = watchBody();
+    const { undoFirstVersionAs } = await import("../../../data/productDocs/firstVersion");
+    act(() => undoFirstVersionAs(MARCO, VRD));
+    await waitFor(() => expect(firstWay()).toHaveFocus());
+    body.stop();
+    expect(body.hits).toEqual([]);
   });
 });

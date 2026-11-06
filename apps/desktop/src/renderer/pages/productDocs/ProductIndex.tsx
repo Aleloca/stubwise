@@ -64,8 +64,18 @@ export function ProductIndex() {
   // c'è il segno resta, e la conferma resta aperta col fuoco (la chiude lo
   // spazio quando il segno è preso), quindi il fuoco non passa dal body.
   const showsWays = !progress && space.pageCount === 0;
+  // L'avanzamento se n'è andato col fuoco dentro (annullata da un altro): il
+  // fuoco è passato all'h1, e va alla prima strada appena c'è (fix round 1, M4).
+  const progressLeft = useRef(false);
+  const onProgressLeft = useCallback(() => {
+    heading.current?.focus();
+    progressLeft.current = true;
+  }, []);
   useLayoutEffect(() => {
-    if (showsWays && way.current && takeFresh(firstVersionWayFreshKey(project.code))) way.current.focus();
+    if (!showsWays || !way.current) return;
+    const fresh = takeFresh(firstVersionWayFreshKey(project.code));
+    if (fresh || progressLeft.current) way.current.focus();
+    progressLeft.current = false;
   }, [project.code, showsWays]);
   // Chiusa la finestra il fuoco torna alla prima strada (lo fa il dialogo);
   // se la strada non c'è più (una prima versione partita nel frattempo, una
@@ -127,6 +137,7 @@ export function ProductIndex() {
           projectCode={project.code}
           focusRequest={focusProgress}
           onFocused={onProgressFocused}
+          onLeaveWithFocus={onProgressLeft}
         />
       ) : space.pageCount === 0 ? (
         <EmptySpace

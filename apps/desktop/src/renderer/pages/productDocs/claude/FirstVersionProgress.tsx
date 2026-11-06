@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { useOpenProductQuestions } from "../../../data/queries";
 import type { ProductFirstVersionView } from "../../../data/types";
@@ -31,9 +31,9 @@ export function ClaudeRing({ size, pulse }: { size: 12 | 16; pulse: boolean }) {
   );
 }
 
-function Check() {
+function Check({ muted = false }: { muted?: boolean }) {
   return (
-    <svg viewBox="0 0 16 16" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden="true" focusable="false" className="shrink-0 text-ink">
+    <svg viewBox="0 0 16 16" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.6} aria-hidden="true" focusable="false" className={`shrink-0 ${muted ? "text-ink-faint" : "text-ink"}`}>
       <path d="m3.5 8.5 3 3 6-7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
@@ -44,15 +44,32 @@ export function FirstVersionProgress({
   projectCode,
   focusRequest,
   onFocused,
+  onLeaveWithFocus,
 }: {
   view: ProductFirstVersionView;
   projectCode: string;
   /** L'avvio dalla finestra: il fuoco al titolo, poi la finestra si chiude. */
   focusRequest: boolean;
   onFocused: () => void;
+  /**
+   * L'avanzamento se ne va col fuoco dentro (la prima versione annullata da
+   * un altro mentre si guarda): l'indice lo prende prima che i nodi siano
+   * tolti (fix round 1, M4).
+   */
+  onLeaveWithFocus: () => void;
 }) {
   const { t } = useTranslation();
   const heading = useRef<HTMLHeadingElement>(null);
+  const section = useRef<HTMLElement>(null);
+  const leave = useRef(onLeaveWithFocus);
+  leave.current = onLeaveWithFocus;
+  // La pulizia del layout gira prima che il DOM sia tolto: il fuoco esce da qui prima.
+  useLayoutEffect(() => {
+    const el = section.current;
+    return () => {
+      if (el && el.contains(document.activeElement)) leave.current();
+    };
+  }, []);
   const writing = view.status === "writing";
   const stopped = !writing && view.interrupted;
   const questions = useOpenProductQuestions(view.projectId, { enabled: !writing }).data?.count ?? 0;
@@ -102,7 +119,7 @@ export function FirstVersionProgress({
       ];
 
   return (
-    <section className="flex flex-col gap-2 pt-10">
+    <section ref={section} className="flex flex-col gap-2 pt-10">
       <span aria-live="polite" data-first-version-announce="" className="sr-only">
         {announcement}
       </span>
@@ -131,17 +148,23 @@ export function FirstVersionProgress({
           return (
             <li key={i} className="border-b border-rule">
               {page.state === "written" && page.code ? (
-                <Link
-                  {...productPageLink(projectCode, page.code)}
+                <WrittenLink
+                  projectCode={projectCode}
+                  code={page.code}
+                  title={page.title}
                   style={indent}
-                  className={`${row} outline-none transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus`}
-                >
-                  <Check />
-                  <DocCode code={page.code} />
-                  <span className="min-w-0 flex-1 truncate text-md text-ink" title={page.title}>
+                  className={row}
+                  heading={heading}
+                />
+              ) : page.state === "written" ? (
+                // Scritta e poi tolta (una prima versione interrotta): non è «in attesa» (fix round 1, M2).
+                <div style={indent} className={row} data-first-version-removed="">
+                  <Check muted />
+                  <span className="min-w-0 truncate text-md text-ink-faint line-through" title={page.title}>
                     {page.title}
                   </span>
-                </Link>
+                  <span className="shrink-0 text-xs text-ink-muted">{t("productDocs.firstVersion.progress.removed")}</span>
+                </div>
               ) : page.state === "writing" ? (
                 <div style={indent} className={row}>
                   <span className="flex w-3.5 shrink-0 justify-center">
@@ -165,5 +188,48 @@ export function FirstVersionProgress({
         })}
       </ul>
     </section>
+  );
+}
+
+/**
+ * Una pagina scritta, che apre la pagina. Se se ne va col fuoco sopra (la
+ * pagina tolta durante il copione), il fuoco passa al titolo
+ * dell'avanzamento prima che il link sia tolto (fix round 1, M2).
+ */
+function WrittenLink({
+  projectCode,
+  code,
+  title,
+  style,
+  className,
+  heading,
+}: {
+  projectCode: string;
+  code: string;
+  title: string;
+  style: CSSProperties;
+  className: string;
+  heading: RefObject<HTMLHeadingElement | null>;
+}) {
+  const link = useRef<HTMLAnchorElement>(null);
+  useLayoutEffect(() => {
+    const el = link.current;
+    return () => {
+      if (el && el.contains(document.activeElement)) heading.current?.focus();
+    };
+  }, [heading]);
+  return (
+    <Link
+      ref={link}
+      {...productPageLink(projectCode, code)}
+      style={style}
+      className={`${className} outline-none transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/4 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus`}
+    >
+      <Check />
+      <DocCode code={code} />
+      <span className="min-w-0 flex-1 truncate text-md text-ink" title={title}>
+        {title}
+      </span>
+    </Link>
   );
 }

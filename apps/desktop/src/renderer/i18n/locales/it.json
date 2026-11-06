@@ -12570,7 +12570,8 @@
         "pages_other": "{{count}} pagine",
         "questions_one": "{{count}} domanda da chiudere",
         "questions_other": "{{count}} domande da chiudere",
-        "openFirst": "Apri la prima pagina"
+        "openFirst": "Apri la prima pagina",
+        "removed": "tolta"
       },
       "banner": {
         "label": "Prima versione di Claude",

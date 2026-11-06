@@ -112,6 +112,16 @@ export function FirstVersionDialog({
       onClose={onClose}
       width={560}
       scrollBody
+      // La nota sulla riservatezza e i rifiuti sopra i bottoni, fuori dal
+      // corpo che scorre: a 1024 restano a vista ([PQ 7], fix round 1).
+      beforeFooter={
+        <>
+          <p data-first-version-privacy="" className="text-xs text-pretty text-ink-muted">
+            {t("productDocs.firstVersion.dialog.privacy", { code: project.code })}
+          </p>
+          {refusal && <RefusalLine refusal={refusal} project={project} onRetry={submit} onClose={onClose} />}
+        </>
+      }
       footer={
         <>
           {count === 0 ? (
@@ -223,17 +233,6 @@ export function FirstVersionDialog({
               ))}
             </SourceGroup>
           </>
-        )}
-        <p className="text-xs text-pretty text-ink-muted">
-          {t("productDocs.firstVersion.dialog.privacy", { code: project.code })}
-        </p>
-        {refusal && (
-          <RefusalLine
-            refusal={refusal}
-            project={project}
-            onRetry={submit}
-            onClose={onClose}
-          />
         )}
       </div>
     </Dialog>

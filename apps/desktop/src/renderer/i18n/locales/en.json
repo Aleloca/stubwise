@@ -12570,7 +12570,8 @@
         "pages_other": "{{count}} pages",
         "questions_one": "{{count}} question to close",
         "questions_other": "{{count}} questions to close",
-        "openFirst": "Open the first page"
+        "openFirst": "Open the first page",
+        "removed": "removed"
       },
       "banner": {
         "label": "First version by Claude",
