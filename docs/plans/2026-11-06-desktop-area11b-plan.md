@@ -279,7 +279,10 @@ maintainer sugli shape del Task 0».
     block: ProductBlock } | { kind: "link_task"; taskCode: string } |
     { kind: "diverges"; built: string }; clarity: "clear" | "vague";
     contradicts?: boolean; options?: { apply?: RichText; request?: { title:
-    string; description: string } } }`
+    string; description: string } }; recommended?: "apply" | "keep" |
+    "request" }` (la risposta che Claude consiglia; senza, una domanda
+    `vague` consiglia «keep», una `contradicts*` «keep», una `diverges`
+    quella che il seme dice — *maintainer, 6 nov 2026, shape Q2*)
   - `ProductFactDecision = { kind: "edit" } | { kind: "question"; reason:
     "vague" | "contradicts_person" | "contradicts" | "diverges" |
     "no_permission" } | { kind: "none" }`
@@ -463,7 +466,8 @@ maintainer sugli shape del Task 0».
 - Produces:
   - `ProductComment.question?: { sourceRef: ProductSourceRef; reason:
     ProductFactDecision["reason"]; forId: string | null; apply: RichText |
-    null; request: { title: string; description: string } | null; answer:
+    null; request: { title: string; description: string } | null;
+    recommended: "apply" | "keep" | "request"; answer:
     { byId: string; option: "apply" | "keep" | "request"; seq: number } |
     null }`
   - `answerProductQuestionAs(me, commentId, option: "apply" | "keep"):
@@ -636,7 +640,10 @@ maintainer sugli shape del Task 0».
     `productOriginOf(me, request | task): { pageId; code; title } | null`
     (nullo se la pagina non si vede)
   - il blocco `{ type: "wireframe"; id: string; wireframeId: string;
-    variant: number }`; `PRODUCT_WIREFRAMES: Record<string, { keywords:
+    variant: number; kept?: boolean }`; `keepWireframeAs(me, pageId,
+    blockId)` toglie l'etichetta «Bozza di Claude» (`docs.edit`, una
+    revisione annullabile dalla cronologia; «Rifai» la rimette) *(maintainer,
+    6 nov 2026, shape Q3)*; `PRODUCT_WIREFRAMES: Record<string, { keywords:
     string[]; variants: string[] }>` (SVG in bianco e nero)
   - `drawWireframeAs(me, pageId, afterAnchorId): { blockId }` e
     `redrawWireframeAs(me, pageId, blockId)` (variante seguente), entrambe
@@ -650,7 +657,9 @@ maintainer sugli shape del Task 0».
   pagina; un blocco `wireframe` con un `wireframeId` sconosciuto →
   `invalid("wireframe")`; «Rifai» cambia la variante e lascia una revisione;
   il menu «/» ha `wireframe`; `exportModelOf` dà un'immagine per la bozza,
-  e mai il suo segno.
+  con l'etichetta «Bozza di Claude» se non è tenuta e senza se è tenuta;
+  «Tieni» di Sara → `forbidden`; «Rifai» dopo «Tieni» rimette `kept`
+  assente.
 - [ ] **Step 2:** vedili fallire; implementa; vedili passare; suite,
   typecheck, lint; commit `feat(desktop): voci di backlog dalla doc e
   bozze di schermata`.
@@ -838,4 +847,15 @@ maintainer.
 
 ## Decisioni del maintainer sugli shape del Task 0
 
-(da scrivere dopo il Task 0)
+Gli shape `product-claude-mark.md`, `product-claude-questions.md` e
+`product-claude-backlog.md` hanno le risposte del maintainer *(6 nov 2026)*:
+
+1. **«Va bene» una frase alla volta** (`product-claude-mark.md`): ogni
+   segno si accetta da solo, anche nello stesso gruppo. Task 3, Task 9.
+2. **Claude consiglia una risposta, come nei task**
+   (`product-claude-questions.md`): `question.recommended`, lo stesso
+   segno «Recommended» / «Consigliata» delle domande dei task, nel filo e in
+   Home «Decidi». Task 1, Task 4, Task 10.
+3. **«Tieni» toglie l'etichetta della bozza** (`product-claude-backlog.md`):
+   `kept`, con `docs.edit`, annullabile; «Rifai» la rimette; l'esportazione
+   la segue. Task 7, Task 12.
