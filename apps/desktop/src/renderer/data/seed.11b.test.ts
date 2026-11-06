@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { anchorIdsOf, anchorText } from "../domain/productDocs/blocks";
 import { decideFact } from "../domain/productDocs/claudeRule";
-import { productDocs, resetApi, setLatency } from "./api";
+import { listNotifications, productDocs, resetApi, setLatency } from "./api";
+import { productDocRecipients } from "./productDocs/follows";
 import { listProductMarksAs } from "./productDocs/marks";
 import { productQuestionDecisions } from "./productDocs/questions";
 import { sourceViewOf } from "./productDocs/sources";
@@ -87,6 +88,39 @@ describe("Sign-in: la modifica dall'email di Laura", () => {
       revisionIds: ["prev-acq11b-signin"],
       sources: [{ kind: "email", id: ACQ_11B.signInEmailId }],
     });
+  });
+
+  it("a Marco, che segue la pagina ma non ha ricevuto l'email, la card dice solo «da un'email di Laura Costa»", async () => {
+    as(MARCO);
+    const card = (await listNotifications()).find(
+      (n) => n.kind === "product_doc.updated" && n.id === "n-acq11b-signin",
+    )!;
+    expect(card.productCard!.sources).toEqual([
+      expect.objectContaining({
+        kind: "email",
+        label: {
+          key: "productDocs.source.emailOf",
+          params: { owner: "Laura Costa", date: expect.any(Number) },
+        },
+        link: null,
+        code: null,
+      }),
+    ]);
+    expect(card.productCard!.onBehalfOfName).toBe("Laura Costa");
+    // Niente dell'email in nessun campo della card (titolo e corpo compresi), in minuscolo.
+    const json = JSON.stringify(card).toLowerCase();
+    for (const hidden of [
+      "google accounts only",
+      "portal sign-in",
+      "kick-off",
+      "elisa",
+      "th-acq-signin",
+      ACQ_11B.signInEmailId,
+      "#/mail/",
+    ])
+      expect(json, hidden).not.toContain(hidden);
+    for (const text of [card.title, card.body])
+      expect(text.toLowerCase()).not.toContain("google accounts");
   });
 });
 
@@ -204,6 +238,18 @@ describe("Phases: le richieste nate dalla doc", () => {
     const task = state.tasksById.get(ACQ_11B.requestTaskId)!;
     expect(task).toMatchObject({ code: "ACQ-10", projectId: ACQ, requestId: "req-acq-6" });
     expect(fromDoc[0]!.taskIds).toEqual([task.id]);
+  });
+});
+
+describe("le card del 11b", () => {
+  it("vanno a chi riceve gli avvisi della pagina (`productDocRecipients`), mai a Claude", () => {
+    const cards = state.notifications.filter((n) => n.id.startsWith("n-acq11b-"));
+    expect(cards).toHaveLength(5);
+    for (const n of cards) {
+      const pageId = n.productUpdate?.pageId ?? n.productQuestion!.pageId;
+      expect([...n.recipientIds].sort(), n.id).toEqual([...productDocRecipients(pageId)].sort());
+      expect(n.recipientIds).not.toContain(CLAUDE_ID);
+    }
   });
 });
 

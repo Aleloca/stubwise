@@ -12,7 +12,12 @@ import type {
 } from "../../types";
 import { daysFromToday } from "../dates";
 import { CLAUDE_ID } from "../people";
-import { PRODUCT_COMMENTS, PRODUCT_PAGES as PAGES_11A, PRODUCT_REVISIONS } from "./acq";
+import {
+  PRODUCT_COMMENTS,
+  PRODUCT_FOLLOWS,
+  PRODUCT_PAGES as PAGES_11A,
+  PRODUCT_REVISIONS,
+} from "./acq";
 import {
   ACQ_11B,
   BILLS_MEETING_FACT,
@@ -42,7 +47,6 @@ import {
 // partono dopo quelli del 11a e crescono con la data.
 
 const LAURA = "p-laura";
-const MARCO = "p-marco";
 const ACQ = "prj-acq";
 
 const at = (days: number, time: string) => `${daysFromToday(-days)}T${time}:00Z`;
@@ -269,9 +273,20 @@ export const PRODUCT_COMMENTS_11B: ProductComment[] = ASKED.map((q) => ({
 
 // --- le card -----------------------------------------------------------------------
 
-/** Chi segue le pagine nel seme: Laura tutte (le ha create), Marco anche Sign-in. */
-const recipientsOf = (pageId: string): string[] =>
-  pageId === SIGN_IN_FACT.pageId ? [LAURA, MARCO] : [LAURA];
+/**
+ * Chi riceve gli avvisi della pagina, come `productDocRecipients`: chi la
+ * segue nel seme (Laura tutte, Marco anche Sign-in), mai Claude. Ogni pagina
+ * del seme ha chi la segue, quindi il ripiego su chi ha `docs.edit` non serve
+ * (e qui, senza lo stato degli accessi, non si potrebbe calcolare): se una
+ * pagina restasse senza, il seme lo dice invece di inventare.
+ */
+function recipientsOf(pageId: string): string[] {
+  const ids = PRODUCT_FOLLOWS.filter((f) => f.pageId === pageId && f.personId !== CLAUDE_ID).map(
+    (f) => f.personId,
+  );
+  if (ids.length === 0) throw new Error(`acq11b: nobody follows ${pageId}`);
+  return ids;
+}
 
 const pageLink = (pageId: string) => `#/p/ACQ/docs/product/${pageById(pageId).code}`;
 
