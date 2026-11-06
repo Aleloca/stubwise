@@ -6,25 +6,13 @@ import { invalid, notFound, writer } from "../writer";
 import { emitProductPage } from "./events";
 import { anchorUndo, anchorsOf, changeOf, isClaudeEdit, liveMarks, revisionUndo } from "./marks";
 import { productPageById } from "./reads";
-import { editablePage, onAnchorsMerged, writeProductBlocksAs } from "./writes";
+import { editablePage, writeProductBlocksAs } from "./writes";
 
 // I gesti sul segno di Claude (11b, Task 3): «Va bene» e «Annulla». Le
 // regole stanno in `marks.ts`, che legge; qui si scrive, sempre dal cancello
-// del 11a (`editablePage`, `writeProductBlocksAs`). Questo modulo sposta
-// anche il segno quando un'unione assorbe un blocco: `marks.ts` non può
-// importare `writes.ts`, che lo importa per scrivere le righe.
+// del 11a (`editablePage`, `writeProductBlocksAs`).
 
 const refused = (reason: string) => new Error(`refused: ${reason}`);
-
-// Registrato una volta, al caricamento del modulo, come i commenti: il segno
-// del blocco assorbito passa al blocco unito (P14).
-onAnchorsMerged((pageId, from, to) => {
-  for (const m of state.productMarks)
-    if (m.pageId === pageId && m.anchorId === from) {
-      m.fromAnchorId ??= from;
-      m.anchorId = to;
-    }
-});
 
 // --- «Va bene» -------------------------------------------------------------------
 

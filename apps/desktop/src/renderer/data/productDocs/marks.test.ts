@@ -293,6 +293,39 @@ describe("«Annulla» (Review Focus 4)", () => {
     expect(pageOf().blocks.map((b) => b.id)).toEqual(ids.filter((id) => id !== mark!.anchorId));
   });
 
+  it("una tabella aggiunta da Claude: Marco scrive in un'altra cella, «Annulla» della cella di Claude è spento", async () => {
+    const cell = (id: string, text: string) => ({ id, content: plain(text) });
+    const table: ProductBlock = {
+      id: "blk-t",
+      type: "table",
+      rows: [
+        { id: "blk-t-r1", cells: [cell("blk-t-a", "Meter"), cell("blk-t-b", "Reading")] },
+        { id: "blk-t-r2", cells: [cell("blk-t-c", "Home"), cell("blk-t-d", "Cubic metres")] },
+      ],
+    };
+    const out = applyProductSource(ref, ACQ, [
+      { id: "fact-table", pageId: PAGE, anchorId: STORES, clarity: "clear", change: { kind: "insert_after", block: table } },
+    ]);
+    const rev = out.edits[0]!;
+    const inserted = pageOf().blocks[pageOf().blocks.findIndex((b) => b.id === STORES) + 1]!;
+    expect(inserted.type).toBe("table");
+    if (inserted.type !== "table") return;
+    const [first, second] = inserted.rows[0]!.cells;
+    const edited = structuredClone(inserted);
+    edited.rows[0]!.cells[1]!.content = plain("Marco's reading");
+    writeProductBlocksAs(MARCO, PAGE, [{ op: "set", block: edited }], { sessionId: "s-m" });
+
+    const mark = marksOf(LAURA).find((m) => m.anchorId === first!.id)!;
+    expect(mark.undo).toEqual({ enabled: false, reason: "changed_after", byId: MARCO });
+    const row = await revisionView(LAURA, rev);
+    expect(row.undo).toEqual({ enabled: false, reason: "changed_after", byId: MARCO });
+    expect(() => undoProductChangeAs(LAURA, rev, first!.id)).toThrow("refused: changed_after");
+    expect(() => undoProductChangeAs(LAURA, rev)).toThrow("refused: changed_after");
+    const now = pageOf().blocks.find((b) => b.id === inserted.id);
+    expect(now?.type === "table" && now.rows[0]!.cells[1]!.content).toEqual(plain("Marco's reading"));
+    expect(second).toBeDefined();
+  });
+
   it("Sara senza `docs.edit`: `canAccept: false` e `no_permission` senza nome", async () => {
     const rev = threeChanges();
     const marks = marksOf(SARA);
@@ -328,6 +361,16 @@ describe("unione e cancellazione", () => {
       revisionId: rev,
       undo: { enabled: false, reason: "changed_after", byId: MARCO },
     });
+  });
+
+  it("Marco riscrive la frase, poi (in un'altra sessione) la unisce al titolo: il segno non torna", () => {
+    applyProductSource(ref, ACQ, [replace(STORES, plain("Only the name."))]);
+    editByHand(MARCO, STORES, "Marco's own sentence.");
+    expect(anchorsOf(LAURA)).toEqual([]);
+    writeProductBlocksAs(MARCO, PAGE, [{ op: "merge", firstId: STORES_HEADING, secondId: STORES }], {
+      sessionId: "s-marco-2",
+    });
+    expect(anchorsOf(LAURA)).toEqual([]);
   });
 
   it("una cancellazione toglie il segno; il ⌘Z della cancellazione lo rimette, con lo stesso id", () => {

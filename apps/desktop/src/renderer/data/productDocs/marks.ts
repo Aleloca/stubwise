@@ -19,13 +19,14 @@ import { sourceViewOf } from "./sources";
 
 // Il segno di Claude, «Va bene» e «Annulla» (11b, Task 3): le righe, le
 // regole e le letture. I gesti stanno in `markGestures.ts` (questo modulo
-// non importa `writes.ts`, che lo importa per scrivere le righe). Le regole:
+// non importa `writes.ts`, che lo importa per scrivere e spostare le righe).
+// Le regole:
 // - il segno è una riga per ancora (`state.productMarks`) scritta quando
 //   Claude cambia l'ancora (`recordProductMarks`, dentro
 //   `writeProductBlocksAs`, P14): solo per le revisioni `via: "claude"` di
 //   `kind: "edit"` (mai `first_version` né `answer`) e mai per una bozza di
-//   schermata (P16). Un'unione la sposta sul blocco unito (`onAnchorsMerged`,
-//   in `markGestures.ts`);
+//   schermata (P16). Un'unione la sposta sul blocco unito
+//   (`moveProductMarks`, nella stessa scrittura dell'unione);
 // - il segno si vede se nessuno ha detto «Va bene» e nessuno ha toccato
 //   l'ancora dopo. Non «toccano» un'unione (la frase è la stessa, ora dentro
 //   un altro blocco, P14) né una scrittura poi annullata col suo ⌘Z (la
@@ -83,6 +84,20 @@ export function recordProductMarks(revisionId: string): void {
       });
     }
   }
+}
+
+/**
+ * Un'unione ha assorbito `from` in `to`: i segni di `from` passano a `to`
+ * (P14) e ricordano l'ancora di partenza. La chiama `writeProductBlocksAs`
+ * nella stessa scrittura dell'unione, accanto a `recordProductMarks`: vale
+ * per ogni scrittura, qualunque modulo sia stato caricato.
+ */
+export function moveProductMarks(pageId: string, from: string, to: string): void {
+  for (const m of state.productMarks)
+    if (m.pageId === pageId && m.anchorId === from) {
+      m.fromAnchorId ??= from;
+      m.anchorId = to;
+    }
 }
 
 // --- «toccata dopo» ----------------------------------------------------------
@@ -152,10 +167,8 @@ const lastTouchOf = (r: ProductRevision, anchorId: string): ProductRevision | un
     .sort((a, b) => a.lastSeq - b.lastSeq)
     .at(-1);
 
-/** Lo stato di «Annulla» di un'ancora di una modifica di Claude, per `me`. */
-export function anchorUndo(me: string, r: ProductRevision, anchorId: string, projectId: string, people: Set<string>): ProductUndoView {
-  if (!canEdit(me, projectId)) return { enabled: false, reason: "no_permission", byId: null };
-  const seen = (id: string) => (people.has(id) ? id : null);
+/** Lo stato di «Annulla» di una sola ancora (il permesso lo guarda chi chiama). */
+function oneAnchorUndo(r: ProductRevision, anchorId: string, seen: (id: string) => string | null): ProductUndoView {
   const undone = undosOf(r, anchorId);
   if (undone.length > 0) return { enabled: false, reason: "already_undone", byId: seen(undone.at(-1)!.actorId) };
   const touched = touchesAfter(r, anchorId, true);
@@ -169,6 +182,28 @@ export function anchorUndo(me: string, r: ProductRevision, anchorId: string, pro
     return { enabled: false, reason: "changed_after", byId: last ? seen(last.actorId) : null };
   }
   return { enabled: true };
+}
+
+/**
+ * Lo stato di «Annulla» di un'ancora di una modifica di Claude, per `me`.
+ * Un blocco AGGIUNTO da Claude si annulla togliendolo tutto (il suo `before`
+ * è «nessun blocco»): allora si giudicano tutte le sue ancore, e una cella
+ * toccata da una persona spegne «Annulla» di ogni cella, col suo nome;
+ * altrimenti l'«Annulla» di una cella cancellerebbe il testo di un'altra.
+ */
+export function anchorUndo(me: string, r: ProductRevision, anchorId: string, projectId: string, people: Set<string>): ProductUndoView {
+  if (!canEdit(me, projectId)) return { enabled: false, reason: "no_permission", byId: null };
+  // Claude si nomina sempre (il «Who?» di una sua revisione arrivata dopo).
+  const seen = (id: string) => (id === CLAUDE_ID || people.has(id) ? id : null);
+  const own = oneAnchorUndo(r, anchorId, seen);
+  const change = changeOf(r, anchorId);
+  if (!own.enabled || !change || change.before !== null) return own;
+  for (const other of change.anchors) {
+    if (other === anchorId) continue;
+    const view = oneAnchorUndo(r, other, seen);
+    if (!view.enabled && view.reason === "changed_after") return view;
+  }
+  return own;
 }
 
 /**
@@ -246,6 +281,16 @@ function visible(page: ProductPage, m: ProductMark, r: ProductRevision): boolean
   // Nato qui: l'ancora dice ancora la frase di Claude. Spostato da un'unione:
   // la frase è dentro il blocco unito, e lo dicono solo le revisioni.
   if (m.fromAnchorId === undefined && !stillClaudes(page, change, m.anchorId)) return false;
+  // Spostato: nemmeno la frase di partenza dev'essere stata toccata prima
+  // dell'unione. Il cambio con cui l'unione toglie il blocco assorbito non
+  // conta: è l'unione stessa (la revisione che porta `mergedFrom` su di lui).
+  if (m.fromAnchorId !== undefined) {
+    const from = m.fromAnchorId;
+    const edits = touchesAfter(r, from, false).filter(
+      (x) => !x.changes.some((c) => c.mergedFrom?.anchorId === from),
+    );
+    if (edits.length > 0) return false;
+  }
   return touchesAfter(r, m.anchorId, false).length === 0;
 }
 

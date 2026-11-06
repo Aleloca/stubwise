@@ -3868,7 +3868,7 @@ export interface ProductSourceView {
  * Il segno «Claude's change» di un'ancora (11b): scritto quando Claude
  * cambia l'ancora, e tolto da «Va bene» (`acceptedById`). Una riga per
  * ancora cambiata, perché l'unione di due blocchi deve poterla spostare
- * (`onAnchorsMerged`).
+ * (`moveProductMarks`, nella scrittura dell'unione).
  */
 export interface ProductMark {
   id: string;

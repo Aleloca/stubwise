@@ -17,7 +17,7 @@ import { can, viewerFor } from "../viewer";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { emitPresenceChanged, emitProductPage } from "./events";
 import { followAs } from "./follows";
-import { recordProductMarks } from "./marks";
+import { moveProductMarks, recordProductMarks } from "./marks";
 import { childrenOf, productPageById, productPageRef, productPagesOf } from "./reads";
 import { recordRevision } from "./revisions";
 
@@ -356,7 +356,10 @@ export function writeProductBlocksAs(
   // La scrittura è già fatta: un ascoltatore che lancia non la fa fallire né
   // toglie la sua parte agli altri (lo si dice in console, non si tace).
   for (const change of changes)
-    if (change.mergedFrom)
+    if (change.mergedFrom) {
+      // Il segno di Claude (11b) si sposta qui, non da un ascoltatore: vale
+      // anche quando il modulo dei gesti non è stato caricato.
+      moveProductMarks(page.id, change.mergedFrom.anchorId, change.blockId);
       for (const fn of anchorListeners) {
         try {
           fn(page.id, change.mergedFrom.anchorId, change.blockId, change.mergedFrom.offset);
@@ -364,6 +367,7 @@ export function writeProductBlocksAs(
           console.error("onAnchorsMerged: a listener failed", error);
         }
       }
+    }
   emitProductPage(page.id, "blocks");
   return { ...copy(page), revisionId };
 }
