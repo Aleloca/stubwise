@@ -6,8 +6,18 @@ import checkIn from "../../../assets/productDocs/vrd-check-in.png?inline";
 // progetto nuovo senza repository. VRD resta VUOTO nel seme (maintainer, 6
 // nov 2026, Q2): questa è la bozza che Claude scrive quando chi prova l'app
 // lancia «Write the first version with Claude». Dieci pagine, tre domande
-// aperte (ogni dubbio delle fonti), due immagini e il file del Drive del
-// progetto (solo se è fra le fonti scelte).
+// aperte, due immagini e il file del Drive del progetto.
+//
+// Anti-obiettivo «decisioni inventate»: OGNI blocco dice la fonte del seme
+// che lo dice (`onlyWith`) ed entra solo se quella fonte è fra le scelte.
+// Le fonti sono tre: l'email delle prenotazioni (`BOOKING`), quella degli
+// abbonamenti (`PLANS`), entrambe in `seed/mail/messages.ts`, e il brief del
+// Drive (`BRIEF`, `seed/drive/vrd.ts`). Una frase che nessuna delle tre dice
+// non c'è; un «forse» delle fonti è una domanda, con la frase della fonte
+// come proposta. Il testo incollato non ha un contenuto noto: la bozza lo
+// cita (la riga delle fonti in Overview) e non gli attribuisce niente. Una
+// pagina senza blocchi delle fonti scelte dice che le fonti non ne parlano
+// (`firstVersion.ts`).
 //
 // Gli id dei blocchi valgono solo qui: alla scrittura prendono id nuovi
 // (`newId`), così una seconda prima versione dopo «Annulla» non riusa id
@@ -28,27 +38,35 @@ export const VRD_IDS = {
   driveFileId: "drv-vrd-1",
 } as const;
 
+const BOOKING = `email:${VRD_IDS.lauraEmailId}`;
+const PLANS = `email:${VRD_IDS.plansEmailId}`;
+const BRIEF = `drive:${VRD_IDS.driveFileId}`;
+
+type DraftBlock = FirstVersionDraftPage["blocks"][number];
+
 const plain = (text: string): RichText => ({ text, marks: [] });
 
-const p = (id: string, text: string): ProductBlock => ({
+const p = (from: string, id: string, text: string): DraftBlock => ({
   id,
   type: "paragraph",
   content: plain(text),
+  onlyWith: from,
 });
-const li = (id: string, text: string): ProductBlock => ({
+const li = (from: string, id: string, text: string): DraftBlock => ({
   id,
   type: "bullet",
   indent: 0,
   content: plain(text),
-});
-const step = (id: string, text: string): ProductBlock => ({
-  id,
-  type: "numbered",
-  indent: 0,
-  content: plain(text),
+  onlyWith: from,
 });
 
 const cell = (id: string, text: string) => ({ id, content: plain(text) });
+
+const WAITING_LIST: ProductBlock = {
+  id: "bk-q",
+  type: "paragraph",
+  content: plain("When a class is full, members can join a waiting list."),
+};
 
 export const VRD_FIRST_VERSION: FirstVersionDraftPage[] = [
   {
@@ -57,17 +75,11 @@ export const VRD_FIRST_VERSION: FirstVersionDraftPage[] = [
     title: "Overview",
     blocks: [
       p(
+        BRIEF,
         "ov-1",
-        "The app lets the members of Palestra Verde Città book classes, show their membership at the desk and get reminders before a class starts.",
+        "The app lets the members of Palestra Verde Città book classes, show their membership at the desk and get reminders.",
       ),
-      p("ov-2", "It replaces the paper sheets at the front desk and the phone bookings."),
-      {
-        id: "ov-3",
-        type: "drive",
-        fileId: VRD_IDS.driveFileId,
-        code: "VRD-F1",
-        onlyWith: `drive:${VRD_IDS.driveFileId}`,
-      },
+      { id: "ov-2", type: "drive", fileId: VRD_IDS.driveFileId, code: "VRD-F1", onlyWith: BRIEF },
     ],
   },
   {
@@ -75,11 +87,10 @@ export const VRD_FIRST_VERSION: FirstVersionDraftPage[] = [
     parentKey: null,
     title: "Features",
     blocks: [
-      p("ft-1", "What the first release of the app does, one page per feature."),
-      li("ft-2", "Class booking"),
-      li("ft-3", "Memberships"),
-      li("ft-4", "Check-in at the desk"),
-      li("ft-5", "Reminders"),
+      p(BRIEF, "ft-1", "The brief names three features:"),
+      li(BRIEF, "ft-2", "Class booking"),
+      li(BRIEF, "ft-3", "Showing the membership at the desk"),
+      li(BRIEF, "ft-4", "Reminders"),
     ],
   },
   {
@@ -87,28 +98,25 @@ export const VRD_FIRST_VERSION: FirstVersionDraftPage[] = [
     parentKey: "features",
     title: "Class booking",
     blocks: [
-      p("bk-1", "Members book a class from the weekly timetable, up to seven days ahead."),
-      p("bk-2", "Members can cancel a booking up to two hours before the class."),
-      p("bk-3", "A full class shows how many places are left as zero, and the Book button is off."),
+      p(BOOKING, "bk-1", "Members book a class up to seven days ahead: bookings open at midnight."),
+      p(BOOKING, "bk-2", "Members can cancel a booking up to two hours before the class."),
       {
-        id: "bk-4",
+        id: "bk-3",
         type: "image",
         src: booking,
-        caption: "The weekly timetable",
+        caption: "A sketch of the weekly timetable",
         alt: "A week strip with three class cards and a Book button on the first one",
+        onlyWith: BOOKING,
       },
     ],
     questions: [
       {
-        anchorKey: "bk-3",
+        // «When a class is full, maybe a waiting list, but we are not sure yet.»
+        anchorKey: "bk-2",
+        onlyWith: BOOKING,
         fact: {
           id: "vrd-fv-waiting-list",
-          change: {
-            kind: "replace",
-            text: plain(
-              "A full class offers a waiting list: the first member in line gets the place that frees up.",
-            ),
-          },
+          change: { kind: "insert_after", block: WAITING_LIST },
           options: {
             request: {
               title: "Waiting list for full classes",
@@ -125,10 +133,11 @@ export const VRD_FIRST_VERSION: FirstVersionDraftPage[] = [
     parentKey: "features",
     title: "Memberships",
     blocks: [
-      p("ms-1", "Each member has one plan; the plan decides which classes they can book."),
+      p(PLANS, "ms-1", "There are two plans:"),
       {
         id: "ms-2",
         type: "table",
+        onlyWith: PLANS,
         rows: [
           {
             id: "ms-2-r1",
@@ -150,17 +159,20 @@ export const VRD_FIRST_VERSION: FirstVersionDraftPage[] = [
             id: "ms-2-r3",
             cells: [
               cell("ms-2-r3a", "Ten classes"),
-              cell("ms-2-r3b", "Any ten"),
+              cell("ms-2-r3b", "10"),
               cell("ms-2-r3c", "90 euros"),
             ],
           },
         ],
       },
-      p("ms-3", "Students get 20% off the monthly plan."),
+      p(PLANS, "ms-3", "Students get 20% off the monthly plan."),
+      p(BOOKING, "ms-4", "Plans are paid at the desk: there are no payments in the app for now."),
     ],
     questions: [
       {
+        // «we might do the same for members over 65.»
         anchorKey: "ms-3",
+        onlyWith: PLANS,
         fact: {
           id: "vrd-fv-seniors",
           change: {
@@ -176,74 +188,58 @@ export const VRD_FIRST_VERSION: FirstVersionDraftPage[] = [
     parentKey: "features",
     title: "Check-in at the desk",
     blocks: [
-      p(
-        "ci-1",
-        "At the desk the member shows a code from the app; the staff scan it and the booking is marked as attended.",
-      ),
+      p(BRIEF, "ci-1", "Members show their membership at the desk from the app."),
       {
         id: "ci-2",
         type: "image",
         src: checkIn,
-        caption: "The check-in code",
+        caption: "A sketch of the membership shown at the desk",
         alt: "A square code in the middle of the screen with a caption and a button below",
+        onlyWith: BRIEF,
       },
-      p(
-        "ci-3",
-        "Without a booking, the code still opens the gym for the hours of the member's plan.",
-      ),
     ],
   },
   {
     key: "reminders",
     parentKey: "features",
     title: "Reminders",
-    blocks: [
-      p("rm-1", "The app reminds the member of a booked class two hours before it starts."),
-      p("rm-2", "A class cancelled by the gym is notified at once, with the reason."),
-    ],
+    blocks: [p(BRIEF, "rm-1", "Members get reminders from the app.")],
   },
   {
     key: "screens",
     parentKey: null,
     title: "Screens",
-    blocks: [
-      p(
-        "sc-1",
-        "The first release has four screens: timetable, class, membership and check-in code.",
-      ),
-      // Task 7 (P33): qui entra la bozza di schermata di Claude (blocco
-      // `wireframe` del timetable), dopo questo paragrafo.
-      p("sc-2", "The timetable opens on today; the other days are one swipe away."),
-    ],
+    // Nessuna fonte descrive le schermate: la pagina dice che le fonti non ne
+    // parlano. Task 7 (P33): qui entra la bozza di schermata di Claude
+    // (blocco `wireframe` del timetable), come primo blocco della pagina.
+    blocks: [],
   },
   {
     key: "decisions",
     parentKey: null,
     title: "Client decisions",
     blocks: [
-      p("cd-1", "What the client confirmed in writing."),
-      li("cd-2", "Bookings open seven days ahead, at midnight."),
-      li("cd-3", "No payments in the app for now: plans are paid at the desk."),
-      li("cd-4", "The app is in Italian and English."),
+      p(BOOKING, "cd-1", "What the client confirmed in the email about bookings:"),
+      li(BOOKING, "cd-2", "Bookings open seven days ahead, at midnight."),
+      li(BOOKING, "cd-3", "No payments in the app for now: plans are paid at the desk."),
+      li(BOOKING, "cd-4", "The app is in Italian and English."),
     ],
   },
   {
     key: "phases",
     parentKey: null,
     title: "Phases",
-    blocks: [
-      step("ph-1", "Timetable and booking, tested by the staff."),
-      step("ph-2", "Memberships and check-in, with the desk scanner."),
-      step("ph-3", "Reminders and the release to all members in the spring."),
-    ],
+    blocks: [p(BRIEF, "ph-1", "The app is released in phases, with the launch in the spring.")],
     questions: [
       {
-        anchorKey: "ph-3",
+        // «the launch is planned for the spring, maybe in March.»
+        anchorKey: "ph-1",
+        onlyWith: BRIEF,
         fact: {
           id: "vrd-fv-launch",
           change: {
             kind: "replace",
-            text: plain("Reminders and the release to all members on 1 March."),
+            text: plain("The app is released in phases, with the launch in March."),
           },
         },
       },
@@ -254,9 +250,9 @@ export const VRD_FIRST_VERSION: FirstVersionDraftPage[] = [
     parentKey: null,
     title: "Glossary",
     blocks: [
-      li("gl-1", "Plan: what a member pays for, monthly or by number of classes."),
-      li("gl-2", "Desk: the front desk of the gym, where the staff scan the check-in code."),
-      li("gl-3", "Class: a lesson at a fixed time, with a maximum number of places."),
+      li(BOOKING, "gl-1", "Class: a lesson that members book, up to seven days ahead."),
+      li(PLANS, "gl-2", "Plan: what a member pays for, monthly or ten classes."),
+      li(BOOKING, "gl-3", "Desk: where plans are paid."),
     ],
   },
 ];

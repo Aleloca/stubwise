@@ -18,7 +18,7 @@ export const VRD_FILES: DriveFile[] = [
       at: at(9, "09:40"),
     },
     ready(
-      "Brief from Palestra Verde Città: an app for members to book classes, show the membership at the desk and get reminders, released in phases with the spring launch.",
+      "Brief from Palestra Verde Città: an app for members to book classes, show the membership at the desk and get reminders. It is released in phases; the launch is planned for the spring, maybe in March.",
       "Client brief for the booking app.",
     ),
   ),

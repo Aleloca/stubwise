@@ -1,13 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildProductTree, flattenTree } from "../../domain/productDocs/tree";
-import { productDocs, resetApi, setLatency } from "../api";
+import { listClaudeDecisions, productDocs, resetApi, setLatency } from "../api";
+import { setSessionPersonId } from "../session";
 import type { FirstVersionSource, MailMessage } from "../model";
 import { CLAUDE_ID } from "../seed/people";
 import { done, ext, mail, person } from "../seed/mail/helpers";
 import { VRD_FIRST_VERSION, VRD_IDS } from "../seed/productDocs/vrdFirstVersion";
 import { now, state } from "../store";
+import { revokeProjectPermission } from "../viewer";
 import {
   acceptFirstVersionPageAs,
+  FIRST_VERSION_CITATION_PREFIX,
+  FIRST_VERSION_FALLBACK,
   firstVersionSourcesFor,
   openProductQuestions,
   productFirstVersionOf,
@@ -17,6 +21,7 @@ import {
 } from "./firstVersion";
 import { listProductMarksAs } from "./marks";
 import { answerProductQuestionAs } from "./questions";
+import { addProductCommentAs } from "./comments";
 import { productPageRef } from "./reads";
 import { createProductPageAs, deleteProductPageAs, writeProductBlocksAs } from "./writes";
 
@@ -43,6 +48,8 @@ const TEXT: FirstVersionSource = {
   text: "Notes from the call: classes are booked a week ahead.",
 };
 const DRIVE: FirstVersionSource = { kind: "drive", fileId: VRD_IDS.driveFileId };
+const PLANS: FirstVersionSource = { kind: "email", id: VRD_IDS.plansEmailId };
+const ALL = [EMAIL, PLANS, TEXT, DRIVE];
 
 const pagesOf = (projectId = VRD) => state.productPages.filter((p) => p.projectId === projectId);
 const treeTitles = (projectId = VRD) =>
@@ -52,10 +59,13 @@ const questionsOf = (projectId = VRD) => {
   const ids = new Set(pagesOf(projectId).map((p) => p.id));
   return state.productComments.filter((c) => ids.has(c.pageId) && c.question !== undefined);
 };
+/** Un blocco senza i suoi id (la scrittura dà id nuovi) e senza `onlyWith`. */
+const shapeOf = (b: object): string =>
+  JSON.stringify(b, (k, v: unknown) => (k === "id" || k === "onlyWith" ? undefined : v));
 const textOf = (projectId: string) =>
   JSON.stringify(pagesOf(projectId).map((p) => p.blocks)).toLowerCase();
 
-async function written(sources: readonly FirstVersionSource[] = [EMAIL, TEXT, DRIVE]) {
+async function written(sources: readonly FirstVersionSource[] = ALL) {
   const out = startFirstVersionAs(LAURA, VRD, sources);
   await whenFirstVersionIdle();
   return out;
@@ -147,13 +157,87 @@ describe("la stesura", () => {
     ).toEqual([]);
   });
 
+  it("ogni blocco della bozza di VRD dice da quale fonte del seme viene, e così ogni sua domanda", () => {
+    const seeded = new Set([
+      `email:${VRD_IDS.lauraEmailId}`,
+      `email:${VRD_IDS.plansEmailId}`,
+      `drive:${VRD_IDS.driveFileId}`,
+    ]);
+    for (const page of VRD_FIRST_VERSION) {
+      for (const b of page.blocks)
+        expect(seeded.has(b.onlyWith ?? ""), `${page.title} ${b.id}`).toBe(true);
+      for (const q of page.questions ?? []) {
+        const anchor = page.blocks.find((b) => b.id === q.anchorKey)!;
+        expect(q.onlyWith, q.fact.id).toBe(anchor.onlyWith);
+      }
+    }
+  });
+
+  // Ogni blocco scritto è un blocco della bozza la cui fonte è stata scelta,
+  // la riga che cita le fonti, o la riga «le fonti non ne parlano».
+  const traceable = async (sources: readonly FirstVersionSource[]) => {
+    await written(sources);
+    const chosen = new Set(
+      sources.map((s) =>
+        s.kind === "text" ? "text" : s.kind === "drive" ? `drive:${s.fileId}` : `${s.kind}:${s.id}`,
+      ),
+    );
+    const allowed = new Map(
+      VRD_FIRST_VERSION.flatMap((p) => p.blocks).map((b) => [shapeOf(b), b.onlyWith!] as const),
+    );
+    for (const page of pagesOf())
+      for (const b of page.blocks) {
+        if ("content" in b && b.content.text.startsWith(FIRST_VERSION_CITATION_PREFIX)) continue;
+        if ("content" in b && b.content.text === FIRST_VERSION_FALLBACK) continue;
+        const from = allowed.get(shapeOf(b));
+        expect(from, `${page.title}: ${JSON.stringify(b).slice(0, 120)}`).toBeDefined();
+        expect(chosen.has(from!), `${page.title}: ${from}`).toBe(true);
+      }
+  };
+
+  it("tutte le fonti: ogni frase scritta viene da una fonte scelta", async () => {
+    await traceable(ALL);
+    expect(questionsOf()).toHaveLength(3);
+  });
+
+  it("solo il testo incollato: niente dalle email né dal brief, una riga che lo cita, nessuna domanda", async () => {
+    await traceable([TEXT]);
+    const text = textOf(VRD);
+    for (const word of [
+      "seven days",
+      "49 euros",
+      "20%",
+      "italian",
+      "midnight",
+      "spring",
+      "desk",
+      "reminder",
+    ])
+      expect(text, word).not.toContain(word);
+    expect(text).toContain("the pasted notes");
+    expect(questionsOf()).toEqual([]);
+    // Il testo incollato non viene attribuito ad altro: le pagine senza fonte lo dicono.
+    expect(pageTitled("Memberships").blocks).toEqual([
+      expect.objectContaining({ content: { text: FIRST_VERSION_FALLBACK, marks: [] } }),
+    ]);
+  });
+
+  it("solo l'email delle prenotazioni: le sue frasi e la sua domanda, niente prezzi né brief", async () => {
+    await traceable([EMAIL]);
+    const text = textOf(VRD);
+    expect(text).toContain("seven days ahead");
+    expect(text).not.toContain("49 euros");
+    expect(text).not.toContain("spring");
+    expect(questionsOf().map((q) => q.question!.factId)).toEqual(["vrd-fv-waiting-list"]);
+  });
+
   it("le fonti della riga in cima come le legge chi guarda: Sara non legge l'oggetto dell'email", async () => {
     await written();
     const laura = productFirstVersionOf(LAURA, VRD)!;
-    expect(laura.sources.map((s) => s.kind)).toEqual(["email", "text", "drive"]);
+    expect(laura.sources.map((s) => s.kind)).toEqual(["email", "email", "text", "drive"]);
     expect(laura.sources[0]!.label).toMatchObject({ key: "productDocs.source.email" });
-    expect(laura.sources[1]!.label).toEqual({ key: "productDocs.source.text" });
-    expect(laura.sources[2]).toMatchObject({
+    expect(laura.sources[2]!.label).toEqual({ key: "productDocs.source.text" });
+    expect(laura.sources[3]).toMatchObject({
       code: "VRD-F1",
       label: { key: "productDocs.source.drive" },
     });
@@ -243,6 +327,15 @@ describe("le domande della bozza", () => {
     // Chi non ha `docs.edit` non ha domande da chiudere.
     expect(openProductQuestions(SARA, VRD)).toEqual({ count: 0, items: [] });
 
+    // Si risponde anche in Home «Decidi»: Laura segue le pagine e ha `docs.edit`.
+    setSessionPersonId(LAURA);
+    const decide = (await listClaudeDecisions()).filter(
+      (d) => d.kind === "productQuestion" && d.projectId === VRD,
+    );
+    expect(decide.map((d) => d.kind === "productQuestion" && d.commentId).sort()).toEqual(
+      qs.map((q) => q.id).sort(),
+    );
+
     answerProductQuestionAs(LAURA, qs[0]!.id, "keep");
     expect(openProductQuestions(LAURA, VRD).count).toBe(2);
   });
@@ -289,9 +382,64 @@ describe("«Annulla la prima versione»", () => {
       byId: MARCO,
       pageId: memberships.id,
       pageTitle: "Memberships",
+      touch: "edit",
     });
     expect(() => undoFirstVersionAs(LAURA, VRD)).toThrow("refused: changed_after");
     expect(pagesOf()).toHaveLength(VRD_FIRST_VERSION.length);
+  });
+
+  it("un commento di Marco conta come un tocco: spento col suo «Who?», e il commento resta", async () => {
+    await written();
+    const page = pageTitled("Memberships");
+    const anchor = page.blocks.find((b) => b.type === "paragraph")!;
+    const comment = addProductCommentAs(MARCO, page.id, {
+      anchorId: anchor.id,
+      quote: "plans",
+      body: "Do we keep the yearly plan?",
+    });
+    expect(productFirstVersionOf(LAURA, VRD)!.undo).toEqual({
+      enabled: false,
+      reason: "changed_after",
+      byId: MARCO,
+      pageId: page.id,
+      pageTitle: "Memberships",
+      touch: "comment",
+    });
+    expect(() => undoFirstVersionAs(LAURA, VRD)).toThrow("refused: changed_after");
+    expect(state.productComments.some((c) => c.id === comment.id)).toBe(true);
+    expect(pagesOf()).toHaveLength(VRD_FIRST_VERSION.length);
+  });
+
+  it("una risposta di Marco in un filo di Claude conta come un tocco", async () => {
+    await written();
+    const q = questionsOf()[0]!;
+    addProductCommentAs(MARCO, q.pageId, {
+      anchorId: q.anchorId,
+      quote: q.quote,
+      body: "I'd ask the client.",
+      replyToId: q.id,
+    });
+    expect(productFirstVersionOf(LAURA, VRD)!.undo).toMatchObject({
+      enabled: false,
+      byId: MARCO,
+      touch: "comment",
+    });
+  });
+
+  it("una domanda chiusa da Marco («Lascia com'è», nessuna revisione) conta come un tocco", async () => {
+    await written();
+    answerProductQuestionAs(MARCO, questionsOf()[0]!.id, "keep");
+    expect(productFirstVersionOf(LAURA, VRD)!.undo).toMatchObject({
+      enabled: false,
+      byId: MARCO,
+      touch: "answer",
+    });
+  });
+
+  it("una domanda chiusa da chi l'ha chiesta con «Lascia com'è» non conta: «Annulla» resta", async () => {
+    await written();
+    answerProductQuestionAs(LAURA, questionsOf()[0]!.id, "keep");
+    expect(productFirstVersionOf(LAURA, VRD)!.undo).toEqual({ enabled: true });
   });
 
   it("una pagina nuova nello spazio, non di Claude, conta come un tocco", async () => {
@@ -302,6 +450,7 @@ describe("«Annulla la prima versione»", () => {
       reason: "changed_after",
       byId: MARCO,
       pageId: extra.id,
+      touch: "page",
     });
   });
 
@@ -455,6 +604,25 @@ describe("il copione interrotto", () => {
     expect(view).toMatchObject({ status: "done", pagesDone: 2, interrupted: true });
     expect(pagesOf().map((p) => p.title)).toEqual([VRD_FIRST_VERSION[1]!.title]);
     expect(view.bannerPageIds).toEqual([pagesOf()[0]!.id]);
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
+
+  it("Laura perde `docs.edit` a metà: si ferma senza eccezioni, le pagine scritte restano", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const stop = productDocs.onProductFirstVersion(() => {
+      if (productFirstVersionOf(LAURA, VRD)?.pagesDone === 2)
+        revokeProjectPermission(LAURA, VRD, "docs.edit" as never);
+    });
+    startFirstVersionAs(LAURA, VRD, [TEXT]);
+    await whenFirstVersionIdle();
+    stop();
+    expect(productFirstVersionOf(LAURA, VRD)!).toMatchObject({
+      status: "done",
+      pagesDone: 2,
+      interrupted: true,
+    });
+    expect(pagesOf()).toHaveLength(2);
     expect(errors).not.toHaveBeenCalled();
     errors.mockRestore();
   });

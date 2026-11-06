@@ -231,6 +231,14 @@ const listOf = (items: string[]): string =>
     ? (items[0] ?? "")
     : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 
+/** La riga in cima a Overview che cita le fonti scelte (in ogni bozza). */
+export const FIRST_VERSION_CITATION_PREFIX = "Claude drafted this first version from ";
+/** La frase di una pagina della bozza su cui le fonti scelte non dicono niente. */
+export const FIRST_VERSION_FALLBACK = "The chosen sources don't say anything about this yet.";
+
+const citationLine = (projectId: string, refs: readonly FirstVersionSourceRef[]): string =>
+  `${FIRST_VERSION_CITATION_PREFIX}${listOf(refs.map((r) => citation(r, projectId)))}.`;
+
 const para = (id: string, text: string): ProductBlock => ({
   id,
   type: "paragraph",
@@ -253,14 +261,8 @@ function genericDraft(
   });
   return [
     page("overview", "Overview", [
-      para(
-        "g-ov-1",
-        `Claude drafted this first version from ${listOf(refs.map((r) => citation(r, projectId)))}.`,
-      ),
-      para(
-        "g-ov-2",
-        "What the sources don't say clearly isn't written here: add it, or answer Claude's questions on the sentences.",
-      ),
+      para("g-ov-1", citationLine(projectId, refs)),
+      para("g-ov-2", "What the sources don't say clearly isn't written here: add it."),
       ...files.map(
         (f, i): ProductBlock => ({ id: `g-ov-f${i}`, type: "drive", fileId: f.id, code: f.code }),
       ),
@@ -277,6 +279,30 @@ function genericDraft(
     ]),
     page("phases", "Phases", [para("g-ph-1", "No phase or date is set in the sources yet.")]),
   ];
+}
+
+/**
+ * La bozza preparata, ristretta alle fonti scelte (anti-obiettivo
+ * «decisioni inventate»): restano solo i blocchi e le domande la cui fonte
+ * è fra le scelte; Overview comincia con la riga che cita le fonti, e una
+ * pagina rimasta senza blocchi dice che le fonti non ne parlano.
+ */
+function preparedDraft(
+  pages: readonly FirstVersionDraftPage[],
+  projectId: string,
+  refs: readonly FirstVersionSourceRef[],
+  keys: ReadonlySet<string>,
+): FirstVersionDraftPage[] {
+  return pages.map((p, i) => {
+    const blocks = p.blocks.filter((b) => b.onlyWith !== undefined && keys.has(b.onlyWith));
+    const lead = i === 0 ? [para("fv-cite", citationLine(projectId, refs))] : [];
+    const body = blocks.length > 0 ? blocks : [para("fv-none", FIRST_VERSION_FALLBACK)];
+    return {
+      ...p,
+      blocks: [...lead, ...body],
+      questions: (p.questions ?? []).filter((q) => keys.has(q.onlyWith)),
+    };
+  });
 }
 
 // --- l'avvio e il copione --------------------------------------------------------
@@ -317,10 +343,10 @@ export function startFirstVersionAs(
   if (aiBlockFor(projectId)?.reason === "monthly_budget") throw new Error("ai_blocked");
 
   const keys = new Set(refs.map(keyOf));
-  const draft = (PREPARED[projectId] ?? genericDraft(projectId, refs)).map((p) => ({
-    ...p,
-    blocks: p.blocks.filter((b) => b.onlyWith === undefined || keys.has(b.onlyWith)),
-  }));
+  const prepared = PREPARED[projectId];
+  const draft = prepared
+    ? preparedDraft(prepared, projectId, refs, keys)
+    : genericDraft(projectId, refs);
   const fv: ProductFirstVersion = {
     projectId,
     groupId: newId("pfv"),
@@ -433,6 +459,8 @@ async function play(
     try {
       writePage(fv, page, pageOfKey, source);
     } catch {
+      // Una pagina creata prima dell'errore c'è, con la sua riga: conta come scritta.
+      fv.pagesDone = fv.written.length;
       return interrupt(fv);
     }
     fv.pagesDone = i + 1;
@@ -444,16 +472,25 @@ async function play(
 
 // --- «Annulla» e «Accetta» ---------------------------------------------------------
 
+type Touch = {
+  byId: string | null;
+  pageId?: string;
+  seq: number;
+  touch?: "edit" | "comment" | "answer" | "page";
+};
+
 /**
- * Il primo tocco dopo la prima versione: una revisione di una sua pagina
- * dopo quella di Claude (di chiunque, chi l'ha chiesta compresa), una pagina
- * nuova nello spazio, o una sua pagina che non c'è più (chi l'ha tolta non
- * si sa più: `byId: null`).
+ * Il primo tocco dopo la prima versione, su una sua pagina:
+ * - una revisione dopo quella di Claude (di chiunque, chi l'ha chiesta compresa);
+ * - un commento o una risposta di una persona (chi l'ha chiesta compresa):
+ *   «Annulla» toglierebbe il suo testo, quindi si spegne e non lo cancella mai;
+ * - la risposta di un ALTRO a una domanda di Claude, anche «Lascia com'è»,
+ *   che non scrive revisioni (quella di chi l'ha chiesta no: è sua);
+ * - una pagina nuova nello spazio, o una sua pagina che non c'è più (chi
+ *   l'ha tolta non si sa più: `byId: null`).
  */
-function firstTouch(
-  fv: ProductFirstVersion,
-): { byId: string | null; pageId?: string; seq: number } | null {
-  const touches: { byId: string | null; pageId?: string; seq: number }[] = [];
+function firstTouch(fv: ProductFirstVersion): Touch | null {
+  const touches: Touch[] = [];
   const ours = new Set(fv.written.map((w) => w.pageId));
   for (const w of fv.written) {
     if (!productPageById(w.pageId)) {
@@ -466,12 +503,27 @@ function firstTouch(
         (r) => r.pageId === w.pageId && r.id !== w.revisionId && base && r.lastSeq > base.lastSeq,
       )
       .sort((a, b) => a.lastSeq - b.lastSeq)[0];
-    if (after) touches.push({ byId: after.actorId, pageId: w.pageId, seq: after.lastSeq });
+    if (after)
+      touches.push({ byId: after.actorId, pageId: w.pageId, seq: after.lastSeq, touch: "edit" });
+    const since = base?.lastSeq ?? 0;
+    for (const c of state.productComments) {
+      if (c.pageId !== w.pageId) continue;
+      if (c.authorId !== CLAUDE_ID && c.seq > since)
+        touches.push({ byId: c.authorId, pageId: w.pageId, seq: c.seq, touch: "comment" });
+      const answer = c.question?.answer;
+      if (answer && answer.byId !== fv.byId)
+        touches.push({ byId: answer.byId, pageId: w.pageId, seq: answer.seq, touch: "answer" });
+    }
   }
   for (const page of productPagesOf(fv.projectId)) {
     if (ours.has(page.id)) continue;
     const created = state.productRevisions.find((r) => r.pageId === page.id && r.kind === "create");
-    touches.push({ byId: page.createdById, pageId: page.id, seq: created?.lastSeq ?? 0 });
+    touches.push({
+      byId: page.createdById,
+      pageId: page.id,
+      seq: created?.lastSeq ?? 0,
+      touch: "page",
+    });
   }
   return touches.sort((a, b) => a.seq - b.seq)[0] ?? null;
 }
@@ -491,6 +543,7 @@ function undoViewOf(me: string, fv: ProductFirstVersion): ProductUndoView {
     reason: "changed_after",
     byId: seen(touch.byId),
     ...(page ? { pageId: page.id, pageTitle: page.title } : {}),
+    ...(touch.touch ? { touch: touch.touch } : {}),
   };
 }
 
@@ -560,7 +613,7 @@ export function productFirstVersionOf(
     projectId,
     groupId: fv.groupId,
     byId: fv.byId,
-    byName: nameOf(fv.byId),
+    byName: visiblePeopleFor(me).has(fv.byId) ? nameOf(fv.byId) : null,
     status: fv.status,
     pagesDone: fv.pagesDone,
     pagesTotal: fv.pagesTotal,

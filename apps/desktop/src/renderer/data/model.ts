@@ -3974,6 +3974,12 @@ export type ProductUndoView =
       byId: string | null;
       pageId?: string;
       pageTitle?: string;
+      /**
+       * Solo la prima versione: com'è stata toccata — una modifica, un
+       * commento o una risposta, la risposta di un altro a una domanda di
+       * Claude, una pagina nuova nello spazio.
+       */
+      touch?: "edit" | "comment" | "answer" | "page";
     };
 
 /**
@@ -4025,8 +4031,9 @@ export interface FirstVersionDraftPage {
   title: string;
   /**
    * I blocchi, con id che valgono solo nella bozza: alla scrittura prendono
-   * id nuovi. `onlyWith` = il blocco entra solo se quella fonte è fra le
-   * scelte (`drive:<fileId>`, `email:<id>`…).
+   * id nuovi. `onlyWith` = la fonte che dice il blocco: entra solo se quella
+   * fonte è fra le scelte (`drive:<fileId>`, `email:<id>`…). Nella bozza del
+   * seme OGNI blocco la ha (anti-obiettivo «decisioni inventate»).
    */
   blocks: (ProductBlock & { onlyWith?: string })[];
   /**
@@ -4035,6 +4042,8 @@ export interface FirstVersionDraftPage {
    */
   questions?: {
     anchorKey: string;
+    /** La fonte che ha il dubbio: la domanda nasce solo se è fra le scelte (la stessa del blocco). */
+    onlyWith: string;
     fact: Pick<ProductFact, "id" | "change" | "options" | "recommended">;
   }[];
 }
@@ -4078,7 +4087,8 @@ export interface ProductFirstVersionView {
   projectId: string;
   groupId: string;
   byId: string;
-  byName: string;
+  /** Chi l'ha chiesta, se chi guarda la vede (`null` altrimenti). */
+  byName: string | null;
   status: ProductFirstVersion["status"];
   pagesDone: number;
   pagesTotal: number;
