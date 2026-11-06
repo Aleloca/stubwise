@@ -869,12 +869,17 @@ si riscrivono.
   - si scrive SOLO dove la persona sceglie nella finestra di salvataggio
     (`showSaveDialog`); il renderer riceve `{saved}` o un motivo, mai il
     percorso; il PDF lo stampa il processo principale (`printToPDF`).
-- **§21 — rinviata al 11b** *(P34, 5 nov 2026)*. La decisione 1 della spec
-  (l'apertura di email e riunioni private nella doc, accanto
-  all'invariante `mailbox_owner`) la scrive il piano 11b **prima del
-  motore**: il 11a non legge né cita posta o riunioni, quindi non c'è
-  nulla da scrivere ora. Se il 11b non parte, la nota resta qui come
-  promemoria che quella regola manca.
+- **§21 — email e riunioni attribuite al progetto aggiornano la doc di
+  prodotto senza il consenso di chi le ha ricevute** *(decisione del
+  maintainer, 5 nov 2026; scritta prima del motore del 11b, 6 nov 2026)*,
+  da riscrivere in `docs/invariants/` accanto a `mailbox_owner`. Il segno
+  nomina la fonte a tutto il progetto; a chi non può aprirla dice «da
+  un'email di <titolare> · <data>», senza link, oggetto né testo;
+  `mailbox_owner` resta valida per l'email stessa. Nel prototipo la regola
+  sta in UN punto, `sourceViewOf` (`data/productDocs/sources.ts`): segno,
+  cronologia, card, Home, riga della prima versione e risposte del riquadro
+  leggono la fonte da lì, e il titolare si nomina sempre (è un membro del
+  progetto) mentre il testo dell'email non esce mai.
 
 ## Area 8b — minori aperti
 
@@ -2850,8 +2855,8 @@ Parità e copertura: `area11-parity.md`. Le invarianti da riscrivere prima del
 motore sono §19 (il corpo di una pagina di prodotto: id stabili, ancore,
 segni) e §20 (il solo canale `file:save`), sotto «Invarianti del CLAUDE.md da
 riscrivere prima del motore»; la §21 (decisione 1 della spec, l'apertura di
-email e riunioni private nella doc) la scrive il piano 11b prima del
-motore, e qui resta il promemoria. Qui: le scelte del costruttore del piano,
+email e riunioni private nella doc) è scritta qui sopra dal piano 11b,
+prima del motore. Qui: le scelte del costruttore del piano,
 i ruling del controller sui Task 1–12, i minori rimandati alla revisione
 finale, ciò che va verso il 11b, e in fondo le decisioni del maintainer.
 Ognuna delle scelte ha il suo costo se è sbagliata. Dettaglio per task:
@@ -3130,7 +3135,6 @@ piano 11b consuma» nel piano). Da ricordare:
   derivato a lettura.
 - **La scrittura di Claude sulle ancore**: `merge` per scrittura, rifiutare un
   `insert` di un id assorbito, un gruppo TEXT/INSERT in `SLASH_ITEMS`.
-- **§21**: scritta prima del motore del 11b.
 
 ### Da fare a mano, a fine area (aperti per il maintainer)
 

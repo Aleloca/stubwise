@@ -22,7 +22,7 @@ export {
   saveProductBlocks,
   writeProductBlocksAs,
 } from "./writes";
-export { listProductRevisions, touchedAfter } from "./revisions";
+export { lastRevisionTouching, listProductRevisions, touchedAfter } from "./revisions";
 export {
   followersOf,
   followProductPage,

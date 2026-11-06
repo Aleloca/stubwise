@@ -11937,6 +11937,20 @@
     "deletedTask": "{{name}} ha eliminato <code>{{code}}</code> «{{title}}»"
   },
   "productDocs": {
+    "source": {
+      "email": "Dall'email “{{subject}}”",
+      "emailOf": "Da un'email di {{owner}} · {{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
+      "meeting": "Dalla riunione “{{title}}”",
+      "meetingOf": "Da una riunione di {{owner}} · {{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
+      "decision": "Dalla decisione “{{title}}”",
+      "decisionHidden": "Da una decisione che non puoi vedere",
+      "task": "Dalla task “{{title}}”",
+      "taskHidden": "Da una task che non puoi vedere",
+      "release": "Dal rilascio “{{title}}”",
+      "releaseHidden": "Da un rilascio che non puoi vedere",
+      "firstVersion": "Dalla prima versione",
+      "gone": "Fonte non più disponibile"
+    },
     "space": {
       "title": "Prodotto",
       "bar": "Pagine di prodotto di {{code}}",

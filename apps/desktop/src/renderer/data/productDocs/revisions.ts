@@ -147,6 +147,19 @@ const touches = (r: ProductRevision, anchorId: string) =>
       c.mergedFrom?.anchorId === anchorId,
   );
 
+/**
+ * L'ultima revisione (per `lastSeq`) che ha toccato l'ancora, letta in modo
+ * SINCRONO dallo stato: il motore del 11b non può passare da
+ * `listProductRevisions`, che è asincrona, passa dal cancello e legge come
+ * chi guarda (preflight P7).
+ */
+export function lastRevisionTouching(pageId: string, anchorId: string): ProductRevision | null {
+  const found = state.productRevisions
+    .filter((r) => r.pageId === pageId && touches(r, anchorId))
+    .sort((a, b) => b.lastSeq - a.lastSeq)[0];
+  return found ? copy(found) : null;
+}
+
 /** La prima revisione dopo `seq` che ha toccato l'ancora (il «toccata da altri» del 11b). */
 export function touchedAfter(pageId: string, anchorId: string, seq: number): ProductRevision | null {
   const found = state.productRevisions

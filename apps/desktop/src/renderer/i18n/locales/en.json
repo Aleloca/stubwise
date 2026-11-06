@@ -11937,6 +11937,20 @@
     "deletedTask": "{{name}} deleted <code>{{code}}</code> “{{title}}”"
   },
   "productDocs": {
+    "source": {
+      "email": "From the email “{{subject}}”",
+      "emailOf": "From an email of {{owner}} · {{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
+      "meeting": "From the meeting “{{title}}”",
+      "meetingOf": "From a meeting of {{owner}} · {{date, datetime(month: short; day: numeric; timeZone: UTC)}}",
+      "decision": "From the decision “{{title}}”",
+      "decisionHidden": "From a decision you can't see",
+      "task": "From the task “{{title}}”",
+      "taskHidden": "From a task you can't see",
+      "release": "From the release “{{title}}”",
+      "releaseHidden": "From a release you can't see",
+      "firstVersion": "From the first version",
+      "gone": "Source no longer available"
+    },
     "space": {
       "title": "Product",
       "bar": "Product pages of {{code}}",

@@ -130,6 +130,7 @@ import type {
   ProductPresence,
   ProductFollow,
   ProductPage,
+  ProductMark,
   ProductRevision,
   ContentState,
   DriveFile,
@@ -1047,6 +1048,8 @@ interface State {
   productPages: ProductPage[];
   /** Le revisioni, nell'ordine in cui sono nate (l'ordine vero è `lastSeq`). */
   productRevisions: ProductRevision[];
+  /** I segni «Claude's change» (11b): una riga per ancora cambiata da Claude. */
+  productMarks: ProductMark[];
   /** Chi segue quale pagina: chi la crea e chi preme «Follow», mai da solo. */
   productFollows: ProductFollow[];
   /**
@@ -1322,6 +1325,7 @@ function freshState(): State {
     docsChatProvider: "Team API key",
     productPages: PRODUCT_PAGES.map(copy),
     productRevisions: PRODUCT_REVISIONS.map(copy),
+    productMarks: [],
     productFollows: PRODUCT_FOLLOWS.map(copy),
     productBlockIds: productSeedBlockIds(),
     productSessionDeletes: new Map(),

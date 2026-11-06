@@ -3698,6 +3698,85 @@ export type ProductSourceRef =
   | { kind: "email" | "meeting" | "decision" | "task" | "release"; id: string }
   | { kind: "first_version"; ids: string[] };
 
+/**
+ * Un fatto che una fonte (email, riunione, decisione, task, rilascio)
+ * dice alla doc di prodotto (11b, `applyProductSource`). È un dato del
+ * seme: nessun modello lo legge dal testo. `clarity` dice se il fatto è
+ * detto chiaro o è un «forse»; solo uno chiaro, che non contraddice una
+ * persona, entra da sé (`decideFact`, `domain/productDocs/claudeRule.ts`).
+ */
+export interface ProductFact {
+  id: string;
+  pageId: string;
+  /** Il blocco (o la cella) che il fatto riguarda; `null` = in cima alla pagina. */
+  anchorId: string | null;
+  change:
+    | { kind: "replace"; text: RichText }
+    | { kind: "insert_after"; block: ProductBlock }
+    | { kind: "link_task"; taskCode: string }
+    | { kind: "diverges"; built: string };
+  clarity: "clear" | "vague";
+  /**
+   * Il contrasto GIÀ presente quando il fatto arriva, con un testo che
+   * nessuna persona ha toccato. Un contrasto nato dopo (una persona che
+   * riscrive il blocco mentre Claude aspetta) NON sta qui: lo calcola il
+   * motore da `touchedAfter` e lo passa a `decideFact` (preflight P5).
+   */
+  contradicts?: boolean;
+  /** Il testo che il fatto si aspetta di trovare nel blocco (preflight P5). */
+  before?: RichText;
+  options?: { apply?: RichText; request?: { title: string; description: string } };
+  /** La risposta che Claude consiglia; senza, vedi `recommendedOf`. */
+  recommended?: "apply" | "keep" | "request";
+}
+
+export type ProductFactDecision =
+  | { kind: "edit" }
+  | {
+      kind: "question";
+      reason: "vague" | "contradicts_person" | "contradicts" | "diverges" | "no_permission";
+    }
+  | { kind: "none" };
+
+/** La risposta che Claude può consigliare (o che una persona dà) a una domanda sulla doc. */
+export type ProductAnswerChoice = NonNullable<ProductFact["recommended"]>;
+
+/**
+ * Una fonte come la legge chi guarda (11b, `sourceViewOf`): UNA funzione
+ * per segno, cronologia, card, Home, riga della prima versione e risposte
+ * del riquadro. `label` è un `Utterance` da comporre in lettura; per chi
+ * non può aprire una email o una riunione dice «da un'email di <titolare>
+ * · <data>» e nient'altro: `link: null`, mai l'oggetto né il testo (§21).
+ */
+export interface ProductSourceView {
+  kind: ProductSourceRef["kind"];
+  label: Utterance;
+  /** Il codice di una task o di un rilascio (anche invisibile, tenue); altrimenti `null`. */
+  code: string | null;
+  /** Solo email e riunione che chi guarda può aprire; il resto lo risolve `CodeLink`. */
+  link: string | null;
+  /** Il titolare della fonte (chi agisce per lei), se ne ha uno. */
+  ownerId: string | null;
+  at: string | null;
+  /** La fonte non c'è più (email tolta, riunione cancellata). */
+  gone: boolean;
+}
+
+/**
+ * Il segno «Claude's change» di un'ancora (11b): scritto quando Claude
+ * cambia l'ancora, e tolto da «Va bene» (`acceptedById`). Una riga per
+ * ancora cambiata, perché l'unione di due blocchi deve poterla spostare
+ * (`onAnchorsMerged`).
+ */
+export interface ProductMark {
+  id: string;
+  pageId: string;
+  anchorId: string;
+  revisionId: string;
+  acceptedById: string | null;
+  acceptedSeq: number | null;
+}
+
 export type ProductRevisionKind =
   | "create"
   | "edit"

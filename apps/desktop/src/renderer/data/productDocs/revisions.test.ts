@@ -200,3 +200,17 @@ describe("touchedAfter", () => {
     expect(rev!.lastSeq).toBeGreaterThan(seq);
   });
 });
+
+describe("lastRevisionTouching (11b, preflight P7)", () => {
+  it("l'ultima revisione che ha toccato l'ancora, in modo sincrono; null se nessuna", async () => {
+    const { page: p, a, b } = await page();
+    as(MARCO);
+    await productDocs.saveProductBlocks(p.id, [{ op: "set", block: para(a, "Alpha M") }], {
+      sessionId: "s-marco",
+    });
+    // B non è stata toccata da Marco: l'ultima mano su B è ancora la creazione di Laura.
+    expect(productDocs.lastRevisionTouching(p.id, a)).toMatchObject({ actorId: MARCO });
+    expect(productDocs.lastRevisionTouching(p.id, b)).toMatchObject({ actorId: LAURA });
+    expect(productDocs.lastRevisionTouching(p.id, "blk-che-non-c-e")).toBeNull();
+  });
+});
