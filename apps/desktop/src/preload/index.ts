@@ -2,11 +2,13 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { SaveFileRequest, SaveFileResult } from "../main/security";
 
 type ResolvedTheme = "light" | "dark";
-type MenuChannel = "menu:search" | "menu:preferences" | "menu:ask-claude";
+type MenuChannel = "menu:search" | "menu:preferences" | "menu:ask-claude" | "menu:undo" | "menu:redo";
 const MENU_CHANNELS: readonly MenuChannel[] = [
   "menu:search",
   "menu:preferences",
   "menu:ask-claude",
+  "menu:undo",
+  "menu:redo",
 ];
 
 // Si espone solo `window.stubwise`, con funzioni a scopo stretto: mai

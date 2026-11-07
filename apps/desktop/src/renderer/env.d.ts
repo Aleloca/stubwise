@@ -17,7 +17,7 @@ interface Window {
     setTheme?: (resolved: "light" | "dark") => void;
     /** Voci di menu dell'applicazione; restituisce la funzione per disiscriversi. */
     onMenu?: (
-      cb: (channel: "menu:search" | "menu:preferences" | "menu:ask-claude") => void,
+      cb: (channel: "menu:search" | "menu:preferences" | "menu:ask-claude" | "menu:undo" | "menu:redo") => void,
     ) => () => void;
     /** Salva un PDF (stampato dal main) o un Word: la finestra di salvataggio, poi l'esito (area 11a). */
     saveFile?: (req: StubwiseSaveFileRequest) => Promise<StubwiseSaveFileResult>;

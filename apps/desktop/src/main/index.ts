@@ -12,7 +12,7 @@ import {
   withExtension,
   type SaveFileResult,
 } from "./security";
-import { groundFor, isResolvedTheme, overlayFor, themeFromDark, windowOptions } from "./window";
+import { groundFor, isResolvedTheme, overlayFor, printOnPaper, themeFromDark, windowOptions } from "./window";
 
 const here = fileURLToPath(new URL(".", import.meta.url));
 const devUrl = process.env["ELECTRON_RENDERER_URL"];
@@ -80,7 +80,7 @@ ipcMain.handle("file:save", async (event, raw: unknown): Promise<SaveFileResult>
   try {
     const data =
       req.format === "pdf"
-        ? await event.sender.printToPDF({ printBackground: true, pageSize: "A4" })
+        ? await printOnPaper(win, () => event.sender.printToPDF({ printBackground: true, pageSize: "A4" }))
         : req.data;
     const choice = await dialog.showSaveDialog(win, {
       defaultPath: join(app.getPath("downloads"), safeFileName(req.name, req.format)),

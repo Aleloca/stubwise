@@ -1,6 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { claimPanelToggle, openClaudePanel } from "./claudePanel/panelEvents";
+import { installHistoryKeys, runMenuHistory } from "./historyMenu";
 import { openPalette } from "./useShortcuts";
 
 /** Mappa una voce del menu dell'app sull'azione del renderer. */
@@ -12,6 +13,8 @@ export function handleMenuChannel(channel: string, navigate: (to: string) => voi
     // suo, e la stessa pressione arrivata anche come keydown non alterna due volte.
     if (document.querySelector('[aria-modal="true"]')) return;
     if (claimPanelToggle("menu")) openClaudePanel({ mode: "toggle" });
+  } else if (channel === "menu:undo" || channel === "menu:redo") {
+    runMenuHistory(channel === "menu:undo" ? "undo" : "redo", window.stubwise?.platform ?? "");
   }
 }
 
@@ -27,4 +30,5 @@ export function useMenuEvents(): void {
       handleMenuChannel(channel, (to) => void navigate({ to })),
     );
   }, [navigate]);
+  useEffect(() => installHistoryKeys(window.stubwise?.platform ?? ""), []);
 }

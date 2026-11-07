@@ -3478,6 +3478,33 @@ Cose che nessun test copre perché vogliono Electron vero e una persona davanti
 7. **Dal 11b** — la banda del rifiuto a 1024 sullo schermo: a capo, il
    «Who?» attaccato, nessun bottone coperto.
 
+**Esiti (maintainer, 7 nov 2026).**
+
+1. Esportazione: ok, tranne la **cornice grigia** intorno alle pagine del
+   PDF. Causa (provata in Electron): `printToPDF` dipinge i margini col
+   colore di fondo della FINESTRA, non della pagina. Corretto con
+   `printOnPaper` (`src/main/window.ts`): finestra bianca per la durata della
+   stampa, poi il tema. Riprovato: ok.
+2. ⌘Z / ⇧⌘Z ok; **«Undo»/«Redo» del menu non facevano nulla**: i ruoli
+   nativi chiamano l'annulla del contenteditable, che l'editor non usa.
+   Corretto: voci proprie (`menu:undo`/`menu:redo`) che mandano all'elemento
+   col fuoco lo stesso keydown di ⌘Z, con `execCommand` se nessuno lo
+   gestisce, e l'eco della stessa pressione scartata (`historyMenu.ts`).
+   Riprovato: ok.
+3. Incolla da Google Docs: testo, link e grassetto ok, ma **titoli, elenchi,
+   tabelle, codice e riga orizzontale diventano paragrafi**. Non è un
+   difetto: è [PE 14] dello shape dell'editor. Decisione del maintainer:
+   l'incolla tiene la struttura e l'editor guadagna un blocco «Codice» (in
+   lavorazione). L'«Importa da Google Docs» con Claude resta un'idea da
+   riproporre dopo.
+4. Immagine dal Finder: ok, incollata e trascinata.
+5. Il ripiego sull'h1: **saltata** (decisione del maintainer). Nell'app non
+   c'è un gesto per perdere il permesso mentre si scrive; resta coperta solo
+   dal test happy-dom, non provata in Electron.
+6. Lo schizzo nel Word: ok, con «Claude's draft · Screen sketch»; dopo
+   «Keep» ok, senza l'etichetta.
+7. La riga del rifiuto a ~1024: ok.
+
 ### Decisioni del maintainer (6 nov 2026)
 
 - **Q1 — dove si risponde a una domanda di Claude** *(maintainer, 6 nov

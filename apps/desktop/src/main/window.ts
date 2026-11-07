@@ -50,3 +50,26 @@ export function windowOptions(platform: NodeJS.Platform, theme: ResolvedTheme) {
 export function isResolvedTheme(v: unknown): v is ResolvedTheme {
   return v === "light" || v === "dark";
 }
+
+/** Il bianco della carta: il PDF esce sempre chiaro, qualunque sia il tema. */
+export const PAPER = "#ffffff";
+
+/**
+ * Stampa il PDF su carta bianca (prove a mano del 7 nov 2026, difetto 1).
+ * `printToPDF` dipinge i MARGINI della pagina col colore di fondo della
+ * finestra, non con quello della pagina: col fondo del tema il PDF aveva una
+ * cornice grigia (chiaro) o scura (scuro). Per la durata della stampa la
+ * finestra è bianca, poi torna com'era, anche se la stampa fallisce.
+ */
+export async function printOnPaper<T>(
+  win: { getBackgroundColor(): string; setBackgroundColor(color: string): void },
+  print: () => Promise<T>,
+): Promise<T> {
+  const ground = win.getBackgroundColor();
+  win.setBackgroundColor(PAPER);
+  try {
+    return await print();
+  } finally {
+    win.setBackgroundColor(ground);
+  }
+}

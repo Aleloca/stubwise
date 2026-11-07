@@ -5,6 +5,14 @@ export const MENU_SEARCH = "menu:search";
 export const MENU_PREFERENCES = "menu:preferences";
 /** Area 10a ([CP 7]): apre e chiude il riquadro di Claude. */
 export const MENU_ASK_CLAUDE = "menu:ask-claude";
+/**
+ * Prove a mano del 7 nov 2026 (difetto 2): «Undo»/«Redo» del menu. Coi ruoli
+ * di Electron chiamavano l'annulla nativo del contenteditable, che l'editor
+ * di prodotto non usa (ha la sua pila per sessione): dal menu non succedeva
+ * nulla. Ora dicono al renderer di fare quello che fa ⌘Z / ⇧⌘Z.
+ */
+export const MENU_UNDO = "menu:undo";
+export const MENU_REDO = "menu:redo";
 
 /**
  * Menu dell'applicazione. Le voci «Search…», «Ask Claude…» e «Preferences…»
@@ -36,8 +44,8 @@ export function buildMenuTemplate(
   const edit: MenuItemConstructorOptions = {
     label: "Edit",
     submenu: [
-      { role: "undo" },
-      { role: "redo" },
+      { label: "Undo", accelerator: "CmdOrCtrl+Z", click: () => send(MENU_UNDO) },
+      { label: "Redo", accelerator: "Shift+CmdOrCtrl+Z", click: () => send(MENU_REDO) },
       { type: "separator" },
       { role: "cut" },
       { role: "copy" },
