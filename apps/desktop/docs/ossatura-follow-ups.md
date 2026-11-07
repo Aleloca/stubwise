@@ -3279,6 +3279,14 @@ maintainer. Dettaglio per task:
 - **T1** — la decisione come fonte non ha link alla riga del registro
   (deviazione da P28): non esiste una rotta di riga. *Se sbagliata*: un link in
   più nel motore. Fix round 1: tabella sul vago; `projectId` obbligatorio.
+- **T2** — fix round 1 sui due Important: la riga dello Stato dell'istanza non
+  nomina la pagina a chi non ne legge i Docs (R-G5), e il gesto del riquadro
+  non scrive due volte; `manual` porta `{ requesterId }` (chi chiede non
+  aspetta il proprio cursore) senza cambiare l'interfaccia che il Task 8
+  consuma; `newId` al posto di `makeBlockId` accettato. Saltati con ragione
+  i minori 2, 5, 7, 9a e 9b (9b ha il suo test dalla revisione finale). *Se
+  sbagliata*: un gesto ripetuto che il motore non riconosce (la revisione
+  finale ha chiuso il caso delle domande e dei blocchi già inseriti).
 - **T3** — «Annulla» di una cella di una tabella inserita da Claude toglie
   tutta la tabella (prima non c'era) ma si giudica su tutte le celle. *Se
   sbagliata*: un «Annulla» spento più spesso.
@@ -3334,41 +3342,92 @@ maintainer. Dettaglio per task:
   confermata dice «Done» e «Can't be undone»). Emendamenti nello shape
   («Emendamenti del Task 12»).
 
-### Minori rimasti aperti (alla revisione finale)
+### Chiusi dalla revisione finale (7 nov 2026)
+
+Le due revisioni finali dell'area (codice e Impeccable) e i minori
+parcheggiati «da fare ora», chiusi in un giro. Ognuno ha il suo test, visto
+rosso prima del codice (o per mutazione dove il test copre codice che c'era
+già). Dettaglio: `.superpowers/sdd/2026-11-06-desktop-area11b-plan/final-fix-report.md`.
+
+- **I1 — un gesto ripetuto non richiede.** Una domanda che la stessa fonte ha
+  già fatto su quel fatto, aperta o con risposta, è «niente»
+  (`alreadyAsked` in `stepOf`): né un commento, né una card a chi segue, e
+  l'anteprima la conta come niente. Dentro anche il **dedupe di
+  `insert_after`** parcheggiato dal Task 2: un blocco che la fonte ha già
+  inserito nella pagina, in qualunque punto, non rientra
+  (`insertedBySource`), anche se nel frattempo una persona l'ha tolto.
+- **I2 — una riscrittura uguale alla pagina non è una modifica**: `replace`
+  col testo che c'è già non scrive e non si conta («1 sentence would change»);
+  senza altro, l'anteprima dice «already says this».
+- **I3 — la sezione con l'apostrofo**: le virgolette della frase sono solo
+  coppie che non stanno in una parola (“…”, «…», "…"), e la chiusura è
+  l'ultima. Resta la forma testo (vedi sotto, fra gli aperti).
+- **M1** — i fatti che aspettano una sezione si rivalutano anche dopo una
+  scrittura nella pagina (`onProductBlocks`, in un microtask, mai dentro la
+  scrittura stessa).
+- **M2** — un fatto che aspettava, liberata la sezione, con la coda in pausa
+  o il budget finito passa in `holdJob` come una fonte nuova (l'arrivo resta
+  quello di prima); un gesto del riquadro si ferma sul budget, non sulla
+  pausa (P41, P48).
+- **M3** — la prima versione cita un file del Drive col solo codice.
+- **M4** — l'organizzatore di una riunione è titolare solo se è membro del
+  progetto; altrimenti si passa all'email di Gemini.
+- **M5** — una richiesta dalla doc con la stessa pagina e la stessa ancora di
+  una che c'è già è rifiutata alla conferma (`invalid: already_proposed`).
+- **M6** — lo Stato dell'istanza usa `productPageHref`.
+- **M7** — una scheda di aggiornamento confermata quando non c'è più niente
+  da fare (niente scritto, chiesto né in attesa) fallisce con «no longer
+  applies», invece di una riga «fatto» su niente.
+- **Gli id delle fonti negli `args`** di `updateProductPage` /
+  `writeFirstVersion` escono dalla lettura per chiunque
+  (`presentProductClaudeEvent`); la conferma legge l'evento salvato.
+- **`blk-preview`** — un id per chiamata (`blk-preview-<n>`).
+- **`HistoryPanel`** — la tinta col movimento ridotto resta finché il fuoco è
+  nella riga, bottoni compresi (`onBlur` sulla riga).
+- **T10 M4c** — in Home, una risposta rifiutata per il permesso dice «Not
+  sent: answering is for people with Edit docs in ACQ.» con «Who?» (che apre
+  Who can? su `editDocs`).
+- **Test senza codice nuovo**: il ramo «la rilettura arriva prima del rifiuto»
+  di `CommentsColumn`, il caso 9b (`forName` / `answeredByName` `null`), e la
+  metà `noteProductSource` del test dell'istanza vuota, vista rossa per
+  mutazione.
+- **`capture.mjs`** ferma vite anche su SIGINT / SIGTERM.
+- **Impeccable 1–8**: la testata della bozza a destra anche a capo; «· Who?»
+  dopo la frase del budget della bozza; la frase di sola lettura della nota
+  nella famiglia «… is for people with Edit docs in …» (emendamento dello
+  shape del segno); «Tieni la prima versione» al posto di «Annulla» nel
+  dialogo italiano; «· Who?» mai da solo a inizio riga (`SentenceWithWho`
+  nelle frasi del 11b); il titolo della fonte a peso normale; il fuoco sul
+  posto della bozza mentre Claude disegna; i gruppi per cella nella nota a
+  1024.
+
+### Minori rimasti aperti (dopo la revisione finale)
 
 Ognuno con il costo se sbagliato.
 
-- **Gli id dei messaggi negli `args` di `updateProductPage` /
-  `writeFirstVersion` arrivano ai lettori di conversazioni pubblicate.** Gli id
-  raccontano l'argomento (stessa classe del Task 4 Important 2). *Se sbagliato*:
-  chi legge una conversazione pubblicata può dedurre da un id che la
-  richiesta riguardava un'email di cui non vede l'oggetto; per il motore vero
-  gli `args` vanno composti da dati strutturati o redatti alla pubblicazione.
-- **Gli id fissi dell'anteprima (`blk-preview`)** (Task 8): con `fresh: false`
-  un ripiego `link_task` inserisce l'id fisso `blk-preview` e `applyBlockOps`
-  lancia `invalidOp` su un id doppio. Oggi non si raggiunge (parcheggiato dal
-  controller: l'anteprima non scrive). *Se sbagliato*: chi chiamasse
-  l'anteprima con `fresh: false` vedrebbe un errore, non un'anteprima; la
-  correzione è un contatore per chiamata (`blk-preview-<n>`).
+- **I3, la forma testo**: il ⋮⋮ di un titolo manda ancora al riquadro una
+  frase col testo del titolo, non il suo id (portare l'id voleva un
+  `ContextRef` nuovo, che ogni lettura del chip dovrebbe conoscere). *Se
+  sbagliato*: con due titoli dallo stesso testo nella pagina il riquadro
+  sceglie il primo, non quello del menu aperto.
+- **M1, la perdita di `docs.view`**: chi scrive e perde la lettura dei Docs
+  smette di contare per `writersNear`, ma nessun evento della pagina lo dice:
+  il fatto che lo aspettava riparte alla prossima presenza o scrittura. *Se
+  sbagliato*: un fatto chiaro che resta in attesa più del necessario.
+- **«· Who?» fuori dal 11b**: `SentenceWithWho` è nelle frasi del 11b; la
+  riga di sola lettura dei commenti e quella del lucchetto (11a) e la frase
+  di un «Undo the first version» spento (testo con nomi in grassetto) tengono
+  il « · » spezzabile. *Se sbagliato*: un «· Who?» a inizio riga a qualche
+  larghezza.
+- **Il mockup ASCII dello shape del segno** (§3) ha ancora la frase di sola
+  lettura di prima; vale §8 e l'emendamento del 7 nov.
 - **Task 3, un segno perso dopo il ⌘Z di un'unione** pende verso «un segno in
   meno», mai verso un «Annulla» che cancella: accettato, non testato.
-- **Il dedupe di `insert_after` guarda solo il blocco seguente** (Task 2). Un
-  blocco uguale due posti più giù non lo ferma. *Se sbagliato*: un blocco
-  doppio dopo due gesti ravvicinati con un'altra scrittura in mezzo.
-- **L'`onBlur` della riga in `HistoryPanel.tsx` toglie la tinta** se il fuoco va
-  a un bottone dentro la riga (Task 9). *Se sbagliato*: la riga perde la tinta
-  mentre si usa «Undo»; solo estetica.
 - **M3, il dedupe dopo un'unione** (Task 7): le proposte si deduplicano per id
   d'ancora; dopo un'unione di blocchi (`onAnchorsMerged`) l'origine di una
   richiesta può puntare al blocco assorbito, e la frase unita può essere
   proposta di nuovo. Limite noto, accettato. *Se sbagliato*: una voce di
   backlog doppia; la strada è seguire l'unione nell'origine.
-- **T10 M4c, «Home» su una risposta vietata**: lo shape tace su cosa dire in
-  Home a chi non ha più `docs.edit`; il toast generico non è un'affermazione
-  falsa. *Se sbagliato*: una frase più specifica da scrivere.
-- **`CommentsColumn`: il ramo difensivo «ricarica prima del rifiuto» non ha un
-  test suo** (Task 10). *Se sbagliato*: una regressione sul filo di chi arriva
-  secondo passa se un altro test non la copre.
 - **T11, `closeUndo` prende il segno fresco anche con «Cancel» prima di
   qualunque annullamento.** Innocuo: in quello stato il segno non esiste.
 - **T11, la banda del rifiuto a 1024 è coperta solo in modo strutturale**
@@ -3377,18 +3436,18 @@ Ognuno con il costo se sbagliato.
   happy-dom lo prova, ma l'ordine reale di `blur` / `focus` nel contenteditable
   è del motore. *Se sbagliato*: il fuoco cade sul body dopo un gesto di pagina.
 - **T12, lo schizzo nel Word passa da `svgToPng` e in Electron non è
-  collaudato**: in happy-dom `svgToPng` dà `null` e il Word riceve la sola
-  etichetta; il canvas vero non è testato, e non c'è un conteggio negli avvisi
-  («N schizzi lasciati fuori»). *Se sbagliato*: il Word esce con la sola
-  etichetta senza dirlo.
-- **Task 2, caso 9b non testato**: `forName` / `answeredByName` `null` per
-  chi non vede la persona: nel seme ogni destinatario che legge i Docs di ACQ
-  vede gli altri membri. La frase di riserva c'è nel codice e non ha un test.
+  collaudato**: in happy-dom `svgToPng` dà `null` e il Word riceve la riga
+  «missing»; il canvas vero non è testato.
 - **Task 3, `acceptProductMarkAs` emette ancora `blocks`** invece di un
   evento `marks` (cambierebbe `ProductPageEvent`, e ogni sottoscrittore):
-  l'invalidazione è ridondante, mai sbagliata.
+  l'invalidazione è ridondante, mai sbagliata. Dalla revisione finale un
+  evento `blocks` sveglia anche i fatti in attesa della pagina (M1): con
+  nessuno in attesa non fa niente.
 - **Il costo di `claudeRevisionFields`** è O(righe × ancore × revisioni): va
-  bene sul seme, non per un motore con mille revisioni.
+  bene sul seme, non per un motore con mille revisioni. Lo stesso vale per
+  `insertedBySource` (O(revisioni × cambi) per fatto).
+- **Il timeout del primo giro della suite**, non identificato: da
+  indagare, non da correggere alla cieca.
 
 ### Prove a mano a fine prototipo (11a + 11b)
 

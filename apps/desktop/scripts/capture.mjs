@@ -28,6 +28,14 @@ async function ensureServer() {
   // `detached`: il figlio guida un proprio gruppo di processi (pnpm → vite),
   // che a fine corsa si uccide intero con `-pid`; senza, resta vivo vite.
   const child = spawn("pnpm", ["run", "preview:web"], { cwd: root, stdio: "ignore", detached: true });
+  // Un ⌃C o un kill a metà corsa non lasciano vite vivo (revisione finale):
+  // il gruppo detached non riceve il segnale del terminale, lo si ferma qui.
+  for (const [signal, code] of [["SIGINT", 130], ["SIGTERM", 143]]) {
+    process.once(signal, () => {
+      stopServer(child);
+      process.exit(code);
+    });
+  }
   for (let i = 0; i < 100; i++) {
     if (await isUp()) return child;
     await new Promise((r) => setTimeout(r, 300));
@@ -1071,7 +1079,15 @@ async function main() {
             await page.getByRole("menuitem", { name: /^(Draw this screen|Disegna questa schermata)$/ }).click();
             await page.locator("[data-sketching]").waitFor();
             await page.locator("[data-sketching]").scrollIntoViewIfNeeded();
+            // Il puntatore lontano dal titolo (il clic sul menu lo lascia lì: una
+            // tinta di hover, non di fuoco), e dove sta il fuoco, scritto nel log.
+            await page.mouse.move(2, 2);
             await page.waitForTimeout(400);
+            const focused = await page.evaluate(() => {
+              const el = document.activeElement;
+              return el ? `${el.tagName.toLowerCase()}${el.hasAttribute("data-sketching") ? "[data-sketching]" : ""}` : "none";
+            });
+            console.log("fuoco mentre Claude disegna:", focused);
           },
         },
         {
