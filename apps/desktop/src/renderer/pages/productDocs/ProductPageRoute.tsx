@@ -88,10 +88,13 @@ function PageBody({ page }: { page: ProductPageView }) {
   // Il permesso perso mentre si scrive (11b, Task 12): l'editor diventa la
   // sola lettura e i suoi controlli se ne vanno nello stesso disegno; il
   // fuoco che era lì va al titolo, non resta sul body.
+  // Solo se il fuoco era nella pagina (fix round 1, M6): uno già sul body non si sposta.
   const wasEditable = useRef(editable);
+  const lastFocus = useRef<Element | null>(null);
   useLayoutEffect(() => {
     const active = document.activeElement;
-    if (wasEditable.current && !editable && (!active || active === document.body || !active.isConnected))
+    const lost = !active || active === document.body || !active.isConnected;
+    if (wasEditable.current && !editable && lost && lastFocus.current && !lastFocus.current.isConnected)
       heading.current?.focus();
     wasEditable.current = editable;
   }, [editable]);
@@ -119,7 +122,15 @@ function PageBody({ page }: { page: ProductPageView }) {
   };
 
   return (
-    <article className="event-enter mx-auto flex w-full max-w-[720px] flex-col">
+    <article
+      className="event-enter mx-auto flex w-full max-w-[720px] flex-col"
+      onFocusCapture={(e) => {
+        lastFocus.current = e.target;
+      }}
+      onBlurCapture={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) lastFocus.current = null;
+      }}
+    >
       <header className="flex flex-col gap-1.5 pt-8">
         <p className="flex items-center gap-1.5 text-xs text-ink-muted">
           <button
@@ -191,7 +202,7 @@ function PageBody({ page }: { page: ProductPageView }) {
         <BlockEditor page={page} session={session} editable={editable} handle={editor} others={presence.data} />
       </div>
       {/* Le richieste nate dalla pagina (11b, [PB 4]): fuori dall'editor, dopo l'ultimo blocco. */}
-      <LinkedRequests pageId={page.id} />
+      <LinkedRequests pageId={page.id} onEmptyAfterRetry={() => heading.current?.focus()} />
     </article>
   );
 }

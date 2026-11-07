@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useProductLinkedRequests } from "../../../data/queries";
 import type { ProductLinkedRequest } from "../../../data/types";
@@ -18,11 +18,30 @@ const SHOWN = 10;
 /** Quante task nate si nominano prima di «+N». */
 const SHOWN_TASKS = 2;
 
-export function LinkedRequests({ pageId }: { pageId: string }) {
+export function LinkedRequests({
+  pageId,
+  onEmptyAfterRetry,
+}: {
+  pageId: string;
+  /** Riletta dopo «Retry» e senza righe: dove va il fuoco (la sezione non c'è). */
+  onEmptyAfterRetry?: () => void;
+}) {
   const { t } = useTranslation();
   const titleId = useId();
   const linked = useProductLinkedRequests(pageId);
   const [all, setAll] = useState(false);
+  const heading = useRef<HTMLHeadingElement>(null);
+  /** «Retry» premuto: la riga se ne va quando la lettura riesce, e il fuoco non resta sul body (fix round 1, I2). */
+  const retried = useRef(false);
+  const failed = linked.isError;
+  useLayoutEffect(() => {
+    if (!retried.current || failed) return;
+    retried.current = false;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+    if (heading.current) heading.current.focus();
+    else onEmptyAfterRetry?.();
+  });
   if (linked.isError) {
     return (
       <p className="mt-8 flex flex-wrap items-center gap-x-1.5 border-t border-rule pt-4 text-xs text-critical">
@@ -30,7 +49,10 @@ export function LinkedRequests({ pageId }: { pageId: string }) {
         <span aria-hidden="true">·</span>
         <button
           type="button"
-          onClick={() => void linked.refetch()}
+          onClick={() => {
+            retried.current = true;
+            void linked.refetch();
+          }}
           className="font-medium underline underline-offset-2"
         >
           {t("productDocs.backlog.linked.retry")}
@@ -43,7 +65,7 @@ export function LinkedRequests({ pageId }: { pageId: string }) {
   const shown = all ? rows : rows.slice(0, SHOWN);
   return (
     <section aria-labelledby={titleId} data-linked-requests="" className="mt-8 flex flex-col border-t border-rule pt-4">
-      <h2 id={titleId} className="heading-group flex items-baseline gap-1.5 pb-1">
+      <h2 ref={heading} id={titleId} tabIndex={-1} className="heading-group flex items-baseline gap-1.5 pb-1 outline-none">
         {t("productDocs.backlog.linked.title")}
         <span className="num text-ink-faint">{rows.length}</span>
       </h2>

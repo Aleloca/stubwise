@@ -1,7 +1,8 @@
 import { useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { useKeepWireframe, useRedrawWireframe } from "../../../data/queries";
+import { useAiBlock, useKeepWireframe, useRedrawWireframe } from "../../../data/queries";
 import type { ProductBlock, ProductPageView } from "../../../data/types";
+import { WithWho } from "../../../components/InstanceBlock";
 import { WhoCanLink } from "../../../components/WhoCanLink";
 import { ClaudeRing } from "../claude/FirstVersionProgress";
 
@@ -35,7 +36,7 @@ export interface WireframeEditing {
 const NAMED = new Set(["booking", "membership", "bills", "sign-in", "screen"]);
 
 const textButton =
-  "inline-flex h-6 shrink-0 items-center rounded-[4px] px-1.5 text-xs font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-disabled:cursor-default aria-disabled:hover:bg-transparent aria-disabled:hover:text-ink-muted";
+  "inline-flex h-6 shrink-0 items-center rounded-[4px] px-1.5 text-xs font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink aria-disabled:cursor-default aria-disabled:text-ink-faint aria-disabled:hover:bg-transparent aria-disabled:hover:text-ink-faint";
 
 export function WireframeBlock({
   block,
@@ -72,6 +73,15 @@ export function WireframeBlock({
   const [keepForbidden, setKeepForbidden] = useState(false);
   /** Dopo «Keep» il fuoco va al blocco, scelto come oggetto ([PE 5]). */
   const focusAfterKeep = useRef(false);
+  // «Redraw» è un gesto di Claude: col budget del mese finito è spenta con la
+  // sua frase e il «Who?», come «/» e «⋯» (§3.6). «Keep» e «Replace» no.
+  const budgetOut = useAiBlock(projectId).data?.reason === "monthly_budget";
+  /**
+   * Il gesto che aveva il fuoco e che il prossimo disegno può rimontare
+   * altrove (fix round 1, I1): «Redraw» dopo «Keep» rimette la testata, e i
+   * bottoni passano dall'angolo in alto alla testata. Il fuoco segue il gesto.
+   */
+  const restoreAction = useRef<"redraw" | "keep" | null>(null);
 
   // «Keep» se ne va nello stesso disegno in cui l'etichetta sparisce: il
   // fuoco passa al blocco prima che il browser lo lasci sul body.
@@ -81,12 +91,31 @@ export function WireframeBlock({
     root.current?.closest<HTMLElement>("[data-block-id]")?.focus();
   }, [kept]);
 
+  // Il gesto rimontato altrove (o la riga del Riprova tolta): il fuoco torna
+  // sul suo bottone nello stesso disegno, mai sul body.
+  useLayoutEffect(() => {
+    const kind = restoreAction.current;
+    if (!kind) return;
+    const active = document.activeElement;
+    const lost = !active || active === document.body || !active.isConnected;
+    if (lost) {
+      const target = root.current?.querySelector<HTMLElement>(`[data-sketch-action="${kind}"]`);
+      if (target) {
+        target.focus();
+        return;
+      }
+    }
+    // Il gesto è finito e il fuoco sta bene: niente più da seguire.
+    if (!busy && !lost) restoreAction.current = null;
+  });
+
   const run = (kind: "redraw" | "keep") => {
     if (!editing || inFlight.current) return;
     inFlight.current = true;
     setBusy(kind);
     setFailed(null);
     if (kind === "keep") focusAfterKeep.current = !!root.current?.contains(document.activeElement);
+    if (kind === "redraw" && root.current?.contains(document.activeElement)) restoreAction.current = "redraw";
     const done =
       kind === "redraw"
         ? redraw.mutateAsync({ pageId: page.id, blockId: block.id, fromVariant: block.variant }).then(() => {
@@ -114,12 +143,18 @@ export function WireframeBlock({
   };
 
   const canKeep = !kept && svg !== null;
+  /** «Riprova»: prima il fuoco sul gesto (che resta, in corso), poi la riga se ne va (fix round 1, I2). */
+  const retry = (kind: "redraw" | "keep") => {
+    root.current?.querySelector<HTMLElement>(`[data-sketch-action="${kind}"]`)?.focus();
+    restoreAction.current = kind === "redraw" ? "redraw" : null;
+    run(kind);
+  };
   const actions = editing ? (
     <div
       role="group"
       aria-label={t("productDocs.wireframe.actions")}
       className={`flex flex-wrap items-center gap-0.5 transition-opacity duration-[var(--duration-fast)] ease-out ${
-        busy || failed || keepForbidden
+        busy || failed || keepForbidden || budgetOut
           ? ""
           : "opacity-0 group-focus-within/block:opacity-100 group-hover/block:opacity-100"
       }`}
@@ -127,6 +162,7 @@ export function WireframeBlock({
       {canKeep && busy !== "redraw" && (
         <button
           type="button"
+          data-sketch-action="keep"
           aria-disabled={busy === "keep" || keepForbidden || undefined}
           aria-describedby={keepForbidden ? `${labelId}-keep` : undefined}
           onClick={() => !keepForbidden && run("keep")}
@@ -138,8 +174,10 @@ export function WireframeBlock({
       {busy !== "keep" && (
         <button
           type="button"
-          aria-disabled={busy === "redraw" || undefined}
-          onClick={() => run("redraw")}
+          data-sketch-action="redraw"
+          aria-disabled={busy === "redraw" || budgetOut || undefined}
+          aria-describedby={budgetOut ? `${labelId}-budget` : undefined}
+          onClick={() => !budgetOut && run("redraw")}
           className={textButton}
         >
           {busy === "redraw" ? t("productDocs.wireframe.redrawing") : t("productDocs.wireframe.redraw")}
@@ -169,6 +207,11 @@ export function WireframeBlock({
           {actions}
         </figcaption>
       )}
+      {budgetOut && editing && (
+        <p id={`${labelId}-budget`} className="border-b border-rule px-3 py-1.5 text-xs text-pretty text-ink-muted">
+          <WithWho text={t("productDocs.wireframe.budget")} />
+        </p>
+      )}
       {keepForbidden && (
         <p id={`${labelId}-keep`} className="border-b border-rule px-3 py-1.5 text-xs text-pretty text-ink-muted">
           {t("productDocs.wireframe.keepForbidden", { code: projectCode })}
@@ -196,7 +239,7 @@ export function WireframeBlock({
         <p role="alert" className="flex flex-wrap items-center gap-x-1.5 border-t border-rule px-3 py-1.5 text-xs text-critical">
           <span>{failed === "redraw" ? t("productDocs.wireframe.redrawFailed") : t("productDocs.wireframe.keepFailed")}</span>
           <span aria-hidden="true">·</span>
-          <button type="button" onClick={() => run(failed)} className="font-medium underline underline-offset-2">
+          <button type="button" onClick={() => retry(failed)} className="font-medium underline underline-offset-2">
             {t("productDocs.wireframe.retry")}
           </button>
         </p>

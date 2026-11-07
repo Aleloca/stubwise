@@ -378,18 +378,23 @@ describe("la bozza di schermata di Claude (11b, Task 12; shape product-claude-ba
 
   it("PDF: lo schizzo com'è, a tutta larghezza; sotto quello mai tenuto «Claude's draft · Screen sketch», sotto quello tenuto niente", async () => {
     twoSketches();
-    const figures: { svg: boolean; caption: string | null }[] = [];
+    const figures: { svg: boolean; caption: string | null; name: string | null }[] = [];
     withBridge(async () => {
       for (const f of printRoot()!.querySelectorAll("figure.print-sketch"))
-        figures.push({ svg: f.querySelector("svg") !== null, caption: f.querySelector("figcaption")?.textContent ?? null });
+        figures.push({
+          svg: f.querySelector("svg") !== null,
+          caption: f.querySelector("figcaption")?.textContent ?? null,
+          name: f.querySelector('[role="img"]')?.getAttribute("aria-label") ?? null,
+        });
       return { saved: true };
     });
     await openPage("Bills");
     await choose("This page", "PDF");
     await screen.findByText("Saved the PDF");
     expect(figures).toEqual([
-      { svg: true, caption: "Claude's draft · Screen sketch" },
-      { svg: true, caption: null },
+      { svg: true, caption: "Claude's draft · Screen sketch", name: "Claude's draft · Screen sketch" },
+      // Fix round 1 (M3): tenuta, il nome è «Screen sketch», non «Claude's draft».
+      { svg: true, caption: null, name: "Screen sketch" },
     ]);
   });
 
@@ -410,7 +415,11 @@ describe("la bozza di schermata di Claude (11b, Task 12; shape product-claude-ba
       { kind: "sketch", svg: expect.stringContaining("<svg"), label: true },
       { kind: "sketch", svg: expect.stringContaining("<svg"), label: false },
     ]);
-    expect(sketches).toMatchObject({ label: "Bozza di Claude · Bozza di schermata", name: "Bozza di schermata" });
+    expect(sketches).toMatchObject({
+      label: "Bozza di Claude · Bozza di schermata",
+      name: "Bozza di schermata",
+      missing: "Bozza di schermata: non è stato possibile disegnarla nel file Word. Il PDF la contiene.",
+    });
     expect(sketches!.toPng).toBe(docx.svgToPng);
   });
 });

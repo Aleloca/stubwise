@@ -87,6 +87,8 @@ export function SlashMenu({
                 role="option"
                 aria-selected={selected}
                 aria-disabled={off ? true : undefined}
+                aria-labelledby={off ? `${slashOptionId(id, item.id)}-label` : undefined}
+                aria-describedby={off ? `${slashOptionId(id, item.id)}-why` : undefined}
                 // Il clic non toglie il fuoco al blocco.
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => !off && onPick(item)}
@@ -95,8 +97,12 @@ export function SlashMenu({
                 <SlashGlyph id={item.id} />
                 {off ? (
                   <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="truncate">{t(item.labelKey)}</span>
-                    <span className="text-xs text-pretty text-ink-muted">{off}</span>
+                    <span id={`${slashOptionId(id, item.id)}-label`} className="truncate">
+                      {t(item.labelKey)}
+                    </span>
+                    <span id={`${slashOptionId(id, item.id)}-why`} className="text-xs text-pretty text-ink-muted">
+                      {off}
+                    </span>
                   </span>
                 ) : (
                   <span className="min-w-0 flex-1 truncate">{t(item.labelKey)}</span>

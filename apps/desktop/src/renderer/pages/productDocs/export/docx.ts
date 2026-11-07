@@ -124,6 +124,8 @@ export interface DocxSketches {
   /** Il nome dell'immagine di uno schizzo tenuto («Screen sketch»): una figura come le altre. */
   name: string;
   gone: string;
+  /** Lo schizzo che non si è potuto fare PNG: una riga che lo dice, al suo posto (fix round 1, M4). */
+  missing: string;
   toPng: (svg: string) => Promise<DocxPng | null>;
 }
 
@@ -260,8 +262,10 @@ export async function buildDocx(doc: ExportDoc, sketches?: DocxSketches): Promis
         const png = b.svg !== null ? (pngs.get(b.svg) ?? null) : null;
         const label = b.label && sketches ? [new d.Paragraph({ children: [new d.TextRun({ text: sketches.label, italics: true, size: 20 })] })] : [];
         if (!png) {
-          const gone = b.svg === null && sketches ? [new d.Paragraph({ children: [new d.TextRun({ text: sketches.gone, italics: true })] })] : [];
-          return [...gone, ...label];
+          // Mai in silenzio: un disegno sparito o uno schizzo che non è diventato PNG lo dicono al suo posto.
+          const text = sketches ? (b.svg === null ? sketches.gone : sketches.missing) : null;
+          const line = text ? [new d.Paragraph({ children: [new d.TextRun({ text, italics: true })] })] : [];
+          return [...line, ...label];
         }
         const scale = Math.min(1, MAX_IMAGE_WIDTH / png.width);
         const alt = sketches ? (b.label ? sketches.label : sketches.name) : "";

@@ -12650,7 +12650,8 @@
       "drawFailed": "Couldn't draw the sketch. Nothing was changed.",
       "gone": "This sketch is no longer available",
       "exportLabel": "Claude's draft · Screen sketch",
-      "budget": "The monthly AI budget is used up"
+      "budget": "The monthly AI budget is used up",
+      "exportMissing": "Screen sketch: it couldn't be drawn in the Word file. The PDF has it."
     },
     "backlog": {
       "group": "Claude",

@@ -12650,7 +12650,8 @@
       "drawFailed": "Non sono riuscito a disegnare la bozza. Nulla è cambiato.",
       "gone": "Questo schizzo non è più disponibile",
       "exportLabel": "Bozza di Claude · Bozza di schermata",
-      "budget": "Il budget mensile per l'AI è esaurito"
+      "budget": "Il budget mensile per l'AI è esaurito",
+      "exportMissing": "Bozza di schermata: non è stato possibile disegnarla nel file Word. Il PDF la contiene."
     },
     "backlog": {
       "group": "Claude",

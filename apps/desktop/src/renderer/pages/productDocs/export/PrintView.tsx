@@ -170,7 +170,7 @@ function Block({ doc, depth, block: b }: { doc: ExportDoc; depth: number; block:
           {b.svg !== null ? (
             <div
               role="img"
-              aria-label={t("productDocs.wireframe.exportLabel")}
+              aria-label={b.label ? t("productDocs.wireframe.exportLabel") : t("productDocs.wireframe.kind")}
               // Lo schizzo è del seme (`PRODUCT_WIREFRAMES`): SVG fissi, nessun dato di chi scrive.
               dangerouslySetInnerHTML={{ __html: b.svg }}
             />

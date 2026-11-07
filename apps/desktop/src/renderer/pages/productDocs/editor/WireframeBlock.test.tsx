@@ -3,8 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../../../data/api";
 import { resetApi, setLatency } from "../../../data/api";
+import { emitProductPage } from "../../../data/productDocs/events";
 import { drawWireframeAs } from "../../../data/productDocs/wireframes";
-import { state } from "../../../data/store";
+import { failNext, state } from "../../../data/store";
 import type { ProductBlock } from "../../../data/types";
 import { getSessionPersonId, setSessionPersonId } from "../../../data/session";
 import { revokeProjectPermission } from "../../../data/viewer";
@@ -342,6 +343,9 @@ describe("«/» → «Screen sketch»", () => {
     const option = await within(menu).findByRole("option", { name: /Screen sketch/ });
     await waitFor(() => expect(option).toHaveAttribute("aria-disabled", "true"));
     expect(option).toHaveTextContent("The monthly AI budget is used up");
+    // Fix round 1 (M2): la frase è la descrizione, non parte del nome.
+    expect(option).toHaveAccessibleName("Screen sketch");
+    expect(option).toHaveAccessibleDescription("The monthly AI budget is used up");
     act(() => {
       fireEvent.keyDown(editing(), { key: "Enter" });
     });
@@ -409,5 +413,142 @@ describe("«⋯» → «Draw this screen»", () => {
     const menu = await screen.findByRole("menu", { name: "More for this page" });
     expect(within(menu).queryByRole("menuitem", { name: /Draw this screen/ })).toBeNull();
     expect(within(menu).queryByRole("menuitem", { name: /Propose backlog items/ })).toBeNull();
+  });
+});
+
+// --- fix round 1 ---------------------------------------------------------------
+
+describe("fix round 1: il fuoco non cade mai sul body", () => {
+  it("I1: «Redraw» dopo «Keep» rimette la testata; il fuoco segue «Redraw» nel posto nuovo, mai sul body", async () => {
+    const id = drawnOnBills();
+    await open(BILLS);
+    const user = userEvent.setup();
+    await user.click(within(shellOf(id)).getByRole("button", { name: "Keep" }));
+    await waitFor(() => expect((blockOf(BILLS, id) as Wireframe).kept).toBe(true));
+    const corner = within(shellOf(id)).getByRole("button", { name: "Redraw" });
+    act(() => corner.focus());
+    const watch = watchBody();
+    await user.click(corner);
+    await waitFor(() => expect(within(shellOf(id)).getByText("Claude's draft")).toBeInTheDocument());
+    const redraw = within(shellOf(id)).getByRole("button", { name: "Redraw" });
+    await waitFor(() => expect(redraw).toHaveFocus());
+    watch.stop();
+    expect(watch.hits).toEqual([]);
+    expect(redraw.isConnected).toBe(true);
+    // Il bottone dell'angolo è stato rimontato nella testata: non è più lo stesso nodo.
+    expect(corner.isConnected).toBe(false);
+  });
+
+  it("I2: «Couldn't redraw · Retry»: il fuoco passa a «Redraw» prima che la riga se ne vada", async () => {
+    const id = drawnOnBills();
+    const real = api.productDocs.redrawWireframe;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    vi.spyOn(api.productDocs, "redrawWireframe")
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockImplementation(((...args: Parameters<typeof real>) => gate.then(() => real(...args))) as typeof real);
+    await open(BILLS);
+    const user = userEvent.setup();
+    await user.click(within(shellOf(id)).getByRole("button", { name: "Redraw" }));
+    const alert = await within(shellOf(id)).findByRole("alert");
+    expect(flat(alert)).toMatch(/Couldn't redraw\s*·\s*Retry/);
+    const retry = within(alert).getByRole("button", { name: "Retry" });
+    const watch = watchBody();
+    await user.click(retry);
+    // In corso: la riga se n'è andata, il fuoco è già sul gesto (che resta, «Redrawing…»).
+    await waitFor(() => expect(retry.isConnected).toBe(false));
+    expect(within(shellOf(id)).getByRole("button", { name: "Redrawing…" })).toHaveFocus();
+    release();
+    await waitFor(() => expect((blockOf(BILLS, id) as Wireframe).variant).toBe(1));
+    await waitFor(() => expect(within(shellOf(id)).getByRole("button", { name: "Redraw" })).toHaveFocus());
+    watch.stop();
+    expect(watch.hits).toEqual([]);
+  });
+
+  it("I2: «Couldn't keep it · Retry»: il fuoco passa a «Keep», poi al blocco tenuto; mai sul body", async () => {
+    const id = drawnOnBills();
+    const real = api.productDocs.keepWireframe;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    vi.spyOn(api.productDocs, "keepWireframe")
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockImplementation(((...args: Parameters<typeof real>) => gate.then(() => real(...args))) as typeof real);
+    await open(BILLS);
+    const user = userEvent.setup();
+    await user.click(within(shellOf(id)).getByRole("button", { name: "Keep" }));
+    const alert = await within(shellOf(id)).findByRole("alert");
+    expect(flat(alert)).toMatch(/Couldn't keep it\s*·\s*Retry/);
+    const retry = within(alert).getByRole("button", { name: "Retry" });
+    const watch = watchBody();
+    await user.click(retry);
+    await waitFor(() => expect(retry.isConnected).toBe(false));
+    expect(within(shellOf(id)).getByRole("button", { name: "Keeping…" })).toHaveFocus();
+    release();
+    await waitFor(() => expect((blockOf(BILLS, id) as Wireframe).kept).toBe(true));
+    await waitFor(() => expect(shellOf(id)).toHaveFocus());
+    watch.stop();
+    expect(watch.hits).toEqual([]);
+  });
+});
+
+describe("fix round 1, I3: «Redraw» col budget del mese finito", () => {
+  for (const [lang, redrawName, sentence, keepName] of [
+    ["en", "Redraw", "The monthly AI budget is used up", "Keep"],
+    ["it", "Rifai", "Il budget mensile per l'AI è esaurito", "Tieni"],
+  ] as const) {
+    it(`${lang}: spenta con la sua frase e il «Who?»; «Keep» resta`, async () => {
+      const id = drawnOnBills();
+      await budgetUsedUp();
+      await open(BILLS);
+      if (lang === "it") act(() => setLanguage("it"));
+      const shell = shellOf(id);
+      const redraw = await within(shell).findByRole("button", { name: redrawName });
+      await waitFor(() => expect(redraw).toHaveAttribute("aria-disabled", "true"));
+      expect(redraw).toHaveAccessibleDescription(new RegExp(sentence));
+      expect(within(shell).getAllByRole("button").some((b) => /Who\?|Chi\?/.test(b.textContent ?? ""))).toBe(true);
+      expect(within(shell).getByRole("button", { name: keepName })).not.toHaveAttribute("aria-disabled");
+      const before = revisionsOf(BILLS).length;
+      const user = userEvent.setup();
+      await user.click(redraw);
+      await new Promise((r) => setTimeout(r, 20));
+      expect(revisionsOf(BILLS).length).toBe(before);
+      expect(within(shellOf(id)).queryByRole("alert")).toBeNull();
+    });
+  }
+});
+
+describe("fix round 1, M6: la sola lettura non ruba un fuoco che non era nella pagina", () => {
+  it("il fuoco già sul body quando la pagina torna in sola lettura: il titolo non lo prende", async () => {
+    await open(BILLS);
+    act(() => (document.activeElement as HTMLElement | null)?.blur());
+    expect(document.activeElement).toBe(document.body);
+    act(() => {
+      revokeProjectPermission(LAURA, ACQ, "docs.edit" as never);
+      // La pagina si rilegge (un evento della pagina, come una scrittura altrui).
+      emitProductPage(BILLS, "blocks");
+    });
+    await waitFor(() => expect(flat(document.body)).toContain("You can read this page"));
+    expect(screen.getByRole("heading", { level: 1, name: "Bills" })).not.toHaveFocus();
+  });
+});
+
+describe("fix round 1, M1: una scrittura fallita non blocca il disegno", () => {
+  it("salvataggio fallito, poi «Draw this screen»: la bozza arriva e «Claude is sketching…» se ne va", async () => {
+    await open(BILLS);
+    const target = page(BILLS).blocks.at(-1)!;
+    const user = userEvent.setup();
+    const text = within(body())
+      .getAllByRole("textbox")
+      .find((el) => el.textContent === (target as { content: { text: string } }).content.text)!;
+    await user.click(text);
+    await waitFor(() => expect(editing()).toBeTruthy());
+    act(() => placeCaret(editing(), 0));
+    failNext("productDocs.saveProductBlocks");
+    input(editing(), "insertText", "X");
+    await user.click(screen.getByRole("button", { name: "More for this page" }));
+    const menu = await screen.findByRole("menu", { name: "More for this page" });
+    await user.click(within(menu).getByRole("menuitem", { name: "Draw this screen" }));
+    await waitFor(() => expect(page(BILLS).blocks.some((b) => b.type === "wireframe")).toBe(true));
+    await waitFor(() => expect(document.querySelector("[data-sketching]")).toBeNull());
   });
 });

@@ -157,7 +157,7 @@ export function useEditorSession(page: ProductPageView) {
   }, []);
   const settled = useCallback(
     (): Promise<void> =>
-      queue.current.length === 0 && !busy.current
+      (queue.current.length === 0 && !busy.current) || failed.current
         ? Promise.resolve()
         : new Promise<void>((done) => {
             waiters.current.push(done);

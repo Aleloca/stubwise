@@ -1012,6 +1012,27 @@ async function main() {
           },
         },
         {
+          // Fix round 1 (I3): col budget finito «Redraw» è spenta con la frase e il «Who?».
+          name: "wireframe-budget",
+          hash: BILLS,
+          persona: "Laura",
+          run: async (page) => {
+            // Prima la bozza (col budget finito Claude non disegna), poi il budget.
+            await drawOnBills(page);
+            await page.evaluate(async () => {
+              const api = await import("/data/api.ts");
+              const session = await import("/data/session.ts");
+              const before = session.getSessionPersonId();
+              session.setSessionPersonId("p-roberta");
+              await api.instance.simulateBudgetReached(true);
+              session.setSessionPersonId(before);
+            });
+            await page.waitForTimeout(800);
+            await page.locator("figure").first().hover();
+            await page.waitForTimeout(300);
+          },
+        },
+        {
           name: "wireframe-sketching",
           hash: BILLS,
           persona: "Laura",

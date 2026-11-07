@@ -168,6 +168,7 @@ describe("la bozza di schermata nel Word (11b)", () => {
   });
   // Senza apostrofi: nel Word un apostrofo è `&apos;`.
   const LABEL = "Bozza di Claude · Bozza di schermata";
+  const MISSING = "Bozza di schermata: non è stato possibile disegnarla nel file Word";
   const documentXml = async (bytes: Uint8Array) =>
     new TextDecoder().decode((await unzip(bytes)).get("word/document.xml")!);
   const hasMedia = async (bytes: Uint8Array) =>
@@ -175,14 +176,14 @@ describe("la bozza di schermata nel Word (11b)", () => {
 
   it("mai tenuta: la PNG dello schizzo e, sotto, «Claude's draft · Screen sketch» in corsivo 10 pt", async () => {
     const toPng = vi.fn(async () => png());
-    const bytes = await buildDocx(sketchDoc(svg, true), { label: LABEL, name: "Bozza di schermata", gone: "gone", toPng });
+    const bytes = await buildDocx(sketchDoc(svg, true), { label: LABEL, name: "Bozza di schermata", gone: "gone", missing: MISSING, toPng });
     expect(toPng).toHaveBeenCalledWith(svg);
     expect(await hasMedia(bytes)).toBe(true);
     expect(await documentXml(bytes)).toMatch(/<w:i\/>.*<w:sz w:val="20"\/>.*Bozza di Claude · Bozza di schermata/s);
   });
 
   it("tenuta: la PNG, senza l'etichetta", async () => {
-    const bytes = await buildDocx(sketchDoc(svg, false), { label: LABEL, name: "Bozza di schermata", gone: "gone", toPng: async () => png() });
+    const bytes = await buildDocx(sketchDoc(svg, false), { label: LABEL, name: "Bozza di schermata", gone: "gone", missing: MISSING, toPng: async () => png() });
     expect(await hasMedia(bytes)).toBe(true);
     expect(await documentXml(bytes)).not.toContain("Bozza di Claude");
   });
@@ -191,6 +192,7 @@ describe("la bozza di schermata nel Word (11b)", () => {
     const bytes = await buildDocx(sketchDoc(null, true), {
       label: LABEL,
       name: "Bozza di schermata",
+      missing: MISSING,
       gone: "This sketch is no longer available",
       toPng: async () => null,
     });
@@ -199,10 +201,24 @@ describe("la bozza di schermata nel Word (11b)", () => {
     expect(xml).toContain(LABEL);
   });
 
-  it("svgToPng senza una tela (happy-dom): `null`, e il Word ha la sola etichetta", async () => {
+  it("svgToPng senza una tela (happy-dom): `null`; al posto dello schizzo la riga che lo dice, poi l'etichetta", async () => {
     expect(await svgToPng(svg)).toBeNull();
-    const bytes = await buildDocx(sketchDoc(svg, true), { label: LABEL, name: "Bozza di schermata", gone: "gone", toPng: svgToPng });
+    const bytes = await buildDocx(sketchDoc(svg, true), { label: LABEL, name: "Bozza di schermata", gone: "gone", missing: MISSING, toPng: svgToPng });
     expect(await hasMedia(bytes)).toBe(false);
-    expect(await documentXml(bytes)).toContain(LABEL);
+    expect(await documentXml(bytes)).toMatch(new RegExp(`${MISSING}.*${LABEL}`, "s"));
+  });
+
+  it("fix round 1 (M4): una bozza TENUTA che non diventa PNG non sparisce in silenzio: la riga c'è, l'etichetta no", async () => {
+    const bytes = await buildDocx(sketchDoc(svg, false), {
+      label: LABEL,
+      name: "Bozza di schermata",
+      gone: "gone",
+      missing: MISSING,
+      toPng: async () => null,
+    });
+    const xml = await documentXml(bytes);
+    expect(await hasMedia(bytes)).toBe(false);
+    expect(xml).toContain(MISSING);
+    expect(xml).not.toContain("Bozza di Claude");
   });
 });

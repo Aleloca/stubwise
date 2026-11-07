@@ -103,8 +103,15 @@ describe("«⋯» → «Propose backlog items»", () => {
     expect(flat(note)).toBe(
       `Already proposed from this page: ${request("req-acq-7").code}, ${request("req-acq-6").code}`,
     );
-    await user.click(within(card()!).getByRole("button", { name: /^Confirm/ }));
+    const confirm = within(card()!).getByRole("button", { name: /^Confirm/ });
+    const watch = watchBody();
+    await user.click(confirm);
     await waitFor(() => expect(state.requests.length).toBe(before + 3));
+    // Fix round 1: Confirm se ne va con la scheda «Done»; il fuoco resta vivo nella scheda, mai sul body.
+    await waitFor(() => expect(confirm.isConnected).toBe(false));
+    await waitFor(() => expect(card()!.contains(document.activeElement)).toBe(true));
+    watch.stop();
+    expect(watch.hits).toEqual([]);
     const region = await screen.findByRole("region", { name: /^From this page/ });
     await waitFor(() => expect(within(region).getAllByRole("listitem")).toHaveLength(5));
     expect(flat(region)).toContain("Phase 3: a dark appearance");
@@ -208,7 +215,38 @@ describe("«From this page» in fondo alla pagina", () => {
     const retry = await screen.findByRole("button", { name: "Retry" });
     expect(flat(retry.parentElement!)).toMatch(/^Couldn't load the linked requests\s*·\s*Retry$/);
     const user = userEvent.setup();
+    const watch = watchBody();
     await user.click(retry);
-    expect(await screen.findByRole("region", { name: /^From this page/ })).toBeInTheDocument();
+    const region = await screen.findByRole("region", { name: /^From this page/ });
+    // Fix round 1 (I2): Retry se ne va, il fuoco va al titolo della sezione, mai sul body.
+    expect(retry.isConnected).toBe(false);
+    await waitFor(() => expect(within(region).getByRole("heading", { level: 2 })).toHaveFocus());
+    watch.stop();
+    expect(watch.hits).toEqual([]);
+  });
+
+  it("fix round 1 (I2): Retry su una pagina che poi non ha voci: il fuoco va al titolo della pagina", async () => {
+    failNext("productDocs.listProductLinkedRequests");
+    await open("pp-acq-bills", SARA);
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    const user = userEvent.setup();
+    const watch = watchBody();
+    await user.click(retry);
+    await waitFor(() => expect(retry.isConnected).toBe(false));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Bills" })).toHaveFocus());
+    watch.stop();
+    expect(watch.hits).toEqual([]);
+    expect(linked()).toBeNull();
   });
 });
+
+/** Il fuoco perso sul body (o su un nodo tolto) anche per un solo giro. */
+function watchBody() {
+  const hits: number[] = [];
+  const observer = new MutationObserver(() => {
+    const active = document.activeElement;
+    if (!active || active === document.body || !active.isConnected) hits.push(hits.length);
+  });
+  observer.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
+  return { hits, stop: () => observer.disconnect() };
+}

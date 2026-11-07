@@ -108,6 +108,7 @@ export function useProductExport({
             label: t("productDocs.wireframe.exportLabel"),
             name: t("productDocs.wireframe.kind"),
             gone: t("productDocs.wireframe.gone"),
+            missing: t("productDocs.wireframe.exportMissing"),
             toPng: svgToPng,
           });
           if (data.byteLength > MAX_SAVE_BYTES) {

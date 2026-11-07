@@ -453,3 +453,14 @@ brief.
   gruppo CLAUDE non c'è.
 - **«From the doc:»** usa `CodeLink` col nome della pagina: il codice 600
   e il titolo, sottolineati insieme.
+- **La nota «Already proposed from this page» sta sotto la scheda** (fix
+  round 1, M5), fra le note della risposta, dove l'area 10 mette da sempre
+  `NoteRows` (`ProposalCard`): §3.2 la elenca con la scheda, ma la forma
+  della scheda B non cambia ([PB 3]).
+- **«Redraw» col budget del mese finito** (fix round 1, I3): spenta, con
+  sotto la testata «The monthly AI budget is used up · Who?» come «/» e «⋯»;
+  «Keep» e «Replace with an image» restano (non sono gesti di Claude).
+- **Word, schizzo che non diventa PNG** (fix round 1, M4): al suo posto la
+  riga «Screen sketch: it couldn't be drawn in the Word file. The PDF has
+  it.», per la bozza tenuta e per quella mai tenuta (questa con la sua
+  etichetta sotto). Non sparisce in silenzio.
