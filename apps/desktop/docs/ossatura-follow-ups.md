@@ -3448,6 +3448,15 @@ Ognuno con il costo se sbagliato.
   `insertedBySource` (O(revisioni × cambi) per fatto).
 - **Il timeout del primo giro della suite**, non identificato: da
   indagare, non da correggere alla cieca.
+- **Dalla rilettura delle correzioni finali (7 nov 2026)**, tre minori:
+  - la regex della sezione cattura troppo una frase scritta a mano con un
+    secondo tratto fra virgolette dopo la sezione; la frase del menu non lo
+    fa mai. *Se sbagliato*: Claude risponde che la sezione non esiste;
+  - nessun test prova la metà `factId` di `alreadyAsked` (una fonte con due
+    fatti vaghi la coprirebbe). *Se sbagliato*: la seconda domanda di una
+    stessa fonte non arriva;
+  - su un cambio di soli segni o spazi l'anteprima dice «X diventa X»
+    anche se la scrittura avviene davvero. Non raggiungibile nel seme.
 
 ### Prove a mano a fine prototipo (11a + 11b)
 
