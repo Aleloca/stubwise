@@ -126,3 +126,126 @@ manca sul server di oggi.
    modifica e l'eliminazione dei commenti, «Ripristina» nella cronologia e
    un avviso di modifiche non salvate all'uscita: stanno fra i minori
    aperti, con la loro scelta.
+
+---
+
+# Area 11b — Claude nelle pagine di prodotto (7 nov 2026)
+
+Come per il 11a, il web non ha niente di tutto questo: non c'è una doc di
+prodotto, e quindi nemmeno un Claude che la tenga aggiornata. Qui c'è una
+riga per ogni voce **nuova** del 11b, dove vive nel prototipo e il test che
+la esercita. Percorsi relativi a `src/renderer/`. Le scelte del costruttore,
+i ruling del controller e i minori rimasti aperti, ognuno col suo costo se
+sbagliato, stanno in `ossatura-follow-ups.md` («Area 11b — minori aperti»);
+la regola §21 (l'apertura di email e riunioni private nella doc) è in quel
+file, accanto alla §19 e alla §20.
+
+Spec: `docs/plans/2026-11-05-desktop-area11-product-docs-design.md`.
+Piano: `docs/plans/2026-11-06-desktop-area11b-plan.md`.
+Shape: `.impeccable/shape/{product-claude-mark,product-claude-questions,product-claude-backlog}.md`.
+
+## Le voci nuove (11b)
+
+| Voce | Dove vive ora | Test |
+|---|---|---|
+| **La regola** («decisioni inventate»): per ogni fatto che una fonte dice, `apply`, `question` o `none`; un fatto vago non diventa mai una modifica, e un contrasto con ciò che una persona ha scritto dopo l'arrivo della fonte diventa una domanda | `domain/productDocs/claudeRule.ts` (`decideFact`, `recommendedOf`), pura | `domain/productDocs/claudeRule.test.ts` (la tabella «un fatto vago non entra mai da sé»: 4 tipi di cambio × 16 combinazioni del contesto × `contradicts`); `data/productDocs/neverWritesDecisions.test.ts` (il modulo non scrive nel registro decisioni) |
+| **La fonte vista da chi legge** (§21): email, riunione, decisione, task, rilascio, testo incollato, file del Drive; a chi non può aprirla «da un'email di <titolare> · <data>», senza oggetto, link né testo | `data/productDocs/sources.ts` (`sourceViewOf`, `sourceOwnerOf`); `pages/productDocs/claude/SourceLine.tsx` | `data/productDocs/sources.test.ts` («Laura, destinataria, vede l'oggetto e il link alla conversazione», «Sara non l'ha ricevuta: «da un'email di laura costa», senza oggetto, link né testo», «lo stesso messaggio in due progetti: il titolare è quello del progetto della pagina») |
+| **Il motore**: le fonti arrivano, i fatti entrano come UNA scrittura per fonte e pagina (`via: "claude"`, `source`, `groupId`), la sezione occupata aspetta chi ci scrive, le domande partono subito, il dedupe per fonte e progetto | `data/productDocs/claude.ts` (`applyProductSource`, `askProductQuestion`, `whenProductClaudeIdle`); letture in `claudeReads.ts`; punti d'arrivo in `data/productDocs/sourceEvents.ts` (mail classificata, mail assegnata a mano, decisione registrata, task chiusa, merge che fa nascere un rilascio) | `data/productDocs/claude.test.ts` (fra cui «budget finito: nessuna scrittura, un lavoro fermo `product_doc_update` sulla pagina» e il fatto che aspetta mentre una persona riscrive il blocco); `data/productDocs/sourceEvents.test.ts` |
+| **Il budget e la pausa**: il lavoro fermo `product_doc_update` per pagina, rilasciato da `releaseBudgetHolds` e da `resumeQueueAs`; le card dello stesso giro raccolte per pagina; la riga «Claude will resume updating the doc when…» | `data/instance/queue.ts` (`JobKind`, `HeldJob.productPageId`); `data/instance/status.ts` (`heldJob`, la riga della pagina vuota a chi non legge i Docs); `pages/productDocs/claude/ClaudeWaitingLine.tsx`; `productUpdatesWaiting` | `data/productDocs/claude.test.ts` («il budget e la pausa»); `pages/productDocs/claude/ClaudeWaitingLine.test.tsx` (budget, pausa, plurale, «Who?», a capo a 1024) |
+| **Il segno a margine** e il suo **«Va bene»** (una frase alla volta) e **«Annulla»** (per ancora, per cella; «Annulla tutto» nella cronologia), spento col nome di chi ha toccato dopo | `data/productDocs/marks.ts` (righe, regole, letture), `markGestures.ts` (`acceptProductMarkAs`, `undoProductChangeAs`); `pages/productDocs/claude/ProductClaudeMark.tsx`; la voce «Claude's change» nel menu ⋮⋮ (`editor/BlockHandle.tsx`) | `data/productDocs/marks.test.ts` (fra cui «una tabella aggiunta da Claude: Marco scrive in un'altra cella, «Annulla» della cella di Claude è spento»); `marksLoad.test.ts` (l'unione sposta il segno anche con soli `writes.ts` e `marks.ts` caricati); `pages/productDocs/claude/ProductClaudeMark.test.tsx` |
+| **La cronologia di Claude** («Claude on behalf of …», la fonte, «Undo» / «Undo all», «Undone by», la riga «Undid Claude's change», la risposta a una domanda) | `pages/productDocs/history/HistoryPanel.tsx`; `claudeRevisionFields` in `data/productDocs/marks.ts`; i parametri `?mark=` e `?history=` in `router.tsx` e `data/routes.ts` | `pages/productDocs/history/HistoryPanel.claude.test.tsx` |
+| **Le domande di Claude** nel commento della pagina e in Home «Decide» (maintainer Q1): ragioni `vague`, `contradicts_person`, `no_permission`, `diverges`; la consigliata («Recommended»); «Update it» / «Leave it as is» / «Open a request»; chi arriva secondo trova la risposta già data | `data/productDocs/questions.ts` (`answerProductQuestionAs`, `questionViewOf`, `productQuestionDecisions`, la strada della richiesta); `pages/productDocs/comments/QuestionThread.tsx`; `pages/home/blocks/ClaudeDecisionItem.tsx` (`ProductQuestionItem`); `domain/productDocs/claudeText.ts` | `data/productDocs/questions.test.ts`, `questionsFresh.test.tsx`; `pages/productDocs/comments/QuestionThread.test.tsx`; `pages/home/blocks/ClaudeDecisionItem.product.test.tsx`, `DecideBlock.test.tsx` |
+| **Le card** `product_doc.updated` e `product_doc.question`: composte a lettura da `productCard`, senza bottoni (la notifica avvisa e porta al filo) | `data/productDocs/claudeReads.ts` (`presentProductUpdate`, `presentProductQuestion`); `data/api.ts` (`listNotifications`); resa in `notifications/NotificationItem.tsx` | `notifications/NotificationItem.productClaude.test.tsx` (anche la fixture SENZA i campi nuovi e `objectGone`) |
+| **La prima versione**: «Write the first version with Claude» nello spazio vuoto, il dialogo delle fonti, l'avanzamento pagina per pagina, la riga in cima con «Accept» e «Undo the first version», la conferma | `data/productDocs/firstVersion.ts`; il seme in `data/seed/productDocs/vrdFirstVersion.ts` (VRD, dieci pagine, tre domande, due immagini); `pages/productDocs/claude/FirstVersionDialog.tsx`, `FirstVersionProgress.tsx`, `FirstVersionBanner.tsx`; `ProductIndex.tsx` (`EmptySpace`); `tasks-ui/Dialog.tsx` (`scrollBody`) | `data/productDocs/firstVersion.test.ts`; `pages/productDocs/claude/FirstVersion.test.tsx` (23: doppio clic, fuoco mai sul body, 1024) |
+| **Il backlog dalla doc**: «Propose backlog items» (pagina e sezione), le voci già proposte, «From this page», «From the doc: …» sulla richiesta e sul task | `domain/productDocs/backlog.ts` (`backlogCandidatesOf`), `data/productDocs/backlog.ts`; `pages/productDocs/claude/ClaudePageGestures.tsx`, `LinkedRequests.tsx`; `pages/task/LinksSection.tsx`, `pages/support/RequestOrigin.tsx`; la nota `already_proposed` in `pages/claude/conversation/ProposalCard.tsx` | `data/productDocs/backlog.test.ts`; `pages/productDocs/claude/LinkedRequests.test.tsx`; `pages/task/LinksSection.productDoc.test.tsx` |
+| **Le bozze di schermata** (blocco `wireframe`): «Draw this screen», «/» → «Screen sketch», «Keep» (toglie l'etichetta, maintainer), «Redraw», «Replace with an image»; l'esportazione le segue | `data/seed/productDocs/wireframes.ts` (SVG del seme), `data/productDocs/wireframes.ts`; `pages/productDocs/editor/WireframeBlock.tsx`; `pages/productDocs/export/*` | `data/productDocs/wireframes.test.ts`; `pages/productDocs/editor/WireframeBlock.test.tsx` |
+| **Il riquadro di Claude** per la doc: le sei azioni del catalogo (`writeFirstVersion`, `undoFirstVersion`, `updateProductPage`, `undoProductUpdate`, `drawWireframe`, `deleteWireframe`), classi A/B, anteprime composte per chi guarda, «N questions to close in …» | `data/claude/catalogProduct.ts`, `classes.ts`, `actions.ts`; `data/productDocs/claudePanel.ts`; `layout/claudePanel/ClaudePanel.tsx` | `data/claude/catalog.test.ts`, `neverInCatalog.test.ts`; `layout/claudePanel/ClaudePanel.test.tsx` |
+| **Il seme del 11b** (ACQ: tre revisioni di Claude, i segni, due domande, cinque card; VRD vuoto, maintainer Q2) e le fonti che arrivano | `data/seed/productDocs/acq11b.ts`, `facts.ts`, `vrdFirstVersion.ts`; `without11b.ts` (solo per i test) | `data/seed.11b.test.ts` |
+| **L'istanza vuota**: nessun copione del 11b parte | `data/auth/emptyInstance.ts` (invariato) | `emptyInstance.test.tsx` («nessun copione del 11b parte: niente fatti applicati, niente domande di Claude, niente prima versione, niente lavori fermi»; visto rosso con un `productPending` rimesso dopo il reset e con `productSourcesSeen` non svuotato) |
+
+Scatti: `CAPTURE_A11B=1 node apps/desktop/scripts/capture.mjs` li fa tutti
+(`a11b-mark`, `history`, `first`, `waiting`, `questions`, `home`, `inbox`,
+`backlog`, `wireframe`), a 1440 chiaro/scuro × en/it e a 1024 `narrow-en` e
+`narrow-it` (quattro processi figli uno dopo l'altro, un solo vite);
+`CAPTURE_ONLY=<regex sul nome dello scatto>` restringe. I flag singoli
+(`CAPTURE_A11B_MARK` = mark + history, `_FIRST` = first + waiting,
+`_QUESTIONS` = questions + home + inbox, `_BACKLOG` = backlog + wireframe)
+restano, ma ognuno esce dopo il suo blocco: due flag insieme non fanno due
+blocchi, per questo c'è l'ombrello.
+
+## Per il prodotto vero (11b)
+
+Il 11b completa ciò che il 11a lasciava come «il worker ne avrà uno».
+
+1. **Il lavoro del worker**: «rileggere le fonti» sotto le regole del giro
+   notturno e della quota. Nel prototipo è `applyProductSource`, sincrono e
+   deciso da fatti scritti a mano nel seme (vedi i minori). Sul server di
+   oggi diventa un job che, per una fonte attribuita a un progetto (email
+   classificata, riunione con documento pronto, decisione registrata, task
+   chiusa, rilascio), legge la fonte e la pagina e produce i fatti. La
+   regola che li trasforma in scrittura o domanda (`decideFact`) resta una
+   funzione pura **in un package condiviso**: server, worker e client devono
+   dire la stessa cosa. Il lavoro:
+   - gira **dentro il giro notturno** o, a richiesta, dal riquadro di Claude
+     (`manual`);
+   - **si ferma alla quota** (come `nightly_items`: riprende dalla coda, non
+     perde lavoro) e un budget del mese finito lo parcheggia in `held`
+     (`product_doc_update`, una riga per pagina), con la riga «riprende
+     quando il budget torna»;
+   - **si serializza per progetto** (il serializer per-progetto del worker),
+     perché scrive blocchi di pagine che una persona può avere aperte.
+2. **La tabella dei segni**: una riga per ancora cambiata da Claude
+   (pagina, ancora, blocco, cella, revisione, chi ha detto «Va bene» e
+   quando, l'ancora di partenza se un'unione l'ha spostata). Si **deriva**
+   quanto si può: il segno è visibile se nessuno ha detto «Va bene», se
+   l'ancora c'è ancora e dice ancora la frase di Claude, e se nessuna
+   revisione l'ha toccata dopo (le coppie ⌘Z e le unioni hanno le loro
+   regole, scritte nel docblock di `marks.ts`).
+3. **Il ramo `product_doc` di `origin`** sulla richiesta del backlog
+   (`{ kind: "product_doc", pageId, anchorId, questionId? }`), accanto a
+   `support`. `origin` è un'unione discriminata; i lettori vecchi che non
+   conoscono il ramo nuovo lo scartano (cambio **additivo**); il legame
+   «Dalla doc» si **deriva a lettura** (`productOrigin`) e la descrizione
+   salvata non nomina la pagina (R-G5: chi legge la richiesta può non
+   leggere i Docs).
+4. **`product_doc.updated` e `product_doc.question`**: due
+   `notification_kind` nuovi nello schema condiviso (`packages/shared`,
+   `packages/db`); con `product_doc.mention` del 11a sono tre in tutto.
+   - **Rollback**: finché ne esistono righe **non si scende d'immagine sul
+     server** (500 su `/api/inbox`); la voce di deploy-log indica la pulizia
+     (`delete from notifications where kind in ('product_doc.updated',
+     'product_doc.question')`, dopo aver contato le righe) e il caddy scende
+     insieme al server.
+   - **Cambi additivi verso l'app**: il valore nuovo dell'enum arriva come
+     `UNKNOWN` ai client vecchi grazie a `readerSchema`. I campi nuovi della
+     card (nel prototipo `AppNotification.productUpdate`, `productQuestion`
+     e il `productCard` che si compone solo a lettura) nascono
+     **facoltativi**, mai obbligatori; titolo, corpo, fonti, «Answered by» e
+     `objectGone` si **derivano a lettura** dalla pagina e dal filo di
+     adesso, mai dal jsonb dell'evento (CLAUDE.md, «I campi che un client
+     legge su una card di inbox si derivano a lettura»). La fixture del
+     test dell'app e quella del web **senza** i campi nuovi ci sono apposta
+     (`NotificationItem.productClaude.test.tsx`).
+   - La card **non ha bottoni**: la risposta si dà nel filo o in Home
+     «Decide» (maintainer Q1). Nessun tool MCP risponde a una domanda.
+5. **La regola «decisioni inventate»**, a DUE livelli, perché nessuno dei
+   due basta: (a) come **istruzione del prompt** (un fatto vago, un
+   contrasto con una persona, un blocco senza permesso non diventano
+   scrittura: Claude chiede); (b) come **controllo sul risultato**
+   (`decideFact` giudica ogni fatto che il modello ha prodotto e lo scarta o
+   lo trasforma in domanda: un fatto vago non diventa mai una modifica,
+   qualunque cosa il modello abbia scritto). Come il registro decisioni
+   (CLAUDE.md), `claudeRule.ts` **non scrive mai nel registro**: lo prova
+   `neverWritesDecisions.test.ts`.
+6. **La domanda come commento di Claude**: una radice di `CLAUDE_ID` senza
+   testo, con `question` (ragione, fonte, risposta consigliata, risposta
+   data). Il testo si compone a lettura in en/it da valori stabili; chi
+   legge riceve una **vista** (`questionViewOf`), mai la riga grezza
+   (`sourceRef`, `factId`).
+7. **La prima versione**: un job che scrive le pagine una dopo l'altra
+   (`groupId` unico), che si può **interrompere** (`interrupted`) e che si
+   annulla pagina per pagina dalle foglie, solo se nessuno ha toccato nulla
+   dopo. Le fonti sono quelle che chi lancia vede: una fonte che non vede è
+   come una che non esiste.
+8. **Le bozze di schermata** escono come immagini (PNG) nell'esportazione
+   Word; il modello vero produce l'SVG (nel prototipo vengono dal seme).

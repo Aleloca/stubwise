@@ -4,6 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { roleIdOf } from "./data/access/index";
 import { productDocs, resetApi, setLatency, setStreamLatency } from "./data/api";
 import { suggestionFor } from "./data/claude/suggestions";
+import { heldJobs } from "./data/instance/queue";
+import { whenProductClaudeIdle } from "./data/productDocs/claude";
+import { whenFirstVersionIdle } from "./data/productDocs/firstVersion";
+import { productQuestionDecisions } from "./data/productDocs/questions";
+import { noteProductSource } from "./data/productDocs/sourceEvents";
 import * as auth from "./data/auth/index";
 import { PROJECT_SETTINGS_SECTIONS } from "./data/routes";
 import { PEOPLE } from "./data/seed/people";
@@ -369,6 +374,48 @@ describe("l'istanza vuota, dopo il primo avvio", () => {
       expect(dialog.textContent ?? "").not.toMatch(/ACQ-D\d/i);
     }
     expect(seedNamesShown("/home")).toEqual([]);
+    expect(consoleErrors).toEqual([]);
+  });
+
+  // Area 11b, Task 13: nessun copione del 11b parte sull'istanza vuota. Né
+  // un fatto applicato alla doc (nessuna revisione di Claude, nessun segno,
+  // nessuna fonte «già vista»), né una domanda di Claude (nessun commento
+  // con `question`, nessuna voce in «Decidi», nessuna card), né il gruppo
+  // della prima versione, né un lavoro fermo `product_doc_update`. Si prova
+  // due volte: subito dopo il reset, e dopo aver fatto arrivare le fonti che
+  // il seme usa (la loro chiave esiste, ma non c'è nessuna pagina su cui
+  // scrivere) e aver aspettato che tutto si fermi.
+  it("nessun copione del 11b parte: niente fatti applicati, niente domande di Claude, niente prima versione, niente lavori fermi", async () => {
+    const quiet = () => {
+      expect(state.productRevisions.filter((r) => r.via === "claude")).toEqual([]);
+      expect(state.productMarks).toEqual([]);
+      expect(state.productPending).toEqual([]);
+      expect(state.productSourcesSeen.size).toBe(0);
+      expect(state.productFirstVersions).toEqual([]);
+      expect(state.productComments.filter((c) => c.question !== undefined)).toEqual([]);
+      expect(
+        state.notifications.filter((n) => n.productUpdate !== undefined || n.productQuestion !== undefined || n.productCard !== undefined),
+      ).toEqual([]);
+      expect(heldJobs().filter((j) => j.kind === "product_doc_update")).toEqual([]);
+    };
+    quiet();
+    expect(productQuestionDecisions(adminId)).toEqual([]);
+
+    for (const ref of [
+      { kind: "email", id: "mm-acq-signin-google" },
+      { kind: "email", id: "mm-acq-fault-photo-limit" },
+      { kind: "meeting", id: "mm-gemini-acq-review" },
+      { kind: "meeting", id: "mm-gemini-acq-weekly" },
+      { kind: "task", id: "ACQ-3" },
+      { kind: "decision", id: "ACQ-D7" },
+    ] as const) {
+      noteProductSource(ref, ["prj-acq"]);
+    }
+    await whenProductClaudeIdle();
+    await whenFirstVersionIdle();
+    await productDocs.whenProductIdle();
+    quiet();
+    expect(productQuestionDecisions(adminId)).toEqual([]);
     expect(consoleErrors).toEqual([]);
   });
 

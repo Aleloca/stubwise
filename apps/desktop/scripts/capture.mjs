@@ -67,6 +67,32 @@ const WIDE = { width: 1440, height: 900 };
 const NARROW = { width: 1024, height: 680 };
 
 async function main() {
+  // Area 11b, Task 13: `CAPTURE_A11B=1` fa tutti i set `a11b-*` (mark,
+  // history, first, waiting, questions, home, inbox, backlog, wireframe), a
+  // 1440 chiaro/scuro × en/it e a 1024 narrow-en / narrow-it. Ogni flag
+  // singolo (`CAPTURE_A11B_MARK`, `_FIRST`, `_QUESTIONS`, `_BACKLOG`) fa il
+  // suo blocco e poi ESCE (`return`): non si possono quindi accendere due
+  // insieme, e l'ombrello li lancia uno dopo l'altro in processi figli, col
+  // vite del padre (riusato dai figli e fermato qui). `CAPTURE_ONLY` (una
+  // regex sul nome dello scatto) restringe anche l'ombrello.
+  if (process.env.CAPTURE_A11B) {
+    const server = await ensureServer();
+    try {
+      for (const k of ["MARK", "FIRST", "QUESTIONS", "BACKLOG"]) {
+        const code = await new Promise((done) => {
+          const child = spawn(process.execPath, [fileURLToPath(import.meta.url)], {
+            stdio: "inherit",
+            env: { ...process.env, CAPTURE_A11B: "", [`CAPTURE_A11B_${k}`]: "1" },
+          });
+          child.on("exit", (c) => done(c ?? 1));
+        });
+        if (code !== 0) throw new Error(`CAPTURE_A11B_${k} è uscito con ${code}`);
+      }
+    } finally {
+      stopServer(server);
+    }
+    return;
+  }
   await mkdir(outDir, { recursive: true });
   const server = await ensureServer();
   const browser = await chromium.launch();

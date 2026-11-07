@@ -879,7 +879,10 @@ si riscrivono.
   sta in UN punto, `sourceViewOf` (`data/productDocs/sources.ts`): segno,
   cronologia, card, Home, riga della prima versione e risposte del riquadro
   leggono la fonte da lì, e il titolare si nomina sempre (è un membro del
-  progetto) mentre il testo dell'email non esce mai.
+  progetto) mentre il testo dell'email non esce mai. Realizzata nel 11b
+  (7 nov 2026): le prove sono in `sources.test.ts` (Sara non ha ricevuto
+  l'email: nessun oggetto, link né testo) e il motore la rispetta anche
+  nelle anteprime del riquadro di Claude.
 
 ## Area 8b — minori aperti
 
@@ -2856,7 +2859,8 @@ motore sono §19 (il corpo di una pagina di prodotto: id stabili, ancore,
 segni) e §20 (il solo canale `file:save`), sotto «Invarianti del CLAUDE.md da
 riscrivere prima del motore»; la §21 (decisione 1 della spec, l'apertura di
 email e riunioni private nella doc) è scritta qui sopra dal piano 11b,
-prima del motore. Qui: le scelte del costruttore del piano,
+prima del motore, e il 11b l'ha realizzata (`sourceViewOf`; «Area 11b —
+minori aperti»). Qui: le scelte del costruttore del piano,
 i ruling del controller sui Task 1–12, i minori rimandati alla revisione
 finale, ciò che va verso il 11b, e in fondo le decisioni del maintainer.
 Ognuna delle scelte ha il suo costo se è sbagliata. Dettaglio per task:
@@ -3114,7 +3118,10 @@ barra a 1024 e le rifiniture visive. Restano aperti, col motivo:
 ### Verso il 11b
 
 Il 11b non cambia le interfacce del 11a (le usa e aggiunge in coda: «Cosa il
-piano 11b consuma» nel piano). Da ricordare:
+piano 11b consuma» nel piano). Scritto prima del 11b e **fatto** (7 nov
+2026): com'è andata sta in «Area 11b — minori aperti» e in
+`area11-parity.md`, e la §21 (l'apertura di email e riunioni private) è
+realizzata da `sourceViewOf`. Da ricordare:
 
 - **Il campo del segno a margine** non c'è in 11a (P14): il 11b lo aggiunge in
   coda, facoltativo. Un campo vuoto senza forma non servirebbe a niente.
@@ -3187,3 +3194,231 @@ dal test di `ProductSpace.test.tsx`.
 - **P26**: la categoria «Product» dei Docs dei repository si rinomina
   «Product overview» / «Panoramica di prodotto»; «Product / Prodotto» è solo
   lo spazio nuovo.
+
+## Area 11b — minori aperti
+
+Parità e copertura: `area11-parity.md` («Area 11b»). La regola che regge tutto
+il 11b è la §21, scritta in «Area 8a — minori aperti» e realizzata in UN
+punto, `sourceViewOf` (`data/productDocs/sources.ts`). Qui: le scelte del
+costruttore (ognuna col suo costo se sbagliata), i ruling del controller sui
+Task 1–12, i minori rimasti aperti, le prove a mano e in fondo le decisioni del
+maintainer. Dettaglio per task:
+`.superpowers/sdd/2026-11-06-desktop-area11b-plan/task-N-report.md` e
+`task-N-review.md`.
+
+### Scelte del costruttore
+
+- **I fatti dei copioni al posto del modello.** Nel prototipo non c'è un
+  modello: cosa una fonte «dice» alla doc sta in `data/seed/productDocs/facts.ts`
+  (`PRODUCT_SOURCE_FACTS`, chiave `<kind>:<id>`, più due chiavi di riserva per le
+  fonti il cui id nasce all'arrivo: `decision:<titolo>`, `release:<repo>#<n>`).
+  Una fonte senza fatti non fa niente. *Se sbagliata*: il motore vero non ha
+  ancora provato la parte più incerta — che un modello produca fatti con il
+  `clarity` giusto (`vague` o no), l'ancora giusta, `contradicts` onesto — e la
+  regola `decideFact` è collaudata solo sui fatti che abbiamo scritto noi.
+  Il controllo sul risultato (un fatto vago non diventa mai una modifica) è
+  proprio per questo, ma la qualità dei fatti sarà del prompt.
+- **La bozza generica della prima versione.** Un progetto senza una bozza
+  preparata (solo VRD ne ha una) riceve cinque pagine (Overview, Features,
+  Screens, Client decisions, Phases) che citano le fonti scelte e non fanno
+  domande; VRD ha dieci pagine, tre domande e un blocco del Drive che entra
+  solo se il file è scelto. *Se sbagliata*: la bozza di VRD è fissa — chi
+  sceglie solo il testo incollato vede comunque pagine che dicono cose delle
+  email; la generica non dimostra niente della capacità del modello di
+  distillare fonti vere (alternativa: `onlyWith` blocco per blocco).
+- **Il titolare dell'email.** Una fonte email agisce «per conto di» il suo
+  titolare: `projectChosenById` della proposta con `sourceId === messageId` nello
+  stesso progetto, poi il primo membro con la casella (`mailboxPersonIds`), e
+  `sourceViewOf` prende `projectId` OBBLIGATORIO (la stessa email in due
+  progetti ha due titolari). L'email in arrivo di ACQ ha titolare **Matteo**: la
+  casella di Laura è scaduta nel seme. *Se sbagliata*: negli scatti compaiono
+  nomi diversi da quelli immaginati dalla spec; il caso «da un'email di Laura
+  Costa» resta su Sign-in.
+- **Le card raccolte per pagina al rilascio.** Quando il budget torna o la
+  coda riparte, gli aggiornamenti fermi di una pagina escono come UNA card
+  («… from N sources, after waiting for the budget.»), non una per fonte,
+  con le fonti nell'ordine d'arrivo e senza doppioni. Si raccolgono in un
+  microtask. *Se sbagliata*: due rilasci che cadono in microtask diversi
+  danno due card; chi vuole una card per fonte cambia `collect`.
+- **«Update it» senza la finestra di «Undo» di «Decide».** In Home la risposta
+  «Update it» parte SUBITO (`answerAtOnce`) e il toast dice «Updated … To undo
+  it, open the page history.» con «Open history»; solo «Leave it as is» segue
+  la finestra dell'«Undo» delle altre voci. Una scrittura sulla doc che si
+  ritira dopo qualche secondo non sarebbe annullabile in modo onesto (una
+  persona può aver già letto o scritto). *Se sbagliata*: «Update it» in Home
+  è meno perdonabile di «Leave it as is»; l'annullamento passa dalla
+  cronologia, un gesto in più.
+- **La bozza di schermata come SVG del seme.** I disegni (`booking`,
+  `membership`, `bills`, `sign-in` e il generico `screen`, 2–3 varianti ciascuno,
+  360×240, solo `currentColor`, nessun testo) stanno in
+  `data/seed/productDocs/wireframes.ts` e si scelgono per parola chiave nel
+  titolo della pagina. *Se sbagliata*: il modello vero disegnerà altro, con altri
+  limiti (testo, colori, dimensioni): l'SVG va sanificato e il tipo di blocco
+  (`wireframeId` + `variant`) potrebbe diventare `svg` salvato.
+- **Lo scatto di una modifica = UNA revisione per fonte e pagina**
+  (`kind: "edit"`, `via: "claude"`, `groupId`), non per fatto. «Annulla tutto»
+  è su un gruppo di revisioni; «Annulla» è per ancora. *Se sbagliata*: una fonte
+  con molti fatti sulla stessa pagina è una riga di cronologia sola.
+- **Il segno di una tabella è per cella**, raggruppato per `blockId` dalla UI;
+  su una tabella INSERITA da Claude, «Annulla» di una cella toglie tutta la
+  tabella e si giudica su tutte le celle (ruling del Task 3).
+- **`text` della domanda non esiste nel dato**: en/it si compongono in lettura
+  da `reason`, `forName` e `taskCode`, con frasi di riserva quando il nome o il
+  codice sono `null` (chi non vede la persona). *Se sbagliata*: una frase nuova
+  è un cambio di i18n in due lingue, non di dati.
+
+### Ruling del controller sui Task 1–12 (accettati)
+
+- P1–P49 del pre-flight accettati come proposti: sono difetti verificati sul
+  codice e prevalgono sul testo del piano. *Se sbagliati*: rework per task.
+- **P15 prima strada**: il test della cancellazione rimessa resta su ⌘Z
+  dell'editor (`sessionId` + `undoOf`); l'eccezione `restorable` di
+  `writeProductBlocksAs` non si estende, perché Claude nel 11b sostituisce e
+  inserisce ma non cancella blocchi. *Se sbagliata*: un «Annulla» dalla
+  cronologia che non rimette un blocco cancellato da Claude.
+- **T1** — la decisione come fonte non ha link alla riga del registro
+  (deviazione da P28): non esiste una rotta di riga. *Se sbagliata*: un link in
+  più nel motore. Fix round 1: tabella sul vago; `projectId` obbligatorio.
+- **T3** — «Annulla» di una cella di una tabella inserita da Claude toglie
+  tutta la tabella (prima non c'era) ma si giudica su tutte le celle. *Se
+  sbagliata*: un «Annulla» spento più spesso.
+- **T4** — la freschezza di «Decide» si sistema nel livello dati; `text` non c'è,
+  en/it composti in UI e il Task 10 ha una frase di riserva per `forName`
+  `null`. *Se sbagliata*: poco.
+- **T5** — l'email in arrivo di ACQ ha titolare Matteo (vedi sopra); la spec
+  chiede solo una modifica da un'email segnata. Fix round 1: R-G5 sulla card
+  di Marco e destinatari derivati.
+- **P33** — la bozza di schermata della prima versione di VRD si aggiunge nel
+  Task 7 (dove nasce il blocco), non nel Task 6. *Se sbagliata*: un passo in
+  più al Task 7.
+- **T6** — le modifiche di chi ha chiesto contano come tocco («nessuno» della
+  decisione 9); `notify: false` sulle domande della bozza accettato (non fanno
+  card); `interrupted` lo legge il Task 11; due minori nuovi (alt delle
+  immagini di VRD con dettagli non nelle fonti; riga «non dicono ancora
+  niente» su Features sopra una sottopagina) passati al Task 7.
+- **T7** — R-G5 vince sullo shape §3.2: la descrizione salvata di una richiesta
+  dalla doc non nomina la pagina; il legame «Dalla doc» si deriva a lettura
+  (emendamento datato nello shape). *Se sbagliata*: la descrizione dice meno
+  fuori da Stubwise. Titoli di fase nel seme di Phases con id letterali;
+  `replaceWireframeWithImageAs` nel livello dati; l'export ha il kind `sketch`
+  (non `image`) per far passare il Word da `svgToPng` (deviazione da P36).
+- **T8** — le anteprime e le fonti della scheda si compongono per chi guarda da
+  dati strutturati (come `draft.ts`): a chi non è destinatario dell'email,
+  niente frasi citate né oggetto. *Se sbagliata*: la scheda dice meno a chi non
+  ha l'email. L'id grezzo del commento nel messaggio P21 resta (minore, non
+  R-G5).
+- **P45** — le righe «cambiata sotto gli occhi» (shape mark §3.5) non si fanno:
+  il dato non le deriva. *Se sbagliata*: manca una riga di cortesia, non un
+  fatto.
+- **T9** — una tabella inserita da Claude con «modificata dopo» su ogni cella
+  è giusta (regola del Task 3); il «Who?» di Marco è in grassetto, non un link
+  (nessuna pagina persona apribile da tutti): emendamento datato dello shape.
+  Fix round 1 sul fuoco che passa dal body per un frame, l'annuncio ripetuto e
+  la tinta con il movimento ridotto.
+- **T10** — emendamenti dello shape: riga «Proposed» (la frase che «Update it»
+  scrive), un filo risolto che nasconde «Now/The page says», la riga «N
+  questions to close» su qualsiasi pagina Docs del progetto (`ContextRef` non
+  distingue le due). I4 con una variante di testo in `questionKey` quando la
+  domanda non ha la strada della richiesta (nessuna modifica al seme: il seme
+  non ha un esempio di divergenza con quella strada). *Se sbagliati*: ritocco
+  di testo o di layout.
+- **T11** — emendamenti: titolo del dialogo a 18px, `scrollBody` nel `Dialog`
+  condiviso, le fonti della riga in cima su una riga a sé, frasi per
+  l'interrotta e per tipo di tocco. M3: un «Undo» spento dopo un tocco ha il
+  suo «Who?» che nomina chi ha toccato, per il brief e la lezione vincolante
+  (ogni bottone spento ha la sua frase e il «Who?») — ha vinto sul silenzio
+  dello shape. *Se sbagliato*: un bottone in più.
+- **T12** — concerns 1–5 accettati (il refactor di `useEditorSession` verificato
+  equivalente; «Draw this screen» dalla pagina non passa dal riquadro; il nome
+  accessibile per `wireframeId`; Phases con 3 voci invece di 5; P49: la scheda
+  confermata dice «Done» e «Can't be undone»). Emendamenti nello shape
+  («Emendamenti del Task 12»).
+
+### Minori rimasti aperti (alla revisione finale)
+
+Ognuno con il costo se sbagliato.
+
+- **Gli id dei messaggi negli `args` di `updateProductPage` /
+  `writeFirstVersion` arrivano ai lettori di conversazioni pubblicate.** Gli id
+  raccontano l'argomento (stessa classe del Task 4 Important 2). *Se sbagliato*:
+  chi legge una conversazione pubblicata può dedurre da un id che la
+  richiesta riguardava un'email di cui non vede l'oggetto; per il motore vero
+  gli `args` vanno composti da dati strutturati o redatti alla pubblicazione.
+- **Gli id fissi dell'anteprima (`blk-preview`)** (Task 8): con `fresh: false`
+  un ripiego `link_task` inserisce l'id fisso `blk-preview` e `applyBlockOps`
+  lancia `invalidOp` su un id doppio. Oggi non si raggiunge (parcheggiato dal
+  controller: l'anteprima non scrive). *Se sbagliato*: chi chiamasse
+  l'anteprima con `fresh: false` vedrebbe un errore, non un'anteprima; la
+  correzione è un contatore per chiamata (`blk-preview-<n>`).
+- **Task 3, un segno perso dopo il ⌘Z di un'unione** pende verso «un segno in
+  meno», mai verso un «Annulla» che cancella: accettato, non testato.
+- **Il dedupe di `insert_after` guarda solo il blocco seguente** (Task 2). Un
+  blocco uguale due posti più giù non lo ferma. *Se sbagliato*: un blocco
+  doppio dopo due gesti ravvicinati con un'altra scrittura in mezzo.
+- **L'`onBlur` della riga in `HistoryPanel.tsx` toglie la tinta** se il fuoco va
+  a un bottone dentro la riga (Task 9). *Se sbagliato*: la riga perde la tinta
+  mentre si usa «Undo»; solo estetica.
+- **M3, il dedupe dopo un'unione** (Task 7): le proposte si deduplicano per id
+  d'ancora; dopo un'unione di blocchi (`onAnchorsMerged`) l'origine di una
+  richiesta può puntare al blocco assorbito, e la frase unita può essere
+  proposta di nuovo. Limite noto, accettato. *Se sbagliato*: una voce di
+  backlog doppia; la strada è seguire l'unione nell'origine.
+- **T10 M4c, «Home» su una risposta vietata**: lo shape tace su cosa dire in
+  Home a chi non ha più `docs.edit`; il toast generico non è un'affermazione
+  falsa. *Se sbagliato*: una frase più specifica da scrivere.
+- **`CommentsColumn`: il ramo difensivo «ricarica prima del rifiuto» non ha un
+  test suo** (Task 10). *Se sbagliato*: una regressione sul filo di chi arriva
+  secondo passa se un altro test non la copre.
+- **T11, `closeUndo` prende il segno fresco anche con «Cancel» prima di
+  qualunque annullamento.** Innocuo: in quello stato il segno non esiste.
+- **T11, la banda del rifiuto a 1024 è coperta solo in modo strutturale**
+  (classi, ordine nel DOM), non misurata su schermo: va guardata nell'app.
+- **T12, il ripiego sull'h1 di M6 non è verificato in Electron**: il test
+  happy-dom lo prova, ma l'ordine reale di `blur` / `focus` nel contenteditable
+  è del motore. *Se sbagliato*: il fuoco cade sul body dopo un gesto di pagina.
+- **T12, lo schizzo nel Word passa da `svgToPng` e in Electron non è
+  collaudato**: in happy-dom `svgToPng` dà `null` e il Word riceve la sola
+  etichetta; il canvas vero non è testato, e non c'è un conteggio negli avvisi
+  («N schizzi lasciati fuori»). *Se sbagliato*: il Word esce con la sola
+  etichetta senza dirlo.
+- **Task 2, caso 9b non testato**: `forName` / `answeredByName` `null` per
+  chi non vede la persona: nel seme ogni destinatario che legge i Docs di ACQ
+  vede gli altri membri. La frase di riserva c'è nel codice e non ha un test.
+- **Task 3, `acceptProductMarkAs` emette ancora `blocks`** invece di un
+  evento `marks` (cambierebbe `ProductPageEvent`, e ogni sottoscrittore):
+  l'invalidazione è ridondante, mai sbagliata.
+- **Il costo di `claudeRevisionFields`** è O(righe × ancore × revisioni): va
+  bene sul seme, non per un motore con mille revisioni.
+
+### Prove a mano a fine prototipo (11a + 11b)
+
+Cose che nessun test copre perché vogliono Electron vero e una persona davanti
+(i tre dell'11a restano in «Da fare a mano» di «Area 11a»).
+
+1. **Dall'11a** — l'esportazione: PDF e Word di una pagina e dello spazio,
+   con le immagini PNG, «Annulla» nella finestra di salvataggio e un PDF
+   **chiaro** con l'app scura.
+2. **Dall'11a** — ⌘Z dal menu Modifica di Electron (non deve annullare due
+   volte né impedire il grassetto, P18).
+3. **Dall'11a** — l'incolla vero da Google Docs.
+4. **Dall'11a** — l'incolla di un'immagine copiata dal Finder (nome in testo
+   semplice insieme all'immagine).
+5. **Dal 11b** — il ripiego sull'h1 di M6: dopo un gesto di pagina il fuoco
+   non cade sul body in Electron.
+6. **Dal 11b** — lo schizzo nel Word (`svgToPng` sul canvas vero): l'immagine
+   c'è, con l'etichetta della bozza se non «Tenuta».
+7. **Dal 11b** — la banda del rifiuto a 1024 sullo schermo: a capo, il
+   «Who?» attaccato, nessun bottone coperto.
+
+### Decisioni del maintainer (6 nov 2026)
+
+- **Q1 — dove si risponde a una domanda di Claude** *(maintainer, 6 nov
+  2026)*: nel commento della pagina e in Home «Decide», come le domande di
+  Claude sui task; la notifica avvisa e porta al filo, senza bottoni.
+- **Q2 — VRD nel seme** *(maintainer, 6 nov 2026)*: vuoto; la prima versione
+  la lancia chi prova l'app, e gli scatti si fanno dopo averla lanciata.
+- **Shape del Task 0** (risposte del maintainer, 6 nov 2026): «Va bene» una
+  frase alla volta (ogni segno si accetta da solo, anche nello stesso
+  gruppo); Claude consiglia una risposta come nei task (`recommended`, il
+  segno «Recommended»); «Tieni» toglie l'etichetta della bozza (`kept`, con
+  `docs.edit`, annullabile; «Rifai» la rimette; l'esportazione la segue).
