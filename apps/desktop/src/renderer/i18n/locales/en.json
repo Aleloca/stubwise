@@ -1542,7 +1542,9 @@
       "product": {
         "proposed": "Proposed: “{{text}}”",
         "updated": "Updated {{code}} · {{title}}. To undo it, open the page history.",
-        "openHistory": "Open history"
+        "openHistory": "Open history",
+        "forbidden": "Not sent: answering is for people with Edit docs in {{code}}. Nothing was changed.",
+        "who": "Who?"
       }
     },
     "myTasks": {
@@ -12125,7 +12127,7 @@
       "changedAfterNobody": "It was edited afterwards",
       "alreadyUndone": "Already undone by {{name}}",
       "alreadyUndoneNobody": "Already undone",
-      "readOnly": "Only people who can edit the Docs in {{code}} can accept or undo it.",
+      "readOnly": "Accepting or undoing it is for people with Edit docs in {{code}}",
       "accepted": "Marked as reviewed",
       "undone": "Undone: the sentence is back as it was",
       "undoFailed": "Couldn't undo",

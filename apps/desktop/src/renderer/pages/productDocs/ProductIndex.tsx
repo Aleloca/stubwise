@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import { WithWho } from "../../components/InstanceBlock";
-import { WhoCanLink } from "../../components/WhoCanLink";
+import { SentenceWithWho } from "../../components/WhoCanLink";
 import { useAiBlock, useProductFirstVersion } from "../../data/queries";
 import { flattenTree } from "../../domain/productDocs/tree";
 import { formatDate } from "../../notifications/time";
@@ -256,11 +256,12 @@ function EmptySpace({
             // La frase al posto della descrizione, fuori dal bottone: il suo «Who?» è un bottone a sé.
             <p id={whyId} className="-mt-2 pr-2 pb-2 pl-9 text-xs text-pretty text-ink-muted">
               {!edit ? (
-                <>
-                  {t("productDocs.firstVersion.wayReadOnly", { code: projectCode })}{" "}
-                  <span aria-hidden="true">· </span>
-                  <WhoCanLink action="editDocs" projectId={projectId} projectCode={projectCode} />
-                </>
+                <SentenceWithWho
+                  text={t("productDocs.firstVersion.wayReadOnly", { code: projectCode })}
+                  action="editDocs"
+                  projectId={projectId}
+                  projectCode={projectCode}
+                />
               ) : (
                 <WithWho text={t("claude.panel.budget")} />
               )}

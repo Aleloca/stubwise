@@ -464,3 +464,16 @@ brief.
   riga «Screen sketch: it couldn't be drawn in the Word file. The PDF has
   it.», per la bozza tenuta e per quella mai tenuta (questa con la sua
   etichetta sotto). Non sparisce in silenzio.
+
+## Emendamento della revisione finale (7 nov 2026, controller)
+
+- **La testata della bozza**: le azioni («Keep · Redraw · Replace with an
+  image») stanno a destra anche quando vanno a capo (in italiano, a 1440);
+  non diventano una seconda riga di testo sotto l'etichetta.
+- **«Draw this screen» dal «⋯»**: mentre Claude disegna il fuoco va al posto
+  della bozza («Claude is sketching…», il suo nome), mai al titolo della
+  pagina né al body; arrivata la bozza, il fuoco passa a lei nello stesso
+  disegno; se non riesce, il fuoco torna a «⋯» e l'avviso lo dice.
+- **«Undo the first version», in italiano**: il bottone che chiude è «Tieni
+  la prima versione» (non «Annulla», che è il verbo del gesto) e il corpo
+  finisce con «È definitivo».

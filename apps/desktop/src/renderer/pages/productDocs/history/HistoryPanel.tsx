@@ -350,7 +350,17 @@ export function HistoryPanel({
                     const person = people.find((p) => p.id === r.actorId);
                     const claude = r.via === "claude" && !r.answerOf;
                     return (
-                      <li key={r.id} className="flex flex-col">
+                      <li
+                        key={r.id}
+                        className="flex flex-col"
+                        // Col movimento ridotto la tinta resta finché il fuoco è nella
+                        // riga: anche su un suo bottone («Undo», «Undo all»), non solo
+                        // sul nome (revisione finale).
+                        onBlur={(e) => {
+                          if (reducedMotion && flash === r.id && !e.currentTarget.contains(e.relatedTarget as Node | null))
+                            setFlash(null);
+                        }}
+                      >
                         <button
                           type="button"
                           id={rowId(r)}
@@ -359,7 +369,6 @@ export function HistoryPanel({
                           aria-controls={`${rowId(r)}-details`}
                           onKeyDown={(e) => onKeyDown(e, index)}
                           onClick={() => toggle(r.id)}
-                          onBlur={() => reducedMotion && flash === r.id && setFlash(null)}
                           data-flash={flash === r.id ? "" : undefined}
                           className={`mx-1.5 flex cursor-default items-start gap-2 rounded-md px-2.5 py-1.5 text-left text-sm transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/5 aria-expanded:bg-ink/6 ${flash === r.id ? "!bg-ink/10" : ""}`}
                         >

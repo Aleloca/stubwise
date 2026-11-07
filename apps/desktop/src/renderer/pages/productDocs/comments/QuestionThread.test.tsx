@@ -14,6 +14,7 @@ import { setMatchMedia } from "../../../test/setup";
 import { renderRoute } from "../../../test/renderRoute";
 import { renderWithData } from "../../../test/renderWithData";
 import { setSessionPersonId } from "../../../data/session";
+import { answerProductQuestionAs } from "../../../data/productDocs/questions";
 import { QuestionThread } from "./QuestionThread";
 
 // Le domande di Claude nella colonna dei commenti (11b, Task 10; shape
@@ -209,6 +210,36 @@ describe("il filo-domanda", () => {
     expect(within(col).queryByRole("group", { name: "Answers to Claude's question" })).toBeNull();
     // Niente è cambiato nella pagina.
     expect(document.querySelector("[data-editor-body]")!.textContent).toContain(METER_LINE);
+    expect(document.querySelector("[data-editor-body]")!.textContent).not.toContain(METER_APPLY);
+  });
+
+  it("revisione finale: la rilettura arriva PRIMA del rifiuto (Marco risponde mentre la risposta di Laura viaggia): il fuoco va al filo fra i risolti, mai al blocco né al body", async () => {
+    const th = await questionThread(METER, METER_Q);
+    const user = userEvent.setup();
+    const update = within(th).getByRole("button", { name: /^Update it/ });
+    act(() => update.focus());
+    // La risposta di Laura è lenta; la rilettura che segue quella di Marco no.
+    setLatency(300);
+    const visited: HTMLElement[] = [];
+    const onFocusIn = (e: FocusEvent) => visited.push(e.target as HTMLElement);
+    document.addEventListener("focusin", onFocusIn);
+    const body = watchBody();
+    await user.click(update);
+    setLatency(0);
+    act(() => {
+      answerProductQuestionAs(MARCO, METER_Q, "keep");
+    });
+    const col = await column();
+    await waitFor(() => expect(within(col).getByRole("button", { name: /resolved/ })).toHaveAttribute("aria-expanded", "true"));
+    await waitFor(() => expect(document.activeElement).toBe(thread(METER_Q)));
+    expectFocusAlive();
+    // Il rifiuto arriva dopo, e il fuoco resta sul filo.
+    await waitFor(() => expect(flat(col)).toContain("Marco Bellini answered first: Leave it as is"));
+    expect(document.activeElement).toBe(thread(METER_Q));
+    document.removeEventListener("focusin", onFocusIn);
+    body.stop();
+    expect(body.hits).toEqual([]);
+    expect(visited.filter((el) => el.closest("[data-editor-body]"))).toEqual([]);
     expect(document.querySelector("[data-editor-body]")!.textContent).not.toContain(METER_APPLY);
   });
 

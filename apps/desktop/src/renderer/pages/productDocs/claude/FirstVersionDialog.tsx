@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { WithWho } from "../../../components/InstanceBlock";
-import { WhoCanLink } from "../../../components/WhoCanLink";
+import { SentenceWithWho } from "../../../components/WhoCanLink";
 import { useFirstVersionSources, useStartFirstVersion } from "../../../data/queries";
 import type { FirstVersionSource, Project } from "../../../data/types";
 import { formatDate } from "../../../notifications/time";
@@ -308,9 +308,12 @@ function RefusalLine({
     case "forbidden":
       content = (
         <span className="min-w-0">
-          {t("productDocs.firstVersion.dialog.forbidden", { code: project.code })}{" "}
-          <span aria-hidden="true">· </span>
-          <WhoCanLink action="editDocs" projectId={project.id} projectCode={project.code} />
+          <SentenceWithWho
+            text={t("productDocs.firstVersion.dialog.forbidden", { code: project.code })}
+            action="editDocs"
+            projectId={project.id}
+            projectCode={project.code}
+          />
         </span>
       );
       break;

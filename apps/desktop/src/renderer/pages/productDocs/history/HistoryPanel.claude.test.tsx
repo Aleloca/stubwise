@@ -169,6 +169,29 @@ describe("la riga di una modifica di Claude", () => {
     await waitFor(() => expect(undone).not.toHaveAttribute("data-flash"));
   });
 
+  it("revisione finale: col movimento ridotto la tinta resta quando il fuoco passa a un bottone della riga", async () => {
+    setMatchMedia(REDUCED_MOTION_QUERY, true);
+    threeChanges();
+    const { region, user } = await openHistory("/p/ACQ/docs/product/ACQ-D5", "Sign-in");
+    await user.click(within(claudeItem(region)).getByRole("button", { name: /^Undo all$/ }));
+    await waitFor(() => expect(flat(rowsOf(region)[0]!)).toContain("Undid Claude's change"));
+    await user.click(within(itemOf(rowsOf(region)[0]!)).getByRole("button", { name: /^Show the change that was undone/ }));
+    const undone = rowsOf(region).find((r) => flat(r).includes("on behalf of") && flat(itemOf(r)).includes("Undone by"))!;
+    await waitFor(() => expect(document.activeElement).toBe(undone));
+    expect(undone).toHaveAttribute("data-flash");
+    // Aperta, la riga mostra i suoi bottoni: il fuoco su uno di loro non toglie la tinta.
+    await user.keyboard("{Enter}");
+    const inner = await waitFor(() => {
+      const b = [...itemOf(undone).querySelectorAll<HTMLElement>("button, a[href]")].find((el) => el !== undone);
+      expect(b).toBeDefined();
+      return b!;
+    });
+    act(() => inner.focus());
+    expect(undone).toHaveAttribute("data-flash");
+    act(() => rowsOf(region)[0]!.focus());
+    await waitFor(() => expect(undone).not.toHaveAttribute("data-flash"));
+  });
+
   it("senza movimento ridotto la tinta se ne va dopo 1,5 s", async () => {
     threeChanges();
     const { region, user } = await openHistory("/p/ACQ/docs/product/ACQ-D5", "Sign-in");

@@ -110,6 +110,34 @@ export function WhoCanLink({
   );
 }
 
+/**
+ * Una frase di un gesto spento con «· Who?» in coda (11b, revisione finale
+ * Impeccable 2 e 5): l'ultima parola, il punto e il link vanno a capo insieme,
+ * così «· Who?» non resta mai da solo all'inizio di una riga. La frase non ha
+ * il punto finale: la chiude il « · ».
+ */
+export function SentenceWithWho({
+  text,
+  ...link
+}: {
+  text: string;
+  action: string;
+  projectId?: string | null;
+  projectCode?: string | null;
+}) {
+  const cut = text.lastIndexOf(" ");
+  return (
+    <>
+      {cut > 0 ? `${text.slice(0, cut)} ` : ""}
+      <span className="whitespace-nowrap">
+        {cut > 0 ? text.slice(cut + 1) : text}
+        <span aria-hidden="true"> · </span>
+        <WhoCanLink {...link} />
+      </span>
+    </>
+  );
+}
+
 function WhoCanPopover({
   action,
   actionWords,

@@ -30,9 +30,12 @@ function OneSource({ source }: { source: ProductSourceView }) {
   return (
     <span data-source-kind={source.gone ? "gone" : source.kind}>
       {source.link ? (
+        // Peso normale (revisione Impeccable 6): il titolo della fonte qualifica la
+        // riga, non le passa davanti; 600 resta ai codici e a chi agisce. Il
+        // filetto tenue dice che è un link, come il link della pagina nel banner.
         <a
           href={source.link}
-          className="rounded-[3px] font-semibold text-ink underline decoration-transparent underline-offset-2 transition-colors duration-[var(--duration-fast)] ease-out hover:decoration-ink/60 focus-visible:decoration-ink/60"
+          className="rounded-[3px] text-ink underline decoration-ink/30 underline-offset-2 transition-colors duration-[var(--duration-fast)] ease-out hover:decoration-ink/60 focus-visible:decoration-ink/60"
         >
           {label}
         </a>

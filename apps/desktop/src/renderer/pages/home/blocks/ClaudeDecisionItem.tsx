@@ -408,6 +408,19 @@ function ProductQuestionItem({ decision }: { decision: ProductQuestionDecision }
   const failed = (error: unknown) => {
     const e = error as { message?: string; byId?: string | null } | null;
     if (e?.message === "already_answered") toast.show(t("home.decide.claude.alreadyAnswered", { name: name(e.byId) }));
+    // Chi non ha più Modifica Docs (T10 M4c): la frase del permesso, e il suo «Who?».
+    else if (e?.message === "forbidden")
+      toast.error(t("home.decide.product.forbidden", { code: decision.projectCode }), {
+        action: {
+          label: t("home.decide.product.who"),
+          run: () =>
+            void navigate({
+              to: "/admin/$section",
+              params: { section: "who-can" },
+              search: { action: "editDocs", project: decision.projectCode } as never,
+            }),
+        },
+      });
     else toast.error(t("home.decide.answerFailed", { code }));
   };
   // La voce si chiude: il fuoco alla voce dopo (il suo primo comando), o al titolo del blocco.

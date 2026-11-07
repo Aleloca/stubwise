@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { ClaudeMark } from "../../../components/ClaudeMark";
-import { WhoCanLink } from "../../../components/WhoCanLink";
+import { SentenceWithWho } from "../../../components/WhoCanLink";
 import { useAcceptProductMark, useUndoProductChange } from "../../../data/queries";
 import type { ProductMarkView, ProductUndoView } from "../../../data/types";
 import { usePersonName, useProductSpaceContext, type MarksBridge } from "../parts";
@@ -205,7 +205,8 @@ function Mark({
                 </button>
               </p>
             )}
-            <div className={`flex flex-col ${table ? "gap-1.5" : ""} pt-1`}>
+            {/* Una tabella: un gruppo per cella, 12 px fra i gruppi e 2 fra la riga e la sua frase (revisione Impeccable 8). */}
+            <div className={`flex flex-col ${table ? "gap-3" : ""} pt-1`}>
               {marks.map((m) => (
                 <MarkActions key={m.anchorId} mark={m} pageId={bridge.pageId} onDone={done} />
               ))}
@@ -273,9 +274,12 @@ function MarkActions({
             <span aria-hidden="true"> · </span>
           </>
         )}
-        {t("productDocs.mark.readOnly", { code: project.code })}{" "}
-        <span aria-hidden="true">· </span>
-        <WhoCanLink action="editDocs" projectId={project.id} projectCode={project.code} />
+        <SentenceWithWho
+          text={t("productDocs.mark.readOnly", { code: project.code })}
+          action="editDocs"
+          projectId={project.id}
+          projectCode={project.code}
+        />
       </p>
     );
   }
@@ -303,7 +307,7 @@ function MarkActions({
   const textButton =
     "inline-flex h-7 items-center rounded-md px-2 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 aria-disabled:cursor-default aria-disabled:text-ink-faint aria-disabled:hover:bg-transparent";
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-0.5">
       <div className="-ml-1 flex flex-wrap items-center gap-x-1.5 gap-y-1">
         {cell && <span className="pl-1 text-xs leading-4 text-ink">{cell}</span>}
         {mark.canAccept && (

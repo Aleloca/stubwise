@@ -387,6 +387,44 @@ describe("«⋯» → «Draw this screen»", () => {
     expect(blocks.filter((b) => b.type === "wireframe")).toHaveLength(1);
   });
 
+  it("revisione Impeccable 7: mentre Claude disegna il fuoco sta sul posto della bozza, mai sul titolo né sul body; poi sulla bozza", async () => {
+    await open(BILLS);
+    const { user, item } = await chooseDraw();
+    setLatency(400);
+    const body = watchBody();
+    const visited: Element[] = [];
+    const onFocusIn = (e: FocusEvent) => visited.push(e.target as Element);
+    document.addEventListener("focusin", onFocusIn);
+    await user.click(item);
+    const sketching = await waitFor(() => {
+      const el = document.querySelector<HTMLElement>("[data-sketching]");
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    await waitFor(() => expect(document.activeElement).toBe(sketching));
+    expect(sketching).toHaveAccessibleName("Claude is sketching…");
+    await waitFor(() => expect(page(BILLS).blocks.at(-1)).toMatchObject({ type: "wireframe" }), { timeout: 3000 });
+    const drawn = page(BILLS).blocks.at(-1)!.id;
+    await waitFor(() => expect(shellOf(drawn)).toHaveFocus(), { timeout: 3000 });
+    document.removeEventListener("focusin", onFocusIn);
+    body.stop();
+    expect(body.hits).toEqual([]);
+    expect(visited.filter((el) => el.tagName === "H1" || el.closest("h1"))).toEqual([]);
+  });
+
+  it("revisione Impeccable 7: un disegno che non riesce rimette il fuoco su «⋯», non sul body", async () => {
+    await open(BILLS);
+    const { user, item } = await chooseDraw();
+    failNext("productDocs.drawWireframe");
+    const body = watchBody();
+    await user.click(item);
+    await screen.findByText("Couldn't draw the sketch. Nothing was changed.");
+    await waitFor(() => expect(document.querySelector("[data-sketching]")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "More for this page" }));
+    body.stop();
+    expect(body.hits).toEqual([]);
+  });
+
   it("senza un cursore, in fondo alla pagina", async () => {
     await open(BILLS);
     const last = page(BILLS).blocks.at(-1)!.id;

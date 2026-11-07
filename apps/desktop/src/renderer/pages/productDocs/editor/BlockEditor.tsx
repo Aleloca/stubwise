@@ -208,6 +208,14 @@ function WritableBody({
     sketchingRef.current = next;
     setSketchingState(next);
   };
+  /**
+   * Il disegno chiesto da fuori del corpo (il «⋯» della pagina, revisione
+   * Impeccable 7): il fuoco va al posto della bozza mentre Claude disegna, poi
+   * sulla bozza; se non riesce torna dov'era (`sketchReturn`). Mai sul titolo
+   * né sul body.
+   */
+  const sketchFocus = useRef(false);
+  const sketchReturn = useRef<HTMLElement | null>(null);
   /** Una tabella nuova: il fuoco nella sua prima cella dopo il disegno. */
   const pendingCell = useRef<string | null>(null);
   /** Un blocco da selezionare come oggetto dopo il prossimo disegno. */
@@ -342,6 +350,11 @@ function WritableBody({
       pendingSketch.current = null;
       el?.focus();
       el?.scrollIntoView?.({ block: "nearest" });
+      // Il posto della bozza se ne va nello stesso disegno in cui il fuoco passa alla bozza.
+      if (sketchingRef.current) {
+        sketchFocus.current = false;
+        setSketching(null);
+      }
     }
     const captionId = pendingCaption.current;
     if (captionId && view.find((b) => b.id === captionId)?.type === "image") {
@@ -371,8 +384,9 @@ function WritableBody({
    * in volo), poi il gesto. Una sola alla volta: un doppio clic, un secondo
    * Invio o «Draw this screen» mentre disegna non fanno niente (M2b).
    */
-  const drawSketchAt = (at: { replaceId: string } | { afterId: string | null }) => {
+  const drawSketchAt = (at: { replaceId: string } | { afterId: string | null }, { focus = false } = {}) => {
     if (sketchingRef.current) return;
+    sketchFocus.current = focus;
     setSketching(at);
     flush();
     void sessionRef.current
@@ -382,13 +396,22 @@ function WritableBody({
         ({ blockId }) => {
           pendingSketch.current = blockId;
           announce(t("productDocs.wireframe.added"));
+          // La bozza è già nella lettura: il disegno l'ha presa. Se non c'è
+          // ancora, il posto resta finché arriva (col fuoco sopra).
+          if (pendingSketch.current !== null && !viewRef.current.some((b) => b.id === blockId)) return;
+          sketchFocus.current = false;
+          setSketching(null);
         },
-        () => toast.error(t("productDocs.wireframe.drawFailed")),
+        () => {
+          // Il fuoco era sul posto della bozza, che se ne va: torna dov'era.
+          const back = sketchReturn.current;
+          if (sketchFocus.current && back?.isConnected) back.focus();
+          sketchFocus.current = false;
+          setSketching(null);
+          toast.error(t("productDocs.wireframe.drawFailed"));
+        },
       )
-      .finally(() => {
-        setSketching(null);
-        redraw((n) => n + 1);
-      });
+      .finally(() => redraw((n) => n + 1));
   };
   /** «/» → «Screen sketch»: il paragrafo diventa la bozza; il fuoco sul blocco, che resta lo stesso. */
   const drawSketch = (id: string) => {
@@ -426,7 +449,9 @@ function WritableBody({
     drawScreen: () => {
       const list = viewRef.current;
       const after = list.some((b) => b.id === lastFocused.current) ? lastFocused.current : (list.at(-1)?.id ?? null);
-      drawSketchAt({ afterId: after });
+      const active = document.activeElement;
+      sketchReturn.current = active instanceof HTMLElement && active !== document.body ? active : null;
+      drawSketchAt({ afterId: after }, { focus: true });
     },
   }));
 
@@ -825,7 +850,7 @@ function WritableBody({
               <Fragment key={block.id}>
                 {i === 0 && sketching && "afterId" in sketching && sketching.afterId === null && (
                   <div className="py-3">
-                    <SketchingPlaceholder />
+                    <SketchingPlaceholder focus={sketchFocus.current} />
                   </div>
                 )}
                 <BlockShell
@@ -896,7 +921,7 @@ function WritableBody({
                           <RemoteCursors people={writersIn(others, block.id)} contentKey={JSON.stringify(block.content)} />
                         ))}
                       {drawingHere ? (
-                        <SketchingPlaceholder />
+                        <SketchingPlaceholder focus={sketchFocus.current} />
                       ) : (
                         <BlockBody
                           block={block}
@@ -923,7 +948,7 @@ function WritableBody({
                 </BlockShell>
                 {drawingAfter && (
                   <div className="py-3">
-                    <SketchingPlaceholder />
+                    <SketchingPlaceholder focus={sketchFocus.current} />
                   </div>
                 )}
               </Fragment>

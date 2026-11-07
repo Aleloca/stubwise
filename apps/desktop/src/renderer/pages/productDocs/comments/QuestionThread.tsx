@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { CodeLink } from "../../../components/CodeLink";
-import { WhoCanLink } from "../../../components/WhoCanLink";
+import { SentenceWithWho } from "../../../components/WhoCanLink";
 import { CLAUDE_PANEL_ID } from "../../../layout/claudePanel/panelEvents";
 import { usePeople } from "../../../data/queries";
 import type { ProductAnswerChoice, ProductCommentThread, ProductQuestionView, RichText } from "../../../data/types";
@@ -343,8 +343,12 @@ export const QuestionThread = forwardRef<
           {preparing && <p className="text-xs leading-4 text-ink-muted">{t("productDocs.question.preparing")}</p>}
           {refusal?.kind === "forbidden" && (
             <p className="text-xs leading-4 text-ink-muted">
-              {t("productDocs.question.forbidden", { code: projectCode })}{" "}
-              · <WhoCanLink action="editDocs" projectId={projectId} projectCode={projectCode} />
+              <SentenceWithWho
+                text={t("productDocs.question.forbidden", { code: projectCode })}
+                action="editDocs"
+                projectId={projectId}
+                projectCode={projectCode}
+              />
             </p>
           )}
           {refusal?.kind === "error" && (
@@ -368,10 +372,16 @@ export const QuestionThread = forwardRef<
       )}
       {open && !q.canAnswer && (
         <p className="text-xs leading-4 text-pretty text-ink-muted">
-          {refusal?.kind === "forbidden"
-            ? t("productDocs.question.forbidden", { code: projectCode })
-            : t("productDocs.question.readOnly", { code: projectCode })}{" "}
-          · <WhoCanLink action="editDocs" projectId={projectId} projectCode={projectCode} />
+          <SentenceWithWho
+            text={
+              refusal?.kind === "forbidden"
+                ? t("productDocs.question.forbidden", { code: projectCode })
+                : t("productDocs.question.readOnly", { code: projectCode })
+            }
+            action="editDocs"
+            projectId={projectId}
+            projectCode={projectCode}
+          />
         </p>
       )}
       {replies.map((reply) => (

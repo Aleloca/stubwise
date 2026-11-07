@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../../data/api";
 import { state } from "../../../data/store";
+import { revokeProjectPermission } from "../../../data/viewer";
 import { CLAUDE_PANEL_ID } from "../../../layout/claudePanel/panelEvents";
 import { clearToasts } from "../../../tasks-ui/Toast";
 import { renderRoute } from "../../../test/renderRoute";
@@ -128,6 +129,19 @@ describe("Decide: le domande di Claude sulla doc", () => {
     expect(await screen.findByText("Already answered by Marco Bellini.")).toBeInTheDocument();
     const decide = await decideBlock();
     await waitFor(() => expect(decide.querySelector(`[data-claude-decision="product:${METER_Q}"]`)).toBeNull());
+  });
+
+  it("revisione finale (T10 M4c): Laura ha perso Modifica Docs prima della risposta: la frase del permesso col «Who?», e la pagina non cambia", async () => {
+    const el = await item(METER_Q);
+    // Tolto senza avviso alla pagina: la voce è ancora lì, la risposta no.
+    revokeProjectPermission(LAURA, "prj-acq", "docs.edit" as never);
+    await userEvent.click(within(el).getByRole("button", { name: /^Update it/ }));
+    const alert = await screen.findByRole("alert");
+    expect(flat(alert)).toContain("Not sent: answering is for people with Edit docs in ACQ. Nothing was changed.");
+    await userEvent.click(within(alert).getByRole("button", { name: "Who?" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/admin/who-can"));
+    expect(router.state.location.search).toMatchObject({ action: "editDocs", project: "ACQ" });
+    expect(question(METER_Q).answer).toBeNull();
   });
 
   it("«Open a request» apre il riquadro con la scheda B; la voce resta in «Decide»", async () => {

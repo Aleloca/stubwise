@@ -388,11 +388,11 @@ describe("il fuoco non passa mai dal body (Fix round 1)", () => {
 });
 
 describe("chi legge soltanto", () => {
-  it("Sara: nessun bottone, la frase «Only people who can edit the Docs…» col «Who?», la fonte senza oggetto né link", async () => {
+  it("Sara: nessun bottone, la frase «Accepting or undoing it is for…» col «· Who?» (revisione Impeccable 3), la fonte senza oggetto né link", async () => {
     const user = await openPage(SARA);
     const note = await openNote(user, SEEDED);
     expect(within(note).queryByRole("button", { name: /^(Looks good|Undo)$/ })).toBeNull();
-    expect(note.textContent).toContain("Only people who can edit the Docs in ACQ can accept or undo it.");
+    expect(note.textContent).toContain("Accepting or undoing it is for people with Edit docs in ACQ · Who?");
     expect(within(note).getByText("Who?").closest("button")).not.toBeNull();
     expect(note.textContent).toMatch(/From an email of Laura Costa · [A-Z][a-z]{2} \d+/);
     expect(within(note).queryByRole("link")).toBeNull();
@@ -421,7 +421,7 @@ describe("chi legge soltanto", () => {
     const user = await openPage(SARA);
     const note = await openNote(user, SEEDED);
     expect((note.textContent ?? "").toLowerCase()).toContain("da un'email di laura costa");
-    expect(note.textContent).toContain("Solo chi può modificare i Docs di ACQ può accettarla o annullarla.");
+    expect(note.textContent).toContain("Accettarla o annullarla è di chi ha Modifica Docs in ACQ · Chi?");
     expect(within(note).getByText("Chi?").closest("button")).not.toBeNull();
   });
 });

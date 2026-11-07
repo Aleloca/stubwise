@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { WhoCanLink } from "../../../components/WhoCanLink";
+import { SentenceWithWho, WhoCanLink } from "../../../components/WhoCanLink";
 import { useAcceptFirstVersionPage, useProductFirstVersion, useUndoFirstVersion } from "../../../data/queries";
 import type { ProductFirstVersionView, ProductUndoView, Project } from "../../../data/types";
 import { flattenTree } from "../../../domain/productDocs/tree";
@@ -147,9 +147,12 @@ function Banner({
         </div>
       ) : (
         <p className="pl-5 text-xs leading-4 text-ink-muted">
-          {t("productDocs.firstVersion.banner.readOnly", { code: project.code })}{" "}
-          <span aria-hidden="true">· </span>
-          <WhoCanLink action="editDocs" projectId={project.id} projectCode={project.code} />
+          <SentenceWithWho
+            text={t("productDocs.firstVersion.banner.readOnly", { code: project.code })}
+            action="editDocs"
+            projectId={project.id}
+            projectCode={project.code}
+          />
         </p>
       )}
     </section>

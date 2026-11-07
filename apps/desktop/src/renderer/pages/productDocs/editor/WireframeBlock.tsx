@@ -2,8 +2,7 @@ import { useId, useLayoutEffect, useRef, useState, type MouseEvent } from "react
 import { useTranslation } from "react-i18next";
 import { useAiBlock, useKeepWireframe, useRedrawWireframe } from "../../../data/queries";
 import type { ProductBlock, ProductPageView } from "../../../data/types";
-import { WithWho } from "../../../components/InstanceBlock";
-import { WhoCanLink } from "../../../components/WhoCanLink";
+import { SentenceWithWho } from "../../../components/WhoCanLink";
 import { ClaudeRing } from "../claude/FirstVersionProgress";
 
 // La bozza di schermata di Claude (11b, Task 12; shape
@@ -153,7 +152,9 @@ export function WireframeBlock({
     <div
       role="group"
       aria-label={t("productDocs.wireframe.actions")}
-      className={`flex flex-wrap items-center gap-0.5 transition-opacity duration-[var(--duration-fast)] ease-out ${
+      // `ml-auto`: a capo (l'italiano è più lungo) le azioni restano a destra,
+      // non una seconda riga di testo sotto l'etichetta (revisione Impeccable 1).
+      className={`ml-auto flex flex-wrap items-center justify-end gap-0.5 transition-opacity duration-[var(--duration-fast)] ease-out ${
         busy || failed || keepForbidden || budgetOut
           ? ""
           : "opacity-0 group-focus-within/block:opacity-100 group-hover/block:opacity-100"
@@ -209,14 +210,17 @@ export function WireframeBlock({
       )}
       {budgetOut && editing && (
         <p id={`${labelId}-budget`} className="border-b border-rule px-3 py-1.5 text-xs text-pretty text-ink-muted">
-          <WithWho text={t("productDocs.wireframe.budget")} />
+          <SentenceWithWho text={t("productDocs.wireframe.budget")} action="manageSettings" projectId={null} />
         </p>
       )}
       {keepForbidden && (
         <p id={`${labelId}-keep`} className="border-b border-rule px-3 py-1.5 text-xs text-pretty text-ink-muted">
-          {t("productDocs.wireframe.keepForbidden", { code: projectCode })}
-          <span aria-hidden="true"> · </span>
-          <WhoCanLink action="editDocs" projectId={projectId} projectCode={projectCode} />
+          <SentenceWithWho
+            text={t("productDocs.wireframe.keepForbidden", { code: projectCode })}
+            action="editDocs"
+            projectId={projectId}
+            projectCode={projectCode}
+          />
         </p>
       )}
       {/* Tenuta, i gesti stanno in alto a destra dentro il bordo: lo schizzo scende sotto di loro. */}
@@ -253,15 +257,28 @@ export function WireframeBlock({
  * 160, con l'anello che pulsa e «Claude is sketching…». Con movimento ridotto
  * l'anello è fermo e la parola porta lo stato.
  */
-export function SketchingPlaceholder() {
+export function SketchingPlaceholder({ focus = false }: { focus?: boolean }) {
   const { t } = useTranslation();
+  const ref = useRef<HTMLDivElement>(null);
+  // Chiesto dal «⋯» della pagina (revisione Impeccable 7): il fuoco qui,
+  // dove arriverà la bozza, con lo stato come nome; non resta in cima.
+  useLayoutEffect(() => {
+    if (!focus) return;
+    ref.current?.focus({ preventScroll: true });
+    ref.current?.scrollIntoView?.({ block: "nearest" });
+  }, [focus]);
+  const label = t("productDocs.wireframe.sketching");
   return (
     <div
+      ref={ref}
       data-sketching=""
+      role="status"
+      aria-label={label}
+      tabIndex={-1}
       className="flex h-40 items-center justify-center gap-2 rounded-lg border border-rule bg-surface text-[13px] text-ink-muted"
     >
       <ClaudeRing size={12} pulse />
-      <span>{t("productDocs.wireframe.sketching")}</span>
+      <span>{label}</span>
     </div>
   );
 }

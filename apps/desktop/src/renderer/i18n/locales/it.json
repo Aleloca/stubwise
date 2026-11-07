@@ -1542,7 +1542,9 @@
       "product": {
         "proposed": "Proposta: «{{text}}»",
         "updated": "Aggiornata {{code}} · {{title}}. Per annullarla, apri la cronologia della pagina.",
-        "openHistory": "Apri la cronologia"
+        "openHistory": "Apri la cronologia",
+        "forbidden": "Non inviata: rispondere è di chi ha Modifica Docs in {{code}}. Non è cambiato niente.",
+        "who": "Chi?"
       }
     },
     "myTasks": {
@@ -12125,7 +12127,7 @@
       "changedAfterNobody": "È stata modificata dopo",
       "alreadyUndone": "Già annullata da {{name}}",
       "alreadyUndoneNobody": "Già annullata",
-      "readOnly": "Solo chi può modificare i Docs di {{code}} può accettarla o annullarla.",
+      "readOnly": "Accettarla o annullarla è di chi ha Modifica Docs in {{code}}",
       "accepted": "Segnata come vista",
       "undone": "Annullata: la frase è tornata com'era",
       "undoFailed": "Annullamento non riuscito",
@@ -12603,9 +12605,9 @@
       },
       "undo": {
         "title": "Annullare la prima versione?",
-        "body_one": "La pagina scritta da Claude viene tolta, con i commenti e le domande. Il suo codice non si riusa. Non si può annullare.",
-        "body_other": "Le {{count}} pagine scritte da Claude vengono tolte, con i commenti e le domande. I loro codici non si riusano. Non si può annullare.",
-        "cancel": "Annulla",
+        "body_one": "La pagina scritta da Claude viene tolta, con i commenti e le domande. Il suo codice non si riusa. È definitivo.",
+        "body_other": "Le {{count}} pagine scritte da Claude vengono tolte, con i commenti e le domande. I loro codici non si riusano. È definitivo.",
+        "cancel": "Tieni la prima versione",
         "confirm": "Annulla la prima versione",
         "undoing": "Annullo…",
         "failed": "Prima versione non annullata",

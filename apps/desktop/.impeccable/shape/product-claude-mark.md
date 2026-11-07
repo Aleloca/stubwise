@@ -482,7 +482,7 @@ composti **a lettura** **[PM 8]**:
 | gruppo | Part of a change to {{count}} sentences · See it in the history | Parte di una modifica a {{count}} frasi · Vedila in cronologia |
 | azioni | Looks good · Undo · Undo all · Saving… · Undoing… | Va bene · Annulla · Annulla tutto · Salvataggio… · Annullo… |
 | spento | {{name}} edited it afterwards · It was edited afterwards · Already undone by {{name}} · Undo the others one by one | {{name}} l'ha modificata dopo · È stata modificata dopo · Già annullata da {{name}} · Annulla le altre una per una |
-| sola lettura | Only people who can edit the Docs in {{code}} can accept or undo it. · Who? | Solo chi può modificare i Docs di {{code}} può accettarla o annullarla. · Chi? |
+| sola lettura | Accepting or undoing it is for people with Edit docs in {{code}} · Who? | Accettarla o annullarla è di chi ha Modifica Docs in {{code}} · Chi? |
 | sotto gli occhi | {{name}} said it looks good · {{name}} edited it · Undone by {{name}} | {{name}} ha detto che va bene · {{name}} l'ha modificata · Annullata da {{name}} |
 | annunci | Marked as reviewed · Undone: the sentence is back as it was | Segnata come vista · Annullata: la frase è tornata com'era |
 | errori | Couldn't undo · Couldn't save · Retry · Couldn't load Claude's changes | Annullamento non riuscito · Salvataggio non riuscito · Riprova · Modifiche di Claude non caricate |
@@ -517,6 +517,18 @@ Bellini** edited it afterwards») è testo in grassetto (600 `ink`), non un
 link alla sua scheda: l'unica scheda di una persona (`/admin/people/…`) non
 la apre chiunque legga la pagina, e la pagina non calcola permessi. Resta
 il «chi» della frase, senza `WhoCanLink`. → §3.5, tabella degli stati spenti.
+
+Emendamento (controller, 7 nov 2026, revisione finale Impeccable del 11b):
+la frase di sola lettura della nota segue la famiglia dei «Who?» dell'area
+(«Answering is for…», «Editing is for…», la riga del banner della prima
+versione): «Accepting or undoing it is for people with Edit docs in
+{{code}} · Who?», senza punto finale prima del « · ». In ogni frase con
+«· Who?» l'ultima parola, il « · » e il link vanno a capo insieme
+(`SentenceWithWho`). Nella nota di una tabella le celle sono gruppi: 2 px
+fra la riga di una cella e la sua frase, 12 px fra due celle. Il titolo di
+una fonte apribile è a peso normale con un filetto tenue (600 resta a codici
+e persone). → §3.4, §3.5, §8. Il mockup ASCII di §3 resta col testo di
+prima.
 
 Le altre scelte marcate *(scelta del costruttore)* sono da approvare col
 brief.

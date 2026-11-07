@@ -1,6 +1,7 @@
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { listNotifications, productDocs, resetApi, setLatency } from "../data/api";
+import { writeAccess } from "../data/access/state";
 import { setSessionPersonId } from "../data/session";
 import { state } from "../data/store";
 import type { AppNotification } from "../data/types";
@@ -223,6 +224,24 @@ describe("product_doc.question", () => {
     const n = await cardFor(LAURA, "product_doc.question", "Bills");
     renderItem(n, LAURA);
     expect(item().querySelector("[data-answered-by]")!.textContent).toBe("Answered by Laura Costa");
+  });
+
+  it("revisione finale, caso 9b: chi non vede più la persona nominata né chi ha risposto legge le frasi di riserva", async () => {
+    const q = state.productComments.find((c) => c.id === "pc-acq11b-bills-q")!.question!;
+    q.reason = "no_permission";
+    q.forId = "p-sara";
+    setSessionPersonId(MARCO);
+    await productDocs.answerProductQuestion("pc-acq11b-bills-q", "keep");
+    // Sara e Marco disattivati: Laura non li vede più (`visiblePeopleFor`).
+    writeAccess((s) => {
+      for (const p of s.people) if (p.personId === "p-sara" || p.personId === MARCO) p.status = "deactivated";
+    });
+    const n = await cardFor(LAURA, "product_doc.question", "Bills");
+    expect(n.productCard!.question).toMatchObject({ forName: null, answeredByName: null });
+    renderItem(n, LAURA);
+    expect(itemText()).toContain("This came from someone who can't edit the Docs");
+    expect(item().querySelector("[data-answered-by]")!.textContent).toBe("Answered");
+    for (const name of ["sara montanari", "marco bellini"]) expect(everything()).not.toContain(name);
   });
 
   it("`objectGone` e la fixture senza `productQuestion`: «A question from Claude», nessun codice", () => {
