@@ -134,6 +134,12 @@ export const PRODUCT_ENTRIES: Record<ProductCatalogFn, Omit<CatalogEntry, "fn">>
       const facts = productFactsOf(ref).filter((f) => f.pageId === page.id);
       if (facts.length === 0) throw invalid("source");
       const out = applyProductSource(ref, page.projectId, facts, { manual: { requesterId: me } });
+      // Niente scritto, chiesto né in attesa (revisione finale M7): la
+      // pagina dice già così, o le domande sono già fatte. La riga non dice
+      // «fatto» su niente: «non vale più per com'è adesso».
+      if (out.edits.length === 0 && out.questions.length === 0 && out.pending.length === 0) {
+        throw invalid("nothing_to_change");
+      }
       const revisionId = out.edits[0] ?? null;
       const revision = state.productRevisions.find((r) => r.id === revisionId);
       // Gli oggetti: i blocchi scritti; senza scrittura (domande, attesa)

@@ -50,15 +50,18 @@ function emailOwner(m: MailMessage, projectId: string): string {
 }
 
 /**
- * Il titolare di una riunione: l'organizzatore dell'evento collegato;
- * senza evento (o senza organizzatore in Stubwise), come per l'email di
- * Gemini che la racconta.
+ * Il titolare di una riunione: l'organizzatore dell'evento collegato, se è
+ * membro del progetto; altrimenti (nessun evento, nessun organizzatore in
+ * Stubwise, o uno fuori dal progetto) come per l'email di Gemini che la
+ * racconta.
  */
 function meetingOwner(t: MeetingTranscript, projectId: string): string {
   const event =
     t.eventId === null ? undefined : state.calendarEvents.find((e) => e.id === t.eventId);
+  // Un organizzatore fuori dal progetto non agisce né si nomina (come il
+  // titolare dell'email, che è un membro): si passa all'email di Gemini.
   const organizer = event?.attendees.find((a) => a.organizer && a.personId)?.personId;
-  if (organizer) return organizer;
+  if (organizer && isMember(organizer, projectId)) return organizer;
   const m = messageById(t.messageId);
   if (!m) return CLAUDE_ID;
   return emailOwner(m, projectId);

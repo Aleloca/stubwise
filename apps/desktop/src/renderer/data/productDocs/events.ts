@@ -13,6 +13,7 @@ import type { ProductPageEvent } from "../types";
 
 const pageListeners = new Map<string, Set<(event: ProductPageEvent) => void>>();
 const presenceListeners = new Set<(pageId: string) => void>();
+const blocksListeners = new Set<(pageId: string) => void>();
 
 // Le iscrizioni di prima di un ripristino non ricevono avvisi dello stato
 // nuovo (come gli stream delle conversazioni). Chi aspetta le presenze
@@ -32,6 +33,7 @@ function call(fn: () => void): void {
 export function emitProductPage(pageId: string, event: ProductPageEvent): void {
   for (const fn of [...(pageListeners.get(pageId) ?? [])]) call(() => fn(event));
   if (event === "presence") emitPresenceChanged(pageId);
+  if (event === "blocks") for (const fn of [...blocksListeners]) call(() => fn(pageId));
 }
 
 /** Una presenza della pagina è cambiata (anche quando la pagina se ne va). */
@@ -94,4 +96,15 @@ export function onProductFirstVersion(fn: (projectId: string) => void): () => vo
 export function onProductPresence(fn: (pageId: string) => void): () => void {
   presenceListeners.add(fn);
   return () => presenceListeners.delete(fn);
+}
+
+/**
+ * Si sveglia quando il corpo di una pagina cambia (11b, revisione finale M1):
+ * una sezione si libera anche con una scrittura (un titolo tolto sposta i
+ * confini), senza un evento di presenza. Resta a un ripristino, come
+ * `onProductPresence`.
+ */
+export function onProductBlocks(fn: (pageId: string) => void): () => void {
+  blocksListeners.add(fn);
+  return () => blocksListeners.delete(fn);
 }

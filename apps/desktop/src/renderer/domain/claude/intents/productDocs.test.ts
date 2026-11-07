@@ -9,6 +9,8 @@ import { whenProductClaudeIdle } from "../../../data/productDocs/claude";
 import { writeProductBlocksAs } from "../../../data/productDocs/writes";
 import { ACQ_11B } from "../../../data/seed/productDocs/facts";
 import { withoutSeed11b } from "../../../data/seed/productDocs/without11b";
+import { done as mailDone } from "../../../data/seed/mail/helpers";
+import { MAIL_INCOMING } from "../../../data/seed/mail/incoming";
 import { setSessionPersonId } from "../../../data/session";
 import { state } from "../../../data/store";
 import type {
@@ -566,5 +568,108 @@ describe("col budget del mese finito nessuna azione della doc parte", () => {
         versions: state.productFirstVersions,
       }),
     ).toBe(before);
+  });
+});
+
+describe("revisione finale I1, I2: l'anteprima non promette quello che la pagina ha già", () => {
+  const MATTEO = "p-matteo";
+
+  it("I1: la riunione di Bills, la cui domanda c'è già nel seme: niente da chiedere, nessuna scheda", async () => {
+    const asked = () => state.productComments.filter((c) => c.question?.factId === "fact-acq-bills-reminder-email");
+    expect(asked()).toHaveLength(1);
+    const before = state.notifications.length;
+    const steps = await respond(
+      "Update ACQ-D6 Bills from this meeting",
+      as(MATTEO, en, { context: { kind: "mail", threadId: "th-gemini-acq-review" } }),
+    );
+    expect(proposalOf(steps)).toBeUndefined();
+    expect(said(steps)).toContain("already says this");
+    expect(said(steps)).not.toMatch(/ask about it/i);
+    expect(asked()).toHaveLength(1);
+    expect(state.notifications.length).toBe(before);
+  });
+
+  it("I2: l'email delle tre foto, già scritta in Features: «already says this», e la conferma vecchia non scrive", async () => {
+    const incoming = MAIL_INCOMING.find((m) => m.id === ACQ_11B.incomingEmailId)!;
+    state.mailMessages.push({ ...structuredClone(incoming), classification: mailDone([ACQ], "normal") });
+    const features = state.productPages.find((p) => p.id === "pp-acq-features")!;
+    const block = features.blocks.find((b) => b.id === "blk-acq-features-5")!;
+    if (block.type === "table" || !("content" in block)) throw new Error("not a text block");
+    block.content = { text: "Fault reports, with up to three photos", marks: [] };
+    const steps = await respond(
+      "Update ACQ-D4 Features from this email",
+      as(MATTEO, en, { context: { kind: "mail", threadId: incoming.threadId } }),
+    );
+    expect(proposalOf(steps)).toBeUndefined();
+    expect(said(steps)).toContain("already says this");
+    expect(said(steps)).not.toContain("would change");
+    // M7: una scheda nata prima, confermata ora, non dice «fatto» su niente.
+    const revisions = state.productRevisions.length;
+    const done = run(MATTEO, [
+      {
+        fn: "updateProductPage",
+        args: { pageId: "pp-acq-features", source: { kind: "email", id: ACQ_11B.incomingEmailId } },
+        summary: "",
+      },
+    ]);
+    expect(done).toMatchObject({ ok: false, code: "invalid" });
+    expect(state.productRevisions.length).toBe(revisions);
+  });
+});
+
+describe("revisione finale I3: la sezione con un apostrofo", () => {
+  it.each([
+    ["en", "Client's phase", en],
+    ["en", "Client’s phase", en],
+    ["it", "Fase dell'utente", it_],
+    ["it", "Fase dell’utente", it_],
+  ] as const)("%s, «%s»: la frase della pagina trova il titolo e propone le voci", async (_lang, title, t) => {
+    const phases = state.productPages.find((p) => p.id === "pp-acq-phases")!;
+    const heading = phases.blocks.find((b) => b.type === "heading" && b.content.text === "Phase 1")!;
+    if (heading.type !== "heading") throw new Error("no heading");
+    heading.content = { text: title, marks: [] };
+    // La frase che manda il ⋮⋮ del titolo (`SectionProposeItem`), nella lingua di chi chiede.
+    const sentence = t("claude.answers.productDocs.ask.backlogSection", { section: title, code: phases.code });
+    const steps = await respond(sentence, as(LAURA, t));
+    const card = proposalOf(steps);
+    expect(said(steps)).not.toMatch(/has no heading|non ha il titolo/);
+    expect(card?.actions.length).toBe(2);
+  });
+});
+
+describe("revisione finale: gli id delle fonti negli `args` non escono a chi legge", () => {
+  async function publicAsk(text: string, context: ContextRef | null, projectId: string) {
+    setSessionPersonId(LAURA);
+    const c = await api.createConversation({ contextProjectId: projectId });
+    await api.sendMessage(c.id, { text }, { context });
+    for (let i = 0; i < 10; i++) {
+      await api.whenIdle(c.id);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+    await api.setVisibility(c.id, "public", { confirmedProjectIds: [projectId] });
+    return c.id;
+  }
+  const readAs = async (personId: string, id: string) => {
+    setSessionPersonId(personId);
+    return JSON.stringify(await api.getConversation(id)).toLowerCase();
+  };
+
+  it("`updateProductPage`: né Laura né Marco leggono l'id dell'email; il dato salvato lo tiene per la conferma", async () => {
+    withoutSeed11b();
+    const id = await publicAsk("Update ACQ-D5 Sign-in from this email", { kind: "mail", threadId: SIGN_IN_THREAD }, ACQ);
+    const stored = (state.conversationEvents.get(id) ?? []).find((e) => e.type === "proposal")!;
+    expect(JSON.stringify(stored)).toContain(ACQ_11B.signInEmailId);
+    for (const who of [LAURA, MARCO]) expect(await readAs(who, id)).not.toContain(ACQ_11B.signInEmailId);
+  });
+
+  it("`writeFirstVersion`: le fonti scelte non escono come id", async () => {
+    const id = await publicAsk("Write the first version of VRD's docs", null, VRD);
+    await whenFirstVersionIdle();
+    const executed = (state.conversationEvents.get(id) ?? []).find((e) => e.type === "executed")!;
+    const sources = (executed as { actions: ProposedAction[] }).actions[0]!.args.sources as { id?: string; fileId?: string }[];
+    const ids = sources.map((s) => s.id ?? s.fileId!).filter(Boolean);
+    expect(ids.length).toBeGreaterThan(0);
+    const laura = await readAs(LAURA, id);
+    for (const sid of ids) expect(laura).not.toContain(sid.toLowerCase());
   });
 });

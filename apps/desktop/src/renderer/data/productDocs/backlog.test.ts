@@ -123,6 +123,17 @@ describe("proposeBacklogFromPage", () => {
     expect((again.notes[0] as { codes: string[] }).codes).toContain(made.code);
   });
 
+  it("revisione finale M5: due schede con le stesse voci, confermate entrambe: la seconda è rifiutata (`already_proposed`)", () => {
+    const one = proposeBacklogFromPageAs(LAURA, PHASES).actions;
+    const two = proposeBacklogFromPageAs(LAURA, PHASES).actions;
+    createRequestAs(LAURA, one[0]!.args as never);
+    const before = state.requests.length;
+    expect(() => createRequestAs(LAURA, two[0]!.args as never)).toThrow("invalid: already_proposed");
+    expect(state.requests.length).toBe(before);
+    // Una voce nuova della seconda scheda passa.
+    expect(() => createRequestAs(LAURA, two[1]!.args as never)).not.toThrow();
+  });
+
   it("dal titolo «Phase 1» del seme: le sue due voci, nessuna nota", () => {
     const { actions, notes } = proposeBacklogFromPageAs(LAURA, PHASES, PHASE_HEADINGS.phase1);
     expect(actions.map((a) => a.args.title)).toEqual(["Phase 1: sign-in and bills", "Phase 1: meter readings"]);

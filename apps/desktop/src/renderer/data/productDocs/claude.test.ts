@@ -8,7 +8,8 @@ import { done, ext, mail, person } from "../seed/mail/helpers";
 import { setSessionPersonId } from "../session";
 import { state } from "../store";
 import { grantInstancePermission, revokeProjectPermission } from "../viewer";
-import { applyProductSource, askProductQuestion, whenProductClaudeIdle } from "./claude";
+import { applyProductSource, askProductQuestion, planProductSource, whenProductClaudeIdle } from "./claude";
+import { answerProductQuestionAs } from "./questions";
 
 // Il motore degli aggiornamenti (11b, Task 2): i fatti di una fonte sulle
 // pagine di prodotto. Una modifica entra da sola solo se il fatto è chiaro,
@@ -576,5 +577,132 @@ describe("le card a lettura (P12)", () => {
       question: { reason: "no_permission", forName: "Sara Montanari", answer: null, answeredByName: null },
     });
     expect(card.productCard!.sources[0]!.link).toBeNull();
+  });
+});
+
+describe("Revisione finale I1: un gesto ripetuto non richiede e non reinserisce", () => {
+  const manual = { manual: { requesterId: LAURA } };
+  const vague = () =>
+    fact({ id: "fact-vague", anchorId: STORES, clarity: "vague", change: { kind: "replace", text: STORES_TEXT } });
+  const insert = () => fact({ id: "fact-insert", anchorId: STORES, change: { kind: "insert_after", block: NEW_BLOCK } });
+  const copies = () =>
+    page().blocks.filter((b) => "content" in b && b.content.text === "Apple sign-in is not offered.");
+
+  it("lo stesso gesto due volte su un fatto vago: UNA domanda, UNA card per chi segue", () => {
+    expect(applyProductSource(ref("mm-laura-1"), ACQ, [vague()], manual).questions).toHaveLength(1);
+    const again = applyProductSource(ref("mm-laura-1"), ACQ, [vague()], manual);
+    expect(again).toMatchObject({ questions: [], edits: [], pending: [], none: 1 });
+    expect(questions()).toHaveLength(1);
+    const asked = cards("product_doc.question");
+    expect(asked).toHaveLength(1);
+    for (const id of [LAURA, MARCO]) expect(asked.filter((n) => n.recipientIds.includes(id))).toHaveLength(1);
+    // L'anteprima lo dice uguale: niente da chiedere.
+    expect(planProductSource(ref("mm-laura-1"), PAGE, [vague()], LAURA).map((p) => p.kind)).toEqual(["none"]);
+  });
+
+  it("una domanda a cui la squadra ha già risposto non si rifà", () => {
+    const [id] = applyProductSource(ref("mm-laura-1"), ACQ, [vague()], manual).questions;
+    answerProductQuestionAs(MARCO, id!, "keep");
+    const before = state.notifications.length;
+    const again = applyProductSource(ref("mm-laura-1"), ACQ, [vague()], manual);
+    expect(again.questions).toEqual([]);
+    expect(questions()).toHaveLength(1);
+    expect(state.notifications.length).toBe(before);
+  });
+
+  it("un'altra fonte con lo stesso fatto chiede ancora: il dedupe è per fonte", () => {
+    state.mailMessages.push(email("mm-laura-2", [LAURA]));
+    applyProductSource(ref("mm-laura-1"), ACQ, [vague()], manual);
+    expect(applyProductSource(ref("mm-laura-2"), ACQ, [vague()], manual).questions).toHaveLength(1);
+  });
+
+  it("un blocco già inserito dalla fonte non rientra, anche con un'altra scrittura in mezzo", () => {
+    applyProductSource(ref("mm-laura-1"), ACQ, [insert()], manual);
+    // Un paragrafo di Marco fra l'ancora e la copia: il blocco seguente non è più quello del fatto.
+    productDocs.writeProductBlocksAs(MARCO, PAGE, [
+      {
+        op: "insert",
+        afterId: STORES,
+        block: { id: "blk-marco-between", type: "paragraph", content: { text: "A line by Marco.", marks: [] } },
+      },
+    ], { sessionId: "s-marco" });
+    const again = applyProductSource(ref("mm-laura-1"), ACQ, [insert()], manual);
+    expect(again).toMatchObject({ edits: [], none: 1 });
+    expect(copies()).toHaveLength(1);
+    expect(planProductSource(ref("mm-laura-1"), PAGE, [insert()], LAURA).map((p) => p.kind)).toEqual(["none"]);
+  });
+});
+
+describe("Revisione finale I2: una riscrittura uguale alla pagina non è una modifica", () => {
+  it("`replace` col testo che la pagina ha già: niente revisione, niente card, e l'anteprima dice «niente»", () => {
+    const same = replace(HOW, contentOf(HOW)!);
+    expect(planProductSource(ref("mm-laura-1"), PAGE, [same], LAURA).map((p) => p.kind)).toEqual(["none"]);
+    const out = applyProductSource(ref("mm-laura-1"), ACQ, [same], { manual: { requesterId: LAURA } });
+    expect(out).toMatchObject({ edits: [], questions: [], pending: [], none: 1 });
+    expect(claudeRevisions()).toHaveLength(0);
+    expect(cards("product_doc.updated")).toHaveLength(0);
+  });
+});
+
+describe("Revisione finale M1, M2: chi aspetta una sezione", () => {
+  it("M1: una scrittura che sposta i confini della sezione libera il fatto, senza un evento di presenza", async () => {
+    as(MARCO);
+    // Marco sul titolo della sezione di STORES: il fatto su STORES aspetta.
+    await productDocs.setProductPresence(PAGE, { anchorId: STORES_HEADING, offset: 0 });
+    expect(applyProductSource(ref("mm-laura-1"), ACQ, [replace(STORES, STORES_TEXT)]).pending).toHaveLength(1);
+    // Laura mette un titolo nuovo sopra STORES: Marco ora è nella sezione di prima.
+    productDocs.writeProductBlocksAs(LAURA, PAGE, [
+      {
+        op: "insert",
+        afterId: STORES_HEADING,
+        block: { id: "blk-new-heading", type: "heading", level: 2, content: { text: "Stored data", marks: [] } },
+      },
+    ], { sessionId: "s-laura" });
+    await Promise.resolve();
+    expect(state.productPending).toEqual([]);
+    expect(contentOf(STORES)).toEqual(STORES_TEXT);
+  });
+
+  it("M2: un fatto che aspettava non scrive con la coda in pausa; esce alla ripresa", async () => {
+    as(MARCO);
+    await productDocs.setProductPresence(PAGE, { anchorId: HOW, offset: 0 });
+    applyProductSource(ref("mm-laura-1"), ACQ, [replace(HOW)]);
+    expect(pauseQueueAs(ROBERTA, ACQ)).toEqual({ ok: true });
+    productDocs.leaveProductPageAs(MARCO, PAGE);
+    expect(claudeRevisions()).toHaveLength(0);
+    expect(state.productPending).toEqual([]);
+    expect(heldJobs().map((j) => [j.kind, j.productPageId])).toEqual([["product_doc_update", PAGE]]);
+    expect(resumeQueueAs(ROBERTA, ACQ)).toEqual({ ok: true });
+    await whenProductClaudeIdle();
+    expect(contentOf(HOW)).toEqual(GOOGLE_ONLY);
+    expect(cards("product_doc.updated")[0]!.productUpdate?.waited).toBe("queue_paused");
+  });
+
+  it("M2: un gesto del riquadro che aspettava non si ferma sulla pausa (P41)", async () => {
+    as(MARCO);
+    await productDocs.setProductPresence(PAGE, { anchorId: HOW, offset: 0 });
+    applyProductSource(ref("mm-laura-1"), ACQ, [replace(HOW)], { manual: { requesterId: LAURA } });
+    expect(pauseQueueAs(ROBERTA, ACQ)).toEqual({ ok: true });
+    productDocs.leaveProductPageAs(MARCO, PAGE);
+    expect(heldJobs()).toEqual([]);
+    expect(contentOf(HOW)).toEqual(GOOGLE_ONLY);
+  });
+});
+
+describe("Revisione finale: gli id dell'anteprima", () => {
+  it("due `link_task` senza frase nella stessa anteprima: due blocchi, mai lo stesso id", () => {
+    const task = { kind: "task", id: TASK_ID } as const;
+    const plan = planProductSource(
+      task,
+      PAGE,
+      [
+        fact({ anchorId: null, change: { kind: "link_task", taskCode: "ACQ-7" } }),
+        fact({ anchorId: null, change: { kind: "link_task", taskCode: "ACQ-8" } }),
+      ],
+      LAURA,
+    );
+    expect(plan.map((p) => p.kind)).toEqual(["edit", "edit"]);
+    const ids = plan.map((p) => (p.kind === "edit" && p.op.op === "insert" ? p.op.block.id : null));
+    expect(new Set(ids).size).toBe(2);
   });
 });

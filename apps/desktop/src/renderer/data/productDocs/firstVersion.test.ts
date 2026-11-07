@@ -608,6 +608,11 @@ describe("la bozza generica", () => {
     const text = JSON.stringify(overview.blocks).toLowerCase();
     expect(text).toContain("pasted notes");
     expect(text).toContain(file.code.toLowerCase());
+    // Revisione finale M3: il testo salvato cita il file col solo codice; il
+    // nome lo dice la riga per chi legge, che sa quando il file è nascosto.
+    expect(JSON.stringify(pagesOf(STW).map((p) => p.blocks)).toLowerCase()).not.toContain(
+      file.name.toLowerCase(),
+    );
     expect(overview.blocks).toContainEqual(
       expect.objectContaining({ type: "drive", fileId: file.id }),
     );

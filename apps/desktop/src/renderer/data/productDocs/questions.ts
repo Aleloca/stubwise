@@ -332,7 +332,19 @@ export function productQuestionRequestDraft(me: string, commentId: string): Prop
 export function checkProductDocOrigin(me: string, projectId: string, origin: ProductDocOrigin): void {
   const page = productPageById(origin.pageId);
   if (!page || page.projectId !== projectId || docsAccess(me, projectId) !== "read") throw invalid("origin");
-  if (origin.questionId === undefined) return;
+  if (origin.questionId === undefined) {
+    // Revisione finale M5: due schede con la stessa frase (la proposta è
+    // fresca ogni volta), confermate entrambe, non fanno due richieste. La
+    // stessa regola della proposta (`proposeBacklogFromPageAs`): pagina e ancora.
+    const taken = state.requests.some(
+      (r) =>
+        r.origin?.kind === "product_doc" &&
+        r.origin.pageId === origin.pageId &&
+        r.origin.anchorId === origin.anchorId,
+    );
+    if (taken) throw invalid("already_proposed");
+    return;
+  }
   const comment = state.productComments.find((c) => c.id === origin.questionId);
   if (!comment?.question || comment.pageId !== page.id || comment.replyToId !== null) throw invalid("origin");
   editablePage(me, page.id);

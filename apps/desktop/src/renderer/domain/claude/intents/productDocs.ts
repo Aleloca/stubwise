@@ -43,8 +43,20 @@ const DRAW =
 const CHANGED = /\b(?:changed|cambiat[oaie]|cambiamenti|changes)\b/;
 const THIS_WEEK = /\b(?:this week|last 7 days|past week|questa settimana|ultimi 7 giorni|ultima settimana)\b/;
 const DOCS = /\b(?:docs?|documentation|documentazione)\b/;
-/** La sezione nominata fra virgolette: «…from the section “Phase 2” of ACQ-D11». */
-const SECTION = /\b(?:section|sezione)\s+[“"«‘']([^”"»’']+)[”"»’']/i;
+/**
+ * La sezione nominata fra virgolette: «…from the section “Phase 2” of
+ * ACQ-D11». Solo coppie che non stanno dentro una parola (“…”, «…», "…"):
+ * un apostrofo, dritto o tipografico, è una lettera del titolo («Accesso
+ * dell'utente», «Client’s decisions»), mai la virgoletta che lo chiude
+ * (revisione finale I3). La chiusura è l'ULTIMA della frase, così un titolo
+ * che contiene l'altra virgoletta resta intero.
+ */
+const SECTION = /\b(?:section|sezione)\s+(?:“(.+)”|«(.+)»|"(.+)")/i;
+
+const sectionOf = (text: string): string | null => {
+  const m = SECTION.exec(text);
+  return (m?.[1] ?? m?.[2] ?? m?.[3])?.trim() ?? null;
+};
 
 type Gesture = "question" | "firstVersion" | "update" | "backlog" | "draw" | "changes";
 
@@ -269,7 +281,7 @@ async function backlog(text: string, ctx: IntentContext): Promise<Answer> {
   const page = await pageOf(text, ctx);
   if (isAnswer(page)) return page;
   if (!page.canEdit) return say(forbidden(t, page.projectCode));
-  const section = SECTION.exec(text)?.[1]?.trim() ?? null;
+  const section = sectionOf(text);
   const draft = await ctx.read.productBacklogDraft(page.id, section);
   const named = { code: page.code, title: page.title, section: section ?? "" };
   if (!draft.ok) {

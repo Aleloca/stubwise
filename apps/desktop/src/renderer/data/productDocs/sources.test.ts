@@ -217,6 +217,15 @@ describe("sourceOwnerOf (chi agisce)", () => {
     expect(sourceOwnerOf({ kind: "meeting", id: t.messageId }, AUD)).toBe(MATTEO);
   });
 
+  it("revisione finale M4: un organizzatore fuori dal progetto non è il titolare, si passa all'email di Gemini", () => {
+    const t = state.meetingTranscripts.find((x) => x.eventId !== null)!;
+    const project = state.projectsById.get(AUD)!;
+    project.memberIds = project.memberIds.filter((id) => id !== MATTEO);
+    const owner = sourceOwnerOf({ kind: "meeting", id: t.messageId }, AUD);
+    expect(owner).not.toBe(MATTEO);
+    expect(owner === CLAUDE_ID || project.memberIds.includes(owner)).toBe(true);
+  });
+
   it("decisione, task e rilascio: Claude", () => {
     for (const kind of ["decision", "task", "release"] as const)
       expect(sourceOwnerOf({ kind, id: "x" }, ACQ)).toBe(CLAUDE_ID);

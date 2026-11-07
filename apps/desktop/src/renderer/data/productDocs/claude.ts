@@ -31,7 +31,7 @@ import type {
 import { can, viewerFor } from "../viewer";
 import { notFound } from "../writer";
 import { cleanQuote, threadLink } from "./comments";
-import { emitProductPage, emitProductQuestionsChanged, onProductPresence } from "./events";
+import { emitProductPage, emitProductQuestionsChanged, onProductBlocks, onProductPresence } from "./events";
 import { productDocRecipients } from "./follows";
 import { writersNear } from "./presence";
 import { productPageHref } from "./claudeReads";
@@ -275,15 +275,57 @@ const shapeOf = (block: ProductBlock): string =>
       : { ...block, id: "" },
   );
 
+/**
+ * La stessa fonte ha già chiesto lo stesso fatto su questa pagina, aperta o
+ * con risposta (revisione finale I1): un gesto ripetuto non richiede, e
+ * non riapre una decisione che la squadra ha già preso.
+ */
+function alreadyAsked(pageId: string, fact: ProductFact, ref: ProductSourceRef): boolean {
+  return state.productComments.some(
+    (c) =>
+      c.pageId === pageId &&
+      c.authorId === CLAUDE_ID &&
+      c.replyToId === null &&
+      c.question?.factId === fact.id &&
+      sameRef(c.question.sourceRef, ref),
+  );
+}
+
+/**
+ * La stessa fonte ha già inserito un blocco uguale in questa pagina, in
+ * qualunque punto (revisione finale I1, il dedupe di `insert_after` del
+ * Task 2): un gesto ripetuto, con un'altra scrittura in mezzo, non lo
+ * aggiunge due volte. Anche se poi una persona l'ha tolto: toglierlo è una
+ * decisione, e Claude non la scavalca.
+ */
+function insertedBySource(pageId: string, ref: ProductSourceRef, block: ProductBlock): boolean {
+  const shape = shapeOf(block);
+  return state.productRevisions.some(
+    (r) =>
+      r.pageId === pageId &&
+      r.via === "claude" &&
+      r.source !== undefined &&
+      sameRef(r.source, ref) &&
+      r.changes.some((c) => c.before === null && c.after !== null && shapeOf(c.after) === shape),
+  );
+}
+
+/** Il blocco dell'anteprima: un id per chiamata, mai due uguali (`applyBlockOps` li rifiuta). */
+let previewIds = 0;
+const previewId = (): string => `blk-preview-${++previewIds}`;
+
 const hasCode = (text: string, code: string): boolean =>
   new RegExp(`\\b${code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`).test(text);
 
 /**
- * L'operazione di un fatto sui blocchi di adesso; `null` = niente da scrivere.
+ * L'operazione di un fatto sui blocchi di adesso; `null` = niente da scrivere
+ * (la pagina dice già così, o la fonte l'ha già inserito: `insertedBySource`).
  * `fresh: false` (l'anteprima): nessun id nuovo, i blocchi inseriti tengono
  * quello del seme (una lettura non consuma `counter`).
  */
 function opOf(
+  pageId: string,
+  ref: ProductSourceRef,
   blocks: readonly ProductBlock[],
   fact: ProductFact,
   { fresh = true }: { fresh?: boolean } = {},
@@ -293,14 +335,18 @@ function opOf(
     fact.anchorId === null ? undefined : blocks.find((b) => anchorIdsOf(b).includes(fact.anchorId!));
   switch (change.kind) {
     case "replace": {
+      // La frase dice già così (revisione finale I2): niente da scrivere, e
+      // l'anteprima non promette un «diventa» uguale a com'è.
       const block = holder && withAnchor(holder, fact.anchorId!, () => change.text);
-      return block ? { op: "set", block } : null;
+      if (!block || JSON.stringify(block) === JSON.stringify(holder)) return null;
+      return { op: "set", block };
     }
     case "insert_after": {
       // Lo stesso blocco subito dopo l'ancora c'è già (un gesto ripetuto, o
       // una fonte già scritta che esce dalla coda): niente da scrivere.
       const next = holder ? blocks[blocks.indexOf(holder) + 1] : blocks[0];
       if (next && shapeOf(next) === shapeOf(change.block)) return null;
+      if (insertedBySource(pageId, ref, change.block)) return null;
       return { op: "insert", afterId: holder?.id ?? null, block: fresh ? freshIds(change.block) : change.block };
     }
     case "link_task": {
@@ -313,11 +359,9 @@ function opOf(
       if (block) return JSON.stringify(block) === JSON.stringify(holder) ? null : { op: "set", block };
       // Un'ancora senza frase (o la cima della pagina): un paragrafo col solo codice.
       const content: RichText = { text: code, marks: [] };
-      return {
-        op: "insert",
-        afterId: holder?.id ?? null,
-        block: { id: fresh ? newId("blk") : "blk-preview", type: "paragraph", content },
-      };
+      const paragraph: ProductBlock = { id: fresh ? newId("blk") : previewId(), type: "paragraph", content };
+      if (insertedBySource(pageId, ref, paragraph)) return null;
+      return { op: "insert", afterId: holder?.id ?? null, block: paragraph };
     }
     case "diverges":
       return null;
@@ -340,7 +384,7 @@ function writeFacts(
   const ops: ProductBlockOp[] = [];
   let none = 0;
   for (const fact of facts) {
-    const op = opOf(work, fact);
+    const op = opOf(page.id, ref, work, fact);
     if (!op) {
       none += 1;
       continue;
@@ -472,7 +516,7 @@ function settle(
   const ready: ProductFact[] = [];
   for (const { fact, arrivedSeq, pendingId } of items) {
     const anchorId = fact.anchorId;
-    const decision = stepOf(page, fact, actorCanEdit, arrivedSeq, requesterId);
+    const decision = stepOf(page, ref, fact, actorCanEdit, arrivedSeq, requesterId);
     if (decision.kind === "none") {
       out.none += 1;
     } else if (decision.kind === "question") {
@@ -547,10 +591,10 @@ export function planProductSource(
   let work = page.blocks;
   return mine.map((fact): ProductFactPlan => {
     // L'arrivo è adesso: nessuna persona l'ha ancora toccata «dopo».
-    const step = stepOf(page, fact, actorCanEdit, null, requesterId);
+    const step = stepOf(page, ref, fact, actorCanEdit, null, requesterId);
     if (step.kind !== "write") return { kind: step.kind, fact };
     // Senza id nuovi: una lettura non consuma `counter` (Minor 4 della review).
-    const op = opOf(work, fact, { fresh: false });
+    const op = opOf(page.id, ref, work, fact, { fresh: false });
     if (!op) return { kind: "none", fact };
     work = applyBlockOps(work, [op]).blocks;
     return { kind: "edit", fact, op };
@@ -562,10 +606,13 @@ export function planProductSource(
  * (la regola pura, poi chi scrive nella sezione), che il motore (`settle`) e
  * l'anteprima del riquadro (`planProductSource`) leggono uguale, così la
  * scheda non promette blocchi diversi da quelli che si scrivono (Minor 3).
- * `arrivedSeq` `null` = arriva adesso.
+ * `arrivedSeq` `null` = arriva adesso. Una domanda che la stessa fonte ha
+ * già fatto su questa pagina, aperta o con risposta, è «niente»
+ * (`alreadyAsked`): né un commento né una card in più.
  */
 function stepOf(
   page: ProductPage,
+  ref: ProductSourceRef,
   fact: ProductFact,
   actorCanEdit: boolean,
   arrivedSeq: number | null,
@@ -584,7 +631,9 @@ function stepOf(
     anchorExists: anchorId === null || anchorText(page.blocks, anchorId) !== null,
   });
   if (decision.kind === "none") return { kind: "none" };
-  if (decision.kind === "question") return { kind: "question", reason: decision.reason };
+  if (decision.kind === "question") {
+    return alreadyAsked(page.id, fact, ref) ? { kind: "none" } : { kind: "question", reason: decision.reason };
+  }
   return sectionBusy(page, fact, requesterId) ? { kind: "wait" } : { kind: "write" };
 }
 
@@ -617,9 +666,11 @@ function settleSource(
  * passa dalla coda, perché col budget finito lo spegne prima il riquadro
  * (`BudgetBand`). Non si ferma sulla fonte già vista: chi chiede, chiede di
  * nuovo. Aspetta chi scrive nella sezione, ma non chi ha chiesto. Ripetuto,
- * non scrive due volte: `replace` e `link_task` lo sono già, `insert_after`
- * non inserisce un blocco uguale a quello che segue l'ancora, e lo stesso
- * fatto aspetta in una riga sola.
+ * non scrive due volte e non chiede due volte (revisione finale I1, I2):
+ * `replace` e `link_task` uguali a com'è la pagina non scrivono, un blocco
+ * che la fonte ha già inserito non rientra (`insertedBySource`), una domanda
+ * già fatta dalla fonte su quel fatto non si rifà (`alreadyAsked`), e lo
+ * stesso fatto aspetta in una riga sola.
  *
  * Una fonte arrivata coi Docs spenti si segna come vista e non fa niente:
  * riaccesi i Docs non si ripesca (scelta del costruttore, come una fonte
@@ -668,7 +719,13 @@ export function applyProductSource(
   return { ...empty(), held: true };
 }
 
-/** Una sezione si è liberata (forse): i fatti che aspettavano su quella pagina si rivalutano. */
+/**
+ * Una sezione si è liberata (forse): i fatti che aspettavano su quella pagina
+ * si rivalutano. Col budget finito o la coda in pausa (revisione finale M2)
+ * non scrivono: passano in `holdJob` come una fonte arrivata adesso, e al
+ * rilascio si rivalutano con l'arrivo di quando erano nati. Un gesto del
+ * riquadro (`requesterId`) non si ferma sulla pausa (P41, P48), sul budget sì.
+ */
 function retryPending(pageId: string): void {
   const rows = state.productPending.filter((r) => r.pageId === pageId);
   if (rows.length === 0) return;
@@ -683,8 +740,52 @@ function retryPending(pageId: string): void {
     if (group) group.items.push(item);
     else groups.push({ ref: r.ref, projectId: r.projectId, requesterId: r.requesterId, items: [item] });
   }
-  for (const g of groups) settle(pageId, g.projectId, g.ref, g.items, null, empty(), g.requesterId);
+  for (const g of groups) {
+    const block = aiBlockFor(g.projectId);
+    if (block && (g.requesterId === undefined || block.reason === "monthly_budget")) {
+      holdJob({
+        projectId: g.projectId,
+        kind: "product_doc_update",
+        taskId: null,
+        conversationId: null,
+        automationRunId: null,
+        starterId: g.requesterId ?? sourceOwnerOf(g.ref, g.projectId),
+        productPageId: pageId,
+        block,
+        start: async (releasedBy) => {
+          settle(
+            pageId,
+            g.projectId,
+            g.ref,
+            g.items,
+            releasedBy === null ? "monthly_budget" : "queue_paused",
+            empty(),
+            g.requesterId,
+          );
+        },
+      });
+      notifyInstanceChange();
+      continue;
+    }
+    settle(pageId, g.projectId, g.ref, g.items, null, empty(), g.requesterId);
+  }
 }
 
-// Registrato una volta, al caricamento del modulo (l'insieme non si svuota a un ripristino).
+// Una scrittura nella pagina (revisione finale M1): un titolo tolto o
+// spostato cambia i confini della sezione senza un evento di presenza. Dopo
+// la scrittura, non dentro: una scrittura del motore non rientra nel motore.
+const blocksRetry = new Set<string>();
+onStoreReset(() => blocksRetry.clear());
+function retryAfterWrite(pageId: string): void {
+  if (!state.productPending.some((r) => r.pageId === pageId) || blocksRetry.has(pageId)) return;
+  blocksRetry.add(pageId);
+  const gen = storeGeneration();
+  queueMicrotask(() => {
+    blocksRetry.delete(pageId);
+    if (gen === storeGeneration()) retryPending(pageId);
+  });
+}
+
+// Registrati una volta, al caricamento del modulo (gli insiemi non si svuotano a un ripristino).
 onProductPresence(retryPending);
+onProductBlocks(retryAfterWrite);

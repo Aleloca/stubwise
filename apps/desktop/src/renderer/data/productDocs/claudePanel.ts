@@ -322,6 +322,9 @@ function weekTextFor(me: string, week: ProductWeekAnswer): string {
   return `${lead}\n\n${shown.join("\n")}`;
 }
 
+/** Le voci i cui `args` portano gli id delle fonti (email, riunioni, file). */
+const WITH_SOURCE_IDS = new Set(["updateProductPage", "writeFirstVersion"]);
+
 /**
  * La lettura di un evento di Claude con la doc di prodotto, per chi legge
  * (`presentEventFor`): ricompone il testo della settimana e il «perché»
@@ -334,14 +337,24 @@ export function presentProductClaudeEvent(me: string, event: ConversationEvent):
     return;
   }
   if (event.type !== "proposal" && event.type !== "executed") return;
-  if (!event.actions.some((a) => a.productPreview)) return;
+  if (!event.actions.some((a) => a.productPreview || WITH_SOURCE_IDS.has(a.fn))) return;
   event.actions = event.actions.map((a) => {
-    if (!a.productPreview) return a;
-    const why = a.fn === "updateProductPage" ? updateWhyFor(me, a) : null;
+    if (!a.productPreview && !WITH_SOURCE_IDS.has(a.fn)) return a;
+    const why = a.productPreview && a.fn === "updateProductPage" ? updateWhyFor(me, a) : null;
     const copy = { ...a };
-    delete copy.productPreview;
-    if (why) copy.why = why;
-    else delete copy.why;
+    if (a.productPreview) {
+      delete copy.productPreview;
+      if (why) copy.why = why;
+      else delete copy.why;
+    }
+    // Gli id delle fonti raccontano l'argomento (revisione finale, la classe
+    // del Task 4 I2): escono dagli `args` per chiunque legga. La scheda si
+    // compone da `summaryText` e `why`; la conferma legge l'evento salvato.
+    if (WITH_SOURCE_IDS.has(a.fn)) {
+      copy.args = { ...a.args };
+      delete copy.args.source;
+      delete copy.args.sources;
+    }
     return copy;
   });
 }

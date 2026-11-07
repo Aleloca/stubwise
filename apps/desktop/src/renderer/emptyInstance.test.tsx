@@ -411,6 +411,9 @@ describe("l'istanza vuota, dopo il primo avvio", () => {
     ] as const) {
       noteProductSource(ref, ["prj-acq"]);
     }
+    // Vista rossa per mutazione (revisione finale): togliendo il filtro per
+    // progetto di `noteProductSource` le fonti arrivano al motore e
+    // `productSourcesSeen` ha 4 chiavi.
     await whenProductClaudeIdle();
     await whenFirstVersionIdle();
     await productDocs.whenProductIdle();

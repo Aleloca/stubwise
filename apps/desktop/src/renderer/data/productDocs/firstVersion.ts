@@ -211,8 +211,10 @@ function citation(ref: FirstVersionSourceRef, projectId: string): string {
     case "text":
       return "the pasted notes";
     case "drive": {
+      // Solo il codice: il nome di un file che domani si nasconde resterebbe
+      // nel testo salvato, mentre la riga per chi legge dice `driveHidden`.
       const file = state.driveFiles.find((f) => f.id === ref.fileId)!;
-      return `the file ${file.code} ${file.name}`;
+      return `the file ${file.code}`;
     }
     case "email":
     case "meeting": {

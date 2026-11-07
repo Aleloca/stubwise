@@ -2,6 +2,7 @@ import type { Conversation } from "../model";
 import { runHref } from "../routes";
 import { canSeeRun, runById } from "../automations/visibility";
 import { docsAccess } from "../docs/reads";
+import { productPageHref } from "../productDocs/claudeReads";
 import { serverHref } from "../servers/visibility";
 import { currentPhase, eventsOf, familyOf, gate, now, state, visibleProjectIds } from "../store";
 import type { ActionAvailability } from "../types";
@@ -277,7 +278,7 @@ function heldJob(h: ReturnType<typeof heldJobs>[number]): Job {
       run && automation
         ? runHref(automation.code, run.n)
         : page
-          ? `#/p/${codeOf(page.projectId)}/docs/product/${page.code}`
+          ? productPageHref(page)
           : taskHref(h.taskId),
     summary: null,
     startFailed: false,
