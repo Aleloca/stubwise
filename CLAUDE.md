@@ -359,6 +359,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Modelli per operazione e consumi» (21 ott 2026)
   - «Ruoli e membri di progetto» (22 ott 2026)
   - «Secondo fattore sul login» (23 ott 2026)
+  - «Cassaforte delle credenziali» (23 ott 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -427,6 +428,12 @@ una voce ti riguarda.
     di stima e di merge dell'intake, non interattive).
   - Lo scheduler esiste solo col runner in streaming.
   - Limiti noti, accettati (costo fuori dal budget, retention).
+- **Cassaforte delle credenziali → `docs/invariants/vault.md`** (23 ott 2026):
+  - Il server non decifra mai; solo la password è cifrata, e esce solo da `reveal`.
+  - Il PAT crea e sostituisce, non legge né condivide né conferma.
+  - Conferma umana sempre (regola V1 solo per il primo admin); recupero con prova di possesso del kit.
+  - Revoca a lettura, purga solo igiene; `recipients_changed` e `keyVersion`.
+  - Isolamento: elenco chiuso di chi tocca le tabelle (`vault-isolation.test.ts`).
 - **Permessi, ruoli e membri di progetto → `docs/invariants/permissions.md`** (22 ott 2026):
   - Ogni rotta dichiara `config.access`, anche le pubbliche (test del registro).
   - Un progetto invisibile risponde 404 `not_found`, come uno che non esiste.

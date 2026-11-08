@@ -680,7 +680,10 @@ export type SecurityAlertSubject =
   | "password_reset_link"
   | "passkey_added"
   | "backup_codes_regenerated"
-  | "locked";
+  | "locked"
+  | "vault_key_created"
+  | "vault_recovery_used"
+  | "vault_recovery_key_rotated";
 
 /**
  * AVVISO DI SICUREZZA all'interessato (secondo fattore, 23 ott 2026): sul suo
@@ -1001,6 +1004,18 @@ const SECURITY_ALERT_KEY: Record<SecurityAlertSubject, { withActor: string; with
   locked: {
     withActor: "notify.securityAlert.locked.actor",
     withoutActor: "notify.securityAlert.locked",
+  },
+  vault_key_created: {
+    withActor: "notify.securityAlert.vault_key_created.actor",
+    withoutActor: "notify.securityAlert.vault_key_created",
+  },
+  vault_recovery_used: {
+    withActor: "notify.securityAlert.vault_recovery_used.actor",
+    withoutActor: "notify.securityAlert.vault_recovery_used",
+  },
+  vault_recovery_key_rotated: {
+    withActor: "notify.securityAlert.vault_recovery_key_rotated.actor",
+    withoutActor: "notify.securityAlert.vault_recovery_key_rotated",
   },
 };
 

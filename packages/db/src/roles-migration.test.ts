@@ -39,7 +39,13 @@ async function migrationsFolderUpTo(stopBeforeIdx: number): Promise<string> {
 }
 
 async function applyMigration0097(db: Db): Promise<void> {
-  const raw = await readFile(path.join(DRIZZLE_DIR, "0097_roles_and_members.sql"), "utf8");
+  await applyStatements(
+    db,
+    await readFile(path.join(DRIZZLE_DIR, "0097_roles_and_members.sql"), "utf8"),
+  );
+}
+
+async function applyStatements(db: Db, raw: string): Promise<void> {
   const statements = raw
     .split("--> statement-breakpoint")
     .map((s) => s.trim())
@@ -217,6 +223,13 @@ describe("migrazione 0097: ruoli, membri di progetto e conversione", () => {
   });
 
   it("(h) i preset hanno i nomi inglesi e le stesse chiavi di PRESET_ROLES", async () => {
+    // Il catalogo di oggi comprende i permessi delle credenziali, che nel
+    // preset `project_lead` entrano con la 0103 (non con la 0097): la parità
+    // vale sulla catena 0097 + 0103.
+    await applyStatements(
+      db,
+      await readFile(path.join(DRIZZLE_DIR, "0103_credentials_permissions.sql"), "utf8"),
+    );
     const rows = await db.execute<{
       preset_key: string;
       name: string;

@@ -2,6 +2,12 @@ import type { AgentSessionListQuery } from "@stubwise/shared";
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from "@tanstack/react-query";
 import {
   getAccountSecurity,
+  getVaultStatus,
+  getCredentialAccessLog,
+  getCredentialReaders,
+  getMyCredentials,
+  getVaultPending,
+  getProjectCredentials,
   getRoles,
   getProjectMembers,
   type RoleScope,
@@ -491,6 +497,28 @@ export const invitesQueryOptions = queryOptions({
 export const accountSecurityQueryOptions = queryOptions({
   queryKey: ["me", "security"],
   queryFn: getAccountSecurity,
+});
+
+/**
+ * Stato della cassaforte delle credenziali (attiva? la mia chiave?). Lo
+ * legge il `VaultProvider` del layout autenticato; lo sblocco e
+ * l'attivazione lo invalidano.
+ */
+export const vaultStatusQueryOptions = queryOptions({
+  queryKey: ["vault", "status"],
+  queryFn: getVaultStatus,
+});
+
+/**
+ * Accessi da confermare (`components/vault/pending-access.tsx`). Porta la
+ * copia della chiave di chi guarda per ogni credenziale (cifrata per la sua
+ * chiave privata, che sta solo in memoria): non serve a niente senza, ma non
+ * resta in cache oltre lo smontaggio (`gcTime: 0`).
+ */
+export const vaultPendingQueryOptions = queryOptions({
+  queryKey: ["vault", "pending"],
+  queryFn: getVaultPending,
+  gcTime: 0,
 });
 
 /**
@@ -1550,5 +1578,36 @@ export function calendarSeriesQueryOptions(account?: string) {
     queryKey: calendarKeys.seriesList(account),
     queryFn: () => getCalendarSeries(account),
     staleTime: 10_000,
+  });
+}
+
+/**
+ * Credenziali della cassaforte: solo campi in chiaro (servizio, etichetta,
+ * utente, URL, note) e lo stato d'accesso — mai password cifrate né copie
+ * della chiave, che restano fuori da ogni cache (vedi `api.ts`).
+ */
+export function projectCredentialsQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: ["credentials", "project", projectId],
+    queryFn: () => getProjectCredentials(projectId),
+  });
+}
+
+export const myCredentialsQueryOptions = queryOptions({
+  queryKey: ["credentials", "mine"],
+  queryFn: getMyCredentials,
+});
+
+export function credentialReadersQueryOptions(credentialId: string) {
+  return queryOptions({
+    queryKey: ["credentials", "readers", credentialId],
+    queryFn: () => getCredentialReaders(credentialId),
+  });
+}
+
+export function credentialAccessLogQueryOptions(projectId: string) {
+  return queryOptions({
+    queryKey: ["credentials", "log", projectId],
+    queryFn: () => getCredentialAccessLog(projectId),
   });
 }

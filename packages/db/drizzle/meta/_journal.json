@@ -722,6 +722,34 @@
       "when": 1793232000000,
       "tag": "0102_second_factor_reserved_at",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1793318400000,
+      "tag": "0103_credentials_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1793404800000,
+      "tag": "0104_vault",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1793491200000,
+      "tag": "0105_vault_recovery_challenges",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1793577600000,
+      "tag": "0106_vault_actor_challenges",
+      "breakpoints": true
     }
   ]
 }

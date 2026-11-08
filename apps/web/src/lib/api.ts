@@ -3,6 +3,30 @@ import type {
   BackupCodesResponse,
   PasskeyRegistrationOptions,
   PasskeyView,
+  CredentialAccessLogResponse,
+  CredentialCreateBody,
+  CredentialItem,
+  CredentialListResponse,
+  CredentialPasswordBody,
+  CredentialReadersResponse,
+  CredentialRecipients,
+  CredentialRevealResponse,
+  CredentialShareBody,
+  CredentialSharePreview,
+  CredentialUpdateBody,
+  VaultActorChallengeResponse,
+  VaultActorProof,
+  VaultCreateKeyBody,
+  VaultCreateKeyResponse,
+  VaultConfirmCopy,
+  VaultConfirmResponse,
+  VaultMyKeyResponse,
+  VaultPendingResponse,
+  VaultRecoveryChallengeResponse,
+  VaultRecoveryKeyBody,
+  VaultRecoveryKeyPreview,
+  VaultRecoveryProof,
+  VaultStatusResponse,
   SecurityEventsResponse,
   AgentQuestionOption,
   EnrollConfirmResponse,
@@ -263,7 +287,7 @@ export const api = {
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body),
   put: <T>(path: string, body?: unknown) => request<T>("PUT", path, body),
   patch: <T>(path: string, body?: unknown) => request<T>("PATCH", path, body),
-  delete: <T>(path: string) => request<T>("DELETE", path),
+  delete: <T>(path: string, body?: unknown) => request<T>("DELETE", path, body),
 };
 
 // --- Auth ---
@@ -398,9 +422,19 @@ export function postReauth(code: string): Promise<void> {
   return dialogClient.request("POST", "/api/me/security/reauth", { code });
 }
 
-/** Opzioni WebAuthn della riconferma (409 `no_passkeys`). */
-export function postReauthPasskeyOptions(): Promise<PasskeyAuthenticationOptions> {
-  return dialogClient.request("POST", "/api/me/security/reauth/passkey/options");
+/**
+ * Opzioni WebAuthn della riconferma (409 `no_passkeys`). Con `purpose:
+ * "vault"` è lo sblocco della cassaforte: le opzioni chiedono la PRF
+ * (`extensions.prf.eval.first`, in base64url — vedi `lib/vault/unlock.ts`).
+ */
+export function postReauthPasskeyOptions(
+  purpose?: "vault",
+): Promise<PasskeyAuthenticationOptions> {
+  return dialogClient.request(
+    "POST",
+    "/api/me/security/reauth/passkey/options",
+    purpose ? { purpose } : undefined,
+  );
 }
 
 /** La risposta del browser alla passkey: stessi esiti di {@link postReauth}. */
@@ -447,6 +481,206 @@ export function postPasskeyRegistrationOptions(): Promise<PasskeyRegistrationOpt
 /** Registra la passkey: il nome scelto e la risposta del browser (400 `passkey_registration_failed`). */
 export function postPasskey(name: string, response: unknown): Promise<PasskeyView> {
   return api.post("/api/me/security/passkeys", { name, response });
+}
+
+// --- Cassaforte delle credenziali (`lib/vault/`, `routes/vault-setup.tsx`) ---
+//
+// Il server riceve solo chiavi PUBBLICHE e buste cifrate: la chiave privata
+// della persona resta nel browser (in memoria, `VaultProvider`). Le scritture
+// chiedono la riconferma recente; lo sblocco stesso È una riconferma con
+// passkey, quindi subito dopo non riapre il dialogo.
+
+/** Stato della cassaforte per chi guarda (`passkeys` difeso a lettura: campo aggiunto dopo). */
+export function getVaultStatus(): Promise<VaultStatusResponse> {
+  return api.get("/api/vault/status");
+}
+
+/** Attivazione (full admin): la sola chiave PUBBLICA di recupero (409 `vault_already_active`). */
+export function postVaultActivate(recoveryPublicKey: string): Promise<void> {
+  return api.post("/api/vault/activate", { recoveryPublicKey });
+}
+
+/** Crea (o ricrea) la propria chiave: pubblica in chiaro, privata sigillata per passkey. */
+export function postVaultKey(body: VaultCreateKeyBody): Promise<VaultCreateKeyResponse> {
+  return api.post("/api/vault/keys", body);
+}
+
+/** Aggiunge alla propria chiave viva il sigillo di un'altra passkey (riconferma). */
+export function postVaultKeySeal(
+  personKeyId: string,
+  body: { passkeyId: string; sealedPrivateKey: string },
+): Promise<void> {
+  return api.post(`/api/vault/keys/${encodeURIComponent(personKeyId)}/seals`, body);
+}
+
+/** La propria chiave viva con i sigilli (privata CIFRATA), da aprire nel browser (404 `vault_key_not_found`). */
+export function getMyVaultKey(): Promise<VaultMyKeyResponse> {
+  return api.get("/api/vault/keys/mine");
+}
+
+/**
+ * Una sfida da aprire con la propria chiave CONFERMATA (`lib/vault/credentials.ts`
+ * → `proveKey`): la prova che va con conferma, rifiuto, condivisione, revoca
+ * e rotazione del kit. Una per azione.
+ */
+export function postVaultActorChallenge(): Promise<VaultActorChallengeResponse> {
+  return api.post("/api/vault/actor-challenge", {});
+}
+
+/** Rotazione del kit (full admin): per OGNI credenziale la propria copia, e quelle che mancano. */
+export function getVaultRecoveryKeyPreview(): Promise<VaultRecoveryKeyPreview> {
+  return api.get("/api/vault/recovery-key/preview");
+}
+
+/** Rotazione del kit: la nuova pubblica, la copia di OGNI credenziale per lei, la prova (409 `recipients_changed`). */
+export function postVaultRecoveryKey(body: VaultRecoveryKeyBody): Promise<void> {
+  return api.post("/api/vault/recovery-key", body);
+}
+
+// --- Credenziali della cassaforte (`components/vault/`, `routes/credentials.tsx`) ---
+//
+// Gli elenchi non portano MAI la password cifrata né copie della chiave: le
+// dà solo `reveal`, che il server registra. Nessuna di queste risposte va
+// tenuta in una cache di Query se porta materiale cifrato (`reveal`,
+// anteprima di una condivisione): si chiamano direttamente, non da `useQuery`.
+
+export type {
+  CredentialAccessLogEntry,
+  CredentialItem,
+  CredentialReader,
+  CredentialReaderPerson,
+  CredentialReadersResponse,
+  CredentialRecipients,
+  CredentialSharePreview,
+} from "@stubwise/shared";
+
+/** Credenziali del progetto che chi guarda legge, aspetta o gestisce. */
+export function getProjectCredentials(projectId: string): Promise<CredentialListResponse> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/credentials`);
+}
+
+/** «Le mie credenziali»: lette o in attesa, in tutti i progetti. */
+export function getMyCredentials(): Promise<CredentialListResponse> {
+  return api.get("/api/vault/credentials");
+}
+
+/** Destinatari di una credenziale NUOVA del progetto (`credentials.create`). */
+export function getNewCredentialRecipients(projectId: string): Promise<CredentialRecipients> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/credentials/recipients`);
+}
+
+/** Destinatari attuali di una credenziale (per cambiarne la password). */
+export function getCredentialRecipients(id: string): Promise<CredentialRecipients> {
+  return api.get(`/api/credentials/${encodeURIComponent(id)}/recipients`);
+}
+
+/** Crea una credenziale con la password GIÀ cifrata (409 `recipients_changed`). */
+export function postCredential(projectId: string, body: CredentialCreateBody): Promise<CredentialItem> {
+  return api.post(`/api/projects/${encodeURIComponent(projectId)}/credentials`, body);
+}
+
+/** Modifica i campi in chiaro. */
+export function patchCredential(id: string, body: CredentialUpdateBody): Promise<CredentialItem> {
+  return api.patch(`/api/credentials/${encodeURIComponent(id)}`, body);
+}
+
+/** Sostituisce la password e TUTTE le copie (409 `recipients_changed`). */
+export function putCredentialPassword(id: string, body: CredentialPasswordBody): Promise<CredentialItem> {
+  return api.put(`/api/credentials/${encodeURIComponent(id)}/password`, body);
+}
+
+export function deleteCredential(id: string): Promise<void> {
+  return api.delete(`/api/credentials/${encodeURIComponent(id)}`);
+}
+
+/** Password cifrata e propria copia della chiave: registrata nel registro delle letture. */
+export function revealCredential(id: string, action: "show" | "copy"): Promise<CredentialRevealResponse> {
+  return api.post(`/api/credentials/${encodeURIComponent(id)}/reveal`, { action });
+}
+
+/** Registro delle letture del progetto (`credentials.edit` o `credentials.share`). */
+export function getCredentialAccessLog(projectId: string): Promise<CredentialAccessLogResponse> {
+  return api.get(`/api/projects/${encodeURIComponent(projectId)}/credentials/log`);
+}
+
+/** Lettori diretti e lettori effettivi col loro stato. */
+export function getCredentialReaders(id: string): Promise<CredentialReadersResponse> {
+  return api.get(`/api/credentials/${encodeURIComponent(id)}/readers`);
+}
+
+/** Lettore da aggiungere: una persona O un ruolo di progetto. */
+export type CredentialReaderTarget = { userId: string } | { roleId: string };
+
+/** Anteprima di una condivisione: per chi cifrare, chi resta in attesa, la propria copia. */
+export function getCredentialSharePreview(
+  id: string,
+  target: CredentialReaderTarget,
+): Promise<CredentialSharePreview> {
+  const query = "userId" in target ? `userId=${encodeURIComponent(target.userId)}` : `roleId=${encodeURIComponent(target.roleId)}`;
+  return api.get(`/api/credentials/${encodeURIComponent(id)}/readers/preview?${query}`);
+}
+
+/** Aggiunge un lettore con le copie per chi ha già una chiave confermata (409 `recipients_changed`). */
+export function postCredentialReader(id: string, body: CredentialShareBody): Promise<CredentialReadersResponse> {
+  return api.post(`/api/credentials/${encodeURIComponent(id)}/readers`, body);
+}
+
+/** Toglie un lettore diretto, con la prova della propria chiave: le copie di chi non legge più si cancellano subito. */
+export function deleteCredentialReader(
+  id: string,
+  readerId: string,
+  actorProof: VaultActorProof,
+): Promise<CredentialReadersResponse> {
+  return api.delete(
+    `/api/credentials/${encodeURIComponent(id)}/readers/${encodeURIComponent(readerId)}`,
+    { actorProof },
+  );
+}
+
+// --- Accessi da confermare e recupero (`components/vault/pending-access.tsx`, `routes/vault-recovery.tsx`) ---
+//
+// Le risposte portano la copia della chiave di chi guarda (o quella di
+// recupero) da aprire e ricifrare nel browser per la persona da confermare:
+// mai una password cifrata. Il kit di recupero non viaggia MAI: va al server
+// solo la prova (il segreto della sfida aperta col kit).
+
+export type { VaultPendingCredential, VaultPendingPerson, VaultPendingResponse } from "@stubwise/shared";
+
+/** Gli accessi che chi guarda può confermare, per persona. */
+export function getVaultPending(): Promise<VaultPendingResponse> {
+  return api.get("/api/vault/pending");
+}
+
+/** Conferma la chiave della persona e le passa le copie, con la prova della propria (mai la propria: 403 `own_key`). */
+export function postVaultPendingConfirm(
+  personKeyId: string,
+  copies: VaultConfirmCopy[],
+  actorProof: VaultActorProof,
+): Promise<VaultConfirmResponse> {
+  return api.post(`/api/vault/pending/${encodeURIComponent(personKeyId)}/confirm`, { copies, actorProof });
+}
+
+/** Rifiuta una chiave in attesa (con la prova della propria): non riceve nulla e la persona dovrà ricrearla. */
+export function postVaultPendingReject(personKeyId: string, actorProof: VaultActorProof): Promise<void> {
+  return api.post(`/api/vault/pending/${encodeURIComponent(personKeyId)}/reject`, { actorProof });
+}
+
+/** Recupero (full admin, riconferma): una sfida da aprire col kit. */
+export function postVaultRecoveryChallenge(): Promise<VaultRecoveryChallengeResponse> {
+  return api.post("/api/vault/recovery/challenge", {});
+}
+
+/** Recupero: tutti gli accessi in attesa, con la copia di RECUPERO di ogni credenziale. */
+export function postVaultRecoveryPending(proof: VaultRecoveryProof): Promise<VaultPendingResponse> {
+  return api.post("/api/vault/recovery/pending", proof);
+}
+
+/** Recupero: conferma una chiave. La conferma CONSUMA la sfida: una nuova per ogni conferma. */
+export function postVaultRecoveryConfirm(
+  personKeyId: string,
+  body: VaultRecoveryProof & { copies: VaultConfirmCopy[] },
+): Promise<VaultConfirmResponse> {
+  return api.post(`/api/vault/recovery/confirm/${encodeURIComponent(personKeyId)}`, body);
 }
 
 /** Rinomina una propria passkey (niente riconferma: non tocca un fattore). */

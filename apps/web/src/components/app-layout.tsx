@@ -7,6 +7,7 @@ import { meQueryOptions } from "../lib/auth";
 import { useCanFn } from "../lib/permissions";
 import { mailSummaryQueryOptions } from "../lib/queries";
 import { useCloseOnRouteChange } from "../lib/use-close-on-route-change";
+import { useVault } from "../lib/vault/vault-context";
 import { Avatar } from "./avatar";
 import { Drawer } from "./drawer";
 import { GlobalSearchPalette } from "./global-search-palette";
@@ -63,6 +64,8 @@ const NAV_ITEMS = [
   { to: "/release", labelKey: "common:nav.release", code: "REL", permission: "release.merge" },
   { to: "/activity", labelKey: "common:nav.activity", code: "ACT" },
   { to: "/docs", labelKey: "common:nav.docs", code: "DOC" },
+  // Le mie credenziali (cassaforte): solo a cassaforte attivata sull'istanza.
+  { to: "/credentials", labelKey: "common:nav.credentials", code: "KEY", vault: true },
   { to: "/team", labelKey: "common:nav.team", code: "TEA" },
   // Impostazioni resta visibile: la sotto-nav (`SettingsLayout`) filtra già
   // per ruolo (un member vede solo Account/Access tokens/Google), quindi la
@@ -86,7 +89,12 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
   // deve accorgersi in tempo reale, si allinea navigando.
   const { data: mailSummary } = useQuery(mailSummaryQueryOptions);
   const can = useCanFn();
-  const items = NAV_ITEMS.filter((item) => !("permission" in item) || can(item.permission));
+  const vault = useVault();
+  const items = NAV_ITEMS.filter(
+    (item) =>
+      (!("permission" in item) || can(item.permission)) &&
+      (!("vault" in item) || vault.state !== "inactive"),
+  );
   return (
     <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
       {items.map((item) => (
@@ -193,6 +201,7 @@ function MobileTopBar({
 export function AppLayout() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const vault = useVault();
   const { data } = useSuspenseQuery(meQueryOptions);
   const { t, i18n } = useTranslation();
   const [loggingOut, setLoggingOut] = useState(false);
@@ -247,6 +256,9 @@ export function AppLayout() {
   }, [i18n, userLanguage]);
 
   async function handleLogout() {
+    // La chiave privata della cassaforte si butta subito, prima ancora della
+    // risposta del server (il provider si smonta comunque tornando a /login).
+    vault.lock();
     setLoggingOut(true);
     try {
       await postLogout();

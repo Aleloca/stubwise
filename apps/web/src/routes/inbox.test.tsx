@@ -400,6 +400,8 @@ describe("pagina /inbox", () => {
       ["passkey_added", "🔐 A passkey was added to your account."],
       ["backup_codes_regenerated", "🔐 Your backup codes were regenerated: the old ones no longer work."],
       ["locked", "🔐 Too many wrong codes: two-step verification is locked for 15 minutes."],
+      ["vault_key_created", "🔐 A vault key was created for your account."],
+      ["vault_recovery_used", "🔐 The vault recovery key was used by admin@acme.test."],
     ] as const;
 
     it.each(SUBJECTS)("security.alert (%s): etichetta, testo del server e «Open» verso Sicurezza", async (_subject, text) => {

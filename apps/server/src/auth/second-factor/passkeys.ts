@@ -11,6 +11,7 @@ import {
 import { isoBase64URL } from "@simplewebauthn/server/helpers";
 import { and, eq, sql } from "drizzle-orm";
 import { sessions, userPasskeys, type Db } from "@stubwise/db";
+import { PRF_INPUT } from "@stubwise/vault-crypto";
 
 /**
  * Passkey (WebAuthn) come secondo fattore, solo web. Il relying party è
@@ -63,19 +64,26 @@ async function takeChallenge(db: Db, sessionId: string): Promise<string | null> 
   return rows[0]?.challenge ?? null;
 }
 
+/** Opzioni di `navigator.credentials.create()` in JSON, con la richiesta PRF esplicita. */
+export type PasskeyCreationOptions = Omit<PublicKeyCredentialCreationOptionsJSON, "extensions"> & {
+  extensions: { credProps?: boolean; prf: Record<string, never> };
+};
+
 /**
  * Opzioni per `navigator.credentials.create()`: esclude le passkey già
  * registrate dall'utente (il browser non ne crea un doppione sullo stesso
- * autenticatore) e salva la challenge sulla sessione.
+ * autenticatore) e salva la challenge sulla sessione. Chiede l'estensione
+ * PRF (`prf: {}`): una passkey che la supporta può poi aprire la cassaforte
+ * delle credenziali; una che non la supporta resta un secondo fattore valido.
  */
 export async function registrationOptions(
   db: Db,
   sessionId: string,
   user: { id: string; email: string },
   rp: PasskeyRp,
-): Promise<PublicKeyCredentialCreationOptionsJSON> {
+): Promise<PasskeyCreationOptions> {
   const existing = await passkeysOf(db, user.id);
-  const options = await generateRegistrationOptions({
+  const { extensions, ...options } = await generateRegistrationOptions({
     rpName: rp.rpName,
     rpID: rp.rpID,
     userName: user.email,
@@ -83,9 +91,10 @@ export async function registrationOptions(
     attestationType: "none",
     excludeCredentials: existing.map((p) => ({ id: p.credentialId, transports: p.transports })),
     authenticatorSelection: { residentKey: "preferred", userVerification: USER_VERIFICATION },
+    extensions: { prf: {} },
   });
   await saveChallenge(db, sessionId, options.challenge);
-  return options;
+  return { ...options, extensions: { credProps: extensions?.credProps, prf: {} } };
 }
 
 /**
@@ -135,6 +144,23 @@ export async function finishRegistration(
 }
 
 /**
+ * Perché si usa la passkey: `"vault"` è lo sblocco della cassaforte, che
+ * oltre alla firma chiede alla passkey il segreto PRF.
+ */
+export type PasskeyPurpose = "vault";
+
+/**
+ * Opzioni di `navigator.credentials.get()` nella forma JSON. Con
+ * `purpose: "vault"` portano la valutazione PRF con l'input fisso della
+ * cassaforte (`PRF_INPUT`, unica copia in `@stubwise/vault-crypto`), in
+ * base64url come la forma JSON di WebAuthn: il segreto che ne esce resta nel
+ * browser, il server non lo vede mai.
+ */
+export type PasskeyRequestOptions = Omit<PublicKeyCredentialRequestOptionsJSON, "extensions"> & {
+  extensions?: { prf: { eval: { first: string } } };
+};
+
+/**
  * Opzioni per `navigator.credentials.get()`: le sole passkey dell'utente e
  * la challenge salvata sulla sessione.
  */
@@ -143,7 +169,8 @@ export async function authenticationOptions(
   sessionId: string,
   userId: string,
   rp: PasskeyRp,
-): Promise<PublicKeyCredentialRequestOptionsJSON> {
+  purpose?: PasskeyPurpose,
+): Promise<PasskeyRequestOptions> {
   const existing = await passkeysOf(db, userId);
   const options = await generateAuthenticationOptions({
     rpID: rp.rpID,
@@ -151,7 +178,9 @@ export async function authenticationOptions(
     userVerification: USER_VERIFICATION,
   });
   await saveChallenge(db, sessionId, options.challenge);
-  return options;
+  // Senza scopo nessuna estensione (la libreria non ne mette di sue).
+  if (purpose !== "vault") return { ...options, extensions: undefined };
+  return { ...options, extensions: { prf: { eval: { first: isoBase64URL.fromBuffer(PRF_INPUT) } } } };
 }
 
 /**

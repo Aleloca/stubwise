@@ -9,6 +9,8 @@ import { BackupCodesPanel } from "../../components/security/backup-codes-panel";
 import { LOW_BACKUP_CODES_THRESHOLD } from "../../components/security/second-factor-error";
 import { SecurityEventsList } from "../../components/security/security-events-list";
 import { TotpEnrollment } from "../../components/security/totp-enrollment";
+import { OwnKeyFingerprint } from "../../components/vault/own-fingerprint";
+import { PasskeySealButton } from "../../components/vault/passkey-seal-button";
 import {
   deletePasskey,
   patchPasskey,
@@ -19,7 +21,9 @@ import {
   postTotpSetupConfirm,
 } from "../../lib/api";
 import { formatDate } from "../../lib/format";
-import { accountSecurityQueryOptions } from "../../lib/queries";
+import { accountSecurityQueryOptions, vaultStatusQueryOptions } from "../../lib/queries";
+import { hasLiveKey } from "../../lib/vault/unlock";
+import { useOptionalVault } from "../../lib/vault/vault-context";
 import { translateApiError } from "../../lib/translate-api-error";
 
 /**
@@ -60,6 +64,7 @@ export function SettingsSecurityPage() {
       <p className="text-sm leading-relaxed text-fg-muted">{t("settings:security.description")}</p>
       <TotpSection configured={totp.configured} confirmedAt={totp.confirmedAt} />
       <PasskeysSection passkeys={passkeys} />
+      <VaultKeySection />
       <BackupCodesSection remaining={backupCodesRemaining} />
       <Section title={t("settings:security.events.title")}>
         <SecurityEventsList events={events} />
@@ -79,6 +84,23 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       </header>
       <div className="space-y-4 px-4 py-4">{children}</div>
     </section>
+  );
+}
+
+/**
+ * La propria chiave della cassaforte: l'impronta da confrontare con chi la
+ * conferma, calcolata dalla pubblica verificata in memoria (cassaforte
+ * aperta). Solo con la cassaforte attiva e una chiave viva.
+ */
+function VaultKeySection() {
+  const { t } = useTranslation();
+  const vault = useOptionalVault();
+  const { data: status } = useQuery({ ...vaultStatusQueryOptions, retry: false });
+  if (!vault || !status?.activated || !hasLiveKey(status)) return null;
+  return (
+    <Section title={t("vault:own.sectionTitle")}>
+      <OwnKeyFingerprint />
+    </Section>
   );
 }
 
@@ -285,6 +307,7 @@ function PasskeyRow({ passkey }: { passkey: PasskeyView }) {
           </div>
         </div>
       )}
+      {!renaming && <PasskeySealButton passkeyId={passkey.id} passkeyName={passkey.name} />}
       <FormError message={error ? translateApiError(error, t) : null} />
       {confirmingRemove && (
         <ConfirmDialog

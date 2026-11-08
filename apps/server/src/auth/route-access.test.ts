@@ -124,6 +124,13 @@ describe("rotte con riconferma recente", () => {
       "POST /api/roles/:id/duplicate",
       "POST /api/users/:id/git-identities",
       "POST /api/users/:id/password-reset",
+      "POST /api/vault/activate",
+      "POST /api/vault/keys",
+      "POST /api/vault/keys/:id/seals",
+      "POST /api/vault/recovery-key",
+      "POST /api/vault/recovery/challenge",
+      "POST /api/vault/recovery/confirm/:personKeyId",
+      "POST /api/vault/recovery/pending",
       "PUT /api/projects/:projectId/members/:userId",
       "PUT /api/users/:id/slack",
     ]);

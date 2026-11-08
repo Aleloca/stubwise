@@ -77,7 +77,10 @@ export type EnrollConfirmResponse = z.infer<typeof enrollConfirmResponseSchema>;
 /**
  * Risposta di `POST /api/auth/second-factor/passkey/options`: le opzioni per
  * `navigator.credentials.get()` (il JSON di WebAuthn che la web passa al
- * browser). Solo i campi che il server imposta: niente estensioni né hint.
+ * browser). Solo i campi che il server imposta. L'unica estensione è la PRF
+ * della cassaforte (`purpose: "vault"`): `eval.first` in base64url, come nella
+ * forma JSON di WebAuthn — il client la riconverte in byte prima di
+ * `navigator.credentials.get()`.
  */
 export const passkeyAuthenticationOptionsSchema = z.object({
   challenge: z.string(),
@@ -93,6 +96,9 @@ export const passkeyAuthenticationOptionsSchema = z.object({
     )
     .optional(),
   userVerification: z.enum(["required", "preferred", "discouraged"]).optional(),
+  extensions: z
+    .object({ prf: z.object({ eval: z.object({ first: z.string() }) }) })
+    .optional(),
 });
 export type PasskeyAuthenticationOptions = z.infer<typeof passkeyAuthenticationOptionsSchema>;
 
@@ -141,6 +147,11 @@ export const securityEventKindSchema = z.enum([
   "locked",
   "second_factor_reset",
   "password_reset_link",
+  "vault_key_created",
+  "vault_recovery_used",
+  "vault_activated",
+  "vault_seal_replaced",
+  "vault_recovery_key_rotated",
 ]);
 export type SecurityEventKind = z.infer<typeof securityEventKindSchema>;
 
@@ -231,8 +242,11 @@ export const passkeyRegistrationOptionsSchema = z.object({
   hints: z.array(z.string()).optional(),
   attestation: z.string().optional(),
   attestationFormats: z.array(z.string()).optional(),
-  // Il server non chiede estensioni: la libreria aggiunge solo `credProps`.
-  extensions: z.object({ credProps: z.boolean().optional() }).optional(),
+  // `prf: {}` la chiede il server (cassaforte: la passkey deve poter dare un
+  // segreto PRF); `credProps` lo aggiunge la libreria.
+  extensions: z
+    .object({ credProps: z.boolean().optional(), prf: z.object({}).optional() })
+    .optional(),
 });
 export type PasskeyRegistrationOptions = z.infer<typeof passkeyRegistrationOptionsSchema>;
 

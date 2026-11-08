@@ -12,6 +12,7 @@ import { ProjectPluginsSection } from "../../components/project-plugins-section"
 import { ProjectEnvironmentsSection } from "../../components/project-environments-section";
 import { ProjectServersSection } from "../../components/project-servers-section";
 import { WidgetsSection } from "../../components/widgets-section";
+import { CredentialsSection } from "../../components/vault/credentials-section";
 import { deleteProject, patchProject, putMyFollows, type ProjectPatch } from "../../lib/api";
 import { useCanFn } from "../../lib/permissions";
 import { formatDateTime } from "../../lib/format";
@@ -218,6 +219,12 @@ export function ProjectDetailPage() {
         <h2 className={sectionTitleClass}>{t("projects:members.title")}</h2>
         <ProjectMembersSection projectId={project.id} />
       </section>
+
+      {/*
+        Credenziali della cassaforte (23 ott 2026): la sezione porta da sé il
+        suo <section> e non c'è finché la cassaforte non è attivata.
+      */}
+      <CredentialsSection projectId={project.id} />
 
       {/*
         Integrazione del progetto (Fase 3): la chiave di ingestion è salita dal

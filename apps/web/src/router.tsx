@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-router";
 import type { RouterHistory } from "@tanstack/react-router";
 import { AppLayout } from "./components/app-layout";
+import { VaultProvider } from "./lib/vault/vault-context";
 import { RouteError } from "./components/route-error";
 import { ApiError } from "./lib/api";
 import { meQueryOptions, setupStatusQueryOptions } from "./lib/auth";
@@ -122,6 +123,9 @@ import { SettingsSecurityPage } from "./routes/settings/security";
 import { SettingsSlackPage } from "./routes/settings/slack";
 import { SettingsStoragePage } from "./routes/settings/storage";
 import { SettingsUsagePage } from "./routes/settings/usage";
+import { VaultSetupPage } from "./routes/vault-setup";
+import { VaultRecoveryPage } from "./routes/vault-recovery";
+import { MyCredentialsPage } from "./routes/credentials";
 import { SetupPage } from "./routes/setup";
 import { TeamPage } from "./routes/team";
 import { TicketDetailPage } from "./routes/tickets/$id";
@@ -209,8 +213,19 @@ const authedRoute = createRoute({
       throw error;
     }
   },
-  component: AppLayout,
+  // La cassaforte vive SOPRA il layout autenticato: la chiave privata resta
+  // in memoria finché si resta qui dentro, e si perde al logout (si torna a
+  // /login, il provider si smonta) — vedi `lib/vault/vault-context.tsx`.
+  component: AuthedShell,
 });
+
+function AuthedShell() {
+  return (
+    <VaultProvider>
+      <AppLayout />
+    </VaultProvider>
+  );
+}
 
 const indexRoute = createRoute({
   getParentRoute: () => authedRoute,
@@ -861,6 +876,17 @@ const activityRoute = createRoute({
   component: ActivityPage,
 });
 
+/**
+ * «Le mie credenziali» (cassaforte, design «Dove sta nella web»): quelle che
+ * chi guarda può leggere, di tutti i progetti. Nessuna guardia: l'elenco lo
+ * filtra il server, e a cassaforte non attivata la pagina lo dice.
+ */
+const credentialsRoute = createRoute({
+  getParentRoute: () => authedRoute,
+  path: "/credentials",
+  component: MyCredentialsPage,
+});
+
 const teamRoute = createRoute({
   getParentRoute: () => authedRoute,
   path: "/team",
@@ -1084,6 +1110,28 @@ const settingsRolesRoute = createRoute({
   component: SettingsRolesPage,
 });
 
+/**
+ * Attivazione della cassaforte e kit di recupero: solo full admin (design
+ * «Dove sta nella web»). L'autorità resta il server (`POST /api/vault/activate`).
+ */
+const settingsVaultRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/vault",
+  beforeLoad: ({ context }) => requirePermission(context.me, "instance.full_admin"),
+  component: VaultSetupPage,
+});
+
+/**
+ * Recupero col kit (design «Kit di recupero»): solo full admin; le rotte del
+ * server chiedono in più la riconferma recente e la prova del kit.
+ */
+const settingsVaultRecoveryRoute = createRoute({
+  getParentRoute: () => settingsRoute,
+  path: "/vault/recovery",
+  beforeLoad: ({ context }) => requirePermission(context.me, "instance.full_admin"),
+  component: VaultRecoveryPage,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   loginSecondFactorRoute,
@@ -1129,6 +1177,7 @@ const routeTree = rootRoute.addChildren([
     mailDetailRoute,
     calendarRoute,
     releaseQueueRoute,
+    credentialsRoute,
     teamRoute,
     settingsRoute.addChildren([
       settingsIndexRoute,
@@ -1146,6 +1195,8 @@ const routeTree = rootRoute.addChildren([
       settingsAiProvidersRoute,
       settingsPluginsRoute,
       settingsRolesRoute,
+      settingsVaultRoute,
+      settingsVaultRecoveryRoute,
     ]),
   ]),
 ]);
