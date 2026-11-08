@@ -1,4 +1,5 @@
 import type { ProductBlockType } from "../../data/model";
+import { normalizeLanguage } from "./codeLanguages";
 
 /** Il menu «/» e le scorciatoie digitate dell'editor (shape `product-editor.md` §3.4). */
 
@@ -12,6 +13,7 @@ export type SlashItemId =
   | "todo"
   | "table"
   | "quote"
+  | "code"
   | "divider"
   | "image"
   | "drive"
@@ -52,6 +54,7 @@ export const SLASH_ITEMS: readonly SlashItem[] = [
   item("numbered", "text", ["ol", "1."]),
   item("todo", "text", ["[]", "checkbox"]),
   item("quote", "text", [">"]),
+  item("code", "text", ["```", "code", "codice", "json", "snippet"]),
   item("divider", "text", ["hr", "---"]),
   item("table", "insert", []),
   item("image", "insert", ["image", "png", "jpeg", "gif", "webp"]),
@@ -88,12 +91,21 @@ const SHORTCUTS: { prefix: string; type: ProductBlockType; level?: 1 | 2 | 3 }[]
 /**
  * Le scorciatoie in testa a un blocco: «# » → titolo 1, «## », «### », «- »
  * e «* » → elenco puntato, «1. » → numerato, «[] » → to-do, «> » →
- * citazione, «---» (da solo) → separatore. `rest` è il testo dopo la
- * scorciatoia, che resta nel blocco; i segni della scorciatoia spariscono.
- * Senza lo spazio («#Titolo») o non in testa («Totale #1»): `null`.
+ * citazione, «---» (da solo) → separatore, «``` » (con lo spazio, o col nome
+ * del linguaggio attaccato: «```json ») → blocco di codice; anche Invio
+ * su «```json» lo fa (`BlockEditor`, gesto del tasto). `rest` è il testo
+ * dopo la scorciatoia, che resta nel blocco; i segni della scorciatoia
+ * spariscono. Senza lo spazio («#Titolo») o non in testa («Totale #1»): `null`.
  */
-export function typeShortcut(text: string): { type: ProductBlockType; level?: 1 | 2 | 3; rest: string } | null {
+export function typeShortcut(
+  text: string,
+): { type: ProductBlockType; level?: 1 | 2 | 3; language?: string; rest: string } | null {
   if (text === "---") return { type: "divider", rest: "" };
+  const fence = /^```([A-Za-z0-9+#-]*) $/.exec(text);
+  if (fence) {
+    const language = normalizeLanguage(fence[1]!);
+    return language === undefined ? { type: "code", rest: "" } : { type: "code", language, rest: "" };
+  }
   for (const s of SHORTCUTS) {
     if (!text.startsWith(s.prefix)) continue;
     const rest = text.slice(s.prefix.length);

@@ -12283,6 +12283,7 @@
         "numbered": "Voce di elenco numerato, livello {{level}}",
         "todo": "Da fare",
         "quote": "Citazione",
+        "code": "Blocco di codice",
         "divider": "Separatore",
         "done": "Fatto"
       },
@@ -12299,6 +12300,7 @@
         "numbered": "Elenco numerato",
         "todo": "Lista di controllo",
         "quote": "Citazione",
+        "code": "Codice",
         "divider": "Separatore",
         "table": "Tabella",
         "image": "Immagine",
@@ -12349,6 +12351,10 @@
         "field": "Titolo della pagina",
         "needsTitle": "Una pagina ha bisogno di un titolo",
         "renameFailed": "Non è stato possibile rinominare la pagina"
+      },
+      "code": {
+        "language": "Linguaggio del codice",
+        "plain": "Testo semplice"
       }
     },
     "comments": {

@@ -134,6 +134,15 @@ function Block({ doc, depth, block: b }: { doc: ExportDoc; depth: number; block:
       );
     case "divider":
       return <hr />;
+    case "code":
+      return (
+        <figure className="print-codeblock">
+          {b.language && <figcaption>{b.language}</figcaption>}
+          <pre>
+            <code>{b.text}</code>
+          </pre>
+        </figure>
+      );
     case "table":
       return (
         <table>

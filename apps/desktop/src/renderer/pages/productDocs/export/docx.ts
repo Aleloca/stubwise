@@ -222,6 +222,26 @@ export async function buildDocx(doc: ExportDoc, sketches?: DocxSketches): Promis
             border: { bottom: { style: d.BorderStyle.SINGLE, size: 6, color: "999999", space: 1 } },
           }),
         ];
+      case "code": {
+        // Il codice: monospace su fondo grigio chiaro, una riga del Word per
+        // riga del blocco (gli spazi in testa restano); il linguaggio sopra.
+        const shading = { type: d.ShadingType.CLEAR, color: "auto", fill: "F2F2F2" };
+        const label = b.language
+          ? [new d.Paragraph({ spacing: { after: 0 }, children: [new d.TextRun({ text: b.language, size: 16, color: "666666" })] })]
+          : [];
+        return [
+          ...label,
+          ...b.text.split("\n").map(
+            (line) =>
+              new d.Paragraph({
+                shading,
+                spacing: { before: 0, after: 0 },
+                children: [new d.TextRun({ text: line, font: "Courier New", size: 19 })],
+              }),
+          ),
+          new d.Paragraph({ spacing: { after: 0 }, children: [] }),
+        ];
+      }
       case "table":
         return [
           new d.Table({

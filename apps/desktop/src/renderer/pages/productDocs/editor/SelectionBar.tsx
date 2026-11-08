@@ -45,10 +45,12 @@ export const SelectionBar = forwardRef<
     onCloseLink: () => void;
     /** «Comment» sulla selezione (Task 10); assente per chi non può commentare. */
     onComment?: () => void;
+    /** Testo semplice (il codice): niente grassetto, corsivo e link, resta «Comment». */
+    plainText?: boolean;
     style: React.CSSProperties;
   }
 >(function SelectionBar(
-  { content, start, end, linkOpen, onBold, onItalic, onLink, onApplyLink, onRemoveLink, onCloseLink, onComment, style },
+  { content, start, end, linkOpen, onBold, onItalic, onLink, onApplyLink, onRemoveLink, onCloseLink, onComment, plainText, style },
   ref,
 ) {
   const { t } = useTranslation();
@@ -89,7 +91,7 @@ export const SelectionBar = forwardRef<
           onKeyDown={onKeyDown}
           className="flex h-8 items-center gap-0.5 px-1"
         >
-          {!caretOnly && (
+          {!caretOnly && !plainText && (
             <>
               <BarButton
                 label={t("productDocs.editor.selection.bold")}
@@ -111,9 +113,11 @@ export const SelectionBar = forwardRef<
               </BarButton>
             </>
           )}
-          <BarButton label={t("productDocs.editor.selection.link")} pressed={link !== null} onClick={onLink} wide>
-            {t("productDocs.editor.selection.link")}
-          </BarButton>
+          {!plainText && (
+            <BarButton label={t("productDocs.editor.selection.link")} pressed={link !== null} onClick={onLink} wide>
+              {t("productDocs.editor.selection.link")}
+            </BarButton>
+          )}
           {!caretOnly && onComment && <SelectionCommentButton onComment={onComment} />}
         </div>
       )}

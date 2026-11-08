@@ -12283,6 +12283,7 @@
         "numbered": "Numbered list item, level {{level}}",
         "todo": "To-do",
         "quote": "Quote",
+        "code": "Code block",
         "divider": "Divider",
         "done": "Done"
       },
@@ -12299,6 +12300,7 @@
         "numbered": "Numbered list",
         "todo": "To-do list",
         "quote": "Quote",
+        "code": "Code",
         "divider": "Divider",
         "table": "Table",
         "image": "Image",
@@ -12349,6 +12351,10 @@
         "field": "Page title",
         "needsTitle": "A page needs a title",
         "renameFailed": "Couldn't rename the page"
+      },
+      "code": {
+        "language": "Code language",
+        "plain": "Plain text"
       }
     },
     "comments": {

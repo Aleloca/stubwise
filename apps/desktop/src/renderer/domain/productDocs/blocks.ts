@@ -209,7 +209,9 @@ export function splitBlock(block: ProductBlock, offset: number, newId: string): 
 /** Unisce due blocchi di testo: id, tipo e campi del primo, le frasi in fila. Lancia `invalid: merge` su un blocco senza testo. */
 export function mergeBlocks(first: ProductBlock, second: ProductBlock): ProductBlock {
   if (!isTextBlock(first) || !isTextBlock(second)) throw new Error("invalid: merge");
-  return { ...first, content: concatRich(first.content, second.content) } as ProductBlock;
+  const content = concatRich(first.content, second.content);
+  // Il codice è testo semplice: i segni della frase unita non vi entrano.
+  return { ...first, content: first.type === "code" ? { text: content.text, marks: [] } : content } as ProductBlock;
 }
 
 /**

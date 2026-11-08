@@ -22,6 +22,9 @@ export function typed(id: string, to: SlashItemId, content: RichText): ProductBl
       return { id, type: "todo", content, checked: false };
     case "quote":
       return { id, type: "quote", content };
+    case "code":
+      // Il codice è testo semplice: i segni della frase non lo seguono.
+      return { id, type: "code", content: plain(content.text) };
     default:
       return { id, type: "paragraph", content };
   }

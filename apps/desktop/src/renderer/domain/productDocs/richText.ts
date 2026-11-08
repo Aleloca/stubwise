@@ -47,7 +47,7 @@ const TYPE_ORDER: Record<InlineMark["type"], number> = { bold: 0, italic: 1, lin
  * (per i link solo con lo stesso indirizzo; con indirizzi diversi vince il
  * più recente nell'elenco, che taglia il precedente).
  */
-function normalize(marks: readonly InlineMark[], length: number): InlineMark[] {
+export function normalize(marks: readonly InlineMark[], length: number): InlineMark[] {
   const clamped = marks
     .map((m) => ({ ...m, start: Math.max(0, Math.min(m.start, length)), end: Math.max(0, Math.min(m.end, length)) }))
     .filter((m) => m.start < m.end);
@@ -231,17 +231,12 @@ export function richSegments(rt: RichText): RichSegment[] {
   return out;
 }
 
-// --- incollare ---------------------------------------------------------------
+// --- incollare (`pasteHtml.ts`) ---------------------------------------------
 
-/** Gli elementi che cominciano una frase nuova. */
-const BLOCK_TAGS = new Set([
-  "P", "DIV", "H1", "H2", "H3", "H4", "H5", "H6", "LI", "BLOCKQUOTE", "TR", "PRE",
-  "UL", "OL", "TABLE", "SECTION", "ARTICLE", "HEADER", "FOOTER", "DD", "DT",
-]);
 /** Gli elementi il cui contenuto non è testo. */
-const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "HEAD", "TITLE", "META", "TEMPLATE", "NOSCRIPT"]);
+export const SKIP_TAGS = new Set(["SCRIPT", "STYLE", "HEAD", "TITLE", "META", "TEMPLATE", "NOSCRIPT"]);
 
-interface Style {
+export interface Style {
   bold: boolean;
   italic: boolean;
   href: string | null;
@@ -254,7 +249,7 @@ interface Style {
  * tutto l'incollato in un `<b style="font-weight:normal" id="docs-internal-guid-…">`
  * che NON è grassetto. Lo stile in linea vince sul tag.
  */
-function styleOf(el: Element, parent: Style): Style {
+export function styleOf(el: Element, parent: Style): Style {
   const tag = el.tagName;
   let bold = parent.bold || tag === "B" || tag === "STRONG";
   let italic = parent.italic || tag === "I" || tag === "EM";
@@ -269,67 +264,4 @@ function styleOf(el: Element, parent: Style): Style {
   let href = parent.href;
   if (tag === "A") href = safeLinkHref(el.getAttribute("href") ?? "");
   return { bold, italic, href };
-}
-
-/**
- * L'HTML degli appunti in frasi, una per paragrafo o riga: solo testo,
- * grassetto, corsivo e link http(s). Tutto il resto dell'HTML (tag, stili,
- * attributi) diventa testo o sparisce; un link non http(s) resta testo senza
- * link. Gli spazi si comprimono come li disegna il browser; le frasi vuote
- * non restano.
- */
-export function richFromHtml(html: string): RichText[] {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  const out: RichText[] = [];
-  let text = "";
-  let marks: InlineMark[] = [];
-
-  const flush = () => {
-    // Via gli spazi in testa e in coda, coi segni che si spostano.
-    let rt: RichText = { text, marks: normalize(marks, text.length) };
-    const lead = rt.text.length - rt.text.trimStart().length;
-    if (lead > 0) rt = deleteRange(rt, 0, lead);
-    const trail = rt.text.length - rt.text.trimEnd().length;
-    if (trail > 0) rt = deleteRange(rt, rt.text.length - trail, rt.text.length);
-    if (rt.text !== "") out.push(rt);
-    text = "";
-    marks = [];
-  };
-
-  const append = (raw: string, style: Style) => {
-    let chunk = raw.replace(/\u00a0/g, " ").replace(/[\t\n\r\f ]+/g, " ");
-    if (text === "" || text.endsWith(" ")) chunk = chunk.replace(/^ /, "");
-    if (chunk === "") return;
-    const start = text.length;
-    text += chunk;
-    const end = text.length;
-    if (style.bold) marks.push({ type: "bold", start, end });
-    if (style.italic) marks.push({ type: "italic", start, end });
-    if (style.href !== null) marks.push({ type: "link", start, end, href: style.href });
-  };
-
-  const walk = (node: Node, style: Style) => {
-    for (const child of Array.from(node.childNodes)) {
-      if (child.nodeType === 3) {
-        append(child.textContent ?? "", style);
-        continue;
-      }
-      if (child.nodeType !== 1) continue;
-      const el = child as Element;
-      if (SKIP_TAGS.has(el.tagName)) continue;
-      if (el.tagName === "BR") {
-        flush();
-        continue;
-      }
-      if (el.tagName === "TD" || el.tagName === "TH") append(" ", style);
-      const block = BLOCK_TAGS.has(el.tagName);
-      if (block) flush();
-      walk(el, styleOf(el, style));
-      if (block) flush();
-    }
-  };
-
-  walk(doc.body, { bold: false, italic: false, href: null });
-  flush();
-  return out;
 }

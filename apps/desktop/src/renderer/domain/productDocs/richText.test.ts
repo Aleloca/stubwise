@@ -5,7 +5,6 @@ import {
   deleteRange,
   insertText,
   plain,
-  richFromHtml,
   richSegments,
   safeLinkHref,
   setLink,
@@ -158,50 +157,5 @@ describe("richSegments", () => {
 
   it("una frase vuota non ha pezzi", () => {
     expect(richSegments(plain(""))).toEqual([]);
-  });
-});
-
-describe("richFromHtml", () => {
-  it("tiene grassetto e corsivo, scarta un link non http(s) e ogni tag", () => {
-    const out = richFromHtml('<p><b>One</b> <a href="javascript:x">two</a></p><p><i>Three</i></p>');
-    expect(out).toEqual([
-      { text: "One two", marks: [{ type: "bold", start: 0, end: 3 }] },
-      { text: "Three", marks: [{ type: "italic", start: 0, end: 5 }] },
-    ]);
-    expect(out.map((r) => r.text).join("")).not.toContain("<");
-  });
-
-  it("un incolla vero da Google Docs: segni dagli stili, l'involucro <b> ignorato", () => {
-    // Frammento copiato da Google Docs (Chrome): il <b font-weight:normal>
-    // esterno avvolge tutto, i segni stanno negli `style` degli <span>.
-    const html =
-      '<meta charset="utf-8"><b style="font-weight:normal;" id="docs-internal-guid-6a1f3c2e-7fff-4b1d-91a0-0c9e5d2b8f11">' +
-      '<p dir="ltr" style="line-height:1.38;margin-top:0pt;margin-bottom:0pt;">' +
-      '<span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;font-weight:700;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">Login</span>' +
-      '<span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;"> only with </span>' +
-      '<a href="https://accounts.google.com" style="text-decoration:none;"><span style="font-size:11pt;font-family:Arial,sans-serif;color:#1155cc;background-color:transparent;font-weight:400;font-style:italic;font-variant:normal;text-decoration:underline;-webkit-text-decoration-skip:none;text-decoration-skip-ink:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">Google</span></a>' +
-      "</p><br>" +
-      '<p dir="ltr" style="line-height:1.38;margin-top:0pt;margin-bottom:0pt;">' +
-      '<span style="font-size:11pt;font-family:Arial,sans-serif;color:#000000;background-color:transparent;font-weight:400;font-style:normal;font-variant:normal;text-decoration:none;vertical-align:baseline;white-space:pre;white-space:pre-wrap;">Bills&nbsp;by </span>' +
-      '<a href="/relative" style="text-decoration:none;"><span style="font-size:11pt;font-weight:700;font-style:normal;">email</span></a>' +
-      '</p></b><br class="Apple-interchange-newline">';
-    expect(richFromHtml(html)).toEqual([
-      {
-        text: "Login only with Google",
-        marks: [
-          { type: "bold", start: 0, end: 5 },
-          { type: "italic", start: 16, end: 22 },
-          { type: "link", start: 16, end: 22, href: "https://accounts.google.com" },
-        ],
-      },
-      { text: "Bills by email", marks: [{ type: "bold", start: 9, end: 14 }] },
-    ]);
-  });
-
-  it("righe separate da <br> sono frasi diverse; script e stili non diventano testo", () => {
-    expect(richFromHtml("<div>one<br>two<style>p{}</style><script>x()</script></div>")).toEqual([
-      plain("one"),
-      plain("two"),
-    ]);
   });
 });

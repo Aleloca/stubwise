@@ -272,11 +272,33 @@ blocchi scalano da h2 **[PE 3]**.
 | ⌘Z / ⇧⌘Z | annulla / rifà dell'editor, per pagina e per sessione, solo le operazioni di chi scrive ([PE 21]); non è l'«Annulla» del 11b |
 | Esc | chiude menu e barre, poi seleziona il blocco |
 
-- **Incollare** **[PE 14]**: una riga sola si inserisce al cursore coi suoi
-  segni; più righe diventano paragrafi **dopo** il blocco corrente, un
-  blocco per riga, righe vuote saltate; dall'HTML restano solo grassetto,
-  corsivo e link `http(s)` (un link `javascript:` o relativo resta testo).
-  Il testo incollato non diventa mai un elenco o un titolo.
+- **Incollare** **[PE 14]** *(cambiata dal maintainer dopo le prove a mano
+  del 7 nov 2026)*: l'incolla **tiene la struttura**. Un paragrafo solo si
+  inserisce al cursore coi suoi segni; il resto diventa blocchi **dopo** il
+  blocco corrente (un paragrafo vuoto viene sostituito): titoli (h1–h3,
+  h4–h6 valgono 3; il «Titolo» di Google Docs, un `<p>` da 24pt in su, è un
+  titolo 1), elenchi puntati e numerati coi rientri (al più 3 livelli),
+  caselle, citazioni, tabelle, riga orizzontale e **codice** (`<pre>`, o i
+  paragrafi in fila a spaziatura fissa di Google Docs). Dentro le frasi
+  restano solo grassetto, corsivo e link `http(s)` (un link `javascript:` o
+  relativo resta testo); il codice in mezzo a una frase resta testo. Il
+  linguaggio del codice viene dall'etichetta (`language-*`); senza, si
+  indovina solo quando è sicuro, JSON valido o XML (decisione del
+  maintainer, 9 nov 2026). Dentro un blocco di codice si incolla testo
+  semplice; in una cella, una riga per blocco. Le regole: `pasteHtml.ts`.
+- **Blocco di codice** *(maintainer, 7 nov 2026)*: da «/» («Codice») o
+  scrivendo ```` ``` ```` seguito da spazio o Invio (anche col linguaggio,
+  ```` ```json ````); carattere `font-code`, a capo e rientri sempre
+  visibili, niente colori della sintassi, un'etichetta del linguaggio
+  scelta dal menu in alto a destra (chi legge vede solo il nome). Invio va
+  a capo; Invio su una riga vuota in fondo esce in un paragrafo (un codice
+  vuoto torna paragrafo). Dentro: niente menu «/», niente
+  grassetto/corsivo/link (della barra resta «Comment»), e una frase unita
+  col Backspace perde i suoi segni. PDF e Word lo esportano con l'etichetta
+  sopra. Limiti noti, aperti: Tab non rientra; i codici dei ticket
+  («UTF-8» compreso) restano chip anche nel codice; il codice copiato da VS
+  Code (righe `<div>`) arriva ancora a paragrafi; nel Word un tab non è un
+  tab.
 
 ### 3.12 Salvataggio
 

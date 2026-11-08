@@ -24,6 +24,7 @@ export const TURN_INTO: SlashItemId[] = [
   "numbered",
   "todo",
   "quote",
+  "code",
 ];
 
 const gutterButton =

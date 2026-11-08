@@ -213,6 +213,15 @@ describe("splitBlock e mergeBlocks", () => {
     expect(splitBlock(todo, 1, "t2")[1]).toEqual({ id: "t2", type: "todo", checked: false, content: plain("b") });
   });
 
+  it("mergeBlocks in un blocco di codice: i segni della frase unita non entrano", () => {
+    const code: ProductBlock = { id: "c", type: "code", content: plain("x = 1") };
+    expect(mergeBlocks(code, para("p", toggleMark(plain(" nota"), 1, 5, "bold")))).toEqual({
+      id: "c",
+      type: "code",
+      content: plain("x = 1 nota"),
+    });
+  });
+
   it("mergeBlocks tiene id e tipo del primo", () => {
     const h: ProductBlock = { id: "h", type: "heading", level: 3, content: plain("Login only") };
     expect(mergeBlocks(h, para("p", "with Google"))).toEqual({

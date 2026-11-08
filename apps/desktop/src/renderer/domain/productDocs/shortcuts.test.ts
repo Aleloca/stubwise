@@ -12,11 +12,14 @@ describe("typeShortcut", () => {
     ["[] fare", { type: "todo", rest: "fare" }],
     ["> detto", { type: "quote", rest: "detto" }],
     ["---", { type: "divider", rest: "" }],
+    ["``` ", { type: "code", rest: "" }],
+    ["```json ", { type: "code", language: "json", rest: "" }],
+    ["```JS ", { type: "code", language: "javascript", rest: "" }],
   ])("%s", (text, expected) => {
     expect(typeShortcut(text)).toEqual(expected);
   });
 
-  it.each(["#Titolo", "Totale #1", "", "testo", "-voce", "#### quattro", "--"])("%s → null", (text) => {
+  it.each(["#Titolo", "Totale #1", "", "testo", "-voce", "#### quattro", "--", "``", "```", "```json", "```json x"])("%s → null", (text) => {
     expect(typeShortcut(text)).toBeNull();
   });
 });
@@ -32,6 +35,7 @@ const WORDS: Record<string, { en: string; it: string }> = {
   numbered: { en: "Numbered list", it: "Elenco numerato" },
   todo: { en: "To-do list", it: "Lista di controllo" },
   quote: { en: "Quote", it: "Citazione" },
+  code: { en: "Code", it: "Codice" },
   divider: { en: "Divider", it: "Separatore" },
   table: { en: "Table", it: "Tabella" },
   image: { en: "Image", it: "Immagine" },
@@ -58,6 +62,7 @@ describe("filterSlashItems", () => {
       "numbered",
       "todo",
       "quote",
+      "code",
       "divider",
       "table",
       "image",
@@ -112,6 +117,7 @@ describe("SLASH_ITEMS: i gruppi dello shape (§3.4)", () => {
       "text:numbered",
       "text:todo",
       "text:quote",
+      "text:code",
       "text:divider",
       "insert:table",
       "insert:image",

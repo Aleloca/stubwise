@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ProductBlock, ProductPageView, ProductPresenceView, RichText } from "../../../data/types";
 import { anchorIdsOf, isTextBlock } from "../../../domain/productDocs/blocks";
+import { CODE_LANGUAGES, languageName } from "../../../domain/productDocs/codeLanguages";
 import { ProductClaudeMark } from "../claude/ProductClaudeMark";
 import { CommentMark, ThreadTint } from "../comments/CommentMark";
 import { RemoteCursors } from "../live/RemoteCursor";
@@ -38,6 +39,9 @@ export function layoutOf(block: ProductBlock): { pt: number; pb: number; line: n
       return { pt: 0, pb: 4, line: 22, gutterTop: 0 };
     case "quote":
       return { pt: 8, pb: 8, line: 22, gutterTop: 8 };
+    case "code":
+      // La maniglia alla prima riga del codice: 8 sopra + 10 di imbottitura del riquadro.
+      return { pt: 8, pb: 8, line: 18, gutterTop: 18 };
     case "divider":
       return { pt: 16, pb: 16, line: 20, gutterTop: 6 };
     default:
@@ -52,12 +56,16 @@ const TEXT_CLASS: Record<string, string> = {
   paragraph: "text-md leading-[22px] text-pretty text-ink",
   list: "text-md leading-[22px] text-ink",
   quote: "text-md leading-[22px] text-ink-muted",
+  // Il monospace dei blocchi di codice (l'eccezione dichiarata di `font-code`).
+  code: "font-code text-ink whitespace-pre-wrap [overflow-wrap:anywhere]",
 };
 
 export const textClassOf = (block: TextBlock, checked = false) =>
   block.type === "heading"
     ? TEXT_CLASS[`heading${block.level}`]!
-    : block.type === "quote"
+    : block.type === "code"
+      ? TEXT_CLASS.code!
+      : block.type === "quote"
       ? TEXT_CLASS.quote!
       : block.type === "paragraph"
         ? TEXT_CLASS.paragraph!
@@ -142,6 +150,7 @@ export function blockLabel(block: ProductBlock, t: (key: string, opts?: Record<s
     case "paragraph":
     case "todo":
     case "quote":
+    case "code":
     case "divider":
       return t(`productDocs.editor.blocks.${block.type}`);
     case "table":
@@ -169,6 +178,7 @@ export function BlockBody({
   onCheck,
   onSelectObject,
   onCaption,
+  onLanguage,
   table,
   sketch,
   children,
@@ -180,6 +190,8 @@ export function BlockBody({
   onSelectObject?: () => void;
   /** Chi scrive: la didascalia nuova di un'immagine. */
   onCaption?: (caption: string) => void;
+  /** Chi scrive: il linguaggio del blocco di codice (`undefined` = testo semplice). */
+  onLanguage?: (language: string | undefined) => void;
   /** Chi scrive: la tabella si scrive cella per cella. */
   table?: TableEditing;
   /** Chi scrive: i gesti della bozza di schermata (11b). */
@@ -197,6 +209,12 @@ export function BlockBody({
       return <>{children}</>;
     case "quote":
       return <blockquote className="border-l-2 border-rule-strong pl-3">{children}</blockquote>;
+    case "code":
+      return (
+        <CodeBox language={block.language} onLanguage={onLanguage}>
+          {children}
+        </CodeBox>
+      );
     case "bullet":
     case "numbered":
       return (
@@ -249,4 +267,49 @@ export function BlockBody({
         />
       );
   }
+}
+
+/**
+ * Il riquadro del blocco di codice: il monospace su fondo tenue (come i
+ * blocchi di codice delle conversazioni) e, in alto a destra, il
+ * linguaggio. Chi scrive lo sceglie da un menu del sistema; chi legge vede
+ * solo l'etichetta, e niente se è testo semplice.
+ */
+function CodeBox({
+  language,
+  onLanguage,
+  children,
+}: {
+  language: string | undefined;
+  onLanguage?: (language: string | undefined) => void;
+  children: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const known = language === undefined || CODE_LANGUAGES.some((l) => l.id === language);
+  return (
+    <div className="relative rounded-md bg-ink/5 px-3 py-2.5">
+      {onLanguage ? (
+        <select
+          aria-label={t("productDocs.editor.code.language")}
+          value={language ?? ""}
+          onChange={(e) => onLanguage(e.target.value === "" ? undefined : e.target.value)}
+          className="absolute top-1.5 right-2 z-10 cursor-pointer rounded-[4px] bg-transparent px-1 py-0.5 text-xs text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus"
+        >
+          <option value="">{t("productDocs.editor.code.plain")}</option>
+          {!known && <option value={language}>{languageName(language!)}</option>}
+          {CODE_LANGUAGES.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      ) : (
+        language !== undefined && (
+          <span className="absolute top-2 right-3 text-xs text-ink-muted">{languageName(language)}</span>
+        )
+      )}
+      {/* Lo spazio dell'etichetta a destra: il codice non ci passa sotto. */}
+      <div className="pr-24">{children}</div>
+    </div>
+  );
 }

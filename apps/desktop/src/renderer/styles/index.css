@@ -678,6 +678,25 @@
     border-top: 1px solid var(--print-rule);
     margin: 1em 0;
   }
+  /* Il blocco di codice: monospace su fondo grigio chiaro, gli a capo e gli
+     spazi in testa tenuti, le righe lunghe a capo (la carta non scorre). */
+  & .print-codeblock {
+    margin: 0.6em 0;
+    & figcaption {
+      margin-bottom: 2pt;
+    }
+    & pre {
+      margin: 0;
+      padding: 6pt 8pt;
+      background: oklch(0.96 0 0);
+      border-radius: 3pt;
+      @apply font-code;
+      font-size: 9pt;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+  }
   & table {
     width: 100%;
     border-collapse: collapse;

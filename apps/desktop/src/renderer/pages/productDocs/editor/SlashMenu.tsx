@@ -143,6 +143,8 @@ function SlashGlyph({ id }: { id: SlashItemId }) {
       </>
     ),
     quote: <path d="M3.5 3.5v9M6.5 5h6.5M6.5 8h6.5M6.5 11h4" />,
+    // Il codice: le parentesi angolari e la barra.
+    code: <path d="M5.5 4.5 2.5 8l3 3.5M10.5 4.5l3 3.5-3 3.5M9 3.5l-2 9" />,
     divider: <path d="M2.5 8h11M4 4.5h8M4 11.5h8" strokeOpacity={0.5} />,
     table: (
       <>

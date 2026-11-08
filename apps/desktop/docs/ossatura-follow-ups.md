@@ -3494,9 +3494,12 @@ Cose che nessun test copre perché vogliono Electron vero e una persona davanti
 3. Incolla da Google Docs: testo, link e grassetto ok, ma **titoli, elenchi,
    tabelle, codice e riga orizzontale diventano paragrafi**. Non è un
    difetto: è [PE 14] dello shape dell'editor. Decisione del maintainer:
-   l'incolla tiene la struttura e l'editor guadagna un blocco «Codice» (in
-   lavorazione). L'«Importa da Google Docs» con Claude resta un'idea da
-   riproporre dopo.
+   l'incolla tiene la struttura e l'editor guadagna un blocco «Codice» col
+   linguaggio (un'etichetta, niente colori). Il linguaggio negli appunti di
+   Google Docs non c'è: si indovina solo se è sicuro, JSON o XML (decisione
+   del 9 nov 2026). Riprovato col documento vero: incolla, blocco a mano,
+   PDF e Word ok (9 nov 2026). L'«Importa da Google Docs» con Claude non
+   serve per ora: resta un'idea, se l'incolla un giorno non bastasse.
 4. Immagine dal Finder: ok, incollata e trascinata.
 5. Il ripiego sull'h1: **saltata** (decisione del maintainer). Nell'app non
    c'è un gesto per perdere il permesso mentre si scrive; resta coperta solo

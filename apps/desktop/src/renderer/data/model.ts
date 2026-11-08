@@ -3730,10 +3730,15 @@ export interface ProductTableRow {
  * disegno del seme (`PRODUCT_WIREFRAMES`) e la sua variante; `kept` = chi
  * scrive l'ha tenuta, e l'etichetta «Bozza di Claude» non c'è più. Facoltativo
  * (assente = mai tenuta): «Rifai» lo toglie.
+ * Il blocco di codice (`code`, prove a mano del 7 nov 2026, maintainer):
+ * testo semplice su più righe (gli a capo sono `\n`, mai segni), con il
+ * linguaggio facoltativo (assente = testo semplice), solo un'etichetta:
+ * niente colori della sintassi.
  */
 export type ProductBlock =
   | { id: string; type: "heading"; level: 1 | 2 | 3; content: RichText }
   | { id: string; type: "paragraph" | "quote"; content: RichText }
+  | { id: string; type: "code"; content: RichText; language?: string }
   | { id: string; type: "bullet" | "numbered"; content: RichText; indent: 0 | 1 | 2 }
   | { id: string; type: "todo"; content: RichText; checked: boolean }
   | { id: string; type: "divider" }

@@ -1,4 +1,5 @@
 import type { ProductBlock, ProductPage, RichText } from "../../data/model";
+import { languageName } from "./codeLanguages";
 import { richSegments, safeLinkHref } from "./richText";
 
 // Il modello dell'esportazione (area 11a, Task 12): puro, senza stato. Il
@@ -28,6 +29,8 @@ export type ExportBlock =
   | { kind: "list"; ordered: boolean; indent: 0 | 1 | 2; runs: ExportRun[] }
   | { kind: "todo"; checked: boolean; runs: ExportRun[] }
   | { kind: "divider" }
+  /** Il blocco di codice: testo semplice su più righe e il nome del linguaggio (`null` = testo semplice). */
+  | { kind: "code"; language: string | null; text: string }
   | { kind: "table"; rows: ExportRun[][][] }
   | { kind: "image"; src: string; caption: string }
   /** Un file del Drive o una decisione del registro: una riga già composta per chi esporta. */
@@ -107,6 +110,12 @@ function blockOf(block: ProductBlock, resolve: ExportResolve): ExportBlock {
       return { kind: "todo", checked: block.checked, runs: exportRunsOf(block.content) };
     case "divider":
       return { kind: "divider" };
+    case "code":
+      return {
+        kind: "code",
+        language: block.language === undefined ? null : languageName(block.language),
+        text: block.content.text,
+      };
     case "table":
       return { kind: "table", rows: block.rows.map((r) => r.cells.map((c) => exportRunsOf(c.content))) };
     case "image":

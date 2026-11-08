@@ -172,6 +172,8 @@ export function makeGestures(ctx: GestureContext) {
     const block = blockOf(id);
     if (!block || !isTextBlock(block)) return;
     const next = typed(id, to, block.content);
+    // Lo stesso linguaggio, se resta codice.
+    if (next.type === "code" && block.type === "code" && block.language !== undefined) next.language = block.language;
     // Lo stesso rientro, se resta un elenco.
     if ((next.type === "bullet" || next.type === "numbered") && (block.type === "bullet" || block.type === "numbered"))
       next.indent = block.indent;
@@ -298,13 +300,21 @@ export function makeGestures(ctx: GestureContext) {
         }
         const to: SlashItemId =
           shortcut.type === "heading" ? (`heading${shortcut.level}` as SlashItemId) : (shortcut.type as SlashItemId);
-        sessionRef.current.save([{ op: "set", block: typed(id, to, deleteRange(content, 0, cut)) }]);
+        const next = typed(id, to, deleteRange(content, 0, cut));
+        // «```json»: il blocco di codice nasce col suo linguaggio.
+        const withLanguage =
+          next.type === "code" && shortcut.language !== undefined ? { ...next, language: shortcut.language } : next;
+        sessionRef.current.save([{ op: "set", block: withLanguage }]);
         caret(id, Math.max(0, sel.start - cut));
         return;
       }
+      // Il codice è testo semplice: un segno (dal menu del sistema o dalla
+      // barra) non vi entra.
+      if (block.type === "code" && (inputType === "formatBold" || inputType === "formatItalic")) return;
       applyContent(id, content, sel);
       const s = slashRef.current;
-      if (before === "" && content.text === "/") setSlash({ id, active: 0, viaPlus: false });
+      // Nel codice «/» è testo («/usr/bin», «// nota»): niente menu.
+      if (before === "" && content.text === "/" && block.type !== "code") setSlash({ id, active: 0, viaPlus: false });
       else if (s?.id === id) {
         if (!s.viaPlus && !content.text.startsWith("/")) setSlash(null);
         else setSlash({ ...s, active: 0 });
@@ -358,6 +368,23 @@ export function makeGestures(ctx: GestureContext) {
         return true;
       }
 
+      // Invio su «```» o «```json» in un paragrafo: il blocco di codice, col
+      // suo linguaggio (con lo spazio lo fa già l'input).
+      const fence =
+        e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.altKey && !e.ctrlKey && block.type === "paragraph"
+          ? typeShortcut(block.content.text + " ")
+          : null;
+      if (fence?.type === "code") {
+        flush();
+        const code: ProductBlock =
+          fence.language === undefined
+            ? { id, type: "code", content: plain("") }
+            : { id, type: "code", content: plain(""), language: fence.language };
+        sessionRef.current.save([{ op: "set", block: code }]);
+        caret(id, 0);
+        return true;
+      }
+
       const result = editorKey(e, {
         text: block.content.text,
         caret: sel.start,
@@ -400,8 +427,28 @@ export function makeGestures(ctx: GestureContext) {
         case "moveBlock":
           moveBlock(id, result.dir);
           return true;
+        case "exitCode": {
+          // Invio in fondo al codice dopo una riga vuota: la riga vuota se ne
+          // va e si continua in un paragrafo nuovo sotto (stessa scrittura).
+          const trimmed = deleteRange(block.content, block.content.text.length - 1, block.content.text.length);
+          if (trimmed.text === "") {
+            // Un blocco di codice rimasto vuoto torna paragrafo, come un elenco vuoto.
+            structure([{ op: "set", block: { id, type: "paragraph", content: plain("") } }]);
+            caret(id, 0);
+            return true;
+          }
+          const p = emptyParagraph();
+          structure([
+            { op: "set", block: { ...block, content: trimmed } as ProductBlock },
+            { op: "insert", afterId: id, block: p },
+          ]);
+          caret(p.id, 0);
+          return true;
+        }
         case "toggleMark":
           // Il keydown annullato: niente `beforeinput formatBold` dopo (ruling P18).
+          // Il codice è testo semplice: ⌘B e ⌘I non vi mettono segni.
+          if (block.type === "code") return true;
           if (sel.start !== sel.end) applyContent(id, toggleMark(block.content, sel.start, sel.end, result.mark), sel);
           return true;
         case "undo":
@@ -426,31 +473,47 @@ export function makeGestures(ctx: GestureContext) {
         addImages(images, { afterId: id });
         return;
       }
+      // Nel codice entra il testo semplice così com'è, a capo compresi.
+      if (block.type === "code") {
+        const piece = plain(clip.text.replace(/\r\n?/g, "\n"));
+        if (piece.text === "") return;
+        const content = insertRich(deleteRange(block.content, sel.start, sel.end), sel.start, piece);
+        const at = sel.start + piece.text.length;
+        applyContent(id, content, { start: at, end: at });
+        return;
+      }
       const pasted = pasteBlocks(clip, makeBlockId);
       if (pasted.length === 0) return;
-      if (pasted.length === 1) {
-        // Una riga: al cursore, coi suoi segni.
+      if (pasted.length === 1 && pasted[0]!.type === "paragraph") {
+        // Una riga di testo: al cursore, coi suoi segni.
         const piece = (pasted[0] as TextBlock).content;
         const content = insertRich(deleteRange(block.content, sel.start, sel.end), sel.start, piece);
         const at = sel.start + piece.text.length;
         applyContent(id, content, { start: at, end: at });
         return;
       }
-      // Più righe: un paragrafo per riga, dopo il blocco corrente; la
-      // selezione se ne va come con una riga sola (nella stessa scrittura).
-      const cut: ProductBlockOp[] =
-        sel.start === sel.end
+      // Più blocchi (o un blocco che non è un paragrafo): dopo il blocco
+      // corrente, coi loro tipi; la selezione se ne va come con una riga sola
+      // (nella stessa scrittura). Un paragrafo vuoto lascia il posto al primo.
+      const emptyHere = block.type === "paragraph" && block.content.text === "";
+      const cut: ProductBlockOp[] = emptyHere
+        ? [{ op: "delete", blockId: id }]
+        : sel.start === sel.end
           ? []
           : [{ op: "set", block: { ...block, content: deleteRange(block.content, sel.start, sel.end) } as ProductBlock }];
-      let afterId = id;
+      let afterId: string | null = emptyHere ? (viewRef.current[indexOf(id) - 1]?.id ?? null) : id;
       const ops: ProductBlockOp[] = pasted.map((b) => {
         const op: ProductBlockOp = { op: "insert", afterId, block: b };
         afterId = b.id;
         return op;
       });
-      structure([...cut, ...ops]);
-      const last = pasted.at(-1) as TextBlock;
-      caret(last.id, last.content.text.length);
+      const last = pasted.at(-1)!;
+      // L'ultimo è una tabella o una riga: il cursore va in un paragrafo
+      // nuovo sotto, nella stessa scrittura (un solo ⌘Z).
+      const tail = isTextBlock(last) ? null : emptyParagraph();
+      structure([...cut, ...ops, ...(tail ? [{ op: "insert" as const, afterId: last.id, block: tail }] : [])]);
+      if (tail) caret(tail.id, 0);
+      else if (isTextBlock(last)) caret(last.id, last.content.text.length);
     },
     select(id, sel) {
       const f = focusRef.current;

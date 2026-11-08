@@ -233,7 +233,14 @@ function WritableTable({ block, editing }: { block: Table; editing: TableEditing
       }
       // In una cella tutto entra al cursore, una riga per a capo.
       const pasted = pasteBlocks(clip, makeBlockId);
-      const lines = pasted.map((b) => ("content" in b ? b.content : plain("")));
+      // Una tabella incollata in una cella: una riga per riga, le celle separate da uno spazio.
+      const lines = pasted.flatMap((b) =>
+        "content" in b
+          ? [b.content]
+          : b.type === "table"
+            ? b.rows.map((r) => plain(r.cells.map((c) => c.content.text).join(" ")))
+            : [],
+      );
       if (lines.length === 0) return;
       const piece = lines.slice(1).reduce((acc, rt) => concatRich(concatRich(acc, plain("\n")), rt), lines[0]!);
       const content = insertRich(deleteRange(pos.cell.content, sel.start, sel.end), sel.start, piece);

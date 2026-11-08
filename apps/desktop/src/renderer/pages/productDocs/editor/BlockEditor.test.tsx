@@ -713,3 +713,59 @@ describe("trascinare un blocco per ⋮⋮ ([PE 4])", () => {
     expect(await screen.findByRole("menu", { name: "Block menu" })).toBeInTheDocument();
   });
 });
+
+describe("il blocco di codice (prove a mano del 7 nov 2026)", () => {
+  const seedCode = (text: string, language?: string) => {
+    const page = signIn();
+    page.blocks = page.blocks.map((b) =>
+      b.id === LOGIN_ID ? ({ id: LOGIN_ID, type: "code", content: plain(text), ...(language ? { language } : {}) } as ProductBlock) : b,
+    );
+  };
+  const codeBox = () => body().querySelector<HTMLElement>(`[data-block-id="${LOGIN_ID}"] .font-code`)!;
+
+  it("«```json » lo fa col linguaggio; «/» dentro è testo, niente menu; Invio va a capo, Invio sulla riga vuota esce", async () => {
+    seedBlock("");
+    await openSignIn();
+    const user = userEvent.setup();
+    await user.click(textbox(""));
+    input(editing(), "insertText", "```json ");
+    await waitFor(() => expect(loginBlock()).toMatchObject({ type: "code", language: "json", content: plain("") }));
+    input(editing(), "insertText", "/");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    input(editing(), "insertText", "usr");
+    act(() => placeCaret(editing(), 4));
+    press(editing(), "Enter");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    press(editing(), "Enter");
+    await waitFor(() => expect(loginBlock()).toMatchObject({ type: "code", language: "json", content: plain("/usr") }));
+    const at = signIn().blocks.findIndex((b) => b.id === LOGIN_ID);
+    expect(signIn().blocks[at + 1]).toMatchObject({ type: "paragraph", content: plain("") });
+  });
+
+  it("Invio su «```» (senza spazio) fa un blocco di codice vuoto, e due Invio su un codice vuoto lo riportano a paragrafo", async () => {
+    seedBlock("```");
+    await openSignIn();
+    const el = await enter("```", 3);
+    press(el, "Enter");
+    await waitFor(() => expect(loginBlock()).toMatchObject({ type: "code", content: plain("") }));
+    expect(loginBlock()).not.toHaveProperty("language");
+    press(editing(), "Enter");
+    press(editing(), "Enter");
+    await waitFor(() => expect(loginBlock()).toEqual({ id: LOGIN_ID, type: "paragraph", content: plain("") }));
+  });
+
+  it("fuori dal fuoco e per chi legge, a capo e rientri restano (pre-wrap)", async () => {
+    seedCode('{\n  "sid": "CA1"\n}', "json");
+    await openSignIn();
+    expect(codeBox()).toHaveClass("whitespace-pre-wrap");
+    expect(codeBox().textContent).toBe('{\n  "sid": "CA1"\n}');
+  });
+
+  it("su una selezione nel codice la barra ha solo «Comment»", async () => {
+    seedCode("const a = 1");
+    await openSignIn();
+    await enter("const a = 1", 0, 5);
+    const bar = await screen.findByRole("toolbar");
+    expect(within(bar).getAllByRole("button").map((b) => b.textContent)).toEqual([expect.stringMatching(/Comment/)]);
+  });
+});

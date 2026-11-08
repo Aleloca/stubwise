@@ -650,7 +650,13 @@ function WritableBody({
   const active = Math.min(openSlash?.active ?? 0, Math.max(items.length - 1, 0));
   const linkHere =
     focus && focusedText && focus.start === focus.end ? linkAt(focusedText.content, focus.start, focus.end) : null;
-  const showBar = !!focus && !!focusedText && !openSlash && (focus.start !== focus.end || linkHere !== null);
+  // Il codice è testo semplice: della barra resta solo «Comment» su una selezione.
+  const plainBar = focusedText?.type === "code";
+  const showBar =
+    !!focus &&
+    !!focusedText &&
+    !openSlash &&
+    (plainBar ? focus.start !== focus.end && !!comment : focus.start !== focus.end || linkHere !== null);
   const barStart = linkHere && focus!.start === focus!.end ? linkHere.start : (focus?.start ?? 0);
   const barEnd = linkHere && focus!.start === focus!.end ? linkHere.end : (focus?.end ?? 0);
 
@@ -933,6 +939,14 @@ function WritableBody({
                             const now = blockOf(block.id);
                             if (now?.type === "image") structure([{ op: "set", block: { ...now, caption } }]);
                           }}
+                          onLanguage={(language) => {
+                            // Prima il testo scritto nel blocco, poi il linguaggio.
+                            flush();
+                            const now = blockOf(block.id);
+                            if (now?.type !== "code") return;
+                            const next: typeof now = { id: now.id, type: "code", content: now.content };
+                            structure([{ op: "set", block: language === undefined ? next : { ...next, language } }]);
+                          }}
                           table={block.type === "table" ? tableEditing(block.id) : undefined}
                           sketch={
                             block.type === "wireframe"
@@ -1031,6 +1045,7 @@ function WritableBody({
           start={barStart}
           end={barEnd}
           linkOpen={linkOpen}
+          plainText={plainBar}
           style={floating.bar}
           onBold={() => applyContent(focusedText.id, toggleMark(focusedText.content, barStart, barEnd, "bold"), focus!)}
           onItalic={() => applyContent(focusedText.id, toggleMark(focusedText.content, barStart, barEnd, "italic"), focus!)}
