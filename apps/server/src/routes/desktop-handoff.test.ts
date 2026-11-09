@@ -125,6 +125,20 @@ describe("POST /api/auth/desktop-exchange", () => {
     expect(logins.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("lo scambio riuscito cancella la riga, e pota quelle scadute da più di un giorno", async () => {
+    const old = pkce();
+    await codeFor(old.challenge);
+    await testDb.db
+      .update(desktopHandoffs)
+      .set({ expiresAt: sql`now() - interval '2 days'` })
+      .where(eq(desktopHandoffs.codeChallenge, old.challenge));
+    const { verifier, challenge } = pkce();
+    const code = await codeFor(challenge);
+    expect((await exchange(code, verifier)).statusCode).toBe(200);
+    expect(await testDb.db.select().from(desktopHandoffs).where(eq(desktopHandoffs.codeChallenge, challenge))).toHaveLength(0);
+    expect(await testDb.db.select().from(desktopHandoffs).where(eq(desktopHandoffs.codeChallenge, old.challenge))).toHaveLength(0);
+  });
+
   it("codice scambiato due volte: la seconda 400", async () => {
     const { verifier, challenge } = pkce();
     const code = await codeFor(challenge);

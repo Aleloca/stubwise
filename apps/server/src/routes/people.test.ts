@@ -88,6 +88,18 @@ describe("GET /api/people", () => {
     expect((me.json() as { user: { displayName: string } }).user.displayName).toBe("Giulia Rossi");
   });
 
+  it("un nome visualizzato con a-capo o caratteri bidi è rifiutato", async () => {
+    for (const displayName of ["Giulia\nRossi", "Giulia\u202eRossi"]) {
+      const res = await app.inject({
+        method: "PATCH",
+        url: "/api/auth/me",
+        headers: { cookie: colleague.headers.cookie },
+        payload: { displayName },
+      });
+      expect(res.statusCode).toBe(400);
+    }
+  });
+
   it("PATCH /me con la sola lingua resta valido (client vecchi)", async () => {
     const res = await app.inject({
       method: "PATCH",

@@ -136,7 +136,10 @@ describe("richieste di decisione", () => {
     const list = decisionRequestViewSchema.array().parse(mine.json());
     expect(list.map((d) => d.askedOfId)).toEqual([target.id]);
     const all = await app.inject({ method: "GET", url: `/api/decisions?taskId=${ticketId}`, headers: { cookie: users.memberCookie } });
-    expect(decisionRequestViewSchema.array().parse(all.json())).toHaveLength(2);
+    const both = decisionRequestViewSchema.array().parse(all.json());
+    expect(both).toHaveLength(2);
+    // Le più recenti per prime: il tetto dell'elenco taglia le più vecchie.
+    expect(both.map((d) => d.askedOfId)).toEqual([third.id, target.id]);
     const blind = await app.inject({ method: "GET", url: `/api/decisions?taskId=${ticketId}`, headers: { cookie: outsider.headers.cookie } });
     expect(decisionRequestViewSchema.array().parse(blind.json())).toEqual([]);
   });
