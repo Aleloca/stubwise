@@ -36,6 +36,7 @@ import {
   useSendMailDraft,
   useClaudeMailDraft,
   useTasks,
+  useTaskCount,
   useRecordDriveOpen,
   useSyncMailbox,
   usePeopleActivity,
@@ -137,6 +138,32 @@ describe("mutazioni ottimistiche", () => {
     act(() => result.current.pin.mutate({ filterId: "flt-open", pinned: true }));
     await waitFor(() => expect(result.current.pinned.data).toEqual([...seeded, "flt-open"]));
     await waitFor(() => expect(result.current.pin.isSuccess).toBe(true));
+  });
+
+  it("con un conteggio in cache, planTask funziona e torna indietro correttamente", async () => {
+    // Il conteggio sta sotto ["as", me, "tasks", "count", …] con dati {count, truncated}:
+    // l'ottimismo delle task non deve trattarlo come un elenco.
+    const { result } = renderHook(
+      () => ({ tasks: useTasks(), count: useTaskCount({}), plan: usePlanTask() }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.tasks.data).toBeDefined());
+    await waitFor(() => expect(result.current.count.data).toBeDefined());
+    const count = result.current.count.data;
+    const task = result.current.tasks.data!.find((t) => t.closedAt === null && t.plannedWeek === null)!;
+    setLatency(300);
+    failNext("planTask");
+    act(() => result.current.plan.mutate({ id: task.id, assigneeId: task.assigneeId, week: "2026-W44" }));
+    await waitFor(() =>
+      expect(result.current.tasks.data!.find((t) => t.id === task.id)?.plannedWeek).toBe("2026-W44"),
+    );
+    await waitFor(() => expect(result.current.plan.isError).toBe(true));
+    expect(result.current.plan.error?.message).toMatch(/Simulated/);
+    await waitFor(() =>
+      expect(result.current.tasks.data!.find((t) => t.id === task.id)?.plannedWeek).toBeNull(),
+    );
+    expect(result.current.count.data).toEqual(count);
+    setLatency(0);
   });
 
   it("usePlanTask: cambiare settimana ricarica anche le disposizioni del giorno", async () => {
