@@ -57,6 +57,7 @@ import { departmentRoutes } from "./routes/departments.js";
 import { peopleRoutes } from "./routes/people.js";
 import { projectStatusRoutes } from "./routes/project-statuses.js";
 import { taskRoutes } from "./routes/tasks.js";
+import { decisionRoutes } from "./routes/decisions.js";
 import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectEnvironmentRoutes } from "./routes/project-environments.js";
@@ -644,6 +645,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(peopleRoutes, { prefix: "/api/people" });
   void app.register(projectStatusRoutes, { prefix: "/api/projects" });
   void app.register(taskRoutes, { prefix: "/api/tasks" });
+  void app.register(decisionRoutes, { prefix: "/api/decisions" });
   // Viste salvate dei filtri della lista ticket: private o condivise.
   void app.register(savedViewRoutes, { prefix: "/api/saved-views" });
   // Ricerca globale (spotlight Cmd/K): full-text federata cross-entità e

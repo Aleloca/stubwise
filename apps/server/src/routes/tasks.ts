@@ -10,6 +10,7 @@ import {
   projects,
 } from "@stubwise/db";
 import {
+  decisionRequestViewSchema,
   newTaskBodySchema,
   stalledTaskViewSchema,
   taskPatchSchema,
@@ -37,6 +38,7 @@ import {
   taskFilterConditions,
   TASK_LIST_CAP,
 } from "../services/task-view.js";
+import { askDecision } from "../services/decisions.js";
 import {
   bulkUpdateTasks,
   createTask,
@@ -54,7 +56,7 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * che non esiste. Web vecchio, mobile e MCP continuano a usare `/api/tickets`.
  */
 
-const onTicket = (permission: "member" | "tickets.edit" = "member"): RouteAccess => ({
+const onTicket = (permission: "member" | "tickets.edit" | "tickets.comment" = "member"): RouteAccess => ({
   kind: "project",
   permission,
   project: fromTicket("ticketId"),
@@ -300,6 +302,29 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       },
     });
   }
+
+  app.post(
+    "/:ticketId/decisions",
+    {
+      config: { access: onTicket("tickets.comment") },
+      schema: {
+        params: ticketParamsSchema,
+        body: z.object({
+          askedOfId: z.uuid(),
+          question: z.string().trim().min(1).max(2000),
+          options: z.array(z.string().trim().min(1).max(200)).max(8).default([]),
+        }),
+        response: { 201: decisionRequestViewSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const result = await askDecision(app.db, request.user!, request.params.ticketId, request.body);
+      if (!result.ok) {
+        return apiError(reply, 400, result.error, "The person asked cannot see this task");
+      }
+      return reply.code(201).send(result.decision);
+    },
+  );
 
   app.get(
     "/:ticketId/activity",

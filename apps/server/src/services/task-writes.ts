@@ -9,6 +9,7 @@ import {
   ticketEvents,
   ticketFollowers,
   tickets,
+  users,
   type Db,
 } from "@stubwise/db";
 import {
@@ -24,6 +25,8 @@ import { projectPermissionsFor } from "../auth/access.js";
 import { createTicket, type Ticket } from "../db/tickets.js";
 import { diffTicketEvents, userExists } from "./tickets.js";
 import { loadTaskViews, visibleTasksCondition, type TaskViewer } from "./task-view.js";
+import { personName } from "./people.js";
+import { notifyTaskActivity } from "./task-notify.js";
 
 /**
  * Le scritture delle task dall'app nuova (integrazione area 2, fetta 1).
@@ -204,6 +207,31 @@ export async function applyTaskPatch(
     await tx.insert(ticketEvents).values(events.map((e) => ({ ...e, ticketId: current.id, actorId })));
   }
   if (updates.assigneeId) await follow(tx, current.id, [updates.assigneeId]);
+
+  // I follower sanno dei cambi UMANI di stato e assegnatario (Task 9). Il
+  // `summary` è un dato (nome dello stato, nome della persona), la frase la
+  // mette il template della lingua di chi legge.
+  if (updates.statusId !== undefined && updates.statusId !== current.statusId) {
+    const [status] = await tx
+      .select({ name: projectStatuses.name })
+      .from(projectStatuses)
+      .where(eq(projectStatuses.id, updated!.statusId));
+    await notifyTaskActivity(tx, { ticketId: current.id, actorUserId: actorId, change: "status", summary: status?.name ?? "" });
+  }
+  if (updates.assigneeId !== undefined && updates.assigneeId !== current.assigneeId) {
+    const [person] = updates.assigneeId
+      ? await tx
+          .select({ email: users.email, displayName: users.displayName })
+          .from(users)
+          .where(eq(users.id, updates.assigneeId))
+      : [];
+    await notifyTaskActivity(tx, {
+      ticketId: current.id,
+      actorUserId: actorId,
+      change: "assignee",
+      summary: person ? personName(person) : "—",
+    });
+  }
   return updated!;
 }
 
