@@ -16,6 +16,7 @@ import { NotFound } from "./pages/NotFound";
 import { ProjectNotFound } from "./pages/ProjectNotFound";
 import { useTranslation } from "react-i18next";
 import { useChatChannels, useEntryGate, useProject } from "./data/queries";
+import { DesktopLoginPage, type DesktopLoginParams } from "./pages/entry/DesktopLoginPage";
 import { LoginPage } from "./pages/entry/LoginPage";
 import { RegisterPage } from "./pages/entry/RegisterPage";
 import { ResetPasswordPage } from "./pages/entry/ResetPasswordPage";
@@ -372,7 +373,7 @@ function validateSearch(search: Record<string, unknown>): AppSearch {
 const ASK_MAX = 2000;
 
 /** Le rotte d'ingresso: fuori dall'intelaiatura (niente binario né colonna). */
-const ENTRY_PATH = /^\/(login|setup|register\/[^/]+|reset-password\/[^/]+)\/?$/;
+const ENTRY_PATH = /^\/(login|setup|desktop-login|register\/[^/]+|reset-password\/[^/]+)\/?$/;
 
 /**
  * Il cancello dell'ingresso (area 9a, shape `entry.md`). Con l'istanza vuota
@@ -400,6 +401,29 @@ const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   component: LoginPage,
+});
+
+/** I parametri che l'app desktop mette nel link: solo testo, la pagina li valida. */
+function validateDesktopLoginSearch(search: Record<string, unknown>): DesktopLoginParams {
+  const text = (key: string) => (typeof search[key] === "string" ? (search[key] as string) : undefined);
+  return { challenge: text("challenge"), state: text("state"), device: text("device") };
+}
+
+function DesktopLoginRoutePage() {
+  const params = desktopLoginRoute.useSearch();
+  return <DesktopLoginPage {...params} />;
+}
+
+/**
+ * `/desktop-login` (integrazione area 2, «Aggiunta del 9 nov 2026: il
+ * login»): nel browser, la conferma del login dell'app desktop. Una pagina
+ * dell'ingresso, fuori dall'intelaiatura.
+ */
+const desktopLoginRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/desktop-login",
+  validateSearch: validateDesktopLoginSearch,
+  component: DesktopLoginRoutePage,
 });
 
 function RegisterRoutePage() {
@@ -1350,6 +1374,7 @@ const automationTestRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   loginRoute,
+  desktopLoginRoute,
   registerRoute,
   resetPasswordRoute,
   setupRoute,

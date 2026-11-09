@@ -14,6 +14,8 @@ import { useToast } from "../../tasks-ui/Toast";
 import { PrototypeBox } from "../automations/shared";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { BusyLabel, EntryColumn, EntryField, EntryHeading, ErrorLine, textButton } from "./parts";
+import { isDesktopApp } from "../../platform/desktopSession";
+import { DesktopEntry } from "./DesktopEntry";
 import { SecondFactorStep } from "./SecondFactorStep";
 
 /** La password di ogni persona del seme e il codice fisso, mostrati nel riquadro del prototipo. */
@@ -25,14 +27,17 @@ const PROTOTYPE_CODE = "123456";
  * fattore — il passo del codice nella stessa colonna. Un errore non dice mai
  * se l'email esiste. Chi è già dentro va alla Home; chi è a metà (il secondo
  * passo aperto, l'app ricaricata) riparte dal codice.
+ *
+ * Sull'app desktop non c'è un modulo di password: il login passa dal browser
+ * di sistema (`DesktopEntry`, integrazione area 2, «Aggiunta del 9 nov 2026»).
  */
 export function LoginPage() {
+  if (isDesktopApp()) return <DesktopEntry />;
+  return <WebLoginPage />;
+}
+
+function WebLoginPage() {
   const { stage } = useEntryGate();
-  const [step, setStep] = useState<"credentials" | "second_factor">(
-    stage === "second_factor" ? "second_factor" : "credentials",
-  );
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   // Dentro, ma con un passo ancora da mostrare (i codici di backup quasi finiti).
   const [finishing, setFinishing] = useState(false);
   const navigate = useNavigate();
@@ -41,6 +46,35 @@ export function LoginPage() {
 
   return (
     <EntryColumn>
+      <LoginSteps
+        onFinishing={setFinishing}
+        onDone={() => void navigate({ to: "/home", replace: true })}
+      />
+    </EntryColumn>
+  );
+}
+
+/**
+ * I passi del login web (credenziali, poi secondo fattore), senza la colonna:
+ * li usa `/login` e la conferma del login del desktop (`/desktop-login`), che
+ * prima di chiedere «Allow» vuole una sessione completa.
+ */
+export function LoginSteps({
+  onFinishing,
+  onDone,
+}: {
+  onFinishing: (finishing: boolean) => void;
+  onDone: () => void;
+}) {
+  const { stage } = useEntryGate();
+  const [step, setStep] = useState<"credentials" | "second_factor">(
+    stage === "second_factor" ? "second_factor" : "credentials",
+  );
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  return (
+    <>
       {/* La dissolvenza fra i due passi sta sul blocco; il logo resta fermo. */}
       <div key={step} className="entry-enter">
         {step === "credentials" ? (
@@ -53,13 +87,14 @@ export function LoginPage() {
               setPassword("");
               setStep("second_factor");
             }}
+            onIn={onDone}
           />
         ) : (
           <SecondFactorStep
             email={email}
             onBack={() => setStep("credentials")}
-            onFinishing={setFinishing}
-            onDone={() => void navigate({ to: "/home", replace: true })}
+            onFinishing={onFinishing}
+            onDone={onDone}
           />
         )}
       </div>
@@ -72,7 +107,7 @@ export function LoginPage() {
           }}
         />
       )}
-    </EntryColumn>
+    </>
   );
 }
 
@@ -82,16 +117,17 @@ function CredentialsStep({
   onEmail,
   onPassword,
   onSecondFactor,
+  onIn,
 }: {
   email: string;
   password: string;
   onEmail: (v: string) => void;
   onPassword: (v: string) => void;
   onSecondFactor: () => void;
+  onIn: () => void;
 }) {
   const { t } = useTranslation();
   const login = useLogin();
-  const navigate = useNavigate();
   const passwordRef = useRef<HTMLInputElement>(null);
   const [wrong, setWrong] = useState(false);
 
@@ -110,7 +146,7 @@ function CredentialsStep({
             onPassword("");
             passwordRef.current?.focus();
           } else if (r.stage === "second_factor") onSecondFactor();
-          else void navigate({ to: "/home", replace: true });
+          else onIn();
         },
       },
     );

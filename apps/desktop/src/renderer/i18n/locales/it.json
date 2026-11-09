@@ -9862,6 +9862,63 @@
       "spentBody": "Un link di reset vale una volta, entro un'ora. Chiedine uno nuovo all'amministratore.",
       "invalidTitle": "Questo link non è valido",
       "invalidBody": "Controlla di averlo copiato intero, o chiedine uno nuovo all'amministratore."
+    },
+    "desktop": {
+      "address": {
+        "title": "Collegati a Stubwise",
+        "lead": "Inserisci l'indirizzo dello Stubwise del tuo team: è quello che vedi nella barra del browser quando lo usi sul web.",
+        "label": "Indirizzo",
+        "submit": "Continua",
+        "saving": "Controllo…",
+        "invalid": "Non sembra l'indirizzo di uno Stubwise. Scrivilo intero, a partire da https://."
+      },
+      "start": {
+        "title": "Accedi a Stubwise",
+        "lead": "Accedi nel browser, con la password e la verifica in due passaggi, passkey compresa. Poi torni qui.",
+        "instance": "Stubwise su",
+        "change": "Cambia",
+        "submit": "Accedi col browser",
+        "opening": "Apertura del browser…"
+      },
+      "waiting": {
+        "title": "Finisci l'accesso nel browser",
+        "lead": "Abbiamo aperto {{host}} nel browser. Accedi lì e scegli «Consenti»: l'app si riapre da sola.",
+        "openAgain": "Apri di nuovo",
+        "cancel": "Annulla"
+      },
+      "errors": {
+        "noInstance": "Prima inserisci l'indirizzo del tuo Stubwise.",
+        "network": "Non è stato possibile raggiungere il tuo Stubwise. Controlla l'indirizzo e la connessione, poi riprova.",
+        "notFinished": "L'accesso non è andato a buon fine. Ricomincia da qui.",
+        "sessionEnded": "La sessione è finita. Accedi di nuovo.",
+        "generic": "Non è stato possibile accedere. Riprova."
+      }
+    },
+    "desktopLogin": {
+      "signInFirst": "Accedi per permettere a Stubwise su «{{device}}» di usare il tuo account.",
+      "consent": {
+        "title": "Consentire a Stubwise su «{{device}}» di accedere come {{name}}?",
+        "titleNoName": "Consentire a Stubwise su «{{device}}» di accedere con il tuo account?",
+        "lead": "L'app su quel Mac agirà con il tuo account finché non esci lì. Consenti solo se hai appena iniziato ad accedere da lì.",
+        "allow": "Consenti",
+        "allowing": "Consenso in corso…",
+        "cancel": "Annulla",
+        "failed": "Non è stato possibile consentire l'accesso all'app. Ricomincia dall'app sul Mac.",
+        "nothingChanged": "Non è stato condiviso niente con l'app. Scegli «Consenti» per riprovare."
+      },
+      "reauthAction": "permettere a Stubwise su «{{device}}» di accedere con il tuo account",
+      "opened": {
+        "title": "Stubwise si sta aprendo sul Mac",
+        "lead": "Puoi chiudere questa scheda."
+      },
+      "cancelled": {
+        "title": "Accesso annullato",
+        "lead": "Non è stato condiviso niente con l'app. Puoi chiudere questa scheda."
+      },
+      "invalid": {
+        "title": "Questo link di accesso non funziona",
+        "lead": "Ricomincia dall'app Stubwise sul Mac: apre un link nuovo."
+      }
     }
   },
   "admin": {
