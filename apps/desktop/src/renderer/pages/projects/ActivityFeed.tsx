@@ -90,11 +90,16 @@ export function ActivityFeed({ projects }: { projects: Project[] }) {
           </ul>
         </section>
       ))}
-      {groups.length > shown.length && (
+      {/* Prima i giorni già letti; finiti quelli, la pagina prima dal server («Load older»). */}
+      {(groups.length > shown.length || activity.hasMore) && (
         <button
           type="button"
           className={`${ghostButton} mt-2 ml-2`}
-          onClick={() => setDays((d) => d + DAYS_STEP)}
+          disabled={activity.loadingOlder}
+          onClick={() => {
+            if (groups.length <= shown.length + DAYS_STEP && activity.hasMore) activity.loadOlder();
+            setDays((d) => d + DAYS_STEP);
+          }}
         >
           {t("projects.activity.showEarlier")}
         </button>

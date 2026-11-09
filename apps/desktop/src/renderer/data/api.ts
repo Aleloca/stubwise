@@ -104,6 +104,7 @@ import type {
   SlashCommand,
   Task,
   TimelineEvent,
+  TimelinePage,
   UndoView,
   Utterance,
   WeeklyBrief,
@@ -613,6 +614,26 @@ export async function listPortfolioActivity(): Promise<PortfolioEvent[]> {
     .flatMap((p) => withNames(me, timelineOf(p.id)).map((e) => ({ ...e, projectId: p.id })))
     .filter((e) => e.at.slice(0, 10) <= TODAY)
     .sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/**
+ * Una pagina di cronologia (fetta 4, decisione del maintainer: «Load older»).
+ * Sul server vero una pagina copre 28 giorni e `nextBefore` dice dove parte la
+ * successiva; il prototipo ha tutta la storia in memoria, quindi una pagina
+ * sola, con `nextBefore` null: lì non cambia nulla.
+ */
+export async function listTimelinePage(
+  projectId: string,
+  before?: string,
+): Promise<TimelinePage<TimelineEvent>> {
+  void before;
+  return { events: await listTimeline(projectId), nextBefore: null };
+}
+
+/** L'attività del portafoglio a pagine: come `listTimelinePage`, una pagina sola nel prototipo. */
+export async function listPortfolioActivityPage(before?: string): Promise<TimelinePage<PortfolioEvent>> {
+  void before;
+  return { events: await listPortfolioActivity(), nextBefore: null };
 }
 
 function timelineOf(projectId: string): TimelineEvent[] {
