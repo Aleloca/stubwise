@@ -547,6 +547,9 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     await c.requests.reopen(R);
     await c.requests.restore(R, "ready");
     await c.requests.merge(R, P);
+    await c.requests.update(R, { description: "Testo nuovo" });
+    await c.requests.acceptSuggestions(R);
+    await c.requests.dismissSuggestions(R);
     const base = "https://stubwise.example/api/requests";
     expect(calls).toEqual([
       ["GET", `${base}?projectId=${P}`, undefined],
@@ -559,6 +562,9 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
       ["POST", `${base}/${R}/reopen`, undefined],
       ["POST", `${base}/${R}/restore`, { status: "ready" }],
       ["POST", `${base}/${R}/merge`, { intoId: P }],
+      ["PATCH", `${base}/${R}`, { description: "Testo nuovo" }],
+      ["POST", `${base}/${R}/suggestions/accept`, undefined],
+      ["POST", `${base}/${R}/suggestions/dismiss`, undefined],
     ]);
   });
 

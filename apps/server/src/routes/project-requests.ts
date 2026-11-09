@@ -1,5 +1,10 @@
 import { backlogItems, backlogJobs, projects } from "@stubwise/db";
-import { updateBacklogItemMetadata } from "@stubwise/notifications";
+import {
+  acceptBacklogItemSuggested,
+  dismissBacklogItemSuggested,
+  setBacklogItemDescription,
+  updateBacklogItemMetadata,
+} from "@stubwise/notifications";
 import {
   effortFromSize,
   newRequestBodySchema,
@@ -152,7 +157,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
       (await requestView(app.db, request.user!, request.params.id)) ?? apiError(reply, 404, "not_found", "Request not found"),
   );
 
-  /** Titolo e metadati (`backlog.edit`). Trasformata o archiviata, la richiesta è in sola lettura per i metadati. */
+  /** Titolo, descrizione e metadati (`backlog.edit`). Trasformata o archiviata, la richiesta è in sola lettura (il titolo no). */
   app.patch(
     "/requests/:id",
     {
@@ -161,12 +166,19 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
     },
     async (request, reply) => {
       const { id } = request.params;
-      const { title, urgency, size, risk, riskNote } = request.body;
-      const meta = urgency !== undefined || size !== undefined || risk !== undefined || riskNote !== undefined;
+      const { title, description, urgency, size, risk, riskNote } = request.body;
+      const meta =
+        description !== undefined || urgency !== undefined || size !== undefined || risk !== undefined || riskNote !== undefined;
       const [current] = await app.db.select({ status: backlogItems.status }).from(backlogItems).where(eq(backlogItems.id, id));
       if (!current) return apiError(reply, 404, "not_found", "Request not found");
       if (meta && (current.status === "converted" || current.status === "archived")) {
         return apiError(reply, 409, "request_read_only", "A converted or archived request cannot change its metadata");
+      }
+      if (description !== undefined) {
+        const res = await setBacklogItemDescription(app.db, id, description, { readOnlyClosed: true });
+        if (res === "read_only") {
+          return apiError(reply, 409, "request_read_only", "A converted or archived request cannot change its metadata");
+        }
       }
       await updateBacklogItemMetadata(app.db, id, {
         ...(title !== undefined ? { title } : {}),
@@ -178,6 +190,29 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
       return (await requestView(app.db, request.user!, id)) ?? apiError(reply, 404, "not_found", "Request not found");
     },
   );
+
+  // Le proposte dell'intake: accettate diventano i metadati, scartate spariscono.
+  // Gli scrittori sono quelli di `backlog-item-writes.ts` (voce in lock), gli
+  // stessi delle rotte del backlog; qui una trasformata o archiviata è in sola lettura.
+  for (const [action, write] of [
+    ["accept", acceptBacklogItemSuggested],
+    ["dismiss", dismissBacklogItemSuggested],
+  ] as const) {
+    app.post(
+      `/requests/:id/suggestions/${action}`,
+      { config: { access: backlogItemAccess("id", "backlog.edit") }, schema: { params: idParams, response: viewOr404 } },
+      async (request, reply) => {
+        const { id } = request.params;
+        const res = await write(app.db, id, { readOnlyClosed: true });
+        if (res === "not_found") return apiError(reply, 404, "not_found", "Request not found");
+        if (res === "read_only") {
+          return apiError(reply, 409, "request_read_only", "A converted or archived request cannot change its metadata");
+        }
+        if (res === "no_suggested") return apiError(reply, 409, "no_suggested", "There are no suggestions to " + action);
+        return (await requestView(app.db, request.user!, id))!;
+      },
+    );
+  }
 
   /** Archivia una richiesta aperta; la sua sessione di refinement si chiude. */
   app.post(

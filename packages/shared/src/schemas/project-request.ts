@@ -89,9 +89,11 @@ export const requestJobViewSchema = z.object({
 });
 export type RequestJobView = z.infer<typeof requestJobViewSchema>;
 
-/** Corpo di `PATCH /api/requests/:id`: titolo e metadati; gli assenti restano. */
+/** Corpo di `PATCH /api/requests/:id`: titolo, descrizione e metadati; gli assenti restano. */
 export const requestPatchBodySchema = z.object({
   title: z.string().trim().min(1).max(300).optional(),
+  /** Il testo della richiesta (non il design). */
+  description: z.string().max(100_000).optional(),
   urgency: requestLevelSchema.optional(),
   size: taskSizeSchema.nullable().optional(),
   risk: requestLevelSchema.nullable().optional(),

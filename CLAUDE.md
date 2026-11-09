@@ -393,6 +393,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 2, fetta 1» (9 nov 2026)
   - «Integrazione area 2, fetta 2» (9 nov 2026)
   - «Integrazione area 2, fetta 3» (10 nov 2026)
+  - «Integrazione area 2, fetta 4» (10 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -493,6 +494,9 @@ una voce ti riguarda.
   - La settimana pianificata è un lunedì; la settimana corrente è nel fuso Europe/Rome, in una funzione SQL e una TS (fetta 2).
   - Lo slittamento si DERIVA a lettura, nessun job lo scrive; il trigger `tickets_consolidate_slip` lo consolida quando cambia la settimana.
   - Le sistemazioni per giorno sono PERSONALI dell'assegnatario e valgono per quella settimana effettiva e quell'assegnatario.
+- **Richieste: numeri e fusione → `docs/invariants/requests.md`** (10 nov 2026):
+  - I codici R<n> sono un contatore per progetto, dato dal trigger, mai riusato.
+  - La fusione sta in UN posto (`services/backlog-merge.ts`): l'AI fuori transazione, il resto atomico; se l'AI fallisce, niente scritto.
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:
