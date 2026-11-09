@@ -219,3 +219,87 @@ describe("createStubwiseClient", () => {
     await expect(client.request("GET", "/api/x")).resolves.toEqual({ qualsiasi: "cosa" });
   });
 });
+
+describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, stati)", () => {
+  const VIEW = {
+    id: "0b1e6f3a-1111-4222-8333-444455556666",
+    ticketId: "0b1e6f3a-1111-4222-8333-444455556666",
+    number: 1,
+    code: "AUD-1",
+    projectId: "1c2d3e4f-1111-4222-8333-444455556666",
+    title: "t",
+    description: "",
+    statusId: "2d3e4f5a-1111-4222-8333-444455556666",
+    departmentId: "3e4f5a6b-1111-4222-8333-444455556666",
+    assigneeId: null,
+    createdById: null,
+    size: null,
+    milestoneId: null,
+    type: "bug",
+    priority: "medium",
+    createdAt: "2026-11-01T00:00:00.000Z",
+    closedAt: null,
+    lastActivityAt: "2026-11-01T00:00:00.000Z",
+  };
+
+  it("tasks.list: path, query con gli array separati da virgola e il periodo appiattito", async () => {
+    const fetchImpl = mockFetch(async () => jsonResponse(200, { items: [VIEW], truncated: false }));
+    const client = clientWith(fetchImpl);
+    const page = await client.tasks.list({
+      families: ["todo"],
+      sizes: ["XS", "none"],
+      stalled: true,
+      period: { field: "due", kind: "relative", preset: "thisWeek" },
+    });
+    expect(page.items[0]!.code).toBe("AUD-1");
+    // I default dello schema condiviso girano: slipCount e plannedWeek arrivano anche se il server non li manda.
+    expect(page.items[0]!.slipCount).toBe(0);
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    const parsed = new URL(url as string);
+    expect(parsed.pathname).toBe("/api/tasks");
+    expect(Object.fromEntries(parsed.searchParams)).toEqual({
+      families: "todo",
+      sizes: "XS,none",
+      stalled: "true",
+      periodField: "due",
+      periodPreset: "thisWeek",
+    });
+    expect(init!.method).toBe("GET");
+  });
+
+  it("tasks.bulkUpdate: PATCH /api/tasks/bulk con ids e patch nel corpo", async () => {
+    const fetchImpl = mockFetch(async () => jsonResponse(200, [VIEW]));
+    const client = clientWith(fetchImpl);
+    await client.tasks.bulkUpdate(["a", "b"], { size: "S" });
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://stubwise.example/api/tasks/bulk");
+    expect(init!.method).toBe("PATCH");
+    expect(JSON.parse(init!.body as string)).toEqual({ ids: ["a", "b"], patch: { size: "S" } });
+  });
+
+  it("departments.remove: DELETE con moveTasksTo in query", async () => {
+    const fetchImpl = mockFetch(async () => new Response(null, { status: 204 }));
+    const client = clientWith(fetchImpl);
+    await client.departments.remove("d-1", "x");
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(url).toBe("https://stubwise.example/api/departments/d-1?moveTasksTo=x");
+    expect(init!.method).toBe("DELETE");
+  });
+
+  it("i path degli altri gruppi", async () => {
+    const calls: [string, string][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string]);
+      return new Response(null, { status: 204 });
+    });
+    const c = clientWith(fetchImpl);
+    const base = "https://stubwise.example";
+    // Le risposte 204 non hanno corpo: per questi bastano metodo e path.
+    await c.tasks.follow("t1");
+    await c.tasks.unfollow("t1");
+    expect(calls).toEqual([
+      ["PUT", `${base}/api/tasks/t1/follow`],
+      ["DELETE", `${base}/api/tasks/t1/follow`],
+    ]);
+  });
+});

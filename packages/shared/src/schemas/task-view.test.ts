@@ -68,3 +68,16 @@ describe("taskPatchSchema", () => {
     expect(taskPatchSchema.parse({ assigneeId: null, size: null })).toEqual({ assigneeId: null, size: null });
   });
 });
+
+describe("stallSchema", () => {
+  it("un motivo che il client non conosce parsa da lettore come UNKNOWN", async () => {
+    const { stallSchema } = await import("./task-view.js");
+    const { readerSchema, UNKNOWN } = await import("../reader.js");
+    expect(readerSchema(stallSchema).parse({ reason: { kind: "nuovo" }, since: "2026-11-01", days: 1 }).reason.kind).toBe(
+      UNKNOWN,
+    );
+    expect(
+      stallSchema.parse({ reason: { kind: "decision", personId: "p" }, since: "2026-11-01", days: 1 }).reason,
+    ).toEqual({ kind: "decision", personId: "p" });
+  });
+});

@@ -19,6 +19,11 @@ import { createSearchEndpoints } from "./endpoints/search.js";
 import { createServersEndpoints } from "./endpoints/servers.js";
 import { createTicketsEndpoints } from "./endpoints/tickets.js";
 import { createUsersEndpoints } from "./endpoints/users.js";
+import { createDecisionsEndpoints } from "./endpoints/decisions.js";
+import { createDepartmentsEndpoints } from "./endpoints/departments.js";
+import { createPeopleEndpoints } from "./endpoints/people.js";
+import { createProjectStatusesEndpoints } from "./endpoints/projectStatuses.js";
+import { createTasksEndpoints } from "./endpoints/tasks.js";
 
 /**
  * L'init di `fetch` DERIVATO dal `fetch` dell'ambiente, invece di nominare
@@ -127,6 +132,12 @@ export function createEndpoints(request: ApiRequest) {
     calendar: createCalendarEndpoints(request),
     users: createUsersEndpoints(request),
     agentSessions: createAgentSessionsEndpoints(request),
+    // Integrazione area 2 (fetta 1): l'app nuova.
+    tasks: createTasksEndpoints(request),
+    decisions: createDecisionsEndpoints(request),
+    departments: createDepartmentsEndpoints(request),
+    people: createPeopleEndpoints(request),
+    projectStatuses: createProjectStatusesEndpoints(request),
   };
 }
 

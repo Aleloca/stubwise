@@ -29,3 +29,7 @@ export type { CalendarFilters, CalendarRange } from "./endpoints/calendar.js";
 export type { InboxActionBody, InboxAnswerBody, InboxFilters } from "./endpoints/inbox.js";
 export type { MailDetailSource, MailFilters, MailReproposeSource } from "./endpoints/mail.js";
 export type { TicketFilters, TicketPatch } from "./endpoints/tickets.js";
+export type { DecisionFilters } from "./endpoints/decisions.js";
+export type { ProjectStatusesBody } from "./endpoints/projectStatuses.js";
+export type { TaskBulkPatch, TaskListFilters } from "./endpoints/tasks.js";
+export { taskListQuery } from "./endpoints/tasks.js";
