@@ -96,6 +96,11 @@ describe("POST /api/projects", () => {
       createdAt: expect.any(String),
       code: expect.stringMatching(/^[A-Z][A-Z0-9]{1,5}$/),
       stallThresholds: { activeDays: 7, todoDays: 14 },
+      // Fetta 4: senza modello, software con tutti i moduli, interno.
+      template: "software",
+      modules: ["docs", "releases", "support", "servers"],
+      clientName: null,
+      kind: "internal",
     });
   });
 
