@@ -75,18 +75,22 @@ export function currentIsoWeek(now: Date): string {
 }
 
 /**
- * Lo slittamento DERIVATO (la stessa regola di `stubwise_effective_week` e
- * `stubwise_slip_weeks` nel DB): una task non chiusa con la settimana passata
- * è nella settimana corrente, e `slipCount` aggiunge le settimane trascorse a
- * quelle già consolidate. Una chiusa, una senza settimana o nel futuro resta
- * com'è.
+ * Lo slittamento DERIVATO, la stessa regola di `stubwise_effective_week` e
+ * `stubwise_slip_weeks` nel DB: una task scivola fino a un riferimento — la
+ * settimana corrente se è aperta, quella in cui è stata chiusa se è chiusa —
+ * e si legge nella più tarda fra la sua settimana e il riferimento;
+ * `slipCount` aggiunge le settimane trascorse fino al riferimento a quelle già
+ * consolidate. Chiusa nella sua settimana non è mai slittata; senza settimana
+ * o nel futuro resta com'è. Una task riaperta riprende a scivolare dalla sua
+ * settimana pianificata: il tempo in cui è stata chiusa conta.
  */
 export function slipOf(
-  task: { plannedWeek: string | null; slipCount: number; closed: boolean },
+  task: { plannedWeek: string | null; slipCount: number; closedWeek: string | null },
   currentWeek: string,
 ): { plannedWeek: string | null; slipCount: number } {
-  if (task.closed || task.plannedWeek === null || compareWeeks(task.plannedWeek, currentWeek) >= 0) {
+  const reference = task.closedWeek ?? currentWeek;
+  if (task.plannedWeek === null || compareWeeks(task.plannedWeek, reference) >= 0) {
     return { plannedWeek: task.plannedWeek, slipCount: task.slipCount };
   }
-  return { plannedWeek: currentWeek, slipCount: task.slipCount + weeksBetween(task.plannedWeek, currentWeek) };
+  return { plannedWeek: reference, slipCount: task.slipCount + weeksBetween(task.plannedWeek, reference) };
 }

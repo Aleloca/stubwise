@@ -58,6 +58,7 @@ import {
   foreignKey,
   index,
   integer,
+  smallint,
   jsonb,
   numeric,
   pgEnum,
@@ -990,6 +991,11 @@ export const tickets = pgTable(
       "tickets_manual_stall_chk",
       sql`(manual_stall_reason IS NULL) = (manual_stall_since IS NULL)`,
     ),
+    // Fetta 2 (0113): la settimana pianificata è un lunedì, lo slittamento non negativo.
+    check("tickets_planned_week_monday_chk", sql`planned_week IS NULL OR extract(isodow from planned_week) = 1`),
+    check("tickets_slip_count_chk", sql`slip_count >= 0`),
+    // Le task di una persona in una settimana (0113, su tutte le task dalla 0120).
+    index("tickets_assignee_planned_week_idx").on(table.assigneeId, table.plannedWeek),
   ],
 );
 
@@ -5116,11 +5122,14 @@ export const taskDayArrangements = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     week: date("week", { mode: "string" }).notNull(),
-    day: integer("day"),
+    // `smallint` come nella 0113: 1–5 (lunedì–venerdì), null = senza giorno.
+    day: smallint("day"),
   },
   (table) => [
     primaryKey({ name: "task_day_arrangements_pk", columns: [table.ticketId, table.userId, table.week] }),
     index("task_day_arrangements_user_week_idx").on(table.userId, table.week),
+    check("task_day_arrangements_week_monday_chk", sql`extract(isodow from week) = 1`),
+    check("task_day_arrangements_day_chk", sql`day IS NULL OR day BETWEEN 1 AND 5`),
   ],
 );
 

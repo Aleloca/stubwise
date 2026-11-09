@@ -79,8 +79,17 @@ Task 2. Migrazione: `packages/db/drizzle/0108_project_statuses.sql`. Test:
   (`stubwise_effective_week`), e `slipCount = slip_count +
   stubwise_slip_weeks(...)`. Una task chiusa smette di scivolare alla
   settimana in cui si è chiusa: chiusa nella sua settimana non è mai
-  slittata. Un aggiornamento di massa toccherebbe `updated_at`, cioè le ferme
-  per inattività: non va introdotto.
+  slittata. Una task RIAPERTA riprende a scivolare dalla sua settimana
+  pianificata, non da quella di chiusura: il tempo in cui è stata chiusa
+  conta (riaperta oggi, ha lo slittamento di tutte le settimane dalla
+  pianificata a oggi). Un aggiornamento di massa toccherebbe `updated_at`,
+  cioè le ferme per inattività: non va introdotto.
+- **Una settimana passata non si scrive** (400 `past_week` in creazione,
+  PATCH, bulk e pianificazione): gonfierebbe `slipCount`, che è un dato
+  mostrato. Resta ammesso riscrivere la settimana EFFETTIVA attuale della
+  task (la corrente di una slittata, quella di chiusura di una chiusa), che
+  per chi guarda è un no-op; e una scrittura con gli stessi valori non fa
+  l'UPDATE.
 - **Il consolidamento è un trigger** (`tickets_consolidate_slip`): quando una
   scrittura cambia davvero `planned_week`, il derivato di prima si somma a
   `slip_count`. Ripianificare non perde né raddoppia il conteggio, e
@@ -98,9 +107,10 @@ Task 2. Migrazione: `packages/db/drizzle/0108_project_statuses.sql`. Test:
   (`PUT /api/tasks/:id/day`, 403 a chi non è l'assegnatario) solo
   l'assegnatario, e solo sulle proprie task (`apps/server/src/routes/day-arrangements.ts`).
   Valgono per una settimana e un assegnatario: le cancella il trigger
-  `tickets_reset_day_arrangements` quando cambiano davvero settimana o
-  assegnatario, da QUALUNQUE scrittura (anche del web vecchio o della
-  pipeline). Uno slittamento invece cambia la settimana senza scrivere
+  `tickets_reset_day_arrangements` quando cambiano davvero la settimana
+  EFFETTIVA (slittamento e chiusura compresi, 0119) o l'assegnatario, da
+  QUALUNQUE scrittura (anche del web vecchio o della pipeline): riscrivere
+  la settimana corrente di una slittata non le tocca. Uno slittamento invece cambia la settimana senza scrivere
   niente, quindi la lettura filtra anche sulla settimana effettiva: una
   sistemazione di una task slittata non compare, e su una settimana che non
   è quella effettiva della task la scrittura risponde 409 `not_in_week`.

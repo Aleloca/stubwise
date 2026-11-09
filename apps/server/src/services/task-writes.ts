@@ -14,6 +14,8 @@ import {
 } from "@stubwise/db";
 import {
   effortFromSize,
+  compareWeeks,
+  currentIsoWeek,
   isoWeekToMonday,
   mondayToIsoWeek,
   planBlock,
@@ -53,7 +55,8 @@ export type TaskWriteError =
   | "department_not_found"
   | "assignee_not_found"
   | "milestone_cross_project"
-  | "request_not_found";
+  | "request_not_found"
+  | "past_week";
 
 export type TaskWriteResult = { ok: true; task: TaskViewData } | { ok: false; error: TaskWriteError };
 
@@ -133,6 +136,7 @@ async function validateRefs(
 export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody): Promise<TaskWriteResult> {
   const invalid = await validateRefs(db, body.projectId, body);
   if (invalid) return { ok: false, error: invalid };
+  if (await isPastWeek(db, null, body.plannedWeek)) return { ok: false, error: "past_week" };
   if (body.requestId) {
     const [item] = await db
       .select({ projectId: backlogItems.projectId })
@@ -188,12 +192,16 @@ function updatesFor(current: Ticket, patch: TaskPatch): Partial<Ticket> {
   if (patch.description !== undefined) updates.body = patch.description;
   if (patch.statusId !== undefined) updates.statusId = patch.statusId;
   if (patch.departmentId !== undefined) updates.departmentId = patch.departmentId;
-  if (patch.assigneeId !== undefined) updates.assigneeId = patch.assigneeId;
+  // Uguale a com'è non si scrive (fix della review della fetta 2): un plan o
+  // una patch senza cambiamenti non fa l'UPDATE, che sposterebbe `updated_at`
+  // (l'inattività delle ferme).
+  if (patch.assigneeId !== undefined && patch.assigneeId !== current.assigneeId) updates.assigneeId = patch.assigneeId;
   if (patch.size !== undefined) updates.effort = effortFromSize(patch.size);
   if (patch.dueDate !== undefined) updates.dueDate = patch.dueDate;
   // Il lunedì nel DB; il consolidamento dello slittamento lo fa il trigger.
   if (patch.plannedWeek !== undefined) {
-    updates.plannedWeek = patch.plannedWeek === null ? null : isoWeekToMonday(patch.plannedWeek);
+    const monday = patch.plannedWeek === null ? null : isoWeekToMonday(patch.plannedWeek);
+    if (monday !== current.plannedWeek) updates.plannedWeek = monday;
   }
   if (patch.milestoneId !== undefined) updates.milestoneId = patch.milestoneId;
   if (patch.labels !== undefined) updates.labels = patch.labels;
@@ -203,7 +211,7 @@ function updatesFor(current: Ticket, patch: TaskPatch): Partial<Ticket> {
 }
 
 /** La settimana EFFETTIVA di una task (slittamento compreso), `YYYY-Www`. */
-async function effectiveWeekOf(tx: Tx, ticketId: string): Promise<string | null> {
+async function effectiveWeekOf(tx: Db | Tx, ticketId: string): Promise<string | null> {
   const [row] = await tx
     .select({
       week: sql<string | null>`to_char(stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}), 'YYYY-MM-DD')`,
@@ -211,6 +219,18 @@ async function effectiveWeekOf(tx: Tx, ticketId: string): Promise<string | null>
     .from(tickets)
     .where(eq(tickets.id, ticketId));
   return row?.week ? mondayToIsoWeek(row.week) : null;
+}
+
+/**
+ * Una settimana PASSATA non si scrive (fix della review della fetta 2):
+ * gonfierebbe `slipCount`, che è un dato mostrato. Eccezione: la settimana
+ * EFFETTIVA attuale della task (la corrente di una slittata, quella di
+ * chiusura di una chiusa), che per chi guarda è un no-op. Il «passato» è
+ * rispetto alla settimana corrente di Europe/Rome (`currentIsoWeek`).
+ */
+async function isPastWeek(db: Db | Tx, ticketId: string | null, week: string | null | undefined): Promise<boolean> {
+  if (!week || compareWeeks(week, currentIsoWeek(new Date())) >= 0) return false;
+  return ticketId === null || (await effectiveWeekOf(db, ticketId)) !== week;
 }
 
 /**
@@ -344,6 +364,7 @@ export async function updateTask(
   if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
   const invalid = await validateRefs(db, current.projectId, patch);
   if (invalid) return { ok: false, error: invalid };
+  if (await isPastWeek(db, current.id, patch.plannedWeek)) return { ok: false, error: "past_week" };
   await db.transaction(async (tx) => {
     await applyTaskPatch(tx, viewer.id, current, patch);
   });
@@ -395,6 +416,9 @@ export async function bulkUpdateTasks(
     const invalid = await validateRefs(db, pid, patch);
     if (invalid) return { ok: false, error: invalid };
   }
+  for (const { t } of rows) {
+    if (await isPastWeek(db, t.id, patch.plannedWeek)) return { ok: false, error: "past_week" };
+  }
   await db.transaction(async (tx) => {
     for (const { t } of rows) await applyTaskPatch(tx, viewer.id, t, patch);
   });
@@ -435,7 +459,9 @@ export async function setFollowing(db: Db, userId: string, ticketId: string, fol
 
 export type PlanResult =
   | { ok: true; task: TaskViewData }
-  | { ok: false; error: "forbidden" | "invalid_assignee" };
+  | { ok: false; error: PlanError };
+
+type PlanError = "forbidden" | "invalid_assignee" | "past_week";
 
 /**
  * Pianificare dal Planning (fetta 2): persona e settimana insieme. Decide
@@ -451,31 +477,45 @@ export async function planTask(
   ticketId: string,
   plan: { assigneeId: string | null; week: string | null },
 ): Promise<PlanResult> {
-  const [current] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
-  if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
-  const permissions = (await projectPermissionsFor(db, viewer, current.projectId)) ?? new Set();
-  const members = await projectViewerIds(db, current.projectId);
-  const block = planBlock(
-    {
-      id: current.id,
-      projectId: current.projectId,
-      assigneeId: current.assigneeId,
-      size: null,
-      plannedWeek: null,
-      slipCount: 0,
-      closedAt: current.closedAt?.toISOString() ?? null,
-    },
-    plan.assigneeId,
-    {
-      me: viewer.id,
-      others: permissions.has("planning.others"),
-      edit: permissions.has("tickets.edit"),
-      members,
-    },
-  );
-  if (block === "others") return { ok: false, error: "forbidden" };
-  if (block === "member") return { ok: false, error: "invalid_assignee" };
-  await db.transaction(async (tx) => {
+  // La decisione si prende sulla riga BLOCCATA, nella transazione che scrive
+  // (fix della review della fetta 2): letta prima, una riassegnazione
+  // concorrente passerebbe sotto la regola e verrebbe sovrascritta.
+  const outcome = await db.transaction(async (tx): Promise<PlanError | null> => {
+    const [current] = await tx.select().from(tickets).where(eq(tickets.id, ticketId)).for("update");
+    if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
+    const permissions = (await projectPermissionsFor(tx, viewer, current.projectId)) ?? new Set();
+    const members = await projectViewerIds(tx, current.projectId);
+    // `assigneeId: null` sulla rotta TOGLIE l'assegnatario (per `planBlock`
+    // `null` è la vasca, che tiene la persona): con `planning.others` sempre,
+    // anche se chi l'aveva non è più membro; senza, solo dalla propria task.
+    const others = permissions.has("planning.others");
+    if (plan.assigneeId === null) {
+      if (!others && current.assigneeId !== viewer.id) return "forbidden";
+      if (await isPastWeek(tx, current.id, plan.week)) return "past_week";
+      await applyTaskPatch(tx, viewer.id, current, { assigneeId: null, plannedWeek: plan.week }, { notifyPlanning: true });
+      return null;
+    }
+    const block = planBlock(
+      {
+        id: current.id,
+        projectId: current.projectId,
+        assigneeId: current.assigneeId,
+        size: null,
+        plannedWeek: null,
+        slipCount: 0,
+        closedAt: current.closedAt?.toISOString() ?? null,
+      },
+      plan.assigneeId,
+      {
+        me: viewer.id,
+        others,
+        edit: permissions.has("tickets.edit"),
+        members,
+      },
+    );
+    if (block === "others") return "forbidden";
+    if (block === "member") return "invalid_assignee";
+    if (await isPastWeek(tx, current.id, plan.week)) return "past_week";
     await applyTaskPatch(
       tx,
       viewer.id,
@@ -483,6 +523,8 @@ export async function planTask(
       { assigneeId: plan.assigneeId, plannedWeek: plan.week },
       { notifyPlanning: true },
     );
+    return null;
   });
+  if (outcome) return { ok: false, error: outcome };
   return { ok: true, task: await viewOf(db, viewer, ticketId) };
 }

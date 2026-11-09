@@ -103,6 +103,44 @@ const DB_TYPES_FOR_UI: Record<string, TicketType[]> = {
   activity: ["task", "review"],
 };
 
+/**
+ * La settimana EFFETTIVA (`stubwise_effective_week`: la pianificata, o la
+ * corrente se è passata e la task è aperta, o quella di chiusura) in forma
+ * SARGABLE (fix della review della fetta 2). Per le task aperte la settimana
+ * effettiva è `greatest(planned_week, lunedì corrente)`, quindi la condizione
+ * si scrive su `planned_week` nuda — e l'indice
+ * `tickets_assignee_planned_week_idx` (sulle aperte) serve; solo le chiuse
+ * passano dalla funzione. Il risultato è identico alla funzione
+ * (`week-conditions.test.ts`).
+ */
+export function effectiveWeekIs(monday: string): SQL {
+  // In testa una condizione sempre vera (la settimana effettiva non è mai
+  // prima della pianificata): porta `planned_week` nella condizione dell'indice.
+  return sql`(${tickets.plannedWeek} <= ${monday}::date and (
+    (${tickets.closedAt} is null and (
+      (${tickets.plannedWeek} = ${monday}::date and ${tickets.plannedWeek} >= stubwise_current_monday())
+      or (${tickets.plannedWeek} < stubwise_current_monday() and stubwise_current_monday() = ${monday}::date)
+    ))
+    or (${tickets.closedAt} is not null
+      and stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}) = ${monday}::date)
+  ))`;
+}
+
+/** La settimana effettiva (lunedì–domenica) si sovrappone a `[from, to]` (date ISO, estremi inclusi). */
+export function effectiveWeekOverlaps(from: string, to: string): SQL {
+  return sql`(${tickets.plannedWeek} <= ${to}::date and (
+    (${tickets.closedAt} is null and (
+      (${tickets.plannedWeek} >= stubwise_current_monday()
+        and ${tickets.plannedWeek} between (${from}::date - 6) and ${to}::date)
+      or (${tickets.plannedWeek} < stubwise_current_monday()
+        and stubwise_current_monday() <= ${to}::date and stubwise_current_monday() + 6 >= ${from}::date)
+    ))
+    or (${tickets.closedAt} is not null
+      and stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}) <= ${to}::date
+      and stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}) + 6 >= ${from}::date)
+  ))`;
+}
+
 /** I filtri di `FilterCriteria` che si esprimono in SQL (tutti tranne `stalled`). */
 export function taskFilterConditions(q: TaskListQuery, today: string): SQL[] {
   const c: SQL[] = [];
@@ -148,9 +186,7 @@ export function taskFilterConditions(q: TaskListQuery, today: string): SQL[] {
         c.push(lte(tickets.dueDate, range.to));
       } else {
         // La settimana (effettiva, cioè con lo slittamento) si sovrappone al periodo.
-        const week = sql`stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt})`;
-        c.push(sql`${week} <= ${range.to}::date`);
-        c.push(sql`${week} + 6 >= ${range.from}::date`);
+        c.push(effectiveWeekOverlaps(range.from, range.to));
       }
     }
   }
@@ -223,7 +259,7 @@ export async function loadTaskViews(
       family: projectStatuses.family,
       lastActivityAt: lastActivity,
       // Lo slittamento DERIVATO (fetta 2): la regola sta nel DB, in UN posto.
-      effectiveWeek: sql<string | null>`stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt})::text`,
+      effectiveWeek: sql<string | null>`to_char(stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}), 'YYYY-MM-DD')`,
       slips: sql<number>`(${tickets.slipCount} + stubwise_slip_weeks(${tickets.plannedWeek}, ${tickets.closedAt}))::int`,
     })
     .from(tickets)

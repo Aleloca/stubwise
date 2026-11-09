@@ -113,6 +113,7 @@ const WRITE_ERRORS: Record<TaskWriteError, string> = {
   assignee_not_found: "Assignee not found",
   milestone_cross_project: "The milestone belongs to another project",
   request_not_found: "Request not found in this project",
+  past_week: "A past week cannot be planned",
 };
 
 const bulkForbiddenSchema = z.object({ code: z.string(), message: z.string(), codes: z.array(z.string()) });
@@ -335,6 +336,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       if (result.error === "forbidden") {
         return apiError(reply, 403, "forbidden", "You can plan only your own tasks in this project");
       }
+      if (result.error === "past_week") return apiError(reply, 400, "past_week", WRITE_ERRORS.past_week);
       return apiError(reply, 400, "invalid_assignee", "The person is not a member of the project");
     },
   );

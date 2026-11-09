@@ -14,7 +14,7 @@ import { z } from "zod";
 import type { RouteAccess } from "../auth/access.js";
 import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
-import { visibleTasksCondition } from "../services/task-view.js";
+import { effectiveWeekIs, visibleTasksCondition } from "../services/task-view.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -23,9 +23,9 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * settimana. PERSONALI: si leggono e si scrivono solo le proprie, solo sulle
  * proprie task, e valgono finché la task resta sua e nella STESSA settimana
  * EFFETTIVA (`stubwise_effective_week`, slittamento compreso). Il trigger
- * `tickets_reset_day_arrangements` (0113) le cancella quando cambiano
- * settimana o assegnatario; la lettura filtra comunque, perché uno
- * slittamento cambia la settimana senza scrivere niente.
+ * `tickets_reset_day_arrangements` (0113, corretto dalla 0119) le cancella
+ * quando cambiano la settimana EFFETTIVA o l'assegnatario; la lettura filtra
+ * comunque, perché uno slittamento cambia la settimana senza scrivere niente.
  */
 
 const effectiveMonday = sql<string | null>`to_char(stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}), 'YYYY-MM-DD')`;
@@ -62,7 +62,7 @@ export async function dayArrangementRoutes(fastify: FastifyInstance): Promise<vo
             eq(taskDayArrangements.userId, viewer.id),
             eq(taskDayArrangements.week, monday),
             eq(tickets.assigneeId, viewer.id),
-            sql`stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}) = ${monday}::date`,
+            effectiveWeekIs(monday),
             ...(visible ? [visible] : []),
           ),
         );
@@ -89,25 +89,35 @@ export async function dayArrangementRoutes(fastify: FastifyInstance): Promise<vo
       const viewer = request.user!;
       const { ticketId } = request.params;
       const { week, day } = request.body;
-      const [task] = await app.db
-        .select({ assigneeId: tickets.assigneeId, monday: effectiveMonday })
-        .from(tickets)
-        .where(eq(tickets.id, ticketId));
-      if (!task) return apiError(reply, 404, "not_found", "Task not found");
-      if (task.assigneeId !== viewer.id) {
+      // Atomico (fix della review della fetta 2): la riga della task si
+      // blocca, e controllo e scrittura stanno nella stessa transazione. Una
+      // riassegnazione concorrente aspetta o viene aspettata, mai a metà.
+      const refused = await app.db.transaction(async (tx) => {
+        const [task] = await tx
+          .select({ assigneeId: tickets.assigneeId, monday: effectiveMonday })
+          .from(tickets)
+          .where(eq(tickets.id, ticketId))
+          .for("update");
+        if (!task) return "not_found" as const;
+        if (task.assigneeId !== viewer.id) return "forbidden" as const;
+        if (!task.monday || mondayToIsoWeek(task.monday) !== week) return "not_in_week" as const;
+        const monday = isoWeekToMonday(week);
+        await tx
+          .insert(taskDayArrangements)
+          .values({ ticketId, userId: viewer.id, week: monday, day })
+          .onConflictDoUpdate({
+            target: [taskDayArrangements.ticketId, taskDayArrangements.userId, taskDayArrangements.week],
+            set: { day },
+          });
+        return null;
+      });
+      if (refused === "not_found") return apiError(reply, 404, "not_found", "Task not found");
+      if (refused === "forbidden") {
         return apiError(reply, 403, "forbidden", "Only the assignee arranges a task in their week");
       }
-      if (!task.monday || mondayToIsoWeek(task.monday) !== week) {
+      if (refused === "not_in_week") {
         return apiError(reply, 409, "not_in_week", "The task is not planned in this week");
       }
-      const monday = isoWeekToMonday(week);
-      await app.db
-        .insert(taskDayArrangements)
-        .values({ ticketId, userId: viewer.id, week: monday, day })
-        .onConflictDoUpdate({
-          target: [taskDayArrangements.ticketId, taskDayArrangements.userId, taskDayArrangements.week],
-          set: { day },
-        });
       return { taskId: ticketId, week, day };
     },
   );
