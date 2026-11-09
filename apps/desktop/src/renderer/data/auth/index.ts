@@ -10,8 +10,11 @@ export {
   type TotpSetup,
 } from "./reauth";
 export {
+  confirmLoginEnrollment,
   getEntry,
   login,
+  loginStage,
+  startLoginEnrollment,
   loginSecondFactor,
   logout,
   passMinutes,

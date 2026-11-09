@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useId, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -149,17 +150,22 @@ function DepartmentList({
                   <span className="num shrink-0 text-sm text-ink-muted">
                     {t("admin.departments.people", { count: d.memberIds.length })}
                   </span>
-                  <span className="ml-auto min-w-0 truncate text-sm text-ink-muted">
-                    {home.length > 0
-                      ? t("admin.departments.home", { names: home.join(", ") })
-                      : t("admin.departments.noHome")}
+                  {/* Home (fetta 3) e permessi dati dal reparto: non nella build app. */}
+                  {featureIntegrated("department-home") && (
+                    <span className="ml-auto min-w-0 truncate text-sm text-ink-muted">
+                      {home.length > 0
+                        ? t("admin.departments.home", { names: home.join(", ") })
+                        : t("admin.departments.noHome")}
+                    </span>
+                  )}
+                </span>
+                {featureIntegrated("department-permissions") && (
+                  <span className="truncate text-sm text-ink-muted">
+                    {d.projectPermissions.length > 0
+                      ? t("admin.departments.gives", { permissions: missingWords(d.projectPermissions) })
+                      : t("admin.departments.givesNothing")}
                   </span>
-                </span>
-                <span className="truncate text-sm text-ink-muted">
-                  {d.projectPermissions.length > 0
-                    ? t("admin.departments.gives", { permissions: missingWords(d.projectPermissions) })
-                    : t("admin.departments.givesNothing")}
-                </span>
+                )}
               </span>
             </button>
           </li>
@@ -356,6 +362,8 @@ export function departmentInvalid(t: T, reason: string): string {
       return t("admin.departments.errors.name");
     case "name_taken":
       return t("admin.departments.errors.nameTaken");
+    case "default_department":
+      return t("admin.departments.errors.defaultDepartment");
     case "last_members_manager":
       return t("admin.role.refusal.lastMembersManager");
     case "last_full_admin":

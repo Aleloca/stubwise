@@ -63,6 +63,34 @@ export function useLogin() {
   });
 }
 
+/**
+ * Lo stadio del login a metà (build app): il codice, o la configurazione
+ * obbligatoria dell'app per chi non ce l'ha. Nel prototipo sempre il codice.
+ */
+export function useLoginStage(enabled: boolean) {
+  return useQuery({
+    queryKey: ["entry", "loginStage"],
+    queryFn: () => api.auth.loginStage(),
+    enabled,
+    gcTime: 0,
+  });
+}
+
+/** La configurazione dell'app al login (build app): il segreto, una volta. */
+export function useStartLoginEnrollment() {
+  return useMutation({ mutationFn: () => api.auth.startLoginEnrollment() });
+}
+
+/**
+ * Il primo codice dell'app configurata al login. Non porta dentro da sola:
+ * prima si mostrano i codici di riserva, e si entra con `enter` («Continue»).
+ */
+export function useConfirmLoginEnrollment() {
+  const enter = useEnterAs();
+  const confirm = useMutation({ mutationFn: (code: string) => api.auth.confirmLoginEnrollment(code) });
+  return { confirm, enter };
+}
+
 /** Il secondo passo del login: codice, passkey o codice di backup. */
 export function useLoginSecondFactor() {
   const enter = useEnterAs();

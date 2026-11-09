@@ -4,8 +4,10 @@
 // progetto per i progetti in cui la persona è membro; un full admin è membro
 // implicito di ogni progetto (`docs/invariants/permissions.md`).
 import type * as Fake from "../../accessFacts";
+import { NO_SESSION_PERSON_ID } from "../../session";
 
-export const isActiveViewer: typeof Fake.isActiveViewer = (viewer) => viewer.personId !== "";
+export const isActiveViewer: typeof Fake.isActiveViewer = (viewer) =>
+  viewer.personId !== "" && viewer.personId !== NO_SESSION_PERSON_ID;
 
 export const seesProject: typeof Fake.seesProject = (viewer, projectId) =>
   viewer.instancePermissions.includes("instance.full_admin") ||

@@ -206,7 +206,8 @@
       "snooze": "Snooze",
       "restore": "Restore",
       "unsnooze": "Move to New",
-      "linkAccess": "Link SSH access"
+      "linkAccess": "Link SSH access",
+      "openInWeb": "Open in web"
     },
     "snooze": {
       "hour": "1 hour",
@@ -9684,6 +9685,10 @@
     }
   },
   "entry": {
+    "enrollAtLogin": {
+      "title": "Set up two-step verification",
+      "lead": "Every sign-in to Stubwise asks for a code from an authenticator app. Set it up now: it takes a minute, and you're in right after."
+    },
     "login": {
       "title": "Sign in to Stubwise",
       "lead": "Enter the email and password of your account.",
@@ -10234,7 +10239,8 @@
       },
       "errors": {
         "name": "Give the department a name.",
-        "nameTaken": "Another department already has this name."
+        "nameTaken": "Another department already has this name.",
+        "defaultDepartment": "This is the default department: tasks without one land here, so it can be renamed but not deleted."
       }
     },
     "department": {

@@ -1,7 +1,27 @@
 // Il livello dati della build «app» (integrazione area 2, fetta 1): lo stesso
 // insieme di nomi di `data/api.ts`, risolto da `@backend/api` quando
 // `STUBWISE_BUILD=app` (`vite.backend.ts`). Parte dagli stub «non integrati»
-// generati; un'esportazione locale qui sotto prevale sulla stella (Task
-// 16–17), ed è tipata `typeof Fake.<nome>` con un `import type`, così il
-// finto non entra mai nel bundle.
+// generati; un'esportazione locale qui sotto prevale sulla stella, ed è
+// tipata `typeof Fake.<nome>` con un `import type`, così il finto non entra
+// mai nel bundle.
+import type * as Fake from "../../api";
+import { adminDepartments } from "./departments";
+import { partialNamespace } from "./notIntegrated";
+
 export * from "./stubs.generated";
+
+// Task 16: sessione, persone, progetti, notifiche, ricerca, reparti.
+export { auth, getSessionPerson, getViewer, me } from "./session";
+export { listDepartments, listPeople } from "./people";
+export {
+  getProjectByCode,
+  listPinnedProjectIds,
+  listProjects,
+  listWaitingOnMeProjectIds,
+  setPinned,
+} from "./projects";
+export { listNotifications, markNotification } from "./notifications";
+export { search } from "./search";
+
+/** Amministrazione: solo Reparti (e le persone che la pagina legge) nella fetta 1. */
+export const admin: typeof Fake.admin = partialNamespace<typeof Fake.admin>("admin", adminDepartments);

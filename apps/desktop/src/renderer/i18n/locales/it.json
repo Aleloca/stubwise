@@ -206,7 +206,8 @@
       "snooze": "Rimanda",
       "restore": "Ripristina",
       "unsnooze": "Sposta in Nuove",
-      "linkAccess": "Collega l'accesso SSH"
+      "linkAccess": "Collega l'accesso SSH",
+      "openInWeb": "Apri nel web"
     },
     "snooze": {
       "hour": "1 ora",
@@ -9684,6 +9685,10 @@
     }
   },
   "entry": {
+    "enrollAtLogin": {
+      "title": "Configura la verifica in due passaggi",
+      "lead": "Ogni accesso a Stubwise chiede un codice da un'app di autenticazione. Configurala adesso: ci vuole un minuto, e subito dopo sei dentro."
+    },
     "login": {
       "title": "Accedi a Stubwise",
       "lead": "Inserisci l'email e la password del tuo account.",
@@ -10234,7 +10239,8 @@
       },
       "errors": {
         "name": "Dai un nome al reparto.",
-        "nameTaken": "C'è già un reparto con questo nome."
+        "nameTaken": "C'è già un reparto con questo nome.",
+        "defaultDepartment": "È il reparto di ripiego: ci finiscono le task senza reparto, quindi si rinomina ma non si elimina."
       }
     },
     "department": {
