@@ -132,14 +132,22 @@ export const taskListResponseSchema = z.object({
   truncated: z.boolean().default(false),
 });
 
-export const stallReasonSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("manual"), reason: z.string(), note: z.string() }),
-  z.object({ kind: z.literal("decision"), personId: z.string() }),
-  z.object({ kind: z.literal("claude_question") }),
-  z.object({ kind: z.literal("blocked_by"), taskId: z.string() }),
-  z.object({ kind: z.literal("unassigned") }),
-  z.object({ kind: z.literal("idle") }),
-]);
+/**
+ * Il motivo di una ferma come UN oggetto, non una union: `readerSchema` non
+ * attraversa le union a discriminante (apre i literal, e cambierebbe quale
+ * variante vince — vedi `reader.ts`). Il `kind` è un enum, che il lettore apre
+ * in `UNKNOWN` per un motivo nuovo; i campi delle varianti sono facoltativi
+ * (`manual` → reason, note; `decision` → personId; `blocked_by` → taskId).
+ * Il tipo stretto resta `StallReason` di `tasks/stall.ts`, che il server
+ * produce e questo schema accetta.
+ */
+export const stallReasonSchema = z.object({
+  kind: z.enum(["manual", "decision", "claude_question", "blocked_by", "unassigned", "idle"]),
+  reason: z.string().optional(),
+  note: z.string().optional(),
+  personId: z.string().optional(),
+  taskId: z.string().optional(),
+});
 
 export const stallSchema = z.object({
   reason: stallReasonSchema,
