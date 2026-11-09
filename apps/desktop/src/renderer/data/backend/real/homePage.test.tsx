@@ -26,7 +26,19 @@ beforeEach(() => {
     departmentChanged: [],
     newBlocks: [],
     departmentIds: [DEPT_ID],
-    departmentHomes: [],
+    departmentHomes: [
+      {
+        departmentId: DEPT_ID,
+        blocks: [
+          { kind: "decide" },
+          { kind: "myWeek" },
+          { kind: "importantMail" },
+          { kind: "myTasks" },
+          { kind: "filter", filterId: GONE },
+        ],
+        updatedAt: "2026-11-01T09:00:00.000Z",
+      },
+    ],
     personal: personalBlocks ? { blocks: personalBlocks, seenDepartmentUpdates: {} } : null,
   });
   installFakeServer({
@@ -44,19 +56,8 @@ beforeEach(() => {
       body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [DEPT_ID], email: "ada@example.com" }],
     },
     "GET /api/departments": { body: [{ id: DEPT_ID, name: "General", colorToken: "--dept-1", isDefault: true }] },
-    [`GET /api/departments/${DEPT_ID}/home`]: {
-      body: {
-        departmentId: DEPT_ID,
-        blocks: [
-          { kind: "decide" },
-          { kind: "myWeek" },
-          { kind: "importantMail" },
-          { kind: "myTasks" },
-          { kind: "filter", filterId: GONE },
-        ],
-        updatedAt: "2026-11-01T09:00:00.000Z",
-      },
-    },
+    // La Home la danno /api/me/home: una lettura per reparto non serve, e se fallisce non rompe niente.
+    [`GET /api/departments/${DEPT_ID}/home`]: { status: 500, body: { code: "internal", message: "x" } },
     "GET /api/me/home": () => ({ body: meHome() }),
     "GET /api/departments/roles": { body: [] },
     "GET /api/filters": { body: [] },

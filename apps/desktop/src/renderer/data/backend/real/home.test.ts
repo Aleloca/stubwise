@@ -38,33 +38,32 @@ afterEach(() => {
 });
 
 describe("le Home dal server", () => {
-  it("le Home di tutti i reparti, anche di quelli che non sono miei; un reparto senza Home sua non c'è", async () => {
+  it("le Home dei miei reparti vengono da /api/me/home, una lettura sola anche con la personale", async () => {
     const { seen } = installFakeServer({
-      "GET /api/departments": {
-        body: [
-          { id: GENERAL, name: "General", colorToken: "--dept-1", isDefault: true },
-          { id: SALES, name: "Sales", colorToken: "--dept-2", isDefault: false },
-        ],
+      "GET /api/me/home": {
+        body: meHome({
+          departmentHomes: [
+            {
+              departmentId: SALES,
+              blocks: [{ kind: "decide" }, { kind: "myWeek" }, { kind: "myTasks" }, { kind: "filter", filterId: FILTER }],
+              updatedAt: AT,
+            },
+          ],
+        }),
       },
-      [`GET /api/departments/${GENERAL}/home`]: {
-        body: { departmentId: GENERAL, blocks: [{ kind: "decide" }, { kind: "myWeek" }], updatedAt: null },
-      },
-      [`GET /api/departments/${SALES}/home`]: {
-        body: {
-          departmentId: SALES,
-          blocks: [{ kind: "decide" }, { kind: "myWeek" }, { kind: "myTasks" }, { kind: "filter", filterId: FILTER }],
-          updatedAt: AT,
-        },
-      },
+      // Una Home di reparto letta a parte non serve (e se fallisce non cambia niente).
+      [`GET /api/departments/${SALES}/home`]: { status: 500, body: { code: "internal", message: "x" } },
     });
-    expect(await listDepartmentHomes()).toEqual([
+    const [homes, personal] = await Promise.all([listDepartmentHomes(), getPersonalHome()]);
+    expect(homes).toEqual([
       {
         departmentId: SALES,
         blocks: [{ kind: "decide" }, { kind: "myWeek" }, { kind: "myTasks" }, { kind: "filter", filterId: FILTER }],
         updatedAt: AT,
       },
     ]);
-    expect(seen.filter((r) => r.path.endsWith("/home"))).toHaveLength(2);
+    expect(personal).toBeNull();
+    expect(seen.map((r) => r.path)).toEqual(["/api/me/home"]);
   });
 
   it("un blocco di un tipo che questa app non conosce si ignora", async () => {
@@ -158,13 +157,16 @@ describe("le Home dal server", () => {
 
   it("salvare la Home di un reparto rimette i tipi che questa app non conosce", async () => {
     const { seen } = installFakeServer({
-      "GET /api/departments": { body: [{ id: SALES, name: "Sales", colorToken: "--dept-2", isDefault: false }] },
-      [`GET /api/departments/${SALES}/home`]: {
-        body: {
-          departmentId: SALES,
-          blocks: [{ kind: "decide" }, { kind: "myWeek" }, { kind: "__future__" }, { kind: "myTasks" }],
-          updatedAt: AT,
-        },
+      "GET /api/me/home": {
+        body: meHome({
+          departmentHomes: [
+            {
+              departmentId: SALES,
+              blocks: [{ kind: "decide" }, { kind: "myWeek" }, { kind: "__future__" }, { kind: "myTasks" }],
+              updatedAt: AT,
+            },
+          ],
+        }),
       },
       [`PUT /api/departments/${SALES}/home`]: {
         body: { departmentId: SALES, blocks: [], updatedAt: AT },
@@ -185,6 +187,7 @@ describe("le Home dal server", () => {
       "GET /api/me/home": {
         body: meHome({
           personal: { blocks: [{ kind: "decide" }, { kind: "myWeek" }, { kind: "__future__" }], seenDepartmentUpdates: {} },
+          departmentHomes: [{ departmentId: SALES, blocks: [{ kind: "decide" }, { kind: "__future__" }], updatedAt: AT }],
         }),
       },
       "PUT /api/me/home": { body: meHome() },
