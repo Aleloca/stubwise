@@ -192,12 +192,16 @@ function updatesFor(current: Ticket, patch: TaskPatch): Partial<Ticket> {
   if (patch.description !== undefined) updates.body = patch.description;
   if (patch.statusId !== undefined) updates.statusId = patch.statusId;
   if (patch.departmentId !== undefined) updates.departmentId = patch.departmentId;
-  if (patch.assigneeId !== undefined) updates.assigneeId = patch.assigneeId;
+  // Uguale a com'è non si scrive (fix della review della fetta 2): un plan o
+  // una patch senza cambiamenti non fa l'UPDATE, che sposterebbe `updated_at`
+  // (l'inattività delle ferme).
+  if (patch.assigneeId !== undefined && patch.assigneeId !== current.assigneeId) updates.assigneeId = patch.assigneeId;
   if (patch.size !== undefined) updates.effort = effortFromSize(patch.size);
   if (patch.dueDate !== undefined) updates.dueDate = patch.dueDate;
   // Il lunedì nel DB; il consolidamento dello slittamento lo fa il trigger.
   if (patch.plannedWeek !== undefined) {
-    updates.plannedWeek = patch.plannedWeek === null ? null : isoWeekToMonday(patch.plannedWeek);
+    const monday = patch.plannedWeek === null ? null : isoWeekToMonday(patch.plannedWeek);
+    if (monday !== current.plannedWeek) updates.plannedWeek = monday;
   }
   if (patch.milestoneId !== undefined) updates.milestoneId = patch.milestoneId;
   if (patch.labels !== undefined) updates.labels = patch.labels;

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { departments, notifications, ticketFollowers, tickets } from "@stubwise/db";
+import { departments, notifications, ticketEvents, ticketFollowers, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { currentIsoWeek, taskActivityEntryViewSchema, taskListResponseSchema, taskViewSchema } from "@stubwise/shared";
@@ -140,6 +140,17 @@ describe("POST /api/tasks/:ticketId/plan", () => {
     const others = await task(other.id, "2030-01-07");
     expect((await plan(others, { assigneeId: null, week: null }, dev.headers.cookie)).statusCode).toBe(403);
     expect(await rowOf(others)).toEqual({ a: other.id, w: "2030-01-07" });
+  });
+
+  it("un plan che non cambia niente non scrive: updated_at (l'inattività delle ferme) invariato, nessun evento", async () => {
+    const id = await task(lead.id, "2030-01-07");
+    const old = new Date("2026-01-01T00:00:00Z");
+    await testDb.db.update(tickets).set({ updatedAt: old }).where(eq(tickets.id, id));
+    const res = await plan(id, { assigneeId: lead.id, week: "2030-W02" }, lead.headers.cookie);
+    expect(res.statusCode, res.body).toBe(200);
+    const [after] = await testDb.db.select({ u: tickets.updatedAt }).from(tickets).where(eq(tickets.id, id));
+    expect(after!.u.toISOString()).toBe(old.toISOString());
+    expect(await testDb.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, id))).toHaveLength(0);
   });
 
   it("una settimana che non esiste → 400", async () => {

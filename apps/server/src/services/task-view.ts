@@ -259,7 +259,7 @@ export async function loadTaskViews(
       family: projectStatuses.family,
       lastActivityAt: lastActivity,
       // Lo slittamento DERIVATO (fetta 2): la regola sta nel DB, in UN posto.
-      effectiveWeek: sql<string | null>`stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt})::text`,
+      effectiveWeek: sql<string | null>`to_char(stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}), 'YYYY-MM-DD')`,
       slips: sql<number>`(${tickets.slipCount} + stubwise_slip_weeks(${tickets.plannedWeek}, ${tickets.closedAt}))::int`,
     })
     .from(tickets)
