@@ -25,7 +25,7 @@ describe("le task dal server", () => {
     expect(query.get("families")).toBe("todo,active");
     expect(query.get("sizes")).toBe("XS,none");
     expect(query.get("projectIds")).toBe(PROJECT_ID);
-    // La settimana è della fetta 2; createdById null (nessun autore umano) arriva com'è.
+    // Senza settimana nella vista: null e nessuno slittamento; createdById null (nessun autore umano) arriva com'è.
     expect(tasks[0]).toMatchObject({ code: "AUD-12", plannedWeek: null, slipCount: 0, createdById: null });
   });
 
