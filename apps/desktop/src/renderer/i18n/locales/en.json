@@ -1243,6 +1243,11 @@
       "decided": "{{name}} decided",
       "set": "{{field}} set to {{value}}",
       "cleared": "{{field}} cleared",
+      "gone": {
+        "assignee": "someone",
+        "milestone": "a deleted milestone",
+        "department": "a deleted department"
+      },
       "editedDescription": "edited the description",
       "followers": "changed who follows",
       "markedStalled": "marked it stalled: {{reason}}",

@@ -16,6 +16,9 @@ export const INTEGRATED_KINDS: ReadonlySet<string> = new Set([
   "decision.requested",
   "decision.answered",
   "ticket.activity",
+  // Fetta 2: spostata da altri, ricevuta da altri. Aprono il pannello della task.
+  "planning.changed",
+  "task.assigned",
 ]);
 
 export interface PresentContext {
