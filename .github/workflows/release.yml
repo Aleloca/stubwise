@@ -109,6 +109,8 @@ jobs:
 
       - name: Installa le dipendenze
         if: steps.plan.outputs.work == 'true'
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
         run: pnpm install --frozen-lockfile
 
       # Con lavoro da fare, un NPM_TOKEN assente è un errore, non un no-op:

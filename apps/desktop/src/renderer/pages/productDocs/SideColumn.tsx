@@ -1,0 +1,289 @@
+import { useRef, useState, type ReactNode } from "react";
+import type { ProductPageView } from "../../data/types";
+
+// La colonna a destra della lettura (shape product-editor.md §6,
+// product-comments-history.md §3.3, §3.7): commenti OPPURE cronologia,
+// mai tutt'e due ([PE 19]). Da 1200 è agganciata (296, filetto a sinistra)
+// e scorre col testo, così i fili stanno accanto ai loro blocchi; il
+// pannello della task ne prende il posto e lei torna alla sua chiusura.
+// Sotto i 1200 è sovrapposta (360) dal bordo destro e col pannello della
+// task vince l'ultimo aperto: l'altro resta montato dietro ([PE 22]).
+//
+// Quando si apre ([PC 14], maintainer 5 nov 2026): aprendo una pagina con
+// fili aperti i commenti si aprono da soli, senza restano chiusi. «Comments»
+// e × si ricordano PER PERSONA (non per pagina) in `localStorage`, e
+// prevalgono sulla regola automatica; senza archivio (bloccato, privato) vale
+// la regola. La cronologia non si apre mai da sola. Emendamento del
+// controller (6 nov 2026): la regola automatica e il gesto ricordato valgono
+// dove la colonna si aggancia (da 1200); sotto, sovrapposta, si apre solo
+// con un gesto («Comments», il segno, «Comment», `?comment=`).
+
+export type Side = "comments" | "history" | null;
+
+/** La casella di un commento nuovo: ancora e frase scelte (`n` = una richiesta nuova). */
+export interface CommentDraft {
+  anchorId: string;
+  quote: string;
+  n: number;
+}
+
+/** Il filo da mostrare col fuoco (`?comment=`, il segno, un commento appena scritto). */
+export interface ThreadFocus {
+  rootId: string;
+  n: number;
+}
+
+/** La riga della cronologia da aprire col fuoco (`?history=`, «See it in the history», 11b). */
+export interface HistoryFocus {
+  revisionId: string;
+  n: number;
+}
+
+/** La chiave del gesto a mano: di chi guarda, non della pagina. */
+export const commentsPrefKey = (personId: string) => `stubwise.productComments.${personId}`;
+
+export function readCommentsPref(personId: string): "open" | "closed" | null {
+  try {
+    const raw = window.localStorage.getItem(commentsPrefKey(personId));
+    return raw === "open" || raw === "closed" ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCommentsPref(personId: string, value: "open" | "closed"): void {
+  try {
+    window.localStorage.setItem(commentsPrefKey(personId), value);
+  } catch {
+    // Niente archivio: il gesto vale finché la pagina è aperta, poi torna la regola.
+  }
+}
+
+interface State {
+  /** Persona e pagina per cui vale lo stato: cambiate, si riparte (§5: le caselle si scartano). */
+  key: string | null;
+  side: Side;
+  draft: CommentDraft | null;
+  focus: ThreadFocus | null;
+  /** Il filo attivo: il suo blocco ha la tinta. */
+  active: string | null;
+  /** L'ultimo `?comment=` già seguito (si segue una volta). */
+  param: string | null;
+  historyFocus: HistoryFocus | null;
+  /** L'ultimo `?history=` già seguito. */
+  historyParam: string | null;
+  /** Chi sta davanti fra la colonna e il pannello della task (l'ultimo aperto). */
+  front: "column" | "task";
+  taskWas: boolean;
+  /** Un contatore nello stato (niente globali nel disegno: StrictMode resta puro). */
+  seq: number;
+  /** Il `seq` dell'ultima richiesta di portare la colonna davanti. */
+  raised: number;
+}
+
+export interface SideColumn {
+  side: Side;
+  draft: CommentDraft | null;
+  focus: ThreadFocus | null;
+  /** La riga della cronologia da aprire col fuoco (11b). */
+  historyFocus: HistoryFocus | null;
+  active: string | null;
+  /** La colonna sta davanti al pannello della task (o il pannello non c'è). */
+  front: boolean;
+  /**
+   * Cambia a ogni gesto che porta la colonna davanti («Comments», «History»,
+   * «Comment», il segno, ⌥⌘M, `?comment=`): agganciata, lo spazio chiude il
+   * pannello della task, che ne occupa il posto ([PE 19]: una colonna sola).
+   */
+  raised: number;
+  /** «Comments» nella barra: apre o chiude (e lo ricorda); nascosta o dietro al pannello, la riporta davanti. */
+  toggleComments(): void;
+  /** × della colonna dei commenti (lo ricorda). */
+  closeComments(): void;
+  toggleHistory(): void;
+  closeHistory(): void;
+  /** La cronologia con la riga di una revisione aperta e col fuoco (11b: il segno, `?history=`). */
+  openHistory(revisionId: string): void;
+  /** «Comment» su una frase: la casella nella colonna. */
+  start(anchorId: string, quote: string): void;
+  /** La colonna su un filo, col fuoco. */
+  focusThread(rootId: string): void;
+  /** La casella nuova è stata inviata o lasciata. */
+  endDraft(): void;
+  setActive(rootId: string | null): void;
+}
+
+export function useSideColumn({
+  personId,
+  page,
+  commentParam,
+  historyParam,
+  taskOpen,
+  docked,
+}: {
+  personId: string;
+  page: ProductPageView | null;
+  commentParam: string | undefined;
+  /** 11b: `?history=<revisione>` (la card «Claude updated»). */
+  historyParam?: string | undefined;
+  taskOpen: boolean;
+  /** Da 1200 px: la colonna si aggancia, e solo allora si apre da sola. */
+  docked: boolean;
+}): SideColumn {
+  const [stored, setStored] = useState<State>(() => ({
+    key: null,
+    side: null,
+    draft: null,
+    focus: null,
+    active: null,
+    param: null,
+    historyFocus: null,
+    historyParam: null,
+    front: taskOpen ? "task" : "column",
+    taskWas: taskOpen,
+    seq: 0,
+    raised: 0,
+  }));
+  const key = page ? `${personId}:${page.id}` : null;
+
+  // Lo stato si deriva durante il disegno (nessun lampo chiuso → aperto):
+  // una pagina o una persona nuova ripartono dalla regola; un `?comment=`
+  // nuovo apre i commenti su quel filo; un pannello della task appena aperto
+  // passa davanti. Tutto dipende solo dallo stato di prima (disegno puro).
+  let s = stored;
+  if (s.key !== key) {
+    const pref = page && docked ? readCommentsPref(personId) : null;
+    const auto = page !== null && docked && page.openComments > 0;
+    s = {
+      ...s,
+      key,
+      side: docked && (pref === null ? auto : pref === "open") ? "comments" : null,
+      draft: null,
+      focus: null,
+      active: null,
+      param: null,
+      historyFocus: null,
+      historyParam: null,
+      front: taskOpen ? "task" : "column",
+    };
+  }
+  if (page && commentParam && s.param !== commentParam) {
+    const seq = s.seq + 1;
+    s = {
+      ...s,
+      side: "comments",
+      focus: { rootId: commentParam, n: seq },
+      param: commentParam,
+      front: "column",
+      seq,
+      raised: seq,
+    };
+  }
+  if (page && historyParam && s.historyParam !== historyParam) {
+    const seq = s.seq + 1;
+    s = {
+      ...s,
+      side: "history",
+      draft: null,
+      historyFocus: { revisionId: historyParam, n: seq },
+      historyParam,
+      front: "column",
+      seq,
+      raised: seq,
+    };
+  }
+  if (taskOpen !== s.taskWas) s = { ...s, taskWas: taskOpen, front: taskOpen ? "task" : s.front };
+  if (s !== stored) setStored(s);
+
+  const latest = useRef(s);
+  latest.current = s;
+  const update = (patch: Partial<State>) => setStored((prev) => ({ ...prev, ...patch }));
+  /** Porta la colonna davanti, con un `seq` nuovo (e `n`, se serve). */
+  const raise = (patch: (seq: number) => Partial<State>) =>
+    setStored((prev) => {
+      const seq = prev.seq + 1;
+      return { ...prev, ...patch(seq), front: "column", seq, raised: seq };
+    });
+  /** Aperta ma non a vista: dietro al pannello (sovrapposta) o al suo posto (agganciata). */
+  const hidden = () => taskOpen && latest.current.front === "task";
+
+  return {
+    side: s.side,
+    draft: s.draft,
+    focus: s.focus,
+    historyFocus: s.historyFocus,
+    active: s.active,
+    front: s.front === "column" || !taskOpen,
+    raised: s.raised,
+    toggleComments() {
+      if (latest.current.side === "comments" && !hidden()) {
+        writeCommentsPref(personId, "closed");
+        update({ side: null, draft: null });
+        return;
+      }
+      writeCommentsPref(personId, "open");
+      raise(() => ({ side: "comments" }));
+    },
+    closeComments() {
+      writeCommentsPref(personId, "closed");
+      update({ side: null, draft: null });
+    },
+    toggleHistory() {
+      if (latest.current.side === "history" && !hidden()) update({ side: null });
+      else raise(() => ({ side: "history", draft: null }));
+    },
+    closeHistory() {
+      update({ side: null });
+    },
+    openHistory(revisionId) {
+      raise((seq) => ({ side: "history", draft: null, historyFocus: { revisionId, n: seq } }));
+    },
+    start(anchorId, quote) {
+      raise((seq) => ({ side: "comments", draft: { anchorId, quote, n: seq } }));
+    },
+    focusThread(rootId) {
+      raise((seq) => ({ side: "comments", focus: { rootId, n: seq }, active: rootId }));
+    },
+    endDraft() {
+      update({ draft: null });
+    },
+    setActive(rootId) {
+      if (latest.current.active !== rootId) update({ active: rootId });
+    },
+  };
+}
+
+
+/**
+ * L'involucro della colonna: agganciata (296, dentro lo scorrimento della
+ * lettura, filetto a sinistra) o sovrapposta (360 dal bordo destro, sopra la
+ * lettura; davanti o dietro al pannello della task). `data-product-side`
+ * lo legge anche il riquadro di Claude, che si mette alla sua sinistra.
+ */
+export function SideColumnFrame({
+  mode,
+  front,
+  children,
+}: {
+  mode: "docked" | "overlay";
+  front: boolean;
+  children: ReactNode;
+}) {
+  if (mode === "docked") {
+    return (
+      <div data-product-side="docked" className="relative flex w-[296px] shrink-0 flex-col border-l border-rule">
+        {children}
+      </div>
+    );
+  }
+  return (
+    <div
+      data-product-side="overlay"
+      data-front={front ? "true" : "false"}
+      // Il pannello della task, sovrapposto, sta a z-40: davanti o dietro di lui.
+      className={`panel-enter absolute top-10 right-0 bottom-0 flex w-[360px] max-w-full flex-col overflow-y-auto border-l border-rule-strong bg-surface ${front ? "z-[45]" : "z-[35]"}`}
+    >
+      {children}
+    </div>
+  );
+}

@@ -1,0 +1,20 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [
+      "src/renderer/data/seed.test.ts",
+      "src/renderer/pages/mail/Mail.test.tsx"
+    ],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font",
+        "value": "*",
+        "files": [
+          "src/renderer/domain/productDocs/pasteHtml.test.ts"
+        ],
+        "createdAt": "2026-11-08T23:03:13.071Z",
+        "reason": "fixture: HTML degli appunti di Google Docs, i font sono dati incollati"
+      }
+    ]
+  }
+}

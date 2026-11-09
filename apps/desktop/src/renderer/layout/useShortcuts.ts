@@ -1,0 +1,97 @@
+import { useNavigate, useRouter } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
+import { usePinnedProjects } from "../data/queries";
+import { hasModKey } from "../platform/platform";
+import { typing } from "../pages/tasks/useTaskKeys";
+import { claimPanelToggle, openClaudePanel } from "./claudePanel/panelEvents";
+
+/** Evento che apre la palette dei comandi (la palette arriva in un task successivo). */
+export const PALETTE_EVENT = "stubwise:palette";
+/** Evento che apre il pannello delle notifiche. */
+export const NOTIFICATIONS_EVENT = "stubwise:notifications";
+
+/** `open` apre sempre (voce di menu); `toggle` (default) alterna (⌘K, bottone). */
+export interface PaletteEventDetail {
+  mode: "open" | "toggle";
+}
+
+export function openPalette(mode: PaletteEventDetail["mode"] = "toggle"): void {
+  window.dispatchEvent(new CustomEvent<PaletteEventDetail>(PALETTE_EVENT, { detail: { mode } }));
+}
+
+export function openNotifications(): void {
+  window.dispatchEvent(new CustomEvent(NOTIFICATIONS_EVENT));
+}
+
+/**
+ * Scorciatoie globali dell'app, con il modificatore della piattaforma
+ * (⌘ su mac, Ctrl altrove): mod+1…9 apre la tessera N del binario, mod+K
+ * apre la palette, mod+J il riquadro di Claude, mod+N il nuovo messaggio della Chat, mod+Shift+H torna
+ * alla Home. mod+0 e un numero oltre
+ * l'ultima tessera non fanno nulla.
+ */
+export function useShortcuts(): void {
+  const navigate = useNavigate();
+  const router = useRouter();
+  const { data: pinned } = usePinnedProjects();
+  // Il listener resta uno solo: legge i progetti fissati correnti da qui.
+  const pinnedRef = useRef(pinned);
+  useEffect(() => {
+    pinnedRef.current = pinned;
+  }, [pinned]);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (!hasModKey(e) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (e.shiftKey) {
+        if (key === "h") {
+          e.preventDefault();
+          void navigate({ to: "/home" });
+        }
+        return;
+      }
+      if (key === "k") {
+        e.preventDefault();
+        openPalette();
+        return;
+      }
+      if (key === "j") {
+        // Il riquadro di Claude (area 10a): apre e chiude da ogni pagina,
+        // anche scrivendo in un campo — dentro il riquadro chiude. Non con
+        // un dialogo modale aperto: lì il tasto è del dialogo.
+        if (document.querySelector('[aria-modal="true"]')) return;
+        e.preventDefault();
+        if (claimPanelToggle("key")) openClaudePanel({ mode: "toggle" });
+        return;
+      }
+      if (key === "n") {
+        // «New message» della Chat, sopra la pagina (come la palette). Non
+        // dove ⌘N è già di qualcun altro: la destinazione Claude (conversazione
+        // nuova; il suo ascoltatore arriva dopo questo, quindi qui non basta
+        // `defaultPrevented`), un dialogo o un menu aperto, un campo in cui si scrive.
+        if (e.defaultPrevented || typing(e.target)) return;
+        if (document.querySelector('[aria-modal="true"], [role="menu"]')) return;
+        if (/^\/claude(\/|$)/.test(router.state.location.pathname)) return;
+        // In Mail ⌘N è «New email» (lo gestisce la pagina, montata dopo di qui).
+        if (/^\/mail(\/|$)/.test(router.state.location.pathname)) return;
+        // Nel Calendario ⌘N è «New meeting» ([A 9], lo gestisce la pagina).
+        if (/^\/calendar\/?$/.test(router.state.location.pathname)) return;
+        e.preventDefault();
+        void navigate({
+          to: ".",
+          search: (prev: Record<string, unknown>) => ({ ...prev, newMessage: "1" }),
+        } as never);
+        return;
+      }
+      if (/^[1-9]$/.test(key)) {
+        const project = pinnedRef.current?.[Number(key) - 1];
+        if (!project) return;
+        e.preventDefault();
+        void navigate({ to: "/p/$code", params: { code: project.code } });
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [navigate, router]);
+}

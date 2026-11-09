@@ -1,0 +1,594 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-23T18:26:36.533821+00:00",
+  "title": "Design System: Stubwise Desktop",
+  "extensions": {
+    "colorMeta": {
+      "ink-dark": {
+        "role": "primary",
+        "displayName": "Warm Cover White",
+        "canonical": "oklch(0.965 0.006 85)",
+        "tonalRamp": [
+          "oklch(15% 0.006 85)",
+          "oklch(25% 0.006 85)",
+          "oklch(35% 0.006 85)",
+          "oklch(45% 0.006 85)",
+          "oklch(60% 0.006 85)",
+          "oklch(75% 0.006 85)",
+          "oklch(85% 0.006 85)",
+          "oklch(95% 0.006 85)"
+        ]
+      },
+      "ink-light": {
+        "role": "primary",
+        "displayName": "Press Black",
+        "canonical": "oklch(0.2 0.005 265)",
+        "tonalRamp": [
+          "oklch(15% 0.005 265)",
+          "oklch(25% 0.005 265)",
+          "oklch(35% 0.005 265)",
+          "oklch(45% 0.005 265)",
+          "oklch(60% 0.005 265)",
+          "oklch(75% 0.005 265)",
+          "oklch(85% 0.005 265)",
+          "oklch(95% 0.005 265)"
+        ]
+      },
+      "focus-dark": {
+        "role": "secondary",
+        "displayName": "Focus Blue (dark)",
+        "canonical": "oklch(0.74 0.13 250)",
+        "tonalRamp": [
+          "oklch(15% 0.13 250)",
+          "oklch(25% 0.13 250)",
+          "oklch(35% 0.13 250)",
+          "oklch(45% 0.13 250)",
+          "oklch(60% 0.13 250)",
+          "oklch(75% 0.13 250)",
+          "oklch(85% 0.13 250)",
+          "oklch(95% 0.13 250)"
+        ]
+      },
+      "focus-light": {
+        "role": "secondary",
+        "displayName": "Focus Blue (light)",
+        "canonical": "oklch(0.52 0.19 258)",
+        "tonalRamp": [
+          "oklch(15% 0.19 258)",
+          "oklch(25% 0.19 258)",
+          "oklch(35% 0.19 258)",
+          "oklch(45% 0.19 258)",
+          "oklch(60% 0.19 258)",
+          "oklch(75% 0.19 258)",
+          "oklch(85% 0.19 258)",
+          "oklch(95% 0.19 258)"
+        ]
+      },
+      "logo-amber": {
+        "role": "tertiary",
+        "displayName": "Logo Amber",
+        "canonical": "#f5a623",
+        "tonalRamp": [
+          "oklch(15% 0.15 75)",
+          "oklch(25% 0.15 75)",
+          "oklch(35% 0.15 75)",
+          "oklch(45% 0.15 75)",
+          "oklch(60% 0.15 75)",
+          "oklch(75% 0.15 75)",
+          "oklch(85% 0.15 75)",
+          "oklch(95% 0.15 75)"
+        ]
+      },
+      "ground-dark": {
+        "role": "neutral",
+        "displayName": "Cover Black",
+        "canonical": "oklch(0.185 0.004 265)",
+        "tonalRamp": [
+          "oklch(15% 0.004 265)",
+          "oklch(25% 0.004 265)",
+          "oklch(35% 0.004 265)",
+          "oklch(45% 0.004 265)",
+          "oklch(60% 0.004 265)",
+          "oklch(75% 0.004 265)",
+          "oklch(85% 0.004 265)",
+          "oklch(95% 0.004 265)"
+        ]
+      },
+      "ground-light": {
+        "role": "neutral",
+        "displayName": "Catalog Paper",
+        "canonical": "oklch(0.982 0.002 265)",
+        "tonalRamp": [
+          "oklch(15% 0.002 265)",
+          "oklch(25% 0.002 265)",
+          "oklch(35% 0.002 265)",
+          "oklch(45% 0.002 265)",
+          "oklch(60% 0.002 265)",
+          "oklch(75% 0.002 265)",
+          "oklch(85% 0.002 265)",
+          "oklch(95% 0.002 265)"
+        ]
+      },
+      "surface-dark": {
+        "role": "neutral",
+        "displayName": "Cover Surface",
+        "canonical": "oklch(0.215 0.004 265)",
+        "tonalRamp": [
+          "oklch(15% 0.004 265)",
+          "oklch(25% 0.004 265)",
+          "oklch(35% 0.004 265)",
+          "oklch(45% 0.004 265)",
+          "oklch(60% 0.004 265)",
+          "oklch(75% 0.004 265)",
+          "oklch(85% 0.004 265)",
+          "oklch(95% 0.004 265)"
+        ]
+      },
+      "rail-dark": {
+        "role": "neutral",
+        "displayName": "Rail Black",
+        "canonical": "oklch(0.16 0.004 265)",
+        "tonalRamp": [
+          "oklch(15% 0.004 265)",
+          "oklch(25% 0.004 265)",
+          "oklch(35% 0.004 265)",
+          "oklch(45% 0.004 265)",
+          "oklch(60% 0.004 265)",
+          "oklch(75% 0.004 265)",
+          "oklch(85% 0.004 265)",
+          "oklch(95% 0.004 265)"
+        ]
+      },
+      "rail-light": {
+        "role": "neutral",
+        "displayName": "Rail Paper",
+        "canonical": "oklch(0.958 0.003 265)",
+        "tonalRamp": [
+          "oklch(15% 0.003 265)",
+          "oklch(25% 0.003 265)",
+          "oklch(35% 0.003 265)",
+          "oklch(45% 0.003 265)",
+          "oklch(60% 0.003 265)",
+          "oklch(75% 0.003 265)",
+          "oklch(85% 0.003 265)",
+          "oklch(95% 0.003 265)"
+        ]
+      },
+      "dept-1-dark": {
+        "role": "tertiary",
+        "displayName": "Department 1 (dark)",
+        "canonical": "see colors.dept-1-dark",
+        "tonalRamp": [
+          "oklch(15% 0.15 118)",
+          "oklch(25% 0.15 118)",
+          "oklch(35% 0.15 118)",
+          "oklch(45% 0.15 118)",
+          "oklch(60% 0.15 118)",
+          "oklch(75% 0.15 118)",
+          "oklch(85% 0.15 118)",
+          "oklch(95% 0.15 118)"
+        ]
+      },
+      "dept-1-light": {
+        "role": "tertiary",
+        "displayName": "Department 1 (light)",
+        "canonical": "see colors.dept-1-light",
+        "tonalRamp": [
+          "oklch(15% 0.15 118)",
+          "oklch(25% 0.15 118)",
+          "oklch(35% 0.15 118)",
+          "oklch(45% 0.15 118)",
+          "oklch(60% 0.15 118)",
+          "oklch(75% 0.15 118)",
+          "oklch(85% 0.15 118)",
+          "oklch(95% 0.15 118)"
+        ]
+      },
+      "dept-2-dark": {
+        "role": "tertiary",
+        "displayName": "Department 2 (dark)",
+        "canonical": "see colors.dept-2-dark",
+        "tonalRamp": [
+          "oklch(15% 0.18 258)",
+          "oklch(25% 0.18 258)",
+          "oklch(35% 0.18 258)",
+          "oklch(45% 0.18 258)",
+          "oklch(60% 0.18 258)",
+          "oklch(75% 0.18 258)",
+          "oklch(85% 0.18 258)",
+          "oklch(95% 0.18 258)"
+        ]
+      },
+      "dept-2-light": {
+        "role": "tertiary",
+        "displayName": "Department 2 (light)",
+        "canonical": "see colors.dept-2-light",
+        "tonalRamp": [
+          "oklch(15% 0.18 258)",
+          "oklch(25% 0.18 258)",
+          "oklch(35% 0.18 258)",
+          "oklch(45% 0.18 258)",
+          "oklch(60% 0.18 258)",
+          "oklch(75% 0.18 258)",
+          "oklch(85% 0.18 258)",
+          "oklch(95% 0.18 258)"
+        ]
+      },
+      "dept-3-dark": {
+        "role": "tertiary",
+        "displayName": "Department 3 (dark)",
+        "canonical": "see colors.dept-3-dark",
+        "tonalRamp": [
+          "oklch(15% 0.15 145)",
+          "oklch(25% 0.15 145)",
+          "oklch(35% 0.15 145)",
+          "oklch(45% 0.15 145)",
+          "oklch(60% 0.15 145)",
+          "oklch(75% 0.15 145)",
+          "oklch(85% 0.15 145)",
+          "oklch(95% 0.15 145)"
+        ]
+      },
+      "dept-3-light": {
+        "role": "tertiary",
+        "displayName": "Department 3 (light)",
+        "canonical": "see colors.dept-3-light",
+        "tonalRamp": [
+          "oklch(15% 0.15 145)",
+          "oklch(25% 0.15 145)",
+          "oklch(35% 0.15 145)",
+          "oklch(45% 0.15 145)",
+          "oklch(60% 0.15 145)",
+          "oklch(75% 0.15 145)",
+          "oklch(85% 0.15 145)",
+          "oklch(95% 0.15 145)"
+        ]
+      },
+      "dept-4-dark": {
+        "role": "tertiary",
+        "displayName": "Department 4 (dark)",
+        "canonical": "see colors.dept-4-dark",
+        "tonalRamp": [
+          "oklch(15% 0.17 32)",
+          "oklch(25% 0.17 32)",
+          "oklch(35% 0.17 32)",
+          "oklch(45% 0.17 32)",
+          "oklch(60% 0.17 32)",
+          "oklch(75% 0.17 32)",
+          "oklch(85% 0.17 32)",
+          "oklch(95% 0.17 32)"
+        ]
+      },
+      "dept-4-light": {
+        "role": "tertiary",
+        "displayName": "Department 4 (light)",
+        "canonical": "see colors.dept-4-light",
+        "tonalRamp": [
+          "oklch(15% 0.17 32)",
+          "oklch(25% 0.17 32)",
+          "oklch(35% 0.17 32)",
+          "oklch(45% 0.17 32)",
+          "oklch(60% 0.17 32)",
+          "oklch(75% 0.17 32)",
+          "oklch(85% 0.17 32)",
+          "oklch(95% 0.17 32)"
+        ]
+      },
+      "dept-5-dark": {
+        "role": "tertiary",
+        "displayName": "Department 5 (dark)",
+        "canonical": "see colors.dept-5-dark",
+        "tonalRamp": [
+          "oklch(15% 0.17 300)",
+          "oklch(25% 0.17 300)",
+          "oklch(35% 0.17 300)",
+          "oklch(45% 0.17 300)",
+          "oklch(60% 0.17 300)",
+          "oklch(75% 0.17 300)",
+          "oklch(85% 0.17 300)",
+          "oklch(95% 0.17 300)"
+        ]
+      },
+      "dept-5-light": {
+        "role": "tertiary",
+        "displayName": "Department 5 (light)",
+        "canonical": "see colors.dept-5-light",
+        "tonalRamp": [
+          "oklch(15% 0.17 300)",
+          "oklch(25% 0.17 300)",
+          "oklch(35% 0.17 300)",
+          "oklch(45% 0.17 300)",
+          "oklch(60% 0.17 300)",
+          "oklch(75% 0.17 300)",
+          "oklch(85% 0.17 300)",
+          "oklch(95% 0.17 300)"
+        ]
+      },
+      "dept-6-dark": {
+        "role": "tertiary",
+        "displayName": "Department 6 (dark)",
+        "canonical": "see colors.dept-6-dark",
+        "tonalRamp": [
+          "oklch(15% 0.1 200)",
+          "oklch(25% 0.1 200)",
+          "oklch(35% 0.1 200)",
+          "oklch(45% 0.1 200)",
+          "oklch(60% 0.1 200)",
+          "oklch(75% 0.1 200)",
+          "oklch(85% 0.1 200)",
+          "oklch(95% 0.1 200)"
+        ]
+      },
+      "dept-6-light": {
+        "role": "tertiary",
+        "displayName": "Department 6 (light)",
+        "canonical": "see colors.dept-6-light",
+        "tonalRamp": [
+          "oklch(15% 0.1 200)",
+          "oklch(25% 0.1 200)",
+          "oklch(35% 0.1 200)",
+          "oklch(45% 0.1 200)",
+          "oklch(60% 0.1 200)",
+          "oklch(75% 0.1 200)",
+          "oklch(85% 0.1 200)",
+          "oklch(95% 0.1 200)"
+        ]
+      },
+      "dept-7-dark": {
+        "role": "tertiary",
+        "displayName": "Department 7 (dark)",
+        "canonical": "see colors.dept-7-dark",
+        "tonalRamp": [
+          "oklch(15% 0.19 345)",
+          "oklch(25% 0.19 345)",
+          "oklch(35% 0.19 345)",
+          "oklch(45% 0.19 345)",
+          "oklch(60% 0.19 345)",
+          "oklch(75% 0.19 345)",
+          "oklch(85% 0.19 345)",
+          "oklch(95% 0.19 345)"
+        ]
+      },
+      "dept-7-light": {
+        "role": "tertiary",
+        "displayName": "Department 7 (light)",
+        "canonical": "see colors.dept-7-light",
+        "tonalRamp": [
+          "oklch(15% 0.19 345)",
+          "oklch(25% 0.19 345)",
+          "oklch(35% 0.19 345)",
+          "oklch(45% 0.19 345)",
+          "oklch(60% 0.19 345)",
+          "oklch(75% 0.19 345)",
+          "oklch(85% 0.19 345)",
+          "oklch(95% 0.19 345)"
+        ]
+      },
+      "dept-8-dark": {
+        "role": "tertiary",
+        "displayName": "Department 8 (dark)",
+        "canonical": "see colors.dept-8-dark",
+        "tonalRamp": [
+          "oklch(15% 0.04 250)",
+          "oklch(25% 0.04 250)",
+          "oklch(35% 0.04 250)",
+          "oklch(45% 0.04 250)",
+          "oklch(60% 0.04 250)",
+          "oklch(75% 0.04 250)",
+          "oklch(85% 0.04 250)",
+          "oklch(95% 0.04 250)"
+        ]
+      },
+      "dept-8-light": {
+        "role": "tertiary",
+        "displayName": "Department 8 (light)",
+        "canonical": "see colors.dept-8-light",
+        "tonalRamp": [
+          "oklch(15% 0.04 250)",
+          "oklch(25% 0.04 250)",
+          "oklch(35% 0.04 250)",
+          "oklch(45% 0.04 250)",
+          "oklch(60% 0.04 250)",
+          "oklch(75% 0.04 250)",
+          "oklch(85% 0.04 250)",
+          "oklch(95% 0.04 250)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "The single 28px page title; also the project code at display scale."
+      },
+      "label": {
+        "displayName": "Group Heading",
+        "purpose": "Expanded uppercase, short group headings only."
+      },
+      "code": {
+        "displayName": "Catalog Code",
+        "purpose": "Tabular-figure codes beside every name."
+      }
+    },
+    "shadows": [
+      {
+        "name": "tooltip",
+        "value": "0 4px 16px -4px oklch(0 0 0 / 0.35)",
+        "purpose": "Floating tooltip."
+      },
+      {
+        "name": "menu",
+        "value": "0 12px 32px -8px oklch(0 0 0 / 0.4)",
+        "purpose": "Profile menu popover."
+      },
+      {
+        "name": "palette",
+        "value": "0 24px 48px -16px oklch(0 0 0 / 0.45)",
+        "purpose": "Command palette dialog."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Exponential ease-out, no bounce."
+      },
+      {
+        "name": "duration-fast",
+        "value": "150ms",
+        "purpose": "Hover tints, palette backdrop."
+      },
+      {
+        "name": "duration",
+        "value": "200ms",
+        "purpose": "Palette, notifications panel, context column swap (12px slide + fade)."
+      },
+      {
+        "name": "duration-slow",
+        "value": "250ms",
+        "purpose": "Upper bound."
+      },
+      {
+        "name": "rail-pulse",
+        "value": "1.8s infinite, opacity 1 to 0.3",
+        "purpose": "Claude-working ring. All motion is 0ms or off under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": []
+  },
+  "components": [
+    {
+      "name": "Rail Control",
+      "kind": "nav",
+      "refersTo": "rail-control",
+      "description": "40px icon button on the rail; ink tint on hover and current.",
+      "html": "<a class=\"ds-rail-ctl\" aria-current=\"page\" href=\"#\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\"><path d=\"M4 11l8-7 8 7v9H4z\"/></svg></a>",
+      "css": ":host{--ground:oklch(0.185 0.004 265);--surface:oklch(0.215 0.004 265);--rail:oklch(0.16 0.004 265);--ink:oklch(0.965 0.006 85);--ink-muted:oklch(0.76 0.006 265);--ink-faint:oklch(0.64 0.006 265);--rule:oklch(0.965 0.006 85 / 0.11);--rule-strong:oklch(0.965 0.006 85 / 0.2);--focus:oklch(0.74 0.13 250);--dept-4:oklch(0.68 0.18 32);}.ds-rail-ctl{display:grid;place-items:center;width:40px;height:40px;border-radius:8px;color:var(--ink-muted);transition:background-color 150ms cubic-bezier(.16,1,.3,1)}.ds-rail-ctl:hover{background:color-mix(in oklch,var(--ink) 6%,transparent);color:var(--ink)}.ds-rail-ctl[aria-current=page]{background:color-mix(in oklch,var(--ink) 10%,transparent);color:var(--ink)}.ds-rail-ctl:focus-visible{outline:2px solid var(--focus);outline-offset:2px}"
+    },
+    {
+      "name": "Project Tile",
+      "kind": "custom",
+      "refersTo": "project-tile",
+      "description": "Code on a bordered tile; solid ink dot = waiting on you, dashed ink ring = Claude working.",
+      "html": "<span class=\"ds-tile-wrap\"><span class=\"ds-ring\"></span><a class=\"ds-tile\" href=\"#\"><span class=\"ds-code\">AUD</span></a><span class=\"ds-dot\"></span></span>",
+      "css": ":host{--ground:oklch(0.185 0.004 265);--surface:oklch(0.215 0.004 265);--rail:oklch(0.16 0.004 265);--ink:oklch(0.965 0.006 85);--ink-muted:oklch(0.76 0.006 265);--ink-faint:oklch(0.64 0.006 265);--rule:oklch(0.965 0.006 85 / 0.11);--rule-strong:oklch(0.965 0.006 85 / 0.2);--focus:oklch(0.74 0.13 250);--dept-4:oklch(0.68 0.18 32);}.ds-tile-wrap{position:relative;display:inline-block;background:var(--rail);padding:8px}.ds-tile{position:relative;display:grid;place-items:center;width:40px;height:40px;border-radius:8px;border:1px solid var(--rule);color:var(--ink-muted)}.ds-tile:hover{border-color:var(--rule-strong);color:var(--ink)}.ds-code{font-family:'Archivo Variable',ui-sans-serif,system-ui,sans-serif;font-size:12px;font-weight:600;letter-spacing:.02em;font-variant-numeric:tabular-nums}.ds-ring{position:absolute;inset:4px;border-radius:12px;border:2px dashed var(--ink);pointer-events:none;animation:ds-p 1.8s infinite}.ds-dot{position:absolute;top:5px;right:5px;width:10px;height:10px;border-radius:9999px;background:var(--ink);border:2px solid var(--rail)}@keyframes ds-p{50%{opacity:.3}}@media (prefers-reduced-motion:reduce){.ds-ring{animation:none}}"
+    },
+    {
+      "name": "Column Item",
+      "kind": "nav",
+      "refersTo": "column-item",
+      "description": "32px section link in the project column with a faint count.",
+      "html": "<a class=\"ds-item\" href=\"#\"><span>Tasks</span><span class=\"ds-n\">12</span></a>",
+      "css": ":host{--ground:oklch(0.185 0.004 265);--surface:oklch(0.215 0.004 265);--rail:oklch(0.16 0.004 265);--ink:oklch(0.965 0.006 85);--ink-muted:oklch(0.76 0.006 265);--ink-faint:oklch(0.64 0.006 265);--rule:oklch(0.965 0.006 85 / 0.11);--rule-strong:oklch(0.965 0.006 85 / 0.2);--focus:oklch(0.74 0.13 250);--dept-4:oklch(0.68 0.18 32);}.ds-item{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border-radius:6px;color:var(--ink-muted);font-size:14px;font-family:'Archivo Variable',ui-sans-serif,system-ui,sans-serif;text-decoration:none}.ds-item:hover{background:color-mix(in oklch,var(--ink) 6%,transparent);color:var(--ink)}.ds-n{margin-left:auto;font-size:12px;color:var(--ink-faint);font-variant-numeric:tabular-nums}.ds-item:focus-visible{outline:2px solid var(--focus);outline-offset:2px}"
+    },
+    {
+      "name": "Task Row with Department Strip",
+      "kind": "card",
+      "refersTo": "column-item",
+      "description": "Code-first row, inset 3px department bar at the left edge, name beside the code.",
+      "html": "<div class=\"ds-row\" title=\"Department: Sales\"><span class=\"ds-strip\"></span><span class=\"ds-rc\">AUD-142</span><span class=\"ds-rt\">Send revised quote to client</span></div>",
+      "css": ":host{--ground:oklch(0.185 0.004 265);--surface:oklch(0.215 0.004 265);--rail:oklch(0.16 0.004 265);--ink:oklch(0.965 0.006 85);--ink-muted:oklch(0.76 0.006 265);--ink-faint:oklch(0.64 0.006 265);--rule:oklch(0.965 0.006 85 / 0.11);--rule-strong:oklch(0.965 0.006 85 / 0.2);--focus:oklch(0.74 0.13 250);--dept-4:oklch(0.68 0.18 32);}.ds-row{position:relative;display:flex;align-items:center;gap:12px;height:44px;padding:0 16px;border-bottom:1px solid var(--rule);color:var(--ink);font-family:'Archivo Variable',ui-sans-serif,system-ui,sans-serif;font-size:14px;background:var(--ground)}.ds-strip{position:absolute;top:10px;bottom:10px;left:0;width:3px;border-radius:1px;background:var(--dept-4)}.ds-rc{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}.ds-row:hover{background:color-mix(in oklch,var(--ink) 4%,var(--ground))}"
+    },
+    {
+      "name": "Group Heading",
+      "kind": "custom",
+      "refersTo": "label",
+      "description": "Expanded uppercase label for short group names only.",
+      "html": "<div class=\"ds-gh\">Overdue</div>",
+      "css": ":host{--ground:oklch(0.185 0.004 265);--surface:oklch(0.215 0.004 265);--rail:oklch(0.16 0.004 265);--ink:oklch(0.965 0.006 85);--ink-muted:oklch(0.76 0.006 265);--ink-faint:oklch(0.64 0.006 265);--rule:oklch(0.965 0.006 85 / 0.11);--rule-strong:oklch(0.965 0.006 85 / 0.2);--focus:oklch(0.74 0.13 250);--dept-4:oklch(0.68 0.18 32);}.ds-gh{font-family:'Archivo Variable',ui-sans-serif,system-ui,sans-serif;font-stretch:118%;font-weight:600;font-size:12px;line-height:16px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted)}"
+    },
+    {
+      "name": "Notification Item",
+      "kind": "custom",
+      "refersTo": "notifications-panel",
+      "description": "Unread ink dot, code, time, title, two-line body.",
+      "html": "<div class=\"ds-ni\"><span class=\"ds-ud\"></span><span><span class=\"ds-nc\">AUD-142</span> <span class=\"ds-nt\">2m</span><span class=\"ds-nh\">Quote approved by client</span><span class=\"ds-nb\">Marta confirmed the revised terms.</span></span></div>",
+      "css": ":host{--ground:oklch(0.185 0.004 265);--surface:oklch(0.215 0.004 265);--rail:oklch(0.16 0.004 265);--ink:oklch(0.965 0.006 85);--ink-muted:oklch(0.76 0.006 265);--ink-faint:oklch(0.64 0.006 265);--rule:oklch(0.965 0.006 85 / 0.11);--rule-strong:oklch(0.965 0.006 85 / 0.2);--focus:oklch(0.74 0.13 250);--dept-4:oklch(0.68 0.18 32);}.ds-ni{display:flex;gap:12px;padding:10px 16px;border-bottom:1px solid var(--rule);background:var(--surface);color:var(--ink);font-family:'Archivo Variable',ui-sans-serif,system-ui,sans-serif;}.ds-ud{margin-top:6px;width:8px;height:8px;border-radius:9999px;background:var(--ink);flex:none}.ds-nc{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}.ds-nt{font-size:12px;color:var(--ink-muted);margin-left:8px}.ds-nh{display:block;margin-top:2px;font-size:14px;font-weight:600}.ds-nb{display:block;font-size:13px;color:var(--ink-muted)}"
+    },
+    {
+      "name": "Command Palette",
+      "kind": "custom",
+      "refersTo": "command-palette",
+      "description": "Floating dialog: 12px radius, rule-strong border, soft shadow, group headings.",
+      "html": "<div class=\"ds-pal\"><div class=\"ds-pi\">Search tasks, pages, people</div><div class=\"ds-pg\">Tasks</div><div class=\"ds-pr\"><b>AUD-142</b> Send revised quote</div></div>",
+      "css": ":host{--ground:oklch(0.185 0.004 265);--surface:oklch(0.215 0.004 265);--rail:oklch(0.16 0.004 265);--ink:oklch(0.965 0.006 85);--ink-muted:oklch(0.76 0.006 265);--ink-faint:oklch(0.64 0.006 265);--rule:oklch(0.965 0.006 85 / 0.11);--rule-strong:oklch(0.965 0.006 85 / 0.2);--focus:oklch(0.74 0.13 250);--dept-4:oklch(0.68 0.18 32);}.ds-pal{width:420px;border-radius:12px;border:1px solid var(--rule-strong);background:var(--surface);color:var(--ink);box-shadow:0 24px 48px -16px oklch(0 0 0 / .45);overflow:hidden;font-family:'Archivo Variable',ui-sans-serif,system-ui,sans-serif;}.ds-pi{height:52px;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid var(--rule);font-size:16px;color:var(--ink-faint)}.ds-pg{padding:10px 16px 6px;font-stretch:118%;font-weight:600;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted)}.ds-pr{padding:8px 16px;font-size:14px}.ds-pr b{font-variant-numeric:tabular-nums;margin-right:8px}"
+    },
+    {
+      "name": "Logo",
+      "kind": "custom",
+      "refersTo": "logo",
+      "description": "The only monospace and the only amber.",
+      "html": "<span class=\"ds-logo\">S_</span>",
+      "css": ".ds-logo{display:grid;place-items:center;width:32px;height:32px;border-radius:8px;background:#0f1318;color:#f5a623;font-family:ui-monospace,monospace;font-size:13px;font-weight:600;letter-spacing:-.02em;box-shadow:inset 0 0 0 1px oklch(0.965 0.006 85 / .2)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Numbered Catalog",
+    "overview": "**Creative North Star: \"The Numbered Catalog\"**\n\nEvery citable thing - a task, a docs page, a drive file, an automation, an incoming event - is a catalog entry with a code you can paste anywhere. The code anchors the row; the name is always readable beside it, never replaced by it. Surfaces are flat, separated by thin hairline rules instead of boxes, and the screen stays calm so the few solid colors that appear can mean something.\n\nDark is the cover: opaque near-black with warm white ink, never pure black. Light is its negative: neutral paper (not cream) with near-black ink. One precise grotesque (Archivo) does all the work, using tabular figures for codes, dates and counts. Color encodes department or state and is never decoration.\n\nThe built layout diverges from the early contract sketch (236px sidebar): it ships as a 64px rail, a 240px context column and a work area, with an optional docked 360px detail panel.",
+    "keyCharacteristics": [
+      "Flat surfaces; hairlines (rule, rule-strong) do the work of boxes.",
+      "Code-first rows: code in tabular figures, name always beside it.",
+      "Department color is the one structural color, shown as an inset 3px strip on task rows only.",
+      "Signals that are not department or status are ink: solid dot for \"waiting on you\" and \"unread\".",
+      "One page-title system: 28px h1 on every destination.",
+      "Motion 150-250ms, exponential ease-out, none under reduced motion."
+    ],
+    "rules": [
+      {
+        "name": "The Color-Means-Something Rule",
+        "body": "A solid color appears only as department (strip, legend swatch) or status. If a color is neither, it should be ink.",
+        "section": "colors"
+      },
+      {
+        "name": "The Hue-Neutral Claude Rule",
+        "body": "\"Claude working\" is ink, not a hue: no hue was at least 30 degrees clear of all eight departments and the statuses in both themes. Claude is told apart by shape (a 2px dashed pulsing ring), against the solid dot of \"waiting on you\".",
+        "section": "colors"
+      },
+      {
+        "name": "The Focus-Only Blue Rule",
+        "body": "--focus is for :focus-visible rings (2px, 2px offset) and nothing else.",
+        "section": "colors"
+      },
+      {
+        "name": "The Amber-On-The-Logo Rule",
+        "body": "Brand amber is the logo's alone.",
+        "section": "colors"
+      },
+      {
+        "name": "The Code-Beside-Name Rule",
+        "body": "A code is never alone: the name is always readable next to it. In column headers the code is at display scale and the name takes up to two lines.",
+        "section": "typography"
+      },
+      {
+        "name": "The Group-Heading-Only Rule",
+        "body": "Spaced, expanded, uppercase text is for short group headings (Overdue, Today, palette groups, menu groups), never for body or buttons.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Figures Rule",
+        "body": "Codes, dates and counts use tabular figures (num).",
+        "section": "typography"
+      },
+      {
+        "name": "The Hairline-Not-Shadow Rule",
+        "body": "Anything that lives in the page (columns, rows, docked panels, the notifications panel) is separated by a hairline. A shadow is permitted only for a surface that floats over the page momentarily, and it is soft and offset downward, never hard.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use ink, not hue, for any signal that is not a department or a status (waiting, unread, Claude working).",
+      "Do put the code in tabular figures beside the name on every row, tile and notification.",
+      "Do use the 3px inset strip plus a legend and a \"Department: X\" tooltip for department; carry the name in text too.",
+      "Do separate in-page regions with `rule` hairlines (`rule-strong` for floating edges).",
+      "Do keep transitions at 150-250ms with `cubic-bezier(0.16, 1, 0.3, 1)`, and zero them under `prefers-reduced-motion`.",
+      "Do keep the 28px h1 as the single page title on every destination."
+    ],
+    "donts": [
+      "Don't use `--focus` blue for anything but focus rings.",
+      "Don't put brand amber anywhere except the \"S_\" logo.",
+      "Don't show a department strip on projects, tiles or non-task rows.",
+      "Don't use monospace (except the logo) or uppercase spaced text outside group headings.",
+      "Don't box content in shadowed cards or add decorative gradients.",
+      "Don't introduce a new hue for Claude or for state without checking a 30 degree gap from the eight departments."
+    ]
+  }
+}

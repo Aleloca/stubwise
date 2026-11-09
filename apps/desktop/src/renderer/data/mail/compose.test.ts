@@ -1,0 +1,724 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { failNext, mail, resetApi, setLatency } from "../api";
+import { MAIL_CASES, MAIL_MESSAGES } from "../seed/mail";
+import { setSessionPersonId } from "../session";
+import { setStreamLatency, state } from "../store";
+import type { MailDraft } from "../types";
+import { MAIL_MAX_ATTACHMENTS, MAIL_UNDO_MS, streamClaudeDraft } from "./compose";
+
+const as = (personId: string) => setSessionPersonId(personId);
+const AUD = "prj-aud";
+/** Le email mandate dal seme (le automazioni, area 7) non contano: solo gli invii del test. */
+const SEEDED_SENDS = new Set(MAIL_MESSAGES.filter((m) => m.delivery).map((m) => m.id));
+const mySends = () => state.mailMessages.filter((m) => m.delivery && !SEEDED_SENDS.has(m.id));
+
+const threadOf = (id: string) => state.mailMessages.find((m) => m.id === id)!.threadId;
+/** Le note della chiamata: da Matteo a Giulia, Laura in copia. */
+const CALL_NOTES = () => threadOf(MAIL_CASES.audLow);
+const BILLING = () => threadOf(MAIL_CASES.shared);
+const visibleIds = async (threadId: string) =>
+  (await mail.getMailThread(threadId)).messages.map((m) => m.id);
+const textsOf = async (threadId: string) =>
+  (await mail.getMailThread(threadId)).messages.map((m) => m.text);
+
+/** Una risposta di Giulia alle note della chiamata, salvata. */
+async function savedReply(body = "Thanks, got them."): Promise<MailDraft> {
+  const draft = await mail.getDraft(CALL_NOTES(), "reply");
+  return mail.saveDraft({ ...draft, body });
+}
+
+beforeEach(() => {
+  resetApi();
+  setLatency(0);
+  as("p-giulia");
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("Bozze: una per persona e conversazione", () => {
+  it("Rispondi: destinatario, oggetto e messaggio a cui risponde; nulla salvato finché non si salva", async () => {
+    const draft = await mail.getDraft(CALL_NOTES(), "reply");
+    expect(draft.to.map((a) => a.personId)).toEqual(["p-matteo"]);
+    expect(draft.cc).toEqual([]);
+    expect(draft.subject).toBe("Re: Notes from today's client call are in the AUD folder");
+    expect(draft.replyToMessageId).toBe(MAIL_CASES.audLow);
+    expect(draft.body).toBe("");
+    expect(await mail.listDrafts()).toEqual([]);
+  });
+
+  it("salvata e ritrovata, anche dopo aver guardato come un'altra persona; l'altra non la vede", async () => {
+    const saved = await savedReply("Thanks Matteo, I'll read them tonight.");
+    as("p-matteo");
+    expect(await mail.listDrafts()).toEqual([]);
+    expect((await mail.getDraft(CALL_NOTES(), "reply")).body).toBe("");
+    await expect(mail.discardDraft(saved.id)).rejects.toThrow("not_found");
+    as("p-giulia");
+    const again = await mail.getDraft(CALL_NOTES(), "reply");
+    expect(again).toEqual(saved);
+    expect((await mail.listDrafts()).map((d) => d.id)).toEqual([saved.id]);
+  });
+
+  it("passare a Rispondi a tutti o Inoltra tiene il corpo e cambia destinatari e oggetto [A 1]", async () => {
+    await savedReply("Body stays.");
+    const all = await mail.getDraft(CALL_NOTES(), "replyAll");
+    expect(all.body).toBe("Body stays.");
+    expect(all.to.map((a) => a.personId)).toEqual(["p-matteo"]);
+    expect(all.cc.map((a) => a.personId)).toEqual(["p-laura"]);
+    const fwd = await mail.getDraft(CALL_NOTES(), "forward");
+    expect(fwd.body).toBe("Body stays.");
+    expect(fwd.to).toEqual([]);
+    expect(fwd.subject).toBe("Fwd: Notes from today's client call are in the AUD folder");
+    // Una sola bozza per la conversazione.
+    await mail.saveDraft(fwd);
+    expect((await mail.listDrafts()).map((d) => d.mode)).toEqual(["forward"]);
+  });
+
+  it("Inoltra porta gli allegati originali, che escono tornando a Rispondi", async () => {
+    const fwd = await mail.getDraft(BILLING(), "forward");
+    expect(fwd.attachments.map((a) => [a.name, a.as])).toEqual([
+      ["billing-export-sample.csv", "copy"],
+    ]);
+    await mail.saveDraft(fwd);
+    expect((await mail.getDraft(BILLING(), "reply")).attachments).toEqual([]);
+  });
+
+  it("i destinatari si riconoscono dall'indirizzo, mai dal personId che arriva dal client", async () => {
+    const draft = await mail.getDraft(CALL_NOTES(), "reply");
+    const saved = await mail.saveDraft({
+      ...draft,
+      to: [
+        { name: "x", email: "MATTEO.CONTI@example.com", personId: null },
+        { name: "Someone", email: "someone@else.example", personId: "p-marco" },
+      ],
+    });
+    expect(saved.to.map((a) => a.personId)).toEqual(["p-matteo", null]);
+  });
+
+  it("una conversazione che non vedo è not_found; chi non ha la casella non scrive", async () => {
+    as("p-marco"); // in AUD, non destinatario delle note
+    await expect(mail.getDraft(CALL_NOTES(), "reply")).rejects.toThrow("google_not_connected");
+    as("p-giulia");
+    await expect(mail.getDraft(threadOf(MAIL_CASES.pending), "reply")).rejects.toThrow("not_found");
+    await expect(mail.getDraft(null, "reply")).rejects.toThrow("invalid: mode");
+  });
+
+  it("Elimina toglie la bozza", async () => {
+    const saved = await savedReply();
+    await mail.discardDraft(saved.id);
+    expect(await mail.listDrafts()).toEqual([]);
+  });
+});
+
+describe("Bozze con uno slot loro (R-K14, area 8a)", () => {
+  it("una bozza nello slot di una conversazione di Support non tocca la nuova email non inviata", async () => {
+    as("p-matteo");
+    const fresh = await mail.getDraft(null, "new");
+    const unsent = await mail.saveDraft({ ...fresh, subject: "Unsent", body: "Mine." });
+    expect(unsent.id).toBe("md-p-matteo-new");
+    const slotted = await mail.getDraft(null, "new", "support-ACQ-S2");
+    expect(slotted).toMatchObject({
+      id: "md-p-matteo-support-ACQ-S2",
+      slot: "support-ACQ-S2",
+      body: "",
+    });
+    const saved = await mail.saveDraft({ ...slotted, subject: "About your request", body: "Hi" });
+    expect(saved.id).toBe("md-p-matteo-support-ACQ-S2");
+    expect(await mail.getDraft(null, "new")).toMatchObject({ id: unsent.id, body: "Mine." });
+    expect(await mail.getDraft(null, "new", "support-ACQ-S2")).toMatchObject({ body: "Hi" });
+    expect((await mail.listDrafts()).map((d) => d.id).sort()).toEqual(
+      expect.arrayContaining(["md-p-matteo-new", "md-p-matteo-support-ACQ-S2"]),
+    );
+  });
+
+  it("un invio dallo slot dice il suo slot: «Undo» chiude quella casella, non la nuova email", async () => {
+    as("p-matteo");
+    const slotted = await mail.getDraft(null, "new", "support-ACQ-S2");
+    const saved = await mail.saveDraft({
+      ...slotted,
+      to: [{ name: "Lucia Benedetti", email: "lucia.benedetti@example.com", personId: null }],
+      subject: "About your request",
+      body: "Hi",
+    });
+    const sent = await mail.sendDraft(saved.id);
+    expect(sent.slot).toBe("support-ACQ-S2");
+    const plain = await mail.saveDraft({
+      ...(await mail.getDraft(null, "new")),
+      to: [{ name: "Lucia Benedetti", email: "lucia.benedetti@example.com", personId: null }],
+      subject: "Hello",
+      body: "Hi",
+    });
+    expect((await mail.sendDraft(plain.id)).slot).toBeUndefined();
+  });
+
+  it("uno slot solo per l'email nuova e con la forma di una conversazione di Support", async () => {
+    as("p-matteo");
+    const base = await mail.getDraft(null, "new");
+    await expect(mail.saveDraft({ ...base, slot: "anything" })).rejects.toThrow("invalid: slot");
+    const reply = await mail.getDraft(CALL_NOTES(), "reply");
+    await expect(mail.saveDraft({ ...reply, slot: "support-ACQ-S2" })).rejects.toThrow(
+      "invalid: slot",
+    );
+  });
+
+  it("inviare la bozza dello slot lascia la nuova email; «Annulla» la rimette nel suo slot", async () => {
+    vi.useFakeTimers();
+    as("p-matteo");
+    const fresh = await mail.getDraft(null, "new");
+    await mail.saveDraft({ ...fresh, subject: "Unsent", body: "Mine." });
+    const slotted = await mail.saveDraft({
+      ...(await mail.getDraft(null, "new", "support-ACQ-S2")),
+      to: [{ name: "Lucia", email: "lucia.benedetti@example.com", personId: null }],
+      subject: "About your request",
+      body: "Hi Lucia",
+    });
+    const sent = await mail.sendDraft(slotted.id);
+    expect(await mail.getDraft(null, "new")).toMatchObject({ body: "Mine." });
+    const back = await mail.undoSend(sent.messageId);
+    expect(back.draft).toMatchObject({ id: slotted.id, slot: "support-ACQ-S2", body: "Hi Lucia" });
+    expect(await mail.getDraft(null, "new")).toMatchObject({ body: "Mine." });
+  });
+});
+
+describe("Allegati dal Drive", () => {
+  const fileOf = (projectId: string, source: "upload" | "google", hidden = false) =>
+    state.driveFiles.find(
+      (f) =>
+        f.projectId === projectId && f.source === source && f.hidden === hidden && !f.unavailable,
+    )!;
+
+  it("un file del Drive di Stubwise come copia, un file Google come link [A 8]", async () => {
+    const saved = await savedReply();
+    const upload = fileOf(AUD, "upload");
+    const google = fileOf(AUD, "google");
+    await mail.attachDriveFile(saved.id, upload.id);
+    const draft = await mail.attachDriveFile(saved.id, google.id);
+    expect(draft.attachments).toEqual([
+      expect.objectContaining({ driveFileId: upload.id, as: "copy", sizeBytes: upload.sizeBytes }),
+      expect.objectContaining({ driveFileId: google.id, as: "link", sizeBytes: 0 }),
+    ]);
+    // Due volte lo stesso file: uno solo.
+    expect((await mail.attachDriveFile(saved.id, upload.id)).attachments).toHaveLength(2);
+  });
+
+  it("solo file che vedo: un nascosto o di un progetto non mio è not_found", async () => {
+    const saved = await savedReply();
+    const hidden = state.driveFiles.find((f) => f.hidden)!;
+    // Un file di MKX, dopo che Giulia è uscita dal progetto.
+    const foreign = fileOf("prj-mkx", "upload");
+    const mkx = state.projectsById.get("prj-mkx")!;
+    mkx.memberIds = mkx.memberIds.filter((id) => id !== "p-giulia");
+    await expect(mail.attachDriveFile(saved.id, hidden.id)).rejects.toThrow("not_found");
+    await expect(mail.attachDriveFile(saved.id, foreign.id)).rejects.toThrow("not_found");
+    // Neppure facendolo passare da saveDraft.
+    await expect(
+      mail.saveDraft({
+        ...saved,
+        attachments: [{ id: "x", name: "x", sizeBytes: 1, driveFileId: foreign.id, as: "copy" }],
+      }),
+    ).rejects.toThrow("not_found");
+  });
+
+  it(`al massimo ${MAIL_MAX_ATTACHMENTS} allegati; oltre 25 MB la bozza si salva ma non parte`, async () => {
+    const saved = await savedReply();
+    const many = Array.from({ length: MAIL_MAX_ATTACHMENTS + 1 }, (_, i) => ({
+      id: `d${i}`,
+      name: `f${i}.pdf`,
+      sizeBytes: 10,
+      driveFileId: null,
+      as: "copy" as const,
+    }));
+    await expect(mail.saveDraft({ ...saved, attachments: many })).rejects.toThrow(
+      "invalid: attachments",
+    );
+    const big = await mail.saveDraft({
+      ...saved,
+      attachments: [
+        {
+          id: "big",
+          name: "video.mov",
+          sizeBytes: 26 * 1024 * 1024,
+          driveFileId: null,
+          as: "copy",
+        },
+      ],
+    });
+    await expect(mail.sendDraft(big.id)).rejects.toThrow("invalid: too_large");
+    expect(mySends()).toEqual([]);
+  });
+});
+
+describe("Invio con «Annulla» per 5 s (Review Focus 4)", () => {
+  it("durante i 5 s il messaggio è «sending» solo per chi scrive; poi arriva a tutti i destinatari", async () => {
+    vi.useFakeTimers();
+    const saved = await savedReply("On it.");
+    const { messageId, undoUntil } = await mail.sendDraft(saved.id);
+    expect(undoUntil).toBe("2026-10-23T12:00:05.000Z");
+    const sent = (await mail.getMailThread(CALL_NOTES())).messages.at(-1)!;
+    expect(sent).toMatchObject({
+      id: messageId,
+      text: "On it.",
+      delivery: { state: "sending", sentById: "p-giulia" },
+      from: { personId: "p-giulia" },
+      read: true,
+    });
+    // La bozza è partita: non c'è più.
+    expect(await mail.listDrafts()).toEqual([]);
+    as("p-matteo");
+    expect(await visibleIds(CALL_NOTES())).not.toContain(messageId);
+
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
+    expect(await visibleIds(CALL_NOTES())).toContain(messageId);
+    as("p-giulia");
+    const after = (await mail.getMailThread(CALL_NOTES())).messages.at(-1)!;
+    expect(after.delivery).toEqual({ state: "sent", sentById: "p-giulia" });
+    // Marco (AUD, non destinatario) non lo vede.
+    expect(state.mailMessages.find((m) => m.id === messageId)!.mailboxPersonIds).toEqual([
+      "p-giulia",
+      "p-matteo",
+    ]);
+  });
+
+  it("«Annulla» entro 5 s: nessuna traccia nella conversazione, la bozza torna com'era", async () => {
+    vi.useFakeTimers();
+    const saved = await savedReply("Oops, wrong text.");
+    const before = await textsOf(CALL_NOTES());
+    const { messageId } = await mail.sendDraft(saved.id);
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS - 1);
+    const { draft: restored, droppedAttachments } = await mail.undoSend(messageId);
+    expect(restored).toEqual({ ...saved, updatedAt: restored.updatedAt });
+    expect(droppedAttachments).toEqual([]);
+    expect(await textsOf(CALL_NOTES())).toEqual(before);
+    expect(state.mailMessages.some((m) => m.id === messageId)).toBe(false);
+    expect((await mail.getDraft(CALL_NOTES(), "reply")).body).toBe("Oops, wrong text.");
+    // Il timer non spedisce più nulla.
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS * 2);
+    expect(state.mailMessages.some((m) => m.id === messageId)).toBe(false);
+  });
+
+  it("«Annulla» dopo i 5 s → too_late, e il messaggio resta", async () => {
+    vi.useFakeTimers();
+    const saved = await savedReply();
+    const { messageId } = await mail.sendDraft(saved.id);
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
+    await expect(mail.undoSend(messageId)).rejects.toThrow("too_late");
+    expect(await visibleIds(CALL_NOTES())).toContain(messageId);
+  });
+
+  it("«Annulla» con un'altra bozza scritta nel frattempo: si uniscono, mai sovrascritta", async () => {
+    vi.useFakeTimers();
+    const upload = state.driveFiles.find(
+      (f) => f.projectId === AUD && f.source === "upload" && !f.hidden && !f.unavailable,
+    )!;
+    const first = await savedReply("First text.");
+    await mail.attachDriveFile(first.id, upload.id);
+    const { messageId } = await mail.sendDraft(first.id);
+    // Nei 5 s riapre Rispondi e scrive un'altra bozza, con 10 allegati e un altro oggetto.
+    const fresh = await mail.getDraft(CALL_NOTES(), "reply");
+    const ten = Array.from({ length: MAIL_MAX_ATTACHMENTS }, (_, i) => ({
+      id: `n${i}`,
+      name: `n${i}.txt`,
+      sizeBytes: 1,
+      driveFileId: null,
+      as: "copy" as const,
+    }));
+    await mail.saveDraft({ ...fresh, subject: "Newer", body: "Newer text.", attachments: ten });
+    const { draft, droppedAttachments } = await mail.undoSend(messageId);
+    expect(draft.body).toBe("Newer text.\n\nFirst text.");
+    expect(draft.subject).toBe("Newer");
+    expect(draft.attachments.map((a) => a.id)).toEqual(ten.map((a) => a.id));
+    expect(droppedAttachments.map((a) => a.driveFileId)).toEqual([upload.id]);
+    expect(await mail.listDrafts()).toHaveLength(1);
+  });
+
+  it("controlli prima dell'invio: un allegato del Drive che non vedo più ferma l'invio", async () => {
+    const upload = state.driveFiles.find(
+      (f) => f.projectId === "prj-mkx" && f.source === "upload" && !f.hidden && !f.unavailable,
+    )!;
+    const saved = await savedReply();
+    await mail.attachDriveFile(saved.id, upload.id);
+    const mkx = state.projectsById.get("prj-mkx")!;
+    mkx.memberIds = mkx.memberIds.filter((id) => id !== "p-giulia");
+    await expect(mail.sendDraft(saved.id)).rejects.toThrow("attachment_unavailable");
+    expect(mySends()).toEqual([]);
+    expect(await mail.listDrafts()).toHaveLength(1);
+  });
+
+  it("cambio di persona durante la finestra: l'invio resta di chi l'ha fatto, l'altra non lo vede né lo annulla", async () => {
+    vi.useFakeTimers();
+    const saved = await savedReply("Sent by Giulia.");
+    const { messageId } = await mail.sendDraft(saved.id);
+    as("p-laura"); // destinataria? No: la risposta va solo a Matteo.
+    expect(await visibleIds(CALL_NOTES())).not.toContain(messageId);
+    await expect(mail.undoSend(messageId)).rejects.toThrow("not_found");
+    as("p-matteo"); // destinatario, ma l'email non è ancora partita
+    expect(await visibleIds(CALL_NOTES())).not.toContain(messageId);
+    await expect(mail.undoSend(messageId)).rejects.toThrow("not_found");
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
+    const row = state.mailMessages.find((m) => m.id === messageId)!;
+    expect(row.from.personId).toBe("p-giulia");
+    expect(row.delivery).toEqual({ state: "sent", sentById: "p-giulia" });
+    // Matteo (destinatario) lo vede arrivato, Laura (non destinataria) mai.
+    expect(await visibleIds(CALL_NOTES())).toContain(messageId);
+    as("p-laura");
+    expect(await visibleIds(CALL_NOTES())).not.toContain(messageId);
+  });
+
+  it("un'email nuova diventa una conversazione nuova in cima all'elenco", async () => {
+    vi.useFakeTimers();
+    const draft = await mail.getDraft(null, "new");
+    const saved = await mail.saveDraft({
+      ...draft,
+      to: [{ name: "", email: "marco.bellini@example.com", personId: null }],
+      subject: "Kick-off",
+      body: "See you Monday.",
+    });
+    const { messageId } = await mail.sendDraft(saved.id);
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
+    const row = state.mailMessages.find((m) => m.id === messageId)!;
+    expect((await mail.listMailThreads())[0]!.threadId).toBe(row.threadId);
+    as("p-marco");
+    expect((await mail.listMailThreads()).map((r) => r.threadId)).toContain(row.threadId);
+    as("p-laura"); // non destinataria
+    expect((await mail.listMailThreads()).map((r) => r.threadId)).not.toContain(row.threadId);
+  });
+
+  it("la posta in uscita non va al modello: nessuna classificazione, nessuna proposta", async () => {
+    vi.useFakeTimers();
+    const proposals = state.mailProposals.length;
+    const { messageId } = await mail.sendDraft((await savedReply()).id);
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
+    await mail.whenMailIdle();
+    expect(state.mailMessages.find((m) => m.id === messageId)!.classification).toEqual({
+      state: "off",
+    });
+    expect(state.mailProposals).toHaveLength(proposals);
+  });
+
+  it("controlli prima dell'invio: destinatari, indirizzi validi, account non scaduto", async () => {
+    const draft = await savedReply();
+    await mail.saveDraft({ ...draft, to: [] });
+    await expect(mail.sendDraft(draft.id)).rejects.toThrow("invalid: recipients");
+    await mail.saveDraft({ ...draft, to: [{ name: "", email: "not an address", personId: null }] });
+    await expect(mail.sendDraft(draft.id)).rejects.toThrow("invalid: address");
+    state.googleAccounts.find((a) => a.personId === "p-giulia")!.status = "expired";
+    await mail.saveDraft(draft);
+    await expect(mail.sendDraft(draft.id)).rejects.toThrow("google_not_connected");
+    expect(mySends()).toEqual([]);
+  });
+});
+
+describe("L'«Undo» di «Discard» (R-I9)", () => {
+  it("senza un'altra bozza torna com'era; con un'altra (anche vuota) ci si unisce sotto e dice gli allegati rimasti fuori", async () => {
+    const upload = state.driveFiles.find(
+      (f) => f.projectId === AUD && f.source === "upload" && !f.hidden && !f.unavailable,
+    )!;
+    const first = await savedReply("Discarded text.");
+    const withFile = await mail.attachDriveFile(first.id, upload.id);
+    await mail.discardDraft(first.id);
+    const back = await mail.restoreDiscardedDraft(withFile);
+    expect(back.droppedAttachments).toEqual([]);
+    expect(back.draft.body).toBe("Discarded text.");
+    expect(back.draft.attachments.map((a) => a.driveFileId)).toEqual([upload.id]);
+
+    // Un'altra bozza nella conversazione, con 10 allegati: non si sovrascrive.
+    await mail.discardDraft(first.id);
+    const fresh = await mail.getDraft(CALL_NOTES(), "reply");
+    const ten = Array.from({ length: MAIL_MAX_ATTACHMENTS }, (_, i) => ({
+      id: `n${i}`,
+      name: `n${i}.txt`,
+      sizeBytes: 1,
+      driveFileId: null,
+      as: "copy" as const,
+    }));
+    await mail.saveDraft({ ...fresh, subject: "Newer", body: "Newer text.", attachments: ten });
+    const merged = await mail.restoreDiscardedDraft(withFile);
+    expect(merged.draft.body).toBe("Newer text.\n\nDiscarded text.");
+    expect(merged.draft.subject).toBe("Newer");
+    expect(merged.draft.attachments.map((a) => a.id)).toEqual(ten.map((a) => a.id));
+    expect(merged.droppedAttachments.map((a) => a.driveFileId)).toEqual([upload.id]);
+    expect(await mail.listDrafts()).toHaveLength(1);
+  });
+
+  it("un file del Drive non più disponibile non fa perdere la bozza: resta fuori e si dice", async () => {
+    const upload = state.driveFiles.find(
+      (f) => f.projectId === AUD && f.source === "upload" && !f.hidden && !f.unavailable,
+    )!;
+    const first = await savedReply("Still here.");
+    const withFile = await mail.attachDriveFile(first.id, upload.id);
+    await mail.discardDraft(first.id);
+    upload.unavailable = "deleted";
+    const { draft, droppedAttachments } = await mail.restoreDiscardedDraft(withFile);
+    expect(draft.body).toBe("Still here.");
+    expect(draft.attachments).toEqual([]);
+    expect(droppedAttachments.map((a) => a.driveFileId)).toEqual([upload.id]);
+    expect((await mail.listDrafts()).map((d) => d.body)).toEqual(["Still here."]);
+  });
+
+  it("«Annulla» un invio con un file del Drive che non vedo più: la bozza torna senza quel file, detto", async () => {
+    vi.useFakeTimers();
+    const upload = state.driveFiles.find(
+      (f) => f.projectId === "prj-mkx" && f.source === "upload" && !f.hidden && !f.unavailable,
+    )!;
+    const saved = await savedReply("With an MKX file.");
+    await mail.attachDriveFile(saved.id, upload.id);
+    const { messageId } = await mail.sendDraft(saved.id);
+    const mkx = state.projectsById.get("prj-mkx")!;
+    mkx.memberIds = mkx.memberIds.filter((id) => id !== "p-giulia");
+    const { draft, droppedAttachments } = await mail.undoSend(messageId);
+    expect(draft.body).toBe("With an MKX file.");
+    expect(draft.attachments).toEqual([]);
+    expect(droppedAttachments.map((a) => a.driveFileId)).toEqual([upload.id]);
+  });
+
+  it("decide l'esistenza della bozza, non il contenuto: una bozza vuota tiene destinatari e oggetto", async () => {
+    const first = await savedReply("Discarded text.");
+    await mail.discardDraft(first.id);
+    const fresh = await mail.getDraft(CALL_NOTES(), "reply");
+    await mail.saveDraft({ ...fresh, subject: "Kept subject", body: "" });
+    const { draft } = await mail.restoreDiscardedDraft(first);
+    expect(draft.subject).toBe("Kept subject");
+    expect(draft.body).toBe("Discarded text.");
+  });
+});
+
+describe("Il testo citato [A 4]", () => {
+  it("Rispondi cita l'originale salvo toglierlo (anche dopo aver cambiato modalità); Inoltra sempre", async () => {
+    const reply = await mail.sendDraft((await savedReply("Quoted.")).id);
+    expect(reply.threadId).toBe(CALL_NOTES());
+    const quoted = state.mailMessages.find((m) => m.id === reply.messageId)!.quoted!;
+    expect(quoted).toContain("Matteo Conti <");
+    expect(quoted).toContain("I put the notes from this morning's call");
+    await mail.undoSend(reply.messageId);
+
+    const draft = await mail.getDraft(CALL_NOTES(), "reply");
+    await mail.saveDraft({ ...draft, quote: false });
+    expect((await mail.getDraft(CALL_NOTES(), "replyAll")).quote).toBe(false);
+    const bare = await mail.sendDraft(draft.id);
+    expect(state.mailMessages.find((m) => m.id === bare.messageId)!.quoted).toBeNull();
+    await mail.undoSend(bare.messageId);
+
+    // Rispondi → Inoltra → Rispondi: la scelta di non citare resta.
+    await mail.saveDraft(await mail.getDraft(CALL_NOTES(), "forward"));
+    expect((await mail.getDraft(CALL_NOTES(), "reply")).quote).toBe(false);
+
+    const fwd = await mail.getDraft(CALL_NOTES(), "forward");
+    await mail.saveDraft({
+      ...fwd,
+      quote: false,
+      to: [{ name: "", email: "sofia.marchetti@audin.example", personId: null }],
+    });
+    const sent = await mail.sendDraft(fwd.id);
+    expect(state.mailMessages.find((m) => m.id === sent.messageId)!.quoted).toContain(
+      "Matteo Conti",
+    );
+  });
+});
+
+describe("Invio fallito", () => {
+  async function bounced() {
+    const draft = await savedReply("Keep this text.");
+    await mail.saveDraft({
+      ...draft,
+      to: [...draft.to, { name: "Luca", email: "luca@bounce.example", personId: null }],
+    });
+    const { messageId } = await mail.sendDraft(draft.id);
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
+    return messageId;
+  }
+
+  it("fallito: testo intatto, solo per chi scrive, mai ritentato da solo; «Riprova» riparte con la finestra", async () => {
+    vi.useFakeTimers();
+    const messageId = await bounced();
+    const row = state.mailMessages.find((m) => m.id === messageId)!;
+    expect(row.delivery).toEqual({
+      state: "failed",
+      sentById: "p-giulia",
+      error: "address_not_found: luca@bounce.example",
+    });
+    expect(row.text).toBe("Keep this text.");
+    as("p-matteo");
+    expect(await visibleIds(CALL_NOTES())).not.toContain(messageId);
+    as("p-giulia");
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS * 10);
+    expect(row.delivery!.state).toBe("failed");
+
+    const retry = await mail.retrySend(messageId);
+    expect(retry.messageId).toBe(messageId);
+    expect(row.delivery!.state).toBe("sending");
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
+    // Lo stesso indirizzo fallisce di nuovo: resta uno solo, fallito.
+    expect(row.delivery!.state).toBe("failed");
+    expect(mySends().length).toBe(1);
+    await expect(mail.retrySend(messageId)).resolves.toBeDefined();
+    await expect(mail.retrySend(messageId)).rejects.toThrow("invalid: not failed");
+  });
+
+  it("«Riprova» con l'account scaduto → google_not_connected, il tentativo resta fallito", async () => {
+    vi.useFakeTimers();
+    const messageId = await bounced();
+    state.googleAccounts.find((a) => a.personId === "p-giulia")!.status = "expired";
+    await expect(mail.retrySend(messageId)).rejects.toThrow("google_not_connected");
+    expect(state.mailMessages.find((m) => m.id === messageId)!.delivery!.state).toBe("failed");
+  });
+
+  it("«Elimina» (o «Modifica») toglie il tentativo e la bozza torna, intatta", async () => {
+    vi.useFakeTimers();
+    const messageId = await bounced();
+    const { draft, droppedAttachments } = await mail.deleteFailedSend(messageId);
+    expect(draft.body).toBe("Keep this text.");
+    expect(droppedAttachments).toEqual([]);
+    expect(state.mailMessages.some((m) => m.id === messageId)).toBe(false);
+    expect((await mail.getDraft(CALL_NOTES(), "reply")).body).toBe("Keep this text.");
+  });
+
+  it("«Elimina» con una bozza più recente nella conversazione: si uniscono", async () => {
+    vi.useFakeTimers();
+    const messageId = await bounced();
+    const fresh = await mail.getDraft(CALL_NOTES(), "reply");
+    await mail.saveDraft({ ...fresh, body: "Newer." });
+    const { draft } = await mail.deleteFailedSend(messageId);
+    expect(draft.body).toBe("Newer.\n\nKeep this text.");
+    expect(draft.to.map((a) => a.email)).toEqual(fresh.to.map((a) => a.email));
+  });
+
+  it("un nuovo invio nella stessa conversazione NON toglie il tentativo fallito", async () => {
+    vi.useFakeTimers();
+    const messageId = await bounced();
+    const fresh = await mail.getDraft(CALL_NOTES(), "reply");
+    const second = await mail.saveDraft({ ...fresh, body: "Another reply." });
+    const { messageId: secondId } = await mail.sendDraft(second.id);
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
+    const failed = state.mailMessages.find((m) => m.id === messageId)!;
+    expect(failed.delivery!.state).toBe("failed");
+    expect(failed.text).toBe("Keep this text.");
+    expect(state.mailMessages.find((m) => m.id === secondId)!.delivery!.state).toBe("sent");
+    expect(await visibleIds(CALL_NOTES())).toEqual(expect.arrayContaining([messageId, secondId]));
+  });
+});
+
+describe("Destinatari suggeriti", () => {
+  it("persone del team e indirizzi dei messaggi che vedo, il team prima", async () => {
+    const hits = await mail.suggestRecipients("ma");
+    expect(hits[0]).toMatchObject({ group: "team" });
+    expect(hits.length).toBeLessThanOrEqual(8);
+    const sofia = await mail.suggestRecipients("sofia");
+    expect(sofia).toEqual([
+      {
+        group: "mail",
+        name: "Sofia Marchetti",
+        email: "sofia.marchetti@audin.example",
+        personId: null,
+      },
+    ]);
+    expect(await mail.suggestRecipients(" ")).toEqual([]);
+    // Io non mi suggerisco.
+    expect((await mail.suggestRecipients("giulia")).some((s) => s.personId === "p-giulia")).toBe(
+      false,
+    );
+  });
+
+  it("mai un indirizzo visto solo in messaggi che non vedo", async () => {
+    // L'ordine di Mix Cucine, la richiesta dati della sua automazione (AUD-A1)
+    // e Product Weekly sono solo nella casella di Matteo.
+    expect(await mail.suggestRecipients("mixcucine")).toEqual([]);
+    expect(await mail.suggestRecipients("productweekly")).toEqual([]);
+    as("p-matteo");
+    expect((await mail.suggestRecipients("mixcucine")).map((s) => s.email).sort()).toEqual([
+      "acquisti@mixcucine.example",
+      "marketing@mixcucine.example",
+    ]);
+  });
+
+  it("nemmeno da un invio altrui ancora nei 5 s o fallito", async () => {
+    vi.useFakeTimers();
+    // Matteo risponde alle note della chiamata a Giulia, con un esterno in copia.
+    as("p-matteo");
+    const draft = await mail.getDraft(CALL_NOTES(), "reply");
+    const saved = await mail.saveDraft({
+      ...draft,
+      to: [{ name: "", email: "giulia.ferri@example.com", personId: null }],
+      cc: [{ name: "Secret", email: "secret@hidden.example", personId: null }],
+      body: "x",
+    });
+    const { messageId } = await mail.sendDraft(saved.id);
+    as("p-giulia");
+    expect(await mail.suggestRecipients("secret")).toEqual([]);
+    // Partita, Giulia ne è destinataria: ora l'indirizzo l'ha visto.
+    await vi.advanceTimersByTimeAsync(MAIL_UNDO_MS);
+    expect(state.mailMessages.find((m) => m.id === messageId)!.delivery!.state).toBe("sent");
+    expect((await mail.suggestRecipients("secret")).map((s) => s.email)).toEqual([
+      "secret@hidden.example",
+    ]);
+  });
+});
+
+describe("La bozza di Claude", () => {
+  it("si scrive a pezzi nel campo, cita solo task visibili e non invia mai", async () => {
+    setStreamLatency(0);
+    const pieces: string[] = [];
+    const stream = streamClaudeDraft(
+      { threadId: BILLING(), hint: "tell them it lands on Monday" },
+      (text) => pieces.push(text),
+    );
+    const outcome = await stream.result;
+    expect(outcome.complete).toBe(true);
+    expect(pieces.length).toBeGreaterThan(1);
+    expect(pieces.at(-1)).toBe(outcome.text);
+    expect(outcome.text).toContain("It lands on Monday.");
+    expect(outcome.projectId).toBe(AUD);
+    expect(outcome.used.length).toBeGreaterThan(0);
+    for (const u of outcome.used) expect(state.tasksById.get(u.taskId)!.projectId).toBe(AUD);
+    // Nessun messaggio, nessuna bozza salvata.
+    expect(mySends()).toEqual([]);
+    expect(state.mailDrafts).toEqual([]);
+  });
+
+  it("chi non è membro del progetto non ne vede le task: la bozza non le cita", async () => {
+    setStreamLatency(0);
+    const aud = state.projectsById.get(AUD)!;
+    aud.memberIds = aud.memberIds.filter((id) => id !== "p-laura");
+    as("p-laura"); // in copia sull'email di AUD
+    const outcome = await streamClaudeDraft({ threadId: BILLING(), hint: "" }, () => {}).result;
+    expect(outcome.projectId).toBeNull();
+    expect(outcome.used).toEqual([]);
+    for (const task of state.tasks.filter((x) => x.projectId === AUD)) {
+      expect(outcome.text).not.toContain(task.title);
+    }
+    await expect(
+      streamClaudeDraft({ threadId: null, hint: "hello", projectId: AUD }, () => {}).result,
+    ).rejects.toThrow("not_found");
+  });
+
+  it("«Ferma» tiene il testo fin lì; un cambio di persona la ferma", async () => {
+    vi.useFakeTimers();
+    setStreamLatency(10);
+    let last = "";
+    const stream = streamClaudeDraft({ threadId: BILLING(), hint: "" }, (text) => {
+      last = text;
+    });
+    await vi.advanceTimersByTimeAsync(25);
+    stream.stop();
+    await vi.runAllTimersAsync();
+    const stopped = await stream.result;
+    expect(stopped.complete).toBe(false);
+    expect(stopped.text).toBe(last);
+    expect(last.length).toBeGreaterThan(0);
+
+    const other = streamClaudeDraft({ threadId: BILLING(), hint: "" }, () => {});
+    await vi.advanceTimersByTimeAsync(15);
+    as("p-matteo");
+    await vi.runAllTimersAsync();
+    expect((await other.result).complete).toBe(false);
+  });
+
+  it("un errore lascia il testo com'era: la chiamata fallisce", async () => {
+    failNext("mail.draftReply");
+    const texts: string[] = [];
+    await expect(
+      streamClaudeDraft({ threadId: BILLING(), hint: "" }, (t) => texts.push(t)).result,
+    ).rejects.toThrow("Simulated failure");
+    expect(texts).toEqual([]);
+  });
+});

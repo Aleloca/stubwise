@@ -1,0 +1,104 @@
+import type { DocPageRef, DocTreeNode, GraphState } from "../data/model";
+
+/** Lo slug di una pagina dal suo titolo: minuscole, senza accenti, parole unite da «-». */
+export function slugify(title: string): string {
+  return title
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** Uno slug scritto a mano è valido: minuscole, cifre e «-», senza «-» ai bordi. */
+export const SLUG_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * Gli slug che nello spazio sono già viste (`…/<repo>/new`, `brief`,
+ * `releases`, `graph`): una pagina con uno di questi non si aprirebbe mai.
+ * Il livello dati li rifiuta (`slug_conflict`), il form lo dice prima.
+ */
+export const RESERVED_SLUGS: ReadonlySet<string> = new Set(["new", "brief", "releases", "graph"]);
+
+/**
+ * L'albero di una categoria: ogni segmento del percorso («Guide / Dialer») è
+ * una cartella, la pagina è la foglia. Cartelle prima delle pagine, entrambe
+ * per nome.
+ */
+export function buildDocTree(pages: readonly DocPageRef[]): DocTreeNode[] {
+  const root: DocTreeNode = { name: "", page: null, children: [] };
+  for (const page of pages) {
+    let node = root;
+    for (const segment of page.path
+      .split("/")
+      .map((s) => s.trim())
+      .filter(Boolean)) {
+      let folder = node.children.find((c) => c.page === null && c.name === segment);
+      if (!folder) {
+        folder = { name: segment, page: null, children: [] };
+        node.children.push(folder);
+      }
+      node = folder;
+    }
+    node.children.push({ name: page.title, page, children: [] });
+  }
+  sortTree(root.children);
+  return root.children;
+}
+
+function sortTree(nodes: DocTreeNode[]): void {
+  nodes.sort(
+    (a, b) => Number(a.page !== null) - Number(b.page !== null) || a.name.localeCompare(b.name),
+  );
+  for (const n of nodes) sortTree(n.children);
+}
+
+/**
+ * Quali voci della barra secondaria finiscono in «More» (shape docs.md §6):
+ * le fisse restano sempre; le facoltative, in ordine di importanza, escono
+ * dall'ultima finché la barra (con «More», se serve) sta in `available`.
+ * Nessuna va a capo: chi non sta va nel menu.
+ */
+export function overflowingBarItems(
+  available: number,
+  fixedWidth: number,
+  optional: readonly { id: string; width: number }[],
+  moreWidth: number,
+  gap = 4,
+): string[] {
+  const widthOf = (items: readonly { width: number }[]) =>
+    items.reduce((sum, item) => sum + item.width + gap, 0);
+  if (fixedWidth + widthOf(optional) <= available) return [];
+  const kept = [...optional];
+  const hidden: string[] = [];
+  while (kept.length > 0 && fixedWidth + widthOf(kept) + moreWidth + gap > available) {
+    hidden.unshift(kept.pop()!.id);
+  }
+  return hidden;
+}
+
+/**
+ * Il `graph.json` (finto) di un grafo pronto, nella forma di graphify: un
+ * nodo per comunità e uno per ciascuno dei suoi nodi più collegati, gli
+ * archi dentro la comunità e fra comunità vicine. I conteggi interi stanno
+ * in `meta` (il file vero ha tutti i nodi: qui il resoconto).
+ */
+export function graphJsonOf(repository: string, graph: GraphState): string {
+  const report = graph.report ?? [];
+  const nodes = report.flatMap((c) => [
+    { id: c.id, label: c.name, kind: "community", size: c.size },
+    ...c.nodes.map((n) => ({ id: `${c.id}:${n}`, label: n, kind: "symbol", community: c.id })),
+  ]);
+  const links = report.flatMap((c) => [
+    ...c.nodes.map((n) => ({ source: c.id, target: `${c.id}:${n}` })),
+    ...c.links.filter((l) => l > c.id).map((l) => ({ source: c.id, target: l })),
+  ]);
+  const meta = {
+    repository,
+    nodes: graph.nodes ?? 0,
+    edges: graph.edges ?? 0,
+    communities: graph.communities ?? report.length,
+    updatedAt: graph.updatedAt ?? null,
+  };
+  return JSON.stringify({ meta, nodes, links }, null, 2);
+}

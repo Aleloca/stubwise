@@ -1,0 +1,179 @@
+/*
+ * Token di «Catalogo numerato».
+ *
+ * Scuro = la copertina: nero opaco (mai #000), inchiostro bianco appena caldo.
+ * Chiaro = il suo negativo: carta neutra (non crema), inchiostro quasi nero.
+ * Colori in OKLCH. Il colore pieno codifica qualcosa (reparto, stato), mai
+ * decorazione: i filetti (`--rule`) fanno il lavoro di riquadri e ombre.
+ *
+ * Reparti `--dept-1..8`: ≥ 3:1 sul fondo in entrambi i temi (segnale non
+ * testuale); i primi cinque scalano anche in luminosità (passi ≥ 0.04 in
+ * OKLCH L, dal più chiaro al più scuro: 1, 3, 4, 2, 5), non solo in tinta,
+ * così restano distinguibili a chi non vede bene i colori. `--dept-1` sta
+ * sul giallo-verde (tinta 118), lontano dall'ambra di `--warning`.
+ *
+ * Segnali: «aspetta te» e «non letta» sono punti d'INCHIOSTRO, non colore;
+ * `--focus` (blu, tinta 250) serve solo agli anelli di fuoco, perché un blu
+ * altrove si leggerebbe come il reparto 2. `--claude` («Claude al lavoro»)
+ * è NEUTRO, l'inchiostro: nessuna tinta resta a ≥ 30° da tutte e otto le
+ * `--dept-*` (32, 118, 145, 200/210, 250, 258/260, 300, 345/350) e dagli stati
+ * (22/25, 70/75, 158) in entrambi i temi — il varco più largo è 52°. Claude si
+ * distingue per FORMA: anello tratteggiato di 2 px che pulsa, contro il punto
+ * pieno di «aspetta te». Inchiostro sul binario: ≥ 13:1 in entrambi i temi.
+ */
+
+/* Grandezze indipendenti dal tema: Tailwind le trasforma in utility. */
+@theme {
+  --font-sans: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
+  /* Il monospace è ammesso solo per il logo «S_» (utility `font-logo`): il preflight di Tailwind lo
+     metterebbe su code/kbd/samp/pre, quindi anche `font-mono` è la sans. */
+  --font-mono: "Archivo Variable", ui-sans-serif, system-ui, sans-serif;
+
+  /* Base 4 px: p-1 = 4px, p-2 = 8px, … */
+  --spacing: 4px;
+
+  /* Scala tipografica (px): sostituisce quella di default di Tailwind. */
+  --text-*: initial;
+  --text-xs: 12px;
+  --text-xs--line-height: 16px;
+  --text-sm: 13px;
+  --text-sm--line-height: 18px;
+  --text-md: 14px;
+  --text-md--line-height: 20px;
+  --text-lg: 16px;
+  --text-lg--line-height: 22px;
+  --text-xl: 20px;
+  --text-xl--line-height: 26px;
+  --text-2xl: 28px;
+  --text-2xl--line-height: 34px;
+}
+
+:root {
+  --duration-fast: 150ms;
+  --duration: 200ms;
+  --duration-slow: 250ms;
+  /* Ease-out esponenziale: parte deciso, si posa senza rimbalzo. */
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/*
+ * Testata di una pagina (classe `page-header`): su Windows i controlli della
+ * finestra (overlay di 32 px, `titleBarOverlay` in `main/window.ts`) coprono
+ * l'angolo in alto a destra dell'area di lavoro. La testata riserva quello
+ * spazio: `env(titlebar-area-height, 32px)` in alto e 140 px a destra. Il
+ * padding in alto e a destra è della classe: la pagina dà il suo con
+ * `--page-header-pt` / `--page-header-pr` (es. `[--page-header-pt:32px]`),
+ * non con `pt-*`/`pr-*`/`p-*`, che lo scavalcherebbero; la riserva si somma.
+ */
+:root {
+  --titlebar-reserve-top: 0px;
+  --titlebar-reserve-right: 0px;
+}
+
+:root[data-platform="windows"] {
+  --titlebar-reserve-top: env(titlebar-area-height, 32px);
+  --titlebar-reserve-right: 140px;
+}
+
+@layer components {
+  .page-header {
+    padding-top: calc(var(--page-header-pt, 0px) + var(--titlebar-reserve-top));
+    padding-right: calc(var(--page-header-pr, 0px) + var(--titlebar-reserve-right));
+  }
+
+  /* Con il pannello della task affiancato l'angolo dei controlli è il suo
+     (la sua barra usa `page-header`): la testata della pagina accanto non
+     riserva più lo spazio a destra. */
+  [data-zone="work-row"]:has(> [data-detail-panel][data-mode="docked"]) > main .page-header {
+    padding-right: var(--page-header-pr, 0px);
+  }
+}
+
+/* I controlli nativi (calendario della scadenza) seguono il tema dell'app. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration: 0ms;
+    --duration-slow: 0ms;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground: oklch(0.185 0.004 265);
+  --surface: oklch(0.215 0.004 265);
+  --rail: oklch(0.16 0.004 265);
+  --scrim: oklch(0 0 0 / 0.5);
+  --ink: oklch(0.965 0.006 85);
+  --ink-muted: oklch(0.76 0.006 265);
+  --ink-faint: oklch(0.64 0.006 265);
+  --rule: oklch(0.965 0.006 85 / 0.11);
+  --rule-strong: oklch(0.965 0.006 85 / 0.2);
+  --focus: oklch(0.74 0.13 250);
+  --critical: oklch(0.7 0.17 22);
+  --warning: oklch(0.8 0.14 75);
+  --positive: oklch(0.74 0.14 158);
+  --claude: var(--ink);
+
+  --dept-1: oklch(0.87 0.16 118);
+  --dept-2: oklch(0.6 0.17 258);
+  --dept-3: oklch(0.76 0.15 145);
+  --dept-4: oklch(0.68 0.18 32);
+  --dept-5: oklch(0.53 0.17 300);
+  --dept-6: oklch(0.76 0.1 200);
+  --dept-7: oklch(0.68 0.18 345);
+  --dept-8: oklch(0.72 0.04 250);
+
+  /* Presenza (area 11a, [PE 17], «The Presence Exception» di DESIGN.md): i
+     cursori, le etichette e gli anelli degli avatar degli altri, SOLO
+     nell'editor delle pagine di prodotto e sempre accanto al nome. Le tinte
+     dei reparti 1–6 con nomi propri; la luminosità alzata dove serviva perché
+     l'etichetta (testo `--ground`) stia a ≥ 4.5:1 e la barra a ≥ 3:1 sul fondo. */
+  --presence-1: oklch(0.87 0.16 118);
+  --presence-2: oklch(0.68 0.15 258);
+  --presence-3: oklch(0.76 0.15 145);
+  --presence-4: oklch(0.7 0.17 32);
+  --presence-5: oklch(0.66 0.16 300);
+  --presence-6: oklch(0.76 0.1 200);
+}
+
+:root[data-theme="light"] {
+  --ground: oklch(0.982 0.002 265);
+  --surface: oklch(1 0 0);
+  --scrim: oklch(0.2 0.005 265 / 0.24);
+  --rail: oklch(0.958 0.003 265);
+  --ink: oklch(0.2 0.005 265);
+  --ink-muted: oklch(0.44 0.006 265);
+  --ink-faint: oklch(0.53 0.006 265);
+  --rule: oklch(0.2 0.005 265 / 0.12);
+  --rule-strong: oklch(0.2 0.005 265 / 0.24);
+  --focus: oklch(0.52 0.19 258);
+  --critical: oklch(0.54 0.2 25);
+  --warning: oklch(0.56 0.12 70);
+  --positive: oklch(0.52 0.12 158);
+  --claude: var(--ink);
+
+  --dept-1: oklch(0.62 0.14 118);
+  --dept-2: oklch(0.44 0.19 260);
+  --dept-3: oklch(0.55 0.14 145);
+  --dept-4: oklch(0.49 0.16 32);
+  --dept-5: oklch(0.37 0.17 300);
+  --dept-6: oklch(0.56 0.09 210);
+  --dept-7: oklch(0.52 0.2 350);
+  --dept-8: oklch(0.54 0.04 250);
+
+  /* Presenza, chiaro: abbassate dove serviva (etichetta su `--ground` ≥ 4.5:1). */
+  --presence-1: oklch(0.53 0.13 118);
+  --presence-2: oklch(0.44 0.19 260);
+  --presence-3: oklch(0.52 0.14 145);
+  --presence-4: oklch(0.49 0.16 32);
+  --presence-5: oklch(0.42 0.17 300);
+  --presence-6: oklch(0.52 0.09 210);
+}

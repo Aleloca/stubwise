@@ -1,0 +1,38 @@
+import { onBeforePersonaChange } from "../../../data/session";
+import { onStoreReset } from "../../../data/store";
+import type { Attachment, ContextRef } from "../../../data/types";
+
+// Il primo messaggio di una conversazione appena nata (l'atterraggio, una
+// continuazione) lo manda la conversazione stessa, non la pagina da cui si
+// parte: così passa dalla sua casella — «Delivering…» finché è in coda, e
+// se non va a buon fine resta lì con «didn't go through · Resend».
+
+export interface PendingSend {
+  text: string;
+  attachments: Attachment[];
+  /** Area 10a: il chip del riquadro com'era all'invio (assente: quello della conversazione). */
+  context?: ContextRef | null;
+}
+
+const pending = new Map<string, PendingSend>();
+
+// Un messaggio affidato è di chi l'ha scritto e dello stato in cui è nato:
+// cambiando persona o ripristinando lo stato nessuno lo manda più.
+onBeforePersonaChange(() => pending.clear());
+onStoreReset(() => pending.clear());
+
+/** Affida il primo messaggio alla conversazione `id`, che lo manderà appena aperta. */
+export function handOffFirstMessage(id: string, message: PendingSend): void {
+  pending.set(id, {
+    text: message.text,
+    attachments: [...message.attachments],
+    ...(message.context !== undefined ? { context: message.context } : {}),
+  });
+}
+
+/** Lo prende (una volta sola): chi lo prende lo manda. */
+export function takeFirstMessage(id: string): PendingSend | null {
+  const message = pending.get(id) ?? null;
+  pending.delete(id);
+  return message;
+}

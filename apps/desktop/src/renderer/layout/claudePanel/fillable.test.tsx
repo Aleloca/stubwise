@@ -1,0 +1,287 @@
+import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
+import {
+  RouterProvider,
+  createMemoryHistory,
+  createRootRoute,
+  createRouter,
+} from "@tanstack/react-router";
+import { act, render, waitFor } from "@testing-library/react";
+import { useRef, useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as api from "../../data/api";
+import { setSessionPersonId } from "../../data/session";
+import { state } from "../../data/store";
+import type { ConversationEvent, FieldRef } from "../../data/types";
+import { ViewerProvider } from "../../data/viewer";
+import { ThemeProvider } from "../../theme/ThemeProvider";
+import { __resetFillableForTest, fillableFor, useFillableField } from "./fillable";
+import {
+  __forgetPageEventsForTest,
+  answerDraft,
+  undoDraft,
+  usePageEventRunner,
+} from "./pageActions";
+
+// Il registro dei campi riempibili e il runner delle bozze (area 10b, Task
+// 10; shape `claude-drafts.md`): una bozza va SOLO nel campo dichiarato della
+// pagina aperta, una volta; con del testo chiede prima; vecchia o senza
+// campo aspetta; «Undo» rimette il testo di prima solo se c'è ancora quello
+// di Claude, e una modifica della persona chiude la riga `changed_after`.
+// Solo il riquadro di chi ha aperto la conversazione mette le bozze.
+
+const LAURA = "p-laura";
+const FIELD: FieldRef = { kind: "taskDescription", taskId: "t-acq-7" };
+const OTHER: FieldRef = { kind: "taskDescription", taskId: "t-acq-3" };
+type DraftEvent = Extract<ConversationEvent, { type: "draft" }>;
+const draftEvents = (): DraftEvent[] =>
+  [...state.conversationEvents.values()].flat().filter((e): e is DraftEvent => e.type === "draft");
+
+beforeEach(() => {
+  api.setLatency(0);
+  api.resetApi();
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+  setSessionPersonId("p-giulia");
+  // Il registro è del modulo: nessun campo resta dichiarato fra un test e l'altro.
+  __resetFillableForTest();
+});
+
+/** Un campo di prova: il testo vivo in un ref, `put` contato. */
+const puts: string[] = [];
+let setFromOutside: (text: string) => void = () => {};
+/** «Save»/«Send» della persona: il testo resta, ma non è più la bozza di Claude. */
+let commitFromOutside: () => void = () => {};
+/** «Ask Claude» della pagina sta scrivendo nel campo (T10 m1). */
+let busyNow = false;
+function ToyField({ field, initial = "" }: { field: FieldRef | null; initial?: string }) {
+  const [text, setTextState] = useState(initial);
+  const live = useRef(initial);
+  const placed = useRef<string | null>(null);
+  const [, rerender] = useState(0);
+  const setText = (next: string) => {
+    live.current = next;
+    setTextState(next);
+  };
+  setFromOutside = setText;
+  commitFromOutside = () => {
+    placed.current = null;
+    rerender((n) => n + 1);
+  };
+  useFillableField(
+    field && {
+      ref: field,
+      labelKey: "claude.drafts.placed.taskDescription",
+      get: () => live.current,
+      isDraft: () => placed.current !== null && placed.current === live.current,
+      put: (draft, how) => {
+        puts.push(draft);
+        setText(how === "below" && live.current ? `${live.current}\n\n${draft}` : draft);
+        placed.current = live.current;
+      },
+      restore: setText,
+      busy: () => busyNow,
+    },
+  );
+  return <p data-toy>{text}</p>;
+}
+
+function Harness({
+  conversationId,
+  field,
+  initial,
+}: {
+  conversationId: string | null;
+  field: FieldRef | null;
+  initial?: string;
+}) {
+  usePageEventRunner(conversationId);
+  return <ToyField field={field} initial={initial} />;
+}
+
+function mount(personId: string, props: Parameters<typeof Harness>[0]) {
+  const root = createRootRoute({ component: () => <Harness {...props} /> });
+  const router = createRouter({
+    routeTree: root,
+    history: createMemoryHistory({ initialEntries: ["/"] }),
+  });
+  return render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ViewerProvider initialPersonId={personId}>
+        <ThemeProvider>
+          <RouterProvider router={router} />
+        </ThemeProvider>
+      </ViewerProvider>
+    </QueryClientProvider>,
+  );
+}
+
+const toy = () => document.querySelector("[data-toy]")?.textContent ?? null;
+
+async function conversationWithDraft(personId: string, field: FieldRef, after: "none" | "user") {
+  setSessionPersonId(personId);
+  const cid = (await api.createConversation()).id;
+  await api.runScript(cid, [
+    {
+      step: "event",
+      event: { type: "draft", field, text: "Claude's text.", status: "pending" },
+    },
+    ...(after === "user"
+      ? [
+          {
+            step: "event" as const,
+            event: {
+              type: "user" as const,
+              authorId: personId,
+              text: "thanks",
+              attachments: [],
+              delivery: "delivered" as const,
+            },
+          },
+        ]
+      : []),
+  ]);
+  return cid;
+}
+
+describe("il registro", () => {
+  it("un campo esiste finché la pagina è montata; `null` non si dichiara; vale l'ultimo", async () => {
+    expect(fillableFor(FIELD)).toBeNull();
+    const a = mount(LAURA, { conversationId: null, field: FIELD });
+    await waitFor(() => expect(toy()).not.toBeNull());
+    const first = fillableFor(FIELD);
+    expect(first).not.toBeNull();
+    expect(fillableFor(OTHER)).toBeNull();
+    const b = mount(LAURA, { conversationId: null, field: FIELD, initial: "second" });
+    await waitFor(() => expect(fillableFor(FIELD)?.get()).toBe("second"));
+    b.unmount();
+    expect(fillableFor(FIELD)?.get()).toBe("");
+    a.unmount();
+    expect(fillableFor(FIELD)).toBeNull();
+    mount(LAURA, { conversationId: null, field: null });
+    expect(fillableFor(FIELD)).toBeNull();
+  });
+});
+
+describe("il runner delle bozze", () => {
+  it("campo vuoto: la bozza entra una volta sola, anche dopo altri render, e l'evento è `placed`", async () => {
+    puts.length = 0;
+    const cid = await conversationWithDraft(LAURA, FIELD, "none");
+    mount(LAURA, { conversationId: cid, field: FIELD });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
+    expect(toy()).toBe("Claude's text.");
+    act(() => setFromOutside("Claude's text."));
+    expect(puts).toEqual(["Claude's text."]);
+  });
+
+  it("due runner montati PRIMA della bozza: entra una volta sola (review finale, 6)", async () => {
+    puts.length = 0;
+    setSessionPersonId(LAURA);
+    const cid = (await api.createConversation()).id;
+    const a = mount(LAURA, { conversationId: cid, field: FIELD });
+    const b = mount(LAURA, { conversationId: cid, field: FIELD });
+    await waitFor(() => expect(fillableFor(FIELD)).not.toBeNull());
+    await api.runScript(cid, [
+      {
+        step: "event",
+        event: { type: "draft", field: FIELD, text: "Claude's text.", status: "pending" },
+      },
+    ]);
+    // Un evento scritto dal copione non avvisa le query: le rilegge il ritorno del fuoco.
+    act(() => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(puts).toEqual(["Claude's text."]);
+    a.unmount();
+    b.unmount();
+  });
+
+  it("mai nel campo di un'altra pagina: senza il suo campo la bozza aspetta (`waiting`)", async () => {
+    puts.length = 0;
+    const cid = await conversationWithDraft(LAURA, FIELD, "none");
+    mount(LAURA, { conversationId: cid, field: OTHER, initial: "mine" });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("waiting"));
+    expect(toy()).toBe("mine");
+    expect(puts).toEqual([]);
+  });
+
+  it("una bozza vecchia (seguita da un altro messaggio) non entra da sola: `waiting`", async () => {
+    puts.length = 0;
+    const cid = await conversationWithDraft(LAURA, FIELD, "user");
+    mount(LAURA, { conversationId: cid, field: FIELD });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("waiting"));
+    expect(puts).toEqual([]);
+    expect(toy()).toBe("");
+  });
+
+  it("il «vedi come»: il riquadro di un altro lettore non mette la bozza", async () => {
+    puts.length = 0;
+    const cid = await conversationWithDraft(LAURA, FIELD, "none");
+    await api.setVisibility(cid, "public", { confirmedProjectIds: ["prj-acq"] });
+    const roberta = mount("p-roberta", { conversationId: cid, field: FIELD });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(puts).toEqual([]);
+    expect(draftEvents()[0]!.status).toBe("pending");
+    roberta.unmount();
+  });
+
+  it("una modifica della persona chiude la riga `changed_after`; «Undo» allora non tocca il campo", async () => {
+    const cid = await conversationWithDraft(LAURA, FIELD, "none");
+    mount(LAURA, { conversationId: cid, field: FIELD });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
+    act(() => setFromOutside("Claude's text. Mine."));
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("changed_after"));
+    expect(undoDraft(draftEvents()[0]!.id)).toBe("not_undoable");
+    expect(toy()).toBe("Claude's text. Mine.");
+  });
+
+  it("I1: salvata (stesso testo, ma non più una bozza), la riga si chiude `changed_after` e «Undo» non scrive", async () => {
+    const cid = await conversationWithDraft(LAURA, FIELD, "none");
+    mount(LAURA, { conversationId: cid, field: FIELD });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
+    act(() => commitFromOutside());
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("changed_after"));
+    expect(undoDraft(draftEvents()[0]!.id)).toBe("not_undoable");
+    expect(toy()).toBe("Claude's text.");
+  });
+
+  it("«Undo» rimette il testo di prima una volta; dopo un ricaricamento non c'è più niente da annullare", async () => {
+    const cid = await conversationWithDraft(LAURA, FIELD, "none");
+    mount(LAURA, { conversationId: cid, field: FIELD });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
+    const id = draftEvents()[0]!.id;
+    act(() => void expect(undoDraft(id)).toBe("undone"));
+    expect(toy()).toBe("");
+    expect(undoDraft(id)).toBe("not_undoable");
+    act(() => __forgetPageEventsForTest());
+    expect(undoDraft(id)).toBe("not_undoable");
+  });
+
+  it("T10 m1: campo occupato da «Ask Claude» della pagina: la riga resta `pending`, poi chiede", async () => {
+    puts.length = 0;
+    busyNow = true;
+    try {
+      const cid = await conversationWithDraft(LAURA, FIELD, "none");
+      mount(LAURA, { conversationId: cid, field: FIELD });
+      await waitFor(() => expect(toy()).not.toBeNull());
+      act(() => setFromOutside("Ask Claude is writing"));
+      await new Promise((r) => setTimeout(r, 30));
+      // Lo streaming non finisce sotto la bozza: niente nel campo, niente `waiting`.
+      expect(puts).toEqual([]);
+      expect(draftEvents()[0]!.status).toBe("pending");
+      // Finito lo streaming il campo ha del testo: la riga chiede (nessuna scrittura da sola).
+      busyNow = false;
+      act(() => setFromOutside("Ask Claude wrote this."));
+      await new Promise((r) => setTimeout(r, 30));
+      expect(puts).toEqual([]);
+      act(() => answerDraft(draftEvents()[0]!.id, "below"));
+      await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
+      expect(toy()).toBe("Ask Claude wrote this.\n\nClaude's text.");
+    } finally {
+      busyNow = false;
+    }
+  });
+});

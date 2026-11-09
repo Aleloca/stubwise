@@ -145,8 +145,11 @@ export function monthGridDays(anchor: Date): Date[] {
   return days;
 }
 
-export interface PositionedEvent {
-  event: CalendarEventItem;
+/** I soli campi che la griglia legge di un evento. */
+export type GridEvent = Pick<CalendarEventItem, "startsAt" | "endsAt" | "allDay">;
+
+export interface PositionedEvent<T extends GridEvent = CalendarEventItem> {
+  event: T;
   /** Percentuale dall'alto della colonna del giorno (0-100). */
   topPct: number;
   /** Percentuale di altezza della colonna del giorno (0-100), minimo garantito per restare leggibile. */
@@ -163,11 +166,18 @@ const MIN_HEIGHT_PCT = (15 / MINUTES_PER_DAY) * 100;
  * al giorno: un evento a cavallo di mezzanotte compare in ENTRAMBI i giorni
  * che tocca, troncato ai confini di ciascuno (non un'unica barra continua
  * fra due colonne).
+ *
+ * GENERICA sui tre campi che legge (come {@link eventsForDay}): l'app desktop
+ * le passa i suoi eventi, che non sono `CalendarEventItem`. Il tipo in
+ * uscita è quello in entrata: per il web nulla cambia.
  */
-export function timedEventsForDay(events: CalendarEventItem[], day: Date): PositionedEvent[] {
+export function timedEventsForDay<T extends GridEvent = CalendarEventItem>(
+  events: T[],
+  day: Date,
+): PositionedEvent<T>[] {
   const dayStart = startOfLocalDay(day);
   const dayEnd = addDays(dayStart, 1);
-  const result: PositionedEvent[] = [];
+  const result: PositionedEvent<T>[] = [];
   for (const event of events) {
     if (event.allDay) continue;
     const start = new Date(event.startsAt);
@@ -184,8 +194,14 @@ export function timedEventsForDay(events: CalendarEventItem[], day: Date): Posit
   return result.sort((a, b) => a.topPct - b.topPct);
 }
 
-/** Gli eventi "tutto il giorno" del giorno locale `day` (chiave UTC, vedi il docblock del modulo). */
-export function allDayEventsForDay(events: CalendarEventItem[], day: Date): CalendarEventItem[] {
+/**
+ * Gli eventi "tutto il giorno" del giorno locale `day` (chiave UTC, vedi il
+ * docblock del modulo). Generica come {@link timedEventsForDay}.
+ */
+export function allDayEventsForDay<T extends GridEvent = CalendarEventItem>(
+  events: T[],
+  day: Date,
+): T[] {
   const key = localDayKey(day);
   return events.filter((event) => event.allDay && eventDayKey(event) === key);
 }

@@ -1,0 +1,193 @@
+import type { AiBlock, RunProvider } from "../model";
+import { PEOPLE } from "../seed/people";
+import { gate, now, state, visibleProjectIds } from "../store";
+import type { AiProvider, QueuePause } from "./state";
+
+// Il modulo foglia dei blocchi d'istanza (area 9b): le domande che le altre
+// aree fanno allo stato d'istanza prima di partire («la coda di questo
+// progetto è in pausa?», «si può caricare un file?»). Importa SOLO lo store,
+// le persone del seme (i nomi) e i tipi dello stato d'istanza, così `servers/visibility.ts` e le altre
+// letture lo usano senza raggiungere `api-mutations` né i segreti
+// (`architecture.test.ts`, `architecture.secrets.test.ts`). Il Task 5 ci
+// aggiunge `aiBlockFor`, la domanda che ogni partenza fa. Il Task 3 ci mette la catena dei provider
+// (`pickProvider`) e il budget (`budgetReached`): li leggono le partenze
+// dei lavori (Task 5, 6), e `providers.ts`/`budget.ts` li ri-espongono.
+
+/** La pausa della coda di un progetto, se c'è (una copia). */
+export function queuePauseOf(projectId: string): QueuePause | null {
+  const pause = state.instance.queuePauses.find((p) => p.projectId === projectId);
+  return pause ? { ...pause } : null;
+}
+
+/**
+ * Il nome di chi ha messo una pausa, anche se nel frattempo è stato
+ * disattivato (`PEOPLE` tiene anche le persone disattivate): l'unico punto
+ * da cui lo leggono i blocchi, la pausa e lo Stato dell'istanza.
+ */
+export const pauserNameOf = (byId: string): string =>
+  PEOPLE.find((p) => p.id === byId)?.name ?? byId;
+
+/** L'archiviazione è configurata: endpoint, bucket, chiave d'accesso e la sua chiave segreta. */
+export function storageConfigured(): boolean {
+  const s = state.instance.storage;
+  return s.secretId !== null && s.endpoint !== "" && s.bucket !== "" && s.accessKeyId !== "";
+}
+
+/**
+ * Se si possono caricare file (Drive, allegati): l'archiviazione è
+ * configurata, gli allegati sono accesi e l'ultima prova, se c'è, non è
+ * fallita.
+ */
+export function storageAllowsUploads(): boolean {
+  const s = state.instance.storage;
+  return (
+    storageConfigured() &&
+    s.attachmentsEnabled &&
+    (s.lastTest === null || s.lastTest.outcome === "ok")
+  );
+}
+
+/** Un abbonamento è «al limite» finché la sua quota dice un `limitedUntil` futuro. */
+export function isLimited(p: AiProvider): boolean {
+  const until = p.quota?.limitedUntil ?? null;
+  return until !== null && until > now();
+}
+
+const runProviderOf = (p: AiProvider): RunProvider =>
+  p.kind === "subscription"
+    ? { kind: "account", name: p.name, id: p.id }
+    : { kind: "api_key", name: p.name, id: p.id };
+
+/**
+ * Gli account che la catena dell'istanza prova, nell'ordine: gli
+ * abbonamenti abilitati; la chiave API SOLO se nessun abbonamento è
+ * abilitato (D3).
+ */
+function chainCandidates(): AiProvider[] {
+  const enabled = state.instance.providers.filter((p) => p.enabled);
+  const subscriptions = enabled.filter((p) => p.kind === "subscription");
+  if (subscriptions.length > 0) return subscriptions;
+  const key = enabled.find((p) => p.kind === "api_key");
+  return key ? [key] : [];
+}
+
+/**
+ * La catena dell'istanza: il primo candidato non al limite. Con
+ * abbonamenti abilitati ma tutti al limite: `null`, e la chiave resta
+ * ferma (RF 4).
+ */
+function chainProvider(): RunProvider | null {
+  const free = chainCandidates().find((p) => !isLimited(p));
+  return free ? runProviderOf(free) : null;
+}
+
+/**
+ * I nomi che la catena prova, nell'ordine: la frase di «Automatic» nelle
+ * impostazioni AI del progetto (area 9c, Task 7) li legge da qui.
+ */
+export const chainProviderNames = (): string[] => chainCandidates().map((p) => p.name);
+
+/**
+ * Con chi parte un lavoro AI nuovo. Senza progetto (o con un progetto su
+ * «Automatic») la catena dell'istanza. Con l'account scelto nelle
+ * impostazioni del progetto (area 9c, AI): quell'account se è abilitato e
+ * non al limite; altrimenti la catena, o `null` se il progetto usa SOLO
+ * quell'account (`exclusive`: la sessione parte senza account, come la
+ * catena vuota del ruling 11 del 9b; la frase la dice la sessione da
+ * `requiredProvider`, scritto alla nascita). Un account scelto e poi
+ * eliminato vale «Automatic», anche con `exclusive` (`chosenUnavailable`
+ * della lettura). Solo il nome e l'id, mai il segreto.
+ */
+export function pickProvider(projectId?: string | null): RunProvider | null {
+  const settings = projectId ? state.projectSettings.get(projectId) : undefined;
+  const chosen = settings?.aiProviderId
+    ? state.instance.providers.find((p) => p.id === settings.aiProviderId)
+    : undefined;
+  if (!settings || !chosen) return chainProvider();
+  if (chosen.enabled && !isLimited(chosen)) return runProviderOf(chosen);
+  return settings.aiProviderExclusive ? null : chainProvider();
+}
+
+/**
+ * L'account che il progetto usa in esclusiva («Use only this account»), per
+ * nome; `null` senza esclusività, o se l'account scelto è stato eliminato
+ * (vale «Automatic», come in `pickProvider`). Lo scrive la sessione alla
+ * nascita (`requiredProvider`, ruling del controller (pre-flight), P16).
+ */
+export function requiredProviderOf(projectId: string | null): { name: string } | null {
+  const settings = projectId ? state.projectSettings.get(projectId) : undefined;
+  if (!settings?.aiProviderExclusive || !settings.aiProviderId) return null;
+  const chosen = state.instance.providers.find((p) => p.id === settings.aiProviderId);
+  return chosen ? { name: chosen.name } : null;
+}
+
+/** Lo speso del mese in corso, su tutti i progetti (il budget non guarda chi guarda). */
+export function spentThisMonthUsd(): number {
+  const month = now().slice(0, 7);
+  const sum = state.instance.usage
+    .filter((r) => r.at.startsWith(month))
+    .reduce((a, r) => a + r.costUsd, 0);
+  return Math.round(sum * 1e6) / 1e6;
+}
+
+/**
+ * Il budget del mese è raggiunto: il simulatore del riquadro «Prototype
+ * only», oppure lo speso arrivato al budget. Senza budget non lo è mai.
+ */
+export function budgetReached(): boolean {
+  const { monthlyUsd } = state.instance.budget;
+  return (
+    state.instance.simulate.budgetReached ||
+    (monthlyUsd !== null && spentThisMonthUsd() >= monthlyUsd)
+  );
+}
+
+/**
+ * Perché un lavoro AI nuovo non parte adesso, o `null` se può partire. Il
+ * budget del mese vale ovunque (anche senza progetto, «Chiedi a Claude») e
+ * vince sulla pausa (EF 1: ferma, la pausa fa solo aspettare); la pausa vale
+ * solo per il suo progetto. Chi l'ha messa si legge per nome anche se è
+ * stato disattivato: `PEOPLE` tiene anche le persone disattivate.
+ */
+export function aiBlockFor(projectId: string | null): AiBlock | null {
+  if (budgetReached()) return { reason: "monthly_budget" };
+  const pause = projectId === null ? null : queuePauseOf(projectId);
+  if (!pause) return null;
+  const byName = pauserNameOf(pause.byId);
+  return { reason: "queue_paused", byId: pause.byId, byName, since: pause.at };
+}
+
+/**
+ * Il blocco di un lavoro nuovo come lo legge chi guarda (Task 6, ruling 6):
+ * la testata del progetto, «Chiedi a Claude», le automazioni. R-G5: un
+ * progetto che non vede risponde come uno senza pausa (il budget vale
+ * comunque, è dell'istanza).
+ */
+export async function getAiBlock(projectId: string | null): Promise<AiBlock | null> {
+  const me = await gate("instance.getAiBlock");
+  const visible = projectId === null || visibleProjectIds(me).has(projectId);
+  return aiBlockFor(visible ? projectId : null);
+}
+
+/**
+ * La sola pausa della coda di un progetto, col nome di chi l'ha messa: la
+ * testata del progetto e la riga di All projects la dicono anche col budget
+ * raggiunto (shape [EF 4]), che invece vince sugli avvii. R-G5: un progetto
+ * che chi guarda non vede risponde `null`.
+ */
+export async function getQueuePause(
+  projectId: string,
+): Promise<{ byId: string; byName: string; since: string } | null> {
+  const me = await gate("instance.getQueuePause");
+  if (!visibleProjectIds(me).has(projectId)) return null;
+  const pause = queuePauseOf(projectId);
+  if (!pause) return null;
+  const byName = pauserNameOf(pause.byId);
+  return { byId: pause.byId, byName, since: pause.at };
+}
+
+/** Se si possono caricare file adesso (Task 6, ruling 6): il Drive e gli allegati dei composer. */
+export async function getUploadsAllowed(): Promise<boolean> {
+  await gate("instance.getUploadsAllowed");
+  return storageAllowsUploads();
+}

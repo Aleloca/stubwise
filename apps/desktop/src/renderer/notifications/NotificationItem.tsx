@@ -1,0 +1,593 @@
+import { useRef, useState, type KeyboardEvent } from "react";
+import { useTranslation } from "react-i18next";
+import type { SubscriptionState } from "../data/alerts";
+import type { AppNotification, Project } from "../data/types";
+import { Menu, itemClass } from "../tasks-ui/Menu";
+import { DeptStrip, useDeptLabel } from "../layout/DeptStrip";
+import { shortWeekIn } from "../domain/weeks";
+import {
+  SNOOZE_OPTIONS,
+  formatDateTime,
+  relativeTime,
+  snoozeTarget,
+  tabOf,
+  type SnoozeOption,
+} from "./time";
+import { vowelContext } from "../i18n/vowel";
+import { questionSentence, sourceText } from "../domain/productDocs/claudeText";
+
+export type Change = { read?: boolean; archived?: boolean; snoozedUntil?: string | null };
+
+const actionClass =
+  "rounded-md px-2 py-1 text-xs font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink active:bg-ink/10";
+
+/**
+ * Un avviso del catalogo visto dal pannello: il progetto, il nome del suo
+ * tipo e lo stato di adesso dell'iscrizione (letto dalle Preferenze).
+ */
+export interface AlertOfNotification {
+  code: string;
+  label: string;
+  /** `off`: già spento dopo l'avviso [A 17]; `undefined` se la riga non si legge (ancora). */
+  state: SubscriptionState | undefined;
+  onMute: () => void;
+  onTurnBackOn: () => void;
+  onOpenSettings: () => void;
+}
+
+interface Props {
+  notification: AppNotification;
+  project: Pick<Project, "code" | "name"> | undefined;
+  /** Solo per i tipi del catalogo, in un progetto: il menu «⋯» degli avvisi. */
+  alert?: AlertOfNotification;
+  onOpen: () => void;
+  onChange: (change: Change) => void;
+  /**
+   * Solo un avviso di un server senza accesso, a chi gestisce gli accessi
+   * SSH (`linkAccessHref`, dal livello dati): «Link SSH access» in chiaro,
+   * perché è il motivo dell'avviso. Apre la parte SSH e chiude il pannello.
+   */
+  onLinkAccess?: (() => void) | undefined;
+}
+
+/**
+ * Una notifica: il codice del suo OGGETTO in testa (task, progetto o evento),
+ * il progetto (o la provenienza) accanto, titolo, fino a due righe di testo,
+ * quando. Se l'oggetto è una task, la striscia del suo reparto. Non letta =
+ * titolo in grassetto + punto d'inchiostro (più un testo per i lettori di
+ * schermo): il colore da solo non basta. Le azioni si sovrappongono al
+ * passaggio o al fuoco, senza riservare spazio, e restano raggiungibili da
+ * tastiera. Solo informazioni: nessuna decisione si prende da qui.
+ */
+export function NotificationItem({
+  notification: n,
+  project,
+  alert,
+  onOpen,
+  onChange,
+  onLinkAccess,
+}: Props) {
+  const { t, i18n } = useTranslation();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  // L'obbligo di chi guarda (un solo motivo: il livello dati lascia solo il suo).
+  const why = n.mandatory?.[0]?.reason;
+  const deptLabel = useDeptLabel(n.departmentId);
+  const tab = tabOf(n);
+  const when =
+    tab === "snoozed" && n.snoozedUntil
+      ? t("notifications.until", { when: formatDateTime(n.snoozedUntil, i18n.language) })
+      : relativeTime(n.createdAt, t, i18n.language);
+
+  function onMenuKeyDown(e: KeyboardEvent) {
+    if (e.key === "Escape") {
+      // Chiude solo il menu, non il pannello (preventDefault: il listener
+      // del documento la vede come già consumata).
+      e.preventDefault();
+      e.stopPropagation();
+      setMenuOpen(false);
+    }
+  }
+
+  // Area 11a (Q1): una menzione in un commento della doc di prodotto.
+  const productMention = n.kind === "product_doc.mention";
+  // Area 11b: le due card di Claude sulla doc (shape product-claude-mark §3.7,
+  // product-claude-questions §3.5).
+  const productClaude = n.kind === "product_doc.updated" || n.kind === "product_doc.question";
+  const product = productMention || productClaude;
+  // Testo secondario: il progetto; senza progetto, la provenienza dell'evento.
+  // Una card della doc di prodotto dice lo spazio, «Product» (shape §3.9).
+  const prefix = n.objectCode.split("-")[0];
+  const secondary = product
+    ? t("notifications.productDocMention.source")
+    : (project?.name ??
+      (prefix && i18n.exists(`notifications.sources.${prefix}`)
+        ? t(`notifications.sources.${prefix}`)
+        : undefined));
+
+  // I tipi con una frase propria (area 10a: `task.assigned`,
+  // `planning.changed`) si compongono a lettura nella lingua di chi guarda,
+  // titolo E corpo, dai valori stabili della riga (chi ha scritto, la
+  // settimana); una riga nata prima, senza quei valori, resta tutta com'è
+  // salvata, senza mescolare le lingue (I2 della revisione finale). Nata da
+  // un'azione di Claude per una persona, il corpo comincia con «Claude on
+  // behalf of <nome>» (shape claude-trace.md): gli altri tipi mettono il
+  // prefisso al posto del nome (o in testa, se il corpo non lo dice).
+  const composed = composedOf(n, t);
+  const title = composed?.title ?? n.title;
+  const body = composed?.body ?? (n.viaClaude ? viaClaudeBody(n, t) : n.body);
+
+  const choose = (option: SnoozeOption) => {
+    setMenuOpen(false);
+    onChange({ snoozedUntil: snoozeTarget(option) });
+  };
+
+  // Area 10a ([TD 5]): la task della notifica è stata eliminata (`objectGone`,
+  // dal livello dati). La notifica resta, ma non apre niente: il codice è
+  // testo tenue e sotto il corpo lo dice. Le azioni restano.
+  const gone = n.objectGone === true;
+  // Area 10b ([SC 16]): chi la riceve non vede più il progetto (un
+  // `member.added` annullato). La notifica resta e si legge, ma non apre
+  // niente; nessuna riga in più: «Undone by» dice già perché.
+  const closed = gone || n.notOpenable === true;
+  const Main = closed ? "div" : "button";
+
+  return (
+    <li
+      data-notification={n.id}
+      className="group relative border-b border-rule transition-colors duration-[var(--duration-fast)] ease-out focus-within:bg-ink/4 hover:bg-ink/4"
+    >
+      <Main
+        {...(closed ? {} : { type: "button" as const, onClick: onOpen })}
+        title={deptLabel}
+        className="relative flex w-full items-start gap-3 px-4 py-2.5 text-left"
+      >
+        <span aria-hidden="true" className="mt-1.5 grid size-2 shrink-0 place-items-center">
+          {!n.read && <span data-unread-dot className="size-2 rounded-full bg-ink" />}
+        </span>
+        {!n.read && <span className="sr-only">{t("notifications.unread")}</span>}
+        <span className="min-w-0 flex-1">
+          <span className="flex items-baseline gap-2">
+            {/* Una menzione che non apre più niente non ha codice (R-G5). */}
+            {n.objectCode && (
+              <span
+                data-object-code
+                className={`num shrink-0 text-sm font-semibold ${closed ? "text-ink-faint" : "text-ink"}`}
+              >
+                {n.objectCode}
+              </span>
+            )}
+            {secondary && (
+              <span className="min-w-0 truncate text-xs text-ink-muted">{secondary}</span>
+            )}
+            <span className="ml-auto shrink-0 text-xs text-ink-muted">{when}</span>
+          </span>
+          <span
+            className={`mt-0.5 block text-md text-ink ${n.read ? "font-normal" : "font-semibold"}`}
+          >
+            {title}
+          </span>
+          <span className="line-clamp-2 text-sm text-ink-muted" title={productClaude && !gone ? body : undefined}>
+            {productMention && !gone ? <WithMentions text={body} names={n.mentionNames} /> : body}
+          </span>
+          {/* «Undone by» [CT 10]: derivato a lettura, senza data; la notifica
+              resta letta o non letta com'era e apre ancora l'oggetto. */}
+          {n.undoneByName && (
+            <span className="mt-1 flex items-center gap-1 text-xs text-ink-muted">
+              <UndoneGlyph />
+              <span data-undone-by>
+                {t("notifications.viaClaude.undoneBy", { name: n.undoneByName })}
+              </span>
+            </span>
+          )}
+          {productClaude && !gone && <ProductCardExtra n={n} />}
+          {gone && !product && (
+            <span data-object-gone className="mt-1 block text-xs text-ink-muted">
+              {t("task.delete.after.notification")}
+            </span>
+          )}
+          {/* Perché arriva anche con l'iscrizione spenta: sempre scritto [A 16]. */}
+          {why && (
+            <span data-mandatory-reason className="mt-1 block text-xs text-ink-faint">
+              {t(`alerts.panel.why.${why}`)}
+            </span>
+          )}
+        </span>
+        <DeptStrip departmentId={n.departmentId} />
+      </Main>
+      {onLinkAccess && (
+        <div className="-mt-1 pr-4 pb-2.5 pl-9">
+          <button
+            type="button"
+            onClick={onLinkAccess}
+            className="inline-flex h-7 items-center rounded-md border border-rule-strong px-2.5 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
+          >
+            {t("notifications.actions.linkAccess")}
+          </button>
+        </div>
+      )}
+
+      {/* Le azioni non riservano spazio: si sovrappongono all'angolo in alto a
+          destra (sopra il «quando») al passaggio o al fuoco, e restano
+          raggiungibili da tastiera. Il bordo sinistro sfuma: il nome del
+          progetto sotto si dissolve, non si taglia a metà parola. */}
+      <div
+        data-notification-actions
+        className={`absolute top-2 right-3 flex items-center gap-1 bg-[linear-gradient(to_right,transparent,color-mix(in_oklch,var(--ink)_4%,var(--surface))_1.5rem)] pl-8 group-focus-within:opacity-100 group-hover:opacity-100 ${menuOpen || moreOpen ? "opacity-100" : "opacity-0"}`}
+      >
+        {!n.read && (
+          <button type="button" className={actionClass} onClick={() => onChange({ read: true })}>
+            {t("notifications.actions.markRead")}
+          </button>
+        )}
+        {tab === "new" && (
+          <button
+            type="button"
+            className={actionClass}
+            onClick={() => onChange({ archived: true })}
+          >
+            {t("notifications.actions.archive")}
+          </button>
+        )}
+        {tab === "new" && (
+          <div className="relative" onKeyDown={onMenuKeyDown}>
+            <button
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              className={actionClass}
+              onClick={() => setMenuOpen((v) => !v)}
+            >
+              {t("notifications.actions.snooze")}
+            </button>
+            {menuOpen && (
+              <div
+                role="menu"
+                aria-label={t("notifications.actions.snooze")}
+                className="absolute top-full right-0 z-10 mt-1 flex min-w-36 flex-col rounded-lg border border-rule-strong bg-surface p-1"
+              >
+                {SNOOZE_OPTIONS.map((option, i) => (
+                  <button
+                    key={option}
+                    type="button"
+                    role="menuitem"
+                    autoFocus={i === 0}
+                    onClick={() => choose(option)}
+                    className="rounded-md px-2.5 py-1.5 text-left text-sm text-ink hover:bg-ink/6 focus-visible:bg-ink/8"
+                  >
+                    {t(`notifications.snooze.${option}`)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {tab !== "new" && (
+          <button
+            type="button"
+            className={actionClass}
+            onClick={() => onChange({ archived: false, snoozedUntil: null })}
+          >
+            {t(
+              tab === "archived"
+                ? "notifications.actions.restore"
+                : "notifications.actions.unsnooze",
+            )}
+          </button>
+        )}
+        {alert && (
+          <div className="relative">
+            <button
+              ref={moreButton}
+              type="button"
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              aria-label={t("alerts.panel.more")}
+              className={`${actionClass} px-1.5`}
+              onClick={() => setMoreOpen((v) => !v)}
+            >
+              <svg
+                viewBox="0 0 16 16"
+                width={14}
+                height={14}
+                fill="currentColor"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <circle cx="3.5" cy="8" r="1.25" />
+                <circle cx="8" cy="8" r="1.25" />
+                <circle cx="12.5" cy="8" r="1.25" />
+              </svg>
+            </button>
+            {moreOpen && (
+              <AlertMenu
+                alert={alert}
+                mandatory={why !== undefined}
+                // Sotto coprirebbe il perché dell'obbligo, scritto sotto il
+                // corpo: allora si apre sopra, se c'è posto.
+                placement={
+                  why && (moreButton.current?.getBoundingClientRect().top ?? 0) > 160
+                    ? "above"
+                    : "below"
+                }
+                onClose={(restore) => {
+                  setMoreOpen(false);
+                  if (restore) moreButton.current?.focus();
+                }}
+              />
+            )}
+          </div>
+        )}
+      </div>
+    </li>
+  );
+}
+
+/**
+ * Titolo e corpo di `task.assigned`, `planning.changed` e `member.added`
+ * (area 10b) nella lingua di chi legge, dai valori stabili (`actorName`,
+ * `viaClaude`, `plannedWeek`, `roleName`); `null` per gli altri tipi e per
+ * le righe nate prima, che non li hanno.
+ */
+function composedOf(
+  n: AppNotification,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): { title: string; body: string } | null {
+  const byHand = n.actorName !== undefined && !n.viaClaude;
+  // Area 11a (Q1, P19): la menzione in un commento, col titolo di adesso
+  // della pagina; pagina o filo che non ci sono più, una frase senza codice,
+  // titolo né nome (R-G5). Una riga nata prima, senza quei valori, resta com'è.
+  // Area 11b: le card di Claude sulla doc, da `productCard` (le fonti già
+  // nella forma di chi riceve). Senza (pagina sparita, chi riceve non legge
+  // più, una riga nata prima): la frase senza codice, titolo né fonte.
+  if (n.kind === "product_doc.updated" || n.kind === "product_doc.question") {
+    const card = n.productCard;
+    const updated = n.kind === "product_doc.updated";
+    const words = updated ? "notifications.productDocUpdated" : "notifications.productDocQuestion";
+    if (n.objectGone || !card || n.productPageTitle === undefined || (!updated && !card.question))
+      return { title: t(`${words}.goneTitle`), body: t(`${words}.goneBody`) };
+    const title = t(`${words}.title`, { code: n.objectCode, title: n.productPageTitle });
+    const source = card.sources.length === 1 ? ` ${sourceText(t, card.sources[0]!)}.` : "";
+    if (!updated) return { title, body: `${questionSentence(t, card.question!)}${source}` };
+    const count = card.changes;
+    if (card.sources.length > 1) {
+      const which =
+        card.waited === "monthly_budget" ? "sourcesBudget" : card.waited === "queue_paused" ? "sourcesQueue" : "sources";
+      return { title, body: t(`${words}.${which}`, { count, sources: card.sources.length }) };
+    }
+    const lead = card.onBehalfOfName
+      ? t(`${words}.behalf`, { count, name: card.onBehalfOfName })
+      : t(`${words}.claude`, { count });
+    return { title, body: `${lead}${source}` };
+  }
+  if (n.kind === "product_doc.mention") {
+    if (n.objectGone)
+      return {
+        title: t("notifications.productDocMention.goneTitle"),
+        body: t("notifications.productDocMention.goneBody"),
+      };
+    if (n.productPageTitle !== undefined)
+      return {
+        title: t("notifications.productDocMention.title", {
+          name: n.actorName ?? t("notifications.direct.someone"),
+          code: n.objectCode,
+          title: n.productPageTitle,
+        }),
+        body: n.body,
+      };
+    return null;
+  }
+  // Area 10b (D4): `member.added`, col nome di adesso del ruolo ([SC 15]:
+  // eliminato, la frase lo dice) e «ad» davanti a una vocale in italiano.
+  if (n.kind === "member.added" && n.roleName !== undefined && (n.viaClaude || byHand)) {
+    const params = {
+      code: n.objectCode,
+      role: n.roleName ?? t("notifications.memberAdded.noRole"),
+      ...vowelContext(n.objectCode),
+    };
+    return {
+      title: t("notifications.memberAdded.title", params),
+      body: n.viaClaude
+        ? t("notifications.memberAdded.bodyVia", {
+            ...params,
+            name: n.viaClaudeName ?? t("notifications.viaClaude.someone"),
+          })
+        : t("notifications.memberAdded.body", {
+            ...params,
+            name: n.actorName ?? t("notifications.direct.someone"),
+          }),
+    };
+  }
+  if (n.kind === "task.assigned" && (n.viaClaude || byHand)) {
+    const name = n.actorName ?? t("notifications.direct.someone");
+    return {
+      title: t("notifications.kinds.task_assigned", { code: n.objectCode }),
+      body: n.viaClaude
+        ? viaClaudeBody(n, t)
+        : t("notifications.direct.assigned", { name, code: n.objectCode }),
+    };
+  }
+  if (n.kind === "planning.changed" && n.plannedWeek !== undefined && (n.viaClaude || byHand)) {
+    const name = n.actorName ?? t("notifications.direct.someone");
+    const week = n.plannedWeek;
+    return {
+      title: t("notifications.kinds.planning_changed"),
+      body: n.viaClaude
+        ? viaClaudeBody(n, t)
+        : week === null
+          ? t("notifications.direct.unplanned", { name, code: n.objectCode })
+          : t("notifications.direct.planned", { name, code: n.objectCode, week: shortWeekIn(t, week) }),
+    };
+  }
+  return null;
+}
+
+/**
+ * Sotto il corpo di una card di Claude sulla doc: per la card con più fonti
+ * una riga per fonte (al più due, poi «+N»), nella forma di chi riceve; per
+ * una domanda già chiusa, chi ha risposto (derivato a lettura).
+ */
+function ProductCardExtra({ n }: { n: AppNotification }) {
+  const { t } = useTranslation();
+  const card = n.productCard;
+  if (!card) return null;
+  if (n.kind === "product_doc.question") {
+    if (!card.question?.answer) return null;
+    const name = card.question.answeredByName;
+    return (
+      <span data-answered-by className="mt-1 block text-xs text-ink-muted">
+        {name
+          ? t("notifications.productDocQuestion.answeredBy", { name })
+          : t("notifications.productDocQuestion.answered")}
+      </span>
+    );
+  }
+  if (card.sources.length < 2) return null;
+  const shown = card.sources.slice(0, 2);
+  const more = card.sources.length - shown.length;
+  return (
+    <span className="mt-1 flex flex-col text-xs text-ink-muted">
+      {shown.map((s, i) => (
+        <span key={i} data-card-source className="line-clamp-1 [overflow-wrap:anywhere]">
+          {sourceText(t, s)}
+          {i === shown.length - 1 && more > 0 && <span className="num"> +{more}</span>}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Il corpo di una notifica nata da Claude per una persona (`viaClaude`). */
+function viaClaudeBody(
+  n: AppNotification,
+  t: (key: string, options?: Record<string, unknown>) => string,
+): string {
+  const name = n.viaClaudeName ?? t("notifications.viaClaude.someone");
+  if (n.kind === "task.assigned")
+    return t("notifications.viaClaude.assigned", { name, code: n.objectCode });
+  // La pianificazione ha la sua frase dal valore stabile (`plannedWeek`):
+  // nessuna parola del corpo salvato in inglese (shape claude-trace.md).
+  if (n.kind === "planning.changed" && n.plannedWeek !== undefined)
+    return n.plannedWeek === null
+      ? t("notifications.viaClaude.unplanned", { name, code: n.objectCode })
+      : t("notifications.viaClaude.planned", {
+          name,
+          code: n.objectCode,
+          week: shortWeekIn(t, n.plannedWeek),
+        });
+  if (n.viaClaudeName && n.body.includes(n.viaClaudeName))
+    return n.body.replace(n.viaClaudeName, t("notifications.viaClaude.actor", { name }));
+  return t("notifications.viaClaude.lead", { name, body: n.body });
+}
+
+/**
+ * Il testo di un commento con le menzioni («@Marco Bellini») in 600 (shape
+ * product-comments-history §3.9): solo i nomi che il livello dati dà
+ * (`mentionNames`, quelli che chi guarda vede); il resto resta com'è.
+ */
+function WithMentions({ text, names }: { text: string; names: string[] | undefined }) {
+  const tokens = (names ?? []).map((name) => `@${name}`);
+  if (tokens.length === 0) return <>{text}</>;
+  const alternatives = tokens.map((tok) => tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const parts = text.split(new RegExp(`(${alternatives})(?![\\p{L}\\p{N}_])`, "u"));
+  return (
+    <>
+      {parts.map((part, i) =>
+        tokens.includes(part) ? (
+          <span key={i} data-mention className="font-semibold text-ink">
+            {part}
+          </span>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
+/** ↺: l'azione che ha fatto partire la notifica è stata annullata. */
+function UndoneGlyph() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width={12}
+      height={12}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+      className="shrink-0"
+    >
+      <path d="M3.5 6.5A5 5 0 1 1 3 9.5" />
+      <path d="M3.5 3v3.5H7" />
+    </svg>
+  );
+}
+
+/**
+ * Il menu «⋯» di un avviso del catalogo [A 15]: «Don't alert me about this
+ * in AUD» (non sugli obbligatori [A 16]; da già spento diventa «Alerts like
+ * this are off» + «Turn back on» [A 17]) e «Alert settings for AUD».
+ */
+function AlertMenu({
+  alert,
+  mandatory,
+  placement,
+  onClose,
+}: {
+  alert: AlertOfNotification;
+  mandatory: boolean;
+  placement: "above" | "below";
+  onClose: (restoreFocus: boolean) => void;
+}) {
+  const { t } = useTranslation();
+  const code = alert.code;
+  const run = (action: () => void) => () => {
+    onClose(true);
+    action();
+  };
+  return (
+    <Menu label={t("alerts.panel.more")} onClose={onClose} align="right" placement={placement}>
+      {!mandatory && alert.state === "off" && (
+        <>
+          <p
+            role="menuitem"
+            aria-disabled="true"
+            tabIndex={-1}
+            className={`${itemClass} text-ink-muted hover:bg-transparent`}
+          >
+            {t("alerts.panel.alreadyOff", { code })}
+          </p>
+          <button
+            type="button"
+            role="menuitem"
+            className={itemClass}
+            onClick={run(alert.onTurnBackOn)}
+          >
+            {t("alerts.panel.turnBackOn")}
+          </button>
+        </>
+      )}
+      {!mandatory && alert.state === "on" && (
+        <button type="button" role="menuitem" className={itemClass} onClick={run(alert.onMute)}>
+          {t("alerts.panel.mute", { code })}
+        </button>
+      )}
+      <button
+        type="button"
+        role="menuitem"
+        className={itemClass}
+        onClick={() => {
+          onClose(false);
+          alert.onOpenSettings();
+        }}
+      >
+        {t("alerts.panel.settings", { code })}
+      </button>
+    </Menu>
+  );
+}

@@ -1,0 +1,377 @@
+import { recordChange } from "../changelog/index";
+import { changedFields } from "../changelog/settingValues";
+import type { RegisteredPlugin } from "../instance/state";
+import { BASE_PLUGIN_SEED } from "../seed/commands";
+import { gate, state } from "../store";
+import { writer } from "../writer";
+import { MANAGE_SETTINGS, canI, managedProject, projectObject, refuse } from "./common";
+import { openProject, settingsOf } from "./reads";
+import type { ProjectPluginChoices } from "./state";
+import type { ProjectResult } from "./types";
+
+// Progetto → Settings → Plugins (area 9c, Task 4): quali skill e quali
+// gruppi di hook dei plugin del registro d'istanza entrano nei run del
+// progetto. Per sottrazione, come sul web: di base tutto acceso, si
+// salva ciò che è spento, per `name` del manifest. Si scrive con
+// `project.settings.manage`.
+// - Il plugin base `stubwise` (le skill di Stubwise in «/») sta fuori dal
+//   registro e non si spegne, come `stubwise-base` del worker (scelta del
+//   controller): fra gli spenti è `invalid: "base_plugin"`.
+// - Un plugin del registro non `ready` compare con `inRuns: false`: il suo
+//   stato ne è la ragione, e le sue skill non entrano in nessun run. Le
+//   scelte salvate per lui restano e valgono quando sarà pronto ([PG 4]):
+//   la vista le mostra anche senza inventario, e un salvataggio che non lo
+//   nomina le tiene (nominarlo con le liste vuote lo riaccende).
+// - Una persona per volta (RF 5): il salvataggio porta la `version` letta;
+//   se nel frattempo un altro ha salvato è `conflict`, e niente si scrive.
+//   Quale bozza tenere lo sceglie la persona nella UI (maintainer, [PG 5]).
+// - Una voce sola per salvataggio, con le liste di ciò che è spento prima e
+//   dopo, in chiavi stabili: `<plugin>:<skill>` e `<plugin>#<Evento>#<i>`.
+
+/** Il nome del manifest del plugin base. */
+export const BASE_PLUGIN = "stubwise";
+
+/**
+ * I preset consigliati, chiavati sul `name` del manifest (non sullo slug):
+ * per superpowers le quattro skill che rifanno il lavoro della pipeline
+ * (worktree, branch, agenti paralleli), come sul web.
+ */
+export const RECOMMENDED_PRESETS: Readonly<Record<string, readonly string[]>> = {
+  superpowers: [
+    "using-git-worktrees",
+    "finishing-a-development-branch",
+    "dispatching-parallel-agents",
+    "subagent-driven-development",
+  ],
+};
+
+export interface ProjectPluginsView {
+  version: number;
+  canEdit: boolean;
+  plugins: {
+    name: string;
+    slug: string;
+    status: "ready" | "materializing" | "failed";
+    base: boolean;
+    inRuns: boolean;
+    skills: { name: string; description: string; enabled: boolean }[];
+    hooks: { key: string; event: string; command: string; enabled: boolean }[];
+    preset: string[] | null;
+  }[];
+}
+
+const disabledOf = (choices: ProjectPluginChoices, plugin: string) =>
+  choices.disabled.find((d) => d.plugin === plugin);
+
+/** Il plugin base come riga della vista: sempre pronto, sempre acceso. */
+const baseRow = (): ProjectPluginsView["plugins"][number] => ({
+  name: BASE_PLUGIN_SEED.name,
+  slug: BASE_PLUGIN_SEED.name,
+  status: "ready",
+  base: true,
+  inRuns: true,
+  skills: BASE_PLUGIN_SEED.skills.map((s) => ({ ...s, enabled: true })),
+  hooks: [],
+  preset: null,
+});
+
+function registryRow(
+  p: RegisteredPlugin,
+  choices: ProjectPluginChoices,
+): ProjectPluginsView["plugins"][number] {
+  const off = disabledOf(choices, p.name);
+  const skills = p.inventory?.skills ?? [];
+  const hooks = p.inventory?.hooks ?? [];
+  return {
+    name: p.name,
+    slug: p.slug,
+    status: p.status,
+    base: false,
+    inRuns: p.status === "ready",
+    skills: [
+      ...skills.map((s) => ({
+        name: s.name,
+        description: s.description,
+        enabled: !off?.skills.includes(s.name),
+      })),
+      // Le scelte salvate che l'inventario (assente, o di un altro sha) non conosce: si vedono.
+      ...(off?.skills ?? [])
+        .filter((name) => !skills.some((s) => s.name === name))
+        .map((name) => ({ name, description: "", enabled: false })),
+    ],
+    hooks: [
+      ...hooks.map((h) => ({
+        key: h.key,
+        event: h.event,
+        command: h.command,
+        enabled: !off?.hookGroups.includes(h.key),
+      })),
+      ...(off?.hookGroups ?? [])
+        .filter((key) => !hooks.some((h) => h.key === key))
+        .map((key) => ({ key, event: key.split("#")[0]!, command: "", enabled: false })),
+    ],
+    preset: RECOMMENDED_PRESETS[p.name] ? [...RECOMMENDED_PRESETS[p.name]!] : null,
+  };
+}
+
+/** I plugin del progetto come li legge chi guarda; `null` su un progetto invisibile o archiviato. */
+export async function getProjectPlugins(projectId: string): Promise<ProjectPluginsView | null> {
+  const me = await gate("projectSettings.getProjectPlugins");
+  const project = openProject(me, projectId);
+  if (!project) return null;
+  const choices = settingsOf(project).plugins;
+  return {
+    version: choices.version,
+    canEdit: canI(me, MANAGE_SETTINGS, project.id),
+    plugins: [baseRow(), ...state.instance.plugins.map((p) => registryRow(p, choices))],
+  };
+}
+
+/** La chiave stabile di una skill: `<plugin>:<skill>`. */
+export const pluginSkillKey = (plugin: string, skill: string) => `${plugin}:${skill}`;
+/** La chiave stabile di un gruppo di hook: `<plugin>#<Evento>#<i>`. */
+export const pluginHookKey = (plugin: string, hookGroup: string) => `${plugin}#${hookGroup}`;
+
+/** Le chiavi stabili di ciò che è spento, ordinate: le liste della voce. */
+function disabledKeys(choices: ProjectPluginChoices["disabled"]): {
+  disabledSkills: string[];
+  disabledHooks: string[];
+} {
+  return {
+    disabledSkills: choices.flatMap((d) => d.skills.map((s) => pluginSkillKey(d.plugin, s))).sort(),
+    disabledHooks: choices
+      .flatMap((d) => d.hookGroups.map((h) => pluginHookKey(d.plugin, h)))
+      .sort(),
+  };
+}
+
+// --- La bozza della pagina (Task 10) -----------------------------------------
+//
+// La pagina tiene la bozza come insieme di chiavi stabili spente, e queste
+// funzioni pure le dicono le regole: quali plugin si scelgono (i `ready` del
+// registro: il plugin base non si spegne, i non pronti non si nominano e le
+// loro scelte restano, [PG 4]), cosa fa il preset e come si riconcilia una
+// bozza dopo un `conflict` ([PG 5]). Così la pagina non le ricalcola.
+
+type PluginRow = ProjectPluginsView["plugins"][number];
+
+/** Se le righe di un plugin si scelgono in questa sezione: i `ready` del registro. */
+export const pluginChoosable = (p: PluginRow): boolean => !p.base && p.status === "ready";
+
+/** Le chiavi spente di un plugin della vista. */
+function offKeysOfPlugin(p: PluginRow): string[] {
+  return [
+    ...p.skills.filter((s) => !s.enabled).map((s) => pluginSkillKey(p.name, s.name)),
+    ...p.hooks.filter((h) => !h.enabled).map((h) => pluginHookKey(p.name, h.key)),
+  ];
+}
+
+/** Le chiavi spente della vista, dei soli plugin che si scelgono: il punto di partenza della bozza. */
+export function pluginOffKeys(view: ProjectPluginsView): Set<string> {
+  return new Set(view.plugins.filter(pluginChoosable).flatMap(offKeysOfPlugin));
+}
+
+/**
+ * L'input di `saveProjectPlugins` da una bozza: nomina ogni plugin che si
+ * sceglie (anche tutto acceso: è così che si riaccende), e mai i non pronti,
+ * le cui scelte il livello dati tiene com'erano ([PG 4]).
+ */
+export function pluginDisabledInput(
+  view: ProjectPluginsView,
+  keys: ReadonlySet<string>,
+): ProjectPluginChoices["disabled"] {
+  return view.plugins.filter(pluginChoosable).map((p) => ({
+    plugin: p.name,
+    skills: p.skills.filter((s) => keys.has(pluginSkillKey(p.name, s.name))).map((s) => s.name),
+    hookGroups: p.hooks.filter((h) => keys.has(pluginHookKey(p.name, h.key))).map((h) => h.key),
+  }));
+}
+
+/** Le chiavi del preset di un plugin che il suo inventario ha davvero. */
+const presetKeys = (p: PluginRow): string[] =>
+  (p.preset ?? [])
+    .filter((name) => p.skills.some((s) => s.name === name))
+    .map((name) => pluginSkillKey(p.name, name));
+
+/**
+ * Il preset consigliato sulla bozza ([PG 3]): spegne le sue skill e non
+ * tocca nient'altro. `turnedOff` quante erano accese.
+ */
+export function applyPluginPreset(
+  p: PluginRow,
+  keys: ReadonlySet<string>,
+): { keys: Set<string>; turnedOff: number } {
+  const next = new Set(keys);
+  let turnedOff = 0;
+  for (const key of presetKeys(p))
+    if (!next.has(key)) {
+      next.add(key);
+      turnedOff++;
+    }
+  return { keys: next, turnedOff };
+}
+
+/** Vero se le skill del preset sono già tutte spente nella bozza: il bottone è spento per regola. */
+export function pluginPresetApplied(p: PluginRow, keys: ReadonlySet<string>): boolean {
+  const preset = presetKeys(p);
+  return preset.length > 0 && preset.every((key) => keys.has(key));
+}
+
+/** Le chiavi che cambiano fra due insiemi. */
+function changedKeys(a: ReadonlySet<string>, b: ReadonlySet<string>): Set<string> {
+  return new Set([...a, ...b].filter((key) => a.has(key) !== b.has(key)));
+}
+
+/**
+ * «Keep my changes on theirs» ([PG 5]): la base diventa la versione nuova
+ * (`theirs`), e sopra si rimettono solo le righe che ho cambiato io rispetto
+ * alla versione da cui ero partita (`start`), chiavate sui nomi stabili, mai
+ * sulle posizioni. `bothChanged`: le righe che abbiamo cambiato entrambi.
+ */
+export function reconcilePluginDraft(
+  start: ReadonlySet<string>,
+  mine: ReadonlySet<string>,
+  theirs: ReadonlySet<string>,
+): { keys: Set<string>; bothChanged: string[] } {
+  const myChanges = changedKeys(start, mine);
+  const theirChanges = changedKeys(start, theirs);
+  const keys = new Set(theirs);
+  for (const key of myChanges) {
+    if (mine.has(key)) keys.add(key);
+    else keys.delete(key);
+  }
+  return { keys, bothChanged: [...myChanges].filter((key) => theirChanges.has(key)).sort() };
+}
+
+/** Le righe cambiate da entrambi, dopo un `conflict` e prima della scelta. */
+export function pluginBothChanged(
+  start: ReadonlySet<string>,
+  mine: ReadonlySet<string>,
+  theirs: ReadonlySet<string>,
+): string[] {
+  return reconcilePluginDraft(start, mine, theirs).bothChanged;
+}
+
+/** Le righe cambiate nella bozza rispetto alla base. */
+export function pluginChangedKeys(
+  base: ReadonlySet<string>,
+  draft: ReadonlySet<string>,
+): Set<string> {
+  return changedKeys(base, draft);
+}
+
+/** Le scelte date, validate e ripulite (righe vuote via, liste ordinate e senza doppioni). */
+function normalized(
+  disabled: unknown,
+  saved: ProjectPluginChoices["disabled"],
+): { disabled: ProjectPluginChoices["disabled"]; named: Set<string> } | { reason: string } {
+  if (!Array.isArray(disabled)) return { reason: "disabled" };
+  const out = new Map<string, { skills: Set<string>; hookGroups: Set<string> }>();
+  for (const d of disabled as ProjectPluginChoices["disabled"]) {
+    if (
+      !d ||
+      typeof d.plugin !== "string" ||
+      !Array.isArray(d.skills) ||
+      !Array.isArray(d.hookGroups)
+    )
+      return { reason: "disabled" };
+    if (d.plugin === BASE_PLUGIN) return { reason: "base_plugin" };
+    const plugin = state.instance.plugins.find((p) => p.name === d.plugin);
+    if (!plugin) return { reason: "plugin" };
+    // Un plugin senza inventario (mai materializzato) non dice le sue skill: si accetta ciò che arriva.
+    const skills = plugin.inventory?.skills.map((s) => s.name);
+    const hooks = plugin.inventory?.hooks.map((h) => h.key);
+    // Ruling (T10): su un plugin `ready`, una scelta già salvata che il suo
+    // inventario non ha più (uno sha nuovo l'ha tolta) si scarta, invece di
+    // rifiutare il salvataggio per un dato che nessuno può togliere. Un nome
+    // che non era fra le scelte salvate resta un `invalid`.
+    const was = plugin.status === "ready" ? saved.find((x) => x.plugin === d.plugin) : undefined;
+    const keepSkill = (s: string) => !skills || skills.includes(s);
+    const keepHook = (h: string) => !hooks || hooks.includes(h);
+    if (d.skills.some((s) => !keepSkill(s) && !was?.skills.includes(s))) return { reason: "skill" };
+    if (d.hookGroups.some((h) => !keepHook(h) && !was?.hookGroups.includes(h)))
+      return { reason: "hook" };
+    const row = out.get(d.plugin) ?? { skills: new Set(), hookGroups: new Set() };
+    d.skills.filter(keepSkill).forEach((s) => row.skills.add(s));
+    d.hookGroups.filter(keepHook).forEach((h) => row.hookGroups.add(h));
+    out.set(d.plugin, row);
+  }
+  return {
+    named: new Set(out.keys()),
+    disabled: [...out.entries()]
+      .filter(([, r]) => r.skills.size > 0 || r.hookGroups.size > 0)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([plugin, r]) => ({
+        plugin,
+        skills: [...r.skills].sort(),
+        hookGroups: [...r.hookGroups].sort(),
+      })),
+  };
+}
+
+/**
+ * Salva le scelte (ciò che è spento). `conflict` se `version` non è quella
+ * di adesso; se va bene, e qualcosa cambia, la versione sale di uno e si
+ * scrive una voce sola.
+ */
+export async function saveProjectPlugins(
+  projectId: string,
+  input: { version: number; disabled: ProjectPluginChoices["disabled"] },
+): Promise<ProjectResult<{ version: number }>> {
+  const me = await writer("projectSettings.saveProjectPlugins");
+  const managed = managedProject(me, projectId);
+  if ("refusal" in managed) return managed.refusal;
+  const { project } = managed;
+  const choices = settingsOf(project).plugins;
+  const clean = normalized(input.disabled, choices.disabled);
+  if ("reason" in clean) return refuse.invalid(clean.reason);
+  if (input.version !== choices.version) return refuse.conflict();
+
+  // [PG 4]: le scelte di un plugin non `ready` che l'input non nomina restano.
+  const ready = (name: string) =>
+    state.instance.plugins.some((p) => p.name === name && p.status === "ready");
+  const disabled = [
+    ...clean.disabled,
+    ...choices.disabled.filter((d) => !clean.named.has(d.plugin) && !ready(d.plugin)),
+  ].sort((a, b) => a.plugin.localeCompare(b.plugin));
+  const diff = changedFields(disabledKeys(choices.disabled), disabledKeys(disabled));
+  if (!diff) return { ok: true, version: choices.version };
+  choices.disabled = disabled;
+  choices.version += 1;
+  recordChange({
+    kind: "project.plugins_changed",
+    actorId: me,
+    projectId: project.id,
+    object: projectObject(project),
+    ...diff,
+  });
+  return { ok: true, version: choices.version };
+}
+
+/**
+ * Le skill che entrano nei run (e in «/») di un progetto: quelle dei plugin
+ * `ready` del registro, meno le spente, poi il plugin base. Non guarda chi
+ * chiede: è il lavoro di Claude a chiederlo. Un progetto inesistente non ne
+ * ha.
+ */
+export function skillsForRun(
+  projectId: string,
+): { plugin: string; skill: string; description: string }[] {
+  const project = state.projectsById.get(projectId);
+  if (!project) return [];
+  const choices = settingsOf(project).plugins;
+  const chosen = state.instance.plugins
+    .filter((p) => p.status === "ready")
+    .flatMap((p) => {
+      const off = disabledOf(choices, p.name);
+      return (p.inventory?.skills ?? [])
+        .filter((s) => !off?.skills.includes(s.name))
+        .map((s) => ({ plugin: p.name, skill: s.name, description: s.description }));
+    });
+  const base = BASE_PLUGIN_SEED.skills.map((s) => ({
+    plugin: BASE_PLUGIN_SEED.name,
+    skill: s.name,
+    description: s.description,
+  }));
+  return [...chosen, ...base];
+}

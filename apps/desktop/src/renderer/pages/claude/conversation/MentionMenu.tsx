@@ -1,0 +1,220 @@
+import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
+import { useMentionSearch, usePeople } from "../../../data/queries";
+import type { CitationRef } from "../../../data/types";
+import { Avatar } from "../../../tasks-ui/PersonChip";
+import { BreakablePath } from "../../../tasks-ui/Markdown";
+
+// I menu della casella («#» oggetti, «@» persone, «/» comandi) hanno la
+// stessa forma: una superficie flottante di 320 px sopra la casella, a
+// gruppi, che cerca mentre si scrive. Il fuoco resta nel campo: le frecce,
+// Invio/Tab ed Esc li gestisce la casella (`aria-activedescendant`).
+
+export interface Suggestion {
+  id: string;
+  group: string;
+  /** Il codice di catalogo (o il nome del comando), in cifre tabellari. */
+  code: string | null;
+  label: string;
+  detail: string | null;
+  /** Il testo che entra nella casella al posto di «#…» / «@…» / «/…». */
+  insert: string;
+  ref?: CitationRef;
+  projectId?: string | null;
+  personId?: string;
+  path?: boolean;
+  /** Il codice su una riga, il nome sotto (i comandi: «/nome» e la descrizione). */
+  stacked?: boolean;
+  /** Una pagina dello spazio Prodotto (area 11a): «Link to…» la mette nel suo gruppo. */
+  space?: "product";
+}
+
+export interface SuggestionGroup {
+  label: string;
+  items: Suggestion[];
+}
+
+// I file del Drive dopo task, richieste e pagine (shape drive-search.md A7).
+const GROUP_ORDER = ["task", "request", "doc", "drive", "file", "project"] as const;
+
+/** I risultati di «#» o «@» per la ricerca scritta dopo il carattere. */
+export function useMentionSuggestions(
+  kind: "objects" | "people",
+  q: string,
+  enabled: boolean,
+): { groups: SuggestionGroup[]; loading: boolean } {
+  const { t } = useTranslation();
+  const query = useMentionSearch(kind, q, enabled);
+  const results = query.data ?? [];
+  if (kind === "people") {
+    return {
+      loading: query.isPending && enabled,
+      groups: results.length
+        ? [
+            {
+              label: t("claude.conversation.menus.people"),
+              items: results.map((r) => ({
+                id: `person:${r.ref.id}`,
+                group: "person",
+                code: null,
+                label: r.label,
+                detail: r.detail,
+                insert: `@${r.label}`,
+                ref: r.ref,
+                personId: r.ref.id,
+              })),
+            },
+          ]
+        : [],
+    };
+  }
+  const groups = GROUP_ORDER.map((kind) => ({
+    label: t(`claude.conversation.menus.groups.${kind}`),
+    items: results
+      .filter((r) => r.ref.kind === kind)
+      .map<Suggestion>((r) => ({
+        id: `${r.ref.kind}:${r.ref.id}`,
+        group: kind,
+        // Pagine e file del Drive hanno il loro codice (`AUD-D3`, `AUD-F7`), come le task.
+        code: kind === "file" ? null : r.code,
+        label: r.label,
+        // Un file del Drive: «Google document · AUD»; una pagina di prodotto: «ACQ · Product».
+        detail: r.drive
+          ? [t(`drive.${r.drive.google ? "googleTypes" : "types"}.${r.drive.type}`), r.detail]
+              .filter(Boolean)
+              .join(" · ")
+          : r.space === "product"
+            ? t("docs.space.productDetail", { code: r.detail ?? "" })
+            : r.detail,
+        insert: kind === "file" ? r.label : [r.code, r.label].filter(Boolean).join(" "),
+        ref: r.ref,
+        projectId: r.projectId,
+        path: kind === "file",
+        space: r.space,
+      })),
+  })).filter((g) => g.items.length > 0);
+  return { groups, loading: query.isPending && enabled };
+}
+
+/** Il menu flottante: gruppi con intestazione, righe con codice, nome e dettaglio. */
+export function SuggestionMenu({
+  id,
+  label,
+  groups,
+  active,
+  onPick,
+  empty,
+  note,
+  header,
+}: {
+  id: string;
+  label: string;
+  groups: SuggestionGroup[];
+  active: number;
+  onPick: (s: Suggestion) => void;
+  empty: string | null;
+  note?: string | null;
+  /**
+   * Una riga in testa, sempre (anche senza risultati), 12 px `ink-faint` su
+   * una riga, al posto dei titoli dei gruppi (le menzioni di un commento di
+   * prodotto, area 11a: «People who can read ACQ's docs»).
+   */
+  header?: string;
+}) {
+  const people = usePeople().data;
+  const list = useRef<HTMLDivElement>(null);
+  // La riga attiva (scelta con le frecce) resta sempre in vista.
+  useEffect(() => {
+    const row = list.current ? document.getElementById(`${id}-${active}`) : null;
+    row?.scrollIntoView?.({ block: "nearest" });
+  }, [id, active, groups]);
+  let index = -1;
+  // Con la riga in testa (`header`), la superficie la tiene FUORI dal
+  // `listbox` (che ha solo gruppi e opzioni), e il `listbox` prende il nome
+  // da lei invece di ripeterlo. Senza, la superficie è il `listbox`.
+  const headerId = `${id}-header`;
+  const rows = groups.map((group) => (
+        <div
+          key={group.label}
+          role="group"
+          aria-label={group.label}
+          className="flex flex-col not-first:mt-1 not-first:border-t not-first:border-rule not-first:pt-1"
+        >
+          {!header && (
+            <span aria-hidden="true" className="heading-group px-2 pt-1.5 pb-1">
+              {group.label}
+            </span>
+          )}
+          {group.items.map((s) => {
+            index += 1;
+            const selected = index === active;
+            const person = s.personId ? people?.find((p) => p.id === s.personId) : null;
+            return (
+              <div
+                key={s.id}
+                id={`${id}-${index}`}
+                role="option"
+                aria-selected={selected}
+                // Il clic non toglie il fuoco al campo.
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onPick(s)}
+                className={`flex min-h-8 cursor-default flex-col justify-center gap-0.5 rounded-md px-2 py-1 text-sm ${selected ? "bg-ink/8" : "hover:bg-ink/5"}`}
+              >
+                {s.stacked ? (
+                  <>
+                    <span className="truncate font-semibold text-ink">{s.code}</span>
+                    <span className="line-clamp-2 text-sm text-ink-muted">{s.label}</span>
+                  </>
+                ) : (
+                  <span className="flex min-w-0 items-center gap-2">
+                    {person && <Avatar person={person} />}
+                    {s.code && (
+                      <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink">
+                        {s.code}
+                      </span>
+                    )}
+                    <span className="min-w-0 truncate text-ink">
+                      {s.path ? <BreakablePath path={s.label} /> : s.label}
+                    </span>
+                  </span>
+                )}
+                {s.detail && (
+                  <span className={`truncate text-xs text-ink-muted ${person ? "pl-[30px]" : ""}`}>
+                    {s.detail}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ));
+  return (
+    <div
+      id={header ? undefined : id}
+      ref={list}
+      role={header ? undefined : "listbox"}
+      aria-label={header ? undefined : label}
+      className="menu-enter absolute bottom-full left-0 z-30 mb-2 flex max-h-80 w-[320px] max-w-full flex-col overflow-y-auto rounded-lg border border-rule-strong bg-surface p-1.5 shadow-[0_12px_32px_-8px_oklch(0_0_0/0.4)]"
+    >
+      {header && (
+        <p id={headerId} title={header} className="truncate px-2 pt-1 pb-1.5 text-xs text-ink-faint">
+          {header}
+        </p>
+      )}
+      {groups.length === 0 && empty && (
+        <p className="px-2 py-1.5 text-sm text-ink-muted">{empty}</p>
+      )}
+      {header ? (
+        <div id={id} role="listbox" aria-labelledby={headerId} className="flex flex-col">
+          {rows}
+        </div>
+      ) : (
+        rows
+      )}
+      {note && <p className="border-t border-rule px-2 pt-2 pb-1 text-xs text-ink-muted">{note}</p>}
+    </div>
+  );
+}
+
+/** Le righe di un menu in ordine, come le contano le frecce. */
+export const flatten = (groups: SuggestionGroup[]) => groups.flatMap((g) => g.items);

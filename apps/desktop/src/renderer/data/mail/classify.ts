@@ -1,0 +1,177 @@
+import { fold } from "../../domain/textSearch";
+import { state } from "../store";
+import type {
+  MailClassification,
+  MailImportance,
+  MailMessage,
+  MailProposal,
+  ProposedAction,
+} from "../types";
+import { stubwiseRecipients } from "./visibility";
+
+// La classificazione finta della Posta (area 6): nel prototipo il «modello»
+// è un elenco di parole chiave sul seme, deterministico. Nessun filtro prima
+// (domini, regole per progetto): ogni email ci passa, salvo le caselle con
+// le proposte spente, che la lasciano `off` senza chiamarla. Qui si decide
+// l'esito e, da quello, le proposte (`proposalsFromClassification`): le
+// scrive `advanceClassification` (writes.ts), una per email e progetto.
+
+type Members = (projectId: string) => string[];
+
+const projectMembers: Members = (projectId) => state.projectsById.get(projectId)?.memberIds ?? [];
+
+/** Le parole che legano un'email a un progetto del seme. */
+const PROJECT_KEYWORDS: Record<string, string[]> = {
+  "prj-aud": ["audin", "billing", "callback", "dialer", "vat"],
+  "prj-stw": ["stubwise", "desktop preview", "onboarding", "release notes", "copy freeze"],
+  "prj-mkx": ["mix cucine", "ordine", "listini", "rivenditori"],
+  // Area 11b: la posta del cliente di ACQ porta le fonti della doc di prodotto.
+  "prj-acq": ["acquedotto", "portale utenti", "meter reading"],
+};
+
+/** Posta automatica: niente progetto, importanza bassa. */
+const NOISE_SENDERS = ["newsletter", "noreply", "no-reply", "promo", "hello@"];
+const NOISE_WORDS = ["unsubscribe", "newsletter"];
+
+const HIGH_WORDS = ["urgent", "asap", "by monday", "tomorrow", "freeze", "deadline"];
+const LOW_WORDS = ["nothing urgent", "fyi", "just for reference"];
+
+/**
+ * I progetti candidati: quelli di cui almeno un destinatario del team
+ * (mittente, `to`, `cc`, caselle) è membro. In ordine di progetto. Un
+ * archiviato non è candidato: la posta non gli fa nascere lavoro (area 9c).
+ */
+export function candidateProjects(m: MailMessage, members: Members = projectMembers): string[] {
+  const people = stubwiseRecipients(m);
+  return state.projects
+    .filter((p) => !p.archived)
+    .map((p) => p.id)
+    .filter((id) => members(id).some((personId) => people.has(personId)));
+}
+
+/** Il giorno dopo quello del messaggio (ISO), per «domani». */
+function dayAfter(at: string): string {
+  const d = new Date(`${at.slice(0, 10)}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * L'esito del modello finto su un'email: i progetti fra i candidati le cui
+ * parole compaiono (uno → quello; più di uno → incerta, nessun progetto e i
+ * candidati trovati in `uncertainProjectIds`), l'importanza e la scadenza
+ * («tomorrow» → il giorno dopo l'email). Newsletter e posta automatica:
+ * nessun progetto, bassa.
+ */
+export function classifyMessage(m: MailMessage, members: Members): MailClassification {
+  const text = fold(`${m.subject}\n${m.text}`);
+  const sender = fold(m.from.email);
+  const noise =
+    NOISE_SENDERS.some((w) => sender.includes(w)) || NOISE_WORDS.some((w) => text.includes(w));
+  if (noise)
+    return {
+      state: "done",
+      projectIds: [],
+      importance: "low",
+      dueDate: null,
+      uncertainProjectIds: [],
+    };
+  const matched = candidateProjects(m, members).filter((id) =>
+    (PROJECT_KEYWORDS[id] ?? []).some((w) => text.includes(w)),
+  );
+  const importance: MailImportance = HIGH_WORDS.some((w) => text.includes(w))
+    ? "high"
+    : LOW_WORDS.some((w) => text.includes(w))
+      ? "low"
+      : "normal";
+  return {
+    state: "done",
+    projectIds: matched.length === 1 ? matched : [],
+    importance,
+    dueDate: text.includes("tomorrow") ? dayAfter(m.at) : null,
+    uncertainProjectIds: matched.length > 1 ? matched : [],
+  };
+}
+
+/** L'oggetto senza «Re:»/«Fwd:» davanti: il titolo della task proposta. */
+function taskTitle(subject: string): string {
+  return subject.replace(/^\s*((re|fwd?|r|i)\s*:\s*)+/i, "").trim() || subject;
+}
+
+/** L'estratto letto: il paragrafo più lungo del testo (non il saluto né la firma). */
+function excerptOf(text: string): string {
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((x) => x.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const longest = paragraphs.reduce((a, b) => (b.length > a.length ? b : a), "");
+  return longest.length > 280 ? `${longest.slice(0, 279).trimEnd()}…` : longest;
+}
+
+/** La task proposta per un progetto: l'oggetto come titolo, la scadenza ricavata. */
+function createTaskFor(m: MailMessage, projectId: string, dueDate: string | null): ProposedAction {
+  const title = taskTitle(m.subject);
+  const code = state.projectsById.get(projectId)?.code ?? "";
+  return {
+    fn: "createTask",
+    args: { projectId, title, ...(dueDate ? { dueDate } : {}) },
+    summary: `Create in ${code}: “${title}”`,
+  };
+}
+
+/**
+ * Le proposte che il modello finto scrive da una classificazione `done`, in
+ * modo deterministico come la classificazione: per ogni progetto una task
+ * dall'oggetto (con la scadenza ricavata); incerta fra più progetti, UNA
+ * «scegli il progetto» con la task già pronta per ciascuno (il suo
+ * `projectId` è il primo candidato, come nel seme). Nessun progetto → nessuna.
+ * Chi le scrive controlla l'unicità per email e progetto.
+ */
+export function proposalsFromClassification(
+  m: MailMessage,
+  c: MailClassification,
+  createdAt: string,
+): MailProposal[] {
+  if (c.state !== "done") return [];
+  const base = {
+    source: m.kind === "transcript" ? ("transcript" as const) : ("email" as const),
+    sourceId: m.messageId,
+    excerpt: excerptOf(m.text),
+    createdAt,
+    status: "open" as const,
+    decidedById: null,
+    decidedAt: null,
+    resultCodes: [],
+    error: null,
+    handedAt: null,
+    handedById: null,
+  };
+  const out: MailProposal[] = c.projectIds.map((projectId) => ({
+    ...base,
+    id: `mp-${m.id}-${projectId}`,
+    projectId,
+    actions: [createTaskFor(m, projectId, c.dueDate)],
+  }));
+  const candidates = c.uncertainProjectIds;
+  if (candidates.length > 1) {
+    const codes = candidates.map((id) => state.projectsById.get(id)?.code ?? id);
+    out.push({
+      ...base,
+      id: `mp-${m.id}-choose`,
+      projectId: candidates[0]!,
+      actions: [
+        {
+          fn: "chooseProject",
+          args: {
+            projectIds: [...candidates],
+            actionsByProject: Object.fromEntries(
+              candidates.map((id) => [id, [createTaskFor(m, id, c.dueDate)]]),
+            ),
+          },
+          summary: `Choose the project: ${codes.join(" or ")}`,
+        },
+      ],
+    });
+  }
+  return out;
+}

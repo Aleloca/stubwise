@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Stubwise — My work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--ground:#141517;--side:#0f1012;--raise:#1b1c1f;--ink:#F4F4F2;--mute:#A3A5A9;--faint:#7E8085;--rule:rgba(255,255,255,.11);--rule2:rgba(255,255,255,.2);
+--mkt:#F2B134;--dev:#3D7BFD;--sal:#3FB68B;--sup:#E5484D;--adm:#A78BFA;--amber:#f5a623}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden;background:var(--ground);color:var(--ink);font:400 14px/1.4 Geist,system-ui,sans-serif;font-variant-numeric:tabular-nums;-webkit-font-smoothing:antialiased}
+::selection{background:rgba(242,177,52,.35)}
+.app{display:grid;grid-template-columns:236px 1fr 328px;height:900px}
+svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.lbl{font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.code{font-weight:600;letter-spacing:.01em;color:var(--ink)}
+/* sidebar */
+.side{background:var(--side);border-right:1px solid var(--rule);display:flex;flex-direction:column;padding:0 12px}
+.chrome{height:44px;display:flex;align-items:center;gap:8px;padding-left:4px}
+.tl{width:12px;height:12px;border-radius:50%}
+.brand{display:flex;align-items:center;gap:10px;padding:10px 8px 18px}
+.mark{width:22px;height:22px;border-radius:6px;background:#0f1318;box-shadow:inset 0 0 0 1px var(--rule2);color:var(--amber);font-weight:600;font-size:11px;display:grid;place-items:center;letter-spacing:-.02em}
+.brand b{font-weight:600;font-size:14px}
+.search{display:flex;align-items:center;gap:8px;height:32px;padding:0 8px 0 10px;border:1px solid var(--rule);border-radius:7px;color:var(--mute);font-size:13px;margin-bottom:14px}
+.search span{flex:1}.kbd{font-size:11px;color:var(--mute);border:1px solid var(--rule2);border-radius:4px;padding:1px 5px}
+.nav a{display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:7px;color:var(--mute);text-decoration:none;font-size:13.5px}
+.nav a.on{background:rgba(255,255,255,.07);color:var(--ink);font-weight:500}
+.nav a .n{margin-left:auto;font-size:11.5px;font-weight:600;color:#141517;background:var(--mkt);border-radius:9px;padding:0 6px;line-height:17px}
+.sec{margin:24px 10px 8px}
+.proj a{display:flex;align-items:center;gap:10px;height:30px;padding:0 10px;color:var(--mute);text-decoration:none;font-size:13px;white-space:nowrap;overflow:hidden}
+.proj i{width:3px;height:14px;border-radius:1px;flex:none}
+.proj .code{font-size:12px;color:var(--ink);width:30px;flex:none}
+.proj span:last-child{overflow:hidden;text-overflow:ellipsis}
+.all{color:var(--mute)!important;margin-top:4px}
+.me{margin-top:auto;display:flex;align-items:center;gap:10px;padding:14px 8px;border-top:1px solid var(--rule)}
+.me small{display:block;color:var(--mute);font-size:12px}
+.av{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:10.5px;font-weight:600;flex:none}
+.gf{background:#3a3226;color:var(--mkt)}.ai{background:var(--ink);color:#141517}.ml{background:#1f2a3f;color:#8fb2ff}
+/* main */
+.main{padding:0 40px;overflow:hidden}
+.top{height:44px;display:flex;align-items:center;justify-content:flex-end;gap:16px;color:var(--mute);font-size:12.5px}
+.legend{display:flex;gap:14px}.legend span{display:flex;align-items:center;gap:6px}.legend i{width:3px;height:12px;border-radius:1px}
+.head{display:flex;align-items:flex-end;justify-content:space-between;padding:22px 0 18px;border-bottom:1px solid var(--rule2)}
+h1{font-size:28px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
+.date{color:var(--mute);font-size:14px;margin-top:6px}
+.tabs{display:flex;gap:4px}.tabs a{font-size:13px;color:var(--mute);text-decoration:none;padding:6px 10px;border-radius:6px}.tabs a.on{color:var(--ink);background:rgba(255,255,255,.07)}
+.btn{height:30px;display:inline-flex;align-items:center;gap:6px;padding:0 12px;border-radius:7px;font:500 13px Geist,sans-serif;border:1px solid var(--rule2);background:transparent;color:var(--ink)}
+.btn.pri{background:var(--ink);color:#141517;border-color:var(--ink)}
+.grp{display:flex;align-items:baseline;gap:8px;padding:22px 0 8px;border-bottom:1px solid var(--rule)}
+.grp .lbl{color:var(--ink)}.grp em{font-style:normal;color:var(--mute);font-size:12px}.grp.late .lbl{color:#ff8a8d}
+.row{position:relative;display:grid;grid-template-columns:68px 1fr 172px 70px 116px 24px;gap:16px;align-items:center;height:44px;padding-left:14px;border-bottom:1px solid var(--rule);font-size:13.5px}
+.row:before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:1px;background:var(--c)}
+.row:hover{background:rgba(255,255,255,.03)}
+.t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.p{color:var(--mute);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.d{color:var(--mute);font-size:13px}.d.late{color:#ff8a8d}
+.st{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--mute)}.st i{width:7px;height:7px;border-radius:50%;border:1.5px solid currentColor}
+.st.prog i{background:currentColor;color:#d7d8da}.st.rev{color:#c9b6ff}.st.todo i{border-style:solid}
+.live{color:var(--ink);font-weight:500}.live i{border:0;background:#3FB68B;box-shadow:0 0 0 0 rgba(63,182,139,.6);animation:p 1.8s ease-out infinite}
+@keyframes p{0%{box-shadow:0 0 0 0 rgba(63,182,139,.55)}100%{box-shadow:0 0 0 7px rgba(63,182,139,0)}}
+.row.working{background:rgba(63,182,139,.05)}
+/* right panel */
+.right{border-left:1px solid var(--rule);padding:0 24px;background:var(--side)}
+.right h2{font-size:15px;font-weight:600;margin:22px 0 4px;display:flex;align-items:baseline;justify-content:space-between}
+.right h2 em{font-style:normal;font-weight:400;font-size:12.5px;color:var(--mute)}
+.wait{padding:18px 0;border-bottom:1px solid var(--rule)}
+.who{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--mute);margin-bottom:8px}
+.who .code{font-size:12.5px;margin-left:auto}
+.wait p{font-size:13.5px;line-height:1.5;margin-bottom:12px}
+.wait q{display:block;color:var(--mute);font-size:13px;line-height:1.5;margin:-4px 0 12px;padding-left:10px;border-left:1px solid var(--rule2);quotes:none}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:500 12.5px Geist,sans-serif;height:28px;padding:0 11px;border-radius:14px;border:1px solid var(--rule2);background:transparent;color:var(--ink)}
+.made{margin:2px 0 12px;font-size:12.5px;color:var(--mute)}.made div{display:flex;gap:10px;padding:3px 0}.made .code{width:58px;font-size:12.5px}
+</style></head><body><div class="app">
+<aside class="side">
+ <div class="chrome"><span class="tl" style="background:#ff5f57"></span><span class="tl" style="background:#febc2e"></span><span class="tl" style="background:#28c840"></span></div>
+ <div class="brand"><span class="mark">S_</span><b>Stubwise</b></div>
+ <div class="search"><svg viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg><span>Search or jump to code</span><span class="kbd">⌘K</span></div>
+ <nav class="nav">
+  <a class="on" href="#"><svg viewBox="0 0 16 16"><path d="M3 4h10M3 8h10M3 12h6"/></svg>My work</a>
+  <a href="#"><svg viewBox="0 0 16 16"><path d="M2.5 9.5h3l1 2h3l1-2h3M2.5 9.5 4 3.5h8l1.5 6v3h-11z"/></svg>Inbox<span class="n">4</span></a>
+  <a href="#"><svg viewBox="0 0 16 16"><path d="M3 3.5h10v7H7l-3 2.5v-2.5H3z"/></svg>Chat</a>
+  <a href="#"><svg viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5"/><path d="M2.5 6.5h11M5.5 2v3M10.5 2v3"/></svg>Calendar</a>
+  <a href="#"><svg viewBox="0 0 16 16"><path d="M9 2 4 9h4l-1 5 5-7H8z"/></svg>Automations</a>
+ </nav>
+ <div class="sec lbl">Pinned projects</div>
+ <nav class="proj">
+  <a href="#"><i style="background:var(--dev)"></i><span class="code">AUD</span><span>Audin 2.0</span></a>
+  <a href="#"><i style="background:var(--sal)"></i><span class="code">BRN</span><span>Brennero Logistics — Supplier Portal</span></a>
+  <a href="#"><i style="background:var(--mkt)"></i><span class="code">CBV</span><span>Colli Berici Wines</span></a>
+  <a href="#"><i style="background:var(--mkt)"></i><span class="code">STW</span><span>Stubwise Newsletter</span></a>
+  <a href="#"><i style="background:var(--sup)"></i><span class="code">HLP</span><span>Help Center</span></a>
+  <a href="#"><i style="background:var(--adm)"></i><span class="code">ADM</span><span>Finance &amp; People</span></a>
+  <a class="all" href="#"><svg viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg><span>All projects (48)</span></a>
+ </nav>
+ <div class="me"><span class="av gf">GF</span><div>Giulia Ferri<small>Marketing</small></div></div>
+</aside>
+<main class="main">
+ <div class="top"><div class="legend"><span><i style="background:var(--mkt)"></i>Marketing</span><span><i style="background:var(--dev)"></i>Dev</span><span><i style="background:var(--sal)"></i>Sales</span><span><i style="background:var(--sup)"></i>Support</span><span><i style="background:var(--adm)"></i>Admin</span></div></div>
+ <div class="head">
+  <div><h1>My work</h1><div class="date">Thursday 23 October · 11 open tasks</div></div>
+  <div style="display:flex;gap:12px;align-items:center"><div class="tabs"><a class="on" href="#">Assigned to me</a><a href="#">Delegated</a><a href="#">Following</a></div><button class="btn pri"><svg viewBox="0 0 16 16"><path d="M8 3v10M3 8h10"/></svg>New task</button></div>
+ </div>
+ <div class="grp late"><span class="lbl">Overdue</span><em>1</em></div>
+ <div class="row" style="--c:var(--mkt)"><span class="code">CBV-19</span><span class="t">Brief photographer for Colli Berici wines shoot</span><span class="p">Colli Berici Wines</span><span class="d late">Yesterday</span><span class="st prog"><i></i>In progress</span><span class="av gf">GF</span></div>
+ <div class="grp"><span class="lbl">Today</span><em>4</em></div>
+ <div class="row" style="--c:var(--mkt)"><span class="code">AUD-212</span><span class="t">Write launch email sequence for Audin 2.0</span><span class="p">Audin 2.0</span><span class="d">Today</span><span class="st prog"><i></i>In progress</span><span class="av gf">GF</span></div>
+ <div class="row" style="--c:var(--sal)"><span class="code">BRN-48</span><span class="t">Approve landing page copy</span><span class="p">Brennero Logistics — Supplier Portal</span><span class="d">14:00</span><span class="st rev"><i></i>In review</span><span class="av gf">GF</span></div>
+ <div class="row working" style="--c:var(--mkt)"><span class="code">STW-733</span><span class="t">Draft social posts for the Q4 newsletter</span><span class="p">Stubwise Newsletter</span><span class="d">Today</span><span class="st live"><i></i>Claude is working</span><span class="av ai">C</span></div>
+ <div class="row" style="--c:var(--mkt)"><span class="code">STW-731</span><span class="t">Review Claude’s draft: Q4 newsletter</span><span class="p">Stubwise Newsletter</span><span class="d">16:30</span><span class="st todo"><i></i>To do</span><span class="av gf">GF</span></div>
+ <div class="grp"><span class="lbl">This week</span><em>6</em></div>
+ <div class="row" style="--c:var(--mkt)"><span class="code">CBV-22</span><span class="t">Plan harvest campaign posts for Instagram</span><span class="p">Colli Berici Wines</span><span class="d">Fri 24</span><span class="st todo"><i></i>To do</span><span class="av gf">GF</span></div>
+ <div class="row" style="--c:var(--dev)"><span class="code">AUD-219</span><span class="t">Check release notes wording with the dev team</span><span class="p">Audin 2.0</span><span class="d">Mon 27</span><span class="st todo"><i></i>To do</span><span class="av ml">ML</span></div>
+ <div class="row" style="--c:var(--sup)"><span class="code">HLP-88</span><span class="t">Update FAQ articles for the new pricing</span><span class="p">Help Center</span><span class="d">Mon 27</span><span class="st todo"><i></i>To do</span><span class="av gf">GF</span></div>
+ <div class="row" style="--c:var(--sal)"><span class="code">BRN-51</span><span class="t">Collect client logos for the case study</span><span class="p">Brennero Logistics — Supplier Portal</span><span class="d">Tue 28</span><span class="st prog"><i></i>In progress</span><span class="av gf">GF</span></div>
+ <div class="row" style="--c:var(--adm)"><span class="code">ADM-14</span><span class="t">Submit October expense report</span><span class="p">Finance &amp; People</span><span class="d">Wed 29</span><span class="st todo"><i></i>To do</span><span class="av gf">GF</span></div>
+ <div class="row" style="--c:var(--mkt)"><span class="code">STW-735</span><span class="t">Schedule LinkedIn posts for the November webinar</span><span class="p">Stubwise Newsletter</span><span class="d">Thu 30</span><span class="st todo"><i></i>To do</span><span class="av gf">GF</span></div>
+</main>
+<aside class="right">
+ <div class="top" style="justify-content:flex-start"></div>
+ <h2>Waiting on you <em>3</em></h2>
+ <div class="wait">
+  <div class="who"><span class="av ai">C</span>Claude asks<span class="code">STW-731</span></div>
+  <p>Which tone should the Q4 newsletter take for existing customers?</p>
+  <div class="chips"><button class="chip">Warm and personal</button><button class="chip">Brief and factual</button></div>
+ </div>
+ <div class="wait">
+  <div class="who"><span class="av ai">C</span>Plan to approve<span class="code">STW-728</span></div>
+  <p>Rebuild the newsletter sign-up form with double opt-in</p>
+  <q>4 steps · touches the website form and the welcome email</q>
+  <div class="chips"><button class="btn pri">Approve plan</button><button class="btn">Read plan</button></div>
+ </div>
+ <div class="wait" style="border:0">
+  <div class="who"><svg viewBox="0 0 16 16"><path d="M4 2.5h5.5L12 5v8.5H4z"/><path d="M9.5 2.5V5H12"/></svg>Contract from HubSpot<span class="code">HUB-ctr-0193</span></div>
+  <p>Signed: Colli Berici Wines, spring campaign. It created 5 tasks.</p>
+  <div class="made"><div><span class="code">CBV-24</span>Kick-off call with the client</div><div><span class="code">CBV-25</span>Campaign calendar, March–May</div><div><span class="code">CBV-26</span>+ 3 more</div></div>
+  <div class="chips"><button class="btn">Review tasks</button></div>
+ </div>
+</aside>
+</div></body></html>

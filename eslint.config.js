@@ -6,6 +6,8 @@ export default tseslint.config(
     // codice nostro e non va lintato.
     ignores: [
       "**/dist/",
+      // Output di electron-vite (apps/desktop), gitignorato.
+      "apps/desktop/out/",
       "**/node_modules/",
       "**/coverage/",
       "**/.astro/",

@@ -1,0 +1,961 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import {
+  addComment,
+  answerDecision,
+  archiveRequest,
+  askDecision,
+  bulkUpdateTasks,
+  convertRequest,
+  createProject,
+  createRequest,
+  createTask,
+  deleteComment,
+  deleteFilter,
+  editComment,
+  failNext,
+  getRequest,
+  getTaskByCode,
+  listActivity,
+  listDayArrangements,
+  listDecisionRequests,
+  listDepartmentHomes,
+  listNotifications,
+  listPinnedFilterIds,
+  listProjectStatuses,
+  listProjects,
+  listRequests,
+  listSavedFilters,
+  listStalled,
+  listTasks,
+  getPersonalHome,
+  markDepartmentHomeSeen,
+  mergeRequest,
+  planTask,
+  reopenRequest,
+  restoreRequest,
+  resetApi,
+  resetPersonalHome,
+  saveFilter,
+  setDay,
+  setDepartmentHome,
+  setFilterPinned,
+  setLatency,
+  setPersonalHome,
+  setProjectStatuses,
+  setStallThresholds,
+  slipWeeks,
+  startRefine,
+  updateFilter,
+  updateRequest,
+  updateTask,
+  withdrawDecision,
+} from "./api";
+import { currentWeek } from "../domain/weeks";
+import { PROJECTS } from "./seed/projects";
+import { setSessionPersonId } from "./session";
+import { state, visibleProjectIds } from "./store";
+
+beforeEach(() => {
+  setLatency(0);
+  resetApi();
+});
+
+const as = (personId: string) => setSessionPersonId(personId);
+const taskOf = async (code: string) => (await getTaskByCode(code))!;
+const forbiddenError = /forbidden/;
+
+describe("task", () => {
+  it("createTask: codice successivo, primo stato todo, reparto di chi crea", async () => {
+    as("p-giulia");
+    const before = await listTasks({ projectIds: ["prj-mkx"] });
+    const max = Math.max(...before.map((t) => Number(t.code.split("-")[1])));
+    const task = await createTask({ projectId: "prj-mkx", title: "  New brief  " });
+    expect(task.code).toBe(`MKX-${max + 1}`);
+    expect(task.title).toBe("New brief");
+    expect(task.departmentId).toBe("dep-marketing");
+    expect(task.createdById).toBe("p-giulia");
+    expect(await getTaskByCode(task.code)).toMatchObject({ id: task.id });
+    const statuses = await listProjectStatuses("prj-mkx");
+    expect(statuses.find((s) => s.id === task.statusId)?.family).toBe("todo");
+  });
+
+  it("createTask: chi non può crearla (Viewer / progetto invisibile) è respinto", async () => {
+    as("p-andrea"); // preset viewer
+    const count = (await listTasks()).length;
+    const project = (await listProjects())[0]!;
+    await expect(createTask({ projectId: project.id, title: "x" })).rejects.toThrow(forbiddenError);
+    as("p-sara"); // Sara non vede MKX
+    await expect(createTask({ projectId: "prj-mkx", title: "x" })).rejects.toThrow(/not_found/);
+    as("p-andrea");
+    expect((await listTasks()).length).toBe(count);
+  });
+
+  it("updateTask scrive un'attività per ogni campo cambiato e aggiorna lastActivityAt", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] })).find((t) => t.assigneeId)!;
+    const statuses = await listProjectStatuses("prj-mkx");
+    const other = statuses.find((s) => s.id !== task.statusId && s.family === "active")!;
+    const activityBefore = (await listActivity(task.id)).length;
+    const updated = await updateTask(task.id, {
+      title: "Renamed",
+      statusId: other.id,
+      size: "XL",
+      dueDate: task.dueDate, // invariato: nessuna riga
+    });
+    expect(
+      updated.lastActivityAt > task.lastActivityAt ||
+        updated.lastActivityAt === task.lastActivityAt,
+    ).toBe(true);
+    const activity = await listActivity(task.id);
+    const added = activity.slice(activityBefore);
+    expect(added.map((a) => a.field).sort()).toEqual(["size", "status", "title"]);
+    expect(added.every((a) => a.kind === "field_change" && a.authorId === "p-giulia")).toBe(true);
+    expect(added.find((a) => a.field === "status")?.to).toBe(other.name);
+  });
+
+  it("updateTask: cambiare settimana o assegnatario azzera le disposizioni del giorno", async () => {
+    as("p-marco");
+    expect(await listDayArrangements(currentWeek())).toContainEqual(
+      expect.objectContaining({ taskId: "t-aud-3" }),
+    );
+    await updateTask("t-aud-3", { plannedWeek: "2026-W45" });
+    expect((await listDayArrangements(currentWeek())).some((a) => a.taskId === "t-aud-3")).toBe(
+      false,
+    );
+    // Cambiare altro non le tocca.
+    expect((await listDayArrangements(currentWeek())).some((a) => a.taskId === "t-stw-13")).toBe(
+      true,
+    );
+    await updateTask("t-stw-13", { title: "Retitled" });
+    expect((await listDayArrangements(currentWeek())).some((a) => a.taskId === "t-stw-13")).toBe(
+      true,
+    );
+  });
+
+  it("updateTask: closedAt segue la famiglia dello stato", async () => {
+    as("p-roberta");
+    const task = (await listTasks({ projectIds: ["prj-mkx"], families: ["active"] }))[0]!;
+    const statuses = await listProjectStatuses("prj-mkx");
+    const closed = statuses.find((s) => s.family === "closed")!;
+    const done = await updateTask(task.id, { statusId: closed.id });
+    expect(done.closedAt).not.toBeNull();
+    const reopened = await updateTask(task.id, { statusId: task.statusId });
+    expect(reopened.closedAt).toBeNull();
+  });
+
+  it("updateTask: Sara non ha tickets.edit → forbidden e task invariata; seguire sé stessa sì", async () => {
+    as("p-sara");
+    const task = (await listTasks()).find((t) => !t.followerIds.includes("p-sara"))!;
+    const stranger = ["p-marco", "p-federico", "p-luca"].find(
+      (id) => !task.followerIds.includes(id),
+    )!;
+    await expect(updateTask(task.id, { title: "Hacked" })).rejects.toThrow(forbiddenError);
+    expect((await taskOf(task.code)).title).toBe(task.title);
+    await expect(
+      updateTask(task.id, { followerIds: [...task.followerIds, stranger] }),
+    ).rejects.toThrow(forbiddenError);
+    const followed = await updateTask(task.id, { followerIds: [...task.followerIds, "p-sara"] });
+    expect(followed.followerIds).toContain("p-sara");
+    const unfollowed = await updateTask(task.id, { followerIds: task.followerIds });
+    expect(unfollowed.followerIds).not.toContain("p-sara");
+  });
+
+  it("updateTask: collegamenti e allegati si aggiungono e si tolgono, con la riga nell'attività", async () => {
+    as("p-giulia");
+    const task = await taskOf("MKX-2");
+    const linked = await updateTask(task.id, { links: [{ kind: "relates", taskId: "t-mkx-4" }] });
+    expect(linked.links).toEqual([{ kind: "relates", taskId: "t-mkx-4" }]);
+    const unlinked = await updateTask(task.id, { links: [] });
+    expect(unlinked.links).toEqual([]);
+    const file = { id: "att-x", name: "Brief.pdf", sizeBytes: 1 };
+    expect((await updateTask(task.id, { attachments: [file] })).attachments).toEqual([file]);
+    expect((await updateTask(task.id, { attachments: [] })).attachments).toEqual([]);
+    const fields = (await listActivity(task.id))
+      .filter((a) => a.kind === "field_change")
+      .map((a) => [a.field, a.to]);
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        ["links", "relates:t-mkx-4"],
+        ["links", ""],
+        ["attachments", "Brief.pdf"],
+      ]),
+    );
+    // Senza tickets.edit: forbidden, collegamenti invariati.
+    as("p-sara");
+    const stw = await taskOf("STW-6");
+    await expect(
+      updateTask(stw.id, { links: [...stw.links, { kind: "relates", taskId: "t-stw-1" }] }),
+    ).rejects.toThrow(forbiddenError);
+    expect((await taskOf("STW-6")).links).toEqual(stw.links);
+  });
+
+  it("un collegamento si salva una volta: «blocks» ferma l'altra finché la bloccante è aperta", async () => {
+    as("p-giulia");
+    const blocker = await taskOf("MKX-2");
+    const blocked = await taskOf("MKX-4");
+    const reasonOf = async (id: string) =>
+      (await listStalled({ projectIds: ["prj-mkx"] })).find((r) => r.task.id === id)?.stall.reason;
+    expect(await reasonOf(blocked.id)).toBeUndefined();
+    await updateTask(blocker.id, { links: [{ kind: "blocks", taskId: blocked.id }] });
+    // Nessuna riga inversa scritta sulla bloccata: «blocked_by» si ricava.
+    expect((await taskOf("MKX-4")).links).toEqual([]);
+    expect(await reasonOf(blocked.id)).toEqual({ kind: "blocked_by", taskId: blocker.id });
+    // Chiusa la bloccante, l'altra non è più ferma.
+    const closed = (await listProjectStatuses("prj-mkx")).find((s) => s.family === "closed")!;
+    await updateTask(blocker.id, { statusId: closed.id });
+    expect(await reasonOf(blocked.id)).toBeUndefined();
+    // Riaperta e tolta la riga: sparisce da entrambe le parti.
+    await updateTask(blocker.id, { statusId: blocker.statusId });
+    expect(await reasonOf(blocked.id)).toEqual({ kind: "blocked_by", taskId: blocker.id });
+    await updateTask(blocker.id, { links: [] });
+    expect(await reasonOf(blocked.id)).toBeUndefined();
+  });
+
+  it("updateTask rifiuta righe inverse, verso sé stessa, verso task che non ci sono o doppie", async () => {
+    as("p-giulia");
+    const task = await taskOf("MKX-2");
+    for (const links of [
+      [{ kind: "blocked_by", taskId: "t-mkx-4" }],
+      [{ kind: "child", taskId: "t-mkx-4" }],
+      [{ kind: "relates", taskId: task.id }],
+      [
+        { kind: "relates", taskId: "t-mkx-4" },
+        { kind: "relates", taskId: "t-mkx-4" },
+      ],
+    ]) {
+      await expect(updateTask(task.id, { links: links as never })).rejects.toThrow("invalid: links");
+    }
+    // Una task che non c'è risponde come una che non si vede.
+    await expect(
+      updateTask(task.id, { links: [{ kind: "relates", taskId: "t-nope" }] }),
+    ).rejects.toThrow("not_found");
+    expect((await taskOf("MKX-2")).links).toEqual([]);
+  });
+
+  it("updateTask: un collegamento nuovo verso una task che chi agisce non vede è not_found", async () => {
+    as("p-giulia");
+    const task = await taskOf("MKX-2");
+    const visible = visibleProjectIds("p-giulia");
+    const hidden = state.tasks.find((t) => !visible.has(t.projectId))!;
+    await expect(
+      updateTask(task.id, { links: [{ kind: "relates", taskId: hidden.id }] }),
+    ).rejects.toThrow("not_found");
+    expect((await taskOf("MKX-2")).links).toEqual([]);
+  });
+
+  it("updateTask rifiuta reparti e assegnatari che non esistono (la corsia «Other» non è un valore)", async () => {
+    as("p-giulia");
+    const task = await taskOf("MKX-2");
+    await expect(updateTask(task.id, { departmentId: "other" })).rejects.toThrow("invalid: department");
+    await expect(updateTask(task.id, { assigneeId: "other" })).rejects.toThrow("invalid: assignee");
+    const after = await taskOf("MKX-2");
+    expect(after.departmentId).toBe(task.departmentId);
+    expect(after.assigneeId).toBe(task.assigneeId);
+    // Togliere l'assegnatario resta lecito.
+    expect((await updateTask(task.id, { assigneeId: null })).assigneeId).toBeNull();
+  });
+
+  it("bulkUpdateTasks: tutto o niente", async () => {
+    as("p-giulia");
+    const mkx = (await listTasks({ projectIds: ["prj-mkx"] }))[0]!;
+    // Giulia è solo contributor su CBV: lì non può modificare.
+    const cbv = (await listTasks({ projectIds: ["prj-cbv"] }))[0]!;
+    await expect(bulkUpdateTasks([mkx.id, cbv.id], { size: "XL" })).rejects.toThrow(forbiddenError);
+    expect((await taskOf(mkx.code)).size).toBe(mkx.size);
+    const updated = await bulkUpdateTasks([mkx.id], { size: "XL" });
+    expect(updated[0]!.size).toBe("XL");
+  });
+
+  it("failNext fa fallire una mutazione senza toccare lo stato", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] }))[0]!;
+    failNext("updateTask");
+    await expect(updateTask(task.id, { title: "Nope" })).rejects.toThrow(/Simulated/);
+    expect((await taskOf(task.code)).title).toBe(task.title);
+  });
+});
+
+describe("planning", () => {
+  it("planTask di Giulia su una task altrui in un progetto dove è lead → ok e notifica all'assegnatario", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] })).find(
+      (t) => t.assigneeId && t.assigneeId !== "p-giulia",
+    )!;
+    const planned = await planTask(task.id, { assigneeId: task.assigneeId, week: "2026-W46" });
+    expect(planned.plannedWeek).toBe("2026-W46");
+    as(task.assigneeId!);
+    const notes = await listNotifications();
+    expect(notes).toContainEqual(
+      expect.objectContaining({ kind: "planning.changed", objectCode: task.code }),
+    );
+  });
+
+  it("la notifica di planning dice codice e nome della task e apre la task", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] })).find(
+      (t) => t.assigneeId && t.assigneeId !== "p-giulia",
+    )!;
+    await planTask(task.id, { assigneeId: task.assigneeId, week: "2026-W46" });
+    as(task.assigneeId!);
+    const note = (await listNotifications()).find(
+      (n) => n.kind === "planning.changed" && n.objectCode === task.code,
+    )!;
+    expect(note.body).toBe(`${task.code} · ${task.title}: Giulia Ferri planned it for 2026-W46.`);
+    expect(note.link).toBe(`#/p/MKX/tasks?task=${task.code}`);
+  });
+
+  it("planTask: nessuna notifica a chi pianifica per sé", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] })).find((t) => !t.assigneeId)!;
+    const count = (await listNotifications()).length;
+    await planTask(task.id, { assigneeId: "p-giulia", week: "2026-W45" });
+    expect((await listNotifications()).length).toBe(count);
+  });
+
+  it("planTask di Sara su una task altrui → forbidden, task invariata", async () => {
+    as("p-sara");
+    const task = (await listTasks()).find((t) => t.assigneeId && t.assigneeId !== "p-sara")!;
+    await expect(planTask(task.id, { assigneeId: "p-sara", week: "2026-W46" })).rejects.toThrow(
+      forbiddenError,
+    );
+    await expect(
+      planTask(task.id, { assigneeId: task.assigneeId, week: "2026-W46" }),
+    ).rejects.toThrow(forbiddenError);
+    expect((await taskOf(task.code)).plannedWeek).toBe(task.plannedWeek);
+  });
+
+  it("planTask senza planning.others: una task non assegnata si prende solo con tickets.edit", async () => {
+    as("p-sara"); // contributor: niente tickets.edit
+    const free = (await listTasks()).find((t) => !t.assigneeId)!;
+    await expect(planTask(free.id, { assigneeId: "p-sara", week: "2026-W46" })).rejects.toThrow(
+      forbiddenError,
+    );
+    expect((await taskOf(free.code)).assigneeId).toBeNull();
+    as("p-marco"); // developer: ha tickets.edit
+    const open = (await listTasks({ projectIds: ["prj-stw"] })).find((t) => !t.assigneeId)!;
+    const planned = await planTask(open.id, { assigneeId: "p-marco", week: "2026-W46" });
+    expect(planned.assigneeId).toBe("p-marco");
+    // Una task già sua la sposta di settimana o la lascia, ma non la dà a un altro.
+    expect((await planTask(open.id, { assigneeId: "p-marco", week: "2026-W47" })).plannedWeek).toBe(
+      "2026-W47",
+    );
+    await expect(planTask(open.id, { assigneeId: "p-laura", week: "2026-W47" })).rejects.toThrow(
+      forbiddenError,
+    );
+    expect((await planTask(open.id, { assigneeId: null, week: "2026-W47" })).assigneeId).toBeNull();
+  });
+
+  it("planTask con planning.others: l'assegnatario deve essere membro del progetto", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] }))[0]!;
+    await expect(planTask(task.id, { assigneeId: "p-marco", week: "2026-W46" })).rejects.toThrow(
+      /invalid/,
+    );
+    expect((await taskOf(task.code)).assigneeId).toBe(task.assigneeId);
+  });
+
+  it("planTask: una riassegnazione avvisa chi perde (planning.changed) e chi prende la task (task.assigned), una nuova settimana l'assegnatario", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] })).find(
+      (t) => t.assigneeId && t.assigneeId !== "p-giulia",
+    )!;
+    const from = task.assigneeId!;
+    const to = ["p-elena", "p-paolo", "p-chiara"].find((id) => id !== from)!;
+    const countFor = async (id: string, kind = "planning.changed") => {
+      as(id);
+      const n = (await listNotifications()).filter(
+        (x) => x.kind === kind && x.objectCode === task.code,
+      ).length;
+      as("p-giulia");
+      return n;
+    };
+    const [fromBefore, toBefore] = [await countFor(from), await countFor(to)];
+    await planTask(task.id, { assigneeId: to, week: task.plannedWeek });
+    expect(await countFor(from)).toBe(fromBefore + 1);
+    // Chi la prende ha un avviso solo, `task.assigned` (area 10a, pre-flight).
+    expect(await countFor(to)).toBe(toBefore);
+    expect(await countFor(to, "task.assigned")).toBe(1);
+    await planTask(task.id, { assigneeId: to, week: "2026-W48" });
+    expect(await countFor(to)).toBe(toBefore + 1);
+    expect(await countFor(from)).toBe(fromBefore + 1);
+  });
+
+  it("setDay: solo l'assegnatario, e solo per sé", async () => {
+    as("p-marco");
+    await setDay("t-aud-3", currentWeek(), 2);
+    expect(await listDayArrangements(currentWeek())).toContainEqual(
+      expect.objectContaining({ taskId: "t-aud-3", day: 2 }),
+    );
+    await setDay("t-aud-3", currentWeek(), null);
+    const mine = (await listDayArrangements(currentWeek())).filter((a) => a.taskId === "t-aud-3");
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.day).toBeNull();
+
+    as("p-laura"); // non è l'assegnataria di t-aud-3
+    await expect(setDay("t-aud-3", currentWeek(), 1)).rejects.toThrow(forbiddenError);
+    as("p-marco");
+    expect(
+      (await listDayArrangements(currentWeek())).filter((a) => a.taskId === "t-aud-3"),
+    ).toEqual(mine);
+  });
+
+  it("slipWeeks due volte: slipCount incrementato una volta sola", async () => {
+    as("p-roberta");
+    const task = (await listTasks({ projectIds: ["prj-mkx"], families: ["active"] }))[0]!;
+    await updateTask(task.id, { plannedWeek: "2026-W40" });
+    const before = (await taskOf(task.code)).slipCount;
+    slipWeeks();
+    slipWeeks();
+    const after = await taskOf(task.code);
+    expect(after.slipCount).toBe(before + 1);
+    expect(after.plannedWeek).toBe(currentWeek());
+  });
+
+  it("le task chiuse non scivolano", async () => {
+    as("p-roberta");
+    const closed = (await listTasks({ projectIds: ["prj-mkx"], families: ["closed"] }))[0]!;
+    await updateTask(closed.id, { plannedWeek: "2026-W40" });
+    slipWeeks();
+    expect(await taskOf(closed.code)).toMatchObject({
+      plannedWeek: "2026-W40",
+      slipCount: closed.slipCount,
+    });
+  });
+});
+
+describe("commenti", () => {
+  it("add / edit / delete: l'autore sì, un altro no, il moderatore sì", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-stw"] }))[0]!;
+    const comment = await addComment(task.id, "  First!  ");
+    expect(comment.body).toBe("First!");
+    const edited = await editComment(comment.id, "Second");
+    expect(edited.body).toBe("Second");
+    expect(edited.editedAt).toBeDefined();
+
+    as("p-sara"); // contributor: commenta ma non modera, né modifica l'altrui
+    await expect(editComment(comment.id, "Mine now")).rejects.toThrow(forbiddenError);
+    await expect(deleteComment(comment.id)).rejects.toThrow(forbiddenError);
+    expect((await listActivity(task.id)).find((a) => a.id === comment.id)?.body).toBe("Second");
+
+    as("p-laura"); // project lead: modera ma non può modificare
+    await expect(editComment(comment.id, "Mod edit")).rejects.toThrow(forbiddenError);
+    await deleteComment(comment.id);
+    const deleted = (await listActivity(task.id)).find((a) => a.id === comment.id)!;
+    expect(deleted.body).toBe("");
+    expect(deleted.deletedAt).toBeDefined();
+    expect(deleted.deletedById).toBe("p-laura");
+    await expect(editComment(comment.id, "back")).rejects.toThrow();
+  });
+
+  it("deleteComment: l'autore cancella il proprio", async () => {
+    as("p-sara");
+    const task = (await listTasks({ projectIds: ["prj-stw"] }))[0]!;
+    const comment = await addComment(task.id, "oops");
+    await deleteComment(comment.id);
+    expect((await listActivity(task.id)).find((a) => a.id === comment.id)?.body).toBe("");
+  });
+
+  it("addComment senza tickets.comment è respinto", async () => {
+    as("p-andrea");
+    const task = (await listTasks())[0]!;
+    const count = (await listActivity(task.id)).length;
+    await expect(addComment(task.id, "hi")).rejects.toThrow(forbiddenError);
+    expect((await listActivity(task.id)).length).toBe(count);
+  });
+});
+
+describe("richieste di decisione", () => {
+  it("ask → answer: attività «decision» e notifica a chi ha chiesto", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] }))[0]!;
+    const asked = await askDecision({
+      taskId: task.id,
+      askedOfId: "p-paolo",
+      question: "Which one?",
+      options: ["A", "B"],
+    });
+    expect(asked.answer).toBeNull();
+
+    as("p-paolo");
+    await expect(answerDecision(asked.id, { optionIndex: 5 })).rejects.toThrow(/invalid/);
+    const answered = await answerDecision(asked.id, { optionIndex: 1 });
+    expect(answered.answer).toMatchObject({ optionIndex: 1, byId: "p-paolo" });
+    expect((await listActivity(task.id)).some((a) => a.decisionRequestId === asked.id)).toBe(true);
+
+    as("p-giulia");
+    expect(await listNotifications()).toContainEqual(
+      expect.objectContaining({ kind: "decision.answered", objectCode: task.code }),
+    );
+  });
+
+  it("answer: solo l'interpellato; withdraw: solo chi ha chiesto", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] }))[0]!;
+    const asked = await askDecision({
+      taskId: task.id,
+      askedOfId: "p-paolo",
+      question: "Free text?",
+      options: [],
+    });
+    await expect(answerDecision(asked.id, { text: "yes" })).rejects.toThrow(forbiddenError);
+    as("p-paolo");
+    await expect(withdrawDecision(asked.id)).rejects.toThrow(forbiddenError);
+    as("p-giulia");
+    const withdrawn = await withdrawDecision(asked.id);
+    expect(withdrawn.withdrawnAt).not.toBeNull();
+    as("p-paolo");
+    await expect(answerDecision(asked.id, { text: "late" })).rejects.toThrow();
+    expect((await listDecisionRequests({ taskId: task.id }))[0]!.answer).toBeNull();
+  });
+
+  it("askDecision: l'interpellato deve essere membro del progetto, e non due domande aperte alla stessa persona", async () => {
+    as("p-giulia");
+    const task = (await listTasks({ projectIds: ["prj-mkx"] }))[0]!;
+    const count = (await listDecisionRequests({ taskId: task.id })).length;
+    await expect(
+      askDecision({ taskId: task.id, askedOfId: "p-marco", question: "?", options: [] }),
+    ).rejects.toThrow(/invalid/);
+    expect((await listDecisionRequests({ taskId: task.id })).length).toBe(count);
+    const input = { taskId: task.id, askedOfId: "p-chiara", question: "Once?", options: [] };
+    await askDecision(input);
+    await expect(askDecision(input)).rejects.toThrow(/duplicate/);
+    expect((await listDecisionRequests({ taskId: task.id })).length).toBe(count + 1);
+  });
+
+  it("askDecision senza tickets.comment è respinta", async () => {
+    as("p-andrea");
+    const task = (await listTasks())[0]!;
+    await expect(
+      askDecision({ taskId: task.id, askedOfId: "p-giulia", question: "?", options: [] }),
+    ).rejects.toThrow(forbiddenError);
+  });
+});
+
+describe("richieste", () => {
+  it("createRequest: Sara (backlog.create) sì; Andrea (viewer) no", async () => {
+    as("p-sara");
+    const request = await createRequest({ projectId: "prj-stw", title: "Dark mode" });
+    expect(request).toMatchObject({ status: "new", requesterIds: ["p-sara"] });
+    as("p-andrea");
+    const project = (await listProjects())[0]!;
+    await expect(createRequest({ projectId: project.id, title: "x" })).rejects.toThrow(
+      forbiddenError,
+    );
+  });
+
+  it("createRequest dà il codice successivo del progetto; fuse e archiviate tengono il loro", async () => {
+    as("p-sara");
+    // STW ha già STW-R1…R4 (una fusa, archiviata): la nuova è la R5, poi la R6.
+    const first = await createRequest({ projectId: "prj-stw", title: "Dark mode" });
+    expect(first.code).toBe("STW-R5");
+    expect((await createRequest({ projectId: "prj-stw", title: "Bigger avatars" })).code).toBe("STW-R6");
+    expect((await getRequest("req-stw-3"))!.code).toBe("STW-R3");
+    as("p-laura");
+    await mergeRequest(first.id, "req-stw-1");
+    expect((await getRequest(first.id))!.code).toBe("STW-R5");
+    as("p-sara");
+    expect((await createRequest({ projectId: "prj-stw", title: "Calmer toasts" })).code).toBe("STW-R7");
+  });
+
+  it("createRequest segna la richiesta simile dello stesso progetto (parole del titolo)", async () => {
+    as("p-sara");
+    const similar = await createRequest({
+      projectId: "prj-stw",
+      title: "Quiet hours for my notifications",
+    });
+    expect(similar.similarToId).toBe("req-stw-4");
+    const alone = await createRequest({ projectId: "prj-stw", title: "Dark mode" });
+    expect(alone.similarToId).toBeNull();
+  });
+
+  it("restoreRequest rimette lo stato aperto di prima; non su una fusa né senza backlog.edit", async () => {
+    as("p-laura");
+    await archiveRequest("req-aud-2");
+    expect((await restoreRequest("req-aud-2", "ready")).status).toBe("ready");
+    await expect(restoreRequest("req-aud-2", "ready")).rejects.toThrow(/invalid/);
+    await expect(restoreRequest("req-stw-3", "new")).rejects.toThrow(/invalid/);
+    await archiveRequest("req-stw-4");
+    as("p-sara");
+    await expect(restoreRequest("req-stw-4", "refining")).rejects.toThrow(forbiddenError);
+    expect((await getRequest("req-stw-4"))!.status).toBe("archived");
+  });
+
+  it("update / archive / reopen / startRefine: serve backlog.edit", async () => {
+    as("p-sara");
+    const mine = await createRequest({ projectId: "prj-stw", title: "Mine" });
+    await expect(updateRequest(mine.id, { title: "Changed" })).rejects.toThrow(forbiddenError);
+    await expect(archiveRequest(mine.id)).rejects.toThrow(forbiddenError);
+    await expect(startRefine(mine.id)).rejects.toThrow(forbiddenError);
+    expect((await getRequest(mine.id))!.title).toBe("Mine");
+
+    as("p-laura");
+    expect((await updateRequest(mine.id, { title: "Changed" })).title).toBe("Changed");
+    expect((await startRefine(mine.id)).status).toBe("refining");
+    expect((await archiveRequest(mine.id)).status).toBe("archived");
+    expect((await reopenRequest(mine.id)).status).toBe("new");
+  });
+
+  it("updateRequest: urgenza, taglia, rischio e nota (backlog.edit), valori controllati", async () => {
+    as("p-laura");
+    const r = await createRequest({ projectId: "prj-stw", title: "Meta" });
+    const saved = await updateRequest(r.id, {
+      urgency: "high",
+      size: "L",
+      risk: "medium",
+      riskNote: "  Touches billing  ",
+    });
+    expect(saved).toMatchObject({ urgency: "high", size: "L", risk: "medium", riskNote: "Touches billing" });
+    const cleared = await updateRequest(r.id, { size: null, risk: null, riskNote: "  " });
+    expect(cleared).toMatchObject({ size: null, risk: null, riskNote: null });
+    await expect(
+      updateRequest(r.id, { size: "XXL" as never }),
+    ).rejects.toThrow("invalid: size");
+    await expect(updateRequest(r.id, { risk: "extreme" as never })).rejects.toThrow("invalid: risk");
+    await expect(updateRequest(r.id, { urgency: "now" as never })).rejects.toThrow("invalid: urgency");
+    as("p-sara");
+    await expect(updateRequest(r.id, { size: "XS" })).rejects.toThrow(forbiddenError);
+    expect((await getRequest(r.id))!.size).toBeNull();
+  });
+
+  it("updateRequest: le proposte dell'intake si tolgono e basta (backlog.edit), mai si scrivono", async () => {
+    as("p-sara");
+    await expect(updateRequest("req-stw-1", { suggestions: null })).rejects.toThrow(forbiddenError);
+    as("p-laura");
+    await expect(
+      updateRequest("req-stw-1", { suggestions: { reason: "made up", size: "XL" } }),
+    ).rejects.toThrow("invalid: suggestions");
+    expect((await getRequest("req-stw-1"))!.suggestions).toMatchObject({ size: "S" });
+    const accepted = await updateRequest("req-stw-1", { size: "S", suggestions: null });
+    expect(accepted).toMatchObject({ size: "S", suggestions: null });
+  });
+
+  it("updateRequest: una richiesta trasformata o archiviata non cambia più i metadati", async () => {
+    as("p-laura");
+    const converted = (await getRequest("req-stw-2"))!;
+    await expect(updateRequest("req-stw-2", { risk: "high" })).rejects.toThrow("invalid: status");
+    expect((await getRequest("req-stw-2"))!.risk).toBe(converted.risk);
+    await archiveRequest((await createRequest({ projectId: "prj-stw", title: "Old" })).id);
+    const archived = (await listRequests("prj-stw")).find((x) => x.title === "Old")!;
+    await expect(updateRequest(archived.id, { urgency: "high", riskNote: "x" })).rejects.toThrow(
+      "invalid: status",
+    );
+    expect((await getRequest(archived.id))!.urgency).toBe("medium");
+  });
+
+  it("mergeRequest unisce i richiedenti senza duplicati e archivia la fusa", async () => {
+    as("p-laura");
+    const a = await createRequest({ projectId: "prj-stw", title: "A" });
+    as("p-sara");
+    const b = await createRequest({ projectId: "prj-stw", title: "B" });
+    as("p-laura");
+    const c = await createRequest({ projectId: "prj-stw", title: "C" });
+    // a = [laura], b = [sara], c = [laura]
+    const merged = await mergeRequest(b.id, a.id);
+    expect(merged.requesterIds.sort()).toEqual(["p-laura", "p-sara"]);
+    const again = await mergeRequest(c.id, a.id);
+    expect(again.requesterIds.sort()).toEqual(["p-laura", "p-sara"]);
+    expect(await getRequest(b.id)).toMatchObject({ status: "archived", mergedIntoId: a.id });
+    await expect(mergeRequest(a.id, a.id)).rejects.toThrow(/invalid/);
+  });
+
+  it("mergeRequest non fonde una richiesta già archiviata", async () => {
+    as("p-laura");
+    const a = await createRequest({ projectId: "prj-stw", title: "A" });
+    const b = await createRequest({ projectId: "prj-stw", title: "B" });
+    await archiveRequest(b.id);
+    await expect(mergeRequest(b.id, a.id)).rejects.toThrow("invalid: status");
+    expect((await getRequest(b.id))!.mergedIntoId).toBeNull();
+  });
+
+  it("mergeRequest senza backlog.edit è respinta", async () => {
+    as("p-laura");
+    const a = await createRequest({ projectId: "prj-stw", title: "A" });
+    const b = await createRequest({ projectId: "prj-stw", title: "B" });
+    as("p-sara");
+    await expect(mergeRequest(a.id, b.id)).rejects.toThrow(forbiddenError);
+    expect((await getRequest(a.id))!.status).toBe("new");
+  });
+
+  it("convertRequest crea la task collegata e porta la richiesta a converted", async () => {
+    as("p-laura");
+    const request = await createRequest({ projectId: "prj-stw", title: "Convert me" });
+    const task = await convertRequest(request.id, { title: "Convert me" });
+    expect(task).toMatchObject({ requestId: request.id, projectId: "prj-stw" });
+    const after = (await listRequests("prj-stw")).find((r) => r.id === request.id)!;
+    expect(after.status).toBe("converted");
+    expect(after.taskIds).toEqual([task.id]);
+    await expect(convertRequest(request.id, { title: "again" })).rejects.toThrow(/invalid/);
+  });
+
+  it("convertRequest senza tickets.create: forbidden, richiesta e task invariate", async () => {
+    // Un viewer che vede la richiesta ma non può creare task.
+    const project = PROJECTS.find((p) => p.memberIds.includes("p-andrea"))!;
+    as("p-roberta");
+    const request = await createRequest({ projectId: project.id, title: "Keep" });
+    as("p-andrea");
+    const tasks = (await listTasks()).length;
+    await expect(convertRequest(request.id, { title: "x" })).rejects.toThrow(forbiddenError);
+    expect((await getRequest(request.id))!).toMatchObject({ status: "new", taskIds: [] });
+    expect((await listTasks()).length).toBe(tasks);
+  });
+});
+
+describe("filtri salvati", () => {
+  const input = {
+    name: "My view",
+    visibility: "public" as const,
+    criteria: { families: ["active" as const] },
+    view: "list" as const,
+    groupBy: "none" as const,
+  };
+
+  it("save / update / delete: l'autore sì, un altro no, il full admin sì", async () => {
+    as("p-giulia");
+    const filter = await saveFilter(input);
+    expect(filter.ownerId).toBe("p-giulia");
+    expect((await updateFilter(filter.id, { name: "Renamed" })).name).toBe("Renamed");
+
+    as("p-sara");
+    await expect(updateFilter(filter.id, { name: "Hacked" })).rejects.toThrow(forbiddenError);
+    await expect(deleteFilter(filter.id)).rejects.toThrow(forbiddenError);
+    expect((await listSavedFilters()).find((f) => f.id === filter.id)?.name).toBe("Renamed");
+
+    as("p-roberta");
+    await deleteFilter(filter.id);
+    expect((await listSavedFilters()).some((f) => f.id === filter.id)).toBe(false);
+  });
+
+  it("setFilterPinned è per persona, e cancellare il filtro lo toglie", async () => {
+    as("p-giulia");
+    // Giulia parte con due filtri fissati nel seed.
+    const seeded = await listPinnedFilterIds();
+    const filter = await saveFilter(input);
+    await setFilterPinned(filter.id, true);
+    expect(await listPinnedFilterIds()).toEqual([...seeded, filter.id]);
+    as("p-sara");
+    expect(await listPinnedFilterIds()).toEqual([]);
+    as("p-giulia");
+    await setFilterPinned(filter.id, false);
+    expect(await listPinnedFilterIds()).toEqual(seeded);
+    await setFilterPinned(filter.id, true);
+    await deleteFilter(filter.id);
+    expect(await listPinnedFilterIds()).toEqual(seeded);
+  });
+
+  it("un filtro privato altrui non si può fissare né modificare (è come inesistente)", async () => {
+    as("p-giulia");
+    const priv = await saveFilter({ ...input, visibility: "private" });
+    as("p-sara");
+    await expect(setFilterPinned(priv.id, true)).rejects.toThrow(/not_found/);
+    await expect(updateFilter(priv.id, { name: "x" })).rejects.toThrow(/not_found/);
+  });
+});
+
+describe("Home", () => {
+  const blocks = [{ kind: "decide" as const }, { kind: "myTasks" as const }];
+
+  it("setPersonalHome / resetPersonalHome", async () => {
+    as("p-giulia");
+    expect(await getPersonalHome()).toBeNull();
+    await setPersonalHome(blocks);
+    expect((await getPersonalHome())!.blocks).toEqual(blocks);
+    await resetPersonalHome();
+    expect(await getPersonalHome()).toBeNull();
+  });
+
+  it("R-B12: una Home personale nuova ha già visto le Home dei reparti di chi la crea", async () => {
+    as("p-alessia"); // Sviluppo e Assistenza
+    await setPersonalHome(blocks);
+    const homes = await listDepartmentHomes();
+    const at = (id: string) => homes.find((h) => h.departmentId === id)!.updatedAt;
+    expect((await getPersonalHome())!.seenDepartmentUpdates).toEqual({
+      "dep-development": at("dep-development"),
+      "dep-support": at("dep-support"),
+    });
+    // Una modifica successiva non tocca quanto visto.
+    as("p-laura");
+    await setDepartmentHome("dep-development", blocks);
+    as("p-alessia");
+    await setPersonalHome([{ kind: "myTasks" }]);
+    expect((await getPersonalHome())!.seenDepartmentUpdates["dep-development"]).toBe(
+      at("dep-development"),
+    );
+  });
+
+  it("setDepartmentHome: solo chi ha department.home.manage su quel reparto", async () => {
+    as("p-giulia"); // gestisce Marketing
+    await setDepartmentHome("dep-marketing", blocks);
+    expect(
+      (await listDepartmentHomes()).find((h) => h.departmentId === "dep-marketing")!.blocks,
+    ).toEqual(blocks);
+    await expect(setDepartmentHome("dep-sales", blocks)).rejects.toThrow(forbiddenError);
+    as("p-sara");
+    const sales = (await listDepartmentHomes()).find((h) => h.departmentId === "dep-sales")!;
+    await expect(setDepartmentHome("dep-sales", blocks)).rejects.toThrow(forbiddenError);
+    expect((await listDepartmentHomes()).find((h) => h.departmentId === "dep-sales")).toEqual(
+      sales,
+    );
+  });
+
+  it("markDepartmentHomeSeen: Marco vede l'avviso finché non lo segna", async () => {
+    as("p-marco");
+    const dev = () =>
+      listDepartmentHomes().then((h) => h.find((x) => x.departmentId === "dep-development")!);
+    expect((await getPersonalHome())!.seenDepartmentUpdates["dep-development"]).not.toBe(
+      (await dev()).updatedAt,
+    );
+    await markDepartmentHomeSeen("dep-development");
+    expect((await getPersonalHome())!.seenDepartmentUpdates["dep-development"]).toBe(
+      (await dev()).updatedAt,
+    );
+  });
+});
+
+describe("progetti", () => {
+  it("createProject: stati e moduli dal modello, la persona ne è lead e lo vede", async () => {
+    as("p-roberta");
+    const project = await createProject({
+      code: "NEWP",
+      name: "New project",
+      template: "marketing",
+    });
+    expect(project.memberIds).toEqual(["p-roberta"]);
+    expect((await listProjectStatuses(project.id)).length).toBeGreaterThan(2);
+    expect((await listProjects()).some((p) => p.id === project.id)).toBe(true);
+    // Subito usabile: ci si crea una task.
+    const task = await createTask({ projectId: project.id, title: "First" });
+    expect(task.code).toBe("NEWP-1");
+  });
+
+  it("createProject: chi crea entra come Project Lead e il registro lo dice (member.added)", async () => {
+    as("p-roberta");
+    const before = state.changelog.length;
+    const project = await createProject({ code: "LOGP", name: "Logged", template: "empty" });
+    const added = state.changelog.slice(before).filter((e) => e.kind === "member.added");
+    expect(added).toEqual([
+      expect.objectContaining({
+        actorId: "p-roberta",
+        projectId: project.id,
+        object: expect.objectContaining({ type: "person", id: "p-roberta" }),
+        after: "Project Lead",
+      }),
+    ]);
+  });
+
+  it("createProject: codice non valido o già preso, e chi non ha projects.create → respinto", async () => {
+    as("p-roberta");
+    await expect(createProject({ code: "x1", name: "n", template: "empty" })).rejects.toThrow(
+      /invalid/,
+    );
+    await expect(createProject({ code: "MKX", name: "n", template: "empty" })).rejects.toThrow(
+      /code_taken/,
+    );
+    as("p-sara");
+    const count = (await listProjects()).length;
+    await expect(createProject({ code: "ZZZ", name: "n", template: "empty" })).rejects.toThrow(
+      forbiddenError,
+    );
+    expect((await listProjects()).length).toBe(count);
+  });
+
+  it("il progetto creato sparisce con resetApi", async () => {
+    as("p-roberta");
+    await createProject({ code: "TMPX", name: "Temp", template: "empty" });
+    resetApi();
+    as("p-roberta");
+    expect((await listProjects()).some((p) => p.code === "TMPX")).toBe(false);
+  });
+
+  it("setProjectStatuses: che toglie l'unico closed viene rifiutata, stato intatto", async () => {
+    as("p-roberta");
+    const statuses = await listProjectStatuses("prj-mkx");
+    const closed = statuses.filter((s) => s.family === "closed");
+    const keep = statuses.filter((s) => s.family !== "closed");
+    // Lascia un solo closed: poi si prova a toglierlo.
+    const onlyOne = [...keep, closed[0]!];
+    const removedIds = closed.slice(1).map((s) => s.id);
+    const reassign = Object.fromEntries(removedIds.map((id) => [id, closed[0]!.id]));
+    await setProjectStatuses("prj-mkx", onlyOne, reassign);
+    const afterOne = await listProjectStatuses("prj-mkx");
+    await expect(
+      setProjectStatuses("prj-mkx", keep, { [closed[0]!.id]: keep[0]!.id }),
+    ).rejects.toThrow(/invalid/);
+    expect(await listProjectStatuses("prj-mkx")).toEqual(afterOne);
+  });
+
+  it("setProjectStatuses: le task di uno stato tolto vanno sul bersaglio; senza bersaglio è rifiutata", async () => {
+    as("p-roberta");
+    const statuses = await listProjectStatuses("prj-stw");
+    const used = (await listTasks({ projectIds: ["prj-stw"] })).find(
+      (t) => statuses.find((s) => s.id === t.statusId)!.family === "active",
+    )!;
+    const rest = statuses.filter((s) => s.id !== used.statusId);
+    const target = rest.find((s) => s.family === "active");
+    const withTarget = target ?? rest[0]!;
+    await expect(setProjectStatuses("prj-stw", rest, {})).rejects.toThrow(/invalid/);
+    expect((await taskOf(used.code)).statusId).toBe(used.statusId);
+    const added = [...rest, { name: "Brand new", family: "active" as const }];
+    const result = await setProjectStatuses("prj-stw", added, { [used.statusId]: withTarget.id });
+    expect(result.at(-1)).toMatchObject({ name: "Brand new", order: rest.length });
+    expect((await taskOf(used.code)).statusId).toBe(withTarget.id);
+  });
+
+  it("setProjectStatuses: un id ripetuto è rifiutato, stato intatto", async () => {
+    as("p-roberta");
+    const statuses = await listProjectStatuses("prj-stw");
+    await expect(
+      setProjectStatuses("prj-stw", [...statuses, { ...statuses[0]!, name: "Copy" }], {}),
+    ).rejects.toThrow(/invalid: status/);
+    expect(await listProjectStatuses("prj-stw")).toEqual(statuses);
+  });
+
+  it("setProjectStatuses: le task di uno stato tolto vanno su uno stato creato nello stesso salvataggio", async () => {
+    as("p-roberta");
+    const statuses = await listProjectStatuses("prj-stw");
+    const used = (await listTasks({ projectIds: ["prj-stw"] })).at(0)!;
+    const rest = statuses.filter((s) => s.id !== used.statusId);
+    const family = statuses.find((s) => s.id === used.statusId)!.family;
+    const added = [...rest, { key: "new-1", name: "Fresh", family }];
+    const result = await setProjectStatuses("prj-stw", added, { [used.statusId]: "new-1" });
+    const fresh = result.find((s) => s.name === "Fresh")!;
+    expect(fresh.id).not.toBe("new-1");
+    expect((await taskOf(used.code)).statusId).toBe(fresh.id);
+    // Una chiave che non è di nessuno stato nuovo non vale come bersaglio.
+    const again = await listProjectStatuses("prj-stw");
+    const keep = again.filter((s) => s.id !== fresh.id);
+    await expect(
+      setProjectStatuses("prj-stw", keep, { [fresh.id]: "new-9" }),
+    ).rejects.toThrow(/invalid: reassign/);
+    // Due stati nuovi con la stessa chiave: rifiutato.
+    await expect(
+      setProjectStatuses(
+        "prj-stw",
+        [...again, { key: "k", name: "A", family: "todo" }, { key: "k", name: "B", family: "todo" }],
+        {},
+      ),
+    ).rejects.toThrow(/invalid: status/);
+  });
+
+  it("setProjectStatuses / setStallThresholds senza project.settings.manage → forbidden", async () => {
+    as("p-sara");
+    const statuses = await listProjectStatuses("prj-stw");
+    await expect(setProjectStatuses("prj-stw", statuses, {})).rejects.toThrow(forbiddenError);
+    await expect(setStallThresholds("prj-stw", { activeDays: 3, todoDays: 5 })).rejects.toThrow(
+      forbiddenError,
+    );
+    expect((await listProjects()).find((p) => p.id === "prj-stw")!.stallThresholds).toEqual({
+      activeDays: 7,
+      todoDays: 14,
+    });
+  });
+
+  it("setStallThresholds: chi gestisce il progetto le cambia, e le ferme cambiano", async () => {
+    as("p-roberta");
+    const project = await setStallThresholds("prj-stw", { activeDays: 30, todoDays: 60 });
+    expect(project.stallThresholds).toEqual({ activeDays: 30, todoDays: 60 });
+    await expect(setStallThresholds("prj-stw", { activeDays: 0, todoDays: 5 })).rejects.toThrow(
+      /invalid/,
+    );
+  });
+});

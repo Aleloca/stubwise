@@ -21,8 +21,12 @@
     "typescript-eslint": "^8.0.0"
   },
   "pnpm": {
+    "overrides": {
+      "docx>@types/node": "25.9.2"
+    },
     "onlyBuiltDependencies": [
       "argon2",
+      "electron",
       "esbuild",
       "node-pty",
       "sharp"

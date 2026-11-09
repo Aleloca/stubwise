@@ -82,6 +82,17 @@ const MAILBOX = "operatore@acme.com";
 const FUTURE_DAY_OFFSET_MS = 25 * 24 * 60 * 60 * 1000;
 
 /** Un istante del giorno di riferimento, all'ora UTC indicata. */
+/**
+ * Il giorno `days` da oggi alle 9 UTC. Le date fisse scadono: la finestra di
+ * ingestione è relativa all'orologio vero (`now − 30gg → now + 60gg`), e il 9
+ * nov 2026 i test con le date di ottobre sono usciti dalla finestra.
+ */
+function daysFromNow(days: number): Date {
+  const d = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+  d.setUTCHours(9, 0, 0, 0);
+  return d;
+}
+
 function futureAt(hour: number, minute = 0): Date {
   const d = new Date(Date.now() + FUTURE_DAY_OFFSET_MS);
   d.setUTCHours(hour, minute, 0, 0);
@@ -1126,7 +1137,7 @@ describe("la regola di ricorrenza: una chiamata per SERIE", () => {
       event({
         id: `occ-${i}`,
         title: `Riunione settimanale ${i}`,
-        startsAt: new Date(`2026-10-${String(i + 1).padStart(2, "0")}T09:00:00.000Z`),
+        startsAt: daysFromNow(i + 1),
         recurringEventId: "serie-1",
       }),
     );
@@ -1153,10 +1164,10 @@ describe("la regola di ricorrenza: una chiamata per SERIE", () => {
     const account = await seedAccount();
 
     const events = [
-      event({ id: "a1", title: "A 1", startsAt: new Date("2026-10-01T09:00:00.000Z"), recurringEventId: "serie-a" }),
-      event({ id: "a2", title: "A 2", startsAt: new Date("2026-10-08T09:00:00.000Z"), recurringEventId: "serie-a" }),
-      event({ id: "b1", title: "B 1", startsAt: new Date("2026-10-02T09:00:00.000Z"), recurringEventId: "serie-b" }),
-      event({ id: "s1", title: "Singolo", startsAt: new Date("2026-10-03T09:00:00.000Z") }),
+      event({ id: "a1", title: "A 1", startsAt: daysFromNow(1), recurringEventId: "serie-a" }),
+      event({ id: "a2", title: "A 2", startsAt: daysFromNow(8), recurringEventId: "serie-a" }),
+      event({ id: "b1", title: "B 1", startsAt: daysFromNow(2), recurringEventId: "serie-b" }),
+      event({ id: "s1", title: "Singolo", startsAt: daysFromNow(3) }),
     ];
     const calendar = fakeCalendar([{ events, nextSyncToken: "tok-1" }]);
 
@@ -1283,7 +1294,9 @@ describe("dalla riga candidata alla proposta in inbox", () => {
       .insert(projectEmailRoutes)
       .values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount();
-    const now = new Date("2026-10-01T12:00:00Z");
+    // L'orologio vero: l'appuntamento è a 25 giorni da OGGI (`futureAt`), e
+    // un «adesso» fisso lo farebbe uscire dalla finestra col passare dei giorni.
+    const now = new Date();
     const calendar = fakeCalendar([
       {
         events: [
@@ -1319,7 +1332,7 @@ describe("dalla riga candidata alla proposta in inbox", () => {
       .insert(projectEmailRoutes)
       .values({ projectId, kind: "sender_domain", value: "cliente.com" });
     const account = await seedAccount();
-    const now = new Date("2026-10-01T12:00:00Z");
+    const now = new Date();
     const calendar = fakeCalendar([
       {
         events: [

@@ -1,0 +1,244 @@
+import { seedAccessState } from "../access/index";
+import { hashOf, seededRandom } from "../seed/servers/metrics";
+import { onInstanceEmptied, onStoreReset } from "../store";
+
+// I segreti mostrati una volta (area 9a): token personali, link di reset
+// della password e d'invito, segreto TOTP, codici di backup. Stanno SOLO
+// qui, in una Map del modulo, fuori dallo stato condiviso: nessuna lettura,
+// voce del registro o notifica li può contenere. Escono una volta, nel
+// risultato della funzione che li crea (`storeSecret` restituisce il valore
+// a lei, e a nessun altro); dopo resta solo la verifica (`matchSecret`,
+// `consumeBackupCode`), che risponde sì o no.
+//
+// Dall'area 9b custodisce anche i segreti SCRITTI da chi amministra (chiave
+// API o setup-token di un provider, token git, client secret Google, chiave
+// S3): `storeProvidedSecret` li prende, li tiene qui e restituisce solo l'id
+// e le ultime 4 cifre. Il valore non esce più, nemmeno a chi l'ha scritto.
+//
+// Lo importano solo `data/admin/*`, `data/me/*`, `data/auth/*`,
+// `data/instance/*` e `data/projectSettings/*` (area 9c); nessuna
+// lettura (`data/queries/*`, le letture del registro) e nessuna pagina lo
+// raggiunge (test in `data/architecture.secrets.test.ts`). Come
+// `servers/secrets.ts` dell'8b.
+//
+// SOLO PROTOTIPO: valori finti e deterministici, nessuna cifratura né hash
+// (sul server i token e i codici di backup sono hash, il segreto TOTP è
+// cifrato).
+
+/** I segreti che genera Stubwise (si mostrano una volta a chi li crea). */
+type GeneratedSecretKind =
+  | "pat"
+  | "reset_link"
+  | "totp_seed"
+  | "backup_codes"
+  | "invite_link"
+  // Area 9c: la chiave d'ingestione di un progetto e il secret del webhook
+  // git di un repository, generati da Stubwise e mostrati una volta.
+  | "ingestion_key"
+  | "git_webhook_secret";
+
+/**
+ * I segreti scritti da chi amministra (area 9b). Un tipo a parte: `valueOf`
+ * e `storeSecret` restano sui generati, e un valore scritto non si genera.
+ */
+export type ProvidedSecretKind =
+  | "provider_credential"
+  | "git_token"
+  | "google_client_secret"
+  | "storage_secret"
+  // Area 9c: il valore di una variabile d'ambiente (non esce più, nemmeno le ultime 4).
+  | "env_value";
+
+export type SecretKind = GeneratedSecretKind | ProvidedSecretKind;
+
+interface Slot {
+  kind: SecretKind;
+  ownerId: string;
+  value: string;
+  /** `revealOnce` lo ha già dato. */
+  revealed: boolean;
+}
+
+const vault = new Map<string, Slot>();
+let counter = 0;
+
+const ALNUM = "abcdefghijkmnpqrstuvwxyz23456789";
+const HEX = "0123456789abcdef";
+const BASE32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+
+function chars(seed: string, alphabet: string, n: number): string {
+  const rnd = seededRandom(hashOf(seed));
+  let out = "";
+  for (let i = 0; i < n; i++) out += alphabet[Math.floor(rnd() * alphabet.length)];
+  return out;
+}
+
+/** L'origine finta dell'istanza: i link e il comando di Claude Code la usano. */
+export const INSTANCE_ORIGIN = "https://stubwise.example.test";
+const INVITE_PREFIX = `${INSTANCE_ORIGIN}/register?invite=`;
+
+/**
+ * Il link d'invito di un token (la parte dopo `invite=`, quella della rotta
+ * `/register/$token`); un link intero resta com'è. Per cercarlo con
+ * `matchSecret`, senza mai leggere il valore custodito.
+ */
+export const inviteLinkOf = (tokenOrLink: string): string => {
+  const value = tokenOrLink.trim();
+  return value.startsWith(INVITE_PREFIX) ? value : `${INVITE_PREFIX}${value}`;
+};
+
+const RESET_PREFIX = `${INSTANCE_ORIGIN}/reset-password?token=`;
+
+/** Il link di reset di un token (la parte dopo `token=`, quella di `/reset-password/$token`). */
+export const resetLinkOf = (tokenOrLink: string): string => {
+  const value = tokenOrLink.trim();
+  return value.startsWith(RESET_PREFIX) ? value : `${RESET_PREFIX}${value}`;
+};
+
+/** Il valore finto di un segreto nuovo, nella forma del web. */
+/** Quanti codici di backup fa ogni giro (la prima attivazione, «Make new codes»). */
+export const BACKUP_CODE_COUNT = 10;
+
+function valueOf(kind: GeneratedSecretKind, ownerId: string, n: number): string {
+  const seed = `${kind}|${ownerId}|${n}`;
+  switch (kind) {
+    case "pat":
+      return `stw_pat_${chars(seed, ALNUM, 32)}`;
+    case "reset_link":
+      return `${RESET_PREFIX}${chars(seed, ALNUM, 40)}`;
+    case "invite_link":
+      return `${INVITE_PREFIX}${chars(seed, ALNUM, 40)}`;
+    case "totp_seed":
+      return chars(seed, BASE32, 32);
+    case "backup_codes":
+      // 10 codici «xxxxx-xxxxx», uno per riga.
+      return Array.from({ length: BACKUP_CODE_COUNT }, (_, i) => {
+        const c = chars(`${seed}|${i}`, ALNUM, 10);
+        return `${c.slice(0, 5)}-${c.slice(5)}`;
+      }).join("\n");
+    // Come sul web (`generateIngestionKey`): 16 byte in esadecimale.
+    case "ingestion_key":
+      return chars(seed, HEX, 32);
+    case "git_webhook_secret":
+      return chars(seed, HEX, 40);
+  }
+}
+
+/**
+ * Crea e custodisce un segreto. Il valore lo riceve SOLO chi crea, per
+ * restituirlo una volta nel proprio risultato (o metterlo dentro un comando,
+ * un link); non va scritto nello stato, nel registro o in una notifica.
+ */
+export function storeSecret(
+  kind: GeneratedSecretKind,
+  ownerId: string,
+): { id: string; value: string } {
+  const id = `sec-${++counter}`;
+  const value = valueOf(kind, ownerId, counter);
+  vault.set(id, { kind, ownerId, value, revealed: false });
+  return { id, value };
+}
+
+/** Fin qui un segreto è troppo corto per mostrarne le ultime 4 (Review Focus 1). */
+const SHORT_SECRET = 8;
+
+/**
+ * Custodisce un segreto scritto da chi amministra (area 9b) e restituisce
+ * solo l'id e le ultime 4 cifre, quelle che le righe mostrano («•••• 9e2b»).
+ * Il valore resta qui: nessuna lettura, voce o notifica lo riporta. Un
+ * segreto di `SHORT_SECRET` caratteri o meno non mostra niente («••••»):
+ * le sue ultime 4 sarebbero metà del valore, o tutto.
+ */
+export function storeProvidedSecret(
+  kind: ProvidedSecretKind,
+  ownerId: string,
+  value: string,
+): { id: string; last4: string } {
+  const id = `sec-${++counter}`;
+  // Già «mostrato»: chi l'ha scritto lo conosce, e `revealOnce` non lo dà a nessuno.
+  vault.set(id, { kind, ownerId, value, revealed: true });
+  return { id, last4: value.length <= SHORT_SECRET ? "••••" : value.slice(-4) };
+}
+
+/**
+ * Il valore di un segreto, la prima volta e mai più: per chi lo crea in un
+ * passo e lo mostra in quello dopo (il segreto TOTP dell'iscrizione).
+ * Dopo, `null`, come per un id sconosciuto o dimenticato.
+ */
+export function revealOnce(id: string): string | null {
+  const slot = vault.get(id);
+  if (!slot || slot.revealed) return null;
+  slot.revealed = true;
+  return slot.value;
+}
+
+/** Dimentica un segreto (revoca, sostituzione, scadenza). */
+export function forgetSecret(id: string): void {
+  vault.delete(id);
+}
+
+/** Se `value` è un segreto custodito di quel tipo: di chi e con che id. Mai il valore. */
+export function matchSecret(
+  kind: SecretKind,
+  value: string,
+): { id: string; ownerId: string } | null {
+  for (const [id, slot] of vault)
+    if (slot.kind === kind && slot.value === value) return { id, ownerId: slot.ownerId };
+  return null;
+}
+
+/** I segreti di un tipo di una persona (solo gli id): per sostituirli o dimenticarli. */
+export function secretIdsOf(kind: SecretKind, ownerId: string): string[] {
+  return [...vault.entries()]
+    .filter(([, s]) => s.kind === kind && s.ownerId === ownerId)
+    .map(([id]) => id);
+}
+
+/**
+ * Un codice di backup di `ownerId`: se c'è, lo consuma (vale una volta) e
+ * restituisce quanti ne restano; altrimenti `null`.
+ */
+export function consumeBackupCode(ownerId: string, code: string): number | null {
+  const wanted = code.trim().toLowerCase();
+  for (const [id, slot] of vault) {
+    if (slot.kind !== "backup_codes" || slot.ownerId !== ownerId) continue;
+    const codes = slot.value.split("\n");
+    if (!codes.includes(wanted)) continue;
+    const left = codes.filter((c) => c !== wanted);
+    if (left.length) vault.set(id, { ...slot, value: left.join("\n") });
+    else vault.delete(id);
+    return left.length;
+  }
+  return null;
+}
+
+/**
+ * Il seme: chi ha il secondo fattore ha i suoi 10 codici di backup (quelli
+ * che vide una volta, quando li generò), coerenti con `backupCodesLeft`.
+ * Nessuno li mostra più: servono solo a verificare.
+ */
+function seedSecrets(): void {
+  vault.clear();
+  counter = 0;
+  for (const p of seedAccessState().people)
+    if (p.secondFactor && p.secondFactor.backupCodesLeft > 0)
+      storeSecret("backup_codes", p.personId);
+}
+
+seedSecrets();
+onStoreReset(seedSecrets);
+// L'istanza vuota (area 9a) non custodisce niente: nessuna persona, nessun segreto.
+onInstanceEmptied(() => vault.clear());
+
+/**
+ * SOLO TEST (RF 2): ogni valore segreto custodito adesso — e ogni codice di
+ * backup da solo — per cercarlo in ciò che esce dalle letture. Il test
+ * architetturale vieta il nome fuori da qui (e dai test).
+ */
+export function __secretValuesForTest(): { id: string; kind: SecretKind; values: string[] }[] {
+  return [...vault.entries()].map(([id, s]) => ({
+    id,
+    kind: s.kind,
+    values: s.kind === "backup_codes" ? [s.value, ...s.value.split("\n")] : [s.value],
+  }));
+}

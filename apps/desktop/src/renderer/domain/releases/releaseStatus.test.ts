@@ -1,0 +1,243 @@
+import { describe, expect, it } from "vitest";
+import type { CiRun, EnvironmentServer, ProjectEnvironment, Release } from "../../data/model";
+import { environmentServerFor } from "./environmentServer";
+import { NO_PIPELINE_AFTER_MIN, releaseStatus, sameCommit } from "./releaseStatus";
+
+const SHA = "4be1f0c27a9d3e5b6c8f0a1d2e3b4c5d6e7f8091";
+const MERGED = "2026-10-28T10:00:00Z";
+
+const run = (over: Partial<CiRun>): CiRun => ({
+  id: "run-x",
+  name: "deploy",
+  status: "success",
+  url: "https://ci.example/run",
+  failedStep: null,
+  log: null,
+  startedAt: "2026-10-28T10:01:00Z",
+  endedAt: "2026-10-28T10:05:00Z",
+  ...over,
+});
+
+const release = (over: Partial<Release> = {}): Release => ({
+  id: "rel-x",
+  code: "AUD-V1",
+  projectId: "prj-aud",
+  repositoryId: "repo-aud",
+  pr: { repo: "audin/audin-app", number: 1 },
+  title: "x",
+  mergeSha: SHA,
+  mergedAt: MERGED,
+  mergedById: null,
+  mergedGitName: "x",
+  viaStubwise: true,
+  runs: [],
+  seenInProductionAt: null,
+  fixTaskId: null,
+  ...over,
+});
+
+/** Una produzione con un server per tutto il progetto (`serverCode: null` = nessun server). */
+const production = (
+  over: Partial<Omit<EnvironmentServer, "repositoryId" | "serverCode">> & {
+    serverCode?: string | null;
+  } = {},
+): ProjectEnvironment => {
+  const { serverCode = "SRV-1", reportedSha = null, reportedAt = null } = over;
+  return {
+    id: "env-prod",
+    projectId: "prj-aud",
+    name: "Production",
+    kind: "production",
+    url: null,
+    servers: serverCode ? [{ repositoryId: null, serverCode, reportedSha, reportedAt }] : [],
+  };
+};
+
+const later = (min: number) => new Date(Date.parse(MERGED) + min * 60_000).toISOString();
+const ctx = (over: Partial<Parameters<typeof releaseStatus>[1]> = {}) => ({
+  now: later(5),
+  production: production(),
+  pipeline: { mode: "auto" } as const,
+  ...over,
+});
+
+describe("sameCommit (forma di release.ts)", () => {
+  it("combacia per prefisso, maiuscole comprese", () => {
+    expect(sameCommit(SHA, SHA.slice(0, 7))).toBe(true);
+    expect(sameCommit(SHA.toUpperCase(), SHA.slice(0, 12))).toBe(true);
+  });
+  it("sotto i 7 caratteri o con uno assente non combacia", () => {
+    expect(sameCommit(SHA, SHA.slice(0, 6))).toBe(false);
+    expect(sameCommit(SHA, null)).toBe(false);
+    expect(sameCommit("", "")).toBe(false);
+  });
+  it("prefissi diversi non combaciano", () => {
+    expect(sameCommit(SHA, "0a2c4e6b8d0f")).toBe(false);
+  });
+});
+
+describe("releaseStatus — con run", () => {
+  it("una fallita e una in corso → failed", () => {
+    const r = release({
+      runs: [
+        run({ id: "a", status: "running", endedAt: null }),
+        run({ id: "b", status: "failed", endedAt: "2026-10-28T10:04:00Z" }),
+      ],
+    });
+    expect(releaseStatus(r, ctx())).toEqual({ kind: "failed", since: "2026-10-28T10:04:00Z" });
+  });
+  it("una in corso e le altre riuscite → running", () => {
+    const r = release({
+      runs: [run({ id: "a" }), run({ id: "b", status: "running", endedAt: null })],
+    });
+    expect(releaseStatus(r, ctx()).kind).toBe("running");
+  });
+  it("tutte riuscite → succeeded, dall'ultima fine", () => {
+    const r = release({
+      runs: [run({ id: "a", endedAt: "2026-10-28T10:07:00Z" }), run({ id: "b" })],
+    });
+    expect(releaseStatus(r, ctx())).toEqual({ kind: "succeeded", since: "2026-10-28T10:07:00Z" });
+  });
+  it("con pipeline per nome contano solo le run nominate", () => {
+    const r = release({
+      runs: [run({ id: "a", name: "lint", status: "failed" }), run({ id: "b", name: "deploy" })],
+    });
+    expect(releaseStatus(r, ctx({ pipeline: { mode: "named", names: ["deploy"] } })).kind).toBe(
+      "succeeded",
+    );
+    expect(releaseStatus(r, ctx({ pipeline: { mode: "auto" } })).kind).toBe("failed");
+    // Senza impostazione: automatica.
+    expect(releaseStatus(r, ctx({ pipeline: undefined })).kind).toBe("failed");
+  });
+  it("le run lette contano anche oltre la soglia", () => {
+    const r = release({ runs: [run({ status: "running", endedAt: null })] });
+    expect(releaseStatus(r, ctx({ now: later(120) })).kind).toBe("running");
+  });
+});
+
+describe("releaseStatus — senza run", () => {
+  it(`entro ${NO_PIPELINE_AFTER_MIN} minuti dal merge → running`, () => {
+    expect(NO_PIPELINE_AFTER_MIN).toBe(30);
+    expect(releaseStatus(release(), ctx({ now: later(29) }))).toEqual({
+      kind: "running",
+      since: MERGED,
+    });
+  });
+  it("R-K10: visto in produzione vince sulla soglia, anche entro i 30 minuti", () => {
+    const seen = release({ seenInProductionAt: later(5) });
+    expect(releaseStatus(seen, ctx({ now: later(10) }))).toEqual({
+      kind: "in_production",
+      since: later(5),
+    });
+    // Senza `seenInProductionAt`, entro la soglia resta in corso.
+    expect(releaseStatus(release(), ctx({ now: later(10) })).kind).toBe("running");
+  });
+  it("oltre la soglia → senza pipeline: non ancora in produzione", () => {
+    expect(releaseStatus(release(), ctx({ now: later(30) }))).toEqual({
+      kind: "not_in_production",
+      since: MERGED,
+    });
+  });
+  it("run solo con nomi non scelti = nessuna run", () => {
+    const r = release({ runs: [run({ name: "lint", status: "failed" })] });
+    const c = ctx({ now: later(45), pipeline: { mode: "named", names: ["deploy"] } });
+    expect(releaseStatus(r, c).kind).toBe("not_in_production");
+  });
+  it("commit comparso in produzione → in_production con l'ora", () => {
+    const c = ctx({
+      now: later(60),
+      production: production({ reportedSha: SHA.slice(0, 7), reportedAt: later(50) }),
+    });
+    expect(releaseStatus(release({ seenInProductionAt: later(40) }), c)).toEqual({
+      kind: "in_production",
+      since: later(40),
+    });
+    // Senza l'ora salvata sul rilascio: quella del campione dell'agente.
+    expect(releaseStatus(release(), c)).toEqual({ kind: "in_production", since: later(50) });
+  });
+  it("già comparso in produzione: ci resta anche dopo un deploy più nuovo", () => {
+    const seen = release({ seenInProductionAt: later(40) });
+    const newer = ctx({
+      now: later(600),
+      production: production({ reportedSha: "0a2c4e6b8d0f2a4c", reportedAt: later(500) }),
+    });
+    expect(releaseStatus(seen, newer)).toEqual({ kind: "in_production", since: later(40) });
+    // È un fatto già osservato: vale anche se l'ambiente perde il server o sparisce.
+    const noServer = ctx({ now: later(600), production: production({ serverCode: null }) });
+    expect(releaseStatus(seen, noServer)).toEqual({ kind: "in_production", since: later(40) });
+    expect(releaseStatus(seen, ctx({ now: later(600), production: null })).kind).toBe(
+      "in_production",
+    );
+  });
+  it("sha in maiuscolo combacia, di 6 caratteri no", () => {
+    const upper = ctx({
+      now: later(60),
+      production: production({ reportedSha: SHA.toUpperCase(), reportedAt: later(50) }),
+    });
+    expect(releaseStatus(release(), upper).kind).toBe("in_production");
+    const short = ctx({
+      now: later(60),
+      production: production({ reportedSha: SHA.slice(0, 6), reportedAt: later(50) }),
+    });
+    expect(releaseStatus(release(), short).kind).toBe("not_in_production");
+  });
+  it("ambiente di produzione senza server → unavailable/no_server", () => {
+    const c = ctx({ now: later(60), production: production({ serverCode: null }) });
+    expect(releaseStatus(release(), c)).toEqual({
+      kind: "unavailable",
+      since: null,
+      reason: "no_server",
+    });
+  });
+  it("nessun ambiente di produzione → unavailable/no_production_env", () => {
+    const c = ctx({ now: later(60), production: null });
+    expect(releaseStatus(release(), c)).toEqual({
+      kind: "unavailable",
+      since: null,
+      reason: "no_production_env",
+    });
+  });
+});
+
+describe("R-L2: il server di una repository nell'ambiente", () => {
+  const row = (repositoryId: string | null, serverCode: string, reportedSha: string | null) => ({
+    repositoryId,
+    serverCode,
+    reportedSha,
+    reportedAt: reportedSha ? later(50) : null,
+  });
+  const env = (servers: EnvironmentServer[]): ProjectEnvironment => ({
+    ...production(),
+    servers,
+  });
+
+  it("la riga della repository, altrimenti quella di tutto il progetto, altrimenti nessuna", () => {
+    const both = env([row(null, "SRV-1", null), row("repo-admin", "SRV-4", null)]);
+    expect(environmentServerFor(both, "repo-admin")!.serverCode).toBe("SRV-4");
+    expect(environmentServerFor(both, "repo-aud")!.serverCode).toBe("SRV-1");
+    const onlyAdmin = env([row("repo-admin", "SRV-4", null)]);
+    expect(environmentServerFor(onlyAdmin, "repo-aud")).toBeNull();
+    expect(environmentServerFor(env([]), "repo-aud")).toBeNull();
+  });
+
+  it("un rilascio guarda solo il server della SUA repository", () => {
+    const admin = release({ repositoryId: "repo-admin" });
+    // Il commit gira sul server di audin-app, non su quello di audin-admin: non è in produzione.
+    const elsewhere = env([row("repo-aud", "SRV-3", SHA), row("repo-admin", "SRV-4", "0a2c4e6b8d")]);
+    expect(releaseStatus(admin, ctx({ now: later(60), production: elsewhere })).kind).toBe(
+      "not_in_production",
+    );
+    const here = env([row("repo-aud", "SRV-3", null), row("repo-admin", "SRV-4", SHA)]);
+    expect(releaseStatus(admin, ctx({ now: later(60), production: here }))).toEqual({
+      kind: "in_production",
+      since: later(50),
+    });
+    // Una repository senza server nell'ambiente: non disponibile, anche se le altre ce l'hanno.
+    const scripts = release({ repositoryId: "repo-scripts" });
+    expect(releaseStatus(scripts, ctx({ now: later(60), production: here }))).toEqual({
+      kind: "unavailable",
+      since: null,
+      reason: "no_server_for_repository",
+    });
+  });
+});

@@ -1,0 +1,128 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Stubwise · My work</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#18181B;--ink2:#52525B;--ink3:#71717A;--line:#E4E4E7;--line2:#EFEFF1;--side:#F6F6F7;--bg:#fff;--acc:#5B5BD6;--acc-bg:#EEEEFC;--red:#D93036}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1440px;height:900px;overflow:hidden;background:var(--bg);color:var(--ink);font:13px/1.4 Inter,sans-serif;font-feature-settings:"cv11","tnum";-webkit-font-smoothing:antialiased}
+::selection{background:var(--acc-bg);color:var(--ink)}
+svg{flex:none}.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.app{display:grid;grid-template-columns:240px 1fr 344px;height:900px}
+.side{background:var(--side);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:0 10px}
+.tl{display:flex;gap:8px;padding:16px 8px 14px}.tl i{width:12px;height:12px;border-radius:50%;background:#FF5F57;border:.5px solid #0000001f}.tl i:nth-child(2){background:#FEBC2E}.tl i:nth-child(3){background:#28C840}
+.ws{display:flex;align-items:center;gap:8px;padding:4px 8px 12px;font-weight:600;font-size:13.5px}
+.logo{width:22px;height:22px;border-radius:6px;background:#0f1318;color:#f5a623;font:700 11px/22px Inter;text-align:center;letter-spacing:-.02em}
+.search{display:flex;align-items:center;gap:8px;height:30px;padding:0 8px;border:1px solid var(--line);background:#fff;border-radius:6px;color:var(--ink3);margin-bottom:10px;box-shadow:0 1px 2px #18181b0a}
+.search kbd{margin-left:auto;font:500 11px Inter;color:var(--ink3);border:1px solid var(--line);border-radius:4px;padding:0 4px;background:var(--side)}
+.nav a{display:flex;align-items:center;gap:9px;height:30px;padding:0 8px;border-radius:6px;color:var(--ink2);text-decoration:none;font-weight:500}
+.nav a:hover{background:#EDEDEF;color:var(--ink)}
+.nav a.on{background:#fff;color:var(--ink);box-shadow:0 0 0 1px var(--line),0 1px 2px #18181b0d}.nav a.on svg{color:var(--acc)}
+.badge{margin-left:auto;font-size:11px;font-weight:600;color:#fff;background:var(--acc);border-radius:9px;padding:0 6px;line-height:17px}
+.sec{font-size:11.5px;font-weight:500;color:var(--ink3);padding:18px 8px 6px}
+.dot{width:8px;height:8px;border-radius:2px;flex:none}
+.foot{margin-top:auto;border-top:1px solid var(--line);padding:10px 8px 14px;display:flex;gap:8px;align-items:center;color:var(--ink3);font-size:12px}
+.main{display:flex;flex-direction:column;min-width:0}
+.bar{height:52px;display:flex;align-items:center;gap:10px;padding:0 28px;border-bottom:1px solid var(--line);flex:none}
+.bar h1{font-size:15px;font-weight:600;letter-spacing:-.01em}.bar .d{color:var(--ink3);font-size:13px}
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid var(--line);border-radius:6px;background:#fff;font:500 12.5px Inter;color:var(--ink);box-shadow:0 1px 2px #18181b0a}
+.btn.p{background:var(--acc);border-color:var(--acc);color:#fff;box-shadow:0 1px 2px #5b5bd640}
+.tabs{display:flex;gap:2px;padding:10px 28px;border-bottom:1px solid var(--line2);align-items:center}
+.tabs span{padding:4px 10px;border-radius:6px;color:var(--ink2);font-weight:500;font-size:12.5px}.tabs span.on{background:var(--side);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+.tabs .r{margin-left:auto;color:var(--ink3)}
+.gh{display:flex;align-items:center;gap:8px;height:34px;padding:0 28px;background:#FAFAFA;border-top:1px solid var(--line2);border-bottom:1px solid var(--line2);font-weight:600;font-size:12.5px;margin-top:12px}
+.gh:first-child{margin-top:0;border-top:0}.gh .n{color:var(--ink3);font-weight:500}.gh.od{color:var(--red)}
+.row{display:grid;grid-template-columns:16px 1fr 206px 84px 22px;align-items:center;gap:12px;height:40px;padding:0 28px;border-bottom:1px solid var(--line2)}
+.row:hover{background:#FAFAFB}.row.sel{background:#F7F7FE;box-shadow:inset 2px 0 0 var(--acc)}
+.t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.pj{display:flex;align-items:center;gap:7px;color:var(--ink2);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.due{color:var(--ink2);font-size:12.5px;text-align:right}.due.late{color:var(--red);font-weight:500}.due.td{color:var(--ink)}
+.av{width:22px;height:22px;border-radius:50%;font:600 9.5px/22px Inter;text-align:center;background:#E8D5C4;color:#7A4B2A;flex:none}
+.av.cl{background:#F4EDE4;color:#C15F3C;display:grid;place-items:center}.av.mk{background:#DCE7F5;color:#2C5A8C}
+.live{display:inline-flex;align-items:center;gap:6px;margin-left:10px;padding:1px 8px 1px 7px;border-radius:10px;background:var(--acc-bg);color:var(--acc);font-size:11.5px;font-weight:500;vertical-align:1px}
+.pulse{width:6px;height:6px;border-radius:50%;background:var(--acc);box-shadow:0 0 0 0 #5b5bd666;animation:p 1.8s cubic-bezier(.16,1,.3,1) infinite}
+@keyframes p{70%{box-shadow:0 0 0 5px #5b5bd600}100%{box-shadow:0 0 0 0 #5b5bd600}}
+.rp{border-left:1px solid var(--line);display:flex;flex-direction:column}
+.rp .bar{padding:0 20px}.rp .bar h1{font-size:14px}.cnt{font-size:11.5px;font-weight:600;color:var(--ink2);background:var(--side);border:1px solid var(--line);border-radius:9px;padding:0 6px}
+.item{padding:16px 20px;border-bottom:1px solid var(--line2)}
+.who{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink3);margin-bottom:8px}.who b{color:var(--ink);font-weight:600}.who time{margin-left:auto}
+.item h3{font-size:13px;font-weight:600;margin-bottom:4px;text-wrap:balance}.item p{color:var(--ink2);font-size:12.5px;line-height:1.5}
+.chips{display:flex;gap:6px;margin-top:10px}
+.chip{height:28px;padding:0 10px;border:1px solid var(--line);border-radius:6px;font:500 12.5px Inter;color:var(--ink);background:#fff;display:inline-flex;align-items:center;box-shadow:0 1px 2px #18181b0a}
+.chip:hover{border-color:var(--acc);color:var(--acc)}.chip.g{border-color:transparent;box-shadow:none;color:var(--ink3)}.chip.p{background:var(--acc);border-color:var(--acc);color:#fff}
+.ref{display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--ink3)}
+.mini{margin-top:10px;border:1px solid var(--line);border-radius:6px}.mini div{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;font-size:12px;color:var(--ink2);border-top:1px solid var(--line2)}.mini div:first-child{border-top:0}.mini span{margin-left:auto;color:var(--ink3)}
+</style></head><body>
+<svg width="0" height="0" style="position:absolute"><defs>
+<symbol id="todo" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#A1A1AA" stroke-width="1.5"/></symbol>
+<symbol id="prog" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#C27A00" stroke-width="1.5"/><path d="M8 4.5a3.5 3.5 0 0 1 0 7z" fill="#C27A00"/></symbol>
+<symbol id="rev" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#2F9E5B" stroke-width="1.5"/><path d="M8 4.5a3.5 3.5 0 1 1-3.03 1.75L8 8z" fill="#2F9E5B"/></symbol>
+<symbol id="blk" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6" fill="none" stroke="#A1A1AA" stroke-width="1.5" stroke-dasharray="2.2 2"/></symbol>
+<symbol id="claude" viewBox="0 0 16 16"><path d="M8 2v12M2 8h12M3.8 3.8l8.4 8.4M12.2 3.8l-8.4 8.4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+</defs></svg>
+<div class="app">
+<aside class="side">
+ <div class="tl"><i></i><i></i><i></i></div>
+ <div class="ws"><div class="logo">S_</div>Stubwise</div>
+ <div class="search"><svg class="i" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.5"/><path d="m10.5 10.5 3 3"/></svg>Search<kbd>⌘K</kbd></div>
+ <nav class="nav">
+  <a class="on" href="#"><svg class="i" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><path d="m5.5 8 1.8 1.8 3.2-3.6"/></svg>My work</a>
+  <a href="#"><svg class="i" viewBox="0 0 16 16"><path d="M2.5 9.5h3l1 2h3l1-2h3M2.5 9.5 4 3.5h8l1.5 6v3h-11z"/></svg>Inbox<span class="badge">4</span></a>
+  <a href="#"><svg class="i" viewBox="0 0 16 16"><path d="M3 12.5V4.5a1.5 1.5 0 0 1 1.5-1.5h7A1.5 1.5 0 0 1 13 4.5v5a1.5 1.5 0 0 1-1.5 1.5H5.5z"/></svg>Chat</a>
+  <a href="#"><svg class="i" viewBox="0 0 16 16"><rect x="2.5" y="3.5" width="11" height="10" rx="2"/><path d="M2.5 7h11M5.5 2v3M10.5 2v3"/></svg>Calendar</a>
+  <a href="#"><svg class="i" viewBox="0 0 16 16"><path d="M9 2 4 9h4l-1 5 5-7H8z"/></svg>Automations</a>
+ </nav>
+ <div class="sec">Pinned projects</div>
+ <nav class="nav">
+  <a href="#"><span class="dot" style="background:#5B5BD6"></span>Audin 2.0 launch</a>
+  <a href="#"><span class="dot" style="background:#0E9384"></span>Brennero — Supplier Portal</a>
+  <a href="#"><span class="dot" style="background:#B54708"></span>Colli Berici wines</a>
+  <a href="#"><span class="dot" style="background:#18181B"></span>Stubwise newsletter</a>
+  <a href="#"><span class="dot" style="background:#C11574"></span>Webinar: AI in sales</a>
+  <a href="#"><span class="dot" style="background:#2E90FA"></span>Website refresh 2027</a>
+ </nav>
+ <nav class="nav" style="margin-top:6px"><a href="#"><svg class="i" viewBox="0 0 16 16"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="9" y="2.5" width="4.5" height="4.5" rx="1"/><rect x="2.5" y="9" width="4.5" height="4.5" rx="1"/><rect x="9" y="9" width="4.5" height="4.5" rx="1"/></svg>All projects<span style="margin-left:auto;color:var(--ink3);font-size:12px">48</span></a></nav>
+ <div class="foot"><div class="av">GF</div><div><div style="color:var(--ink);font-weight:500">Giulia Ferri</div>Marketing</div></div>
+</aside>
+<main class="main">
+ <div class="bar"><h1>My work</h1><span class="d">Thursday 23 October</span><span style="margin-left:auto"></span><span class="btn"><svg class="i" viewBox="0 0 16 16" style="width:14px"><path d="M2.5 4h11M4.5 8h7M6.5 12h3"/></svg>Filter</span><span class="btn p"><svg class="i" viewBox="0 0 16 16" style="width:14px"><path d="M8 3v10M3 8h10"/></svg>New task</span></div>
+ <div class="tabs"><span class="on">Assigned to me</span><span>Created by me</span><span>Assigned to Claude</span><span class="r">Grouped by due date</span></div>
+ <div>
+  <div class="gh od">Overdue <span class="n">1</span></div>
+  <div class="row"><svg width="16" height="16"><use href="#todo"/></svg><div class="t">Brief photographer for Colli Berici wines shoot</div><div class="pj"><span class="dot" style="background:#B54708"></span>Colli Berici wines</div><div class="due late">Yesterday</div><div class="av">GF</div></div>
+  <div class="gh">Today <span class="n">4</span></div>
+  <div class="row sel"><svg width="16" height="16"><use href="#prog"/></svg><div class="t">Write launch email sequence for Audin 2.0</div><div class="pj"><span class="dot" style="background:#5B5BD6"></span>Audin 2.0 launch</div><div class="due td">Today</div><div class="av">GF</div></div>
+  <div class="row"><svg width="16" height="16"><use href="#todo"/></svg><div class="t">Approve landing page copy</div><div class="pj"><span class="dot" style="background:#0E9384"></span>Brennero — Supplier Portal</div><div class="due td">Today</div><div class="av">GF</div></div>
+  <div class="row"><svg width="16" height="16"><use href="#rev"/></svg><div class="t">Review Claude's draft: Q4 newsletter</div><div class="pj"><span class="dot" style="background:#18181B"></span>Stubwise newsletter</div><div class="due td">Today</div><div class="av">GF</div></div>
+  <div class="row"><svg width="16" height="16"><use href="#prog"/></svg><div class="t">Draft 6 LinkedIn posts for launch week<span class="live"><span class="pulse"></span>Claude is writing · 4 of 6</span></div><div class="pj"><span class="dot" style="background:#5B5BD6"></span>Audin 2.0 launch</div><div class="due td">Today</div><div class="av cl"><svg width="12" height="12"><use href="#claude"/></svg></div></div>
+  <div class="gh">This week <span class="n">6</span></div>
+  <div class="row"><svg width="16" height="16"><use href="#todo"/></svg><div class="t">Prepare webinar slides</div><div class="pj"><span class="dot" style="background:#C11574"></span>Webinar: AI in sales</div><div class="due">Fri 24 Oct</div><div class="av">GF</div></div>
+  <div class="row"><svg width="16" height="16"><use href="#todo"/></svg><div class="t">Collect customer quotes for case study</div><div class="pj"><span class="dot" style="background:#0E9384"></span>Brennero — Supplier Portal</div><div class="due">Fri 24 Oct</div><div class="av mk">MR</div></div>
+  <div class="row"><svg width="16" height="16"><use href="#blk"/></svg><div class="t">Set up UTM tracking for launch campaign</div><div class="pj"><span class="dot" style="background:#5B5BD6"></span>Audin 2.0 launch</div><div class="due">Fri 24 Oct</div><div class="av">GF</div></div>
+  <div class="row"><svg width="16" height="16"><use href="#todo"/></svg><div class="t">Shortlist venues for harvest tasting event</div><div class="pj"><span class="dot" style="background:#B54708"></span>Colli Berici wines</div><div class="due">Sat 25 Oct</div><div class="av">GF</div></div>
+  <div class="row"><svg width="16" height="16"><use href="#todo"/></svg><div class="t">Update homepage hero with new pricing</div><div class="pj"><span class="dot" style="background:#2E90FA"></span>Website refresh 2027</div><div class="due">Sun 26 Oct</div><div class="av">GF</div></div>
+  <div class="row"><svg width="16" height="16"><use href="#todo"/></svg><div class="t">Send webinar invitations to partner list</div><div class="pj"><span class="dot" style="background:#C11574"></span>Webinar: AI in sales</div><div class="due">Sun 26 Oct</div><div class="av">GF</div></div>
+ </div>
+</main>
+<aside class="rp">
+ <div class="bar"><h1>Waiting on you</h1><span class="cnt">3</span></div>
+ <div class="item">
+  <div class="who"><span class="av cl" style="width:20px;height:20px"><svg width="11" height="11"><use href="#claude"/></svg></span><b>Claude</b> asked a question<time>8 min</time></div>
+  <h3>Which tone for the Q4 newsletter intro?</h3>
+  <p>The October issue was formal. Audin 2.0 is the lead story, so I can open warmer and more direct.</p>
+  <div class="chips"><span class="chip">Keep it formal</span><span class="chip">Warmer and direct</span><span class="chip g">Reply…</span></div>
+  <div class="ref"><svg width="14" height="14"><use href="#rev"/></svg>Q4 newsletter · Stubwise newsletter</div>
+ </div>
+ <div class="item">
+  <div class="who"><span class="av mk" style="width:20px;height:20px;line-height:20px;font-size:9px">MR</span><b>Marco Rossi</b> needs approval<time>1 h</time></div>
+  <h3>Plan: Audin 2.0 launch week</h3>
+  <p>7 steps across email, LinkedIn and partners, Mon 27 to Fri 31 October.</p>
+  <div class="chips"><span class="chip p">Approve plan</span><span class="chip">Open plan</span></div>
+ </div>
+ <div class="item" style="border-bottom:0">
+  <div class="who"><svg class="i" viewBox="0 0 16 16" style="color:#FF7A59"><circle cx="8" cy="8" r="2.2"/><path d="M8 2.5v3.3M12.8 11 10 9.2M3.2 11 6 9.2"/></svg><b>HubSpot</b> contract signed<time>2 h</time></div>
+  <h3>Brennero Logistics renewed. 5 tasks created</h3>
+  <p>2 are assigned to you. Check owners and due dates before they go out.</p>
+  <div class="mini"><div><svg width="14" height="14"><use href="#todo"/></svg>Kickoff email to client team<span>You</span></div><div><svg width="14" height="14"><use href="#todo"/></svg>Update case study page<span>You</span></div><div style="color:var(--ink3)">+ 3 more for Sales and Support</div></div>
+  <div class="chips"><span class="chip">Review tasks</span></div>
+ </div>
+</aside>
+</div></body></html>

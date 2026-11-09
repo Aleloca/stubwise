@@ -1,0 +1,444 @@
+import type { AppNotification } from "../types";
+import { ALERT_NOTIFICATIONS } from "./alerts";
+import { CLAUDE_NOTIFICATIONS } from "./claudeActions";
+import { CLOCK_START, isoWeek, TODAY } from "./dates";
+import { PEOPLE } from "./people";
+import { PRODUCT_NOTIFICATIONS } from "./productDocs";
+import { PROJECTS } from "./projects";
+import { SERVER_ALERT_NOTIFICATIONS } from "./servers/alerts";
+import { TASKS } from "./tasks";
+
+/**
+ * Codici degli eventi (proposta del prototipo: la specifica lascia aperti i
+ * prefissi). Ogni notifica parte dal codice del suo OGGETTO:
+ * - una task → il suo codice (`MKX-2`), con la striscia del suo reparto;
+ * - un progetto intero (polso, brief) → il codice del progetto (`LMR`);
+ * - tutto il resto → `<FAMIGLIA>-<n>`, numerato per famiglia in tutta
+ *   l'istanza, stabile per oggetto (allarme e rientro dello stesso server
+ *   sono entrambi `SRV-1`): vedi `EVENT_PREFIXES`.
+ */
+export const EVENT_PREFIXES = [
+  "SEC", // un evento di sicurezza dell'account, senza progetto
+  "REQ", // una richiesta (voce di backlog)
+  "SRV", // un server monitorato
+  "DOC", // una pagina dei Docs
+] as const;
+
+export type EventPrefix = (typeof EVENT_PREFIXES)[number];
+
+/**
+ * Kind locali del prototipo, non (ancora) in `notificationKindSchema`: li
+ * pubblicano le azioni dell'area 2 (pianificazione altrui, risposta a una
+ * richiesta di decisione), l'assegnazione a un altro (area 10a) e gli avvisi dell'area 8a (PR, rilasci, note di
+ * rilascio, task nuove, Support) e dell'area 8b (server), che hanno i
+ * destinatari calcolati a lettura.
+ */
+export const LOCAL_NOTIFICATION_KINDS = [
+  "planning.changed",
+  // Area 10a (decisione del maintainer): chi riceve una task lo sa.
+  "task.assigned",
+  // Area 10b (D4): chi entra in un progetto lo sa. Per il motore è un
+  // `notification_kind` nuovo, con la regola di rollback del CLAUDE.md.
+  "member.added",
+  "decision.answered",
+  "pr.opened",
+  "pr.analysis_issues",
+  "pr.corrected",
+  "release.merged",
+  "release.succeeded",
+  "release.failed",
+  "docs.release_note",
+  "task.created",
+  "support.request",
+  "support.customer_replied",
+  "server.trouble",
+  "server.down",
+  "server.recovered",
+  "server.diagnosis_ready",
+  // Area 11a (Q1): una @menzione in un commento della doc di prodotto. Per il
+  // motore è un `notification_kind` nuovo, con la regola di rollback del CLAUDE.md.
+  "product_doc.mention",
+  // Area 11b: Claude ha aggiornato una pagina di prodotto da una fonte, o
+  // chiede su una frase. Per il motore sono due `notification_kind` nuovi,
+  // con la regola di rollback del CLAUDE.md.
+  "product_doc.updated",
+  "product_doc.question",
+] as const;
+
+// [kind, codice progetto, codice oggetto, titolo, corpo, ore fa, letta, destinatari?, valori stabili?]
+// Senza destinatari espliciti la notifica va ai membri umani del progetto. I
+// valori stabili (area 10a, I2: chi ha scritto, la settimana) fanno comporre
+// `task.assigned` e `planning.changed` nella lingua di chi legge.
+type Row = [
+  string,
+  string | null,
+  string,
+  string,
+  string,
+  number,
+  boolean,
+  string[]?,
+  Pick<AppNotification, "actorId" | "plannedWeek" | "roleId">?,
+];
+
+const ROWS: Row[] = [
+  [
+    "job.pr_opened",
+    "MKX",
+    "MKX-2",
+    "Pull request opened",
+    "Claude opened a pull request for MKX-2.",
+    1,
+    false,
+  ],
+  [
+    "review.completed",
+    "AUD",
+    "AUD-3",
+    "Review completed",
+    "The automatic review of AUD-3 found no issues.",
+    2,
+    false,
+  ],
+  [
+    "job.pr_opened",
+    "STW",
+    "STW-3",
+    "Pull request opened",
+    "A pull request for STW-3 is ready to be reviewed.",
+    3,
+    false,
+  ],
+  [
+    "review.completed",
+    "STW",
+    "STW-1",
+    "Review completed",
+    "The automatic review of STW-1 found 2 minor issues.",
+    5,
+    true,
+  ],
+  [
+    "ticket.created",
+    "CBV",
+    "CBV-3",
+    "New request from the client",
+    "Cantina Bellavista asked for a gift-box option in the store, to be shown on the landing page before the holidays.",
+    6,
+    false,
+  ],
+  [
+    "request.created",
+    "OLV",
+    "REQ-1",
+    "New request",
+    "A teammate opened a request about the homepage banner.",
+    8,
+    true,
+  ],
+  [
+    "project.brief",
+    "LMR",
+    "LMR",
+    "Weekly brief ready",
+    "Where the project stands, what changed and what is blocked.",
+    20,
+    false,
+  ],
+  [
+    "project.brief",
+    "VDM",
+    "VDM",
+    "Weekly brief ready",
+    "Where the project stands, what changed and what is blocked.",
+    26,
+    true,
+  ],
+  [
+    "job.failed",
+    "TLM",
+    "TLM-4",
+    "A run failed",
+    "The tests of TLM-4 did not pass after the second attempt.",
+    30,
+    false,
+  ],
+  [
+    "job.held",
+    "CRT",
+    "CRT-2",
+    "A run is on hold",
+    "The run for CRT-2 is waiting for a free slot.",
+    33,
+    true,
+  ],
+  [
+    "job.pr_closed",
+    "AUD",
+    "AUD-5",
+    "Pull request closed",
+    "The pull request for AUD-5 was closed without merging.",
+    48,
+    true,
+  ],
+  [
+    "monitor.alert",
+    "ACQ",
+    "SRV-1",
+    "Server alert",
+    "High memory usage on the production server.",
+    42,
+    false,
+  ],
+  [
+    "monitor.recovered",
+    "ACQ",
+    "SRV-1",
+    "Server recovered",
+    "Memory usage is back to normal.",
+    40,
+    true,
+  ],
+  [
+    "job.budget_held",
+    "ELS",
+    "ELS-3",
+    "Budget limit reached",
+    "ELS-3 is paused until a maintainer raises the budget.",
+    60,
+    false,
+  ],
+  [
+    "docs.nightly_attention",
+    "STW",
+    "DOC-1",
+    "Docs need attention",
+    "Two pages could not be updated overnight.",
+    72,
+    true,
+  ],
+  [
+    "security.alert",
+    null,
+    "SEC-2",
+    "Password changed",
+    "The password of your account was changed.",
+    4,
+    false,
+    ["p-giulia"],
+  ],
+  [
+    "security.alert",
+    null,
+    "SEC-1",
+    "New sign-in",
+    "Your account was used from a new device.",
+    90,
+    true,
+    ["p-giulia"],
+  ],
+  [
+    "security.alert",
+    null,
+    "SEC-3",
+    "New sign-in",
+    "Your account was used from a new device.",
+    10,
+    false,
+    ["p-sara"],
+  ],
+  [
+    "security.alert",
+    null,
+    "SEC-4",
+    "Two-step verification turned on",
+    "Your account now asks for a code at sign-in.",
+    28,
+    true,
+    ["p-roberta"],
+  ],
+  [
+    "planning.changed",
+    "STW",
+    "STW-10",
+    "Your week changed",
+    "Laura Costa planned STW-10 for this week.",
+    9,
+    false,
+    ["p-giulia"],
+    { actorId: "p-laura", plannedWeek: isoWeek(TODAY) },
+  ],
+  [
+    "decision.answered",
+    "AUD",
+    "AUD-1",
+    "Decision answered",
+    "Laura Costa chose “Three” for the launch tiers.",
+    110,
+    true,
+    ["p-matteo"],
+  ],
+  [
+    "ticket.created",
+    "FRL",
+    "FRL-4",
+    "New request from the client",
+    "Forneria Rossi & Lari asked to change the delivery slots.",
+    100,
+    true,
+  ],
+  [
+    "ticket.created",
+    "SAL",
+    "SAL-1",
+    "New request from the client",
+    "A new request about the product sheets was added to SAL-1.",
+    7,
+    false,
+  ],
+  [
+    "project.brief",
+    "BTG",
+    "BTG",
+    "Weekly brief ready",
+    "A quiet week: nothing blocked.",
+    120,
+    true,
+  ],
+  // Area 9c: l'ultimo brief di RNC prima dell'archiviazione. Resta nello
+  // stato e non lo legge nessuno finché il progetto è archiviato.
+  [
+    "project.brief",
+    "RNC",
+    "RNC",
+    "Weekly brief ready",
+    "The booking form is live; the harvest newsletter is still open.",
+    696,
+    true,
+  ],
+  // Area 10a: una task di AUD che Giulia ha dato a Marco (in fondo: gli id
+  // delle righe di prima non cambiano).
+  [
+    "task.assigned",
+    "AUD",
+    "AUD-4",
+    "You've been assigned AUD-4",
+    "AUD-4 · Billing emails with the new invoice layout: Giulia Ferri assigned it to you.",
+    150,
+    true,
+    ["p-marco"],
+    { actorId: "p-giulia" },
+  ],
+  // Area 10b (D4): l'avviso a Stefano della voce del registro di 18 giorni fa
+  // (Laura lo aggiunge ad AUD come Developer), a mano, senza segno.
+  [
+    "member.added",
+    "AUD",
+    "AUD",
+    "You've been added to AUD as Developer",
+    "Laura Costa added you to AUD as Developer.",
+    432,
+    true,
+    ["p-stefano"],
+    { actorId: "p-laura", roleId: "role-developer" },
+  ],
+];
+
+/**
+ * Kind che CHIEDONO una decisione o una risposta: nel pannello notifiche
+ * (solo informazioni) non compaiono mai. Le decisioni vivono in Home, le
+ * proposte della posta in Mail.
+ */
+export const DECISION_NOTIFICATION_KINDS = [
+  "job.plan_review",
+  "job.awaiting_input",
+  "project.pulse",
+  "google.proposal",
+  "google.proposal_handed",
+] as const;
+
+function projectlessLink(kind: string): string {
+  if (kind === "security.alert") return "#/preferences";
+  return "#/home";
+}
+
+const isHuman = (id: string) => PEOPLE.some((p) => p.id === id && !p.isClaude);
+
+const FIXED_NOTIFICATIONS: AppNotification[] = ROWS.map(
+  ([kind, code, objectCode, title, body, hoursAgo, read, recipients, stable], i) => {
+    const project = code ? PROJECTS.find((p) => p.code === code) : undefined;
+    const task = TASKS.find((t) => t.code === objectCode);
+    // «Ore fa» dall'adesso del prototipo (orologio unico): mai nel futuro.
+    const createdAt = new Date(Date.parse(CLOCK_START) - hoursAgo * 3_600_000)
+      .toISOString()
+      .replace(".000Z", "Z");
+    return {
+      id: `n-${i + 1}`,
+      kind,
+      projectId: project?.id ?? null,
+      objectCode,
+      departmentId: task?.departmentId ?? null,
+      recipientIds: recipients ?? project?.memberIds.filter(isHuman) ?? [],
+      title,
+      body,
+      createdAt,
+      read,
+      archived: false,
+      snoozedUntil: null,
+      link: task
+        ? `#/p/${code}/tasks`
+        : project && objectCode?.startsWith("SRV-")
+          ? `#/p/${project.code}/servers/${objectCode}`
+          : project
+            ? `#/p/${project.code}`
+            : projectlessLink(kind),
+      ...stable,
+    };
+  },
+);
+
+/** Le notifiche del seme: quelle coi destinatari fissi, poi gli avvisi delle aree 8a e 8b. */
+export const NOTIFICATIONS: AppNotification[] = [
+  ...FIXED_NOTIFICATIONS,
+  ...ALERT_NOTIFICATIONS,
+  ...SERVER_ALERT_NOTIFICATIONS,
+  // Area 10a: la notifica di Marco per un'azione di Claude, poi annullata.
+  ...CLAUDE_NOTIFICATIONS,
+  // Area 11a: la menzione di Marco in un commento di Sign-in.
+  ...PRODUCT_NOTIFICATIONS,
+];
+
+/** Il numero più alto dei codici `SEC-n` del seme: gli avvisi di sicurezza nuovi continuano da qui. */
+export const SEED_SECURITY_CODES = FIXED_NOTIFICATIONS.filter(
+  (n) => n.kind === "security.alert",
+).reduce((max, n) => Math.max(max, Number(n.objectCode.slice("SEC-".length))), 0);
+
+/**
+ * Un avviso `security.alert` (kind già del web): fuori dal catalogo, ignora
+ * le preferenze e va SOLO all'interessato (`docs/invariants/second-factor.md`).
+ * Non contiene mai un segreto: dice cosa è successo e chi l'ha fatto.
+ */
+export function securityAlert(input: {
+  id: string;
+  code: number;
+  personId: string;
+  title: string;
+  body: string;
+  at: string;
+}): AppNotification {
+  return {
+    id: input.id,
+    kind: "security.alert",
+    projectId: null,
+    objectCode: `SEC-${input.code}`,
+    departmentId: null,
+    recipientIds: [input.personId],
+    title: input.title,
+    body: input.body,
+    createdAt: input.at,
+    read: false,
+    archived: false,
+    snoozedUntil: null,
+    link: projectlessLink("security.alert"),
+  };
+}
