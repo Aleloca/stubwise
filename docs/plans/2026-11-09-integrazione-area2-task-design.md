@@ -316,3 +316,41 @@ elenchi filtrano nella WHERE prima di paginare e contare
 - Quando e come il web nuovo prende la radice e il vecchio si ritira.
 - Quando l'MCP impara stati, reparti e taglie.
 - Cosa fa Claude su una task non tecnica (dal prototipo, invariato).
+
+## Aggiunta del 9 nov 2026: il login, deciso in costruzione
+
+Il prototipo e il server non combaciavano sul login; il maintainer ha deciso:
+
+- **Web `/app`: login completo dentro la nuova interfaccia** *(maintainer)* —
+  password, poi il secondo fattore (codice dell'app, codice di riserva,
+  passkey) e, per chi non ce l'ha ancora, la configurazione obbligatoria
+  (stadio `enrollment`). Si usano le rotte a cookie di oggi; il server non
+  cambia. La pagina di configurazione al login non esiste nel prototipo: si
+  costruisce coi componenti e lo stile dell'ingresso, ed è annotata come
+  aggiunta nella tabella di parità. Nel prototipo l'ingresso resta com'è.
+- **Desktop: login tutto dal browser di sistema** *(maintainer, anche con la
+  passkey)*. Una passkey è legata al dominio dell'istanza e il Mac la concede
+  solo ad app firmate e collegate al dominio: dentro la finestra (file
+  locale, pacchetto non firmato) non può funzionare. Quindi la pagina
+  d'ingresso del desktop ha l'indirizzo dell'istanza *(maintainer: coi
+  componenti dell'ingresso)* e «Sign in with your browser»; il login avviene
+  sulle pagine di `/app` nel browser, che chiede conferma esplicita
+  («Consenti a Stubwise sul Mac "<dispositivo>" di accedere come <te>?») e
+  riapre l'app con un codice monouso (`stubwise://auth?code=…&state=…`).
+  L'app scambia il codice col suo token. Niente form di password nel
+  desktop.
+- Sicurezza del passaggio *(scelte del costruttore)*:
+  - PKCE: il desktop genera `state` e `code_verifier`, manda nel browser solo
+    `code_challenge = base64url(SHA-256(verifier))`;
+  - il codice si chiede con una **sessione completa** (quindi dopo il secondo
+    fattore) e con un **clic di conferma** (mai in automatico al caricamento
+    della pagina); vive 2 minuti, si conserva come hash, vale una volta sola
+    (UPDATE guardato su `used_at is null`), è legato a utente e challenge;
+  - lo scambio è pubblico, nello stesso bucket di rate limit di `/login`, e
+    vuole `sha256(verifier) == challenge`; rilascia un PAT `kind = 'desktop'`
+    chiamato «Desktop · <dispositivo>»;
+  - è una porta nuova che dà un token: va nell'elenco di
+    `docs/invariants/second-factor.md` e nel suo test; pubblica lo stesso
+    avviso di sicurezza che pubblica oggi il primo login di un dispositivo,
+    se c'è.
+- `/mobile-login` resta per l'app mobile, invariata.

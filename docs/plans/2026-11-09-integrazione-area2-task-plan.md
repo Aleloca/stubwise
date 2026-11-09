@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Node >= 22, pnpm 10.9; nessuna dipendenza nuova oltre a `electron-builder` (Task 15) e `@stubwise/api-client` in `apps/desktop`.
+- Node >= 22, pnpm 10.9; dipendenze nuove in `apps/desktop` solo: `electron-builder` (Task 15), `@stubwise/api-client`, `qrcode`/`@types/qrcode` e `@simplewebauthn/browser` alle versioni già usate da `apps/web` (login, aggiunta del 9 nov).
 - Migrazioni scritte a mano in `packages/db/drizzle/` (prossima: `0107`), voce aggiunta a mano in `meta/_journal.json`; `drizzle-kit generate` NON funziona (snapshot ferme a 0060). Lo schema TS in `packages/db/src/schema.ts` va aggiornato in parallelo.
 - Un `ALTER TYPE … ADD VALUE` sta in una migrazione propria e nessuna migrazione dello stesso batch usa il valore (`CLAUDE.md`, «Migrazioni Drizzle»).
 - Ogni rotta nuova dichiara `config.access` (`apps/server/src/auth/access.ts`); progetto o task invisibile → 404 `not_found`; elenchi filtrati nella WHERE prima di paginare/contare.
@@ -414,3 +414,45 @@ Regole del trigger (le scrive questo task, sono la decisione «enum derivato» d
 - [ ] **Step 3:** `pnpm lint && pnpm typecheck && pnpm test` dalla radice → verdi.
 - [ ] **Step 4:** Prova a mano del maintainer: desktop (`package:mac`, istanza di produzione) e browser (`/app`) — login col secondo fattore, elenco e board, trascinamento, dettaglio, nuova task, ferma, decisione chiesta e risposta da due account, allegato, Segui, stati del progetto, reparti; web vecchio e app mobile ancora corretti sullo stesso ticket.
 - [ ] **Step 5:** Commit `docs: integrazione area 2 fetta 1 (parità, deploy, invarianti)`.
+
+---
+
+## Aggiunta del 9 nov 2026: login completo su `/app` e login del desktop dal browser
+
+Vedi «Aggiunta del 9 nov 2026: il login» nel design. Sostituisce, per il
+desktop, `session:login` del Task 13 (che resta solo come codice morto da
+togliere) e il login con password del Task 16.
+
+### Task 19: Porta del passaggio browser → desktop (server)
+
+**Files:** Create `packages/db/drizzle/0112_desktop_handoff.sql`, `apps/server/src/routes/desktop-handoff.ts` + `.test.ts`. Modify `packages/db/src/schema.ts` (tabella e CHECK di `personal_access_tokens.kind` con `'desktop'`), `apps/server/src/routes/pat.ts` (`kind` e prefisso del nome), `apps/server/src/app.ts`, `apps/server/src/auth/route-access.test.ts`, `docs/invariants/second-factor.md`, `packages/api-client/src/endpoints/auth.ts`.
+
+**Interfaces:**
+- DB: `desktop_handoffs(id uuid pk, user_id fk cascade, code_hash text unique not null, code_challenge text not null, device_name text not null, created_at, expires_at not null, used_at null)`.
+- `POST /api/auth/desktop-handoff` (`user`, sessione completa; un PAT → 403) body `{codeChallenge: base64url 43 car., deviceName ≤60}` → `{code}` (32 byte casuali base64url; nel DB solo `sha256`), TTL 120 s.
+- `POST /api/auth/desktop-exchange` (`public`, rate limit del bucket di `/login`) body `{code, codeVerifier (43–128 car.), deviceName}` → `{token, patId, user}`; un UPDATE guardato (`used_at is null and expires_at > now()`) consuma il codice; `sha256(codeVerifier)` diverso dal challenge → 400 `invalid_grant` e il codice resta consumato; PAT `kind='desktop'`, nome «Desktop · <deviceName>»; stesso avviso di sicurezza del primo login di un dispositivo, se `/mobile-login` ne pubblica uno.
+- api-client: `auth.desktopHandoff(body)`, `auth.desktopExchange(body)`.
+
+- [ ] Test: «senza sessione completa 401», «una sessione parziale 401 second_factor_required», «un PAT non può chiedere un codice», «codice scambiato due volte: la seconda 400», «codice scaduto 400», «verifier sbagliato 400 e il codice non si riusa», «il token rilasciato ha kind desktop e si autentica», «la rotta è nell'elenco delle porte che danno un token». Poi implementa, filtri `desktop-handoff route-access pat`, commit `feat(server): passaggio del login dal browser al desktop`.
+
+### Task 20: Il desktop riceve il login dal browser (Electron)
+
+**Files:** Create `apps/desktop/src/main/browserLogin.ts` + `.test.ts`. Modify `apps/desktop/src/main/index.ts`, `src/main/session.ts` (togli `login` con password), `src/preload/index.ts`, `src/renderer/env.d.ts`, `electron-builder.yml` (`protocols: [{name: Stubwise, schemes: [stubwise]}]`), `src/main/main.test.ts`.
+
+**Interfaces:**
+- `startBrowserLogin(): {state}`: genera `state` (16 byte) e `codeVerifier` (32 byte), tiene in memoria una sola richiesta pendente (5 minuti), apre `shell.openExternal(<istanza>/app/#/desktop-login?challenge=<c>&state=<s>&device=<nome>)`.
+- `handleAuthUrl(url): Promise<LoginResult>`: accetta solo `stubwise://auth?code&state` con `state` uguale al pendente, poi `POST /api/auth/desktop-exchange`, salva token e patId con `saveToken` e notifica il renderer (`session:changed`). Ogni altro URL → ignorato.
+- `app.setAsDefaultProtocolClient("stubwise")`, `open-url` su mac e `second-instance` (`requestSingleInstanceLock`).
+- IPC/preload: `session.startBrowserLogin()`, `session.cancelBrowserLogin()`, `session.onChanged(cb) → unsubscribe`; `session:login` con password tolto.
+- [ ] Test: «state sbagliato: ignorato», «un secondo URL con lo stesso state dopo il successo: ignorato», «host diverso da auth: ignorato», «il verifier non lascia mai il main», «errore di scambio: il renderer riceve l'errore, nessun token salvato». Filtri `src/main`, commit `feat(desktop): login dal browser con PKCE e stubwise://`.
+
+### Task 21: Pagine dell'ingresso vere (renderer)
+
+**Files:** in `apps/desktop/src/renderer/pages/entry/` (accanto all'ingresso del prototipo, che non cambia) e `data/backend/real/session.ts`.
+
+**Interfaces:**
+- Web `/app`: login con password → secondo fattore (codice, riserva, passkey con `@simplewebauthn/browser` sulle rotte `/second-factor/passkey/options|verify`) → configurazione al login per lo stadio `enrollment` (QR con `qrcode`, conferma, codici di riserva da salvare) → app.
+- `/app/#/desktop-login?challenge&state&device`: se non c'è sessione completa, prima il login sopra; poi la conferma «Allow Stubwise on "<device>" to sign in as <name>?» con «Allow» e «Cancel»; «Allow» → `auth.desktopHandoff` → `location.assign("stubwise://auth?code=…&state=…")` e la frase «You can close this tab».
+- Desktop: indirizzo dell'istanza (coi componenti dell'ingresso) → «Sign in with your browser» → attesa («Finish signing in in your browser» con «Open again» e «Cancel») → app al `session:changed`.
+- Testi en/it; annotati come aggiunte in `integration-slice1.md`.
+- [ ] Test: «stadio enrollment mostra la configurazione», «passkey annullata dall'utente torna alla scelta del fattore», «desktop-login senza sessione chiede prima il login», «la conferma non chiede il codice senza clic», «attesa del desktop: Cancel torna all'ingresso». Commit `feat(desktop): ingresso vero su web e desktop`.
