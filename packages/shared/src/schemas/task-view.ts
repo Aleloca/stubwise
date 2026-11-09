@@ -127,6 +127,13 @@ export const taskViewSchema = z.object({
   occurrences: z.number().int().default(1),
   technical: z.record(z.string(), z.string()).nullable().optional(),
   assigneeStatus: z.enum(["active", "deactivated"]).nullable().optional(),
+  /**
+   * Fetta 2: chi guarda può spostare questa task nel Planning (la regola
+   * `canMove`/`planBlock` di `tasks/planning.ts`, coi permessi calcolati dal
+   * server). Il client lo legge, non lo deduce. `.optional()`: un server più
+   * vecchio non lo manda.
+   */
+  canPlan: z.boolean().optional(),
 });
 export type TaskViewData = z.infer<typeof taskViewSchema>;
 

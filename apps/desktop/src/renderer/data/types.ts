@@ -56,7 +56,6 @@ export type { ActionClass, ClassReason, ClaudeBusyReason, ExecutedFailure } from
  * (`servers.operate`: nessun preset, solo concessioni persona × progetto).
  */
 export type LocalProjectPermission =
-  | "planning.others"
   | "chat.channels.create"
   | "chat.channels.manage"
   | "drive.upload"
