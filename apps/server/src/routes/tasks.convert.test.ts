@@ -99,4 +99,32 @@ describe("POST /api/tasks con requestId (fix fetta 3)", () => {
     expect(await statusOf(itemId)).toBe("converted");
   });
 
+  it("la task eredita come richiedente il richiedente PIÙ VECCHIO della voce; effort e piano no (come nel prototipo)", async () => {
+    const { itemId } = await seedBacklogItem(testDb.db, { projectId, status: "ready" });
+    await testDb.db.update(backlogItems).set({ effort: 3, implementationPlan: "Il piano" }).where(eq(backlogItems.id, itemId));
+    await testDb.db.insert(backlogItemRequesters).values([
+      { itemId, userId: contributor.id, requestedAt: new Date("2026-10-01T10:00:00Z") },
+      { itemId, userId: dev.id, requestedAt: new Date("2026-10-05T10:00:00Z") },
+    ]);
+    const res = await convert(itemId, dev.headers.cookie, "Eredita il richiedente");
+    expect(res.statusCode, res.body).toBe(201);
+    const [t] = await testDb.db
+      .select({ by: tickets.requestedByUserId, effort: tickets.effort, plan: tickets.implementationPlan })
+      .from(tickets)
+      .where(eq(tickets.title, "Eredita il richiedente"));
+    expect(t).toEqual({ by: contributor.id, effort: null, plan: null });
+  });
+
+  it("chi converte senza tickets.view_all resta richiedente se il più vecchio è un altro (altrimenti non vedrebbe la task che ha creato)", async () => {
+    const { itemId } = await seedBacklogItem(testDb.db, { projectId, status: "new" });
+    await testDb.db.insert(backlogItemRequesters).values([
+      { itemId, userId: dev.id, requestedAt: new Date("2026-10-01T10:00:00Z") },
+      { itemId, userId: contributor.id, requestedAt: new Date("2026-10-05T10:00:00Z") },
+    ]);
+    const res = await convert(itemId, contributor.headers.cookie, "Resta del contributor");
+    expect(res.statusCode, res.body).toBe(201);
+    const [t] = await testDb.db.select({ by: tickets.requestedByUserId }).from(tickets).where(eq(tickets.title, "Resta del contributor"));
+    expect(t!.by).toBe(contributor.id);
+  });
 });
+

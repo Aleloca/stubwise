@@ -1,4 +1,5 @@
 import {
+  backlogItemRequesters,
   backlogItemTickets,
   backlogItems,
   departmentMembers,
@@ -155,6 +156,9 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
     // Trasformare una richiesta chiede `tickets.create` (lo verifica la
     // rotta): «crea una task da zero o da una richiesta», design dell'area 2.
   }
+  const seesAll = body.requestId
+    ? ((await projectPermissionsFor(db, viewer, body.projectId))?.has("tickets.view_all") ?? false)
+    : false;
   const ticketId = await db.transaction(async (tx) => {
     if (body.requestId) {
       // La richiesta diventa `converted` per PRIMA cosa (fix della fetta 3,
@@ -168,6 +172,21 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
         .returning({ id: backlogItems.id });
       if (claimed.length === 0) return null;
       await closeRefineSessionForItem(tx, body.requestId);
+    }
+    // La task nata da una richiesta eredita il richiedente PIÙ VECCHIO della
+    // voce, come `convertBacklogItem` (fix della review della fetta 3); effort
+    // e piano no, come nel prototipo. Eccezione: chi converte senza
+    // `tickets.view_all` resta richiedente se il più vecchio è un altro,
+    // altrimenti non vedrebbe la task che ha appena creato.
+    let requestedBy = viewer.id;
+    if (body.requestId) {
+      const [oldest] = await tx
+        .select({ userId: backlogItemRequesters.userId })
+        .from(backlogItemRequesters)
+        .where(eq(backlogItemRequesters.itemId, body.requestId))
+        .orderBy(asc(backlogItemRequesters.requestedAt), asc(backlogItemRequesters.userId))
+        .limit(1);
+      if (oldest && (oldest.userId === viewer.id || seesAll)) requestedBy = oldest.userId;
     }
     const departmentId = body.departmentId ?? (await firstDepartmentOf(tx, viewer.id));
     const [firstTodo] = await tx
@@ -185,7 +204,7 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
       priority: body.priority ?? "medium",
       source: "manual",
       ...(body.assigneeId ? { assigneeId: body.assigneeId } : {}),
-      requestedByUserId: viewer.id,
+      requestedByUserId: requestedBy,
       // Senza reparto il trigger mette il ripiego.
       ...(departmentId ? { departmentId } : {}),
       statusId: body.statusId ?? firstTodo?.id,
