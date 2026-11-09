@@ -98,7 +98,9 @@ import type {
   ProjectStatus,
   SavedFilter,
   SearchResult,
+  PullRequestEvent,
   TaskWork,
+  TaskWorkSummary,
   SlashCommand,
   Task,
   TimelineEvent,
@@ -961,6 +963,33 @@ export async function getRefineOf(requestId: string): Promise<ConversationRow | 
  * sessioni di lavoro che chi guarda vede, dalla più vecchia, con il flusso
  * leggibile; le PR della task dalla piattaforma. Task invisibile: `null`.
  */
+/**
+ * Il lavoro di Claude in breve (build app: `GET /api/tasks/:id/work`). Nel
+ * prototipo si ricava dalla task e dalle sue PR; `null` per una task che chi
+ * guarda non vede.
+ */
+export async function getTaskWorkSummary(taskId: string): Promise<TaskWorkSummary | null> {
+  const me = await gate("getTaskWorkSummary");
+  const task = state.tasksById.get(taskId);
+  if (!task || !visibleProjectIds(me).has(task.projectId)) return null;
+  const latest = new Map<string, PullRequestEvent>();
+  for (const e of state.pullRequests.filter((p) => p.taskId === taskId)) {
+    const key = `${e.repo}#${e.number}`;
+    const prev = latest.get(key);
+    if (!prev || prev.at <= e.at) latest.set(key, e);
+  }
+  return {
+    claude: task.claude,
+    pullRequests: [...latest.values()].map((e) => ({
+      repo: e.repo,
+      number: e.number,
+      url: `https://github.com/${e.repo}/pull/${e.number}`,
+      state: e.kind === "pr_merged" ? "merged" : e.kind === "pr_closed" ? "closed" : "open",
+    })),
+    webHref: null,
+  };
+}
+
 export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
   const me = await gate("getTaskWork");
   const task = state.tasksById.get(taskId);

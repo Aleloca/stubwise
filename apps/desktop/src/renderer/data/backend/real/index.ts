@@ -25,3 +25,32 @@ export { search } from "./search";
 
 /** Amministrazione: solo Reparti (e le persone che la pagina legge) nella fetta 1. */
 export const admin: typeof Fake.admin = partialNamespace<typeof Fake.admin>("admin", adminDepartments);
+
+// Task 17: Tasks, dettaglio, nuova task, stati, allegati.
+export {
+  bulkUpdateTasks,
+  clearManualStall,
+  createTask,
+  followTask,
+  getTaskByCode,
+  listStalled,
+  listTasks,
+  setManualStall,
+  updateTask,
+} from "./tasks";
+export {
+  addComment,
+  addLink,
+  answerDecision,
+  askDecision,
+  deleteComment,
+  editComment,
+  getRequest,
+  getTaskWorkSummary,
+  listActivity,
+  listDecisionRequests,
+  removeLink,
+  withdrawDecision,
+} from "./taskDetail";
+export { listMilestones, listProjectStatuses, setProjectStatuses, setStallThresholds } from "./statuses";
+export { addAttachment, removeAttachment } from "./attachments";

@@ -608,7 +608,7 @@ export function FilterBar({
       return (
         <>
           <MenuGroup label={t("taskUi.filters.periodField")}>
-            {PERIOD_FIELDS.map((f) => (
+            {PERIOD_FIELDS.filter((f) => f !== "plannedWeek" || featureIntegrated("planning-week")).map((f) => (
               <RadioItem
                 key={f}
                 checked={field === f}

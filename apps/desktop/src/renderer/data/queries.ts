@@ -68,6 +68,7 @@ import type {
   RefinePatch,
   Rsvp,
   StatusInput,
+  StoredLinkKind,
   Task,
   TaskPatch,
 } from "./types";
@@ -1036,6 +1037,58 @@ export function useUpdateTask() {
     (vars, area, old) => patchTasks([vars.id], vars.patch, area, old),
     TASK_AREAS,
   );
+}
+
+/**
+ * Le scritture dedicate di una task (integrazione area 2, fetta 1): seguire,
+ * ferma a mano, allegati, collegamenti. Sul server hanno rotte loro; qui la
+ * pagina dà anche l'anteprima del cambio (`preview`), applicata subito come
+ * per `useUpdateTask` e tolta se la scrittura fallisce.
+ */
+export type TaskWrite =
+  | { kind: "follow"; follow: boolean }
+  | { kind: "setManualStall"; reason: string; note: string }
+  | { kind: "clearManualStall" }
+  | { kind: "addAttachment"; name: string; sizeBytes: number; file?: Blob }
+  | { kind: "removeAttachment"; attachmentId: string }
+  | { kind: "addLink"; link: { kind: StoredLinkKind; taskId: string } }
+  | { kind: "removeLink"; link: { kind: StoredLinkKind; taskId: string } };
+
+function runTaskWrite(id: string, w: TaskWrite): Promise<Task> {
+  switch (w.kind) {
+    case "follow":
+      return api.followTask(id, w.follow);
+    case "setManualStall":
+      return api.setManualStall(id, { reason: w.reason, note: w.note });
+    case "clearManualStall":
+      return api.clearManualStall(id);
+    case "addAttachment":
+      return api.addAttachment(id, { name: w.name, sizeBytes: w.sizeBytes, ...(w.file ? { file: w.file } : {}) });
+    case "removeAttachment":
+      return api.removeAttachment(id, w.attachmentId);
+    case "addLink":
+      return api.addLink(id, w.link);
+    case "removeLink":
+      return api.removeLink(id, w.link);
+  }
+}
+
+export function useTaskWrite() {
+  return useOptimistic(
+    ({ id, write }: { id: string; write: TaskWrite; preview: TaskPatch }) => runTaskWrite(id, write),
+    ["tasks", "task", "stalled"],
+    (vars, area, old) => patchTasks([vars.id], vars.preview, area, old),
+    TASK_AREAS,
+  );
+}
+
+/** Il lavoro di Claude in breve (la sezione Claude della build app). */
+export function useTaskWorkSummary(taskId: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "taskWork", "summary", taskId] as const,
+    queryFn: () => api.getTaskWorkSummary(taskId),
+  });
 }
 
 /**

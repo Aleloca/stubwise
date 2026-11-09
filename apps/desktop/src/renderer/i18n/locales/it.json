@@ -1034,6 +1034,15 @@
       "hint": "Markdown. ⌘/Ctrl+Invio salva."
     },
     "claude": {
+      "web": {
+        "open": "Apri nel web",
+        "hint": "Piano, approvazioni, domande di Claude e sessione dal vivo sono nell'app web.",
+        "pr": {
+          "open": "Aperta",
+          "merged": "Mergiata",
+          "closed": "Chiusa"
+        }
+      },
       "title": "Claude",
       "assign": "Assegna a Claude",
       "notMember": "Claude non è membro di questo progetto.",
@@ -1203,6 +1212,7 @@
       "originAutomation": "Origine"
     },
     "attachments": {
+      "off": "Gli allegati sono spenti su questa istanza.",
       "title": "Allegati",
       "none": "Nessun allegato",
       "fake": "Aggiunge un file di esempio",

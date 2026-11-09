@@ -84,11 +84,21 @@ export const listNotifications: typeof Fake.listNotifications = async () => {
   );
   // Il codice della task si DERIVA a lettura (numero e codice di adesso),
   // mai dal testo della card: un codice di progetto cambiato non lo sbaglia.
+  // Il server lo dà già (`taskCode`, derivato a lettura); da un server che
+  // non lo manda ancora si legge il ticket.
+  const taskCodes = new Map<string, string>();
+  for (const i of items) {
+    const code = (i as { taskCode?: string | null }).taskCode;
+    if (i.ticketId && code) taskCodes.set(i.ticketId, code);
+  }
   const ticketIds = [
-    ...new Set(items.flatMap((i) => (INTEGRATED_KINDS.has(i.kind) && i.ticketId ? [i.ticketId] : []))),
+    ...new Set(
+      items.flatMap((i) =>
+        INTEGRATED_KINDS.has(i.kind) && i.ticketId && !taskCodes.has(i.ticketId) ? [i.ticketId] : [],
+      ),
+    ),
   ];
   const tickets = await Promise.all(ticketIds.map((id) => client.tickets.get(id).catch(() => null)));
-  const taskCodes = new Map<string, string>();
   for (const t of tickets) {
     const code = t ? projectCodes.get(t.projectId) : undefined;
     if (t && code) taskCodes.set(t.id, `${code}-${t.number}`);

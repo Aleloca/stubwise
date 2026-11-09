@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../data/integration";
 import { useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { SubscriptionState } from "../data/alerts";
@@ -277,7 +278,9 @@ export function NotificationItem({
             )}
           </div>
         )}
-        {tab !== "new" && (
+        {/* Build app: il server non sa rimettere in elenco un'archiviata o una
+            rinviata, e un comando che non scrive nulla non si mostra. */}
+        {tab !== "new" && featureIntegrated("notification-restore") && (
           <button
             type="button"
             className={actionClass}

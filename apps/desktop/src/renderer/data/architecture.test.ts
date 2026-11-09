@@ -35,6 +35,18 @@ describe("architettura", () => {
   // `@backend/runtime`; `data/viewer` (il «vedi come») e `data/store` sono il
   // finto, e il «vedi come» si legge da `@backend/viewer`. La prova sul bundle
   // vero è `scripts/check-no-seed.mjs` (CI e immagine caddy).
+  // Integrazione area 2, fetta 1 (Task 17): follower, ferma a mano, allegati
+  // e collegamenti hanno scritture dedicate (`useInlineWrite`), che sul server
+  // sono rotte loro. Passarli a `updateTask` (`change(task, {…})`) li
+  // scriverebbe nel prototipo e fallirebbe nella build app.
+  it("nessuna superficie passa followerIds, manualStall, attachments o links a updateTask", () => {
+    const WHOLE_LIST = /\b(?:change|updateTask|apply)\(\s*[\w.]+,\s*\{\s*(?:followerIds|manualStall|attachments|links)\s*:/;
+    const offenders = Object.entries(SOURCES)
+      .filter(([, source]) => WHOLE_LIST.test(source))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
+
   it("nessuna superficie importa data/viewer o data/store", () => {
     const FAKE_IMPORT = /from\s+["'][^"']*data\/(viewer|store)["']/;
     const offenders = Object.entries(SOURCES)

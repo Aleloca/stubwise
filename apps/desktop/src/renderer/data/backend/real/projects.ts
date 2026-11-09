@@ -16,6 +16,8 @@ interface ServerProject {
   description: string | null;
   code?: string;
   stallThresholds?: { activeDays: number; todoDays: number };
+  /** I membri effettivi (full admin impliciti compresi), derivati dal server; assenti da un server più vecchio. */
+  memberIds?: string[];
 }
 
 const DEFAULT_THRESHOLDS = { activeDays: 7, todoDays: 14 };
@@ -53,7 +55,7 @@ async function membersOf(projectId: string): Promise<string[]> {
 
 export const listProjects: typeof Fake.listProjects = async () => {
   const rows = (await appClient().projects.list()) as unknown as ServerProject[];
-  const members = await Promise.all(rows.map((p) => membersOf(p.id)));
+  const members = await Promise.all(rows.map((p) => p.memberIds ?? membersOf(p.id)));
   return rows.map((p, i) => toProject(p, members[i]!));
 };
 
@@ -62,7 +64,7 @@ export const getProjectByCode: typeof Fake.getProjectByCode = async (code) => {
   const wanted = code.toUpperCase();
   const rows = (await appClient().projects.list()) as unknown as ServerProject[];
   const hit = rows.find((p) => codeOf(p) === wanted);
-  return hit ? toProject(hit, await membersOf(hit.id)) : null;
+  return hit ? toProject(hit, hit.memberIds ?? (await membersOf(hit.id))) : null;
 };
 
 /** I fissati sono i progetti seguiti (`/api/me/follows`), nell'ordine del server. */
@@ -88,9 +90,19 @@ export const setPinned: typeof Fake.setPinned = async (projectId, isPinned) => {
  */
 export const listWaitingOnMeProjectIds: typeof Fake.listWaitingOnMeProjectIds = async () => {
   const decisions = await appClient().decisions.list({ askedOfId: "me", open: true });
-  const taskIds = [...new Set(decisions.map((d) => d.taskId))];
+  // Il server dà il progetto (`projectId`, derivato a lettura); da un server
+  // che non lo manda ancora, lo dà il ticket.
+  const known = decisions.flatMap((d) => {
+    const projectId = (d as { projectId?: string | null }).projectId;
+    return projectId ? [projectId] : [];
+  });
+  const taskIds = [
+    ...new Set(
+      decisions.filter((d) => !(d as { projectId?: string | null }).projectId).map((d) => d.taskId),
+    ),
+  ];
   const tickets = await Promise.all(
     taskIds.map((id) => appClient().tickets.get(id).catch(() => null)),
   );
-  return [...new Set(tickets.flatMap((t) => (t ? [t.projectId] : [])))];
+  return [...new Set([...known, ...tickets.flatMap((t) => (t ? [t.projectId] : []))])];
 };

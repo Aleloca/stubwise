@@ -1,6 +1,13 @@
 import { featureIntegrated } from "../../data/integration";
 import { useTranslation } from "react-i18next";
-import { usePeople, useProjects, useProjectStatuses, useUpdateTask } from "../../data/queries";
+import {
+  usePeople,
+  useProjects,
+  useProjectStatuses,
+  useTaskWrite,
+  useUpdateTask,
+  type TaskWrite,
+} from "../../data/queries";
 import type { Milestone, Person, ProjectStatus, Task, TaskPatch, TaskSize } from "../../data/types";
 import { addWeeks, currentWeek, shortWeekIn, weekLabel } from "../../domain/weeks";
 import i18n from "../../i18n";
@@ -183,6 +190,25 @@ export function useInlineUpdate() {
     update.mutate(
       { id: task.id, patch },
       { onError: () => toast.error(t("tasks.list.changeFailed", { code: task.code })) },
+    );
+}
+
+/**
+ * Una scrittura dedicata della task (seguire, ferma, allegati, collegamenti):
+ * `preview` è il cambio che si vede subito, come per `useInlineUpdate`.
+ * `onError` sostituisce l'avviso di sempre (gli allegati spenti dicono altro).
+ */
+export function useInlineWrite() {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const write = useTaskWrite();
+  return (task: Task, w: TaskWrite, preview: TaskPatch, onError?: (error: unknown) => void) =>
+    write.mutate(
+      { id: task.id, write: w, preview },
+      {
+        onError: (error) =>
+          onError ? onError(error) : toast.error(t("tasks.list.changeFailed", { code: task.code })),
+      },
     );
 }
 

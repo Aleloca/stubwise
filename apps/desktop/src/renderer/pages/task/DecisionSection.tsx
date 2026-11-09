@@ -38,7 +38,7 @@ export function DecisionSection({ task, canComment }: { task: Task; canComment: 
   const closed = (requests ?? [])
     .filter((d) => !isOpen(d))
     .sort((a, b) => closedAt(b).localeCompare(closedAt(a)));
-  const person = (id: string) => people?.find((p) => p.id === id);
+  const person = (id: string | null) => (id ? people?.find((p) => p.id === id) : undefined);
 
   const action = canComment && (
     <button type="button" className={ghostButton} onClick={() => setAsking(true)}>
@@ -94,7 +94,7 @@ function OpenDecision({
 }: {
   request: DecisionRequest;
   task: Task;
-  person: (id: string) => Person | undefined;
+  person: (id: string | null) => Person | undefined;
 }) {
   const { t, i18n } = useTranslation();
   const { viewer } = useViewer();
@@ -254,7 +254,7 @@ function ClosedDecision({
   person,
 }: {
   request: DecisionRequest;
-  person: (id: string) => Person | undefined;
+  person: (id: string | null) => Person | undefined;
 }) {
   const { t, i18n } = useTranslation();
   const of = person(request.askedOfId)?.name ?? t("taskUi.stall.someone");
