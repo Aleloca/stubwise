@@ -50,6 +50,7 @@ import { MergeDialog } from "./MergeDialog";
 import { RequestStatusLabel, RequestStatusSign, RiskMark, UrgencyMark } from "./marks";
 import { NextStepLine, SuggestionsSection } from "./RequestGuidance";
 import { WhoCanLink } from "../../components/WhoCanLink";
+import { featureIntegrated } from "../../data/integration";
 
 /** Le richieste di un progetto: l'unica route su cui si apre il pannello della richiesta. */
 const REQUESTS_PATH = /^\/p\/([^/]+)\/requests\/?$/;
@@ -77,7 +78,7 @@ export function RequestDetailHost() {
   }, [navigate]);
   const id = search.request;
   // Nel refine la richiesta è il lato della conversazione: lo monta la vista di refine.
-  if (!id || !routeCode || search.task || search.refine === "1") return null;
+  if (!id || !routeCode || search.task || (search.refine === "1" && featureIntegrated("refine"))) return null;
   return (
     <DetailPanel
       mode={docked ? "docked" : "overlay"}
@@ -345,9 +346,22 @@ function RequestBody({
     (request.status === "new" || request.status === "ready" || request.status === "refining")
   ) {
     actions.push(
-      <button key="refine" type="button" className={smallSecondary} disabled={busy} onClick={doRefine}>
-        {t("requests.detail.actions.refine")}
-      </button>,
+      featureIntegrated("refine") ? (
+        <button key="refine" type="button" className={smallSecondary} disabled={busy} onClick={doRefine}>
+          {t("requests.detail.actions.refine")}
+        </button>
+      ) : (
+        // Il refine con Claude è dell'area 3: nella build app resta «in arrivo».
+        <button
+          key="refine"
+          type="button"
+          className={smallSecondary}
+          disabled
+          title={t("placeholder.comingSoon.title")}
+        >
+          {t("requests.detail.actions.refine")}
+        </button>
+      ),
     );
   }
   // Una fusa non si riapre da qui: segue la richiesta in cui è confluita.

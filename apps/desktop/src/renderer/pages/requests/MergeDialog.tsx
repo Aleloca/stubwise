@@ -6,6 +6,7 @@ import { findSimilarRequest, relatedRequests } from "../../domain/requests";
 import { Dialog, inputClass } from "../../tasks-ui/Dialog";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { RequestStatusLabel } from "./marks";
+import { serverIntake } from "../../data/integration";
 
 /**
  * Le richieste in cui si può fondere `request`: dello stesso progetto, non
@@ -164,9 +165,20 @@ export function MergeDialog({
         {tried && !chosen && candidates.length > 0 && (
           <span className="text-xs text-critical">{t("requests.merge.choose")}</span>
         )}
+        {/* Sul server vero la destinazione la riscrive il modello: può volerci un momento. */}
+        {serverIntake() && merge.isPending && chosen && (
+          <p role="status" className="text-sm text-ink-muted">
+            {t("requests.merge.rewriting", { code: chosen.code })}
+          </p>
+        )}
         {failed && (
-          <p role="alert" className="rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
-            {t("requests.merge.failed")}
+          <p role="alert" className="flex items-center gap-3 rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
+            <span className="min-w-0 flex-1">{t("requests.merge.failed")}</span>
+            {serverIntake() && (
+              <button type="button" className={secondaryButton} onClick={submit}>
+                {t("requests.merge.retry")}
+              </button>
+            )}
           </p>
         )}
       </form>

@@ -8,6 +8,7 @@ import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/controls";
+import { serverIntake } from "../../data/integration";
 
 /** I progetti a cui chi guarda può mandare richieste (`backlog.create`), per codice. */
 function useRequestableProjects(): Project[] | undefined {
@@ -190,6 +191,12 @@ export function NewRequestDialog({
           />
         </DialogField>
 
+        {/* Sul server vero la richiesta passa dall'intake prima di nascere. */}
+        {serverIntake() && create.isPending && (
+          <p role="status" className="text-sm text-ink-muted">
+            {t("requests.newDialog.sending")}
+          </p>
+        )}
         {failed && (
           <p role="alert" className="rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
             {t("requests.newDialog.failed")}
@@ -229,10 +236,13 @@ export function NewRequestHost() {
       projectId={projectId}
       onClose={close}
       onCreated={(request, project) => {
+        // L'intake del server l'ha fusa in una richiesta che c'era già: si apre quella.
         toast.show(
-          request.similarToId
-            ? t("requests.newDialog.sentSimilar", { project: project.name })
-            : t("requests.newDialog.sent", { project: project.name }),
+          request.landedByMerge
+            ? t("requests.newDialog.sentMerged", { code: request.code })
+            : request.similarToId
+              ? t("requests.newDialog.sentSimilar", { project: project.name })
+              : t("requests.newDialog.sent", { project: project.name }),
         );
         void navigate({
           to: "/p/$code/$section",

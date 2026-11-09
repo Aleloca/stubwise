@@ -100,19 +100,17 @@ describe("la Home nella build app", () => {
     expect(screen.queryByRole("region", { name: /^Important email/ })).toBeNull();
   });
 
-  it("«Da decidere»: una richiesta da trasformare si apre nel web (Requests è della fetta 4)", async () => {
+  it("«Da decidere»: una richiesta da trasformare apre il suo pannello in Requests (fetta 4)", async () => {
     const open = vi.fn();
     window.open = open as never;
-    renderRoute("/home");
+    const router = renderRoute("/home");
     const decide = await screen.findByRole("region", { name: /^Decide/ });
     expect(await within(decide).findByText("AUD-R4")).toBeInTheDocument();
-    fireEvent.click(within(decide).getByRole("button", { name: "Open Export to CSV in the web" }));
-    expect(open).toHaveBeenCalledWith(
-      "https://stubwise.example/backlog/33333333-3333-4333-8333-333333333333",
-      "_blank",
-      "noopener,noreferrer",
-    );
     expect(within(decide).getByRole("button", { name: "Turn into task: Export to CSV" })).toBeInTheDocument();
+    fireEvent.click(within(decide).getByRole("link", { name: "Open request Export to CSV" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/p/AUD/requests"));
+    expect(router.state.location.search).toMatchObject({ request: "33333333-3333-4333-8333-333333333333" });
+    expect(open).not.toHaveBeenCalled();
   });
 
   it("personalizzare dall'app non cancella un blocco di un'area non integrata né un kind sconosciuto", async () => {
