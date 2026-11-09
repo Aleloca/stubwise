@@ -25,6 +25,7 @@ import {
   emailMessages,
   emailProposals,
   googleAccounts,
+  comments,
   notifications,
   prReviews,
   projects,
@@ -72,6 +73,7 @@ import { projectActorForTicket, resolvePlan, startRun, type Actor } from "./jobs
 import { mirrorDecision, propagateDecision } from "./notifications-propagation.js";
 import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion, type AnswerInput } from "./questions.js";
+import { excerpt } from "./task-notify.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
 // (condivisa col worker), ri-esportata qui per i consumatori del servizio.
@@ -884,6 +886,16 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     db,
     page.map((r) => r.ticketId),
   );
+  // L'estratto di un commento su una task seguita (integrazione area 2): MAI
+  // dal jsonb (che porta solo `commentId`), dal commento — così un commento
+  // eliminato non ha più testo nemmeno nell'inbox. UNA query per pagina.
+  const commentsById = await commentsForActivity(
+    db,
+    page.flatMap((r) => {
+      const id = r.kind === "ticket.activity" ? (r.event as { commentId?: unknown }).commentId : undefined;
+      return typeof id === "string" ? [id] : [];
+    }),
+  );
   // Solo per le card di posta: le altre non hanno una riga `email_proposals` e
   // la mappa resta vuota per loro.
   const sourceProposalIds = await sourceProposalIdsByNotification(
@@ -912,7 +924,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
     // recinto (vedi `renderItem`).
     const rendered = renderItem(
-      r.event,
+      withCommentExcerpt(r.event, commentsById),
       r.kind,
       lang,
       sourceProposalIds.get(r.id) ?? null,
@@ -1679,4 +1691,33 @@ async function taskCodesByTicket(db: Db, ticketIds: (string | null)[]): Promise<
     .innerJoin(projects, eq(projects.id, tickets.projectId))
     .where(inArray(tickets.id, ids));
   return new Map(rows.map((r) => [r.id, `${r.code}-${r.number}`]));
+}
+
+/** I commenti citati dalle card `ticket.activity` della pagina: estratto e se sono eliminati. */
+async function commentsForActivity(
+  db: Db,
+  ids: string[],
+): Promise<Map<string, { text: string; deleted: boolean }>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Map();
+  const rows = await db
+    .select({ id: comments.id, body: comments.body, deletedAt: comments.deletedAt })
+    .from(comments)
+    .where(inArray(comments.id, unique));
+  return new Map(rows.map((r) => [r.id, { text: excerpt(r.body), deleted: r.deletedAt !== null }]));
+}
+
+/**
+ * L'evento da rendere con l'estratto DERIVATO del commento (`commentText`,
+ * `commentDeleted`): solo per la resa, il jsonb non cambia. Un commento che
+ * non esiste più (ticket cancellato) si legge come eliminato.
+ */
+function withCommentExcerpt(
+  event: Record<string, unknown>,
+  commentsById: Map<string, { text: string; deleted: boolean }>,
+): Record<string, unknown> {
+  if (event.kind !== "ticket.activity" || typeof event.commentId !== "string") return event;
+  const comment = commentsById.get(event.commentId);
+  if (!comment || comment.deleted) return { ...event, commentDeleted: true };
+  return { ...event, commentText: comment.text };
 }

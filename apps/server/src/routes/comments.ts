@@ -9,7 +9,7 @@ import { comments, tickets } from "@stubwise/db";
 import { ticketCommentSchema, type ProjectPermission } from "@stubwise/shared";
 import { authErrorResponses, errorSchema, foreignKeyViolationConstraint } from "./shared.js";
 import { apiError } from "../errors.js";
-import { excerpt, notifyTaskActivity } from "../services/task-notify.js";
+import { notifyTaskActivity } from "../services/task-notify.js";
 import {
   addComment,
   deleteComment,
@@ -193,11 +193,14 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
             replyToCommentId: replyToCommentId ?? null,
           });
           // Integrazione area 2: chi segue la task sa del commento (tranne l'autore).
+          // Il riferimento al commento, MAI il testo: un commento eliminato
+          // non deve restare leggibile in un'inbox (l'estratto si deriva a lettura).
           await notifyTaskActivity(tx, {
             ticketId,
             actorUserId: request.user?.id ?? null,
             change: "comment",
-            summary: excerpt(request.body.body),
+            summary: "",
+            commentId: row.id,
           });
           return row;
         });

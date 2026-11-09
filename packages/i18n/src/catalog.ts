@@ -269,6 +269,8 @@ export const en: Catalog = {
   "notify.ticketActivity.status": "{ref}: status changed to {summary}",
   "notify.ticketActivity.assignee": "{ref}: now assigned to {summary}",
   "notify.ticketActivity.comment": "{ref}: new comment — {summary}",
+  "notify.ticketActivity.commentNoText": "New comment on {ref}",
+  "notify.ticketActivity.commentDeleted": "{ref}: comment deleted",
   "notify.securityAlert.second_factor_reset":
     "Your second factor was reset: you will set it up again at your next sign-in.",
   "notify.securityAlert.second_factor_reset.actor":
@@ -889,6 +891,8 @@ export const it: Catalog = {
   "notify.ticketActivity.status": "{ref}: stato cambiato in {summary}",
   "notify.ticketActivity.assignee": "{ref}: ora assegnata a {summary}",
   "notify.ticketActivity.comment": "{ref}: nuovo commento — {summary}",
+  "notify.ticketActivity.commentNoText": "Nuovo commento su {ref}",
+  "notify.ticketActivity.commentDeleted": "{ref}: commento eliminato",
   "notify.securityAlert.second_factor_reset":
     "Il tuo secondo fattore è stato azzerato: al prossimo accesso lo configuri di nuovo.",
   "notify.securityAlert.second_factor_reset.actor":

@@ -158,10 +158,47 @@ describe("notifiche ai follower", () => {
     const res = await post(`/api/tickets/${ticketId}/comments`, { body: "Ci guardo io" });
     expect(res.statusCode).toBe(201);
     const thirds = await notificationsOf(third.id, "ticket.activity");
-    expect(thirds.at(-1)!.event).toMatchObject({ change: "comment", summary: "Ci guardo io", ticketId });
+    const created = res.json() as { id: string };
+    // Nell'evento il riferimento al commento, MAI il suo testo.
+    expect(thirds.at(-1)!.event).toMatchObject({ change: "comment", commentId: created.id, ticketId });
+    expect(JSON.stringify(thirds.at(-1)!.event)).not.toContain("Ci guardo io");
     expect((await notificationsOf(users.memberId, "ticket.activity")).filter((x) => x.ticketId === ticketId)).toHaveLength(0);
     // Chi non vede più il progetto non riceve card.
     expect((await notificationsOf(outsider.id, "ticket.activity")).filter((x) => x.ticketId === ticketId)).toHaveLength(0);
+  });
+
+  it("commento eliminato: la card non ha più il testo", async () => {
+    const ticketId = await task();
+    await testDb.db.insert(ticketFollowers).values({ ticketId, userId: third.id });
+    const res = await post(`/api/tickets/${ticketId}/comments`, { body: "Testo riservato del commento" });
+    const commentId = (res.json() as { id: string }).id;
+    const cardText = async () => {
+      const inbox = await app.inject({ method: "GET", url: "/api/inbox", headers: { cookie: third.headers.cookie } });
+      const items = (inbox.json() as { items: { kind: string; ticketId: string | null; text: string }[] }).items;
+      return items.find((i) => i.kind === "ticket.activity" && i.ticketId === ticketId)!.text;
+    };
+    // L'estratto si deriva a lettura dal commento.
+    expect(await cardText()).toContain("Testo riservato del commento");
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/tickets/${ticketId}/comments/${commentId}`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(del.statusCode).toBeLessThan(300);
+    const after = await cardText();
+    expect(after).not.toContain("Testo riservato del commento");
+    expect(after).toMatch(/comment deleted/i);
+  });
+
+  it("il push non contiene il testo del commento", async () => {
+    const ticketId = await task();
+    await testDb.db.insert(ticketFollowers).values({ ticketId, userId: third.id });
+    await post(`/api/tickets/${ticketId}/comments`, { body: "Segreto nel push" });
+    const card = (await notificationsOf(third.id, "ticket.activity")).find((x) => x.ticketId === ticketId)!;
+    const { buildPushPayload } = await import("@stubwise/notifications");
+    const payload = buildPushPayload(card.event as never, "en", { notificationId: card.id, unreadCount: 1 } as never);
+    expect(JSON.stringify(payload)).not.toContain("Segreto nel push");
+    expect(payload.body).toMatch(/^New comment on [A-Z][A-Z0-9]{1,5}-\d+$/);
   });
 
   it("un cambio di stato e di assegnatario dall'app nuova notifica i follower", async () => {
