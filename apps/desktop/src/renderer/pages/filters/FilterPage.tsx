@@ -21,12 +21,15 @@ import { quietButton, secondaryButton } from "../tasks/controls";
 import { TasksPage, type TasksPageState } from "../tasks/TasksPage";
 import { SaveFilterDialog } from "./SaveFilterDialog";
 
-/** Modifica ed eliminazione: solo l'autore o un full admin (spec §4). */
+/**
+ * Modifica ed eliminazione: solo l'autore o un full admin (spec §4). Sul
+ * server vero lo dice la vista (`canEdit`): il client lo legge, non lo deduce.
+ */
 export function canManageFilter(
   filter: SavedFilter,
   viewer: ReturnType<typeof useViewer>["viewer"],
 ): boolean {
-  return filter.ownerId === viewer.personId || can(viewer, "instance.full_admin");
+  return filter.canEdit ?? (filter.ownerId === viewer.personId || can(viewer, "instance.full_admin"));
 }
 
 /** «Private», oppure «Public · by <autore>». */
@@ -37,7 +40,10 @@ function FilterMeta({ filter }: { filter: SavedFilter }) {
     <p className="text-sm text-ink-muted">
       {filter.visibility === "private"
         ? t("filter.visibility.private")
-        : t("filter.publicBy", { name: owner?.name ?? "…" })}
+        : // Un filtro di esempio del server non è di nessuno: solo «Public».
+          filter.ownerId === null
+          ? t("filter.visibility.public")
+          : t("filter.publicBy", { name: owner?.name ?? "…" })}
     </p>
   );
 }
