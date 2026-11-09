@@ -2988,3 +2988,52 @@ deploy o di un rollback che la tocca.
   risposta con traguardi. Il fix è nel codice dell'app: l'app installata
   lo riceve **solo con una build nuova** (`apps/mobile/README.md`, build e
   distribuzione a mano); il server non c'entra.
+- **«Integrazione area 2, fetta 4» (10 nov 2026)**: design
+  `docs/plans/2026-11-09-integrazione-area2-fetta4-design.md`, piano
+  `docs/plans/2026-11-09-integrazione-area2-fetta4-plan.md`, invarianti in
+  `docs/invariants/requests.md`. Chiude l'area 2: Requests coi codici R<n>,
+  Overview (traguardi, decisioni, cronologia a pagine di 28 giorni, brief),
+  Tutti i progetti e Nuovo progetto con modello e moduli, nell'app nuova.
+  Migrazioni **0118** (`projects.client_name`, `template`, `modules`: i
+  progetti esistenti diventano Software coi quattro moduli, interni) e
+  **0121** (`projects.next_request_number` e `backlog_items.number`, il
+  numero di catalogo; backfill per `created_at` e `id`, fuse e archiviate
+  comprese — gli stessi numeri che `/api/requests/to-convert` mostrava già —,
+  `UNIQUE (project_id, number)` e il trigger `backlog_items_assign_number`
+  che lo dà a OGNI voce nuova). Env nuove: **nessuna**.
+  **Cambi di comportamento del web vecchio** (stesse rotte):
+  `POST /api/backlog/:id/merge` risponde **502 `merge_failed`** (prima 500)
+  se il modello non risponde o restituisce un documento vuoto, e in quel
+  caso non scrive niente; la fusione ora porta anche i RICHIEDENTI
+  dell'assorbita sulla destinazione (`services/backlog-merge.ts`, la stessa
+  logica di `/api/requests/:id/merge`). Accettare e scartare le proposte
+  dell'intake passa dagli scrittori di `backlog-item-writes.ts`, con la
+  voce in lock: stessa risposta di prima.
+  **PRIMA del deploy, backup del DB.**
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0118 e 0121
+  all'avvio; aspetta healthy e verifica: `select template, modules,
+  client_name from projects limit 5;` (`software`, i quattro moduli,
+  `null`); `select p.code, p.next_request_number, max(b.number) from
+  projects p left join backlog_items b on b.project_id = p.id group by
+  p.id;` (`next_request_number` = massimo + 1, o 1 senza voci); `select
+  count(*) from (select project_id, number from backlog_items group by 1, 2
+  having count(*) > 1) d;` = 0; (3) **`worker`** — il suo codice NON cambia
+  e non serve ribuildarlo: le voci che crea l'intake ricevono il numero dal
+  trigger (verificato dai test dell'intake del worker sul DB con la 0121).
+  Dopo il primo intake: `select number, created_at from backlog_items
+  order by created_at desc limit 1;` ha un numero; (4) **`caddy`** — il
+  bundle `/app` con Requests, Overview e Tutti i progetti.
+  **Dopo il rilascio**: prova a mano su `/app` e sul desktop — una richiesta
+  nuova (e una che l'intake fonde: l'app dice «Unita a R<n>»), «Fondi in…»,
+  «Trasforma in task», la cronologia con «Load older», un Nuovo progetto con
+  un modello diverso da Software.
+  **Rollback** (verso il server della fetta 3): caddy scende **insieme** al
+  server. Le migrazioni non si annullano, e il DB nuovo regge un server
+  vecchio: le colonne della 0118 hanno un default (un INSERT vecchio di
+  `projects` ottiene Software coi quattro moduli), e la 0121 dà il numero
+  anche alle voci che il server vecchio e il worker creano senza nominarlo
+  (il trigger lo mette prima del NOT NULL). `/api/requests/to-convert` della
+  fetta 3 ricava il codice dall'ordine di creazione, che per le voci di
+  prima coincide col numero; per una voce eliminata dopo il rilascio i due
+  possono divergere finché si resta sul server vecchio. Un ritorno pieno
+  allo stato di prima è solo il backup.
