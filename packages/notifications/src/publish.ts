@@ -269,13 +269,26 @@ async function resolveRoutingContext(
   }
   if (audience === "ticket_followers") {
     const members = projectId ? await projectViewerIds(db, projectId) : null;
-    const ticketFollowerIds = opts.ticketId
+    const followerIds = opts.ticketId
       ? await db
           .select({ userId: ticketFollowers.userId })
           .from(ticketFollowers)
           .where(eq(ticketFollowers.ticketId, opts.ticketId))
           .then((rows) => rows.map((r) => r.userId))
       : [];
+    // Un follower riceve solo ciò che VEDE: la regola di `canSeeTicket` del
+    // server — `tickets.view_all` nel progetto (full admin compresi), oppure
+    // è lui ad averla chiesta. Un follow scritto quando la vedeva non basta.
+    const [ticket] = opts.ticketId
+      ? await db
+          .select({ requestedBy: tickets.requestedByUserId })
+          .from(tickets)
+          .where(eq(tickets.id, opts.ticketId))
+      : [];
+    const viewAll = new Set(
+      followerIds.length > 0 ? await userIdsWithPermission(db, "tickets.view_all", projectId) : [],
+    );
+    const ticketFollowerIds = followerIds.filter((id) => viewAll.has(id) || id === ticket?.requestedBy);
     const actor = event.kind === "ticket.activity" ? (event.actorUserId ?? undefined) : undefined;
     return { deciders: [], members, followers: [], ticketFollowers: ticketFollowerIds, actor };
   }

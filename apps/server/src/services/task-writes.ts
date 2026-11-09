@@ -21,7 +21,7 @@ import {
   type TaskViewData,
 } from "@stubwise/shared";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { projectPermissionsFor } from "../auth/access.js";
+import { projectPermissionsFor, projectPermissionsOfUser } from "../auth/access.js";
 import { createTicket, type Ticket } from "../db/tickets.js";
 import { diffTicketEvents, userExists } from "./tickets.js";
 import { loadTaskViews, visibleTasksCondition, type TaskViewer } from "./task-view.js";
@@ -87,6 +87,20 @@ async function firstDepartmentOf(db: Db | Tx, userId: string): Promise<string | 
   return row?.id;
 }
 
+/**
+ * La regola di `canSeeTicket` per un utente qualsiasi (non chi chiede):
+ * `tickets.view_all` nel progetto della task, oppure è lui ad averla chiesta.
+ */
+async function canUserSeeTicket(db: Db | Tx, userId: string, ticketId: string): Promise<boolean> {
+  const [ticket] = await db
+    .select({ projectId: tickets.projectId, requestedBy: tickets.requestedByUserId })
+    .from(tickets)
+    .where(eq(tickets.id, ticketId));
+  if (!ticket) return false;
+  const permissions = await projectPermissionsOfUser(db as Db, userId, ticket.projectId);
+  return permissions !== null && (permissions.has("tickets.view_all") || ticket.requestedBy === userId);
+}
+
 async function follow(db: Db | Tx, ticketId: string, userIds: (string | null | undefined)[]): Promise<void> {
   const ids = [...new Set(userIds.filter((id): id is string => !!id))];
   if (ids.length === 0) return;
@@ -145,7 +159,11 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
       effort: effortFromSize(body.size ?? null),
       milestoneId: body.milestoneId ?? null,
     });
-    await follow(tx, ticket.id, [viewer.id, body.assigneeId]);
+    // Chi crea vede la task (l'ha chiesta lui); l'assegnatario segue solo se la vede.
+    await follow(tx, ticket.id, [
+      viewer.id,
+      body.assigneeId && (await canUserSeeTicket(tx, body.assigneeId, ticket.id)) ? body.assigneeId : null,
+    ]);
     if (body.requestId) {
       await tx
         .insert(backlogItemTickets)
@@ -206,7 +224,11 @@ export async function applyTaskPatch(
   if (events.length > 0) {
     await tx.insert(ticketEvents).values(events.map((e) => ({ ...e, ticketId: current.id, actorId })));
   }
-  if (updates.assigneeId) await follow(tx, current.id, [updates.assigneeId]);
+  // Assegnare resta permesso anche a chi non vede la task (lo dice
+  // `assigneeWithoutAccess`), ma un follower riceve solo ciò che vede.
+  if (updates.assigneeId && (await canUserSeeTicket(tx, updates.assigneeId, current.id))) {
+    await follow(tx, current.id, [updates.assigneeId]);
+  }
 
   // I follower sanno dei cambi UMANI di stato e assegnatario (Task 9). Il
   // `summary` è un dato (nome dello stato, nome della persona), la frase la

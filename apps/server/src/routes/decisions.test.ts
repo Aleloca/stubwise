@@ -221,6 +221,27 @@ describe("notifiche ai follower", () => {
     ]);
   });
 
+  it("un Contributor assegnato a una task altrui non riceve ticket.activity", async () => {
+    const contributor = await createUserWithSession(app, `contributor-${n}@example.com`);
+    await addMember(app, projectId, contributor.id, "contributor");
+    const ticketId = await task();
+    // Assegnare resta permesso, ma chi non vede la task (senza tickets.view_all,
+    // e non è lui ad averla chiesta) non ne diventa follower…
+    const patch = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${ticketId}`,
+      headers: { cookie: users.memberCookie },
+      payload: { assigneeId: contributor.id },
+    });
+    expect(patch.statusCode).toBe(200);
+    const followers = await testDb.db.select().from(ticketFollowers).where(eq(ticketFollowers.ticketId, ticketId));
+    expect(followers.map((f) => f.userId)).not.toContain(contributor.id);
+    // …e anche un follow di prima (scritto quando la vedeva) non gli porta card.
+    await testDb.db.insert(ticketFollowers).values({ ticketId, userId: contributor.id });
+    await post(`/api/tickets/${ticketId}/comments`, { body: "Aggiornamento" });
+    expect((await notificationsOf(contributor.id, "ticket.activity")).filter((x) => x.ticketId === ticketId)).toHaveLength(0);
+  });
+
   it("la pipeline che porta a in_review non notifica i follower", async () => {
     const ticketId = await task();
     await testDb.db.insert(ticketFollowers).values({ ticketId, userId: third.id });

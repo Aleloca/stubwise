@@ -49,3 +49,19 @@ Task 2. Migrazione: `packages/db/drizzle/0108_project_statuses.sql`. Test:
   task non si elimina, ma eliminare un progetto porta via stati e task nello
   stesso statement (RESTRICT controllerebbe prima della cascata sulle task).
 - **L'enum si toglie col ritiro del web vecchio**, non prima.
+
+## I follower ricevono solo ciò che vedono (9 nov 2026)
+
+- **`ticket.activity` va ai follower che VEDONO la task**, con la regola di
+  `canSeeTicket`: `tickets.view_all` nel progetto (full admin compresi),
+  oppure chi l'ha chiesta. Il filtro sta nel routing
+  (`packages/notifications/src/publish.ts`, ramo `ticket_followers`), quindi
+  un follow scritto quando la vedeva non basta, e chi ha perso
+  `tickets.view_all` smette di ricevere card a lettura del permesso.
+- **Assegnare a chi non vede la task resta permesso** (il web lo dice con
+  `assigneeWithoutAccess`), ma l'assegnatario ne diventa follower solo se la
+  vede (`services/task-writes.ts`).
+- **Il testo di un commento non entra mai nell'evento**: `ticket.activity`
+  di un commento porta solo `commentId`, e l'estratto lo deriva a lettura
+  l'inbox (un commento eliminato si legge «comment deleted»). Push e Slack
+  dicono solo «New comment on <ref>».
