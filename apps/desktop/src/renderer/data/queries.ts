@@ -544,8 +544,9 @@ export function usePersonalHome() {
  */
 export function useHome() {
   const me = useSessionPersonId();
-  // [R 22]: «Releases» nella Home non personalizzata di chi può rilasciare.
-  const canRelease = can(useViewer().viewer, "release.merge");
+  // [R 22]: «Releases» nella Home non personalizzata di chi può rilasciare,
+  // dove i rilasci sono integrati (nella build app non ancora: fetta 3).
+  const canRelease = can(useViewer().viewer, "release.merge") && featureIntegrated("releases");
   const people = usePeople();
   const homes = useDepartmentHomes();
   const personal = usePersonalHome();
@@ -1576,18 +1577,23 @@ export function useClaudeDecisions() {
   const me = useSessionPersonId();
   const client = useQueryClient();
   useConversationChanges();
+  // Claude (area 3) non è integrato nella build app: niente lettura né ascolto.
+  const on = featureIntegrated("claude");
   // 11b: anche una domanda di Claude sulla doc di prodotto nata o chiusa,
   // da chiunque (il motore, un'altra persona).
   useEffect(
     () =>
-      api.productDocs.onProductQuestionsChanged(() => {
-        void client.invalidateQueries({ queryKey: queryKeys.claudeDecisions(me) });
-      }),
-    [client, me],
+      on
+        ? api.productDocs.onProductQuestionsChanged(() => {
+            void client.invalidateQueries({ queryKey: queryKeys.claudeDecisions(me) });
+          })
+        : undefined,
+    [client, me, on],
   );
   return useQuery({
     queryKey: queryKeys.claudeDecisions(me),
     queryFn: api.listClaudeDecisions,
+    enabled: on,
   });
 }
 
@@ -2045,7 +2051,11 @@ export function useChatMentions() {
 export function useChatQuestions() {
   const me = useSessionPersonId();
   useChatChanges();
-  return useQuery({ queryKey: queryKeys.chatQuestions(me), queryFn: api.chat.listQuestions });
+  return useQuery({
+    queryKey: queryKeys.chatQuestions(me),
+    queryFn: api.chat.listQuestions,
+    enabled: featureIntegrated("chat"),
+  });
 }
 
 /**
@@ -2264,6 +2274,7 @@ export function useChatClaudeQuestions() {
   return useQuery({
     queryKey: queryKeys.chatClaudeQuestions(me),
     queryFn: api.chat.listClaudeQuestions,
+    enabled: featureIntegrated("chat"),
   });
 }
 
@@ -3576,6 +3587,8 @@ export function useAutomations(filter: AutomationListFilter = {}) {
   return useQuery({
     queryKey: queryKeys.automations(me, filter),
     queryFn: () => api.automations.listAutomations(filter),
+    // Anche il contesto dei blocchi della Home la chiede: nella build app non parte.
+    enabled: featureIntegrated("automations"),
   });
 }
 
