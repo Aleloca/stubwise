@@ -17,7 +17,7 @@ import {
   type HomeBlock,
   type MeHomeView,
 } from "@stubwise/shared";
-import { and, asc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { SessionUser } from "../auth/session.js";
 
@@ -93,15 +93,24 @@ export type BlockError = "filter_not_visible" | "filter_not_public";
  * I blocchi `filter` devono nominare un filtro che chi scrive vede; nella
  * Home di un reparto (`publicOnly`) anche pubblico. Un filtro eliminato o
  * reso privato DOPO resta nella Home come blocco «non disponibile»: il
- * controllo è solo in scrittura.
+ * controllo è solo in scrittura, e solo sui filtri che la Home non aveva.
  */
 export async function blockError(
   db: Db,
   viewer: Viewer,
   blocks: HomeBlock[],
-  opts: { publicOnly: boolean },
+  opts: { publicOnly: boolean; known: readonly string[] },
 ): Promise<BlockError | null> {
-  const ids = [...new Set(blocks.flatMap((b) => (b.kind === "filter" && b.filterId ? [b.filterId] : [])))];
+  // Solo i filtri NUOVI rispetto alla Home già salvata (fix della review
+  // della fetta 3): un blocco di un filtro eliminato o reso privato resta
+  // «non disponibile», il client lo rimanda a ogni scrittura, e non deve
+  // bloccare il riordino o l'aggiunta di altri blocchi.
+  const known = new Set(opts.known);
+  const ids = [
+    ...new Set(
+      blocks.flatMap((b) => (b.kind === "filter" && b.filterId && !known.has(b.filterId) ? [b.filterId] : [])),
+    ),
+  ];
   if (ids.length === 0) return null;
   if (ids.some((id) => !z.uuid().safeParse(id).success)) return "filter_not_visible";
   const rows = await db
@@ -155,22 +164,38 @@ export async function resetPersonalHome(db: Db, viewer: Viewer): Promise<void> {
   });
 }
 
-/** «Vedi le novità»: chi ha la Home personale ha visto l'ultima modifica di quella del reparto. */
-export async function markDepartmentHomeSeen(db: Db, viewer: Viewer, departmentId: string): Promise<void> {
-  const [[personal], [home]] = await Promise.all([
+/**
+ * «Vedi le novità»: chi ha la Home personale ha visto la Home del reparto
+ * fino alla versione che il CLIENT ha mostrato (`seenUpdatedAt`, fix della
+ * review della fetta 3): si salva la minore fra quella e l'ultima scritta, così
+ * una modifica arrivata mentre guardava resta «cambiata». Mai all'indietro.
+ * Un reparto di cui non si è membri non si segna.
+ */
+export async function markDepartmentHomeSeen(
+  db: Db,
+  viewer: Viewer,
+  departmentId: string,
+  seenUpdatedAt: Date,
+): Promise<void> {
+  const [[personal], [home], [member]] = await Promise.all([
     db.select({ userId: personalHomes.userId }).from(personalHomes).where(eq(personalHomes.userId, viewer.id)),
     db
       .select({ updatedAt: departmentHomes.updatedAt })
       .from(departmentHomes)
       .where(eq(departmentHomes.departmentId, departmentId)),
+    db
+      .select({ id: departmentMembers.userId })
+      .from(departmentMembers)
+      .where(and(eq(departmentMembers.departmentId, departmentId), eq(departmentMembers.userId, viewer.id))),
   ]);
-  if (!personal || !home) return;
+  if (!personal || !home || !member) return;
+  const seenAt = seenUpdatedAt.getTime() < home.updatedAt.getTime() ? seenUpdatedAt : home.updatedAt;
   await db
     .insert(personalHomeSeen)
-    .values({ userId: viewer.id, departmentId, seenAt: home.updatedAt })
+    .values({ userId: viewer.id, departmentId, seenAt })
     .onConflictDoUpdate({
       target: [personalHomeSeen.userId, personalHomeSeen.departmentId],
-      set: { seenAt: home.updatedAt },
+      set: { seenAt: sql`greatest(${personalHomeSeen.seenAt}, excluded.seen_at)` },
     });
 }
 
@@ -212,7 +237,12 @@ export async function departmentPermissionsMap(db: Db, userId: string): Promise<
   return Object.fromEntries(rows.filter((r) => r.permissions.length > 0).map((r) => [r.departmentId, r.permissions]));
 }
 
-/** Solo `kind` e `filterId`: niente campi in più nel jsonb. */
+/** Solo `kind` e, per un blocco filtro, `filterId`: niente campi in più nel jsonb. */
 function stored(b: HomeBlock): StoredHomeBlock {
-  return b.filterId !== undefined ? { kind: b.kind, filterId: b.filterId } : { kind: b.kind };
+  return b.kind === "filter" && b.filterId !== undefined ? { kind: b.kind, filterId: b.filterId } : { kind: b.kind };
+}
+
+/** I filtri nominati da una lista di blocchi: quelli «già noti» di una Home salvata. */
+export function filterIdsOf(blocks: readonly { kind: string; filterId?: string }[]): string[] {
+  return blocks.flatMap((b) => (b.kind === "filter" && b.filterId ? [b.filterId] : []));
 }

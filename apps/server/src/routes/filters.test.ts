@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { taskFilters, tickets } from "@stubwise/db";
+import { pinnedTaskFilters, taskFilters, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { parseCriteria, savedFilterViewSchema, taskListResponseSchema, type SavedFilterView } from "@stubwise/shared";
@@ -229,4 +229,34 @@ describe("filtri salvati", () => {
     expect(res.statusCode, res.body).toBe(200);
     expect(savedFilterViewSchema.parse(res.json()).criteria).toEqual({ families: ["todo"] });
   });
+
+  it("un tetto di 200 filtri per persona → 400 too_many_filters (fix fetta 3)", async () => {
+    const heavy = await createUserWithSession(app, "tanti@example.com");
+    await testDb.db.insert(taskFilters).values(
+      Array.from({ length: 200 }, (_, i) => ({
+        ownerId: heavy.id,
+        name: `F${i}`,
+        visibility: "private" as const,
+        criteria: {},
+        view: "list" as const,
+        groupBy: "none" as const,
+      })),
+    );
+    const res = await call("POST", "/api/filters", heavy.headers.cookie, body());
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "too_many_filters" });
+  });
+
+  it("pin concorrenti: posizioni distinte, nell'ordine in cui sono arrivati (fix fetta 3)", async () => {
+    const racer = await createUserWithSession(app, "corsa@example.com");
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) ids.push((await create(racer.headers.cookie, { name: `R${i}` })).id);
+    await Promise.all(ids.map((id) => call("PUT", `/api/me/pinned-filters/${id}`, racer.headers.cookie)));
+    const rows = await testDb.db
+      .select({ position: pinnedTaskFilters.position })
+      .from(pinnedTaskFilters)
+      .where(eq(pinnedTaskFilters.userId, racer.id));
+    expect(new Set(rows.map((r) => r.position)).size).toBe(6);
+  });
 });
+

@@ -9,6 +9,7 @@ import {
   blockError,
   canManageDepartmentHome,
   departmentHomeOf,
+  filterIdsOf,
   markDepartmentHomeSeen,
   meHome,
   resetPersonalHome,
@@ -55,7 +56,9 @@ export async function homeRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const viewer = request.user!;
-      const error = await blockError(app.db, viewer, request.body.blocks, { publicOnly: false });
+      // Già noti: i blocchi della Home che chi scrive ha ora (la personale, o la risolta dei reparti).
+      const known = filterIdsOf((await meHome(app.db, viewer)).blocks);
+      const error = await blockError(app.db, viewer, request.body.blocks, { publicOnly: false, known });
       if (error) return apiError(reply, 400, error, BLOCK_MESSAGES[error]);
       await setPersonalHome(app.db, viewer, request.body.blocks);
       return meHome(app.db, viewer);
@@ -78,10 +81,15 @@ export async function homeRoutes(fastify: FastifyInstance): Promise<void> {
     "/me/home/seen/:departmentId",
     {
       config: { access: { kind: "user" } },
-      schema: { params: departmentParams, response: { 204: z.null(), ...authErrorResponses } },
+      schema: {
+        params: departmentParams,
+        // L'`updatedAt` della Home del reparto che il client ha mostrato.
+        body: z.object({ updatedAt: z.iso.datetime() }),
+        response: { 204: z.null(), ...authErrorResponses },
+      },
     },
     async (request, reply) => {
-      await markDepartmentHomeSeen(app.db, request.user!, request.params.departmentId);
+      await markDepartmentHomeSeen(app.db, request.user!, request.params.departmentId, new Date(request.body.updatedAt));
       return reply.code(204).send(null);
     },
   );
@@ -124,7 +132,8 @@ export async function homeRoutes(fastify: FastifyInstance): Promise<void> {
       if (!(await canManageDepartmentHome(app.db, viewer, departmentId))) {
         return apiError(reply, 403, "forbidden", "You cannot manage this department's Home");
       }
-      const error = await blockError(app.db, viewer, request.body.blocks, { publicOnly: true });
+      const known = filterIdsOf((await departmentHomeOf(app.db, departmentId)).blocks);
+      const error = await blockError(app.db, viewer, request.body.blocks, { publicOnly: true, known });
       if (error) return apiError(reply, 400, error, BLOCK_MESSAGES[error]);
       return setDepartmentHome(app.db, viewer, departmentId, request.body.blocks);
     },

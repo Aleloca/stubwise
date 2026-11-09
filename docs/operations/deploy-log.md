@@ -2935,3 +2935,56 @@ deploy o di un rollback che la tocca.
   ripristinato a mano con la stessa `update` della 0114). Settimane,
   slittamenti e sistemazioni restano in DB e il server vecchio li ignora.
   Un ritorno pieno allo stato di prima è solo il backup.
+- **«Integrazione area 2, fetta 3» (10 nov 2026)**: design
+  `docs/plans/2026-11-09-integrazione-area2-fetta3-design.md`, piano
+  `docs/plans/2026-11-09-integrazione-area2-fetta3-plan.md`. Home a blocchi
+  (di reparto e personale), ruoli di reparto (`department.home.manage`),
+  filtri salvati e fissati, richieste da trasformare, nell'app nuova.
+  Migrazioni **0116** (`task_filters` e `pinned_task_filters`, con i cinque
+  filtri pubblici di esempio del prototipo, di nessuno, creati UNA volta nella
+  migrazione con `seed_key`; `saved_views` del web vecchio intatta), **0117**
+  (`department_roles`, `department_homes` con la Home d'apertura di ogni
+  reparto esistente — decide, myWeek, myTasks, claudeForMe,
+  stalledInMyProjects —, `personal_homes`, `personal_home_seen`). Con questo
+  rilascio arrivano anche due correzioni della fetta 2: **0119** (il trigger
+  `tickets_reset_day_arrangements` confronta la settimana EFFETTIVA e
+  l'assegnatario, e scatta anche su `closed_at`) e **0120**
+  (`tickets_assignee_planned_week_idx` ricreato su tutte le task, non più
+  parziale). Env nuove: **nessuna**.
+  **PRIMA del deploy, backup del DB.**
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0116–0120
+  all'avvio; aspetta healthy e verifica: `select count(*) from task_filters
+  where seed_key is not null;` = 5; `select (select count(*) from
+  department_homes) = (select count(*) from departments);` = true (i reparti
+  creati DOPO il rilascio non hanno una Home finché qualcuno non la imposta:
+  è voluto); `select to_regclass('pinned_task_filters'),
+  to_regclass('department_roles'), to_regclass('personal_home_seen');`
+  (nessun `null`); `select pg_get_functiondef('tickets_reset_day_arrangements'::regproc)
+  like '%stubwise_effective_week%';` = true; `select indexdef from
+  pg_indexes where indexname = 'tickets_assignee_planned_week_idx';` (senza
+  `WHERE`); (3) **`worker`**: nessun codice suo cambia, non serve
+  ribuildarlo; (4) **`caddy`** — il bundle `/app` con Home, filtri e
+  richieste.
+  **Dopo il rilascio**: prova a mano su `/app` e sul desktop — una Home
+  personalizzata (riordino, un filtro aggiunto, «Ripristina»), la Home di un
+  reparto da chi ha `department.home.manage` (dato dalla pagina Reparti,
+  senza riconferma), un filtro salvato e fissato, «Trasforma in task» da una
+  richiesta.
+  **Rollback** (verso il server della fetta 2): caddy scende **insieme** al
+  server (il bundle chiama `/api/filters`, `/api/me/home`,
+  `/api/departments/:id/home|roles`, `/api/requests/to-convert`). È
+  **sicuro**: 0116 e 0117 creano solo tabelle nuove, che il server vecchio
+  non nomina; `/api/auth/me` perde solo `departmentPermissions`, che ha un
+  default. Le tabelle restano: i cinque filtri di esempio e le Home
+  d'apertura NON si ricreano risalendo (le migrazioni non rigirano), e ciò
+  che le persone hanno salvato nel frattempo resta. 0119 e 0120 restano
+  anche col server vecchio, e vanno bene così: il trigger corretto e
+  l'indice completo non chiedono niente al codice. Un ritorno pieno allo
+  stato di prima è solo il backup.
+  **App mobile — fix del reader (`d33e0569`, in questo rilascio)**:
+  `readerSchema` leggeva un record con chiavi enum come record ESAUSTIVO,
+  così `milestoneCountsSchema.byStatus` non passava mai il parse e
+  `projects.milestones` (i traguardi del progetto nell'app) falliva su ogni
+  risposta con traguardi. Il fix è nel codice dell'app: l'app installata
+  lo riceve **solo con una build nuova** (`apps/mobile/README.md`, build e
+  distribuzione a mano); il server non c'entra.

@@ -34,6 +34,8 @@ beforeAll(async () => {
   ({ projectId } = await seedRepository(testDb.db));
   ({ projectId: viewerOnlyProjectId } = await seedRepository(testDb.db));
   ({ projectId: hiddenProjectId } = await seedRepository(testDb.db));
+  // Le richieste da trasformare sono dei progetti col backlog acceso.
+  await testDb.db.update(projects).set({ backlogEnabled: true });
   await addMember(app, projectId, users.memberId, "developer");
   await addMember(app, viewerOnlyProjectId, users.memberId, "viewer");
   [{ code: projectCode }] = (await testDb.db
@@ -115,6 +117,7 @@ describe("GET /api/requests/to-convert", () => {
   it("senza backlog.view_all nel progetto, solo le richieste di cui si è richiedenti", async () => {
     const contributor = await createUserWithSession(app, "contributor@example.com");
     const { projectId: pid } = await seedRepository(testDb.db);
+    await testDb.db.update(projects).set({ backlogEnabled: true }).where(eq(projects.id, pid));
     await addMember(app, pid, contributor.id, "contributor");
     const others = await item(pid, "new");
     const own = await item(pid, "new");
@@ -126,4 +129,14 @@ describe("GET /api/requests/to-convert", () => {
   it("senza sessione → 401", async () => {
     expect((await app.inject({ method: "GET", url: "/api/requests/to-convert" })).statusCode).toBe(401);
   });
+
+  it("un progetto col backlog spento non ha richieste da trasformare (fix fetta 3)", async () => {
+    const { projectId: off } = await seedRepository(testDb.db);
+    await addMember(app, off, users.memberId, "developer");
+    const hiddenByToggle = await item(off, "new");
+    expect((await list(users.memberCookie)).some((r) => r.id === hiddenByToggle)).toBe(false);
+    await testDb.db.update(projects).set({ backlogEnabled: true }).where(eq(projects.id, off));
+    expect((await list(users.memberCookie)).some((r) => r.id === hiddenByToggle)).toBe(true);
+  });
 });
+
