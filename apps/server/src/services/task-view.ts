@@ -17,6 +17,7 @@ import {
   WEEK_TIME_ZONE,
   canMove,
   mondayToIsoWeek,
+  periodRange,
   sizeFromEffort,
   stallOf,
   uiTypeOf,
@@ -71,10 +72,6 @@ export async function visibleTasksCondition(db: Db, viewer: TaskViewer): Promise
   return conditions.length > 0 ? and(...conditions) : undefined;
 }
 
-const DAY_MS = 86_400_000;
-const isoDay = (d: Date) => d.toISOString().slice(0, 10);
-const shift = (date: string, days: number) => isoDay(new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS));
-
 /**
  * Oggi del server, come data nel fuso della settimana (`WEEK_TIME_ZONE`,
  * Europe/Rome): lo stesso giorno di `stubwise_current_monday()` nel DB, così
@@ -90,32 +87,14 @@ export function serverToday(now: Date = new Date()): string {
   }).format(now);
 }
 
-/** Lo stesso calcolo di `periodRange` del prototipo (`domain/filters.ts`). */
-function periodRange(q: TaskListQuery, today: string): { from: string; to: string } | null {
+/**
+ * L'intervallo del periodo di una query: assoluto se ci sono gli estremi,
+ * altrimenti il preset con `periodRange` di `@stubwise/shared` (lo stesso del
+ * finto e dell'app: una regola, un posto).
+ */
+function queryPeriodRange(q: TaskListQuery, today: string): { from: string; to: string } | null {
   if (q.periodFrom && q.periodTo) return { from: q.periodFrom, to: q.periodTo };
-  const monday = (date: string) => shift(date, -((new Date(`${date}T00:00:00Z`).getUTCDay() || 7) - 1));
-  const month = (offset: number) => {
-    const d = new Date(`${today}T00:00:00Z`);
-    const first = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + offset, 1));
-    const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0));
-    return { from: isoDay(first), to: isoDay(last) };
-  };
-  switch (q.periodPreset) {
-    case "last7":
-      return { from: shift(today, -6), to: today };
-    case "last30":
-      return { from: shift(today, -29), to: today };
-    case "thisWeek":
-      return { from: monday(today), to: shift(monday(today), 6) };
-    case "nextWeek":
-      return { from: shift(monday(today), 7), to: shift(monday(today), 13) };
-    case "thisMonth":
-      return month(0);
-    case "lastMonth":
-      return month(-1);
-    default:
-      return null;
-  }
+  return q.periodPreset ? periodRange({ kind: "relative", preset: q.periodPreset }, today) : null;
 }
 
 const DB_TYPES_FOR_UI: Record<string, TicketType[]> = {
@@ -156,7 +135,7 @@ export function taskFilterConditions(q: TaskListQuery, today: string): SQL[] {
     );
   }
   if (q.periodField) {
-    const range = periodRange(q, today);
+    const range = queryPeriodRange(q, today);
     if (range) {
       if (q.periodField === "created") {
         c.push(gte(sql`(${tickets.createdAt} at time zone 'UTC')::date`, sql`${range.from}::date`));

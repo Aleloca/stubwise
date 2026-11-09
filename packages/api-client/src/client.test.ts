@@ -306,6 +306,52 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     ]);
   });
 
+  it("filtri salvati: filters.* e i fissati", async () => {
+    const FILTER = {
+      id: "00000000-0000-4000-8000-000000000001",
+      name: "Open",
+      ownerId: null,
+      visibility: "public",
+      criteria: { families: ["todo", "active"] },
+      view: "list",
+      groupBy: "status",
+      createdAt: "2026-11-09T00:00:00.000Z",
+      updatedAt: "2026-11-09T00:00:00.000Z",
+    };
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, init!.body ? JSON.parse(init!.body as string) : undefined]);
+      const path = new URL(url as string).pathname;
+      if (init!.method === "DELETE" || init!.method === "PUT") return new Response(null, { status: 204 });
+      if (path === "/api/me/pinned-filters") return jsonResponse(200, [FILTER.id]);
+      if (path === "/api/filters" && init!.method === "GET") return jsonResponse(200, [FILTER]);
+      return jsonResponse(init!.method === "POST" ? 201 : 200, FILTER);
+    });
+    const c = clientWith(fetchImpl);
+    const base = "https://stubwise.example";
+    const [listed] = await c.filters.list();
+    // canEdit assente da un server più vecchio: false, non undefined.
+    expect(listed!.canEdit).toBe(false);
+    expect((await c.filters.get(FILTER.id)).name).toBe("Open");
+    const body = { name: "Mie", visibility: "private" as const, criteria: { stalled: true }, view: "board" as const, groupBy: "none" as const };
+    await c.filters.create(body);
+    await c.filters.update(FILTER.id, { name: "Rinominato" });
+    await c.filters.remove(FILTER.id);
+    expect(await c.filters.pinned()).toEqual([FILTER.id]);
+    await c.filters.pin(FILTER.id);
+    await c.filters.unpin(FILTER.id);
+    expect(calls).toEqual([
+      ["GET", `${base}/api/filters`, undefined],
+      ["GET", `${base}/api/filters/${FILTER.id}`, undefined],
+      ["POST", `${base}/api/filters`, body],
+      ["PATCH", `${base}/api/filters/${FILTER.id}`, { name: "Rinominato" }],
+      ["DELETE", `${base}/api/filters/${FILTER.id}`, undefined],
+      ["GET", `${base}/api/me/pinned-filters`, undefined],
+      ["PUT", `${base}/api/me/pinned-filters/${FILTER.id}`, undefined],
+      ["DELETE", `${base}/api/me/pinned-filters/${FILTER.id}`, undefined],
+    ]);
+  });
+
   it("departments.remove: DELETE con moveTasksTo in query", async () => {
     const fetchImpl = mockFetch(async () => new Response(null, { status: 204 }));
     const client = clientWith(fetchImpl);
