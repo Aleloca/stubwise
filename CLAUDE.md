@@ -391,6 +391,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Secondo fattore sul login» (23 ott 2026)
   - «Cassaforte delle credenziali» (23 ott 2026)
   - «Integrazione area 2, fetta 1» (9 nov 2026)
+  - «Integrazione area 2, fetta 2» (9 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -484,10 +485,13 @@ una voce ti riguarda.
   - Il tetto per account non tocca sessioni e token aperti.
   - `security.alert` ignora le preferenze e va solo all'interessato.
   - Admin che azzera un pari grado: accettato, registrato e avvisato (decisione del 23 ott 2026).
-- **Task: stati per progetto → `docs/invariants/tasks.md`** (9 nov 2026):
+- **Task: stati per progetto, settimana e slittamento → `docs/invariants/tasks.md`** (9 nov 2026):
   - Lo stato vero è `status_id`; l'enum `tickets.status` lo tiene coerente il trigger `tickets_status_sync`, in UN posto: nessun codice scrive la mappatura a mano.
   - Uno scrittore vecchio dell'enum non sposta mai una task indietro, né fuori dalla sua famiglia se c'è già.
   - L'enum si toglie col ritiro del web vecchio.
+  - La settimana pianificata è un lunedì; la settimana corrente è nel fuso Europe/Rome, in una funzione SQL e una TS (fetta 2).
+  - Lo slittamento si DERIVA a lettura, nessun job lo scrive; il trigger `tickets_consolidate_slip` lo consolida quando cambia la settimana.
+  - Le sistemazioni per giorno sono PERSONALI dell'assegnatario e valgono per quella settimana effettiva e quell'assegnatario.
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:
