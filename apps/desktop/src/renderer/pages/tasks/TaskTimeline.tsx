@@ -10,6 +10,7 @@ import { FamilySign } from "../../tasks-ui/StatusLabel";
 import { TaskRow, formatDue } from "../../tasks-ui/TaskRow";
 import { groupTasks, type GroupContext } from "./grouping";
 import { shortWeek } from "./pickers";
+import { useCurrentWeek } from "../../data/clock";
 
 /** Larghezza di una settimana sull'asse: un giorno = 1/7. */
 const WEEK_W = 96;
@@ -228,7 +229,7 @@ export function TaskTimeline({
   const visibleMilestones = milestones.filter(
     (m) => m.dueDate && m.dueDate >= rangeStart && m.dueDate < rangeEnd,
   );
-  const thisWeek = currentWeek();
+  const thisWeek = useCurrentWeek();
 
   return (
     <div className="pb-6">

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { isoWeek, TODAY } from "@backend/clock";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
@@ -142,11 +142,8 @@ describe("le scritture della pianificazione", () => {
 });
 
 describe("il Planning della build app", () => {
-  it("planTask 403 riporta indietro l'ottimistico con il messaggio", async () => {
-    server({
-      [`POST /api/tasks/${TICKET_ID}/plan`]: { status: 403, body: { code: "forbidden", message: "x" } },
-    });
-    renderRoute("/p/AUD/planning");
+  /** «P» sulla carta AUD-12 della vasca, poi Bruno Neri nella settimana corrente. */
+  async function planToBruno() {
     const el = await chip("AUD-12");
     expect(placesOf("AUD-12")).toEqual(["pool"]);
     el.focus();
@@ -155,8 +152,60 @@ describe("il Planning della build app", () => {
     fireEvent.click(within(menu).getByRole("menuitemradio", { name: /Bruno Neri/ }));
     const weeks = await screen.findByRole("menu", { name: "Plan AUD-12 for Bruno Neri" });
     fireEvent.click(within(weeks).getByRole("menuitemradio", { name: new RegExp(`^${SHORT} `) }));
-    expect(await screen.findByText("Couldn't move AUD-12. It's back where it was.")).toBeInTheDocument();
+  }
+
+  it("planTask 403 riporta indietro l'ottimistico con il messaggio del rifiuto, senza «Try again»", async () => {
+    server({
+      [`POST /api/tasks/${TICKET_ID}/plan`]: { status: 403, body: { code: "forbidden", message: "x" } },
+    });
+    renderRoute("/p/AUD/planning");
+    await planToBruno();
+    expect(
+      await screen.findByText("You can't move AUD-12: only its assignee or someone who plans for others can."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     await waitFor(() => expect(placesOf("AUD-12")).toEqual(["pool"]));
+  });
+
+  it("planTask 400 invalid_assignee e past_week: la loro frase", async () => {
+    server({
+      [`POST /api/tasks/${TICKET_ID}/plan`]: { status: 400, body: { code: "invalid_assignee", message: "x" } },
+    });
+    renderRoute("/p/AUD/planning");
+    await planToBruno();
+    expect(await screen.findByText("AUD-12 can only go to a member of its project.")).toBeInTheDocument();
+    cleanup();
+    clearToasts();
+    server({
+      [`POST /api/tasks/${TICKET_ID}/plan`]: { status: 400, body: { code: "past_week", message: "x" } },
+    });
+    renderRoute("/p/AUD/planning");
+    await planToBruno();
+    expect(await screen.findByText("AUD-12 can't be planned in a week that's over.")).toBeInTheDocument();
+  });
+
+  it("un errore del server che non è un rifiuto: il messaggio di prima e «Try again»", async () => {
+    server({
+      [`POST /api/tasks/${TICKET_ID}/plan`]: { status: 500, body: { code: "internal", message: "x" } },
+    });
+    renderRoute("/p/AUD/planning");
+    await planToBruno();
+    expect(await screen.findByText("Couldn't move AUD-12. It's back where it was.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("setDay 409 not_in_week: la sua frase", async () => {
+    server({
+      "GET /api/tasks": { body: { items: [serverTask({ assigneeId: ME_ID, plannedWeek: WEEK })], truncated: false } },
+      [`PUT /api/tasks/${TICKET_ID}/day`]: { status: 409, body: { code: "not_in_week", message: "x" } },
+    });
+    renderRoute("/home?view=week");
+    const card = await screen.findByRole("button", { name: /^AUD-12 / });
+    card.focus();
+    fireEvent.keyDown(card, { key: " " });
+    fireEvent.keyDown(card, { key: "ArrowRight" });
+    fireEvent.keyDown(card, { key: " " });
+    expect(await screen.findByText("AUD-12 isn't in this week any more.")).toBeInTheDocument();
   });
 
   it("canPlan del server decide la sola lettura", async () => {

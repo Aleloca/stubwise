@@ -61,8 +61,8 @@ function forgetClientCaches(): void {
 
 /**
  * I permessi di chi è dentro, calcolati dal server per progetto
- * (`docs/invariants/permissions.md`: il client li legge, non li deduce). I
- * permessi di reparto arrivano con la fetta 3.
+ * (`docs/invariants/permissions.md`: il client li legge, non li deduce), e
+ * dalla fetta 3 quelli di reparto (`department.home.manage`).
  */
 export const getViewer: typeof Fake.getViewer = async () => {
   const me = await (lastMe ?? appClient().auth.me());
@@ -70,7 +70,7 @@ export const getViewer: typeof Fake.getViewer = async () => {
     personId: me.user.id,
     instancePermissions: me.instancePermissions,
     projectPermissions: me.projectPermissions,
-    departmentPermissions: {},
+    departmentPermissions: me.departmentPermissions ?? {},
   } as Viewer;
 };
 

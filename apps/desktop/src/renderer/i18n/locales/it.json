@@ -1494,6 +1494,7 @@
       "turnIntoTaskLabel": "Trasforma in task: {{title}}",
       "created": "{{code}} creata dalla richiesta.",
       "openRequest": "Apri la richiesta {{title}}",
+      "openRequestInWeb": "Apri {{title}} nel web",
       "claude": {
         "asks": "Claude chiede",
         "plan": "Il piano di Claude aspetta la tua approvazione",
@@ -1805,7 +1806,13 @@
     "emptyMembers": "Nessuno nel progetto, per ora",
     "emptyMembersBody": "Le persone compaiono qui quando sono membri del progetto.",
     "emptyDepartment": "Nessuno in questo reparto",
-    "emptyDepartmentBody": "Scegli un altro reparto, o chiedi a un amministratore di aggiungere persone a questo."
+    "emptyDepartmentBody": "Scegli un altro reparto, o chiedi a un amministratore di aggiungere persone a questo.",
+    "refused": {
+      "forbidden": "Non puoi spostare {{code}}: può farlo solo chi ce l'ha o chi pianifica per gli altri.",
+      "invalid_assignee": "{{code}} può andare solo a un membro del suo progetto.",
+      "past_week": "{{code}} non si può pianificare in una settimana già finita.",
+      "not_in_week": "{{code}} non è più in questa settimana."
+    }
   },
   "requests": {
     "intro": "Idee e bisogni per {{project}}. Chiunque nel progetto può mandarne una; il team decide cosa diventa una task.",

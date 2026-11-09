@@ -27,6 +27,8 @@ export interface BlockDef {
    * `useBlockContext`).
    */
   available(viewer: Viewer, ctx?: BlockContext): boolean;
+  /** L'area del blocco, se non è dell'area 2: finché non è integrata il blocco è nascosto (`isHiddenBlock`). */
+  area?: string;
 }
 
 /** Ciò che serve sapere dai dati per decidere se un blocco c'è; `undefined` = ancora in lettura. */
@@ -49,8 +51,21 @@ const always = () => true;
  * quindi non legge niente (integrazione area 2, fetta 3). Nel prototipo vale
  * solo `available`.
  */
-function ofArea(area: string, available: BlockDef["available"]): BlockDef["available"] {
-  return (viewer, ctx) => featureIntegrated(area) && available(viewer, ctx);
+function ofArea(
+  area: string,
+  available: BlockDef["available"],
+): Pick<BlockDef, "available" | "area"> {
+  return { area, available: (viewer, ctx) => featureIntegrated(area) && available(viewer, ctx) };
+}
+
+/**
+ * Un blocco che questa build non mostra perché la sua area non è integrata:
+ * l'editor non lo elenca, ma salvando lo rimette al suo posto
+ * (`withHiddenBlocks`), così personalizzare dall'app non lo cancella.
+ */
+export function isHiddenBlock(block: HomeBlockRef): boolean {
+  const def = BLOCKS[block.kind] as BlockDef | undefined;
+  return !def || (def.area !== undefined && !featureIntegrated(def.area));
 }
 
 /**
@@ -66,12 +81,12 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   upcomingEvents: {
     titleKey: "home.blocks.upcomingEvents",
     component: UpcomingEventsBlock,
-    available: ofArea("calendar", always),
+    ...ofArea("calendar", always),
   },
   importantMail: {
     titleKey: "home.blocks.importantMail",
     component: ImportantMailBlock,
-    available: ofArea("mail", always),
+    ...ofArea("mail", always),
   },
   myTasks: { titleKey: "home.blocks.myTasks", component: MyTasksBlock, available: always },
   claudeForMe: {
@@ -100,7 +115,7 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   automations: {
     titleKey: "home.blocks.automations",
     component: AutomationsBlock,
-    available: ofArea("automations", (_viewer, ctx) => ctx?.seesAutomations !== false),
+    ...ofArea("automations", (_viewer, ctx) => ctx?.seesAutomations !== false),
   },
   // Rilasci (area 8a, shape releases.md [R 22]): nel catalogo di chi può
   // rilasciare in almeno un progetto; nella Home non personalizzata di quelle
@@ -108,14 +123,14 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   releases: {
     titleKey: "home.blocks.releases",
     component: ReleasesBlock,
-    available: ofArea("releases", (viewer) => can(viewer, "release.merge")),
+    ...ofArea("releases", (viewer) => can(viewer, "release.merge")),
   },
   // Clienti in attesa (area 8a, shape support.md [A 17]): nel catalogo di chi
   // può rispondere ai clienti in almeno un progetto, mai nelle Home di default.
   waitingCustomers: {
     titleKey: "home.blocks.waitingCustomers",
     component: WaitingCustomersBlock,
-    available: ofArea("support", (viewer) => can(viewer, "support.reply")),
+    ...ofArea("support", (viewer) => can(viewer, "support.reply")),
   },
   filter: { titleKey: "home.blocks.filter", component: FilterBlock, available: always },
 };

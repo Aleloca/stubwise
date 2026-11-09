@@ -638,6 +638,8 @@ export interface ProjectRequest {
   mergedIntoId: string | null;
   taskIds: string[];
   createdAt: string;
+  /** Solo sul server vero (fetta 3): la voce nel web vecchio, finché Requests non è integrata (fetta 4). */
+  webHref?: string;
   /**
    * Ciò che l'intake (AI) propone di cambiare nei metadati, col perché: resta
    * una proposta finché chi ha `backlog.edit` non la accetta o la scarta.
@@ -752,11 +754,17 @@ export type GroupBy =
 export interface SavedFilter {
   id: string;
   name: string;
-  ownerId: string;
+  /** `null` sul server vero per i filtri di esempio (di nessuno, modificabili da un full admin). */
+  ownerId: string | null;
   visibility: "private" | "public";
   criteria: FilterCriteria;
   view: TaskView;
   groupBy: GroupBy;
+  /**
+   * Solo sul server vero (fetta 3): chi guarda può modificarlo ed eliminarlo,
+   * calcolato dal server. Assente nel prototipo: decide `canManageFilter`.
+   */
+  canEdit?: boolean;
 }
 
 export type HomeBlockKind =

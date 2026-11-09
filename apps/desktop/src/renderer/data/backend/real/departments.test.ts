@@ -24,6 +24,7 @@ describe("Reparti nella build app", () => {
       "GET /api/people": {
         body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [SALES], email: "ada@example.com" }],
       },
+      "GET /api/departments/roles": { body: [] },
     });
     const rows = await adminDepartments.listDepartments!();
     expect(rows.map((d) => [d.name, d.memberIds, d.projectPermissions])).toEqual([
@@ -71,15 +72,43 @@ describe("Reparti nella build app", () => {
     });
   });
 
-  it("salvare il pannello manda nome, colore e membri, mai Home né permessi", async () => {
-    const { seen } = installFakeServer({ [`PATCH /api/departments/${SALES}`]: { body: departments[1] } });
+  it("salvare il pannello manda nome, colore e membri, poi i responsabili della Home; mai i permessi", async () => {
+    const { seen } = installFakeServer({
+      [`PATCH /api/departments/${SALES}`]: { body: departments[1] },
+      [`PUT /api/departments/${SALES}/roles`]: {
+        body: [{ departmentId: SALES, userId: ME_ID, permissions: ["department.home.manage"] }],
+      },
+    });
     expect(
       await adminDepartments.saveDepartment!(SALES, {
         memberIds: [ME_ID, ME_ID],
-        homeManagerIds: [ME_ID],
+        homeManagerIds: [ME_ID, ME_ID],
         projectPermissions: ["drive.upload"],
       }),
     ).toEqual({ ok: true });
+    expect(seen.map((r) => `${r.method} ${r.path}`)).toEqual([
+      `PATCH /api/departments/${SALES}`,
+      `PUT /api/departments/${SALES}/roles`,
+    ]);
     expect(seen[0]!.body).toEqual({ memberIds: [ME_ID] });
+    // Senza riconferma (decisione del maintainer): il corpo è solo l'elenco dei ruoli.
+    expect(seen[1]!.body).toEqual({ roles: [{ userId: ME_ID, permissions: ["department.home.manage"] }] });
+  });
+
+  it("i responsabili della Home vengono dai ruoli di reparto", async () => {
+    installFakeServer({
+      "GET /api/departments": { body: departments },
+      "GET /api/people": {
+        body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [SALES], email: "ada@example.com" }],
+      },
+      "GET /api/departments/roles": {
+        body: [{ departmentId: SALES, userId: ME_ID, permissions: ["department.home.manage"] }],
+      },
+    });
+    const rows = await adminDepartments.listDepartments!();
+    expect(rows.map((d) => [d.name, d.homeManagerIds])).toEqual([
+      ["General", []],
+      ["Sales", [ME_ID]],
+    ]);
   });
 });
