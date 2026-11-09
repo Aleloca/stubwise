@@ -2,6 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { ScriptLang } from "../../domain/servers/installScript";
 import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import { MIN_QUERY } from "../../pages/chat/search";
 import { queryKeys, useConversationChanges, useSessionPersonId, useWrite } from "../queries";
 
@@ -23,7 +24,7 @@ export function useProjectServers(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.projectServers(me, projectId ?? ""),
     queryFn: () => api.servers.listProjectServers(projectId!),
-    enabled: !!projectId,
+    enabled: !!projectId && featureIntegrated("servers"),
   });
 }
 

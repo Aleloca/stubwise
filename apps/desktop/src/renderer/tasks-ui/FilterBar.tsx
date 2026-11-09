@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../data/integration";
 import { useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -312,8 +313,11 @@ function useAssigneeOptions(singleProjectId: string | undefined): Person[] | und
     ? new Set(projects?.find((p) => p.id === singleProjectId)?.memberIds ?? [])
     : null;
   const rank = (p: Person) => (p.id === me ? 0 : p.isClaude ? 2 : 1);
+  // Nella build app Claude non è un assegnatario (area 3 non integrata).
+  const claude = featureIntegrated("claude-assign");
   return people
     .filter((p) => !members || members.has(p.id) || p.id === me)
+    .filter((p) => claude || !p.isClaude)
     .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
 

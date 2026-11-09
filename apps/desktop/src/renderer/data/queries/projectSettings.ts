@@ -1,6 +1,7 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { canSeeAdminSection, projectSettingsAccess, type SectionAccess } from "../adminSections";
 import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
 import type { ProjectSettingsSection } from "../routes";
 import { useViewer } from "../viewer";
@@ -100,6 +101,7 @@ export function useProjectSwitches(projectId: string) {
   return useQuery({
     queryKey: ["as", me, "projectSettings", "switches", projectId] as const,
     queryFn: () => api.projectSettings.getProjectSwitches(projectId),
+    enabled: featureIntegrated("project-switches"),
   });
 }
 
@@ -110,6 +112,7 @@ export function useProjectsSwitches(projectIds: readonly string[]) {
     queries: projectIds.map((projectId) => ({
       queryKey: ["as", me, "projectSettings", "switches", projectId] as const,
       queryFn: () => api.projectSettings.getProjectSwitches(projectId),
+      enabled: featureIntegrated("project-switches"),
     })),
     combine: (results) =>
       new Map(projectIds.map((id, i) => [id, results[i]?.data ?? undefined] as const)),
@@ -443,6 +446,7 @@ export function useArchivedProjects() {
   return useQuery({
     queryKey: ["as", me, "archived", "list"] as const,
     queryFn: () => api.projectSettings.listArchivedProjects(),
+    enabled: featureIntegrated("archive"),
   });
 }
 

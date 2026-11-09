@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { useTranslation } from "react-i18next";
 import { usePeople, useProjects, useProjectStatuses, useUpdateTask } from "../../data/queries";
 import type { Milestone, Person, ProjectStatus, Task, TaskPatch, TaskSize } from "../../data/types";
@@ -36,8 +37,10 @@ export function useProjectMembers(projectId: string | undefined): Person[] | und
   const people = usePeople().data;
   if (!projectId || !projects || !people) return undefined;
   const members = projects.find((p) => p.id === projectId)?.memberIds ?? [];
+  // Nella build app Claude non si assegna (fetta 1 dell'integrazione: area 3 non integrata).
+  const claude = featureIntegrated("claude-assign");
   return people
-    .filter((p) => members.includes(p.id) && !p.deactivated)
+    .filter((p) => members.includes(p.id) && !p.deactivated && (claude || !p.isClaude))
     .sort((a, b) => Number(a.isClaude) - Number(b.isClaude) || a.name.localeCompare(b.name));
 }
 

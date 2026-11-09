@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "@backend/api";
+import { featureIntegrated } from "./integration";
 import type { ChangeFilter } from "./changelog/types";
 import type { MailDraftRequest } from "../domain/claude/intents/mailDraft";
 import { resolveHome } from "../domain/home";
@@ -742,7 +743,9 @@ function listenToConversationChanges(client: QueryClient): () => void {
  */
 export function useConversationChanges(): void {
   const client = useQueryClient();
-  useEffect(() => listenToConversationChanges(client), [client]);
+  // Le conversazioni di Claude (area 3) non sono integrate nella build app.
+  const on = featureIntegrated("claude");
+  useEffect(() => (on ? listenToConversationChanges(client) : undefined), [client, on]);
 }
 
 export function useConversations(
@@ -1047,6 +1050,7 @@ export function useTaskDeletion(taskId: string) {
   return useQuery({
     queryKey: ["as", me, "taskDeletion", taskId] as const,
     queryFn: () => api.getTaskDeletion(taskId),
+    enabled: featureIntegrated("task-delete"),
   });
 }
 
@@ -1873,7 +1877,8 @@ function listenToChatChanges(client: QueryClient): () => void {
  */
 function useChatChanges(): void {
   const client = useQueryClient();
-  useEffect(() => listenToChatChanges(client), [client]);
+  const on = featureIntegrated("chat");
+  useEffect(() => (on ? listenToChatChanges(client) : undefined), [client, on]);
 }
 
 export function useChatChannels(
@@ -1885,7 +1890,7 @@ export function useChatChannels(
   return useQuery({
     queryKey: queryKeys.chatChannels(me, scope),
     queryFn: () => api.chat.listChannels(scope),
-    enabled,
+    enabled: enabled && featureIntegrated("chat"),
   });
 }
 
@@ -1896,6 +1901,7 @@ export function useChatChannel(id: string) {
   return useQuery({
     queryKey: queryKeys.chatChannel(me, id),
     queryFn: () => api.chat.getChannel(id),
+    enabled: featureIntegrated("chat"),
   });
 }
 
@@ -1941,7 +1947,11 @@ export function useChatThread(messageId: string, { enabled = true }: { enabled?:
 export function useThreadsWithNews() {
   const me = useSessionPersonId();
   useChatChanges();
-  return useQuery({ queryKey: queryKeys.chatThreads(me), queryFn: api.chat.listThreadsWithNews });
+  return useQuery({
+    queryKey: queryKeys.chatThreads(me),
+    queryFn: api.chat.listThreadsWithNews,
+    enabled: featureIntegrated("chat"),
+  });
 }
 
 export function useChatMentions() {
@@ -1964,7 +1974,11 @@ export function useChatQuestions() {
 export function useChatSignal() {
   const me = useSessionPersonId();
   useChatChanges();
-  return useQuery({ queryKey: queryKeys.chatSignal(me), queryFn: api.chat.hasNews });
+  return useQuery({
+    queryKey: queryKeys.chatSignal(me),
+    queryFn: api.chat.hasNews,
+    enabled: featureIntegrated("chat"),
+  });
 }
 
 /** Ignora una domanda della Chat ADESSO (vedi `useAnswerDecisionNow`): per l'«Undo» di «Decide». */
@@ -2359,7 +2373,7 @@ export function useDocSpaces(projectId: string, { enabled = true }: { enabled?: 
   const query = useQuery({
     queryKey: queryKeys.docSpaces(me, projectId),
     queryFn: () => api.docs.listDocSpaces(projectId),
-    enabled,
+    enabled: enabled && featureIntegrated("docs"),
     refetchInterval: (query) => (query.state.data?.some(inFlight) ? DOCS_REFRESH_MS : false),
   });
   useDocsSettled(!!query.data?.some(inFlight));
@@ -2866,6 +2880,7 @@ export function useMailProposalDecisions() {
   return useQuery({
     queryKey: queryKeys.mailDecisions(me),
     queryFn: () => api.mail.listMailDecisions(),
+    enabled: featureIntegrated("mail"),
   });
 }
 
@@ -3468,7 +3483,11 @@ export function useAutomationsLiveRefresh(): void {
   const invalidate = useInvalidate(AUTOMATION_AREAS);
   const latest = useRef(invalidate);
   latest.current = invalidate;
-  useEffect(() => api.automations.onAutomationsSettled(() => void latest.current()), []);
+  const on = featureIntegrated("automations");
+  useEffect(
+    () => (on ? api.automations.onAutomationsSettled(() => void latest.current()) : undefined),
+    [on],
+  );
 }
 
 export function useAutomations(filter: AutomationListFilter = {}) {
@@ -3539,6 +3558,7 @@ export function useAutomationSources() {
   return useQuery({
     queryKey: queryKeys.automationSources(me),
     queryFn: () => api.automations.listSources(),
+    enabled: featureIntegrated("automations"),
   });
 }
 
@@ -3556,6 +3576,7 @@ export function useMyAutomationApprovals() {
   return useQuery({
     queryKey: queryKeys.automationApprovals(me),
     queryFn: () => api.automations.listMyApprovals(),
+    enabled: featureIntegrated("automations"),
   });
 }
 
@@ -3575,7 +3596,7 @@ export function useProjectAutomations(projectId: string | null) {
   return useQuery({
     queryKey: queryKeys.projectAutomations(me, projectId ?? ""),
     queryFn: () => api.automations.getProjectAutomations(projectId!),
-    enabled: projectId !== null,
+    enabled: projectId !== null && featureIntegrated("automations"),
     refetchInterval: (query) =>
       runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false,
   });

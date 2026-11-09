@@ -1,6 +1,7 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { featureIntegrated, isIntegrated } from "../../data/integration";
 import { useMilestones, useProject, useTasks } from "../../data/queries";
 import { GROUP_BYS, TASK_VIEWS } from "../../data/routes";
 import type { FilterCriteria, GroupBy, SavedFilter, Task, TaskView } from "../../data/types";
@@ -10,6 +11,7 @@ import { DeptLegend } from "../../layout/DeptStrip";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { FilterBar } from "../../tasks-ui/FilterBar";
 import { PageEmpty, PageError, PageSkeleton } from "../../tasks-ui/PageStates";
+import { ComingSoonBlock } from "../Placeholder";
 import { SaveFilterDialog } from "../filters/SaveFilterDialog";
 import { useGroupContextState, useStallMap } from "./context";
 import { Chevron, MenuButton, primaryButton, quietButton, secondaryButton } from "./controls";
@@ -245,6 +247,9 @@ export function TasksPage({
         onOpen={open}
       />
     );
+  } else if (view === "timeline" && !isIntegrated({ kind: "taskView", name: "timeline" })) {
+    // La Timeline arriva con la fetta 2: nella build app resta nella scelta, senza dati.
+    body = <ComingSoonBlock />;
   } else if (view === "timeline") {
     body = (
       <TaskTimeline
@@ -334,13 +339,18 @@ export function TasksPage({
               </MenuGroup>
             )}
           </MenuButton>
-          <button
-            type="button"
-            className={`${quietButton} ml-auto`}
-            onClick={() => setSaving(true)}
-          >
-            {t("tasks.saveAsFilter")}
-          </button>
+          {/* I filtri salvati arrivano con la fetta 3 (design dell'integrazione, «Tasks di progetto»). */}
+          {featureIntegrated("saved-filters") ? (
+            <button
+              type="button"
+              className={`${quietButton} ml-auto`}
+              onClick={() => setSaving(true)}
+            >
+              {t("tasks.saveAsFilter")}
+            </button>
+          ) : (
+            <span className="ml-auto" />
+          )}
           {canCreate && (
             <button type="button" className={primaryButton} onClick={newTask}>
               {t("tasks.newTask")}

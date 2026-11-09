@@ -1,3 +1,4 @@
+import { isIntegrated } from "../data/integration";
 import { useRouter, useRouterState } from "@tanstack/react-router";
 import {
   useCallback,
@@ -447,7 +448,11 @@ function PaletteDialog({ onClose }: { onClose: () => void }) {
     // Invio apre «Who can?» con la domanda scritta. Senza progetto, «…in a
     // project» apre la pagina col menu dei progetti aperto.
     const whoCan = whoCanRest(query);
-    if (whoCan !== null && canSeeAdminSection(viewer, "who-can")) {
+    if (
+      whoCan !== null &&
+      canSeeAdminSection(viewer, "who-can") &&
+      isIntegrated({ kind: "admin", name: "who-can" })
+    ) {
       const what = (a: AccessAction) => t(`permissions.${a.permission}.label`);
       byGroup.whoCan = matchWhoCanActions(whoCan, ACTIONS, (a) => [t(a.labelKey), what(a)]).map(
         (a): Item => {

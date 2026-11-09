@@ -2,6 +2,7 @@ import { Link, Navigate } from "@tanstack/react-router";
 import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { adminSections, canSeeAdminSection } from "../../data/adminSections";
+import { isIntegrated } from "../../data/integration";
 import { useAdminPeople } from "../../data/queries";
 import { isAdminSection, type AdminSection } from "../../data/routes";
 import { useViewer } from "../../data/viewer";
@@ -91,7 +92,8 @@ export function AdminColumn() {
 /** `/admin`: la prima voce visibile; senza voci, «not found». */
 export function AdminIndex() {
   const { viewer } = useViewer();
-  const first = adminSections(viewer)[0];
+  // Nella build app, la prima voce integrata (fetta 1: Reparti).
+  const first = adminSections(viewer).find((s) => isIntegrated({ kind: "admin", name: s.id }));
   if (!first) return <NotFound />;
   return <Navigate to="/admin/$section" params={{ section: first.id }} replace />;
 }

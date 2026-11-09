@@ -2,6 +2,7 @@ import type { AiModelChoice, AiOperation } from "@stubwise/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import { RUN_AREAS, useSessionPersonId, useWrite } from "../queries";
 
 // Gli hook dell'istanza (area 9b); `data/queries` li ri-esporta. L'import
@@ -120,16 +121,20 @@ const INSTANCE_EFFECT_AREAS: readonly string[] = [
  */
 export function useInstanceChanges(): void {
   const client = useQueryClient();
+  // Lo stato dell'istanza (area 9b) non è integrato nella build app.
+  const on = featureIntegrated("instance");
   useEffect(
     () =>
-      api.onInstanceChange(() => {
-        void client.invalidateQueries({
-          predicate: (query) =>
-            query.queryKey[0] === "as" &&
-            INSTANCE_EFFECT_AREAS.includes(query.queryKey[2] as string),
-        });
-      }),
-    [client],
+      on
+        ? api.onInstanceChange(() => {
+            void client.invalidateQueries({
+              predicate: (query) =>
+                query.queryKey[0] === "as" &&
+                INSTANCE_EFFECT_AREAS.includes(query.queryKey[2] as string),
+            });
+          })
+        : undefined,
+    [client, on],
   );
 }
 
@@ -144,6 +149,7 @@ export function useAiBlock(projectId: string | null) {
   return useQuery({
     queryKey: ["as", me, "instance", "ai-block", projectId] as const,
     queryFn: () => api.instance.getAiBlock(projectId),
+    enabled: featureIntegrated("instance"),
   });
 }
 
@@ -158,6 +164,7 @@ export function useQueuePause(projectId: string) {
   return useQuery({
     queryKey: ["as", me, "instance", "queue-pause", projectId] as const,
     queryFn: () => api.instance.getQueuePause(projectId),
+    enabled: featureIntegrated("instance"),
   });
 }
 
@@ -168,6 +175,7 @@ export function useStorageAllowsUploads() {
   return useQuery({
     queryKey: ["as", me, "instance", "uploads-allowed"] as const,
     queryFn: () => api.instance.getUploadsAllowed(),
+    enabled: featureIntegrated("instance"),
   });
 }
 

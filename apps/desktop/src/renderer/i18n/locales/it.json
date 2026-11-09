@@ -304,6 +304,10 @@
     }
   },
   "placeholder": {
+    "comingSoon": {
+      "title": "In arrivo",
+      "body": "Questa parte di Stubwise non è ancora disponibile in questa app."
+    },
     "pages": {
       "chat": "Qui vivranno i canali dei progetti, quelli generali e i messaggi diretti.",
       "mail": "Qui si leggerà la tua posta collegata, con le task che propone.",

@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import { MIN_QUERY } from "../../pages/chat/search";
 import {
   CONVERSATION_AREAS,
@@ -51,7 +52,7 @@ export function useOpenPrs(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.openPrs(me, projectId ?? ""),
     queryFn: () => api.releases.listOpenPrs(projectId!),
-    enabled: !!projectId,
+    enabled: !!projectId && featureIntegrated("releases"),
   });
 }
 
@@ -71,7 +72,7 @@ export function useReleases(projectId: string | undefined) {
   return useQuery({
     queryKey: queryKeys.releases(me, projectId ?? ""),
     queryFn: () => api.releases.listReleases(projectId!),
-    enabled: !!projectId,
+    enabled: !!projectId && featureIntegrated("releases"),
   });
 }
 

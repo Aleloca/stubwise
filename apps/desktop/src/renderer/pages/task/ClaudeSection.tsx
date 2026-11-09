@@ -36,6 +36,8 @@ import {
   waitingText,
 } from "../../components/InstanceBlock";
 import { WhoCanLink } from "../../components/WhoCanLink";
+import { featureIntegrated } from "../../data/integration";
+import { ComingSoonBlock } from "../Placeholder";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { Avatar } from "../../tasks-ui/PersonChip";
@@ -67,6 +69,11 @@ export function scrollPanelTo(el: HTMLElement): void {
  * waiting on you ↓», che porta alla sezione (e alla sua scheda).
  */
 export function ClaudeWaitingNotice({ task }: { task: Task }) {
+  // Nella build app Claude (area 3) non è integrato: nessun avviso.
+  return featureIntegrated("claude") ? <ClaudeWaitingNoticeBody task={task} /> : null;
+}
+
+function ClaudeWaitingNoticeBody({ task }: { task: Task }) {
   const { t } = useTranslation();
   const work = useTaskWork(task.id).data;
   if (!work?.waitsOnViewer) return null;
@@ -113,6 +120,31 @@ export function ClaudeSection({
   task: Task;
   canEdit: boolean;
   /** «Follow here»: il pannello diventa la conversazione della sessione. */
+  onFollow: (conversationId: string) => void;
+}) {
+  // Nella build app la sezione è «in arrivo» finché il Task 17 dell'integrazione
+  // non la legge dal server (stato del lavoro e «Open in web»); «Assign to
+  // Claude», la sessione dal vivo e le azioni dell'area 3 non ci sono.
+  if (!featureIntegrated("claude")) return <ClaudeSectionComingSoon />;
+  return <ClaudeSectionBody task={task} canEdit={canEdit} onFollow={onFollow} />;
+}
+
+function ClaudeSectionComingSoon() {
+  const { t } = useTranslation();
+  return (
+    <Section title={t(`${K}.title`)}>
+      <ComingSoonBlock />
+    </Section>
+  );
+}
+
+function ClaudeSectionBody({
+  task,
+  canEdit,
+  onFollow,
+}: {
+  task: Task;
+  canEdit: boolean;
   onFollow: (conversationId: string) => void;
 }) {
   const { t } = useTranslation();

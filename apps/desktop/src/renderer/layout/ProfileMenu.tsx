@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../data/integration";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -174,38 +175,43 @@ export function ProfileMenu() {
           <div className="border-b border-rule">
             <LanguageChoice />
           </div>
-          <div className="border-b border-rule">
-            <RadioGroup
-              label={t("rail.viewAs")}
-              name={`${panelId}-persona`}
-              value={viewer.personId}
-              options={VIEW_AS_PERSONAS.map((p) => ({
-                value: p.personId,
-                label: (
-                  <>
-                    <span className="block">{p.name}</span>{" "}
-                    <span className="block text-xs text-ink-muted">{t(p.descriptionKey)}</span>
-                  </>
-                ),
-              }))}
-              onChange={setPersona}
-            />
-          </div>
+          {featureIntegrated("view-as") && (
+            <div className="border-b border-rule">
+              <RadioGroup
+                label={t("rail.viewAs")}
+                name={`${panelId}-persona`}
+                value={viewer.personId}
+                options={VIEW_AS_PERSONAS.map((p) => ({
+                  value: p.personId,
+                  label: (
+                    <>
+                      <span className="block">{p.name}</span>{" "}
+                      <span className="block text-xs text-ink-muted">{t(p.descriptionKey)}</span>
+                    </>
+                  ),
+                }))}
+                onChange={setPersona}
+              />
+            </div>
+          )}
           <nav aria-label={t("rail.profileLinks")} className="flex flex-col gap-0.5 pt-1.5">
             <Link to="/preferences" className={linkClass} onClick={() => setOpen(false)}>
               {t("nav.preferences")}
             </Link>
-            {/* L'account Google personale (Drive, A1): un dialogo, finché non c'è Impostazioni → Account. */}
-            <button
-              type="button"
-              className={`${linkClass} text-left`}
-              onClick={() => {
-                setOpen(false);
-                openGoogleAccount();
-              }}
-            >
-              {t("drive.account.menu")}
-            </button>
+            {/* L'account Google personale (Drive, A1): un dialogo, finché non c'è Impostazioni → Account.
+                Nella build app Drive e Google (aree 5–6) non sono integrati. */}
+            {featureIntegrated("google") && (
+              <button
+                type="button"
+                className={`${linkClass} text-left`}
+                onClick={() => {
+                  setOpen(false);
+                  openGoogleAccount();
+                }}
+              >
+                {t("drive.account.menu")}
+              </button>
+            )}
             {/* «Administration» solo a chi amministra qualcosa; agli altri «People»,
                 le stesse voci in sola lettura (shape admin-people.md [PE 1]). */}
             {canSeeAdmin(viewer) && (
