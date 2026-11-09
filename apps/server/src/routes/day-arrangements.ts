@@ -23,9 +23,9 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * settimana. PERSONALI: si leggono e si scrivono solo le proprie, solo sulle
  * proprie task, e valgono finché la task resta sua e nella STESSA settimana
  * EFFETTIVA (`stubwise_effective_week`, slittamento compreso). Il trigger
- * `tickets_reset_day_arrangements` (0113) le cancella quando cambiano
- * settimana o assegnatario; la lettura filtra comunque, perché uno
- * slittamento cambia la settimana senza scrivere niente.
+ * `tickets_reset_day_arrangements` (0113, corretto dalla 0119) le cancella
+ * quando cambiano la settimana EFFETTIVA o l'assegnatario; la lettura filtra
+ * comunque, perché uno slittamento cambia la settimana senza scrivere niente.
  */
 
 const effectiveMonday = sql<string | null>`to_char(stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}), 'YYYY-MM-DD')`;

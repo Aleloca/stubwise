@@ -98,9 +98,10 @@ Task 2. Migrazione: `packages/db/drizzle/0108_project_statuses.sql`. Test:
   (`PUT /api/tasks/:id/day`, 403 a chi non è l'assegnatario) solo
   l'assegnatario, e solo sulle proprie task (`apps/server/src/routes/day-arrangements.ts`).
   Valgono per una settimana e un assegnatario: le cancella il trigger
-  `tickets_reset_day_arrangements` quando cambiano davvero settimana o
-  assegnatario, da QUALUNQUE scrittura (anche del web vecchio o della
-  pipeline). Uno slittamento invece cambia la settimana senza scrivere
+  `tickets_reset_day_arrangements` quando cambiano davvero la settimana
+  EFFETTIVA (slittamento e chiusura compresi, 0119) o l'assegnatario, da
+  QUALUNQUE scrittura (anche del web vecchio o della pipeline): riscrivere
+  la settimana corrente di una slittata non le tocca. Uno slittamento invece cambia la settimana senza scrivere
   niente, quindi la lettura filtra anche sulla settimana effettiva: una
   sistemazione di una task slittata non compare, e su una settimana che non
   è quella effettiva della task la scrittura risponde 409 `not_in_week`.
