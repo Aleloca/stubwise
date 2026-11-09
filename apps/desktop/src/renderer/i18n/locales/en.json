@@ -1494,6 +1494,7 @@
       "turnIntoTaskLabel": "Turn into task: {{title}}",
       "created": "{{code}} created from the request.",
       "openRequest": "Open request {{title}}",
+      "openRequestInWeb": "Open {{title}} in the web",
       "claude": {
         "asks": "Claude asks",
         "plan": "Claude's plan waits for your approval",

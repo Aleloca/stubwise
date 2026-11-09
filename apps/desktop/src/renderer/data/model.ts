@@ -638,6 +638,8 @@ export interface ProjectRequest {
   mergedIntoId: string | null;
   taskIds: string[];
   createdAt: string;
+  /** Solo sul server vero (fetta 3): la voce nel web vecchio, finché Requests non è integrata (fetta 4). */
+  webHref?: string;
   /**
    * Ciò che l'intake (AI) propone di cambiare nei metadati, col perché: resta
    * una proposta finché chi ha `backlog.edit` non la accetta o la scarta.
