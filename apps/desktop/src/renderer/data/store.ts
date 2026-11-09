@@ -223,6 +223,8 @@ let latencyOverride: number | null = null;
 let callCounter = 0;
 let chunkCounter = 0;
 export type ApiFnName =
+  | "getSessionPerson"
+  | "getViewer"
   | "listDepartments"
   | "listPeople"
   | "listProjects"

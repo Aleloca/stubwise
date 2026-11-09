@@ -1,4 +1,4 @@
-import { TODAY, isoWeek } from "../data/seed/dates";
+import { TODAY, isoWeek } from "@backend/clock";
 
 const DAY_MS = 86_400_000;
 

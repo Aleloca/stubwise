@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import * as api from "../api";
+import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import { useConversationChanges, useSessionPersonId } from "../queries";
 import { useAiBlock } from "./instance";
 
@@ -34,7 +35,9 @@ export function useClaudeSuggestion(place: api.SuggestionPlace | null) {
   const me = useSessionPersonId();
   useConversationChanges();
   const budget = useAiBlock(null).data?.reason ?? null;
-  const placeKey = place ? api.suggestionKeyOf(place) : null;
+  // La riga di Claude (area 3) non è integrata nella build app: niente chiave, niente lettura.
+  const on = featureIntegrated("claude");
+  const placeKey = place && on ? api.suggestionKeyOf(place) : null;
   return useQuery({
     queryKey: [
       "as",
@@ -45,7 +48,7 @@ export function useClaudeSuggestion(place: api.SuggestionPlace | null) {
       budget,
     ] as const,
     queryFn: () => (place ? api.getClaudeSuggestion(place) : Promise.resolve(null)),
-    enabled: place !== null,
+    enabled: place !== null && on,
     // Cambiato solo il budget, la riga di prima resta finché non arriva la
     // risposta nuova (niente lampo); un altro oggetto, o un'altra persona
     // («vedi come»), non eredita mai la riga.

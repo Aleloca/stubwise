@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-router";
 import { AppLayout } from "./layout/AppLayout";
 import { Placeholder } from "./pages/Placeholder";
+import { isIntegrated } from "./data/integration";
 import { NotFound } from "./pages/NotFound";
 import { ProjectNotFound } from "./pages/ProjectNotFound";
 import { useTranslation } from "react-i18next";
@@ -853,12 +854,28 @@ const projectIndexRoute = createRoute({
   beforeLoad: ({ params }) => {
     throw redirect({
       to: "/p/$code/$section",
-      params: { code: params.code.toUpperCase(), section: "overview" },
+      params: { code: params.code.toUpperCase(), section: landingSection() },
       search: (prev) => prev,
       replace: true,
     });
   },
 });
+
+/**
+ * Dove atterra un progetto: l'Overview, o Tasks nella build app finché
+ * l'Overview non è integrata (integrazione area 2, fetta 1).
+ */
+function landingSection(): "overview" | "tasks" {
+  return isIntegrated({ kind: "projectSection", name: "overview" }) ? "overview" : "tasks";
+}
+
+/** La prima sezione delle impostazioni di progetto integrata in questa build. */
+function firstSettingsSection() {
+  return (
+    PROJECT_SETTINGS_SECTIONS.find((s) => isIntegrated({ kind: "projectSettings", name: s.id })) ??
+    PROJECT_SETTINGS_SECTIONS[0]
+  ).id;
+}
 
 function ProjectSectionPage() {
   const { code, section } = projectSectionRoute.useParams();
@@ -890,7 +907,7 @@ function ProjectSectionPage() {
   const def = PROJECT_SECTIONS.find((s) => s.id === section);
   const needed = def && "module" in def ? def.module : undefined;
   if (needed && !project.modules.includes(needed)) {
-    return <Navigate to="/p/$code/$section" params={{ code, section: "overview" }} replace />;
+    return <Navigate to="/p/$code/$section" params={{ code, section: landingSection() }} replace />;
   }
   if (section === "tasks") return <TasksPage projectCode={project.code} />;
   if (section === "planning") {
@@ -924,7 +941,7 @@ function ProjectSectionPage() {
     return (
       <Navigate
         to="/p/$code/settings/$section"
-        params={{ code: project.code, section: PROJECT_SETTINGS_SECTIONS[0].id }}
+        params={{ code: project.code, section: firstSettingsSection() }}
         replace
       />
     );
@@ -944,7 +961,7 @@ const projectSectionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/p/$code/$section",
   beforeLoad: ({ params }) => {
-    const section = isProjectSection(params.section) ? params.section : "overview";
+    const section = isProjectSection(params.section) ? params.section : landingSection();
     if (section !== params.section || upperCaseCode(params.code)) {
       throw redirect({
         to: "/p/$code/$section",
@@ -994,11 +1011,13 @@ function ProjectSettingsRoutePage() {
   const def = PROJECT_SETTINGS_SECTIONS.find((s) => s.id === section);
   if (!def || !access[def.id].visible) {
     // Senza messaggio, come [AI 3]: la prima sezione che chi guarda vede.
-    const first = PROJECT_SETTINGS_SECTIONS.find((s) => access[s.id].visible)?.id;
+    const first = PROJECT_SETTINGS_SECTIONS.find(
+      (s) => access[s.id].visible && isIntegrated({ kind: "projectSettings", name: s.id }),
+    )?.id;
     return (
       <Navigate
         to="/p/$code/settings/$section"
-        params={{ code, section: first ?? PROJECT_SETTINGS_SECTIONS[0].id }}
+        params={{ code, section: first ?? firstSettingsSection() }}
         replace
       />
     );

@@ -1,5 +1,7 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useLayoutEffect } from "react";
+import { integrationTargetOf, isIntegrated } from "../data/integration";
+import { ComingSoon } from "../pages/Placeholder";
 import { NotificationsPanel } from "../notifications/NotificationsPanel";
 import { BriefPanelHost } from "../pages/overview/BriefCard";
 import { NewRequestHost } from "../pages/requests/NewRequestDialog";
@@ -64,7 +66,7 @@ export function AppLayout() {
       {!noColumn && <Column />}
       <div data-zone="work-row" className="relative flex min-h-0 min-w-0">
         <main data-zone="work" className="min-w-0 flex-1 overflow-auto">
-          <Outlet />
+          <IntegrationGate />
         </main>
         <TaskDetailHost />
         <RequestDetailHost />
@@ -94,4 +96,16 @@ export function AppLayout() {
       <ToastRegion />
     </div>
   );
+}
+
+/**
+ * L'area di lavoro: la pagina dell'indirizzo, o «Coming soon» quando la
+ * build app non l'ha ancora integrata (nel prototipo sempre la pagina). La
+ * pagina non integrata non si monta proprio: nessuna sua lettura parte.
+ */
+function IntegrationGate() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const gate = integrationTargetOf(pathname);
+  if (gate && !isIntegrated(gate.target)) return <ComingSoon titleKey={gate.titleKey} />;
+  return <Outlet />;
 }

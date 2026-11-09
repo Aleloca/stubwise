@@ -1,4 +1,4 @@
-import { TODAY } from "../data/seed/dates";
+import { TODAY } from "@backend/clock";
 import type {
   FilterCriteria,
   PeriodField,

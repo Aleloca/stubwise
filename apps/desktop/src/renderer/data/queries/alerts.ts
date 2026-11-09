@@ -1,5 +1,6 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import * as api from "../api";
+import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import {
   queryKeys,
   useInvalidate,
@@ -26,6 +27,7 @@ export function useAlertSubscriptions() {
   return useQuery({
     queryKey: queryKeys.alertSubscriptions(me),
     queryFn: () => api.alerts.subscriptionRows(),
+    enabled: featureIntegrated("alerts"),
   });
 }
 

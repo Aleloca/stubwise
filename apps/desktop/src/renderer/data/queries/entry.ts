@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as api from "../api";
+import * as api from "@backend/api";
 import { DEFAULT_PERSONA_ID, VIEW_AS_PERSONAS, useViewer } from "../viewer";
 import { NO_SESSION_PERSON_ID } from "../session";
 import { useSessionPersonId } from "../queries";

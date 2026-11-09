@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../data/integration";
 import type { Viewer } from "../data/types";
 import type { AccessState } from "../domain/servers/sshAccess";
 import { fold } from "../pages/chat/search";
@@ -231,6 +232,8 @@ export const COMMANDS: readonly Command[] = [
     labelKey: "palette.commands.viewAs",
     keepsOpen: true,
     run: (ctx) => ctx.openViewAs(),
+    // Il «vedi come» esiste solo nel prototipo (integrazione area 2, fetta 1).
+    when: () => featureIntegrated("view-as"),
   },
 ];
 

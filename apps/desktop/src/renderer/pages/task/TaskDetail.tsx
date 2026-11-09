@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -288,7 +289,8 @@ function TaskSections({
       />
       <StallControl task={task} stall={stall ?? null} canEdit={canEdit} />
       {/* Una task di server: il server è il contesto, in testa (area 8b). */}
-      {task.serverRef && <ServerSection task={task} />}
+      {/* I server (area 8b) non sono integrati nella build app. */}
+      {task.serverRef && featureIntegrated("servers") && <ServerSection task={task} />}
       <DecisionSection task={task} canComment={canComment} />
       <DescriptionSection task={task} canEdit={canEdit} />
       <TechnicalSection task={task} />

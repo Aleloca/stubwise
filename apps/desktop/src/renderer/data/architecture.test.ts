@@ -43,7 +43,14 @@ const DATA_SOURCES = import.meta.glob(["./**/*.{ts,tsx}", "!**/*.test.{ts,tsx}"]
 describe("insertRequest", () => {
   it("fuori dal suo file la usa solo data/support/simulate.ts", () => {
     const users = Object.entries(DATA_SOURCES)
-      .filter(([path, source]) => /\binsertRequest\b/.test(source) && path !== "./api-mutations.ts")
+      .filter(
+        ([path, source]) =>
+          /\binsertRequest\b/.test(source) &&
+          path !== "./api-mutations.ts" &&
+          // Lo stub generato della build app (Task 11 dell'integrazione) la
+          // nomina per coprire ogni esportazione del finto, non la usa.
+          path !== "./backend/real/stubs.generated.ts",
+      )
       .map(([path]) => path);
     expect(users).toEqual(["./support/simulate.ts"]);
   });

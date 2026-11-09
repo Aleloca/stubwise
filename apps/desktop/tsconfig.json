@@ -10,7 +10,13 @@
     "declaration": false,
     "declarationMap": false,
     "sourceMap": false,
-    "types": ["vite/client"]
+    "types": ["vite/client"],
+    // Il tipo del punto di scambio è quello del finto (`vite.backend.ts`
+    // risolve davvero il modulo per la build).
+    "paths": {
+      "@backend/api": ["./src/renderer/data/api.ts"],
+      "@backend/clock": ["./src/renderer/data/seed/dates.ts"]
+    }
   },
   "include": ["src/renderer", "vitest.config.ts"]
 }

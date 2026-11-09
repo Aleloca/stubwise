@@ -1,4 +1,4 @@
-import { TODAY } from "../data/seed/dates";
+import { TODAY } from "@backend/clock";
 import { stallOf as sharedStallOf, type Stall } from "@stubwise/shared";
 import type { DecisionRequest, Project, StallReason, StatusFamily, Task } from "../data/model";
 import { blockerIdsOf } from "./links";

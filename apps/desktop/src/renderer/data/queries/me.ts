@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as api from "../api";
+import * as api from "@backend/api";
 import type { GoogleConnectOutcome } from "../me/types";
 import { GOOGLE_AREAS, queryKeys, useInvalidate, useSessionPersonId } from "../queries";
 

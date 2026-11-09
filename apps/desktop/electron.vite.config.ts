@@ -3,6 +3,9 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import { PRODUCTION_CSP } from "./src/main/security";
+import { backendAliases, backendDefine, backendMode } from "./vite.backend";
+
+const mode = backendMode();
 
 export default defineConfig({
   main: {
@@ -19,6 +22,8 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, "src/renderer"),
+    resolve: { alias: backendAliases(mode) },
+    define: backendDefine(mode),
     plugins: [
       react(),
       tailwindcss(),

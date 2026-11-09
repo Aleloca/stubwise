@@ -1,4 +1,5 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
+import { useQuery } from "@tanstack/react-query";
 import {
   createContext,
   createElement,
@@ -34,6 +35,7 @@ import {
 // Ciclo con lo store (che importa `can`/`viewerFor` da qui): regge perché
 // `now()` si chiama solo a runtime, dentro `grantedAt`.
 import { now } from "./store";
+import { isAppBuild } from "./build";
 import type {
   DepartmentPermission,
   LocalInstancePermission,
@@ -449,12 +451,24 @@ const ViewerContext = createContext<ViewerContextValue>({
 });
 
 /**
- * Da montare una volta nell'`App`: tiene la persona «vedi come» attiva e la
- * sessione del livello dati. La sessione si allinea DURANTE il render del
- * provider — prima che i figli rendano con la persona nuova — così nessuna
- * query parte (né si mostra) a nome della persona precedente.
+ * Da montare una volta nell'`App`. Nel prototipo tiene la persona «vedi come»
+ * attiva e la sessione del livello dati finto; nella build app (integrazione
+ * area 2, fetta 1) legge la persona e i permessi dal livello dati
+ * (`api.getSessionPerson`, `api.getViewer`, query `["viewer", personId]`) e il
+ * «vedi come» non esiste. Il modo si decide al montaggio (non cambia mentre
+ * l'app gira), quindi i due rami non si alternano fra un render e l'altro.
  */
-export function ViewerProvider({
+export function ViewerProvider(props: { children: ReactNode; initialPersonId?: string }) {
+  const [app] = useState(isAppBuild);
+  return createElement(app ? AppViewerProvider : PrototypeViewerProvider, props);
+}
+
+/**
+ * Il prototipo: la sessione si allinea DURANTE il render del provider — prima
+ * che i figli rendano con la persona nuova — così nessuna query parte (né si
+ * mostra) a nome della persona precedente.
+ */
+function PrototypeViewerProvider({
   children,
   initialPersonId = DEFAULT_PERSONA_ID,
 }: {
@@ -487,6 +501,38 @@ export function ViewerProvider({
     // `accessVer` non si legge dentro: basta che cambi per dare un valore nuovo.
     [personId, accessVer],
   );
+  return createElement(ViewerContext.Provider, { value }, children);
+}
+
+/**
+ * Il livello dati, importato al primo uso e non al caricamento: `viewer.ts`
+ * sta in mezzo al grafo del finto (store, accessi), e un import statico di
+ * `@backend/api` ne cambierebbe l'ordine d'inizializzazione (`onStoreReset`
+ * chiamato prima che lo store esista).
+ */
+const backend = () => import("@backend/api");
+
+/**
+ * La build app: persona e permessi vengono dal server. Finché non ci sono
+ * non si monta nulla (nessuna pagina a nome di nessuno); l'ingresso (login,
+ * sessione scaduta) arriva col Task 16.
+ */
+function AppViewerProvider({ children }: { children: ReactNode }) {
+  const session = useQuery({
+    queryKey: ["session-person"],
+    queryFn: async () => (await backend()).getSessionPerson(),
+  });
+  const personId = session.data ?? null;
+  const viewer = useQuery({
+    queryKey: ["viewer", personId],
+    queryFn: async () => (await backend()).getViewer(),
+    enabled: personId !== null,
+  });
+  const value = useMemo<ViewerContextValue | null>(
+    () => (viewer.data ? { viewer: viewer.data, setPersona: () => {} } : null),
+    [viewer.data],
+  );
+  if (!value) return null;
   return createElement(ViewerContext.Provider, { value }, children);
 }
 

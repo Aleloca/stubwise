@@ -304,6 +304,10 @@
     }
   },
   "placeholder": {
+    "comingSoon": {
+      "title": "Coming soon",
+      "body": "This part of Stubwise isn't available in this app yet."
+    },
     "pages": {
       "chat": "Project channels, general channels and direct messages will live here.",
       "mail": "Your connected mailbox will be read here, with the tasks it proposes.",

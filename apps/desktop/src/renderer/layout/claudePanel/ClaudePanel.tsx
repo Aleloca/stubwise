@@ -1,3 +1,5 @@
+import { featureIntegrated } from "../../data/integration";
+import { ComingSoonBlock } from "../../pages/Placeholder";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   useCallback,
@@ -253,7 +255,8 @@ export function ClaudePanelHost() {
       style={{ width, right }}
       className="panel-enter fixed inset-y-0 z-40 flex max-w-[100vw] min-w-0 flex-col border-l border-rule-strong bg-surface text-ink"
     >
-      {born && (
+      {born && !featureIntegrated("claude-panel") && <PanelComingSoon onClose={close} />}
+      {born && featureIntegrated("claude-panel") && (
         <PanelBody
           key={me}
           open={open}
@@ -266,6 +269,26 @@ export function ClaudePanelHost() {
         />
       )}
     </aside>
+  );
+}
+
+/** Nella build app il riquadro di Claude (area 10a) è «in arrivo»: titolo, chiudi, nessuna lettura. */
+function PanelComingSoon({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <>
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-rule pr-2 pl-4">
+        <h2 className="text-md font-semibold text-ink">{t("claude.panel.label")}</h2>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md px-2 py-1 text-sm text-ink-muted hover:bg-ink/6 hover:text-ink"
+        >
+          {t("claude.panel.close")}
+        </button>
+      </div>
+      <ComingSoonBlock />
+    </>
   );
 }
 
