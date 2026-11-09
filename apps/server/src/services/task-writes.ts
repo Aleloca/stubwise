@@ -14,6 +14,8 @@ import {
 } from "@stubwise/db";
 import {
   effortFromSize,
+  compareWeeks,
+  currentIsoWeek,
   isoWeekToMonday,
   mondayToIsoWeek,
   planBlock,
@@ -53,7 +55,8 @@ export type TaskWriteError =
   | "department_not_found"
   | "assignee_not_found"
   | "milestone_cross_project"
-  | "request_not_found";
+  | "request_not_found"
+  | "past_week";
 
 export type TaskWriteResult = { ok: true; task: TaskViewData } | { ok: false; error: TaskWriteError };
 
@@ -133,6 +136,7 @@ async function validateRefs(
 export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody): Promise<TaskWriteResult> {
   const invalid = await validateRefs(db, body.projectId, body);
   if (invalid) return { ok: false, error: invalid };
+  if (await isPastWeek(db, null, body.plannedWeek)) return { ok: false, error: "past_week" };
   if (body.requestId) {
     const [item] = await db
       .select({ projectId: backlogItems.projectId })
@@ -203,7 +207,7 @@ function updatesFor(current: Ticket, patch: TaskPatch): Partial<Ticket> {
 }
 
 /** La settimana EFFETTIVA di una task (slittamento compreso), `YYYY-Www`. */
-async function effectiveWeekOf(tx: Tx, ticketId: string): Promise<string | null> {
+async function effectiveWeekOf(tx: Db | Tx, ticketId: string): Promise<string | null> {
   const [row] = await tx
     .select({
       week: sql<string | null>`to_char(stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}), 'YYYY-MM-DD')`,
@@ -211,6 +215,18 @@ async function effectiveWeekOf(tx: Tx, ticketId: string): Promise<string | null>
     .from(tickets)
     .where(eq(tickets.id, ticketId));
   return row?.week ? mondayToIsoWeek(row.week) : null;
+}
+
+/**
+ * Una settimana PASSATA non si scrive (fix della review della fetta 2):
+ * gonfierebbe `slipCount`, che è un dato mostrato. Eccezione: la settimana
+ * EFFETTIVA attuale della task (la corrente di una slittata, quella di
+ * chiusura di una chiusa), che per chi guarda è un no-op. Il «passato» è
+ * rispetto alla settimana corrente di Europe/Rome (`currentIsoWeek`).
+ */
+async function isPastWeek(db: Db | Tx, ticketId: string | null, week: string | null | undefined): Promise<boolean> {
+  if (!week || compareWeeks(week, currentIsoWeek(new Date())) >= 0) return false;
+  return ticketId === null || (await effectiveWeekOf(db, ticketId)) !== week;
 }
 
 /**
@@ -344,6 +360,7 @@ export async function updateTask(
   if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
   const invalid = await validateRefs(db, current.projectId, patch);
   if (invalid) return { ok: false, error: invalid };
+  if (await isPastWeek(db, current.id, patch.plannedWeek)) return { ok: false, error: "past_week" };
   await db.transaction(async (tx) => {
     await applyTaskPatch(tx, viewer.id, current, patch);
   });
@@ -395,6 +412,9 @@ export async function bulkUpdateTasks(
     const invalid = await validateRefs(db, pid, patch);
     if (invalid) return { ok: false, error: invalid };
   }
+  for (const { t } of rows) {
+    if (await isPastWeek(db, t.id, patch.plannedWeek)) return { ok: false, error: "past_week" };
+  }
   await db.transaction(async (tx) => {
     for (const { t } of rows) await applyTaskPatch(tx, viewer.id, t, patch);
   });
@@ -435,7 +455,7 @@ export async function setFollowing(db: Db, userId: string, ticketId: string, fol
 
 export type PlanResult =
   | { ok: true; task: TaskViewData }
-  | { ok: false; error: "forbidden" | "invalid_assignee" };
+  | { ok: false; error: "forbidden" | "invalid_assignee" | "past_week" };
 
 /**
  * Pianificare dal Planning (fetta 2): persona e settimana insieme. Decide
@@ -475,6 +495,7 @@ export async function planTask(
   );
   if (block === "others") return { ok: false, error: "forbidden" };
   if (block === "member") return { ok: false, error: "invalid_assignee" };
+  if (await isPastWeek(db, current.id, plan.week)) return { ok: false, error: "past_week" };
   await db.transaction(async (tx) => {
     await applyTaskPatch(
       tx,
