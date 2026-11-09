@@ -347,6 +347,12 @@ export interface Task {
   /** Settimana ISO, es. "2026-W43". */
   plannedWeek: string | null;
   slipCount: number;
+  /**
+   * Solo sul server vero (fetta 2): chi guarda può spostarla nel Planning,
+   * calcolato dal server (`canMove` coi suoi permessi). Assente nel prototipo
+   * e da un server più vecchio: allora decide `canMove` sul client.
+   */
+  canPlan?: boolean;
   milestoneId: string | null;
   labels: string[];
   type: TaskType;

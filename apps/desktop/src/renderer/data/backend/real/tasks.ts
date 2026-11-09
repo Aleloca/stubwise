@@ -17,8 +17,18 @@ import { NotIntegratedError } from "./notIntegrated";
  */
 const codeById = new Map<string, string>();
 
+/**
+ * L'assegnatario di ogni task letta: `setDay` non parte per una task che si sa
+ * non mia (il server lo rifiuterebbe comunque con 403).
+ */
+const assigneeById = new Map<string, string | null>();
+
+/** `undefined` se la task non è mai stata letta in questa sessione. */
+export const assigneeOf = (id: string): string | null | undefined => assigneeById.get(id);
+
 export function forgetTaskCodes(): void {
   codeById.clear();
+  assigneeById.clear();
   truncatedByQuery.clear();
 }
 
@@ -29,9 +39,14 @@ export function forgetTaskCodes(): void {
  */
 const truncatedByQuery = new Map<string, boolean>();
 
-/** Una vista del server come `Task` del prototipo: 1:1, la settimana arriva con la fetta 2. */
+/**
+ * Una vista del server come `Task` del prototipo: 1:1. La settimana è quella
+ * effettiva e lo slittamento è già contato (fetta 2); `canPlan` dice se chi guarda
+ * può spostarla nel Planning, assente da un server più vecchio.
+ */
 export function toTask(view: TaskViewData): Task {
   codeById.set(view.id, view.code);
+  assigneeById.set(view.id, view.assigneeId);
   return {
     id: view.id,
     code: view.code,
@@ -45,8 +60,8 @@ export function toTask(view: TaskViewData): Task {
     followerIds: view.followerIds,
     size: view.size,
     dueDate: view.dueDate,
-    plannedWeek: null,
-    slipCount: 0,
+    plannedWeek: view.plannedWeek,
+    slipCount: view.slipCount,
     milestoneId: view.milestoneId,
     labels: view.labels,
     type: view.type,
@@ -63,6 +78,7 @@ export function toTask(view: TaskViewData): Task {
     ...(view.source ? { source: view.source } : {}),
     ...(view.technical !== undefined ? { technical: view.technical } : {}),
     ...(view.assigneeStatus !== undefined ? { assigneeStatus: view.assigneeStatus } : {}),
+    ...(view.canPlan !== undefined ? { canPlan: view.canPlan } : {}),
   } as Task;
 }
 
@@ -137,7 +153,7 @@ export const listStalled: typeof Fake.listStalled = async (criteria) => {
   });
 };
 
-/** I campi che `PATCH /api/tasks/:id` accetta (la settimana è della fetta 2). */
+/** I campi che `PATCH /api/tasks/:id` accetta (la settimana dalla fetta 2, con `tickets.edit`). */
 const PATCHABLE = [
   "title",
   "description",
@@ -147,6 +163,7 @@ const PATCHABLE = [
   "size",
   "dueDate",
   "milestoneId",
+  "plannedWeek",
   "labels",
   "type",
   "priority",
@@ -184,6 +201,7 @@ export const createTask: typeof Fake.createTask = async (input) => {
     ...(input.size !== undefined ? { size: input.size } : {}),
     ...(input.statusId ? { statusId: input.statusId } : {}),
     ...(input.milestoneId !== undefined ? { milestoneId: input.milestoneId } : {}),
+    ...(input.plannedWeek !== undefined ? { plannedWeek: input.plannedWeek } : {}),
     ...(input.priority ? { priority: input.priority } : {}),
     ...(input.requestId ? { requestId: input.requestId } : {}),
   } as never);

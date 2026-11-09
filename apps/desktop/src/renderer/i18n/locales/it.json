@@ -1243,6 +1243,11 @@
       "decided": "{{name}} ha deciso",
       "set": "{{field}} impostato a {{value}}",
       "cleared": "{{field}} tolto",
+      "gone": {
+        "assignee": "qualcuno",
+        "milestone": "un traguardo eliminato",
+        "department": "un reparto eliminato"
+      },
       "editedDescription": "ha modificato la descrizione",
       "followers": "ha cambiato chi la segue",
       "markedStalled": "l'ha segnata ferma: {{reason}}",
