@@ -455,7 +455,9 @@ export async function setFollowing(db: Db, userId: string, ticketId: string, fol
 
 export type PlanResult =
   | { ok: true; task: TaskViewData }
-  | { ok: false; error: "forbidden" | "invalid_assignee" | "past_week" };
+  | { ok: false; error: PlanError };
+
+type PlanError = "forbidden" | "invalid_assignee" | "past_week";
 
 /**
  * Pianificare dal Planning (fetta 2): persona e settimana insieme. Decide
@@ -471,32 +473,35 @@ export async function planTask(
   ticketId: string,
   plan: { assigneeId: string | null; week: string | null },
 ): Promise<PlanResult> {
-  const [current] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
-  if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
-  const permissions = (await projectPermissionsFor(db, viewer, current.projectId)) ?? new Set();
-  const members = await projectViewerIds(db, current.projectId);
-  const block = planBlock(
-    {
-      id: current.id,
-      projectId: current.projectId,
-      assigneeId: current.assigneeId,
-      size: null,
-      plannedWeek: null,
-      slipCount: 0,
-      closedAt: current.closedAt?.toISOString() ?? null,
-    },
-    plan.assigneeId,
-    {
-      me: viewer.id,
-      others: permissions.has("planning.others"),
-      edit: permissions.has("tickets.edit"),
-      members,
-    },
-  );
-  if (block === "others") return { ok: false, error: "forbidden" };
-  if (block === "member") return { ok: false, error: "invalid_assignee" };
-  if (await isPastWeek(db, current.id, plan.week)) return { ok: false, error: "past_week" };
-  await db.transaction(async (tx) => {
+  // La decisione si prende sulla riga BLOCCATA, nella transazione che scrive
+  // (fix della review della fetta 2): letta prima, una riassegnazione
+  // concorrente passerebbe sotto la regola e verrebbe sovrascritta.
+  const outcome = await db.transaction(async (tx): Promise<PlanError | null> => {
+    const [current] = await tx.select().from(tickets).where(eq(tickets.id, ticketId)).for("update");
+    if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
+    const permissions = (await projectPermissionsFor(tx, viewer, current.projectId)) ?? new Set();
+    const members = await projectViewerIds(tx, current.projectId);
+    const block = planBlock(
+      {
+        id: current.id,
+        projectId: current.projectId,
+        assigneeId: current.assigneeId,
+        size: null,
+        plannedWeek: null,
+        slipCount: 0,
+        closedAt: current.closedAt?.toISOString() ?? null,
+      },
+      plan.assigneeId,
+      {
+        me: viewer.id,
+        others: permissions.has("planning.others"),
+        edit: permissions.has("tickets.edit"),
+        members,
+      },
+    );
+    if (block === "others") return "forbidden";
+    if (block === "member") return "invalid_assignee";
+    if (await isPastWeek(tx, current.id, plan.week)) return "past_week";
     await applyTaskPatch(
       tx,
       viewer.id,
@@ -504,6 +509,8 @@ export async function planTask(
       { assigneeId: plan.assigneeId, plannedWeek: plan.week },
       { notifyPlanning: true },
     );
+    return null;
   });
+  if (outcome) return { ok: false, error: outcome };
   return { ok: true, task: await viewOf(db, viewer, ticketId) };
 }
