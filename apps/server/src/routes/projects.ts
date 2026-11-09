@@ -173,6 +173,10 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     ingestionKey: row.ingestionKey,
     nextTicketNumber: row.nextTicketNumber,
     createdAt: row.createdAt.toISOString(),
+    // Integrazione area 2: il codice (le task sono `<CODICE>-<number>`) e le
+    // soglie «ferma» del progetto.
+    code: row.code,
+    stallThresholds: { activeDays: row.stallActiveDays, todoDays: row.stallTodoDays },
   };
 }
 
@@ -840,7 +844,13 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: idParamsSchema,
         body: updateProjectSchema,
-        response: { 200: projectSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: {
+          200: projectSchema,
+          400: errorSchema,
+          404: errorSchema,
+          409: errorSchema,
+          ...authErrorResponses,
+        },
       },
     },
     async (request, reply) => {
@@ -856,9 +866,12 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         pulseEveryDays,
         weeklyBriefEnabled,
         prCorrectionMaxRounds,
+        code,
       } = request.body;
       const updates: Partial<ProjectRow> = {};
       if (name !== undefined) updates.name = name;
+      // Codice di progetto (integrazione area 2): unico, 409 se è di un altro.
+      if (code !== undefined) updates.code = code;
       // null azzera la descrizione, una stringa la imposta; omesso lascia.
       if (description !== undefined) updates.description = description;
       // Toggle auto-aggiornamento Docs: omesso lo lascia invariato.
@@ -910,11 +923,19 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
 
       // Drizzle rifiuta un update senza colonne: un PATCH vuoto è una lettura.
       if (Object.keys(updates).length > 0) {
-        const [updated] = await app.db
-          .update(projects)
-          .set(updates)
-          .where(eq(projects.id, request.params.projectId))
-          .returning();
+        let updated: ProjectRow | undefined;
+        try {
+          [updated] = await app.db
+            .update(projects)
+            .set(updates)
+            .where(eq(projects.id, request.params.projectId))
+            .returning();
+        } catch (error) {
+          if (code !== undefined && isUniqueViolation(error)) {
+            return apiError(reply, 409, "code_taken", "Another project already uses this code");
+          }
+          throw error;
+        }
         if (!updated) return apiError(reply, 404, "project_not_found", "Project not found");
         return toPublicProject(updated);
       }

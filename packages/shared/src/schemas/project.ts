@@ -166,6 +166,9 @@ export type RepositorySaveResponse = z.infer<typeof repositorySaveResponseSchema
  * numerazione ticket per-progetto (`nextTicketNumber`). `description` è opzionale
  * (null = assente).
  */
+/** Codice di progetto: `^[A-Z][A-Z0-9]{1,5}$`, unico (0107). */
+export const projectCodeSchema = z.string().regex(/^[A-Z][A-Z0-9]{1,5}$/);
+
 export const projectSchema = z.object({
   id: z.uuid(),
   name: z.string().min(1),
@@ -230,6 +233,13 @@ export const projectSchema = z.object({
   // Prossimo numero ticket sequenziale del progetto (per-progetto, Fase 3).
   nextTicketNumber: z.number().int().min(1),
   createdAt: z.iso.datetime(),
+  // Integrazione area 2 (9 nov 2026): il codice del progetto (le task si
+  // mostrano `<CODICE>-<number>`) e le soglie «ferma». `.optional()`: un
+  // server più vecchio non li manda, e il web vecchio non li legge.
+  code: projectCodeSchema.optional(),
+  stallThresholds: z
+    .object({ activeDays: z.number().int(), todoDays: z.number().int() })
+    .optional(),
 });
 export type Project = z.infer<typeof projectSchema>;
 
@@ -271,6 +281,9 @@ export const updateProjectSchema = z.object({
   weeklyBriefEnabled: z.boolean().optional(),
   // Fuori da 0..10 il PATCH è un 400 di validazione.
   prCorrectionMaxRounds: z.number().int().min(0).max(10).optional(),
+  // Integrazione area 2: il codice si cambia da chi gestisce il progetto
+  // (409 `code_taken` se è di un altro).
+  code: projectCodeSchema.optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 

@@ -153,6 +153,7 @@ async function verifyCredentials(
     role: user.role,
     language: user.language,
     slackAvatarUrl: user.slackAvatarUrl,
+    displayName: user.displayName,
     slackUserId: user.slackUserId,
     instanceRolePermissions: user.instanceRolePermissions,
   };
@@ -456,21 +457,43 @@ export async function authRoutes(
     }),
   );
 
-  // Ogni utente cambia solo la propria preferenza di lingua: l'id è quello
-  // della sessione, mai dal body, quindi non serve un controllo di ruolo.
+  // Ogni utente cambia solo la propria lingua e il proprio nome visualizzato:
+  // l'id è quello della sessione, mai dal body, quindi non serve un controllo
+  // di ruolo. È una PATCH vera (integrazione area 2): i campi assenti restano,
+  // così l'app mobile che manda la sola lingua continua a funzionare.
   app.patch(
     "/me",
     {
       config: { access: { kind: "user" } },
       schema: {
-        body: z.object({ language: languageSchema }),
-        response: { 200: languageResponseSchema, ...authErrorResponses },
+        body: z.object({
+          language: languageSchema.optional(),
+          displayName: z.string().trim().max(80).nullable().optional(),
+        }),
+        response: {
+          200: languageResponseSchema.extend({ displayName: z.string().nullable().optional() }),
+          ...authErrorResponses,
+        },
       },
     },
     async (request, reply) => {
-      const { language } = request.body;
-      await app.db.update(users).set({ language }).where(eq(users.id, request.user!.id));
-      return reply.code(200).send({ language });
+      const { language, displayName } = request.body;
+      const updates: Partial<typeof users.$inferInsert> = {};
+      if (language !== undefined) updates.language = language;
+      // Una stringa vuota torna al ripiego (la parte locale dell'email).
+      if (displayName !== undefined) updates.displayName = displayName === "" ? null : displayName;
+      const [row] =
+        Object.keys(updates).length > 0
+          ? await app.db
+              .update(users)
+              .set(updates)
+              .where(eq(users.id, request.user!.id))
+              .returning({ language: users.language, displayName: users.displayName })
+          : await app.db
+              .select({ language: users.language, displayName: users.displayName })
+              .from(users)
+              .where(eq(users.id, request.user!.id));
+      return reply.code(200).send({ language: row!.language, displayName: row!.displayName });
     },
   );
 

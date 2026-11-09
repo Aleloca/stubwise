@@ -50,6 +50,14 @@ function progettoSenzaFase5(overrides: Record<string, unknown> = {}) {
   };
 }
 
+describe("projectSchema: `code` e soglie verso un server più vecchio (integrazione area 2)", () => {
+  it("la risposta senza code né stallThresholds parsa", () => {
+    const parsed = projectSchema.parse(progettoSenzaFase5());
+    expect(parsed.code).toBeUndefined();
+    expect(parsed.stallThresholds).toBeUndefined();
+  });
+});
+
 describe("projectSchema: `aiProviderExclusive` verso un server più vecchio", () => {
   it("parsa un progetto senza `aiProviderExclusive`, che diventa false", () => {
     expect(projectSchema.parse(progettoSenzaFase5()).aiProviderExclusive).toBe(false);

@@ -10,7 +10,6 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Db } from "./client.js";
-import { seedEmailMessage, seedTicket } from "./testing.js";
 
 /**
  * Verifica il backfill della migrazione 0096 (21 ott 2026): `agent_runs.operation`
@@ -90,9 +89,27 @@ describe("migrazione 0096: operazione e progetto dei run storici", () => {
     client = handle.client;
     await migrate(db, { migrationsFolder: await migrationsFolderUpTo(96) });
 
-    // Le tabelle di contorno non cambiano con la 0096: i seed di testing.ts
-    // valgono anche sullo schema fino alla 0095.
-    const seeded = await seedTicket(db, { number: 1 });
+    // Tutto in SQL grezzo: il DB è fermo alla 0095, e gli helper Drizzle di
+    // testing.ts nominano le colonne dello schema di OGGI (es. `projects.code`
+    // della 0107, `users.display_name`), che qui non esistono ancora.
+    const [account] = await db.execute<{ id: string }>(sql`
+      insert into "git_accounts" ("name", "provider", "encrypted_credentials")
+      values ('Account', 'github', 'blob') returning "id"
+    `);
+    const [project] = await db.execute<{ id: string }>(sql`
+      insert into "projects" ("name", "slug", "ingestion_key")
+      values ('Progetto', 'progetto-0096', 'chiave-0096') returning "id"
+    `);
+    const [repository] = await db.execute<{ id: string }>(sql`
+      insert into "repositories" ("project_id", "name", "slug", "provider", "git_account_id", "repo_url", "default_branch")
+      values (${project!.id}, 'Repo', 'repo-0096', 'github', ${account!.id}, 'https://example.com/repo.git', 'main')
+      returning "id"
+    `);
+    const [ticket] = await db.execute<{ id: string }>(sql`
+      insert into "tickets" ("project_id", "number", "title", "type", "priority", "source")
+      values (${project!.id}, 1, 'Ticket', 'bug', 'medium', 'manual') returning "id"
+    `);
+    const seeded = { projectId: project!.id, repositoryId: repository!.id, ticketId: ticket!.id };
     projectId = seeded.projectId;
     const job = await db.execute<{ id: string }>(sql`
       insert into "ai_jobs" ("ticket_id") values (${seeded.ticketId}) returning "id"
@@ -108,7 +125,19 @@ describe("migrazione 0096: operazione e progetto dei run storici", () => {
       insert into "users" ("email", "password_hash", "role")
       values ('owner@acme.test', 'x', 'member') returning "id"
     `);
-    const { messageId } = await seedEmailMessage(db, { userId: owner[0]!.id });
+    const [workspace] = await db.execute<{ id: string }>(sql`
+      insert into "google_workspaces" ("name", "domains", "client_id", "client_secret_encrypted")
+      values ('Acme', ARRAY['acme.test'], 'c', 'x') returning "id"
+    `);
+    const [googleAccount] = await db.execute<{ id: string }>(sql`
+      insert into "google_accounts" ("user_id", "workspace_id", "email", "google_sub", "refresh_token_encrypted")
+      values (${owner[0]!.id}, ${workspace!.id}, 'casella@acme.test', 'sub-0096', 'x') returning "id"
+    `);
+    const [message] = await db.execute<{ id: string }>(sql`
+      insert into "email_messages" ("account_id", "gmail_message_id", "thread_id", "from_address", "received_at")
+      values (${googleAccount!.id}, 'gm-0096', 'th-0096', 'cliente@acme.test', now()) returning "id"
+    `);
+    const messageId = message!.id;
 
     await insertRun("triage", { jobId }, "triage", "claude-haiku-5-5");
     await insertRun("fixOpus", { jobId }, "fix", "claude-opus-5-5");

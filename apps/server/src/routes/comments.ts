@@ -9,6 +9,7 @@ import { comments, tickets } from "@stubwise/db";
 import { ticketCommentSchema, type ProjectPermission } from "@stubwise/shared";
 import { authErrorResponses, errorSchema, foreignKeyViolationConstraint } from "./shared.js";
 import { apiError } from "../errors.js";
+import { excerpt, notifyTaskActivity } from "../services/task-notify.js";
 import {
   addComment,
   deleteComment,
@@ -182,13 +183,23 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
       }
       let created: CommentRow;
       try {
-        created = await addComment(app.db, {
-          ticketId,
-          authorType: "user",
-          // `config.access` è passato: request.user è popolato.
-          authorId: request.user?.id,
-          body: request.body.body,
-          replyToCommentId: replyToCommentId ?? null,
+        created = await app.db.transaction(async (tx) => {
+          const row = await addComment(tx, {
+            ticketId,
+            authorType: "user",
+            // `config.access` è passato: request.user è popolato.
+            authorId: request.user?.id,
+            body: request.body.body,
+            replyToCommentId: replyToCommentId ?? null,
+          });
+          // Integrazione area 2: chi segue la task sa del commento (tranne l'autore).
+          await notifyTaskActivity(tx, {
+            ticketId,
+            actorUserId: request.user?.id ?? null,
+            change: "comment",
+            summary: excerpt(request.body.body),
+          });
+          return row;
         });
       } catch (error) {
         // Il padre è sparito fra il controllo e l'insert: la FK lo dice. Oggi
