@@ -239,6 +239,18 @@ function derive(schema: z.ZodType, trace: Trace): z.ZodType {
    */
   if (schema instanceof z.ZodRecord) {
     noteRebuild(schema, "record", trace);
+    /**
+     * Una chiave ENUM (fix, fetta 4): `z.record` su un enum è ESAUSTIVO, e
+     * aprire l'enum ci aggiungeva la chiave di ripiego — così il record
+     * derivato pretendeva tutte le chiavi più `__unknown__`, che nessuna
+     * risposta ha (`milestoneCountsSchema.byStatus`, un `partialRecord`,
+     * non si leggeva mai). La lettura tollerante di un record con chiavi
+     * enum è un record su stringa: chiavi mancanti e sconosciute passano, i
+     * valori restano validati.
+     */
+    if (schema.keyType instanceof z.ZodEnum) {
+      return z.record(z.string(), derive(child(schema.valueType), trace));
+    }
     return z.record(
       derive(child(schema.keyType), trace) as z.ZodString,
       derive(child(schema.valueType), trace),
