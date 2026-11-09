@@ -19,7 +19,15 @@ const codeById = new Map<string, string>();
 
 export function forgetTaskCodes(): void {
   codeById.clear();
+  truncatedByQuery.clear();
 }
+
+/**
+ * Se l'ultima lettura di una query è arrivata troncata (oltre le 2000 righe il
+ * server dice `truncated`), per la query della lista: `tasksTruncated` lo
+ * legge dopo la `listTasks` che l'ha scritto. Si svuota al cambio di sessione.
+ */
+const truncatedByQuery = new Map<string, boolean>();
 
 /** Una vista del server come `Task` del prototipo: 1:1, la settimana arriva con la fetta 2. */
 export function toTask(view: TaskViewData): Task {
@@ -72,9 +80,14 @@ export const countTasks: typeof Fake.countTasks = async (criteria) => {
 };
 
 export const listTasks: typeof Fake.listTasks = async (criteria) => {
-  const page = await appClient().tasks.list(filtersOf(criteria));
+  const filters = filtersOf(criteria);
+  const page = await appClient().tasks.list(filters);
+  truncatedByQuery.set(taskListQuery(filters), page.truncated === true);
   return page.items.map((v) => toTask(v as TaskViewData));
 };
+
+export const tasksTruncated: typeof Fake.tasksTruncated = (criteria) =>
+  truncatedByQuery.get(taskListQuery(filtersOf(criteria))) === true;
 
 /** Una task invisibile risponde come una che non esiste: `null` (404 `not_found`). */
 export const getTaskByCode: typeof Fake.getTaskByCode = async (code) => {

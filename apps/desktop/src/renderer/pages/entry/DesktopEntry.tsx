@@ -1,3 +1,4 @@
+import { landingSearch } from "../../data/integration";
 import { Navigate } from "@tanstack/react-router";
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -87,7 +88,7 @@ export function DesktopEntry() {
     [setPersona, t],
   );
 
-  if (stage === "in") return <Navigate to="/home" replace />;
+  if (stage === "in") return <Navigate to="/home" search={landingSearch()} replace />;
 
   async function saveAddress(e: FormEvent, draft: string) {
     e.preventDefault();

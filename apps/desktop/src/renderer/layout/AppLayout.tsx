@@ -105,7 +105,8 @@ export function AppLayout() {
  */
 function IntegrationGate() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const gate = integrationTargetOf(pathname);
+  const view = useRouterState({ select: (s) => (s.location.search as { view?: unknown }).view });
+  const gate = integrationTargetOf(pathname, { view });
   if (gate && !isIntegrated(gate.target)) return <ComingSoon titleKey={gate.titleKey} />;
   return <Outlet />;
 }

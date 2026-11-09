@@ -296,6 +296,16 @@ export async function listMilestones(projectId?: string): Promise<Milestone[]> {
     .map(copy);
 }
 
+/**
+ * Se l'ultima `listTasks` con questi criteri è arrivata troncata (integrazione
+ * area 2, fetta 2: il server ne dà al più 2000). Il carico di Planning e La mia
+ * settimana lo dice. Nel prototipo la lista è sempre intera.
+ */
+export function tasksTruncated(criteria?: FilterCriteria): boolean {
+  void criteria;
+  return false;
+}
+
 /** Le task visibili, filtrate con i criteri (la visibilità viene prima di tutto). */
 export async function listTasks(criteria?: FilterCriteria): Promise<Task[]> {
   const me = await gate("listTasks");

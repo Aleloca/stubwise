@@ -1670,6 +1670,7 @@
   },
   "week": {
     "title": "La mia settimana",
+    "loadTruncated": "Alcune task mancano dal carico.",
     "range": "{{week}} · {{range}}",
     "nav": {
       "label": "Settimana",
@@ -1720,6 +1721,7 @@
   },
   "planning": {
     "title": "Pianificazione",
+    "loadTruncated": "Alcune task mancano dal carico.",
     "range": "{{week}} · {{range}}",
     "department": "Reparto",
     "person": "Persona",

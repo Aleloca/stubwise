@@ -449,6 +449,15 @@ export function useTasks(
   });
 }
 
+/**
+ * Se la lista di `useTasks(criteria)` è arrivata troncata (oltre le 2000 righe
+ * del server): il carico lo dice. Si legge quando i dati ci sono, dopo la
+ * lettura che l'ha scritto; nel prototipo mai.
+ */
+export function tasksTruncated(criteria: FilterCriteria | undefined, data: unknown): boolean {
+  return data !== undefined && api.tasksTruncated(criteria);
+}
+
 export function useTask(code: string) {
   const me = useSessionPersonId();
   return useQuery({ queryKey: queryKeys.task(me, code), queryFn: () => api.getTaskByCode(code) });
@@ -502,7 +511,12 @@ export function useRequest(id: string, { enabled = true }: { enabled?: boolean }
 
 export function useSavedFilters() {
   const me = useSessionPersonId();
-  return useQuery({ queryKey: queryKeys.savedFilters(me), queryFn: api.listSavedFilters });
+  // I filtri salvati non sono ancora integrati: nella build app nessuna lettura parte.
+  return useQuery({
+    queryKey: queryKeys.savedFilters(me),
+    queryFn: api.listSavedFilters,
+    enabled: featureIntegrated("saved-filters"),
+  });
 }
 
 export function useSavedFilter(id: string) {
@@ -891,7 +905,11 @@ export function useMarkNotification() {
 
 export function usePinnedFilters() {
   const me = useSessionPersonId();
-  return useQuery({ queryKey: queryKeys.pinnedFilters(me), queryFn: api.listPinnedFilterIds });
+  return useQuery({
+    queryKey: queryKeys.pinnedFilters(me),
+    queryFn: api.listPinnedFilterIds,
+    enabled: featureIntegrated("saved-filters"),
+  });
 }
 
 // --- mutazioni ---------------------------------------------------------------

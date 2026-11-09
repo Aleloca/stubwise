@@ -1670,6 +1670,7 @@
   },
   "week": {
     "title": "My week",
+    "loadTruncated": "Some tasks are missing from the load.",
     "range": "{{week}} · {{range}}",
     "nav": {
       "label": "Week",
@@ -1720,6 +1721,7 @@
   },
   "planning": {
     "title": "Planning",
+    "loadTruncated": "Some tasks are missing from the load.",
     "range": "{{week}} · {{range}}",
     "department": "Department",
     "person": "Person",

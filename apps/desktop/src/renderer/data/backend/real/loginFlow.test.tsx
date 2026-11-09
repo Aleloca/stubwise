@@ -74,7 +74,9 @@ describe("login nella build app web", () => {
     await ue.click(screen.getByLabelText("I've saved them"));
     await ue.click(go);
 
+    // Dalla fetta 2 si atterra su La mia settimana (la Home a blocchi è ancora «in arrivo»).
     await waitFor(() => expect(router.state.location.pathname).toBe("/home"));
-    expect(await screen.findByText("Coming soon")).toBeInTheDocument();
+    expect(router.state.location.search).toMatchObject({ view: "week" });
+    expect(await screen.findByRole("heading", { level: 1, name: "My week" })).toBeInTheDocument();
   });
 });

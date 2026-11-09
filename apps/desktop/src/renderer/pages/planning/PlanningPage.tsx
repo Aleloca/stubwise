@@ -19,8 +19,10 @@ import {
   usePlanTask,
   useProject,
   useProjects,
+  tasksTruncated,
   useTasks,
 } from "../../data/queries";
+import { featureIntegrated } from "../../data/integration";
 import type { FilterCriteria, Person, Project, Task } from "../../data/types";
 import { can, useViewer } from "../../data/viewing";
 import {
@@ -178,7 +180,10 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
 
   // --- righe e carico --------------------------------------------------------
   const rowPeople = useMemo(() => {
-    const list = people.data ?? [];
+    // Claude ha una riga solo dove assegnargli una task è integrato (nella build
+    // app non ancora: integrazione area 2, fetta 2).
+    const claudeRow = featureIntegrated("claude-assign");
+    const list = (people.data ?? []).filter((p) => claudeRow || !p.isClaude);
     if (projectCode) {
       const members = new Set(project?.memberIds ?? []);
       return list.filter((p) => members.has(p.id)).sort(byName);
@@ -471,6 +476,10 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
               <DeptLegend departmentIds={legendIds} />
             </span>
           </div>
+          {/* Il carico si calcola sopra tutte le task che si vedono: se la lista è troncata, lo dice. */}
+          {tasksTruncated(undefined, all.data) && (
+            <p className="text-sm text-ink-muted">{t("planning.loadTruncated")}</p>
+          )}
         </header>
         <DndContext
           sensors={sensors}

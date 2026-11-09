@@ -201,6 +201,7 @@ export const stopAndSend: typeof Fake.stopAndSend = notIntegrated("stopAndSend")
 export const subscribe: typeof Fake.subscribe = notIntegratedSync("subscribe") as never;
 export const suggestionKeyOf: typeof Fake.suggestionKeyOf = notIntegratedSync("suggestionKeyOf") as never;
 export const support: typeof Fake.support = notIntegratedNamespace("support") as never;
+export const tasksTruncated: typeof Fake.tasksTruncated = notIntegratedSync("tasksTruncated") as never;
 export const updateFilter: typeof Fake.updateFilter = notIntegrated("updateFilter") as never;
 export const updateMilestone: typeof Fake.updateMilestone = notIntegrated("updateMilestone") as never;
 export const updateRequest: typeof Fake.updateRequest = notIntegrated("updateRequest") as never;

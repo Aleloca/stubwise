@@ -11,7 +11,7 @@ import {
 } from "@tanstack/react-router";
 import { AppLayout } from "./layout/AppLayout";
 import { Placeholder } from "./pages/Placeholder";
-import { isIntegrated } from "./data/integration";
+import { isIntegrated, landingSearch } from "./data/integration";
 import { NotFound } from "./pages/NotFound";
 import { ProjectNotFound } from "./pages/ProjectNotFound";
 import { useTranslation } from "react-i18next";
@@ -385,7 +385,7 @@ function EntryGate() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const { stage, empty } = useEntryGate();
   if (empty) return pathname === "/setup" ? <Outlet /> : <Navigate to="/setup" replace />;
-  if (pathname === "/setup") return <Navigate to={stage === "in" ? "/home" : "/login"} replace />;
+  if (pathname === "/setup") return stage === "in" ? <Navigate to="/home" search={landingSearch()} replace /> : <Navigate to="/login" replace />;
   if (ENTRY_PATH.test(pathname)) return <Outlet />;
   if (stage !== "in") return <Navigate to="/login" replace />;
   return <AppLayout />;
@@ -460,7 +460,7 @@ const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   beforeLoad: () => {
-    throw redirect({ to: "/home", replace: true });
+    throw redirect({ to: "/home", search: landingSearch(), replace: true });
   },
 });
 
@@ -468,7 +468,8 @@ const indexRoute = createRoute({
 function PlanningRoutePage() {
   const { viewer } = useViewer();
   // «Planning» trasversale: solo a chi ha `planning.others` in almeno un progetto.
-  if (!can(viewer, "planning.others")) return <Navigate to="/home" replace />;
+  // Chi non ce l'ha torna dove si atterra (nella build app La mia settimana).
+  if (!can(viewer, "planning.others")) return <Navigate to="/home" search={landingSearch()} replace />;
   return <PlanningPage key={viewer.personId} />;
 }
 

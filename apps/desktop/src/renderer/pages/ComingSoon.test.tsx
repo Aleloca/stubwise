@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../test/renderRoute";
@@ -7,8 +7,10 @@ import { renderRoute } from "../test/renderRoute";
 // nella navigazione con «Coming soon» e non leggono niente. Nei test il livello
 // dati è il finto anche con `VITE_STUBWISE_BUILD=app`: qui si registra ogni
 // chiamata ai namespace delle aree future, che devono restare a zero.
-const { FUTURE_NAMESPACES, calls } = vi.hoisted(() => ({
+const { FUTURE_NAMESPACES, calls, truncated } = vi.hoisted(() => ({
   calls: [] as string[],
+  // Il finto non tronca mai: qui si finge la risposta del server oltre le 2000 righe.
+  truncated: { value: false },
   FUTURE_NAMESPACES: [
     "auth",
     "admin",
@@ -41,7 +43,9 @@ vi.mock("@backend/api", async (importOriginal) => {
     };
   const wrapped: Record<string, unknown> = {};
   for (const [name, value] of Object.entries(mod)) {
-    if (typeof value === "function") {
+    if (name === "tasksTruncated") {
+      wrapped[name] = record(name, () => truncated.value);
+    } else if (typeof value === "function") {
       wrapped[name] = record(name, value as (...a: unknown[]) => unknown);
     } else if (value && typeof value === "object" && FUTURE_NAMESPACES.includes(name as never)) {
       wrapped[name] = new Proxy(value as Record<string, unknown>, {
@@ -57,10 +61,17 @@ vi.mock("@backend/api", async (importOriginal) => {
 });
 
 const { resetApi, setLatency } = await import("../data/api");
+const { setSessionPersonId } = await import("../data/session");
+
+/** Nella build app la persona è quella della sessione (il finto), non quella di `renderRoute`. */
+function signedInAs(personId: string) {
+  setSessionPersonId(personId);
+}
 
 beforeEach(() => {
   setLatency(0);
   calls.length = 0;
+  truncated.value = false;
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
 });
 
@@ -102,6 +113,11 @@ const INTEGRATED_CALLS = new Set([
   "listProjectStatuses",
   "listMilestones",
   "getRequest",
+  // Fetta 2: settimana, Planning, La mia settimana, Timeline.
+  "listDayArrangements",
+  "planTask",
+  "setDay",
+  "tasksTruncated",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -142,7 +158,7 @@ describe("aree non integrate nella build app", () => {
   });
 
   it("una sezione di progetto non integrata mostra «Coming soon»", async () => {
-    renderRoute("/p/AUD/planning");
+    renderRoute("/p/AUD/docs");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
@@ -170,5 +186,90 @@ describe("aree non integrate nella build app", () => {
     renderRoute("/chat");
     await settle();
     expect(screen.queryByText("Coming soon")).toBeNull();
+  });
+});
+
+describe("le superfici della fetta 2 nella build app", () => {
+  it("dopo il login si atterra su La mia settimana", async () => {
+    const router = renderRoute("/login");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/home"));
+    expect(router.state.location.search).toMatchObject({ view: "week" });
+    expect(await screen.findByRole("heading", { level: 1, name: "My week" })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("l'indirizzo vuoto atterra su La mia settimana", async () => {
+    const router = renderRoute("/");
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ view: "week" }));
+    expect(router.state.location.pathname).toBe("/home");
+  });
+
+  it("/home senza view resta Coming soon", async () => {
+    renderRoute("/home");
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
+    expect(screen.getByText("Coming soon")).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("la colonna della Home non legge i filtri salvati", async () => {
+    signedInAs("p-laura");
+    renderRoute("/home?view=week");
+    const nav = await screen.findByRole("navigation", { name: "Home views" });
+    expect(await within(nav).findByRole("link", { name: "Planning" })).toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "My week" })).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("/planning senza planning.others torna a My week", async () => {
+    signedInAs("p-marco");
+    const router = renderRoute("/planning");
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ view: "week" }));
+    expect(router.state.location.pathname).toBe("/home");
+  });
+
+  it("il Planning trasversale c'è per chi ha planning.others, senza la riga di Claude", async () => {
+    signedInAs("p-laura");
+    renderRoute("/planning");
+    expect(await screen.findByRole("heading", { level: 1, name: "Planning" })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    expect(await screen.findByRole("grid")).toBeInTheDocument();
+    expect(screen.queryByRole("rowheader", { name: /Claude/ })).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("il Planning di progetto è disponibile", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/AUD/planning");
+    expect(await screen.findByRole("heading", { level: 1, name: "Planning" })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("troncato: l'avviso compare nel Planning e in La mia settimana", async () => {
+    signedInAs("p-laura");
+    renderRoute("/planning");
+    expect(await screen.findByRole("grid")).toBeInTheDocument();
+    expect(screen.queryByText("Some tasks are missing from the load.")).toBeNull();
+    cleanup();
+    truncated.value = true;
+    renderRoute("/planning");
+    expect(await screen.findByText("Some tasks are missing from the load.")).toBeInTheDocument();
+    cleanup();
+    renderRoute("/home?view=week");
+    expect(await screen.findByText("Some tasks are missing from the load.")).toBeInTheDocument();
+  });
+
+  it("la Timeline è disponibile", async () => {
+    renderRoute("/p/AUD/tasks?view=timeline");
+    expect(await screen.findByRole("heading", { level: 1, name: "Tasks" })).toBeInTheDocument();
+    await settle();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    expect(outside()).toEqual([]);
   });
 });
