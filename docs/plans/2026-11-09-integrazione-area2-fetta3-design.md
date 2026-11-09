@@ -37,9 +37,9 @@ Scelte *(maintainer)* e *(orchestratrice)* come nelle fette precedenti.
   `pinned_task_filters`; le «viste salvate» del web vecchio (`saved_views`)
   restano intatte e non si convertono; si toglieranno col web vecchio. I filtri
   pubblici di esempio del prototipo (Aperte, Chiuse questo mese, Ferme da più
-  di 7 giorni, Senza stima, Senza assegnatario) si creano in modo idempotente
-  all'avvio, di proprietà di nessuno (`owner_id` null), modificabili solo da un
-  full admin.
+  di 7 giorni, Senza stima, Senza assegnatario) si creano una volta sola nella
+  migrazione (chi li elimina non li ritrova al riavvio), di proprietà di nessuno
+  (`owner_id` null), modificabili solo da un full admin.
 - **Ruoli di reparto senza riconferma** *(maintainer, 9 nov)*: il permesso
   decide solo la disposizione di una Home, non dà accesso a dati; si assegna da
   desktop e da web senza riconferma, e resta nel registro delle modifiche
