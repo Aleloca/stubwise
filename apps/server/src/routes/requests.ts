@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { inProjects, projectIdsWithPermission } from "../auth/access.js";
-import { backlogVisibleSql } from "./backlog.js";
+import { backlogVisibleSql } from "../services/backlog-visibility.js";
 import { authErrorResponses } from "./shared.js";
 
 /**

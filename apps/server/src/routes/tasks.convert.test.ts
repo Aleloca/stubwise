@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { backlogItemTickets, backlogItems, tickets } from "@stubwise/db";
+import { backlogItemRequesters, backlogItemTickets, backlogItems, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedBacklogItem, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { requestToConvertViewSchema } from "@stubwise/shared";
@@ -77,8 +77,23 @@ describe("POST /api/tasks con requestId (fix fetta 3)", () => {
     }
   });
 
+  it("una voce che chi chiede non vede (Contributor, non richiedente) → 400 request_not_found come un'inesistente, e voce invariata", async () => {
+    const { itemId } = await seedBacklogItem(testDb.db, { projectId, status: "new" });
+    const res = await convert(itemId, contributor.headers.cookie, "Di un altro");
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "request_not_found" });
+    expect(await statusOf(itemId)).toBe("new");
+    expect(await testDb.db.select().from(tickets).where(eq(tickets.title, "Di un altro"))).toHaveLength(0);
+    // Stessa risposta di una voce che non esiste.
+    const missing = await convert("00000000-0000-4000-8000-0000000000ee", contributor.headers.cookie, "Inesistente");
+    expect(missing.statusCode).toBe(400);
+    expect(missing.json()).toMatchObject({ code: "request_not_found" });
+  });
+
   it("un Contributor con tickets.create converte e la voce è converted (il permesso è tickets.create, come nel design)", async () => {
     const { itemId } = await seedBacklogItem(testDb.db, { projectId, status: "new" });
+    // Senza backlog.view_all vede solo le richieste che ha fatto: è una sua.
+    await testDb.db.insert(backlogItemRequesters).values({ itemId, userId: contributor.id });
     const res = await convert(itemId, contributor.headers.cookie, "Convertita dal contributor");
     expect(res.statusCode, res.body).toBe(201);
     expect(await statusOf(itemId)).toBe("converted");

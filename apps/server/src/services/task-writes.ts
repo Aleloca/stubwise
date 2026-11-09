@@ -28,7 +28,8 @@ import {
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { projectViewerIds } from "@stubwise/notifications";
-import { projectPermissionsFor, projectPermissionsOfUser } from "../auth/access.js";
+import { projectIdsWithPermission, projectPermissionsFor, projectPermissionsOfUser } from "../auth/access.js";
+import { backlogVisibleSql } from "./backlog-visibility.js";
 import { closeRefineSessionForItem } from "./backlog-refine.js";
 import { createTicket, type Ticket } from "../db/tickets.js";
 import { diffTicketEvents, userExists } from "./tickets.js";
@@ -140,10 +141,14 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
   if (invalid) return { ok: false, error: invalid };
   if (await isPastWeek(db, null, body.plannedWeek)) return { ok: false, error: "past_week" };
   if (body.requestId) {
+    // Solo una voce che chi chiede VEDE (la regola di `backlog.view_all`,
+    // quella di to-convert): una invisibile risponde come un'inesistente
+    // (fix della review della fetta 3), così 400/409/201 non dicono se esiste.
+    const visible = backlogVisibleSql(await projectIdsWithPermission(db, viewer, "backlog.view_all"), viewer.id);
     const [item] = await db
       .select({ projectId: backlogItems.projectId, status: backlogItems.status })
       .from(backlogItems)
-      .where(eq(backlogItems.id, body.requestId));
+      .where(and(eq(backlogItems.id, body.requestId), ...(visible ? [visible] : [])));
     if (item?.projectId !== body.projectId) return { ok: false, error: "request_not_found" };
     // Come nel prototipo: una voce già convertita o archiviata non si converte.
     if (item.status === "converted" || item.status === "archived") return { ok: false, error: "request_not_convertible" };
