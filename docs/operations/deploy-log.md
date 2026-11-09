@@ -2782,3 +2782,77 @@ deploy o di un rollback che la tocca.
   `project_lead` va ripristinato a mano con la stessa `update` della
   0103). Un ritorno pieno allo stato di prima è solo il backup — e le
   credenziali inserite dopo il rilascio ci sono solo nel DB attuale.
+- **«Integrazione area 2, fetta 1» (9 nov 2026)**: design
+  `docs/plans/2026-11-09-integrazione-area2-task-design.md` (con
+  l'«Aggiunta del 9 nov 2026: il login»), piano
+  `docs/plans/2026-11-09-integrazione-area2-task-plan.md`, invarianti in
+  `docs/invariants/tasks.md` (stati per progetto) e
+  `docs/invariants/second-factor.md` (la porta `/desktop-exchange`). Il
+  renderer di `apps/desktop` gira contro il server vero, come app desktop
+  (dmg locale) e come SPA su `/app`; il web vecchio resta alla radice.
+  Migrazioni **0107** (codici di progetto `projects.code` con il trigger
+  `projects_assign_code`; reparti `departments` + `department_members` col
+  ripiego «General» e tutte le persone dentro; `users.display_name`),
+  **0108** (stati per progetto `project_statuses`, `tickets.status_id` e
+  `closed_at`, i trigger `projects_default_statuses` e `tickets_status_sync`
+  che tiene l'enum `tickets.status` coerente), **0109** (soglie «ferma» sui
+  progetti, `tickets.department_id` col trigger del ripiego, le ferme a
+  mano, `ticket_followers`, `decision_requests`, il trigger che mette ogni
+  persona nuova in «General»), **0110** (tre `notification_kind` DA SOLI:
+  `decision.requested`, `decision.answered`, `ticket.activity`), **0111**
+  (`tickets.due_date`), **0112** (`desktop_handoffs` e `kind = 'desktop'`
+  nel CHECK di `personal_access_tokens`). Env nuove: **nessuna**.
+  `Dockerfile.caddy` costruisce la nuova app (`build:web` di
+  `apps/desktop`, `base: "/app/"`) in `/srv/app` e lancia
+  `apps/desktop/scripts/check-no-seed.mjs` sul bundle DENTRO l'immagine: un
+  dato del seed del prototipo nel bundle fa fallire il build. Il Caddyfile
+  serve `/app` (308 su `/app/`) prima del fallback della SPA.
+  **PRIMA del deploy, backup del DB.**
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0107–0112
+  all'avvio; aspetta healthy e verifica: `select count(*) from tickets
+  where status_id is null;` = 0 (la colonna è NOT NULL: la query prova che
+  il backfill è passato), `select code from projects;` (un codice per
+  progetto, ricavato dallo slug), `select project_id, count(*) from
+  project_statuses group by project_id;` (5 per progetto: To do, In
+  progress, In review, Done, Discarded), `select name from departments where
+  is_default;` («General»); (3) **`worker`** — nessun codice nuovo, ma va
+  confermato che la pipeline muova lo stato tramite il trigger: alla prima
+  PR aperta, `select t.status, s.name from tickets t join project_statuses s
+  on s.id = t.status_id where t.id = '<ticket>';` dice `in_review` / «In
+  review». Controllo d'inattività di sempre prima del riavvio (generazioni
+  Docs, job, sessioni dal vivo, giro notturno: vedi «Quota degli account» e
+  «Giro notturno»); (4) **`caddy`** — verifica `docker exec
+  stubwise-caddy-1 sh -c 'ls /srv/app/index.html'` e che `curl -sI
+  https://<istanza>/app` risponda 308 verso `/app/`.
+  **Dopo il rilascio**: prova a mano del maintainer sull'app desktop (dmg
+  locale, `pnpm --filter @stubwise/desktop package:mac`, puntata
+  all'istanza; login dal browser di sistema, passkey compresa) e sul browser
+  su `/app` (login completo, secondo fattore e configurazione al primo
+  accesso).
+  **Rollback**: caddy scende **insieme** al server (il bundle `/app` parla
+  con `/api/tasks` & co., che il server vecchio non ha). Le migrazioni non
+  si annullano, e il DB nuovo regge un server vecchio — verificato sullo
+  schema: un INSERT vecchio di `projects` senza `code` lo riceve dal trigger
+  `projects_assign_code` (BEFORE INSERT), uno di `tickets` senza
+  `status_id` né `department_id` li riceve da `tickets_status_sync` (lo
+  stato dall'enum) e da `tickets_default_department` (il ripiego), un
+  UPDATE vecchio del solo `status` (pipeline, webhook, web vecchio) sposta
+  `status_id` con la regola di `docs/invariants/tasks.md`, e un utente nuovo
+  entra in «General» col trigger AFTER INSERT. Gli schemi Drizzle vecchi non
+  nominano le colonne nuove, quindi nessun INSERT le manda vuote a mano.
+  **Prima di scendere**:
+  `delete from notifications where kind in ('decision.requested',
+  'decision.answered', 'ticket.activity');` — un `notification_kind` che il
+  server vecchio non conosce dà 500 su `/api/inbox` (le consegne push e
+  Slack in coda cadono in cascata, `notification_deliveries.notification_id`
+  è `ON DELETE CASCADE`; nessuna di queste va al webhook d'istanza);
+  e i token del desktop: `delete from personal_access_tokens where kind =
+  'desktop';` — il server vecchio li accetterebbe ancora come PAT, ma la sua
+  revoca al cambio o al reset della password tocca solo i `mobile`, e
+  `/desktop-exchange` non c'è più per riemetterli: il Mac rifà il login
+  quando si risale. Il CHECK della 0112 resta (ammette `desktop` senza
+  imporlo), e `desktop_handoffs` resta vuota e inerte. Reparti, stati,
+  follower, decisioni e scadenze restano in DB e il server vecchio li
+  ignora; i nomi degli stati cambiati dall'app nuova non si vedono dal web
+  vecchio, che legge l'enum. Un ritorno pieno allo stato di prima è solo il
+  backup.

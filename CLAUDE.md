@@ -15,12 +15,32 @@ repo, ricerca vettoriale e chat RAG.
 - `apps/docs` — sito Starlight (guida utente), buildato e servito su `/guide`.
 - `apps/mobile` — app React Native **bare** (iOS + Android, niente Expo) di
   Stubwise; build/distribuzione manuali, vedi `apps/mobile/README.md`.
-- `apps/desktop` — **prototipo cliccabile** dell'app desktop (Electron +
-  React), completo (aree 1–11, in `main` dal 9 nov 2026): dati finti in
-  memoria, nessuna chiamata al server, fuori da ogni deploy. È la SPECIFICA
-  dell'app vera, e web e mobile non sono un riferimento per lui. Prima di
-  toccarlo leggi `apps/desktop/README.md`: dice come provarlo e dove stanno le
-  decisioni del maintainer (design e piani `docs/plans/*-desktop-*`, shape in
+- `apps/desktop` — l'interfaccia NUOVA (Electron + React), un renderer solo
+  per tre build. Nata come **prototipo cliccabile** (aree 1–11, in `main`
+  dal 9 nov 2026), resta la SPECIFICA dell'app vera: web e mobile non sono
+  un riferimento per lui. Dall'integrazione dell'area 2 (fetta 1, 9 nov
+  2026) gira anche contro il server vero:
+  - **`prototype`** (`dev`, `preview:web`, i test): dati finti in memoria,
+    nessuna chiamata al server, «vedi come» per cambiare persona;
+  - **`app` desktop** (`build:app`, `package:mac` → dmg locale non firmato,
+    puntato all'istanza scelta al primo avvio): il token sta nel Keychain
+    (`safeStorage`), mai nel renderer; le richieste passano dal main
+    (`api:request`);
+  - **`app` web** (`build:web`, `base: "/app/"`): servita da caddy su
+    `/app`, con il cookie di sessione del web.
+  Il livello dati si sceglie al build: `vite.backend.ts` risolve
+  `@backend/api` e `@backend/clock` sul finto (`data/api.ts`,
+  `data/seed/dates.ts`) o sul vero (`data/backend/real/`, sopra
+  `@stubwise/api-client`); le aree non integrate restano «in arrivo».
+  `scripts/check-no-seed.mjs` fa fallire un build «app» che contenga dati
+  del seed (gira dentro `Dockerfile.caddy`). **Il login del desktop passa
+  dal browser di sistema** (passkey compresa): PKCE, `/app/#/desktop-login`,
+  ritorno con `stubwise://auth?code=…&state=…`, scambio su
+  `POST /api/auth/desktop-exchange` (`apps/desktop/src/main/browserLogin.ts`,
+  `docs/invariants/second-factor.md`). Prima di toccarlo leggi
+  `apps/desktop/README.md`: dice come provarlo e dove stanno le decisioni
+  del maintainer (design e piani `docs/plans/*-desktop-*` e
+  `docs/plans/2026-11-09-integrazione-area2-*`, shape in
   `apps/desktop/.impeccable/shape/`, `apps/desktop/docs/ossatura-follow-ups.md`).
 - `apps/push-relay` — relay HTTP delle notifiche push (fase 4), servizio
   `push-relay` sotto il profilo compose `relay`: **gira solo sul nostro VPS**
@@ -108,8 +128,10 @@ repo, ricerca vettoriale e chat RAG.
 Servizi: `postgres` (pgvector/pgvector:pg17), `ollama` (embedding bge-m3,
 1024-dim, via API OpenAI-compatibile), `server`, `worker`, `graphify`, `caddy`.
 **Non esiste un servizio `web`.** Caddy fa da reverse proxy verso il server e
-serve gli statici: SPA da `/srv/web` (root) e Starlight da `/srv/docs` (`/guide`).
-Entrambi i bundle sono buildati dentro l'immagine caddy (`Dockerfile.caddy`).
+serve gli statici: SPA da `/srv/web` (root), Starlight da `/srv/docs` (`/guide`)
+e, dall'integrazione area 2 (9 nov 2026), la nuova app da `/srv/app` (`/app`:
+il renderer di `apps/desktop` in modo «app», `/app` → 308 su `/app/`).
+Tutti i bundle sono buildati dentro l'immagine caddy (`Dockerfile.caddy`).
 `/docs` (non `/guide`) è la sezione Docs della SPA, sul fallback web.
 Caddy serve anche `/widget.js` (bundle IIFE embeddabile da `/srv/widget`,
 buildato in `Dockerfile.caddy`); `/widget/*` è la superficie API pubblica del
@@ -275,8 +297,9 @@ percorso sul volume.
 Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
 `docker compose up -d --build <servizio>`. Variabili in `/opt/stubwise/.env`.
 
-- Modifica al **frontend** (`apps/web`, `apps/docs` o `packages/widget`) →
-  ribuilda **`caddy`**.
+- Modifica al **frontend** (`apps/web`, `apps/docs`, `packages/widget` o il
+  renderer di `apps/desktop`, che caddy serve su `/app`) → ribuilda
+  **`caddy`**. L'app desktop si rifà a mano (`package:mac`).
 - Modifica al **backend** → ribuilda `server` e/o `worker`.
 - Modifica all'**agente di monitoraggio** (`packages/agent`) → l'immagine
   `alelocadev/stubwise-agent` su Docker Hub (multi-arch, così gli host la pullano
@@ -367,6 +390,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Ruoli e membri di progetto» (22 ott 2026)
   - «Secondo fattore sul login» (23 ott 2026)
   - «Cassaforte delle credenziali» (23 ott 2026)
+  - «Integrazione area 2, fetta 1» (9 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
