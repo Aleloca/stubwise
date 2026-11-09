@@ -54,6 +54,7 @@ import {
 import { GridSkeleton, PeopleGrid, type GridRow } from "./PeopleGrid";
 import { ChipBody, chipClass } from "./PlanChip";
 import { PlanMenu } from "./PlanMenu";
+import { planRefusalOf } from "./planRefusal";
 import { Unplanned, type PoolGroup } from "./Unplanned";
 
 /** Le settimane in vista secondo la larghezza della finestra (shape planning.md §6). */
@@ -285,10 +286,17 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
             },
           );
         },
-        onError: () =>
+        onError: (error) => {
+          // Un rifiuto (regola del server) ha la sua frase e non si riprova.
+          const refusal = planRefusalOf(error);
+          if (refusal) {
+            toast.error(t(`planning.refused.${refusal}`, { code: task.code }));
+            return;
+          }
           toast.error(t("planning.moveFailed", { code: task.code }), {
             action: { label: t("planning.tryAgain"), run: () => plan(task, assigneeId, week, opts) },
-          }),
+          });
+        },
       },
     );
   }

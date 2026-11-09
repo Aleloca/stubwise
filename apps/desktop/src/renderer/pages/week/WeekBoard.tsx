@@ -40,6 +40,7 @@ import { SizeMark } from "../../tasks-ui/SizeMark";
 import { FamilySign } from "../../tasks-ui/StatusLabel";
 import { formatDue } from "../../tasks-ui/TaskRow";
 import { useToast } from "../../tasks-ui/Toast";
+import { planRefusalOf } from "../planning/planRefusal";
 import { shortWeek } from "../tasks/pickers";
 
 // La mia settimana (spec §2, shape home.md §6): le task assegnate a chi
@@ -440,7 +441,16 @@ export function WeekBoard({
     setAnnouncement(t("week.dropped", { code: task.code, column: spoken(slot) }));
     setDay.mutate(
       { taskId: task.id, week, day: toDay(slot) },
-      { onError: () => toast.error(t("week.moveFailed", { code: task.code })) },
+      {
+        onError: (error) => {
+          const refusal = planRefusalOf(error);
+          toast.error(
+            refusal
+              ? t(`planning.refused.${refusal}`, { code: task.code })
+              : t("week.moveFailed", { code: task.code }),
+          );
+        },
+      },
     );
   }
 
