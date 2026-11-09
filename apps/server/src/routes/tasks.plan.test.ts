@@ -126,6 +126,22 @@ describe("POST /api/tasks/:ticketId/plan", () => {
     expect((await plan(id, { assigneeId: outsider.id, week: null }, outsider.headers.cookie)).statusCode).toBe(404);
   });
 
+  it("togliere l'assegnatario (assigneeId null): con planning.others sempre, anche se non è più membro; senza, solo se la task è mia", async () => {
+    // Assegnata a chi non è (più) membro: il Project Lead la toglie.
+    const gone = await task(outsider.id, "2030-01-07");
+    const res = await plan(gone, { assigneeId: null, week: null }, lead.headers.cookie);
+    expect(res.statusCode, res.body).toBe(200);
+    expect(await rowOf(gone)).toEqual({ a: null, w: null });
+    // Un Developer toglie sé stesso dalla sua.
+    const mine = await task(dev.id, "2030-01-07");
+    expect((await plan(mine, { assigneeId: null, week: null }, dev.headers.cookie)).statusCode).toBe(200);
+    expect(await rowOf(mine)).toEqual({ a: null, w: null });
+    // Ma non toglie un altro dalla sua.
+    const others = await task(other.id, "2030-01-07");
+    expect((await plan(others, { assigneeId: null, week: null }, dev.headers.cookie)).statusCode).toBe(403);
+    expect(await rowOf(others)).toEqual({ a: other.id, w: "2030-01-07" });
+  });
+
   it("una settimana che non esiste → 400", async () => {
     const id = await task(lead.id);
     expect((await plan(id, { assigneeId: lead.id, week: "2027-W53" }, lead.headers.cookie)).statusCode).toBe(400);

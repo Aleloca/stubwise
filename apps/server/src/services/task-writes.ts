@@ -481,6 +481,16 @@ export async function planTask(
     if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
     const permissions = (await projectPermissionsFor(tx, viewer, current.projectId)) ?? new Set();
     const members = await projectViewerIds(tx, current.projectId);
+    // `assigneeId: null` sulla rotta TOGLIE l'assegnatario (per `planBlock`
+    // `null` è la vasca, che tiene la persona): con `planning.others` sempre,
+    // anche se chi l'aveva non è più membro; senza, solo dalla propria task.
+    const others = permissions.has("planning.others");
+    if (plan.assigneeId === null) {
+      if (!others && current.assigneeId !== viewer.id) return "forbidden";
+      if (await isPastWeek(tx, current.id, plan.week)) return "past_week";
+      await applyTaskPatch(tx, viewer.id, current, { assigneeId: null, plannedWeek: plan.week }, { notifyPlanning: true });
+      return null;
+    }
     const block = planBlock(
       {
         id: current.id,
@@ -494,7 +504,7 @@ export async function planTask(
       plan.assigneeId,
       {
         me: viewer.id,
-        others: permissions.has("planning.others"),
+        others,
         edit: permissions.has("tickets.edit"),
         members,
       },
