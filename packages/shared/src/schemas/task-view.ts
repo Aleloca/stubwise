@@ -2,6 +2,7 @@ import { z } from "zod";
 import { STATUS_FAMILIES } from "../tasks/stall.js";
 import { TASK_SIZES } from "../tasks/sizes.js";
 import { UI_TASK_TYPES } from "../tasks/types.js";
+import { isIsoWeek } from "../tasks/weeks.js";
 import { ticketPrioritySchema } from "./ticket.js";
 
 /**
@@ -13,6 +14,9 @@ import { ticketPrioritySchema } from "./ticket.js";
  */
 
 export const statusFamilySchema = z.enum(STATUS_FAMILIES);
+
+/** Una settimana ISO `YYYY-Www` che esiste davvero (fetta 2). */
+export const isoWeekSchema = z.string().refine(isIsoWeek, { message: "plannedWeek must be an ISO week like 2026-W46" });
 export const taskSizeSchema = z.enum(TASK_SIZES);
 export const uiTaskTypeSchema = z.enum(UI_TASK_TYPES);
 
@@ -229,6 +233,8 @@ export const taskPatchSchema = z
     size: taskSizeSchema.nullable(),
     dueDate: z.string().date().nullable(),
     milestoneId: z.string().uuid().nullable(),
+    /** Fetta 2: la settimana pianificata (il server la salva come lunedì). */
+    plannedWeek: isoWeekSchema.nullable(),
     labels: z.array(z.string().trim().min(1).max(60)).max(30),
     type: uiTaskTypeSchema,
     priority: ticketPrioritySchema,
@@ -245,6 +251,7 @@ export const newTaskBodySchema = z.object({
   size: taskSizeSchema.nullable().optional(),
   statusId: z.string().uuid().optional(),
   milestoneId: z.string().uuid().nullable().optional(),
+  plannedWeek: isoWeekSchema.nullable().optional(),
   type: uiTaskTypeSchema,
   priority: ticketPrioritySchema.optional(),
   requestId: z.string().uuid().optional(),

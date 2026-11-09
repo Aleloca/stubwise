@@ -11,6 +11,7 @@ import {
 } from "@stubwise/db";
 import {
   decisionRequestViewSchema,
+  isoWeekSchema,
   newTaskBodySchema,
   stalledTaskViewSchema,
   taskPatchSchema,
@@ -214,6 +215,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
               milestoneId: z.uuid().nullable(),
               size: taskSizeSchema.nullable(),
               departmentId: z.uuid(),
+              plannedWeek: isoWeekSchema.nullable(),
             })
             .partial(),
         }),

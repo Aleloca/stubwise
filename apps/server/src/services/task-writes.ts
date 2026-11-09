@@ -14,6 +14,7 @@ import {
 } from "@stubwise/db";
 import {
   effortFromSize,
+  isoWeekToMonday,
   ticketTypeFor,
   uiTypeOf,
   type NewTaskBody,
@@ -158,6 +159,7 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
       statusId: body.statusId ?? firstTodo?.id,
       effort: effortFromSize(body.size ?? null),
       milestoneId: body.milestoneId ?? null,
+      ...(body.plannedWeek ? { plannedWeek: isoWeekToMonday(body.plannedWeek) } : {}),
     });
     // Chi crea vede la task (l'ha chiesta lui); l'assegnatario segue solo se la vede.
     await follow(tx, ticket.id, [
@@ -185,6 +187,10 @@ function updatesFor(current: Ticket, patch: TaskPatch): Partial<Ticket> {
   if (patch.assigneeId !== undefined) updates.assigneeId = patch.assigneeId;
   if (patch.size !== undefined) updates.effort = effortFromSize(patch.size);
   if (patch.dueDate !== undefined) updates.dueDate = patch.dueDate;
+  // Il lunedì nel DB; il consolidamento dello slittamento lo fa il trigger.
+  if (patch.plannedWeek !== undefined) {
+    updates.plannedWeek = patch.plannedWeek === null ? null : isoWeekToMonday(patch.plannedWeek);
+  }
   if (patch.milestoneId !== undefined) updates.milestoneId = patch.milestoneId;
   if (patch.labels !== undefined) updates.labels = patch.labels;
   if (patch.priority !== undefined) updates.priority = patch.priority;
@@ -273,7 +279,10 @@ export async function updateTask(
   return { ok: true, task: await viewOf(db, viewer, ticketId) };
 }
 
-export type BulkPatch = Pick<TaskPatch, "statusId" | "assigneeId" | "milestoneId" | "size" | "departmentId">;
+export type BulkPatch = Pick<
+  TaskPatch,
+  "statusId" | "assigneeId" | "milestoneId" | "size" | "departmentId" | "plannedWeek"
+>;
 
 export type BulkResult =
   | { ok: true; tasks: TaskViewData[] }

@@ -57,6 +57,8 @@ export interface CreateTicketInput {
   effort?: number | null;
   milestoneId?: string | null;
   dueDate?: string | null;
+  /** Fetta 2: il lunedì della settimana pianificata. */
+  plannedWeek?: string | null;
 }
 
 /**
@@ -104,6 +106,7 @@ export async function createTicket(db: Db, input: CreateTicketInput): Promise<Ti
         ...(input.effort !== undefined ? { effort: input.effort } : {}),
         ...(input.milestoneId !== undefined ? { milestoneId: input.milestoneId } : {}),
         ...(input.dueDate !== undefined ? { dueDate: input.dueDate } : {}),
+        ...(input.plannedWeek !== undefined ? { plannedWeek: input.plannedWeek } : {}),
       })
       .returning();
 

@@ -14,6 +14,8 @@ import {
   type Db,
 } from "@stubwise/db";
 import {
+  WEEK_TIME_ZONE,
+  mondayToIsoWeek,
   sizeFromEffort,
   stallOf,
   uiTypeOf,
@@ -67,9 +69,19 @@ const DAY_MS = 86_400_000;
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 const shift = (date: string, days: number) => isoDay(new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS));
 
-/** Oggi del server, come data UTC. */
+/**
+ * Oggi del server, come data nel fuso della settimana (`WEEK_TIME_ZONE`,
+ * Europe/Rome): lo stesso giorno di `stubwise_current_monday()` nel DB, così
+ * «questa settimana», lo slittamento e le ferme non si contraddicono a
+ * cavallo della mezzanotte.
+ */
 export function serverToday(now: Date = new Date()): string {
-  return isoDay(now);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: WEEK_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
 }
 
 /** Lo stesso calcolo di `periodRange` del prototipo (`domain/filters.ts`). */
@@ -150,8 +162,10 @@ export function taskFilterConditions(q: TaskListQuery, today: string): SQL[] {
         c.push(gte(tickets.dueDate, range.from));
         c.push(lte(tickets.dueDate, range.to));
       } else {
-        // La settimana pianificata non esiste ancora (fetta 2): nessuna task la ha.
-        c.push(sql`false`);
+        // La settimana (effettiva, cioè con lo slittamento) si sovrappone al periodo.
+        const week = sql`stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt})`;
+        c.push(sql`${week} <= ${range.to}::date`);
+        c.push(sql`${week} + 6 >= ${range.from}::date`);
       }
     }
   }
@@ -223,6 +237,9 @@ export async function loadTaskViews(
       code: projects.code,
       family: projectStatuses.family,
       lastActivityAt: lastActivity,
+      // Lo slittamento DERIVATO (fetta 2): la regola sta nel DB, in UN posto.
+      effectiveWeek: sql<string | null>`stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt})::text`,
+      slips: sql<number>`(${tickets.slipCount} + stubwise_slip_weeks(${tickets.plannedWeek}, ${tickets.closedAt}))::int`,
     })
     .from(tickets)
     .innerJoin(projects, eq(projects.id, tickets.projectId))
@@ -274,7 +291,7 @@ export async function loadTaskViews(
   const jobOf = new Map(jobs.map((j) => [j.ticketId, j.status]));
   const requestOf = new Map(requests.map((r) => [r.ticketId, r.itemId]));
 
-  return rows.map(({ t, code, family, lastActivityAt }) => ({
+  return rows.map(({ t, code, family, lastActivityAt, effectiveWeek, slips }) => ({
     family,
     view: {
       id: t.id,
@@ -291,8 +308,8 @@ export async function loadTaskViews(
       followerIds: (followersOf.get(t.id) ?? []).map((f) => f.userId),
       size: sizeFromEffort(t.effort),
       dueDate: t.dueDate,
-      plannedWeek: null,
-      slipCount: 0,
+      plannedWeek: effectiveWeek ? mondayToIsoWeek(effectiveWeek) : null,
+      slipCount: slips,
       milestoneId: t.milestoneId,
       labels: t.labels,
       type: uiTypeOf(t.type),
