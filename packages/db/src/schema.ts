@@ -5112,3 +5112,46 @@ export const taskDayArrangements = pgTable(
     index("task_day_arrangements_user_week_idx").on(table.userId, table.week),
   ],
 );
+
+/**
+ * Filtri salvati dell'app nuova (0116, integrazione area 2, fetta 3). Tabella
+ * nuova: `saved_views` del web vecchio resta intatta. `owner_id` null = un
+ * filtro di esempio (`seed_key`) o di una persona eliminata. I criteri li
+ * valida `filterCriteriaSchema` di `@stubwise/shared` in scrittura.
+ */
+export const taskFilters = pgTable(
+  "task_filters",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    visibility: text("visibility", { enum: ["private", "public"] }).notNull(),
+    criteria: jsonb("criteria").$type<Record<string, unknown>>().notNull().default({}),
+    view: text("view", { enum: ["list", "board", "timeline"] }).notNull(),
+    groupBy: text("group_by", {
+      enum: ["none", "status", "assignee", "department", "milestone", "week", "project"],
+    }).notNull(),
+    seedKey: text("seed_key").unique("task_filters_seed_key_unique"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("task_filters_owner_idx").on(table.ownerId)],
+);
+
+/** I filtri fissati nella colonna, per persona e in ordine (0116). */
+export const pinnedTaskFilters = pgTable(
+  "pinned_task_filters",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    filterId: uuid("filter_id")
+      .notNull()
+      .references(() => taskFilters.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "pinned_task_filters_pk", columns: [table.userId, table.filterId] }),
+    index("pinned_task_filters_filter_idx").on(table.filterId),
+  ],
+);

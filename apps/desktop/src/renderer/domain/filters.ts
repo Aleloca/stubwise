@@ -1,14 +1,17 @@
 import { TODAY } from "@backend/clock";
-import type {
-  FilterCriteria,
-  PeriodField,
-  RelativePeriod,
-  StatusFamily,
-  Task,
-  TaskPriority,
-  TaskType,
-} from "../data/model";
-import { weekDays } from "./weeks";
+import {
+  canUseStatusIds as sharedCanUseStatusIds,
+  parseCriteria as sharedParseCriteria,
+  periodRange as sharedPeriodRange,
+  taskInPeriod,
+  type Period,
+} from "@stubwise/shared";
+import type { FilterCriteria, StatusFamily, Task } from "../data/model";
+
+// Le regole pure dei criteri (periodi, schema dei criteri, stati per
+// progetto) stanno in `@stubwise/shared` (integrazione area 2, fetta 3): una
+// regola, un posto, la usa anche il server. Qui resta `matches`, del finto, e
+// gli adattatori che leggono «oggi».
 
 export interface FilterContext {
   familyOf(task: Task): StatusFamily;
@@ -16,67 +19,9 @@ export interface FilterContext {
   projectName(id: string): string;
 }
 
-type Period =
-  | { kind: "relative"; preset: RelativePeriod }
-  | { kind: "absolute"; from: string; to: string };
-
-const DAY_MS = 86_400_000;
-const iso = (d: Date) => d.toISOString().slice(0, 10);
-const shift = (date: string, days: number) =>
-  iso(new Date(Date.parse(`${date}T00:00:00Z`) + days * DAY_MS));
-
-function mondayOfDate(date: string): string {
-  const dow = new Date(`${date}T00:00:00Z`).getUTCDay() || 7;
-  return shift(date, -(dow - 1));
-}
-
-function monthRange(date: string, offset: number): { from: string; to: string } {
-  const d = new Date(`${date}T00:00:00Z`);
-  const first = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + offset, 1));
-  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0));
-  return { from: iso(first), to: iso(last) };
-}
-
 /** Intervallo (estremi inclusi, ISO) di un periodo, rispetto a `today`. */
 export function periodRange(p: Period, today: string = TODAY): { from: string; to: string } {
-  if (p.kind === "absolute") return { from: p.from, to: p.to };
-  switch (p.preset) {
-    case "last7":
-      return { from: shift(today, -6), to: today };
-    case "last30":
-      return { from: shift(today, -29), to: today };
-    case "thisWeek": {
-      const monday = mondayOfDate(today);
-      return { from: monday, to: shift(monday, 6) };
-    }
-    case "nextWeek": {
-      const monday = shift(mondayOfDate(today), 7);
-      return { from: monday, to: shift(monday, 6) };
-    }
-    case "thisMonth":
-      return monthRange(today, 0);
-    case "lastMonth":
-      return monthRange(today, -1);
-  }
-}
-
-/** Le date della task per un campo di periodo (una settimana pianificata è un intervallo). */
-function fieldRange(task: Task, field: PeriodField): { from: string; to: string } | null {
-  switch (field) {
-    case "created":
-      return { from: task.createdAt.slice(0, 10), to: task.createdAt.slice(0, 10) };
-    case "closed":
-      return task.closedAt
-        ? { from: task.closedAt.slice(0, 10), to: task.closedAt.slice(0, 10) }
-        : null;
-    case "due":
-      return task.dueDate ? { from: task.dueDate, to: task.dueDate } : null;
-    case "plannedWeek": {
-      if (!task.plannedWeek) return null;
-      const monday = weekDays(task.plannedWeek)[0]!;
-      return { from: monday, to: shift(monday, 6) };
-    }
-  }
+  return sharedPeriodRange(p, today);
 }
 
 /** AND fra i criteri presenti, OR dentro ogni elenco; un elenco vuoto non filtra. */
@@ -97,87 +42,21 @@ export function matches(task: Task, c: FilterCriteria, ctx: FilterContext): bool
   if (text && !task.code.toLowerCase().includes(text) && !task.title.toLowerCase().includes(text)) {
     return false;
   }
-  if (c.period) {
-    const want = periodRange(c.period);
-    const got = fieldRange(task, c.period.field);
-    if (!got || got.to < want.from || got.from > want.to) return false;
-  }
+  if (c.period && !taskInPeriod(task, c.period, TODAY)) return false;
   return true;
 }
 
 /** Gli stati sono per progetto: filtrarli ha senso solo con un progetto scelto. */
 export function canUseStatusIds(c: FilterCriteria): boolean {
-  return c.projectIds?.length === 1;
-}
-
-const FAMILIES: readonly StatusFamily[] = ["todo", "active", "closed"];
-const SIZES_OR_NONE: readonly string[] = ["XS", "S", "M", "L", "XL", "none"];
-const TYPES: readonly TaskType[] = ["bug", "feature", "activity"];
-const PRIORITIES: readonly TaskPriority[] = ["low", "medium", "high", "urgent"];
-const PERIOD_FIELDS: readonly PeriodField[] = ["created", "closed", "plannedWeek", "due"];
-const PRESETS: readonly RelativePeriod[] = [
-  "last7",
-  "last30",
-  "thisWeek",
-  "nextWeek",
-  "thisMonth",
-  "lastMonth",
-];
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-const isRecord = (x: unknown): x is Record<string, unknown> =>
-  typeof x === "object" && x !== null && !Array.isArray(x);
-
-function strings(x: unknown, allowed?: readonly string[]): string[] | undefined {
-  if (!Array.isArray(x)) return undefined;
-  const out = x.filter(
-    (v): v is string => typeof v === "string" && (!allowed || allowed.includes(v)),
-  );
-  return out.length ? out : undefined;
-}
-
-function parsePeriod(x: unknown): FilterCriteria["period"] {
-  if (!isRecord(x) || !PERIOD_FIELDS.includes(x.field as PeriodField)) return undefined;
-  const field = x.field as PeriodField;
-  if (x.kind === "relative" && PRESETS.includes(x.preset as RelativePeriod)) {
-    return { field, kind: "relative", preset: x.preset as RelativePeriod };
-  }
-  if (
-    x.kind === "absolute" &&
-    typeof x.from === "string" &&
-    typeof x.to === "string" &&
-    DATE_RE.test(x.from) &&
-    DATE_RE.test(x.to)
-  ) {
-    return { field, kind: "absolute", from: x.from, to: x.to };
-  }
-  return undefined;
+  return sharedCanUseStatusIds(c);
 }
 
 /**
  * I criteri letti da fuori (la ricerca `filters=` dell'indirizzo): si tiene
  * ciò che ha la forma giusta e si scarta il resto, chiave per chiave, così un
  * indirizzo scritto a mano o vecchio non rompe la pagina. `null` se non è
- * nemmeno un oggetto.
+ * nemmeno un oggetto. La regola è `parseCriteria` di `@stubwise/shared`.
  */
 export function parseCriteria(raw: unknown): FilterCriteria | null {
-  if (!isRecord(raw)) return null;
-  const out: FilterCriteria = {
-    projectIds: strings(raw.projectIds),
-    departmentIds: strings(raw.departmentIds),
-    assigneeIds: strings(raw.assigneeIds),
-    families: strings(raw.families, FAMILIES) as StatusFamily[] | undefined,
-    statusIds: strings(raw.statusIds),
-    sizes: strings(raw.sizes, SIZES_OR_NONE) as FilterCriteria["sizes"],
-    types: strings(raw.types, TYPES) as TaskType[] | undefined,
-    priorities: strings(raw.priorities, PRIORITIES) as TaskPriority[] | undefined,
-    milestoneIds: strings(raw.milestoneIds),
-    stalled: typeof raw.stalled === "boolean" ? raw.stalled : undefined,
-    text: typeof raw.text === "string" && raw.text !== "" ? raw.text : undefined,
-    period: parsePeriod(raw.period),
-  };
-  for (const key of Object.keys(out) as (keyof FilterCriteria)[]) {
-    if (out[key] === undefined) delete out[key];
-  }
-  return out;
+  return sharedParseCriteria(raw) as FilterCriteria | null;
 }
