@@ -23,3 +23,8 @@ interface Window {
     saveFile?: (req: StubwiseSaveFileRequest) => Promise<StubwiseSaveFileResult>;
   };
 }
+
+interface ImportMetaEnv {
+  /** Il modo della build (`vite.backend.ts`): `prototype` o `app`. */
+  readonly VITE_STUBWISE_BUILD?: "prototype" | "app";
+}

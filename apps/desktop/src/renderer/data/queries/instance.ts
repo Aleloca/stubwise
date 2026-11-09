@@ -1,7 +1,7 @@
 import type { AiModelChoice, AiOperation } from "@stubwise/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
-import * as api from "../api";
+import * as api from "@backend/api";
 import { RUN_AREAS, useSessionPersonId, useWrite } from "../queries";
 
 // Gli hook dell'istanza (area 9b); `data/queries` li ri-esporta. L'import

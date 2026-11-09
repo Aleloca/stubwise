@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import * as api from "../api";
+import * as api from "@backend/api";
 import {
   queryKeys,
   useInvalidate,

@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { ScriptLang } from "../../domain/servers/installScript";
-import * as api from "../api";
+import * as api from "@backend/api";
 import { MIN_QUERY } from "../../pages/chat/search";
 import { queryKeys, useConversationChanges, useSessionPersonId, useWrite } from "../queries";
 

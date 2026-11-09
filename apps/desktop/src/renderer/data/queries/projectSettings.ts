@@ -1,6 +1,6 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { canSeeAdminSection, projectSettingsAccess, type SectionAccess } from "../adminSections";
-import * as api from "../api";
+import * as api from "@backend/api";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
 import type { ProjectSettingsSection } from "../routes";
 import { useViewer } from "../viewer";

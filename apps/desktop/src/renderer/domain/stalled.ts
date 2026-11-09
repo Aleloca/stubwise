@@ -1,4 +1,4 @@
-import { TODAY } from "../data/seed/dates";
+import { TODAY } from "@backend/clock";
 import type { DecisionRequest, Project, StallReason, StatusFamily, Task } from "../data/model";
 import { blockerIdsOf } from "./links";
 import { compareWeeks, currentWeek } from "./weeks";

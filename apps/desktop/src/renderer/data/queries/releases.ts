@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import * as api from "../api";
+import * as api from "@backend/api";
 import { MIN_QUERY } from "../../pages/chat/search";
 import {
   CONVERSATION_AREAS,

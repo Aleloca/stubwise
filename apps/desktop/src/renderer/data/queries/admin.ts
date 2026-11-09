@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as api from "../api";
+import * as api from "@backend/api";
 import type { MemberDraft, PeopleFilter } from "../admin/types";
 import type { ChangeFilter } from "../changelog/types";
 import { aiTabsFor, canSeeAdminSection } from "../adminSections";

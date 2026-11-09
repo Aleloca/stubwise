@@ -18,6 +18,7 @@ import { canSeeDriveFile } from "./drive/visibility";
 import { daysFromToday, TODAY } from "./seed/dates";
 import { PEOPLE } from "./seed/people";
 import { projectOfRepo, REPO_FILES } from "./seed/repoFiles";
+import { NO_SESSION_PERSON_ID } from "./session";
 import { can, viewerFor } from "./viewer";
 import { presentChatNotification } from "./chat/reads";
 import { deliveredTo } from "./alerts/reads";
@@ -63,6 +64,7 @@ import {
 import type {
   ActivityEntry,
   AppNotification,
+  Viewer,
   CitationRef,
   CitationView,
   ClaudeDecision,
@@ -191,6 +193,22 @@ export function resetApi(): void {
 }
 
 // --- letture ----------------------------------------------------------------
+
+/**
+ * Chi è la sessione (integrazione area 2, fetta 1): nel prototipo la persona
+ * «vedi come»; `null` per «nessuno» (dopo l'istanza vuota). Nella build app
+ * la dà il server.
+ */
+export async function getSessionPerson(): Promise<string | null> {
+  const me = await gate("getSessionPerson");
+  return me === NO_SESSION_PERSON_ID ? null : me;
+}
+
+/** I permessi di chi guarda: nel prototipo dallo stato degli accessi, nella build app dal server. */
+export async function getViewer(): Promise<Viewer> {
+  const me = await gate("getViewer");
+  return viewerFor(me);
+}
 
 export async function listDepartments(): Promise<Department[]> {
   await gate("listDepartments");

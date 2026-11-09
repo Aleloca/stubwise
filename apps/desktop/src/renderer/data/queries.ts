@@ -7,7 +7,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import * as api from "./api";
+import * as api from "@backend/api";
 import type { ChangeFilter } from "./changelog/types";
 import type { MailDraftRequest } from "../domain/claude/intents/mailDraft";
 import { resolveHome } from "../domain/home";

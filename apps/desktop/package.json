@@ -10,7 +10,8 @@
     "build": "electron-vite build",
     "preview:web": "vite --config vite.web.config.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "gen:stubs": "node scripts/gen-backend-stubs.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",

@@ -1,6 +1,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
-import * as api from "../api";
+import * as api from "@backend/api";
 import { PROJECT_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
 import { useInstanceChanges } from "./instance";
 import type { FirstVersionSource, ProductBlockOp } from "../types";
