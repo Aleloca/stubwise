@@ -23,14 +23,14 @@ import {
 } from "../../data/queries";
 import type { DepartmentHome, HomeBlockRef, PersonalHome, Person } from "../../data/types";
 import { useViewer } from "../../data/viewing";
-import { FIXED_BLOCKS, resolveHome, sameBlock } from "../../domain/home";
+import { FIXED_BLOCKS, resolveHome, sameBlock, withHiddenBlocks } from "../../domain/home";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { MenuGroup, MenuNote, itemClass } from "../../tasks-ui/Menu";
 import { useToast } from "../../tasks-ui/Toast";
 import { ghostButton } from "../task/parts";
 import { MenuButton, primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { blockKey, useBlockTitle } from "./blockTitle";
-import { BLOCKS, CATALOG_KINDS, useBlockContext } from "./blocks/registry";
+import { BLOCKS, CATALOG_KINDS, isHiddenBlock, useBlockContext } from "./blocks/registry";
 
 export type EditTarget =
   | { kind: "mine" }
@@ -72,7 +72,9 @@ export function HomeEditor({
   const savePersonal = useSetPersonalHome();
   const saveDepartment = useSetDepartmentHome();
   const reset = useResetPersonalHome();
-  const [draft, setDraft] = useState<HomeBlockRef[]>(() =>
+  // Ciò che c'è salvato ora: i blocchi nascosti in questa build (aree non
+  // integrate) non si elencano, ma al salvataggio tornano al loro posto.
+  const [saved] = useState<HomeBlockRef[]>(() =>
     target.kind === "mine"
       ? home.blocks
       : resolveHome(
@@ -81,6 +83,7 @@ export function HomeEditor({
           null,
         ).blocks,
   );
+  const [draft, setDraft] = useState<HomeBlockRef[]>(() => saved.filter((b) => !isHiddenBlock(b)));
   const [confirmReset, setConfirmReset] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const saving = savePersonal.isPending || saveDepartment.isPending;
@@ -90,10 +93,13 @@ export function HomeEditor({
   const save = async () => {
     try {
       if (target.kind === "mine") {
-        await savePersonal.mutateAsync(draft);
+        await savePersonal.mutateAsync(withHiddenBlocks(draft, saved, isHiddenBlock));
         toast.show(t("home.editor.saved"));
       } else {
-        await saveDepartment.mutateAsync({ departmentId: target.departmentId, blocks: draft });
+        await saveDepartment.mutateAsync({
+          departmentId: target.departmentId,
+          blocks: withHiddenBlocks(draft, saved, isHiddenBlock),
+        });
         toast.show(t("home.editor.departmentSaved", { name: target.name }));
       }
       onClose();

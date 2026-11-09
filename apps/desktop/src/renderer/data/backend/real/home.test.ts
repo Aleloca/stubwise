@@ -153,4 +153,25 @@ describe("le Home dal server", () => {
     ]);
     expect(await listDepartmentRoles()).toHaveLength(2);
   });
+
+  it("salvare la Home di un reparto rimette i tipi che questa app non conosce", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/departments": { body: [{ id: SALES, name: "Sales", colorToken: "--dept-2", isDefault: false }] },
+      [`GET /api/departments/${SALES}/home`]: {
+        body: {
+          departmentId: SALES,
+          blocks: [{ kind: "decide" }, { kind: "myWeek" }, { kind: "__future__" }, { kind: "myTasks" }],
+          updatedAt: AT,
+        },
+      },
+      [`PUT /api/departments/${SALES}/home`]: {
+        body: { departmentId: SALES, blocks: [], updatedAt: AT },
+      },
+    });
+    await listDepartmentHomes();
+    await setDepartmentHome(SALES, [{ kind: "decide" }, { kind: "myWeek" }, { kind: "myTasks" }, { kind: "newRequests" }]);
+    expect(seen.at(-1)!.body).toEqual({
+      blocks: [{ kind: "decide" }, { kind: "myWeek" }, { kind: "__future__" }, { kind: "myTasks" }, { kind: "newRequests" }],
+    });
+  });
 });

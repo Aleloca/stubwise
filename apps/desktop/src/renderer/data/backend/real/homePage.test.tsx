@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
@@ -12,11 +12,30 @@ vi.mock("@backend/api", async () => await import("./index"));
 
 const GONE = "88888888-8888-4888-8888-888888888888";
 
+/** La Home personale che il server ha (null = nessuna), e i corpi dei salvataggi. */
+let personalBlocks: { kind: string; filterId?: string }[] | null = null;
+let savedBodies: unknown[] = [];
+
 beforeEach(() => {
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+  personalBlocks = null;
+  savedBodies = [];
+  const meHome = () => ({
+    blocks: personalBlocks ?? [],
+    departmentChanged: [],
+    newBlocks: [],
+    departmentIds: [DEPT_ID],
+    departmentHomes: [],
+    personal: personalBlocks ? { blocks: personalBlocks, seenDepartmentUpdates: {} } : null,
+  });
   installFakeServer({
     "GET /api/auth/me": { body: me() },
+    "PUT /api/me/home": (req) => {
+      savedBodies.push(req.body);
+      personalBlocks = (req.body as { blocks: { kind: string }[] }).blocks;
+      return { body: meHome() };
+    },
     "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
     "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
     "GET /api/decisions": { body: [] },
@@ -38,9 +57,7 @@ beforeEach(() => {
         updatedAt: "2026-11-01T09:00:00.000Z",
       },
     },
-    "GET /api/me/home": {
-      body: { blocks: [], departmentChanged: [], newBlocks: [], departmentIds: [DEPT_ID], departmentHomes: [], personal: null },
-    },
+    "GET /api/me/home": () => ({ body: meHome() }),
     "GET /api/departments/roles": { body: [] },
     "GET /api/filters": { body: [] },
     [`GET /api/filters/${GONE}`]: { status: 404, body: { code: "not_found", message: "x" } },
@@ -96,5 +113,36 @@ describe("la Home nella build app", () => {
       "noopener,noreferrer",
     );
     expect(within(decide).getByRole("button", { name: "Turn into task: Export to CSV" })).toBeInTheDocument();
+  });
+
+  it("personalizzare dall'app non cancella un blocco di un'area non integrata né un kind sconosciuto", async () => {
+    personalBlocks = [
+      { kind: "decide" },
+      { kind: "myWeek" },
+      { kind: "importantMail" },
+      { kind: "__future__" },
+      { kind: "myTasks" },
+    ];
+    renderRoute("/home");
+    await screen.findByRole("region", { name: /^My tasks/ });
+    fireEvent.click(await screen.findByRole("button", { name: "Customize" }));
+    const list = await screen.findByRole("list", { name: "Blocks of the Home" });
+    // L'editor non elenca ciò che questa build non mostra.
+    expect(within(list).queryByText("Important email")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Add block" }));
+    const menu = await screen.findByRole("menu", { name: "Add block" });
+    fireEvent.click(within(menu).getByRole("menuitem", { name: /Stalled in my projects/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(savedBodies).toHaveLength(1));
+    expect(savedBodies[0]).toEqual({
+      blocks: [
+        { kind: "decide" },
+        { kind: "myWeek" },
+        { kind: "importantMail" },
+        { kind: "__future__" },
+        { kind: "myTasks" },
+        { kind: "stalledInMyProjects" },
+      ],
+    });
   });
 });
