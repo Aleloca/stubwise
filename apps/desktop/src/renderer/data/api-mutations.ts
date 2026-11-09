@@ -1352,11 +1352,18 @@ export async function setDepartmentHome(
  * Chi ha la Home personalizzata ha visto l'ultima modifica di quella del
  * reparto. Chi usa quella del reparto non ha nulla da segnare.
  */
-export async function markDepartmentHomeSeen(departmentId: string): Promise<void> {
+/**
+ * «Vedi le novità»: segna vista la Home del reparto MOSTRATA (`updatedAt`),
+ * come il server (fetta 3): si tiene la meno recente fra quella e l'attuale,
+ * così una modifica arrivata nel frattempo resta da vedere.
+ */
+export async function markDepartmentHomeSeen(departmentId: string, updatedAt?: string): Promise<void> {
   const me = await gate("markDepartmentHomeSeen");
   const personal = state.personalHomes.find((h) => h.personId === me);
   const dept = state.departmentHomes.find((h) => h.departmentId === departmentId);
-  if (personal && dept) personal.seenDepartmentUpdates[departmentId] = dept.updatedAt;
+  if (!personal || !dept) return;
+  const shown = updatedAt ?? dept.updatedAt;
+  personal.seenDepartmentUpdates[departmentId] = shown < dept.updatedAt ? shown : dept.updatedAt;
 }
 
 // --- progetti ---------------------------------------------------------------------

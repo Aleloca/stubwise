@@ -102,8 +102,11 @@ export const setDepartmentHome: typeof Fake.setDepartmentHome = async (departmen
   );
 };
 
-export const markDepartmentHomeSeen: typeof Fake.markDepartmentHomeSeen = (departmentId) =>
-  appClient().home.markSeen(departmentId);
+/** «Vista» è la Home del reparto mostrata (`updatedAt`); il server tiene il minimo con l'attuale. */
+export const markDepartmentHomeSeen: typeof Fake.markDepartmentHomeSeen = async (departmentId, updatedAt) => {
+  const shown = updatedAt ?? (await appClient().departments.home(departmentId)).updatedAt;
+  if (shown) await appClient().home.markSeen(departmentId, shown);
+};
 
 /** I ruoli di reparto (chi dispone la Home di quale reparto), di tutti o di una persona. */
 export const listDepartmentRoles: typeof Fake.listDepartmentRoles = async (personId) => {

@@ -200,7 +200,8 @@ function ChangedLine({ onSee }: { onSee: (found: HomeBlockRef[]) => void }) {
           continue;
         found.push(b);
       }
-      markSeen.mutate(id);
+      // Vista è la Home che si è appena mostrata, non quella che il server ha ora.
+      markSeen.mutate({ departmentId: id, updatedAt: dept?.updatedAt });
     }
     onSee(found);
   };

@@ -116,13 +116,15 @@ describe("le Home dal server", () => {
       },
     });
     await resetPersonalHome();
-    await markDepartmentHomeSeen(SALES);
+    // «Vista» è la Home che si è mostrata: il server tiene il minimo fra questa e l'attuale.
+    await markDepartmentHomeSeen(SALES, AT);
     await setDepartmentHome(SALES, [{ kind: "decide" }, { kind: "myWeek" }]);
     expect(seen.map((r) => `${r.method} ${r.path}`)).toEqual([
       "DELETE /api/me/home",
       `POST /api/me/home/seen/${SALES}`,
       `PUT /api/departments/${SALES}/home`,
     ]);
+    expect(seen[1]!.body).toEqual({ updatedAt: AT });
   });
 
   it("una Home di reparto con un filtro privato: il rifiuto del server arriva così com'è", async () => {
