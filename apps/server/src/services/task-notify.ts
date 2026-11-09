@@ -23,6 +23,8 @@ export async function notifyTaskActivity(
     summary: string;
     /** Solo per un commento: il riferimento, mai il testo. */
     commentId?: string;
+    /** Chi ha già una card più precisa per la stessa azione (decisioni). */
+    excludeUserIds?: string[];
   },
 ): Promise<void> {
   const [row] = await tx
@@ -44,7 +46,11 @@ export async function notifyTaskActivity(
       actorUserId: input.actorUserId,
       ...(input.commentId ? { commentId: input.commentId } : {}),
     },
-    { projectId: row.projectId, ticketId: input.ticketId },
+    {
+      projectId: row.projectId,
+      ticketId: input.ticketId,
+      ...(input.excludeUserIds ? { excludeUserIds: input.excludeUserIds } : {}),
+    },
   );
 }
 

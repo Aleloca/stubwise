@@ -4,6 +4,7 @@ import type { DecisionRequestView } from "@stubwise/shared";
 import { and, asc, eq, isNull, type SQL } from "drizzle-orm";
 import { projectPermissionsFor, projectPermissionsOfUser } from "../auth/access.js";
 import { canSeeTicket } from "../auth/project-resolvers.js";
+import { notifyTaskActivity } from "./task-notify.js";
 import { visibleTasksCondition, type TaskViewer } from "./task-view.js";
 
 /**
@@ -88,6 +89,15 @@ export async function askDecision(
       },
       { projectId: ref.projectId, ticketId },
     );
+    // Chi segue la task lo sa (design: i follower ricevono anche le
+    // decisioni), tranne chi deve decidere: ha già `decision.requested`.
+    await notifyTaskActivity(tx, {
+      ticketId,
+      actorUserId: viewer.id,
+      change: "decision",
+      summary: "requested",
+      excludeUserIds: [input.askedOfId],
+    });
     return row!;
   });
   return { ok: true, decision: toDecisionView(decision, ref.projectId) };
@@ -144,6 +154,14 @@ export async function answerDecision(
       },
       { projectId: ref.projectId, ticketId: updated.ticketId },
     );
+    // I follower, tranne chi aveva chiesto: ha già `decision.answered`.
+    await notifyTaskActivity(tx, {
+      ticketId: updated.ticketId,
+      actorUserId: viewer.id,
+      change: "decision",
+      summary: "answered",
+      ...(updated.askedByUserId ? { excludeUserIds: [updated.askedByUserId] } : {}),
+    });
     return updated;
   });
   if (!result) return { ok: false, error: "decision_closed" };

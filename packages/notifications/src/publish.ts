@@ -58,6 +58,13 @@ export interface PublishOpts {
    * destinatari — mai un ripiego sugli admin.
    */
   accountUserId?: string;
+  /**
+   * Chi NON deve ricevere l'evento oltre all'attore (audience
+   * `ticket_followers`): chi ha già una card più precisa per la stessa azione
+   * (la persona a cui si chiede una decisione, chi l'aveva chiesta). Non sta
+   * nel jsonb.
+   */
+  excludeUserIds?: string[];
 }
 
 /**
@@ -288,7 +295,10 @@ async function resolveRoutingContext(
     const viewAll = new Set(
       followerIds.length > 0 ? await userIdsWithPermission(db, "tickets.view_all", projectId) : [],
     );
-    const ticketFollowerIds = followerIds.filter((id) => viewAll.has(id) || id === ticket?.requestedBy);
+    const excluded = new Set(opts.excludeUserIds ?? []);
+    const ticketFollowerIds = followerIds.filter(
+      (id) => !excluded.has(id) && (viewAll.has(id) || id === ticket?.requestedBy),
+    );
     const actor = event.kind === "ticket.activity" ? (event.actorUserId ?? undefined) : undefined;
     return { deciders: [], members, followers: [], ticketFollowers: ticketFollowerIds, actor };
   }

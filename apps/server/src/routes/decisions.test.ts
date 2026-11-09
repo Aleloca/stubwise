@@ -242,6 +242,32 @@ describe("notifiche ai follower", () => {
     expect((await notificationsOf(contributor.id, "ticket.activity")).filter((x) => x.ticketId === ticketId)).toHaveLength(0);
   });
 
+  it("una decisione chiesta e risposta arriva ai follower, tranne attore e destinatario diretto", async () => {
+    const ticketId = await task();
+    await testDb.db.insert(ticketFollowers).values([
+      { ticketId, userId: users.memberId },
+      { ticketId, userId: target.id },
+      { ticketId, userId: third.id },
+    ]);
+    const activityOf = async (userId: string) =>
+      (await notificationsOf(userId, "ticket.activity"))
+        .filter((x) => x.ticketId === ticketId)
+        .map((x) => x.event as { change: string; summary: string });
+    const decision = await ask(ticketId);
+    // Il terzo (follower) lo sa; chi chiede (attore) no; chi deve decidere ha già decision.requested.
+    expect(await activityOf(third.id)).toEqual([expect.objectContaining({ change: "decision", summary: "requested" })]);
+    expect(await activityOf(users.memberId)).toEqual([]);
+    expect(await activityOf(target.id)).toEqual([]);
+    await post(`/api/decisions/${decision.id}/answer`, { optionIndex: 0 }, target.headers.cookie);
+    // Alla risposta: il terzo sì; chi risponde (attore) no; chi aveva chiesto ha già decision.answered.
+    expect((await activityOf(third.id)).map((e) => e.summary)).toEqual(["requested", "answered"]);
+    expect(await activityOf(target.id)).toEqual([]);
+    expect(await activityOf(users.memberId)).toEqual([]);
+    // La domanda non entra nell'evento.
+    const all = await notificationsOf(third.id, "ticket.activity");
+    expect(JSON.stringify(all.map((x) => x.event))).not.toContain("30 o 90 giorni?");
+  });
+
   it("la pipeline che porta a in_review non notifica i follower", async () => {
     const ticketId = await task();
     await testDb.db.insert(ticketFollowers).values({ ticketId, userId: third.id });

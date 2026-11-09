@@ -745,7 +745,7 @@ export interface DecisionAnsweredEvent {
 }
 
 /** Cosa è cambiato su una task seguita. */
-export type TicketActivityChange = "status" | "assignee" | "comment";
+export type TicketActivityChange = "status" | "assignee" | "comment" | "decision";
 
 /**
  * Un cambiamento UMANO su una task (stato, assegnatario, commento): lo
@@ -1072,6 +1072,7 @@ const TICKET_ACTIVITY_KEY: Record<TicketActivityChange, string> = {
   status: "notify.ticketActivity.status",
   assignee: "notify.ticketActivity.assignee",
   comment: "notify.ticketActivity.comment",
+  decision: "notify.ticketActivity.decisionRequested",
 };
 
 /**
@@ -1175,6 +1176,13 @@ function templateKey(event: NotificationEvent): string {
       return typeof event.commentText === "string" && event.commentText !== ""
         ? TICKET_ACTIVITY_KEY.comment
         : "notify.ticketActivity.commentNoText";
+    }
+    // Una decisione: `summary` dice SOLO cosa è successo (`requested` |
+    // `answered`), mai la domanda — come per i commenti.
+    if (event.change === "decision") {
+      return event.summary === "answered"
+        ? "notify.ticketActivity.decisionAnswered"
+        : "notify.ticketActivity.decisionRequested";
     }
     // Un `change` ignoto (jsonb anomalo) ricade sulla frase dello stato.
     return TICKET_ACTIVITY_KEY[event.change] ?? TICKET_ACTIVITY_KEY.status;
