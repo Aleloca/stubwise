@@ -1568,7 +1568,8 @@
         "backlog": "Backlog and decisions",
         "docs": "Docs",
         "code": "Code and environments",
-        "credentials": "Credentials"
+        "credentials": "Credentials",
+        "departmentHome": "Department Home"
       },
       "fullAdminHint": "Full administration includes every permission, on every project.",
       "save": "Save role",
@@ -3475,6 +3476,11 @@
       },
       "planning": {
         "others": "Plan other people's tasks"
+      },
+      "department": {
+        "home": {
+          "manage": "Manage the department's Home"
+        }
       }
     }
   },

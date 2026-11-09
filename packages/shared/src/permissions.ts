@@ -95,6 +95,16 @@ export const PROJECT_PERMISSIONS = [
   "credentials.share",
 ] as const;
 
+/**
+ * Permessi di REPARTO (integrazione area 2, fetta 3): un livello accanto a
+ * istanza e progetto, assegnato persona per persona su un reparto
+ * (`department_roles`). Non danno accesso a dati: `department.home.manage`
+ * decide solo la disposizione della Home del reparto. Nessun preset di ruolo
+ * li contiene; un full admin li ha su ogni reparto; Claude mai.
+ */
+export const DEPARTMENT_PERMISSIONS = ["department.home.manage"] as const;
+export type DepartmentPermission = (typeof DEPARTMENT_PERMISSIONS)[number];
+
 export type InstancePermission = (typeof INSTANCE_PERMISSIONS)[number];
 export type ProjectPermission = (typeof PROJECT_PERMISSIONS)[number];
 

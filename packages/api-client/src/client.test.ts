@@ -352,6 +352,47 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     ]);
   });
 
+  it("Home e ruoli di reparto: home.*, departments.home/setHome/roles/setRoles", async () => {
+    const D = "00000000-0000-4000-8000-0000000000d1";
+    const U = "00000000-0000-4000-8000-0000000000a1";
+    const HOME = { blocks: [{ kind: "decide" }, { kind: "myWeek" }], personal: null };
+    const DEPT_HOME = { departmentId: D, blocks: [{ kind: "decide" }], updatedAt: null };
+    const ROLES = [{ departmentId: D, userId: U, permissions: ["department.home.manage"] }];
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, init!.body ? JSON.parse(init!.body as string) : undefined]);
+      const path = new URL(url as string).pathname;
+      if (init!.method === "DELETE" || init!.method === "POST") return new Response(null, { status: 204 });
+      if (path === "/api/me/home") return jsonResponse(200, HOME);
+      if (path.endsWith("/home")) return jsonResponse(200, DEPT_HOME);
+      return jsonResponse(200, ROLES);
+    });
+    const c = clientWith(fetchImpl);
+    const base = "https://stubwise.example";
+    const home = await c.home.get();
+    // Campi assenti da un server più vecchio: i default, non undefined.
+    expect(home.departmentChanged).toEqual([]);
+    expect(home.newBlocks).toEqual([]);
+    expect(home.departmentHomes).toEqual([]);
+    await c.home.set([{ kind: "myTasks" }]);
+    await c.home.reset();
+    await c.home.markSeen(D);
+    expect((await c.departments.home(D)).updatedById).toBeNull();
+    await c.departments.setHome(D, [{ kind: "filter", filterId: "f" }]);
+    expect(await c.departments.roles()).toEqual(ROLES);
+    await c.departments.setRoles(D, [{ userId: U, permissions: ["department.home.manage"] }]);
+    expect(calls).toEqual([
+      ["GET", `${base}/api/me/home`, undefined],
+      ["PUT", `${base}/api/me/home`, { blocks: [{ kind: "myTasks" }] }],
+      ["DELETE", `${base}/api/me/home`, undefined],
+      ["POST", `${base}/api/me/home/seen/${D}`, undefined],
+      ["GET", `${base}/api/departments/${D}/home`, undefined],
+      ["PUT", `${base}/api/departments/${D}/home`, { blocks: [{ kind: "filter", filterId: "f" }] }],
+      ["GET", `${base}/api/departments/roles`, undefined],
+      ["PUT", `${base}/api/departments/${D}/roles`, { roles: [{ userId: U, permissions: ["department.home.manage"] }] }],
+    ]);
+  });
+
   it("departments.remove: DELETE con moveTasksTo in query", async () => {
     const fetchImpl = mockFetch(async () => new Response(null, { status: 204 }));
     const client = clientWith(fetchImpl);

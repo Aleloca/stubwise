@@ -50,6 +50,7 @@ import {
   inviteGrants,
   saveInviteGrants,
 } from "../services/roles.js";
+import { departmentPermissionsMap } from "../services/home.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
 import type { RateLimitConfig } from "./shared.js";
 import { apiError } from "../errors.js";
@@ -458,6 +459,7 @@ export async function authRoutes(
       user: request.user!,
       instancePermissions: [...request.user!.instancePermissions],
       projectPermissions: await projectPermissionsMap(app.db, request.user!),
+      departmentPermissions: await departmentPermissionsMap(app.db, request.user!.id),
     }),
   );
 

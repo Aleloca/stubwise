@@ -59,6 +59,7 @@ import { projectStatusRoutes } from "./routes/project-statuses.js";
 import { taskRoutes } from "./routes/tasks.js";
 import { dayArrangementRoutes } from "./routes/day-arrangements.js";
 import { filterRoutes } from "./routes/filters.js";
+import { homeRoutes } from "./routes/home.js";
 import { decisionRoutes } from "./routes/decisions.js";
 import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
@@ -650,6 +651,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Fetta 2: le sistemazioni per giorno (`/api/me/day-arrangements`, `/api/tasks/:id/day`).
   void app.register(dayArrangementRoutes, { prefix: "/api" });
   void app.register(filterRoutes, { prefix: "/api" });
+  void app.register(homeRoutes, { prefix: "/api" });
   void app.register(decisionRoutes, { prefix: "/api/decisions" });
   // Viste salvate dei filtri della lista ticket: private o condivise.
   void app.register(savedViewRoutes, { prefix: "/api/saved-views" });

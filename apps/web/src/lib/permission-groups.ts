@@ -1,4 +1,4 @@
-import type { InstancePermission, ProjectPermission, RoleScope } from "@stubwise/shared";
+import type { DepartmentPermission, InstancePermission, ProjectPermission, RoleScope } from "@stubwise/shared";
 
 /**
  * Raggruppamento per area delle chiavi di permesso, per le caselle della
@@ -71,6 +71,11 @@ export const PROJECT_PERMISSION_GROUPS: readonly PermissionGroup<ProjectPermissi
     permissions: ["repos.view", "repos.manage", "environments.manage", "widget.manage"],
   },
   { id: "credentials", permissions: ["credentials.create", "credentials.edit", "credentials.share"] },
+];
+
+/** I permessi di reparto (fetta 3): si danno dalla pagina Reparti, non dai ruoli. */
+export const DEPARTMENT_PERMISSION_GROUPS: readonly PermissionGroup<DepartmentPermission>[] = [
+  { id: "departmentHome", permissions: ["department.home.manage"] },
 ];
 
 export function permissionGroupsFor(scope: RoleScope): readonly PermissionGroup<string>[] {

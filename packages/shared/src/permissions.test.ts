@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  DEPARTMENT_PERMISSIONS,
   effectiveInstancePermissions,
   effectiveProjectPermissions,
   INSTANCE_PERMISSIONS,
@@ -33,7 +34,7 @@ function label(tree: unknown, key: string): unknown {
 
 describe("catalogo dei permessi", () => {
   it("non ha chiavi duplicate, né fra i livelli", () => {
-    const all = [...INSTANCE_PERMISSIONS, ...PROJECT_PERMISSIONS];
+    const all = [...INSTANCE_PERMISSIONS, ...PROJECT_PERMISSIONS, ...DEPARTMENT_PERMISSIONS];
     expect(new Set(all).size).toBe(all.length);
   });
 
@@ -163,7 +164,7 @@ describe("catalogo dei permessi", () => {
   });
 
   it("ogni chiave ha un'etichetta in it e en", () => {
-    for (const key of [...INSTANCE_PERMISSIONS, ...PROJECT_PERMISSIONS]) {
+    for (const key of [...INSTANCE_PERMISSIONS, ...PROJECT_PERMISSIONS, ...DEPARTMENT_PERMISSIONS]) {
       for (const [lang, tree] of [
         ["en", en],
         ["it", it_],
@@ -186,5 +187,12 @@ describe("planning.others (integrazione area 2, fetta 2)", () => {
     for (const key of ["developer", "legacy_member", "contributor", "viewer"]) {
       expect(preset(key), key).not.toContain("planning.others");
     }
+  });
+});
+
+describe("permessi di reparto (integrazione area 2, fetta 3)", () => {
+  it("un livello nuovo con department.home.manage, che nessun preset di ruolo contiene", () => {
+    expect(DEPARTMENT_PERMISSIONS).toEqual(["department.home.manage"]);
+    for (const role of PRESET_ROLES) expect(role.permissions, role.key).not.toContain("department.home.manage");
   });
 });

@@ -1568,7 +1568,8 @@
         "backlog": "Backlog e decisioni",
         "docs": "Docs",
         "code": "Codice e ambienti",
-        "credentials": "Credenziali"
+        "credentials": "Credenziali",
+        "departmentHome": "Home del reparto"
       },
       "fullAdminHint": "L'amministrazione completa comprende ogni permesso, su ogni progetto.",
       "save": "Salva il ruolo",
@@ -3475,6 +3476,11 @@
       },
       "planning": {
         "others": "Pianificare le task altrui"
+      },
+      "department": {
+        "home": {
+          "manage": "Gestire la Home del reparto"
+        }
       }
     }
   },

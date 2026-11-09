@@ -1,5 +1,11 @@
-import { departmentMembers, departments, tickets, users } from "@stubwise/db";
-import { departmentColorTokenSchema, departmentViewSchema, type DepartmentView } from "@stubwise/shared";
+import { departmentMembers, departmentRoles, departments, tickets, users } from "@stubwise/db";
+import {
+  DEPARTMENT_PERMISSIONS,
+  departmentColorTokenSchema,
+  departmentRoleViewSchema,
+  departmentViewSchema,
+  type DepartmentView,
+} from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -55,6 +61,97 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
         .from(departments)
         .orderBy(desc(departments.isDefault), asc(departments.name));
       return rows.map(toView);
+    },
+  );
+
+  async function rolesOf(departmentId?: string) {
+    return app.db
+      .select({
+        departmentId: departmentRoles.departmentId,
+        userId: departmentRoles.userId,
+        permissions: departmentRoles.permissions,
+      })
+      .from(departmentRoles)
+      .where(departmentId ? eq(departmentRoles.departmentId, departmentId) : undefined)
+      .orderBy(asc(departmentRoles.departmentId), asc(departmentRoles.userId));
+  }
+
+  /**
+   * I ruoli di reparto di tutti (fetta 3): chi gestisce la Home di quale
+   * reparto. Li legge ogni persona, come l'elenco dei reparti: non danno
+   * accesso a dati. Rotta LETTERALE: registrata prima delle `/:id`.
+   */
+  app.get(
+    "/roles",
+    {
+      config: { access: { kind: "user" } },
+      schema: { response: { 200: z.array(departmentRoleViewSchema), ...authErrorResponses } },
+    },
+    async () => rolesOf(),
+  );
+
+  /**
+   * SOSTITUISCE i ruoli di un reparto (fetta 3): `departments.manage`, che è
+   * il permesso dei reparti Home compresa — quindi nessun confronto
+   * d'escalation su `department.home.manage` e nessuna riconferma (decisione
+   * del maintainer, 9 nov 2026). Una persona senza permessi esce dall'elenco.
+   */
+  app.put(
+    "/:id/roles",
+    {
+      config: { access: MANAGE },
+      schema: {
+        params: idParamsSchema,
+        body: z.object({
+          roles: z
+            .array(
+              z.object({
+                userId: z.uuid(),
+                permissions: z.array(z.enum(DEPARTMENT_PERMISSIONS)).max(DEPARTMENT_PERMISSIONS.length),
+              }),
+            )
+            .max(2000),
+        }),
+        response: { 200: z.array(departmentRoleViewSchema), 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const { id } = request.params;
+      const [dept] = await app.db.select({ id: departments.id }).from(departments).where(eq(departments.id, id));
+      if (!dept) return apiError(reply, 404, "not_found", "Department not found");
+      const wanted = new Map<string, string[]>();
+      for (const r of request.body.roles) {
+        const perms = [...new Set([...(wanted.get(r.userId) ?? []), ...r.permissions])];
+        wanted.set(r.userId, perms);
+      }
+      const ids = [...wanted.keys()];
+      if (ids.length) {
+        const found = await app.db.select({ id: users.id }).from(users).where(inArray(users.id, ids));
+        if (found.length !== ids.length) return apiError(reply, 400, "invalid_person", "Unknown person");
+      }
+      const before = await rolesOf(id);
+      await app.db.transaction(async (tx) => {
+        await tx.delete(departmentRoles).where(eq(departmentRoles.departmentId, id));
+        const rows = [...wanted].filter(([, p]) => p.length > 0);
+        if (rows.length) {
+          await tx
+            .insert(departmentRoles)
+            .values(rows.map(([userId, permissions]) => ({ departmentId: id, userId, permissions })));
+        }
+      });
+      const after = await rolesOf(id);
+      // Il registro delle modifiche d'istanza non c'è ancora sul server: una riga di log.
+      request.log.info(
+        {
+          event: "department.home_managers_changed",
+          actorId: request.user!.id,
+          departmentId: id,
+          before: before.map((r) => r.userId),
+          after: after.map((r) => r.userId),
+        },
+        "department roles changed",
+      );
+      return after;
     },
   );
 
