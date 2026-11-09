@@ -5,3 +5,4 @@ export * from "./weeks.js";
 export * from "./load.js";
 export * from "./planning.js";
 export * from "./filters.js";
+export * from "./home.js";

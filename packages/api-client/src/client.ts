@@ -12,6 +12,7 @@ import { createDocsEndpoints } from "./endpoints/docs.js";
 import { createInboxEndpoints } from "./endpoints/inbox.js";
 import { createMailEndpoints } from "./endpoints/mail.js";
 import { createFiltersEndpoints } from "./endpoints/filters.js";
+import { createHomeEndpoints } from "./endpoints/home.js";
 import { createMeEndpoints } from "./endpoints/me.js";
 import { createPatsEndpoints } from "./endpoints/pats.js";
 import { createProjectsEndpoints } from "./endpoints/projects.js";
@@ -141,6 +142,7 @@ export function createEndpoints(request: ApiRequest) {
     projectStatuses: createProjectStatusesEndpoints(request),
     // Fetta 3: filtri salvati.
     filters: createFiltersEndpoints(request),
+    home: createHomeEndpoints(request),
   };
 }
 

@@ -63,6 +63,8 @@ export const sessionResponseSchema = z.object({
   user: sessionUserSchema,
   instancePermissions: z.array(z.string()).default([]),
   projectPermissions: z.record(z.string(), z.array(z.string())).default({}),
+  /** Fetta 3: i permessi di REPARTO, per reparto (`department_roles`). Un full admin li ha su ogni reparto: lo dice già `instancePermissions`. */
+  departmentPermissions: z.record(z.string(), z.array(z.string())).default({}),
 });
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 

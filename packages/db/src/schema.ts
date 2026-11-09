@@ -5155,3 +5155,62 @@ export const pinnedTaskFilters = pgTable(
     index("pinned_task_filters_filter_idx").on(table.filterId),
   ],
 );
+
+/**
+ * Ruoli di reparto (0117, integrazione area 2, fetta 3): i permessi di
+ * REPARTO di una persona su un reparto (`DEPARTMENT_PERMISSIONS` di
+ * `@stubwise/shared`). Decidono la disposizione della Home, non l'accesso.
+ */
+export const departmentRoles = pgTable(
+  "department_roles",
+  {
+    departmentId: uuid("department_id")
+      .notNull()
+      .references(() => departments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    permissions: text("permissions").array().notNull().default(sql`'{}'::text[]`),
+  },
+  (table) => [
+    primaryKey({ name: "department_roles_pk", columns: [table.departmentId, table.userId] }),
+    index("department_roles_user_idx").on(table.userId),
+  ],
+);
+
+/** Un blocco della Home come si salva: `{ kind, filterId? }` (`homeBlockSchema`). */
+export type StoredHomeBlock = { kind: string; filterId?: string };
+
+/** La Home predefinita di un reparto (0117). */
+export const departmentHomes = pgTable("department_homes", {
+  departmentId: uuid("department_id")
+    .primaryKey()
+    .references(() => departments.id, { onDelete: "cascade" }),
+  blocks: jsonb("blocks").$type<StoredHomeBlock[]>().notNull().default([]),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedById: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+});
+
+/** La Home personalizzata (0117): senza riga si usa l'unione dei reparti. */
+export const personalHomes = pgTable("personal_homes", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  blocks: jsonb("blocks").$type<StoredHomeBlock[]>().notNull().default([]),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** L'ultima Home di reparto vista da chi ha la Home personale (0117). */
+export const personalHomeSeen = pgTable(
+  "personal_home_seen",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    departmentId: uuid("department_id")
+      .notNull()
+      .references(() => departments.id, { onDelete: "cascade" }),
+    seenAt: timestamp("seen_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [primaryKey({ name: "personal_home_seen_pk", columns: [table.userId, table.departmentId] })],
+);
