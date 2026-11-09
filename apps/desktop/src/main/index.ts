@@ -2,7 +2,10 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
+import { handleApiRequest, isWebPath } from "./apiProxy";
+import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./instance";
 import { buildMenuTemplate } from "./menu";
+import { clearToken, login, logout, readToken } from "./session";
 import {
   isExternalOpenAllowed,
   isNavigationAllowed,
@@ -67,12 +70,15 @@ ipcMain.on("theme:changed", (event, theme: unknown) => {
  * Word arriva coi suoi byte. Si scrive SOLO dove la persona sceglie nella
  * finestra di salvataggio; il percorso non torna mai al renderer.
  */
+/** Chi chiede è il renderer dell'app (stessa regola della navigazione), per ogni canale `handle`. */
+function fromApp(event: Electron.IpcMainInvokeEvent): boolean {
+  const sender = event.senderFrame?.url ?? "";
+  return isNavigationAllowed(sender, { devUrl, packagedUrl: pathToFileURL(packagedFile).href });
+}
+
 ipcMain.handle("file:save", async (event, raw: unknown): Promise<SaveFileResult> => {
   // Prima chi chiede (solo il renderer dell'app), poi che cosa chiede.
-  const sender = event.senderFrame?.url ?? "";
-  if (!isNavigationAllowed(sender, { devUrl, packagedUrl: pathToFileURL(packagedFile).href })) {
-    return { saved: false, reason: "invalid" };
-  }
+  if (!fromApp(event)) return { saved: false, reason: "invalid" };
   const req = parseSaveFileRequest(raw);
   if (!req) return { saved: false, reason: "invalid" };
   const win = BrowserWindow.fromWebContents(event.sender);
@@ -92,6 +98,62 @@ ipcMain.handle("file:save", async (event, raw: unknown): Promise<SaveFileResult>
   } catch {
     return { saved: false, reason: "failed" };
   }
+});
+
+// --- server vero (integrazione area 2, fetta 1) ----------------------------------
+//
+// Il renderer non fa rete e non vede il token: l'istanza la sceglie la
+// persona (`instance:set`), il login passa da `mobile-login` col secondo
+// fattore (`session:login`), e ogni richiesta API passa da qui
+// (`api:request`), che aggiunge il bearer. Un 401 cancella il token.
+
+ipcMain.handle("api:request", async (event, raw: unknown) => {
+  if (!fromApp(event)) {
+    return { status: 400, headers: {}, body: JSON.stringify({ code: "invalid_request" }) };
+  }
+  return handleApiRequest(raw, {
+    instanceUrl: readInstanceUrl,
+    token: readToken,
+    onUnauthorized: clearToken,
+  });
+});
+
+ipcMain.handle("instance:get", (event) => (fromApp(event) ? readInstanceUrl() : null));
+
+ipcMain.handle("instance:set", (event, raw: unknown) => {
+  if (!fromApp(event)) return { ok: false };
+  const next = normalizeInstanceUrl(raw);
+  if (!next) return { ok: false };
+  // Un'istanza diversa è un'altra sessione: il token di prima non vale lì.
+  if (next !== readInstanceUrl()) clearToken();
+  return { ok: true, url: writeInstanceUrl(next) };
+});
+
+ipcMain.handle("session:login", async (event, raw: unknown) => {
+  if (!fromApp(event)) return { ok: false, code: "invalid_request" };
+  return login(raw, { instanceUrl: readInstanceUrl() });
+});
+
+ipcMain.handle("session:logout", async (event) => {
+  if (!fromApp(event)) return { ok: false };
+  await logout({ instanceUrl: readInstanceUrl() });
+  return { ok: true };
+});
+
+ipcMain.handle("session:status", (event) => {
+  if (!fromApp(event)) return { instanceUrl: null, signedIn: false };
+  return { instanceUrl: readInstanceUrl(), signedIn: readToken() !== null };
+});
+
+/** «Apri nel web»: una pagina dell'istanza nel browser di sistema, mai un altro host. */
+ipcMain.handle("open:web", async (event, path: unknown) => {
+  if (!fromApp(event) || !isWebPath(path)) return { ok: false };
+  const base = readInstanceUrl();
+  if (!base) return { ok: false };
+  const target = `${base}${path}`;
+  if (!isExternalOpenAllowed(target)) return { ok: false };
+  await shell.openExternal(target);
+  return { ok: true };
 });
 
 function installMenu(): void {

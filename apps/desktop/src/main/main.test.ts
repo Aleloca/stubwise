@@ -116,21 +116,29 @@ describe("menu dell'applicazione", () => {
   );
 });
 
-// I canali IPC, letti dal sorgente: `theme:changed`, i `menu:*` e, dall'area
-// 11a, il solo `file:save` (decisione 8 della spec). Un canale in più (o
-// scelto dal renderer) fa fallire questo test. Il preload espone solo
-// `window.stubwise` con le sue quattro voci.
+// I canali IPC, letti dal sorgente: `theme:changed`, i `menu:*`, dall'area
+// 11a `file:save` (decisione 8 della spec) e, dall'integrazione area 2 (fetta
+// 1, Task 13), `api:request`, `instance:get|set`, `session:login|logout|status`
+// e `open:web`. Un canale in più (o scelto dal renderer) fa fallire questo
+// test. Il preload espone solo `window.stubwise` con le sue otto voci.
 describe("canali IPC", () => {
   const read = (rel: string) => readFileSync(resolve(__dirname, rel), "utf8");
   const main = read("./index.ts");
   const preload = read("../preload/index.ts");
   const EXPECTED = [
+    "api:request",
     "file:save",
+    "instance:get",
+    "instance:set",
     "menu:ask-claude",
     "menu:preferences",
     "menu:redo",
     "menu:search",
     "menu:undo",
+    "open:web",
+    "session:login",
+    "session:logout",
+    "session:status",
     "theme:changed",
   ];
 
@@ -157,17 +165,50 @@ describe("canali IPC", () => {
 
   it("file:save guarda il frame mittente PRIMA di leggere gli argomenti", () => {
     const handler = main.slice(main.indexOf('ipcMain.handle("file:save"'));
-    const sender = handler.indexOf("isNavigationAllowed(");
+    const sender = handler.indexOf("fromApp(event)");
     const parse = handler.indexOf("parseSaveFileRequest(");
     expect(sender).toBeGreaterThan(-1);
     expect(parse).toBeGreaterThan(-1);
     expect(sender).toBeLessThan(parse);
+    // `fromApp` è la regola della navigazione sul frame mittente.
+    expect(main).toMatch(/function fromApp\([^)]*\)[^{]*\{\s*const sender = event\.senderFrame\?\.url \?\? "";\s*return isNavigationAllowed\(sender,/);
   });
 
-  it("il preload espone solo platform, setTheme, onMenu e saveFile", () => {
+  it("ogni ipcMain.handle guarda il mittente come prima cosa", () => {
+    const channels = [...main.matchAll(/ipcMain\.handle\("([a-z]+:[a-z-]+)",/g)].map((m) => m[1]!);
+    expect(channels.sort()).toEqual([
+      "api:request",
+      "file:save",
+      "instance:get",
+      "instance:set",
+      "open:web",
+      "session:login",
+      "session:logout",
+      "session:status",
+    ]);
+    for (const channel of channels) {
+      // L'intestazione e le prime due righe del corpo: il controllo sta lì, prima di tutto.
+      const head = main.slice(main.indexOf(`ipcMain.handle("${channel}",`)).split("\n").slice(0, 3).join("\n");
+      expect(head, channel).toMatch(/fromApp\(event\)/);
+    }
+  });
+
+  it("il preload espone solo platform, setTheme, onMenu, saveFile, api, instance, session e openWeb", () => {
     const exposed = preload.match(/exposeInMainWorld\("stubwise", \{([\s\S]*)\}\);/)?.[1] ?? "";
     const keys = [...exposed.matchAll(/^ {2}([a-zA-Z]+):/gm)].map((m) => m[1]);
-    expect(keys).toEqual(["platform", "setTheme", "onMenu", "saveFile"]);
+    expect(keys).toEqual([
+      "platform",
+      "setTheme",
+      "onMenu",
+      "saveFile",
+      "api",
+      "instance",
+      "session",
+      "openWeb",
+    ]);
+    // Mai il token né `ipcRenderer` verso il renderer.
+    expect(exposed).not.toMatch(/\btoken\s*[:(]/i);
+    expect(exposed).not.toMatch(/:\s*ipcRenderer\b/);
   });
 });
 

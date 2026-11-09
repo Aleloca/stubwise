@@ -9,6 +9,17 @@ type StubwiseSaveFileResult =
   | { saved: true }
   | { saved: false; reason: "canceled" | "invalid" | "failed" };
 
+// Copia dei tipi di `api:request`, `session:*`, `instance:*` (`src/main/apiProxy.ts`,
+// `src/main/session.ts`), per la stessa ragione.
+type StubwiseApiRequest = {
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  path: string;
+  headers?: Record<string, string>;
+  body?: string | ArrayBuffer;
+};
+type StubwiseApiResponse = { status: number; headers: Record<string, string>; body: string | ArrayBuffer };
+type StubwiseLoginResult = { ok: true; user: unknown } | { ok: false; code: string };
+
 interface Window {
   /** Esposto dal preload; assente quando il renderer gira in un browser normale. */
   stubwise?: {
@@ -21,6 +32,21 @@ interface Window {
     ) => () => void;
     /** Salva un PDF (stampato dal main) o un Word: la finestra di salvataggio, poi l'esito (area 11a). */
     saveFile?: (req: StubwiseSaveFileRequest) => Promise<StubwiseSaveFileResult>;
+    /** Le richieste API verso l'istanza, col token aggiunto dal main (build app, integrazione area 2). */
+    api?: { request: (req: StubwiseApiRequest) => Promise<StubwiseApiResponse> };
+    /** L'indirizzo dell'istanza scelto al primo avvio. */
+    instance?: {
+      get: () => Promise<string | null>;
+      set: (url: string) => Promise<{ ok: boolean; url?: string }>;
+    };
+    /** Login col secondo fattore, logout, stato: mai il token. */
+    session?: {
+      login: (input: { email: string; password: string; code?: string }) => Promise<StubwiseLoginResult>;
+      logout: () => Promise<{ ok: boolean }>;
+      status: () => Promise<{ instanceUrl: string | null; signedIn: boolean }>;
+    };
+    /** Apre una pagina del web vecchio dell'istanza nel browser di sistema. */
+    openWeb?: (path: string) => Promise<{ ok: boolean }>;
   };
 }
 
