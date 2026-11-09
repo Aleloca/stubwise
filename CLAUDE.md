@@ -15,6 +15,13 @@ repo, ricerca vettoriale e chat RAG.
 - `apps/docs` — sito Starlight (guida utente), buildato e servito su `/guide`.
 - `apps/mobile` — app React Native **bare** (iOS + Android, niente Expo) di
   Stubwise; build/distribuzione manuali, vedi `apps/mobile/README.md`.
+- `apps/desktop` — **prototipo cliccabile** dell'app desktop (Electron +
+  React), completo (aree 1–11, in `main` dal 9 nov 2026): dati finti in
+  memoria, nessuna chiamata al server, fuori da ogni deploy. È la SPECIFICA
+  dell'app vera, e web e mobile non sono un riferimento per lui. Prima di
+  toccarlo leggi `apps/desktop/README.md`: dice come provarlo e dove stanno le
+  decisioni del maintainer (design e piani `docs/plans/*-desktop-*`, shape in
+  `apps/desktop/.impeccable/shape/`, `apps/desktop/docs/ossatura-follow-ups.md`).
 - `apps/push-relay` — relay HTTP delle notifiche push (fase 4), servizio
   `push-relay` sotto il profilo compose `relay`: **gira solo sul nostro VPS**
   (vedi "Architettura runtime" e "Deploy" sotto).
