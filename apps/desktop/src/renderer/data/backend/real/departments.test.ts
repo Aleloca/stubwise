@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, ME_ID } from "./fakeServer";
 import { adminDepartments } from "./departments";
+import { countTasks } from "./tasks";
 
 const GENERAL = "66666666-6666-4666-8666-666666666666";
 const SALES = "77777777-7777-4777-8777-777777777777";
@@ -17,21 +18,30 @@ afterEach(() => {
 });
 
 describe("Reparti nella build app", () => {
-  it("i membri vengono dai reparti delle persone, le task dal filtro per reparto", async () => {
-    installFakeServer({
+  it("i membri vengono dai reparti delle persone; l'elenco non scarica le task", async () => {
+    const { seen } = installFakeServer({
       "GET /api/departments": { body: departments },
       "GET /api/people": {
         body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [SALES], email: "ada@example.com" }],
       },
-      "GET /api/tasks": ({ path }) => ({
-        body: { items: path.includes(SALES) ? [{}, {}] : [], truncated: false },
-      }),
     });
     const rows = await adminDepartments.listDepartments!();
-    expect(rows.map((d) => [d.name, d.memberIds, d.taskCount, d.projectPermissions])).toEqual([
-      ["General", [], 0, []],
-      ["Sales", [ME_ID], 2, []],
+    expect(rows.map((d) => [d.name, d.memberIds, d.projectPermissions])).toEqual([
+      ["General", [], []],
+      ["Sales", [ME_ID], []],
     ]);
+    expect(seen.some((r) => r.path.startsWith("/api/tasks"))).toBe(false);
+  });
+
+  it("il conteggio delle task di un reparto: filtrato, con «troncato», e un errore resta un errore", async () => {
+    installFakeServer({
+      "GET /api/tasks": ({ path }) =>
+        path.includes(SALES)
+          ? { body: { items: [{}, {}], truncated: true } }
+          : { status: 500, body: { code: "internal", message: "x" } },
+    });
+    expect(await countTasks({ departmentIds: [SALES] })).toEqual({ count: 2, truncated: true });
+    await expect(countTasks({ departmentIds: [GENERAL] })).rejects.toThrow();
   });
 
   it("il reparto di ripiego non si elimina: il rifiuto ha il suo motivo", async () => {

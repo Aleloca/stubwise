@@ -1,4 +1,4 @@
-import { ApiError, type TaskListFilters } from "@stubwise/api-client";
+import { ApiError, taskListQuery, type TaskListFilters } from "@stubwise/api-client";
 import type { Stall, StallReason, TaskViewData } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { FilterCriteria, Task, TaskPatch } from "../../types";
@@ -61,6 +61,15 @@ export function toTask(view: TaskViewData): Task {
 /** I criteri dei filtri del prototipo sono già la query di `/api/tasks`. */
 export const filtersOf = (criteria?: FilterCriteria): TaskListFilters =>
   (criteria ?? {}) as TaskListFilters;
+
+/** Il numero, senza le viste: oltre le 2000 righe il server dice `truncated`. */
+export const countTasks: typeof Fake.countTasks = async (criteria) => {
+  const page = await appClient().request<{ items: unknown[]; truncated?: boolean }>(
+    "GET",
+    `/api/tasks${taskListQuery(filtersOf(criteria))}`,
+  );
+  return { count: page.items.length, truncated: page.truncated === true };
+};
 
 export const listTasks: typeof Fake.listTasks = async (criteria) => {
   const page = await appClient().tasks.list(filtersOf(criteria));
