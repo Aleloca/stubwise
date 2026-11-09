@@ -68,11 +68,41 @@ describe("proxy delle richieste API", () => {
     expect(init.body).toBe("{}");
   });
 
-  it("un 401 cancella il token", async () => {
-    const d = deps({ fetch: vi.fn(async () => new Response("{}", { status: 401 })) });
-    const res = await handleApiRequest({ method: "GET", path: "/api/auth/me" }, d);
+  it("sul desktop un 401 invalid_second_factor non cancella il token", async () => {
+    const d = deps({
+      fetch: vi.fn(
+        async () =>
+          new Response(JSON.stringify({ code: "invalid_second_factor", message: "x" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    });
+    const res = await handleApiRequest({ method: "POST", path: "/api/me/security/reauth", body: "{}" }, d);
     expect(res.status).toBe(401);
-    expect(d.onUnauthorized).toHaveBeenCalledOnce();
+    expect(d.onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it("un 401 su /api/auth/me chiude la sessione anche senza code", async () => {
+    const d = deps({ fetch: vi.fn(async () => new Response("{}", { status: 401 })) });
+    await handleApiRequest({ method: "GET", path: "/api/auth/me" }, d);
+    expect(d.onUnauthorized).toHaveBeenCalledWith("stw_pat_x");
+  });
+
+  it("un 401 cancella il token", async () => {
+    const d = deps({
+      fetch: vi.fn(
+        async () =>
+          new Response(JSON.stringify({ code: "unauthorized", message: "x" }), {
+            status: 401,
+            headers: { "content-type": "application/json" },
+          }),
+      ),
+    });
+    const res = await handleApiRequest({ method: "GET", path: "/api/tasks" }, d);
+    expect(res.status).toBe(401);
+    // Il token usato: chi cancella controlla che sia ancora quello corrente.
+    expect(d.onUnauthorized).toHaveBeenCalledWith("stw_pat_x");
   });
 
   it("senza istanza o senza token non esce in rete", async () => {

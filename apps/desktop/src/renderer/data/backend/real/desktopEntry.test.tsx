@@ -130,6 +130,23 @@ describe("/app/#/desktop-login (la conferma nel browser)", () => {
     expect(seen.find((r) => r.path === "/api/me/security/reauth")?.body).toEqual({ code: "654321" });
   });
 
+  it("codice sbagliato nella riconferma: si resta dentro, il dialogo dice wrong code", async () => {
+    signedIn = true;
+    server({
+      "POST /api/auth/desktop-handoff": { status: 403, body: { code: "reauth_required", message: "x" } },
+      // Un 401 APPLICATIVO: il codice è sbagliato, la sessione è viva.
+      "POST /api/me/security/reauth": { status: 401, body: { code: "invalid_second_factor", message: "x" } },
+    });
+    const ue = userEvent.setup();
+    const router = renderRoute(LINK);
+    await ue.click(await screen.findByRole("button", { name: "Allow" }));
+    await screen.findByRole("dialog");
+    await ue.type(screen.getByLabelText("Code"), "000000");
+    expect(await screen.findByText(/didn't work/)).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toHaveTextContent("Confirm it's you");
+    expect(router.state.location.pathname).not.toBe("/login");
+  });
+
   it("«Cancel» non chiede nessun codice", async () => {
     signedIn = true;
     server();

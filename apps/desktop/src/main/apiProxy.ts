@@ -1,3 +1,5 @@
+import { endsSession } from "@stubwise/shared";
+
 // Il proxy delle richieste API dell'app desktop (integrazione area 2, fetta
 // 1): il renderer non fa rete (CSP `connect-src 'self'`) e non vede il token;
 // chiede `api:request` e il main la manda all'istanza col bearer. Solo
@@ -77,10 +79,26 @@ const fail = (status: number, code: string): ApiProxyResponse => ({
 
 const isText = (type: string) => /^(text\/|application\/(json|problem\+json|x-ndjson))/i.test(type);
 
+/** Il `code` di un corpo d'errore JSON, se c'è. */
+function codeOf(body: string | ArrayBuffer): string | undefined {
+  if (typeof body !== "string") return undefined;
+  try {
+    const parsed = JSON.parse(body) as { code?: unknown };
+    return typeof parsed.code === "string" ? parsed.code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface ApiProxyDeps {
   instanceUrl: () => string | null;
   token: () => string | null;
-  onUnauthorized: () => void;
+  /**
+   * La sessione è finita. Riceve il token con cui è partita la richiesta: chi
+   * cancella lo fa solo se è ancora quello corrente (un login nel frattempo
+   * non va perso per un 401 della sessione di prima).
+   */
+  onUnauthorized: (usedToken: string) => void;
   fetch?: typeof fetch;
 }
 
@@ -103,13 +121,15 @@ export async function handleApiRequest(raw: unknown, deps: ApiProxyDeps): Promis
   } catch {
     return fail(502, "network_error");
   }
-  if (res.status === 401) deps.onUnauthorized();
   const headers: Record<string, string> = {};
   res.headers.forEach((v, k) => {
     if (k !== "set-cookie") headers[k] = v;
   });
   const type = res.headers.get("content-type") ?? "";
   const body = type === "" || isText(type) ? await res.text() : await res.arrayBuffer();
+  // Solo un 401 di SESSIONE cancella il token (un codice di riconferma
+  // sbagliato è un 401 con la sessione viva): la regola è `endsSession`.
+  if (res.status === 401 && endsSession(req.path, res.status, codeOf(body))) deps.onUnauthorized(token);
   return { status: res.status, headers, body };
 }
 

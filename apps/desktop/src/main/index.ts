@@ -142,7 +142,9 @@ ipcMain.handle("api:request", async (event, raw: unknown) => {
   return handleApiRequest(raw, {
     instanceUrl: readInstanceUrl,
     token: readToken,
-    onUnauthorized: () => {
+    onUnauthorized: (used) => {
+      // Una richiesta partita col token di prima non chiude la sessione nuova.
+      if (readToken() !== used) return;
       clearToken();
       notifySession({ signedIn: false, error: "unauthorized" });
     },
