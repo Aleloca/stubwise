@@ -14,7 +14,7 @@ import { z } from "zod";
 import type { RouteAccess } from "../auth/access.js";
 import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
-import { visibleTasksCondition } from "../services/task-view.js";
+import { effectiveWeekIs, visibleTasksCondition } from "../services/task-view.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -62,7 +62,7 @@ export async function dayArrangementRoutes(fastify: FastifyInstance): Promise<vo
             eq(taskDayArrangements.userId, viewer.id),
             eq(taskDayArrangements.week, monday),
             eq(tickets.assigneeId, viewer.id),
-            sql`stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}) = ${monday}::date`,
+            effectiveWeekIs(monday),
             ...(visible ? [visible] : []),
           ),
         );
