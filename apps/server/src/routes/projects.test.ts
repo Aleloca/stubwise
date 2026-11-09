@@ -94,6 +94,8 @@ describe("POST /api/projects", () => {
       ingestionKey: expect.stringMatching(/^[0-9a-f]{32}$/),
       nextTicketNumber: 1,
       createdAt: expect.any(String),
+      code: expect.stringMatching(/^[A-Z][A-Z0-9]{1,5}$/),
+      stallThresholds: { activeDays: 7, todoDays: 14 },
     });
   });
 

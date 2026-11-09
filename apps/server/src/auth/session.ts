@@ -77,6 +77,8 @@ export interface SessionUser {
   avatarUrl: string | null;
   /** Slack user id linkato a questo utente, o null se non linkato. */
   slackUserId: string | null;
+  /** Nome visualizzato (0107); null = la parte locale dell'email. Assente nei doppi dei test. */
+  displayName?: string | null;
   /**
    * Id del PAT con cui QUESTA richiesta si è autenticata, assente quando ci si
    * è autenticati col cookie di sessione.
@@ -125,7 +127,7 @@ declare module "fastify" {
  */
 export type SessionUserColumns = Pick<
   typeof users.$inferSelect,
-  "id" | "email" | "role" | "language" | "slackAvatarUrl" | "slackUserId"
+  "id" | "email" | "role" | "language" | "slackAvatarUrl" | "slackUserId" | "displayName"
 > & {
   /** `roles.permissions` del ruolo d'istanza (`users.instance_role_id`). */
   instanceRolePermissions: string[];
@@ -143,6 +145,7 @@ export const sessionUserSelection = {
   language: users.language,
   slackAvatarUrl: users.slackAvatarUrl,
   slackUserId: users.slackUserId,
+  displayName: users.displayName,
   instanceRolePermissions: roles.permissions,
 } as const;
 
@@ -164,6 +167,7 @@ export function toSessionUser(row: SessionUserColumns): SessionUser {
     language: row.language,
     avatarUrl: row.slackAvatarUrl,
     slackUserId: row.slackUserId,
+    displayName: row.displayName,
   };
 }
 

@@ -188,6 +188,7 @@ describe("login e sessioni", () => {
       language: "en",
       avatarUrl: null,
       slackUserId: null,
+      displayName: null,
     });
     expect(body.user).not.toHaveProperty("passwordHash");
   });
@@ -366,6 +367,7 @@ describe("mobile-login", () => {
       language: "en",
       avatarUrl: null,
       slackUserId: null,
+      displayName: null,
     });
     // Nessuna sessione a cookie: il mobile non ne ha bisogno e non deve
     // ritrovarsi una riga in `sessions` che nessuno chiuderà mai.
@@ -696,7 +698,7 @@ describe("preferenza lingua utente", () => {
       payload: { language: "it" },
     });
     expect(patch.statusCode).toBe(200);
-    expect(patch.json()).toEqual({ language: "it" });
+    expect(patch.json()).toEqual({ language: "it", displayName: null });
 
     const me = await app.inject({
       method: "GET",

@@ -53,6 +53,9 @@ import { ingestRoutes } from "./routes/ingest.js";
 import { widgetRoutes } from "./routes/widget.js";
 import { monitorRoutes } from "./routes/monitor.js";
 import { milestoneRoutes } from "./routes/milestones.js";
+import { departmentRoutes } from "./routes/departments.js";
+import { peopleRoutes } from "./routes/people.js";
+import { projectStatusRoutes } from "./routes/project-statuses.js";
 import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectEnvironmentRoutes } from "./routes/project-environments.js";
@@ -635,6 +638,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(projectDocsRoutes, { prefix: "/api" });
   // Milestone di progetto: pianificazione e avanzamento, per ogni utente.
   void app.register(milestoneRoutes, { prefix: "/api/milestones" });
+  // Integrazione area 2, fetta 1: reparti, persone, stati e soglie del progetto.
+  void app.register(departmentRoutes, { prefix: "/api/departments" });
+  void app.register(peopleRoutes, { prefix: "/api/people" });
+  void app.register(projectStatusRoutes, { prefix: "/api/projects" });
   // Viste salvate dei filtri della lista ticket: private o condivise.
   void app.register(savedViewRoutes, { prefix: "/api/saved-views" });
   // Ricerca globale (spotlight Cmd/K): full-text federata cross-entità e

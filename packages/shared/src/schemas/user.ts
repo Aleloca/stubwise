@@ -27,6 +27,10 @@ export const sessionUserSchema = publicUserSchema.extend({
   language: languageSchema,
   avatarUrl: z.string().nullable(),
   slackUserId: z.string().nullable(),
+  // Integrazione area 2: il nome visualizzato; null = la parte locale
+  // dell'email. `.optional()` (e non `.default`): un server più vecchio non
+  // lo manda, e le fixture dei client che non lo conoscono restano valide.
+  displayName: z.string().nullable().optional(),
 });
 export type SessionUser = z.infer<typeof sessionUserSchema>;
 
