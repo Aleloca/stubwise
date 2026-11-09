@@ -1851,7 +1851,8 @@
       "aria": "Urgency: {{name}}",
       "low": "Low",
       "medium": "Medium",
-      "high": "High"
+      "high": "High",
+      "urgent": "Urgent"
     },
     "requestedBy": "Requested by {{names}}",
     "requestedTimes_one": "Requested once",

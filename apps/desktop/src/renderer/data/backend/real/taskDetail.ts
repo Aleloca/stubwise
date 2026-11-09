@@ -1,6 +1,6 @@
 import type { DecisionRequestView, TaskActivityEntryView } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import type { ActivityEntry, DecisionRequest, ProjectRequest, StoredLinkKind } from "../../types";
+import type { ActivityEntry, DecisionRequest, StoredLinkKind } from "../../types";
 import { appClient } from "./client";
 import { reread } from "./tasks";
 
@@ -150,31 +150,4 @@ export const getTaskWorkSummary: typeof Fake.getTaskWorkSummary = async (taskId)
   };
 };
 
-/** La richiesta da cui è nata la task, in lettura (Requests arriva con la fetta 4). */
-export const getRequest: typeof Fake.getRequest = async (id) => {
-  try {
-    const item = (await appClient().backlog.get(id)) as unknown as {
-      id: string;
-      projectId: string;
-      title: string;
-      description?: string | null;
-      createdAt: string;
-    };
-    return {
-      id: item.id,
-      code: "",
-      projectId: item.projectId,
-      title: item.title,
-      description: item.description ?? "",
-      requesterIds: [],
-      status: "converted",
-      urgency: "medium",
-      similarToId: null,
-      mergedIntoId: null,
-      taskIds: [],
-      createdAt: item.createdAt,
-    } as ProjectRequest;
-  } catch {
-    return null;
-  }
-};
+// `getRequest` (la richiesta da cui è nata una task) sta in `requests.ts` dalla fetta 4.
