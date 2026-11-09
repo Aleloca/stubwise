@@ -4,13 +4,15 @@ import { asc, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
+import { userIdsWithPermission } from "@stubwise/notifications";
 import { visibleProjectIds } from "../auth/access.js";
 import { initialsOf, personName } from "../services/people.js";
 import { authErrorResponses } from "./shared.js";
 
 /**
  * Persone (integrazione area 2, fetta 1): chi condivide almeno un progetto
- * visibile con chi guarda, più sé stesso; un full admin le vede tutte. Il
+ * visibile con chi guarda (i full admin compresi, membri impliciti di ogni
+ * progetto), più sé stesso; un full admin le vede tutte. Il
  * filtro è nella WHERE (`docs/invariants/permissions.md`): un non membro non
  * scopre chi lavora in un progetto che non vede.
  */
@@ -35,7 +37,10 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
                 .from(projectMembers)
                 .where(inArray(projectMembers.projectId, visible))
             : [];
-        ids = [...new Set([viewer.id, ...rows.map((r) => r.userId)])];
+        // I full admin sono membri impliciti di ogni progetto: chi vede almeno
+        // un progetto li vede (la regola di `projectViewerIds`).
+        const admins = visible.length > 0 ? await userIdsWithPermission(app.db, null, null) : [];
+        ids = [...new Set([viewer.id, ...rows.map((r) => r.userId), ...admins])];
       }
       const people = await app.db
         .select({ id: users.id, email: users.email, displayName: users.displayName })

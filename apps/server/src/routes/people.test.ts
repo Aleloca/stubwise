@@ -47,16 +47,26 @@ describe("GET /api/people", () => {
   it("vede sé stesso e chi condivide un progetto, nella forma condivisa", async () => {
     const people = await list(users.memberCookie);
     const ids = people.map((p) => p.id).sort();
-    expect(ids).toEqual([users.memberId, colleague.id].sort());
+    // Il full admin c'è: è membro implicito di ogni progetto.
+    expect(ids).toEqual([users.memberId, colleague.id, users.adminId].sort());
     const giulia = people.find((p) => p.id === colleague.id)!;
     expect(giulia).toMatchObject({ name: "giulia.rossi", initials: "GR", email: "giulia.rossi@example.com" });
     expect(giulia.departmentIds).toHaveLength(1);
   });
 
+  it("un Developer vede il full admin fra le persone (membro implicito di ogni progetto)", async () => {
+    const dev = await createUserWithSession(app, "developer@example.com");
+    const { projectId: pid } = await seedRepository(testDb.db);
+    await addMember(app, pid, dev.id, "developer");
+    const ids = (await list(dev.headers.cookie)).map((p) => p.id);
+    expect(ids).toContain(users.adminId);
+    expect(ids).toContain(dev.id);
+  });
+
   it("non vede chi non condivide un progetto", async () => {
     const people = await list(users.memberCookie);
     expect(people.map((p) => p.id)).not.toContain(stranger.id);
-    expect((await list(stranger.headers.cookie)).map((p) => p.id)).toEqual([stranger.id]);
+    expect((await list(stranger.headers.cookie)).map((p) => p.id).sort()).toEqual([stranger.id, users.adminId].sort());
   });
 
   it("un full admin vede tutti", async () => {
