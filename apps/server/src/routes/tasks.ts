@@ -127,9 +127,11 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
         const stalls = await stallsOf(app.db, request.user!, loaded, today);
         kept = loaded.filter((t) => stalls.has(t.view.id) === request.query.stalled);
       }
+      // Il tetto vale per ciò che si è LETTO: col filtro `stalled` quello che
+      // resta può essere poco anche quando la lettura è stata tagliata.
       return {
         items: kept.slice(0, TASK_LIST_CAP).map((t) => t.view),
-        truncated: kept.length > TASK_LIST_CAP,
+        truncated: loaded.length > TASK_LIST_CAP,
       };
     },
   );

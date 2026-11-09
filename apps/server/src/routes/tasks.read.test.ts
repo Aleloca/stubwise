@@ -177,6 +177,37 @@ describe("scadenza", () => {
   });
 });
 
+describe("tetto e collegamenti", () => {
+  it("col filtro stalled, oltre il tetto l'elenco dice truncated anche se ne resta poco", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    await addMember(app, pid, users.memberId, "project_lead");
+    // 2001 task in To do, nessuna ferma: senza il fix `truncated` sarebbe false.
+    await testDb.db.execute(sql`
+      insert into tickets (project_id, number, title, type, priority, source)
+      select ${pid}, g, 'Tanta ' || g, 'bug', 'medium', 'manual' from generate_series(1, 2001) g
+    `);
+    const body = taskListResponseSchema.parse((await get(`/api/tasks?projectIds=${pid}&stalled=true`)).json());
+    expect(body.truncated).toBe(true);
+  }, 60_000);
+
+  it("un collegamento verso una task che chi guarda non vede non compare", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    await addMember(app, pid, users.memberId, "contributor");
+    const mine = await insertTask({ pid });
+    await testDb.db.update(tickets).set({ requestedByUserId: users.memberId }).where(eq(tickets.id, mine.id));
+    const visibleToo = await insertTask({ pid });
+    await testDb.db.update(tickets).set({ requestedByUserId: users.memberId }).where(eq(tickets.id, visibleToo.id));
+    const hidden = await insertTask({ pid });
+    await testDb.db.insert(ticketLinks).values([
+      { sourceTicketId: mine.id, targetTicketId: hidden.id, kind: "blocks" },
+      { sourceTicketId: mine.id, targetTicketId: visibleToo.id, kind: "relates_to" },
+    ]);
+    const items = taskListResponseSchema.parse((await get(`/api/tasks?projectIds=${pid}`)).json()).items;
+    const view = items.find((i) => i.id === mine.id)!;
+    expect(view.links).toEqual([{ kind: "relates", taskId: visibleToo.id }]);
+  });
+});
+
 describe("GET /api/tasks/by-code/:code", () => {
   it("restituisce la task, anche col codice in minuscolo", async () => {
     const t = await insertTask();
