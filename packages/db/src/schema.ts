@@ -864,7 +864,19 @@ export const tickets = pgTable(
     originContent: text("origin_content"),
     type: ticketType("type").notNull(),
     priority: ticketPriority("priority").notNull(),
+    // Compatibilità (0108): DERIVATO da `statusId` dal trigger
+    // `tickets_status_sync`, e viceversa quando uno scrittore vecchio scrive
+    // solo l'enum. Si toglie col ritiro del web vecchio
+    // (docs/invariants/tasks.md).
     status: ticketStatus("status").notNull().default("open"),
+    // Lo stato VERO (0108), uno degli stati del progetto. NOT NULL nel DB ma
+    // opzionale all'insert: senza, il trigger lo ricava dall'enum.
+    statusId: uuid("status_id")
+      .notNull()
+      .references((): AnyPgColumn => projectStatuses.id)
+      .$defaultFn(() => sql`default`),
+    // Quando la task è entrata nella famiglia `closed` (trigger); null se aperta.
+    closedAt: timestamp("closed_at", { withTimezone: true }),
     source: ticketSource("source").notNull(),
     // Stima di sforzo 1–5 prodotta dal triage AI (null finché non triagiato).
     // Alimenta il gate di automazione (auto-fix solo se effort <= maxEffort).
@@ -924,6 +936,33 @@ export const tickets = pgTable(
     index("tickets_milestone_id_idx").on(table.milestoneId),
     // Ricerca full-text sul vettore generato.
     index("tickets_search_tsv_idx").using("gin", table.searchTsv),
+  ],
+);
+
+/**
+ * Stati per progetto (0108, integrazione area 2): nome, famiglia
+ * (`todo`/`active`/`closed`) e ordine. `legacyStatus` è il valore dell'enum
+ * `tickets.status` che il trigger scrive per una task in questo stato; lo
+ * calcola chi scrive gli stati («todo → open; active: il primo → in_progress,
+ * gli altri → in_review; closed: il primo → done, gli altri → closed»).
+ * L'unicità di (progetto, posizione) è DIFFERITA nel DB (riordini in più UPDATE).
+ */
+export const projectStatuses = pgTable(
+  "project_statuses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    family: text("family", { enum: ["todo", "active", "closed"] }).notNull(),
+    position: integer("position").notNull(),
+    legacyStatus: ticketStatus("legacy_status").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  () => [
+    check("project_statuses_family_chk", sql`family IN ('todo', 'active', 'closed')`),
+    check("project_statuses_name_chk", sql`length(btrim(name)) BETWEEN 1 AND 60`),
   ],
 );
 

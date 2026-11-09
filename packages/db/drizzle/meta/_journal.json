@@ -757,6 +757,13 @@
       "when": 1793664000000,
       "tag": "0107_project_codes_departments",
       "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1793750400000,
+      "tag": "0108_project_statuses",
+      "breakpoints": true
     }
   ]
 }

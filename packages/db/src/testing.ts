@@ -5,6 +5,7 @@ import {
 import type { BacklogItemStatus, GitProviderKind } from "@stubwise/shared";
 import type postgres from "postgres";
 import { randomUUID } from "node:crypto";
+import { and, asc, eq } from "drizzle-orm";
 import { createDb, runMigrations, type Db } from "./client.js";
 import {
   backlogItems,
@@ -16,6 +17,7 @@ import {
   googleAccounts,
   googleWorkspaces,
   projectEnvironments,
+  projectStatuses,
   projects,
   repositories,
   ticketRepositories,
@@ -410,4 +412,20 @@ export async function addDepartmentMember(
   position = 0,
 ): Promise<void> {
   await db.insert(departmentMembers).values({ departmentId, userId, position });
+}
+
+/** Il primo stato (per posizione) di una famiglia in un progetto (0108). */
+export async function firstStatusOf(
+  db: Db,
+  projectId: string,
+  family: "todo" | "active" | "closed",
+): Promise<string> {
+  const [row] = await db
+    .select({ id: projectStatuses.id })
+    .from(projectStatuses)
+    .where(and(eq(projectStatuses.projectId, projectId), eq(projectStatuses.family, family)))
+    .orderBy(asc(projectStatuses.position))
+    .limit(1);
+  if (!row) throw new Error(`nessuno stato ${family} nel progetto ${projectId}`);
+  return row.id;
 }
