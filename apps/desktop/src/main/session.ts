@@ -1,11 +1,10 @@
-import { hostname as osHostname } from "node:os";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { app, safeStorage } from "electron";
 
 // La sessione dell'app desktop (integrazione area 2, fetta 1): un PAT
-// rilasciato da `POST /api/auth/mobile-login` (la porta con il secondo
-// fattore, `docs/invariants/second-factor.md`), cifrato con `safeStorage`
+// `kind = 'desktop'` rilasciato da `POST /api/auth/desktop-exchange` dopo il
+// login nel browser (`browserLogin.ts`, `docs/invariants/second-factor.md`), cifrato con `safeStorage`
 // (Keychain su Mac) in `session.bin`. Il token NON lascia mai il processo
 // main: il renderer riceve solo esiti e l'utente della sessione.
 
@@ -58,53 +57,11 @@ export function forgetMemory(): void {
   memory = null;
 }
 
-// --- login e logout ------------------------------------------------------------
-
-export type LoginResult = { ok: true; user: unknown } | { ok: false; code: string };
-
-interface LoginDeps {
-  instanceUrl: string | null;
-  hostname?: string;
-  fetch?: typeof fetch;
-}
-
-function parseLoginInput(raw: unknown): { email: string; password: string; code?: string } | null {
-  if (!raw || typeof raw !== "object") return null;
-  const { email, password, code } = raw as Record<string, unknown>;
-  if (typeof email !== "string" || email.trim() === "" || email.length > 320) return null;
-  if (typeof password !== "string" || password === "" || password.length > 1024) return null;
-  if (code !== undefined && (typeof code !== "string" || code.length > 64)) return null;
-  return { email: email.trim(), password, ...(code ? { code } : {}) };
-}
-
-/**
- * `session:login`: chiama `mobile-login` con `deviceName = "Desktop · <host>"`,
- * salva il token e restituisce l'utente, MAI il token. Un errore torna col
- * codice del server (`invalid_credentials`, `second_factor_required`…).
- */
-export async function login(raw: unknown, deps: LoginDeps): Promise<LoginResult> {
-  const input = parseLoginInput(raw);
-  if (!input) return { ok: false, code: "invalid_request" };
-  if (!deps.instanceUrl) return { ok: false, code: "no_instance" };
-  const host = (deps.hostname ?? osHostname()).slice(0, 60) || "Mac";
-  let res: Response;
-  try {
-    res = await (deps.fetch ?? fetch)(`${deps.instanceUrl}/api/auth/mobile-login`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...input, deviceName: `Desktop · ${host}` }),
-    });
-  } catch {
-    return { ok: false, code: "network_error" };
-  }
-  const body = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-  if (!res.ok) {
-    return { ok: false, code: typeof body?.code === "string" ? body.code : `http_${res.status}` };
-  }
-  if (!body || typeof body.token !== "string") return { ok: false, code: "invalid_response" };
-  saveToken(body.token, typeof body.patId === "string" ? body.patId : null);
-  return { ok: true, user: body.user ?? null };
-}
+// --- logout -------------------------------------------------------------------
+//
+// Il login non passa più da qui: dal 9 nov 2026 il desktop entra dal browser
+// di sistema (`browserLogin.ts`, PKCE + `stubwise://`). Il login con password
+// via `mobile-login` è stato tolto.
 
 /**
  * `session:logout`: revoca il PAT sul server (best-effort, ma mai

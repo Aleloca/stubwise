@@ -136,8 +136,11 @@ describe("canali IPC", () => {
     "menu:search",
     "menu:undo",
     "open:web",
+    "session:cancel-browser-login",
+    "session:changed",
     "session:login",
     "session:logout",
+    "session:start-browser-login",
     "session:status",
     "theme:changed",
   ];
@@ -163,6 +166,20 @@ describe("canali IPC", () => {
     expect(dynamic).toEqual(["channel"]);
   });
 
+  it("il login col browser: protocollo stubwise://, una sola istanza, URL solo a handleAuthUrl", () => {
+    expect(main).toMatch(/setAsDefaultProtocolClient\("stubwise"/);
+    expect(main).toMatch(/requestSingleInstanceLock\(\)/);
+    // macOS consegna l'URL con `open-url`, Windows/Linux alla seconda istanza.
+    // Entrambi passano da `receiveAuthUrl`, che consegna l'URL al solo `handleAuthUrl`.
+    expect(main).toMatch(/function receiveAuthUrl\([^)]*\)[\s\S]*?browserLogin\.handleAuthUrl\(url\)/);
+    expect(main).toMatch(/app\.on\("open-url",[\s\S]*?receiveAuthUrl\(url\)/);
+    expect(main).toMatch(/app\.on\("second-instance",[\s\S]*?authUrlFromArgv\(argv\)[\s\S]*?receiveAuthUrl\(url\)/);
+    // Niente più login con password dal desktop: il canale resta solo come risposta di ripiego.
+    expect(main).not.toMatch(/mobile-login/);
+    const builder = read("../../electron-builder.yml");
+    expect(builder).toMatch(/protocols:\s*\n\s*- name: Stubwise\s*\n\s*schemes:\s*\n\s*- stubwise/);
+  });
+
   it("file:save guarda il frame mittente PRIMA di leggere gli argomenti", () => {
     const handler = main.slice(main.indexOf('ipcMain.handle("file:save"'));
     const sender = handler.indexOf("fromApp(event)");
@@ -182,8 +199,10 @@ describe("canali IPC", () => {
       "instance:get",
       "instance:set",
       "open:web",
+      "session:cancel-browser-login",
       "session:login",
       "session:logout",
+      "session:start-browser-login",
       "session:status",
     ]);
     for (const channel of channels) {
