@@ -1,4 +1,5 @@
 import {
+  dayArrangementSchema,
   decisionRequestViewSchema,
   stalledTaskViewSchema,
   taskActivityEntryViewSchema,
@@ -7,9 +8,11 @@ import {
   taskWorkViewSchema,
 } from "@stubwise/shared";
 import type {
+  DayArrangement,
   DecisionRequestView,
   NewTaskBody,
   Reader,
+  SetDayBody,
   StatusFamily,
   TaskActivityEntryView,
   TaskPatch,
@@ -47,7 +50,10 @@ export interface TaskListFilters {
   );
 }
 
-export type TaskBulkPatch = Pick<TaskPatch, "statusId" | "assigneeId" | "milestoneId" | "size" | "departmentId">;
+export type TaskBulkPatch = Pick<
+  TaskPatch,
+  "statusId" | "assigneeId" | "milestoneId" | "size" | "departmentId" | "plannedWeek"
+>;
 
 /** `?families=todo,active&…`: la forma che `taskListQuerySchema` si aspetta. */
 export function taskListQuery(f: TaskListFilters = {}): string {
@@ -114,6 +120,21 @@ export function createTasksEndpoints(request: ApiRequest) {
     },
     unfollow(ticketId: string): Promise<void> {
       return request("DELETE", `/api/tasks/${seg(ticketId)}/follow`);
+    },
+    /**
+     * Pianificare dal Planning (fetta 2): persona e settimana insieme. Decide
+     * il server (`planBlock`): 403 `forbidden` su una task altrui senza
+     * `planning.others`, 400 `invalid_assignee` per chi non è membro.
+     */
+    plan(ticketId: string, body: { assigneeId: string | null; week: string | null }): Promise<Reader<TaskViewData>> {
+      return request("POST", `/api/tasks/${seg(ticketId)}/plan`, body, taskViewSchema);
+    },
+    /**
+     * Il giorno (1–5, o `null`) in cui l'assegnatario si mette la task nella
+     * sua settimana: 403 se non è sua, 409 `not_in_week` se non è in quella settimana.
+     */
+    setDay(ticketId: string, body: SetDayBody): Promise<Reader<DayArrangement>> {
+      return request("PUT", `/api/tasks/${seg(ticketId)}/day`, body, dayArrangementSchema);
     },
     askDecision(
       ticketId: string,
