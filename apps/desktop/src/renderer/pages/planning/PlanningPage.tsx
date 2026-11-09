@@ -555,10 +555,15 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   );
 }
 
-/** I candidati del menu «Plan»: i membri del progetto della task, Claude per ultimo. */
+/**
+ * I candidati del menu «Plan»: i membri del progetto della task, Claude per
+ * ultimo dove assegnargli una task è integrato (come le righe: nella build app
+ * non ancora).
+ */
 function candidates(task: Task, projects: Map<string, Project>, people: Person[]): Person[] {
   const members = new Set(projects.get(task.projectId)?.memberIds ?? []);
-  return people.filter((p) => members.has(p.id)).sort(byName);
+  const claude = featureIntegrated("claude-assign");
+  return people.filter((p) => members.has(p.id) && (claude || !p.isClaude)).sort(byName);
 }
 
 /** «Oct 19 – Nov 6»: dal lunedì della prima settimana al venerdì dell'ultima. */

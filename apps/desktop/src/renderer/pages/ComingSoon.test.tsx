@@ -224,6 +224,20 @@ describe("le superfici della fetta 2 nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
+  it("il menu «Plan» non propone Claude", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/AUD/planning");
+    expect(await screen.findByRole("grid")).toBeInTheDocument();
+    await waitFor(() => expect(document.querySelector("[data-pool] [data-chip]")).not.toBeNull());
+    const chip = document.querySelector<HTMLElement>("[data-pool] [data-chip]")!;
+    chip.focus();
+    await userEvent.keyboard("p");
+    const menu = await screen.findByRole("menu", { name: /^Plan / });
+    const names = within(menu).getAllByRole("menuitemradio").map((i) => i.textContent ?? "");
+    expect(names.length).toBeGreaterThan(0);
+    expect(names.some((n) => /Claude/.test(n))).toBe(false);
+  });
+
   it("il Planning di progetto è disponibile", async () => {
     signedInAs("p-laura");
     renderRoute("/p/AUD/planning");
