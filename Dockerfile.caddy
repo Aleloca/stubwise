@@ -47,6 +47,11 @@ COPY packages/widget/package.json packages/widget/package.json
 # apps/web (sblocco e kit nel browser) e del server. Stessa trappola di
 # api-client: senza il manifest qui l'install non crea il link di workspace.
 COPY packages/vault-crypto/package.json packages/vault-crypto/package.json
+# La nuova app su /app (integrazione area 2, fetta 1): il renderer dell'app
+# desktop. Electron è una sua devDependency: qui non serve il binario (si
+# builda solo il bundle web), e senza la variabile l'install lo scaricherebbe.
+COPY apps/desktop/package.json apps/desktop/package.json
+ENV ELECTRON_SKIP_BINARY_DOWNLOAD=1
 
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm install --frozen-lockfile
@@ -77,6 +82,15 @@ COPY apps/docs apps/docs
 RUN pnpm --filter "@stubwise/server^..." --filter "!@stubwise/agent" build
 RUN pnpm --filter @stubwise/docs build
 
+# La nuova app (/srv/app): il renderer di apps/desktop in modo «app»
+# (`build:web`, `base: "/app/"`), sulle dipendenze già buildate (shared,
+# api-client). `check-no-seed` fa fallire il build se nel bundle c'è un dato
+# del seed del prototipo.
+COPY apps/desktop apps/desktop
+RUN pnpm --filter "@stubwise/desktop^..." build \
+  && pnpm --filter @stubwise/desktop build:web \
+  && node apps/desktop/scripts/check-no-seed.mjs apps/desktop/dist-web
+
 FROM caddy:2-alpine AS runtime
 # Statici della SPA serviti da /srv/web (root nel Caddyfile).
 COPY --from=web-build /repo/apps/web/dist /srv/web
@@ -88,4 +102,6 @@ COPY --from=web-build /repo/apps/web/dist /srv/web
 COPY --from=web-build /repo/apps/docs/dist /srv/docs
 # Bundle IIFE del widget embeddabile, servito come /widget.js (vedi Caddyfile).
 COPY --from=web-build /repo/packages/widget/dist /srv/widget
+# La nuova app, servita su /app (vedi Caddyfile).
+COPY --from=web-build /repo/apps/desktop/dist-web /srv/app
 COPY Caddyfile /etc/caddy/Caddyfile

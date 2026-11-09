@@ -16,7 +16,7 @@ export default defineConfig({
     env: { VITE_STUBWISE_BUILD: "prototype" },
     environment: "happy-dom",
     setupFiles: ["./src/renderer/test/setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}"],
+    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
     testTimeout: 15_000,
     // Metà dei core, non tutti meno uno (il default): ogni file monta l'app
     // intera in happy-dom, e con un worker per core la macchina satura; i

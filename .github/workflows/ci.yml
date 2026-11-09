@@ -78,6 +78,15 @@ jobs:
       - name: Typecheck
         run: pnpm -r typecheck
 
+      # La nuova app su /app (integrazione area 2, fetta 1): il renderer
+      # dell'app desktop in modo «app» si builda, e nel bundle non c'è nessun
+      # dato del seed del prototipo (anti-obiettivo «dati finti davanti a un
+      # utente vero»). Lo stesso controllo gira nel build dell'immagine caddy.
+      - name: Build web della nuova app, senza seed
+        run: |
+          pnpm --filter @stubwise/desktop build:web
+          node apps/desktop/scripts/check-no-seed.mjs apps/desktop/dist-web
+
       # ⚠️ SULLE PR SI TESTANO SOLO I PACCHETTI TOCCATI E CHI NE DIPENDE (24 set
       # 2026), con due reti di sicurezza che non vanno tolte: un file fuori da
       # `apps|packages|plugins` (esclusi docs, `*.md` e `graphify-out/`) fa

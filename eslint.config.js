@@ -8,6 +8,9 @@ export default tseslint.config(
       "**/dist/",
       // Output di electron-vite (apps/desktop), gitignorato.
       "apps/desktop/out/",
+      // Build web della nuova app e pacchetti locali (apps/desktop), gitignorati.
+      "apps/desktop/dist-web/",
+      "apps/desktop/release/",
       "**/node_modules/",
       "**/coverage/",
       "**/.astro/",

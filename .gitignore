@@ -35,3 +35,7 @@ caddy.d/*.caddy
 
 # Materiali di design (mockup, sorgenti grafiche): restano in locale
 designs/
+
+# App desktop: build web della nuova app (/app) e pacchetti locali.
+apps/desktop/dist-web/
+apps/desktop/release/
