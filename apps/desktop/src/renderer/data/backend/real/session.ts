@@ -7,6 +7,7 @@ import type { Viewer } from "../../types";
 import { appClient, session } from "./client";
 import { NotIntegratedError, partialNamespace } from "./notIntegrated";
 import { forgetCommentTickets } from "./taskDetail";
+import { forgetFilterCaches } from "./filters";
 import { forgetHomeCaches } from "./home";
 import { forgetTaskCodes } from "./tasks";
 import * as web from "./webLogin";
@@ -59,6 +60,7 @@ function forgetClientCaches(): void {
   forgetTaskCodes();
   forgetCommentTickets();
   forgetHomeCaches();
+  forgetFilterCaches();
 }
 
 /**

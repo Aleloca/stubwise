@@ -11,13 +11,28 @@ import { appClient } from "./client";
 // Le task di un filtro si leggono con `listTasks(criteria)`: un filtro
 // pubblico mostra a ciascuno solo le task che vede già.
 
+/**
+ * Per ogni filtro letto, le chiavi dei criteri che `parseCriteria` ha scartato
+ * (un criterio che questa app non conosce, o di una forma che non legge):
+ * salvando i criteri tornano, così un'app più vecchia del server non li
+ * cancella. Si svuota al cambio di persona.
+ */
+const droppedCriteria = new Map<string, Record<string, unknown>>();
+
+export function forgetFilterCaches(): void {
+  droppedCriteria.clear();
+}
+
 export function toFilter(view: SavedFilterView): SavedFilter {
+  const parsed = (parseCriteria(view.criteria) ?? {}) as Record<string, unknown>;
+  const dropped = Object.fromEntries(Object.entries(view.criteria).filter(([key]) => !(key in parsed)));
+  droppedCriteria.set(view.id, dropped);
   return {
     id: view.id,
     name: view.name,
     ownerId: view.ownerId,
     visibility: view.visibility,
-    criteria: parseCriteria(view.criteria) ?? {},
+    criteria: parsed,
     view: view.view,
     groupBy: view.groupBy,
     canEdit: view.canEdit,
@@ -50,8 +65,13 @@ export const saveFilter: typeof Fake.saveFilter = async (input) =>
     } as never)) as SavedFilterView,
   );
 
-export const updateFilter: typeof Fake.updateFilter = async (id, patch) =>
-  toFilter((await appClient().filters.update(id, patch as never)) as SavedFilterView);
+export const updateFilter: typeof Fake.updateFilter = async (id, patch) => {
+  const body =
+    patch.criteria !== undefined
+      ? { ...patch, criteria: { ...(droppedCriteria.get(id) ?? {}), ...patch.criteria } }
+      : patch;
+  return toFilter((await appClient().filters.update(id, body as never)) as SavedFilterView);
+};
 
 /** Lo toglie anche dai fissati di tutti; nelle Home resta un blocco «non disponibile». */
 export const deleteFilter: typeof Fake.deleteFilter = (id) => appClient().filters.remove(id);
