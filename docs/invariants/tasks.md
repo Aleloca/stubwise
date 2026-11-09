@@ -79,8 +79,17 @@ Task 2. Migrazione: `packages/db/drizzle/0108_project_statuses.sql`. Test:
   (`stubwise_effective_week`), e `slipCount = slip_count +
   stubwise_slip_weeks(...)`. Una task chiusa smette di scivolare alla
   settimana in cui si è chiusa: chiusa nella sua settimana non è mai
-  slittata. Un aggiornamento di massa toccherebbe `updated_at`, cioè le ferme
-  per inattività: non va introdotto.
+  slittata. Una task RIAPERTA riprende a scivolare dalla sua settimana
+  pianificata, non da quella di chiusura: il tempo in cui è stata chiusa
+  conta (riaperta oggi, ha lo slittamento di tutte le settimane dalla
+  pianificata a oggi). Un aggiornamento di massa toccherebbe `updated_at`,
+  cioè le ferme per inattività: non va introdotto.
+- **Una settimana passata non si scrive** (400 `past_week` in creazione,
+  PATCH, bulk e pianificazione): gonfierebbe `slipCount`, che è un dato
+  mostrato. Resta ammesso riscrivere la settimana EFFETTIVA attuale della
+  task (la corrente di una slittata, quella di chiusura di una chiusa), che
+  per chi guarda è un no-op; e una scrittura con gli stessi valori non fa
+  l'UPDATE.
 - **Il consolidamento è un trigger** (`tickets_consolidate_slip`): quando una
   scrittura cambia davvero `planned_week`, il derivato di prima si somma a
   `slip_count`. Ripianificare non perde né raddoppia il conteggio, e
