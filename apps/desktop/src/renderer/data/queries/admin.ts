@@ -180,7 +180,13 @@ export function useAdminWrite<TVars, TData>(
   const client = useQueryClient();
   return useMutation({
     mutationFn,
-    onSettled: () => client.invalidateQueries({ queryKey: ["as"] }),
+    // Un'amministrazione può cambiare i permessi di chi guarda (ruoli, reparti):
+    // si rilegge anche il viewer, che altrimenti resterebbe quello dell'avvio.
+    onSettled: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: ["as"] }),
+        client.invalidateQueries({ queryKey: ["viewer"] }),
+      ]),
     // Un link d'invito o di reset sta solo nella sezione che lo mostra (`SecretOnce`).
     ...(secret ? { gcTime: 0 } : {}),
   });
