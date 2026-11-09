@@ -25,6 +25,9 @@ export default tseslint.config(
       // verde: la divergenza peggiore, perché insegna a non fidarsi del
       // lint locale.
       ".worktrees/",
+      // Stessa ragione per i worktree che Claude Code crea in
+      // `.claude/worktrees/<nome>`.
+      ".claude/worktrees/",
     ],
   },
   ...tseslint.configs.recommended,
