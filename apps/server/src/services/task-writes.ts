@@ -57,7 +57,6 @@ export type TaskWriteError =
   | "assignee_not_found"
   | "milestone_cross_project"
   | "request_not_found"
-  | "request_forbidden"
   | "past_week";
 
 export type TaskWriteResult = { ok: true; task: TaskViewData } | { ok: false; error: TaskWriteError };
@@ -145,9 +144,8 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
       .from(backlogItems)
       .where(eq(backlogItems.id, body.requestId));
     if (item?.projectId !== body.projectId) return { ok: false, error: "request_not_found" };
-    // Trasformare una richiesta è la conversione: il suo permesso, `backlog.edit`.
-    const permissions = await projectPermissionsFor(db, viewer, body.projectId);
-    if (!permissions?.has("backlog.edit")) return { ok: false, error: "request_forbidden" };
+    // Trasformare una richiesta chiede `tickets.create` (lo verifica la
+    // rotta): «crea una task da zero o da una richiesta», design dell'area 2.
   }
   const ticketId = await db.transaction(async (tx) => {
     const departmentId = body.departmentId ?? (await firstDepartmentOf(tx, viewer.id));

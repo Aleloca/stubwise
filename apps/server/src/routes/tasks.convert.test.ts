@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { backlogItemTickets, backlogItems, tickets } from "@stubwise/db";
+import { backlogItemTickets, backlogItems } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedBacklogItem, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { requestToConvertViewSchema } from "@stubwise/shared";
@@ -14,8 +14,8 @@ import { addMember, createUserWithSession } from "../test/fixtures.js";
  * Fix della fetta 3: trasformare una richiesta in task (`POST /api/tasks` con
  * `requestId`) la segna `converted`, come nel prototipo e come
  * `POST /api/backlog/:id/convert`; così non torna in «Da decidere». Una voce
- * già archiviata non cambia stato. Vale il permesso della conversione di oggi:
- * `backlog.edit`.
+ * già archiviata non cambia stato. Il permesso è `tickets.create` («crea una
+ * task da zero o da una richiesta», design dell'area 2).
  */
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -72,20 +72,11 @@ describe("POST /api/tasks con requestId (fix fetta 3)", () => {
     expect(await testDb.db.select().from(backlogItemTickets).where(eq(backlogItemTickets.itemId, itemId))).toHaveLength(1);
   });
 
-  it("senza backlog.edit (il permesso della conversione) → 403, niente task e voce invariata", async () => {
+  it("un Contributor con tickets.create converte e la voce è converted (il permesso è tickets.create, come nel design)", async () => {
     const { itemId } = await seedBacklogItem(testDb.db, { projectId, status: "new" });
-    const res = await convert(itemId, contributor.headers.cookie, "Non mia da convertire");
-    expect(res.statusCode).toBe(403);
-    expect(await statusOf(itemId)).toBe("new");
-    expect(await testDb.db.select().from(tickets).where(eq(tickets.title, "Non mia da convertire"))).toHaveLength(0);
-    // Senza requestId il contributor crea una task come prima.
-    expect(
-      (await app.inject({
-        method: "POST",
-        url: "/api/tasks",
-        headers: { cookie: contributor.headers.cookie },
-        payload: { projectId, title: "Sua", type: "bug" },
-      })).statusCode,
-    ).toBe(201);
+    const res = await convert(itemId, contributor.headers.cookie, "Convertita dal contributor");
+    expect(res.statusCode, res.body).toBe(201);
+    expect(await statusOf(itemId)).toBe("converted");
   });
+
 });
