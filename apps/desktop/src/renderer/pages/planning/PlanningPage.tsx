@@ -132,7 +132,8 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   // --- vasca: filtri e raggruppamento --------------------------------------
   const [criteria, setCriteria] = useState<FilterCriteria>({});
   const [group, setGroup] = useState<PoolGroup>("department");
-  const pool = useTasks(projectId ? { ...criteria, projectIds: [projectId] } : criteria, {
+  const poolCriteria = projectId ? { ...criteria, projectIds: [projectId] } : criteria;
+  const pool = useTasks(poolCriteria, {
     enabled: !projectCode || !!projectId,
   });
 
@@ -476,8 +477,8 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
               <DeptLegend departmentIds={legendIds} />
             </span>
           </div>
-          {/* Il carico si calcola sopra tutte le task che si vedono: se la lista è troncata, lo dice. */}
-          {tasksTruncated(undefined, all.data) && (
+          {/* Carico e vasca si calcolano sopra le task lette: se una delle due liste è troncata, lo dice. */}
+          {(tasksTruncated(undefined, all.data) || tasksTruncated(poolCriteria, pool.data)) && (
             <p className="text-sm text-ink-muted">{t("planning.loadTruncated")}</p>
           )}
         </header>

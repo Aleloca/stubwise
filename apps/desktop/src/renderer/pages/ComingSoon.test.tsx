@@ -10,7 +10,7 @@ import { renderRoute } from "../test/renderRoute";
 const { FUTURE_NAMESPACES, calls, truncated } = vi.hoisted(() => ({
   calls: [] as string[],
   // Il finto non tronca mai: qui si finge la risposta del server oltre le 2000 righe.
-  truncated: { value: false },
+  truncated: { value: false, onlyFiltered: false },
   FUTURE_NAMESPACES: [
     "auth",
     "admin",
@@ -44,7 +44,10 @@ vi.mock("@backend/api", async (importOriginal) => {
   const wrapped: Record<string, unknown> = {};
   for (const [name, value] of Object.entries(mod)) {
     if (name === "tasksTruncated") {
-      wrapped[name] = record(name, () => truncated.value);
+      // `onlyFiltered`: troncata solo una lettura con criteri (la vasca del Planning), non quella intera.
+      wrapped[name] = record(name, (criteria?: unknown) =>
+        truncated.onlyFiltered ? criteria !== undefined : truncated.value,
+      );
     } else if (typeof value === "function") {
       wrapped[name] = record(name, value as (...a: unknown[]) => unknown);
     } else if (value && typeof value === "object" && FUTURE_NAMESPACES.includes(name as never)) {
@@ -72,6 +75,7 @@ beforeEach(() => {
   setLatency(0);
   calls.length = 0;
   truncated.value = false;
+  truncated.onlyFiltered = false;
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
 });
 
@@ -258,6 +262,13 @@ describe("le superfici della fetta 2 nella build app", () => {
     expect(await screen.findByText("Some tasks are missing from the load.")).toBeInTheDocument();
     cleanup();
     renderRoute("/home?view=week");
+    expect(await screen.findByText("Some tasks are missing from the load.")).toBeInTheDocument();
+  });
+
+  it("troncato: l'avviso compare anche quando è troncata solo la vasca del Planning", async () => {
+    signedInAs("p-laura");
+    truncated.onlyFiltered = true;
+    renderRoute("/p/AUD/planning");
     expect(await screen.findByText("Some tasks are missing from the load.")).toBeInTheDocument();
   });
 
