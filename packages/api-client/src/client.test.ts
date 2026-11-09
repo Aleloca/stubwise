@@ -448,6 +448,69 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     ]);
   });
 
+  it("traguardi: milestones.get/create/update/remove sulle rotte /api/milestones", async () => {
+    const M = {
+      id: "00000000-0000-4000-8000-0000000000c1",
+      projectId: "00000000-0000-4000-8000-0000000000c2",
+      name: "Rilascio",
+      description: null,
+      dueDate: null,
+      status: "open",
+      closedAt: null,
+      createdAt: "2026-11-09T10:00:00.000Z",
+    };
+    // `byStatus` PARZIALE (è un partialRecord): il reader lo deve accettare.
+    const byStatus = { open: 0 };
+    const WITH = { ...M, counts: { total: 0, completed: 0, byStatus } };
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, init!.body ? JSON.parse(init!.body as string) : undefined]);
+      if (init!.method === "DELETE") return new Response(null, { status: 204 });
+      return jsonResponse(init!.method === "POST" ? 201 : 200, init!.method === "POST" ? M : WITH);
+    });
+    const c = clientWith(fetchImpl);
+    const base = "https://stubwise.example/api/milestones";
+    expect((await c.milestones.get(M.id)).counts.total).toBe(0);
+    expect((await c.milestones.create({ projectId: M.projectId, name: "Rilascio" })).status).toBe("open");
+    await c.milestones.update(M.id, { status: "closed" });
+    await c.milestones.remove(M.id);
+    expect(calls).toEqual([
+      ["GET", `${base}/${M.id}`, undefined],
+      ["POST", base, { projectId: M.projectId, name: "Rilascio" }],
+      ["PATCH", `${base}/${M.id}`, { status: "closed" }],
+      ["DELETE", `${base}/${M.id}`, undefined],
+    ]);
+  });
+
+  it("Overview: projects.chronology e activity.portfolio a pagine (before), projects.latestBrief", async () => {
+    const P = "00000000-0000-4000-8000-0000000000b1";
+    const PAGE = {
+      events: [{ kind: "task_opened", at: "2026-11-09T10:00:00.000Z", taskId: "00000000-0000-4000-8000-0000000000b2" }],
+      nextBefore: "2026-10-12T10:00:00.000Z",
+    };
+    const calls: string[] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url) => {
+      calls.push(url as string);
+      if ((url as string).includes("/briefs/latest")) return jsonResponse(200, null);
+      return jsonResponse(200, PAGE);
+    });
+    const c = clientWith(fetchImpl);
+    const first = await c.projects.chronology(P);
+    expect(first.nextBefore).toBe(PAGE.nextBefore);
+    await c.projects.chronology(P, first.nextBefore!);
+    await c.activity.portfolio();
+    await c.activity.portfolio("2026-10-12T10:00:00.000Z");
+    expect(await c.projects.latestBrief(P)).toBeNull();
+    const base = "https://stubwise.example";
+    expect(calls).toEqual([
+      `${base}/api/projects/${P}/chronology`,
+      `${base}/api/projects/${P}/chronology?before=2026-10-12T10%3A00%3A00.000Z`,
+      `${base}/api/activity/portfolio`,
+      `${base}/api/activity/portfolio?before=2026-10-12T10%3A00%3A00.000Z`,
+      `${base}/api/projects/${P}/briefs/latest`,
+    ]);
+  });
+
   it("departments.remove: DELETE con moveTasksTo in query", async () => {
     const fetchImpl = mockFetch(async () => new Response(null, { status: 204 }));
     const client = clientWith(fetchImpl);

@@ -7,8 +7,11 @@ import {
   projectListItemSchema,
   projectPulseSummarySchema,
   projectSchema,
+  chronologyPageSchema,
+  weeklyBriefViewSchema,
 } from "@stubwise/shared";
 import type {
+  ChronologyPage,
   CreateProjectInput,
   DecisionDraft,
   DecisionPatch,
@@ -25,6 +28,7 @@ import type {
   ProjectTimelineKind,
   Reader,
   UpdateProjectInput,
+  WeeklyBriefView,
 } from "@stubwise/shared";
 import { z } from "zod";
 import type { ApiRequest } from "../client.js";
@@ -189,6 +193,25 @@ export function createProjectsEndpoints(request: ApiRequest) {
      * progetto, ma il PATH è di primo livello (`/api/briefs/:id`): il brief ha
      * un link proprio, che notifica, roadmap e tool MCP indirizzano per id.
      */
+    /**
+     * La cronologia dell'Overview (fetta 4), dalla più recente, a pagine di 28
+     * giorni: senza `before` la prima (con i traguardi futuri), poi
+     * `nextBefore` della pagina prima («Load older»).
+     */
+    chronology(projectId: string, before?: string): Promise<Reader<ChronologyPage>> {
+      return request(
+        "GET",
+        `/api/projects/${seg(projectId)}/chronology${toQuery({ before })}`,
+        undefined,
+        chronologyPageSchema,
+      );
+    },
+
+    /** Il brief più recente pronto, come lo mostra l'Overview (testo generato); null se non ce n'è. */
+    latestBrief(projectId: string): Promise<Reader<WeeklyBriefView> | null> {
+      return request("GET", `/api/projects/${seg(projectId)}/briefs/latest`, undefined, weeklyBriefViewSchema.nullable());
+    },
+
     brief(briefId: string): Promise<Reader<ProjectBriefWeekly>> {
       return request("GET", `/api/briefs/${seg(briefId)}`, undefined, projectBriefWeeklySchema);
     },

@@ -15,6 +15,7 @@ import { createFiltersEndpoints } from "./endpoints/filters.js";
 import { createHomeEndpoints } from "./endpoints/home.js";
 import { createRequestsEndpoints } from "./endpoints/requests.js";
 import { createMeEndpoints } from "./endpoints/me.js";
+import { createMilestonesEndpoints } from "./endpoints/milestones.js";
 import { createPatsEndpoints } from "./endpoints/pats.js";
 import { createProjectsEndpoints } from "./endpoints/projects.js";
 import { createRepositoriesEndpoints } from "./endpoints/repositories.js";
@@ -145,6 +146,8 @@ export function createEndpoints(request: ApiRequest) {
     filters: createFiltersEndpoints(request),
     home: createHomeEndpoints(request),
     requests: createRequestsEndpoints(request),
+    // Fetta 4: i traguardi (scritture; l'elenco è projects.milestones).
+    milestones: createMilestonesEndpoints(request),
   };
 }
 
