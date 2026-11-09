@@ -1,3 +1,4 @@
+import { CLAUDE_ID } from "../ids";
 import type { Person } from "../types";
 
 const M = "dep-marketing";
@@ -44,7 +45,10 @@ export function initials(name: string): string {
     .toUpperCase();
 }
 
-export const CLAUDE_ID = "p-claude";
+export { CLAUDE_ID };
+
+/** La persona della sessione all'avvio del prototipo (e dopo `resetApi`). */
+export const DEFAULT_SESSION_PERSON_ID = "p-giulia";
 
 export const PEOPLE: Person[] = [
   ...ROWS.map(([id, name, departmentIds, presetRole]) => ({

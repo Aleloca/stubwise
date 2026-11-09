@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "@backend/api";
 import { getSessionPersonId } from "../session";
-import { streamText } from "../stream";
+import { streamText } from "@backend/runtime";
 import { MIN_QUERY } from "../../pages/chat/search";
 import {
   queryKeys,

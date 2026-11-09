@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import { useAutomations } from "../../../data/queries";
 import type { HomeBlockKind, HomeBlockRef, Viewer } from "../../../data/types";
-import { can } from "../../../data/viewer";
+import { can } from "../../../data/viewing";
 import { MyWeekBlock } from "../../week/MyWeekBlock";
 import { AutomationsBlock } from "./AutomationsBlock";
 import { ClaudeForMeBlock } from "./ClaudeForMeBlock";

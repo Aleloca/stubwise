@@ -11,7 +11,7 @@ import {
   useSetPersonalHome,
 } from "../../data/queries";
 import type { HomeBlockRef, SavedFilter } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { sameBlock } from "../../domain/home";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { PageError, PageSkeleton } from "../../tasks-ui/PageStates";

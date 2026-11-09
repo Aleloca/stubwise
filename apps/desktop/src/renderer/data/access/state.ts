@@ -1,5 +1,3 @@
-import { INSTANCE_PERMISSIONS } from "@stubwise/shared";
-import type { LocalInstancePermission } from "../types";
 import { seedAccessState } from "./seed";
 
 // Gli accessi come stato del livello dati (area 9a): ruoli, appartenenze ai
@@ -75,30 +73,7 @@ export interface AccessState {
   revocations: PersonalRevocation[];
 }
 
-/** I permessi d'istanza del prototipo, nell'ordine in cui si mostrano. */
-export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
-  "claude.public.view",
-  "people.activity.view",
-  "chat.general.create",
-  "chat.general.manage",
-  "automations.manage",
-  "servers.ssh.manage",
-  "instance.status.view",
-  "changelog.view",
-];
-
-/** Ogni permesso d'istanza, del registro condiviso e del prototipo. */
-export const INSTANCE_SET: ReadonlySet<string> = new Set<string>([
-  ...INSTANCE_PERMISSIONS,
-  ...LOCAL_INSTANCE_PERMISSIONS,
-]);
-
-/**
- * Permessi che esistono con lo stesso nome a due livelli (area 7: le
- * automazioni di progetto e quelle generali). Con un progetto vale quello di
- * progetto, senza quello d'istanza.
- */
-export const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.manage"]);
+export { BOTH_LEVELS, INSTANCE_SET, LOCAL_INSTANCE_PERMISSIONS } from "./catalog";
 
 // --- lo stato e la sua versione ----------------------------------------------
 

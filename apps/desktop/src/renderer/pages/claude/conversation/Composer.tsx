@@ -8,7 +8,7 @@ import {
   useSetConversationContext,
   useStorageAllowsUploads,
 } from "../../../data/queries";
-import { onStoreReset } from "../../../data/store";
+import { onStoreReset } from "@backend/runtime";
 import type { ConversationStream } from "../../../data/queries";
 import type { Attachment, ConversationDetail } from "../../../data/types";
 import { MenuGroup, RadioItem } from "../../../tasks-ui/Menu";

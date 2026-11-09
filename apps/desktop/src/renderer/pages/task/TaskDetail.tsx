@@ -4,7 +4,7 @@ import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStalled, useTask } from "../../data/queries";
 import type { Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import {
   DETAIL_PANEL_MIN_WIDTH,
   DOCKED_PANEL_QUERY,

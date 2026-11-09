@@ -10,7 +10,7 @@ import {
   type InstanceResult,
   type InstanceStatusView,
 } from "../../../data/queries";
-import { useViewer } from "../../../data/viewer";
+import { useViewer } from "../../../data/viewing";
 import { formatDateTime } from "../../../notifications/time";
 import { Dialog } from "../../../tasks-ui/Dialog";
 import { useToast } from "../../../tasks-ui/Toast";

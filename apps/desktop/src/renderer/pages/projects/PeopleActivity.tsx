@@ -20,7 +20,7 @@ import type {
   PersonDayActivity,
   Project,
 } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { shortWeekIn } from "../../domain/weeks";
 import { DeptLegend, DeptStrip, useDeptLabel } from "../../layout/DeptStrip";
 import { inputClass } from "../../tasks-ui/Dialog";

@@ -1,4 +1,5 @@
-import { registerChangeTypes, type ChangeType } from "../changelog/index";
+import { registerChangeTypes } from "../changelog/registry";
+import type { ChangeType } from "../changelog/types";
 
 // I tipi di voce del registro dell'area 9a: persone, inviti, ruoli, reparti
 // (d'istanza) e membri (di progetto). Il `readPermission` è il permesso che

@@ -14,7 +14,7 @@ import {
   type DepartmentView,
   type PersonRow,
 } from "../../data/queries";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { useReauth } from "../../layout/useReauth";

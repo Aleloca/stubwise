@@ -6,6 +6,9 @@ import { writer } from "../writer";
 import { forgetResetLinksOf } from "../auth/resetPassword";
 import { logSecurity } from "./securityLog";
 import type { MeResult } from "./types";
+import { EMAIL_RE, MIN_PASSWORD_LENGTH } from "./accountRules";
+
+export { EMAIL_RE, MIN_PASSWORD_LENGTH } from "./accountRules";
 
 // Account (area 9a, Preferenze personali): nome, email e foto; il cambio
 // della password, che chiude le ALTRE sessioni (questa resta, i token
@@ -16,9 +19,6 @@ import type { MeResult } from "./types";
 // `state.passwords`, in chiaro, e nessuna lettura la restituisce.
 
 export const SEED_PASSWORD = "stubwise";
-export const MIN_PASSWORD_LENGTH = 8;
-export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 /** La password di una persona: quella cambiata, o quella del seme. */
 export const passwordOf = (personId: string): string =>
   state.passwords.get(personId) ?? SEED_PASSWORD;

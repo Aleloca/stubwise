@@ -9,7 +9,7 @@ import {
   useSessionPersonId,
 } from "../../../data/queries";
 import type { AutomationDetail, SimulationView } from "../../../data/types";
-import { useViewer } from "../../../data/viewer";
+import { useViewer } from "../../../data/viewing";
 import { useClaudeBeside } from "../../../layout/claudePanel/panelEvents";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../../layout/useDetailPanel";
 import { prefersReducedMotion, useMediaQuery } from "../../../layout/useMediaQuery";

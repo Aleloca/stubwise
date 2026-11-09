@@ -8,7 +8,7 @@ import {
   useTasks,
 } from "../../data/queries";
 import type { DecisionLogEntry, Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { supersedeCandidates } from "../../domain/decisionLog";
 import { formatDate } from "../../notifications/time";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";

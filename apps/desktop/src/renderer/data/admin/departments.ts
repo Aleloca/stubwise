@@ -21,6 +21,9 @@ import {
   refuse,
 } from "./common";
 import type { AdminRefusal, AdminResult, DepartmentPreview, DepartmentView } from "./types";
+import { DEPARTMENT_COLORS } from "./departmentColors";
+
+export { DEPARTMENT_COLORS } from "./departmentColors";
 import "./changeTypes";
 
 // Departments (area 9a), tutto con `departments.manage`. Un reparto ha nome e
@@ -42,18 +45,6 @@ import "./changeTypes";
 // `project.members.manage`).
 
 const DEPARTMENTS_MANAGE = "departments.manage";
-/** Le otto tinte dei reparti (`DESIGN.md`). */
-export const DEPARTMENT_COLORS: readonly Department["colorToken"][] = [
-  "--dept-1",
-  "--dept-2",
-  "--dept-3",
-  "--dept-4",
-  "--dept-5",
-  "--dept-6",
-  "--dept-7",
-  "--dept-8",
-];
-
 const accessOf = (s: AccessState, id: string) => s.departments.find((d) => d.departmentId === id);
 const departmentOf = (id: string) => state.departments.find((d) => d.id === id);
 const label = (d: Department) => ({ type: "department", id: d.id, label: d.name });

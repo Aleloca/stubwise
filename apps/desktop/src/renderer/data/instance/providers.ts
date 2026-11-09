@@ -8,6 +8,8 @@ import { canI, reauthRefusal, refuse } from "./common";
 import type { AiProvider, TestOutcome } from "./state";
 import type { InstanceRefusal, InstanceResult } from "./types";
 
+export { BACKGROUND_WEEKLY_THRESHOLD } from "./constants";
+
 // I provider dell'AI (area 9b, Task 3): la catena degli account con cui
 // Claude lavora. L'ordine dell'array `state.instance.providers` È la catena;
 // `pickProvider` (in `blocks.ts`, la foglia che leggono le partenze dei
@@ -28,13 +30,6 @@ export { pickProvider } from "./blocks";
 const MANAGE = "ai_providers.manage";
 /** Da qui la quota di un abbonamento è «vicina al limite». */
 export const QUOTA_NEAR_PCT = 80;
-/**
- * Oltre questa percentuale della settimana il lavoro di sfondo (Docs
- * notturni, report) aspetta il reset settimanale (deploy-log, «Quota degli
- * account»). La pagina lo dice in una riga; il prototipo non lo simula.
- */
-export const BACKGROUND_WEEKLY_THRESHOLD = 90;
-
 export interface QuotaView {
   fiveHourPct: number;
   weeklyPct: number;

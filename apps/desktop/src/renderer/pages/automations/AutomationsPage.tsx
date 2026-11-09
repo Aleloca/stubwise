@@ -2,7 +2,7 @@ import { useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAutomationRuns, useAutomations } from "../../data/queries";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { MenuGroup, itemClass } from "../../tasks-ui/Menu";
 import { PageError } from "../../tasks-ui/PageStates";
 import { Chevron, MenuButton, primaryButton } from "../tasks/controls";

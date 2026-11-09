@@ -1,4 +1,4 @@
-import { type InstancePermission, PRESET_ROLES, PROJECT_PERMISSIONS } from "@stubwise/shared";
+import { type InstancePermission, PRESET_ROLES } from "@stubwise/shared";
 import type { DepartmentRole, LocalInstancePermission, LocalProjectPermission } from "../types";
 import { daysFromToday } from "../seed/dates";
 import { DEPARTMENTS } from "../seed/departments";
@@ -12,42 +12,14 @@ import type {
   PersonalGrant,
   RoleDef,
 } from "./state";
+import { LOCAL_PROJECT_PERMISSIONS } from "./catalog";
+
+export { ALL_PROJECT_PERMISSIONS, LOCAL_PROJECT_PERMISSIONS } from "./catalog";
 
 // Il seme degli accessi: da qui parte lo stato `access` e qui torna `resetApi`.
 // Riproduce i permessi delle aree 2–8 (il fixture di parità lo verifica);
 // la sola aggiunta è il permesso di reparto di Development, che non cambia
 // niente a nessuno (vedi `DEPARTMENT_PROJECT_PERMISSIONS`).
-
-/**
- * Permessi di progetto che vivono solo nel prototipo, per preset: entrano nel
- * registro di `@stubwise/shared` quando si costruisce il backend.
- * `planning.others` è del Project Lead (e implicito per il full admin); i
- * canali della Chat (area 4) li crea il Project Lead o il Developer e li
- * gestisce il Project Lead. Il Drive (area 5): carica chiunque lavori nel
- * progetto (anche il Legacy Member, shape drive.md [A 14]), non il Viewer;
- * gestire e vedere lo storico delle aperture è del Project Lead. Le
- * automazioni del progetto (area 7) le gestisce il Project Lead. Ai clienti di
- * Support (area 8a) risponde chi lavora al progetto: Project Lead, Developer e
- * Legacy Member, non il Contributor né il Viewer. `servers.operate` (area 8b)
- * non è di nessun preset: si dà persona per persona (`SEED_PROJECT_GRANTS`).
- */
-export const LOCAL_PROJECT_PERMISSIONS: Readonly<
-  Record<string, readonly LocalProjectPermission[]>
-> = {
-  project_lead: [
-    "planning.others",
-    "chat.channels.create",
-    "chat.channels.manage",
-    "drive.upload",
-    "drive.manage",
-    "drive.history",
-    "automations.manage",
-    "support.reply",
-  ],
-  developer: ["chat.channels.create", "drive.upload", "support.reply"],
-  contributor: ["drive.upload"],
-  legacy_member: ["drive.upload", "support.reply"],
-};
 
 /**
  * I permessi d'istanza del prototipo dei due preset. «Vedere le conversazioni
@@ -286,8 +258,3 @@ export function seedAccessState(): AccessState {
   };
 }
 
-/** Ogni permesso di progetto, del registro condiviso e del prototipo (quelli che il full admin ha ovunque). */
-export const ALL_PROJECT_PERMISSIONS: readonly string[] = [
-  ...PROJECT_PERMISSIONS,
-  ...new Set([...Object.values(LOCAL_PROJECT_PERMISSIONS).flat(), "servers.operate"]),
-];

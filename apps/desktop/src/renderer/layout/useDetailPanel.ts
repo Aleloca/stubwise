@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { useViewer } from "../data/viewer";
+import { useViewer } from "../data/viewing";
 import { useMediaQuery } from "./useMediaQuery";
 
 export type DetailPanelMode = "docked" | "overlay";

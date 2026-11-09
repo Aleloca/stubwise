@@ -10,7 +10,7 @@ import { useAiBlock } from "./instance";
 // opposto a `export *` (review finale 10b, 3).
 
 export type { ClaudeSuggestion, SuggestionPlace } from "../api";
-export { suggestionKeyOf } from "../api";
+export { suggestionKeyOf } from "../claude/suggestionKey";
 
 /**
  * L'area di lettura di ogni luogo: le scritture che cambiano la pagina (una

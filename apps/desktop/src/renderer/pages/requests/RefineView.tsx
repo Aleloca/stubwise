@@ -28,7 +28,7 @@ import type {
   ProjectRequest,
   RefinePatch,
 } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { Dialog } from "../../tasks-ui/Dialog";

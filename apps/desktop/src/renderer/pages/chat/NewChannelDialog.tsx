@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateChannel, usePeople, useProjects, useSessionPersonId } from "../../data/queries";
 import type { ChannelView, Project } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { Chevron, MenuButton, primaryButton, secondaryButton } from "../tasks/controls";

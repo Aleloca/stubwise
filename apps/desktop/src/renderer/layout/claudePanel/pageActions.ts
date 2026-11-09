@@ -1,7 +1,7 @@
 import { useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useConversation, useSessionPersonId, useSettlePageEvent } from "../../data/queries";
-import { onStoreReset } from "../../data/store";
+import { onStoreReset } from "@backend/runtime";
 import { getSessionPersonId } from "../../data/session";
 import type { ConversationEvent, FieldRef, PageAction } from "../../data/types";
 import { placeDraft } from "../../domain/claude/intents/mailDraft";

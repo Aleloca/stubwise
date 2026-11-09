@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as api from "@backend/api";
-import { DEFAULT_PERSONA_ID, VIEW_AS_PERSONAS, useViewer } from "../viewer";
+import { DEFAULT_PERSONA_ID, VIEW_AS_PERSONAS } from "@backend/viewer";
+import { useViewer } from "../viewing";
 import { NO_SESSION_PERSON_ID } from "../session";
 import { useSessionPersonId } from "../queries";
 
@@ -10,9 +11,9 @@ import { useSessionPersonId } from "../queries";
 // innocuo: gli helper si usano solo dentro le funzioni.
 
 // Le regole dei campi d'ingresso: le pagine le leggono da qui, non ne tengono una copia.
-export { EMAIL_RE, MIN_PASSWORD_LENGTH } from "../me/account";
-export { SECOND_FACTOR_MAX_FAILURES } from "../auth/reauth";
-export { entryLinkOf, resetTokenOf } from "../auth/resetPassword";
+export { EMAIL_RE, MIN_PASSWORD_LENGTH } from "../me/accountRules";
+export { SECOND_FACTOR_MAX_FAILURES } from "../auth/constants";
+export { entryLinkOf, resetTokenOf } from "../auth/links";
 
 export type {
   EntryStage,

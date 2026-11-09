@@ -1,6 +1,8 @@
 import { describe, expect, it as test } from "vitest";
 import en from "./locales/en.json";
 import it from "./locales/it.json";
+import personasEn from "./locales/personas.en.json";
+import personasIt from "./locales/personas.it.json";
 
 type Tree = { [key: string]: string | Tree };
 
@@ -26,6 +28,10 @@ describe("i nomi delle destinazioni in italiano", () => {
 describe("parità delle chiavi en/it", () => {
   test("stesse chiavi (anche annidate) in en e it", () => {
     expect(flattenKeys(it as Tree).sort()).toEqual(flattenKeys(en as Tree).sort());
+  });
+
+  test("le descrizioni delle persone del «vedi come» (solo prototipo) hanno le stesse chiavi", () => {
+    expect(Object.keys(personasIt).sort()).toEqual(Object.keys(personasEn).sort());
   });
 
   test("le chiavi radice previste ci sono", () => {

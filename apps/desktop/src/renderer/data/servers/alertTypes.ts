@@ -1,5 +1,5 @@
 import { ALERT_TYPES, registerAlertTypes, type AlertType } from "../../domain/alerts/catalog";
-import type { Permission } from "../viewer";
+import type { Permission } from "../viewing";
 
 // Gli avvisi dei server nel catalogo dell'8a (area 8b). Si registrano AL
 // CARICAMENTO di questo modulo, che `data/servers/index.ts` importa

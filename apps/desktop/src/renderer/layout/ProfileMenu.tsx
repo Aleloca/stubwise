@@ -9,7 +9,8 @@ import {
   useResetPrototype,
   useResetToEmptyInstance,
 } from "../data/queries";
-import { VIEW_AS_PERSONAS, useViewer } from "../data/viewer";
+import { VIEW_AS_PERSONAS } from "@backend/viewer";
+import { useViewer } from "../data/viewing";
 import { administersSomething, canSeeAdmin } from "../data/adminSections";
 import { openGoogleAccount } from "../pages/drive/GoogleAccountCard";
 import { useToast } from "../tasks-ui/Toast";

@@ -1,4 +1,5 @@
-import { registerChangeTypes, type ChangeType } from "../changelog/index";
+import { registerChangeTypes } from "../changelog/registry";
+import type { ChangeType } from "../changelog/types";
 
 // I tipi di voce del registro dell'area 9b, TUTTI qui (Task 1): ogni task
 // dopo scrive solo tipi già registrati. Il `readPermission` è il permesso che

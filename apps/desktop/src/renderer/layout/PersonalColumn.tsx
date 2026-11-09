@@ -3,7 +3,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { usePinnedFilters, useSavedFilters } from "../data/queries";
 import { APP_ROUTES } from "../data/routes";
-import { can, useViewer } from "../data/viewer";
+import { can, useViewer } from "../data/viewing";
 import { ChatColumn } from "../pages/chat/ChatColumn";
 import { ClaudeColumn } from "../pages/claude/ClaudeColumn";
 import { DriveColumn } from "../pages/drive/DriveColumn";

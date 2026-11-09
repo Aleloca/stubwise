@@ -22,7 +22,7 @@ import {
   useSetPersonalHome,
 } from "../../data/queries";
 import type { DepartmentHome, HomeBlockRef, PersonalHome, Person } from "../../data/types";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { FIXED_BLOCKS, resolveHome, sameBlock } from "../../domain/home";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { MenuGroup, MenuNote, itemClass } from "../../tasks-ui/Menu";

@@ -1,6 +1,9 @@
 import { seedAccessState } from "../access/index";
 import { hashOf, seededRandom } from "../seed/servers/metrics";
 import { onInstanceEmptied, onStoreReset } from "../store";
+import { INSTANCE_ORIGIN } from "../instance/constants";
+
+export { INSTANCE_ORIGIN } from "../instance/constants";
 
 // I segreti mostrati una volta (area 9a): token personali, link di reset
 // della password e d'invito, segreto TOTP, codici di backup. Stanno SOLO
@@ -73,8 +76,6 @@ function chars(seed: string, alphabet: string, n: number): string {
   return out;
 }
 
-/** L'origine finta dell'istanza: i link e il comando di Claude Code la usano. */
-export const INSTANCE_ORIGIN = "https://stubwise.example.test";
 const INVITE_PREFIX = `${INSTANCE_ORIGIN}/register?invite=`;
 
 /**

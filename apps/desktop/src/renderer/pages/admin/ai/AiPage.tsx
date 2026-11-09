@@ -3,7 +3,7 @@ import { useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from "re
 import { useTranslation } from "react-i18next";
 import { aiTabsFor } from "../../../data/adminSections";
 import type { AI_TABS } from "../../../data/routes";
-import { can, useViewer } from "../../../data/viewer";
+import { can, useViewer } from "../../../data/viewing";
 import { AutomationPanel } from "./AutomationPanel";
 import { BudgetPanel } from "./BudgetPanel";
 import { ModelsPanel } from "./ModelsPanel";

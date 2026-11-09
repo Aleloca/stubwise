@@ -5,7 +5,7 @@ import { featureIntegrated, isIntegrated } from "../../data/integration";
 import { useMilestones, useProject, useTasks } from "../../data/queries";
 import { GROUP_BYS, TASK_VIEWS } from "../../data/routes";
 import type { FilterCriteria, GroupBy, SavedFilter, Task, TaskView } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { parseCriteria } from "../../domain/filters";
 import { DeptLegend } from "../../layout/DeptStrip";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";

@@ -1,5 +1,4 @@
-import { GOOGLE_OAUTH_CALLBACK_PATH } from "@stubwise/shared";
-import { INSTANCE_ORIGIN, forgetSecret, storeProvidedSecret } from "../admin/secrets";
+import { forgetSecret, storeProvidedSecret } from "../admin/secrets";
 import { visiblePeopleFor } from "../access/whoCan";
 import { recordChange } from "../changelog/index";
 import { changedFields } from "../changelog/settingValues";
@@ -9,6 +8,8 @@ import { gate, newId, now, state } from "../store";
 import { forbidden, writer } from "../writer";
 import { canI, nameOf, reauthRefusal, refuse } from "./common";
 import type { InstanceRefusal, InstanceResult } from "./types";
+
+export { GOOGLE_SETUP } from "./constants";
 
 // Le app Google d'istanza (area 9b, Task 4): ognuna copre uno o più domini
 // email, e chi ha un indirizzo di quei domini collega la sua casella in
@@ -44,22 +45,6 @@ export interface GoogleAppView {
   mailboxPeople: string[];
   hiddenMailboxCount: number;
 }
-
-/**
- * Cosa incollare nella Google Cloud Console (parità col web, shape «How to
- * set it up in Google Cloud»): l'URI di reindirizzamento dell'istanza e gli
- * scope che Stubwise chiede (`GOOGLE_SCOPES` di `packages/google`: solo
- * lettura di Gmail e Calendar).
- */
-export const GOOGLE_SETUP = {
-  redirectUri: `${INSTANCE_ORIGIN}${GOOGLE_OAUTH_CALLBACK_PATH}`,
-  scopes: [
-    "openid",
-    "email",
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/calendar.readonly",
-  ],
-} as const;
 
 const appOf = (id: string) => state.googleWorkspaces.find((w) => w.id === id);
 const objectOf = (w: GoogleWorkspace) => ({ type: "google_app", id: w.id, label: w.name });

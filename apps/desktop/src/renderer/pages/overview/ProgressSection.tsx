@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { TODAY } from "../../data/dates";
 import { useMilestones, useProjectStatuses, useTasks } from "../../data/queries";
 import type { FilterCriteria, Milestone, StatusFamily, Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { openMilestones } from "../../domain/due";
 import { progress } from "../../domain/load";
 import { DueDate } from "../../tasks-ui/TaskRow";

@@ -8,7 +8,7 @@ import {
   useTasks,
 } from "../../data/queries";
 import type { SavedFilter } from "../../data/types";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { PageError } from "../../tasks-ui/PageStates";
 import { useToast } from "../../tasks-ui/Toast";
 

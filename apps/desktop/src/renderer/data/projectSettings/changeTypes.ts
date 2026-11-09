@@ -1,4 +1,5 @@
-import { registerChangeTypes, type ChangeType } from "../changelog/index";
+import { registerChangeTypes } from "../changelog/registry";
+import type { ChangeType } from "../changelog/types";
 import type { ProjectSettingsSection } from "../routes";
 
 // I tipi di voce del registro dell'area 9c, TUTTI qui (Task 1): i Task 2–5

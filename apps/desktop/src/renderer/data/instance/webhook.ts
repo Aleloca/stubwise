@@ -6,6 +6,9 @@ import { forbidden, writer } from "../writer";
 import { canI, refuse } from "./common";
 import type { OutgoingWebhook, TestOutcome } from "./state";
 import type { InstanceResult } from "./types";
+import { WEBHOOK_EVENTS } from "./constants";
+
+export { WEBHOOK_EVENTS } from "./constants";
 
 // Il webhook in uscita (area 9b, Task 4): un messaggio a un canale di chat
 // o a un endpoint quando succede qualcosa in un progetto. Si legge e si
@@ -29,31 +32,6 @@ const OBJECT = { type: "webhook", id: "webhook", label: "webhook" };
 
 export type WebhookGroup = "tasks" | "work" | "prs" | "docs" | "servers" | "project";
 export type WebhookFormat = OutgoingWebhook["format"];
-
-/** I 21 eventi, nell'ordine e nei gruppi dello shape. `monitor` copre anche `server.trouble`, `server.down`, `server.recovered`. */
-export const WEBHOOK_EVENTS = [
-  { id: "ticket.created", source: "web", group: "tasks" },
-  { id: "task.created_by_automation", source: "catalog", group: "tasks" },
-  { id: "support.request", source: "catalog", group: "tasks" },
-  { id: "job.plan_review", source: "web", group: "work" },
-  { id: "job.awaiting_input", source: "web", group: "work" },
-  { id: "job.held", source: "web", group: "work" },
-  { id: "job.budget_held", source: "web", group: "work" },
-  { id: "job.failed", source: "web", group: "work" },
-  { id: "job.pr_opened", source: "web", group: "prs" },
-  { id: "job.pr_closed", source: "web", group: "prs" },
-  { id: "review.completed", source: "web", group: "prs" },
-  { id: "pr.analysis_issues", source: "catalog", group: "prs" },
-  { id: "release.merged", source: "catalog", group: "prs" },
-  { id: "release.succeeded", source: "catalog", group: "prs" },
-  { id: "release.failed", source: "catalog", group: "prs" },
-  { id: "docs.limit_paused", source: "web", group: "docs" },
-  { id: "docs.release_note", source: "catalog", group: "docs" },
-  { id: "monitor", source: "web", group: "servers" },
-  { id: "server.diagnosis_ready", source: "catalog", group: "servers" },
-  { id: "project.pulse", source: "web", group: "project" },
-  { id: "project.brief", source: "web", group: "project" },
-] as const satisfies readonly { id: string; source: "web" | "catalog"; group: WebhookGroup }[];
 
 export type WebhookEventId = (typeof WEBHOOK_EVENTS)[number]["id"];
 

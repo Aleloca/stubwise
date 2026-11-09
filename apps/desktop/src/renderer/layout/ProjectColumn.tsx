@@ -17,7 +17,7 @@ import {
 import { PROJECT_SECTIONS, PROJECT_SETTINGS_SECTIONS } from "../data/routes";
 import type { ChannelRow, Project } from "../data/types";
 import type { ProjectSettingsSection } from "../data/routes";
-import { can, useViewer } from "../data/viewer";
+import { can, useViewer } from "../data/viewing";
 import {
   ChannelLink,
   MentionPill,

@@ -11,7 +11,7 @@ import {
   useSaveAutomationDraft,
 } from "../../../data/queries";
 import type { AutomationDetail, AutomationFlow } from "../../../data/types";
-import { useViewer } from "../../../data/viewer";
+import { useViewer } from "../../../data/viewing";
 import { DOCKED_PANEL_QUERY, DetailPanel } from "../../../layout/useDetailPanel";
 import { useMediaQuery } from "../../../layout/useMediaQuery";
 import { PageError } from "../../../tasks-ui/PageStates";

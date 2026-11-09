@@ -8,7 +8,7 @@ import {
   useSetPersonalHome,
 } from "../../data/queries";
 import type { HomeBlockRef } from "../../data/types";
-import { canInDepartment, useViewer } from "../../data/viewer";
+import { canInDepartment, useViewer } from "../../data/viewing";
 import { sameBlock } from "../../domain/home";
 import { DeptLegend } from "../../layout/DeptStrip";
 import { MenuGroup, itemClass } from "../../tasks-ui/Menu";

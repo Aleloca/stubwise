@@ -8,7 +8,7 @@ import {
   useSessionPersonId,
 } from "../../data/queries";
 import type { FolderLinkView, Project } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { formatDate } from "../../notifications/time";
 import { useToast } from "../../tasks-ui/Toast";
 import { readDraft, writeDraft } from "../chat/drafts";

@@ -2,7 +2,7 @@ import { featureIntegrated } from "../data/integration";
 import type { Viewer } from "../data/types";
 import type { AccessState } from "../domain/servers/sshAccess";
 import { fold } from "../pages/chat/search";
-import { can } from "../data/viewer";
+import { can } from "../data/viewing";
 import type { ThemePreference } from "../theme/theme";
 
 /** Ciò che un comando può fare: navigare, cambiare tema, cambiare persona, aprire «vedi come». */

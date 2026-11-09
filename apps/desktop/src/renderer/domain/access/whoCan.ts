@@ -1,4 +1,4 @@
-import { isFullAdminIn, type PermissionSource } from "../../data/access/effective";
+import { isFullAdminIn, type PermissionSource } from "../../data/access/effectiveCore";
 import type { AccessState } from "../../data/access/state";
 
 // La parte pura di «Chi può farlo?» (area 9a): chi si vede e in che ordine.

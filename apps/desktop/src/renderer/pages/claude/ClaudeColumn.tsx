@@ -3,7 +3,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { useConversations } from "../../data/queries";
 import { CLAUDE_SCOPES, type ClaudeScope } from "../../data/routes";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { WorkingRing } from "./conversation/parts";
 

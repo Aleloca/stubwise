@@ -1,5 +1,5 @@
 import type { AlertSubscription, AppNotification, MandatoryReason } from "../../data/model";
-import type { Permission } from "../../data/viewer";
+import type { Permission } from "../../data/viewing";
 import { alertTypeOf, type AlertType } from "./catalog";
 
 // Chi riceve un avviso del catalogo, calcolato a lettura (spec, scelta F):

@@ -1,4 +1,4 @@
-import { effectivePermissionsIn, isFullAdminIn } from "../../data/access/effective";
+import { effectivePermissionsIn, isFullAdminIn } from "../../data/access/effectiveCore";
 import type { AccessState } from "../../data/access/state";
 
 // Le due cose che restano sempre (area 9a, Global Constraints): un full admin

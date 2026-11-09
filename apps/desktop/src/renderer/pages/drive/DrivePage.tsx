@@ -33,7 +33,7 @@ import type {
 } from "../../data/types";
 import { onBeforePersonaChange } from "../../data/session";
 import { MIN_QUERY } from "../chat/search";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { hasModKey } from "../../platform/platform";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { Chip } from "../../tasks-ui/FilterBar";

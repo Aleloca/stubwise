@@ -1,0 +1,32 @@
+# Pacchetto LOCALE dell'app desktop (integrazione area 2, fetta 1): un .dmg
+# non firmato né notarizzato, per il Mac del maintainer, puntato all'istanza
+# scelta al primo avvio. Niente firma, notarizzazione, auto-update né
+# pubblicazione (non obiettivi del design). Si costruisce con
+# `pnpm --filter @stubwise/desktop package:mac`, che prima builda il renderer
+# in modo «app» (`STUBWISE_BUILD=app`): nessun dato del seed dentro.
+appId: dev.aleloca.stubwise
+productName: Stubwise
+artifactName: ${productName}-${version}.${ext}
+directories:
+  output: release
+  buildResources: build
+# Main, preload e renderer sono interi nel bundle di electron-vite (`out/`):
+# il main importa solo `electron` e i moduli di Node. Nessun `node_modules`
+# nel pacchetto (e niente ricostruzione di moduli nativi).
+files:
+  - out/**/*
+  - package.json
+  - "!node_modules/**/*"
+npmRebuild: false
+asar: true
+mac:
+  target:
+    - dmg
+  category: public.app-category.productivity
+  # Nessuna firma (identità `null`: electron-builder non cerca certificati).
+  identity: null
+  hardenedRuntime: false
+  notarize: false
+dmg:
+  sign: false
+publish: null

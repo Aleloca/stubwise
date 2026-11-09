@@ -19,7 +19,7 @@ import {
 import { SwitchOffLine } from "../../components/ProjectSwitchOff";
 import { WhoCanLink } from "../../components/WhoCanLink";
 import type { ProductPageRef, Project, ProjectDocsHome } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import {

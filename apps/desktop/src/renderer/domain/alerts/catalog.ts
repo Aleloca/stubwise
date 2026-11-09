@@ -1,5 +1,5 @@
 import type { MandatoryReason } from "../../data/model";
-import type { Permission } from "../../data/viewer";
+import type { Permission } from "../../data/viewing";
 
 // Il catalogo dei tipi di avviso (area 8a, spec «Notifiche: iscrizioni per
 // progetto»). Ogni tipo dice chi può iscriversi (non ci si iscrive a ciò che
