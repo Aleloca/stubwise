@@ -59,6 +59,7 @@ export { addAttachment, removeAttachment } from "./attachments";
 export { listDayArrangements, planTask, setDay } from "./planning";
 export { convertRequest, listRequestsToConvert } from "./requests";
 export { createMilestone, deleteMilestone, updateMilestone } from "./milestones";
+export { createProject } from "./projects";
 export {
   getLatestBrief,
   listDecisionLog,
