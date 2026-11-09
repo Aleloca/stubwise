@@ -9695,6 +9695,11 @@
     }
   },
   "entry": {
+    "unreachable": {
+      "title": "Couldn't reach Stubwise",
+      "body": "Check your connection, or try again in a moment.",
+      "retry": "Retry"
+    },
     "enrollAtLogin": {
       "title": "Set up two-step verification",
       "lead": "Every sign-in to Stubwise asks for a code from an authenticator app. Set it up now: it takes a minute, and you're in right after."
@@ -9900,6 +9905,7 @@
         "noInstance": "Enter the address of your Stubwise first.",
         "network": "Couldn't reach your Stubwise. Check the address and your connection, then try again.",
         "notFinished": "Signing in didn't finish. Start again from here.",
+        "expired": "That sign-in took too long or was replaced by a newer one. Start again from here.",
         "sessionEnded": "Your session ended. Sign in again.",
         "generic": "Couldn't sign in. Try again."
       }
@@ -10351,6 +10357,9 @@
       "deleteTitle": "Delete {{name}}?",
       "deleteBody": "People stay; they just aren't in {{name}} any more.",
       "deleteConfirm": "Delete",
+      "counting": "Counting the tasks…",
+      "countFailed": "Couldn't count the tasks of this department.",
+      "tasksMoveMany": "More than {{count}} tasks have {{name}} as their department. Move them to:",
       "tasksMove_one": "{{count}} task has {{name}} as its department. Move it to:",
       "tasksMove_other": "{{count}} tasks have {{name}} as their department. Move them to:",
       "moveTo": "Move the tasks to",

@@ -305,6 +305,15 @@ export async function listTasks(criteria?: FilterCriteria): Promise<Task[]> {
   return tasks.filter((t) => matches(t, criteria, ctx)).map(copy);
 }
 
+/**
+ * Quante task rispondono ai criteri, e se l'elenco si ferma prima (la build
+ * app: oltre le 2000 righe). Nel prototipo l'elenco è intero.
+ */
+export async function countTasks(criteria?: FilterCriteria): Promise<{ count: number; truncated: boolean }> {
+  await gate("countTasks");
+  return { count: (await listTasks(criteria)).length, truncated: false };
+}
+
 export async function getTaskByCode(code: string): Promise<Task | null> {
   const me = await gate("getTaskByCode");
   const task = state.tasks.find((t) => t.code === code.toUpperCase());

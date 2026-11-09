@@ -6,6 +6,8 @@ import { SECOND_FACTOR_MAX_FAILURES } from "../../auth/constants";
 import type { Viewer } from "../../types";
 import { appClient, session } from "./client";
 import { NotIntegratedError, partialNamespace } from "./notIntegrated";
+import { forgetCommentTickets } from "./taskDetail";
+import { forgetTaskCodes } from "./tasks";
 import * as web from "./webLogin";
 
 // La sessione della build app (integrazione area 2, fetta 1): chi è dentro e
@@ -21,18 +23,41 @@ function isSignedOut(error: unknown): boolean {
   );
 }
 
+/**
+ * UNA lettura di `/api/auth/me` per chi è dentro e per i suoi permessi:
+ * `getSessionPerson` la fa, `getViewer` usa la stessa risposta (o, se non c'è,
+ * ne fa una). Una persona diversa da quella di prima svuota le cache del
+ * client (codici delle task, ticket dei commenti).
+ */
+let lastMe: Promise<Awaited<ReturnType<ReturnType<typeof appClient>["auth"]["me"]>>> | null = null;
+
+/** L'ultima persona vista dentro: anche dopo un 401 a metà, che azzera `session.personId`. */
+let lastPerson: string | null = null;
+
 export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
+  const before = lastPerson;
+  lastMe = appClient().auth.me();
   try {
-    const me = await appClient().auth.me();
+    const me = await lastMe;
+    if (before !== null && before !== me.user.id) forgetClientCaches();
+    lastPerson = me.user.id;
     session.personId = me.user.id;
     session.partial = false;
     return me.user.id;
   } catch (error) {
+    lastMe = null;
     if (!isSignedOut(error)) throw error;
+    if (before !== null) forgetClientCaches();
+    lastPerson = null;
     session.personId = null;
     return null;
   }
 };
+
+function forgetClientCaches(): void {
+  forgetTaskCodes();
+  forgetCommentTickets();
+}
 
 /**
  * I permessi di chi è dentro, calcolati dal server per progetto
@@ -40,7 +65,7 @@ export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
  * permessi di reparto arrivano con la fetta 3.
  */
 export const getViewer: typeof Fake.getViewer = async () => {
-  const me = await appClient().auth.me();
+  const me = await (lastMe ?? appClient().auth.me());
   return {
     personId: me.user.id,
     instancePermissions: me.instancePermissions,

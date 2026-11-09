@@ -10,7 +10,7 @@
     "build": "electron-vite build",
     "build:app": "STUBWISE_BUILD=app electron-vite build",
     "build:web": "STUBWISE_BUILD=app vite build --config vite.app-web.config.ts",
-    "package:mac": "STUBWISE_BUILD=app electron-vite build && electron-builder --mac dmg --config electron-builder.yml",
+    "package:mac": "STUBWISE_BUILD=app electron-vite build && node scripts/check-no-seed.mjs out/renderer && electron-builder --mac dmg --config electron-builder.yml",
     "preview:web": "vite --config vite.web.config.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",

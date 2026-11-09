@@ -3,6 +3,7 @@ import type { DepartmentView as ServerDepartment } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { AdminRefusal, DepartmentView, PersonRow } from "../../admin/types";
 import { appClient } from "./client";
+import { countTasks } from "./tasks";
 
 // Amministrazione → Reparti nella build app (integrazione area 2, fetta 1).
 // Del prototipo entrano nome, colore e membri (design, «Reparti»): i
@@ -42,21 +43,11 @@ async function membersByDepartment(): Promise<Map<string, string[]>> {
   return map;
 }
 
-/** Le task di un reparto (per il dialogo dell'eliminazione), da `/api/tasks`. */
-async function taskCountOf(departmentId: string): Promise<number> {
-  try {
-    // Solo il numero: niente parse delle viste intere.
-    const page = await appClient().request<{ items: unknown[] }>(
-      "GET",
-      `/api/tasks?departmentIds=${encodeURIComponent(departmentId)}`,
-    );
-    return page.items.length;
-  } catch {
-    return 0;
-  }
-}
-
-function view(d: ServerDepartment, memberIds: string[], taskCount: number): DepartmentView {
+/**
+ * `taskCount` non si scarica con l'elenco: lo legge il dialogo
+ * dell'eliminazione, all'apertura (`countTasks` filtrato per reparto).
+ */
+function view(d: ServerDepartment, memberIds: string[]): DepartmentView {
   return {
     id: d.id,
     name: d.name,
@@ -64,7 +55,7 @@ function view(d: ServerDepartment, memberIds: string[], taskCount: number): Depa
     memberIds,
     homeManagerIds: [],
     projectPermissions: [],
-    taskCount,
+    taskCount: 0,
     missingToAdd: {},
     reach: "projects",
     notGivable: [],
@@ -73,8 +64,7 @@ function view(d: ServerDepartment, memberIds: string[], taskCount: number): Depa
 
 const listDepartments: Admin["listDepartments"] = async () => {
   const [rows, members] = await Promise.all([appClient().departments.list(), membersByDepartment()]);
-  const counts = await Promise.all(rows.map((d) => taskCountOf(d.id)));
-  return rows.map((d, i) => view(d as ServerDepartment, members.get(d.id) ?? [], counts[i]!));
+  return rows.map((d) => view(d as ServerDepartment, members.get(d.id) ?? []));
 };
 
 const previewDepartment: Admin["previewDepartment"] = async () => ({
@@ -128,7 +118,7 @@ const saveDepartment: Admin["saveDepartment"] = async (id, draft) => {
 
 const deleteDepartment: Admin["deleteDepartment"] = async (id, moveTasksTo) => {
   try {
-    const moved = moveTasksTo ? await taskCountOf(id) : 0;
+    const moved = moveTasksTo ? (await countTasks({ departmentIds: [id] })).count : 0;
     await appClient().departments.remove(id, moveTasksTo ?? undefined);
     return { ok: true, moved };
   } catch (error) {

@@ -100,3 +100,10 @@ export function restoreSeedPeople(): void {
     p.departmentIds = [...(SEED_DEPARTMENT_IDS[p.id] ?? [])];
   }
 }
+
+/**
+ * Il canary del seme (`scripts/check-no-seed.mjs`): una stringa che esiste
+ * solo qui. Se il seme finisce in un bundle della build app, ci finisce lei,
+ * e il controllo fallisce. Non enumerabile: nessuna lettura dell'elenco la vede.
+ */
+Object.defineProperty(PEOPLE, "seedCanary", { value: "stubwise-seed-canary-3f9c27d1" });

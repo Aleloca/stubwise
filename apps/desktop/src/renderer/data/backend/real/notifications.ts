@@ -19,21 +19,36 @@ export const INTEGRATED_KINDS: ReadonlySet<string> = new Set([
 ]);
 
 export interface PresentContext {
+  /**
+   * L'origine dell'istanza (`https://stubwise.example.com`): un URL della card
+   * con questa origine diventa il suo percorso, uno con un'altra resta
+   * assoluto (una PR su GitHub, Gmail, Calendar).
+   */
+  instanceOrigin?: string;
   /** `ticketId` → codice della task (`AUD-12`), letto dal server a lettura. */
   taskCodes: ReadonlyMap<string, string>;
   /** `projectId` → codice del progetto. */
   projectCodes: ReadonlyMap<string, string>;
 }
 
-/** Il percorso del web vecchio di una card, come lo apre la sua inbox (`inbox-item.tsx`). */
-export function webHrefFor(item: Pick<InboxItem, "kind" | "url" | "jobId" | "ticketId">): string {
+/**
+ * Dove apre una card, come la sua inbox del web vecchio (`inbox-item.tsx`):
+ * un percorso dell'istanza, o l'URL assoluto di una pagina fuori
+ * dall'istanza (http(s) soltanto).
+ */
+export function webHrefFor(
+  item: Pick<InboxItem, "kind" | "url" | "jobId" | "ticketId">,
+  instanceOrigin?: string,
+): string {
   if (item.kind === "job.awaiting_input" && item.jobId && item.ticketId) {
     return `/agents/job/${item.jobId}?ticketId=${item.ticketId}`;
   }
   if (item.url) {
     try {
+      const relative = item.url.startsWith("/") && !item.url.startsWith("//");
       const url = new URL(item.url, "http://instance.invalid");
-      return `${url.pathname}${url.search}${url.hash}`;
+      if (relative || url.origin === instanceOrigin) return `${url.pathname}${url.search}${url.hash}`;
+      if (url.protocol === "https:" || url.protocol === "http:") return url.href;
     } catch {
       // un url illeggibile: si ripiega sul ticket o sull'inbox
     }
@@ -61,11 +76,21 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
     archived: item.status === "handled",
     snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
     link: integrated ? `#/p/${projectCode}/tasks?task=${taskCode}` : "",
-    ...(integrated ? {} : { webHref: webHrefFor(item) }),
+    ...(integrated ? {} : { webHref: webHrefFor(item, ctx.instanceOrigin) }),
   };
 }
 
 const PAGE = 100;
+
+/** L'origine dell'istanza: sul desktop quella scelta al primo avvio, sul web questa pagina. */
+async function instanceOriginOf(): Promise<string | undefined> {
+  try {
+    const url = window.stubwise?.instance ? await window.stubwise.instance.get() : window.location.href;
+    return url ? new URL(url).origin : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export const listNotifications: typeof Fake.listNotifications = async () => {
   const client = appClient();
@@ -103,8 +128,9 @@ export const listNotifications: typeof Fake.listNotifications = async () => {
     const code = t ? projectCodes.get(t.projectId) : undefined;
     if (t && code) taskCodes.set(t.id, `${code}-${t.number}`);
   }
+  const instanceOrigin = await instanceOriginOf();
   return items
-    .map((item) => presentInboxItem(item, { taskCodes, projectCodes }))
+    .map((item) => presentInboxItem(item, { taskCodes, projectCodes, instanceOrigin }))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 };
 

@@ -1,4 +1,4 @@
-import { ApiError, type TaskListFilters } from "@stubwise/api-client";
+import { ApiError, taskListQuery, type TaskListFilters } from "@stubwise/api-client";
 import type { Stall, StallReason, TaskViewData } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { FilterCriteria, Task, TaskPatch } from "../../types";
@@ -10,8 +10,20 @@ import { NotIntegratedError } from "./notIntegrated";
 // mostrati, taglie, ferme, stato di Claude), e qui si leggono. Le regole
 // derivate (cosa è fermo, chi può) le calcola il server, mai il client.
 
+/**
+ * Il codice di ogni task letta (`id` → `AUD-12`): le scritture dedicate
+ * (seguire, allegati, collegamenti) non restituiscono la task, e la si rilegge
+ * per codice. Si svuota al cambio di sessione (`forgetTaskCodes`).
+ */
+const codeById = new Map<string, string>();
+
+export function forgetTaskCodes(): void {
+  codeById.clear();
+}
+
 /** Una vista del server come `Task` del prototipo: 1:1, la settimana arriva con la fetta 2. */
 export function toTask(view: TaskViewData): Task {
+  codeById.set(view.id, view.code);
   return {
     id: view.id,
     code: view.code,
@@ -49,6 +61,15 @@ export function toTask(view: TaskViewData): Task {
 /** I criteri dei filtri del prototipo sono già la query di `/api/tasks`. */
 export const filtersOf = (criteria?: FilterCriteria): TaskListFilters =>
   (criteria ?? {}) as TaskListFilters;
+
+/** Il numero, senza le viste: oltre le 2000 righe il server dice `truncated`. */
+export const countTasks: typeof Fake.countTasks = async (criteria) => {
+  const page = await appClient().request<{ items: unknown[]; truncated?: boolean }>(
+    "GET",
+    `/api/tasks${taskListQuery(filtersOf(criteria))}`,
+  );
+  return { count: page.items.length, truncated: page.truncated === true };
+};
 
 export const listTasks: typeof Fake.listTasks = async (criteria) => {
   const page = await appClient().tasks.list(filtersOf(criteria));
@@ -156,9 +177,16 @@ export const createTask: typeof Fake.createTask = async (input) => {
   return toTask(view as TaskViewData);
 };
 
-/** La task com'è adesso (dopo una scrittura che non la restituisce): una PATCH vuota. */
-export const reread = async (id: string): Promise<Task> =>
-  toTask((await appClient().tasks.update(id, {})) as TaskViewData);
+/**
+ * La task com'è adesso, dopo una scrittura che non la restituisce. Si legge
+ * per codice (`GET /api/tasks/by-code/:code`): basta vederla. Una PATCH vuota
+ * vorrebbe `tickets.edit`, che chi segue o carica un allegato può non avere.
+ */
+export const reread = async (id: string): Promise<Task> => {
+  const code = codeById.get(id);
+  if (!code) throw new Error("not_found");
+  return toTask((await appClient().tasks.byCode(code)) as TaskViewData);
+};
 
 export const followTask: typeof Fake.followTask = async (id, follow) => {
   if (follow) await appClient().tasks.follow(id);

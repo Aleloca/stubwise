@@ -1,3 +1,4 @@
+import { isAppBuild } from "../../data/build";
 import { featureIntegrated } from "../../data/integration";
 import { useBlocker, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -7,6 +8,7 @@ import {
   useAdminDepartments,
   useAdminPeople,
   useDeleteDepartment,
+  useTaskCount,
   useDepartmentPreview,
   useSaveDepartment,
   useSessionPersonId,
@@ -615,7 +617,15 @@ function DeleteDepartmentDialog({
   const others = all.filter((x) => x.id !== d.id);
   const [target, setTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const withTasks = d.taskCount > 0;
+  // Build app: le task del reparto si contano adesso, filtrate (l'elenco dei
+  // reparti non le scarica). Nel prototipo il conteggio è già nella vista.
+  const app = isAppBuild();
+  const counted = useTaskCount({ departmentIds: [d.id] }, app);
+  const taskCount = app ? (counted.data?.count ?? 0) : d.taskCount;
+  const truncated = app && counted.data?.truncated === true;
+  const counting = app && counted.isPending;
+  const countFailed = app && counted.isError;
+  const withTasks = taskCount > 0;
   const targetDept = others.find((x) => x.id === target);
 
   async function onDelete() {
@@ -649,7 +659,7 @@ function DeleteDepartmentDialog({
           <button
             type="button"
             className={dangerSolidButton}
-            disabled={(withTasks && !target) || del.isPending}
+            disabled={(withTasks && !target) || del.isPending || counting || countFailed}
             onClick={() => void onDelete()}
           >
             {withTasks ? t("admin.department.moveAndDelete") : t("admin.department.deleteConfirm")}
@@ -657,10 +667,18 @@ function DeleteDepartmentDialog({
         </>
       }
     >
-      {withTasks ? (
+      {counting ? (
+        <p role="status" className="text-md text-ink-muted">
+          {t("admin.department.counting")}
+        </p>
+      ) : countFailed ? (
+        <WriteError message={t("admin.department.countFailed")} onRetry={() => void counted.refetch()} />
+      ) : withTasks ? (
         <div className="flex flex-col gap-2">
           <p className="text-md text-ink">
-            {t("admin.department.tasksMove", { count: d.taskCount, name: d.name })}
+            {truncated
+              ? t("admin.department.tasksMoveMany", { count: taskCount, name: d.name })
+              : t("admin.department.tasksMove", { count: taskCount, name: d.name })}
           </p>
           <MenuButton
             menuLabel={t("admin.department.moveTo")}

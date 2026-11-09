@@ -9695,6 +9695,11 @@
     }
   },
   "entry": {
+    "unreachable": {
+      "title": "Stubwise non risponde",
+      "body": "Controlla la connessione, o riprova fra un momento.",
+      "retry": "Riprova"
+    },
     "enrollAtLogin": {
       "title": "Configura la verifica in due passaggi",
       "lead": "Ogni accesso a Stubwise chiede un codice da un'app di autenticazione. Configurala adesso: ci vuole un minuto, e subito dopo sei dentro."
@@ -9900,6 +9905,7 @@
         "noInstance": "Prima inserisci l'indirizzo del tuo Stubwise.",
         "network": "Non è stato possibile raggiungere il tuo Stubwise. Controlla l'indirizzo e la connessione, poi riprova.",
         "notFinished": "L'accesso non è andato a buon fine. Ricomincia da qui.",
+        "expired": "Quell'accesso è durato troppo, o ne è partito uno più recente. Ricomincia da qui.",
         "sessionEnded": "La sessione è finita. Accedi di nuovo.",
         "generic": "Non è stato possibile accedere. Riprova."
       }
@@ -10351,6 +10357,9 @@
       "deleteTitle": "Eliminare {{name}}?",
       "deleteBody": "Le persone restano; solo, non sono più in {{name}}.",
       "deleteConfirm": "Elimina",
+      "counting": "Conto le task…",
+      "countFailed": "Non sono riuscito a contare le task del reparto.",
+      "tasksMoveMany": "Più di {{count}} task hanno {{name}} come reparto. Spostale in:",
       "tasksMove_one": "{{count}} task ha {{name}} come reparto. Spostala in:",
       "tasksMove_other": "{{count}} task hanno {{name}} come reparto. Spostale in:",
       "moveTo": "Sposta le task in",

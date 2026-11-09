@@ -36,6 +36,8 @@ function errorKey(code: string | undefined): string {
       return "entry.desktop.errors.network";
     case "invalid_grant":
       return "entry.desktop.errors.notFinished";
+    case "expired":
+      return "entry.desktop.errors.expired";
     case "unauthorized":
       return "entry.desktop.errors.sessionEnded";
     default:

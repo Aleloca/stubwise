@@ -1,6 +1,7 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Fragment,
   createContext,
   createElement,
   useCallback,
@@ -173,7 +174,17 @@ export const ViewerContext = createContext<ViewerContextValue | null>(null);
  * «vedi come» non esiste. Il modo si decide al montaggio (non cambia mentre
  * l'app gira), quindi i due rami non si alternano fra un render e l'altro.
  */
-export function ViewerProvider(props: { children: ReactNode; initialPersonId?: string }) {
+export interface ViewerProviderProps {
+  children: ReactNode;
+  initialPersonId?: string;
+  /**
+   * Build app: cosa mostrare quando Stubwise non risponde (rete, 5xx), che non
+   * è «fuori»: niente ingresso, una frase e «Retry». Senza, non si mostra nulla.
+   */
+  unreachable?: (retry: () => void) => ReactNode;
+}
+
+export function ViewerProvider(props: ViewerProviderProps) {
   const [app] = useState(isAppBuild);
   return createElement(app ? AppViewerProvider : PrototypeViewerProvider, props);
 }
@@ -201,7 +212,7 @@ const NOBODY: Viewer = {
  * perdere la sessione a metà (un 401) azzera TUTTA la cache prima di
  * rileggere chi è dentro: nessun dato della persona di prima resta a schermo.
  */
-function AppViewerProvider({ children }: { children: ReactNode }) {
+function AppViewerProvider({ children, unreachable }: ViewerProviderProps) {
   const client = useQueryClient();
   const session = useQuery({
     queryKey: ["session-person"],
@@ -243,6 +254,11 @@ function AppViewerProvider({ children }: { children: ReactNode }) {
     return last.current?.viewer.personId === NO_SESSION_PERSON_ID ? last.current : null;
   }, [session.isPending, personId, viewer.data, restart]);
   last.current = value;
+  // Non raggiungibile (rete, 5xx su `/me`, o i permessi che non arrivano dopo
+  // un `/me` riuscito): non è «fuori», e non è una schermata bianca.
+  if (session.isError || (personId !== null && viewer.isError)) {
+    return unreachable ? createElement(Fragment, null, unreachable(() => restart())) : null;
+  }
   if (!value) return null;
   return createElement(ViewerContext.Provider, { value }, children);
 }

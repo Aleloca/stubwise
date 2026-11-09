@@ -30,6 +30,7 @@ export const admin: typeof Fake.admin = partialNamespace<typeof Fake.admin>("adm
 export {
   bulkUpdateTasks,
   clearManualStall,
+  countTasks,
   createTask,
   followTask,
   getTaskByCode,

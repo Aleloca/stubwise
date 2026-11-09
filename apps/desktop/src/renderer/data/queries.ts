@@ -1026,6 +1026,16 @@ function patchTasks(ids: readonly string[], patch: TaskPatch, area: string, old:
   return old ? apply(old as Task) : old;
 }
 
+/** Quante task rispondono ai criteri (con `truncated` oltre il tetto del server). */
+export function useTaskCount(criteria: FilterCriteria, enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: ["as", me, "tasks", "count", criteria] as const,
+    queryFn: () => api.countTasks(criteria),
+    enabled,
+  });
+}
+
 export function useCreateTask() {
   return useWrite(api.createTask, TASK_AREAS);
 }

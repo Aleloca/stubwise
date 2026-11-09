@@ -1,4 +1,5 @@
 import { createStubwiseClient, type StubwiseClient } from "@stubwise/api-client";
+import { endsSession } from "@stubwise/shared";
 
 // Il trasporto della build app (integrazione area 2, fetta 1). Nel browser
 // (`/app` dietro caddy) è `fetch` sulla stessa origine con il cookie di
@@ -59,8 +60,8 @@ export async function ipcFetch(input: RequestInfo | URL, init: RequestInit = {})
  * Il client dell'API della build app: sul desktop (c'è il ponte del preload)
  * via `ipcFetch`, nel browser via `fetch` col cookie. In entrambi i casi la
  * radice è la stessa origine (`""`) e nessuna intestazione d'autenticazione
- * parte dal renderer. `onUnauthorized` scatta a ogni risposta 401 (la
- * sessione è finita o è stata revocata).
+ * parte dal renderer. `onUnauthorized` scatta quando una risposta dice che
+ * la sessione è finita (`endsSession` di `@stubwise/shared`).
  */
 export function createAppClient(options: { onUnauthorized?: () => void } = {}): StubwiseClient {
   const base: typeof fetch = window.stubwise?.api
@@ -68,7 +69,16 @@ export function createAppClient(options: { onUnauthorized?: () => void } = {}): 
     : (input, init) => globalThis.fetch(input, init);
   const watched: typeof fetch = async (input, init) => {
     const res = await base(input, init);
-    if (res.status === 401) options.onUnauthorized?.();
+    if (res.status === 401) {
+      // Solo un 401 di SESSIONE la chiude: un codice di riconferma sbagliato
+      // (`invalid_second_factor`) è un 401 con la sessione viva.
+      const code = await res
+        .clone()
+        .json()
+        .then((b: { code?: unknown }) => (typeof b?.code === "string" ? b.code : undefined))
+        .catch(() => undefined);
+      if (endsSession(pathOf(input), res.status, code)) options.onUnauthorized?.();
+    }
     return res;
   };
   if (window.stubwise?.api) {

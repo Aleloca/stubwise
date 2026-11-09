@@ -45,6 +45,7 @@ export const contextIdOf: typeof Fake.contextIdOf = notIntegrated("contextIdOf")
 export const continueConversation: typeof Fake.continueConversation = notIntegrated("continueConversation") as never;
 export const convertRequest: typeof Fake.convertRequest = notIntegrated("convertRequest") as never;
 export const convertRequestAs: typeof Fake.convertRequestAs = notIntegratedSync("convertRequestAs") as never;
+export const countTasks: typeof Fake.countTasks = notIntegrated("countTasks") as never;
 export const createConversation: typeof Fake.createConversation = notIntegrated("createConversation") as never;
 export const createConversationAs: typeof Fake.createConversationAs = notIntegratedSync("createConversationAs") as never;
 export const createMilestone: typeof Fake.createMilestone = notIntegrated("createMilestone") as never;
