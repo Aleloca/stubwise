@@ -10331,7 +10331,9 @@
       "errors": {
         "name": "Dai un nome al reparto.",
         "nameTaken": "C'è già un reparto con questo nome.",
-        "defaultDepartment": "È il reparto di ripiego: ci finiscono le task senza reparto, quindi si rinomina ma non si elimina."
+        "defaultDepartment": "È il reparto di ripiego: ci finiscono le task senza reparto, quindi si rinomina ma non si elimina.",
+        "rolesNotSaved": "Membri salvati, ma chi gestisce la Home no. Riprova per salvarlo.",
+        "invalidPerson": "Solo chi è nel reparto può gestirne la Home."
       }
     },
     "department": {

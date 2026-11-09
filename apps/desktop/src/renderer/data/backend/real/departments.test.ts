@@ -6,6 +6,7 @@ import { countTasks } from "./tasks";
 
 const GENERAL = "66666666-6666-4666-8666-666666666666";
 const SALES = "77777777-7777-4777-8777-777777777777";
+const GENERAL_ID = "66666666-6666-4666-8666-666666666666";
 const departments = [
   { id: GENERAL, name: "General", colorToken: "--dept-1", isDefault: true },
   { id: SALES, name: "Sales", colorToken: "--dept-2", isDefault: false },
@@ -74,6 +75,7 @@ describe("Reparti nella build app", () => {
 
   it("salvare il pannello manda nome, colore e membri, poi i responsabili della Home; mai i permessi", async () => {
     const { seen } = installFakeServer({
+      "GET /api/departments/roles": { body: [] },
       [`PATCH /api/departments/${SALES}`]: { body: departments[1] },
       [`PUT /api/departments/${SALES}/roles`]: {
         body: [{ departmentId: SALES, userId: ME_ID, permissions: ["department.home.manage"] }],
@@ -88,11 +90,12 @@ describe("Reparti nella build app", () => {
     ).toEqual({ ok: true });
     expect(seen.map((r) => `${r.method} ${r.path}`)).toEqual([
       `PATCH /api/departments/${SALES}`,
+      "GET /api/departments/roles",
       `PUT /api/departments/${SALES}/roles`,
     ]);
     expect(seen[0]!.body).toEqual({ memberIds: [ME_ID] });
     // Senza riconferma (decisione del maintainer): il corpo è solo l'elenco dei ruoli.
-    expect(seen[1]!.body).toEqual({ roles: [{ userId: ME_ID, permissions: ["department.home.manage"] }] });
+    expect(seen[2]!.body).toEqual({ roles: [{ userId: ME_ID, permissions: ["department.home.manage"] }] });
   });
 
   it("i responsabili della Home vengono dai ruoli di reparto", async () => {
@@ -110,5 +113,47 @@ describe("Reparti nella build app", () => {
       ["General", []],
       ["Sales", [ME_ID]],
     ]);
+  });
+
+  it("i ruoli si fondono con quelli letti: un permesso di reparto sconosciuto resta", async () => {
+    const OTHER = "55555555-5555-4555-8555-555555555555";
+    const { seen } = installFakeServer({
+      "GET /api/departments/roles": {
+        body: [
+          { departmentId: SALES, userId: OTHER, permissions: ["department.home.manage", "department.future"] },
+          { departmentId: SALES, userId: ME_ID, permissions: ["department.future"] },
+          { departmentId: GENERAL_ID, userId: OTHER, permissions: ["department.home.manage"] },
+        ],
+      },
+      [`PATCH /api/departments/${SALES}`]: { body: departments[1] },
+      [`PUT /api/departments/${SALES}/roles`]: { body: [] },
+    });
+    await adminDepartments.saveDepartment!(SALES, { memberIds: [ME_ID, OTHER], homeManagerIds: [ME_ID], projectPermissions: [] });
+    expect(seen.at(-1)!.body).toEqual({
+      roles: [
+        { userId: OTHER, permissions: ["department.future"] },
+        { userId: ME_ID, permissions: ["department.future", "department.home.manage"] },
+      ],
+    });
+  });
+
+  it("se i ruoli non si salvano dopo i membri lo dice; riprovando si riscrivono solo i ruoli", async () => {
+    let fail = true;
+    const { seen } = installFakeServer({
+      "GET /api/departments/roles": { body: [] },
+      [`PATCH /api/departments/${SALES}`]: { body: departments[1] },
+      [`PUT /api/departments/${SALES}/roles`]: () =>
+        fail ? { status: 500, body: { code: "internal", message: "x" } } : { body: [] },
+    });
+    const draft = { memberIds: [ME_ID], homeManagerIds: [ME_ID], projectPermissions: [] };
+    expect(await adminDepartments.saveDepartment!(SALES, draft)).toEqual({
+      ok: false,
+      error: "invalid",
+      reason: "roles_not_saved",
+    });
+    fail = false;
+    seen.length = 0;
+    expect(await adminDepartments.saveDepartment!(SALES, draft)).toEqual({ ok: true });
+    expect(seen.map((r) => r.method)).toEqual(["GET", "PUT"]);
   });
 });

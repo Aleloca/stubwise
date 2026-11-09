@@ -10331,7 +10331,9 @@
       "errors": {
         "name": "Give the department a name.",
         "nameTaken": "Another department already has this name.",
-        "defaultDepartment": "This is the default department: tasks without one land here, so it can be renamed but not deleted."
+        "defaultDepartment": "This is the default department: tasks without one land here, so it can be renamed but not deleted.",
+        "rolesNotSaved": "Members saved, but who manages the Home wasn't. Try again to save it.",
+        "invalidPerson": "Only people in the department can manage its Home."
       }
     },
     "department": {

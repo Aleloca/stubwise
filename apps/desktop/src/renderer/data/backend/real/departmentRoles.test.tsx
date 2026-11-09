@@ -13,11 +13,16 @@ vi.mock("@backend/api", async () => await import("./index"));
 vi.mock("@backend/access", async () => await import("./accessFacts"));
 
 let deptPerms: Record<string, string[]> = {};
+/** Quante volte il salvataggio dei ruoli deve ancora fallire (500). */
+let rolesFailures = 0;
+let patches = 0;
 
 beforeEach(() => {
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   deptPerms = {};
+  rolesFailures = 0;
+  patches = 0;
   installFakeServer({
     "GET /api/auth/me": () => ({
       body: me({ instancePermissions: ["users.view_all", "departments.manage"], departmentPermissions: deptPerms }),
@@ -35,8 +40,15 @@ beforeEach(() => {
         ? [{ departmentId: DEPT_ID, userId: ME_ID, permissions: deptPerms[DEPT_ID] }]
         : [],
     }),
-    [`PATCH /api/departments/${DEPT_ID}`]: { body: { id: DEPT_ID, name: "General", colorToken: "--dept-1", isDefault: true } },
+    [`PATCH /api/departments/${DEPT_ID}`]: () => {
+      patches++;
+      return { body: { id: DEPT_ID, name: "General", colorToken: "--dept-1", isDefault: true } };
+    },
     [`PUT /api/departments/${DEPT_ID}/roles`]: (req) => {
+      if (rolesFailures > 0) {
+        rolesFailures--;
+        return { status: 500, body: { code: "internal", message: "x" } };
+      }
       const roles = (req.body as { roles: { userId: string; permissions: string[] }[] }).roles;
       deptPerms = roles.some((r) => r.userId === ME_ID) ? { [DEPT_ID]: ["department.home.manage"] } : {};
       return { body: [] };
@@ -74,5 +86,19 @@ describe("ruoli di reparto e permessi di chi guarda", () => {
     await ue.click(await screen.findByRole("button", { name: "Customize" }));
     const menu = await screen.findByRole("menu", { name: "Customize which Home" });
     expect(within(menu).getByText("General Home")).toBeInTheDocument();
+  });
+
+  it("membri salvati e ruoli no: lo dice, e «Retry» riscrive solo i ruoli", async () => {
+    const ue = userEvent.setup();
+    rolesFailures = 1;
+    renderRoute(`/admin/departments?department=${DEPT_ID}`);
+    await ue.click(await screen.findByRole("checkbox", { name: "Ada manages the Home" }));
+    await ue.click(screen.getByRole("button", { name: "Save" }));
+    expect(
+      await screen.findByText("Members saved, but who manages the Home wasn't. Try again to save it."),
+    ).toBeInTheDocument();
+    await ue.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(deptPerms).toEqual({ [DEPT_ID]: ["department.home.manage"] }));
+    expect(patches).toBe(1);
   });
 });
