@@ -20,7 +20,7 @@ Tutti quelli del piano della fetta 1 (`docs/plans/2026-11-09-integrazione-area2-
 
 1. **Cambio d'anno ISO** (W52/W53 → W01): settimana corrente, slittamento e `addWeeks` corretti → test nel Task A.
 2. **Una task slittata ripianificata a mano**: `slipCount` non perde le settimane già contate e non le conta due volte → test nel Task A.
-3. **Senza `planning.others`, spostare una task altrui da qualunque porta** (rotta plan, PATCH, bulk): 403 e riga invariata → test nel Task B.
+3. **Senza `planning.others`, spostare una task altrui dal Planning** (rotta plan): 403 e riga invariata → test nel Task B.
 4. **Sistemazione per giorno di un'altra persona**: mai leggibile né scrivibile → test nel Task C.
 5. **Una task chiusa con settimana passata**: mai slittata né in «To plan» → test nel Task A.
 
@@ -43,9 +43,9 @@ Tutti quelli del piano della fetta 1 (`docs/plans/2026-11-09-integrazione-area2-
 **Interfaces:**
 - Permesso di progetto `planning.others` nel registro; escluso esplicitamente da Developer e Legacy Member; label en «Plan other people's tasks» / it «Pianificare le task altrui»; tolto dai permessi locali del prototipo.
 - Shared: `SIZE_WEIGHT`, `load`, `progress`, `usualWeekWeight`, `isToPlan`, `peopleLoad`, `busiestCell`, `planBlock(rights, task, plan) → null | "forbidden" | "invalid_assignee"`, `canMove`, `planRecipientsOf` — stesse firme del prototipo, rese pure (oggi e diritti passati come argomenti).
-- `POST /api/tasks/:ticketId/plan` (`project member`, `ticketVisible`) body `{assigneeId: uuid|null, week: string|null}` → `TaskView`; decide `planBlock` con i diritti calcolati dal server; la stessa regola per `plannedWeek` (e per `assigneeId` solo se il prototipo la applica anche lì) in PATCH e bulk.
+- `POST /api/tasks/:ticketId/plan` (`project member`, `ticketVisible`) body `{assigneeId: uuid|null, week: string|null}` → `TaskView`; decide `planBlock` con i diritti calcolati dal server. PATCH e bulk restano a `tickets.edit` anche per `plannedWeek` e `assigneeId`, come `prepareTaskPatch` del prototipo.
 - `TaskView.canPlan: boolean` (`.optional()`), derivato per chi guarda.
-- [ ] Test: per ognuna delle tre porte, «Developer sposta una task altrui → 403 e riga invariata», «Developer prende per sé una non assegnata con tickets.edit → ok», «Project Lead sposta chiunque», «assegnatario non membro → 400 invalid_assignee», «canPlan falso sulle task altrui per il Developer», preset: «Legacy Member e Developer non hanno planning.others». Commit `feat(server): planning.others e pianificazione dal server`.
+- [ ] Test: sulla rotta plan, «Developer sposta una task altrui → 403 e riga invariata»; «PATCH plannedWeek con tickets.edit resta permesso (come il prototipo)», «Developer prende per sé una non assegnata con tickets.edit → ok», «Project Lead sposta chiunque», «assegnatario non membro → 400 invalid_assignee», «canPlan falso sulle task altrui per il Developer», preset: «Legacy Member e Developer non hanno planning.others». Commit `feat(server): planning.others e pianificazione dal server`.
 
 ### Task C (backend): sistemazioni per giorno e avvisi di pianificazione
 

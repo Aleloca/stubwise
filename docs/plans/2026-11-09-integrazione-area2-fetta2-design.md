@@ -64,11 +64,12 @@ d'integrazione sono *(orchestratrice)*; quelle del maintainer *(maintainer)*.
   `planBlock`/`canMove`, `slipOf`, `planRecipientsOf`, le funzioni ISO); il
   prototipo le richiama come adattatori, il server le usa per decidere.
 - **Chi può pianificare cosa** lo decide il server per task (`planBlock`) e lo
-  dice nella vista (`TaskView.canPlan`), mai dedotto dal client. Vale per la
-  rotta di pianificazione, per `plannedWeek` nel PATCH e nel bulk (per task,
-  tutto o niente). Il cambio di assegnatario dal dettaglio resta quello della
-  fetta 1 (`tickets.edit`), come nel prototipo: se il prototipo applica
-  `planBlock` anche lì, si segue il prototipo.
+  dice nella vista (`TaskView.canPlan`), mai dedotto dal client. Vale, come
+  nel prototipo, **solo per la rotta di pianificazione** (trascinamento e menu
+  «Plan» del Planning), dove l'assegnatario deve essere un membro attivo del
+  progetto. Il campo «Week» e l'assegnatario del dettaglio, e le azioni in
+  blocco, chiedono solo `tickets.edit`, come nel prototipo (verificato il 9 nov
+  in `prepareTaskPatch`).
 - **Carico** *(orchestratrice)*: lo calcola il renderer con i moduli puri
   condivisi, sopra le task che `listTasks` restituisce (aperte, con i filtri
   della vista): «in tutti i progetti» = i progetti che chi guarda vede, come nel
