@@ -11,6 +11,7 @@ import { Chevron, MenuButton } from "../tasks/controls";
 import { GeneratedTag } from "./BriefCard";
 import { DeletedTaskSubject } from "./DeletedTaskSubject";
 import { shiftDate } from "./links";
+import { useToday } from "../../data/clock";
 
 /** I tipi del filtro: un tipo può raccogliere più voci (task aperte e chiuse, i tre eventi delle PR). */
 export const TIMELINE_TYPES = [
@@ -76,6 +77,8 @@ export function groupByWeek(events: TimelineEvent[]): WeekGroup[] {
  * pannello; brief e report portano l'etichetta «Generated text».
  */
 export function ProjectTimeline({ projectId }: { projectId: string }) {
+  // «Oggi» avanza nella build app: a mezzanotte si ridisegna.
+  useToday();
   const { t, i18n } = useTranslation();
   const timeline = useTimeline(projectId);
   const tasks = useTasks({ projectIds: [projectId] });

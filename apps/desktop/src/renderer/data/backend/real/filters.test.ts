@@ -104,4 +104,19 @@ describe("i filtri dal server", () => {
       `DELETE /api/me/pinned-filters/${FILTER}`,
     ]);
   });
+
+  it("salvando i criteri, le chiavi che questa app non conosce restano", async () => {
+    const { seen } = installFakeServer({
+      [`GET /api/filters/${FILTER}`]: {
+        body: serverFilter({ criteria: { families: ["todo"], __future__: { x: 1 }, sizes: "nope" }, canEdit: true }),
+      },
+      [`PATCH /api/filters/${FILTER}`]: { body: serverFilter({ canEdit: true }) },
+    });
+    await getSavedFilter(FILTER);
+    await updateFilter(FILTER, { criteria: { families: ["active"] } });
+    expect(seen.at(-1)!.body).toEqual({ criteria: { __future__: { x: 1 }, sizes: "nope", families: ["active"] } });
+    // Un cambio che non tocca i criteri non li manda.
+    await updateFilter(FILTER, { name: "Renamed" });
+    expect(seen.at(-1)!.body).toEqual({ name: "Renamed" });
+  });
 });

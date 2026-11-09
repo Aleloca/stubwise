@@ -118,26 +118,57 @@ const updateDepartment: Admin["updateDepartment"] = async (id, patch) => {
 };
 
 /**
+ * La bozza (nome, colore, membri) già salvata per un reparto i cui ruoli non
+ * sono andati: riprovando la stessa bozza si riscrivono solo i ruoli.
+ */
+const membersSaved = new Map<string, string>();
+
+/**
+ * I ruoli del reparto dopo il salvataggio: quelli letti (un permesso di reparto
+ * che questa app non conosce resta), con `department.home.manage` a chi la
+ * bozza dice, solo fra i membri (il server rifiuta un non membro).
+ */
+async function rolesFor(id: string, memberIds: string[], homeManagerIds: string[]) {
+  const members = new Set(memberIds);
+  const current = (await appClient().departments.roles()).filter((r) => r.departmentId === id);
+  const out = new Map<string, string[]>();
+  for (const r of current) {
+    if (members.has(r.userId)) out.set(r.userId, r.permissions.filter((p) => p !== HOME_MANAGE));
+  }
+  for (const userId of new Set(homeManagerIds)) {
+    if (members.has(userId)) out.set(userId, [...(out.get(userId) ?? []), HOME_MANAGE]);
+  }
+  return [...out].map(([userId, permissions]) => ({ userId, permissions }));
+}
+
+/**
  * Salva la bozza del pannello: nome, colore e membri, poi i responsabili della
- * Home (i ruoli del reparto, sostituiti in blocco). I permessi di progetto dati
- * dal reparto non ci sono nella build app.
+ * Home (i ruoli del reparto, fusi con quelli letti). I permessi di progetto
+ * dati dal reparto non ci sono nella build app. Se i membri sono salvati e i
+ * ruoli no, lo dice (`roles_not_saved`): riprovando, solo i ruoli.
  */
 const saveDepartment: Admin["saveDepartment"] = async (id, draft) => {
+  const patch = {
+    ...(draft.name !== undefined ? { name: draft.name.trim() } : {}),
+    ...(draft.colorToken !== undefined
+      ? { colorToken: draft.colorToken as ServerDepartment["colorToken"] }
+      : {}),
+    memberIds: [...new Set(draft.memberIds)],
+  };
+  const key = JSON.stringify(patch);
   try {
-    await appClient().departments.update(id, {
-      ...(draft.name !== undefined ? { name: draft.name.trim() } : {}),
-      ...(draft.colorToken !== undefined
-        ? { colorToken: draft.colorToken as ServerDepartment["colorToken"] }
-        : {}),
-      memberIds: [...new Set(draft.memberIds)],
-    });
-    await appClient().departments.setRoles(
-      id,
-      [...new Set(draft.homeManagerIds)].map((userId) => ({ userId, permissions: [HOME_MANAGE] })),
-    );
-    return { ok: true };
+    if (membersSaved.get(id) !== key) await appClient().departments.update(id, patch);
   } catch (error) {
     return refusalOf(error);
+  }
+  try {
+    await appClient().departments.setRoles(id, (await rolesFor(id, patch.memberIds, draft.homeManagerIds)) as never);
+    membersSaved.delete(id);
+    return { ok: true };
+  } catch (error) {
+    membersSaved.set(id, key);
+    if (error instanceof ApiError && error.status === 400) return refusalOf(error);
+    return { ok: false, error: "invalid", reason: "roles_not_saved" };
   }
 };
 

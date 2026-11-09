@@ -806,7 +806,8 @@
       "update": "Salva",
       "saved": "{{name}} salvato.",
       "open": "Apri",
-      "failed": "Non è stato possibile salvare il filtro. Riprova."
+      "failed": "Non è stato possibile salvare il filtro. Riprova.",
+      "tooMany": "Hai già 200 filtri salvati. Eliminane uno per salvarne un altro."
     }
   },
   "tasks": {
@@ -1439,7 +1440,8 @@
       "size": "Taglia",
       "week": "Settimana",
       "milestone": "Traguardo"
-    }
+    },
+    "requestGone": "Questa richiesta non è più disponibile: forse è stata trasformata, archiviata o nascosta."
   },
   "home": {
     "customize": "Personalizza",
@@ -1728,6 +1730,7 @@
   "planning": {
     "title": "Pianificazione",
     "loadTruncated": "Alcune task mancano dal carico.",
+    "poolTruncated": "Alcune task mancano da «Da pianificare».",
     "range": "{{week}} · {{range}}",
     "department": "Reparto",
     "person": "Persona",
@@ -10331,7 +10334,9 @@
       "errors": {
         "name": "Dai un nome al reparto.",
         "nameTaken": "C'è già un reparto con questo nome.",
-        "defaultDepartment": "È il reparto di ripiego: ci finiscono le task senza reparto, quindi si rinomina ma non si elimina."
+        "defaultDepartment": "È il reparto di ripiego: ci finiscono le task senza reparto, quindi si rinomina ma non si elimina.",
+        "rolesNotSaved": "Membri salvati, ma chi gestisce la Home no. Riprova per salvarlo.",
+        "invalidPerson": "Solo chi è nel reparto può gestirne la Home."
       }
     },
     "department": {

@@ -5,6 +5,7 @@ import { useMilestones, useProjects, useSessionPersonId, useTasks } from "../../
 import type { FilterCriteria, Milestone, Project } from "../../../data/types";
 import { DueDate } from "../../../tasks-ui/TaskRow";
 import { BlockSection, Capped, queryState } from "./BlockSection";
+import { useToday } from "../../../data/clock";
 
 const CLOSED: FilterCriteria = { families: ["closed"] };
 const HORIZON_DAYS = 28;
@@ -19,6 +20,8 @@ const plusDays = (date: string, days: number) =>
  * apre le task del progetto.
  */
 export function MilestonesBlock() {
+  // «Oggi» avanza nella build app: a mezzanotte si ridisegna.
+  useToday();
   const { t } = useTranslation();
   const me = useSessionPersonId();
   const milestones = useMilestones();

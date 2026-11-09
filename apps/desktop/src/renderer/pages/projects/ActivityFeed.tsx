@@ -9,6 +9,7 @@ import { useOpenTask } from "../home/blocks/BlockSection";
 import { GeneratedTag } from "../overview/BriefCard";
 import { DeletedTaskSubject } from "../overview/DeletedTaskSubject";
 import { shiftDate } from "../overview/links";
+import { useToday } from "../../data/clock";
 
 /** Quanti giorni (con voci) si vedono, e quanti ne aggiunge «Show earlier». */
 export const DAYS_STEP = 7;
@@ -21,6 +22,8 @@ export const DAYS_STEP = 7;
  * «Generated text»; le voci di una task la aprono nel pannello.
  */
 export function ActivityFeed({ projects }: { projects: Project[] }) {
+  // «Oggi» avanza nella build app: a mezzanotte si ridisegna.
+  useToday();
   const { t, i18n } = useTranslation();
   const activity = usePortfolioActivity();
   const tasks = useTasks();

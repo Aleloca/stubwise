@@ -806,7 +806,8 @@
       "update": "Save",
       "saved": "Saved {{name}}.",
       "open": "Open",
-      "failed": "Couldn't save the filter. Try again."
+      "failed": "Couldn't save the filter. Try again.",
+      "tooMany": "You already have 200 saved filters. Delete one to save another."
     }
   },
   "tasks": {
@@ -1439,7 +1440,8 @@
       "size": "Size",
       "week": "Week",
       "milestone": "Milestone"
-    }
+    },
+    "requestGone": "This request is no longer available: it may have been converted, archived or hidden."
   },
   "home": {
     "customize": "Customize",
@@ -1728,6 +1730,7 @@
   "planning": {
     "title": "Planning",
     "loadTruncated": "Some tasks are missing from the load.",
+    "poolTruncated": "Some tasks are missing from To plan.",
     "range": "{{week}} · {{range}}",
     "department": "Department",
     "person": "Person",
@@ -10331,7 +10334,9 @@
       "errors": {
         "name": "Give the department a name.",
         "nameTaken": "Another department already has this name.",
-        "defaultDepartment": "This is the default department: tasks without one land here, so it can be renamed but not deleted."
+        "defaultDepartment": "This is the default department: tasks without one land here, so it can be renamed but not deleted.",
+        "rolesNotSaved": "Members saved, but who manages the Home wasn't. Try again to save it.",
+        "invalidPerson": "Only people in the department can manage its Home."
       }
     },
     "department": {

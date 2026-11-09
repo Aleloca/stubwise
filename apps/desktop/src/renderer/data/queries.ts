@@ -1394,7 +1394,11 @@ export function useSetDepartmentHome() {
 }
 
 export function useMarkDepartmentHomeSeen() {
-  return useWrite(api.markDepartmentHomeSeen, HOME_AREAS);
+  return useWrite(
+    ({ departmentId, updatedAt }: { departmentId: string; updatedAt?: string }) =>
+      api.markDepartmentHomeSeen(departmentId, updatedAt),
+    HOME_AREAS,
+  );
 }
 
 /**

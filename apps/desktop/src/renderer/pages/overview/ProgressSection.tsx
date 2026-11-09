@@ -12,6 +12,7 @@ import { BlockSection, queryState } from "../home/blocks/BlockSection";
 import { BriefCard } from "./BriefCard";
 import { TasksLink, numberLink, shiftDate } from "./links";
 import { MilestonesDialog } from "./MilestonesDialog";
+import { useToday } from "../../data/clock";
 
 /** «Closed in the last 2 weeks»: oggi e i 13 giorni prima, estremi inclusi. */
 export const RECENT_DAYS = 14;
@@ -30,6 +31,8 @@ export function ProgressSection({
   projectId: string;
   projectCode: string;
 }) {
+  // «Oggi» avanza nella build app: a mezzanotte si ridisegna.
+  useToday();
   const { t } = useTranslation();
   const { viewer } = useViewer();
   const milestones = useMilestones(projectId);
@@ -141,6 +144,8 @@ export function MilestoneRow({
    */
   compact?: boolean;
 }) {
+  // «Oggi» avanza nella build app: a mezzanotte si ridisegna.
+  useToday();
   const { t } = useTranslation();
   const { doneWeight, totalWeight, unsized } = progress(tasks, familyOf);
   const share = totalWeight > 0 ? doneWeight / totalWeight : 0;

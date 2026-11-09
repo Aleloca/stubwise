@@ -368,6 +368,12 @@ export function departmentInvalid(t: T, reason: string): string {
       return t("admin.role.refusal.lastMembersManager");
     case "last_full_admin":
       return t("admin.role.refusal.lastFullAdmin");
+    // Build app (fetta 3): i membri sono salvati, chi gestisce la Home no; riprovando, solo i ruoli.
+    case "roles_not_saved":
+      return t("admin.departments.errors.rolesNotSaved");
+    // Il server: un ruolo di reparto vale solo per chi è nel reparto.
+    case "invalid_person":
+      return t("admin.departments.errors.invalidPerson");
     default:
       return t("admin.refusal.status");
   }

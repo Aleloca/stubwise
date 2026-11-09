@@ -7,6 +7,8 @@ import type { Viewer } from "../../types";
 import { appClient, session } from "./client";
 import { NotIntegratedError, partialNamespace } from "./notIntegrated";
 import { forgetCommentTickets } from "./taskDetail";
+import { forgetFilterCaches } from "./filters";
+import { forgetHomeCaches } from "./home";
 import { forgetTaskCodes } from "./tasks";
 import * as web from "./webLogin";
 
@@ -57,6 +59,8 @@ export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
 function forgetClientCaches(): void {
   forgetTaskCodes();
   forgetCommentTickets();
+  forgetHomeCaches();
+  forgetFilterCaches();
 }
 
 /**
@@ -65,7 +69,11 @@ function forgetClientCaches(): void {
  * dalla fetta 3 quelli di reparto (`department.home.manage`).
  */
 export const getViewer: typeof Fake.getViewer = async () => {
-  const me = await (lastMe ?? appClient().auth.me());
+  // La lettura di `getSessionPerson` vale una volta sola (l'avvio): un viewer
+  // riletto dopo un cambio di permessi chiede di nuovo `/api/auth/me`.
+  const pending = lastMe;
+  lastMe = null;
+  const me = await (pending ?? appClient().auth.me());
   return {
     personId: me.user.id,
     instancePermissions: me.instancePermissions,

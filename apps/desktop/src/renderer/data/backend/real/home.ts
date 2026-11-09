@@ -1,4 +1,4 @@
-import type { DepartmentHomeView, MeHomeView } from "@stubwise/shared";
+import type { MeHomeView } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import { withHiddenBlocks } from "../../../domain/home";
 import type { DepartmentPermission, HomeBlockKind, HomeBlockRef, PersonalHome } from "../../types";
@@ -42,6 +42,12 @@ const isUnknown = (b: RawBlock) => !Object.hasOwn(KNOWN_KINDS, b.kind);
 let rawPersonal: RawBlock[] = [];
 const rawDepartment = new Map<string, RawBlock[]>();
 
+/** Al cambio di persona: i blocchi grezzi erano della Home di chi c'era prima. */
+export function forgetHomeCaches(): void {
+  rawPersonal = [];
+  rawDepartment.clear();
+}
+
 function knownBlocks(blocks: RawBlock[]): HomeBlockRef[] {
   return blocks.flatMap((b) =>
     !isUnknown(b)
@@ -62,26 +68,35 @@ function personalOf(view: MeHomeView): PersonalHome | null {
 }
 
 /**
- * Le Home di tutti i reparti (le legge chiunque: sono disposizioni, non dati):
- * servono a quella di chi guarda e all'editor della Home di un reparto. Un
- * reparto senza una Home sua (`updatedAt` null) non c'è, come nel prototipo:
- * la sua Home sono i soli fissi.
+ * `/api/me/home` una volta per giro: la Home personale e quelle dei reparti
+ * stanno nella stessa risposta, e `useHome` le chiede insieme. La lettura in
+ * volo si condivide; finita, la prossima chiede di nuovo.
  */
-export const listDepartmentHomes: typeof Fake.listDepartmentHomes = async () => {
-  const client = appClient();
-  const departments = await client.departments.list();
-  const homes = await Promise.all(departments.map((d) => client.departments.home(d.id)));
-  return homes.flatMap((h) => {
-    const home = h as DepartmentHomeView;
+let homeInFlight: Promise<MeHomeView> | null = null;
+
+function readHome(): Promise<MeHomeView> {
+  if (!homeInFlight) {
+    homeInFlight = (appClient().home.get() as Promise<MeHomeView>).finally(() => {
+      homeInFlight = null;
+    });
+  }
+  return homeInFlight;
+}
+
+/**
+ * Le Home dei reparti di chi guarda, da `/api/me/home` (le sole che la Home e
+ * l'editor usano: «Customize» offre solo i propri reparti). Un reparto senza
+ * una Home sua non c'è, come nel prototipo: la sua Home sono i soli fissi.
+ */
+export const listDepartmentHomes: typeof Fake.listDepartmentHomes = async () =>
+  (await readHome()).departmentHomes.flatMap((home) => {
     rawDepartment.set(home.departmentId, home.blocks);
     return home.updatedAt === null
       ? []
       : [{ departmentId: home.departmentId, blocks: knownBlocks(home.blocks), updatedAt: home.updatedAt }];
   });
-};
 
-export const getPersonalHome: typeof Fake.getPersonalHome = async () =>
-  personalOf((await appClient().home.get()) as MeHomeView);
+export const getPersonalHome: typeof Fake.getPersonalHome = async () => personalOf(await readHome());
 
 export const setPersonalHome: typeof Fake.setPersonalHome = async (blocks) => {
   const view = (await appClient().home.set(withHiddenBlocks<RawBlock>(blocks, rawPersonal, isUnknown))) as MeHomeView;
@@ -102,8 +117,11 @@ export const setDepartmentHome: typeof Fake.setDepartmentHome = async (departmen
   );
 };
 
-export const markDepartmentHomeSeen: typeof Fake.markDepartmentHomeSeen = (departmentId) =>
-  appClient().home.markSeen(departmentId);
+/** «Vista» è la Home del reparto mostrata (`updatedAt`); il server tiene il minimo con l'attuale. */
+export const markDepartmentHomeSeen: typeof Fake.markDepartmentHomeSeen = async (departmentId, updatedAt) => {
+  const shown = updatedAt ?? (await appClient().departments.home(departmentId)).updatedAt;
+  if (shown) await appClient().home.markSeen(departmentId, shown);
+};
 
 /** I ruoli di reparto (chi dispone la Home di quale reparto), di tutti o di una persona. */
 export const listDepartmentRoles: typeof Fake.listDepartmentRoles = async (personId) => {
