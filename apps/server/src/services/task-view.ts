@@ -146,8 +146,11 @@ export function taskFilterConditions(q: TaskListQuery, today: string): SQL[] {
       } else if (q.periodField === "closed") {
         c.push(gte(sql`(${tickets.closedAt} at time zone 'UTC')::date`, sql`${range.from}::date`));
         c.push(lte(sql`(${tickets.closedAt} at time zone 'UTC')::date`, sql`${range.to}::date`));
+      } else if (q.periodField === "due") {
+        c.push(gte(tickets.dueDate, range.from));
+        c.push(lte(tickets.dueDate, range.to));
       } else {
-        // Scadenza e settimana pianificata non esistono ancora (fetta 2): nessuna task le ha.
+        // La settimana pianificata non esiste ancora (fetta 2): nessuna task la ha.
         c.push(sql`false`);
       }
     }
@@ -276,7 +279,7 @@ export async function loadTaskViews(
       createdById: t.requestedByUserId,
       followerIds: (followersOf.get(t.id) ?? []).map((f) => f.userId),
       size: sizeFromEffort(t.effort),
-      dueDate: null,
+      dueDate: t.dueDate,
       plannedWeek: null,
       slipCount: 0,
       milestoneId: t.milestoneId,

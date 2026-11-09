@@ -890,6 +890,8 @@ export const tickets = pgTable(
       .notNull()
       .references((): AnyPgColumn => departments.id, { onDelete: "restrict" })
       .$defaultFn(() => sql`default`),
+    // Scadenza (0111): una DATA (YYYY-MM-DD), non un istante.
+    dueDate: date("due_date", { mode: "string" }),
     // «Segna ferma» a mano (0109): motivo e data insieme o nessuno dei due.
     manualStallReason: text("manual_stall_reason"),
     manualStallNote: text("manual_stall_note"),

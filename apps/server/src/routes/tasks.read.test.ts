@@ -164,6 +164,19 @@ describe("GET /api/tasks", () => {
   });
 });
 
+describe("scadenza", () => {
+  it("il filtro periodo due trova la task, e la vista porta la scadenza", async () => {
+    const t = await insertTask();
+    const today = new Date().toISOString().slice(0, 10);
+    await testDb.db.update(tickets).set({ dueDate: today }).where(eq(tickets.id, t.id));
+    const items = await list("&periodField=due&periodPreset=last7");
+    expect(items.map((i) => i.id)).toEqual([t.id]);
+    expect(taskViewSchema.parse(items[0]).dueDate).toBe(today);
+    expect(await list(`&periodField=due&periodFrom=2000-01-01&periodTo=2000-01-02`)).toEqual([]);
+    expect(await list("&periodField=plannedWeek&periodPreset=thisWeek")).toEqual([]);
+  });
+});
+
 describe("GET /api/tasks/by-code/:code", () => {
   it("restituisce la task, anche col codice in minuscolo", async () => {
     const t = await insertTask();
@@ -279,8 +292,40 @@ describe("GET /api/tasks/:ticketId/activity", () => {
     const entries = taskActivityEntryViewSchema.array().parse(res.json());
     expect(entries.map((e) => e.kind)).toEqual(["comment", "field_change", "decision"]);
     expect(entries[0]).toMatchObject({ body: "Primo", authorId: users.memberId });
-    expect(entries[1]).toMatchObject({ field: "status", from: "open", to: "in_progress" });
+    // Evento vecchio (solo enum): il primo stato del progetto con quel legacy_status.
+    expect(entries[1]).toMatchObject({ field: "status", from: "To do", to: "In progress" });
     expect(entries[2]).toMatchObject({ decisionRequestId: decisionId, authorId: users.memberId });
+  });
+
+  it("il cambio di stato mostra il NOME dello stato: dagli id se ci sono, se no dall'enum", async () => {
+    const t = await insertTask();
+    const [qa] = await testDb.db
+      .insert(projectStatuses)
+      .values({ projectId, name: "QA", family: "active", position: 50, legacyStatus: "in_review" })
+      .returning({ id: projectStatuses.id });
+    const inProgress = await statusId(projectId, "In progress");
+    await testDb.db.insert(ticketEvents).values([
+      {
+        ticketId: t.id,
+        actorId: users.memberId,
+        kind: "status_changed",
+        payload: { from: "in_progress", to: "in_review", fromStatusId: inProgress, toStatusId: qa!.id },
+        createdAt: new Date(Date.now() - 2000),
+      },
+      // Uno stato che il progetto non ha più (nessun legacy `triaged`): resta l'enum.
+      {
+        ticketId: t.id,
+        actorId: null,
+        kind: "status_changed",
+        payload: { from: "in_review", to: "triaged", fromStatusId: "00000000-0000-4000-8000-000000000000" },
+        createdAt: new Date(Date.now() - 1000),
+      },
+    ]);
+    const entries = taskActivityEntryViewSchema.array().parse((await get(`/api/tasks/${t.id}/activity`)).json());
+    expect(entries.map((e) => [e.from, e.to])).toEqual([
+      ["In progress", "QA"],
+      ["In review", "triaged"],
+    ]);
   });
 
   it("una task di un progetto non visibile → 404", async () => {

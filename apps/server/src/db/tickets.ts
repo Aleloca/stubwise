@@ -47,6 +47,16 @@ export interface CreateTicketInput {
   originContent?: string | null;
   /** Chi ha chiesto il ticket (utente autenticato); assente/null per ingest SDK, Slack, widget. */
   requestedByUserId?: string | null;
+  /**
+   * Integrazione area 2 (app nuova): reparto, stato, sforzo (la taglia),
+   * traguardo e scadenza. Assenti = i default del DB (ripiego, stato
+   * dall'enum, nessuno) — gli scrittori di oggi non cambiano.
+   */
+  departmentId?: string;
+  statusId?: string;
+  effort?: number | null;
+  milestoneId?: string | null;
+  dueDate?: string | null;
 }
 
 /**
@@ -89,6 +99,11 @@ export async function createTicket(db: Db, input: CreateTicketInput): Promise<Ti
         implementationPlan: input.implementationPlan,
         originContent: input.originContent,
         requestedByUserId: input.requestedByUserId ?? null,
+        ...(input.departmentId ? { departmentId: input.departmentId } : {}),
+        ...(input.statusId ? { statusId: input.statusId } : {}),
+        ...(input.effort !== undefined ? { effort: input.effort } : {}),
+        ...(input.milestoneId !== undefined ? { milestoneId: input.milestoneId } : {}),
+        ...(input.dueDate !== undefined ? { dueDate: input.dueDate } : {}),
       })
       .returning();
 

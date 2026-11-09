@@ -2,6 +2,7 @@ import {
   aiJobs,
   comments,
   decisionRequests,
+  projectStatuses,
   repositories,
   ticketEvents,
   ticketRepositories,
@@ -9,7 +10,10 @@ import {
   projects,
 } from "@stubwise/db";
 import {
+  newTaskBodySchema,
   stalledTaskViewSchema,
+  taskPatchSchema,
+  taskSizeSchema,
   taskActivityEntryViewSchema,
   taskListQuerySchema,
   taskListResponseSchema,
@@ -23,7 +27,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import type { RouteAccess } from "../auth/access.js";
-import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
+import { fromBody, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import {
   claudeStateOf,
@@ -33,6 +37,14 @@ import {
   taskFilterConditions,
   TASK_LIST_CAP,
 } from "../services/task-view.js";
+import {
+  bulkUpdateTasks,
+  createTask,
+  setFollowing,
+  setManualStall,
+  updateTask,
+  type TaskWriteError,
+} from "../services/task-writes.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -42,7 +54,7 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * che non esiste. Web vecchio, mobile e MCP continuano a usare `/api/tickets`.
  */
 
-const onTicket = (permission: "member" = "member"): RouteAccess => ({
+const onTicket = (permission: "member" | "tickets.edit" = "member"): RouteAccess => ({
   kind: "project",
   permission,
   project: fromTicket("ticketId"),
@@ -81,6 +93,16 @@ function repoOfPrUrl(url: string, fallback: string): string {
     return fallback;
   }
 }
+
+const WRITE_ERRORS: Record<TaskWriteError, string> = {
+  status_not_in_project: "The status does not belong to the task's project",
+  department_not_found: "Department not found",
+  assignee_not_found: "Assignee not found",
+  milestone_cross_project: "The milestone belongs to another project",
+  request_not_found: "Request not found in this project",
+};
+
+const bulkForbiddenSchema = z.object({ code: z.string(), message: z.string(), codes: z.array(z.string()) });
 
 export async function taskRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -155,6 +177,130 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  // --- scritture ---------------------------------------------------------------
+
+  app.post(
+    "/",
+    {
+      config: { access: { kind: "project", permission: "tickets.create", project: fromBody("projectId") } },
+      schema: {
+        body: newTaskBodySchema,
+        response: { 201: taskViewSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const result = await createTask(app.db, request.user!, request.body);
+      if (!result.ok) return apiError(reply, 400, result.error, WRITE_ERRORS[result.error]);
+      return reply.code(201).send(result.task);
+    },
+  );
+
+  // Letterale PRIMA di `/:ticketId` (trappola di routing).
+  app.patch(
+    "/bulk",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        body: z.object({
+          ids: z.array(z.uuid()).min(1).max(200),
+          patch: z
+            .object({
+              statusId: z.uuid(),
+              assigneeId: z.uuid().nullable(),
+              milestoneId: z.uuid().nullable(),
+              size: taskSizeSchema.nullable(),
+              departmentId: z.uuid(),
+            })
+            .partial(),
+        }),
+        response: {
+          200: z.array(taskViewSchema),
+          400: errorSchema,
+          404: errorSchema,
+          401: errorSchema,
+          403: bulkForbiddenSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await bulkUpdateTasks(app.db, request.user!, request.body.ids, request.body.patch);
+      if (result.ok) return result.tasks;
+      switch (result.error) {
+        case "not_found":
+          return apiError(reply, 404, "not_found", "Not found");
+        case "forbidden":
+          return reply
+            .code(403)
+            .send({ code: "forbidden", message: "Some tasks cannot be edited", codes: result.codes });
+        case "status_cross_project":
+          return apiError(reply, 400, "status_cross_project", "A status can be set only on tasks of one project");
+        default:
+          return apiError(reply, 400, result.error, WRITE_ERRORS[result.error]);
+      }
+    },
+  );
+
+  app.patch(
+    "/:ticketId",
+    {
+      config: { access: onTicket("tickets.edit") },
+      schema: {
+        params: ticketParamsSchema,
+        body: taskPatchSchema,
+        response: { 200: taskViewSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const result = await updateTask(app.db, request.user!, request.params.ticketId, request.body);
+      if (!result.ok) return apiError(reply, 400, result.error, WRITE_ERRORS[result.error]);
+      return result.task;
+    },
+  );
+
+  app.put(
+    "/:ticketId/manual-stall",
+    {
+      config: { access: onTicket("tickets.edit") },
+      schema: {
+        params: ticketParamsSchema,
+        body: z.object({ reason: z.string().trim().min(1).max(200), note: z.string().max(2000).optional() }),
+        response: { 200: taskViewSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request) => setManualStall(app.db, request.user!, request.params.ticketId, request.body),
+  );
+
+  app.delete(
+    "/:ticketId/manual-stall",
+    {
+      config: { access: onTicket("tickets.edit") },
+      schema: {
+        params: ticketParamsSchema,
+        response: { 200: taskViewSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request) => setManualStall(app.db, request.user!, request.params.ticketId, null),
+  );
+
+  for (const [method, following] of [
+    ["PUT", true],
+    ["DELETE", false],
+  ] as const) {
+    app.route({
+      method,
+      url: "/:ticketId/follow",
+      config: { access: onTicket() },
+      schema: {
+        params: ticketParamsSchema,
+        response: { 204: z.null(), 404: errorSchema, ...authErrorResponses },
+      },
+      handler: async (request, reply) => {
+        await setFollowing(app.db, request.user!.id, request.params.ticketId, following);
+        return reply.code(204).send(null);
+      },
+    });
+  }
+
   app.get(
     "/:ticketId/activity",
     {
@@ -166,6 +312,26 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request) => {
       const { ticketId } = request.params;
+      // I nomi degli stati del progetto: un cambio di stato si legge col nome.
+      const statusRows = await app.db
+        .select({ id: projectStatuses.id, name: projectStatuses.name, legacy: projectStatuses.legacyStatus })
+        .from(projectStatuses)
+        .innerJoin(tickets, eq(tickets.projectId, projectStatuses.projectId))
+        .where(eq(tickets.id, ticketId))
+        .orderBy(asc(projectStatuses.position));
+      const nameById = new Map(statusRows.map((s) => [s.id, s.name]));
+      const nameByLegacy = new Map<string, string>();
+      for (const s of statusRows) if (!nameByLegacy.has(s.legacy)) nameByLegacy.set(s.legacy, s.name);
+      /**
+       * Lo stato di un `status_changed`: dall'id se l'evento lo porta (scritture
+       * umane dell'app nuova) e lo stato esiste ancora; se no il primo stato del
+       * progetto con quel `legacy_status`; se no il valore dell'enum.
+       */
+      const statusName = (id: unknown, legacy: unknown): string | null => {
+        if (typeof id === "string" && nameById.has(id)) return nameById.get(id)!;
+        if (typeof legacy === "string") return nameByLegacy.get(legacy) ?? legacy;
+        return eventValue(legacy);
+      };
       const [commentRows, eventRows, decisionRows] = await Promise.all([
         app.db.select().from(comments).where(eq(comments.ticketId, ticketId)),
         app.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, ticketId)),
@@ -197,8 +363,8 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
             authorId: e.actorId,
             at: e.createdAt.toISOString(),
             field: EVENT_FIELD[e.kind] ?? e.kind,
-            from: eventValue(payload.from),
-            to: eventValue(payload.to),
+            from: e.kind === "status_changed" ? statusName(payload.fromStatusId, payload.from) : eventValue(payload.from),
+            to: e.kind === "status_changed" ? statusName(payload.toStatusId, payload.to) : eventValue(payload.to),
             sortAt: e.createdAt.getTime(),
           };
         }),
