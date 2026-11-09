@@ -17,7 +17,10 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
     key: "administration",
     permissions: ["instance.full_admin", "roles.manage", "settings.manage"],
   },
-  { key: "people", permissions: ["users.view_all", "users.invite", "users.manage"] },
+  {
+    key: "people",
+    permissions: ["users.view_all", "users.invite", "users.manage", "departments.manage"],
+  },
   { key: "projects", permissions: ["projects.create"] },
   {
     key: "integrations",
@@ -40,7 +43,6 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
       "chat.general.manage",
       "automations.manage",
       "servers.ssh.manage",
-      "departments.manage",
       "instance.status.view",
       "changelog.view",
     ],

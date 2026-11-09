@@ -34,6 +34,8 @@ export const INSTANCE_PERMISSIONS = [
   // l'audit del ruling R1 (vedi il commento sopra `PRESET_ROLES`).
   "git_accounts.view",
   "mail_admission.view",
+  // Integrazione area 2 (9 nov 2026): la pagina Reparti dell'amministrazione.
+  "departments.manage",
 ] as const;
 
 /**

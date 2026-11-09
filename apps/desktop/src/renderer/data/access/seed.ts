@@ -1,4 +1,4 @@
-import { PRESET_ROLES, PROJECT_PERMISSIONS } from "@stubwise/shared";
+import { type InstancePermission, PRESET_ROLES, PROJECT_PERMISSIONS } from "@stubwise/shared";
 import type { DepartmentRole, LocalInstancePermission, LocalProjectPermission } from "../types";
 import { daysFromToday } from "../seed/dates";
 import { DEPARTMENTS } from "../seed/departments";
@@ -57,7 +57,11 @@ export const LOCAL_PROJECT_PERMISSIONS: Readonly<
  * registro delle modifiche) all'Admin. Prima erano cablati su
  * `key === "admin"`: ora sono permessi del ruolo, modificabili.
  */
-const LOCAL_INSTANCE_BY_PRESET: Readonly<Record<string, readonly LocalInstancePermission[]>> = {
+// `departments.manage` è nel registro condiviso dall'integrazione area 2, ma il
+// preset Admin del prototipo continua a darlo per ruolo.
+const LOCAL_INSTANCE_BY_PRESET: Readonly<
+  Record<string, readonly (InstancePermission | LocalInstancePermission)[]>
+> = {
   user: ["claude.public.view", "chat.general.create"],
   admin: [
     "claude.public.view",

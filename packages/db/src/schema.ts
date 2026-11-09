@@ -322,6 +322,8 @@ export const users = pgTable("users", {
   // Ultima prenotazione di un tentativo (0102): riconosce una prenotazione
   // mai chiusa (processo morto a metà verifica), vedi `reserveAttempt`.
   secondFactorReservedAt: timestamp("second_factor_reserved_at", { withTimezone: true }),
+  // Nome visualizzato (0107); null = la parte locale dell'email.
+  displayName: text("display_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -596,6 +598,14 @@ export const projects = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
     slug: text("slug").notNull().unique(),
+    // Codice del progetto (0107): `^[A-Z][A-Z0-9]{1,5}$`, unico; le task si
+    // mostrano `<CODICE>-<number>`. NOT NULL nel DB ma opzionale all'insert:
+    // chi lo omette lo riceve dal trigger `projects_assign_code`
+    // (`stubwise_next_project_code(slug)`), come `instanceRoleId` sugli utenti.
+    code: text("code")
+      .notNull()
+      .unique()
+      .$defaultFn(() => sql`default`),
     // Descrizione libera del progetto, opzionale (mostrata nella UI di dettaglio).
     description: text("description"),
     // Provider AI generale del progetto, valido per Docs e fix di tutti i suoi
@@ -664,6 +674,53 @@ export const projects = pgTable(
       "projects_pr_correction_max_rounds_chk",
       sql`pr_correction_max_rounds BETWEEN 0 AND 10`,
     ),
+    check("projects_code_format_chk", sql`code ~ '^[A-Z][A-Z0-9]{1,5}$'`),
+  ],
+);
+
+/**
+ * Reparti (0107, integrazione area 2): nome e colore dalla palette del
+ * prototipo (`--dept-1`…`--dept-8`). Uno solo è il ripiego (`isDefault`,
+ * «General»): si rinomina ma non si elimina, ed è dove nasce una task senza
+ * creatore umano.
+ */
+export const departments = pgTable(
+  "departments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    colorToken: text("color_token").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("departments_one_default_idx").on(table.isDefault).where(sql`is_default`),
+    check("departments_name_chk", sql`length(btrim(name)) BETWEEN 1 AND 80`),
+    check(
+      "departments_color_token_chk",
+      sql`color_token IN ('--dept-1', '--dept-2', '--dept-3', '--dept-4', '--dept-5', '--dept-6', '--dept-7', '--dept-8')`,
+    ),
+  ],
+);
+
+/**
+ * Appartenenza persona↔reparto (molti a molti). `position` ordina i reparti
+ * della persona: il suo «primo reparto» è quello con `position` minima.
+ */
+export const departmentMembers = pgTable(
+  "department_members",
+  {
+    departmentId: uuid("department_id")
+      .notNull()
+      .references(() => departments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ name: "department_members_pk", columns: [table.departmentId, table.userId] }),
+    index("department_members_user_idx").on(table.userId, table.position),
   ],
 );
 

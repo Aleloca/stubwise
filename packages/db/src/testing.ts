@@ -9,6 +9,8 @@ import { createDb, runMigrations, type Db } from "./client.js";
 import {
   backlogItems,
   commitSummaries,
+  departmentMembers,
+  departments,
   emailMessages,
   gitAccounts,
   googleAccounts,
@@ -375,4 +377,37 @@ export async function seedCommitSummary(
     documentedAt: opts.documentedAt ?? null,
   });
   return sha;
+}
+
+let departmentSeq = 0;
+
+/**
+ * Un reparto (0107). Nome univoco per chiamata se non dato; colore `--dept-2`.
+ * `isDefault: true` fallisce se il ripiego esiste già (la migrazione lo crea):
+ * per il ripiego si legge quello esistente.
+ */
+export async function seedDepartment(
+  db: Db,
+  opts: { name?: string; isDefault?: boolean; colorToken?: string } = {},
+): Promise<{ id: string }> {
+  departmentSeq += 1;
+  const [row] = await db
+    .insert(departments)
+    .values({
+      name: opts.name ?? `Reparto ${departmentSeq}`,
+      colorToken: opts.colorToken ?? "--dept-2",
+      isDefault: opts.isDefault ?? false,
+    })
+    .returning({ id: departments.id });
+  return { id: row!.id };
+}
+
+/** Mette una persona in un reparto; `position` default 0 (il suo primo reparto). */
+export async function addDepartmentMember(
+  db: Db,
+  departmentId: string,
+  userId: string,
+  position = 0,
+): Promise<void> {
+  await db.insert(departmentMembers).values({ departmentId, userId, position });
 }

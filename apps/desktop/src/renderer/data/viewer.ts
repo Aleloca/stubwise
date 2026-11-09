@@ -375,12 +375,18 @@ export function revokeProjectPermission(
 }
 
 /** Concede un permesso d'istanza del prototipo (assegnabile a qualunque ruolo). */
-export function grantInstancePermission(personId: string, perm: LocalInstancePermission): void {
+export function grantInstancePermission(
+  personId: string,
+  perm: InstancePermission | LocalInstancePermission,
+): void {
   grant(personId, perm, null);
 }
 
 /** Toglie un permesso d'istanza del prototipo, anche uno di base. */
-export function revokeInstancePermission(personId: string, perm: LocalInstancePermission): void {
+export function revokeInstancePermission(
+  personId: string,
+  perm: InstancePermission | LocalInstancePermission,
+): void {
   revoke(personId, perm, null);
 }
 

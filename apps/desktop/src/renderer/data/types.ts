@@ -72,9 +72,9 @@ export type LocalProjectPermission =
  * i canali generali della Chat (area 4), gestire le automazioni generali
  * (area 7: stesso nome del permesso di progetto, vedi `can`), collegare,
  * verificare, rigenerare e revocare gli accessi SSH dei server (area 8b,
- * separato da `monitor.manage`), dall'area 9a gestire i reparti, vedere lo
- * stato dell'istanza e leggere il registro delle modifiche (tutti e tre del
- * preset Admin, mai di Claude). Entrano nel registro di `@stubwise/shared`
+ * separato da `monitor.manage`), dall'area 9a vedere lo stato dell'istanza
+ * e leggere il registro delle modifiche (entrambi del preset Admin, mai di
+ * Claude). `departments.manage` è già nel registro (integrazione area 2). Entrano nel registro di `@stubwise/shared`
  * quando si costruisce il backend.
  */
 export type LocalInstancePermission =
@@ -84,7 +84,6 @@ export type LocalInstancePermission =
   | "chat.general.manage"
   | "automations.manage"
   | "servers.ssh.manage"
-  | "departments.manage"
   | "instance.status.view"
   | "changelog.view";
 

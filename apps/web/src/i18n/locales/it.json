@@ -3369,6 +3369,9 @@
         "manage": "Gestire gli utenti",
         "view_all": "Vedere l'elenco del team"
       },
+      "departments": {
+        "manage": "Gestire i reparti"
+      },
       "roles": {
         "manage": "Gestire i ruoli"
       },
