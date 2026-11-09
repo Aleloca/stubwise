@@ -12,6 +12,11 @@ import { reread } from "./tasks";
 /** Il ticket di ogni commento letto: le rotte dei commenti sono sotto il ticket. */
 const ticketOfComment = new Map<string, string>();
 
+/** Al cambio di sessione: i commenti letti erano della persona di prima. */
+export function forgetCommentTickets(): void {
+  ticketOfComment.clear();
+}
+
 function toEntry(v: TaskActivityEntryView): ActivityEntry {
   if (v.kind === "comment") ticketOfComment.set(v.id, v.taskId);
   return { ...v } as ActivityEntry;

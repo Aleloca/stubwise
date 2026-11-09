@@ -68,3 +68,32 @@ describe("logout", () => {
     expect(session.readToken()).toBeNull();
   });
 });
+
+describe("un login nuovo sostituisce il token", () => {
+  it("salva il token nuovo e revoca il PAT di prima (best-effort, col suo bearer)", async () => {
+    session.saveToken("stw_pat_old", "pat-old");
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    await session.replaceToken("stw_pat_new", "pat-new", { instanceUrl: "https://example.com", fetch: fetchImpl });
+    expect(session.readToken()).toBe("stw_pat_new");
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://example.com/api/pats/pat-old");
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer stw_pat_old");
+  });
+
+  it("una revoca che fallisce non tocca il token nuovo", async () => {
+    session.saveToken("stw_pat_old", "pat-old");
+    await session.replaceToken("stw_pat_new", "pat-new", {
+      instanceUrl: "https://example.com",
+      fetch: async () => {
+        throw new TypeError("offline");
+      },
+    });
+    expect(session.readToken()).toBe("stw_pat_new");
+  });
+
+  it("senza un token di prima non revoca niente", async () => {
+    const fetchImpl = vi.fn();
+    await session.replaceToken("stw_pat_new", "pat-new", { instanceUrl: "https://example.com", fetch: fetchImpl });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

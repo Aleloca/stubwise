@@ -9695,6 +9695,11 @@
     }
   },
   "entry": {
+    "unreachable": {
+      "title": "Couldn't reach Stubwise",
+      "body": "Check your connection, or try again in a moment.",
+      "retry": "Retry"
+    },
     "enrollAtLogin": {
       "title": "Set up two-step verification",
       "lead": "Every sign-in to Stubwise asks for a code from an authenticator app. Set it up now: it takes a minute, and you're in right after."

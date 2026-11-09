@@ -26,6 +26,32 @@ export function saveToken(token: string, patId: string | null = null): void {
   writeFileSync(file(), safeStorage.encryptString(JSON.stringify(memory)));
 }
 
+/**
+ * Un login nuovo (dal browser): salva il token e revoca il PAT di prima, se
+ * c'era ed era un altro — best-effort, mai silenzioso. Il token nuovo resta
+ * comunque: una revoca fallita lascia un PAT in più, non una sessione persa.
+ */
+export async function replaceToken(
+  token: string,
+  patId: string | null,
+  deps: { instanceUrl: string | null; fetch?: typeof fetch },
+): Promise<void> {
+  const previous = stored();
+  saveToken(token, patId);
+  if (!previous || previous.token === token || !previous.patId || !deps.instanceUrl) return;
+  try {
+    const res = await (deps.fetch ?? fetch)(
+      `${deps.instanceUrl}/api/pats/${encodeURIComponent(previous.patId)}`,
+      { method: "DELETE", headers: { authorization: `Bearer ${previous.token}` } },
+    );
+    if (!res.ok && res.status !== 404 && res.status !== 401) {
+      console.warn(`stubwise: login — revoca del PAT di prima fallita (HTTP ${res.status})`);
+    }
+  } catch (error) {
+    console.warn("stubwise: login — revoca del PAT di prima fallita (best-effort)", error);
+  }
+}
+
 function stored(): Stored | null {
   if (memory) return memory;
   if (!safeStorage.isEncryptionAvailable()) return null;

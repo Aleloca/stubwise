@@ -7,7 +7,7 @@ import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./insta
 import { buildMenuTemplate } from "./menu";
 import { hostname as osHostname } from "node:os";
 import { authUrlFromArgv, createBrowserLogin, type SessionChange } from "./browserLogin";
-import { clearToken, logout, readToken, saveToken } from "./session";
+import { clearToken, logout, readToken, replaceToken } from "./session";
 import {
   isExternalOpenAllowed,
   isNavigationAllowed,
@@ -121,7 +121,8 @@ const browserLogin = createBrowserLogin({
     if (isExternalOpenAllowed(url)) await shell.openExternal(url);
   },
   hostname: osHostname,
-  saveToken,
+  // Il token di prima (un login già fatto) si revoca: un PAT per dispositivo.
+  saveToken: (token, patId) => void replaceToken(token, patId, { instanceUrl: readInstanceUrl() }),
   notify: notifySession,
 });
 

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createHashHistory, RouterProvider, type RouterHistory } from "@tanstack/react-router";
 import { useState } from "react";
 import { ViewerProvider } from "./data/viewing";
+import { Unreachable } from "./layout/Unreachable";
 import { createAppRouter } from "./router";
 import { ThemeProvider } from "./theme/ThemeProvider";
 
@@ -18,7 +19,7 @@ export function App({ history }: { history?: RouterHistory }) {
   const [router] = useState(() => createAppRouter(history ?? createHashHistory()));
   return (
     <QueryClientProvider client={queryClient}>
-      <ViewerProvider>
+      <ViewerProvider unreachable={(retry) => <Unreachable onRetry={retry} />}>
         <ThemeProvider>
           <RouterProvider router={router} />
         </ThemeProvider>

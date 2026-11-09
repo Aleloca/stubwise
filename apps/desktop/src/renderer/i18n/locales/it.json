@@ -9695,6 +9695,11 @@
     }
   },
   "entry": {
+    "unreachable": {
+      "title": "Stubwise non risponde",
+      "body": "Controlla la connessione, o riprova fra un momento.",
+      "retry": "Riprova"
+    },
     "enrollAtLogin": {
       "title": "Configura la verifica in due passaggi",
       "lead": "Ogni accesso a Stubwise chiede un codice da un'app di autenticazione. Configurala adesso: ci vuole un minuto, e subito dopo sei dentro."
