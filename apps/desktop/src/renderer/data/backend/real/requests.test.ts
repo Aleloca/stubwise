@@ -161,16 +161,33 @@ describe("le Requests dal server", () => {
     expect(await createRequest({ projectId: PROJECT_ID, title: "x" })).not.toHaveProperty("landedByMerge");
   });
 
-  it("metadati col PATCH; scartare i suggerimenti passa dalla sua rotta", async () => {
+  it("metadati e descrizione col PATCH; scartare i suggerimenti passa dalla sua rotta", async () => {
     const { seen } = installFakeServer({
-      [`PATCH /api/requests/${ITEM}`]: { body: full({ size: "M" }) },
-      [`POST /api/backlog/${ITEM}/suggested/dismiss`]: { status: 204 },
-      [`GET /api/requests/${ITEM}`]: { body: full({ size: "M", suggestions: null }) },
+      [`PATCH /api/requests/${ITEM}`]: { body: full({ size: "M", description: "Now with Excel too." }) },
+      [`POST /api/requests/${ITEM}/suggestions/dismiss`]: { body: full({ suggestions: null }) },
     });
-    const updated = await updateRequest(ITEM, { size: "M", urgency: "low", suggestions: null });
-    expect(seen[0]).toMatchObject({ method: "PATCH", body: { size: "M", urgency: "low" } });
-    expect(seen[1]).toMatchObject({ method: "POST", path: `/api/backlog/${ITEM}/suggested/dismiss` });
-    expect(updated.suggestions ?? null).toBeNull();
+    await updateRequest(ITEM, { description: "Now with Excel too.", urgency: "low" });
+    expect(seen[0]).toMatchObject({
+      method: "PATCH",
+      body: { description: "Now with Excel too.", urgency: "low" },
+    });
+    const dismissed = await updateRequest(ITEM, { suggestions: null });
+    expect(seen.at(-1)).toMatchObject({ method: "POST", path: `/api/requests/${ITEM}/suggestions/dismiss` });
+    expect(dismissed.suggestions ?? null).toBeNull();
+  });
+
+  it("accettare i suggerimenti (gli stessi valori, e via i suggerimenti) passa dalla sua rotta", async () => {
+    const { seen } = installFakeServer({
+      [`GET /api/requests/${ITEM}`]: { body: full() },
+      [`POST /api/requests/${ITEM}/suggestions/accept`]: { body: full({ size: "M", suggestions: null }) },
+    });
+    await getRequest(ITEM);
+    const accepted = await updateRequest(ITEM, { size: "M", suggestions: null });
+    expect(seen.map((r) => `${r.method} ${r.path}`)).toEqual([
+      `GET /api/requests/${ITEM}`,
+      `POST /api/requests/${ITEM}/suggestions/accept`,
+    ]);
+    expect(accepted.size).toBe("M");
   });
 
   it("archivia, riapri, ripristina; fondi (la destinazione, riscritta); una fusione fallita è un errore", async () => {
