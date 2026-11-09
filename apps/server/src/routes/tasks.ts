@@ -114,6 +114,7 @@ const WRITE_ERRORS: Record<TaskWriteError, string> = {
   milestone_cross_project: "The milestone belongs to another project",
   request_not_found: "Request not found in this project",
   past_week: "A past week cannot be planned",
+  request_forbidden: "Turning a request into a task needs backlog.edit in the project",
 };
 
 const bulkForbiddenSchema = z.object({ code: z.string(), message: z.string(), codes: z.array(z.string()) });
@@ -206,6 +207,9 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const result = await createTask(app.db, request.user!, request.body);
+      if (!result.ok && result.error === "request_forbidden") {
+        return apiError(reply, 403, "forbidden", WRITE_ERRORS.request_forbidden);
+      }
       if (!result.ok) return apiError(reply, 400, result.error, WRITE_ERRORS[result.error]);
       return reply.code(201).send(result.task);
     },
