@@ -1,7 +1,7 @@
 import { useSearch } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { addWeeks, compareWeeks, currentWeek } from "../../domain/weeks";
+import { addWeeks, compareWeeks } from "../../domain/weeks";
 import { DeptLegend } from "../../layout/DeptStrip";
 import { PageEmpty, PageError } from "../../tasks-ui/PageStates";
 import { secondaryButton, quietButton } from "../tasks/controls";
@@ -9,6 +9,7 @@ import { shortWeek } from "../tasks/pickers";
 import { useTaskKeys } from "../tasks/useTaskKeys";
 import { queryState, useOpenTask } from "../home/blocks/BlockSection";
 import { SLOTS, WeekBoard, WeekLoad, useMyWeek, useWeekRange } from "./WeekBoard";
+import { useCurrentWeek } from "../../data/clock";
 
 function Arrow({ dir }: { dir: "left" | "right" }) {
   return (
@@ -67,8 +68,11 @@ function WeekSkeleton() {
  */
 export function MyWeekPage() {
   const { t } = useTranslation();
-  const now = currentWeek();
-  const [week, setWeek] = useState(now);
+  const now = useCurrentWeek();
+  // La settimana mostrata come distanza da quella corrente: al cambio di settimana
+  // «questa settimana» resta questa (e non diventa una passata in sola lettura).
+  const [offset, setOffset] = useState(0);
+  const week = addWeeks(now, offset);
   const data = useMyWeek(week);
   const range = useWeekRange();
   const search = useSearch({ strict: false }) as { task?: string };
@@ -78,7 +82,7 @@ export function MyWeekPage() {
 
   const past = compareWeeks(week, now) < 0;
   const state = queryState(data.queries);
-  const go = (n: number) => setWeek((w) => addWeeks(w, n));
+  const go = (n: number) => setOffset((o) => o + n);
 
   let content;
   if (state.status === "error") {
@@ -127,7 +131,7 @@ export function MyWeekPage() {
             type="button"
             className={`${quietButton} disabled:text-ink-faint`}
             disabled={week === now}
-            onClick={() => setWeek(now)}
+            onClick={() => setOffset(0)}
           >
             {t("week.nav.thisWeek")}
           </button>

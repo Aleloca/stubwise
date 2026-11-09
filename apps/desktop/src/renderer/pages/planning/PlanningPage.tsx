@@ -33,7 +33,7 @@ import {
   type PlanBlock,
   type PlanRights,
 } from "../../domain/planning";
-import { addWeeks, compareWeeks, currentWeek, weekDays } from "../../domain/weeks";
+import { addWeeks, compareWeeks, weekDays } from "../../domain/weeks";
 import { DeptLegend } from "../../layout/DeptStrip";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
@@ -56,6 +56,7 @@ import { ChipBody, chipClass } from "./PlanChip";
 import { PlanMenu } from "./PlanMenu";
 import { planRefusalOf } from "./planRefusal";
 import { Unplanned, type PoolGroup } from "./Unplanned";
+import { useCurrentWeek } from "../../data/clock";
 
 /** Le settimane in vista secondo la larghezza della finestra (shape planning.md §6). */
 export const WEEKS_3_QUERY = "(min-width: 1440px)";
@@ -120,7 +121,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   const planTask = usePlanTask();
   const search = useSearch({ strict: false }) as { task?: string };
   const openTask = useOpenTask();
-  const now = currentWeek();
+  const now = useCurrentWeek();
 
   const projectQuery = useProject(projectCode ?? "");
   const project = projectCode ? projectQuery.data ?? undefined : undefined;
@@ -145,7 +146,9 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
 
   // --- settimane in vista ---------------------------------------------------
   const count = useWeekCount();
-  const [start, setStart] = useState(now);
+  // La prima settimana in vista, come distanza da quella corrente: al cambio di settimana si sposta con lei.
+  const [offset, setOffset] = useState(0);
+  const start = addWeeks(now, offset);
   const weeks = useMemo(() => Array.from({ length: count }, (_, i) => addWeeks(start, i)), [start, count]);
   const menuWeeks = useMemo(() => Array.from({ length: MENU_WEEKS }, (_, i) => addWeeks(now, i)), [now]);
 
@@ -383,7 +386,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
             aria-label={t("planning.nav.laterLabel", { week: shortWeek(nextStart) })}
-            onClick={() => setStart(nextStart)}
+            onClick={() => setOffset((o) => o + count)}
           >
             {t("planning.nav.later")}
             <Arrow dir="right" />
@@ -460,7 +463,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
                 className={`${quietButton} disabled:text-ink-faint`}
                 aria-label={t("planning.nav.previousLabel")}
                 disabled={compareWeeks(start, now) <= 0}
-                onClick={() => setStart((w) => addWeeks(w, -1))}
+                onClick={() => setOffset((o) => o - 1)}
               >
                 <Arrow dir="left" />
               </button>
@@ -468,7 +471,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
                 type="button"
                 className={`${quietButton} disabled:text-ink-faint`}
                 disabled={start === now}
-                onClick={() => setStart(now)}
+                onClick={() => setOffset(0)}
               >
                 {t("planning.nav.thisWeek")}
               </button>
@@ -476,7 +479,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
                 type="button"
                 className={quietButton}
                 aria-label={t("planning.nav.nextLabel")}
-                onClick={() => setStart((w) => addWeeks(w, 1))}
+                onClick={() => setOffset((o) => o + 1)}
               >
                 <Arrow dir="right" />
               </button>

@@ -16,3 +16,14 @@ export const CLOCK_START = `${TODAY}T12:00:00Z`;
 export function daysFromToday(days: number): string {
   return addDaysIso(TODAY, days);
 }
+
+/** «Oggi» come funzione, con la firma dell'orologio della build app. */
+export function today(): string {
+  return TODAY;
+}
+
+/** Nel prototipo «oggi» non cambia mai: nessuno da avvisare. */
+export function subscribeClock(listener: () => void): () => void {
+  void listener;
+  return () => {};
+}

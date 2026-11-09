@@ -33,7 +33,7 @@ import {
 } from "../../data/queries";
 import type { DayArrangement, Task } from "../../data/types";
 import { load, usualWeekWeight } from "../../domain/load";
-import { currentWeek, weekDays, weekLabel } from "../../domain/weeks";
+import { weekDays, weekLabel } from "../../domain/weeks";
 import { DeptStrip, useDeptLabel } from "../../layout/DeptStrip";
 import { LoadBar } from "../../tasks-ui/LoadBar";
 import { SizeMark } from "../../tasks-ui/SizeMark";
@@ -42,6 +42,7 @@ import { formatDue } from "../../tasks-ui/TaskRow";
 import { useToast } from "../../tasks-ui/Toast";
 import { planRefusalOf } from "../planning/planRefusal";
 import { shortWeek } from "../tasks/pickers";
+import { useCurrentWeek } from "../../data/clock";
 
 // La mia settimana (spec §2, shape home.md §6): le task assegnate a chi
 // guarda e pianificate per una settimana, sistemate nei giorni. Il giorno è
@@ -93,6 +94,7 @@ export interface MyWeek {
  */
 export function useMyWeek(week: string): MyWeek {
   const me = useSessionPersonId();
+  const now = useCurrentWeek();
   const criteria = useMemo(() => ({ assigneeIds: [me] }), [me]);
   const tasks = useTasks(criteria);
   const arrangements = useDayArrangements(week);
@@ -108,10 +110,10 @@ export function useMyWeek(week: string): MyWeek {
       queries: [tasks, arrangements],
       tasks: inWeek,
       bySlot,
-      usual: usualWeekWeight(mine, currentWeek()),
+      usual: usualWeekWeight(mine, now),
       truncated: tasksTruncated(criteria, tasks.data),
     };
-  }, [tasks, arrangements, me, week, criteria]);
+  }, [tasks, arrangements, me, week, criteria, now]);
 }
 
 /** «W43 · Oct 19 – Oct 23». */
