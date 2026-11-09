@@ -61,8 +61,14 @@ export interface RoutingContext {
   decisionAsker?: string;
   /** `ticket_followers` della task (audience `ticket_followers`). */
   ticketFollowers?: string[];
-  /** Chi ha fatto il cambio: escluso dai `ticket_followers`. */
+  /** Chi ha fatto il cambio: escluso dai `ticket_followers` e dai `task_people`. */
   actor?: string;
+  /**
+   * Le persone a cui la pubblicazione rivolge l'evento (audience
+   * `task_people`, da `PublishOpts.recipientUserIds`), già ridotte a chi
+   * VEDE la task.
+   */
+  taskPeople?: string[];
 }
 
 /** I pubblici possibili di un kind (vedi {@link AUDIENCE_FOR_KIND}). */
@@ -75,7 +81,8 @@ export type Audience =
   | "account_owner"
   | "decision_target"
   | "decision_asker"
-  | "ticket_followers";
+  | "ticket_followers"
+  | "task_people";
 
 /**
  * Pubblico di un kind: `deciders` per gli eventi che richiedono una DECISIONE
@@ -146,6 +153,10 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   "decision.answered": "decision_asker",
   // I follower della TASK (non del progetto), meno chi ha fatto il cambio.
   "ticket.activity": "ticket_followers",
+  // Fetta 2: le persone che la scrittura indica (chi aveva la task, chi la
+  // riceve), decise da `planRecipientsOf` di `@stubwise/shared`. Mai l'attore.
+  "planning.changed": "task_people",
+  "task.assigned": "task_people",
 };
 
 /** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */
@@ -210,6 +221,8 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   "decision.requested": null,
   "decision.answered": null,
   "ticket.activity": null,
+  "planning.changed": null,
+  "task.assigned": null,
 };
 
 /** Permesso pertinente del kind. Unico punto in cui si legge {@link PERMISSION_FOR_KIND}. */
@@ -284,6 +297,8 @@ export function recipientsFor(event: NotificationEvent, ctx: RoutingContext): st
     case "ticket_followers":
       // Chi ha fatto il cambio sa già cosa ha fatto.
       return visible(ctx.ticketFollowers ?? []).filter((id) => id !== ctx.actor);
+    case "task_people":
+      return visible(ctx.taskPeople ?? []).filter((id) => id !== ctx.actor);
     case "broadcast":
       return visible([
         ...ctx.deciders,

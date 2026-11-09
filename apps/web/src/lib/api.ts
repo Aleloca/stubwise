@@ -1518,7 +1518,10 @@ export type TicketEventKind =
   | "body_changed"
   | "milestone_changed"
   | "relation_added"
-  | "relation_removed";
+  | "relation_removed"
+  | "planned_week_changed"
+  | "department_changed"
+  | "effort_changed";
 
 /** Commento nel feed unificato. */
 export interface ActivityComment {

@@ -2,6 +2,7 @@ import {
   aiJobs,
   comments,
   decisionRequests,
+  departments,
   projectStatuses,
   repositories,
   ticketEvents,
@@ -13,6 +14,7 @@ import {
   decisionRequestViewSchema,
   isoWeekSchema,
   newTaskBodySchema,
+  sizeFromEffort,
   stalledTaskViewSchema,
   taskPatchSchema,
   taskSizeSchema,
@@ -78,6 +80,10 @@ const EVENT_FIELD: Record<string, string> = {
   relation_added: "links",
   relation_removed: "links",
   milestone_changed: "milestone",
+  // Fetta 2: i nomi dei campi del prototipo (`FIELD_LABEL`, «size» del seme).
+  planned_week_changed: "week",
+  department_changed: "department",
+  effort_changed: "size",
 };
 
 function eventValue(value: unknown): string | null {
@@ -384,6 +390,21 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
         if (typeof legacy === "string") return nameByLegacy.get(legacy) ?? legacy;
         return eventValue(legacy);
       };
+      /**
+       * Il valore mostrato di un evento: lo stato per nome (vedi sopra), il
+       * reparto per nome (l'id se è stato eliminato), la taglia XS–XL
+       * dall'effort; il resto com'è.
+       */
+      const valueOf = (kind: string, payload: Record<string, unknown>, side: "from" | "to"): string | null => {
+        const raw = payload[side];
+        if (kind === "status_changed") return statusName(payload[side === "from" ? "fromStatusId" : "toStatusId"], raw);
+        if (kind === "department_changed") return typeof raw === "string" ? (departmentName.get(raw) ?? raw) : null;
+        if (kind === "effort_changed") return typeof raw === "number" ? sizeFromEffort(raw) : null;
+        return eventValue(raw);
+      };
+      const departmentName = new Map(
+        (await app.db.select({ id: departments.id, name: departments.name }).from(departments)).map((d) => [d.id, d.name]),
+      );
       const [commentRows, eventRows, decisionRows] = await Promise.all([
         app.db.select().from(comments).where(eq(comments.ticketId, ticketId)),
         app.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, ticketId)),
@@ -415,8 +436,8 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
             authorId: e.actorId,
             at: e.createdAt.toISOString(),
             field: EVENT_FIELD[e.kind] ?? e.kind,
-            from: e.kind === "status_changed" ? statusName(payload.fromStatusId, payload.from) : eventValue(payload.from),
-            to: e.kind === "status_changed" ? statusName(payload.toStatusId, payload.to) : eventValue(payload.to),
+            from: valueOf(e.kind, payload, "from"),
+            to: valueOf(e.kind, payload, "to"),
             sortAt: e.createdAt.getTime(),
           };
         }),

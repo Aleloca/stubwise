@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
-import { tickets } from "@stubwise/db";
+import { departments, notifications, ticketFollowers, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
-import { taskListResponseSchema, taskViewSchema } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { currentIsoWeek, taskActivityEntryViewSchema, taskListResponseSchema, taskViewSchema } from "@stubwise/shared";
+import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -157,5 +158,126 @@ describe("TaskView.canPlan", () => {
       payload: { plannedWeek: "2030-W06" },
     });
     expect(res.statusCode).toBe(200);
+  });
+});
+
+const cardsOf = async (userId: string, ticketId: string, kind: "planning.changed" | "task.assigned" | "ticket.activity") =>
+  testDb.db
+    .select()
+    .from(notifications)
+    .where(and(eq(notifications.userId, userId), eq(notifications.ticketId, ticketId), eq(notifications.kind, kind)));
+
+const followedBy = (ticketId: string, ...userIds: string[]) =>
+  testDb.db.insert(ticketFollowers).values(userIds.map((userId) => ({ ticketId, userId }))).onConflictDoNothing();
+
+describe("avvisi della pianificazione (planning.changed, task.assigned)", () => {
+  it("spostata da un Project Lead → planning.changed a chi l'aveva, non all'attore", async () => {
+    const id = await task(dev.id, "2030-01-07");
+    await followedBy(id, dev.id, lead.id);
+    expect((await plan(id, { assigneeId: dev.id, week: "2030-W05" }, lead.headers.cookie)).statusCode).toBe(200);
+    const cards = await cardsOf(dev.id, id, "planning.changed");
+    expect(cards).toHaveLength(1);
+    expect(cards[0]!.event).toMatchObject({
+      kind: "planning.changed",
+      fromWeek: "2030-W02",
+      toWeek: "2030-W05",
+      fromAssigneeId: dev.id,
+      toAssigneeId: dev.id,
+      actorUserId: lead.id,
+    });
+    expect(await cardsOf(lead.id, id, "planning.changed")).toHaveLength(0);
+  });
+
+  it("data a un'altra persona: planning.changed a chi l'aveva, task.assigned a chi la riceve, e niente ticket.activity doppia per loro", async () => {
+    const id = await task(dev.id, "2030-01-07");
+    await followedBy(id, dev.id, other.id, users.adminId);
+    expect((await plan(id, { assigneeId: other.id, week: "2030-W05" }, lead.headers.cookie)).statusCode).toBe(200);
+    const lost = await cardsOf(dev.id, id, "planning.changed");
+    expect(lost).toHaveLength(1);
+    expect(lost[0]!.event).toMatchObject({ toAssigneeId: other.id, toAssigneeName: "altro" });
+    expect(await cardsOf(other.id, id, "task.assigned")).toHaveLength(1);
+    expect(await cardsOf(other.id, id, "planning.changed")).toHaveLength(0);
+    // Chi ha già la card precisa non riceve anche l'attività; gli altri follower sì.
+    expect(await cardsOf(dev.id, id, "ticket.activity")).toHaveLength(0);
+    expect(await cardsOf(other.id, id, "ticket.activity")).toHaveLength(0);
+    expect(await cardsOf(users.adminId, id, "ticket.activity")).toHaveLength(1);
+  });
+
+  it("presa per sé → nessun avviso", async () => {
+    const id = await task(null);
+    expect((await plan(id, { assigneeId: dev.id, week: "2030-W02" }, dev.headers.cookie)).statusCode).toBe(200);
+    expect(await cardsOf(dev.id, id, "planning.changed")).toHaveLength(0);
+    expect(await cardsOf(dev.id, id, "task.assigned")).toHaveLength(0);
+    // E spostare la propria nemmeno.
+    expect((await plan(id, { assigneeId: dev.id, week: "2030-W03" }, dev.headers.cookie)).statusCode).toBe(200);
+    expect(await cardsOf(dev.id, id, "planning.changed")).toHaveLength(0);
+  });
+
+  it("un'assegnazione da PATCH avvisa chi la riceve con task.assigned; non chi si assegna da sé", async () => {
+    const id = await task(null);
+    const patch = (assigneeId: string, cookie: string) =>
+      app.inject({ method: "PATCH", url: `/api/tasks/${id}`, headers: { cookie }, payload: { assigneeId } });
+    expect((await patch(other.id, lead.headers.cookie)).statusCode).toBe(200);
+    expect(await cardsOf(other.id, id, "task.assigned")).toHaveLength(1);
+    expect((await patch(lead.id, lead.headers.cookie)).statusCode).toBe(200);
+    expect(await cardsOf(lead.id, id, "task.assigned")).toHaveLength(0);
+    // Il planning.changed resta della rotta di pianificazione.
+    expect(await cardsOf(other.id, id, "planning.changed")).toHaveLength(0);
+  });
+
+  it("chi non vede la task non riceve l'avviso", async () => {
+    const id = await task(null);
+    expect((await plan(id, { assigneeId: outsider.id, week: null }, lead.headers.cookie)).statusCode).toBe(400);
+    expect(await cardsOf(outsider.id, id, "task.assigned")).toHaveLength(0);
+    // Un membro senza `tickets.view_all` (Contributor) può riceverla, ma non la vede: nessuna card.
+    const contributor = await createUserWithSession(app, "contrib@example.com");
+    await addMember(app, projectId, contributor.id, "contributor");
+    expect((await plan(id, { assigneeId: contributor.id, week: "2030-W05" }, lead.headers.cookie)).statusCode).toBe(200);
+    expect(await cardsOf(contributor.id, id, "task.assigned")).toHaveLength(0);
+    expect((await plan(id, { assigneeId: lead.id, week: "2030-W05" }, lead.headers.cookie)).statusCode).toBe(200);
+    expect(await cardsOf(contributor.id, id, "planning.changed")).toHaveLength(0);
+  });
+});
+
+describe("attività: settimana, reparto e taglia (solo scritture umane)", () => {
+  const activity = async (id: string) =>
+    z
+      .array(taskActivityEntryViewSchema)
+      .parse(
+        (await app.inject({ method: "GET", url: `/api/tasks/${id}/activity`, headers: { cookie: lead.headers.cookie } })).json(),
+      )
+      .filter((e) => e.kind === "field_change");
+
+  it("la settimana va da quella EFFETTIVA di prima (slittamento compreso) a quella nuova", async () => {
+    // Pianificata in una settimana passata: oggi è slittata alla corrente.
+    const id = await task(dev.id, "2026-01-05");
+    expect((await plan(id, { assigneeId: dev.id, week: "2030-W05" }, lead.headers.cookie)).statusCode).toBe(200);
+    const week = (await activity(id)).filter((e) => e.field === "week");
+    expect(week).toEqual([expect.objectContaining({ from: currentIsoWeek(new Date()), to: "2030-W05", authorId: lead.id })]);
+  });
+
+  it("reparto per nome e taglia XS–XL; nessun evento se non cambia niente", async () => {
+    const [dept] = await testDb.db
+      .insert(departments)
+      .values({ name: "Design", colorToken: "--dept-2" })
+      .returning({ id: departments.id });
+    const id = await task(dev.id);
+    const patch = (payload: object) =>
+      app.inject({ method: "PATCH", url: `/api/tasks/${id}`, headers: { cookie: lead.headers.cookie }, payload });
+    expect((await patch({ departmentId: dept!.id, size: "M" })).statusCode).toBe(200);
+    expect((await patch({ size: "XL" })).statusCode).toBe(200);
+    expect((await patch({ size: "XL", departmentId: dept!.id })).statusCode).toBe(200);
+    const entries = await activity(id);
+    const [general] = await testDb.db
+      .select({ name: departments.name })
+      .from(departments)
+      .where(eq(departments.isDefault, true));
+    expect(entries.filter((e) => e.field === "department")).toEqual([
+      expect.objectContaining({ from: general!.name, to: "Design" }),
+    ]);
+    expect(entries.filter((e) => e.field === "size").map((e) => [e.from, e.to])).toEqual([
+      [null, "M"],
+      ["M", "XL"],
+    ]);
   });
 });

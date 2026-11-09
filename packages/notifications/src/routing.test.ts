@@ -52,6 +52,19 @@ describe("recipientsFor", () => {
     expect(recipientsFor(event, ctx)).toEqual(["f-1", "f-2"]);
   });
 
+  it("planning.changed e task.assigned vanno alle sole persone indicate che vedono il progetto, mai all'attore", () => {
+    for (const kind of ["planning.changed", "task.assigned"] as const) {
+      const ctx: RoutingContext = {
+        ...CTX,
+        members: ["p-1", "actor"],
+        taskPeople: ["p-1", "actor", "outsider"],
+        actor: "actor",
+      };
+      expect(recipientsFor(eventOfKind(kind), ctx)).toEqual(["p-1"]);
+      expect(recipientsFor(eventOfKind(kind), { ...ctx, taskPeople: undefined })).toEqual([]);
+    }
+  });
+
   it("manda i kind decisionali ai soli deciders", () => {
     for (const kind of ["job.plan_review", "job.held", "job.budget_held"] as const) {
       expect(recipientsFor(eventOfKind(kind), CTX)).toEqual(["admin-1", "admin-2"]);

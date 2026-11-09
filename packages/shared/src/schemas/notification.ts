@@ -50,6 +50,8 @@ export const notificationKindSchema = z.enum([
   "decision.requested",
   "decision.answered",
   "ticket.activity",
+  "planning.changed",
+  "task.assigned",
 ]);
 
 /**

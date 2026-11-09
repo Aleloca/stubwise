@@ -15,21 +15,23 @@ import {
 import {
   effortFromSize,
   isoWeekToMonday,
+  mondayToIsoWeek,
   planBlock,
+  planRecipientsOf,
   ticketTypeFor,
   uiTypeOf,
   type NewTaskBody,
   type TaskPatch,
   type TaskViewData,
 } from "@stubwise/shared";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { projectViewerIds } from "@stubwise/notifications";
 import { projectPermissionsFor, projectPermissionsOfUser } from "../auth/access.js";
 import { createTicket, type Ticket } from "../db/tickets.js";
 import { diffTicketEvents, userExists } from "./tickets.js";
 import { loadTaskViews, visibleTasksCondition, type TaskViewer } from "./task-view.js";
 import { personName } from "./people.js";
-import { notifyTaskActivity } from "./task-notify.js";
+import { notifyTaskActivity, notifyTaskPeople } from "./task-notify.js";
 
 /**
  * Le scritture delle task dall'app nuova (integrazione area 2, fetta 1).
@@ -200,21 +202,42 @@ function updatesFor(current: Ticket, patch: TaskPatch): Partial<Ticket> {
   return updates;
 }
 
+/** La settimana EFFETTIVA di una task (slittamento compreso), `YYYY-Www`. */
+async function effectiveWeekOf(tx: Tx, ticketId: string): Promise<string | null> {
+  const [row] = await tx
+    .select({
+      week: sql<string | null>`to_char(stubwise_effective_week(${tickets.plannedWeek}, ${tickets.closedAt}), 'YYYY-MM-DD')`,
+    })
+    .from(tickets)
+    .where(eq(tickets.id, ticketId));
+  return row?.week ? mondayToIsoWeek(row.week) : null;
+}
+
 /**
  * Applica una patch a una task DENTRO `tx`, con gli eventi della timeline.
  * Il cambio di stato scrive lo `status_changed` di oggi (`from`/`to`
  * dell'enum, che leggono storia del ticket e mobile) più gli id degli stati
  * (`fromStatusId`/`toStatusId`), con cui l'attività mostra il nome dello stato
  * anche fra due stati personalizzati della stessa famiglia.
+ *
+ * Fetta 2: anche settimana (`planned_week_changed`, dalla settimana EFFETTIVA
+ * di prima, `YYYY-Www`), reparto (`department_changed`, id) e taglia
+ * (`effort_changed`, effort 1–5): sono scritture UMANE, e solo questa
+ * funzione le scrive — la riassegnazione d'ufficio quando si elimina un
+ * reparto resta fuori dal feed. `task.assigned` va a chi riceve la task da un
+ * altro; `planning.changed` (a chi l'aveva) solo con `notifyPlanning`, cioè
+ * dalla rotta di pianificazione, come nel prototipo.
  */
 export async function applyTaskPatch(
   tx: Tx,
   actorId: string,
   current: Ticket,
   patch: TaskPatch,
+  opts: { notifyPlanning?: boolean } = {},
 ): Promise<Ticket> {
   const updates = updatesFor(current, patch);
   if (Object.keys(updates).length === 0) return current;
+  const fromWeek = updates.plannedWeek !== undefined ? await effectiveWeekOf(tx, current.id) : null;
   const [updated] = await tx.update(tickets).set(updates).where(eq(tickets.id, current.id)).returning();
   const events: { kind: (typeof ticketEvents.$inferInsert)["kind"]; payload: Record<string, unknown> }[] =
     diffTicketEvents(current, updates).map((e) => ({ kind: e.kind, payload: e.payload as Record<string, unknown> }));
@@ -229,6 +252,16 @@ export async function applyTaskPatch(
       },
     });
   }
+  const toWeek = updated!.plannedWeek ? mondayToIsoWeek(updated!.plannedWeek) : null;
+  if (updates.plannedWeek !== undefined && fromWeek !== toWeek) {
+    events.push({ kind: "planned_week_changed", payload: { from: fromWeek, to: toWeek } });
+  }
+  if (updates.departmentId !== undefined && updates.departmentId !== current.departmentId) {
+    events.push({ kind: "department_changed", payload: { from: current.departmentId, to: updates.departmentId } });
+  }
+  if (updates.effort !== undefined && updates.effort !== current.effort) {
+    events.push({ kind: "effort_changed", payload: { from: current.effort, to: updates.effort } });
+  }
   if (events.length > 0) {
     await tx.insert(ticketEvents).values(events.map((e) => ({ ...e, ticketId: current.id, actorId })));
   }
@@ -236,6 +269,44 @@ export async function applyTaskPatch(
   // `assigneeWithoutAccess`), ma un follower riceve solo ciò che vede.
   if (updates.assigneeId && (await canUserSeeTicket(tx, updates.assigneeId, current.id))) {
     await follow(tx, current.id, [updates.assigneeId]);
+  }
+
+  // Chi riceve gli avvisi personali: la regola del prototipo, una sola.
+  const reassigned = updates.assigneeId !== undefined && updates.assigneeId !== current.assigneeId;
+  // Senza la settimana nella patch, prima e dopo coincidono: «spostata» no.
+  const weekChanged = updates.plannedWeek !== undefined;
+  const recipients = planRecipientsOf(
+    actorId,
+    { assigneeId: current.assigneeId, plannedWeek: weekChanged ? fromWeek : null },
+    { assigneeId: updated!.assigneeId, week: weekChanged ? toWeek : null },
+  );
+  const planningChanged = opts.notifyPlanning ? recipients.planningChanged : [];
+  const [person] = updated!.assigneeId
+    ? await tx
+        .select({ email: users.email, displayName: users.displayName })
+        .from(users)
+        .where(eq(users.id, updated!.assigneeId))
+    : [];
+  if (recipients.assigned) {
+    await notifyTaskPeople(tx, {
+      kind: "task.assigned",
+      ticketId: current.id,
+      actorUserId: actorId,
+      recipientUserId: recipients.assigned,
+    });
+  }
+  for (const recipientUserId of planningChanged) {
+    await notifyTaskPeople(tx, {
+      kind: "planning.changed",
+      ticketId: current.id,
+      actorUserId: actorId,
+      recipientUserId,
+      fromWeek: weekChanged ? fromWeek : toWeek,
+      toWeek,
+      fromAssigneeId: current.assigneeId,
+      toAssigneeId: updated!.assigneeId,
+      toAssigneeName: person ? personName(person) : null,
+    });
   }
 
   // I follower sanno dei cambi UMANI di stato e assegnatario (Task 9). Il
@@ -248,18 +319,16 @@ export async function applyTaskPatch(
       .where(eq(projectStatuses.id, updated!.statusId));
     await notifyTaskActivity(tx, { ticketId: current.id, actorUserId: actorId, change: "status", summary: status?.name ?? "" });
   }
-  if (updates.assigneeId !== undefined && updates.assigneeId !== current.assigneeId) {
-    const [person] = updates.assigneeId
-      ? await tx
-          .select({ email: users.email, displayName: users.displayName })
-          .from(users)
-          .where(eq(users.id, updates.assigneeId))
-      : [];
+  if (reassigned) {
+    // Chi ha già la card precisa (`task.assigned`, `planning.changed`) non
+    // riceve anche l'attività.
+    const precise = [...(recipients.assigned ? [recipients.assigned] : []), ...planningChanged];
     await notifyTaskActivity(tx, {
       ticketId: current.id,
       actorUserId: actorId,
       change: "assignee",
       summary: person ? personName(person) : "—",
+      ...(precise.length > 0 ? { excludeUserIds: precise } : {}),
     });
   }
   return updated!;
@@ -407,7 +476,13 @@ export async function planTask(
   if (block === "others") return { ok: false, error: "forbidden" };
   if (block === "member") return { ok: false, error: "invalid_assignee" };
   await db.transaction(async (tx) => {
-    await applyTaskPatch(tx, viewer.id, current, { assigneeId: plan.assigneeId, plannedWeek: plan.week });
+    await applyTaskPatch(
+      tx,
+      viewer.id,
+      current,
+      { assigneeId: plan.assigneeId, plannedWeek: plan.week },
+      { notifyPlanning: true },
+    );
   });
   return { ok: true, task: await viewOf(db, viewer, ticketId) };
 }

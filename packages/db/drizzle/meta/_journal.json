@@ -806,6 +806,13 @@
       "when": 1794268800000,
       "tag": "0114_planning_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1794355200000,
+      "tag": "0115_planning_notification_kinds",
+      "breakpoints": true
     }
   ]
 }

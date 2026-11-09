@@ -96,7 +96,7 @@ describe("0089 giro notturno", () => {
 });
 
 describe("0090 valore d'enum", () => {
-  it("docs.nightly_attention esiste (e request.created, 0093, gli sta dopo; poi google.proposal_handed, 0098, security.alert, 0101, e i tre della 0110)", async () => {
+  it("docs.nightly_attention esiste (e request.created, 0093, gli sta dopo; poi google.proposal_handed, 0098, security.alert, 0101, i tre della 0110 e i due della 0115)", async () => {
     const r = await t.db.execute<{ enumlabel: string }>(sql`
       select enumlabel from pg_enum e join pg_type ty on ty.oid = e.enumtypid
       where ty.typname = 'notification_kind' order by enumsortorder`);
@@ -104,12 +104,24 @@ describe("0090 valore d'enum", () => {
     const i = labels.indexOf("docs.nightly_attention");
     expect(i).toBeGreaterThanOrEqual(0);
     expect(labels[i + 1]).toBe("request.created");
-    expect(labels.slice(-5)).toEqual([
+    expect(labels.slice(-7)).toEqual([
       "google.proposal_handed",
       "security.alert",
       "decision.requested",
       "decision.answered",
       "ticket.activity",
+      "planning.changed",
+      "task.assigned",
     ]);
+  });
+});
+
+describe("0115 eventi della task", () => {
+  it("settimana, reparto e taglia entrano nell'attività, in coda all'enum", async () => {
+    const r = await t.db.execute<{ enumlabel: string }>(sql`
+      select enumlabel from pg_enum e join pg_type ty on ty.oid = e.enumtypid
+      where ty.typname = 'ticket_event_kind' order by enumsortorder`);
+    const labels = [...r].map((x) => x.enumlabel);
+    expect(labels.slice(-3)).toEqual(["planned_week_changed", "department_changed", "effort_changed"]);
   });
 });

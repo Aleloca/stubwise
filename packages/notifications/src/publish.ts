@@ -65,6 +65,13 @@ export interface PublishOpts {
    * nel jsonb.
    */
   excludeUserIds?: string[];
+  /**
+   * Le persone a cui l'evento è rivolto (audience `task_people`: fetta 2,
+   * `planning.changed` e `task.assigned`). Chi riceve lo decide la scrittura
+   * (`planRecipientsOf`); qui restano solo quelle che vedono la task. Non sta
+   * nel jsonb.
+   */
+  recipientUserIds?: string[];
 }
 
 /**
@@ -301,6 +308,25 @@ async function resolveRoutingContext(
     );
     const actor = event.kind === "ticket.activity" ? (event.actorUserId ?? undefined) : undefined;
     return { deciders: [], members, followers: [], ticketFollowers: ticketFollowerIds, actor };
+  }
+  if (audience === "task_people") {
+    const members = projectId ? await projectViewerIds(db, projectId) : null;
+    const people = [...new Set(opts.recipientUserIds ?? [])];
+    // Come per i follower: la regola di `canSeeTicket` — `tickets.view_all`
+    // nel progetto, oppure è lui ad averla chiesta.
+    const [ticket] = opts.ticketId
+      ? await db
+          .select({ requestedBy: tickets.requestedByUserId })
+          .from(tickets)
+          .where(eq(tickets.id, opts.ticketId))
+      : [];
+    const viewAll = new Set(people.length > 0 ? await userIdsWithPermission(db, "tickets.view_all", projectId) : []);
+    const taskPeople = people.filter((id) => viewAll.has(id) || id === ticket?.requestedBy);
+    const actor =
+      event.kind === "planning.changed" || event.kind === "task.assigned"
+        ? (event.actorUserId ?? undefined)
+        : undefined;
+    return { deciders: [], members, followers: [], taskPeople, actor };
   }
 
   const members = projectId ? await projectViewerIds(db, projectId) : null;

@@ -235,6 +235,8 @@ export {
   type DecisionRequestedEvent,
   type DecisionAnsweredEvent,
   type TicketActivityEvent,
+  type PlanningChangedEvent,
+  type TaskAssignedEvent,
   type TicketActivityChange,
   type TicketCreatedEvent,
 } from "./format.js";

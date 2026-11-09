@@ -123,6 +123,9 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   "decision.requested": "notifyGoogleProposal",
   "decision.answered": "notifyGoogleProposal",
   "ticket.activity": "notifyGoogleProposal",
+  // Mai consultati: pianificazione e assegnazione sono personali (fetta 2).
+  "planning.changed": "notifyGoogleProposal",
+  "task.assigned": "notifyGoogleProposal",
 };
 
 /** Una transazione drizzle aperta su `Db` (il `tx` di `db.transaction`). */
@@ -262,7 +265,8 @@ export function shouldSendWebhook(
     // risposta e l'attività di una task seguita sono PERSONALI.
     audience === "decision_target" ||
     audience === "decision_asker" ||
-    audience === "ticket_followers"
+    audience === "ticket_followers" ||
+    audience === "task_people"
   ) {
     return false;
   }
