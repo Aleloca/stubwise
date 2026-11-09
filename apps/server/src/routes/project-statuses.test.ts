@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { projectStatuses, projects, tickets } from "@stubwise/db";
+import { projectStatuses, projects, ticketEvents, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicket, startTestDb } from "@stubwise/db/testing";
 import { projectStatusViewSchema } from "@stubwise/shared";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -134,6 +134,49 @@ describe("stati del progetto", () => {
     expect(t).toEqual({ s: before[2]!.id, e: "in_progress" });
     expect((await rows(projectId)).map((s) => s.name)).toEqual(["To do", "In review", "Done", "Discarded"]);
     expect(toDo.id).toBe((await rows(projectId))[0]!.id);
+  });
+
+  it("rinominare uno stato non tocca l'enum né updated_at delle task", async () => {
+    const projectId = await leadProject();
+    const { ticketId } = await seedTicket(testDb.db, { projectId, repositoryId: repoOf.get(projectId)! });
+    const before = await rows(projectId);
+    // Un `triaged` dentro il todo, e un updated_at di ieri.
+    await testDb.db.execute(sql`update tickets set status = 'triaged', updated_at = now() - interval '1 day' where id = ${ticketId}`);
+    const [pre] = await testDb.db.select({ s: tickets.status, u: tickets.updatedAt }).from(tickets).where(eq(tickets.id, ticketId));
+    const res = await put(projectId, {
+      statuses: before.map((s, i) => ({ id: s.id, name: i === 0 ? "Backlog" : s.name, family: s.family })),
+      reassign: {},
+    });
+    expect(res.statusCode).toBe(200);
+    const [post] = await testDb.db.select({ s: tickets.status, u: tickets.updatedAt }).from(tickets).where(eq(tickets.id, ticketId));
+    expect(post).toEqual(pre);
+  });
+
+  it("le task spostate da uno stato eliminato: updated_at invariato e uno status_changed di sistema", async () => {
+    const projectId = await leadProject();
+    const { ticketId } = await seedTicket(testDb.db, { projectId, repositoryId: repoOf.get(projectId)! });
+    const before = await rows(projectId);
+    const inProgress = before[1]!;
+    const inReview = before[2]!;
+    await testDb.db.update(tickets).set({ statusId: inProgress.id }).where(eq(tickets.id, ticketId));
+    await testDb.db.execute(sql`update tickets set updated_at = now() - interval '2 days' where id = ${ticketId}`);
+    const [pre] = await testDb.db.select({ u: tickets.updatedAt }).from(tickets).where(eq(tickets.id, ticketId));
+    const res = await put(projectId, {
+      statuses: before.filter((s) => s.id !== inProgress.id).map((s) => ({ id: s.id, name: s.name, family: s.family })),
+      reassign: { [inProgress.id]: inReview.id },
+    });
+    expect(res.statusCode).toBe(200);
+    const [post] = await testDb.db.select({ u: tickets.updatedAt, s: tickets.statusId }).from(tickets).where(eq(tickets.id, ticketId));
+    expect(post).toEqual({ u: pre!.u, s: inReview.id });
+    const events = await testDb.db.select().from(ticketEvents).where(eq(ticketEvents.ticketId, ticketId));
+    expect(events).toMatchObject([
+      {
+        kind: "status_changed",
+        actorId: null,
+        // Tolto «In progress», «In review» è il primo active: il suo enum diventa in_progress.
+        payload: { from: "in_progress", to: "in_progress", fromStatusId: inProgress.id, toStatusId: inReview.id },
+      },
+    ]);
   });
 
   it("rinomina e riordina ricalcolano legacy_status", async () => {

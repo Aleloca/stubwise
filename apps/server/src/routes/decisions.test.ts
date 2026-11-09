@@ -136,7 +136,10 @@ describe("richieste di decisione", () => {
     const list = decisionRequestViewSchema.array().parse(mine.json());
     expect(list.map((d) => d.askedOfId)).toEqual([target.id]);
     const all = await app.inject({ method: "GET", url: `/api/decisions?taskId=${ticketId}`, headers: { cookie: users.memberCookie } });
-    expect(decisionRequestViewSchema.array().parse(all.json())).toHaveLength(2);
+    const both = decisionRequestViewSchema.array().parse(all.json());
+    expect(both).toHaveLength(2);
+    // Le più recenti per prime: il tetto dell'elenco taglia le più vecchie.
+    expect(both.map((d) => d.askedOfId)).toEqual([third.id, target.id]);
     const blind = await app.inject({ method: "GET", url: `/api/decisions?taskId=${ticketId}`, headers: { cookie: outsider.headers.cookie } });
     expect(decisionRequestViewSchema.array().parse(blind.json())).toEqual([]);
   });
@@ -158,10 +161,47 @@ describe("notifiche ai follower", () => {
     const res = await post(`/api/tickets/${ticketId}/comments`, { body: "Ci guardo io" });
     expect(res.statusCode).toBe(201);
     const thirds = await notificationsOf(third.id, "ticket.activity");
-    expect(thirds.at(-1)!.event).toMatchObject({ change: "comment", summary: "Ci guardo io", ticketId });
+    const created = res.json() as { id: string };
+    // Nell'evento il riferimento al commento, MAI il suo testo.
+    expect(thirds.at(-1)!.event).toMatchObject({ change: "comment", commentId: created.id, ticketId });
+    expect(JSON.stringify(thirds.at(-1)!.event)).not.toContain("Ci guardo io");
     expect((await notificationsOf(users.memberId, "ticket.activity")).filter((x) => x.ticketId === ticketId)).toHaveLength(0);
     // Chi non vede più il progetto non riceve card.
     expect((await notificationsOf(outsider.id, "ticket.activity")).filter((x) => x.ticketId === ticketId)).toHaveLength(0);
+  });
+
+  it("commento eliminato: la card non ha più il testo", async () => {
+    const ticketId = await task();
+    await testDb.db.insert(ticketFollowers).values({ ticketId, userId: third.id });
+    const res = await post(`/api/tickets/${ticketId}/comments`, { body: "Testo riservato del commento" });
+    const commentId = (res.json() as { id: string }).id;
+    const cardText = async () => {
+      const inbox = await app.inject({ method: "GET", url: "/api/inbox", headers: { cookie: third.headers.cookie } });
+      const items = (inbox.json() as { items: { kind: string; ticketId: string | null; text: string }[] }).items;
+      return items.find((i) => i.kind === "ticket.activity" && i.ticketId === ticketId)!.text;
+    };
+    // L'estratto si deriva a lettura dal commento.
+    expect(await cardText()).toContain("Testo riservato del commento");
+    const del = await app.inject({
+      method: "DELETE",
+      url: `/api/tickets/${ticketId}/comments/${commentId}`,
+      headers: { cookie: users.memberCookie },
+    });
+    expect(del.statusCode).toBeLessThan(300);
+    const after = await cardText();
+    expect(after).not.toContain("Testo riservato del commento");
+    expect(after).toMatch(/comment deleted/i);
+  });
+
+  it("il push non contiene il testo del commento", async () => {
+    const ticketId = await task();
+    await testDb.db.insert(ticketFollowers).values({ ticketId, userId: third.id });
+    await post(`/api/tickets/${ticketId}/comments`, { body: "Segreto nel push" });
+    const card = (await notificationsOf(third.id, "ticket.activity")).find((x) => x.ticketId === ticketId)!;
+    const { buildPushPayload } = await import("@stubwise/notifications");
+    const payload = buildPushPayload(card.event as never, "en", { notificationId: card.id, unreadCount: 1 } as never);
+    expect(JSON.stringify(payload)).not.toContain("Segreto nel push");
+    expect(payload.body).toMatch(/^New comment on [A-Z][A-Z0-9]{1,5}-\d+$/);
   });
 
   it("un cambio di stato e di assegnatario dall'app nuova notifica i follower", async () => {
@@ -182,6 +222,53 @@ describe("notifiche ai follower", () => {
       ["assignee", "decide"],
       ["status", "Done"],
     ]);
+  });
+
+  it("un Contributor assegnato a una task altrui non riceve ticket.activity", async () => {
+    const contributor = await createUserWithSession(app, `contributor-${n}@example.com`);
+    await addMember(app, projectId, contributor.id, "contributor");
+    const ticketId = await task();
+    // Assegnare resta permesso, ma chi non vede la task (senza tickets.view_all,
+    // e non è lui ad averla chiesta) non ne diventa follower…
+    const patch = await app.inject({
+      method: "PATCH",
+      url: `/api/tasks/${ticketId}`,
+      headers: { cookie: users.memberCookie },
+      payload: { assigneeId: contributor.id },
+    });
+    expect(patch.statusCode).toBe(200);
+    const followers = await testDb.db.select().from(ticketFollowers).where(eq(ticketFollowers.ticketId, ticketId));
+    expect(followers.map((f) => f.userId)).not.toContain(contributor.id);
+    // …e anche un follow di prima (scritto quando la vedeva) non gli porta card.
+    await testDb.db.insert(ticketFollowers).values({ ticketId, userId: contributor.id });
+    await post(`/api/tickets/${ticketId}/comments`, { body: "Aggiornamento" });
+    expect((await notificationsOf(contributor.id, "ticket.activity")).filter((x) => x.ticketId === ticketId)).toHaveLength(0);
+  });
+
+  it("una decisione chiesta e risposta arriva ai follower, tranne attore e destinatario diretto", async () => {
+    const ticketId = await task();
+    await testDb.db.insert(ticketFollowers).values([
+      { ticketId, userId: users.memberId },
+      { ticketId, userId: target.id },
+      { ticketId, userId: third.id },
+    ]);
+    const activityOf = async (userId: string) =>
+      (await notificationsOf(userId, "ticket.activity"))
+        .filter((x) => x.ticketId === ticketId)
+        .map((x) => x.event as { change: string; summary: string });
+    const decision = await ask(ticketId);
+    // Il terzo (follower) lo sa; chi chiede (attore) no; chi deve decidere ha già decision.requested.
+    expect(await activityOf(third.id)).toEqual([expect.objectContaining({ change: "decision", summary: "requested" })]);
+    expect(await activityOf(users.memberId)).toEqual([]);
+    expect(await activityOf(target.id)).toEqual([]);
+    await post(`/api/decisions/${decision.id}/answer`, { optionIndex: 0 }, target.headers.cookie);
+    // Alla risposta: il terzo sì; chi risponde (attore) no; chi aveva chiesto ha già decision.answered.
+    expect((await activityOf(third.id)).map((e) => e.summary)).toEqual(["requested", "answered"]);
+    expect(await activityOf(target.id)).toEqual([]);
+    expect(await activityOf(users.memberId)).toEqual([]);
+    // La domanda non entra nell'evento.
+    const all = await notificationsOf(third.id, "ticket.activity");
+    expect(JSON.stringify(all.map((x) => x.event))).not.toContain("30 o 90 giorni?");
   });
 
   it("la pipeline che porta a in_review non notifica i follower", async () => {

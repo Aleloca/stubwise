@@ -745,7 +745,7 @@ export interface DecisionAnsweredEvent {
 }
 
 /** Cosa è cambiato su una task seguita. */
-export type TicketActivityChange = "status" | "assignee" | "comment";
+export type TicketActivityChange = "status" | "assignee" | "comment" | "decision";
 
 /**
  * Un cambiamento UMANO su una task (stato, assegnatario, commento): lo
@@ -754,8 +754,12 @@ export type TicketActivityChange = "status" | "assignee" | "comment";
  * triage, intake): hanno già le loro notifiche.
  *
  * `summary` è un DATO, non prosa: il nome del nuovo stato, il nome del nuovo
- * assegnatario, l'inizio del commento — la frase intorno la mette il
- * template della lingua di chi legge.
+ * assegnatario — la frase intorno la mette il template della lingua di chi
+ * legge. Per un COMMENTO `summary` è vuoto e l'evento porta solo
+ * `commentId`: il testo non entra MAI nel jsonb (invariante «un commento
+ * eliminato non ha più testo, in nessun posto»). L'inbox ne deriva l'estratto
+ * a lettura (`commentText`/`commentDeleted`, mai salvati); push e Slack
+ * dicono solo «New comment on <ref>».
  */
 export interface TicketActivityEvent {
   kind: "ticket.activity";
@@ -766,6 +770,12 @@ export interface TicketActivityEvent {
   change: TicketActivityChange;
   summary: string;
   actorUserId: string | null;
+  /** Solo `change: "comment"`: il commento, mai il suo testo. */
+  commentId?: string;
+  /** DERIVATO a lettura dall'inbox: l'inizio del commento. Mai nel jsonb. */
+  commentText?: string;
+  /** DERIVATO a lettura dall'inbox: il commento è stato eliminato. Mai nel jsonb. */
+  commentDeleted?: boolean;
 }
 
 /** Unione tipata di tutti gli eventi che generano una notifica. */
@@ -1062,6 +1072,7 @@ const TICKET_ACTIVITY_KEY: Record<TicketActivityChange, string> = {
   status: "notify.ticketActivity.status",
   assignee: "notify.ticketActivity.assignee",
   comment: "notify.ticketActivity.comment",
+  decision: "notify.ticketActivity.decisionRequested",
 };
 
 /**
@@ -1158,6 +1169,21 @@ function templateKey(event: NotificationEvent): string {
     return typeof event.actorEmail === "string" && event.actorEmail !== "" ? keys.withActor : keys.withoutActor;
   }
   if (event.kind === "ticket.activity") {
+    if (event.change === "comment") {
+      if (event.commentDeleted === true) return "notify.ticketActivity.commentDeleted";
+      // Senza l'estratto derivato (push, Slack, una card senza commento): la
+      // frase generica, senza testo.
+      return typeof event.commentText === "string" && event.commentText !== ""
+        ? TICKET_ACTIVITY_KEY.comment
+        : "notify.ticketActivity.commentNoText";
+    }
+    // Una decisione: `summary` dice SOLO cosa è successo (`requested` |
+    // `answered`), mai la domanda — come per i commenti.
+    if (event.change === "decision") {
+      return event.summary === "answered"
+        ? "notify.ticketActivity.decisionAnswered"
+        : "notify.ticketActivity.decisionRequested";
+    }
     // Un `change` ignoto (jsonb anomalo) ricade sulla frase dello stato.
     return TICKET_ACTIVITY_KEY[event.change] ?? TICKET_ACTIVITY_KEY.status;
   }
@@ -1270,7 +1296,10 @@ function textParams(
       return { ref: taskRef(event), question: event.question, answer: event.answerSummary };
     }
     if (event.kind === "ticket.activity") {
-      return { ref: taskRef(event), summary: event.summary };
+      return {
+        ref: taskRef(event),
+        summary: event.change === "comment" ? (event.commentText ?? "") : event.summary,
+      };
     }
     // monitor.alert | monitor.recovered: la condizione è resa come etichetta
     // localizzata; il detail è già una frase leggibile.

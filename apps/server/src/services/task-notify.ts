@@ -16,7 +16,16 @@ import { eq } from "drizzle-orm";
  */
 export async function notifyTaskActivity(
   tx: DbOrTx,
-  input: { ticketId: string; actorUserId: string | null; change: TicketActivityChange; summary: string },
+  input: {
+    ticketId: string;
+    actorUserId: string | null;
+    change: TicketActivityChange;
+    summary: string;
+    /** Solo per un commento: il riferimento, mai il testo. */
+    commentId?: string;
+    /** Chi ha già una card più precisa per la stessa azione (decisioni). */
+    excludeUserIds?: string[];
+  },
 ): Promise<void> {
   const [row] = await tx
     .select({ number: tickets.number, projectId: tickets.projectId, code: projects.code })
@@ -35,8 +44,13 @@ export async function notifyTaskActivity(
       change: input.change,
       summary: input.summary,
       actorUserId: input.actorUserId,
+      ...(input.commentId ? { commentId: input.commentId } : {}),
     },
-    { projectId: row.projectId, ticketId: input.ticketId },
+    {
+      projectId: row.projectId,
+      ticketId: input.ticketId,
+      ...(input.excludeUserIds ? { excludeUserIds: input.excludeUserIds } : {}),
+    },
   );
 }
 

@@ -3,7 +3,7 @@ import { departmentMembers, departments, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedTicket, startTestDb } from "@stubwise/db/testing";
 import { departmentViewSchema } from "@stubwise/shared";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -124,6 +124,17 @@ describe("/api/departments", () => {
     const [t] = await testDb.db.select({ d: tickets.departmentId }).from(tickets).where(eq(tickets.id, ticketId));
     expect(t!.d).toBe(defaultId);
     expect(await testDb.db.select().from(departments).where(eq(departments.id, id))).toHaveLength(0);
+  });
+
+  it("spostare le task di un reparto eliminato non tocca il loro updated_at", async () => {
+    const id = await create("Ricerca");
+    const { ticketId } = await seedTicket(testDb.db);
+    await testDb.db.execute(sql`update tickets set department_id = ${id}, updated_at = now() - interval '3 days' where id = ${ticketId}`);
+    const [pre] = await testDb.db.select({ u: tickets.updatedAt }).from(tickets).where(eq(tickets.id, ticketId));
+    const res = await call("DELETE", `/api/departments/${id}?moveTasksTo=${defaultId}`, users.adminCookie);
+    expect(res.statusCode).toBe(204);
+    const [post] = await testDb.db.select({ u: tickets.updatedAt, d: tickets.departmentId }).from(tickets).where(eq(tickets.id, ticketId));
+    expect(post).toEqual({ u: pre!.u, d: defaultId });
   });
 
   it("un reparto inesistente → 404", async () => {

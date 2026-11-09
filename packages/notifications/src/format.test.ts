@@ -1278,9 +1278,25 @@ describe("decisioni e attività della task", () => {
     expect(formatNotificationText({ ...base, change: "assignee", summary: "Laura" }, "en")).toBe(
       "NEG-57: now assigned to Laura",
     );
-    expect(formatNotificationText({ ...base, change: "comment", summary: "Fatto?" }, "en")).toBe(
-      "NEG-57: new comment — Fatto?",
+    // Il commento: nel jsonb solo `commentId`; il testo è derivato a lettura dall'inbox.
+    expect(formatNotificationText({ ...base, change: "comment", summary: "", commentId: "c1" }, "en")).toBe(
+      "New comment on NEG-57",
     );
+    expect(
+      formatNotificationText({ ...base, change: "comment", summary: "", commentId: "c1", commentText: "Fatto?" }, "en"),
+    ).toBe("NEG-57: new comment — Fatto?");
+    expect(
+      formatNotificationText({ ...base, change: "comment", summary: "", commentId: "c1", commentDeleted: true }, "it"),
+    ).toBe("NEG-57: commento eliminato");
+    // Una decisione: solo cosa è successo, mai la domanda.
+    expect(formatNotificationText({ ...base, change: "decision", summary: "requested" }, "en")).toBe(
+      "NEG-57: a decision was asked",
+    );
+    expect(formatNotificationText({ ...base, change: "decision", summary: "answered" }, "it")).toBe(
+      "NEG-57: una decisione ha avuto risposta",
+    );
+    // Un `summary` scritto per sbaglio su un commento non esce mai.
+    expect(formatNotificationText({ ...base, change: "comment", summary: "testo" }, "en")).toBe("New comment on NEG-57");
   });
 });
 

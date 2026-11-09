@@ -1,4 +1,4 @@
-import { deviceTokens, personalAccessTokens } from "@stubwise/db";
+import { desktopHandoffs, deviceTokens, personalAccessTokens } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { createPatSchema, patViewSchema, patWithTokenSchema } from "@stubwise/shared";
 import type { PatView, PatWithToken } from "@stubwise/shared";
@@ -85,6 +85,11 @@ export async function revokeMobilePats(
     inArray(personalAccessTokens.kind, ["mobile", "desktop"]),
     exceptPatId === undefined ? undefined : ne(personalAccessTokens.id, exceptPatId),
   );
+  // I codici del login del desktop ancora aperti: emessi con la password di
+  // prima, non devono diventare un token dopo il cambio o il reset.
+  await db
+    .delete(desktopHandoffs)
+    .where(and(eq(desktopHandoffs.userId, userId), isNull(desktopHandoffs.usedAt)));
   const mobile = await db
     .select({ id: personalAccessTokens.id })
     .from(personalAccessTokens)

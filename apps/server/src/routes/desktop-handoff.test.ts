@@ -125,6 +125,20 @@ describe("POST /api/auth/desktop-exchange", () => {
     expect(logins.length).toBeGreaterThanOrEqual(1);
   });
 
+  it("lo scambio riuscito cancella la riga, e pota quelle scadute da più di un giorno", async () => {
+    const old = pkce();
+    await codeFor(old.challenge);
+    await testDb.db
+      .update(desktopHandoffs)
+      .set({ expiresAt: sql`now() - interval '2 days'` })
+      .where(eq(desktopHandoffs.codeChallenge, old.challenge));
+    const { verifier, challenge } = pkce();
+    const code = await codeFor(challenge);
+    expect((await exchange(code, verifier)).statusCode).toBe(200);
+    expect(await testDb.db.select().from(desktopHandoffs).where(eq(desktopHandoffs.codeChallenge, challenge))).toHaveLength(0);
+    expect(await testDb.db.select().from(desktopHandoffs).where(eq(desktopHandoffs.codeChallenge, old.challenge))).toHaveLength(0);
+  });
+
   it("codice scambiato due volte: la seconda 400", async () => {
     const { verifier, challenge } = pkce();
     const code = await codeFor(challenge);
@@ -157,6 +171,33 @@ describe("POST /api/auth/desktop-exchange", () => {
 
   it("un codice inventato 400, senza dire se esiste", async () => {
     const res = await exchange(b64url(randomBytes(32)), pkce().verifier);
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "invalid_grant" });
+  });
+});
+
+describe("cambio e reset della password", () => {
+  it("handoff emesso prima del reset: lo scambio dopo il reset fallisce", async () => {
+    const person = await createUserWithSession(app, "reset-desktop@example.com");
+    const { verifier, challenge } = pkce();
+    const issued = await handoff(person.headers, challenge);
+    expect(issued.statusCode).toBe(200);
+    const code = (issued.json() as { code: string }).code;
+    // Un admin genera il link di reset, la persona sceglie una password nuova.
+    const link = await app.inject({
+      method: "POST",
+      url: `/api/users/${person.id}/password-reset`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(link.statusCode).toBe(201);
+    const token = (link.json() as { url: string }).url.split("/").pop()!;
+    const reset = await app.inject({
+      method: "POST",
+      url: `/api/auth/password-reset/${token}`,
+      payload: { password: "password-nuova-desktop" },
+    });
+    expect(reset.statusCode).toBe(204);
+    const res = await exchange(code, verifier);
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ code: "invalid_grant" });
   });

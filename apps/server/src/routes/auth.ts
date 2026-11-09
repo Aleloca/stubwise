@@ -31,6 +31,7 @@ import {
   languageSchema,
   loginResponseSchema,
   mobileLoginBodySchema,
+  DEVICE_NAME_FORBIDDEN,
   mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
@@ -471,7 +472,17 @@ export async function authRoutes(
       schema: {
         body: z.object({
           language: languageSchema.optional(),
-          displayName: z.string().trim().max(80).nullable().optional(),
+          // Le regole del nome di un dispositivo: niente a-capo, caratteri di
+          // controllo o di direzione del testo (un nome si mostra ovunque).
+          displayName: z
+            .string()
+            .trim()
+            .max(80)
+            .refine((v) => !DEVICE_NAME_FORBIDDEN.test(v), {
+              message: "displayName must not contain line breaks or bidirectional formatting characters",
+            })
+            .nullable()
+            .optional(),
         }),
         response: {
           200: languageResponseSchema.extend({ displayName: z.string().nullable().optional() }),

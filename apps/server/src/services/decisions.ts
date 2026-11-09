@@ -1,9 +1,10 @@
 import { decisionRequests, projects, tickets, type Db } from "@stubwise/db";
 import { publishNotification } from "@stubwise/notifications";
 import type { DecisionRequestView } from "@stubwise/shared";
-import { and, asc, eq, isNull, type SQL } from "drizzle-orm";
+import { and, desc, eq, isNull, type SQL } from "drizzle-orm";
 import { projectPermissionsFor, projectPermissionsOfUser } from "../auth/access.js";
 import { canSeeTicket } from "../auth/project-resolvers.js";
+import { notifyTaskActivity } from "./task-notify.js";
 import { visibleTasksCondition, type TaskViewer } from "./task-view.js";
 
 /**
@@ -38,7 +39,7 @@ export function toDecisionView(row: DecisionRow, projectId?: string): DecisionRe
   };
 }
 
-async function ticketRef(db: Db, ticketId: string) {
+async function ticketRef(db: Db | Parameters<Parameters<Db["transaction"]>[0]>[0], ticketId: string) {
   const [row] = await db
     .select({ number: tickets.number, projectId: tickets.projectId, code: projects.code })
     .from(tickets)
@@ -88,6 +89,15 @@ export async function askDecision(
       },
       { projectId: ref.projectId, ticketId },
     );
+    // Chi segue la task lo sa (design: i follower ricevono anche le
+    // decisioni), tranne chi deve decidere: ha già `decision.requested`.
+    await notifyTaskActivity(tx, {
+      ticketId,
+      actorUserId: viewer.id,
+      change: "decision",
+      summary: "requested",
+      excludeUserIds: [input.askedOfId],
+    });
     return row!;
   });
   return { ok: true, decision: toDecisionView(decision, ref.projectId) };
@@ -128,7 +138,7 @@ export async function answerDecision(
       .where(and(eq(decisionRequests.id, id), isNull(decisionRequests.answeredAt), isNull(decisionRequests.withdrawnAt)))
       .returning();
     if (!updated) return null;
-    const ref = await ticketRef(db, updated.ticketId);
+    const ref = await ticketRef(tx, updated.ticketId);
     await publishNotification(
       tx,
       {
@@ -144,6 +154,14 @@ export async function answerDecision(
       },
       { projectId: ref.projectId, ticketId: updated.ticketId },
     );
+    // I follower, tranne chi aveva chiesto: ha già `decision.answered`.
+    await notifyTaskActivity(tx, {
+      ticketId: updated.ticketId,
+      actorUserId: viewer.id,
+      change: "decision",
+      summary: "answered",
+      ...(updated.askedByUserId ? { excludeUserIds: [updated.askedByUserId] } : {}),
+    });
     return updated;
   });
   if (!result) return { ok: false, error: "decision_closed" };
@@ -182,7 +200,8 @@ export async function listDecisions(
     .from(decisionRequests)
     .innerJoin(tickets, eq(tickets.id, decisionRequests.ticketId))
     .where(and(...conditions))
-    .orderBy(asc(decisionRequests.createdAt))
+    // Le più recenti per prime, PRIMA del tetto: a tagliare sono le vecchie.
+    .orderBy(desc(decisionRequests.createdAt), desc(decisionRequests.id))
     .limit(500);
   return rows.map((r) => toDecisionView(r.d, r.projectId));
 }

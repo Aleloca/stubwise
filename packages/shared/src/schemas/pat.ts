@@ -63,7 +63,7 @@ export type PatWithToken = z.infer<typeof patWithTokenSchema>;
  * invisibili in un editor, e U+2028 è esso stesso un terminatore di riga nel
  * sorgente JS — messo letterale, spezzerebbe il literal.
  */
-const DEVICE_NAME_FORBIDDEN =
+export const DEVICE_NAME_FORBIDDEN =
   /[\p{Cc}\u2028\u2029\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/u;
 
 /**

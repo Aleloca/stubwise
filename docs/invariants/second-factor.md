@@ -48,9 +48,22 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   brucia — e rilascia un PAT `kind = 'desktop'` («Desktop · <nome>»). Nel
   registro di sicurezza scrive `login`, come `/mobile-login`; nessun
   `security.alert` (non ne esiste uno per il primo login di un dispositivo).
+- **Limite accettato dello schema `stubwise://` (RFC 8252).** Uno schema
+  custom non è legato all'app che lo registra: chi costruisce un link
+  `/app/#/desktop-login` con un challenge scelto da lui, e lo fa approvare
+  alla vittima, fa consegnare il codice al gestore `stubwise://` sulla
+  macchina della vittima. PKCE protegge lo scambio (serve il verifier del
+  challenge), non chi riceve il codice. La difesa è la conferma esplicita: il
+  codice si chiede SOLO col clic su «Allow», sotto la domanda che nomina il
+  dispositivo («Allow Stubwise on "<device>" to sign in as <you>?»), con la
+  riconferma recente del secondo fattore, e vale 2 minuti e una volta. Non si
+  emette mai il codice al caricamento della pagina, e non si toglie la
+  domanda «per comodità».
 - **Reset e cambio della password revocano i token `mobile` e `desktop`**
   (`revokeMobilePats`): entrambi nascono da password e secondo fattore. I PAT
-  `manual` (MCP, Claude Code, script) restano.
+  `manual` (MCP, Claude Code, script) restano E cancellano i codici
+  di `desktop_handoffs` ancora aperti: un codice emesso con la password di
+  prima non diventa un token dopo.
 - **Lo stadio `enrollment` vale solo finché l'app non c'è.** Lo stadio si
   decide al `/login`, ma la sessione parziale vive 10 minuti: `/enroll` e
   `/enroll/confirm` ricontrollano `hasConfirmedTotp` e, con l'app ormai

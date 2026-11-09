@@ -6,7 +6,7 @@ import {
   desktopHandoffBodySchema,
   desktopHandoffResponseSchema,
 } from "@stubwise/shared";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import type { FastifyInstance, onRequestHookHandler } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
@@ -82,6 +82,9 @@ export function desktopHandoffRoutes(instance: FastifyInstance, credentialsRateL
     },
     async (request, reply) => {
       const invalid = () => apiError(reply, 400, "invalid_grant", "The sign-in code is not valid");
+      // Pulizia senza poller: le righe scadute da più di un giorno (usate con
+      // un verifier sbagliato, o mai usate) se ne vanno qui.
+      await app.db.delete(desktopHandoffs).where(lt(desktopHandoffs.expiresAt, sql`now() - interval '1 day'`));
       // Il codice si consuma PRIMA di guardare il verifier: un verifier
       // sbagliato lo brucia, così non si tenta una seconda volta.
       const [handoff] = await app.db
@@ -106,6 +109,8 @@ export function desktopHandoffRoutes(instance: FastifyInstance, credentialsRateL
         .innerJoin(roles, eq(roles.id, users.instanceRoleId))
         .where(eq(users.id, handoff.userId));
       if (!user) return invalid();
+      // Riuscito: il codice ha fatto il suo lavoro, la riga non serve più.
+      await app.db.delete(desktopHandoffs).where(eq(desktopHandoffs.id, handoff.id));
       await recordSecurityEvent(app.db, { kind: "login", user });
       // Il nome è quello confermato nel browser, non quello dello scambio.
       const { id: patId, token } = await createPatForUser(

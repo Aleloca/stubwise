@@ -235,7 +235,18 @@ export async function loadTaskViews(
 
   const [followers, links, files, jobs, requests] = await Promise.all([
     db.select().from(ticketFollowers).where(inArray(ticketFollowers.ticketId, ids)),
-    db.select().from(ticketLinks).where(inArray(ticketLinks.sourceTicketId, ids)).orderBy(asc(ticketLinks.createdAt)),
+    // Solo i collegamenti verso task che chi guarda vede: l'id di una task
+    // invisibile non esce nemmeno come riferimento (come in `stallsOf`).
+    db
+      .select({
+        sourceTicketId: ticketLinks.sourceTicketId,
+        targetTicketId: ticketLinks.targetTicketId,
+        kind: ticketLinks.kind,
+      })
+      .from(ticketLinks)
+      .innerJoin(tickets, eq(tickets.id, ticketLinks.targetTicketId))
+      .where(and(inArray(ticketLinks.sourceTicketId, ids), ...(visible ? [visible] : [])))
+      .orderBy(asc(ticketLinks.createdAt)),
     db
       .select({ id: attachments.id, ticketId: attachments.ticketId, name: attachments.filename, sizeBytes: attachments.sizeBytes })
       .from(attachments)
