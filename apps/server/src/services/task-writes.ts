@@ -57,6 +57,7 @@ export type TaskWriteError =
   | "assignee_not_found"
   | "milestone_cross_project"
   | "request_not_found"
+  | "request_not_convertible"
   | "past_week";
 
 export type TaskWriteResult = { ok: true; task: TaskViewData } | { ok: false; error: TaskWriteError };
@@ -140,14 +141,29 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
   if (await isPastWeek(db, null, body.plannedWeek)) return { ok: false, error: "past_week" };
   if (body.requestId) {
     const [item] = await db
-      .select({ projectId: backlogItems.projectId })
+      .select({ projectId: backlogItems.projectId, status: backlogItems.status })
       .from(backlogItems)
       .where(eq(backlogItems.id, body.requestId));
     if (item?.projectId !== body.projectId) return { ok: false, error: "request_not_found" };
+    // Come nel prototipo: una voce già convertita o archiviata non si converte.
+    if (item.status === "converted" || item.status === "archived") return { ok: false, error: "request_not_convertible" };
     // Trasformare una richiesta chiede `tickets.create` (lo verifica la
     // rotta): «crea una task da zero o da una richiesta», design dell'area 2.
   }
   const ticketId = await db.transaction(async (tx) => {
+    if (body.requestId) {
+      // La richiesta diventa `converted` per PRIMA cosa (fix della fetta 3,
+      // la claim di `convertBacklogItem`): due conversioni concorrenti si
+      // serializzano sulla riga della voce, e la seconda esce senza aver
+      // creato niente. La sua sessione di refinement si chiude.
+      const claimed = await tx
+        .update(backlogItems)
+        .set({ status: "converted" })
+        .where(and(eq(backlogItems.id, body.requestId), notInArray(backlogItems.status, ["converted", "archived"])))
+        .returning({ id: backlogItems.id });
+      if (claimed.length === 0) return null;
+      await closeRefineSessionForItem(tx, body.requestId);
+    }
     const departmentId = body.departmentId ?? (await firstDepartmentOf(tx, viewer.id));
     const [firstTodo] = await tx
       .select({ id: projectStatuses.id })
@@ -182,19 +198,10 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
         .insert(backlogItemTickets)
         .values({ itemId: body.requestId, ticketId: ticket.id, role: "converted_to" })
         .onConflictDoNothing();
-      // La richiesta è trasformata (fix della fetta 3, come nel prototipo e in
-      // `convertBacklogItem`): `converted`, se non lo è già o non è
-      // archiviata, e la sua sessione di refinement si chiude. Così non torna
-      // in «Da decidere».
-      const claimed = await tx
-        .update(backlogItems)
-        .set({ status: "converted" })
-        .where(and(eq(backlogItems.id, body.requestId), notInArray(backlogItems.status, ["converted", "archived"])))
-        .returning({ id: backlogItems.id });
-      if (claimed.length > 0) await closeRefineSessionForItem(tx, body.requestId);
     }
     return ticket.id;
   });
+  if (ticketId === null) return { ok: false, error: "request_not_convertible" };
   return { ok: true, task: await viewOf(db, viewer, ticketId) };
 }
 

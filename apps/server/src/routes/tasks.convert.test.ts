@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { backlogItemTickets, backlogItems } from "@stubwise/db";
+import { backlogItemTickets, backlogItems, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedBacklogItem, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { requestToConvertViewSchema } from "@stubwise/shared";
@@ -14,7 +14,7 @@ import { addMember, createUserWithSession } from "../test/fixtures.js";
  * Fix della fetta 3: trasformare una richiesta in task (`POST /api/tasks` con
  * `requestId`) la segna `converted`, come nel prototipo e come
  * `POST /api/backlog/:id/convert`; così non torna in «Da decidere». Una voce
- * già archiviata non cambia stato. Il permesso è `tickets.create` («crea una
+ * già convertita o archiviata non si converte (409, come nel prototipo). Il permesso è `tickets.create` («crea una
  * task da zero o da una richiesta», design dell'area 2).
  */
 
@@ -64,12 +64,17 @@ describe("POST /api/tasks con requestId (fix fetta 3)", () => {
     expect(list.some((r) => r.id === itemId)).toBe(false);
   });
 
-  it("una voce archived non cambia stato (la task nasce comunque, collegata)", async () => {
-    const { itemId } = await seedBacklogItem(testDb.db, { projectId, status: "archived" });
-    const res = await convert(itemId, dev.headers.cookie, "Da archiviata");
-    expect(res.statusCode, res.body).toBe(201);
-    expect(await statusOf(itemId)).toBe("archived");
-    expect(await testDb.db.select().from(backlogItemTickets).where(eq(backlogItemTickets.itemId, itemId))).toHaveLength(1);
+  it("una voce archived o già converted → 409 request_not_convertible e nessuna task (come nel prototipo)", async () => {
+    for (const status of ["archived", "converted"] as const) {
+      const { itemId } = await seedBacklogItem(testDb.db, { projectId, status });
+      const title = `Da ${status}`;
+      const res = await convert(itemId, dev.headers.cookie, title);
+      expect(res.statusCode, status).toBe(409);
+      expect(res.json()).toMatchObject({ code: "request_not_convertible" });
+      expect(await statusOf(itemId)).toBe(status);
+      expect(await testDb.db.select().from(tickets).where(eq(tickets.title, title))).toHaveLength(0);
+      expect(await testDb.db.select().from(backlogItemTickets).where(eq(backlogItemTickets.itemId, itemId))).toHaveLength(0);
+    }
   });
 
   it("un Contributor con tickets.create converte e la voce è converted (il permesso è tickets.create, come nel design)", async () => {
