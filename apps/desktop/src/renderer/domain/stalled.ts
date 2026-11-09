@@ -1,18 +1,13 @@
 import { TODAY } from "../data/seed/dates";
+import { stallOf as sharedStallOf, type Stall } from "@stubwise/shared";
 import type { DecisionRequest, Project, StallReason, StatusFamily, Task } from "../data/model";
 import { blockerIdsOf } from "./links";
-import { compareWeeks, currentWeek } from "./weeks";
 
 // Il tipo sta in `data/model.ts` (area 10b, P5): lo legge anche la risposta di Claude.
 export type { StallReason };
-
-export interface Stall {
-  reason: StallReason;
-  /** Quando è iniziata la causa (ISO, data o data-ora). */
-  since: string;
-  /** Giorni interi da `since` a `TODAY`. */
-  days: number;
-}
+// La regola sta in `@stubwise/shared` (integrazione area 2): la usa anche il
+// server. Questo modulo costruisce l'ingresso dalla `Task` del prototipo.
+export type { Stall };
 
 export interface StallContext {
   /** Famiglia dello stato della task. */
@@ -25,63 +20,38 @@ export interface StallContext {
   thresholds: Project["stallThresholds"];
 }
 
-function daysSince(since: string): number {
-  const from = Date.parse(`${since.slice(0, 10)}T00:00:00Z`);
-  const to = Date.parse(`${TODAY}T00:00:00Z`);
-  return Math.round((to - from) / 86_400_000);
-}
-
 /**
  * Perché una task è ferma, in ordine di precedenza: segnalazione manuale,
  * decisione pendente, domanda di Claude, bloccante aperta, senza assegnatario,
- * inattività. Una task chiusa non è mai ferma.
+ * inattività. Una task chiusa non è mai ferma. Regola: `stallOf` di
+ * `@stubwise/shared`, con oggi = `TODAY` del prototipo.
  */
 export function stallOf(task: Task, ctx: StallContext): Stall | null {
-  if (ctx.family === "closed") return null;
-  const stall = (reason: StallReason, since: string): Stall => ({
-    reason,
-    since,
-    days: daysSince(since),
-  });
-
-  if (task.manualStall) {
-    const { reason, note, since } = task.manualStall;
-    return stall({ kind: "manual", reason, note }, since);
-  }
-
-  const oldestOpen = ctx.openDecisions
+  const openDecisions = ctx.openDecisions
     .filter((d) => d.taskId === task.id && d.answer === null && d.withdrawnAt === null)
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))[0];
-  if (oldestOpen) {
-    return stall({ kind: "decision", personId: oldestOpen.askedOfId }, oldestOpen.createdAt);
-  }
-
-  if (task.claude === "awaiting_answer") {
-    return stall({ kind: "claude_question" }, task.lastActivityAt);
-  }
-
+    .map((d) => ({ askedOfId: d.askedOfId, createdAt: d.createdAt }));
   // Le bloccanti sono le task che tengono una riga «blocks» verso questa (`domain/links.ts`).
-  for (const blockerId of blockerIdsOf(task.id, ctx.tasksById.values())) {
-    const blocker = ctx.tasksById.get(blockerId)!;
-    if (ctx.familyOf(blocker) !== "closed") {
-      return stall({ kind: "blocked_by", taskId: blockerId }, task.lastActivityAt);
-    }
-  }
-
-  if (
-    task.assigneeId === null &&
-    (ctx.family === "active" ||
-      (task.plannedWeek !== null && compareWeeks(task.plannedWeek, currentWeek()) <= 0))
-  ) {
-    return stall({ kind: "unassigned" }, task.lastActivityAt);
-  }
-
-  const idleDays = daysSince(task.lastActivityAt);
-  if (ctx.family === "active" && idleDays > ctx.thresholds.activeDays) {
-    return stall({ kind: "idle" }, task.lastActivityAt);
-  }
-  if (ctx.family === "todo" && task.slipCount >= 1 && idleDays > ctx.thresholds.todoDays) {
-    return stall({ kind: "idle" }, task.lastActivityAt);
-  }
-  return null;
+  const blockers = [...blockerIdsOf(task.id, ctx.tasksById.values())].map((id) => {
+    const blocker = ctx.tasksById.get(id)!;
+    return { id, family: ctx.familyOf(blocker), since: blocker.lastActivityAt };
+  });
+  return sharedStallOf(
+    {
+      id: task.id,
+      assigneeId: task.assigneeId,
+      manualStall: task.manualStall,
+      links: task.links,
+      lastActivityAt: task.lastActivityAt,
+      plannedWeek: task.plannedWeek,
+      slipCount: task.slipCount,
+    },
+    {
+      family: ctx.family,
+      openDecisions,
+      claudeQuestionSince: task.claude === "awaiting_answer" ? task.lastActivityAt : null,
+      blockers,
+      thresholds: ctx.thresholds,
+    },
+    TODAY,
+  );
 }
