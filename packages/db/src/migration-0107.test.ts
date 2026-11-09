@@ -11,7 +11,6 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Db } from "./client.js";
-import { projects } from "./schema.js";
 import { expectSqlState } from "./testing.js";
 
 /**
@@ -98,10 +97,12 @@ describe("migrazione 0107: codici di progetto e reparti", () => {
   });
 
   it("un progetto nuovo senza codice ne riceve uno disambiguato", async () => {
-    const [row] = await db
-      .insert(projects)
-      .values({ name: "Altro", slug: "stubwise-3", ingestionKey: randomUUID() })
-      .returning({ code: projects.code });
+    // SQL grezzo: il DB è fermo alla 0107, uno schema Drizzle più nuovo
+    // nominerebbe colonne che qui non esistono ancora.
+    const [row] = await db.execute<{ code: string }>(sql`
+      insert into "projects" ("name", "slug", "ingestion_key")
+      values ('Altro', 'stubwise-3', ${randomUUID()}) returning "code"
+    `);
     expect(row!.code).toBe("STU3");
   });
 

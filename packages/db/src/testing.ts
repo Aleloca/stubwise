@@ -10,6 +10,7 @@ import { createDb, runMigrations, type Db } from "./client.js";
 import {
   backlogItems,
   commitSummaries,
+  decisionRequests,
   departmentMembers,
   departments,
   emailMessages,
@@ -428,4 +429,22 @@ export async function firstStatusOf(
     .limit(1);
   if (!row) throw new Error(`nessuno stato ${family} nel progetto ${projectId}`);
   return row.id;
+}
+
+/** Una richiesta di decisione aperta su una task (0109). */
+export async function seedDecisionRequest(
+  db: Db,
+  opts: { ticketId: string; askedOfUserId: string; askedByUserId?: string | null; options?: string[]; question?: string },
+): Promise<{ id: string }> {
+  const [row] = await db
+    .insert(decisionRequests)
+    .values({
+      ticketId: opts.ticketId,
+      askedOfUserId: opts.askedOfUserId,
+      askedByUserId: opts.askedByUserId ?? null,
+      question: opts.question ?? "Quale delle due?",
+      options: opts.options ?? [],
+    })
+    .returning({ id: decisionRequests.id });
+  return { id: row!.id };
 }

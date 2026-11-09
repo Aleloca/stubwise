@@ -664,6 +664,10 @@ export const projects = pgTable(
     // funzionano). Il contatore NON si salva: lo deriva
     // `autoRoundsInCurrentSeries` (@stubwise/notifications).
     prCorrectionMaxRounds: integer("pr_correction_max_rounds").notNull().default(3),
+    // Soglie «ferma» (0109): giorni senza attività dopo cui una task active o
+    // todo (pianificata) è ferma. 1..90, default 7/14 come nel prototipo.
+    stallActiveDays: integer("stall_active_days").notNull().default(7),
+    stallTodoDays: integer("stall_todo_days").notNull().default(14),
   },
   () => [
     // Sotto 1 giorno il pulse diventerebbe un ping continuo, sopra 30 un
@@ -675,6 +679,8 @@ export const projects = pgTable(
       sql`pr_correction_max_rounds BETWEEN 0 AND 10`,
     ),
     check("projects_code_format_chk", sql`code ~ '^[A-Z][A-Z0-9]{1,5}$'`),
+    check("projects_stall_active_days_chk", sql`stall_active_days BETWEEN 1 AND 90`),
+    check("projects_stall_todo_days_chk", sql`stall_todo_days BETWEEN 1 AND 90`),
   ],
 );
 
@@ -877,6 +883,20 @@ export const tickets = pgTable(
       .$defaultFn(() => sql`default`),
     // Quando la task è entrata nella famiglia `closed` (trigger); null se aperta.
     closedAt: timestamp("closed_at", { withTimezone: true }),
+    // Reparto (0109). NOT NULL nel DB ma opzionale all'insert: senza, il
+    // trigger `tickets_default_department` mette il ripiego. RESTRICT: un
+    // reparto con task non si elimina senza spostarle.
+    departmentId: uuid("department_id")
+      .notNull()
+      .references((): AnyPgColumn => departments.id, { onDelete: "restrict" })
+      .$defaultFn(() => sql`default`),
+    // «Segna ferma» a mano (0109): motivo e data insieme o nessuno dei due.
+    manualStallReason: text("manual_stall_reason"),
+    manualStallNote: text("manual_stall_note"),
+    manualStallSince: timestamp("manual_stall_since", { withTimezone: true }),
+    manualStallByUserId: uuid("manual_stall_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     source: ticketSource("source").notNull(),
     // Stima di sforzo 1–5 prodotta dal triage AI (null finché non triagiato).
     // Alimenta il gate di automazione (auto-fix solo se effort <= maxEffort).
@@ -936,6 +956,72 @@ export const tickets = pgTable(
     index("tickets_milestone_id_idx").on(table.milestoneId),
     // Ricerca full-text sul vettore generato.
     index("tickets_search_tsv_idx").using("gin", table.searchTsv),
+    index("tickets_status_id_idx").on(table.statusId),
+    index("tickets_department_id_idx").on(table.departmentId),
+    check(
+      "tickets_manual_stall_chk",
+      sql`(manual_stall_reason IS NULL) = (manual_stall_since IS NULL)`,
+    ),
+  ],
+);
+
+/**
+ * Chi segue una task (0109): riceve le notifiche `ticket.activity`. Chi crea e
+ * chi è assegnato seguono in automatico dall'app nuova, da ora in avanti.
+ */
+export const ticketFollowers = pgTable(
+  "ticket_followers",
+  {
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "ticket_followers_pk", columns: [table.ticketId, table.userId] }),
+    index("ticket_followers_user_idx").on(table.userId),
+  ],
+);
+
+/**
+ * Richieste di decisione (0109): una persona chiede a un'altra di decidere su
+ * una task (domanda, opzioni facoltative, «Altro…»). Chiusa da una risposta
+ * (indice OPPURE testo) o da un ritiro, mai da entrambi. Non entra nel
+ * registro decisioni in automatico.
+ */
+export const decisionRequests = pgTable(
+  "decision_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    askedByUserId: uuid("asked_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    askedOfUserId: uuid("asked_of_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    question: text("question").notNull(),
+    options: text("options").array().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+    answerOptionIndex: integer("answer_option_index"),
+    answerText: text("answer_text"),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    answeredByUserId: uuid("answered_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    index("decision_requests_ticket_idx").on(table.ticketId, table.createdAt),
+    index("decision_requests_open_target_idx")
+      .on(table.askedOfUserId)
+      .where(sql`answered_at IS NULL AND withdrawn_at IS NULL`),
+    check("decision_requests_question_chk", sql`length(question) BETWEEN 1 AND 2000`),
+    check("decision_requests_options_chk", sql`cardinality(options) <= 8`),
+    check("decision_requests_closed_once_chk", sql`answered_at IS NULL OR withdrawn_at IS NULL`),
   ],
 );
 
