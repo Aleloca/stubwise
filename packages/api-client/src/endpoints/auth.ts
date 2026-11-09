@@ -1,11 +1,15 @@
 import {
   authUserResponseSchema,
   languageResponseSchema,
+  desktopExchangeResponseSchema,
+  desktopHandoffResponseSchema,
   mobileLoginResponseSchema,
   sessionResponseSchema,
   setupStatusSchema,
 } from "@stubwise/shared";
 import type {
+  DesktopExchangeInput,
+  DesktopHandoffInput,
   Reader,
   AuthUserResponse,
   Language,
@@ -57,6 +61,20 @@ export function createAuthEndpoints(request: ApiRequest) {
      */
     mobileLogin(credentials: MobileLoginInput): Promise<Reader<MobileLoginResponse>> {
       return request("POST", "/api/auth/mobile-login", credentials, mobileLoginResponseSchema);
+    },
+
+    /**
+     * Login del desktop dal browser, passo 2: dalla pagina `/app` con una
+     * sessione COMPLETA, dopo il clic di conferma, il codice monouso da
+     * passare all'app (`stubwise://auth?code=…`). Mai in automatico.
+     */
+    desktopHandoff(body: DesktopHandoffInput): Promise<Reader<{ code: string }>> {
+      return request("POST", "/api/auth/desktop-handoff", body, desktopHandoffResponseSchema);
+    },
+
+    /** Passo 3, dal desktop: codice + verifier PKCE → il token `kind = 'desktop'`. */
+    desktopExchange(body: DesktopExchangeInput): Promise<Reader<MobileLoginResponse>> {
+      return request("POST", "/api/auth/desktop-exchange", body, desktopExchangeResponseSchema);
     },
 
     logout(): Promise<void> {

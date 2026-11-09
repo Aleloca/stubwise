@@ -19,6 +19,8 @@ interface CollectedRoute {
   kind?: string;
   /** `config.reauth`, se dichiarato. */
   reauth?: true | "setup_allowed";
+  /** `config.credentialDoor`, se dichiarato. */
+  credentialDoor?: true;
 }
 
 /**
@@ -42,6 +44,7 @@ function collect(route: RouteOptions, into: Map<string, CollectedRoute>): void {
       hasAccess: (prev?.hasAccess ?? false) || hasAccess,
       kind: access?.kind ?? prev?.kind,
       reauth: route.config?.reauth ?? prev?.reauth,
+      credentialDoor: route.config?.credentialDoor ?? prev?.credentialDoor,
     });
   }
 }
@@ -87,6 +90,23 @@ describe("rotte della sessione parziale", () => {
       "POST /api/auth/second-factor/passkey/options",
       "POST /api/auth/second-factor/passkey/verify",
       "POST /api/auth/second-factor/verify",
+    ]);
+  });
+});
+
+describe("porte che danno una sessione o un token", () => {
+  /**
+   * Ogni porta da cui si entra con le credenziali e si esce con una sessione
+   * o un token passa dal secondo fattore (`docs/invariants/second-factor.md`).
+   * La porta si DICHIARA (`config.credentialDoor`) e l'elenco è chiuso: una
+   * porta nuova compare nel diff di questo test, e la review la vede.
+   */
+  it("le porte sono ESATTAMENTE queste", async () => {
+    const doors = (await registeredRoutes()).filter((r) => r.credentialDoor).map((r) => r.key);
+    expect(doors.sort()).toEqual([
+      "POST /api/auth/desktop-exchange",
+      "POST /api/auth/login",
+      "POST /api/auth/mobile-login",
     ]);
   });
 });

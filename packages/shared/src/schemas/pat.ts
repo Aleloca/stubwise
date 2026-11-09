@@ -118,3 +118,42 @@ export const mobileLoginResponseSchema = z.object({
   user: sessionUserSchema,
 });
 export type MobileLoginResponse = z.infer<typeof mobileLoginResponseSchema>;
+
+/**
+ * Login del desktop dal browser (integrazione area 2, 9 nov 2026): il nome
+ * del Mac, con le regole di `deviceName` di `mobile-login` ma al più 60
+ * caratteri, così `Desktop · <nome>` resta leggibile.
+ */
+const desktopDeviceNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .refine((v) => !DEVICE_NAME_FORBIDDEN.test(v), {
+    message: "deviceName must not contain line breaks or bidirectional formatting characters",
+  });
+
+/** `base64url(SHA-256(verifier))`: 43 caratteri (RFC 7636, metodo S256). */
+const codeChallengeSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+
+/** Corpo di `POST /api/auth/desktop-handoff` (dal browser, con una sessione completa). */
+export const desktopHandoffBodySchema = z.object({
+  codeChallenge: codeChallengeSchema,
+  deviceName: desktopDeviceNameSchema,
+});
+export type DesktopHandoffInput = z.infer<typeof desktopHandoffBodySchema>;
+
+/** Il codice monouso che il browser passa al desktop (`stubwise://auth?code=…`). */
+export const desktopHandoffResponseSchema = z.object({ code: z.string() });
+
+/** Corpo di `POST /api/auth/desktop-exchange` (dal desktop, senza sessione). */
+export const desktopExchangeBodySchema = z.object({
+  code: z.string().min(1).max(128),
+  /** RFC 7636: 43–128 caratteri non riservati. */
+  codeVerifier: z.string().regex(/^[A-Za-z0-9._~-]{43,128}$/),
+  deviceName: desktopDeviceNameSchema,
+});
+export type DesktopExchangeInput = z.infer<typeof desktopExchangeBodySchema>;
+
+/** Risposta dello scambio: la stessa forma di `mobile-login`. */
+export const desktopExchangeResponseSchema = mobileLoginResponseSchema;

@@ -785,6 +785,13 @@
       "when": 1794009600000,
       "tag": "0111_ticket_due_date",
       "breakpoints": true
+    },
+    {
+      "idx": 112,
+      "version": "7",
+      "when": 1794096000000,
+      "tag": "0112_desktop_handoff",
+      "breakpoints": true
     }
   ]
 }
