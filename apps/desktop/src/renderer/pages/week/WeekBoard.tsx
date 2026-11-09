@@ -28,6 +28,7 @@ import {
   useDayArrangements,
   useSessionPersonId,
   useSetDay,
+  tasksTruncated,
   useTasks,
 } from "../../data/queries";
 import type { DayArrangement, Task } from "../../data/types";
@@ -78,6 +79,8 @@ export interface MyWeek {
    * questa): la barra si confronta con quella. `null` senza storia.
    */
   usual: number | null;
+  /** La lista delle mie task è arrivata troncata: nel carico ne manca qualcuna. */
+  truncated: boolean;
 }
 
 /**
@@ -89,7 +92,8 @@ export interface MyWeek {
  */
 export function useMyWeek(week: string): MyWeek {
   const me = useSessionPersonId();
-  const tasks = useTasks({ assigneeIds: [me] });
+  const criteria = useMemo(() => ({ assigneeIds: [me] }), [me]);
+  const tasks = useTasks(criteria);
   const arrangements = useDayArrangements(week);
   return useMemo(() => {
     const mine = (tasks.data ?? []).filter((t) => t.assigneeId === me);
@@ -104,8 +108,9 @@ export function useMyWeek(week: string): MyWeek {
       tasks: inWeek,
       bySlot,
       usual: usualWeekWeight(mine, currentWeek()),
+      truncated: tasksTruncated(criteria, tasks.data),
     };
-  }, [tasks, arrangements, me, week]);
+  }, [tasks, arrangements, me, week, criteria]);
 }
 
 /** «W43 · Oct 19 – Oct 23». */

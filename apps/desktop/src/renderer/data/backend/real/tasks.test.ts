@@ -3,7 +3,7 @@ import { addAttachment } from "./attachments";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, PROJECT_ID, serverTask, TICKET_ID } from "./fakeServer";
 import { addLink, removeLink } from "./taskDetail";
-import { followTask, getTaskByCode, listStalled, listTasks, toStallReason, updateTask } from "./tasks";
+import { forgetTaskCodes, followTask, getTaskByCode, listStalled, listTasks, tasksTruncated, toStallReason, updateTask } from "./tasks";
 
 const OTHER = "55555555-5555-4555-8555-555555555555";
 const ME = "11111111-1111-4111-8111-111111111111";
@@ -27,6 +27,22 @@ describe("le task dal server", () => {
     expect(query.get("projectIds")).toBe(PROJECT_ID);
     // La settimana è della fetta 2; createdById null (nessun autore umano) arriva com'è.
     expect(tasks[0]).toMatchObject({ code: "AUD-12", plannedWeek: null, slipCount: 0, createdById: null });
+  });
+
+  it("tasksTruncated dice se l'ultima lettura di quei criteri era troncata", async () => {
+    installFakeServer({
+      "GET /api/tasks": (req) => ({
+        body: { items: [serverTask()], truncated: !req.path.includes("assigneeIds") },
+      }),
+    });
+    expect(tasksTruncated()).toBe(false);
+    await listTasks();
+    await listTasks({ assigneeIds: [ME] });
+    expect(tasksTruncated()).toBe(true);
+    expect(tasksTruncated({ assigneeIds: [ME] })).toBe(false);
+    // Al cambio di sessione non resta niente della persona di prima.
+    forgetTaskCodes();
+    expect(tasksTruncated()).toBe(false);
   });
 
   it("una task invisibile risponde come una che non c'è: null", async () => {

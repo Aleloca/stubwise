@@ -149,6 +149,9 @@ export function MyWeekPage() {
         <div className="max-w-[320px] min-w-[160px] flex-1">
           {state.status === "ready" && <WeekLoad tasks={data.tasks} usual={data.usual} />}
         </div>
+        {state.status === "ready" && data.truncated && (
+          <p className="shrink-0 text-sm text-ink-muted">{t("week.loadTruncated")}</p>
+        )}
         <span className="ml-auto flex shrink-0 items-center gap-4">
           {state.status === "ready" && <DeptLegend departmentIds={data.tasks.map((x) => x.departmentId)} />}
           {week === now && (

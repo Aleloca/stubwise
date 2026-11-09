@@ -1,3 +1,4 @@
+import { landingSearch } from "../../data/integration";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -140,7 +141,7 @@ function ValidInvite({
             toast.show(t("entry.register.createdSignIn"));
             return;
           }
-          void navigate({ to: "/home", replace: true });
+          void navigate({ to: "/home", search: landingSearch(), replace: true });
           const codes = projects.map((p) => p.code);
           toast.show(
             codes.length

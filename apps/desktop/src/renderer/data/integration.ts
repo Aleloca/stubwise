@@ -15,15 +15,21 @@ export type IntegrationTarget =
   | { kind: "taskView"; name: string }
   | { kind: "feature"; name: string };
 
-/** La fetta 1. Una fetta nuova aggiunge qui le sue voci. */
+/**
+ * Le fette integrate. Una fetta nuova aggiunge qui le sue voci. Fetta 2
+ * (`docs/plans/2026-11-09-integrazione-area2-fetta2-design.md`): il Planning
+ * (trasversale e di progetto), La mia settimana (`/home?view=week`, la
+ * funzione `my-week`: la Home a blocchi resta «in arrivo»), la Timeline e la
+ * settimana pianificata (`planning-week`).
+ */
 const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
-  destination: new Set(["projects"]),
-  projectSection: new Set(["tasks"]),
+  destination: new Set(["projects", "planning"]),
+  projectSection: new Set(["tasks", "planning"]),
   // Stati e soglie del progetto.
   projectSettings: new Set(["statuses"]),
   admin: new Set(["departments"]),
-  taskView: new Set(["list", "board"]),
-  feature: new Set(["notifications", "search", "task-detail", "new-task"]),
+  taskView: new Set(["list", "board", "timeline"]),
+  feature: new Set(["notifications", "search", "task-detail", "new-task", "planning-week", "my-week"]),
 };
 
 export function isIntegrated(target: IntegrationTarget): boolean {
@@ -37,12 +43,22 @@ export function featureIntegrated(name: string): boolean {
 }
 
 /**
+ * Dove si atterra entrando (login, primo avvio, invito, indirizzo vuoto): la
+ * Home, o La mia settimana dove la Home a blocchi non è ancora integrata.
+ */
+export function landingSearch(): { view?: "week" } {
+  return isIntegrated({ kind: "destination", name: "home" }) ? {} : { view: "week" };
+}
+
+/**
  * Il bersaglio di un indirizzo dell'app (la pagina nell'area di lavoro), con
  * la chiave del suo titolo; `null` per un indirizzo che si risolve da solo
- * (l'indice di un progetto o dell'amministrazione, che reindirizzano).
+ * (l'indice di un progetto o dell'amministrazione, che reindirizzano). La
+ * query conta per `/home`: `?view=week` è La mia settimana, non la Home.
  */
 export function integrationTargetOf(
   pathname: string,
+  search: { view?: unknown } = {},
 ): { target: IntegrationTarget; titleKey: string } | null {
   const parts = pathname.split("/").filter(Boolean);
   const [first, second, third] = parts;
@@ -65,6 +81,9 @@ export function integrationTargetOf(
   if (first === "projects") {
     // «Tutti i progetti» (il portafoglio) è della fetta 4; la colonna resta.
     return { target: { kind: "feature", name: "portfolio" }, titleKey: "nav.projects" };
+  }
+  if (first === "home" && search.view === "week") {
+    return { target: { kind: "feature", name: "my-week" }, titleKey: "column.subviews.home.week" };
   }
   return { target: { kind: "destination", name: first }, titleKey: `nav.${first}` };
 }

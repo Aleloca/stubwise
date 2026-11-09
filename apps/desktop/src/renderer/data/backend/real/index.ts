@@ -36,6 +36,7 @@ export {
   getTaskByCode,
   listStalled,
   listTasks,
+  tasksTruncated,
   setManualStall,
   updateTask,
 } from "./tasks";

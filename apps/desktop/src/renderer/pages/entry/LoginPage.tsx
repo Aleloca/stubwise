@@ -1,3 +1,4 @@
+import { landingSearch } from "../../data/integration";
 import { isAppBuild } from "../../data/build";
 import { Navigate, useNavigate } from "@tanstack/react-router";
 import { useRef, useState, type FormEvent } from "react";
@@ -42,13 +43,13 @@ function WebLoginPage() {
   const [finishing, setFinishing] = useState(false);
   const navigate = useNavigate();
 
-  if (stage === "in" && !finishing) return <Navigate to="/home" replace />;
+  if (stage === "in" && !finishing) return <Navigate to="/home" search={landingSearch()} replace />;
 
   return (
     <EntryColumn>
       <LoginSteps
         onFinishing={setFinishing}
-        onDone={() => void navigate({ to: "/home", replace: true })}
+        onDone={() => void navigate({ to: "/home", search: landingSearch(), replace: true })}
       />
     </EntryColumn>
   );

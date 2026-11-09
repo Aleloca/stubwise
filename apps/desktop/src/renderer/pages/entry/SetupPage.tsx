@@ -1,3 +1,4 @@
+import { landingSearch } from "../../data/integration";
 import { useNavigate } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -58,7 +59,7 @@ export function SetupPage() {
           toast.show(t("entry.register.createdSignIn"));
           return;
         }
-        void navigate({ to: "/home", replace: true });
+        void navigate({ to: "/home", search: landingSearch(), replace: true });
         toast.show(t("entry.setup.done"));
       })
       .catch(() => {
@@ -132,7 +133,7 @@ export function SetupPage() {
               className={secondaryButton}
               onClick={() => {
                 resetPrototype();
-                void navigate({ to: "/home", replace: true });
+                void navigate({ to: "/home", search: landingSearch(), replace: true });
               }}
             >
               {t("entry.menu.resetPrototype")}
