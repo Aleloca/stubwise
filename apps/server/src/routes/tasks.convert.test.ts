@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { backlogItemRequesters, backlogItemTickets, backlogItems, tickets } from "@stubwise/db";
+import { backlogItemRequesters, backlogItemTickets, backlogItems, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedBacklogItem, seedRepository, startTestDb } from "@stubwise/db/testing";
 import { requestToConvertViewSchema } from "@stubwise/shared";
@@ -30,6 +30,8 @@ beforeAll(async () => {
   testDb = await startTestDb();
   app = buildApp({ db: testDb.db, sessionSecret: SESSION_SECRET, encryptionKey: randomBytes(32).toString("base64") });
   ({ projectId } = await seedRepository(testDb.db));
+  // Backlog acceso: così «non compare in to-convert» dipende dalla conversione, non dall'interruttore.
+  await testDb.db.update(projects).set({ backlogEnabled: true }).where(eq(projects.id, projectId));
   dev = await createUserWithSession(app, "dev@example.com");
   contributor = await createUserWithSession(app, "contrib@example.com");
   await addMember(app, projectId, dev.id, "developer");
