@@ -300,3 +300,40 @@ describe("ruoli di reparto", () => {
     expect(after.departmentPermissions).toEqual({});
   });
 });
+
+describe("ruoli di reparto solo ai membri (fix fetta 3)", () => {
+  it("una persona che non è nel reparto → 400 invalid_person, e niente scritto", async () => {
+    const d = await department();
+    const outsider = await personIn([]);
+    const res = await call("PUT", `/api/departments/${d}/roles`, users.adminCookie, {
+      roles: [{ userId: outsider.id, permissions: ["department.home.manage"] }],
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_person");
+    expect(await testDb.db.select().from(departmentRoles).where(eq(departmentRoles.departmentId, d))).toHaveLength(0);
+  });
+
+  it("togliere una persona dal reparto (PATCH memberIds) le toglie anche i ruoli in quel reparto", async () => {
+    const d = await department();
+    const p = await personIn([d]);
+    const other = await personIn([d]);
+    expect(
+      (await call("PUT", `/api/departments/${d}/roles`, users.adminCookie, {
+        roles: [
+          { userId: p.id, permissions: ["department.home.manage"] },
+          { userId: other.id, permissions: ["department.home.manage"] },
+        ],
+      })).statusCode,
+    ).toBe(200);
+    const res = await app.inject({
+      method: "PATCH",
+      url: `/api/departments/${d}`,
+      headers: { cookie: users.adminCookie },
+      payload: { memberIds: [other.id] },
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    const left = await testDb.db.select({ u: departmentRoles.userId }).from(departmentRoles).where(eq(departmentRoles.departmentId, d));
+    expect(left.map((r) => r.u)).toEqual([other.id]);
+  });
+});
+
