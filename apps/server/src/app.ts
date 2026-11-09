@@ -62,6 +62,7 @@ import { filterRoutes } from "./routes/filters.js";
 import { homeRoutes } from "./routes/home.js";
 import { requestRoutes } from "./routes/requests.js";
 import { overviewRoutes } from "./routes/overview.js";
+import { projectRequestRoutes } from "./routes/project-requests.js";
 import { decisionRoutes } from "./routes/decisions.js";
 import { projectDocsRoutes } from "./routes/project-docs.js";
 import { projectEnvFileRoutes } from "./routes/project-env-files.js";
@@ -656,6 +657,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(homeRoutes, { prefix: "/api" });
   void app.register(requestRoutes, { prefix: "/api" });
   void app.register(overviewRoutes, { prefix: "/api" });
+  void app.register(projectRequestRoutes, { prefix: "/api" });
   void app.register(decisionRoutes, { prefix: "/api/decisions" });
   // Viste salvate dei filtri della lista ticket: private o condivise.
   void app.register(savedViewRoutes, { prefix: "/api/saved-views" });

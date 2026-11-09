@@ -51,6 +51,7 @@ import {
   fromBody,
 } from "../auth/project-resolvers.js";
 import { convertBacklogItem } from "../services/backlog.js";
+import { applyBacklogMerge, MergeAiError, mergedDocumentOf } from "../services/backlog-merge.js";
 import { backlogVisibleSql } from "../services/backlog-visibility.js";
 export { backlogVisibleSql };
 import {
@@ -61,8 +62,6 @@ import {
 } from "../services/backlog-refine.js";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import { apiError } from "../errors.js";
-import { buildMergeDocumentPrompt } from "./backlog-rag.js";
-import type { ChatUsage } from "./chat-llm.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -243,24 +242,6 @@ function decodeCursor(raw: string): Cursor | null {
   if (!match || !isPlausibleTimestamp(match)) return null;
   if (!z.uuid().safeParse(id).success) return null;
   return { createdAt, id };
-}
-
-/** Accumula lo stream one-shot dell'LLM in una stringa (nessun SSE). */
-async function collectStream(
-  chatLlm: FastifyInstance["chatLlm"],
-  system: string,
-  message: string,
-  usage: ChatUsage,
-): Promise<string> {
-  let text = "";
-  for await (const delta of chatLlm.stream({
-    system,
-    messages: [{ role: "user", content: message }],
-    usage,
-  })) {
-    text += delta;
-  }
-  return text;
 }
 
 export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
@@ -984,6 +965,7 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
           400: errorSchema,
           404: errorSchema,
           409: errorSchema,
+          502: errorSchema,
           503: errorSchema,
           ...authErrorResponses,
         },
@@ -1030,53 +1012,19 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
         }
       }
 
-      // Integrazione dei due documenti (markdown puro, non JSON): FUORI transazione.
-      const mergedDocument = await collectStream(
-        app.chatLlm,
-        buildMergeDocumentPrompt(target, absorbed),
-        "Fondi i due documenti e restituisci il Markdown del documento risultante.",
-        { operation: "backlog_merge", projectId: target.projectId },
-      );
-
-      await app.db.transaction(async (tx) => {
-        // Sposta i link ticket dall'assorbita al target: upsert (onConflictDoNothing
-        // sulla PK composta) per non violare il vincolo se un ticket è già linkato
-        // a entrambe; role invariato. Poi elimina i link dell'assorbita.
-        const links = await tx
-          .select({ ticketId: backlogItemTickets.ticketId, role: backlogItemTickets.role })
-          .from(backlogItemTickets)
-          .where(eq(backlogItemTickets.itemId, id));
-        if (links.length > 0) {
-          await tx
-            .insert(backlogItemTickets)
-            .values(links.map((l) => ({ itemId: targetId, ticketId: l.ticketId, role: l.role })))
-            .onConflictDoNothing({
-              target: [backlogItemTickets.itemId, backlogItemTickets.ticketId],
-            });
-          await tx.delete(backlogItemTickets).where(eq(backlogItemTickets.itemId, id));
+      // Integrazione dei due documenti (markdown puro, non JSON): FUORI
+      // transazione; poi la fusione atomica (`services/backlog-merge.ts`). Se il
+      // modello non risponde non si scrive niente.
+      let mergedDocument: string;
+      try {
+        mergedDocument = await mergedDocumentOf(app.chatLlm, target, absorbed, target.projectId);
+      } catch (error) {
+        if (error instanceof MergeAiError) {
+          return apiError(reply, 502, "merge_failed", "The AI could not merge the two items; nothing was changed");
         }
-
-        // requestCount del target += quello dell'assorbita, letto con una
-        // SUBQUERY dentro la transazione (non il valore pre-LLM: la chiamata
-        // AI è lunga e un intake concorrente può averlo incrementato nel
-        // frattempo); documento fuso.
-        await tx
-          .update(backlogItems)
-          .set({
-            requestCount: sql`${backlogItems.requestCount} + (select bi.request_count from backlog_items bi where bi.id = ${id})`,
-            document: mergedDocument,
-          })
-          .where(eq(backlogItems.id, targetId));
-
-        // Assorbita → archived, con puntatore al superstite.
-        await tx
-          .update(backlogItems)
-          .set({ status: "archived", mergedIntoId: targetId })
-          .where(eq(backlogItems.id, id));
-        // Anche qui è un'archiviazione: chiude la sessione di refinement
-        // dell'assorbita (la voce è in lock dall'UPDATE sopra).
-        await closeRefineSessionForItem(tx, id);
-      });
+        throw error;
+      }
+      await applyBacklogMerge(app.db, id, targetId, mergedDocument);
 
       const updated = await loadBaseItem(app.db, targetId, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "target_not_found", "Target backlog item not found");
