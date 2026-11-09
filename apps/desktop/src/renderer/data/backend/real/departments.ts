@@ -6,8 +6,9 @@ import { appClient } from "./client";
 import { countTasks } from "./tasks";
 
 // Amministrazione → Reparti nella build app (integrazione area 2, fetta 1).
-// Del prototipo entrano nome, colore e membri (design, «Reparti»): i
-// responsabili della Home arrivano con la fetta 3, e sul server un reparto
+// Del prototipo entrano nome, colore e membri (design, «Reparti»), e dalla
+// fetta 3 i responsabili della Home (`department.home.manage`, i ruoli di
+// reparto, senza riconferma: decisione del maintainer). Sul server un reparto
 // non dà permessi di progetto. Le parti del prototipo che giudicano quei
 // permessi (anteprima, escalation, «chi non si può aggiungere») qui sono
 // neutre, e la pagina non le mostra. Nessuna riconferma: il server non la
@@ -47,13 +48,13 @@ async function membersByDepartment(): Promise<Map<string, string[]>> {
  * `taskCount` non si scarica con l'elenco: lo legge il dialogo
  * dell'eliminazione, all'apertura (`countTasks` filtrato per reparto).
  */
-function view(d: ServerDepartment, memberIds: string[]): DepartmentView {
+function view(d: ServerDepartment, memberIds: string[], homeManagerIds: string[]): DepartmentView {
   return {
     id: d.id,
     name: d.name,
     colorToken: d.colorToken,
     memberIds,
-    homeManagerIds: [],
+    homeManagerIds,
     projectPermissions: [],
     taskCount: 0,
     missingToAdd: {},
@@ -62,9 +63,25 @@ function view(d: ServerDepartment, memberIds: string[]): DepartmentView {
   };
 }
 
+/** Chi gestisce la Home di ogni reparto, dai ruoli di reparto. */
+async function homeManagersByDepartment(): Promise<Map<string, string[]>> {
+  const roles = await appClient().departments.roles();
+  const map = new Map<string, string[]>();
+  for (const r of roles) {
+    if (r.permissions.includes(HOME_MANAGE)) map.set(r.departmentId, [...(map.get(r.departmentId) ?? []), r.userId]);
+  }
+  return map;
+}
+
+const HOME_MANAGE = "department.home.manage";
+
 const listDepartments: Admin["listDepartments"] = async () => {
-  const [rows, members] = await Promise.all([appClient().departments.list(), membersByDepartment()]);
-  return rows.map((d) => view(d as ServerDepartment, members.get(d.id) ?? []));
+  const [rows, members, managers] = await Promise.all([
+    appClient().departments.list(),
+    membersByDepartment(),
+    homeManagersByDepartment(),
+  ]);
+  return rows.map((d) => view(d as ServerDepartment, members.get(d.id) ?? [], managers.get(d.id) ?? []));
 };
 
 const previewDepartment: Admin["previewDepartment"] = async () => ({
@@ -100,7 +117,11 @@ const updateDepartment: Admin["updateDepartment"] = async (id, patch) => {
   }
 };
 
-/** Salva la bozza del pannello: nome, colore e membri (il resto non c'è nella build app). */
+/**
+ * Salva la bozza del pannello: nome, colore e membri, poi i responsabili della
+ * Home (i ruoli del reparto, sostituiti in blocco). I permessi di progetto dati
+ * dal reparto non ci sono nella build app.
+ */
 const saveDepartment: Admin["saveDepartment"] = async (id, draft) => {
   try {
     await appClient().departments.update(id, {
@@ -110,6 +131,10 @@ const saveDepartment: Admin["saveDepartment"] = async (id, draft) => {
         : {}),
       memberIds: [...new Set(draft.memberIds)],
     });
+    await appClient().departments.setRoles(
+      id,
+      [...new Set(draft.homeManagerIds)].map((userId) => ({ userId, permissions: [HOME_MANAGE] })),
+    );
     return { ok: true };
   } catch (error) {
     return refusalOf(error);

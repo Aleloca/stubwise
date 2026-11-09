@@ -6,6 +6,8 @@ import { presentInboxItem } from "./notifications";
 import { listPeople } from "./people";
 import { getSessionPerson, getViewer, auth } from "./session";
 
+const DEPT = "66666666-6666-4666-8666-666666666666";
+
 beforeEach(() => setAppClientForTests(null));
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -14,13 +16,15 @@ afterEach(() => {
 
 describe("sessione e permessi dal server", () => {
   it("i permessi del viewer vengono dal server, non dedotti", async () => {
-    const { seen } = installFakeServer({ "GET /api/auth/me": { body: me() } });
+    const { seen } = installFakeServer({
+      "GET /api/auth/me": { body: me({ departmentPermissions: { [DEPT]: ["department.home.manage"] } }) },
+    });
     const viewer = await getViewer();
     expect(viewer).toEqual({
       personId: ME_ID,
       instancePermissions: ["users.view_all"],
       projectPermissions: { [PROJECT_ID]: ["tickets.create", "tickets.edit"] },
-      departmentPermissions: {},
+      departmentPermissions: { [DEPT]: ["department.home.manage"] },
     });
     // Nel browser: il cookie del web, nessun bearer dal renderer.
     expect(seen[0]).toMatchObject({ credentials: "include", authorization: null });

@@ -752,11 +752,17 @@ export type GroupBy =
 export interface SavedFilter {
   id: string;
   name: string;
-  ownerId: string;
+  /** `null` sul server vero per i filtri di esempio (di nessuno, modificabili da un full admin). */
+  ownerId: string | null;
   visibility: "private" | "public";
   criteria: FilterCriteria;
   view: TaskView;
   groupBy: GroupBy;
+  /**
+   * Solo sul server vero (fetta 3): chi guarda può modificarlo ed eliminarlo,
+   * calcolato dal server. Assente nel prototipo: decide `canManageFilter`.
+   */
+  canEdit?: boolean;
 }
 
 export type HomeBlockKind =

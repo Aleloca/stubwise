@@ -1805,7 +1805,13 @@
     "emptyMembers": "No one in this project yet",
     "emptyMembersBody": "People appear here once they're members of the project.",
     "emptyDepartment": "No one in this department",
-    "emptyDepartmentBody": "Pick another department, or ask an administrator to add people to this one."
+    "emptyDepartmentBody": "Pick another department, or ask an administrator to add people to this one.",
+    "refused": {
+      "forbidden": "You can't move {{code}}: only its assignee or someone who plans for others can.",
+      "invalid_assignee": "{{code}} can only go to a member of its project.",
+      "past_week": "{{code}} can't be planned in a week that's over.",
+      "not_in_week": "{{code}} isn't in this week any more."
+    }
   },
   "requests": {
     "intro": "Ideas and needs for {{project}}. Anyone on the project can send one; the team decides what becomes a task.",

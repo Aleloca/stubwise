@@ -16,6 +16,7 @@ import { Avatar, PersonChip, personName } from "../../tasks-ui/PersonChip";
 import { FamilySign, StatusLabel } from "../../tasks-ui/StatusLabel";
 import { useToast } from "../../tasks-ui/Toast";
 import { Chevron, MenuButton } from "./controls";
+import { useCurrentWeek } from "../../data/clock";
 
 // Le scelte di un campo di task, come voci di menu: le usano il menu in riga
 // dell'elenco e la barra delle azioni in blocco.
@@ -108,7 +109,7 @@ export function WeekOptions({
   onPick: (week: string | null) => void;
 }) {
   const { t, i18n } = useTranslation();
-  const now = currentWeek();
+  const now = useCurrentWeek();
   return (
     <>
       <RadioItem checked={current === null} onSelect={() => onPick(null)}>

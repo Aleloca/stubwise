@@ -32,6 +32,7 @@ import { ReauthHost } from "./ReauthDialog";
 import { DOCKED_PANEL_QUERY } from "./useDetailPanel";
 import { useMediaQuery } from "./useMediaQuery";
 import { useMenuEvents } from "./useMenuEvents";
+import { useClockRefresh } from "../data/clock";
 
 /**
  * Tre zone: binario | colonna | area di lavoro. Nella terza, accanto alla
@@ -44,6 +45,8 @@ import { useMenuEvents } from "./useMenuEvents";
  */
 export function AppLayout() {
   useMenuEvents();
+  // Al cambio di settimana (orologio della build app) task e pianificazione si rileggono.
+  useClockRefresh();
   useAutomationsLiveRefresh();
   // Prima del primo disegno: le testate su Windows riservano i controlli finestra.
   useLayoutEffect(applyPlatformAttribute, []);

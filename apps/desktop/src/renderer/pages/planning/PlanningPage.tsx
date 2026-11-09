@@ -33,7 +33,7 @@ import {
   type PlanBlock,
   type PlanRights,
 } from "../../domain/planning";
-import { addWeeks, compareWeeks, currentWeek, weekDays } from "../../domain/weeks";
+import { addWeeks, compareWeeks, weekDays } from "../../domain/weeks";
 import { DeptLegend } from "../../layout/DeptStrip";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
@@ -54,7 +54,9 @@ import {
 import { GridSkeleton, PeopleGrid, type GridRow } from "./PeopleGrid";
 import { ChipBody, chipClass } from "./PlanChip";
 import { PlanMenu } from "./PlanMenu";
+import { planRefusalOf } from "./planRefusal";
 import { Unplanned, type PoolGroup } from "./Unplanned";
+import { useCurrentWeek } from "../../data/clock";
 
 /** Le settimane in vista secondo la larghezza della finestra (shape planning.md §6). */
 export const WEEKS_3_QUERY = "(min-width: 1440px)";
@@ -119,7 +121,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   const planTask = usePlanTask();
   const search = useSearch({ strict: false }) as { task?: string };
   const openTask = useOpenTask();
-  const now = currentWeek();
+  const now = useCurrentWeek();
 
   const projectQuery = useProject(projectCode ?? "");
   const project = projectCode ? projectQuery.data ?? undefined : undefined;
@@ -132,7 +134,8 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   // --- vasca: filtri e raggruppamento --------------------------------------
   const [criteria, setCriteria] = useState<FilterCriteria>({});
   const [group, setGroup] = useState<PoolGroup>("department");
-  const pool = useTasks(projectId ? { ...criteria, projectIds: [projectId] } : criteria, {
+  const poolCriteria = projectId ? { ...criteria, projectIds: [projectId] } : criteria;
+  const pool = useTasks(poolCriteria, {
     enabled: !projectCode || !!projectId,
   });
 
@@ -143,7 +146,9 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
 
   // --- settimane in vista ---------------------------------------------------
   const count = useWeekCount();
-  const [start, setStart] = useState(now);
+  // La prima settimana in vista, come distanza da quella corrente: al cambio di settimana si sposta con lei.
+  const [offset, setOffset] = useState(0);
+  const start = addWeeks(now, offset);
   const weeks = useMemo(() => Array.from({ length: count }, (_, i) => addWeeks(start, i)), [start, count]);
   const menuWeeks = useMemo(() => Array.from({ length: MENU_WEEKS }, (_, i) => addWeeks(now, i)), [now]);
 
@@ -284,10 +289,17 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
             },
           );
         },
-        onError: () =>
+        onError: (error) => {
+          // Un rifiuto (regola del server) ha la sua frase e non si riprova.
+          const refusal = planRefusalOf(error);
+          if (refusal) {
+            toast.error(t(`planning.refused.${refusal}`, { code: task.code }));
+            return;
+          }
           toast.error(t("planning.moveFailed", { code: task.code }), {
             action: { label: t("planning.tryAgain"), run: () => plan(task, assigneeId, week, opts) },
-          }),
+          });
+        },
       },
     );
   }
@@ -374,7 +386,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
             type="button"
             className="inline-flex h-7 items-center gap-1 rounded-md px-2 text-xs font-medium text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
             aria-label={t("planning.nav.laterLabel", { week: shortWeek(nextStart) })}
-            onClick={() => setStart(nextStart)}
+            onClick={() => setOffset((o) => o + count)}
           >
             {t("planning.nav.later")}
             <Arrow dir="right" />
@@ -451,7 +463,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
                 className={`${quietButton} disabled:text-ink-faint`}
                 aria-label={t("planning.nav.previousLabel")}
                 disabled={compareWeeks(start, now) <= 0}
-                onClick={() => setStart((w) => addWeeks(w, -1))}
+                onClick={() => setOffset((o) => o - 1)}
               >
                 <Arrow dir="left" />
               </button>
@@ -459,7 +471,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
                 type="button"
                 className={`${quietButton} disabled:text-ink-faint`}
                 disabled={start === now}
-                onClick={() => setStart(now)}
+                onClick={() => setOffset(0)}
               >
                 {t("planning.nav.thisWeek")}
               </button>
@@ -467,7 +479,7 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
                 type="button"
                 className={quietButton}
                 aria-label={t("planning.nav.nextLabel")}
-                onClick={() => setStart((w) => addWeeks(w, 1))}
+                onClick={() => setOffset((o) => o + 1)}
               >
                 <Arrow dir="right" />
               </button>
@@ -476,8 +488,8 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
               <DeptLegend departmentIds={legendIds} />
             </span>
           </div>
-          {/* Il carico si calcola sopra tutte le task che si vedono: se la lista è troncata, lo dice. */}
-          {tasksTruncated(undefined, all.data) && (
+          {/* Carico e vasca si calcolano sopra le task lette: se una delle due liste è troncata, lo dice. */}
+          {(tasksTruncated(undefined, all.data) || tasksTruncated(poolCriteria, pool.data)) && (
             <p className="text-sm text-ink-muted">{t("planning.loadTruncated")}</p>
           )}
         </header>
@@ -555,10 +567,15 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
   );
 }
 
-/** I candidati del menu «Plan»: i membri del progetto della task, Claude per ultimo. */
+/**
+ * I candidati del menu «Plan»: i membri del progetto della task, Claude per
+ * ultimo dove assegnargli una task è integrato (come le righe: nella build app
+ * non ancora).
+ */
 function candidates(task: Task, projects: Map<string, Project>, people: Person[]): Person[] {
   const members = new Set(projects.get(task.projectId)?.memberIds ?? []);
-  return people.filter((p) => members.has(p.id)).sort(byName);
+  const claude = featureIntegrated("claude-assign");
+  return people.filter((p) => members.has(p.id) && (claude || !p.isClaude)).sort(byName);
 }
 
 /** «Oct 19 – Nov 6»: dal lunedì della prima settimana al venerdì dell'ultima. */
