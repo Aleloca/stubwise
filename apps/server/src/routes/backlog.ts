@@ -20,10 +20,11 @@ import { and, asc, desc, eq, ilike, inArray, notInArray, or, sql, type SQL } fro
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import {
-  hasActionableSuggested,
   removeBacklogItemDesign,
   setBacklogItemDesign,
   setBacklogItemPlan,
+  acceptBacklogItemSuggested,
+  dismissBacklogItemSuggested,
   updateBacklogItemMetadata,
 } from "@stubwise/notifications";
 import { z } from "zod";
@@ -118,15 +119,6 @@ const baseColumns = {
   createdAt: backlogItems.createdAt,
   updatedAt: backlogItems.updatedAt,
 } as const;
-
-/** Campi della voce modificabili via update (mai `embedding`/`document` da qui). */
-type ItemUpdate = Partial<
-  Pick<
-    typeof backlogItems.$inferInsert,
-    "title" | "status" | "effort" | "risk" | "riskNote" | "urgency" | "suggested"
-  >
->;
-
 
 /**
  * {@link backlogVisibleSql} nel progetto della rotta: serve a non far
@@ -793,25 +785,12 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const [current] = await app.db
-        .select({ suggested: backlogItems.suggested })
-        .from(backlogItems)
-        .where(eq(backlogItems.id, id));
-      if (!current) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      // Lo scrittore sta in `backlog-item-writes.ts`, con la voce in lock.
       // Simmetrico al PATCH: senza metadati azionabili (un `reason` orfano non
       // conta) non c'è nulla da accettare.
-      if (!hasActionableSuggested(current.suggested)) {
-        return apiError(reply, 409, "no_suggested", "No suggested metadata to accept");
-      }
-
-      const s = current.suggested;
-      const updates: ItemUpdate = { suggested: null };
-      if (s.effort !== undefined) updates.effort = s.effort;
-      if (s.risk !== undefined) updates.risk = s.risk;
-      if (s.riskNote !== undefined) updates.riskNote = s.riskNote;
-      if (s.urgency !== undefined) updates.urgency = s.urgency;
-
-      await app.db.update(backlogItems).set(updates).where(eq(backlogItems.id, id));
+      const res = await acceptBacklogItemSuggested(app.db, id);
+      if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      if (res === "no_suggested") return apiError(reply, 409, "no_suggested", "No suggested metadata to accept");
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       // La voce può sparire tra l'update e la rilettura (race con una delete).
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
@@ -837,16 +816,9 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { id } = request.params;
-      const [current] = await app.db
-        .select({ suggested: backlogItems.suggested })
-        .from(backlogItems)
-        .where(eq(backlogItems.id, id));
-      if (!current) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
-      if (!current.suggested) {
-        return apiError(reply, 409, "no_suggested", "No suggested metadata to dismiss");
-      }
-
-      await app.db.update(backlogItems).set({ suggested: null }).where(eq(backlogItems.id, id));
+      const res = await dismissBacklogItemSuggested(app.db, id);
+      if (res === "not_found") return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");
+      if (res === "no_suggested") return apiError(reply, 409, "no_suggested", "No suggested metadata to dismiss");
       const updated = await loadBaseItem(app.db, id, itemVisibility(request));
       // La voce può sparire tra l'update e la rilettura (race con una delete).
       if (!updated) return apiError(reply, 404, "backlog_item_not_found", "Backlog item not found");

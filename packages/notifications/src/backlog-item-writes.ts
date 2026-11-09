@@ -144,3 +144,74 @@ export async function updateBacklogItemMetadata(
     return "ok" as const;
   });
 }
+
+/** Gli stati in cui una voce è in sola lettura per descrizione, metadati e proposte (app nuova, fetta 4). */
+const READ_ONLY_STATUSES: readonly BacklogItemStatus[] = ["converted", "archived"];
+
+/**
+ * La DESCRIZIONE di una richiesta (integrazione area 2, fetta 4,
+ * `updateRequest` del prototipo): il testo della richiesta. Se un design ha
+ * sostituito il corpo (`origin_content` valorizzato), la descrizione è il
+ * corpo ORIGINALE e il design resta com'è; altrimenti è il corpo. Con
+ * `readOnlyClosed` una voce trasformata o archiviata risponde `read_only`.
+ */
+export async function setBacklogItemDescription(
+  db: DbOrTx,
+  itemId: string,
+  description: string,
+  opts: { readOnlyClosed?: boolean } = {},
+): Promise<"ok" | "not_found" | "read_only"> {
+  return inTx(db, async (tx) => {
+    const item = await lockItem(tx, itemId);
+    if (!item) return "not_found" as const;
+    if (opts.readOnlyClosed && READ_ONLY_STATUSES.includes(item.status)) return "read_only" as const;
+    await tx
+      .update(backlogItems)
+      .set(item.originContent !== null ? { originContent: description } : { document: description })
+      .where(eq(backlogItems.id, itemId));
+    return "ok" as const;
+  });
+}
+
+/**
+ * Accetta le proposte dell'intake: i metadati suggeriti diventano quelli della
+ * voce e `suggested` si azzera. `no_suggested` senza metadati azionabili (un
+ * `reason` orfano non conta). Con `readOnlyClosed` una voce trasformata o
+ * archiviata risponde `read_only`.
+ */
+export async function acceptBacklogItemSuggested(
+  db: DbOrTx,
+  itemId: string,
+  opts: { readOnlyClosed?: boolean } = {},
+): Promise<"ok" | "not_found" | "no_suggested" | "read_only"> {
+  return inTx(db, async (tx) => {
+    const item = await lockItem(tx, itemId);
+    if (!item) return "not_found" as const;
+    if (opts.readOnlyClosed && READ_ONLY_STATUSES.includes(item.status)) return "read_only" as const;
+    if (!hasActionableSuggested(item.suggested)) return "no_suggested" as const;
+    const s = item.suggested;
+    const updates: ItemUpdate = { suggested: null };
+    if (s.effort !== undefined) updates.effort = s.effort;
+    if (s.risk !== undefined) updates.risk = s.risk;
+    if (s.riskNote !== undefined) updates.riskNote = s.riskNote;
+    if (s.urgency !== undefined) updates.urgency = s.urgency;
+    await tx.update(backlogItems).set(updates).where(eq(backlogItems.id, itemId));
+    return "ok" as const;
+  });
+}
+
+/** Scarta le proposte dell'intake senza applicarle. `no_suggested` se non ce ne sono. */
+export async function dismissBacklogItemSuggested(
+  db: DbOrTx,
+  itemId: string,
+  opts: { readOnlyClosed?: boolean } = {},
+): Promise<"ok" | "not_found" | "no_suggested" | "read_only"> {
+  return inTx(db, async (tx) => {
+    const item = await lockItem(tx, itemId);
+    if (!item) return "not_found" as const;
+    if (opts.readOnlyClosed && READ_ONLY_STATUSES.includes(item.status)) return "read_only" as const;
+    if (!item.suggested) return "no_suggested" as const;
+    await tx.update(backlogItems).set({ suggested: null }).where(eq(backlogItems.id, itemId));
+    return "ok" as const;
+  });
+}

@@ -46,7 +46,7 @@ export function createRequestsEndpoints(request: ApiRequest) {
     job(jobId: string): Promise<Reader<RequestJobView>> {
       return request("GET", `/api/requests/jobs/${seg(jobId)}`, undefined, requestJobViewSchema);
     },
-    /** Titolo e metadati; su una trasformata o archiviata i metadati → 409. */
+    /** Titolo, descrizione e metadati; su una trasformata o archiviata (salvo il titolo) → 409. */
     update(id: string, patch: RequestPatchBody): Promise<Reader<ProjectRequestView>> {
       return one("PATCH", `/api/requests/${seg(id)}`, patch);
     },
@@ -60,6 +60,14 @@ export function createRequestsEndpoints(request: ApiRequest) {
     /** L'«Annulla» di un'archiviazione a mano: torna allo stato aperto di prima. */
     restore(id: string, status: "new" | "refining" | "ready"): Promise<Reader<ProjectRequestView>> {
       return one("POST", `/api/requests/${seg(id)}/restore`, { status });
+    },
+    /** Accetta le proposte dell'intake: diventano i metadati. 409 se non ce ne sono o la richiesta è chiusa. */
+    acceptSuggestions(id: string): Promise<Reader<ProjectRequestView>> {
+      return one("POST", `/api/requests/${seg(id)}/suggestions/accept`);
+    },
+    /** Scarta le proposte dell'intake. */
+    dismissSuggestions(id: string): Promise<Reader<ProjectRequestView>> {
+      return one("POST", `/api/requests/${seg(id)}/suggestions/dismiss`);
     },
     /** Fonde questa richiesta in `intoId`; risponde con la destinazione riscritta. */
     merge(id: string, intoId: string): Promise<Reader<ProjectRequestView>> {

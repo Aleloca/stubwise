@@ -185,6 +185,41 @@ describe("metadati e stati", () => {
   });
 });
 
+describe("descrizione e proposte dell'intake", () => {
+  it("la descrizione si modifica (il corpo, o il testo originale se c'è un design); trasformata o archiviata → 409", async () => {
+    const plain = await item({ document: "Prima" });
+    const res = await call("PATCH", `/api/requests/${plain.id}`, { description: "Dopo" });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(projectRequestViewSchema.parse(res.json())).toMatchObject({ description: "Dopo", design: null });
+    const designed = await item({ originContent: "La richiesta", document: "# Design" });
+    const v = projectRequestViewSchema.parse((await call("PATCH", `/api/requests/${designed.id}`, { description: "La richiesta, riscritta" })).json());
+    expect(v).toMatchObject({ description: "La richiesta, riscritta", design: "# Design" });
+    const archived = await item({ status: "archived" });
+    const refused = await call("PATCH", `/api/requests/${archived.id}`, { description: "No" });
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ code: "request_read_only" });
+    expect((await call("PATCH", `/api/requests/${plain.id}`, { description: "x" }, contributor.headers.cookie)).statusCode).toBe(404);
+  });
+
+  it("accetta le proposte (diventano i metadati) o le scarta; senza proposte 409; su un'archiviata 409", async () => {
+    const a = await item({ suggested: { effort: 2, urgency: "urgent", risk: "low", reason: "Perché sì" } });
+    const before = await view(`/api/requests/${a.id}`);
+    expect(before.suggestions).toEqual({ size: "S", urgency: "high", risk: "low", reason: "Perché sì" });
+    const accepted = await call("POST", `/api/requests/${a.id}/suggestions/accept`);
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    expect(projectRequestViewSchema.parse(accepted.json())).toMatchObject({ size: "S", urgency: "high", urgent: true, risk: "low", suggestions: null });
+    expect((await call("POST", `/api/requests/${a.id}/suggestions/accept`)).statusCode).toBe(409);
+    const b = await item({ suggested: { effort: 5, reason: "No" } });
+    const dismissed = projectRequestViewSchema.parse((await call("POST", `/api/requests/${b.id}/suggestions/dismiss`)).json());
+    expect(dismissed).toMatchObject({ size: null, suggestions: null });
+    expect((await call("POST", `/api/requests/${b.id}/suggestions/dismiss`)).statusCode).toBe(409);
+    const c = await item({ status: "archived", suggested: { effort: 1 } });
+    const refused = await call("POST", `/api/requests/${c.id}/suggestions/accept`);
+    expect(refused.statusCode).toBe(409);
+    expect(refused.json()).toMatchObject({ code: "request_read_only" });
+  });
+});
+
 describe("«Fondi in…» con la riscrittura AI", () => {
   it("fonde: la destinazione ha il documento del modello e i richiedenti di entrambe; la sorgente è archiviata e fusa", async () => {
     mergeOutput = "# Documento fuso dal modello";
