@@ -3,12 +3,14 @@ import {
   comments,
   decisionRequests,
   departments,
+  milestones,
   projectStatuses,
   repositories,
   ticketEvents,
   ticketRepositories,
   tickets,
   projects,
+  users,
 } from "@stubwise/db";
 import {
   decisionRequestViewSchema,
@@ -26,7 +28,7 @@ import {
   type TaskActivityEntryView,
   type TaskWorkView,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -42,6 +44,7 @@ import {
   TASK_LIST_CAP,
 } from "../services/task-view.js";
 import { askDecision } from "../services/decisions.js";
+import { personName } from "../services/people.js";
 import {
   bulkUpdateTasks,
   createTask,
@@ -392,13 +395,16 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       };
       /**
        * Il valore mostrato di un evento: lo stato per nome (vedi sopra), il
-       * reparto per nome (l'id se è stato eliminato), la taglia XS–XL
-       * dall'effort; il resto com'è.
+       * reparto, l'assegnatario e il traguardo per nome (l'id così com'è se
+       * non esistono più), la taglia XS–XL dall'effort; il resto com'è. Si
+       * risolve A LETTURA, quindi vale anche per gli eventi vecchi.
        */
       const valueOf = (kind: string, payload: Record<string, unknown>, side: "from" | "to"): string | null => {
         const raw = payload[side];
         if (kind === "status_changed") return statusName(payload[side === "from" ? "fromStatusId" : "toStatusId"], raw);
         if (kind === "department_changed") return typeof raw === "string" ? (departmentName.get(raw) ?? raw) : null;
+        if (kind === "assignee_changed") return typeof raw === "string" ? (userName.get(raw) ?? raw) : null;
+        if (kind === "milestone_changed") return typeof raw === "string" ? (milestoneName.get(raw) ?? raw) : null;
         if (kind === "effort_changed") return typeof raw === "number" ? sizeFromEffort(raw) : null;
         return eventValue(raw);
       };
@@ -413,6 +419,35 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
           .from(decisionRequests)
           .where(eq(decisionRequests.ticketId, ticketId)),
       ]);
+      // Persone e traguardi nominati dagli eventi: UNA query per lista, solo sugli id che compaiono.
+      const idsOf = (kind: string): string[] => [
+        ...new Set(
+          eventRows
+            .filter((e) => e.kind === kind)
+            .flatMap((e) => {
+              const p = (e.payload ?? {}) as Record<string, unknown>;
+              return [p.from, p.to].filter((v): v is string => typeof v === "string" && z.uuid().safeParse(v).success);
+            }),
+        ),
+      ];
+      const assigneeIds = idsOf("assignee_changed");
+      const milestoneIds = idsOf("milestone_changed");
+      const [userRows, milestoneRows] = await Promise.all([
+        assigneeIds.length
+          ? app.db
+              .select({ id: users.id, email: users.email, displayName: users.displayName })
+              .from(users)
+              .where(inArray(users.id, assigneeIds))
+          : [],
+        milestoneIds.length
+          ? app.db
+              .select({ id: milestones.id, name: milestones.name })
+              .from(milestones)
+              .where(inArray(milestones.id, milestoneIds))
+          : [],
+      ]);
+      const userName = new Map(userRows.map((u) => [u.id, personName(u)]));
+      const milestoneName = new Map(milestoneRows.map((m) => [m.id, m.name]));
       const entries: (TaskActivityEntryView & { sortAt: number })[] = [
         ...commentRows.map((c) => ({
           id: c.id,
