@@ -57,6 +57,7 @@ export {
 export { listMilestones, listProjectStatuses, setProjectStatuses, setStallThresholds } from "./statuses";
 export { addAttachment, removeAttachment } from "./attachments";
 export { listDayArrangements, planTask, setDay } from "./planning";
+export { convertRequest, listRequestsToConvert } from "./requests";
 export {
   getPersonalHome,
   listDepartmentHomes,

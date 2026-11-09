@@ -1494,6 +1494,7 @@
       "turnIntoTaskLabel": "Trasforma in task: {{title}}",
       "created": "{{code}} creata dalla richiesta.",
       "openRequest": "Apri la richiesta {{title}}",
+      "openRequestInWeb": "Apri {{title}} nel web",
       "claude": {
         "asks": "Claude chiede",
         "plan": "Il piano di Claude aspetta la tua approvazione",

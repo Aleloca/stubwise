@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
@@ -49,6 +49,22 @@ beforeEach(() => {
     "GET /api/tasks/stalled": { body: [] },
     "GET /api/me/day-arrangements": { body: [] },
     "GET /api/milestones": { body: [] },
+    "GET /api/requests/to-convert": {
+      body: [
+        {
+          id: "33333333-3333-4333-8333-333333333333",
+          code: "AUD-R4",
+          projectId: PROJECT_ID,
+          title: "Export to CSV",
+          status: "new",
+          urgency: "medium",
+          requesterIds: [ME_ID],
+          requestCount: 1,
+          createdAt: "2026-11-01T09:00:00.000Z",
+          webHref: "https://stubwise.example/backlog/33333333-3333-4333-8333-333333333333",
+        },
+      ],
+    },
   });
 });
 
@@ -65,5 +81,20 @@ describe("la Home nella build app", () => {
     expect(await within(tasks).findByText("Export the report")).toBeInTheDocument();
     expect(await screen.findByText("This filter is no longer available")).toBeInTheDocument();
     expect(screen.queryByRole("region", { name: /^Important email/ })).toBeNull();
+  });
+
+  it("«Da decidere»: una richiesta da trasformare si apre nel web (Requests è della fetta 4)", async () => {
+    const open = vi.fn();
+    window.open = open as never;
+    renderRoute("/home");
+    const decide = await screen.findByRole("region", { name: /^Decide/ });
+    expect(await within(decide).findByText("AUD-R4")).toBeInTheDocument();
+    fireEvent.click(within(decide).getByRole("button", { name: "Open Export to CSV in the web" }));
+    expect(open).toHaveBeenCalledWith(
+      "https://stubwise.example/backlog/33333333-3333-4333-8333-333333333333",
+      "_blank",
+      "noopener,noreferrer",
+    );
+    expect(within(decide).getByRole("button", { name: "Turn into task: Export to CSV" })).toBeInTheDocument();
   });
 });
