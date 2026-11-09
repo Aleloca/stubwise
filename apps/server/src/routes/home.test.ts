@@ -367,3 +367,17 @@ describe("«vedi le novità»: la versione vista (fix fetta 3)", () => {
   });
 });
 
+describe("filterId solo sui blocchi filtro (fix fetta 3)", () => {
+  it("un filterId su un blocco che non è un filtro si scarta, nella personale e in quella di reparto", async () => {
+    const p = await personIn([]);
+    const res = await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "myTasks", filterId: "qualcosa" }] });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(meHomeViewSchema.parse(res.json()).personal!.blocks).toContainEqual({ kind: "myTasks" });
+    expect(JSON.stringify(res.json())).not.toContain("qualcosa");
+    const d = await department();
+    const dept = await setDepartmentHome(d, [{ kind: "newRequests", filterId: "altro" }]);
+    expect(dept.statusCode).toBe(200);
+    expect(JSON.stringify(dept.json())).not.toContain("altro");
+  });
+});
+

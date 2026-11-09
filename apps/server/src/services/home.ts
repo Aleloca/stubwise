@@ -237,9 +237,9 @@ export async function departmentPermissionsMap(db: Db, userId: string): Promise<
   return Object.fromEntries(rows.filter((r) => r.permissions.length > 0).map((r) => [r.departmentId, r.permissions]));
 }
 
-/** Solo `kind` e `filterId`: niente campi in più nel jsonb. */
+/** Solo `kind` e, per un blocco filtro, `filterId`: niente campi in più nel jsonb. */
 function stored(b: HomeBlock): StoredHomeBlock {
-  return b.filterId !== undefined ? { kind: b.kind, filterId: b.filterId } : { kind: b.kind };
+  return b.kind === "filter" && b.filterId !== undefined ? { kind: b.kind, filterId: b.filterId } : { kind: b.kind };
 }
 
 /** I filtri nominati da una lista di blocchi: quelli «già noti» di una Home salvata. */
