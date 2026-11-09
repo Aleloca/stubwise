@@ -3,9 +3,11 @@ import { addAttachment } from "./attachments";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, PROJECT_ID, serverTask, TICKET_ID } from "./fakeServer";
 import { addLink, removeLink } from "./taskDetail";
-import { getTaskByCode, listStalled, listTasks, toStallReason, updateTask } from "./tasks";
+import { followTask, getTaskByCode, listStalled, listTasks, toStallReason, updateTask } from "./tasks";
 
 const OTHER = "55555555-5555-4555-8555-555555555555";
+const ME = "11111111-1111-4111-8111-111111111111";
+const ATT = "12121212-1212-4121-8121-121212121212";
 
 beforeEach(() => setAppClientForTests(null));
 afterEach(() => {
@@ -69,10 +71,11 @@ describe("collegamenti e allegati sulle rotte di oggi", () => {
         body: [{ linkId: "l-1", relation: "relates_to", otherTicketId: OTHER }],
       },
       [`DELETE /api/tickets/${TICKET_ID}/links/l-1`]: { status: 204 },
-      [`PATCH /api/tasks/${TICKET_ID}`]: { body: serverTask({ links: [{ kind: "relates", taskId: OTHER }] }) },
+      "GET /api/tasks/by-code/AUD-12": { body: serverTask({ links: [{ kind: "relates", taskId: OTHER }] }) },
     });
+    await getTaskByCode("AUD-12");
     const after = await addLink(TICKET_ID, { kind: "relates", taskId: OTHER });
-    expect(seen[0]!.body).toEqual({ targetTicketId: OTHER, kind: "relates_to" });
+    expect(seen[1]!.body).toEqual({ targetTicketId: OTHER, kind: "relates_to" });
     expect(after.links).toEqual([{ kind: "relates", taskId: OTHER }]);
     await removeLink(TICKET_ID, { kind: "relates", taskId: OTHER });
     expect(seen.map((r) => `${r.method} ${r.path}`)).toContain(`DELETE /api/tickets/${TICKET_ID}/links/l-1`);
@@ -88,5 +91,35 @@ describe("collegamenti e allegati sulle rotte di oggi", () => {
     await expect(
       addAttachment(TICKET_ID, { name: "a.txt", sizeBytes: 4, file: new Blob(["ciao"]) }),
     ).rejects.toThrow("attachments_off");
+  });
+});
+
+describe("rilettura dopo una scrittura dedicata", () => {
+  it("Follow e allegato per chi ha solo tickets.comment: nessun errore, stato aggiornato", async () => {
+    let followed = false;
+    let attached = false;
+    installFakeServer({
+      "GET /api/tasks/by-code/AUD-12": () => ({
+        body: serverTask({
+          followerIds: followed ? [ME] : [],
+          attachments: attached ? [{ id: ATT, name: "a.txt", sizeBytes: 4 }] : [],
+        }),
+      }),
+      // Senza tickets.edit la PATCH è vietata: la rilettura non deve passare da lì.
+      [`PATCH /api/tasks/${TICKET_ID}`]: { status: 403, body: { code: "forbidden", message: "x" } },
+      [`PUT /api/tasks/${TICKET_ID}/follow`]: () => {
+        followed = true;
+        return { status: 204 };
+      },
+      [`POST /api/tickets/${TICKET_ID}/attachments`]: () => {
+        attached = true;
+        return { status: 201, body: {} };
+      },
+    });
+    // Il codice della task lo conosce chi l'ha già letta (il pannello).
+    await getTaskByCode("AUD-12");
+    expect((await followTask(TICKET_ID, true)).followerIds).toEqual([ME]);
+    const after = await addAttachment(TICKET_ID, { name: "a.txt", sizeBytes: 4, file: new Blob(["ciao"]) });
+    expect(after.attachments.map((a) => a.name)).toEqual(["a.txt"]);
   });
 });
