@@ -511,6 +511,57 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     ]);
   });
 
+  it("Requests: requests.list/get/byCode/create/job/update/archive/reopen/restore/merge", async () => {
+    const R = "00000000-0000-4000-8000-0000000000a9";
+    const P = "00000000-0000-4000-8000-0000000000a8";
+    const VIEW = {
+      id: R,
+      code: "STW-R4",
+      projectId: P,
+      title: "Esportare",
+      description: "",
+      status: "new",
+      urgency: null,
+      createdAt: "2026-11-09T10:00:00.000Z",
+      webHref: `/backlog/${R}`,
+    };
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, init!.body ? JSON.parse(init!.body as string) : undefined]);
+      const path = new URL(url as string).pathname;
+      if (path === "/api/requests" && init!.method === "GET") return jsonResponse(200, [VIEW]);
+      if (path === "/api/requests" && init!.method === "POST") return jsonResponse(202, { jobId: R });
+      if (path.startsWith("/api/requests/jobs/")) return jsonResponse(200, { status: "done", outcome: "merged", request: VIEW });
+      return jsonResponse(200, VIEW);
+    });
+    const c = clientWith(fetchImpl);
+    const [listed] = await c.requests.list(P);
+    // Campi assenti da un server più vecchio: i default.
+    expect(listed).toMatchObject({ requesterIds: [], taskIds: [], urgent: false, size: null, mergedIntoCode: null, suggestions: null });
+    await c.requests.get(R);
+    await c.requests.byCode("STW-R4");
+    expect(await c.requests.create({ projectId: P, title: "Esportare", description: "" })).toEqual({ jobId: R });
+    expect((await c.requests.job(R)).outcome).toBe("merged");
+    await c.requests.update(R, { size: "M" });
+    await c.requests.archive(R);
+    await c.requests.reopen(R);
+    await c.requests.restore(R, "ready");
+    await c.requests.merge(R, P);
+    const base = "https://stubwise.example/api/requests";
+    expect(calls).toEqual([
+      ["GET", `${base}?projectId=${P}`, undefined],
+      ["GET", `${base}/${R}`, undefined],
+      ["GET", `${base}/by-code/STW-R4`, undefined],
+      ["POST", base, { projectId: P, title: "Esportare", description: "" }],
+      ["GET", `${base}/jobs/${R}`, undefined],
+      ["PATCH", `${base}/${R}`, { size: "M" }],
+      ["POST", `${base}/${R}/archive`, undefined],
+      ["POST", `${base}/${R}/reopen`, undefined],
+      ["POST", `${base}/${R}/restore`, { status: "ready" }],
+      ["POST", `${base}/${R}/merge`, { intoId: P }],
+    ]);
+  });
+
   it("departments.remove: DELETE con moveTasksTo in query", async () => {
     const fetchImpl = mockFetch(async () => new Response(null, { status: 204 }));
     const client = clientWith(fetchImpl);

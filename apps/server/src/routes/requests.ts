@@ -46,13 +46,6 @@ export async function requestRoutes(fastify: FastifyInstance): Promise<void> {
         viewer.id,
       );
       if (visible) conditions.push(visible);
-      // Il numero di catalogo: la posizione della voce fra TUTTE quelle del
-      // progetto (fuse e archiviate comprese), per data di creazione.
-      const ordinal = sql<number>`(
-        select count(*)::int from ${backlogItems} b2
-        where b2.project_id = ${backlogItems.projectId}
-          and (b2.created_at, b2.id) <= (${backlogItems.createdAt}, ${backlogItems.id})
-      )`;
       const rows = await app.db
         .select({
           id: backlogItems.id,
@@ -63,7 +56,7 @@ export async function requestRoutes(fastify: FastifyInstance): Promise<void> {
           urgency: backlogItems.urgency,
           requestCount: backlogItems.requestCount,
           createdAt: backlogItems.createdAt,
-          ordinal,
+          number: backlogItems.number,
         })
         .from(backlogItems)
         .innerJoin(projects, sql`${projects.id} = ${backlogItems.projectId}`)
@@ -80,7 +73,7 @@ export async function requestRoutes(fastify: FastifyInstance): Promise<void> {
       for (const r of requesters) requestersOf.set(r.itemId, [...(requestersOf.get(r.itemId) ?? []), r.userId]);
       return rows.map((r) => ({
         id: r.id,
-        code: `${r.projectCode}-R${r.ordinal}`,
+        code: `${r.projectCode}-R${r.number}`,
         projectId: r.projectId,
         title: r.title,
         status: r.status,

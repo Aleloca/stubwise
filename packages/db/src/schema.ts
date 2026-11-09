@@ -67,6 +67,7 @@ import {
   real,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -678,6 +679,8 @@ export const projects = pgTable(
     // todo (pianificata) è ferma. 1..90, default 7/14 come nel prototipo.
     stallActiveDays: integer("stall_active_days").notNull().default(7),
     stallTodoDays: integer("stall_todo_days").notNull().default(14),
+    // Fetta 4 (0121): il prossimo numero di catalogo delle richieste.
+    nextRequestNumber: integer("next_request_number").notNull().default(1),
     // Fetta 4 (0118): il cliente (con un cliente il progetto è una commessa,
     // `kind` si deriva), il modello e i moduli accesi. Gli esistenti:
     // Software con tutti i moduli, interni.
@@ -3089,6 +3092,10 @@ export const backlogItems = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
+    // Fetta 4 (0121): il numero di catalogo, `<PROGETTO>-R<n>`. Lo dà il
+    // trigger `backlog_items_assign_number` (contatore del progetto, mai
+    // riusato): chi inserisce non lo manda.
+    number: integer("number").notNull().default(sql`NULL`),
     document: text("document").notNull().default(""),
     // Piano di implementazione dedicato (null finché non prodotto) e corpo
     // originale preservato quando un design doc ne sostituisce il corpo. Il
@@ -3122,7 +3129,10 @@ export const backlogItems = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  (table) => [index("backlog_items_project_status_idx").on(table.projectId, table.status)],
+  (table) => [
+    index("backlog_items_project_status_idx").on(table.projectId, table.status),
+    unique("backlog_items_project_number_unique").on(table.projectId, table.number),
+  ],
 );
 
 /**
