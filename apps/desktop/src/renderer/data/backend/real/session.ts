@@ -7,6 +7,7 @@ import type { Viewer } from "../../types";
 import { appClient, session } from "./client";
 import { NotIntegratedError, partialNamespace } from "./notIntegrated";
 import { forgetCommentTickets } from "./taskDetail";
+import { forgetHomeCaches } from "./home";
 import { forgetTaskCodes } from "./tasks";
 import * as web from "./webLogin";
 
@@ -57,6 +58,7 @@ export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
 function forgetClientCaches(): void {
   forgetTaskCodes();
   forgetCommentTickets();
+  forgetHomeCaches();
 }
 
 /**

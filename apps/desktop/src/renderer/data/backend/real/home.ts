@@ -42,6 +42,12 @@ const isUnknown = (b: RawBlock) => !Object.hasOwn(KNOWN_KINDS, b.kind);
 let rawPersonal: RawBlock[] = [];
 const rawDepartment = new Map<string, RawBlock[]>();
 
+/** Al cambio di persona: i blocchi grezzi erano della Home di chi c'era prima. */
+export function forgetHomeCaches(): void {
+  rawPersonal = [];
+  rawDepartment.clear();
+}
+
 function knownBlocks(blocks: RawBlock[]): HomeBlockRef[] {
   return blocks.flatMap((b) =>
     !isUnknown(b)

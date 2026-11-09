@@ -176,4 +176,35 @@ describe("le Home dal server", () => {
       blocks: [{ kind: "decide" }, { kind: "myWeek" }, { kind: "__future__" }, { kind: "myTasks" }, { kind: "newRequests" }],
     });
   });
+
+  it("al cambio di persona i blocchi grezzi della Home di prima si dimenticano", async () => {
+    const OTHER = "55555555-5555-4555-8555-555555555555";
+    let who = ME_ID;
+    const { seen } = installFakeServer({
+      "GET /api/auth/me": () => ({ body: me({ user: { ...me().user, id: who } }) }),
+      "GET /api/me/home": {
+        body: meHome({
+          personal: { blocks: [{ kind: "decide" }, { kind: "myWeek" }, { kind: "__future__" }], seenDepartmentUpdates: {} },
+        }),
+      },
+      "PUT /api/me/home": { body: meHome() },
+      [`GET /api/departments/${SALES}/home`]: {
+        body: { departmentId: SALES, blocks: [{ kind: "decide" }, { kind: "__future__" }], updatedAt: AT },
+      },
+      "GET /api/departments": { body: [{ id: SALES, name: "Sales", colorToken: "--dept-2", isDefault: false }] },
+      [`PUT /api/departments/${SALES}/home`]: { body: { departmentId: SALES, blocks: [], updatedAt: AT } },
+    });
+    await getSessionPerson();
+    await getPersonalHome();
+    await listDepartmentHomes();
+    who = OTHER;
+    await getSessionPerson();
+    await setPersonalHome([{ kind: "decide" }, { kind: "myWeek" }]);
+    await setDepartmentHome(SALES, [{ kind: "decide" }, { kind: "myWeek" }]);
+    const puts = seen.filter((r) => r.method === "PUT").map((r) => r.body);
+    expect(puts).toEqual([
+      { blocks: [{ kind: "decide" }, { kind: "myWeek" }] },
+      { blocks: [{ kind: "decide" }, { kind: "myWeek" }] },
+    ]);
+  });
 });
