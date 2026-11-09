@@ -639,6 +639,9 @@
         "labels_changed": "{{actor}} ha aggiornato le label",
         "title_changed": "{{actor}} ha modificato il titolo",
         "body_changed": "{{actor}} ha modificato la descrizione",
+        "planned_week_changed": "{{actor}} ha cambiato la settimana pianificata: {{from}} → {{to}}",
+        "department_changed": "{{actor}} ha cambiato il reparto",
+        "effort_changed": "{{actor}} ha cambiato la taglia",
         "milestone_changed": {
           "set": "{{actor}} ha impostato la milestone {{to}}",
           "changed": "{{actor}} ha cambiato milestone: {{from}} → {{to}}",
@@ -1702,7 +1705,9 @@
       "securityAlert": "Avviso di sicurezza",
       "decisionRequested": "Ti chiedono una decisione",
       "decisionAnswered": "La tua domanda ha una risposta",
-      "ticketActivity": "Attività su una task che segui"
+      "ticketActivity": "Attività su una task che segui",
+      "planningChanged": "Il tuo piano è cambiato",
+      "taskAssigned": "Assegnata a te"
     },
     "actions": {
       "approvePlan": "Approva piano",

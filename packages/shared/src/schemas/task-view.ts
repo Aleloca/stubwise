@@ -18,6 +18,21 @@ export const statusFamilySchema = z.enum(STATUS_FAMILIES);
 /** Una settimana ISO `YYYY-Www` che esiste davvero (fetta 2). */
 export const isoWeekSchema = z.string().refine(isIsoWeek, { message: "plannedWeek must be an ISO week like 2026-W46" });
 export const taskSizeSchema = z.enum(TASK_SIZES);
+
+/**
+ * In che giorno (1 = lunedì … 5 = venerdì) l'assegnatario si mette una task
+ * della settimana (fetta 2): personale, e vale solo finché la task resta sua
+ * e in quella settimana. `day: null` = «nella settimana, senza giorno».
+ */
+export const dayArrangementSchema = z.object({
+  taskId: z.uuid(),
+  week: isoWeekSchema,
+  day: z.number().int().min(1).max(5).nullable(),
+});
+export type DayArrangement = z.infer<typeof dayArrangementSchema>;
+export const setDayBodySchema = dayArrangementSchema.omit({ taskId: true });
+export type SetDayBody = z.infer<typeof setDayBodySchema>;
+
 export const uiTaskTypeSchema = z.enum(UI_TASK_TYPES);
 
 export const departmentColorTokenSchema = z.enum([

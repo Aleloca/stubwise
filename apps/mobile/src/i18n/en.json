@@ -104,7 +104,9 @@
         "securityAlert": "Security alert",
         "decisionRequested": "A decision is asked of you",
         "decisionAnswered": "Your question has an answer",
-        "ticketActivity": "Activity on a followed task"
+        "ticketActivity": "Activity on a followed task",
+        "planningChanged": "Your plan changed",
+        "taskAssigned": "Assigned to you"
       },
       "actions": {
         "respond": "Respond",

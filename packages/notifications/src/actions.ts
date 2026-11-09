@@ -215,6 +215,9 @@ const CATALOG_FOR_KIND: Record<
   "decision.requested": { decisions: [], permission: null, archivable: true },
   "decision.answered": { decisions: [], permission: null, archivable: true },
   "ticket.activity": { decisions: [], permission: null, archivable: true },
+  // Fetta 2: si legge e si apre la task; si ripianifica dal Planning.
+  "planning.changed": { decisions: [], permission: null, archivable: true },
+  "task.assigned": { decisions: [], permission: null, archivable: true },
 };
 
 /**
@@ -463,6 +466,8 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "decision.requested":
     case "decision.answered":
     case "ticket.activity":
+    case "planning.changed":
+    case "task.assigned":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/tickets/${event.ticketId}` : "";
     case "ticket.created":
     case "job.pr_closed":

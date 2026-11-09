@@ -163,6 +163,12 @@ export const ticketEventKind = pgEnum("ticket_event_kind", [
   "relation_added",
   "relation_removed",
   "milestone_changed",
+  // Integrazione area 2, fetta 2 (0115, DA SOLI): settimana pianificata
+  // (`from`/`to` `YYYY-Www`), reparto (id), taglia (effort 1–5). Solo le
+  // scritture umane dell'app nuova (`services/task-writes.ts`).
+  "planned_week_changed",
+  "department_changed",
+  "effort_changed",
 ]);
 // Tipi di relazione tra ticket: "blocks" (il source blocca il target),
 // "relates_to" (relazione generica), "parent" (il source è genitore del target).
@@ -1652,6 +1658,10 @@ export const notificationKind = pgEnum("notification_kind", [
   "decision.requested",
   "decision.answered",
   "ticket.activity",
+  // Integrazione area 2, fetta 2 (0115, DA SOLI): la pianificazione di una
+  // task cambiata da altri (a chi l'aveva), una task ricevuta da altri.
+  "planning.changed",
+  "task.assigned",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),

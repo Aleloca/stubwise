@@ -273,6 +273,13 @@ export const en: Catalog = {
   "notify.ticketActivity.commentDeleted": "{ref}: comment deleted",
   "notify.ticketActivity.decisionRequested": "{ref}: a decision was asked",
   "notify.ticketActivity.decisionAnswered": "{ref}: a decision was answered",
+  // Fetta 2: someone else changed the plan of your task, or gave you a task.
+  // `{week}` is an ISO week (2026-W47), `{person}` a name.
+  "notify.planningChanged.moved": "{ref}: your task was moved to {week}",
+  "notify.planningChanged.unplanned": "{ref}: your task was taken out of the plan",
+  "notify.planningChanged.reassigned": "{ref}: your task is now planned for {person}",
+  "notify.planningChanged.unassigned": "{ref}: your task is no longer assigned to you",
+  "notify.taskAssigned": "{ref}: assigned to you",
   "notify.securityAlert.second_factor_reset":
     "Your second factor was reset: you will set it up again at your next sign-in.",
   "notify.securityAlert.second_factor_reset.actor":
@@ -470,6 +477,8 @@ export const en: Catalog = {
   "push.title.decision.requested": "A decision is asked of you",
   "push.title.decision.answered": "Your question has an answer",
   "push.title.ticket.activity": "Activity on a task you follow",
+  "push.title.planning.changed": "Your plan changed",
+  "push.title.task.assigned": "A task was assigned to you",
   "push.title.security.alert": "Security alert on your account",
 
   // --- report.* — header delle sezioni del report ---
@@ -897,6 +906,11 @@ export const it: Catalog = {
   "notify.ticketActivity.commentDeleted": "{ref}: commento eliminato",
   "notify.ticketActivity.decisionRequested": "{ref}: è stata chiesta una decisione",
   "notify.ticketActivity.decisionAnswered": "{ref}: una decisione ha avuto risposta",
+  "notify.planningChanged.moved": "{ref}: la tua task è stata spostata a {week}",
+  "notify.planningChanged.unplanned": "{ref}: la tua task è stata tolta dal piano",
+  "notify.planningChanged.reassigned": "{ref}: la tua task ora è pianificata per {person}",
+  "notify.planningChanged.unassigned": "{ref}: la tua task non è più assegnata a te",
+  "notify.taskAssigned": "{ref}: ti è stata assegnata",
   "notify.securityAlert.second_factor_reset":
     "Il tuo secondo fattore è stato azzerato: al prossimo accesso lo configuri di nuovo.",
   "notify.securityAlert.second_factor_reset.actor":
@@ -1037,6 +1051,8 @@ export const it: Catalog = {
   "push.title.decision.requested": "Ti chiedono una decisione",
   "push.title.decision.answered": "La tua domanda ha una risposta",
   "push.title.ticket.activity": "Attività su una task che segui",
+  "push.title.planning.changed": "Il tuo piano è cambiato",
+  "push.title.task.assigned": "Ti hanno assegnato una task",
   "push.title.security.alert": "Avviso di sicurezza sul tuo account",
 
   // --- report.* ---

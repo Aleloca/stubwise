@@ -104,7 +104,9 @@
         "securityAlert": "Avviso di sicurezza",
         "decisionRequested": "Ti chiedono una decisione",
         "decisionAnswered": "La tua domanda ha una risposta",
-        "ticketActivity": "Attività su una task che segui"
+        "ticketActivity": "Attività su una task che segui",
+        "planningChanged": "Il tuo piano è cambiato",
+        "taskAssigned": "Assegnata a te"
       },
       "actions": {
         "respond": "Rispondi",

@@ -277,6 +277,35 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     expect(JSON.parse(init!.body as string)).toEqual({ ids: ["a", "b"], patch: { size: "S" } });
   });
 
+  it("pianificazione: tasks.plan, tasks.setDay, me.dayArrangements e plannedWeek in bulk e nei filtri", async () => {
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, init!.body ? JSON.parse(init!.body as string) : undefined]);
+      const path = new URL(url as string).pathname;
+      if (path.endsWith("/plan")) return jsonResponse(200, { ...VIEW, plannedWeek: "2026-W47", canPlan: true });
+      if (path.endsWith("/day")) return jsonResponse(200, { taskId: VIEW.id, week: "2026-W47", day: 2 });
+      if (path === "/api/me/day-arrangements") return jsonResponse(200, [{ taskId: VIEW.id, week: "2026-W47", day: null }]);
+      if (path === "/api/tasks") return jsonResponse(200, { items: [VIEW], truncated: false });
+      return jsonResponse(200, [VIEW]);
+    });
+    const c = clientWith(fetchImpl);
+    const base = "https://stubwise.example";
+    const planned = await c.tasks.plan("t1", { assigneeId: "u1", week: "2026-W47" });
+    expect(planned.plannedWeek).toBe("2026-W47");
+    expect(planned.canPlan).toBe(true);
+    expect(await c.tasks.setDay("t1", { week: "2026-W47", day: 2 })).toEqual({ taskId: VIEW.id, week: "2026-W47", day: 2 });
+    expect(await c.me.dayArrangements("2026-W47")).toEqual([{ taskId: VIEW.id, week: "2026-W47", day: null }]);
+    await c.tasks.bulkUpdate(["a"], { plannedWeek: "2026-W48" });
+    await c.tasks.list({ period: { field: "plannedWeek", kind: "relative", preset: "nextWeek" } });
+    expect(calls).toEqual([
+      ["POST", `${base}/api/tasks/t1/plan`, { assigneeId: "u1", week: "2026-W47" }],
+      ["PUT", `${base}/api/tasks/t1/day`, { week: "2026-W47", day: 2 }],
+      ["GET", `${base}/api/me/day-arrangements?week=2026-W47`, undefined],
+      ["PATCH", `${base}/api/tasks/bulk`, { ids: ["a"], patch: { plannedWeek: "2026-W48" } }],
+      ["GET", `${base}/api/tasks?periodField=plannedWeek&periodPreset=nextWeek`, undefined],
+    ]);
+  });
+
   it("departments.remove: DELETE con moveTasksTo in query", async () => {
     const fetchImpl = mockFetch(async () => new Response(null, { status: 204 }));
     const client = clientWith(fetchImpl);

@@ -778,6 +778,38 @@ export interface TicketActivityEvent {
   commentDeleted?: boolean;
 }
 
+/**
+ * Integrazione area 2, fetta 2: un'altra persona ha cambiato la pianificazione
+ * di una task che era tua — spostata di settimana, tolta dal piano o data a
+ * un altro (audience `task_people`: la persona che l'aveva, mai l'attore).
+ * Settimane `YYYY-Www` e persone come DATI veri alla pubblicazione;
+ * `toAssigneeName` è il nome di allora, come il `summary` di `ticket.activity`.
+ */
+export interface PlanningChangedEvent {
+  kind: "planning.changed";
+  ticketId: string;
+  ticketNumber: number;
+  projectId: string;
+  projectCode: string;
+  /** La settimana EFFETTIVA prima del cambio (slittamento compreso). */
+  fromWeek: string | null;
+  toWeek: string | null;
+  fromAssigneeId: string | null;
+  toAssigneeId: string | null;
+  toAssigneeName: string | null;
+  actorUserId: string | null;
+}
+
+/** Una task ricevuta da un'altra persona (audience `task_people`, mai l'attore). */
+export interface TaskAssignedEvent {
+  kind: "task.assigned";
+  ticketId: string;
+  ticketNumber: number;
+  projectId: string;
+  projectCode: string;
+  actorUserId: string | null;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -801,7 +833,9 @@ export type NotificationEvent =
   | SecurityAlertEvent
   | DecisionRequestedEvent
   | DecisionAnsweredEvent
-  | TicketActivityEvent;
+  | TicketActivityEvent
+  | PlanningChangedEvent
+  | TaskAssignedEvent;
 
 /**
  * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`,
@@ -822,7 +856,9 @@ type NonTicketedEvent =
   | SecurityAlertEvent
   | DecisionRequestedEvent
   | DecisionAnsweredEvent
-  | TicketActivityEvent;
+  | TicketActivityEvent
+  | PlanningChangedEvent
+  | TaskAssignedEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -846,7 +882,9 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "security.alert" &&
     event.kind !== "decision.requested" &&
     event.kind !== "decision.answered" &&
-    event.kind !== "ticket.activity"
+    event.kind !== "ticket.activity" &&
+    event.kind !== "planning.changed" &&
+    event.kind !== "task.assigned"
   );
 }
 
@@ -908,6 +946,8 @@ const EMOJI: Record<NotificationKind, string> = {
   "decision.requested": "🤔",
   "decision.answered": "💬",
   "ticket.activity": "👀",
+  "planning.changed": "🗓️",
+  "task.assigned": "📌",
 };
 
 /**
@@ -1033,6 +1073,8 @@ function linkParam(
     case "decision.requested":
     case "decision.answered":
     case "ticket.activity":
+    case "planning.changed":
+    case "task.assigned":
       // Il link si DERIVA a lettura (`openUrl`), e le frasi non hanno `{link}`.
       return "";
   }
@@ -1066,6 +1108,9 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "decision.answered": "notify.decisionAnswered",
   // Il template vero lo sceglie `templateKey` per `change`.
   "ticket.activity": "notify.ticketActivity.status",
+  // Il template vero lo sceglie `templateKey` per cosa è cambiato.
+  "planning.changed": "notify.planningChanged.moved",
+  "task.assigned": "notify.taskAssigned",
 };
 
 const TICKET_ACTIVITY_KEY: Record<TicketActivityChange, string> = {
@@ -1167,6 +1212,14 @@ function templateKey(event: NotificationEvent): string {
     const keys = SECURITY_ALERT_KEY[event.subject];
     if (!keys) throw new Error(`soggetto di security.alert sconosciuto: ${String(event.subject)}`);
     return typeof event.actorEmail === "string" && event.actorEmail !== "" ? keys.withActor : keys.withoutActor;
+  }
+  if (event.kind === "planning.changed") {
+    // La riceve chi l'aveva: «data a un altro» se l'assegnatario è cambiato,
+    // altrimenti è ancora sua, spostata o tolta dalla settimana.
+    if (event.toAssigneeId !== event.fromAssigneeId) {
+      return event.toAssigneeId === null ? "notify.planningChanged.unassigned" : "notify.planningChanged.reassigned";
+    }
+    return event.toWeek === null ? "notify.planningChanged.unplanned" : "notify.planningChanged.moved";
   }
   if (event.kind === "ticket.activity") {
     if (event.change === "comment") {
@@ -1295,6 +1348,12 @@ function textParams(
     if (event.kind === "decision.answered") {
       return { ref: taskRef(event), question: event.question, answer: event.answerSummary };
     }
+    if (event.kind === "planning.changed") {
+      return { ref: taskRef(event), week: event.toWeek ?? "", person: event.toAssigneeName ?? "" };
+    }
+    if (event.kind === "task.assigned") {
+      return { ref: taskRef(event) };
+    }
     if (event.kind === "ticket.activity") {
       return {
         ref: taskRef(event),
@@ -1386,6 +1445,8 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   "decision.requested": ["question"],
   "decision.answered": ["question", "answer"],
   "ticket.activity": ["summary"],
+  // Il nome della persona lo sceglie un utente per sé.
+  "planning.changed": ["person"],
 };
 
 /** `CODICE-n` della task dell'evento, com'era alla pubblicazione. */
@@ -1580,7 +1641,9 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
     if (
       event.kind === "decision.requested" ||
       event.kind === "decision.answered" ||
-      event.kind === "ticket.activity"
+      event.kind === "ticket.activity" ||
+      event.kind === "planning.changed" ||
+      event.kind === "task.assigned"
     ) {
       // Mai consegnati al webhook (`shouldSendWebhook` li esclude: sono rivolti
       // a persone, non al canale del team): il ramo c'è per l'esaustività.
@@ -1967,6 +2030,27 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       projectCode: "NEG",
       change: "status",
       summary: "In review",
+      actorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+    },
+    {
+      kind: "planning.changed",
+      ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
+      ticketNumber: 57,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      fromWeek: "2026-W46",
+      toWeek: "2026-W47",
+      fromAssigneeId: "3c4d5e6f-7777-4888-8999-aaaabbbbcccc",
+      toAssigneeId: "3c4d5e6f-7777-4888-8999-aaaabbbbcccc",
+      toAssigneeName: "Giulia Ferri",
+      actorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+    },
+    {
+      kind: "task.assigned",
+      ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
+      ticketNumber: 57,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
       actorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
     },
   ];

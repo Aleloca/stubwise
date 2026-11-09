@@ -1300,6 +1300,32 @@ describe("decisioni e attività della task", () => {
   });
 });
 
+describe("pianificazione e assegnazione", () => {
+  const byKind = (kind: string) => sampleEvents("https://x.test").find((e) => e.kind === kind)!;
+
+  it("task.assigned dice che la task ora è tua", () => {
+    expect(formatNotificationText(byKind("task.assigned"), "en")).toBe("NEG-57: assigned to you");
+    expect(formatNotificationText(byKind("task.assigned"), "it")).toBe("NEG-57: ti è stata assegnata");
+  });
+
+  it("planning.changed: la frase la sceglie cosa è cambiato per chi l'aveva", () => {
+    const base = byKind("planning.changed") as Extract<NotificationEvent, { kind: "planning.changed" }>;
+    // Ancora tua, spostata di settimana.
+    expect(formatNotificationText(base, "en")).toBe("NEG-57: your task was moved to 2026-W47");
+    expect(formatNotificationText(base, "it")).toBe("NEG-57: la tua task è stata spostata a 2026-W47");
+    // Ancora tua, tolta dalla settimana.
+    expect(formatNotificationText({ ...base, toWeek: null }, "en")).toBe("NEG-57: your task was taken out of the plan");
+    // Data a un'altra persona.
+    expect(
+      formatNotificationText({ ...base, toAssigneeId: "u-2", toAssigneeName: "Laura" }, "it"),
+    ).toBe("NEG-57: la tua task ora è pianificata per Laura");
+    // Tolta a tutti.
+    expect(formatNotificationText({ ...base, toAssigneeId: null, toAssigneeName: null }, "en")).toBe(
+      "NEG-57: your task is no longer assigned to you",
+    );
+  });
+});
+
 describe("sampleEvents", () => {
   it("produce un esempio per ciascun kind, con link sotto baseUrl", () => {
     const events = sampleEvents("https://app.example.com/");
@@ -1327,6 +1353,8 @@ describe("sampleEvents", () => {
       "decision.requested",
       "decision.answered",
       "ticket.activity",
+      "planning.changed",
+      "task.assigned",
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
@@ -1350,7 +1378,9 @@ describe("sampleEvents", () => {
         event.kind === "security.alert" ||
         event.kind === "decision.requested" ||
         event.kind === "decision.answered" ||
-        event.kind === "ticket.activity"
+        event.kind === "ticket.activity" ||
+        event.kind === "planning.changed" ||
+        event.kind === "task.assigned"
       ) {
         // Nessun link nell'evento: si legge in inbox (o «Apri» lo deriva).
         expect(Object.values(event).some((v) => typeof v === "string" && v.startsWith("http"))).toBe(false);

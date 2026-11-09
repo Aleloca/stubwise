@@ -56,6 +56,9 @@ const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
   "decision.requested": { i18nKey: "mobile.inbox.kinds.decisionRequested", tone: "signal" },
   "decision.answered": { i18nKey: "mobile.inbox.kinds.decisionAnswered", tone: "muted" },
   "ticket.activity": { i18nKey: "mobile.inbox.kinds.ticketActivity", tone: "muted" },
+  // Fetta 2: informative anche loro.
+  "planning.changed": { i18nKey: "mobile.inbox.kinds.planningChanged", tone: "muted" },
+  "task.assigned": { i18nKey: "mobile.inbox.kinds.taskAssigned", tone: "signal" },
 };
 
 export interface InfoCardProps {

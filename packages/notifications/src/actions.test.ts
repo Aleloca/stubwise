@@ -413,9 +413,9 @@ describe("openUrl", () => {
     expect(isAdminOnlyKind("request.created")).toBe(false);
   });
 
-  it("decisioni e attività portano alla pagina del ticket nel web, derivata da PUBLIC_URL", () => {
+  it("decisioni, attività, pianificazione e assegnazione portano alla pagina del ticket nel web, derivata da PUBLIC_URL", () => {
     for (const event of sampleEvents("https://x.test").filter((e) =>
-      ["decision.requested", "decision.answered", "ticket.activity"].includes(e.kind),
+      ["decision.requested", "decision.answered", "ticket.activity", "planning.changed", "task.assigned"].includes(e.kind),
     )) {
       const ticketId = (event as { ticketId: string }).ticketId;
       expect(openUrl(event, "https://stubwise.test/")).toBe(`https://stubwise.test/tickets/${ticketId}`);

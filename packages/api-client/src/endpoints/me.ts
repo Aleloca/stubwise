@@ -1,12 +1,15 @@
-import { notificationPrefsViewSchema, projectFollowsSchema } from "@stubwise/shared";
+import { dayArrangementSchema, notificationPrefsViewSchema, projectFollowsSchema } from "@stubwise/shared";
 import type {
+  DayArrangement,
   DeviceRegistration,
   NotificationPrefsUpdate,
   NotificationPrefsView,
   ProjectFollows,
   Reader,
 } from "@stubwise/shared";
+import { z } from "zod";
 import type { ApiRequest } from "../client.js";
+import { toQuery } from "../query.js";
 
 /**
  * Preferenze personali dell'utente corrente.
@@ -31,6 +34,14 @@ import type { ApiRequest } from "../client.js";
  */
 export function createMeEndpoints(request: ApiRequest) {
   return {
+    /**
+     * Le mie sistemazioni per giorno in una settimana (`YYYY-Www`, fetta 2):
+     * solo delle task ancora mie e ancora in quella settimana.
+     */
+    dayArrangements(week: string): Promise<Reader<DayArrangement>[]> {
+      return request("GET", `/api/me/day-arrangements${toQuery({ week })}`, undefined, z.array(dayArrangementSchema));
+    },
+
     /** Progetti seguiti: l'insieme COMPLETO. */
     follows(): Promise<Reader<ProjectFollows>> {
       return request("GET", "/api/me/follows", undefined, projectFollowsSchema);

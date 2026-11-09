@@ -59,6 +59,9 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "decision.requested": "inbox:kinds.decisionRequested",
   "decision.answered": "inbox:kinds.decisionAnswered",
   "ticket.activity": "inbox:kinds.ticketActivity",
+  // Fetta 2: pianificazione cambiata da altri, task ricevuta da altri.
+  "planning.changed": "inbox:kinds.planningChanged",
+  "task.assigned": "inbox:kinds.taskAssigned",
 };
 
 /**

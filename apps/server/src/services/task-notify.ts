@@ -59,3 +59,56 @@ export function excerpt(text: string, max = 140): string {
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
+
+/**
+ * Gli avvisi PERSONALI della pianificazione (fetta 2): `task.assigned` a chi
+ * riceve una task da un altro, `planning.changed` a chi la aveva quando un
+ * altro la sposta, la toglie dal piano o la dà a qualcun altro. CHI li riceve
+ * lo decide la scrittura con `planRecipientsOf` di `@stubwise/shared`;
+ * `publishNotification` li riduce a chi vede la task e toglie l'attore.
+ */
+export async function notifyTaskPeople(
+  tx: DbOrTx,
+  input:
+    | { kind: "task.assigned"; ticketId: string; actorUserId: string; recipientUserId: string }
+    | {
+        kind: "planning.changed";
+        ticketId: string;
+        actorUserId: string;
+        recipientUserId: string;
+        fromWeek: string | null;
+        toWeek: string | null;
+        fromAssigneeId: string | null;
+        toAssigneeId: string | null;
+        toAssigneeName: string | null;
+      },
+): Promise<void> {
+  const [row] = await tx
+    .select({ number: tickets.number, projectId: tickets.projectId, code: projects.code })
+    .from(tickets)
+    .innerJoin(projects, eq(projects.id, tickets.projectId))
+    .where(eq(tickets.id, input.ticketId));
+  if (!row) return;
+  const base = {
+    ticketId: input.ticketId,
+    ticketNumber: row.number,
+    projectId: row.projectId,
+    projectCode: row.code,
+    actorUserId: input.actorUserId,
+  };
+  await publishNotification(
+    tx,
+    input.kind === "task.assigned"
+      ? { kind: "task.assigned", ...base }
+      : {
+          kind: "planning.changed",
+          ...base,
+          fromWeek: input.fromWeek,
+          toWeek: input.toWeek,
+          fromAssigneeId: input.fromAssigneeId,
+          toAssigneeId: input.toAssigneeId,
+          toAssigneeName: input.toAssigneeName,
+        },
+    { projectId: row.projectId, ticketId: input.ticketId, recipientUserIds: [input.recipientUserId] },
+  );
+}

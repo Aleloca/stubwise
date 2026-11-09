@@ -639,6 +639,9 @@
         "labels_changed": "{{actor}} updated labels",
         "title_changed": "{{actor}} edited the title",
         "body_changed": "{{actor}} edited the description",
+        "planned_week_changed": "{{actor}} changed the planned week: {{from}} → {{to}}",
+        "department_changed": "{{actor}} changed the department",
+        "effort_changed": "{{actor}} changed the size",
         "milestone_changed": {
           "set": "{{actor}} set milestone {{to}}",
           "changed": "{{actor}} changed milestone: {{from}} → {{to}}",
@@ -1702,7 +1705,9 @@
       "securityAlert": "Security alert",
       "decisionRequested": "A decision is asked of you",
       "decisionAnswered": "Your question has an answer",
-      "ticketActivity": "Activity on a followed task"
+      "ticketActivity": "Activity on a followed task",
+      "planningChanged": "Your plan changed",
+      "taskAssigned": "Assigned to you"
     },
     "actions": {
       "approvePlan": "Approve plan",
