@@ -167,7 +167,10 @@ jobs:
 
   e2e:
     name: E2E (Playwright)
-    runs-on: ubuntu-latest
+    # Fissato (9 nov 2026): `ubuntu-latest` è passato a 26.04, dove la nostra
+    # versione di Playwright non installa Chromium («does not support chromium
+    # on ubuntu26.04-x64»). Si torna a `latest` aggiornando Playwright.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
