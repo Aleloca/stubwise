@@ -48,30 +48,37 @@ describe("settimane ISO", () => {
 describe("slipOf (slittamento derivato)", () => {
   const current = "2026-W46";
   it("una task aperta della settimana scorsa è nella corrente con slipCount 1; due settimane fa → 2", () => {
-    expect(slipOf({ plannedWeek: "2026-W45", slipCount: 0, closed: false }, current)).toEqual({
+    expect(slipOf({ plannedWeek: "2026-W45", slipCount: 0, closedWeek: null }, current)).toEqual({
       plannedWeek: current,
       slipCount: 1,
     });
-    expect(slipOf({ plannedWeek: "2026-W44", slipCount: 0, closed: false }, current)).toEqual({
+    expect(slipOf({ plannedWeek: "2026-W44", slipCount: 0, closedWeek: null }, current)).toEqual({
       plannedWeek: current,
       slipCount: 2,
     });
   });
 
-  it("chiusa: mai slittata; senza settimana o nel futuro: invariata", () => {
-    expect(slipOf({ plannedWeek: "2026-W40", slipCount: 1, closed: true }, current)).toEqual({
+  it("chiusa: scivola fino alla settimana di chiusura, come nel DB; chiusa nella sua settimana non è mai slittata", () => {
+    expect(slipOf({ plannedWeek: "2026-W40", slipCount: 1, closedWeek: "2026-W44" }, current)).toEqual({
+      plannedWeek: "2026-W44",
+      slipCount: 5,
+    });
+    expect(slipOf({ plannedWeek: "2026-W40", slipCount: 1, closedWeek: "2026-W40" }, current)).toEqual({
       plannedWeek: "2026-W40",
       slipCount: 1,
     });
-    expect(slipOf({ plannedWeek: null, slipCount: 0, closed: false }, current)).toEqual({ plannedWeek: null, slipCount: 0 });
-    expect(slipOf({ plannedWeek: "2026-W47", slipCount: 2, closed: false }, current)).toEqual({
+  });
+
+  it("senza settimana o nel futuro: invariata", () => {
+    expect(slipOf({ plannedWeek: null, slipCount: 0, closedWeek: null }, current)).toEqual({ plannedWeek: null, slipCount: 0 });
+    expect(slipOf({ plannedWeek: "2026-W47", slipCount: 2, closedWeek: null }, current)).toEqual({
       plannedWeek: "2026-W47",
       slipCount: 2,
     });
   });
 
   it("a cavallo d'anno: W52 del 2026 vista dalla W01 del 2027 è slittata di 2", () => {
-    expect(slipOf({ plannedWeek: "2026-W52", slipCount: 0, closed: false }, "2027-W01")).toEqual({
+    expect(slipOf({ plannedWeek: "2026-W52", slipCount: 0, closedWeek: null }, "2027-W01")).toEqual({
       plannedWeek: "2027-W01",
       slipCount: 2,
     });
