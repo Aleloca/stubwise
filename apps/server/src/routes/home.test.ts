@@ -207,6 +207,68 @@ describe("Home di reparto", () => {
   });
 });
 
+describe("blocchi di filtri non più disponibili (fix fetta 3)", () => {
+  it("Home con un blocco di un filtro eliminato: riordino → 200 e il blocco resta", async () => {
+    const p = await personIn([]);
+    const f = await publicFilter(p.headers.cookie, "private");
+    await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "myTasks" }, { kind: "filter", filterId: f }] });
+    expect((await call("DELETE", `/api/filters/${f}`, p.headers.cookie)).statusCode).toBe(204);
+    const res = await call("PUT", "/api/me/home", p.headers.cookie, {
+      blocks: [{ kind: "filter", filterId: f }, { kind: "myTasks" }],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(meHomeViewSchema.parse(res.json()).blocks).toEqual([
+      { kind: "decide" },
+      { kind: "myWeek" },
+      { kind: "filter", filterId: f },
+      { kind: "myTasks" },
+    ]);
+  });
+
+  it("senza Home personale, un filtro della Home risolta (reparto) poi reso privato passa al primo salvataggio", async () => {
+    const d = await department();
+    const f = await publicFilter(users.adminCookie);
+    await setDepartmentHome(d, [{ kind: "filter", filterId: f }]);
+    const p = await personIn([d]);
+    await app.inject({
+      method: "PATCH",
+      url: `/api/filters/${f}`,
+      headers: { cookie: users.adminCookie },
+      payload: { visibility: "private" },
+    });
+    const res = await call("PUT", "/api/me/home", p.headers.cookie, {
+      blocks: [{ kind: "myTasks" }, { kind: "filter", filterId: f }],
+    });
+    expect(res.statusCode, res.body).toBe(200);
+  });
+
+  it("Home di reparto con un filtro reso privato: modifica di un altro blocco → 200", async () => {
+    const d = await department();
+    const f = await publicFilter(users.adminCookie);
+    expect((await setDepartmentHome(d, [{ kind: "filter", filterId: f }])).statusCode).toBe(200);
+    await app.inject({
+      method: "PATCH",
+      url: `/api/filters/${f}`,
+      headers: { cookie: users.adminCookie },
+      payload: { visibility: "private" },
+    });
+    const res = await setDepartmentHome(d, [{ kind: "newRequests" }, { kind: "filter", filterId: f }]);
+    expect(res.statusCode, res.body).toBe(200);
+  });
+
+  it("un filterId NUOVO non visibile → 400, anche accanto a uno già presente", async () => {
+    const p = await personIn([]);
+    const mine = await publicFilter(p.headers.cookie, "private");
+    await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "filter", filterId: mine }] });
+    const othersPrivate = await publicFilter(users.adminCookie, "private");
+    const res = await call("PUT", "/api/me/home", p.headers.cookie, {
+      blocks: [{ kind: "filter", filterId: mine }, { kind: "filter", filterId: othersPrivate }],
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("filter_not_visible");
+  });
+});
+
 describe("ruoli di reparto", () => {
   it("li assegna chi ha departments.manage, senza riconferma; finiscono in /api/auth/me e nell'elenco", async () => {
     const d = await department();

@@ -93,15 +93,24 @@ export type BlockError = "filter_not_visible" | "filter_not_public";
  * I blocchi `filter` devono nominare un filtro che chi scrive vede; nella
  * Home di un reparto (`publicOnly`) anche pubblico. Un filtro eliminato o
  * reso privato DOPO resta nella Home come blocco «non disponibile»: il
- * controllo è solo in scrittura.
+ * controllo è solo in scrittura, e solo sui filtri che la Home non aveva.
  */
 export async function blockError(
   db: Db,
   viewer: Viewer,
   blocks: HomeBlock[],
-  opts: { publicOnly: boolean },
+  opts: { publicOnly: boolean; known: readonly string[] },
 ): Promise<BlockError | null> {
-  const ids = [...new Set(blocks.flatMap((b) => (b.kind === "filter" && b.filterId ? [b.filterId] : [])))];
+  // Solo i filtri NUOVI rispetto alla Home già salvata (fix della review
+  // della fetta 3): un blocco di un filtro eliminato o reso privato resta
+  // «non disponibile», il client lo rimanda a ogni scrittura, e non deve
+  // bloccare il riordino o l'aggiunta di altri blocchi.
+  const known = new Set(opts.known);
+  const ids = [
+    ...new Set(
+      blocks.flatMap((b) => (b.kind === "filter" && b.filterId && !known.has(b.filterId) ? [b.filterId] : [])),
+    ),
+  ];
   if (ids.length === 0) return null;
   if (ids.some((id) => !z.uuid().safeParse(id).success)) return "filter_not_visible";
   const rows = await db
@@ -215,4 +224,9 @@ export async function departmentPermissionsMap(db: Db, userId: string): Promise<
 /** Solo `kind` e `filterId`: niente campi in più nel jsonb. */
 function stored(b: HomeBlock): StoredHomeBlock {
   return b.filterId !== undefined ? { kind: b.kind, filterId: b.filterId } : { kind: b.kind };
+}
+
+/** I filtri nominati da una lista di blocchi: quelli «già noti» di una Home salvata. */
+export function filterIdsOf(blocks: readonly { kind: string; filterId?: string }[]): string[] {
+  return blocks.flatMap((b) => (b.kind === "filter" && b.filterId ? [b.filterId] : []));
 }
