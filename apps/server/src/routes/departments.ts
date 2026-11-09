@@ -164,28 +164,35 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
       if (current.isDefault) {
         return apiError(reply, 400, "department_is_default", "The fallback department cannot be deleted");
       }
-      const [{ count }] = (await app.db
-        .select({ count: sql<number>`count(*)::int` })
-        .from(tickets)
-        .where(eq(tickets.departmentId, id))) as [{ count: number }];
-      if (count > 0) {
-        if (!moveTasksTo) {
-          return apiError(reply, 400, "department_has_tasks", "Move the department's tasks first");
-        }
-        const [target] =
-          moveTasksTo === id
-            ? []
-            : await app.db.select({ id: departments.id }).from(departments).where(eq(departments.id, moveTasksTo));
-        if (!target) {
-          return apiError(reply, 400, "department_move_target_invalid", "Choose another existing department");
-        }
-      }
-      await app.db.transaction(async (tx) => {
+      // Conteggio e trasloco nella stessa transazione, col reparto bloccato:
+      // una task assegnata al reparto nel frattempo si sposta anche lei, o il
+      // controllo la vede — mai un 500 dalla FK.
+      const outcome = await app.db.transaction(async (tx) => {
+        await tx.execute(sql`select 1 from "departments" where "id" = ${id} for update`);
+        const [{ count }] = (await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(tickets)
+          .where(eq(tickets.departmentId, id))) as [{ count: number }];
         if (count > 0) {
-          await tx.update(tickets).set({ departmentId: moveTasksTo! }).where(eq(tickets.departmentId, id));
+          if (!moveTasksTo) return "department_has_tasks" as const;
+          const [target] =
+            moveTasksTo === id
+              ? []
+              : await tx.select({ id: departments.id }).from(departments).where(eq(departments.id, moveTasksTo));
+          if (!target) return "department_move_target_invalid" as const;
+          // In SQL: il trasloco non è lavoro sulla task, `updated_at` resta.
+          // Il cambio di reparto non entra nel feed (scelta della fetta 1).
+          await tx.execute(sql`update "tickets" set "department_id" = ${moveTasksTo} where "department_id" = ${id}`);
         }
         await tx.delete(departments).where(eq(departments.id, id));
+        return null;
       });
+      if (outcome === "department_has_tasks") {
+        return apiError(reply, 400, "department_has_tasks", "Move the department's tasks first");
+      }
+      if (outcome === "department_move_target_invalid") {
+        return apiError(reply, 400, "department_move_target_invalid", "Choose another existing department");
+      }
       return reply.code(204).send(null);
     },
   );
