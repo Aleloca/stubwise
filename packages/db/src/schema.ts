@@ -400,10 +400,13 @@ export const personalAccessTokens = pgTable(
     tokenHash: text("token_hash").notNull().unique(),
     // Chi ha emesso il token (21 ott 2026): `mobile` = `/mobile-login`, uno per
     // device; `manual` = creato a mano (MCP, Claude Code, script). Reset e
-    // cambio della password revocano i soli `mobile`. Marcatore STRUTTURALE e
+    // cambio della password revocano `mobile` e `desktop`. Marcatore STRUTTURALE e
     // non il prefisso del nome: il nome lo sceglie chiunque crei un PAT a mano.
     // Testo + CHECK come `device_tokens.platform`, non un enum.
-    kind: text("kind").$type<"manual" | "mobile">().notNull().default("manual"),
+    // `desktop` (0112) = lo scambio del login dal browser
+    // (`/api/auth/desktop-exchange`); reset e cambio della password revocano
+    // `mobile` E `desktop`.
+    kind: text("kind").$type<"manual" | "mobile" | "desktop">().notNull().default("manual"),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -411,7 +414,7 @@ export const personalAccessTokens = pgTable(
   (table) => [
     // Lookup dei token di un utente (lista/revoca in UI) + pulizia in cascata.
     index("personal_access_tokens_user_id_idx").on(table.userId),
-    check("personal_access_tokens_kind_chk", sql`${table.kind} in ('manual', 'mobile')`),
+    check("personal_access_tokens_kind_chk", sql`${table.kind} in ('manual', 'mobile', 'desktop')`),
   ],
 );
 
@@ -5046,4 +5049,26 @@ export const credentialAccessLog = pgTable(
     check("credential_access_log_action_chk", sql`${table.action} in ('show', 'copy')`),
     index("credential_access_log_project_id_created_at_idx").on(table.projectId, table.createdAt),
   ],
+);
+
+/**
+ * Passaggio del login dal browser al desktop (0112): un codice monouso che il
+ * browser chiede con una sessione completa, legato al challenge PKCE del
+ * desktop. Solo l'hash del codice; 2 minuti; `used_at` lo consuma una volta.
+ */
+export const desktopHandoffs = pgTable(
+  "desktop_handoffs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    codeHash: text("code_hash").notNull().unique(),
+    codeChallenge: text("code_challenge").notNull(),
+    deviceName: text("device_name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+  },
+  (table) => [index("desktop_handoffs_user_idx").on(table.userId)],
 );

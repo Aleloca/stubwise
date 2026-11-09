@@ -23,7 +23,9 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   `second_factor_done`. `route-access.test.ts` elenca le rotte raggiungibili
   da una sessione parziale: aggiungerne una è una decisione visibile nel diff.
 - **Ogni porta che dà una sessione o un token passa dal secondo fattore:
-  `/login`, `/mobile-login`; una porta nuova va aggiunta qui e al test.**
+  `/login`, `/mobile-login`, `/desktop-exchange`; una porta nuova va
+  aggiunta qui e al test.** La porta si DICHIARA (`config.credentialDoor`)
+  e `route-access.test.ts` ne fissa l'elenco chiuso.
   `/register` e `/setup` oggi non aprono una sessione (rimandano al login) e
   il reset della password chiude le sessioni: se una di loro un giorno ne
   aprisse una, deve passare dallo stesso stato parziale (test negativi in
@@ -31,6 +33,24 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   `sessions`). `createSession` vuole lo `stage` ESPLICITO, senza default: una
   porta nuova non nasce completa per dimenticanza. Il login web risponde
   `{ user, stage }`, mai una sessione completa prima del fattore.
+- **Il login del desktop passa dal browser, e il secondo fattore lo dà la
+  sessione completa (9 nov 2026).** `POST /api/auth/desktop-handoff` vuole
+  una sessione COMPLETA del browser E la riconferma (`config.reauth`, come
+  `POST /api/pats`: conia un token, e un cookie rubato non deve bastare). Una
+  sessione parziale → 401 `second_factor_required` dall'hook, una completa
+  con il fattore più vecchio di 10 minuti → 403 `reauth_required`, un PAT →
+  403 `session_required` (un token non conia altri token) ed emette un codice monouso legato al
+  challenge PKCE del desktop: 2 minuti, solo lo SHA-256 nel DB. `POST
+  /api/auth/desktop-exchange` è pubblica, nel bucket di `/login`, NON chiede
+  un codice (il fattore c'è già stato nel browser): consuma il codice con un
+  UPDATE guardato (`used_at is null and expires_at > now()`), PRIMA di
+  confrontare `sha256(verifier)` col challenge — un verifier sbagliato lo
+  brucia — e rilascia un PAT `kind = 'desktop'` («Desktop · <nome>»). Nel
+  registro di sicurezza scrive `login`, come `/mobile-login`; nessun
+  `security.alert` (non ne esiste uno per il primo login di un dispositivo).
+- **Reset e cambio della password revocano i token `mobile` e `desktop`**
+  (`revokeMobilePats`): entrambi nascono da password e secondo fattore. I PAT
+  `manual` (MCP, Claude Code, script) restano.
 - **Lo stadio `enrollment` vale solo finché l'app non c'è.** Lo stadio si
   decide al `/login`, ma la sessione parziale vive 10 minuti: `/enroll` e
   `/enroll/confirm` ricontrollano `hasConfirmedTotp` e, con l'app ormai

@@ -303,3 +303,28 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     ]);
   });
 });
+
+describe("login del desktop dal browser", () => {
+  it("desktopHandoff e desktopExchange: path, metodo e corpo", async () => {
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, JSON.parse(init!.body as string)]);
+      return (url as string).endsWith("desktop-handoff")
+        ? jsonResponse(200, { code: "c" })
+        : jsonResponse(200, {
+            token: "stw_pat_x",
+            patId: "0b1e6f3a-1111-4222-8333-444455556666",
+            user: { id: "0b1e6f3a-1111-4222-8333-444455556666", email: "a@b.it", role: "member", language: "it", avatarUrl: null, slackUserId: null },
+          });
+    });
+    const c = clientWith(fetchImpl);
+    expect(await c.auth.desktopHandoff({ codeChallenge: "x".repeat(43), deviceName: "Mac" })).toEqual({ code: "c" });
+    const exchanged = await c.auth.desktopExchange({ code: "c", codeVerifier: "v".repeat(43), deviceName: "Mac" });
+    expect(exchanged.token).toBe("stw_pat_x");
+    expect(calls.map(([m, u]) => [m, u])).toEqual([
+      ["POST", "https://stubwise.example/api/auth/desktop-handoff"],
+      ["POST", "https://stubwise.example/api/auth/desktop-exchange"],
+    ]);
+    expect(calls[1]![2]).toEqual({ code: "c", codeVerifier: "v".repeat(43), deviceName: "Mac" });
+  });
+});

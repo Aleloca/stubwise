@@ -30,3 +30,9 @@ mac:
 dmg:
   sign: false
 publish: null
+# Il login dal browser riapre l'app con `stubwise://auth?code=…&state=…`
+# (integrazione area 2, 9 nov 2026): lo schema si registra nel pacchetto.
+protocols:
+  - name: Stubwise
+    schemes:
+      - stubwise

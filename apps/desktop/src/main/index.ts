@@ -5,7 +5,9 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "e
 import { handleApiRequest, isWebPath } from "./apiProxy";
 import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./instance";
 import { buildMenuTemplate } from "./menu";
-import { clearToken, login, logout, readToken } from "./session";
+import { hostname as osHostname } from "node:os";
+import { authUrlFromArgv, createBrowserLogin, type SessionChange } from "./browserLogin";
+import { clearToken, logout, readToken, saveToken } from "./session";
 import {
   isExternalOpenAllowed,
   isNavigationAllowed,
@@ -103,9 +105,35 @@ ipcMain.handle("file:save", async (event, raw: unknown): Promise<SaveFileResult>
 // --- server vero (integrazione area 2, fetta 1) ----------------------------------
 //
 // Il renderer non fa rete e non vede il token: l'istanza la sceglie la
-// persona (`instance:set`), il login passa da `mobile-login` col secondo
-// fattore (`session:login`), e ogni richiesta API passa da qui
-// (`api:request`), che aggiunge il bearer. Un 401 cancella il token.
+// persona (`instance:set`), il login passa dal browser di sistema
+// (`session:start-browser-login`, PKCE e `stubwise://`, `browserLogin.ts`), e
+// ogni richiesta API passa da qui (`api:request`), che aggiunge il bearer. Un
+// 401 cancella il token e lo dice al renderer (`session:changed`).
+
+/** Avvisa ogni finestra del renderer: mai il token, solo l'esito. */
+function notifySession(change: SessionChange): void {
+  for (const win of BrowserWindow.getAllWindows()) win.webContents.send("session:changed", change);
+}
+
+const browserLogin = createBrowserLogin({
+  instanceUrl: readInstanceUrl,
+  openExternal: async (url) => {
+    if (isExternalOpenAllowed(url)) await shell.openExternal(url);
+  },
+  hostname: osHostname,
+  saveToken,
+  notify: notifySession,
+});
+
+/** Un `stubwise://` arrivato all'app: solo `handleAuthUrl` lo legge, e la finestra torna davanti. */
+function receiveAuthUrl(url: string): void {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (win) {
+    if (win.isMinimized()) win.restore();
+    win.focus();
+  }
+  void browserLogin.handleAuthUrl(url);
+}
 
 ipcMain.handle("api:request", async (event, raw: unknown) => {
   if (!fromApp(event)) {
@@ -114,7 +142,10 @@ ipcMain.handle("api:request", async (event, raw: unknown) => {
   return handleApiRequest(raw, {
     instanceUrl: readInstanceUrl,
     token: readToken,
-    onUnauthorized: clearToken,
+    onUnauthorized: () => {
+      clearToken();
+      notifySession({ signedIn: false, error: "unauthorized" });
+    },
   });
 });
 
@@ -129,9 +160,25 @@ ipcMain.handle("instance:set", (event, raw: unknown) => {
   return { ok: true, url: writeInstanceUrl(next) };
 });
 
-ipcMain.handle("session:login", async (event, raw: unknown) => {
+// DEPRECATO (9 nov 2026): il login con password dal desktop non esiste più.
+// Il canale resta finché la pagina d'ingresso del renderer non passa al
+// browser (Task 21), e risponde sempre di usare il browser.
+ipcMain.handle("session:login", (event) => {
   if (!fromApp(event)) return { ok: false, code: "invalid_request" };
-  return login(raw, { instanceUrl: readInstanceUrl() });
+  return { ok: false, code: "use_browser_login" };
+});
+
+ipcMain.handle("session:start-browser-login", async (event) => {
+  if (!fromApp(event)) return { ok: false, code: "invalid_request" };
+  const started = await browserLogin.start();
+  // Lo state resta nel main: al renderer basta sapere che il browser è aperto.
+  return started.ok ? { ok: true } : started;
+});
+
+ipcMain.handle("session:cancel-browser-login", (event) => {
+  if (!fromApp(event)) return { ok: false };
+  browserLogin.cancel();
+  return { ok: true };
 });
 
 ipcMain.handle("session:logout", async (event) => {
@@ -164,6 +211,32 @@ function installMenu(): void {
   const template = buildMenuTemplate(process.platform, app.name, send);
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
+
+// Il protocollo `stubwise://` (login dal browser). In sviluppo l'eseguibile è
+// Electron stesso, e lo script va ripassato.
+if (process.defaultApp && process.argv[1]) {
+  app.setAsDefaultProtocolClient("stubwise", process.execPath, [process.argv[1]]);
+} else {
+  app.setAsDefaultProtocolClient("stubwise");
+}
+
+// Una sola istanza: su Windows e Linux l'URL arriva a una SECONDA istanza, che
+// lo passa a questa e si chiude.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, argv) => {
+    const url = authUrlFromArgv(argv);
+    if (url) receiveAuthUrl(url);
+    else BrowserWindow.getAllWindows()[0]?.focus();
+  });
+}
+
+// macOS consegna l'URL con `open-url` (anche ad app appena avviata).
+app.on("open-url", (event, url) => {
+  event.preventDefault();
+  void app.whenReady().then(() => receiveAuthUrl(url));
+});
 
 void app.whenReady().then(() => {
   installMenu();

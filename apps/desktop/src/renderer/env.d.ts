@@ -19,6 +19,9 @@ type StubwiseApiRequest = {
 };
 type StubwiseApiResponse = { status: number; headers: Record<string, string>; body: string | ArrayBuffer };
 type StubwiseLoginResult = { ok: true; user: unknown } | { ok: false; code: string };
+// `session:changed` (`src/main/browserLogin.ts`): l'esito del login dal browser
+// o la sessione scaduta, mai il token.
+type StubwiseSessionChange = { signedIn: true; user: unknown } | { signedIn: false; error?: string };
 
 interface Window {
   /** Esposto dal preload; assente quando il renderer gira in un browser normale. */
@@ -39,9 +42,13 @@ interface Window {
       get: () => Promise<string | null>;
       set: (url: string) => Promise<{ ok: boolean; url?: string }>;
     };
-    /** Login col secondo fattore, logout, stato: mai il token. */
+    /** Login dal browser di sistema, logout, stato: mai il token. */
     session?: {
+      /** @deprecated Il desktop entra dal browser (`startBrowserLogin`): risponde sempre `use_browser_login`. */
       login: (input: { email: string; password: string; code?: string }) => Promise<StubwiseLoginResult>;
+      startBrowserLogin: () => Promise<{ ok: true } | { ok: false; code: string }>;
+      cancelBrowserLogin: () => Promise<{ ok: boolean }>;
+      onChanged: (cb: (change: StubwiseSessionChange) => void) => () => void;
       logout: () => Promise<{ ok: boolean }>;
       status: () => Promise<{ instanceUrl: string | null; signedIn: boolean }>;
     };

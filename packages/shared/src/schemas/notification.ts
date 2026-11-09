@@ -710,6 +710,13 @@ export const inboxItemSchema = z.object({
   reviewOutcome: inboxReviewOutcomeSchema.nullable().default(null),
   projectId: z.uuid().nullable(),
   ticketId: z.uuid().nullable(),
+  /**
+   * Il codice della task della card (`<CODICE>-<number>`, integrazione area
+   * 2): DERIVATO a lettura dal ticket, mai scritto nell'evento, quindi c'è
+   * anche sulle card di prima e segue un codice di progetto cambiato. `null`
+   * senza ticket. `.optional()`: un server più vecchio non lo manda.
+   */
+  taskCode: z.string().nullable().optional(),
   jobId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
   readAt: z.iso.datetime().nullable(),

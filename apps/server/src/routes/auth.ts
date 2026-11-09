@@ -37,6 +37,7 @@ import {
 } from "@stubwise/shared";
 import { createPatForUser, revokeMobilePats } from "./pat.js";
 import { secondFactorLoginRoutes } from "./second-factor-login.js";
+import { desktopHandoffRoutes } from "./desktop-handoff.js";
 import { hasConfirmedTotp } from "../auth/second-factor/totp.js";
 import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-factor/index.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
@@ -316,7 +317,7 @@ export async function authRoutes(
     "/login",
     {
       onRequest: credentialsRateLimit,
-      config: { access: { kind: "public" } },
+      config: { access: { kind: "public" }, credentialDoor: true },
       schema: {
         // Nessun vincolo di lunghezza al login: la policy vale alla creazione.
         body: z.object({ email: z.email(), password: z.string().min(1) }),
@@ -357,6 +358,8 @@ export async function authRoutes(
 
   // Il secondo passo del login: qui dentro, così condivide il bucket.
   secondFactorLoginRoutes(instance, credentialsRateLimit);
+  // Integrazione area 2: il login del desktop dal browser (stesso bucket).
+  desktopHandoffRoutes(instance, credentialsRateLimit);
 
   /**
    * Login dell'app mobile: stesse credenziali del web, ma invece di aprire una
@@ -380,7 +383,7 @@ export async function authRoutes(
     "/mobile-login",
     {
       onRequest: credentialsRateLimit,
-      config: { access: { kind: "public" } },
+      config: { access: { kind: "public" }, credentialDoor: true },
       schema: {
         body: mobileLoginBodySchema,
         response: {

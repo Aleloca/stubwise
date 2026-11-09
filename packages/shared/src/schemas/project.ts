@@ -304,6 +304,13 @@ export type RepositorySummary = z.infer<typeof repositorySummarySchema>;
 /** Progetto con il CONTEGGIO dei repository: la forma della lista. */
 export const projectListItemSchema = projectSchema.extend({
   repositoryCount: z.number().int(),
+  /**
+   * Chi vede il progetto: i membri PIÙ i full admin, che ne sono membri
+   * impliciti (`docs/invariants/permissions.md`). Derivato a lettura; serve
+   * agli assegnatari proposti dall'app nuova. `.optional()`: un server più
+   * vecchio non lo manda.
+   */
+  memberIds: z.array(z.uuid()).optional(),
 });
 export type ProjectListItem = z.infer<typeof projectListItemSchema>;
 
@@ -315,6 +322,8 @@ export const projectDetailSchema = projectSchema.extend({
    * da un server più vecchio arriva vuoto, cioè «nessun permesso».
    */
   myPermissions: z.array(z.string()).default([]),
+  /** Come in {@link projectListItemSchema}: membri più full admin impliciti. */
+  memberIds: z.array(z.uuid()).optional(),
 });
 export type ProjectDetail = z.infer<typeof projectDetailSchema>;
 

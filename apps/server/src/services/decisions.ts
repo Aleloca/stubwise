@@ -16,10 +16,11 @@ import { visibleTasksCondition, type TaskViewer } from "./task-view.js";
 
 type DecisionRow = typeof decisionRequests.$inferSelect;
 
-export function toDecisionView(row: DecisionRow): DecisionRequestView {
+export function toDecisionView(row: DecisionRow, projectId?: string): DecisionRequestView {
   return {
     id: row.id,
     taskId: row.ticketId,
+    ...(projectId ? { projectId } : {}),
     askedById: row.askedByUserId,
     askedOfId: row.askedOfUserId,
     question: row.question,
@@ -89,7 +90,7 @@ export async function askDecision(
     );
     return row!;
   });
-  return { ok: true, decision: toDecisionView(decision) };
+  return { ok: true, decision: toDecisionView(decision, ref.projectId) };
 }
 
 /** La decisione, se chi guarda ne vede la task; altrimenti `null` (→ 404). */
@@ -146,7 +147,7 @@ export async function answerDecision(
     return updated;
   });
   if (!result) return { ok: false, error: "decision_closed" };
-  return { ok: true, decision: toDecisionView(result) };
+  return { ok: true, decision: toDecisionView(result, (await ticketRef(db, result.ticketId)).projectId) };
 }
 
 export async function withdrawDecision(db: Db, viewer: TaskViewer, id: string): Promise<CloseResult> {
@@ -159,7 +160,7 @@ export async function withdrawDecision(db: Db, viewer: TaskViewer, id: string): 
     .where(and(eq(decisionRequests.id, id), isNull(decisionRequests.answeredAt), isNull(decisionRequests.withdrawnAt)))
     .returning();
   if (!updated) return { ok: false, error: "decision_closed" };
-  return { ok: true, decision: toDecisionView(updated) };
+  return { ok: true, decision: toDecisionView(updated, (await ticketRef(db, updated.ticketId)).projectId) };
 }
 
 /** Le decisioni delle task che chi guarda vede, filtrate nella WHERE. */
@@ -177,11 +178,11 @@ export async function listDecisions(
   }
   if (query.open) conditions.push(isNull(decisionRequests.answeredAt), isNull(decisionRequests.withdrawnAt));
   const rows = await db
-    .select({ d: decisionRequests })
+    .select({ d: decisionRequests, projectId: tickets.projectId })
     .from(decisionRequests)
     .innerJoin(tickets, eq(tickets.id, decisionRequests.ticketId))
     .where(and(...conditions))
     .orderBy(asc(decisionRequests.createdAt))
     .limit(500);
-  return rows.map((r) => toDecisionView(r.d));
+  return rows.map((r) => toDecisionView(r.d, r.projectId));
 }

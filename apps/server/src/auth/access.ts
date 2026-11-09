@@ -107,6 +107,13 @@ declare module "fastify" {
     access?: RouteAccess;
     /** Riconferma recente richiesta dalla rotta (vedi {@link RouteReauth}). */
     reauth?: RouteReauth;
+    /**
+     * La rotta è una PORTA: si entra con le credenziali e si esce con una
+     * sessione o un token. Ogni porta passa dal secondo fattore
+     * (`docs/invariants/second-factor.md`); l'elenco è chiuso in
+     * `route-access.test.ts`.
+     */
+    credentialDoor?: true;
   }
   interface FastifyRequest {
     /** Impostato dall'hook globale sulle rotte `project`. */
