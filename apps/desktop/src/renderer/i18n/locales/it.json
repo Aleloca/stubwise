@@ -9900,6 +9900,7 @@
         "noInstance": "Prima inserisci l'indirizzo del tuo Stubwise.",
         "network": "Non è stato possibile raggiungere il tuo Stubwise. Controlla l'indirizzo e la connessione, poi riprova.",
         "notFinished": "L'accesso non è andato a buon fine. Ricomincia da qui.",
+        "expired": "Quell'accesso è durato troppo, o ne è partito uno più recente. Ricomincia da qui.",
         "sessionEnded": "La sessione è finita. Accedi di nuovo.",
         "generic": "Non è stato possibile accedere. Riprova."
       }

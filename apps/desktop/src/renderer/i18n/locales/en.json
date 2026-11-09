@@ -9900,6 +9900,7 @@
         "noInstance": "Enter the address of your Stubwise first.",
         "network": "Couldn't reach your Stubwise. Check the address and your connection, then try again.",
         "notFinished": "Signing in didn't finish. Start again from here.",
+        "expired": "That sign-in took too long or was replaced by a newer one. Start again from here.",
         "sessionEnded": "Your session ended. Sign in again.",
         "generic": "Couldn't sign in. Try again."
       }

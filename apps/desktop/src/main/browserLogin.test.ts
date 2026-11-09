@@ -113,12 +113,15 @@ describe("handleAuthUrl", () => {
     expect(await login.handleAuthUrl(`stubwise://auth?code=C&state=${s}`)).toMatchObject({ ok: true });
   });
 
-  it("una richiesta più vecchia di 5 minuti non vale più", async () => {
+  it("una richiesta più vecchia di 5 minuti non vale più (e lo si dice: «expired»)", async () => {
     const { login, fetchImpl, tick } = setup();
     const started = await login.start();
     if (!started.ok) throw new Error("start");
     tick(5 * 60 * 1000 + 1);
-    expect(await login.handleAuthUrl(`stubwise://auth?code=C&state=${started.state}`)).toBeNull();
+    expect(await login.handleAuthUrl(`stubwise://auth?code=C&state=${started.state}`)).toEqual({
+      ok: false,
+      code: "expired",
+    });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
@@ -136,7 +139,10 @@ describe("handleAuthUrl", () => {
     const first = await login.start();
     const second = await login.start();
     if (!first.ok || !second.ok) throw new Error("start");
-    expect(await login.handleAuthUrl(`stubwise://auth?code=C&state=${first.state}`)).toBeNull();
+    expect(await login.handleAuthUrl(`stubwise://auth?code=C&state=${first.state}`)).toEqual({
+      ok: false,
+      code: "expired",
+    });
     expect(await login.handleAuthUrl(`stubwise://auth?code=C&state=${second.state}`)).toMatchObject({ ok: true });
   });
 
@@ -180,5 +186,46 @@ describe("deviceNameFrom", () => {
     expect(deviceNameFrom("a\nb‮c")).toBe("abc");
     expect(deviceNameFrom("x".repeat(80))).toHaveLength(60);
     expect(deviceNameFrom("")).toBe("Mac");
+  });
+});
+
+describe("richieste scadute, sostituite e legate all'istanza", () => {
+  const authUrl = (state: string) => `stubwise://auth?code=CODICE&state=${state}`;
+
+  it("lo state di una richiesta scaduta avvisa «expired» e non scambia", async () => {
+    const { login, changes, fetchImpl, tick } = setup();
+    const started = await login.start();
+    if (!started.ok) throw new Error("start");
+    tick(6 * 60 * 1000);
+    expect(await login.handleAuthUrl(authUrl(started.state))).toEqual({ ok: false, code: "expired" });
+    expect(changes).toEqual([{ signedIn: false, error: "expired" }]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("lo state di una richiesta appena sostituita avvisa «expired»", async () => {
+    const { login, changes, fetchImpl } = setup();
+    const first = await login.start();
+    await login.start();
+    if (!first.ok) throw new Error("start");
+    expect(await login.handleAuthUrl(authUrl(first.state))).toEqual({ ok: false, code: "expired" });
+    expect(changes).toEqual([{ signedIn: false, error: "expired" }]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("uno state mai visto resta ignorato, senza avvisi", async () => {
+    const { login, changes } = setup();
+    await login.start();
+    expect(await login.handleAuthUrl(authUrl("sconosciuto"))).toBeNull();
+    expect(changes).toEqual([]);
+  });
+
+  it("lo scambio va all'istanza di start(), anche se nel frattempo è cambiata", async () => {
+    let instance = "https://a.example";
+    const { login, fetchImpl } = setup({ instanceUrl: () => instance });
+    const started = await login.start();
+    if (!started.ok) throw new Error("start");
+    instance = "https://b.example";
+    await login.handleAuthUrl(authUrl(started.state));
+    expect(String(fetchImpl.mock.calls[0]![0])).toBe("https://a.example/api/auth/desktop-exchange");
   });
 });

@@ -48,11 +48,24 @@ interface Pending {
   verifier: string;
   deviceName: string;
   expiresAt: number;
+  /** L'istanza di `start()`: lo scambio va lì, anche se nel frattempo è cambiata. */
+  instance: string;
 }
+
+/** Quanti state sostituiti si ricordano, per dire «scaduto» invece di ignorare. */
+const REMEMBERED_STALE = 8;
 
 export function createBrowserLogin(deps: BrowserLoginDeps) {
   const now = deps.now ?? Date.now;
   let pending: Pending | null = null;
+  // Gli state di richieste sostituite o annullate: un ritorno con uno di
+  // questi è un login partito prima, e lo si dice («expired»).
+  const stale: string[] = [];
+  const retire = (p: Pending | null) => {
+    if (!p) return;
+    stale.push(p.state);
+    if (stale.length > REMEMBERED_STALE) stale.shift();
+  };
 
   async function start(): Promise<{ ok: true; state: string } | { ok: false; code: string }> {
     const instance = deps.instanceUrl();
@@ -62,12 +75,14 @@ export function createBrowserLogin(deps: BrowserLoginDeps) {
     const challenge = createHash("sha256").update(verifier).digest("base64url");
     const deviceName = deviceNameFrom(deps.hostname());
     // Una sola richiesta pendente: un nuovo avvio sostituisce la precedente.
-    pending = { state, verifier, deviceName, expiresAt: now() + PENDING_TTL_MS };
+    retire(pending);
+    pending = { state, verifier, deviceName, expiresAt: now() + PENDING_TTL_MS, instance };
     const query = new URLSearchParams({ challenge, state, device: deviceName });
     await deps.openExternal(`${instance}/app/#/desktop-login?${query.toString()}`);
     return { ok: true, state };
   }
 
+  /** Un annullamento esplicito: l'URL che arriva dopo è ignorato, senza avvisi. */
   function cancel(): void {
     pending = null;
   }
@@ -87,19 +102,24 @@ export function createBrowserLogin(deps: BrowserLoginDeps) {
     if (url.protocol !== "stubwise:" || url.hostname !== "auth") return null;
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
-    if (!code || !state || !pending || state !== pending.state) return null;
-    const current = pending;
-    // Monouso, anche se lo scambio fallisce: un secondo URL con lo stesso
-    // state è ignorato.
-    pending = null;
-    if (now() > current.expiresAt) return null;
-
-    const instance = deps.instanceUrl();
+    if (!code || !state) return null;
     const fail = (codeName: string): LoginResult => {
       deps.notify({ signedIn: false, error: codeName });
       return { ok: false, code: codeName };
     };
-    if (!instance) return fail("no_instance");
+    // Un login partito prima (sostituito, annullato): lo si dice, senza scambiare.
+    if (stale.includes(state)) {
+      stale.splice(stale.indexOf(state), 1);
+      return fail("expired");
+    }
+    if (!pending || state !== pending.state) return null;
+    const current = pending;
+    // Monouso, anche se lo scambio fallisce: un secondo URL con lo stesso
+    // state è ignorato.
+    pending = null;
+    if (now() > current.expiresAt) return fail("expired");
+
+    const instance = current.instance;
     let res: Response;
     try {
       res = await (deps.fetch ?? fetch)(`${instance}/api/auth/desktop-exchange`, {

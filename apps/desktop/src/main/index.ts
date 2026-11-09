@@ -157,8 +157,12 @@ ipcMain.handle("instance:set", (event, raw: unknown) => {
   if (!fromApp(event)) return { ok: false };
   const next = normalizeInstanceUrl(raw);
   if (!next) return { ok: false };
-  // Un'istanza diversa è un'altra sessione: il token di prima non vale lì.
-  if (next !== readInstanceUrl()) clearToken();
+  // Un'istanza diversa è un'altra sessione: il token di prima non vale lì, e
+  // un login dal browser in corso era per l'altra.
+  if (next !== readInstanceUrl()) {
+    clearToken();
+    browserLogin.cancel();
+  }
   return { ok: true, url: writeInstanceUrl(next) };
 });
 
