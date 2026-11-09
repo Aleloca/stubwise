@@ -1442,10 +1442,10 @@ describe("listInbox — riassunto in breve", () => {
 
     expect(items).toHaveLength(5);
     expect(items.every((item) => item.summary !== undefined)).toBe(true);
-    // Le query della pagina sono un numero FISSO (righe, job, utenti, review):
-    // non cresce con gli item, altrimenti una pagina da 50 card sarebbe 50
-    // round-trip.
-    expect(selectSpy.mock.calls.length).toBeLessThanOrEqual(5);
+    // Le query della pagina sono un numero FISSO (righe, job, utenti, review,
+    // codici delle task — integrazione area 2): non cresce con gli item,
+    // altrimenti una pagina da 50 card sarebbe 50 round-trip.
+    expect(selectSpy.mock.calls.length).toBeLessThanOrEqual(6);
     selectSpy.mockRestore();
   });
 });

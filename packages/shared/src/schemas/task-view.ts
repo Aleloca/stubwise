@@ -161,6 +161,8 @@ export const stalledTaskViewSchema = z.object({ task: taskViewSchema, stall: sta
 export const decisionRequestViewSchema = z.object({
   id: z.string().uuid(),
   taskId: z.string().uuid(),
+  /** Il progetto della task, derivato a lettura. `.optional()`: un server più vecchio non lo manda. */
+  projectId: z.string().uuid().optional(),
   /** null se chi ha chiesto non c'è più. */
   askedById: z.string().uuid().nullable(),
   askedOfId: z.string().uuid(),

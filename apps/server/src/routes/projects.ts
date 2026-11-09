@@ -19,8 +19,8 @@ import {
   compareProjectNames,
   needsViewer,
 } from "@stubwise/shared";
-import { summarizeProject, type ProjectPulseSummary } from "@stubwise/notifications";
-import { eq, sql } from "drizzle-orm";
+import { summarizeProject, userIdsWithPermission, type ProjectPulseSummary } from "@stubwise/notifications";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -39,6 +39,7 @@ import {
   projectMembers,
   projects,
   repositories,
+  type Db,
 } from "@stubwise/db";
 import { leadRoleId } from "../services/roles.js";
 import {
@@ -134,6 +135,30 @@ function pulseOrder(a: ProjectPulseSummary, b: ProjectPulseSummary): number {
 }
 
 type ProjectRow = typeof projects.$inferSelect;
+
+/**
+ * Chi vede ciascun progetto: i membri più i full admin, membri impliciti di
+ * ogni progetto (`docs/invariants/permissions.md`). Due query per tutta la
+ * pagina, non una per progetto. Derivato a lettura (integrazione area 2): il
+ * renderer ne prende gli assegnatari proposti.
+ */
+async function effectiveMemberIds(db: Db, projectIds: string[]): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  if (projectIds.length === 0) return result;
+  const [members, admins] = await Promise.all([
+    db
+      .select({ projectId: projectMembers.projectId, userId: projectMembers.userId })
+      .from(projectMembers)
+      .where(inArray(projectMembers.projectId, projectIds)),
+    userIdsWithPermission(db, null, null),
+  ]);
+  for (const id of projectIds) result.set(id, [...admins]);
+  for (const m of members) {
+    const list = result.get(m.projectId)!;
+    if (!list.includes(m.userId)) list.push(m.userId);
+  }
+  return result;
+}
 
 /**
  * Proiezione pubblica del progetto (gruppo): campi elencati esplicitamente,
@@ -326,9 +351,11 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         .where(inProjects(repositories.projectId, visible))
         .groupBy(repositories.projectId);
       const countByProject = new Map(counts.map((c) => [c.projectId, c.count]));
+      const membersOf = await effectiveMemberIds(app.db, rows.map((r) => r.id));
       return rows.map((row) => ({
         ...toPublicProject(row),
         repositoryCount: countByProject.get(row.id) ?? 0,
+        memberIds: membersOf.get(row.id) ?? [],
       }));
     },
   );
@@ -833,6 +860,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         ...toPublicProject(row),
         repositories: repos,
         myPermissions: [...routePermissions(request)],
+        memberIds: (await effectiveMemberIds(app.db, [row.id])).get(row.id) ?? [],
       };
     },
   );

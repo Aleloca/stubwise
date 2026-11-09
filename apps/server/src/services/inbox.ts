@@ -27,6 +27,8 @@ import {
   googleAccounts,
   notifications,
   prReviews,
+  projects,
+  tickets,
   users,
   type Db,
 } from "@stubwise/db";
@@ -722,6 +724,8 @@ export interface InboxItem {
   google?: InboxGoogle;
   projectId: string | null;
   ticketId: string | null;
+  /** `<CODICE>-<number>` del ticket, derivato a lettura (integrazione area 2); null senza ticket. */
+  taskCode: string | null;
   jobId: string | null;
   createdAt: Date;
   readAt: Date | null;
@@ -874,6 +878,12 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     db,
     page.map((r) => r.handledByUserId),
   );
+  // Il codice della task (integrazione area 2): derivato a lettura, UNA query
+  // per pagina, come `usersById`.
+  const taskCodes = await taskCodesByTicket(
+    db,
+    page.map((r) => r.ticketId),
+  );
   // Solo per le card di posta: le altre non hanno una riga `email_proposals` e
   // la mappa resta vuota per loro.
   const sourceProposalIds = await sourceProposalIdsByNotification(
@@ -960,6 +970,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       actions,
       projectId: r.projectId,
       ticketId: r.ticketId,
+      taskCode: r.ticketId ? (taskCodes.get(r.ticketId) ?? null) : null,
       jobId: r.jobId,
       createdAt: r.createdAt,
       readAt: r.readAt,
@@ -1652,4 +1663,20 @@ function decodeCursor(raw: string): Cursor | null {
   if (!CURSOR_TIMESTAMP_PATTERN.test(createdAt)) return null;
   if (!UUID_PATTERN.test(id)) return null;
   return { createdAt, id };
+}
+
+/**
+ * `<projects.code>-<number>` dei ticket della pagina, in UNA query
+ * (integrazione area 2). Mai dal jsonb dell'evento: vale per le card vecchie
+ * e segue un codice di progetto cambiato.
+ */
+async function taskCodesByTicket(db: Db, ticketIds: (string | null)[]): Promise<Map<string, string>> {
+  const ids = [...new Set(ticketIds.filter((id): id is string => id !== null))];
+  if (ids.length === 0) return new Map();
+  const rows = await db
+    .select({ id: tickets.id, number: tickets.number, code: projects.code })
+    .from(tickets)
+    .innerJoin(projects, eq(projects.id, tickets.projectId))
+    .where(inArray(tickets.id, ids));
+  return new Map(rows.map((r) => [r.id, `${r.code}-${r.number}`]));
 }
