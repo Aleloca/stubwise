@@ -113,6 +113,7 @@ const WRITE_ERRORS: Record<TaskWriteError, string> = {
   assignee_not_found: "Assignee not found",
   milestone_cross_project: "The milestone belongs to another project",
   request_not_found: "Request not found in this project",
+  request_not_convertible: "The request is already converted or archived",
   past_week: "A past week cannot be planned",
 };
 
@@ -201,11 +202,14 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       config: { access: { kind: "project", permission: "tickets.create", project: fromBody("projectId") } },
       schema: {
         body: newTaskBodySchema,
-        response: { 201: taskViewSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+        response: { 201: taskViewSchema, 400: errorSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
       const result = await createTask(app.db, request.user!, request.body);
+      if (!result.ok && result.error === "request_not_convertible") {
+        return apiError(reply, 409, result.error, WRITE_ERRORS[result.error]);
+      }
       if (!result.ok) return apiError(reply, 400, result.error, WRITE_ERRORS[result.error]);
       return reply.code(201).send(result.task);
     },
