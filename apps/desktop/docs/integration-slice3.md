@@ -31,7 +31,7 @@ e `domain/{home,filters}.ts` le riesportano; `matches` resta del finto. I test
 | Home di un reparto disposta da chi la gestisce (solo filtri pubblici) | `HomeEditor.tsx` (bersaglio reparto); `real/home.ts` (`setDepartmentHome`) | `PUT /api/departments/:id/home` | `real/home.test.ts` (rifiuto `filter_not_public`); server `home.test.ts` («la cambia un full admin o chi ha department.home.manage…», «nella Home di un reparto solo filtri pubblici…») |
 | «La Home del reparto è cambiata · Vedi le novità» | `HomePage.tsx` (`ChangedLine`, `WhatsNew`); `real/home.ts` (`markDepartmentHomeSeen`) | `POST /api/me/home/seen/:departmentId` | `HomePage.test.tsx`, `real/home.test.ts`; server `home.test.ts` («la Home del reparto cambia dopo…») |
 | Blocchi fissi «Da decidere» e «La mia settimana» | `domain/home.ts` → `@stubwise/shared` (`FIXED_BLOCKS`, `withFixed`) | il server normalizza in scrittura | `packages/shared/src/tasks/home.test.ts`; server `home.test.ts` |
-| Un blocco di un tipo che questa app non conosce si ignora | `real/home.ts` (`knownBlocks`) | `GET /api/me/home` | `real/home.test.ts` («un blocco di un tipo che questa app non conosce si ignora») |
+| Un blocco di un tipo che questa app non conosce si ignora, ma salvando la Home non si perde (né quello di un'area non integrata) | `real/home.ts` (`knownBlocks`, blocchi grezzi), `domain/home.ts` (`withHiddenBlocks`), `HomeEditor.tsx`, `registry.ts` (`isHiddenBlock`) | `GET`/`PUT /api/me/home`, `PUT /api/departments/:id/home` | `real/home.test.ts`, `domain/hiddenBlocks.test.ts`, `real/homePage.test.tsx` («personalizzare dall'app non cancella un blocco di un'area non integrata né un kind sconosciuto») |
 
 ## Catalogo dei blocchi
 
@@ -90,7 +90,7 @@ e `domain/{home,filters}.ts` le riesportano; `matches` resta del finto. I test
 | La Home d'apertura dei reparti esistenti: «Da decidere», «La mia settimana», «Le mie task», «Lavoro di Claude per me», «Ferme nei miei progetti» | orchestratrice |
 | Il server normalizza i blocchi (fissi sempre presenti, niente doppi) e risponde con la Home già risolta | orchestratrice (design) |
 | Un filtro eliminato o reso privato resta nella Home come blocco «non disponibile» | orchestratrice (design) |
-| Un tipo di blocco sconosciuto si scarta nel client; salvando la Home personale si perde | costruttore |
+| Un tipo di blocco sconosciuto non si mostra; un blocco di un'area non integrata non si mostra né si elenca nell'editor. Salvando la Home (personale o di reparto) tornano entrambi al loro posto relativo, o in coda (`withHiddenBlocks`): si tolgono solo con «Ripristina» | orchestratrice |
 | `department-home` integrato (chi dispone la Home), `department-permissions` spento | orchestratrice |
 | I blocchi delle aree non integrate si escludono con `ofArea` nel registro: un controllo solo per catalogo, Home e novità | costruttore |
 | Dopo il login si atterra di nuovo sulla Home | maintainer |

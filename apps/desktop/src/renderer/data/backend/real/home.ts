@@ -1,5 +1,6 @@
 import type { DepartmentHomeView, MeHomeView } from "@stubwise/shared";
 import type * as Fake from "../../api";
+import { withHiddenBlocks } from "../../../domain/home";
 import type { DepartmentPermission, HomeBlockKind, HomeBlockRef, PersonalHome } from "../../types";
 import { appClient, session } from "./client";
 
@@ -28,15 +29,30 @@ const KNOWN_KINDS: Record<HomeBlockKind, true> = {
   filter: true,
 };
 
-function knownBlocks(blocks: { kind: string; filterId?: string }[]): HomeBlockRef[] {
+type RawBlock = { kind: string; filterId?: string };
+
+const isUnknown = (b: RawBlock) => !Object.hasOwn(KNOWN_KINDS, b.kind);
+
+/**
+ * I blocchi come li ha dati il server, compresi i tipi che questa app non
+ * conosce: salvando, quelli tornano al loro posto (`withHiddenBlocks`), così
+ * un'app più vecchia del server non li cancella. Si svuotano solo con
+ * «Ripristina» (la Home personale) o con una lettura nuova.
+ */
+let rawPersonal: RawBlock[] = [];
+const rawDepartment = new Map<string, RawBlock[]>();
+
+function knownBlocks(blocks: RawBlock[]): HomeBlockRef[] {
   return blocks.flatMap((b) =>
-    Object.hasOwn(KNOWN_KINDS, b.kind)
+    !isUnknown(b)
       ? [{ kind: b.kind as HomeBlockKind, ...(b.filterId !== undefined ? { filterId: b.filterId } : {}) }]
       : [],
   );
 }
 
 function personalOf(view: MeHomeView): PersonalHome | null {
+  // Senza Home personale si parte dalla risolta: anche lì un tipo ignoto va tenuto.
+  rawPersonal = view.personal?.blocks ?? view.blocks;
   if (!view.personal) return null;
   return {
     personId: session.personId ?? "",
@@ -57,6 +73,7 @@ export const listDepartmentHomes: typeof Fake.listDepartmentHomes = async () => 
   const homes = await Promise.all(departments.map((d) => client.departments.home(d.id)));
   return homes.flatMap((h) => {
     const home = h as DepartmentHomeView;
+    rawDepartment.set(home.departmentId, home.blocks);
     return home.updatedAt === null
       ? []
       : [{ departmentId: home.departmentId, blocks: knownBlocks(home.blocks), updatedAt: home.updatedAt }];
@@ -67,15 +84,22 @@ export const getPersonalHome: typeof Fake.getPersonalHome = async () =>
   personalOf((await appClient().home.get()) as MeHomeView);
 
 export const setPersonalHome: typeof Fake.setPersonalHome = async (blocks) => {
-  const view = (await appClient().home.set(blocks)) as MeHomeView;
+  const view = (await appClient().home.set(withHiddenBlocks<RawBlock>(blocks, rawPersonal, isUnknown))) as MeHomeView;
   return personalOf(view) ?? { personId: session.personId ?? "", blocks: [], seenDepartmentUpdates: {} };
 };
 
-export const resetPersonalHome: typeof Fake.resetPersonalHome = () => appClient().home.reset();
+/** «Ripristina»: l'unico modo di togliere anche i blocchi che l'app non mostra. */
+export const resetPersonalHome: typeof Fake.resetPersonalHome = async () => {
+  await appClient().home.reset();
+  rawPersonal = [];
+};
 
 /** Full admin o `department.home.manage` nel reparto; un filtro privato → 400 `filter_not_public`. */
 export const setDepartmentHome: typeof Fake.setDepartmentHome = async (departmentId, blocks) => {
-  await appClient().departments.setHome(departmentId, blocks);
+  await appClient().departments.setHome(
+    departmentId,
+    withHiddenBlocks<RawBlock>(blocks, rawDepartment.get(departmentId) ?? [], isUnknown),
+  );
 };
 
 export const markDepartmentHomeSeen: typeof Fake.markDepartmentHomeSeen = (departmentId) =>
