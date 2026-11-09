@@ -411,6 +411,43 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     expect(fetchImpl.mock.calls[0]![0]).toBe("https://stubwise.example/api/requests/to-convert");
   });
 
+  it("Nuovo progetto: projects.create con codice, modello, cliente e moduli; i campi nuovi della risposta", async () => {
+    const PROJECT = {
+      id: "00000000-0000-4000-8000-0000000000f1",
+      name: "Lancio",
+      slug: "lancio",
+      description: null,
+      aiProviderId: null,
+      docAutoUpdate: false,
+      dailyReportEnabled: false,
+      backlogEnabled: false,
+      pulseEnabled: false,
+      pulseEveryDays: 7,
+      ingestionKey: "k",
+      nextTicketNumber: 1,
+      createdAt: "2026-11-09T10:00:00.000Z",
+      code: "LAN",
+      template: "marketing",
+      modules: [],
+      clientName: "Acme",
+      kind: "client",
+    };
+    const calls: [string, string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([init!.method!, url as string, JSON.parse(init!.body as string)]);
+      return jsonResponse(init!.method === "POST" ? 201 : 200, PROJECT);
+    });
+    const c = clientWith(fetchImpl);
+    const body = { name: "Lancio", code: "LAN", template: "marketing" as const, clientName: "Acme", modules: [] };
+    const created = await c.projects.create(body);
+    expect(created).toMatchObject({ template: "marketing", modules: [], kind: "client", clientName: "Acme" });
+    await c.projects.patch(PROJECT.id, { clientName: null, modules: ["docs"] });
+    expect(calls).toEqual([
+      ["POST", "https://stubwise.example/api/projects", body],
+      ["PATCH", `https://stubwise.example/api/projects/${PROJECT.id}`, { clientName: null, modules: ["docs"] }],
+    ]);
+  });
+
   it("departments.remove: DELETE con moveTasksTo in query", async () => {
     const fetchImpl = mockFetch(async () => new Response(null, { status: 204 }));
     const client = clientWith(fetchImpl);

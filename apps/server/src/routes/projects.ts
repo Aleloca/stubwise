@@ -18,6 +18,10 @@ import {
   updateProjectSchema,
   compareProjectNames,
   needsViewer,
+  MODULE_ORDER,
+  TEMPLATE_MODULES,
+  TEMPLATE_STATUSES,
+  type ProjectModule,
 } from "@stubwise/shared";
 import { summarizeProject, userIdsWithPermission, type ProjectPulseSummary } from "@stubwise/notifications";
 import { eq, inArray, sql } from "drizzle-orm";
@@ -37,16 +41,19 @@ import {
   aiProviders,
   projectEnvironments,
   projectMembers,
+  projectStatuses,
   projects,
   repositories,
   type Db,
 } from "@stubwise/db";
 import { leadRoleId } from "../services/roles.js";
+import { legacyStatusesFor } from "./project-statuses.js";
 import {
   authErrorResponses,
   errorSchema,
   generateIngestionKey,
   isUniqueViolation,
+  uniqueViolationConstraint,
 } from "./shared.js";
 import { apiError } from "../errors.js";
 import {
@@ -202,7 +209,17 @@ function toPublicProject(row: ProjectRow): z.infer<typeof projectSchema> {
     // soglie «ferma» del progetto.
     code: row.code,
     stallThresholds: { activeDays: row.stallActiveDays, todoDays: row.stallTodoDays },
+    // Fetta 4: modello, moduli (in ordine), cliente e `kind` derivato.
+    template: row.template,
+    modules: orderedModules(row.modules),
+    clientName: row.clientName,
+    kind: row.clientName ? "client" : "internal",
   };
+}
+
+/** I moduli una volta sola, nell'ordine in cui un progetto li elenca (`MODULE_ORDER`). */
+function orderedModules(modules: readonly ProjectModule[]): ProjectModule[] {
+  return MODULE_ORDER.filter((m) => modules.includes(m));
 }
 
 /**
@@ -254,7 +271,18 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         pulseEnabled,
         pulseEveryDays,
         weeklyBriefEnabled,
+        code,
+        template,
+        clientName,
+        modules,
       } = request.body;
+
+      // Fetta 4: un codice già usato è un 409 prima di creare qualunque cosa
+      // (la violazione unique dentro la transazione resta l'arbitro sotto concorrenza).
+      if (code !== undefined) {
+        const [taken] = await app.db.select({ id: projects.id }).from(projects).where(eq(projects.code, code));
+        if (taken) return apiError(reply, 409, "code_taken", "Another project already uses this code");
+      }
 
       // Provider AI opzionale: se valorizzato deve riferire una riga esistente
       // (non serve enabled: è configurazione, l'enabled si valuta all'esecuzione).
@@ -296,9 +324,31 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
                 // di collisione (astronomicamente improbabile) l'insert rilancia e
                 // il giro dopo ne genera un'altra insieme allo slug.
                 ingestionKey: generateIngestionKey(),
+                ...(code !== undefined ? { code } : {}),
+                ...(template !== undefined ? { template } : {}),
+                ...(clientName != null ? { clientName } : {}),
+                modules: orderedModules(modules ?? TEMPLATE_MODULES[template ?? "software"]),
               })
               .returning();
             if (!created) throw new Error("insert del progetto non ha restituito la riga");
+            // Fetta 4: con un modello esplicito gli stati sono i SUOI, al posto di
+            // quelli che il trigger `projects_default_statuses` ha appena messo
+            // (il progetto è nato in questa transazione: nessuna task li usa).
+            // Senza modello (un client di prima) restano quelli di default.
+            if (template !== undefined) {
+              const statuses = TEMPLATE_STATUSES[template];
+              const legacy = legacyStatusesFor(statuses.map((st) => st.family));
+              await tx.delete(projectStatuses).where(eq(projectStatuses.projectId, created.id));
+              await tx.insert(projectStatuses).values(
+                statuses.map((st, position) => ({
+                  projectId: created.id,
+                  name: st.name,
+                  family: st.family,
+                  position,
+                  legacyStatus: legacy[position]!,
+                })),
+              );
+            }
             // Fase 8: ogni progetto ha SEMPRE un ambiente `test` — è l'invariante
             // che la migrazione 0074 stabilisce per i progetti esistenti col
             // backfill, e che qui si mantiene per ogni progetto NUOVO creato dopo
@@ -319,6 +369,10 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           return await reply.code(201).send(toPublicProject(created));
         } catch (error) {
           if (!isUniqueViolation(error)) throw error;
+          // Il codice preso da una richiesta concorrente: niente di creato (transazione), 409.
+          if (code !== undefined && uniqueViolationConstraint(error) === "projects_code_unique") {
+            return apiError(reply, 409, "code_taken", "Another project already uses this code");
+          }
         }
       }
       throw new Error(`impossibile generare uno slug unico per "${baseSlug}"`);
@@ -895,8 +949,13 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         weeklyBriefEnabled,
         prCorrectionMaxRounds,
         code,
+        clientName,
+        modules,
       } = request.body;
       const updates: Partial<ProjectRow> = {};
+      // Fetta 4: null toglie il cliente (torna interno); i moduli sono l'insieme intero.
+      if (clientName !== undefined) updates.clientName = clientName;
+      if (modules !== undefined) updates.modules = orderedModules(modules);
       if (name !== undefined) updates.name = name;
       // Codice di progetto (integrazione area 2): unico, 409 se è di un altro.
       if (code !== undefined) updates.code = code;

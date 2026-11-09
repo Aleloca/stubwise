@@ -9,6 +9,7 @@ import {
   projectSchema,
 } from "@stubwise/shared";
 import type {
+  CreateProjectInput,
   DecisionDraft,
   DecisionPatch,
   DecisionSource,
@@ -71,6 +72,15 @@ export function createProjectsEndpoints(request: ApiRequest) {
      * restituisce): chi mostra il dettaglio lo rilegge invalidando la sua
      * chiave, invece di rattoppare la cache a mano.
      */
+    /**
+     * Crea un progetto (`projects.create`). Fetta 4: `code` (409 `code_taken`
+     * se è già usato), `template` (gli stati del modello), `clientName` e
+     * `modules`; senza, come prima.
+     */
+    create(body: CreateProjectInput): Promise<Reader<Project>> {
+      return request("POST", "/api/projects", body, projectSchema);
+    },
+
     patch(projectId: string, body: UpdateProjectInput): Promise<Reader<Project>> {
       return request("PATCH", `/api/projects/${seg(projectId)}`, body, projectSchema);
     },

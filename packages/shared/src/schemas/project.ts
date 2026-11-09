@@ -2,6 +2,7 @@ import { z } from "zod";
 import { handledBySchema } from "./notification.js";
 import { milestoneStatusSchema } from "./milestone.js";
 import { ticketPrioritySchema, ticketTypeSchema } from "./ticket.js";
+import { PROJECT_MODULES, PROJECT_TEMPLATES } from "../tasks/templates.js";
 
 // Spostato in `base-enums.ts` (import circolare con `ticket.ts`, vedi lì).
 import { gitProviderKindSchema, type GitProviderKind } from "./base-enums.js";
@@ -169,6 +170,11 @@ export type RepositorySaveResponse = z.infer<typeof repositorySaveResponseSchema
 /** Codice di progetto: `^[A-Z][A-Z0-9]{1,5}$`, unico (0107). */
 export const projectCodeSchema = z.string().regex(/^[A-Z][A-Z0-9]{1,5}$/);
 
+/** Fetta 4: il modello di un progetto e i suoi moduli (`tasks/templates.ts`). */
+export const projectTemplateSchema = z.enum(PROJECT_TEMPLATES);
+export const projectModuleSchema = z.enum(PROJECT_MODULES);
+const clientNameSchema = z.string().trim().min(1).max(120);
+
 export const projectSchema = z.object({
   id: z.uuid(),
   name: z.string().min(1),
@@ -240,6 +246,13 @@ export const projectSchema = z.object({
   stallThresholds: z
     .object({ activeDays: z.number().int(), todoDays: z.number().int() })
     .optional(),
+  // Fetta 4: modello, moduli accesi (nell'ordine di `MODULE_ORDER`), cliente
+  // e `kind` derivato («client» se c'è un cliente). `.optional()`: un server
+  // più vecchio non li manda.
+  template: projectTemplateSchema.optional(),
+  modules: z.array(projectModuleSchema).optional(),
+  clientName: z.string().nullable().optional(),
+  kind: z.enum(["internal", "client"]).optional(),
 });
 export type Project = z.infer<typeof projectSchema>;
 
@@ -259,6 +272,14 @@ export const createProjectSchema = z.object({
   pulseEnabled: z.boolean().optional(),
   pulseEveryDays: z.number().int().min(1).max(30).optional(),
   weeklyBriefEnabled: z.boolean().optional(),
+  // Fetta 4 (Nuovo progetto dell'app): tutti opzionali, così il web vecchio
+  // crea come prima. Senza `code` lo ricava il trigger dallo slug; senza
+  // `template` il progetto è software con gli stati di default; senza
+  // `modules` quelli del modello.
+  code: projectCodeSchema.optional(),
+  template: projectTemplateSchema.optional(),
+  clientName: clientNameSchema.nullable().optional(),
+  modules: z.array(projectModuleSchema).max(PROJECT_MODULES.length * 2).optional(),
 });
 export type CreateProjectInput = z.infer<typeof createProjectSchema>;
 
@@ -284,6 +305,9 @@ export const updateProjectSchema = z.object({
   // Integrazione area 2: il codice si cambia da chi gestisce il progetto
   // (409 `code_taken` se è di un altro).
   code: projectCodeSchema.optional(),
+  // Fetta 4: null toglie il cliente (il progetto torna interno); `modules` è l'insieme intero.
+  clientName: clientNameSchema.nullable().optional(),
+  modules: z.array(projectModuleSchema).max(PROJECT_MODULES.length * 2).optional(),
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 

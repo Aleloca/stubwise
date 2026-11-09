@@ -677,6 +677,17 @@ export const projects = pgTable(
     // todo (pianificata) è ferma. 1..90, default 7/14 come nel prototipo.
     stallActiveDays: integer("stall_active_days").notNull().default(7),
     stallTodoDays: integer("stall_todo_days").notNull().default(14),
+    // Fetta 4 (0118): il cliente (con un cliente il progetto è una commessa,
+    // `kind` si deriva), il modello e i moduli accesi. Gli esistenti:
+    // Software con tutti i moduli, interni.
+    clientName: text("client_name"),
+    template: text("template", { enum: ["software", "marketing", "client", "empty"] })
+      .notNull()
+      .default("software"),
+    modules: text("modules", { enum: ["docs", "releases", "support", "servers"] })
+      .array()
+      .notNull()
+      .default(sql`'{docs,releases,support,servers}'::text[]`),
   },
   () => [
     // Sotto 1 giorno il pulse diventerebbe un ping continuo, sopra 30 un
