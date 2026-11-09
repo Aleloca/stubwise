@@ -47,7 +47,6 @@ export {
   askDecision,
   deleteComment,
   editComment,
-  getRequest,
   getTaskWorkSummary,
   listActivity,
   listDecisionRequests,
@@ -57,7 +56,19 @@ export {
 export { listMilestones, listProjectStatuses, setProjectStatuses, setStallThresholds } from "./statuses";
 export { addAttachment, removeAttachment } from "./attachments";
 export { listDayArrangements, planTask, setDay } from "./planning";
-export { convertRequest, listRequestsToConvert } from "./requests";
+export {
+  archiveRequest,
+  convertRequest,
+  createRequest,
+  getRequest,
+  getRequestByCode,
+  listRequests,
+  listRequestsToConvert,
+  mergeRequest,
+  reopenRequest,
+  restoreRequest,
+  updateRequest,
+} from "./requests";
 export { createMilestone, deleteMilestone, updateMilestone } from "./milestones";
 export { createProject } from "./projects";
 export {

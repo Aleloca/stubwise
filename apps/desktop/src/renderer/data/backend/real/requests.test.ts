@@ -1,7 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, ME_ID, PROJECT_ID, serverTask } from "./fakeServer";
-import { convertRequest, listRequestsToConvert } from "./requests";
+import {
+  archiveRequest,
+  convertRequest,
+  createRequest,
+  getRequest,
+  getRequestByCode,
+  listRequests,
+  listRequestsToConvert,
+  mergeRequest,
+  reopenRequest,
+  restoreRequest,
+  updateRequest,
+} from "./requests";
 
 // Le richieste da trasformare in task nella build app (integrazione area 2,
 // fetta 3, Task J): «Da decidere» e il blocco «Richieste nuove». La sezione
@@ -65,5 +77,119 @@ describe("le richieste da trasformare dal server", () => {
       "GET /api/requests/to-convert",
       "POST /api/tasks",
     ]);
+  });
+});
+
+const TARGET = "33333333-3333-4333-8333-333333333399";
+const full = (over: Record<string, unknown> = {}) => ({
+  id: ITEM,
+  code: "AUD-R4",
+  projectId: PROJECT_ID,
+  title: "Export to CSV",
+  description: "Users want CSV.",
+  requesterIds: [ME_ID],
+  status: "new",
+  urgency: "high",
+  urgent: true,
+  size: "S",
+  risk: null,
+  riskNote: null,
+  design: null,
+  plan: null,
+  similarToId: null,
+  mergedIntoId: null,
+  mergedIntoCode: null,
+  taskIds: [],
+  createdAt: "2026-11-01T09:00:00.000Z",
+  suggestions: { size: "M", reason: "Bigger than it looks" },
+  webHref: "/backlog/" + ITEM,
+  ...over,
+});
+
+describe("le Requests dal server", () => {
+  it("elenco, dettaglio per id e per codice nella forma del prototipo; «urgent» resta segnato; una voce invisibile è null", async () => {
+    installFakeServer({
+      "GET /api/requests": { body: [full()] },
+      [`GET /api/requests/${ITEM}`]: { body: full() },
+      "GET /api/requests/by-code/AUD-R4": { body: full() },
+      "GET /api/requests/by-code/AUD-R404": { status: 404, body: { code: "not_found", message: "x" } },
+    });
+    const [request] = await listRequests(PROJECT_ID);
+    expect(request).toMatchObject({
+      id: ITEM,
+      code: "AUD-R4",
+      description: "Users want CSV.",
+      urgency: "high",
+      urgent: true,
+      size: "S",
+      risk: null,
+      suggestions: { size: "M", reason: "Bigger than it looks" },
+      taskIds: [],
+    });
+    expect((await getRequest(ITEM))?.code).toBe("AUD-R4");
+    expect((await getRequestByCode("aud-r4"))?.id).toBe(ITEM);
+    expect(await getRequestByCode("AUD-R404")).toBeNull();
+  });
+
+  it("Nuova richiesta: si aspetta l'intake; nuova, oppure fusa in un'altra («Unita a R12»)", async () => {
+    let polls = 0;
+    const { seen } = installFakeServer({
+      "POST /api/requests": { status: 202, body: { jobId: "job-1" } },
+      "GET /api/requests/jobs/job-1": () => {
+        polls++;
+        return polls < 2
+          ? { body: { status: "running", outcome: null, request: null } }
+          : { body: { status: "done", outcome: "merged", request: full({ id: TARGET, code: "AUD-R12" }) } };
+      },
+    });
+    const landed = await createRequest({ projectId: PROJECT_ID, title: "CSV please", description: "" });
+    expect(seen[0]!.body).toEqual({ projectId: PROJECT_ID, title: "CSV please", description: "" });
+    expect(landed).toMatchObject({ id: TARGET, code: "AUD-R12", landedByMerge: true });
+    expect(polls).toBe(2);
+  });
+
+  it("un intake fallito è un errore; una richiesta nuova non è «fusa»", async () => {
+    installFakeServer({
+      "POST /api/requests": { status: 202, body: { jobId: "job-2" } },
+      "GET /api/requests/jobs/job-2": { body: { status: "failed", outcome: null, request: null } },
+    });
+    await expect(createRequest({ projectId: PROJECT_ID, title: "x" })).rejects.toThrow();
+    installFakeServer({
+      "POST /api/requests": { status: 202, body: { jobId: "job-3" } },
+      "GET /api/requests/jobs/job-3": { body: { status: "done", outcome: "created", request: full() } },
+    });
+    expect(await createRequest({ projectId: PROJECT_ID, title: "x" })).not.toHaveProperty("landedByMerge");
+  });
+
+  it("metadati col PATCH; scartare i suggerimenti passa dalla sua rotta", async () => {
+    const { seen } = installFakeServer({
+      [`PATCH /api/requests/${ITEM}`]: { body: full({ size: "M" }) },
+      [`POST /api/backlog/${ITEM}/suggested/dismiss`]: { status: 204 },
+      [`GET /api/requests/${ITEM}`]: { body: full({ size: "M", suggestions: null }) },
+    });
+    const updated = await updateRequest(ITEM, { size: "M", urgency: "low", suggestions: null });
+    expect(seen[0]).toMatchObject({ method: "PATCH", body: { size: "M", urgency: "low" } });
+    expect(seen[1]).toMatchObject({ method: "POST", path: `/api/backlog/${ITEM}/suggested/dismiss` });
+    expect(updated.suggestions ?? null).toBeNull();
+  });
+
+  it("archivia, riapri, ripristina; fondi (la destinazione, riscritta); una fusione fallita è un errore", async () => {
+    const { seen } = installFakeServer({
+      [`POST /api/requests/${ITEM}/archive`]: { body: full({ status: "archived" }) },
+      [`POST /api/requests/${ITEM}/reopen`]: { body: full({ status: "new" }) },
+      [`POST /api/requests/${ITEM}/restore`]: { body: full({ status: "ready" }) },
+      [`POST /api/requests/${ITEM}/merge`]: (req) =>
+        (req.body as { intoId: string }).intoId === TARGET
+          ? { body: full({ id: TARGET, code: "AUD-R12", title: "Export (rewritten)" }) }
+          : { status: 502, body: { code: "merge_failed", message: "x" } },
+    });
+    expect((await archiveRequest(ITEM)).status).toBe("archived");
+    expect((await reopenRequest(ITEM)).status).toBe("new");
+    expect((await restoreRequest(ITEM, "ready")).status).toBe("ready");
+    expect(seen[2]!.body).toEqual({ status: "ready" });
+    expect(await mergeRequest(ITEM, TARGET)).toMatchObject({ id: TARGET, title: "Export (rewritten)" });
+    await expect(mergeRequest(ITEM, "33333333-3333-4333-8333-333333333398")).rejects.toMatchObject({
+      code: "merge_failed",
+    });
   });
 });

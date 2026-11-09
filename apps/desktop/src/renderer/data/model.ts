@@ -646,6 +646,11 @@ export interface ProjectRequest {
    */
   landedByMerge?: boolean;
   /**
+   * Solo sul server vero (fetta 4): l'urgenza era «urgent», più alta di
+   * «high» che l'app mostra; si segna senza perdere il dato.
+   */
+  urgent?: boolean;
+  /**
    * Ciò che l'intake (AI) propone di cambiare nei metadati, col perché: resta
    * una proposta finché chi ha `backlog.edit` non la accetta o la scarta.
    * Assente o `null`: nessuna proposta.

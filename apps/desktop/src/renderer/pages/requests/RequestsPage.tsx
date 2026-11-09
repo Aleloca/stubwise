@@ -372,7 +372,7 @@ function RequestRow({
           <RequestStatusLabel status={request.status} nameClassName="@max-[560px]:sr-only" />
         </span>
         <span className="relative flex w-[76px] shrink-0 @max-[560px]:w-3">
-          <UrgencyMark urgency={request.urgency} nameClassName="@max-[560px]:sr-only" />
+          <UrgencyMark urgency={request.urgency} urgent={request.urgent} nameClassName="@max-[560px]:sr-only" />
         </span>
         <span className="relative flex w-10 shrink-0 justify-center">
           <SizeMark size={request.size ?? null} />

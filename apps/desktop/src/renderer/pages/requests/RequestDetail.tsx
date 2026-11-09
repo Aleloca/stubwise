@@ -657,7 +657,7 @@ function Metadata({ request, canEdit }: { request: ProjectRequest; canEdit: bool
       {menuField(
         f("urgency"),
         t(`requests.urgency.${request.urgency}`),
-        <UrgencyMark urgency={request.urgency} />,
+        <UrgencyMark urgency={request.urgency} urgent={request.urgent} />,
         t("requests.detail.urgencyMenu"),
         (close) =>
           levelOptions(
