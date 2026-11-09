@@ -35,9 +35,11 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   `{ user, stage }`, mai una sessione completa prima del fattore.
 - **Il login del desktop passa dal browser, e il secondo fattore lo dà la
   sessione completa (9 nov 2026).** `POST /api/auth/desktop-handoff` vuole
-  una sessione COMPLETA del browser (una parziale → 401
-  `second_factor_required` dall'hook, un PAT → 403 `session_required`: un
-  token non conia altri token) ed emette un codice monouso legato al
+  una sessione COMPLETA del browser E la riconferma (`config.reauth`, come
+  `POST /api/pats`: conia un token, e un cookie rubato non deve bastare). Una
+  sessione parziale → 401 `second_factor_required` dall'hook, una completa
+  con il fattore più vecchio di 10 minuti → 403 `reauth_required`, un PAT →
+  403 `session_required` (un token non conia altri token) ed emette un codice monouso legato al
   challenge PKCE del desktop: 2 minuti, solo lo SHA-256 nel DB. `POST
   /api/auth/desktop-exchange` è pubblica, nel bucket di `/login`, NON chiede
   un codice (il fattore c'è già stato nel browser): consuma il codice con un

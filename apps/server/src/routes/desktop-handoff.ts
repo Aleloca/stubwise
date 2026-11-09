@@ -32,8 +32,9 @@ const sha256Hex = (value: string) => createHash("sha256").update(value).digest("
  *    scambia codice + verifier col suo token (`POST /desktop-exchange`).
  *
  * È una PORTA CHE DÀ UN TOKEN: il secondo fattore lo garantisce la sessione
- * completa richiesta al passo 2 (una sessione parziale riceve 401 dall'hook
- * globale, un PAT 403 qui), mai un codice chiesto allo scambio.
+ * completa E riconfermata richiesta al passo 2 (una sessione parziale riceve
+ * 401 dall'hook globale, una completa ma vecchia 403 `reauth_required`, un PAT
+ * 403 `session_required`), mai un codice chiesto allo scambio.
  */
 export function desktopHandoffRoutes(instance: FastifyInstance, credentialsRateLimit: onRequestHookHandler): void {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -41,7 +42,10 @@ export function desktopHandoffRoutes(instance: FastifyInstance, credentialsRateL
   app.post(
     "/desktop-handoff",
     {
-      config: { access: { kind: "user" } },
+      // Conia un token, come `POST /api/pats`: vuole la RICONFERMA (secondo
+      // fattore negli ultimi 10 minuti), così un cookie rubato non basta.
+      // Un PAT la riceve 403 `session_required` dal gate (decisione del 9 nov 2026).
+      config: { access: { kind: "user" }, reauth: true },
       schema: {
         body: desktopHandoffBodySchema,
         response: { 200: desktopHandoffResponseSchema, 400: errorSchema, ...authErrorResponses },

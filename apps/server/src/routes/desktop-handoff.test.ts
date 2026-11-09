@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { desktopHandoffs, personalAccessTokens, securityEvents } from "@stubwise/db";
+import { desktopHandoffs, personalAccessTokens, securityEvents, sessions } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { and, eq, sql } from "drizzle-orm";
@@ -7,7 +7,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { createPatForUser } from "./pat.js";
-import { partialSessionCookie, seedUsers, type SeededUsers } from "../test/fixtures.js";
+import { createUserWithSession, partialSessionCookie, seedUsers, type SeededUsers } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
@@ -75,6 +75,18 @@ describe("POST /api/auth/desktop-handoff", () => {
     const res = await handoff({ authorization: `Bearer ${pat.token}` }, pkce().challenge);
     expect(res.statusCode).toBe(403);
     expect(res.json()).toMatchObject({ code: "session_required" });
+  });
+
+  it("sessione completa ma second_factor_at più vecchio di 10 minuti → reauth_required", async () => {
+    const person = await createUserWithSession(app, "riconferma@example.com");
+    await testDb.db
+      .update(sessions)
+      .set({ secondFactorAt: new Date(Date.now() - 11 * 60 * 1000) })
+      .where(eq(sessions.userId, person.id));
+    const res = await handoff(person.headers, pkce().challenge);
+    expect(res.statusCode).toBe(403);
+    expect(res.json()).toMatchObject({ code: "reauth_required" });
+    expect(await testDb.db.select().from(desktopHandoffs).where(eq(desktopHandoffs.userId, person.id))).toHaveLength(0);
   });
 
   it("il codice si conserva solo come hash, vale 2 minuti", async () => {
