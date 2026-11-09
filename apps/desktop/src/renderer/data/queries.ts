@@ -1805,6 +1805,8 @@ export function useRefineOf(requestId: string) {
   return useQuery({
     queryKey: queryKeys.refineOf(me, requestId),
     queryFn: () => api.getRefineOf(requestId),
+    // Il refine con Claude è dell'area 3: nella build app non parte.
+    enabled: featureIntegrated("refine"),
   });
 }
 

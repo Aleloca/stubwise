@@ -26,11 +26,15 @@ export type IntegrationTarget =
  * reparto (`department-home`: chi dispone la Home del reparto). I blocchi della
  * Home delle aree non integrate si spengono da soli (`registry.ts`, `area`).
  * `department-permissions` (un reparto che dà permessi di progetto) resta fuori:
- * il server non la conosce.
+ * il server non la conosce. Fetta 4
+ * (`docs/plans/2026-11-09-integrazione-area2-fetta4-design.md`): Overview e
+ * Requests di progetto, «Tutti i progetti» (`portfolio`); un progetto atterra
+ * di nuovo sull'Overview. Refinement, task eliminate, archiviati, interruttori
+ * di brief e report e pausa della coda restano delle loro aree.
  */
 const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   destination: new Set(["home", "projects", "planning", "filters"]),
-  projectSection: new Set(["tasks", "planning"]),
+  projectSection: new Set(["overview", "tasks", "requests", "planning"]),
   // Stati e soglie del progetto.
   projectSettings: new Set(["statuses"]),
   admin: new Set(["departments"]),
@@ -44,12 +48,23 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "my-week",
     "saved-filters",
     "department-home",
+    "portfolio",
   ]),
 };
 
 export function isIntegrated(target: IntegrationTarget): boolean {
   if (!isAppBuild()) return true;
   return INTEGRATED[target.kind].has(target.name);
+}
+
+/**
+ * Sul server vero una richiesta nuova passa dall'intake (può essere fusa da
+ * sola in una esistente) e «Fondi in…» riscrive la destinazione col modello
+ * (decisioni del maintainer, fetta 4): l'app mostra l'attesa, «Unita a R12» e
+ * «Riprova». Nel prototipo creare e fondere sono immediati: lì non si mostra.
+ */
+export function serverIntake(): boolean {
+  return isAppBuild();
 }
 
 /** Scorciatoia per una funzione trasversale (`feature`). */

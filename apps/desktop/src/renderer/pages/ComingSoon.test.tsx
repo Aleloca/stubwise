@@ -7,7 +7,9 @@ import { renderRoute } from "../test/renderRoute";
 // nella navigazione con «Coming soon» e non leggono niente. Nei test il livello
 // dati è il finto anche con `VITE_STUBWISE_BUILD=app`: qui si registra ogni
 // chiamata ai namespace delle aree future, che devono restare a zero.
-const { FUTURE_NAMESPACES, calls, truncated } = vi.hoisted(() => ({
+const { FUTURE_NAMESPACES, calls, truncated, intake } = vi.hoisted(() => ({
+  // L'intake del server può fondere una richiesta nuova in una esistente: qui la si finge.
+  intake: { mergeInto: null as string | null },
   calls: [] as string[],
   // Il finto non tronca mai: qui si finge la risposta del server oltre le 2000 righe.
   truncated: { value: false, onlyFiltered: false },
@@ -43,7 +45,16 @@ vi.mock("@backend/api", async (importOriginal) => {
     };
   const wrapped: Record<string, unknown> = {};
   for (const [name, value] of Object.entries(mod)) {
-    if (name === "tasksTruncated") {
+    if (name === "createRequest") {
+      const create = value as (input: { projectId: string }) => Promise<unknown>;
+      const list = mod.listRequests as (projectId: string) => Promise<{ code: string }[]>;
+      wrapped[name] = record(name, async (...args: unknown[]) => {
+        const input = args[0] as { projectId: string };
+        if (!intake.mergeInto) return create(input);
+        const target = (await list(input.projectId)).find((r) => r.code === intake.mergeInto);
+        return { ...target, landedByMerge: true };
+      });
+    } else if (name === "tasksTruncated") {
       // `onlyFiltered`: troncata solo una lettura con criteri (la vasca del Planning), non quella intera.
       wrapped[name] = record(name, (criteria?: unknown) =>
         truncated.onlyFiltered ? criteria !== undefined : truncated.value,
@@ -63,7 +74,7 @@ vi.mock("@backend/api", async (importOriginal) => {
   return wrapped;
 });
 
-const { resetApi, setLatency } = await import("../data/api");
+const { failNext, resetApi, setLatency } = await import("../data/api");
 const { setSessionPersonId } = await import("../data/session");
 
 /** Nella build app la persona è quella della sessione (il finto), non quella di `renderRoute`. */
@@ -76,6 +87,7 @@ beforeEach(() => {
   calls.length = 0;
   truncated.value = false;
   truncated.onlyFiltered = false;
+  intake.mergeInto = null;
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
 });
 
@@ -138,6 +150,28 @@ const INTEGRATED_CALLS = new Set([
   "deleteFilter",
   "setFilterPinned",
   "listRequestsToConvert",
+  // Fetta 4: Requests, Overview, traguardi, Tutti i progetti, Nuovo progetto.
+  "listRequests",
+  "getRequestByCode",
+  "createRequest",
+  "updateRequest",
+  "mergeRequest",
+  "archiveRequest",
+  "reopenRequest",
+  "restoreRequest",
+  "convertRequest",
+  "createMilestone",
+  "updateMilestone",
+  "deleteMilestone",
+  "listDecisionLog",
+  "recordDecision",
+  "setDecisionSuperseded",
+  "getLatestBrief",
+  "listTimeline",
+  "listPortfolioActivity",
+  "projectPulse",
+  "listProjectPulses",
+  "createProject",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -162,11 +196,18 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("aprire un progetto atterra su Tasks", async () => {
+  it("aprire un progetto atterra sull'Overview", async () => {
     const router = renderRoute("/p/AUD");
-    await waitFor(() => expect(router.state.location.pathname).toBe("/p/AUD/tasks"));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/p/AUD/overview"));
     await settle();
-    // Le Tasks leggono solo ciò che la fetta integra (niente riga di Claude, niente blocchi dell'istanza).
+    expect(outside()).toEqual([]);
+  });
+
+  it("le Tasks leggono solo ciò che è integrato", async () => {
+    renderRoute("/p/AUD/tasks");
+    expect(await screen.findByRole("heading", { level: 1, name: "Tasks" })).toBeInTheDocument();
+    await settle();
+    // Niente riga di Claude, niente blocchi dell'istanza.
     expect(outside()).toEqual([]);
   });
 
@@ -371,5 +412,75 @@ describe("le superfici della fetta 3 nella build app", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "My week" })).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
+  });
+});
+
+describe("le superfici della fetta 4 nella build app", () => {
+  it("l'Overview è disponibile e legge solo ciò che è integrato", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/AUD/overview");
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("Requests: l'elenco e il dettaglio, senza letture di aree non integrate", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/AUD/requests");
+    expect(await screen.findByRole("heading", { level: 1, name: "Requests" })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    cleanup();
+    renderRoute("/p/STW/requests?request=req-stw-1");
+    const panel = await screen.findByRole("dialog");
+    // Il refine con Claude è dell'area 3: il bottone c'è, spento.
+    expect(await within(panel).findByRole("button", { name: "Refine with Claude" })).toBeDisabled();
+    cleanup();
+    renderRoute("/p/STW/requests?request=req-stw-1&refine=1");
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("Tutti i progetti è disponibile", async () => {
+    signedInAs("p-laura");
+    renderRoute("/projects");
+    expect(await screen.findByRole("heading", { level: 1, name: "All projects" })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("una richiesta fusa dall'intake: «Unita a R4», e si apre quella", async () => {
+    signedInAs("p-laura");
+    intake.mergeInto = "STW-R4";
+    const router = renderRoute("/p/STW/requests?newRequest=STW");
+    const dialog = await screen.findByRole("dialog", { name: "New request" });
+    await userEvent.type(within(dialog).getByLabelText("What do you need?"), "Mute notifications at night");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Send request" }));
+    expect(
+      await screen.findByText("Merged into STW-R4: someone had already asked for this, and now you follow it."),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ request: "req-stw-4" }));
+  });
+
+  it("«Fondi in…»: l'attesa della riscrittura, e un errore con «Try again» che non ha cambiato nulla", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/STW/requests?request=req-stw-1");
+    const panel = await screen.findByRole("dialog");
+    await userEvent.click(await within(panel).findByRole("button", { name: "More actions" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Merge into…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Merge into another request" });
+    await userEvent.click(await within(dialog).findByRole("radio", { name: /Quiet hours for notifications/ }));
+    failNext("mergeRequest");
+    setLatency(300);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Merge" }));
+    expect(
+      await within(dialog).findByText("Merging into STW-R4: Claude is rewriting it. This can take a moment."),
+    ).toBeInTheDocument();
+    expect(await within(dialog).findByText("Couldn't merge the requests. Nothing changed.", {}, { timeout: 2000 })).toBeInTheDocument();
+    setLatency(0);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Merge into another request" })).toBeNull());
   });
 });

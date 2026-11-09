@@ -1,13 +1,14 @@
 import type { ProjectMember } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import type { Project } from "../../types";
+import type { Project, ProjectModule, ProjectTemplate } from "../../types";
 import { appClient } from "./client";
 
 // I progetti della build app (integrazione area 2, fetta 1): quelli che chi
 // guarda vede (`GET /api/projects` filtra già nella WHERE), coi membri
 // (`GET /api/projects/:id/members`, che ogni membro legge) per i selettori
-// dell'assegnatario. Template, moduli e segnali sono quelli neutri: le
-// sezioni che li leggono arrivano con le fette successive.
+// dell'assegnatario. Dalla fetta 4 modello, moduli e cliente vengono dal
+// server (le sezioni Docs, Releases, Support e Servers seguono i moduli); i
+// segnali restano neutri.
 
 interface ServerProject {
   id: string;
@@ -18,7 +19,15 @@ interface ServerProject {
   stallThresholds?: { activeDays: number; todoDays: number };
   /** I membri effettivi (full admin impliciti compresi), derivati dal server; assenti da un server più vecchio. */
   memberIds?: string[];
+  /** Fetta 4: assenti da un server più vecchio. */
+  template?: ProjectTemplate;
+  modules?: ProjectModule[];
+  clientName?: string | null;
+  kind?: "internal" | "client";
 }
+
+/** I progetti esistenti sono Software con tutti e quattro i moduli (decisione del maintainer, fetta 4). */
+const EXISTING_MODULES: ProjectModule[] = ["docs", "releases", "support", "servers"];
 
 const DEFAULT_THRESHOLDS = { activeDays: 7, todoDays: 14 };
 
@@ -30,9 +39,10 @@ function toProject(p: ServerProject, memberIds: string[]): Project {
     id: p.id,
     code: codeOf(p),
     name: p.name,
-    kind: "internal",
-    template: "software",
-    modules: [],
+    kind: p.kind ?? (p.clientName ? "client" : "internal"),
+    template: p.template ?? "software",
+    modules: p.modules ?? EXISTING_MODULES,
+    ...(p.clientName ? { clientName: p.clientName } : {}),
     memberIds,
     stallThresholds: p.stallThresholds ?? DEFAULT_THRESHOLDS,
     signals: { claudeWorking: false },

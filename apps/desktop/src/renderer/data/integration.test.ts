@@ -24,6 +24,8 @@ const ALL: IntegrationTarget[] = [
       "saved-filters",
       "department-home",
       "department-permissions",
+      "portfolio",
+      "refine",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -35,7 +37,7 @@ describe("isIntegrated", () => {
     expect(ALL.filter((t) => !isIntegrated(t))).toEqual([]);
   });
 
-  it("nella build app l'ossatura, le Tasks (fetta 1), Planning e La mia settimana (fetta 2), Home e filtri (fetta 3)", () => {
+  it("nella build app l'ossatura, le Tasks (fetta 1), Planning e La mia settimana (fetta 2), Home e filtri (fetta 3), Overview, Requests e Tutti i progetti (fetta 4)", () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     expect(ALL.filter(isIntegrated).map(key).sort()).toEqual(
       [
@@ -58,6 +60,9 @@ describe("isIntegrated", () => {
         "destination:filters",
         "feature:saved-filters",
         "feature:department-home",
+        "projectSection:overview",
+        "projectSection:requests",
+        "feature:portfolio",
       ].sort(),
     );
   });

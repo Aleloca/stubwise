@@ -1882,7 +1882,9 @@
       "submit": "Send request",
       "failed": "Couldn't send the request. Nothing was sent; try again.",
       "sent": "Request sent to {{project}}.",
-      "sentSimilar": "Request sent to {{project}}. It looks similar to another request: the team may merge them."
+      "sentSimilar": "Request sent to {{project}}. It looks similar to another request: the team may merge them.",
+      "sentMerged": "Merged into {{code}}: someone had already asked for this, and now you follow it.",
+      "sending": "Sending… checking whether someone already asked for this."
     },
     "merge": {
       "title": "Merge into another request",
@@ -1894,7 +1896,9 @@
       "noMatch": "No requests match.",
       "choose": "Choose the request to merge into.",
       "submit": "Merge",
-      "failed": "Couldn't merge the requests. Nothing changed."
+      "failed": "Couldn't merge the requests. Nothing changed.",
+      "rewriting": "Merging into {{code}}: Claude is rewriting it. This can take a moment.",
+      "retry": "Try again"
     },
     "detail": {
       "label": "Request",

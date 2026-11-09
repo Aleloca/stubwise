@@ -641,6 +641,11 @@ export interface ProjectRequest {
   /** Solo sul server vero (fetta 3): la voce nel web vecchio, finché Requests non è integrata (fetta 4). */
   webHref?: string;
   /**
+   * Solo sul server vero (fetta 4): la risposta a «Nuova richiesta» è questa
+   * richiesta perché l'intake vi ha fuso quella appena mandata («Unita a R12»).
+   */
+  landedByMerge?: boolean;
+  /**
    * Ciò che l'intake (AI) propone di cambiare nei metadati, col perché: resta
    * una proposta finché chi ha `backlog.edit` non la accetta o la scarta.
    * Assente o `null`: nessuna proposta.
