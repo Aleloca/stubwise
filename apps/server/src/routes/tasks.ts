@@ -395,16 +395,17 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       };
       /**
        * Il valore mostrato di un evento: lo stato per nome (vedi sopra), il
-       * reparto, l'assegnatario e il traguardo per nome (l'id così com'è se
-       * non esistono più), la taglia XS–XL dall'effort; il resto com'è. Si
+       * reparto, l'assegnatario e il traguardo per nome (`null` se non
+       * esistono più: un id non si mostra mai a una persona, il ripiego lo
+       * sceglie il renderer), la taglia XS–XL dall'effort; il resto com'è. Si
        * risolve A LETTURA, quindi vale anche per gli eventi vecchi.
        */
       const valueOf = (kind: string, payload: Record<string, unknown>, side: "from" | "to"): string | null => {
         const raw = payload[side];
         if (kind === "status_changed") return statusName(payload[side === "from" ? "fromStatusId" : "toStatusId"], raw);
-        if (kind === "department_changed") return typeof raw === "string" ? (departmentName.get(raw) ?? raw) : null;
-        if (kind === "assignee_changed") return typeof raw === "string" ? (userName.get(raw) ?? raw) : null;
-        if (kind === "milestone_changed") return typeof raw === "string" ? (milestoneName.get(raw) ?? raw) : null;
+        if (kind === "department_changed") return typeof raw === "string" ? (departmentName.get(raw) ?? null) : null;
+        if (kind === "assignee_changed") return typeof raw === "string" ? (userName.get(raw) ?? null) : null;
+        if (kind === "milestone_changed") return typeof raw === "string" ? (milestoneName.get(raw) ?? null) : null;
         if (kind === "effort_changed") return typeof raw === "number" ? sizeFromEffort(raw) : null;
         return eventValue(raw);
       };
