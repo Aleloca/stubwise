@@ -238,7 +238,7 @@ export function AllFiltersPage() {
           filters={others}
           empty={t("filter.publicEmpty")}
           pinnedIds={pinned.data}
-          authorOf={(f) => people?.find((p) => p.id === f.ownerId)?.name ?? "…"}
+          authorOf={(f) => (f.ownerId === null ? null : (people?.find((p) => p.id === f.ownerId)?.name ?? "…"))}
           onPin={onPin}
         />
       </>

@@ -29,6 +29,7 @@ beforeEach(() => {
     "GET /api/people": {
       body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [SALES], email: "ada@example.com" }],
     },
+    "GET /api/departments/roles": { body: [] },
     "GET /api/departments": {
       body: [
         { id: GENERAL, name: "General", colorToken: "--dept-1", isDefault: true },

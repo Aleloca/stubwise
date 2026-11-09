@@ -1035,10 +1035,14 @@ export function useOptimistic<TVars, TData>(
   });
 }
 
-/** Applica una `TaskPatch` alle task in cache: liste, ferme e singola. */
+/**
+ * Applica una `TaskPatch` alle task in cache: liste, ferme e singola. Sotto
+ * «tasks» c'è anche il conteggio (`["as", me, "tasks", "count", …]`, dati
+ * `{count, truncated}`): non è un elenco e resta com'è (si rilegge a fine scrittura).
+ */
 function patchTasks(ids: readonly string[], patch: TaskPatch, area: string, old: unknown) {
   const apply = (t: Task): Task => (ids.includes(t.id) ? { ...t, ...patch } : t);
-  if (area === "tasks") return (old as Task[]).map(apply);
+  if (area === "tasks") return Array.isArray(old) ? (old as Task[]).map(apply) : old;
   if (area === "stalled") {
     return (old as { task: Task }[]).map((row) => ({ ...row, task: apply(row.task) }));
   }
