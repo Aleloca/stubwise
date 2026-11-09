@@ -88,7 +88,7 @@ I test «app» montano l'implementazione vera davanti a un server finto
 | Tre tipi in UI (bug, funzionalità, attività); `feedback` si legge come funzionalità, `review` come attività | maintainer |
 | Una task creata dall'app nuova non è mai deviata nell'intake del backlog | costruttore (design) |
 | «General» è il reparto di ripiego: non si elimina, e le persone nuove ci entrano da sole | maintainer |
-| I follower partono da ora (nessun backfill); i cambi automatici della pipeline non li notificano | maintainer / costruttore |
+| I follower partono da ora (nessun backfill); i cambi automatici della pipeline non li notificano | costruttore («Segui» è del maintainer) |
 | Il webhook d'istanza è spento per i tre kind nuovi (`decision.requested`, `decision.answered`, `ticket.activity`) | orchestratrice |
 | I cambi di reparto e di taglia non entrano nel feed attività | orchestratrice |
 | L'elenco si ferma a 2000 righe; `truncated` non si mostra (il prototipo non ha uno stato per questo) | costruttore |
