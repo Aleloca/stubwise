@@ -3,7 +3,7 @@ import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { usePeople, useProject, useRequests } from "../../data/queries";
 import type { ProjectRequest, RequestStatus } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { OPEN_REQUEST_STATUSES } from "../../domain/requests";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";

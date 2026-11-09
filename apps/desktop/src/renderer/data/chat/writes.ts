@@ -58,6 +58,9 @@ import {
   seenChannel,
 } from "./reads";
 import { canReadChannel, channelPermissions, isHuman, membersOf } from "./visibility";
+import { CHAT_EVENT_KINDS, DM_MAX_PEOPLE } from "./constants";
+
+export { CHAT_EVENT_KINDS, DM_MAX_PEOPLE } from "./constants";
 
 // Le scritture della Chat, come le altre del «server» finto: ognuna passa da
 // `gate()` (quindi `failNext` la fa fallire), legge chi agisce dalla
@@ -70,20 +73,6 @@ import { canReadChannel, channelPermissions, isHuman, membersOf } from "./visibi
 const forbidden = () => new Error("forbidden");
 const notFound = () => new Error("not_found");
 const invalid = (what: string) => new Error(`invalid: ${what}`);
-
-/** Tutti gli eventi di progetto, nell'ordine delle impostazioni del canale. */
-export const CHAT_EVENT_KINDS: readonly ChatEventKind[] = [
-  "release_page",
-  "milestone_reached",
-  "brief_ready",
-  "pr_opened",
-  "pr_merged",
-  "request_new",
-  "task_closed",
-];
-
-/** Le persone di un DM, compreso chi lo apre. */
-export const DM_MAX_PEOPLE = 8;
 
 /** Il nome di un canale: minuscole, numeri e trattini, al più 40 caratteri. */
 const NAME_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

@@ -5,7 +5,7 @@ import { adminSections, canSeeAdminSection } from "../../data/adminSections";
 import { isIntegrated } from "../../data/integration";
 import { useAdminPeople } from "../../data/queries";
 import { isAdminSection, type AdminSection } from "../../data/routes";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { NotFound } from "../NotFound";
 import { AiPage } from "./ai/AiPage";

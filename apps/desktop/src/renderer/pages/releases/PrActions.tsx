@@ -8,7 +8,7 @@ import {
   useSimulateAuthorPush,
 } from "../../data/queries";
 import type { OpenPrView } from "../../data/releases";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { PrototypeBox } from "../automations/shared";

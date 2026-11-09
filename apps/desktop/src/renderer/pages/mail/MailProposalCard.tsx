@@ -13,7 +13,7 @@ import {
   useTasks,
 } from "../../data/queries";
 import type { MailProposalView, Project, ProposedAction } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { useReauth } from "../../layout/useReauth";
 import { hasModKey } from "../../platform/platform";
 import { useToast } from "../../tasks-ui/Toast";

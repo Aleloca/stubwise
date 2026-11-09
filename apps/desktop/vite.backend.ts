@@ -15,7 +15,11 @@ export function backendMode(env: NodeJS.ProcessEnv = process.env): BackendMode {
 
 const data = resolve(import.meta.dirname, "src/renderer/data");
 
-/** Gli alias `@backend/api` e `@backend/clock` per il modo dato. */
+/**
+ * Gli alias `@backend/*` per il modo dato: l'api, l'orologio, il tempo e i
+ * reset (`runtime`), i fatti sugli accessi (`access`), il `Viewer` del prototipo. Ogni modulo vero è tipato sul
+ * finto (`tsconfig.json` → `paths`).
+ */
 export function backendAliases(mode: BackendMode): Alias[] {
   const app = mode === "app";
   return [
@@ -26,6 +30,18 @@ export function backendAliases(mode: BackendMode): Alias[] {
     {
       find: /^@backend\/clock$/,
       replacement: resolve(data, app ? "backend/real/clock.ts" : "seed/dates.ts"),
+    },
+    {
+      find: /^@backend\/runtime$/,
+      replacement: resolve(data, app ? "backend/real/runtime.ts" : "runtime.ts"),
+    },
+    {
+      find: /^@backend\/access$/,
+      replacement: resolve(data, app ? "backend/real/accessFacts.ts" : "accessFacts.ts"),
+    },
+    {
+      find: /^@backend\/viewer$/,
+      replacement: resolve(data, app ? "backend/real/viewer.ts" : "viewer.ts"),
     },
   ];
 }

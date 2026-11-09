@@ -15,7 +15,10 @@
     // risolve davvero il modulo per la build).
     "paths": {
       "@backend/api": ["./src/renderer/data/api.ts"],
-      "@backend/clock": ["./src/renderer/data/seed/dates.ts"]
+      "@backend/clock": ["./src/renderer/data/seed/dates.ts"],
+      "@backend/access": ["./src/renderer/data/accessFacts.ts"],
+      "@backend/runtime": ["./src/renderer/data/runtime.ts"],
+      "@backend/viewer": ["./src/renderer/data/viewer.ts"]
     }
   },
   "include": ["src/renderer", "vitest.config.ts"]

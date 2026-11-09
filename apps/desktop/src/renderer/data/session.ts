@@ -4,8 +4,6 @@
  * `ViewerProvider`, nello stesso render in cui cambia la persona «vedi come».
  */
 
-export const DEFAULT_SESSION_PERSON_ID = "p-giulia";
-
 /**
  * «Nessuno» (area 9a): la sessione dopo «Reset to empty instance», quando la
  * persona di prima non esiste più. Non è una persona: ogni lettura risponde
@@ -14,7 +12,11 @@ export const DEFAULT_SESSION_PERSON_ID = "p-giulia";
  */
 export const NO_SESSION_PERSON_ID = "p-nobody";
 
-let currentPersonId = DEFAULT_SESSION_PERSON_ID;
+// Vuota finché qualcuno non la imposta: nel prototipo lo store (al
+// caricamento e a ogni `resetStore`) con la persona di default del seme
+// (`DEFAULT_SESSION_PERSON_ID`, in `seed/people.ts`); nella build app il seme
+// non c'è (integrazione area 2, fetta 1).
+let currentPersonId = "";
 
 export function getSessionPersonId(): string {
   return currentPersonId;

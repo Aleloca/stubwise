@@ -1,5 +1,5 @@
 import type { ConversationDetail, ServerFixBlock } from "../../../data/types";
-import { can, useViewer } from "../../../data/viewer";
+import { can, useViewer } from "../../../data/viewing";
 
 /**
  * Quello che la scheda del piano di una correzione di server (area 8b)

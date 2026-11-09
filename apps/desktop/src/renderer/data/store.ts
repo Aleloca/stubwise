@@ -23,7 +23,13 @@ import { INITIAL_PINNED_FILTERS, SAVED_FILTERS } from "./seed/filters";
 import { DAY_ARRANGEMENTS, DEPARTMENT_HOMES, PERSONAL_HOMES } from "./seed/homes";
 import { MILESTONES } from "./seed/milestones";
 import { NOTIFICATIONS, SEED_SECURITY_CODES } from "./seed/notifications";
-import { CLAUDE_ID, PEOPLE, SEED_DEPARTMENT_IDS, restoreSeedPeople } from "./seed/people";
+import {
+  CLAUDE_ID,
+  DEFAULT_SESSION_PERSON_ID,
+  PEOPLE,
+  SEED_DEPARTMENT_IDS,
+  restoreSeedPeople,
+} from "./seed/people";
 import { INITIAL_PINNED_CODES, PROJECTS } from "./seed/projects";
 import { REQUESTS } from "./seed/requests";
 import { PROJECT_STATUSES } from "./seed/statuses";
@@ -85,7 +91,6 @@ import { SERVER_EPISODES } from "./seed/servers/episodes";
 import { CHECK_SAMPLES, SERVER_METRICS } from "./seed/servers/metrics";
 import { SERVERS, SERVER_CHECKS } from "./seed/servers/servers";
 import {
-  DEFAULT_SESSION_PERSON_ID,
   NO_SESSION_PERSON_ID,
   getSessionPersonId,
   setSessionCredential,
@@ -1441,6 +1446,8 @@ function freshState(): State {
 }
 
 export const state: State = freshState();
+// La sessione parte dalla persona di default del seme (`session.ts` parte vuota).
+setSessionPersonId(DEFAULT_SESSION_PERSON_ID);
 
 /** Rifà le mappe per id dopo che un array è cambiato di struttura. */
 export function reindex(): void {

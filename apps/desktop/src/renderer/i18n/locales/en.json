@@ -42,14 +42,6 @@
     "more_other": "{{count}} more projects",
     "moreWaiting_one": "{{count}} waiting on you",
     "moreWaiting_other": "{{count}} waiting on you",
-    "personas": {
-      "p-giulia": "Marketing · Project Lead on some projects",
-      "p-marco": "Development · Developer",
-      "p-laura": "Development · Project Lead",
-      "p-sara": "Support · Contributor",
-      "p-matteo": "Sales · Project Lead, owns an automation",
-      "p-roberta": "Administration · Full admin"
-    },
     "chatNews": "Mentions or replies for you",
     "mailWaiting_one": "{{count}} proposal to decide",
     "mailWaiting_other": "{{count}} proposals to decide",

@@ -29,6 +29,19 @@ describe("architettura", () => {
       .map(([path]) => path);
     expect(offenders).toEqual([]);
   });
+
+  // Integrazione area 2, fetta 1: la build app non contiene il finto. Le
+  // superfici leggono chi guarda da `data/viewing` e il tempo da
+  // `@backend/runtime`; `data/viewer` (il «vedi come») e `data/store` sono il
+  // finto, e il «vedi come» si legge da `@backend/viewer`. La prova sul bundle
+  // vero è `scripts/check-no-seed.mjs` (CI e immagine caddy).
+  it("nessuna superficie importa data/viewer o data/store", () => {
+    const FAKE_IMPORT = /from\s+["'][^"']*data\/(viewer|store)["']/;
+    const offenders = Object.entries(SOURCES)
+      .filter(([, source]) => FAKE_IMPORT.test(source))
+      .map(([path]) => path);
+    expect(offenders).toEqual([]);
+  });
 });
 
 // `insertRequest` scrive una richiesta senza controllare permessi: oltre al

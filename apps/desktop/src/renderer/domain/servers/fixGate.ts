@@ -1,5 +1,5 @@
 import type { Conversation, ConversationEvent, ServerSshAccess, Task } from "../../data/model";
-import { CLAUDE_ID } from "../../data/seed/people";
+import { CLAUDE_ID } from "../../data/ids";
 import { accessUsable } from "./sshAccess";
 
 // La correzione di un server ha due condizioni, sempre (anti-obiettivo 2):

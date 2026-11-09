@@ -3,7 +3,7 @@ import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useProjects, useRequest, useTasks } from "../../data/queries";
 import type { StoredLinkKind, Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { linksOf, withoutLink, type LinkView } from "../../domain/links";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";

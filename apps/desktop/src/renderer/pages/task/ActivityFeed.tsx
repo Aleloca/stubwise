@@ -9,7 +9,7 @@ import {
   usePeople,
 } from "../../data/queries";
 import type { ActivityEntry, DecisionRequest, Person, Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { shortWeekIn } from "../../domain/weeks";
 import { formatDateTime, relativeTime } from "../../notifications/time";
 import { inputClass } from "../../tasks-ui/Dialog";

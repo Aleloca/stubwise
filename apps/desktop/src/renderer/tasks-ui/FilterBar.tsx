@@ -16,7 +16,7 @@ import type {
   StatusFamily,
   TaskSize,
 } from "../data/types";
-import { useViewer } from "../data/viewer";
+import { useViewer } from "../data/viewing";
 import { canUseStatusIds } from "../domain/filters";
 import {
   CheckItem,

@@ -23,7 +23,7 @@ import {
   useSessionPersonId,
   useTasks,
 } from "../../data/queries";
-import { onStoreReset } from "../../data/store";
+import { onStoreReset } from "@backend/runtime";
 import type { ContextRef } from "../../data/types";
 import { NewConversationComposer } from "../../pages/claude/ClaudePage";
 import { keepUnsent, type ComposerDraft } from "../../pages/claude/conversation/Composer";

@@ -36,7 +36,7 @@ import {
   isValidSearchParam,
 } from "./data/routes";
 import { projectSettingsAccess } from "./data/adminSections";
-import { can, useViewer } from "./data/viewer";
+import { can, useViewer } from "./data/viewing";
 import {
   AdminIndex,
   AdminSectionPage,

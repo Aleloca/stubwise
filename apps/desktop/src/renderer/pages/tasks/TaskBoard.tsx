@@ -27,7 +27,7 @@ import { useTranslation } from "react-i18next";
 import { TODAY } from "../../data/dates";
 import { useUpdateTask } from "../../data/queries";
 import type { StatusFamily, Task, TaskPatch } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import type { Stall } from "../../domain/stalled";
 import { DeptStrip, useDeptLabel } from "../../layout/DeptStrip";
 import { PersonChip } from "../../tasks-ui/PersonChip";

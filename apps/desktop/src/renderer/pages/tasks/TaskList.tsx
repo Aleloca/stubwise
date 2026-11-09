@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type { GroupBy, Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import type { Stall } from "../../domain/stalled";
 import { TaskRow } from "../../tasks-ui/TaskRow";
 import { BulkBar } from "./BulkBar";

@@ -17,7 +17,7 @@ import {
 } from "../../data/queries";
 import type { Project, ProjectRequest, RequestLevel, RequestPatch, Task } from "../../data/types";
 import { requestFileName, requestToMarkdown } from "../../domain/export";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { isRequestOpen, relatedRequests } from "../../domain/requests";
 import {
   DETAIL_PANEL_MIN_WIDTH,

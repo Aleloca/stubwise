@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useProject, useProjectServers } from "../../data/queries";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { PageEmpty, PageError } from "../../tasks-ui/PageStates";
 import { secondaryButton } from "../tasks/controls";
 import { NewServerDialog } from "./NewServerDialog";

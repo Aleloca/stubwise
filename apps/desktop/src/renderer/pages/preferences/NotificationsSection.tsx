@@ -13,7 +13,7 @@ import {
 import { Trans, useTranslation } from "react-i18next";
 import type { ProjectSubscriptions } from "../../data/alerts";
 import { useAlertSubscriptions } from "../../data/queries";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { Tooltip } from "../../layout/Tooltip";
 import { PageError } from "../../tasks-ui/PageStates";
 import { ChevronGlyph, InfoGlyph } from "./glyphs";

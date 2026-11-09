@@ -17,7 +17,7 @@ import {
 } from "../../data/queries";
 import { CLAUDE_SCOPES, type ClaudeScope } from "../../data/routes";
 import type { Attachment, ContextRef, ConversationDetail } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { useMediaQuery } from "../../layout/useMediaQuery";
 import { hasModKey } from "../../platform/platform";
 import { formatDate } from "../../notifications/time";

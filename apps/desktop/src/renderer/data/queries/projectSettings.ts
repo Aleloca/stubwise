@@ -4,7 +4,7 @@ import * as api from "@backend/api";
 import { featureIntegrated } from "../integration";
 import { PROJECT_AREAS, useSessionPersonId, useWrite } from "../queries";
 import type { ProjectSettingsSection } from "../routes";
-import { useViewer } from "../viewer";
+import { useViewer } from "../viewing";
 
 // Gli hook di Progetto → Settings (area 9c); `data/queries` li ri-esporta.
 // L'import circolare con `../queries` è innocuo: gli helper si usano solo
@@ -24,12 +24,19 @@ export type {
   RemoteRepository,
   RepositoryView,
 } from "../projectSettings";
+// Valori puri, ciascuno dal suo modulo: l'indice `../projectSettings` porta
+// con sé lo stato finto (integrazione area 2, fetta 1: niente seme nella
+// build app).
 export {
   CORRECTION_CAP_MAX,
   CORRECTION_CAP_MIN,
-  DESCRIPTION_MAX,
-  NAME_MAX,
   PROJECT_SWITCHES,
+  PULSE_DAYS_MAX,
+  PULSE_DAYS_MIN,
+  pulseNeedsBacklogFor,
+} from "../projectSettings/state";
+export { DESCRIPTION_MAX, NAME_MAX } from "../projectSettings/limits";
+export {
   applyPluginPreset,
   pluginBothChanged,
   pluginChangedKeys,
@@ -40,11 +47,8 @@ export {
   pluginPresetApplied,
   pluginSkillKey,
   reconcilePluginDraft,
-  PULSE_DAYS_MAX,
-  PULSE_DAYS_MIN,
-  pulseNeedsBacklogFor,
-  reviewAccountChoices,
-} from "../projectSettings";
+} from "../projectSettings/pluginDraft";
+export { reviewAccountChoices } from "../projectSettings/reviewers";
 
 export type { SectionAccess } from "../adminSections";
 

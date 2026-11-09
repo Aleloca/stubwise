@@ -13,7 +13,7 @@ import {
   useRequest,
 } from "../../data/queries";
 import type { NewTaskInput, Project, Task, TaskSize } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { weekLabel } from "../../domain/weeks";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";

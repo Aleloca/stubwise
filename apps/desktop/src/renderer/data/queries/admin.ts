@@ -5,7 +5,7 @@ import type { ChangeFilter } from "../changelog/types";
 import { aiTabsFor, canSeeAdminSection } from "../adminSections";
 import { queryKeys, useSessionPersonId, useWrite } from "../queries";
 import type { AI_TABS, AdminSection } from "../routes";
-import { useViewer } from "../viewer";
+import { useViewer } from "../viewing";
 
 // Gli hook dell'amministrazione e della riconferma (area 9a); `data/queries`
 // li ri-esporta. L'import circolare con `../queries` è innocuo: gli helper si
@@ -31,7 +31,7 @@ export { ACTIONS, actionById, groupsFor, type AccessAction } from "../../domain/
 export type { SecondFactorInput, SecondFactorResult, TotpSetup } from "../auth/reauth";
 export type * from "../admin/types";
 /** Le otto tinte dei reparti, nell'ordine di `DESIGN.md`: il dialogo e il pannello del reparto. */
-export { DEPARTMENT_COLORS } from "../admin/departments";
+export { DEPARTMENT_COLORS } from "../admin/departmentColors";
 
 /**
  * Se chi guarda vede una voce dell'Amministrazione (`canSeeAdminSection`):

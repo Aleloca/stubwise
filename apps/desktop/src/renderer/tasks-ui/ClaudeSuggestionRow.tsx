@@ -6,7 +6,7 @@ import {
   useSessionPersonId,
   type SuggestionPlace,
 } from "../data/queries";
-import { onStoreReset } from "../data/store";
+import { onStoreReset } from "@backend/runtime";
 import { openClaudePanel } from "../layout/claudePanel/panelEvents";
 
 // La riga «Claude can help you…» (area 10b, Task 12; shape

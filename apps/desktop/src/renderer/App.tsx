@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createHashHistory, RouterProvider, type RouterHistory } from "@tanstack/react-router";
 import { useState } from "react";
-import { ViewerProvider } from "./data/viewer";
+import { ViewerProvider } from "./data/viewing";
 import { createAppRouter } from "./router";
 import { ThemeProvider } from "./theme/ThemeProvider";
 

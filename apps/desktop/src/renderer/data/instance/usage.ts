@@ -6,6 +6,9 @@ import { forbidden } from "../writer";
 import { pickProvider } from "./blocks";
 import { OPERATION_OF_KIND, modelIdFor } from "./models";
 import type { UsageRecord } from "./state";
+import { OTHER_PROJECTS_KEY } from "./constants";
+
+export { OTHER_PROJECTS_KEY } from "./constants";
 
 // I consumi d'istanza (area 9b, Task 2): la lettura della scheda Usage, lo
 // speso del mese per il budget (Task 3) e la scrittura di una voce (Task 6,
@@ -44,7 +47,6 @@ export interface UsageView {
   rows: (UsageRow & { children: UsageRow[] })[];
 }
 
-export const OTHER_PROJECTS_KEY = "other";
 export const OTHER_PROJECTS_LABEL = "Other projects";
 /** Un intervallo libero non porta mai più di un anno di punti. */
 const MAX_SPAN_DAYS = 366;

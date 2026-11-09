@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { TODAY } from "../../data/dates";
 import { usePeople } from "../../data/queries";
 import type { Task } from "../../data/types";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import type { Stall } from "../../domain/stalled";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { StallMark } from "../../tasks-ui/StallMark";

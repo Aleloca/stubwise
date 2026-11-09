@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { AiBlockLine } from "../../components/InstanceBlock";
 import { useExplainRelease, useFixRelease, useSendMessage } from "../../data/queries";
 import type { ReleaseView } from "../../data/releases";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { useToast } from "../../tasks-ui/Toast";
 import { primaryButton, secondaryButton } from "../tasks/controls";

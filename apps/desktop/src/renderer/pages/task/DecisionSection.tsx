@@ -7,7 +7,7 @@ import {
   useWithdrawDecision,
 } from "../../data/queries";
 import type { DecisionRequest, Person, Task } from "../../data/types";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { formatDate, relativeTime } from "../../notifications/time";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { Avatar } from "../../tasks-ui/PersonChip";

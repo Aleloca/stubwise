@@ -10,7 +10,7 @@ import { RUN_AREAS, useSessionPersonId, useWrite } from "../queries";
 // funzioni. I Task 3–7 ci aggiungono i loro.
 
 export type { UsageDimension, UsageRange, UsageRow, UsageView } from "../instance/usage";
-export { OTHER_PROJECTS_KEY } from "../instance/usage";
+export { OTHER_PROJECTS_KEY } from "../instance/constants";
 export type {
   AutomationRule,
   AutomationSettings,
@@ -38,9 +38,9 @@ export type {
   QuotaView,
   TestOutcome,
 } from "../instance";
-export { BACKGROUND_WEEKLY_THRESHOLD } from "../instance/providers";
-export { GOOGLE_SETUP } from "../instance/google";
-export { WEBHOOK_EVENTS } from "../instance/webhook";
+export { BACKGROUND_WEEKLY_THRESHOLD } from "../instance/constants";
+export { GOOGLE_SETUP } from "../instance/constants";
+export { WEBHOOK_EVENTS } from "../instance/constants";
 
 /**
  * I repository dei progetti dove chi guarda ha `repos.view`, per progetto

@@ -32,9 +32,11 @@ describe("queries importa l'api solo da @backend/api", () => {
     expect(Object.keys(QUERY_SOURCES).length).toBeGreaterThan(5);
   });
 
-  it("nessun import di valori da ./api, ../api, ./api-mutations o ../api-mutations", () => {
+  it("nessun import né ri-esportazione di valori da ./api, ../api, ./api-mutations o ../api-mutations", () => {
     const offenders = Object.entries(QUERY_SOURCES)
-      .filter(([, source]) => /^\s*import\s+(?!type\b)[^;]*from\s+["'](\.\.?\/)api(-mutations)?["']/m.test(source))
+      .filter(([, source]) =>
+        /^\s*(?:import|export)\s+(?!type\b)[^;]*from\s+["'](\.\.?\/)api(-mutations)?["']/m.test(source),
+      )
       .map(([path]) => path);
     expect(offenders).toEqual([]);
   });

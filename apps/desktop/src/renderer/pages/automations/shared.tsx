@@ -11,7 +11,7 @@ import {
   useProjects,
   useSessionPersonId,
 } from "../../data/queries";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import type { Automation, RunStatus } from "../../data/types";
 import { problemsOf, type Names, type TemplatePart } from "./format";
 import { ClaudeMark } from "../../components/ClaudeMark";

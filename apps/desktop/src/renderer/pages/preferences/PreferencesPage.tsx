@@ -6,7 +6,7 @@ import {
   isPreferenceSection,
   type PreferenceSection,
 } from "../../data/routes";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { AccountSection } from "./AccountSection";
 import { ClaudeCodeSection } from "./ClaudeCodeSection";

@@ -2,4 +2,4 @@
 export { TODAY, daysFromToday, isoWeek } from "@backend/clock";
 
 /** L'orologio fisso del prototipo (`now()` del livello dati): «Aggiornato N min fa». */
-export { now } from "./store";
+export { now } from "@backend/runtime";

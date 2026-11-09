@@ -10,7 +10,7 @@ import {
   type GitAccountView,
   type TestOutcome,
 } from "../../../data/queries";
-import { can, useViewer } from "../../../data/viewer";
+import { can, useViewer } from "../../../data/viewing";
 import { itemClass } from "../../../tasks-ui/Menu";
 import { useToast } from "../../../tasks-ui/Toast";
 import { PrototypeBox } from "../../automations/shared";

@@ -1,7 +1,7 @@
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { CHAT_EVENT_KINDS } from "../../data/chat";
+import { CHAT_EVENT_KINDS } from "../../data/chat/constants";
 import {
   useArchiveChannel,
   useChannelMembers,

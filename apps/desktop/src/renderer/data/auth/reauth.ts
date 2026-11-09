@@ -5,6 +5,9 @@ import { getSessionCredential } from "../session";
 import { gate, now, state, type ApiFnName } from "../store";
 import { forbidden, invalid } from "../writer";
 import { fakeQrSvg } from "./qr";
+import { SECOND_FACTOR_MAX_FAILURES } from "./constants";
+
+export { SECOND_FACTOR_MAX_FAILURES } from "./constants";
 
 // La riconferma col secondo fattore (area 9a, `second-factor.md`). Ogni
 // funzione delicata dell'API si DICHIARA in `REAUTH_REQUIRED`, e la sua
@@ -24,8 +27,6 @@ import { fakeQrSvg } from "./qr";
 // ha una; niente anti-replay del passo TOTP.
 
 export const REAUTH_GRACE_MINUTES = 10;
-/** Codici sbagliati di fila prima del blocco, e quanto dura (`second-factor.md`). */
-export const SECOND_FACTOR_MAX_FAILURES = 5;
 export const SECOND_FACTOR_LOCK_MINUTES = 15;
 /** Il codice dell'app di autenticazione per tutti, nel prototipo. */
 export const PROTOTYPE_TOTP_CODE = "123456";

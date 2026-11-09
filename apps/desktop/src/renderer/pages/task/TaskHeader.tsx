@@ -9,7 +9,7 @@ import {
   useProjectStatuses,
 } from "../../data/queries";
 import type { Task } from "../../data/types";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { weekLabel } from "../../domain/weeks";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { PersonChip, personName } from "../../tasks-ui/PersonChip";

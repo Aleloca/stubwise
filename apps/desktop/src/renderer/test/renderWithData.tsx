@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, type RenderResult } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
-import { ViewerProvider } from "../data/viewer";
+import { ViewerProvider } from "../data/viewing";
 
 /**
  * Monta un componente col livello dati finto (query senza retry, come

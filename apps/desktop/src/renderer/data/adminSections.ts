@@ -1,4 +1,4 @@
-import { accessState } from "./access/index";
+import { isActiveViewer, seesProject } from "@backend/access";
 import "./admin/changeTypes";
 import "./instance/changeTypes";
 // Area 9c: solo i tipi di voce, per effetto; mai `projectSettings/index.ts`,
@@ -12,9 +12,8 @@ import {
   type AdminSection,
   type ProjectSettingsSection,
 } from "./routes";
-import { visibleProjectIds } from "./store";
 import type { Viewer } from "./types";
-import { can, type Permission } from "./viewer";
+import { can, type Permission } from "./viewing";
 
 // Le voci dell'Amministrazione che chi guarda vede (area 9a, design
 // «Amministrazione: com'è fatta», shape admin-people.md §3), in UN posto:
@@ -36,12 +35,8 @@ import { can, type Permission } from "./viewer";
 // - Servers: `monitor.manage`. Repositories: `repos.manage` in almeno un
 //   progetto. Instance status: `instance.status.view` o `settings.manage`.
 
-/**
- * Una persona umana e attiva: chi ha una sessione nell'app. Claude e
- * «nessuno» non stanno fra le persone degli accessi (R-L9), quindi non passano.
- */
-const isActivePerson = (viewer: Viewer): boolean =>
-  accessState().people.some((p) => p.personId === viewer.personId && p.status === "active");
+/** Una persona umana e attiva (il fatto lo dà il livello dati: `@backend/access`). */
+const isActivePerson = isActiveViewer;
 
 /** I permessi d'istanza del 9b che scrivono (vedi `administersSomething`). */
 const INSTANCE_WRITES = [
@@ -181,7 +176,7 @@ export function projectSettingsAccess(
   viewer: Viewer,
   projectId: string,
 ): Record<ProjectSettingsSection, SectionAccess> {
-  const member = visibleProjectIds(viewer.personId).has(projectId);
+  const member = seesProject(viewer, projectId);
   const has = (perm: Permission) => member && can(viewer, perm, projectId);
   const settings = has("project.settings.manage");
   const writable = (visible: boolean, canEdit: boolean, editAction: string): SectionAccess => ({

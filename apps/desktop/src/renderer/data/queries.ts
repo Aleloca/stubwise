@@ -71,7 +71,7 @@ import type {
   Task,
   TaskPatch,
 } from "./types";
-import { can, useViewer } from "./viewer";
+import { can, useViewer } from "./viewing";
 
 /**
  * Ogni chiave comincia con `["as", personId]`: cambiare persona «vedi come»

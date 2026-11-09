@@ -22,7 +22,7 @@ import {
   useTasks,
 } from "../../data/queries";
 import type { FilterCriteria, Person, Project, Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import {
   busiestCell,
   isToPlan,

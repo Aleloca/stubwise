@@ -11,7 +11,7 @@ import {
   useSessionPersonId,
 } from "../../data/queries";
 import type { ChannelRow, Person } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { hasModKey, shortcutLabel } from "../../platform/platform";
 import { typing } from "../tasks/useTaskKeys";

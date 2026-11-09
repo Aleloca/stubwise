@@ -15,7 +15,7 @@ import {
   type PersonDetail as Person,
 } from "../../data/queries";
 import { canSeeAdminSection } from "../../data/adminSections";
-import { useViewer } from "../../data/viewer";
+import { useViewer } from "../../data/viewing";
 import { useReauth } from "../../layout/useReauth";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { Menu, itemClass } from "../../tasks-ui/Menu";

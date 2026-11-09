@@ -13,7 +13,7 @@ import {
 } from "../../data/queries";
 import type { ServerTaskInfo } from "../../data/servers";
 import type { EpisodeReason, ServerEpisode, Task } from "../../data/types";
-import { can, useViewer } from "../../data/viewer";
+import { can, useViewer } from "../../data/viewing";
 import { Dialog, DialogField, inputClass } from "../../tasks-ui/Dialog";
 import { Markdown } from "../../tasks-ui/Markdown";
 import { useToast } from "../../tasks-ui/Toast";

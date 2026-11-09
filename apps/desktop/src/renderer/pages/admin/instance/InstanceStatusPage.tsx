@@ -21,7 +21,7 @@ import {
   type InstanceStatusView,
 } from "../../../data/queries";
 import { WORK_KINDS, WORK_STATES } from "../../../data/routes";
-import { useViewer } from "../../../data/viewer";
+import { useViewer } from "../../../data/viewing";
 import { Dialog } from "../../../tasks-ui/Dialog";
 import { Chip } from "../../../tasks-ui/FilterBar";
 import { RadioItem } from "../../../tasks-ui/Menu";

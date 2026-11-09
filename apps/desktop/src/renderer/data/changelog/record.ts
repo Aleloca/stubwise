@@ -1,41 +1,13 @@
 import { currentVia } from "../claude/via";
 import { newId, nextSeq, now, state } from "../store";
-import type { ChangeEntry, ChangeInput, ChangeType } from "./types";
+import { changeTypeOf } from "./registry";
+import type { ChangeEntry, ChangeInput } from "./types";
 
-// La scrittura del registro: il registro dei tipi e `recordChange`. Il
-// registro dei tipi è codice, non stato: `resetApi` non lo svuota.
+export { changeTypeOf, changeTypes, registerChangeTypes } from "./registry";
 
-const types = new Map<string, ChangeType>();
-
-/**
- * Il punto d'estensione: ogni area dichiara i suoi tipi di voce (9a in
- * `admin/changeTypes.ts`, poi 9b e 9c). Registrare di nuovo lo stesso tipo
- * con la stessa forma non fa niente; con una forma diversa è un errore.
- */
-export function registerChangeTypes(list: readonly ChangeType[]): void {
-  for (const t of list) {
-    const known = types.get(t.kind);
-    if (
-      known &&
-      (known.templateKey !== t.templateKey ||
-        known.readPermission !== t.readPermission ||
-        known.scope !== t.scope ||
-        known.group !== t.group)
-    )
-      throw new Error(`Change type already registered differently: ${t.kind}`);
-    types.set(t.kind, Object.freeze({ ...t }));
-  }
-}
-
-/** Il tipo registrato di una voce; `undefined` se nessuno l'ha dichiarato. */
-export function changeTypeOf(kind: string): ChangeType | undefined {
-  return types.get(kind);
-}
-
-/** I tipi registrati (per il filtro «Type» del registro). */
-export function changeTypes(): ChangeType[] {
-  return [...types.values()];
-}
+// La scrittura del registro: `recordChange`. Il registro dei tipi sta in
+// `registry.ts` (puro: lo legge anche la build app) ed è codice, non stato:
+// `resetApi` non lo svuota.
 
 /**
  * Scrive una voce. Si chiama DENTRO la scrittura, solo a scrittura riuscita
@@ -44,7 +16,7 @@ export function changeTypes(): ChangeType[] {
  * difetto di chi scrive, non un input sbagliato.
  */
 export function recordChange(input: ChangeInput): void {
-  const type = types.get(input.kind);
+  const type = changeTypeOf(input.kind);
   if (!type) throw new Error(`Unregistered change type: ${input.kind}`);
   if ((type.scope === "project") !== (input.projectId !== null))
     throw new Error(`Change type ${input.kind} is ${type.scope}-scoped`);
