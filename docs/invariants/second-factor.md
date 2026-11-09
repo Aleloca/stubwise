@@ -50,7 +50,9 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   `security.alert` (non ne esiste uno per il primo login di un dispositivo).
 - **Reset e cambio della password revocano i token `mobile` e `desktop`**
   (`revokeMobilePats`): entrambi nascono da password e secondo fattore. I PAT
-  `manual` (MCP, Claude Code, script) restano.
+  `manual` (MCP, Claude Code, script) restano E cancellano i codici
+  di `desktop_handoffs` ancora aperti: un codice emesso con la password di
+  prima non diventa un token dopo.
 - **Lo stadio `enrollment` vale solo finché l'app non c'è.** Lo stadio si
   decide al `/login`, ma la sessione parziale vive 10 minuti: `/enroll` e
   `/enroll/confirm` ricontrollano `hasConfirmedTotp` e, con l'app ormai

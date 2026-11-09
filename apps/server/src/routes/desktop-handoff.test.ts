@@ -161,3 +161,30 @@ describe("POST /api/auth/desktop-exchange", () => {
     expect(res.json()).toMatchObject({ code: "invalid_grant" });
   });
 });
+
+describe("cambio e reset della password", () => {
+  it("handoff emesso prima del reset: lo scambio dopo il reset fallisce", async () => {
+    const person = await createUserWithSession(app, "reset-desktop@example.com");
+    const { verifier, challenge } = pkce();
+    const issued = await handoff(person.headers, challenge);
+    expect(issued.statusCode).toBe(200);
+    const code = (issued.json() as { code: string }).code;
+    // Un admin genera il link di reset, la persona sceglie una password nuova.
+    const link = await app.inject({
+      method: "POST",
+      url: `/api/users/${person.id}/password-reset`,
+      headers: { cookie: users.adminCookie },
+    });
+    expect(link.statusCode).toBe(201);
+    const token = (link.json() as { url: string }).url.split("/").pop()!;
+    const reset = await app.inject({
+      method: "POST",
+      url: `/api/auth/password-reset/${token}`,
+      payload: { password: "password-nuova-desktop" },
+    });
+    expect(reset.statusCode).toBe(204);
+    const res = await exchange(code, verifier);
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "invalid_grant" });
+  });
+});
