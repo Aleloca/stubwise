@@ -1,4 +1,6 @@
+import { startAuthentication } from "@simplewebauthn/browser";
 import { ApiError } from "@stubwise/api-client";
+import { accountSecurityResponseSchema, passkeyAuthenticationOptionsSchema } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import { SECOND_FACTOR_MAX_FAILURES } from "../../auth/constants";
 import type { Viewer } from "../../types";
@@ -105,6 +107,78 @@ const confirmLoginEnrollment: Auth["confirmLoginEnrollment"] = async (code) => {
   return r.ok ? { ok: true, personId: r.userId, backupCodes: r.backupCodes } : r;
 };
 
+/**
+ * La conferma del login del desktop (`/app/#/desktop-login`, Task 21): il
+ * codice monouso legato al challenge PKCE del desktop. Si chiede SOLO dal
+ * clic su «Allow». Il server vuole la riconferma (`config.reauth`): un
+ * `reauth_required` torna nella forma che `useReauth()` riconosce, e il
+ * dialogo «Confirm it's you» la fa ripartire.
+ */
+const desktopHandoff: Auth["desktopHandoff"] = async (input) => {
+  try {
+    const r = await appClient().auth.desktopHandoff(input);
+    return { ok: true, code: r.code };
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "reauth_required") return { ok: false, error: "reauth_required" };
+    return { ok: false, error: "failed" };
+  }
+};
+
+type ReauthInput = Parameters<Auth["reauthenticate"]>[0];
+type ReauthResult = Awaited<ReturnType<Auth["reauthenticate"]>>;
+
+/** Gli esiti delle rotte di riconferma nella forma del prototipo. */
+function reauthFailure(error: unknown): ReauthResult {
+  if (error instanceof ApiError) {
+    if (error.status === 423) {
+      const body = error.details as { lockedUntil?: string } | undefined;
+      return { ok: false, error: "locked", lockedUntil: body?.lockedUntil ?? new Date().toISOString() };
+    }
+    if (error.code === "invalid_second_factor") {
+      // Il server non dice quanti tentativi restano: la frase generica.
+      return { ok: false, error: "invalid_code", triesLeft: SECOND_FACTOR_MAX_FAILURES - 1 };
+    }
+    if (error.code === "no_passkeys" || error.code === "second_factor_setup_required") {
+      return { ok: false, error: "no_second_factor" };
+    }
+  }
+  throw error;
+}
+
+/**
+ * La riconferma («Confirm it's you») sulle rotte di oggi: un codice dell'app
+ * o di riserva su `POST /api/me/security/reauth`, una passkey con le opzioni
+ * del server e la cerimonia del browser. Una cerimonia annullata non arriva al
+ * server: conta come un codice che non ha funzionato.
+ */
+const reauthenticate: Auth["reauthenticate"] = async (input: ReauthInput) => {
+  const client = appClient();
+  try {
+    if (input.method !== "passkey") {
+      await client.request("POST", "/api/me/security/reauth", { code: input.code.trim() });
+      return { ok: true };
+    }
+    const options = await client.request(
+      "POST",
+      "/api/me/security/reauth/passkey/options",
+      {},
+      passkeyAuthenticationOptionsSchema,
+    );
+    let response: unknown;
+    try {
+      response = await startAuthentication({
+        optionsJSON: options as Parameters<typeof startAuthentication>[0]["optionsJSON"],
+      });
+    } catch {
+      return { ok: false, error: "invalid_code", triesLeft: SECOND_FACTOR_MAX_FAILURES - 1 };
+    }
+    await client.request("POST", "/api/me/security/reauth/passkey/verify", { response });
+    return { ok: true };
+  } catch (error) {
+    return reauthFailure(error);
+  }
+};
+
 export const auth: Auth = partialNamespace<Auth>("auth", {
   readEntry,
   logout,
@@ -113,20 +187,36 @@ export const auth: Auth = partialNamespace<Auth>("auth", {
   loginSecondFactor,
   startLoginEnrollment,
   confirmLoginEnrollment,
+  desktopHandoff,
+  reauthenticate,
 });
 
 type Me = typeof Fake.me;
 
 /**
- * Solo ciò che il secondo passo del login legge (`useMySecondFactor`, dopo
- * l'ingresso con un codice di riserva): quanti codici restano. La sicurezza
- * dell'account (Preferenze) arriva con la sua area.
+ * Solo ciò che leggono il secondo passo del login (quanti codici di riserva
+ * restano) e il dialogo di riconferma (quali modi ha chi guarda: le passkey
+ * contano), da `GET /api/me/security`. La sicurezza dell'account (Preferenze)
+ * arriva con la sua area. Senza una sessione completa (il login a metà) si
+ * ripiega sull'ultimo ingresso.
  */
-const getMySecurity: Me["getMySecurity"] = async () =>
-  ({
-    on: true,
-    passkeys: [],
-    backupCodesLeft: web.lastLogin.backupCodesRemaining ?? 0,
-  }) as unknown as Awaited<ReturnType<Me["getMySecurity"]>>;
+const getMySecurity: Me["getMySecurity"] = async () => {
+  try {
+    const s = await appClient().request("GET", "/api/me/security", undefined, accountSecurityResponseSchema);
+    return {
+      on: s.totp.configured,
+      passkeys: s.passkeys,
+      backupCodesLeft: s.backupCodesRemaining,
+    } as unknown as Awaited<ReturnType<Me["getMySecurity"]>>;
+  } catch (error) {
+    // Un login a metà (401) o una lettura che non riesce: l'ultimo ingresso.
+    if (!(error instanceof ApiError)) throw error;
+    return {
+      on: true,
+      passkeys: [],
+      backupCodesLeft: web.lastLogin.backupCodesRemaining ?? 0,
+    } as unknown as Awaited<ReturnType<Me["getMySecurity"]>>;
+  }
+};
 
 export const me: Me = partialNamespace<Me>("me", { getMySecurity });

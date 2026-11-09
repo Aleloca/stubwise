@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { ApiProxyRequest, ApiProxyResponse } from "../main/apiProxy";
 import type { SaveFileRequest, SaveFileResult } from "../main/security";
-import type { LoginResult, SessionChange } from "../main/browserLogin";
+import type { SessionChange } from "../main/browserLogin";
 
 type ResolvedTheme = "light" | "dark";
 type MenuChannel = "menu:search" | "menu:preferences" | "menu:ask-claude" | "menu:undo" | "menu:redo";
@@ -43,9 +43,6 @@ contextBridge.exposeInMainWorld("stubwise", {
     set: (url: string): Promise<{ ok: boolean; url?: string }> => ipcRenderer.invoke("instance:set", url),
   },
   session: {
-    /** @deprecated Il desktop entra dal browser (`startBrowserLogin`): risponde sempre `use_browser_login`. */
-    login: (input: { email: string; password: string; code?: string }): Promise<LoginResult> =>
-      ipcRenderer.invoke("session:login", input),
     /** Apre il login nel browser di sistema; l'esito arriva con `onChanged`. */
     startBrowserLogin: (): Promise<{ ok: true } | { ok: false; code: string }> =>
       ipcRenderer.invoke("session:start-browser-login"),

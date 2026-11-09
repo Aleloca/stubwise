@@ -39,3 +39,4 @@ export {
 } from "./resetPassword";
 export { createFirstAdmin, isInstanceEmpty, type FirstAdminResult } from "./setup";
 export { resetToEmptyInstance } from "./emptyInstance";
+export { desktopHandoff, type DesktopHandoffResult } from "./desktop";

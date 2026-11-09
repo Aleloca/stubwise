@@ -52,6 +52,15 @@ function useEnterAs() {
   };
 }
 
+/**
+ * La conferma del login del desktop dal browser (`/app/#/desktop-login`): il
+ * codice monouso, chiesto SOLO al clic su «Allow». Un `reauth_required` lo
+ * gestisce `useReauth()` di chi chiama.
+ */
+export function useDesktopHandoff() {
+  return useMutation({ mutationFn: api.auth.desktopHandoff });
+}
+
 /** Email e password; con `stage: "in"` la persona è già quella di chi guarda. */
 export function useLogin() {
   const enter = useEnterAs();

@@ -118,7 +118,7 @@ describe("menu dell'applicazione", () => {
 
 // I canali IPC, letti dal sorgente: `theme:changed`, i `menu:*`, dall'area
 // 11a `file:save` (decisione 8 della spec) e, dall'integrazione area 2 (fetta
-// 1, Task 13), `api:request`, `instance:get|set`, `session:login|logout|status`
+// 1, Task 13), `api:request`, `instance:get|set`, `session:logout|status|start-browser-login|cancel-browser-login`
 // e `open:web`. Un canale in più (o scelto dal renderer) fa fallire questo
 // test. Il preload espone solo `window.stubwise` con le sue otto voci.
 describe("canali IPC", () => {
@@ -138,7 +138,6 @@ describe("canali IPC", () => {
     "open:web",
     "session:cancel-browser-login",
     "session:changed",
-    "session:login",
     "session:logout",
     "session:start-browser-login",
     "session:status",
@@ -174,8 +173,9 @@ describe("canali IPC", () => {
     expect(main).toMatch(/function receiveAuthUrl\([^)]*\)[\s\S]*?browserLogin\.handleAuthUrl\(url\)/);
     expect(main).toMatch(/app\.on\("open-url",[\s\S]*?receiveAuthUrl\(url\)/);
     expect(main).toMatch(/app\.on\("second-instance",[\s\S]*?authUrlFromArgv\(argv\)[\s\S]*?receiveAuthUrl\(url\)/);
-    // Niente più login con password dal desktop: il canale resta solo come risposta di ripiego.
+    // Niente più login con password dal desktop: né la porta del telefono né il canale.
     expect(main).not.toMatch(/mobile-login/);
+    expect(`${main}\n${preload}`).not.toMatch(/session:login/);
     const builder = read("../../electron-builder.yml");
     expect(builder).toMatch(/protocols:\s*\n\s*- name: Stubwise\s*\n\s*schemes:\s*\n\s*- stubwise/);
   });
@@ -200,7 +200,6 @@ describe("canali IPC", () => {
       "instance:set",
       "open:web",
       "session:cancel-browser-login",
-      "session:login",
       "session:logout",
       "session:start-browser-login",
       "session:status",
