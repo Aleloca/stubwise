@@ -85,6 +85,22 @@ Task 2. Migrazione: `packages/db/drizzle/0108_project_statuses.sql`. Test:
   scrittura cambia davvero `planned_week`, il derivato di prima si somma a
   `slip_count`. Ripianificare non perde né raddoppia il conteggio, e
   `slipCount` non si azzera mai.
-- **Le sistemazioni per giorno (`task_day_arrangements`) sono personali** e
-  le cancella il trigger `tickets_reset_day_arrangements` quando cambiano
-  davvero settimana o assegnatario, da qualunque scrittura.
+- **Nei test la data la decide `stubwise.today`** (data ISO, impostata nella
+  transazione): sostituisce `now()` in `stubwise_current_monday()`. Nessun
+  codice di produzione la imposta.
+- **Il feed registra la settimana EFFETTIVA**: `planned_week_changed` (solo
+  dalle scritture umane, come `department_changed` ed `effort_changed`) parte
+  dalla settimana in cui la task si legge, slittamento compreso; confermare
+  una slittata nella settimana corrente non scrive niente, perché la
+  settimana effettiva non cambia.
+- **Le sistemazioni per giorno (`task_day_arrangements`) sono PERSONALI**:
+  le legge (`GET /api/me/day-arrangements?week=`) e le scrive
+  (`PUT /api/tasks/:id/day`, 403 a chi non è l'assegnatario) solo
+  l'assegnatario, e solo sulle proprie task (`apps/server/src/routes/day-arrangements.ts`).
+  Valgono per una settimana e un assegnatario: le cancella il trigger
+  `tickets_reset_day_arrangements` quando cambiano davvero settimana o
+  assegnatario, da QUALUNQUE scrittura (anche del web vecchio o della
+  pipeline). Uno slittamento invece cambia la settimana senza scrivere
+  niente, quindi la lettura filtra anche sulla settimana effettiva: una
+  sistemazione di una task slittata non compare, e su una settimana che non
+  è quella effettiva della task la scrittura risponde 409 `not_in_week`.

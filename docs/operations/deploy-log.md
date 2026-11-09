@@ -2856,3 +2856,82 @@ deploy o di un rollback che la tocca.
   ignora; i nomi degli stati cambiati dall'app nuova non si vedono dal web
   vecchio, che legge l'enum. Un ritorno pieno allo stato di prima è solo il
   backup.
+- **«Integrazione area 2, fetta 2» (9 nov 2026)**: design
+  `docs/plans/2026-11-09-integrazione-area2-fetta2-design.md`, piano
+  `docs/plans/2026-11-09-integrazione-area2-fetta2-plan.md`, invarianti in
+  `docs/invariants/tasks.md` («La settimana pianificata e lo
+  slittamento»). Il Planning e La mia settimana dell'app nuova girano sul
+  server vero: settimana pianificata, slittamento derivato a lettura,
+  sistemazioni per giorno personali, `POST /api/tasks/:id/plan` e gli
+  avvisi personali della pianificazione.
+  Migrazioni **0113** (`tickets.planned_week`, un lunedì, e
+  `tickets.slip_count`; le funzioni `stubwise_current_monday`, fuso
+  Europe/Rome, `stubwise_effective_week` e `stubwise_slip_weeks`; i trigger
+  `tickets_consolidate_slip` e `tickets_reset_day_arrangements`; la tabella
+  `task_day_arrangements`), **0114** (`planning.others` nel preset
+  `project_lead`, e in nessun altro), **0115** (DA SOLI, gli `ADD VALUE`:
+  `notification_kind` `planning.changed` e `task.assigned`;
+  `ticket_event_kind` `planned_week_changed`, `department_changed`,
+  `effort_changed`). Env nuove: **nessuna**. Le card nuove vanno solo a chi
+  vede la task, mai a chi fa la modifica, e non al webhook d'istanza
+  (audience `task_people`).
+  **PRIMA del deploy, backup del DB.**
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0113–0115
+  all'avvio; aspetta healthy e verifica: `select planned_week, slip_count
+  from tickets limit 5;` (le colonne ci sono: `null` e `0` sulle task di
+  prima), `select stubwise_current_monday();` (il lunedì di questa
+  settimana, ora di Roma), `select enumlabel from pg_enum e join pg_type t
+  on t.oid = e.enumtypid where t.typname in ('notification_kind',
+  'ticket_event_kind') and enumlabel in ('planning.changed',
+  'task.assigned', 'planned_week_changed', 'department_changed',
+  'effort_changed');` (cinque righe), `select 'planning.others' =
+  any(permissions) from roles where preset_key = 'project_lead';`
+  (`true`), `select to_regclass('task_day_arrangements');` (non `null`);
+  (3) **`worker`** — subito dopo il server: le consegne push e Slack dei
+  due kind nuovi le formatta il worker (`packages/notifications`), e uno
+  vecchio non li conosce. Controllo d'inattività di sempre prima del
+  riavvio (generazioni Docs, job, sessioni dal vivo, giro notturno: vedi
+  «Quota degli account» e «Giro notturno»); (4) **`caddy`** — il bundle
+  `/app` con Planning e La mia settimana; verifica con una stringa nuova
+  del bundle (`docker exec stubwise-caddy-1 sh -c 'grep -rl
+  "day-arrangements" /srv/app'`).
+  **Dopo il rilascio**: prova a mano del maintainer su `/app` e sull'app
+  desktop (dmg locale): pianificare una task propria e una altrui (con un
+  Project Lead), spostarla di giorno in La mia settimana, e la card
+  `task.assigned` / `planning.changed` nell'inbox dell'altra persona.
+  **Rollback** (verso il server della fetta 1): caddy scende **insieme** al
+  server (il bundle parla con `/plan`, `/day` e `/api/me/day-arrangements`,
+  che il server vecchio non ha). Le migrazioni non si annullano, e il DB
+  nuovo regge un server vecchio — verificato sul codice della fetta 1:
+  gli schemi Drizzle vecchi non nominano `planned_week` né `slip_count`, un
+  INSERT vecchio riceve `null` e `0`, e un server vecchio non scrive mai
+  `planned_week`, quindi `tickets_consolidate_slip` non scatta;
+  `tickets_reset_day_arrangements` scatta su un cambio d'assegnatario del
+  web vecchio o della pipeline e cancella le sistemazioni di quella task,
+  che è la stessa regola del server nuovo. `task_day_arrangements` resta
+  inerte. Le funzioni SQL non le chiama nessuno.
+  **Prima di scendere**:
+  `delete from notifications where kind in ('planning.changed',
+  'task.assigned');` — un `notification_kind` che il server vecchio non
+  conosce dà 500 su `/api/inbox` (le consegne in coda cadono in cascata;
+  nessuna va al webhook d'istanza);
+  e gli eventi nuovi del feed: `delete from ticket_events where kind in
+  ('planned_week_changed', 'department_changed', 'effort_changed');` — il
+  feed del web vecchio (`GET /api/tickets/:id/activity`) valida `eventKind`
+  con lo `z.enum` dei valori che conosce, e un solo evento nuovo farebbe
+  500 sull'attività di quel ticket. Il feed della fetta 1
+  (`/api/tasks/:id/activity`) e la storia del ticket (`ticket-history`, che
+  legge solo `status_changed`) li tollererebbero; la delete serve per il
+  web vecchio. Si perdono solo quelle righe di storia: risalendo non
+  tornano.
+  **Il preset `project_lead`**: `planning.others` il server vecchio lo
+  legge senza danno (un permesso che non conosce non apre niente), ma la UI
+  dei ruoli rimanda l'insieme completo e il salvataggio riceve 400 `unknown
+  permissions`. O si accetta che quel preset (e un ruolo personalizzato che
+  lo contenga) resti in sola lettura finché si risale, o PRIMA di scendere:
+  `update roles set permissions = array_remove(permissions,
+  'planning.others') where 'planning.others' = any(permissions);`
+  (risalendo, la 0114 è idempotente ma non rigira: il preset va
+  ripristinato a mano con la stessa `update` della 0114). Settimane,
+  slittamenti e sistemazioni restano in DB e il server vecchio li ignora.
+  Un ritorno pieno allo stato di prima è solo il backup.
