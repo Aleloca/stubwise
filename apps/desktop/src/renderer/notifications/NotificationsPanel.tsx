@@ -1,3 +1,4 @@
+import { openInWeb } from "../platform/openWeb";
 import { useRouter } from "@tanstack/react-router";
 import {
   useCallback,
@@ -154,7 +155,9 @@ function Panel({ onClose }: { onClose: () => void }) {
       return;
     }
     mark.mutate({ id: n.id, change: { read: true } });
-    router.history.push(n.link.replace(/^#/, ""));
+    // Build app: una card di un'area non integrata apre il web vecchio.
+    if (n.webHref) openInWeb(n.webHref);
+    else router.history.push(n.link.replace(/^#/, ""));
     onClose();
   }
 
@@ -292,6 +295,7 @@ function Panel({ onClose }: { onClose: () => void }) {
                 alert={alertOf(n)}
                 onOpen={() => void openLink(n)}
                 onChange={(change: Change) => mark.mutate({ id: n.id, change })}
+                onOpenWeb={n.webHref ? () => void openLink(n) : undefined}
                 onLinkAccess={
                   n.linkAccessHref
                     ? () => {

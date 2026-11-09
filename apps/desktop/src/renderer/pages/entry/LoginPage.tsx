@@ -1,3 +1,4 @@
+import { isAppBuild } from "../../data/build";
 import { Navigate, useNavigate } from "@tanstack/react-router";
 import { useRef, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -62,7 +63,8 @@ export function LoginPage() {
           />
         )}
       </div>
-      {step === "credentials" && (
+      {/* Il riquadro del prototipo (persone del seme, inviti finti): mai nella build app. */}
+      {step === "credentials" && !isAppBuild() && (
         <LoginPrototypeBox
           onPick={(account) => {
             setEmail(account.email);

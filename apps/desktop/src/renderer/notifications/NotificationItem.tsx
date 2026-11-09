@@ -48,6 +48,8 @@ interface Props {
    * perché è il motivo dell'avviso. Apre la parte SSH e chiude il pannello.
    */
   onLinkAccess?: (() => void) | undefined;
+  /** Una card che apre nel web vecchio (`webHref`, build app): «Open in web». */
+  onOpenWeb?: (() => void) | undefined;
 }
 
 /**
@@ -66,6 +68,7 @@ export function NotificationItem({
   onOpen,
   onChange,
   onLinkAccess,
+  onOpenWeb,
 }: Props) {
   const { t, i18n } = useTranslation();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -196,6 +199,17 @@ export function NotificationItem({
         </span>
         <DeptStrip departmentId={n.departmentId} />
       </Main>
+      {onOpenWeb && (
+        <div className="-mt-1 pr-4 pb-2.5 pl-9">
+          <button
+            type="button"
+            onClick={onOpenWeb}
+            className="inline-flex h-7 items-center rounded-md border border-rule-strong px-2.5 text-sm font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6"
+          >
+            {t("notifications.actions.openInWeb")}
+          </button>
+        </div>
+      )}
       {onLinkAccess && (
         <div className="-mt-1 pr-4 pb-2.5 pl-9">
           <button

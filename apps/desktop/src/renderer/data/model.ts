@@ -112,6 +112,12 @@ export interface AppNotification {
   /** Route hash. */
   link: string;
   /**
+   * Integrazione area 2, fetta 1 (solo build app): una card di un'area non
+   * ancora integrata non apre niente nell'app nuova, ma il web vecchio sì —
+   * il percorso dell'istanza («Open in web»). Il prototipo non la valorizza.
+   */
+  webHref?: string;
+  /**
    * Solo una menzione della Chat: il messaggio. Titolo e testo si derivano a
    * lettura dal messaggio di adesso (eliminato o non più leggibile: la
    * notifica non c'è più), mai salvati qui.

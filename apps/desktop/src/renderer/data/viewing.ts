@@ -1,10 +1,22 @@
 import type { InstancePermission, ProjectPermission } from "@stubwise/shared";
-import { useQuery } from "@tanstack/react-query";
-import { createContext, createElement, useContext, useMemo, useState, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  createContext,
+  createElement,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { defaultViewerContext, PrototypeViewerProvider } from "@backend/viewer";
 import { BOTH_LEVELS, INSTANCE_SET } from "./access/catalog";
 import { isAppBuild } from "./build";
 import { CLAUDE_ID } from "./ids";
+import { NO_SESSION_PERSON_ID } from "./session";
+import { onSessionLost } from "./sessionEvents";
 import type {
   DepartmentPermission,
   LocalInstancePermission,
@@ -174,26 +186,63 @@ export function ViewerProvider(props: { children: ReactNode; initialPersonId?: s
  */
 const backend = () => import("@backend/api");
 
+/** Fuori (nessuna sessione): un `Viewer` senza permessi, come «nessuno» del prototipo. */
+const NOBODY: Viewer = {
+  personId: NO_SESSION_PERSON_ID,
+  instancePermissions: [],
+  projectPermissions: {},
+  departmentPermissions: {},
+};
+
 /**
- * La build app: persona e permessi vengono dal server. Finché non ci sono
- * non si monta nulla (nessuna pagina a nome di nessuno); l'ingresso (login,
- * sessione scaduta) arriva col Task 16.
+ * La build app: persona e permessi vengono dal server (`/api/auth/me`).
+ * Finché la sessione non è letta non si monta nulla; fuori si monta con
+ * «nessuno», così il cancello delle rotte porta al login. Entrare, uscire o
+ * perdere la sessione a metà (un 401) azzera TUTTA la cache prima di
+ * rileggere chi è dentro: nessun dato della persona di prima resta a schermo.
  */
 function AppViewerProvider({ children }: { children: ReactNode }) {
+  const client = useQueryClient();
   const session = useQuery({
     queryKey: ["session-person"],
     queryFn: async () => (await backend()).getSessionPerson(),
+    staleTime: Infinity,
+    retry: false,
   });
   const personId = session.data ?? null;
   const viewer = useQuery({
     queryKey: ["viewer", personId],
     queryFn: async () => (await backend()).getViewer(),
     enabled: personId !== null,
+    staleTime: Infinity,
   });
-  const value = useMemo<ViewerContextValue | null>(
-    () => (viewer.data ? { viewer: viewer.data, setPersona: () => {} } : null),
-    [viewer.data],
+  // Persona cambiata (login, logout): `useLogin`/`useLogout` chiamano
+  // `setPersona`; qui vuol dire «rileggi la sessione». Uscendo (o perdendo la
+  // sessione) si azzera tutto e si smonta; entrando si toglie la cache di
+  // «nessuno» ma l'albero resta montato finché il viewer nuovo non c'è, così
+  // la pagina d'ingresso può ancora mostrare il suo ultimo passo (i codici
+  // di riserva appena creati, «ne restano pochi»).
+  const restart = useCallback(
+    (next?: string) => {
+      if (next === undefined || next === NO_SESSION_PERSON_ID) {
+        void client.resetQueries();
+        return;
+      }
+      client.removeQueries({ predicate: (q) => q.queryKey[0] !== "session-person" });
+      void client.invalidateQueries({ queryKey: ["session-person"] });
+    },
+    [client],
   );
+  useEffect(() => onSessionLost(() => restart()), [restart]);
+  const last = useRef<ViewerContextValue | null>(null);
+  const value = useMemo<ViewerContextValue | null>(() => {
+    if (session.isPending) return null;
+    if (personId === null) return { viewer: NOBODY, setPersona: restart };
+    if (viewer.data) return { viewer: viewer.data, setPersona: restart };
+    // Appena entrati: «nessuno» resta finché i permessi veri non arrivano.
+    return last.current?.viewer.personId === NO_SESSION_PERSON_ID ? last.current : null;
+  }, [session.isPending, personId, viewer.data, restart]);
+  last.current = value;
   if (!value) return null;
   return createElement(ViewerContext.Provider, { value }, children);
 }

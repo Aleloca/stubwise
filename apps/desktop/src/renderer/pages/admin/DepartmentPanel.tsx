@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { useBlocker, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -185,13 +186,16 @@ export function DepartmentPanel({
   async function save() {
     setError(null);
     setSaving(true);
-    const result = await reauth(
-      () =>
-        saveDepartment.mutateAsync([
-          d.id,
-          { memberIds: members, homeManagerIds: home, projectPermissions: permList },
-        ]),
-      { action: t("admin.department.saveAction", { name: d.name }) },
+    const write = () =>
+      saveDepartment.mutateAsync([
+        d.id,
+        { memberIds: members, homeManagerIds: home, projectPermissions: permList },
+      ]);
+    // Build app: il server non chiede la riconferma sui reparti (e un PAT del
+    // desktop non potrebbe darla); nel prototipo resta.
+    const result = await (featureIntegrated("department-reauth")
+      ? reauth(write, { action: t("admin.department.saveAction", { name: d.name }) })
+      : write()
     ).catch(() => null);
     setSaving(false);
     if (result === null) return setError(t("admin.department.saveFailed"));
@@ -253,7 +257,9 @@ export function DepartmentPanel({
                         <span className={`truncate text-md ${off ? "text-ink-muted" : "text-ink"}`}>
                           {off ? t("taskUi.deactivatedName", { name: nameOf(id) }) : nameOf(id)}
                         </span>
-                        {/* Un disattivato non riceve la Home; se l'aveva, si può solo togliere. */}
+                        {/* Un disattivato non riceve la Home; se l'aveva, si può solo togliere.
+                            La Home dei reparti arriva con la fetta 3: nella build app non c'è. */}
+                        {featureIntegrated("department-home") && (
                         <label
                           className={`relative flex w-fit items-center gap-1.5 rounded-sm text-xs text-ink-muted has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus ${off && !home.includes(id) ? "opacity-50" : ""}`}
                         >
@@ -270,6 +276,7 @@ export function DepartmentPanel({
                           <CheckBox checked={home.includes(id)} />
                           <span aria-hidden="true">{t("admin.department.people.managesHome")}</span>
                         </label>
+                        )}
                       </span>
                       <button
                         type="button"
@@ -293,6 +300,8 @@ export function DepartmentPanel({
           />
         </PanelPart>
 
+        {/* Sul server un reparto non dà permessi di progetto: nella build app la parte non c'è. */}
+        {featureIntegrated("department-permissions") && (
         <PanelPart title={t("admin.department.permissions.title")}>
           <p className="mb-3 text-sm text-pretty text-ink-muted">
             {t("admin.department.permissions.intro")}
@@ -307,6 +316,7 @@ export function DepartmentPanel({
             }
           />
         </PanelPart>
+        )}
 
         <div className="border-t border-rule pt-4">
           <button

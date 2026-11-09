@@ -58,3 +58,18 @@ export function notIntegratedNamespace(ns: string): object {
     },
   );
 }
+
+/**
+ * Un namespace dell'api integrato solo in parte (`api.auth`, `api.admin`):
+ * le chiavi di `impl` sono vere, ogni altra rifiuta come
+ * `notIntegratedNamespace`.
+ */
+export function partialNamespace<T extends object>(ns: string, impl: Partial<T>): T {
+  return new Proxy(impl as T, {
+    get(target, key) {
+      if (typeof key === "symbol" || key === "then") return undefined;
+      if (key in target) return (target as Record<string, unknown>)[key];
+      return notIntegrated(`${ns}.${key}`);
+    },
+  });
+}
