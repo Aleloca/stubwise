@@ -90,7 +90,7 @@ I test «app» montano l'implementazione vera davanti a un server finto
 | «General» è il reparto di ripiego: non si elimina, e le persone nuove ci entrano da sole | maintainer |
 | I follower partono da ora (nessun backfill); i cambi automatici della pipeline non li notificano | costruttore («Segui» è del maintainer) |
 | Il webhook d'istanza è spento per i tre kind nuovi (`decision.requested`, `decision.answered`, `ticket.activity`) | orchestratrice |
-| I cambi di reparto e di taglia non entrano nel feed attività | orchestratrice |
+| I cambi di reparto e di taglia non entrano nel feed attività (superata dalla fetta 2: ci entrano, con la settimana; `integration-slice2.md`) | orchestratrice |
 | L'elenco si ferma a 2000 righe; `truncated` non si mostra (il prototipo non ha uno stato per questo) | costruttore |
 | Claude non è assegnabile (area 3) | maintainer |
 | Nessuna riconferma sui reparti; un PAT non soddisfa mai la riconferma (limite per le fette che la chiederanno dal desktop) | orchestratrice |
