@@ -798,6 +798,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         body: decisionDraftSchema,
         response: {
           201: projectDecisionSchema,
+          400: errorSchema,
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -805,7 +806,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { projectId } = request.params;
-      const created = await createManualDecision(app.db, {
+      const result = await createManualDecision(app.db, {
         projectId,
         authorId: request.user!.id,
         title: request.body.title,
@@ -814,8 +815,12 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         ...(request.body.consequences ? { consequences: request.body.consequences } : {}),
         ...(request.body.ticketId ? { ticketId: request.body.ticketId } : {}),
         ...(request.body.decidedAt ? { decidedAt: request.body.decidedAt } : {}),
+        ...(request.body.supersedesId ? { supersedesId: request.body.supersedesId } : {}),
       });
-      return reply.code(201).send(created);
+      if (!result.ok) {
+        return apiError(reply, 400, "invalid_supersede", "supersedesId must be a decision of the same project");
+      }
+      return reply.code(201).send(result.decision);
     },
   );
 
@@ -875,6 +880,9 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           "decision_immutable",
           "The text of an automatic decision cannot be edited; it can only be superseded",
         );
+      }
+      if (result.error === "decision_cycle") {
+        return apiError(reply, 400, "decision_cycle", "This would make the superseded-by chain a loop");
       }
       return apiError(
         reply,

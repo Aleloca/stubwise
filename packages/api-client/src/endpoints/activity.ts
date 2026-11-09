@@ -1,5 +1,5 @@
-import { activityForDateSchema } from "@stubwise/shared";
-import type { ActivityForDate, Reader } from "@stubwise/shared";
+import { activityForDateSchema, chronologyPageSchema } from "@stubwise/shared";
+import type { ActivityForDate, ChronologyPage, Reader } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { toQuery } from "../query.js";
 
@@ -14,6 +14,15 @@ import { toQuery } from "../query.js";
  */
 export function createActivityEndpoints(request: ApiRequest) {
   return {
+    /**
+     * L'attività di tutti i progetti visibili (fetta 4), dalla più recente, a
+     * pagine di 28 giorni come la cronologia di progetto; ogni voce col suo
+     * progetto. Solo ciò che è già successo.
+     */
+    portfolio(before?: string): Promise<Reader<ChronologyPage>> {
+      return request("GET", `/api/activity/portfolio${toQuery({ before })}`, undefined, chronologyPageSchema);
+    },
+
     forDate(date: string): Promise<Reader<ActivityForDate>> {
       return request("GET", `/api/activity${toQuery({ date })}`, undefined, activityForDateSchema);
     },

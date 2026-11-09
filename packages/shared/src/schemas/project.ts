@@ -895,6 +895,8 @@ export const decisionDraftSchema = z.object({
   ticketId: z.uuid().optional(),
   /** Quando è stata presa davvero: una decisione si può registrare dopo. */
   decidedAt: z.iso.datetime().optional(),
+  /** Fetta 4: la decisione (dello stesso progetto) che questa SUPERA. */
+  supersedesId: z.uuid().optional(),
 });
 export type DecisionDraft = z.infer<typeof decisionDraftSchema>;
 
