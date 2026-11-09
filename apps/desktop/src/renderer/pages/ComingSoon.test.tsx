@@ -310,7 +310,9 @@ describe("le superfici della fetta 2 nella build app", () => {
     signedInAs("p-laura");
     truncated.onlyFiltered = true;
     renderRoute("/p/AUD/planning");
-    expect(await screen.findByText("Some tasks are missing from the load.")).toBeInTheDocument();
+    // Una frase sua: il carico è intero, mancano task da «To plan».
+    expect(await screen.findByText("Some tasks are missing from To plan.")).toBeInTheDocument();
+    expect(screen.queryByText("Some tasks are missing from the load.")).toBeNull();
   });
 
   it("la Timeline è disponibile", async () => {

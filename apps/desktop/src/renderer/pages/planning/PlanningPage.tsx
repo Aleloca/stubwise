@@ -488,9 +488,13 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
               <DeptLegend departmentIds={legendIds} />
             </span>
           </div>
-          {/* Carico e vasca si calcolano sopra le task lette: se una delle due liste è troncata, lo dice. */}
-          {(tasksTruncated(undefined, all.data) || tasksTruncated(poolCriteria, pool.data)) && (
+          {/* Carico e vasca si calcolano sopra le task lette: se una lista è troncata, lo dice, ognuna con la sua frase. */}
+          {tasksTruncated(undefined, all.data) ? (
             <p className="text-sm text-ink-muted">{t("planning.loadTruncated")}</p>
+          ) : (
+            tasksTruncated(poolCriteria, pool.data) && (
+              <p className="text-sm text-ink-muted">{t("planning.poolTruncated")}</p>
+            )
           )}
         </header>
         <DndContext

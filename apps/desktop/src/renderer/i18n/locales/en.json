@@ -1728,6 +1728,7 @@
   "planning": {
     "title": "Planning",
     "loadTruncated": "Some tasks are missing from the load.",
+    "poolTruncated": "Some tasks are missing from To plan.",
     "range": "{{week}} · {{range}}",
     "department": "Department",
     "person": "Person",

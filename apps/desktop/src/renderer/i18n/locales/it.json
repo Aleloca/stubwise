@@ -1728,6 +1728,7 @@
   "planning": {
     "title": "Pianificazione",
     "loadTruncated": "Alcune task mancano dal carico.",
+    "poolTruncated": "Alcune task mancano da «Da pianificare».",
     "range": "{{week}} · {{range}}",
     "department": "Reparto",
     "person": "Persona",
