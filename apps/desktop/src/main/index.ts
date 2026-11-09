@@ -160,14 +160,6 @@ ipcMain.handle("instance:set", (event, raw: unknown) => {
   return { ok: true, url: writeInstanceUrl(next) };
 });
 
-// DEPRECATO (9 nov 2026): il login con password dal desktop non esiste più.
-// Il canale resta finché la pagina d'ingresso del renderer non passa al
-// browser (Task 21), e risponde sempre di usare il browser.
-ipcMain.handle("session:login", (event) => {
-  if (!fromApp(event)) return { ok: false, code: "invalid_request" };
-  return { ok: false, code: "use_browser_login" };
-});
-
 ipcMain.handle("session:start-browser-login", async (event) => {
   if (!fromApp(event)) return { ok: false, code: "invalid_request" };
   const started = await browserLogin.start();

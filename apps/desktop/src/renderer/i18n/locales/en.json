@@ -9872,6 +9872,63 @@
       "spentBody": "A reset link works once, within an hour. Ask your administrator for a new one.",
       "invalidTitle": "This link isn't valid",
       "invalidBody": "Check that you copied it whole, or ask your administrator for a new one."
+    },
+    "desktop": {
+      "address": {
+        "title": "Connect to Stubwise",
+        "lead": "Enter the address of your team's Stubwise. You'll find it in the browser bar when you use it on the web.",
+        "label": "Address",
+        "submit": "Continue",
+        "saving": "Checking…",
+        "invalid": "That doesn't look like a Stubwise address. Use the full address, starting with https://."
+      },
+      "start": {
+        "title": "Sign in to Stubwise",
+        "lead": "You sign in in your browser, with your password and your two-step verification, passkey included. Then you come back here.",
+        "instance": "Stubwise at",
+        "change": "Change",
+        "submit": "Sign in with your browser",
+        "opening": "Opening your browser…"
+      },
+      "waiting": {
+        "title": "Finish signing in in your browser",
+        "lead": "We opened {{host}} in your browser. Sign in there and choose “Allow”: the app opens again on its own.",
+        "openAgain": "Open again",
+        "cancel": "Cancel"
+      },
+      "errors": {
+        "noInstance": "Enter the address of your Stubwise first.",
+        "network": "Couldn't reach your Stubwise. Check the address and your connection, then try again.",
+        "notFinished": "Signing in didn't finish. Start again from here.",
+        "sessionEnded": "Your session ended. Sign in again.",
+        "generic": "Couldn't sign in. Try again."
+      }
+    },
+    "desktopLogin": {
+      "signInFirst": "Sign in to let Stubwise on “{{device}}” use your account.",
+      "consent": {
+        "title": "Allow Stubwise on “{{device}}” to sign in as {{name}}?",
+        "titleNoName": "Allow Stubwise on “{{device}}” to sign in as you?",
+        "lead": "The app on that Mac will act with your account until you sign out there. Allow it only if you just started signing in from it.",
+        "allow": "Allow",
+        "allowing": "Allowing…",
+        "cancel": "Cancel",
+        "failed": "Couldn't allow the app. Start again from the app on your Mac.",
+        "nothingChanged": "Nothing was shared with the app. Choose “Allow” to try again."
+      },
+      "reauthAction": "let Stubwise on “{{device}}” sign in as you",
+      "opened": {
+        "title": "Stubwise is opening on your Mac",
+        "lead": "You can close this tab."
+      },
+      "cancelled": {
+        "title": "Sign-in cancelled",
+        "lead": "Nothing was shared with the app. You can close this tab."
+      },
+      "invalid": {
+        "title": "This sign-in link doesn't work",
+        "lead": "Start again from the Stubwise app on your Mac: it opens a new link."
+      }
     }
   },
   "admin": {

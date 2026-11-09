@@ -133,3 +133,46 @@ describe("login web (cookie)", () => {
     }
   });
 });
+
+describe("riconferma («Confirm it's you») sulle rotte di oggi", () => {
+  it("un codice va a /api/me/security/reauth", async () => {
+    const { seen } = installFakeServer({ "POST /api/me/security/reauth": { status: 204 } });
+    expect(await auth.reauthenticate({ method: "totp", code: " 123456 " })).toEqual({ ok: true });
+    expect(seen.at(-1)).toMatchObject({ path: "/api/me/security/reauth", body: { code: "123456" } });
+  });
+
+  it("la passkey: opzioni, cerimonia del browser, verifica", async () => {
+    const options = { challenge: "abc", allowCredentials: [{ id: "cred", type: "public-key" }] };
+    const assertion = { id: "cred", rawId: "cred", type: "public-key", response: {} };
+    startAuthentication.mockResolvedValue(assertion);
+    const { seen } = installFakeServer({
+      "POST /api/me/security/reauth/passkey/options": { body: options },
+      "POST /api/me/security/reauth/passkey/verify": { status: 204 },
+    });
+    expect(await auth.reauthenticate({ method: "passkey" })).toEqual({ ok: true });
+    expect(startAuthentication).toHaveBeenCalledWith({ optionsJSON: options });
+    expect(seen.at(-1)).toMatchObject({ body: { response: assertion } });
+  });
+
+  it("una passkey annullata non arriva al server; un codice sbagliato e il blocco nella forma del prototipo", async () => {
+    startAuthentication.mockRejectedValue(new Error("NotAllowedError"));
+    const { seen } = installFakeServer({
+      "POST /api/me/security/reauth/passkey/options": { body: { challenge: "abc" } },
+      "POST /api/me/security/reauth": (req) =>
+        (req.body as { code: string }).code === "000000"
+          ? { status: 423, body: { code: "second_factor_locked", message: "x", lockedUntil: "2026-11-09T10:42:00.000Z" } }
+          : { status: 401, body: { code: "invalid_second_factor", message: "x" } },
+    });
+    expect(await auth.reauthenticate({ method: "passkey" })).toMatchObject({ ok: false, error: "invalid_code" });
+    expect(seen.map((r) => r.path)).toEqual(["/api/me/security/reauth/passkey/options"]);
+    expect(await auth.reauthenticate({ method: "backup_code", code: "abcd-1234" })).toMatchObject({
+      ok: false,
+      error: "invalid_code",
+    });
+    expect(await auth.reauthenticate({ method: "totp", code: "000000" })).toEqual({
+      ok: false,
+      error: "locked",
+      lockedUntil: "2026-11-09T10:42:00.000Z",
+    });
+  });
+});
