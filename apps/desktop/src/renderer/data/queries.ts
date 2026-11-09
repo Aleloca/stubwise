@@ -1,6 +1,7 @@
 import {
   keepPreviousData,
   QueryClient,
+  useInfiniteQuery,
   useMutation,
   useQueries,
   useQuery,
@@ -71,6 +72,7 @@ import type {
   StoredLinkKind,
   Task,
   TaskPatch,
+  TimelinePage,
 } from "./types";
 import { can, useViewer } from "./viewing";
 
@@ -618,21 +620,42 @@ export function useProjectPulses() {
   return useQuery({ queryKey: queryKeys.pulses(me), queryFn: api.listProjectPulses });
 }
 
-/** L'attività di tutti i progetti visibili, dalla più recente. */
-export function usePortfolioActivity() {
-  const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.portfolioActivity(me),
-    queryFn: api.listPortfolioActivity,
+/**
+ * Una cronologia a pagine (fetta 4, «Load older»): gli eventi delle pagine
+ * lette, dalla più recente, e `loadOlder` per la pagina prima finché `hasMore`.
+ * Nel prototipo c'è una pagina sola con tutta la storia.
+ */
+function usePagedTimeline<E>(
+  queryKey: readonly unknown[],
+  page: (before?: string) => Promise<TimelinePage<E>>,
+) {
+  const query = useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam }) => page(pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextBefore ?? undefined,
   });
+  const data = useMemo(() => query.data?.pages.flatMap((p) => p.events), [query.data]);
+  return {
+    data,
+    isError: query.isError,
+    refetch: query.refetch,
+    hasMore: query.hasNextPage,
+    loadingOlder: query.isFetchingNextPage,
+    loadOlder: () => void query.fetchNextPage(),
+  };
 }
 
+/** L'attività di tutti i progetti visibili, dalla più recente, a pagine. */
+export function usePortfolioActivity() {
+  const me = useSessionPersonId();
+  return usePagedTimeline(queryKeys.portfolioActivity(me), (before) => api.listPortfolioActivityPage(before));
+}
+
+/** La cronologia di un progetto, dalla più recente (i traguardi futuri nella prima pagina), a pagine. */
 export function useTimeline(projectId: string) {
   const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.timeline(me, projectId),
-    queryFn: () => api.listTimeline(projectId),
-  });
+  return usePagedTimeline(queryKeys.timeline(me, projectId), (before) => api.listTimelinePage(projectId, before));
 }
 
 export function useDecisionLog(projectId: string) {

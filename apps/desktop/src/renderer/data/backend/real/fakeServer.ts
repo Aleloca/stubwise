@@ -34,7 +34,8 @@ export function installFakeServer(routes: Record<string, Handler | { status?: nu
     if (!out) return new Response(JSON.stringify({ code: "not_found", message: path }), { status: 404 });
     const status = out.status ?? 200;
     if (status === 204) return new Response(null, { status });
-    return new Response(JSON.stringify(out.body ?? {}), {
+    // Un `body: null` esplicito resta null (una risposta «nessuno»); assente, un oggetto vuoto.
+    return new Response(JSON.stringify("body" in out ? out.body : {}), {
       status,
       headers: { "content-type": "application/json" },
     });

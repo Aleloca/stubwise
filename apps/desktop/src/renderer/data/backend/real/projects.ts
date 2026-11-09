@@ -1,7 +1,8 @@
+import { ApiError } from "@stubwise/api-client";
 import type { ProjectMember } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { Project, ProjectModule, ProjectTemplate } from "../../types";
-import { appClient } from "./client";
+import { appClient, session } from "./client";
 
 // I progetti della build app (integrazione area 2, fetta 1): quelli che chi
 // guarda vede (`GET /api/projects` filtra già nella WHERE), coi membri
@@ -115,4 +116,27 @@ export const listWaitingOnMeProjectIds: typeof Fake.listWaitingOnMeProjectIds = 
     taskIds.map((id) => appClient().tickets.get(id).catch(() => null)),
   );
   return [...new Set([...known, ...tickets.flatMap((t) => (t ? [t.projectId] : []))])];
+};
+
+/**
+ * «Nuovo progetto» (fetta 4): codice, modello (stati iniziali e moduli),
+ * cliente. Il server crea stati e appartenenza nella stessa transazione e chi
+ * lo crea ne è Project Lead; un codice già usato è un 409 e non crea niente.
+ * Il canale «general» del prototipo è della Chat (area 3) e qui non nasce.
+ */
+export const createProject: typeof Fake.createProject = async (input) => {
+  try {
+    const created = (await appClient().projects.create({
+      name: input.name.trim(),
+      code: input.code,
+      template: input.template,
+      ...(input.clientName ? { clientName: input.clientName } : {}),
+      ...(input.modules ? { modules: input.modules } : {}),
+    })) as unknown as ServerProject;
+    return toProject(created, created.memberIds ?? (session.personId ? [session.personId] : []));
+  } catch (error) {
+    // La forma del rifiuto del prototipo: il dialogo lo dice sotto il codice.
+    if (error instanceof ApiError && error.code === "code_taken") throw new Error("invalid: code_taken");
+    throw error;
+  }
 };

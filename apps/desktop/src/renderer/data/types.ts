@@ -165,6 +165,12 @@ export type TimelineKind = TimelineEvent["kind"];
 /** Una voce dell'attività del portafoglio: un evento di cronologia col suo progetto. */
 export type PortfolioEvent = TimelineEvent & { projectId: string };
 
+/** Una pagina di cronologia o di attività, dalla più recente; `nextBefore` null = non c'è altra storia. */
+export interface TimelinePage<E> {
+  events: E[];
+  nextBefore: string | null;
+}
+
 // --- area 3: letture delle conversazioni con Claude --------------------------
 
 export interface ConversationFilter {

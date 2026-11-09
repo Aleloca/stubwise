@@ -154,11 +154,16 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
           </section>
         ))}
       </div>
-      {groups.length > shown.length && (
+      {/* Prima le settimane già lette; finite quelle, la pagina prima dal server («Load older»). */}
+      {(groups.length > shown.length || timeline.hasMore) && (
         <button
           type="button"
           className={`${ghostButton} mt-1 ml-2`}
-          onClick={() => setWeeks((w) => w + WEEKS_STEP)}
+          disabled={timeline.loadingOlder}
+          onClick={() => {
+            if (groups.length <= shown.length + WEEKS_STEP && timeline.hasMore) timeline.loadOlder();
+            setWeeks((w) => w + WEEKS_STEP);
+          }}
         >
           {t("overview.timeline.showEarlier")}
         </button>
