@@ -392,6 +392,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Cassaforte delle credenziali» (23 ott 2026)
   - «Integrazione area 2, fetta 1» (9 nov 2026)
   - «Integrazione area 2, fetta 2» (9 nov 2026)
+  - «Integrazione area 2, fetta 3» (10 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.

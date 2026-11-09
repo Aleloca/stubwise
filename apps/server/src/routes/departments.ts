@@ -64,8 +64,8 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
     },
   );
 
-  async function rolesOf(departmentId?: string) {
-    return app.db
+  async function rolesOf(db: Pick<typeof app.db, "select">, departmentId?: string) {
+    return db
       .select({
         departmentId: departmentRoles.departmentId,
         userId: departmentRoles.userId,
@@ -87,7 +87,7 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
       config: { access: { kind: "user" } },
       schema: { response: { 200: z.array(departmentRoleViewSchema), ...authErrorResponses } },
     },
-    async () => rolesOf(),
+    async () => rolesOf(app.db),
   );
 
   /**
@@ -117,20 +117,30 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
     },
     async (request, reply) => {
       const { id } = request.params;
-      const [dept] = await app.db.select({ id: departments.id }).from(departments).where(eq(departments.id, id));
-      if (!dept) return apiError(reply, 404, "not_found", "Department not found");
       const wanted = new Map<string, string[]>();
       for (const r of request.body.roles) {
         const perms = [...new Set([...(wanted.get(r.userId) ?? []), ...r.permissions])];
         wanted.set(r.userId, perms);
       }
       const ids = [...wanted.keys()];
-      if (ids.length) {
-        const found = await app.db.select({ id: users.id }).from(users).where(inArray(users.id, ids));
-        if (found.length !== ids.length) return apiError(reply, 400, "invalid_person", "Unknown person");
-      }
-      const before = await rolesOf(id);
-      await app.db.transaction(async (tx) => {
+      // Tutto sotto il lock del reparto (fix della review della fetta 3): due
+      // PUT concorrenti si serializzano, e `before` è quello davvero sostituito.
+      const outcome = await app.db.transaction(async (tx) => {
+        const [dept] = await tx
+          .select({ id: departments.id })
+          .from(departments)
+          .where(eq(departments.id, id))
+          .for("update");
+        if (!dept) return "not_found" as const;
+        // Un ruolo di reparto vale solo per chi è nel reparto.
+        if (ids.length) {
+          const members = await tx
+            .select({ id: departmentMembers.userId })
+            .from(departmentMembers)
+            .where(and(eq(departmentMembers.departmentId, id), inArray(departmentMembers.userId, ids)));
+          if (members.length !== ids.length) return "invalid_person" as const;
+        }
+        const before = await rolesOf(tx, id);
         await tx.delete(departmentRoles).where(eq(departmentRoles.departmentId, id));
         const rows = [...wanted].filter(([, p]) => p.length > 0);
         if (rows.length) {
@@ -138,20 +148,26 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
             .insert(departmentRoles)
             .values(rows.map(([userId, permissions]) => ({ departmentId: id, userId, permissions })));
         }
+        return { before, after: await rolesOf(tx, id) };
       });
-      const after = await rolesOf(id);
-      // Il registro delle modifiche d'istanza non c'è ancora sul server: una riga di log.
+      if (outcome === "not_found") return apiError(reply, 404, "not_found", "Department not found");
+      if (outcome === "invalid_person") {
+        return apiError(reply, 400, "invalid_person", "A department role is only for people in the department");
+      }
+      // Il registro delle modifiche d'istanza non c'è ancora sul server (area 9): una riga di log.
+      const people = (rows: { userId: string; permissions: string[] }[]) =>
+        rows.map((r) => ({ userId: r.userId, permissions: r.permissions }));
       request.log.info(
         {
           event: "department.home_managers_changed",
           actorId: request.user!.id,
           departmentId: id,
-          before: before.map((r) => r.userId),
-          after: after.map((r) => r.userId),
+          before: people(outcome.before),
+          after: people(outcome.after),
         },
         "department roles changed",
       );
-      return after;
+      return outcome.after;
     },
   );
 
@@ -219,6 +235,14 @@ export async function departmentRoutes(instance: FastifyInstance): Promise<void>
             ? await tx.update(departments).set(patch).where(eq(departments.id, id)).returning()
             : [current];
         if (next) {
+          // Chi esce dal reparto perde anche i suoi ruoli lì (fix fetta 3).
+          await tx
+            .delete(departmentRoles)
+            .where(
+              next.length > 0
+                ? and(eq(departmentRoles.departmentId, id), notInArray(departmentRoles.userId, next))
+                : eq(departmentRoles.departmentId, id),
+            );
           await tx
             .delete(departmentMembers)
             .where(

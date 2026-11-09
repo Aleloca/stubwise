@@ -60,6 +60,14 @@ async function visibleFilter(db: Db, viewer: Viewer, id: string) {
 
 const idParams = z.object({ id: z.uuid() });
 
+/** Quanti filtri può avere una persona (fix della review della fetta 3). */
+export const MAX_FILTERS_PER_PERSON = 200;
+
+/** Un lock di transazione per persona e tabella: serializza le sue scritture concorrenti. */
+async function lockPerson(tx: Pick<Db, "execute">, scope: string, userId: string): Promise<void> {
+  await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`${scope}:${userId}`}))`);
+}
+
 export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
   const app = fastify.withTypeProvider<ZodTypeProvider>();
 
@@ -101,11 +109,23 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const viewer = request.user!;
-      const [row] = await app.db
-        .insert(taskFilters)
-        .values({ ...request.body, ownerId: viewer.id })
-        .returning();
-      return reply.code(201).send(viewOf(row!, viewer));
+      // Un tetto per persona (fix della review della fetta 3), contato sotto
+      // un lock della persona: due creazioni concorrenti non lo sfondano.
+      const row = await app.db.transaction(async (tx) => {
+        await lockPerson(tx, "task_filters", viewer.id);
+        const [{ count } = { count: 0 }] = await tx
+          .select({ count: sql<number>`count(*)::int` })
+          .from(taskFilters)
+          .where(eq(taskFilters.ownerId, viewer.id));
+        if (count >= MAX_FILTERS_PER_PERSON) return null;
+        const [created] = await tx
+          .insert(taskFilters)
+          .values({ ...request.body, ownerId: viewer.id })
+          .returning();
+        return created!;
+      });
+      if (!row) return apiError(reply, 400, "too_many_filters", `At most ${MAX_FILTERS_PER_PERSON} filters per person`);
+      return reply.code(201).send(viewOf(row, viewer));
     },
   );
 
@@ -183,15 +203,20 @@ export async function filterRoutes(fastify: FastifyInstance): Promise<void> {
       const viewer = request.user!;
       const row = await visibleFilter(app.db, viewer, request.params.id);
       if (!row) return apiError(reply, 404, "not_found", "Filter not found");
-      // In coda; già fissato resta dov'è.
-      await app.db
-        .insert(pinnedTaskFilters)
-        .values({
-          userId: viewer.id,
-          filterId: row.id,
-          position: sql`(select coalesce(max(${pinnedTaskFilters.position}), -1) + 1 from ${pinnedTaskFilters} where ${pinnedTaskFilters.userId} = ${viewer.id})`,
-        })
-        .onConflictDoNothing();
+      // In coda; già fissato resta dov'è. La posizione si legge sotto un lock
+      // della persona (fix della review della fetta 3): pin concorrenti non
+      // prendono la stessa.
+      await app.db.transaction(async (tx) => {
+        await lockPerson(tx, "pinned_task_filters", viewer.id);
+        await tx
+          .insert(pinnedTaskFilters)
+          .values({
+            userId: viewer.id,
+            filterId: row.id,
+            position: sql`(select coalesce(max(${pinnedTaskFilters.position}), -1) + 1 from ${pinnedTaskFilters} where ${pinnedTaskFilters.userId} = ${viewer.id})`,
+          })
+          .onConflictDoNothing();
+      });
       return reply.code(204).send(null);
     },
   );

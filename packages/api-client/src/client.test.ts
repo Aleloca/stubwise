@@ -376,7 +376,7 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     expect(home.departmentHomes).toEqual([]);
     await c.home.set([{ kind: "myTasks" }]);
     await c.home.reset();
-    await c.home.markSeen(D);
+    await c.home.markSeen(D, "2026-11-09T08:00:00.000Z");
     expect((await c.departments.home(D)).updatedById).toBeNull();
     await c.departments.setHome(D, [{ kind: "filter", filterId: "f" }]);
     expect(await c.departments.roles()).toEqual(ROLES);
@@ -385,7 +385,7 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
       ["GET", `${base}/api/me/home`, undefined],
       ["PUT", `${base}/api/me/home`, { blocks: [{ kind: "myTasks" }] }],
       ["DELETE", `${base}/api/me/home`, undefined],
-      ["POST", `${base}/api/me/home/seen/${D}`, undefined],
+      ["POST", `${base}/api/me/home/seen/${D}`, { updatedAt: "2026-11-09T08:00:00.000Z" }],
       ["GET", `${base}/api/departments/${D}/home`, undefined],
       ["PUT", `${base}/api/departments/${D}/home`, { blocks: [{ kind: "filter", filterId: "f" }] }],
       ["GET", `${base}/api/departments/roles`, undefined],

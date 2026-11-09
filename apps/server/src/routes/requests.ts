@@ -1,18 +1,19 @@
 import { backlogItemRequesters, backlogItems, projects } from "@stubwise/db";
 import { requestToConvertViewSchema, type RequestToConvertView } from "@stubwise/shared";
-import { and, asc, desc, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { inProjects, projectIdsWithPermission } from "../auth/access.js";
-import { backlogVisibleSql } from "./backlog.js";
+import { backlogVisibleSql } from "../services/backlog-visibility.js";
 import { authErrorResponses } from "./shared.js";
 
 /**
  * Le richieste da trasformare (integrazione area 2, fetta 3), per «Da
  * decidere» e il blocco «Richieste nuove»: voci di backlog nuove, in
  * rifinitura o pronte, non fuse, dei progetti dove chi guarda può creare
- * task (`tickets.create`, che implica vederli), dalla più recente. La regola
+ * task (`tickets.create`, che implica vederli) e col backlog acceso, dalla
+ * più recente. La regola
  * di `backlog.view_all` è quella dell'elenco del backlog: senza, solo le
  * voci di cui si è richiedenti. Tutto nella WHERE.
  */
@@ -35,6 +36,8 @@ export async function requestRoutes(fastify: FastifyInstance): Promise<void> {
       const conditions: SQL[] = [
         inArray(backlogItems.status, ["new", "refining", "ready"]),
         isNull(backlogItems.mergedIntoId),
+        // Solo i progetti col backlog acceso (fix della review della fetta 3).
+        eq(projects.backlogEnabled, true),
       ];
       const inCreatable = inProjects(backlogItems.projectId, canCreate);
       if (inCreatable) conditions.push(inCreatable);

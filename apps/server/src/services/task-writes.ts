@@ -1,4 +1,5 @@
 import {
+  backlogItemRequesters,
   backlogItemTickets,
   backlogItems,
   departmentMembers,
@@ -28,7 +29,8 @@ import {
 } from "@stubwise/shared";
 import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { projectViewerIds } from "@stubwise/notifications";
-import { projectPermissionsFor, projectPermissionsOfUser } from "../auth/access.js";
+import { projectIdsWithPermission, projectPermissionsFor, projectPermissionsOfUser } from "../auth/access.js";
+import { backlogVisibleSql } from "./backlog-visibility.js";
 import { closeRefineSessionForItem } from "./backlog-refine.js";
 import { createTicket, type Ticket } from "../db/tickets.js";
 import { diffTicketEvents, userExists } from "./tickets.js";
@@ -140,16 +142,23 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
   if (invalid) return { ok: false, error: invalid };
   if (await isPastWeek(db, null, body.plannedWeek)) return { ok: false, error: "past_week" };
   if (body.requestId) {
+    // Solo una voce che chi chiede VEDE (la regola di `backlog.view_all`,
+    // quella di to-convert): una invisibile risponde come un'inesistente
+    // (fix della review della fetta 3), così 400/409/201 non dicono se esiste.
+    const visible = backlogVisibleSql(await projectIdsWithPermission(db, viewer, "backlog.view_all"), viewer.id);
     const [item] = await db
       .select({ projectId: backlogItems.projectId, status: backlogItems.status })
       .from(backlogItems)
-      .where(eq(backlogItems.id, body.requestId));
+      .where(and(eq(backlogItems.id, body.requestId), ...(visible ? [visible] : [])));
     if (item?.projectId !== body.projectId) return { ok: false, error: "request_not_found" };
     // Come nel prototipo: una voce già convertita o archiviata non si converte.
     if (item.status === "converted" || item.status === "archived") return { ok: false, error: "request_not_convertible" };
     // Trasformare una richiesta chiede `tickets.create` (lo verifica la
     // rotta): «crea una task da zero o da una richiesta», design dell'area 2.
   }
+  const seesAll = body.requestId
+    ? ((await projectPermissionsFor(db, viewer, body.projectId))?.has("tickets.view_all") ?? false)
+    : false;
   const ticketId = await db.transaction(async (tx) => {
     if (body.requestId) {
       // La richiesta diventa `converted` per PRIMA cosa (fix della fetta 3,
@@ -163,6 +172,21 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
         .returning({ id: backlogItems.id });
       if (claimed.length === 0) return null;
       await closeRefineSessionForItem(tx, body.requestId);
+    }
+    // La task nata da una richiesta eredita il richiedente PIÙ VECCHIO della
+    // voce, come `convertBacklogItem` (fix della review della fetta 3); effort
+    // e piano no, come nel prototipo. Eccezione: chi converte senza
+    // `tickets.view_all` resta richiedente se il più vecchio è un altro,
+    // altrimenti non vedrebbe la task che ha appena creato.
+    let requestedBy = viewer.id;
+    if (body.requestId) {
+      const [oldest] = await tx
+        .select({ userId: backlogItemRequesters.userId })
+        .from(backlogItemRequesters)
+        .where(eq(backlogItemRequesters.itemId, body.requestId))
+        .orderBy(asc(backlogItemRequesters.requestedAt), asc(backlogItemRequesters.userId))
+        .limit(1);
+      if (oldest && (oldest.userId === viewer.id || seesAll)) requestedBy = oldest.userId;
     }
     const departmentId = body.departmentId ?? (await firstDepartmentOf(tx, viewer.id));
     const [firstTodo] = await tx
@@ -180,7 +204,7 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
       priority: body.priority ?? "medium",
       source: "manual",
       ...(body.assigneeId ? { assigneeId: body.assigneeId } : {}),
-      requestedByUserId: viewer.id,
+      requestedByUserId: requestedBy,
       // Senza reparto il trigger mette il ripiego.
       ...(departmentId ? { departmentId } : {}),
       statusId: body.statusId ?? firstTodo?.id,
