@@ -7,9 +7,11 @@ import { renderRoute } from "../test/renderRoute";
 // nella navigazione con «Coming soon» e non leggono niente. Nei test il livello
 // dati è il finto anche con `VITE_STUBWISE_BUILD=app`: qui si registra ogni
 // chiamata ai namespace delle aree future, che devono restare a zero.
-const { FUTURE_NAMESPACES, calls, truncated, intake } = vi.hoisted(() => ({
+const { FUTURE_NAMESPACES, calls, truncated, intake, refusal } = vi.hoisted(() => ({
   // L'intake del server può fondere una richiesta nuova in una esistente: qui la si finge.
   intake: { mergeInto: null as string | null },
+  // Un rifiuto del server per codice (`{ code }` come un ApiError): la funzione indicata rifiuta così.
+  refusal: { fn: null as string | null, code: "" },
   calls: [] as string[],
   // Il finto non tronca mai: qui si finge la risposta del server oltre le 2000 righe.
   truncated: { value: false, onlyFiltered: false },
@@ -41,6 +43,10 @@ vi.mock("@backend/api", async (importOriginal) => {
   const record = (name: string, fn: (...a: unknown[]) => unknown) =>
     (...args: unknown[]) => {
       calls.push(name);
+      if (refusal.fn === name) {
+        refusal.fn = null;
+        return Promise.reject(Object.assign(new Error("Refused by the server"), { code: refusal.code }));
+      }
       return fn(...args);
     };
   const wrapped: Record<string, unknown> = {};
@@ -88,6 +94,7 @@ beforeEach(() => {
   truncated.value = false;
   truncated.onlyFiltered = false;
   intake.mergeInto = null;
+  refusal.fn = null;
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
 });
 
@@ -484,5 +491,32 @@ describe("le superfici della fetta 4 nella build app", () => {
     setLatency(0);
     await userEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Merge into another request" })).toBeNull());
+  });
+
+  it("oltre i 200 filtri il salvataggio lo dice con la sua frase", async () => {
+    renderRoute("/p/AUD/tasks");
+    await userEvent.click(await screen.findByRole("button", { name: "Save as filter" }));
+    const dialog = await screen.findByRole("dialog", { name: "Save as filter" });
+    await userEvent.type(within(dialog).getByRole("textbox", { name: "Name" }), "One more");
+    refusal.fn = "saveFilter";
+    refusal.code = "too_many_filters";
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save filter" }));
+    expect(
+      await within(dialog).findByText("You already have 200 saved filters. Delete one to save another."),
+    ).toBeInTheDocument();
+  });
+
+  it("trasformare una richiesta che non vedi più lo dice con la sua frase", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/STW/requests?request=req-stw-1");
+    const panel = await screen.findByRole("dialog");
+    await userEvent.click(await within(panel).findByRole("button", { name: "Turn into task" }));
+    const dialog = await screen.findByRole("dialog", { name: /New task/ });
+    refusal.fn = "convertRequest";
+    refusal.code = "request_not_found";
+    await userEvent.click(within(dialog).getByRole("button", { name: /Create task/ }));
+    expect(
+      await within(dialog).findByText("This request is no longer available: it may have been converted, archived or hidden."),
+    ).toBeInTheDocument();
   });
 });

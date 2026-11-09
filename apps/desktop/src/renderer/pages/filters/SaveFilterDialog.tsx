@@ -138,8 +138,10 @@ export function SaveFilterDialog({
       });
       onSaved?.(saved);
       onClose();
-    } catch {
-      setError(t("filter.dialog.failed"));
+    } catch (error) {
+      // Il server tiene al massimo 200 filtri per persona: lo si dice, riprovare non serve.
+      const code = (error as { code?: unknown } | null)?.code;
+      setError(t(code === "too_many_filters" ? "filter.dialog.tooMany" : "filter.dialog.failed"));
     }
   }
 

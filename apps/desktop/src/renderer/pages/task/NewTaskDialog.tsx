@@ -149,6 +149,8 @@ export function NewTaskDialog({
   const [milestoneId, setMilestone] = useState<string | null>(initial?.milestoneId ?? null);
   const [tried, setTried] = useState(false);
   const [failed, setFailed] = useState(false);
+  /** La richiesta da trasformare non c'è più per chi guarda (convertita, archiviata, nascosta). */
+  const [requestGone, setRequestGone] = useState(false);
   // La richiesta arriva dopo il primo disegno: i campi si riempiono una volta.
   const [seeded, setSeeded] = useState(false);
   if (request && !seeded) {
@@ -193,7 +195,13 @@ export function NewTaskDialog({
       plannedWeek: week,
       milestoneId,
     };
-    const callbacks = { onSuccess: onCreated, onError: () => setFailed(true) };
+    const callbacks = {
+      onSuccess: onCreated,
+      onError: (error: unknown) => {
+        setRequestGone((error as { code?: unknown } | null)?.code === "request_not_found");
+        setFailed(true);
+      },
+    };
     if (fromRequestId) {
       convert.mutate({ id: fromRequestId, input }, callbacks);
     } else if (fromMessageId) {
@@ -475,7 +483,7 @@ export function NewTaskDialog({
 
         {failed && (
           <p role="alert" className="rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
-            {t("newTask.failed")}
+            {t(requestGone ? "newTask.requestGone" : "newTask.failed")}
           </p>
         )}
       </form>

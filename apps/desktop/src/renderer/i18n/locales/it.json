@@ -806,7 +806,8 @@
       "update": "Salva",
       "saved": "{{name}} salvato.",
       "open": "Apri",
-      "failed": "Non è stato possibile salvare il filtro. Riprova."
+      "failed": "Non è stato possibile salvare il filtro. Riprova.",
+      "tooMany": "Hai già 200 filtri salvati. Eliminane uno per salvarne un altro."
     }
   },
   "tasks": {
@@ -1439,7 +1440,8 @@
       "size": "Taglia",
       "week": "Settimana",
       "milestone": "Traguardo"
-    }
+    },
+    "requestGone": "Questa richiesta non è più disponibile: forse è stata trasformata, archiviata o nascosta."
   },
   "home": {
     "customize": "Personalizza",
