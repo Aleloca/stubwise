@@ -17,7 +17,7 @@ import {
   type HomeBlock,
   type MeHomeView,
 } from "@stubwise/shared";
-import { and, asc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { SessionUser } from "../auth/session.js";
 
@@ -164,22 +164,38 @@ export async function resetPersonalHome(db: Db, viewer: Viewer): Promise<void> {
   });
 }
 
-/** «Vedi le novità»: chi ha la Home personale ha visto l'ultima modifica di quella del reparto. */
-export async function markDepartmentHomeSeen(db: Db, viewer: Viewer, departmentId: string): Promise<void> {
-  const [[personal], [home]] = await Promise.all([
+/**
+ * «Vedi le novità»: chi ha la Home personale ha visto la Home del reparto
+ * fino alla versione che il CLIENT ha mostrato (`seenUpdatedAt`, fix della
+ * review della fetta 3): si salva la minore fra quella e l'ultima scritta, così
+ * una modifica arrivata mentre guardava resta «cambiata». Mai all'indietro.
+ * Un reparto di cui non si è membri non si segna.
+ */
+export async function markDepartmentHomeSeen(
+  db: Db,
+  viewer: Viewer,
+  departmentId: string,
+  seenUpdatedAt: Date,
+): Promise<void> {
+  const [[personal], [home], [member]] = await Promise.all([
     db.select({ userId: personalHomes.userId }).from(personalHomes).where(eq(personalHomes.userId, viewer.id)),
     db
       .select({ updatedAt: departmentHomes.updatedAt })
       .from(departmentHomes)
       .where(eq(departmentHomes.departmentId, departmentId)),
+    db
+      .select({ id: departmentMembers.userId })
+      .from(departmentMembers)
+      .where(and(eq(departmentMembers.departmentId, departmentId), eq(departmentMembers.userId, viewer.id))),
   ]);
-  if (!personal || !home) return;
+  if (!personal || !home || !member) return;
+  const seenAt = seenUpdatedAt.getTime() < home.updatedAt.getTime() ? seenUpdatedAt : home.updatedAt;
   await db
     .insert(personalHomeSeen)
-    .values({ userId: viewer.id, departmentId, seenAt: home.updatedAt })
+    .values({ userId: viewer.id, departmentId, seenAt })
     .onConflictDoUpdate({
       target: [personalHomeSeen.userId, personalHomeSeen.departmentId],
-      set: { seenAt: home.updatedAt },
+      set: { seenAt: sql`greatest(${personalHomeSeen.seenAt}, excluded.seen_at)` },
     });
 }
 

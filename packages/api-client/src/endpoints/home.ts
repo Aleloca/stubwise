@@ -21,9 +21,13 @@ export function createHomeEndpoints(request: ApiRequest) {
     reset(): Promise<void> {
       return request("DELETE", "/api/me/home");
     },
-    /** «Vedi le novità»: segna vista l'ultima modifica della Home del reparto. 204. */
-    markSeen(departmentId: string): Promise<void> {
-      return request("POST", `/api/me/home/seen/${seg(departmentId)}`);
+    /**
+     * «Vedi le novità»: segna vista la Home del reparto fino alla versione
+     * mostrata (`updatedAt` di `departmentHomes`); una modifica arrivata dopo
+     * resta «cambiata». 204, anche per un reparto di cui non si è membri.
+     */
+    markSeen(departmentId: string, updatedAt: string): Promise<void> {
+      return request("POST", `/api/me/home/seen/${seg(departmentId)}`, { updatedAt });
     },
   };
 }

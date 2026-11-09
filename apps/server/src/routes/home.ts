@@ -81,10 +81,15 @@ export async function homeRoutes(fastify: FastifyInstance): Promise<void> {
     "/me/home/seen/:departmentId",
     {
       config: { access: { kind: "user" } },
-      schema: { params: departmentParams, response: { 204: z.null(), ...authErrorResponses } },
+      schema: {
+        params: departmentParams,
+        // L'`updatedAt` della Home del reparto che il client ha mostrato.
+        body: z.object({ updatedAt: z.iso.datetime() }),
+        response: { 204: z.null(), ...authErrorResponses },
+      },
     },
     async (request, reply) => {
-      await markDepartmentHomeSeen(app.db, request.user!, request.params.departmentId);
+      await markDepartmentHomeSeen(app.db, request.user!, request.params.departmentId, new Date(request.body.updatedAt));
       return reply.code(204).send(null);
     },
   );

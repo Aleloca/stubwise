@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { departmentMembers, departmentRoles, departments } from "@stubwise/db";
+import { departmentMembers, departmentRoles, departments, personalHomeSeen } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { departmentHomeViewSchema, meHomeViewSchema, sessionResponseSchema } from "@stubwise/shared";
@@ -155,7 +155,8 @@ describe("Home personale", () => {
     expect(changed.newBlocks).toEqual([{ kind: "upcomingMilestones" }, { kind: "newRequests" }]);
     // La Home personale non cambia da sola.
     expect(changed.blocks).toEqual([{ kind: "decide" }, { kind: "myWeek" }, { kind: "myTasks" }]);
-    expect((await call("POST", `/api/me/home/seen/${d}`, p.headers.cookie)).statusCode).toBe(204);
+    const seenVersion = changed.departmentHomes.find((h) => h.departmentId === d)!.updatedAt!;
+    expect((await call("POST", `/api/me/home/seen/${d}`, p.headers.cookie, { updatedAt: seenVersion })).statusCode).toBe(204);
     const seen = await myHome(p.headers.cookie);
     expect(seen.departmentChanged).toEqual([]);
     expect(seen.newBlocks).toEqual([]);
@@ -334,6 +335,35 @@ describe("ruoli di reparto solo ai membri (fix fetta 3)", () => {
     expect(res.statusCode, res.body).toBe(200);
     const left = await testDb.db.select({ u: departmentRoles.userId }).from(departmentRoles).where(eq(departmentRoles.departmentId, d));
     expect(left.map((r) => r.u)).toEqual([other.id]);
+  });
+});
+
+describe("«vedi le novità»: la versione vista (fix fetta 3)", () => {
+  it("si salva la versione che il client ha visto: una modifica arrivata dopo resta «cambiata»", async () => {
+    const d = await department();
+    await setDepartmentHome(d, [{ kind: "myTasks" }]);
+    const p = await personIn([d]);
+    await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "myTasks" }] });
+    await new Promise((r) => setTimeout(r, 5));
+    await setDepartmentHome(d, [{ kind: "myTasks" }, { kind: "newRequests" }]);
+    const seen = (await myHome(p.headers.cookie)).departmentHomes.find((h) => h.departmentId === d)!.updatedAt!;
+    // Mentre il client guardava, la Home del reparto è cambiata ancora.
+    await new Promise((r) => setTimeout(r, 5));
+    await setDepartmentHome(d, [{ kind: "myTasks" }, { kind: "newRequests" }, { kind: "upcomingMilestones" }]);
+    expect((await call("POST", `/api/me/home/seen/${d}`, p.headers.cookie, { updatedAt: seen })).statusCode).toBe(204);
+    const after = await myHome(p.headers.cookie);
+    expect(after.departmentChanged).toEqual([d]);
+    expect(after.newBlocks).toEqual([{ kind: "newRequests" }, { kind: "upcomingMilestones" }]);
+  });
+
+  it("un reparto di cui non sono membro: 204 e niente salvato", async () => {
+    const d = await department();
+    await setDepartmentHome(d, [{ kind: "myTasks" }]);
+    const p = await personIn([]);
+    await call("PUT", "/api/me/home", p.headers.cookie, { blocks: [{ kind: "myTasks" }] });
+    const updatedAt = new Date().toISOString();
+    expect((await call("POST", `/api/me/home/seen/${d}`, p.headers.cookie, { updatedAt })).statusCode).toBe(204);
+    expect(await testDb.db.select().from(personalHomeSeen).where(eq(personalHomeSeen.userId, p.id))).toHaveLength(0);
   });
 });
 
