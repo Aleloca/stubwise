@@ -62,6 +62,7 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
       "tickets.edit",
       "tickets.comment",
       "tickets.moderate",
+      "planning.others",
     ],
   },
   {
@@ -87,7 +88,6 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
   {
     key: "prototype",
     permissions: [
-      "planning.others",
       "chat.channels.create",
       "chat.channels.manage",
       "drive.upload",

@@ -15,6 +15,7 @@ import {
 import {
   effortFromSize,
   isoWeekToMonday,
+  planBlock,
   ticketTypeFor,
   uiTypeOf,
   type NewTaskBody,
@@ -22,6 +23,7 @@ import {
   type TaskViewData,
 } from "@stubwise/shared";
 import { and, asc, eq, inArray } from "drizzle-orm";
+import { projectViewerIds } from "@stubwise/notifications";
 import { projectPermissionsFor, projectPermissionsOfUser } from "../auth/access.js";
 import { createTicket, type Ticket } from "../db/tickets.js";
 import { diffTicketEvents, userExists } from "./tickets.js";
@@ -360,4 +362,52 @@ export async function setFollowing(db: Db, userId: string, ticketId: string, fol
     await db
       .delete(ticketFollowers)
       .where(and(eq(ticketFollowers.ticketId, ticketId), eq(ticketFollowers.userId, userId)));
+}
+
+export type PlanResult =
+  | { ok: true; task: TaskViewData }
+  | { ok: false; error: "forbidden" | "invalid_assignee" };
+
+/**
+ * Pianificare dal Planning (fetta 2): persona e settimana insieme. Decide
+ * `planBlock` di `@stubwise/shared` (la regola del prototipo), coi diritti
+ * calcolati QUI: con `planning.others` per chiunque sia membro del progetto
+ * (full admin compresi, membri impliciti); senza, solo il proprio — una task
+ * già mia, o una non assegnata che prendo per me con `tickets.edit`. PATCH e
+ * bulk restano su `tickets.edit`, come `prepareTaskPatch` nel prototipo.
+ */
+export async function planTask(
+  db: Db,
+  viewer: TaskViewer,
+  ticketId: string,
+  plan: { assigneeId: string | null; week: string | null },
+): Promise<PlanResult> {
+  const [current] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
+  if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
+  const permissions = (await projectPermissionsFor(db, viewer, current.projectId)) ?? new Set();
+  const members = await projectViewerIds(db, current.projectId);
+  const block = planBlock(
+    {
+      id: current.id,
+      projectId: current.projectId,
+      assigneeId: current.assigneeId,
+      size: null,
+      plannedWeek: null,
+      slipCount: 0,
+      closedAt: current.closedAt?.toISOString() ?? null,
+    },
+    plan.assigneeId,
+    {
+      me: viewer.id,
+      others: permissions.has("planning.others"),
+      edit: permissions.has("tickets.edit"),
+      members,
+    },
+  );
+  if (block === "others") return { ok: false, error: "forbidden" };
+  if (block === "member") return { ok: false, error: "invalid_assignee" };
+  await db.transaction(async (tx) => {
+    await applyTaskPatch(tx, viewer.id, current, { assigneeId: plan.assigneeId, plannedWeek: plan.week });
+  });
+  return { ok: true, task: await viewOf(db, viewer, ticketId) };
 }

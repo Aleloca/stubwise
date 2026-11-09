@@ -47,6 +47,7 @@ export const PROJECT_PERMISSION_GROUPS: readonly PermissionGroup<ProjectPermissi
       "tickets.edit",
       "tickets.comment",
       "tickets.moderate",
+      "planning.others",
     ],
   },
   {

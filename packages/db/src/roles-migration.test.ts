@@ -225,10 +225,15 @@ describe("migrazione 0097: ruoli, membri di progetto e conversione", () => {
   it("(h) i preset hanno i nomi inglesi e le stesse chiavi di PRESET_ROLES", async () => {
     // Il catalogo di oggi comprende i permessi delle credenziali, che nel
     // preset `project_lead` entrano con la 0103 (non con la 0097): la parità
-    // vale sulla catena 0097 + 0103.
+    // vale sulla catena 0097 + 0103 + 0114.
     await applyStatements(
       db,
       await readFile(path.join(DRIZZLE_DIR, "0103_credentials_permissions.sql"), "utf8"),
+    );
+    // E `planning.others` (fetta 2) nel solo `project_lead`, con la 0114.
+    await applyStatements(
+      db,
+      await readFile(path.join(DRIZZLE_DIR, "0114_planning_permission.sql"), "utf8"),
     );
     const rows = await db.execute<{
       preset_key: string;

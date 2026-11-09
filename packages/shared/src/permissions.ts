@@ -77,6 +77,14 @@ export const PROJECT_PERMISSIONS = [
   /** Adottare una PR aperta da altri. */
   "prs.adopt",
   /**
+   * Pianificare le task ALTRUI (integrazione area 2, fetta 2: settimana e
+   * persona dal Planning). Senza, si pianificano solo le proprie, o una non
+   * assegnata che si prende con `tickets.edit`. Del Project Lead (e dei full
+   * admin): escluso da Developer e Legacy Member (decisione del maintainer,
+   * 9 nov 2026), assente da Contributor e Viewer.
+   */
+  "planning.others",
+  /**
    * Cassaforte delle credenziali (23 ott 2026, migrazione 0103): creare una
    * credenziale, modificarla (metadati e sostituzione della password) e
    * condividerla con altri lettori. Li ha solo `project_lead` (e i full
@@ -154,6 +162,7 @@ const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
   "credentials.create",
   "credentials.edit",
   "credentials.share",
+  "planning.others",
 ];
 
 /**
@@ -209,7 +218,8 @@ export const PRESET_ROLES: readonly PresetRole[] = [
         p !== "project.settings.manage" &&
         p !== "credentials.create" &&
         p !== "credentials.edit" &&
-        p !== "credentials.share",
+        p !== "credentials.share" &&
+        p !== "planning.others",
     ),
   },
   {

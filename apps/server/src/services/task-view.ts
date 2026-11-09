@@ -15,6 +15,7 @@ import {
 } from "@stubwise/db";
 import {
   WEEK_TIME_ZONE,
+  canMove,
   mondayToIsoWeek,
   sizeFromEffort,
   stallOf,
@@ -30,7 +31,12 @@ import {
   type TicketType,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
-import { inProjects, projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
+import {
+  inProjects,
+  projectIdsWithPermission,
+  projectPermissionsMap,
+  visibleProjectIds,
+} from "../auth/access.js";
 
 /**
  * Le viste delle task nella forma del prototipo (integrazione area 2, fetta
@@ -250,7 +256,7 @@ export async function loadTaskViews(
   if (rows.length === 0) return [];
   const ids = rows.map((r) => r.t.id);
 
-  const [followers, links, files, jobs, requests] = await Promise.all([
+  const [followers, links, files, jobs, requests, permissionsByProject] = await Promise.all([
     db.select().from(ticketFollowers).where(inArray(ticketFollowers.ticketId, ids)),
     // Solo i collegamenti verso task che chi guarda vede: l'id di una task
     // invisibile non esce nemmeno come riferimento (come in `stallsOf`).
@@ -278,6 +284,8 @@ export async function loadTaskViews(
       .select({ ticketId: backlogItemTickets.ticketId, itemId: backlogItemTickets.itemId })
       .from(backlogItemTickets)
       .where(and(inArray(backlogItemTickets.ticketId, ids), eq(backlogItemTickets.role, "converted_to"))),
+    // I permessi di chi guarda per progetto, in UNA query: servono a `canPlan`.
+    projectPermissionsMap(db, viewer),
   ]);
   const group = <T extends { ticketId: string }>(items: T[]) => {
     const map = new Map<string, T[]>();
@@ -290,6 +298,22 @@ export async function loadTaskViews(
   const filesOf = group(files);
   const jobOf = new Map(jobs.map((j) => [j.ticketId, j.status]));
   const requestOf = new Map(requests.map((r) => [r.ticketId, r.itemId]));
+
+  const canPlanOf = (task: { projectId: string; assigneeId: string | null; closedAt: Date | null }) => {
+    const perms = new Set(permissionsByProject[task.projectId] ?? []);
+    return canMove(
+      {
+        id: "",
+        projectId: task.projectId,
+        assigneeId: task.assigneeId,
+        size: null,
+        plannedWeek: null,
+        slipCount: 0,
+        closedAt: task.closedAt?.toISOString() ?? null,
+      },
+      { me: viewer.id, others: perms.has("planning.others"), edit: perms.has("tickets.edit"), members: [] },
+    );
+  };
 
   return rows.map(({ t, code, family, lastActivityAt, effectiveWeek, slips }) => ({
     family,
@@ -334,6 +358,7 @@ export async function loadTaskViews(
       occurrences: t.occurrences,
       technical: null,
       assigneeStatus: t.assigneeId ? "active" : null,
+      canPlan: canPlanOf(t),
     },
   }));
 }

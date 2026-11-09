@@ -3467,6 +3467,9 @@
         "create": "Create credentials",
         "edit": "Edit credentials and replace passwords",
         "share": "Share credentials with other members"
+      },
+      "planning": {
+        "others": "Plan other people's tasks"
       }
     }
   },

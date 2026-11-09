@@ -1,4 +1,5 @@
 import { wouldCycle } from "../domain/decisionLog";
+import { planRecipientsOf as sharedPlanRecipientsOf } from "@stubwise/shared";
 import { findSimilarRequest } from "../domain/requests";
 import { TEMPLATE_MODULES, TEMPLATE_STATUSES } from "../domain/templates";
 import type { PageState } from "../domain/claude/context";
@@ -319,16 +320,9 @@ export function planRecipientsOf(
   task: Pick<Task, "assigneeId" | "plannedWeek">,
   plan: { assigneeId: string | null; week: string | null },
 ): { assigned: string | null; planningChanged: string[] } {
-  const reassigned = task.assigneeId !== plan.assigneeId;
-  const moved = task.plannedWeek !== plan.week;
-  // `planning.changed` va a chi aveva la task: la perde (riassegnata) o la
-  // tiene spostata di settimana. Chi la prende ha `task.assigned`, e un fatto
-  // solo dà un avviso solo (pre-flight).
-  const interested = reassigned || moved ? task.assigneeId : null;
-  return {
-    assigned: reassigned ? assignedRecipientOf(me, plan.assigneeId) : null,
-    planningChanged: interested && interested !== me ? [interested] : [],
-  };
+  // La regola sta in `@stubwise/shared` (integrazione area 2, fetta 2): la usa
+  // anche il server. Qui il solo «chi è un agente» del seme.
+  return sharedPlanRecipientsOf(me, task, plan, (id) => PEOPLE.some((p) => p.id === id && p.isClaude));
 }
 
 const personName = (id: string | null) => PEOPLE.find((p) => p.id === id)?.name ?? null;

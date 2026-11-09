@@ -92,7 +92,8 @@ describe("catalogo dei permessi", () => {
       ...CREDENTIAL_PERMISSIONS,
     ])
       expect(perms).not.toContain(p);
-    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 7);
+    // Le sette di prima più planning.others (fetta 2).
+    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 8);
     expect(perms).toContain("docs.generate");
     expect(perms).toContain("prs.adopt");
   });
@@ -141,6 +142,8 @@ describe("catalogo dei permessi", () => {
         "agent_sessions.intervene",
         // La cassaforte è nuova: nessun member di prima poteva già usarla.
         ...CREDENTIAL_PERMISSIONS,
+        // Pianificare le task altrui (fetta 2): decisione del maintainer.
+        "planning.others",
       ].sort(),
     );
   });
@@ -169,6 +172,19 @@ describe("catalogo dei permessi", () => {
         expect(typeof value, `${lang}: ${key}`).toBe("string");
         expect((value as string).trim().length, `${lang}: ${key} vuota`).toBeGreaterThan(0);
       }
+    }
+  });
+});
+
+describe("planning.others (integrazione area 2, fetta 2)", () => {
+  const preset = (key: string) => PRESET_ROLES.find((r) => r.key === key)!.permissions as readonly string[];
+  it("è nel registro e lo ha il Project Lead", () => {
+    expect(PROJECT_PERMISSIONS).toContain("planning.others");
+    expect(preset("project_lead")).toContain("planning.others");
+  });
+  it("Legacy Member e Developer non hanno planning.others (decisione del maintainer); Contributor e Viewer nemmeno", () => {
+    for (const key of ["developer", "legacy_member", "contributor", "viewer"]) {
+      expect(preset(key), key).not.toContain("planning.others");
     }
   });
 });

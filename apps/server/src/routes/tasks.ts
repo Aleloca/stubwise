@@ -43,6 +43,7 @@ import { askDecision } from "../services/decisions.js";
 import {
   bulkUpdateTasks,
   createTask,
+  planTask,
   setFollowing,
   setManualStall,
   updateTask,
@@ -306,6 +307,28 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       },
     });
   }
+
+  // Pianificare dal Planning (fetta 2): persona e settimana insieme, con la
+  // regola `planBlock` decisa qui (vedi `planTask`).
+  app.post(
+    "/:ticketId/plan",
+    {
+      config: { access: onTicket() },
+      schema: {
+        params: ticketParamsSchema,
+        body: z.object({ assigneeId: z.uuid().nullable(), week: isoWeekSchema.nullable() }),
+        response: { 200: taskViewSchema, 400: errorSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const result = await planTask(app.db, request.user!, request.params.ticketId, request.body);
+      if (result.ok) return result.task;
+      if (result.error === "forbidden") {
+        return apiError(reply, 403, "forbidden", "You can plan only your own tasks in this project");
+      }
+      return apiError(reply, 400, "invalid_assignee", "The person is not a member of the project");
+    },
+  );
 
   app.post(
     "/:ticketId/decisions",

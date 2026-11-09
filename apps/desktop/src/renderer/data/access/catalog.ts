@@ -34,8 +34,8 @@ export const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.ma
 /**
  * Permessi di progetto che vivono solo nel prototipo, per preset: entrano nel
  * registro di `@stubwise/shared` quando si costruisce il backend.
- * `planning.others` è del Project Lead (e implicito per il full admin); i
- * canali della Chat (area 4) li crea il Project Lead o il Developer e li
+ * (`planning.others` è nel registro condiviso dall'integrazione area 2,
+ * fetta 2: del Project Lead e implicito per il full admin.) I canali della Chat (area 4) li crea il Project Lead o il Developer e li
  * gestisce il Project Lead. Il Drive (area 5): carica chiunque lavori nel
  * progetto (anche il Legacy Member, shape drive.md [A 14]), non il Viewer;
  * gestire e vedere lo storico delle aperture è del Project Lead. Le
@@ -48,7 +48,6 @@ export const LOCAL_PROJECT_PERMISSIONS: Readonly<
   Record<string, readonly LocalProjectPermission[]>
 > = {
   project_lead: [
-    "planning.others",
     "chat.channels.create",
     "chat.channels.manage",
     "drive.upload",
