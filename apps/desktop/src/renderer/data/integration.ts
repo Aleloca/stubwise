@@ -20,16 +20,31 @@ export type IntegrationTarget =
  * (`docs/plans/2026-11-09-integrazione-area2-fetta2-design.md`): il Planning
  * (trasversale e di progetto), La mia settimana (`/home?view=week`, la
  * funzione `my-week`: la Home a blocchi resta «in arrivo»), la Timeline e la
- * settimana pianificata (`planning-week`).
+ * settimana pianificata (`planning-week`). Fetta 3
+ * (`docs/plans/2026-11-09-integrazione-area2-fetta3-design.md`): la Home a
+ * blocchi (`home`), i filtri salvati (`filters`, `saved-filters`) e i ruoli di
+ * reparto (`department-home`: chi dispone la Home del reparto). I blocchi della
+ * Home delle aree non integrate si spengono da soli (`registry.ts`, `area`).
+ * `department-permissions` (un reparto che dà permessi di progetto) resta fuori:
+ * il server non la conosce.
  */
 const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
-  destination: new Set(["projects", "planning"]),
+  destination: new Set(["home", "projects", "planning", "filters"]),
   projectSection: new Set(["tasks", "planning"]),
   // Stati e soglie del progetto.
   projectSettings: new Set(["statuses"]),
   admin: new Set(["departments"]),
   taskView: new Set(["list", "board", "timeline"]),
-  feature: new Set(["notifications", "search", "task-detail", "new-task", "planning-week", "my-week"]),
+  feature: new Set([
+    "notifications",
+    "search",
+    "task-detail",
+    "new-task",
+    "planning-week",
+    "my-week",
+    "saved-filters",
+    "department-home",
+  ]),
 };
 
 export function isIntegrated(target: IntegrationTarget): boolean {

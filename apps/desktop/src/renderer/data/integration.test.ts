@@ -22,6 +22,8 @@ const ALL: IntegrationTarget[] = [
       "planning-week",
       "my-week",
       "saved-filters",
+      "department-home",
+      "department-permissions",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -33,7 +35,7 @@ describe("isIntegrated", () => {
     expect(ALL.filter((t) => !isIntegrated(t))).toEqual([]);
   });
 
-  it("nella build app l'ossatura, le Tasks (fetta 1) e Planning e La mia settimana (fetta 2)", () => {
+  it("nella build app l'ossatura, le Tasks (fetta 1), Planning e La mia settimana (fetta 2), Home e filtri (fetta 3)", () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     expect(ALL.filter(isIntegrated).map(key).sort()).toEqual(
       [
@@ -52,6 +54,10 @@ describe("isIntegrated", () => {
         "taskView:timeline",
         "feature:planning-week",
         "feature:my-week",
+        "destination:home",
+        "destination:filters",
+        "feature:saved-filters",
+        "feature:department-home",
       ].sort(),
     );
   });
@@ -61,9 +67,9 @@ describe("isIntegrated", () => {
     expect(integrationTargetOf("/home")?.target).toEqual({ kind: "destination", name: "home" });
   });
 
-  it("si atterra su La mia settimana dove la Home non è integrata", () => {
+  it("dalla fetta 3 si atterra sulla Home anche nella build app", () => {
     expect(landingSearch()).toEqual({});
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
-    expect(landingSearch()).toEqual({ view: "week" });
+    expect(landingSearch()).toEqual({});
   });
 });

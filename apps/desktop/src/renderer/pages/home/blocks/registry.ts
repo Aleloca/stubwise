@@ -1,6 +1,7 @@
 import type { ComponentType } from "react";
 import { useAutomations } from "../../../data/queries";
 import type { HomeBlockKind, HomeBlockRef, Viewer } from "../../../data/types";
+import { featureIntegrated } from "../../../data/integration";
 import { can } from "../../../data/viewing";
 import { MyWeekBlock } from "../../week/MyWeekBlock";
 import { AutomationsBlock } from "./AutomationsBlock";
@@ -43,6 +44,16 @@ export function useBlockContext(): BlockContext {
 const always = () => true;
 
 /**
+ * Un blocco di un'area (`featureIntegrated(area)`): nella build app, finché
+ * l'area non è integrata, non è nel catalogo, non si mostra in nessuna Home e
+ * quindi non legge niente (integrazione area 2, fetta 3). Nel prototipo vale
+ * solo `available`.
+ */
+function ofArea(area: string, available: BlockDef["available"]): BlockDef["available"] {
+  return (viewer, ctx) => featureIntegrated(area) && available(viewer, ctx);
+}
+
+/**
  * Il catalogo dei blocchi della Home (spec §2), nell'ordine in cui il
  * catalogo li propone. I blocchi delle aree successive (canali, posta,
  * rilasci…) entrano qui con la loro area.
@@ -55,12 +66,12 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   upcomingEvents: {
     titleKey: "home.blocks.upcomingEvents",
     component: UpcomingEventsBlock,
-    available: always,
+    available: ofArea("calendar", always),
   },
   importantMail: {
     titleKey: "home.blocks.importantMail",
     component: ImportantMailBlock,
-    available: always,
+    available: ofArea("mail", always),
   },
   myTasks: { titleKey: "home.blocks.myTasks", component: MyTasksBlock, available: always },
   claudeForMe: {
@@ -89,7 +100,7 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   automations: {
     titleKey: "home.blocks.automations",
     component: AutomationsBlock,
-    available: (_viewer, ctx) => ctx?.seesAutomations !== false,
+    available: ofArea("automations", (_viewer, ctx) => ctx?.seesAutomations !== false),
   },
   // Rilasci (area 8a, shape releases.md [R 22]): nel catalogo di chi può
   // rilasciare in almeno un progetto; nella Home non personalizzata di quelle
@@ -97,14 +108,14 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   releases: {
     titleKey: "home.blocks.releases",
     component: ReleasesBlock,
-    available: (viewer) => can(viewer, "release.merge"),
+    available: ofArea("releases", (viewer) => can(viewer, "release.merge")),
   },
   // Clienti in attesa (area 8a, shape support.md [A 17]): nel catalogo di chi
   // può rispondere ai clienti in almeno un progetto, mai nelle Home di default.
   waitingCustomers: {
     titleKey: "home.blocks.waitingCustomers",
     component: WaitingCustomersBlock,
-    available: (viewer) => can(viewer, "support.reply"),
+    available: ofArea("support", (viewer) => can(viewer, "support.reply")),
   },
   filter: { titleKey: "home.blocks.filter", component: FilterBlock, available: always },
 };

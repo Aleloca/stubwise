@@ -118,6 +118,22 @@ const INTEGRATED_CALLS = new Set([
   "planTask",
   "setDay",
   "tasksTruncated",
+  // Fetta 3: Home a blocchi, ruoli di reparto, filtri salvati, richieste da trasformare.
+  "listDepartmentHomes",
+  "getPersonalHome",
+  "setPersonalHome",
+  "resetPersonalHome",
+  "setDepartmentHome",
+  "markDepartmentHomeSeen",
+  "listDepartmentRoles",
+  "listSavedFilters",
+  "getSavedFilter",
+  "listPinnedFilterIds",
+  "saveFilter",
+  "updateFilter",
+  "deleteFilter",
+  "setFilterPinned",
+  "listRequestsToConvert",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -190,45 +206,11 @@ describe("aree non integrate nella build app", () => {
 });
 
 describe("le superfici della fetta 2 nella build app", () => {
-  it("dopo il login si atterra su La mia settimana", async () => {
-    const router = renderRoute("/login");
-    await waitFor(() => expect(router.state.location.pathname).toBe("/home"));
-    expect(router.state.location.search).toMatchObject({ view: "week" });
-    expect(await screen.findByRole("heading", { level: 1, name: "My week" })).toBeInTheDocument();
-    expect(screen.queryByText("Coming soon")).toBeNull();
-    await settle();
-    expect(outside()).toEqual([]);
-  });
-
-  it("l'indirizzo vuoto atterra su La mia settimana", async () => {
-    const router = renderRoute("/");
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ view: "week" }));
-    expect(router.state.location.pathname).toBe("/home");
-  });
-
-  it("/home senza view resta Coming soon", async () => {
-    renderRoute("/home");
-    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
-    expect(screen.getByText("Coming soon")).toBeInTheDocument();
-    await settle();
-    expect(outside()).toEqual([]);
-  });
-
-  it("la colonna della Home non legge i filtri salvati", async () => {
-    signedInAs("p-laura");
-    renderRoute("/home?view=week");
-    const nav = await screen.findByRole("navigation", { name: "Home views" });
-    expect(await within(nav).findByRole("link", { name: "Planning" })).toBeInTheDocument();
-    expect(within(nav).getByRole("link", { name: "My week" })).toBeInTheDocument();
-    await settle();
-    expect(outside()).toEqual([]);
-  });
-
-  it("/planning senza planning.others torna a My week", async () => {
+  it("/planning senza planning.others torna alla Home", async () => {
     signedInAs("p-marco");
     const router = renderRoute("/planning");
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ view: "week" }));
-    expect(router.state.location.pathname).toBe("/home");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/home"));
+    expect(router.state.location.search).not.toHaveProperty("view");
   });
 
   it("il Planning trasversale c'è per chi ha planning.others, senza la riga di Claude", async () => {
@@ -270,6 +252,99 @@ describe("le superfici della fetta 2 nella build app", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Tasks" })).toBeInTheDocument();
     await settle();
     expect(screen.queryByText("Coming soon")).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+});
+
+/** I blocchi delle aree non integrate (posta e calendario, automazioni, rilasci, assistenza). */
+const FUTURE_BLOCKS = /^(Upcoming(?! milestones)|Important email|Automations|Releases|Customers waiting)/;
+
+describe("le superfici della fetta 3 nella build app", () => {
+  it("dopo il login si atterra sulla Home a blocchi", async () => {
+    const router = renderRoute("/login");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/home"));
+    expect(router.state.location.search).not.toHaveProperty("view");
+    expect(await screen.findByRole("heading", { level: 1, name: "Home" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: /^Decide/ })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("l'indirizzo vuoto atterra sulla Home", async () => {
+    const router = renderRoute("/");
+    await waitFor(() => expect(router.state.location.pathname).toBe("/home"));
+    expect(router.state.location.search).not.toHaveProperty("view");
+  });
+
+  it("i blocchi delle aree non integrate non si mostrano e non leggono nulla, nemmeno l'extra «Releases»", async () => {
+    // Laura può rilasciare e non ha personalizzato la Home: nel prototipo vede «Releases».
+    signedInAs("p-laura");
+    renderRoute("/home");
+    expect(await screen.findByRole("region", { name: /^My week/ })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: /^My tasks/ })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: FUTURE_BLOCKS })).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("un blocco di un'area non integrata salvato nella Home personale non si mostra e non chiama nulla", async () => {
+    signedInAs("p-marco");
+    const { setPersonalHome } = await import("../data/api");
+    await setPersonalHome([
+      { kind: "decide" },
+      { kind: "myWeek" },
+      { kind: "releases" },
+      { kind: "automations" },
+      { kind: "importantMail" },
+      { kind: "myTasks" },
+    ]);
+    calls.length = 0;
+    renderRoute("/home");
+    expect(await screen.findByRole("region", { name: /^My tasks/ })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: FUTURE_BLOCKS })).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("il catalogo dei blocchi non propone le aree non integrate", async () => {
+    signedInAs("p-marco");
+    renderRoute("/home");
+    await userEvent.click(await screen.findByRole("button", { name: "Customize" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Add block" }));
+    const menu = await screen.findByRole("menu", { name: "Add block" });
+    const names = within(menu)
+      .queryAllByRole("menuitem")
+      .map((i) => i.textContent ?? "");
+    expect(names.some((n) => FUTURE_BLOCKS.test(n))).toBe(false);
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("«Da decidere» non legge Claude, chat, posta né automazioni, e non resta in caricamento", async () => {
+    renderRoute("/home");
+    const decide = await screen.findByRole("region", { name: /^Decide/ });
+    await waitFor(() => expect(decide.querySelector("[data-skeleton], [aria-busy='true']")).toBeNull());
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("i filtri salvati: tutti i filtri e la pagina di un filtro", async () => {
+    renderRoute("/filters");
+    expect(await screen.findByRole("heading", { level: 1, name: "All filters" })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    cleanup();
+    renderRoute("/filters/flt-unassigned");
+    expect(await screen.findByRole("heading", { level: 1, name: /Unassigned/ })).toBeInTheDocument();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("La mia settimana resta raggiungibile da /home?view=week", async () => {
+    renderRoute("/home?view=week");
+    expect(await screen.findByRole("heading", { level: 1, name: "My week" })).toBeInTheDocument();
+    await settle();
     expect(outside()).toEqual([]);
   });
 });

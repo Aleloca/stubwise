@@ -27,6 +27,7 @@ import type {
   ProjectRequest,
   Task,
 } from "../../../data/types";
+import { featureIntegrated } from "../../../data/integration";
 import { relativeTime } from "../../../notifications/time";
 import { inputClass } from "../../../tasks-ui/Dialog";
 import { Avatar } from "../../../tasks-ui/PersonChip";
@@ -131,8 +132,20 @@ export function DecideBlock() {
       ),
   ];
   const visible = items.filter((i) => !pending.has(i.id));
+  // Le sorgenti di un'area non integrata non partono (build app): non contano
+  // nemmeno per lo stato, o il blocco resterebbe in caricamento.
+  const sources = [
+    decisions,
+    ...(featureIntegrated("claude") ? [claude] : []),
+    ...(featureIntegrated("chat") ? [chatQuestions, chatClaude] : []),
+    ...(featureIntegrated("mail") ? [mail] : []),
+    ...(featureIntegrated("automations") ? [automations] : []),
+    tasks,
+    requests,
+    projects,
+  ];
   const state = queryState(
-    [decisions, claude, chatQuestions, chatClaude, mail, automations, tasks, requests, projects],
+    sources,
     {
       when: visible.length === 0,
       text: t("home.decide.empty"),
