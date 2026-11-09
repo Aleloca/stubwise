@@ -4,6 +4,7 @@ import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { dayArrangementSchema } from "@stubwise/shared";
 import type { FastifyInstance } from "fastify";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
 import { buildApp } from "../app.js";
@@ -119,6 +120,28 @@ describe("PUT /api/tasks/:ticketId/day e GET /api/me/day-arrangements", () => {
     // Senza settimana pianificata non c'è giorno da scegliere.
     const unplanned = await task(dev.id, null);
     expect((await setDay(unplanned, { week: "2030-W06", day: 1 }, dev.headers.cookie)).statusCode).toBe(409);
+  });
+
+  it("atomico: riassegnata da un'altra transazione mentre la sistemo → 403 e nessuna riga (fix fetta 2)", async () => {
+    const id = await task(dev.id, "2030-02-11");
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => (locked = r));
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    const holder = testDb.db.transaction(async (tx) => {
+      await tx.select({ id: tickets.id }).from(tickets).where(eq(tickets.id, id)).for("update");
+      await tx.update(tickets).set({ assigneeId: other.id }).where(eq(tickets.id, id));
+      locked();
+      await released;
+    });
+    await isLocked;
+    const putting = setDay(id, { week: "2030-W07", day: 2 }, dev.headers.cookie);
+    await new Promise((r) => setTimeout(r, 300));
+    release();
+    await holder;
+    const res = await putting;
+    expect(res.statusCode, res.body).toBe(403);
+    expect(await testDb.db.select().from(taskDayArrangements).where(eq(taskDayArrangements.ticketId, id))).toHaveLength(0);
   });
 
   it("validazione e visibilità: giorno fuori lunedì–venerdì, settimana inesistente, task invisibile", async () => {
