@@ -47,6 +47,9 @@ export const notificationKindSchema = z.enum([
   "request.created",
   "google.proposal_handed",
   "security.alert",
+  "decision.requested",
+  "decision.answered",
+  "ticket.activity",
 ]);
 
 /**

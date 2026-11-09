@@ -771,6 +771,13 @@
       "when": 1793836800000,
       "tag": "0109_task_extras",
       "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1793923200000,
+      "tag": "0110_task_notification_kinds",
+      "breakpoints": true
     }
   ]
 }

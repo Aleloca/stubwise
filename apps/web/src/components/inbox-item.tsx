@@ -54,6 +54,11 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "google.proposal": "inbox:kinds.googleProposal",
   "google.proposal_handed": "inbox:kinds.googleProposalHanded",
   "security.alert": "inbox:kinds.securityAlert",
+  // Integrazione area 2: card informative con «Apri» (la decisione si prende
+  // dal pannello della task nell'app nuova).
+  "decision.requested": "inbox:kinds.decisionRequested",
+  "decision.answered": "inbox:kinds.decisionAnswered",
+  "ticket.activity": "inbox:kinds.ticketActivity",
 };
 
 /**

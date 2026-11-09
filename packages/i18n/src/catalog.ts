@@ -261,6 +261,14 @@ export const en: Catalog = {
     "{handedBy} handed {project} an email from {from} — {subject}. {link}",
   // Secondo fattore: security alert to the account owner, one sentence per
   // subject, with and without the actor (`{actor}` = their email).
+  // Integrazione area 2: decisions asked on a task and activity on a followed
+  // task. `{ref}` is the task code (e.g. AUD-12); `{summary}` is DATA (the new
+  // status name, the new assignee, the start of a comment), never prose.
+  "notify.decisionRequested": "{ref}: you are asked to decide — {question}",
+  "notify.decisionAnswered": "{ref}: your question has an answer — {question} → {answer}",
+  "notify.ticketActivity.status": "{ref}: status changed to {summary}",
+  "notify.ticketActivity.assignee": "{ref}: now assigned to {summary}",
+  "notify.ticketActivity.comment": "{ref}: new comment — {summary}",
   "notify.securityAlert.second_factor_reset":
     "Your second factor was reset: you will set it up again at your next sign-in.",
   "notify.securityAlert.second_factor_reset.actor":
@@ -455,6 +463,9 @@ export const en: Catalog = {
   "push.title.project.brief": "This week on {project}",
   "push.title.google.proposal": "A proposal from your mailbox",
   "push.title.google.proposal_handed": "An email handed to your project",
+  "push.title.decision.requested": "A decision is asked of you",
+  "push.title.decision.answered": "Your question has an answer",
+  "push.title.ticket.activity": "Activity on a task you follow",
   "push.title.security.alert": "Security alert on your account",
 
   // --- report.* — header delle sezioni del report ---
@@ -873,6 +884,11 @@ export const it: Catalog = {
   "notify.googleProposal": "Nuova proposta da {from} — {subject}. {link}",
   "notify.googleProposalHanded":
     "{handedBy} passa a {project} una email di {from} — {subject}. {link}",
+  "notify.decisionRequested": "{ref}: ti chiedono una decisione — {question}",
+  "notify.decisionAnswered": "{ref}: la tua domanda ha una risposta — {question} → {answer}",
+  "notify.ticketActivity.status": "{ref}: stato cambiato in {summary}",
+  "notify.ticketActivity.assignee": "{ref}: ora assegnata a {summary}",
+  "notify.ticketActivity.comment": "{ref}: nuovo commento — {summary}",
   "notify.securityAlert.second_factor_reset":
     "Il tuo secondo fattore è stato azzerato: al prossimo accesso lo configuri di nuovo.",
   "notify.securityAlert.second_factor_reset.actor":
@@ -1010,6 +1026,9 @@ export const it: Catalog = {
   "push.title.project.brief": "Questa settimana su {project}",
   "push.title.google.proposal": "Una proposta dalla tua casella",
   "push.title.google.proposal_handed": "Una email passata al tuo progetto",
+  "push.title.decision.requested": "Ti chiedono una decisione",
+  "push.title.decision.answered": "La tua domanda ha una risposta",
+  "push.title.ticket.activity": "Attività su una task che segui",
   "push.title.security.alert": "Avviso di sicurezza sul tuo account",
 
   // --- report.* ---

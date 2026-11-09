@@ -118,6 +118,11 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   // Mai consultato (vedi `shouldSendWebhook`): l'avviso di sicurezza non
   // esce mai su un canale condiviso. Riga presente per l'esaustività.
   "security.alert": "notifyGoogleProposal",
+  // Mai consultati (vedi `shouldSendWebhook`): decisioni e attività sono
+  // rivolte a persone, non al canale del team. Righe per l'esaustività.
+  "decision.requested": "notifyGoogleProposal",
+  "decision.answered": "notifyGoogleProposal",
+  "ticket.activity": "notifyGoogleProposal",
 };
 
 /** Una transazione drizzle aperta su `Db` (il `tx` di `db.transaction`). */
@@ -249,7 +254,16 @@ export function shouldSendWebhook(
   kind: NotificationKind,
 ): boolean {
   const audience = audienceFor(kind);
-  if (audience === "mailbox_owner" || audience === "project_deciders" || audience === "account_owner") {
+  if (
+    audience === "mailbox_owner" ||
+    audience === "project_deciders" ||
+    audience === "account_owner" ||
+    // Integrazione area 2: una decisione chiesta a una persona, la sua
+    // risposta e l'attività di una task seguita sono PERSONALI.
+    audience === "decision_target" ||
+    audience === "decision_asker" ||
+    audience === "ticket_followers"
+  ) {
     return false;
   }
   if (!settings || !settings.enabled || !settings.webhookUrl) return false;

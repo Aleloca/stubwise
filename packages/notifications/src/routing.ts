@@ -55,6 +55,14 @@ export interface RoutingContext {
    * `PublishOpts.accountUserId`.
    */
   accountOwner?: string;
+  /** `decision_requests.asked_of_user_id` (audience `decision_target`). */
+  decisionTarget?: string;
+  /** `decision_requests.asked_by_user_id` (audience `decision_asker`). */
+  decisionAsker?: string;
+  /** `ticket_followers` della task (audience `ticket_followers`). */
+  ticketFollowers?: string[];
+  /** Chi ha fatto il cambio: escluso dai `ticket_followers`. */
+  actor?: string;
 }
 
 /** I pubblici possibili di un kind (vedi {@link AUDIENCE_FOR_KIND}). */
@@ -64,7 +72,10 @@ export type Audience =
   | "requester"
   | "mailbox_owner"
   | "project_deciders"
-  | "account_owner";
+  | "account_owner"
+  | "decision_target"
+  | "decision_asker"
+  | "ticket_followers";
 
 /**
  * Pubblico di un kind: `deciders` per gli eventi che richiedono una DECISIONE
@@ -129,6 +140,12 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // subisce un'azione sul proprio account lo sa») e devono poter evolvere
   // separate. In comune hanno solo che nessun admin entra per ruolo.
   "security.alert": "account_owner",
+  // Integrazione area 2: la persona a cui si chiede di decidere, e quella che
+  // ha chiesto quando arriva la risposta. Nessun decider per ruolo.
+  "decision.requested": "decision_target",
+  "decision.answered": "decision_asker",
+  // I follower della TASK (non del progetto), meno chi ha fatto il cambio.
+  "ticket.activity": "ticket_followers",
 };
 
 /** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */
@@ -189,6 +206,10 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   "google.proposal_handed": null,
   // Nessun decider: un solo destinatario, il titolare (vedi `account_owner`).
   "security.alert": null,
+  // Nessun decider: destinatari per persona (vedi le tre audience).
+  "decision.requested": null,
+  "decision.answered": null,
+  "ticket.activity": null,
 };
 
 /** Permesso pertinente del kind. Unico punto in cui si legge {@link PERMISSION_FOR_KIND}. */
@@ -255,6 +276,14 @@ export function recipientsFor(event: NotificationEvent, ctx: RoutingContext): st
       // casella: ha già la sua card, e questa esiste perché lui non poteva
       // decidere.
       return visible(ctx.deciders).filter((id) => id !== ctx.mailboxOwner);
+    case "decision_target":
+      // Una persona sola, e solo se vede ancora il progetto della task.
+      return visible([ctx.decisionTarget]);
+    case "decision_asker":
+      return visible([ctx.decisionAsker]);
+    case "ticket_followers":
+      // Chi ha fatto il cambio sa già cosa ha fatto.
+      return visible(ctx.ticketFollowers ?? []).filter((id) => id !== ctx.actor);
     case "broadcast":
       return visible([
         ...ctx.deciders,

@@ -709,6 +709,65 @@ export interface SecurityAlertEvent {
   actorEmail: string | null;
 }
 
+/**
+ * Integrazione area 2 (9 nov 2026): una persona chiede a un'altra di decidere
+ * su una task. Destinatario: la persona a cui si chiede (audience
+ * `decision_target`, risolta da `decision_requests.asked_of_user_id`).
+ *
+ * Nell'evento solo ciò che è vero al momento della pubblicazione (la domanda,
+ * il riferimento `CODICE-n` di allora); titolo e codice correnti, se una card
+ * li mostra, si leggono dal DB. Nessun link: «Apri» lo DERIVA a lettura
+ * (`openUrl`, pagina del ticket nel web) come per `security.alert`.
+ */
+export interface DecisionRequestedEvent {
+  kind: "decision.requested";
+  ticketId: string;
+  ticketNumber: number;
+  projectId: string;
+  projectCode: string;
+  decisionId: string;
+  question: string;
+  askedByUserId: string | null;
+}
+
+/** La decisione chiesta ha una risposta: la riceve chi l'aveva chiesta (`decision_asker`). */
+export interface DecisionAnsweredEvent {
+  kind: "decision.answered";
+  ticketId: string;
+  ticketNumber: number;
+  projectId: string;
+  projectCode: string;
+  decisionId: string;
+  question: string;
+  /** L'opzione scelta o il testo di «Altro…», com'era al momento della risposta. */
+  answerSummary: string;
+  answeredByUserId: string | null;
+}
+
+/** Cosa è cambiato su una task seguita. */
+export type TicketActivityChange = "status" | "assignee" | "comment";
+
+/**
+ * Un cambiamento UMANO su una task (stato, assegnatario, commento): lo
+ * ricevono i follower della task tranne chi l'ha fatto (audience
+ * `ticket_followers`). Mai dagli scrittori di sistema (pipeline, webhook,
+ * triage, intake): hanno già le loro notifiche.
+ *
+ * `summary` è un DATO, non prosa: il nome del nuovo stato, il nome del nuovo
+ * assegnatario, l'inizio del commento — la frase intorno la mette il
+ * template della lingua di chi legge.
+ */
+export interface TicketActivityEvent {
+  kind: "ticket.activity";
+  ticketId: string;
+  ticketNumber: number;
+  projectId: string;
+  projectCode: string;
+  change: TicketActivityChange;
+  summary: string;
+  actorUserId: string | null;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -729,7 +788,10 @@ export type NotificationEvent =
   | ProjectBriefEvent
   | GoogleProposalEvent
   | GoogleProposalHandedEvent
-  | SecurityAlertEvent;
+  | SecurityAlertEvent
+  | DecisionRequestedEvent
+  | DecisionAnsweredEvent
+  | TicketActivityEvent;
 
 /**
  * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`,
@@ -747,7 +809,10 @@ type NonTicketedEvent =
   | ProjectBriefEvent
   | GoogleProposalEvent
   | GoogleProposalHandedEvent
-  | SecurityAlertEvent;
+  | SecurityAlertEvent
+  | DecisionRequestedEvent
+  | DecisionAnsweredEvent
+  | TicketActivityEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -768,7 +833,10 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "project.brief" &&
     event.kind !== "google.proposal" &&
     event.kind !== "google.proposal_handed" &&
-    event.kind !== "security.alert"
+    event.kind !== "security.alert" &&
+    event.kind !== "decision.requested" &&
+    event.kind !== "decision.answered" &&
+    event.kind !== "ticket.activity"
   );
 }
 
@@ -827,6 +895,9 @@ const EMOJI: Record<NotificationKind, string> = {
   "google.proposal": "📬",
   "google.proposal_handed": "📨",
   "security.alert": "🔐",
+  "decision.requested": "🤔",
+  "decision.answered": "💬",
+  "ticket.activity": "👀",
 };
 
 /**
@@ -949,6 +1020,11 @@ function linkParam(
     case "security.alert":
       // Nessun link: l'avviso si legge, e le frasi non hanno `{link}`.
       return "";
+    case "decision.requested":
+    case "decision.answered":
+    case "ticket.activity":
+      // Il link si DERIVA a lettura (`openUrl`), e le frasi non hanno `{link}`.
+      return "";
   }
 }
 
@@ -976,6 +1052,16 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "google.proposal_handed": "notify.googleProposalHanded",
   // Il template vero lo sceglie `templateKey` per `subject`.
   "security.alert": "notify.securityAlert.second_factor_reset",
+  "decision.requested": "notify.decisionRequested",
+  "decision.answered": "notify.decisionAnswered",
+  // Il template vero lo sceglie `templateKey` per `change`.
+  "ticket.activity": "notify.ticketActivity.status",
+};
+
+const TICKET_ACTIVITY_KEY: Record<TicketActivityChange, string> = {
+  status: "notify.ticketActivity.status",
+  assignee: "notify.ticketActivity.assignee",
+  comment: "notify.ticketActivity.comment",
 };
 
 /**
@@ -1070,6 +1156,10 @@ function templateKey(event: NotificationEvent): string {
     const keys = SECURITY_ALERT_KEY[event.subject];
     if (!keys) throw new Error(`soggetto di security.alert sconosciuto: ${String(event.subject)}`);
     return typeof event.actorEmail === "string" && event.actorEmail !== "" ? keys.withActor : keys.withoutActor;
+  }
+  if (event.kind === "ticket.activity") {
+    // Un `change` ignoto (jsonb anomalo) ricade sulla frase dello stato.
+    return TICKET_ACTIVITY_KEY[event.change] ?? TICKET_ACTIVITY_KEY.status;
   }
   if (event.kind === "request.created") {
     if (event.requestKind === "bug") return "notify.requestCreatedBug";
@@ -1170,6 +1260,18 @@ function textParams(
     if (event.kind === "security.alert") {
       return { actor: event.actorEmail ?? "" };
     }
+    // Decisioni e attività: il riferimento `CODICE-n` dell'evento, più la
+    // domanda, la risposta o il dato del cambio (NON FIDATI, vedi
+    // `UNTRUSTED_SLACK_PARAMS`).
+    if (event.kind === "decision.requested") {
+      return { ref: taskRef(event), question: event.question };
+    }
+    if (event.kind === "decision.answered") {
+      return { ref: taskRef(event), question: event.question, answer: event.answerSummary };
+    }
+    if (event.kind === "ticket.activity") {
+      return { ref: taskRef(event), summary: event.summary };
+    }
     // monitor.alert | monitor.recovered: la condizione è resa come etichetta
     // localizzata; il detail è già una frase leggibile.
     return {
@@ -1250,7 +1352,17 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   "request.created": ["email", "title"],
   // L'email di chi ha agito la scrive un utente al proprio account.
   "security.alert": ["actor"],
+  // Domanda e risposta le scrivono le persone; il dato del cambio può essere
+  // l'inizio di un commento.
+  "decision.requested": ["question"],
+  "decision.answered": ["question", "answer"],
+  "ticket.activity": ["summary"],
 };
+
+/** `CODICE-n` della task dell'evento, com'era alla pubblicazione. */
+function taskRef(event: { projectCode: string; ticketNumber: number }): string {
+  return `${event.projectCode}-${event.ticketNumber}`;
+}
 
 /**
  * Frase localizzata per un formato con markup (Slack/Discord), inclusi emoji,
@@ -1433,6 +1545,21 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         event: event.kind,
         subject: event.subject,
         actorEmail: event.actorEmail,
+        message: formatNotificationText(event, lang),
+      };
+    }
+    if (
+      event.kind === "decision.requested" ||
+      event.kind === "decision.answered" ||
+      event.kind === "ticket.activity"
+    ) {
+      // Mai consegnati al webhook (`shouldSendWebhook` li esclude: sono rivolti
+      // a persone, non al canale del team): il ramo c'è per l'esaustività.
+      return {
+        event: event.kind,
+        ticketId: event.ticketId,
+        ticketNumber: event.ticketNumber,
+        projectCode: event.projectCode,
         message: formatNotificationText(event, lang),
       };
     }
@@ -1781,6 +1908,37 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       kind: "security.alert",
       subject: "second_factor_reset",
       actorEmail: "giulia@acme.test",
+    },
+    {
+      kind: "decision.requested",
+      ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
+      ticketNumber: 57,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      decisionId: "9a8b7c6d-1111-4222-8333-444455556666",
+      question: "Teniamo il carrello per 30 o per 90 giorni?",
+      askedByUserId: "3c4d5e6f-7777-4888-8999-aaaabbbbcccc",
+    },
+    {
+      kind: "decision.answered",
+      ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
+      ticketNumber: 57,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      decisionId: "9a8b7c6d-1111-4222-8333-444455556666",
+      question: "Teniamo il carrello per 30 o per 90 giorni?",
+      answerSummary: "90 giorni",
+      answeredByUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+    },
+    {
+      kind: "ticket.activity",
+      ticketId: "7c1d2e3f-aaaa-4bbb-8ccc-ddddeeeeffff",
+      ticketNumber: 57,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      projectCode: "NEG",
+      change: "status",
+      summary: "In review",
+      actorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
     },
   ];
 }

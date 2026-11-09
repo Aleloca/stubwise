@@ -1260,6 +1260,30 @@ describe("security.alert", () => {
   });
 });
 
+describe("decisioni e attività della task", () => {
+  const byKind = (kind: string) => sampleEvents("https://x.test").find((e) => e.kind === kind)!;
+
+  it("nominano il codice della task e il dato, nelle due lingue", () => {
+    expect(formatNotificationText(byKind("decision.requested"), "en")).toBe(
+      "NEG-57: you are asked to decide — Teniamo il carrello per 30 o per 90 giorni?",
+    );
+    expect(formatNotificationText(byKind("decision.answered"), "it")).toBe(
+      "NEG-57: la tua domanda ha una risposta — Teniamo il carrello per 30 o per 90 giorni? → 90 giorni",
+    );
+    expect(formatNotificationText(byKind("ticket.activity"), "it")).toBe("NEG-57: stato cambiato in In review");
+  });
+
+  it("la frase dell'attività la sceglie il tipo di cambio", () => {
+    const base = byKind("ticket.activity") as Extract<NotificationEvent, { kind: "ticket.activity" }>;
+    expect(formatNotificationText({ ...base, change: "assignee", summary: "Laura" }, "en")).toBe(
+      "NEG-57: now assigned to Laura",
+    );
+    expect(formatNotificationText({ ...base, change: "comment", summary: "Fatto?" }, "en")).toBe(
+      "NEG-57: new comment — Fatto?",
+    );
+  });
+});
+
 describe("sampleEvents", () => {
   it("produce un esempio per ciascun kind, con link sotto baseUrl", () => {
     const events = sampleEvents("https://app.example.com/");
@@ -1284,6 +1308,9 @@ describe("sampleEvents", () => {
       "google.proposal_handed",
       "request.created",
       "security.alert",
+      "decision.requested",
+      "decision.answered",
+      "ticket.activity",
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
@@ -1303,8 +1330,13 @@ describe("sampleEvents", () => {
         // Unico evento la cui superficie NON sta su Stubwise: la fonte è il
         // thread Gmail (o l'evento di calendario), fuori dal `baseUrl`.
         expect(event.messageUrl.startsWith("https://mail.google.com/")).toBe(true);
-      } else if (event.kind === "security.alert") {
-        // Nessun link: l'avviso di sicurezza si legge in inbox e basta.
+      } else if (
+        event.kind === "security.alert" ||
+        event.kind === "decision.requested" ||
+        event.kind === "decision.answered" ||
+        event.kind === "ticket.activity"
+      ) {
+        // Nessun link nell'evento: si legge in inbox (o «Apri» lo deriva).
         expect(Object.values(event).some((v) => typeof v === "string" && v.startsWith("http"))).toBe(false);
       } else {
         expect(event.ticketUrl.startsWith("https://app.example.com/tickets/")).toBe(true);

@@ -1636,6 +1636,11 @@ export const notificationKind = pgEnum("notification_kind", [
   // admin per ruolo, e non spegnibile dalle preferenze. Valore aggiunto da
   // 0101, DA SOLO.
   "security.alert",
+  // Integrazione area 2 (0110, DA SOLI): decisione chiesta a una persona,
+  // decisione risposta (a chi l'ha chiesta), attività di una task seguita.
+  "decision.requested",
+  "decision.answered",
+  "ticket.activity",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),

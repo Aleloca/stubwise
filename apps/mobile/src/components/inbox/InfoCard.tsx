@@ -51,6 +51,11 @@ const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
   // archivia (nessun link, nessuna decisione); tono d'allarme perché chi non
   // ha fatto l'azione deve accorgersene.
   "security.alert": { i18nKey: "mobile.inbox.kinds.securityAlert", tone: "danger" },
+  // Integrazione area 2: informative, si aprono e basta. Su un'app precedente
+  // sono `UNKNOWN` e ricadono sull'etichetta generica.
+  "decision.requested": { i18nKey: "mobile.inbox.kinds.decisionRequested", tone: "signal" },
+  "decision.answered": { i18nKey: "mobile.inbox.kinds.decisionAnswered", tone: "muted" },
+  "ticket.activity": { i18nKey: "mobile.inbox.kinds.ticketActivity", tone: "muted" },
 };
 
 export interface InfoCardProps {

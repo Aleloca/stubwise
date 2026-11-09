@@ -232,6 +232,10 @@ export {
   type ReviewCompletedEvent,
   type SecurityAlertEvent,
   type SecurityAlertSubject,
+  type DecisionRequestedEvent,
+  type DecisionAnsweredEvent,
+  type TicketActivityEvent,
+  type TicketActivityChange,
   type TicketCreatedEvent,
 } from "./format.js";
 
