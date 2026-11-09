@@ -65,3 +65,26 @@ Task 2. Migrazione: `packages/db/drizzle/0108_project_statuses.sql`. Test:
   di un commento porta solo `commentId`, e l'estratto lo deriva a lettura
   l'inbox (un commento eliminato si legge «comment deleted»). Push e Slack
   dicono solo «New comment on <ref>».
+
+## La settimana pianificata e lo slittamento (fetta 2, 9 nov 2026)
+
+- **Nel DB il lunedì, sul filo `YYYY-Www`**: `tickets.planned_week date`
+  (CHECK `isodow = 1`); le conversioni pure stanno in
+  `packages/shared/src/tasks/weeks.ts`.
+- **La settimana corrente è nel fuso Europe/Rome**, in UNA funzione SQL
+  (`stubwise_current_monday()`) e UNA TS (`currentIsoWeek`); `serverToday` del
+  server usa lo stesso fuso.
+- **Lo slittamento si DERIVA a lettura, nessun job lo scrive.** Una task non
+  chiusa con la settimana passata si legge nella settimana corrente
+  (`stubwise_effective_week`), e `slipCount = slip_count +
+  stubwise_slip_weeks(...)`. Una task chiusa smette di scivolare alla
+  settimana in cui si è chiusa: chiusa nella sua settimana non è mai
+  slittata. Un aggiornamento di massa toccherebbe `updated_at`, cioè le ferme
+  per inattività: non va introdotto.
+- **Il consolidamento è un trigger** (`tickets_consolidate_slip`): quando una
+  scrittura cambia davvero `planned_week`, il derivato di prima si somma a
+  `slip_count`. Ripianificare non perde né raddoppia il conteggio, e
+  `slipCount` non si azzera mai.
+- **Le sistemazioni per giorno (`task_day_arrangements`) sono personali** e
+  le cancella il trigger `tickets_reset_day_arrangements` quando cambiano
+  davvero settimana o assegnatario, da qualunque scrittura.

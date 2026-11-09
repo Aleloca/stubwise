@@ -161,6 +161,19 @@ describe("PATCH /api/tasks/:ticketId", () => {
     expect(await read()).toBe("task");
   });
 
+  it("la settimana pianificata si scrive come YYYY-Www e si salva come lunedì", async () => {
+    const task = await createTask({ plannedWeek: "2030-W02" });
+    expect(task.plannedWeek).toBe("2030-W02");
+    const res = await send("PATCH", `/api/tasks/${task.id}`, { plannedWeek: "2030-W05" });
+    expect(taskViewSchema.parse(res.json()).plannedWeek).toBe("2030-W05");
+    const [row] = await testDb.db.select({ w: tickets.plannedWeek }).from(tickets).where(eq(tickets.id, task.id));
+    expect(row!.w).toBe("2030-01-28");
+    const bad = await send("PATCH", `/api/tasks/${task.id}`, { plannedWeek: "2027-W53" });
+    expect(bad.statusCode).toBe(400);
+    const cleared = await send("PATCH", `/api/tasks/bulk`, { ids: [task.id], patch: { plannedWeek: null } });
+    expect(taskViewSchema.array().parse(cleared.json())[0]!.plannedWeek).toBeNull();
+  });
+
   it("una scadenza impostata si rilegge, e si toglie", async () => {
     const task = await createTask();
     const set = await send("PATCH", `/api/tasks/${task.id}`, { dueDate: "2026-12-24" });

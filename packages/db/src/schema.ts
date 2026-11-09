@@ -895,6 +895,12 @@ export const tickets = pgTable(
       .$defaultFn(() => sql`default`),
     // Scadenza (0111): una DATA (YYYY-MM-DD), non un istante.
     dueDate: date("due_date", { mode: "string" }),
+    // Settimana pianificata (0113): il LUNEDÌ, scelto da una persona. Lo
+    // slittamento è DERIVATO a lettura (`stubwise_effective_week`,
+    // `stubwise_slip_weeks`), mai scritto da un job; `slipCount` tiene gli
+    // slittamenti già consolidati (trigger `tickets_consolidate_slip`).
+    plannedWeek: date("planned_week", { mode: "string" }),
+    slipCount: integer("slip_count").notNull().default(0),
     // «Segna ferma» a mano (0109): motivo e data insieme o nessuno dei due.
     manualStallReason: text("manual_stall_reason"),
     manualStallNote: text("manual_stall_note"),
@@ -5071,4 +5077,28 @@ export const desktopHandoffs = pgTable(
     usedAt: timestamp("used_at", { withTimezone: true }),
   },
   (table) => [index("desktop_handoffs_user_idx").on(table.userId)],
+);
+
+/**
+ * Il giorno (1 = lunedì … 5 = venerdì, null = «in settimana») in cui
+ * l'assegnatario si mette una task (0113): personale, per quella settimana e
+ * quell'assegnatario. Il trigger `tickets_reset_day_arrangements` la cancella
+ * quando cambiano davvero settimana o assegnatario.
+ */
+export const taskDayArrangements = pgTable(
+  "task_day_arrangements",
+  {
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    week: date("week", { mode: "string" }).notNull(),
+    day: integer("day"),
+  },
+  (table) => [
+    primaryKey({ name: "task_day_arrangements_pk", columns: [table.ticketId, table.userId, table.week] }),
+    index("task_day_arrangements_user_week_idx").on(table.userId, table.week),
+  ],
 );

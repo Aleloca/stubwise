@@ -177,6 +177,33 @@ describe("scadenza", () => {
   });
 });
 
+describe("settimana pianificata e slittamento (fetta 2)", () => {
+  it("una task aperta della settimana scorsa è nella corrente con slipCount 1; il filtro settimana la trova", async () => {
+    const slipped = await insertTask();
+    const closedOld = await insertTask({ status: "Done" });
+    await testDb.db.execute(sql`
+      update tickets set planned_week = stubwise_current_monday() - 7 where id in (${slipped.id}, ${closedOld.id})
+    `);
+    // Chiusa DENTRO la sua settimana: non è mai slittata.
+    await testDb.db.execute(sql`
+      update tickets set closed_at = (stubwise_current_monday() - 7 + 1)::timestamptz where id = ${closedOld.id}
+    `);
+    const [{ week }] = (await testDb.db.execute(sql`select stubwise_current_monday()::text as week`)) as unknown as [
+      { week: string },
+    ];
+    const { mondayToIsoWeek } = await import("@stubwise/shared");
+    const current = mondayToIsoWeek(week);
+    const items = await list("");
+    expect(items.find((i) => i.id === slipped.id)).toMatchObject({ plannedWeek: current, slipCount: 1 });
+    // Chiusa nella sua settimana: non scivola nella corrente, e non conta slittamenti.
+    expect(items.find((i) => i.id === closedOld.id)).toMatchObject({ slipCount: 0 });
+    expect(items.find((i) => i.id === closedOld.id)).not.toMatchObject({ plannedWeek: current });
+    const thisWeek = await list("&periodField=plannedWeek&periodPreset=thisWeek");
+    expect(thisWeek.map((i) => i.id)).toContain(slipped.id);
+    expect(thisWeek.map((i) => i.id)).not.toContain(closedOld.id);
+  });
+});
+
 describe("tetto e collegamenti", () => {
   it("col filtro stalled, oltre il tetto l'elenco dice truncated anche se ne resta poco", async () => {
     const { projectId: pid } = await seedRepository(testDb.db);
