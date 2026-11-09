@@ -96,6 +96,8 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
       "servers.operate",
     ],
   },
+  // La cassaforte delle credenziali (main, 23 ott 2026): lo stesso gruppo del web.
+  { key: "credentials", permissions: ["credentials.create", "credentials.edit", "credentials.share"] },
 ];
 
 export const groupsFor = (scope: AccessScope): readonly PermissionGroup[] =>

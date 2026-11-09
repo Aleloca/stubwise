@@ -9621,6 +9621,7 @@
       "backlog": "Backlog",
       "docs": "Documenti",
       "code": "Codice",
+      "credentials": "Credenziali",
       "prototype": "Prototipo"
     },
     "page": {
@@ -11485,6 +11486,20 @@
       "generate": {
         "label": "generare i Docs",
         "hint": "Far scrivere o aggiornare a Claude i Docs dai repository."
+      }
+    },
+    "credentials": {
+      "create": {
+        "label": "aggiungere credenziali",
+        "hint": "Salvare una password o una chiave nuova nella cassaforte del progetto."
+      },
+      "edit": {
+        "label": "modificare le credenziali",
+        "hint": "Cambiare una credenziale e sostituirne la password."
+      },
+      "share": {
+        "label": "condividere le credenziali",
+        "hint": "Dare accesso a una credenziale ad altri membri del progetto."
       }
     },
     "repos": {

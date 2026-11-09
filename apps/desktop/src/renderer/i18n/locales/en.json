@@ -9621,6 +9621,7 @@
       "backlog": "Backlog",
       "docs": "Docs",
       "code": "Code",
+      "credentials": "Credentials",
       "prototype": "Prototype"
     },
     "page": {
@@ -11485,6 +11486,20 @@
       "generate": {
         "label": "generate the docs",
         "hint": "Have Claude write or update the docs from the repositories."
+      }
+    },
+    "credentials": {
+      "create": {
+        "label": "add credentials",
+        "hint": "Save a new password or key in the project's vault."
+      },
+      "edit": {
+        "label": "edit credentials",
+        "hint": "Change a credential and replace its password."
+      },
+      "share": {
+        "label": "share credentials",
+        "hint": "Give other members of the project access to a credential."
       }
     },
     "repos": {
