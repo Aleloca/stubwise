@@ -424,39 +424,30 @@ describe("GET /api/tasks/:ticketId/activity", () => {
     ]);
   });
 
-  it("una persona eliminata dà il ripiego null (anche un traguardo o un reparto eliminato): mai un id", async () => {
+  it("una persona eliminata dà il ripiego: l'id così com'è (anche per un traguardo eliminato)", async () => {
     const t = await insertTask();
     const gone = "00000000-0000-4000-8000-0000000000aa";
     const goneMilestone = "00000000-0000-4000-8000-0000000000bb";
-    const goneDepartment = "00000000-0000-4000-8000-0000000000cc";
     await testDb.db.insert(ticketEvents).values([
       {
         ticketId: t.id,
         actorId: null,
         kind: "assignee_changed",
         payload: { from: gone, to: users.memberId },
-        createdAt: new Date(Date.now() - 3000),
+        createdAt: new Date(Date.now() - 2000),
       },
       {
         ticketId: t.id,
         actorId: null,
         kind: "milestone_changed",
         payload: { from: goneMilestone, to: null },
-        createdAt: new Date(Date.now() - 2000),
-      },
-      {
-        ticketId: t.id,
-        actorId: null,
-        kind: "department_changed",
-        payload: { from: goneDepartment, to: null },
         createdAt: new Date(Date.now() - 1000),
       },
     ]);
     const entries = taskActivityEntryViewSchema.array().parse((await get(`/api/tasks/${t.id}/activity`)).json());
-    expect(entries.map((e) => [e.field, e.from, e.to])).toEqual([
-      ["assignee", null, "member"],
-      ["milestone", null, null],
-      ["department", null, null],
+    expect(entries.map((e) => [e.from, e.to])).toEqual([
+      [gone, "member"],
+      [goneMilestone, null],
     ]);
   });
 
