@@ -94,10 +94,33 @@ describe("le card dell'inbox", () => {
     const raw = { ...base, kind: "something.from.the.future", url: "https://stubwise.example.com/tickets/44444444-4444-4444-8444-444444444444" };
     // Come la parsa il client condiviso: il kind ignoto diventa `__unknown__`.
     const item = { ...raw, kind: "__unknown__" } as unknown as Parameters<typeof presentInboxItem>[0];
-    const n = presentInboxItem(item, ctx);
+    const n = presentInboxItem(item, { ...ctx, instanceOrigin: "https://stubwise.example.com" });
     expect(n.link).toBe("");
     expect(n.webHref).toBe("/tickets/44444444-4444-4444-8444-444444444444");
     expect(n.title).toBe(base.text);
+  });
+
+  it("una card job.pr_opened apre l'URL della PR", () => {
+    const item = inboxItemSchema.parse({
+      ...base,
+      kind: "job.pr_opened",
+      url: "https://github.com/acme/app/pull/7",
+    });
+    // Un'origine diversa dall'istanza: l'URL resta assoluto (si apre nel browser).
+    expect(presentInboxItem(item, { ...ctx, instanceOrigin: "https://stubwise.example.com" }).webHref).toBe(
+      "https://github.com/acme/app/pull/7",
+    );
+  });
+
+  it("un URL dell'istanza diventa il suo percorso", () => {
+    const item = inboxItemSchema.parse({
+      ...base,
+      kind: "job.plan_review",
+      url: "https://stubwise.example.com/tickets/44444444-4444-4444-8444-444444444444?tab=plan",
+    });
+    expect(presentInboxItem(item, { ...ctx, instanceOrigin: "https://stubwise.example.com" }).webHref).toBe(
+      "/tickets/44444444-4444-4444-8444-444444444444?tab=plan",
+    );
   });
 
   it("una domanda di Claude apre la sessione nel web vecchio", () => {
