@@ -1699,7 +1699,10 @@
       "brief": "Brief settimanale",
       "googleProposal": "Proposta dalla posta",
       "googleProposalHanded": "Email passata al progetto",
-      "securityAlert": "Avviso di sicurezza"
+      "securityAlert": "Avviso di sicurezza",
+      "decisionRequested": "Ti chiedono una decisione",
+      "decisionAnswered": "La tua domanda ha una risposta",
+      "ticketActivity": "Attività su una task che segui"
     },
     "actions": {
       "approvePlan": "Approva piano",
@@ -3368,6 +3371,9 @@
         "invite": "Invitare utenti",
         "manage": "Gestire gli utenti",
         "view_all": "Vedere l'elenco del team"
+      },
+      "departments": {
+        "manage": "Gestire i reparti"
       },
       "roles": {
         "manage": "Gestire i ruoli"

@@ -209,6 +209,12 @@ const CATALOG_FOR_KIND: Record<
   "google.proposal_handed": { decisions: ["answer"], permission: null, archivable: true },
   // L'avviso di sicurezza si legge e si archivia: nessuna decisione.
   "security.alert": { decisions: [], permission: null, archivable: true },
+  // Integrazione area 2: la decisione si prende dal pannello della task
+  // (app nuova), non dalla card — qui solo «Apri». Così anche web vecchio e
+  // mobile la mostrano, senza un bottone che non saprebbero servire.
+  "decision.requested": { decisions: [], permission: null, archivable: true },
+  "decision.answered": { decisions: [], permission: null, archivable: true },
+  "ticket.activity": { decisions: [], permission: null, archivable: true },
 };
 
 /**
@@ -452,6 +458,12 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     // PUBLIC_URL la stringa vuota è il «nessun link» che inbox e DM scartano.
     case "security.alert":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/settings/security` : "";
+    // Integrazione area 2: la pagina del ticket nel web, DERIVATA (come
+    // `security.alert`) — nessun URL nel jsonb.
+    case "decision.requested":
+    case "decision.answered":
+    case "ticket.activity":
+      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/tickets/${event.ticketId}` : "";
     case "ticket.created":
     case "job.pr_closed":
     case "job.held":

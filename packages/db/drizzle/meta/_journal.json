@@ -750,6 +750,34 @@
       "when": 1793577600000,
       "tag": "0106_vault_actor_challenges",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1793664000000,
+      "tag": "0107_project_codes_departments",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1793750400000,
+      "tag": "0108_project_statuses",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1793836800000,
+      "tag": "0109_task_extras",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1793923200000,
+      "tag": "0110_task_notification_kinds",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,4 @@
-import type { TicketPriority } from "@stubwise/shared";
+import type { StallReason, TicketPriority } from "@stubwise/shared";
 import type {
   ClaudeActionFn,
   ClaudeBusyReason,
@@ -3085,14 +3085,12 @@ export interface ArchiveCandidates {
   notManageableCodes: string[];
 }
 
-/** Perché una task è ferma (`stallOf` in `domain/stalled.ts`), in ordine di precedenza. */
-export type StallReason =
-  | { kind: "manual"; reason: string; note: string }
-  | { kind: "decision"; personId: string }
-  | { kind: "claude_question" }
-  | { kind: "blocked_by"; taskId: string }
-  | { kind: "unassigned" }
-  | { kind: "idle" };
+/**
+ * Perché una task è ferma (`stallOf` in `domain/stalled.ts`), in ordine di
+ * precedenza. Dall'integrazione area 2 vive in `@stubwise/shared` (la regola la
+ * usa anche il server): qui si ri-esporta.
+ */
+export type { StallReason };
 
 /**
  * `StallReason` come la legge chi chiede (R-G5): la persona della decisione

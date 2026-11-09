@@ -83,7 +83,6 @@ export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
   "chat.general.manage",
   "automations.manage",
   "servers.ssh.manage",
-  "departments.manage",
   "instance.status.view",
   "changelog.view",
 ];

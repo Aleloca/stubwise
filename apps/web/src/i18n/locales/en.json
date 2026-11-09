@@ -1699,7 +1699,10 @@
       "brief": "Weekly brief",
       "googleProposal": "Mailbox proposal",
       "googleProposalHanded": "Email handed to the project",
-      "securityAlert": "Security alert"
+      "securityAlert": "Security alert",
+      "decisionRequested": "A decision is asked of you",
+      "decisionAnswered": "Your question has an answer",
+      "ticketActivity": "Activity on a followed task"
     },
     "actions": {
       "approvePlan": "Approve plan",
@@ -3368,6 +3371,9 @@
         "invite": "Invite users",
         "manage": "Manage users",
         "view_all": "View the team list"
+      },
+      "departments": {
+        "manage": "Manage departments"
       },
       "roles": {
         "manage": "Manage roles"

@@ -54,3 +54,5 @@ export * from "./agent-activity.js";
 export * from "./agent-transcript.js";
 export * from "./elapsed.js";
 export * from "./ai-operations.js";
+export * from "./tasks/index.js";
+export * from "./schemas/task-view.js";

@@ -322,6 +322,8 @@ export const users = pgTable("users", {
   // Ultima prenotazione di un tentativo (0102): riconosce una prenotazione
   // mai chiusa (processo morto a metà verifica), vedi `reserveAttempt`.
   secondFactorReservedAt: timestamp("second_factor_reserved_at", { withTimezone: true }),
+  // Nome visualizzato (0107); null = la parte locale dell'email.
+  displayName: text("display_name"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -596,6 +598,14 @@ export const projects = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
     slug: text("slug").notNull().unique(),
+    // Codice del progetto (0107): `^[A-Z][A-Z0-9]{1,5}$`, unico; le task si
+    // mostrano `<CODICE>-<number>`. NOT NULL nel DB ma opzionale all'insert:
+    // chi lo omette lo riceve dal trigger `projects_assign_code`
+    // (`stubwise_next_project_code(slug)`), come `instanceRoleId` sugli utenti.
+    code: text("code")
+      .notNull()
+      .unique()
+      .$defaultFn(() => sql`default`),
     // Descrizione libera del progetto, opzionale (mostrata nella UI di dettaglio).
     description: text("description"),
     // Provider AI generale del progetto, valido per Docs e fix di tutti i suoi
@@ -654,6 +664,10 @@ export const projects = pgTable(
     // funzionano). Il contatore NON si salva: lo deriva
     // `autoRoundsInCurrentSeries` (@stubwise/notifications).
     prCorrectionMaxRounds: integer("pr_correction_max_rounds").notNull().default(3),
+    // Soglie «ferma» (0109): giorni senza attività dopo cui una task active o
+    // todo (pianificata) è ferma. 1..90, default 7/14 come nel prototipo.
+    stallActiveDays: integer("stall_active_days").notNull().default(7),
+    stallTodoDays: integer("stall_todo_days").notNull().default(14),
   },
   () => [
     // Sotto 1 giorno il pulse diventerebbe un ping continuo, sopra 30 un
@@ -664,6 +678,55 @@ export const projects = pgTable(
       "projects_pr_correction_max_rounds_chk",
       sql`pr_correction_max_rounds BETWEEN 0 AND 10`,
     ),
+    check("projects_code_format_chk", sql`code ~ '^[A-Z][A-Z0-9]{1,5}$'`),
+    check("projects_stall_active_days_chk", sql`stall_active_days BETWEEN 1 AND 90`),
+    check("projects_stall_todo_days_chk", sql`stall_todo_days BETWEEN 1 AND 90`),
+  ],
+);
+
+/**
+ * Reparti (0107, integrazione area 2): nome e colore dalla palette del
+ * prototipo (`--dept-1`…`--dept-8`). Uno solo è il ripiego (`isDefault`,
+ * «General»): si rinomina ma non si elimina, ed è dove nasce una task senza
+ * creatore umano.
+ */
+export const departments = pgTable(
+  "departments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    colorToken: text("color_token").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("departments_one_default_idx").on(table.isDefault).where(sql`is_default`),
+    check("departments_name_chk", sql`length(btrim(name)) BETWEEN 1 AND 80`),
+    check(
+      "departments_color_token_chk",
+      sql`color_token IN ('--dept-1', '--dept-2', '--dept-3', '--dept-4', '--dept-5', '--dept-6', '--dept-7', '--dept-8')`,
+    ),
+  ],
+);
+
+/**
+ * Appartenenza persona↔reparto (molti a molti). `position` ordina i reparti
+ * della persona: il suo «primo reparto» è quello con `position` minima.
+ */
+export const departmentMembers = pgTable(
+  "department_members",
+  {
+    departmentId: uuid("department_id")
+      .notNull()
+      .references(() => departments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    position: integer("position").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ name: "department_members_pk", columns: [table.departmentId, table.userId] }),
+    index("department_members_user_idx").on(table.userId, table.position),
   ],
 );
 
@@ -807,7 +870,33 @@ export const tickets = pgTable(
     originContent: text("origin_content"),
     type: ticketType("type").notNull(),
     priority: ticketPriority("priority").notNull(),
+    // Compatibilità (0108): DERIVATO da `statusId` dal trigger
+    // `tickets_status_sync`, e viceversa quando uno scrittore vecchio scrive
+    // solo l'enum. Si toglie col ritiro del web vecchio
+    // (docs/invariants/tasks.md).
     status: ticketStatus("status").notNull().default("open"),
+    // Lo stato VERO (0108), uno degli stati del progetto. NOT NULL nel DB ma
+    // opzionale all'insert: senza, il trigger lo ricava dall'enum.
+    statusId: uuid("status_id")
+      .notNull()
+      .references((): AnyPgColumn => projectStatuses.id)
+      .$defaultFn(() => sql`default`),
+    // Quando la task è entrata nella famiglia `closed` (trigger); null se aperta.
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    // Reparto (0109). NOT NULL nel DB ma opzionale all'insert: senza, il
+    // trigger `tickets_default_department` mette il ripiego. RESTRICT: un
+    // reparto con task non si elimina senza spostarle.
+    departmentId: uuid("department_id")
+      .notNull()
+      .references((): AnyPgColumn => departments.id, { onDelete: "restrict" })
+      .$defaultFn(() => sql`default`),
+    // «Segna ferma» a mano (0109): motivo e data insieme o nessuno dei due.
+    manualStallReason: text("manual_stall_reason"),
+    manualStallNote: text("manual_stall_note"),
+    manualStallSince: timestamp("manual_stall_since", { withTimezone: true }),
+    manualStallByUserId: uuid("manual_stall_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     source: ticketSource("source").notNull(),
     // Stima di sforzo 1–5 prodotta dal triage AI (null finché non triagiato).
     // Alimenta il gate di automazione (auto-fix solo se effort <= maxEffort).
@@ -867,6 +956,99 @@ export const tickets = pgTable(
     index("tickets_milestone_id_idx").on(table.milestoneId),
     // Ricerca full-text sul vettore generato.
     index("tickets_search_tsv_idx").using("gin", table.searchTsv),
+    index("tickets_status_id_idx").on(table.statusId),
+    index("tickets_department_id_idx").on(table.departmentId),
+    check(
+      "tickets_manual_stall_chk",
+      sql`(manual_stall_reason IS NULL) = (manual_stall_since IS NULL)`,
+    ),
+  ],
+);
+
+/**
+ * Chi segue una task (0109): riceve le notifiche `ticket.activity`. Chi crea e
+ * chi è assegnato seguono in automatico dall'app nuova, da ora in avanti.
+ */
+export const ticketFollowers = pgTable(
+  "ticket_followers",
+  {
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "ticket_followers_pk", columns: [table.ticketId, table.userId] }),
+    index("ticket_followers_user_idx").on(table.userId),
+  ],
+);
+
+/**
+ * Richieste di decisione (0109): una persona chiede a un'altra di decidere su
+ * una task (domanda, opzioni facoltative, «Altro…»). Chiusa da una risposta
+ * (indice OPPURE testo) o da un ritiro, mai da entrambi. Non entra nel
+ * registro decisioni in automatico.
+ */
+export const decisionRequests = pgTable(
+  "decision_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => tickets.id, { onDelete: "cascade" }),
+    askedByUserId: uuid("asked_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    askedOfUserId: uuid("asked_of_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    question: text("question").notNull(),
+    options: text("options").array().notNull().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    withdrawnAt: timestamp("withdrawn_at", { withTimezone: true }),
+    answerOptionIndex: integer("answer_option_index"),
+    answerText: text("answer_text"),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    answeredByUserId: uuid("answered_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    index("decision_requests_ticket_idx").on(table.ticketId, table.createdAt),
+    index("decision_requests_open_target_idx")
+      .on(table.askedOfUserId)
+      .where(sql`answered_at IS NULL AND withdrawn_at IS NULL`),
+    check("decision_requests_question_chk", sql`length(question) BETWEEN 1 AND 2000`),
+    check("decision_requests_options_chk", sql`cardinality(options) <= 8`),
+    check("decision_requests_closed_once_chk", sql`answered_at IS NULL OR withdrawn_at IS NULL`),
+  ],
+);
+
+/**
+ * Stati per progetto (0108, integrazione area 2): nome, famiglia
+ * (`todo`/`active`/`closed`) e ordine. `legacyStatus` è il valore dell'enum
+ * `tickets.status` che il trigger scrive per una task in questo stato; lo
+ * calcola chi scrive gli stati («todo → open; active: il primo → in_progress,
+ * gli altri → in_review; closed: il primo → done, gli altri → closed»).
+ * L'unicità di (progetto, posizione) è DIFFERITA nel DB (riordini in più UPDATE).
+ */
+export const projectStatuses = pgTable(
+  "project_statuses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    family: text("family", { enum: ["todo", "active", "closed"] }).notNull(),
+    position: integer("position").notNull(),
+    legacyStatus: ticketStatus("legacy_status").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  () => [
+    check("project_statuses_family_chk", sql`family IN ('todo', 'active', 'closed')`),
+    check("project_statuses_name_chk", sql`length(btrim(name)) BETWEEN 1 AND 60`),
   ],
 );
 
@@ -1454,6 +1636,11 @@ export const notificationKind = pgEnum("notification_kind", [
   // admin per ruolo, e non spegnibile dalle preferenze. Valore aggiunto da
   // 0101, DA SOLO.
   "security.alert",
+  // Integrazione area 2 (0110, DA SOLI): decisione chiesta a una persona,
+  // decisione risposta (a chi l'ha chiesta), attività di una task seguita.
+  "decision.requested",
+  "decision.answered",
+  "ticket.activity",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),

@@ -460,6 +460,10 @@ una voce ti riguarda.
   - Il tetto per account non tocca sessioni e token aperti.
   - `security.alert` ignora le preferenze e va solo all'interessato.
   - Admin che azzera un pari grado: accettato, registrato e avvisato (decisione del 23 ott 2026).
+- **Task: stati per progetto → `docs/invariants/tasks.md`** (9 nov 2026):
+  - Lo stato vero è `status_id`; l'enum `tickets.status` lo tiene coerente il trigger `tickets_status_sync`, in UN posto: nessun codice scrive la mappatura a mano.
+  - Uno scrittore vecchio dell'enum non sposta mai una task indietro, né fuori dalla sua famiglia se c'è già.
+  - L'enum si toglie col ritiro del web vecchio.
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:

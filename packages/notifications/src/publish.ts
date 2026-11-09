@@ -1,9 +1,11 @@
 import {
   aiJobs,
+  decisionRequests,
   deviceTokens,
   notificationDeliveries,
   notifications,
   projectFollows,
+  ticketFollowers,
   tickets,
   users,
 } from "@stubwise/db";
@@ -241,6 +243,41 @@ async function resolveRoutingContext(
   // dell'account, e nessuna lettura di deciders o membri avviene.
   if (audience === "account_owner") {
     return { deciders: [], members: null, followers: [], accountOwner: opts.accountUserId };
+  }
+
+  // Integrazione area 2: destinatari PER PERSONA, letti dal DB (non dall'evento:
+  // chi riceve è chi c'è nella riga al momento della pubblicazione). Nessun
+  // decider; il filtro dei membri resta, così chi non vede più il progetto non
+  // riceve card.
+  if (audience === "decision_target" || audience === "decision_asker") {
+    const members = projectId ? await projectViewerIds(db, projectId) : null;
+    const decisionId =
+      event.kind === "decision.requested" || event.kind === "decision.answered" ? event.decisionId : null;
+    const [row] = decisionId
+      ? await db
+          .select({ of: decisionRequests.askedOfUserId, by: decisionRequests.askedByUserId })
+          .from(decisionRequests)
+          .where(eq(decisionRequests.id, decisionId))
+      : [];
+    return {
+      deciders: [],
+      members,
+      followers: [],
+      decisionTarget: row?.of ?? undefined,
+      decisionAsker: row?.by ?? undefined,
+    };
+  }
+  if (audience === "ticket_followers") {
+    const members = projectId ? await projectViewerIds(db, projectId) : null;
+    const ticketFollowerIds = opts.ticketId
+      ? await db
+          .select({ userId: ticketFollowers.userId })
+          .from(ticketFollowers)
+          .where(eq(ticketFollowers.ticketId, opts.ticketId))
+          .then((rows) => rows.map((r) => r.userId))
+      : [];
+    const actor = event.kind === "ticket.activity" ? (event.actorUserId ?? undefined) : undefined;
+    return { deciders: [], members, followers: [], ticketFollowers: ticketFollowerIds, actor };
   }
 
   const members = projectId ? await projectViewerIds(db, projectId) : null;

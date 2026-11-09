@@ -413,6 +413,21 @@ describe("openUrl", () => {
     expect(isAdminOnlyKind("request.created")).toBe(false);
   });
 
+  it("decisioni e attività portano alla pagina del ticket nel web, derivata da PUBLIC_URL", () => {
+    for (const event of sampleEvents("https://x.test").filter((e) =>
+      ["decision.requested", "decision.answered", "ticket.activity"].includes(e.kind),
+    )) {
+      const ticketId = (event as { ticketId: string }).ticketId;
+      expect(openUrl(event, "https://stubwise.test/")).toBe(`https://stubwise.test/tickets/${ticketId}`);
+      expect(openUrl(event)).toBe("");
+      expect(actionsFor({ kind: event.kind, requestedByUserId: null }, null, maintainer)).toEqual([
+        "open",
+        "snooze",
+        "handled",
+      ]);
+    }
+  });
+
   it("security.alert porta a Impostazioni → Sicurezza, con l'URL ASSOLUTO di PUBLIC_URL", () => {
     const event = { kind: "security.alert" as const, subject: "locked" as const, actorEmail: null };
     // Assoluto: lo stesso link va nel bottone del DM Slack, fuori dalla SPA.
