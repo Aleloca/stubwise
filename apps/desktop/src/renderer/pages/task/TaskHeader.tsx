@@ -33,6 +33,7 @@ import {
 } from "../tasks/pickers";
 import { CloseIcon, PlusIcon, ghostButton } from "./parts";
 import { TaskMoreMenu } from "./TaskMoreMenu";
+import { useToday } from "../../data/clock";
 
 /** Il bottone-valore di un campo modificabile: il valore com'è, tinta e freccia al passaggio. */
 export const fieldButton =
@@ -229,6 +230,8 @@ function LabelsField({ task, canEdit }: { task: Task; canEdit: boolean }) {
 
 /** La scadenza: il calendario del sistema, con il tema dell'app (`color-scheme`). */
 function DueField({ task, canEdit }: { task: Task; canEdit: boolean }) {
+  // «Oggi» avanza nella build app: a mezzanotte si ridisegna.
+  useToday();
   const { t, i18n } = useTranslation();
   const input = useRef<HTMLInputElement>(null);
   const change = useInlineUpdate();

@@ -24,6 +24,7 @@ import { MenuButton, secondaryButton } from "../tasks/controls";
 import { TODAY } from "../../data/dates";
 import { openMilestones } from "../../domain/due";
 import { AutomationOriginLine } from "../automations/AutomationOrigin";
+import { useToday } from "../../data/clock";
 
 type Editing = { kind: "new" } | { kind: "edit"; id: string } | { kind: "delete"; id: string };
 
@@ -42,6 +43,8 @@ export function MilestonesDialog({
   startWithNew: boolean;
   onClose: () => void;
 }) {
+  // «Oggi» avanza nella build app: a mezzanotte si ridisegna.
+  useToday();
   const { t } = useTranslation();
   const milestones = useMilestones(projectId);
   const tasks = useTasks({ projectIds: [projectId] }).data;

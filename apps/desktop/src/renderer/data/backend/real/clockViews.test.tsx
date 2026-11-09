@@ -1,4 +1,4 @@
-import { act, cleanup, screen } from "@testing-library/react";
+import { act, cleanup, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
 import { advanceClock } from "./clock";
@@ -12,11 +12,13 @@ vi.mock("@backend/api", async () => await import("./index"));
 vi.mock("@backend/clock", async () => await import("./clock"));
 
 let taskReads = 0;
+let stalledReads = 0;
 
 beforeEach(() => {
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   taskReads = 0;
+  stalledReads = 0;
   // Sabato 14 novembre 2026: settimana W46.
   advanceClock(new Date("2026-11-14T10:00:00Z"));
   installFakeServer({
@@ -31,9 +33,20 @@ beforeEach(() => {
     "GET /api/departments": { body: [{ id: DEPT_ID, name: "General", colorToken: "--dept-1", isDefault: true }] },
     "GET /api/tasks": () => {
       taskReads++;
-      return { body: { items: [serverTask({ assigneeId: ME_ID, plannedWeek: "2026-W47" })], truncated: false } };
+      return {
+        body: {
+          items: [serverTask({ assigneeId: ME_ID, plannedWeek: "2026-W47", dueDate: "2026-11-17" })],
+          truncated: false,
+        },
+      };
     },
-    "GET /api/tasks/stalled": { body: [] },
+    "GET /api/tasks/stalled": () => {
+      stalledReads++;
+      return { body: [] };
+    },
+    [`GET /api/projects/${PROJECT_ID}/statuses`]: {
+      body: [{ id: "99999999-9999-4999-8999-999999999991", projectId: PROJECT_ID, name: "To do", family: "todo", position: 0 }],
+    },
     "GET /api/me/day-arrangements": { body: [] },
     "GET /api/milestones": { body: [] },
     "GET /api/filters": { body: [] },
@@ -60,5 +73,19 @@ describe("le viste e l'orologio", () => {
     expect(await screen.findByRole("button", { name: /^AUD-12 / })).toBeInTheDocument();
     expect(screen.queryByText(/read-only|only look/i)).toBeNull();
     expect(taskReads).toBeGreaterThan(before);
+  });
+
+  it("al cambio di giorno «In ritardo» si aggiorna, e task e ferme si rileggono", async () => {
+    renderRoute("/p/AUD/tasks");
+    // Lunedì 16 novembre (settimana nuova): la scadenza del 17 è domani.
+    act(() => advanceClock(new Date("2026-11-16T09:00:00Z")));
+    expect(await screen.findByText(/^Due /)).toBeInTheDocument();
+    await waitFor(() => expect(taskReads).toBeGreaterThan(0));
+    const before = { tasks: taskReads, stalled: stalledReads };
+    // Mercoledì 18, stessa settimana: è passata.
+    act(() => advanceClock(new Date("2026-11-18T09:00:00Z")));
+    expect(await screen.findByText(/^Overdue, due /)).toBeInTheDocument();
+    await waitFor(() => expect(stalledReads).toBeGreaterThan(before.stalled));
+    expect(taskReads).toBeGreaterThan(before.tasks);
   });
 });
