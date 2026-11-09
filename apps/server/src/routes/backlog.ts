@@ -132,7 +132,7 @@ type ItemUpdate = Partial<
  * ha il permesso (`"all"` = ovunque, nessun filtro); fuori da quelli, solo le
  * voci di cui è richiedente. Sta nella WHERE, così anche `total` la rispetta.
  */
-function backlogVisibleSql(viewAll: "all" | readonly string[], userId: string): SQL | undefined {
+export function backlogVisibleSql(viewAll: "all" | readonly string[], userId: string): SQL | undefined {
   if (viewAll === "all") return undefined;
   const own = sql`exists (
     select 1 from ${backlogItemRequesters}

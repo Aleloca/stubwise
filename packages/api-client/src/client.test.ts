@@ -393,6 +393,24 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     ]);
   });
 
+  it("richieste da trasformare: requests.toConvert", async () => {
+    const ROW = {
+      id: "00000000-0000-4000-8000-0000000000e1",
+      code: "STW-R4",
+      projectId: "00000000-0000-4000-8000-0000000000e2",
+      title: "Esportare in CSV",
+      status: "ready",
+      urgency: null,
+      createdAt: "2026-11-09T10:00:00.000Z",
+      webHref: "/backlog/00000000-0000-4000-8000-0000000000e1",
+    };
+    const fetchImpl = mockFetch(async () => jsonResponse(200, [ROW]));
+    const [row] = await clientWith(fetchImpl).requests.toConvert();
+    // Campi assenti da un server più vecchio: i default.
+    expect(row).toMatchObject({ code: "STW-R4", requesterIds: [], requestCount: 1 });
+    expect(fetchImpl.mock.calls[0]![0]).toBe("https://stubwise.example/api/requests/to-convert");
+  });
+
   it("departments.remove: DELETE con moveTasksTo in query", async () => {
     const fetchImpl = mockFetch(async () => new Response(null, { status: 204 }));
     const client = clientWith(fetchImpl);
