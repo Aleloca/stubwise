@@ -1034,6 +1034,15 @@
       "hint": "Markdown. ⌘/Ctrl+Enter saves."
     },
     "claude": {
+      "web": {
+        "open": "Open in web",
+        "hint": "The plan, approvals, Claude's questions and the live session are in the web app.",
+        "pr": {
+          "open": "Open",
+          "merged": "Merged",
+          "closed": "Closed"
+        }
+      },
       "title": "Claude",
       "assign": "Assign to Claude",
       "notMember": "Claude isn't a member of this project.",
@@ -1203,6 +1212,7 @@
       "originAutomation": "Origin"
     },
     "attachments": {
+      "off": "Attachments are off on this instance.",
       "title": "Attachments",
       "none": "No attachments",
       "fake": "Adds a sample file",

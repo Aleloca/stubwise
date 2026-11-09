@@ -139,7 +139,7 @@ export function DecideBlock() {
       body: t("home.decide.emptyBody"),
     },
   );
-  const person = (id: string) => people.data?.find((p) => p.id === id);
+  const person = (id: string | null) => (id ? people.data?.find((p) => p.id === id) : undefined);
 
   return (
     <BlockSection title={t("home.blocks.decide")} count={visible.length} state={state}>

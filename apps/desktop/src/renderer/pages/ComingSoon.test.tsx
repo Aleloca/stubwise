@@ -98,6 +98,7 @@ const INTEGRATED_CALLS = new Set([
   "listActivity",
   "listDecisionRequests",
   "getTaskWork",
+  "getTaskWorkSummary",
   "listProjectStatuses",
   "listMilestones",
   "getRequest",
@@ -147,12 +148,16 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("nel dettaglio della task la sezione Claude è «Coming soon», senza «Delete»", async () => {
+  // Dal Task 17 la sezione Claude dice lo stato vero (e «Open in web» nel web vecchio).
+  it("nel dettaglio della task la sezione Claude dice lo stato, senza azioni dell'area 3 né «Delete»", async () => {
     const user = userEvent.setup();
     renderRoute("/p/AUD/tasks?task=AUD-9");
     const panel = await screen.findByRole("dialog", { name: "Task AUD-9" });
     const claude = await within(panel).findByRole("region", { name: "Claude" });
-    expect(within(claude).getByText("Coming soon")).toBeInTheDocument();
+    const states = ["Claude isn't working on this task.", "Claude is working on it.", "Claude asked a question and is waiting for an answer.", "Claude is waiting for its plan to be approved.", "Claude stopped. Someone needs to look at it.", "Claude finished its work.", "Claude is waiting for the queue to resume."];
+    expect(await within(claude).findByText((text) => states.includes(text))).toBeInTheDocument();
+    expect(within(claude).queryByText("Coming soon")).toBeNull();
+    expect(within(claude).queryByRole("button", { name: /Assign to Claude|Start/ })).toBeNull();
     await user.click(within(panel).getByRole("button", { name: MORE }));
     expect(await screen.findByRole("menu")).toBeInTheDocument();
     expect(screen.queryByText(DELETE)).toBeNull();

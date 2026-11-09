@@ -228,6 +228,7 @@ let latencyOverride: number | null = null;
 let callCounter = 0;
 let chunkCounter = 0;
 export type ApiFnName =
+  | "getTaskWorkSummary"
   | "auth.loginStage"
   | "auth.startLoginEnrollment"
   | "auth.confirmLoginEnrollment"

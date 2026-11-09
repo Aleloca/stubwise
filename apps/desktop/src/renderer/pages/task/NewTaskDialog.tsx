@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useId, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -421,31 +422,34 @@ export function NewTaskDialog({
             )}
           </SelectField>
 
-          <SelectField
-            label={t("newTask.fields.week")}
-            valueText={week ? weekLabel(week, i18n.language) : undefined}
-            value={
-              week ? (
-                <span className="num flex min-w-0 items-baseline gap-1.5">
-                  <span className="font-semibold">{shortWeek(week)}</span>
-                  <span className="truncate text-ink-muted">{weekLabel(week, i18n.language)}</span>
-                </span>
-              ) : null
-            }
-            placeholder={t("tasks.bulk.noWeek")}
-          >
-            {(close) => (
-              <MenuGroup>
-                <WeekOptions
-                  current={week}
-                  onPick={(w) => {
-                    close();
-                    setWeek(w);
-                  }}
-                />
-              </MenuGroup>
-            )}
-          </SelectField>
+          {/* La settimana arriva con la fetta 2: nella build app non c'è. */}
+          {featureIntegrated("planning-week") && (
+            <SelectField
+              label={t("newTask.fields.week")}
+              valueText={week ? weekLabel(week, i18n.language) : undefined}
+              value={
+                week ? (
+                  <span className="num flex min-w-0 items-baseline gap-1.5">
+                    <span className="font-semibold">{shortWeek(week)}</span>
+                    <span className="truncate text-ink-muted">{weekLabel(week, i18n.language)}</span>
+                  </span>
+                ) : null
+              }
+              placeholder={t("tasks.bulk.noWeek")}
+            >
+              {(close) => (
+                <MenuGroup>
+                  <WeekOptions
+                    current={week}
+                    onPick={(w) => {
+                      close();
+                      setWeek(w);
+                    }}
+                  />
+                </MenuGroup>
+              )}
+            </SelectField>
+          )}
 
           <SelectField
             label={t("newTask.fields.milestone")}

@@ -623,6 +623,70 @@ export async function updateTask(id: string, patch: TaskPatch): Promise<Task> {
   return copy(updateTaskAs(me, id, patch));
 }
 
+// --- scritture dedicate della task (integrazione area 2, fetta 1) ---------------
+//
+// Seguire, la ferma a mano, gli allegati e i collegamenti hanno sul server
+// rotte loro: le pagine le chiamano per nome invece di passare l'elenco
+// intero a `updateTask`. Nel prototipo sono `updateTask` col campo calcolato
+// qui, quindi il comportamento (permessi, eventi, notifiche) è quello di prima.
+
+/** Segue la task (o smette), per chi chiama. */
+export async function followTask(id: string, follow: boolean): Promise<Task> {
+  const me = getSessionPersonId();
+  const followers = state.tasksById.get(id)?.followerIds ?? [];
+  return updateTask(id, {
+    followerIds: follow ? [...new Set([...followers, me])] : followers.filter((x) => x !== me),
+  });
+}
+
+/** «Mark as stalled»: motivo e nota, da oggi, a nome di chi chiama. */
+export async function setManualStall(id: string, input: { reason: string; note: string }): Promise<Task> {
+  const me = getSessionPersonId();
+  return updateTask(id, {
+    manualStall: { reason: input.reason, note: input.note, since: TODAY, byId: me },
+  });
+}
+
+/** «No longer stalled». */
+export async function clearManualStall(id: string): Promise<Task> {
+  return updateTask(id, { manualStall: null });
+}
+
+/**
+ * Aggiunge un allegato. Nel prototipo è finto (nome e dimensione, nessun
+ * byte); sul server vero `file` è il contenuto, caricato con le rotte di oggi.
+ */
+export async function addAttachment(
+  id: string,
+  input: { name: string; sizeBytes: number; file?: Blob },
+): Promise<Task> {
+  const files = state.tasksById.get(id)?.attachments ?? [];
+  return updateTask(id, {
+    attachments: [
+      ...files,
+      { id: `att-${id}-${files.length + 1}-${input.name}`, name: input.name, sizeBytes: input.sizeBytes },
+    ],
+  });
+}
+
+export async function removeAttachment(id: string, attachmentId: string): Promise<Task> {
+  const files = state.tasksById.get(id)?.attachments ?? [];
+  return updateTask(id, { attachments: files.filter((a) => a.id !== attachmentId) });
+}
+
+/** Un collegamento si scrive sulla task che lo tiene (`blocks`, `relates`, `parent`). */
+export async function addLink(id: string, link: { kind: StoredLinkKind; taskId: string }): Promise<Task> {
+  const links = state.tasksById.get(id)?.links ?? [];
+  return updateTask(id, { links: [...links, link] });
+}
+
+export async function removeLink(id: string, link: { kind: StoredLinkKind; taskId: string }): Promise<Task> {
+  const links = state.tasksById.get(id)?.links ?? [];
+  return updateTask(id, {
+    links: links.filter((l) => !(l.kind === link.kind && l.taskId === link.taskId)),
+  });
+}
+
 /** Tutto o niente: si controllano tutte prima di scriverne una. */
 export async function bulkUpdateTasks(ids: string[], patch: TaskPatch): Promise<Task[]> {
   const me = await gate("bulkUpdateTasks");
@@ -857,7 +921,7 @@ export async function answerDecision(
     seq: nextSeq(),
   });
   task.lastActivityAt = at;
-  if (request.askedById !== me) {
+  if (request.askedById && request.askedById !== me) {
     publish(
       me,
       "decision.answered",

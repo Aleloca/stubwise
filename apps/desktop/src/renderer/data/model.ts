@@ -324,7 +324,8 @@ export interface ManualStall {
   reason: string;
   note: string;
   since: string;
-  byId: string;
+  /** `null` sul server vero se chi l'ha segnata non c'è più. */
+  byId: string | null;
 }
 
 export interface Task {
@@ -337,7 +338,8 @@ export interface Task {
   statusId: string;
   departmentId: string;
   assigneeId: string | null;
-  createdById: string;
+  /** Chi l'ha creata; `null` sul server vero per una task senza autore umano (SDK, posta…) o un utente eliminato. */
+  createdById: string | null;
   followerIds: string[];
   size: TaskSize | null;
   /** ISO (YYYY-MM-DD). */
@@ -486,6 +488,19 @@ export interface PullRequestEvent {
   repo: string;
 }
 
+/**
+ * Il lavoro di Claude su una task in breve (integrazione area 2, fetta 1): lo
+ * stato, le PR e dove continuare nel web vecchio (piano, approvazione,
+ * domande, sessione dal vivo). È ciò che la build app mostra finché l'area 3
+ * non è integrata; il prototipo ha la sezione completa (`TaskWork`).
+ */
+export interface TaskWorkSummary {
+  claude: ClaudeWorkState;
+  pullRequests: { repo: string; number: number | null; url: string; state: "open" | "merged" | "closed" }[];
+  /** Il dettaglio del ticket nel web vecchio; `null` nel prototipo (non c'è un web vecchio). */
+  webHref: string | null;
+}
+
 /** Una PR: repository (`owner/repo`) e numero. */
 export interface PrRef {
   repo: string;
@@ -574,13 +589,14 @@ export interface ActivityEntry {
 export interface DecisionRequest {
   id: string;
   taskId: string;
-  askedById: string;
+  /** `null` sul server vero se chi ha chiesto non c'è più. */
+  askedById: string | null;
   askedOfId: string;
   question: string;
   options: string[];
   createdAt: string;
   withdrawnAt: string | null;
-  answer: { optionIndex: number | null; text: string | null; at: string; byId: string } | null;
+  answer: { optionIndex: number | null; text: string | null; at: string; byId: string | null } | null;
 }
 
 export type RequestStatus = "new" | "refining" | "ready" | "converted" | "archived";

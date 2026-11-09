@@ -80,3 +80,36 @@ export const serverProject = (over: Record<string, unknown> = {}) => ({
   stallThresholds: { activeDays: 7, todoDays: 14 },
   ...over,
 });
+
+export const TICKET_ID = "44444444-4444-4444-8444-444444444444";
+export const STATUS_TODO = "99999999-9999-4999-8999-999999999991";
+export const DEPT_ID = "66666666-6666-4666-8666-666666666666";
+
+/** Una task come la dà `/api/tasks` (passa `taskViewSchema`). */
+export const serverTask = (over: Record<string, unknown> = {}) => ({
+  id: TICKET_ID,
+  ticketId: TICKET_ID,
+  number: 12,
+  code: "AUD-12",
+  projectId: PROJECT_ID,
+  title: "Export the report",
+  description: "",
+  statusId: STATUS_TODO,
+  departmentId: DEPT_ID,
+  assigneeId: null,
+  createdById: null,
+  followerIds: [],
+  size: "M",
+  milestoneId: null,
+  labels: [],
+  type: "activity",
+  priority: "medium",
+  links: [],
+  attachments: [],
+  manualStall: null,
+  claude: "none",
+  createdAt: "2026-11-01T10:00:00.000Z",
+  closedAt: null,
+  lastActivityAt: "2026-11-08T10:00:00.000Z",
+  ...over,
+});

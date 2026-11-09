@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useProjects, useRequest, useTasks } from "../../data/queries";
 import type { StoredLinkKind, Task } from "../../data/types";
@@ -10,7 +10,8 @@ import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { AutomationOriginLine } from "../automations/AutomationOrigin";
 import { ProductOriginLine } from "../productDocs/claude/ProductOriginLine";
 import { Chevron, MenuButton } from "../tasks/controls";
-import { useInlineUpdate } from "../tasks/pickers";
+import { isAppBuild } from "../../data/build";
+import { useInlineWrite } from "../tasks/pickers";
 import { CloseIcon, InlineConfirm, PlusIcon, Section, ghostButton, smallSecondary } from "./parts";
 
 // Si salva solo il verso «diretto», come sul web: «bloccata da» e «figlia» si vedono
@@ -96,7 +97,7 @@ function LinkedTasks({ task, canEdit }: { task: Task; canEdit: boolean }) {
   const { t } = useTranslation();
   const { viewer } = useViewer();
   const navigate = useNavigate();
-  const change = useInlineUpdate();
+  const write = useInlineWrite();
   const [adding, setAdding] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
   const { data: tasks } = useTasks();
@@ -145,7 +146,12 @@ function LinkedTasks({ task, canEdit }: { task: Task; canEdit: boolean }) {
                     onConfirm={() => {
                       setConfirming(null);
                       const holder = holderOf(l);
-                      if (holder) change(holder, { links: withoutLink(holder, l.row) });
+                      if (holder)
+                        write(
+                          holder,
+                          { kind: "removeLink", link: l.row },
+                          { links: withoutLink(holder, l.row) },
+                        );
                     }}
                   />
                 </li>
@@ -188,7 +194,11 @@ function LinkedTasks({ task, canEdit }: { task: Task; canEdit: boolean }) {
           candidates={tasks ?? []}
           linkedIds={new Set(links.map((l) => l.taskId))}
           onAdd={(kind, taskId) => {
-            change(task, { links: [...task.links, { kind, taskId }] });
+            write(
+              task,
+              { kind: "addLink", link: { kind, taskId } },
+              { links: [...task.links, { kind, taskId }] },
+            );
             setAdding(false);
           }}
           onCancel={() => setAdding(false)}
@@ -311,15 +321,41 @@ function AddLink({
 
 function Attachments({ task, canEdit }: { task: Task; canEdit: boolean }) {
   const { t, i18n } = useTranslation();
-  const change = useInlineUpdate();
+  const write = useInlineWrite();
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const files = task.attachments;
+  // Build app: un file vero, caricato con le rotte di oggi. Nel prototipo un file finto della lista.
+  const real = isAppBuild();
   const next = FAKE_FILES.find((f) => !files.some((a) => a.name === f.name));
+  const failed = (error: unknown) =>
+    setProblem(
+      error instanceof Error && error.message === "attachments_off"
+        ? t("taskDetail.attachments.off")
+        : t("tasks.list.changeFailed", { code: task.code }),
+    );
+  const add = (input: { name: string; sizeBytes: number; file?: Blob }) => {
+    setProblem(null);
+    write(
+      task,
+      { kind: "addAttachment", ...input },
+      {
+        attachments: [
+          ...files,
+          { id: `att-${task.id}-${files.length + 1}-${input.name}`, name: input.name, sizeBytes: input.sizeBytes },
+        ],
+      },
+      failed,
+    );
+  };
   const addFake = () => {
-    if (!next) return;
-    change(task, {
-      attachments: [...files, { id: `att-${task.id}-${files.length + 1}-${next.name}`, ...next }],
-    });
+    if (next) add(next);
+  };
+  const picked = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (file) add({ name: file.name, sizeBytes: file.size, file });
   };
   return (
     <Section
@@ -328,19 +364,41 @@ function Attachments({ task, canEdit }: { task: Task; canEdit: boolean }) {
       empty={files.length === 0 ? t("taskDetail.attachments.none") : undefined}
       action={
         canEdit &&
-        next && (
-          <button
-            type="button"
-            className={ghostButton}
-            title={t("taskDetail.attachments.fake")}
-            onClick={addFake}
-          >
-            <PlusIcon />
-            {t("taskDetail.add")}
-          </button>
-        )
+        (real ? (
+          <>
+            <input
+              ref={picker}
+              type="file"
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden="true"
+              onChange={picked}
+            />
+            <button type="button" className={ghostButton} onClick={() => picker.current?.click()}>
+              <PlusIcon />
+              {t("taskDetail.add")}
+            </button>
+          </>
+        ) : (
+          next && (
+            <button
+              type="button"
+              className={ghostButton}
+              title={t("taskDetail.attachments.fake")}
+              onClick={addFake}
+            >
+              <PlusIcon />
+              {t("taskDetail.add")}
+            </button>
+          )
+        ))
       }
     >
+      {problem && (
+        <p role="alert" className="text-sm text-critical">
+          {problem}
+        </p>
+      )}
       {files.length > 0 && (
         <ul className="flex flex-col gap-1">
           {files.map((file) =>
@@ -353,7 +411,13 @@ function Attachments({ task, canEdit }: { task: Task; canEdit: boolean }) {
                   onCancel={() => setConfirming(null)}
                   onConfirm={() => {
                     setConfirming(null);
-                    change(task, { attachments: files.filter((a) => a.id !== file.id) });
+                    setProblem(null);
+                    write(
+                      task,
+                      { kind: "removeAttachment", attachmentId: file.id },
+                      { attachments: files.filter((a) => a.id !== file.id) },
+                      failed,
+                    );
                   }}
                 />
               </li>

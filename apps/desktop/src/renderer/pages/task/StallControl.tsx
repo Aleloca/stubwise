@@ -7,7 +7,7 @@ import { useViewer } from "../../data/viewing";
 import type { Stall } from "../../domain/stalled";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { StallMark } from "../../tasks-ui/StallMark";
-import { useInlineUpdate } from "../tasks/pickers";
+import { useInlineWrite } from "../tasks/pickers";
 import { Section, ghostButton, smallPrimary, smallSecondary } from "./parts";
 
 /**
@@ -29,7 +29,7 @@ export function StallControl({
   const { t } = useTranslation();
   const { viewer } = useViewer();
   const people = usePeople().data;
-  const change = useInlineUpdate();
+  const write = useInlineWrite();
   const [form, setForm] = useState<{ reason: string; note: string } | null>(null);
   const reasonId = useId();
   const noteId = useId();
@@ -39,14 +39,18 @@ export function StallControl({
 
   const mark = () => {
     if (!form?.reason.trim()) return;
-    change(task, {
-      manualStall: {
-        reason: form.reason.trim(),
-        note: form.note.trim(),
-        since: TODAY,
-        byId: viewer.personId,
+    write(
+      task,
+      { kind: "setManualStall", reason: form.reason.trim(), note: form.note.trim() },
+      {
+        manualStall: {
+          reason: form.reason.trim(),
+          note: form.note.trim(),
+          since: TODAY,
+          byId: viewer.personId,
+        },
       },
-    });
+    );
     setForm(null);
   };
 
@@ -132,7 +136,7 @@ export function StallControl({
           <button
             type="button"
             className={ghostButton}
-            onClick={() => change(task, { manualStall: null })}
+            onClick={() => write(task, { kind: "clearManualStall" }, { manualStall: null })}
           >
             {t("taskDetail.stall.unmark")}
           </button>

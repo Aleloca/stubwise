@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { TODAY } from "../../data/dates";
@@ -27,6 +28,7 @@ import {
   WeekOptions,
   shortWeek,
   useInlineUpdate,
+  useInlineWrite,
   useProjectMembers,
 } from "../tasks/pickers";
 import { CloseIcon, PlusIcon, ghostButton } from "./parts";
@@ -341,17 +343,22 @@ export function TaskHeader({
   // Da tutte le persone, non dai membri: un assegnatario disattivato non è più fra chi si assegna.
   const assignee = usePeople().data?.find((p) => p.id === task.assigneeId);
   const following = task.followerIds.includes(me);
+  const write = useInlineWrite();
 
   const copyCode = () => {
     void navigator.clipboard?.writeText(task.code).catch(() => {});
     toast.show(t("taskDetail.copied", { code: task.code }));
   };
   const toggleFollow = () =>
-    change(task, {
-      followerIds: following
-        ? task.followerIds.filter((id) => id !== me)
-        : [...task.followerIds, me],
-    });
+    write(
+      task,
+      { kind: "follow", follow: !following },
+      {
+        followerIds: following
+          ? task.followerIds.filter((id) => id !== me)
+          : [...task.followerIds, me],
+      },
+    );
 
   const none = (key: string) => muted(t(key));
 
@@ -517,36 +524,39 @@ export function TaskHeader({
 
         <DueField task={task} canEdit={canEdit} />
 
-        <MenuField
-          label={t("taskDetail.fields.week")}
-          name={task.plannedWeek ? weekLabel(task.plannedWeek, i18n.language) : t("tasks.bulk.noWeek")}
-          value={
-            task.plannedWeek ? (
-              <span className="num flex min-w-0 items-baseline gap-1.5">
-                <span className="font-semibold">{shortWeek(task.plannedWeek)}</span>
-                <span className="truncate text-ink-muted">
-                  {weekLabel(task.plannedWeek, i18n.language)}
+        {/* La settimana arriva con la fetta 2: nella build app non c'è. */}
+        {featureIntegrated("planning-week") && (
+          <MenuField
+            label={t("taskDetail.fields.week")}
+            name={task.plannedWeek ? weekLabel(task.plannedWeek, i18n.language) : t("tasks.bulk.noWeek")}
+            value={
+              task.plannedWeek ? (
+                <span className="num flex min-w-0 items-baseline gap-1.5">
+                  <span className="font-semibold">{shortWeek(task.plannedWeek)}</span>
+                  <span className="truncate text-ink-muted">
+                    {weekLabel(task.plannedWeek, i18n.language)}
+                  </span>
                 </span>
-              </span>
-            ) : (
-              none("tasks.bulk.noWeek")
-            )
-          }
-          canEdit={canEdit}
-          menuLabel={t("taskDetail.fields.weekMenu", { code: task.code })}
-        >
-          {(close) => (
-            <MenuGroup>
-              <WeekOptions
-                current={task.plannedWeek}
-                onPick={(plannedWeek) => {
-                  close();
-                  if (plannedWeek !== task.plannedWeek) change(task, { plannedWeek });
-                }}
-              />
-            </MenuGroup>
-          )}
-        </MenuField>
+              ) : (
+                none("tasks.bulk.noWeek")
+              )
+            }
+            canEdit={canEdit}
+            menuLabel={t("taskDetail.fields.weekMenu", { code: task.code })}
+          >
+            {(close) => (
+              <MenuGroup>
+                <WeekOptions
+                  current={task.plannedWeek}
+                  onPick={(plannedWeek) => {
+                    close();
+                    if (plannedWeek !== task.plannedWeek) change(task, { plannedWeek });
+                  }}
+                />
+              </MenuGroup>
+            )}
+          </MenuField>
+        )}
 
         <MenuField
           label={t("taskDetail.fields.milestone")}

@@ -14,6 +14,7 @@ import {
   useRevokePlanApproval,
   useStartRun,
   useTaskWork,
+  useTaskWorkSummary,
 } from "../../data/queries";
 import type { ConversationDetail, ConversationEvent, Task, TaskRun, TaskWork } from "../../data/types";
 import {
@@ -37,7 +38,7 @@ import {
 } from "../../components/InstanceBlock";
 import { WhoCanLink } from "../../components/WhoCanLink";
 import { featureIntegrated } from "../../data/integration";
-import { ComingSoonBlock } from "../Placeholder";
+import { openInWeb } from "../../platform/openWeb";
 import { inputClass } from "../../tasks-ui/Dialog";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { Avatar } from "../../tasks-ui/PersonChip";
@@ -125,15 +126,67 @@ export function ClaudeSection({
   // Nella build app la sezione è «in arrivo» finché il Task 17 dell'integrazione
   // non la legge dal server (stato del lavoro e «Open in web»); «Assign to
   // Claude», la sessione dal vivo e le azioni dell'area 3 non ci sono.
-  if (!featureIntegrated("claude")) return <ClaudeSectionComingSoon />;
+  if (!featureIntegrated("claude")) return <ClaudeSummarySection task={task} />;
   return <ClaudeSectionBody task={task} canEdit={canEdit} onFollow={onFollow} />;
 }
 
-function ClaudeSectionComingSoon() {
+/**
+ * La sezione Claude nella build app (integrazione area 2, fetta 1): lo stato
+ * reale del lavoro, letto dai job (`GET /api/tasks/:id/work`), le PR, e
+ * «Open in web» verso il dettaglio del web vecchio per piano, approvazione,
+ * domande e sessione dal vivo. «Assign to Claude» e il resto arrivano con
+ * l'area 3.
+ */
+function ClaudeSummarySection({ task }: { task: Task }) {
   const { t } = useTranslation();
+  const work = useTaskWorkSummary(task.id);
+  const title = t(`${K}.title`);
+  if (work.isError) {
+    return (
+      <Section title={title}>
+        <div role="alert" className="flex flex-wrap items-center gap-2 text-sm">
+          <span className="text-ink">{t(`${K}.loadFailed`)}</span>
+          <button type="button" className={ghostButton} onClick={() => void work.refetch()}>
+            {t(`${K}.retry`)}
+          </button>
+        </div>
+      </Section>
+    );
+  }
+  if (work.isPending || !work.data) {
+    return (
+      <Section title={title}>
+        <span role="status" className="text-sm text-ink-muted">
+          {t(`${K}.loading`)}
+        </span>
+      </Section>
+    );
+  }
+  const w = work.data;
   return (
-    <Section title={t(`${K}.title`)}>
-      <ComingSoonBlock />
+    <Section title={title}>
+      <p className="text-sm text-ink">{t(`${K}.states.${w.claude}`)}</p>
+      {w.pullRequests.length > 0 && (
+        <ul className="flex flex-col gap-1">
+          {w.pullRequests.map((pr) => (
+            <li key={`${pr.repo}#${pr.number ?? pr.url}`} className="flex min-h-7 items-baseline gap-2 text-sm">
+              <a href={pr.url} target="_blank" rel="noreferrer" className="text-ink underline-offset-4 hover:underline">
+                {pr.number !== null ? t(`${K}.pr.number`, { n: pr.number }) : pr.repo}
+              </a>
+              <span className="min-w-0 truncate text-ink-muted">{pr.repo}</span>
+              <span className="ml-auto shrink-0 text-xs text-ink-muted">{t(`${K}.web.pr.${pr.state}`)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {w.webHref && (
+        <div className="flex flex-wrap items-center gap-2">
+          <button type="button" className={smallSecondary} onClick={() => openInWeb(w.webHref!)}>
+            {t(`${K}.web.open`)}
+          </button>
+          <span className="text-xs text-ink-muted">{t(`${K}.web.hint`)}</span>
+        </div>
+      )}
     </Section>
   );
 }

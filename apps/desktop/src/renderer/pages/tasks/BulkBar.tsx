@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { useTranslation } from "react-i18next";
 import { useBulkUpdateTasks, useMilestones, useProjectStatuses } from "../../data/queries";
 import type { Task, TaskPatch } from "../../data/types";
@@ -117,24 +118,27 @@ export function BulkBar({ tasks, onClear }: { tasks: Task[]; onClear: () => void
           </MenuGroup>
         )}
       </MenuButton>
-      <MenuButton
-        menuLabel={t("tasks.bulk.week")}
-        className={barButton}
-        placement="above"
-        label={label("week")}
-      >
-        {(close) => (
-          <MenuGroup>
-            <WeekOptions
-              current={common(tasks, (task) => task.plannedWeek)}
-              onPick={(plannedWeek) => {
-                close();
-                apply({ plannedWeek });
-              }}
-            />
-          </MenuGroup>
-        )}
-      </MenuButton>
+      {/* La settimana arriva con la fetta 2: nella build app non c'è. */}
+      {featureIntegrated("planning-week") && (
+        <MenuButton
+          menuLabel={t("tasks.bulk.week")}
+          className={barButton}
+          placement="above"
+          label={label("week")}
+        >
+          {(close) => (
+            <MenuGroup>
+              <WeekOptions
+                current={common(tasks, (task) => task.plannedWeek)}
+                onPick={(plannedWeek) => {
+                  close();
+                  apply({ plannedWeek });
+                }}
+              />
+            </MenuGroup>
+          )}
+        </MenuButton>
+      )}
       <MenuButton
         menuLabel={t("tasks.bulk.milestone")}
         className={barButton}
