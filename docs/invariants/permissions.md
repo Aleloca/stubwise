@@ -279,10 +279,14 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   amministratori («resta sempre un full admin») e fra i destinatari degli admin.
   Vede le task che gli si assegnano per una regola esplicita
   (`canUserSeeTicket`), non per un permesso. **Assegnarlo AVVIA il lavoro**
-  (PATCH, in blocco, Planning, creazione: `services/task-writes.ts`), quindi
-  chiede `runs.start` nel progetto (403 `claude_assign_forbidden`, niente
-  scritto) — nel Planning al posto di `planning.others`, che riguarda le
-  persone —, e il run parte con `startRun` a nome di chi assegna: stesse
+  da OGNI porta — le rotte nuove (PATCH, in blocco, Planning, creazione:
+  `services/task-writes.ts`) e quelle vecchie del web vecchio, dell'app e
+  dell'MCP (`POST /api/tickets`, `PATCH /api/tickets/:id`) —, con la regola
+  in UN posto (`services/claude-assign.ts`: `claudeAssignGuard`,
+  `startClaudeRuns`); quindi chiede `runs.start` nel progetto (403
+  `claude_assign_forbidden`, niente scritto) — nel Planning al posto di
+  `planning.others`, che riguarda le persone, ma insieme a `tickets.edit` e
+  su una task aperta (altrimenti 403 `forbidden`, come la PATCH) —, e il run parte con `startRun` a nome di chi assegna: stesse
   precondizioni e stesso gate del piano di run-ai. Toglierlo non annulla niente
   (resta «Annulla il lavoro»). `/api/people` lo mostra a tutti (`isClaude`), così
   il nome di una task assegnata a lui si legge sempre; dove chi guarda può

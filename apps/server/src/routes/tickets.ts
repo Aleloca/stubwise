@@ -79,6 +79,7 @@ import {
   isForeignKeyViolation,
   isUniqueViolation,
 } from "./shared.js";
+import { agentUserId, claudeAssignGuard, startClaudeRuns } from "../services/claude-assign.js";
 
 // Le forme pubbliche di ticket (base, dettaglio, item di lista) vivono in
 // `@stubwise/shared`: le condividono server, SPA e app mobile, e restano
@@ -549,6 +550,12 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (assigneeId !== undefined && !(await userExists(app.db, assigneeId))) {
         return apiError(reply, 400, "assignee_not_found", "Assignee not found");
       }
+      // Claude come assegnatario: la regola delle rotte nuove (review dell'area
+      // 3, punto 3). Assegnarlo avvia il lavoro, quindi chiede `runs.start`.
+      if ((await claudeAssignGuard(app.db, request.user!, projectId, assigneeId)) !== null) {
+        return apiError(reply, 403, "claude_assign_forbidden", "Assigning Claude requires runs.start in the project");
+      }
+      const claudeAssigned = assigneeId !== undefined && assigneeId === (await agentUserId(app.db));
       try {
         // Il ticket nasce a livello di PROGETTO (Fase 3): niente repository
         // bersaglio, il numero è per-progetto (row-lock su projects dentro
@@ -608,6 +615,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
           } catch (error) {
             request.log.warn({ err: error }, "avviso request.created non pubblicato");
           }
+        }
+        // Nato già assegnato a Claude: parte il lavoro, dopo il commit, come run-ai.
+        if (claudeAssigned) {
+          await startClaudeRuns(app.db, request.user!, [{ ticketId: ticket.id, projectId: ticket.projectId }]);
         }
         return await reply
           .code(201)
@@ -1322,6 +1333,16 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const id = request.params.id;
+      // Claude come assegnatario: la regola delle rotte nuove (review dell'area
+      // 3, punto 3). Su un ticket che non c'è decide il servizio (404).
+      const agent = request.body.assigneeId !== undefined ? await agentUserId(app.db) : null;
+      const [before] =
+        agent !== null && request.body.assigneeId === agent
+          ? await app.db.select({ projectId: tickets.projectId, assigneeId: tickets.assigneeId }).from(tickets).where(eq(tickets.id, id))
+          : [];
+      if (before && (await claudeAssignGuard(app.db, request.user!, before.projectId, request.body.assigneeId)) !== null) {
+        return apiError(reply, 403, "claude_assign_forbidden", "Assigning Claude requires runs.start in the project");
+      }
       try {
         // La mutazione vive in `services/tickets.ts`: qui restano la
         // transazione (SELECT della riga corrente, validazione della milestone,
@@ -1343,6 +1364,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             "milestone_cross_project",
             "Milestone belongs to a different project",
           );
+        }
+        // Appena assegnato a Claude: parte il lavoro, dopo il commit, come run-ai.
+        if (before && before.assigneeId !== agent) {
+          await startClaudeRuns(app.db, request.user!, [{ ticketId: id, projectId: before.projectId }]);
         }
         const requesters = await requestedByForTickets(app.db, [result.ticket]);
         return toPublicTicket(
