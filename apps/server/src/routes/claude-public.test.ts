@@ -244,3 +244,50 @@ describe("proposte e gruppi per chi legge", () => {
     expect(forAuthor.map((p) => p.id).sort()).toEqual([released, held].sort());
   });
 });
+
+describe("«Continua» (F5.3)", () => {
+  it("chi legge continua in una conversazione NUOVA e sua, con la sola prosa leggibile dell'originale", async () => {
+    const sid = await conversation();
+    await event(sid, "input", { text: "Com'è AUD-12?" });
+    await event(sid, "tool_use", { name: "mcp__stubwise_chat__read_task", input: { code: "AUD-12" } });
+    await event(sid, "tool_result", { content: "JSON letto per l'autore" });
+    await event(sid, "assistant_text", { text: "In revisione." });
+    await event(sid, "turn_end", {});
+    await publish(sid);
+    // Un turno ancora privato: non entra nella trascrizione.
+    await as(author, "POST", `/api/agent-sessions/${sid}/messages`, { text: "segreto in corso" });
+    await event(sid, "input", { text: "segreto in corso" });
+
+    expect((await as(author, "POST", `/api/claude/conversations/${sid}/continue`, {})).statusCode).toBe(409);
+    expect((await as(outsider, "POST", `/api/claude/conversations/${sid}/continue`, {})).statusCode).toBe(404);
+    const res = await as(reader, "POST", `/api/claude/conversations/${sid}/continue`, { message: "Riprendo io" });
+    expect(res.statusCode, res.body).toBe(201);
+    const created = res.json() as { id: string; isOwner: boolean; visibility: string; continuesFrom: unknown };
+    expect(created).toMatchObject({ isOwner: true, visibility: "private", continuesFrom: { id: sid, available: true } });
+    const [row] = await t.db.select().from(claudeConversations).where(eq(claudeConversations.sessionId, created.id));
+    expect(row!.ownerId).toBe(reader.id);
+    expect(row!.originTranscript).toEqual({
+      title: expect.any(String),
+      authorName: "author-pub",
+      messages: [
+        { role: "user", text: "Com'è AUD-12?" },
+        { role: "agent", text: "In revisione." },
+      ],
+    });
+    // Il primo messaggio è di chi continua.
+    const [input] = await t.db.select().from(agentSessionInputs).where(eq(agentSessionInputs.sessionId, created.id));
+    expect(input).toMatchObject({ authorUserId: reader.id, text: "Riprendo io" });
+    // L'autore non vede la continuazione del lettore.
+    expect((await as(author, "GET", `/api/claude/conversations/${created.id}`)).statusCode).toBe(404);
+  });
+
+  it("una privata non si continua; l'origine eliminata si legge «non più disponibile»", async () => {
+    const sid = await conversation();
+    expect((await as(reader, "POST", `/api/claude/conversations/${sid}/continue`, {})).statusCode).toBe(404);
+    await publish(sid);
+    const created = (await as(reader, "POST", `/api/claude/conversations/${sid}/continue`, {})).json() as { id: string };
+    expect((await app.inject({ method: "DELETE", url: `/api/claude/conversations/${sid}`, headers: { cookie: author.headers.cookie } })).statusCode).toBe(204);
+    const view = (await as(reader, "GET", `/api/claude/conversations/${created.id}`)).json() as { continuesFrom: unknown };
+    expect(view.continuesFrom).toEqual({ id: sid, available: false });
+  });
+});

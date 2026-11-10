@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
-import { agentSessionEvents, agentSessionInputs, agentSessions, claudeConversations, users, type Db } from "@stubwise/db";
+import {
+  agentSessionEvents,
+  agentSessionInputs,
+  agentSessions,
+  claudeConversations,
+  users,
+  type ClaudeOriginTranscript,
+  type Db,
+} from "@stubwise/db";
 import {
   AGENT_SESSION_INPUT_CHANNEL,
   CLAUDE_CONVERSATION_CLOSED_CHANNEL,
@@ -9,6 +17,7 @@ import {
   type ClaudeConversationContext,
   type ClaudeConversationDetail,
   type ClaudeVisibilityConfirmation,
+  type ContinueClaudeConversationInput,
   type CreateClaudeConversationInput,
   type PatchClaudeConversationInput,
   type SetClaudeConversationVisibilityInput,
@@ -22,6 +31,7 @@ import {
   nextEventId,
   projectViews,
   projectViewsForAuthor,
+  readerCut,
   touchedProjectIds,
 } from "./claude-public.js";
 import { personName } from "./people.js";
@@ -202,6 +212,8 @@ export async function createClaudeConversation(
   db: Db,
   viewer: SessionViewer,
   input: CreateClaudeConversationInput,
+  /** Solo la continuazione (F5.3): l'originale e la sua trascrizione leggibile. */
+  continuation?: { fromSessionId: string; originTranscript: ClaudeOriginTranscript },
 ): Promise<CreateClaudeConversationResult> {
   if (await monthlyBudgetExhausted(db)) return { ok: false, error: "budget_exhausted" };
   const title = input.title ?? (input.message ? conversationTitleFrom(input.message) : "");
@@ -215,6 +227,9 @@ export async function createClaudeConversation(
       ownerId: viewer.id,
       title,
       contextRef: input.context ?? null,
+      ...(continuation
+        ? { continuesFromSessionId: continuation.fromSessionId, originTranscript: continuation.originTranscript }
+        : {}),
     });
     if (input.message) {
       await tx
@@ -385,4 +400,81 @@ async function viewOf(db: Db, viewer: SessionViewer, id: string): Promise<Claude
   const { session: _session, ...view } = detail;
   void _session;
   return view;
+}
+
+/** Il tetto della trascrizione dell'originale nel prompt: gli ultimi messaggi, fino a tanti caratteri. */
+export const ORIGIN_TRANSCRIPT_MAX_CHARS = 12_000;
+const ORIGIN_TRANSCRIPT_MAX_MESSAGES = 40;
+
+/**
+ * La trascrizione LEGGIBILE di una pubblica per chi la continua (F5.3, D3):
+ * gli eventi che lui riceve (fino al seguito privato), solo prosa — i suoi
+ * messaggi (`input`) e le risposte (`assistant_text`, quelle dello stesso
+ * turno unite) — mai gli eventi dei tool. Gli ultimi messaggi entro il tetto.
+ */
+async function readableTranscript(db: Db, viewer: SessionViewer, row: ConversationRow): Promise<ClaudeOriginTranscript> {
+  const cut = await readerCut(db, viewer.id, row.sessionId);
+  const events = await db
+    .select({ type: agentSessionEvents.type, data: agentSessionEvents.data })
+    .from(agentSessionEvents)
+    .where(
+      and(
+        eq(agentSessionEvents.sessionId, row.sessionId),
+        inArray(agentSessionEvents.type, ["input", "assistant_text"]),
+        cut !== null ? lt(agentSessionEvents.id, cut) : undefined,
+      ),
+    )
+    .orderBy(agentSessionEvents.id);
+  const messages: ClaudeOriginTranscript["messages"] = [];
+  for (const e of events) {
+    const text = typeof e.data["text"] === "string" ? e.data["text"].trim() : "";
+    if (!text) continue;
+    const role = e.type === "input" ? "user" : "agent";
+    const last = messages.at(-1);
+    if (last && last.role === role && role === "agent") last.text = `${last.text}\n${text}`;
+    else messages.push({ role, text });
+  }
+  const kept: ClaudeOriginTranscript["messages"] = [];
+  let size = 0;
+  for (const m of messages.slice(-ORIGIN_TRANSCRIPT_MAX_MESSAGES).reverse()) {
+    if (size + m.text.length > ORIGIN_TRANSCRIPT_MAX_CHARS) break;
+    size += m.text.length;
+    kept.unshift(m);
+  }
+  const names = await namesOf(db, [row.ownerId]);
+  return { title: row.title, authorName: names.get(row.ownerId) ?? "", messages: kept };
+}
+
+export type ContinueResult = CreateClaudeConversationResult | { ok: false; error: "not_found" | "not_public" };
+
+/**
+ * «Continua» (F5.3): chi NON è l'autore di una pubblica che vede ne fa una
+ * conversazione NUOVA, privata, sua. Porta il titolo, il contesto (se chi
+ * continua lo vede) e la trascrizione leggibile per Claude; il primo messaggio
+ * (facoltativo) è il suo primo turno, e Claude agisce come LUI (il token del
+ * turno è suo). L'originale non diventa mai un canale per leggere come l'autore.
+ */
+export async function continueClaudeConversation(
+  db: Db,
+  viewer: SessionViewer,
+  id: string,
+  input: ContinueClaudeConversationInput,
+): Promise<ContinueResult> {
+  const row = await readableRow(db, viewer, id);
+  if (!row) return { ok: false, error: "not_found" };
+  if (row.ownerId === viewer.id || row.visibility !== "public" || row.archivedAt !== null || !canReadPublic(viewer)) {
+    return { ok: false, error: "not_public" };
+  }
+  let context = (row.contextRef as ClaudeConversationContext | null) ?? null;
+  if (context) {
+    const projectId = await contextProjectId(db, row);
+    const visible = projectId ? await visibleProjectIds(db, viewer) : [];
+    if (!projectId || (visible !== "all" && !visible.includes(projectId))) context = null;
+  }
+  return createClaudeConversation(
+    db,
+    viewer,
+    { title: row.title || "Continuation", ...(input.message ? { message: input.message } : {}), context },
+    { fromSessionId: row.sessionId, originTranscript: await readableTranscript(db, viewer, row) },
+  );
 }

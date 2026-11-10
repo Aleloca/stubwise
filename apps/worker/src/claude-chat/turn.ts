@@ -178,6 +178,8 @@ export async function runChatTurn(
           context: (conv.conversation.contextRef as ClaudeConversationContext | null) ?? null,
           toolsAvailable: true,
           recentTranscript: await recentTranscript(db, sid, opening.id),
+          // La continuazione di una pubblica (F5.3): la prosa leggibile dell'originale.
+          origin: conv.conversation.originTranscript ?? null,
         },
         opening.text,
       );

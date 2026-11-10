@@ -3346,6 +3346,13 @@ export const backlogRefineSessions = pgTable(
  * il worker al primo turno). Il titolo nasce dalla prima domanda con un
  * template (`conversationTitleFrom`), mai dal modello.
  */
+/** La trascrizione leggibile dell'originale di una continuazione (F5.3). */
+export interface ClaudeOriginTranscript {
+  title: string;
+  authorName: string;
+  messages: { role: "user" | "agent"; text: string }[];
+}
+
 export const claudeConversations = pgTable(
   "claude_conversations",
   {
@@ -3370,9 +3377,14 @@ export const claudeConversations = pgTable(
     privateFromEventId: bigint("private_from_event_id", { mode: "bigint" }),
     /** «Make private»: da qui riparte la finestra della potatura (una pubblica non si pota). */
     visibilityChangedAt: timestamp("visibility_changed_at", { withTimezone: true }),
-    continuesFromSessionId: uuid("continues_from_session_id").references((): AnyPgColumn => agentSessions.id, {
-      onDelete: "set null",
-    }),
+    /** L'originale di una continuazione: un uuid senza FK (0134), così un originale eliminato si legge «non più disponibile». */
+    continuesFromSessionId: uuid("continues_from_session_id"),
+    /**
+     * F5.3 (0134, D3): la trascrizione LEGGIBILE dell'originale per chi
+     * continua, solo prosa, calcolata dal server alla continuazione. Il worker
+     * la mette nel primo prompt come contesto non fidato.
+     */
+    originTranscript: jsonb("origin_transcript").$type<ClaudeOriginTranscript>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
