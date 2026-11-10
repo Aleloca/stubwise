@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -9,9 +9,8 @@ import { comments, tickets } from "@stubwise/db";
 import { ticketCommentSchema, type ProjectPermission } from "@stubwise/shared";
 import { authErrorResponses, errorSchema, foreignKeyViolationConstraint } from "./shared.js";
 import { apiError } from "../errors.js";
-import { notifyTaskActivity } from "../services/task-notify.js";
+import { postUserComment } from "../services/comment-post.js";
 import {
-  addComment,
   deleteComment,
   editComment,
   loadCommentProjection,
@@ -107,23 +106,6 @@ function onTicket(permission: ProjectPermission | "member"): RouteAccess {
   };
 }
 
-/**
- * True se `commentId` è un commento VIVO di `ticketId`: a un commento
- * eliminato non si risponde (D1, piano 2026-10-05). Un campo di risposta
- * aperto prima della cancellazione, o un'app vecchia che vede una riga vuota
- * con «Reply», riceve lo stesso 422 `reply_target_invalid` che sa già
- * mostrare.
- */
-async function isCommentOfTicket(db: Db, commentId: string, ticketId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: comments.id })
-    .from(comments)
-    .where(
-      and(eq(comments.id, commentId), eq(comments.ticketId, ticketId), isNull(comments.deletedAt)),
-    );
-  return row !== undefined;
-}
-
 /** Il vincolo della FK self-reference del padre (0083). */
 const REPLY_TARGET_FK = "comments_reply_to_comment_id_comments_id_fk";
 
@@ -168,50 +150,18 @@ export async function commentRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { ticketId } = request.params;
-      const { replyToCommentId } = request.body;
-      if (!(await ticketExists(app.db, ticketId))) {
-        return apiError(reply, 404, "ticket_not_found", "Ticket not found");
+      const posted = await postUserComment(app.db, {
+        ticketId,
+        authorId: request.user!.id,
+        body: request.body.body,
+        replyToCommentId: request.body.replyToCommentId ?? null,
+      });
+      if (!posted.ok) {
+        return posted.error === "ticket_not_found"
+          ? apiError(reply, 404, "ticket_not_found", "Ticket not found")
+          : apiError(reply, 422, "reply_target_invalid", "Reply target is not a comment of this ticket");
       }
-      // Il padre deve esistere ed essere di QUESTO ticket: una risposta non
-      // attraversa i ticket. Il controllo precede l'insert, così un rifiuto
-      // non lascia nessuna riga.
-      if (
-        replyToCommentId !== undefined &&
-        !(await isCommentOfTicket(app.db, replyToCommentId, ticketId))
-      ) {
-        return apiError(reply, 422, "reply_target_invalid", "Reply target is not a comment of this ticket");
-      }
-      let created: CommentRow;
-      try {
-        created = await app.db.transaction(async (tx) => {
-          const row = await addComment(tx, {
-            ticketId,
-            authorType: "user",
-            // `config.access` è passato: request.user è popolato.
-            authorId: request.user?.id,
-            body: request.body.body,
-            replyToCommentId: replyToCommentId ?? null,
-          });
-          // Integrazione area 2: chi segue la task sa del commento (tranne l'autore).
-          // Il riferimento al commento, MAI il testo: un commento eliminato
-          // non deve restare leggibile in un'inbox (l'estratto si deriva a lettura).
-          await notifyTaskActivity(tx, {
-            ticketId,
-            actorUserId: request.user?.id ?? null,
-            change: "comment",
-            summary: "",
-            commentId: row.id,
-          });
-          return row;
-        });
-      } catch (error) {
-        // Il padre è sparito fra il controllo e l'insert: la FK lo dice. Oggi
-        // nessuna rotta cancella un commento, ma la finestra esiste.
-        if (replyToCommentId !== undefined && isReplyTargetFkViolation(error)) {
-          return apiError(reply, 422, "reply_target_invalid", "Reply target is not a comment of this ticket");
-        }
-        throw error;
-      }
+      const created = posted.comment;
       const derive = await loadCommentProjection(app.db, ticketId, [created], viewerOf(request));
       return reply.code(201).send(toPublicComment(created, derive(created)));
     },

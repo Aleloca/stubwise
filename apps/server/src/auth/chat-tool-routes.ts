@@ -24,3 +24,14 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   "/api/projects/:projectId/briefs/latest",
   "/api/projects/:projectId/decisions",
 ]);
+
+/**
+ * La sola rotta di SCRITTURA del token del turno (chat, fetta 3; decisione D2
+ * dell'orchestratrice, 10 nov 2026): creare una PROPOSTA di Claude (tool
+ * `propose_action`). Non esegue niente da sé: la classe la calcola il server
+ * sui dati veri, una A la esegue il server a nome della persona, una B
+ * aspetta la conferma dell'autore (mai col token del turno). Una voce sola,
+ * col suo test di registro: chi ne aggiunge un'altra cambia la condizione 2
+ * di `docs/invariants/second-factor.md`, non solo questo file.
+ */
+export const CHAT_TOOL_WRITE_ROUTES: ReadonlySet<string> = new Set(["POST /api/claude/conversations/:id/proposals"]);

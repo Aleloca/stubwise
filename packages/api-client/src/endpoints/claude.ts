@@ -1,11 +1,16 @@
+import { z } from "zod";
 import {
+  claudeActionGroupViewSchema,
   claudeChatStatusSchema,
+  claudeProposalViewSchema,
   claudeConversationDetailSchema,
   claudeConversationListSchema,
   claudeConversationSchema,
 } from "@stubwise/shared";
 import type {
+  ClaudeActionGroupView,
   ClaudeChatStatus,
+  ClaudeProposalView,
   ClaudeConversation,
   ClaudeConversationDetail,
   CreateClaudeConversationInput,
@@ -55,6 +60,40 @@ export function createClaudeEndpoints(request: ApiRequest) {
       },
       remove(id: string): Promise<void> {
         return request("DELETE", `/api/claude/conversations/${seg(id)}`);
+      },
+      /** Le proposte di Claude della conversazione: classe e motivi calcolati adesso dal server. */
+      proposals(id: string): Promise<Reader<ClaudeProposalView>[]> {
+        return request("GET", `/api/claude/conversations/${seg(id)}/proposals`, undefined, z.array(claudeProposalViewSchema));
+      },
+      /** I gruppi eseguiti, con lo stato di «Annulla» per chi guarda. */
+      groups(id: string): Promise<Reader<ClaudeActionGroupView>[]> {
+        return request("GET", `/api/claude/conversations/${seg(id)}/groups`, undefined, z.array(claudeActionGroupViewSchema));
+      },
+    },
+    /**
+     * Le decisioni della persona (chat, fetta 3). 409 `expired`, `conflict`,
+     * `budget_exhausted` o `refused` (con la proposta e il motivo nei `details`).
+     */
+    proposals: {
+      confirm(
+        id: string,
+        body: { selected?: number[]; edited?: { index: number; args: Record<string, unknown> }[] } = {},
+      ): Promise<Reader<ClaudeProposalView>> {
+        return request("POST", `/api/claude/proposals/${seg(id)}/confirm`, body, claudeProposalViewSchema);
+      },
+      cancel(id: string): Promise<Reader<ClaudeProposalView>> {
+        return request("POST", `/api/claude/proposals/${seg(id)}/cancel`, undefined, claudeProposalViewSchema);
+      },
+    },
+    groups: {
+      /** «Annulla»: subito, o una scheda da confermare se gli inversi avviserebbero qualcuno. 409 `changed_after`, `undone`… */
+      undo(id: string): Promise<Reader<{ kind: "undone" | "needs_confirmation"; proposal?: ClaudeProposalView }>> {
+        return request(
+          "POST",
+          `/api/claude/groups/${seg(id)}/undo`,
+          undefined,
+          z.object({ kind: z.enum(["undone", "needs_confirmation"]), proposal: claudeProposalViewSchema.optional() }),
+        );
       },
     },
   };

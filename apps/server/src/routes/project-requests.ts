@@ -22,7 +22,7 @@ import { backlogItemAccess, fromBacklogJob, fromBody, fromQuery } from "../auth/
 import { apiError } from "../errors.js";
 import { applyBacklogMerge, MergeAiError, MergeChangedError, mergedDocumentOf, readMergeSnapshot } from "../services/backlog-merge.js";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
-import { closeRefineSessionForItem } from "../services/backlog-refine.js";
+import { archiveRequest, reopenRequest } from "../services/project-request-writes.js";
 import { loadRequestSummaries, loadRequestViews, requestView, requestVisibility } from "../services/project-requests.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -238,15 +238,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
     { config: { access: backlogItemAccess("id", "backlog.edit") }, schema: { params: idParams, response: viewOr404 } },
     async (request, reply) => {
       const { id } = request.params;
-      const changed = await app.db.transaction(async (tx) => {
-        const [row] = await tx
-          .update(backlogItems)
-          .set({ status: "archived" })
-          .where(and(eq(backlogItems.id, id), inArray(backlogItems.status, [...OPEN])))
-          .returning({ id: backlogItems.id });
-        if (row) await closeRefineSessionForItem(tx, id);
-        return row !== undefined;
-      });
+      const changed = await archiveRequest(app.db, id);
       if (!changed) return apiError(reply, 409, "invalid_status", "Only an open request can be archived");
       return (await requestView(app.db, request.user!, id))!;
     },
@@ -258,11 +250,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
     { config: { access: backlogItemAccess("id", "backlog.edit") }, schema: { params: idParams, response: viewOr404 } },
     async (request, reply) => {
       const { id } = request.params;
-      const [row] = await app.db
-        .update(backlogItems)
-        .set({ status: "new", mergedIntoId: null })
-        .where(and(eq(backlogItems.id, id), eq(backlogItems.status, "archived")))
-        .returning({ id: backlogItems.id });
+      const row = await reopenRequest(app.db, id);
       if (!row) return apiError(reply, 409, "invalid_status", "Only an archived request can be reopened");
       return (await requestView(app.db, request.user!, id))!;
     },

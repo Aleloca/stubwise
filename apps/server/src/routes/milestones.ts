@@ -16,7 +16,7 @@ import type { Db } from "@stubwise/db";
 import { milestones, tickets } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
-import { createMilestone } from "../services/milestones.js";
+import { createMilestone, deleteMilestone } from "../services/milestones.js";
 
 /**
  * Stato terminale "completato" di un ticket ai fini dell'avanzamento di una
@@ -319,11 +319,9 @@ export async function milestoneRoutes(instance: FastifyInstance): Promise<void> 
     async (request, reply) => {
       // I ticket assegnati alla milestone passano a milestone_id null via FK
       // (ON DELETE SET NULL): non vengono cancellati.
-      const deleted = await app.db
-        .delete(milestones)
-        .where(eq(milestones.id, request.params.id))
-        .returning({ id: milestones.id });
-      if (deleted.length === 0) return apiError(reply, 404, "milestone_not_found", "Milestone not found");
+      if (!(await deleteMilestone(app.db, request.params.id))) {
+        return apiError(reply, 404, "milestone_not_found", "Milestone not found");
+      }
       return reply.code(204).send(null);
     },
   );

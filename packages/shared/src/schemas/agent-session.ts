@@ -152,6 +152,10 @@ export const agentSessionEventTypeSchema = z.enum([
   "input",
   "turn_end",
   "segment_end",
+  // Chat con Claude, fetta 3: una proposta di Claude e un gruppo di azioni
+  // eseguito dal server. `data`: solo gli id; lo stato si deriva a lettura.
+  "proposal",
+  "actions_executed",
 ]);
 export type AgentSessionEventType = z.infer<typeof agentSessionEventTypeSchema>;
 

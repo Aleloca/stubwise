@@ -339,6 +339,15 @@ describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", ()
     // mai dal testo che il classificatore ha suggerito — vedi il docblock del
     // modulo.
     "./google-proposal.ts",
+    // Chat con Claude, fetta 3: l'esecutore delle azioni di Claude e le sue
+    // proposte NON scrivono nel registro decisioni (confermare non è una
+    // decisione registrata) e non nominano esecutori di agenti: eseguono
+    // servizi delle rotte, mai un run. Il divieto di toccare il registro sta
+    // in `claude-actions-never.test.ts` (`projectDecisions`, `recordDecision`).
+    "../claude-actions/catalog.ts",
+    "../claude-actions/execute.ts",
+    "../claude-actions/proposals.ts",
+    "../claude-actions/undo.ts",
   ];
 
   it.each(MODULES)("%s non nomina nessun esecutore di agenti", async (relative) => {

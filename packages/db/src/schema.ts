@@ -283,6 +283,14 @@ export const roles = pgTable(
   ],
 );
 
+/**
+ * Il DEFAULT delle colonne `via_claude_action_id` (chat, fetta 3): la variabile
+ * di transazione che SOLO l'esecutore delle azioni di Claude imposta
+ * (`set_config(..., true)`). Fuori da lì, null. Nessuna firma la accetta.
+ */
+export const VIA_CLAUDE_SETTING = "stubwise.via_claude_action_id";
+const VIA_CLAUDE_DEFAULT = sql`nullif(current_setting('stubwise.via_claude_action_id', true), '')::uuid`;
+
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").notNull().unique(),
@@ -1222,6 +1230,10 @@ export const comments = pgTable(
     // Nullo per i commenti dell'AI; nullato se l'autore viene eliminato.
     authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
     body: text("body").notNull(),
+    /** «via Claude» (chat, fetta 3): il commento l'ha scritto Claude per conto dell'autore. */
+    viaClaudeActionId: uuid("via_claude_action_id")
+      .references((): AnyPgColumn => claudeActions.id, { onDelete: "set null" })
+      .default(VIA_CLAUDE_DEFAULT),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     // Il commento a cui questo risponde (0083). Self-reference: la FK esiste in
     // migrazione (ON DELETE SET NULL: cancellare l'originale lascia la
@@ -1272,6 +1284,10 @@ export const ticketEvents = pgTable(
     actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
     kind: ticketEventKind("kind").notNull(),
     payload: jsonb("payload"),
+    /** «via Claude» (chat, fetta 3): l'azione di Claude per conto della persona; l'attore resta lei. */
+    viaClaudeActionId: uuid("via_claude_action_id")
+      .references((): AnyPgColumn => claudeActions.id, { onDelete: "set null" })
+      .default(VIA_CLAUDE_DEFAULT),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   // La timeline si carica sempre per ticket, ordinata cronologicamente.
@@ -1311,7 +1327,9 @@ export const deletedTickets = pgTable(
     }),
     deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
-    viaClaudeActionId: uuid("via_claude_action_id"),
+    viaClaudeActionId: uuid("via_claude_action_id")
+      .references((): AnyPgColumn => claudeActions.id, { onDelete: "set null" })
+      .default(VIA_CLAUDE_DEFAULT),
   },
   (table) => [
     unique("deleted_tickets_project_number_unique").on(table.projectId, table.number),
@@ -3337,6 +3355,94 @@ export const claudeConversations = pgTable(
 );
 
 /**
+ * Chat con Claude, fetta 3: le PROPOSTE di Claude (tool `propose_action`,
+ * scritte solo dalla rotta di scrittura del token del turno). Claude propone,
+ * il SERVER esegue: una proposta non esegue niente da sé. `actions` sono le
+ * azioni del catalogo chiuso (`claudeActionFnSchema`), `declared_cls` la classe
+ * del catalogo; la classe VERA si calcola sui dati al momento (lettura e
+ * conferma). Scaduta non si salva: si deriva (`PROPOSAL_EXPIRY`). `event_id`:
+ * l'evento `proposal` della sessione, da cui si contano i messaggi dopo.
+ */
+export const claudeProposals = pgTable(
+  "claude_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id")
+      .notNull()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    requesterId: uuid("requester_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    toolUseId: text("tool_use_id"),
+    actions: jsonb("actions").$type<{ fn: string; args: Record<string, unknown> }[]>().notNull(),
+    summary: text("summary").notNull().default(""),
+    declaredCls: text("declared_cls").$type<"A" | "B" | "C">().notNull(),
+    status: text("status").$type<"open" | "confirmed" | "cancelled" | "failed">().notNull().default("open"),
+    failure: jsonb("failure").$type<Record<string, unknown>>(),
+    groupId: uuid("group_id").references((): AnyPgColumn => claudeActionGroups.id, { onDelete: "set null" }),
+    eventId: bigint("event_id", { mode: "bigint" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    undoOfGroupId: uuid("undo_of_group_id").references((): AnyPgColumn => claudeActionGroups.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    unique("claude_proposals_tool_use_unique").on(table.sessionId, table.toolUseId),
+    index("claude_proposals_session_idx").on(table.sessionId, table.createdAt),
+    check("claude_proposals_status_chk", sql`status in ('open','confirmed','cancelled','failed')`),
+    check("claude_proposals_cls_chk", sql`declared_cls in ('A','B','C')`),
+  ],
+);
+
+/**
+ * Un gruppo di azioni ESEGUITO dal server per una persona (subito per una A,
+ * alla conferma per una B), tutto o niente. `session_id` SET NULL: le sessioni
+ * si potano a 14 giorni, il segno «via Claude» sulle scritture no.
+ */
+export const claudeActionGroups = pgTable(
+  "claude_action_groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sessionId: uuid("session_id").references((): AnyPgColumn => agentSessions.id, { onDelete: "set null" }),
+    requesterId: uuid("requester_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    proposalId: uuid("proposal_id").references((): AnyPgColumn => claudeProposals.id, { onDelete: "set null" }),
+    executedAt: timestamp("executed_at", { withTimezone: true }).notNull().defaultNow(),
+    undoneAt: timestamp("undone_at", { withTimezone: true }),
+    undoneBy: uuid("undone_by").references(() => users.id, { onDelete: "set null" }),
+    undoOfGroupId: uuid("undo_of_group_id").references((): AnyPgColumn => claudeActionGroups.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [index("claude_action_groups_session_idx").on(table.sessionId, table.executedAt)],
+);
+
+/** Un'azione di un gruppo: l'inverso (per «Annulla») e gli oggetti toccati (per `changed_after`). */
+export const claudeActions = pgTable(
+  "claude_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => claudeActionGroups.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    fn: text("fn").notNull(),
+    args: jsonb("args").$type<Record<string, unknown>>().notNull(),
+    cls: text("cls").$type<"A" | "B" | "C">().notNull(),
+    inverse: jsonb("inverse").$type<{ fn: string; args: Record<string, unknown> } | null>(),
+    objects: jsonb("objects").$type<{ kind: string; id: string }[]>().notNull().default([]),
+    executedAt: timestamp("executed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("claude_actions_group_idx").on(table.groupId, table.seq),
+    check("claude_actions_cls_chk", sql`cls in ('A','B','C')`),
+  ],
+);
+
+/**
  * Il token di UN turno di una conversazione libera (chat, fetta 1, 0127): con
  * lui i tool di lettura di Claude chiamano il server COME l'autore, sulle
  * stesse rotte e con la stessa visibilità delle pagine. Lo emette il WORKER a
@@ -3487,6 +3593,10 @@ export const notifications = pgTable(
     // «task eliminata» si deriva a lettura.
     ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
     jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "set null" }),
+    /** «via Claude» (chat, fetta 3): l'azione di Claude per conto della persona; l'attore resta lei. */
+    viaClaudeActionId: uuid("via_claude_action_id")
+      .references((): AnyPgColumn => claudeActions.id, { onDelete: "set null" })
+      .default(VIA_CLAUDE_DEFAULT),
     kind: notificationKind("kind").notNull(),
     // Payload dell'evento, già completo di tutto ciò che serve a renderlo
     // (titolo del ticket, url, dettaglio). Il tipo forte è `NotificationEvent`
@@ -4852,7 +4962,7 @@ export const agentSessionEvents = pgTable(
       .where(sql`type in ('tool_use','assistant_text')`),
     check(
       "agent_session_events_type_chk",
-      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end')`,
+      sql`type in ('segment_start','assistant_text','tool_use','tool_result','input','turn_end','segment_end','proposal','actions_executed')`,
     ),
   ],
 );

@@ -14,7 +14,7 @@
  * widget). Lo pretende `route-access.test.ts`, senza elenco di eccezioni, e
  * l'hook rifiuta comunque (500) una rotta senza dichiarazione.
  */
-import { CHAT_TOOL_READ_ROUTES } from "./chat-tool-routes.js";
+import { CHAT_TOOL_READ_ROUTES, CHAT_TOOL_WRITE_ROUTES } from "./chat-tool-routes.js";
 import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
@@ -316,10 +316,13 @@ export async function accessPreHandler(
   if (reply.sent) return;
   const user = request.user!;
   // Il token del turno della chat con Claude: SOLO GET e solo l'allowlist chiusa
-  // delle rotte di lettura, prima di ogni altro controllo (riconferma compresa).
+  // delle rotte di lettura, più UNA rotta di scrittura (creare una proposta),
+  // prima di ogni altro controllo (riconferma compresa).
   if (user.chatToolSessionId !== undefined) {
     const url = request.routeOptions.url ?? "";
-    if (request.method !== "GET" || !CHAT_TOOL_READ_ROUTES.has(url)) {
+    const read = request.method === "GET" && CHAT_TOOL_READ_ROUTES.has(url);
+    const write = CHAT_TOOL_WRITE_ROUTES.has(`${request.method} ${url}`);
+    if (!read && !write) {
       await apiError(reply, 403, "chat_tool_forbidden", "Not available to Claude's read tools");
       return;
     }
@@ -394,26 +397,48 @@ async function applyReauth(
   }
 }
 
+export type ProjectAccessResult =
+  | { ok: true; projectId: string; permissions: ReadonlySet<ProjectPermission> }
+  | { ok: false; error: "not_found" | "forbidden" };
+
+/**
+ * La regola di un `RouteAccess` di progetto, senza risposta HTTP: progetto
+ * invisibile o risorsa invisibile → `not_found`, permesso mancante →
+ * `forbidden`. La usano il `preHandler` delle rotte e l'esecutore delle azioni
+ * di Claude (chat, fetta 3), che la valuta sulla STESSA dichiarazione della
+ * rotta con una richiesta sintetica (parametri e corpo): un'azione di Claude
+ * ha esattamente i permessi della rotta che la persona userebbe.
+ */
+export async function evaluateProjectAccess(
+  request: FastifyRequest,
+  db: Db,
+  user: SessionUser,
+  access: Extract<RouteAccess, { kind: "project" }>,
+): Promise<ProjectAccessResult> {
+  const projectId = await access.project(request, db);
+  const permissions = projectId ? await projectPermissionsFor(db, user, projectId) : null;
+  if (!projectId || !permissions) return { ok: false, error: "not_found" };
+  if (access.resource && !(await access.resource(request, db, user, permissions))) {
+    return { ok: false, error: "not_found" };
+  }
+  if (access.permission !== "member" && !permissions.has(access.permission)) {
+    return { ok: false, error: "forbidden" };
+  }
+  return { ok: true, projectId, permissions };
+}
+
 async function applyProjectAccess(
   request: FastifyRequest,
   reply: FastifyReply,
   user: SessionUser,
   access: Extract<RouteAccess, { kind: "project" }>,
 ): Promise<void> {
-  const db = request.server.db;
-  const projectId = await access.project(request, db);
-  const permissions = projectId ? await projectPermissionsFor(db, user, projectId) : null;
-  if (!projectId || !permissions) {
-    await apiError(reply, 404, "not_found", "Not found");
+  const result = await evaluateProjectAccess(request, request.server.db, user, access);
+  if (!result.ok) {
+    await (result.error === "not_found"
+      ? apiError(reply, 404, "not_found", "Not found")
+      : apiError(reply, 403, "forbidden", "Missing permission"));
     return;
   }
-  if (access.resource && !(await access.resource(request, db, user, permissions))) {
-    await apiError(reply, 404, "not_found", "Not found");
-    return;
-  }
-  if (access.permission !== "member" && !permissions.has(access.permission)) {
-    await apiError(reply, 403, "forbidden", "Missing permission");
-    return;
-  }
-  request.access = { projectId, permissions };
+  request.access = { projectId: result.projectId, permissions: result.permissions };
 }

@@ -22,6 +22,18 @@ function client(body: unknown = conversation, status = 200) {
 }
 
 describe("endpoints claude", () => {
+  it("proposte e gruppi: i percorsi; conferma col corpo; «Annulla»", async () => {
+    const { c, fetchImpl } = client([]);
+    await c.claude.conversations.proposals(ID);
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/claude/conversations/${ID}/proposals`);
+    await c.claude.conversations.groups(ID);
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/claude/conversations/${ID}/groups`);
+    const undone = client({ kind: "undone" });
+    expect(await undone.c.claude.groups.undo(ID)).toEqual({ kind: "undone" });
+    expect(undone.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/claude/groups/${ID}/undo`);
+  });
+
+
   it("status: il budget finito; senza il campo (server più vecchio) vale false", async () => {
     const { c, fetchImpl } = client({ budgetExhausted: true });
     expect(await c.claude.status()).toEqual({ budgetExhausted: true });

@@ -151,7 +151,6 @@ export async function deleteTask(
   db: Db,
   viewer: Deleter,
   ticketId: string,
-  opts: { viaClaudeActionId?: string } = {},
 ): Promise<TaskDeleteResult> {
   return db.transaction(async (tx): Promise<TaskDeleteResult> => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ticketId}))`);
@@ -178,7 +177,7 @@ export async function deleteTask(
       title: task.title,
       originBacklogItemId: origin?.id ?? null,
       deletedBy: viewer.id,
-      ...(opts.viaClaudeActionId ? { viaClaudeActionId: opts.viaClaudeActionId } : {}),
+      // «via Claude»: il DEFAULT della colonna (variabile di transazione dell'esecutore).
     });
     // L'avviso ai follower PRIMA dell'eliminazione (l'audience li legge dal
     // ticket); la notifica resta, col ticket nullo (FK SET NULL, 0130).
