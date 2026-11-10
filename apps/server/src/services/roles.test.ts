@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { projectMembers, projects, roles, users } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -86,6 +86,34 @@ describe("assertFullAdminRemains", () => {
 
     const admins = await db.select({ id: users.id }).from(users).where(eq(users.role, "admin"));
     expect(admins).toHaveLength(1);
+  });
+
+  it("Claude non conta come full admin, nemmeno se il preset User viene allargato (review dell'area 3, punto 9)", async () => {
+    const db = testDb.db;
+    const rollback = new Error("rollback");
+    const outcome = await db
+      .transaction(async (tx) => {
+        const [userRole] = await tx.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "user"));
+        // Il preset User allargato a full admin (l'utente di sistema ha quel preset).
+        await tx
+          .update(roles)
+          .set({ permissions: sql`array_append(${roles.permissions}, 'instance.full_admin')` })
+          .where(eq(roles.id, userRole!.id));
+        // Tutte le persone vere passano su un ruolo SENZA full admin.
+        const [plain] = await tx
+          .insert(roles)
+          .values({ name: "Senza poteri", scope: "instance", permissions: [] })
+          .returning({ id: roles.id });
+        await tx.update(users).set({ instanceRoleId: plain!.id }).where(eq(users.isAgent, false));
+        const error = await assertFullAdminRemains(tx).then(
+          () => null,
+          (e: unknown) => e,
+        );
+        throw Object.assign(rollback, { inner: error });
+      })
+      .catch((e: unknown) => (e as { inner?: unknown }).inner);
+    expect(outcome).toBeInstanceOf(RoleRuleError);
+    expect((outcome as RoleRuleError).code).toBe("last_full_admin");
   });
 });
 
