@@ -196,6 +196,9 @@ const INTEGRATED_CALLS = new Set([
   "stop",
   "stopAndSend",
   "listClaudeDecisions",
+  // Area 3, fetta 3d: «By person» di Activity.
+  "listPeopleActivity",
+  "listDailyReports",
   "recordDecision",
   "setDecisionSuperseded",
   "getLatestBrief",

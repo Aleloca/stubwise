@@ -9,7 +9,6 @@ import type { LocalInstancePermission, LocalProjectPermission } from "../types";
 /** I permessi d'istanza del prototipo, nell'ordine in cui si mostrano. */
 export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
   "claude.public.view",
-  "people.activity.view",
   "chat.general.create",
   "chat.general.manage",
   "automations.manage",
