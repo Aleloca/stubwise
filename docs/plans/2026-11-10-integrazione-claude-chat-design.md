@@ -38,7 +38,14 @@ regole dell'integrazione delle aree 2 e 3. Specifica: il prototipo —
 
 - **Conversazioni pubbliche e continuazione** *(maintainer: dopo)*, con
   `claude.public.view`, conferma dei progetti letti, messaggi privati se Claude
-  tocca un progetto nuovo.
+  tocca un progetto nuovo. Fetta 5, piano
+  `docs/plans/2026-11-10-integrazione-claude-chat-f5-plan.md`. **Decisione del
+  maintainer (10 nov 2026, D1): gli eventi dei tool di una pubblica RESTANO
+  visibili ai lettori.** Esempio confermato: i dati del progetto X letti da
+  Claude per l'autore (il `tool_result` del token del turno) li vede chi legge
+  la pubblica. La difesa è la conferma esplicita alla pubblicazione, che lo
+  dice (`includesToolReads`), e il seguito privato. Non va «corretta»
+  togliendo i tool ai lettori.
 - Le azioni delle aree non ancora integrate (posta 6, automazioni 7, rilasci,
   avvisi e assistenza 8, amministrazione 9, documentazione di prodotto 11) e le
   **bozze nei campi** *(orchestratrice: con le loro aree)*.

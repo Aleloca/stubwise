@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { isConversationReader } from "../services/claude-public.js";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
@@ -177,6 +178,10 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
       // Errori PRIMA del hijack, in JSON: la posta altrui è 404 e nessuno stream si apre.
       const initial = await getAgentSession(app.db, viewer, id);
       if (!initial) return apiError(reply, 404, "not_found", "Session not found");
+      // Chi LEGGE una conversazione pubblica di un altro (fetta 5) non riceve i
+      // parziali: il turno in corso è il seguito privato, e gli arriva a turno
+      // finito (gli eventi, dal taglio di `listAgentSessionEvents`).
+      const reader = initial.kind === "free" && (await isConversationReader(app.db, viewer.id, id));
 
       reply.hijack();
       reply.raw.writeHead(200, {
@@ -273,7 +278,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
           // revoca ferma i parziali entro un giro di poll (STREAM_POLL_MS) e
           // chiude lo stream. Una finestra di qualche secondo accettata: una
           // verifica per parziale costerebbe una query per token.
-          if (visible) send({ type: "partial", segmentId: m.segmentId, text: m.text });
+          if (visible && !reader) send({ type: "partial", segmentId: m.segmentId, text: m.text });
         } else void pump();
       });
       if (closed) {

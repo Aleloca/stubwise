@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { agentSessionInputs, agentSessions, claudeConversations, type Db } from "@stubwise/db";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { agentSessionEvents, agentSessionInputs, agentSessions, claudeConversations, users, type Db } from "@stubwise/db";
 import {
   AGENT_SESSION_INPUT_CHANNEL,
   CLAUDE_CONVERSATION_CLOSED_CHANNEL,
@@ -8,9 +8,23 @@ import {
   type ClaudeConversation,
   type ClaudeConversationContext,
   type ClaudeConversationDetail,
+  type ClaudeVisibilityConfirmation,
   type CreateClaudeConversationInput,
   type PatchClaudeConversationInput,
+  type SetClaudeConversationVisibilityInput,
 } from "@stubwise/shared";
+import { visibleProjectIds } from "../auth/access.js";
+import {
+  canReadPublic,
+  contextProjectId,
+  hasToolReads,
+  holdOf,
+  nextEventId,
+  projectViews,
+  projectViewsForAuthor,
+  touchedProjectIds,
+} from "./claude-public.js";
+import { personName } from "./people.js";
 import { freeSessionStates, loadAgentSession, monthlyBudgetExhausted, type SessionViewer } from "./agent-sessions.js";
 
 // La conversazione libera con Claude (chat, fetta 1): una sessione dell'agente
@@ -21,30 +35,57 @@ import { freeSessionStates, loadAgentSession, monthlyBudgetExhausted, type Sessi
 // altro risponde come una che non esiste.
 
 type ConversationRow = typeof claudeConversations.$inferSelect;
+type SessionView = { state: ClaudeConversation["state"]; lastEventAt: string | null };
 
-function toView(row: ConversationRow, session: { state: ClaudeConversation["state"]; lastEventAt: string | null }) {
+async function namesOf(db: Db, ids: (string | null)[]): Promise<Map<string, string>> {
+  const list = [...new Set(ids.filter((id): id is string => id !== null))];
+  if (list.length === 0) return new Map();
+  const rows = await db
+    .select({ id: users.id, email: users.email, displayName: users.displayName })
+    .from(users)
+    .where(inArray(users.id, list));
+  return new Map(rows.map((r) => [r.id, personName(r)]));
+}
+
+/**
+ * La conversazione come la vede CHI GUARDA (fetta 5): l'autore ha tutto; un
+ * lettore di una pubblica non ha il seguito privato, i progetti che non vede
+ * né il contesto di un progetto che non vede, e nessun comando dell'autore.
+ */
+async function toView(db: Db, viewer: SessionViewer, row: ConversationRow, session: SessionView): Promise<ClaudeConversation> {
+  const isOwner = row.ownerId === viewer.id;
+  const archived = row.archivedAt !== null;
+  const names = await namesOf(db, [row.ownerId, row.publishedBy]);
+  const hold = await holdOf(db, row);
+  let context = (row.contextRef as ClaudeConversationContext | null) ?? null;
+  if (context && !isOwner) {
+    const projectId = await contextProjectId(db, row);
+    const visible = projectId ? await visibleProjectIds(db, viewer) : [];
+    if (!projectId || (visible !== "all" && !visible.includes(projectId))) context = null;
+  }
+  const continuesFrom = row.continuesFromSessionId
+    ? { id: row.continuesFromSessionId, available: (await readableRow(db, viewer, row.continuesFromSessionId)) !== null }
+    : null;
   return {
     id: row.sessionId,
     title: row.title,
-    archived: row.archivedAt !== null,
-    context: (row.contextRef as ClaudeConversationContext | null) ?? null,
+    archived,
+    context,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     state: session.state,
     lastEventAt: session.lastEventAt,
-    // Fetta 5 (F5.1): i valori di una conversazione privata e propria; la
-    // visibilità vera e la proiezione per i lettori arrivano con la F5.2.
     visibility: row.visibility,
-    author: null,
-    isOwner: true,
+    author: { id: row.ownerId, name: names.get(row.ownerId) ?? "" },
+    isOwner,
     publishedAt: row.publishedAt?.toISOString() ?? null,
-    publishedBy: null,
-    publishedProjects: [],
-    privateTail: false,
-    heldProjects: [],
-    continuesFrom: null,
-    canPublish: false,
-    canContinue: false,
+    publishedBy: row.publishedBy ? { id: row.publishedBy, name: names.get(row.publishedBy) ?? "" } : null,
+    publishedProjects: row.visibility === "public" ? await projectViews(db, viewer, row.publishedProjectIds) : [],
+    privateTail: !isOwner && hold.held,
+    heldProjects: isOwner && hold.newProjectIds.length > 0 ? await projectViews(db, viewer, hold.newProjectIds) : [],
+    continuesFrom,
+    canPublish: isOwner && !archived,
+    canContinue: !isOwner && row.visibility === "public" && !archived && canReadPublic(viewer),
   } satisfies ClaudeConversation;
 }
 
@@ -56,17 +97,37 @@ async function ownRow(db: Db, viewer: SessionViewer, id: string): Promise<Conver
   return row ?? null;
 }
 
+/**
+ * Una conversazione che chi guarda può LEGGERE: la propria, o una pubblica
+ * con `claude.public.view` (fetta 5). Ogni altra è `null`, come una che non
+ * esiste: la stessa regola di `visibleTo` nella WHERE.
+ */
+export async function readableRow(db: Db, viewer: SessionViewer, id: string): Promise<ConversationRow | null> {
+  const [row] = await db
+    .select()
+    .from(claudeConversations)
+    .where(
+      and(
+        eq(claudeConversations.sessionId, id),
+        canReadPublic(viewer)
+          ? or(eq(claudeConversations.ownerId, viewer.id), eq(claudeConversations.visibility, "public"))
+          : eq(claudeConversations.ownerId, viewer.id),
+      ),
+    );
+  return row ?? null;
+}
+
 /** Il dettaglio: la conversazione e la sua sessione; di un altro (o inesistente) `null`. */
 export async function getClaudeConversation(
   db: Db,
   viewer: SessionViewer,
   id: string,
 ): Promise<ClaudeConversationDetail | null> {
-  const row = await ownRow(db, viewer, id);
+  const row = await readableRow(db, viewer, id);
   if (!row) return null;
   const loaded = await loadAgentSession(db, viewer, id);
   if (!loaded) return null;
-  return { ...toView(row, loaded.detail), session: loaded.detail };
+  return { ...(await toView(db, viewer, row, loaded.detail)), session: loaded.detail };
 }
 
 /** Quante per pagina, al più (`limit`). */
@@ -81,17 +142,22 @@ export const CONVERSATION_PAGE_MAX = 100;
 export async function listClaudeConversations(
   db: Db,
   viewer: SessionViewer,
-  opts: { archived: boolean; limit?: number; before?: string },
+  opts: { archived: boolean; limit?: number; before?: string; scope?: "mine" | "public" },
 ): Promise<{ items: ClaudeConversation[]; nextCursor: string | null }> {
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), CONVERSATION_PAGE_MAX);
   const cursor = parseCursor(opts.before);
+  // «Public» (fetta 5): le pubbliche di ALTRI, non archiviate, con il permesso.
+  const publicScope = opts.scope === "public";
+  if (publicScope && !canReadPublic(viewer)) return { items: [], nextCursor: null };
   const rows = await db
     .select()
     .from(claudeConversations)
     .where(
       and(
-        eq(claudeConversations.ownerId, viewer.id),
-        opts.archived ? isNotNull(claudeConversations.archivedAt) : isNull(claudeConversations.archivedAt),
+        publicScope
+          ? and(eq(claudeConversations.visibility, "public"), ne(claudeConversations.ownerId, viewer.id))
+          : eq(claudeConversations.ownerId, viewer.id),
+        publicScope || !opts.archived ? isNull(claudeConversations.archivedAt) : isNotNull(claudeConversations.archivedAt),
         cursor
           ? or(
               lt(claudeConversations.updatedAt, cursor.at),
@@ -104,10 +170,11 @@ export async function listClaudeConversations(
     .limit(limit + 1);
   const page = rows.slice(0, limit);
   const states = await freeSessionStates(db, viewer, page.map((r) => r.sessionId));
-  const items = page.flatMap((row) => {
+  const items: ClaudeConversation[] = [];
+  for (const row of page) {
     const session = states.get(row.sessionId);
-    return session ? [toView(row, session)] : [];
-  });
+    if (session) items.push(await toView(db, viewer, row, session));
+  }
   const last = page.at(-1);
   return {
     items,
@@ -207,4 +274,115 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 async function notifyClosed(tx: Tx, sessionId: string): Promise<void> {
   await tx.execute(sql`select pg_notify(${CLAUDE_CONVERSATION_CLOSED_CHANNEL}, ${JSON.stringify({ sessionId })})`);
+}
+
+export type SetVisibilityResult =
+  | { ok: true; conversation: ClaudeConversation }
+  | { ok: false; error: "not_found" | "archived" }
+  | { ok: false; error: "needs_confirmation"; confirmation: ClaudeVisibilityConfirmation };
+
+const sameSet = (a: Iterable<string>, b: Iterable<string>) => {
+  const x = new Set(a);
+  const y = new Set(b);
+  return x.size === y.size && [...x].every((v) => y.has(v));
+};
+
+/**
+ * «Make public» / «Make private» e la riconferma del seguito privato (fetta
+ * 5): solo l'autore. Pubblicare vuole i progetti letti o toccati CONFERMATI,
+ * cioè lo stesso insieme di adesso (D2): un elenco diverso o vecchio è
+ * `needs_confirmation`, con l'elenco e il fatto che chi legge vedrà anche ciò
+ * che Claude ha letto per l'autore (D1). Su una pubblica col seguito privato,
+ * la conferma dei progetti NUOVI lo rilascia. «Make private» azzera tutto, e
+ * la finestra della potatura riparte da adesso (D5).
+ */
+export async function setClaudeConversationVisibility(
+  db: Db,
+  viewer: SessionViewer,
+  id: string,
+  input: SetClaudeConversationVisibilityInput,
+): Promise<SetVisibilityResult> {
+  const row = await ownRow(db, viewer, id);
+  if (!row) return { ok: false, error: "not_found" };
+  if (input.visibility === "private") {
+    await db
+      .update(claudeConversations)
+      .set({
+        visibility: "private",
+        publishedAt: null,
+        publishedBy: null,
+        publishedProjectIds: [],
+        privateFromEventId: null,
+        visibilityChangedAt: sql`now()`,
+      })
+      .where(eq(claudeConversations.sessionId, id));
+    return { ok: true, conversation: (await viewOf(db, viewer, id))! };
+  }
+  if (row.archivedAt !== null) return { ok: false, error: "archived" };
+  const confirmed = input.confirmedProjectIds ?? [];
+  const needs = async (ids: Iterable<string>, reconfirm: boolean): Promise<SetVisibilityResult> => ({
+    ok: false,
+    error: "needs_confirmation",
+    confirmation: {
+      code: "needs_confirmation",
+      message: "Confirm the projects Claude read or touched",
+      projects: await projectViewsForAuthor(db, ids),
+      includesToolReads: await hasToolReads(db, id),
+      reconfirm,
+    },
+  });
+  if (row.visibility === "public") {
+    // La riconferma: solo i progetti NUOVI del seguito privato.
+    const hold = await holdOf(db, row);
+    if (hold.newProjectIds.length === 0) return { ok: true, conversation: (await viewOf(db, viewer, id))! };
+    if (!sameSet(confirmed, hold.newProjectIds)) return needs(hold.newProjectIds, true);
+    await db
+      .update(claudeConversations)
+      .set({ publishedProjectIds: [...new Set([...row.publishedProjectIds, ...hold.newProjectIds])] })
+      .where(eq(claudeConversations.sessionId, id));
+    return { ok: true, conversation: (await viewOf(db, viewer, id))! };
+  }
+  const touched = await touchedProjectIds(db, row);
+  // La conferma è sempre ESPLICITA, anche con un elenco vuoto: dice anche che
+  // chi legge vedrà ciò che Claude ha letto per te (D1).
+  if (input.confirmedProjectIds === undefined || !sameSet(confirmed, touched)) return needs(touched, false);
+  // Un turno in corso alla pubblicazione resta privato finché non è finito.
+  const open = await currentTurnStart(db, id);
+  await db
+    .update(claudeConversations)
+    .set({
+      visibility: "public",
+      publishedAt: sql`now()`,
+      publishedBy: viewer.id,
+      publishedProjectIds: [...touched],
+      privateFromEventId: open,
+      visibilityChangedAt: sql`now()`,
+    })
+    .where(eq(claudeConversations.sessionId, id));
+  return { ok: true, conversation: (await viewOf(db, viewer, id))! };
+}
+
+/** L'inizio del turno in corso (l'ultimo `input` senza `turn_end`, o un messaggio in coda); null se nessuno. */
+async function currentTurnStart(db: Db, sessionId: string): Promise<bigint | null> {
+  const [pending] = await db
+    .select({ id: agentSessionInputs.id })
+    .from(agentSessionInputs)
+    .where(and(eq(agentSessionInputs.sessionId, sessionId), eq(agentSessionInputs.status, "pending")))
+    .limit(1);
+  if (pending) return nextEventId(db);
+  const [last] = await db
+    .select({ id: agentSessionEvents.id, type: agentSessionEvents.type })
+    .from(agentSessionEvents)
+    .where(and(eq(agentSessionEvents.sessionId, sessionId), inArray(agentSessionEvents.type, ["input", "turn_end"])))
+    .orderBy(desc(agentSessionEvents.id))
+    .limit(1);
+  return last?.type === "input" ? last.id : null;
+}
+
+async function viewOf(db: Db, viewer: SessionViewer, id: string): Promise<ClaudeConversation | null> {
+  const detail = await getClaudeConversation(db, viewer, id);
+  if (!detail) return null;
+  const { session: _session, ...view } = detail;
+  void _session;
+  return view;
 }

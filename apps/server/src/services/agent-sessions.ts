@@ -1,4 +1,5 @@
 import { and, desc, eq, gt, inArray, isNull, lt, not, or, sql, type SQL } from "drizzle-orm";
+import { canReadPublic, holdForOwnerMessage, readerCut } from "./claude-public.js";
 import { alias } from "drizzle-orm/pg-core";
 import {
   agentQuestions,
@@ -140,14 +141,19 @@ const WINDOW_DAYS = 14;
  * Visibilità: una sessione di posta la vede SOLO il proprietario della
  * casella, nessun ramo per ruolo (invariante mailbox_owner).
  */
-export function visibleTo(viewer: Actor): SQL {
+export function visibleTo(viewer: Actor & { instancePermissions?: ReadonlySet<string> }): SQL {
   return and(
     or(isNull(agentSessions.mailboxOwnerUserId), eq(agentSessions.mailboxOwnerUserId, viewer.id)),
-    // La conversazione libera con Claude (chat, fetta 1) la vede SOLO il suo
-    // autore: nessun ramo per ruolo né per permesso, come la posta.
+    // La conversazione libera con Claude (chat, fetta 1) la vede il suo autore;
+    // dalla fetta 5, se è PUBBLICA, anche chi ha `claude.public.view`
+    // (`claude-public.ts`). Una privata resta dell'autore: nessun ramo per
+    // ruolo, nemmeno per un full admin.
     or(
       sql`${agentSessions.kind} <> 'free'`,
       sql`exists (select 1 from ${claudeConversations} cc where cc.session_id = ${agentSessions.id} and cc.owner_id = ${viewer.id})`,
+      canReadPublic(viewer)
+        ? sql`exists (select 1 from ${claudeConversations} cc where cc.session_id = ${agentSessions.id} and cc.visibility = 'public')`
+        : sql`false`,
     ),
   )!;
 }
@@ -935,14 +941,20 @@ export async function loadAgentSession(
     ? await agentQuestionsOf(db, viewer, permissions, row.aiJobId)
     : [];
   // Interventi, consegnati o no (design §6.2): gli ultimi MAX_INPUTS, in ordine.
-  const inputRows = (
-    await db
-      .select()
-      .from(agentSessionInputs)
-      .where(eq(agentSessionInputs.sessionId, id))
-      .orderBy(desc(agentSessionInputs.createdAt))
-      .limit(MAX_INPUTS)
-  ).reverse();
+  // Chi LEGGE una pubblica di un altro non riceve gli interventi (in coda,
+  // consegnati o no): i messaggi pubblicati sono gli eventi `input` fino al
+  // confine del seguito privato (fetta 5).
+  const reader = row.kind === "free" && row.conversationOwnerId !== viewer.id;
+  const inputRows = reader
+    ? []
+    : (
+        await db
+          .select()
+          .from(agentSessionInputs)
+          .where(eq(agentSessionInputs.sessionId, id))
+          .orderBy(desc(agentSessionInputs.createdAt))
+          .limit(MAX_INPUTS)
+      ).reverse();
   const authors = await emailsOf(
     db,
     inputRows.flatMap((r) => (r.authorUserId !== null ? [r.authorUserId] : [])),
@@ -1015,6 +1027,10 @@ export async function listAgentSessionEvents(
   if (!visible) return null;
   if (!(await sessionPermissions(db, viewer, id))) return null;
   const conditions = [eq(agentSessionEvents.sessionId, id)];
+  // Il seguito privato di una pubblica: chi la LEGGE non riceve nulla oltre
+  // il confine finché non è rilasciato (fetta 5, `claude-public.ts`).
+  const cut = await readerCut(db, viewer.id, id);
+  if (cut !== null) conditions.push(lt(agentSessionEvents.id, cut));
   if (page.after) conditions.push(gt(agentSessionEvents.id, BigInt(page.after)));
   if (page.before) conditions.push(lt(agentSessionEvents.id, BigInt(page.before)));
   // Con `after` si legge in avanti (riconnessione SSE); altrimenti le ultime N.
@@ -1124,6 +1140,8 @@ export async function sendAgentMessage(
           .set({ title })
           .where(and(eq(agentSessions.id, input.sessionId), eq(agentSessions.title, "")));
       }
+      // In una pubblica il turno resta privato finché non è finito e pulito (fetta 5).
+      if (input.text.trim().length > 0) await holdForOwnerMessage(tx, input.sessionId);
       return insertInput(tx, input);
     });
   }

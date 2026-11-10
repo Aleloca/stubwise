@@ -1,9 +1,11 @@
 import {
   agentSessionEvents,
+  backlogItems,
   claudeActionGroups,
   claudeActions,
   claudeConversations,
   claudeProposals,
+  tickets,
   type Db,
 } from "@stubwise/db";
 import {
@@ -18,9 +20,10 @@ import {
   type ClaudeProposalView,
   type CreateClaudeProposalInput,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
+import { readerCut, recordConversationProjects } from "../services/claude-public.js";
 import type { ActionEffects } from "./effects.js";
 import { classOfGroup, executeGroup, RECLASSIFIED, type ExecuteResult, type PlannedAction } from "./execute.js";
 import { undoGroup, undoStateOf } from "./undo.js";
@@ -183,6 +186,9 @@ export async function createProposal(
 
   const dry = await executeGroup(db, user, { sessionId, actions, dryRun: true });
   if (!dry.ok) return refuse(dry.failure);
+  // I progetti toccati da questa proposta (fetta 5, D2): per la conferma della
+  // pubblicazione e per il seguito privato di una pubblica.
+  await recordConversationProjects(db, sessionId, await projectsOfPlan(db, actions, dry));
   const { cls } = classOfGroup(actions, dry);
   const row = await insert("open", cls);
   if (!row) {
@@ -231,6 +237,40 @@ export async function createProposal(
   return { status: "awaiting_confirmation", proposalId: row.id, codes: [], reason: null };
 }
 
+/** I progetti di un gruppo: `projectId` negli argomenti, e quello delle task e richieste toccate. */
+async function projectsOfPlan(db: Db, actions: readonly PlannedAction[], dry: Extract<ExecuteResult, { ok: true }>): Promise<string[]> {
+  const out = new Set<string>();
+  for (const a of actions) if (typeof a.args["projectId"] === "string") out.add(a.args["projectId"]);
+  const objects = dry.actions.flatMap((a) => a.objects);
+  const taskIds = objects.filter((o) => o.kind === "task").map((o) => o.id);
+  const requestIds = objects.filter((o) => o.kind === "request").map((o) => o.id);
+  if (taskIds.length > 0) {
+    for (const r of await db.select({ p: tickets.projectId }).from(tickets).where(inArray(tickets.id, taskIds))) out.add(r.p);
+  }
+  if (requestIds.length > 0) {
+    for (const r of await db.select({ p: backlogItems.projectId }).from(backlogItems).where(inArray(backlogItems.id, requestIds))) {
+      if (r.p) out.add(r.p);
+    }
+  }
+  return [...out];
+}
+
+/**
+ * Il confine del seguito privato per chi LEGGE (fetta 5): le proposte e i
+ * gruppi da lì in poi non gli arrivano. `null` = nessun taglio.
+ */
+async function readerLimits(db: Db, user: SessionUser, sessionId: string): Promise<{ cut: bigint; at: Date } | null> {
+  const cut = await readerCut(db, user.id, sessionId);
+  if (cut === null) return null;
+  const [first] = await db
+    .select({ at: agentSessionEvents.createdAt })
+    .from(agentSessionEvents)
+    .where(and(eq(agentSessionEvents.sessionId, sessionId), gte(agentSessionEvents.id, cut)))
+    .orderBy(asc(agentSessionEvents.id))
+    .limit(1);
+  return { cut, at: first?.at ?? new Date() };
+}
+
 /** Quanti messaggi (di chi scrive e di Claude) seguono la proposta: un input o una risposta finita. */
 async function messagesAfter(db: Db, row: ProposalRow): Promise<number> {
   if (row.eventId === null) return 0;
@@ -259,7 +299,10 @@ export async function proposalView(db: Db, user: SessionUser, row: ProposalRow, 
   let cls: "A" | "B" | "C" = row.declaredCls;
   let reasons: ClaudeClassReason[] = [];
   const actions = row.actions as PlannedAction[];
-  if (row.status === "open" && !isExpired && !actions.every((a) => a.fn === "pageAction")) {
+  // La classe di adesso si ricalcola (a secco) solo per chi l'ha chiesta: un
+  // lettore di una pubblica la legge e basta (fetta 5).
+  const own = row.requesterId === user.id;
+  if (own && row.status === "open" && !isExpired && !actions.every((a) => a.fn === "pageAction")) {
     const plan = row.undoOfGroupId ? await undoInversesOf(db, user, row.undoOfGroupId) : actions;
     const dry = plan ? await executeGroup(db, user, { sessionId: row.sessionId, actions: plan, dryRun: true }) : null;
     if (dry?.ok) ({ cls, reasons } = classOfGroup(actions, dry));
@@ -289,20 +332,29 @@ async function undoInversesOf(db: Db, user: SessionUser, groupId: string): Promi
 
 /** Le proposte di una conversazione dell'autore (la conversazione la controlla il chiamante). */
 export async function listProposals(db: Db, user: SessionUser, sessionId: string): Promise<ClaudeProposalView[]> {
+  const limits = await readerLimits(db, user, sessionId);
   const rows = await db
     .select()
     .from(claudeProposals)
-    .where(eq(claudeProposals.sessionId, sessionId))
+    .where(
+      and(
+        eq(claudeProposals.sessionId, sessionId),
+        limits ? and(isNotNull(claudeProposals.eventId), lt(claudeProposals.eventId, limits.cut)) : undefined,
+      ),
+    )
     .orderBy(asc(claudeProposals.createdAt));
   return Promise.all(rows.map((r) => proposalView(db, user, r)));
 }
 
 /** I gruppi eseguiti di una conversazione, con lo stato di «Annulla» per chi guarda. */
 export async function listGroups(db: Db, user: SessionUser, sessionId: string): Promise<ClaudeActionGroupView[]> {
+  const limits = await readerLimits(db, user, sessionId);
   const groups = await db
     .select()
     .from(claudeActionGroups)
-    .where(eq(claudeActionGroups.sessionId, sessionId))
+    .where(
+      and(eq(claudeActionGroups.sessionId, sessionId), limits ? lt(claudeActionGroups.executedAt, limits.at) : undefined),
+    )
     .orderBy(desc(claudeActionGroups.executedAt));
   const out: ClaudeActionGroupView[] = [];
   for (const g of groups) {

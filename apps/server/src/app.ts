@@ -28,6 +28,7 @@ import {
   ticketAttachmentRoutes,
 } from "./routes/attachments.js";
 import { accessPreHandler, recordDesktopReauthUseOnResponse } from "./auth/access.js";
+import { recordChatToolReadProjects } from "./services/claude-public.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
@@ -412,6 +413,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // `onSend`, atteso prima che la risposta parta.
   app.addHook("onSend", async (request, reply, payload) => {
     await recordDesktopReauthUseOnResponse(request, reply);
+    // I progetti letti dal token del turno della chat (fetta 5, D2).
+    await recordChatToolReadProjects(request, reply, payload);
     return payload;
   });
 
