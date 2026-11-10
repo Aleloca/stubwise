@@ -57,6 +57,21 @@ Il client legge `canRead`, `canWrite`, `canInvite`, `canDelete` e gli altri
 permessi calcolati dal server, e non li deduce. `canManage` resta per i client
 della fetta 1 e vuol dire «almeno un'azione di gestione».
 
+**I nomi sono unici solo fra i canali NON privati** (in un progetto, e fra i
+generali). Se lo fossero anche fra i privati, un 409 `name_taken` direbbe a chi
+non lo vede che quel privato esiste: crei `#hiring-plan` e scopri che c'è (D2,
+review della fetta 2, scelta dell'orchestratrice). Due privati, o un privato e
+uno aperto, possono quindi avere lo stesso nome.
+
+**Le uscite e le rimozioni si mettono in fila sul canale**: `leave` e
+`removeMember` prendono il lock della riga del canale (`SELECT … FOR
+UPDATE`) e rileggono i membri DOPO il lock. Senza, due uscite insieme leggono
+lo stesso conteggio: un privato resta a zero membri, o un DM resta con una
+`dm_key` vecchia e chi ne è uscito non ritrova più il DM con gli altri.
+`openDm` riapre un DM solo se i suoi membri sono esattamente quelle persone,
+anche se la chiave combacia. Il test di concorrenza (`chat-review.test.ts`)
+tiene le due uscite ferme su un lock e le rilascia insieme.
+
 **Un DM si ritrova dalle sue persone**: `dm_key` sono i loro id ordinati.
 `openDm` riapre il DM più vecchio con quella chiave, e due aperture uguali in
 contemporanea si serializzano con `pg_advisory_xact_lock`. La chiave non è
@@ -91,7 +106,14 @@ messaggi (403 `not_yours`).
 
 - I `mentionedIds` li deriva il server dal testo. Un `@Nome` vale solo se
   `Nome` è il `personName` di qualcuno che LEGGE il canale. Chi scrive è
-  escluso. Il client non li manda.
+  escluso. Il client non li manda. I nomi più lunghi si cercano prima, e ogni
+  nome trovato **consuma** il suo tratto di testo: «@Ale Loca» non avvisa anche
+  «Ale».
+- Chi è stato avvisato per un messaggio resta in `notified_ids`: una menzione
+  tolta e rimessa con una modifica non manda una seconda card. Chi viene
+  nominato con una modifica segue il thread, come alla scrittura.
+- In un DM, che non ha nome, card e push dicono «in un messaggio diretto»
+  invece di «in #» (`isDirectMessageEvent`).
 - **Una domanda** (`asks_reply_of`, fetta 2): un messaggio che nomina
   qualcuno e finisce con «?», o con «Ask for a reply» forzato (`asksReply`).
   A un **membro** arriva una card `chat.question` e una voce in «Da decidere»
@@ -138,6 +160,15 @@ a lettura» (CLAUDE.md).
   normale dei canali e `@channel` no: con molti progetti il punto sarebbe
   sempre acceso.
 
+**Letto fino a**: un `at` esplicito vale com'è, anche più vecchio («Mark
+unread from here» riporta indietro il segno). Senza `at`, il segno va
+all'ultimo messaggio del canale (o del thread), con l'ora del DATABASE: mai
+`new Date()` del server, e mai `greatest`, che impedirebbe di tornare
+indietro.
+
+Si modifica e si elimina solo in un canale non archiviato, e si modifica solo
+da membro che scrive. Seguire un thread è da membro.
+
 Il **flusso** del canale sono le radici più le risposte mandate «anche nel
 canale» (`also_in_channel`). Un messaggio eliminato senza risposte vive e più
 vecchio di un giorno **sparisce** dal flusso, dal thread e dalla ricerca
@@ -150,7 +181,7 @@ deleted».
 (`channelReadableSql`): un privato di cui non è membro, anche se lo gestisce,
 e un DM altrui non ci sono mai. Gli archiviati sì, gli eliminati mai. Ogni
 parola (da 2 caratteri in su) deve comparire come **sottostringa** in
-`search_folded`, il testo senza maiuscole né accenti che il server scrive a
+`search_folded` (vedi il deploy-log per il ripiegamento dopo un rollback), il testo senza maiuscole né accenti che il server scrive a
 ogni scrittura (`foldChatText`, NFD). Non è il full-text inglese dei ticket:
 lo stemming inglese su testo italiano cambierebbe i risultati, e il prototipo,
 che è la specifica, cerca sottostringhe. L'indice è un GIN trigram
@@ -177,7 +208,22 @@ messaggio eliminato non annuncia più niente, e la task resta.
 ## Lo stream: cursore intero in microsecondi
 
 `GET /api/chat/channels/:id/stream?after=<cursore>` è un SSE che rilegge
-visibilità e utente a ogni giro, e si apre solo a chi **legge** il canale. Il cursore è `updated_at` in **microsecondi
+visibilità e utente a ogni giro, e si apre solo a chi **legge** il canale.
+Non ricontrolla invece la SESSIONE a ogni giro (una sessione chiusa resta
+collegata finché la connessione vive), come lo stream delle sessioni degli
+agenti: accettato, perché utente e visibilità li rilegge comunque.
+
+- **Senza `after`** lo stream non rimanda la storia, che la carica la pagina: il
+  cursore parte dall'ultimo cambio del canale, e nessun messaggio arriva.
+- **La finestra di sovrapposizione**: `updated_at = now()` è l'INIZIO della
+  transazione che scrive, e una transazione lunga può committare un
+  `updated_at` più vecchio del cursore già mandato. Ogni giro rilegge quindi
+  da cursore meno 5 secondi (`CHAT_STREAM_OVERLAP_MICROS`), e la connessione
+  tiene `seen` (id → `updated_at`) per non rimandare ciò che è già partito. Il
+  renderer deduplica comunque.
+- Il frame `channel` parte solo se la vista è cambiata.
+- `after` oltre il `bigint` è 400. Il cursore di pagina (`before`) è
+  `<µs di created_at>|<id>`, opaco per il client, e uno malformato è 400. Il cursore è `updated_at` in **microsecondi
 interi**, come testo di sole cifre (`CHAT_STREAM_CURSOR_RE`), e il confronto si
 fa in SQL. Un `Date` di JS tronca ai millisecondi, e due messaggi nello stesso
 millisecondo si perderebbero. Ogni scrittura su un messaggio (modifica,

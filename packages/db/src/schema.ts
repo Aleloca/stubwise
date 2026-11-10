@@ -5559,10 +5559,15 @@ export const chatChannels = pgTable(
   (table) => [
     index("chat_channels_project_idx").on(table.projectId),
     index("chat_channels_dm_key_idx").on(table.dmKey).where(sql`${table.kind} = 'dm'`),
-    uniqueIndex("chat_channels_general_name_idx").on(table.name).where(sql`${table.kind} = 'general'`),
+    // Nomi unici solo fra i canali NON privati: un 409 non deve rivelare un privato (D2).
+    uniqueIndex("chat_channels_general_name_idx")
+      .on(table.name)
+      .where(sql`${table.kind} = 'general' and ${table.visibility} <> 'private'`),
     check("chat_channels_dm_key_chk", sql`(${table.kind} = 'dm') = (${table.dmKey} is not null)`),
     uniqueIndex("chat_channels_one_general_idx").on(table.projectId).where(sql`${table.isGeneral}`),
-    uniqueIndex("chat_channels_project_name_idx").on(table.projectId, table.name).where(sql`${table.projectId} is not null`),
+    uniqueIndex("chat_channels_project_name_idx")
+      .on(table.projectId, table.name)
+      .where(sql`${table.projectId} is not null and ${table.visibility} <> 'private'`),
     check("chat_channels_kind_chk", sql`${table.kind} in ('project', 'general', 'dm')`),
     check("chat_channels_visibility_chk", sql`${table.visibility} in ('open', 'private')`),
     // Un canale di progetto ha il progetto; il «general» è un canale di progetto.
@@ -5614,6 +5619,8 @@ export const chatMessages = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
     viaClaudeActionId: uuid("via_claude_action_id"),
+    /** Chi è già stato avvisato (menzione o domanda): una menzione rimessa non riparte (0137). */
+    notifiedIds: uuid("notified_ids").array().notNull().default(sql`'{}'`),
     /** Una risposta mandata «anche nel canale» (0137). */
     alsoInChannel: boolean("also_in_channel").notNull().default(false),
     /** Il testo senza maiuscole né accenti, per la ricerca (`foldChatText`, 0137). */
@@ -5695,6 +5702,27 @@ export const chatThreadFollows = pgTable(
     following: boolean("following").notNull().default(true),
   },
   (table) => [primaryKey({ name: "chat_thread_follows_pk", columns: [table.userId, table.rootMessageId] })],
+);
+
+/**
+ * Le citazioni di un messaggio (0139): task, richieste, progetti, persone e
+ * pagine Docs. Nessuna FK verso l'oggetto (tabelle diverse): a lettura si
+ * filtrano su ciò che chi legge vede, e un oggetto che non c'è più non esce.
+ */
+export const chatMessageCitations = pgTable(
+  "chat_message_citations",
+  {
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"task" | "request" | "project" | "person" | "doc">().notNull(),
+    refId: uuid("ref_id").notNull(),
+    position: integer("position").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ name: "chat_message_citations_pk", columns: [table.messageId, table.kind, table.refId] }),
+    check("chat_message_citations_kind_chk", sql`${table.kind} in ('task', 'request', 'project', 'person', 'doc')`),
+  ],
 );
 
 /** «Da decidere»: le domande della Chat che chi guarda ha ignorato (0137). */

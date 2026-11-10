@@ -3440,12 +3440,17 @@ deploy o di un rollback che la tocca.
     un'estensione *trusted*: la crea il proprietario del database, senza
     superuser;
   - **0138**: il valore `chat.question` di `notification_kind`, in uno
-    statement a sé.
+    statement a sé;
+  - **0139**: `chat_message_citations`, le citazioni dei messaggi (F2.7,
+    decisione del maintainer).
 
+  Nella 0137 ci sono anche `chat_messages.notified_ids` (chi è già stato
+  avvisato) e, con la review, i nomi unici solo fra i canali NON privati
+  (anche l'indice della 0135, corretto prima del rilascio).
   ⚠️ **`chat.question` è un `notification_kind` nuovo** (vedi il rollback).
   Permessi nuovi: nessuno (`chat.general.*` c'è dalla 0135). Env nuove:
   nessuna.
-  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0137–0138, aspetta
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0137–0139, aspetta
   healthy; (3) **`worker`**, solo SENZA lavoro dell'agente in corso. Deve
   arrivare PRIMA del caddy: il payload manuale dell'intake è `strict`, e un
   worker vecchio rifiuterebbe un job col `chatMessageId` che manda il
@@ -3472,9 +3477,20 @@ deploy o di un rollback che la tocca.
     visibili e leggibili da chiunque veda il progetto. Prima di scendere, o
     si cancellano (`delete from chat_channels where visibility = 'private'
     and kind = 'project';`) o si accetta che diventino leggibili: va deciso
-    PRIMA del rollback.
+    PRIMA del rollback, e la decisione spetta al **maintainer** al momento
+    del rollback (orchestratrice, 10 nov 2026).
   - Un worker vecchio rifiuta i job d'intake con `chatMessageId` (`strict`):
     prima di scendere col worker, nessun job d'intake in coda deve portarlo,
     oppure si scende insieme al caddy (che non lo manda più).
+  - ⚠️ **Dopo una discesa alla fetta 1 e una risalita**, `search_folded` resta
+    vecchio per i messaggi modificati nel frattempo (un server della fetta 1
+    non lo scrive) e vuoto per quelli scritti nel frattempo, che la ricerca
+    quindi non trova. Lo stesso per `notified_ids`, rimasto vuoto: una
+    modifica potrebbe riavvisare chi era già stato nominato. Alla risalita,
+    dopo il server:
+    `update chat_messages set search_folded = lower(body), notified_ids =
+    mentioned_ids where deleted_at is null;`. `lower()` non toglie gli
+    accenti: per quelle righe «perche» non trova più «perché», finché il
+    messaggio non viene modificato (il server ripiega con NFD).
   - Colonne, tabelle ed estensione restano inerti. Il caddy scende insieme al
     server. Le migrazioni non si annullano.

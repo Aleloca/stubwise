@@ -31,6 +31,7 @@ import {
 import { apiError } from "../errors.js";
 import { refreshViewer } from "./agent-sessions.js";
 import {
+  CHAT_CURSOR_MAX,
   changedSince,
   ChatError,
   createChannel,
@@ -115,6 +116,7 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
         ...(request.query.channelId ? { channelId: request.query.channelId } : {}),
         ...(request.query.authorId ? { authorId: request.query.authorId } : {}),
         ...(request.query.peopleOnly === "true" ? { peopleOnly: true } : {}),
+        ...(request.query.withCitations === "true" ? { withCitations: true } : {}),
         ...(request.query.from ? { from: request.query.from } : {}),
         ...(request.query.to ? { to: request.query.to } : {}),
         ...(request.query.limit ? { limit: request.query.limit } : {}),
@@ -225,6 +227,7 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
             ...(request.body.threadRootId ? { threadRootId: request.body.threadRootId } : {}),
             ...(request.body.alsoInChannel ? { alsoInChannel: true } : {}),
             ...(request.body.asksReply ? { asksReply: true } : {}),
+            ...(request.body.citations ? { citations: request.body.citations } : {}),
           }),
         ),
       ),
@@ -260,7 +263,7 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/messages/:id",
     { config: { access: ACCESS }, schema: { params: idParams, body: editChatMessageSchema, response: { 200: chatMessageSchema, ...errors } } },
-    async (request, reply) => handle(reply, () => editMessage(app.db, request.user!, request.params.id, request.body.text)),
+    async (request, reply) => handle(reply, () => editMessage(app.db, request.user!, request.params.id, request.body.text, request.body.citations ?? [])),
   );
   app.delete(
     "/messages/:id",
@@ -293,6 +296,10 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
     { config: { access: ACCESS }, schema: { params: idParams, querystring: z.object({ after: z.string().regex(CHAT_STREAM_CURSOR_RE).optional() }) } },
     async (request, reply) => {
       const id = request.params.id;
+      // Un cursore oltre il `bigint` non è un cursore: 400, non un giro infinito.
+      if (request.query.after !== undefined && BigInt(request.query.after) > CHAT_CURSOR_MAX) {
+        return apiError(reply, 400, "invalid_cursor", "Invalid cursor");
+      }
       let viewer: Parameters<typeof getChannel>[1] = request.user!;
       let first;
       try {
@@ -312,6 +319,11 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
       });
       let closed = false;
       let cursor = request.query.after;
+      // Ciò che è già partito (id → `updated_at` in µs): la finestra di
+      // sovrapposizione rilegge, questa mappa non rimanda.
+      const seen = new Map<string, string>();
+      // Il frame `channel` parte solo se la vista è cambiata.
+      let lastChannel = "";
       let reading = false;
       let dirty = false;
       const timers: NodeJS.Timeout[] = [];
@@ -339,11 +351,16 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
             const fresh = await refreshViewer(app.db, viewer.id);
             if (!fresh) return close();
             viewer = fresh;
-            const changed = await changedSince(app.db, viewer, id, cursor);
+            const changed = await changedSince(app.db, viewer, id, cursor, seen);
             if (!changed) return close();
             cursor = changed.cursor ?? cursor;
             if (changed.messages.length > 0) send({ type: "messages", messages: changed.messages, cursor: changed.cursor });
-            send({ type: "channel", channel: await getChannel(app.db, viewer, id) });
+            const channel = await getChannel(app.db, viewer, id);
+            const serialized = JSON.stringify(channel);
+            if (serialized !== lastChannel) {
+              lastChannel = serialized;
+              send({ type: "channel", channel });
+            }
           } while (dirty && !closed);
         } catch (error) {
           if (error instanceof ChatError) return close();
@@ -353,6 +370,7 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
         }
       };
       reply.raw.on("close", close);
+      lastChannel = JSON.stringify(first);
       send({ type: "channel", channel: first });
       unsubscribe = app.chatBus.subscribe(id, () => void pump());
       timers.push(

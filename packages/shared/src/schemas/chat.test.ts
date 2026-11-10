@@ -90,7 +90,7 @@ describe("gli schemi della Chat", () => {
       text: "ciao",
       createdAt: "2026-11-10T10:00:00.000Z",
     });
-    expect(m).toMatchObject({ alsoInChannel: false, asksReplyOf: [], linked: [], linkedCodes: [] });
+    expect(m).toMatchObject({ alsoInChannel: false, asksReplyOf: [], linked: [], linkedCodes: [], citations: [] });
     const hit = chatMessageHitSchema.parse({ channelId: ID, message: m });
     expect(hit).toMatchObject({ context: null, root: null });
   });

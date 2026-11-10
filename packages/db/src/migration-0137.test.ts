@@ -35,7 +35,7 @@ async function rerunBackfill(): Promise<void> {
     .split("--> statement-breakpoint")
     .map((s) => s.trim())
     .map((s) => s.split("\n").filter((l) => !l.startsWith("--")).join("\n"))
-    .find((s) => s.startsWith('UPDATE "chat_messages"'));
+    .find((s) => s.startsWith('UPDATE "chat_messages"') && s.includes('"search_folded"'));
   expect(update).toBeDefined();
   await t.db.execute(sql.raw(update!));
 }
