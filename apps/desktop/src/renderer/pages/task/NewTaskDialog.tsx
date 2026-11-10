@@ -104,6 +104,7 @@ export function NewTaskDialog({
   initial,
   onCreated,
   onClose,
+  submit: deliver,
 }: {
   projectId?: string;
   fromRequestId?: string;
@@ -125,6 +126,12 @@ export function NewTaskDialog({
   >;
   onCreated: (task: Task) => void;
   onClose: () => void;
+  /**
+   * Al posto della creazione: consegna i valori a chi apre il dialogo (la
+   * scheda di Claude nella build app li conferma con `edited`, chat fetta 3).
+   * Riuscita: il dialogo si chiude; un errore lo dice come una creazione.
+   */
+  submit?: (input: NewTaskInput) => Promise<unknown>;
 }) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
@@ -217,7 +224,9 @@ export function NewTaskDialog({
         setFailed(true);
       },
     };
-    if (fromRequestId) {
+    if (deliver) {
+      deliver({ ...input, projectId: project.id, requestId: null }).then(onClose, () => setFailed(true));
+    } else if (fromRequestId) {
       convert.mutate({ id: fromRequestId, input }, callbacks);
     } else if (fromMessageId) {
       fromMessage.mutate(

@@ -13,6 +13,7 @@ import {
   PROJECT_ID,
   serverProject,
   serverTicketDetail,
+  STATUS_TODO,
   TICKET_ID,
   type SeenRequest,
 } from "./fakeServer";
@@ -99,6 +100,8 @@ const ALLOWED = [
   /^GET \/api\/tasks(\?|$)/,
   /^GET \/api\/tickets\/[^/]+$/,
   /^GET \/api\/tasks\/by-code\/[^/]+$/,
+  /^GET \/api\/projects\/[^/]+\/statuses$/,
+  /^GET \/api\/milestones/,
   /^GET \/api\/agent-sessions(\?|$)/,
   /^GET \/api\/agent-sessions\/[^/]+(\/events.*)?$/,
   /^GET \/api\/agent-sessions\/[^/]+\/stream/,
@@ -114,7 +117,7 @@ const outside = () => seen.filter((r) => !ALLOWED.some((re) => re.test(`${r.meth
 function install(over: { proposals?: unknown[]; groups?: unknown[]; routes?: Record<string, unknown> } = {}) {
   let proposals = over.proposals ?? [cardB()];
   seen = installFakeServer({
-    "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: ["tickets.view_all", "tickets.edit", "runs.start"] } }) },
+    "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: ["tickets.view_all", "tickets.create", "tickets.edit", "runs.start"] } }) },
     "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID, MARTA] })] },
     "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
     "GET /api/decisions": { body: [] },
@@ -129,6 +132,10 @@ function install(over: { proposals?: unknown[]; groups?: unknown[]; routes?: Rec
     "GET /api/departments": { body: [{ id: DEPT_ID, name: "General", colorToken: "--dept-1", isDefault: true }] },
     "GET /api/tasks": { body: { items: [], truncated: false } },
     [`GET /api/tickets/${TICKET_ID}`]: { body: serverTicketDetail() },
+    [`GET /api/projects/${PROJECT_ID}/statuses`]: {
+      body: [{ id: STATUS_TODO, projectId: PROJECT_ID, name: "To do", family: "todo", position: 0 }],
+    },
+    "GET /api/milestones": { body: [] },
     "GET /api/agent-sessions": { body: { live: [], recent: [] } },
     "GET /api/claude/conversations/status": { body: { budgetExhausted: false } },
     "GET /api/claude/conversations": { body: { items: [conversation] } },
@@ -231,6 +238,32 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     await ue.click(within(proposal).getByRole("button", { name: /^Confirm all/ }));
     await waitFor(async () => expect(await card()).toHaveTextContent("Not carried out · expired"));
     expect(within(await card()).queryByRole("button", { name: /^Confirm/ })).toBeNull();
+  });
+
+  it("«Edit» su una task proposta: il dialogo coi valori di Claude; salvare CONFERMA con edited, non crea a mano", async () => {
+    install({
+      proposals: [
+        cardB({
+          actions: [{ fn: "createTask", args: { projectId: PROJECT_ID, title: "Export the CSV", type: "task", assigneeId: MARTA } }],
+          reasons: [{ kind: "notifies", personIds: [MARTA], more: false }],
+        }),
+      ],
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${CONV}`);
+    const proposal = await card();
+    await ue.click(within(proposal).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "New task" });
+    const title = within(dialog).getByLabelText("Title");
+    expect(title).toHaveValue("Export the CSV");
+    await ue.clear(title);
+    await ue.type(title, "Export the CSV report");
+    await ue.click(within(dialog).getByRole("button", { name: "Create task" }));
+    await waitFor(() => expect(seen.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([`/api/claude/proposals/${PROPOSAL}/confirm`]));
+    expect(seen.find((r) => r.method === "POST")!.body).toMatchObject({
+      edited: [{ index: 0, args: { projectId: PROJECT_ID, title: "Export the CSV report", assigneeId: MARTA } }],
+    });
+    expect(outside()).toEqual([]);
   });
 
   it("«Cancel» annulla la scheda sul server; niente si esegue", async () => {

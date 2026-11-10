@@ -288,10 +288,10 @@ type Fake = typeof import("../../api");
  */
 export const confirmProposal: Fake["confirmProposal"] = async (_conversationId, proposalId, options = {}) => {
   try {
-    const view = await appClient().claude.proposals.confirm(
-      proposalId,
-      options.actionIndexes ? { selected: options.actionIndexes } : {},
-    );
+    const view = await appClient().claude.proposals.confirm(proposalId, {
+      ...(options.actionIndexes ? { selected: options.actionIndexes } : {}),
+      ...(options.edited ? { edited: options.edited } : {}),
+    });
     return view.status === "confirmed"
       ? { status: "confirmed", resultCodes: [], runConversationIds: [] }
       : { status: "failed", error: view.status };
@@ -300,6 +300,18 @@ export const confirmProposal: Fake["confirmProposal"] = async (_conversationId, 
     if (error instanceof ApiError && error.status === 409) return { status: "failed", error: error.code ?? "conflict" };
     throw error;
   }
+};
+
+/**
+ * «Edit»: gli argomenti dell'azione dalla vista del server, per il dialogo.
+ * Salvare il dialogo CONFERMA la proposta con `edited` (la esegue il server,
+ * col segno «via Claude»): mai una scrittura a mano.
+ */
+export const editProposal: Fake["editProposal"] = async (conversationId, proposalId, actionIndex = 0) => {
+  const proposals = await appClient().claude.conversations.proposals(conversationId);
+  const action = proposals.find((p) => p.id === proposalId)?.actions[actionIndex];
+  if (!action) throw Object.assign(new Error("not_found"), { code: "not_found" });
+  return { fn: action.fn as Awaited<ReturnType<Fake["editProposal"]>>["fn"], args: action.args };
 };
 
 /** «Cancel» della scheda: niente si esegue. */
