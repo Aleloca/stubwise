@@ -3494,3 +3494,49 @@ deploy o di un rollback che la tocca.
     messaggio non viene modificato (il server ripiega con NFD).
   - Colonne, tabelle ed estensione restano inerti. Il caddy scende insieme al
     server. Le migrazioni non si annullano.
+- **«Integrazione area 4, fetta 3: @Claude nei canali» (10 nov 2026)**: piano
+  `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`, invariante
+  `docs/invariants/chat.md` (sezione «@Claude nella Chat»). «@Claude» in un
+  messaggio fa nascere nel thread la risposta di Claude, «chiamato da» chi
+  scrive, con una sessione dell'agente per chiamata (kind `chat_mention`,
+  privata di chi chiama).
+  - Le modifiche sono proposte di classe B che conferma solo chi ha chiamato,
+    senza «Annulla».
+  - Claude può fare UNA domanda a chi ha chiamato (`ask_question`), che finisce
+    nel thread e in «Da decidere».
+  - Ci sono stop, «Try again» ed eliminazione della risposta.
+
+  Rotte nuove: `POST /api/chat/messages/:id/claude/stop|retry|answer`, `GET
+  /api/chat/claude-questions`. Le proposte si decidono con le rotte di sempre.
+  Migrazione **0140**:
+  - il CHECK `agent_sessions_kind_chk` con `chat_mention`;
+  - su `chat_messages`, `agent_session_id`, `call_message_id`,
+    `claude_state`, `claude_error` e `claude_retried`, con un CHECK;
+  - la tabella `chat_claude_questions`.
+
+  Nessun `notification_kind` nuovo. Env nuove: nessuna. Il worker espone
+  `ask_question` solo nei turni di una chiamata (env `CHAT_ASK_QUESTION` del
+  server MCP della chat, impostata dal turno). **Golden** sul CLI 2.1.322:
+  `chat-mention-read`, `chat-mention-propose` (3 volte) e `chat-mention-ask` (5
+  volte), più un giro dei `chat-*` di prima.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0140, aspetta healthy.
+  Da qui un «@Claude» crea la risposta e la sessione, che restano «working»
+  finché arriva il worker; (3) **`worker`**, solo SENZA lavoro dell'agente in
+  corso: dispatcha `chat_mention` allo scheduler della chat e scrive testo e
+  stato della risposta; (4) **`caddy`**: il renderer di `/app` con @Claude. Se
+  le fette 1–2 escono nello stesso rilascio, valgono anche le loro voci (0135–0140 in una volta).
+  **Rollback**:
+  - Un server vecchio non conosce `chat_mention`: le sessioni di quel kind le
+    tratterebbe come quelle di progetto, cioè VISIBILI ad altri. ⚠️ Prima di
+    scendere col server: `delete from agent_sessions where kind =
+    'chat_mention';`. La cascata porta via conversazioni ed eventi; le
+    risposte `claude` restano messaggi, con `agent_session_id` nullo.
+  - Le risposte `claude` restano nel thread come messaggi: un server della
+    fetta 2 le mostra col loro testo, senza stato né schede.
+  - Le proposte di quelle sessioni se ne vanno con le sessioni (cascata). Le
+    azioni già confermate restano fatte, come ogni azione di Claude.
+  - Un worker vecchio scarta i turni di `chat_mention` («senza scheduler»): le
+    risposte restano «working». Prima di scendere col worker, chiuderle a
+    mano: `update chat_messages set claude_state = 'failed', claude_error =
+    'other' where claude_state in ('working', 'waiting');`.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.

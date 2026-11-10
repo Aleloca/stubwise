@@ -141,8 +141,6 @@ chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
 
 Fetta 2 chiusa lato server (sotto, «Chiuse»).
 
-- @Claude nella chat, e le sue domande in «Da decidere» *(fetta 3)*: regole
-  proprie del prototipo, tutto proposte e niente «Annulla».
 - Le citazioni nei messaggi (`citations`) *(in attesa del [DECIDE] 1 del
   piano della fetta 2)*: oggi il renderer manda `[]`, e la ricerca e il filtro
   «con citazioni» non le vedono.
@@ -264,6 +262,13 @@ Fetta 2 chiusa lato server (sotto, «Chiuse»).
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- **Area 4, fetta 3: @Claude nei canali, server e worker** *(M/O, 10 nov
+  2026)*: la chiamata e la sessione privata di chi chiama (D5), il contesto
+  del thread costruito dal server, le proposte sempre B senza «Annulla», la
+  domanda a chi chiama (`ask_question` scritto dal worker) in «Da decidere»,
+  stop, «Try again», eliminazione, budget → `failed`/`budget`. Migrazione
+  0140; golden `chat-mention-*`. Il renderer è di stubwise-94.
 
 - Messaggi «via Claude» nella Chat *(M, 10 nov 2026, piano della fetta 3)*:
   si chiude senza codice. Nessuna azione del catalogo scrive in Chat, e
