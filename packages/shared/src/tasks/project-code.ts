@@ -1,9 +1,19 @@
 /**
  * Il codice di un progetto NUOVO dall'app (integrazione area 2, fetta 4,
  * spostato da `apps/desktop/src/renderer/domain/projectCode.ts`): 2–4 lettere
- * maiuscole, univoco. Il server ne accetta di più larghi (`projectCodeSchema`,
- * quelli ricavati dagli slug dei progetti di prima): questa è la regola della
- * proposta e del dialogo «Nuovo progetto».
+ * maiuscole, univoco.
+ *
+ * Le regole del codice sono DUE, e la differenza è voluta:
+ * - **questa, stretta, serve solo alla PROPOSTA** — i codici che `proposeCodes`
+ *   suggerisce e quelli che il dialogo «Nuovo progetto» accetta;
+ * - **`projectCodeSchema` (`schemas/project.ts`, `^[A-Z][A-Z0-9]{1,5}$`) è la
+ *   VALIDAZIONE del server** — creazione e PATCH —, più larga perché i
+ *   codici dei progetti di prima (0107) sono ricavati dagli slug e possono
+ *   avere cifre o fino a sei caratteri. Anche il riconoscimento dei codici
+ *   `<PROGETTO>-R<n>` e `<PROGETTO>-<n>` nelle rotte segue la regola larga.
+ * Ogni codice che la proposta dà passa la validazione (test in
+ * `schemas/project-request.test.ts`); non il contrario. Non restringere la
+ * validazione a questa: i codici esistenti diventerebbero non validi.
  */
 export const PROJECT_CODE_RE = /^[A-Z]{2,4}$/;
 

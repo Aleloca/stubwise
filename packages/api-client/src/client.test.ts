@@ -536,8 +536,10 @@ describe("gruppi dell'integrazione area 2 (task, decisioni, reparti, persone, st
     });
     const c = clientWith(fetchImpl);
     const [listed] = await c.requests.list(P);
-    // Campi assenti da un server più vecchio: i default.
+    // Campi assenti da un server più vecchio: i default. L'elenco è leggero: niente testi interi.
     expect(listed).toMatchObject({ requesterIds: [], taskIds: [], urgent: false, size: null, mergedIntoCode: null, suggestions: null });
+    expect(listed).toMatchObject({ excerpt: "", hasDesign: false, hasPlan: false });
+    expect(listed).not.toHaveProperty("description");
     await c.requests.get(R);
     await c.requests.byCode("STW-R4");
     expect(await c.requests.create({ projectId: P, title: "Esportare", description: "" })).toEqual({ jobId: R });

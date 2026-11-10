@@ -52,7 +52,7 @@ import {
   fromBody,
 } from "../auth/project-resolvers.js";
 import { convertBacklogItem } from "../services/backlog.js";
-import { applyBacklogMerge, MergeAiError, mergedDocumentOf } from "../services/backlog-merge.js";
+import { applyBacklogMerge, MergeAiError, MergeChangedError, mergedDocumentOf, readMergeSnapshot } from "../services/backlog-merge.js";
 import { backlogVisibleSql } from "../services/backlog-visibility.js";
 export { backlogVisibleSql };
 import {
@@ -987,16 +987,21 @@ export async function backlogRoutes(instance: FastifyInstance): Promise<void> {
       // Integrazione dei due documenti (markdown puro, non JSON): FUORI
       // transazione; poi la fusione atomica (`services/backlog-merge.ts`). Se il
       // modello non risponde non si scrive niente.
-      let mergedDocument: string;
+      // Se nel frattempo una delle due cambia, 409 `request_changed`.
+      const before = await readMergeSnapshot(app.db, id, targetId);
+      if (!before) return apiError(reply, 409, "request_changed", "One of the two items changed; nothing was merged");
       try {
-        mergedDocument = await mergedDocumentOf(app.chatLlm, target, absorbed, target.projectId);
+        const mergedDocument = await mergedDocumentOf(app.chatLlm, before.target, before.absorbed, target.projectId);
+        await applyBacklogMerge(app.db, before, mergedDocument);
       } catch (error) {
         if (error instanceof MergeAiError) {
           return apiError(reply, 502, "merge_failed", "The AI could not merge the two items; nothing was changed");
         }
+        if (error instanceof MergeChangedError) {
+          return apiError(reply, 409, "request_changed", "One of the two items changed while merging; nothing was merged");
+        }
         throw error;
       }
-      await applyBacklogMerge(app.db, id, targetId, mergedDocument);
 
       const updated = await loadBaseItem(app.db, targetId, itemVisibility(request));
       if (!updated) return apiError(reply, 404, "target_not_found", "Target backlog item not found");
