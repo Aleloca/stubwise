@@ -2,6 +2,7 @@ import { ApiError } from "@stubwise/api-client";
 import type { ProjectMember } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { Project, ProjectModule, ProjectTemplate } from "../../types";
+import { claudeWorkingProjectIds, claudeWaitingCounts } from "./claudePulse";
 import { appClient, session } from "./client";
 
 // I progetti della build app (integrazione area 2, fetta 1): quelli che chi
@@ -35,7 +36,7 @@ const DEFAULT_THRESHOLDS = { activeDays: 7, todoDays: 14 };
 /** Il codice di un progetto: quello del server; da un server più vecchio, lo slug in maiuscolo. */
 const codeOf = (p: ServerProject): string => p.code ?? p.slug.toUpperCase();
 
-function toProject(p: ServerProject, memberIds: string[]): Project {
+function toProject(p: ServerProject, memberIds: string[], claudeWorking = false): Project {
   return {
     id: p.id,
     code: codeOf(p),
@@ -46,7 +47,7 @@ function toProject(p: ServerProject, memberIds: string[]): Project {
     ...(p.clientName ? { clientName: p.clientName } : {}),
     memberIds,
     stallThresholds: p.stallThresholds ?? DEFAULT_THRESHOLDS,
-    signals: { claudeWorking: false },
+    signals: { claudeWorking },
     ...(p.description ? { description: p.description } : {}),
   };
 }
@@ -66,8 +67,12 @@ async function membersOf(projectId: string): Promise<string[]> {
 
 export const listProjects: typeof Fake.listProjects = async () => {
   const rows = (await appClient().projects.list()) as unknown as ServerProject[];
-  const members = await Promise.all(rows.map((p) => p.memberIds ?? membersOf(p.id)));
-  return rows.map((p, i) => toProject(p, members[i]!));
+  const [members, working] = await Promise.all([
+    Promise.all(rows.map((p) => p.memberIds ?? membersOf(p.id))),
+    claudeWorkingProjectIds(),
+  ]);
+  // «Claude al lavoro» sulla tessera del binario (area 3, 3e.2).
+  return rows.map((p, i) => toProject(p, members[i]!, working.has(p.id)));
 };
 
 /** Un progetto invisibile risponde come uno che non esiste: `null`. */
@@ -75,7 +80,9 @@ export const getProjectByCode: typeof Fake.getProjectByCode = async (code) => {
   const wanted = code.toUpperCase();
   const rows = (await appClient().projects.list()) as unknown as ServerProject[];
   const hit = rows.find((p) => codeOf(p) === wanted);
-  return hit ? toProject(hit, hit.memberIds ?? (await membersOf(hit.id))) : null;
+  if (!hit) return null;
+  const [members, working] = await Promise.all([hit.memberIds ?? membersOf(hit.id), claudeWorkingProjectIds()]);
+  return toProject(hit, members, working.has(hit.id));
 };
 
 /** I fissati sono i progetti seguiti (`/api/me/follows`), nell'ordine del server. */
@@ -100,7 +107,11 @@ export const setPinned: typeof Fake.setPinned = async (projectId, isPinned) => {
  * progetto: il progetto lo dà il ticket (una lettura per task distinta).
  */
 export const listWaitingOnMeProjectIds: typeof Fake.listWaitingOnMeProjectIds = async () => {
-  const decisions = await appClient().decisions.list({ askedOfId: "me", open: true });
+  const [decisions, claude] = await Promise.all([
+    appClient().decisions.list({ askedOfId: "me", open: true }),
+    // Area 3, 3e.2: anche Claude che aspetta me (piani e domande in «Da decidere»).
+    claudeWaitingCounts(),
+  ]);
   // Il server dà il progetto (`projectId`, derivato a lettura); da un server
   // che non lo manda ancora, lo dà il ticket.
   const known = decisions.flatMap((d) => {
@@ -115,7 +126,7 @@ export const listWaitingOnMeProjectIds: typeof Fake.listWaitingOnMeProjectIds = 
   const tickets = await Promise.all(
     taskIds.map((id) => appClient().tickets.get(id).catch(() => null)),
   );
-  return [...new Set([...known, ...tickets.flatMap((t) => (t ? [t.projectId] : []))])];
+  return [...new Set([...known, ...tickets.flatMap((t) => (t ? [t.projectId] : [])), ...claude.keys()])];
 };
 
 /**

@@ -75,6 +75,8 @@ describe("isIntegrated", () => {
         "feature:claude-decisions",
         // Fetta 3c: il refinement.
         "feature:refine",
+        // Fetta 3e: Claude assegnabile.
+        "feature:claude-assign",
       ].sort(),
     );
   });

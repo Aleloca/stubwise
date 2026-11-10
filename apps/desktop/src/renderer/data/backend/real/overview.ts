@@ -9,6 +9,7 @@ import type {
   TimelinePage,
 } from "../../types";
 import { appClient, session } from "./client";
+import { claudeWaitingCounts, claudeWorkingProjectIds } from "./claudePulse";
 import { listRequestsToConvert } from "./requests";
 import { listMilestonesOf, listProjectStatuses } from "./statuses";
 import { listDecisionRequests } from "./taskDetail";
@@ -159,13 +160,15 @@ async function pulsesOf(projectIds: string[]): Promise<ProjectPulse[]> {
     ...(projectIds.length === 1 ? { projectIds } : {}),
     families: ["todo", "active"] as ("todo" | "active")[],
   };
-  const [tasks, stalled, milestones, decisions, requests, statuses] = await Promise.all([
+  const [tasks, stalled, milestones, decisions, requests, statuses, claudeWorking, claudeWaiting] = await Promise.all([
     listTasks(criteria),
     listStalled(criteria),
     listMilestonesOf(projectIds),
     listDecisionRequests({ askedOfId: me, open: true }),
     listRequestsToConvert(),
     Promise.all(projectIds.map((id) => listProjectStatuses(id))),
+    claudeWorkingProjectIds(),
+    claudeWaitingCounts(),
   ]);
   const truncated = tasksTruncated(criteria);
   const familyOf = new Map(statuses.flat().map((s) => [s.id, s.family] as const));
@@ -182,9 +185,9 @@ async function pulsesOf(projectIds: string[]): Promise<ProjectPulse[]> {
       milestones: milestones.filter((m) => m.projectId === projectId),
       decisionsForMe: decisions.filter((d) => (d.projectId ?? projectOfTask.get(d.taskId)) === projectId).length,
       requestsToConvert: requests.filter((r) => r.projectId === projectId && r.status === "new").length,
-      // Claude (area 3) non è integrato: niente domande né lavoro in corso da dire.
-      claudeWaitingForMe: 0,
-      claudeWorking: false,
+      // Area 3, 3e.2: le sessioni di lavoro dal vivo e le voci di Claude per me.
+      claudeWaitingForMe: claudeWaiting.get(projectId) ?? 0,
+      claudeWorking: claudeWorking.has(projectId),
     });
     return {
       ...pulse,

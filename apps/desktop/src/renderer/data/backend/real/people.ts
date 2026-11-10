@@ -6,8 +6,9 @@ import { appClient } from "./client";
 // Persone e reparti della build app (integrazione area 2, fetta 1), da
 // `GET /api/people` e `GET /api/departments`: le persone che condividono un
 // progetto con chi guarda (tutte per un full admin), il nome già risolto dal
-// server (`display_name` o la parte locale dell'email). Claude non è una
-// persona del server in questa fetta: non si assegna.
+// server (`display_name` o la parte locale dell'email). Claude è la riga con
+// `isClaude` (area 3, 3e.2): non è membro di nessun progetto, e si assegna solo
+// nei progetti di `claudeAssignableProjectIds` (`data/assignable.ts`).
 
 export function toPerson(view: PersonView): Person {
   return {
@@ -15,9 +16,10 @@ export function toPerson(view: PersonView): Person {
     name: view.name,
     initials: view.initials,
     departmentIds: view.departmentIds,
-    isClaude: false,
+    isClaude: view.isClaude,
     presetRole: "",
     deactivated: view.deactivated,
+    ...(view.isClaude ? { assignableProjectIds: view.claudeAssignableProjectIds } : {}),
   };
 }
 

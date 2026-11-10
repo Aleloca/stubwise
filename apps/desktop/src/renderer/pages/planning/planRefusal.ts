@@ -2,11 +2,18 @@
 // (o il finto) ha detto no per una regola, e riprovare non serve. Ha la sua
 // frase e niente «Try again»; ogni altro errore (rete, 500) resta da riprovare.
 // Il server manda `code` (`forbidden`, `invalid_assignee`, `past_week`,
-// `not_in_week`), il finto lo scrive nel messaggio.
+// `not_in_week`, `claude_assign_forbidden`: Claude a chi non ne può avviare il
+// lavoro, area 3 3e), il finto lo scrive nel messaggio.
 
-export type PlanRefusal = "forbidden" | "invalid_assignee" | "past_week" | "not_in_week";
+export type PlanRefusal = "forbidden" | "invalid_assignee" | "past_week" | "not_in_week" | "claude_assign_forbidden";
 
-const REFUSALS: readonly PlanRefusal[] = ["forbidden", "invalid_assignee", "past_week", "not_in_week"];
+const REFUSALS: readonly PlanRefusal[] = [
+  "forbidden",
+  "invalid_assignee",
+  "past_week",
+  "not_in_week",
+  "claude_assign_forbidden",
+];
 
 /** Le frasi del finto (`data/api-mutations.ts`: `forbidden()`, `invalid("assignee")`). */
 const FAKE_MESSAGES: Record<string, PlanRefusal> = {

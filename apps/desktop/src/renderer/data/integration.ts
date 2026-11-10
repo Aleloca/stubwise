@@ -64,6 +64,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "claude-decisions",
     // Fetta 3c: il refinement delle richieste («Refine with Claude»).
     "refine",
+    // Fetta 3e: Claude fra gli assegnatari, solo nei progetti che la sua riga
+    // di `/api/people` elenca (`claudeAssignableProjectIds`).
+    "claude-assign",
   ]),
 };
 
