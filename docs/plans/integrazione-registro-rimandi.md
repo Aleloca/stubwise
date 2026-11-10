@@ -157,6 +157,11 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   previsti dal server, da decidere col maintainer se servono.
 - Azioni di Claude dell'area 9 (membri, ruoli, impostazioni senza segreti), con
   la riconferma.
+- Classe C delle azioni di Claude (la fetta 4 della chat è vuota: le C sono
+  solo dell'area 9) *(O, 10 nov 2026)*: nel renderer la conferma di una
+  proposta MODIFICATA (`confirmEdited`, scheda «Edit») salta il wrapper
+  `reauth()` che usa la conferma semplice. Oggi è innocuo (nessuna C ha
+  «Edit»), ma con le prime C va passata dalla riconferma come Confirm.
 - **Cassaforte dal desktop: aperta al desktop riconfermato per decisione del
   maintainer, bloccata tecnicamente dallo sblocco PRF** *(M, 10 nov 2026)*. Il
   maintainer vuole che dal desktop si faccia tutto quello che si fa dal
