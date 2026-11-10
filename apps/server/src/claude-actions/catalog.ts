@@ -22,6 +22,7 @@ import { createMilestone, deleteMilestone } from "../services/milestones.js";
 import { archiveRequest, reopenRequest } from "../services/project-request-writes.js";
 import { deleteTask } from "../services/task-delete.js";
 import { createTaskFilter, deleteTaskFilter } from "../services/task-filters.js";
+import { deleteStoredObjects } from "./effects.js";
 import { loadTaskViews } from "../services/task-view.js";
 import { createTask, planTask, updateTask } from "../services/task-writes.js";
 
@@ -206,6 +207,8 @@ const ENTRIES: CatalogEntry[] = [
       const id = args["id"] as string;
       const result = await deleteTask(tx, { ...user, permissions }, id);
       if (!result.ok) return refused(result.error === "busy" ? "busy" : result.error, result.error);
+      // I file degli allegati: DOPO il commit, e mai in una prova a secco (`effects.ts`).
+      deleteStoredObjects(result.storageKeys);
       return { ok: true, result: { inverse: null, objects: [{ kind: "task", id }], codes: [] } };
     },
   },
@@ -244,8 +247,9 @@ const ENTRIES: CatalogEntry[] = [
         commentId: args["id"] as string,
         actor: { id: user.id, permissions },
       });
-      // I commenti di Claude non hanno allegati: niente da togliere dallo storage.
       if (!result.ok) return refused(result.error === "forbidden" ? "forbidden" : "not_found", result.error);
+      // I file degli allegati del commento: DOPO il commit, mai a secco.
+      deleteStoredObjects(result.storageKeys);
       return { ok: true, result: { inverse: null, objects: [{ kind: "task", id: args["taskId"] as string }], codes: [] } };
     },
   },

@@ -10,6 +10,7 @@ import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { evaluateProjectAccess } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { declaredClassOf, parseArgs, SERVER_CATALOG, syntheticRequest, type ActionObject } from "./catalog.js";
+import { runActionContext, runFollowUps, type ActionEffects } from "./effects.js";
 
 /**
  * L'ESECUTORE delle azioni di Claude (chat, fetta 3). È l'unico posto in cui
@@ -79,7 +80,23 @@ export async function executeGroup(
     proposalId?: string;
     undoOfGroupId?: string;
     dryRun?: boolean;
+    /** Ciò che i seguiti dopo il commit usano (lo storage): mai toccato a secco. */
+    effects?: ActionEffects;
   },
+): Promise<ExecuteResult> {
+  // Il contesto della prova a secco: ogni seguito passa da `effects.ts`, che a
+  // secco lo scarta e dal vero lo lancia DOPO il commit (qui sotto).
+  const { value, followUps } = await runActionContext({ dryRun: input.dryRun === true }, () =>
+    runGroup(db, user, input),
+  );
+  if (value.ok && !input.dryRun) await runFollowUps(followUps, input.effects ?? {});
+  return value;
+}
+
+async function runGroup(
+  db: Db,
+  user: SessionUser,
+  input: { sessionId: string; actions: readonly PlannedAction[]; proposalId?: string; undoOfGroupId?: string; dryRun?: boolean },
 ): Promise<ExecuteResult> {
   try {
     return await db.transaction(async (tx) => {

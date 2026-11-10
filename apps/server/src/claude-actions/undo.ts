@@ -3,6 +3,7 @@ import type { ClaudeActionFn } from "@stubwise/shared";
 import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
 import type { ActionObject } from "./catalog.js";
+import type { ActionEffects } from "./effects.js";
 import { executeGroup, type ExecuteResult, type PlannedAction } from "./execute.js";
 
 /**
@@ -112,7 +113,7 @@ export async function undoGroup(
   db: Db,
   user: SessionUser,
   groupId: string,
-  opts: { confirmed?: boolean } = {},
+  opts: { confirmed?: boolean; effects?: ActionEffects } = {},
 ): Promise<UndoResult> {
   const state = await undoStateOf(db, user.id, groupId);
   if (state.state !== "available") return { ok: false, error: state.state };
@@ -132,7 +133,12 @@ export async function undoGroup(
     .where(and(eq(claudeActionGroups.id, groupId), isNull(claudeActionGroups.undoneAt)))
     .returning({ id: claudeActionGroups.id });
   if (claimed.length === 0) return { ok: false, error: "undone" };
-  const done = await executeGroup(db, user, { sessionId, actions: state.inverses, undoOfGroupId: groupId });
+  const done = await executeGroup(db, user, {
+    sessionId,
+    actions: state.inverses,
+    undoOfGroupId: groupId,
+    ...(opts.effects ? { effects: opts.effects } : {}),
+  });
   if (!done.ok) {
     await db.update(claudeActionGroups).set({ undoneAt: null, undoneBy: null }).where(eq(claudeActionGroups.id, groupId));
     return { ok: false, error: "refused", failure: done.failure };
