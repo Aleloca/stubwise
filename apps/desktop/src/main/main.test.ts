@@ -120,13 +120,16 @@ describe("menu dell'applicazione", () => {
 // 11a `file:save` (decisione 8 della spec) e, dall'integrazione area 2 (fetta
 // 1, Task 13), `api:request`, `instance:get|set`, `session:logout|status|start-browser-login|cancel-browser-login`
 // e `open:web`. Un canale in più (o scelto dal renderer) fa fallire questo
-// test. Il preload espone solo `window.stubwise` con le sue otto voci.
+// test. Dall'area 3 (fetta 3a) anche `api:stream-open` e `api:stream-port`. Il preload
+// espone solo `window.stubwise` con le sue nove voci.
 describe("canali IPC", () => {
   const read = (rel: string) => readFileSync(resolve(__dirname, rel), "utf8");
   const main = read("./index.ts");
   const preload = read("../preload/index.ts");
   const EXPECTED = [
     "api:request",
+    "api:stream-open",
+    "api:stream-port",
     "file:save",
     "instance:get",
     "instance:set",
@@ -157,6 +160,16 @@ describe("canali IPC", () => {
     expect([...all].sort()).toEqual(EXPECTED);
     expect(main).toMatch(/ipcMain\.handle\("file:save",/);
     expect(preload).toMatch(/ipcRenderer\.invoke\("file:save",/);
+  });
+
+  it("lo stream delle sessioni (area 3, fetta 3a): una porta di MessageChannelMain al preload, mai un MessagePort alla pagina", () => {
+    expect(main).toMatch(/ipcMain\.on\("api:stream-open",[\s\S]*?fromApp\(event\)[\s\S]*?new MessageChannelMain\(\)/);
+    expect(main).toMatch(/postMessage\("api:stream-port",/);
+    expect(main).toMatch(/streams\.closeWindow\(/);
+    expect(preload).toMatch(/ipcRenderer\.send\("api:stream-open",/);
+    expect(preload).toMatch(/ipcRenderer\.on\("api:stream-port",/);
+    // La porta resta nel preload: alla pagina arrivano solo i messaggi.
+    expect(preload).not.toMatch(/window\.postMessage/);
   });
 
   it("nessuna chiamata IPC con un canale che non sia letterale (tranne i menu della lista fissa)", () => {
@@ -211,7 +224,7 @@ describe("canali IPC", () => {
     }
   });
 
-  it("il preload espone solo platform, setTheme, onMenu, saveFile, api, instance, session e openWeb", () => {
+  it("il preload espone solo platform, setTheme, onMenu, saveFile, api, openStream, instance, session e openWeb", () => {
     const exposed = preload.match(/exposeInMainWorld\("stubwise", \{([\s\S]*)\}\);/)?.[1] ?? "";
     const keys = [...exposed.matchAll(/^ {2}([a-zA-Z]+):/gm)].map((m) => m[1]);
     expect(keys).toEqual([
@@ -220,6 +233,7 @@ describe("canali IPC", () => {
       "onMenu",
       "saveFile",
       "api",
+      "openStream",
       "instance",
       "session",
       "openWeb",

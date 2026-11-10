@@ -1,8 +1,9 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, shell } from "electron";
 import { handleApiRequest, isWebPath } from "./apiProxy";
+import { createStreamRegistry } from "./apiStream";
 import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./instance";
 import { buildMenuTemplate } from "./menu";
 import { hostname as osHostname } from "node:os";
@@ -150,6 +151,40 @@ ipcMain.handle("api:request", async (event, raw: unknown) => {
       notifySession({ signedIn: false, error: "unauthorized" });
     },
   });
+});
+
+// Lo stream dal vivo delle sessioni (integrazione area 3, fetta 3a,
+// `apiStream.ts`): il preload chiede `api:stream-open` col percorso, il main
+// apre la connessione col bearer e gli passa una porta di `MessageChannelMain`
+// (`api:stream-port`) su cui arrivano i frame. La porta resta nel preload;
+// chiuderla ferma lo stream, chiudere la finestra li ferma tutti.
+const streams = createStreamRegistry({
+  instanceUrl: readInstanceUrl,
+  token: readToken,
+  onUnauthorized: (used) => {
+    if (readToken() !== used) return;
+    clearToken();
+    notifySession({ signedIn: false, error: "unauthorized" });
+  },
+});
+const watchedWindows = new Set<number>();
+
+ipcMain.on("api:stream-open", (event, raw: unknown) => {
+  if (!fromApp(event)) return;
+  const id = (raw as { id?: unknown } | null)?.id;
+  if (typeof id !== "string" || id.length > 64) return;
+  const sender = event.sender;
+  if (!watchedWindows.has(sender.id)) {
+    watchedWindows.add(sender.id);
+    const windowId = sender.id;
+    sender.once("destroyed", () => {
+      watchedWindows.delete(windowId);
+      streams.closeWindow(windowId);
+    });
+  }
+  const { port1, port2 } = new MessageChannelMain();
+  sender.postMessage("api:stream-port", { id }, [port2]);
+  streams.open(sender.id, (raw as { path?: unknown }).path, port1);
 });
 
 ipcMain.handle("instance:get", (event) => (fromApp(event) ? readInstanceUrl() : null));

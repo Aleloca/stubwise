@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { ApiProxyRequest, ApiProxyResponse } from "../main/apiProxy";
+import type { StreamPortMessage } from "../main/apiStream";
 import type { SaveFileRequest, SaveFileResult } from "../main/security";
 import type { SessionChange } from "../main/browserLogin";
 
@@ -37,6 +38,42 @@ contextBridge.exposeInMainWorld("stubwise", {
   // qui passano solo richieste, esiti e l'utente della sessione.
   api: {
     request: (req: ApiProxyRequest): Promise<ApiProxyResponse> => ipcRenderer.invoke("api:request", req),
+  },
+  /**
+   * Lo stream dal vivo di una sessione (area 3, fetta 3a): il main apre
+   * `path` (solo `/api/agent-sessions/:uuid/stream?after=n`) e i suoi
+   * messaggi arrivano a `onMessage` — `open`, `frame` (il parse di
+   * `@stubwise/shared`), `end` (con `fatal`: la ripresa da `?after=` la decide
+   * chi chiama). La `MessagePort` resta QUI: `contextBridge` non la passa alla
+   * pagina, e consegnargliela con un messaggio della finestra la renderebbe
+   * raggiungibile da ogni script della pagina. Restituisce la funzione che chiude lo stream.
+   */
+  openStream: (path: string, onMessage: (message: StreamPortMessage) => void): (() => void) => {
+    const id = crypto.randomUUID();
+    let port: MessagePort | null = null;
+    let closed = false;
+    const onPort = (event: Electron.IpcRendererEvent, msg: { id?: unknown }) => {
+      if (msg?.id !== id) return;
+      ipcRenderer.removeListener("api:stream-port", onPort);
+      port = event.ports[0] ?? null;
+      if (!port) return;
+      if (closed) {
+        port.close();
+        return;
+      }
+      port.onmessage = (e: MessageEvent) => {
+        onMessage(e.data as StreamPortMessage);
+        if ((e.data as StreamPortMessage).type === "end") port?.close();
+      };
+      port.start();
+    };
+    ipcRenderer.on("api:stream-port", onPort);
+    ipcRenderer.send("api:stream-open", { id, path });
+    return () => {
+      closed = true;
+      ipcRenderer.removeListener("api:stream-port", onPort);
+      port?.close();
+    };
   },
   instance: {
     get: (): Promise<string | null> => ipcRenderer.invoke("instance:get"),
