@@ -108,13 +108,18 @@ const full = (over: Record<string, unknown> = {}) => ({
 
 describe("le Requests dal server", () => {
   it("elenco, dettaglio per id e per codice nella forma del prototipo; «urgent» resta segnato; una voce invisibile è null", async () => {
+    // L'elenco è leggero: niente descrizione, design e piano, ma l'estratto e se ci sono.
+    const { description: _d, design: _g, plan: _p, ...summary } = full();
+    void [_d, _g, _p];
     installFakeServer({
-      "GET /api/requests": { body: [full()] },
+      "GET /api/requests": { body: [{ ...summary, excerpt: "Users want CSV.", hasDesign: true, hasPlan: false }] },
       [`GET /api/requests/${ITEM}`]: { body: full() },
       "GET /api/requests/by-code/AUD-R4": { body: full() },
       "GET /api/requests/by-code/AUD-R404": { status: 404, body: { code: "not_found", message: "x" } },
     });
     const [request] = await listRequests(PROJECT_ID);
+    expect(request!.design).toBeNull();
+    expect(request!.plan).toBeNull();
     expect(request).toMatchObject({
       id: ITEM,
       code: "AUD-R4",
@@ -126,7 +131,7 @@ describe("le Requests dal server", () => {
       suggestions: { size: "M", reason: "Bigger than it looks" },
       taskIds: [],
     });
-    expect((await getRequest(ITEM))?.code).toBe("AUD-R4");
+    expect(await getRequest(ITEM)).toMatchObject({ code: "AUD-R4", description: "Users want CSV." });
     expect((await getRequestByCode("aud-r4"))?.id).toBe(ITEM);
     expect(await getRequestByCode("AUD-R404")).toBeNull();
   });

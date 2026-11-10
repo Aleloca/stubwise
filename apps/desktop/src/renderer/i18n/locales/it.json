@@ -1903,6 +1903,7 @@
       "choose": "Scegli la richiesta in cui fonderla.",
       "submit": "Fondi",
       "failed": "Non è stato possibile fondere le richieste. Non è cambiato nulla.",
+      "changed": "Una delle due richieste è cambiata nel frattempo. Non è cambiato niente: riprova.",
       "rewriting": "Unione in {{code}}: Claude la sta riscrivendo. Può volerci un momento.",
       "retry": "Riprova"
     },
@@ -2231,6 +2232,8 @@
       "submit": "Registra",
       "recorded": "Decisione registrata",
       "failed": "Impossibile registrare la decisione. Non è stato salvato nulla; riprova.",
+      "alreadySuperseded": "Quella decisione è già superata da un'altra. Non è stato salvato niente.",
+      "forbidden": "Non puoi registrare decisioni in questo progetto.",
       "actions": "Azioni per «{{title}}»",
       "supersededByGroup": "Superata da",
       "supersededNone": "Nessuna, è ancora valida",

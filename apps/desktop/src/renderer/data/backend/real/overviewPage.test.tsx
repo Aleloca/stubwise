@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
@@ -165,5 +165,29 @@ describe("l'Overview nella build app", () => {
     expect(
       await screen.findByText("These are the latest 200 decisions: older ones aren't shown here."),
     ).toBeInTheDocument();
+  });
+
+  it("registrare una decisione: i rifiuti del server hanno la loro frase", async () => {
+    let reply = { status: 409, body: { code: "already_superseded", message: "x" } };
+    installFakeServer({
+      ...baseRoutes(),
+      "GET /api/auth/me": {
+        body: me({ projectPermissions: { [PROJECT_ID]: ["tickets.view_all", "tickets.edit", "decisions.record"] } }),
+      },
+      [`POST /api/projects/${PROJECT_ID}/decisions`]: () => reply,
+    });
+    const ue = userEvent.setup();
+    renderRoute("/p/AUD/overview");
+    await ue.click(await screen.findByRole("button", { name: "Record a decision" }));
+    const dialog = await screen.findByRole("dialog", { name: "Record a decision" });
+    await ue.type(within(dialog).getByLabelText("Title"), "Use SQLite");
+    await ue.type(within(dialog).getByLabelText("Decision"), "SQLite for the edge.");
+    await ue.click(within(dialog).getByRole("button", { name: "Record" }));
+    expect(
+      await within(dialog).findByText("That decision has already been superseded by another one. Nothing was saved."),
+    ).toBeInTheDocument();
+    reply = { status: 403, body: { code: "decision_forbidden", message: "x" } };
+    await ue.click(within(dialog).getByRole("button", { name: "Record" }));
+    expect(await within(dialog).findByText("You can't record decisions in this project.")).toBeInTheDocument();
   });
 });

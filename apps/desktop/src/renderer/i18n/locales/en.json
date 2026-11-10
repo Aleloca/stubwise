@@ -1903,6 +1903,7 @@
       "choose": "Choose the request to merge into.",
       "submit": "Merge",
       "failed": "Couldn't merge the requests. Nothing changed.",
+      "changed": "One of the two requests changed in the meantime. Nothing changed: try again.",
       "rewriting": "Merging into {{code}}: Claude is rewriting it. This can take a moment.",
       "retry": "Try again"
     },
@@ -2231,6 +2232,8 @@
       "submit": "Record",
       "recorded": "Decision recorded",
       "failed": "Couldn't record the decision. Nothing was saved; try again.",
+      "alreadySuperseded": "That decision has already been superseded by another one. Nothing was saved.",
+      "forbidden": "You can't record decisions in this project.",
       "actions": "Actions for “{{title}}”",
       "supersededByGroup": "Superseded by",
       "supersededNone": "None, still valid",

@@ -86,7 +86,11 @@ I test «app» montano l'implementazione vera davanti a un server finto
 | Cronologia e attività a pagine di 28 giorni; «Show earlier» scopre le settimane lette e poi chiede la pagina prima | maintainer |
 | Codici R<n>: un contatore per progetto assegnato da un trigger, le voci esistenti numerate per data di creazione comprese fuse e archiviate, mai riusati | server |
 | Chi non ha `backlog.view_all` (un Contributor) vede solo le richieste sue | server |
-| Urgenza «urgent» mostrata come «Urgent» al livello più alto; l'app non la scrive | orchestratrice |
+| Urgenza «urgent» mostrata come «Urgent» al livello più alto; l'app non la scrive, ma si può abbassare a High (nel menu nessun livello è già scelto) | orchestratrice |
+| L'elenco delle Requests è leggero (`ProjectRequestSummary`: estratto di 300 caratteri al posto della descrizione, niente design né piano); i testi interi vengono dal dettaglio | server |
+| Ripristina: lo stato a cui torna la richiesta lo decide il server (quello di prima dell'archivio) | server |
+| Rifiuti con la loro frase: 409 `request_changed` sulla fusione, 409 `request_not_convertible` sulla conversione, 403 `decision_forbidden` e 409 `already_superseded` sulla registrazione di una decisione | orchestratrice (review della fetta 4) |
+| Una voce di cronologia o attività la cui task non è fra quelle lette dice «una task che non è in questo elenco» (il codice non arriva negli eventi); un traguardo che non c'è più è «un traguardo eliminato»; una PR senza numero si mostra senza | costruttore |
 | Sforzo E1–E5 della voce → taglia XS–XL con la mappa delle task | orchestratrice |
 | Il polso del portafoglio e «fermo» come nel prototipo, calcolati nel renderer con `pulseOf` condiviso; `/api/projects/pulse` resta del web vecchio e del mobile | orchestratrice |
 | Claude non entra nel polso («aspetta te», «al lavoro») finché l'area 3 non è integrata | costruttore |

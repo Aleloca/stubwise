@@ -1,5 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
-import type { ProjectRequestView, RequestJobView, RequestToConvertView } from "@stubwise/shared";
+import type { ProjectRequestSummary, ProjectRequestView, RequestJobView, RequestToConvertView } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ProjectRequest, RequestLevel } from "../../types";
 import { appClient, session } from "./client";
@@ -97,8 +97,16 @@ const nullOn404 = async (read: () => Promise<unknown>): Promise<ProjectRequest |
   }
 };
 
+/**
+ * L'elenco è leggero (`ProjectRequestSummary`): al posto della descrizione
+ * l'estratto (basta alla ricerca e alla riga), niente design né piano. Il
+ * dettaglio (`getRequest`) porta i testi interi.
+ */
 export const listRequests: typeof Fake.listRequests = async (projectId) =>
-  (await appClient().requests.list(projectId)).map((v) => fromView(v as ProjectRequestView));
+  (await appClient().requests.list(projectId)).map((v) => {
+    const summary = v as ProjectRequestSummary;
+    return fromView({ ...summary, description: summary.excerpt, design: null, plan: null } as ProjectRequestView);
+  });
 
 /** Una voce invisibile risponde come una che non c'è: `null`. */
 export const getRequest: typeof Fake.getRequest = (id) => nullOn404(() => appClient().requests.get(id));
@@ -225,5 +233,6 @@ export const archiveRequest: typeof Fake.archiveRequest = async (id) =>
 export const reopenRequest: typeof Fake.reopenRequest = async (id) =>
   fromView((await appClient().requests.reopen(id)) as ProjectRequestView);
 
+/** Lo stato a cui torna lo decide il server (quello di prima dell'archivio): `status` si manda ma è ignorato. */
 export const restoreRequest: typeof Fake.restoreRequest = async (id, status) =>
   fromView((await appClient().requests.restore(id, status)) as ProjectRequestView);

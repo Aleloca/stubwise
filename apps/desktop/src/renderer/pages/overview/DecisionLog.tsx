@@ -335,7 +335,18 @@ function RecordDecisionDialog({
           toast.show(t("overview.decisions.recorded"));
           onClose();
         },
-        onError: () => setError(t("overview.decisions.failed")),
+        onError: (error: unknown) => {
+          const code = (error as { code?: unknown } | null)?.code;
+          setError(
+            t(
+              code === "already_superseded"
+                ? "overview.decisions.alreadySuperseded"
+                : code === "decision_forbidden"
+                  ? "overview.decisions.forbidden"
+                  : "overview.decisions.failed",
+            ),
+          );
+        },
       },
     );
   };
