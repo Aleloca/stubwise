@@ -1,3 +1,4 @@
+import { newTaskBodySchema } from "@stubwise/shared";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -244,7 +245,7 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     install({
       proposals: [
         cardB({
-          actions: [{ fn: "createTask", args: { projectId: PROJECT_ID, title: "Export the CSV", type: "task", assigneeId: MARTA } }],
+          actions: [{ fn: "createTask", args: { projectId: PROJECT_ID, title: "Export the CSV", type: "activity", assigneeId: MARTA } }],
           reasons: [{ kind: "notifies", personIds: [MARTA], more: false }],
         }),
       ],
@@ -260,10 +261,39 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     await ue.type(title, "Export the CSV report");
     await ue.click(within(dialog).getByRole("button", { name: "Create task" }));
     await waitFor(() => expect(seen.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([`/api/claude/proposals/${PROPOSAL}/confirm`]));
-    expect(seen.find((r) => r.method === "POST")!.body).toMatchObject({
-      edited: [{ index: 0, args: { projectId: PROJECT_ID, title: "Export the CSV report", assigneeId: MARTA } }],
-    });
+    const body = seen.find((r) => r.method === "POST")!.body as { edited: { index: number; args: unknown }[] };
+    expect(body.edited).toHaveLength(1);
+    expect(body.edited[0]!.index).toBe(0);
+    // Gli args devono passare lo schema VERO del server (`createTask` = `newTaskBodySchema`):
+    // un `requestId: null` lo rompe, e la proposta finirebbe `failed`.
+    const parsed = newTaskBodySchema.safeParse(body.edited[0]!.args);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+    expect(parsed.data).toMatchObject({ projectId: PROJECT_ID, title: "Export the CSV report", assigneeId: MARTA });
     expect(outside()).toEqual([]);
+  });
+
+  it("«Edit» la cui conferma non riesce (failed dal server): il dialogo resta aperto e dice l'errore", async () => {
+    install({
+      proposals: [
+        cardB({
+          actions: [{ fn: "createTask", args: { projectId: PROJECT_ID, title: "Export the CSV", type: "activity" } }],
+          reasons: [],
+        }),
+      ],
+      routes: {
+        [`POST /api/claude/proposals/${PROPOSAL}/confirm`]: () => ({
+          body: cardB({ status: "failed", canConfirm: false, canCancel: false }),
+        }),
+      },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${CONV}`);
+    const proposal = await card();
+    await ue.click(within(proposal).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "New task" });
+    await ue.click(within(dialog).getByRole("button", { name: "Create task" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Couldn't create the task");
+    expect(screen.getByRole("dialog", { name: "New task" })).toBeInTheDocument();
   });
 
   it("un'azione della pagina (D3): la esegue il renderer, la riga lo dice e offre «Undo» locale; nessuna scrittura", async () => {

@@ -174,7 +174,15 @@ export function ProposalCard({
         edit: () => edit.mutateAsync(target),
         complete: (code) => complete.mutateAsync({ ...target, resultCodes: [code] }),
         ...(isAppBuild()
-          ? { confirmEdited: (index, args) => confirm.mutateAsync({ ...target, edited: [{ index, args }] }) }
+          ? {
+              // Una conferma che il server non esegue (`failed`) non chiude il
+              // dialogo in silenzio: rifiuta, e il dialogo dice l'errore.
+              confirmEdited: async (index, args) => {
+                const result = await confirm.mutateAsync({ ...target, edited: [{ index, args }] });
+                if ("status" in result && result.status === "failed") throw new Error(result.error);
+                return result;
+              },
+            }
           : {}),
         busy: confirm.isPending || cancel.isPending || edit.isPending || complete.isPending,
       }}

@@ -225,7 +225,8 @@ export function NewTaskDialog({
       },
     };
     if (deliver) {
-      deliver({ ...input, projectId: project.id, requestId: null }).then(onClose, () => setFailed(true));
+      // Niente `requestId: null`: lo schema del server (`newTaskBodySchema`) vuole un uuid o niente.
+      deliver({ ...input, projectId: project.id }).then(onClose, () => setFailed(true));
     } else if (fromRequestId) {
       convert.mutate({ id: fromRequestId, input }, callbacks);
     } else if (fromMessageId) {
