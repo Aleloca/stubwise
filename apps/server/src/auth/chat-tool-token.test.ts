@@ -5,7 +5,7 @@ import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { claudeChatToolTokens, claudeConversations, issueChatToolToken, revokeChatToolToken, tickets, projects } from "@stubwise/db";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
-import { CHAT_TOOL_READ_ROUTES } from "./chat-tool-routes.js";
+import { CHAT_TOOL_READ_ROUTES, CHAT_TOOL_WRITE_ROUTES } from "./chat-tool-routes.js";
 
 // Il token di UN turno della chat con Claude (fetta 1): i tool di lettura
 // chiamano il server COME l'autore. Solo GET, solo un'allowlist chiusa, mai la
@@ -122,6 +122,14 @@ describe("l'allowlist delle rotte del token (registro)", () => {
     await probe.ready();
     await probe.close();
     expect(CHAT_TOOL_READ_ROUTES.size).toBeGreaterThan(0);
+    // Una sola rotta di scrittura (decisione D2): creare una proposta, nient'altro.
+    expect([...CHAT_TOOL_WRITE_ROUTES]).toEqual(["POST /api/claude/conversations/:id/proposals"]);
+    for (const key of CHAT_TOOL_WRITE_ROUTES) {
+      const route = routes.get(key);
+      expect(route, key).toBeDefined();
+      expect(route!.config?.reauth, key).toBeUndefined();
+      expect(route!.config?.credentialDoor, key).toBeUndefined();
+    }
     for (const url of CHAT_TOOL_READ_ROUTES) {
       const route = routes.get(`GET ${url}`);
       expect(route, url).toBeDefined();

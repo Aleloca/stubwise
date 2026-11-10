@@ -2,7 +2,11 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
+  claudeActionGroupViewSchema,
   claudeChatStatusSchema,
+  claudeProposalOutcomeSchema,
+  claudeProposalViewSchema,
+  createClaudeProposalSchema,
   claudeConversationDetailSchema,
   claudeConversationListQuerySchema,
   claudeConversationListSchema,
@@ -19,6 +23,7 @@ import {
   patchClaudeConversation,
 } from "../services/claude-conversations.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
+import { createProposal, listGroups, listProposals, ownLiveConversation } from "../claude-actions/proposals.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 // Le conversazioni libere con Claude (chat, fetta 1), sotto `/api/claude/conversations`.
@@ -99,6 +104,72 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
       const updated = await patchClaudeConversation(app.db, request.user!, request.params.id, request.body);
       if (!updated) return apiError(reply, 404, "not_found", "Conversation not found");
       return updated;
+    },
+  );
+
+  /**
+   * La proposta di Claude (tool `propose_action`, chat fetta 3): la SOLA rotta
+   * di scrittura del token del turno (`CHAT_TOOL_WRITE_ROUTES`), e solo per la
+   * conversazione del suo turno. Una persona non la chiama: 403. Crea la
+   * proposta; la classe e, per una A, l'esecuzione le fa il server.
+   */
+  app.post(
+    "/:id/proposals",
+    {
+      config: { access: ACCESS },
+      schema: {
+        params: idParams,
+        body: createClaudeProposalSchema,
+        response: { 200: claudeProposalOutcomeSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (user.chatToolSessionId === undefined) {
+        return apiError(reply, 403, "claude_only", "Only Claude's turn can propose actions");
+      }
+      if (user.chatToolSessionId !== request.params.id || !(await ownLiveConversation(app.db, user.id, request.params.id))) {
+        return apiError(reply, 404, "not_found", "Conversation not found");
+      }
+      return createProposal(app.db, user, request.params.id, {
+        toolUseId: request.body.toolUseId,
+        actions: request.body.actions,
+        summary: request.body.summary,
+      });
+    },
+  );
+
+  app.get(
+    "/:id/proposals",
+    {
+      config: { access: ACCESS },
+      schema: {
+        params: idParams,
+        response: { 200: z.array(claudeProposalViewSchema), 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      if (!(await getClaudeConversation(app.db, request.user!, request.params.id))) {
+        return apiError(reply, 404, "not_found", "Conversation not found");
+      }
+      return listProposals(app.db, request.user!, request.params.id);
+    },
+  );
+
+  app.get(
+    "/:id/groups",
+    {
+      config: { access: ACCESS },
+      schema: {
+        params: idParams,
+        response: { 200: z.array(claudeActionGroupViewSchema), 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      if (!(await getClaudeConversation(app.db, request.user!, request.params.id))) {
+        return apiError(reply, 404, "not_found", "Conversation not found");
+      }
+      return listGroups(app.db, request.user!, request.params.id);
     },
   );
 

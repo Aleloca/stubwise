@@ -45,8 +45,18 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   SOLO sull'allowlist chiusa `CHAT_TOOL_READ_ROUTES`
   (`apps/server/src/auth/chat-tool-routes.ts`, con il suo test di registro:
   nessuna voce pubblica, `second_factor`, con riconferma o porta di
-  credenziale) — ogni altra rotta, anche GET, 403 `chat_tool_forbidden`, e
-  quindi niente riconferma, PAT, handoff o mobile-login; nessuna `sessionId`,
+  credenziale), più UNA rotta di scrittura dal 10 nov 2026 (chat fetta 3,
+  decisione D2 dell'orchestratrice): `POST
+  /api/claude/conversations/:id/proposals` in `CHAT_TOOL_WRITE_ROUTES`, che
+  CREA UNA PROPOSTA di Claude e basta — la classe la calcola il server, una A
+  la esegue il server a nome della persona coi permessi e i servizi delle
+  rotte, una B aspetta la conferma dell'autore, che col token del turno NON si
+  può dare (le rotte di decisione non sono nell'allowlist). Il motivo: un solo
+  produttore delle proposte, esecuzione e classe nello stesso posto, e il token
+  resta incapace di scrivere fuori da quella rotta (il test di registro
+  pretende quella voce e nessun'altra). Ogni altra rotta, anche GET, 403
+  `chat_tool_forbidden`, e quindi niente riconferma, PAT, handoff o
+  mobile-login; nessuna `sessionId`,
   quindi `applyReauth` non lo soddisfa mai; vale solo finché la sua
   conversazione esiste, è dell'utente del token e non è archiviata (un token
   caduto è 401 e non ricade sul cookie). Mai nei log, nel prompt o negli
