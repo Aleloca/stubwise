@@ -3119,6 +3119,15 @@ deploy o di un rollback che la tocca.
   resta scritto senza effetti (la storia non dice «annullato» perché il job
   non è `skipped`). Un server vecchio risponde `run_in_progress`/404 come
   prima. Le migrazioni non si annullano.
+  ⚠️ **Dopo la correzione della review** (una richiesta vale per un tentativo:
+  `CANCEL_REQUEST_CLEARED` in ogni ripartenza, il worker la onora solo dopo
+  `started_at`): un rollback a un server o un worker dell'area 3 di PRIMA di
+  quella correzione riporta il difetto — un job annullato una volta e poi
+  riciclato si annulla da sé al claim. Prima di un rollback così, ripulire le
+  richieste dei job non in esecuzione: `update ai_jobs set
+  cancel_requested_at = null, cancel_requested_by_user_id = null where status
+  not in ('triaging','fixing');` (perde solo la riga «annullato da» della
+  storia di quei job).
 - **«Claude assegnabile» (10 nov 2026, integrazione area 3, 3e.1)**:
   migrazione **0125** (`users.is_agent`, l'indice `users_single_agent` e la riga
   dell'utente di sistema «Claude», `claude@agent.stubwise.invalid`, preset

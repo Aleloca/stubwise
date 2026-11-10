@@ -222,6 +222,18 @@
   classico (`AGENT_STREAMING=false`) il CLI non si uccide a metà: vale solo il
   controllo fra i passi. Il registro è in memoria: worker a processo SINGOLO,
   come il relay. Lo scenario golden `cancel` lo rifissa sul CLI pinnato.
+  ⚠️ **La richiesta vale per UN tentativo** (review dell'area 3, 10 nov
+  2026): ogni transizione che fa ripartire il job — riciclo e forzatura di
+  `startRun`, `resolvePlan` (approva e rifiuta), la risposta a una domanda,
+  la ripresa dopo un limite, `requeueStale` — scrive
+  `CANCEL_REQUEST_CLEARED` (`@stubwise/db`) nella sua UPDATE; senza, il job
+  ripartito veniva annullato al claim e la task non si rilanciava più. Il
+  worker, come difesa, onora la colonna solo se successiva a `started_at`
+  del tentativo (`cancelRequestedThisAttempt`, `pipeline/cancel.ts`).
+  `requeueStale` chiude `skipped` (con la sua correzione) uno stantio che ha
+  la richiesta di questo tentativo, invece di riaccodarlo; il commento di
+  chiusura lì non c'è (il processo che l'avrebbe scritto è morto). Chi
+  aggiunge una transizione verso `queued` aggiunge anche quell'oggetto.
 - **I tool NATIVI di ogni run del CLI sono un elenco ESPLICITO, mai la sola
   lista dei negati (10 nov 2026, CLI 2.1.322).** Il CLI espone tool nativi
   nuovi — `CronCreate`/`CronDelete`/`CronList`, `RemoteTrigger`,

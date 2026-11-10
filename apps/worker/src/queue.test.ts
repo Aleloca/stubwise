@@ -18,6 +18,7 @@ import {
   writeFailureSummary,
   type AiJob,
 } from "./queue.js";
+import { checkCancelNow, createCancelRegistry } from "./pipeline/cancel.js";
 
 // Un container Postgres per file di test: l'avvio costa secondi. I test si
 // isolano svuotando la tabella ai_jobs in afterEach (claimNextJob è globale:
@@ -56,6 +57,7 @@ interface EnqueueOptions {
   status?: AiJob["status"];
   startedAt?: Date;
   lastActivityAt?: Date;
+  cancelRequestedAt?: Date;
 }
 
 async function enqueueJob(db: Db, opts: EnqueueOptions = {}): Promise<AiJob> {
@@ -1018,5 +1020,55 @@ describe("runWorker", () => {
       await worker;
     }
     expect(requeues).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * «Annulla il lavoro» vale per UN tentativo (review dell'area 3, punti 1 e
+ * 10): un job stantio con la richiesta si chiude `skipped` invece di tornare
+ * in coda; uno che torna in coda non porta una richiesta del tentativo di
+ * prima; il worker onora la colonna solo se successiva a `started_at`.
+ */
+describe("annullamento e ripartenza del job", () => {
+  it("requeueStale: lo stantio con la richiesta si chiude skipped (non torna in coda), gli altri tornano in coda senza richiesta", async () => {
+    const { db } = testDb;
+    const cancelled = await enqueueJob(db, {
+      status: "fixing",
+      startedAt: minutesAgo(60),
+      lastActivityAt: minutesAgo(60),
+      cancelRequestedAt: minutesAgo(50),
+    });
+    const oldRequest = await enqueueJob(db, {
+      status: "fixing",
+      startedAt: minutesAgo(60),
+      lastActivityAt: minutesAgo(60),
+      // Una richiesta di un tentativo PRIMA di questo: non vale.
+      cancelRequestedAt: minutesAgo(90),
+    });
+    const plain = await enqueueJob(db, { status: "triaging", startedAt: minutesAgo(60), lastActivityAt: minutesAgo(60) });
+
+    expect(await requeueStale(db, { olderThanMinutes: 10 })).toBe(2);
+    const c = await getJob(db, cancelled.id);
+    expect(c.status).toBe("skipped");
+    expect(c.finishedAt).not.toBeNull();
+    for (const id of [oldRequest.id, plain.id]) {
+      const j = await getJob(db, id);
+      expect(j.status).toBe("queued");
+      expect(j.cancelRequestedAt).toBeNull();
+      expect(j.cancelRequestedByUserId).toBeNull();
+    }
+  });
+
+  it("checkCancelNow onora la richiesta solo se è di QUESTO tentativo (dopo started_at)", async () => {
+    const { db } = testDb;
+    const stale = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(5), cancelRequestedAt: minutesAgo(30) });
+    const current = await enqueueJob(db, { status: "fixing", startedAt: minutesAgo(30), cancelRequestedAt: minutesAgo(5) });
+    const registry = createCancelRegistry();
+    const a = registry.register(stale.id);
+    const b = registry.register(current.id);
+    await checkCancelNow(db, registry, stale.id);
+    await checkCancelNow(db, registry, current.id);
+    expect(a.signal.aborted).toBe(false);
+    expect(b.signal.aborted).toBe(true);
   });
 });

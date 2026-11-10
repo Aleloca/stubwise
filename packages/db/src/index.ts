@@ -40,3 +40,4 @@ export { recordDecision, type DecisionSource, type RecordDecisionParams } from "
 // gate di avvio e la rotta di pre-approvazione) e worker devono confrontare
 // esattamente lo stesso digest per lo stesso testo.
 export { planDigest } from "./plan-digest.js";
+export { CANCEL_REQUEST_CLEARED } from "./ai-job-cancel.js";

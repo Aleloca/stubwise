@@ -1,6 +1,6 @@
 import { aiJobs, type Db } from "@stubwise/db";
 import { AI_JOB_CANCEL_CHANNEL } from "@stubwise/shared";
-import { and, inArray, isNotNull } from "drizzle-orm";
+import { and, inArray, sql } from "drizzle-orm";
 import { AgentRunCancelledError, type AgentRunner, type AgentRunOptions } from "../agent/runner.js";
 
 /**
@@ -24,6 +24,13 @@ import { AgentRunCancelledError, type AgentRunner, type AgentRunOptions } from "
  *   niente (limite dichiarato).
  * Come il relay e il serializer, presuppone un worker a processo SINGOLO.
  */
+
+/**
+ * La richiesta vale per il tentativo IN CORSO: successiva al suo `started_at`
+ * (review dell'area 3, punto 1). Le transizioni che fanno ripartire il job la
+ * azzerano (`CANCEL_REQUEST_CLEARED`); questa è la difesa se una ne manca.
+ */
+export const cancelRequestedThisAttempt = sql`(${aiJobs.cancelRequestedAt} is not null and (${aiJobs.startedAt} is null or ${aiJobs.cancelRequestedAt} >= ${aiJobs.startedAt}))`;
 
 /** Il job è stato annullato da una persona («Annulla il lavoro»), non da una pausa scaduta. */
 export class RunCancelRequestedError extends AgentRunCancelledError {
@@ -100,7 +107,7 @@ export async function startCancelWatch(deps: {
     const rows = await deps.db
       .select({ id: aiJobs.id })
       .from(aiJobs)
-      .where(and(inArray(aiJobs.id, ids), isNotNull(aiJobs.cancelRequestedAt)));
+      .where(and(inArray(aiJobs.id, ids), cancelRequestedThisAttempt));
     for (const r of rows) deps.registry.abort(r.id);
   };
   if (deps.listen) {
@@ -129,6 +136,6 @@ export async function checkCancelNow(db: Db, registry: CancelRegistry, jobId: st
   const [row] = await db
     .select({ id: aiJobs.id })
     .from(aiJobs)
-    .where(and(inArray(aiJobs.id, [jobId]), isNotNull(aiJobs.cancelRequestedAt)));
+    .where(and(inArray(aiJobs.id, [jobId]), cancelRequestedThisAttempt));
   if (row) registry.abort(jobId);
 }
