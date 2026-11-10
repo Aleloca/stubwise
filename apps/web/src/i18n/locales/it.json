@@ -1141,7 +1141,8 @@
           "vault_recovery_used": "Chiave di recupero della cassaforte usata",
           "vault_activated": "Cassaforte attivata",
           "vault_seal_replaced": "Sigillo di una passkey della cassaforte sostituito",
-          "vault_recovery_key_rotated": "Kit di recupero della cassaforte rigenerato"
+          "vault_recovery_key_rotated": "Kit di recupero della cassaforte rigenerato",
+          "reauth_desktop": "Identità confermata nell'app desktop"
         }
       }
     },

@@ -426,6 +426,12 @@ export const personalAccessTokens = pgTable(
     // (`/api/auth/desktop-exchange`); reset e cambio della password revocano
     // `mobile` E `desktop`.
     kind: text("kind").$type<"manual" | "mobile" | "desktop">().notNull().default("manual"),
+    // Riconferma dal desktop (0132, decisione del maintainer del 10 nov 2026):
+    // l'ultimo secondo fattore fatto CON questo token dentro l'app
+    // (`POST /api/auth/desktop-reauth`). La legge `applyReauth` SOLO per i PAT
+    // `desktop` (finestra di 10 minuti); `mobile` e `manual` non la usano mai.
+    // Cambio della password e azzeramento del 2FA la riportano a null.
+    secondFactorAt: timestamp("second_factor_at", { withTimezone: true }),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

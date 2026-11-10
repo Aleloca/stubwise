@@ -925,6 +925,13 @@
       "when": 1795737600000,
       "tag": "0131_claude_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "7",
+      "when": 1795824000000,
+      "tag": "0132_desktop_pat_reauth",
+      "breakpoints": true
     }
   ]
 }

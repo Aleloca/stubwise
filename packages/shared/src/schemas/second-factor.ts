@@ -152,6 +152,9 @@ export const securityEventKindSchema = z.enum([
   "vault_activated",
   "vault_seal_replaced",
   "vault_recovery_key_rotated",
+  // Riconferma dal desktop (10 nov 2026): un secondo fattore fatto dentro
+  // l'app desktop col suo PAT (`POST /api/auth/desktop-reauth`).
+  "reauth_desktop",
 ]);
 export type SecurityEventKind = z.infer<typeof securityEventKindSchema>;
 

@@ -1,12 +1,24 @@
 # Riconferma dal desktop — design (10 nov 2026)
 
-> Stato: **proposta**, da decidere col maintainer (le decisioni sono marcate
-> **[DECIDE]**). Nessun codice scritto. Autore: stubwise-72, per
-> l'orchestratrice. Registro: «Riconferma dal desktop» (area 9) e «Azioni di
-> Claude dell'area 9… con la riconferma» in
+> Stato: **DECISO il 10 nov 2026 dal maintainer: opzione B** (il codice
+> dentro l'app), non la A consigliata. Le decisioni:
+> - **D1**: il codice TOTP, o uno di riserva, si scrive DENTRO l'app desktop
+>   (`POST /api/auth/desktop-reauth`), niente passkey dal desktop, e la
+>   riconferma apre una finestra di 10 minuti su tutte le rotte sensibili per
+>   quel PAT `desktop`;
+> - **D2**: non si applica (nessuna approvazione nel browser);
+> - **D3**: nessuna rotta esclusa dal gate `config.reauth`;
+> - **D4**: una riga `reauth_desktop` nel registro di sicurezza, nessun
+>   `security.alert`.
+>
+> Costruita nella migrazione 0132. L'invariante sta in
+> `docs/invariants/second-factor.md` («La riconferma si DICHIARA…»). Il resto
+> del documento è la proposta così com'era, con le opzioni scartate.
+> Autore: stubwise-72, per l'orchestratrice.
+>
+> Registro: «Riconferma dal desktop» (area 9, chiusa) in
 > `docs/plans/integrazione-registro-rimandi.md`; la classe C della chat
 > (fetta 4) in `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
-> Invarianti da rispettare: `docs/invariants/second-factor.md`.
 
 ## Il problema
 

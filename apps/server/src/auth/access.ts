@@ -367,8 +367,12 @@ export async function accessPreHandler(
 /**
  * Il controllo di `config.reauth`, prima del permesso della rotta.
  *
- * - Un PAT non riconferma mai (403 `session_required`): un token rubato non
- *   deve poter creare altri token o cambiare ruoli.
+ * - Un PAT non riconferma mai da solo (403 `session_required`): un token
+ *   rubato non deve poter cambiare ruoli. L'eccezione è UNA: un PAT `desktop`
+ *   con un secondo fattore fatto con lui dentro l'app negli ultimi 10 minuti
+ *   (`POST /api/auth/desktop-reauth`, decisione del maintainer del 10 nov
+ *   2026); `mobile` e `manual` mai. Le rotte che non coniano token da un
+ *   token lo rifiutano comunque nel loro handler.
  * - Senza un'app configurata (sessione di prima del rilascio) non c'è un
  *   fattore con cui riconfermare: 403 `second_factor_setup_required`, e la
  *   web apre la configurazione (le rotte `"setup_allowed"`), che conta come
@@ -382,16 +386,22 @@ async function applyReauth(
   user: SessionUser,
   reauth: RouteReauth,
 ): Promise<void> {
-  if (user.patId !== undefined || user.sessionId === undefined) {
+  // Un PAT non soddisfa la riconferma, salvo UNO: il PAT `desktop`, con un
+  // secondo fattore fatto con lui dentro l'app (`POST /api/auth/desktop-reauth`)
+  // negli ultimi 10 minuti (decisione del maintainer, 10 nov 2026). `mobile` e
+  // `manual` restano `session_required`, sempre.
+  const desktopPat = user.patId !== undefined && user.patKind === "desktop";
+  if (!desktopPat && (user.patId !== undefined || user.sessionId === undefined)) {
     await apiError(reply, 403, "session_required", "This action requires a browser session");
     return;
   }
   if (!(await hasConfirmedTotp(request.server.db, user.id))) {
-    if (reauth === "setup_allowed") return;
+    // Dal desktop l'app si configura nel browser: niente scorciatoia.
+    if (reauth === "setup_allowed" && !desktopPat) return;
     await apiError(reply, 403, "second_factor_setup_required", "Second factor setup required");
     return;
   }
-  const at = user.secondFactorAt;
+  const at = desktopPat ? user.patSecondFactorAt : user.secondFactorAt;
   if (!at || Date.now() - at.getTime() > REAUTH_WINDOW_MS) {
     await apiError(reply, 403, "reauth_required", "Recent second factor confirmation required");
   }

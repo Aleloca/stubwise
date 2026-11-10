@@ -187,9 +187,26 @@ function reauthFailure(error: unknown): ReauthResult {
  * o di riserva su `POST /api/me/security/reauth`, una passkey con le opzioni
  * del server e la cerimonia del browser. Una cerimonia annullata non arriva al
  * server: conta come un codice che non ha funzionato.
+ *
+ * Nell'app desktop (PAT `desktop`, niente cookie) il codice va su
+ * `POST /api/auth/desktop-reauth`, che rinfresca la riconferma DEL TOKEN per
+ * 10 minuti (decisione del maintainer, 10 nov 2026). Niente passkey dal
+ * desktop: il dialogo non la offre, e una richiesta arrivata comunque conta
+ * come un codice che non ha funzionato.
  */
 const reauthenticate: Auth["reauthenticate"] = async (input: ReauthInput) => {
   const client = appClient();
+  if (window.stubwise?.api) {
+    if (input.method === "passkey") {
+      return { ok: false, error: "invalid_code", triesLeft: SECOND_FACTOR_MAX_FAILURES - 1 };
+    }
+    try {
+      await client.request("POST", "/api/auth/desktop-reauth", { code: input.code.trim() });
+      return { ok: true };
+    } catch (error) {
+      return reauthFailure(error);
+    }
+  }
   try {
     if (input.method !== "passkey") {
       await client.request("POST", "/api/me/security/reauth", { code: input.code.trim() });
@@ -242,7 +259,10 @@ const getMySecurity: Me["getMySecurity"] = async () => {
     const s = await appClient().request("GET", "/api/me/security", undefined, accountSecurityResponseSchema);
     return {
       on: s.totp.configured,
-      passkeys: s.passkeys,
+      // Nell'app desktop la passkey non c'è: vive sul dominio dell'istanza,
+      // cioè nel browser. La riconferma lì è il codice (decisione del
+      // maintainer, 10 nov 2026), e il dialogo non offre «Use a passkey».
+      passkeys: window.stubwise?.api ? [] : s.passkeys,
       backupCodesLeft: s.backupCodesRemaining,
     } as unknown as Awaited<ReturnType<Me["getMySecurity"]>>;
   } catch (error) {
