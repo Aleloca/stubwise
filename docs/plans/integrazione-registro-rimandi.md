@@ -39,10 +39,6 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
 - `generatedAt` dei report giornalieri *(S)*.
 - Report giornaliero per progetto (oggi si rigenerano tutti i progetti del
   giorno) *(O, differenza dal prototipo)*.
-- La riga di Claude nel Planning di progetto per chi NON può assegnarlo *(O,
-  10 nov 2026, costruttore)*: oggi c'è solo dove `claudeAssignableProjectIds`
-  elenca il progetto; chi non ha `runs.start` vede le task di Claude nelle
-  liste ma non la sua riga (`apps/desktop/docs/integration-area3e.md`).
 
 ## Fase «Chat con Claude e azioni» (dopo l'area 3)
 
@@ -141,6 +137,12 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- Area 3, la riga di Claude nel Planning di progetto per chi NON può
+  assegnarlo *(O, 10 nov 2026)*: c'è per chiunque veda il Planning, col suo
+  carico, in sola lettura col motivo e fuori dai bersagli — commit
+  «fix(desktop): la riga di Claude nel Planning, in sola lettura»,
+  `apps/desktop/docs/integration-area3e.md`.
 
 - Area 3, 3e.2 **Claude assegnabile, renderer** *(M)*: riga e carico nel
   Planning, assegnatario solo dove `claudeAssignableProjectIds` lo dice, la sua

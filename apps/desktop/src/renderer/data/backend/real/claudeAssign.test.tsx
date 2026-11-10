@@ -86,6 +86,10 @@ afterEach(() => {
 });
 
 const chip = (code: string) => screen.findByRole("button", { name: new RegExp(`^${code} `) });
+const placesOfChip = (code: string) =>
+  [...document.querySelectorAll(`[data-chip="${code}"]`)].map((el) =>
+    el.closest("[data-pool]") ? "pool" : (el.closest<HTMLElement>("[data-person]")?.dataset.person ?? null),
+  );
 const rowIds = () => [...document.querySelectorAll<HTMLElement>("[data-person]")].map((el) => el.dataset.person);
 
 async function openPlanMenu() {
@@ -115,12 +119,27 @@ describe("il Planning con Claude", () => {
     expect(rowIds().at(-1)).toBe(CLAUDE);
   });
 
-  it("dove chi guarda non può assegnarlo (niente runs.start): né riga né voce", async () => {
-    server([]);
+  it("dove chi guarda non può assegnarlo (niente runs.start): la riga c'è, in sola lettura col suo motivo, e non è nel menu", async () => {
+    server([], {
+      "GET /api/tasks": {
+        body: {
+          items: [
+            serverTask({ canPlan: true }),
+            serverTask({ id: "44444444-4444-4444-8444-444444444499", code: "AUD-13", number: 13, assigneeId: CLAUDE, plannedWeek: WEEK }),
+          ],
+          truncated: false,
+        },
+      },
+    });
     renderRoute("/p/AUD/planning");
     const menu = await openPlanMenu();
     expect(within(menu).queryByRole("menuitemradio", { name: /Claude/ })).toBeNull();
-    expect(rowIds()).not.toContain(CLAUDE);
+    await waitFor(() => expect(rowIds()).toContain(CLAUDE));
+    const head = document.querySelector<HTMLElement>(`[data-row-head="${CLAUDE}"]`);
+    expect(head).toHaveAttribute("data-readonly", "true");
+    expect(head).toHaveAttribute("title", "Only someone who can start Claude's work plans for Claude");
+    // Il suo carico c'è: la sua task della settimana sta nella sua riga.
+    expect(placesOfChip("AUD-13")).toEqual([CLAUDE]);
   });
 
   it("un 403 claude_assign_forbidden ha la sua frase, senza «Try again»", async () => {
