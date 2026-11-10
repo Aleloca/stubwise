@@ -3103,6 +3103,9 @@ export const backlogItems = pgTable(
     implementationPlan: text("implementation_plan"),
     originContent: text("origin_content"),
     status: backlogItemStatus("status").notNull().default("new"),
+    // Fetta 4 (0122): lo stato di prima dell'archiviazione, per il «Ripristina».
+    // Lo scrive e lo azzera il trigger `backlog_items_archived_from`.
+    archivedFrom: backlogItemStatus("archived_from"),
     effort: integer("effort"),
     risk: backlogRisk("risk"),
     riskNote: text("risk_note"),

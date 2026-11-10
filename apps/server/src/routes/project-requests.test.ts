@@ -186,6 +186,21 @@ describe("metadati e stati", () => {
     const reopened = projectRequestViewSchema.parse((await call("POST", `/api/requests/${fused.id}/reopen`)).json());
     expect(reopened).toMatchObject({ status: "new", mergedIntoId: null });
   });
+
+  it("ripristina: lo stato lo decide il server (quello di prima dell'archiviazione), non il body", async () => {
+    const a = await item({ status: "refining" });
+    expect((await call("POST", `/api/requests/${a.id}/archive`)).statusCode).toBe(200);
+    // Un client che dice uno stato diverso non lo ottiene.
+    const restored = projectRequestViewSchema.parse((await call("POST", `/api/requests/${a.id}/restore`, { status: "new" })).json());
+    expect(restored.status).toBe("refining");
+    // Senza body: lo stesso.
+    expect((await call("POST", `/api/requests/${a.id}/archive`)).statusCode).toBe(200);
+    const again = await call("POST", `/api/requests/${a.id}/restore`);
+    expect(again.statusCode, again.body).toBe(200);
+    expect(projectRequestViewSchema.parse(again.json()).status).toBe("refining");
+    const [row] = await testDb.db.select({ from: backlogItems.archivedFrom }).from(backlogItems).where(eq(backlogItems.id, a.id));
+    expect(row!.from).toBeNull();
+  });
 });
 
 describe("descrizione e proposte dell'intake", () => {

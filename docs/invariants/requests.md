@@ -13,6 +13,9 @@ Test: `packages/db/src/migration-0121.test.ts`.
   sotto il lock della riga del progetto e lo incrementa. Vale per OGNI
   scrittore — server, intake e stima del worker, import — senza che nessuno
   lo debba ricordare: chi inserisce una voce non manda il numero.
+- **Un `number` passato all'insert è IGNORATO**: il trigger dà sempre il
+  numero dopo. Rispettarlo lascerebbe il contatore indietro, e l'insert
+  successivo fallirebbe sul vincolo unico.
 - **Mai riusato**: il contatore non scende, quindi un numero eliminato non
   torna. Una voce che cambia progetto prende il numero dopo nel progetto
   nuovo (il vecchio resta un buco).
@@ -40,3 +43,23 @@ Test: `packages/db/src/migration-0121.test.ts`.
   richiesta può essere fusa da sola in una esistente, e l'esito («nuova» o
   «fusa in R<n>») lo dice `GET /api/requests/jobs/:jobId`. «Fusa» vuol dire
   che la voce prodotta dal job esisteva già prima del job.
+
+## Archiviare, ripristinare, riaprire (10 nov 2026, review della fetta 4)
+
+Migrazione: `packages/db/drizzle/0122_backlog_archived_from.sql`. Test:
+`apps/server/src/routes/project-requests.test.ts`.
+
+- **Lo stato di ripristino lo decide il SERVER.** Il trigger
+  `backlog_items_archived_from` scrive in `archived_from` lo stato che la voce
+  aveva quando è stata archiviata, da QUALUNQUE percorso (app nuova, web
+  vecchio, worker), e lo azzera quando esce dall'archivio. `POST
+  /api/requests/:id/restore` la riporta lì; il `status` del body resta
+  accettato per i client di prima, ma non conta. Un'archiviata di prima della
+  0122 (stato precedente ignoto) torna «nuova».
+- **Una fusa non si ripristina: si riapre** (`/reopen`, torna «nuova» e non
+  è più fusa in niente). ⚠️ **Riaprire una fusa NON annulla gli effetti della
+  fusione**: la destinazione tiene il documento fuso dal modello, i
+  richiedenti dell'assorbita, i link alle task e il conteggio. La riaperta
+  riparte col SUO documento, i suoi richiedenti e senza le task che erano
+  passate alla destinazione. Non c'è un «disfa la fusione», ed è accettato:
+  ricostruire la destinazione di prima vorrebbe dire conservarne la copia.

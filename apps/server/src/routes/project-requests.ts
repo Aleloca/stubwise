@@ -12,7 +12,7 @@ import {
   requestPatchBodySchema,
   type ProjectRequestView,
 } from "@stubwise/shared";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -247,19 +247,32 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
     },
   );
 
-  /** L'«Annulla» di un'archiviazione a mano: torna allo stato aperto di prima. Una fusa si riapre, non si ripristina. */
+  /**
+   * L'«Annulla» di un'archiviazione a mano: torna allo stato aperto di prima,
+   * che lo decide il SERVER (`archived_from`, scritto dal trigger della 0122).
+   * Il `status` del body resta accettato per i client di prima, ma non conta.
+   * Un'archiviata di prima della 0122 (stato precedente ignoto) torna «nuova».
+   * Una fusa si riapre, non si ripristina.
+   */
   app.post(
     "/requests/:id/restore",
     {
       config: { access: backlogItemAccess("id", "backlog.edit") },
-      schema: { params: idParams, body: z.object({ status: z.enum(OPEN) }), response: viewOr404 },
+      schema: { params: idParams, body: z.object({ status: z.enum(OPEN).optional() }).nullish(), response: viewOr404 },
     },
     async (request, reply) => {
       const { id } = request.params;
       const [row] = await app.db
         .update(backlogItems)
-        .set({ status: request.body.status })
-        .where(and(eq(backlogItems.id, id), eq(backlogItems.status, "archived"), sql`${backlogItems.mergedIntoId} is null`))
+        .set({ status: sql`coalesce(${backlogItems.archivedFrom}, 'new'::backlog_item_status)` })
+        .where(
+          and(
+            eq(backlogItems.id, id),
+            eq(backlogItems.status, "archived"),
+            isNull(backlogItems.mergedIntoId),
+            or(isNull(backlogItems.archivedFrom), inArray(backlogItems.archivedFrom, [...OPEN])),
+          ),
+        )
         .returning({ id: backlogItems.id });
       if (!row) return apiError(reply, 409, "invalid_status", "Only a request archived by hand can be restored");
       return (await requestView(app.db, request.user!, id))!;
