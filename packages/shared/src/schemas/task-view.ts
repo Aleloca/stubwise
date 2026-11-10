@@ -258,7 +258,12 @@ export const taskWorkRunSchema = z.object({
     .object({
       text: z.string(),
       summary: z.string(),
-      status: z.enum(["pending", "approved", "rejected", "pre_approved"]),
+      /**
+       * `undecided` (area 3, fetta 3b, review): nessun esito verificabile — un
+       * piano fermo, annullato sul gate o fallito prima di eseguire. Un client
+       * che non lo conosce lo legge `__unknown__` (readerSchema).
+       */
+      status: z.enum(["pending", "approved", "rejected", "pre_approved", "undecided"]),
       at: z.iso.datetime(),
     })
     .nullable()

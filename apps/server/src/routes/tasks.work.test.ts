@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { agentSessions, aiJobs, prCorrections, projectDecisions, ticketRepositories, tickets } from "@stubwise/db";
+import { agentSessions, aiJobs, planDigest, prCorrections, projectDecisions, ticketRepositories, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { taskWorkViewSchema, type TaskWorkView } from "@stubwise/shared";
@@ -118,6 +118,45 @@ describe("runs: le sessioni di lavoro della task", () => {
     expect(w.hiddenRuns).toBe(false);
     // Il riassunto di prima resta.
     expect(w.claude).toBe("awaiting_approval");
+  });
+
+  it("lo stato del piano solo da un esito verificabile: undecided senza decisione; approved da una decisione o da un'esecuzione; pre_approved dal digest", async () => {
+    const planOf = async (t: string) => (await work(t)).runs.at(-1)!.plan!.status;
+    // Fermo (held) o annullato sul gate (skipped) senza decisione: non «approved».
+    for (const status of ["held", "skipped", "failed", "queued"] as const) {
+      const t = await task();
+      await testDb.db.insert(aiJobs).values({ ticketId: t, status, planText: "## P" });
+      expect(await planOf(t), status).toBe("undecided");
+    }
+    // Una decisione approvata PER QUEL job.
+    const decided = await task();
+    const [job] = await testDb.db.insert(aiJobs).values({ ticketId: decided, status: "failed", planText: "## P" }).returning({ id: aiJobs.id });
+    await testDb.db.insert(projectDecisions).values({
+      projectId,
+      source: "plan_review",
+      sourceKey: `plan_review:${job!.id}:1`,
+      sourceRef: { jobId: job!.id, mode: "execute" },
+      ticketId: decided,
+      title: "T",
+      decision: "Approvato",
+      decidedByUserId: lead.id,
+    });
+    expect(await planOf(decided)).toBe("approved");
+    // Un job che ha eseguito il piano è uscito dal gate.
+    const executed = await task();
+    await testDb.db.insert(aiJobs).values({ ticketId: executed, status: "pr_opened", planText: "## P" });
+    expect(await planOf(executed)).toBe("approved");
+    // Una pre-approvazione VALIDA (il digest del piano del job).
+    const pre = await task();
+    await testDb.db
+      .update(tickets)
+      .set({ implementationPlan: "## Pre", planApprovedAt: new Date(), planApprovedDigest: planDigest("## Pre") })
+      .where(eq(tickets.id, pre));
+    await testDb.db.insert(aiJobs).values({ ticketId: pre, status: "queued", planText: "## Pre" });
+    expect(await planOf(pre)).toBe("pre_approved");
+    // Un digest di un ALTRO piano non vale.
+    await testDb.db.update(tickets).set({ planApprovedDigest: planDigest("## Vecchio") }).where(eq(tickets.id, pre));
+    expect(await planOf(pre)).toBe("undecided");
   });
 
   it("chi non ha repos.view non riceve le sessioni (né il piano): hiddenRuns", async () => {
