@@ -46,7 +46,22 @@ describe("0121 numeri delle richieste", () => {
   it("un numero è unico nel progetto", async () => {
     const { projectId } = await seedRepository(t.db);
     const a = await item(projectId);
-    await expect(t.db.insert(backlogItems).values({ projectId, title: "dup", source: "manual", number: a.number })).rejects.toThrow();
+    const b = await item(projectId);
+    await expect(t.db.update(backlogItems).set({ number: a.number }).where(eq(backlogItems.id, b.id))).rejects.toThrow();
+  });
+
+  it("il numero passato all'insert è ignorato: il trigger dà sempre il dopo, e l'insert successivo non fallisce", async () => {
+    const { projectId } = await seedRepository(t.db);
+    const [forced] = await t.db
+      .insert(backlogItems)
+      .values({ projectId, title: "forzato", source: "manual", number: 1 })
+      .returning({ number: backlogItems.number });
+    const [far] = await t.db
+      .insert(backlogItems)
+      .values({ projectId, title: "lontano", source: "manual", number: 500 })
+      .returning({ number: backlogItems.number });
+    const next = await item(projectId);
+    expect([forced!.number, far!.number, next.number]).toEqual([1, 2, 3]);
   });
 
   it("una voce che cambia progetto prende il numero dopo nel nuovo", async () => {
