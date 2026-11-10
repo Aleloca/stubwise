@@ -290,5 +290,10 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   precondizioni e stesso gate del piano di run-ai. Toglierlo non annulla niente
   (resta «Annulla il lavoro»). `/api/people` lo mostra a tutti (`isClaude`), così
   il nome di una task assegnata a lui si legge sempre; dove chi guarda può
-  assegnarlo lo dice il server (`claudeAssignableProjectIds`). L'impostazione
+  assegnarlo lo dice il server (`claudeAssignableProjectIds`). Sul web vecchio
+  e nell'app, che leggono i nomi da `/api/users` (dove Claude NON entra: il
+  Team, i conteggi degli admin e i selettori ne resterebbero sporcati), il
+  ticket porta `assigneeIsAgent` (additivo, facoltativo) e il client scrive
+  «Claude»; e non è mai «assegnatario senza accesso» (`assigneeWithoutAccess`
+  lo esclude: non è membro per costruzione, non per revoca). L'impostazione
   iniziale dell'istanza non lo conta fra gli utenti.
