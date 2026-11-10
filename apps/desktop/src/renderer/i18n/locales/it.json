@@ -1202,7 +1202,8 @@
           "run_in_progress": "Claude sta lavorando adesso: prima fermalo, poi annulla.",
           "nothing_to_cancel": "Non c'è più nessun lavoro da annullare.",
           "failed": "Non è andato a buon fine. Riprova."
-        }
+        },
+        "cancelling": "Annullamento in corso…"
       },
       "errors": {
         "job_in_flight": "Claude sta già lavorando su questa task.",

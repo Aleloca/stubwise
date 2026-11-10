@@ -235,6 +235,45 @@ describe("Tasks nella build app", () => {
       return { ue, dialog: await screen.findByRole("dialog", { name: "Cancel Claude's work on this task?" }) };
     }
 
+    it("in esecuzione (server col 3b.1-bis): 202 col lavoro in annullamento; la sezione lo dice e non offre un secondo Annulla", async () => {
+      const seen: string[] = [];
+      let cancelRequested = false;
+      const routes = parked({ body: {} }, seen);
+      installFakeServer({
+        ...routes,
+        [`GET /api/tasks/${TICKET_ID}/work`]: () => ({
+          body: {
+            claude: "working",
+            webHref: `/tickets/${TICKET_ID}`,
+            runs: [
+              {
+                id: "bbbbbbbb-0000-4000-8000-000000000003",
+                sessionId: SESSION,
+                ownerId: ME_ID,
+                createdAt: "2026-10-20T09:00:00.000Z",
+                state: "working",
+                cancelRequested,
+              },
+            ],
+          },
+        }),
+        [`POST /api/tasks/${TICKET_ID}/cancel-run`]: () => {
+          seen.push("cancel");
+          cancelRequested = true;
+          return { status: 202, body: { claude: "working", webHref: "/x" } };
+        },
+      });
+      const { ue, dialog } = await openCancel();
+      expect(within(dialog).queryByText(/stop it first/)).toBeNull();
+      await ue.click(within(dialog).getByRole("button", { name: "Cancel the work" }));
+      await waitFor(() => expect(seen).toEqual(["cancel"]));
+      const panel = screen.getByRole("dialog", { name: "Task AUD-12" });
+      const claude = () => within(panel).getByRole("region", { name: "Claude" });
+      await waitFor(() => expect(claude()).toHaveTextContent("Cancelling…"));
+      await ue.click(within(claude()).getByRole("button", { name: "More actions for Claude" }));
+      expect(screen.queryByRole("menuitem", { name: "Cancel the work" })).toBeNull();
+    });
+
     it("con conferma, chiude il lavoro parcheggiato", async () => {
       const seen: string[] = [];
       installFakeServer(parked({ body: { claude: "none", webHref: "/x" } }, seen));
@@ -245,7 +284,7 @@ describe("Tasks nella build app", () => {
       expect(await screen.findByText("Claude's work was cancelled.")).toBeInTheDocument();
     });
 
-    it("con Claude al lavoro il server rifiuta: si propone «Ferma»", async () => {
+    it("un server prima del 3b.1-bis rifiuta (run_in_progress): si propone «Ferma»", async () => {
       const seen: string[] = [];
       installFakeServer(parked({ status: 409, body: { code: "run_in_progress", message: "x" } }, seen));
       const { ue, dialog } = await openCancel();

@@ -226,6 +226,11 @@ export interface TaskRun {
    * (`Conversation.skills`); `null` per una sessione nata prima del 9c.
    */
   skills: { plugin: string; skill: string }[] | null;
+  /**
+   * Build app (3b.1-bis): «Annulla il lavoro» chiesto su un lavoro in
+   * esecuzione, il worker lo sta chiudendo. Assente nel prototipo.
+   */
+  cancelRequested?: boolean;
 }
 
 /** I fatti esterni di una PR, quanto ne legge la sezione (il ciclo si deriva: `prCycles`). */
