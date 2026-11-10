@@ -76,9 +76,12 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   dagli schemi zod (`claudeActionSignatures`): `pageAction` di tipo
   `filter` vi compare, ma il modello non conosce le rotte del renderer: lo
   userà davvero solo dove la pagina gliele dà (F3.4).
-- Lo stato delle azioni della pagina (D3) è del renderer, per persona e in
-  memoria *(S, F3.4)*: il server le valida soltanto, quindi dopo un riavvio
-  dell'app una scheda già eseguita torna da rifare.
+- **Esito delle azioni della pagina salvato dal server** *(S, F3.4, review)*:
+  oggi l'esito (D3) è del renderer, per persona e in memoria, e un'azione
+  parte solo se arriva dal vivo in quella finestra; letta dalla storia (un
+  ricaricamento, un riavvio, un'altra scheda del browser) resta «non
+  applicata» col gesto «Apply». Salvato sul server, la riga direbbe l'esito
+  vero anche dopo.
 - Il contesto della pagina arriva al modello come `tipo: id`, non come il suo
   contenuto: Claude lo legge con i tool se serve *(S)*.
 - Conservazione *(M, review delle fette 1–2)*: le conversazioni inattive da 14

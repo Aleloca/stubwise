@@ -4,8 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
-import { resetStreamsForTests } from "./claudeStream";
+import { resetStreamsForTests, setStreamTransport, type StreamHandlers } from "./claudeStream";
 import { forgetClaudeCaches } from "./claude";
+import { __forgetPageEventsForTest, __forgetStartedForTest } from "../../../layout/claudePanel/pageActions";
 import {
   DEPT_ID,
   installFakeServer,
@@ -170,10 +171,19 @@ function install(over: { proposals?: unknown[]; groups?: unknown[]; routes?: Rec
 beforeEach(() => {
   setAppClientForTests(null);
   resetStreamsForTests();
+  __forgetStartedForTest();
+  __forgetPageEventsForTest();
+  document.documentElement.removeAttribute("data-theme");
+  try {
+    localStorage.clear();
+  } catch {
+    /* niente storage */
+  }
   forgetClaudeCaches();
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
 });
 afterEach(() => {
+  setStreamTransport(null);
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   setAppClientForTests(null);
@@ -298,24 +308,66 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     expect(screen.getByRole("dialog", { name: "New task" })).toBeInTheDocument();
   });
 
-  it("un'azione della pagina (D3): la esegue il renderer, la riga lo dice e offre «Undo» locale; nessuna scrittura", async () => {
-    install({
-      proposals: [
-        cardB({
-          actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
-          cls: "A",
-          reasons: [],
-          canConfirm: false,
-          canCancel: false,
-        }),
-      ],
+  const pageProposal = () =>
+    cardB({
+      actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
+      cls: "A",
+      reasons: [],
+      canConfirm: false,
+      canCancel: false,
     });
+
+  it("un'azione della pagina letta dalla storia (D3) NON riparte: la riga dice «non applicata» col gesto per rifarla", async () => {
+    install({ proposals: [pageProposal()] });
+    const ue = userEvent.setup();
     renderRoute(`/claude/${CONV}`);
-    expect(await screen.findByText("Switched to the dark theme")).toBeInTheDocument();
+    const row = await screen.findByText(/Not applied in this window/);
+    expect(row).toBeInTheDocument();
+    expect(document.documentElement.dataset.theme).not.toBe("dark");
+    expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull();
+    // Il gesto: la applica adesso, e da lì «Undo» come una partita dal vivo.
+    await ue.click(screen.getByRole("button", { name: "Apply" }));
     expect(await screen.findByRole("button", { name: /^Undo/ })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: /Claude proposes/ })).toBeNull();
+    expect(document.documentElement.dataset.theme).toBe("dark");
     expect(seen.filter((r) => r.method === "POST")).toEqual([]);
     expect(outside()).toEqual([]);
+  });
+
+  it("un'azione della pagina arrivata DAL VIVO nello stream di questa vista parte da sola, con «Undo» locale", async () => {
+    let handlers: StreamHandlers | null = null;
+    setStreamTransport((_path, h) => {
+      handlers = h;
+      return () => undefined;
+    });
+    let proposals: unknown[] = [];
+    const history: unknown[] = [
+      { id: "1", type: "input", segmentId: "s1", at: "2026-11-10T10:00:10.000Z", data: { inputId: "i1", text: "Dark theme please" } },
+      { id: "4", type: "assistant_text", segmentId: "s1", at: "2026-11-10T10:01:00.000Z", data: { text: "I need your OK." } },
+    ];
+    install({
+      proposals: [],
+      routes: {
+        [`GET /api/claude/conversations/${CONV}/proposals`]: () => ({ body: proposals }),
+        [`GET /api/agent-sessions/${CONV}/events`]: () => ({ body: { events: history, before: null } }),
+      },
+    });
+    renderRoute(`/claude/${CONV}`);
+    expect(await screen.findByText("I need your OK.")).toBeInTheDocument();
+    await waitFor(() => expect(handlers).not.toBeNull());
+    proposals = [pageProposal()];
+    const live = { id: "9", type: "proposal", segmentId: "s2", at: "2026-11-10T10:02:00.000Z", data: { proposalId: PROPOSAL } };
+    // Il server ora ha l'evento anche nella storia (la lettura dopo lo stream lo trova).
+    history.push(live);
+    handlers!.onFrame({
+      messages: [{ type: "session", detail: session }, { type: "events", events: [live] }],
+      lastId: "9",
+      real: true,
+      invalidSession: false,
+    } as never);
+    // La riga arriva con la rilettura del dettaglio dopo lo stream.
+    expect(await screen.findByRole("button", { name: /^Undo/ }, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByText(/Not applied in this window/)).toBeNull();
+    expect(seen.filter((r) => r.method === "POST")).toEqual([]);
   });
 
   it("«Cancel» annulla la scheda sul server; niente si esegue", async () => {

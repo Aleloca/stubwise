@@ -4318,7 +4318,9 @@
         "failedReason": "the page wasn't changed",
         "savedFilter": "Saved the filter “{{name}}”",
         "onlyYou": "only you see it",
-        "private": "private"
+        "private": "private",
+        "notApplied": "Not applied in this window",
+        "apply": "Apply"
       },
       "trial": {
         "label": "Claude's test",

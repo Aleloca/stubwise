@@ -208,9 +208,11 @@ type Fake = typeof import("../../api");
 /**
  * L'esito delle azioni della pagina, per persona: le esegue il RENDERER (D3,
  * il server le valida e non esegue niente), quindi lo stato — eseguita, non
- * partita, annullata — resta qui, come il loro «Undo» locale. Una
- * conversazione riaperta in un'altra sessione le rilegge in attesa, e il
- * runner le dà non partite se sono vecchie (`isStale`).
+ * partita, annullata — resta qui, in memoria per persona, come il loro
+ * «Undo» locale. Un'azione parte SOLO se arriva dal vivo in questa finestra
+ * (il runner, `layout/claudePanel/pageActions.ts`): letta dalla storia o dal
+ * dettaglio (un ricaricamento, un riavvio, un'altra scheda) resta «non
+ * applicata», e la riga offre il gesto per applicarla adesso.
  */
 const pageStatusByPerson = new Map<string, Map<string, PageEventStatus>>();
 

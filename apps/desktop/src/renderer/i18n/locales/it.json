@@ -4318,7 +4318,9 @@
         "failedReason": "la pagina non è stata cambiata",
         "savedFilter": "Salvato il filtro «{{name}}»",
         "onlyYou": "lo vedi solo tu",
-        "private": "privato"
+        "private": "privato",
+        "notApplied": "Non applicata in questa finestra",
+        "apply": "Applica"
       },
       "trial": {
         "label": "La prova di Claude",

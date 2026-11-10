@@ -118,13 +118,13 @@ dati, mai dal modello.
 | Confirm, Confirm selected, Cancel, «Undo» (subito, o una scheda se gli inversi avviserebbero qualcuno; `changed_after` col nome) | `claudeChatActions.ts` (`confirmProposal`, `cancelProposal`, `claude.undoClaudeActions`, `undoViewsOf`) | `POST /api/claude/proposals/:id/confirm`, `…/cancel`, `POST /api/claude/groups/:id/undo` | `real/claudeChatActionsPage.test.tsx` |
 | «Edit» di `createTask`/`createRequest`: il dialogo di sempre, e la conferma porta i valori cambiati (`edited`); la esegue il server | `ProposalCard.tsx` (`confirmEdited`, solo build app), `NewTaskDialog`/`NewRequestDialog` (`submit`) | `confirm` con `edited` | `claudeChatActionsPage.test.tsx` |
 | Riga di benvenuto `landing.intro` e i comandi d'azione di «/» (`/plan`, `/new-task`, `/new-request`, `/run`) col flag | `pages/claude/ClaudePage.tsx`, `real/claudeChat.ts` (`listCommands`) | — | `real/claudeChat.test.ts`, `claudeChatPage.test.tsx` |
-| Azioni della pagina (D3): una proposta di sole `pageAction` diventa eventi `pageAction`, eseguiti dal renderer; il loro stato è per persona, in memoria | `claudeChatActions.ts` (`settlePageEvent`, `forgetPageStatuses`) | — | `claudeChatActionsPage.test.tsx` |
+| Azioni della pagina (D3): una proposta di sole `pageAction` diventa eventi `pageAction`, eseguiti dal renderer SOLO se arrivano dal vivo in questa finestra; lette dalla storia restano «non applicate» col gesto «Apply»; lo stato è per persona, in memoria | `claudeChatActions.ts` (`settlePageEvent`, `forgetPageStatuses`) | — | `claudeChatActionsPage.test.tsx` |
 | Il segno «via Claude» dal server: `via: "claude"` sul registro della task, «Claude on behalf of …» sulle card d'inbox (le persone si leggono solo se serve), «By person» | `real/taskDetail.ts`, `real/notifications.ts`, `real/peopleActivity.ts`; server `services/via-claude.ts` | campi `viaClaude*` di commenti, `/activity`, `/api/inbox`, `/api/people/activity` | `real/viaClaude.test.ts`; server `claude-actions/via-reads.test.ts` |
 
 | Scelta o limite | Chi ha deciso |
 |---|---|
 | `viaClaude` si DERIVA a lettura (colonne `via_claude_action_id` → azione → gruppo), mai nel jsonb delle notifiche; il server dà l'id del richiedente, il nome lo risolve il renderer | orchestratrice |
-| Lo stato delle azioni della pagina («fatto», «annullato») vive nel renderer, per persona e in memoria: dopo un riavvio la scheda torna da rifare | costruttore |
+| Lo stato delle azioni della pagina («fatto», «annullato») vive nel renderer, per persona e in memoria; un'azione parte solo dal vivo, mai da una lettura (dopo un ricaricamento il tema non torna da solo) | orchestratrice (review F3.4) |
 | «Edit» nella build app conferma la proposta coi valori cambiati (`edited`) invece di creare a mano come il prototipo: l'esecuzione resta del server, col segno «via Claude» | costruttore |
 
 ## Rimandate
