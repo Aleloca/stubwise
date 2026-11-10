@@ -1,5 +1,7 @@
 import { ApiError } from "@stubwise/api-client";
 import {
+  REFINE_TOOL_NAMES,
+  sizeFromEffort,
   toConversationEvents,
   type AgentSessionDetail,
   type AgentSessionEvent,
@@ -111,11 +113,11 @@ function activityOf(s: Summary, state: ConversationState): ConversationActivity 
 }
 
 /** I codici dei progetti visibili, per il codice della task di una sessione («AUD-12»). */
-async function projectCodes(): Promise<Map<string, string>> {
+export async function projectCodes(): Promise<Map<string, string>> {
   return new Map((await listProjects()).map((p) => [p.id, p.code] as const));
 }
 
-function toRow(s: Summary, codes: Map<string, string>, paused = false): ConversationRow | null {
+export function toRow(s: Summary, codes: Map<string, string>, paused = false): ConversationRow | null {
   const kind = KIND_OF[s.kind as AgentSessionKind];
   if (!kind) return null;
   if (s.ticketId) ticketOfConversation.set(s.id, s.ticketId);
@@ -265,7 +267,7 @@ export function eventsOf(
   partials: Record<string, string>,
   plan: RunPlan | null,
 ): ConversationEvent[] {
-  return withStablePlanId(
+  const out = withStablePlanId(
     toConversationEvents({
       events,
       partials,
@@ -277,6 +279,62 @@ export function eventsOf(
     }) as ConversationEvent[],
     plan,
   );
+  return detail.kind === "backlog_refine" ? withRefineResults(out) : out;
+}
+
+/** I tool del refinement (`mcp__stubwise_refine__*`) e l'esito che diventano nel prototipo. */
+const REFINE_RESULT: Record<string, "design_updated" | "plan_updated" | "estimate_updated"> = {
+  [REFINE_TOOL_NAMES[0]!]: "design_updated",
+  [REFINE_TOOL_NAMES[1]!]: "plan_updated",
+  [REFINE_TOOL_NAMES[2]!]: "estimate_updated",
+};
+
+function parseInput(input: string | undefined): Record<string, unknown> {
+  if (!input) return {};
+  try {
+    const value: unknown = JSON.parse(input);
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** La patch della richiesta che una scrittura di Claude ha salvato, nei campi del prototipo. */
+function refinePatchOf(kind: "design_updated" | "plan_updated" | "estimate_updated", input: Record<string, unknown>) {
+  if (kind === "design_updated") return typeof input.markdown === "string" ? { design: input.markdown } : {};
+  if (kind === "plan_updated") return typeof input.markdown === "string" ? { plan: input.markdown } : {};
+  const patch: Record<string, unknown> = {};
+  if (typeof input.title === "string") patch.title = input.title;
+  if (input.effort !== undefined) patch.size = sizeFromEffort(typeof input.effort === "number" ? input.effort : null);
+  if (input.urgency !== undefined) patch.urgency = input.urgency === "urgent" ? "high" : input.urgency;
+  if (input.risk !== undefined) patch.risk = input.risk;
+  if (input.riskNote !== undefined) patch.riskNote = input.riskNote;
+  return patch;
+}
+
+/**
+ * Il refinement (fetta 3c): Claude scrive design, piano e metadati della
+ * richiesta coi tool del refinement; il prototipo li legge come esiti
+ * (`work_result`) con la patch della richiesta, che il lato aggiorna subito.
+ * Solo una scrittura riuscita è un esito, e prende il posto della sua azione:
+ * in corso o fallita resta l'azione.
+ */
+function withRefineResults(events: ConversationEvent[]): ConversationEvent[] {
+  return events.flatMap((e) => {
+    if (e.type !== "action" || e.state !== "done") return [e];
+    const kind = REFINE_RESULT[e.tool];
+    if (!kind) return [e];
+    const result: ConversationEvent = {
+      id: `${e.id}:result`,
+      at: e.at,
+      type: "work_result",
+      kind,
+      text: e.result ?? "",
+      requestPatch: refinePatchOf(kind, parseInput(e.input)),
+    };
+    // Riuscita, la scrittura si legge come il suo esito (il nome del tool non dice niente a chi guarda).
+    return [result];
+  });
 }
 
 /**
@@ -309,6 +367,11 @@ let meCache: { at: number; read: Promise<Awaited<ReturnType<ReturnType<typeof ap
  * (`projectPermissions` di `/api/auth/me`), il client lo legge.
  */
 async function canApprovePlans(projectId: string): Promise<boolean> {
+  return hasProjectPermission(projectId, "plans.approve");
+}
+
+/** Un permesso di progetto di chi guarda, calcolato dal server (`/api/auth/me`); il full admin li ha tutti. */
+async function hasProjectPermission(projectId: string, permission: string): Promise<boolean> {
   if (!meCache || Date.now() - meCache.at > ME_TTL_MS) {
     meCache = { at: Date.now(), read: appClient().auth.me() };
     meCache.read.catch(() => {
@@ -318,8 +381,25 @@ async function canApprovePlans(projectId: string): Promise<boolean> {
   const viewer = await meCache.read;
   return (
     viewer.instancePermissions.includes("instance.full_admin") ||
-    (viewer.projectPermissions[projectId] ?? []).includes("plans.approve")
+    (viewer.projectPermissions[projectId] ?? []).includes(permission as never)
   );
+}
+
+/** La richiesta di un refinement si può ancora rifinire (non trasformata, archiviata o fusa), per firma. */
+const refinableCache = new Map<string, { signature: string; read: Promise<boolean> }>();
+
+function refinableOf(detail: Detail, requestId: string): Promise<boolean> {
+  const signature = signatureOf(detail);
+  const hit = refinableCache.get(detail.id);
+  if (hit && hit.signature === signature) return hit.read;
+  const read = appClient()
+    .requests.get(requestId)
+    .then((r) => ["new", "ready", "refining"].includes(r.status) && !r.mergedIntoId)
+    .catch(() => false);
+  refinableCache.delete(detail.id);
+  refinableCache.set(detail.id, { signature, read });
+  if (refinableCache.size > PLAN_CACHE_MAX) refinableCache.delete(refinableCache.keys().next().value!);
+  return read;
 }
 
 /** Il piano SALVATO sul ticket e la sua pre-approvazione (valida sul digest), per firma del dettaglio. */
@@ -346,6 +426,7 @@ function ticketPlanOf(detail: Detail, ticketId: string): Promise<{ saved: boolea
 export function forgetClaudeCaches(): void {
   planCache.clear();
   ticketPlanCache.clear();
+  refinableCache.clear();
   meCache = null;
 }
 
@@ -373,17 +454,29 @@ async function permissionsOf(detail: Detail, row: ConversationRow) {
     canPreApprovePlan = approve && plan.saved && !plan.preApproved && detail.state !== "awaiting_approval";
     canRevokePlanApproval = approve && plan.preApproved;
   }
+  // Refinement (fetta 3c): chiudere lo dice il server; ripartire («Start new»)
+  // una sessione chiusa, con `backlog.edit`, se la richiesta si può ancora rifinire.
+  let canStartNew = false;
+  if (row.kind === "refine" && !live && detail.backlogItemId && detail.projectId) {
+    const [edit, refinable] = await Promise.all([
+      hasProjectPermission(detail.projectId, "backlog.edit").catch(() => false),
+      refinableOf(detail, detail.backlogItemId),
+    ]);
+    canStartNew = edit && refinable;
+  }
   const readOnlyReason = detail.canWrite
     ? null
     : !live
       ? ("finished" as const)
-      : row.kind !== "task_run"
+      : row.kind !== "task_run" && row.kind !== "refine"
         ? ("automatic" as const)
         : detail.canIntervene
           ? ("not_interactive" as const)
           : ("no_permission" as const);
   return {
     ...NEVER,
+    canClose: row.kind === "refine" && live && detail.canClose,
+    canStartNew,
     canWrite: detail.canWrite,
     canInterrupt: detail.canInterrupt,
     canAnswer: live && !!open?.canAnswer,

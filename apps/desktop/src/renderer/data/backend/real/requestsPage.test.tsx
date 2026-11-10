@@ -27,8 +27,26 @@ const view = {
 };
 
 let seen: SeenRequest[] = [];
+const REFINE = "aaaaaaaa-0000-4000-8000-0000000000aa";
+let refineLive = false;
+const refine = {
+  id: REFINE,
+  kind: "backlog_refine",
+  title: "Export to CSV",
+  projectId: PROJECT_ID,
+  projectName: "Audin AI",
+  ticketId: null,
+  ticketNumber: null,
+  startedAt: "2026-10-20T10:00:00.000Z",
+  lastEventAt: "2026-10-20T10:01:30.000Z",
+  state: "idle",
+  aiJobId: null,
+  backlogItemId: ITEM,
+  outcome: null,
+};
 
 beforeEach(() => {
+  refineLive = false;
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   seen = installFakeServer({
@@ -44,13 +62,33 @@ beforeEach(() => {
     },
     "GET /api/departments": { body: [{ id: DEPT_ID, name: "General", colorToken: "--dept-1", isDefault: true }] },
     "GET /api/requests": { body: [view, { ...view, id: OTHER, code: "AUD-R5", title: "CSV export", urgent: false }] },
-    [`GET /api/requests/${ITEM}`]: { body: view },
+    // Dopo il refinement la voce ha il design che Claude ha salvato.
+    [`GET /api/requests/${ITEM}`]: () => ({ body: refineLive ? { ...view, design: "The new design for the CSV export" } : view }),
     "GET /api/tasks": { body: { items: [], truncated: false } },
     "GET /api/tasks/stalled": { body: [] },
     "GET /api/milestones": { body: [] },
     [`PATCH /api/requests/${ITEM}`]: { body: { ...view, urgency: "high", urgent: false } },
     [`GET /api/requests/${OTHER}`]: { body: { ...view, id: OTHER, code: "AUD-R5", title: "CSV export" } },
     [`POST /api/requests/${ITEM}/merge`]: { status: 409, body: { code: "request_changed", message: "x" } },
+    "GET /api/me/claude-decisions": { body: [] },
+    // Il refinement (fetta 3c): la sessione della richiesta e le scritture di Claude.
+    "GET /api/agent-sessions": () => ({ body: { live: refineLive ? [refine] : [], recent: [] } }),
+    [`POST /api/backlog/${ITEM}/refine-session`]: () => {
+      refineLive = true;
+      return { status: 201, body: { agentSessionId: REFINE, inputId: null } };
+    },
+    [`GET /api/agent-sessions/${REFINE}`]: {
+      body: { ...refine, canWrite: true, canIntervene: true, canClose: true, questions: [], inputs: [] },
+    },
+    [`GET /api/agent-sessions/${REFINE}/events`]: {
+      body: {
+        events: [
+          { id: "1", type: "tool_use", segmentId: "s1", at: "2026-10-20T10:01:00.000Z", data: { toolUseId: "t1", name: "mcp__stubwise_refine__set_design", input: { markdown: "The new design for the CSV export" } } },
+          { id: "2", type: "tool_result", segmentId: "s1", at: "2026-10-20T10:01:30.000Z", data: { toolUseId: "t1", isError: false, content: "Design saved on the backlog item." } },
+        ],
+        before: null,
+      },
+    },
   }).seen;
 });
 
@@ -92,5 +130,20 @@ describe("Requests nella build app", () => {
     expect(
       await within(dialog).findByText("One of the two requests changed in the meantime. Nothing changed: try again."),
     ).toBeInTheDocument();
+  });
+
+  it("«Refine with Claude» apre la sessione della richiesta; il design scritto da Claude compare nella vista", async () => {
+    const ue = userEvent.setup();
+    const router = renderRoute(`/p/AUD/requests?request=${ITEM}`);
+    const panel = await screen.findByRole("dialog");
+    await ue.click(await within(panel).findByRole("button", { name: "Refine with Claude" }));
+    await waitFor(() =>
+      expect(seen.some((r) => r.method === "POST" && r.path === `/api/backlog/${ITEM}/refine-session`)).toBe(true),
+    );
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ refine: "1" }));
+    expect(await screen.findByText("Design saved on the backlog item.")).toBeInTheDocument();
+    expect(screen.queryByText("mcp__stubwise_refine__set_design")).toBeNull();
+    await ue.click(screen.getByRole("button", { name: "See" }));
+    expect((await screen.findAllByText("The new design for the CSV export")).length).toBeGreaterThan(0);
   });
 });

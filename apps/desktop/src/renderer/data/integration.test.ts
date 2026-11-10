@@ -73,6 +73,8 @@ describe("isIntegrated", () => {
         // Fetta 3b: azioni e «Da decidere».
         "feature:claude-actions",
         "feature:claude-decisions",
+        // Fetta 3c: il refinement.
+        "feature:refine",
       ].sort(),
     );
   });
