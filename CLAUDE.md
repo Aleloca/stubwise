@@ -507,6 +507,7 @@ una voce ti riguarda.
   - Resta sempre un full admin; i preset Admin e User non si eliminano finché esiste `users.role`.
   - La revoca si applica a lettura, senza riscrivere righe.
   - I full admin sono membri impliciti di ogni progetto.
+  - Un permesso nuovo dato a un preset si dà anche ai ruoli che lo contenevano (10 nov 2026, decisione del maintainer: 0133, 0135).
   - `users.role` è DERIVATA (trigger), e la sua rimozione è un rilascio successivo.
   - L'utente di sistema Claude (10 nov 2026): uno per istanza, nessun accesso né notifiche, assegnarlo avvia il lavoro con `runs.start`.
 - **Secondo fattore sul login → `docs/invariants/second-factor.md`** (23 ott 2026):
