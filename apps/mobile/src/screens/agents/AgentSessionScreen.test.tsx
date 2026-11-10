@@ -59,6 +59,7 @@ function detail(overrides: Partial<AgentSessionDetail> = {}): AgentSessionDetail
     aiJobId: "22222222-2222-4222-8222-222222222222",
     backlogItemId: null,
     outcome: null,
+    waitsOnViewer: false,
     canWrite: false,
     canIntervene: false,
     canInterrupt: false,

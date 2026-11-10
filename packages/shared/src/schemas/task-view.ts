@@ -225,6 +225,79 @@ export const taskActivityEntryViewSchema = z.object({
 });
 export type TaskActivityEntryView = z.infer<typeof taskActivityEntryViewSchema>;
 
+/** `allowed` | `forbidden` (lo stato lo consente, chi guarda no) | `unavailable` (lo stato non lo consente). */
+export const actionAvailabilitySchema = z.enum(["allowed", "forbidden", "unavailable"]);
+
+/**
+ * Una sessione di lavoro della task (un job AI), come la legge la sezione
+ * Claude (integrazione area 3, fetta 3a). Gli eventi NON sono qui: si leggono
+ * dalla sessione (`sessionId`, `/api/agent-sessions/:id/events` e lo stream).
+ */
+export const taskWorkRunSchema = z.object({
+  /** Il job AI. */
+  id: z.uuid(),
+  /** La sessione dell'agente del job, se è nata (un job in coda non ce l'ha ancora). */
+  sessionId: z.uuid().nullable().default(null),
+  /** Chi l'ha avviata; `null` se il sistema o un utente eliminato. */
+  ownerId: z.uuid().nullable().default(null),
+  createdAt: z.iso.datetime(),
+  /** Lo stato del prototipo (`held` → `idle`, con `heldReason`). «In pausa» per uno «Ferma» lo dice il dettaglio della sessione (`paused`). */
+  state: z.enum(["working", "awaiting_answer", "awaiting_approval", "paused", "idle", "finished"]),
+  /** Solo a sessione finita: `skipped` (annullata o non fatta) → `stopped`. */
+  outcome: z.enum(["ok", "failed", "timed_out", "stopped"]).nullable().default(null),
+  /** La correzione di una PR, o un fix. */
+  kind: z.enum(["fix", "correction"]).default("fix"),
+  /** Solo una correzione: la PR che corregge. */
+  pr: z.object({ repo: z.string(), number: z.number().int() }).nullable().default(null),
+  provider: z.object({ kind: z.enum(["account", "api_key"]), name: z.string() }).nullable().default(null),
+  failureSummary: z.string().nullable().default(null),
+  /** Perché il job è parcheggiato (`ai_jobs.held_reason`), o null. */
+  heldReason: z.string().nullable().default(null),
+  /** Il piano del job (il prototipo lo mette fra gli eventi: lo fa l'app). */
+  plan: z
+    .object({
+      text: z.string(),
+      summary: z.string(),
+      status: z.enum(["pending", "approved", "rejected", "pre_approved"]),
+      at: z.iso.datetime(),
+    })
+    .nullable()
+    .default(null),
+});
+export type TaskWorkRunView = z.infer<typeof taskWorkRunSchema>;
+
+export const taskPrEventSchema = z.object({
+  id: z.string(),
+  kind: z.enum(["pr_opened", "pr_merged", "pr_closed"]),
+  at: z.iso.datetime(),
+  number: z.number().int(),
+  repo: z.string(),
+});
+
+export const taskPrFactSchema = z.object({
+  repo: z.string(),
+  number: z.number().int(),
+  review: z
+    .object({
+      verdict: z.enum(["pending", "approved", "changes_requested"]),
+      at: z.iso.datetime(),
+      byId: z.uuid().nullable().default(null),
+      on: z.enum(["stubwise", "platform"]).nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  branchProtected: z.boolean().default(false),
+  /** Una correzione chiesta aspetta che finisca il lavoro in corso. */
+  queued: z.boolean().default(false),
+});
+
+export const taskPlanDecisionSchema = z.object({
+  decidedById: z.uuid().nullable(),
+  decidedAt: z.iso.datetime(),
+  decision: z.string(),
+  status: z.enum(["approved", "rejected"]),
+});
+
 /** Il sottoinsieme di `TaskWork` che la sezione Claude della fetta 1 usa. */
 export const taskWorkViewSchema = z.object({
   claude: claudeWorkStateSchema,
@@ -240,6 +313,44 @@ export const taskWorkViewSchema = z.object({
     .default([]),
   /** Il dettaglio del ticket nel web vecchio (piano, approvazione, domande, sessione). */
   webHref: z.string(),
+  // --- Integrazione area 3, fetta 3a: il lavoro intero, in lettura. Tutti con
+  // un default: un server della fetta 1 non li manda, e la sezione degrada.
+  /** Le sessioni di lavoro (i job AI) dalla più vecchia; vuoto per chi non ha `repos.view`. */
+  runs: z.array(taskWorkRunSchema).default([]),
+  /** Ci sono sessioni di lavoro che chi guarda non vede (`repos.view`). */
+  hiddenRuns: z.boolean().default(false),
+  /** Gli eventi delle PR della task (aperta, mergiata, chiusa). */
+  prEvents: z.array(taskPrEventSchema).default([]),
+  /** I fatti esterni di ogni PR: il ciclo lo deriva l'app (`prCycles`). */
+  prFacts: z.array(taskPrFactSchema).default([]),
+  /** Il tetto delle correzioni della repository (il primo, con più repository). */
+  correctionCap: z.number().int().default(3),
+  /** Le decisioni sui piani dal registro, con l'esito dalla riga (mai dal testo). */
+  planDecisions: z.array(taskPlanDecisionSchema).default([]),
+  /** Il progetto ha una repository: solo lì ci sono PR e correzioni. */
+  software: z.boolean().default(false),
+  /** Una PR aperta: «Chiedi modifiche» ha qualcosa da correggere. */
+  openPr: z.boolean().default(false),
+  /** Claude aspetta chi guarda: una domanda a cui può rispondere o un piano che può decidere. */
+  waitsOnViewer: z.boolean().default(false),
+  /** Cosa può fare chi guarda, calcolato dal SERVER coi suoi permessi e le precondizioni delle scritture. */
+  actions: z
+    .object({
+      start: actionAvailabilitySchema.default("unavailable"),
+      relaunch: actionAvailabilitySchema.default("unavailable"),
+      resume: actionAvailabilitySchema.default("unavailable"),
+      requestChanges: actionAvailabilitySchema.default("unavailable"),
+    })
+    .default({ start: "unavailable", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" }),
+  /**
+   * Perché un lavoro nuovo non partirebbe adesso. Sul server vero un avvio a
+   * mano scavalca il budget (`manualTrigger`), quindi oggi è sempre `null`:
+   * il campo c'è perché la forma è quella del prototipo.
+   */
+  blocked: z
+    .object({ reason: z.enum(["monthly_budget", "queue_paused"]), byId: z.string().optional(), byName: z.string().optional(), since: z.string().optional() })
+    .nullable()
+    .default(null),
 });
 export type TaskWorkView = z.infer<typeof taskWorkViewSchema>;
 

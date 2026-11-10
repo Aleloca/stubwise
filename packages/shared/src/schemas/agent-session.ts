@@ -199,6 +199,13 @@ export const agentSessionSummarySchema = z.object({
   /** La voce di backlog della sessione (stima, merge o refinement), null altrimenti. Additivo. */
   backlogItemId: z.string().uuid().nullable().default(null),
   outcome: agentSessionOutcomeSchema.nullable().default(null),
+  /**
+   * Claude aspetta CHI GUARDA (integrazione area 3, fetta 3a): un piano in
+   * attesa e chi guarda ha `plans.approve` nel progetto, o una domanda a cui
+   * può rispondere (il richiedente o `plans.approve`, `actorAllows`).
+   * Calcolato dal server, mai dedotto dal client. Additivo.
+   */
+  waitsOnViewer: z.boolean().default(false),
 });
 export type AgentSessionSummary = z.infer<typeof agentSessionSummarySchema>;
 
@@ -207,11 +214,20 @@ export const agentSessionListSchema = z.object({
   recent: z.array(agentSessionSummarySchema),
 });
 
-/** `GET /api/agent-sessions?projectId=&ticketId=&aiJobId=` (tutti facoltativi, in AND). */
+/**
+ * `GET /api/agent-sessions?projectId=&ticketId=&aiJobId=&kind=&state=&waitingOnMe=`
+ * (tutti facoltativi, in AND). `kind`, `state` e `waitingOnMe` dall'area 3
+ * (fetta 3a). Lo stato è DERIVATO a lettura, quindi `state` e `waitingOnMe` si
+ * applicano dopo la derivazione: sulle concluse valgono dentro il tetto delle
+ * recenti, come l'elenco senza filtri.
+ */
 export const agentSessionListQuerySchema = z.object({
   projectId: z.string().uuid().optional(),
   ticketId: z.string().uuid().optional(),
   aiJobId: z.string().uuid().optional(),
+  kind: agentSessionKindSchema.optional(),
+  state: agentSessionStateSchema.optional(),
+  waitingOnMe: z.enum(["true", "false"]).optional(),
 });
 export type AgentSessionListQuery = z.infer<typeof agentSessionListQuerySchema>;
 

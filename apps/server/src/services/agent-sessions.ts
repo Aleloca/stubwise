@@ -659,6 +659,8 @@ function toSummary(row: Row, lang: Language): AgentSessionSummary {
     aiJobId: row.aiJobId ?? null,
     backlogItemId: row.backlogItemId ?? null,
     outcome: deriveAgentSessionOutcome(state, input),
+    // Lo calcola `withWaitsOnViewer` per chi guarda (elenco e dettaglio).
+    waitsOnViewer: false,
   };
 }
 
@@ -708,6 +710,7 @@ export async function listAgentSessions(
   if (filters.projectId) conditions.push(eq(agentSessions.projectId, filters.projectId));
   if (filters.ticketId) conditions.push(eq(agentSessions.ticketId, filters.ticketId));
   if (filters.aiJobId) conditions.push(eq(agentSessions.aiJobId, filters.aiJobId));
+  if (filters.kind) conditions.push(eq(agentSessions.kind, filters.kind));
   const lang = await getContentLanguage(db);
   // Le sessioni non finite si mostrano TUTTE (spec §8.2, «Al lavoro ora»): il
   // tetto vale solo per le finite. Prima le possibilmente attive, senza limite;
@@ -720,14 +723,61 @@ export async function listAgentSessions(
   const lastActivity = (s: AgentSessionSummary) => s.lastEventAt ?? s.startedAt;
   const byLastActivityDesc = (a: AgentSessionSummary, b: AgentSessionSummary) =>
     lastActivity(b).localeCompare(lastActivity(a));
-  const active = activeRows.map((row) => toSummary(row, lang));
-  const rest = restRows.map((row) => toSummary(row, lang));
+  const [active, rest] = await Promise.all([
+    withWaitsOnViewer(db, viewer, activeRows.map((row) => toSummary(row, lang))),
+    withWaitsOnViewer(db, viewer, restRows.map((row) => toSummary(row, lang))),
+  ]);
+  // Stato e «aspetta me» sono DERIVATI: si filtrano dopo la derivazione.
+  const keep = (s: AgentSessionSummary) =>
+    (filters.state === undefined || s.state === filters.state) &&
+    (filters.waitingOnMe === undefined || s.waitsOnViewer === (filters.waitingOnMe === "true"));
   return {
-    live: active.filter((s) => s.state !== "ended").sort(byLastActivityDesc),
+    live: active.filter((s) => s.state !== "ended" && keep(s)).sort(byLastActivityDesc),
     recent: [...active.filter((s) => s.state === "ended"), ...rest]
+      .filter(keep)
       .sort(byLastActivityDesc)
       .slice(0, RECENT_LIMIT),
   };
+}
+
+/**
+ * `waitsOnViewer` di ogni riga (area 3, fetta 3a), in blocco: un piano in
+ * attesa aspetta chi ha `plans.approve` nel progetto (il gate), una domanda
+ * chi la può rispondere — `actorAllows`/`stateAllows`, le stesse di
+ * `answerQuestion` e di `canAnswer`. Una query per i job delle righe che
+ * aspettano, una lettura di permessi per progetto.
+ */
+async function withWaitsOnViewer(db: Db, viewer: SessionViewer, rows: AgentSessionSummary[]): Promise<AgentSessionSummary[]> {
+  const waiting = rows.filter(
+    (r) => (r.state === "waiting_input" || r.state === "awaiting_approval") && r.aiJobId !== null && r.projectId !== null,
+  );
+  if (waiting.length === 0) return rows;
+  const jobs = await db
+    .select({ id: aiJobs.id, status: aiJobs.status, requestedByUserId: aiJobs.requestedByUserId })
+    .from(aiJobs)
+    .where(inArray(aiJobs.id, waiting.map((r) => r.aiJobId!)));
+  const jobOf = new Map(jobs.map((j) => [j.id, j]));
+  const projectIds = [...new Set(waiting.map((r) => r.projectId!))];
+  const permsOf = new Map(
+    await Promise.all(
+      projectIds.map(async (pid) => [pid, (await projectPermissionsFor(db, viewer, pid)) ?? new Set<ProjectPermission>()] as const),
+    ),
+  );
+  const waits = new Set<string>();
+  for (const r of waiting) {
+    const job = jobOf.get(r.aiJobId!);
+    const permissions = permsOf.get(r.projectId!)!;
+    if (!job) continue;
+    if (job.status === "awaiting_plan_approval" && permissions.has("plans.approve")) waits.add(r.id);
+    if (
+      job.status === "awaiting_input" &&
+      actorAllows({ kind: "job.awaiting_input", requestedByUserId: job.requestedByUserId }, "answer", { id: viewer.id, permissions }) &&
+      stateAllows("job.awaiting_input", "answer", job.status)
+    ) {
+      waits.add(r.id);
+    }
+  }
+  return rows.map((r) => (waits.has(r.id) ? { ...r, waitsOnViewer: true } : r));
 }
 
 /**
@@ -800,7 +850,7 @@ export async function loadAgentSession(
   if (!row) return null;
   const permissions = await sessionPermissions(db, viewer, id);
   if (!permissions) return null;
-  const summary = toSummary(row, await getContentLanguage(db));
+  const summary = (await withWaitsOnViewer(db, viewer, [toSummary(row, await getContentLanguage(db))]))[0]!;
   const live = row.live === true;
   const turnBased = TURN_BASED_SESSION_KINDS.has(row.kind);
   // La parte dell'ATTORE, senza lo stato del segmento: il permesso di

@@ -2,9 +2,14 @@ import type {
   ColleaguePrMode,
   OpenPullRequest,
   PrAnalysis,
-  PrAutoCorrection,
 } from "../../data/model";
-import type { CorrectionRecord } from "../claude/taskWork";
+import { countedRound, type PrCorrectionInput } from "@stubwise/shared";
+
+// Il conteggio delle correzioni (`countedRound`, `correctionsFromRecords`) e il
+// tetto di default stanno in `@stubwise/shared` (`claude/pr-corrections.ts`,
+// integrazione area 3, fetta 3a): li legge anche la sezione Claude della task.
+export { correctionsFromRecords, countedRound, DEFAULT_CORRECTION_CAP } from "@stubwise/shared";
+export type { PrCorrectionInput } from "@stubwise/shared";
 
 // Lo stato di una PR e se Claude può correggerla: UN motore per tutte (spec
 // «PR», scelta E). Le PR di Stubwise arrivano con le correzioni lette dalle
@@ -15,9 +20,6 @@ import type { CorrectionRecord } from "../claude/taskWork";
 // contano; i commit dell'autore non azzerano il conto. Oltre il tetto va
 // solo chi ha `plans.approve`: questa funzione dice solo che l'automatica
 // non parte.
-
-/** Il tetto delle correzioni quando il progetto non fissa un `correctionCap` (R-K2): l'unica copia. */
-export const DEFAULT_CORRECTION_CAP = 3;
 
 export type PrStateKind =
   | "analyzing"
@@ -38,11 +40,6 @@ export type NotFixableReason =
   | "release_branch"
   | "target_branch"
   | "other_task_branch";
-
-export interface PrCorrectionInput {
-  trigger: PrAutoCorrection["trigger"];
-  state: PrAutoCorrection["state"];
-}
 
 export interface PrStateInput {
   origin: OpenPullRequest["origin"];
@@ -93,16 +90,6 @@ function forbiddenBranch(i: PrStateInput): NotFixableReason | null {
   return null;
 }
 
-/**
- * Il giro di una PR, l'UNICO conteggio del tetto (R-K2, R-K8): contano solo
- * le correzioni che hanno fatto, o stanno facendo, un commit; le fermate
- * prima del push (fallite, finite senza invio) e le scartate no. Lo usano
- * `prState` (Rilasci) e `prCycles` (pagina della task), e le porte che
- * aprono una correzione passano da qui.
- */
-export const countedRound = (corrections: readonly PrCorrectionInput[]): number =>
-  corrections.filter((c) => c.state === "pushed" || c.state === "running").length;
-
 export function prState(i: PrStateInput): PrState {
   const autoRound = countedRound(i.corrections);
   const notFixable = forbiddenBranch(i);
@@ -147,20 +134,6 @@ export function prState(i: PrStateInput): PrState {
  * in corso e in pausa sono in volo; fallita o finita senza invio sono
  * ferme. Il ciclo di Stubwise nasce dalla review: tutte automatiche.
  */
-export function correctionsFromRecords(
-  records: readonly CorrectionRecord[],
-  prKey: string,
-): PrCorrectionInput[] {
-  return records
-    .filter((r) => r.pr === prKey && !r.cancelled)
-    .map((r): PrCorrectionInput => {
-      if (r.state === "running" || r.state === "paused")
-        return { trigger: "auto", state: "running" };
-      if (r.state === "pushed") return { trigger: "auto", state: "pushed" };
-      return { trigger: "auto", state: "stopped" };
-    });
-}
-
 /** Gli stati che dicono «ci sono ancora problemi aperti» (R-K4). */
 const OPEN_PROBLEMS: ReadonlySet<PrStateKind> = new Set([
   "analyzing",

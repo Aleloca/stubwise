@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { milestones, projectBriefs, projectDecisions, tickets } from "@stubwise/db";
+import { milestones, projectBriefs, projectDecisions, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { chronologyPageSchema, weeklyBriefViewSchema } from "@stubwise/shared";
+import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -45,11 +46,20 @@ afterAll(async () => {
   await testDb.stop();
 });
 
-async function ticketAt(pid: string, at: Date): Promise<string> {
+async function ticketAt(pid: string, at: Date, requestedByUserId?: string): Promise<string> {
   n += 1;
   const [row] = await testDb.db
     .insert(tickets)
-    .values({ projectId: pid, number: n, title: `T${n}`, type: "bug", priority: "medium", source: "manual", createdAt: at })
+    .values({
+      projectId: pid,
+      number: n,
+      title: `T${n}`,
+      type: "bug",
+      priority: "medium",
+      source: "manual",
+      createdAt: at,
+      ...(requestedByUserId ? { requestedByUserId } : {}),
+    })
     .returning({ id: tickets.id });
   return row!.id;
 }
@@ -116,6 +126,29 @@ describe("GET /api/projects/:projectId/chronology", () => {
     expect(p1.nextBefore).toBe(edge.toISOString());
   });
 
+  it("un evento di una task vecchia porta taskCode (<CODE>-<n>), anche nelle pagine vecchie", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const [{ code }] = (await testDb.db.select({ code: projects.code }).from(projects).where(eq(projects.id, pid))) as [{ code: string }];
+    const now = Date.now();
+    const old = await ticketAt(pid, new Date(now - 40 * DAY));
+    const [{ number }] = (await testDb.db.select({ number: tickets.number }).from(tickets).where(eq(tickets.id, old))) as [{ number: number }];
+    const first = await page(`/api/projects/${pid}/chronology`);
+    const older = await page(`/api/projects/${pid}/chronology?before=${encodeURIComponent(first.nextBefore!)}`);
+    expect(older.events.find((e) => e.taskId === old)).toMatchObject({ kind: "task_opened", taskCode: `${code}-${number}` });
+  });
+
+  it("chi non vede le task degli altri non ne riceve né l'evento né il codice", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const reader = await createUserWithSession(app, `lettore-${n}@example.com`);
+    await addMember(app, pid, reader.id, "contributor");
+    const theirs = await ticketAt(pid, new Date(Date.now() - DAY));
+    const mine = await ticketAt(pid, new Date(Date.now() - DAY), reader.id);
+    const res = await page(`/api/projects/${pid}/chronology`, reader.headers.cookie);
+    expect(res.events.some((e) => e.taskId === theirs)).toBe(false);
+    expect(JSON.stringify(res)).not.toContain(`-${n - 1}"`);
+    expect(res.events.find((e) => e.taskId === mine)?.taskCode).toMatch(/-\d+$/);
+  });
+
   it("un progetto invisibile → 404", async () => {
     const res = await app.inject({
       method: "GET",
@@ -141,6 +174,8 @@ describe("GET /api/activity/portfolio", () => {
       ]),
     );
     expect(res.events.some((e) => e.taskId === hidden)).toBe(false);
+    // Il codice anche nel portafoglio.
+    expect(res.events.find((e) => e.taskId === a)?.taskCode).toMatch(/^[A-Z][A-Z0-9]*-\d+$/);
     expect(res.events.some((e) => e.kind === "milestone" && Date.parse(e.at) > now)).toBe(false);
     // Dalla più recente.
     const ats = res.events.map((e) => e.at);
