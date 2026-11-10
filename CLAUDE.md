@@ -320,8 +320,12 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `.claude/skills/graphify/.graphify_version`: è il marcatore di versione della
   skill, riscritto da `graphify claude install`.
 - **Versione del CLI `claude` nel worker — FISSATA** (2 ott 2026):
-  `ARG CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile` (oggi `2.1.287`, quella
-  con cui sono passati tutti gli scenari golden). Prima era `npm install -g
+  `ARG CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile` (oggi `2.1.322`, dal 10 nov 2026,
+  quella con cui sono passati tutti gli scenari golden; prima `2.1.287`). Va
+  **aggiornata con regolarità** (decisione del maintainer del 10 nov 2026: non si
+  resta indietro), ogni volta col giro completo dei golden su quella versione e
+  i testi del limite del provider riverificati (`providers/limit.ts`: la 2.1.322
+  li aveva cambiati). Prima era `npm install -g
   @anthropic-ai/claude-code` senza versione: la versione in produzione
   dipendeva dalla cache di Docker, e un rebuild senza cache avrebbe preso
   l'ultima uscita, mai provata. **Aggiornarla è una modifica esplicita**:
@@ -394,6 +398,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 2, fetta 2» (9 nov 2026)
   - «Integrazione area 2, fetta 3» (10 nov 2026)
   - «Integrazione area 2, fetta 4» (10 nov 2026)
+  - «CLI claude 2.1.322» (10 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
