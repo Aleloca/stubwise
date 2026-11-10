@@ -3367,3 +3367,49 @@ deploy o di un rollback che la tocca.
     legge, e il desktop torna a ricevere `session_required` sulle azioni
     sensibili, come prima.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Integrazione area 4, fetta 1: la Chat fra persone» (10 nov 2026)**:
+  design `docs/plans/2026-11-10-integrazione-area4-chat-design.md`, piano
+  `docs/plans/2026-11-10-integrazione-area4-fetta1-plan.md`, invariante
+  `docs/invariants/chat.md`. I canali di PROGETTO aperti: il «general» di
+  ogni progetto e quelli creati, thread a un livello, reazioni, letture, le
+  viste «Threads» e «Mentions», le menzioni `@Nome` con una card in inbox
+  (con push) e lo stream SSE per canale. Rotte nuove sotto `/api/chat`.
+  Migrazioni:
+  - **0135**: le tabelle `chat_*`. Il «general» viene creato per ogni
+    progetto esistente (backfill) e per ogni progetto NUOVO (trigger
+    `projects_chat_general` `AFTER INSERT ON projects`, funzione
+    `chat_project_general()`). I permessi `chat.channels.create` e
+    `chat.channels.manage` (di progetto) e `chat.general.create` e
+    `chat.general.manage` (d'istanza) vanno ai preset Developer, Project
+    Lead e User e ai ruoli che contenevano già un intero preset (la regola
+    di `docs/invariants/permissions.md`);
+  - **0136**: il valore `chat.mention` di `notification_kind`, in uno
+    statement a sé.
+
+  ⚠️ **`chat.mention` è un `notification_kind` nuovo** (vedi il rollback).
+  Env nuove: nessuna. Il bus della chat usa LISTEN/NOTIFY (`chat_channel`)
+  sulla connessione del server, senza servizi nuovi.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0135–0136, aspetta
+  healthy; (3) **`worker`**, solo SENZA lavoro dell'agente in corso: è lui a
+  mandare le push, e un worker vecchio non ha il titolo della push di
+  `chat.mention`; (4) **`caddy`**: il renderer di `/app` con la Chat (F1.3)
+  e le etichette web (inbox e permessi). Verifica: in `/app/#/chat` il
+  «general» di ogni progetto c'è. Un `@Nome` di un collega gli crea una card
+  «… ti ha nominato in #general», che apre il messaggio. Un progetto creato
+  dopo il deploy ha già il suo «general».
+  **Rollback**:
+  - ⚠️ **Un server vecchio non conosce `chat.mention`**: `/api/inbox` andrebbe
+    in 500 per chi ha quelle card. Prima di scendere col server: `delete from
+    notifications where kind = 'chat.mention';` (le card si perdono, i
+    messaggi no). Lo stesso vale per il worker, che altrimenti proverebbe a
+    mandarne le push.
+  - ⚠️ Un server vecchio RIFIUTA i permessi `chat.*` in SCRITTURA: salvare un
+    ruolo che li contiene dà 400. Se serve modificare i ruoli: `update roles
+    set permissions = array(select p from unnest(permissions) p where p not
+    like 'chat.%');`. Al ritorno la 0135 non li rimette da sola: si
+    riassegnano a mano, o si rilanciano i suoi `UPDATE "roles"`. A lettura
+    sono inerti (`effectiveInstancePermissions` filtra i permessi sconosciuti).
+  - Tabelle e trigger restano: un server vecchio non li legge, e il trigger
+    continua a creare il «general» dei progetti nuovi (innocuo, e pronto al
+    ritorno). Eliminare un progetto porta via i suoi canali in cascata.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.

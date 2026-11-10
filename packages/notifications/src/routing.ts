@@ -157,6 +157,9 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // riceve), decise da `planRecipientsOf` di `@stubwise/shared`. Mai l'attore.
   "planning.changed": "task_people",
   "task.assigned": "task_people",
+  // Area 4, Chat: UNA persona per pubblicazione, quella nominata. La scrittura
+  // del messaggio ha già controllato che legga il canale; mai un webhook.
+  "chat.mention": "account_owner",
 };
 
 /** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */
@@ -223,6 +226,7 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   "ticket.activity": null,
   "planning.changed": null,
   "task.assigned": null,
+  "chat.mention": null,
 };
 
 /** Permesso pertinente del kind. Unico punto in cui si legge {@link PERMISSION_FOR_KIND}. */

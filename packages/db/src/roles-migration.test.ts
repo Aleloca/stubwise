@@ -254,6 +254,8 @@ describe("migrazione 0097: ruoli, membri di progetto e conversione", () => {
     );
     // E `claude.public.view` nel preset User, con la 0133 (chat, fetta 5).
     await applyRoleUpdates(db, "0133_claude_public_conversations.sql");
+    // E i permessi della Chat (area 4) a Lead, Developer e User, con la 0135.
+    await applyRoleUpdates(db, "0135_chat_channels.sql");
     const rows = await db.execute<{
       preset_key: string;
       name: string;
@@ -293,6 +295,37 @@ describe("migrazione 0097: ruoli, membri di progetto e conversione", () => {
     // Idempotente: una seconda volta non duplica.
     await applyRoleUpdates(db, "0133_claude_public_conversations.sql");
     expect((await permsOf(above!.id)).filter((p) => p === "claude.public.view")).toHaveLength(1);
+  });
+
+  it("i permessi della Chat vanno anche ai ruoli che contenevano Lead, Developer, User (0135)", async () => {
+    const presetPerms = async (key: string) =>
+      (await db.execute<{ permissions: string[] }>(sql`select "permissions" from "roles" where "preset_key" = ${key}`))[0]!.permissions;
+    const insertRole = async (name: string, scope: string, perms: string[]) => {
+      const [row] = await db.execute<{ id: string }>(sql`
+        insert into "roles" ("name", "scope", "permissions")
+        values (${name}, ${scope}, ${sql.raw(`ARRAY[${perms.map((p) => `'${p}'`).join(",") || "''"}]::text[]`)})
+        returning "id"`);
+      return row!.id;
+    };
+    // Applicate già dal test dei preset: si tolgono i chat.* per ripartire da «prima».
+    await db.execute(sql`update "roles" set "permissions" = array_remove(array_remove(array_remove("permissions", 'chat.channels.create'), 'chat.channels.manage'), 'chat.general.create')`);
+    const lead = (await presetPerms("project_lead")).filter((p) => p !== "");
+    const dev = (await presetPerms("developer")).filter((p) => p !== "");
+    const user = (await presetPerms("user")).filter((p) => p !== "");
+    const aboveLead = await insertRole("Sopra Lead 0135", "project", [...lead]);
+    const aboveDev = await insertRole("Sopra Developer 0135", "project", [...dev, "planning.others"]);
+    const partial = await insertRole("Parziale 0135", "project", ["docs.view"]);
+    const aboveUser = await insertRole("Sopra User 0135", "instance", [...user, "users.manage"]);
+    await applyRoleUpdates(db, "0135_chat_channels.sql");
+    const permsOf = async (id: string) =>
+      (await db.execute<{ permissions: string[] }>(sql`select "permissions" from "roles" where "id" = ${id}`))[0]!.permissions;
+    expect(await permsOf(aboveLead)).toEqual(expect.arrayContaining(["chat.channels.create", "chat.channels.manage"]));
+    expect(await permsOf(aboveDev)).toContain("chat.channels.create");
+    expect(await permsOf(aboveDev)).not.toContain("chat.channels.manage");
+    expect(await permsOf(partial)).not.toContain("chat.channels.create");
+    expect(await permsOf(aboveUser)).toContain("chat.general.create");
+    expect(await presetPerms("project_lead")).toEqual(expect.arrayContaining(["chat.channels.create", "chat.channels.manage"]));
+    expect(await presetPerms("developer")).not.toContain("chat.channels.manage");
   });
 
   it("i nomi dei ruoli sono unici per tipo, senza distinguere maiuscole", async () => {

@@ -93,8 +93,8 @@ describe("catalogo dei permessi", () => {
       ...CREDENTIAL_PERMISSIONS,
     ])
       expect(perms).not.toContain(p);
-    // Le sette di prima più planning.others (fetta 2).
-    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 8);
+    // Le sette di prima, planning.others (fetta 2) e chat.channels.manage (area 4).
+    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 9);
     expect(perms).toContain("docs.generate");
     expect(perms).toContain("prs.adopt");
   });
@@ -145,6 +145,9 @@ describe("catalogo dei permessi", () => {
         ...CREDENTIAL_PERMISSIONS,
         // Pianificare le task altrui (fetta 2): decisione del maintainer.
         "planning.others",
+        // Chat, area 4 (D3, i preset del prototipo): scrive, ma non crea né gestisce canali.
+        "chat.channels.create",
+        "chat.channels.manage",
       ].sort(),
     );
   });
@@ -153,7 +156,8 @@ describe("catalogo dei permessi", () => {
     const perms = preset("User").permissions;
     expect([...perms].sort()).toEqual(
       // `claude.public.view`: leggere le pubbliche con Claude (fetta 5, D4 del maintainer).
-      ["claude.public.view", "git_accounts.view", "mail_admission.view", "monitor.view", "users.view_all"].sort(),
+      // `chat.general.create`: creare un canale generale (area 4, D3).
+      ["chat.general.create", "claude.public.view", "git_accounts.view", "mail_admission.view", "monitor.view", "users.view_all"].sort(),
     );
     expect(perms.some((p) => p.endsWith(".manage") || p === "instance.full_admin")).toBe(false);
   });
@@ -162,6 +166,20 @@ describe("catalogo dei permessi", () => {
     expect(preset("User").permissions).toContain("claude.public.view");
     expect(preset("Admin").permissions).toEqual(["instance.full_admin"]);
     expect(effectiveInstancePermissions(["instance.full_admin"]).has("claude.public.view")).toBe(true);
+  });
+
+  it("Chat (area 4, D3): create a Lead e Developer, manage al solo Lead; general.create a User", () => {
+    const has = (name: string, p: string) => (preset(name).permissions as readonly string[]).includes(p);
+    expect(has("Project Lead", "chat.channels.create") && has("Project Lead", "chat.channels.manage")).toBe(true);
+    expect(has("Developer", "chat.channels.create")).toBe(true);
+    expect(has("Developer", "chat.channels.manage")).toBe(false);
+    for (const name of ["Legacy Member", "Contributor", "Viewer"]) {
+      expect(has(name, "chat.channels.create"), name).toBe(false);
+      expect(has(name, "chat.channels.manage"), name).toBe(false);
+    }
+    expect(has("User", "chat.general.create")).toBe(true);
+    expect(has("User", "chat.general.manage")).toBe(false);
+    expect(effectiveInstancePermissions(["instance.full_admin"]).has("chat.general.manage")).toBe(true);
   });
 
   it("isSubsetOf", () => {

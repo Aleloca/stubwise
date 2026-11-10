@@ -52,7 +52,7 @@ type StreamMessage =
 const SESSION_ACCESS = { kind: "user" } as const;
 
 /** L'utente e i suoi permessi d'istanza ATTUALI; `null` se non esiste più. */
-async function refreshViewer(db: Db, userId: string): Promise<SessionViewer | null> {
+export async function refreshViewer(db: Db, userId: string): Promise<SessionViewer | null> {
   const [row] = await db
     .select(sessionUserSelection)
     .from(users)

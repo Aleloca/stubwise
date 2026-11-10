@@ -1758,6 +1758,8 @@ export const notificationKind = pgEnum("notification_kind", [
   // task cambiata da altri (a chi l'aveva), una task ricevuta da altri.
   "planning.changed",
   "task.assigned",
+  // Area 4, Chat, fetta 1 (0136, DA SOLO): una menzione diretta in un canale.
+  "chat.mention",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -5523,4 +5525,163 @@ export const personalHomeSeen = pgTable(
     seenAt: timestamp("seen_at", { withTimezone: true }).notNull(),
   },
   (table) => [primaryKey({ name: "personal_home_seen_pk", columns: [table.userId, table.departmentId] })],
+);
+
+
+/**
+ * Area 4, Chat (0135; design `docs/plans/2026-11-10-integrazione-area4-chat-design.md`).
+ * I canali: di progetto (fetta 1: il «general» e i canali aperti), generali e
+ * DM (fetta 2). Chi vede e chi scrive lo decide `apps/server/src/chat/access.ts`.
+ * Il «general» è UNO per progetto (indice unico parziale), non si archivia né
+ * si elimina, e i suoi membri sono quelli del progetto (derivati, non qui).
+ */
+export const chatChannels = pgTable(
+  "chat_channels",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"project" | "general" | "dm">().notNull(),
+    visibility: text("visibility").$type<"open" | "private">().notNull().default("open"),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    topic: text("topic").notNull().default(""),
+    isGeneral: boolean("is_general").notNull().default(false),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    archivedBy: uuid("archived_by").references(() => users.id, { onDelete: "set null" }),
+    publishedEvents: text("published_events").array().notNull().default(sql`'{}'`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("chat_channels_project_idx").on(table.projectId),
+    uniqueIndex("chat_channels_one_general_idx").on(table.projectId).where(sql`${table.isGeneral}`),
+    uniqueIndex("chat_channels_project_name_idx").on(table.projectId, table.name).where(sql`${table.projectId} is not null`),
+    check("chat_channels_kind_chk", sql`${table.kind} in ('project', 'general', 'dm')`),
+    check("chat_channels_visibility_chk", sql`${table.visibility} in ('open', 'private')`),
+    // Un canale di progetto ha il progetto; il «general» è un canale di progetto.
+    check("chat_channels_project_chk", sql`(${table.kind} = 'project') = (${table.projectId} is not null)`),
+  ],
+);
+
+/** I membri di un canale (non del «general», che ha quelli del progetto). */
+export const chatChannelMembers = pgTable(
+  "chat_channel_members",
+  {
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "chat_channel_members_pk", columns: [table.channelId, table.userId] }),
+    index("chat_channel_members_user_idx").on(table.userId),
+  ],
+);
+
+/**
+ * I messaggi. Un thread ha UN livello (`thread_root_id` punta a una radice).
+ * Eliminato: niente testo, garantito dal CHECK (come i commenti). Le menzioni
+ * le ricava il server dal testo (`mentioned_ids`, alla scrittura).
+ */
+export const chatMessages = pgTable(
+  "chat_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    kind: text("kind").$type<"person" | "system" | "claude">().notNull().default("person"),
+    calledById: uuid("called_by_id").references(() => users.id, { onDelete: "set null" }),
+    threadRootId: uuid("thread_root_id").references((): AnyPgColumn => chatMessages.id, { onDelete: "cascade" }),
+    body: text("body").notNull(),
+    mentionedIds: uuid("mentioned_ids").array().notNull().default(sql`'{}'`),
+    asksReplyOf: uuid("asks_reply_of").array().notNull().default(sql`'{}'`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Ogni cambio lo porta avanti (modifica, eliminazione, reazione, risposta sulla radice): lo stream lo segue. */
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
+    viaClaudeActionId: uuid("via_claude_action_id"),
+  },
+  (table) => [
+    index("chat_messages_channel_idx").on(table.channelId, table.createdAt),
+    index("chat_messages_thread_idx").on(table.threadRootId, table.createdAt),
+    index("chat_messages_updated_idx").on(table.channelId, table.updatedAt),
+    check("chat_messages_kind_chk", sql`${table.kind} in ('person', 'system', 'claude')`),
+    check("chat_messages_deleted_chk", sql`${table.deletedAt} is null or ${table.body} = ''`),
+  ],
+);
+
+export const chatReactions = pgTable(
+  "chat_reactions",
+  {
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    emoji: text("emoji").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "chat_reactions_pk", columns: [table.messageId, table.userId, table.emoji] })],
+);
+
+/** Fin dove chi guarda ha letto: il canale (`thread_root_id` null) o un thread. */
+export const chatReads = pgTable(
+  "chat_reads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    threadRootId: uuid("thread_root_id").references(() => chatMessages.id, { onDelete: "cascade" }),
+    lastReadAt: timestamp("last_read_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("chat_reads_channel_idx").on(table.userId, table.channelId).where(sql`${table.threadRootId} is null`),
+    uniqueIndex("chat_reads_thread_idx").on(table.userId, table.threadRootId).where(sql`${table.threadRootId} is not null`),
+  ],
+);
+
+/** Il livello degli avvisi di un canale per una persona (assente = `all`). */
+export const chatChannelPrefs = pgTable(
+  "chat_channel_prefs",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    level: text("level").$type<"all" | "mentions" | "muted">().notNull(),
+  },
+  (table) => [
+    primaryKey({ name: "chat_channel_prefs_pk", columns: [table.userId, table.channelId] }),
+    check("chat_channel_prefs_level_chk", sql`${table.level} in ('all', 'mentions', 'muted')`),
+  ],
+);
+
+/** Chi segue un thread: l'autore della radice, chi risponde, chi è nominato; `following` false = ha smesso. */
+export const chatThreadFollows = pgTable(
+  "chat_thread_follows",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    rootMessageId: uuid("root_message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    following: boolean("following").notNull().default(true),
+  },
+  (table) => [primaryKey({ name: "chat_thread_follows_pk", columns: [table.userId, table.rootMessageId] })],
 );

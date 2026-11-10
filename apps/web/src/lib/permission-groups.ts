@@ -28,6 +28,9 @@ export const INSTANCE_PERMISSION_GROUPS: readonly PermissionGroup<InstancePermis
       "people.activity.view",
       // Fetta 5 della chat: leggere le conversazioni pubbliche con Claude.
       "claude.public.view",
+      // Area 4, Chat: i canali generali.
+      "chat.general.create",
+      "chat.general.manage",
     ],
   },
   { id: "projects", permissions: ["projects.create"] },
@@ -82,6 +85,8 @@ export const PROJECT_PERMISSION_GROUPS: readonly PermissionGroup<ProjectPermissi
     permissions: ["repos.view", "repos.manage", "environments.manage", "widget.manage"],
   },
   { id: "credentials", permissions: ["credentials.create", "credentials.edit", "credentials.share"] },
+  // Area 4, Chat: i canali del progetto.
+  { id: "chat", permissions: ["chat.channels.create", "chat.channels.manage"] },
 ];
 
 /** I permessi di reparto (fetta 3): si danno dalla pagina Reparti, non dai ruoli. */

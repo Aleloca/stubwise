@@ -44,6 +44,10 @@ export const INSTANCE_PERMISSIONS = [
   // conversazioni pubbliche con Claude (mai scriverci: si continuano). Al
   // preset User (0133); il full admin l'ha implicita.
   "claude.public.view",
+  // Chat, area 4 (D3): creare un canale generale (preset User) e gestirli
+  // (solo il full admin, per costruzione). Si usano dalla fetta 2.
+  "chat.general.create",
+  "chat.general.manage",
 ] as const;
 
 /**
@@ -101,6 +105,15 @@ export const PROJECT_PERMISSIONS = [
   "credentials.create",
   "credentials.edit",
   "credentials.share",
+  /**
+   * Chat, area 4 (10 nov 2026, D3 del maintainer, i preset del prototipo):
+   * creare un canale di progetto (Project Lead e Developer) e gestirlo
+   * (rinominare, archiviare, eliminare: solo il Project Lead). Leggere e
+   * scrivere in un canale non vogliono un permesso: basta vedere il progetto
+   * ed esserne membri. Il «general» non lo gestisce nessuno.
+   */
+  "chat.channels.create",
+  "chat.channels.manage",
 ] as const;
 
 /**
@@ -181,6 +194,9 @@ const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
   "credentials.edit",
   "credentials.share",
   "planning.others",
+  // Chat (D3): il Legacy Member scrive nei canali ma non li crea né li gestisce.
+  "chat.channels.create",
+  "chat.channels.manage",
 ];
 
 /**
@@ -209,6 +225,7 @@ const USER_INSTANCE_PERMISSIONS: readonly InstancePermission[] = [
   "git_accounts.view",
   "mail_admission.view",
   "claude.public.view",
+  "chat.general.create",
 ];
 
 const VIEW_PROJECT_PERMISSIONS = PROJECT_PERMISSIONS.filter(
@@ -238,7 +255,8 @@ export const PRESET_ROLES: readonly PresetRole[] = [
         p !== "credentials.create" &&
         p !== "credentials.edit" &&
         p !== "credentials.share" &&
-        p !== "planning.others",
+        p !== "planning.others" &&
+        p !== "chat.channels.manage",
     ),
   },
   {
