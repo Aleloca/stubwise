@@ -304,18 +304,34 @@ describe("le superfici della fetta 2 nella build app", () => {
     expect(router.state.location.search).not.toHaveProperty("view");
   });
 
-  it("il Planning trasversale c'è per chi ha planning.others, senza la riga di Claude", async () => {
+  // Area 3, fetta 3e: Claude è assegnabile (`claude-assign`). Nel finto lo è
+  // dove è membro (sul server dove lo dice `claudeAssignableProjectIds`); la
+  // sua riga c'è sempre, in sola lettura dove chi guarda non può assegnarlo.
+  it("il Planning trasversale c'è per chi ha planning.others, con la riga di Claude", async () => {
     signedInAs("p-laura");
     renderRoute("/planning");
     expect(await screen.findByRole("heading", { level: 1, name: "Planning" })).toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).toBeNull();
     expect(await screen.findByRole("grid")).toBeInTheDocument();
-    expect(screen.queryByRole("rowheader", { name: /Claude/ })).toBeNull();
+    expect(await screen.findByRole("rowheader", { name: /Claude/ })).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
   });
 
-  it("il menu «Plan» non propone Claude", async () => {
+  it("in un progetto dove Claude non si assegna, la sua riga c'è in sola lettura col motivo", async () => {
+    signedInAs("p-laura");
+    // Qui Claude non è membro di AUD: non si assegna (nel finto l'assegnabilità è l'appartenenza).
+    const { state } = await import("../data/store");
+    const aud = state.projectsById.get("prj-aud")!;
+    aud.memberIds = aud.memberIds.filter((id) => id !== "p-claude");
+    renderRoute("/p/AUD/planning");
+    expect(await screen.findByRole("grid")).toBeInTheDocument();
+    const head = await screen.findByRole("rowheader", { name: /Claude/ });
+    expect(head).toHaveAttribute("data-readonly", "true");
+    expect(head).toHaveAttribute("title", "Only someone who can start Claude's work plans for Claude");
+  });
+
+  it("il menu «Plan» propone Claude dove si assegna", async () => {
     signedInAs("p-laura");
     renderRoute("/p/AUD/planning");
     expect(await screen.findByRole("grid")).toBeInTheDocument();
@@ -326,7 +342,8 @@ describe("le superfici della fetta 2 nella build app", () => {
     const menu = await screen.findByRole("menu", { name: /^Plan / });
     const names = within(menu).getAllByRole("menuitemradio").map((i) => i.textContent ?? "");
     expect(names.length).toBeGreaterThan(0);
-    expect(names.some((n) => /Claude/.test(n))).toBe(false);
+    // AUD (software): Claude ne è membro, quindi si assegna, ed è l'ultima voce.
+    expect(names.at(-1)).toMatch(/Claude/);
   });
 
   it("il Planning di progetto è disponibile", async () => {
