@@ -338,3 +338,30 @@
   Il deep link `inbox/:id` ha sotto la lista dell'Inbox
   (`initialRouteName: "List"`). (6) `canWrite`/`canInterrupt`/`canAnswer`
   li calcola il server; l'app li legge.
+
+- **Chat con Claude: Claude PROPONE, il server ESEGUE (10 nov 2026, fetta 3).**
+  Nel turno di una conversazione `free` l'unico tool che non legge è
+  `propose_action`, e scrive una PROPOSTA, mai un'esecuzione diretta: il
+  ponte fa il POST su `CHAT_TOOL_WRITE_ROUTES` (UNA voce) e al modello torna
+  solo l'esito. Le regole:
+  - **La classe la calcola il server**, su una prova a secco (lo stesso giro e
+    poi ROLLBACK), alla nascita, a ogni lettura e alla conferma; sale e non
+    scende mai. Il modello non la decide. Niente esce dalla transazione a
+    secco: ogni seguito passa da `claude-actions/effects.ts` (scartato a
+    secco, dopo il commit dal vero), e un test sul sorgente vincola i moduli
+    raggiungibili dal catalogo.
+  - **Si esegue coi servizi e l'accesso delle rotte** (lo STESSO
+    `RouteAccess`, valutato su una richiesta sintetica), coi permessi della
+    persona di adesso, tutto o niente. Una via parallela o un controllo più
+    largo rompono questa voce.
+  - **Conferma, rifiuto e «Annulla» sono gesti dell'autore**, col suo cookie o
+    PAT: il token del turno non conferma e non annulla mai. Claude non propone
+    l'inverso di ciò che ha fatto: lo dice il contratto, e lo verifica il
+    golden `chat-undo`.
+  - **Il catalogo è chiuso, e il «mai» è verificato sul sorgente**
+    (`claude-actions-never.test.ts`, server e worker): piani, risposte agli
+    agenti, merge e rilasci, registro decisioni, segreti, invii fuori, token,
+    inviti, reset. Il segno «via Claude» (`via_claude_action_id`) lo accende
+    SOLO l'esecutore, e l'attore resta la persona.
+  - **Al modello non arriva ciò che non serve**: dalle letture via le chiavi
+    da segreto, da `list_people` via le email.

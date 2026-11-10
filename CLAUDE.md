@@ -270,12 +270,16 @@ percorso sul volume.
   `result` viene rifiutato), `stop-pause` («Ferma» senza testo), `refine`
   (turno di refinement del backlog: design e piano salvati coi tool, nessun
   file toccato, `Skill` invocabile), `refine-read` (una lettura FUORI dalla
-  cartella di lavoro è negata) e, dal 10 nov 2026, i tre della chat con
+  cartella di lavoro è negata) e, dal 10 nov 2026, quelli della chat con
   Claude — `chat-read` (risponde leggendo coi tool di `stubwise_chat`),
-  `chat-no-act` (a «crea una task» non fa niente e dice dove si fa),
-  `chat-no-leak` (un progetto non visibile non entra nella risposta) e
+  `chat-no-leak` (un progetto non visibile non entra nella risposta),
   `chat-resume` (due turni: il secondo riprende la sessione del CLI del primo
-  nella stessa cwd), 3 volte ciascuno; opt-in, solo se nominato: `refine-read-bash`
+  nella stessa cwd) e, dalla fetta 3, le proposte: `chat-propose-not-execute`
+  (UNA `propose_action` giusta; «in attesa» → non dice che è fatto),
+  `chat-confirm-executes` (cita i codici dell'esecuzione), `chat-undo`
+  (nessun inverso proposto, rimanda al bottone) e `chat-never-catalog`
+  (approvare/mergiare: nessuna proposta, a mano e dove), 3 volte ciascuno
+  (`chat-no-act` è ritirato: `createTask` è nel catalogo); opt-in, solo se nominato: `refine-read-bash`
   (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
   dell'invariante, va rilanciato quando si aggiorna il CLI). Lo scenario
   `refine-read-plan` (la plan mode della chat CODE e del deep dive, rosso
@@ -412,6 +416,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Claude assegnabile» (10 nov 2026)
   - «Chat con Claude, fette 1 e 2» (10 nov 2026)
   - «Elimina task» (10 nov 2026)
+  - «Chat con Claude, fetta 3: proposte e azioni» (10 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -427,6 +432,7 @@ una voce ti riguarda.
   - Chi può scrivere, fermare o rispondere in una sessione lo decide il SERVER (9 ott 2026).
   - Sessioni degli agenti — le regole che reggono la vista dal vivo (8 ott 2026).
   - Le sessioni degli agenti nell'app: privacy, fuoco, confini (9 ott 2026, piano C).
+  - Chat con Claude: Claude PROPONE, il server ESEGUE (10 nov 2026, fetta 3).
 - **Posta e calendario (Google) → `docs/invariants/mail-calendar.md`**:
   - L'audience `mailbox_owner` non include MAI gli admin.
   - Confermare una proposta chiede il permesso nel progetto; chi non ce l'ha la PASSA, e la card passata è una card NUOVA (22 ott 2026).

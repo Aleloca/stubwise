@@ -1,13 +1,21 @@
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CHAT_MCP_SERVER_NAME, CHAT_TOOL_NAMES, CHAT_TOOLS, type ChatToolName } from "@stubwise/shared";
+import {
+  CHAT_MCP_SERVER_NAME,
+  CHAT_PROPOSE_TOOL,
+  CHAT_TOOL_NAMES,
+  CHAT_TOOLS,
+  claudeProposalOutcomeSchema,
+  type ChatReadToolName,
+  type ChatToolName,
+} from "@stubwise/shared";
 import type { AgentMcpConfig } from "../agent/runner.js";
 
 /**
- * PONTE dei tool di LETTURA della chat con Claude (fetta 1). Endpoint HTTP
+ * PONTE dei tool della chat con Claude (fette 1–3). Endpoint HTTP
  * SOLO su loopback, nel processo del worker: il server MCP `stubwise_chat`
  * (figlio del CLI) gli inoltra le chiamate con un SEGRETO CASUALE PER TURNO.
  * Il ponte traduce ogni tool in una o più GET sul server, con il TOKEN DEL
@@ -17,7 +25,13 @@ import type { AgentMcpConfig } from "../agent/runner.js";
  *
  * Il token del turno resta DENTRO il ponte: non passa per l'env del server MCP
  * (che ha solo URL e segreto del ponte), non torna mai nelle risposte, non va
- * nei log. Nessun tool scrive, propone o esegue niente.
+ * nei log.
+ *
+ * Fetta 3: `propose_action` è l'UNICA chiamata che non è una GET — un POST
+ * sulla sola rotta di scrittura del token (`CHAT_TOOL_WRITE_ROUTES`), che crea
+ * una PROPOSTA. Il ponte non esegue niente: al modello torna solo l'esito
+ * (eseguita coi codici, in attesa di conferma, rifiutata col motivo), mai il
+ * corpo del server.
  */
 
 const MAX_BODY_BYTES = 16_384;
@@ -94,10 +108,12 @@ const projectArg = (args: Args, required: boolean): string | undefined => {
  * valore dell'agente si VALIDA prima (codici, uuid: `ChatToolArgError`) e
  * entra codificato: niente apre altri percorsi.
  */
-export function chatServerPaths(tool: ChatToolName, args: Args): string[] {
+export function chatServerPaths(tool: ChatReadToolName, args: Args): string[] {
   switch (tool) {
     case "list_projects":
       return ["/api/projects"];
+    case "list_people":
+      return ["/api/people"];
     case "search_tasks": {
       const q = new URLSearchParams();
       const text = str(args["text"]);
@@ -137,6 +153,49 @@ function compact(value: unknown): unknown {
     return out;
   }
   return value;
+}
+
+/**
+ * Ciò che di una risposta entra nel contesto del modello, per i tool che non
+ * la passano intera. `list_people`: solo ciò che serve a trovare una persona
+ * per nome; le EMAIL restano fuori (decisione dell'orchestratrice, 10 nov 2026).
+ */
+const PERSON_FIELDS = ["id", "name", "initials", "departmentIds", "deactivated", "isClaude", "claudeAssignableProjectIds"] as const;
+export function projectToolResult(tool: ChatReadToolName, json: unknown): unknown {
+  if (tool === "list_people") {
+    if (!Array.isArray(json)) return [];
+    return json.map((row: unknown) => {
+      const out: Record<string, unknown> = {};
+      if (row === null || typeof row !== "object") return out;
+      for (const field of PERSON_FIELDS) if (field in row) out[field] = (row as Record<string, unknown>)[field];
+      return out;
+    });
+  }
+  return json;
+}
+
+/** L'id del `tool_use` (idempotenza della proposta); senza, uno nuovo. */
+const TOOL_USE_ID = /^[A-Za-z0-9_-]{1,200}$/;
+
+/** L'esito di una proposta, in parole per il modello: niente del corpo del server oltre a stato, codici e motivo. */
+export function proposalOutcomeText(json: unknown): { ok: boolean; text: string } {
+  const parsed = claudeProposalOutcomeSchema.safeParse(json);
+  if (!parsed.success) return { ok: false, text: "Stubwise gave an unexpected answer; nothing is known to be done. Tell the person to check the conversation." };
+  const outcome = parsed.data;
+  switch (outcome.status) {
+    case "executed":
+      return {
+        ok: true,
+        text: `EXECUTED by Stubwise on the person's behalf${outcome.codes.length > 0 ? `: ${outcome.codes.join(", ")}` : ""}. The person sees it in this conversation with an Undo button: undoing is their gesture, not yours.`,
+      };
+    case "awaiting_confirmation":
+      return {
+        ok: true,
+        text: "NOT DONE YET: Stubwise shows the person a card to confirm it. Tell them you are asking them to confirm; do not say it is done.",
+      };
+    case "refused":
+      return { ok: false, text: `REFUSED by Stubwise, nothing was changed: ${outcome.reason ?? "not allowed"}.` };
+  }
 }
 
 function truncate(text: string): string {
@@ -189,6 +248,45 @@ export async function startChatBridge(deps: {
       req.on("error", reject);
     });
 
+  async function propose(turn: { sessionId: string; serverToken: string }, args: Args): Promise<Reply> {
+    const given = args["toolUseId"];
+    const body = {
+      toolUseId: typeof given === "string" && TOOL_USE_ID.test(given) ? given : `chat_${randomUUID()}`,
+      summary: typeof args["summary"] === "string" ? args["summary"].slice(0, 2000) : "",
+      actions: args["actions"],
+    };
+    let res: Response;
+    try {
+      res = await fetchImpl(`${serverUrl}/api/claude/conversations/${seg(turn.sessionId)}/proposals`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${turn.serverToken}`, "content-type": "application/json", accept: "application/json" },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(SERVER_TIMEOUT_MS),
+      });
+    } catch (error) {
+      // Può essere arrivata: non si dice «riprova», si rimanda alla conversazione.
+      log(`[chat] ponte: proposta non consegnata: ${error instanceof Error ? error.message : String(error)}`);
+      return {
+        status: 200,
+        body: { ok: false, text: "Stubwise could not be reached; it is not known whether the proposal arrived. Do not repeat it: ask the person to look at the conversation." },
+      };
+    }
+    if (res.status === 400) {
+      return {
+        status: 200,
+        body: { ok: false, text: "REFUSED by Stubwise, nothing was changed: the actions are not valid (check fn names, ids and argument shapes)." },
+      };
+    }
+    if (res.status === 401 || res.status === 403 || res.status === 404) {
+      return { status: 200, body: { ok: false, text: "This turn can no longer propose actions (it ended or the conversation was closed). Nothing was changed." } };
+    }
+    if (!res.ok) {
+      log(`[chat] ponte: propose_action → ${res.status}`);
+      return { status: 200, body: { ok: false, text: `Stubwise is unavailable right now (${res.status}); nothing is known to be done.` } };
+    }
+    return { status: 200, body: proposalOutcomeText(await res.json().catch(() => null)) };
+  }
+
   async function handle(req: IncomingMessage): Promise<Reply> {
     const match = /^\/tools\/([a-z_]+)$/.exec(req.url ?? "");
     const tool = match?.[1] as ChatToolName | undefined;
@@ -206,6 +304,8 @@ export async function startChatBridge(deps: {
     } catch {
       return { status: 400, body: { ok: false, text: "The arguments are not valid JSON." } };
     }
+
+    if (tool === CHAT_PROPOSE_TOOL) return propose(turn, args);
 
     let paths: string[];
     try {
@@ -236,7 +336,7 @@ export async function startChatBridge(deps: {
         return { status: 200, body: { ok: false, text: `Stubwise is unavailable right now (${res.status}).` } };
       }
       const json: unknown = await res.json().catch(() => null);
-      parts.push(JSON.stringify(compact(json)));
+      parts.push(JSON.stringify(compact(projectToolResult(tool, json))));
     }
     return { status: 200, body: { ok: true, text: truncate(parts.join("\n")) } };
   }

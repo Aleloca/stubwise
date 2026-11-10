@@ -88,7 +88,7 @@ export async function executeGroup(
   // Il contesto della prova a secco: ogni seguito passa da `effects.ts`, che a
   // secco lo scarta e dal vero lo lancia DOPO il commit (qui sotto).
   const { value, followUps } = await runActionContext({ dryRun: input.dryRun === true }, () =>
-    runGroup(db, user, input),
+    runGroup(db, user, input, { ...(input.effects?.publicUrl !== undefined ? { publicUrl: input.effects.publicUrl } : {}) }),
   );
   if (value.ok && !input.dryRun) await runFollowUps(followUps, input.effects ?? {});
   return value;
@@ -98,6 +98,7 @@ async function runGroup(
   db: Db,
   user: SessionUser,
   input: { sessionId: string; actions: readonly PlannedAction[]; proposalId?: string; undoOfGroupId?: string; dryRun?: boolean },
+  start: { publicUrl?: string },
 ): Promise<ExecuteResult> {
   try {
     return await db.transaction(async (tx) => {
@@ -140,7 +141,7 @@ async function runGroup(
           .returning({ id: claudeActions.id });
         // Il segno di QUESTA azione: le righe scritte da qui in poi lo portano (DEFAULT delle colonne).
         await tx.execute(sql`select set_config(${VIA_CLAUDE_SETTING}, ${row!.id}, true)`);
-        const ran = await entry.run(tx as unknown as Db, user, args, access.permissions);
+        const ran = await entry.run(tx as unknown as Db, user, args, access.permissions, start);
         await tx.execute(sql`select set_config(${VIA_CLAUDE_SETTING}, '', true)`);
         if (!ran.ok) {
           throw new Abort(

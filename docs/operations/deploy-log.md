@@ -3226,3 +3226,62 @@ deploy o di un rollback che la tocca.
   esercita). Le task già eliminate NON tornano: per riaverle serve il backup.
   Con un server vecchio le card di una task eliminata tornano col link (un 404
   aprendole). Le migrazioni non si annullano.
+- **«Chat con Claude, fetta 3: proposte e azioni» (10 nov 2026, server e
+  worker; il renderer è la F3.4)**: piano
+  `docs/plans/2026-11-10-integrazione-claude-chat-f3-plan.md`, parità in
+  `apps/desktop/docs/integration-claude-chat.md`. **Claude propone, il server
+  esegue**: il tool `propose_action` del worker scrive una PROPOSTA
+  (`POST /api/claude/conversations/:id/proposals`, la SOLA rotta di scrittura
+  del token del turno, `CHAT_TOOL_WRITE_ROUTES`); il server calcola la classe
+  con una prova a secco (esecuzione e ROLLBACK, `claude-actions/effects.ts`);
+  una A la esegue subito a nome della persona, una B aspetta la conferma
+  dell'autore (`POST /api/claude/proposals/:id/confirm|cancel`), «Annulla» è
+  `POST /api/claude/groups/:id/undo`. Il catalogo è chiuso
+  (`CLAUDE_ACTION_FNS`), coi servizi e l'accesso delle rotte. Migrazione
+  **0131**:
+  - tabelle `claude_proposals`, `claude_action_groups`, `claude_actions`;
+  - `via_claude_action_id` su `ticket_events`, `comments`, `notifications` e
+    `deleted_tickets`, con un DEFAULT che legge
+    `current_setting('stubwise.via_claude_action_id', true)`: lo imposta
+    SOLO l'esecutore, nella sua transazione; ogni altra scrittura (e un
+    server vecchio) ha `null`;
+  - i tipi d'evento `proposal` e `actions_executed` nel CHECK di
+    `agent_session_events`.
+  Nessun `notification_kind` nuovo. Env nuove: nessuna. Il token del turno
+  legge anche `GET /api/people` (tool `list_people`: il ponte toglie le
+  email). Le notifiche di un'azione (il piano da approvare di uno `startRun`)
+  portano il link pubblico come quelle delle rotte.
+  **Golden** sulla CLI 2.1.322: `chat-read`, `chat-no-leak`, `chat-resume`,
+  `chat-propose-not-execute`, `chat-confirm-executes`, `chat-undo`,
+  `chat-never-catalog`, 3/3 ciascuno. `chat-no-act` è ritirato (con
+  `createTask` nel catalogo la sua premessa non vale più).
+  **ORDINE**: (1) **backup** (un'azione A elimina davvero: «Annulla» di una
+  `createTask` elimina la task); (2) **`server`** — applica 0131; aspetta
+  healthy; verifica `select count(*) from claude_proposals;` = 0; (3)
+  **`worker`** — solo SENZA lavoro dell'agente in corso («Worker
+  fail-on-restart» in `CLAUDE.md`), e senza turni di chat in volo; (4)
+  **`caddy`** — solo quando la F3.4 (renderer: schede, conferma, «Annulla»,
+  «via Claude») è nel rilascio: senza, le proposte B restano aperte e
+  invisibili (scadono da sole dopo 20 messaggi o 24 h), le A si eseguono e il
+  modello le cita. Verifica: da `/app/#/claude`, «assegna AUD-n a <persona>»
+  → una scheda da confermare; confermata, la task cambia e la riga della
+  storia porta il segno «via Claude».
+  **Rollback**:
+  - ⚠️ **un server vecchio non conosce i tipi d'evento `proposal` e
+    `actions_executed`**: la risposta di `GET /api/agent-sessions/:id/events`
+    passa da uno `z.enum` chiuso, e una conversazione con una scheda andrebbe
+    in 500. Prima di scendere col server: `delete from agent_session_events
+    where type in ('proposal','actions_executed');` (le conversazioni restano,
+    senza le schede).
+  - Proposte, gruppi e azioni restano nelle loro tabelle, inerti: un server
+    vecchio non le legge, non le conferma e non le annulla. Le colonne
+    `via_claude_action_id` restano: un server vecchio non le nomina, e il
+    DEFAULT gli dà `null`.
+  - Ciò che un'azione A o una B confermata ha scritto resta scritto (è una
+    scrittura della persona); con un server vecchio non si annulla più da qui.
+  - Un worker nuovo con un server vecchio: il POST della proposta riceve 403
+    (`chat_tool_forbidden`) e `/api/people` pure; il ponte risponde al modello
+    «non può più proporre» e «non visibile». Nessuna scrittura parte. Un
+    worker vecchio con un server nuovo: la chat torna a sola lettura, col
+    contratto di prima.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
