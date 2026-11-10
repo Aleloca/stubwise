@@ -34,7 +34,7 @@ const detail = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-function install(over: Record<string, unknown> = {}) {
+function install(over: Record<string, unknown> = {}, work: Record<string, unknown> = { claude: "working", webHref: "/x", runs: [] }) {
   seen = installFakeServer({
     "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: ["tickets.view_all"] } }) },
     "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
@@ -54,7 +54,7 @@ function install(over: Record<string, unknown> = {}) {
         before: null,
       },
     },
-    [`GET /api/tasks/${TICKET_ID}/work`]: { body: { claude: "working", webHref: "/x", runs: [] } },
+    [`GET /api/tasks/${TICKET_ID}/work`]: { body: work },
     [`POST /api/agent-sessions/${SESSION}/messages`]: { status: 202, body: { inputId: "eeeeeeee-0000-4000-8000-000000000001", status: "pending" } },
   }).seen;
 }
@@ -99,5 +99,25 @@ describe("una sessione di lavoro nella build app", () => {
     renderRoute(`/claude/${SESSION}`);
     expect(await screen.findByText("Only a maintainer can write to the agent.")).toBeInTheDocument();
     expect(screen.queryByLabelText("Message to Claude")).toBeNull();
+  });
+
+  it("un piano senza esito si legge «Not decided», non approvato né rifiutato", async () => {
+    install({ state: "ended", outcome: "skipped", canWrite: false }, {
+      claude: "none",
+      webHref: "/x",
+      runs: [
+        {
+          id: "bbbbbbbb-0000-4000-8000-000000000001",
+          sessionId: SESSION,
+          createdAt: "2026-10-20T09:00:00.000Z",
+          state: "finished",
+          outcome: "stopped",
+          plan: { text: "1. Do it", summary: "Do it", status: "undecided", at: "2026-10-20T09:02:00.000Z" },
+        },
+      ],
+    });
+    renderRoute(`/claude/${SESSION}`);
+    expect(await screen.findByText("Not decided")).toBeInTheDocument();
+    expect(screen.queryByText(/Rejected by|Approved by/)).toBeNull();
   });
 });

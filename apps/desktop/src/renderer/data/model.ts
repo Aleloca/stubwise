@@ -1285,7 +1285,8 @@ export type ConversationEvent =
        * col perché, come li legge chi approva. Scritti col piano.
        */
       commands?: { input: string; why: string }[];
-      status: "pending" | "approved" | "rejected" | "pre_approved";
+      /** `undecided` (build app): nessun esito verificabile — il piano non è stato deciso. */
+      status: "pending" | "approved" | "rejected" | "pre_approved" | "undecided";
       decidedById?: string;
       instructions?: string;
     }

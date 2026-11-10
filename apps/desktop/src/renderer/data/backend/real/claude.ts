@@ -200,7 +200,14 @@ export async function readEvents(id: string, after?: string): Promise<Reader<Age
 }
 
 /** Il piano di un job: col suo id, che fa stabile l'id dell'evento (`plan:<job>`). */
-export type RunPlan = SessionPlan & { jobId: string };
+export type RunPlan = SessionPlan & { jobId: string; digest: string | null };
+
+/**
+ * Il digest del piano letto per ogni sessione (o voce di «Da decidere»):
+ * approvare o rifiutare lo rimanda, e il server risponde 409 `plan_changed`
+ * se nel frattempo il piano è stato riscritto. Si decide il piano LETTO.
+ */
+export const planDigestOf = new Map<string, string>();
 
 /**
  * Ciò che di una sessione fa cambiare le letture e il piano: stato, esito,
@@ -213,7 +220,7 @@ export function signatureOf(d: Summary): string {
     d.outcome,
     d.waitsOnViewer,
     detail.paused ?? false,
-    (detail.questions ?? []).map((q) => q.answered),
+    (detail.questions ?? []).map((q) => [q.answered, q.cancelled]),
   ]);
 }
 
@@ -263,7 +270,8 @@ export function eventsOf(
       events,
       partials,
       inputs: detail.inputs,
-      questions: detail.questions,
+      // Una domanda annullata (lavoro annullato) non si risponde: si legge chiusa.
+      questions: detail.questions.map((q) => (q.cancelled ? { ...q, answered: true } : q)),
       live: detail.state !== "ended",
       plan,
     }) as ConversationEvent[],
@@ -351,7 +359,7 @@ export function forgetClaudeCaches(): void {
  */
 async function permissionsOf(detail: Detail, row: ConversationRow) {
   const live = detail.state !== "ended";
-  const open = detail.questions.find((q) => !q.answered);
+  const open = detail.questions.find((q) => !q.answered && !q.cancelled);
   const deciding = live && detail.state === "awaiting_approval" && detail.waitsOnViewer;
   let canPreApprovePlan = false;
   let canRevokePlanApproval = false;
@@ -421,11 +429,17 @@ const known = <T extends string>(v: T | "__unknown__"): v is T => v !== "__unkno
 function sessionPlanOf(run: RunView): RunPlan | null {
   const plan = run.plan;
   if (!plan || !known(plan.status)) return null;
+  if (plan.digest) {
+    planDigestOf.set(run.id, plan.digest);
+    if (run.sessionId) planDigestOf.set(run.sessionId, plan.digest);
+  }
   return {
     jobId: run.id,
+    digest: plan.digest,
     text: plan.text,
     summary: plan.summary,
-    status: plan.status === "pre_approved" ? "approved" : plan.status,
+    // `undecided`: nessun esito verificabile, si legge «non deciso» (mai «approvato»).
+    status: plan.status,
     at: plan.at,
   };
 }

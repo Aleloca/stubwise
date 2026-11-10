@@ -1143,6 +1143,7 @@
         "plan_written": "Plan written",
         "plan_written_approved": "Plan written · approved by {{name}}",
         "plan_written_rejected": "Plan written · rejected by {{name}}",
+        "plan_written_undecided": "Plan written · not decided",
         "plan_writtenRejectedWith": "Plan written · rejected by {{name}}: “{{instructions}}”",
         "run_startedVia": "Run started by {{name}} · {{provider}}",
         "waitingForQueue": "waiting for the queue",
@@ -1551,7 +1552,8 @@
         "rejected": "Plan for {{code}} rejected",
         "planFailed": "Couldn't send your decision on {{code}}. It's back in Decide.",
         "alreadyAnswered": "Already answered by {{name}}.",
-        "alreadyDecided": "Already decided by {{name}}."
+        "alreadyDecided": "Already decided by {{name}}.",
+        "planChanged": "The plan of {{code}} changed after you read it: read it again before deciding."
       },
       "chat": {
         "asksYou": "{{name}} asks you",
@@ -4018,7 +4020,9 @@
         "whoCanApprove": "Someone who can approve plans in {{code}} decides",
         "whoCanApproveAny": "Someone who can approve plans decides",
         "alreadyDecided": "Already decided by {{name}}",
-        "failed": "The decision didn't go through: the plan may have changed. Try again."
+        "failed": "The decision didn't go through: the plan may have changed. Try again.",
+        "undecided": "Not decided",
+        "changed": "The plan changed after you read it: read it again before deciding."
       },
       "proposal": {
         "title_one": "Claude proposes · {{count}} change",

@@ -139,7 +139,8 @@ export type PlanEvent = Base & {
   planText: string;
   summary: string;
   commands?: { input: string; why: string }[];
-  status: "pending" | "approved" | "rejected" | "pre_approved";
+  /** `undecided`: nessun esito verificabile (piano fermo, annullato sul gate, fallito prima di eseguire). */
+  status: "pending" | "approved" | "rejected" | "pre_approved" | "undecided";
   decidedById?: string;
   instructions?: string;
 };

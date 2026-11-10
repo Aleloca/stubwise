@@ -215,6 +215,7 @@ describe("lo stream di una sessione", () => {
       ],
       lastId: "1",
       invalidSession: false,
+      real: true,
     });
     await vi.waitFor(() => expect(c.events.map((e) => e.type)).toEqual(["phase"]));
     opened[0]!.send({ type: "end", reason: "rotate", fatal: false });
