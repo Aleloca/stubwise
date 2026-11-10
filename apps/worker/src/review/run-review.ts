@@ -50,6 +50,7 @@ import {
   type ReviewCycleDeps,
 } from "./cycle.js";
 import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
+import { NATIVE_TOOLS, nativeToolsWith } from "../agent/native-tools.js";
 
 /**
  * PR REVIEW automatica — esecuzione di UN job già reclamato dal poller.
@@ -826,6 +827,11 @@ export async function runPrReview(
               maxTurns: deps.maxTurns,
               timeoutMs: deps.agentTimeoutMs,
               ...(graphJsonPath !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
+              // Sola lettura (`native-tools.ts`); Bash solo coi comandi del grafo.
+              builtinTools: nativeToolsWith(
+                NATIVE_TOOLS.readOnly,
+                graphJsonPath !== null ? GRAPHIFY_AGENT_ALLOWED_TOOLS : undefined,
+              ),
               ...(provider !== undefined ? { provider } : {}),
               ...reviewSession,
             });

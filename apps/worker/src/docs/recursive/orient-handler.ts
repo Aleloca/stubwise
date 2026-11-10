@@ -36,6 +36,7 @@ import { openGenerationWorktree, type GenerationWorktree } from "../generation-w
 import { completeDocJob, failDocJob, holdDocJob, touchDocJob, type DocJob } from "../queue.js";
 import { createWorktreeReader } from "../reader.js";
 import type { GenerationWorktreeRegistry } from "./registry.js";
+import { NATIVE_TOOLS, nativeToolsWith, type NativeTool } from "../../agent/native-tools.js";
 
 /**
  * ORIENTAMENTO — primo handler del motore documentazione ricorsivo (M5.2).
@@ -339,8 +340,16 @@ async function loadGraphContext(
 }
 
 /** Opzione `allowedTools` dei run: i pattern read-only del CLI solo col grafo. */
-function graphAllowedTools(graph: DocsGraphContext | null): { allowedTools?: string[] } {
-  return graph !== null ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {};
+function graphAllowedTools(graph: DocsGraphContext | null): {
+  allowedTools?: string[];
+  builtinTools: NativeTool[];
+} {
+  // Sola lettura (`native-tools.ts`); Bash solo coi comandi del grafo.
+  const allowedTools = graph !== null ? GRAPHIFY_AGENT_ALLOWED_TOOLS : undefined;
+  return {
+    ...(allowedTools !== undefined ? { allowedTools } : {}),
+    builtinTools: nativeToolsWith(NATIVE_TOOLS.readOnly, allowedTools),
+  };
 }
 
 /**

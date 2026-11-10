@@ -6,6 +6,7 @@ import type { AgentRunner } from "./runner.js";
 import { trackedClaudeCliRunner } from "./tracking-runner.js";
 import { captureUsageOutput } from "./usage-pty.js";
 import { parseUsage, type RunLlm } from "./usage-parser.js";
+import { NATIVE_TOOLS } from "./native-tools.js";
 
 /**
  * Scheduler BEST-EFFORT che, periodicamente, legge l'utilizzo residuo
@@ -184,6 +185,8 @@ export function buildRunLlmFromChain(chain: ResolvedProvider[], runner: AgentRun
       prompt,
       model: LLM_FALLBACK_MODEL,
       usage: { operation: "usage_probe", projectId: null },
+      // Solo testo: nessun tool nativo (`native-tools.ts`).
+      builtinTools: NATIVE_TOOLS.text,
       permissionMode: "default",
       maxTurns: LLM_MAX_TURNS,
       timeoutMs: LLM_TIMEOUT_MS,

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ClaudeCliRunner } from "./claude-cli.js";
 import {
   AgentRunCancelledError,
+  AgentRunError,
   AgentTimeoutError,
   type AgentRunner,
   type UsageTag,
@@ -55,7 +56,7 @@ rl.on("line", (line) => {
     return;
   }
   const text = msg.message.content;
-  if (!inited) { inited = true; out({ type: "system", subtype: "init", capabilities: ["interrupt_receipt_v1"] }); }
+  if (!inited) { inited = true; out({ type: "system", subtype: "init", capabilities: ["interrupt_receipt_v1"], ...(process.env.FAKE_INIT_TOOLS ? { tools: JSON.parse(process.env.FAKE_INIT_TOOLS) } : {}) }); }
   if (pending) { if (!text.includes("NOECHO")) { echo(msg); absorbed.push(text); } return; }
   echo(msg);
   out({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "…" + (text.includes("SECRET") ? " value=hunter2-secret" : "") } } });
@@ -551,12 +552,16 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
     cleanups.push(() => rm(root, { recursive: true, force: true }));
     const bin = join(root, "claude");
     // Rigioca la traccia vera sullo stdout al primo messaggio, esce a stdin chiuso.
+    // L'init perde il campo \`tools\`: la traccia è stata registrata SENZA
+    // \`--tools\` (2.1.287, tutto il set nativo), e qui si prova l'interruzione,
+    // non il controllo dell'init (che ha i suoi test, «i tool dell'init»).
     await writeFile(
       bin,
       `#!/usr/bin/env node
 const fs = require("node:fs");
+const strip = (l) => { try { const e = JSON.parse(l); if (e.type === "system" && e.subtype === "init") { delete e.tools; return JSON.stringify(e); } } catch {} return l; };
 require("node:readline").createInterface({ input: process.stdin })
-  .once("line", () => process.stdout.write(fs.readFileSync(process.env.TRACE_FILE, "utf8")))
+  .once("line", () => process.stdout.write(fs.readFileSync(process.env.TRACE_FILE, "utf8").split("\\n").map(strip).join("\\n")))
   .on("close", () => process.exit(0));
 `,
     );
@@ -1022,5 +1027,39 @@ describe("StreamingClaudeRunner — abort dopo l'uscita del processo", () => {
     expect(result.output).toBe("echo: ciao");
     expect(result.sessionId).toBe("sess-1");
     expect(rec.ended).toBe(1);
+  });
+});
+
+describe("i tool dell'init (CLI 2.1.322, 10 nov 2026)", () => {
+  it("un nativo fuori da builtinTools nell'init ferma il run prima di qualunque turno: AgentRunError che lo nomina", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const runner = new StreamingClaudeRunner({
+      claudePath: bin,
+      resultGraceMs: 20,
+      extraEnv: { FAKE_INIT_TOOLS: JSON.stringify(["Read", "Grep", "CronCreate", "mcp__claude_ai_Gmail__send"]) },
+    });
+    const err = await runner
+      .run({ ...base, cwd, prompt: "SLOW", builtinTools: ["Read", "Grep"] })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(AgentRunError);
+    expect(String((err as Error).message)).toContain("CronCreate");
+    expect(String((err as Error).message)).toContain("mcp__claude_ai_Gmail__send");
+  });
+
+  it("l'init con i soli nativi dichiarati e i tool dei server MCP del run: il run va", async () => {
+    const { bin, cwd } = await fakeClaude();
+    const runner = new StreamingClaudeRunner({
+      claudePath: bin,
+      resultGraceMs: 20,
+      extraEnv: { FAKE_INIT_TOOLS: JSON.stringify(["Read", "Grep", "mcp__ask_user__ask"]) },
+    });
+    const result = await runner.run({
+      ...base,
+      cwd,
+      prompt: "ciao",
+      builtinTools: ["Read", "Grep"],
+      mcpConfig: { servers: { ask_user: { command: "node", args: ["x.js"] } } },
+    });
+    expect(result.output).toContain("echo: ciao");
   });
 });

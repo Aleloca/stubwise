@@ -133,6 +133,16 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 - App mobile: riceve il fix del reader dei traguardi (e gli altri cambi delle
   risposte) solo con una nuova build.
 - Prova a mano complessiva: `apps/desktop/docs/integration-manual-tests.md`.
+- **Produzione 2.1.287 e tool nativi** *(M, 10 nov 2026)*: l'init espone gli
+  stessi tool nativi del 2.1.322 (CronCreate, RemoteTrigger, SendMessage,
+  PushNotification, ToolSearch…; traccia di `streaming-cli.test`,
+  `apps/worker/src/sessions/fixtures/interrupt-then-message.jsonl`);
+  eseguibilità non verificata (il binario non c'è e non si scarica).
+  Decisione del maintainer del 10 nov: correzione solo col rilascio del pin
+  2.1.322, insieme all'elenco esplicito dei nativi per run (commit
+  «fix(worker): elenco esplicito dei tool nativi per ogni run del CLI»,
+  `docs/invariants/agent-sessions.md`, «I tool NATIVI di ogni run»). Si
+  chiude con quel rilascio.
 
 ## Chiuse
 

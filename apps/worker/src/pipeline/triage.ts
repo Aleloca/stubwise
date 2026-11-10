@@ -38,6 +38,7 @@ import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import { generateFailureSummary } from "../summaries/failure-summary.js";
 import { aiJobSession, sessionOption } from "../sessions/owners.js";
 import { buildTriagePrompt, parseTriageDecision, type TriageDecision } from "./prompts.js";
+import { NATIVE_TOOLS } from "../agent/native-tools.js";
 
 /**
  * Default difensivo del gate quando manca la riga automation_rules del tipo
@@ -294,6 +295,8 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
         model,
         maxTurns,
         timeoutMs,
+        // Solo testo (cwd vuota): nessun tool nativo (`native-tools.ts`).
+        builtinTools: NATIVE_TOOLS.text,
         ...(deps.provider !== undefined ? { provider: deps.provider } : {}),
         ...(await sessionOpt("triage")),
       });

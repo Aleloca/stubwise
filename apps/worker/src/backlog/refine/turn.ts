@@ -34,6 +34,7 @@ import { NoAccountAvailableError, runBacklogWithProviders } from "../provider.js
 import { buildRefineMcpConfig, refineServerPath, type RefineBridge, type RefineTurnGrant } from "./bridge.js";
 import { buildRefinePrimingPrompt, buildRefineResumePrompt } from "./prompts.js";
 import { refineParentDir, type RefineWorktreeEntry, type RefineWorktreeRegistry } from "./worktrees.js";
+import { NATIVE_TOOLS, nativeToolsWith } from "../../agent/native-tools.js";
 
 /**
  * UN turno di una sessione di refinement (design 2026-10-14 §3.2, §3.4, §4,
@@ -466,6 +467,9 @@ export async function runRefineTurn(
         prompt,
         permissionMode: "default",
         allowedTools,
+        // Letture e skill, Bash solo coi comandi del grafo (`native-tools.ts`):
+        // la sola lettura del turno è per costruzione anche sui nativi.
+        builtinTools: nativeToolsWith(NATIVE_TOOLS.refine, allowedTools),
         maxTurns: deps.maxTurns,
         timeoutMs: deps.turnTimeoutMs,
         ...(deps.model !== undefined ? { model: deps.model } : {}),

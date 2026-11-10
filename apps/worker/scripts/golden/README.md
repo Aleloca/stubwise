@@ -92,6 +92,16 @@ solo `refine-read-bash`, che gira solo se nominato), `--model <nome>`
 `PATH`), `--classic` (runner storico), `--out <file>` (JSON anche su file),
 `--keep` (conserva le working dir per ispezionarle), `--help`.
 
+**Tool nativi (10 nov 2026, CLI 2.1.322)**: ogni scenario passa a
+`runner.run` gli STESSI `builtinTools` della produzione (`NATIVE_TOOLS` e
+`nativeToolsWith` di `src/agent/native-tools.ts`, caricati dal runtime come
+gli altri builder), quindi l'argv porta `--tools <elenco>` e
+`--strict-mcp-config`. Il controllo «l'init non espone tool fuori
+dall'elenco» è quello del runner in streaming: se il CLI pinnato elencasse
+nell'init un nativo non dichiarato o un tool MCP di un server non del run, il
+run si ferma con un `AgentRunError` che li nomina e lo scenario è rosso. Con
+`--classic` (runner storico, niente init) il controllo non c'è.
+
 Il **log umano va su stderr**, lo **stdout è solo il JSON**: `... > golden.json`
 lascia a video il progresso e sul file il report.
 
