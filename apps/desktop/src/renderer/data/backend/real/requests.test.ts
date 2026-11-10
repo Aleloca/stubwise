@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setAppClientForTests } from "./client";
+import { session, setAppClientForTests } from "./client";
 import { installFakeServer, ME_ID, PROJECT_ID, serverTask } from "./fakeServer";
 import {
   archiveRequest,
@@ -159,6 +159,82 @@ describe("le Requests dal server", () => {
       "GET /api/requests/jobs/job-3": { body: { status: "done", outcome: "created", request: full() } },
     });
     expect(await createRequest({ projectId: PROJECT_ID, title: "x" })).not.toHaveProperty("landedByMerge");
+  });
+
+  it("accodata ma senza esito entro il tetto: «la stiamo registrando», mai un secondo POST", async () => {
+    vi.useFakeTimers();
+    try {
+      const { seen } = installFakeServer({
+        "POST /api/requests": { status: 202, body: { jobId: "job-4" } },
+        "GET /api/requests/jobs/job-4": { body: { status: "running", outcome: null, request: null } },
+      });
+      const out = createRequest({ projectId: PROJECT_ID, title: "x" });
+      const caught = out.catch((e: unknown) => e);
+      await vi.advanceTimersByTimeAsync(120_000);
+      expect(await caught).toMatchObject({ message: "intake_pending" });
+      expect(seen.filter((r) => r.method === "POST")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("finita senza richiesta: accodata, non «non è partito nulla»", async () => {
+    installFakeServer({
+      "POST /api/requests": { status: 202, body: { jobId: "job-5" } },
+      "GET /api/requests/jobs/job-5": { body: { status: "done", outcome: null, request: null } },
+    });
+    await expect(createRequest({ projectId: PROJECT_ID, title: "x" })).rejects.toThrow("intake_pending");
+  });
+
+  it("il POST che fallisce: non è partito nulla", async () => {
+    installFakeServer({ "POST /api/requests": { status: 500, body: { code: "internal", message: "x" } } });
+    await expect(createRequest({ projectId: PROJECT_ID, title: "x" })).rejects.not.toThrow("intake_pending");
+  });
+
+  it("qualche errore di rete durante l'attesa si tollera; troppi di fila: «la stiamo registrando»", async () => {
+    let polls = 0;
+    installFakeServer({
+      "POST /api/requests": { status: 202, body: { jobId: "job-6" } },
+      "GET /api/requests/jobs/job-6": () => {
+        polls++;
+        if (polls <= 2) throw new TypeError("Failed to fetch");
+        if (polls === 3) return { status: 503, body: { code: "unavailable", message: "x" } };
+        return { body: { status: "done", outcome: "created", request: full() } };
+      },
+    });
+    expect(await createRequest({ projectId: PROJECT_ID, title: "x" })).toMatchObject({ id: ITEM });
+    installFakeServer({
+      "POST /api/requests": { status: 202, body: { jobId: "job-7" } },
+      "GET /api/requests/jobs/job-7": () => {
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    await expect(createRequest({ projectId: PROJECT_ID, title: "x" })).rejects.toThrow("intake_pending");
+  });
+
+  it("l'attesa si ferma quando il dialogo si chiude o la sessione cambia", async () => {
+    let polls = 0;
+    installFakeServer({
+      "POST /api/requests": { status: 202, body: { jobId: "job-8" } },
+      "GET /api/requests/jobs/job-8": () => {
+        polls++;
+        return { body: { status: "running", outcome: null, request: null } };
+      },
+    });
+    const controller = new AbortController();
+    const out = createRequest({ projectId: PROJECT_ID, title: "x" }, { signal: controller.signal });
+    await vi.waitFor(() => expect(polls).toBe(1));
+    controller.abort();
+    await expect(out).rejects.toThrow("aborted");
+    expect(polls).toBe(1);
+
+    polls = 0;
+    session.personId = ME_ID;
+    const other = createRequest({ projectId: PROJECT_ID, title: "x" });
+    await vi.waitFor(() => expect(polls).toBe(1));
+    session.personId = "55555555-5555-4555-8555-555555555555";
+    await expect(other).rejects.toThrow("aborted");
+    expect(polls).toBe(1);
   });
 
   it("metadati e descrizione col PATCH; scartare i suggerimenti passa dalla sua rotta", async () => {

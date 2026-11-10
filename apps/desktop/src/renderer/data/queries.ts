@@ -1287,8 +1287,13 @@ export function useWithdrawDecision() {
   return useWrite(api.withdrawDecision, DECISION_REQUEST_AREAS);
 }
 
+/** `signal`: sul server vero ferma l'attesa dell'intake quando il dialogo si chiude. */
 export function useCreateRequest() {
-  return useWrite(api.createRequest, REQUEST_AREAS);
+  return useWrite(
+    ({ input, signal }: { input: Parameters<typeof api.createRequest>[0]; signal?: AbortSignal }) =>
+      api.createRequest(input, { signal }),
+    REQUEST_AREAS,
+  );
 }
 
 export function useUpdateRequest() {

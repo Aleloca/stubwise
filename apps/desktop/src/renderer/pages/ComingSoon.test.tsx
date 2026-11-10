@@ -9,7 +9,7 @@ import { renderRoute } from "../test/renderRoute";
 // chiamata ai namespace delle aree future, che devono restare a zero.
 const { FUTURE_NAMESPACES, calls, truncated, intake, refusal } = vi.hoisted(() => ({
   // L'intake del server può fondere una richiesta nuova in una esistente: qui la si finge.
-  intake: { mergeInto: null as string | null },
+  intake: { mergeInto: null as string | null, pending: false },
   // Un rifiuto del server per codice (`{ code }` come un ApiError): la funzione indicata rifiuta così.
   refusal: { fn: null as string | null, code: "" },
   calls: [] as string[],
@@ -56,6 +56,8 @@ vi.mock("@backend/api", async (importOriginal) => {
       const list = mod.listRequests as (projectId: string) => Promise<{ code: string }[]>;
       wrapped[name] = record(name, async (...args: unknown[]) => {
         const input = args[0] as { projectId: string };
+        // Accodata dal server ma senza esito ancora (`intake_pending`, review della fetta 4).
+        if (intake.pending) throw new Error("intake_pending");
         if (!intake.mergeInto) return create(input);
         const target = (await list(input.projectId)).find((r) => r.code === intake.mergeInto);
         return { ...target, landedByMerge: true };
@@ -94,6 +96,7 @@ beforeEach(() => {
   truncated.value = false;
   truncated.onlyFiltered = false;
   intake.mergeInto = null;
+  intake.pending = false;
   refusal.fn = null;
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
 });
@@ -471,6 +474,21 @@ describe("le superfici della fetta 4 nella build app", () => {
       await screen.findByText("Merged into STW-R4: someone had already asked for this, and now you follow it."),
     ).toBeInTheDocument();
     await waitFor(() => expect(router.state.location.search).toMatchObject({ request: "req-stw-4" }));
+  });
+
+  it("una richiesta accodata senza esito: «la stiamo registrando», il dialogo si chiude e niente «Riprova»", async () => {
+    signedInAs("p-laura");
+    intake.pending = true;
+    renderRoute("/p/STW/requests?newRequest=STW");
+    const dialog = await screen.findByRole("dialog", { name: "New request" });
+    await userEvent.type(within(dialog).getByLabelText("What do you need?"), "Mute notifications at night");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Send request" }));
+    expect(
+      await screen.findByText("Received: we're still registering it. You'll find it in Requests."),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New request" })).not.toBeInTheDocument());
+    expect(screen.queryByText("Couldn't send the request. Nothing was sent; try again.")).not.toBeInTheDocument();
+    expect(calls.filter((c) => c === "createRequest")).toHaveLength(1);
   });
 
   it("«Fondi in…»: l'attesa della riscrittura, e un errore con «Try again» che non ha cambiato nulla", async () => {

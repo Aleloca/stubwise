@@ -1888,7 +1888,8 @@
       "sent": "Richiesta mandata a {{project}}.",
       "sentSimilar": "Richiesta mandata a {{project}}. Somiglia a un'altra richiesta: il team potrebbe fonderle.",
       "sentMerged": "Unita a {{code}}: qualcuno l'aveva già chiesta, e ora la segui anche tu.",
-      "sending": "Invio… controllo se qualcuno l'ha già chiesta."
+      "sending": "Invio… controllo se qualcuno l'ha già chiesta.",
+      "pending": "Ricevuta: la stiamo ancora registrando, la troverai fra le Requests."
     },
     "merge": {
       "title": "Fondi in un'altra richiesta",

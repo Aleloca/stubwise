@@ -954,7 +954,12 @@ export interface NewRequestInput {
   origin?: { kind: "support"; conversationId: string } | ProductDocOrigin;
 }
 
-export async function createRequest(input: NewRequestInput): Promise<ProjectRequest> {
+export async function createRequest(
+  input: NewRequestInput,
+  // Sul server vero ferma l'attesa dell'intake (il dialogo si chiude); qui non serve.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _options?: { signal?: AbortSignal },
+): Promise<ProjectRequest> {
   const me = await gate("createRequest");
   return copy(createRequestAs(me, input));
 }
