@@ -211,7 +211,7 @@ describe("messaggi", () => {
       thread: { replyCount: 1, lastReplyAt: "2026-11-10T10:05:00.000Z", following: true },
     });
     await chat.listMessages(CH, { before: ROOT });
-    expect(seen.map((r) => r.path)).toContain(`/api/chat/channels/${CH}/messages?before=cursor-1`);
+    expect(seen.map((r) => r.path)).toContain(`/api/chat/channels/${CH}/messages?before=cursor-1&limit=50`);
   });
 
   it("un messaggio eliminato: niente testo, eliminato", async () => {

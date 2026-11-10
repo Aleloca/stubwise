@@ -158,4 +158,41 @@ describe("la Chat nella build app", () => {
     await ue.keyboard("{Control>}n{/Control}");
     expect((router.state.location.search as { newMessage?: string }).newMessage).toBeUndefined();
   });
+
+  describe("un canale lungo (review della fetta 1)", () => {
+    // 260 radici: la pagina più nuova ne dà 200 (il massimo del server) col
+    // cursore, la più vecchia le altre 60.
+    const id = (i: number) => `7f1c2a1e-0000-4000-8000-${String(100000000000 + i)}`;
+    const roots = Array.from({ length: 260 }, (_, i) =>
+      message({ id: id(i), text: `Message ${i}`, createdAt: new Date(Date.UTC(2026, 10, 1) + i * 60_000).toISOString() }),
+    );
+    const pages = (fail = false) => ({
+      [`GET /api/chat/channels/${CH}/messages`]: ({ path }: SeenRequest) => {
+        const limit = Number(new URL(`http://x${path}`).searchParams.get("limit") ?? "50");
+        if (limit > 200) return { status: 400, body: { code: "invalid", message: "limit" } };
+        if (path.includes("before=old")) return fail ? { status: 500, body: { code: "x", message: "x" } } : { body: { items: roots.slice(0, 60), before: null } };
+        return { body: { items: roots.slice(260 - Math.min(limit, 200)), before: "old" } };
+      },
+      [`GET /api/chat/messages/${id(0)}`]: { body: roots[0] },
+    });
+
+    it("una menzione della radice più vecchia: si arriva fino a lei, col cursore del server e mai oltre 200 per pagina", async () => {
+      install(pages());
+      renderRoute(`/chat/${CH}?message=${id(0)}`);
+      expect(await screen.findByText("Message 0", {}, { timeout: 4000 })).toBeInTheDocument();
+      const reads = seen.filter((r) => r.path.startsWith(`/api/chat/channels/${CH}/messages`));
+      expect(reads.every((r) => Number(new URL(`http://x${r.path}`).searchParams.get("limit") ?? "50") <= 200)).toBe(true);
+      expect(reads.some((r) => r.path.includes("before=old"))).toBe(true);
+    });
+
+    it("se la pagina più vecchia non arriva, ci si ferma e lo si dice: nessun giro infinito", async () => {
+      install(pages(true));
+      renderRoute(`/chat/${CH}?message=${id(0)}`);
+      expect(await screen.findByText("Couldn't load messages", {}, { timeout: 4000 })).toBeInTheDocument();
+      const before = seen.length;
+      await new Promise((r) => setTimeout(r, 300));
+      expect(seen.filter((r) => r.path.includes("before=old")).length).toBeLessThanOrEqual(2);
+      expect(seen.length - before).toBeLessThan(5);
+    });
+  });
 });

@@ -195,25 +195,38 @@ const listChannelMembers: Chat["listChannelMembers"] = async (id) => {
   return v.memberIds.map((personId): ChannelMember => ({ personId, isCreator: personId === v.createdBy }));
 };
 
-const listMessages: Chat["listMessages"] = async (channelId, { before, limit } = {}) => {
-  const cursor = before ? cursorBefore.get(before) : undefined;
+/** Il massimo del server per pagina: oltre si va avanti col cursore. */
+const SERVER_PAGE_MAX = 200;
+
+/**
+ * La pagina del canale come la chiede il prototipo: gli ultimi `limit`
+ * messaggi (il «Load earlier» alza `limit`), o quelli prima di `before`. Il
+ * server dà al più 200 radici per pagina col cursore opaco della pagina
+ * prima: qui si accumulano le pagine finché bastano, mai oltre i 200.
+ */
+const listMessages: Chat["listMessages"] = async (channelId, { before, limit = 50 } = {}) => {
+  let cursor = before ? cursorBefore.get(before) : undefined;
   // Una pagina prima di un messaggio senza cursore ricordato: niente di più vecchio da chiedere.
   if (before && !cursor) return { messages: [], hasMore: false, lastReadAt: null };
-  const [page, channel] = await Promise.all([
-    read(() =>
-      appClient().chat.messages.page(channelId, {
-        ...(cursor ? { before: cursor } : {}),
-        ...(limit ? { limit } : {}),
-      }),
-    ),
-    before ? Promise.resolve(null) : read(() => appClient().chat.channels.get(channelId)),
-  ]);
-  if (!page) return null;
-  const messages = page.items.map(toMessage);
-  if (page.before && messages[0]) cursorBefore.set(messages[0].id, page.before);
+  const channel = before ? null : await read(() => appClient().chat.channels.get(channelId));
+  let messages: ChatMessageView[] = [];
+  let more = false;
+  for (;;) {
+    const want = Math.min(limit - messages.length, SERVER_PAGE_MAX);
+    const page = await read(() =>
+      appClient().chat.messages.page(channelId, { ...(cursor ? { before: cursor } : {}), limit: want }),
+    );
+    if (!page) return null;
+    messages = [...page.items.map(toMessage), ...messages];
+    more = page.before !== null;
+    if (page.before && page.items[0]) cursorBefore.set(page.items[0].id, page.before);
+    // Si va avanti solo se il server ha dato una pagina piena e ce n'è un'altra.
+    if (!more || messages.length >= limit || page.items.length < want) break;
+    cursor = page.before ?? undefined;
+  }
   return {
     messages,
-    hasMore: page.before !== null,
+    hasMore: more,
     // Il divisore dei nuovi: l'ultima lettura di chi guarda, dal canale.
     lastReadAt: channel?.lastReadAt ?? null,
   };

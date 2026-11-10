@@ -69,6 +69,8 @@ import { channelName, type ChannelName } from "../../domain/chatLabel";
 // riga «New», bozza, invii a metà).
 
 const PAGE = 50;
+/** Il passo verso un messaggio da raggiungere (`?message=`): la pagina più grande del server. */
+const SEEK_PAGE = 200;
 const CODE_RE = new RegExp(CODE_IN_TEXT.source, "g");
 const MAX_ATTACHMENTS = 10;
 const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
@@ -287,11 +289,14 @@ function ChannelBody({
   }, [threadOnlyRoot, openThreadId, navigate]);
   const inFlow = !!openThreadId || (!!focused && threadOnlyRoot === null);
   const fetching = query.isFetching;
+  const failed = query.isError;
   useEffect(() => {
-    if (!reachId || !inFlow || !page?.hasMore || fetching) return;
+    // Su un errore ci si ferma (la pagina lo dice, con «Retry»): niente giri a vuoto.
+    if (!reachId || !inFlow || !page?.hasMore || fetching || failed) return;
     if (page.messages.some((m) => m.id === reachId)) return;
-    setLimit((n) => n + PAGE);
-  }, [reachId, inFlow, page, fetching]);
+    // Verso un messaggio lontano si sale di una pagina intera del server.
+    setLimit((n) => n + SEEK_PAGE);
+  }, [reachId, inFlow, page, fetching, failed]);
 
   const messages = useMemo(
     () => (page ? mergeFlow(page.messages, stream.messages, page.hasMore) : []),
@@ -691,6 +696,13 @@ function ChannelBody({
         ) : !page ? (
           <ChannelSkeleton />
         ) : (
+          <>
+          {/* Caricando i più vecchi: la pagina di prima resta, l'errore si vede sopra. */}
+          {query.isError && (
+            <div className="px-4">
+              <PageError message={t("chat.channel.error")} onRetry={() => void query.refetch()} />
+            </div>
+          )}
           <MessageList
             days={days}
             hasMore={page.hasMore}
@@ -705,6 +717,7 @@ function ChannelBody({
             label={t("chat.flow.label", { name: name.label })}
             announce={announce}
           />
+          </>
         )}
         {channel.canRead && (
           <>
