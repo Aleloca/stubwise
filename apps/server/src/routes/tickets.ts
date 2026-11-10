@@ -315,10 +315,13 @@ function sendAnswerError(
 /** Proiezione pubblica della riga ticket: date serializzate in ISO. */
 function toPublicTicket(
   row: Ticket,
-  requestedBy: { id: string; email: string } | null = null,
+  requestedBy: { id: string; email: string } | null,
+  /** L'id dell'utente di sistema Claude (`agentUserId`), per `assigneeIsAgent`. */
+  agentId: string | null,
 ): z.infer<typeof ticketSchema> {
   return {
     requestedBy,
+    assigneeIsAgent: agentId !== null && row.assigneeId === agentId,
     id: row.id,
     projectId: row.projectId,
     number: row.number,
@@ -509,11 +512,15 @@ async function ticketDetailResponse(
   const requestedBy = (await requestedByForTickets(db, [row])).get(row.requestedByUserId ?? "") ?? null;
   // «Assegnatario senza accesso»: né membro del progetto né full admin. La
   // revoca dell'accesso non riscrive i ticket, quindi si deriva a ogni lettura.
+  // Claude non è membro di nessun progetto e non è un caso di accesso revocato
+  // (review dell'area 3, punto 6).
+  const agentId = await agentUserId(db);
   const assigneeWithoutAccess =
     row.assigneeId !== null &&
+    row.assigneeId !== agentId &&
     (await projectPermissionsOfUser(db, row.assigneeId, row.projectId)) === null;
   return {
-    ...toPublicTicket(row, requestedBy),
+    ...toPublicTicket(row, requestedBy, agentId),
     implementationPlan: row.implementationPlan,
     originContent: row.originContent,
     planSummary: latestJob?.planSummary ?? null,
@@ -622,7 +629,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         }
         return await reply
           .code(201)
-          .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }));
+          .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }, await agentUserId(app.db)));
       } catch (error) {
         if (error instanceof ProjectNotFoundError) {
           return apiError(reply, 404, "project_not_found", "Project not found");
@@ -771,9 +778,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         app.db,
         page.map((row) => row.ticket),
       );
+      const agentId = await agentUserId(app.db);
       return {
         items: page.map((row) => ({
-          ...toPublicTicket(row.ticket, requesters.get(row.ticket.requestedByUserId ?? "") ?? null),
+          ...toPublicTicket(row.ticket, requesters.get(row.ticket.requestedByUserId ?? "") ?? null, agentId),
           repositoryCount: countByTicket.get(row.ticket.id) ?? 0,
         })),
         nextCursor,
@@ -1373,6 +1381,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         return toPublicTicket(
           result.ticket,
           requesters.get(result.ticket.requestedByUserId ?? "") ?? null,
+          await agentUserId(app.db),
         );
       } catch (error) {
         // Finestra TOCTOU: l'utente verificato dal servizio può sparire prima

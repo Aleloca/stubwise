@@ -223,6 +223,22 @@ describe("le porte vecchie (web vecchio, mobile, MCP) seguono la stessa regola",
   });
 });
 
+describe("il ticket assegnato a Claude per il web vecchio e l'app", () => {
+  it("non è «assegnatario senza accesso» e porta assigneeIsAgent, nel dettaglio e nell'elenco; una persona no", async () => {
+    const t = await task();
+    await testDb.db.update(tickets).set({ assigneeId: claudeId }).where(eq(tickets.id, t));
+    const detail = await req("GET", `/api/tickets/${t}`, developer);
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(detail.json()).toMatchObject({ assigneeId: claudeId, assigneeIsAgent: true, assigneeWithoutAccess: false });
+    const list = await req("GET", `/api/tickets?projectId=${projectId}`, developer);
+    const row = (list.json() as { items: { id: string; assigneeIsAgent: boolean }[] }).items.find((i) => i.id === t);
+    expect(row).toMatchObject({ assigneeIsAgent: true });
+    const other = await task();
+    await testDb.db.update(tickets).set({ assigneeId: developer.id }).where(eq(tickets.id, other));
+    expect((await req("GET", `/api/tickets/${other}`, developer)).json()).toMatchObject({ assigneeIsAgent: false });
+  });
+});
+
 describe("Claude non è una persona da gestire", () => {
   it("non è nel Team; le rotte /api/users/:id su di lui rispondono 404", async () => {
     const admin = await createUserWithSession(app, "admin-claude@example.com");
