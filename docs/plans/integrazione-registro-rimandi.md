@@ -56,8 +56,10 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 - Fuori portata: risponde il modello; per un'azione non in catalogo dice che non
   può e dove si fa a mano *(M)*.
 - **Conversazioni pubbliche e continuazione**, `claude.public.view`, conferma dei
-  progetti, messaggi privati se Claude tocca un progetto nuovo: fetta a sé dopo
-  la prima versione *(M)*.
+  progetti, messaggi privati se Claude tocca un progetto nuovo: fetta 5, IN
+  CORSO (piano `docs/plans/2026-11-10-integrazione-claude-chat-f5-plan.md`,
+  decisioni del maintainer del 10 nov 2026: gli eventi dei tool restano
+  visibili ai lettori, D1) *(M)*.
 - «Claude can help you…» (suggerimenti nelle pagine) e le citazioni
   registrate sui messaggi (oggi solo i codici nel testo) *(O)*. Menzioni,
   riquadro come chat e ⌘J/⌘K: chiuse (sotto).

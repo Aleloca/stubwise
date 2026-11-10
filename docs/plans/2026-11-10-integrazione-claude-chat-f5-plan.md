@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:executing-plans.
 >
-> Stato: **bozza per il maintainer**. Le decisioni marcate **[DECIDE]** vanno
-> prese prima del codice; per ognuna c'è la raccomandazione. Autore:
-> stubwise-72, per l'orchestratrice.
+> Stato: **deciso il 10 nov 2026** (maintainer, tramite l'orchestratrice):
+> vedi «Decisioni» sotto. Autore: stubwise-72. F5.1–F5.3 stubwise-72, F5.4
+> (renderer) stubwise-94.
 
 **Spec**: il prototipo (la fonte del comportamento):
 - `data/model.ts` (campi della conversazione);
@@ -48,10 +48,15 @@ Il prototipo regge così:
 - se Claude tocca un progetto nuovo, il seguito resta privato
   (`privateFromIndex`) finché l'autore non riconferma.
 
-Il prototipo non ha il punto 3, perché i tool sono finti. Sul server vero il
-3 è il buco più grande: un `tool_result` contiene campi che la prosa non
-cita. La raccomandazione è che **gli eventi dei tool non escano mai
-dall'autore** (D1).
+Il prototipo non ha il punto 3, perché i tool sono finti. Sul server vero un
+`tool_result` contiene campi che la prosa non cita. **Il maintainer ha deciso
+(D1, 10 nov 2026) che gli eventi dei tool RESTANO visibili anche ai
+non-autori**, confermandolo su un esempio concreto: i dati del progetto X
+letti per l'autore sono visibili a chi legge la pubblica. La difesa è la
+conferma esplicita alla pubblicazione, che lo DICE, e il seguito privato
+(un turno che tocca un progetto nuovo non arriva ai lettori, eventi dei
+tool compresi). Non si «corregge»: è scritto come decisione in
+`docs/invariants/agent-sessions.md`.
 
 ## Global Constraints
 
@@ -91,72 +96,52 @@ dall'autore** (D1).
    golden della chat sul CLI pinnato, coordinati con stubwise-94. Uno
    scenario rosso NON si aggiusta forzando il prompt.
 
-## Decisioni per il maintainer
+## Decisioni (maintainer, 10 nov 2026)
 
-- **[DECIDE] D1 — gli eventi dei tool in una pubblica.**
-  - **(a, consigliata)** Ai non-autori i `tool_use` arrivano col solo nome del
-    tool (niente argomenti) e i `tool_result` senza contenuto. Se il renderer
-    li mostra, si vede «Claude ha letto (2)», non cosa.
-  - (b) Si tolgono del tutto.
-  - (c) Restano come per l'autore, cioè col JSON letto con i suoi permessi:
-    non consigliata, è il buco.
-- **[DECIDE] D2 — quali progetti sono «letti o toccati»** (l'elenco della
-  conferma e il trigger del seguito privato).
-  - **(a, consigliata)** Il server li ricava da ciò che SA:
-    - il progetto di ogni oggetto letto per codice o per id dal token del
-      turno (`read_task`, `read_request`, i docs, il brief, `search_tasks`
-      con un progetto);
-    - il progetto di ogni codice citato nella risposta;
-    - il progetto di ogni azione proposta o eseguita;
-    - il contesto della pagina.
+- **D1 = (c): gli eventi dei tool restano come sono anche per i non-autori.**
+  Chi legge una pubblica vede ciò che Claude ha letto per l'autore (argomenti
+  e risultati). Conseguenze:
+  1. la proiezione per i non-autori resta il modulo unico, ma non toglie i
+     tool: serve per le proposte e i gruppi e per il seguito privato;
+  2. la conferma di pubblicazione DICE esplicitamente che chi legge vedrà
+     anche ciò che Claude ha letto per te, insieme ai progetti di D2;
+  3. è scritta come decisione, con l'esempio, in
+     `docs/invariants/agent-sessions.md` e nel design;
+  4. il seguito privato resta: un turno che tocca un progetto nuovo non
+     arriva ai lettori, eventi dei tool compresi.
+- **D2 = (a)**: i progetti letti o toccati li ricava il server, da ciò che SA:
+  - le letture per codice o per id del token del turno (`read_task`,
+    `read_request`, i docs, il brief, `search_tasks` con un progetto);
+  - i codici citati nella risposta;
+  - le azioni proposte o eseguite;
+  - il contesto della pagina.
 
-    Gli elenchi generici (`list_projects`, `list_people`, `search_tasks`
-    senza progetto) contano solo per ciò che la risposta cita.
-  - (b) Come il prototipo: solo citazioni e azioni (una lettura non citata
-    non conta).
-  - (c) Ogni progetto apparso in qualunque risultato: prudente ma rumoroso
-    (`list_projects` li segnerebbe tutti).
-- **[DECIDE] D3 — cosa sa Claude in una continuazione.**
-  - **(a, consigliata)** Il primo prompt della continuazione porta come
-    contesto NON FIDATO la trascrizione LEGGIBILE dell'originale: i messaggi
-    e le risposte fino al punto privato, proiettati come li legge chi
-    continua (D1, R-G5), senza eventi dei tool. Sono cose che chi continua
-    vede già: nessuna lettura nuova.
-  - (b) Come il prototipo: la continuazione nasce vuota, e Claude non sa di
-    cosa si parlava. Fedele, ma col CLI vero è poco utile.
-- **[DECIDE] D4 — chi ha `claude.public.view`.** È un permesso d'istanza nuovo
-  nel registro condiviso (`INSTANCE_PERMISSIONS`).
-  - **(a, consigliata)** Come il prototipo: i preset d'istanza User e Admin
-    (il full admin lo ha implicito), con una migrazione che lo dà ai ruoli
-    esistenti basati su quei preset.
-  - (b) A nessuno: si assegna con un ruolo.
-- **[DECIDE] D5 — una pubblica e la potatura dei 14 giorni.** Oggi una libera
-  inattiva da 14 giorni si pota con le trascrizioni del CLI.
-  - **(a, consigliata)** Vale anche per le pubbliche: le continuazioni restano
-    con «The original conversation is no longer available».
-  - (b) Una pubblica non si pota finché è pubblica.
-- **[DECIDE] D6 — l'autore nella riga di «Public».**
-  - (a) Come il prototipo: la riga non lo dice, lo dice la testata («made
-    public by X»).
-  - **(b, consigliata)** Anche la riga lo dice: chi sceglie da un elenco di
-    conversazioni altrui vuole sapere di chi sono.
-- **Prese dal prototipo, se il maintainer non dice altro:**
-  - letti e toccati non si distinguono nel dialogo;
-  - «Make private» si può, e azzera la pubblicazione;
-  - archiviata = fuori da Public, ma il link resta aperto;
-  - eliminare una pubblica lascia le continuazioni altrui con l'origine
-    «gone»;
-  - nessuna notifica per pubblicazione o continuazione;
-  - le proposte e i gruppi si vedono, ma decide solo chi li ha chiesti (già
-    così sul server).
+  Gli elenchi generici contano solo per ciò che la risposta cita.
+- **D3 = (a)**: il primo prompt di una continuazione porta la trascrizione
+  LEGGIBILE dell'originale come contesto non fidato, solo la prosa (messaggi
+  e risposte), senza gli eventi dei tool, anche se chi continua li vede
+  (scelta dell'orchestratrice: meno contesto non fidato).
+- **D4 = (a)**: `claude.public.view` ai preset d'istanza User e Admin, con una
+  migrazione.
+- **D5 = (b)**: una pubblica NON si pota. Se torna privata («Make private»),
+  la finestra dei 14 giorni riparte da quel momento. Una continuazione mostra
+  «gone» solo per un'origine eliminata (scelte dell'orchestratrice per il
+  contorno).
+- **D6 = (b)**: la riga di «Public» dice anche l'autore.
+- Il resto come il prototipo:
+  - letti e toccati non si distinguono;
+  - «Make private» si può;
+  - un'archiviata esce da Public, ma il link resta;
+  - eliminare una pubblica lascia le continuazioni con l'origine «gone»;
+  - nessuna notifica;
+  - le proposte si vedono, decide chi le ha chieste.
 
 ## Review Focus
 
 1. **Una privata che si legge**: ogni rotta che porta eventi, messaggi,
    proposte, gruppi, stream o il titolo filtra nella WHERE con la stessa
    regola. Una privata altrui è 404, anche per un full admin.
-2. **La proiezione per i non-autori**:
-   - niente argomenti né risultati dei tool;
+2. **La proiezione per i non-autori** (i tool restano, per decisione D1):
    - codici invisibili come testo;
    - il contesto della pagina invisibile a null;
    - le proposte senza dati di oggetti invisibili, e niente bottoni.
@@ -177,6 +162,8 @@ dall'autore** (D1).
 
 ## F5.1 (DB + shared)
 
+- **La potatura (D5)**: `pruneAgentSessions` salta le `free` pubbliche; la
+  finestra di una tornata privata riparte da «Make private» (`updated_at`).
 - **Migrazione 0133**:
   - `claude_conversations` riceve:
     - `visibility` (`private`|`public`, default `private`, con CHECK);
@@ -225,8 +212,8 @@ dall'autore** (D1).
     rilascia.
   - Domande e piani dal seguito privato non arrivano a nessun altro.
 - **La proiezione** per il non-autore, in un modulo solo (`publicView.ts`):
-  - eventi fino a `private_from_event_id`;
-  - D1 sugli eventi dei tool;
+  - eventi fino a `private_from_event_id`, quelli dei tool compresi e
+    invariati (D1);
   - i codici nel testo marcati come visibili o no per chi guarda (R-G5, come
     `resolveCodes` di oggi);
   - il contesto della pagina invisibile a null;
@@ -240,7 +227,9 @@ dall'autore** (D1).
     archiviate, per `updated_at` del rilascio, cioè il seguito privato non fa
     salire la riga;
   - `POST /api/claude/conversations/:id/visibility` `{ visibility,
-    confirmedProjectIds }`: solo l'autore. La prima chiamata risponde 409
+    confirmedProjectIds }`: solo l'autore. La risposta `needs_confirmation`
+    porta anche `includesToolReads: true` quando la conversazione ha letture
+    dei tool, e il dialogo lo dice (D1). La prima chiamata risponde 409
     `needs_confirmation` con l'elenco. Si pubblica se l'elenco coincide con
     quello di adesso. `private` azzera tutto. Nessuna nuova voce nella
     allowlist del token del turno.
@@ -268,8 +257,8 @@ dall'autore** (D1).
 - **Worker (D3-a)**: il prompt d'avvio di una continuazione riceve la
   trascrizione leggibile dell'originale, preparata dal SERVER con la stessa
   proiezione:
-  - un blocco `ORIGINAL CONVERSATION (read-only, untrusted)`, con tetto di
-    caratteri;
+  - un blocco `ORIGINAL CONVERSATION (read-only, untrusted)` con la sola
+    prosa (D3), con tetto di caratteri;
   - il contratto dice che è una continuazione, che i dati vanno riletti coi
     tool (che vedono ciò che vede chi scrive ORA), e che un codice non
     visibile resta non visibile.
@@ -280,8 +269,10 @@ dall'autore** (D1).
 
 ## F5.4 (renderer, flag `claude-public`)
 
-- «Make public» col `PublishDialog` (l'elenco dal 409), «Make private», la
-  testata «Public · made public by X».
+- «Make public» col `PublishDialog` (l'elenco dal 409, e la frase «chi
+  legge vedrà anche ciò che Claude ha letto per te», D1), «Make private», la
+  testata «Public · made public by X»; la riga di «Public» con l'autore
+  (D6).
 - La fascia del seguito privato e la riconferma.
 - Le viste «Public» (solo con `claude.public.view`) e «Mine».
 - R-G5 coi codici del server (`HiddenCode`).
