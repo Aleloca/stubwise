@@ -1,5 +1,5 @@
 import { departmentMembers, projectMembers, users } from "@stubwise/db";
-import { personViewSchema, type PersonView } from "@stubwise/shared";
+import { peopleActivityQuerySchema, personDayActivitySchema, personViewSchema, type PersonView } from "@stubwise/shared";
 import { asc, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
@@ -7,6 +7,7 @@ import { z } from "zod";
 import { userIdsWithPermission } from "@stubwise/notifications";
 import { visibleProjectIds } from "../auth/access.js";
 import { initialsOf, personName } from "../services/people.js";
+import { peopleActivity } from "../services/people-activity.js";
 import { authErrorResponses } from "./shared.js";
 
 /**
@@ -18,6 +19,24 @@ import { authErrorResponses } from "./shared.js";
  */
 export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  /**
+   * L'attività del giorno per persona (integrazione area 3, fetta 3d: lo
+   * standup), solo con `people.activity.view` (nessun preset lo riceve tranne
+   * il full admin). Il giorno è nel fuso Europe/Rome; solo i fatti dei progetti
+   * che chi guarda vede (`services/people-activity.ts`).
+   */
+  app.get(
+    "/activity",
+    {
+      config: { access: { kind: "instance", permission: "people.activity.view" } },
+      schema: {
+        querystring: peopleActivityQuerySchema,
+        response: { 200: z.array(personDayActivitySchema), ...authErrorResponses },
+      },
+    },
+    async (request) => peopleActivity(app.db, request.user!, request.query.date, request.query.departmentId),
+  );
 
   app.get(
     "/",

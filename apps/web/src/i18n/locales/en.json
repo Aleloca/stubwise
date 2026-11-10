@@ -3381,6 +3381,11 @@
       "departments": {
         "manage": "Manage departments"
       },
+      "people": {
+        "activity": {
+          "view": "View people's daily activity"
+        }
+      },
       "roles": {
         "manage": "Manage roles"
       },
