@@ -38,15 +38,15 @@ il modello vero.
    CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile`) e **autenticato** (o
    `ANTHROPIC_API_KEY` nell'ambiente). Il `claude` nel `PATH` di una macchina di
    sviluppo è quasi sempre più nuovo: si passa quello giusto con `--claude`.
-   Per esempio, con la 2.1.287:
+   Per esempio, con la 2.1.322 (il pin dal 10 nov 2026; prima 2.1.287):
 
    ```
-   npx -y @anthropic-ai/claude-code@2.1.287 --version   # lo scarica nella cache di npx
+   npx -y @anthropic-ai/claude-code@2.1.322 --version   # lo scarica nella cache di npx
    ls ~/.npm/_npx/*/node_modules/@anthropic-ai/claude-code/package.json  # trova la dir giusta
    # → --claude ~/.npm/_npx/<hash>/node_modules/.bin/claude
    ```
 
-   La versione usata è scritta nel log (`CLI: … — 2.1.287 (Claude Code)`) e nel
+   La versione usata è scritta nel log (`CLI: … — 2.1.322 (Claude Code)`) e nel
    JSON (`claudeVersion`). Il runner è quello di produzione,
    `StreamingClaudeRunner` (`AGENT_STREAMING=true`, il default); `--classic`
    usa `ClaudeCliRunner` (`AGENT_STREAMING=false`, il rollback).

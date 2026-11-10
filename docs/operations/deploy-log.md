@@ -3043,3 +3043,33 @@ deploy o di un rollback che la tocca.
   possono divergere finché si resta sul server vecchio. La 0122 regge un
   server vecchio: il trigger scrive una colonna che lui non nomina. Un ritorno pieno
   allo stato di prima è solo il backup.
+- **«CLI claude 2.1.322» (10 nov 2026)**: il pin del CLI nel worker passa da
+  2.1.287 a **2.1.322** (`ARG CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile`,
+  decisione del maintainer: il pin non resta fermo). Nessuna migrazione, nessuna
+  env nuova; il server, caddy e l'app non cambiano.
+  **Golden** (`apps/worker/scripts/golden/`, `--claude` = la 2.1.322, plugin
+  superpowers 7.0.0): tutti verdi nelle ripetizioni del README — plan-only,
+  execute, correction, stop-pause 1/1; ask-user e no-ask 5/5; intervene,
+  intervene-plan, refine, refine-read 3/3; `refine-read-bash` (opt-in, la
+  prova dell'invariante della sola lettura) 3/3; `golden:nightly` 15/15
+  (allowlist per file compresa: il file fuori elenco è negato, il canarino non
+  trapela). Un primo giro del nightly si era interrotto perché Docker era
+  caduto a metà notte, ed era uscito 0 senza report: corretto a parte
+  (`fix(golden)`), il rilancio è quello verde.
+  **Cambio di comportamento che il pin porta con sé**: i testi del limite del
+  provider. La 2.1.322 scrive `You've hit your 5-hour limit` (e «weekly»,
+  «Opus», «Sonnet», «Fable», «usage credit», il generico «limit», lo spend di
+  org e il budget di team) al posto di «session limit»/«usage limit» della
+  2.1.287: senza l'aggiornamento di `apps/worker/src/providers/limit.ts`
+  (stesso commit, coi testi letti dal binario nei test) un limite vero faceva
+  fallire il job invece del failover. Il formato del reset (`resets 3pm
+  (UTC)`) non è stato confermato sul binario: se cambia, `limitResetAt` dà
+  `null` e si ripiega sullo snapshot o sull'attesa fissa, come già previsto.
+  **ORDINE**: solo **`worker`** (`docker compose up -d --build worker`), e solo
+  SENZA lavoro dell'agente in corso (vedi «Worker fail-on-restart» in
+  `CLAUDE.md`: nessun job `triaging`/`fixing`, nessuna generazione Docs
+  `running`/`paused`, giro notturno fermo). Dopo: `docker compose exec worker
+  claude --version` deve dire `2.1.322`.
+  **Rollback**: tornare all'`ARG` precedente (`2.1.287`) e ribuildare il
+  worker, con le stesse condizioni; `limit.ts` nuovo resta compatibile con i
+  testi della 2.1.287 (i marcatori di prima ci sono ancora).

@@ -101,7 +101,7 @@ WORKDIR /app
 # rompere i run in silenzio: il 2 ott 2026 la plan mode rifiutava `ask_user`.
 # Per aggiornarla: cambia QUI la versione e rilancia gli scenari golden
 # (`pnpm --filter @stubwise/worker golden`) con la stessa versione in locale.
-ARG CLAUDE_CODE_VERSION=2.1.287
+ARG CLAUDE_CODE_VERSION=2.1.322
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates python3 python3-venv \
   && rm -rf /var/lib/apt/lists/* \
