@@ -417,6 +417,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Chat con Claude, fette 1 e 2» (10 nov 2026)
   - «Elimina task» (10 nov 2026)
   - «Chat con Claude, fetta 3: proposte e azioni» (10 nov 2026)
+  - «Riconferma dal desktop» (10 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
