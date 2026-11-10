@@ -226,7 +226,7 @@ l'istanza e gli account A (Project Lead) e B (Developer) di sopra.
   instructions», scrivi due righe, «Relaunch» → nel web vecchio le indicazioni
   sono un commento della task, e il lavoro riparte tenendone conto.
 - **Riprendi la correzione**: una correzione ferma (per esempio sul budget)
-  → «Resume» la fa ripartire; se nel frattempo non è più ferma, la frase lo
+  → «Resume correction» la fa ripartire; se nel frattempo non è più ferma, la frase lo
   dice e non nasce un lavoro nuovo.
 - **Chiedi modifiche**: su una PR aperta da Stubwise, «Request changes» con
   una nota → la stessa PR riceve un commit di correzione.
@@ -240,8 +240,8 @@ l'istanza e gli account A (Project Lead) e B (Developer) di sopra.
 - **Rifiuta con indicazioni**: «Reject», scrivi cosa cambiare → Claude
   riscrive il piano; le indicazioni sono un commento del team.
 - **Pre-approva e revoca**: con A, su una task col piano salvato e il lavoro
-  non ancora arrivato al piano, «⋯» → «Approve in advance» → il lavoro non si
-  fermerà ad aspettare; «Revoke» toglie la pre-approvazione.
+  non ancora arrivato al piano, «⋯» → «Approve the plan in advance» → il lavoro non si
+  fermerà ad aspettare; «Revoke the advance approval» toglie la pre-approvazione.
 - **Chi non può**: con B, il piano si legge ma non ci sono «Approve» né
   «Reject»: la riga dice chi decide.
 - **Piano cambiato**: tieni aperta la scheda del piano, fai riscrivere il piano
