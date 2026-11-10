@@ -140,10 +140,34 @@ SELECT "id", 'project', 'open', 'general', true, ARRAY['release_page', 'mileston
 FROM "projects"
 ON CONFLICT DO NOTHING;
 --> statement-breakpoint
--- D3 (M): i permessi della Chat ai preset, come il prototipo. `distinct
--- unnest` come la 0114: idempotente anche su un preset già modificato.
--- Developer: crea; Project Lead: crea e gestisce; User: crea canali
--- generali. Il full admin li ha per costruzione.
+-- D3 (M): i permessi della Chat ai preset, come il prototipo: Developer crea;
+-- Project Lead crea e gestisce; User crea canali generali; il full admin li
+-- ha per costruzione. `distinct unnest` come la 0114: idempotente.
+--
+-- E a OGNI ruolo dello stesso scope che conteneva già tutti i permessi di quel
+-- preset (decisione del maintainer, 10 nov 2026; `docs/invariants/permissions.md`
+-- «un permesso nuovo dato a un preset si dà anche ai ruoli che lo
+-- contenevano»): chi stava sopra un Developer o un Lead ci resta. Il
+-- riferimento è il preset di PRIMA, quindi i ruoli si aggiornano prima del
+-- preset (il preset stesso è escluso: lo aggiorna il suo statement).
+UPDATE "roles" AS r
+SET "permissions" = ARRAY(SELECT DISTINCT p FROM unnest(r."permissions" || ARRAY['chat.channels.create', 'chat.channels.manage']) AS p)
+WHERE r."scope" = 'project'
+	AND r."preset_key" IS DISTINCT FROM 'project_lead'
+	AND r."permissions" @> (SELECT "permissions" FROM "roles" WHERE "preset_key" = 'project_lead');
+--> statement-breakpoint
+UPDATE "roles" AS r
+SET "permissions" = ARRAY(SELECT DISTINCT p FROM unnest(r."permissions" || ARRAY['chat.channels.create']) AS p)
+WHERE r."scope" = 'project'
+	AND r."preset_key" IS DISTINCT FROM 'developer'
+	AND r."permissions" @> (SELECT "permissions" FROM "roles" WHERE "preset_key" = 'developer');
+--> statement-breakpoint
+UPDATE "roles" AS r
+SET "permissions" = ARRAY(SELECT DISTINCT p FROM unnest(r."permissions" || ARRAY['chat.general.create']) AS p)
+WHERE r."scope" = 'instance'
+	AND r."preset_key" IS DISTINCT FROM 'user'
+	AND r."permissions" @> (SELECT "permissions" FROM "roles" WHERE "preset_key" = 'user');
+--> statement-breakpoint
 UPDATE "roles"
 SET "permissions" = ARRAY(SELECT DISTINCT p FROM unnest("permissions" || ARRAY['chat.channels.create', 'chat.channels.manage']) AS p)
 WHERE "preset_key" = 'project_lead';
