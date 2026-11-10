@@ -611,6 +611,8 @@ export const getTaskWork: typeof Fake.getTaskWork = async (taskId) => {
       relaunch: availability(work.actions.relaunch),
       resume: availability(work.actions.resume),
       requestChanges: availability(work.actions.requestChanges),
+      // Lo calcola il server (review dell'area 3, punto 14).
+      cancel: availability(work.actions.cancel),
     },
     prFacts: work.prFacts.map((f) => ({
       repo: f.repo,

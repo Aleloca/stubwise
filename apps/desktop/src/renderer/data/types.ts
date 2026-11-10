@@ -293,7 +293,7 @@ export interface PlanDecision {
   status: "approved" | "rejected";
 }
 
-export type RunAction = "start" | "relaunch" | "resume" | "requestChanges";
+export type RunAction = "start" | "relaunch" | "resume" | "requestChanges" | "cancel";
 
 /**
  * `allowed`: si può fare; `forbidden`: lo stato lo consente ma chi guarda

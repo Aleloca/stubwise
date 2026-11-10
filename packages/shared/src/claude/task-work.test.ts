@@ -52,6 +52,7 @@ const work = (runs: TaskRun[], over: Partial<TaskWork> = {}): TaskWork => ({
     relaunch: "unavailable",
     resume: "unavailable",
     requestChanges: "unavailable",
+    cancel: "unavailable",
   },
   prFacts: [],
   correctionCap: 3,

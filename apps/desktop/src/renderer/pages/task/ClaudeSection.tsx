@@ -42,7 +42,6 @@ import { WhoCanLink } from "../../components/WhoCanLink";
 import { featureIntegrated } from "../../data/integration";
 import { openInWeb } from "../../platform/openWeb";
 import { Dialog, inputClass } from "../../tasks-ui/Dialog";
-import { can, useViewer } from "../../data/viewing";
 import { primaryButton, secondaryButton } from "../tasks/controls";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { Avatar } from "../../tasks-ui/PersonChip";
@@ -199,6 +198,7 @@ const NO_ACTIONS: TaskWork["actions"] = {
   relaunch: "unavailable",
   resume: "unavailable",
   requestChanges: "unavailable",
+  cancel: "unavailable",
 };
 
 function ClaudeSectionBody({
@@ -598,7 +598,6 @@ function WithRun({
   const revoke = useRevokePlanApproval();
   const [form, setForm] = useState<Form>(null);
   const [cancelling, setCancelling] = useState(false);
-  const { viewer } = useViewer();
   const sectionRef = useRef<HTMLElement>(null);
   const fixPlan = useServerFixPlan(detail, code || null);
 
@@ -718,16 +717,13 @@ function WithRun({
   // «⋯»: approvazione in anticipo e revoca (`plans.approve`, dal livello
   // dati), il rilancio quando non è già l'azione in evidenza, la sessione.
   const relaunchInMenu = actions.relaunch === "allowed" && !stopped && !budget && !run.waiting;
-  // «Annulla il lavoro»: un lavoro non concluso, per chi può avviare il lavoro
-  // nel progetto (`runs.start`, calcolato dal server). Se si può annullare
-  // adesso lo dice il server (`run_in_progress`, `nothing_to_cancel`).
+  // «Annulla il lavoro»: se si può lo dice il server (`actions.cancel` di
+  // `/work`, review dell'area 3, punto 14: un lavoro non concluso, non già
+  // chiesto, per chi ha `runs.start`), il client non lo deduce.
   // Già chiesto su un lavoro in esecuzione (3b.1-bis): il worker lo sta chiudendo, niente secondo Annulla.
   const cancelInFlight = run.cancelRequested === true && status.kind !== "ended";
   const canCancel =
-    featureIntegrated("claude-actions") &&
-    status.kind !== "ended" &&
-    !cancelInFlight &&
-    can(viewer, "runs.start", task.projectId);
+    featureIntegrated("claude-actions") && status.kind !== "ended" && !cancelInFlight && actions.cancel === "allowed";
   const menu = (
     <MenuButton
       menuLabel={t(`${K}.more`)}

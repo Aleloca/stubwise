@@ -375,8 +375,21 @@ export const taskWorkViewSchema = z.object({
       relaunch: actionAvailabilitySchema.default("unavailable"),
       resume: actionAvailabilitySchema.default("unavailable"),
       requestChanges: actionAvailabilitySchema.default("unavailable"),
+      /**
+       * «Annulla il lavoro» (review dell'area 3, punto 14): un lavoro
+       * parcheggiato o in esecuzione, non ancora chiesto, per chi ha
+       * `runs.start`. Lo calcola il server; il client lo legge. Additivo: un
+       * server più vecchio non lo manda e il client non lo offre.
+       */
+      cancel: actionAvailabilitySchema.default("unavailable"),
     })
-    .default({ start: "unavailable", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" }),
+    .default({
+      start: "unavailable",
+      relaunch: "unavailable",
+      resume: "unavailable",
+      requestChanges: "unavailable",
+      cancel: "unavailable",
+    }),
   /**
    * «Chiedi modifiche» PER PR (multi-repo), accanto all'aggregato
    * `actions.requestChanges` (che è `allowed` se lo è almeno una). Stesse
