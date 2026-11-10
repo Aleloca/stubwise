@@ -524,6 +524,10 @@ export const securityEvents = pgTable(
     actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
     actorEmail: text("actor_email"),
     kind: text("kind").notNull(),
+    // Solo `reauth_desktop` (0132): l'azione fatta dal desktop con la finestra
+    // di riconferma («POST /api/pats»); null per la riconferma stessa e per
+    // ogni altro tipo.
+    detail: text("detail"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

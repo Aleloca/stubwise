@@ -12,6 +12,7 @@ import type { FastifyInstance, onRequestHookHandler } from "fastify";
 import { z } from "zod";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-factor/index.js";
+import { requireBrowserOrConfirmedDesktop } from "../auth/access.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
 import { hasConfirmedTotp } from "../auth/second-factor/totp.js";
 import { sessionUserSelection, toSessionUser } from "../auth/session.js";
@@ -57,10 +58,9 @@ export function desktopHandoffRoutes(instance: FastifyInstance, credentialsRateL
       },
     },
     async (request, reply) => {
-      // Solo una sessione del browser: un token non conia altri token.
-      if (request.user!.patId) {
-        return apiError(reply, 403, "session_required", "This action needs a browser session");
-      }
+      // Una sessione del browser, o il PAT desktop riconfermato (decisione del
+      // maintainer, 10 nov 2026): `mobile` e `manual` non coniano altri token.
+      if (!(await requireBrowserOrConfirmedDesktop(request, reply, "This action needs a browser session"))) return reply;
       const code = randomBytes(32).toString("base64url");
       await app.db.insert(desktopHandoffs).values({
         userId: request.user!.id,

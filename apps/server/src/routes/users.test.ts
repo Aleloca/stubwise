@@ -430,6 +430,8 @@ describe("GET /api/users/:id/security-events", () => {
           id: expect.any(String),
           kind: "second_factor_reset",
           actorEmail: "admin@example.com",
+          // Solo `reauth_desktop` lo valorizza (10 nov 2026, additivo).
+          detail: null,
           createdAt: expect.any(String),
         },
       ],

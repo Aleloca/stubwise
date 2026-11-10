@@ -22,6 +22,8 @@ export async function recordSecurityEvent(
     kind: SecurityEventKind;
     user: { id: string; email: string };
     actor?: { id: string | null; email: string } | null;
+    /** Solo `reauth_desktop`: l'azione fatta con la finestra («POST /api/pats»). */
+    detail?: string | null;
   },
 ): Promise<void> {
   await db.insert(securityEvents).values({
@@ -30,6 +32,7 @@ export async function recordSecurityEvent(
     actorUserId: e.actor?.id ?? null,
     actorEmail: e.actor?.email ?? null,
     kind: e.kind,
+    detail: e.detail ?? null,
   });
   await db
     .delete(securityEvents)
@@ -53,6 +56,7 @@ export function toSecurityEventView(
     id: row.id,
     kind: row.kind as SecurityEventKind,
     actorEmail: row.actorEmail,
+    detail: row.detail,
     createdAt: row.createdAt.toISOString(),
   };
 }

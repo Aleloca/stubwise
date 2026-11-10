@@ -4,3 +4,7 @@
 -- minuti, come `sessions.second_factor_at`; null = mai, o azzerata (cambio
 -- della password, azzeramento del 2FA). Un server di prima la ignora.
 ALTER TABLE "personal_access_tokens" ADD COLUMN "second_factor_at" timestamp with time zone;
+--> statement-breakpoint
+-- L'azione fatta dal desktop con quella finestra, nel registro di sicurezza
+-- (`reauth_desktop`, «POST /api/pats»): null per ogni altra riga.
+ALTER TABLE "security_events" ADD COLUMN "detail" text;

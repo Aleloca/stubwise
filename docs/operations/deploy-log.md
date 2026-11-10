@@ -3292,8 +3292,16 @@ deploy o di un rollback che la tocca.
   per un PAT `desktop`, passa da `attemptSecondFactor` (tetto e blocco di
   sempre). Se riesce, quel PAT soddisfa `config.reauth` per 10 minuti.
   `mobile` e `manual` mai. Invariante: `docs/invariants/second-factor.md` («La
-  riconferma si DICHIARA…»). Migrazione **0132**:
-  `personal_access_tokens.second_factor_at`, colonna additiva. Valore nuovo
+  riconferma si DICHIARA…»). Con la seconda decisione dello stesso giorno,
+  la stessa regola (`browserOrConfirmedDesktop`) apre al PAT desktop
+  riconfermato anche le rotte che rifiutavano un PAT nel loro handler: `POST
+  /api/pats`, `desktop-handoff`, il link di reset altrui e il cambio della
+  propria password. La cassaforte no: è `config.browserOnly`, bloccata dallo
+  sblocco PRF. Ogni azione fatta con la finestra lascia una riga
+  `reauth_desktop` con l'azione. Migrazione **0132**:
+  `personal_access_tokens.second_factor_at` e `security_events.detail`,
+  colonne additive; nella vista del registro `detail` è nullable con default
+  null. Valore nuovo
   `reauth_desktop` di `security_events.kind` (testo, l'elenco chiuso è in
   `securityEventKindSchema`). Nessun `notification_kind` nuovo. Env nuove:
   nessuna.
@@ -3310,7 +3318,7 @@ deploy o di un rollback che la tocca.
     passa da uno `z.enum` chiuso e andrebbe in 500 per chi ha quella riga.
     Prima di scendere col server: `delete from security_events where kind =
     'reauth_desktop';`.
-  - La colonna `second_factor_at` resta inerte: un server vecchio non la
+  - Le colonne `second_factor_at` e `detail` restano inerti: un server vecchio non le
     legge, e il desktop torna a ricevere `session_required` sulle azioni
     sensibili, come prima.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.

@@ -40,6 +40,15 @@ pubblica di RECUPERO (la privata è nel kit stampato, mai sul server).
   (`reveal`), vedere o cambiare i lettori, condividere, confermare accessi,
   attivare la cassaforte o usare il recupero: 403 `session_required`, controllato
   PRIMA di ogni altro esame della richiesta. Chi inserisce non rilegge.
+  **Il PAT desktop riconfermato** (10 nov 2026): il maintainer ha deciso
+  che dal desktop si debba poter fare tutto quello che si fa dal browser,
+  cassaforte compresa. Oggi però la regola qui sopra vale ANCHE per lui,
+  perché il desktop non sa sbloccare la chiave: lo sblocco è una passkey con
+  PRF (voce «Lo sblocco…» sotto), e dal desktop le passkey non ci sono.
+  `vaultRoutes` dichiara `config.browserOnly` su ogni rotta, e `credentials.ts`
+  tiene i suoi `session_required`. Quando il desktop avrà uno sblocco, questa
+  frase diventa «… salvo il PAT desktop riconfermato», e la prova di possesso
+  del kit, dove c'è, resta. Registro dei rimandi, area della cassaforte.
 - **Conferma umana obbligatoria, mai automatica.** Una persona entra su una
   credenziale solo se un'altra persona che la apre già (con `credentials.share`,
   o un full admin) conferma che la sua chiave è davvero la sua. Nessun

@@ -69,7 +69,8 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   `POST /api/pats`: conia un token, e un cookie rubato non deve bastare). Una
   sessione parziale → 401 `second_factor_required` dall'hook, una completa
   con il fattore più vecchio di 10 minuti → 403 `reauth_required`, un PAT →
-  403 `session_required` (un token non conia altri token) ed emette un codice monouso legato al
+  403 `session_required` (un token non conia altri token, salvo il PAT
+  `desktop` riconfermato: vedi la voce sulla riconferma) ed emette un codice monouso legato al
   challenge PKCE del desktop: 2 minuti, solo lo SHA-256 nel DB. `POST
   /api/auth/desktop-exchange` è pubblica, nel bucket di `/login`, NON chiede
   un codice (il fattore c'è già stato nel browser): consuma il codice con un
@@ -130,7 +131,9 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   403 `session_required`, lo stesso codice di `POST
   /api/users/:id/password-reset`: un token rubato non crea altri token, non
   cambia ruoli e non conia inviti (`POST /api/auth/invites` è sensibile: un
-  invito porta un ruolo d'istanza e dei progetti). `route-access.test.ts`
+  invito porta un ruolo d'istanza e dei progetti). **Salvo il PAT `desktop`
+  riconfermato** (eccezione qui sotto): «un token non conia altri token»
+  vale per `mobile` e `manual`, e per il desktop fuori dalla sua finestra. `route-access.test.ts`
   fissa l'ELENCO delle rotte con `reauth`: una rotta sensibile nuova la
   dichiara e aggiorna l'elenco.
   **L'eccezione: la riconferma dal desktop (decisione del maintainer, 10 nov
@@ -153,17 +156,47 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
     stessa finestra di una sessione), su TUTTE le rotte con `config.reauth`.
   - La finestra è del singolo PAT, non della persona. La azzerano
     l'azzeramento del 2FA (`resetSecondFactor`), il cambio e il reset della
-    password (che revocano i PAT `desktop`) e la revoca del PAT.
+    password (che revocano gli altri PAT `desktop` e azzerano la finestra di
+    quello che cambia) e la revoca del PAT.
   - `mobile` e `manual` non la soddisfano mai, nemmeno così.
   - **Non è una porta**: non dà una sessione né un token, rinfresca la
     riconferma del token che la chiama. Per questo non è in
     `config.credentialDoor`.
-  - Le rotte che rifiutano un PAT NEL LORO HANDLER per un'invariante a sé (i
-    token che coniano token, la cassaforte) restano chiuse anche con la
-    finestra: la riconferma apre il gate `config.reauth`, non quelle regole.
+  - **Una regola sola, anche negli handler** (seconda decisione del
+    maintainer, 10 nov 2026: «dal desktop si deve poter fare tutto quello che
+    si fa dal browser»). Le rotte che rifiutavano un PAT nel loro handler ora
+    passano da `requireBrowserOrConfirmedDesktop`
+    (`browserOrConfirmedDesktop` in `apps/server/src/auth/access.ts`, la
+    stessa regola del gate). Passa una sessione o il PAT `desktop` nella
+    finestra. Il desktop senza finestra riceve `reauth_required`, così l'app
+    apre «Confirm it's you»; `mobile` e `manual` ricevono `session_required`.
+    Sono aperte così:
+    - `POST /api/pats` (conia un token);
+    - `POST /api/auth/desktop-handoff` (il login di un altro dispositivo);
+    - `POST /api/users/:id/password-reset` (il link di un altro);
+    - `POST /api/auth/me/password`: il token che cambia la password resta,
+      ma perde la finestra; gli altri `mobile`/`desktop` cadono, e cadono
+      tutte le sessioni.
+    Nessuna eccezione sparsa: un handler nuovo che vuole il browser usa
+    quella funzione.
+  - **La cassaforte resta solo-browser**, anche per il desktop riconfermato:
+    `vaultRoutes` dichiara `config.browserOnly` su ogni sua rotta (un hook
+    `onRoute`), e la regola la rispetta. È aperta al desktop per decisione
+    del maintainer, ma bloccata tecnicamente: dal desktop la chiave non si
+    sblocca, perché lo sblocco è una passkey con PRF
+    (`docs/invariants/vault.md`). Vedi il registro dei rimandi. Le rotte di
+    `credentials.ts` (reveal, lettori, condivisione) tengono il loro controllo
+    `session_required`, invariato.
+  - **Ogni azione fatta con la finestra lascia una riga `reauth_desktop` con
+    l'azione** (`security_events.detail`, «POST /api/pats»), una sola per
+    richiesta: la scrive il gate `config.reauth`, o l'handler se la rotta non
+    dichiara il gate. La riconferma stessa ha `detail` null.
   Test: `apps/server/src/routes/desktop-reauth.test.ts`. Ci sono il PAT
   `mobile`/`manual`, il cookie, la finestra di un altro PAT, gli 11 minuti, il
-  PAT revocato, l'azzeramento del 2FA, il codice sbagliato e il blocco.
+  PAT revocato, l'azzeramento del 2FA, il codice sbagliato e il blocco. Per
+  ognuna delle rotte aperte: senza finestra no, con la finestra sì, scaduta
+  no, `mobile` e `manual` mai. Più la cassaforte chiusa, col test di registro
+  di `browserOnly`.
 - **Il segreto TOTP è cifrato, i codici di riserva sono hash, niente di tutto
   ciò in log, elenchi, notifiche o webhook.** Il segreto usa
   `encrypt`/`decrypt` di `@stubwise/db` con `app.encryptionKey`; si decifra
