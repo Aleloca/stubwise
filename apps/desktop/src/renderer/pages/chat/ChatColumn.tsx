@@ -11,6 +11,7 @@ import {
   useSessionPersonId,
 } from "../../data/queries";
 import type { ChannelRow, Person } from "../../data/types";
+import { featureIntegrated } from "../../data/integration";
 import { can, useViewer } from "../../data/viewing";
 import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { hasModKey, shortcutLabel } from "../../platform/platform";
@@ -78,7 +79,11 @@ export function useOpenChatDialog() {
 /** Chi guarda può creare almeno un canale (di progetto o generale): c'è il «+». */
 export function useCanCreateChannel(): boolean {
   const { viewer } = useViewer();
-  return can(viewer, "chat.general.create") || can(viewer, "chat.channels.create");
+  // Build app: i canali generali sono della fetta 2 (`chat-general`).
+  return (
+    (featureIntegrated("chat-general") && can(viewer, "chat.general.create")) ||
+    can(viewer, "chat.channels.create")
+  );
 }
 
 /** Il nome di un DM nella colonna: gli altri, al più due nomi poi «+N». */
@@ -269,24 +274,29 @@ export function ChatColumn() {
   const channelsId = useId();
   const dmsId = useId();
   const loading = channels.isPending || !projects;
+  // Build app: i messaggi diretti e la ricerca sono della fetta 2.
+  const dms = featureIntegrated("chat-dm");
+  const search = featureIntegrated("chat-search");
 
   return (
     <nav
       aria-label={t("column.viewsOf", { name: t("nav.chat") })}
       className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 pt-3 pb-2"
     >
-      <button
-        type="button"
-        onClick={() => openDialog("newMessage")}
-        className="flex h-8 w-full shrink-0 items-center gap-2 rounded-md border border-rule-strong px-2.5 text-md font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 active:bg-ink/10"
-      >
-        <ComposeGlyph />
-        <span className="min-w-0 flex-1 truncate text-left">{t("chat.column.newMessage")}</span>
-        <kbd className="num shrink-0 font-sans text-xs text-ink-faint">
-          {shortcutLabel(["mod", "N"])}
-        </kbd>
-      </button>
-      <ColumnSearchField />
+      {dms && (
+        <button
+          type="button"
+          onClick={() => openDialog("newMessage")}
+          className="flex h-8 w-full shrink-0 items-center gap-2 rounded-md border border-rule-strong px-2.5 text-md font-medium text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 active:bg-ink/10"
+        >
+          <ComposeGlyph />
+          <span className="min-w-0 flex-1 truncate text-left">{t("chat.column.newMessage")}</span>
+          <kbd className="num shrink-0 font-sans text-xs text-ink-faint">
+            {shortcutLabel(["mod", "N"])}
+          </kbd>
+        </button>
+      )}
+      {search && <ColumnSearchField />}
       <ul className="mt-2 flex flex-col gap-px">
         <li>
           <Link
@@ -408,6 +418,7 @@ export function ChatColumn() {
         </Link>
       </div>
 
+{dms && (
       <div className="mt-3 border-t border-rule pt-3">
         <div className="flex items-center justify-between pr-1 pl-2.5">
           <p id={dmsId} className="heading-group py-1.5">
@@ -435,6 +446,7 @@ export function ChatColumn() {
           </ul>
         )}
       </div>
+      )}
     </nav>
   );
 }

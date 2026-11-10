@@ -36,8 +36,9 @@ export type IntegrationTarget =
  * `claude` (la sezione della task in lettura).
  */
 const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
-  destination: new Set(["home", "projects", "planning", "filters", "claude"]),
-  projectSection: new Set(["overview", "tasks", "requests", "planning"]),
+  // Area 4, fetta 1: la Chat fra persone (`chat`, destinazione e sezione di progetto).
+  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat"]),
+  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat"]),
   // Stati e soglie del progetto.
   projectSettings: new Set(["statuses"]),
   admin: new Set(["departments"]),
@@ -85,8 +86,37 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Chat, fetta 5: le conversazioni pubbliche («Public», «Make public»,
     // la riconferma del seguito privato) e la continuazione.
     "claude-public",
+    // Area 4, fetta 1: la Chat fra persone (vedi CHAT_LATER_FEATURES per le fette dopo).
+    "chat",
   ]),
 };
+
+/**
+ * Area 4, la Chat fra persone: dalla fetta 1 sono accesi la destinazione, la
+ * sezione di progetto e la feature `chat` (canali di progetto e il «general»,
+ * messaggi, thread, reazioni, letti, menzioni). Restano SPENTI, con la fetta
+ * che li accende (anche nel registro dei rimandi):
+ * - fetta 2: `chat-dm` (messaggi diretti, «New message», ⌘N), `chat-private`
+ *   (canali privati), `chat-general` (canali generali), `chat-search`,
+ *   `chat-questions` (la domanda a una persona e «Da decidere»),
+ *   `chat-also-in-channel` (una risposta anche nel canale),
+ *   `chat-from-message` (task e richieste da un messaggio);
+ * - fetta 3: `chat-claude` (@Claude nei canali);
+ * - fetta 4: `chat-events` (gli eventi dei progetti nei canali),
+ *   `chat-attachments` (gli allegati).
+ */
+export const CHAT_LATER_FEATURES = [
+  "chat-dm",
+  "chat-private",
+  "chat-general",
+  "chat-search",
+  "chat-questions",
+  "chat-also-in-channel",
+  "chat-from-message",
+  "chat-claude",
+  "chat-events",
+  "chat-attachments",
+] as const;
 
 export function isIntegrated(target: IntegrationTarget): boolean {
   if (!isAppBuild()) return true;

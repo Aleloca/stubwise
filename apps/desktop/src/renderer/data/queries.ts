@@ -2145,7 +2145,8 @@ export function useChatQuestions() {
   return useQuery({
     queryKey: queryKeys.chatQuestions(me),
     queryFn: api.chat.listQuestions,
-    enabled: featureIntegrated("chat"),
+    // Le domande della Chat sono della fetta 2 (`chat-questions`).
+    enabled: featureIntegrated("chat") && featureIntegrated("chat-questions"),
   });
 }
 
@@ -2196,7 +2197,8 @@ export function useChatSearch(q: string, filters: ChatSearchFilters = {}) {
   return useQuery({
     queryKey: queryKeys.chatSearch(me, q, filters),
     queryFn: () => api.chat.searchChat(q, filters),
-    enabled: q.trim().length >= 2,
+    // La ricerca della Chat è della fetta 2 (`chat-search`).
+    enabled: q.trim().length >= 2 && featureIntegrated("chat-search"),
     // Come la ricerca: i risultati di prima restano solo per la stessa persona.
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
@@ -2365,7 +2367,8 @@ export function useChatClaudeQuestions() {
   return useQuery({
     queryKey: queryKeys.chatClaudeQuestions(me),
     queryFn: api.chat.listClaudeQuestions,
-    enabled: featureIntegrated("chat"),
+    // Le domande di @Claude nella Chat sono della fetta 3 (`chat-claude`).
+    enabled: featureIntegrated("chat") && featureIntegrated("chat-claude"),
   });
 }
 

@@ -220,6 +220,34 @@ const INTEGRATED_CALLS = new Set([
   // F3.0 della chat: «Delete task…» (l'anteprima si legge all'apertura del menu).
   "getTaskDeletion",
   "deleteTask",
+  // Area 4, fetta 1: la Chat fra persone (DM, ricerca, domande, @Claude ed eventi restano fuori).
+  "chat.listChannels",
+  "chat.getChannel",
+  "chat.listChannelMembers",
+  "chat.listMessages",
+  "chat.getMessage",
+  "chat.listThread",
+  "chat.listThreadsWithNews",
+  "chat.hasNews",
+  "chat.listMentions",
+  "chat.sendMessage",
+  "chat.editMessage",
+  "chat.deleteMessage",
+  "chat.toggleReaction",
+  "chat.markRead",
+  "chat.markThreadRead",
+  "chat.setThreadFollow",
+  "chat.setNotifyLevel",
+  "chat.joinChannel",
+  "chat.leaveChannel",
+  "chat.createChannel",
+  "chat.updateChannel",
+  "chat.archiveChannel",
+  "chat.deleteChannel",
+  "chat.channelStream",
+  "chat.threadStream",
+  "chat.subscribeChat",
+  "chat.onChatChange",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -236,10 +264,11 @@ const DELETE = "Delete task\u2026";
 const settle = () => new Promise((r) => setTimeout(r, 50));
 
 describe("aree non integrate nella build app", () => {
-  it("aprire la Chat mostra «Coming soon» e nessuna lettura della Chat", async () => {
+  // Dall'area 4 (fetta 1) la Chat è integrata: si legge, e solo con la fetta 1.
+  it("aprire la Chat la legge, senza le funzioni delle fette dopo", async () => {
     renderRoute("/chat");
-    expect(await screen.findByRole("heading", { level: 1, name: "Chat" })).toBeInTheDocument();
-    expect(screen.getByText("Coming soon")).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("chat.listChannels"));
+    expect(screen.queryByText("Coming soon")).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
   });
@@ -259,7 +288,7 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("il binario non legge i segnali delle aree future (Chat, Posta, Automations)", async () => {
+  it("il binario non legge i segnali delle aree future (Posta, Automations); la Chat sì, dalla fetta 1", async () => {
     renderRoute("/projects");
     expect(await screen.findByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
     await settle();

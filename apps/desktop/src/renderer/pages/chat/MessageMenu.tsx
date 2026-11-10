@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { featureIntegrated } from "../../data/integration";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { MenuButton } from "../tasks/controls";
 import { Glyph } from "../claude/conversation/parts";
@@ -137,10 +138,13 @@ export function MessageMenu({
                 {item(t("chat.actions.copyLink"), actions.onCopyLink)}
                 {member && item(t("chat.actions.markUnread"), actions.onMarkUnread)}
               </MenuGroup>
-              <MenuGroup>
-                {item(t("chat.actions.createTask"), actions.onCreateTask)}
-                {item(t("chat.actions.createRequest"), actions.onCreateRequest)}
-              </MenuGroup>
+              {/* Build app: task e richieste da un messaggio sono della fetta 2 (`chat-from-message`). */}
+              {featureIntegrated("chat-from-message") && (
+                <MenuGroup>
+                  {item(t("chat.actions.createTask"), actions.onCreateTask)}
+                  {item(t("chat.actions.createRequest"), actions.onCreateRequest)}
+                </MenuGroup>
+              )}
               {own && canWrite && (
                 <MenuGroup>
                   {item(t("chat.actions.edit"), actions.onEdit)}
