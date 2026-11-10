@@ -79,7 +79,7 @@ import {
   isForeignKeyViolation,
   isUniqueViolation,
 } from "./shared.js";
-import { agentUserId, claudeAssignGuard, startClaudeRuns } from "../services/claude-assign.js";
+import { agentUserId, claudeAssignGuard, claudeStart, startClaudeRuns } from "../services/claude-assign.js";
 
 // Le forme pubbliche di ticket (base, dettaglio, item di lista) vivono in
 // `@stubwise/shared`: le condividono server, SPA e app mobile, e restano
@@ -618,7 +618,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         }
         // Nato già assegnato a Claude: parte il lavoro, dopo il commit, come run-ai.
         if (claudeAssigned) {
-          await startClaudeRuns(app.db, request.user!, [{ ticketId: ticket.id, projectId: ticket.projectId }]);
+          await startClaudeRuns(app.db, request.user!, [{ ticketId: ticket.id, projectId: ticket.projectId }], claudeStart(app, request));
         }
         return await reply
           .code(201)
@@ -1367,7 +1367,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         }
         // Appena assegnato a Claude: parte il lavoro, dopo il commit, come run-ai.
         if (before && before.assigneeId !== agent) {
-          await startClaudeRuns(app.db, request.user!, [{ ticketId: id, projectId: before.projectId }]);
+          await startClaudeRuns(app.db, request.user!, [{ ticketId: id, projectId: before.projectId }], claudeStart(app, request));
         }
         const requesters = await requestedByForTickets(app.db, [result.ticket]);
         return toPublicTicket(

@@ -154,6 +154,26 @@ describe("assegnare Claude avvia il lavoro", () => {
   });
 });
 
+describe("l'esito dell'avvio arriva nella risposta (claudeRun)", () => {
+  it("assegnato e partito: started; con un lavoro già in corso: refused:job_in_flight; una task non assegnata a Claude non lo porta", async () => {
+    const t = await task();
+    const ok = await req("PATCH", `/api/tasks/${t}`, developer, { assigneeId: claudeId });
+    expect(ok.json()).toMatchObject({ claudeRun: "started" });
+    const busy = await task();
+    await testDb.db.insert(aiJobs).values({ ticketId: busy, status: "fixing" });
+    const refused = await req("PATCH", `/api/tasks/${busy}`, developer, { assigneeId: claudeId });
+    expect(refused.statusCode, refused.body).toBe(200);
+    expect(refused.json()).toMatchObject({ assigneeId: claudeId, claudeRun: "refused:job_in_flight" });
+    const plain = await req("PATCH", `/api/tasks/${await task()}`, developer, { title: "x" });
+    expect(plain.json()).toMatchObject({ claudeRun: null });
+    // Dal Planning e alla creazione, lo stesso campo.
+    const viaPlan = await req("POST", `/api/tasks/${await task()}/plan`, developer, { assigneeId: claudeId, week: null });
+    expect(viaPlan.json()).toMatchObject({ claudeRun: "started" });
+    const created = await req("POST", "/api/tasks", developer, { projectId, title: "Nuova", type: "bug", assigneeId: claudeId });
+    expect(created.json()).toMatchObject({ claudeRun: "started" });
+  });
+});
+
 describe("pianificare Claude chiede anche di poter modificare, e una task aperta", () => {
   it("con runs.start ma senza tickets.edit: 403 forbidden e niente cambia; su una task chiusa: 403 forbidden e nessun run", async () => {
     const runner = await createUserWithSession(app, "runner-only@example.com");
