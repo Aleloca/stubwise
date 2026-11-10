@@ -71,6 +71,7 @@ const PROJECTS = [{ id: PROJECT_ID, name: "Apollo", slug: "apollo" }];
 
 function item(overrides: Partial<InboxItem> & Pick<InboxItem, "id">): InboxItem {
   return {
+    objectGone: false,
     kind: "job.plan_review",
     status: "open",
     text: "Plan awaiting approval",
