@@ -1,4 +1,5 @@
 import { createAgentSessionBus } from "./agent-session-bus.js";
+import { createChatBus } from "./chat/bus.js";
 import { buildApp } from "./app.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDb, runMigrations } from "@stubwise/db";
@@ -24,6 +25,7 @@ try {
 
 // Una LISTEN per canale per processo, condivisa da tutti gli stream SSE.
 const sessionBus = await createAgentSessionBus((channel, cb) => client.listen(channel, cb));
+const chatBus = await createChatBus((channel, cb) => client.listen(channel, cb));
 
 const app = buildApp({
   logger: true,
@@ -46,6 +48,7 @@ const app = buildApp({
   graphChatSnippetNodes: config.graphChatSnippetNodes,
   mirrorsDir: config.mirrorsDir,
   sessionBus,
+  chatBus,
 });
 
 try {

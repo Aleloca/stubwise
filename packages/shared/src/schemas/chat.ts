@@ -72,6 +72,8 @@ export const chatChannelSchema = z.object({
   unread: z.number().int().default(0),
   mentions: z.number().int().default(0),
   level: chatNotifyLevelSchema.default("all"),
+  /** Fin dove chi guarda ha letto il canale (il divisore «nuovi messaggi»); null = mai. */
+  lastReadAt: z.iso.datetime().nullable().default(null),
   lastMessageAt: z.iso.datetime().nullable().default(null),
   publishedEvents: z.array(chatEventKindSchema).default([]),
 });
@@ -95,11 +97,15 @@ export const chatMessageSchema = z.object({
   createdAt: z.iso.datetime(),
   editedAt: z.iso.datetime().nullable().default(null),
   deleted: z.boolean().default(false),
+  deletedAt: z.iso.datetime().nullable().default(null),
   deletedBy: z.uuid().nullable().default(null),
   reactions: z.array(chatReactionSchema).default([]),
   /** Solo su una radice: le risposte e l'ultima. */
   replyCount: z.number().int().default(0),
   lastReplyAt: z.iso.datetime().nullable().default(null),
+  lastReplyById: z.uuid().nullable().default(null),
+  /** Solo su una radice: chi ha risposto (persone, senza ripetizioni, in ordine di prima risposta). */
+  replyParticipantIds: z.array(z.uuid()).default([]),
   /** Chi guarda segue il thread di questa radice. */
   following: z.boolean().default(false),
   /** Le persone nominate direttamente (`@Nome`), le ricava il server. */
@@ -130,6 +136,8 @@ export const chatMessagePageQuerySchema = z.object({
 export const chatThreadSchema = z.object({
   root: chatMessageSchema,
   replies: z.array(chatMessageSchema),
+  /** Fin dove chi guarda ha letto il thread; null = mai. */
+  lastReadAt: z.iso.datetime().nullable().default(null),
 });
 
 /** Le radici dei thread che chi guarda segue, con risposte nuove («Threads»). */
@@ -138,6 +146,8 @@ export const chatThreadNewsSchema = z.object({
     z.object({
       root: chatMessageSchema,
       unreadReplies: z.number().int().default(0),
+      /** Le ultime risposte (al più 3), dalla più vecchia. */
+      latestReplies: z.array(chatMessageSchema).default([]),
     }),
   ),
 });
@@ -192,8 +202,19 @@ export const chatThreadFollowSchema = z.object({ following: z.boolean() });
 // --- Stream -----------------------------------------------------------------
 
 /** Ciò che lo stream SSE di un canale manda: messaggi nuovi o cambiati, e la vista del canale. */
+/**
+ * Il cursore dello stream: i microsecondi dall'epoca dell'ultimo cambio visto,
+ * solo cifre (un URL e l'allowlist del main desktop lo accettano così com'è).
+ * Va ripassato come `?after=` alla riconnessione.
+ */
+export const CHAT_STREAM_CURSOR_RE = /^\d{1,20}$/;
 export const chatStreamMessageSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("messages"), messages: z.array(chatMessageSchema) }),
+  z.object({
+    type: z.literal("messages"),
+    messages: z.array(chatMessageSchema),
+    /** Da ripassare come `after`; null se non ci sono ancora messaggi. */
+    cursor: z.string().nullable().default(null),
+  }),
   z.object({ type: z.literal("channel"), channel: chatChannelSchema }),
 ]);
 export type ChatStreamMessage = z.infer<typeof chatStreamMessageSchema>;

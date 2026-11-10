@@ -5556,6 +5556,7 @@ export const chatChannels = pgTable(
   (table) => [
     index("chat_channels_project_idx").on(table.projectId),
     uniqueIndex("chat_channels_one_general_idx").on(table.projectId).where(sql`${table.isGeneral}`),
+    uniqueIndex("chat_channels_project_name_idx").on(table.projectId, table.name).where(sql`${table.projectId} is not null`),
     check("chat_channels_kind_chk", sql`${table.kind} in ('project', 'general', 'dm')`),
     check("chat_channels_visibility_chk", sql`${table.visibility} in ('open', 'private')`),
     // Un canale di progetto ha il progetto; il «general» è un canale di progetto.
@@ -5601,6 +5602,8 @@ export const chatMessages = pgTable(
     mentionedIds: uuid("mentioned_ids").array().notNull().default(sql`'{}'`),
     asksReplyOf: uuid("asks_reply_of").array().notNull().default(sql`'{}'`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Ogni cambio lo porta avanti (modifica, eliminazione, reazione, risposta sulla radice): lo stream lo segue. */
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     editedAt: timestamp("edited_at", { withTimezone: true }),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
@@ -5609,6 +5612,7 @@ export const chatMessages = pgTable(
   (table) => [
     index("chat_messages_channel_idx").on(table.channelId, table.createdAt),
     index("chat_messages_thread_idx").on(table.threadRootId, table.createdAt),
+    index("chat_messages_updated_idx").on(table.channelId, table.updatedAt),
     check("chat_messages_kind_chk", sql`${table.kind} in ('person', 'system', 'claude')`),
     check("chat_messages_deleted_chk", sql`${table.deletedAt} is null or ${table.body} = ''`),
   ],

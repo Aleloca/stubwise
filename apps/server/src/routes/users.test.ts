@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { PRESET_ROLES } from "@stubwise/shared";
 import { and, count, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -284,12 +285,12 @@ async function usersManager(): Promise<{ id: string; cookie: string }> {
   extraUserIds.add(id);
   const [role] = await testDb.db
     .insert(roles)
+    // Il preset User di ADESSO più `users.manage`: chi sta sopra un User (un
+    // ruolo fatto oggi contiene i permessi nuovi del preset; quelli di prima
+    // li riceve dalla migrazione, `docs/invariants/permissions.md`).
     .values({ name: `Gestore ${email}`, scope: "instance", permissions: [
         "users.manage",
-        "monitor.view",
-        "users.view_all",
-        "git_accounts.view",
-        "mail_admission.view",
+        ...PRESET_ROLES.find((r) => r.key === "user")!.permissions,
       ],
     })
     .returning({ id: roles.id });

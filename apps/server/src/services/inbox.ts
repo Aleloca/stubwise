@@ -19,6 +19,7 @@
  * (`src/actions.ts`, coi loro test) e questo modulo li ri-esporta: gli import
  * dei suoi consumatori (rotte, test) restano validi.
  */
+import { chatMentionsFor } from "../chat/service.js";
 import {
   aiJobs,
   calendarEvents,
@@ -950,6 +951,14 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     }),
   );
 
+  // Area 4, Chat: le card `chat.mention` derivate a lettura (il messaggio
+  // com'è adesso, per chi legge; null = eliminato o canale non più visibile).
+  const chatCards = await chatMentionsFor(
+    db,
+    userId,
+    page.filter((r) => r.kind === "chat.mention"),
+  );
+
   const items = page.map((r): InboxItem => {
     // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
     // recinto (vedi `renderItem`).
@@ -990,7 +999,10 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       ? [...baseActions.filter((a) => a === "answer"), "hand_to_project", ...baseActions.filter((a) => a !== "answer")]
       : baseActions;
     const eventTicketId = (r.event as { ticketId?: unknown }).ticketId;
-    const objectGone = r.ticketId === null && typeof eventTicketId === "string" && goneTickets.has(eventTicketId);
+    const chat = r.kind === "chat.mention" ? (chatCards.get(r.id) ?? null) : null;
+    const objectGone =
+      (r.ticketId === null && typeof eventTicketId === "string" && goneTickets.has(eventTicketId)) ||
+      (r.kind === "chat.mention" && chat === null);
     // Una task eliminata non si apre: niente link alla sua pagina.
     const { url: _url, ...withoutUrl } = rendered;
     void _url;
@@ -1000,6 +1012,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       status: r.status,
       ...(objectGone ? withoutUrl : rendered),
       objectGone,
+      chat,
       // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
       // (`ai_jobs.plan_summary`, `pr_reviews.pr_summary`) caricate in batch
       // sopra. Così una card mostra il riassunto anche quando è arrivato DOPO

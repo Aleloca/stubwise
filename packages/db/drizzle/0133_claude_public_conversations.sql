@@ -48,8 +48,17 @@ ALTER TABLE "claude_conversation_projects" ADD CONSTRAINT "claude_conversation_p
 -- D4: `claude.public.view` al preset d'istanza User (l'Admin è full admin e
 -- lo ha implicito). `distinct unnest` come la 0114: idempotente anche su un
 -- preset già modificato.
+--
+-- E a OGNI ruolo d'istanza che conteneva già tutti i permessi del preset User
+-- di prima (decisione del maintainer, 10 nov 2026; invariante «un permesso
+-- nuovo dato a un preset si dà anche ai ruoli che lo contenevano» in
+-- `docs/invariants/permissions.md`): chi stava sopra un User — un ruolo
+-- fatto a mano con `users.manage` — ci resta, e non riceve `target_above`
+-- per il solo permesso nuovo.
 UPDATE "roles"
 SET "permissions" = ARRAY(
 	SELECT DISTINCT p FROM unnest("permissions" || ARRAY['claude.public.view']) AS p
 )
-WHERE "preset_key" = 'user';
+WHERE "preset_key" = 'user'
+	OR ("scope" = 'instance'
+		AND "permissions" @> ARRAY['monitor.view', 'users.view_all', 'git_accounts.view', 'mail_admission.view']::text[]);

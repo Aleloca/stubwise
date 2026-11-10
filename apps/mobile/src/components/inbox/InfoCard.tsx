@@ -59,6 +59,9 @@ const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
   // Fetta 2: informative anche loro.
   "planning.changed": { i18nKey: "mobile.inbox.kinds.planningChanged", tone: "muted" },
   "task.assigned": { i18nKey: "mobile.inbox.kinds.taskAssigned", tone: "signal" },
+  // Area 4, Chat (D9: la Chat vive nell'app nuova): la menzione si legge qui,
+  // «Apri» porta al messaggio nell'app; un'app precedente la vede `UNKNOWN`.
+  "chat.mention": { i18nKey: "mobile.inbox.kinds.chatMention", tone: "signal" },
 };
 
 export interface InfoCardProps {
