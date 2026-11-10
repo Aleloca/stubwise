@@ -147,8 +147,6 @@ Fetta 2 chiusa lato server (sotto, «Chiuse»).
   piano della fetta 2)*: oggi il renderer manda `[]`, e la ricerca e il filtro
   «con citazioni» non le vedono.
 - Il filtro «con allegati» della ricerca *(fetta 4, con gli allegati)*.
-- Messaggi «via Claude» *(fetta 3, con @Claude)*:
-  `chat_messages.via_claude_action_id` c'è, ma nessuno lo scrive.
 - `@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
   1, da riprendere se il maintainer vuole avvisi di gruppo.
 - Limite accettato: modificare un messaggio avvisa solo chi viene nominato
@@ -266,6 +264,12 @@ Fetta 2 chiusa lato server (sotto, «Chiuse»).
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- Messaggi «via Claude» nella Chat *(M, 10 nov 2026, piano della fetta 3)*:
+  si chiude senza codice. Nessuna azione del catalogo scrive in Chat, e
+  «Claude nella Chat» è la risposta `kind claude` «chiamato da X».
+  `chat_messages.via_claude_action_id` resta inerte: un'azione «scrivi nel
+  canale» sarebbe una decisione nuova.
 
 - **Area 4, fetta 2: DM, privati, generali, domande, ricerca, server**
   *(M/O, 10 nov 2026)*. Comprende:

@@ -10,6 +10,9 @@ import {
   chatReactions,
   chatReads,
   chatThreadFollows,
+  chatClaudeQuestions,
+  agentSessionInputs,
+  claudeProposals,
   departmentMembers,
   departments,
   projects,
@@ -18,6 +21,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { projectViewerIds, publishNotification } from "@stubwise/notifications";
+import { AGENT_SESSION_INPUT_CHANNEL } from "@stubwise/shared";
 import type {
   ProjectPermission,
   ChatCitationRef,
@@ -35,6 +39,7 @@ import { personName } from "../services/people.js";
 import { requestVisibility } from "../services/project-requests.js";
 import { visibleTasksCondition } from "../services/task-view.js";
 import { citationsToStore, citationViews } from "./citations.js";
+import { callContext, callsClaude, claudeReplyViews, rootsWithClaudeWorking, startClaudeReply, stopSession } from "./claude.js";
 import {
   accessFrom,
   allowedMemberIds,
@@ -450,6 +455,20 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
           .where(inArray(chatMessageCitations.messageId, live))
           .orderBy(asc(chatMessageCitations.position));
   const citations = await citationViews(db, viewer, citationRows);
+  // Le risposte di @Claude (fetta 3): chi guarda è membro del loro canale? (decide chi può decidere)
+  const memberOf = new Map<string, { isMember: boolean; archived: boolean }>();
+  const claude = await claudeReplyViews(db, viewer, rows, async (channelId) => {
+    let known = memberOf.get(channelId);
+    if (!known) {
+      const [channel] = await db.select().from(chatChannels).where(eq(chatChannels.id, channelId));
+      known = channel
+        ? { isMember: (await channelAccess(db, viewer, channel)).isMember, archived: channel.archivedAt !== null }
+        : { isMember: false, archived: true };
+      memberOf.set(channelId, known);
+    }
+    return known;
+  });
+  const replying = await rootsWithClaudeWorking(db, rows.filter((r) => r.threadRootId === null).map((r) => r.id));
   return rows.map((m) => {
     const own = m.authorId === viewer.id && m.kind === "person";
     const deleted = m.deletedAt !== null;
@@ -479,13 +498,16 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
       following: followOf.get(m.id) === true,
       mentionedIds: deleted ? [] : m.mentionedIds,
       canEdit: own && !deleted,
-      canDelete: own && !deleted,
+      // La risposta di @Claude la elimina chi l'ha chiamata (D6).
+      canDelete: (own || (m.kind === "claude" && m.calledById === viewer.id)) && !deleted,
       viaClaude: m.viaClaudeActionId !== null,
       alsoInChannel: m.alsoInChannel,
       asksReplyOf: deleted ? [] : m.asksReplyOf,
       linked,
       linkedCodes: linked.map((l) => l.code),
       citations: deleted ? [] : (citations.get(m.id) ?? []),
+      claude: claude.get(m.id) ?? null,
+      claudeReplying: replying.has(m.id),
     } satisfies ChatMessageView;
   });
 }
@@ -943,8 +965,14 @@ export async function postMessage(
         alsoInChannel: Boolean(root && input.alsoInChannel),
         searchFolded: foldChatText(input.text),
       })
-      .returning({ id: chatMessages.id });
+      .returning();
     await writeCitations(tx, row!.id, citations);
+    // «@Claude»: la risposta nasce SUBITO nel thread di questo messaggio, a nome
+    // di chi scrive (fetta 3). Una modifica che aggiunge «@Claude» non chiama.
+    if (callsClaude(input.text)) {
+      const rootId = root?.id ?? row!.id;
+      await startClaudeReply(tx, { viewer, channel, call: row!, rootId, thread: await callContext(tx, viewer, row!, rootId) });
+    }
     if (root) {
       // La radice cambia (risposte, ultima risposta): lo stream la rimanda.
       await tx.update(chatMessages).set({ updatedAt: sql`now()` }).where(eq(chatMessages.id, root.id));
@@ -974,9 +1002,13 @@ async function ownMessage(
   db: Db,
   viewer: ChatViewer,
   id: string,
+  opts: { claudeReply?: boolean } = {},
 ): Promise<{ message: MessageRow; channel: ChannelRow; access: ChannelAccess }> {
   const found = await readableMessage(db, viewer, id);
-  if (found.message.authorId !== viewer.id || found.message.kind !== "person") {
+  // Il proprio messaggio, o (solo per eliminarla) la risposta di @Claude che si è chiamata (D6).
+  const own = found.message.authorId === viewer.id && found.message.kind === "person";
+  const ownReply = opts.claudeReply === true && found.message.kind === "claude" && found.message.calledById === viewer.id;
+  if (!own && !ownReply) {
     throw new ChatError(403, "not_yours", "Only your own messages");
   }
   if (found.message.deletedAt !== null) throw new ChatError(409, "deleted", "The message was deleted");
@@ -1048,8 +1080,21 @@ export async function editMessage(
 
 /** Eliminazione: solo i propri (D6); il testo sparisce (CHECK `deleted_at` ⇒ `body = ''`), con domande e reazioni. */
 export async function deleteMessage(db: Db, viewer: ChatViewer, id: string): Promise<void> {
-  const { channel, message } = await ownMessage(db, viewer, id);
+  const { channel, message } = await ownMessage(db, viewer, id, { claudeReply: true });
   await db.transaction(async (tx) => {
+    // Una risposta di @Claude che lavora si ferma con lei, e le sue proposte aperte decadono.
+    if (message.kind === "claude") {
+      await stopSession(tx, message.agentSessionId);
+      if (message.agentSessionId) {
+        await tx
+          .update(claudeProposals)
+          .set({ status: "cancelled", decidedAt: sql`now()`, decidedBy: viewer.id })
+          .where(and(eq(claudeProposals.sessionId, message.agentSessionId), eq(claudeProposals.status, "open")));
+      }
+      if (message.claudeState === "working" || message.claudeState === "waiting") {
+        await tx.update(chatMessages).set({ claudeState: "stopped" }).where(eq(chatMessages.id, id));
+      }
+    }
     await tx
       .update(chatMessages)
       .set({
@@ -1152,6 +1197,117 @@ export async function setThreadFollow(db: Db, viewer: ChatViewer, id: string, fo
     .values({ userId: viewer.id, rootMessageId: rootId, following })
     .onConflictDoUpdate({ target: [chatThreadFollows.userId, chatThreadFollows.rootMessageId], set: { following } });
   return getMessage(db, viewer, rootId);
+}
+
+// --- @Claude: fermare, rifare, rispondere, decidere (fetta 3) ----------------------
+
+/** Una risposta di @Claude che chi agisce legge, e che ha chiamato lui. */
+async function ownClaudeReply(
+  db: Db,
+  viewer: ChatViewer,
+  id: string,
+): Promise<{ message: MessageRow; channel: ChannelRow; access: ChannelAccess }> {
+  const found = await readableMessage(db, viewer, id);
+  if (found.message.kind !== "claude" || found.message.claudeState === null) throw notFound();
+  if (found.message.calledById !== viewer.id) throw new ChatError(403, "not_yours", "Only who called Claude");
+  if (found.message.deletedAt !== null) throw new ChatError(409, "deleted", "The message was deleted");
+  return found;
+}
+
+/**
+ * «Stop»: solo chi l'ha chiamata, su una risposta che lavora o aspetta. Il
+ * testo arrivato resta; nulla arriva più (il turno si ferma).
+ */
+export async function stopClaudeReply(db: Db, viewer: ChatViewer, id: string): Promise<ChatMessageView> {
+  const { message, channel } = await ownClaudeReply(db, viewer, id);
+  await db.transaction(async (tx) => {
+    const stopped = await tx
+      .update(chatMessages)
+      .set({ claudeState: "stopped", updatedAt: sql`now()` })
+      .where(and(eq(chatMessages.id, id), inArray(chatMessages.claudeState, ["working", "waiting"])))
+      .returning({ id: chatMessages.id });
+    if (stopped.length === 0) throw new ChatError(409, "invalid_status", "The reply isn't running");
+    await stopSession(tx, message.agentSessionId);
+    await notifyChannel(tx, channel.id);
+  });
+  return getMessage(db, viewer, id);
+}
+
+/**
+ * «Try again» su una risposta fallita: solo chi l'ha chiamata, una volta.
+ * Rifà la stessa chiamata come una risposta NUOVA in fondo al thread (la
+ * fallita resta, senza più «Try again»), con lo stesso contesto: il thread fino
+ * alla chiamata. Il messaggio che chiamava deve esserci ancora.
+ */
+export async function retryClaudeReply(db: Db, viewer: ChatViewer, id: string): Promise<ChatMessageView> {
+  const { message, channel, access } = await ownClaudeReply(db, viewer, id);
+  if (message.claudeState !== "failed" || message.claudeRetried) throw new ChatError(409, "invalid_status", "Only a failed reply, once");
+  if (channel.archivedAt !== null) throw new ChatError(409, "channel_archived", "The channel is archived");
+  if (!access.isMember) throw new ChatError(403, "not_member", "Join the channel to call Claude");
+  const [call] = message.callMessageId ? await db.select().from(chatMessages).where(eq(chatMessages.id, message.callMessageId)) : [];
+  if (!call || call.deletedAt !== null) throw new ChatError(409, "deleted", "The message that called Claude was deleted");
+  const rootId = call.threadRootId ?? call.id;
+  const fresh = await db.transaction(async (tx) => {
+    const claimed = await tx
+      .update(chatMessages)
+      .set({ claudeRetried: true, updatedAt: sql`now()` })
+      .where(and(eq(chatMessages.id, id), eq(chatMessages.claudeRetried, false)))
+      .returning({ id: chatMessages.id });
+    if (claimed.length === 0) throw new ChatError(409, "invalid_status", "Only a failed reply, once");
+    const replyId = await startClaudeReply(tx, { viewer, channel, call, rootId, thread: await callContext(tx, viewer, call, rootId) });
+    await notifyChannel(tx, channel.id);
+    return replyId;
+  });
+  if (!fresh) throw new ChatError(409, "claude_unavailable", "Claude isn't available on this instance");
+  return getMessage(db, viewer, fresh);
+}
+
+/**
+ * Risponde alla domanda che Claude ha fatto a chi l'ha chiamato (R-G4): solo
+ * lui, una volta — una seconda risposta, anche concorrente, è
+ * `already_answered`. La stessa risposta di Claude riparte, con i suoi permessi.
+ */
+export async function answerClaudeQuestion(
+  db: Db,
+  viewer: ChatViewer,
+  id: string,
+  answer: { questionId: string; optionIndex: number | null; text: string | null },
+): Promise<ChatMessageView> {
+  const { message, channel, access } = await ownClaudeReply(db, viewer, id);
+  const [question] = await db
+    .select()
+    .from(chatClaudeQuestions)
+    .where(and(eq(chatClaudeQuestions.id, answer.questionId), eq(chatClaudeQuestions.replyMessageId, id)));
+  if (!question) throw notFound();
+  if (question.answeredAt !== null) throw new ChatError(409, "already_answered", "Already answered");
+  if (message.claudeState !== "waiting" || !message.agentSessionId) throw new ChatError(409, "invalid_status", "The reply isn't waiting");
+  if (channel.archivedAt !== null) throw new ChatError(409, "channel_archived", "The channel is archived");
+  if (!access.isMember) throw new ChatError(403, "not_member", "Join the channel to answer");
+  const option = answer.optionIndex === null ? undefined : question.options[answer.optionIndex];
+  if (answer.optionIndex !== null && !option) throw new ChatError(400, "invalid_option", "No such option");
+  const text = answer.text?.trim() || null;
+  if (!option && !text) throw new ChatError(400, "invalid_answer", "Pick an option or write an answer");
+  const sessionId = message.agentSessionId;
+  await db.transaction(async (tx) => {
+    const claimed = await tx
+      .update(chatClaudeQuestions)
+      .set({ answerOptionIndex: answer.optionIndex, answerText: text, answeredBy: viewer.id, answeredAt: sql`now()` })
+      .where(and(eq(chatClaudeQuestions.id, question.id), isNull(chatClaudeQuestions.answeredAt)))
+      .returning({ id: chatClaudeQuestions.id });
+    if (claimed.length === 0) throw new ChatError(409, "already_answered", "Already answered");
+    await tx.update(chatMessages).set({ claudeState: "working", updatedAt: sql`now()` }).where(eq(chatMessages.id, id));
+    // La ripresa: la stessa sessione, con la risposta come messaggio di chi ha chiamato.
+    const label = option?.label ?? text!;
+    await tx.insert(agentSessionInputs).values({
+      sessionId,
+      authorUserId: viewer.id,
+      text: text && option ? `${option.label} — ${text}` : label,
+      interrupt: false,
+    });
+    await tx.execute(sql`select pg_notify(${AGENT_SESSION_INPUT_CHANNEL}, ${JSON.stringify({ sessionId })})`);
+    await notifyChannel(tx, channel.id);
+  });
+  return getMessage(db, viewer, id);
 }
 
 // --- Viste trasversali ---------------------------------------------------------

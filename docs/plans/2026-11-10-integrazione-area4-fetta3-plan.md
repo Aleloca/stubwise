@@ -81,9 +81,9 @@
    - il difetto di `openHref` nella build app lo registra e lo corregge 94
      (renderer).
 
-## [DECIDE] per l'orchestratrice
+## Decisioni (prese dal maintainer, 10 nov 2026)
 
-1. **«via Claude» nella Chat** (la voce del registro: `chat_messages.via_claude_action_id`
+1. **DECISO (a) (M).** **«via Claude» nella Chat** (la voce del registro: `chat_messages.via_claude_action_id`
    c'è, ma nessuno lo scrive). Il catalogo del prototipo non ha nessuna azione
    che scriva un messaggio nella Chat. «Claude nella Chat» è la risposta
    `kind claude` «chiamato da X», non un messaggio di una persona scritto da
@@ -94,7 +94,7 @@
    - (b) Si aggiunge al catalogo un'azione «scrivi nel canale» (Claude manda
      un messaggio a nome di chi chiama, «via Claude»). È un'azione nuova, non
      del prototipo.
-2. **Quanto si può chiamare @Claude.** Chiunque scriva in un canale può
+2. **DECISO (a) (M).** **Quanto si può chiamare @Claude.** Chiunque scriva in un canale può
    chiamarlo, e ogni chiamata è un turno a pagamento.
    - **(a, consigliata)** Come le conversazioni con Claude: nessun tetto oltre
      al budget mensile dell'istanza. A budget finito la risposta nasce

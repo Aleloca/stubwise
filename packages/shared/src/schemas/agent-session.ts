@@ -31,8 +31,21 @@ export const agentSessionKindSchema = z.enum([
    * non lo conosce lo legge `__unknown__` (`readerSchema`).
    */
   "free",
+  /**
+   * Una chiamata a @Claude nella Chat (area 4, fetta 3): una sessione per
+   * chiamata, a turni, PRIVATA di chi ha chiamato come una `free` (ha la sua
+   * riga in `claude_conversations`); la risposta è un messaggio della Chat.
+   */
+  "chat_mention",
 ]);
 export type AgentSessionKind = z.infer<typeof agentSessionKindSchema>;
+
+/**
+ * I kind con una riga in `claude_conversations` (proprietario, sessione del
+ * CLI): la conversazione libera e la chiamata a @Claude nella Chat. UNA
+ * definizione per i controlli «è dell'autore».
+ */
+export const CLAUDE_CONVERSATION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>(["free", "chat_mention"]);
 
 export const agentSegmentLabelSchema = z.enum([
   "triage",
@@ -142,6 +155,9 @@ export const TURN_BASED_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<A
   // La conversazione libera (chat con Claude, fetta 1): ogni messaggio
   // dell'autore è un turno, come nel refinement.
   "free",
+  // La chiamata a @Claude nella Chat (area 4, fetta 3): il turno della
+  // chiamata, poi quello della ripresa dopo la risposta alla domanda.
+  "chat_mention",
 ]);
 
 export const agentSessionEventTypeSchema = z.enum([

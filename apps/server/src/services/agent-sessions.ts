@@ -148,8 +148,10 @@ export function visibleTo(viewer: Actor & { instancePermissions?: ReadonlySet<st
     // dalla fetta 5, se è PUBBLICA, anche chi ha `claude.public.view`
     // (`claude-public.ts`). Una privata resta dell'autore: nessun ramo per
     // ruolo, nemmeno per un full admin.
+    // Anche la chiamata a @Claude nella Chat (`chat_mention`, fetta 3): la vede
+    // SOLO chi ha chiamato (D5: gli eventi dei tool sono suoi), mai pubblica.
     or(
-      sql`${agentSessions.kind} <> 'free'`,
+      sql`${agentSessions.kind} not in ('free', 'chat_mention')`,
       sql`exists (select 1 from ${claudeConversations} cc where cc.session_id = ${agentSessions.id} and cc.owner_id = ${viewer.id})`,
       canReadPublic(viewer)
         ? sql`exists (select 1 from ${claudeConversations} cc where cc.session_id = ${agentSessions.id} and cc.visibility = 'public')`

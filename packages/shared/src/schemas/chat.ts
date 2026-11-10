@@ -128,6 +128,52 @@ export const chatCitationSchema = z.object({
 });
 export type ChatCitationView = z.infer<typeof chatCitationSchema>;
 
+/** Lo stato di una risposta di @Claude (fetta 3). */
+export const chatClaudeStateSchema = z.enum(["working", "waiting", "done", "failed", "stopped"]);
+export const chatClaudeErrorSchema = z.enum(["forbidden", "not_found", "budget", "other"]);
+
+/** Una proposta di una risposta di @Claude, come la legge chi guarda (gli argomenti solo a chi ha chiamato). */
+export const chatClaudeProposalSchema = z.object({
+  id: z.uuid(),
+  summary: z.string(),
+  status: z.enum(["open", "confirmed", "cancelled", "failed", "expired"]),
+  /** Sempre B nella Chat: niente esecuzione immediata, niente «Annulla». */
+  cls: z.enum(["A", "B", "C"]).default("B"),
+  actions: z.array(z.object({ fn: z.string(), args: z.record(z.string(), z.unknown()) })).default([]),
+  /** I codici nati dalla conferma, solo quelli che chi guarda vede. */
+  resultCodes: z.array(z.string()).default([]),
+  canConfirm: z.boolean().default(false),
+  canCancel: z.boolean().default(false),
+});
+
+/** La domanda che Claude fa a chi l'ha chiamato (R-G4): la vedono tutti, risponde solo lui. */
+export const chatClaudeQuestionSchema = z.object({
+  id: z.uuid(),
+  text: z.string(),
+  options: z.array(z.object({ label: z.string(), description: z.string().default("") })),
+  answer: z
+    .object({ optionIndex: z.number().int().nullable(), text: z.string().nullable(), byId: z.uuid().nullable(), at: z.iso.datetime() })
+    .nullable()
+    .default(null),
+  canAnswer: z.boolean().default(false),
+});
+
+/** Il blocco di una risposta di @Claude (fetta 3); `null` sugli altri messaggi. */
+export const chatClaudeReplySchema = z.object({
+  state: chatClaudeStateSchema,
+  error: chatClaudeErrorSchema.nullable().default(null),
+  retried: z.boolean().default(false),
+  /** Il messaggio che l'ha chiamata (per «Try again» e il contesto). */
+  callMessageId: z.uuid().nullable().default(null),
+  /** La sessione con «cosa ha letto»: SOLO per chi ha chiamato (D5), `null` per gli altri. */
+  sessionId: z.uuid().nullable().default(null),
+  proposals: z.array(chatClaudeProposalSchema).default([]),
+  question: chatClaudeQuestionSchema.nullable().default(null),
+  canStop: z.boolean().default(false),
+  canRetry: z.boolean().default(false),
+});
+export type ChatClaudeReplyView = z.infer<typeof chatClaudeReplySchema>;
+
 export const chatReactionSchema = z.object({
   emoji: z.string(),
   personIds: z.array(z.uuid()),
@@ -174,6 +220,10 @@ export const chatMessageSchema = z.object({
   linkedCodes: z.array(z.string()).default([]),
   /** Le citazioni (fetta 2, F2.7): solo quelle che chi guarda vede, in ordine. Un eliminato non ne ha. */
   citations: z.array(chatCitationSchema).default([]),
+  /** Solo una risposta di @Claude (fetta 3): stato, proposte, domanda. */
+  claude: chatClaudeReplySchema.nullable().default(null),
+  /** Su una radice: una risposta di Claude nel suo thread sta lavorando. */
+  claudeReplying: z.boolean().default(false),
 });
 export type ChatMessageView = z.infer<typeof chatMessageSchema>;
 
@@ -256,6 +306,27 @@ export const chatQuestionSchema = z.object({
   createdAt: z.iso.datetime(),
 });
 export const chatQuestionListSchema = z.object({ items: z.array(chatQuestionSchema) });
+
+/** Le domande di @Claude a chi guarda, ancora aperte («Da decidere», `chatClaudeQuestionsOf` del prototipo). */
+export const chatClaudeQuestionItemSchema = z.object({
+  /** `chat-claude:<risposta>:<domanda>`, come il prototipo. */
+  id: z.string(),
+  channelId: z.uuid(),
+  messageId: z.uuid(),
+  rootId: z.uuid(),
+  questionId: z.uuid(),
+  text: z.string(),
+  options: z.array(z.object({ label: z.string(), description: z.string().default("") })),
+  createdAt: z.iso.datetime(),
+});
+export const chatClaudeQuestionListSchema = z.object({ items: z.array(chatClaudeQuestionItemSchema) });
+export const answerChatClaudeQuestionSchema = z
+  .object({
+    questionId: z.uuid(),
+    optionIndex: z.number().int().min(0).nullable().default(null),
+    text: z.string().trim().max(2000).nullable().default(null),
+  })
+  .refine((b) => b.optionIndex !== null || (b.text !== null && b.text !== ""), { message: "answer" });
 
 /** I messaggi che nominano chi guarda, nei canali che legge («Mentions»). */
 export const chatMentionListSchema = z.object({ items: z.array(chatMessageSchema) });

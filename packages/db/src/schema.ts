@@ -4989,7 +4989,7 @@ export const agentSessions = pgTable(
     index("agent_sessions_email_message_id_idx").on(table.emailMessageId),
     check(
       "agent_sessions_kind_chk",
-      sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report','backlog_refine','free')`,
+      sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report','backlog_refine','free','chat_mention')`,
     ),
     check(
       "agent_sessions_email_owner_chk",
@@ -5625,6 +5625,13 @@ export const chatMessages = pgTable(
     alsoInChannel: boolean("also_in_channel").notNull().default(false),
     /** Il testo senza maiuscole né accenti, per la ricerca (`foldChatText`, 0137). */
     searchFolded: text("search_folded").notNull().default(""),
+    /** Solo una risposta di @Claude (0140): la sua sessione (`chat_mention`, privata di chi chiama). */
+    agentSessionId: uuid("agent_session_id").references(() => agentSessions.id, { onDelete: "set null" }),
+    /** Solo una risposta di @Claude: il messaggio che l'ha chiamata. */
+    callMessageId: uuid("call_message_id").references((): AnyPgColumn => chatMessages.id, { onDelete: "set null" }),
+    claudeState: text("claude_state").$type<"working" | "waiting" | "done" | "failed" | "stopped">(),
+    claudeError: text("claude_error").$type<"forbidden" | "not_found" | "budget" | "other">(),
+    claudeRetried: boolean("claude_retried").notNull().default(false),
   },
   (table) => [
     index("chat_messages_channel_idx").on(table.channelId, table.createdAt),
@@ -5633,6 +5640,7 @@ export const chatMessages = pgTable(
     index("chat_messages_updated_idx").on(table.channelId, table.updatedAt),
     check("chat_messages_kind_chk", sql`${table.kind} in ('person', 'system', 'claude')`),
     check("chat_messages_deleted_chk", sql`${table.deletedAt} is null or ${table.body} = ''`),
+    index("chat_messages_agent_session_idx").on(table.agentSessionId).where(sql`${table.agentSessionId} IS NOT NULL`),
   ],
 );
 
@@ -5722,6 +5730,28 @@ export const chatMessageCitations = pgTable(
   (table) => [
     primaryKey({ name: "chat_message_citations_pk", columns: [table.messageId, table.kind, table.refId] }),
     check("chat_message_citations_kind_chk", sql`${table.kind} in ('task', 'request', 'project', 'person', 'doc')`),
+  ],
+);
+
+/** La domanda che @Claude fa a chi l'ha chiamato (0140, R-G4): una per risposta. */
+export const chatClaudeQuestions = pgTable(
+  "chat_claude_questions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    replyMessageId: uuid("reply_message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    text: text("text").notNull(),
+    options: jsonb("options").$type<{ label: string; description?: string }[]>().notNull(),
+    answerOptionIndex: integer("answer_option_index"),
+    answerText: text("answer_text"),
+    answeredBy: uuid("answered_by").references(() => users.id, { onDelete: "set null" }),
+    answeredAt: timestamp("answered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("chat_claude_questions_reply_idx").on(table.replyMessageId),
+    check("chat_claude_questions_answer_chk", sql`(${table.answeredAt} is null) = (${table.answeredBy} is null)`),
   ],
 );
 

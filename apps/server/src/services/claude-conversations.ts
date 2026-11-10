@@ -102,11 +102,19 @@ async function toView(db: Db, viewer: SessionViewer, row: ConversationRow, sessi
   } satisfies ClaudeConversation;
 }
 
+/**
+ * Solo le conversazioni della destinazione «Claude» (kind `free`): anche una
+ * chiamata a @Claude nella Chat ha la sua riga qui (proprietario, sessione del
+ * CLI, token del turno), ma è un messaggio della Chat, non una conversazione da
+ * elencare, aprire, pubblicare o continuare (area 4, fetta 3).
+ */
+const isConversation = sql`exists (select 1 from ${agentSessions} s where s.id = ${claudeConversations.sessionId} and s.kind = 'free')`;
+
 async function ownRow(db: Db, viewer: SessionViewer, id: string): Promise<ConversationRow | null> {
   const [row] = await db
     .select()
     .from(claudeConversations)
-    .where(and(eq(claudeConversations.sessionId, id), eq(claudeConversations.ownerId, viewer.id)));
+    .where(and(eq(claudeConversations.sessionId, id), eq(claudeConversations.ownerId, viewer.id), isConversation));
   return row ?? null;
 }
 
@@ -122,6 +130,7 @@ export async function readableRow(db: Db, viewer: SessionViewer, id: string): Pr
     .where(
       and(
         eq(claudeConversations.sessionId, id),
+        isConversation,
         canReadPublic(viewer)
           ? or(eq(claudeConversations.ownerId, viewer.id), eq(claudeConversations.visibility, "public"))
           : eq(claudeConversations.ownerId, viewer.id),
@@ -171,6 +180,7 @@ export async function listClaudeConversations(
         publicScope
           ? and(eq(claudeConversations.visibility, "public"), ne(claudeConversations.ownerId, viewer.id))
           : eq(claudeConversations.ownerId, viewer.id),
+        isConversation,
         publicScope || !opts.archived ? isNull(claudeConversations.archivedAt) : isNotNull(claudeConversations.archivedAt),
         cursor
           ? or(
@@ -220,6 +230,7 @@ async function listPublic(
         eq(claudeConversations.visibility, "public"),
         ne(claudeConversations.ownerId, viewer.id),
         isNull(claudeConversations.archivedAt),
+        isConversation,
       ),
     )
     .orderBy(desc(claudeConversations.updatedAt))
