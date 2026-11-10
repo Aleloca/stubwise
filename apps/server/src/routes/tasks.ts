@@ -87,6 +87,7 @@ const WRITE_ERRORS: Record<TaskWriteError, string> = {
   request_not_found: "Request not found in this project",
   request_not_convertible: "The request is already converted or archived",
   past_week: "A past week cannot be planned",
+  chat_message_not_found: "Chat message not found",
   claude_assign_forbidden: "Assigning Claude starts the work: it needs permission to start runs in this project",
 };
 

@@ -1308,6 +1308,49 @@ export async function searchChat(
   return out;
 }
 
+// --- Dal messaggio a Stubwise («Create task», «Create request») -----------------
+
+/**
+ * Il messaggio da cui nasce una task o una richiesta: chi la crea lo deve
+ * LEGGERE, e non dev'essere eliminato (`createTaskFromMessage` del prototipo).
+ * `false` risponde come un messaggio che non c'è.
+ */
+export async function messageLinkable(db: Db, viewer: ChatViewer, messageId: string): Promise<boolean> {
+  try {
+    const { message } = await readableMessage(db, viewer, messageId);
+    return message.deletedAt === null;
+  } catch (error) {
+    if (error instanceof ChatError) return false;
+    throw error;
+  }
+}
+
+/**
+ * Lega al messaggio ciò che ne è nato («→ AUD-14»), nella transazione di chi
+ * lo crea; il messaggio avanza (`updated_at`) così lo stream lo rimanda. Lo
+ * stesso oggetto una volta sola.
+ */
+export async function linkMessage(
+  tx: Pick<Db, "insert" | "update" | "execute">,
+  input: { messageId: string; ticketId?: string; backlogItemId?: string; createdBy: string | null },
+): Promise<void> {
+  await tx
+    .insert(chatMessageLinks)
+    .values({
+      messageId: input.messageId,
+      ticketId: input.ticketId ?? null,
+      backlogItemId: input.backlogItemId ?? null,
+      createdBy: input.createdBy,
+    })
+    .onConflictDoNothing();
+  const [row] = await tx
+    .update(chatMessages)
+    .set({ updatedAt: sql`now()` })
+    .where(eq(chatMessages.id, input.messageId))
+    .returning({ channelId: chatMessages.channelId });
+  if (row) await tx.execute(sql`select pg_notify(${CHAT_CHANNEL_NOTIFY}, ${JSON.stringify({ channelId: row.channelId })})`);
+}
+
 export { channelView as viewChannel };
 export type { ChannelRow };
 

@@ -4,6 +4,9 @@ import {
   backlogItems,
   backlogItemTickets,
   backlogJobs,
+  chatChannels,
+  chatMessageLinks,
+  chatMessages,
   comments,
   notifications,
   projectMembers,
@@ -276,6 +279,31 @@ describe("runIntake — nuova voce", () => {
     expect(item!.similarToId).toBeNull();
     // Nessun ticket creato/collegato.
     expect(await db.select().from(backlogItemTickets)).toHaveLength(0);
+  });
+
+  it("(d-chat) «Create request» da un messaggio della Chat: la voce si lega al messaggio; un messaggio sparito non ferma l'intake", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const [general] = await db.select({ id: chatChannels.id }).from(chatChannels).where(eq(chatChannels.projectId, projectId));
+    const [message] = await db.insert(chatMessages).values({ channelId: general!.id, body: "serve un export" }).returning();
+    const feedback = "Idea\n\nDescrizione dell'idea";
+    const deps = makeDeps(db, {
+      embeddingClient: embeddingClient({ [feedback]: vecOrtho }),
+      runner: fakeRunner(INTAKE_JSON),
+    });
+    await runIntake(deps, fakeJob(projectId), { title: "Idea", body: "Descrizione dell'idea", chatMessageId: message!.id });
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    const links = await db.select().from(chatMessageLinks).where(eq(chatMessageLinks.messageId, message!.id));
+    expect(links).toEqual([expect.objectContaining({ backlogItemId: item!.id, ticketId: null })]);
+    const [after] = await db.select().from(chatMessages).where(eq(chatMessages.id, message!.id));
+    expect(after!.updatedAt.getTime()).toBeGreaterThan(message!.updatedAt.getTime());
+
+    // Un messaggio che non c'è più (canale eliminato): la voce c'è, il legame no, nessun errore.
+    const other = await createProject(db);
+    await expect(
+      runIntake(deps, fakeJob(other), { title: "Idea", body: "Descrizione dell'idea", chatMessageId: randomUUID() }),
+    ).resolves.toBeUndefined();
+    expect(await db.select().from(backlogItems).where(eq(backlogItems.projectId, other))).toHaveLength(1);
   });
 
   it("(d-bis) titolo che è l'INIZIO del corpo (cattura dall'app) → trattato come assente, non come un punto troncato", async () => {

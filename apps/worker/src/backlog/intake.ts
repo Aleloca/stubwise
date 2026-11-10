@@ -28,6 +28,7 @@ import { and, eq, notInArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { outputOrThrow, parseAgentJson } from "../agent/text.js";
 import { getContentLanguage } from "../settings.js";
+import { linkChatMessage } from "./chat-link.js";
 import { backlogItemSession, backlogJobSession, sessionOption } from "../sessions/owners.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 import { buildIntakePrompt, buildMergePrompt } from "./prompts.js";
@@ -449,11 +450,22 @@ export async function runIntake(
   const best = await findBestMatch(db, projectId, vec);
 
   // 4/5. Merge sopra soglia, altrimenti nuova voce.
+  let result: { itemId: string; title: string };
   if (best && best.similarity >= deps.mergeThreshold) {
-    const merged = await mergeIntoItem(deps, job.id, projectId, best, input, ticket, lang, requesterId);
-    await announceRequest(deps, projectId, requesterId, merged, true);
+    result = await mergeIntoItem(deps, job.id, projectId, best, input, ticket, lang, requesterId);
+    await announceRequest(deps, projectId, requesterId, result, true);
   } else {
-    const created = await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang, requesterId);
-    await announceRequest(deps, projectId, requesterId, created, false);
+    result = await createNewItem(deps, job.id, projectId, input, vec, best, ticket, lang, requesterId);
+    await announceRequest(deps, projectId, requesterId, result, false);
+  }
+
+  // 6. «Create request» da un messaggio della Chat: «→ AUD-R7» sul messaggio,
+  // anche quando la richiesta è stata fusa (il prototipo lega ciò che riceve).
+  if (!("ticketId" in payload) && payload.chatMessageId) {
+    try {
+      await linkChatMessage(db, { messageId: payload.chatMessageId, backlogItemId: result.itemId, createdBy: requesterId });
+    } catch (error) {
+      deps.logger.warn({ err: error, jobId: job.id }, "[backlog] intake: legame col messaggio della Chat non scritto");
+    }
   }
 }

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { chatChannels, chatMessages, notifications } from "@stubwise/db";
+import { backlogJobs, chatChannels, chatMessages, notifications } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers, type SeededUsers } from "../test/fixtures.js";
@@ -305,5 +305,43 @@ describe("ricerca", () => {
     await post(dev, archived, "giraffa archiviata");
     await as(dev, "PATCH", `/api/chat/channels/${archived}`, { archived: true });
     expect((await search(lead, "giraffa")).map((h) => h.message.text)).toEqual(["giraffa archiviata"]);
+  });
+});
+
+describe("dal messaggio a Stubwise", () => {
+  it("«Create task»: il messaggio mostra il codice a chi vede la task; un messaggio che non si legge o eliminato è 400", async () => {
+    const contributor = await createUserWithSession(app, "contributor-f2@example.com");
+    await addMember(app, projectId, contributor.id, "contributor");
+    const g = await general();
+    const msg = idOf(await post(dev, g, "qui serve una task"));
+    const created = await as(dev, "POST", "/api/tasks", { projectId, title: "Nata in chat", type: "activity", chatMessageId: msg });
+    expect(created.statusCode, created.body).toBe(201);
+    const code = (created.json() as { code: string }).code;
+    expect((await as(dev, "GET", `/api/chat/messages/${msg}`)).json()).toMatchObject({ linkedCodes: [code], linked: [{ kind: "task", code }] });
+    // Il Contributor legge il canale ma non vede la task altrui (niente tickets.view_all): il codice non esce.
+    expect((await as(contributor, "GET", `/api/chat/messages/${msg}`)).json()).toMatchObject({ linkedCodes: [], linked: [] });
+    // Un privato di cui non è membro, un messaggio eliminato: come un messaggio che non c'è.
+    const priv = await privateChannel(dev2, []);
+    const hidden = idOf(await post(dev2, priv, "solo mio"));
+    expect((await as(dev, "POST", "/api/tasks", { projectId, title: "x", type: "activity", chatMessageId: hidden })).json()).toMatchObject({
+      code: "chat_message_not_found",
+    });
+    await as(dev, "DELETE", `/api/chat/messages/${msg}`);
+    expect((await as(dev, "POST", "/api/tasks", { projectId, title: "y", type: "activity", chatMessageId: msg })).statusCode).toBe(400);
+    expect((await as(dev, "GET", `/api/chat/messages/${msg}`)).json()).toMatchObject({ linkedCodes: [] });
+  });
+
+  it("«Create request»: il messaggio viaggia nel job dell'intake; uno che non si legge è 400", async () => {
+    const g = await general();
+    const msg = idOf(await post(dev, g, "e qui una richiesta"));
+    const res = await as(dev, "POST", "/api/requests", { projectId, title: "Esportare", description: "csv", chatMessageId: msg });
+    expect(res.statusCode, res.body).toBe(202);
+    const [job] = await t.db.select().from(backlogJobs).where(eq(backlogJobs.id, (res.json() as { jobId: string }).jobId));
+    expect(job!.payload).toMatchObject({ chatMessageId: msg, requestedByUserId: dev.id });
+    const priv = await privateChannel(dev2, []);
+    const hidden = idOf(await post(dev2, priv, "solo mio"));
+    expect((await as(dev, "POST", "/api/requests", { projectId, title: "x", chatMessageId: hidden })).json()).toMatchObject({
+      code: "chat_message_not_found",
+    });
   });
 });

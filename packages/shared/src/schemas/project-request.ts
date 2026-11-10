@@ -101,6 +101,12 @@ export const newRequestBodySchema = z.object({
   projectId: z.uuid(),
   title: z.string().trim().min(1).max(300),
   description: z.string().max(100_000).default(""),
+  /**
+   * «Create request» da un messaggio della Chat (area 4, fetta 2): a fine
+   * intake il messaggio mostra il codice della richiesta. Chi la crea lo deve
+   * leggere.
+   */
+  chatMessageId: z.uuid().optional(),
 });
 export type NewRequestBody = z.infer<typeof newRequestBodySchema>;
 

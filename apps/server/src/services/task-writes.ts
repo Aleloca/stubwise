@@ -38,6 +38,7 @@ import { loadTaskViews, visibleTasksCondition, type TaskViewer } from "./task-vi
 import { personName } from "./people.js";
 import { notifyTaskActivity, notifyTaskPeople } from "./task-notify.js";
 import { agentUserId, claudeAssignGuard, startClaudeRuns, type ClaudeStartOptions } from "./claude-assign.js";
+import { linkMessage, messageLinkable } from "../chat/service.js";
 
 /**
  * Le scritture delle task dall'app nuova (integrazione area 2, fetta 1).
@@ -62,6 +63,8 @@ export type TaskWriteError =
   | "request_not_found"
   | "request_not_convertible"
   | "past_week"
+  /** Il messaggio della Chat da cui nasce non si legge, o è eliminato (area 4, fetta 2). */
+  | "chat_message_not_found"
   /** Assegnare Claude avvia il lavoro: chiede `runs.start` nel progetto (fetta 3e). */
   | "claude_assign_forbidden";
 
@@ -153,6 +156,9 @@ export async function createTask(
   const invalid = (await validateRefs(db, body.projectId, body)) ?? (await claudeAssignGuard(db, viewer, body.projectId, body.assigneeId));
   if (invalid) return { ok: false, error: invalid };
   if (await isPastWeek(db, null, body.plannedWeek)) return { ok: false, error: "past_week" };
+  if (body.chatMessageId && !(await messageLinkable(db, viewer, body.chatMessageId))) {
+    return { ok: false, error: "chat_message_not_found" };
+  }
   if (body.requestId) {
     // Solo una voce che chi chiede VEDE (la regola di `backlog.view_all`,
     // quella di to-convert): una invisibile risponde come un'inesistente
@@ -234,6 +240,10 @@ export async function createTask(
         .insert(backlogItemTickets)
         .values({ itemId: body.requestId, ticketId: ticket.id, role: "converted_to" })
         .onConflictDoNothing();
+    }
+    // «→ AUD-14» sul messaggio da cui è nata, nella stessa transazione.
+    if (body.chatMessageId) {
+      await linkMessage(tx, { messageId: body.chatMessageId, ticketId: ticket.id, createdBy: viewer.id });
     }
     return ticket.id;
   });
