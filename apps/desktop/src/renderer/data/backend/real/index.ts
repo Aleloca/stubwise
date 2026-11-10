@@ -25,6 +25,8 @@ export { search } from "./search";
 
 /** Amministrazione: solo Reparti (e le persone che la pagina legge) nella fetta 1. */
 export const admin: typeof Fake.admin = partialNamespace<typeof Fake.admin>("admin", adminDepartments);
+// Dell'istanza la chat legge solo il budget del mese (la casella si spegne con la sua frase).
+export { instance } from "./instanceChat";
 
 // Task 17: Tasks, dettaglio, nuova task, stati, allegati.
 export {
@@ -125,3 +127,15 @@ export {
 export { generateDailyReport, listDailyReports, listPeopleActivity } from "./peopleActivity";
 // Fetta 3c: il refinement delle richieste.
 export { closeRefine, getRefineOf, startRefineConversation } from "./claudeRefine";
+// La chat con Claude, fetta 2: le conversazioni libere private (solo «Mine»).
+export {
+  archiveConversation,
+  createConversation,
+  deleteConversation,
+  listCommands,
+  renameConversation,
+  resolveCitations,
+  resolveCodes,
+  searchMentions,
+  setConversationContext,
+} from "./claudeChat";

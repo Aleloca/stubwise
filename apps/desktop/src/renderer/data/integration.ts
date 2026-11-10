@@ -64,6 +64,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "claude-decisions",
     // Fetta 3c: il refinement delle richieste («Refine with Claude»).
     "refine",
+    // Chat con Claude, fetta 2: le conversazioni libere PRIVATE (solo «Mine»,
+    // «New», N). Restano spente le pubbliche (`claude-public`), le proposte e
+    // le azioni di Claude in chat, la riga «Claude can help you…»
+    // (`claude-suggestions`) e il riquadro come chat (`claude-panel`).
+    "claude-chat",
   ]),
 };
 

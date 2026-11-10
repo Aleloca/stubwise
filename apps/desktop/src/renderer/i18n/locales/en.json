@@ -4456,6 +4456,7 @@
       "landing": {
         "title": "New conversation",
         "intro": "Ask about what you're looking at, or ask Claude to do it for you. What only touches you happens right away and can be undone; anything that touches others asks you first.",
+        "introRead": "Ask about your work, a task or a project: Claude reads Stubwise as you see it, and answers. In this version it doesn't change anything: it tells you where to do it.",
         "label": "Your question for Claude",
         "placeholder": "Ask Claude about your work, a task or a project…",
         "send": "Start conversation",

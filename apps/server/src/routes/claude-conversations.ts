@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
+  claudeChatStatusSchema,
   claudeConversationDetailSchema,
   claudeConversationListQuerySchema,
   claudeConversationListSchema,
@@ -17,6 +18,7 @@ import {
   listClaudeConversations,
   patchClaudeConversation,
 } from "../services/claude-conversations.js";
+import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 // Le conversazioni libere con Claude (chat, fetta 1), sotto `/api/claude/conversations`.
@@ -29,6 +31,16 @@ const ACCESS = { kind: "user" } as const;
 
 export async function claudeConversationRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // Letterale PRIMA di `/:id` (la trappola di routing del repo).
+  app.get(
+    "/status",
+    {
+      config: { access: ACCESS },
+      schema: { response: { 200: claudeChatStatusSchema, ...authErrorResponses } },
+    },
+    async () => ({ budgetExhausted: await monthlyBudgetExhausted(app.db) }),
+  );
 
   app.get(
     "/",

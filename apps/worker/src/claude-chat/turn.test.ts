@@ -197,6 +197,18 @@ describe("il turno della chat", () => {
     expect(calls[0]!.prompt).toBe("Come va AUD?");
   });
 
+  it("ripreso con un contesto di pagina: il prompt lo ripete come tipo: id", async () => {
+    const s = await seeded({ cliSessionId: "cli-old" });
+    await t.db
+      .update(claudeConversations)
+      .set({ contextRef: { kind: "task", id: "AUD-12" } })
+      .where(eq(claudeConversations.sessionId, s.sessionId));
+    const { runner, calls } = fakeRunner([async (o) => (await echo(o), { ...OK, sessionId: "cli-old" })]);
+    await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal });
+    expect(calls[0]!.prompt).toContain("task: AUD-12");
+    expect(calls[0]!.prompt).toMatch(/--- MESSAGE ---\nCome va AUD\?$/);
+  });
+
   it("conversazione archiviata, o messaggio di un altro: nessun run, session_not_live, nessun token", async () => {
     for (const s of [await seeded({ archived: true }), await seeded({ author: otherId })]) {
       const { runner } = fakeRunner([async () => OK]);

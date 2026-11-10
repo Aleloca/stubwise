@@ -74,6 +74,20 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   finché l'autore non le archivia o le elimina (eventi compresi) *(S)*.
 - Budget del mese finito: in chat nessuno lo scavalca (una conversazione non ha
   un progetto, quindi nessun `plans.approve`) *(S)*.
+- **Limiti della fetta 2 (renderer, destinazione)** *(S, stubwise-80)*:
+  - «#» propone task e progetti, non richieste né pagine Docs; «@» le persone.
+  - «/» ha i soli comandi che si risolvono leggendo (`/status`, `/today`,
+    `/explain`, `/docs`); niente skill dei plugin del progetto (il server non
+    le espone).
+  - Le citazioni registrate su un messaggio non esistono sul server: Claude
+    cita col codice nel testo, che la pagina risolve (`resolveCodes`, task e
+    richieste).
+  - Il contesto è UNO per conversazione: un messaggio col chip di una pagina
+    lo sostituisce (l'ultimo vince) e il turno lo ripete al modello; il
+    contesto di progetto scelto all'inizio si perde dopo un messaggio con un
+    chip di task.
+  - La riga di benvenuto dice la promessa di sola lettura
+    (`landing.introRead`) finché le azioni in chat non entrano.
 
 ## Area 4 — Chat
 

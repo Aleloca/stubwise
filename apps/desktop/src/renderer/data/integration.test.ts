@@ -30,6 +30,9 @@ const ALL: IntegrationTarget[] = [
       "claude-chat",
       "claude-actions",
       "claude-decisions",
+      "claude-public",
+      "claude-suggestions",
+      "claude-chat-actions",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -75,6 +78,9 @@ describe("isIntegrated", () => {
         "feature:claude-decisions",
         // Fetta 3c: il refinement.
         "feature:refine",
+        // Chat con Claude, fetta 2: le conversazioni private; pubbliche,
+        // suggerimenti, azioni in chat e riquadro restano fuori.
+        "feature:claude-chat",
       ].sort(),
     );
   });

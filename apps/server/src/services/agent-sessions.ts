@@ -48,6 +48,7 @@ import {
   type BacklogJobStatus,
   type DocGenerationStatus,
   type Language,
+  conversationTitleFrom,
 } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
 import { memoPermissions, type PermissionsOf } from "./permissions-memo.js";
@@ -1083,10 +1084,23 @@ export async function sendAgentMessage(
       return { ok: false, error: "budget_exhausted" };
     }
     return db.transaction(async (tx) => {
+      // Nata vuota (la casella crea prima, poi scrive): il primo messaggio le
+      // dà il titolo, da TEMPLATE (`conversationTitleFrom`), mai dal modello.
+      // Solo se è ancora vuoto: un titolo rinominato non si tocca.
+      const title = input.text.trim().length > 0 ? conversationTitleFrom(input.text) : "";
       await tx
         .update(claudeConversations)
-        .set({ updatedAt: sql`now()` })
+        .set({
+          updatedAt: sql`now()`,
+          ...(title ? { title: sql`case when ${claudeConversations.title} = '' then ${title} else ${claudeConversations.title} end` } : {}),
+        })
         .where(eq(claudeConversations.sessionId, input.sessionId));
+      if (title) {
+        await tx
+          .update(agentSessions)
+          .set({ title })
+          .where(and(eq(agentSessions.id, input.sessionId), eq(agentSessions.title, "")));
+      }
       return insertInput(tx, input);
     });
   }

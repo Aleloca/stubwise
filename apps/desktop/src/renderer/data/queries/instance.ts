@@ -149,7 +149,8 @@ export function useAiBlock(projectId: string | null) {
   return useQuery({
     queryKey: ["as", me, "instance", "ai-block", projectId] as const,
     queryFn: () => api.instance.getAiBlock(projectId),
-    enabled: featureIntegrated("instance"),
+    // Il budget del mese lo legge anche la chat con Claude (che ha solo quello: `projectId` null).
+    enabled: featureIntegrated("instance") || (projectId === null && featureIntegrated("claude-chat")),
   });
 }
 

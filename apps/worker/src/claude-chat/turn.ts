@@ -209,7 +209,8 @@ export async function runChatTurn(
       } satisfies AgentRunOptions);
 
     const stored = conv.conversation.cliSessionId;
-    const firstPrompt = stored !== null ? buildChatResumePrompt(opening.text) : await priming();
+    const context = (conv.conversation.contextRef as ClaudeConversationContext | null) ?? null;
+    const firstPrompt = stored !== null ? buildChatResumePrompt(opening.text, context) : await priming();
 
     // 5. CLAIM, subito prima del run.
     if (input.signal.aborted) return "cancelled";

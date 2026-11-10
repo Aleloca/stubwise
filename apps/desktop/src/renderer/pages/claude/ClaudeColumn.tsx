@@ -29,7 +29,8 @@ export function ClaudeColumn() {
   const chat = featureIntegrated("claude-chat");
   const live = useConversations({ scope: "live" }).data;
   const mine = useConversations({ scope: "mine" }, { enabled: chat }).data;
-  const canPublic = chat && can(viewer, "claude.public.view");
+  // Le pubbliche sono una fetta a sé (nella build app: spente).
+  const canPublic = chat && featureIntegrated("claude-public") && can(viewer, "claude.public.view");
   const publicRows = useConversations({ scope: "public" }, { enabled: canPublic }).data;
   const recentId = useId();
   const waiting = live?.filter((r) => r.waitsOnViewer).length ?? 0;

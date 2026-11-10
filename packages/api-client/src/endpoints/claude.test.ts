@@ -22,6 +22,14 @@ function client(body: unknown = conversation, status = 200) {
 }
 
 describe("endpoints claude", () => {
+  it("status: il budget finito; senza il campo (server più vecchio) vale false", async () => {
+    const { c, fetchImpl } = client({ budgetExhausted: true });
+    expect(await c.claude.status()).toEqual({ budgetExhausted: true });
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/claude/conversations/status");
+    expect(await client({}).c.claude.status()).toEqual({ budgetExhausted: false });
+  });
+
+
   it("list: solo le proprie, archiviate a richiesta", async () => {
     const { c, fetchImpl } = client({ items: [conversation] });
     await c.claude.conversations.list();
