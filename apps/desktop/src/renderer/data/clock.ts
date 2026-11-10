@@ -16,9 +16,9 @@ export function useCurrentWeek(): string {
 }
 
 /** Le aree che dipendono dalla settimana corrente: task (effettiva, slittamento), ferme, giorni. */
-const WEEK_AREAS = new Set(["tasks", "task", "stalled", "dayArrangements"]);
-/** Quelle che dipendono dal giorno: le ferme (giorni di inattività) e le task (in ritardo, oggi). */
-const DAY_AREAS = new Set(["tasks", "task", "stalled"]);
+const WEEK_AREAS = new Set(["tasks", "task", "stalled", "dayArrangements", "pulse"]);
+/** Quelle che dipendono dal giorno: le ferme (giorni di inattività), le task (in ritardo, oggi) e il polso che le conta. */
+const DAY_AREAS = new Set(["tasks", "task", "stalled", "pulse"]);
 
 /**
  * Montato una volta nel layout: al cambio di giorno rilegge task e ferme, al

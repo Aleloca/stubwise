@@ -696,6 +696,12 @@ export async function listDecisionLog(projectId: string): Promise<DecisionLogEnt
     .map(copy);
 }
 
+/** Se il registro letto è arrivato al tetto del server (build app); nel prototipo mai. */
+export function decisionLogTruncated(projectId: string): boolean {
+  void projectId;
+  return false;
+}
+
 /** L'ultimo brief settimanale del progetto; `null` se non ce n'è ancora uno. */
 export async function getLatestBrief(projectId: string): Promise<WeeklyBrief | null> {
   const me = await gate("getLatestBrief");

@@ -1,13 +1,15 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
-import { DEPT_ID, installFakeServer, me, ME_ID, PROJECT_ID, serverProject } from "./fakeServer";
+import { DEPT_ID, installFakeServer, me, ME_ID, PROJECT_ID, serverProject, type SeenRequest } from "./fakeServer";
 
 // Requests sulla build app vera, davanti a un server finto (fetta 4, Task R).
 vi.mock("@backend/api", async () => await import("./index"));
 
 const ITEM = "33333333-3333-4333-8333-333333333333";
+const OTHER = "33333333-3333-4333-8333-333333333334";
 const view = {
   id: ITEM,
   code: "AUD-R4",
@@ -24,10 +26,12 @@ const view = {
   webHref: "/backlog/" + ITEM,
 };
 
+let seen: SeenRequest[] = [];
+
 beforeEach(() => {
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
-  installFakeServer({
+  seen = installFakeServer({
     "GET /api/auth/me": {
       body: me({ projectPermissions: { [PROJECT_ID]: ["tickets.create", "tickets.edit", "backlog.edit", "backlog.create"] } }),
     },
@@ -39,12 +43,15 @@ beforeEach(() => {
       body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [DEPT_ID], email: "ada@example.com" }],
     },
     "GET /api/departments": { body: [{ id: DEPT_ID, name: "General", colorToken: "--dept-1", isDefault: true }] },
-    "GET /api/requests": { body: [view] },
+    "GET /api/requests": { body: [view, { ...view, id: OTHER, code: "AUD-R5", title: "CSV export", urgent: false }] },
     [`GET /api/requests/${ITEM}`]: { body: view },
     "GET /api/tasks": { body: { items: [], truncated: false } },
     "GET /api/tasks/stalled": { body: [] },
     "GET /api/milestones": { body: [] },
-  });
+    [`PATCH /api/requests/${ITEM}`]: { body: { ...view, urgency: "high", urgent: false } },
+    [`GET /api/requests/${OTHER}`]: { body: { ...view, id: OTHER, code: "AUD-R5", title: "CSV export" } },
+    [`POST /api/requests/${ITEM}/merge`]: { status: 409, body: { code: "request_changed", message: "x" } },
+  }).seen;
 });
 
 afterEach(() => {
@@ -61,5 +68,29 @@ describe("Requests nella build app", () => {
     expect(within(row).getByText("Urgent")).toBeInTheDocument();
     renderRoute(`/p/AUD/requests?request=${ITEM}`);
     expect(await screen.findByText("Users want CSV.")).toBeInTheDocument();
+  });
+
+  it("«Urgent» si abbassa a High: nel menu High non è già scelta, e sceglierla la salva", async () => {
+    const ue = userEvent.setup();
+    renderRoute(`/p/AUD/requests?request=${ITEM}`);
+    await ue.click(await screen.findByRole("button", { name: "Urgency: Urgent. Change" }));
+    const high = await screen.findByRole("menuitemradio", { name: /High/ });
+    expect(high).toHaveAttribute("aria-checked", "false");
+    await ue.click(high);
+    await waitFor(() => expect(seen.find((r) => r.method === "PATCH")?.body).toEqual({ urgency: "high" }));
+  });
+
+  it("una fusione su una richiesta cambiata nel frattempo lo dice", async () => {
+    const ue = userEvent.setup();
+    renderRoute(`/p/AUD/requests?request=${ITEM}`);
+    const panel = await screen.findByRole("dialog");
+    await ue.click(await within(panel).findByRole("button", { name: "More actions" }));
+    await ue.click(await screen.findByRole("menuitem", { name: "Merge into…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Merge into another request" });
+    await ue.click(await within(dialog).findByRole("radio", { name: /CSV export/ }));
+    await ue.click(within(dialog).getByRole("button", { name: "Merge" }));
+    expect(
+      await within(dialog).findByText("One of the two requests changed in the meantime. Nothing changed: try again."),
+    ).toBeInTheDocument();
   });
 });
