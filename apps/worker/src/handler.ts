@@ -17,8 +17,9 @@ import type { PublishFn } from "./pipeline/notify.js";
 import { runTriage, type TriageOutcome } from "./pipeline/triage.js";
 import type { ResolvedProvider } from "./providers/chain.js";
 import { isQuotaWait, runWithProviders, type SelectDeps } from "./providers/select.js";
-import { appendLog, failJob, holdJob, markFixing, setJobProvider, type AiJob } from "./queue.js";
+import { appendLog, failJob, holdJob, markFixing, setJobProvider, type AiJob, type ParkResult } from "./queue.js";
 import { getContentLanguage } from "./settings.js";
+import { recordRunCancelledSafely } from "./pipeline/job-outcomes.js";
 
 /**
  * Wiring della pipeline per runWorker: handler(job) = triage → (se "fixing")
@@ -274,11 +275,21 @@ async function holdJobWithReason(
   job: AiJob,
   log: string,
   heldReason: HeldReason,
-): Promise<void> {
+): Promise<ParkResult> {
   const held = await holdJob(deps.db, job.id, { log, heldReason });
-  if (!held) {
+  if (held === "cancelled") {
+    // «Annulla il lavoro» chiesto in questo tentativo (review dell'area 3,
+    // punto 2): chiuso skipped, non in pausa.
+    await recordRunCancelledSafely(deps.db, {
+      ticketId: job.ticketId,
+      jobId: job.id,
+      kind: job.correctionId !== null ? "correction" : "fix",
+      lang: await getContentLanguage(deps.db),
+    });
+  } else if (held === "lost") {
     await appendLog(deps.db, job.id, "[stubwise] ownership persa dopo il hold");
   }
+  return held;
 }
 
 /**
@@ -306,14 +317,7 @@ async function holdAllProvidersLimited(
     .from(projects)
     .where(eq(projects.id, projectId));
   const exclusive = project?.exclusive === true && project.id != null;
-  await deps.db.transaction(async (tx) => {
-    await tx.insert(comments).values({
-      ticketId,
-      authorType: "ai",
-      body: t(lang, exclusive ? "comment.providerExclusiveLimitHeld" : "comment.providersLimitHeld"),
-    });
-  });
-  await holdJobWithReason(
+  const held = await holdJobWithReason(
     deps,
     job,
     exclusive
@@ -321,6 +325,15 @@ async function holdAllProvidersLimited(
       : "[stubwise] tutti i provider AI al limite di rate/usage → job in pausa (held), ritenta dopo il reset",
     "limit",
   );
+  // Annullato in questo tentativo: c'è già il commento dell'annullamento, non quello del limite.
+  if (held === "cancelled") return;
+  await deps.db.transaction(async (tx) => {
+    await tx.insert(comments).values({
+      ticketId,
+      authorType: "ai",
+      body: t(lang, exclusive ? "comment.providerExclusiveLimitHeld" : "comment.providersLimitHeld"),
+    });
+  });
 }
 
 async function processJob(

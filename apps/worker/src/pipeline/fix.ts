@@ -86,6 +86,7 @@ import {
   notifyJobFailed,
   recordAgentStopExpired,
   recordRunCancelled,
+  recordRunCancelledSafely,
   type JobOutcomeContext,
 } from "./job-outcomes.js";
 import {
@@ -642,7 +643,14 @@ async function parkAgentQuestion(input: ParkAgentQuestionInput): Promise<FixOutc
         ? " (nessuna sessione CLI da riprendere: la ripresa ripianificherà da zero)"
         : ""),
   });
-  if (!parked) {
+  if (parked === "cancelled") {
+    // «Annulla il lavoro» chiesto mentre pianificava (review dell'area 3,
+    // punto 2): il job è chiuso skipped invece di parcheggiarsi; la domanda
+    // resta nel ticket ma nessuno la deve più rispondere.
+    await recordRunCancelledSafely(db, { ticketId: ticket.id, jobId: job.id, kind: "fix", lang });
+    return "skipped";
+  }
+  if (parked === "lost") {
     // Ownership persa: la domanda e il commento restano veri (sono contenuto
     // del ticket); solo una riga di log, nessun overwrite dello stato.
     await appendLog(db, job.id, "[fix] ownership persa dopo la registrazione della domanda");
@@ -790,8 +798,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
     limitUsd: number,
     spentUsd: number,
   ): Promise<FixOutcome> => {
-    await holdForBudget(outcomeCtx, scope, limitUsd, spentUsd);
-    return "held";
+    // Annullato in questo tentativo: chiuso skipped, non in pausa (punto 2 della review).
+    return (await holdForBudget(outcomeCtx, scope, limitUsd, spentUsd)) === "cancelled" ? "skipped" : "held";
   };
 
   // Tetti di spesa (Task 6), PRIMA di toccare il repo: vedi checkBudgetsBeforeRun.
@@ -1795,7 +1803,13 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       planSummary,
       log: "[fix] piano pronto, in attesa di approvazione",
     });
-    if (!parked) {
+    if (parked === "cancelled") {
+      // «Annulla il lavoro» chiesto mentre pianificava (review dell'area 3,
+      // punto 2): chiuso skipped invece del gate; niente job.plan_review.
+      await recordRunCancelledSafely(db, { ticketId: ticket.id, jobId: job.id, kind: "fix", lang });
+      return "skipped";
+    }
+    if (parked === "lost") {
       // Ownership persa dopo la pianificazione: il commento e lo stato del
       // ticket sono comunque veri; solo una riga di log, niente overwrite.
       await appendLog(db, job.id, "[fix] ownership persa dopo la pianificazione");

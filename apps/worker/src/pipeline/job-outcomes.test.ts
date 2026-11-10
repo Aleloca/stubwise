@@ -149,7 +149,7 @@ describe("holdForBudget — esito di holdJob", () => {
 
   it("job attivo → true, job held con reason budget", async () => {
     const { ctx, jobId, ticketId, publish } = await fixture("fixing");
-    expect(await holdForBudget(ctx, "ticket", 2, 3)).toBe(true);
+    expect(await holdForBudget(ctx, "ticket", 2, 3)).toBe("parked");
     const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
     expect(job?.status).toBe("held");
     expect(job?.heldReason).toBe("budget");
@@ -159,11 +159,21 @@ describe("holdForBudget — esito di holdJob", () => {
 
   it("ownership persa (job non più attivo) → false; commento e notifica partono comunque, come prima", async () => {
     const { ctx, jobId, ticketId, publish } = await fixture("failed");
-    expect(await holdForBudget(ctx, "monthly", 2, 3)).toBe(false);
+    expect(await holdForBudget(ctx, "monthly", 2, 3)).toBe("lost");
     const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
     expect(job?.status).toBe("failed");
     expect(job?.log).toContain("[fix] ownership persa dopo il hold per budget");
     expect(await testDb.db.select().from(comments).where(eq(comments.ticketId, ticketId))).toHaveLength(1);
     expect(publish).toHaveBeenCalledTimes(1);
+  });
+  it("«Annulla il lavoro» chiesto in questo tentativo → cancelled: skipped, il commento dell'annullamento, niente budget né notifica di pausa", async () => {
+    const { ctx, jobId, ticketId, publish } = await fixture("triaging");
+    await testDb.db.update(aiJobs).set({ cancelRequestedAt: new Date(Date.now() + 1000) }).where(eq(aiJobs.id, jobId));
+    expect(await holdForBudget(ctx, "ticket", 2, 3)).toBe("cancelled");
+    const [job] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, jobId));
+    expect(job?.status).toBe("skipped");
+    const notes = await testDb.db.select().from(comments).where(eq(comments.ticketId, ticketId));
+    expect(notes.map((c) => c.authorType)).toEqual(["system"]);
+    expect(publish).not.toHaveBeenCalled();
   });
 });
