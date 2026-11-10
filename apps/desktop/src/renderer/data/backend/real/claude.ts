@@ -199,26 +199,56 @@ export async function readEvents(id: string, after?: string): Promise<Reader<Age
   }
 }
 
+/** Il piano di un job: col suo id, che fa stabile l'id dell'evento (`plan:<job>`). */
+export type RunPlan = SessionPlan & { jobId: string };
+
+/**
+ * Ciò che di una sessione fa cambiare le letture e il piano: stato, esito,
+ * pausa, attesa, domande risposte. Il piano si rilegge solo quando cambia.
+ */
+export function signatureOf(d: Summary): string {
+  const detail = d as Partial<Detail>;
+  return JSON.stringify([
+    d.state,
+    d.outcome,
+    d.waitsOnViewer,
+    detail.paused ?? false,
+    (detail.questions ?? []).map((q) => q.answered),
+  ]);
+}
+
+/** Il piano letto di ogni sessione, valido finché la sua firma non cambia (review della 3a). */
+const planCache = new Map<string, { signature: string; plan: Promise<RunPlan | null> }>();
+const PLAN_CACHE_MAX = 50;
+
+export function forgetPlans(): void {
+  planCache.clear();
+}
+
 /** Il piano del job della sessione, dal lavoro della sua task (il server non lo mette fra gli eventi). */
-export async function planOf(detail: Summary): Promise<SessionPlan | null> {
-  if (detail.kind !== "ai_job" || !detail.ticketId) return null;
+export function planOf(detail: Summary): Promise<RunPlan | null> {
+  if (detail.kind !== "ai_job" || !detail.ticketId) return Promise.resolve(null);
+  const signature = signatureOf(detail);
+  const hit = planCache.get(detail.id);
+  if (hit && hit.signature === signature) return hit.plan;
+  const plan = readPlan(detail, detail.ticketId);
+  planCache.delete(detail.id);
+  planCache.set(detail.id, { signature, plan });
+  if (planCache.size > PLAN_CACHE_MAX) planCache.delete(planCache.keys().next().value!);
+  return plan;
+}
+
+async function readPlan(detail: Summary, ticketId: string): Promise<RunPlan | null> {
   let work: Reader<TaskWorkView>;
   try {
-    work = await appClient().tasks.work(detail.ticketId);
+    work = await appClient().tasks.work(ticketId);
   } catch {
     // Senza il lavoro della task il flusso si legge comunque, senza la scheda del piano.
+    planCache.delete(detail.id);
     return null;
   }
   const run = work.runs.find((r) => r.sessionId === detail.id || r.id === detail.aiJobId);
-  const plan = run?.plan;
-  if (!plan || plan.status === "__unknown__") return null;
-  return {
-    text: plan.text,
-    summary: plan.summary,
-    // Pre-approvato vale come approvato: la scheda non chiede niente.
-    status: plan.status === "pre_approved" ? "approved" : plan.status,
-    at: plan.at,
-  };
+  return run ? sessionPlanOf(run) : null;
 }
 
 /** Il flusso del prototipo dagli eventi del server, con domande, interventi e piano. */
@@ -226,16 +256,28 @@ export function eventsOf(
   detail: Detail,
   events: readonly Reader<AgentSessionEvent>[],
   partials: Record<string, string>,
-  plan: SessionPlan | null,
+  plan: RunPlan | null,
 ): ConversationEvent[] {
-  return toConversationEvents({
-    events,
-    partials,
-    inputs: detail.inputs,
-    questions: detail.questions,
-    live: detail.state !== "ended",
+  return withStablePlanId(
+    toConversationEvents({
+      events,
+      partials,
+      inputs: detail.inputs,
+      questions: detail.questions,
+      live: detail.state !== "ended",
+      plan,
+    }) as ConversationEvent[],
     plan,
-  }) as ConversationEvent[];
+  );
+}
+
+/**
+ * L'evento del piano ha l'id del JOB (`plan:<job>`), non del suo istante: un
+ * piano deciso e riletto resta la stessa scheda, mai due.
+ */
+function withStablePlanId(events: ConversationEvent[], plan: RunPlan | null): ConversationEvent[] {
+  if (!plan) return events;
+  return events.map((e) => (e.type === "plan" ? { ...e, id: `plan:${plan.jobId}` } : e));
 }
 
 /** Nella 3a si guarda e basta: le azioni arrivano con la 3b. */
@@ -288,10 +330,11 @@ type RunView = WorkView["runs"][number];
 
 const known = <T extends string>(v: T | "__unknown__"): v is T => v !== "__unknown__";
 
-function sessionPlanOf(run: RunView): SessionPlan | null {
+function sessionPlanOf(run: RunView): RunPlan | null {
   const plan = run.plan;
   if (!plan || !known(plan.status)) return null;
   return {
+    jobId: run.id,
     text: plan.text,
     summary: plan.summary,
     status: plan.status === "pre_approved" ? "approved" : plan.status,
@@ -304,7 +347,7 @@ async function runEvents(run: RunView): Promise<{ events: ConversationEvent[]; p
   const plan = sessionPlanOf(run);
   if (!run.sessionId) {
     const events = toConversationEvents({ events: [], partials: {}, inputs: [], questions: [], live: true, plan });
-    return { events: events as ConversationEvent[], paused: false };
+    return { events: withStablePlanId(events as ConversationEvent[], plan), paused: false };
   }
   try {
     const [detail, raw] = await Promise.all([

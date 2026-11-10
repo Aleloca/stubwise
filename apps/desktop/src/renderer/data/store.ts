@@ -895,7 +895,9 @@ export function streamDelay(): number {
 }
 
 /** Quanto resta «Riconnessione…» dopo una disconnessione (ms): la latenza fissata, altrimenti 800 ms. */
-export function reconnectDelay(): number {
+// `conversationId`: sul server vero il backoff è per sessione; qui uno solo.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function reconnectDelay(_conversationId?: string): number {
   return latencyOverride ?? 800;
 }
 

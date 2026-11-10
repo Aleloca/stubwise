@@ -1940,7 +1940,7 @@ export function useConversationStream(
             onConnection: (connection) => {
               unsubscribe = null;
               publish(connection);
-              if (connection === "reconnecting") retry = setTimeout(connect, api.reconnectDelay());
+              if (connection === "reconnecting") retry = setTimeout(connect, api.reconnectDelay(id));
             },
           },
         );
