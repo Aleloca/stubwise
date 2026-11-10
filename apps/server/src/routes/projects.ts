@@ -800,6 +800,7 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
           201: projectDecisionSchema,
           400: errorSchema,
           404: errorSchema,
+          409: errorSchema,
           ...authErrorResponses,
         },
       },
@@ -816,8 +817,15 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
         ...(request.body.ticketId ? { ticketId: request.body.ticketId } : {}),
         ...(request.body.decidedAt ? { decidedAt: request.body.decidedAt } : {}),
         ...(request.body.supersedesId ? { supersedesId: request.body.supersedesId } : {}),
+        actor: { id: request.user!.id, permissions: routePermissions(request) },
       });
       if (!result.ok) {
+        if (result.error === "forbidden") {
+          return apiError(reply, 403, "decision_forbidden", "Only the author or a maintainer can supersede this decision");
+        }
+        if (result.error === "already_superseded") {
+          return apiError(reply, 409, "already_superseded", "This decision has already been superseded");
+        }
         return apiError(reply, 400, "invalid_supersede", "supersedesId must be a decision of the same project");
       }
       return reply.code(201).send(result.decision);

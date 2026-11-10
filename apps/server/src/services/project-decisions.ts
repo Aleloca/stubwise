@@ -172,19 +172,29 @@ export async function createManualDecision(
     decidedAt?: string;
     /** Fetta 4: la decisione che questa SUPERA (dello stesso progetto). */
     supersedesId?: string;
+    /** Chi scrive, coi permessi nel progetto: superare una voce è MODIFICARLA ({@link canEditDecision}). */
+    actor: DecisionActor;
   },
-): Promise<{ ok: true; decision: ProjectDecision } | { ok: false; error: "invalid_supersede" }> {
+): Promise<
+  { ok: true; decision: ProjectDecision } | { ok: false; error: "invalid_supersede" | "forbidden" | "already_superseded" }
+> {
   // Nella stessa transazione: la nuova voce e il «superata da» della vecchia
   // (come nel prototipo, `recordDecision`). Una voce appena nata non ha
-  // successori, quindi il legame non può chiudere un giro.
-  const id = await db.transaction(async (tx) => {
+  // successori, quindi il legame non può chiudere un giro. Segnare la vecchia
+  // come superata la modifica: serve `canEditDecision` su di LEI, e una voce
+  // già superata non si supera una seconda volta (si supera la successiva).
+  const result = await db.transaction(async (tx) => {
     if (input.supersedesId) {
       const [old] = await tx
-        .select({ id: projectDecisions.id })
+        .select({ id: projectDecisions.id, decidedByUserId: projectDecisions.decidedByUserId, supersededById: projectDecisions.supersededById })
         .from(projectDecisions)
         .where(and(eq(projectDecisions.id, input.supersedesId), eq(projectDecisions.projectId, input.projectId)))
         .for("update");
-      if (!old) return null;
+      if (!old) return { error: "invalid_supersede" as const };
+      if (!canEditDecision({ decidedBy: old.decidedByUserId ? { id: old.decidedByUserId } : null }, input.actor)) {
+        return { error: "forbidden" as const };
+      }
+      if (old.supersededById) return { error: "already_superseded" as const };
     }
     const row = await recordDecision(tx, {
       projectId: input.projectId,
@@ -207,10 +217,10 @@ export async function createManualDecision(
         .set({ supersededById: row.id })
         .where(eq(projectDecisions.id, input.supersedesId));
     }
-    return row.id;
+    return { id: row.id };
   });
-  if (!id) return { ok: false, error: "invalid_supersede" };
-  const created = await getProjectDecision(db, input.projectId, id);
+  if (result.error) return { ok: false, error: result.error };
+  const created = await getProjectDecision(db, input.projectId, result.id);
   if (!created) throw new Error("decisione appena creata non rileggibile");
   return { ok: true, decision: created };
 }
@@ -230,7 +240,7 @@ export interface DecisionActor {
  * modificabile dai soli maintainer: non c'è nessuno a cui restituirla, e
  * lasciarla aperta a chiunque farebbe del registro un wiki.
  */
-export function canEditDecision(decision: ProjectDecision, actor: DecisionActor): boolean {
+export function canEditDecision(decision: { decidedBy: { id: string } | null }, actor: DecisionActor): boolean {
   return actor.permissions.has("project.settings.manage") || decision.decidedBy?.id === actor.id;
 }
 
