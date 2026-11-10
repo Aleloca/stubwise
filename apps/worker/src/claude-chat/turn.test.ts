@@ -144,7 +144,8 @@ describe("il turno della chat", () => {
     expect(o.usage).toEqual({ operation: "claude_chat", projectId: null });
     expect(o.session).toMatchObject({ sessionId: s.sessionId, label: "chat" });
     expect(o.resumeSessionId).toBeUndefined();
-    expect(o.prompt).toContain("You do NOT do anything");
+    expect(o.prompt).toContain("DO things only by PROPOSING them with propose_action");
+    expect(o.prompt).toContain("- updateTask({ id: uuid, patch: {");
     expect(o.prompt).toContain("Ada");
     expect(cwdEmpty).toBe(true);
     // La cwd resta fra i turni: è quella con cui il CLI ritrova la sessione.
