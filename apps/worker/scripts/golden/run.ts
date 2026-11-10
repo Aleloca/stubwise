@@ -168,6 +168,7 @@ import {
   type ScenarioName,
   skillCallsFrom,
   chatChecks,
+  chatResumeChecks,
   type ChatExpectation,
   type ChatServerRequest,
 } from "./checks.js";
@@ -336,7 +337,7 @@ function fail(message: string): never {
  */
 async function loadRuntime() {
   try {
-    const [i18n, cli, streaming, askUser, fix, base, prompts, refineBridge, refinePrompts, refineTurn, chatBridge, chatPrompts, chatTurn] = await Promise.all([
+    const [i18n, cli, streaming, askUser, fix, base, prompts, refineBridge, refinePrompts, refineTurn, nativeTools, chatBridge, chatPrompts, chatTurn, chatCliDir] = await Promise.all([
       import("@stubwise/i18n"),
       import("../../src/agent/claude-cli.js"),
       import("../../src/agent/streaming-cli.js"),
@@ -347,9 +348,11 @@ async function loadRuntime() {
       import("../../src/backlog/refine/bridge.js"),
       import("../../src/backlog/refine/prompts.js"),
       import("../../src/backlog/refine/turn.js"),
+      import("../../src/agent/native-tools.js"),
       import("../../src/claude-chat/bridge.js"),
       import("../../src/claude-chat/prompts.js"),
       import("../../src/claude-chat/turn.js"),
+      import("../../src/claude-chat/cli-dir.js"),
     ]);
     return {
       t: i18n.t,
@@ -372,10 +375,16 @@ async function loadRuntime() {
       buildRefinePrimingPrompt: refinePrompts.buildRefinePrimingPrompt,
       refineAllowedTools: refineTurn.refineAllowedTools,
       refineDisallowedTools: refineTurn.refineDisallowedTools,
+      // I nativi per tipo di run (CLI 2.1.322): gli STESSI elenchi della produzione.
+      NATIVE_TOOLS: nativeTools.NATIVE_TOOLS,
+      nativeToolsWith: nativeTools.nativeToolsWith,
       chatServerPath: chatBridge.chatServerPath,
       startChatBridge: chatBridge.startChatBridge,
       buildChatMcpConfig: chatBridge.buildChatMcpConfig,
       buildChatPrimingPrompt: chatPrompts.buildChatPrimingPrompt,
+      buildChatResumePrompt: chatPrompts.buildChatResumePrompt,
+      ensureChatCwd: chatCliDir.ensureChatCwd,
+      removeChatCliState: chatCliDir.removeChatCliState,
       chatDisallowedTools: chatTurn.chatDisallowedTools,
     };
   } catch (error) {
@@ -711,6 +720,7 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
     ),
     model: ctx.model,
     permissionMode: "plan",
+    builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixPlan, undefined),
     maxTurns: PLAN_MAX_TURNS,
     timeoutMs: ctx.rt.DEFAULT_FIX_PLAN_TIMEOUT_MS,
     pluginDirs: ctx.pluginDirs,
@@ -803,6 +813,7 @@ async function runWithAskUser(
     ),
     model: ctx.model,
     permissionMode: "plan",
+    builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixPlan, askUser.tools),
     maxTurns: PLAN_MAX_TURNS,
     timeoutMs: ctx.rt.DEFAULT_FIX_PLAN_TIMEOUT_MS,
     allowedTools: askUser.tools,
@@ -936,6 +947,7 @@ async function runExecute(ctx: ScenarioContext): Promise<ScenarioResult> {
     ),
     model: ctx.model,
     permissionMode: "acceptEdits",
+    builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixExecute, ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS),
     maxTurns: EXECUTE_MAX_TURNS,
     timeoutMs: ctx.rt.DEFAULT_FIX_TIMEOUT_MS,
     allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
@@ -1061,6 +1073,7 @@ async function runCorrection(ctx: ScenarioContext): Promise<ScenarioResult> {
     ),
     model: ctx.model,
     permissionMode: "acceptEdits",
+    builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixExecute, ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS),
     maxTurns: EXECUTE_MAX_TURNS,
     timeoutMs: ctx.rt.DEFAULT_FIX_TIMEOUT_MS,
     allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
@@ -1223,6 +1236,7 @@ async function runInterveneOnce(
       prompt: INTERVENE_PROMPT,
       model: ctx.model,
       permissionMode: "acceptEdits",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixExecute, ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS),
       maxTurns: INTERVENE_MAX_TURNS,
       timeoutMs: INTERVENE_TIMEOUT_MS,
       allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
@@ -1364,6 +1378,7 @@ async function runPlanInterveneOnce(
       ),
       model: ctx.model,
       permissionMode: "plan",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixPlan, undefined),
       maxTurns: PLAN_MAX_TURNS,
       timeoutMs: ctx.rt.DEFAULT_FIX_PLAN_TIMEOUT_MS,
       pluginDirs: ctx.pluginDirs,
@@ -1505,6 +1520,7 @@ async function runStopPauseOnce(
       prompt: INTERVENE_PROMPT,
       model: ctx.model,
       permissionMode: "acceptEdits",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixExecute, ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS),
       maxTurns: INTERVENE_MAX_TURNS,
       timeoutMs: INTERVENE_TIMEOUT_MS,
       allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
@@ -1591,6 +1607,7 @@ async function runCancel(ctx: ScenarioContext): Promise<ScenarioResult> {
       prompt: INTERVENE_PROMPT,
       model: ctx.model,
       permissionMode: "acceptEdits",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixExecute, ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS),
       maxTurns: INTERVENE_MAX_TURNS,
       timeoutMs: INTERVENE_TIMEOUT_MS,
       allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
@@ -1796,6 +1813,7 @@ async function runRefine(ctx: ScenarioContext): Promise<ScenarioResult> {
       prompt,
       model: ctx.model,
       permissionMode: "default",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.refine, ctx.rt.refineAllowedTools(parentDir, [], mcp, ctx.pluginDirs)),
       // La STESSA allowlist di `runRefineTurn` (nessun grafo qui), ristretta
       // alla parent dir, e le STESSE deny rule (nessun volume di plugin qui).
       allowedTools: ctx.rt.refineAllowedTools(parentDir, [], mcp, ctx.pluginDirs),
@@ -1998,6 +2016,7 @@ async function runReadProbe(ctx: ScenarioContext, probe: "refine" | "bash"): Pro
       prompt,
       model: ctx.model,
       permissionMode: "default",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.refine, tools.allowedTools),
       allowedTools: tools.allowedTools,
       disallowedTools: tools.disallowedTools,
       maxTurns: REFINE_READ_MAX_TURNS,
@@ -2171,7 +2190,9 @@ async function runChat(
     await fake.close();
     fail(`Il server MCP della chat non esiste (${ctx.chatServerPath}): builda il worker`);
   }
-  const cwd = await mkdtemp(join(tmpdir(), `stubwise-golden-${scenario}-`));
+  // La cwd di produzione (`<tmp>/stubwise-chat/<id>`), una conversazione per giro.
+  const conversationId = randomUUID();
+  const cwd = await ctx.rt.ensureChatCwd(conversationId);
   const events: InterveneEvent[] = [];
   const runner = new ctx.rt.StreamingClaudeRunner({
     claudePath: ctx.claudePath,
@@ -2237,7 +2258,8 @@ async function runChat(
     token: CHAT_TOKEN,
     expectation,
   });
-  if (!ctx.keep) await rm(cwd, { recursive: true, force: true });
+  // Come l'eliminazione di produzione: via cwd e trascrizioni del CLI.
+  if (!ctx.keep) await ctx.rt.removeChatCliState(conversationId);
   return {
     scenario,
     passed: checks.every((check) => check.passed),
@@ -2247,6 +2269,132 @@ async function runChat(
     checks,
     finalMessage: truncate(result?.output ?? "", FINAL_MESSAGE_MAX_CHARS),
     ...(result?.usage !== undefined ? { usage: result.usage } : {}),
+  };
+}
+
+/**
+ * `chat-resume`: DUE turni della stessa conversazione, come due `runChatTurn`
+ * in fila. Il primo legge AUD-12; il secondo gira nella STESSA cwd con
+ * `--resume` della sessione del primo e il prompt di ripresa
+ * (`buildChatResumePrompt`), e deve rispondere dal contesto, senza rileggere.
+ * Un solo server finto; un ponte (e un segreto) per turno, come in produzione.
+ */
+async function runChatResume(ctx: ScenarioContext): Promise<ScenarioResult> {
+  const tag = "[chat-resume]";
+  const fake = await startFakeChatServer();
+  const conversationId = randomUUID();
+  const turn = async (prompt: string, opening: string, resumeSessionId: string | null) => {
+    const bridge = await ctx.rt.startChatBridge({ serverUrl: fake.url, log });
+    const grant = bridge.grant({ sessionId: conversationId, serverToken: CHAT_TOKEN });
+    const mcp = ctx.rt.buildChatMcpConfig(bridge, grant, ctx.chatServerPath);
+    if (mcp === null) {
+      await bridge.close();
+      await fake.close();
+      fail(`Il server MCP della chat non esiste (${ctx.chatServerPath}): builda il worker`);
+    }
+    const cwd = await ctx.rt.ensureChatCwd(conversationId);
+    const events: InterveneEvent[] = [];
+    const from = fake.requests.length;
+    const runner = new ctx.rt.StreamingClaudeRunner({
+      claudePath: ctx.claudePath,
+      log,
+      hooks: {
+        openSegment: () => ({
+          onStart: () => undefined,
+          onEvents: (drafts) => {
+            for (const draft of drafts) {
+              events.push({ type: draft.type, data: draft.data as Record<string, unknown> });
+              if (draft.type === "tool_use") log(`  ${tag} tool_use: ${String(draft.data["name"])}`);
+            }
+          },
+          onPartial: () => undefined,
+          onEnd: async () => undefined,
+        }),
+        register: () => () => undefined,
+      },
+    });
+    const sessionId = randomUUID();
+    let result: AgentRunResult | null = null;
+    let timedOut = false;
+    try {
+      result = await runner.run({
+        cwd,
+        usage: GOLDEN_USAGE("claude_chat"),
+        prompt,
+        model: ctx.model,
+        permissionMode: "default",
+        allowedTools: [...mcp.tools],
+        disallowedTools: ctx.rt.chatDisallowedTools(),
+        settingSources: "",
+        builtinTools: "",
+        maxTurns: CHAT_MAX_TURNS,
+        timeoutMs: CHAT_TIMEOUT_MS,
+        mcpConfig: mcp.mcpConfig,
+        ...(resumeSessionId !== null ? { resumeSessionId } : {}),
+        session: { sessionId, label: "chat", pauseKey: `golden:chat-resume:${sessionId}` },
+        openingInput: { inputId: randomUUID(), text: opening, authorUserId: null },
+      });
+    } catch (error) {
+      timedOut = error instanceof Error && error.name === "AgentTimeoutError";
+      log(`  ${tag} il run ha lanciato: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      grant.revoke();
+      await bridge.close();
+    }
+    log(`  ${tag} turno: exit ${result?.exitCode ?? "?"}, sessione del CLI ${result?.sessionId ?? "nessuna"}`);
+    return { result, events, timedOut, cwd, requests: fake.requests.slice(from) };
+  };
+
+  const startedAt = Date.now();
+  const firstOpening = "Leggi la task AUD-12 e dimmi in una riga di cosa si tratta.";
+  const first = await turn(
+    ctx.rt.buildChatPrimingPrompt(
+      { language: LANG, authorName: "Ada", context: null, toolsAvailable: true, recentTranscript: [] },
+      firstOpening,
+    ),
+    firstOpening,
+    null,
+  );
+  const secondOpening = "E chi la sta seguendo? Rispondi da quello che hai già letto, senza rileggerla.";
+  const second = await turn(
+    ctx.rt.buildChatResumePrompt(secondOpening, null),
+    secondOpening,
+    first.result?.sessionId ?? null,
+  );
+  await fake.close();
+  const durationMs = Date.now() - startedAt;
+  const checks = [
+    ...chatChecks({
+      timedOut: first.timedOut || second.timedOut,
+      exitCode: first.result?.exitCode === 0 ? (second.result?.exitCode ?? null) : (first.result?.exitCode ?? null),
+      toolCalls: [...toolCallsFrom(first.events), ...toolCallsFrom(second.events)],
+      serverRequests: fake.requests,
+      allowedPaths: CHAT_ALLOWED_PATHS,
+      finalMessage: second.result?.output ?? "",
+      transcript: JSON.stringify([...first.events, ...second.events]),
+      token: CHAT_TOKEN,
+      expectation: { kind: "read", mustRead: "/api/tasks/by-code/AUD-12", mustMention: ["Marta"] },
+    }),
+    ...chatResumeChecks({
+      firstSessionId: first.result?.sessionId ?? null,
+      secondSessionId: second.result?.sessionId ?? null,
+      firstCwd: first.cwd,
+      secondCwd: second.cwd,
+      secondRequests: second.requests,
+      secondFinalMessage: second.result?.output ?? "",
+      mustMention: ["Marta"],
+    }),
+  ];
+  if (!ctx.keep) await ctx.rt.removeChatCliState(conversationId);
+  return {
+    scenario: "chat-resume",
+    passed: checks.every((check) => check.passed),
+    durationMs,
+    exitCode: second.result?.exitCode ?? -1,
+    cwd: second.cwd,
+    checks,
+    finalMessage: truncate(second.result?.output ?? "", FINAL_MESSAGE_MAX_CHARS),
+    ...(second.result?.usage !== undefined ? { usage: second.result.usage } : {}),
   };
 }
 
@@ -2291,6 +2439,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   "chat-read": runChatRead,
   "chat-no-act": runChatNoAct,
   "chat-no-leak": runChatNoLeak,
+  "chat-resume": runChatResume,
 };
 
 /* ------------------------------------------------------------------ *

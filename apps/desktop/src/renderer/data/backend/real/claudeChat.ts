@@ -17,6 +17,7 @@ import type {
   MentionResult,
   SlashCommand,
 } from "../../types";
+import i18n from "../../../i18n";
 import { appClient, session } from "./client";
 import { listPeople } from "./people";
 import { listProjects } from "./projects";
@@ -54,8 +55,18 @@ export function contextProjectOf(context: ClaudeConversationContext | null | und
   return context?.kind === "project" ? context.id : null;
 }
 
-/** Il codice di ogni task e richiesta risolta per il chip (dall'indirizzo, `contextIdOf`). */
-const codeOfObject = new Map<string, string>();
+/**
+ * Il codice di ogni task e richiesta risolta per il chip (dall'indirizzo,
+ * `contextIdOf`), PER PERSONA: chi entra dopo non eredita ciò che vedeva
+ * un altro.
+ */
+const codesByPerson = new Map<string, Map<string, string>>();
+function codeOfObjectFor(): Map<string, string> {
+  const me = session.personId ?? "";
+  let codes = codesByPerson.get(me);
+  if (!codes) codesByPerson.set(me, (codes = new Map()));
+  return codes;
+}
 
 async function taskCodeOf(taskId: string): Promise<{ code: string; projectId: string } | null> {
   try {
@@ -78,11 +89,11 @@ async function taskCodeOf(taskId: string): Promise<{ code: string; projectId: st
 export async function serverContextOf(ref: ContextRef): Promise<ClaudeConversationContext | null> {
   switch (ref.kind) {
     case "task": {
-      const code = codeOfObject.get(ref.taskId) ?? (await taskCodeOf(ref.taskId))?.code;
+      const code = codeOfObjectFor().get(ref.taskId) ?? (await taskCodeOf(ref.taskId))?.code;
       return code ? { kind: "task", id: code } : null;
     }
     case "request": {
-      const code = codeOfObject.get(ref.requestId) ?? (await getRequest(ref.requestId).catch(() => null))?.code;
+      const code = codeOfObjectFor().get(ref.requestId) ?? (await getRequest(ref.requestId).catch(() => null))?.code;
       return code ? { kind: "request", id: code } : null;
     }
     case "page":
@@ -102,13 +113,13 @@ export const describeContext: typeof Fake.describeContext = async (ref) => {
     case "task": {
       const found = await taskCodeOf(ref.taskId);
       if (!found) return null;
-      codeOfObject.set(ref.taskId, found.code);
+      codeOfObjectFor().set(ref.taskId, found.code);
       return { code: found.code, labelKey: `${K}.kind.task`, projectId: found.projectId };
     }
     case "request": {
       const r = await getRequest(ref.requestId).catch(() => null);
       if (!r) return null;
-      codeOfObject.set(ref.requestId, r.code);
+      codeOfObjectFor().set(ref.requestId, r.code);
       return { code: r.code, labelKey: `${K}.kind.request`, projectId: r.projectId };
     }
     case "page": {
@@ -139,18 +150,31 @@ export const contextIdOf: typeof Fake.contextIdOf = async (kind, code) => {
   if (kind !== "task") return null;
   const task = await getTaskByCode(code);
   if (!task) return null;
-  codeOfObject.set(task.id, task.code);
+  codeOfObjectFor().set(task.id, task.code);
   return task.id;
 };
 
 const stateOf = (state: View["state"]): Conversation["state"] =>
   state === "working" || state === "queued" ? "working" : state === "ended" ? "finished" : "idle";
 
-/** Le conversazioni libere lette: `sendMessage` le riconosce (contesto, budget). */
-export const freeConversationIds = new Set<string>();
+/** Le conversazioni libere lette, PER PERSONA: `sendMessage` le riconosce (contesto, budget). */
+const freeByPerson = new Map<string, Set<string>>();
+function freeIdsFor(): Set<string> {
+  const me = session.personId ?? "";
+  let ids = freeByPerson.get(me);
+  if (!ids) freeByPerson.set(me, (ids = new Set()));
+  return ids;
+}
+export const isFreeConversation = (id: string): boolean => freeIdsFor().has(id);
+
+/** Cambio di persona o test: via le memorie della chat. */
+export function forgetChatCaches(): void {
+  codesByPerson.clear();
+  freeByPerson.clear();
+}
 
 export function toConversation(v: View): Conversation {
-  freeConversationIds.add(v.id);
+  freeIdsFor().add(v.id);
   return {
     id: v.id,
     kind: "free",
@@ -188,9 +212,19 @@ export function toFreeRow(v: View): ConversationRow {
 }
 
 /** Le proprie, attive o archiviate, dalla più recente. */
+/** Quante pagine dell'elenco si leggono al più (100 conversazioni l'una). */
+const MINE_PAGES = 5;
+
 export async function listMine(archived: boolean): Promise<ConversationRow[]> {
-  const list = await appClient().claude.conversations.list({ archived });
-  return list.items.map(toFreeRow).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+  const rows: ConversationRow[] = [];
+  let before: string | undefined;
+  for (let page = 0; page < MINE_PAGES; page++) {
+    const list = await appClient().claude.conversations.list({ archived, limit: 100, ...(before ? { before } : {}) });
+    rows.push(...list.items.map(toFreeRow));
+    if (!list.nextCursor) break;
+    before = list.nextCursor;
+  }
+  return rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
 }
 
 export const createConversation: typeof Fake.createConversation = async (input = {}) => {
@@ -242,22 +276,20 @@ export async function chatAiBlock(projectId: string | null): Promise<AiBlock | n
 // --- «/», «#», «@» e i codici nei testi -------------------------------------------
 
 /**
- * I comandi di «/» di questa fetta: solo quelli che si risolvono LEGGENDO
- * (Claude non crea, non pianifica e non avvia niente qui). Le skill dei
- * plugin del progetto non ci sono: il server non le espone ancora.
+ * I comandi di «/» di questa fetta: solo quelli che i tool di lettura coprono
+ * davvero (`read_task`/`read_request` per `/explain`, `search_docs` per
+ * `/docs`). `/status` e `/today` del prototipo leggono progetti seguiti,
+ * decisioni e la settimana di chi scrive, che i tool non vedono: tornano con
+ * la fetta che li copre. Le skill dei plugin non ci sono (il server non le
+ * espone). Le descrizioni nella lingua di chi guarda.
  */
-const READ_COMMANDS: readonly [string, string][] = [
-  ["status", "Where the projects stand: pulse of your pinned projects"],
-  ["today", "What you have to do today: decisions, late tasks, your week"],
-  ["explain", "Explain a task or a request, by its code"],
-  ["docs", "How something works in a project, from its Docs"],
-];
+const READ_COMMANDS = ["explain", "docs"] as const;
 
 export const listCommands: typeof Fake.listCommands = async () =>
-  READ_COMMANDS.map<SlashCommand>(([id, description]) => ({
+  READ_COMMANDS.map<SlashCommand>((id) => ({
     id: `cmd-${id}`,
     label: `/${id}`,
-    description,
+    description: i18n.t(`claude.conversation.commands.${id}`),
     source: "stubwise",
   }));
 

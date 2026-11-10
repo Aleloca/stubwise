@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { and, eq, sql } from "drizzle-orm";
 import {
   agentSessionInputs,
@@ -31,7 +29,8 @@ import { isLimitError } from "../providers/limit.js";
 import { limitTextOfRun, type SelectDeps } from "../providers/select.js";
 import { claudeChatSession } from "../sessions/owners.js";
 import { getContentLanguage } from "../settings.js";
-import { buildChatMcpConfig, chatServerPath, type ChatBridge, type ChatTurnGrant } from "./bridge.js";
+import { buildChatMcpConfig, chatServerPath, type ChatBridge } from "./bridge.js";
+import { ensureChatCwd, type ChatCliPaths } from "./cli-dir.js";
 import { buildChatPrimingPrompt, buildChatResumePrompt } from "./prompts.js";
 
 /**
@@ -97,6 +96,8 @@ export interface ChatTurnDeps {
   maxTurns: number;
   turnTimeoutMs: number;
   chatServerPath?: string;
+  /** Radici di cwd e trascrizioni del CLI (test). */
+  cliPaths?: ChatCliPaths;
   monthlyCostUsdFn?: (db: Db) => Promise<number>;
   select: SelectDeps;
   log: (m: string) => void;
@@ -145,28 +146,28 @@ export async function runChatTurn(
     return "skipped";
   }
 
-  let cwd: string | undefined;
-  let grant: ChatTurnGrant | undefined;
-  let token: string | undefined;
+  // L'entry del server MCP compilata: senza, nessun turno (fail-closed). Un
+  // turno senza tool risponderebbe senza poter leggere, cioè inventando.
+  const serverPath = deps.chatServerPath ?? chatServerPath();
+  if (!existsSync(serverPath)) {
+    log(`[chat] entry MCP assente (${serverPath}): nessun turno per la sessione ${sid}`);
+    await markUndelivered(db, sid, opening.id, "turn_failed", ["pending"]);
+    return "failed";
+  }
+
   let resumeRejected = false;
   const saveCliSessionId = (cliSessionId: string | null) =>
-    db.update(claudeConversations).set({ cliSessionId }).where(eq(claudeConversations.sessionId, sid));
+    db
+      .update(claudeConversations)
+      .set({ cliSessionId, ...(cliSessionId === null ? { cliSessionStartedAt: null } : {}) })
+      .where(eq(claudeConversations.sessionId, sid));
   try {
     if (input.signal.aborted) return "cancelled";
-    // 3. Una cartella vuota per turno: nessun file da leggere, nessun
+    // 3. La cwd della conversazione: DETERMINISTICA (il CLI indicizza
+    //    `--resume` per cwd) e vuota — nessun file da leggere, nessun
     //    `.claude/` o `.mcp.json` intorno (e `--setting-sources ""` comunque).
-    cwd = await mkdtemp(join(tmpdir(), "stubwise-chat-"));
-
-    // 4. Token del turno e ponte. Il token resta nel ponte (grant), non va altrove.
-    token = await issueChatToolToken(db, {
-      sessionId: sid,
-      userId: ownerId,
-      ttlMs: deps.turnTimeoutMs + TOKEN_TTL_MARGIN_MS,
-    });
-    grant = deps.bridge.grant({ sessionId: sid, serverToken: token });
-    const mcp = buildChatMcpConfig(deps.bridge, grant, deps.chatServerPath ?? chatServerPath());
-    if (mcp === null) log(`[chat] tool di lettura non disponibili (entry MCP assente) per la sessione ${sid}`);
-    const allowedTools = [...(mcp?.tools ?? [])];
+    //    Resta fra i turni; la tolgono l'eliminazione e la potatura.
+    const cwd = await ensureChatCwd(sid, deps.cliPaths);
     const disallowedTools = chatDisallowedTools();
 
     const priming = async () =>
@@ -175,38 +176,59 @@ export async function runChatTurn(
           language: await getContentLanguage(db),
           authorName: conv.displayName?.trim() || conv.email.split("@")[0]!,
           context: (conv.conversation.contextRef as ClaudeConversationContext | null) ?? null,
-          toolsAvailable: mcp !== null,
+          toolsAvailable: true,
           recentTranscript: await recentTranscript(db, sid, opening.id),
         },
         opening.text,
       );
     const session = claudeChatSession(sid, randomUUID());
-    const turnCwd = cwd;
-    const attempt = (
+    /**
+     * UN tentativo, col SUO token e il SUO segreto del ponte: un tentativo che
+     * ne segue un altro (account al limite, `--resume` rifiutato) non eredita
+     * un token che stava per scadere, e nessuno resta vivo dopo il tentativo.
+     */
+    const attempt = async (
       resumeSessionId: string | null,
       prompt: string,
       provider: ResolvedProvider | undefined,
-    ): Promise<AgentRunResult> =>
-      deps.runner.run({
-        cwd: turnCwd,
-        prompt,
-        permissionMode: "default",
-        allowedTools,
-        disallowedTools,
-        settingSources: "",
-        // Nessun tool nativo: restano solo quelli di `stubwise_chat`.
-        builtinTools: "",
-        maxTurns: deps.maxTurns,
-        timeoutMs: deps.turnTimeoutMs,
-        ...(deps.model !== undefined ? { model: deps.model } : {}),
-        ...(provider !== undefined ? { provider } : {}),
-        ...(resumeSessionId !== null ? { resumeSessionId } : {}),
-        ...(mcp !== null ? { mcpConfig: mcp.mcpConfig } : {}),
-        session,
-        openingInput: { inputId: opening.id, text: opening.text, authorUserId: opening.authorUserId },
-        signal: input.signal,
-        usage: { operation: "claude_chat", projectId: null },
-      } satisfies AgentRunOptions);
+    ): Promise<AgentRunResult> => {
+      const token = await issueChatToolToken(db, {
+        sessionId: sid,
+        userId: ownerId,
+        ttlMs: deps.turnTimeoutMs + TOKEN_TTL_MARGIN_MS,
+      });
+      const grant = deps.bridge.grant({ sessionId: sid, serverToken: token });
+      try {
+        const mcp = buildChatMcpConfig(deps.bridge, grant, serverPath);
+        if (mcp === null) throw new Error("entry MCP della chat sparita");
+        return await deps.runner.run({
+          cwd,
+          prompt,
+          permissionMode: "default",
+          allowedTools: [...mcp.tools],
+          disallowedTools,
+          settingSources: "",
+          // Nessun tool nativo: restano solo quelli di `stubwise_chat`.
+          builtinTools: "",
+          maxTurns: deps.maxTurns,
+          timeoutMs: deps.turnTimeoutMs,
+          ...(deps.model !== undefined ? { model: deps.model } : {}),
+          ...(provider !== undefined ? { provider } : {}),
+          ...(resumeSessionId !== null ? { resumeSessionId } : {}),
+          mcpConfig: mcp.mcpConfig,
+          session,
+          openingInput: { inputId: opening.id, text: opening.text, authorUserId: opening.authorUserId },
+          signal: input.signal,
+          usage: { operation: "claude_chat", projectId: null },
+        } satisfies AgentRunOptions);
+      } finally {
+        grant.revoke();
+        await revokeChatToolToken(db, token).catch((e: unknown) => {
+          // Mai il token nel log: scade comunque da sé.
+          log(`[chat] token del turno della sessione ${sid} non revocato (scade da sé): ${describeError(e)}`);
+        });
+      }
+    };
 
     const stored = conv.conversation.cliSessionId;
     const context = (conv.conversation.contextRef as ClaudeConversationContext | null) ?? null;
@@ -245,7 +267,12 @@ export async function runChatTurn(
     const result = outcome.result;
     if (result.exitCode !== 0) {
       const keep = result.sessionId ?? (resumeRejected ? null : stored);
-      if (keep !== stored) await saveCliSessionId(keep);
+      if (keep !== stored) {
+        await db
+          .update(claudeConversations)
+          .set({ cliSessionId: keep, cliSessionStartedAt: keep === null ? null : sql`now()` })
+          .where(eq(claudeConversations.sessionId, sid));
+      }
       resumeRejected = false;
       throw new Error(`agente uscito con exit ${result.exitCode}`);
     }
@@ -253,9 +280,15 @@ export async function runChatTurn(
     // 7. Riuscito.
     const fallbackId = resumeRejected ? null : stored;
     resumeRejected = false;
+    const nextId = result.sessionId ?? fallbackId;
     await db
       .update(claudeConversations)
-      .set({ cliSessionId: result.sessionId ?? fallbackId, updatedAt: sql`now()` })
+      .set({
+        cliSessionId: nextId,
+        // Una sessione del CLI NUOVA ha la sua data: la potatura la scarta dopo 14 giorni.
+        ...(nextId !== stored ? { cliSessionStartedAt: nextId === null ? null : sql`now()` } : {}),
+        updatedAt: sql`now()`,
+      })
       .where(eq(claudeConversations.sessionId, sid));
     if (!(await echoed(db, sid, opening.id))) {
       log(`[chat] turno della sessione ${sid} riuscito senza eco dell'input ${opening.id}: marcato turn_failed`);
@@ -293,18 +326,10 @@ export async function runChatTurn(
     }
     return "failed";
   } finally {
-    grant?.revoke();
-    if (token !== undefined) {
-      await revokeChatToolToken(db, token).catch((e: unknown) => {
-        // Mai il token nel log: scade comunque da sé.
-        log(`[chat] token del turno della sessione ${sid} non revocato (scade da sé): ${describeError(e)}`);
-      });
-    }
     if (resumeRejected) {
       await saveCliSessionId(null).catch((e: unknown) => {
         log(`[chat] cli_session_id della sessione ${sid} non azzerato: ${describeError(e)}`);
       });
     }
-    if (cwd !== undefined) await rm(cwd, { recursive: true, force: true }).catch(() => undefined);
   }
 }

@@ -185,10 +185,11 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
 
   // --- righe e carico --------------------------------------------------------
   const rowPeople = useMemo(() => {
-    // Claude ha una riga dove si assegna (nella build app: i progetti della sua
-    // riga di `/api/people`, area 3 3e.2).
+    // Claude ha sempre la sua riga, col suo carico, come nel prototipo; dove chi
+    // guarda non può assegnarlo è in sola lettura (`readOnly` sotto, e
+    // `planBlock` con `assignableIn` la toglie dai bersagli).
     const list = people.data ?? [];
-    if (projectCode) return list.filter((p) => isAssignableIn(p, project)).sort(byName);
+    if (projectCode) return list.filter((p) => p.isClaude || isAssignableIn(p, project)).sort(byName);
     // Trasversale: le persone del reparto, e Claude sempre ultimo.
     return list.filter((p) => p.isClaude || (departmentId && p.departmentIds.includes(departmentId))).sort(byName);
   }, [people.data, projectCode, project, departmentId]);
@@ -218,10 +219,17 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
           )
           .sort((a, b) => b.slipCount - a.slipCount || a.code.localeCompare(b.code, "en", { numeric: true }));
       }
-      const readOnly = projectId && !othersHere && person.id !== me ? t("planning.readOnlyRow") : null;
+      const readOnly =
+        // Claude dove chi guarda non può avviarne il lavoro (area 3, 3e.2); nel
+        // trasversale lo decide `planBlock` task per task.
+        person.isClaude && projectId && !isAssignableIn(person, project)
+          ? t("planning.claudeReadOnly")
+          : projectId && !othersHere && person.id !== me
+            ? t("planning.readOnlyRow")
+            : null;
       return { person, load: loads.get(person.id)!, tasksByWeek, readOnly };
     });
-  }, [all.data, rowPeople, weeks, projectId, othersHere, me, loads, t]);
+  }, [all.data, rowPeople, weeks, projectId, project, othersHere, me, loads, t]);
 
   const poolTasks = useMemo(() => {
     const rowIds = new Set(rowPeople.map((p) => p.id));

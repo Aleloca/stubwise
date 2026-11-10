@@ -126,7 +126,7 @@ describe("le sessioni di lavoro dal server", () => {
     expect(await listConversations({ scope: "mine" })).toMatchObject([
       { id: SESSION_ID, kind: "free", title: "Who follows AUD-12?", contextProjectId: "p1", state: "working", visibility: "private" },
     ]);
-    expect(seen.map((r) => r.path)).toEqual(["/api/claude/conversations?scope=mine"]);
+    expect(seen.map((r) => r.path)).toEqual(["/api/claude/conversations?scope=mine&limit=100"]);
     expect(await listConversations({ scope: "public" })).toEqual([]);
     expect(seen).toHaveLength(1);
   });

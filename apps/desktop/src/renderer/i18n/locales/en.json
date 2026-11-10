@@ -1812,6 +1812,7 @@
     "loadOthers": "Other projects",
     "loadAll": "All projects",
     "readOnlyRow": "You can only plan your own tasks here",
+    "claudeReadOnly": "Only someone who can start Claude's work plans for Claude",
     "readOnlyProject": "You can't plan tasks in {{project}}",
     "notMember": "Not a member of this task's project",
     "closed": "Closed tasks aren't planned",
@@ -4172,7 +4173,9 @@
         "stopAndSendNoFiles": "Remove the attachments to stop and send",
         "absorb": "The message reaches Claude when the current action finishes.",
         "absorbFree": "Claude answers this after the current reply.",
-        "sendSuspended": "Reconnecting: you can keep writing, sending resumes when the connection is back."
+        "sendSuspended": "Reconnecting: you can keep writing, sending resumes when the connection is back.",
+        "retention_one": "Conversations inactive for {{count}} day are deleted.",
+        "retention_other": "Conversations inactive for {{count}} days are deleted."
       },
       "context": {
         "menu": "Project context",
@@ -4361,6 +4364,10 @@
       "capabilities": {
         "label": "What I can do",
         "write": "Write it"
+      },
+      "commands": {
+        "explain": "Explain a task or a request, by its code",
+        "docs": "How something works in a project, from its Docs"
       }
     },
     "destination": {

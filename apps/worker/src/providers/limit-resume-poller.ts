@@ -1,4 +1,5 @@
 import {
+  CANCEL_REQUEST_CLEARED,
   aiJobs,
   comments,
   docGenerationJobs,
@@ -306,6 +307,8 @@ async function tick(deps: LimitResumeDeps): Promise<number> {
           status: "queued",
           startedAt: null,
           finishedAt: null,
+          // Una richiesta di annullamento di un tentativo di prima non vale per la ripresa.
+          ...CANCEL_REQUEST_CLEARED,
           lastActivityAt: sql`now()`,
           log: sql`${aiJobs.log} || ${`${RESUME_LOG_LINE}\n`}`,
         })

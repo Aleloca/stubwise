@@ -27,6 +27,7 @@ import {
   type DocNode,
 } from "../nodes.js";
 import { loadBriefContext } from "./brief-context.js";
+import { NATIVE_TOOLS, nativeToolsWith } from "../../agent/native-tools.js";
 
 /**
  * EXPLORE HANDLER — esegue la FASE di esplorazione di un nodo del DAG (M5.3).
@@ -183,6 +184,8 @@ async function runExploreAgent(
       // Col grafo: i soli pattern Bash read-only del CLI (in plan mode è l'unica
       // apertura Bash del run). Senza grafo la chiave non compare affatto.
       ...(hasGraph ? { allowedTools: GRAPHIFY_AGENT_ALLOWED_TOOLS } : {}),
+      // Sola lettura (`native-tools.ts`); Bash solo coi comandi del grafo.
+      builtinTools: nativeToolsWith(NATIVE_TOOLS.readOnly, hasGraph ? GRAPHIFY_AGENT_ALLOWED_TOOLS : undefined),
       ...providerOpt,
     });
     costUsd += result.usage?.totalCostUsd ?? 0;

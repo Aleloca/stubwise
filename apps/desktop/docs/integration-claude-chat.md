@@ -47,10 +47,13 @@ help you…»), `claude-chat-actions` (proposte e azioni in chat) e `product-doc
 | La riga di benvenuto promette la sola lettura (`landing.introRead`) | orchestratrice (approvato) |
 | Il titolo dal primo messaggio anche per una conversazione nata vuota | orchestratrice (approvato) |
 | UN contesto per conversazione: il chip di un messaggio lo sostituisce (l'ultimo vince); per task e richieste al server va il CODICE, che il modello rilegge coi tool | costruttore (approvato) |
-| «/» solo coi comandi di lettura; nessuna skill dei plugin del progetto | costruttore |
+| Nessuna skill dei plugin del progetto in «/» | costruttore |
 | «#» senza richieste e pagine Docs; le citazioni registrate sui messaggi non esistono sul server (Claude cita col codice nel testo) | costruttore / server |
 | Il chip c'è per task, richieste, pagine e impostazioni di progetto; gli oggetti delle aree non integrate (rilasci, supporto, PR, automazioni, posta) non danno chip né contesto | costruttore |
-| Conversazioni senza chiusura per inattività né retention; il budget in chat non lo scavalca nessuno | costruttore |
+| Conservazione: le conversazioni inattive da 14 giorni si potano come le altre sessioni (`pruneAgentSessions`), con le trascrizioni del CLI (`claude-chat/cli-dir.ts`, potatura dello scheduler); la sessione del CLI nata da più di 14 giorni si scarta. La casella lo dice («Conversations inactive for 14 days are deleted») | maintainer (review delle fette 1–2) |
+| Il budget in chat non lo scavalca nessuno | costruttore |
+| `--resume` vero: cwd deterministica per conversazione (`<tmp>/stubwise-chat/<id>`); eliminare la conversazione toglie cwd e trascrizioni del CLI | review delle fette 1–2 |
+| «/» con `/explain` e `/docs` soli (i comandi che i tool di lettura coprono), descrizioni tradotte | review delle fette 1–2 |
 | Nessun allegato nei messaggi (`claude-attachments` resta spenta) | server |
 
 ## Rimandate

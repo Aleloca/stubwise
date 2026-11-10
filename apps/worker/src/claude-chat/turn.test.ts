@@ -19,6 +19,7 @@ import { CHAT_MCP_SERVER_NAME, CHAT_TOOL_NAMES } from "@stubwise/shared";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
 import { fakeSelect } from "../providers/select-fake.js";
 import { startChatBridge, type ChatBridge } from "./bridge.js";
+import { chatCwd } from "./cli-dir.js";
 import { CHAT_DENIED_BUILTIN_TOOLS, runChatTurn, type ChatTurnDeps } from "./turn.js";
 
 // Un turno della conversazione libera (chat, fetta 1): solo i tool di lettura
@@ -30,6 +31,7 @@ let bridge: ChatBridge;
 let ownerId: string;
 let otherId: string;
 let serverPath: string;
+let cliTmp: string;
 /** Le GET che il ponte farebbe al server: col token del turno. */
 const serverCalls: { url: string; auth: string | null }[] = [];
 
@@ -50,6 +52,7 @@ beforeAll(async () => {
   // L'entry del server MCP deve esistere perché il turno lo configuri.
   const dir = await mkdtemp(join(tmpdir(), "chat-mcp-"));
   serverPath = join(dir, "index.js");
+  cliTmp = await mkdtemp(join(tmpdir(), "chat-turn-cli-"));
   await writeFile(serverPath, "");
 }, 120_000);
 afterAll(async () => {
@@ -107,6 +110,7 @@ function deps(runner: AgentRunner, over: Partial<ChatTurnDeps> = {}): ChatTurnDe
     maxTurns: 10,
     turnTimeoutMs: 60_000,
     chatServerPath: serverPath,
+    cliPaths: { tmp: cliTmp, configDir: join(cliTmp, "config") },
     select: fakeSelect(t.db, "legacy"),
     log: () => undefined,
     ...over,
@@ -143,7 +147,9 @@ describe("il turno della chat", () => {
     expect(o.prompt).toContain("You do NOT do anything");
     expect(o.prompt).toContain("Ada");
     expect(cwdEmpty).toBe(true);
-    expect(existsSync(o.cwd)).toBe(false);
+    // La cwd resta fra i turni: è quella con cui il CLI ritrova la sessione.
+    expect(o.cwd).toBe(chatCwd(s.sessionId, cliTmp));
+    expect(existsSync(o.cwd)).toBe(true);
     const [conv] = await t.db.select().from(claudeConversations).where(eq(claudeConversations.sessionId, s.sessionId));
     expect(conv!.cliSessionId).toBe("cli-1");
     expect((await inputOf(s.inputId)).status).toBe("delivered");
@@ -187,6 +193,55 @@ describe("il turno della chat", () => {
       body: "{}",
     });
     expect(late.status).toBe(401);
+  });
+
+  it("due turni: la STESSA cwd, e il secondo riprende la sessione del CLI del primo", async () => {
+    const s1 = await seeded();
+    const first = fakeRunner([async (o) => (await echo(o), { ...OK, sessionId: "cli-due-turni" })]);
+    await runChatTurn(deps(first.runner), { ...s1, signal: new AbortController().signal });
+    const [after] = await t.db.select().from(claudeConversations).where(eq(claudeConversations.sessionId, s1.sessionId));
+    expect(after!.cliSessionStartedAt).not.toBeNull();
+    const [input2] = await t.db
+      .insert(agentSessionInputs)
+      .values({ sessionId: s1.sessionId, text: "E poi?", authorUserId: ownerId })
+      .returning();
+    const second = fakeRunner([async (o) => (await echo(o), { ...OK, sessionId: "cli-due-turni" })]);
+    await runChatTurn(deps(second.runner), { sessionId: s1.sessionId, inputId: input2!.id, signal: new AbortController().signal });
+    expect(second.calls[0]!.cwd).toBe(first.calls[0]!.cwd);
+    expect(second.calls[0]!.resumeSessionId).toBe("cli-due-turni");
+    const [still] = await t.db.select().from(claudeConversations).where(eq(claudeConversations.sessionId, s1.sessionId));
+    // La stessa sessione del CLI: la sua data non si sposta.
+    expect(still!.cliSessionStartedAt!.getTime()).toBe(after!.cliSessionStartedAt!.getTime());
+  });
+
+  it("senza l'entry MCP compilata: nessun turno (fail-closed), turn_failed, nessun token", async () => {
+    const s = await seeded();
+    const { runner } = fakeRunner([async () => OK]);
+    expect(await runChatTurn(deps(runner, { chatServerPath: "/non/esiste/index.js" }), { ...s, signal: new AbortController().signal })).toBe("failed");
+    expect(runner.run).not.toHaveBeenCalled();
+    expect(await inputOf(s.inputId)).toMatchObject({ status: "undelivered", reason: "turn_failed" });
+    expect(await tokensOf(s.sessionId)).toEqual([]);
+  });
+
+  it("un token per TENTATIVO: --resume rifiutato → due token, ciascuno revocato a fine tentativo", async () => {
+    const s = await seeded({ cliSessionId: "cli-perso" });
+    const live: number[] = [];
+    const { runner } = fakeRunner([
+      async () => {
+        live.push((await tokensOf(s.sessionId)).filter((r) => r.revokedAt === null).length);
+        return { exitCode: 1, output: "No conversation found", sessionId: undefined };
+      },
+      async (o) => {
+        live.push((await tokensOf(s.sessionId)).filter((r) => r.revokedAt === null).length);
+        await echo(o);
+        return OK;
+      },
+    ]);
+    await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal });
+    expect(live).toEqual([1, 1]);
+    const all = await tokensOf(s.sessionId);
+    expect(all).toHaveLength(2);
+    expect(all.every((r) => r.revokedAt !== null)).toBe(true);
   });
 
   it("riprende con --resume quando la conversazione CLI c'è", async () => {

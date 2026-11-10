@@ -686,6 +686,29 @@ function toSummary(row: Row, lang: Language): AgentSessionSummary {
   };
 }
 
+/**
+ * Lo stato derivato di più conversazioni libere di chi guarda, in UNA query
+ * (l'elenco di `/api/claude/conversations`): le altre, e quelle di un altro,
+ * non tornano.
+ */
+export async function freeSessionStates(
+  db: Db,
+  viewer: SessionViewer,
+  ids: readonly string[],
+): Promise<Map<string, { state: AgentSessionState; lastEventAt: string | null }>> {
+  if (ids.length === 0) return new Map();
+  const lang = await getContentLanguage(db);
+  const rows = await baseSelect(db).where(
+    and(visibleTo(viewer), eq(agentSessions.kind, "free"), inArray(agentSessions.id, [...ids])),
+  );
+  return new Map(
+    rows.map((row) => {
+      const summary = toSummary(row, lang);
+      return [summary.id, { state: summary.state, lastEventAt: summary.lastEventAt }] as const;
+    }),
+  );
+}
+
 /** Email degli utenti in `ids` (UNA query): la stessa proiezione degli autori dei commenti. */
 async function emailsOf(db: Db, ids: Iterable<string>): Promise<Map<string, string>> {
   const unique = [...new Set(ids)];

@@ -36,7 +36,11 @@ export const claudeConversationSchema = z.object({
 });
 export type ClaudeConversation = z.infer<typeof claudeConversationSchema>;
 
-export const claudeConversationListSchema = z.object({ items: z.array(claudeConversationSchema) });
+export const claudeConversationListSchema = z.object({
+  items: z.array(claudeConversationSchema),
+  /** Il cursore della pagina dopo (`?before=`); `null` = finite. Default per un server più vecchio. */
+  nextCursor: z.string().nullable().default(null),
+});
 
 /** Il dettaglio: la conversazione e la sua sessione (permessi, interventi, stato). */
 export const claudeConversationDetailSchema = claudeConversationSchema.extend({
@@ -66,6 +70,8 @@ export type PatchClaudeConversationInput = z.infer<typeof patchClaudeConversatio
 export const claudeConversationListQuerySchema = z.object({
   scope: z.literal("mine").default("mine"),
   archived: z.enum(["true", "false"]).default("false"),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  before: z.string().max(200).optional(),
 });
 
 /**

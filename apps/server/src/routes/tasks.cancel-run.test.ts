@@ -28,6 +28,7 @@ let repositoryId: string;
 type U = { id: string; headers: { cookie: string } };
 let developer: U;
 let viewer: U;
+let lead: U;
 let n = 0;
 
 beforeAll(async () => {
@@ -39,6 +40,8 @@ beforeAll(async () => {
   viewer = await createUserWithSession(app, "viewer-c@example.com");
   await addMember(app, projectId, developer.id, "developer");
   await addMember(app, projectId, viewer.id, "viewer");
+  lead = await createUserWithSession(app, "lead-c@example.com");
+  await addMember(app, projectId, lead.id, "project_lead");
 }, 120_000);
 
 afterAll(async () => {
@@ -220,5 +223,60 @@ describe("POST /api/tasks/:id/cancel-run", () => {
     expect(c!.status).toBe("done");
     expect(await testDb.db.select().from(ticketRepositories).where(eq(ticketRepositories.ticketId, ticketId))).toEqual(before);
     expect((await systemComments(ticketId))[0]!.body).toMatch(/PR/);
+  });
+});
+
+/**
+ * Una richiesta di annullamento vale per QUEL tentativo (review dell'area 3,
+ * punto 1): ogni transizione che fa ripartire il job la azzera. Senza, il job
+ * riciclato da `startRun` (o ripreso da un'approvazione, da una risposta)
+ * sarebbe annullato al claim dal worker (`checkCancelNow`), per sempre.
+ */
+describe("dopo un annullamento il lavoro riparte", () => {
+  const flag = async (jobId: string) =>
+    (
+      await testDb.db
+        .select({ status: aiJobs.status, at: aiJobs.cancelRequestedAt, by: aiJobs.cancelRequestedByUserId })
+        .from(aiJobs)
+        .where(eq(aiJobs.id, jobId))
+    )[0]!;
+  const post = (url: string, who: U, payload?: object) =>
+    app.inject({ method: "POST", url, headers: { cookie: who.headers.cookie }, ...(payload ? { payload } : {}) });
+
+  it("annulla → rilancia → il run parte: il job riciclato è in coda SENZA la richiesta di prima", async () => {
+    for (const status of ["queued", "fixing"] as const) {
+      const { ticketId, jobId } = await taskWithJob(status);
+      expect([200, 202]).toContain((await cancel(ticketId, developer)).statusCode);
+      // Il worker chiude il job in esecuzione (qui a mano); quello parcheggiato l'ha chiuso il server.
+      await testDb.db.update(aiJobs).set({ status: "skipped", finishedAt: new Date() }).where(eq(aiJobs.id, jobId));
+      expect((await flag(jobId)).at).not.toBeNull();
+      const res = await post(`/api/tickets/${ticketId}/run-ai`, developer);
+      expect(res.statusCode, `${status}: ${res.body}`).toBe(202);
+      expect(await flag(jobId)).toEqual({ status: expect.stringMatching(/^(queued|awaiting_plan_approval)$/), at: null, by: null });
+    }
+  });
+
+  it("annullamento chiesto mentre lavorava, poi parcheggiato sul piano → approva il piano → parte senza la richiesta", async () => {
+    const { ticketId, jobId } = await taskWithJob("fixing", { planText: "## Piano", requestedByUserId: developer.id });
+    expect((await cancel(ticketId, developer)).statusCode).toBe(202);
+    // Il job si è parcheggiato prima dell'abort (la corsa del punto 2).
+    await testDb.db.update(aiJobs).set({ status: "awaiting_plan_approval" }).where(eq(aiJobs.id, jobId));
+    await testDb.db.update(tickets).set({ implementationPlan: "## Piano" }).where(eq(tickets.id, ticketId));
+    const res = await post(`/api/tickets/${ticketId}/approve-plan`, lead);
+    expect(res.statusCode, res.body).toBe(202);
+    expect(await flag(jobId)).toEqual({ status: "queued", at: null, by: null });
+  });
+
+  it("annullamento chiesto mentre lavorava, poi parcheggiato su una domanda → rispondi → riparte senza la richiesta", async () => {
+    const { ticketId, jobId } = await taskWithJob("fixing", { requestedByUserId: developer.id });
+    expect((await cancel(ticketId, developer)).statusCode).toBe(202);
+    await testDb.db.update(aiJobs).set({ status: "awaiting_input" }).where(eq(aiJobs.id, jobId));
+    const [q] = await testDb.db
+      .insert(agentQuestions)
+      .values({ jobId, ticketId, round: 1, question: "Quale?", options: [{ label: "A" }, { label: "B" }] })
+      .returning({ id: agentQuestions.id });
+    const res = await post(`/api/tickets/${ticketId}/questions/answer`, developer, { questionId: q!.id, optionIndex: 0 });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(await flag(jobId)).toEqual({ status: "queued", at: null, by: null });
   });
 });

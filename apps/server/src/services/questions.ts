@@ -30,6 +30,7 @@
  * ha risposto e cita la risposta — non al prompt.
  */
 import {
+  CANCEL_REQUEST_CLEARED,
   agentQuestions,
   aiJobs,
   comments,
@@ -254,6 +255,8 @@ export async function answerQuestion(
         .set({
           status: "queued",
           resumeMode: "plan_continue",
+          // Un annullamento chiesto prima del parcheggio non vale per la ripresa.
+          ...CANCEL_REQUEST_CLEARED,
           // Il claim del worker riscriverà `started_at`; qui basta far vedere al
           // job un'attività recente. `cli_session_id` NON si tocca: è la
           // sessione che la ripresa deve riprendere.

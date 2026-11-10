@@ -155,6 +155,12 @@ async function readCapturedArgv(root: string): Promise<string[]> {
  * Prefisso argv comune a ogni run: flag headless, il --permission-mode di
  * default (acceptEdits, nessun permissionMode esplicito) e --max-turns.
  */
+/**
+ * La coda di ogni argv (10 nov 2026): `--tools ""` (nessun nativo se il run
+ * non ne dichiara) e `--strict-mcp-config` anche senza server MCP.
+ */
+const ISOLATION_TAIL = ["--tools", "", "--strict-mcp-config"];
+
 function baseArgv(maxTurns: number): string[] {
   return [
     "-p",
@@ -422,7 +428,7 @@ printf '{"result":"altra risposta"}\\n'
 
     // Nessun flag NUOVO: è l'invariante dei 27 call site che non passano le
     // opzioni dei plugin.
-    expect(await readCapturedArgv(root)).toEqual(baseArgv(5));
+    expect(await readCapturedArgv(root)).toEqual([...baseArgv(5), ...ISOLATION_TAIL]);
   });
 
   it("ripete --plugin-dir per ogni directory, NELL'ORDINE dato", async () => {
@@ -445,7 +451,7 @@ printf '{"result":"altra risposta"}\\n'
       "--plugin-dir",
       "/plugins/stubwise-base",
       "--plugin-dir",
-      "/plugins/superpowers",
+      "/plugins/superpowers",      ...ISOLATION_TAIL,
     ]);
   });
 
@@ -463,7 +469,7 @@ printf '{"result":"altra risposta"}\\n'
       pluginDirs: [],
     });
 
-    expect(await readCapturedArgv(root)).toEqual(baseArgv(5));
+    expect(await readCapturedArgv(root)).toEqual([...baseArgv(5), ...ISOLATION_TAIL]);
   });
 
   it("aggiunge --disallowedTools con tutti i pattern (stesso formato di --allowedTools)", async () => {
@@ -484,7 +490,7 @@ printf '{"result":"altra risposta"}\\n'
       ...baseArgv(5),
       "--disallowedTools",
       "Skill(superpowers:brainstorming)",
-      "Skill(superpowers:writing-plans)",
+      "Skill(superpowers:writing-plans)",      ...ISOLATION_TAIL,
     ]);
   });
 
@@ -495,7 +501,7 @@ printf '{"result":"altra risposta"}\\n'
     const runner = new ClaudeCliRunner({ claudePath });
 
     await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 5, timeoutMs: 10_000 });
-    expect(await readCapturedArgv(root)).toEqual(baseArgv(5));
+    expect(await readCapturedArgv(root)).toEqual([...baseArgv(5), ...ISOLATION_TAIL]);
 
     await runner.run({ usage: TAG,
       cwd,
@@ -504,7 +510,7 @@ printf '{"result":"altra risposta"}\\n'
       timeoutMs: 10_000,
       disallowedTools: [],
     });
-    expect(await readCapturedArgv(root)).toEqual(baseArgv(5));
+    expect(await readCapturedArgv(root)).toEqual([...baseArgv(5), ...ISOLATION_TAIL]);
   });
 
   it("settingSources '' passa la STRINGA VUOTA come argomento a sé", async () => {
@@ -524,18 +530,37 @@ printf '{"result":"altra risposta"}\\n'
     // Due elementi in argv: il flag e un argomento vuoto. È il caso di
     // produzione — e l'unico valore che il tipo ammette (nessuna sorgente di
     // settings → insieme di skill e hook deterministico).
-    expect(await readCapturedArgv(root)).toEqual([...baseArgv(5), "--setting-sources", ""]);
+    expect(await readCapturedArgv(root)).toEqual([...baseArgv(5), "--setting-sources", "", ...ISOLATION_TAIL]);
   });
 
-  it("builtinTools '' passa `--tools` con la STRINGA VUOTA come argomento a sé", async () => {
+  it("tool nativi: senza builtinTools --tools \"\" (fail-closed) e --strict-mcp-config anche senza server MCP", async () => {
     const root = await makeRoot();
     const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
     const cwd = await makeCwd(root);
     const runner = new ClaudeCliRunner({ claudePath });
 
-    await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 5, timeoutMs: 10_000, builtinTools: "" });
+    await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 5, timeoutMs: 10_000 });
+    const argv = await readCapturedArgv(root);
+    // Il flag e un argomento VUOTO: nessun nativo. E nessun connettore MCP dell'account.
+    expect(argv.slice(argv.indexOf("--tools"), argv.indexOf("--tools") + 2)).toEqual(["--tools", ""]);
+    expect(argv).toContain("--strict-mcp-config");
+    expect(argv).not.toContain("--mcp-config");
+  });
 
-    expect(await readCapturedArgv(root)).toEqual([...baseArgv(5), "--tools", ""]);
+  it("tool nativi: un elenco diventa --tools con le virgole; [] e \"\" spengono tutto", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    await runner.run({ usage: TAG, cwd, prompt: "x", maxTurns: 5, timeoutMs: 10_000, builtinTools: ["Read", "Grep", "Glob", "Skill"] });
+    let argv = await readCapturedArgv(root);
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("Read,Grep,Glob,Skill");
+    for (const none of [[], ""] as const) {
+      await runner.run({ usage: TAG, cwd, prompt: "x", maxTurns: 5, timeoutMs: 10_000, builtinTools: none });
+      argv = await readCapturedArgv(root);
+      expect(argv[argv.indexOf("--tools") + 1]).toBe("");
+    }
   });
 
   it("le opzioni dei plugin convivono con allowedTools e mcpConfig senza interferire", async () => {
@@ -570,6 +595,8 @@ printf '{"result":"altra risposta"}\\n'
       "--plugin-dir",
       "/plugins/stubwise-base",
       "--setting-sources",
+      "",
+      "--tools",
       "",
       "--mcp-config",
       mcpPath,
@@ -626,7 +653,7 @@ printf '{"result":"altra risposta"}\\n'
     expect(await exists(dirname(configPath))).toBe(false);
   });
 
-  it("omette --mcp-config e --strict-mcp-config senza mcpConfig o con zero server", async () => {
+  it("senza mcpConfig o con zero server: niente --mcp-config, ma --strict-mcp-config sì (nessun connettore dell'account)", async () => {
     const root = await makeRoot();
     const claudePath = await makeFakeClaude(root);
     const cwd = await makeCwd(root);
@@ -634,7 +661,7 @@ printf '{"result":"altra risposta"}\\n'
 
     const omesso = await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 3, timeoutMs: 10_000 });
     expect(omesso.output).not.toContain("--mcp-config");
-    expect(omesso.output).not.toContain("--strict-mcp-config");
+    expect(omesso.output).toContain("--strict-mcp-config");
 
     const vuoto = await runner.run({ usage: TAG,
       cwd,
@@ -644,7 +671,7 @@ printf '{"result":"altra risposta"}\\n'
       mcpConfig: { servers: {} },
     });
     expect(vuoto.output).not.toContain("--mcp-config");
-    expect(vuoto.output).not.toContain("--strict-mcp-config");
+    expect(vuoto.output).toContain("--strict-mcp-config");
   });
 
   it("rimuove il file di config MCP anche quando il run va in timeout", async () => {

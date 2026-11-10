@@ -377,6 +377,8 @@ describe("runCorrection", () => {
     expect(runner.calls[0]!.permissionMode).toBe("acceptEdits");
     expect(runner.calls[0]!.model).toBe("sonnet");
     expect(runner.calls[0]!.mcpConfig).toBeUndefined();
+    // I nativi della correzione sono quelli dell'esecuzione (CLI 2.1.322).
+    expect(runner.calls[0]!.builtinTools).toEqual(["Read", "Write", "Edit", "Glob", "Grep", "Bash", "NotebookEdit", "Skill", "Task"]);
     expect(runner.calls[0]!.prompt).toContain("manca un test di regressione per sum");
     // Push in avanti: il nuovo commit ha come genitore la head di prima.
     const head = await upstreamHead(f);

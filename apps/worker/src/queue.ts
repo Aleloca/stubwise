@@ -1,11 +1,13 @@
-import { agentRuns, aiJobs, type Db } from "@stubwise/db";
+import { agentRuns, aiJobs, CANCEL_REQUEST_CLEARED, type Db } from "@stubwise/db";
 import {
+  completeCorrection,
   promoteStalePendings as promoteStalePendingsImpl,
   reconcileOrphanCorrections as reconcileOrphanCorrectionsImpl,
 } from "@stubwise/notifications";
 import type { HeldReason } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { AgentRunUsage, UsageTag } from "./agent/runner.js";
+import { cancelRequestedThisAttempt } from "./pipeline/cancel.js";
 import {
   claimNextDocJob as claimNextDocJobImpl,
   requeueStaleDocJobs as requeueStaleDocJobsImpl,
@@ -432,20 +434,41 @@ export interface RequeueStaleOptions {
  * che documenta il recupero. Restituisce quanti job sono stati ripristinati.
  */
 export async function requeueStale(db: Db, options: RequeueStaleOptions): Promise<number> {
+  const stale = and(
+    inArray(aiJobs.status, [...ACTIVE_STATUSES]),
+    sql`${aiJobs.lastActivityAt} < now() - make_interval(mins => ${options.olderThanMinutes}::int)`,
+  );
+  // Uno stantio con «Annulla il lavoro» chiesto in QUESTO tentativo (review
+  // dell'area 3, punto 10): chi l'ha chiesto non lo vuole di nuovo in coda, si
+  // chiude `skipped`, con la sua correzione (job e correzione si chiudono
+  // INSIEME). Il commento di chiusura non c'è: il processo che lo avrebbe
+  // scritto è morto (limite dichiarato).
+  await db.transaction(async (tx) => {
+    const closed = await tx
+      .update(aiJobs)
+      .set({
+        status: "skipped",
+        finishedAt: sql`now()`,
+        lastActivityAt: sql`now()`,
+        log: sql`${aiJobs.log} || ${"[stubwise] job chiuso: annullato («Annulla il lavoro») e il worker non ha dato segni di vita\n"}`,
+      })
+      .where(and(stale, cancelRequestedThisAttempt))
+      .returning({ correctionId: aiJobs.correctionId });
+    for (const { correctionId } of closed) {
+      if (correctionId !== null) await completeCorrection(tx, correctionId);
+    }
+  });
   const requeued = await db
     .update(aiJobs)
     .set({
       status: "queued",
       startedAt: null,
+      // Una richiesta di un tentativo di prima non vale per il prossimo.
+      ...CANCEL_REQUEST_CLEARED,
       lastActivityAt: sql`now()`,
       log: sql`${aiJobs.log} || ${"[stubwise] job riportato in coda: il worker non ha dato segni di vita entro il timeout\n"}`,
     })
-    .where(
-      and(
-        inArray(aiJobs.status, [...ACTIVE_STATUSES]),
-        sql`${aiJobs.lastActivityAt} < now() - make_interval(mins => ${options.olderThanMinutes}::int)`,
-      ),
-    )
+    .where(stale)
     .returning({ id: aiJobs.id });
   return requeued.length;
 }

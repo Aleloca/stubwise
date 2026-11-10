@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { agentSessionInputs, agentSessions, claudeConversations, type Db } from "@stubwise/db";
 import {
   AGENT_SESSION_INPUT_CHANNEL,
@@ -11,7 +11,7 @@ import {
   type CreateClaudeConversationInput,
   type PatchClaudeConversationInput,
 } from "@stubwise/shared";
-import { loadAgentSession, monthlyBudgetExhausted, type SessionViewer } from "./agent-sessions.js";
+import { freeSessionStates, loadAgentSession, monthlyBudgetExhausted, type SessionViewer } from "./agent-sessions.js";
 
 // La conversazione libera con Claude (chat, fetta 1): una sessione dell'agente
 // di kind `free`, a turni, PRIVATA del suo autore. Qui ciò che la sessione non
@@ -56,12 +56,22 @@ export async function getClaudeConversation(
   return { ...toView(row, loaded.detail), session: loaded.detail };
 }
 
-/** Le conversazioni di chi guarda, dalla più recente: attive o archiviate. */
+/** Quante per pagina, al più (`limit`). */
+export const CONVERSATION_PAGE_MAX = 100;
+
+/**
+ * Le conversazioni di chi guarda, dalla più recente, attive o archiviate, a
+ * pagine: `before` è il cursore della pagina prima (`updatedAt|id`
+ * dell'ultima). Due query in tutto, qualunque sia la pagina: le righe e lo
+ * stato delle loro sessioni (`freeSessionStates`).
+ */
 export async function listClaudeConversations(
   db: Db,
   viewer: SessionViewer,
-  opts: { archived: boolean },
-): Promise<ClaudeConversation[]> {
+  opts: { archived: boolean; limit?: number; before?: string },
+): Promise<{ items: ClaudeConversation[]; nextCursor: string | null }> {
+  const limit = Math.min(Math.max(opts.limit ?? 50, 1), CONVERSATION_PAGE_MAX);
+  const cursor = parseCursor(opts.before);
   const rows = await db
     .select()
     .from(claudeConversations)
@@ -69,15 +79,34 @@ export async function listClaudeConversations(
       and(
         eq(claudeConversations.ownerId, viewer.id),
         opts.archived ? isNotNull(claudeConversations.archivedAt) : isNull(claudeConversations.archivedAt),
+        cursor
+          ? or(
+              lt(claudeConversations.updatedAt, cursor.at),
+              and(eq(claudeConversations.updatedAt, cursor.at), lt(claudeConversations.sessionId, cursor.id)),
+            )
+          : undefined,
       ),
     )
-    .orderBy(desc(claudeConversations.updatedAt));
-  const out: ClaudeConversation[] = [];
-  for (const row of rows) {
-    const loaded = await loadAgentSession(db, viewer, row.sessionId);
-    if (loaded) out.push(toView(row, loaded.detail));
-  }
-  return out;
+    .orderBy(desc(claudeConversations.updatedAt), desc(claudeConversations.sessionId))
+    .limit(limit + 1);
+  const page = rows.slice(0, limit);
+  const states = await freeSessionStates(db, viewer, page.map((r) => r.sessionId));
+  const items = page.flatMap((row) => {
+    const session = states.get(row.sessionId);
+    return session ? [toView(row, session)] : [];
+  });
+  const last = page.at(-1);
+  return {
+    items,
+    nextCursor: rows.length > limit && last ? `${last.updatedAt.toISOString()}|${last.sessionId}` : null,
+  };
+}
+
+function parseCursor(raw: string | undefined): { at: Date; id: string } | null {
+  if (!raw) return null;
+  const [at, id] = raw.split("|");
+  const date = at ? new Date(at) : null;
+  return date && !Number.isNaN(date.getTime()) && id ? { at: date, id } : null;
 }
 
 export type CreateClaudeConversationResult =

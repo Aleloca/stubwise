@@ -24,6 +24,12 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   giorno serve «annulla e chiudi la PR».
 - «Annulla il lavoro» col runner classico (`AGENT_STREAMING=false`) *(S)*: il
   CLI non si uccide a metà, vale solo il controllo fra i passi.
+- «Annullato da» nella storia del ticket si perde al RICICLO del job *(O, 10
+  nov 2026)*: la richiesta vale per un tentativo e ogni ripartenza la azzera,
+  e la storia la legge dal job; come il `pr_opened`, che il riciclo perde già
+  (limite dichiarato di `ticket-history`). Copiarla in `ticket_events` alla
+  chiusura vorrebbe una migrazione: rimandato. Né `requeueStale` scrive il
+  commento quando chiude uno stantio annullato.
 - Standup per persona *(S)*: `tasksDeleted` sempre vuoto (il server non tiene
   le task eliminate) e `viaClaude` sempre falso (nessun evento dice se un
   cambio l'ha fatto Claude per una persona).
@@ -39,10 +45,6 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
 - `generatedAt` dei report giornalieri *(S)*.
 - Report giornaliero per progetto (oggi si rigenerano tutti i progetti del
   giorno) *(O, differenza dal prototipo)*.
-- La riga di Claude nel Planning di progetto per chi NON può assegnarlo *(O,
-  10 nov 2026, costruttore)*: oggi c'è solo dove `claudeAssignableProjectIds`
-  elenca il progetto; chi non ha `runs.start` vede le task di Claude nelle
-  liste ma non la sua riga (`apps/desktop/docs/integration-area3e.md`).
 
 ## Fase «Chat con Claude e azioni» (dopo l'area 3)
 
@@ -69,15 +71,18 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   `CHAT_TOOL_READ_ROUTES` (col test del registro) e un tool al ponte.
 - Il contesto della pagina arriva al modello come `tipo: id`, non come il suo
   contenuto: Claude lo legge con i tool se serve *(S)*.
-- Conversazioni senza chiusura per inattività e senza retention: restano
-  finché l'autore non le archivia o le elimina (eventi compresi) *(S)*.
+- Conservazione *(M, review delle fette 1–2)*: le conversazioni inattive da 14
+  giorni si potano come le altre sessioni, con le trascrizioni del CLI; la
+  casella lo dice. Nessuna chiusura per inattività (la conversazione resta
+  aperta finché vive).
 - Budget del mese finito: in chat nessuno lo scavalca (una conversazione non ha
   un progetto, quindi nessun `plans.approve`) *(S)*.
 - **Limiti della fetta 2 (renderer, destinazione)** *(S, stubwise-72)*:
   - «#» propone task e progetti, non richieste né pagine Docs; «@» le persone.
-  - «/» ha i soli comandi che si risolvono leggendo (`/status`, `/today`,
-    `/explain`, `/docs`); niente skill dei plugin del progetto (il server non
-    le espone).
+  - «/» ha i soli comandi che i tool di lettura coprono (`/explain`, `/docs`);
+    `/status` e `/today` tornano quando i tool leggono progetti seguiti,
+    decisioni e la settimana di chi scrive; niente skill dei plugin del
+    progetto (il server non le espone).
   - Le citazioni registrate su un messaggio non esistono sul server: Claude
     cita col codice nel testo, che la pagina risolve (`resolveCodes`, task e
     richieste).
@@ -169,6 +174,16 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 - App mobile: riceve il fix del reader dei traguardi (e gli altri cambi delle
   risposte) solo con una nuova build.
 - Prova a mano complessiva: `apps/desktop/docs/integration-manual-tests.md`.
+- **Produzione 2.1.287 e tool nativi** *(M, 10 nov 2026)*: l'init espone gli
+  stessi tool nativi del 2.1.322 (CronCreate, RemoteTrigger, SendMessage,
+  PushNotification, ToolSearch…; traccia di `streaming-cli.test`,
+  `apps/worker/src/sessions/fixtures/interrupt-then-message.jsonl`);
+  eseguibilità non verificata (il binario non c'è e non si scarica).
+  Decisione del maintainer del 10 nov: correzione solo col rilascio del pin
+  2.1.322, insieme all'elenco esplicito dei nativi per run (commit
+  «fix(worker): elenco esplicito dei tool nativi per ogni run del CLI»,
+  `docs/invariants/agent-sessions.md`, «I tool NATIVI di ogni run»). Si
+  chiude con quel rilascio.
 
 ## Chiuse
 
@@ -180,6 +195,12 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   riquadro (⌘J, ⌘K) col chip del contesto, menzioni e comandi di lettura —
   parità in `apps/desktop/docs/integration-claude-chat.md`, commit «feat(chat):
   …» (F1.1, F1.2, F2.1a, F2.1b).
+- Area 3, la riga di Claude nel Planning di progetto per chi NON può
+  assegnarlo *(O, 10 nov 2026)*: c'è per chiunque veda il Planning, col suo
+  carico, in sola lettura col motivo e fuori dai bersagli — commit
+  «fix(desktop): la riga di Claude nel Planning, in sola lettura»,
+  `apps/desktop/docs/integration-area3e.md`.
+
 - Area 3, 3e.2 **Claude assegnabile, renderer** *(M)*: riga e carico nel
   Planning, assegnatario solo dove `claudeAssignableProjectIds` lo dice, la sua
   frase per `claude_assign_forbidden` — commit «feat(desktop): Claude

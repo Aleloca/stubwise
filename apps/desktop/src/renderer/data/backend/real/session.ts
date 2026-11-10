@@ -4,6 +4,7 @@ import { accountSecurityResponseSchema, passkeyAuthenticationOptionsSchema } fro
 import type * as Fake from "../../api";
 import { SECOND_FACTOR_MAX_FAILURES } from "../../auth/constants";
 import type { Viewer } from "../../types";
+import { forgetChatCaches } from "./claudeChat";
 import { appClient, session } from "./client";
 import { NotIntegratedError, partialNamespace } from "./notIntegrated";
 import { forgetCommentTickets } from "./taskDetail";
@@ -63,6 +64,7 @@ function forgetClientCaches(): void {
   forgetHomeCaches();
   forgetFilterCaches();
   forgetStreams();
+  forgetChatCaches();
 }
 
 /**

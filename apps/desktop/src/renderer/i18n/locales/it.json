@@ -1812,6 +1812,7 @@
     "loadOthers": "Altri progetti",
     "loadAll": "Tutti i progetti",
     "readOnlyRow": "Qui puoi pianificare solo le tue task",
+    "claudeReadOnly": "Solo chi può avviare il lavoro di Claude lo pianifica",
     "readOnlyProject": "Non puoi pianificare le task di {{project}}",
     "notMember": "Non è membro del progetto di questa task",
     "closed": "Le task chiuse non si pianificano",
@@ -4172,7 +4173,9 @@
         "stopAndSendNoFiles": "Togli gli allegati per fermare e scrivere",
         "absorb": "Il messaggio arriva a Claude quando finisce l'azione in corso.",
         "absorbFree": "Claude risponde dopo la risposta in corso.",
-        "sendSuspended": "Riconnessione: puoi continuare a scrivere, l'invio riprende quando torna la connessione."
+        "sendSuspended": "Riconnessione: puoi continuare a scrivere, l'invio riprende quando torna la connessione.",
+        "retention_one": "Le conversazioni inattive da {{count}} giorno si cancellano.",
+        "retention_other": "Le conversazioni inattive da {{count}} giorni si cancellano."
       },
       "context": {
         "menu": "Progetto di contesto",
@@ -4361,6 +4364,10 @@
       "capabilities": {
         "label": "Cosa so fare",
         "write": "Scrivila"
+      },
+      "commands": {
+        "explain": "Spiega una task o una richiesta, dal suo codice",
+        "docs": "Come funziona qualcosa in un progetto, dai suoi Docs"
       }
     },
     "destination": {

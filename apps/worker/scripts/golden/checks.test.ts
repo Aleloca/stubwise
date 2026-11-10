@@ -25,6 +25,7 @@ import {
   selectScenarios,
   skillCallsFrom,
   chatChecks,
+  chatResumeChecks,
 } from "./checks.js";
 
 const asked: AskUserFileResult = {
@@ -955,5 +956,33 @@ describe("chatChecks (chat-read, chat-no-act, chat-no-leak)", () => {
     expect(
       failed(chatChecks({ ...base, ...tried, expectation, finalMessage: "ACQ è il progetto Laguna Blu." })),
     ).toEqual(["dice che non è visibile o non lo trova", "nessun dato del progetto nascosto nella risposta"]);
+  });
+});
+
+describe("chatResumeChecks (chat-resume)", () => {
+  const base = {
+    firstSessionId: "cli-1",
+    secondSessionId: "cli-1",
+    firstCwd: "/tmp/stubwise-chat/x",
+    secondCwd: "/tmp/stubwise-chat/x",
+    secondRequests: [],
+    secondFinalMessage: "La segue Marta Rinaldi.",
+    mustMention: ["Marta"],
+  };
+  const failed = (checks: { name: string; passed: boolean }[]) => checks.filter((c) => !c.passed).map((c) => c.name);
+  it("la ripresa giusta passa", () => {
+    expect(failed(chatResumeChecks(base))).toEqual([]);
+  });
+  it("una sessione nuova, una cwd diversa o una rilettura sono rosse", () => {
+    expect(failed(chatResumeChecks({ ...base, secondSessionId: "cli-2" }))).toEqual([
+      "il secondo turno riprende la sessione del CLI del primo",
+    ]);
+    expect(failed(chatResumeChecks({ ...base, secondCwd: "/tmp/stubwise-chat-abc" }))).toEqual(["stessa cwd nei due turni"]);
+    expect(
+      failed(chatResumeChecks({ ...base, secondRequests: [{ method: "GET", path: "/api/tasks/by-code/AUD-12" }] })),
+    ).toEqual(["non rilegge la task nel secondo turno"]);
+    expect(failed(chatResumeChecks({ ...base, secondFinalMessage: "Non lo so." }))).toEqual([
+      "risponde dal contesto del primo turno",
+    ]);
   });
 });

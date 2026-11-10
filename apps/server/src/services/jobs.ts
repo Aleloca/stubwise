@@ -20,6 +20,7 @@
  *    pre-approvazione, anche per un maintainer.
  */
 import {
+  CANCEL_REQUEST_CLEARED,
   aiJobs,
   comments,
   planDigest,
@@ -369,6 +370,8 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
           startedAt: null,
           finishedAt: null,
           error: null,
+          // Un annullamento vale per il tentativo di prima (`CANCEL_REQUEST_CLEARED`).
+          ...CANCEL_REQUEST_CLEARED,
           lastActivityAt: sql`now()`,
         })
         // Guardato anche sul MOTIVO letto: il permesso qui sopra è stato
@@ -415,6 +418,8 @@ export async function startRun(db: Db, input: StartRunInput): Promise<StartRunRe
           startedAt: null,
           finishedAt: null,
           error: null,
+          // Un annullamento vale per il tentativo di prima (`CANCEL_REQUEST_CLEARED`).
+          ...CANCEL_REQUEST_CLEARED,
           lastActivityAt: sql`now()`,
         })
         .where(and(eq(aiJobs.id, latest.id), notInArray(aiJobs.status, [...IN_FLIGHT])))
@@ -553,6 +558,8 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
         startedAt: null,
         finishedAt: null,
         error: null,
+        // Un annullamento chiesto prima del parcheggio non vale per la ripresa.
+        ...CANCEL_REQUEST_CLEARED,
         lastActivityAt: sql`now()`,
       })
       .where(

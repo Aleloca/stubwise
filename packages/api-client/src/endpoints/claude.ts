@@ -29,10 +29,17 @@ export function createClaudeEndpoints(request: ApiRequest) {
       return request("GET", "/api/claude/conversations/status", undefined, claudeChatStatusSchema);
     },
     conversations: {
-      list(opts: { archived?: boolean } = {}): Promise<Reader<{ items: ClaudeConversation[] }>> {
+      list(
+        opts: { archived?: boolean; limit?: number; before?: string } = {},
+      ): Promise<Reader<{ items: ClaudeConversation[]; nextCursor: string | null }>> {
         return request(
           "GET",
-          `/api/claude/conversations${toQuery({ scope: "mine", archived: opts.archived ? "true" : undefined })}`,
+          `/api/claude/conversations${toQuery({
+            scope: "mine",
+            archived: opts.archived ? "true" : undefined,
+            limit: opts.limit,
+            before: opts.before,
+          })}`,
           undefined,
           claudeConversationListSchema,
         );

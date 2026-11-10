@@ -2,6 +2,7 @@
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { cliToolsArg } from "./native-tools.js";
 import { AgentRunError, type AgentMcpConfig, type AgentRunOptions } from "./runner.js";
 
 /**
@@ -87,11 +88,10 @@ export function buildCliArgs(opts: AgentRunOptions, format: CliFormat): string[]
   if (opts.settingSources !== undefined) {
     args.push("--setting-sources", opts.settingSources);
   }
-  // Tool nativi: come le sorgenti di settings, la stringa vuota è un
-  // argomento a sé (`--tools` + ""), e spegne l'intero set nativo.
-  if (opts.builtinTools !== undefined) {
-    args.push("--tools", opts.builtinTools);
-  }
+  // Tool nativi (10 nov 2026, CLI 2.1.322): SEMPRE `--tools`, con l'elenco del
+  // run o la stringa vuota come argomento a sé (nessun nativo, anche quando il
+  // run non dichiara niente: fail-closed). Vedi `native-tools.ts`.
+  args.push("--tools", cliToolsArg(opts.builtinTools));
   return args;
 }
 
@@ -149,6 +149,10 @@ export async function withMcpConfig<T>(
     }
   }
 
+  // Senza server del run, `--strict-mcp-config` da solo: niente connettori MCP
+  // dell'account o dell'utente (10 nov 2026: un sottoagente del 2.1.322, senza
+  // il flag, vedeva i connettori claude.ai). Con i server l'ha già aggiunto.
+  if (mcpConfigDir === undefined) args = [...args, "--strict-mcp-config"];
   try {
     return await fn(args);
   } finally {
