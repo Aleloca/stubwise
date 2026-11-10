@@ -59,8 +59,13 @@ function githubUsernameOf(email: string): string | null {
   return match?.[1] ?? null;
 }
 
+// Un INTERVALLO sulla colonna, non una funzione della colonna (review
+// dell'area 3, punto 7): `[mezzanotte di Roma del giorno, mezzanotte del
+// giorno dopo)`, così un indice su `created_at` resta usabile. Le due
+// mezzanotti le calcola Postgres nel fuso, quindi un giorno di 23 o 25 ore
+// (cambio dell'ora) resta giusto.
 const onDay = (column: AnyColumn | SQL, date: string) =>
-  sql`(${column} at time zone 'Europe/Rome')::date = ${date}::date`;
+  sql`(${column} >= (${date}::date::timestamp at time zone 'Europe/Rome') and ${column} < ((${date}::date + 1)::timestamp at time zone 'Europe/Rome'))`;
 
 export async function peopleActivity(db: Db, viewer: Viewer, date: string, departmentId?: string): Promise<Row[]> {
   const [visible, viewAll, backlogAll, reposView] = await Promise.all([

@@ -277,6 +277,12 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   di un progetto, mai l'autore di un ticket ingerito. Il suo ruolo d'istanza è
   il preset `User`, **mai il full admin**: lo conterebbe fra gli
   amministratori («resta sempre un full admin») e fra i destinatari degli admin.
+  E se un admin ALLARGA il preset `User` fino al full admin, Claude comunque non
+  conta: `assertFullAdminRemains` esclude `is_agent` (review dell'area 3, punto
+  9 — scelto al posto di un ruolo d'istanza dedicato, che vorrebbe una
+  migrazione e un preset in più da proteggere); gli altri effetti di un preset
+  allargato sono calcoli su chi GUARDA, e Claude non guarda mai, e i destinatari
+  li esclude già `publishNotification`.
   Vede le task che gli si assegnano per una regola esplicita
   (`canUserSeeTicket`), non per un permesso. **Assegnarlo AVVIA il lavoro**
   da OGNI porta — le rotte nuove (PATCH, in blocco, Planning, creazione:
