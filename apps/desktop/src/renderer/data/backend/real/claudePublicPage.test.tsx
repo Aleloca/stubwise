@@ -316,4 +316,36 @@ describe("le pubbliche nelle pagine della build app", () => {
       expect(screen.getByText(/Giulia Ferri/)).toBeInTheDocument();
     });
   });
+
+  it("«Continue» col budget del mese finito: la riga dice il budget", async () => {
+    install({
+      [`POST /api/claude/conversations/${CONV}/continue`]: { status: 409, body: { code: "budget_exhausted", message: "x" } },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${CONV}`);
+    const box = await screen.findByPlaceholderText("Continue in your own conversation…");
+    await ue.type(box, "And mine?");
+    await ue.keyboard("{Enter}");
+    expect(await screen.findByText(/monthly AI budget/i)).toBeInTheDocument();
+  });
+
+  it("«Continue» non parte due volte: mentre nasce la conversazione la casella non manda", async () => {
+    let release: () => void = () => undefined;
+    const continued = view({ continuesFrom: { id: CONV, available: true } });
+    install({
+      [`POST /api/claude/conversations/${CONV}/continue`]: () =>
+        new Promise((resolve) => {
+          release = () => resolve({ status: 201, body: continued });
+        }),
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${CONV}`);
+    const box = await screen.findByPlaceholderText("Continue in your own conversation…");
+    await ue.type(box, "First");
+    await ue.keyboard("{Enter}");
+    await ue.type(box, "Second");
+    await ue.keyboard("{Enter}");
+    expect(seen.filter((r) => r.method === "POST" && r.path.endsWith("/continue"))).toHaveLength(1);
+    release();
+  });
 });

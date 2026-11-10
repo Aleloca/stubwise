@@ -343,6 +343,7 @@ function ConversationBody({
     return mine(m.text) <= m.sameBefore + ahead;
   });
   const nextSeq = useRef(0);
+  const [continuingNow, setContinuingNow] = useState(false);
 
   /**
    * Manda un messaggio (o «Ferma e scrivi»): resta in coda, «Delivering…»,
@@ -366,7 +367,12 @@ function ConversationBody({
         return [];
       });
       setAttachError(null);
-      onContinue(text, attachments).catch(() => setFailedSend({ text, attachments }));
+      // Una sola continuazione alla volta: la casella non manda finché nasce.
+      setContinuingNow(true);
+      onContinue(text, attachments).catch((error: Error) => {
+        setContinuingNow(false);
+        setFailedSend({ text, attachments, budget: isBudgetRefusal(error) });
+      });
       return;
     }
     const seq = (nextSeq.current += 1);
@@ -745,6 +751,7 @@ function ConversationBody({
               onAddFiles={addFiles}
               onRemoveAttachment={removeDraft}
               onSend={sendMessage}
+              sending={continuing && continuingNow}
               onStop={stopClaude}
               onStopAndSend={(text) => sendMessage(text, [], "stopAndSend")}
               {...(composerDraft ? { draft: composerDraft } : {})}
