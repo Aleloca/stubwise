@@ -10,7 +10,6 @@ import {
 } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { featureIntegrated } from "../../data/integration";
-import { getSessionPersonId } from "../../data/session";
 import { useTranslation } from "react-i18next";
 import {
   useArchiveChannel,
@@ -89,11 +88,14 @@ export type ChannelHref = (params: { thread?: string; message?: string }) => str
  */
 function useOpenHref(): (href: string, as: { personId: string; from: string }) => void {
   const router = useRouter({ warn: false });
+  // Chi guarda ADESSO (anche nella build app, dove la sessione del prototipo è vuota).
+  const viewer = useRef("");
+  viewer.current = useSessionPersonId();
   return useCallback(
     (href: string, as: { personId: string; from: string }) => {
       // Solo se chi guarda e la pagina sono ancora quelli dell'invio: una
       // risposta arrivata dopo un cambio di persona o di pagina non porta via.
-      if (getSessionPersonId() !== as.personId) return;
+      if (viewer.current !== as.personId) return;
       const here = router
         ? router.state.location.pathname
         : window.location.hash.replace(/^#/, "").split("?")[0];

@@ -149,6 +149,14 @@ Fetta 2 chiusa lato server (sotto, «Chiuse»).
 - Il filtro «con allegati» della ricerca *(fetta 4, con gli allegati)*.
 - Messaggi «via Claude» *(fetta 3, con @Claude)*:
   `chat_messages.via_claude_action_id` c'è, ma nessuno lo scrive.
+- Fetta 3 (@Claude), da sapere *(S, review della fetta 1)*: «apri il thread
+  dopo l'invio» (`useOpenHref`, `apps/desktop/src/renderer/pages/chat/ChannelView.tsx`)
+  confrontava chi scrive con `getSessionPersonId()` del prototipo, vuota nella
+  build app, e non navigava mai: ora usa la persona vera (`useSessionPersonId`),
+  test `real/chatOpenThread.test.tsx`. Il resto del codice della Chat non usa
+  `getSessionPersonId()`; le bozze del riquadro di Claude
+  (`layout/claudePanel/pageActions.ts`) la usano come chiave, che nella build
+  app è vuota ma la stessa per tutti: funzionano, senza separare le persone.
 - **I flag del renderer da accendere con ogni fetta** *(O, 10 nov 2026)*
   (`CHAT_LATER_FEATURES` in `apps/desktop/src/renderer/data/integration.ts`):
   fetta 2 `chat-dm` (DM, «New message», ⌘N), `chat-private`, `chat-general`,
