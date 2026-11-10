@@ -1141,7 +1141,8 @@
           "vault_recovery_used": "Vault recovery key used",
           "vault_activated": "Vault activated",
           "vault_seal_replaced": "Vault passkey seal replaced",
-          "vault_recovery_key_rotated": "Vault recovery kit regenerated"
+          "vault_recovery_key_rotated": "Vault recovery kit regenerated",
+          "reauth_desktop": "Identity confirmed in the desktop app"
         }
       }
     },

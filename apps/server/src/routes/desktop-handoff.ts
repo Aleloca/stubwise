@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { desktopHandoffs, roles, users } from "@stubwise/db";
+import { desktopHandoffs, personalAccessTokens, roles, users } from "@stubwise/db";
 import {
+  secondFactorCodeBodySchema,
   desktopExchangeBodySchema,
   desktopExchangeResponseSchema,
   desktopHandoffBodySchema,
@@ -8,11 +9,15 @@ import {
 } from "@stubwise/shared";
 import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
 import type { FastifyInstance, onRequestHookHandler } from "fastify";
+import { z } from "zod";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { attemptSecondFactor, verifySecondFactorCode } from "../auth/second-factor/index.js";
 import { recordSecurityEvent } from "../auth/second-factor/security-events.js";
+import { hasConfirmedTotp } from "../auth/second-factor/totp.js";
 import { sessionUserSelection, toSessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
 import { createPatForUser } from "./pat.js";
+import { lockedErrorSchema, rejectAttempt } from "./second-factor-replies.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /** Quanto vive un codice: il tempo di tornare dal browser all'app. */
@@ -121,6 +126,55 @@ export function desktopHandoffRoutes(instance: FastifyInstance, credentialsRateL
         "desktop",
       );
       return reply.code(200).send({ token, patId, user: toSessionUser(user) });
+    },
+  );
+
+  /**
+   * Riconferma dal desktop (decisione del maintainer, 10 nov 2026): il codice
+   * dell'app di autenticazione, o uno di riserva, scritto DENTRO l'app
+   * desktop. Lo accetta SOLO un PAT `desktop`: un `mobile`, un `manual` o una
+   * sessione del browser (che ha `POST /api/me/security/reauth`) ricevono 403.
+   * Il codice passa da `attemptSecondFactor` (tetto e blocco di sempre); se è
+   * giusto, il PAT soddisfa `config.reauth` per 10 minuti (`applyReauth`).
+   * Niente passkey: vivono sul dominio dell'istanza, cioè nel browser.
+   *
+   * NON è una porta: non dà una sessione né un token, rinfresca la riconferma
+   * del token che la chiama.
+   */
+  app.post(
+    "/desktop-reauth",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        body: secondFactorCodeBodySchema,
+        response: {
+          204: z.null(),
+          ...authErrorResponses,
+          401: errorSchema,
+          403: errorSchema,
+          423: lockedErrorSchema,
+          429: errorSchema,
+        },
+      },
+    },
+    async (request, reply) => {
+      const user = request.user!;
+      if (user.patId === undefined || user.patKind !== "desktop") {
+        return apiError(reply, 403, "desktop_token_required", "This confirmation is only for the desktop app");
+      }
+      if (!(await hasConfirmedTotp(app.db, user.id))) {
+        return apiError(reply, 403, "second_factor_setup_required", "Second factor setup required");
+      }
+      const attempt = await attemptSecondFactor(app.db, user, () =>
+        verifySecondFactorCode(app.db, app.encryptionKey, user.id, request.body.code),
+      );
+      if (!attempt.ok) return rejectAttempt(reply, attempt);
+      await app.db
+        .update(personalAccessTokens)
+        .set({ secondFactorAt: sql`now()` })
+        .where(and(eq(personalAccessTokens.id, user.patId), eq(personalAccessTokens.kind, "desktop")));
+      await recordSecurityEvent(app.db, { kind: "reauth_desktop", user });
+      return reply.code(204).send(null);
     },
   );
 }

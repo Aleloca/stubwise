@@ -105,6 +105,16 @@ export interface SessionUser {
    * {@link findPatUser}, che è l'unico posto in cui la credenziale è nota.
    */
   patId?: string;
+  /** Il tipo del PAT della richiesta (`personal_access_tokens.kind`); assente senza PAT. */
+  patKind?: "manual" | "mobile" | "desktop";
+  /**
+   * Riconferma dal desktop (decisione del maintainer, 10 nov 2026): l'ultimo
+   * secondo fattore fatto CON questo PAT (`POST /api/auth/desktop-reauth`).
+   * Presente SOLO per un PAT `desktop`: `applyReauth` lo accetta per 10 minuti,
+   * come `secondFactorAt` di una sessione. Un PAT `mobile` o `manual` non lo
+   * porta mai, e quindi non soddisfa mai una riconferma.
+   */
+  patSecondFactorAt?: Date | null;
   /**
    * La conversazione libera del cui turno è il token (chat con Claude, fetta
    * 1): presente SOLO per una richiesta col token del turno
@@ -292,6 +302,8 @@ export async function findPatUser(
   const [row] = await db
     .select({
       patId: personalAccessTokens.id,
+      patKind: personalAccessTokens.kind,
+      patSecondFactorAt: personalAccessTokens.secondFactorAt,
       expiresAt: personalAccessTokens.expiresAt,
       ...sessionUserSelection,
     })
@@ -317,7 +329,12 @@ export async function findPatUser(
     .catch(() => undefined);
   // `patId` in più rispetto alla proiezione condivisa: qui, e solo qui, si sa
   // con QUALE credenziale è arrivata la richiesta.
-  return { ...toSessionUser(row), patId: row.patId };
+  return {
+    ...toSessionUser(row),
+    patId: row.patId,
+    patKind: row.patKind,
+    ...(row.patKind === "desktop" ? { patSecondFactorAt: row.patSecondFactorAt } : {}),
+  };
 }
 
 /**

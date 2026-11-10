@@ -25,7 +25,9 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
 - **Ogni porta che dà una sessione o un token passa dal secondo fattore:
   `/login`, `/mobile-login`, `/desktop-exchange`; una porta nuova va
   aggiunta qui e al test.** La porta si DICHIARA (`config.credentialDoor`)
-  e `route-access.test.ts` ne fissa l'elenco chiuso.
+  e `route-access.test.ts` ne fissa l'elenco chiuso. `/desktop-reauth` (10
+  nov 2026) NON è una porta: verifica un codice e non dà né sessione né token
+  (vedi la voce sulla riconferma).
   `/register` e `/setup` oggi non aprono una sessione (rimandano al login) e
   il reset della password chiude le sessioni: se una di loro un giorno ne
   aprisse una, deve passare dallo stesso stato parziale (test negativi in
@@ -119,16 +121,49 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   tra prenotazione e verdetto) viene azzerata dal tentativo successivo
   (`users.second_factor_reserved_at`).
 - **La riconferma si DICHIARA (`config.reauth`, test del registro), e un PAT
-  non la soddisfa mai.** `reauth: true` sulla rotta sensibile, accanto a
-  `config.access`; `"setup_allowed"` per la configurazione dell'app (una
-  sessione di prima del rilascio, senza TOTP, apre l'iscrizione invece del
-  dialogo: 403 `second_factor_setup_required`). Il gate gira DOPO
-  l'autenticazione e PRIMA del controllo del permesso. Un token personale
-  (`request.user.patId`) riceve 403 `session_required`, lo stesso codice di
-  `POST /api/users/:id/password-reset`: un token rubato non crea altri token,
-  non cambia ruoli e non conia inviti (`POST /api/auth/invites` è sensibile:
-  un invito porta un ruolo d'istanza e dei progetti). `route-access.test.ts` fissa l'ELENCO delle rotte con
-  `reauth`: una rotta sensibile nuova la dichiara e aggiorna l'elenco.
+  non la soddisfa mai, salvo il PAT `desktop` riconfermato nell'app.**
+  `reauth: true` sulla rotta sensibile, accanto a `config.access`;
+  `"setup_allowed"` per la configurazione dell'app (una sessione di prima del
+  rilascio, senza TOTP, apre l'iscrizione invece del dialogo: 403
+  `second_factor_setup_required`). Il gate gira DOPO l'autenticazione e PRIMA
+  del controllo del permesso. Un token personale (`request.user.patId`) riceve
+  403 `session_required`, lo stesso codice di `POST
+  /api/users/:id/password-reset`: un token rubato non crea altri token, non
+  cambia ruoli e non conia inviti (`POST /api/auth/invites` è sensibile: un
+  invito porta un ruolo d'istanza e dei progetti). `route-access.test.ts`
+  fissa l'ELENCO delle rotte con `reauth`: una rotta sensibile nuova la
+  dichiara e aggiorna l'elenco.
+  **L'eccezione: la riconferma dal desktop (decisione del maintainer, 10 nov
+  2026).** L'app desktop impacchettata parla al server solo col suo PAT
+  `desktop` (dal login nel browser), e senza un'eccezione l'area 9 e le
+  azioni C della chat non si potrebbero fare dal desktop. Il maintainer ha
+  scelto il codice DENTRO l'app (opzione B di
+  `docs/plans/2026-11-10-riconferma-desktop-design.md`), non
+  un'approvazione nel browser.
+  - `POST /api/auth/desktop-reauth { code }` (TOTP o di riserva, mai una
+    passkey: vive sul dominio dell'istanza) la accetta SOLO un PAT `desktop`:
+    un `mobile`, un `manual` o una sessione del browser → 403
+    `desktop_token_required`.
+  - Il codice passa da `attemptSecondFactor`, col tetto e il blocco di
+    sempre.
+  - Se riesce, scrive `personal_access_tokens.second_factor_at` del PAT che
+    chiama, e una riga `reauth_desktop` nel registro di sicurezza (nessun
+    `security.alert`: le rotte che lo meritano lo mandano già).
+  - `applyReauth` accetta quel PAT per 10 minuti (`REAUTH_WINDOW_MS`, la
+    stessa finestra di una sessione), su TUTTE le rotte con `config.reauth`.
+  - La finestra è del singolo PAT, non della persona. La azzerano
+    l'azzeramento del 2FA (`resetSecondFactor`), il cambio e il reset della
+    password (che revocano i PAT `desktop`) e la revoca del PAT.
+  - `mobile` e `manual` non la soddisfano mai, nemmeno così.
+  - **Non è una porta**: non dà una sessione né un token, rinfresca la
+    riconferma del token che la chiama. Per questo non è in
+    `config.credentialDoor`.
+  - Le rotte che rifiutano un PAT NEL LORO HANDLER per un'invariante a sé (i
+    token che coniano token, la cassaforte) restano chiuse anche con la
+    finestra: la riconferma apre il gate `config.reauth`, non quelle regole.
+  Test: `apps/server/src/routes/desktop-reauth.test.ts`. Ci sono il PAT
+  `mobile`/`manual`, il cookie, la finestra di un altro PAT, gli 11 minuti, il
+  PAT revocato, l'azzeramento del 2FA, il codice sbagliato e il blocco.
 - **Il segreto TOTP è cifrato, i codici di riserva sono hash, niente di tutto
   ciò in log, elenchi, notifiche o webhook.** Il segreto usa
   `encrypt`/`decrypt` di `@stubwise/db` con `app.encryptionKey`; si decifra

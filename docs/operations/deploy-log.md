@@ -3285,3 +3285,32 @@ deploy o di un rollback che la tocca.
     worker vecchio con un server nuovo: la chat torna a sola lettura, col
     contratto di prima.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Riconferma dal desktop» (10 nov 2026)**: decisione del maintainer
+  (opzione B di `docs/plans/2026-11-10-riconferma-desktop-design.md`). L'app
+  desktop impacchettata riconferma col codice dell'app di autenticazione (o
+  uno di riserva) scritto DENTRO l'app: `POST /api/auth/desktop-reauth`, solo
+  per un PAT `desktop`, passa da `attemptSecondFactor` (tetto e blocco di
+  sempre). Se riesce, quel PAT soddisfa `config.reauth` per 10 minuti.
+  `mobile` e `manual` mai. Invariante: `docs/invariants/second-factor.md` («La
+  riconferma si DICHIARA…»). Migrazione **0132**:
+  `personal_access_tokens.second_factor_at`, colonna additiva. Valore nuovo
+  `reauth_desktop` di `security_events.kind` (testo, l'elenco chiuso è in
+  `securityEventKindSchema`). Nessun `notification_kind` nuovo. Env nuove:
+  nessuna.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0132, aspetta
+  healthy; (3) **`caddy`**: l'etichetta del registro di sicurezza sul web e
+  il renderer di `/app` (che non usa la rotta: ha il cookie). L'app desktop
+  si rifà a mano (`package:mac`). Il worker non cambia. Verifica: dal desktop,
+  un'azione sensibile apre «Confirm it's you» col solo codice; dopo il codice
+  l'azione passa, e Impostazioni → Sicurezza sul web mostra «Identity
+  confirmed in the desktop app».
+  **Rollback**:
+  - ⚠️ **un server vecchio non conosce `reauth_desktop`**: la lista del
+    registro di sicurezza (`GET /api/me/security` e la scheda dell'utente)
+    passa da uno `z.enum` chiuso e andrebbe in 500 per chi ha quella riga.
+    Prima di scendere col server: `delete from security_events where kind =
+    'reauth_desktop';`.
+  - La colonna `second_factor_at` resta inerte: un server vecchio non la
+    legge, e il desktop torna a ricevere `session_required` sulle azioni
+    sensibili, come prima.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.

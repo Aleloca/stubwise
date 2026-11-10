@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { sessions, userBackupCodes, userPasskeys, users, userTotp, type Db } from "@stubwise/db";
+import { personalAccessTokens, sessions, userBackupCodes, userPasskeys, users, userTotp, type Db } from "@stubwise/db";
 import { publishSecurityAlert } from "./alerts.js";
 import { recordSecurityEvent } from "./security-events.js";
 
@@ -25,6 +25,11 @@ export async function resetSecondFactor(
     await tx.delete(userPasskeys).where(eq(userPasskeys.userId, target.id));
     await tx.delete(userBackupCodes).where(eq(userBackupCodes.userId, target.id));
     await tx.delete(sessions).where(eq(sessions.userId, target.id));
+    // La riconferma dal desktop non sopravvive all'azzeramento (i token restano).
+    await tx
+      .update(personalAccessTokens)
+      .set({ secondFactorAt: null })
+      .where(eq(personalAccessTokens.userId, target.id));
     // Un blocco per codici sbagliati fermerebbe anche la configurazione nuova.
     await tx
       .update(users)

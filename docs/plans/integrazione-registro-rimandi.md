@@ -142,9 +142,6 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 
 ## Area 9 — Amministrazione, preferenze, accesso
 
-- **Riconferma dal desktop** *(S/O)*: un PAT non soddisfa mai la riconferma, e
-  l'area 9 ne è piena. Decidere come riconfermare dal desktop (es. il login dal
-  browser esteso alla riconferma) prima di integrarla.
 - Registro delle modifiche dell'istanza vero (oggi i ruoli di reparto lasciano
   solo una riga di log).
 - Archiviati, interruttori di brief e report, pausa della coda e lavoro fermo.
@@ -200,6 +197,13 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
 
+- **Riconferma dal desktop** *(S/O, 10 nov 2026)*: decisa dal maintainer
+  (opzione B di `docs/plans/2026-11-10-riconferma-desktop-design.md`) e
+  costruita (0132). Il codice si scrive dentro l'app (`POST
+  /api/auth/desktop-reauth`, solo un PAT `desktop`), e la finestra di 10 minuti
+  vale su tutte le rotte con `config.reauth`. Niente passkey dal desktop.
+  Restano chiuse al PAT, anche riconfermato, le rotte che lo rifiutano nel loro
+  handler per un'invariante a sé (token che coniano token, cassaforte).
 - **Elimina task** *(M, 10 nov 2026)* e lo standup «`tasksDeleted` sempre
   vuoto» *(S)*: eliminazione vera (0130, lapide `deleted_tickets`, FK decise,
   numero mai riusato, chi lo decide il server, `busy`), «Delete task…» nella
