@@ -3358,10 +3358,50 @@ export const claudeConversations = pgTable(
     cliSessionId: text("cli_session_id"),
     /** Quando è nata la sessione del CLI: oltre la potatura (14 giorni) si scarta con le sue trascrizioni. */
     cliSessionStartedAt: timestamp("cli_session_started_at", { withTimezone: true }),
+    // Fetta 5 (0133): le pubbliche e la continuazione. La visibilità la decide
+    // il server (`canSeeConversation`); i lettori ricevono la proiezione
+    // (`claude-conversations/public-view.ts`).
+    visibility: text("visibility").$type<"private" | "public">().notNull().default("private"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    publishedBy: uuid("published_by").references(() => users.id, { onDelete: "set null" }),
+    /** I progetti confermati dall'autore pubblicando (o riconfermando). */
+    publishedProjectIds: uuid("published_project_ids").array().notNull().default(sql`'{}'`),
+    /** Il primo evento che i lettori non ricevono (il seguito privato); null = tutto rilasciato. */
+    privateFromEventId: bigint("private_from_event_id", { mode: "bigint" }),
+    /** «Make private»: da qui riparte la finestra della potatura (una pubblica non si pota). */
+    visibilityChangedAt: timestamp("visibility_changed_at", { withTimezone: true }),
+    continuesFromSessionId: uuid("continues_from_session_id").references((): AnyPgColumn => agentSessions.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index("claude_conversations_owner_idx").on(table.ownerId, table.updatedAt)],
+  (table) => [
+    index("claude_conversations_owner_idx").on(table.ownerId, table.updatedAt),
+    index("claude_conversations_public_idx").on(table.visibility, table.updatedAt),
+    check("claude_conversations_visibility_chk", sql`${table.visibility} in ('private', 'public')`),
+  ],
+);
+
+/**
+ * Fetta 5 (0133): i progetti LETTI O TOCCATI da Claude in una conversazione
+ * (D2 del maintainer: li ricava il server da ciò che sa — letture per codice o
+ * per id del token del turno, codici citati, azioni, contesto). Mai un dato
+ * letto: solo il progetto e il primo evento in cui è comparso.
+ */
+export const claudeConversationProjects = pgTable(
+  "claude_conversation_projects",
+  {
+    sessionId: uuid("session_id")
+      .notNull()
+      .references(() => claudeConversations.sessionId, { onDelete: "cascade" }),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    firstEventId: bigint("first_event_id", { mode: "bigint" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "claude_conversation_projects_pk", columns: [table.sessionId, table.projectId] })],
 );
 
 /**

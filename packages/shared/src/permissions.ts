@@ -40,6 +40,10 @@ export const INSTANCE_PERMISSIONS = [
   // giorno per persona (lo standup). Nessun preset la riceve: il full admin
   // l'ha implicita, agli altri si assegna con un ruolo.
   "people.activity.view",
+  // Chat con Claude, fetta 5 (10 nov 2026, D4 del maintainer): LEGGERE le
+  // conversazioni pubbliche con Claude (mai scriverci: si continuano). Al
+  // preset User (0133); il full admin l'ha implicita.
+  "claude.public.view",
 ] as const;
 
 /**
@@ -204,6 +208,7 @@ const USER_INSTANCE_PERMISSIONS: readonly InstancePermission[] = [
   "users.view_all",
   "git_accounts.view",
   "mail_admission.view",
+  "claude.public.view",
 ];
 
 const VIEW_PROJECT_PERMISSIONS = PROJECT_PERMISSIONS.filter(

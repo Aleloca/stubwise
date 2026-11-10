@@ -53,12 +53,21 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 - Fuori portata: risponde il modello; per un'azione non in catalogo dice che non
   può e dove si fa a mano *(M)*.
 - **Conversazioni pubbliche e continuazione**, `claude.public.view`, conferma dei
-  progetti, messaggi privati se Claude tocca un progetto nuovo: fetta a sé dopo
-  la prima versione *(M)*.
+  progetti, messaggi privati se Claude tocca un progetto nuovo: fetta 5, IN
+  CORSO (piano `docs/plans/2026-11-10-integrazione-claude-chat-f5-plan.md`,
+  decisioni del maintainer del 10 nov 2026: gli eventi dei tool restano
+  visibili ai lettori, D1) *(M)*.
 - «Claude can help you…» (suggerimenti nelle pagine) e le citazioni
   registrate sui messaggi (oggi solo i codici nel testo) *(O)*. Menzioni,
   riquadro come chat e ⌘J/⌘K: chiuse (sotto).
 - Azioni delle altre aree: entrano **con la loro area** (sotto) *(O)*.
+- **La classe C (riconferma) arriva con l'area 9** *(S, 10 nov 2026)*: la
+  fetta 4 della chat per ora è vuota. Nel prototipo una C è un'azione la cui
+  funzione sta in `REAUTH_REQUIRED` (`data/auth/reauth.ts`): sono solo
+  `admin.*`, `me.*` e `instance.*` (aree 8 e 9), e nessuna voce del catalogo
+  delle aree 2–3 lo è. Il server ha già ciò che serve per la C: la
+  riconferma dal desktop (0132). Le C entrano con le azioni di Claude
+  dell'area 9.
 - **Limiti della fetta 1 (runner)** *(S, stubwise-72)*: i tool di lettura sono
   sette (progetti, persone — dalla fetta 3, senza email —, cerca/leggi task,
   leggi richiesta, cerca docs, brief + registro decisioni). Non leggono commenti e storia della task, la pagina

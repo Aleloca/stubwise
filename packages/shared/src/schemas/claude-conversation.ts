@@ -7,8 +7,9 @@ import { agentSessionDetailSchema, agentSessionStateSchema } from "./agent-sessi
  * sessione dell'agente di kind `free` (eventi, messaggi e stream sono quelli
  * delle sessioni), più ciò che le sessioni non hanno: autore, titolo, archivio
  * e contesto della pagina. PRIVATA del suo autore: nessun altro la vede, nemmeno
- * un full admin (le pubbliche sono una fetta a sé). In questa fetta Claude legge
- * e risponde, non propone né esegue niente.
+ * un full admin. Dalla fetta 5 l'autore può renderla PUBBLICA: la LEGGE chi ha
+ * `claude.public.view` (proiezione del server), nessun altro ci scrive, e chi
+ * vuole proseguire la CONTINUA in una conversazione nuova e sua.
  */
 
 /** Il contesto della pagina da cui nasce (o che le si dà): un oggetto, per tipo e id. */
@@ -20,6 +21,20 @@ export type ClaudeConversationContext = z.infer<typeof claudeConversationContext
 
 export const CLAUDE_CONVERSATION_TITLE_MAX = 200;
 export const CLAUDE_CONVERSATION_MESSAGE_MAX = 4000;
+
+/** Un progetto come lo vede chi guarda: codice e nome (solo i visibili). */
+export const claudeConversationProjectSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  name: z.string(),
+});
+export type ClaudeConversationProject = z.infer<typeof claudeConversationProjectSchema>;
+
+/** Una persona come la nomina una conversazione (autore, chi l'ha resa pubblica). */
+export const claudeConversationPersonSchema = z.object({ id: z.uuid(), name: z.string() });
+
+export const claudeConversationVisibilitySchema = z.enum(["private", "public"]);
+export type ClaudeConversationVisibility = z.infer<typeof claudeConversationVisibilitySchema>;
 
 export const claudeConversationSchema = z.object({
   /** L'id della sessione dell'agente: lo stesso per messaggi, eventi e stream. */
@@ -33,6 +48,32 @@ export const claudeConversationSchema = z.object({
   /** Lo stato DERIVATO della sessione (al lavoro, in coda, ferma). */
   state: agentSessionStateSchema,
   lastEventAt: z.string().nullable().default(null),
+  // ——— Fetta 5: pubbliche e continuazione (tutti additivi, con default). ———
+  visibility: claudeConversationVisibilitySchema.default("private"),
+  /** L'autore (D6: anche nella riga di «Public»). */
+  author: claudeConversationPersonSchema.nullable().default(null),
+  /** Chi guarda è l'autore: decide lui (scrivere, pubblicare, archiviare). */
+  isOwner: z.boolean().default(true),
+  publishedAt: z.iso.datetime().nullable().default(null),
+  publishedBy: claudeConversationPersonSchema.nullable().default(null),
+  /** I progetti confermati pubblicando, fra quelli che chi guarda vede. */
+  publishedProjects: z.array(claudeConversationProjectSchema).default([]),
+  /**
+   * Per un lettore: c'è un seguito che non vede (un turno in corso, o che ha
+   * toccato un progetto nuovo). Per l'autore è sempre false.
+   */
+  privateTail: z.boolean().default(false),
+  /**
+   * Per l'autore di una pubblica: i progetti NUOVI del seguito privato, da
+   * riconfermare perché i lettori lo ricevano. Vuoto per chi non è l'autore.
+   */
+  heldProjects: z.array(claudeConversationProjectSchema).default([]),
+  /** La pubblica da cui nasce (continuazione); `available: false` se è stata eliminata o non si vede più. */
+  continuesFrom: z.object({ id: z.uuid(), available: z.boolean() }).nullable().default(null),
+  /** Solo l'autore di una libera non archiviata. */
+  canPublish: z.boolean().default(false),
+  /** Chi NON è l'autore di una pubblica che vede: la continua (una conversazione nuova, sua). */
+  canContinue: z.boolean().default(false),
 });
 export type ClaudeConversation = z.infer<typeof claudeConversationSchema>;
 
@@ -66,13 +107,56 @@ export const patchClaudeConversationSchema = z
   .partial();
 export type PatchClaudeConversationInput = z.infer<typeof patchClaudeConversationSchema>;
 
-/** `GET /api/claude/conversations?scope=mine&archived=`: solo le proprie. */
+/**
+ * `GET /api/claude/conversations?scope=mine|public&archived=`: le proprie, o
+ * (fetta 5) le pubbliche di altri, non archiviate, con `claude.public.view`.
+ */
 export const claudeConversationListQuerySchema = z.object({
-  scope: z.literal("mine").default("mine"),
+  scope: z.enum(["mine", "public"]).default("mine"),
   archived: z.enum(["true", "false"]).default("false"),
   limit: z.coerce.number().int().min(1).max(100).optional(),
   before: z.string().max(200).optional(),
 });
+
+/**
+ * `POST /api/claude/conversations/:id/visibility` (fetta 5): solo l'autore.
+ * Pubblicare vuole i progetti letti o toccati CONFERMATI: senza, o con un
+ * elenco che non è più quello di adesso, 409 `needs_confirmation`. Con una
+ * pubblica che ha un seguito privato, la stessa chiamata con i progetti nuovi
+ * lo rilascia (la riconferma). `private` azzera la pubblicazione.
+ */
+export const setClaudeConversationVisibilitySchema = z.object({
+  visibility: claudeConversationVisibilitySchema,
+  confirmedProjectIds: z.array(z.uuid()).max(500).optional(),
+});
+export type SetClaudeConversationVisibilityInput = z.infer<typeof setClaudeConversationVisibilitySchema>;
+
+/** Il 409 di `…/visibility`: cosa l'autore deve confermare. */
+export const claudeVisibilityConfirmationSchema = z.object({
+  code: z.literal("needs_confirmation"),
+  message: z.string().default(""),
+  /** I progetti letti o toccati (alla riconferma: solo i nuovi). */
+  projects: z.array(claudeConversationProjectSchema),
+  /**
+   * La conversazione ha letture dei tool: chi legge vedrà anche ciò che Claude
+   * ha letto per te (D1 del maintainer, 10 nov 2026). Il dialogo lo DICE.
+   */
+  includesToolReads: z.boolean().default(false),
+  /** È la riconferma di un seguito privato, non la prima pubblicazione. */
+  reconfirm: z.boolean().default(false),
+});
+export type ClaudeVisibilityConfirmation = z.infer<typeof claudeVisibilityConfirmationSchema>;
+
+/**
+ * `POST /api/claude/conversations/:id/continue` (fetta 5): chi non è l'autore
+ * di una pubblica che vede la CONTINUA. Nasce una conversazione nuova,
+ * privata, sua; il primo messaggio (facoltativo) è il suo primo turno, e
+ * Claude agisce come lui.
+ */
+export const continueClaudeConversationSchema = z.object({
+  message: z.string().trim().min(1).max(CLAUDE_CONVERSATION_MESSAGE_MAX).optional(),
+});
+export type ContinueClaudeConversationInput = z.input<typeof continueClaudeConversationSchema>;
 
 /**
  * `GET /api/claude/status`: ciò che la casella della chat deve sapere prima di
