@@ -9772,7 +9772,8 @@
       "docs": "Documenti",
       "code": "Codice",
       "credentials": "Credenziali",
-      "prototype": "Prototipo"
+      "prototype": "Prototipo",
+      "chat": "Chat"
     },
     "page": {
       "intro": "Scopri chi può fare una cosa in un progetto, o cosa può fare una persona — e perché. Vedi solo i progetti e le persone che vedi già.",

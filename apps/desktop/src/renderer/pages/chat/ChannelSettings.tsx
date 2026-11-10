@@ -1,6 +1,7 @@
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import { featureIntegrated } from "../../data/integration";
 import { CHAT_EVENT_KINDS } from "../../data/chat/constants";
 import {
   useArchiveChannel,
@@ -223,7 +224,8 @@ function SettingsBody({ channel, onClose }: { channel: ChannelView; onClose: () 
         </Section>
       )}
       {channel.isMember && <NotificationsSection channel={channel} />}
-      {channel.kind === "project" && <EventsSection channel={channel} />}
+      {/* Build app: gli eventi dei progetti nei canali sono della fetta 4 (`chat-events`). */}
+      {channel.kind === "project" && featureIntegrated("chat-events") && <EventsSection channel={channel} />}
       <MembersSection channel={channel} />
       <DangerZone channel={channel} label={name.label} onClose={onClose} />
     </div>

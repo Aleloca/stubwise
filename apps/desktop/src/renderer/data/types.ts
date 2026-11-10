@@ -56,8 +56,6 @@ export type { ActionClass, ClassReason, ClaudeBusyReason, ExecutedFailure } from
  * (`servers.operate`: nessun preset, solo concessioni persona × progetto).
  */
 export type LocalProjectPermission =
-  | "chat.channels.create"
-  | "chat.channels.manage"
   | "drive.upload"
   | "drive.manage"
   | "drive.history"
@@ -77,8 +75,6 @@ export type LocalProjectPermission =
  * quando si costruisce il backend.
  */
 export type LocalInstancePermission =
-  | "chat.general.create"
-  | "chat.general.manage"
   | "automations.manage"
   | "servers.ssh.manage"
   | "instance.status.view"

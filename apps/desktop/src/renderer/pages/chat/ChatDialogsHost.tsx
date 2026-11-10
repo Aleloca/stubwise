@@ -1,5 +1,6 @@
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import { useProjects, useSessionPersonId } from "../../data/queries";
+import { featureIntegrated } from "../../data/integration";
 import type { ChannelView } from "../../data/types";
 import { NewChannelDialog } from "./NewChannelDialog";
 import { NewDmDialog } from "./NewDmDialog";
@@ -37,7 +38,8 @@ export function ChatDialogsHost() {
     }
   };
 
-  if (search.newMessage === "1") {
+  // Build app: i messaggi diretti sono della fetta 2 (`chat-dm`).
+  if (search.newMessage === "1" && featureIntegrated("chat-dm")) {
     return <NewDmDialog key={me} onOpened={go} onClose={() => close("newMessage")} />;
   }
   if (search.newChannel) {

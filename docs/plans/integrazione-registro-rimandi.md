@@ -139,6 +139,13 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 Design: `docs/plans/2026-11-10-integrazione-area4-chat-design.md`. Fetta 1
 chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
 
+- **I flag del renderer da accendere con ogni fetta** *(O, 10 nov 2026)*
+  (`CHAT_LATER_FEATURES` in `apps/desktop/src/renderer/data/integration.ts`):
+  fetta 2 `chat-dm` (DM, «New message», ⌘N), `chat-private`, `chat-general`,
+  `chat-search`, `chat-questions`, `chat-also-in-channel`,
+  `chat-from-message`; fetta 3 `chat-claude`; fetta 4 `chat-events`,
+  `chat-attachments`. Ognuno va acceso col suo test di pagina.
+
 - Domande della Chat (`chat.question`) e di Claude in chat in «Da decidere»
   *(O, fetta 2)*.
 - @Claude nella chat (regole proprie del prototipo: tutto proposte, niente

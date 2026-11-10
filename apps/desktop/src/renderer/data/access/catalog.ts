@@ -8,8 +8,6 @@ import type { LocalInstancePermission, LocalProjectPermission } from "../types";
 
 /** I permessi d'istanza del prototipo, nell'ordine in cui si mostrano. */
 export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
-  "chat.general.create",
-  "chat.general.manage",
   "automations.manage",
   "servers.ssh.manage",
   "instance.status.view",
@@ -33,8 +31,8 @@ export const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.ma
  * Permessi di progetto che vivono solo nel prototipo, per preset: entrano nel
  * registro di `@stubwise/shared` quando si costruisce il backend.
  * (`planning.others` è nel registro condiviso dall'integrazione area 2,
- * fetta 2: del Project Lead e implicito per il full admin.) I canali della Chat (area 4) li crea il Project Lead o il Developer e li
- * gestisce il Project Lead. Il Drive (area 5): carica chiunque lavori nel
+ * fetta 2: del Project Lead e implicito per il full admin.) I canali della Chat (area 4) sono nel registro condiviso dalla fetta 1
+ * dell'integrazione. Il Drive (area 5): carica chiunque lavori nel
  * progetto (anche il Legacy Member, shape drive.md [A 14]), non il Viewer;
  * gestire e vedere lo storico delle aperture è del Project Lead. Le
  * automazioni del progetto (area 7) le gestisce il Project Lead. Ai clienti di
@@ -46,15 +44,13 @@ export const LOCAL_PROJECT_PERMISSIONS: Readonly<
   Record<string, readonly LocalProjectPermission[]>
 > = {
   project_lead: [
-    "chat.channels.create",
-    "chat.channels.manage",
     "drive.upload",
     "drive.manage",
     "drive.history",
     "automations.manage",
     "support.reply",
   ],
-  developer: ["chat.channels.create", "drive.upload", "support.reply"],
+  developer: ["drive.upload", "support.reply"],
   contributor: ["drive.upload"],
   legacy_member: ["drive.upload", "support.reply"],
 };

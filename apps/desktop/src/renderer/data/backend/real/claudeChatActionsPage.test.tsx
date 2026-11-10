@@ -91,6 +91,8 @@ const groupA = (over: Record<string, unknown> = {}) => ({
 });
 
 const ALLOWED = [
+  // Il punto della Chat sul binario (area 4, fetta 1).
+  /^GET \/api\/chat\/(signal|channels)(\?|$)/,
   /^GET \/api\/auth\/me$/,
   /^GET \/api\/projects$/,
   /^GET \/api\/me\/follows$/,

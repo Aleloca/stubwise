@@ -101,6 +101,30 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       ...viaClaudeOf(item, ctx),
     };
   }
+  // Area 4, fetta 1: una menzione della Chat apre il messaggio nel suo canale
+  // (o nel suo thread). Tutto derivato a lettura dal server (`item.chat`).
+  const chat = (item as Partial<InboxItem>).chat;
+  if (item.kind === "chat.mention" && chat) {
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: projectCode ? `${projectCode} · ${chat.channelName}` : chat.channelName,
+      departmentId: null,
+      recipientIds: [],
+      title: item.text,
+      body: chat.excerpt,
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link: chat.threadRootId
+        ? `#/chat/${chat.channelId}?thread=${chat.threadRootId}&message=${chat.messageId}`
+        : `#/chat/${chat.channelId}?message=${chat.messageId}`,
+      chatMessageId: chat.messageId,
+      ...viaClaudeOf(item, ctx),
+    };
+  }
   const taskCode = item.ticketId ? ctx.taskCodes.get(item.ticketId) : undefined;
   const integrated = INTEGRATED_KINDS.has(item.kind) && taskCode !== undefined && projectCode !== undefined;
   return {

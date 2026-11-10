@@ -138,7 +138,9 @@ export function DecideBlock() {
   const sources = [
     decisions,
     ...(featureIntegrated("claude-decisions") ? [claude] : []),
-    ...(featureIntegrated("chat") ? [chatQuestions, chatClaude] : []),
+    // Le domande della Chat (fetta 2) e quelle di @Claude nei canali (fetta 3).
+    ...(featureIntegrated("chat") && featureIntegrated("chat-questions") ? [chatQuestions] : []),
+    ...(featureIntegrated("chat") && featureIntegrated("chat-claude") ? [chatClaude] : []),
     ...(featureIntegrated("mail") ? [mail] : []),
     ...(featureIntegrated("automations") ? [automations] : []),
     tasks,

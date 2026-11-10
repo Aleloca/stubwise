@@ -2,9 +2,12 @@ import {
   AGENT_STREAM_MAX_BYTES,
   endsSession,
   isAllowedAgentStreamPath,
+  isAllowedChatStreamPath,
   parseAgentStreamFrame,
+  parseChatStreamFrame,
   splitSseFrames,
   type AgentStreamMessage,
+  type ChatStreamFrameMessage,
 } from "@stubwise/shared";
 
 // Lo stream dal vivo delle sessioni dell'agente nell'app desktop (integrazione
@@ -43,6 +46,8 @@ export type StreamEndReason =
 export type StreamPortMessage =
   | { type: "open" }
   | { type: "frame"; messages: AgentStreamMessage[]; lastId: string | null; real: boolean; invalidSession: boolean }
+  /** Area 4: un frame dello stream di un canale della Chat (`parseChatStreamFrame`). */
+  | { type: "chatFrame"; messages: ChatStreamFrameMessage[]; cursor: string | null }
   | { type: "end"; reason: StreamEndReason; fatal: boolean; status?: number; code?: string };
 
 /** Il minimo di `MessagePortMain` che serve (finto nei test). */
@@ -91,7 +96,9 @@ export function createStreamRegistry(deps: StreamDeps) {
       }
       port.close();
     };
-    if (typeof path !== "string" || !isAllowedAgentStreamPath(path)) {
+    // Due allowlist strette: le sessioni dell'agente e, dall'area 4, i canali della Chat.
+    const chat = typeof path === "string" && isAllowedChatStreamPath(path);
+    if (typeof path !== "string" || (!chat && !isAllowedAgentStreamPath(path))) {
       end({ type: "end", reason: "rejected", fatal: true });
       return;
     }
@@ -199,6 +206,12 @@ export function createStreamRegistry(deps: StreamDeps) {
         const { frames, rest } = splitSseFrames(buffer);
         buffer = rest;
         for (const raw of frames) {
+          if (chat) {
+            const parsed = parseChatStreamFrame(raw);
+            if (!parsed.real) continue;
+            port.postMessage({ type: "chatFrame", messages: parsed.messages, cursor: parsed.cursor } satisfies StreamPortMessage);
+            continue;
+          }
           const parsed = parseAgentStreamFrame(raw);
           if (!parsed.real) continue;
           port.postMessage({

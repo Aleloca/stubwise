@@ -203,3 +203,49 @@ describe("stream delle sessioni via IPC (main)", () => {
     expect(port.sent.at(-1)).toMatchObject({ type: "end", reason: "rotate", fatal: false });
   });
 });
+
+describe("stream della Chat via IPC (main, area 4 fetta 1)", () => {
+  const CH = "00000000-0000-4000-8000-0000000000c1";
+  const CHAT_PATH = `/api/chat/channels/${CH}/stream?after=1731230400000000`;
+  const message = { id: "00000000-0000-4000-8000-0000000000d1", channelId: CH, authorId: null, text: "Ciao", createdAt: "2026-11-10T10:00:00.000Z" };
+
+  it("apre /api/chat/…/stream col Bearer e inoltra i frame della Chat (messaggi col cursore)", async () => {
+    const body = sseBody();
+    const d = deps({ fetch: vi.fn(async () => new Response(body.stream, { status: 200, headers: { "content-type": "text/event-stream" } })) });
+    const registry = createStreamRegistry(d);
+    const port = fakePort();
+    registry.open(1, CHAT_PATH, port);
+    await flush();
+    const [url, init] = d.fetch.mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe(`https://example.com${CHAT_PATH}`);
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer stw_pat_x");
+    body.push(": ping\n\n");
+    body.push(frame({ type: "messages", messages: [message], cursor: "1731230400000001" }));
+    await flush();
+    expect(port.sent.map((m) => m.type)).toEqual(["open", "chatFrame"]);
+    expect(port.sent[1]).toMatchObject({
+      type: "chatFrame",
+      cursor: "1731230400000001",
+      messages: [{ type: "messages", messages: [{ id: message.id }] }],
+    });
+    body.end();
+    await flush();
+    expect(port.sent.at(-1)).toMatchObject({ type: "end", fatal: false });
+  });
+
+  it("un percorso della Chat fuori elenco non apre nessuna connessione", async () => {
+    const d = deps();
+    const registry = createStreamRegistry(d);
+    for (const bad of [
+      `/api/chat/channels/${CH}/messages`,
+      `/api/chat/channels/${CH}/stream?after=abc`,
+      `/api/chat/channels/not-a-uuid/stream`,
+      `/api/chat/channels/${CH}/stream?after=1&x=2`,
+    ]) {
+      const port = fakePort();
+      registry.open(1, bad, port);
+      expect(port.sent).toEqual([{ type: "end", reason: "rejected", fatal: true }]);
+    }
+    expect(d.fetch).not.toHaveBeenCalled();
+  });
+});
