@@ -39,11 +39,14 @@ export const setStallThresholds: typeof Fake.setStallThresholds = async (project
 };
 
 /** I traguardi di un progetto (o di tutti quelli visibili); le scritture stanno in `milestones.ts`. */
-export const listMilestones: typeof Fake.listMilestones = async (projectId) => {
-  const ids = projectId ? [projectId] : (await listProjects()).map((p) => p.id);
-  const lists = await Promise.all(ids.map((id) => appClient().projects.milestones(id)));
+export const listMilestones: typeof Fake.listMilestones = async (projectId) =>
+  listMilestonesOf(projectId ? [projectId] : (await listProjects()).map((p) => p.id));
+
+/** I traguardi dei progetti dati: chi ha già letto i progetti non li rilegge (il polso del portafoglio). */
+export async function listMilestonesOf(projectIds: readonly string[]): Promise<Milestone[]> {
+  const lists = await Promise.all(projectIds.map((id) => appClient().projects.milestones(id)));
   return lists.flat().map((m) => toMilestone(m));
-};
+}
 
 /** Un traguardo del server nella forma del prototipo: la scadenza come giorno, `closed` da `status`. */
 export function toMilestone(m: {

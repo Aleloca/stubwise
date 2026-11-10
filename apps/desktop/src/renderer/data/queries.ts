@@ -606,18 +606,28 @@ export function useStalled(
   });
 }
 
+/**
+ * Quanto restano fresche le letture del polso e delle cronologie: sul server
+ * vero un polso sono sei letture e una cronologia una pagina di 28 giorni
+ * (review della fetta 4). Le scritture che le toccano le ricaricano comunque.
+ */
+const OVERVIEW_STALE_MS = 60_000;
+
+/** Il polso di un progetto; `""` (il progetto non ancora letto) non si legge. */
 export function useProjectPulse(projectId: string) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.pulse(me, projectId),
     queryFn: () => api.projectPulse(projectId),
+    enabled: projectId !== "",
+    staleTime: OVERVIEW_STALE_MS,
   });
 }
 
 /** Il polso di ogni progetto visibile (il portafoglio). */
 export function useProjectPulses() {
   const me = useSessionPersonId();
-  return useQuery({ queryKey: queryKeys.pulses(me), queryFn: api.listProjectPulses });
+  return useQuery({ queryKey: queryKeys.pulses(me), queryFn: api.listProjectPulses, staleTime: OVERVIEW_STALE_MS });
 }
 
 /**
@@ -634,6 +644,9 @@ function usePagedTimeline<E>(
     queryFn: ({ pageParam }) => page(pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextBefore ?? undefined,
+    // Ogni pagina letta si rilegge a ogni ricarica: niente al ritorno sulla finestra.
+    staleTime: OVERVIEW_STALE_MS,
+    refetchOnWindowFocus: false,
   });
   const data = useMemo(() => query.data?.pages.flatMap((p) => p.events), [query.data]);
   return {

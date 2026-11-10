@@ -2060,9 +2060,11 @@
       "claudeWorking": "Claude al lavoro",
       "stalled_one": "{{count}} ferma",
       "stalled_other": "{{count}} ferme",
+      "stalledAtLeast": "{{count}}+ ferme",
       "nextDated": "prossimo: {{name}} · {{date}}",
       "next": "prossimo: {{name}}",
       "quiet": "Niente in attesa, niente di fermo",
+      "quietTruncated": "Niente in attesa · troppe task aperte per contare le ferme",
       "error": "Impossibile caricare il polso del progetto."
     },
     "stalled": {

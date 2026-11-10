@@ -10,9 +10,9 @@ import type {
 } from "../../types";
 import { appClient, session } from "./client";
 import { listRequestsToConvert } from "./requests";
-import { listMilestones, listProjectStatuses } from "./statuses";
+import { listMilestonesOf, listProjectStatuses } from "./statuses";
 import { listDecisionRequests } from "./taskDetail";
-import { listStalled, listTasks } from "./tasks";
+import { listStalled, listTasks, tasksTruncated } from "./tasks";
 
 // L'Overview e il portafoglio della build app (integrazione area 2, fetta 4):
 // registro decisioni, brief settimanale (testo generato), cronologia e attività
@@ -135,38 +135,52 @@ export const listPortfolioActivityPage: typeof Fake.listPortfolioActivityPage = 
 
 // --- polso ------------------------------------------------------------------------
 
-/** Il polso dei progetti chiesti, con le stesse letture per tutti. */
+/**
+ * Il polso dei progetti chiesti, con le stesse letture per tutti: le sole task
+ * aperte (le famiglie `todo` e `active`). Oltre il tetto delle 2000 righe i
+ * numeri non sono esatti: il polso lo dice (`truncated`) e la riga mette un
+ * «+». Le ferme si contano dalla loro lettura, non dall'intersezione con la
+ * lista, che troncata ne perderebbe.
+ */
 async function pulsesOf(projectIds: string[]): Promise<ProjectPulse[]> {
   const me = session.personId ?? "";
-  const scope = projectIds.length === 1 ? { projectIds } : undefined;
+  const criteria = {
+    ...(projectIds.length === 1 ? { projectIds } : {}),
+    families: ["todo", "active"] as ("todo" | "active")[],
+  };
   const [tasks, stalled, milestones, decisions, requests, statuses] = await Promise.all([
-    listTasks(scope),
-    listStalled(scope),
-    projectIds.length === 1 ? listMilestones(projectIds[0]) : listMilestones(),
+    listTasks(criteria),
+    listStalled(criteria),
+    listMilestonesOf(projectIds),
     listDecisionRequests({ askedOfId: me, open: true }),
     listRequestsToConvert(),
     Promise.all(projectIds.map((id) => listProjectStatuses(id))),
   ]);
+  const truncated = tasksTruncated(criteria);
   const familyOf = new Map(statuses.flat().map((s) => [s.id, s.family] as const));
-  const stalledIds = new Set(stalled.map((r) => r.task.id));
   const projectOfTask = new Map(tasks.map((t) => [t.id, t.projectId] as const));
-  return projectIds.map((projectId) =>
-    pulseOf({
+  return projectIds.map((projectId) => {
+    const pulse = pulseOf({
       projectId,
       tasks: tasks
         .filter((t) => t.projectId === projectId && t.closedAt === null)
         .flatMap((t) => {
           const family = familyOf.get(t.statusId);
-          return family ? [{ family, stalled: stalledIds.has(t.id) }] : [];
+          return family ? [{ family, stalled: false }] : [];
         }),
       milestones: milestones.filter((m) => m.projectId === projectId),
-      decisionsForMe: decisions.filter((d) => projectOfTask.get(d.taskId) === projectId).length,
+      decisionsForMe: decisions.filter((d) => (d.projectId ?? projectOfTask.get(d.taskId)) === projectId).length,
       requestsToConvert: requests.filter((r) => r.projectId === projectId && r.status === "new").length,
       // Claude (area 3) non è integrato: niente domande né lavoro in corso da dire.
       claudeWaitingForMe: 0,
       claudeWorking: false,
-    }),
-  );
+    });
+    return {
+      ...pulse,
+      stalled: stalled.filter((r) => r.task.projectId === projectId && r.task.closedAt === null).length,
+      ...(truncated ? { truncated: true } : {}),
+    };
+  });
 }
 
 export const projectPulse: typeof Fake.projectPulse = async (projectId) =>

@@ -2060,9 +2060,11 @@
       "claudeWorking": "Claude working",
       "stalled_one": "{{count}} stalled",
       "stalled_other": "{{count}} stalled",
+      "stalledAtLeast": "{{count}}+ stalled",
       "nextDated": "next: {{name}} · {{date}}",
       "next": "next: {{name}}",
       "quiet": "Nothing waiting, nothing stalled",
+      "quietTruncated": "Nothing waiting · too many open tasks to count the stalled ones",
       "error": "Couldn't load the project's pulse."
     },
     "stalled": {
