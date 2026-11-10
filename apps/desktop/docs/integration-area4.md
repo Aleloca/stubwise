@@ -48,3 +48,28 @@ prototipo, con gli ingressi delle fette dopo spenti dietro flag
 | «Load earlier» e «vai al messaggio»: il prototipo alza `limit`; l'adapter chiede al server pagine da al più 200 e va avanti col cursore opaco `before` della pagina, accumulandole fino al `limit` (review della fetta 1: oltre 200 il server rispondeva 400). Verso un messaggio lontano si sale di 200; su un errore ci si ferma e la pagina lo dice, con «Retry» | costruttore (review) |
 | Il canale della Chat in «Browse»: due letture (attivi e archiviati), unite per id | costruttore |
 | Lo stream: UNA connessione per canale, condivisa dai suoi thread (che trovano il canale della radice, riprovando col backoff); «arrivato» solo un messaggio più nuovo dell'ultimo visto (il server può ripeterne); le letture si rinfrescano solo se la vista del canale cambia; alla ripresa si rilegge la pagina; watchdog dei ping a 60 s anche sul web; il cursore dello stream lo dà il server (senza `after`, «adesso»), la pagina letta non ne ha uno da seminare | stubwise-72 (server), costruttore (review) |
+
+## Renderer della fetta 2
+
+Accesi nella build app `chat-dm`, `chat-private`, `chat-general`,
+`chat-search`, `chat-questions`, `chat-also-in-channel` e `chat-from-message`;
+le citazioni (F2.7) non hanno un flag. Restano spenti `chat-claude` (fetta
+3), `chat-events` e `chat-attachments` (fetta 4).
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Il client della fetta 2: DM, inviti e rimozioni (`null` su un 204), domande e «ignora», ricerca coi filtri (anche «con citazioni»), il filtro `kind` | `packages/api-client/src/endpoints/chat.ts` | `POST /api/chat/dm`, `…/channels/:id/members[/:userId]`, `GET /questions`, `POST /questions/:id/dismiss`, `GET /search`, `?kind=` | `packages/api-client/src/endpoints/chat.test.ts` |
+| I permessi del canale uno per uno dal server (`canRead`, `canEditInfo`, `canEditTopic`, `canInvite`, `canRemove`, `canArchive`, `canDelete`); un privato visto da chi gestisce non si legge | `data/backend/real/chat.ts` (`toChannelView`) | — | `real/chat.test.ts` |
+| DM («New message», ⌘N, il DM che c'è già o uno nuovo), canali generali e privati coi membri, inviti e rimozioni; i rifiuti (`invalid: members`, `last_member`, `alsoInChannel`) | `real/chat.ts` | — | `real/chat.test.ts`, `real/chatPage.test.tsx` |
+| Il messaggio: «anche nel canale», chi deve rispondere (`asksReplyOf`), i codici di ciò che ne è nato (`linkedCodes`, `linkedRefs`), filtrati dal server | `real/chat.ts` (`toMessage`) | — | `real/chat.test.ts` |
+| «Ask for a reply» e «Also send to …» nella casella; «Create task» e «Create request» da un messaggio con `chatMessageId` (le creazioni di sempre) | `real/chat.ts`, `real/tasks.ts` (`createTaskWith`), `real/requests.ts` (`createRequestWith`) | `POST /api/tasks`, `POST /api/requests` | `real/chatPage.test.tsx` |
+| Le domande in «Da decidere», col canale come lo legge chi guarda | `real/chat.ts` (`listQuestions`), `pages/home/blocks/DecideBlock.tsx` | `GET /api/chat/questions` | `real/chat.test.ts`, `real/homePage.test.tsx` |
+| La ricerca della Chat | `real/chat.ts` (`searchChat`) | `GET /api/chat/search` | `real/chat.test.ts`, `real/chatPage.test.tsx` |
+| Le citazioni (F2.7): quelle confermate dal server sul messaggio si risolvono da lì (codice, nome, indirizzo), le altre restano non visibili; «#» manda le scelte dei tipi che il server sa citare | `real/chat.ts` (`chatCitationView`), `real/claudeChat.ts` (`resolveCitations`) | `citations` di invio e messaggio | `real/chat.test.ts`, `real/chatPage.test.tsx` |
+| Le persone vere della build app (review): «apri il thread dopo l'invio» e le bozze del riquadro di Claude non usano più la sessione del prototipo | `pages/chat/ChannelView.tsx` (`useOpenHref`), `layout/claudePanel/pageActions.ts` | — | `real/chatOpenThread.test.tsx`, `layout/claudePanel/fillable.test.tsx` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Le pagine Docs citate hanno il nome ma nessun link: l'area Docs non è integrata | costruttore |
+| Contro un server della sola fetta 1 (solo `canManage`) i bottoni di gestione del canale non comparirebbero; le fette 1 e 2 escono insieme | orchestratrice |
+| Togliere sé stessi da un privato che non si vede più (204): la vista di adesso, o «non trovato» | costruttore |

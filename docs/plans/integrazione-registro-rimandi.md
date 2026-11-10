@@ -164,10 +164,8 @@ Fetta 2 chiusa lato server (sotto, «Chiuse»).
   non comparirebbero.
 - **I flag del renderer da accendere con ogni fetta** *(O, 10 nov 2026)*
   (`CHAT_LATER_FEATURES` in `apps/desktop/src/renderer/data/integration.ts`):
-  fetta 2 `chat-dm` (DM, «New message», ⌘N), `chat-private`, `chat-general`,
-  `chat-search`, `chat-questions`, `chat-also-in-channel`,
-  `chat-from-message`; fetta 3 `chat-claude`; fetta 4 `chat-events`,
-  `chat-attachments`. Ognuno va acceso col suo test di pagina.
+  quelli della fetta 2 sono accesi; restano fetta 3 `chat-claude`, fetta 4
+  `chat-events` e `chat-attachments`. Ognuno va acceso col suo test di pagina.
 - `@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
   1, da riprendere se il maintainer vuole avvisi di gruppo.
 - Limite accettato: modificare un messaggio avvisa solo chi viene nominato
