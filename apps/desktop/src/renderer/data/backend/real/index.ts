@@ -130,8 +130,10 @@ export { closeRefine, getRefineOf, startRefineConversation } from "./claudeRefin
 // La chat con Claude, fetta 2: le conversazioni libere private (solo «Mine»).
 export {
   archiveConversation,
+  contextIdOf,
   createConversation,
   deleteConversation,
+  describeContext,
   listCommands,
   renameConversation,
   resolveCitations,

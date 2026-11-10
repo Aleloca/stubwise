@@ -69,6 +69,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // le azioni di Claude in chat, la riga «Claude can help you…»
     // (`claude-suggestions`) e il riquadro come chat (`claude-panel`).
     "claude-chat",
+    // Fetta 2 della chat, il riquadro (⌘J, ⌘K «Ask Claude…») col chip del contesto.
+    "claude-panel",
   ]),
 };
 

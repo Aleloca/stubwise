@@ -58,10 +58,11 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 - **Conversazioni pubbliche e continuazione**, `claude.public.view`, conferma dei
   progetti, messaggi privati se Claude tocca un progetto nuovo: fetta a sé dopo
   la prima versione *(M)*.
-- Citazioni, menzioni, «Claude can help you…» (suggerimenti nelle pagine),
-  riquadro come chat, ⌘J/⌘K «Ask Claude» *(O)*.
+- «Claude can help you…» (suggerimenti nelle pagine) e le citazioni
+  registrate sui messaggi (oggi solo i codici nel testo) *(O)*. Menzioni,
+  riquadro come chat e ⌘J/⌘K: chiuse (sotto).
 - Azioni delle altre aree: entrano **con la loro area** (sotto) *(O)*.
-- **Limiti della fetta 1 (runner)** *(S, stubwise-80)*: i tool di lettura sono
+- **Limiti della fetta 1 (runner)** *(S, stubwise-72)*: i tool di lettura sono
   sei (progetti, cerca/leggi task, leggi richiesta, cerca docs, brief +
   registro decisioni). Non leggono commenti e storia della task, la pagina
   Docs intera, il codice o il grafo; restituiscono il JSON delle rotte
@@ -74,7 +75,7 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   finché l'autore non le archivia o le elimina (eventi compresi) *(S)*.
 - Budget del mese finito: in chat nessuno lo scavalca (una conversazione non ha
   un progetto, quindi nessun `plans.approve`) *(S)*.
-- **Limiti della fetta 2 (renderer, destinazione)** *(S, stubwise-80)*:
+- **Limiti della fetta 2 (renderer, destinazione)** *(S, stubwise-72)*:
   - «#» propone task e progetti, non richieste né pagine Docs; «@» le persone.
   - «/» ha i soli comandi che si risolvono leggendo (`/status`, `/today`,
     `/explain`, `/docs`); niente skill dei plugin del progetto (il server non
@@ -88,6 +89,10 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
     chip di task.
   - La riga di benvenuto dice la promessa di sola lettura
     (`landing.introRead`) finché le azioni in chat non entrano.
+  - Riquadro: il chip c'è per task, richieste, pagine e impostazioni di
+    progetto; gli oggetti delle aree non integrate (rilasci, supporto, PR,
+    automazioni, posta) non danno chip né contesto; le domande della doc di
+    prodotto sotto il chip restano spente (`product-docs`, area 11).
 
 ## Area 4 — Chat
 
@@ -170,6 +175,13 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- Chat con Claude, **fette 1 e 2** *(O)*: conversazioni libere private sul
+  server (sessioni `free`, 0126–0128), turni a sola lettura col token del turno
+  e `--tools ""`, golden `chat-*`; nel renderer «New», N, «Mine», la pagina, il
+  riquadro (⌘J, ⌘K) col chip del contesto, menzioni e comandi di lettura —
+  parità in `apps/desktop/docs/integration-claude-chat.md`, commit «feat(chat):
+  …» (F1.1, F1.2, F2.1a, F2.1b).
 
 - Area 3, 3e.1 **Claude assegnabile, server** *(M)*: utente di sistema (0125,
   `users.is_agent`), niente accesso né notifiche, assegnarlo avvia il run con le

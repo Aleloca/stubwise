@@ -409,6 +409,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «CLI claude 2.1.322» (10 nov 2026)
   - «Annulla il lavoro» (10 nov 2026)
   - «Claude assegnabile» (10 nov 2026)
+  - «Chat con Claude, fette 1 e 2» (10 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
