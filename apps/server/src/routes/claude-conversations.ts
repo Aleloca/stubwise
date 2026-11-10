@@ -131,11 +131,13 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
       if (user.chatToolSessionId !== request.params.id || !(await ownLiveConversation(app.db, user.id, request.params.id))) {
         return apiError(reply, 404, "not_found", "Conversation not found");
       }
-      return createProposal(app.db, user, request.params.id, {
-        toolUseId: request.body.toolUseId,
-        actions: request.body.actions,
-        summary: request.body.summary,
-      });
+      return createProposal(
+        app.db,
+        user,
+        request.params.id,
+        { toolUseId: request.body.toolUseId, actions: request.body.actions, summary: request.body.summary },
+        { storage: () => app.storage(), log: (message, error) => request.log.warn({ err: error }, message) },
+      );
     },
   );
 

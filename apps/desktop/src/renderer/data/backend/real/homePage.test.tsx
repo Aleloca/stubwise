@@ -136,6 +136,7 @@ describe("la Home nella build app", () => {
         at: "2026-11-01T09:00:00.000Z",
         planId: "bbbbbbbb-0000-4000-8000-000000000001",
         summary: "Add the CSV export",
+        planDigest: "sha256:mostrato",
         webHref: "/tickets/x",
       },
     ];
@@ -147,6 +148,8 @@ describe("la Home nella build app", () => {
     await waitFor(() =>
       expect(seen.some((r) => r.method === "POST" && r.path === `/api/tickets/${TICKET_ID}/approve-plan`)).toBe(true),
     );
+    // Il digest del piano della voce che si è approvata (review dell'area 3, punto 13).
+    expect(seen.find((r) => r.path === `/api/tickets/${TICKET_ID}/approve-plan`)?.body).toEqual({ planDigest: "sha256:mostrato" });
   });
 
   it("personalizzare dall'app non cancella un blocco di un'area non integrata né un kind sconosciuto", async () => {

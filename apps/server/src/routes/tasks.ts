@@ -59,6 +59,7 @@ import {
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { loadTaskWorkExtras } from "../services/task-work.js";
 import { cancelRun } from "../services/cancel-run.js";
+import { claudeStart } from "../services/claude-assign.js";
 import { deleteTask, taskDeletionPreview } from "../services/task-delete.js";
 
 /**
@@ -217,7 +218,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const result = await createTask(app.db, request.user!, request.body);
+      const result = await createTask(app.db, request.user!, request.body, claudeStart(app, request));
       if (!result.ok && result.error === "request_not_convertible") {
         return writeError(reply, result.error, 409);
       }
@@ -255,7 +256,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const result = await bulkUpdateTasks(app.db, request.user!, request.body.ids, request.body.patch);
+      const result = await bulkUpdateTasks(app.db, request.user!, request.body.ids, request.body.patch, claudeStart(app, request));
       if (result.ok) return result.tasks;
       switch (result.error) {
         case "not_found":
@@ -366,7 +367,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const result = await updateTask(app.db, request.user!, request.params.ticketId, request.body);
+      const result = await updateTask(app.db, request.user!, request.params.ticketId, request.body, claudeStart(app, request));
       if (!result.ok) return writeError(reply, result.error, 400);
       return result.task;
     },
@@ -429,7 +430,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const result = await planTask(app.db, request.user!, request.params.ticketId, request.body);
+      const result = await planTask(app.db, request.user!, request.params.ticketId, request.body, claudeStart(app, request));
       if (result.ok) return result.task;
       if (result.error === "forbidden") {
         return apiError(reply, 403, "forbidden", "You can plan only your own tasks in this project");

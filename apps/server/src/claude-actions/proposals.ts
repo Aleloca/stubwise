@@ -21,6 +21,7 @@ import {
 import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
+import type { ActionEffects } from "./effects.js";
 import { classOfGroup, executeGroup, type ExecuteResult, type PlannedAction } from "./execute.js";
 import { undoGroup, undoStateOf } from "./undo.js";
 
@@ -115,6 +116,7 @@ export async function createProposal(
   user: SessionUser,
   sessionId: string,
   input: Required<Pick<CreateClaudeProposalInput, "toolUseId" | "actions">> & { summary?: string },
+  effects: ActionEffects = {},
 ): Promise<ClaudeProposalOutcome> {
   const [existing] = await db
     .select()
@@ -181,7 +183,7 @@ export async function createProposal(
     return outcomeOf(db, again!);
   }
   if (cls === "A") {
-    const done = await executeGroup(db, user, { sessionId, actions, proposalId: row.id });
+    const done = await executeGroup(db, user, { sessionId, actions, proposalId: row.id, effects });
     if (!done.ok) {
       await db
         .update(claudeProposals)
@@ -334,6 +336,7 @@ export async function confirmProposal(
   user: SessionUser,
   proposalId: string,
   opts: { selected?: number[]; edited?: { index: number; args: Record<string, unknown> }[] } = {},
+  effects: ActionEffects = {},
 ): Promise<DecideResult> {
   const row = await loadOwn(db, user, proposalId);
   if (!row) return { ok: false, error: "not_found" };
@@ -350,7 +353,7 @@ export async function confirmProposal(
 
   let result: ExecuteResult;
   if (row.undoOfGroupId) {
-    const undone = await undoGroup(db, user, row.undoOfGroupId, { confirmed: true });
+    const undone = await undoGroup(db, user, row.undoOfGroupId, { confirmed: true, effects });
     result = undone.ok
       ? { ok: true, groupId: undone.kind === "undone" ? undone.groupId : row.undoOfGroupId, actions: [], notified: [] }
       : undone.error === "refused"
@@ -365,7 +368,7 @@ export async function confirmProposal(
     result =
       chosen.length === 0
         ? { ok: false, failure: { code: "invalid", index: 0, permission: null, projectId: null, message: "nothing selected" } }
-        : await executeGroup(db, user, { sessionId: row.sessionId, actions: chosen, proposalId: row.id });
+        : await executeGroup(db, user, { sessionId: row.sessionId, actions: chosen, proposalId: row.id, effects });
   }
   if (!result.ok) {
     await db
@@ -403,6 +406,7 @@ export async function requestUndo(
   db: Db,
   user: SessionUser,
   groupId: string,
+  effects: ActionEffects = {},
 ): Promise<
   | { ok: true; kind: "undone" }
   | { ok: true; kind: "needs_confirmation"; proposal: ClaudeProposalView }
@@ -411,7 +415,7 @@ export async function requestUndo(
   const [group] = await db.select().from(claudeActionGroups).where(eq(claudeActionGroups.id, groupId));
   if (!group || group.requesterId !== user.id || !group.sessionId) return { ok: false, error: "not_found" };
   if (!(await ownLiveConversation(db, user.id, group.sessionId))) return { ok: false, error: "not_found" };
-  const result = await undoGroup(db, user, groupId);
+  const result = await undoGroup(db, user, groupId, { effects });
   if (!result.ok) return { ok: false, error: result.error, ...(result.error === "refused" ? { failure: result.failure } : {}) };
   if (result.kind === "undone") {
     await sessionEvent(db, group.sessionId, "actions_executed", { groupId: result.groupId, undoOf: groupId });

@@ -374,6 +374,7 @@ export async function loadTaskViews(
       technical: null,
       assigneeStatus: t.assigneeId ? "active" : null,
       canPlan: canPlanOf(t),
+      claudeRun: null,
     },
   }));
 }

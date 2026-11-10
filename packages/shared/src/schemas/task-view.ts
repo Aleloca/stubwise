@@ -160,6 +160,14 @@ export const taskViewSchema = z.object({
    * vecchio non lo manda.
    */
   canPlan: z.boolean().optional(),
+  /**
+   * Solo nella risposta di una SCRITTURA che ha appena assegnato la task a
+   * Claude (integrazione area 3, review punto 5): l'esito dell'avvio del
+   * lavoro, `started` o `refused:<codice>` di `startRun` (es.
+   * `refused:job_in_flight`). L'assegnazione è scritta comunque; il client
+   * dice la frase del codice. `null` altrove. Additivo.
+   */
+  claudeRun: z.string().nullable().default(null),
 });
 export type TaskViewData = z.infer<typeof taskViewSchema>;
 
@@ -367,8 +375,21 @@ export const taskWorkViewSchema = z.object({
       relaunch: actionAvailabilitySchema.default("unavailable"),
       resume: actionAvailabilitySchema.default("unavailable"),
       requestChanges: actionAvailabilitySchema.default("unavailable"),
+      /**
+       * «Annulla il lavoro» (review dell'area 3, punto 14): un lavoro
+       * parcheggiato o in esecuzione, non ancora chiesto, per chi ha
+       * `runs.start`. Lo calcola il server; il client lo legge. Additivo: un
+       * server più vecchio non lo manda e il client non lo offre.
+       */
+      cancel: actionAvailabilitySchema.default("unavailable"),
     })
-    .default({ start: "unavailable", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" }),
+    .default({
+      start: "unavailable",
+      relaunch: "unavailable",
+      resume: "unavailable",
+      requestChanges: "unavailable",
+      cancel: "unavailable",
+    }),
   /**
    * «Chiedi modifiche» PER PR (multi-repo), accanto all'aggregato
    * `actions.requestChanges` (che è `allowed` se lo è almeno una). Stesse

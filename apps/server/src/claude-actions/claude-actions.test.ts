@@ -19,6 +19,7 @@ import {
   projectMembers,
   ticketEvents,
   tickets,
+  users,
 } from "@stubwise/db";
 import { seedBacklogItem, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
@@ -305,6 +306,31 @@ describe("le altre voci del catalogo", () => {
     expect((await undo(groupId)).json()).toEqual({ kind: "undone" });
     const [gone] = await t.db.select().from(comments).where(eq(comments.id, c!.id));
     expect(gone!.deletedAt).not.toBeNull();
+  });
+
+  it("assegnare Claude con updateTask: il lavoro parte come nelle rotte, quindi chiede SEMPRE conferma (starts_work) e non si annulla", async () => {
+    const [claude] = await t.db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
+    expect(claude).toBeDefined();
+    const sid = await conversation();
+    const tok = await token(sid);
+    const tk = await task();
+    const res = await propose(sid, tok, [{ fn: "updateTask", args: { id: tk.id, patch: { assigneeId: claude!.id } } }]);
+    expect(res.json()).toMatchObject({ status: "awaiting_confirmation" });
+    // Nessun job durante la prova a secco.
+    expect(await t.db.select().from(aiJobs).where(eq(aiJobs.ticketId, tk.id))).toEqual([]);
+    const [view] = (await asAuthor("GET", `/api/claude/conversations/${sid}/proposals`)).json() as {
+      id: string;
+      cls: string;
+      reasons: { kind: string }[];
+    }[];
+    expect(view!.cls).toBe("B");
+    expect(view!.reasons.map((r) => r.kind)).toContain("starts_work");
+    expect((await asAuthor("POST", `/api/claude/proposals/${view!.id}/confirm`, {})).statusCode).toBe(200);
+    const [job] = await t.db.select().from(aiJobs).where(eq(aiJobs.ticketId, tk.id));
+    expect(job).toBeDefined();
+    expect(job!.planApprovalRequired).toBe(true);
+    const [group] = (await asAuthor("GET", `/api/claude/conversations/${sid}/groups`)).json() as { undo: string }[];
+    expect(group!.undo).toBe("not_undoable");
   });
 
   it("deleteComment di un commento altrui senza tickets.moderate: rifiutata alla nascita", async () => {

@@ -204,8 +204,8 @@ describe("runs: le sessioni di lavoro della task", () => {
 describe("actions: le calcola il server coi permessi di chi guarda", () => {
   it("nessun lavoro: start allowed per chi ha runs.start, forbidden per chi non ce l'ha; il resto unavailable", async () => {
     const t = await task();
-    expect((await work(t, developer)).actions).toEqual({ start: "allowed", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" });
-    expect((await work(t, viewer)).actions).toEqual({ start: "forbidden", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" });
+    expect((await work(t, developer)).actions).toEqual({ start: "allowed", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable", cancel: "unavailable" });
+    expect((await work(t, viewer)).actions).toEqual({ start: "forbidden", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable", cancel: "unavailable" });
   });
 
   it("lavoro finito: relaunch (allowed/forbidden); lavoro in corso: niente da avviare", async () => {

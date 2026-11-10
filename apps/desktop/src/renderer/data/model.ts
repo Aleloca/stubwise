@@ -361,6 +361,12 @@ export interface Task {
    * e da un server più vecchio: allora decide `canMove` sul client.
    */
   canPlan?: boolean;
+  /**
+   * Solo nella risposta di una scrittura che ha appena assegnato la task a
+   * Claude (build app, review dell'area 3 punto 5): l'esito dell'avvio del
+   * lavoro, `started` o `refused:<codice>`. Assente altrove e nel prototipo.
+   */
+  claudeRun?: string;
   milestoneId: string | null;
   labels: string[];
   type: TaskType;
@@ -1297,6 +1303,11 @@ export type ConversationEvent =
       status: "pending" | "approved" | "rejected" | "pre_approved" | "undecided";
       decidedById?: string;
       instructions?: string;
+      /**
+       * Build app: il digest del piano (dal server). Chi decide rimanda
+       * QUESTO, il piano che ha davanti (review dell'area 3, punto 13).
+       */
+      digest?: string;
     }
   | {
       id: string;

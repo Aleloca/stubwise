@@ -44,7 +44,7 @@ beforeAll(async () => {
   // Chi modifica le task ma NON avvia il lavoro (nessun preset è così: un ruolo apposta).
   const [role] = await testDb.db
     .insert(roles)
-    .values({ name: "Solo modifica", scope: "project", permissions: ["tickets.view_all", "tickets.edit"] })
+    .values({ name: "Solo modifica", scope: "project", permissions: ["tickets.view_all", "tickets.edit", "tickets.create"] })
     .returning({ id: roles.id });
   await testDb.db.insert(projectMembers).values({ projectId, userId: editorOnly.id, roleId: role!.id });
   const [claude] = await testDb.db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
@@ -154,6 +154,91 @@ describe("assegnare Claude avvia il lavoro", () => {
   });
 });
 
+describe("l'esito dell'avvio arriva nella risposta (claudeRun)", () => {
+  it("assegnato e partito: started; con un lavoro già in corso: refused:job_in_flight; una task non assegnata a Claude non lo porta", async () => {
+    const t = await task();
+    const ok = await req("PATCH", `/api/tasks/${t}`, developer, { assigneeId: claudeId });
+    expect(ok.json()).toMatchObject({ claudeRun: "started" });
+    const busy = await task();
+    await testDb.db.insert(aiJobs).values({ ticketId: busy, status: "fixing" });
+    const refused = await req("PATCH", `/api/tasks/${busy}`, developer, { assigneeId: claudeId });
+    expect(refused.statusCode, refused.body).toBe(200);
+    expect(refused.json()).toMatchObject({ assigneeId: claudeId, claudeRun: "refused:job_in_flight" });
+    const plain = await req("PATCH", `/api/tasks/${await task()}`, developer, { title: "x" });
+    expect(plain.json()).toMatchObject({ claudeRun: null });
+    // Dal Planning e alla creazione, lo stesso campo.
+    const viaPlan = await req("POST", `/api/tasks/${await task()}/plan`, developer, { assigneeId: claudeId, week: null });
+    expect(viaPlan.json()).toMatchObject({ claudeRun: "started" });
+    const created = await req("POST", "/api/tasks", developer, { projectId, title: "Nuova", type: "bug", assigneeId: claudeId });
+    expect(created.json()).toMatchObject({ claudeRun: "started" });
+  });
+});
+
+describe("pianificare Claude chiede anche di poter modificare, e una task aperta", () => {
+  it("con runs.start ma senza tickets.edit: 403 forbidden e niente cambia; su una task chiusa: 403 forbidden e nessun run", async () => {
+    const runner = await createUserWithSession(app, "runner-only@example.com");
+    const [role] = await testDb.db
+      .insert(roles)
+      .values({ name: "Solo avvio", scope: "project", permissions: ["tickets.view_all", "runs.start", "planning.others"] })
+      .returning({ id: roles.id });
+    await testDb.db.insert(projectMembers).values({ projectId, userId: runner.id, roleId: role!.id });
+    const t = await task();
+    const refused = await req("POST", `/api/tasks/${t}/plan`, runner, { assigneeId: claudeId, week: null });
+    expect(refused.statusCode, refused.body).toBe(403);
+    expect(refused.json()).toMatchObject({ code: "forbidden" });
+    expect(await jobsOf(t)).toEqual([]);
+    const closed = await task();
+    await testDb.db.update(tickets).set({ closedAt: new Date(), status: "done" }).where(eq(tickets.id, closed));
+    const onClosed = await req("POST", `/api/tasks/${closed}/plan`, developer, { assigneeId: claudeId, week: null });
+    expect(onClosed.statusCode, onClosed.body).toBe(403);
+    const [row] = await testDb.db.select({ assigneeId: tickets.assigneeId }).from(tickets).where(eq(tickets.id, closed));
+    expect(row!.assigneeId).toBeNull();
+    expect(await jobsOf(closed)).toEqual([]);
+  });
+});
+
+describe("le porte vecchie (web vecchio, mobile, MCP) seguono la stessa regola", () => {
+  it("PATCH /api/tickets/:id: senza runs.start 403 claude_assign_forbidden e niente cambia; con runs.start assegnato e il run parte", async () => {
+    const t = await task();
+    const refused = await req("PATCH", `/api/tickets/${t}`, editorOnly, { assigneeId: claudeId });
+    expect(refused.statusCode, refused.body).toBe(403);
+    expect(refused.json()).toMatchObject({ code: "claude_assign_forbidden" });
+    const [row] = await testDb.db.select({ assigneeId: tickets.assigneeId }).from(tickets).where(eq(tickets.id, t));
+    expect(row!.assigneeId).toBeNull();
+    expect(await jobsOf(t)).toEqual([]);
+    const ok = await req("PATCH", `/api/tickets/${t}`, developer, { assigneeId: claudeId });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect((await jobsOf(t)).length).toBe(1);
+  });
+
+  it("POST /api/tickets già assegnato a Claude: senza runs.start 403 e niente nasce; con runs.start nasce e il run parte", async () => {
+    const before = (await testDb.db.select({ id: tickets.id }).from(tickets)).length;
+    const refused = await req("POST", "/api/tickets", editorOnly, { projectId, title: "Vecchia porta", type: "bug", priority: "medium", assigneeId: claudeId });
+    expect(refused.statusCode, refused.body).toBe(403);
+    expect(refused.json()).toMatchObject({ code: "claude_assign_forbidden" });
+    expect((await testDb.db.select({ id: tickets.id }).from(tickets)).length).toBe(before);
+    const ok = await req("POST", "/api/tickets", developer, { projectId, title: "Vecchia porta", type: "bug", priority: "medium", assigneeId: claudeId });
+    expect(ok.statusCode, ok.body).toBe(201);
+    expect((await jobsOf((ok.json() as { id: string }).id)).length).toBe(1);
+  });
+});
+
+describe("il ticket assegnato a Claude per il web vecchio e l'app", () => {
+  it("non è «assegnatario senza accesso» e porta assigneeIsAgent, nel dettaglio e nell'elenco; una persona no", async () => {
+    const t = await task();
+    await testDb.db.update(tickets).set({ assigneeId: claudeId }).where(eq(tickets.id, t));
+    const detail = await req("GET", `/api/tickets/${t}`, developer);
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect(detail.json()).toMatchObject({ assigneeId: claudeId, assigneeIsAgent: true, assigneeWithoutAccess: false });
+    const list = await req("GET", `/api/tickets?projectId=${projectId}`, developer);
+    const row = (list.json() as { items: { id: string; assigneeIsAgent: boolean }[] }).items.find((i) => i.id === t);
+    expect(row).toMatchObject({ assigneeIsAgent: true });
+    const other = await task();
+    await testDb.db.update(tickets).set({ assigneeId: developer.id }).where(eq(tickets.id, other));
+    expect((await req("GET", `/api/tickets/${other}`, developer)).json()).toMatchObject({ assigneeIsAgent: false });
+  });
+});
+
 describe("Claude non è una persona da gestire", () => {
   it("non è nel Team; le rotte /api/users/:id su di lui rispondono 404", async () => {
     const admin = await createUserWithSession(app, "admin-claude@example.com");
@@ -179,6 +264,22 @@ describe("Claude non riceve mai notifiche", () => {
     expect(comment.statusCode, comment.body).toBe(201);
     expect(await testDb.db.select().from(notifications).where(eq(notifications.userId, claudeId))).toEqual([]);
     await testDb.db.delete(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, claudeId)));
+  });
+
+  it("non gli si collega un'identità git, Bitbucket o Slack (404, come un utente che non c'è)", async () => {
+    const admin = await createUserWithSession(app, "admin-identity@example.com");
+    await testDb.db
+      .update(users)
+      .set({ instanceRoleId: (await testDb.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "admin")))[0]!.id })
+      .where(eq(users.id, admin.id));
+    const call = (method: "POST" | "PUT", url: string, payload: object) =>
+      app.inject({ method, url, headers: { cookie: admin.headers.cookie }, payload });
+    const git = await call("POST", `/api/users/${claudeId}/git-identities`, { email: "bot@ci.example" });
+    expect(git.statusCode, git.body).toBe(404);
+    const bitbucket = await call("PUT", `/api/users/${claudeId}/bitbucket`, { username: "claude-bot" });
+    expect(bitbucket.statusCode, bitbucket.body).toBe(404);
+    const slack = await call("PUT", `/api/users/${claudeId}/slack`, { slackUserId: "U123" });
+    expect(slack.statusCode, slack.body).toBe(404);
   });
 
   it("non si aggiunge come membro di un progetto (404, come un utente che non c'è)", async () => {
