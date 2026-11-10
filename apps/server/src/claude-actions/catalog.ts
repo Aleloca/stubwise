@@ -12,7 +12,7 @@ import type { FastifyRequest } from "fastify";
 import type { RouteAccess } from "../auth/access.js";
 import { backlogItemAccess, fromBody, fromMilestone, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import type { SessionUser } from "../auth/session.js";
-import { backlogItems, milestones, taskFilters } from "@stubwise/db";
+import { backlogItems, taskFilters } from "@stubwise/db";
 import type { MilestoneDraft, NewFilterBody, NewRequestBody } from "@stubwise/shared";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import { postUserComment } from "../services/comment-post.js";
