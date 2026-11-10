@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationEvent } from "../../types";
 import { setAppClientForTests } from "./client";
+import { confirmProposal, forgetPageStatuses, settlePageEvent } from "./claudeChatActions";
 import { IDLE_SESSIONS_MAX, MAX_STREAMS, reconnectDelay, rememberedSessions, resetStreamsForTests, subscribe } from "./claudeStream";
 import { PROJECT_ID, serverProject, TICKET_ID } from "./fakeServer";
 
@@ -50,6 +51,8 @@ let workPlanStatus: string | null = null;
 let workReads = 0;
 /** Chat, fetta 3: le proposte che il server finto dà per la conversazione libera. */
 let chatProposals: unknown[] = [];
+/** La risposta del server finto a una conferma. */
+let confirmAnswer: () => Response = () => new Response("{}", { status: 404 });
 
 beforeEach(() => {
   streams = [];
@@ -57,6 +60,7 @@ beforeEach(() => {
   workPlanStatus = null;
   workReads = 0;
   chatProposals = [];
+  confirmAnswer = () => new Response("{}", { status: 404 });
   setAppClientForTests(null);
   resetStreamsForTests();
   vi.stubGlobal(
@@ -108,6 +112,7 @@ beforeEach(() => {
       }
       if (path === `/api/claude/conversations/${SESSION}/proposals`) return Response.json(chatProposals);
       if (path === `/api/claude/conversations/${SESSION}/groups`) return Response.json([]);
+      if (/^\/api\/claude\/proposals\/[^/]+\/confirm$/.test(path)) return confirmAnswer();
       return new Response(JSON.stringify({ code: "not_found", message: path }), { status: 404 });
     }),
   );
@@ -305,6 +310,63 @@ describe("lo stream di una sessione", () => {
     streams[0]!.push(frame({ type: "events", events: [ev("2", "proposal", { proposalId: PROPOSAL })] }));
     await vi.waitFor(() => expect(c.events.map((e) => e.type)).toEqual(["assistant", "proposal"]));
     expect(c.events[1]).toMatchObject({ type: "proposal", proposalId: PROPOSAL, cls: "B", status: "open" });
+    stop();
+  });
+
+  it("una conferma rifiutata (409 expired) non lascia la scheda dal vivo vecchia: proposte e gruppi si rileggono", async () => {
+    const PROPOSAL = "dddddddd-0000-4000-8000-0000000000b2";
+    const view = (status: string) => ({
+      id: PROPOSAL,
+      sessionId: SESSION,
+      actions: [{ fn: "createMilestone", args: { projectId: PROJECT_ID, name: "Beta" } }],
+      summary: "",
+      cls: "B",
+      status,
+      canConfirm: status === "open",
+      canCancel: status === "open",
+      createdAt: "2026-11-10T09:00:02.000Z",
+    });
+    chatProposals = [view("open")];
+    // Il server non scrive eventi su un rifiuto: solo la sua vista cambia.
+    confirmAnswer = () => {
+      chatProposals = [view("expired")];
+      return new Response(JSON.stringify({ code: "expired", message: "x" }), { status: 409 });
+    };
+    const c = collect();
+    const stop = subscribe(SESSION, c.onEvent, {});
+    await vi.waitFor(() => expect(streams).toHaveLength(1));
+    streams[0]!.push(frame({ type: "session", detail: detail({ kind: "free", ticketId: null, ticketNumber: null, aiJobId: null }) }));
+    streams[0]!.push(frame({ type: "events", events: [ev("2", "proposal", { proposalId: PROPOSAL })] }));
+    await vi.waitFor(() => expect(c.events[0]).toMatchObject({ type: "proposal", status: "open" }));
+    expect(await confirmProposal(SESSION, PROPOSAL)).toEqual({ status: "failed", error: "expired" });
+    await vi.waitFor(() => expect(c.events[0]).toMatchObject({ type: "proposal", status: "expired" }));
+    stop();
+  });
+
+  it("un'azione della pagina chiusa dal runner (settlePageEvent) si aggiorna anche dal vivo, senza restare pending", async () => {
+    forgetPageStatuses();
+    const PROPOSAL = "dddddddd-0000-4000-8000-0000000000b3";
+    chatProposals = [
+      {
+        id: PROPOSAL,
+        sessionId: SESSION,
+        actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
+        summary: "",
+        cls: "A",
+        status: "open",
+        canConfirm: false,
+        canCancel: false,
+        createdAt: "2026-11-10T09:00:02.000Z",
+      },
+    ];
+    const c = collect();
+    const stop = subscribe(SESSION, c.onEvent, {});
+    await vi.waitFor(() => expect(streams).toHaveLength(1));
+    streams[0]!.push(frame({ type: "session", detail: detail({ kind: "free", ticketId: null, ticketNumber: null, aiJobId: null }) }));
+    streams[0]!.push(frame({ type: "events", events: [ev("2", "proposal", { proposalId: PROPOSAL })] }));
+    await vi.waitFor(() => expect(c.events[0]).toMatchObject({ type: "pageAction", status: "pending" }));
+    await settlePageEvent(SESSION, `page:${PROPOSAL}:0`, "done");
+    await vi.waitFor(() => expect(c.events[0]).toMatchObject({ type: "pageAction", status: "done" }));
     stop();
   });
 

@@ -212,14 +212,13 @@ export async function readEvents(id: string, after?: string): Promise<Reader<Age
   }
 }
 
-/** Il piano di un job: col suo id, che fa stabile l'id dell'evento (`plan:<job>`). */
-export type RunPlan = SessionPlan & { jobId: string; digest: string | null };
-
 /**
- * Il digest del piano letto per ogni sessione (o voce di «Da decidere»):
- * approvare o rifiutare lo rimanda, e il server risponde 409 `plan_changed`
- * se nel frattempo il piano è stato riscritto. Si decide il piano LETTO.
+ * Il piano di un job: col suo id, che fa stabile l'id dell'evento
+ * (`plan:<job>`), e il digest del piano LETTO, che approvare o rifiutare
+ * rimanda (il server risponde 409 `plan_changed` se nel frattempo è stato
+ * riscritto).
  */
+export type RunPlan = SessionPlan & { jobId: string; digest: string | null };
 
 /**
  * Ciò che di una sessione fa cambiare le letture e il piano: stato, esito,

@@ -4,7 +4,7 @@ import { Trans, useTranslation } from "react-i18next";
 import { parseCriteria } from "../../../domain/filters";
 import { usePeople, useProjects, useSettlePageEvent } from "../../../data/queries";
 import type { PageAction } from "../../../data/types";
-import { undoPageEvent, usePageUndoView } from "../../../layout/claudePanel/pageActions";
+import { undoPageEvent, usePageApply, usePageUndoView } from "../../../layout/claudePanel/pageActions";
 import type { Ev } from "./flow";
 import { CheckGlyph, CrossGlyph, UndoneGlyph } from "./parts";
 
@@ -85,6 +85,7 @@ export function PageActionRow({
   const { t } = useTranslation();
   const mine = viewerId === ownerId;
   const view = usePageUndoView(event.id);
+  const apply = usePageApply(event.id);
   const settle = useSettlePageEvent();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const statusRef = useRef<HTMLSpanElement>(null);
@@ -94,6 +95,32 @@ export function PageActionRow({
   useLayoutEffect(() => {
     if (focusTick > 0) statusRef.current?.focus();
   }, [focusTick]);
+
+  // Build app: letta, non arrivata dal vivo in questa finestra (un
+  // ricaricamento, un riavvio, un'altra scheda): non è partita da sola, e la
+  // riga offre il gesto per applicarla adesso.
+  if (apply && mine && event.status === "failed") {
+    return (
+      <div className="event-enter flex min-w-0 flex-wrap items-start gap-x-3 gap-y-1" data-page-action={event.action.kind} data-page-not-applied>
+        <p className="flex min-h-8 min-w-0 flex-[1_1_16rem] items-start gap-2 py-1 text-md text-ink [overflow-wrap:anywhere]">
+          <span className="min-w-0">
+            <span className="text-ink-muted">{t(`${K}.notApplied`)}</span>
+            <span className="text-ink-muted">
+              {" · "}
+              <Phrase action={event.action} viewerId={viewerId} />
+            </span>
+          </span>
+        </p>
+        <button
+          type="button"
+          onClick={apply}
+          className="inline-flex h-7 shrink-0 items-center rounded-md px-2 text-sm font-semibold text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 active:bg-ink/10"
+        >
+          {t(`${K}.apply`)}
+        </button>
+      </div>
+    );
+  }
 
   if (event.status === "failed") {
     return (

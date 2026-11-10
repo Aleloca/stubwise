@@ -4318,7 +4318,9 @@
         "failedReason": "the page wasn't changed",
         "savedFilter": "Saved the filter “{{name}}”",
         "onlyYou": "only you see it",
-        "private": "private"
+        "private": "private",
+        "notApplied": "Not applied in this window",
+        "apply": "Apply"
       },
       "trial": {
         "label": "Claude's test",
@@ -4810,6 +4812,21 @@
         "pageAction": "Change this page ({{kind}})",
         "deleteTask": "Delete {{code}}",
         "deleteTaskNoCode": "Delete a task"
+      },
+      "field": {
+        "title": "title",
+        "description": "description",
+        "statusId": "status",
+        "departmentId": "department",
+        "assigneeId": "assignee",
+        "size": "size",
+        "dueDate": "due date",
+        "milestoneId": "milestone",
+        "plannedWeek": "week",
+        "labels": "labels",
+        "type": "type",
+        "priority": "priority",
+        "projectId": "project"
       }
     }
   },
