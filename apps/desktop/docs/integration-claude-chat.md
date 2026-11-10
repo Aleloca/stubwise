@@ -127,11 +127,33 @@ dati, mai dal modello.
 | Lo stato delle azioni della pagina («fatto», «annullato») vive nel renderer, per persona e in memoria; un'azione parte solo dal vivo, mai da una lettura (dopo un ricaricamento il tema non torna da solo) | orchestratrice (review F3.4) |
 | «Edit» nella build app conferma la proposta coi valori cambiati (`edited`) invece di creare a mano come il prototipo: l'esecuzione resta del server, col segno «via Claude» | costruttore |
 
+## F5.4 — il renderer delle pubbliche e della continuazione
+
+Il flag `claude-public` si accende quando la F5.3 (la continuazione) è nel
+server: fino ad allora la build app dice «in arrivo» per «Public», e i test di
+pagina lo accendono da sé. Le viste sono quelle del server (F5.1–F5.2); la UI
+è quella del prototipo.
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Il client: `list({ scope: "public" })`, `setVisibility` (409 `needs_confirmation` nei `details`), `continue` | `packages/api-client/src/endpoints/claude.ts` | `GET …?scope=public`, `POST …/:id/visibility`, `POST …/:id/continue` | `packages/api-client/src/endpoints/claude.test.ts` |
+| «Public»: le pubbliche di altri, con l'autrice e chi l'ha resa pubblica; il seguito privato (`privateTail`) nella riga e nel dettaglio | `data/backend/real/claudeChat.ts` (`listPublic`, `toConversation`, `toFreeRow`) | `GET …?scope=public` | `real/claudePublic.test.ts` |
+| Chi legge una pubblica di un altro la legge e basta (`isOwner: false`): niente casella, niente gestione, `readOnlyReason: "not_owner"`, «Continue» | `claudeChat.ts` (`freeDetailOf`) | `GET …/:id` | `claudePublic.test.ts`, `real/claudePublicPage.test.tsx` |
+| «Make public» / «Make private»: il dialogo si mostra sempre (anche senza progetti), coi progetti del 409 e la frase sulle letture di Claude (`includesToolReads`, D1); la riconferma del seguito privato chiede solo i progetti nuovi (`heldProjects`) | `claudeChat.ts` (`setVisibility`), `pages/claude/PublishDialog.tsx` | `POST …/:id/visibility` | `claudePublic.test.ts`, `claudePublicPage.test.tsx` |
+| «Continue»: nasce la conversazione di chi legge (201), il primo messaggio va lì; l'originale si legge DAL VIVO, come lo vede chi continua, e se non c'è più `available: false` | `claudeChat.ts` (`continueConversation`), `real/claude.ts` (`originOf`) | `POST …/:id/continue` | `claudePublic.test.ts`, `claudePublicPage.test.tsx` |
+| `claude.public.view` dal registro condiviso, nel gruppo «people» come il web (via dai permessi locali) | `data/access/catalog.ts`, `domain/access/actions.ts` | — | `domain/access/access.test.ts` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Il server non dà l'indice del seguito privato: per l'autrice `privateFromIndex` dice solo se c'è (`heldProjects` non vuoto); la pagina non usa altro | costruttore |
+| R-G5 regge per costruzione: nella build app i codici nella prosa di Claude non si collegano (solo le citazioni registrate, che il server non registra), quindi un codice che chi legge non vede non si apre | costruttore (limite che già c'era) |
+| Lo stream di chi legge si ferma al confine del seguito privato e riprende da sé al rilascio: lo fa il server (F5.2), il renderer legge e basta | orchestratrice |
+
 ## Rimandate
 
 | Voce | Fetta |
 |---|---|
 | La classe C (riconferma) e le azioni che la chiedono | 4 della chat (dopo la riconferma dal desktop) |
-| Conversazioni pubbliche e continuazione | fetta a sé, dopo |
+| Conversazioni pubbliche e continuazione: il flag `claude-public` | con la F5.3 nel server |
 | Riga «Claude can help you…» e bozze nei campi | con le azioni |
 | Azioni delle aree non integrate | con la loro area |
