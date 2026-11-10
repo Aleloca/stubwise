@@ -403,7 +403,9 @@ describe("modelli per operazione", () => {
   it("listModels: solo le operazioni configurabili, con gruppo e fonte", async () => {
     const rows = await instance.listModels();
     expect(rows.map((r) => r.operation)).not.toContain("plugin_smoke");
-    expect(rows).toHaveLength(16);
+    // 17 con `claude_chat` (la conversazione libera con Claude, chat fetta 1).
+    expect(rows).toHaveLength(17);
+    expect(rows.find((r) => r.operation === "claude_chat")).toMatchObject({ operation: "claude_chat" });
     expect(rows.find((r) => r.operation === "fix_plan")).toEqual({
       operation: "fix_plan",
       group: "tickets",
