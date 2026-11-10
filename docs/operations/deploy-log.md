@@ -3413,3 +3413,68 @@ deploy o di un rollback che la tocca.
     continua a creare il «general» dei progetti nuovi (innocuo, e pronto al
     ritorno). Eliminare un progetto porta via i suoi canali in cascata.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Integrazione area 4, fetta 2: DM, privati, generali, domande, ricerca» (10
+  nov 2026)**: piano `docs/plans/2026-11-10-integrazione-area4-fetta2-plan.md`,
+  invariante `docs/invariants/chat.md`. Cosa entra:
+  - DM da 2 a 8 persone, che esistono solo per chi partecipa, nemmeno per il
+    full admin;
+  - canali privati con invito e rimozione (chi gestisce l'ambito li vede ma
+    non li legge);
+  - canali generali d'istanza;
+  - la ricerca;
+  - le domande (`chat.question`) in «Da decidere»;
+  - task e richieste nate da un messaggio;
+  - «anche nel canale»;
+  - i permessi del canale del prototipo (il creatore modifica e archivia).
+
+  Rotte nuove: `POST /api/chat/dm`, `POST/DELETE
+  /api/chat/channels/:id/members[/:userId]`, `GET /api/chat/questions`, `POST
+  /api/chat/questions/:id/dismiss`, `GET /api/chat/search`. `POST /api/tasks` e
+  `POST /api/requests` accettano `chatMessageId`, opzionale.
+  Migrazioni:
+  - **0137**: `chat_channels.dm_key` (con un CHECK: un DM ha la chiave, gli
+    altri no), indice unico del nome dei generali,
+    `chat_messages.also_in_channel` e `search_folded` (backfill con `lower()`),
+    `CREATE EXTENSION IF NOT EXISTS pg_trgm` con un indice GIN trigram, tabelle
+    `chat_dismissed_questions` e `chat_message_links`. `pg_trgm` è
+    un'estensione *trusted*: la crea il proprietario del database, senza
+    superuser;
+  - **0138**: il valore `chat.question` di `notification_kind`, in uno
+    statement a sé.
+
+  ⚠️ **`chat.question` è un `notification_kind` nuovo** (vedi il rollback).
+  Permessi nuovi: nessuno (`chat.general.*` c'è dalla 0135). Env nuove:
+  nessuna.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0137–0138, aspetta
+  healthy; (3) **`worker`**, solo SENZA lavoro dell'agente in corso. Deve
+  arrivare PRIMA del caddy: il payload manuale dell'intake è `strict`, e un
+  worker vecchio rifiuterebbe un job col `chatMessageId` che manda il
+  renderer nuovo; in più è il worker a mandare le push di `chat.question`;
+  (4) **`caddy`**: il renderer di `/app` con la fetta 2 e le etichette web.
+  Se la fetta 1 esce nello stesso rilascio, valgono anche le sue voci, con
+  0135–0138 applicate in una volta.
+  Verifica:
+  - un DM con un collega non compare a un full admin;
+  - un `@Nome …?` a un membro del canale gli crea la card «… ti ha chiesto in
+    #…» e una voce in «Da decidere», che sparisce quando risponde;
+  - la ricerca trova «perché» cercando «perche».
+
+  **Rollback**:
+  - ⚠️ **Un server vecchio non conosce `chat.question`**: `/api/inbox`
+    andrebbe in 500 per chi ha quelle card. Prima di scendere col server:
+    `delete from notifications where kind = 'chat.question';` (le domande in
+    «Da decidere» si perdono con la fetta, i messaggi no). Lo stesso vale per
+    il worker.
+  - ⚠️ **Un server della fetta 1 non sa cosa sia un DM o un privato**: la sua
+    `channelVisibleSql` mostra solo i canali di progetto, quindi DM, privati
+    e generali spariscono e non trapelano. Attenzione però ai privati DI
+    PROGETTO: il server della fetta 1 li tratterebbe come aperti, cioè
+    visibili e leggibili da chiunque veda il progetto. Prima di scendere, o
+    si cancellano (`delete from chat_channels where visibility = 'private'
+    and kind = 'project';`) o si accetta che diventino leggibili: va deciso
+    PRIMA del rollback.
+  - Un worker vecchio rifiuta i job d'intake con `chatMessageId` (`strict`):
+    prima di scendere col worker, nessun job d'intake in coda deve portarlo,
+    oppure si scende insieme al caddy (che non lo manda più).
+  - Colonne, tabelle ed estensione restano inerti. Il caddy scende insieme al
+    server. Le migrazioni non si annullano.

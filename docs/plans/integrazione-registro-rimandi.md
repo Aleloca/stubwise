@@ -139,26 +139,27 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 Design: `docs/plans/2026-11-10-integrazione-area4-chat-design.md`. Fetta 1
 chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
 
-- Domande della Chat (`chat.question`) e di Claude in chat in «Da decidere»
-  *(O, fetta 2)*.
-- @Claude nella chat (regole proprie del prototipo: tutto proposte, niente
-  «Annulla»).
-- «Create task/request» da un messaggio, con i `linkedCodes` *(O, fetta 2)*:
-  chiede una modifica al server (il legame messaggio → task), quindi non sta
-  nella fetta 1.
-- `alsoInChannel`, una risposta mostrata anche nel canale *(fetta 2)*: il
-  renderer lo tiene spento.
-- Ricerca nella Chat *(fetta 2)*.
-- Canali privati, DM e canali generali d'istanza *(fetta 2)*: i permessi
-  `chat.general.create` e `chat.general.manage` ci sono già (0135), ma nessuna
-  rotta li usa.
-- Messaggi «via Claude» *(fetta 2, con @Claude)*:
+Fetta 2 chiusa lato server (sotto, «Chiuse»).
+
+- @Claude nella chat, e le sue domande in «Da decidere» *(fetta 3)*: regole
+  proprie del prototipo, tutto proposte e niente «Annulla».
+- Le citazioni nei messaggi (`citations`) *(in attesa del [DECIDE] 1 del
+  piano della fetta 2)*: oggi il renderer manda `[]`, e la ricerca e il filtro
+  «con citazioni» non le vedono.
+- Il filtro «con allegati» della ricerca *(fetta 4, con gli allegati)*.
+- Messaggi «via Claude» *(fetta 3, con @Claude)*:
   `chat_messages.via_claude_action_id` c'è, ma nessuno lo scrive.
 - `@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
   1, da riprendere se il maintainer vuole avvisi di gruppo.
 - Limite accettato: modificare un messaggio avvisa solo chi viene nominato
   per la PRIMA volta. Chi era già nominato non riceve una seconda card, e chi
-  viene tolto dal testo tiene la card che aveva.
+  viene tolto dal testo tiene la card che aveva (la sua domanda però esce da
+  «Da decidere»).
+- Limite accettato: i messaggi scritti prima della 0137 hanno `search_folded`
+  solo in minuscolo, con gli accenti, finché non vengono modificati. In
+  produzione non ce ne sono: la fetta 1 esce con la 0137.
+- Limite accettato: una richiesta nata da un messaggio mostra il codice solo
+  a fine intake (lo scrive il worker), non subito.
 
 ## Area 5 — Docs e Drive
 
@@ -265,6 +266,22 @@ chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- **Area 4, fetta 2: DM, privati, generali, domande, ricerca, server**
+  *(M/O, 10 nov 2026)*. Comprende:
+  - DM da 2 a 8 persone, invisibili anche al full admin;
+  - privati con invito e rimozione, che chi gestisce vede ma non legge;
+  - canali generali d'istanza (i permessi `chat.general.*` della 0135 ora
+    hanno le rotte);
+  - la ricerca;
+  - le domande `chat.question` in «Da decidere»;
+  - «Create task/request» con i `linkedCodes`;
+  - «anche nel canale»;
+  - i permessi del canale del prototipo.
+
+  Migrazioni 0137–0138. Commit «feat(area4): fetta 2 della Chat, server — …»
+  e «feat(area4): task e richieste nate da un messaggio della Chat (F2.5)»;
+  `docs/invariants/chat.md`. Il renderer è di stubwise-94.
 
 - **Area 4, fetta 1: la Chat fra persone, server** *(M/O, 10 nov 2026)*:
   canali di progetto aperti, il «general» creato col progetto (backfill e
