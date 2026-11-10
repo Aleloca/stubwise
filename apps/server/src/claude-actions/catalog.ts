@@ -57,7 +57,17 @@ export interface CatalogRunResult {
   objects: ActionObject[];
   /** I codici degli oggetti toccati (AUD-12), per la riga «fatto» e il modello. */
   codes: string[];
+  /**
+   * La scrittura ha fatto partire il lavoro di Claude (Claude assegnato: il
+   * servizio lo avvia con `startClaudeRuns`, come le rotte). Alza la classe a
+   * B, come `startRun`, e l'azione non si annulla: togliere Claude non ferma il
+   * lavoro partito («Annulla il lavoro» resta il gesto vero).
+   */
+  startsWork?: boolean;
 }
+
+/** Il lavoro di Claude è partito da questa scrittura (`claudeRun` della vista). */
+const startedWork = (task: { claudeRun?: string | null }) => task.claudeRun === "started";
 
 export type CatalogRefusal = {
   code: "forbidden" | "not_found" | "invalid" | "conflict" | "busy";
@@ -138,13 +148,16 @@ const ENTRIES: CatalogEntry[] = [
     async run(tx, user, args) {
       const result = await createTask(tx, user, args as unknown as NewTaskBody);
       if (!result.ok) return taskRefusal(result.error);
-      // «Annulla» = eliminazione (F3.0), solo se nessuno ci ha scritto dopo.
+      // «Annulla» = eliminazione (F3.0), solo se nessuno ci ha scritto dopo
+      // (e se Claude non ci sta già lavorando: allora la task è occupata).
+      const startsWork = startedWork(result.task);
       return {
         ok: true,
         result: {
-          inverse: { fn: "deleteTask", args: { id: result.task.id } },
+          inverse: startsWork ? null : { fn: "deleteTask", args: { id: result.task.id } },
           objects: [{ kind: "task", id: result.task.id }],
           codes: [result.task.code],
+          ...(startsWork ? { startsWork } : {}),
         },
       };
     },
@@ -164,12 +177,14 @@ const ENTRIES: CatalogEntry[] = [
       );
       const result = await updateTask(tx, user, id, patch);
       if (!result.ok) return taskRefusal(result.error);
+      const startsWork = startedWork(result.task);
       return {
         ok: true,
         result: {
-          inverse: { fn: "updateTask", args: { id, patch: was } },
+          inverse: startsWork ? null : { fn: "updateTask", args: { id, patch: was } },
           objects: [{ kind: "task", id }],
           codes: [result.task.code],
+          ...(startsWork ? { startsWork } : {}),
         },
       };
     },
@@ -187,12 +202,14 @@ const ENTRIES: CatalogEntry[] = [
       const was = { assigneeId: before.assigneeId ?? null, week: before.plannedWeek ?? null };
       const result = await planTask(tx, user, id, plan);
       if (!result.ok) return taskRefusal(result.error);
+      const startsWork = startedWork(result.task);
       return {
         ok: true,
         result: {
-          inverse: { fn: "planTask", args: { id, plan: was } },
+          inverse: startsWork ? null : { fn: "planTask", args: { id, plan: was } },
           objects: [{ kind: "task", id }],
           codes: [result.task.code],
+          ...(startsWork ? { startsWork } : {}),
         },
       };
     },

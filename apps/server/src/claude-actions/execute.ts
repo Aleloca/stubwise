@@ -44,6 +44,7 @@ export interface ExecutedAction {
   inverse: { fn: ClaudeActionFn; args: Record<string, unknown> } | null;
   objects: ActionObject[];
   codes: string[];
+  startsWork?: boolean;
 }
 
 export type ExecuteResult =
@@ -190,6 +191,8 @@ export function classOfGroup(
 ): { cls: "A" | "B"; reasons: ClaudeClassReason[] } {
   const reasons: ClaudeClassReason[] = [];
   if (dry.notified.length > 0) reasons.push({ kind: "notifies", personIds: [...dry.notified].sort(), more: false });
+  // Il lavoro di Claude che parte (Claude assegnato): sempre una conferma, come `startRun`.
+  if (dry.actions.some((a) => a.startsWork === true)) reasons.push({ kind: "starts_work" });
   if (dry.actions.some((a) => a.inverse === null)) reasons.push({ kind: "irreversible" });
   const declared = actions.some((a) => declaredClassOf(a.fn) === "B") ? "B" : "A";
   return { cls: declared === "B" || reasons.length > 0 ? "B" : "A", reasons };
