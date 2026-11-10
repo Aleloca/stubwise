@@ -237,6 +237,8 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     renderRoute(`/claude/${CONV}`);
     const proposal = await card();
     await ue.click(within(proposal).getByRole("button", { name: /^Confirm all/ }));
+    // L'esito del clic, a vista: la conferma non è passata.
+    expect(await screen.findByText("This proposal has expired: nothing was changed.")).toBeInTheDocument();
     await waitFor(async () => expect(await card()).toHaveTextContent("Not carried out · expired"));
     expect(within(await card()).queryByRole("button", { name: /^Confirm/ })).toBeNull();
   });

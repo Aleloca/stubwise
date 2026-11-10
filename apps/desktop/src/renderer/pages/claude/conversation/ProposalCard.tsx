@@ -299,9 +299,12 @@ export function ProposalCardView({
       .then((result) => {
         // Una C senza codice non resta muta (T5): se la riconferma non è
         // passata di qui, la scheda lo dice; chiuso il dialogo, il toast.
-        const refusal = result as { ok?: boolean; error?: string } | undefined;
+        const refusal = result as { ok?: boolean; status?: string; error?: string } | undefined;
         if (refusal?.ok === false && refusal.error === "reauth_required")
           setError(t("claude.conversation.proposal.needsCode"));
+        // Non eseguita (scaduta, rifiutata, in conflitto): la scheda lo dice
+        // subito, anche prima che la vista del server la rilegga.
+        else if (refusal?.status === "failed") fail(new Error(refusal.error ?? "failed"));
       })
       .catch(fail);
   };

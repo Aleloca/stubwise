@@ -334,7 +334,32 @@ export function undoViewsOf(
  * (409 `expired`, `conflict`, `refused` col motivo) diventa l'esito
  * `failed` del prototipo; la C (riconferma) è la fetta 4.
  */
-export const confirmProposal: Fake["confirmProposal"] = async (_conversationId, proposalId, options = {}) => {
+/**
+ * Le viste delle azioni di una conversazione sono VECCHIE: un rifiuto del
+ * server (scaduta, rifiutata, in conflitto) non scrive eventi, quindi lo
+ * stream non le rileggerebbe da sé. Chi ascolta (lo stream) le rilegge.
+ */
+const staleListeners = new Set<(conversationId: string) => void>();
+export function onChatActionsStale(fn: (conversationId: string) => void): () => void {
+  staleListeners.add(fn);
+  return () => {
+    staleListeners.delete(fn);
+  };
+}
+function markStale(conversationId: string): void {
+  for (const fn of [...staleListeners]) fn(conversationId);
+}
+
+export const confirmProposal: Fake["confirmProposal"] = async (conversationId, proposalId, options = {}) => {
+  const result = await confirmOnServer(proposalId, options);
+  if ("status" in result && result.status === "failed") markStale(conversationId);
+  return result;
+};
+
+async function confirmOnServer(
+  proposalId: string,
+  options: Parameters<Fake["confirmProposal"]>[2] = {},
+): ReturnType<Fake["confirmProposal"]> {
   try {
     const view = await appClient().claude.proposals.confirm(proposalId, {
       ...(options.actionIndexes ? { selected: options.actionIndexes } : {}),
@@ -348,7 +373,7 @@ export const confirmProposal: Fake["confirmProposal"] = async (_conversationId, 
     if (error instanceof ApiError && error.status === 409) return { status: "failed", error: error.code ?? "conflict" };
     throw error;
   }
-};
+}
 
 /**
  * «Edit»: gli argomenti dell'azione dalla vista del server, per il dialogo.

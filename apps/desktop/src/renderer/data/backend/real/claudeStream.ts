@@ -20,6 +20,7 @@ import { eventsOf, forgetPlans, planOf, signatureOf, type RunPlan } from "./clau
 import { appClient, session } from "./client";
 import {
   chatActionEvents,
+  onChatActionsStale,
   readChatActions,
   withChatActionEvents,
   type ChatActions,
@@ -390,6 +391,7 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
     if (finished) return;
     finished = true;
     clearTimeout(stable);
+    offStale();
     release();
     state.listeners -= 1;
     trimIdle();
@@ -506,6 +508,14 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
       },
     });
   };
+
+  // Un rifiuto del server non scrive eventi: le viste delle azioni si
+  // rileggono a forza (la firma si azzera), o la scheda resterebbe vecchia.
+  const offStale = onChatActionsStale((id) => {
+    if (id !== conversationId || stopped) return;
+    state.actionsSig = "\u0000stale";
+    readActions();
+  });
 
   // Quello che si sa già arriva subito (una ripresa, un'altra vista sulla stessa sessione).
   emit();
