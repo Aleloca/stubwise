@@ -58,8 +58,12 @@ export const convertRequest: typeof Fake.convertRequest = async (id, input) => {
 
 // --- Requests (fetta 4) ------------------------------------------------------
 
+/** I suggerimenti dell'intake di ogni voce letta: «Accetta» li riconosce nella patch. */
+const suggestionsOf = new Map<string, ProjectRequestView["suggestions"]>();
+
 function fromView(v: ProjectRequestView): ProjectRequest {
   projectOfRequest.set(v.id, v.projectId);
+  suggestionsOf.set(v.id, v.suggestions ?? null);
   return {
     id: v.id,
     code: v.code,
@@ -132,29 +136,41 @@ export const createRequest: typeof Fake.createRequest = async (input) => {
   throw new Error("intake_timeout");
 };
 
+const SUGGESTED = ["urgency", "size", "risk", "riskNote"] as const;
+
 /**
- * Titolo e metadati (`backlog.edit`; 409 `request_read_only` su una trasformata
- * o archiviata). `suggestions: null` è «scarta i suggerimenti dell'intake», che
- * ha una rotta sua (sotto `/api/backlog` finché non arriva sotto `/api/requests`).
+ * «Accetta»: la patch porta esattamente i valori suggeriti (e `suggestions:
+ * null`), come la scrive `RequestGuidance`.
+ */
+function isAcceptance(id: string, fields: Record<string, unknown>): boolean {
+  const suggested = suggestionsOf.get(id);
+  if (!suggested) return false;
+  const keys = SUGGESTED.filter((k) => suggested[k] !== undefined);
+  const given = Object.keys(fields);
+  return (
+    keys.length > 0 &&
+    given.length === keys.length &&
+    keys.every((k) => given.includes(k) && fields[k] === suggested[k])
+  );
+}
+
+/**
+ * Titolo, descrizione e metadati (`backlog.edit`; 409 `request_read_only` su
+ * una trasformata o archiviata). `suggestions: null` chiude i suggerimenti
+ * dell'intake: con i loro stessi valori è «Accetta», da solo è «Scarta»; con
+ * altre modifiche, prima quelle e poi «Scarta».
  */
 export const updateRequest: typeof Fake.updateRequest = async (id, patch) => {
-  const { suggestions, ...fields } = patch;
-  const body = {
-    ...(fields.title !== undefined ? { title: fields.title } : {}),
-    ...(fields.description !== undefined ? { description: fields.description } : {}),
-    ...(fields.urgency !== undefined ? { urgency: fields.urgency } : {}),
-    ...(fields.size !== undefined ? { size: fields.size } : {}),
-    ...(fields.risk !== undefined ? { risk: fields.risk } : {}),
-    ...(fields.riskNote !== undefined ? { riskNote: fields.riskNote } : {}),
-  };
-  let view: ProjectRequestView | null = null;
-  if (Object.keys(body).length > 0) view = (await appClient().requests.update(id, body as never)) as ProjectRequestView;
-  if (suggestions === null) {
-    await appClient().request("POST", `/api/backlog/${encodeURIComponent(id)}/suggested/dismiss`);
-    view = (await appClient().requests.get(id)) as ProjectRequestView;
+  const { suggestions, ...rest } = patch;
+  const fields = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+  const client = appClient().requests;
+  if (suggestions === null && isAcceptance(id, fields)) {
+    return fromView((await client.acceptSuggestions(id)) as ProjectRequestView);
   }
-  if (!view) view = (await appClient().requests.get(id)) as ProjectRequestView;
-  return fromView(view);
+  let view: ProjectRequestView | null = null;
+  if (Object.keys(fields).length > 0) view = (await client.update(id, fields as never)) as ProjectRequestView;
+  if (suggestions === null) view = (await client.dismissSuggestions(id)) as ProjectRequestView;
+  return fromView(view ?? ((await client.get(id)) as ProjectRequestView));
 };
 
 /** «Fondi in…»: la destinazione riscritta dal modello; un errore (502 `merge_failed`) non cambia niente. */

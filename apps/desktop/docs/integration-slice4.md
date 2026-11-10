@@ -29,7 +29,7 @@ I test «app» montano l'implementazione vera davanti a un server finto
 | Dettaglio a pannello (richiedenti, simili, task nate, metadati), per id e per codice | `RequestDetail.tsx`; `real/requests.ts` (`getRequest`, `getRequestByCode`) | `GET /api/requests/:id`, `GET /api/requests/by-code/:code` (404 per una invisibile) | `RequestDetail.test.tsx`, `real/requests.test.ts`, `real/requestsPage.test.tsx` |
 | Urgenza «urgent» del server: si mostra «Urgent» al livello più alto, senza perdere il dato | `pages/requests/marks.tsx` (`UrgencyMark`, `urgent`) | vista `urgency` + `urgent` | `pages/requests/marks.test.tsx`, `real/requestsPage.test.tsx` |
 | Nuova richiesta: passa dall'intake; se fusa in una esistente l'app dice «Unita a R12» e apre quella | `NewRequestDialog.tsx` (attesa, `sentMerged`); `real/requests.ts` (`createRequest`: job, `landedByMerge`) | `POST /api/requests` (202 `{jobId}`), `GET /api/requests/jobs/:jobId` | `real/requests.test.ts`, `pages/ComingSoon.test.tsx` («una richiesta fusa dall'intake…»); server `project-requests.test.ts` |
-| Metadati (titolo, urgenza, taglia, rischio e nota), suggerimenti dell'intake da accettare o scartare | `RequestDetail.tsx`; `real/requests.ts` (`updateRequest`) | `PATCH /api/requests/:id` (409 `request_read_only`), `POST /api/backlog/:id/suggested/dismiss` | `real/requests.test.ts`; server `project-requests.test.ts` |
+| Titolo, descrizione e metadati (urgenza, taglia, rischio e nota), suggerimenti dell'intake da accettare o scartare | `RequestDetail.tsx`, `RequestGuidance.tsx`; `real/requests.ts` (`updateRequest`) | `PATCH /api/requests/:id` (409 `request_read_only`), `POST /api/requests/:id/suggestions/{accept,dismiss}` | `real/requests.test.ts`; server `project-requests.test.ts` |
 | «Fondi in…», con la riscrittura AI: attesa, e un errore con «Try again» che non ha cambiato nulla | `MergeDialog.tsx`; `real/requests.ts` (`mergeRequest`) | `POST /api/requests/:id/merge` (502 `merge_failed`) | `real/requests.test.ts`, `pages/ComingSoon.test.tsx` («Fondi in…: l'attesa della riscrittura…»); server `project-requests.test.ts` |
 | Archivia, Riapri, Ripristina | `RequestDetail.tsx`; `real/requests.ts` | `POST /api/requests/:id/{archive,reopen,restore}` | `real/requests.test.ts` |
 | Trasforma in task (dal dettaglio, da «Da decidere», dal blocco «Richieste nuove») | `pages/task/NewTaskDialog.tsx`; `real/requests.ts` (`convertRequest`) | `POST /api/tasks` con `requestId` (la voce diventa converted; 409 su una converted/archived, 400 `request_not_found` su una che non vedo) | `real/requests.test.ts`, `pages/ComingSoon.test.tsx` («trasformare una richiesta che non vedi più…»); server `tasks.convert.test.ts` |
@@ -91,8 +91,7 @@ I test «app» montano l'implementazione vera davanti a un server finto
 | Il polso del portafoglio e «fermo» come nel prototipo, calcolati nel renderer con `pulseOf` condiviso; `/api/projects/pulse` resta del web vecchio e del mobile | orchestratrice |
 | Claude non entra nel polso («aspetta te», «al lavoro») finché l'area 3 non è integrata | costruttore |
 | «Nuova richiesta» aspetta l'intake per circa un minuto (un controllo ogni 400 ms); oltre, è un errore e si riprova | costruttore |
-| Scartare i suggerimenti dell'intake passa da `/api/backlog/:id/suggested/dismiss` finché la rotta non arriva sotto `/api/requests` | costruttore |
-| La descrizione di una richiesta si manda col PATCH, che il server sta per accettare | costruttore |
+| «Accetta» i suggerimenti quando la patch porta esattamente i valori suggeriti (come la scrive il pannello), «Scarta» quando chiude i suggerimenti e basta | costruttore |
 | Nel prototipo cronologia e attività sono una pagina sola (`nextBefore` null): non cambia nulla | costruttore |
 
 ## Area 2 completa
