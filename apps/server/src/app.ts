@@ -46,6 +46,7 @@ import { backlogRoutes } from "./routes/backlog.js";
 import { inboundRoutes } from "./routes/inbound.js";
 import { inboxRoutes } from "./routes/inbox.js";
 import { mePrefsRoutes } from "./routes/me-prefs.js";
+import { meClaudeRoutes } from "./routes/me-claude.js";
 import { vaultRoutes } from "./routes/vault.js";
 import { credentialRoutes } from "./routes/credentials.js";
 import { meSecurityRoutes } from "./routes/me-security.js";
@@ -793,6 +794,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // Preferenze PERSONALI: progetti seguiti e canali di notifica. Sotto /api/me
   // perché il soggetto è sempre chi chiama, non un utente amministrato.
   void app.register(mePrefsRoutes, { prefix: "/api/me" });
+  void app.register(meClaudeRoutes, { prefix: "/api/me" });
   // Sicurezza del PROPRIO account: riconferma recente e configurazione
   // dell'app (secondo fattore). Prefisso a sé come le altre `/api/me/*`.
   void app.register(meSecurityRoutes, { prefix: "/api/me/security" });

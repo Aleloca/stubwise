@@ -223,6 +223,37 @@ describe("actions: le calcola il server coi permessi di chi guarda", () => {
   });
 });
 
+describe("coerenza: le azioni seguono le rotte d'azione di sempre (area 3, fetta 3b)", () => {
+  const post = (url: string, who: U, payload?: object) =>
+    app.inject({ method: "POST", url, headers: { cookie: who.headers.cookie }, ...(payload ? { payload } : {}) });
+
+  it("run-ai di chi non può approvare → gate; il developer non approva (403, niente cambia); il lead sì, e /work lo dice", async () => {
+    const t = await task();
+    await testDb.db.update(tickets).set({ implementationPlan: "## Piano salvato" }).where(eq(tickets.id, t));
+    expect((await work(t, developer)).actions.start).toBe("allowed");
+    const started = await post(`/api/tickets/${t}/run-ai`, developer, {});
+    expect(started.statusCode, started.body).toBe(202);
+    expect(started.json()).toMatchObject({ status: "awaiting_plan_approval" });
+
+    const afterStart = await work(t, developer);
+    expect(afterStart.actions).toMatchObject({ start: "unavailable", relaunch: "unavailable" });
+    expect(afterStart.waitsOnViewer).toBe(false);
+    expect((await work(t, lead)).waitsOnViewer).toBe(true);
+
+    // I due divieti dell'operatore: 403 E stato invariato.
+    const refused = await post(`/api/tickets/${t}/approve-plan`, developer);
+    expect(refused.statusCode).toBe(403);
+    expect((await work(t, lead)).runs.at(-1)).toMatchObject({ state: "awaiting_approval", plan: { status: "pending" } });
+
+    const approved = await post(`/api/tickets/${t}/approve-plan`, lead);
+    expect(approved.statusCode, approved.body).toBe(202);
+    const after = await work(t, lead);
+    expect(after.waitsOnViewer).toBe(false);
+    expect(after.runs.at(-1)).toMatchObject({ state: "working", plan: { status: "approved" } });
+    expect(after.actions).toMatchObject({ start: "unavailable", relaunch: "unavailable" });
+  });
+});
+
 describe("server vecchio", () => {
   it("una risposta senza i campi nuovi si legge coi default (la sezione degrada, non si rompe)", () => {
     const old = taskWorkViewSchema.parse({ claude: "none", pullRequests: [], webHref: "/tickets/x" });

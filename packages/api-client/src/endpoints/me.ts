@@ -1,5 +1,6 @@
-import { dayArrangementSchema, notificationPrefsViewSchema, projectFollowsSchema } from "@stubwise/shared";
+import { claudeDecisionViewSchema, dayArrangementSchema, notificationPrefsViewSchema, projectFollowsSchema } from "@stubwise/shared";
 import type {
+  ClaudeDecisionView,
   DayArrangement,
   DeviceRegistration,
   NotificationPrefsUpdate,
@@ -34,6 +35,14 @@ import { toQuery } from "../query.js";
  */
 export function createMeEndpoints(request: ApiRequest) {
   return {
+    /**
+     * «Da decidere» di Claude (area 3, fetta 3b): piani e domande che
+     * aspettano chi guarda, coi suoi permessi. Si decide con le rotte di
+     * sempre (`tickets.approvePlan`/`rejectPlan`, `tickets.answerQuestion`).
+     */
+    claudeDecisions(): Promise<Reader<ClaudeDecisionView>[]> {
+      return request("GET", "/api/me/claude-decisions", undefined, z.array(claudeDecisionViewSchema));
+    },
     /**
      * Le mie sistemazioni per giorno in una settimana (`YYYY-Www`, fetta 2):
      * solo delle task ancora mie e ancora in quella settimana.

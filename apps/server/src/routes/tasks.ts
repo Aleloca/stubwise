@@ -56,6 +56,7 @@ import {
 } from "../services/task-writes.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { loadTaskWorkExtras } from "../services/task-work.js";
+import { cancelRun } from "../services/cancel-run.js";
 
 /**
  * `/api/tasks` (integrazione area 2, fetta 1): le task nella forma del
@@ -64,7 +65,7 @@ import { loadTaskWorkExtras } from "../services/task-work.js";
  * che non esiste. Web vecchio, mobile e MCP continuano a usare `/api/tickets`.
  */
 
-const onTicket = (permission: "member" | "tickets.edit" | "tickets.comment" = "member"): RouteAccess => ({
+const onTicket = (permission: "member" | "tickets.edit" | "tickets.comment" | "runs.start" = "member"): RouteAccess => ({
   kind: "project",
   permission,
   project: fromTicket("ticketId"),
@@ -503,6 +504,43 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  /** Il lavoro di Claude sulla task, per chi guarda: il riassunto della fetta 1 più l'area 3. */
+  const workView = async (
+    ticketId: string,
+    viewerId: string,
+    permissions: ReturnType<typeof routePermissions>,
+  ): Promise<TaskWorkView> => {
+    const [job] = await app.db
+      .select({ status: aiJobs.status })
+      .from(aiJobs)
+      .where(eq(aiJobs.ticketId, ticketId))
+      .orderBy(desc(aiJobs.createdAt))
+      .limit(1);
+    const prs = await app.db
+      .select({
+        url: ticketRepositories.prUrl,
+        number: ticketRepositories.prNumber,
+        state: ticketRepositories.prState,
+        repoName: repositories.name,
+      })
+      .from(ticketRepositories)
+      .innerJoin(repositories, eq(repositories.id, ticketRepositories.repositoryId))
+      .where(and(eq(ticketRepositories.ticketId, ticketId), sql`${ticketRepositories.prUrl} is not null`))
+      .orderBy(asc(ticketRepositories.id));
+    return {
+      claude: claudeStateOf(job?.status ?? null),
+      pullRequests: prs.map((pr) => ({
+        repo: repoOfPrUrl(pr.url!, pr.repoName),
+        number: pr.number,
+        url: pr.url!,
+        state: pr.state === "closed_unmerged" ? ("closed" as const) : pr.state,
+      })),
+      webHref: `/tickets/${ticketId}`,
+      // Area 3, fetta 3a: il lavoro intero, in lettura, coi permessi di chi guarda.
+      ...(await loadTaskWorkExtras(app.db, { ticketId, viewerId, permissions })),
+    };
+  };
+
   app.get(
     "/:ticketId/work",
     {
@@ -512,41 +550,40 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
         response: { 200: taskWorkViewSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
-    async (request): Promise<TaskWorkView> => {
+    async (request): Promise<TaskWorkView> =>
+      workView(request.params.ticketId, request.user!.id, routePermissions(request)),
+  );
+
+  /**
+   * «Annulla il lavoro» (area 3, fetta 3b): chiude subito il job PARCHEGGIATO
+   * della task (`services/cancel-run.ts`), per chi ha `runs.start`. Su un job
+   * in esecuzione 409 `run_in_progress` (prima «Ferma»), senza lavoro vivo 409
+   * `nothing_to_cancel`. Risponde col lavoro aggiornato.
+   */
+  app.post(
+    "/:ticketId/cancel-run",
+    {
+      config: { access: onTicket("runs.start") },
+      schema: {
+        params: ticketParamsSchema,
+        response: { 200: taskWorkViewSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
       const { ticketId } = request.params;
-      const [job] = await app.db
-        .select({ status: aiJobs.status })
-        .from(aiJobs)
-        .where(eq(aiJobs.ticketId, ticketId))
-        .orderBy(desc(aiJobs.createdAt))
-        .limit(1);
-      const prs = await app.db
-        .select({
-          url: ticketRepositories.prUrl,
-          number: ticketRepositories.prNumber,
-          state: ticketRepositories.prState,
-          repoName: repositories.name,
-        })
-        .from(ticketRepositories)
-        .innerJoin(repositories, eq(repositories.id, ticketRepositories.repositoryId))
-        .where(and(eq(ticketRepositories.ticketId, ticketId), sql`${ticketRepositories.prUrl} is not null`))
-        .orderBy(asc(ticketRepositories.id));
-      return {
-        claude: claudeStateOf(job?.status ?? null),
-        pullRequests: prs.map((pr) => ({
-          repo: repoOfPrUrl(pr.url!, pr.repoName),
-          number: pr.number,
-          url: pr.url!,
-          state: pr.state === "closed_unmerged" ? ("closed" as const) : pr.state,
-        })),
-        webHref: `/tickets/${ticketId}`,
-        // Area 3, fetta 3a: il lavoro intero, in lettura, coi permessi di chi guarda.
-        ...(await loadTaskWorkExtras(app.db, {
-          ticketId,
-          viewerId: request.user!.id,
-          permissions: routePermissions(request),
-        })),
-      };
+      const permissions = routePermissions(request);
+      const result = await cancelRun(app.db, {
+        ticketId,
+        actor: { id: request.user!.id, email: request.user!.email, permissions },
+      });
+      if (!result.ok) {
+        if (result.error === "forbidden") return apiError(reply, 403, "forbidden", "Missing permission");
+        if (result.error === "run_in_progress") {
+          return apiError(reply, 409, "run_in_progress", "Claude is working right now: stop it first");
+        }
+        return apiError(reply, 409, "nothing_to_cancel", "There is no work to cancel");
+      }
+      return workView(ticketId, request.user!.id, permissions);
     },
   );
 }
