@@ -105,3 +105,19 @@ export {
 // lettura, lo stream dal vivo e il lavoro della task.
 export { getConversation, getTaskWork, listConversations } from "./claude";
 export { mergeStreamEvent, onConversationChange, reconnectDelay, subscribe } from "./claudeStream";
+// Fetta 3b «Agire»: le azioni (i permessi li decide il server) e «Da decidere» di Claude.
+export {
+  answerQuestion,
+  cancelRun,
+  decidePlan,
+  listClaudeDecisions,
+  preApprovePlan,
+  relaunchWithInstructions,
+  requestChanges,
+  resumeCorrection,
+  revokePlanApproval,
+  sendMessage,
+  startRun,
+  stop,
+  stopAndSend,
+} from "./claudeActions";

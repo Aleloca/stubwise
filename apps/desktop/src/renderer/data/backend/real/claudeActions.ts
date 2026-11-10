@@ -1,3 +1,4 @@
+import { ApiError } from "@stubwise/api-client";
 import type { ClaudeDecisionView, Reader } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ClaudeDecision, Conversation } from "../../types";
@@ -174,6 +175,16 @@ function toDecision(d: Reader<ClaudeDecisionView>): ClaudeDecision | null {
   return { ...base, kind: "plan", planId: d.planId, summary: d.summary ?? "", blockedReason: null, serverCode: null };
 }
 
-/** Piani (solo a chi ha `plans.approve`) e domande (a chi può rispondere), dal server. */
-export const listClaudeDecisions: typeof Fake.listClaudeDecisions = async () =>
-  (await appClient().me.claudeDecisions()).flatMap((d) => toDecision(d) ?? []);
+/**
+ * Piani (solo a chi ha `plans.approve`) e domande (a chi può rispondere), dal
+ * server. Un server senza la rotta (prima della 3b) risponde 404: nessuna
+ * voce, e «Da decidere» mostra le altre invece di un errore.
+ */
+export const listClaudeDecisions: typeof Fake.listClaudeDecisions = async () => {
+  try {
+    return (await appClient().me.claudeDecisions()).flatMap((d) => toDecision(d) ?? []);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return [];
+    throw error;
+  }
+};

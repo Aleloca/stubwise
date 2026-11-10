@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../../data/integration";
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { AiBlockLine } from "../../../components/InstanceBlock";
@@ -225,7 +226,11 @@ export function Composer({
   const block = useAiBlock(null).data ?? null;
   const budget = free && block?.reason === "monthly_budget";
   // I caricamenti spenti: la graffetta è spenta; un file incollato lo dice per 4 s.
-  const uploadsOff = useStorageAllowsUploads().data === false;
+  const storageOff = useStorageAllowsUploads().data === false;
+  // Nella build app una sessione di lavoro non riceve allegati (il server non li
+  // accetta nei messaggi): niente graffetta, e un file incollato non entra.
+  const attachOn = featureIntegrated("claude-attachments");
+  const uploadsOff = storageOff || !attachOn;
   const [uploadNotice, setUploadNotice] = useState(false);
   useEffect(() => {
     if (!uploadNotice) return;
@@ -421,31 +426,35 @@ export function Composer({
             className="block max-h-[176px] min-h-9 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-md text-ink outline-none placeholder:text-ink-faint focus-visible:outline-none"
           />
           <div className="flex min-w-0 items-center gap-1 px-1.5 pb-1.5">
-            <input
-              ref={fileInput}
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => {
-                onAddFiles([...(e.target.files ?? [])]);
-                e.target.value = "";
-              }}
-            />
-            <button
-              type="button"
-              className={`${quietButton} disabled:opacity-40`}
-              aria-label={t("claude.conversation.attachments.add")}
-              title={
-                uploadsOff
-                  ? t("instanceEffects.storage.attach")
-                  : t("claude.conversation.attachments.add")
-              }
-              disabled={uploadsOff}
-              onClick={() => fileInput.current?.click()}
-            >
-              <PaperclipGlyph />
-              {!compact && <span>{t("claude.conversation.attachments.attach")}</span>}
-            </button>
+            {attachOn && (
+              <>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    onAddFiles([...(e.target.files ?? [])]);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  className={`${quietButton} disabled:opacity-40`}
+                  aria-label={t("claude.conversation.attachments.add")}
+                  title={
+                    uploadsOff
+                      ? t("instanceEffects.storage.attach")
+                      : t("claude.conversation.attachments.add")
+                  }
+                  disabled={uploadsOff}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  <PaperclipGlyph />
+                  {!compact && <span>{t("claude.conversation.attachments.attach")}</span>}
+                </button>
+              </>
+            )}
             {projectMenu && detail.kind === "free" && detail.canManage && (
               <ContextChip
                 conversationId={detail.id}

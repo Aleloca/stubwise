@@ -1187,6 +1187,33 @@
         "correction_failed": "The last correction failed",
         "queued": "Correction queued · it starts when the current work on the task finishes",
         "blocked": "Blocked: this branch is protected, Stubwise doesn't push to it."
+      },
+      "cancelRun": {
+        "action": "Cancel the work",
+        "title": "Cancel Claude's work on this task?",
+        "description": "The work closes now, as stopped. Pull requests and branches stay as they are.",
+        "keep": "Keep it",
+        "confirm": "Cancel the work",
+        "stop": "Stop Claude",
+        "done": "Claude's work was cancelled.",
+        "stopped": "Claude is stopping. Cancel the work once it has stopped.",
+        "refusal": {
+          "run_in_progress": "Claude is working right now: stop it first, then cancel.",
+          "nothing_to_cancel": "There's no work to cancel any more.",
+          "failed": "That didn't go through. Try again."
+        }
+      },
+      "errors": {
+        "job_in_flight": "Claude is already working on this task.",
+        "needs_maintainer": "Only someone who can approve plans can resume this correction.",
+        "correction_not_held": "This correction isn't on hold any more: reload to see where it is.",
+        "adopted_branch_protected": "The branch of this pull request is protected: Stubwise can't push to it.",
+        "review_ticket_not_runnable": "This is a review task: Claude doesn't work on it directly.",
+        "no_plan": "There's no saved plan to approve in advance yet.",
+        "question_not_pending": "This question was already answered or has changed.",
+        "forbidden": "You don't have permission to do this.",
+        "not_found": "This task or session is no longer available.",
+        "pr_not_open": "There's no open pull request to correct."
       }
     },
     "links": {

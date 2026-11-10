@@ -151,4 +151,9 @@ describe("«Da decidere» di Claude", () => {
     // Senza sessione la voce si riconosce dal suo id, e una risposta va comunque al ticket.
     expect(decisions[1]).toMatchObject({ conversationId: `${JOB}:q` });
   });
+
+  it("un server senza la rotta (prima della 3b): nessuna voce, non un errore", async () => {
+    installFakeServer({});
+    expect(await listClaudeDecisions()).toEqual([]);
+  });
 });

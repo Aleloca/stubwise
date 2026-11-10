@@ -870,7 +870,8 @@ export function useCodeCitations(codes: readonly string[]) {
   return useQuery({
     queryKey: queryKeys.codeCitations(me, key),
     queryFn: () => api.resolveCodes([...codes]),
-    enabled: codes.length > 0,
+    // I codici citati nei testi di Claude: della chat libera, «in arrivo» nella build app.
+    enabled: codes.length > 0 && featureIntegrated("claude-chat"),
   });
 }
 
@@ -1646,16 +1647,18 @@ export function useClaudeDecisions() {
   useConversationChanges();
   // Le voci di Claude in «Da decidere» sono della 3b: niente lettura né ascolto.
   const on = featureIntegrated("claude-decisions");
+  // Le domande di Claude sulla doc di prodotto (area 11) non sono integrate nella build app.
+  const productDocsOn = featureIntegrated("product-docs");
   // 11b: anche una domanda di Claude sulla doc di prodotto nata o chiusa,
   // da chiunque (il motore, un'altra persona).
   useEffect(
     () =>
-      on
+      on && productDocsOn
         ? api.productDocs.onProductQuestionsChanged(() => {
             void client.invalidateQueries({ queryKey: queryKeys.claudeDecisions(me) });
           })
         : undefined,
-    [client, me, on],
+    [client, me, on, productDocsOn],
   );
   return useQuery({
     queryKey: queryKeys.claudeDecisions(me),
@@ -1844,6 +1847,14 @@ export function useRelaunchWithInstructions() {
 
 export function useResumeCorrection() {
   return useWrite(api.resumeCorrection, RUN_AREAS);
+}
+
+/**
+ * «Annulla il lavoro» (decisione del maintainer): chiude il lavoro
+ * parcheggiato della task; uno in esecuzione si ferma prima con «Ferma».
+ */
+export function useCancelRun() {
+  return useWrite(api.cancelRun, RUN_AREAS);
 }
 
 export function useRequestChanges() {

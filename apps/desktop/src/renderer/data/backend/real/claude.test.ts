@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getConversation, getTaskWork, listConversations } from "./claude";
+import { forgetClaudeCaches, getConversation, getTaskWork, listConversations } from "./claude";
 import { setAppClientForTests } from "./client";
-import { installFakeServer, PROJECT_ID, serverProject, TICKET_ID } from "./fakeServer";
+import { installFakeServer, me, PROJECT_ID, serverProject, serverTicketDetail, TICKET_ID } from "./fakeServer";
 
 // Le sessioni di lavoro di Claude nella build app (integrazione area 3, fetta
 // 3a): la pagina Claude e la sezione della task le leggono dal server, in
@@ -38,7 +38,10 @@ export const serverEvent = (id: string, type: string, data: Record<string, unkno
   data,
 });
 
-beforeEach(() => setAppClientForTests(null));
+beforeEach(() => {
+  setAppClientForTests(null);
+  forgetClaudeCaches();
+});
 afterEach(() => {
   vi.unstubAllGlobals();
   setAppClientForTests(null);
@@ -111,7 +114,7 @@ describe("le sessioni di lavoro dal server", () => {
   it("il dettaglio: gli eventi tradotti, tutto in lettura; una sessione invisibile è null", async () => {
     installFakeServer({
       "GET /api/projects": { body: [serverProject()] },
-      [`GET /api/agent-sessions/${SESSION_ID}`]: { body: { ...serverSession(), canWrite: true, questions: [], inputs: [] } },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: { body: { ...serverSession(), canWrite: false, questions: [], inputs: [] } },
       [`GET /api/agent-sessions/${SESSION_ID}/events`]: {
         body: {
           events: [
@@ -131,7 +134,7 @@ describe("le sessioni di lavoro dal server", () => {
     expect(detail).toMatchObject({
       id: SESSION_ID,
       objectCode: "AUD-12",
-      // Nella 3a non si agisce: niente casella, risposte o piani da decidere.
+      // Senza permessi dal server: niente casella, risposte o piani da decidere.
       canWrite: false,
       canAnswer: false,
       canDecidePlan: false,
@@ -141,6 +144,63 @@ describe("le sessioni di lavoro dal server", () => {
     });
     expect(detail!.events.map((e) => e.type)).toEqual(["phase", "assistant"]);
     expect(await getConversation("aaaaaaaa-0000-4000-8000-00000000dead")).toBeNull();
+  });
+
+  it("i permessi del dettaglio vengono dal server: scrivere, fermare, rispondere, decidere il piano", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: ["plans.approve"] } }) },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: {
+        body: {
+          ...serverSession({ state: "awaiting_approval", waitsOnViewer: true }),
+          canWrite: true,
+          canInterrupt: true,
+          questions: [
+            { id: "dddddddd-0000-4000-8000-000000000001", source: "agent", question: "Which?", askedAt: "2026-11-10T09:02:00.000Z", answered: false, canAnswer: true },
+          ],
+          inputs: [],
+        },
+      },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: { body: { events: [], before: null } },
+      [`GET /api/tasks/${TICKET_ID}/work`]: { body: { claude: "awaiting_approval", webHref: "/x", runs: [] } },
+      [`GET /api/tickets/${TICKET_ID}`]: { body: serverTicketDetail({ implementationPlan: "1. Do it", planApprovedAt: null }) },
+    });
+    expect(await getConversation(SESSION_ID)).toMatchObject({
+      canWrite: true,
+      canInterrupt: true,
+      canAnswer: true,
+      canDecidePlan: true,
+      canRejectPlan: true,
+      // Il piano aspetta: si approva, non si pre-approva.
+      canPreApprovePlan: false,
+      canRevokePlanApproval: false,
+      planPreApproved: false,
+      readOnlyReason: null,
+    });
+  });
+
+  it("pre-approvare: solo col piano salvato sul ticket e plans.approve; revocare una pre-approvazione valida", async () => {
+    const routes = (projectPermissions: string[], ticket: Record<string, unknown>) => ({
+      "GET /api/projects": { body: [serverProject()] },
+      "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: projectPermissions } }) },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: { body: { ...serverSession(), canWrite: false, questions: [], inputs: [] } },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: { body: { events: [], before: null } },
+      [`GET /api/tasks/${TICKET_ID}/work`]: { body: { claude: "working", webHref: "/x", runs: [] } },
+      [`GET /api/tickets/${TICKET_ID}`]: { body: serverTicketDetail(ticket) },
+    });
+    installFakeServer(routes(["plans.approve"], { implementationPlan: "1. Do it", planApprovedAt: null }));
+    expect(await getConversation(SESSION_ID)).toMatchObject({ canPreApprovePlan: true, canRevokePlanApproval: false });
+    forgetClaudeCaches();
+    installFakeServer(routes(["plans.approve"], { implementationPlan: null, planApprovedAt: null }));
+    expect(await getConversation(SESSION_ID)).toMatchObject({ canPreApprovePlan: false });
+    forgetClaudeCaches();
+    installFakeServer(
+      routes(["plans.approve"], { implementationPlan: "1. Do it", planApprovedAt: "2026-11-10T08:00:00.000Z", planApprovalStale: false }),
+    );
+    expect(await getConversation(SESSION_ID)).toMatchObject({ planPreApproved: true, canPreApprovePlan: false, canRevokePlanApproval: true });
+    forgetClaudeCaches();
+    installFakeServer(routes([], { implementationPlan: "1. Do it", planApprovedAt: null }));
+    expect(await getConversation(SESSION_ID)).toMatchObject({ canPreApprovePlan: false, canRevokePlanApproval: false });
   });
 
   it("il piano del job entra nel flusso, dal lavoro della task", async () => {

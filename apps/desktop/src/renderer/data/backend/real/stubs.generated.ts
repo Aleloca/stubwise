@@ -29,6 +29,7 @@ export const automations: typeof Fake.automations = notIntegratedNamespace("auto
 export const bulkUpdateTasks: typeof Fake.bulkUpdateTasks = notIntegrated("bulkUpdateTasks") as never;
 export const calendar: typeof Fake.calendar = notIntegratedNamespace("calendar") as never;
 export const cancelProposal: typeof Fake.cancelProposal = notIntegrated("cancelProposal") as never;
+export const cancelRun: typeof Fake.cancelRun = notIntegrated("cancelRun") as never;
 export const canRecordDecisions: typeof Fake.canRecordDecisions = notIntegrated("canRecordDecisions") as never;
 export const changelog: typeof Fake.changelog = notIntegratedNamespace("changelog") as never;
 export const chat: typeof Fake.chat = notIntegratedNamespace("chat") as never;
