@@ -14,6 +14,7 @@ import { RefineScheduler } from "./backlog/refine/scheduler.js";
 import { runRefineTurn } from "./backlog/refine/turn.js";
 import { createRefineWorktreeRegistry } from "./backlog/refine/worktrees.js";
 import { startChatBridge } from "./claude-chat/bridge.js";
+import { askChatQuestion } from "./claude-chat/mention.js";
 import { ChatScheduler } from "./claude-chat/scheduler.js";
 import { turnDispatcher } from "./sessions/turn-dispatch.js";
 import { runChatTurn } from "./claude-chat/turn.js";
@@ -674,7 +675,11 @@ if (relay && refineBridge) {
 let chatBridge: Awaited<ReturnType<typeof startChatBridge>> | null = null;
 if (relay) {
   try {
-    chatBridge = await startChatBridge({ serverUrl: config.chatServerUrl });
+    // `ask_question` di @Claude nella Chat (area 4, fetta 3): la scrive il worker nel DB.
+    chatBridge = await startChatBridge({
+      serverUrl: config.chatServerUrl,
+      askQuestion: (sessionId, args) => askChatQuestion(db, sessionId, args),
+    });
   } catch (error) {
     console.error(`[stubwise-worker] ponte della chat non avviato, chat con Claude spenta: ${String(error)}`);
   }

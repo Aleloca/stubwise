@@ -16,6 +16,8 @@ export function turnDispatcher(targets: {
         targets.refine(sessionId);
         return;
       case "free":
+      // @Claude nella Chat (area 4, fetta 3): lo stesso scheduler della chat.
+      case "chat_mention":
         targets.chat(sessionId);
         return;
       default:

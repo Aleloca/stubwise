@@ -203,3 +203,14 @@ export const CHAT_PROPOSE_TOOL = "propose_action" as const;
 export const CHAT_TOOLS = [...CHAT_READ_TOOLS, CHAT_PROPOSE_TOOL] as const;
 export type ChatToolName = (typeof CHAT_TOOLS)[number];
 export const CHAT_TOOL_NAMES: readonly string[] = CHAT_TOOLS.map((tool) => `mcp__${CHAT_MCP_SERVER_NAME}__${tool}`);
+/**
+ * @Claude nella Chat (area 4, fetta 3): UNA domanda a scelta a chi ha chiamato.
+ * Esiste SOLO nei turni di una chiamata (`chat_mention`), e non passa dal
+ * server: la scrive il worker nel DB (il token del turno resta GET-only più le
+ * proposte).
+ */
+export const CHAT_ASK_TOOL = "ask_question" as const;
+export const CHAT_MENTION_TOOL_NAMES: readonly string[] = [
+  ...CHAT_TOOL_NAMES,
+  `mcp__${CHAT_MCP_SERVER_NAME}__${CHAT_ASK_TOOL}`,
+];

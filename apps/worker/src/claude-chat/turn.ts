@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { and, eq, sql } from "drizzle-orm";
 import {
   agentSessionInputs,
+  agentSessions,
   claudeConversations,
   issueChatToolToken,
   monthlyCostUsd,
@@ -31,7 +32,16 @@ import { claudeChatSession } from "../sessions/owners.js";
 import { getContentLanguage } from "../settings.js";
 import { buildChatMcpConfig, chatServerPath, type ChatBridge } from "./bridge.js";
 import { ensureChatCwd, type ChatCliPaths } from "./cli-dir.js";
-import { buildChatPrimingPrompt, buildChatResumePrompt } from "./prompts.js";
+import { finishReply, syncReplyText } from "./mention.js";
+import {
+  buildChatMentionAnswerPrompt,
+  buildChatMentionPrimingPrompt,
+  buildChatPrimingPrompt,
+  buildChatResumePrompt,
+} from "./prompts.js";
+
+/** Ogni quanto il testo dell'assistente passa sul messaggio di @Claude nella Chat (dal vivo). */
+const MENTION_SYNC_MS = 1_000;
 
 /**
  * UN turno di una conversazione libera con Claude (chat, fetta 1). Stessa
@@ -139,10 +149,16 @@ export async function runChatTurn(
     return "skipped";
   }
   const ownerId = conv.conversation.ownerId;
+  // @Claude nella Chat (area 4, fetta 3): la stessa conversazione CLI, con il
+  // contratto della Chat, `ask_question` e la risposta scritta sul messaggio.
+  const [sessionRow] = await db.select({ kind: agentSessions.kind }).from(agentSessions).where(eq(agentSessions.id, sid));
+  const mention = sessionRow?.kind === "chat_mention";
+  const callerName = conv.displayName?.trim() || conv.email.split("@")[0]!;
 
   // 2. Budget mensile.
   if (await overBudget(deps)) {
     await markUndelivered(db, sid, opening.id, "budget_exceeded", ["pending"]);
+    if (mention) await finishReply(db, sid, "budget");
     return "skipped";
   }
 
@@ -152,10 +168,20 @@ export async function runChatTurn(
   if (!existsSync(serverPath)) {
     log(`[chat] entry MCP assente (${serverPath}): nessun turno per la sessione ${sid}`);
     await markUndelivered(db, sid, opening.id, "turn_failed", ["pending"]);
+    if (mention) await finishReply(db, sid, "failed");
     return "failed";
   }
 
   let resumeRejected = false;
+  let liveSync: NodeJS.Timeout | null = null;
+  /** La risposta di @Claude a fine turno: il testo finale e lo stato. */
+  const settleMention = async (outcome: "done" | "failed" | null) => {
+    if (!mention) return;
+    if (liveSync) clearInterval(liveSync);
+    liveSync = null;
+    await syncReplyText(db, sid).catch((e: unknown) => log(`[chat] testo della risposta ${sid} non scritto: ${describeError(e)}`));
+    if (outcome) await finishReply(db, sid, outcome).catch((e: unknown) => log(`[chat] stato della risposta ${sid} non scritto: ${describeError(e)}`));
+  };
   const saveCliSessionId = (cliSessionId: string | null) =>
     db
       .update(claudeConversations)
@@ -171,7 +197,9 @@ export async function runChatTurn(
     const disallowedTools = chatDisallowedTools();
 
     const priming = async () =>
-      buildChatPrimingPrompt(
+      mention
+        ? buildChatMentionPrimingPrompt({ language: await getContentLanguage(db), callerName }, opening.text)
+        : buildChatPrimingPrompt(
         {
           language: await getContentLanguage(db),
           authorName: conv.displayName?.trim() || conv.email.split("@")[0]!,
@@ -199,9 +227,9 @@ export async function runChatTurn(
         userId: ownerId,
         ttlMs: deps.turnTimeoutMs + TOKEN_TTL_MARGIN_MS,
       });
-      const grant = deps.bridge.grant({ sessionId: sid, serverToken: token });
+      const grant = deps.bridge.grant({ sessionId: sid, serverToken: token, ...(mention ? { ask: true } : {}) });
       try {
-        const mcp = buildChatMcpConfig(deps.bridge, grant, serverPath);
+        const mcp = buildChatMcpConfig(deps.bridge, grant, serverPath, { ask: mention });
         if (mcp === null) throw new Error("entry MCP della chat sparita");
         return await deps.runner.run({
           cwd,
@@ -234,12 +262,23 @@ export async function runChatTurn(
 
     const stored = conv.conversation.cliSessionId;
     const context = (conv.conversation.contextRef as ClaudeConversationContext | null) ?? null;
-    const firstPrompt = stored !== null ? buildChatResumePrompt(opening.text, context) : await priming();
+    const firstPrompt =
+      stored !== null
+        ? mention
+          ? buildChatMentionAnswerPrompt(callerName, opening.text)
+          : buildChatResumePrompt(opening.text, context)
+        : await priming();
 
     // 5. CLAIM, subito prima del run.
     if (input.signal.aborted) return "cancelled";
     if (!(await claimOpening(db, opening.id, ["pending"]))) return "skipped";
 
+    // Il testo dal vivo sul messaggio di @Claude (lo stream della Chat lo porta a tutti).
+    if (mention) {
+      liveSync = setInterval(() => {
+        void syncReplyText(db, sid).catch((e: unknown) => log(`[chat] testo della risposta ${sid} non scritto: ${describeError(e)}`));
+      }, MENTION_SYNC_MS);
+    }
     // 6. Run per account, con UN nuovo tentativo se il --resume è rifiutato.
     type ProviderAttempt = { kind: "run"; result: AgentRunResult } | { kind: "skipped" };
     let firstAccount = true;
@@ -298,6 +337,7 @@ export async function runChatTurn(
         log(`[chat] input ${opening.id} non marcato turn_failed: ${describeError(e)}`);
       });
     }
+    await settleMention("done");
     return "completed";
   } catch (error) {
     if (error instanceof AgentRunCancelledError) {
@@ -312,9 +352,12 @@ export async function runChatTurn(
           });
         }
       }
+      // Fermata (lo stop la mette già «stopped») o worker che si spegne (l'input torna in coda).
+      await settleMention(null);
       return "cancelled";
     }
     log(`[chat] turno della sessione ${sid} fallito: ${describeError(error)}`);
+    await settleMention("failed");
     if (error instanceof NoAccountAvailableError) {
       await noticeInTranscript(db, sid, t(await getContentLanguage(db), "backlog.noAccountAvailable")).catch(
         (e: unknown) => log(`[chat] avviso «nessun account» non scritto nella sessione ${sid}: ${describeError(e)}`),
@@ -328,6 +371,7 @@ export async function runChatTurn(
     }
     return "failed";
   } finally {
+    if (liveSync) clearInterval(liveSync);
     if (resumeRejected) {
       await saveCliSessionId(null).catch((e: unknown) => {
         log(`[chat] cli_session_id della sessione ${sid} non azzerato: ${describeError(e)}`);
