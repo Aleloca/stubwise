@@ -220,6 +220,7 @@ const CATALOG_FOR_KIND: Record<
   "task.assigned": { decisions: [], permission: null, archivable: true },
   // Area 4, Chat: si legge e si apre il messaggio; si risponde nella Chat.
   "chat.mention": { decisions: [], permission: null, archivable: true },
+  "chat.question": { decisions: [], permission: null, archivable: true },
 };
 
 /**
@@ -474,6 +475,7 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     // Area 4, Chat: il messaggio nell'app nuova (la Chat vive solo lì, D9),
     // DERIVATO a lettura. L'inbox lo sovrascrive col canale che chi legge vede.
     case "chat.mention":
+    case "chat.question":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/chat/${event.channelId}?message=${event.chatMessageId}` : "";
     case "ticket.created":
     case "job.pr_closed":

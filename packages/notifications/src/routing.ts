@@ -160,6 +160,7 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // Area 4, Chat: UNA persona per pubblicazione, quella nominata. La scrittura
   // del messaggio ha già controllato che legga il canale; mai un webhook.
   "chat.mention": "account_owner",
+  "chat.question": "account_owner",
 };
 
 /** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */
@@ -227,6 +228,7 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   "planning.changed": null,
   "task.assigned": null,
   "chat.mention": null,
+  "chat.question": null,
 };
 
 /** Permesso pertinente del kind. Unico punto in cui si legge {@link PERMISSION_FOR_KIND}. */

@@ -10,14 +10,19 @@ import {
   chatMessagePageQuerySchema,
   chatMessagePageSchema,
   chatMessageSchema,
+  chatQuestionListSchema,
   chatReactionBodySchema,
+  chatSearchQuerySchema,
+  chatSearchResultSchema,
   chatSignalSchema,
   chatThreadFollowSchema,
   chatThreadNewsSchema,
   chatThreadSchema,
   createChatChannelSchema,
   editChatMessageSchema,
+  inviteChatMembersSchema,
   markChatReadSchema,
+  openChatDmSchema,
   patchChatChannelSchema,
   postChatMessageSchema,
   CHAT_STREAM_CURSOR_RE,
@@ -31,16 +36,22 @@ import {
   createChannel,
   deleteChannel,
   deleteMessage,
+  dismissQuestion,
   editMessage,
   getChannel,
   getMessage,
   getThread,
+  inviteMembers,
   joinChannel,
   listChannels,
   listMessages,
   markRead,
   mentionsOf,
+  openDm,
   postMessage,
+  questionsOf,
+  removeMember,
+  searchChat,
   setNotifyLevel,
   setThreadFollow,
   signalOf,
@@ -50,7 +61,7 @@ import {
 } from "../chat/service.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
-// La Chat fra persone (area 4, fetta 1), sotto `/api/chat`. Chi vede, chi
+// La Chat fra persone (area 4, fette 1 e 2), sotto `/api/chat`. Chi vede, chi
 // scrive e chi gestisce lo decide `chat/access.ts`: le rotte dichiarano solo
 // `user` e lasciano decidere il servizio (un canale non visibile è 404).
 
@@ -82,6 +93,40 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
   app.get("/signal", { config: { access: ACCESS }, schema: { response: { 200: chatSignalSchema, ...authErrorResponses } } }, async (request) =>
     signalOf(app.db, request.user!),
   );
+  // «Da decidere»: le domande della Chat rivolte a chi guarda (fetta 2).
+  app.get("/questions", { config: { access: ACCESS }, schema: { response: { 200: chatQuestionListSchema, ...authErrorResponses } } }, async (request) => ({
+    items: await questionsOf(app.db, request.user!),
+  }));
+  app.post(
+    "/questions/:id/dismiss",
+    { config: { access: ACCESS }, schema: { params: idParams, response: { 204: z.null(), ...errors } } },
+    async (request, reply) =>
+      handle(reply, async () => {
+        await dismissQuestion(app.db, request.user!, request.params.id);
+        return reply.code(204).send(null);
+      }),
+  );
+  // La ricerca nei canali che chi guarda legge (fetta 2).
+  app.get(
+    "/search",
+    { config: { access: ACCESS }, schema: { querystring: chatSearchQuerySchema, response: { 200: chatSearchResultSchema, ...authErrorResponses } } },
+    async (request) => ({
+      items: await searchChat(app.db, request.user!, request.query.q, {
+        ...(request.query.channelId ? { channelId: request.query.channelId } : {}),
+        ...(request.query.authorId ? { authorId: request.query.authorId } : {}),
+        ...(request.query.peopleOnly === "true" ? { peopleOnly: true } : {}),
+        ...(request.query.from ? { from: request.query.from } : {}),
+        ...(request.query.to ? { to: request.query.to } : {}),
+        ...(request.query.limit ? { limit: request.query.limit } : {}),
+      }),
+    }),
+  );
+  // Un DM con queste persone: quello che c'è già, o uno nuovo (fetta 2).
+  app.post(
+    "/dm",
+    { config: { access: ACCESS }, schema: { body: openChatDmSchema, response: { 200: chatChannelSchema, ...errors } } },
+    async (request, reply) => handle(reply, () => openDm(app.db, request.user!, request.body.personIds)),
+  );
 
   app.get(
     "/channels",
@@ -89,6 +134,7 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
     async (request) => ({
       items: await listChannels(app.db, request.user!, {
         ...(request.query.projectId ? { projectId: request.query.projectId } : {}),
+        ...(request.query.kind ? { kind: request.query.kind } : {}),
         archived: request.query.archived === "true",
       }),
     }),
@@ -121,12 +167,38 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/channels/:id/join",
     { config: { access: ACCESS }, schema: { params: idParams, response: { 200: chatChannelSchema, ...errors } } },
-    async (request, reply) => handle(reply, () => joinChannel(app.db, request.user!, request.params.id, true)),
+    async (request, reply) => handle(reply, async () => (await joinChannel(app.db, request.user!, request.params.id, true))!),
   );
+  // Uscire: 200 col canale, o 204 se chi esce non lo vede più (un privato, un DM).
   app.delete(
     "/channels/:id/join",
-    { config: { access: ACCESS }, schema: { params: idParams, response: { 200: chatChannelSchema, ...errors } } },
-    async (request, reply) => handle(reply, () => joinChannel(app.db, request.user!, request.params.id, false)),
+    { config: { access: ACCESS }, schema: { params: idParams, response: { 200: chatChannelSchema, 204: z.null(), ...errors } } },
+    async (request, reply) =>
+      handle(reply, async () => {
+        const view = await joinChannel(app.db, request.user!, request.params.id, false);
+        return view ? view : reply.code(204).send(null);
+      }),
+  );
+  // Aggiungere e togliere persone (fetta 2): le regole sono di `channelAccess`.
+  app.post(
+    "/channels/:id/members",
+    { config: { access: ACCESS }, schema: { params: idParams, body: inviteChatMembersSchema, response: { 200: chatChannelSchema, ...errors } } },
+    async (request, reply) => handle(reply, () => inviteMembers(app.db, request.user!, request.params.id, request.body.personIds)),
+  );
+  app.delete(
+    "/channels/:id/members/:userId",
+    {
+      config: { access: ACCESS },
+      schema: {
+        params: z.object({ id: z.uuid(), userId: z.uuid() }),
+        response: { 200: chatChannelSchema, 204: z.null(), ...errors },
+      },
+    },
+    async (request, reply) =>
+      handle(reply, async () => {
+        const view = await removeMember(app.db, request.user!, request.params.id, request.params.userId);
+        return view ? view : reply.code(204).send(null);
+      }),
   );
   app.get(
     "/channels/:id/messages",
@@ -151,6 +223,8 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
           await postMessage(app.db, request.user!, request.params.id, {
             text: request.body.text,
             ...(request.body.threadRootId ? { threadRootId: request.body.threadRootId } : {}),
+            ...(request.body.alsoInChannel ? { alsoInChannel: true } : {}),
+            ...(request.body.asksReply ? { asksReply: true } : {}),
           }),
         ),
       ),
@@ -227,6 +301,8 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
         if (error instanceof ChatError) return apiError(reply, error.status, error.code, error.message);
         throw error;
       }
+      // Lo stream porta i messaggi: solo a chi LEGGE il canale (chi gestisce un privato senza esserne membro no, D2).
+      if (!first.canRead) return apiError(reply, 404, "not_found", "Not found");
       reply.hijack();
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream",

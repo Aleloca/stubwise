@@ -734,7 +734,7 @@ export interface InboxItem extends ViaClaudeFields {
   taskCode: string | null;
   /** La task della card è stata eliminata (dalla lapide, a lettura). */
   objectGone: boolean;
-  /** Area 4, Chat: solo `chat.mention`, il messaggio come lo vede chi legge (`readChatMention`). */
+  /** Area 4, Chat: solo `chat.mention` e `chat.question`, il messaggio come lo vede chi legge (`readChatMention`). */
   chat?: {
     channelId: string;
     channelName: string;
@@ -951,12 +951,12 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     }),
   );
 
-  // Area 4, Chat: le card `chat.mention` derivate a lettura (il messaggio
+  // Area 4, Chat: le card `chat.mention` e `chat.question` derivate a lettura (il messaggio
   // com'è adesso, per chi legge; null = eliminato o canale non più visibile).
   const chatCards = await chatMentionsFor(
     db,
     userId,
-    page.filter((r) => r.kind === "chat.mention"),
+    page.filter((r) => r.kind === "chat.mention" || r.kind === "chat.question"),
   );
 
   const items = page.map((r): InboxItem => {
@@ -999,10 +999,11 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       ? [...baseActions.filter((a) => a === "answer"), "hand_to_project", ...baseActions.filter((a) => a !== "answer")]
       : baseActions;
     const eventTicketId = (r.event as { ticketId?: unknown }).ticketId;
-    const chat = r.kind === "chat.mention" ? (chatCards.get(r.id) ?? null) : null;
+    const isChat = r.kind === "chat.mention" || r.kind === "chat.question";
+    const chat = isChat ? (chatCards.get(r.id) ?? null) : null;
     const objectGone =
       (r.ticketId === null && typeof eventTicketId === "string" && goneTickets.has(eventTicketId)) ||
-      (r.kind === "chat.mention" && chat === null);
+      (isChat && chat === null);
     // Una task eliminata non si apre: niente link alla sua pagina.
     const { url: _url, ...withoutUrl } = rendered;
     void _url;

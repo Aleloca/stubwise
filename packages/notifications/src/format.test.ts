@@ -1356,6 +1356,7 @@ describe("sampleEvents", () => {
       "planning.changed",
       "task.assigned",
       "chat.mention",
+      "chat.question",
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
@@ -1382,7 +1383,8 @@ describe("sampleEvents", () => {
         event.kind === "ticket.activity" ||
         event.kind === "planning.changed" ||
         event.kind === "task.assigned" ||
-        event.kind === "chat.mention"
+        event.kind === "chat.mention" ||
+        event.kind === "chat.question"
       ) {
         // Nessun link nell'evento: si legge in inbox (o «Apri» lo deriva).
         expect(Object.values(event).some((v) => typeof v === "string" && v.startsWith("http"))).toBe(false);

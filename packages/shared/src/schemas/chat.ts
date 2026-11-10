@@ -66,8 +66,31 @@ export const chatChannelSchema = z.object({
   /** Entrare / uscire (un canale aperto; mai il «general»). */
   canJoin: z.boolean().default(false),
   canLeave: z.boolean().default(false),
-  /** Rinominare, archiviare, eliminare (`chat.channels.manage`; mai il «general»). */
+  /**
+   * Almeno un'azione di gestione (`canEditInfo`, `canArchive` o `canDelete`).
+   * C'è dalla fetta 1; dalla fetta 2 i permessi sono quelli singoli qui sotto.
+   */
   canManage: z.boolean().default(false),
+  /**
+   * Legge i messaggi. Di un privato di cui non è membro, chi gestisce l'ambito
+   * vede nome e membri ma non legge (D2). Default `true`: un server della
+   * fetta 1 manda solo canali aperti, che chi li vede legge.
+   */
+  canRead: z.boolean().default(true),
+  /** Nome e descrizione: il creatore o chi gestisce l'ambito; mai il «general» né un DM. */
+  canEditInfo: z.boolean().default(false),
+  /** L'argomento: qualunque membro, in un canale non archiviato (non un DM). */
+  canEditTopic: z.boolean().default(false),
+  /** Gli eventi pubblicati: solo i canali di progetto, il creatore o chi gestisce. */
+  canEditEvents: z.boolean().default(false),
+  /** Aggiungere persone: in un privato il creatore o chi gestisce; in un aperto un membro. */
+  canInvite: z.boolean().default(false),
+  /** Togliere persone: il creatore o chi gestisce (mai nel «general» né in un DM). */
+  canRemove: z.boolean().default(false),
+  /** Archiviare o riaprire: il creatore o chi gestisce; mai il «general» né un DM. */
+  canArchive: z.boolean().default(false),
+  /** Eliminare: solo chi gestisce i canali dell'ambito (R-G3), non il creatore. */
+  canDelete: z.boolean().default(false),
   /** I non letti di chi guarda, e quanti lo nominano direttamente. */
   unread: z.number().int().default(0),
   mentions: z.number().int().default(0),
@@ -113,12 +136,24 @@ export const chatMessageSchema = z.object({
   canEdit: z.boolean().default(false),
   canDelete: z.boolean().default(false),
   viaClaude: z.boolean().default(false),
+  /** Una risposta mandata «anche nel canale»: compare anche nel flusso del canale. */
+  alsoInChannel: z.boolean().default(false),
+  /** Le persone a cui il messaggio chiede una risposta (le ricava il server). */
+  asksReplyOf: z.array(z.uuid()).default([]),
+  /**
+   * Le task e le richieste nate dal messaggio («→ AUD-14»): solo quelle che
+   * chi guarda vede, derivate a lettura. `linkedCodes` sono i loro codici.
+   */
+  linked: z.array(z.object({ kind: z.enum(["task", "request"]), id: z.uuid(), code: z.string() })).default([]),
+  linkedCodes: z.array(z.string()).default([]),
 });
 export type ChatMessageView = z.infer<typeof chatMessageSchema>;
 
 export const chatChannelListSchema = z.object({ items: z.array(chatChannelSchema) });
 export const chatChannelListQuerySchema = z.object({
   projectId: z.uuid().optional(),
+  /** Solo un tipo (`general`, `dm`…). */
+  kind: chatChannelKindSchema.optional(),
   archived: z.enum(["true", "false"]).default("false"),
 });
 
@@ -152,6 +187,46 @@ export const chatThreadNewsSchema = z.object({
   ),
 });
 
+/**
+ * Un risultato della ricerca: il messaggio, il messaggio vivo prima di lui
+ * nello stesso flusso (contesto) e, per una risposta, la radice del thread.
+ */
+export const chatMessageHitSchema = z.object({
+  channelId: z.uuid(),
+  message: chatMessageSchema,
+  context: chatMessageSchema.nullable().default(null),
+  root: chatMessageSchema.nullable().default(null),
+});
+export const chatSearchResultSchema = z.object({ items: z.array(chatMessageHitSchema) });
+export const CHAT_SEARCH_MIN = 2;
+export const chatSearchQuerySchema = z.object({
+  q: z.string().trim().max(200),
+  channelId: z.uuid().optional(),
+  authorId: z.uuid().optional(),
+  peopleOnly: z.enum(["true", "false"]).optional(),
+  /** Giorni ISO (`YYYY-MM-DD`), inclusi, in UTC. */
+  from: z.iso.date().optional(),
+  to: z.iso.date().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+/**
+ * Una domanda rivolta a chi guarda, in «Da decidere»: finché non risponde
+ * (nel thread o, per un messaggio del canale, nel canale) o non la ignora.
+ */
+export const chatQuestionSchema = z.object({
+  /** `chat:<messageId>`, come il prototipo. */
+  id: z.string(),
+  channelId: z.uuid(),
+  messageId: z.uuid(),
+  /** Dove rispondere: la radice del thread (il messaggio stesso se è nel canale). */
+  rootId: z.uuid(),
+  askedById: z.uuid().nullable(),
+  text: z.string(),
+  createdAt: z.iso.datetime(),
+});
+export const chatQuestionListSchema = z.object({ items: z.array(chatQuestionSchema) });
+
 /** I messaggi che nominano chi guarda, nei canali che legge («Mentions»). */
 export const chatMentionListSchema = z.object({ items: z.array(chatMessageSchema) });
 
@@ -163,11 +238,18 @@ export const chatSignalSchema = z.object({
 
 // --- Corpi ------------------------------------------------------------------
 
+/** Un DM può avere al più 8 persone, compresa chi lo apre. */
+export const CHAT_DM_MAX_PEOPLE = 8;
+
+/** Senza `projectId` (o con `null`): un canale generale d'istanza. */
 export const createChatChannelSchema = z.object({
-  projectId: z.uuid(),
+  projectId: z.uuid().nullable().optional(),
   name: chatChannelNameSchema,
   description: z.string().trim().max(500).optional(),
   topic: z.string().trim().max(250).optional(),
+  visibility: chatChannelVisibilitySchema.default("open"),
+  /** Solo un privato: chi invitare subito (chi crea c'è sempre). */
+  memberIds: z.array(z.uuid()).max(200).optional(),
 });
 export type CreateChatChannelInput = z.input<typeof createChatChannelSchema>;
 
@@ -186,6 +268,10 @@ export const postChatMessageSchema = z.object({
   text: z.string().trim().min(1).max(CHAT_MESSAGE_MAX),
   /** Una risposta: la radice del thread (un livello solo). */
   threadRootId: z.uuid().optional(),
+  /** Solo una risposta: «Rispondi anche nel canale». */
+  alsoInChannel: z.boolean().optional(),
+  /** «Ask for a reply»: chiede risposta alle persone nominate anche senza «?». */
+  asksReply: z.boolean().optional(),
 });
 export type PostChatMessageInput = z.input<typeof postChatMessageSchema>;
 
@@ -198,6 +284,12 @@ export const markChatReadSchema = z.object({
 });
 export const chatChannelPrefSchema = z.object({ level: chatNotifyLevelSchema });
 export const chatThreadFollowSchema = z.object({ following: z.boolean() });
+/** Aggiungere persone a un canale. */
+export const inviteChatMembersSchema = z.object({ personIds: z.array(z.uuid()).min(1).max(200) });
+/** Aprire (o ritrovare) un DM con queste persone, oltre a chi lo apre. */
+export const openChatDmSchema = z.object({
+  personIds: z.array(z.uuid()).min(1).max(CHAT_DM_MAX_PEOPLE),
+});
 
 // --- Stream -----------------------------------------------------------------
 
