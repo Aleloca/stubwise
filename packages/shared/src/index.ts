@@ -61,6 +61,7 @@ export * from "./schemas/task-filter.js";
 export * from "./schemas/home.js";
 export * from "./schemas/project-request.js";
 export * from "./schemas/claude-decision.js";
+export * from "./schemas/claude-conversation.js";
 export * from "./schemas/people-activity.js";
 export * from "./schemas/overview.js";
 export * from "./session-end.js";

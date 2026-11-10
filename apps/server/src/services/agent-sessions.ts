@@ -10,8 +10,11 @@ import {
   backlogItems,
   backlogJobs,
   backlogRefineSessions,
+  claudeConversations,
   docGenerations,
   emailMessages,
+  instanceSettings,
+  monthlyCostUsd,
   prReviews,
   projects,
   repositories,
@@ -137,9 +140,14 @@ const WINDOW_DAYS = 14;
  * casella, nessun ramo per ruolo (invariante mailbox_owner).
  */
 export function visibleTo(viewer: Actor): SQL {
-  return or(
-    isNull(agentSessions.mailboxOwnerUserId),
-    eq(agentSessions.mailboxOwnerUserId, viewer.id),
+  return and(
+    or(isNull(agentSessions.mailboxOwnerUserId), eq(agentSessions.mailboxOwnerUserId, viewer.id)),
+    // La conversazione libera con Claude (chat, fetta 1) la vede SOLO il suo
+    // autore: nessun ramo per ruolo né per permesso, come la posta.
+    or(
+      sql`${agentSessions.kind} <> 'free'`,
+      sql`exists (select 1 from ${claudeConversations} cc where cc.session_id = ${agentSessions.id} and cc.owner_id = ${viewer.id})`,
+    ),
   )!;
 }
 
@@ -195,6 +203,8 @@ export interface SessionDerivationInput {
   refineStatus?: "active" | "closed" | null;
   /** Un input `pending` sulla sessione (refinement: un turno in coda). */
   pendingInput?: boolean;
+  /** Solo la conversazione libera (chat, fetta 1): c'è la sua riga. */
+  conversation?: boolean;
 }
 
 /** Regola UNICA dello stato (design §8.2); l'ordine dei casi è la precedenza. */
@@ -204,6 +214,8 @@ export function deriveAgentSessionState(i: SessionDerivationInput): AgentSession
   // messaggio in attesa di un turno è `queued`. Nessun'altra fonte vale qui.
   if (i.refineStatus === "closed") return "ended";
   if (i.refineStatus === "active") return i.pendingInput === true ? "queued" : "idle";
+  // Conversazione libera: come un refinement aperto, sempre (archiviata compresa).
+  if (i.conversation === true) return i.pendingInput === true ? "queued" : "idle";
   if (i.aiJobStatus === "awaiting_input") return "waiting_input";
   if (i.aiJobStatus === "awaiting_plan_approval") return "awaiting_approval";
   if (i.aiJobStatus === "held" || i.docGenerationStatus === "paused") return "held";
@@ -516,6 +528,9 @@ function baseSelect(db: Db) {
         backlogItemTitle: backlogItems.title,
         backlogItemStatus: backlogItems.status,
         refineStatus: backlogRefineSessions.status,
+        conversationOwnerId: claudeConversations.ownerId,
+        conversationTitle: claudeConversations.title,
+        conversationArchivedAt: claudeConversations.archivedAt,
         pendingInput: pendingInputSql,
         backlogJobKind: backlogJobs.kind,
         emailMessageId: emailMessages.id,
@@ -549,6 +564,7 @@ function baseSelect(db: Db) {
       .leftJoin(backlogJobs, eq(backlogJobs.id, agentSessions.backlogJobId))
       .leftJoin(backlogItems, eq(backlogItems.id, agentSessions.backlogItemId))
       .leftJoin(backlogRefineSessions, eq(backlogRefineSessions.agentSessionId, agentSessions.id))
+      .leftJoin(claudeConversations, eq(claudeConversations.sessionId, agentSessions.id))
       .leftJoin(reviewRepositories, eq(reviewRepositories.id, prReviews.repositoryId))
       .leftJoin(docRepositories, eq(docRepositories.id, docGenerations.repositoryId))
       // Per FK (0086, CASCADE): un join sulla chiave primaria del messaggio,
@@ -586,6 +602,9 @@ function displayTitle(row: Row, lang: Language): string {
       break;
     case "backlog_item":
       if (row.backlogItemTitle !== null) return row.backlogItemTitle;
+      break;
+    case "free":
+      if (row.conversationTitle !== null) return row.conversationTitle;
       break;
     case "backlog_refine":
       if (row.backlogItemTitle !== null) {
@@ -641,6 +660,7 @@ function toSummary(row: Row, lang: Language): AgentSessionSummary {
     lastSegmentEnd: row.lastSegmentEnd ?? null,
     refineStatus: row.refineStatus ?? null,
     pendingInput: row.pendingInput === true,
+    conversation: row.conversationOwnerId !== null,
   };
   const state = deriveAgentSessionState(input);
   return {
@@ -686,6 +706,9 @@ export async function listAgentSessions(
   const conditions: SQL[] = [
     visibleTo(viewer),
     sql`${lastActivitySql} > now() - make_interval(days => ${WINDOW_DAYS}::int)`,
+    // Le conversazioni libere hanno il loro elenco (`/api/claude/conversations`):
+    // qui solo le sessioni di lavoro.
+    sql`${agentSessions.kind} <> 'free'`,
   ];
   // Solo le sessioni dei progetti in cui chi guarda ha `repos.view` (ruling
   // R26; le sessioni senza progetto, la posta, restano governate da
@@ -848,6 +871,8 @@ export async function loadAgentSession(
   live: boolean;
   /** Stato della riga di refinement (`null` = nessuna): interno, non nel dettaglio. */
   refineStatus: "active" | "closed" | null;
+  /** Solo la conversazione libera: archiviata (si legge, non si scrive). */
+  conversationArchived: boolean;
   /** I permessi di chi guarda nel progetto della sessione: interni. */
   permissions: ReadonlySet<ProjectPermission>;
 } | null> {
@@ -866,14 +891,22 @@ export async function loadAgentSession(
   // scrittura del kind (`writePermissionFor`) nel progetto della sessione, su
   // un tipo in cui si interviene (job AI e refinement). Stabile per tutto il
   // run, così il client tiene montato il campo anche fra un segmento e l'altro.
+  // La conversazione libera: ci scrive SOLO il suo autore (nessun permesso di progetto).
   const intervenable =
-    INTERVENABLE_SESSION_KINDS.has(row.kind) && permissions.has(writePermissionFor(row.kind));
+    INTERVENABLE_SESSION_KINDS.has(row.kind) &&
+    (row.kind === "free" ? row.conversationOwnerId === viewer.id : permissions.has(writePermissionFor(row.kind)));
   // In un processo si interviene solo a un segmento aperto e interattivo.
   const liveWritable = intervenable && live && row.activeSegmentOpen === true && row.interactive;
   const itemOpen = row.backlogItemStatus !== "converted" && row.backlogItemStatus !== "archived";
   // A turni: scrivere avvia (o riprende) la sessione, viva o no, finché la
   // voce è aperta — attiva o chiusa che sia.
-  const writable = turnBased ? intervenable && row.refineStatus !== null && itemOpen : liveWritable;
+  // Una conversazione archiviata si legge, non si scrive.
+  const writable =
+    row.kind === "free"
+      ? intervenable && row.conversationArchivedAt === null
+      : turnBased
+        ? intervenable && row.refineStatus !== null && itemOpen
+        : liveWritable;
   const questions: AgentSessionQuestion[] = row.aiJobId
     ? await agentQuestionsOf(db, viewer, permissions, row.aiJobId)
     : [];
@@ -910,13 +943,14 @@ export async function loadAgentSession(
   return {
     live,
     refineStatus: row.refineStatus ?? null,
+    conversationArchived: row.conversationArchivedAt !== null,
     permissions,
     detail: {
       ...summary,
       canWrite: writable,
       canIntervene: intervenable,
       // «Chiudi sessione»: solo a turni, su una sessione aperta, per chi può scrivere.
-      canClose: turnBased && row.refineStatus === "active" && intervenable,
+      canClose: row.kind === "backlog_refine" && row.refineStatus === "active" && intervenable,
       // Niente «Ferma» su un agente già fermo: né in pausa, né mentre uno
       // «Ferma» senza testo aspetta ancora la consegna (la finestra prima che
       // `paused` diventi vero). Lo leggono i client: spariscono «Ferma» e
@@ -1006,7 +1040,9 @@ export type SendAgentMessageResult =
         | "session_ended"
         | "not_interactive"
         | "interrupt_unsupported"
-        | "item_closed";
+        | "item_closed"
+        | "conversation_archived"
+        | "budget_exhausted";
     };
 
 /**
@@ -1036,6 +1072,24 @@ export async function sendAgentMessage(
   const loaded = await loadAgentSession(db, input.actor, input.sessionId);
   if (!loaded) return { ok: false, error: "not_found" };
   const kind = loaded.detail.kind;
+  // La conversazione libera (chat, fetta 1): la vede e la scrive solo l'autore
+  // (un altro non arriva qui: `loadAgentSession` gli risponde null → 404).
+  if (kind === "free") {
+    if (!loaded.detail.canIntervene) return { ok: false, error: "forbidden" };
+    if (loaded.conversationArchived) return { ok: false, error: "conversation_archived" };
+    if (input.interrupt && !loaded.detail.canInterrupt) return { ok: false, error: "interrupt_unsupported" };
+    // Un messaggio con testo è un turno nuovo: col budget del mese finito non parte.
+    if (input.text.trim().length > 0 && (await monthlyBudgetExhausted(db))) {
+      return { ok: false, error: "budget_exhausted" };
+    }
+    return db.transaction(async (tx) => {
+      await tx
+        .update(claudeConversations)
+        .set({ updatedAt: sql`now()` })
+        .where(eq(claudeConversations.sessionId, input.sessionId));
+      return insertInput(tx, input);
+    });
+  }
   // Il permesso, UN posto, prima di qualunque riga: senza il permesso di
   // scrittura del kind (`writePermissionFor`) nel progetto della sessione non
   // si scrive. Un kind su cui non si interviene lo dicono, dopo,
@@ -1105,3 +1159,15 @@ async function insertInput(
   );
   return { ok: true, inputId: row!.id };
 }
+
+/**
+ * Il budget del mese dell'istanza è finito (`instance_settings.monthly_budget_usd`,
+ * `null` = nessun limite): un turno nuovo di una conversazione libera non parte
+ * (chat, fetta 1). Lo stesso conto dei run (`monthlyCostUsd`).
+ */
+export async function monthlyBudgetExhausted(db: Db | Tx): Promise<boolean> {
+  const [settings] = await db.select({ budget: instanceSettings.monthlyBudgetUsd }).from(instanceSettings);
+  if (!settings?.budget) return false;
+  return (await monthlyCostUsd(db as Db)) >= Number(settings.budget);
+}
+

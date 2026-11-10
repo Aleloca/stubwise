@@ -3264,6 +3264,32 @@ export const backlogRefineSessions = pgTable(
 );
 
 /**
+ * La conversazione libera con Claude (integrazione «Chat con Claude», fetta 1,
+ * 0125): ciò che la sessione dell'agente di kind `free` non ha. PRIVATA
+ * dell'autore (`owner_id`): la visibilità delle sessioni la legge da qui
+ * (`visibleTo`), senza ramo per ruolo — nemmeno un full admin la vede. CASCADE
+ * dalla sessione (la potatura dei 14 giorni la porta via) e dall'utente.
+ * `cli_session_id` è l'id della conversazione del CLI per `--resume` (lo scrive
+ * il worker al primo turno). Il titolo nasce dalla prima domanda con un
+ * template (`conversationTitleFrom`), mai dal modello.
+ */
+export const claudeConversations = pgTable(
+  "claude_conversations",
+  {
+    sessionId: uuid("session_id").primaryKey()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default(""),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    contextRef: jsonb("context_ref").$type<{ kind: string; id: string }>(),
+    cliSessionId: text("cli_session_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("claude_conversations_owner_idx").on(table.ownerId, table.updatedAt)],
+);
+
+/**
  * Valore PRECEDENTE di un campo di una voce sovrascritto dall'agente in una
  * sessione di refinement (design 2026-10-14 §4.3): rete di sicurezza
  * recuperabile a mano. `previous`: `{ document, originContent }` per il design,
@@ -4714,7 +4740,7 @@ export const agentSessions = pgTable(
     index("agent_sessions_email_message_id_idx").on(table.emailMessageId),
     check(
       "agent_sessions_kind_chk",
-      sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report','backlog_refine')`,
+      sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report','backlog_refine','free')`,
     ),
     check(
       "agent_sessions_email_owner_chk",

@@ -70,6 +70,7 @@ import { projectEnvFileRoutes } from "./routes/project-env-files.js";
 import { projectEnvironmentRoutes } from "./routes/project-environments.js";
 import { releaseRoutes } from "./routes/release.js";
 import { agentSessionRoutes } from "./routes/agent-sessions.js";
+import { claudeConversationRoutes } from "./routes/claude-conversations.js";
 import { correctionRoutes } from "./routes/corrections.js";
 import { briefRoutes } from "./routes/briefs.js";
 import { projectRoutes } from "./routes/projects.js";
@@ -614,6 +615,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // `release.merge` ("una pagina sola, per il maintainer", design §4).
   void app.register(releaseRoutes, { prefix: "/api" });
   void app.register(agentSessionRoutes, { prefix: "/api/agent-sessions" });
+  // Chat con Claude, fetta 1: le conversazioni libere (private dell'autore).
+  void app.register(claudeConversationRoutes, { prefix: "/api/claude/conversations" });
   // Correzioni post-PR (ciclo review → correzione, 30 set 2026): il bottone
   // "Chiedi modifiche" del ticket. `corrections.request`, vedi la rotta.
   void app.register(correctionRoutes, { prefix: "/api" });

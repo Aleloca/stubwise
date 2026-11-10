@@ -15,6 +15,7 @@ import { createFiltersEndpoints } from "./endpoints/filters.js";
 import { createHomeEndpoints } from "./endpoints/home.js";
 import { createRequestsEndpoints } from "./endpoints/requests.js";
 import { createMeEndpoints } from "./endpoints/me.js";
+import { createClaudeEndpoints } from "./endpoints/claude.js";
 import { createMilestonesEndpoints } from "./endpoints/milestones.js";
 import { createPatsEndpoints } from "./endpoints/pats.js";
 import { createProjectsEndpoints } from "./endpoints/projects.js";
@@ -122,6 +123,8 @@ export function createEndpoints(request: ApiRequest) {
     auth: createAuthEndpoints(request),
     inbox: createInboxEndpoints(request),
     me: createMeEndpoints(request),
+    // Chat con Claude, fetta 1: le conversazioni libere.
+    claude: createClaudeEndpoints(request),
     pats: createPatsEndpoints(request),
     projects: createProjectsEndpoints(request),
     repositories: createRepositoriesEndpoints(request),
