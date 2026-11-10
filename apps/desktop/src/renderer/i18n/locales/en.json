@@ -2033,7 +2033,8 @@
       "listLabel": "Suggested changes",
       "reason": "Why",
       "accepted": "Suggestions accepted.",
-      "failed": "That didn't go through. Try again."
+      "failed": "That didn't go through. Try again.",
+      "savedNotDismissed": "Your changes were saved, but the suggestions are still open. Dismiss them again."
     },
     "nextStep": {
       "label": "Next step",

@@ -2033,7 +2033,8 @@
       "listLabel": "Modifiche proposte",
       "reason": "Perché",
       "accepted": "Proposte accettate.",
-      "failed": "Non è andato a buon fine. Riprova."
+      "failed": "Non è andato a buon fine. Riprova.",
+      "savedNotDismissed": "Le modifiche sono salvate, ma i suggerimenti sono ancora aperti. Scartali di nuovo."
     },
     "nextStep": {
       "label": "Prossimo passo",

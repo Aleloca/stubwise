@@ -524,6 +524,19 @@ describe("le superfici della fetta 4 nella build app", () => {
     ).toBeInTheDocument();
   });
 
+  it("modifiche salvate ma suggerimenti non chiusi: il messaggio dice cosa è stato salvato", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/STW/requests?request=req-stw-1");
+    const panel = await screen.findByRole("dialog");
+    const box = await within(panel).findByRole("region", { name: "Suggested by the intake" });
+    refusal.fn = "updateRequest";
+    refusal.code = "suggestions_kept";
+    await userEvent.click(within(box).getByRole("button", { name: "Dismiss" }));
+    expect(
+      await screen.findByText("Your changes were saved, but the suggestions are still open. Dismiss them again."),
+    ).toBeInTheDocument();
+  });
+
   it("trasformare una richiesta già trasformata o archiviata lo dice con la sua frase", async () => {
     signedInAs("p-laura");
     renderRoute("/p/STW/requests?request=req-stw-1");

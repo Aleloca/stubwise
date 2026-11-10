@@ -202,7 +202,16 @@ export const updateRequest: typeof Fake.updateRequest = async (id, patch) => {
   }
   let view: ProjectRequestView | null = null;
   if (Object.keys(fields).length > 0) view = (await client.update(id, fields as never)) as ProjectRequestView;
-  if (suggestions === null) view = (await client.dismissSuggestions(id)) as ProjectRequestView;
+  if (suggestions === null) {
+    try {
+      view = (await client.dismissSuggestions(id)) as ProjectRequestView;
+    } catch (error) {
+      if (!view) throw error;
+      // Le modifiche sono salvate, i suggerimenti no: l'errore lo dice (`suggestions_kept`).
+      fromView(view);
+      throw Object.assign(new Error("suggestions_kept"), { code: "suggestions_kept", cause: error });
+    }
+  }
   return fromView(view ?? ((await client.get(id)) as ProjectRequestView));
 };
 

@@ -252,6 +252,16 @@ describe("le Requests dal server", () => {
     expect(dismissed.suggestions ?? null).toBeNull();
   });
 
+  it("salvato il PATCH ma non chiusi i suggerimenti: l'errore dice che le modifiche ci sono", async () => {
+    installFakeServer({
+      [`PATCH /api/requests/${ITEM}`]: { body: full({ size: "L" }) },
+      [`POST /api/requests/${ITEM}/suggestions/dismiss`]: { status: 500, body: { code: "internal", message: "x" } },
+    });
+    await expect(updateRequest(ITEM, { size: "L", suggestions: null })).rejects.toMatchObject({
+      code: "suggestions_kept",
+    });
+  });
+
   it("accettare i suggerimenti (gli stessi valori, e via i suggerimenti) passa dalla sua rotta", async () => {
     const { seen } = installFakeServer({
       [`GET /api/requests/${ITEM}`]: { body: full() },
