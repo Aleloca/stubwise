@@ -4,6 +4,7 @@ import { completeCorrection, promotePendingForTicket } from "@stubwise/notificat
 import type { ProjectPermission } from "@stubwise/shared";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { mirrorDecision, propagateHandled } from "./notifications-propagation.js";
+import { notifyTaskActivity } from "./task-notify.js";
 import { getContentLanguage } from "../settings.js";
 
 /**
@@ -64,7 +65,13 @@ export async function cancelRun(
     // Guardato sullo stato letto: il worker può reclamarlo proprio ora (claim di un `queued`).
     const closed = await tx
       .update(aiJobs)
-      .set({ status: "skipped", finishedAt: sql`now()`, lastActivityAt: sql`now()` })
+      .set({
+        status: "skipped",
+        finishedAt: sql`now()`,
+        lastActivityAt: sql`now()`,
+        cancelRequestedAt: sql`now()`,
+        cancelRequestedByUserId: actor.id,
+      })
       .where(and(eq(aiJobs.id, latest.id), eq(aiJobs.status, latest.status)))
       .returning({ id: aiJobs.id });
     if (closed.length === 0) return { ok: false, error: "run_in_progress" };
@@ -87,6 +94,8 @@ export async function cancelRun(
       t(lang, latest.correctionId ? "comment.agentStopCancelled.correction" : "comment.agentStopCancelled.fix"),
     ].join(" ");
     await tx.insert(comments).values({ ticketId, authorType: "system", body });
+    // Ai follower: il cambio come DATO (`run_cancelled`), la frase la mette il template.
+    await notifyTaskActivity(tx, { ticketId, actorUserId: actor.id, change: "run_cancelled", summary: "" });
     return { ok: true };
   });
   if (result.ok) {

@@ -1377,6 +1377,9 @@ export const aiJobs = pgTable(
     // (run non fallito, generazione fallita o riassunti spenti): la card
     // degrada al log tecnico come prima di questa fase.
     failureSummary: text("failure_summary"),
+    // Fetta 3b (0124): chi ha chiesto di annullare il lavoro, e quando.
+    cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+    cancelRequestedByUserId: uuid("cancel_requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
     // Correzione post-PR di cui questo job è l'esecuzione: valorizzata = il
     // worker salta triage e `resolveFixMode` e va in `runCorrection`. NON è un
     // valore di `resumeMode`, apposta: un valore dimenticato in

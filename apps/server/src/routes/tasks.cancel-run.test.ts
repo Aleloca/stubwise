@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { agentQuestions, agentSessions, aiJobs, comments, notifications, prCorrections, ticketRepositories, tickets } from "@stubwise/db";
+import { agentQuestions, agentSessions, aiJobs, comments, notifications, prCorrections, ticketFollowers, ticketRepositories, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { taskWorkViewSchema } from "@stubwise/shared";
@@ -124,6 +124,28 @@ describe("POST /api/tasks/:id/cancel-run", () => {
     expect((detail.json() as { questions: unknown[] }).questions).toEqual([
       expect.objectContaining({ answered: false, cancelled: true, canAnswer: false }),
     ]);
+  });
+
+  it("un evento nella storia del ticket (run_cancelled, con chi) e ticket.activity ai follower, col change come dato", async () => {
+    const { ticketId, jobId } = await taskWithJob("held");
+    await testDb.db.insert(ticketFollowers).values({ ticketId, userId: viewer.id });
+    expect((await cancel(ticketId, developer)).statusCode).toBe(200);
+    const [job] = await testDb.db
+      .select({ at: aiJobs.cancelRequestedAt, by: aiJobs.cancelRequestedByUserId })
+      .from(aiJobs)
+      .where(eq(aiJobs.id, jobId));
+    expect(job).toMatchObject({ by: developer.id });
+    expect(job!.at).not.toBeNull();
+    const history = await app.inject({ method: "GET", url: `/api/tickets/${ticketId}/history`, headers: { cookie: developer.headers.cookie } });
+    expect(history.statusCode, history.body).toBe(200);
+    expect((history.json() as { events: { kind: string; actor: unknown }[] }).events).toContainEqual(
+      expect.objectContaining({ kind: "run_cancelled", actor: { type: "user", name: "dev-c@example.com" } }),
+    );
+    const cards = await testDb.db
+      .select({ userId: notifications.userId, event: notifications.event })
+      .from(notifications)
+      .where(and(eq(notifications.ticketId, ticketId), eq(notifications.kind, "ticket.activity")));
+    expect(cards).toEqual([expect.objectContaining({ userId: viewer.id, event: expect.objectContaining({ change: "run_cancelled", summary: "" }) })]);
   });
 
   it("chi non ha runs.start → 403 e niente cambia", async () => {
