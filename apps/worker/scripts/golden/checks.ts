@@ -26,6 +26,7 @@ export const SCENARIO_NAMES = [
   "chat-read",
   "chat-no-act",
   "chat-no-leak",
+  "chat-resume",
 ] as const;
 export type ScenarioName = (typeof SCENARIO_NAMES)[number];
 
@@ -1060,4 +1061,48 @@ export function chatChecks(obs: ChatObservation): Check[] {
     );
   }
   return checks;
+}
+
+/** Ciò che lo scenario `chat-resume` osserva: due turni sulla stessa conversazione. */
+export interface ChatResumeObservation {
+  firstSessionId: string | null;
+  secondSessionId: string | null;
+  firstCwd: string;
+  secondCwd: string;
+  /** Le richieste al server del SECONDO turno. */
+  secondRequests: readonly ChatServerRequest[];
+  secondFinalMessage: string;
+  mustMention: readonly string[];
+}
+
+/**
+ * La ripresa: il secondo turno gira nella STESSA cwd, riprende la STESSA
+ * sessione del CLI (`--resume` accettato) e risponde dal contesto del primo,
+ * senza rileggere la task.
+ */
+export function chatResumeChecks(obs: ChatResumeObservation): Check[] {
+  const reread = obs.secondRequests.filter((r) => r.path.startsWith("/api/tasks/by-code/"));
+  const missing = obs.mustMention.filter((m) => !obs.secondFinalMessage.toLowerCase().includes(m.toLowerCase()));
+  return [
+    {
+      name: "stessa cwd nei due turni",
+      passed: obs.firstCwd === obs.secondCwd,
+      detail: `${obs.firstCwd} / ${obs.secondCwd}`,
+    },
+    {
+      name: "il secondo turno riprende la sessione del CLI del primo",
+      passed: obs.firstSessionId !== null && obs.secondSessionId === obs.firstSessionId,
+      detail: `${obs.firstSessionId ?? "nessuna"} → ${obs.secondSessionId ?? "nessuna"}`,
+    },
+    {
+      name: "risponde dal contesto del primo turno",
+      passed: missing.length === 0,
+      detail: missing.length === 0 ? `cita: ${obs.mustMention.join(", ")}` : `mancano: ${missing.join(", ")}`,
+    },
+    {
+      name: "non rilegge la task nel secondo turno",
+      passed: reread.length === 0,
+      detail: reread.length === 0 ? "nessuna rilettura" : reread.map((r) => r.path).join(", "),
+    },
+  ];
 }

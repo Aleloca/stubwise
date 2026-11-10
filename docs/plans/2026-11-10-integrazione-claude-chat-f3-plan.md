@@ -23,15 +23,52 @@
 8. **I due divieti dell'operatore valgono anche via Claude**:
    - `startRun` passa dal gate del piano come `run-ai` (senza `plans.approve` nasce in attesa d'approvazione);
    - nessuna azione mergia.
-9. **Il token del turno resta GET-only**, salvo la decisione **D2** qui sotto. Nessuna scrittura parte da un token del turno senza passare dalla regola della classe.
+9. **Il token del turno resta GET-only**, salvo UNA rotta (D2): creare una proposta. Nessuna scrittura parte da un token del turno senza passare dalla regola della classe.
 10. **Verso i client, solo cambi additivi** (`CLAUDE.md`): campi nuovi con default, kind e tipi d'evento nuovi dietro `readerSchema`; nel web vecchio i campi nuovi si difendono a lettura.
 11. **Golden obbligatori** (si toccano prompt, tool MCP e runner) sul CLI pinnato 2.1.322, coordinati con stubwise-94; uno scenario rosso NON si aggiusta forzando il prompt: si porta all'orchestratrice.
 
-## Decisioni da prendere prima di partire
+## Decisioni (prese il 10 nov 2026)
 
-- **D1 — «Annulla» di `createTask`.** Nel prototipo creare una task è A con «Annulla» = elimina. Sul server non c'è l'eliminazione delle task («Elimina task» entra con l'area che la definisce, design). Proposta: in questa fetta `createTask` è **B, irreversibile** (motivo `irreversible` nella scheda), finché l'eliminazione non esiste. Alternativa: un inverso ristretto («annulla la creazione» solo per una task nata da QUEL gruppo e mai toccata da altri), che però è un'eliminazione dalla porta di servizio. **Consiglio la prima.**
-- **D2 — Come la proposta arriva al server.** (a) Il ponte del worker chiama `POST /api/claude/conversations/:id/proposals` col token del turno. È UNA rotta in un'allowlist di scrittura a sé (`CHAT_TOOL_WRITE_ROUTES`, una voce, col suo test di registro), che crea la proposta, calcola la classe e, se è A, la esegue subito come la persona. Cambia la condizione 2 del token («solo GET»), sul solo punto di creare una proposta. (b) Il ponte scrive la riga in DB (il worker ha il DB, come il ponte del refinement) e fa NOTIFY; il server ascolta, classifica ed esegue le A. Il token resta GET-only, ma l'esecuzione delle A diventa asincrona e c'è un secondo produttore di righe. **Consiglio (a)**: un solo produttore, esecuzione e classe nello stesso posto, il token resta incapace di scrivere fuori da quella rotta.
-- **D3 — Le azioni della pagina** (filtro, lingua, tema): sono gesti del client, non scritture del server. Proposta: proposte di classe A con «Annulla» locale, eseguite dal renderer (`pageActions.ts`), registrate come evento della conversazione; il server le valida (elenco chiuso) e non esegue niente.
+- **D1 — maintainer**: si aggiunge l'**eliminazione delle task vera**, in generale, come nel prototipo (area 10a). È una fetta a sé, **F3.0** (sotto), prima del resto. Con lei `createTask` in chat torna **A** con «Annulla» = eliminazione, come nel prototipo.
+- **D2 — orchestratrice: la (a)**. UNA sola rotta di scrittura raggiungibile col token del turno, `POST /api/claude/conversations/:id/proposals`, in `CHAT_TOOL_WRITE_ROUTES`, con una voce sola e il suo test di registro; idempotente per `toolUseId`. Il token resta GET-only su tutto il resto. La condizione 2 di `docs/invariants/second-factor.md` si aggiorna con il motivo, nello stesso commit della rotta (F3.2).
+- **D3 — orchestratrice: sì.** Le azioni della pagina sono proposte di classe A eseguite dal renderer, con «Annulla» locale; il server le valida e non esegue niente.
+
+## F3.0 «Elimina task» (server e renderer, prima della chat)
+
+Spec: `apps/desktop/.impeccable/shape/task-delete.md` e `apps/desktop/src/renderer/data/taskDelete.ts` (decisioni del maintainer del 2 nov 2026). L'azione esiste anche a mano, per tutti, dal menu «⋯» della task.
+
+- **Chi**: l'autore con `tickets.edit`, o chi ha `tickets.moderate` nel progetto. L'utente di sistema Claude non ha `tickets.moderate`: non elimina una task che non ha creato (P24).
+- **Quando no**:
+  - `busy`: una sessione di lavoro di Claude non finita (anche in attesa o `held`), una PR aperta della task, una correzione aperta;
+  - `not_found` per una task invisibile o inesistente, prima di `forbidden` (ordine dei controlli del prototipo).
+- **Niente**: nessun annullamento a mano, nessuna riconferma (basta il dialogo che nomina codice e titolo). L'unica eliminazione senza dialogo è l'«Annulla» di una creazione fatta da Claude.
+- **Cosa toglie**: la task, coi suoi commenti, allegati, storia (`ticket_events`), collegamenti da e verso altre task, accordi della giornata e domande aperte. Le figlie restano, senza madre.
+- **Cosa resta e la nomina ancora**:
+  - la richiesta d'origine («Task MKX-31 was deleted»);
+  - le notifiche: `objectGone` DERIVATO a lettura, mai riscritto nel jsonb;
+  - il registro decisioni: non si riscrive;
+  - i traguardi, che la escono dai conteggi;
+  - le conversazioni e le PR chiuse.
+  Lo legge una **lapide** `deleted_tickets(project_id, number, title, deleted_by, deleted_at, via_claude_action_id)` per progetto e numero.
+- **Il codice non si riusa mai**: `projects.next_ticket_number` non scende.
+- **Eliminata = inesistente**, come un codice mai esistito ovunque sia citato (R-G5); fa eccezione solo la riga della richiesta d'origine. La lapide chiude anche lo standup: `tasksDeleted` arriva dal server, oggi è sempre vuoto.
+- **Migrazioni**: per ognuna delle FK verso `tickets` (16 `cascade`, 3 `set null`) si decide e si scrive accanto il motivo: cosa se ne va con la task, cosa resta col riferimento nullo. Una sessione `ai_job` finita resta, col ticket nullo, come «di una task eliminata».
+- **Rotte**:
+  - `GET /api/tasks/:id/deletion` → `TaskDeletionPreview` del prototipo: `canDelete`, `whoAction`, `busy` con le ragioni visibili, `children`;
+  - `DELETE /api/tasks/:id`: `tickets.edit`, oppure il controllo autore/moderatore DENTRO il servizio, ridondante col `config.access`, come i due divieti; risponde 409 `busy` con le ragioni. L'evento esce ai follower;
+  - api-client per entrambe.
+- **Renderer**: la voce «Delete task…» e il `DeleteTaskDialog` del prototipo, accesi nella build app (`featureIntegrated("task-delete")`), con le frasi dello shape; le letture che nominano una task eliminata (richiesta, notifiche, codici citati) sui dati veri.
+- **Test**:
+  - chi può e chi no (autore senza `tickets.edit`, moderatore, Developer, full admin; Claude mai su una task d'altri);
+  - `busy` per ogni ragione;
+  - figlie che restano;
+  - collegamenti tolti da entrambe le parti;
+  - il codice non riusato;
+  - richiesta e notifiche che la nominano;
+  - invisibile = inesistente;
+  - registro decisioni intatto.
+  Lato renderer: server finto con elenco chiuso di rotte.
+- **Chiude** nel registro la voce di area 10 «Elimina task» e quella dello standup «`tasksDeleted` sempre vuoto».
 
 ## Il catalogo della fetta
 
@@ -39,7 +76,7 @@ Classe dichiarata, inverso e servizio del server. «Sale a B se» elenca i motiv
 
 | `fn` | Classe | Inverso («Annulla») | Servizio / rotta di riferimento | Permesso | Sale a B se |
 |---|---|---|---|---|---|
-| `createTask` | B (D1) | — | `createTask` (`task-writes.ts`), `POST /api/tasks` | `tickets.create` | sempre (irreversibile) |
+| `createTask` | A | eliminazione della task (F3.0), solo se nessuno ci ha scritto dopo | `createTask` (`task-writes.ts`), `POST /api/tasks` | `tickets.create` | la crea per un altro (`task.assigned`); `task.created` a chi segue il progetto |
 | `updateTask` | A | `updateTask` coi valori di prima | `updateTask` / `applyTaskPatch`, `PATCH /api/tasks/:id` | `tickets.edit` | cambia l'assegnatario a un altro (`task.assigned`); chiude e qualcuno segue (`ticket.activity`) |
 | `planTask` | A | `planTask` col piano di prima | `planTask`, `POST /api/tasks/:id/plan` | `tickets.edit` (come la rotta) | la pianificazione avvisa qualcuno (`task.assigned`, cambio di settimana ai follower: le stesse regole di `planTask`) |
 | `addComment` | B | `deleteComment` del commento | `addComment` (`comments.ts`), rotta dei commenti | `tickets.comment` | (B dichiarato: avvisa i follower) |
@@ -56,7 +93,9 @@ Classe dichiarata, inverso e servizio del server. «Sale a B se» elenca i motiv
 
 Fuori dalla fetta, e il server li rifiuta come `invalid`:
 - **fetta 4**: tutte le C;
-- **aree 6–9 e 11**: `deleteTask`, impostazioni e membri di progetto, impostazioni d'istanza, automazioni, iscrizioni agli avvisi, doc di prodotto, bozze nei campi.
+- **aree 6–9 e 11**: impostazioni e membri di progetto, impostazioni d'istanza, automazioni, iscrizioni agli avvisi, doc di prodotto, bozze nei campi.
+
+`deleteTask` è solo l'inverso di `createTask` in questa fetta (D1). Come azione propria («elimina AUD-12») entra in una fetta successiva, se il maintainer lo vuole: nel prototipo è B irreversibile.
 
 ## Review Focus
 
@@ -118,7 +157,7 @@ Fuori dalla fetta, e il server li rifiuta come `invalid`:
     - inversi in ordine inverso, sotto `runAsClaude({ undoOf })`, tutti o nessuno;
     - se gli inversi avviserebbero qualcuno, nasce la scheda B (`undo_of_group_id`).
 - Rotte (`config.access` dichiarato su ognuna, test del registro):
-  - `POST /api/claude/conversations/:id/proposals` (D2-a). Solo col token del turno di QUELLA conversazione, in `CHAT_TOOL_WRITE_ROUTES` con una sola voce e il suo test di registro.
+  - `POST /api/claude/conversations/:id/proposals` (D2-a). Solo col token del turno di QUELLA conversazione, in `CHAT_TOOL_WRITE_ROUTES` con una sola voce e il suo test di registro. La condizione 2 di `docs/invariants/second-factor.md` si aggiorna qui, col motivo: la rotta crea una proposta, la classe la decide il server, l'esecuzione resta sua.
     - Crea la proposta, calcola la classe. Se è A e il budget non è finito, esegue subito come la persona e scrive l'evento `actions_executed`; altrimenti scrive l'evento `proposal`.
     - Risposta per il modello: `{ status: "executed" | "awaiting_confirmation" | "refused", codes, reason }`.
     - Idempotente per `toolUseId`: un retry del ponte non esegue due volte.
@@ -202,9 +241,11 @@ Fuori dalla fetta, e il server li rifiuta come `invalid`:
 - Area 3, standup per persona: «`viaClaude` sempre falso» *(S)*: chiusa (il segno arriva dal server).
 - Limiti della fetta 2 della chat: «la riga di benvenuto promette la sola lettura» e «"/" solo coi comandi di lettura» (tornano i comandi d'azione): chiuse.
 
+Più, con la F3.0: «Elimina task» (area 10) e «`tasksDeleted` sempre vuoto» (standup).
+
 Restano aperte, e si riscrivono nel registro:
 - la C (fetta 4);
-- `createTask` irreversibile (D1) finché non c'è l'eliminazione;
+- `deleteTask` come azione propria della chat;
 - le azioni delle aree non integrate;
 - le pubbliche;
 - «Claude can help you…» e le bozze nei campi.

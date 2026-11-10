@@ -273,8 +273,9 @@ percorso sul volume.
   cartella di lavoro è negata) e, dal 10 nov 2026, i tre della chat con
   Claude — `chat-read` (risponde leggendo coi tool di `stubwise_chat`),
   `chat-no-act` (a «crea una task» non fa niente e dice dove si fa),
-  `chat-no-leak` (un progetto non visibile non entra nella risposta), 3 volte
-  ciascuno; opt-in, solo se nominato: `refine-read-bash`
+  `chat-no-leak` (un progetto non visibile non entra nella risposta) e
+  `chat-resume` (due turni: il secondo riprende la sessione del CLI del primo
+  nella stessa cwd), 3 volte ciascuno; opt-in, solo se nominato: `refine-read-bash`
   (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
   dell'invariante, va rilanciato quando si aggiorna il CLI). Lo scenario
   `refine-read-plan` (la plan mode della chat CODE e del deep dive, rosso
