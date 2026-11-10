@@ -1,9 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { backlogItemRequesters, backlogItemTickets, backlogItems, backlogJobs, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
+import type { EmbeddingClient } from "@stubwise/embeddings";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
-import { projectRequestViewSchema, requestJobViewSchema } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { projectRequestSummarySchema, projectRequestViewSchema, requestJobViewSchema } from "@stubwise/shared";
+import { eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -22,14 +23,29 @@ import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
 let mergeOutput: string | Error = "# Documento fuso";
+/** Gira mentre il «modello» lavora: ciò che succede qui succede DURANTE l'AI. */
+let duringAi: (() => Promise<void>) | null = null;
+let lastMergePrompt = "";
 const fakeChatLlm: ChatLlm = {
   async *stream(input: ChatLlmInput): AsyncIterable<string> {
-    void input;
+    lastMergePrompt = input.system;
+    if (duringAi) await duringAi();
     if (mergeOutput instanceof Error) throw mergeOutput;
     yield mergeOutput;
   },
   async isAvailable(): Promise<ChatAvailability> {
     return { available: true };
+  },
+};
+
+/** L'embedding della descrizione: registra i testi, e può cadere. */
+const embedded: string[] = [];
+let embedFails = false;
+const fakeEmbeddingClient: EmbeddingClient = {
+  async embed(inputs: string[]) {
+    if (embedFails) throw new Error("embedding giù");
+    embedded.push(...inputs);
+    return inputs.map(() => Array.from({ length: 1024 }, () => 0.5));
   },
 };
 
@@ -48,6 +64,7 @@ beforeAll(async () => {
     sessionSecret: SESSION_SECRET,
     encryptionKey: randomBytes(32).toString("base64"),
     chatLlm: fakeChatLlm,
+    embeddingClient: fakeEmbeddingClient,
   });
   users = await seedUsers(app);
   ({ projectId } = await seedRepository(testDb.db));
@@ -118,7 +135,7 @@ describe("la vista ProjectRequest", () => {
     expect((await view(`/api/requests/by-code/${projectCode.toLowerCase()}-R${a.number}`)).id).toBe(a.id);
     expect((await call("GET", `/api/requests/by-code/${projectCode}-R9999`)).statusCode).toBe(404);
     // L'elenco del progetto la contiene.
-    const list = z.array(projectRequestViewSchema).parse((await call("GET", `/api/requests?projectId=${projectId}`)).json());
+    const list = z.array(projectRequestSummarySchema).parse((await call("GET", `/api/requests?projectId=${projectId}`)).json());
     expect(list.some((r) => r.id === a.id)).toBe(true);
   });
 
@@ -127,7 +144,7 @@ describe("la vista ProjectRequest", () => {
     const own = await item();
     await testDb.db.insert(backlogItemRequesters).values({ itemId: own.id, userId: contributor.id });
     const list = z
-      .array(projectRequestViewSchema)
+      .array(projectRequestSummarySchema)
       .parse((await call("GET", `/api/requests?projectId=${projectId}`, undefined, contributor.headers.cookie)).json());
     expect(list.map((r) => r.id)).toContain(own.id);
     expect(list.map((r) => r.id)).not.toContain(others.id);
@@ -135,6 +152,23 @@ describe("la vista ProjectRequest", () => {
     expect(
       (await call("GET", `/api/requests/by-code/${projectCode}-R${others.number}`, undefined, contributor.headers.cookie)).statusCode,
     ).toBe(404);
+  });
+});
+
+describe("l'elenco è leggero", () => {
+  it("GET /api/requests non porta il documento: un estratto di 300 caratteri della descrizione e se c'è design o piano; il dettaglio sì", async () => {
+    const long = "x".repeat(1000);
+    const a = await item({ originContent: long, document: "# Design lungo ".repeat(200), implementationPlan: "Piano" });
+    const res = await call("GET", `/api/requests?projectId=${projectId}`);
+    expect(res.statusCode).toBe(200);
+    const listed = (res.json() as Record<string, unknown>[]).find((r) => r.id === a.id)!;
+    expect(listed).not.toHaveProperty("description");
+    expect(listed).not.toHaveProperty("design");
+    expect(listed).not.toHaveProperty("plan");
+    expect(projectRequestSummarySchema.parse(listed)).toMatchObject({ excerpt: "x".repeat(300), hasDesign: true, hasPlan: true });
+    expect(res.body.length).toBeLessThan(long.length * 3);
+    const detail = await view(`/api/requests/${a.id}`);
+    expect(detail.description).toBe(long);
   });
 });
 
@@ -183,9 +217,46 @@ describe("metadati e stati", () => {
     const reopened = projectRequestViewSchema.parse((await call("POST", `/api/requests/${fused.id}/reopen`)).json());
     expect(reopened).toMatchObject({ status: "new", mergedIntoId: null });
   });
+
+  it("ripristina: lo stato lo decide il server (quello di prima dell'archiviazione), non il body", async () => {
+    const a = await item({ status: "refining" });
+    expect((await call("POST", `/api/requests/${a.id}/archive`)).statusCode).toBe(200);
+    // Un client che dice uno stato diverso non lo ottiene.
+    const restored = projectRequestViewSchema.parse((await call("POST", `/api/requests/${a.id}/restore`, { status: "new" })).json());
+    expect(restored.status).toBe("refining");
+    // Senza body: lo stesso.
+    expect((await call("POST", `/api/requests/${a.id}/archive`)).statusCode).toBe(200);
+    const again = await call("POST", `/api/requests/${a.id}/restore`);
+    expect(again.statusCode, again.body).toBe(200);
+    expect(projectRequestViewSchema.parse(again.json()).status).toBe("refining");
+    const [row] = await testDb.db.select({ from: backlogItems.archivedFrom }).from(backlogItems).where(eq(backlogItems.id, a.id));
+    expect(row!.from).toBeNull();
+  });
 });
 
 describe("descrizione e proposte dell'intake", () => {
+  it("cambiata la descrizione, l'embedding segue (titolo + descrizione, come l'intake); se l'embedding cade, la descrizione si salva lo stesso", async () => {
+    const a = await item({ title: "Esportare" });
+    embedded.length = 0;
+    expect((await call("PATCH", `/api/requests/${a.id}`, { description: "In CSV" })).statusCode).toBe(200);
+    expect(embedded).toEqual(["Esportare\n\nIn CSV"]);
+    const [row] = await testDb.db.select({ e: backlogItems.embedding }).from(backlogItems).where(eq(backlogItems.id, a.id));
+    expect(row!.e?.[0]).toBeCloseTo(0.5);
+    // Solo i metadati: nessun embedding.
+    embedded.length = 0;
+    expect((await call("PATCH", `/api/requests/${a.id}`, { urgency: "low" })).statusCode).toBe(200);
+    expect(embedded).toEqual([]);
+    // Fail-open.
+    embedFails = true;
+    try {
+      const res = await call("PATCH", `/api/requests/${a.id}`, { description: "In Excel" });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(projectRequestViewSchema.parse(res.json()).description).toBe("In Excel");
+    } finally {
+      embedFails = false;
+    }
+  });
+
   it("la descrizione si modifica (il corpo, o il testo originale se c'è un design); trasformata o archiviata → 409", async () => {
     const plain = await item({ document: "Prima" });
     const res = await call("PATCH", `/api/requests/${plain.id}`, { description: "Dopo" });
@@ -257,6 +328,71 @@ describe("«Fondi in…» con la riscrittura AI", () => {
     expect(pick(after)).toEqual(pick(before));
     expect(await testDb.db.select().from(backlogItemRequesters).where(eq(backlogItemRequesters.itemId, target.id))).toHaveLength(0);
     mergeOutput = "# Documento fuso";
+  });
+
+  it("destinazione col design: il testo fuso va nella DESCRIZIONE (origin_content), il design resta com'è", async () => {
+    mergeOutput = "# Richieste fuse";
+    const source = await item({ document: "Anche io lo voglio" });
+    const target = await item({ originContent: "La richiesta originale", document: "# Il design approvato" });
+    const res = await call("POST", `/api/requests/${source.id}/merge`, { intoId: target.id });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(projectRequestViewSchema.parse(res.json())).toMatchObject({ description: "# Richieste fuse", design: "# Il design approvato" });
+    // Il modello fonde le due DESCRIZIONI, non il design.
+    expect(lastMergePrompt).toContain("La richiesta originale");
+    expect(lastMergePrompt).not.toContain("# Il design approvato");
+  });
+
+  it("fusioni incrociate A→B e B→A: una sola riesce, l'altra 409 request_changed", async () => {
+    const a = await item();
+    const b = await item();
+    // Una barriera: le due fusioni leggono entrambe PRIMA che una delle due scriva.
+    let arrived = 0;
+    let release!: () => void;
+    const both = new Promise<void>((resolve) => (release = resolve));
+    duringAi = async () => {
+      arrived += 1;
+      if (arrived === 2) release();
+      await both;
+    };
+    try {
+      const [ab, ba] = await Promise.all([
+        call("POST", `/api/requests/${a.id}/merge`, { intoId: b.id }),
+        call("POST", `/api/requests/${b.id}/merge`, { intoId: a.id }),
+      ]);
+      expect([ab.statusCode, ba.statusCode].sort()).toEqual([200, 409]);
+      expect([ab, ba].find((r) => r.statusCode === 409)!.json()).toMatchObject({ code: "request_changed" });
+    } finally {
+      duringAi = null;
+    }
+    const rows = await testDb.db
+      .select({ id: backlogItems.id, status: backlogItems.status, mergedIntoId: backlogItems.mergedIntoId })
+      .from(backlogItems)
+      .where(inArray(backlogItems.id, [a.id, b.id]));
+    // Mai le due fuse l'una nell'altra: una archiviata, l'altra aperta.
+    expect(rows.filter((r) => r.status === "archived")).toHaveLength(1);
+    expect(rows.filter((r) => r.mergedIntoId !== null)).toHaveLength(1);
+  });
+
+  it("destinazione modificata durante l'AI → 409 request_changed e niente sovrascritto", async () => {
+    mergeOutput = "# Documento fuso";
+    const source = await item();
+    const target = await item();
+    duringAi = async () => {
+      await testDb.db.update(backlogItems).set({ document: "Scritto da un altro nel frattempo" }).where(eq(backlogItems.id, target.id));
+    };
+    try {
+      const res = await call("POST", `/api/requests/${source.id}/merge`, { intoId: target.id });
+      expect(res.statusCode, res.body).toBe(409);
+      expect(res.json()).toMatchObject({ code: "request_changed" });
+    } finally {
+      duringAi = null;
+    }
+    const rows = await testDb.db
+      .select({ id: backlogItems.id, status: backlogItems.status, document: backlogItems.document, mergedIntoId: backlogItems.mergedIntoId })
+      .from(backlogItems)
+      .where(inArray(backlogItems.id, [source.id, target.id]));
+    expect(rows.find((r) => r.id === target.id)).toMatchObject({ document: "Scritto da un altro nel frattempo" });
+    expect(rows.find((r) => r.id === source.id)).toMatchObject({ status: "new", mergedIntoId: null });
   });
 
   it("in sé stessa, in un'archiviata o da una trasformata: rifiutato", async () => {

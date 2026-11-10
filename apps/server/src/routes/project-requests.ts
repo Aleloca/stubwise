@@ -2,28 +2,28 @@ import { backlogItems, backlogJobs, projects } from "@stubwise/db";
 import {
   acceptBacklogItemSuggested,
   dismissBacklogItemSuggested,
-  setBacklogItemDescription,
-  updateBacklogItemMetadata,
+  updateRequestFields,
 } from "@stubwise/notifications";
 import {
   effortFromSize,
   newRequestBodySchema,
+  projectRequestSummarySchema,
   projectRequestViewSchema,
   requestJobViewSchema,
   requestPatchBodySchema,
   type ProjectRequestView,
 } from "@stubwise/shared";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { routePermissions, visibleProjectIds, inProjects } from "../auth/access.js";
 import { backlogItemAccess, fromBacklogJob, fromBody, fromQuery } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
-import { applyBacklogMerge, MergeAiError, mergedDocumentOf } from "../services/backlog-merge.js";
+import { applyBacklogMerge, MergeAiError, MergeChangedError, mergedDocumentOf, readMergeSnapshot } from "../services/backlog-merge.js";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import { closeRefineSessionForItem } from "../services/backlog-refine.js";
-import { loadRequestViews, requestView, requestVisibility } from "../services/project-requests.js";
+import { loadRequestSummaries, loadRequestViews, requestView, requestVisibility } from "../services/project-requests.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -53,11 +53,12 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
       config: { access: { kind: "project", permission: "member", project: fromQuery("projectId") } },
       schema: {
         querystring: z.object({ projectId: z.uuid() }),
-        response: { 200: z.array(projectRequestViewSchema), ...authErrorResponses },
+        response: { 200: z.array(projectRequestSummarySchema), ...authErrorResponses },
       },
     },
+    // Leggero: un estratto al posto di descrizione, design e piano (il dettaglio li porta interi).
     async (request) =>
-      loadRequestViews(app.db, [
+      loadRequestSummaries(app.db, [
         eq(backlogItems.projectId, request.query.projectId),
         await requestVisibility(app.db, request.user!),
       ]),
@@ -167,26 +168,43 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
     async (request, reply) => {
       const { id } = request.params;
       const { title, description, urgency, size, risk, riskNote } = request.body;
-      const meta =
-        description !== undefined || urgency !== undefined || size !== undefined || risk !== undefined || riskNote !== undefined;
-      const [current] = await app.db.select({ status: backlogItems.status }).from(backlogItems).where(eq(backlogItems.id, id));
-      if (!current) return apiError(reply, 404, "not_found", "Request not found");
-      if (meta && (current.status === "converted" || current.status === "archived")) {
-        return apiError(reply, 409, "request_read_only", "A converted or archived request cannot change its metadata");
-      }
+      // Cambiata la descrizione, l'embedding segue (titolo + descrizione, come
+      // l'intake: è ciò con cui il dedup confronta le richieste nuove). Si
+      // calcola FUORI transazione ed è fail-open: se cade, la descrizione si
+      // salva lo stesso e l'embedding resta quello di prima.
+      let embedding: number[] | undefined;
       if (description !== undefined) {
-        const res = await setBacklogItemDescription(app.db, id, description, { readOnlyClosed: true });
-        if (res === "read_only") {
-          return apiError(reply, 409, "request_read_only", "A converted or archived request cannot change its metadata");
+        const [current] = await app.db
+          .select({ title: backlogItems.title, status: backlogItems.status })
+          .from(backlogItems)
+          .where(eq(backlogItems.id, id));
+        if (current && current.status !== "converted" && current.status !== "archived") {
+          const text = `${title ?? current.title}\n\n${description}`;
+          try {
+            [embedding] = await app.embeddingClient.embed([text]);
+          } catch (error) {
+            request.log.warn({ err: error, itemId: id }, "embedding della descrizione non riuscito: resta quello di prima");
+          }
         }
       }
-      await updateBacklogItemMetadata(app.db, id, {
-        ...(title !== undefined ? { title } : {}),
-        ...(urgency !== undefined ? { urgency } : {}),
-        ...(size !== undefined ? { effort: effortFromSize(size) } : {}),
-        ...(risk !== undefined ? { risk } : {}),
-        ...(riskNote !== undefined ? { riskNote: riskNote ? riskNote : null } : {}),
-      });
+      // Una scrittura sola, sotto il lock della voce: lo stato si ricontrolla lì.
+      const res = await updateRequestFields(
+        app.db,
+        id,
+        {
+          ...(title !== undefined ? { title } : {}),
+          ...(description !== undefined ? { description } : {}),
+          ...(urgency !== undefined ? { urgency } : {}),
+          ...(size !== undefined ? { effort: effortFromSize(size) } : {}),
+          ...(risk !== undefined ? { risk } : {}),
+          ...(riskNote !== undefined ? { riskNote: riskNote ? riskNote : null } : {}),
+        },
+        { readOnlyClosed: true, ...(embedding ? { embedding } : {}) },
+      );
+      if (res === "not_found") return apiError(reply, 404, "not_found", "Request not found");
+      if (res === "read_only") {
+        return apiError(reply, 409, "request_read_only", "A converted or archived request cannot change its metadata");
+      }
       return (await requestView(app.db, request.user!, id)) ?? apiError(reply, 404, "not_found", "Request not found");
     },
   );
@@ -250,19 +268,32 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
     },
   );
 
-  /** L'«Annulla» di un'archiviazione a mano: torna allo stato aperto di prima. Una fusa si riapre, non si ripristina. */
+  /**
+   * L'«Annulla» di un'archiviazione a mano: torna allo stato aperto di prima,
+   * che lo decide il SERVER (`archived_from`, scritto dal trigger della 0122).
+   * Il `status` del body resta accettato per i client di prima, ma non conta.
+   * Un'archiviata di prima della 0122 (stato precedente ignoto) torna «nuova».
+   * Una fusa si riapre, non si ripristina.
+   */
   app.post(
     "/requests/:id/restore",
     {
       config: { access: backlogItemAccess("id", "backlog.edit") },
-      schema: { params: idParams, body: z.object({ status: z.enum(OPEN) }), response: viewOr404 },
+      schema: { params: idParams, body: z.object({ status: z.enum(OPEN).optional() }).nullish(), response: viewOr404 },
     },
     async (request, reply) => {
       const { id } = request.params;
       const [row] = await app.db
         .update(backlogItems)
-        .set({ status: request.body.status })
-        .where(and(eq(backlogItems.id, id), eq(backlogItems.status, "archived"), sql`${backlogItems.mergedIntoId} is null`))
+        .set({ status: sql`coalesce(${backlogItems.archivedFrom}, 'new'::backlog_item_status)` })
+        .where(
+          and(
+            eq(backlogItems.id, id),
+            eq(backlogItems.status, "archived"),
+            isNull(backlogItems.mergedIntoId),
+            or(isNull(backlogItems.archivedFrom), inArray(backlogItems.archivedFrom, [...OPEN])),
+          ),
+        )
         .returning({ id: backlogItems.id });
       if (!row) return apiError(reply, 409, "invalid_status", "Only a request archived by hand can be restored");
       return (await requestView(app.db, request.user!, id))!;
@@ -273,7 +304,8 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
    * «Fondi in…»: questa richiesta (aperta) si fonde in `intoId` (stesso
    * progetto, non archiviata né trasformata). La destinazione la riscrive il
    * modello, FUORI transazione; se non risponde, 502 `merge_failed` e niente
-   * cambia, così l'app offre «Riprova».
+   * cambia, così l'app offre «Riprova». Se nel frattempo una delle due è
+   * cambiata, 409 `request_changed` e niente cambia.
    */
   app.post(
     "/requests/:id/merge",
@@ -301,23 +333,21 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
         const availability = await app.chatLlm.isAvailable();
         if (!availability.available) return apiError(reply, 503, "chat_unavailable", "Merging needs an API-key AI provider");
       }
-      const [docs] = await Promise.all([
-        app.db
-          .select({ id: backlogItems.id, title: backlogItems.title, document: backlogItems.document })
-          .from(backlogItems)
-          .where(inArray(backlogItems.id, [id, intoId])),
-      ]);
-      const doc = (x: string) => docs.find((d) => d.id === x)!;
+      const before = await readMergeSnapshot(app.db, id, intoId);
+      if (!before) return apiError(reply, 409, "request_changed", "One of the two requests changed; nothing was merged");
       let merged: string;
       try {
-        merged = await mergedDocumentOf(app.chatLlm, doc(intoId), doc(id), target.projectId);
+        merged = await mergedDocumentOf(app.chatLlm, before.target, before.absorbed, target.projectId);
+        await applyBacklogMerge(app.db, before, merged);
       } catch (error) {
         if (error instanceof MergeAiError) {
           return apiError(reply, 502, "merge_failed", "The AI could not merge the two requests; nothing was changed");
         }
+        if (error instanceof MergeChangedError) {
+          return apiError(reply, 409, "request_changed", "One of the two requests changed while merging; nothing was merged");
+        }
         throw error;
       }
-      await applyBacklogMerge(app.db, id, intoId, merged);
       return (await requestView(app.db, request.user!, intoId)) as ProjectRequestView;
     },
   );

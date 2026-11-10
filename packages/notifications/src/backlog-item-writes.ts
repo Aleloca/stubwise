@@ -121,54 +121,88 @@ export async function updateBacklogItemMetadata(
   return inTx(db, async (tx) => {
     const item = await lockItem(tx, itemId);
     if (!item) return "not_found" as const;
-    const updates: ItemUpdate = {};
-    const previous: Record<string, unknown> = {};
-    for (const field of METADATA_FIELDS) {
-      if (patch[field] === undefined) continue;
-      (updates as Record<string, unknown>)[field] = patch[field];
-      previous[field] = item[field];
-    }
-    if (opts.status !== undefined) updates.status = opts.status;
-    // Azzera in `suggested` i metadati appena decisi (mappa 1:1). Senza più
-    // metadati azionabili l'oggetto diventa null.
-    if (item.suggested && SUGGESTED_FIELDS.some((f) => patch[f] !== undefined)) {
-      const next: BacklogSuggested = { ...item.suggested };
-      for (const f of SUGGESTED_FIELDS) if (patch[f] !== undefined) delete next[f];
-      updates.suggested = hasActionableSuggested(next) ? next : null;
-    }
-    if (Object.keys(previous).length > 0) await saveRevision(tx, itemId, "metadata", previous, opts.revision);
-    if (Object.keys(updates).length > 0) {
-      await tx.update(backlogItems).set(updates).where(eq(backlogItems.id, itemId));
-    }
-    if (opts.status === "archived") await opts.onArchive?.(tx);
+    await applyMetadata(tx, item, patch, opts);
     return "ok" as const;
   });
+}
+
+type LockedItem = NonNullable<Awaited<ReturnType<typeof lockItem>>>;
+
+/** I metadati su una voce GIÀ in lock (dentro la transazione del chiamante). */
+async function applyMetadata(
+  tx: Tx,
+  item: LockedItem,
+  patch: BacklogItemMetadataPatch,
+  opts: {
+    status?: BacklogItemStatus;
+    revision?: BacklogItemRevisionSource;
+    onArchive?: (tx: Tx) => Promise<void>;
+    extra?: ItemUpdate;
+  },
+): Promise<void> {
+  const itemId = item.id;
+  const updates: ItemUpdate = { ...opts.extra };
+  const previous: Record<string, unknown> = {};
+  for (const field of METADATA_FIELDS) {
+    if (patch[field] === undefined) continue;
+    (updates as Record<string, unknown>)[field] = patch[field];
+    previous[field] = item[field];
+  }
+  if (opts.status !== undefined) updates.status = opts.status;
+  // Azzera in `suggested` i metadati appena decisi (mappa 1:1). Senza più
+  // metadati azionabili l'oggetto diventa null.
+  if (item.suggested && SUGGESTED_FIELDS.some((f) => patch[f] !== undefined)) {
+    const next: BacklogSuggested = { ...item.suggested };
+    for (const f of SUGGESTED_FIELDS) if (patch[f] !== undefined) delete next[f];
+    updates.suggested = hasActionableSuggested(next) ? next : null;
+  }
+  if (Object.keys(previous).length > 0) await saveRevision(tx, itemId, "metadata", previous, opts.revision);
+  if (Object.keys(updates).length > 0) {
+    await tx.update(backlogItems).set(updates).where(eq(backlogItems.id, itemId));
+  }
+  if (opts.status === "archived") await opts.onArchive?.(tx);
 }
 
 /** Gli stati in cui una voce è in sola lettura per descrizione, metadati e proposte (app nuova, fetta 4). */
 const READ_ONLY_STATUSES: readonly BacklogItemStatus[] = ["converted", "archived"];
 
+/** I campi di una richiesta che il PATCH dell'app nuova cambia: titolo, descrizione e metadati. */
+export type RequestFieldsPatch = BacklogItemMetadataPatch & { description?: string };
+
 /**
- * La DESCRIZIONE di una richiesta (integrazione area 2, fetta 4,
- * `updateRequest` del prototipo): il testo della richiesta. Se un design ha
- * sostituito il corpo (`origin_content` valorizzato), la descrizione è il
- * corpo ORIGINALE e il design resta com'è; altrimenti è il corpo. Con
- * `readOnlyClosed` una voce trasformata o archiviata risponde `read_only`.
+ * Titolo, DESCRIZIONE e metadati di una richiesta (integrazione area 2, fetta
+ * 4, `updateRequest` del prototipo) in UNA scrittura, sotto il lock della
+ * voce: lo stato si ricontrolla lì, non prima. La descrizione è il testo della
+ * richiesta: se un design ha sostituito il corpo (`origin_content`
+ * valorizzato) è il corpo ORIGINALE e il design resta com'è; altrimenti è il
+ * corpo. Con `readOnlyClosed` una voce trasformata o archiviata risponde
+ * `read_only` se il patch tocca descrizione o metadati, e allora NIENTE è
+ * scritto (neanche il titolo); il solo titolo si cambia sempre.
  */
-export async function setBacklogItemDescription(
+export async function updateRequestFields(
   db: DbOrTx,
   itemId: string,
-  description: string,
-  opts: { readOnlyClosed?: boolean } = {},
+  patch: RequestFieldsPatch,
+  opts: {
+    readOnlyClosed?: boolean;
+    /** L'embedding della descrizione nuova, calcolato dal chiamante FUORI transazione; scritto solo con `description`. */
+    embedding?: number[];
+  } = {},
 ): Promise<"ok" | "not_found" | "read_only"> {
   return inTx(db, async (tx) => {
     const item = await lockItem(tx, itemId);
     if (!item) return "not_found" as const;
-    if (opts.readOnlyClosed && READ_ONLY_STATUSES.includes(item.status)) return "read_only" as const;
-    await tx
-      .update(backlogItems)
-      .set(item.originContent !== null ? { originContent: description } : { document: description })
-      .where(eq(backlogItems.id, itemId));
+    const { description, ...metadata } = patch;
+    const touchesClosedFields = description !== undefined || SUGGESTED_FIELDS.some((f) => metadata[f] !== undefined);
+    if (opts.readOnlyClosed && touchesClosedFields && READ_ONLY_STATUSES.includes(item.status)) return "read_only" as const;
+    const extra: ItemUpdate =
+      description === undefined
+        ? {}
+        : {
+            ...(item.originContent !== null ? { originContent: description } : { document: description }),
+            ...(opts.embedding ? { embedding: opts.embedding } : {}),
+          };
+    await applyMetadata(tx, item, metadata, { extra });
     return "ok" as const;
   });
 }

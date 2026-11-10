@@ -3000,17 +3000,22 @@ deploy o di un rollback che la tocca.
   numero di catalogo; backfill per `created_at` e `id`, fuse e archiviate
   comprese — gli stessi numeri che `/api/requests/to-convert` mostrava già —,
   `UNIQUE (project_id, number)` e il trigger `backlog_items_assign_number`
-  che lo dà a OGNI voce nuova). Env nuove: **nessuna**.
+  che lo dà a OGNI voce nuova, ignorando un numero passato) e **0122**
+  (`backlog_items.archived_from` e il trigger `backlog_items_archived_from`:
+  lo stato di prima dell'archiviazione, per il «Ripristina»; le archiviate di
+  prima restano `null` e si ripristinano a «nuova»). Env nuove: **nessuna**.
   **Cambi di comportamento del web vecchio** (stesse rotte):
   `POST /api/backlog/:id/merge` risponde **502 `merge_failed`** (prima 500)
   se il modello non risponde o restituisce un documento vuoto, e in quel
   caso non scrive niente; la fusione ora porta anche i RICHIEDENTI
   dell'assorbita sulla destinazione (`services/backlog-merge.ts`, la stessa
-  logica di `/api/requests/:id/merge`). Accettare e scartare le proposte
+  logica di `/api/requests/:id/merge`), e risponde **409 `request_changed`**
+  se una delle due voci è cambiata mentre il modello lavorava (niente
+  scritto). Accettare e scartare le proposte
   dell'intake passa dagli scrittori di `backlog-item-writes.ts`, con la
   voce in lock: stessa risposta di prima.
   **PRIMA del deploy, backup del DB.**
-  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0118 e 0121
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0118, 0121 e 0122
   all'avvio; aspetta healthy e verifica: `select template, modules,
   client_name from projects limit 5;` (`software`, i quattro moduli,
   `null`); `select p.code, p.next_request_number, max(b.number) from
@@ -3035,5 +3040,6 @@ deploy o di un rollback che la tocca.
   (il trigger lo mette prima del NOT NULL). `/api/requests/to-convert` della
   fetta 3 ricava il codice dall'ordine di creazione, che per le voci di
   prima coincide col numero; per una voce eliminata dopo il rilascio i due
-  possono divergere finché si resta sul server vecchio. Un ritorno pieno
+  possono divergere finché si resta sul server vecchio. La 0122 regge un
+  server vecchio: il trigger scrive una colonna che lui non nomina. Un ritorno pieno
   allo stato di prima è solo il backup.
