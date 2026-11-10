@@ -1,8 +1,12 @@
 # Integrazione area 4 — Chat (canali fra persone) — design (10 nov 2026)
 
-> Stato: **proposta per il maintainer**. Le decisioni marcate **[DECIDE]**
-> vanno prese prima del codice. Per ognuna la prima opzione è quella
-> consigliata. Autore: stubwise-72, per l'orchestratrice.
+> Stato: **DECISO il 10 nov 2026**: (M) = il maintainer, (O) =
+> l'orchestratrice. D1 (a) (O), D2 (a) (M), D3 (a) (M), D4 (a) (M), D5 (a)
+> (M), D6 (a) (M), D7 (a) (M), D8 (a) (O), D9 (a) (M), cioè tutte le
+> consigliate. Piano della fetta 1:
+> `docs/plans/2026-11-10-integrazione-area4-fetta1-plan.md`. Branch
+> d'integrazione: `feat/integrazione-area4`. Le opzioni scartate restano qui
+> sotto. Autore: stubwise-72.
 
 **Specifica**: il prototipo.
 - Design: `docs/plans/2026-10-25-desktop-area4-chat-design.md`, con le
@@ -88,9 +92,9 @@
 5. **Verso i client solo cambi additivi**: kind nuovi dietro `readerSchema`,
    campi con default.
 
-## Decisioni per il maintainer
+## Decisioni (prese il 10 nov 2026)
 
-- **[DECIDE] D1 — l'ordine delle fette.**
+- **D1 — deciso (a) (O)**: l'ordine delle fette.**
   - **(a, consigliata)** Quattro fette:
     1. canali di progetto e il «general», messaggi, thread, reazioni,
        modifica ed eliminazione, letti e non letti, menzioni nell'inbox,
@@ -104,7 +108,7 @@
   - (b) Tutto il modello in una fetta e @Claude dopo: una fetta molto grande
     (circa 17.000 righe del prototipo da coprire).
   - (c) I DM nella fetta 1, se servono presto.
-- **[DECIDE] D2 — chi vede i privati e i DM.**
+- **D2 — deciso (a) (M)**: chi vede i privati e i DM.**
   - **(a, consigliata)** Come il prototipo. Un canale privato lo vedono i
     suoi membri; chi gestisce i canali ne vede l'esistenza (per gestirlo) ma
     **non legge i messaggi**. Un DM esiste solo per chi partecipa, **nemmeno
@@ -112,7 +116,7 @@
     con Claude.
   - (b) Il full admin legge tutto, a fini di conformità. Così però la Chat
     non è privata, e va detto nell'interfaccia.
-- **[DECIDE] D3 — i permessi.** Il registro condiviso riceve
+- **D3 — deciso (a) (M)**: i permessi.** Il registro condiviso riceve
   `chat.channels.create` e `chat.channels.manage` (di progetto) e
   `chat.general.create` e `chat.general.manage` (d'istanza).
   - **(a, consigliata)** I preset del prototipo, con una migrazione:
@@ -125,7 +129,7 @@
     Legacy Member, il Contributor e il Viewer leggono e scrivono, ma non
     creano canali.
   - (b) Nessun preset: si assegnano con un ruolo.
-- **[DECIDE] D4 — le notifiche.**
+- **D4 — deciso (a) (M)**: le notifiche.**
   - **(a, consigliata)** Le menzioni e le domande diventano card d'inbox
     (`chat.mention`, `chat.question`, due `notification_kind` nuovi), con
     titolo e testo **derivati a lettura** (la regola delle card d'inbox) e
@@ -134,7 +138,7 @@
   - (b) Come il prototipo, senza push.
   - (c) Anche «ogni messaggio di un canale in `all`»: è rumoroso, e il
     prototipo non lo fa.
-- **[DECIDE] D5 — @Claude e ciò che legge, sul server.** La decisione del
+- **D5 — deciso (a) (M)**: @Claude e ciò che legge, sul server.** La decisione del
   maintainer resta: i permessi di chi chiama, e chi chiama ne è
   responsabile. Sul server vero ne segue una cosa che il prototipo non ha:
   le letture dei tool di Claude (gli eventi `tool_use`/`tool_result`) sono
@@ -146,23 +150,23 @@
     conferma di pubblicazione, quindi meno resta esposto, meglio è.
   - (b) Come la fetta 5: anche gli eventi dei tool, per tutti i membri del
     canale.
-- **[DECIDE] D6 — chi può eliminare i messaggi degli altri.**
+- **D6 — deciso (a) (M)**: chi può eliminare i messaggi degli altri.**
   - **(a, consigliata)** Come il prototipo: solo i propri; la risposta di
     Claude la elimina chi l'ha chiamato. Un canale lo archivia o lo elimina
     chi lo gestisce.
   - (b) Anche chi gestisce il canale (moderazione), come `tickets.moderate`
     sui commenti.
-- **[DECIDE] D7 — conservazione.**
+- **D7 — deciso (a) (M)**: conservazione.**
   - **(a, consigliata)** I messaggi restano finché si eliminano, come i
     commenti; un canale eliminato porta via i suoi messaggi.
   - (b) Una potatura dopo N mesi.
-- **[DECIDE] D8 — il «general» dei progetti che esistono già.**
+- **D8 — deciso (a) (O)**: il «general» dei progetti che esistono già.**
   - **(a, consigliata)** Una migrazione crea il «general» di ogni progetto
     esistente (non archiviato), con gli eventi predefiniti (Release,
     traguardi, brief). Per i progetti nuovi lo crea `createProject`, nella
     stessa transazione.
   - (b) Lo crea il primo che apre la Chat del progetto.
-- **[DECIDE] D9 — l'app mobile e il web vecchio.**
+- **D9 — deciso (a) (M)**: l'app mobile e il web vecchio.**
   - **(a, consigliata)** Fuori da questa area: la Chat è dell'app nuova
     (desktop e `/app`). Le card delle menzioni arrivano comunque nell'inbox
     dell'app mobile, che apre il messaggio in sola lettura o rimanda
