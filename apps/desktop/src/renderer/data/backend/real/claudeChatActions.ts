@@ -72,11 +72,36 @@ export async function readChatActions(conversationId: string): Promise<ChatActio
   ].filter((id) => !codes.has(id));
   await Promise.all(
     missing.map(async (id) => {
-      const known = knownTaskCode(id) ?? (await taskCodeOf(id).catch(() => null))?.code;
+      const known = knownTaskCode(id) ?? (await cachedTaskCode(id));
       if (known) codes.set(id, known);
     }),
   );
   return { proposals, groups, codes };
+}
+
+/**
+ * Il codice di una task letto per id, ricordato per persona: ogni rilettura
+ * della conversazione (lo stream ne fa una a ogni proposta) non rilegge le
+ * stesse task, né ripete il 404 di una eliminata (`null`, ricordato anche lui).
+ * Un errore diverso non si ricorda: alla prossima si riprova.
+ */
+const taskCodesByPerson = new Map<string, Map<string, Promise<string | null>>>();
+function cachedTaskCode(id: string): Promise<string | null> {
+  const me = session.personId ?? "";
+  let cache = taskCodesByPerson.get(me);
+  if (!cache) taskCodesByPerson.set(me, (cache = new Map()));
+  let code = cache.get(id);
+  if (!code) {
+    code = taskCodeOf(id).then(
+      (found) => found?.code ?? null,
+      () => {
+        cache.delete(id);
+        return null;
+      },
+    );
+    cache.set(id, code);
+  }
+  return code;
 }
 
 // --- i riassunti ----------------------------------------------------------------
@@ -265,6 +290,7 @@ export function onPageStatusChange(fn: (conversationId: string) => void): () => 
 /** Solo nei test: nessun esito ricordato. */
 export function forgetPageStatuses(): void {
   pageStatusByPerson.clear();
+  taskCodesByPerson.clear();
 }
 
 const isPageProposal = (p: ProposalView) => p.actions.length > 0 && p.actions.every((a) => a.fn === "pageAction");

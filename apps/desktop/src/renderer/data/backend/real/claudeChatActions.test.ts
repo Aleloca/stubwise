@@ -266,3 +266,19 @@ describe("«Undo» rifiutato dal server e il «Who?» (review F3.4)", () => {
     });
   });
 });
+
+describe("i codici delle task nelle schede (review F3.4)", () => {
+  it("una task che non esiste più si legge una volta sola, non a ogni rilettura della conversazione", async () => {
+    const GONE = "99999999-0000-4000-8000-0000000000aa";
+    const { seen } = install({
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [proposals[0], { ...proposals[1], actions: [{ fn: "updateTask", args: { id: GONE, patch: { title: "x" } } }] }],
+      },
+      [`GET /api/tickets/${GONE}`]: { status: 404, body: { code: "not_found", message: "x" } },
+    });
+    await getSessionPerson();
+    await getConversation(CONV);
+    await getConversation(CONV);
+    expect(seen.filter((r) => r.path === `/api/tickets/${GONE}`)).toHaveLength(1);
+  });
+});
