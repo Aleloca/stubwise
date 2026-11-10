@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { TODAY, isoWeek } from "../../data/dates";
 import { useMilestones, useTasks, useTimeline } from "../../data/queries";
@@ -37,6 +37,13 @@ const KINDS_OF: Record<Exclude<TimelineType, "all">, readonly TimelineKind[]> = 
 
 /** Quante settimane si vedono, e quante ne aggiunge «Show earlier». */
 export const WEEKS_STEP = 3;
+
+/**
+ * Con un tipo scelto, una pagina di 28 giorni può non aggiungere niente:
+ * «Show earlier» continua a chiedere pagine finché trova qualcosa o la storia
+ * finisce, al massimo queste (review della fetta 4), poi lo dice.
+ */
+export const MAX_CHASED_PAGES = 6;
 
 /** Il lunedì della settimana di una data. */
 function mondayOf(date: string): string {
@@ -86,10 +93,25 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
   const milestones = useMilestones(projectId);
   const [type, setType] = useState<TimelineType>("all");
   const [weeks, setWeeks] = useState(WEEKS_STEP);
+  /** Le pagine chieste per un «Show earlier»: quante voci c'erano, quale pagina si aspetta, quante. */
+  const [chase, setChase] = useState<{ before: number; waitFor: number; asked: number } | null>(null);
+  const [nothingFound, setNothingFound] = useState(false);
 
   const events = (timeline.data ?? []).filter(
     (e) => type === "all" || KINDS_OF[type].includes(e.kind),
   );
+
+  useEffect(() => {
+    if (!chase || timeline.pages < chase.waitFor) return;
+    if (events.length > chase.before || timeline.isError) return setChase(null);
+    if (timeline.hasMore && chase.asked < MAX_CHASED_PAGES) {
+      setChase({ ...chase, waitFor: timeline.pages + 1, asked: chase.asked + 1 });
+      timeline.loadOlder();
+      return;
+    }
+    setChase(null);
+    setNothingFound(true);
+  }, [chase, timeline, events.length]);
   const groups = groupByWeek(events);
   // «Upcoming» non conta fra le settimane caricate.
   const limit = groups[0]?.key === "upcoming" ? weeks + 1 : weeks;
@@ -122,6 +144,8 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
                 close();
                 setType(x);
                 setWeeks(WEEKS_STEP);
+                setChase(null);
+                setNothingFound(false);
               }}
             >
               {t(`overview.timeline.types.${x}`)}
@@ -163,14 +187,23 @@ export function ProjectTimeline({ projectId }: { projectId: string }) {
         <button
           type="button"
           className={`${ghostButton} mt-1 ml-2`}
-          disabled={timeline.loadingOlder}
+          disabled={timeline.loadingOlder || chase !== null}
           onClick={() => {
-            if (groups.length <= shown.length + WEEKS_STEP && timeline.hasMore) timeline.loadOlder();
+            setNothingFound(false);
+            if (groups.length <= shown.length + WEEKS_STEP && timeline.hasMore) {
+              setChase({ before: events.length, waitFor: timeline.pages + 1, asked: 1 });
+              timeline.loadOlder();
+            }
             setWeeks((w) => w + WEEKS_STEP);
           }}
         >
           {t("overview.timeline.showEarlier")}
         </button>
+      )}
+      {nothingFound && (
+        <p role="status" className="mt-1 ml-4 text-sm text-ink-muted">
+          {t("overview.timeline.nothingInWeeks")}
+        </p>
       )}
     </BlockSection>
   );

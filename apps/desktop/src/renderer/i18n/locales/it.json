@@ -2195,7 +2195,8 @@
       "milestoneUnavailable": "un traguardo eliminato",
       "noSummary": "Nessuna sintesi per questo giorno",
       "empty": "Ancora non è successo nulla in questo progetto",
-      "emptyType": "Ancora niente di questo tipo"
+      "emptyType": "Ancora niente di questo tipo",
+      "nothingInWeeks": "Niente di questo tipo in queste settimane"
     },
     "decisions": {
       "title": "Registro decisioni",

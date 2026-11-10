@@ -2195,7 +2195,8 @@
       "milestoneUnavailable": "a deleted milestone",
       "noSummary": "No summary for this day",
       "empty": "Nothing has happened in this project yet",
-      "emptyType": "Nothing of this type yet"
+      "emptyType": "Nothing of this type yet",
+      "nothingInWeeks": "Nothing of this type in these weeks"
     },
     "decisions": {
       "title": "Decision log",

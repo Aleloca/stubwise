@@ -654,6 +654,8 @@ function usePagedTimeline<E>(
     isError: query.isError,
     refetch: query.refetch,
     hasMore: query.hasNextPage,
+    /** Le pagine lette: chi chiede la pagina prima sa quando è arrivata. */
+    pages: query.data?.pages.length ?? 0,
     loadingOlder: query.isFetchingNextPage,
     loadOlder: () => void query.fetchNextPage(),
   };

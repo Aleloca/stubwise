@@ -1,4 +1,5 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
@@ -101,5 +102,41 @@ describe("l'Overview nella build app", () => {
     expect(pr).toHaveTextContent("A task that isn't in this list");
     expect(pr).not.toHaveTextContent("#");
     expect(document.querySelector('[data-timeline-event="milestone"]')).toHaveTextContent("a deleted milestone");
+  });
+
+  it("«Show earlier» con un tipo: continua finché trova qualcosa (fino a 6 pagine), poi lo dice", async () => {
+    const pages: string[] = [];
+    const task = (at: string) => ({ kind: "task_opened", at, taskId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" });
+    // Pagina n (0 = la prima): una task ogni pagina, una decisione solo alla pagina `decisionAt`.
+    const pagesFrom = (decisionAt: number | null, total: number) => (req: SeenRequest) => {
+      const n = pages.push(req.path) - 1;
+      const day = (k: number) => new Date(Date.UTC(2026, 9, 20) - k * 28 * 86_400_000).toISOString();
+      const events: unknown[] = [task(day(n))];
+      if (n === 0) events.unshift(decision("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Use Postgres", day(0)));
+      if (n === decisionAt) events.unshift(decision("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc", "Use SQLite", day(n)));
+      return { body: { events, nextBefore: n + 1 < total ? day(n + 1) : null } };
+    };
+    const ue = userEvent.setup();
+
+    installFakeServer({ ...baseRoutes(), [`GET /api/projects/${PROJECT_ID}/chronology`]: pagesFrom(3, 20) });
+    renderRoute("/p/AUD/overview");
+    expect(await screen.findByText("Use Postgres")).toBeInTheDocument();
+    await ue.click(screen.getByRole("button", { name: /^Type:/ }));
+    await ue.click(await screen.findByRole("menuitemradio", { name: "Decisions" }));
+    await ue.click(screen.getByRole("button", { name: "Show earlier" }));
+    expect(await screen.findByText("Use SQLite")).toBeInTheDocument();
+    expect(pages).toHaveLength(4);
+    cleanup();
+
+    pages.length = 0;
+    installFakeServer({ ...baseRoutes(), [`GET /api/projects/${PROJECT_ID}/chronology`]: pagesFrom(null, 20) });
+    renderRoute("/p/AUD/overview");
+    expect(await screen.findByText("Use Postgres")).toBeInTheDocument();
+    await ue.click(screen.getByRole("button", { name: /^Type:/ }));
+    await ue.click(await screen.findByRole("menuitemradio", { name: "Decisions" }));
+    await ue.click(screen.getByRole("button", { name: "Show earlier" }));
+    expect(await screen.findByText("Nothing of this type in these weeks")).toBeInTheDocument();
+    // La prima pagina, più al massimo sei.
+    expect(pages).toHaveLength(7);
   });
 });
