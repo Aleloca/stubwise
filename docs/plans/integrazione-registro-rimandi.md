@@ -24,6 +24,12 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   giorno serve «annulla e chiudi la PR».
 - «Annulla il lavoro» col runner classico (`AGENT_STREAMING=false`) *(S)*: il
   CLI non si uccide a metà, vale solo il controllo fra i passi.
+- «Annullato da» nella storia del ticket si perde al RICICLO del job *(O, 10
+  nov 2026)*: la richiesta vale per un tentativo e ogni ripartenza la azzera,
+  e la storia la legge dal job; come il `pr_opened`, che il riciclo perde già
+  (limite dichiarato di `ticket-history`). Copiarla in `ticket_events` alla
+  chiusura vorrebbe una migrazione: rimandato. Né `requeueStale` scrive il
+  commento quando chiude uno stantio annullato.
 - Standup per persona *(S)*: `tasksDeleted` sempre vuoto (il server non tiene
   le task eliminate) e `viaClaude` sempre falso (nessun evento dice se un
   cambio l'ha fatto Claude per una persona).
