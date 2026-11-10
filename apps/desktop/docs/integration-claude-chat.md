@@ -127,11 +127,41 @@ dati, mai dal modello.
 | Lo stato delle azioni della pagina («fatto», «annullato») vive nel renderer, per persona e in memoria; un'azione parte solo dal vivo, mai da una lettura (dopo un ricaricamento il tema non torna da solo) | orchestratrice (review F3.4) |
 | «Edit» nella build app conferma la proposta coi valori cambiati (`edited`) invece di creare a mano come il prototipo: l'esecuzione resta del server, col segno «via Claude» | costruttore |
 
+## Fetta 5 — conversazioni pubbliche e continuazione (server e worker; il renderer è la F5.4)
+
+Piano: `docs/plans/2026-11-10-integrazione-claude-chat-f5-plan.md`, con le
+decisioni del maintainer D1–D6. Il modulo unico è
+`apps/server/src/services/claude-public.ts`.
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Chi vede: l'autore; da pubblica chi ha `claude.public.view` (preset User per migrazione; l'Admin per costruzione, perché full admin). Una privata altrui è 404 anche per il full admin | `services/agent-sessions.ts` (`visibleTo`), `services/claude-conversations.ts` (`readableRow`), `claude-public.ts` (`canReadPublic`); migrazione 0133 | `GET /api/claude/conversations/:id`, eventi e stream delle sessioni | `routes/claude-public.test.ts` («chi vede»); `packages/shared/src/permissions.test.ts` |
+| «Make public» con la conferma ESPLICITA dei progetti letti o toccati (sempre, anche con l'elenco vuoto), che dice delle letture dei tool (D1); «Make private» azzera; un'archiviata non si pubblica | `claude-conversations.ts` (`setClaudeConversationVisibility`) | `POST /api/claude/conversations/:id/visibility` (409 `needs_confirmation` con `projects`, `includesToolReads`, `reconfirm`) | `claude-public.test.ts` («pubblicare…») |
+| I progetti letti o toccati (D2): le letture del token per codice o per id, le azioni proposte, i codici citati, il contesto; mai il dato letto | `claude-public.ts` (`recordChatToolReadProjects` in `onSend`, `recordConversationProjects`, `touchedProjectIds`); `claude-actions/proposals.ts` | tabella `claude_conversation_projects` | idem |
+| Gli eventi dei tool RESTANO visibili ai lettori (decisione del maintainer, D1, con l'esempio in `docs/invariants/agent-sessions.md`) | — | — | `claude-public.test.ts` (il seguito rilasciato porta `tool_use`/`tool_result`) |
+| Il seguito privato, DERIVATO a lettura: un turno in corso, o che ha toccato un progetto nuovo, non arriva ai lettori (eventi, proposte, gruppi, parziali dello stream) finché non è finito e pulito, o riconfermato | `claude-public.ts` (`holdOf`, `holdForOwnerMessage`, `readerCut`); `agent-sessions.ts` (eventi, `sendAgentMessage`); `routes/agent-sessions.ts` (stream senza parziali); `proposals.ts` (`readerLimits`) | `private_from_event_id` | `claude-public.test.ts` («il seguito privato», «proposte e gruppi») |
+| La vista per chi guarda: `author`, `isOwner`, `publishedBy`, `publishedProjects` (solo i visibili), `privateTail` (lettore), `heldProjects` (autore), `canPublish`, `canContinue`; il contesto invisibile a null; niente interventi per i lettori | `claude-conversations.ts` (`toView`), `agent-sessions.ts` (`loadAgentSession`) | `GET …/:id`, `GET …?scope=public` | `claude-public.test.ts`, `packages/shared/src/schemas/claude-conversation-public.test.ts` |
+| «Public»: le pubbliche di altri, non archiviate, con il permesso; le proprie restano in «Mine» | `claude-conversations.ts` (`listClaudeConversations`) | `GET /api/claude/conversations?scope=public` | `claude-public.test.ts` |
+| «Continua»: una conversazione NUOVA, privata, di chi continua; titolo, contesto se lo vede, primo messaggio suo; Claude agisce come lui | `claude-conversations.ts` (`continueClaudeConversation`) | `POST /api/claude/conversations/:id/continue` (409 `not_public`, 404) | `claude-public.test.ts` («Continua») |
+| La prosa LEGGIBILE dell'originale nel primo prompt della continuazione (D3): un'istantanea calcolata dal server al «Continua», fino al seguito privato, mai gli eventi dei tool, con un tetto | `claude-conversations.ts` (`readableTranscript`), `apps/worker/src/claude-chat/{prompts,turn}.ts`; migrazione 0134 (`origin_transcript`) | — | `claude-public.test.ts`, `worker/src/claude-chat/{prompts,turn}.test.ts`; golden `chat-continue` |
+| Una pubblica non si pota; una tornata privata riparte da «Make private» (D5) | `apps/worker/src/sessions/store.ts` (`pruneAgentSessions`) | `visibility_changed_at` | `worker/src/sessions/prune-public.db.test.ts` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Gli eventi dei tool restano per i lettori (D1); la conferma lo dice | maintainer |
+| I progetti letti o toccati li ricava il server (D2); gli elenchi generici contano solo per ciò che la risposta cita | maintainer (D2); limite nel registro |
+| La continuazione porta solo la prosa dell'originale (D3), anche se chi continua vede gli eventi dei tool | maintainer (D3); orchestratrice (solo prosa) |
+| `claude.public.view` al preset User; l'Admin per costruzione (D4) | maintainer |
+| Una pubblica non si pota (D5); la finestra riparte da «Make private» | maintainer; orchestratrice (contorno) |
+| La riga di «Public» con l'autore (D6) | maintainer |
+| La conferma di pubblicazione è sempre esplicita, anche senza progetti | costruttore (approvato) |
+| L'originale di una continuazione è un uuid senza FK: un'origine eliminata si legge «non più disponibile» | costruttore (approvato) |
+| L'istantanea della prosa al «Continua», non letta dal vivo, con un tetto di 40 messaggi e 12.000 caratteri; «Public» ordinato per `updated_at` (il messaggio dell'autore fa salire la riga anche se il turno resta privato) | costruttore; limiti nel registro |
+
 ## Rimandate
 
 | Voce | Fetta |
 |---|---|
 | La classe C (riconferma) e le azioni che la chiedono | 4 della chat (dopo la riconferma dal desktop) |
-| Conversazioni pubbliche e continuazione | fetta a sé, dopo |
 | Riga «Claude can help you…» e bozze nei campi | con le azioni |
 | Azioni delle aree non integrate | con la loro area |
