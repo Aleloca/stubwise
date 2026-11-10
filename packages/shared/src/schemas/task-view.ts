@@ -3,6 +3,7 @@ import { STATUS_FAMILIES } from "../tasks/stall.js";
 import { TASK_SIZES } from "../tasks/sizes.js";
 import { UI_TASK_TYPES } from "../tasks/types.js";
 import { isIsoWeek } from "../tasks/weeks.js";
+import { viaClaudeShape } from "./actor.js";
 import { ticketPrioritySchema } from "./ticket.js";
 
 /**
@@ -241,6 +242,8 @@ export const taskActivityEntryViewSchema = z.object({
   from: z.string().nullable().optional(),
   to: z.string().nullable().optional(),
   decisionRequestId: z.string().optional(),
+  /** «via Claude» (chat, fetta 3) di un commento o di un cambio di campo: derivato a lettura, additivo. */
+  ...viaClaudeShape,
 });
 export type TaskActivityEntryView = z.infer<typeof taskActivityEntryViewSchema>;
 

@@ -75,6 +75,7 @@ import { mirrorDecision, propagateDecision } from "./notifications-propagation.j
 import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion, type AnswerInput } from "./questions.js";
 import { excerpt } from "./task-notify.js";
+import { loadViaClaude, type ViaClaudeFields } from "./via-claude.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
 // (condivisa col worker), ri-esportata qui per i consumatori del servizio.
@@ -675,7 +676,7 @@ async function latestJobStatus(db: Db, ticketId: string): Promise<string | null>
 }
 
 /** Una riga d'inbox pronta per la UI: testo già localizzato e azioni calcolate. */
-export interface InboxItem {
+export interface InboxItem extends ViaClaudeFields {
   id: string;
   kind: NotificationKind;
   status: InboxStatus;
@@ -842,6 +843,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       snoozedUntil: notifications.snoozedUntil,
       handledAt: notifications.handledAt,
       handledByUserId: notifications.handledByUserId,
+      viaClaudeActionId: notifications.viaClaudeActionId,
       // `::text` preserva i microsecondi: il cursore deve poter puntare
       // esattamente alla riga letta.
       cursorTimestamp: sql<string>`${notifications.createdAt}::text`,
@@ -883,6 +885,11 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   const handledByUser = await usersById(
     db,
     page.map((r) => r.handledByUserId),
+  );
+  // «via Claude» (chat, fetta 3): derivato a lettura, UNA query per pagina.
+  const via = await loadViaClaude(
+    db,
+    page.map((r) => r.viaClaudeActionId),
   );
   // Il codice della task (integrazione area 2): derivato a lettura, UNA query
   // per pagina, come `usersById`.
@@ -1013,6 +1020,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       snoozedUntil: r.snoozedUntil,
       handledAt: r.handledAt,
       handledBy: (r.handledByUserId && handledByUser.get(r.handledByUserId)) || null,
+      ...via(r.viaClaudeActionId),
     };
   });
 

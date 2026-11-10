@@ -3,6 +3,7 @@ import { sizeFromEffort, type TaskActivityEntryView } from "@stubwise/shared";
 import { asc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { personName } from "./people.js";
+import { loadViaClaude, NOT_VIA_CLAUDE } from "./via-claude.js";
 
 const EVENT_FIELD: Record<string, string> = {
   status_changed: "status",
@@ -109,6 +110,11 @@ export async function taskActivity(db: Db, ticketId: string): Promise<TaskActivi
       : [],
   ]);
   const userName = new Map(userRows.map((u) => [u.id, personName(u)]));
+  // «via Claude» (chat, fetta 3): derivato dalle colonne, UNA query per registro.
+  const via = await loadViaClaude(db, [
+    ...commentRows.map((c) => c.viaClaudeActionId),
+    ...eventRows.map((e) => e.viaClaudeActionId),
+  ]);
   const milestoneName = new Map(milestoneRows.map((m) => [m.id, m.name]));
   const entries: (TaskActivityEntryView & { sortAt: number })[] = [
     ...commentRows.map((c) => ({
@@ -122,6 +128,7 @@ export async function taskActivity(db: Db, ticketId: string): Promise<TaskActivi
       ...(c.editedAt ? { editedAt: c.editedAt.toISOString() } : {}),
       ...(c.deletedAt ? { deletedAt: c.deletedAt.toISOString() } : {}),
       ...(c.deletedByUserId ? { deletedById: c.deletedByUserId } : {}),
+      ...via(c.viaClaudeActionId),
       sortAt: c.createdAt.getTime(),
     })),
     ...eventRows.map((e) => {
@@ -135,6 +142,7 @@ export async function taskActivity(db: Db, ticketId: string): Promise<TaskActivi
         field: EVENT_FIELD[e.kind] ?? e.kind,
         from: valueOf(e.kind, payload, "from"),
         to: valueOf(e.kind, payload, "to"),
+        ...via(e.viaClaudeActionId),
         sortAt: e.createdAt.getTime(),
       };
     }),
@@ -145,6 +153,7 @@ export async function taskActivity(db: Db, ticketId: string): Promise<TaskActivi
       authorId: d.by,
       at: d.at.toISOString(),
       decisionRequestId: d.id,
+      ...NOT_VIA_CLAUDE,
       sortAt: d.at.getTime(),
     })),
   ];

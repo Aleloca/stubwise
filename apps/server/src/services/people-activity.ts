@@ -47,8 +47,8 @@ import { personName } from "./people.js";
  * senza persona, col nome dell'autore).
  *
  * Le task eliminate vengono dalla lapide (`deleted_tickets`, «Elimina task»).
- * Limite dichiarato: il server non dice ancora se un cambio l'ha fatto Claude
- * per una persona (`viaClaude` falso, salvo l'eliminazione).
+ * `viaClaude` (chat, fetta 3): derivato a lettura dalle colonne
+ * `via_claude_action_id` di eventi, commenti e lapide.
  */
 
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
@@ -96,6 +96,7 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
         payload: ticketEvents.payload,
         at: ticketEvents.createdAt,
         actorId: ticketEvents.actorId,
+        via: ticketEvents.viaClaudeActionId,
         assigneeId: tickets.assigneeId,
         requestedBy: tickets.requestedByUserId,
       })
@@ -111,7 +112,7 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
       )
       .orderBy(asc(ticketEvents.createdAt), asc(ticketEvents.id)),
     db
-      .select({ ...taskCols, id: comments.id, body: comments.body, at: comments.createdAt, authorId: comments.authorId })
+      .select({ ...taskCols, id: comments.id, body: comments.body, at: comments.createdAt, authorId: comments.authorId, via: comments.viaClaudeActionId })
       .from(comments)
       .innerJoin(tickets, eq(tickets.id, comments.ticketId))
       .innerJoin(projects, eq(projects.id, tickets.projectId))
@@ -272,7 +273,7 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
         field: status ? "status" : "week",
         from: status ? statusName(e.projectId, payload["fromStatusId"], payload["from"]) : ((payload["from"] as string | null) ?? null),
         to: status ? statusName(e.projectId, payload["toStatusId"], payload["to"]) : ((payload["to"] as string | null) ?? null),
-        viaClaude: false,
+        viaClaude: e.via !== null,
       });
     }
     const owner = e.assigneeId ?? e.requestedBy;
@@ -326,7 +327,7 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
       projectId: c.projectId,
       body: c.body,
       at: c.at.toISOString(),
-      viaClaude: false,
+      viaClaude: c.via !== null,
     });
   }
   for (const d of logRows) {

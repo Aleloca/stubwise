@@ -30,9 +30,6 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   (limite dichiarato di `ticket-history`). Copiarla in `ticket_events` alla
   chiusura vorrebbe una migrazione: rimandato. Né `requeueStale` scrive il
   commento quando chiude uno stantio annullato.
-- Standup per persona *(S)*: `viaClaude` sempre falso (nessun evento dice se
-  un cambio l'ha fatto Claude per una persona) — si chiude con la fetta 3
-  della chat. (`tasksDeleted`: chiuso, sotto.)
 - Il dettaglio della sessione non porta il piano né il suo digest *(S)*: il
   digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».
 - Abbinare un commit per **username** del provider *(S)*: nessuna tabella lega
@@ -189,6 +186,12 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- «via Claude» a lettura *(S, 10 nov 2026)*: commenti, registro della task,
+  card d'inbox e standup per persona (`tasksMoved`, `comments`, oltre a
+  `tasksDeleted`) derivano `viaClaude`, l'azione e il richiedente (dal gruppo)
+  dalle colonne `via_claude_action_id`; il jsonb delle notifiche non si tocca
+  — commit «feat(server): viaClaude derivato a lettura».
 
 - **Elimina task** *(M, 10 nov 2026)* e lo standup «`tasksDeleted` sempre
   vuoto» *(S)*: eliminazione vera (0130, lapide `deleted_tickets`, FK decise,
