@@ -99,6 +99,14 @@ describe("isIntegrated", () => {
         "destination:chat",
         "projectSection:chat",
         "feature:chat",
+        // Area 4, fetta 2: DM, privati, generali, ricerca, domande, «anche nel canale», da un messaggio.
+        "feature:chat-dm",
+        "feature:chat-private",
+        "feature:chat-general",
+        "feature:chat-search",
+        "feature:chat-questions",
+        "feature:chat-also-in-channel",
+        "feature:chat-from-message",
       ].sort(),
     );
   });

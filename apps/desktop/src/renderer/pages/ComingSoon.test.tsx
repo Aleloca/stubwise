@@ -248,6 +248,15 @@ const INTEGRATED_CALLS = new Set([
   "chat.threadStream",
   "chat.subscribeChat",
   "chat.onChatChange",
+  // Area 4, fetta 2.
+  "chat.openDm",
+  "chat.inviteMembers",
+  "chat.removeMember",
+  "chat.listQuestions",
+  "chat.dismissQuestion",
+  "chat.searchChat",
+  "chat.createTaskFromMessage",
+  "chat.createRequestFromMessage",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -490,7 +499,7 @@ describe("le superfici della fetta 3 nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("«Da decidere» legge Claude (dalla 3b) ma non chat, posta né automazioni, e non resta in caricamento", async () => {
+  it("«Da decidere» legge Claude (dalla 3b) e le domande della Chat (area 4, fetta 2), non posta né automazioni, e non resta in caricamento", async () => {
     renderRoute("/home");
     const decide = await screen.findByRole("region", { name: /^Decide/ });
     await waitFor(() => expect(decide.querySelector("[data-skeleton], [aria-busy='true']")).toBeNull());
