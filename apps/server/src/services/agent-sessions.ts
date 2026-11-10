@@ -945,6 +945,9 @@ export async function loadAgentSession(
   // consegnati o no): i messaggi pubblicati sono gli eventi `input` fino al
   // confine del seguito privato (fetta 5).
   const reader = row.kind === "free" && row.conversationOwnerId !== viewer.id;
+  // Un lettore col seguito privato non vede l'attività del turno trattenuto
+  // (il tool in corso, il segmento): review della fetta 5.
+  const readerHeld = reader && (await readerCut(db, viewer.id, id)) !== null;
   const inputRows = reader
     ? []
     : (
@@ -983,6 +986,7 @@ export async function loadAgentSession(
     permissions,
     detail: {
       ...summary,
+      ...(readerHeld ? { lastActivity: null, activeSegment: null, state: "idle" as const } : {}),
       canWrite: writable,
       canIntervene: intervenable,
       // «Chiudi sessione»: solo a turni, su una sessione aperta, per chi può scrivere.

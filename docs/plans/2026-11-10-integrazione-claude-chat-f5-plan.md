@@ -217,8 +217,10 @@ tool compresi). Non si «corregge»: è scritto come decisione in
   - i codici nel testo marcati come visibili o no per chi guarda (R-G5, come
     `resolveCodes` di oggi);
   - il contesto della pagina invisibile a null;
-  - le proposte e i gruppi senza argomenti di oggetti invisibili, con
-    `canConfirm/canCancel/undo` = false (`not_yours`).
+  - le proposte e i gruppi con gli argomenti INVARIATI (coperti da D1: sono
+    dati letti o scritti per l'autore, come gli eventi dei tool), senza
+    quelli del seguito privato, in sola lettura (`canConfirm/canCancel` false,
+    `undo` `not_yours`, nessuna prova a secco).
 
   Lo stream SSE passa dalla stessa proiezione: per un non-autore gli eventi
   di un turno in corso non partono.

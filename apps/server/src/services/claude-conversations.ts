@@ -32,6 +32,7 @@ import {
   projectViews,
   projectViewsForAuthor,
   readerCut,
+  readerSnapshot,
   touchedProjectIds,
 } from "./claude-public.js";
 import { personName } from "./people.js";
@@ -73,18 +74,20 @@ async function toView(db: Db, viewer: SessionViewer, row: ConversationRow, sessi
     const visible = projectId ? await visibleProjectIds(db, viewer) : [];
     if (!projectId || (visible !== "all" && !visible.includes(projectId))) context = null;
   }
+  // Un lettore: il titolo e l'ultima attività come li vede lui (fetta 5, review).
+  const snapshot = isOwner ? null : await readerSnapshot(db, row);
   const continuesFrom = row.continuesFromSessionId
     ? { id: row.continuesFromSessionId, available: (await readableRow(db, viewer, row.continuesFromSessionId)) !== null }
     : null;
   return {
     id: row.sessionId,
-    title: row.title,
+    title: snapshot?.titleHidden ? "" : row.title,
     archived,
     context,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
-    state: session.state,
-    lastEventAt: session.lastEventAt,
+    state: snapshot ? (hold.held ? "idle" : session.state) : session.state,
+    lastEventAt: snapshot ? snapshot.lastActivityAt.toISOString() : session.lastEventAt,
     visibility: row.visibility,
     author: { id: row.ownerId, name: names.get(row.ownerId) ?? "" },
     isOwner,
@@ -159,6 +162,7 @@ export async function listClaudeConversations(
   // «Public» (fetta 5): le pubbliche di ALTRI, non archiviate, con il permesso.
   const publicScope = opts.scope === "public";
   if (publicScope && !canReadPublic(viewer)) return { items: [], nextCursor: null };
+  if (publicScope) return listPublic(db, viewer, limit, cursor);
   const rows = await db
     .select()
     .from(claudeConversations)
@@ -189,6 +193,54 @@ export async function listClaudeConversations(
   return {
     items,
     nextCursor: rows.length > limit && last ? `${last.updatedAt.toISOString()}|${last.sessionId}` : null,
+  };
+}
+
+/** Quante pubbliche si ordinano al più in una lettura di «Public» (in memoria). */
+const PUBLIC_SCAN_MAX = 1000;
+
+/**
+ * «Public» (review della fetta 5): ordinata per ciò che i LETTORI vedono —
+ * l'ultimo evento sotto il taglio del seguito privato —, non per `updated_at`
+ * (che il messaggio dell'autore muove anche quando il turno resta privato). La
+ * chiave si deriva per riga, quindi l'ordine si fa in memoria, sulle
+ * pubbliche più recenti (`PUBLIC_SCAN_MAX`).
+ */
+async function listPublic(
+  db: Db,
+  viewer: SessionViewer,
+  limit: number,
+  cursor: { at: Date; id: string } | null,
+): Promise<{ items: ClaudeConversation[]; nextCursor: string | null }> {
+  const rows = await db
+    .select()
+    .from(claudeConversations)
+    .where(
+      and(
+        eq(claudeConversations.visibility, "public"),
+        ne(claudeConversations.ownerId, viewer.id),
+        isNull(claudeConversations.archivedAt),
+      ),
+    )
+    .orderBy(desc(claudeConversations.updatedAt))
+    .limit(PUBLIC_SCAN_MAX);
+  const keyed: { row: ConversationRow; at: Date }[] = [];
+  for (const row of rows) keyed.push({ row, at: (await readerSnapshot(db, row)).lastActivityAt });
+  keyed.sort((a, b) => b.at.getTime() - a.at.getTime() || (a.row.sessionId < b.row.sessionId ? 1 : -1));
+  const after = cursor
+    ? keyed.filter((k) => k.at.getTime() < cursor.at.getTime() || (k.at.getTime() === cursor.at.getTime() && k.row.sessionId < cursor.id))
+    : keyed;
+  const page = after.slice(0, limit);
+  const states = await freeSessionStates(db, viewer, page.map((k) => k.row.sessionId));
+  const items: ClaudeConversation[] = [];
+  for (const { row } of page) {
+    const session = states.get(row.sessionId);
+    if (session) items.push(await toView(db, viewer, row, session));
+  }
+  const last = page.at(-1);
+  return {
+    items,
+    nextCursor: after.length > limit && last ? `${last.at.toISOString()}|${last.row.sessionId}` : null,
   };
 }
 
@@ -377,21 +429,31 @@ export async function setClaudeConversationVisibility(
   return { ok: true, conversation: (await viewOf(db, viewer, id))! };
 }
 
-/** L'inizio del turno in corso (l'ultimo `input` senza `turn_end`, o un messaggio in coda); null se nessuno. */
+/**
+ * L'inizio del turno in corso alla pubblicazione: l'`input` di un turno aperto
+ * (senza `turn_end` né `segment_end`), anche con altri messaggi in coda
+ * (review della fetta 5); se c'è solo un messaggio in coda, ciò che verrà;
+ * null se nessuno.
+ */
 async function currentTurnStart(db: Db, sessionId: string): Promise<bigint | null> {
+  const [last] = await db
+    .select({ id: agentSessionEvents.id, type: agentSessionEvents.type })
+    .from(agentSessionEvents)
+    .where(
+      and(
+        eq(agentSessionEvents.sessionId, sessionId),
+        inArray(agentSessionEvents.type, ["input", "turn_end", "segment_end"]),
+      ),
+    )
+    .orderBy(desc(agentSessionEvents.id))
+    .limit(1);
+  if (last?.type === "input") return last.id;
   const [pending] = await db
     .select({ id: agentSessionInputs.id })
     .from(agentSessionInputs)
     .where(and(eq(agentSessionInputs.sessionId, sessionId), eq(agentSessionInputs.status, "pending")))
     .limit(1);
-  if (pending) return nextEventId(db);
-  const [last] = await db
-    .select({ id: agentSessionEvents.id, type: agentSessionEvents.type })
-    .from(agentSessionEvents)
-    .where(and(eq(agentSessionEvents.sessionId, sessionId), inArray(agentSessionEvents.type, ["input", "turn_end"])))
-    .orderBy(desc(agentSessionEvents.id))
-    .limit(1);
-  return last?.type === "input" ? last.id : null;
+  return pending ? nextEventId(db) : null;
 }
 
 async function viewOf(db: Db, viewer: SessionViewer, id: string): Promise<ClaudeConversation | null> {
@@ -442,7 +504,8 @@ async function readableTranscript(db: Db, viewer: SessionViewer, row: Conversati
     kept.unshift(m);
   }
   const names = await namesOf(db, [row.ownerId]);
-  return { title: row.title, authorName: names.get(row.ownerId) ?? "", messages: kept };
+  const hiddenTitle = (await readerSnapshot(db, row)).titleHidden;
+  return { title: hiddenTitle ? "" : row.title, authorName: names.get(row.ownerId) ?? "", messages: kept };
 }
 
 export type ContinueResult = CreateClaudeConversationResult | { ok: false; error: "not_found" | "not_public" };
@@ -471,10 +534,11 @@ export async function continueClaudeConversation(
     const visible = projectId ? await visibleProjectIds(db, viewer) : [];
     if (!projectId || (visible !== "all" && !visible.includes(projectId))) context = null;
   }
+  const hiddenTitle = (await readerSnapshot(db, row)).titleHidden;
   return createClaudeConversation(
     db,
     viewer,
-    { title: row.title || "Continuation", ...(input.message ? { message: input.message } : {}), context },
+    { title: (hiddenTitle ? "" : row.title) || "Continuation", ...(input.message ? { message: input.message } : {}), context },
     { fromSessionId: row.sessionId, originTranscript: await readableTranscript(db, viewer, row) },
   );
 }

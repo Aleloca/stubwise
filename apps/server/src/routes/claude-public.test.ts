@@ -169,7 +169,10 @@ describe("il seguito privato", () => {
     await event(sid, "input", { text: "Com'è AUD?" });
     await event(sid, "tool_use", { name: "mcp__stubwise_chat__list_projects", input: {} });
     await event(sid, "tool_result", { content: "dati letti per l'autore" });
-    // Il turno è in corso: il lettore si ferma prima del messaggio.
+    // Il turno è in corso (la sessione è viva: il worker la tiene col battito).
+    const { agentSessions: sessionsTable } = await import("@stubwise/db");
+    await t.db.update(sessionsTable).set({ liveSegmentIds: ["s1"], heartbeatAt: new Date() }).where(eq(sessionsTable.id, sid));
+    // Il lettore si ferma prima del messaggio.
     const during = await eventsOf(reader, sid);
     expect(during.map((e) => e.type)).toEqual(["assistant_text"]);
     expect((await as(reader, "GET", `/api/claude/conversations/${sid}`)).json()).toMatchObject({ privateTail: true });
@@ -289,5 +292,91 @@ describe("«Continua» (F5.3)", () => {
     expect((await app.inject({ method: "DELETE", url: `/api/claude/conversations/${sid}`, headers: { cookie: author.headers.cookie } })).statusCode).toBe(204);
     const view = (await as(reader, "GET", `/api/claude/conversations/${created.id}`)).json() as { continuesFrom: unknown };
     expect(view.continuesFrom).toEqual({ id: sid, available: false });
+  });
+});
+
+describe("review della fetta 5", () => {
+  let hidden: { id: string; code: string };
+  beforeAll(async () => {
+    // Un progetto che l'autore NON vede.
+    hidden = await projectOf((await seedRepository(t.db)).projectId);
+  });
+  const sessions = async () => (await import("@stubwise/db")).agentSessions;
+
+  it("1/3. codici citati e contesto entrano solo se l'autore li vede: niente enumerazione, niente blocco", async () => {
+    const sid = await conversation();
+    await event(sid, "assistant_text", { text: `Forse ${hidden.code}-1? E ${p1.code}-2.` });
+    await t.db
+      .update(claudeConversations)
+      .set({ contextRef: { kind: "project", id: randomUUID() } })
+      .where(eq(claudeConversations.sessionId, sid));
+    const first = await as(author, "POST", `/api/claude/conversations/${sid}/visibility`, { visibility: "public" });
+    const listed = (first.json() as { projects: { id: string }[] }).projects.map((p) => p.id);
+    expect(listed).toEqual([p1.id]);
+    const ok = await as(author, "POST", `/api/claude/conversations/${sid}/visibility`, { visibility: "public", confirmedProjectIds: [p1.id] });
+    expect(ok.statusCode, ok.body).toBe(200);
+  });
+
+  it("2. pubblicare a turno in corso con un messaggio in coda: il turno aperto resta privato", async () => {
+    const sid = await conversation();
+    await as(author, "POST", `/api/agent-sessions/${sid}/messages`, { text: "prima" });
+    await t.db.update(agentSessionInputs).set({ status: "delivered", deliveredAt: new Date() }).where(eq(agentSessionInputs.sessionId, sid));
+    await event(sid, "input", { text: "prima" });
+    await event(sid, "assistant_text", { text: "a metà" });
+    await as(author, "POST", `/api/agent-sessions/${sid}/messages`, { text: "seconda, in coda" });
+    await publish(sid);
+    expect(await eventsOf(reader, sid)).toEqual([]);
+  });
+
+  it("4. il titolo del primo messaggio di una pubblica vuota non esce finché il turno è trattenuto", async () => {
+    const sid = await conversation();
+    await publish(sid);
+    await as(author, "POST", `/api/agent-sessions/${sid}/messages`, { text: "Titolo segreto del progetto" });
+    const forReader = (await as(reader, "GET", `/api/claude/conversations/${sid}`)).json() as { title: string };
+    expect(forReader.title).not.toContain("segreto");
+    const list = (await as(reader, "GET", "/api/claude/conversations?scope=public")).json() as { items: { id: string; title: string }[] };
+    expect(list.items.find((c) => c.id === sid)?.title ?? "").not.toContain("segreto");
+    const cont = (await as(reader, "POST", `/api/claude/conversations/${sid}/continue`, {})).json() as { id: string; title: string };
+    expect(cont.title).not.toContain("segreto");
+    await finishTurn(sid, "Risposta.");
+    expect(((await as(reader, "GET", `/api/claude/conversations/${sid}`)).json() as { title: string }).title).toContain("segreto");
+  });
+
+  it("5. «Public» si ordina per ciò che i lettori vedono, non per il seguito privato", async () => {
+    const a = await conversation();
+    await event(a, "assistant_text", { text: "vecchia" });
+    await publish(a);
+    await new Promise((r) => setTimeout(r, 20));
+    const b = await conversation();
+    await event(b, "assistant_text", { text: "nuova" });
+    await publish(b);
+    await new Promise((r) => setTimeout(r, 20));
+    await as(author, "POST", `/api/agent-sessions/${a}/messages`, { text: "trattenuto" });
+    const ids = ((await as(reader, "GET", "/api/claude/conversations?scope=public")).json() as { items: { id: string }[] }).items.map((c) => c.id);
+    expect(ids.indexOf(b)).toBeLessThan(ids.indexOf(a));
+  });
+
+  it("6. l'attività in corso del turno trattenuto non arriva ai lettori", async () => {
+    const sid = await conversation();
+    await publish(sid);
+    await as(author, "POST", `/api/agent-sessions/${sid}/messages`, { text: "lavora" });
+    await event(sid, "input", { text: "lavora" });
+    await event(sid, "tool_use", { name: "mcp__stubwise_chat__read_task", input: { code: "AUD-1" } });
+    await t.db.update(await sessions()).set({ liveSegmentIds: ["s1"], heartbeatAt: new Date() }).where(eq((await sessions()).id, sid));
+    const own = (await as(author, "GET", `/api/claude/conversations/${sid}`)).json() as { session: { lastActivity: unknown } };
+    expect(own.session.lastActivity).not.toBeNull();
+    const forReader = (await as(reader, "GET", `/api/claude/conversations/${sid}`)).json() as { session: { lastActivity: unknown; activeSegment: unknown } };
+    expect(forReader.session.lastActivity).toBeNull();
+  });
+
+  it("7. un turno morto senza turn_end (segment_end, o sessione non più viva) si considera finito", async () => {
+    const sid = await conversation();
+    await publish(sid);
+    await as(author, "POST", `/api/agent-sessions/${sid}/messages`, { text: "muore" });
+    await t.db.update(agentSessionInputs).set({ status: "delivered", deliveredAt: new Date() }).where(eq(agentSessionInputs.sessionId, sid));
+    await event(sid, "input", { text: "muore" });
+    await event(sid, "assistant_text", { text: "parziale" });
+    // Nessun turn_end, sessione non viva (nessun heartbeat): il turno è finito male.
+    expect((await eventsOf(reader, sid)).map((e) => e.type)).toEqual(["input", "assistant_text"]);
   });
 });
