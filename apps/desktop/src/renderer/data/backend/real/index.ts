@@ -31,6 +31,8 @@ import { claudeChatNamespace } from "./claudeChatActions";
 export const claude: typeof Fake.claude = partialNamespace<typeof Fake.claude>("claude", claudeChatNamespace);
 // Dell'istanza la chat legge solo il budget del mese (la casella si spegne con la sua frase).
 export { instance } from "./instanceChat";
+// Area 4, fetta 1: la Chat fra persone (canali di progetto, messaggi, menzioni).
+export { chat } from "./chat";
 
 // Task 17: Tasks, dettaglio, nuova task, stati, allegati.
 export {
