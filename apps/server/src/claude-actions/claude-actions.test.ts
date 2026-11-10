@@ -4,7 +4,13 @@ import { and, eq } from "drizzle-orm";
 import {
   agentRuns,
   agentSessionEvents,
+  aiJobs,
+  backlogItems,
+  backlogJobs,
   claudeActionGroups,
+  comments,
+  milestones,
+  taskFilters,
   claudeProposals,
   deletedTickets,
   instanceSettings,
@@ -14,7 +20,7 @@ import {
   ticketEvents,
   tickets,
 } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedBacklogItem, seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 import { SERVER_CATALOG } from "./catalog.js";
@@ -276,6 +282,104 @@ describe("ciò che non si può", () => {
   });
 });
 
+/** Una B proposta e confermata dall'autore; ritorna il gruppo eseguito. */
+async function proposeAndConfirm(sid: string, tok: string, actions: unknown[]) {
+  const res = await propose(sid, tok, actions);
+  expect(res.json(), JSON.stringify(res.json())).toMatchObject({ status: "awaiting_confirmation" });
+  const proposalId = (res.json() as { proposalId: string }).proposalId;
+  const ok = await asAuthor("POST", `/api/claude/proposals/${proposalId}/confirm`, {});
+  expect(ok.statusCode, ok.body).toBe(200);
+  return (ok.json() as { groupId: string }).groupId;
+}
+const undo = (groupId: string) => asAuthor("POST", `/api/claude/groups/${groupId}/undo`);
+
+describe("le altre voci del catalogo", () => {
+  it("addComment (B): il commento è dell'autore col segno; «Annulla» lo elimina", async () => {
+    const sid = await conversation();
+    const tok = await token(sid);
+    const tk = await task();
+    const groupId = await proposeAndConfirm(sid, tok, [{ fn: "addComment", args: { taskId: tk.id, body: "Scritto da Claude" } }]);
+    const [c] = await t.db.select().from(comments).where(and(eq(comments.ticketId, tk.id), eq(comments.body, "Scritto da Claude")));
+    expect(c).toMatchObject({ authorId: author.id, authorType: "user" });
+    expect(c!.viaClaudeActionId).not.toBeNull();
+    expect((await undo(groupId)).json()).toEqual({ kind: "undone" });
+    const [gone] = await t.db.select().from(comments).where(eq(comments.id, c!.id));
+    expect(gone!.deletedAt).not.toBeNull();
+  });
+
+  it("deleteComment di un commento altrui senza tickets.moderate: rifiutata alla nascita", async () => {
+    const sid = await conversation();
+    const tok = await token(sid);
+    const tk = await task();
+    const [c] = await t.db
+      .insert(comments)
+      .values({ ticketId: tk.id, authorType: "user", authorId: other.id, body: "di un altro" } as typeof comments.$inferInsert)
+      .returning();
+    const res = await propose(sid, tok, [{ fn: "deleteComment", args: { id: c!.id, taskId: tk.id } }]);
+    expect(res.json()).toMatchObject({ status: "refused" });
+    expect((await t.db.select().from(comments).where(eq(comments.id, c!.id)))[0]!.body).toBe("di un altro");
+  });
+
+  it("archiveRequest (B): archiviata; «Annulla» la riapre; se qualcuno la cambia dopo, changed_after", async () => {
+    const { itemId } = await seedBacklogItem(t.db, { projectId, status: "new" });
+    const sid = await conversation();
+    const tok = await token(sid);
+    const groupId = await proposeAndConfirm(sid, tok, [{ fn: "archiveRequest", args: { id: itemId } }]);
+    expect((await t.db.select().from(backlogItems).where(eq(backlogItems.id, itemId)))[0]!.status).toBe("archived");
+    expect((await undo(groupId)).json()).toEqual({ kind: "undone" });
+    expect((await t.db.select().from(backlogItems).where(eq(backlogItems.id, itemId)))[0]!.status).toBe("new");
+
+    const again = await proposeAndConfirm(sid, tok, [{ fn: "archiveRequest", args: { id: itemId } }]);
+    await new Promise((r) => setTimeout(r, 20));
+    await t.db.update(backlogItems).set({ title: "Cambiata da un altro" }).where(eq(backlogItems.id, itemId));
+    expect((await undo(again)).json()).toMatchObject({ code: "changed_after" });
+  });
+
+  it("startRun (B) da chi non ha plans.approve: il job passa dal gate del piano, mai approvato", async () => {
+    const sid = await conversation();
+    const tok = await token(sid);
+    const tk = await task();
+    await proposeAndConfirm(sid, tok, [{ fn: "startRun", args: { taskId: tk.id } }]);
+    const [job] = await t.db.select().from(aiJobs).where(eq(aiJobs.ticketId, tk.id));
+    expect(job).toBeDefined();
+    expect(job!.planApprovalRequired).toBe(true);
+    expect(["queued", "awaiting_plan_approval"]).toContain(job!.status);
+  });
+
+  it("createMilestone (B) e il suo «Annulla»; createRequest (B) passa dall'intake e non si annulla", async () => {
+    const sid = await conversation();
+    const tok = await token(sid);
+    // Un Legacy Member ha tickets.edit: crea il traguardo.
+    const name = `Traguardo ${++n}`;
+    const groupId = await proposeAndConfirm(sid, tok, [{ fn: "createMilestone", args: { projectId, name, dueDate: null } }]);
+    const [m] = await t.db.select().from(milestones).where(and(eq(milestones.projectId, projectId), eq(milestones.name, name)));
+    expect(m).toBeDefined();
+    expect((await undo(groupId)).json()).toEqual({ kind: "undone" });
+    expect(await t.db.select().from(milestones).where(eq(milestones.id, m!.id))).toEqual([]);
+
+    const requestGroup = await proposeAndConfirm(sid, tok, [{ fn: "createRequest", args: { projectId, title: "Export PDF", description: "Serve il PDF" } }]);
+    expect((await t.db.select().from(backlogJobs)).length).toBeGreaterThan(0);
+    const [view] = ((await asAuthor("GET", `/api/claude/conversations/${sid}/groups`)).json() as { id: string; undo: string }[]).filter(
+      (g) => g.id === requestGroup,
+    );
+    expect(view).toMatchObject({ undo: "not_undoable" });
+  });
+
+  it("saveFilter (A): sempre PERSONALE anche se chiesto pubblico; «Annulla» lo elimina", async () => {
+    const sid = await conversation();
+    const tok = await token(sid);
+    const res = await propose(sid, tok, [
+      { fn: "saveFilter", args: { name: "Le mie urgenti", visibility: "public", criteria: {}, view: "list", groupBy: "none" } },
+    ]);
+    expect(res.json()).toMatchObject({ status: "executed" });
+    const [f] = await t.db.select().from(taskFilters).where(and(eq(taskFilters.ownerId, author.id), eq(taskFilters.name, "Le mie urgenti")));
+    expect(f).toMatchObject({ visibility: "private" });
+    const [group] = (await asAuthor("GET", `/api/claude/conversations/${sid}/groups`)).json() as { id: string }[];
+    expect((await undo(group!.id)).json()).toEqual({ kind: "undone" });
+    expect(await t.db.select().from(taskFilters).where(eq(taskFilters.id, f!.id))).toEqual([]);
+  });
+});
+
 describe("il catalogo del server (registro)", () => {
   it("ogni voce ha lo STESSO accesso della sua rotta (tipo, permesso, guardia della risorsa)", async () => {
     const routes = new Map<string, RouteOptions>();
@@ -292,8 +396,9 @@ describe("il catalogo del server (registro)", () => {
       expect(route, entry.route).toBeDefined();
       const access = route!.config?.access as { kind: string; permission?: string; resource?: unknown } | undefined;
       expect(access?.kind, entry.fn).toBe(entry.access.kind);
-      expect(access?.permission, entry.fn).toBe(entry.access.permission);
-      expect(access?.resource !== undefined, entry.fn).toBe(entry.access.resource !== undefined);
+      const mine = entry.access as { permission?: string; resource?: unknown };
+      expect(access?.permission, entry.fn).toBe(mine.permission);
+      expect(access?.resource !== undefined, entry.fn).toBe(mine.resource !== undefined);
     }
   });
 });

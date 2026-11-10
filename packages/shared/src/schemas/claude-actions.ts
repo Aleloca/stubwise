@@ -77,7 +77,8 @@ export const CLAUDE_ACTION_ARGS = {
   updateTask: z.object({ id, patch: taskPatchSchema }),
   planTask: z.object({ id, plan: z.object({ assigneeId: id.nullable(), week: isoWeekSchema.nullable() }) }),
   addComment: z.object({ taskId: id, body: z.string().trim().min(1).max(20_000), replyToId: id.optional() }),
-  deleteComment: z.object({ id }),
+  // `taskId`: la rotta valuta l'accesso dal ticket del commento.
+  deleteComment: z.object({ id, taskId: id }),
   createRequest: newRequestBodySchema,
   convertRequest: z.object({ id, input: newTaskBodySchema.omit({ projectId: true, requestId: true }) }),
   archiveRequest: z.object({ id }),
@@ -85,6 +86,7 @@ export const CLAUDE_ACTION_ARGS = {
   startRun: z.object({ taskId: id }),
   createMilestone: milestoneDraftSchema.extend({ projectId: id }),
   deleteMilestone: z.object({ id }),
+  // Solo PERSONALE (il server lo forza privato): un filtro pubblico lo vedrebbero altri.
   saveFilter: newFilterBodySchema,
   deleteFilter: z.object({ id }),
   pageAction: pageActionSchema,

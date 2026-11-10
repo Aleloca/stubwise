@@ -5,7 +5,7 @@ import {
   VIA_CLAUDE_SETTING,
   type Db,
 } from "@stubwise/db";
-import type { ClaudeActionFailure, ClaudeActionFn, ClaudeClassReason } from "@stubwise/shared";
+import type { ClaudeActionFailure, ClaudeActionFn, ClaudeClassReason, ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { evaluateProjectAccess } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
@@ -97,15 +97,23 @@ export async function executeGroup(
         const entry = SERVER_CATALOG.get(planned.fn);
         const args = entry ? parseArgs(planned.fn, planned.args) : null;
         if (!entry || !args) throw new Abort(failure("invalid", index, { message: "not in the catalog or invalid arguments" }));
-        const access = await evaluateProjectAccess(
-          syntheticRequest(tx as unknown as Db, user, entry.request(args)),
-          tx as unknown as Db,
-          user,
-          entry.access,
-        );
+        const access =
+          entry.access.kind === "user"
+            ? // Le cose personali (un filtro): basta essere la persona, come la rotta.
+              { ok: true as const, projectId: null, permissions: new Set<ProjectPermission>() }
+            : await evaluateProjectAccess(
+                syntheticRequest(tx as unknown as Db, user, await entry.request(args, tx as unknown as Db)),
+                tx as unknown as Db,
+                user,
+                entry.access,
+              );
         if (!access.ok) {
           throw new Abort(
-            failure(access.error, index, access.error === "forbidden" ? { permission: entry.access.permission } : {}),
+            failure(
+              access.error,
+              index,
+              access.error === "forbidden" && entry.access.kind === "project" ? { permission: entry.access.permission } : {},
+            ),
           );
         }
         const [row] = await tx
@@ -121,7 +129,9 @@ export async function executeGroup(
             failure(ran.refusal.code, index, {
               projectId: access.projectId,
               message: ran.refusal.message,
-              ...(ran.refusal.code === "forbidden" ? { permission: entry.access.permission } : {}),
+              ...(ran.refusal.code === "forbidden" && entry.access.kind === "project"
+                ? { permission: entry.access.permission }
+                : {}),
             }),
           );
         }

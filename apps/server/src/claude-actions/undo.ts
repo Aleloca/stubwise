@@ -1,4 +1,4 @@
-import { claudeActionGroups, claudeActions, comments, ticketEvents, type Db } from "@stubwise/db";
+import { backlogItems, claudeActionGroups, claudeActions, comments, taskFilters, ticketEvents, type Db } from "@stubwise/db";
 import type { ClaudeActionFn } from "@stubwise/shared";
 import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
@@ -35,6 +35,14 @@ async function laterChangeOf(
   actionIds: string[],
   objects: ActionObject[],
 ): Promise<{ byUserId: string | null } | undefined> {
+  // Richieste e filtri: il loro `updated_at` è andato oltre quello scritto
+  // dall'azione (`stamp`). Chi l'ha cambiato non si sa: `byUserId` null.
+  for (const o of objects) {
+    if ((o.kind !== "request" && o.kind !== "filter") || !o.stamp) continue;
+    const table = o.kind === "request" ? backlogItems : taskFilters;
+    const [row] = await db.select({ at: table.updatedAt }).from(table).where(eq(table.id, o.id));
+    if (row && row.at.toISOString() > o.stamp) return { byUserId: null };
+  }
   const taskIds = objects.filter((o) => o.kind === "task").map((o) => o.id);
   if (taskIds.length === 0) return undefined;
   const notOurs = (column: typeof ticketEvents.viaClaudeActionId | typeof comments.viaClaudeActionId) =>
