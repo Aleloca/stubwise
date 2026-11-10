@@ -464,7 +464,7 @@ describe("GET /api/tasks/:ticketId/work", () => {
     await testDb.db.insert(aiJobs).values({ ticketId: t.id, status: "awaiting_plan_approval" });
     const res = await get(`/api/tasks/${t.id}/work`);
     expect(res.statusCode).toBe(200);
-    expect(taskWorkViewSchema.parse(res.json())).toEqual({
+    expect(taskWorkViewSchema.parse(res.json())).toMatchObject({
       claude: "awaiting_approval",
       pullRequests: [],
       webHref: `/tickets/${t.id}`,

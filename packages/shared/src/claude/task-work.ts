@@ -6,8 +6,8 @@ import type {
   RunProvider,
   TaskRun,
   TaskWork,
-} from "../../data/types";
-import { correctionsFromRecords, countedRound } from "../releases/prState";
+} from "./work.js";
+import { correctionsFromRecords, countedRound } from "./pr-corrections.js";
 
 // Il lavoro di Claude su una task letto dalle sue sessioni: lo stato
 // dell'ultima, le PR, la correzione in corso e la storia del lavoro. Puro.
@@ -628,7 +628,7 @@ function analyze(
  * tetto dal progetto. Dai fatti esterni solo ciò che Stubwise non produce:
  * la review, il branch protetto, la coda.
  */
-export type PrCycle = {
+export type WorkPrCycle = {
   state:
     | "reviewing"
     | "idle"
@@ -651,9 +651,9 @@ export function prCycles(
   work: TaskWork,
   lines: readonly PrLine[],
   latest?: readonly ConversationEvent[],
-): Map<string, PrCycle> {
+): Map<string, WorkPrCycle> {
   const records = correctionsOf(work, latest);
-  const out = new Map<string, PrCycle>();
+  const out = new Map<string, WorkPrCycle>();
   for (const line of lines) {
     if (line.state !== "open" || line.number === null) continue;
     const fact = work.prFacts.find((f) => f.number === line.number && f.repo === line.repo);
@@ -664,7 +664,7 @@ export function prCycles(
     const review = fact?.review ?? null;
     // La review conta solo se è arrivata dopo l'ultima correzione.
     const freshReview = review && (!last || review.at > last.stateAt) ? review : null;
-    let state: PrCycle["state"];
+    let state: WorkPrCycle["state"];
     if (fact?.queued) state = "queued";
     else if (last?.state === "running") state = "correcting";
     else if (last?.state === "paused") state = "paused";

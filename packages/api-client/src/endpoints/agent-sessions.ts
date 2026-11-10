@@ -21,7 +21,14 @@ export function createAgentSessionsEndpoints(request: ApiRequest) {
     list(filters: AgentSessionListQuery = {}) {
       return request(
         "GET",
-        `/api/agent-sessions${toQuery({ projectId: filters.projectId, ticketId: filters.ticketId, aiJobId: filters.aiJobId })}`,
+        `/api/agent-sessions${toQuery({
+          projectId: filters.projectId,
+          ticketId: filters.ticketId,
+          aiJobId: filters.aiJobId,
+          kind: filters.kind,
+          state: filters.state,
+          waitingOnMe: filters.waitingOnMe,
+        })}`,
         undefined,
         agentSessionListSchema,
       );

@@ -32,7 +32,7 @@ import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import type { RouteAccess } from "../auth/access.js";
+import { routePermissions, type RouteAccess } from "../auth/access.js";
 import { fromBody, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import {
@@ -55,6 +55,7 @@ import {
   type TaskWriteError,
 } from "../services/task-writes.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import { loadTaskWorkExtras } from "../services/task-work.js";
 
 /**
  * `/api/tasks` (integrazione area 2, fetta 1): le task nella forma del
@@ -539,6 +540,12 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
           state: pr.state === "closed_unmerged" ? ("closed" as const) : pr.state,
         })),
         webHref: `/tickets/${ticketId}`,
+        // Area 3, fetta 3a: il lavoro intero, in lettura, coi permessi di chi guarda.
+        ...(await loadTaskWorkExtras(app.db, {
+          ticketId,
+          viewerId: request.user!.id,
+          permissions: routePermissions(request),
+        })),
       };
     },
   );

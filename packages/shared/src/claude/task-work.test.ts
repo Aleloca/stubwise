@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ConversationEvent, TaskRun, TaskWork } from "../../data/types";
-import { correctionsFromRecords, countedRound } from "../releases/prState";
+import type { ConversationEvent, TaskRun, TaskWork } from "./work.js";
+import { correctionsFromRecords, countedRound } from "./pr-corrections.js";
 import {
   correctionHeld,
   correctionsOf,
@@ -10,7 +10,7 @@ import {
   pullRequestsOf,
   statusOf,
   workStory,
-} from "./taskWork";
+} from "./task-work.js";
 
 type Draft = ConversationEvent extends infer E
   ? E extends ConversationEvent
