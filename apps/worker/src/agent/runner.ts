@@ -184,6 +184,16 @@ export interface AgentRunOptions {
    */
   settingSources?: "";
   /**
+   * Il set dei tool NATIVI del CLI (`--tools`): l'unico valore ammesso è la
+   * STRINGA VUOTA, `--tools ""`, che li spegne TUTTI — file, shell, web,
+   * sottoagenti, cron, messaggi fra sessioni, `ToolSearch` compreso — e lascia
+   * solo i tool MCP di `mcpConfig`. È la cablatura della chat con Claude
+   * (fetta 1): sola lettura per COSTRUZIONE, non per un elenco di negati che
+   * una versione nuova del CLI può allungare. Omesso = nessun flag (il set di
+   * default del CLI), il comportamento storico.
+   */
+  builtinTools?: "";
+  /**
    * Permission mode del CLI claude, mappato su `--permission-mode <mode>`:
    * - "acceptEdits" (default): consente le modifiche ai file ma NEGA Bash in
    *   headless (i comandi vanno abilitati via allowedTools). È la modalità del

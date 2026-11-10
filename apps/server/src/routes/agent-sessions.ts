@@ -144,6 +144,10 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
           );
         case "item_closed":
           return apiError(reply, 409, "item_closed", "The backlog item is converted or archived");
+        case "conversation_archived":
+          return apiError(reply, 409, "conversation_archived", "The conversation is archived");
+        case "budget_exhausted":
+          return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
       }
     },
   );

@@ -87,6 +87,11 @@ export function buildCliArgs(opts: AgentRunOptions, format: CliFormat): string[]
   if (opts.settingSources !== undefined) {
     args.push("--setting-sources", opts.settingSources);
   }
+  // Tool nativi: come le sorgenti di settings, la stringa vuota è un
+  // argomento a sé (`--tools` + ""), e spegne l'intero set nativo.
+  if (opts.builtinTools !== undefined) {
+    args.push("--tools", opts.builtinTools);
+  }
   return args;
 }
 

@@ -269,8 +269,12 @@ percorso sul volume.
   assorbito a metà turno il piano resta tale, arrivato dopo il primo
   `result` viene rifiutato), `stop-pause` («Ferma» senza testo), `refine`
   (turno di refinement del backlog: design e piano salvati coi tool, nessun
-  file toccato, `Skill` invocabile) e `refine-read` (una lettura FUORI dalla
-  cartella di lavoro è negata); opt-in, solo se nominato: `refine-read-bash`
+  file toccato, `Skill` invocabile), `refine-read` (una lettura FUORI dalla
+  cartella di lavoro è negata) e, dal 10 nov 2026, i tre della chat con
+  Claude — `chat-read` (risponde leggendo coi tool di `stubwise_chat`),
+  `chat-no-act` (a «crea una task» non fa niente e dice dove si fa),
+  `chat-no-leak` (un progetto non visibile non entra nella risposta), 3 volte
+  ciascuno; opt-in, solo se nominato: `refine-read-bash`
   (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
   dell'invariante, va rilanciato quando si aggiorna il CLI). Lo scenario
   `refine-read-plan` (la plan mode della chat CODE e del deep dive, rosso
@@ -403,6 +407,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 2, fetta 3» (10 nov 2026)
   - «Integrazione area 2, fetta 4» (10 nov 2026)
   - «CLI claude 2.1.322» (10 nov 2026)
+  - «Annulla il lavoro» (10 nov 2026)
+  - «Claude assegnabile» (10 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -487,6 +493,7 @@ una voce ti riguarda.
   - La revoca si applica a lettura, senza riscrivere righe.
   - I full admin sono membri impliciti di ogni progetto.
   - `users.role` è DERIVATA (trigger), e la sua rimozione è un rilascio successivo.
+  - L'utente di sistema Claude (10 nov 2026): uno per istanza, nessun accesso né notifiche, assegnarlo avvia il lavoro con `runs.start`.
 - **Secondo fattore sul login → `docs/invariants/second-factor.md`** (23 ott 2026):
   - Una sessione parziale apre SOLO le rotte `second_factor` (test del registro).
   - Ogni porta che dà una sessione o un token passa dal secondo fattore (`/login`, `/mobile-login`).

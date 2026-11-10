@@ -33,6 +33,24 @@ obbligatorio per tutti e non si disattiva; le passkey sono un di più.
   `sessions`). `createSession` vuole lo `stage` ESPLICITO, senza default: una
   porta nuova non nasce completa per dimenticanza. Il login web risponde
   `{ user, stage }`, mai una sessione completa prima del fattore.
+- **Il token del turno della chat con Claude NON è una porta (10 nov 2026,
+  chat fetta 1).** `stw_chat_…` (`claude_chat_tool_tokens`) non lo dà una
+  rotta HTTP: lo EMETTE il worker a inizio turno di una conversazione libera
+  (`issueChatToolToken` di `@stubwise/db`), per far leggere ai tool di Claude
+  il server COME l'autore, e lo revoca nel `finally`. Per questo non è in
+  questo elenco né in `config.credentialDoor`, e non va aggiunto: chi legge
+  l'elenco non lo scambi per una porta dimenticata. Le sue difese, ognuna col
+  test negativo in `apps/server/src/auth/chat-tool-token.test.ts`: solo l'hash
+  a riposo, scadenza al più la durata di un turno; accettato SOLO in GET e
+  SOLO sull'allowlist chiusa `CHAT_TOOL_READ_ROUTES`
+  (`apps/server/src/auth/chat-tool-routes.ts`, con il suo test di registro:
+  nessuna voce pubblica, `second_factor`, con riconferma o porta di
+  credenziale) — ogni altra rotta, anche GET, 403 `chat_tool_forbidden`, e
+  quindi niente riconferma, PAT, handoff o mobile-login; nessuna `sessionId`,
+  quindi `applyReauth` non lo soddisfa mai; vale solo finché la sua
+  conversazione esiste, è dell'utente del token e non è archiviata (un token
+  caduto è 401 e non ricade sul cookie). Mai nei log, nel prompt o negli
+  eventi: lo tiene il ponte del turno nel worker, non il server MCP.
 - **Il login del desktop passa dal browser, e il secondo fattore lo dà la
   sessione completa (9 nov 2026).** `POST /api/auth/desktop-handoff` vuole
   una sessione COMPLETA del browser E la riconferma (`config.reauth`, come

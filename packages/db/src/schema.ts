@@ -320,6 +320,9 @@ export const users = pgTable("users", {
   // mobili (fase 4). Default true; senza device attivi in `device_tokens` il
   // canale resta comunque muto.
   notifyPush: boolean("notify_push").notNull().default(true),
+  // Fetta 3e (0125): l'utente di SISTEMA «Claude», uno per istanza, senza
+  // accesso né notifiche. Vedi la migrazione e `docs/invariants/agent-sessions.md`.
+  isAgent: boolean("is_agent").notNull().default(false),
   // Tetto per account del secondo fattore (0100): codici sbagliati DI FILA,
   // da qualunque IP (il bucket per IP non basta: chi prova da tanti indirizzi
   // non ne supera nessuno). Un codice giusto lo azzera; al tetto il passo del
@@ -3264,6 +3267,57 @@ export const backlogRefineSessions = pgTable(
 );
 
 /**
+ * La conversazione libera con Claude (integrazione «Chat con Claude», fetta 1,
+ * 0126): ciò che la sessione dell'agente di kind `free` non ha. PRIVATA
+ * dell'autore (`owner_id`): la visibilità delle sessioni la legge da qui
+ * (`visibleTo`), senza ramo per ruolo — nemmeno un full admin la vede. CASCADE
+ * dalla sessione (la potatura dei 14 giorni la porta via) e dall'utente.
+ * `cli_session_id` è l'id della conversazione del CLI per `--resume` (lo scrive
+ * il worker al primo turno). Il titolo nasce dalla prima domanda con un
+ * template (`conversationTitleFrom`), mai dal modello.
+ */
+export const claudeConversations = pgTable(
+  "claude_conversations",
+  {
+    sessionId: uuid("session_id").primaryKey()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default(""),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+    contextRef: jsonb("context_ref").$type<{ kind: string; id: string }>(),
+    cliSessionId: text("cli_session_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("claude_conversations_owner_idx").on(table.ownerId, table.updatedAt)],
+);
+
+/**
+ * Il token di UN turno di una conversazione libera (chat, fetta 1, 0127): con
+ * lui i tool di lettura di Claude chiamano il server COME l'autore, sulle
+ * stesse rotte e con la stessa visibilità delle pagine. Lo emette il WORKER a
+ * inizio turno (mai una rotta HTTP: non è una porta che dà un token, vedi
+ * `docs/invariants/second-factor.md`), lo revoca nel `finally`; scade comunque
+ * al più alla durata massima di un turno. Solo l'hash a riposo. Il server lo
+ * accetta solo in GET su un'allowlist chiusa (`auth/chat-tool-routes.ts`), mai
+ * per la riconferma, e solo finché la sua conversazione è dell'autore e non
+ * archiviata.
+ */
+export const claudeChatToolTokens = pgTable(
+  "claude_chat_tool_tokens",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    sessionId: uuid("session_id").notNull()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("claude_chat_tool_tokens_expires_idx").on(table.expiresAt)],
+);
+
+/**
  * Valore PRECEDENTE di un campo di una voce sovrascritto dall'agente in una
  * sessione di refinement (design 2026-10-14 §4.3): rete di sicurezza
  * recuperabile a mano. `previous`: `{ document, originContent }` per il design,
@@ -4714,7 +4768,7 @@ export const agentSessions = pgTable(
     index("agent_sessions_email_message_id_idx").on(table.emailMessageId),
     check(
       "agent_sessions_kind_chk",
-      sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report','backlog_refine')`,
+      sql`kind in ('ai_job','pr_review','backlog_item','backlog_job','doc_generation','email_message','project_brief','daily_report','backlog_refine','free')`,
     ),
     check(
       "agent_sessions_email_owner_chk",

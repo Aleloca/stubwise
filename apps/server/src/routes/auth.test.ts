@@ -104,7 +104,8 @@ describe("setup concorrente", () => {
       }),
     ]);
 
-    const rows = await testDb.db.select().from(users);
+    // Le persone: l'utente di sistema «Claude» (0125) c'è da prima e non conta.
+    const rows = await testDb.db.select().from(users).where(eq(users.isAgent, false));
     // Pulizia prima delle assert: i test del flusso di primo setup qui sotto
     // ripartono da zero anche se questo test fallisce.
     await testDb.db.delete(users);

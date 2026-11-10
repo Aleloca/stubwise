@@ -93,6 +93,8 @@ export async function findLiveResetToken(
     .where(
       and(
         eq(passwordResetTokens.tokenHash, hashResetToken(token)),
+        // L'utente di sistema «Claude» non ha password da reimpostare (fetta 3e).
+        eq(users.isAgent, false),
         isNull(passwordResetTokens.usedAt),
         gt(passwordResetTokens.expiresAt, new Date()),
       ),

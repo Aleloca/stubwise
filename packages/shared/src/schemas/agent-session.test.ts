@@ -59,8 +59,8 @@ describe("agent-session schemas", () => {
     expect(parsed.canIntervene).toBe(false);
   });
 
-  it("solo ai_job e backlog_refine accettano interventi: review, Docs, job di backlog e il resto si guardano e basta", () => {
-    expect([...INTERVENABLE_SESSION_KINDS].sort()).toEqual(["ai_job", "backlog_refine"]);
+  it("solo ai_job, backlog_refine e la conversazione libera accettano interventi: review, Docs, job di backlog e il resto si guardano e basta", () => {
+    expect([...INTERVENABLE_SESSION_KINDS].sort()).toEqual(["ai_job", "backlog_refine", "free"]);
   });
 
   it("un intervento senza authorName (server più vecchio) lo legge null", () => {
@@ -179,8 +179,8 @@ describe("sessioni di refinement (2026-10-14)", () => {
     expect(agentInputReasonSchema.parse("budget_exceeded")).toBe("budget_exceeded");
   });
 
-  it("le regole a turni valgono SOLO per backlog_refine (elenco esplicito)", () => {
-    expect([...TURN_BASED_SESSION_KINDS]).toEqual(["backlog_refine"]);
+  it("le regole a turni valgono SOLO per backlog_refine e la conversazione libera (elenco esplicito)", () => {
+    expect([...TURN_BASED_SESSION_KINDS]).toEqual(["backlog_refine", "free"]);
     expect(INTERVENABLE_SESSION_KINDS.has("backlog_refine")).toBe(true);
     expect(BACKLOG_REFINE_CLOSED_CHANNEL).toBe("backlog_refine_closed");
   });

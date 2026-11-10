@@ -46,7 +46,9 @@ const list = async (cookie: string) => {
 describe("GET /api/people", () => {
   it("vede sé stesso e chi condivide un progetto, nella forma condivisa", async () => {
     const people = await list(users.memberCookie);
-    const ids = people.map((p) => p.id).sort();
+    // L'utente di sistema «Claude» (area 3, fetta 3e) c'è sempre: si conta a parte.
+    expect(people.filter((p) => p.isClaude)).toHaveLength(1);
+    const ids = people.filter((p) => !p.isClaude).map((p) => p.id).sort();
     // Il full admin c'è: è membro implicito di ogni progetto.
     expect(ids).toEqual([users.memberId, colleague.id, users.adminId].sort());
     const giulia = people.find((p) => p.id === colleague.id)!;
@@ -66,7 +68,12 @@ describe("GET /api/people", () => {
   it("non vede chi non condivide un progetto", async () => {
     const people = await list(users.memberCookie);
     expect(people.map((p) => p.id)).not.toContain(stranger.id);
-    expect((await list(stranger.headers.cookie)).map((p) => p.id).sort()).toEqual([stranger.id, users.adminId].sort());
+    expect(
+      (await list(stranger.headers.cookie))
+        .filter((p) => !p.isClaude)
+        .map((p) => p.id)
+        .sort(),
+    ).toEqual([stranger.id, users.adminId].sort());
   });
 
   it("un full admin vede tutti", async () => {

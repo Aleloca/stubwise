@@ -24,6 +24,13 @@ export const agentSessionKindSchema = z.enum([
   "project_brief",
   "daily_report",
   "backlog_refine",
+  /**
+   * La conversazione libera con Claude (integrazione «Chat con Claude», fetta
+   * 1): a turni come il refinement, privata del suo autore
+   * (`claude_conversations.owner_id`), senza progetto. Additivo: un client che
+   * non lo conosce lo legge `__unknown__` (`readerSchema`).
+   */
+  "free",
 ]);
 export type AgentSessionKind = z.infer<typeof agentSessionKindSchema>;
 
@@ -46,6 +53,8 @@ export const agentSegmentLabelSchema = z.enum([
   "brief",
   "daily_report",
   "refine",
+  /** Il turno di una conversazione libera con Claude (chat, fetta 1). Additivo. */
+  "chat",
 ]);
 export type AgentSegmentLabel = z.infer<typeof agentSegmentLabelSchema>;
 
@@ -72,6 +81,9 @@ export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<Agen
   "correction_self_repair",
   // `refine` (sessione di refinement): il deliverable è la conversazione stessa.
   "refine",
+  // `chat` (conversazione libera con Claude): come il refinement, la
+  // conversazione è il deliverable; l'autore scrive e ferma a metà turno.
+  "chat",
 ]);
 
 /**
@@ -90,6 +102,8 @@ export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<Agen
 export const INTERVENABLE_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>([
   "ai_job",
   "backlog_refine",
+  // La conversazione libera: ci scrive (e la ferma) SOLO il suo autore.
+  "free",
 ]);
 
 /**
@@ -104,6 +118,12 @@ export const AGENT_SESSION_EVENTS_CHANNEL = "agent_session_events";
 export const AGENT_SESSION_PARTIAL_CHANNEL = "agent_session_partial";
 export const AGENT_SESSION_INPUT_CHANNEL = "agent_session_input";
 export const BACKLOG_REFINE_CLOSED_CHANNEL = "backlog_refine_closed";
+
+/**
+ * NOTIFY di una conversazione libera archiviata o eliminata (chat, fetta 1):
+ * il worker ferma il turno in corso. Payload `{ sessionId }`.
+ */
+export const CLAUDE_CONVERSATION_CLOSED_CHANNEL = "claude_conversation_closed";
 /**
  * «Annulla il lavoro» su un job in esecuzione (integrazione area 3, 3b.1-bis):
  * payload `{ jobId }`, dal server al worker. La fonte resta la colonna
@@ -119,6 +139,9 @@ export const AI_JOB_CANCEL_CHANNEL = "ai_job_cancel";
  */
 export const TURN_BASED_SESSION_KINDS: ReadonlySet<AgentSessionKind> = new Set<AgentSessionKind>([
   "backlog_refine",
+  // La conversazione libera (chat con Claude, fetta 1): ogni messaggio
+  // dell'autore è un turno, come nel refinement.
+  "free",
 ]);
 
 export const agentSessionEventTypeSchema = z.enum([

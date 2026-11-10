@@ -12106,6 +12106,7 @@
       "weekly_brief": "Weekly brief",
       "mail_classify": "Mail classification",
       "chat": "Chats with Claude",
+      "claude_chat": "Private conversations with Claude",
       "backlog_merge": "Backlog document merge",
       "plugin_smoke": "Plugin smoke tests",
       "credential_test": "Account tests",

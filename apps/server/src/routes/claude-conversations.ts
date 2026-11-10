@@ -1,0 +1,102 @@
+import type { FastifyInstance } from "fastify";
+import type { ZodTypeProvider } from "fastify-type-provider-zod";
+import { z } from "zod";
+import {
+  claudeConversationDetailSchema,
+  claudeConversationListQuerySchema,
+  claudeConversationListSchema,
+  claudeConversationSchema,
+  createClaudeConversationSchema,
+  patchClaudeConversationSchema,
+} from "@stubwise/shared";
+import { apiError } from "../errors.js";
+import {
+  createClaudeConversation,
+  deleteClaudeConversation,
+  getClaudeConversation,
+  listClaudeConversations,
+  patchClaudeConversation,
+} from "../services/claude-conversations.js";
+import { authErrorResponses, errorSchema } from "./shared.js";
+
+// Le conversazioni libere con Claude (chat, fetta 1), sotto `/api/claude/conversations`.
+// Le vede e le tocca SOLO l'autore: il filtro sta nel servizio, nella WHERE, e
+// una conversazione di un altro risponde 404 come una che non esiste. Messaggi,
+// eventi e stream sono quelli delle sessioni (`/api/agent-sessions/:id/…`).
+
+const idParams = z.object({ id: z.uuid() });
+const ACCESS = { kind: "user" } as const;
+
+export async function claudeConversationRoutes(instance: FastifyInstance): Promise<void> {
+  const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  app.get(
+    "/",
+    {
+      config: { access: ACCESS },
+      schema: { querystring: claudeConversationListQuerySchema, response: { 200: claudeConversationListSchema, ...authErrorResponses } },
+    },
+    async (request) => ({
+      items: await listClaudeConversations(app.db, request.user!, { archived: request.query.archived === "true" }),
+    }),
+  );
+
+  app.post(
+    "/",
+    {
+      config: { access: ACCESS },
+      schema: {
+        body: createClaudeConversationSchema,
+        response: { 201: claudeConversationSchema, 409: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const result = await createClaudeConversation(app.db, request.user!, request.body);
+      if (!result.ok) return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
+      return reply.code(201).send(result.conversation);
+    },
+  );
+
+  app.get(
+    "/:id",
+    {
+      config: { access: ACCESS },
+      schema: { params: idParams, response: { 200: claudeConversationDetailSchema, 404: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) => {
+      const detail = await getClaudeConversation(app.db, request.user!, request.params.id);
+      if (!detail) return apiError(reply, 404, "not_found", "Conversation not found");
+      return detail;
+    },
+  );
+
+  app.patch(
+    "/:id",
+    {
+      config: { access: ACCESS },
+      schema: {
+        params: idParams,
+        body: patchClaudeConversationSchema,
+        response: { 200: claudeConversationSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const updated = await patchClaudeConversation(app.db, request.user!, request.params.id, request.body);
+      if (!updated) return apiError(reply, 404, "not_found", "Conversation not found");
+      return updated;
+    },
+  );
+
+  app.delete(
+    "/:id",
+    {
+      config: { access: ACCESS },
+      schema: { params: idParams, response: { 204: z.null(), 404: errorSchema, ...authErrorResponses } },
+    },
+    async (request, reply) => {
+      const ok = await deleteClaudeConversation(app.db, request.user!, request.params.id);
+      if (!ok) return apiError(reply, 404, "not_found", "Conversation not found");
+      return reply.code(204).send(null);
+    },
+  );
+}

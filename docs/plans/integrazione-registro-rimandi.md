@@ -19,10 +19,20 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
 
 ## Area 3 — Claude come collega (in corso)
 
-- 3e **Claude assegnabile** *(M)*: utente di sistema, assegnarlo avvia il run
-  con le regole di `run-ai` (gate del piano incluso), niente accesso né notifiche;
-  riga Claude nel Planning con il suo carico; Claude fra gli assegnatari solo per
-  chi ha `runs.start`.
+- 3e **Claude assegnabile, renderer (3e.2)** *(M)*: riga Claude nel Planning
+  con il suo carico; Claude fra gli assegnatari solo dove la sua riga di
+  `/api/people` lo dice (`claudeAssignableProjectIds`, calcolato dal server). Il
+  server è fatto (3e.1, sotto in «Chiuse»).
+- «Annulla il lavoro» DOPO il push *(O, 10 nov 2026)*: non vale più, la PR si
+  apre comunque (il lavoro è già sul remoto). Accettato; da riguardare se un
+  giorno serve «annulla e chiudi la PR».
+- «Annulla il lavoro» col runner classico (`AGENT_STREAMING=false`) *(S)*: il
+  CLI non si uccide a metà, vale solo il controllo fra i passi.
+- Standup per persona *(S)*: `tasksDeleted` sempre vuoto (il server non tiene
+  le task eliminate) e `viaClaude` sempre falso (nessun evento dice se un
+  cambio l'ha fatto Claude per una persona).
+- Il dettaglio della sessione non porta il piano né il suo digest *(S)*: il
+  digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».
 - Polso e «aspetta te» con Claude: «Claude al lavoro», «Claude aspetta te» nel
   polso dei progetti e nel portafoglio *(O)* (oggi esclusi, `integration-slice4.md`).
 - «Link a person» nello standup *(S)*: il server deve legare i commit anche via
@@ -51,6 +61,19 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 - Citazioni, menzioni, «Claude can help you…» (suggerimenti nelle pagine),
   riquadro come chat, ⌘J/⌘K «Ask Claude» *(O)*.
 - Azioni delle altre aree: entrano **con la loro area** (sotto) *(O)*.
+- **Limiti della fetta 1 (runner)** *(S, stubwise-80)*: i tool di lettura sono
+  sei (progetti, cerca/leggi task, leggi richiesta, cerca docs, brief +
+  registro decisioni). Non leggono commenti e storia della task, la pagina
+  Docs intera, il codice o il grafo; restituiscono il JSON delle rotte
+  compattato (senza chiavi da segreto, tetto 12.000 caratteri), non le viste
+  delle pagine. Si allargano aggiungendo rotte di LETTURA a
+  `CHAT_TOOL_READ_ROUTES` (col test del registro) e un tool al ponte.
+- Il contesto della pagina arriva al modello come `tipo: id`, non come il suo
+  contenuto: Claude lo legge con i tool se serve *(S)*.
+- Conversazioni senza chiusura per inattività e senza retention: restano
+  finché l'autore non le archivia o le elimina (eventi compresi) *(S)*.
+- Budget del mese finito: in chat nessuno lo scavalca (una conversazione non ha
+  un progetto, quindi nessun `plans.approve`) *(S)*.
 
 ## Area 4 — Chat
 
@@ -133,3 +156,8 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- Area 3, 3e.1 **Claude assegnabile, server** *(M)*: utente di sistema (0125,
+  `users.is_agent`), niente accesso né notifiche, assegnarlo avvia il run con le
+  regole di `run-ai` e chiede `runs.start` — commit «feat(area3): Claude
+  assegnabile (3e.1)».

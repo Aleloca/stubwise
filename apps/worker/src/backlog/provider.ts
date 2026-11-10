@@ -62,7 +62,7 @@ function firstLine(text: string): string {
  */
 export async function runBacklogWithProviders<T>(
   deps: { select: SelectDeps },
-  projectId: string,
+  projectId: string | null,
   label: string,
   attempt: (provider: ResolvedProvider | undefined) => Promise<T>,
   limitTextOf: (value: T) => string | null,
@@ -83,7 +83,7 @@ export async function runBacklogWithProviders<T>(
 /** Nessun account: quota → NoAccountAvailableError, configurazione → Error col motivo (e una riga di log). */
 function throwUnavailable(
   deps: { select: SelectDeps },
-  projectId: string,
+  projectId: string | null,
   label: string,
   reason: EmptyReason | "all_limited_now",
 ): never {

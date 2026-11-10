@@ -13,6 +13,9 @@ import { startRefineBridge } from "./backlog/refine/bridge.js";
 import { RefineScheduler } from "./backlog/refine/scheduler.js";
 import { runRefineTurn } from "./backlog/refine/turn.js";
 import { createRefineWorktreeRegistry } from "./backlog/refine/worktrees.js";
+import { startChatBridge } from "./claude-chat/bridge.js";
+import { ChatScheduler } from "./claude-chat/scheduler.js";
+import { runChatTurn } from "./claude-chat/turn.js";
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
 import { effectiveModelDefaults, loadWorkerConfig, type WorkerConfig } from "./config.js";
@@ -204,11 +207,17 @@ if (config.agentStreaming) await resetLiveSegmentsAtStartup(db);
 // Sessioni di refinement (design 2026-10-14): lo scheduler nasce più giù (gli
 // servono mirror e serializer); il relay gli parla attraverso questa chiusura.
 let refineScheduler: RefineScheduler | null = null;
+// La chat con Claude (fetta 1): le conversazioni `free` hanno il loro scheduler;
+// il relay smista per kind.
+let chatScheduler: ChatScheduler | null = null;
 const relay = config.agentStreaming
   ? new SessionInputRelay({
       db,
       listen: (channel, cb) => client.listen(channel, cb),
-      turnStarter: { requestTurn: (id) => refineScheduler?.requestTurn(id) },
+      turnStarter: {
+        requestTurn: (id, kind) =>
+          kind === "free" ? chatScheduler?.requestTurn(id) : refineScheduler?.requestTurn(id),
+      },
     })
   : null;
 if (relay) await relay.start();
@@ -655,6 +664,56 @@ if (relay && refineBridge) {
   );
 }
 
+// Chat con Claude (fetta 1): turni a sola lettura, come il refinement ma senza
+// worktree. Il ponte chiama il server (`CHAT_SERVER_URL`) col token del turno.
+// Fail-open: un ponte che non parte spegne la chat (i messaggi restano
+// `pending`), mai il worker.
+let chatBridge: Awaited<ReturnType<typeof startChatBridge>> | null = null;
+if (relay) {
+  try {
+    chatBridge = await startChatBridge({ serverUrl: config.chatServerUrl });
+  } catch (error) {
+    console.error(`[stubwise-worker] ponte della chat non avviato, chat con Claude spenta: ${String(error)}`);
+  }
+}
+if (relay && chatBridge) {
+  const bridge = chatBridge;
+  const scheduler = new ChatScheduler({
+    db,
+    maxConcurrent: config.chatMaxConcurrent,
+    bridge,
+    listen: (channel, cb) => client.listen(channel, cb),
+    log: (m) => console.warn(m),
+    runTurn: (input) =>
+      runChatTurn(
+        {
+          db,
+          runner,
+          bridge,
+          model: config.backlogModel,
+          maxTurns: config.chatMaxTurns,
+          turnTimeoutMs: config.chatTurnTimeoutMs,
+          select,
+          log: (m) => console.warn(m),
+        },
+        input,
+      ),
+  });
+  scheduler.attachRelay(relay);
+  await scheduler.start();
+  chatScheduler = scheduler;
+  const sweep = setInterval(() => void scheduler.sweep(), 10 * 60_000);
+  sweep.unref();
+  controller.signal.addEventListener(
+    "abort",
+    () => {
+      clearInterval(sweep);
+      scheduler.stopAcceptingTurns();
+    },
+    { once: true },
+  );
+}
+
 // Poller della coda del KNOWLEDGE GRAPH (graphify): task SEPARATO dal loop dei
 // job, sul proprio intervallo. Reclama i `graph_jobs` queued claimabili (il
 // webhook push fa debounce spostando notBefore) ed esegue la build nella CATENA
@@ -831,6 +890,7 @@ console.error(
     `, daily-report ${config.dailyReportPollMinutes > 0 ? `ogni ${config.dailyReportPollMinutes}'` : "disabilitato"}` +
     `, backlog ${config.backlogPollSeconds > 0 ? `ogni ${config.backlogPollSeconds}"` : "disabilitato"}` +
     `, backlog-refine ${refineScheduler ? `max ${config.backlogRefineMaxConcurrent} (idle ${config.backlogRefineIdleMinutes}')` : relay ? "disabilitato (ponte non avviato)" : "disabilitato (AGENT_STREAMING=false)"}` +
+    `, chat ${chatScheduler ? `max ${config.chatMaxConcurrent}` : relay ? "disabilitata (ponte non avviato)" : "disabilitata (AGENT_STREAMING=false)"}` +
     `, graph ${config.graphPollSeconds > 0 ? `ogni ${config.graphPollSeconds}"` : "disabilitato"}` +
     `, plugins ${config.pluginPollSeconds > 0 ? `ogni ${config.pluginPollSeconds}" (in ${config.pluginsDir})` : "disabilitato"}` +
     `, monitor-rollup ${config.monitorRollupIntervalMinutes > 0 ? `ogni ${config.monitorRollupIntervalMinutes}'` : "disabilitato"}` +
@@ -862,6 +922,8 @@ await runWorker({
 });
 await refineScheduler?.shutdown();
 await refineBridge?.close();
+await chatScheduler?.shutdown();
+await chatBridge?.close();
 relay?.stop();
 stopCancelWatch();
 await client.end();
