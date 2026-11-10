@@ -12240,7 +12240,8 @@
         "forbidden": "Non puoi più eliminare {{code}}. Non è stato eliminato niente.",
         "failed": "Impossibile eliminare {{code}}. Riprova.",
         "retry": "Riprova",
-        "quoted": "«{{title}}»"
+        "quoted": "«{{title}}»",
+        "goesClaude": "Anche il lavoro di Claude su questa task (sessioni, piano, domande) viene eliminato; restano i consumi e il registro decisioni."
       },
       "busy": {
         "title": "{{code}} non si può ancora eliminare",

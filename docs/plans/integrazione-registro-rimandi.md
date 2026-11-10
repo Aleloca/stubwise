@@ -154,10 +154,6 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 - Le task eliminate nella cronologia del progetto *(S)*: il server non ha una
   cronologia di progetto che le nomini (la storia della task se ne va con
   lei); lo standup e la richiesta d'origine sì. (Elimina task: chiusa, sotto.)
-- Le sessioni dell'agente di una task eliminata se ne vanno con lei *(S,
-  differenza dal prototipo, stubwise-72)*: il prototipo le tiene, ma la loro
-  visibilità passa dal ticket (R26) e senza ticket le vedrebbe chi prima non
-  poteva.
 
 ## Area 11 — Documentazione di prodotto
 
@@ -201,6 +197,11 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   (`objectGone`) e lo standup la nominano — commit «feat(server): elimina task
   (F3.0, server)» e «feat(desktop): elimina task (F3.0, renderer)»,
   `apps/desktop/docs/integration-claude-chat.md`.
+- Le sessioni dell'agente di una task eliminata se ne vanno con lei *(M,
+  decisione del maintainer del 10 nov 2026; il prototipo le tiene)*: la loro
+  visibilità passa dal ticket (R26). Il dialogo lo dice: «Anche il lavoro di
+  Claude su questa task (sessioni, piano, domande) viene eliminato; restano i
+  consumi e il registro decisioni».
 
 - Chat con Claude, **fette 1 e 2** *(O)*: conversazioni libere private sul
   server (sessioni `free`, 0126–0128), turni a sola lettura col token del turno

@@ -230,6 +230,33 @@ describe("cosa se ne va, cosa resta", () => {
     expect(list.items.map((i) => i.id)).not.toContain(t.id);
   });
 
+  it("non riappare nella ricerca", async () => {
+    const t = await task(legacy.id, { title: "Zqxwvcercabile unica" });
+    const search = () =>
+      app.inject({ method: "GET", url: "/api/search?q=Zqxwvcercabile", headers: { cookie: u.adminCookie } });
+    const before = (await search()).json() as { tickets: { items: { id: string }[] } };
+    expect(JSON.stringify(before)).toContain(t.id);
+    expect((await del(t.id, legacy.headers.cookie)).statusCode).toBe(204);
+    const after = await search();
+    expect(after.statusCode).toBe(200);
+    expect(JSON.stringify(after.json())).not.toContain(t.id);
+    expect(JSON.stringify(after.json())).not.toContain("Zqxwvcercabile");
+  });
+
+  it("non riappare nella timeline del progetto (polso e brief)", async () => {
+    const t = await task(legacy.id, { title: "Nella timeline" });
+    const timeline = () =>
+      app.inject({ method: "GET", url: `/api/projects/${projectId}/timeline`, headers: { cookie: u.adminCookie } });
+    const before = await timeline();
+    expect(before.statusCode).toBe(200);
+    expect(JSON.stringify(before.json())).toContain(t.id);
+    expect((await del(t.id, legacy.headers.cookie)).statusCode).toBe(204);
+    const after = await timeline();
+    expect(after.statusCode).toBe(200);
+    expect(JSON.stringify(after.json())).not.toContain(t.id);
+    expect(JSON.stringify(after.json())).not.toContain("Nella timeline");
+  });
+
   it("i follower ricevono «task eliminata»; le notifiche restano senza link, con objectGone; consumi e registro decisioni restano", async () => {
     const t = await task(legacy.id);
     await testDb.db.insert(ticketFollowers).values({ ticketId: t.id, userId: legacyOther.id } as typeof ticketFollowers.$inferInsert);

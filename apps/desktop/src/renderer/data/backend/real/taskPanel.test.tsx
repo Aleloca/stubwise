@@ -321,6 +321,7 @@ describe("«Elimina task» nella build app (fetta 3.0 della chat)", () => {
     await ue.click(await screen.findByRole("menuitem", { name: "Delete task…" }));
     const dialog = await screen.findByRole("dialog", { name: "Delete AUD-12?" });
     expect(within(dialog).getByText("The code AUD-12 won't be used again.")).toBeInTheDocument();
+    expect(within(dialog).getByText(/Claude's work on this task \(sessions, plan, questions\) is deleted too/)).toBeInTheDocument();
     await ue.click(within(dialog).getByRole("button", { name: "Delete AUD-12" }));
     await waitFor(() => expect(seen.some((r) => r.method === "DELETE" && r.path === `/api/tasks/${TICKET_ID}`)).toBe(true));
   });

@@ -1,3 +1,4 @@
+import { serverDeletesClaudeWork } from "../../data/integration";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
@@ -164,6 +165,10 @@ export function DeleteTaskDialog({
               {t("task.delete.dialog.goes")}
             </h3>
             <p className="text-md text-pretty text-ink">{t("task.delete.dialog.goesLine")}</p>
+            {/* Sul server vero il lavoro di Claude se ne va con lei (maintainer, 10 nov 2026). */}
+            {serverDeletesClaudeWork() && (
+              <p className="text-md text-pretty text-ink">{t("task.delete.dialog.goesClaude")}</p>
+            )}
           </section>
           <section aria-labelledby={staysId} className="flex flex-col gap-1.5">
             <h3 id={staysId} className="heading-group">
