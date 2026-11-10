@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
+import { hashPassword } from "../auth/password.js";
 import { regenerateBackupCodes } from "../auth/second-factor/backup-codes.js";
 import { resetSecondFactor } from "../auth/second-factor/reset.js";
 import { createPatForUser } from "./pat.js";
@@ -71,7 +72,8 @@ describe("POST /api/auth/desktop-reauth", () => {
       .select()
       .from(securityEvents)
       .where(and(eq(securityEvents.userId, seeded.adminId), eq(securityEvents.kind, "reauth_desktop")));
-    expect(rows).toHaveLength(1);
+    // La riconferma (senza azione) e l'azione fatta con la finestra.
+    expect(rows.map((r) => r.detail).sort()).toEqual(["POST /api/users/:id/git-identities", null]);
     // Nessun avviso: la riga del registro basta (D4).
     const alerts = await testDb.db.select().from(notifications).where(eq(notifications.userId, seeded.adminId));
     expect(alerts.filter((a) => (a.event as { kind?: string }).kind === "security.alert")).toEqual([]);
@@ -160,5 +162,178 @@ describe("i codici sbagliati: il tetto e il blocco di sempre", () => {
     for (let i = 0; i < 4; i++) last = await reauth(bearer(desktop.token), "000000");
     expect(last.statusCode).toBe(423);
     expect(last.json()).toMatchObject({ code: "second_factor_locked" });
+  });
+});
+
+// Le rotte che rifiutavano un PAT nel loro handler (decisione del maintainer,
+// 10 nov 2026: «dal desktop si deve poter fare tutto quello che si fa dal
+// browser»): il PAT desktop passa SOLO con la finestra di riconferma; mobile e
+// manual mai, nemmeno con `second_factor_at` scritto a mano; scaduta = no.
+describe("le rotte aperte al PAT desktop riconfermato (la regola unica)", () => {
+  type Kind = "desktop" | "mobile" | "manual";
+  /** Un PAT di `kind` per `userId`, con la finestra aperta (`"open"`), scaduta (`"expired"`) o mai aperta. */
+  async function patWith(kind: Kind, window: "open" | "expired" | "none", userId = seeded.adminId) {
+    const p = await pat(kind, userId);
+    if (window !== "none") {
+      await testDb.db
+        .update(personalAccessTokens)
+        .set({ secondFactorAt: new Date(Date.now() - (window === "open" ? 1000 : 11 * 60 * 1000)) })
+        .where(eq(personalAccessTokens.id, p.id));
+    }
+    return p;
+  }
+
+  const challenge = "a".repeat(43);
+  const ROUTES: { name: string; call: (headers: Record<string, string>) => Promise<Awaited<ReturnType<typeof app.inject>>>; ok: number }[] = [
+    {
+      name: "POST /api/pats",
+      call: async (headers) => app.inject({ method: "POST", url: "/api/pats", headers, payload: { name: `dal desktop ${++n}` } }),
+      ok: 201,
+    },
+    {
+      name: "POST /api/auth/desktop-handoff",
+      call: async (headers) =>
+        app.inject({ method: "POST", url: "/api/auth/desktop-handoff", headers, payload: { codeChallenge: challenge, deviceName: "Altro Mac" } }),
+      ok: 200,
+    },
+    {
+      name: "POST /api/users/:id/password-reset",
+      call: async (headers) => app.inject({ method: "POST", url: `/api/users/${seeded.memberId}/password-reset`, headers }),
+      ok: 201,
+    },
+  ];
+
+  for (const route of ROUTES) {
+    it(`${route.name}: senza finestra reauth_required, con la finestra ok, scaduta no, mobile e manual mai`, async () => {
+      const none = await route.call(bearer((await patWith("desktop", "none")).token));
+      expect(none.statusCode, none.body).toBe(403);
+      expect(none.json()).toMatchObject({ code: "reauth_required" });
+
+      const open = await route.call(bearer((await patWith("desktop", "open")).token));
+      expect(open.statusCode, open.body).toBe(route.ok);
+
+      const expired = await route.call(bearer((await patWith("desktop", "expired")).token));
+      expect(expired.statusCode).toBe(403);
+      expect(expired.json()).toMatchObject({ code: "reauth_required" });
+
+      for (const kind of ["mobile", "manual"] as const) {
+        const other = await route.call(bearer((await patWith(kind, "open")).token));
+        expect(other.statusCode, `${route.name} ${kind}`).toBe(403);
+        expect(other.json()).toMatchObject({ code: "session_required" });
+      }
+    });
+  }
+
+  it("ogni azione fatta con la finestra lascia una riga reauth_desktop con l'azione, una sola", async () => {
+    const p = await patWith("desktop", "open");
+    const before = await testDb.db.select().from(securityEvents).where(eq(securityEvents.kind, "reauth_desktop"));
+    expect((await ROUTES[0]!.call(bearer(p.token))).statusCode).toBe(201);
+    expect((await ROUTES[1]!.call(bearer(p.token))).statusCode).toBe(200);
+    const after = await testDb.db.select().from(securityEvents).where(eq(securityEvents.kind, "reauth_desktop"));
+    const added = after.filter((r) => !before.some((b) => b.id === r.id)).map((r) => r.detail).sort();
+    expect(added).toEqual(["POST /api/auth/desktop-handoff", "POST /api/pats"]);
+  });
+
+  it("POST /api/auth/me/password: dal desktop riconfermato; il token resta ma perde la finestra, gli altri delle app cadono", async () => {
+    const [person] = await testDb.db
+      .insert(usersTable)
+      .values({ email: `pw-${randomBytes(3).toString("hex")}@example.com`, passwordHash: await hashPassword("vecchia-password-1"), role: "member" })
+      .returning({ id: usersTable.id });
+    const { fullSessionCookie } = await import("../test/fixtures.js");
+    await fullSessionCookie(app, person!.id);
+    const change = (token: string, currentPassword: string, newPassword: string) =>
+      app.inject({ method: "POST", url: "/api/auth/me/password", headers: bearer(token), payload: { currentPassword, newPassword } });
+
+    const none = await change((await patWith("desktop", "none", person!.id)).token, "vecchia-password-1", "nuova-password-22");
+    expect(none.json()).toMatchObject({ code: "reauth_required" });
+    const expired = await change((await patWith("desktop", "expired", person!.id)).token, "vecchia-password-1", "nuova-password-22");
+    expect(expired.json()).toMatchObject({ code: "reauth_required" });
+    for (const kind of ["mobile", "manual"] as const) {
+      const r = await change((await patWith(kind, "open", person!.id)).token, "vecchia-password-1", "nuova-password-22");
+      expect(r.statusCode, kind).toBe(403);
+      expect(r.json()).toMatchObject({ code: "session_required" });
+    }
+
+    const current = await patWith("desktop", "open", person!.id);
+    const sibling = await patWith("desktop", "open", person!.id);
+    const ok = await change(current.token, "vecchia-password-1", "nuova-password-22");
+    expect(ok.statusCode, ok.body).toBe(204);
+    const rows = await testDb.db.select().from(personalAccessTokens).where(eq(personalAccessTokens.userId, person!.id));
+    const kept = rows.find((r) => r.id === current.id);
+    expect(kept).toBeDefined();
+    expect(kept!.secondFactorAt).toBeNull();
+    expect(rows.find((r) => r.id === sibling.id)).toBeUndefined();
+    expect(rows.filter((r) => r.kind === "mobile")).toEqual([]);
+    expect(rows.some((r) => r.kind === "manual")).toBe(true);
+  });
+});
+
+describe("la cassaforte resta solo-browser (aperta per decisione, bloccata dallo sblocco PRF)", () => {
+  it("il PAT desktop riconfermato riceve session_required su ogni tipo di rotta della cassaforte", async () => {
+    const p = await pat("desktop");
+    await testDb.db
+      .update(personalAccessTokens)
+      .set({ secondFactorAt: new Date() })
+      .where(eq(personalAccessTokens.id, p.id));
+    for (const url of ["/api/vault/status", "/api/vault/pending", "/api/vault/keys/mine"]) {
+      const res = await app.inject({ method: "GET", url, headers: bearer(p.token) });
+      expect(res.statusCode, url).toBe(403);
+      expect(res.json(), url).toMatchObject({ code: "session_required" });
+    }
+  });
+
+  it("ogni rotta /api/vault dichiara browserOnly (anche quelle col solo gate della riconferma)", async () => {
+    // L'osservatore gira PRIMA dell'hook della cassaforte: si tiene l'oggetto
+    // della rotta e lo si legge a registrazione finita.
+    const seen: { url: string; config?: { browserOnly?: unknown } }[] = [];
+    const probe = buildApp({
+      onRoute: (route) => {
+        // `/api/vault/credentials` è di `credentials.ts`: il PAT «crea e
+        // sostituisce» di vault.md, con le sue regole (che non cambiano).
+        if (route.url.startsWith("/api/vault") && route.url !== "/api/vault/credentials") seen.push(route as never);
+      },
+    } as Parameters<typeof buildApp>[0]);
+    await probe.ready();
+    await probe.close();
+    expect(seen.length).toBeGreaterThan(10);
+    expect(seen.filter((r) => r.config?.browserOnly !== true).map((r) => r.url)).toEqual([]);
+  });
+
+  it("una rotta della cassaforte col SOLO gate della riconferma resta chiusa al desktop riconfermato", async () => {
+    const p = await pat("desktop");
+    await testDb.db
+      .update(personalAccessTokens)
+      .set({ secondFactorAt: new Date() })
+      .where(eq(personalAccessTokens.id, p.id));
+    const res = await app.inject({ method: "POST", url: "/api/vault/recovery/challenge", headers: bearer(p.token) });
+    expect(res.statusCode, res.body).toBe(403);
+    expect(res.json()).toMatchObject({ code: "session_required" });
+  });
+
+  it("la regola: browserOnly chiude anche il desktop riconfermato; la sessione passa", async () => {
+    const { browserOrConfirmedDesktop } = await import("../auth/access.js");
+    const desktop = { id: "u", patId: "p", patKind: "desktop", patSecondFactorAt: new Date() } as never;
+    expect(browserOrConfirmedDesktop(desktop)).toEqual({ ok: true, via: "desktop" });
+    expect(browserOrConfirmedDesktop(desktop, { browserOnly: true })).toEqual({ ok: false, code: "session_required" });
+    expect(browserOrConfirmedDesktop({ id: "u", sessionId: "s" } as never, { browserOnly: true })).toEqual({ ok: true, via: "session" });
+    // Le rotte aperte hanno anche il gate `config.reauth`, che ferma prima:
+    // la regola si prova anche da sola (è la difesa degli handler).
+    const old = new Date(Date.now() - 11 * 60 * 1000);
+    expect(browserOrConfirmedDesktop({ id: "u", patId: "p", patKind: "desktop", patSecondFactorAt: old } as never)).toEqual({
+      ok: false,
+      code: "reauth_required",
+    });
+    expect(browserOrConfirmedDesktop({ id: "u", patId: "p", patKind: "desktop", patSecondFactorAt: null } as never)).toEqual({
+      ok: false,
+      code: "reauth_required",
+    });
+    for (const kind of ["mobile", "manual"] as const) {
+      expect(browserOrConfirmedDesktop({ id: "u", patId: "p", patKind: kind, patSecondFactorAt: new Date() } as never), kind).toEqual({
+        ok: false,
+        code: "session_required",
+      });
+    }
+    // Il token del turno della chat: niente PAT, niente sessione.
+    expect(browserOrConfirmedDesktop({ id: "u", chatToolSessionId: "c" } as never)).toEqual({ ok: false, code: "session_required" });
   });
 });

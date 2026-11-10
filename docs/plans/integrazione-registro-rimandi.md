@@ -155,6 +155,24 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   previsti dal server, da decidere col maintainer se servono.
 - Azioni di Claude dell'area 9 (membri, ruoli, impostazioni senza segreti), con
   la riconferma.
+- **Cassaforte dal desktop: aperta al desktop riconfermato per decisione del
+  maintainer, bloccata tecnicamente dallo sblocco PRF** *(M, 10 nov 2026)*. Il
+  maintainer vuole che dal desktop si faccia tutto quello che si fa dal
+  browser, cassaforte compresa (leggere, condividere, confermare). Ma la
+  chiave di una persona si apre solo nel client col segreto PRF di una
+  passkey, e dal desktop le passkey non ci sono (decisione D1 della
+  riconferma). Le sfide (`vault_recovery_challenges`) sono poi legate alla
+  SESSIONE. Oggi quindi `vaultRoutes` è `config.browserOnly` e `credentials.ts`
+  tiene i suoi `session_required` (`docs/invariants/vault.md`). Le due strade:
+  - **la passkey nel browser, consegnata all'app**: un passaggio come il login
+    del desktop, che porta il segreto PRF (o la chiave aperta) all'app per la
+    durata della finestra;
+  - **un secondo modo di sbloccare** la chiave dal desktop (per esempio una
+    chiave del dispositivo sigillata alla prima apertura nel browser): è un
+    cambio d'invariante della cassaforte («non esiste un secondo
+    meccanismo»), da decidere col maintainer.
+  Con l'una o l'altra servono anche le sfide legate al PAT (`pat_id` in
+  alternativa a `session_id`, con un CHECK) e la rimozione di `browserOnly`.
 
 ## Area 10 — Integrazione di Claude
 
@@ -202,8 +220,10 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   costruita (0132). Il codice si scrive dentro l'app (`POST
   /api/auth/desktop-reauth`, solo un PAT `desktop`), e la finestra di 10 minuti
   vale su tutte le rotte con `config.reauth`. Niente passkey dal desktop.
-  Restano chiuse al PAT, anche riconfermato, le rotte che lo rifiutano nel loro
-  handler per un'invariante a sé (token che coniano token, cassaforte).
+  Con la seconda decisione dello stesso giorno, la regola unica
+  (`browserOrConfirmedDesktop`) vale anche negli handler: aperti PAT,
+  desktop-handoff, il link di reset altrui e la propria password. Resta fuori
+  solo la cassaforte, bloccata dallo sblocco PRF (voce nell'area 9).
 - **Elimina task** *(M, 10 nov 2026)* e lo standup «`tasksDeleted` sempre
   vuoto» *(S)*: eliminazione vera (0130, lapide `deleted_tickets`, FK decise,
   numero mai riusato, chi lo decide il server, `busy`), «Delete task…» nella

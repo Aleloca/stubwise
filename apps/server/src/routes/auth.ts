@@ -3,7 +3,7 @@ import { and, count, desc, eq, gt, isNull, lte, ne, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import { projectPermissionsMap } from "../auth/access.js";
+import { projectPermissionsMap, requireBrowserOrConfirmedDesktop } from "../auth/access.js";
 import { hashPassword, verifyPassword } from "../auth/password.js";
 import {
   findLiveResetToken,
@@ -22,7 +22,7 @@ import {
   toSessionUser,
 } from "../auth/session.js";
 import type { SessionUserColumns } from "../auth/session.js";
-import { invites, passwordResetTokens, roles, sessions, users } from "@stubwise/db";
+import { invites, passwordResetTokens, personalAccessTokens, roles, sessions, users } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import {
   authUserResponseSchema,
@@ -898,15 +898,12 @@ export async function authRoutes(
     },
     async (request, reply) => {
       const me = request.user!;
-      const sessionId = sessionIdFromRequest(request);
-      if (me.patId !== undefined || !sessionId) {
-        return apiError(
-          reply,
-          403,
-          "session_required",
-          "Changing the password requires a browser session",
-        );
+      // Dal browser, o dal PAT desktop riconfermato (decisione del maintainer,
+      // 10 nov 2026). Con un PAT non c'è un cookie: `sessionId` resta null.
+      if (!(await requireBrowserOrConfirmedDesktop(request, reply, "Changing the password requires a browser session"))) {
+        return reply;
       }
+      const sessionId = me.patId === undefined ? sessionIdFromRequest(request) : null;
       const [row] = await app.db
         .select({ passwordHash: users.passwordHash })
         .from(users)
@@ -917,14 +914,19 @@ export async function authRoutes(
       const passwordHash = await hashPassword(request.body.newPassword);
       await app.db.transaction(async (tx) => {
         await tx.update(users).set({ passwordHash }).where(eq(users.id, me.id));
+        // Le sessioni tranne quella corrente (dal desktop non ce n'è una: tutte).
         await tx
           .delete(sessions)
-          .where(and(eq(sessions.userId, me.id), ne(sessions.id, sessionId)));
-        // Tutti i token dell'app: oggi il cambio arriva solo dal browser (un
-        // PAT è rifiutato sopra), quindi non c'è un token «corrente» da
-        // risparmiare. Se un giorno l'app potrà cambiare la password, qui va
-        // passato `me.patId` come eccezione.
-        await revokeMobilePats(tx, me.id);
+          .where(sessionId ? and(eq(sessions.userId, me.id), ne(sessions.id, sessionId)) : eq(sessions.userId, me.id));
+        // I token delle app tranne quello che sta cambiando la password (il
+        // desktop riconfermato), che resta ma perde la finestra di riconferma.
+        await revokeMobilePats(tx, me.id, me.patId);
+        if (me.patId !== undefined) {
+          await tx
+            .update(personalAccessTokens)
+            .set({ secondFactorAt: null })
+            .where(eq(personalAccessTokens.id, me.patId));
+        }
         await revokePendingResetTokens(tx, me.id);
       });
       return reply.code(204).send(null);

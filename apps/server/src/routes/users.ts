@@ -1,4 +1,5 @@
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { requireBrowserOrConfirmedDesktop } from "../auth/access.js";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -263,17 +264,18 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const { id } = request.params;
-      // Solo dalla sessione del browser, come `POST /api/auth/me/password`: un
-      // PAT (MCP, script, il token dell'app) è una credenziale delegata, e chi
-      // lo ruba non deve poter prendersi l'account di un altro utente
-      // emettendo un link a nome dell'admin.
-      if (request.user!.patId !== undefined) {
-        return apiError(
+      // Dalla sessione del browser, o dal PAT desktop riconfermato (decisione
+      // del maintainer, 10 nov 2026): un PAT `mobile` o `manual` è una
+      // credenziale delegata, e chi lo ruba non deve poter prendersi l'account
+      // di un altro utente emettendo un link a nome dell'admin.
+      if (
+        !(await requireBrowserOrConfirmedDesktop(
+          request,
           reply,
-          403,
-          "session_required",
           "Password reset links can only be created from a browser session",
-        );
+        ))
+      ) {
+        return reply;
       }
       if (id === request.user!.id) {
         return apiError(

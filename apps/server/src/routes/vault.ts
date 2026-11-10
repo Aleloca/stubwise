@@ -83,6 +83,13 @@ const LIVE = ["pending", "confirmed"] as const;
  * basta (403 `vault_proof_invalid`, nulla cambia).
  */
 export async function vaultRoutes(instance: FastifyInstance): Promise<void> {
+  // Tutta la cassaforte è solo-browser, anche per il PAT desktop riconfermato
+  // (10 nov 2026): dal desktop la chiave non si sblocca (passkey con PRF).
+  // Aperta al desktop per decisione del maintainer, bloccata tecnicamente:
+  // registro dei rimandi, area della cassaforte.
+  instance.addHook("onRoute", (route) => {
+    route.config = { ...(route.config ?? {}), browserOnly: true };
+  });
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   function isPat(user: SessionUser): boolean {

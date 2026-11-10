@@ -168,6 +168,8 @@ export const securityEventViewSchema = z.object({
   id: z.uuid(),
   kind: securityEventKindSchema,
   actorEmail: z.string().nullable(),
+  /** Solo `reauth_desktop`: l'azione fatta dal desktop («POST /api/pats»). Additivo. */
+  detail: z.string().nullable().default(null),
   createdAt: z.iso.datetime(),
 });
 export type SecurityEventView = z.infer<typeof securityEventViewSchema>;

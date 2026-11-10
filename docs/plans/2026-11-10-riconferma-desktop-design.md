@@ -7,8 +7,13 @@
 >   riconferma apre una finestra di 10 minuti su tutte le rotte sensibili per
 >   quel PAT `desktop`;
 > - **D2**: non si applica (nessuna approvazione nel browser);
-> - **D3**: nessuna rotta esclusa dal gate `config.reauth`;
-> - **D4**: una riga `reauth_desktop` nel registro di sicurezza, nessun
+> - **D3**: nessuna rotta esclusa, e (seconda decisione dello stesso giorno)
+>   nemmeno negli handler. Token, desktop-handoff, il link di reset altrui e
+>   la propria password sono aperti al PAT desktop riconfermato con una regola
+>   sola (`browserOrConfirmedDesktop`). La cassaforte è aperta per decisione ma
+>   bloccata tecnicamente dallo sblocco PRF (registro dei rimandi, area 9);
+> - **D4**: una riga `reauth_desktop` nel registro di sicurezza (la riconferma,
+>   e ogni azione fatta con la finestra, con l'azione), nessun
 >   `security.alert`.
 >
 > Costruita nella migrazione 0132. L'invariante sta in

@@ -27,6 +27,7 @@ import {
 } from "@stubwise/shared";
 import { projectPermissionsOfUser as notificationsProjectPermissionsOfUser } from "@stubwise/notifications";
 import { apiError } from "../errors.js";
+import { recordSecurityEvent } from "./second-factor/security-events.js";
 import { hasConfirmedTotp } from "./second-factor/totp.js";
 import { requireAuth, type SessionStage, type SessionUser } from "./session.js";
 
@@ -115,6 +116,13 @@ declare module "fastify" {
      * `route-access.test.ts`.
      */
     credentialDoor?: true;
+    /**
+     * Solo dal browser: nemmeno il PAT desktop riconfermato (10 nov 2026). La
+     * dichiara la cassaforte, che dal desktop non si sblocca (lo sblocco è una
+     * passkey con PRF, `docs/invariants/vault.md`). La legge
+     * {@link browserOrConfirmedDesktop}.
+     */
+    browserOnly?: true;
   }
   interface FastifyRequest {
     /** Impostato dall'hook globale sulle rotte `project`. */
@@ -390,7 +398,8 @@ async function applyReauth(
   // secondo fattore fatto con lui dentro l'app (`POST /api/auth/desktop-reauth`)
   // negli ultimi 10 minuti (decisione del maintainer, 10 nov 2026). `mobile` e
   // `manual` restano `session_required`, sempre.
-  const desktopPat = user.patId !== undefined && user.patKind === "desktop";
+  const browserOnly = request.routeOptions.config?.browserOnly === true;
+  const desktopPat = isDesktopPat(user) && !browserOnly;
   if (!desktopPat && (user.patId !== undefined || user.sessionId === undefined)) {
     await apiError(reply, 403, "session_required", "This action requires a browser session");
     return;
@@ -404,7 +413,79 @@ async function applyReauth(
   const at = desktopPat ? user.patSecondFactorAt : user.secondFactorAt;
   if (!at || Date.now() - at.getTime() > REAUTH_WINDOW_MS) {
     await apiError(reply, 403, "reauth_required", "Recent second factor confirmation required");
+    return;
   }
+  if (desktopPat) await recordDesktopReauthUse(request, user);
+}
+
+/** Il PAT dell'app desktop (`kind = 'desktop'`, dal login nel browser). */
+export function isDesktopPat(user: SessionUser): boolean {
+  return user.patId !== undefined && user.patKind === "desktop";
+}
+
+/**
+ * LA regola delle azioni che vogliono il browser (decisione del maintainer,
+ * 10 nov 2026: «dal desktop si deve poter fare tutto quello che si fa dal
+ * browser»). Passa una sessione del browser, o il PAT `desktop` dentro la sua
+ * finestra di riconferma (`POST /api/auth/desktop-reauth`, 10 minuti). Il PAT
+ * `mobile` e quello `manual` mai, e nemmeno il token del turno della chat.
+ * Senza finestra il desktop riceve `reauth_required`, così l'app apre
+ * «Confirm it's you»; gli altri `session_required`.
+ *
+ * La usano il gate `config.reauth` (`applyReauth`, con in più il controllo
+ * dell'app configurata) e le rotte che rifiutano un PAT nel loro handler
+ * (`requireBrowserOrConfirmedDesktop`). Una rotta che dichiara
+ * `config.browserOnly` (la cassaforte: dal desktop la chiave non si sblocca,
+ * `docs/invariants/vault.md`) resta solo-browser anche per il desktop.
+ */
+export function browserOrConfirmedDesktop(
+  user: SessionUser,
+  opts: { browserOnly?: boolean; now?: number } = {},
+): { ok: true; via: "session" | "desktop" } | { ok: false; code: "session_required" | "reauth_required" } {
+  const now = opts.now ?? Date.now();
+  if (user.patId === undefined) {
+    return user.sessionId !== undefined ? { ok: true, via: "session" } : { ok: false, code: "session_required" };
+  }
+  if (!isDesktopPat(user) || opts.browserOnly === true) return { ok: false, code: "session_required" };
+  const at = user.patSecondFactorAt;
+  return at && now - at.getTime() <= REAUTH_WINDOW_MS
+    ? { ok: true, via: "desktop" }
+    : { ok: false, code: "reauth_required" };
+}
+
+/**
+ * {@link browserOrConfirmedDesktop} con la risposta: `false` = la 403 è già
+ * partita. Una rotta che dichiara anche `config.reauth` ha già registrato
+ * l'uso della finestra nel gate; le altre lo registrano qui.
+ */
+export async function requireBrowserOrConfirmedDesktop(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  message = "This action requires a browser session",
+): Promise<boolean> {
+  const user = request.user!;
+  const verdict = browserOrConfirmedDesktop(user, { browserOnly: request.routeOptions.config?.browserOnly === true });
+  if (!verdict.ok) {
+    await apiError(
+      reply,
+      403,
+      verdict.code,
+      verdict.code === "reauth_required" ? "Recent second factor confirmation required" : message,
+    );
+    return false;
+  }
+  const declared = (request.routeOptions.config as { reauth?: RouteReauth } | undefined)?.reauth;
+  if (verdict.via === "desktop" && declared === undefined) await recordDesktopReauthUse(request, user);
+  return true;
+}
+
+/** Una riga `reauth_desktop` con l'azione: quale rotta il PAT desktop ha fatto con la finestra. */
+async function recordDesktopReauthUse(request: FastifyRequest, user: SessionUser): Promise<void> {
+  await recordSecurityEvent(request.server.db, {
+    kind: "reauth_desktop",
+    user,
+    detail: `${request.method} ${request.routeOptions.url ?? request.url.split("?")[0]}`,
+  });
 }
 
 export type ProjectAccessResult =
