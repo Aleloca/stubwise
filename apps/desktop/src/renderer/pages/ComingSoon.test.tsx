@@ -203,6 +203,7 @@ const INTEGRATED_CALLS = new Set([
   "startRefineConversation",
   "closeRefine",
   "listDailyReports",
+  "generateDailyReport",
   "recordDecision",
   "setDecisionSuperseded",
   "getLatestBrief",

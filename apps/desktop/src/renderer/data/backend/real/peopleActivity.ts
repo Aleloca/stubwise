@@ -34,22 +34,42 @@ export const listPeopleActivity: typeof Fake.listPeopleActivity = async (date, d
 
 /**
  * I report del giorno dei progetti visibili: fatti (la sintesi) o falliti
- * (`summary: null`); quelli ancora in coda o in scrittura non ci sono. Il
- * server non dice quando è stato scritto (`generatedAt: null`), ma quanti
- * commit sono arrivati dopo (`staleCommitCount`).
+ * (`summary: null`); quelli in coda o in scrittura `pending` (la riga dice
+ * che si stanno generando). Il server non dice quando è stato scritto
+ * (`generatedAt: null`), ma quanti commit sono arrivati dopo.
  */
 export const listDailyReports: typeof Fake.listDailyReports = async (date) =>
-  (await appClient().activity.forDate(date)).projects.flatMap((p) =>
-    p.status === "done" || p.status === "failed"
-      ? [
-          {
-            id: `${p.project.id}:${date}`,
-            projectId: p.project.id,
-            date,
-            summary: p.status === "done" ? p.summary : null,
-            generatedAt: null,
-            newCommits: p.staleCommitCount,
-          },
-        ]
-      : [],
-  );
+  (await appClient().activity.forDate(date)).projects.flatMap((p) => {
+    const base = {
+      id: `${p.project.id}:${date}`,
+      projectId: p.project.id,
+      date,
+      generatedAt: null,
+      newCommits: p.staleCommitCount,
+    };
+    if (p.status === "done") return [{ ...base, summary: p.summary }];
+    if (p.status === "failed") return [{ ...base, summary: null }];
+    if (p.status === "queued" || p.status === "running") return [{ ...base, summary: null, newCommits: 0, pending: true }];
+    return [];
+  });
+
+/** La generazione in corso per giorno: più progetti, una chiamata sola. */
+const generating = new Map<string, Promise<unknown>>();
+
+/**
+ * «Rigenera i report»: sul server vero vale per TUTTI i progetti del giorno
+ * (`POST /api/activity/generate`, `settings.manage`), non per uno come nel
+ * prototipo. Più progetti chiesti insieme fanno una chiamata sola; i report
+ * nascono in coda, e le letture li mostrano in scrittura finché non ci sono.
+ */
+export const generateDailyReport: typeof Fake.generateDailyReport = async (projectId, date) => {
+  let call = generating.get(date);
+  if (!call) {
+    call = appClient()
+      .request("POST", "/api/activity/generate", { date, force: true })
+      .finally(() => generating.delete(date));
+    generating.set(date, call);
+  }
+  await call;
+  return { id: `${projectId}:${date}`, projectId, date, summary: null, generatedAt: null };
+};

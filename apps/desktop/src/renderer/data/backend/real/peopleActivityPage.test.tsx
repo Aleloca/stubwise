@@ -46,6 +46,7 @@ function install(instancePermissions: string[]) {
         },
       ],
     },
+    "POST /api/activity/generate": { body: { queued: 1 } },
     "GET /api/activity": {
       // Nessun report del giorno: il prototipo offrirebbe «Generate report».
       body: { date: "2026-10-23", projects: [] },
@@ -65,17 +66,21 @@ afterEach(() => {
 });
 
 describe("«By person» nella build app", () => {
-  it("col permesso dal server: la rassegna del giorno; niente «Generate report» né «Link a person»", async () => {
+  it("col permesso dal server: la rassegna del giorno; rigenerare vale per tutti i progetti; niente «Link a person»", async () => {
     const seen = install(["people.activity.view", "settings.manage", "users.manage"]);
     renderRoute("/projects?view=person");
     expect(await screen.findByRole("radio", { name: "By person" })).toBeInTheDocument();
     expect(await screen.findByText("Ada")).toBeInTheDocument();
     expect(await screen.findByText(/bot@ci\.example/)).toBeInTheDocument();
     await waitFor(() => expect(seen.some((r) => r.path.startsWith("/api/people/activity?date="))).toBe(true));
-    // Espansa la persona, la riga del report c'è («non generato») ma senza «Generate report».
+    // Espansa la persona, la riga del report c'è («non generato»): il gesto dice che vale per tutti i progetti.
     fireEvent.click(screen.getAllByRole("button", { name: "Expand all" })[0]!);
     expect((await screen.findAllByText("Daily report: not generated")).length).toBeGreaterThan(0);
     expect(screen.queryByRole("button", { name: "Generate report" })).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Regenerate the reports of all projects for that day" })[0]!);
+    await waitFor(() =>
+      expect(seen.filter((r) => r.method === "POST" && r.path === "/api/activity/generate")).toHaveLength(1),
+    );
     expect(screen.queryByRole("button", { name: "Link a person" })).toBeNull();
   });
 

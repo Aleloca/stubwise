@@ -2441,7 +2441,8 @@
         "stale_one": "{{count}} commit nuovo non incluso",
         "stale_other": "{{count}} commit nuovi non inclusi",
         "regenerate": "Rigenera",
-        "regenerateOf": "Rigenera il report giornaliero di {{code}}"
+        "regenerateOf": "Rigenera il report giornaliero di {{code}}",
+        "generateAll": "Rigenera i report di tutti i progetti di quel giorno"
       },
       "states": {
         "loading": "Caricamento della rassegna",

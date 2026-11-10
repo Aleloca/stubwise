@@ -308,9 +308,9 @@ export function PeopleActivity({
   const [generating, setGenerating] = useState<ReadonlySet<string>>(new Set());
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
-  // Nella build app il server rigenera i report di tutti i progetti insieme
-  // (`POST /api/activity/generate`), non di uno: il gesto per progetto è spento.
-  const canGenerate = can(viewer, "settings.manage") && featureIntegrated("daily-report-generate");
+  // Nella build app il server rigenera i report di TUTTI i progetti del giorno
+  // (`POST /api/activity/generate`): il bottone lo dice (`generateAll`).
+  const canGenerate = can(viewer, "settings.manage");
 
   // `[` e `]` cambiano giorno, J/K passano fra le persone. Niente scrivendo,
   // né con un dialogo o un menu aperti.
@@ -360,6 +360,7 @@ export function PeopleActivity({
         if (generating.has(projectId)) return "generating";
         const report = byProject.get(projectId);
         if (!report) return "missing";
+        if (report.pending) return "generating";
         return report.summary === null ? "failed" : "ready";
       },
       newCommitsOf: (projectId) =>
@@ -694,6 +695,8 @@ function ReportCell({
     return s === "missing" || s === "failed" || s === "off";
   });
   const single = projectIds.length === 1 ? projects.get(projectIds[0]!) : undefined;
+  // Il prototipo genera il report di un progetto; il server quelli di tutti i progetti del giorno.
+  const perProject = featureIntegrated("daily-report-per-project");
   // Un report pronto ma scritto prima degli ultimi commit del giorno: lo dice, e si rigenera.
   const stale = projectIds.filter(
     (id) => reports.stateOf(id) === "ready" && reports.newCommitsOf(id) > 0,
@@ -734,9 +737,9 @@ function ReportCell({
           title={state === "off" ? t("projectEffects.report.generateTitle") : undefined}
           onClick={() => reports.generate(todo)}
         >
-          {t(
-            state === "failed" ? "projects.people.report.retry" : "projects.people.report.generate",
-          )}
+          {perProject
+            ? t(state === "failed" ? "projects.people.report.retry" : "projects.people.report.generate")
+            : t("projects.people.report.generateAll")}
         </button>
       )}
       {/* Per progetto: con più progetti il codice dice di quale report si parla. */}
@@ -752,12 +755,14 @@ function ReportCell({
             <button
               type="button"
               className={ghostButton}
-              aria-label={t("projects.people.report.regenerateOf", {
-                code: projects.get(id)?.code ?? "",
-              })}
+              aria-label={
+                perProject
+                  ? t("projects.people.report.regenerateOf", { code: projects.get(id)?.code ?? "" })
+                  : t("projects.people.report.generateAll")
+              }
               onClick={() => reports.generate([id])}
             >
-              {t("projects.people.report.regenerate")}
+              {perProject ? t("projects.people.report.regenerate") : t("projects.people.report.generateAll")}
             </button>
           )}
         </span>

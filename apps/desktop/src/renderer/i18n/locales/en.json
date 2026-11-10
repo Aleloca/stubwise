@@ -2441,7 +2441,8 @@
         "stale_one": "{{count}} new commit not included",
         "stale_other": "{{count}} new commits not included",
         "regenerate": "Regenerate",
-        "regenerateOf": "Regenerate the daily report of {{code}}"
+        "regenerateOf": "Regenerate the daily report of {{code}}",
+        "generateAll": "Regenerate the reports of all projects for that day"
       },
       "states": {
         "loading": "Loading the review",
