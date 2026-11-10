@@ -97,6 +97,23 @@ describe("registro decisioni: «superata da»", () => {
     expect((await testDb.db.select({ id: projectDecisions.id }).from(projectDecisions)).length).toBe(before);
   });
 
+  it("due «superata da» incrociati in parallelo (A da B, B da A): mai un giro, uno dei due 400", async () => {
+    for (let round = 0; round < 8; round += 1) {
+      const a = await decision(projectId, `Giro A${round}`);
+      const b = await decision(projectId, `Giro B${round}`);
+      const patch = (id: string, by: string) =>
+        app.inject({
+          method: "PATCH",
+          url: `/api/projects/${projectId}/decisions/${id}`,
+          headers: { cookie: users.adminCookie },
+          payload: { supersededById: by },
+        });
+      const [ab, ba] = await Promise.all([patch(a, b), patch(b, a)]);
+      expect([ab.statusCode, ba.statusCode].sort()).toEqual([200, 400]);
+      expect([await supersededByOf(a), await supersededByOf(b)].filter((x) => x !== null)).toHaveLength(1);
+    }
+  });
+
   it("un «superata da» che chiuderebbe un giro → 400 decision_cycle, e il legame non cambia", async () => {
     const a = await decision(projectId, "A");
     const b = await decision(projectId, "B", { supersedesId: a });
