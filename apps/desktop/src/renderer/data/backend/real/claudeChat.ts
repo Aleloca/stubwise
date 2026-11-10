@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { claudeVisibilityConfirmationSchema } from "@stubwise/shared";
 import type {
   ClaudeConversation,
   ClaudeConversationContext,
@@ -176,25 +177,32 @@ export function forgetChatCaches(): void {
 
 export function toConversation(v: View): Conversation {
   freeIdsFor().add(v.id);
+  const published = v.publishedProjects.map((p) => p.id);
+  const held = v.heldProjects.map((p) => p.id);
   return {
     id: v.id,
     kind: "free",
     title: v.title,
-    // Privata: solo l'autore la vede, quindi è chi guarda.
-    ownerId: session.personId ?? "",
+    // L'autore dal server (fetta 5); da un server più vecchio la conversazione
+    // è privata, quindi di chi guarda.
+    ownerId: v.author?.id ?? (v.isOwner ? (session.personId ?? "") : ""),
     projectId: null,
     contextProjectId: contextProjectOf(v.context),
     taskId: null,
     requestId: null,
     state: stateOf(v.state),
     outcome: null,
-    visibility: "private",
-    publishedAt: null,
-    publishedById: null,
-    touchedProjectIds: [],
-    privateFromIndex: null,
-    publishedProjectIds: [],
-    continuesFromId: null,
+    visibility: v.visibility === "public" ? "public" : "private",
+    publishedAt: v.publishedAt,
+    publishedById: v.publishedBy?.id ?? null,
+    // I progetti che chi guarda vede: quelli confermati e, per l'autore, i
+    // NUOVI del seguito privato (da riconfermare).
+    touchedProjectIds: [...published, ...held.filter((id) => !published.includes(id))],
+    // Il server non dà l'indice: la pagina guarda solo se c'è un seguito
+    // privato da riconfermare (l'autore, `heldProjects`).
+    privateFromIndex: v.isOwner && held.length > 0 ? 0 : null,
+    publishedProjectIds: published,
+    continuesFromId: v.continuesFrom?.id ?? null,
     createdAt: v.createdAt,
     updatedAt: v.lastEventAt && v.lastEventAt > v.updatedAt ? v.lastEventAt : v.updatedAt,
     archived: v.archived,
@@ -207,7 +215,7 @@ export function toFreeRow(v: View): ConversationRow {
     ...c,
     objectCode: null,
     activity: c.state === "working" ? { kind: "action", label: "" } : null,
-    privateTail: false,
+    privateTail: !v.isOwner && v.privateTail,
     waitsOnViewer: false,
   };
 }
@@ -217,10 +225,24 @@ export function toFreeRow(v: View): ConversationRow {
 const MINE_PAGES = 5;
 
 export async function listMine(archived: boolean): Promise<ConversationRow[]> {
+  return listScope("mine", archived);
+}
+
+/** Le pubbliche di altri (fetta 5): le dà il server, con `claude.public.view`. */
+export async function listPublic(): Promise<ConversationRow[]> {
+  return listScope("public", false);
+}
+
+async function listScope(scope: "mine" | "public", archived: boolean): Promise<ConversationRow[]> {
   const rows: ConversationRow[] = [];
   let before: string | undefined;
   for (let page = 0; page < MINE_PAGES; page++) {
-    const list = await appClient().claude.conversations.list({ archived, limit: 100, ...(before ? { before } : {}) });
+    const list = await appClient().claude.conversations.list({
+      scope,
+      archived,
+      limit: 100,
+      ...(before ? { before } : {}),
+    });
     rows.push(...list.items.map(toFreeRow));
     if (!list.nextCursor) break;
     before = list.nextCursor;
@@ -248,6 +270,51 @@ export const archiveConversation: typeof Fake.archiveConversation = async (id, a
 
 export const deleteConversation: typeof Fake.deleteConversation = async (id) => {
   await call(() => appClient().claude.conversations.remove(id));
+};
+
+/**
+ * «Make public» / «Make private» (fetta 5, solo l'autore). La prima
+ * pubblicazione risponde 409 `needs_confirmation` coi progetti letti o
+ * toccati (alla riconferma di un seguito privato, solo i nuovi) e se la
+ * conversazione ha letture dei tool: il dialogo lo dice.
+ */
+export const setVisibility: typeof Fake.setVisibility = async (id, visibility, options = {}) => {
+  try {
+    const view = await appClient().claude.conversations.setVisibility(id, {
+      visibility,
+      ...(options.confirmedProjectIds ? { confirmedProjectIds: options.confirmedProjectIds } : {}),
+    });
+    return { status: "done", conversation: toConversation(view) };
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "needs_confirmation") {
+      const confirmation = claudeVisibilityConfirmationSchema.safeParse(error.details);
+      if (confirmation.success) {
+        return {
+          status: "needs_confirmation",
+          touchedProjects: confirmation.data.projects.map((p) => ({ id: p.id, code: p.code, name: p.name })),
+          includesToolReads: confirmation.data.includesToolReads,
+          reconfirm: confirmation.data.reconfirm,
+        };
+      }
+    }
+    if (error instanceof ApiError && error.status === 403) throw new Error("forbidden");
+    return call(() => Promise.reject(error));
+  }
+};
+
+/**
+ * «Continue» (fetta 5): una pubblica di un altro diventa una conversazione
+ * NUOVA, privata, di chi chiama; Claude da lì legge e propone come lui.
+ */
+export const continueConversation: typeof Fake.continueConversation = async (publicId) => {
+  try {
+    return toConversation(await appClient().claude.conversations.continue(publicId));
+  } catch (error) {
+    // La propria, o una che non si continua (privata nel frattempo, archiviata).
+    if (error instanceof ApiError && error.status === 409 && error.code !== "budget_exhausted")
+      throw new Error("invalid: not_public");
+    return call(() => Promise.reject(error));
+  }
 };
 
 export const setConversationContext: typeof Fake.setConversationContext = async (id, projectId) => {
@@ -414,22 +481,31 @@ export function freeDetailOf(
   events: ConversationDetail["events"],
 ): ConversationDetail {
   const row = toFreeRow(v);
+  // Fetta 5: chi legge una pubblica di un altro la legge e basta (la
+  // continua); da un server più vecchio `isOwner` vale true.
+  const owner = v.isOwner;
   return {
     ...row,
-    isOwner: true,
-    canWrite: v.session.canWrite && !v.archived,
-    canInterrupt: v.session.canInterrupt && !v.archived,
+    isOwner: owner,
+    canWrite: owner && v.session.canWrite && !v.archived,
+    canInterrupt: owner && v.session.canInterrupt && !v.archived,
     canAnswer: false,
     canDecidePlan: false,
     canRejectPlan: false,
     canPreApprovePlan: false,
     canRevokePlanApproval: false,
     planPreApproved: false,
-    canContinue: false,
-    canManage: true,
+    canContinue: !owner && v.canContinue,
+    canManage: owner,
     canClose: false,
     canStartNew: false,
-    readOnlyReason: v.archived ? "archived" : v.session.canWrite ? null : "not_interactive",
+    readOnlyReason: !owner
+      ? "not_owner"
+      : v.archived
+        ? "archived"
+        : v.session.canWrite
+          ? null
+          : "not_interactive",
     planBlockedReason: null,
     events,
     continuesFrom: null,

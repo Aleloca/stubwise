@@ -104,7 +104,7 @@ describe("le sessioni di lavoro dal server", () => {
     ]);
   });
 
-  it("«mine» legge le proprie conversazioni libere; «public» non legge niente (fetta a sé)", async () => {
+  it("«mine» legge le proprie conversazioni libere; «public» le pubbliche di altri (fetta 5)", async () => {
     const { seen } = installFakeServer({
       "GET /api/claude/conversations": {
         body: {
@@ -127,8 +127,8 @@ describe("le sessioni di lavoro dal server", () => {
       { id: SESSION_ID, kind: "free", title: "Who follows AUD-12?", contextProjectId: "p1", state: "working", visibility: "private" },
     ]);
     expect(seen.map((r) => r.path)).toEqual(["/api/claude/conversations?scope=mine&limit=100"]);
-    expect(await listConversations({ scope: "public" })).toEqual([]);
-    expect(seen).toHaveLength(1);
+    await listConversations({ scope: "public" });
+    expect(seen.map((r) => r.path).at(-1)).toBe("/api/claude/conversations?scope=public&limit=100");
   });
 
   it("il dettaglio: gli eventi tradotti, tutto in lettura; una sessione invisibile è null", async () => {

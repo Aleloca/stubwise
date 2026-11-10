@@ -22,7 +22,7 @@ import type {
   ConversationState,
   Outcome,
 } from "../../types";
-import { freeDetailOf, listMine } from "./claudeChat";
+import { freeDetailOf, listMine, listPublic } from "./claudeChat";
 import {
   chatActionEvents,
   forgetPageStatuses,
@@ -167,9 +167,9 @@ export function toRow(s: Summary, codes: Map<string, string>, paused = false): C
  * tetto vale anche con `includeOlder`). La chat libera non è integrata.
  */
 export const listConversations: typeof Fake.listConversations = async (filter) => {
-  // Le proprie conversazioni libere (chat, fetta 2); le pubbliche sono una fetta a sé.
+  // Le proprie conversazioni libere (chat, fetta 2) e le pubbliche di altri (fetta 5).
   if (filter.scope === "mine") return listMine(filter.archived === true);
-  if (filter.scope === "public") return [];
+  if (filter.scope === "public") return listPublic();
   const serverKind = filter.kind ? SERVER_KIND_OF[filter.kind] : undefined;
   if (filter.kind === "free") return [];
   const [list, codes] = await Promise.all([
@@ -534,11 +534,31 @@ export const getConversation: typeof Fake.getConversation = async (id) => {
     const nameOf = (personId: string) => people.find((p) => p.id === personId)?.name ?? null;
     // Le schede e le righe delle azioni di Claude (fetta 3): derivate dalle viste del server.
     const flow = withChatActionEvents(eventsOf(conversation.session, events, {}, null), chatActionEvents(events, actions));
-    return { ...freeDetailOf(conversation, flow), undo: undoViewsOf(actions.groups, nameOf) };
+    return {
+      ...freeDetailOf(conversation, flow),
+      continuesFrom: await originOf(conversation.continuesFrom),
+      undo: undoViewsOf(actions.groups, nameOf),
+    };
   }
   const [events, plan, codes] = await Promise.all([readEvents(id), planOf(detail), projectCodes()]);
   return toDetail(detail, codes, eventsOf(detail, events, {}, plan));
 };
+
+/**
+ * La pubblica da cui continua una conversazione (fetta 5), letta DAL VIVO e
+ * come la vede chi continua (la proiezione del server): mai copiata. Non più
+ * visibile, o eliminata: `available: false`, senza titolo né eventi.
+ */
+async function originOf(
+  from: { id: string; available: boolean } | null,
+): Promise<NonNullable<Awaited<ReturnType<typeof Fake.getConversation>>>["continuesFrom"]> {
+  if (!from) return null;
+  const gone = { id: from.id, available: false as const, title: null, ownerId: null, events: [] as [] };
+  if (!from.available) return gone;
+  const origin = await getConversation(from.id).catch(() => null);
+  if (!origin) return gone;
+  return { id: from.id, available: true, title: origin.title, ownerId: origin.ownerId, events: origin.events };
+}
 
 // --- il lavoro di una task ------------------------------------------------------------
 
