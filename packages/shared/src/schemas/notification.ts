@@ -719,6 +719,12 @@ export const inboxItemSchema = z.object({
    * senza ticket. `.optional()`: un server più vecchio non lo manda.
    */
   taskCode: z.string().nullable().optional(),
+  /**
+   * La task della card è stata ELIMINATA («Elimina task», fetta 3.0 della
+   * chat): derivato a lettura dalla lapide, mai scritto nell'evento. La card
+   * resta com'era, senza link (`url` assente) e con «Task eliminata».
+   */
+  objectGone: z.boolean().default(false),
   jobId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
   readAt: z.iso.datetime().nullable(),

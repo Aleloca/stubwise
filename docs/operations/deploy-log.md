@@ -3194,3 +3194,35 @@ deploy o di un rollback che la tocca.
   orfane, sessioni del CLI nate da più di 14 giorni, e le
   `-tmp-stubwise-chat-XXXXXX` dei turni di prima (cwd casuale per turno, mai
   riprese: nessun passo a mano). Rollback: la colonna resta inerte.
+- **«Elimina task» (10 nov 2026, chat con Claude, fetta 3.0)**: un'eliminazione
+  VERA delle task, come nel prototipo (`apps/desktop/.impeccable/shape/task-delete.md`).
+  `GET /api/tasks/:id/deletion` (l'anteprima: si può, perché no, cosa la
+  occupa, le figlie che restano) e `DELETE /api/tasks/:id`. Chi può lo decide
+  il server: l'autore con `tickets.edit`, o `tickets.moderate`. Una task con
+  lavoro di Claude non concluso, una PR aperta o una correzione aperta è
+  `busy` (409). Il codice non si riusa (`next_ticket_number` non scende).
+  Migrazione **0130**:
+  - la lapide `deleted_tickets` (codice, titolo, richiesta d'origine, chi,
+    quando; MAI descrizione, commenti, allegati, storia);
+  - `notifications.ticket_id`/`job_id` e `agent_runs.job_id` da CASCADE a SET
+    NULL: le notifiche restano, senza link e con `objectGone` derivato; i
+    consumi restano.
+  Le altre FK verso `tickets`, decise e scritte nel commento di
+  `deletedTickets` (schema.ts): le sessioni dell'agente della task se ne vanno
+  CON lei (la loro visibilità passa dal ticket), come job, commenti, storia,
+  allegati (e i file nello storage, tolti dopo il commit), collegamenti,
+  correzioni chiuse, gruppi d'errore. Nessun `notification_kind` nuovo: il
+  cambio `task_deleted` di `ticket.activity` (valore nuovo di un campo
+  dell'evento, che i client non validano come enum). Campi nuovi con default:
+  `objectGone` nelle card d'inbox, `deletedTaskCodes` nelle richieste. Env
+  nuove: nessuna.
+  **ORDINE**: (1) ⚠️ **BACKUP DEL DB, obbligatorio** (`pg_dump` prima di tutto:
+  da qui il server può cancellare righe in modo definitivo); (2) **`server`**
+  — applica 0130; aspetta healthy; verifica `select count(*) from
+  deleted_tickets;` = 0; (3) **`caddy`** (il renderer di `/app` con «Delete
+  task…»). Il worker non cambia.
+  **Rollback**: un server di prima ignora la lapide e i campi nuovi; le FK a
+  SET NULL restano (un server vecchio non elimina task, quindi non le
+  esercita). Le task già eliminate NON tornano: per riaverle serve il backup.
+  Con un server vecchio le card di una task eliminata tornano col link (un 404
+  aprendole). Le migrazioni non si annullano.

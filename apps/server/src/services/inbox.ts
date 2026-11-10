@@ -22,6 +22,7 @@
 import {
   aiJobs,
   calendarEvents,
+  deletedTickets,
   emailMessages,
   emailProposals,
   googleAccounts,
@@ -729,6 +730,8 @@ export interface InboxItem {
   ticketId: string | null;
   /** `<CODICE>-<number>` del ticket, derivato a lettura (integrazione area 2); null senza ticket. */
   taskCode: string | null;
+  /** La task della card è stata eliminata (dalla lapide, a lettura). */
+  objectGone: boolean;
   jobId: string | null;
   createdAt: Date;
   readAt: Date | null;
@@ -887,6 +890,15 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     db,
     page.map((r) => r.ticketId),
   );
+  // Le task ELIMINATE nominate dalle card («Elimina task»): dalla lapide, UNA
+  // query per pagina. Il jsonb porta ancora l'id; la colonna è già nulla.
+  const goneTickets = await deletedTicketIdsOf(
+    db,
+    page.flatMap((r) => {
+      const id = (r.event as { ticketId?: unknown }).ticketId;
+      return r.ticketId === null && typeof id === "string" ? [id] : [];
+    }),
+  );
   // L'estratto di un commento su una task seguita (integrazione area 2): MAI
   // dal jsonb (che porta solo `commentId`), dal commento — così un commento
   // eliminato non ha più testo nemmeno nell'inbox. UNA query per pagina.
@@ -960,11 +972,17 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     )
       ? [...baseActions.filter((a) => a === "answer"), "hand_to_project", ...baseActions.filter((a) => a !== "answer")]
       : baseActions;
+    const eventTicketId = (r.event as { ticketId?: unknown }).ticketId;
+    const objectGone = r.ticketId === null && typeof eventTicketId === "string" && goneTickets.has(eventTicketId);
+    // Una task eliminata non si apre: niente link alla sua pagina.
+    const { url: _url, ...withoutUrl } = rendered;
+    void _url;
     return {
       id: r.id,
       kind: r.kind,
       status: r.status,
-      ...rendered,
+      ...(objectGone ? withoutUrl : rendered),
+      objectGone,
       // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
       // (`ai_jobs.plan_summary`, `pr_reviews.pr_summary`) caricate in batch
       // sopra. Così una card mostra il riassunto anche quando è arrivato DOPO
@@ -994,6 +1012,17 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   });
 
   return { items, nextCursor, total };
+}
+
+/** Quali di questi id sono task eliminate (la lapide). UNA query. */
+async function deletedTicketIdsOf(db: Db, ids: readonly string[]): Promise<Set<string>> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return new Set();
+  const rows = await db
+    .select({ id: deletedTickets.id })
+    .from(deletedTickets)
+    .where(inArray(deletedTickets.id, unique));
+  return new Set(rows.map((r) => r.id));
 }
 
 /**

@@ -3,6 +3,7 @@ import {
   decisionRequestViewSchema,
   stalledTaskViewSchema,
   taskActivityEntryViewSchema,
+  taskDeletionPreviewSchema,
   taskListResponseSchema,
   taskViewSchema,
   taskWorkViewSchema,
@@ -15,6 +16,7 @@ import type {
   SetDayBody,
   StatusFamily,
   TaskActivityEntryView,
+  TaskDeletionPreviewView,
   TaskPatch,
   TaskSize,
   TaskViewData,
@@ -89,6 +91,14 @@ export function createTasksEndpoints(request: ApiRequest) {
     },
     byCode(code: string): Promise<Reader<TaskViewData>> {
       return request("GET", `/api/tasks/by-code/${seg(code)}`, undefined, taskViewSchema);
+    },
+    /** «Elimina task»: si può? perché no? cosa la occupa, le figlie che restano (lo calcola il server). */
+    deletion(ticketId: string): Promise<Reader<TaskDeletionPreviewView>> {
+      return request("GET", `/api/tasks/${seg(ticketId)}/deletion`, undefined, taskDeletionPreviewSchema);
+    },
+    /** Elimina la task: non si annulla. 403 `forbidden`, 404, 409 `busy` con le ragioni. */
+    remove(ticketId: string): Promise<void> {
+      return request("DELETE", `/api/tasks/${seg(ticketId)}`);
     },
     stalled(filters?: TaskListFilters) {
       return request("GET", `/api/tasks/stalled${taskListQuery(filters)}`, undefined, z.array(stalledTaskViewSchema));

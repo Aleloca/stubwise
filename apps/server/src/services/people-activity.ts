@@ -4,6 +4,7 @@ import {
   comments,
   commitSummaries,
   decisionRequests,
+  deletedTickets,
   departmentMembers,
   gitIdentities,
   projectDecisions,
@@ -45,9 +46,9 @@ import { personName } from "./people.js";
  * richiedente, un commit alla persona con la stessa email (altrimenti una riga
  * senza persona, col nome dell'autore).
  *
- * Limiti dichiarati: il server non tiene le task eliminate (`tasksDeleted`
- * vuoto) né dice se un cambio l'ha fatto Claude per una persona (`viaClaude`
- * falso).
+ * Le task eliminate vengono dalla lapide (`deleted_tickets`, «Elimina task»).
+ * Limite dichiarato: il server non dice ancora se un cambio l'ha fatto Claude
+ * per una persona (`viaClaude` falso, salvo l'eliminazione).
  */
 
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
@@ -274,6 +275,43 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
       closedOnce.add(e.taskId);
       row(owner).tasksClosed.push(ref);
     }
+  }
+  // Le task ELIMINATE del giorno, dalla lapide («Elimina task»): a chi le ha
+  // eliminate. Il richiedente non c'è più: le vede chi ha `tickets.view_all`
+  // nel progetto, o chi le ha eliminate.
+  const deletedRows = await db
+    .select({
+      taskId: deletedTickets.id,
+      number: deletedTickets.number,
+      title: deletedTickets.title,
+      projectId: deletedTickets.projectId,
+      projectCode: projects.code,
+      at: deletedTickets.deletedAt,
+      by: deletedTickets.deletedBy,
+      via: deletedTickets.viaClaudeActionId,
+    })
+    .from(deletedTickets)
+    .innerJoin(projects, eq(projects.id, deletedTickets.projectId))
+    .where(
+      and(
+        isNotNull(deletedTickets.deletedBy),
+        onDay(deletedTickets.deletedAt, date),
+        inProjects(deletedTickets.projectId, visible),
+        viewAll === "all"
+          ? undefined
+          : or(inProjects(deletedTickets.projectId, viewAll), eq(deletedTickets.deletedBy, viewer.id)),
+      ),
+    )
+    .orderBy(asc(deletedTickets.deletedAt), asc(deletedTickets.id));
+  for (const d of deletedRows) {
+    row(d.by!).tasksDeleted.push({
+      taskId: d.taskId,
+      code: code(d),
+      title: d.title,
+      projectId: d.projectId,
+      at: d.at.toISOString(),
+      viaClaude: d.via !== null,
+    });
   }
   for (const c of commentRows) {
     row(c.authorId!).comments.push({
