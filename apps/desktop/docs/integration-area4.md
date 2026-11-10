@@ -45,6 +45,6 @@ prototipo, con gli ingressi delle fette dopo spenti dietro flag
 | Scelta o limite | Chi ha deciso |
 |---|---|
 | Gli ingressi delle fette dopo spenti con flag di feature, ognuno con la sua fetta (2: `chat-dm`, `chat-private`, `chat-general`, `chat-search`, `chat-questions`, `chat-also-in-channel`, `chat-from-message`; 3: `chat-claude`; 4: `chat-events`, `chat-attachments`) | orchestratrice |
-| «Altri messaggi»: il prototipo chiede la pagina prima di un messaggio, il server dà un cursore opaco; si ricorda il cursore per il messaggio più vecchio della pagina letta (una pagina chiesta senza cursore ricordato non ha niente prima) | costruttore |
+| «Load earlier» e «vai al messaggio»: il prototipo alza `limit`; l'adapter chiede al server pagine da al più 200 e va avanti col cursore opaco `before` della pagina, accumulandole fino al `limit` (review della fetta 1: oltre 200 il server rispondeva 400). Verso un messaggio lontano si sale di 200; su un errore ci si ferma e la pagina lo dice, con «Retry» | costruttore (review) |
 | Il canale della Chat in «Browse»: due letture (attivi e archiviati), unite per id | costruttore |
-| Lo stream di un thread trova il canale della radice (già letto, o lo chiede): non c'è uno stream per thread | stubwise-72 (server) |
+| Lo stream: UNA connessione per canale, condivisa dai suoi thread (che trovano il canale della radice, riprovando col backoff); «arrivato» solo un messaggio più nuovo dell'ultimo visto (il server può ripeterne); le letture si rinfrescano solo se la vista del canale cambia; alla ripresa si rilegge la pagina; watchdog dei ping a 60 s anche sul web; il cursore dello stream lo dà il server (senza `after`, «adesso»), la pagina letta non ne ha uno da seminare | stubwise-72 (server), costruttore (review) |
