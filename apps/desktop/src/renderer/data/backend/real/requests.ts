@@ -146,11 +146,19 @@ function isTransient(error: unknown): boolean {
  * (`Error("aborted")`) quando `signal` scatta (il dialogo si smonta) o la
  * persona della sessione cambia.
  */
-export const createRequest: typeof Fake.createRequest = async (input, options) => {
+export const createRequest: typeof Fake.createRequest = (input, options) => createRequestWith(input, options);
+
+/** La creazione di una richiesta (con l'intake); con `chatMessageId` (area 4, fetta 2) nasce da un messaggio. */
+export async function createRequestWith(
+  input: Parameters<typeof Fake.createRequest>[0],
+  options?: Parameters<typeof Fake.createRequest>[1],
+  chatMessageId?: string,
+): ReturnType<typeof Fake.createRequest> {
   const { jobId } = await appClient().requests.create({
     projectId: input.projectId,
     title: input.title,
     description: input.description ?? "",
+    ...(chatMessageId ? { chatMessageId } : {}),
   });
   const person = session.personId;
   const stopped = () => options?.signal?.aborted === true || session.personId !== person;
@@ -177,7 +185,7 @@ export const createRequest: typeof Fake.createRequest = async (input, options) =
     await wait(POLL_MS);
   }
   throw new Error("intake_pending");
-};
+}
 
 const SUGGESTED = ["urgency", "size", "risk", "riskNote"] as const;
 

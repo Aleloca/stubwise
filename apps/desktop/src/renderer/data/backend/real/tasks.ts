@@ -194,7 +194,10 @@ export const bulkUpdateTasks: typeof Fake.bulkUpdateTasks = async (ids, patch) =
  * `todo` se non li si sceglie (lo decide il server). Una task creata qui non
  * va mai all'intake del backlog.
  */
-export const createTask: typeof Fake.createTask = async (input) => {
+export const createTask: typeof Fake.createTask = (input) => createTaskWith(input);
+
+/** La creazione di una task; con `chatMessageId` (area 4, fetta 2) nasce da un messaggio della Chat. */
+export async function createTaskWith(input: Parameters<typeof Fake.createTask>[0], chatMessageId?: string) {
   const view = await appClient().tasks.create({
     projectId: input.projectId,
     title: input.title,
@@ -208,9 +211,10 @@ export const createTask: typeof Fake.createTask = async (input) => {
     ...(input.plannedWeek !== undefined ? { plannedWeek: input.plannedWeek } : {}),
     ...(input.priority ? { priority: input.priority } : {}),
     ...(input.requestId ? { requestId: input.requestId } : {}),
+    ...(chatMessageId ? { chatMessageId } : {}),
   } as never);
   return toTask(view as TaskViewData);
-};
+}
 
 /**
  * La task com'è adesso, dopo una scrittura che non la restituisce. Si legge

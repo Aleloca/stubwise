@@ -7,19 +7,25 @@ import type {
   ChannelView,
   ChatMessageHit,
   ChatMessageView,
+  ChatQuestion,
   ThreadView,
   ThreadWithNews,
 } from "../../types";
+import { channelName } from "../../../domain/chatLabel";
 import { appClient, session } from "./client";
 import { partialNamespace } from "./notIntegrated";
+import { listPeople } from "./people";
+import { listProjects } from "./projects";
+import { createRequestWith } from "./requests";
+import { createTaskWith } from "./tasks";
 
 // La Chat fra persone nella build app (integrazione area 4, fetta 1): canali
 // di progetto e il «general», messaggi, thread a un livello, reazioni, letti,
 // preferenze, menzioni (`/api/chat`, schemi della F1.1). Chi vede, chi scrive e
 // chi gestisce lo dice il SERVER (le viste sono di chi guarda): qui si legge,
-// non si deduce. Restano «non integrati» i DM, i privati e i generali, la
-// ricerca e le domande (fetta 2), @Claude (fetta 3), gli eventi dei progetti e
-// gli allegati (fetta 4).
+// non si deduce. Dalla fetta 2 anche DM, privati e generali, la ricerca, le
+// domande e task e richieste da un messaggio. Restano «non integrati» @Claude
+// (fetta 3), gli eventi dei progetti e gli allegati (fetta 4).
 
 type Chat = typeof Fake.chat;
 type ServerChannel = Reader<ChatChannelView>;
@@ -27,6 +33,12 @@ type ServerMsg = Reader<ServerMessage>;
 
 /** I rifiuti del server negli errori del prototipo (`forbidden`, `not_found`, `invalid: …`). */
 const INVALID_OF: Record<string, string> = {
+  // Fetta 2.
+  invalid_members: "members",
+  cannot_leave: "last_member",
+  last_member: "last_member",
+  invalid_also_in_channel: "alsoInChannel",
+  chat_message_not_found: "deleted",
   channel_archived: "archived",
   general_channel: "general",
   name_taken: "name_taken",
@@ -102,20 +114,20 @@ function toChannelView(v: ServerChannel): ChannelView {
     // Gli eventi dei progetti nei canali sono della fetta 4.
     publishedEvents: [],
     createdAt: v.createdAt,
-    // Il server non manda un canale che chi guarda non legge.
-    canRead: true,
+    // Fetta 2: i permessi uno per uno, come `channelPermissions` del prototipo
+    // (un privato visto da chi lo gestisce senza esserne membro: `canRead` falso).
+    canRead: v.canRead,
     isMember: v.isMember,
     canWrite: v.canWrite,
     canJoin: v.canJoin,
     canLeave: v.canLeave,
-    canEditInfo: v.canManage,
-    canEditTopic: v.canManage,
-    canArchive: v.canManage,
-    canDelete: v.canManage,
-    // Fuori dalla fetta 1: inviti e rimozioni (i privati), gli eventi (fetta 4).
-    canEditEvents: false,
-    canInvite: false,
-    canRemove: false,
+    canEditInfo: v.canEditInfo,
+    canEditTopic: v.canEditTopic,
+    canArchive: v.canArchive,
+    canDelete: v.canDelete,
+    canEditEvents: v.canEditEvents,
+    canInvite: v.canInvite,
+    canRemove: v.canRemove,
     notifyLevel: v.level === "mentions" || v.level === "muted" ? v.level : "all",
   };
 }
@@ -143,12 +155,14 @@ export function toMessage(v: ServerMsg): ChatMessageView {
     kind: v.kind === "system" || v.kind === "claude" ? v.kind : "person",
     ...(v.calledById ? { calledById: v.calledById } : {}),
     text: v.deleted ? "" : v.text,
-    // Allegati, citazioni registrate, domande, codici legati: fette dopo.
+    // Allegati (fetta 4) e citazioni registrate (F2.7) ancora no.
     attachments: [],
     citations: [],
     reactions: v.reactions.map((r) => ({ emoji: r.emoji, personIds: [...r.personIds] })),
-    asksReplyOf: [],
-    linkedCodes: [],
+    asksReplyOf: [...v.asksReplyOf],
+    ...(v.alsoInChannel ? { alsoInChannel: true } : {}),
+    // Ciò che è nato dal messaggio, filtrato dal server per chi guarda.
+    linkedCodes: [...v.linkedCodes],
     createdAt: v.createdAt,
     editedAt: v.editedAt,
     deletedAt,
@@ -167,7 +181,7 @@ export function toMessage(v: ServerMsg): ChatMessageView {
         : null,
     answeredIds: [],
     mentionsViewer: v.mentionedIds.includes(me),
-    linkedRefs: [],
+    linkedRefs: v.linked.flatMap((l) => (l.kind === "task" || l.kind === "request" ? [{ kind: l.kind, id: l.id }] : [])),
   };
 }
 
@@ -283,9 +297,9 @@ const listMentions: Chat["listMentions"] = async () =>
 // --- scritture ------------------------------------------------------------------------------
 
 /**
- * Un messaggio: il testo e la radice del thread. Allegati, citazioni e «anche
- * nel canale» sono delle fette dopo; la domanda (`asksReply`) è della fetta 2.
- * Le menzioni le ricava il server dal testo.
+ * Un messaggio: il testo, la radice del thread, «anche nel canale» e la
+ * domanda forzata (fetta 2). Allegati e citazioni sono delle fette dopo. Le
+ * menzioni e chi deve rispondere li ricava il server dal testo.
  */
 const sendMessage: Chat["sendMessage"] = async (channelId, input) =>
   toMessage(
@@ -293,6 +307,8 @@ const sendMessage: Chat["sendMessage"] = async (channelId, input) =>
       appClient().chat.messages.send(channelId, {
         text: input.text,
         ...(input.threadOf ? { threadRootId: input.threadOf } : {}),
+        ...(input.alsoInChannel ? { alsoInChannel: true } : {}),
+        ...(input.asksReply ? { asksReply: true } : {}),
       }),
     ),
   );
@@ -335,23 +351,106 @@ const leaveChannel: Chat["leaveChannel"] = async (channelId) => {
   await call(() => appClient().chat.channels.leave(channelId));
 };
 
-/** Solo i canali APERTI di un progetto: privati e generali sono della fetta 2. */
-const createChannel: Chat["createChannel"] = async (input) => {
-  if (input.projectId === null || input.visibility !== "open")
-    throw new Error("invalid: visibility");
-  const projectId = input.projectId;
-  return toChannelView(
+// --- fetta 2 -----------------------------------------------------------------------------
+
+/** Il DM con queste persone (chi apre compreso o no): quello che c'è, o uno nuovo. */
+const openDm: Chat["openDm"] = async (personIds) =>
+  toChannelView(await call(() => appClient().chat.openDm(personIds)));
+
+const inviteMembers: Chat["inviteMembers"] = async (channelId, personIds) =>
+  toChannelView(await call(() => appClient().chat.channels.invite(channelId, personIds)));
+
+/** Toglie una persona; se chi agisce non vede più il canale (204), la sua ultima vista. */
+const removeMember: Chat["removeMember"] = async (channelId, personId) => {
+  const view = await call(() => appClient().chat.channels.removeMember(channelId, personId));
+  if (view) return toChannelView(view);
+  const now = await getChannel(channelId);
+  if (!now) throw new Error("not_found");
+  return now;
+};
+
+/** Le domande aperte rivolte a chi guarda, col canale come lo legge lui (`AUD · general`, i nomi del DM). */
+const listQuestions: Chat["listQuestions"] = async () => {
+  const [questions, channels, projects, people] = await Promise.all([
+    appClient().chat.questions(),
+    appClient().chat.channels.list(),
+    listProjects(),
+    listPeople(),
+  ]);
+  const me = session.personId ?? "";
+  const label = (channelId: string): string => {
+    const ch = channels.items.find((c) => c.id === channelId);
+    if (!ch) return "";
+    return channelName(
+      { ...toChannelView(ch) },
+      me,
+      (id) => projects.find((p) => p.id === id)?.code,
+      (id) => people.find((p) => p.id === id)?.name,
+    ).label;
+  };
+  return questions.items.map(
+    (q): ChatQuestion => ({
+      id: q.id,
+      channelId: q.channelId,
+      messageId: q.messageId,
+      rootId: q.rootId,
+      channelLabel: label(q.channelId),
+      askedById: q.askedById ?? "",
+      text: q.text,
+      createdAt: q.createdAt,
+    }),
+  );
+};
+
+const dismissQuestion: Chat["dismissQuestion"] = async (messageId) => {
+  await call(() => appClient().chat.dismissQuestion(messageId));
+};
+
+/** La ricerca nei canali che chi guarda legge; «con allegati» e «con citazioni» seguono le loro fette. */
+const searchChat: Chat["searchChat"] = async (q, filters = {}) => {
+  const result = await appClient().chat.search({
+    q,
+    ...(filters.channelId ? { channelId: filters.channelId } : {}),
+    ...(filters.authorId ? { authorId: filters.authorId } : {}),
+    ...(filters.peopleOnly ? { peopleOnly: true } : {}),
+    ...(filters.from ? { from: filters.from.slice(0, 10) } : {}),
+    ...(filters.to ? { to: filters.to.slice(0, 10) } : {}),
+  });
+  return result.items.map(
+    (h): ChatMessageHit => ({
+      channelId: h.channelId,
+      message: toMessage(h.message),
+      context: h.context ? toMessage(h.context) : null,
+      root: h.root ? toMessage(h.root) : null,
+    }),
+  );
+};
+
+/** «Create task» da un messaggio: la creazione di sempre, col messaggio da cui nasce. */
+const createTaskFromMessage: Chat["createTaskFromMessage"] = async (messageId, input) =>
+  call(() => createTaskWith(input, messageId));
+
+/** «Create request»: il codice compare sul messaggio a fine intake (lo scrive il worker). */
+const createRequestFromMessage: Chat["createRequestFromMessage"] = async (messageId, input) =>
+  call(() => createRequestWith(input, undefined, messageId));
+
+/** Di progetto o generale (`projectId` null), aperto o privato coi suoi membri. */
+const createChannel: Chat["createChannel"] = async (input) =>
+  toChannelView(
     await call(
       () =>
         appClient().chat.channels.create({
-          projectId,
+          projectId: input.projectId,
           name: input.name,
+          visibility: input.visibility,
           ...(input.description ? { description: input.description } : {}),
+          ...(input.visibility === "private" && input.memberIds
+            ? { memberIds: input.memberIds }
+            : {}),
         }),
       "name",
     ),
   );
-};
 
 const updateChannel: Chat["updateChannel"] = async (channelId, patch) =>
   toChannelView(
@@ -393,6 +492,14 @@ export const chatFunctions: Partial<Chat> = {
   updateChannel,
   archiveChannel,
   deleteChannel,
+  openDm,
+  inviteMembers,
+  removeMember,
+  listQuestions,
+  dismissQuestion,
+  searchChat,
+  createTaskFromMessage,
+  createRequestFromMessage,
 };
 
 /** Il namespace `chat` senza lo stream (i test del livello dati); il resto resta «non integrato». */
