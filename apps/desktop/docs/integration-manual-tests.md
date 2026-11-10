@@ -369,3 +369,30 @@ e due persone: A membro di AUD, B che non vede ACQ.
   dal web vecchio e dal mobile: nessun 404 cliccandole dal desktop; dal web
   vecchio la card non ha più il link).
 - Lo standup del giorno elenca la task eliminata a chi l'ha eliminata.
+
+## Conversazioni pubbliche e continuazione (fetta 5 della chat)
+
+Servono due persone con `claude.public.view` (il preset User lo ha): A membro
+di AUD e di MKX, B membro di AUD che non vede MKX.
+
+- Con A, una conversazione che legge AUD-12 → «Make public» → il dialogo dice
+  AUD fra i progetti letti o toccati e che chi legge vedrà anche ciò che Claude
+  ha letto per lei; **Make public, I'm responsible** → la testata dice
+  «Public · made public by A». Una conversazione senza progetti apre lo stesso
+  il dialogo («Claude didn't use any project.»).
+- Con B, «Public» la elenca con l'autrice; aprendola: si legge, niente casella
+  per scrivere, niente «Make private», niente bottoni sulle schede di Claude.
+- Con A, chiedi di MKX nella pubblica → per B il seguito resta privato (la riga
+  e la conversazione dicono «il resto è privato», nessun MKX nel testo, anche
+  dal vivo); per A la fascia «New messages are private: Claude used MKX» →
+  **Review and share** elenca solo MKX → condiviso, B riceve il seguito una
+  volta sola, senza ricaricare.
+- Con B, scrivi nella casella «Continue in your own conversation…» → nasce la
+  sua conversazione privata, l'originale in testa in sola lettura; chiedi di
+  MKX-… citato nell'originale → Claude non lo vede (B non vede MKX). A non vede
+  la conversazione di B.
+- Con A, «Make private» → B non la trova più (404), la sua continuazione dice
+  «The original conversation is no longer available.» e resta scrivibile.
+- Il tema o la lingua che Claude cambia in una conversazione non ripartono
+  ricaricando la pagina o da un'altra scheda: la riga dice «Not applied in this
+  window» con **Apply** (review della F3.4).

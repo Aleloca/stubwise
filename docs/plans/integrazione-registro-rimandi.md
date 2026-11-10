@@ -57,11 +57,10 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   CORSO (piano `docs/plans/2026-11-10-integrazione-claude-chat-f5-plan.md`,
   decisioni del maintainer del 10 nov 2026: gli eventi dei tool restano
   visibili ai lettori, D1) *(M)*.
-  - Renderer (F5.4) *(S)*: il flag `claude-public` resta spento finché la
-    F5.3 (la continuazione) non è nel server. I codici nella prosa di Claude
-    non si collegano nella build app (solo le citazioni registrate, che il
-    server non registra): R-G5 regge per costruzione, ma neanche l'autrice
-    apre un codice citato dalla prosa.
+  - Renderer (F5.4) *(S)*: i codici nella prosa di Claude non si collegano
+    nella build app (solo le citazioni registrate, che il server non
+    registra): R-G5 regge per costruzione, ma neanche l'autrice apre un
+    codice citato dalla prosa.
 - «Claude can help you…» (suggerimenti nelle pagine) e le citazioni
   registrate sui messaggi (oggi solo i codici nel testo) *(O)*. Menzioni,
   riquadro come chat e ⌘J/⌘K: chiuse (sotto).
