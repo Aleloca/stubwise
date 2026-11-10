@@ -125,11 +125,14 @@ describe("0090 valore d'enum", () => {
 });
 
 describe("0115 eventi della task", () => {
-  it("settimana, reparto e taglia entrano nell'attività, in coda all'enum", async () => {
+  it("settimana, reparto e taglia entrano nell'attività, in quest'ordine", async () => {
     const r = await t.db.execute<{ enumlabel: string }>(sql`
       select enumlabel from pg_enum e join pg_type ty on ty.oid = e.enumtypid
       where ty.typname = 'ticket_event_kind' order by enumsortorder`);
     const labels = [...r].map((x) => x.enumlabel);
-    expect(labels.slice(-3)).toEqual(["planned_week_changed", "department_changed", "effort_changed"]);
+    // L'ordine relativo, non la coda: un valore nuovo in fondo non rompe il test.
+    const positions = ["planned_week_changed", "department_changed", "effort_changed"].map((l) => labels.indexOf(l));
+    expect(positions.every((p) => p >= 0), JSON.stringify(labels)).toBe(true);
+    expect([...positions].sort((a, b) => a - b)).toEqual(positions);
   });
 });
