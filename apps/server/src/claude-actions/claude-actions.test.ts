@@ -41,7 +41,7 @@ let n = 0;
 
 beforeAll(async () => {
   t = await startTestDb();
-  app = buildApp({ db: t.db, sessionSecret: "x".repeat(40) });
+  app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), publicUrl: "https://stubwise.example" });
   await seedUsers(app);
   ({ projectId } = await seedRepository(t.db));
   author = await createUserWithSession(app, "author-ca@example.com");
@@ -370,6 +370,20 @@ describe("le altre voci del catalogo", () => {
     expect(job).toBeDefined();
     expect(job!.planApprovalRequired).toBe(true);
     expect(["queued", "awaiting_plan_approval"]).toContain(job!.status);
+  });
+
+  it("startRun col piano salvato: la notifica del piano da approvare porta il LINK pubblico", async () => {
+    const sid = await conversation();
+    const tok = await token(sid);
+    const tk = await task();
+    await t.db.update(tickets).set({ implementationPlan: "1. fai la cosa" }).where(eq(tickets.id, tk.id));
+    await proposeAndConfirm(sid, tok, [{ fn: "startRun", args: { taskId: tk.id } }]);
+    const [job] = await t.db.select().from(aiJobs).where(eq(aiJobs.ticketId, tk.id));
+    expect(job!.status).toBe("awaiting_plan_approval");
+    const rows = await t.db.select().from(notifications).where(eq(notifications.ticketId, tk.id));
+    const review = rows.find((r) => (r.event as { kind: string }).kind === "job.plan_review");
+    expect(review).toBeDefined();
+    expect((review!.event as { ticketUrl: string }).ticketUrl).toBe(`https://stubwise.example/tickets/${tk.id}`);
   });
 
   it("createMilestone (B) e il suo «Annulla»; createRequest (B) passa dall'intake e non si annulla", async () => {

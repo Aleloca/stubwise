@@ -1,9 +1,11 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { claudeActionFailureSchema, claudeProposalViewSchema } from "@stubwise/shared";
 import { apiError } from "../errors.js";
+import type { ActionEffects } from "../claude-actions/effects.js";
 import { cancelProposal, confirmProposal, requestUndo } from "../claude-actions/proposals.js";
+import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 // Le decisioni della PERSONA sulle azioni di Claude (chat, fetta 3), sotto
@@ -12,6 +14,20 @@ import { authErrorResponses, errorSchema } from "./shared.js";
 // la sessione o un PAT; MAI col token del turno, che qui risponde 403
 // (`chat_tool_forbidden`, l'allowlist). Ogni decisione riverifica scadenza,
 // classe e permessi ADESSO (`claude-actions/proposals.ts`).
+
+/**
+ * Ciò che l'esecutore usa fuori dalla transazione (solo dopo il commit, mai a
+ * secco): lo storage per gli allegati, il link pubblico delle notifiche (il
+ * piano da approvare di un lavoro avviato), il log della richiesta.
+ */
+export function actionEffects(app: FastifyInstance, request: { log: FastifyBaseLogger }): ActionEffects {
+  const publicUrl = publicUrlOrUndefined(app);
+  return {
+    storage: () => app.storage(),
+    ...(publicUrl !== undefined ? { publicUrl } : {}),
+    log: (message, error) => request.log.warn({ err: error }, message),
+  };
+}
 
 const idParams = z.object({ id: z.uuid() });
 const ACCESS = { kind: "user" } as const;
@@ -54,7 +70,7 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
           ...(request.body.selected ? { selected: request.body.selected } : {}),
           ...(request.body.edited ? { edited: request.body.edited } : {}),
         },
-        { storage: () => app.storage(), log: (message, error) => request.log.warn({ err: error }, message) },
+        actionEffects(app, request),
       );
       if (result.ok) return result.proposal;
       if (result.error === "not_found") return apiError(reply, 404, "not_found", "Proposal not found");
@@ -97,10 +113,7 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
       },
     },
     async (request, reply) => {
-      const result = await requestUndo(app.db, request.user!, request.params.id, {
-        storage: () => app.storage(),
-        log: (message, error) => request.log.warn({ err: error }, message),
-      });
+      const result = await requestUndo(app.db, request.user!, request.params.id, actionEffects(app, request));
       if (result.ok) return result.kind === "undone" ? { kind: "undone" as const } : { kind: "needs_confirmation" as const, proposal: result.proposal };
       if (result.error === "not_found" || result.error === "not_yours") return apiError(reply, 404, "not_found", "Not found");
       if (result.error === "refused") {
