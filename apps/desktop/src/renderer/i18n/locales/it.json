@@ -1200,11 +1200,12 @@
       "cancelRun": {
         "action": "Annulla il lavoro",
         "title": "Annullare il lavoro di Claude su questa task?",
-        "description": "Il lavoro si chiude subito, come fermato. Pull request e branch restano come sono.",
+        "description": "Il lavoro si chiude come fermato: subito se Claude è in attesa, in pochi secondi se sta lavorando. Pull request e branch restano come sono.",
         "keep": "Lascialo",
         "confirm": "Annulla il lavoro",
         "stop": "Ferma Claude",
         "done": "Il lavoro di Claude è stato annullato.",
+        "requested": "Richiesta inviata: Claude si ferma e il lavoro si chiude a breve.",
         "stopped": "Claude si sta fermando. Annulla il lavoro quando si è fermato.",
         "refusal": {
           "run_in_progress": "Claude sta lavorando adesso: prima fermalo, poi annulla.",

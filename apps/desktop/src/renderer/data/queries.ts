@@ -1626,13 +1626,16 @@ export function useDecidePlan() {
       decision,
       instructions,
       planId,
+      planDigest,
     }: {
       id: string;
       decision: "approve" | "reject";
       instructions?: string;
       /** Il piano letto da chi decide: un piano diverso in attesa non si decide al buio. */
       planId?: string;
-    }) => api.decidePlan(id, decision, instructions, planId),
+      /** Build app: il digest di quel piano, rimandato al server (punto 13 della review). */
+      planDigest?: string;
+    }) => api.decidePlan(id, decision, instructions, planId, planDigest),
     DECIDE_AREAS,
   );
 }
@@ -1700,9 +1703,10 @@ export function useDecidePlanNow() {
     planId: string,
     decision: "approve" | "reject",
     instructions?: string,
+    planDigest?: string,
   ) => {
     try {
-      return await api.decidePlan(id, decision, instructions, planId);
+      return await api.decidePlan(id, decision, instructions, planId, planDigest);
     } finally {
       await invalidate();
     }

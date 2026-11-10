@@ -34,6 +34,8 @@ import { getContentLanguage } from "../settings.js";
 
 const PARKED = ["queued", "held", "awaiting_plan_approval", "awaiting_input"] as const;
 const RUNNING = ["triaging", "fixing"] as const;
+/** Gli stati di un lavoro che «Annulla il lavoro» accetta: `actions.cancel` di `/work` li legge da qui. */
+export const CANCELLABLE_STATUSES = [...PARKED, ...RUNNING] as const;
 
 export type CancelRunResult =
   /** `closed`: un job parcheggiato, chiuso qui. `requested`: un job in esecuzione, lo chiude il worker. */

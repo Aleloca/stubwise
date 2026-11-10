@@ -113,7 +113,7 @@ describe("checkBudgetsBeforeRun — i tetti al confine", () => {
 });
 
 describe("holdForBudget — esito di holdJob", () => {
-  async function fixture(status: "fixing" | "failed"): Promise<{ ctx: JobOutcomeContext; jobId: string; ticketId: string; publish: ReturnType<typeof vi.fn<PublishFn>> }> {
+  async function fixture(status: "fixing" | "failed" | "triaging"): Promise<{ ctx: JobOutcomeContext; jobId: string; ticketId: string; publish: ReturnType<typeof vi.fn<PublishFn>> }> {
     const db = testDb.db;
     const [project] = await db
       .insert(projects)

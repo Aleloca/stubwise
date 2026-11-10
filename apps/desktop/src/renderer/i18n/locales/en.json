@@ -1200,11 +1200,12 @@
       "cancelRun": {
         "action": "Cancel the work",
         "title": "Cancel Claude's work on this task?",
-        "description": "The work closes now, as stopped. Pull requests and branches stay as they are.",
+        "description": "The work closes as stopped: right away if Claude is waiting, within a few seconds if it's working. Pull requests and branches stay as they are.",
         "keep": "Keep it",
         "confirm": "Cancel the work",
         "stop": "Stop Claude",
         "done": "Claude's work was cancelled.",
+        "requested": "Request sent: Claude stops and the work closes in a moment.",
         "stopped": "Claude is stopping. Cancel the work once it has stopped.",
         "refusal": {
           "run_in_progress": "Claude is working right now: stop it first, then cancel.",

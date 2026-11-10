@@ -280,3 +280,27 @@ describe("dopo un annullamento il lavoro riparte", () => {
     expect(await flag(jobId)).toEqual({ status: "queued", at: null, by: null });
   });
 });
+
+/**
+ * «Annulla il lavoro» si può fare adesso? Lo dice il server in `/work`
+ * (`actions.cancel`, review dell'area 3, punto 14): il client lo legge, non
+ * lo deduce da `runs.start`.
+ */
+describe("actions.cancel in /work", () => {
+  const cancelOf = async (ticketId: string, who: U) =>
+    taskWorkViewSchema.parse(
+      (await app.inject({ method: "GET", url: `/api/tasks/${ticketId}/work`, headers: { cookie: who.headers.cookie } })).json(),
+    ).actions.cancel;
+
+  it("allowed su un lavoro parcheggiato o in esecuzione per chi ha runs.start; forbidden senza; unavailable a lavoro concluso o già chiesto", async () => {
+    for (const status of ["queued", "held", "awaiting_plan_approval", "awaiting_input", "fixing"] as const) {
+      const { ticketId } = await taskWithJob(status, { planText: status === "awaiting_plan_approval" ? "## P" : null });
+      expect(await cancelOf(ticketId, developer), status).toBe("allowed");
+      expect(await cancelOf(ticketId, viewer), status).toBe("forbidden");
+    }
+    const done = await taskWithJob("pr_opened");
+    expect(await cancelOf(done.ticketId, developer)).toBe("unavailable");
+    const asked = await taskWithJob("fixing", { cancelRequestedAt: new Date() });
+    expect(await cancelOf(asked.ticketId, developer)).toBe("unavailable");
+  });
+});

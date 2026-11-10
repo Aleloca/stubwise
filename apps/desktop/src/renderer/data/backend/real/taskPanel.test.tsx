@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
@@ -203,6 +203,8 @@ describe("Tasks nella build app", () => {
           claude: "working",
           webHref: `/tickets/${TICKET_ID}`,
           runs: [{ id: "bbbbbbbb-0000-4000-8000-000000000003", sessionId: SESSION, ownerId: ME_ID, createdAt: "2026-10-20T09:00:00.000Z", state: "idle" }],
+          // Lo dice il server (punto 14 della review): si può annullare.
+          actions: { cancel: "allowed" },
         },
       },
       [`GET /api/agent-sessions/${SESSION}`]: {
@@ -255,23 +257,66 @@ describe("Tasks nella build app", () => {
                 cancelRequested,
               },
             ],
+            // Il server: annullabile finché non è già chiesto.
+            actions: { cancel: cancelRequested ? "unavailable" : "allowed" },
           },
         }),
         [`POST /api/tasks/${TICKET_ID}/cancel-run`]: () => {
           seen.push("cancel");
           cancelRequested = true;
-          return { status: 202, body: { claude: "working", webHref: "/x" } };
+          // Il 202 vero porta il lavoro, con la richiesta registrata.
+          return {
+            status: 202,
+            body: {
+              claude: "working",
+              webHref: "/x",
+              runs: [
+                {
+                  id: "bbbbbbbb-0000-4000-8000-000000000003",
+                  sessionId: SESSION,
+                  ownerId: ME_ID,
+                  createdAt: "2026-10-20T09:00:00.000Z",
+                  state: "working",
+                  cancelRequested: true,
+                },
+              ],
+            },
+          };
         },
       });
       const { ue, dialog } = await openCancel();
       expect(within(dialog).queryByText(/stop it first/)).toBeNull();
       await ue.click(within(dialog).getByRole("button", { name: "Cancel the work" }));
       await waitFor(() => expect(seen).toEqual(["cancel"]));
+      // Non «annullato»: la richiesta è partita, la chiusura arriva a breve.
+      expect(await screen.findByText("Request sent: Claude stops and the work closes in a moment.")).toBeInTheDocument();
+      expect(screen.queryByText("Claude's work was cancelled.")).toBeNull();
       const panel = screen.getByRole("dialog", { name: "Task AUD-12" });
       const claude = () => within(panel).getByRole("region", { name: "Claude" });
       await waitFor(() => expect(claude()).toHaveTextContent("Cancelling…"));
       await ue.click(within(claude()).getByRole("button", { name: "More actions for Claude" }));
       expect(screen.queryByRole("menuitem", { name: "Cancel the work" })).toBeNull();
+    });
+
+    it("se il server non lo permette (actions.cancel non allowed, o un server senza il campo): niente «Cancel the work» nel menu", async () => {
+      for (const actions of [{ cancel: "forbidden" }, undefined]) {
+        const seen: string[] = [];
+        const routes = parked({ body: {} }, seen);
+        const work = routes[`GET /api/tasks/${TICKET_ID}/work`] as { body: Record<string, unknown> };
+        installFakeServer({
+          ...routes,
+          [`GET /api/tasks/${TICKET_ID}/work`]: { body: { ...work.body, actions } },
+        });
+        const ue = userEvent.setup();
+        renderRoute("/p/AUD/tasks?task=AUD-12");
+        const panel = await screen.findByRole("dialog", { name: "Task AUD-12" });
+        const claude = () => within(panel).getByRole("region", { name: "Claude" });
+        await waitFor(() => expect(claude()).toHaveTextContent("Waiting"));
+        await ue.click(within(claude()).getByRole("button", { name: "More actions for Claude" }));
+        expect(screen.queryByRole("menuitem", { name: "Cancel the work" })).toBeNull();
+        cleanup();
+        setAppClientForTests(null);
+      }
     });
 
     it("con conferma, chiude il lavoro parcheggiato", async () => {
