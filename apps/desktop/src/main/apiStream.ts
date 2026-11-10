@@ -28,12 +28,21 @@ export const MAX_STREAMS_PER_WINDOW = 8;
 /** Il server manda `: ping` ogni 25 s: senza un byte per questo tempo la connessione è morta. */
 export const PING_TIMEOUT_MS = 60_000;
 
-export type StreamEndReason = "closed" | "network" | "timeout" | "rotate" | "http" | "unauthorized" | "rejected" | "limit";
+export type StreamEndReason =
+  | "closed"
+  | "network"
+  | "timeout"
+  | "rotate"
+  | "http"
+  | "redirect"
+  | "unauthorized"
+  | "rejected"
+  | "limit";
 
 /** Ciò che il main manda sulla porta. `frame` è il risultato di `parseAgentStreamFrame`, solo per i frame veri. */
 export type StreamPortMessage =
   | { type: "open" }
-  | { type: "frame"; messages: AgentStreamMessage[]; lastId: string | null; invalidSession: boolean }
+  | { type: "frame"; messages: AgentStreamMessage[]; lastId: string | null; real: boolean; invalidSession: boolean }
   | { type: "end"; reason: StreamEndReason; fatal: boolean; status?: number; code?: string };
 
 /** Il minimo di `MessagePortMain` che serve (finto nei test). */
@@ -145,6 +154,12 @@ export function createStreamRegistry(deps: StreamDeps) {
         finish({ type: "end", reason: timedOut ? "timeout" : "network", fatal: false });
         return;
       }
+      // Un reindirizzamento (`redirect: "manual"`) non si segue né si riprova:
+      // il Bearer andrebbe altrove, e riprovando tornerebbe uguale.
+      if (response.status >= 300 && response.status < 400) {
+        finish({ type: "end", reason: "redirect", fatal: true, status: response.status });
+        return;
+      }
       if (!response.ok) {
         const text = await response.text().catch(() => "");
         const code = codeOf(text);
@@ -190,6 +205,7 @@ export function createStreamRegistry(deps: StreamDeps) {
             type: "frame",
             messages: parsed.messages,
             lastId: parsed.lastId,
+            real: parsed.real,
             invalidSession: parsed.invalidSession,
           } satisfies StreamPortMessage);
         }
