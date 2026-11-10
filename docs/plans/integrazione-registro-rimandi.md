@@ -62,6 +62,13 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   registrate sui messaggi (oggi solo i codici nel testo) *(O)*. Menzioni,
   riquadro come chat e ⌘J/⌘K: chiuse (sotto).
 - Azioni delle altre aree: entrano **con la loro area** (sotto) *(O)*.
+- **La classe C (riconferma) arriva con l'area 9** *(S, 10 nov 2026)*: la
+  fetta 4 della chat per ora è vuota. Nel prototipo una C è un'azione la cui
+  funzione sta in `REAUTH_REQUIRED` (`data/auth/reauth.ts`): sono solo
+  `admin.*`, `me.*` e `instance.*` (aree 8 e 9), e nessuna voce del catalogo
+  delle aree 2–3 lo è. Il server ha già ciò che serve per la C: la
+  riconferma dal desktop (0132). Le C entrano con le azioni di Claude
+  dell'area 9.
 - **Limiti della fetta 1 (runner)** *(S, stubwise-72)*: i tool di lettura sono
   sette (progetti, persone — dalla fetta 3, senza email —, cerca/leggi task,
   leggi richiesta, cerca docs, brief + registro decisioni). Non leggono commenti e storia della task, la pagina
