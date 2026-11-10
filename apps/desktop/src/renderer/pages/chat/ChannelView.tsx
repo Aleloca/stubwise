@@ -689,6 +689,11 @@ function ChannelBody({
           }
         />
         <BackToResults messageId={focusMessageId} />
+        {stream.error === "limit" && (
+          <p role="status" className="px-4 py-1 text-sm text-ink-muted" data-stream-limit>
+            {t("chat.channel.streamLimit")}
+          </p>
+        )}
         {query.isError && !page ? (
           <div className="px-4">
             <PageError message={t("chat.channel.error")} onRetry={() => void query.refetch()} />

@@ -2449,7 +2449,10 @@ export function useCompleteEditedChatProposal() {
 export interface ChatStream {
   /** I messaggi arrivati (o cambiati) dal vivo dopo l'iscrizione, per id: da unire alla pagina letta. */
   messages: ChatMessageView[];
-  /** `not_found`: il canale (o il thread) non esiste o chi guarda non lo legge; `closed`: non lo legge più. */
+  /**
+   * `not_found`: il canale (o il thread) non esiste o chi guarda non lo legge;
+   * `closed`: non lo legge più; `limit`: troppi stream aperti in questa finestra.
+   */
   error: string | null;
 }
 
@@ -2491,9 +2494,10 @@ function useChatStream(streamId: api.chat.ChatStreamId): ChatStream {
           if (active) setStream({ key, messages, error: null });
         },
         {
-          onConnection: () => {
+          // `limit`: troppi stream aperti in questa finestra (il main); i messaggi letti restano.
+          onConnection: (connection) => {
             unsubscribe = null;
-            if (active) setStream({ key, messages: [], error: "closed" });
+            if (active) setStream({ key, messages: connection === "limit" ? messages : [], error: connection });
           },
         },
       );

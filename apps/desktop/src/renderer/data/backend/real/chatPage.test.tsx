@@ -195,4 +195,15 @@ describe("la Chat nella build app", () => {
       expect(seen.length - before).toBeLessThan(5);
     });
   });
+
+  it("troppi stream aperti nella finestra: il canale lo dice, i messaggi letti restano", async () => {
+    install();
+    setChatStreamTransport((_path, handlers) => {
+      queueMicrotask(() => handlers.onClose({ fatal: true, limit: true }));
+      return () => undefined;
+    });
+    renderRoute(`/chat/${CH}`);
+    expect(await screen.findByText("The new layout is up.")).toBeInTheDocument();
+    expect(await screen.findByText(/Too many live views are open in this window/)).toBeInTheDocument();
+  });
 });
