@@ -320,6 +320,7 @@ export type ApiFnName =
   | "canRecordDecisions"
   | "getRefineOf"
   | "getTaskWork"
+  | "cancelRun"
   | "listCommands"
   | "listPeopleActivity"
   | "listDailyReports"

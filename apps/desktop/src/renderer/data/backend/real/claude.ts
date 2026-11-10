@@ -32,6 +32,12 @@ import { listProjects } from "./projects";
 // del dettaglio sono tutti spenti, con `readOnlyReason: "not_interactive"`.
 
 type Summary = Reader<AgentSessionSummary>;
+
+/**
+ * Il ticket di ogni sessione (o voce di «Da decidere») letta: le azioni su
+ * piano e domande passano dal ticket (`/api/tickets/:id/…`).
+ */
+export const ticketOfConversation = new Map<string, string>();
 type Detail = Reader<AgentSessionDetail>;
 
 /** Il tipo di sessione del server in quello del prototipo; `null` se questa app non lo conosce. */
@@ -112,6 +118,7 @@ async function projectCodes(): Promise<Map<string, string>> {
 function toRow(s: Summary, codes: Map<string, string>, paused = false): ConversationRow | null {
   const kind = KIND_OF[s.kind as AgentSessionKind];
   if (!kind) return null;
+  if (s.ticketId) ticketOfConversation.set(s.id, s.ticketId);
   const state = stateOf(s.state, paused);
   const code = s.projectId ? codes.get(s.projectId) : undefined;
   return {
@@ -329,6 +336,7 @@ export const getTaskWork: typeof Fake.getTaskWork = async (taskId) => {
   const runs = await Promise.all(
     work.runs.map(async (run) => {
       const { events, paused } = await runEvents(run);
+      ticketOfConversation.set(run.sessionId ?? run.id, taskId);
       return {
         id: run.sessionId ?? run.id,
         // Il sistema o un utente eliminato: nessuno (la sezione dice «someone»).
