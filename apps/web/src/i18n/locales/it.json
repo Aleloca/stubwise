@@ -3381,6 +3381,11 @@
       "departments": {
         "manage": "Gestire i reparti"
       },
+      "people": {
+        "activity": {
+          "view": "Vedere l'attività del giorno delle persone"
+        }
+      },
       "roles": {
         "manage": "Gestire i ruoli"
       },

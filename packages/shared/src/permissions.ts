@@ -36,6 +36,10 @@ export const INSTANCE_PERMISSIONS = [
   "mail_admission.view",
   // Integrazione area 2 (9 nov 2026): la pagina Reparti dell'amministrazione.
   "departments.manage",
+  // Integrazione area 3 (10 nov 2026, decisione del maintainer): l'attività del
+  // giorno per persona (lo standup). Nessun preset la riceve: il full admin
+  // l'ha implicita, agli altri si assegna con un ruolo.
+  "people.activity.view",
 ] as const;
 
 /**
