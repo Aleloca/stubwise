@@ -158,6 +158,12 @@ describe("catalogo dei permessi", () => {
     expect(perms.some((p) => p.endsWith(".manage") || p === "instance.full_admin")).toBe(false);
   });
 
+  it("claude.public.view (fetta 5, D4): User esplicito, Admin per costruzione (full admin = tutti)", () => {
+    expect(preset("User").permissions).toContain("claude.public.view");
+    expect(preset("Admin").permissions).toEqual(["instance.full_admin"]);
+    expect(effectiveInstancePermissions(["instance.full_admin"]).has("claude.public.view")).toBe(true);
+  });
+
   it("isSubsetOf", () => {
     expect(isSubsetOf(["a"], new Set(["a", "b"]))).toBe(true);
     expect(isSubsetOf(["a", "c"], new Set(["a", "b"]))).toBe(false);
