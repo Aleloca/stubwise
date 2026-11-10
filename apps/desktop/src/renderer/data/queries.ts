@@ -1422,8 +1422,18 @@ export function useSetPinned() {
   );
 }
 
+/**
+ * Chi crea un progetto ne diventa Project Lead: i suoi permessi lì li dice il
+ * server, quindi si rilegge anche il viewer (come `useAdminWrite`), o «New
+ * task» resterebbe nascosta fino al riavvio.
+ */
 export function useCreateProject() {
-  return useWrite(api.createProject, PROJECT_AREAS);
+  const client = useQueryClient();
+  const invalidate = useInvalidate(PROJECT_AREAS);
+  return useMutation({
+    mutationFn: api.createProject,
+    onSettled: () => Promise.all([invalidate(), client.invalidateQueries({ queryKey: ["viewer"] })]),
+  });
 }
 
 export function useSetProjectStatuses() {
