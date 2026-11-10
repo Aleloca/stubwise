@@ -60,6 +60,16 @@ export const teamUserSchema = publicUserSchema.extend({
 export async function userRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
+  // L'utente di sistema «Claude» (area 3, fetta 3e) non è una persona da
+  // gestire: nessuna rotta `/:id` lo tocca (ruolo, password, secondo fattore,
+  // registro di sicurezza). Risponde come un utente che non c'è.
+  app.addHook("preHandler", async (request, reply) => {
+    const id = (request.params as { id?: unknown } | undefined)?.id;
+    if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) return;
+    const [row] = await app.db.select({ isAgent: users.isAgent }).from(users).where(eq(users.id, id));
+    if (row?.isAgent) return apiError(reply, 404, "user_not_found", "User not found");
+  });
+
   app.get(
     "/",
     {
@@ -92,7 +102,8 @@ export async function userRoutes(instance: FastifyInstance): Promise<void> {
           bitbucketUsername: users.bitbucketUsername,
         })
         .from(users)
-        .where(visible)
+        // L'utente di sistema «Claude» non è nel Team.
+        .where(and(eq(users.isAgent, false), visible))
         .orderBy(asc(users.createdAt));
 
       // Git identities di TUTTI gli utenti in UNA query (no N+1), poi

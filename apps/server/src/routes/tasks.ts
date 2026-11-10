@@ -29,7 +29,7 @@ import {
   type TaskWorkView,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { routePermissions, type RouteAccess } from "../auth/access.js";
@@ -117,7 +117,13 @@ const WRITE_ERRORS: Record<TaskWriteError, string> = {
   request_not_found: "Request not found in this project",
   request_not_convertible: "The request is already converted or archived",
   past_week: "A past week cannot be planned",
+  claude_assign_forbidden: "Assigning Claude starts the work: it needs permission to start runs in this project",
 };
+
+/** Un errore di scrittura: 403 per «assegnare Claude» senza `runs.start`, altrimenti lo status dato. */
+function writeError(reply: FastifyReply, error: TaskWriteError, status: 400 | 409): FastifyReply {
+  return apiError(reply, error === "claude_assign_forbidden" ? 403 : status, error, WRITE_ERRORS[error]);
+}
 
 const bulkForbiddenSchema = z.object({ code: z.string(), message: z.string(), codes: z.array(z.string()) });
 
@@ -210,9 +216,9 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => {
       const result = await createTask(app.db, request.user!, request.body);
       if (!result.ok && result.error === "request_not_convertible") {
-        return apiError(reply, 409, result.error, WRITE_ERRORS[result.error]);
+        return writeError(reply, result.error, 409);
       }
-      if (!result.ok) return apiError(reply, 400, result.error, WRITE_ERRORS[result.error]);
+      if (!result.ok) return writeError(reply, result.error, 400);
       return reply.code(201).send(result.task);
     },
   );
@@ -258,7 +264,11 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
         case "status_cross_project":
           return apiError(reply, 400, "status_cross_project", "A status can be set only on tasks of one project");
         default:
-          return apiError(reply, 400, result.error, WRITE_ERRORS[result.error]);
+          // Lo schema del 403 del blocco porta `codes`: la regola è del progetto, non di una task.
+          if (result.error === "claude_assign_forbidden") {
+            return reply.code(403).send({ code: result.error, message: WRITE_ERRORS[result.error], codes: [] });
+          }
+          return writeError(reply, result.error, 400);
       }
     },
   );
@@ -275,7 +285,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const result = await updateTask(app.db, request.user!, request.params.ticketId, request.body);
-      if (!result.ok) return apiError(reply, 400, result.error, WRITE_ERRORS[result.error]);
+      if (!result.ok) return writeError(reply, result.error, 400);
       return result.task;
     },
   );
@@ -343,6 +353,9 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
         return apiError(reply, 403, "forbidden", "You can plan only your own tasks in this project");
       }
       if (result.error === "past_week") return apiError(reply, 400, "past_week", WRITE_ERRORS.past_week);
+      if (result.error === "claude_assign_forbidden") {
+        return apiError(reply, 403, "claude_assign_forbidden", WRITE_ERRORS.claude_assign_forbidden);
+      }
       return apiError(reply, 400, "invalid_assignee", "The person is not a member of the project");
     },
   );

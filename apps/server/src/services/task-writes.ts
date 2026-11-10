@@ -37,6 +37,7 @@ import { diffTicketEvents, userExists } from "./tickets.js";
 import { loadTaskViews, visibleTasksCondition, type TaskViewer } from "./task-view.js";
 import { personName } from "./people.js";
 import { notifyTaskActivity, notifyTaskPeople } from "./task-notify.js";
+import { startRun } from "./jobs.js";
 
 /**
  * Le scritture delle task dall'app nuova (integrazione area 2, fetta 1).
@@ -60,7 +61,9 @@ export type TaskWriteError =
   | "milestone_cross_project"
   | "request_not_found"
   | "request_not_convertible"
-  | "past_week";
+  | "past_week"
+  /** Assegnare Claude avvia il lavoro: chiede `runs.start` nel progetto (fetta 3e). */
+  | "claude_assign_forbidden";
 
 export type TaskWriteResult = { ok: true; task: TaskViewData } | { ok: false; error: TaskWriteError };
 
@@ -104,6 +107,8 @@ async function firstDepartmentOf(db: Db | Tx, userId: string): Promise<string | 
  * `tickets.view_all` nel progetto della task, oppure è lui ad averla chiesta.
  */
 async function canUserSeeTicket(db: Db | Tx, userId: string, ticketId: string): Promise<boolean> {
+  // L'utente di sistema «Claude» lavora su ogni task che gli si assegna.
+  if (userId === (await agentUserId(db))) return true;
   const [ticket] = await db
     .select({ projectId: tickets.projectId, requestedBy: tickets.requestedByUserId })
     .from(tickets)
@@ -114,12 +119,58 @@ async function canUserSeeTicket(db: Db | Tx, userId: string, ticketId: string): 
 }
 
 async function follow(db: Db | Tx, ticketId: string, userIds: (string | null | undefined)[]): Promise<void> {
-  const ids = [...new Set(userIds.filter((id): id is string => !!id))];
+  const agent = await agentUserId(db);
+  // Claude non segue niente: non riceve notifiche.
+  const ids = [...new Set(userIds.filter((id): id is string => !!id && id !== agent))];
   if (ids.length === 0) return;
   await db
     .insert(ticketFollowers)
     .values(ids.map((userId) => ({ ticketId, userId })))
     .onConflictDoNothing();
+}
+
+/**
+ * L'utente di sistema «Claude» (area 3, fetta 3e, migrazione 0125), o null
+ * su un DB senza. Uno per istanza.
+ */
+async function agentUserId(db: Db | Tx): Promise<string | null> {
+  const [row] = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true)).limit(1);
+  return row?.id ?? null;
+}
+
+/**
+ * Assegnare Claude AVVIA il lavoro, quindi chiede `runs.start` nel progetto
+ * (decisione del maintainer): chi non ce l'ha riceve `claude_assign_forbidden`
+ * e niente si scrive. Toglierlo non chiede niente.
+ */
+async function claudeAssignGuard(
+  db: Db | Tx,
+  viewer: TaskViewer,
+  projectId: string,
+  assigneeId: string | null | undefined,
+): Promise<TaskWriteError | null> {
+  if (!assigneeId || assigneeId !== (await agentUserId(db))) return null;
+  const permissions = await projectPermissionsFor(db, viewer, projectId);
+  return permissions?.has("runs.start") ? null : "claude_assign_forbidden";
+}
+
+/**
+ * Dopo la scrittura: per ogni task APPENA assegnata a Claude parte il run,
+ * con le stesse regole di run-ai (`startRun`: precondizioni, gate del piano per
+ * chi non ha `plans.approve`), a nome di chi l'ha assegnata. Un lavoro già in
+ * corso non ne fa partire un altro (`job_in_flight`, ignorato). Fuori dalla
+ * transazione della scrittura, come la rotta run-ai: l'assegnazione resta
+ * anche se l'avvio non parte.
+ */
+async function startClaudeRuns(db: Db, viewer: TaskViewer, assigned: { ticketId: string; projectId: string }[]): Promise<void> {
+  for (const { ticketId, projectId } of assigned) {
+    const permissions = (await projectPermissionsFor(db, viewer, projectId)) ?? new Set();
+    try {
+      await startRun(db, { ticketId, actor: { id: viewer.id, permissions } });
+    } catch {
+      // Best-effort: l'assegnazione è scritta; il lavoro si avvia anche a mano.
+    }
+  }
 }
 
 /** Le validazioni dei campi che puntano ad altro (stato, reparto, persona, traguardo). */
@@ -138,7 +189,7 @@ async function validateRefs(
 }
 
 export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody): Promise<TaskWriteResult> {
-  const invalid = await validateRefs(db, body.projectId, body);
+  const invalid = (await validateRefs(db, body.projectId, body)) ?? (await claudeAssignGuard(db, viewer, body.projectId, body.assigneeId));
   if (invalid) return { ok: false, error: invalid };
   if (await isPastWeek(db, null, body.plannedWeek)) return { ok: false, error: "past_week" };
   if (body.requestId) {
@@ -226,6 +277,9 @@ export async function createTask(db: Db, viewer: TaskViewer, body: NewTaskBody):
     return ticket.id;
   });
   if (ticketId === null) return { ok: false, error: "request_not_convertible" };
+  if (body.assigneeId && body.assigneeId === (await agentUserId(db))) {
+    await startClaudeRuns(db, viewer, [{ ticketId, projectId: body.projectId }]);
+  }
   return { ok: true, task: await viewOf(db, viewer, ticketId) };
 }
 
@@ -406,12 +460,16 @@ export async function updateTask(
 ): Promise<TaskWriteResult> {
   const [current] = await db.select().from(tickets).where(eq(tickets.id, ticketId));
   if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
-  const invalid = await validateRefs(db, current.projectId, patch);
+  const invalid = (await validateRefs(db, current.projectId, patch)) ?? (await claudeAssignGuard(db, viewer, current.projectId, patch.assigneeId));
   if (invalid) return { ok: false, error: invalid };
   if (await isPastWeek(db, current.id, patch.plannedWeek)) return { ok: false, error: "past_week" };
   await db.transaction(async (tx) => {
     await applyTaskPatch(tx, viewer.id, current, patch);
   });
+  const agent = await agentUserId(db);
+  if (agent && patch.assigneeId === agent && current.assigneeId !== agent) {
+    await startClaudeRuns(db, viewer, [{ ticketId, projectId: current.projectId }]);
+  }
   return { ok: true, task: await viewOf(db, viewer, ticketId) };
 }
 
@@ -457,7 +515,7 @@ export async function bulkUpdateTasks(
 
   if (patch.statusId !== undefined && projectIds.length > 1) return { ok: false, error: "status_cross_project" };
   for (const pid of projectIds) {
-    const invalid = await validateRefs(db, pid, patch);
+    const invalid = (await validateRefs(db, pid, patch)) ?? (await claudeAssignGuard(db, viewer, pid, patch.assigneeId));
     if (invalid) return { ok: false, error: invalid };
   }
   for (const { t } of rows) {
@@ -466,6 +524,14 @@ export async function bulkUpdateTasks(
   await db.transaction(async (tx) => {
     for (const { t } of rows) await applyTaskPatch(tx, viewer.id, t, patch);
   });
+  const agent = await agentUserId(db);
+  if (agent && patch.assigneeId === agent) {
+    await startClaudeRuns(
+      db,
+      viewer,
+      rows.filter(({ t }) => t.assigneeId !== agent).map(({ t }) => ({ ticketId: t.id, projectId: t.projectId })),
+    );
+  }
   const views = await loadTaskViews(db, viewer, [inArray(tickets.id, unique)]);
   const byId = new Map(views.map((v) => [v.view.id, v.view]));
   return { ok: true, tasks: unique.map((id) => byId.get(id)!) };
@@ -505,7 +571,7 @@ export type PlanResult =
   | { ok: true; task: TaskViewData }
   | { ok: false; error: PlanError };
 
-type PlanError = "forbidden" | "invalid_assignee" | "past_week";
+type PlanError = "forbidden" | "invalid_assignee" | "past_week" | "claude_assign_forbidden";
 
 /**
  * Pianificare dal Planning (fetta 2): persona e settimana insieme. Decide
@@ -524,10 +590,21 @@ export async function planTask(
   // La decisione si prende sulla riga BLOCCATA, nella transazione che scrive
   // (fix della review della fetta 2): letta prima, una riassegnazione
   // concorrente passerebbe sotto la regola e verrebbe sovrascritta.
+  let claudeRun: { ticketId: string; projectId: string } | null = null;
   const outcome = await db.transaction(async (tx): Promise<PlanError | null> => {
     const [current] = await tx.select().from(tickets).where(eq(tickets.id, ticketId)).for("update");
     if (!current) throw new Error(`task ${ticketId} assente dopo il controllo d'accesso`);
     const permissions = (await projectPermissionsFor(tx, viewer, current.projectId)) ?? new Set();
+    // Claude (fetta 3e): pianificarlo vuol dire avviare il lavoro, quindi la
+    // regola è `runs.start`, non `planning.others` (che riguarda le PERSONE).
+    const agent = await agentUserId(tx);
+    if (agent && plan.assigneeId === agent) {
+      if (!permissions.has("runs.start")) return "claude_assign_forbidden";
+      if (await isPastWeek(tx, current.id, plan.week)) return "past_week";
+      await applyTaskPatch(tx, viewer.id, current, { assigneeId: agent, plannedWeek: plan.week }, { notifyPlanning: true });
+      if (current.assigneeId !== agent) claudeRun = { ticketId, projectId: current.projectId };
+      return null;
+    }
     const members = await projectViewerIds(tx, current.projectId);
     // `assigneeId: null` sulla rotta TOGLIE l'assegnatario (per `planBlock`
     // `null` è la vasca, che tiene la persona): con `planning.others` sempre,
@@ -570,5 +647,6 @@ export async function planTask(
     return null;
   });
   if (outcome) return { ok: false, error: outcome };
+  if (claudeRun) await startClaudeRuns(db, viewer, [claudeRun]);
   return { ok: true, task: await viewOf(db, viewer, ticketId) };
 }

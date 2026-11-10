@@ -2,7 +2,10 @@ import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { projectMemberSchema, putProjectMemberSchema } from "@stubwise/shared";
+import { users } from "@stubwise/db";
+import { eq } from "drizzle-orm";
 import { routePermissions } from "../auth/access.js";
+import { apiError } from "../errors.js";
 import { fromParam } from "../auth/project-resolvers.js";
 import {
   listProjectMembers,
@@ -69,6 +72,10 @@ export async function projectMemberRoutes(instance: FastifyInstance): Promise<vo
       },
     },
     async (request, reply) => {
+      // L'utente di sistema «Claude» (fetta 3e) non è un membro: lavora sulle
+      // task che gli si assegnano, senza ruolo nel progetto.
+      const [target] = await app.db.select({ isAgent: users.isAgent }).from(users).where(eq(users.id, request.params.userId));
+      if (target?.isAgent) return apiError(reply, 404, "user_not_found", "User not found");
       try {
         const member = await putProjectMember(
           app.db,

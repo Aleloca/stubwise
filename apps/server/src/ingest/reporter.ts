@@ -1,4 +1,4 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { Db } from "@stubwise/db";
 import { users } from "@stubwise/db";
 
@@ -16,7 +16,8 @@ export async function resolveReporter(db: Db, email?: string | null): Promise<st
   const [user] = await db
     .select({ id: users.id })
     .from(users)
-    .where(sql`lower(${users.email}) = lower(${email})`)
+    // Mai l'utente di sistema «Claude» (fetta 3e): non è un autore.
+    .where(and(sql`lower(${users.email}) = lower(${email})`, eq(users.isAgent, false)))
     .limit(1);
   return user?.id ?? null;
 }
@@ -35,7 +36,7 @@ export async function resolveReporterBySlackId(
   const [user] = await db
     .select({ id: users.id })
     .from(users)
-    .where(eq(users.slackUserId, slackUserId))
+    .where(and(eq(users.slackUserId, slackUserId), eq(users.isAgent, false)))
     .limit(1);
   return user?.id ?? null;
 }
