@@ -12,7 +12,9 @@ export interface SeenRequest {
   authorization: string | null;
 }
 
-type Handler = (req: SeenRequest) => { status?: number; body?: unknown } | undefined;
+type Answer = { status?: number; body?: unknown } | undefined;
+/** Una risposta subito o più tardi (una promessa: la richiesta resta in volo finché non si risolve). */
+type Handler = (req: SeenRequest) => Answer | Promise<Answer>;
 
 export function installFakeServer(routes: Record<string, Handler | { status?: number; body?: unknown }>) {
   const seen: SeenRequest[] = [];
@@ -30,7 +32,7 @@ export function installFakeServer(routes: Record<string, Handler | { status?: nu
     seen.push(req);
     const bare = path.split("?")[0]!;
     const route = routes[`${method} ${path}`] ?? routes[`${method} ${bare}`];
-    const out = typeof route === "function" ? route(req) : route;
+    const out = typeof route === "function" ? await route(req) : route;
     if (!out) return new Response(JSON.stringify({ code: "not_found", message: path }), { status: 404 });
     const status = out.status ?? 200;
     if (status === 204) return new Response(null, { status });

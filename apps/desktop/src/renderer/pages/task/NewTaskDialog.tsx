@@ -174,7 +174,9 @@ export function NewTaskDialog({
     setSize(request.size ?? null);
     if (can(viewer, "tickets.create", request.projectId)) setProject(request.projectId);
   }
-  const pending = create.isPending || convert.isPending || fromMessage.isPending;
+  // «Edit» di una proposta di Claude: la conferma è in volo (niente doppio invio).
+  const [delivering, setDelivering] = useState(false);
+  const pending = create.isPending || convert.isPending || fromMessage.isPending || delivering;
 
   const project = projects?.find((p) => p.id === chosenProject);
   const statuses = useProjectStatuses(project?.id ?? "").data;
@@ -226,7 +228,11 @@ export function NewTaskDialog({
     };
     if (deliver) {
       // Niente `requestId: null`: lo schema del server (`newTaskBodySchema`) vuole un uuid o niente.
-      deliver({ ...input, projectId: project.id }).then(onClose, () => setFailed(true));
+      setDelivering(true);
+      deliver({ ...input, projectId: project.id }).then(onClose, () => {
+        setDelivering(false);
+        setFailed(true);
+      });
     } else if (fromRequestId) {
       convert.mutate({ id: fromRequestId, input }, callbacks);
     } else if (fromMessageId) {

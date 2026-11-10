@@ -64,6 +64,8 @@ export function NewRequestDialog({
   const [description, setDescription] = useState(initial?.description ?? "");
   const [tried, setTried] = useState(false);
   const [failed, setFailed] = useState(false);
+  // «Edit» di una proposta di Claude: la conferma è in volo (niente doppio invio).
+  const [delivering, setDelivering] = useState(false);
   const project = projects?.find((p) => p.id === chosen);
   // Il dialogo che si smonta ferma l'attesa dell'intake.
   const abort = useRef<AbortController | null>(null);
@@ -84,7 +86,13 @@ export function NewRequestDialog({
         setFailed(true);
       },
     };
-    if (deliver) deliver(input).then(onClose, () => setFailed(true));
+    if (deliver) {
+      setDelivering(true);
+      deliver(input).then(onClose, () => {
+        setDelivering(false);
+        setFailed(true);
+      });
+    }
     else if (fromMessageId) fromMessage.mutate({ messageId: fromMessageId, input }, callbacks);
     else {
       abort.current = new AbortController();
@@ -107,7 +115,7 @@ export function NewRequestDialog({
             type="submit"
             form="new-request"
             className={primaryButton}
-            disabled={create.isPending || noProjects}
+            disabled={create.isPending || delivering || noProjects}
           >
             {t("requests.newDialog.submit")}
           </button>

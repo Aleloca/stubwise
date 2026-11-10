@@ -284,6 +284,34 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     expect(outside()).toEqual([]);
   });
 
+  it("«Edit»: mentre la conferma parte, «Create task» è spento (niente doppio invio)", async () => {
+    let release: () => void = () => undefined;
+    install({
+      proposals: [
+        cardB({
+          actions: [{ fn: "createTask", args: { projectId: PROJECT_ID, title: "Export the CSV", type: "activity" } }],
+          reasons: [],
+        }),
+      ],
+      routes: {
+        [`POST /api/claude/proposals/${PROPOSAL}/confirm`]: () =>
+          new Promise((resolve) => {
+            release = () => resolve({ body: cardB({ status: "confirmed", canConfirm: false, canCancel: false }) });
+          }),
+      },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${CONV}`);
+    const proposal = await card();
+    await ue.click(within(proposal).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "New task" });
+    const save = within(dialog).getByRole("button", { name: "Create task" });
+    await ue.click(save);
+    await waitFor(() => expect(save).toBeDisabled());
+    release();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New task" })).toBeNull());
+  });
+
   it("«Edit» la cui conferma non riesce (failed dal server): il dialogo resta aperto e dice l'errore", async () => {
     install({
       proposals: [
