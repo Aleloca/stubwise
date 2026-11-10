@@ -139,6 +139,7 @@ export function createChatEndpoints(request: ApiRequest) {
       channelId?: string;
       authorId?: string;
       peopleOnly?: boolean;
+      withCitations?: boolean;
       from?: string;
       to?: string;
       limit?: number;
@@ -150,6 +151,7 @@ export function createChatEndpoints(request: ApiRequest) {
           channelId: opts.channelId,
           authorId: opts.authorId,
           peopleOnly: opts.peopleOnly ? "true" : undefined,
+          withCitations: opts.withCitations ? "true" : undefined,
           from: opts.from,
           to: opts.to,
           limit: opts.limit,

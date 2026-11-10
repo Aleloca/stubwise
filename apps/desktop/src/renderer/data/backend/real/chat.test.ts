@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { chat, forgetPeopleChatCaches } from "./chat";
+import { resolveCitations } from "./claudeChat";
 import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTask } from "./fakeServer";
 import { getSessionPerson } from "./session";
 
@@ -470,5 +471,60 @@ describe("fetta 2: DM, privati, generali, domande, ricerca, da un messaggio", ()
     const posts = seen.filter((r) => r.method === "POST");
     expect(posts[0]).toMatchObject({ path: "/api/tasks", body: expect.objectContaining({ title: "Export PDF", chatMessageId: ROOT }) });
     expect(posts[1]).toMatchObject({ path: "/api/requests", body: { projectId: PROJECT_ID, title: "PDF export", description: "", chatMessageId: ROOT } });
+  });
+});
+
+describe("fetta 2: le citazioni (F2.7)", () => {
+  const TASK = "7f1c2a1e-0000-4000-8000-0000000000f1";
+  const PAGE = "7f1c2a1e-0000-4000-8000-0000000000f2";
+
+  it("il messaggio porta le citazioni che il server ha già filtrato; si risolvono come le vede chi guarda", async () => {
+    install({
+      [`GET /api/chat/messages/${ROOT}`]: {
+        body: message({
+          citations: [
+            { kind: "task", id: TASK, label: "AUD-14", projectId: PROJECT_ID },
+            { kind: "person", id: MARTA, label: "Marta Rinaldi", projectId: null },
+            { kind: "project", id: PROJECT_ID, label: "AUD", projectId: PROJECT_ID },
+            { kind: "doc", id: PAGE, label: "Billing", projectId: PROJECT_ID },
+          ],
+        }),
+      },
+    });
+    await getSessionPerson();
+    const m = (await chat.getMessage(ROOT))!.message;
+    expect(m.citations).toEqual([
+      { kind: "task", id: TASK },
+      { kind: "person", id: MARTA },
+      { kind: "project", id: PROJECT_ID },
+      { kind: "doc", id: PAGE },
+    ]);
+    const views = await resolveCitations([...m.citations, { kind: "task", id: "7f1c2a1e-0000-4000-8000-0000000000ff" }]);
+    expect(views).toMatchObject([
+      { kind: "task", id: TASK, visible: true, code: "AUD-14", projectCode: "AUD", route: "#/p/AUD/tasks?task=AUD-14" },
+      { kind: "person", id: MARTA, visible: true, name: "Marta Rinaldi", personId: MARTA, route: null },
+      { kind: "project", id: PROJECT_ID, visible: true, code: "AUD", route: "#/p/AUD/overview" },
+      { kind: "doc", id: PAGE, visible: true, name: "Billing", route: null },
+      // Una che il server non ha confermato resta non visibile, senza nome.
+      { kind: "task", visible: false, code: null, name: null },
+    ]);
+  });
+
+  it("l'invio porta le citazioni scelte con «#» (solo i tipi del server); la ricerca «con citazioni»", async () => {
+    const { seen } = install({
+      [`POST /api/chat/channels/${CH}/messages`]: { status: 201, body: message() },
+      "GET /api/chat/search": { body: { items: [] } },
+    });
+    await getSessionPerson();
+    await chat.sendMessage(CH, {
+      text: "See AUD-14",
+      citations: [
+        { kind: "task", id: TASK },
+        { kind: "milestone", id: TASK },
+      ],
+    });
+    await chat.searchChat("export", { withCitations: true });
+    expect(seen.find((r) => r.method === "POST")!.body).toEqual({ text: "See AUD-14", citations: [{ kind: "task", id: TASK }] });
+    expect(seen.map((r) => r.path)).toContain("/api/chat/search?q=export&withCitations=true");
   });
 });

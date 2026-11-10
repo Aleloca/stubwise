@@ -21,6 +21,7 @@ import type {
 import i18n from "../../../i18n";
 import { appClient, session } from "./client";
 import { listPeople } from "./people";
+import { chatCitationView } from "./chat";
 import { listProjects } from "./projects";
 import { getRequest, getRequestByCode } from "./requests";
 import { getTaskByCode, listTasks } from "./tasks";
@@ -464,12 +465,17 @@ export const resolveCodes: typeof Fake.resolveCodes = async (codes) => {
 };
 
 /**
- * Le citazioni registrate su un messaggio: sul server una risposta di Claude
- * non ne registra (cita col codice nel testo, che `resolveCodes` legge).
- * Arrivano quindi solo da un client che le conosce: si leggono come non
- * visibili, senza nome — mai un titolo che il server non ha confermato.
+ * Le citazioni registrate su un messaggio. Quelle della Chat (area 4, F2.7)
+ * le ha già confermate il server, filtrate per chi guarda: si risolvono da lì.
+ * Le altre (una risposta di Claude non ne registra: cita col codice nel testo,
+ * che `resolveCodes` legge) si leggono come non visibili, senza nome — mai un
+ * titolo che il server non ha confermato.
  */
-export const resolveCitations: typeof Fake.resolveCitations = async (refs) => refs.map(hidden);
+export const resolveCitations: typeof Fake.resolveCitations = async (refs) => {
+  if (refs.length === 0) return [];
+  const codes = new Map((await listProjects()).map((p) => [p.id, p.code] as const));
+  return refs.map((ref) => chatCitationView(ref, (id) => codes.get(id)) ?? hidden(ref));
+};
 
 // --- il dettaglio ----------------------------------------------------------------
 

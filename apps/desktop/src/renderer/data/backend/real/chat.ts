@@ -2,6 +2,8 @@ import { ApiError } from "@stubwise/api-client";
 import type { ChatChannelView, ChatMessageView as ServerMessage, Reader } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type {
+  CitationRef,
+  CitationView,
   ChannelMember,
   ChannelRow,
   ChannelView,
@@ -83,6 +85,51 @@ const channelOfMessage = new Map<string, string>();
  */
 const cursorBefore = new Map<string, string>();
 
+/**
+ * Le citazioni che il server ha confermato sui messaggi letti (F2.7): già
+ * filtrate per chi guarda, con l'etichetta (codice, titolo, nome). Una
+ * citazione che non è qui non si apre e non si nomina (R-G5).
+ */
+const citedViews = new Map<string, { kind: CitationRef["kind"]; id: string; label: string; projectId: string | null }>();
+const citeKey = (kind: string, id: string) => `${kind}\u0000${id}`;
+
+/** I tipi che il server sa citare (gli altri, scelti da «#», non partono). */
+const CITABLE = new Set(["task", "request", "project", "person", "doc"]);
+
+/**
+ * La vista di una citazione della Chat confermata dal server, o `null`.
+ * `codeOf` dà il codice di un progetto per l'indirizzo.
+ */
+export function chatCitationView(ref: CitationRef, codeOf: (projectId: string) => string | undefined): CitationView | null {
+  const c = citedViews.get(citeKey(ref.kind, ref.id));
+  if (!c) return null;
+  const project = c.projectId ? (codeOf(c.projectId) ?? null) : null;
+  const base: CitationView = {
+    kind: c.kind,
+    id: c.id,
+    visible: true,
+    code: null,
+    name: null,
+    projectCode: project,
+    status: null,
+    personId: null,
+    route: null,
+  };
+  switch (c.kind) {
+    case "task":
+      return { ...base, code: c.label, route: project ? `#/p/${project}/tasks?task=${c.label}` : null };
+    case "request":
+      return { ...base, code: c.label, route: project ? `#/p/${project}/requests?request=${c.id}` : null };
+    case "project":
+      return { ...base, code: c.label, projectCode: c.label, route: `#/p/${c.label}/overview` };
+    case "person":
+      return { ...base, name: c.label, personId: c.id };
+    default:
+      // Una pagina dei Docs: il nome; l'area Docs non è ancora integrata (nessun link).
+      return { ...base, name: c.label };
+  }
+}
+
 /** Il canale di un messaggio già letto (lo stream di un thread ascolta quello del canale). */
 export const knownChannelOf = (messageId: string): string | undefined =>
   channelOfMessage.get(messageId);
@@ -91,6 +138,7 @@ export const knownChannelOf = (messageId: string): string | undefined =>
 export function forgetPeopleChatCaches(): void {
   channelOfMessage.clear();
   cursorBefore.clear();
+  citedViews.clear();
 }
 
 // --- le forme -------------------------------------------------------------------------
@@ -155,9 +203,14 @@ export function toMessage(v: ServerMsg): ChatMessageView {
     kind: v.kind === "system" || v.kind === "claude" ? v.kind : "person",
     ...(v.calledById ? { calledById: v.calledById } : {}),
     text: v.deleted ? "" : v.text,
-    // Allegati (fetta 4) e citazioni registrate (F2.7) ancora no.
+    // Allegati: fetta 4. Le citazioni (F2.7): quelle confermate dal server.
     attachments: [],
-    citations: [],
+    citations: v.citations.flatMap((c) => {
+      if (!CITABLE.has(c.kind)) return [];
+      const kind = c.kind as CitationRef["kind"];
+      citedViews.set(citeKey(kind, c.id), { kind, id: c.id, label: c.label, projectId: c.projectId });
+      return [{ kind, id: c.id }];
+    }),
     reactions: v.reactions.map((r) => ({ emoji: r.emoji, personIds: [...r.personIds] })),
     asksReplyOf: [...v.asksReplyOf],
     ...(v.alsoInChannel ? { alsoInChannel: true } : {}),
@@ -301,6 +354,12 @@ const listMentions: Chat["listMentions"] = async () =>
  * domanda forzata (fetta 2). Allegati e citazioni sono delle fette dopo. Le
  * menzioni e chi deve rispondere li ricava il server dal testo.
  */
+/** Le citazioni scelte con «#», dei soli tipi che il server sa citare. */
+const citationsOf = (refs: readonly CitationRef[] | undefined) =>
+  (refs ?? []).flatMap((r) =>
+    CITABLE.has(r.kind) ? [{ kind: r.kind as "task" | "request" | "project" | "person" | "doc", id: r.id }] : [],
+  );
+
 const sendMessage: Chat["sendMessage"] = async (channelId, input) =>
   toMessage(
     await call(() =>
@@ -309,6 +368,7 @@ const sendMessage: Chat["sendMessage"] = async (channelId, input) =>
         ...(input.threadOf ? { threadRootId: input.threadOf } : {}),
         ...(input.alsoInChannel ? { alsoInChannel: true } : {}),
         ...(input.asksReply ? { asksReply: true } : {}),
+        ...(citationsOf(input.citations).length ? { citations: citationsOf(input.citations) } : {}),
       }),
     ),
   );
@@ -406,13 +466,14 @@ const dismissQuestion: Chat["dismissQuestion"] = async (messageId) => {
   await call(() => appClient().chat.dismissQuestion(messageId));
 };
 
-/** La ricerca nei canali che chi guarda legge; «con allegati» e «con citazioni» seguono le loro fette. */
+/** La ricerca nei canali che chi guarda legge; «con allegati» segue la fetta 4. */
 const searchChat: Chat["searchChat"] = async (q, filters = {}) => {
   const result = await appClient().chat.search({
     q,
     ...(filters.channelId ? { channelId: filters.channelId } : {}),
     ...(filters.authorId ? { authorId: filters.authorId } : {}),
     ...(filters.peopleOnly ? { peopleOnly: true } : {}),
+    ...(filters.withCitations ? { withCitations: true } : {}),
     ...(filters.from ? { from: filters.from.slice(0, 10) } : {}),
     ...(filters.to ? { to: filters.to.slice(0, 10) } : {}),
   });
