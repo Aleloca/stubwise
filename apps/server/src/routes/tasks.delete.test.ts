@@ -152,8 +152,8 @@ describe("una task occupata non si elimina (busy)", () => {
     } as typeof ticketRepositories.$inferInsert);
     const res = await del(pr.id, legacy.headers.cookie);
     expect(res.statusCode).toBe(409);
-    expect(res.json().reasons).toEqual([{ kind: "open_pr", repo: "audin-web", number: 42 }]);
-    expect((await preview(pr.id, legacy.headers.cookie)).json().busy).toEqual([{ kind: "open_pr", repo: "audin-web", number: 42 }]);
+    expect(res.json().reasons).toEqual([{ kind: "open_pr", code: null, repo: "audin-web", number: 42 }]);
+    expect((await preview(pr.id, legacy.headers.cookie)).json().busy).toEqual([{ kind: "open_pr", code: null, repo: "audin-web", number: 42 }]);
 
     const corr = await task(legacy.id);
     await testDb.db.insert(prCorrections).values({
@@ -163,7 +163,7 @@ describe("una task occupata non si elimina (busy)", () => {
       status: "pending",
       trigger: "stubwise",
     } as typeof prCorrections.$inferInsert);
-    expect((await del(corr.id, legacy.headers.cookie)).json().reasons).toEqual([{ kind: "open_correction" }]);
+    expect((await del(corr.id, legacy.headers.cookie)).json().reasons).toEqual([{ kind: "open_correction", code: null, repo: null, number: null }]);
 
     const done = await task(legacy.id);
     await testDb.db.insert(aiJobs).values({ ticketId: done.id, status: "skipped" });

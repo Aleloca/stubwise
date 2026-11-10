@@ -1418,6 +1418,10 @@ describe("commenti — /api/tickets/:ticketId/comments", () => {
       canEdit: true,
       canDelete: true,
       inDecisionLog: false,
+      // Chat, fetta 3 (F3.4): un commento scritto a mano non porta il segno «via Claude».
+      viaClaude: false,
+      viaClaudeActionId: null,
+      viaClaudeRequesterId: null,
     });
   });
 
