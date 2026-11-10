@@ -4867,7 +4867,8 @@
       "settings": "Impostazioni",
       "membersOpen_one": "{{count}} membro · impostazioni",
       "membersOpen_other": "{{count}} membri · impostazioni",
-      "openSettings": "Apre le impostazioni del canale"
+      "openSettings": "Apre le impostazioni del canale",
+      "streamLimit": "Troppe viste dal vivo aperte in questa finestra: i messaggi nuovi qui compaiono riaprendo il canale."
     },
     "flow": {
       "today": "Oggi",

@@ -150,6 +150,23 @@ Fetta 2 chiusa (sotto, «Chiuse»).
 - Il filtro «con allegati» della ricerca *(fetta 4, con gli allegati)*.
 - Messaggi «via Claude» *(fetta 3, con @Claude)*:
   `chat_messages.via_claude_action_id` c'è, ma nessuno lo scrive.
+- Fetta 3 (@Claude), da sapere *(S, review della fetta 1)*: «apri il thread
+  dopo l'invio» (`useOpenHref`, `apps/desktop/src/renderer/pages/chat/ChannelView.tsx`)
+  confrontava chi scrive con `getSessionPersonId()` del prototipo, vuota nella
+  build app, e non navigava mai: ora usa la persona vera (`useSessionPersonId`),
+  test `real/chatOpenThread.test.tsx`. Anche le bozze del riquadro di Claude
+  (`layout/claudePanel/pageActions.ts`) leggevano la bozza con
+  `getSessionPersonId()`: ora chi guarda la passa (`answerDraft`,
+  `wantDraft`, `undoDraft`) e i campi dichiarati usano la persona del runner
+  montato; test a due persone in `fillable.test.tsx`.
+- Limite (non conta: le fette 1 e 2 escono insieme) *(S)*: il renderer della
+  fetta 2 legge i permessi del canale uno per uno (`canEditInfo`…); contro un
+  server della sola fetta 1, che manda solo `canManage`, i bottoni di gestione
+  non comparirebbero.
+- **I flag del renderer da accendere con ogni fetta** *(O, 10 nov 2026)*
+  (`CHAT_LATER_FEATURES` in `apps/desktop/src/renderer/data/integration.ts`):
+  quelli della fetta 2 sono accesi; restano fetta 3 `chat-claude`, fetta 4
+  `chat-events` e `chat-attachments`. Ognuno va acceso col suo test di pagina.
 - `@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
   1, da riprendere se il maintainer vuole avvisi di gruppo.
 - Limite accettato: modificare un messaggio avvisa solo chi viene nominato

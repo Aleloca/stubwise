@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { chat, forgetPeopleChatCaches } from "./chat";
-import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject } from "./fakeServer";
+import { resolveCitations } from "./claudeChat";
+import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTask } from "./fakeServer";
 import { getSessionPerson } from "./session";
 
 // La Chat fra persone nella build app (integrazione area 4, fetta 1): le viste
@@ -119,8 +120,12 @@ describe("canali", () => {
     expect(rows[1]).toMatchObject({ isGeneral: true, canLeave: false });
   });
 
-  it("chi gestisce (canManage) rinomina, cambia l'argomento, archivia ed elimina", async () => {
-    install({ [`GET /api/chat/channels/${CH}`]: { body: channel({ canManage: true }) } });
+  it("chi gestisce rinomina, cambia l'argomento, archivia ed elimina: i permessi del server, uno per uno (fetta 2)", async () => {
+    install({
+      [`GET /api/chat/channels/${CH}`]: {
+        body: channel({ canManage: true, canEditInfo: true, canEditTopic: true, canArchive: true, canDelete: true }),
+      },
+    });
     await getSessionPerson();
     expect(await chat.getChannel(CH)).toMatchObject({ canEditInfo: true, canEditTopic: true, canArchive: true, canDelete: true });
   });
@@ -158,7 +163,7 @@ describe("canali", () => {
     await chat.leaveChannel(CH);
     await chat.setNotifyLevel(CH, "muted");
     expect(seen.filter((r) => r.method !== "GET").map((r) => [r.method, r.path, r.body])).toEqual([
-      ["POST", "/api/chat/channels", { projectId: PROJECT_ID, name: "Design", description: "Reviews" }],
+      ["POST", "/api/chat/channels", { projectId: PROJECT_ID, name: "Design", visibility: "open", description: "Reviews" }],
       ["PATCH", `/api/chat/channels/${CH}`, { name: "design-2", topic: "Q4" }],
       ["PATCH", `/api/chat/channels/${CH}`, { archived: true }],
       ["DELETE", `/api/chat/channels/${CH}`, undefined],
@@ -166,6 +171,16 @@ describe("canali", () => {
       ["DELETE", `/api/chat/channels/${CH}/join`, undefined],
       ["PUT", `/api/chat/channels/${CH}/pref`, { level: "muted" }],
     ]);
+  });
+
+  it("un nome di canale che il server rifiuta (400) è «invalid: name», come nel dialogo", async () => {
+    install({
+      "POST /api/chat/channels": { status: 400, body: { code: "validation_error", message: "name" } },
+      [`PATCH /api/chat/channels/${CH}`]: { status: 400, body: { message: "name" } },
+    });
+    await getSessionPerson();
+    await expect(chat.createChannel({ projectId: PROJECT_ID, name: "!!", visibility: "open" })).rejects.toThrow("invalid: name");
+    await expect(chat.updateChannel(CH, { name: "!!" })).rejects.toThrow("invalid: name");
   });
 
   it("i rifiuti del server negli errori del prototipo", async () => {
@@ -178,9 +193,6 @@ describe("canali", () => {
     await expect(chat.createChannel({ projectId: PROJECT_ID, name: "design", visibility: "open" })).rejects.toThrow("invalid: name_taken");
     await expect(chat.archiveChannel(GENERAL, true)).rejects.toThrow("invalid: general");
     await expect(chat.deleteChannel(CH)).rejects.toThrow("forbidden");
-    // Fuori dalla fetta 1: privati e canali generali, senza chiamare il server.
-    await expect(chat.createChannel({ projectId: PROJECT_ID, name: "x", visibility: "private" })).rejects.toThrow("invalid: visibility");
-    await expect(chat.createChannel({ projectId: null, name: "x", visibility: "open" })).rejects.toThrow("invalid: visibility");
   });
 });
 
@@ -211,7 +223,7 @@ describe("messaggi", () => {
       thread: { replyCount: 1, lastReplyAt: "2026-11-10T10:05:00.000Z", following: true },
     });
     await chat.listMessages(CH, { before: ROOT });
-    expect(seen.map((r) => r.path)).toContain(`/api/chat/channels/${CH}/messages?before=cursor-1`);
+    expect(seen.map((r) => r.path)).toContain(`/api/chat/channels/${CH}/messages?before=cursor-1&limit=50`);
   });
 
   it("un messaggio eliminato: niente testo, eliminato", async () => {
@@ -294,6 +306,225 @@ describe("le viste di chi guarda", () => {
   });
 
   it("le funzioni delle fette dopo restano «non integrate»", async () => {
-    await expect(chat.openDm([MARTA])).rejects.toThrow();
+    await expect(chat.answerChatClaudeQuestion(ROOT, "q", { optionIndex: 0, text: null })).rejects.toThrow();
+  });
+});
+
+describe("fetta 2: DM, privati, generali, domande, ricerca, da un messaggio", () => {
+  const DM = "7f1c2a1e-0000-4000-8000-0000000000e0";
+  const PRIVATE = "7f1c2a1e-0000-4000-8000-0000000000e1";
+  const TASK = "7f1c2a1e-0000-4000-8000-0000000000f1";
+
+  it("i permessi del canale sono quelli del server, uno per uno; un privato visto da chi gestisce non si legge", async () => {
+    install({
+      [`GET /api/chat/channels/${PRIVATE}`]: {
+        body: channel({
+          id: PRIVATE,
+          visibility: "private",
+          isMember: false,
+          canRead: false,
+          canManage: true,
+          canEditInfo: true,
+          canEditTopic: false,
+          canInvite: true,
+          canRemove: true,
+          canArchive: true,
+          canDelete: false,
+          topic: "",
+          description: "",
+        }),
+      },
+    });
+    await getSessionPerson();
+    expect(await chat.getChannel(PRIVATE)).toMatchObject({
+      visibility: "private",
+      canRead: false,
+      canEditInfo: true,
+      canEditTopic: false,
+      canInvite: true,
+      canRemove: true,
+      canArchive: true,
+      canDelete: false,
+    });
+  });
+
+  it("un messaggio: «anche nel canale», chi deve rispondere, i codici di ciò che ne è nato", async () => {
+    install({
+      [`GET /api/chat/messages/${REPLY}`]: {
+        body: message({
+          id: REPLY,
+          threadRootId: ROOT,
+          alsoInChannel: true,
+          asksReplyOf: [ME_ID],
+          linked: [{ kind: "task", id: TASK, code: "AUD-14" }],
+          linkedCodes: ["AUD-14"],
+        }),
+      },
+    });
+    await getSessionPerson();
+    expect((await chat.getMessage(REPLY))!.message).toMatchObject({
+      alsoInChannel: true,
+      asksReplyOf: [ME_ID],
+      linkedCodes: ["AUD-14"],
+      linkedRefs: [{ kind: "task", id: TASK }],
+    });
+  });
+
+  it("invio con «anche nel canale» e la domanda; un canale generale o privato coi membri; DM, inviti, rimozioni", async () => {
+    const { seen } = install({
+      [`POST /api/chat/channels/${CH}/messages`]: { status: 201, body: message() },
+      "POST /api/chat/channels": { status: 201, body: channel() },
+      "POST /api/chat/dm": { body: channel({ id: DM, kind: "dm", projectId: null }) },
+      [`POST /api/chat/channels/${PRIVATE}/members`]: { body: channel({ id: PRIVATE }) },
+      [`DELETE /api/chat/channels/${PRIVATE}/members/${MARTA}`]: { body: channel({ id: PRIVATE }) },
+    });
+    await getSessionPerson();
+    await chat.sendMessage(CH, { text: "Sure?", threadOf: ROOT, alsoInChannel: true, asksReply: true });
+    await chat.createChannel({ projectId: null, name: "announcements", visibility: "open" });
+    await chat.createChannel({ projectId: PROJECT_ID, name: "leads", visibility: "private", memberIds: [MARTA] });
+    expect(await chat.openDm([MARTA])).toMatchObject({ id: DM, kind: "dm" });
+    await chat.inviteMembers(PRIVATE, [MARTA]);
+    await chat.removeMember(PRIVATE, MARTA);
+    expect(seen.filter((r) => r.method !== "GET").map((r) => [r.method, r.path, r.body])).toEqual([
+      ["POST", `/api/chat/channels/${CH}/messages`, { text: "Sure?", threadRootId: ROOT, alsoInChannel: true, asksReply: true }],
+      ["POST", "/api/chat/channels", { projectId: null, name: "announcements", visibility: "open" }],
+      ["POST", "/api/chat/channels", { projectId: PROJECT_ID, name: "leads", visibility: "private", memberIds: [MARTA] }],
+      ["POST", "/api/chat/dm", { personIds: [MARTA] }],
+      ["POST", `/api/chat/channels/${PRIVATE}/members`, { personIds: [MARTA] }],
+      ["DELETE", `/api/chat/channels/${PRIVATE}/members/${MARTA}`, undefined],
+    ]);
+  });
+
+  it("i rifiuti della fetta 2 negli errori del prototipo", async () => {
+    install({
+      "POST /api/chat/dm": { status: 400, body: { code: "invalid_members", message: "x" } },
+      [`DELETE /api/chat/channels/${PRIVATE}/join`]: { status: 409, body: { code: "cannot_leave", message: "x" } },
+      [`DELETE /api/chat/channels/${PRIVATE}/members/${MARTA}`]: { status: 409, body: { code: "last_member", message: "x" } },
+      [`POST /api/chat/channels/${CH}/messages`]: { status: 400, body: { code: "invalid_also_in_channel", message: "x" } },
+    });
+    await getSessionPerson();
+    await expect(chat.openDm([MARTA])).rejects.toThrow("invalid: members");
+    await expect(chat.leaveChannel(PRIVATE)).rejects.toThrow("invalid: last_member");
+    await expect(chat.removeMember(PRIVATE, MARTA)).rejects.toThrow("invalid: last_member");
+    await expect(chat.sendMessage(CH, { text: "x", alsoInChannel: true })).rejects.toThrow("invalid: alsoInChannel");
+  });
+
+  it("uscire da un privato che non si vede più (204): fatto, senza errori", async () => {
+    install({ [`DELETE /api/chat/channels/${PRIVATE}/join`]: { status: 204 } });
+    await getSessionPerson();
+    await expect(chat.leaveChannel(PRIVATE)).resolves.toBeUndefined();
+  });
+
+  it("le domande in «Da decidere», col canale come lo legge chi guarda; ignorarne una", async () => {
+    const { seen } = install({
+      "GET /api/chat/questions": {
+        body: {
+          items: [
+            { id: `chat:${ROOT}`, channelId: CH, messageId: ROOT, rootId: ROOT, askedById: MARTA, text: "@Ada ready?", createdAt: "2026-11-10T10:00:00.000Z" },
+          ],
+        },
+      },
+      "GET /api/chat/channels": { body: { items: [channel()] } },
+      "GET /api/people": { body: [{ id: MARTA, name: "Marta Rinaldi", initials: "MR", departmentIds: [], email: "m@example.com" }] },
+      [`POST /api/chat/questions/${ROOT}/dismiss`]: { status: 204 },
+    });
+    await getSessionPerson();
+    expect(await chat.listQuestions()).toEqual([
+      {
+        id: `chat:${ROOT}`,
+        channelId: CH,
+        messageId: ROOT,
+        rootId: ROOT,
+        channelLabel: "AUD · design",
+        askedById: MARTA,
+        text: "@Ada ready?",
+        createdAt: "2026-11-10T10:00:00.000Z",
+      },
+    ]);
+    await chat.dismissQuestion(ROOT);
+    expect(seen.some((r) => r.method === "POST" && r.path === `/api/chat/questions/${ROOT}/dismiss`)).toBe(true);
+  });
+
+  it("la ricerca coi filtri del prototipo; i risultati col contesto e la radice", async () => {
+    const { seen } = install({
+      "GET /api/chat/search": {
+        body: { items: [{ channelId: CH, message: message({ id: REPLY, threadRootId: ROOT }), context: null, root: message() }] },
+      },
+    });
+    await getSessionPerson();
+    const hits = await chat.searchChat("export", { channelId: CH, authorId: MARTA, peopleOnly: true, from: "2026-11-01", to: "2026-11-10" });
+    expect(seen.map((r) => r.path)).toContain(
+      `/api/chat/search?q=export&channelId=${CH}&authorId=${MARTA}&peopleOnly=true&from=2026-11-01&to=2026-11-10`,
+    );
+    expect(hits).toMatchObject([{ channelId: CH, message: { id: REPLY, threadOf: ROOT }, context: null, root: { id: ROOT } }]);
+  });
+
+  it("task e richiesta da un messaggio: la creazione di sempre, col messaggio da cui nasce", async () => {
+    const { seen } = install({
+      "POST /api/tasks": { status: 201, body: serverTask() },
+      "POST /api/requests": { status: 202, body: { jobId: "job-1" } },
+      "GET /api/requests/jobs/job-1": { body: { status: "failed", outcome: null, request: null } },
+    });
+    await getSessionPerson();
+    await chat.createTaskFromMessage(ROOT, { projectId: PROJECT_ID, title: "Export PDF", requestId: null });
+    await chat.createRequestFromMessage(ROOT, { projectId: PROJECT_ID, title: "PDF export", description: "" }).catch(() => undefined);
+    const posts = seen.filter((r) => r.method === "POST");
+    expect(posts[0]).toMatchObject({ path: "/api/tasks", body: expect.objectContaining({ title: "Export PDF", chatMessageId: ROOT }) });
+    expect(posts[1]).toMatchObject({ path: "/api/requests", body: { projectId: PROJECT_ID, title: "PDF export", description: "", chatMessageId: ROOT } });
+  });
+});
+
+describe("fetta 2: le citazioni (F2.7)", () => {
+  const TASK = "7f1c2a1e-0000-4000-8000-0000000000f1";
+  const PAGE = "7f1c2a1e-0000-4000-8000-0000000000f2";
+
+  it("il messaggio porta le citazioni che il server ha già filtrato; si risolvono come le vede chi guarda", async () => {
+    install({
+      [`GET /api/chat/messages/${ROOT}`]: {
+        body: message({
+          citations: [
+            { kind: "task", id: TASK, label: "AUD-14", projectId: PROJECT_ID },
+            { kind: "person", id: MARTA, label: "Marta Rinaldi", projectId: null },
+            { kind: "project", id: PROJECT_ID, label: "AUD", projectId: PROJECT_ID },
+            { kind: "doc", id: PAGE, label: "Billing", projectId: PROJECT_ID },
+          ],
+        }),
+      },
+    });
+    await getSessionPerson();
+    const m = (await chat.getMessage(ROOT))!.message;
+    expect(m.citations).toEqual([
+      { kind: "task", id: TASK },
+      { kind: "person", id: MARTA },
+      { kind: "project", id: PROJECT_ID },
+      { kind: "doc", id: PAGE },
+    ]);
+    const views = await resolveCitations([...m.citations, { kind: "task", id: "7f1c2a1e-0000-4000-8000-0000000000ff" }]);
+    expect(views).toMatchObject([
+      { kind: "task", id: TASK, visible: true, code: "AUD-14", projectCode: "AUD", route: "#/p/AUD/tasks?task=AUD-14" },
+      { kind: "person", id: MARTA, visible: true, name: "Marta Rinaldi", personId: MARTA, route: null },
+      { kind: "project", id: PROJECT_ID, visible: true, code: "AUD", route: "#/p/AUD/overview" },
+      { kind: "doc", id: PAGE, visible: true, name: "Billing", route: null },
+      // Una che il server non ha confermato resta non visibile, senza nome.
+      { kind: "task", visible: false, code: null, name: null },
+    ]);
+  });
+
+  it("l'invio porta le citazioni scelte con «#» (solo i tipi del server); la ricerca «con citazioni»", async () => {
+    const { seen } = install({
+      [`POST /api/chat/channels/${CH}/messages`]: { status: 201, body: message() },
+      "GET /api/chat/search": { body: { items: [] } },
+    });
+    await getSessionPerson();
+    await chat.sendMessage(CH, {
+      text: "See AUD-14",
+      citations: [
+        { kind: "task", id: TASK },
+        { kind: "milestone", id: TASK },
+      ],
+    });
+    await chat.searchChat("export", { withCitations: true });
+    expect(seen.find((r) => r.method === "POST")!.body).toEqual({ text: "See AUD-14", citations: [{ kind: "task", id: TASK }] });
+    expect(seen.map((r) => r.path)).toContain("/api/chat/search?q=export&withCitations=true");
   });
 });

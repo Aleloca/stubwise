@@ -4,6 +4,8 @@ import {
   chatMentionListSchema,
   chatMessagePageSchema,
   chatMessageSchema,
+  chatQuestionListSchema,
+  chatSearchResultSchema,
   chatSignalSchema,
   chatThreadNewsSchema,
   chatThreadSchema,
@@ -26,11 +28,14 @@ import { seg, toQuery } from "../query.js";
 export function createChatEndpoints(request: ApiRequest) {
   return {
     channels: {
-      /** I canali di progetto che chi guarda vede; il «general» c'è sempre per i membri del progetto. */
-      list(opts: { projectId?: string; archived?: boolean } = {}) {
+      /**
+       * I canali che chi guarda vede (di progetto, generali, i suoi DM); il
+       * «general» c'è sempre per i membri del progetto. `kind` filtra (fetta 2).
+       */
+      list(opts: { projectId?: string; archived?: boolean; kind?: "project" | "general" | "dm" } = {}) {
         return request(
           "GET",
-          `/api/chat/channels${toQuery({ projectId: opts.projectId, archived: opts.archived ? "true" : undefined })}`,
+          `/api/chat/channels${toQuery({ projectId: opts.projectId, archived: opts.archived ? "true" : undefined, kind: opts.kind })}`,
           undefined,
           chatChannelListSchema,
         );
@@ -52,8 +57,24 @@ export function createChatEndpoints(request: ApiRequest) {
       join(id: string) {
         return request("POST", `/api/chat/channels/${seg(id)}/join`, undefined, chatChannelSchema);
       },
-      leave(id: string) {
-        return request("DELETE", `/api/chat/channels/${seg(id)}/join`, undefined, chatChannelSchema);
+      /** Esce; `null` (204) se chi esce non vede più il canale (un privato, un DM). 409 `cannot_leave`. */
+      async leave(id: string) {
+        return (await request("DELETE", `/api/chat/channels/${seg(id)}/join`, undefined, chatChannelSchema)) ?? null;
+      },
+      /** Invita (fetta 2). 403 (non può, o sé stesso); 400 `invalid_members`. */
+      invite(id: string, personIds: string[]) {
+        return request("POST", `/api/chat/channels/${seg(id)}/members`, { personIds }, chatChannelSchema);
+      },
+      /** Toglie una persona; `null` (204) se chi agisce non vede più il canale. 409 `last_member`. */
+      async removeMember(id: string, personId: string) {
+        return (
+          (await request(
+            "DELETE",
+            `/api/chat/channels/${seg(id)}/members/${seg(personId)}`,
+            undefined,
+            chatChannelSchema,
+          )) ?? null
+        );
       },
       /** Letto fino a ora (o `at`); con `threadRootId`, il thread. */
       markRead(id: string, body: { threadRootId?: string; at?: string } = {}): Promise<void> {
@@ -99,6 +120,45 @@ export function createChatEndpoints(request: ApiRequest) {
       setFollow(id: string, following: boolean) {
         return request("PUT", `/api/chat/messages/${seg(id)}/follow`, { following }, chatMessageSchema);
       },
+    },
+    /** Apre il DM con queste persone (2–8 con chi apre): quello che c'è già, o uno nuovo. 400 `invalid_members`. */
+    openDm(personIds: string[]) {
+      return request("POST", "/api/chat/dm", { personIds }, chatChannelSchema);
+    },
+    /** Le domande rivolte a chi guarda, aperte («Da decidere»). */
+    questions() {
+      return request("GET", "/api/chat/questions", undefined, chatQuestionListSchema);
+    },
+    /** Ignora una domanda; 404 se non è sua o non è aperta. */
+    dismissQuestion(messageId: string): Promise<void> {
+      return request("POST", `/api/chat/questions/${seg(messageId)}/dismiss`);
+    },
+    /** La ricerca nei canali che chi guarda legge (meno di 2 caratteri: nessun risultato). */
+    search(opts: {
+      q: string;
+      channelId?: string;
+      authorId?: string;
+      peopleOnly?: boolean;
+      withCitations?: boolean;
+      from?: string;
+      to?: string;
+      limit?: number;
+    }) {
+      return request(
+        "GET",
+        `/api/chat/search${toQuery({
+          q: opts.q,
+          channelId: opts.channelId,
+          authorId: opts.authorId,
+          peopleOnly: opts.peopleOnly ? "true" : undefined,
+          withCitations: opts.withCitations ? "true" : undefined,
+          from: opts.from,
+          to: opts.to,
+          limit: opts.limit,
+        })}`,
+        undefined,
+        chatSearchResultSchema,
+      );
     },
     /** Le radici dei thread seguiti con risposte nuove («Threads»). */
     threads() {
