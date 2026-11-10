@@ -80,6 +80,31 @@ describe("le azioni sulla task", () => {
     });
   });
 
+  it("chiedi modifiche: la PR si sceglie per repository E numero (due repository con la stessa #7)", async () => {
+    const OTHER_REPO = "dddddddd-0000-4000-8000-0000000000aa";
+    const { seen } = installFakeServer({
+      [`GET /api/tickets/${TICKET_ID}`]: {
+        body: ticket([
+          repo(),
+          repo({ repositoryId: OTHER_REPO, repositorySlug: "api", prUrl: "https://git.example/acme/api/pull/7" }),
+        ]),
+      },
+      [`POST /api/tickets/${TICKET_ID}/repositories/${OTHER_REPO}/corrections`]: { status: 202, body: { correctionId: JOB, status: "queued" } },
+      [`GET /api/tasks/${TICKET_ID}/work`]: {
+        body: {
+          claude: "done",
+          webHref: "/x",
+          requestChangesPerPr: [
+            { repo: "acme/app", number: 7, availability: "forbidden" },
+            { repo: "acme/api", number: 7, availability: "allowed" },
+          ],
+        },
+      },
+    });
+    await requestChanges(TICKET_ID, "Fix it");
+    expect(seen.at(-1)).toMatchObject({ method: "POST", path: `/api/tickets/${TICKET_ID}/repositories/${OTHER_REPO}/corrections` });
+  });
+
   it("i rifiuti del server arrivano col loro codice", async () => {
     installFakeServer({
       [`POST /api/tickets/${TICKET_ID}/run-ai`]: { status: 409, body: { code: "job_in_flight", message: "x" } },

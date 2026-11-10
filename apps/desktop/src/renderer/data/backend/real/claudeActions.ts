@@ -70,17 +70,25 @@ export const resumeCorrection: typeof Fake.resumeCorrection = async (taskId) => 
   return queuedRun(taskId, (await appClient().tickets.runAi(taskId, { resumeCorrectionJobId: held })).jobId);
 };
 
-/** «Chiedi modifiche»: sulla PR aperta che il server dice correggibile (o la prima aperta). */
 /** Il numero di una PR dal suo indirizzo (`…/pull/7`, `…/pull-requests/7`, `…/merge_requests/7`). */
 const prNumberOf = (url: string | null) => Number(/\/(?:pull|pull-requests|merge_requests)\/(\d+)/.exec(url ?? "")?.[1] ?? NaN);
 
+/**
+ * `owner/repo` dall'indirizzo della PR, come lo calcola il server per
+ * `requestChangesPerPr` (`repoOf` in `task-work.ts`): il numero da solo non
+ * basta, due repository della stessa task possono avere ciascuno la sua #7
+ * (review dell'area 3, punto 12).
+ */
+const prRepoOf = (url: string | null) => /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\//.exec(url ?? "")?.[1] ?? null;
+
+/** «Chiedi modifiche»: sulla PR aperta che il server dice correggibile (o la prima aperta). */
 export const requestChanges: typeof Fake.requestChanges = async (taskId, text) => {
   const [repositories, work] = await Promise.all([repositoriesOf(taskId), appClient().tasks.work(taskId)]);
   const repos = repositories.filter((r) => r.prState === "open");
   // Su quale PR lo dice il server (`requestChangesPerPr`): la prima permessa.
   const allowed = work.requestChangesPerPr.filter((p) => p.availability === "allowed");
   const repo =
-    repos.find((r) => allowed.some((p) => p.number === prNumberOf(r.prUrl))) ??
+    repos.find((r) => allowed.some((p) => p.repo === prRepoOf(r.prUrl) && p.number === prNumberOf(r.prUrl))) ??
     repos.find((r) => r.cycle?.canRequestCorrection) ??
     repos[0];
   if (!repo) throw Object.assign(new Error("pr_not_open"), { code: "pr_not_open" });
