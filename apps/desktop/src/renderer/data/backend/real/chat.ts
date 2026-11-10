@@ -70,6 +70,9 @@ const channelOfMessage = new Map<string, string>();
  */
 const cursorBefore = new Map<string, string>();
 
+/** Il canale di un messaggio già letto (lo stream di un thread ascolta quello del canale). */
+export const knownChannelOf = (messageId: string): string | undefined => channelOfMessage.get(messageId);
+
 /** Cambio di persona o test: via le memorie della Chat. */
 export function forgetPeopleChatCaches(): void {
   channelOfMessage.clear();
@@ -119,7 +122,7 @@ function toRow(v: ServerChannel): ChannelRow {
   return { ...toChannelView(v), unread: v.unread, mentions: v.mentions, lastActivityAt: v.lastMessageAt };
 }
 
-function toMessage(v: ServerMsg): ChatMessageView {
+export function toMessage(v: ServerMsg): ChatMessageView {
   channelOfMessage.set(v.id, v.channelId);
   const me = session.personId ?? "";
   // Il momento dell'eliminazione: dal server se lo dice (`deletedAt`), se no
@@ -168,9 +171,17 @@ const hitOf = (v: ServerMsg): ChatMessageHit => ({ channelId: v.channelId, messa
 
 // --- letture ----------------------------------------------------------------------------
 
+/** Attivi e archiviati (il prototipo li elenca tutti; «Browse» filtra gli archiviati). */
 const listChannels: Chat["listChannels"] = async (options = { scope: "all" }) => {
-  const list = await appClient().chat.channels.list(options.scope === "project" ? { projectId: options.projectId } : {});
-  return list.items.map(toRow);
+  const scope = options.scope === "project" ? { projectId: options.projectId } : {};
+  const [active, archived] = await Promise.all([
+    appClient().chat.channels.list(scope),
+    appClient().chat.channels.list({ ...scope, archived: true }),
+  ]);
+  const seen = new Set<string>();
+  return [...active.items, ...archived.items]
+    .filter((v) => (seen.has(v.id) ? false : (seen.add(v.id), true)))
+    .map(toRow);
 };
 
 const getChannel: Chat["getChannel"] = async (id) => {
@@ -319,8 +330,8 @@ const deleteChannel: Chat["deleteChannel"] = async (channelId) => {
   await call(() => appClient().chat.channels.remove(channelId));
 };
 
-/** Il namespace `chat` della build app: la fetta 1; il resto resta «non integrato». */
-export const chat: Chat = partialNamespace<Chat>("chat", {
+/** Le funzioni della fetta 1 (lo stream, in `chatStream.ts`, lo aggiunge `index.ts`). */
+export const chatFunctions: Partial<Chat> = {
   listChannels,
   getChannel,
   listChannelMembers,
@@ -344,4 +355,7 @@ export const chat: Chat = partialNamespace<Chat>("chat", {
   updateChannel,
   archiveChannel,
   deleteChannel,
-});
+};
+
+/** Il namespace `chat` senza lo stream (i test del livello dati); il resto resta «non integrato». */
+export const chat: Chat = partialNamespace<Chat>("chat", chatFunctions);
