@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
+import { featureIntegrated } from "../../data/integration";
 import { getSessionPersonId } from "../../data/session";
 import { useTranslation } from "react-i18next";
 import {
@@ -458,7 +459,8 @@ function ChannelBody({
           setLocal((list) => list.filter((l) => l.key !== key));
           // «@Claude» nel canale: la risposta nasce nel thread, e per chi
           // l'ha chiamato il pannello si apre da solo su quel thread.
-          if (callsClaude(sent.text)) {
+          // Build app: @Claude nei canali è della fetta 3 (`chat-claude`).
+          if (featureIntegrated("chat-claude") && callsClaude(sent.text)) {
             openHref(hrefFor({ thread: sent.id }), { personId: me, from: hrefFor({}) });
           }
         },

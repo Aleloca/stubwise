@@ -206,4 +206,21 @@ describe("la Chat nella build app", () => {
     expect(await screen.findByText("The new layout is up.")).toBeInTheDocument();
     expect(await screen.findByText(/Too many live views are open in this window/)).toBeInTheDocument();
   });
+
+  it("«@Claude» scritto a mano non apre il thread (Claude nei canali è della fetta 3)", async () => {
+    install({
+      [`POST /api/chat/channels/${CH}/messages`]: {
+        status: 201,
+        body: message({ id: "7f1c2a1e-0000-4000-8000-0000000000d8", authorId: ME_ID, text: "@Claude summarize" }),
+      },
+    });
+    const ue = userEvent.setup();
+    const router = renderRoute(`/chat/${CH}`);
+    const box = await screen.findByRole("combobox", { name: /^Message/ });
+    await ue.type(box, "@Claude summarize");
+    await ue.keyboard("{Escape}{Enter}");
+    await waitFor(() => expect(seen.some((r) => r.method === "POST" && r.path.endsWith("/messages"))).toBe(true));
+    await new Promise((r) => setTimeout(r, 100));
+    expect((router.state.location.search as { thread?: string }).thread).toBeUndefined();
+  });
 });
