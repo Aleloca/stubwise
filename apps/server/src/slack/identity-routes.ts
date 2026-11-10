@@ -5,7 +5,7 @@ import { z } from "zod";
 import { roleRuleErrorSchema, targetUserNotAbove } from "../routes/roles.js";
 import { users } from "@stubwise/db";
 import { apiError } from "../errors.js";
-import { authErrorResponses, errorSchema, isUniqueViolation } from "../routes/shared.js";
+import { authErrorResponses, errorSchema, isUniqueViolation, rejectAgentUserParam } from "../routes/shared.js";
 import { publicUserSchema } from "../routes/users.js";
 import { loadSlackCreds, defaultSlackClientFactory, type SlackClientFactory } from "./creds.js";
 
@@ -45,6 +45,8 @@ export async function slackIdentityRoutes(
   opts: SlackIdentityRoutesOptions = {},
 ): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // Niente identità Slack per l'utente di sistema «Claude».
+  rejectAgentUserParam(instance);
   const clientFactory = opts.slackClientFactory ?? defaultSlackClientFactory;
 
   /** Proietta una riga utente nella forma di publicUserSchema. */

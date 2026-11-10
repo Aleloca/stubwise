@@ -266,6 +266,22 @@ describe("Claude non riceve mai notifiche", () => {
     await testDb.db.delete(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, claudeId)));
   });
 
+  it("non gli si collega un'identità git, Bitbucket o Slack (404, come un utente che non c'è)", async () => {
+    const admin = await createUserWithSession(app, "admin-identity@example.com");
+    await testDb.db
+      .update(users)
+      .set({ instanceRoleId: (await testDb.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "admin")))[0]!.id })
+      .where(eq(users.id, admin.id));
+    const call = (method: "POST" | "PUT", url: string, payload: object) =>
+      app.inject({ method, url, headers: { cookie: admin.headers.cookie }, payload });
+    const git = await call("POST", `/api/users/${claudeId}/git-identities`, { email: "bot@ci.example" });
+    expect(git.statusCode, git.body).toBe(404);
+    const bitbucket = await call("PUT", `/api/users/${claudeId}/bitbucket`, { username: "claude-bot" });
+    expect(bitbucket.statusCode, bitbucket.body).toBe(404);
+    const slack = await call("PUT", `/api/users/${claudeId}/slack`, { slackUserId: "U123" });
+    expect(slack.statusCode, slack.body).toBe(404);
+  });
+
   it("non si aggiunge come membro di un progetto (404, come un utente che non c'è)", async () => {
     const admin = await createUserWithSession(app, "admin-members@example.com");
     await testDb.db
