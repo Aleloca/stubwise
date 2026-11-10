@@ -148,12 +148,13 @@ describe("la chat con Claude nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("la pagina: il flusso, il messaggio alla sessione; rinomina sul posto; «Make public» per l'autrice (fetta 5)", async () => {
+  it("la pagina: il flusso, il messaggio alla sessione; rinomina sul posto; nessun «Make public» da un server senza canPublish", async () => {
     install();
     const ue = userEvent.setup();
     renderRoute(`/claude/${CONV}`);
     expect(await screen.findByText("Marta Rinaldi follows it.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Make public" })).toBeInTheDocument();
+    // Un server più vecchio non manda `canPublish` (fetta 5): non saprebbe pubblicare.
+    expect(screen.queryByRole("button", { name: "Make public" })).toBeNull();
     // La conservazione del server, detta nella casella.
     expect(screen.getByText("Conversations inactive for 14 days are deleted.")).toBeInTheDocument();
     await ue.type(screen.getByLabelText("Message to Claude"), "And AUD-13?");

@@ -621,7 +621,7 @@ function PageHeader({
                 : t("claude.destination.page.objectRequest", { code: detail.objectCode ?? "" })}
             </button>
           )}
-          {free && detail.canManage && !detail.archived && featureIntegrated("claude-public") && (
+          {free && (detail.canPublish ?? detail.canManage) && !detail.archived && featureIntegrated("claude-public") && (
             <button
               type="button"
               className={secondaryButton}

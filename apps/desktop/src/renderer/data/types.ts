@@ -438,6 +438,12 @@ export interface ConversationPermissions {
   canContinue: boolean;
   /** Rinominare, archiviare, eliminare, renderla pubblica o privata (l'autore, solo libere). */
   canManage: boolean;
+  /**
+   * Build app (fetta 5): renderla pubblica o privata, come dice il server
+   * (`canPublish`); un server più vecchio non lo manda e non saprebbe farlo.
+   * Assente nel prototipo, dove vale `canManage`.
+   */
+  canPublish?: boolean;
   /** Refine: «Close session» (`backlog.edit`, sessione aperta). */
   canClose: boolean;
   /**

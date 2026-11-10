@@ -500,6 +500,7 @@ export function freeDetailOf(
     planPreApproved: false,
     canContinue: !owner && v.canContinue,
     canManage: owner,
+    canPublish: owner && v.canPublish,
     canClose: false,
     canStartNew: false,
     readOnlyReason: !owner
