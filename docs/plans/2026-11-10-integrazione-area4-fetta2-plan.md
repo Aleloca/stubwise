@@ -59,9 +59,9 @@ Li ho trovati confrontando il codice. Non sono decisioni nuove: la fetta 1 si er
 - Eventi dei progetti nei canali e allegati: fetta 4.
 - Le citazioni, salvo [DECIDE] 1.
 
-## [DECIDE] per l'orchestratrice
+## Decisioni
 
-1. **Le citazioni nei messaggi** (`citations`, il «punto di forza» del design del prototipo). In D1 non hanno una fetta: nella fetta 1 il renderer manda `citations: []`.
+1. **DECISO (a) dal maintainer (M), 10 nov 2026.** **Le citazioni nei messaggi** (`citations`, il «punto di forza» del design del prototipo). In D1 non hanno una fetta: nella fetta 1 il renderer manda `citations: []`.
    - **(a, consigliata)** Fetta 2, per gli oggetti che il server ha già:
      - task, richieste e progetti, sia scelti con «#» sia scritti come codice («AUD-88», che diventa link da sé);
      - persone;
@@ -83,7 +83,7 @@ Migrazioni **0137** e **0138**, il primo numero libero sui branch remoti.
   - `CREATE EXTENSION IF NOT EXISTS pg_trgm` (estensione *trusted* da PG13, la crea il proprietario del DB) con un indice GIN trigram su `search_folded`;
   - `chat_dismissed_questions (user_id, message_id)`;
   - `chat_message_links (message_id, ticket_id | backlog_item_id)`, in cascata sul messaggio e sull'oggetto (una task eliminata non è più annunciata);
-  - se passa [DECIDE] 1 (a): `chat_message_citations (message_id, kind, ref_id)`.
+  - per le citazioni (F2.7) la tabella va nella **0139**: `chat_message_citations (message_id, kind, ref_id, position)`.
 - **0138**: `ALTER TYPE notification_kind ADD VALUE 'chat.question'`, in uno statement a sé (la trappola dell'enum nella stessa transazione).
 - **Permessi**: nessuno nuovo, perché `chat.general.*` c'è dalla 0135. La regola dei preset non serve, ma la riverifico.
 - **Ricerca**: substring per parola su `search_folded` (`ILIKE` sui termini già normalizzati, con l'indice trigram), più i codici delle task nate dal messaggio. Non uso `to_tsvector('english')` come i ticket: lo stemming inglese su testo italiano cambia i risultati, e il prototipo, che è la specifica, cerca sottostringhe.
@@ -123,7 +123,10 @@ Migrazioni **0137** e **0138**, il primo numero libero sui branch remoti.
   - la card `chat.question` nell'inbox (derivata) e nel mobile (`InfoCard`, i18n, fixture complete);
   - deploy-log 0137–0138, con ⚠️ `chat.question` nel rollback;
   - l'invariante aggiornata, il registro, la parità server e le righe di CLAUDE.md per l'orchestratrice.
-- **Se passa [DECIDE] 1 (a), F2.7 — Citazioni**: `citationsOf` sul server, filtro a lettura, ricerca e filtro «con citazioni».
+- **F2.7 — Citazioni** (decisione 1 (a), M):
+  - `citationsOf` sul server (migrazione 0139, `chat_message_citations`), filtrate a lettura su ciò che chi legge vede;
+  - i codici citati entrano nella ricerca, e si accende il filtro «con citazioni»;
+  - traguardi, Release, brief, file del repo e Drive restano alle fette 4 e 5.
 
 ## Global Constraints
 

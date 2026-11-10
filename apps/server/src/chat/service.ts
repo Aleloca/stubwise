@@ -4,6 +4,7 @@ import {
   chatChannelPrefs,
   chatChannels,
   chatDismissedQuestions,
+  chatMessageCitations,
   chatMessageLinks,
   chatMessages,
   chatReactions,
@@ -18,6 +19,7 @@ import {
 } from "@stubwise/db";
 import { publishNotification } from "@stubwise/notifications";
 import type {
+  ChatCitationRef,
   ChatChannelView,
   ChatMessageView,
   ChatNotifyLevel,
@@ -31,6 +33,7 @@ import { isUniqueViolation } from "../routes/shared.js";
 import { personName } from "../services/people.js";
 import { requestVisibility } from "../services/project-requests.js";
 import { visibleTasksCondition } from "../services/task-view.js";
+import { citationsToStore, citationViews } from "./citations.js";
 import {
   allowedMemberIds,
   channelAccess,
@@ -403,7 +406,17 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
     byMessage.set(r.messageId, forMessage);
   }
   const followOf = new Map(follows.map((f) => [f.root, f.following]));
-  const links = await linksOf(db, viewer, rows.filter((r) => r.deletedAt === null).map((r) => r.id));
+  const live = rows.filter((r) => r.deletedAt === null).map((r) => r.id);
+  const links = await linksOf(db, viewer, live);
+  const citationRows =
+    live.length === 0
+      ? []
+      : await db
+          .select({ messageId: chatMessageCitations.messageId, kind: chatMessageCitations.kind, refId: chatMessageCitations.refId })
+          .from(chatMessageCitations)
+          .where(inArray(chatMessageCitations.messageId, live))
+          .orderBy(asc(chatMessageCitations.position));
+  const citations = await citationViews(db, viewer, citationRows);
   return rows.map((m) => {
     const own = m.authorId === viewer.id && m.kind === "person";
     const deleted = m.deletedAt !== null;
@@ -439,6 +452,7 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
       asksReplyOf: deleted ? [] : m.asksReplyOf,
       linked,
       linkedCodes: linked.map((l) => l.code),
+      citations: deleted ? [] : (citations.get(m.id) ?? []),
     } satisfies ChatMessageView;
   });
 }
@@ -805,6 +819,19 @@ export async function getThread(
   return { root: views[0]!, replies: views.slice(1), lastReadAt: read?.at.toISOString() ?? null };
 }
 
+/** Sostituisce le citazioni di un messaggio (alla scrittura e alla modifica). */
+async function writeCitations(
+  tx: Tx,
+  messageId: string,
+  citations: readonly { kind: ChatCitationRef["kind"]; id: string }[],
+): Promise<void> {
+  await tx.delete(chatMessageCitations).where(eq(chatMessageCitations.messageId, messageId));
+  if (citations.length === 0) return;
+  await tx
+    .insert(chatMessageCitations)
+    .values(citations.map((c, position) => ({ messageId, kind: c.kind, refId: c.id, position })));
+}
+
 /** Segue un thread (se non ha già deciso di smettere). */
 async function follow(tx: Tx, userIds: readonly string[], rootId: string): Promise<void> {
   const ids = [...new Set(userIds)];
@@ -819,7 +846,7 @@ export async function postMessage(
   db: Db,
   viewer: ChatViewer,
   channelId: string,
-  input: { text: string; threadRootId?: string; alsoInChannel?: boolean; asksReply?: boolean },
+  input: { text: string; threadRootId?: string; alsoInChannel?: boolean; asksReply?: boolean; citations?: readonly ChatCitationRef[] },
 ): Promise<ChatMessageView> {
   const { channel, access } = await readableChannel(db, viewer, channelId);
   if (channel.archivedAt !== null) throw new ChatError(409, "channel_archived", "The channel is archived");
@@ -836,6 +863,7 @@ export async function postMessage(
   }
   const mentioned = await mentionedIn(db, channel, input.text, viewer.id);
   const asks = questionTargets(input.text, mentioned, input.asksReply === true);
+  const citations = await citationsToStore(db, viewer, input.text, input.citations ?? []);
   const members = new Set(await channelMemberIds(db, channel));
   const [author] = await peopleOf(db, [viewer.id]);
   const id = await db.transaction(async (tx) => {
@@ -853,6 +881,7 @@ export async function postMessage(
         searchFolded: foldChatText(input.text),
       })
       .returning({ id: chatMessages.id });
+    await writeCitations(tx, row!.id, citations);
     if (root) {
       // La radice cambia (risposte, ultima risposta): lo stream la rimanda.
       await tx.update(chatMessages).set({ updatedAt: sql`now()` }).where(eq(chatMessages.id, root.id));
@@ -896,8 +925,21 @@ async function ownMessage(
  * è nominato ADESSO per la prima volta. Le domande seguono il testo nuovo: chi
  * non è più nominato non aspetta più, chi lo è ancora resta.
  */
-export async function editMessage(db: Db, viewer: ChatViewer, id: string, text: string): Promise<ChatMessageView> {
+export async function editMessage(
+  db: Db,
+  viewer: ChatViewer,
+  id: string,
+  text: string,
+  picked: readonly ChatCitationRef[] = [],
+): Promise<ChatMessageView> {
   const { message, channel } = await ownMessage(db, viewer, id);
+  // Le citazioni si ricalcolano dal testo nuovo: quelle di prima più le scelte nuove.
+  const before = await db
+    .select({ kind: chatMessageCitations.kind, id: chatMessageCitations.refId })
+    .from(chatMessageCitations)
+    .where(eq(chatMessageCitations.messageId, id))
+    .orderBy(asc(chatMessageCitations.position));
+  const citations = await citationsToStore(db, viewer, text, [...before, ...picked]);
   const mentioned = await mentionedIn(db, channel, text, viewer.id);
   const added = mentioned.filter((m) => !message.mentionedIds.includes(m));
   const asked = questionTargets(text, mentioned, false);
@@ -917,6 +959,7 @@ export async function editMessage(db: Db, viewer: ChatViewer, id: string, text: 
         updatedAt: sql`now()`,
       })
       .where(eq(chatMessages.id, id));
+    await writeCitations(tx, id, citations);
     await publishCards(tx, {
       channel,
       messageId: id,
@@ -949,6 +992,7 @@ export async function deleteMessage(db: Db, viewer: ChatViewer, id: string): Pro
       })
       .where(eq(chatMessages.id, id));
     await tx.delete(chatReactions).where(eq(chatReactions.messageId, id));
+    await tx.delete(chatMessageCitations).where(eq(chatMessageCitations.messageId, id));
     await notifyChannel(tx, channel.id);
   });
 }
@@ -1242,6 +1286,7 @@ export interface ChatSearchFilters {
   channelId?: string;
   authorId?: string;
   peopleOnly?: boolean;
+  withCitations?: boolean;
   from?: string;
   to?: string;
   limit?: number;
@@ -1276,6 +1321,9 @@ export async function searchChat(
         filters.channelId ? eq(chatMessages.channelId, filters.channelId) : undefined,
         filters.authorId ? eq(chatMessages.authorId, filters.authorId) : undefined,
         filters.peopleOnly ? ne(chatMessages.kind, "system") : undefined,
+        filters.withCitations
+          ? sql`exists (select 1 from ${chatMessageCitations} c where c.message_id = ${chatMessages.id})`
+          : undefined,
         filters.from ? sql`(${chatMessages.createdAt} at time zone 'UTC')::date >= ${filters.from}::date` : undefined,
         filters.to ? sql`(${chatMessages.createdAt} at time zone 'UTC')::date <= ${filters.to}::date` : undefined,
       ),

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { backlogJobs, chatChannels, chatMessages, notifications } from "@stubwise/db";
+import { backlogJobs, chatChannels, chatMessages, docPages, notifications, projectMembers, projects, roles } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers, type SeededUsers } from "../test/fixtures.js";
@@ -14,6 +14,7 @@ let t: TestDb;
 let app: ReturnType<typeof buildApp>;
 let seeded: SeededUsers;
 let projectId: string;
+let repositoryId: string;
 type U = Awaited<ReturnType<typeof createUserWithSession>>;
 let lead: U;
 let dev: U;
@@ -27,7 +28,7 @@ beforeAll(async () => {
   app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), publicUrl: "https://stubwise.example" });
   seeded = await seedUsers(app);
   admin = { id: seeded.adminId, headers: { cookie: seeded.adminCookie } };
-  ({ projectId } = await seedRepository(t.db));
+  ({ projectId, repositoryId } = await seedRepository(t.db));
   lead = await createUserWithSession(app, "lead-f2@example.com");
   dev = await createUserWithSession(app, "dev-f2@example.com");
   dev2 = await createUserWithSession(app, "dev2-f2@example.com");
@@ -343,5 +344,69 @@ describe("dal messaggio a Stubwise", () => {
     expect((await as(dev, "POST", "/api/requests", { projectId, title: "x", chatMessageId: hidden })).json()).toMatchObject({
       code: "chat_message_not_found",
     });
+  });
+});
+
+describe("citazioni (F2.7, decisione del maintainer)", () => {
+  type Cit = { kind: string; id: string; label: string };
+  const citationsOf = async (u: Who, id: string) =>
+    ((await as(u, "GET", `/api/chat/messages/${id}`)).json() as { citations: Cit[] }).citations;
+
+  it("si tengono le scelte che chi scrive vede e che il testo nomina; un codice scritto a mano diventa link; chi legge vede solo ciò che vede", async () => {
+    const contributor = await createUserWithSession(app, "contributor2-f2@example.com");
+    await addMember(app, projectId, contributor.id, "contributor");
+    const [project] = await t.db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId));
+    const task = (await as(dev, "POST", "/api/tasks", { projectId, title: "Da citare", type: "activity" })).json() as { id: string; code: string };
+    const [page] = await t.db
+      .insert(docPages)
+      .values({ repositoryId, kind: "technical", slug: `pagina-${n}`, title: "Guida al rilascio" })
+      .returning({ id: docPages.id });
+    const g = await general();
+    const sent = await post(dev, g, `Per @lead-f2: guarda ${task.code}, la Guida al rilascio e il progetto ${project!.code}`, {
+      citations: [
+        { kind: "person", id: lead.id },
+        { kind: "doc", id: page!.id },
+        { kind: "project", id: projectId },
+        // Scelta ma non più nel testo: non resta.
+        { kind: "person", id: dev2.id },
+        // Non esiste: non resta.
+        { kind: "doc", id: crypto.randomUUID() },
+      ],
+    });
+    expect(sent.statusCode, sent.body).toBe(201);
+    const id = idOf(sent);
+    expect((await citationsOf(lead, id)).map((c) => [c.kind, c.label])).toEqual([
+      ["person", "lead-f2"],
+      ["doc", "Guida al rilascio"],
+      ["project", project!.code],
+      ["task", task.code],
+    ]);
+    // Il Contributor non vede la task altrui: la sua citazione non esce, il resto sì.
+    expect((await citationsOf(contributor, id)).map((c) => c.kind)).toEqual(["person", "doc", "project"]);
+    // Chi legge senza docs.view non vede la pagina citata (un ruolo su misura: tutti i preset ce l'hanno).
+    const [noDocs] = await t.db
+      .insert(roles)
+      .values({ name: "Senza Docs", scope: "project", permissions: ["tickets.view_all", "tickets.create"] })
+      .returning({ id: roles.id });
+    const reader = await createUserWithSession(app, "nodocs-f2@example.com");
+    await t.db.insert(projectMembers).values({ projectId, userId: reader.id, roleId: noDocs!.id });
+    // …ma con docs.view in un ALTRO progetto: il filtro deve guardare il progetto della pagina.
+    const { projectId: elsewhere } = await seedRepository(t.db);
+    await addMember(app, elsewhere, reader.id, "contributor");
+    expect((await citationsOf(reader, id)).map((c) => c.kind)).toEqual(["person", "project", "task"]);
+    // Un codice che chi scrive non vede resta testo.
+    const fromContributor = idOf(await post(contributor, g, `e ${task.code}?`, { citations: [{ kind: "task", id: task.id }] }));
+    expect(await citationsOf(lead, fromContributor)).toEqual([]);
+    // La ricerca: «con citazioni».
+    const withCitations = ((await as(lead, "GET", `/api/chat/search?q=${encodeURIComponent(task.code)}&withCitations=true`)).json() as {
+      items: { message: { id: string } }[];
+    }).items.map((h) => h.message.id);
+    expect(withCitations).toContain(id);
+    expect(withCitations).not.toContain(fromContributor);
+    // Alla modifica si ricalcolano dal testo nuovo; un eliminato non ne ha.
+    await as(dev, "PATCH", `/api/chat/messages/${id}`, { text: "Per @lead-f2: lascia stare" });
+    expect((await citationsOf(lead, id)).map((c) => c.kind)).toEqual(["person"]);
+    await as(dev, "DELETE", `/api/chat/messages/${id}`);
+    expect(await citationsOf(lead, id)).toEqual([]);
   });
 });

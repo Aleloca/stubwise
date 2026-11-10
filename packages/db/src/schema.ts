@@ -5697,6 +5697,27 @@ export const chatThreadFollows = pgTable(
   (table) => [primaryKey({ name: "chat_thread_follows_pk", columns: [table.userId, table.rootMessageId] })],
 );
 
+/**
+ * Le citazioni di un messaggio (0139): task, richieste, progetti, persone e
+ * pagine Docs. Nessuna FK verso l'oggetto (tabelle diverse): a lettura si
+ * filtrano su ciò che chi legge vede, e un oggetto che non c'è più non esce.
+ */
+export const chatMessageCitations = pgTable(
+  "chat_message_citations",
+  {
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"task" | "request" | "project" | "person" | "doc">().notNull(),
+    refId: uuid("ref_id").notNull(),
+    position: integer("position").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ name: "chat_message_citations_pk", columns: [table.messageId, table.kind, table.refId] }),
+    check("chat_message_citations_kind_chk", sql`${table.kind} in ('task', 'request', 'project', 'person', 'doc')`),
+  ],
+);
+
 /** «Da decidere»: le domande della Chat che chi guarda ha ignorato (0137). */
 export const chatDismissedQuestions = pgTable(
   "chat_dismissed_questions",

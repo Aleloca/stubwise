@@ -115,6 +115,7 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
         ...(request.query.channelId ? { channelId: request.query.channelId } : {}),
         ...(request.query.authorId ? { authorId: request.query.authorId } : {}),
         ...(request.query.peopleOnly === "true" ? { peopleOnly: true } : {}),
+        ...(request.query.withCitations === "true" ? { withCitations: true } : {}),
         ...(request.query.from ? { from: request.query.from } : {}),
         ...(request.query.to ? { to: request.query.to } : {}),
         ...(request.query.limit ? { limit: request.query.limit } : {}),
@@ -225,6 +226,7 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
             ...(request.body.threadRootId ? { threadRootId: request.body.threadRootId } : {}),
             ...(request.body.alsoInChannel ? { alsoInChannel: true } : {}),
             ...(request.body.asksReply ? { asksReply: true } : {}),
+            ...(request.body.citations ? { citations: request.body.citations } : {}),
           }),
         ),
       ),
@@ -260,7 +262,7 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/messages/:id",
     { config: { access: ACCESS }, schema: { params: idParams, body: editChatMessageSchema, response: { 200: chatMessageSchema, ...errors } } },
-    async (request, reply) => handle(reply, () => editMessage(app.db, request.user!, request.params.id, request.body.text)),
+    async (request, reply) => handle(reply, () => editMessage(app.db, request.user!, request.params.id, request.body.text, request.body.citations ?? [])),
   );
   app.delete(
     "/messages/:id",

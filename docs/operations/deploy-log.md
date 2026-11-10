@@ -3472,7 +3472,8 @@ deploy o di un rollback che la tocca.
     visibili e leggibili da chiunque veda il progetto. Prima di scendere, o
     si cancellano (`delete from chat_channels where visibility = 'private'
     and kind = 'project';`) o si accetta che diventino leggibili: va deciso
-    PRIMA del rollback.
+    PRIMA del rollback, e la decisione spetta al **maintainer** al momento
+    del rollback (orchestratrice, 10 nov 2026).
   - Un worker vecchio rifiuta i job d'intake con `chatMessageId` (`strict`):
     prima di scendere col worker, nessun job d'intake in coda deve portarlo,
     oppure si scende insieme al caddy (che non lo manda più).

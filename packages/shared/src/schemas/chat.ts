@@ -102,6 +102,32 @@ export const chatChannelSchema = z.object({
 });
 export type ChatChannelView = z.infer<typeof chatChannelSchema>;
 
+/**
+ * Gli oggetti che un messaggio può citare nella fetta 2 (decisione del
+ * maintainer, 10 nov 2026). Traguardi, Release, brief, file del repo e Drive
+ * arrivano con le fette 4 e 5.
+ */
+export const CHAT_CITATION_KINDS = ["task", "request", "project", "person", "doc"] as const;
+export const chatCitationKindSchema = z.enum(CHAT_CITATION_KINDS);
+export type ChatCitationKind = z.infer<typeof chatCitationKindSchema>;
+
+/** Una citazione scelta nella casella («#»/«@»): il client manda solo tipo e id. */
+export const chatCitationRefSchema = z.object({ kind: chatCitationKindSchema, id: z.uuid() });
+export type ChatCitationRef = z.infer<typeof chatCitationRefSchema>;
+
+/**
+ * Una citazione come la legge chi guarda: solo ciò che vede. `label` è il
+ * codice (task, richiesta, progetto), il titolo (pagina) o il nome (persona).
+ */
+export const chatCitationSchema = z.object({
+  kind: chatCitationKindSchema,
+  id: z.uuid(),
+  label: z.string(),
+  /** Il progetto dell'oggetto, quando ne ha uno (per aprirlo nel posto giusto). */
+  projectId: z.uuid().nullable().default(null),
+});
+export type ChatCitationView = z.infer<typeof chatCitationSchema>;
+
 export const chatReactionSchema = z.object({
   emoji: z.string(),
   personIds: z.array(z.uuid()),
@@ -146,6 +172,8 @@ export const chatMessageSchema = z.object({
    */
   linked: z.array(z.object({ kind: z.enum(["task", "request"]), id: z.uuid(), code: z.string() })).default([]),
   linkedCodes: z.array(z.string()).default([]),
+  /** Le citazioni (fetta 2, F2.7): solo quelle che chi guarda vede, in ordine. Un eliminato non ne ha. */
+  citations: z.array(chatCitationSchema).default([]),
 });
 export type ChatMessageView = z.infer<typeof chatMessageSchema>;
 
@@ -204,6 +232,8 @@ export const chatSearchQuerySchema = z.object({
   channelId: z.uuid().optional(),
   authorId: z.uuid().optional(),
   peopleOnly: z.enum(["true", "false"]).optional(),
+  /** Solo i messaggi con almeno una citazione. */
+  withCitations: z.enum(["true", "false"]).optional(),
   /** Giorni ISO (`YYYY-MM-DD`), inclusi, in UTC. */
   from: z.iso.date().optional(),
   to: z.iso.date().optional(),
@@ -272,10 +302,16 @@ export const postChatMessageSchema = z.object({
   alsoInChannel: z.boolean().optional(),
   /** «Ask for a reply»: chiede risposta alle persone nominate anche senza «?». */
   asksReply: z.boolean().optional(),
+  /** Gli oggetti scelti con «#»/«@»: il server tiene quelli che chi scrive vede e che il testo nomina. */
+  citations: z.array(chatCitationRefSchema).max(50).optional(),
 });
 export type PostChatMessageInput = z.input<typeof postChatMessageSchema>;
 
-export const editChatMessageSchema = z.object({ text: z.string().trim().min(1).max(CHAT_MESSAGE_MAX) });
+/** Le citazioni si ricalcolano dal testo nuovo; `citations` aggiunge scelte nuove. */
+export const editChatMessageSchema = z.object({
+  text: z.string().trim().min(1).max(CHAT_MESSAGE_MAX),
+  citations: z.array(chatCitationRefSchema).max(50).optional(),
+});
 export const chatReactionBodySchema = z.object({ emoji: z.string().trim().min(1).max(32) });
 /** Letto fino a ora (o fino a `at`); con `threadRootId`, il thread. */
 export const markChatReadSchema = z.object({
