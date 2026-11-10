@@ -1812,6 +1812,7 @@
     "loadOthers": "Other projects",
     "loadAll": "All projects",
     "readOnlyRow": "You can only plan your own tasks here",
+    "claudeReadOnly": "Only someone who can start Claude's work plans for Claude",
     "readOnlyProject": "You can't plan tasks in {{project}}",
     "notMember": "Not a member of this task's project",
     "closed": "Closed tasks aren't planned",

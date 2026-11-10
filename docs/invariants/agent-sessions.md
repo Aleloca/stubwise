@@ -222,6 +222,60 @@
   classico (`AGENT_STREAMING=false`) il CLI non si uccide a metà: vale solo il
   controllo fra i passi. Il registro è in memoria: worker a processo SINGOLO,
   come il relay. Lo scenario golden `cancel` lo rifissa sul CLI pinnato.
+  ⚠️ **La richiesta vale per UN tentativo** (review dell'area 3, 10 nov
+  2026): ogni transizione che fa ripartire il job — riciclo e forzatura di
+  `startRun`, `resolvePlan` (approva e rifiuta), la risposta a una domanda,
+  la ripresa dopo un limite, `requeueStale` — scrive
+  `CANCEL_REQUEST_CLEARED` (`@stubwise/db`) nella sua UPDATE; senza, il job
+  ripartito veniva annullato al claim e la task non si rilanciava più. Il
+  worker, come difesa, onora la colonna solo se successiva a `started_at`
+  del tentativo (`cancelRequestedThisAttempt`, `pipeline/cancel.ts`).
+  `requeueStale` chiude `skipped` (con la sua correzione) uno stantio che ha
+  la richiesta di questo tentativo, invece di riaccodarlo; il commento di
+  chiusura lì non c'è (il processo che l'avrebbe scritto è morto). Chi
+  aggiunge una transizione verso `queued` aggiunge anche quell'oggetto.
+- **I tool NATIVI di ogni run del CLI sono un elenco ESPLICITO, mai la sola
+  lista dei negati (10 nov 2026, CLI 2.1.322).** Il CLI espone tool nativi
+  nuovi — `CronCreate`/`CronDelete`/`CronList`, `RemoteTrigger`,
+  `SendMessage`, `PushNotification`, `ToolSearch`, `ListAgents`, `Workflow`,
+  `ScheduleWakeup`, `Monitor`, `EnterWorktree`/`ExitWorktree`… — che in `-p`
+  partono SENZA chiedere permesso. Misurato a mano sul 2.1.322 col profilo
+  del turno di refinement (`permissionMode: "default"`, allowedTools
+  ristretti): `RemoteTrigger` ha chiamato l'API remota con l'account del CLI
+  (HTTP 200), `SendMessage` e `CronCreate` sono stati eseguiti, `ListAgents`
+  vedeva le sessioni della macchina; `Write` era negato. L'init di una
+  traccia vera del 2.1.287 (`apps/worker/src/sessions/fixtures/
+  interrupt-then-message.jsonl`) elenca gli stessi tool: c'erano già.
+  La regola:
+  - **Ogni run dichiara `builtinTools`** (`AgentRunOptions`), un elenco di
+    `NATIVE_TOOLS` (`apps/worker/src/agent/native-tools.ts`): testo
+    (riassunti, brief, report, note di rilascio, triage, intake, stima,
+    posta, test delle credenziali, sonda della quota) nessuno; Docs ricorsivi
+    e review `Read`/`Grep`/`Glob`; pagine notturne `Read`/`Grep` (l'allowlist
+    per file); refinement `Read`/`Grep`/`Glob`/`Skill`; smoke dei plugin
+    `Skill`; piano del fix `Read`/`Grep`/`Glob`/`Skill`/`Task`; esecuzione,
+    self-repair e correzione in più `Write`/`Edit`/`Bash`/`NotebookEdit`.
+    `Bash` entra in un elenco di lettura solo con un pattern `Bash(...)` negli
+    allowedTools (`nativeToolsWith`: i comandi del grafo), che resta il
+    cancello dei comandi. Un test sul sorgente
+    (`native-tools-registry.test.ts`) fa fallire ogni `.run({ … })` senza
+    `builtinTools`. Nessun elenco contiene i tool sopra (test in
+    `native-tools.test.ts`): chi ne vuole uno lo decide col maintainer.
+  - **Fail-closed**: l'argv porta SEMPRE `--tools <elenco>`, e `--tools ""`
+    (nessun nativo) se il run non dichiara niente (`cli-args.ts`). Un
+    sottoagente (`Task`) eredita lo stesso set (misurato).
+  - **`--strict-mcp-config` SEMPRE**, anche senza server MCP del run: senza,
+    un sottoagente del 2.1.322 vedeva i connettori claude.ai dell'account.
+  - **L'init si controlla**: il runner in streaming confronta il campo
+    `tools` dell'init con `builtinTools` e i server di `mcpConfig`
+    (`initToolsViolation`) e, se il CLI espone altro, ferma il run al primo
+    evento, prima di ogni turno, con un `AgentRunError` che nomina i tool.
+    È la rete per un CLI che ignorasse `--tools`, ed è il controllo degli
+    scenari golden, che usano lo stesso runner. Il runner classico
+    (`AGENT_STREAMING=false`) non vede l'init: lì vale solo `--tools`.
+  **Quando si aggiorna il CLI**: rileggere l'init di un run (i nomi nuovi), e
+  rilanciare i golden; un nome nuovo di un nativo che un run usa (per esempio
+  un alias) va in `NATIVE_TOOLS`/`INIT_ALIASES` dopo averlo misurato.
 - **Le sessioni degli agenti nell'app: privacy, fuoco, confini (9 ott 2026,
   piano C).** (1) **Mai su AsyncStorage**: una sessione contiene il testo
   delle email e l'output dei tool. `shouldPersistQuery`

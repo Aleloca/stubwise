@@ -336,7 +336,7 @@ function fail(message: string): never {
  */
 async function loadRuntime() {
   try {
-    const [i18n, cli, streaming, askUser, fix, base, prompts, refineBridge, refinePrompts, refineTurn, chatBridge, chatPrompts, chatTurn] = await Promise.all([
+    const [i18n, cli, streaming, askUser, fix, base, prompts, refineBridge, refinePrompts, refineTurn, nativeTools, chatBridge, chatPrompts, chatTurn] = await Promise.all([
       import("@stubwise/i18n"),
       import("../../src/agent/claude-cli.js"),
       import("../../src/agent/streaming-cli.js"),
@@ -347,6 +347,7 @@ async function loadRuntime() {
       import("../../src/backlog/refine/bridge.js"),
       import("../../src/backlog/refine/prompts.js"),
       import("../../src/backlog/refine/turn.js"),
+      import("../../src/agent/native-tools.js"),
       import("../../src/claude-chat/bridge.js"),
       import("../../src/claude-chat/prompts.js"),
       import("../../src/claude-chat/turn.js"),
@@ -372,6 +373,9 @@ async function loadRuntime() {
       buildRefinePrimingPrompt: refinePrompts.buildRefinePrimingPrompt,
       refineAllowedTools: refineTurn.refineAllowedTools,
       refineDisallowedTools: refineTurn.refineDisallowedTools,
+      // I nativi per tipo di run (CLI 2.1.322): gli STESSI elenchi della produzione.
+      NATIVE_TOOLS: nativeTools.NATIVE_TOOLS,
+      nativeToolsWith: nativeTools.nativeToolsWith,
       chatServerPath: chatBridge.chatServerPath,
       startChatBridge: chatBridge.startChatBridge,
       buildChatMcpConfig: chatBridge.buildChatMcpConfig,
@@ -711,6 +715,7 @@ async function runPlanOnly(ctx: ScenarioContext): Promise<ScenarioResult> {
     ),
     model: ctx.model,
     permissionMode: "plan",
+    builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixPlan, undefined),
     maxTurns: PLAN_MAX_TURNS,
     timeoutMs: ctx.rt.DEFAULT_FIX_PLAN_TIMEOUT_MS,
     pluginDirs: ctx.pluginDirs,
@@ -803,6 +808,7 @@ async function runWithAskUser(
     ),
     model: ctx.model,
     permissionMode: "plan",
+    builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixPlan, askUser.tools),
     maxTurns: PLAN_MAX_TURNS,
     timeoutMs: ctx.rt.DEFAULT_FIX_PLAN_TIMEOUT_MS,
     allowedTools: askUser.tools,
@@ -936,6 +942,7 @@ async function runExecute(ctx: ScenarioContext): Promise<ScenarioResult> {
     ),
     model: ctx.model,
     permissionMode: "acceptEdits",
+    builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixExecute, ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS),
     maxTurns: EXECUTE_MAX_TURNS,
     timeoutMs: ctx.rt.DEFAULT_FIX_TIMEOUT_MS,
     allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
@@ -1061,6 +1068,7 @@ async function runCorrection(ctx: ScenarioContext): Promise<ScenarioResult> {
     ),
     model: ctx.model,
     permissionMode: "acceptEdits",
+    builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixExecute, ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS),
     maxTurns: EXECUTE_MAX_TURNS,
     timeoutMs: ctx.rt.DEFAULT_FIX_TIMEOUT_MS,
     allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
@@ -1223,6 +1231,7 @@ async function runInterveneOnce(
       prompt: INTERVENE_PROMPT,
       model: ctx.model,
       permissionMode: "acceptEdits",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixExecute, ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS),
       maxTurns: INTERVENE_MAX_TURNS,
       timeoutMs: INTERVENE_TIMEOUT_MS,
       allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
@@ -1364,6 +1373,7 @@ async function runPlanInterveneOnce(
       ),
       model: ctx.model,
       permissionMode: "plan",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixPlan, undefined),
       maxTurns: PLAN_MAX_TURNS,
       timeoutMs: ctx.rt.DEFAULT_FIX_PLAN_TIMEOUT_MS,
       pluginDirs: ctx.pluginDirs,
@@ -1505,6 +1515,7 @@ async function runStopPauseOnce(
       prompt: INTERVENE_PROMPT,
       model: ctx.model,
       permissionMode: "acceptEdits",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixExecute, ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS),
       maxTurns: INTERVENE_MAX_TURNS,
       timeoutMs: INTERVENE_TIMEOUT_MS,
       allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
@@ -1591,6 +1602,7 @@ async function runCancel(ctx: ScenarioContext): Promise<ScenarioResult> {
       prompt: INTERVENE_PROMPT,
       model: ctx.model,
       permissionMode: "acceptEdits",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.fixExecute, ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS),
       maxTurns: INTERVENE_MAX_TURNS,
       timeoutMs: INTERVENE_TIMEOUT_MS,
       allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
@@ -1796,6 +1808,7 @@ async function runRefine(ctx: ScenarioContext): Promise<ScenarioResult> {
       prompt,
       model: ctx.model,
       permissionMode: "default",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.refine, ctx.rt.refineAllowedTools(parentDir, [], mcp, ctx.pluginDirs)),
       // La STESSA allowlist di `runRefineTurn` (nessun grafo qui), ristretta
       // alla parent dir, e le STESSE deny rule (nessun volume di plugin qui).
       allowedTools: ctx.rt.refineAllowedTools(parentDir, [], mcp, ctx.pluginDirs),
@@ -1998,6 +2011,7 @@ async function runReadProbe(ctx: ScenarioContext, probe: "refine" | "bash"): Pro
       prompt,
       model: ctx.model,
       permissionMode: "default",
+      builtinTools: ctx.rt.nativeToolsWith(ctx.rt.NATIVE_TOOLS.refine, tools.allowedTools),
       allowedTools: tools.allowedTools,
       disallowedTools: tools.disallowedTools,
       maxTurns: REFINE_READ_MAX_TURNS,

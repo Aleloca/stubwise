@@ -25,6 +25,7 @@ import { closeWithoutRun } from "./page-update.js";
 import { SUPERSEDED_BY_GENERATION } from "./plan.js";
 import type { NightlyItem } from "./queue.js";
 import type { NightlyDeps, NightlyRepo } from "./types.js";
+import { NATIVE_TOOLS } from "../agent/native-tools.js";
 
 /**
  * Fase 4 del giro notturno, pagine NUOVE (Piano B, Task B8, D12): un elemento
@@ -201,6 +202,8 @@ export async function runPageCreateItem(
             prompt,
             model: deps.config.docsNightlyModel,
             usage: { operation: "docs_nightly", projectId: repo.projectId },
+            // L'allowlist per file usa Read e Grep, nient'altro (`native-tools.ts`).
+            builtinTools: NATIVE_TOOLS.fileRead,
             permissionMode: "default",
             allowedTools,
             disallowedTools: sensitiveReadDenyRules(),
