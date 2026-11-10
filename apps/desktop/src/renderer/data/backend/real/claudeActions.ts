@@ -2,7 +2,7 @@ import { ApiError } from "@stubwise/api-client";
 import type { ClaudeDecisionView, Reader } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ClaudeDecision, Conversation } from "../../types";
-import { planDigestOf, ticketOfConversation } from "./claude";
+import { ticketOfConversation } from "./claude";
 import { appClient } from "./client";
 
 // Le azioni di Claude nella build app (integrazione area 3, fetta 3b «Agire»).
@@ -123,10 +123,12 @@ async function ticketOf(conversationId: string): Promise<string> {
 }
 
 /** Approva o rifiuta il piano in attesa (solo `plans.approve`: lo decide il server). */
-export const decidePlan: typeof Fake.decidePlan = async (id, decision, instructions, planId) => {
+export const decidePlan: typeof Fake.decidePlan = async (id, decision, instructions, _planId, planDigest) => {
   const ticketId = await ticketOf(id);
-  // Il piano LETTO: col suo digest il server rifiuta (409 `plan_changed`) un piano riscritto nel frattempo.
-  const planDigest = planDigestOf.get(id) ?? (planId ? planDigestOf.get(planId.replace(/^plan:/, "")) : undefined);
+  // Il piano MOSTRATO (review dell'area 3, punto 13): il suo digest lo passa
+  // chi decide, dall'evento o dalla voce che ha davanti — mai da una lettura
+  // successiva dello stesso lavoro. Col digest il server rifiuta (409
+  // `plan_changed`) un piano riscritto nel frattempo.
   const digest = planDigest ? { planDigest } : {};
   if (decision === "approve") {
     await appClient().tickets.approvePlan(ticketId, digest);
@@ -174,7 +176,6 @@ function toDecision(d: Reader<ClaudeDecisionView>): ClaudeDecision | null {
   // Senza sessione la voce si riconosce dal suo id: le azioni vanno comunque al ticket.
   const conversationId = d.conversationId ?? d.id;
   ticketOfConversation.set(conversationId, d.taskId);
-  if (d.kind === "plan" && d.planDigest) planDigestOf.set(conversationId, d.planDigest);
   const base = {
     id: d.id,
     conversationId,
@@ -202,7 +203,15 @@ function toDecision(d: Reader<ClaudeDecisionView>): ClaudeDecision | null {
     };
   }
   if (!d.planId) return null;
-  return { ...base, kind: "plan", planId: d.planId, summary: d.summary ?? "", blockedReason: null, serverCode: null };
+  return {
+    ...base,
+    kind: "plan",
+    planId: d.planId,
+    ...(d.planDigest ? { planDigest: d.planDigest } : {}),
+    summary: d.summary ?? "",
+    blockedReason: null,
+    serverCode: null,
+  };
 }
 
 /**

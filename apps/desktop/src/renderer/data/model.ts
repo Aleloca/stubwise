@@ -1303,6 +1303,11 @@ export type ConversationEvent =
       status: "pending" | "approved" | "rejected" | "pre_approved" | "undecided";
       decidedById?: string;
       instructions?: string;
+      /**
+       * Build app: il digest del piano (dal server). Chi decide rimanda
+       * QUESTO, il piano che ha davanti (review dell'area 3, punto 13).
+       */
+      digest?: string;
     }
   | {
       id: string;

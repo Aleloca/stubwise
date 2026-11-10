@@ -143,6 +143,8 @@ export type PlanEvent = Base & {
   status: "pending" | "approved" | "rejected" | "pre_approved" | "undecided";
   decidedById?: string;
   instructions?: string;
+  /** Il digest del piano mostrato: chi decide lo rimanda (409 `plan_changed` se è stato riscritto). */
+  digest?: string;
 };
 
 export type WorkResultEvent = Base & {

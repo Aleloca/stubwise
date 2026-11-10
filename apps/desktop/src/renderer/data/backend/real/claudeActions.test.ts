@@ -209,12 +209,31 @@ describe("«Da decidere» di Claude", () => {
       [`POST /api/tickets/${TICKET_ID}/approve-plan`]: { status: 409, body: { code: "plan_changed", message: "x" } },
       [`POST /api/tickets/${TICKET_ID}/reject-plan`]: { status: 202, body: { jobId: JOB } },
     });
-    await listClaudeDecisions();
-    await expect(decidePlan(SESSION, "approve", undefined, JOB)).rejects.toMatchObject({ code: "plan_changed" });
-    await decidePlan(SESSION, "reject", "Smaller", JOB);
+    const [decision] = await listClaudeDecisions();
+    // La voce porta il digest del SUO piano, e chi decide lo rimanda.
+    expect(decision).toMatchObject({ kind: "plan", planDigest: "sha256:abc" });
+    const digest = (decision as { planDigest?: string }).planDigest;
+    await expect(decidePlan(SESSION, "approve", undefined, JOB, digest)).rejects.toMatchObject({ code: "plan_changed" });
+    await decidePlan(SESSION, "reject", "Smaller", JOB, digest);
     expect(seen.filter((r) => r.method === "POST").map((r) => r.body)).toEqual([
       { planDigest: "sha256:abc" },
       { instructions: "Smaller", planDigest: "sha256:abc" },
     ]);
+  });
+
+  it("il digest è quello del piano MOSTRATO: una lettura più nuova dello stesso lavoro non lo cambia (review dell'area 3, punto 13)", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/me/claude-decisions": {
+        body: [
+          { id: `${JOB}:plan`, kind: "plan", conversationId: SESSION, title: "Export", projectId: PROJECT_ID, taskId: TICKET_ID, at: "2026-11-10T09:05:00.000Z", planId: JOB, summary: "Riscritto", planDigest: "sha256:nuovo", webHref: "/x" },
+        ],
+      },
+      [`POST /api/tickets/${TICKET_ID}/approve-plan`]: { status: 202, body: { jobId: JOB } },
+    });
+    // Chi guarda ha davanti il piano di prima («sha256:mostrato»); intanto una
+    // lettura in sottofondo vede il piano riscritto.
+    await listClaudeDecisions();
+    await decidePlan(SESSION, "approve", undefined, JOB, "sha256:mostrato");
+    expect(seen.find((r) => r.method === "POST")?.body).toEqual({ planDigest: "sha256:mostrato" });
   });
 });

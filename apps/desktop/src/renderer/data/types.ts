@@ -396,6 +396,8 @@ export type ConversationClaudeDecision = {
       kind: "plan";
       /** L'evento del piano: la decisione vale solo per questo piano. */
       planId: string;
+      /** Build app: il digest di questo piano, da rimandare decidendo (punto 13 della review). */
+      planDigest?: string;
       summary: string;
       /**
        * Correzione di un server (area 8b): perché il piano non si può

@@ -2800,7 +2800,10 @@ export async function decidePlan(
   decision: "approve" | "reject",
   instructions?: string,
   planId?: string,
+  // Build app: il digest del piano mostrato; il finto decide per `planId`.
+  planDigest?: string,
 ): Promise<void> {
+  void planDigest;
   const gen = storeGeneration();
   const me = await afterGate("decidePlan", gen);
   const c = conversationFor(me, id);
