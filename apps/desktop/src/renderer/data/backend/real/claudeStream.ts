@@ -21,6 +21,7 @@ import { appClient, session } from "./client";
 import {
   chatActionEvents,
   onChatActionsStale,
+  onPageStatusChange,
   readChatActions,
   withChatActionEvents,
   type ChatActions,
@@ -392,6 +393,7 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
     finished = true;
     clearTimeout(stable);
     offStale();
+    offPage();
     release();
     state.listeners -= 1;
     trimIdle();
@@ -515,6 +517,9 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
     if (id !== conversationId || stopped) return;
     state.actionsSig = "\u0000stale";
     readActions();
+  });
+  const offPage = onPageStatusChange((id) => {
+    if (id === conversationId && !stopped) emit();
   });
 
   // Quello che si sa già arriva subito (una ripresa, un'altra vista sulla stessa sessione).

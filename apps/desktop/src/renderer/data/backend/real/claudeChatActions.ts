@@ -224,9 +224,20 @@ function pageStatuses(): Map<string, PageEventStatus> {
 }
 
 /** Il runner fissa l'esito di un'azione della pagina (eseguita, non partita, annullata). */
-export const settlePageEvent: Fake["settlePageEvent"] = async (_conversationId, eventId, status) => {
+export const settlePageEvent: Fake["settlePageEvent"] = async (conversationId, eventId, status) => {
   pageStatuses().set(eventId, status);
+  // Lo stream deriva le righe dalle sue viste: senza questo la riga dal vivo resterebbe `pending`.
+  for (const fn of [...pageListeners]) fn(conversationId);
 };
+
+const pageListeners = new Set<(conversationId: string) => void>();
+/** L'esito locale di un'azione della pagina è cambiato: chi deriva le righe (lo stream) le riemette. */
+export function onPageStatusChange(fn: (conversationId: string) => void): () => void {
+  pageListeners.add(fn);
+  return () => {
+    pageListeners.delete(fn);
+  };
+}
 
 /** Solo nei test: nessun esito ricordato. */
 export function forgetPageStatuses(): void {

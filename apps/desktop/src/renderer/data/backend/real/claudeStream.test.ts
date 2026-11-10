@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationEvent } from "../../types";
 import { setAppClientForTests } from "./client";
-import { confirmProposal } from "./claudeChatActions";
+import { confirmProposal, forgetPageStatuses, settlePageEvent } from "./claudeChatActions";
 import { IDLE_SESSIONS_MAX, MAX_STREAMS, reconnectDelay, rememberedSessions, resetStreamsForTests, subscribe } from "./claudeStream";
 import { PROJECT_ID, serverProject, TICKET_ID } from "./fakeServer";
 
@@ -340,6 +340,33 @@ describe("lo stream di una sessione", () => {
     await vi.waitFor(() => expect(c.events[0]).toMatchObject({ type: "proposal", status: "open" }));
     expect(await confirmProposal(SESSION, PROPOSAL)).toEqual({ status: "failed", error: "expired" });
     await vi.waitFor(() => expect(c.events[0]).toMatchObject({ type: "proposal", status: "expired" }));
+    stop();
+  });
+
+  it("un'azione della pagina chiusa dal runner (settlePageEvent) si aggiorna anche dal vivo, senza restare pending", async () => {
+    forgetPageStatuses();
+    const PROPOSAL = "dddddddd-0000-4000-8000-0000000000b3";
+    chatProposals = [
+      {
+        id: PROPOSAL,
+        sessionId: SESSION,
+        actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
+        summary: "",
+        cls: "A",
+        status: "open",
+        canConfirm: false,
+        canCancel: false,
+        createdAt: "2026-11-10T09:00:02.000Z",
+      },
+    ];
+    const c = collect();
+    const stop = subscribe(SESSION, c.onEvent, {});
+    await vi.waitFor(() => expect(streams).toHaveLength(1));
+    streams[0]!.push(frame({ type: "session", detail: detail({ kind: "free", ticketId: null, ticketNumber: null, aiJobId: null }) }));
+    streams[0]!.push(frame({ type: "events", events: [ev("2", "proposal", { proposalId: PROPOSAL })] }));
+    await vi.waitFor(() => expect(c.events[0]).toMatchObject({ type: "pageAction", status: "pending" }));
+    await settlePageEvent(SESSION, `page:${PROPOSAL}:0`, "done");
+    await vi.waitFor(() => expect(c.events[0]).toMatchObject({ type: "pageAction", status: "done" }));
     stop();
   });
 
