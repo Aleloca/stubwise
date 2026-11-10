@@ -16,7 +16,7 @@ import {
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
-import { PROJECT_PERMISSIONS } from "@stubwise/shared";
+import { PRESET_ROLES, PROJECT_PERMISSIONS } from "@stubwise/shared";
 import { addMember, createUserWithSession, presetRoleId, seedUsers } from "../test/fixtures.js";
 
 /**
@@ -486,12 +486,12 @@ describe("ultimo full admin", () => {
   let adminRoleId: string;
 
   beforeAll(async () => {
+    // Chi sta sopra un User: il preset User di ADESSO più `users.manage` (un
+    // ruolo fatto oggi deve contenere i permessi nuovi del preset; quelli di
+    // prima li riceve dalla migrazione, vedi `docs/invariants/permissions.md`).
     usersManager = await userWithInstanceRole("users-manager@example.com", [
       "users.manage",
-      "monitor.view",
-      "users.view_all",
-      "git_accounts.view",
-      "mail_admission.view",
+      ...PRESET_ROLES.find((r) => r.key === "user")!.permissions,
     ]);
     adminRoleId = await presetRoleId(app, "admin");
   });
