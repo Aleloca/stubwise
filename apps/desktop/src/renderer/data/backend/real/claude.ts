@@ -26,6 +26,7 @@ import { freeDetailOf, listMine, listPublic } from "./claudeChat";
 import {
   chatActionEvents,
   forgetPageStatuses,
+  rememberConversationOwner,
   readChatActions,
   undoViewsOf,
   withChatActionEvents,
@@ -530,6 +531,8 @@ export const getConversation: typeof Fake.getConversation = async (id) => {
       if (error instanceof ApiError && error.status === 404) return null;
       throw error;
     }
+    // L'autore prima delle viste delle proposte: è il loro richiedente (fetta 5).
+    rememberConversationOwner(id, conversation.author?.id ?? "");
     const [events, actions, people] = await Promise.all([readEvents(id), readChatActions(id), listPeople()]);
     const nameOf = (personId: string) => people.find((p) => p.id === personId)?.name ?? null;
     // Le schede e le righe delle azioni di Claude (fetta 3): derivate dalle viste del server.

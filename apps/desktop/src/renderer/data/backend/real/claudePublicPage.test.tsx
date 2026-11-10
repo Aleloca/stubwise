@@ -248,4 +248,43 @@ describe("le pubbliche nelle pagine della build app", () => {
     // L'originale in sola lettura in testa, dal vivo.
     expect(await screen.findByText("Giulia's callbacks are fine.")).toBeInTheDocument();
   });
+
+  it("una proposta APERTA dell'autrice letta da chi non può decidere (canConfirm false): nessun bottone, nessun «aspetta te», nessun annuncio", async () => {
+    const PROPOSAL = "dddddddd-0000-4000-8000-0000000000f1";
+    install({
+      [`GET /api/agent-sessions/${CONV}/events`]: {
+        body: {
+          events: [
+            { id: "2", type: "assistant_text", segmentId: "s1", at: "2026-11-10T10:01:00.000Z", data: { text: "Giulia's callbacks are fine." } },
+            { id: "3", type: "proposal", segmentId: "s1", at: "2026-11-10T10:01:10.000Z", data: { proposalId: PROPOSAL } },
+          ],
+          before: null,
+        },
+      },
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [
+          {
+            id: PROPOSAL,
+            sessionId: CONV,
+            actions: [{ fn: "createMilestone", args: { projectId: PROJECT_ID, name: "Beta" } }],
+            summary: "",
+            cls: "B",
+            reasons: [],
+            status: "open",
+            canConfirm: false,
+            canCancel: false,
+            createdAt: "2026-11-10T10:01:10.000Z",
+          },
+        ],
+      },
+    });
+    renderRoute(`/claude/${CONV}`);
+    const card = await screen.findByRole("region", { name: "Proposal for Giulia Ferri" });
+    expect(within(card).queryByRole("button", { name: /^Confirm/ })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(within(card).queryByText("Your proposal")).toBeNull();
+    expect(card).toHaveTextContent("Giulia Ferri");
+    expect(screen.queryByText("Claude is waiting for your decision.")).toBeNull();
+  });
 });

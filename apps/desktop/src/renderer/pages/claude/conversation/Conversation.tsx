@@ -558,7 +558,7 @@ function ConversationBody({
       const forMe =
         (e.type === "question" && e.answer === null && detail.canAnswer) ||
         (e.type === "plan" && e.status === "pending" && detail.canDecidePlan) ||
-        (e.type === "proposal" && e.status === "open" && e.requesterId === viewerId);
+        (e.type === "proposal" && e.status === "open" && e.requesterId === viewerId && e.canDecide !== false);
       if (forMe && !seen.cards.has(e.id)) {
         seen.cards.add(e.id);
         if (seen.ready) setAssertive(t("claude.conversation.announce.decision"));

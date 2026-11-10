@@ -213,6 +213,17 @@ function whoActionOf(permission: string | null, fn: string | undefined): string 
 const codeOfAction = (a: { fn: string; args: Record<string, unknown> }, codes: Map<string, string>) =>
   codes.get(taskIdsOf(a.fn, a.args)[0] ?? "") ?? null;
 
+/**
+ * L'autore di ogni conversazione libera letta (fetta 5): il richiedente delle
+ * sue proposte, per nome. La vista della proposta non lo porta; lo stream lo
+ * trova qui, letto col dettaglio. Senza: chi guarda (una sua conversazione).
+ */
+const owners = new Map<string, string>();
+export function rememberConversationOwner(conversationId: string, ownerId: string): void {
+  if (ownerId) owners.set(conversationId, ownerId);
+}
+const ownerOf = (conversationId: string) => owners.get(conversationId) ?? session.personId ?? "";
+
 function proposalEvent(p: ProposalView, at: string, actions: ChatActions): ConversationEvent {
   const group = p.groupId ? actions.groups.find((g) => g.id === p.groupId) : undefined;
   const failure = failureOf(p);
@@ -221,8 +232,10 @@ function proposalEvent(p: ProposalView, at: string, actions: ChatActions): Conve
     at,
     type: "proposal",
     proposalId: p.id,
-    // Le proposte di una conversazione libera sono di chi l'ha aperta: chi guarda.
-    requesterId: session.personId ?? "",
+    // Le proposte di una conversazione libera sono di chi l'ha aperta (l'autore,
+    // che da una pubblica non è chi guarda): chi decide lo dice il server.
+    requesterId: ownerOf(p.sessionId),
+    canDecide: p.canConfirm || p.canCancel,
     actions: p.actions.map((a) => summaryOf(a.fn, a.args, codeOfAction(a, actions.codes))),
     status: p.status,
     cls: p.cls,
@@ -290,6 +303,7 @@ export function onPageStatusChange(fn: (conversationId: string) => void): () => 
 /** Solo nei test: nessun esito ricordato. */
 export function forgetPageStatuses(): void {
   pageStatusByPerson.clear();
+  owners.clear();
   taskCodesByPerson.clear();
 }
 

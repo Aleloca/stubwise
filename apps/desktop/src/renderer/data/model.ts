@@ -1315,6 +1315,12 @@ export type ConversationEvent =
       type: "proposal";
       proposalId: string;
       requesterId: string;
+      /**
+       * Build app (chat, fetta 5): chi guarda può confermarla o annullarla,
+       * come dice il server (`canConfirm`/`canCancel` della vista). Assente nel
+       * prototipo, dove decide il richiedente. La scheda lo legge, non lo deduce.
+       */
+      canDecide?: boolean;
       actions: ProposedAction[];
       status: "open" | "confirmed" | "cancelled" | "expired" | "failed";
       error?: string;

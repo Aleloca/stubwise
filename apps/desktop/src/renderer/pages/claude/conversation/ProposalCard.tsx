@@ -230,9 +230,11 @@ export function ProposalCardView({
   const confirmWhyId = useId();
   const resolvedRef = useFocusWhenResolved<HTMLElement>(event.status !== "open");
 
-  const own = event.requesterId === viewerId;
-  const mine = own && canAct;
   const open = event.status === "open";
+  // Build app: su una scheda aperta chi decide lo dice il server
+  // (`canDecide`), non chi guarda (fetta 5: una pubblica, una continuazione).
+  const own = event.requesterId === viewerId && !(open && event.canDecide === false);
+  const mine = own && canAct;
   // Un «Annulla» è tutto o niente: niente caselle (I1).
   const many = event.actions.length > 1 && !event.undoOf;
   const chosen = selected.flatMap((on, i) => (on ? [i] : []));
