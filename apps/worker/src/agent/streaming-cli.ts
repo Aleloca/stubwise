@@ -139,6 +139,8 @@ export const SEGMENT_DELIVERABLE: Partial<Record<AgentSegmentLabel, "output" | "
   correction: "files",
   correction_self_repair: "files",
   refine: "conversation",
+  // La conversazione libera con Claude (chat, fetta 1): come il refinement.
+  chat: "conversation",
 };
 
 /** Variabili d'ambiente del figlio che portano una credenziale (vedi buildAgentEnv). */

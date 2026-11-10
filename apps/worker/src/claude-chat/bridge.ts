@@ -1,0 +1,254 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { existsSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { CHAT_MCP_SERVER_NAME, CHAT_TOOL_NAMES, CHAT_TOOLS, type ChatToolName } from "@stubwise/shared";
+import type { AgentMcpConfig } from "../agent/runner.js";
+
+/**
+ * PONTE dei tool di LETTURA della chat con Claude (fetta 1). Endpoint HTTP
+ * SOLO su loopback, nel processo del worker: il server MCP `stubwise_chat`
+ * (figlio del CLI) gli inoltra le chiamate con un SEGRETO CASUALE PER TURNO.
+ * Il ponte traduce ogni tool in una o più GET sul server, con il TOKEN DEL
+ * TURNO (`stw_chat_…`, `issueChatToolToken`): il server lo accetta solo in GET
+ * e solo sulle rotte di `CHAT_TOOL_READ_ROUTES`, e agisce come l'autore —
+ * un progetto che l'autore non vede è 404 anche qui.
+ *
+ * Il token del turno resta DENTRO il ponte: non passa per l'env del server MCP
+ * (che ha solo URL e segreto del ponte), non torna mai nelle risposte, non va
+ * nei log. Nessun tool scrive, propone o esegue niente.
+ */
+
+const MAX_BODY_BYTES = 16_384;
+/** Tetto del testo restituito all'agente per una chiamata. */
+export const CHAT_TOOL_TEXT_MAX = 12_000;
+const SERVER_TIMEOUT_MS = 20_000;
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+
+export interface ChatTurnGrant {
+  secret: string;
+  revoke(): void;
+}
+export interface ChatBridge {
+  readonly url: string;
+  grant(turn: { sessionId: string; serverToken: string }): ChatTurnGrant;
+  revokeSession(sessionId: string): void;
+  close(): Promise<void>;
+}
+
+/** `dist/claude-chat/bridge.js` → `dist/chat-mcp/index.js`. */
+export function chatServerPath(): string {
+  return join(moduleDir, "..", "chat-mcp", "index.js");
+}
+
+/** Config MCP del turno; `null` se l'entry compilato non c'è (sviluppo con `tsx`). */
+export function buildChatMcpConfig(
+  bridge: ChatBridge,
+  grant: ChatTurnGrant,
+  serverPath: string,
+): { mcpConfig: AgentMcpConfig; tools: readonly string[] } | null {
+  if (!existsSync(serverPath)) return null;
+  return {
+    mcpConfig: {
+      servers: {
+        [CHAT_MCP_SERVER_NAME]: {
+          command: process.execPath,
+          args: [serverPath],
+          env: { CHAT_BRIDGE_URL: bridge.url, CHAT_BRIDGE_SECRET: grant.secret },
+        },
+      },
+    },
+    tools: CHAT_TOOL_NAMES,
+  };
+}
+
+type Args = Record<string, unknown>;
+const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v.trim() : undefined);
+const seg = (v: string) => encodeURIComponent(v);
+
+/**
+ * I percorsi (sempre GET, sempre nell'allowlist del server) di un tool. Ogni
+ * valore dell'agente entra codificato: un codice non apre altri percorsi.
+ */
+export function chatServerPaths(tool: ChatToolName, args: Args): string[] {
+  switch (tool) {
+    case "list_projects":
+      return ["/api/projects"];
+    case "search_tasks": {
+      const q = new URLSearchParams();
+      const text = str(args["text"]);
+      const projectId = str(args["projectId"]);
+      if (text) q.set("text", text.slice(0, 500));
+      if (projectId) q.set("projectIds", projectId);
+      if (args["includeClosed"] !== true) q.set("families", "todo,active");
+      const qs = q.toString();
+      return [qs ? `/api/tasks?${qs}` : "/api/tasks"];
+    }
+    case "read_task":
+      return [`/api/tasks/by-code/${seg(str(args["code"]) ?? "")}`];
+    case "read_request":
+      return [`/api/requests/by-code/${seg((str(args["code"]) ?? "").toUpperCase())}`];
+    case "search_docs": {
+      const q = new URLSearchParams({ q: (str(args["query"]) ?? "").slice(0, 300) });
+      return [`/api/projects/${seg(str(args["projectId"]) ?? "")}/docs/search?${q.toString()}`];
+    }
+    case "read_project_overview": {
+      const p = seg(str(args["projectId"]) ?? "");
+      return [`/api/projects/${p}/briefs/latest`, `/api/projects/${p}/decisions?limit=50`];
+    }
+  }
+}
+
+/** Chiavi che non servono a rispondere e non devono finire nel contesto del modello. */
+const HIDDEN_KEY = /(key|token|secret|password|hash|cookie)$/i;
+
+function compact(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(compact);
+  if (value !== null && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (HIDDEN_KEY.test(k) || v === null || v === undefined) continue;
+      out[k] = compact(v);
+    }
+    return out;
+  }
+  return value;
+}
+
+function truncate(text: string): string {
+  return text.length <= CHAT_TOOL_TEXT_MAX
+    ? text
+    : `${text.slice(0, CHAT_TOOL_TEXT_MAX)}\n…(truncated: ask a narrower question)`;
+}
+
+const subjectOf = (args: Args) => str(args["code"]) ?? str(args["projectId"]) ?? "the requested item";
+
+type Reply = { status: number; body: { ok: boolean; text?: string; error?: string } };
+
+export async function startChatBridge(deps: {
+  serverUrl: string;
+  fetchImpl?: typeof fetch;
+  log?: (m: string) => void;
+}): Promise<ChatBridge> {
+  const log = deps.log ?? ((m: string) => console.warn(m));
+  const fetchImpl = deps.fetchImpl ?? fetch;
+  const serverUrl = deps.serverUrl.replace(/\/+$/, "");
+  const grants = new Map<string, { sessionId: string; serverToken: string }>();
+
+  const turnOf = (header: string | undefined) => {
+    const given = header?.startsWith("Bearer ") ? Buffer.from(header.slice(7)) : null;
+    if (given === null) return undefined;
+    let found: { sessionId: string; serverToken: string } | undefined;
+    for (const [secret, turn] of grants) {
+      const expected = Buffer.from(secret);
+      if (expected.length === given.length && timingSafeEqual(expected, given)) found = turn;
+    }
+    return found;
+  };
+
+  const readBody = (req: IncomingMessage) =>
+    new Promise<string | "too_large">((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let tooLarge = false;
+      req.on("data", (c: Buffer) => {
+        if (tooLarge) return;
+        size += c.length;
+        if (size > MAX_BODY_BYTES) {
+          tooLarge = true;
+          chunks.length = 0;
+          return;
+        }
+        chunks.push(c);
+      });
+      req.on("end", () => resolve(tooLarge ? "too_large" : Buffer.concat(chunks).toString("utf8")));
+      req.on("error", reject);
+    });
+
+  async function handle(req: IncomingMessage): Promise<Reply> {
+    const match = /^\/tools\/([a-z_]+)$/.exec(req.url ?? "");
+    const tool = match?.[1] as ChatToolName | undefined;
+    if (req.method !== "POST" || tool === undefined || !(CHAT_TOOLS as readonly string[]).includes(tool)) {
+      return { status: 404, body: { ok: false, error: "not_found" } };
+    }
+    const turn = turnOf(req.headers.authorization);
+    if (turn === undefined) return { status: 401, body: { ok: false, error: "unauthorized" } };
+    const raw = await readBody(req);
+    if (raw === "too_large") return { status: 413, body: { ok: false, text: "The request is too large." } };
+    let args: Args = {};
+    try {
+      const parsed: unknown = raw.trim() === "" ? {} : JSON.parse(raw);
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) args = parsed as Args;
+    } catch {
+      return { status: 400, body: { ok: false, text: "The arguments are not valid JSON." } };
+    }
+
+    const parts: string[] = [];
+    for (const path of chatServerPaths(tool, args)) {
+      const res = await fetchImpl(`${serverUrl}${path}`, {
+        method: "GET",
+        headers: { authorization: `Bearer ${turn.serverToken}`, accept: "application/json" },
+        signal: AbortSignal.timeout(SERVER_TIMEOUT_MS),
+      });
+      // 404 e 403 si leggono uguali: non si dice se l'oggetto esiste.
+      if (res.status === 404 || res.status === 403) {
+        return { status: 200, body: { ok: false, text: `Not found, or not visible to you: ${subjectOf(args)}.` } };
+      }
+      if (res.status === 401) {
+        return { status: 200, body: { ok: false, text: "This turn can no longer read Stubwise (it ended or the conversation was closed)." } };
+      }
+      if (res.status === 400) {
+        return { status: 200, body: { ok: false, text: "Stubwise rejected these arguments; check ids and codes." } };
+      }
+      if (!res.ok) {
+        log(`[chat] ponte: ${tool} → ${res.status}`);
+        return { status: 200, body: { ok: false, text: `Stubwise is unavailable right now (${res.status}).` } };
+      }
+      const json: unknown = await res.json().catch(() => null);
+      parts.push(JSON.stringify(compact(json)));
+    }
+    return { status: 200, body: { ok: true, text: truncate(parts.join("\n")) } };
+  }
+
+  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    void handle(req)
+      .catch((error: unknown): Reply => {
+        // Il messaggio di un fetch fallito non contiene il token (sta in un header).
+        log(`[chat] ponte: lettura fallita: ${error instanceof Error ? error.message : String(error)}`);
+        return { status: 200, body: { ok: false, text: "Stubwise could not be read; try again." } };
+      })
+      .then((reply) => {
+        if (res.headersSent) return;
+        res.writeHead(reply.status, { "content-type": "application/json" });
+        res.end(JSON.stringify(reply.body));
+      });
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  server.on("error", (error) => log(`[chat] ponte: errore del server: ${String(error)}`));
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("chat bridge: indirizzo non disponibile");
+
+  return {
+    url: `http://127.0.0.1:${address.port}`,
+    grant(turn) {
+      const secret = randomBytes(32).toString("hex");
+      grants.set(secret, turn);
+      return { secret, revoke: () => void grants.delete(secret) };
+    },
+    revokeSession(sessionId) {
+      for (const [secret, turn] of grants) if (turn.sessionId === sessionId) grants.delete(secret);
+    },
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      }),
+  };
+}

@@ -53,6 +53,8 @@ export const agentSegmentLabelSchema = z.enum([
   "brief",
   "daily_report",
   "refine",
+  /** Il turno di una conversazione libera con Claude (chat, fetta 1). Additivo. */
+  "chat",
 ]);
 export type AgentSegmentLabel = z.infer<typeof agentSegmentLabelSchema>;
 
@@ -79,6 +81,9 @@ export const INTERACTIVE_SEGMENTS: ReadonlySet<AgentSegmentLabel> = new Set<Agen
   "correction_self_repair",
   // `refine` (sessione di refinement): il deliverable è la conversazione stessa.
   "refine",
+  // `chat` (conversazione libera con Claude): come il refinement, la
+  // conversazione è il deliverable; l'autore scrive e ferma a metà turno.
+  "chat",
 ]);
 
 /**

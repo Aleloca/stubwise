@@ -61,6 +61,19 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 - Citazioni, menzioni, «Claude can help you…» (suggerimenti nelle pagine),
   riquadro come chat, ⌘J/⌘K «Ask Claude» *(O)*.
 - Azioni delle altre aree: entrano **con la loro area** (sotto) *(O)*.
+- **Limiti della fetta 1 (runner)** *(S, stubwise-80)*: i tool di lettura sono
+  sei (progetti, cerca/leggi task, leggi richiesta, cerca docs, brief +
+  registro decisioni). Non leggono commenti e storia della task, la pagina
+  Docs intera, il codice o il grafo; restituiscono il JSON delle rotte
+  compattato (senza chiavi da segreto, tetto 12.000 caratteri), non le viste
+  delle pagine. Si allargano aggiungendo rotte di LETTURA a
+  `CHAT_TOOL_READ_ROUTES` (col test del registro) e un tool al ponte.
+- Il contesto della pagina arriva al modello come `tipo: id`, non come il suo
+  contenuto: Claude lo legge con i tool se serve *(S)*.
+- Conversazioni senza chiusura per inattività e senza retention: restano
+  finché l'autore non le archivia o le elimina (eventi compresi) *(S)*.
+- Budget del mese finito: in chat nessuno lo scavalca (una conversazione non ha
+  un progetto, quindi nessun `plans.approve`) *(S)*.
 
 ## Area 4 — Chat
 

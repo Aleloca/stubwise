@@ -78,3 +78,21 @@ export function conversationTitleFrom(message: string, max = 80): string {
   const flat = line.replace(/\s+/g, " ");
   return flat.length <= max ? flat : `${flat.slice(0, max - 1).trimEnd()}…`;
 }
+
+/**
+ * Il server MCP dei tool di LETTURA della chat (fetta 1): nessuna scrittura,
+ * nessuna proposta. Ogni tool legge dal server con il token del turno, cioè
+ * come l'autore (rotte di `CHAT_TOOL_READ_ROUTES` del server). Il CLI li
+ * chiama `mcp__<server>__<tool>`.
+ */
+export const CHAT_MCP_SERVER_NAME = "stubwise_chat";
+export const CHAT_TOOLS = [
+  "list_projects",
+  "search_tasks",
+  "read_task",
+  "read_request",
+  "search_docs",
+  "read_project_overview",
+] as const;
+export type ChatToolName = (typeof CHAT_TOOLS)[number];
+export const CHAT_TOOL_NAMES: readonly string[] = CHAT_TOOLS.map((tool) => `mcp__${CHAT_MCP_SERVER_NAME}__${tool}`);

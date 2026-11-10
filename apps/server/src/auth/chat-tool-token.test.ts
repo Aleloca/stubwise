@@ -88,7 +88,7 @@ describe("il token del turno della chat", () => {
     await revokeChatToolToken(t.db, revoked);
     expect((await get("/api/projects", revoked)).statusCode).toBe(401);
 
-    const expired = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: -1 });
+    const expired = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: -60_000 });
     expect((await get("/api/projects", expired)).statusCode).toBe(401);
 
     const live = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 });

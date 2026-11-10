@@ -723,6 +723,41 @@ const envSchema = z.object({
       .min(60_000, "deve essere un intero ≥ 60000 in millisecondi (es. 900000)")
       .default(900_000),
   ),
+  // Chat con Claude (fetta 1): l'URL INTERNO del server su cui il ponte dei
+  // tool di lettura chiama le rotte di `CHAT_TOOL_READ_ROUTES` col token del
+  // turno. Nel compose è il servizio `server` sulla rete interna.
+  CHAT_SERVER_URL: z.preprocess(
+    emptyAsUndefined,
+    z.url({ error: "deve essere un URL (es. http://server:3000)" }).default("http://server:3000"),
+  ),
+  // Turni di chat CONTEMPORANEI d'istanza (gli altri restano in coda). Default 2.
+  CHAT_MAX_CONCURRENT: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 2)" })
+      .int("deve essere un intero ≥ 1 (es. 2)")
+      .min(1, "deve essere un intero ≥ 1 (es. 2)")
+      .default(2),
+  ),
+  // Timeout di UN turno di chat, e quindi (più un minuto) la vita massima del
+  // token del turno. Default 300000 = 5'.
+  CHAT_TURN_TIMEOUT_MS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 60000 in millisecondi (es. 300000)" })
+      .int("deve essere un intero ≥ 60000 in millisecondi (es. 300000)")
+      .min(60_000, "deve essere un intero ≥ 60000 in millisecondi (es. 300000)")
+      .default(300_000),
+  ),
+  // Turni agentici massimi in un turno di chat (chiamate ai tool comprese). Default 15.
+  CHAT_MAX_TURNS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 1 (es. 15)" })
+      .int("deve essere un intero ≥ 1 (es. 15)")
+      .min(1, "deve essere un intero ≥ 1 (es. 15)")
+      .default(15),
+  ),
   // Radice del VOLUME condiviso dei grafi (graphify): il worker ci scrive
   // `<GRAPHS_DIR>/<repositoryId>/graphify-out/`, il server lo monta read-only
   // per servire report/html/json alla SPA. Niente blob in Postgres.
@@ -1149,6 +1184,14 @@ export interface WorkerConfig {
   backlogRefineIdleMinutes: number;
   /** Timeout (ms) di un turno di refinement (default 900000 = 15'). */
   backlogRefineTurnTimeoutMs: number;
+  /** URL interno del server per i tool di lettura della chat (default http://server:3000). */
+  chatServerUrl: string;
+  /** Turni di chat contemporanei d'istanza (default 2). */
+  chatMaxConcurrent: number;
+  /** Timeout (ms) di un turno di chat (default 300000 = 5'). */
+  chatTurnTimeoutMs: number;
+  /** Turni agentici massimi in un turno di chat (default 15). */
+  chatMaxTurns: number;
   /** Radice del volume condiviso dei grafi graphify (default "/graphs"). */
   graphsDir: string;
   /** Labeling delle comunità col backend claude-cli (default true). */
@@ -1269,6 +1312,8 @@ export function effectiveModelDefaults(
     weekly_brief: config.summaryModel,
     mail_classify: config.gmailModel,
     chat: SERVER_CHAT_DEFAULT_MODEL,
+    // La chat con Claude (fetta 1): lo stesso modello dei turni di refinement.
+    claude_chat: config.backlogModel,
     backlog_merge: SERVER_CHAT_DEFAULT_MODEL,
     plugin_smoke: "haiku",
     credential_test: "haiku",
@@ -1373,6 +1418,10 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     backlogRefineMaxConcurrent: parsed.BACKLOG_REFINE_MAX_CONCURRENT,
     backlogRefineIdleMinutes: parsed.BACKLOG_REFINE_IDLE_MINUTES,
     backlogRefineTurnTimeoutMs: parsed.BACKLOG_REFINE_TURN_TIMEOUT_MS,
+    chatServerUrl: parsed.CHAT_SERVER_URL,
+    chatMaxConcurrent: parsed.CHAT_MAX_CONCURRENT,
+    chatTurnTimeoutMs: parsed.CHAT_TURN_TIMEOUT_MS,
+    chatMaxTurns: parsed.CHAT_MAX_TURNS,
     graphsDir: parsed.GRAPHS_DIR,
     graphLabelEnabled: parsed.GRAPH_LABEL_ENABLED,
     graphifyBin: parsed.GRAPHIFY_BIN,

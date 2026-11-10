@@ -59,7 +59,8 @@ type InputRow = typeof agentSessionInputs.$inferSelect;
  * già in avvio o in corso sulla sessione non fa niente.
  */
 export interface TurnStarter {
-  requestTurn(sessionId: string): void;
+  /** `kind`: il kind della sessione, per chi smista fra più scheduler (refinement, chat). */
+  requestTurn(sessionId: string, kind: string): void;
 }
 
 /** Oltre questa soglia la cache dei kind si svuota (non cresce senza fine). */
@@ -155,7 +156,7 @@ export class SessionInputRelay implements SessionHooks {
       const requestTurn = (id: string) => {
         if (requested.has(id)) return;
         requested.add(id);
-        this.deps.turnStarter?.requestTurn(id);
+        this.deps.turnStarter?.requestTurn(id, this.kinds.get(id) ?? "");
       };
       /** Un messaggio con testo di una sessione a turni: mai `undelivered` per tempismo. */
       const becomesTurn = (input: InputRow) => turnBased.has(input.sessionId) && input.text !== "";
@@ -287,7 +288,7 @@ export class SessionInputRelay implements SessionHooks {
         .returning({ id: agentSessionInputs.id });
       if (back.length > 0) {
         await this.notifyChanged(sessionId);
-        this.deps.turnStarter?.requestTurn(sessionId);
+        this.deps.turnStarter?.requestTurn(sessionId, this.kinds.get(sessionId) ?? "");
       }
       return;
     }

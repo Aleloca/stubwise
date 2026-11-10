@@ -336,6 +336,12 @@ services:
       - BACKLOG_REFINE_MAX_CONCURRENT=${BACKLOG_REFINE_MAX_CONCURRENT:-2}
       - BACKLOG_REFINE_IDLE_MINUTES=${BACKLOG_REFINE_IDLE_MINUTES:-30}
       - BACKLOG_REFINE_TURN_TIMEOUT_MS=${BACKLOG_REFINE_TURN_TIMEOUT_MS:-900000}
+      # Chat con Claude: il ponte dei tool di lettura chiama il server sulla rete
+      # interna col token del turno; turni contemporanei, timeout e turni massimi.
+      - CHAT_SERVER_URL=${CHAT_SERVER_URL:-http://server:${PORT:-3000}}
+      - CHAT_MAX_CONCURRENT=${CHAT_MAX_CONCURRENT:-2}
+      - CHAT_TURN_TIMEOUT_MS=${CHAT_TURN_TIMEOUT_MS:-300000}
+      - CHAT_MAX_TURNS=${CHAT_MAX_TURNS:-15}
       # --- Grafo delle dipendenze (graphify) ---
       # Il worker esegue il CLI graphify (nell'immagine, vedi apps/worker/
       # Dockerfile) su una worktree del mirror e scrive l'output in

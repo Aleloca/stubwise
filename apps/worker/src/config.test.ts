@@ -877,6 +877,33 @@ describe("sessioni di refinement del backlog", () => {
   });
 });
 
+describe("chat con Claude", () => {
+  it("default e limiti", () => {
+    const d = loadWorkerConfig({ ...VALID });
+    expect([d.chatServerUrl, d.chatMaxConcurrent, d.chatTurnTimeoutMs, d.chatMaxTurns]).toEqual([
+      "http://server:3000",
+      2,
+      300_000,
+      15,
+    ]);
+    const o = loadWorkerConfig({
+      ...VALID,
+      CHAT_SERVER_URL: "http://api.internal:8080",
+      CHAT_MAX_CONCURRENT: "3",
+      CHAT_TURN_TIMEOUT_MS: "120000",
+      CHAT_MAX_TURNS: "8",
+    });
+    expect([o.chatServerUrl, o.chatMaxConcurrent, o.chatTurnTimeoutMs, o.chatMaxTurns]).toEqual([
+      "http://api.internal:8080",
+      3,
+      120_000,
+      8,
+    ]);
+    expect(() => loadWorkerConfig({ ...VALID, CHAT_SERVER_URL: "non un url" })).toThrow(/CHAT_SERVER_URL/);
+    expect(() => loadWorkerConfig({ ...VALID, CHAT_TURN_TIMEOUT_MS: "1000" })).toThrow(/CHAT_TURN_TIMEOUT_MS/);
+  });
+});
+
 describe("effectiveModelDefaults", () => {
   it("mappa ogni operazione sul modello di env o sul default nel codice", () => {
     const config = loadWorkerConfig({ ...VALID, PR_REVIEW_MODEL: "claude-sonnet-5-5", GMAIL_MODEL: "sonnet" });
@@ -898,6 +925,7 @@ describe("effectiveModelDefaults", () => {
       weekly_brief: "claude-sonnet-5-5",
       mail_classify: "sonnet",
       chat: "claude-opus-4-8",
+      claude_chat: config.backlogModel,
       backlog_merge: "claude-opus-4-8",
       plugin_smoke: "haiku",
       credential_test: "haiku",

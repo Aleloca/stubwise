@@ -12106,6 +12106,7 @@
       "weekly_brief": "Brief settimanale",
       "mail_classify": "Classificazione della posta",
       "chat": "Conversazioni con Claude",
+      "claude_chat": "Conversazioni private con Claude",
       "backlog_merge": "Unione dei documenti del backlog",
       "plugin_smoke": "Smoke test dei plugin",
       "credential_test": "Prove degli account",

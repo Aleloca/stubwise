@@ -181,7 +181,7 @@ async function loadMirrorProjects(
 }
 
 /** `from → delivered`, lo stesso UPDATE guardato del relay: chi perde non consegna. */
-async function claimOpening(db: Db, inputId: string, from: AgentInputStatus[]): Promise<boolean> {
+export async function claimOpening(db: Db, inputId: string, from: AgentInputStatus[]): Promise<boolean> {
   const claimed = await db
     .update(agentSessionInputs)
     .set({ status: "delivered", deliveredAt: sql`now()` })
@@ -191,7 +191,7 @@ async function claimOpening(db: Db, inputId: string, from: AgentInputStatus[]): 
 }
 
 /** `from → undelivered` con il motivo, guardato; NOTIFY degli eventi se la riga è cambiata. */
-async function markUndelivered(
+export async function markUndelivered(
   db: Db,
   sessionId: string,
   inputId: string,
@@ -212,7 +212,7 @@ async function markUndelivered(
 }
 
 /** Un avviso da template nella trascrizione (fuori da ogni segmento del CLI), con NOTIFY. */
-async function noticeInTranscript(db: Db, sessionId: string, text: string): Promise<void> {
+export async function noticeInTranscript(db: Db, sessionId: string, text: string): Promise<void> {
   await db.insert(agentSessionEvents).values({
     sessionId,
     segmentId: `stubwise-notice-${randomUUID()}`,
@@ -225,7 +225,7 @@ async function noticeInTranscript(db: Db, sessionId: string, text: string): Prom
 }
 
 /** Il CLI ha PRESO il messaggio: il runner scrive l'evento `input` col suo id all'eco. */
-async function echoed(db: Db, sessionId: string, inputId: string): Promise<boolean> {
+export async function echoed(db: Db, sessionId: string, inputId: string): Promise<boolean> {
   const [row] = await db
     .select({ id: agentSessionEvents.id })
     .from(agentSessionEvents)
@@ -260,7 +260,7 @@ async function overridesBudget(db: Db, userId: string | null, projectId: string)
 }
 
 /** Ultimi messaggi della trascrizione (persona e agente), per ripartire senza --resume. */
-async function recentTranscript(db: Db, sessionId: string, excludeInputId: string) {
+export async function recentTranscript(db: Db, sessionId: string, excludeInputId: string) {
   const rows = await db
     .select({ type: agentSessionEvents.type, data: agentSessionEvents.data })
     .from(agentSessionEvents)
@@ -285,7 +285,7 @@ async function recentTranscript(db: Db, sessionId: string, excludeInputId: strin
 }
 
 /** `delivered → pending` (guardato): un messaggio reclamato e mai preso dal CLI torna in coda. */
-async function backToPending(db: Db, sessionId: string, inputId: string): Promise<void> {
+export async function backToPending(db: Db, sessionId: string, inputId: string): Promise<void> {
   const updated = await db
     .update(agentSessionInputs)
     .set({ status: "pending", deliveredAt: null })
@@ -298,7 +298,7 @@ async function backToPending(db: Db, sessionId: string, inputId: string): Promis
 }
 
 /** `task`, o `null` appena il segnale scatta (il task continua per conto suo). */
-async function untilAborted<T>(task: Promise<T>, signal: AbortSignal): Promise<T | null> {
+export async function untilAborted<T>(task: Promise<T>, signal: AbortSignal): Promise<T | null> {
   if (signal.aborted) return null;
   let onAbort = (): void => undefined;
   const aborted = new Promise<null>((resolve) => {

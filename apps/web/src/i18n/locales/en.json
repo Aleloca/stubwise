@@ -1876,6 +1876,7 @@
         "weekly_brief": "Weekly brief",
         "mail_classify": "Mail classification",
         "chat": "Docs chat",
+        "claude_chat": "Private conversations with Claude",
         "backlog_merge": "Backlog document merge"
       }
     }
