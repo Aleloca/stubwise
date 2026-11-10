@@ -136,10 +136,29 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 
 ## Area 4 — Chat
 
-- Canale «general» creato col progetto *(da `integration-slice4.md`)*.
-- Domande della Chat e di Claude in chat in «Da decidere».
+Design: `docs/plans/2026-11-10-integrazione-area4-chat-design.md`. Fetta 1
+chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
+
+- Domande della Chat (`chat.question`) e di Claude in chat in «Da decidere»
+  *(O, fetta 2)*.
 - @Claude nella chat (regole proprie del prototipo: tutto proposte, niente
   «Annulla»).
+- «Create task/request» da un messaggio, con i `linkedCodes` *(O, fetta 2)*:
+  chiede una modifica al server (il legame messaggio → task), quindi non sta
+  nella fetta 1.
+- `alsoInChannel`, una risposta mostrata anche nel canale *(fetta 2)*: il
+  renderer lo tiene spento.
+- Ricerca nella Chat *(fetta 2)*.
+- Canali privati, DM e canali generali d'istanza *(fetta 2)*: i permessi
+  `chat.general.create` e `chat.general.manage` ci sono già (0135), ma nessuna
+  rotta li usa.
+- Messaggi «via Claude» *(fetta 2, con @Claude)*:
+  `chat_messages.via_claude_action_id` c'è, ma nessuno lo scrive.
+- `@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
+  1, da riprendere se il maintainer vuole avvisi di gruppo.
+- Limite accettato: modificare un messaggio avvisa solo chi viene nominato
+  per la PRIMA volta. Chi era già nominato non riceve una seconda card, e chi
+  viene tolto dal testo tiene la card che aveva.
 
 ## Area 5 — Docs e Drive
 
@@ -246,6 +265,15 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- **Area 4, fetta 1: la Chat fra persone, server** *(M/O, 10 nov 2026)*:
+  canali di progetto aperti, il «general» creato col progetto (backfill e
+  trigger, 0135; era la voce «Canale "general" creato col progetto» di
+  `integration-slice4.md`), thread, reazioni, letture, «Threads»,
+  «Mentions», `@Nome` con la card `chat.mention` derivata a lettura (0136) e
+  lo stream SSE — commit «feat(area4): fetta 1, F1.1 — …» e «feat(area4):
+  fetta 1, F1.2 — il server della Chat», `docs/invariants/chat.md`. Il
+  renderer è la F1.3 (stubwise-94).
 
 - **Riconferma dal desktop** *(S/O, 10 nov 2026)*: decisa dal maintainer
   (opzione B di `docs/plans/2026-11-10-riconferma-desktop-design.md`) e
