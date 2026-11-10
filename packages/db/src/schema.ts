@@ -3293,6 +3293,31 @@ export const claudeConversations = pgTable(
 );
 
 /**
+ * Il token di UN turno di una conversazione libera (chat, fetta 1, 0127): con
+ * lui i tool di lettura di Claude chiamano il server COME l'autore, sulle
+ * stesse rotte e con la stessa visibilità delle pagine. Lo emette il WORKER a
+ * inizio turno (mai una rotta HTTP: non è una porta che dà un token, vedi
+ * `docs/invariants/second-factor.md`), lo revoca nel `finally`; scade comunque
+ * al più alla durata massima di un turno. Solo l'hash a riposo. Il server lo
+ * accetta solo in GET su un'allowlist chiusa (`auth/chat-tool-routes.ts`), mai
+ * per la riconferma, e solo finché la sua conversazione è dell'autore e non
+ * archiviata.
+ */
+export const claudeChatToolTokens = pgTable(
+  "claude_chat_tool_tokens",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    sessionId: uuid("session_id").notNull()
+      .references((): AnyPgColumn => agentSessions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("claude_chat_tool_tokens_expires_idx").on(table.expiresAt)],
+);
+
+/**
  * Valore PRECEDENTE di un campo di una voce sovrascritto dall'agente in una
  * sessione di refinement (design 2026-10-14 §4.3): rete di sicurezza
  * recuperabile a mano. `previous`: `{ document, originContent }` per il design,

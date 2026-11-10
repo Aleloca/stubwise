@@ -1,8 +1,17 @@
 import { randomBytes } from "node:crypto";
-import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
-import { personalAccessTokens, roles, sessions, users } from "@stubwise/db";
+import {
+  CHAT_TOOL_TOKEN_PREFIX,
+  claudeChatToolTokens,
+  claudeConversations,
+  hashChatToolToken,
+  personalAccessTokens,
+  roles,
+  sessions,
+  users,
+} from "@stubwise/db";
 import {
   effectiveInstancePermissions,
   type InstancePermission,
@@ -96,6 +105,14 @@ export interface SessionUser {
    * {@link findPatUser}, che è l'unico posto in cui la credenziale è nota.
    */
   patId?: string;
+  /**
+   * La conversazione libera del cui turno è il token (chat con Claude, fetta
+   * 1): presente SOLO per una richiesta col token del turno
+   * (`findChatToolUser`). Con lui l'accesso è ristretto all'allowlist chiusa di
+   * `chat-tool-routes.ts` (GET di lettura) e la riconferma non è mai
+   * soddisfatta (nessuna `sessionId`).
+   */
+  chatToolSessionId?: string;
   /**
    * Id della sessione con cui QUESTA richiesta si è autenticata (cookie),
    * assente per i PAT. Come `patId`, è un attributo della credenziale: serve
@@ -304,6 +321,48 @@ export async function findPatUser(
 }
 
 /**
+ * Risolve l'autore da `Authorization: Bearer stw_chat_...`, il token di UN
+ * turno di una conversazione libera con Claude (chat, fetta 1). Vale solo se:
+ * non revocato, non scaduto, la sua conversazione esiste, è DELL'utente del
+ * token e non è archiviata. Il token lo emette il worker, non una rotta: non è
+ * una porta che dà un token (`docs/invariants/second-factor.md`). L'utente
+ * prodotto porta `chatToolSessionId`, che `accessPreHandler` usa per
+ * restringerlo all'allowlist; nessuna `sessionId`, quindi mai la riconferma.
+ */
+export async function findChatToolUser(
+  db: Db,
+  authorization: string | undefined,
+): Promise<SessionUser | null> {
+  if (!authorization) return null;
+  const match = /^Bearer\s+(.+)$/i.exec(authorization);
+  const token = match?.[1];
+  if (!token || !token.startsWith(CHAT_TOOL_TOKEN_PREFIX)) return null;
+  const [row] = await db
+    .select({ chatToolSessionId: claudeChatToolTokens.sessionId, ...sessionUserSelection })
+    .from(claudeChatToolTokens)
+    .innerJoin(users, eq(claudeChatToolTokens.userId, users.id))
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .innerJoin(
+      claudeConversations,
+      and(
+        eq(claudeConversations.sessionId, claudeChatToolTokens.sessionId),
+        eq(claudeConversations.ownerId, claudeChatToolTokens.userId),
+        isNull(claudeConversations.archivedAt),
+      ),
+    )
+    .where(
+      and(
+        eq(claudeChatToolTokens.tokenHash, hashChatToolToken(token)),
+        isNull(claudeChatToolTokens.revokedAt),
+        gt(claudeChatToolTokens.expiresAt, sql`now()`),
+        eq(users.isAgent, false),
+      ),
+    );
+  if (!row) return null;
+  return { ...toSessionUser(row), chatToolSessionId: row.chatToolSessionId };
+}
+
+/**
  * Richiede una sessione valida e attacca `request.user`. La chiama SOLO l'hook
  * globale di accesso (`accessPreHandler` in `access.ts`) per le rotte che non
  * dichiarano `public`: una rotta non la mette più nel proprio `preHandler`,
@@ -323,6 +382,17 @@ export async function requireAuth(
   const patUser = await findPatUser(request.server.db, request.headers.authorization);
   if (patUser) {
     request.user = patUser;
+    return;
+  }
+  // Il token del turno della chat: un Bearer col suo prefisso non ricade MAI sul
+  // cookie (un token caduto è 401, non la sessione del browser che lo porta).
+  if (request.headers.authorization?.match(/^Bearer\s+stw_chat_/i)) {
+    const chatUser = await findChatToolUser(request.server.db, request.headers.authorization);
+    if (!chatUser) {
+      await apiError(reply, 401, "unauthorized", "Authentication required");
+      return;
+    }
+    request.user = chatUser;
     return;
   }
   const sessionId = sessionIdFromRequest(request);

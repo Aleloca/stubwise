@@ -14,6 +14,7 @@
  * widget). Lo pretende `route-access.test.ts`, senza elenco di eccezioni, e
  * l'hook rifiuta comunque (500) una rotta senza dichiarazione.
  */
+import { CHAT_TOOL_READ_ROUTES } from "./chat-tool-routes.js";
 import { and, eq, inArray, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Db } from "@stubwise/db";
@@ -314,6 +315,15 @@ export async function accessPreHandler(
   await requireAuth(request, reply, { allowPartial: access.kind === "second_factor" });
   if (reply.sent) return;
   const user = request.user!;
+  // Il token del turno della chat con Claude: SOLO GET e solo l'allowlist chiusa
+  // delle rotte di lettura, prima di ogni altro controllo (riconferma compresa).
+  if (user.chatToolSessionId !== undefined) {
+    const url = request.routeOptions.url ?? "";
+    if (request.method !== "GET" || !CHAT_TOOL_READ_ROUTES.has(url)) {
+      await apiError(reply, 403, "chat_tool_forbidden", "Not available to Claude's read tools");
+      return;
+    }
+  }
 
   const reauth = request.routeOptions.config.reauth;
   if (reauth) {
