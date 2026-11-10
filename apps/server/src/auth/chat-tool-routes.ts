@@ -13,6 +13,10 @@
 export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // Elenca i progetti (quelli che l'autore vede).
   "/api/projects",
+  // Le persone che l'autore vede (fetta 3: per proporre un assegnatario per
+  // nome). Il ponte ne passa al modello solo id, nome, iniziali e reparti:
+  // le email restano fuori.
+  "/api/people",
   // Cerca le task (filtri e testo), leggi una task per codice.
   "/api/tasks",
   "/api/tasks/by-code/:code",

@@ -181,3 +181,61 @@ export const claudeProposalOutcomeSchema = z.object({
   reason: z.string().nullable().default(null),
 });
 export type ClaudeProposalOutcome = z.infer<typeof claudeProposalOutcomeSchema>;
+
+type JsonSchema = {
+  type?: string | string[];
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  items?: JsonSchema;
+  enum?: unknown[];
+  const?: unknown;
+  anyOf?: JsonSchema[];
+  oneOf?: JsonSchema[];
+  format?: string;
+  additionalProperties?: JsonSchema | boolean;
+};
+
+/** Una firma compatta, in stile TypeScript, di un JSON Schema (per il prompt). */
+function signature(s: JsonSchema): string {
+  const union = s.anyOf ?? s.oneOf;
+  if (union) return union.map(signature).join(" | ");
+  if (s.const !== undefined) return JSON.stringify(s.const);
+  if (s.enum) return s.enum.map((v) => JSON.stringify(v)).join(" | ");
+  const type = Array.isArray(s.type) ? s.type : s.type !== undefined ? [s.type] : [];
+  if (type.length > 1) return type.map((t) => signature({ ...s, type: t })).join(" | ");
+  switch (type[0]) {
+    case "null":
+      return "null";
+    case "string":
+      if (s.format === "uuid") return "uuid";
+      if (s.format === "date") return "date(YYYY-MM-DD)";
+      return "string";
+    case "number":
+    case "integer":
+      return "number";
+    case "boolean":
+      return "boolean";
+    case "array":
+      return `${s.items ? wrap(signature(s.items)) : "unknown"}[]`;
+    case "object": {
+      const props = Object.entries(s.properties ?? {});
+      if (props.length === 0) return "{ [key: string]: unknown }";
+      const required = new Set(s.required ?? []);
+      return `{ ${props.map(([k, v]) => `${k}${required.has(k) ? "" : "?"}: ${signature(v)}`).join(", ")} }`;
+    }
+    default:
+      return "unknown";
+  }
+}
+const wrap = (t: string) => (t.includes(" | ") ? `(${t})` : t);
+
+/**
+ * Le firme delle azioni che Claude può proporre, una per riga, ricavate dagli
+ * STESSI schemi che il server usa per validarle (`CLAUDE_ACTION_ARGS`): il
+ * prompt della chat non le riscrive a mano, quindi non possono divergere.
+ */
+export function claudeActionSignatures(): string {
+  return CLAUDE_PROPOSABLE_FNS.map(
+    (fn) => `- ${fn}(${signature(z.toJSONSchema(CLAUDE_ACTION_ARGS[fn], { io: "input", unrepresentable: "any" }) as JsonSchema)})`,
+  ).join("\n");
+}

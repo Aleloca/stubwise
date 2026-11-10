@@ -96,19 +96,26 @@ export function conversationTitleFrom(message: string, max = 80): string {
 }
 
 /**
- * Il server MCP dei tool di LETTURA della chat (fetta 1): nessuna scrittura,
- * nessuna proposta. Ogni tool legge dal server con il token del turno, cioè
- * come l'autore (rotte di `CHAT_TOOL_READ_ROUTES` del server). Il CLI li
- * chiama `mcp__<server>__<tool>`.
+ * Il server MCP dei tool della chat. Le LETTURE (fette 1–3) leggono dal server
+ * con il token del turno, cioè come l'autore (rotte di `CHAT_TOOL_READ_ROUTES`
+ * del server). Dalla fetta 3 c'è UN tool che scrive, `propose_action`, e
+ * scrive solo una PROPOSTA (l'unica voce di `CHAT_TOOL_WRITE_ROUTES`): la
+ * classe la calcola il server, una B aspetta la conferma dell'autore. Il CLI
+ * li chiama `mcp__<server>__<tool>`.
  */
 export const CHAT_MCP_SERVER_NAME = "stubwise_chat";
-export const CHAT_TOOLS = [
+export const CHAT_READ_TOOLS = [
   "list_projects",
+  "list_people",
   "search_tasks",
   "read_task",
   "read_request",
   "search_docs",
   "read_project_overview",
 ] as const;
+export type ChatReadToolName = (typeof CHAT_READ_TOOLS)[number];
+/** Il solo tool che non legge: scrive una proposta, mai un'esecuzione diretta. */
+export const CHAT_PROPOSE_TOOL = "propose_action" as const;
+export const CHAT_TOOLS = [...CHAT_READ_TOOLS, CHAT_PROPOSE_TOOL] as const;
 export type ChatToolName = (typeof CHAT_TOOLS)[number];
 export const CHAT_TOOL_NAMES: readonly string[] = CHAT_TOOLS.map((tool) => `mcp__${CHAT_MCP_SERVER_NAME}__${tool}`);

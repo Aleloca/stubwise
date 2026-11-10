@@ -24,6 +24,7 @@ import {
 } from "../services/claude-conversations.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
 import { createProposal, listGroups, listProposals, ownLiveConversation } from "../claude-actions/proposals.js";
+import { actionEffects } from "./claude-actions.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 // Le conversazioni libere con Claude (chat, fetta 1), sotto `/api/claude/conversations`.
@@ -136,7 +137,7 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
         user,
         request.params.id,
         { toolUseId: request.body.toolUseId, actions: request.body.actions, summary: request.body.summary },
-        { storage: () => app.storage(), log: (message, error) => request.log.warn({ err: error }, message) },
+        actionEffects(app, request),
       );
     },
   );

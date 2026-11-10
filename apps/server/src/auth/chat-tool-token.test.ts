@@ -58,6 +58,8 @@ describe("il token del turno della chat", () => {
     const token = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 });
     expect((await get(`/api/tasks/by-code/${visibleCode}`, token)).statusCode).toBe(200);
     expect((await get(`/api/tasks/by-code/${hiddenCode}`, token)).statusCode).toBe(404);
+    // Fetta 3: le persone, per proporre un assegnatario per nome.
+    expect((await get("/api/people", token)).statusCode).toBe(200);
   });
 
   it("solo GET e solo l'allowlist: altre GET, scritture e rotte di credenziale sono rifiutate", async () => {

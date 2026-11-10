@@ -25,6 +25,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 /** Ciò che un seguito può usare: lo storage degli allegati (lo dà la rotta). */
 export interface ActionEffects {
   storage?: () => Promise<{ deleteObject(key: string): Promise<void> } | null>;
+  /** L'URL pubblico dell'istanza: il link delle notifiche che un'azione pubblica (il piano da approvare). */
+  publicUrl?: string;
   log?: (message: string, error?: unknown) => void;
 }
 

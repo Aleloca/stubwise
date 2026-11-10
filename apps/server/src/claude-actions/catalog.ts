@@ -79,6 +79,8 @@ export type CatalogRun = (
   user: SessionUser,
   args: Record<string, unknown>,
   permissions: ReadonlySet<ProjectPermission>,
+  /** Le opzioni dei servizi che avviano il lavoro di Claude: il link pubblico delle notifiche. */
+  start: { publicUrl?: string },
 ) => Promise<{ ok: true; result: CatalogRunResult } | { ok: false; refusal: CatalogRefusal }>;
 
 export interface CatalogEntry {
@@ -145,8 +147,8 @@ const ENTRIES: CatalogEntry[] = [
     route: "POST /api/tasks",
     access: { kind: "project", permission: "tickets.create", project: fromBody("projectId") },
     request: (args) => ({ body: args }),
-    async run(tx, user, args) {
-      const result = await createTask(tx, user, args as unknown as NewTaskBody);
+    async run(tx, user, args, _permissions, start) {
+      const result = await createTask(tx, user, args as unknown as NewTaskBody, start);
       if (!result.ok) return taskRefusal(result.error);
       // «Annulla» = eliminazione (F3.0), solo se nessuno ci ha scritto dopo
       // (e se Claude non ci sta già lavorando: allora la task è occupata).
@@ -167,7 +169,7 @@ const ENTRIES: CatalogEntry[] = [
     route: "PATCH /api/tasks/:ticketId",
     access: onTicket("tickets.edit"),
     request: (args) => ({ params: { ticketId: args["id"] } }),
-    async run(tx, user, args) {
+    async run(tx, user, args, _permissions, start) {
       const id = args["id"] as string;
       const patch = (args["patch"] ?? {}) as TaskPatch;
       const before = await taskBefore(tx, user, id);
@@ -175,7 +177,7 @@ const ENTRIES: CatalogEntry[] = [
       const was = Object.fromEntries(
         Object.keys(patch).map((k) => [k, (before as unknown as Record<string, unknown>)[k] ?? null]),
       );
-      const result = await updateTask(tx, user, id, patch);
+      const result = await updateTask(tx, user, id, patch, start);
       if (!result.ok) return taskRefusal(result.error);
       const startsWork = startedWork(result.task);
       return {
@@ -194,13 +196,13 @@ const ENTRIES: CatalogEntry[] = [
     route: "POST /api/tasks/:ticketId/plan",
     access: onTicket(),
     request: (args) => ({ params: { ticketId: args["id"] } }),
-    async run(tx, user, args) {
+    async run(tx, user, args, _permissions, start) {
       const id = args["id"] as string;
       const plan = args["plan"] as { assigneeId: string | null; week: string | null };
       const before = await taskBefore(tx, user, id);
       if (!before) return refused("not_found", "not_found");
       const was = { assigneeId: before.assigneeId ?? null, week: before.plannedWeek ?? null };
-      const result = await planTask(tx, user, id, plan);
+      const result = await planTask(tx, user, id, plan, start);
       if (!result.ok) return taskRefusal(result.error);
       const startsWork = startedWork(result.task);
       return {
@@ -300,14 +302,14 @@ const ENTRIES: CatalogEntry[] = [
         .where(eq(backlogItems.id, args["id"] as string));
       return { body: { projectId: item?.projectId ?? null } };
     },
-    async run(tx, user, args) {
+    async run(tx, user, args, _permissions, start) {
       const [item] = await tx
         .select({ projectId: backlogItems.projectId })
         .from(backlogItems)
         .where(eq(backlogItems.id, args["id"] as string));
       if (!item) return refused("not_found", "not_found");
       const input = args["input"] as Omit<NewTaskBody, "projectId" | "requestId">;
-      const result = await createTask(tx, user, { ...input, projectId: item.projectId, requestId: args["id"] as string });
+      const result = await createTask(tx, user, { ...input, projectId: item.projectId, requestId: args["id"] as string }, start);
       if (!result.ok) return taskRefusal(result.error);
       return {
         ok: true,
@@ -349,9 +351,13 @@ const ENTRIES: CatalogEntry[] = [
     route: "POST /api/tickets/:id/run-ai",
     access: onTicket("runs.start", "id"),
     request: (args) => ({ params: { id: args["taskId"] } }),
-    async run(tx, user, args, permissions) {
+    async run(tx, user, args, permissions, start) {
       const taskId = args["taskId"] as string;
-      const result = await startRun(tx, { ticketId: taskId, actor: { id: user.id, permissions } });
+      const result = await startRun(tx, {
+        ticketId: taskId,
+        actor: { id: user.id, permissions },
+        ...(start.publicUrl !== undefined ? { publicUrl: start.publicUrl } : {}),
+      });
       if (!result.ok) {
         return refused(
           result.error === "ticket_not_found" ? "not_found" : result.error === "forbidden" || result.error === "needs_maintainer" ? "forbidden" : "busy",

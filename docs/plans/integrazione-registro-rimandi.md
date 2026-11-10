@@ -63,12 +63,22 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   riquadro come chat e ⌘J/⌘K: chiuse (sotto).
 - Azioni delle altre aree: entrano **con la loro area** (sotto) *(O)*.
 - **Limiti della fetta 1 (runner)** *(S, stubwise-72)*: i tool di lettura sono
-  sei (progetti, cerca/leggi task, leggi richiesta, cerca docs, brief +
-  registro decisioni). Non leggono commenti e storia della task, la pagina
+  sette (progetti, persone — dalla fetta 3, senza email —, cerca/leggi task,
+  leggi richiesta, cerca docs, brief + registro decisioni). Non leggono commenti e storia della task, la pagina
   Docs intera, il codice o il grafo; restituiscono il JSON delle rotte
   compattato (senza chiavi da segreto, tetto 12.000 caratteri), non le viste
   delle pagine. Si allargano aggiungendo rotte di LETTURA a
   `CHAT_TOOL_READ_ROUTES` (col test del registro) e un tool al ponte.
+- **Limiti della fetta 3 (worker)** *(S, stubwise-72)*: l'idempotenza di
+  `propose_action` usa l'id del `tool_use` che il CLI passa nel `_meta` della
+  chiamata MCP (`claudecode/toolUseId`, verificato sul 2.1.322). Se un CLI
+  futuro smettesse di passarlo, il ponte conia un id nuovo per chiamata: la
+  proposta funziona, ma un doppio invio della STESSA chiamata ne farebbe due.
+  Da riverificare a ogni aggiornamento del CLI (il test del server MCP lo
+  fissa solo lato nostro). Le firme delle azioni nel contratto si generano
+  dagli schemi zod (`claudeActionSignatures`): `pageAction` di tipo
+  `filter` vi compare, ma il modello non conosce le rotte del renderer: lo
+  userà davvero solo dove la pagina gliele dà (F3.4).
 - Il contesto della pagina arriva al modello come `tipo: id`, non come il suo
   contenuto: Claude lo legge con i tool se serve *(S)*.
 - Conservazione *(M, review delle fette 1–2)*: le conversazioni inattive da 14

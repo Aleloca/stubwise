@@ -2,13 +2,15 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
 /**
- * Server MCP `stubwise_chat` (chat con Claude, fetta 1): i tool di SOLA
- * LETTURA con cui Claude, in una conversazione libera, legge Stubwise per
- * conto di chi scrive. Non vede il DB né credenziali: inoltra al PONTE HTTP
- * del worker (loopback, segreto per turno), che chiama il server col token
- * del turno, cioè con la visibilità dell'autore. Nessun tool scrive, propone
- * o esegue niente. Nomi tenuti allineati a mano con `CHAT_MCP_SERVER_NAME` e
- * `CHAT_TOOLS` di `@stubwise/shared` (test d'allineamento in
+ * Server MCP `stubwise_chat` (chat con Claude): i tool di LETTURA con cui
+ * Claude, in una conversazione libera, legge Stubwise per conto di chi scrive
+ * e, dalla fetta 3, `propose_action`, che scrive solo una PROPOSTA: la classe
+ * la calcola il server, una B aspetta la conferma dell'autore, una A la esegue
+ * il server a nome della persona. Nessun tool esegue niente da sé. Non vede il
+ * DB né credenziali: inoltra al PONTE HTTP del worker (loopback, segreto per
+ * turno), che chiama il server col token del turno. Nomi e `fn` tenuti
+ * allineati a mano con `CHAT_MCP_SERVER_NAME`, `CHAT_TOOLS` e
+ * `CLAUDE_PROPOSABLE_FNS` di `@stubwise/shared` (test d'allineamento in
  * `claude-chat/bridge.test.ts`): l'entry resta autonomo come `refine-mcp`
  * (solo SDK, zod e node, niente pacchetti del workspace).
  *
@@ -18,6 +20,28 @@ import { z } from "zod";
 export const CHAT_SERVER_NAME = "stubwise_chat";
 const VERSION = "1.0.0";
 const BRIDGE_TIMEOUT_MS = 30_000;
+
+/** Copia di `CLAUDE_PROPOSABLE_FNS` (test d'allineamento): gli argomenti li valida il server. */
+export const PROPOSABLE_FNS = [
+  "createTask",
+  "updateTask",
+  "planTask",
+  "addComment",
+  "deleteComment",
+  "createRequest",
+  "convertRequest",
+  "archiveRequest",
+  "reopenRequest",
+  "startRun",
+  "createMilestone",
+  "deleteMilestone",
+  "saveFilter",
+  "deleteFilter",
+  "pageAction",
+] as const;
+
+/** La chiave con cui il CLI (2.1.322) passa l'id del `tool_use` nel `_meta` di `tools/call`. */
+const TOOL_USE_META = "claudecode/toolUseId";
 
 export interface ChatMcpConfig {
   bridgeUrl: string;
@@ -70,6 +94,11 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
     );
   register("list_projects", "List the Stubwise projects the user can see: id, code, name, description.", {});
   register(
+    "list_people",
+    "List the people the user can see (id, name, initials, departments), to find an assignee by name. The row marked isClaude is Claude itself: assigning it starts Claude's work, only in claudeAssignableProjectIds.",
+    {},
+  );
+  register(
     "search_tasks",
     "Search the tasks the user can see. Optional free text, project id, and whether to include closed ones.",
     {
@@ -92,6 +121,28 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
     "read_project_overview",
     "Read a project's latest weekly brief (generated text) and its decision log (facts recorded by people).",
     { projectId: z.string().min(1) },
+  );
+  server.registerTool(
+    "propose_action",
+    {
+      description:
+        "Propose one or more Stubwise actions on behalf of the person (the catalog and the argument shapes are in the conversation contract). Stubwise decides: it either does it right away, or asks the person to confirm, or refuses. Never say something is done unless this tool's answer says it was executed.",
+      inputSchema: {
+        actions: z
+          .array(z.object({ fn: z.enum(PROPOSABLE_FNS), args: z.record(z.string(), z.unknown()) }))
+          .min(1)
+          .max(20)
+          .describe("The actions, in order; they succeed or fail together"),
+        summary: z.string().max(2000).describe("One short sentence, in the person's language, saying what this does"),
+      },
+    },
+    ((args: Record<string, unknown>, extra: { _meta?: Record<string, unknown> }) => {
+      const toolUseId = extra._meta?.[TOOL_USE_META];
+      return forward(config, fetchImpl, "propose_action", {
+        ...args,
+        ...(typeof toolUseId === "string" ? { toolUseId } : {}),
+      });
+    }) as Parameters<McpServer["registerTool"]>[2],
   );
   return server;
 }
