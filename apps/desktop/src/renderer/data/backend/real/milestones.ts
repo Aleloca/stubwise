@@ -6,9 +6,10 @@ import { toMilestone } from "./statuses";
 // crea, modifica, chiudi/riapri, elimina sulle rotte `/api/milestones`, col
 // permesso `tickets.edit` come nel prototipo. «Chiuso» è `status: "closed"`
 // (la data di chiusura la scrive il server); la scadenza del prototipo è un
-// giorno, sul filo un istante alla mezzanotte UTC.
+// giorno, sul filo un istante a mezzogiorno UTC come lo scrive il web vecchio
+// (`milestone-manager.tsx`): si legge il giorno UTC (`toMilestone`).
 
-const dueOf = (day: string | null | undefined) => (day ? `${day}T00:00:00.000Z` : null);
+const dueOf = (day: string | null | undefined) => (day ? `${day}T12:00:00.000Z` : null);
 const descriptionOf = (text: string | undefined) => (text?.trim() ? text : null);
 
 export const createMilestone: typeof Fake.createMilestone = async (projectId, input) =>

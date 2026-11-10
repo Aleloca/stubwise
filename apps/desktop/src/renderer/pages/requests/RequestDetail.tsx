@@ -656,15 +656,17 @@ function Metadata({ request, canEdit }: { request: ProjectRequest; canEdit: bool
     <>
       {menuField(
         f("urgency"),
-        t(`requests.urgency.${request.urgency}`),
+        // «Urgent» (dal server vero) sta sopra High: nel menu nessun livello è
+        // già scelto, e scegliere High la abbassa davvero.
+        request.urgent ? t("requests.urgency.urgent") : t(`requests.urgency.${request.urgency}`),
         <UrgencyMark urgency={request.urgency} urgent={request.urgent} />,
         t("requests.detail.urgencyMenu"),
         (close) =>
           levelOptions(
-            request.urgency,
+            request.urgent ? null : request.urgency,
             (urgency) => {
               close();
-              if (urgency !== request.urgency) save({ urgency });
+              if (request.urgent || urgency !== request.urgency) save({ urgency });
             },
             (level) => <UrgencyMark urgency={level} />,
           ),

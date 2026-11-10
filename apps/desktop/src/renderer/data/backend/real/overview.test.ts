@@ -2,11 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTask, STATUS_TODO } from "./fakeServer";
 import { createMilestone, deleteMilestone, updateMilestone } from "./milestones";
+import { listMilestones } from "./statuses";
 import {
   getLatestBrief,
   listDecisionLog,
   listPortfolioActivityPage,
   listTimelinePage,
+  decisionLogTruncated,
+  listProjectPulses,
   projectPulse,
   recordDecision,
   setDecisionSuperseded,
@@ -22,6 +25,7 @@ const OLDER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc";
 const BRIEF = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const STATUS_ACTIVE = "99999999-9999-4999-8999-999999999992";
 const AT = "2026-11-01T09:00:00.000Z";
+const OTHER_PROJECT = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
 const serverMilestone = (over: Record<string, unknown> = {}) => ({
   id: MILESTONE,
@@ -71,7 +75,8 @@ describe("i traguardi dal server", () => {
       projectId: PROJECT_ID,
       name: "Beta",
       description: null,
-      dueDate: "2026-11-20T00:00:00.000Z",
+      // A mezzogiorno UTC come il web vecchio: il giorno è lo stesso in ogni fuso vicino.
+      dueDate: "2026-11-20T12:00:00.000Z",
     });
     expect(created).toEqual({
       id: MILESTONE,
@@ -81,15 +86,40 @@ describe("i traguardi dal server", () => {
       dueDate: "2026-11-20",
       closed: false,
     });
-    const closed = await updateMilestone(MILESTONE, { closed: true, description: "" });
-    expect(seen[1]!.body).toEqual({ status: "closed", description: null });
+    const closed = await updateMilestone(MILESTONE, { closed: true, description: "", dueDate: "2026-12-01" });
+    expect(seen[1]!.body).toEqual({ status: "closed", description: null, dueDate: "2026-12-01T12:00:00.000Z" });
     expect(closed.closed).toBe(true);
     await deleteMilestone(MILESTONE);
     expect(seen.map((r) => r.method)).toEqual(["POST", "PATCH", "DELETE"]);
   });
+
+  it("la scadenza si legge come giorno, scritta a mezzanotte o a mezzogiorno UTC", async () => {
+    installFakeServer({
+      "GET /api/milestones": {
+        body: [
+          serverMilestone({ dueDate: "2026-11-20T12:00:00.000Z" }),
+          serverMilestone({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab", dueDate: "2026-11-21T00:00:00.000Z" }),
+        ],
+      },
+    });
+    expect((await listMilestones(PROJECT_ID)).map((m) => m.dueDate)).toEqual(["2026-11-20", "2026-11-21"]);
+  });
 });
 
 describe("il registro decisioni dal server", () => {
+  it("oltre le 200 voci lette il registro lo dice", async () => {
+    installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/decisions`]: {
+        body: Array.from({ length: 200 }, (_, i) => serverDecision({ id: `bbbbbbbb-bbbb-4bbb-8bbb-${String(i).padStart(12, "0")}` })),
+      },
+    });
+    expect(await listDecisionLog(PROJECT_ID)).toHaveLength(200);
+    expect(decisionLogTruncated(PROJECT_ID)).toBe(true);
+    installFakeServer({ [`GET /api/projects/${PROJECT_ID}/decisions`]: { body: [serverDecision()] } });
+    await listDecisionLog(PROJECT_ID);
+    expect(decisionLogTruncated(PROJECT_ID)).toBe(false);
+  });
+
   it("le voci nella forma del prototipo; registrare con «supera»; segnare superata", async () => {
     const { seen } = installFakeServer({
       [`GET /api/projects/${PROJECT_ID}/decisions`]: {
@@ -171,6 +201,8 @@ describe("brief e cronologia dal server", () => {
             { kind: "task_opened", at: AT, taskId: "44444444-4444-4444-8444-444444444444" },
             { kind: "decision", at: AT },
             { kind: "pr_merged", at: AT, prId: BRIEF, taskId: "44444444-4444-4444-8444-444444444444", number: 7 },
+            // Una PR senza numero si mostra senza numero, non si scarta.
+            { kind: "pr_opened", at: AT, prId: DECISION, taskId: "44444444-4444-4444-8444-444444444444" },
           ],
           nextBefore: "2026-10-04T00:00:00.000Z",
         },
@@ -183,6 +215,7 @@ describe("brief e cronologia dal server", () => {
         { kind: "milestone", at: "2026-11-20T00:00:00.000Z", milestoneId: MILESTONE },
         { kind: "task_opened", at: AT, taskId: "44444444-4444-4444-8444-444444444444" },
         { kind: "pr_merged", at: AT, prId: BRIEF, taskId: "44444444-4444-4444-8444-444444444444", number: 7 },
+        { kind: "pr_opened", at: AT, prId: DECISION, taskId: "44444444-4444-4444-8444-444444444444" },
       ],
       nextBefore: "2026-10-04T00:00:00.000Z",
     });
@@ -260,5 +293,56 @@ describe("il polso dal server", () => {
       claudeWorking: false,
       nextMilestone: { id: MILESTONE, dueDate: "2026-11-20" },
     });
+  });
+
+  it("il polso legge le sole task aperte; oltre il tetto lo dice, e le ferme vengono dalla loro lettura", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/auth/me": { body: me() },
+      "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
+      "GET /api/tasks": { body: { items: [serverTask()], truncated: true } },
+      // Una ferma che la lista troncata non ha.
+      "GET /api/tasks/stalled": {
+        body: [
+          {
+            task: serverTask({ id: "44444444-4444-4444-8444-444444444449", code: "AUD-19" }),
+            stall: { reason: { kind: "unassigned" }, since: AT, days: 9 },
+          },
+        ],
+      },
+      [`GET /api/projects/${PROJECT_ID}/statuses`]: {
+        body: [{ id: STATUS_TODO, projectId: PROJECT_ID, name: "To do", family: "todo", position: 0 }],
+      },
+      "GET /api/milestones": { body: [] },
+      "GET /api/decisions": { body: [] },
+      "GET /api/requests/to-convert": { body: [] },
+    });
+    await getSessionPerson();
+    expect(await projectPulse(PROJECT_ID)).toMatchObject({ stalled: 1, truncated: true });
+    const reads = seen.filter((r) => r.path.startsWith("/api/tasks"));
+    expect(reads).toHaveLength(2);
+    for (const r of reads) {
+      expect(new URLSearchParams(r.path.split("?")[1]).get("families")).toBe("todo,active");
+    }
+  });
+
+  it("il polso del portafoglio legge i progetti una volta sola", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/auth/me": { body: me() },
+      "GET /api/projects": {
+        body: [serverProject({ memberIds: [ME_ID] }), serverProject({ id: OTHER_PROJECT, code: "BRN", memberIds: [ME_ID] })],
+      },
+      "GET /api/tasks": { body: { items: [], truncated: false } },
+      "GET /api/tasks/stalled": { body: [] },
+      [`GET /api/projects/${PROJECT_ID}/statuses`]: { body: [] },
+      [`GET /api/projects/${OTHER_PROJECT}/statuses`]: { body: [] },
+      "GET /api/milestones": { body: [] },
+      "GET /api/decisions": { body: [] },
+      "GET /api/requests/to-convert": { body: [] },
+    });
+    await getSessionPerson();
+    const pulses = await listProjectPulses();
+    expect(pulses).toHaveLength(2);
+    expect(pulses[0]).not.toHaveProperty("truncated");
+    expect(seen.filter((r) => r.path === "/api/projects")).toHaveLength(1);
   });
 });

@@ -1,8 +1,8 @@
 import { ApiError } from "@stubwise/api-client";
-import type { ProjectRequestView, RequestJobView, RequestToConvertView } from "@stubwise/shared";
+import type { ProjectRequestSummary, ProjectRequestView, RequestJobView, RequestToConvertView } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ProjectRequest, RequestLevel } from "../../types";
-import { appClient } from "./client";
+import { appClient, session } from "./client";
 import { createTask } from "./tasks";
 
 // Le Requests della build app (integrazione area 2, fetta 4): elenco,
@@ -97,8 +97,16 @@ const nullOn404 = async (read: () => Promise<unknown>): Promise<ProjectRequest |
   }
 };
 
+/**
+ * L'elenco è leggero (`ProjectRequestSummary`): al posto della descrizione
+ * l'estratto (basta alla ricerca e alla riga), niente design né piano. Il
+ * dettaglio (`getRequest`) porta i testi interi.
+ */
 export const listRequests: typeof Fake.listRequests = async (projectId) =>
-  (await appClient().requests.list(projectId)).map((v) => fromView(v as ProjectRequestView));
+  (await appClient().requests.list(projectId)).map((v) => {
+    const summary = v as ProjectRequestSummary;
+    return fromView({ ...summary, description: summary.excerpt, design: null, plan: null } as ProjectRequestView);
+  });
 
 /** Una voce invisibile risponde come una che non c'è: `null`. */
 export const getRequest: typeof Fake.getRequest = (id) => nullOn404(() => appClient().requests.get(id));
@@ -110,30 +118,63 @@ export const getRequestByCode: typeof Fake.getRequestByCode = (code) =>
 /** Quanto si aspetta l'intake: un controllo ogni `POLL_MS`, al massimo `POLL_TRIES` volte (~1 minuto). */
 const POLL_MS = 400;
 const POLL_TRIES = 150;
+/** Gli errori transitori (rete, 5xx) tollerati di fila durante l'attesa. */
+const POLL_TRANSIENT_ERRORS = 3;
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Un errore da cui l'attesa si riprende: rete giù o un 5xx/429 del server. */
+function isTransient(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return true;
+  return error.status === 0 || error.status === 429 || error.status >= 500;
+}
 
 /**
  * «Nuova richiesta»: l'intake del server la crea o la fonde in una esistente
  * (decisione del maintainer). La risposta è la richiesta in cui è finita; se
- * fusa, `landedByMerge` («Unita a R12»). Un intake fallito, o che non risponde
- * entro il tetto, è un errore: il dialogo lo dice e si può riprovare.
+ * fusa, `landedByMerge` («Unita a R12»).
+ *
+ * Due esiti d'errore, da non confondere (review della fetta 4, punto 1):
+ * - il POST fallisce: non è partito nulla, l'errore è quello del POST e si
+ *   può riprovare;
+ * - il job è accodato ma l'esito non arriva (tetto, troppi errori di rete di
+ *   fila, `done` senza richiesta, un 4xx sulla lettura del job):
+ *   `Error("intake_pending")`. La richiesta c'è o ci sarà: il dialogo lo
+ *   dice e NON offre «Riprova», che creerebbe un duplicato.
+ * Un intake `failed` resta un errore normale. L'attesa si ferma
+ * (`Error("aborted")`) quando `signal` scatta (il dialogo si smonta) o la
+ * persona della sessione cambia.
  */
-export const createRequest: typeof Fake.createRequest = async (input) => {
+export const createRequest: typeof Fake.createRequest = async (input, options) => {
   const { jobId } = await appClient().requests.create({
     projectId: input.projectId,
     title: input.title,
     description: input.description ?? "",
   });
+  const person = session.personId;
+  const stopped = () => options?.signal?.aborted === true || session.personId !== person;
+  let errors = 0;
   for (let i = 0; i < POLL_TRIES; i++) {
-    const job = (await appClient().requests.job(jobId)) as RequestJobView;
+    if (stopped()) throw new Error("aborted");
+    let job: RequestJobView;
+    try {
+      job = (await appClient().requests.job(jobId)) as RequestJobView;
+      errors = 0;
+    } catch (error) {
+      if (stopped()) throw new Error("aborted");
+      if (!isTransient(error) || ++errors > POLL_TRANSIENT_ERRORS) throw new Error("intake_pending");
+      await wait(POLL_MS);
+      continue;
+    }
+    if (stopped()) throw new Error("aborted");
     if (job.status === "done" && job.request) {
       const request = fromView(job.request);
       return job.outcome === "merged" ? { ...request, landedByMerge: true } : request;
     }
-    if (job.status === "failed" || job.status === "done") throw new Error("intake_failed");
+    if (job.status === "failed") throw new Error("intake_failed");
+    if (job.status === "done") throw new Error("intake_pending");
     await wait(POLL_MS);
   }
-  throw new Error("intake_timeout");
+  throw new Error("intake_pending");
 };
 
 const SUGGESTED = ["urgency", "size", "risk", "riskNote"] as const;
@@ -169,7 +210,16 @@ export const updateRequest: typeof Fake.updateRequest = async (id, patch) => {
   }
   let view: ProjectRequestView | null = null;
   if (Object.keys(fields).length > 0) view = (await client.update(id, fields as never)) as ProjectRequestView;
-  if (suggestions === null) view = (await client.dismissSuggestions(id)) as ProjectRequestView;
+  if (suggestions === null) {
+    try {
+      view = (await client.dismissSuggestions(id)) as ProjectRequestView;
+    } catch (error) {
+      if (!view) throw error;
+      // Le modifiche sono salvate, i suggerimenti no: l'errore lo dice (`suggestions_kept`).
+      fromView(view);
+      throw Object.assign(new Error("suggestions_kept"), { code: "suggestions_kept", cause: error });
+    }
+  }
   return fromView(view ?? ((await client.get(id)) as ProjectRequestView));
 };
 
@@ -183,5 +233,6 @@ export const archiveRequest: typeof Fake.archiveRequest = async (id) =>
 export const reopenRequest: typeof Fake.reopenRequest = async (id) =>
   fromView((await appClient().requests.reopen(id)) as ProjectRequestView);
 
+/** Lo stato a cui torna lo decide il server (quello di prima dell'archivio): `status` si manda ma è ignorato. */
 export const restoreRequest: typeof Fake.restoreRequest = async (id, status) =>
   fromView((await appClient().requests.restore(id, status)) as ProjectRequestView);

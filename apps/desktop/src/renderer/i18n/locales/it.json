@@ -1441,7 +1441,8 @@
       "week": "Settimana",
       "milestone": "Traguardo"
     },
-    "requestGone": "Questa richiesta non è più disponibile: forse è stata trasformata, archiviata o nascosta."
+    "requestGone": "Questa richiesta non è più disponibile: forse è stata trasformata, archiviata o nascosta.",
+    "requestNotConvertible": "Questa richiesta è già stata trasformata o archiviata."
   },
   "home": {
     "customize": "Personalizza",
@@ -1888,7 +1889,8 @@
       "sent": "Richiesta mandata a {{project}}.",
       "sentSimilar": "Richiesta mandata a {{project}}. Somiglia a un'altra richiesta: il team potrebbe fonderle.",
       "sentMerged": "Unita a {{code}}: qualcuno l'aveva già chiesta, e ora la segui anche tu.",
-      "sending": "Invio… controllo se qualcuno l'ha già chiesta."
+      "sending": "Invio… controllo se qualcuno l'ha già chiesta.",
+      "pending": "Ricevuta: la stiamo ancora registrando, la troverai fra le Requests."
     },
     "merge": {
       "title": "Fondi in un'altra richiesta",
@@ -1901,6 +1903,7 @@
       "choose": "Scegli la richiesta in cui fonderla.",
       "submit": "Fondi",
       "failed": "Non è stato possibile fondere le richieste. Non è cambiato nulla.",
+      "changed": "Una delle due richieste è cambiata nel frattempo. Non è cambiato niente: riprova.",
       "rewriting": "Unione in {{code}}: Claude la sta riscrivendo. Può volerci un momento.",
       "retry": "Riprova"
     },
@@ -2031,7 +2034,8 @@
       "listLabel": "Modifiche proposte",
       "reason": "Perché",
       "accepted": "Proposte accettate.",
-      "failed": "Non è andato a buon fine. Riprova."
+      "failed": "Non è andato a buon fine. Riprova.",
+      "savedNotDismissed": "Le modifiche sono salvate, ma i suggerimenti sono ancora aperti. Scartali di nuovo."
     },
     "nextStep": {
       "label": "Prossimo passo",
@@ -2059,9 +2063,11 @@
       "claudeWorking": "Claude al lavoro",
       "stalled_one": "{{count}} ferma",
       "stalled_other": "{{count}} ferme",
+      "stalledAtLeast": "{{count}}+ ferme",
       "nextDated": "prossimo: {{name}} · {{date}}",
       "next": "prossimo: {{name}}",
       "quiet": "Niente in attesa, niente di fermo",
+      "quietTruncated": "Niente in attesa · troppe task aperte per contare le ferme",
       "error": "Impossibile caricare il polso del progetto."
     },
     "stalled": {
@@ -2187,12 +2193,16 @@
       "weekOf": "Settimana del {{date}}",
       "showEarlier": "Mostra prima",
       "prNumber": "#{{number}}",
+      "taskUnavailable": "Una task che non è in questo elenco",
+      "milestoneUnavailable": "un traguardo eliminato",
       "noSummary": "Nessuna sintesi per questo giorno",
       "empty": "Ancora non è successo nulla in questo progetto",
-      "emptyType": "Ancora niente di questo tipo"
+      "emptyType": "Ancora niente di questo tipo",
+      "nothingInWeeks": "Niente di questo tipo in queste settimane"
     },
     "decisions": {
       "title": "Registro decisioni",
+      "truncated": "Queste sono le ultime {{count}} decisioni: le più vecchie qui non si vedono.",
       "record": "Registra una decisione",
       "empty": "Ancora nessuna decisione registrata",
       "whoCan": "Le registrano qui i project lead e chi ha il permesso di farlo.",
@@ -2222,6 +2232,8 @@
       "submit": "Registra",
       "recorded": "Decisione registrata",
       "failed": "Impossibile registrare la decisione. Non è stato salvato nulla; riprova.",
+      "alreadySuperseded": "Quella decisione è già superata da un'altra. Non è stato salvato niente.",
+      "forbidden": "Non puoi registrare decisioni in questo progetto.",
       "actions": "Azioni per «{{title}}»",
       "supersededByGroup": "Superata da",
       "supersededNone": "Nessuna, è ancora valida",

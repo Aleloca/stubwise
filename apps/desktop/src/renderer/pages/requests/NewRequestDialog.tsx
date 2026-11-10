@@ -1,5 +1,5 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateRequest, useCreateRequestFromMessage, useProjects } from "../../data/queries";
 import type { Project, ProjectRequest } from "../../data/types";
@@ -32,6 +32,7 @@ export function NewRequestDialog({
   fromMessageId,
   initial,
   onCreated,
+  onPending,
   onClose,
 }: {
   projectId?: string;
@@ -40,6 +41,11 @@ export function NewRequestDialog({
   /** I valori di partenza (la proposta di Claude aperta con «Edit»). */
   initial?: { title?: string; description?: string };
   onCreated: (request: ProjectRequest, project: Project) => void;
+  /**
+   * Il server l'ha accodata ma l'esito dell'intake non è ancora arrivato:
+   * c'è (o ci sarà), quindi niente «Riprova», che la duplicherebbe.
+   */
+  onPending?: (project: Project) => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation();
@@ -56,6 +62,9 @@ export function NewRequestDialog({
   const [tried, setTried] = useState(false);
   const [failed, setFailed] = useState(false);
   const project = projects?.find((p) => p.id === chosen);
+  // Il dialogo che si smonta ferma l'attesa dell'intake.
+  const abort = useRef<AbortController | null>(null);
+  useEffect(() => () => abort.current?.abort(), []);
   const noProjects = projects !== undefined && projects.length === 0;
 
   const submit = () => {
@@ -65,10 +74,18 @@ export function NewRequestDialog({
     const input = { projectId: project.id, title: title.trim(), description: description.trim() };
     const callbacks = {
       onSuccess: (request: ProjectRequest) => onCreated(request, project),
-      onError: () => setFailed(true),
+      onError: (error: unknown) => {
+        if (!(error instanceof Error)) return setFailed(true);
+        if (error.message === "aborted") return;
+        if (error.message === "intake_pending") return (onPending ?? onClose)(project);
+        setFailed(true);
+      },
     };
     if (fromMessageId) fromMessage.mutate({ messageId: fromMessageId, input }, callbacks);
-    else create.mutate(input, callbacks);
+    else {
+      abort.current = new AbortController();
+      create.mutate({ input, signal: abort.current.signal }, callbacks);
+    }
   };
 
   return (
@@ -235,6 +252,10 @@ export function NewRequestHost() {
       key={value}
       projectId={projectId}
       onClose={close}
+      onPending={() => {
+        toast.show(t("requests.newDialog.pending"));
+        close();
+      }}
       onCreated={(request, project) => {
         // L'intake del server l'ha fusa in una richiesta che c'era già: si apre quella.
         toast.show(

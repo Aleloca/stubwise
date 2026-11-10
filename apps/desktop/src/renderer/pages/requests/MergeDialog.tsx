@@ -56,7 +56,8 @@ export function MergeDialog({
   const [text, setText] = useState("");
   const [target, setTarget] = useState<string | null>(null);
   const [tried, setTried] = useState(false);
-  const [failed, setFailed] = useState(false);
+  /** `changed`: 409 `request_changed`, una delle due è cambiata nel frattempo (niente è cambiato). */
+  const [failed, setFailed] = useState<false | "failed" | "changed">(false);
   const searchId = useId();
   const name = useId();
 
@@ -71,7 +72,11 @@ export function MergeDialog({
     setFailed(false);
     merge.mutate(
       { id: request.id, intoId: chosen.id },
-      { onSuccess: () => onMerged(chosen), onError: () => setFailed(true) },
+      {
+        onSuccess: () => onMerged(chosen),
+        onError: (error: unknown) =>
+          setFailed((error as { code?: unknown } | null)?.code === "request_changed" ? "changed" : "failed"),
+      },
     );
   };
 
@@ -173,7 +178,9 @@ export function MergeDialog({
         )}
         {failed && (
           <p role="alert" className="flex items-center gap-3 rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
-            <span className="min-w-0 flex-1">{t("requests.merge.failed")}</span>
+            <span className="min-w-0 flex-1">
+              {t(failed === "changed" ? "requests.merge.changed" : "requests.merge.failed")}
+            </span>
             {serverIntake() && (
               <button type="button" className={secondaryButton} onClick={submit}>
                 {t("requests.merge.retry")}
