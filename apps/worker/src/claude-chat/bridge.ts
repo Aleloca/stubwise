@@ -67,9 +67,32 @@ type Args = Record<string, unknown>;
 const str = (v: unknown): string | undefined => (typeof v === "string" && v.trim() !== "" ? v.trim() : undefined);
 const seg = (v: string) => encodeURIComponent(v);
 
+/** Un codice di task (`AUD-12`) o di richiesta (`AUD-R4`); un id di progetto è un uuid. */
+const TASK_CODE = /^[A-Z][A-Z0-9]*-\d+$/;
+const REQUEST_CODE = /^[A-Z][A-Z0-9]*-R\d+$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Un argomento non valido: la risposta per il modello, senza chiamare il server. */
+export class ChatToolArgError extends Error {}
+
+const codeArg = (args: Args, re: RegExp, example: string): string => {
+  const code = (str(args["code"]) ?? "").toUpperCase();
+  if (!re.test(code)) throw new ChatToolArgError(`Invalid code: use one like ${example}.`);
+  return code;
+};
+const projectArg = (args: Args, required: boolean): string | undefined => {
+  const id = str(args["projectId"]);
+  if (id === undefined && !required) return undefined;
+  if (id === undefined || !UUID.test(id)) {
+    throw new ChatToolArgError("Invalid projectId: use the id of a project from list_projects.");
+  }
+  return id;
+};
+
 /**
  * I percorsi (sempre GET, sempre nell'allowlist del server) di un tool. Ogni
- * valore dell'agente entra codificato: un codice non apre altri percorsi.
+ * valore dell'agente si VALIDA prima (codici, uuid: `ChatToolArgError`) e
+ * entra codificato: niente apre altri percorsi.
  */
 export function chatServerPaths(tool: ChatToolName, args: Args): string[] {
   switch (tool) {
@@ -78,7 +101,7 @@ export function chatServerPaths(tool: ChatToolName, args: Args): string[] {
     case "search_tasks": {
       const q = new URLSearchParams();
       const text = str(args["text"]);
-      const projectId = str(args["projectId"]);
+      const projectId = projectArg(args, false);
       if (text) q.set("text", text.slice(0, 500));
       if (projectId) q.set("projectIds", projectId);
       if (args["includeClosed"] !== true) q.set("families", "todo,active");
@@ -86,15 +109,15 @@ export function chatServerPaths(tool: ChatToolName, args: Args): string[] {
       return [qs ? `/api/tasks?${qs}` : "/api/tasks"];
     }
     case "read_task":
-      return [`/api/tasks/by-code/${seg(str(args["code"]) ?? "")}`];
+      return [`/api/tasks/by-code/${seg(codeArg(args, TASK_CODE, "AUD-12"))}`];
     case "read_request":
-      return [`/api/requests/by-code/${seg((str(args["code"]) ?? "").toUpperCase())}`];
+      return [`/api/requests/by-code/${seg(codeArg(args, REQUEST_CODE, "AUD-R4"))}`];
     case "search_docs": {
       const q = new URLSearchParams({ q: (str(args["query"]) ?? "").slice(0, 300) });
-      return [`/api/projects/${seg(str(args["projectId"]) ?? "")}/docs/search?${q.toString()}`];
+      return [`/api/projects/${seg(projectArg(args, true)!)}/docs/search?${q.toString()}`];
     }
     case "read_project_overview": {
-      const p = seg(str(args["projectId"]) ?? "");
+      const p = seg(projectArg(args, true)!);
       return [`/api/projects/${p}/briefs/latest`, `/api/projects/${p}/decisions?limit=50`];
     }
   }
@@ -184,8 +207,15 @@ export async function startChatBridge(deps: {
       return { status: 400, body: { ok: false, text: "The arguments are not valid JSON." } };
     }
 
+    let paths: string[];
+    try {
+      paths = chatServerPaths(tool, args);
+    } catch (error) {
+      if (error instanceof ChatToolArgError) return { status: 200, body: { ok: false, text: error.message } };
+      throw error;
+    }
     const parts: string[] = [];
-    for (const path of chatServerPaths(tool, args)) {
+    for (const path of paths) {
       const res = await fetchImpl(`${serverUrl}${path}`, {
         method: "GET",
         headers: { authorization: `Bearer ${turn.serverToken}`, accept: "application/json" },

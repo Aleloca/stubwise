@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
-import { contextIdOf, describeContext, resolveCodes, sendFreeMessage, serverContextOf } from "./claudeChat";
+import { contextIdOf, describeContext, listCommands, resolveCodes, sendFreeMessage, serverContextOf } from "./claudeChat";
 import { installFakeServer, PROJECT_ID, serverProject, serverTask, serverTicketDetail, TICKET_ID } from "./fakeServer";
 
 // Il chip del riquadro e il contesto della chat (fetta 2): il chip rilegge
@@ -89,5 +89,11 @@ describe("il contesto della chat nella build app", () => {
     expect(views).toMatchObject([
       { kind: "task", visible: true, code: "AUD-12", name: "Export the report", route: "#/p/AUD/tasks?task=AUD-12" },
     ]);
+  });
+
+  it("«/»: solo i comandi che i tool coprono (/explain, /docs), con la descrizione tradotta", async () => {
+    const commands = await listCommands(null);
+    expect(commands.map((c) => c.label)).toEqual(["/explain", "/docs"]);
+    expect(commands[0]!.description).toBe("Explain a task or a request, by its code");
   });
 });

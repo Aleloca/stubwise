@@ -48,9 +48,12 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
       config: { access: ACCESS },
       schema: { querystring: claudeConversationListQuerySchema, response: { 200: claudeConversationListSchema, ...authErrorResponses } },
     },
-    async (request) => ({
-      items: await listClaudeConversations(app.db, request.user!, { archived: request.query.archived === "true" }),
-    }),
+    async (request) =>
+      listClaudeConversations(app.db, request.user!, {
+        archived: request.query.archived === "true",
+        ...(request.query.limit !== undefined ? { limit: request.query.limit } : {}),
+        ...(request.query.before !== undefined ? { before: request.query.before } : {}),
+      }),
   );
 
   app.post(

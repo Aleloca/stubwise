@@ -1,6 +1,13 @@
-import { and, asc, eq, exists, isNotNull, ne, or, notExists, sql } from "drizzle-orm";
+import { and, asc, eq, exists, inArray, isNotNull, lt, ne, or, notExists, sql } from "drizzle-orm";
 import { agentSessionInputs, claudeConversations, purgeChatToolTokens, type Db } from "@stubwise/db";
 import { AGENT_SESSION_EVENTS_CHANNEL, CLAUDE_CONVERSATION_CLOSED_CHANNEL } from "@stubwise/shared";
+import { AGENT_SESSION_RETENTION_DAYS } from "../sessions/store.js";
+import {
+  chatSessionIdsInCliProjects,
+  removeChatCliState,
+  removeLegacyChatCliDirs,
+  type ChatCliPaths,
+} from "./cli-dir.js";
 import type { TurnStarter } from "../sessions/relay.js";
 import type { ChatBridge } from "./bridge.js";
 import type { ChatTurnOutcome } from "./turn.js";
@@ -24,6 +31,10 @@ export interface ChatSchedulerDeps {
   runTurn: (input: { sessionId: string; inputId: string; signal: AbortSignal }) => Promise<ChatTurnOutcome>;
   listen?: (channel: string, cb: (payload: string) => void) => Promise<unknown>;
   log: (m: string) => void;
+  /** Radici di cwd e trascrizioni del CLI (test). */
+  cliPaths?: ChatCliPaths;
+  /** Dopo quanto riprovare quando un turno ha rigettato (DB giù). Default 5 s. */
+  retryMs?: number;
 }
 
 interface Waker {
@@ -33,6 +44,8 @@ interface Waker {
 export class ChatScheduler implements TurnStarter {
   private readonly turns = new Map<string, { controller: AbortController; done: Promise<void> }>();
   private readonly closing = new Set<string>();
+  /** Sessioni arrivate a tetto pieno: partono, nell'ordine, appena si libera un posto. */
+  private readonly waiting = new Set<string>();
   private relay: Waker | undefined;
   private stopping = false;
 
@@ -61,18 +74,30 @@ export class ChatScheduler implements TurnStarter {
   }
 
   requestTurn(sessionId: string): void {
-    if (
-      this.stopping ||
-      this.closing.has(sessionId) ||
-      this.turns.has(sessionId) ||
-      this.turns.size >= this.deps.maxConcurrent
-    ) {
+    if (this.stopping || this.closing.has(sessionId) || this.turns.has(sessionId)) return;
+    if (this.turns.size >= this.deps.maxConcurrent) {
+      // Tetto pieno: non si scarta. Il messaggio resta `pending` e la
+      // sessione aspetta il primo posto libero (e il poll del relay comunque).
+      if (!this.waiting.has(sessionId)) {
+        this.waiting.add(sessionId);
+        this.deps.log(`[chat] tetto di ${this.deps.maxConcurrent} turni pieno: la sessione ${sessionId} aspetta un posto`);
+      }
       return;
     }
+    this.waiting.delete(sessionId);
     const controller = new AbortController();
-    const done = this.runOne(sessionId, controller.signal).then((wake) => {
+    const done = this.runOne(sessionId, controller.signal).then((ok) => {
       this.turns.delete(sessionId);
-      if (wake && !this.stopping) void this.relay?.deliverPending();
+      if (this.stopping) return;
+      // Un posto libero: prima chi aspettava.
+      const next = [...this.waiting].find((id) => !this.turns.has(id));
+      if (next) this.requestTurn(next);
+      if (ok) void this.relay?.deliverPending();
+      else {
+        // Il turno ha rigettato (DB giù): il relay si risveglia fra poco, non subito.
+        const timer = setTimeout(() => void this.relay?.deliverPending(), this.deps.retryMs ?? 5_000);
+        timer.unref?.();
+      }
     });
     this.turns.set(sessionId, { controller, done });
   }
@@ -154,17 +179,71 @@ export class ChatScheduler implements TurnStarter {
       } catch (error) {
         this.deps.log(`[chat] chiusura ${sessionId}: input non marcati: ${String(error)}`);
       }
+      // Eliminata: con lei vanno la cwd e le trascrizioni del CLI. Archiviata no
+      // (si può ripristinare, e il `--resume` le ritrova).
+      try {
+        const [row] = await this.deps.db
+          .select({ id: claudeConversations.sessionId })
+          .from(claudeConversations)
+          .where(eq(claudeConversations.sessionId, sessionId));
+        if (!row) await removeChatCliState(sessionId, this.deps.cliPaths);
+      } catch (error) {
+        this.deps.log(`[chat] chiusura ${sessionId}: trascrizioni del CLI non rimosse: ${String(error)}`);
+      }
     } finally {
+      this.waiting.delete(sessionId);
       this.closing.delete(sessionId);
     }
   }
 
-  /** Igiene periodica: via i token dei turni scaduti o revocati. */
-  async sweep(): Promise<void> {
+  /**
+   * Igiene periodica, e la potatura delle trascrizioni del CLI (le sessioni si
+   * potano a 14 giorni, `pruneAgentSessions`; le trascrizioni stanno sul
+   * volume del CLI e vanno via qui):
+   * - i token dei turni scaduti o revocati;
+   * - le trascrizioni di conversazioni che non esistono più (eliminate,
+   *   potate, o la cui NOTIFY si è persa);
+   * - la sessione del CLI nata da più di 14 giorni: si scarta (il turno dopo
+   *   riparte col prompt d'avvio e i messaggi rimasti), così il CLI non
+   *   ricorda ciò che il server ha già potato.
+   * Mai su una conversazione con un turno in corso.
+   */
+  async sweep(now: Date = new Date()): Promise<void> {
     if (this.stopping) return;
     await purgeChatToolTokens(this.deps.db).catch((error: unknown) => {
       this.deps.log(`[chat] pulizia dei token dei turni fallita: ${String(error)}`);
     });
+    const busy = new Set([...this.turns.keys(), ...this.closing]);
+    try {
+      await removeLegacyChatCliDirs(this.deps.cliPaths);
+      const withTranscripts = (await chatSessionIdsInCliProjects(this.deps.cliPaths)).filter((id) => !busy.has(id));
+      if (withTranscripts.length > 0) {
+        const alive = new Set(
+          (
+            await this.deps.db
+              .select({ id: claudeConversations.sessionId })
+              .from(claudeConversations)
+              .where(inArray(claudeConversations.sessionId, withTranscripts))
+          ).map((r) => r.id),
+        );
+        for (const id of withTranscripts) if (!alive.has(id)) await removeChatCliState(id, this.deps.cliPaths);
+      }
+      const cutoff = new Date(now.getTime() - AGENT_SESSION_RETENTION_DAYS * 86_400_000);
+      const stale = await this.deps.db
+        .select({ id: claudeConversations.sessionId })
+        .from(claudeConversations)
+        .where(lt(claudeConversations.cliSessionStartedAt, cutoff));
+      for (const { id } of stale) {
+        if (busy.has(id)) continue;
+        await this.deps.db
+          .update(claudeConversations)
+          .set({ cliSessionId: null, cliSessionStartedAt: null })
+          .where(and(eq(claudeConversations.sessionId, id), lt(claudeConversations.cliSessionStartedAt, cutoff)));
+        await removeChatCliState(id, this.deps.cliPaths);
+      }
+    } catch (error) {
+      this.deps.log(`[chat] potatura delle trascrizioni del CLI fallita: ${String(error)}`);
+    }
   }
 
   stopAcceptingTurns(): void {

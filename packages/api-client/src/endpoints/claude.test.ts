@@ -36,6 +36,10 @@ describe("endpoints claude", () => {
     expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/claude/conversations?scope=mine");
     await c.claude.conversations.list({ archived: true });
     expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/claude/conversations?scope=mine&archived=true");
+    await c.claude.conversations.list({ limit: 20, before: "2026-11-10T10:00:00.000Z|x" });
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(
+      "/api/claude/conversations?scope=mine&limit=20&before=2026-11-10T10%3A00%3A00.000Z%7Cx",
+    );
   });
 
   it("create e update: il corpo così com'è; uno stato ignoto si legge UNKNOWN", async () => {

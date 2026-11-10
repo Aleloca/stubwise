@@ -11,6 +11,11 @@ import {
 } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { CLAUDE_CONVERSATION_CLOSED_CHANNEL } from "@stubwise/shared";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, realpath } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chatCwd, cliProjectDirName } from "./cli-dir.js";
 import { ChatScheduler, type ChatSchedulerDeps } from "./scheduler.js";
 import type { ChatTurnOutcome } from "./turn.js";
 
@@ -19,7 +24,9 @@ import type { ChatTurnOutcome } from "./turn.js";
 
 let t: TestDb;
 let userId: string;
+let cliTmp: string;
 beforeAll(async () => {
+  cliTmp = await realpath(await mkdtemp(join(tmpdir(), "chat-sched-cli-")));
   t = await startTestDb();
   const [u] = await t.db.insert(users).values({ email: "a@x.test", passwordHash: "x", role: "member" }).returning();
   userId = u!.id;
@@ -70,6 +77,7 @@ function scheduler(over: Partial<ChatSchedulerDeps> = {}) {
     bridge: { revokeSession },
     runTurn: async () => "completed",
     log: () => undefined,
+    cliPaths: { tmp: cliTmp, configDir: join(cliTmp, "config") },
     ...over,
   });
   return { s, revokeSession };
@@ -147,5 +155,83 @@ describe("lo scheduler della chat", () => {
     const left = await t.db.select().from(claudeChatToolTokens).where(eq(claudeChatToolTokens.sessionId, a));
     expect(left).toHaveLength(1);
     expect(left[0]!.revokedAt).toBeNull();
+  });
+
+  it("tetto pieno: la sessione in più NON si perde, parte appena si libera un posto", async () => {
+    const { calls, runTurn } = controlledTurns();
+    const { s } = scheduler({ runTurn, maxConcurrent: 1 });
+    const [a, b] = [await conversation(), await conversation()];
+    await input(a);
+    await input(b);
+    s.requestTurn(a);
+    s.requestTurn(b);
+    await tick();
+    expect(calls.map((x) => x.sessionId)).toEqual([a]);
+    calls[0]!.finish("completed");
+    await tick();
+    expect(calls.map((x) => x.sessionId)).toEqual([a, b]);
+    calls[1]!.finish("completed");
+    await s.shutdown();
+  });
+
+  it("un turno che rigetta: il relay si risveglia comunque (dopo la pausa)", async () => {
+    const deliverPending = vi.fn(async () => undefined);
+    const { s } = scheduler({
+      runTurn: async () => {
+        throw new Error("db giù");
+      },
+      retryMs: 10,
+    });
+    s.attachRelay({ deliverPending });
+    const a = await conversation();
+    await input(a);
+    s.requestTurn(a);
+    await tick();
+    expect(deliverPending).toHaveBeenCalled();
+  });
+
+  const cliDir = (id: string) => join(cliTmp, "config", "projects", cliProjectDirName(chatCwd(id, cliTmp)));
+  async function withTranscripts(id: string) {
+    await mkdir(chatCwd(id, cliTmp), { recursive: true });
+    await mkdir(cliDir(id), { recursive: true });
+  }
+
+  it("eliminata (NOTIFY): via cwd e trascrizioni del CLI; archiviata no", async () => {
+    const { s } = scheduler();
+    const gone = await conversation();
+    const kept = await conversation();
+    await withTranscripts(gone);
+    await withTranscripts(kept);
+    await t.db.delete(agentSessions).where(eq(agentSessions.id, gone));
+    await t.db.update(claudeConversations).set({ archivedAt: new Date() }).where(eq(claudeConversations.sessionId, kept));
+    await s.closeSession(gone);
+    await s.closeSession(kept);
+    expect(existsSync(cliDir(gone))).toBe(false);
+    expect(existsSync(chatCwd(gone, cliTmp))).toBe(false);
+    expect(existsSync(cliDir(kept))).toBe(true);
+  });
+
+  it("la potatura: trascrizioni orfane via; una sessione del CLI oltre 14 giorni scartata", async () => {
+    const { s } = scheduler();
+    const orphan = "0f0f0f0f-0000-4000-8000-0000000000aa";
+    await withTranscripts(orphan);
+    const old = await conversation();
+    await withTranscripts(old);
+    await t.db
+      .update(claudeConversations)
+      .set({ cliSessionId: "cli-vecchio", cliSessionStartedAt: new Date(Date.now() - 15 * 86_400_000) })
+      .where(eq(claudeConversations.sessionId, old));
+    const fresh = await conversation();
+    await withTranscripts(fresh);
+    await t.db
+      .update(claudeConversations)
+      .set({ cliSessionId: "cli-nuovo", cliSessionStartedAt: new Date() })
+      .where(eq(claudeConversations.sessionId, fresh));
+    await s.sweep();
+    expect(existsSync(cliDir(orphan))).toBe(false);
+    expect(existsSync(cliDir(old))).toBe(false);
+    expect(existsSync(cliDir(fresh))).toBe(true);
+    const [row] = await t.db.select().from(claudeConversations).where(eq(claudeConversations.sessionId, old));
+    expect(row).toMatchObject({ cliSessionId: null, cliSessionStartedAt: null });
   });
 });

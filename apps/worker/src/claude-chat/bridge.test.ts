@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHAT_MCP_SERVER_NAME, CHAT_TOOLS } from "@stubwise/shared";
 import { buildChatMcpServer, CHAT_SERVER_NAME } from "../chat-mcp/server.js";
-import { chatServerPaths, startChatBridge, type ChatBridge } from "./bridge.js";
+import { ChatToolArgError, chatServerPaths, startChatBridge, type ChatBridge } from "./bridge.js";
 
 // Il ponte dei tool di lettura della chat (fetta 1): ogni tool diventa una o
 // più GET sul server col token del turno (la visibilità dell'autore); il token
@@ -27,7 +27,11 @@ describe("il ponte dei tool della chat", () => {
       _registeredTools: Record<string, unknown>;
     })._registeredTools;
     expect(Object.keys(registered).sort()).toEqual([...CHAT_TOOLS].sort());
-    for (const tool of CHAT_TOOLS) expect(chatServerPaths(tool, { code: "AUD-1", projectId: "p", query: "q" }).length).toBeGreaterThan(0);
+    const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+    for (const tool of CHAT_TOOLS) {
+      const code = tool === "read_request" ? "AUD-R1" : "AUD-1";
+      expect(chatServerPaths(tool, { code, projectId: P, query: "q" }).length).toBeGreaterThan(0);
+    }
   });
 
   it("ogni tool è una GET di lettura sul server col token del turno", async () => {
@@ -49,21 +53,39 @@ describe("il ponte dei tool della chat", () => {
   });
 
   it("i percorsi dei tool: testo e progetto nella query, codici nel percorso", () => {
-    expect(chatServerPaths("search_tasks", { text: "csv export", projectId: "p1" })).toEqual([
-      "/api/tasks?text=csv+export&projectIds=p1&families=todo%2Cactive",
+    const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
+    expect(chatServerPaths("search_tasks", { text: "csv export", projectId: P })).toEqual([
+      `/api/tasks?text=csv+export&projectIds=${P}&families=todo%2Cactive`,
     ]);
     expect(chatServerPaths("search_tasks", { includeClosed: true })).toEqual(["/api/tasks"]);
-    expect(chatServerPaths("read_task", { code: "AUD-12" })).toEqual(["/api/tasks/by-code/AUD-12"]);
+    expect(chatServerPaths("read_task", { code: "aud-12" })).toEqual(["/api/tasks/by-code/AUD-12"]);
     expect(chatServerPaths("read_request", { code: "aud-r4" })).toEqual(["/api/requests/by-code/AUD-R4"]);
-    expect(chatServerPaths("search_docs", { projectId: "p1", query: "login" })).toEqual([
-      "/api/projects/p1/docs/search?q=login",
+    expect(chatServerPaths("search_docs", { projectId: P, query: "login" })).toEqual([
+      `/api/projects/${P}/docs/search?q=login`,
     ]);
-    expect(chatServerPaths("read_project_overview", { projectId: "p1" })).toEqual([
-      "/api/projects/p1/briefs/latest",
-      "/api/projects/p1/decisions?limit=50",
+    expect(chatServerPaths("read_project_overview", { projectId: P })).toEqual([
+      `/api/projects/${P}/briefs/latest`,
+      `/api/projects/${P}/decisions?limit=50`,
     ]);
-    // Un codice con caratteri strani non apre altri percorsi.
-    expect(chatServerPaths("read_task", { code: "../auth/me" })).toEqual(["/api/tasks/by-code/..%2Fauth%2Fme"]);
+  });
+
+  it("codici e progetti si VALIDANO: niente percorsi strani, niente chiamata al server", async () => {
+    for (const [tool, args] of [
+      ["read_task", { code: "../auth/me" }],
+      ["read_task", { code: "AUD-R4" }],
+      ["read_request", { code: "AUD-12" }],
+      ["search_docs", { projectId: "../../auth", query: "x" }],
+      ["read_project_overview", {}],
+      ["search_tasks", { projectId: "AUD" }],
+    ] as const) {
+      expect(() => chatServerPaths(tool, args), `${tool} ${JSON.stringify(args)}`).toThrow(ChatToolArgError);
+    }
+    const fetchImpl = vi.fn(async () => Response.json([]));
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_x" });
+    const body = (await (await call(bridge, grant.secret, "read_task", { code: "../auth/me" })).json()) as { ok: boolean; text: string };
+    expect(body).toEqual({ ok: false, text: "Invalid code: use one like AUD-12." });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("un 404 (o un 403) del server: «non trovato o non visibile», senza dire quale", async () => {

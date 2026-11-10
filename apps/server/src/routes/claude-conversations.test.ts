@@ -153,6 +153,27 @@ describe("conversazioni libere con Claude", () => {
     }
   });
 
+  it("l'elenco a pagine: limit e cursore, dalla più recente, senza buchi né doppioni", async () => {
+    const fresh = await createUserWithSession(app, "pages@example.com");
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i++) ids.push((await create(fresh.headers.cookie, { message: `Domanda ${i}` })).id);
+    const seen: string[] = [];
+    let before: string | null = null;
+    for (let guard = 0; guard < 5; guard++) {
+      const url = `/api/claude/conversations?limit=2${before ? `&before=${encodeURIComponent(before)}` : ""}`;
+      const page = (await inject("GET", url, fresh.headers.cookie)).json() as {
+        items: { id: string; state: string }[];
+        nextCursor: string | null;
+      };
+      expect(page.items.length).toBeLessThanOrEqual(2);
+      for (const item of page.items) expect(item.state).toBe("queued");
+      seen.push(...page.items.map((i) => i.id));
+      before = page.nextCursor;
+      if (!before) break;
+    }
+    expect(seen).toEqual([...ids].reverse());
+  });
+
   it("lo stato della chat: budget non finito", async () => {
     const res = await inject("GET", "/api/claude/conversations/status", u.memberCookie);
     expect(res.statusCode).toBe(200);

@@ -3286,6 +3286,8 @@ export const claudeConversations = pgTable(
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     contextRef: jsonb("context_ref").$type<{ kind: string; id: string }>(),
     cliSessionId: text("cli_session_id"),
+    /** Quando è nata la sessione del CLI: oltre la potatura (14 giorni) si scarta con le sue trascrizioni. */
+    cliSessionStartedAt: timestamp("cli_session_started_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

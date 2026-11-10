@@ -3157,3 +3157,12 @@ deploy o di un rollback che la tocca.
   scheduler e diventano `undelivered`/`session_not_live` (nessun turno parte);
   le altre sessioni non cambiano. Il caddy scende insieme al server. Le
   migrazioni non si annullano (tabelle e valori nuovi restano inerti).
+  **Correzioni della review (stesso rilascio)**: migrazione **0129**
+  (`claude_conversations.cli_session_started_at`, colonna additiva). La cwd del
+  CLI di una conversazione è ora `<tmp>/stubwise-chat/<sessionId>` (stabile:
+  `--resume` funziona) e le trascrizioni del CLI in
+  `$CLAUDE_CONFIG_DIR/projects/-tmp-stubwise-chat-<id>` si tolgono
+  all'eliminazione e nella potatura dello scheduler della chat (ogni 10′):
+  orfane, sessioni del CLI nate da più di 14 giorni, e le
+  `-tmp-stubwise-chat-XXXXXX` dei turni di prima (cwd casuale per turno, mai
+  riprese: nessun passo a mano). Rollback: la colonna resta inerte.

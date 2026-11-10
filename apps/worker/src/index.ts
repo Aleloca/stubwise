@@ -15,6 +15,7 @@ import { runRefineTurn } from "./backlog/refine/turn.js";
 import { createRefineWorktreeRegistry } from "./backlog/refine/worktrees.js";
 import { startChatBridge } from "./claude-chat/bridge.js";
 import { ChatScheduler } from "./claude-chat/scheduler.js";
+import { turnDispatcher } from "./sessions/turn-dispatch.js";
 import { runChatTurn } from "./claude-chat/turn.js";
 import { startCredentialTester } from "./agent/credential-tester.js";
 import { startUsagePoller } from "./agent/usage-poller.js";
@@ -208,16 +209,18 @@ if (config.agentStreaming) await resetLiveSegmentsAtStartup(db);
 // servono mirror e serializer); il relay gli parla attraverso questa chiusura.
 let refineScheduler: RefineScheduler | null = null;
 // La chat con Claude (fetta 1): le conversazioni `free` hanno il loro scheduler;
-// il relay smista per kind.
+// il relay smista per kind, ESPLICITAMENTE (`turnDispatcher`).
 let chatScheduler: ChatScheduler | null = null;
+const dispatchTurn = turnDispatcher({
+  refine: (id) => refineScheduler?.requestTurn(id),
+  chat: (id) => chatScheduler?.requestTurn(id),
+  log: (m) => console.warn(m),
+});
 const relay = config.agentStreaming
   ? new SessionInputRelay({
       db,
       listen: (channel, cb) => client.listen(channel, cb),
-      turnStarter: {
-        requestTurn: (id, kind) =>
-          kind === "free" ? chatScheduler?.requestTurn(id) : refineScheduler?.requestTurn(id),
-      },
+      turnStarter: { requestTurn: (id, kind) => dispatchTurn(id, kind) },
     })
   : null;
 if (relay) await relay.start();

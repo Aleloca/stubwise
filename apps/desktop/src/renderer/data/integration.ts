@@ -64,10 +64,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "claude-decisions",
     // Fetta 3c: il refinement delle richieste («Refine with Claude»).
     "refine",
-    // Chat con Claude, fetta 2: le conversazioni libere PRIVATE (solo «Mine»,
-    // «New», N). Restano spente le pubbliche (`claude-public`), le proposte e
-    // le azioni di Claude in chat, la riga «Claude can help you…»
-    // (`claude-suggestions`) e il riquadro come chat (`claude-panel`).
+    // Chat con Claude, fetta 2: le conversazioni libere PRIVATE («Mine»,
+    // «New», N) e, sotto, il riquadro. Restano spente le pubbliche
+    // (`claude-public`), le proposte e le azioni di Claude in chat
+    // (`claude-chat-actions`), la riga «Claude can help you…»
+    // (`claude-suggestions`) e le domande della doc di prodotto (`product-docs`).
     "claude-chat",
     // Fetta 2 della chat, il riquadro (⌘J, ⌘K «Ask Claude…») col chip del contesto.
     "claude-panel",
@@ -93,6 +94,14 @@ export function isIntegrated(target: IntegrationTarget): boolean {
  */
 export function serverIntake(): boolean {
   return isAppBuild();
+}
+
+/**
+ * Sul server vero le conversazioni con Claude inattive da 14 giorni si potano
+ * (come le altre sessioni): la casella lo dice. Nel prototipo non si potano.
+ */
+export function chatRetentionDays(): number | null {
+  return isAppBuild() ? 14 : null;
 }
 
 /** Scorciatoia per una funzione trasversale (`feature`). */

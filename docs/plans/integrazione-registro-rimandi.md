@@ -69,15 +69,18 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   `CHAT_TOOL_READ_ROUTES` (col test del registro) e un tool al ponte.
 - Il contesto della pagina arriva al modello come `tipo: id`, non come il suo
   contenuto: Claude lo legge con i tool se serve *(S)*.
-- Conversazioni senza chiusura per inattività e senza retention: restano
-  finché l'autore non le archivia o le elimina (eventi compresi) *(S)*.
+- Conservazione *(M, review delle fette 1–2)*: le conversazioni inattive da 14
+  giorni si potano come le altre sessioni, con le trascrizioni del CLI; la
+  casella lo dice. Nessuna chiusura per inattività (la conversazione resta
+  aperta finché vive).
 - Budget del mese finito: in chat nessuno lo scavalca (una conversazione non ha
   un progetto, quindi nessun `plans.approve`) *(S)*.
 - **Limiti della fetta 2 (renderer, destinazione)** *(S, stubwise-72)*:
   - «#» propone task e progetti, non richieste né pagine Docs; «@» le persone.
-  - «/» ha i soli comandi che si risolvono leggendo (`/status`, `/today`,
-    `/explain`, `/docs`); niente skill dei plugin del progetto (il server non
-    le espone).
+  - «/» ha i soli comandi che i tool di lettura coprono (`/explain`, `/docs`);
+    `/status` e `/today` tornano quando i tool leggono progetti seguiti,
+    decisioni e la settimana di chi scrive; niente skill dei plugin del
+    progetto (il server non le espone).
   - Le citazioni registrate su un messaggio non esistono sul server: Claude
     cita col codice nel testo, che la pagina risolve (`resolveCodes`, task e
     richieste).

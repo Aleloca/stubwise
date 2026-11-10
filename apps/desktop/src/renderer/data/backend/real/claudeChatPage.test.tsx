@@ -141,7 +141,7 @@ describe("la chat con Claude nella build app", () => {
     expect((await screen.findAllByText("Who follows AUD-12?")).length).toBeGreaterThan(0);
     const nav = screen.getByRole("navigation", { name: "Claude views" });
     expect(within(nav).queryByText("Public")).toBeNull();
-    expect(seen.some((r) => r.path === "/api/claude/conversations?scope=mine")).toBe(true);
+    expect(seen.some((r) => r.path === "/api/claude/conversations?scope=mine&limit=100")).toBe(true);
     expect(outside()).toEqual([]);
   });
 
@@ -151,6 +151,8 @@ describe("la chat con Claude nella build app", () => {
     renderRoute(`/claude/${CONV}`);
     expect(await screen.findByText("Marta Rinaldi follows it.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Make public" })).toBeNull();
+    // La conservazione del server, detta nella casella.
+    expect(screen.getByText("Conversations inactive for 14 days are deleted.")).toBeInTheDocument();
     await ue.type(screen.getByLabelText("Message to Claude"), "And AUD-13?");
     await ue.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() =>

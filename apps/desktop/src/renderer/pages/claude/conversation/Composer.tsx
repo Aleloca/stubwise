@@ -1,4 +1,4 @@
-import { featureIntegrated } from "../../../data/integration";
+import { chatRetentionDays, featureIntegrated } from "../../../data/integration";
 import { useEffect, useId, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { AiBlockLine } from "../../../components/InstanceBlock";
@@ -223,6 +223,7 @@ export function Composer({
   // Area 9b: «Chiedi a Claude» si ferma solo per il budget del mese (la pausa
   // della coda non la tocca): Send spento con la frase, il testo resta [EF 5].
   const free = detail.kind === "free";
+  const retentionDays = chatRetentionDays();
   const block = useAiBlock(null).data ?? null;
   const budget = free && block?.reason === "monthly_budget";
   // I caricamenti spenti: la graffetta è spenta; un file incollato lo dice per 4 s.
@@ -539,6 +540,12 @@ export function Composer({
                 ? t(hintKey)
                 : ""}
         </p>
+        {/* La conservazione del server, detta (build app): le conversazioni inattive si potano. */}
+        {free && retentionDays !== null && (
+          <p className="pt-0.5 text-xs text-ink-faint">
+            {t("claude.conversation.composer.retention", { count: retentionDays })}
+          </p>
+        )}
       </div>
     </div>
   );
