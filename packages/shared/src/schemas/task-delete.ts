@@ -7,11 +7,23 @@ import { z } from "zod";
  * occupa adesso. `children`: le figlie che chi guarda vede, che restano senza
  * madre. I tipi di `busy` passano da `readerSchema` nei client.
  */
-export const taskBusyReasonSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("claude_session"), code: z.string().nullable() }),
-  z.object({ kind: z.literal("open_pr"), repo: z.string().nullable(), number: z.number().int().nullable() }),
-  z.object({ kind: z.literal("open_correction") }),
-]);
+export const TASK_BUSY_REASONS = ["claude_session", "open_pr", "open_correction"] as const;
+/**
+ * Un oggetto con `kind` enum (aperto da `readerSchema`: un tipo nuovo arriva
+ * come `UNKNOWN`) e i campi di ciascun tipo, facoltativi con default. Non una
+ * `discriminatedUnion`, che `readerSchema` non attraversa (il guardiano in
+ * `packages/api-client/src/reader.test.ts`). La forma sul filo è la stessa di
+ * prima: additivo per i client.
+ * - `claude_session`: `code` (la conversazione dell'agente, se chi guarda la vede);
+ * - `open_pr`: `repo` e `number`;
+ * - `open_correction`: nessun campo.
+ */
+export const taskBusyReasonSchema = z.object({
+  kind: z.enum(TASK_BUSY_REASONS),
+  code: z.string().nullable().default(null),
+  repo: z.string().nullable().default(null),
+  number: z.number().int().nullable().default(null),
+});
 export type TaskBusyReasonView = z.infer<typeof taskBusyReasonSchema>;
 
 export const taskDeletionPreviewSchema = z.object({
