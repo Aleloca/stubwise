@@ -6,6 +6,8 @@ import type { ConversationEvent, ProposedAction, UndoView } from "../../types";
 import { appClient, session } from "./client";
 import { taskCodeOf } from "./claudeChat";
 import { knownTaskCode } from "./tasks";
+import { listPeople } from "./people";
+import { ACTIONS } from "../../../domain/access/actions";
 
 // Le proposte e le azioni di Claude nella chat della build app (chat, fetta 3,
 // F3.4; design `2026-11-10-integrazione-claude-chat-design.md`, «Proposte e
@@ -70,11 +72,36 @@ export async function readChatActions(conversationId: string): Promise<ChatActio
   ].filter((id) => !codes.has(id));
   await Promise.all(
     missing.map(async (id) => {
-      const known = knownTaskCode(id) ?? (await taskCodeOf(id).catch(() => null))?.code;
+      const known = knownTaskCode(id) ?? (await cachedTaskCode(id));
       if (known) codes.set(id, known);
     }),
   );
   return { proposals, groups, codes };
+}
+
+/**
+ * Il codice di una task letto per id, ricordato per persona: ogni rilettura
+ * della conversazione (lo stream ne fa una a ogni proposta) non rilegge le
+ * stesse task, né ripete il 404 di una eliminata (`null`, ricordato anche lui).
+ * Un errore diverso non si ricorda: alla prossima si riprova.
+ */
+const taskCodesByPerson = new Map<string, Map<string, Promise<string | null>>>();
+function cachedTaskCode(id: string): Promise<string | null> {
+  const me = session.personId ?? "";
+  let cache = taskCodesByPerson.get(me);
+  if (!cache) taskCodesByPerson.set(me, (cache = new Map()));
+  let code = cache.get(id);
+  if (!code) {
+    code = taskCodeOf(id).then(
+      (found) => found?.code ?? null,
+      () => {
+        cache.delete(id);
+        return null;
+      },
+    );
+    cache.set(id, code);
+  }
+  return code;
 }
 
 // --- i riassunti ----------------------------------------------------------------
@@ -90,7 +117,10 @@ function summaryOf(fn: string, args: Record<string, unknown>, code: string | nul
       break;
     case "updateTask": {
       const patch = (args["patch"] ?? {}) as Record<string, unknown>;
-      params["fields"] = Object.keys(patch).join(", ");
+      // Le etichette dei campi nella lingua di chi legge; una chiave ignota resta com'è.
+      params["fields"] = Object.keys(patch)
+        .map((k) => (i18n.exists(`claude.chatActions.field.${k}`) ? i18n.t(`claude.chatActions.field.${k}`) : k))
+        .join(", ");
       break;
     }
     case "planTask": {
@@ -117,9 +147,12 @@ const needsCode = (fn: string) =>
 // --- le schede e le righe ------------------------------------------------------------
 
 /**
- * La voce di «Who can…?» per un rifiuto `forbidden`, come nel catalogo del
- * prototipo (`whoAction` di `data/claude/catalog.ts`, che qui non si importa:
- * porta con sé lo stato finto). Solo le `fn` del catalogo del server.
+ * RIPIEGO per un server più vecchio, che non dice il permesso mancante
+ * (`failure.permission`): la voce di «Who can…?» dalla `fn`, come nel
+ * catalogo del prototipo (`data/claude/catalog.ts`, che qui non si importa:
+ * porta con sé lo stato finto). Col permesso del server vale quello (vedi
+ * `whoActionOf`); qui serve anche a scegliere fra due azioni dello stesso
+ * permesso (`tickets.moderate`: commenti o task).
  */
 const WHO_ACTION: Partial<Record<string, string>> = {
   createTask: "createTasks",
@@ -158,10 +191,23 @@ function failureOf(p: ProposalView): ExecutedFailure | undefined {
   return {
     code,
     index: f.index,
-    whoAction: code === "forbidden" && fn ? (WHO_ACTION[fn] ?? null) : null,
+    whoAction: code === "forbidden" ? whoActionOf(f.permission ?? null, fn) : null,
     projectId: f.projectId,
     projectCode: null,
   };
+}
+
+/**
+ * Il «Who?» di un rifiuto per permesso: l'azione del catalogo `ACTIONS` col
+ * permesso che il SERVER dice mancare (`failure.permission`). Se più azioni
+ * hanno lo stesso permesso vale quella suggerita dalla `fn`, se coincide.
+ * Senza permesso (un server più vecchio) si ripiega su `WHO_ACTION`.
+ */
+function whoActionOf(permission: string | null, fn: string | undefined): string | null {
+  const hinted = fn ? WHO_ACTION[fn] : undefined;
+  if (permission === null) return hinted ?? null;
+  const matches = ACTIONS.filter((a) => a.permission === permission);
+  return (matches.find((a) => a.id === hinted) ?? matches[0])?.id ?? null;
 }
 
 const codeOfAction = (a: { fn: string; args: Record<string, unknown> }, codes: Map<string, string>) =>
@@ -208,9 +254,11 @@ type Fake = typeof import("../../api");
 /**
  * L'esito delle azioni della pagina, per persona: le esegue il RENDERER (D3,
  * il server le valida e non esegue niente), quindi lo stato — eseguita, non
- * partita, annullata — resta qui, come il loro «Undo» locale. Una
- * conversazione riaperta in un'altra sessione le rilegge in attesa, e il
- * runner le dà non partite se sono vecchie (`isStale`).
+ * partita, annullata — resta qui, in memoria per persona, come il loro
+ * «Undo» locale. Un'azione parte SOLO se arriva dal vivo in questa finestra
+ * (il runner, `layout/claudePanel/pageActions.ts`): letta dalla storia o dal
+ * dettaglio (un ricaricamento, un riavvio, un'altra scheda) resta «non
+ * applicata», e la riga offre il gesto per applicarla adesso.
  */
 const pageStatusByPerson = new Map<string, Map<string, PageEventStatus>>();
 
@@ -224,13 +272,25 @@ function pageStatuses(): Map<string, PageEventStatus> {
 }
 
 /** Il runner fissa l'esito di un'azione della pagina (eseguita, non partita, annullata). */
-export const settlePageEvent: Fake["settlePageEvent"] = async (_conversationId, eventId, status) => {
+export const settlePageEvent: Fake["settlePageEvent"] = async (conversationId, eventId, status) => {
   pageStatuses().set(eventId, status);
+  // Lo stream deriva le righe dalle sue viste: senza questo la riga dal vivo resterebbe `pending`.
+  for (const fn of [...pageListeners]) fn(conversationId);
 };
+
+const pageListeners = new Set<(conversationId: string) => void>();
+/** L'esito locale di un'azione della pagina è cambiato: chi deriva le righe (lo stream) le riemette. */
+export function onPageStatusChange(fn: (conversationId: string) => void): () => void {
+  pageListeners.add(fn);
+  return () => {
+    pageListeners.delete(fn);
+  };
+}
 
 /** Solo nei test: nessun esito ricordato. */
 export function forgetPageStatuses(): void {
   pageStatusByPerson.clear();
+  taskCodesByPerson.clear();
 }
 
 const isPageProposal = (p: ProposalView) => p.actions.length > 0 && p.actions.every((a) => a.fn === "pageAction");
@@ -334,7 +394,32 @@ export function undoViewsOf(
  * (409 `expired`, `conflict`, `refused` col motivo) diventa l'esito
  * `failed` del prototipo; la C (riconferma) è la fetta 4.
  */
-export const confirmProposal: Fake["confirmProposal"] = async (_conversationId, proposalId, options = {}) => {
+/**
+ * Le viste delle azioni di una conversazione sono VECCHIE: un rifiuto del
+ * server (scaduta, rifiutata, in conflitto) non scrive eventi, quindi lo
+ * stream non le rileggerebbe da sé. Chi ascolta (lo stream) le rilegge.
+ */
+const staleListeners = new Set<(conversationId: string) => void>();
+export function onChatActionsStale(fn: (conversationId: string) => void): () => void {
+  staleListeners.add(fn);
+  return () => {
+    staleListeners.delete(fn);
+  };
+}
+function markStale(conversationId: string): void {
+  for (const fn of [...staleListeners]) fn(conversationId);
+}
+
+export const confirmProposal: Fake["confirmProposal"] = async (conversationId, proposalId, options = {}) => {
+  const result = await confirmOnServer(proposalId, options);
+  if ("status" in result && result.status === "failed") markStale(conversationId);
+  return result;
+};
+
+async function confirmOnServer(
+  proposalId: string,
+  options: Parameters<Fake["confirmProposal"]>[2] = {},
+): ReturnType<Fake["confirmProposal"]> {
   try {
     const view = await appClient().claude.proposals.confirm(proposalId, {
       ...(options.actionIndexes ? { selected: options.actionIndexes } : {}),
@@ -348,7 +433,7 @@ export const confirmProposal: Fake["confirmProposal"] = async (_conversationId, 
     if (error instanceof ApiError && error.status === 409) return { status: "failed", error: error.code ?? "conflict" };
     throw error;
   }
-};
+}
 
 /**
  * «Edit»: gli argomenti dell'azione dalla vista del server, per il dialogo.
@@ -373,7 +458,7 @@ export const cancelProposal: Fake["cancelProposal"] = async (_conversationId, pr
  * I rifiuti nella forma del prototipo.
  */
 async function undoClaudeActions(
-  _conversationId: string,
+  conversationId: string,
   groupId: string,
 ): ReturnType<Fake["claude"]["undoClaudeActions"]> {
   try {
@@ -383,7 +468,8 @@ async function undoClaudeActions(
     if (!(error instanceof ApiError)) throw error;
     switch (error.code) {
       case "changed_after":
-        return { ok: false, error: "changed_after", byName: null, code: null };
+        // Il 409 non dice chi: lo dice la vista del gruppo (`changedBy`), riletta.
+        return { ok: false, error: "changed_after", byName: await changedByName(conversationId, groupId), code: null };
       case "undone":
       case "already_undone":
         return { ok: false, error: "already_undone" };
@@ -391,11 +477,53 @@ async function undoClaudeActions(
         return { ok: false, error: "not_undoable" };
       case "reauth_required":
         return { ok: false, error: "reauth_required" };
+      case "refused":
+        return refusedUndo(error.details);
       default:
         if (error.status === 404) return { ok: false, error: "not_found" };
         throw error;
     }
   }
+}
+
+/** Chi ha scritto dopo sugli oggetti del gruppo, per nome; `null` se non si sa o non si vede. */
+async function changedByName(conversationId: string, groupId: string): Promise<string | null> {
+  try {
+    const [groups, people] = await Promise.all([
+      appClient().claude.conversations.groups(conversationId),
+      listPeople(),
+    ]);
+    const by = groups.find((g) => g.id === groupId)?.changedBy ?? null;
+    return by ? (people.find((p) => p.id === by)?.name ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Un «Undo» rifiutato dal server (409 `refused` con `failure`): nella forma
+ * del prototipo — `forbidden` col «Who?» del permesso, `busy` occupato (la
+ * riga offre di riprovare con un clic); ogni altro motivo non si annulla da
+ * qui, senza un «Retry» che fallirebbe uguale.
+ */
+function refusedUndo(details: unknown): Awaited<ReturnType<Fake["claude"]["undoClaudeActions"]>> {
+  const failure = (details as { failure?: unknown } | undefined)?.failure as
+    | { code?: string; permission?: string | null; projectId?: string | null }
+    | undefined;
+  if (failure?.code === "forbidden") {
+    return {
+      ok: false,
+      error: "forbidden",
+      whoAction: whoActionOf(failure.permission ?? null, undefined),
+      projectId: failure.projectId ?? null,
+      projectCode: null,
+    };
+  }
+  if (failure?.code === "busy") {
+    // Il server non dice ancora PERCHÉ è occupato: la frase generica.
+    return { ok: false, error: "busy", reasons: [{ kind: "claude_session", code: null }] };
+  }
+  return { ok: false, error: "not_undoable" };
 }
 
 /** Il namespace `claude` della build app: solo «Undo» (il resto è del prototipo). */

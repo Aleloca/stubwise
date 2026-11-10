@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetClaudeCaches, getConversation } from "./claude";
+import { claudeChatNamespace } from "./claudeChatActions";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTicketDetail, TICKET_ID } from "./fakeServer";
 import { getSessionPerson } from "./session";
@@ -147,6 +148,8 @@ describe("proposte e azioni di Claude nella conversazione", () => {
     });
     // Il riassunto di ogni azione si legge dai dati (codice compreso), mai dal modello.
     expect((card as { actions: { summary: string }[] }).actions[0]!.summary).toContain("AUD-12");
+    // I campi cambiati con le loro etichette, non le chiavi grezze dello schema.
+    expect((card as { actions: { summary: string }[] }).actions[0]!.summary).toBe("Change AUD-12 (assignee)");
     // «Annulla» del gruppo: disponibile, come lo dice il server per chi guarda.
     expect(detail.undo?.[GROUP_A]).toEqual({ state: "available", needsReauth: false });
   });
@@ -199,5 +202,83 @@ describe("proposte e azioni di Claude nella conversazione", () => {
     await getSessionPerson();
     const detail = (await getConversation(CONV))!;
     expect(detail.events.map((e) => e.type)).toEqual(["user", "assistant"]);
+  });
+});
+
+describe("«Undo» rifiutato dal server e il «Who?» (review F3.4)", () => {
+  const refused = (failure: Record<string, unknown>) => ({
+    status: 409,
+    body: { code: "refused", message: "The undo was refused", failure: { index: 0, projectId: PROJECT_ID, message: "", ...failure } },
+  });
+
+  it("forbidden: il «Who?» viene dal permesso che il server dice mancare, non da una tabella del client", async () => {
+    install({ [`POST /api/claude/groups/${GROUP_A}/undo`]: refused({ code: "forbidden", permission: "tickets.moderate" }) });
+    await getSessionPerson();
+    expect(await claudeChatNamespace.undoClaudeActions(CONV, GROUP_A)).toMatchObject({
+      ok: false,
+      error: "forbidden",
+      whoAction: "moderateComments",
+      projectId: PROJECT_ID,
+    });
+  });
+
+  it("busy: occupato, col motivo; un altro rifiuto non si riprova all'infinito", async () => {
+    install({ [`POST /api/claude/groups/${GROUP_A}/undo`]: refused({ code: "busy", permission: null }) });
+    await getSessionPerson();
+    expect(await claudeChatNamespace.undoClaudeActions(CONV, GROUP_A)).toMatchObject({ ok: false, error: "busy" });
+    install({ [`POST /api/claude/groups/${GROUP_A}/undo`]: refused({ code: "invalid", permission: null }) });
+    expect(await claudeChatNamespace.undoClaudeActions(CONV, GROUP_A)).toMatchObject({ ok: false, error: "not_undoable" });
+  });
+
+  it("changed_after dopo il clic: il nome di chi ha cambiato, dalla vista del gruppo (changedBy)", async () => {
+    install({
+      [`POST /api/claude/groups/${GROUP_A}/undo`]: { status: 409, body: { code: "changed_after", message: "changed_after" } },
+      [`GET /api/claude/conversations/${CONV}/groups`]: { body: [{ ...groups[0], undo: "changed_after", changedBy: MARTA }] },
+    });
+    await getSessionPerson();
+    expect(await claudeChatNamespace.undoClaudeActions(CONV, GROUP_A)).toEqual({
+      ok: false,
+      error: "changed_after",
+      byName: "Marta Rinaldi",
+      code: null,
+    });
+  });
+
+  it("una scheda fallita per permesso: il «Who?» dal permesso del server", async () => {
+    install({
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [
+          proposals[0],
+          {
+            ...proposals[1],
+            status: "failed",
+            canConfirm: false,
+            canCancel: false,
+            failure: { code: "forbidden", index: 0, permission: "tickets.create", projectId: PROJECT_ID, message: "" },
+          },
+        ],
+      },
+    });
+    await getSessionPerson();
+    const detail = (await getConversation(CONV))!;
+    expect(detail.events.find((e) => e.type === "proposal")).toMatchObject({
+      failure: { code: "forbidden", whoAction: "createTasks" },
+    });
+  });
+});
+
+describe("i codici delle task nelle schede (review F3.4)", () => {
+  it("una task che non esiste più si legge una volta sola, non a ogni rilettura della conversazione", async () => {
+    const GONE = "99999999-0000-4000-8000-0000000000aa";
+    const { seen } = install({
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [proposals[0], { ...proposals[1], actions: [{ fn: "updateTask", args: { id: GONE, patch: { title: "x" } } }] }],
+      },
+      [`GET /api/tickets/${GONE}`]: { status: 404, body: { code: "not_found", message: "x" } },
+    });
+    await getSessionPerson();
+    await getConversation(CONV);
+    await getConversation(CONV);
+    expect(seen.filter((r) => r.path === `/api/tickets/${GONE}`)).toHaveLength(1);
   });
 });

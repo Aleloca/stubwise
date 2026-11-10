@@ -2,6 +2,7 @@ import { useRouter } from "@tanstack/react-router";
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useConversation, useSessionPersonId, useSettlePageEvent } from "../../data/queries";
 import { onStoreReset } from "@backend/runtime";
+import { isAppBuild } from "../../data/build";
 import { getSessionPersonId } from "../../data/session";
 import type { ConversationEvent, FieldRef, PageAction } from "../../data/types";
 import { placeDraft } from "../../domain/claude/intents/mailDraft";
@@ -18,6 +19,13 @@ import { fillableFor, subscribeFillable, type FillableField } from "./fillable";
 // chiude con `settlePageEvent`. Il valore di prima sta solo qui, in memoria
 // per persona: «Undo» lo rimette solo se c'è ancora il valore di Claude, e
 // dopo un ricaricamento non c'è più. Nessun toast (maintainer).
+//
+// Nella build app (chat, fetta 3) l'esito vive solo in questa finestra (il
+// server non lo salva): un'azione parte SOLO se arriva dal vivo in questa
+// finestra, cioè dopo la prima occhiata alla conversazione — mai da una
+// lettura del dettaglio o della storia (un ricaricamento, un riavvio,
+// un'altra scheda del browser). Quelle già lette restano «non applicate» e la
+// riga offre il gesto per applicarle adesso («Apply»).
 
 type PageEvent = Extract<ConversationEvent, { type: "pageAction" }>;
 
@@ -46,6 +54,13 @@ interface Page {
 
 /** Per persona: gli eventi già partiti (una volta sola) e il valore di prima. */
 const started = new Map<string, Set<string>>();
+/**
+ * Build app: per persona, le conversazioni già guardate in questa finestra
+ * con le azioni della pagina che c'erano alla prima occhiata (lette, non
+ * arrivate dal vivo), e per quelle il gesto che le applica adesso.
+ */
+const firstLook = new Map<string, Map<string, Set<string>>>();
+const appliers = new Map<string, Map<string, () => void>>();
 const memory = new Map<string, Map<string, Remembered>>();
 /**
  * I runner montati (il riquadro e la pagina intera della conversazione,
@@ -67,6 +82,8 @@ const subscribe = (l: () => void) => {
 
 const forget = () => {
   started.clear();
+  firstLook.clear();
+  appliers.clear();
   memory.clear();
   drafts.clear();
   changed();
@@ -76,6 +93,8 @@ onStoreReset(forget);
 /** Solo per i test: come un riquadro ricaricato, nessun evento è già partito. */
 export const __forgetStartedForTest = (): void => {
   started.clear();
+  firstLook.clear();
+  appliers.clear();
   changed();
 };
 
@@ -199,6 +218,17 @@ export function usePageEventRunner(
     if (!mine) started.set(me, (mine = new Set()));
     const live = observed.current.has(conversationId) || detail.state === "working";
     observed.current.add(conversationId);
+    // Build app: le azioni della pagina presenti alla PRIMA occhiata in questa
+    // finestra sono lette, non dal vivo (vedi il commento in cima).
+    let looks = firstLook.get(me);
+    if (!looks) firstLook.set(me, (looks = new Map()));
+    let readNotLive = looks.get(conversationId);
+    if (!readNotLive) {
+      readNotLive = new Set(
+        isAppBuild() ? detail.events.filter((e) => e.type === "pageAction").map((e) => e.id) : [],
+      );
+      looks.set(conversationId, readNotLive);
+    }
     detail.events.forEach((event, index) => {
       if (event.type === "trial") {
         if (!onTrialRef.current || event.status !== "done" || !event.code) return;
@@ -218,6 +248,18 @@ export function usePageEventRunner(
       }
       if (event.type !== "pageAction" || event.status !== "pending" || mine.has(event.id)) return;
       mine.add(event.id);
+      if (readNotLive.has(event.id)) {
+        // Letta, non arrivata dal vivo: non parte da sola; la riga offre il gesto.
+        appliersOf(me).set(event.id, () => {
+          appliersOf(me).delete(event.id);
+          changed();
+          void run(event);
+        });
+        changed();
+        // Chiusa «non partita» solo in questa finestra (l'esito non è sul server).
+        void settle({ id: conversationId, eventId: event.id, status: "failed" }).catch(() => {});
+        return;
+      }
       if (isStale(detail.events, index)) {
         void settle({ id: conversationId, eventId: event.id, status: "failed" }).catch(() => {});
       } else void run(event);
@@ -304,6 +346,22 @@ export function undoPageEvent(eventId: string): "undone" | "changed_after" | "no
  * ha memoria: per gli altri è sempre `gone`.
  */
 export type PageUndoView = "available" | "undone" | "changed_after" | "gone";
+
+const appliersOf = (personId: string) => {
+  let m = appliers.get(personId);
+  if (!m) appliers.set(personId, (m = new Map()));
+  return m;
+};
+
+/**
+ * Build app: il gesto che applica adesso un'azione della pagina letta (non
+ * arrivata dal vivo), o `null` se non c'è (partita, chiusa, di un altro).
+ */
+export function usePageApply(eventId: string): (() => void) | null {
+  const me = useSessionPersonId();
+  useSyncExternalStore(subscribe, () => version);
+  return appliers.get(me)?.get(eventId) ?? null;
+}
 
 export function usePageUndoView(eventId: string): PageUndoView {
   const me = useSessionPersonId();
