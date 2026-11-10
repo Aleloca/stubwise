@@ -1187,6 +1187,33 @@
         "correction_failed": "L'ultima correzione non è riuscita",
         "queued": "Correzione in coda · parte quando finisce il lavoro in corso sulla task",
         "blocked": "Bloccata: il branch è protetto, Stubwise non ci scrive."
+      },
+      "cancelRun": {
+        "action": "Annulla il lavoro",
+        "title": "Annullare il lavoro di Claude su questa task?",
+        "description": "Il lavoro si chiude subito, come fermato. Pull request e branch restano come sono.",
+        "keep": "Lascialo",
+        "confirm": "Annulla il lavoro",
+        "stop": "Ferma Claude",
+        "done": "Il lavoro di Claude è stato annullato.",
+        "stopped": "Claude si sta fermando. Annulla il lavoro quando si è fermato.",
+        "refusal": {
+          "run_in_progress": "Claude sta lavorando adesso: prima fermalo, poi annulla.",
+          "nothing_to_cancel": "Non c'è più nessun lavoro da annullare.",
+          "failed": "Non è andato a buon fine. Riprova."
+        }
+      },
+      "errors": {
+        "job_in_flight": "Claude sta già lavorando su questa task.",
+        "needs_maintainer": "Solo chi può approvare i piani può riprendere questa correzione.",
+        "correction_not_held": "Questa correzione non è più ferma: ricarica per vedere dov'è.",
+        "adopted_branch_protected": "Il branch di questa pull request è protetto: Stubwise non può scriverci.",
+        "review_ticket_not_runnable": "Questa è una task di revisione: Claude non ci lavora direttamente.",
+        "no_plan": "Non c'è ancora un piano salvato da approvare in anticipo.",
+        "question_not_pending": "A questa domanda è già stata data una risposta, o è cambiata.",
+        "forbidden": "Non hai il permesso per farlo.",
+        "not_found": "Questa task o sessione non è più disponibile.",
+        "pr_not_open": "Non c'è una pull request aperta da correggere."
       }
     },
     "links": {

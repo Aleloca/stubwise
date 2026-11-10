@@ -70,6 +70,9 @@ describe("isIntegrated", () => {
         // Area 3, fetta 3a: la chat libera, le azioni e «Da decidere» restano fuori.
         "destination:claude",
         "feature:claude",
+        // Fetta 3b: azioni e «Da decidere».
+        "feature:claude-actions",
+        "feature:claude-decisions",
       ].sort(),
     );
   });

@@ -1,8 +1,9 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { setUndoWindow } from "../../../pages/home/pendingAnswers";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
-import { DEPT_ID, installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTask } from "./fakeServer";
+import { DEPT_ID, installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTask, TICKET_ID, type SeenRequest } from "./fakeServer";
 
 // La Home a blocchi sulla build app vera, davanti a un server finto
 // (integrazione area 2, fetta 3, Task L): la Home del reparto viene dal
@@ -15,12 +16,16 @@ const GONE = "88888888-8888-4888-8888-888888888888";
 /** La Home personale che il server ha (null = nessuna), e i corpi dei salvataggi. */
 let personalBlocks: { kind: string; filterId?: string }[] | null = null;
 let savedBodies: unknown[] = [];
+/** Le voci di Claude in «Da decidere» (fetta 3b) e le richieste viste. */
+let claudeDecisions: unknown[] = [];
+let seen: SeenRequest[] = [];
 
 beforeEach(() => {
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   personalBlocks = null;
   savedBodies = [];
+  claudeDecisions = [];
   const meHome = () => ({
     blocks: personalBlocks ?? [],
     departmentChanged: [],
@@ -41,7 +46,9 @@ beforeEach(() => {
     ],
     personal: personalBlocks ? { blocks: personalBlocks, seenDepartmentUpdates: {} } : null,
   });
-  installFakeServer({
+  seen = installFakeServer({
+    "GET /api/me/claude-decisions": () => ({ body: claudeDecisions }),
+    [`POST /api/tickets/${TICKET_ID}/approve-plan`]: { status: 202, body: { jobId: "bbbbbbbb-0000-4000-8000-000000000001" } },
     "GET /api/auth/me": { body: me() },
     "PUT /api/me/home": (req) => {
       savedBodies.push(req.body);
@@ -83,10 +90,11 @@ beforeEach(() => {
         },
       ],
     },
-  });
+  }).seen;
 });
 
 afterEach(() => {
+  setUndoWindow(null);
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   setAppClientForTests(null);
@@ -112,6 +120,33 @@ describe("la Home nella build app", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/p/AUD/requests"));
     expect(router.state.location.search).toMatchObject({ request: "33333333-3333-4333-8333-333333333333" });
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it("«Da decidere»: il piano di Claude dal server; «Approve» lo approva sul ticket (fetta 3b)", async () => {
+    claudeDecisions = [
+      {
+        id: "bbbbbbbb-0000-4000-8000-000000000001:plan",
+        kind: "plan",
+        conversationId: "aaaaaaaa-0000-4000-8000-000000000001",
+        title: "Export the report",
+        ownerId: ME_ID,
+        projectId: PROJECT_ID,
+        taskId: TICKET_ID,
+        objectCode: "AUD-12",
+        at: "2026-11-01T09:00:00.000Z",
+        planId: "bbbbbbbb-0000-4000-8000-000000000001",
+        summary: "Add the CSV export",
+        webHref: "/tickets/x",
+      },
+    ];
+    setUndoWindow(0);
+    renderRoute("/home");
+    const decide = await screen.findByRole("region", { name: /^Decide/ });
+    expect(await within(decide).findByText(/Add the CSV export/)).toBeInTheDocument();
+    fireEvent.click(within(decide).getByRole("button", { name: "Approve" }));
+    await waitFor(() =>
+      expect(seen.some((r) => r.method === "POST" && r.path === `/api/tickets/${TICKET_ID}/approve-plan`)).toBe(true),
+    );
   });
 
   it("personalizzare dall'app non cancella un blocco di un'area non integrata né un kind sconosciuto", async () => {

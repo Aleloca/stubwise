@@ -58,6 +58,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // compreso), le azioni (`claude-actions`, 3b) e le voci di Claude in «Da
     // decidere» (`claude-decisions`, 3b).
     "claude",
+    // Fetta 3b «Agire»: le azioni della sezione, delle sessioni e del riquadro
+    // (la sessione seguita), e le voci di Claude in «Da decidere».
+    "claude-actions",
+    "claude-decisions",
   ]),
 };
 

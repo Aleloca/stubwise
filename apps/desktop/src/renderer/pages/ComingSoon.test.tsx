@@ -182,6 +182,20 @@ const INTEGRATED_CALLS = new Set([
   "mergeStreamEvent",
   "reconnectDelay",
   "onConversationChange",
+  // Area 3, fetta 3b: le azioni e «Da decidere» di Claude.
+  "startRun",
+  "relaunchWithInstructions",
+  "resumeCorrection",
+  "requestChanges",
+  "cancelRun",
+  "decidePlan",
+  "preApprovePlan",
+  "revokePlanApproval",
+  "answerQuestion",
+  "sendMessage",
+  "stop",
+  "stopAndSend",
+  "listClaudeDecisions",
   "recordDecision",
   "setDecisionSuperseded",
   "getLatestBrief",
@@ -413,12 +427,13 @@ describe("le superfici della fetta 3 nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("«Da decidere» non legge Claude, chat, posta né automazioni, e non resta in caricamento", async () => {
+  it("«Da decidere» legge Claude (dalla 3b) ma non chat, posta né automazioni, e non resta in caricamento", async () => {
     renderRoute("/home");
     const decide = await screen.findByRole("region", { name: /^Decide/ });
     await waitFor(() => expect(decide.querySelector("[data-skeleton], [aria-busy='true']")).toBeNull());
     await settle();
     expect(outside()).toEqual([]);
+    expect(calls).toContain("listClaudeDecisions");
   });
 
   it("i filtri salvati: tutti i filtri e la pagina di un filtro", async () => {

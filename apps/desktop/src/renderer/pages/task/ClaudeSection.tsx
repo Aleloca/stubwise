@@ -2,6 +2,7 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  useCancelRun,
   useConversation,
   useConversationStream,
   useInstanceChanges,
@@ -13,6 +14,7 @@ import {
   useResumeCorrection,
   useRevokePlanApproval,
   useStartRun,
+  useStopConversation,
   useTaskWork,
   useTaskWorkSummary,
 } from "../../data/queries";
@@ -39,7 +41,9 @@ import {
 import { WhoCanLink } from "../../components/WhoCanLink";
 import { featureIntegrated } from "../../data/integration";
 import { openInWeb } from "../../platform/openWeb";
-import { inputClass } from "../../tasks-ui/Dialog";
+import { Dialog, inputClass } from "../../tasks-ui/Dialog";
+import { can, useViewer } from "../../data/viewing";
+import { primaryButton, secondaryButton } from "../tasks/controls";
 import { itemClass, MenuGroup } from "../../tasks-ui/Menu";
 import { Avatar } from "../../tasks-ui/PersonChip";
 import { useToast } from "../../tasks-ui/Toast";
@@ -405,12 +409,15 @@ function InlineForm({
  * Rilasci; il resto «riprova».
  */
 function useFailure(cap?: { code: string; cap: number }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const toast = useToast();
   return (error: Error) => {
+    // Un rifiuto del server ha il suo codice: la sua frase, se l'app la conosce.
+    const code = (error as { code?: unknown }).code;
     if (error.message === "conflict") toast.error(t(`${K}.conflict`));
-    else if (error.message === "needs_maintainer" && cap)
+    else if ((error.message === "needs_maintainer" || code === "needs_maintainer") && cap)
       toast.error(t("releases.panel.requestErrors.needs_maintainer", cap));
+    else if (typeof code === "string" && i18n.exists(`${K}.errors.${code}`)) toast.error(t(`${K}.errors.${code}`));
     else toast.error(t(`${K}.failed`));
   };
 }
@@ -590,6 +597,8 @@ function WithRun({
   const preApprove = usePreApprovePlan();
   const revoke = useRevokePlanApproval();
   const [form, setForm] = useState<Form>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const { viewer } = useViewer();
   const sectionRef = useRef<HTMLElement>(null);
   const fixPlan = useServerFixPlan(detail, code || null);
 
@@ -709,6 +718,11 @@ function WithRun({
   // «⋯»: approvazione in anticipo e revoca (`plans.approve`, dal livello
   // dati), il rilancio quando non è già l'azione in evidenza, la sessione.
   const relaunchInMenu = actions.relaunch === "allowed" && !stopped && !budget && !run.waiting;
+  // «Annulla il lavoro»: un lavoro non concluso, per chi può avviare il lavoro
+  // nel progetto (`runs.start`, calcolato dal server). Se si può annullare
+  // adesso lo dice il server (`run_in_progress`, `nothing_to_cancel`).
+  const canCancel =
+    featureIntegrated("claude-actions") && status.kind !== "ended" && can(viewer, "runs.start", task.projectId);
   const menu = (
     <MenuButton
       menuLabel={t(`${K}.more`)}
@@ -750,6 +764,16 @@ function WithRun({
               {t(`${K}.relaunch`)}
             </MenuItem>
           )}
+          {canCancel && (
+            <MenuItem
+              onSelect={() => {
+                close();
+                setCancelling(true);
+              }}
+            >
+              {t(`${K}.cancelRun.action`)}
+            </MenuItem>
+          )}
           <MenuItem
             onSelect={() => {
               close();
@@ -767,6 +791,14 @@ function WithRun({
   const working = status.kind === "working" && !run.waiting;
   return (
     <Section title={t(`${K}.title`)} action={menu} sectionRef={sectionRef}>
+      {cancelling && (
+        <CancelRunDialog
+          task={task}
+          sessionId={run.id}
+          canStop={!!detail?.canInterrupt}
+          onClose={() => setCancelling(false)}
+        />
+      )}
       <StatusRow
         state={run.waiting ? "waiting" : status.kind}
         text={
@@ -958,3 +990,88 @@ function plain(markdown: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/**
+ * «Annulla il lavoro», con conferma: chiude il lavoro parcheggiato (in coda,
+ * fermo, in attesa del piano o di una risposta) senza toccare le PR. Se Claude
+ * sta lavorando il server rifiuta (`run_in_progress`): si propone «Ferma».
+ */
+function CancelRunDialog({
+  task,
+  sessionId,
+  canStop,
+  onClose,
+}: {
+  task: Task;
+  sessionId: string;
+  canStop: boolean;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const cancel = useCancelRun();
+  const stop = useStopConversation();
+  const [refusal, setRefusal] = useState<"run_in_progress" | "nothing_to_cancel" | "failed" | null>(null);
+  const confirm = () =>
+    cancel.mutate(task.id, {
+      onSuccess: () => {
+        toast.show(t(`${K}.cancelRun.done`));
+        onClose();
+      },
+      onError: (error) => {
+        const code = (error as { code?: unknown }).code;
+        setRefusal(code === "run_in_progress" || code === "nothing_to_cancel" ? code : "failed");
+      },
+    });
+  return (
+    <Dialog
+      title={t(`${K}.cancelRun.title`)}
+      description={t(`${K}.cancelRun.description`)}
+      onClose={onClose}
+      width={440}
+      footer={
+        <>
+          <button type="button" className={secondaryButton} onClick={onClose}>
+            {t(`${K}.cancelRun.keep`)}
+          </button>
+          {refusal === "run_in_progress" ? (
+            canStop && (
+              <button
+                type="button"
+                className={primaryButton}
+                disabled={stop.isPending}
+                onClick={() =>
+                  stop.mutate(sessionId, {
+                    onSuccess: () => {
+                      toast.show(t(`${K}.cancelRun.stopped`));
+                      onClose();
+                    },
+                    onError: () => setRefusal("failed"),
+                  })
+                }
+              >
+                {t(`${K}.cancelRun.stop`)}
+              </button>
+            )
+          ) : (
+            <button
+              type="button"
+              className={primaryButton}
+              disabled={cancel.isPending || refusal === "nothing_to_cancel"}
+              onClick={confirm}
+            >
+              {t(`${K}.cancelRun.confirm`)}
+            </button>
+          )}
+        </>
+      }
+    >
+      {refusal && (
+        <p role="alert" className="rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
+          {t(`${K}.cancelRun.refusal.${refusal}`)}
+        </p>
+      )}
+    </Dialog>
+  );
+}
+

@@ -13,11 +13,10 @@ import {
   type AgentSessionEvent,
   type ParsedAgentStreamFrame,
   type Reader,
-  type SessionPlan,
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ConversationEvent } from "../../types";
-import { eventsOf, planOf } from "./claude";
+import { eventsOf, forgetPlans, planOf, signatureOf, type RunPlan } from "./claude";
 import { appClient, session } from "./client";
 
 // Lo stream dal vivo di una sessione di lavoro nella build app (integrazione
@@ -206,24 +205,51 @@ interface SessionState {
   raw: Reader<AgentSessionEvent>[];
   partials: Record<string, string>;
   detail: Reader<AgentSessionDetail> | null;
-  plan: SessionPlan | null;
+  plan: RunPlan | null;
+  /** Il piano è stato letto per la firma attuale del dettaglio (si rilegge quando cambia). */
   planRead: boolean;
   /** L'ultimo id ricevuto: il cursore della ripresa. */
   lastId: string | null;
+  /** Le cadute di fila di QUESTA sessione senza un evento vero: il suo backoff. */
+  failures: number;
+  /** Quante viste la ascoltano adesso: solo quelle senza ascoltatori si possono dimenticare. */
+  listeners: number;
 }
 
 /** Per persona e sessione: lo stato di una non passa a chi entra dopo. */
 const sessions = new Map<string, SessionState>();
 const keyOf = (id: string) => `${session.personId ?? ""}\u0000${id}`;
 
+/** Quante sessioni non ascoltate si tengono a mente (le più recenti): oltre, si dimenticano. */
+export const IDLE_SESSIONS_MAX = 20;
+
 function stateFor(id: string): SessionState {
   const key = keyOf(id);
   let state = sessions.get(key);
-  if (!state) {
-    state = { raw: [], partials: {}, detail: null, plan: null, planRead: false, lastId: null };
-    sessions.set(key, state);
+  if (state) {
+    // Usata adesso: in fondo all'ordine, ultima da dimenticare.
+    sessions.delete(key);
+  } else {
+    state = { raw: [], partials: {}, detail: null, plan: null, planRead: false, lastId: null, failures: 0, listeners: 0 };
   }
+  sessions.set(key, state);
   return state;
+}
+
+/** Tiene al più `IDLE_SESSIONS_MAX` sessioni senza ascoltatori, dimenticando le meno recenti. */
+function trimIdle(): void {
+  let idle = [...sessions.values()].filter((s) => s.listeners === 0).length;
+  for (const [key, state] of sessions) {
+    if (idle <= IDLE_SESSIONS_MAX) return;
+    if (state.listeners > 0) continue;
+    sessions.delete(key);
+    idle -= 1;
+  }
+}
+
+/** Solo nei test: quante sessioni si tengono a mente. */
+export function rememberedSessions(): number {
+  return sessions.size;
 }
 
 // --- cambi di una conversazione -----------------------------------------------------
@@ -242,9 +268,6 @@ function notifyChange(id: string): void {
   for (const fn of [...changeListeners]) fn(id);
 }
 
-/** Ciò che di un dettaglio fa cambiare le letture: stato, pausa, attesa, domande aperte. */
-const signatureOf = (d: Reader<AgentSessionDetail>) =>
-  JSON.stringify([d.state, d.outcome, d.paused, d.waitsOnViewer, d.questions.map((q) => q.answered)]);
 
 // --- tetto degli stream ---------------------------------------------------------------
 
@@ -278,10 +301,19 @@ function acquire(start: () => void): () => void {
 
 // --- ripresa --------------------------------------------------------------------------
 
-/** Le cadute di fila senza un frame vero: il backoff cresce con loro. */
-let failures = 0;
+/**
+ * Il backoff della sessione: cresce con le sue cadute di fila, e si azzera
+ * solo con un evento vero (eventi nuovi, un parziale) o dopo `STABLE_MS` di
+ * connessione senza cadute — non al primo frame `session`, che il server
+ * manda anche a una connessione che poi cade subito (review della 3a).
+ */
+export const reconnectDelay: typeof Fake.reconnectDelay = (conversationId) => {
+  const state = conversationId ? sessions.get(keyOf(conversationId)) : undefined;
+  return streamBackoffMs(Math.max(0, (state?.failures ?? 1) - 1));
+};
 
-export const reconnectDelay: typeof Fake.reconnectDelay = () => streamBackoffMs(Math.max(0, failures - 1));
+/** Dopo quanto una connessione senza cadute conta come stabile. */
+export const STABLE_MS = 10_000;
 
 /**
  * Al cambio di persona: lo stato delle sessioni lette non passa a chi entra.
@@ -289,7 +321,7 @@ export const reconnectDelay: typeof Fake.reconnectDelay = () => streamBackoffMs(
  */
 export function forgetStreams(): void {
   sessions.clear();
-  failures = 0;
+  forgetPlans();
 }
 
 /** Solo nei test: anche il conteggio degli stream aperti e la coda. */
@@ -321,9 +353,23 @@ export const mergeStreamEvent: typeof Fake.mergeStreamEvent = (events, event) =>
  */
 export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, options = {}) => {
   const state = stateFor(conversationId);
+  state.listeners += 1;
   const emitted = new Map<string, string>();
   let stopped = false;
+  let finished = false;
   let closeStream: (() => void) | null = null;
+  let stable: ReturnType<typeof setTimeout> | undefined;
+  let release: () => void = () => undefined;
+
+  /** Fine di questo ascolto: libera il posto, e la sessione può essere dimenticata. */
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(stable);
+    release();
+    state.listeners -= 1;
+    trimIdle();
+  };
 
   const emit = () => {
     if (!state.detail || stopped) return;
@@ -336,10 +382,14 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
     }
   };
 
+  /** Il piano per la firma attuale del dettaglio; una risposta arrivata dopo un altro cambio si scarta. */
   const readPlan = () => {
-    if (state.planRead || !state.detail) return;
+    const detail = state.detail;
+    if (state.planRead || !detail) return;
     state.planRead = true;
-    void planOf(state.detail).then((plan) => {
+    const signature = signatureOf(detail);
+    void planOf(detail).then((plan) => {
+      if (!state.detail || signatureOf(state.detail) !== signature) return;
       state.plan = plan;
       emit();
     });
@@ -347,17 +397,22 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
 
   const onFrame = (parsed: ParsedAgentStreamFrame) => {
     if (stopped) return;
-    if (parsed.real) failures = 0;
     if (parsed.lastId) state.lastId = parsed.lastId;
     for (const m of parsed.messages) {
       if (m.type === "events") {
+        const before = state.raw;
         state.raw = mergeEvents(state.raw, m.events);
         state.partials = clearPartialsFor(state.partials, m.events);
+        // Un evento vero: la connessione serve, il backoff si azzera.
+        if (state.raw !== before) state.failures = 0;
       } else if (m.type === "partial") {
         state.partials = applyPartial(state.partials, m.segmentId, m.text);
+        state.failures = 0;
       } else {
         const changed = state.detail !== null && signatureOf(state.detail) !== signatureOf(m.detail);
         state.detail = m.detail;
+        // Cambiato lo stato (un piano approvato, rifiutato, uno nuovo): il piano si rilegge.
+        if (changed) state.planRead = false;
         readPlan();
         if (changed) notifyChange(conversationId);
       }
@@ -372,23 +427,27 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
       queueMicrotask(() => {
         if (stopped) return;
         stopped = true;
-        release();
+        finish();
         options.onConnection?.("closed");
       });
       return;
     }
+    clearTimeout(stable);
+    stable = setTimeout(() => {
+      state.failures = 0;
+    }, STABLE_MS);
     closeStream = currentTransport()(path, {
       onFrame,
       onClose: (end) => {
         if (stopped || end === null) return;
         if (end.rotate) return connect();
         stopped = true;
-        release();
+        finish();
         if (end.fatal) {
           options.onConnection?.("closed");
           return;
         }
-        failures += 1;
+        state.failures += 1;
         options.onConnection?.("reconnecting");
       },
     });
@@ -396,14 +455,17 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
 
   // Quello che si sa già arriva subito (una ripresa, un'altra vista sulla stessa sessione).
   emit();
-  const release = acquire(() => {
+  release = acquire(() => {
     if (!stopped) connect();
   });
 
   return () => {
-    if (stopped) return;
+    if (stopped) {
+      finish();
+      return;
+    }
     stopped = true;
     closeStream?.();
-    release();
+    finish();
   };
 };

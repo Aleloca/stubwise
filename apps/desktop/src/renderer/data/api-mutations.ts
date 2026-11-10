@@ -3947,6 +3947,32 @@ export async function relaunchWithInstructions(
 }
 
 /**
+ * «Annulla il lavoro» (`runs.start`, decisione del maintainer del 10 nov
+ * 2026): chiude SUBITO l'ultimo lavoro della task se è PARCHEGGIATO — fermo,
+ * in pausa, in attesa di una risposta o dell'approvazione, in coda — come
+ * fermato. Uno al lavoro non si annulla (`run_in_progress`: prima «Ferma»),
+ * e senza lavoro vivo non c'è niente da annullare (`nothing_to_cancel`). Le
+ * PR non si toccano.
+ */
+export async function cancelRun(taskId: string): Promise<void> {
+  const gen = storeGeneration();
+  const me = await afterGate("cancelRun", gen);
+  const task = taskFor(me, taskId);
+  need(me, "runs.start", task.projectId);
+  const run = latestRunOf(task.id);
+  if (!run || run.state === "finished") throw Object.assign(new Error("nothing_to_cancel"), { code: "nothing_to_cancel" });
+  if (run.state === "working" && !run.waiting) {
+    throw Object.assign(new Error("run_in_progress"), { code: "run_in_progress" });
+  }
+  if (run.waiting) {
+    dropHeld(run.id);
+    run.waiting = null;
+  }
+  interruptScripts(run.id, i18n.t("claude.conversation.delivery.stoppedBeforeTurn"));
+  await runScript(run.id, [{ step: "state", state: "finished", outcome: "stopped" }], gen);
+}
+
+/**
  * «Riprendi la correzione» (`corrections.request`): la sessione in pausa
  * nella fase di correzione riparte e finisce la correzione.
  */

@@ -114,3 +114,40 @@ export const serverTask = (over: Record<string, unknown> = {}) => ({
   lastActivityAt: "2026-11-08T10:00:00.000Z",
   ...over,
 });
+
+/** Un ticket minimo valido per `ticketDetailSchema` (le azioni di Claude leggono `repositories`). */
+export const serverTicketDetail = (over: Record<string, unknown> = {}) => ({
+  id: TICKET_ID,
+  projectId: PROJECT_ID,
+  number: 12,
+  title: "Export the report",
+  body: "",
+  type: "task",
+  priority: "medium",
+  status: "open",
+  source: "manual",
+  assigneeId: null,
+  milestoneId: null,
+  effort: null,
+  labels: [],
+  technicalPayload: null,
+  occurrences: 1,
+  lastSeenAt: "2026-10-01T00:00:00.000Z",
+  createdAt: "2026-10-01T00:00:00.000Z",
+  updatedAt: "2026-10-01T00:00:00.000Z",
+  implementationPlan: null,
+  originContent: null,
+  planSummary: null,
+  repositories: [],
+  ...over,
+});
+
+/** Un commento come lo rilegge `POST /api/tickets/:id/comments`. */
+export const serverComment = (body: string) => ({
+  id: "eeeeeeee-0000-4000-8000-000000000001",
+  ticketId: TICKET_ID,
+  authorType: "user",
+  authorId: ME_ID,
+  body,
+  createdAt: "2026-11-10T10:00:00.000Z",
+});

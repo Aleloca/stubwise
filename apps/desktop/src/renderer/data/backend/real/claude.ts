@@ -32,6 +32,12 @@ import { listProjects } from "./projects";
 // del dettaglio sono tutti spenti, con `readOnlyReason: "not_interactive"`.
 
 type Summary = Reader<AgentSessionSummary>;
+
+/**
+ * Il ticket di ogni sessione (o voce di «Da decidere») letta: le azioni su
+ * piano e domande passano dal ticket (`/api/tickets/:id/…`).
+ */
+export const ticketOfConversation = new Map<string, string>();
 type Detail = Reader<AgentSessionDetail>;
 
 /** Il tipo di sessione del server in quello del prototipo; `null` se questa app non lo conosce. */
@@ -112,6 +118,7 @@ async function projectCodes(): Promise<Map<string, string>> {
 function toRow(s: Summary, codes: Map<string, string>, paused = false): ConversationRow | null {
   const kind = KIND_OF[s.kind as AgentSessionKind];
   if (!kind) return null;
+  if (s.ticketId) ticketOfConversation.set(s.id, s.ticketId);
   const state = stateOf(s.state, paused);
   const code = s.projectId ? codes.get(s.projectId) : undefined;
   return {
@@ -192,26 +199,56 @@ export async function readEvents(id: string, after?: string): Promise<Reader<Age
   }
 }
 
+/** Il piano di un job: col suo id, che fa stabile l'id dell'evento (`plan:<job>`). */
+export type RunPlan = SessionPlan & { jobId: string };
+
+/**
+ * Ciò che di una sessione fa cambiare le letture e il piano: stato, esito,
+ * pausa, attesa, domande risposte. Il piano si rilegge solo quando cambia.
+ */
+export function signatureOf(d: Summary): string {
+  const detail = d as Partial<Detail>;
+  return JSON.stringify([
+    d.state,
+    d.outcome,
+    d.waitsOnViewer,
+    detail.paused ?? false,
+    (detail.questions ?? []).map((q) => q.answered),
+  ]);
+}
+
+/** Il piano letto di ogni sessione, valido finché la sua firma non cambia (review della 3a). */
+const planCache = new Map<string, { signature: string; plan: Promise<RunPlan | null> }>();
+const PLAN_CACHE_MAX = 50;
+
+export function forgetPlans(): void {
+  forgetClaudeCaches();
+}
+
 /** Il piano del job della sessione, dal lavoro della sua task (il server non lo mette fra gli eventi). */
-export async function planOf(detail: Summary): Promise<SessionPlan | null> {
-  if (detail.kind !== "ai_job" || !detail.ticketId) return null;
+export function planOf(detail: Summary): Promise<RunPlan | null> {
+  if (detail.kind !== "ai_job" || !detail.ticketId) return Promise.resolve(null);
+  const signature = signatureOf(detail);
+  const hit = planCache.get(detail.id);
+  if (hit && hit.signature === signature) return hit.plan;
+  const plan = readPlan(detail, detail.ticketId);
+  planCache.delete(detail.id);
+  planCache.set(detail.id, { signature, plan });
+  if (planCache.size > PLAN_CACHE_MAX) planCache.delete(planCache.keys().next().value!);
+  return plan;
+}
+
+async function readPlan(detail: Summary, ticketId: string): Promise<RunPlan | null> {
   let work: Reader<TaskWorkView>;
   try {
-    work = await appClient().tasks.work(detail.ticketId);
+    work = await appClient().tasks.work(ticketId);
   } catch {
     // Senza il lavoro della task il flusso si legge comunque, senza la scheda del piano.
+    planCache.delete(detail.id);
     return null;
   }
   const run = work.runs.find((r) => r.sessionId === detail.id || r.id === detail.aiJobId);
-  const plan = run?.plan;
-  if (!plan || plan.status === "__unknown__") return null;
-  return {
-    text: plan.text,
-    summary: plan.summary,
-    // Pre-approvato vale come approvato: la scheda non chiede niente.
-    status: plan.status === "pre_approved" ? "approved" : plan.status,
-    at: plan.at,
-  };
+  return run ? sessionPlanOf(run) : null;
 }
 
 /** Il flusso del prototipo dagli eventi del server, con domande, interventi e piano. */
@@ -219,46 +256,146 @@ export function eventsOf(
   detail: Detail,
   events: readonly Reader<AgentSessionEvent>[],
   partials: Record<string, string>,
-  plan: SessionPlan | null,
+  plan: RunPlan | null,
 ): ConversationEvent[] {
-  return toConversationEvents({
-    events,
-    partials,
-    inputs: detail.inputs,
-    questions: detail.questions,
-    live: detail.state !== "ended",
+  return withStablePlanId(
+    toConversationEvents({
+      events,
+      partials,
+      inputs: detail.inputs,
+      questions: detail.questions,
+      live: detail.state !== "ended",
+      plan,
+    }) as ConversationEvent[],
     plan,
-  }) as ConversationEvent[];
+  );
 }
 
-/** Nella 3a si guarda e basta: le azioni arrivano con la 3b. */
-const READ_ONLY = {
+/**
+ * L'evento del piano ha l'id del JOB (`plan:<job>`), non del suo istante: un
+ * piano deciso e riletto resta la stessa scheda, mai due.
+ */
+function withStablePlanId(events: ConversationEvent[], plan: RunPlan | null): ConversationEvent[] {
+  if (!plan) return events;
+  return events.map((e) => (e.type === "plan" ? { ...e, id: `plan:${plan.jobId}` } : e));
+}
+
+// --- permessi del dettaglio ----------------------------------------------------------
+
+/** Ciò che nessuna sessione di lavoro ha: la chat libera (gestire, continuare, refine). */
+const NEVER = {
   isOwner: false,
-  canWrite: false,
-  canInterrupt: false,
-  canAnswer: false,
-  canDecidePlan: false,
-  canRejectPlan: false,
-  canPreApprovePlan: false,
-  canRevokePlanApproval: false,
   canContinue: false,
   canManage: false,
   canClose: false,
   canStartNew: false,
-  readOnlyReason: "not_interactive",
   planBlockedReason: null,
 } as const;
 
-export function toDetail(
+/** Quanto vale la lettura dei permessi di chi guarda (`/api/auth/me`) per il piano. */
+const ME_TTL_MS = 30_000;
+let meCache: { at: number; read: Promise<Awaited<ReturnType<ReturnType<typeof appClient>["auth"]["me"]>>> } | null = null;
+
+/**
+ * Chi guarda ha `plans.approve` nel progetto: lo calcola il server
+ * (`projectPermissions` di `/api/auth/me`), il client lo legge.
+ */
+async function canApprovePlans(projectId: string): Promise<boolean> {
+  if (!meCache || Date.now() - meCache.at > ME_TTL_MS) {
+    meCache = { at: Date.now(), read: appClient().auth.me() };
+    meCache.read.catch(() => {
+      meCache = null;
+    });
+  }
+  const viewer = await meCache.read;
+  return (
+    viewer.instancePermissions.includes("instance.full_admin") ||
+    (viewer.projectPermissions[projectId] ?? []).includes("plans.approve")
+  );
+}
+
+/** Il piano SALVATO sul ticket e la sua pre-approvazione (valida sul digest), per firma del dettaglio. */
+const ticketPlanCache = new Map<string, { signature: string; read: Promise<{ saved: boolean; preApproved: boolean }> }>();
+
+function ticketPlanOf(detail: Detail, ticketId: string): Promise<{ saved: boolean; preApproved: boolean }> {
+  const signature = signatureOf(detail);
+  const hit = ticketPlanCache.get(detail.id);
+  if (hit && hit.signature === signature) return hit.read;
+  const read = appClient()
+    .tickets.get(ticketId)
+    .then((t) => ({
+      saved: !!t.implementationPlan,
+      preApproved: !!t.planApprovedAt && t.planApprovalStale !== true,
+    }));
+  read.catch(() => ticketPlanCache.delete(detail.id));
+  ticketPlanCache.delete(detail.id);
+  ticketPlanCache.set(detail.id, { signature, read });
+  if (ticketPlanCache.size > PLAN_CACHE_MAX) ticketPlanCache.delete(ticketPlanCache.keys().next().value!);
+  return read;
+}
+
+/** Svuota le letture tenute (cambio di persona, test). */
+export function forgetClaudeCaches(): void {
+  planCache.clear();
+  ticketPlanCache.clear();
+  meCache = null;
+}
+
+/**
+ * Cosa può fare chi guarda in una sessione, tutto da quello che dice il
+ * server: scrivere e fermare (`canWrite`, `canInterrupt`), rispondere
+ * (`canAnswer` della domanda aperta), decidere il piano (in attesa E
+ * `waitsOnViewer`: il piano aspetta lui), pre-approvare e revocare
+ * (`plans.approve` calcolato dal server, sul piano SALVATO del ticket: il
+ * prototipo lo permetteva mentre il piano si scriveva, il server no).
+ */
+async function permissionsOf(detail: Detail, row: ConversationRow) {
+  const live = detail.state !== "ended";
+  const open = detail.questions.find((q) => !q.answered);
+  const deciding = live && detail.state === "awaiting_approval" && detail.waitsOnViewer;
+  let canPreApprovePlan = false;
+  let canRevokePlanApproval = false;
+  let planPreApproved = false;
+  if (row.kind === "task_run" && detail.ticketId && detail.projectId && live) {
+    const [approve, plan] = await Promise.all([
+      canApprovePlans(detail.projectId).catch(() => false),
+      ticketPlanOf(detail, detail.ticketId).catch(() => ({ saved: false, preApproved: false })),
+    ]);
+    planPreApproved = plan.preApproved;
+    canPreApprovePlan = approve && plan.saved && !plan.preApproved && detail.state !== "awaiting_approval";
+    canRevokePlanApproval = approve && plan.preApproved;
+  }
+  const readOnlyReason = detail.canWrite
+    ? null
+    : !live
+      ? ("finished" as const)
+      : row.kind !== "task_run"
+        ? ("automatic" as const)
+        : detail.canIntervene
+          ? ("not_interactive" as const)
+          : ("no_permission" as const);
+  return {
+    ...NEVER,
+    canWrite: detail.canWrite,
+    canInterrupt: detail.canInterrupt,
+    canAnswer: live && !!open?.canAnswer,
+    canDecidePlan: deciding,
+    canRejectPlan: deciding,
+    canPreApprovePlan,
+    canRevokePlanApproval,
+    planPreApproved,
+    readOnlyReason,
+  };
+}
+
+export async function toDetail(
   detail: Detail,
   codes: Map<string, string>,
   events: ConversationEvent[],
-): ConversationDetail | null {
+): Promise<ConversationDetail | null> {
   const row = toRow(detail, codes, detail.paused);
   if (!row) return null;
-  // Una conclusa dice come è finita; una viva che si può solo guardare.
-  const readOnlyReason = row.state === "finished" ? ("finished" as const) : READ_ONLY.readOnlyReason;
-  return { ...row, ...READ_ONLY, readOnlyReason, events, planPreApproved: false, continuesFrom: null };
+  return { ...row, ...(await permissionsOf(detail, row)), events, continuesFrom: null };
 }
 
 /** Una sessione invisibile, o inesistente, risponde 404: `null`. */
@@ -281,10 +418,11 @@ type RunView = WorkView["runs"][number];
 
 const known = <T extends string>(v: T | "__unknown__"): v is T => v !== "__unknown__";
 
-function sessionPlanOf(run: RunView): SessionPlan | null {
+function sessionPlanOf(run: RunView): RunPlan | null {
   const plan = run.plan;
   if (!plan || !known(plan.status)) return null;
   return {
+    jobId: run.id,
     text: plan.text,
     summary: plan.summary,
     status: plan.status === "pre_approved" ? "approved" : plan.status,
@@ -297,7 +435,7 @@ async function runEvents(run: RunView): Promise<{ events: ConversationEvent[]; p
   const plan = sessionPlanOf(run);
   if (!run.sessionId) {
     const events = toConversationEvents({ events: [], partials: {}, inputs: [], questions: [], live: true, plan });
-    return { events: events as ConversationEvent[], paused: false };
+    return { events: withStablePlanId(events as ConversationEvent[], plan), paused: false };
   }
   try {
     const [detail, raw] = await Promise.all([
@@ -329,6 +467,7 @@ export const getTaskWork: typeof Fake.getTaskWork = async (taskId) => {
   const runs = await Promise.all(
     work.runs.map(async (run) => {
       const { events, paused } = await runEvents(run);
+      ticketOfConversation.set(run.sessionId ?? run.id, taskId);
       return {
         id: run.sessionId ?? run.id,
         // Il sistema o un utente eliminato: nessuno (la sezione dice «someone»).

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationEvent } from "../../types";
 import { setAppClientForTests } from "./client";
-import { resetStreamsForTests, MAX_STREAMS, reconnectDelay, subscribe } from "./claudeStream";
+import { IDLE_SESSIONS_MAX, MAX_STREAMS, reconnectDelay, rememberedSessions, resetStreamsForTests, subscribe } from "./claudeStream";
 import { PROJECT_ID, serverProject, TICKET_ID } from "./fakeServer";
 
 // Lo stream dal vivo di una sessione nella build app web (fetta 3a): `fetch`
@@ -9,6 +9,7 @@ import { PROJECT_ID, serverProject, TICKET_ID } from "./fakeServer";
 // cursore `?after=` senza eventi doppi né persi.
 
 const SESSION = "aaaaaaaa-0000-4000-8000-000000000001";
+const JOB = "bbbbbbbb-0000-4000-8000-000000000001";
 const detail = (over: Record<string, unknown> = {}) => ({
   id: SESSION,
   kind: "ai_job",
@@ -17,6 +18,7 @@ const detail = (over: Record<string, unknown> = {}) => ({
   projectName: "Audin AI",
   ticketId: TICKET_ID,
   ticketNumber: 12,
+  aiJobId: JOB,
   startedAt: "2026-11-10T09:00:00.000Z",
   lastEventAt: null,
   state: "working",
@@ -44,10 +46,14 @@ interface FakeStream {
 
 let streams: FakeStream[] = [];
 let streamStatus = 200;
+let workPlanStatus: string | null = null;
+let workReads = 0;
 
 beforeEach(() => {
   streams = [];
   streamStatus = 200;
+  workPlanStatus = null;
+  workReads = 0;
   setAppClientForTests(null);
   resetStreamsForTests();
   vi.stubGlobal(
@@ -79,7 +85,24 @@ beforeEach(() => {
         return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
       }
       if (path.startsWith("/api/projects")) return Response.json([serverProject()]);
-      if (path.startsWith(`/api/tasks/${TICKET_ID}/work`)) return Response.json({ claude: "working", webHref: "/x" });
+      if (path.startsWith(`/api/tasks/${TICKET_ID}/work`)) {
+        workReads += 1;
+        return Response.json({
+          claude: "working",
+          webHref: "/x",
+          runs: [
+            {
+              id: JOB,
+              sessionId: SESSION,
+              createdAt: "2026-11-10T09:00:00.000Z",
+              state: "awaiting_approval",
+              plan: workPlanStatus
+                ? { text: "1. Do it", summary: "Do it", status: workPlanStatus, at: "2026-11-10T09:00:05.000Z" }
+                : null,
+            },
+          ],
+        });
+      }
       return new Response(JSON.stringify({ code: "not_found", message: path }), { status: 404 });
     }),
   );
@@ -201,5 +224,62 @@ describe("lo stream di una sessione", () => {
     opened[1]!.send({ type: "end", reason: "http", fatal: true, status: 404 });
     await vi.waitFor(() => expect(c.connections).toEqual(["closed"]));
     stop();
+  });
+
+  it("approvato da un altro: la scheda del piano passa ad approved senza ricaricare, ed è una sola", async () => {
+    workPlanStatus = "pending";
+    const c = collect();
+    subscribe(SESSION, c.onEvent, { onConnection: c.onConnection });
+    await vi.waitFor(() => expect(streams).toHaveLength(1));
+    streams[0]!.push(frame({ type: "session", detail: detail({ state: "awaiting_approval" }) }));
+    await vi.waitFor(() => expect(c.events.find((e) => e.type === "plan")).toMatchObject({ status: "pending" }));
+    workPlanStatus = "approved";
+    streams[0]!.push(frame({ type: "session", detail: detail({ state: "working" }) }));
+    await vi.waitFor(() => expect(c.events.find((e) => e.type === "plan")).toMatchObject({ status: "approved" }));
+    expect(c.events.filter((e) => e.type === "plan").map((e) => e.id)).toEqual([`plan:${JOB}`]);
+  });
+
+  it("il piano non si rilegge a ogni frame: solo quando cambia il dettaglio", async () => {
+    workPlanStatus = "pending";
+    const c = collect();
+    subscribe(SESSION, c.onEvent);
+    await vi.waitFor(() => expect(streams).toHaveLength(1));
+    streams[0]!.push(frame({ type: "session", detail: detail() }));
+    streams[0]!.push(frame({ type: "session", detail: detail() }));
+    streams[0]!.push(frame({ type: "session", detail: detail() }));
+    await vi.waitFor(() => expect(c.events.some((e) => e.type === "plan")).toBe(true));
+    expect(workReads).toBe(1);
+  });
+
+  it("il backoff è per sessione, e un frame «session» da solo non lo azzera", async () => {
+    const OTHER = "aaaaaaaa-0000-4000-8000-000000000002";
+    const fail = async (n: number) => {
+      subscribe(SESSION, () => undefined, { onConnection: () => undefined });
+      await vi.waitFor(() => expect(streams).toHaveLength(n));
+      streams[n - 1]!.push(frame({ type: "session", detail: detail() }));
+      await new Promise((r) => setTimeout(r, 5));
+      streams[n - 1]!.fail();
+      await new Promise((r) => setTimeout(r, 5));
+    };
+    await fail(1);
+    await fail(2);
+    expect(reconnectDelay(SESSION)).toBe(2000);
+    expect(reconnectDelay(OTHER)).toBe(1000);
+    // Un evento vero azzera.
+    subscribe(SESSION, () => undefined, { onConnection: () => undefined });
+    await vi.waitFor(() => expect(streams).toHaveLength(3));
+    streams[2]!.push(frame({ type: "events", events: [ev("1", "assistant_text", { text: "Hi" })] }));
+    await new Promise((r) => setTimeout(r, 5));
+    streams[2]!.fail();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(reconnectDelay(SESSION)).toBe(1000);
+  });
+
+  it("le sessioni non ascoltate si dimenticano oltre le ultime IDLE_SESSIONS_MAX", () => {
+    for (let i = 0; i < IDLE_SESSIONS_MAX + 5; i++) {
+      const stop = subscribe(`aaaaaaaa-0000-4000-8000-0000000002${String(i).padStart(2, "0")}`, () => undefined);
+      stop();
+    }
+    expect(rememberedSessions()).toBe(IDLE_SESSIONS_MAX);
   });
 });
