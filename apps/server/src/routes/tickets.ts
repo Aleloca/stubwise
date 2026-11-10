@@ -1632,6 +1632,8 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       config: { access: onTicket("plans.approve") },
       schema: {
         params: idParamsSchema,
+        // Area 3: il digest del piano letto, facoltativo (senza, come prima).
+        body: z.object({ planDigest: z.string().max(128).optional() }).nullish(),
         response: {
           202: planDecisionResultSchema,
           404: errorSchema,
@@ -1645,6 +1647,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         ticketId: request.params.id,
         actor: { id: request.user!.id, permissions: routePermissions(request) },
         mode: "execute",
+        ...(request.body?.planDigest ? { expectedPlanDigest: request.body.planDigest } : {}),
       });
       return sendResolvePlan(reply, result);
     },
@@ -1662,7 +1665,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: idParamsSchema,
         // nullish come run-ai: il client può non mandare corpo affatto.
-        body: z.object({ instructions: z.string().max(4000).optional() }).nullish(),
+        body: z.object({ instructions: z.string().max(4000).optional(), planDigest: z.string().max(128).optional() }).nullish(),
         response: {
           202: planDecisionResultSchema,
           404: errorSchema,
@@ -1677,6 +1680,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         actor: { id: request.user!.id, permissions: routePermissions(request) },
         mode: "fix",
         instructions: request.body?.instructions,
+        ...(request.body?.planDigest ? { expectedPlanDigest: request.body.planDigest } : {}),
       });
       return sendResolvePlan(reply, result);
     },
@@ -1764,6 +1768,8 @@ function sendResolvePlan(reply: FastifyReply, result: ResolvePlanResult): Fastif
       return apiError(reply, 403, "forbidden", "Missing permission");
     case "plan_not_pending":
       return apiError(reply, 409, "plan_not_pending", "No plan pending approval");
+    case "plan_changed":
+      return apiError(reply, 409, "plan_changed", "The plan changed after you read it: read it again");
   }
 }
 

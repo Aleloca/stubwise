@@ -470,7 +470,7 @@ export type ResolvePlanResult =
        */
       changedNotificationIds: string[];
     }
-  | { ok: false; error: "ticket_not_found" | "plan_not_pending" | "forbidden" };
+  | { ok: false; error: "ticket_not_found" | "plan_not_pending" | "plan_changed" | "forbidden" };
 
 export interface ResolvePlanInput {
   ticketId: string;
@@ -483,6 +483,12 @@ export interface ResolvePlanInput {
    * "indicazioni del team" per costruire il prompt di re-plan.
    */
   instructions?: string;
+  /**
+   * Il digest del piano che chi decide ha LETTO (area 3): se il piano del job
+   * nel frattempo è cambiato, niente si decide (`plan_changed`). Facoltativo:
+   * senza, come prima (web vecchio, app mobile).
+   */
+  expectedPlanDigest?: string;
 }
 
 /**
@@ -549,9 +555,24 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
         error: null,
         lastActivityAt: sql`now()`,
       })
-      .where(and(eq(aiJobs.id, latest.id), eq(aiJobs.status, "awaiting_plan_approval")))
+      .where(
+        and(
+          eq(aiJobs.id, latest.id),
+          eq(aiJobs.status, "awaiting_plan_approval"),
+          // Lo stesso digest di `planDigest` (sha256 del testo in UTF-8, hex),
+          // calcolato da Postgres sotto lo stesso UPDATE guardato: il confronto
+          // e la decisione sono atomici.
+          input.expectedPlanDigest === undefined
+            ? undefined
+            : sql`encode(sha256(convert_to(coalesce(${aiJobs.planText}, ''), 'UTF8')), 'hex') = ${input.expectedPlanDigest}`,
+        ),
+      )
       .returning({ id: aiJobs.id });
-    if (updated.length === 0) return null;
+    if (updated.length === 0) {
+      if (input.expectedPlanDigest === undefined) return null;
+      const [still] = await tx.select({ status: aiJobs.status }).from(aiJobs).where(eq(aiJobs.id, latest.id));
+      return still?.status === "awaiting_plan_approval" ? ("plan_changed" as const) : null;
+    }
 
     // Le istruzioni PRIMA del commento di sistema: sono un contributo umano al
     // ticket, il commento di sistema è la nota di ciò che è appena successo.
@@ -607,6 +628,7 @@ export async function resolvePlan(db: Db, input: ResolvePlanInput): Promise<Reso
     return updated[0]!;
   });
 
+  if (resolved === "plan_changed") return { ok: false, error: "plan_changed" };
   if (!resolved) return { ok: false, error: "plan_not_pending" };
 
   // FUORI dalla transazione, come la `publishNotification` di `startRun`: la

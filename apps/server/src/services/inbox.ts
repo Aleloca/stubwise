@@ -638,7 +638,8 @@ async function runDecision(
   }
   return {
     ok: false,
-    error: result.error === "ticket_not_found" ? "not_found" : result.error,
+    // `plan_changed` non arriva da qui (l'inbox non manda il digest): per tipo, è un piano non più in attesa.
+    error: result.error === "ticket_not_found" ? "not_found" : result.error === "plan_changed" ? "plan_not_pending" : result.error,
   };
 }
 

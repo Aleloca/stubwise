@@ -334,6 +334,50 @@ describe("coerenza: le azioni seguono le rotte d'azione di sempre (area 3, fetta
   });
 });
 
+describe("il piano che si approva è quello letto (planDigest atteso, area 3)", () => {
+  const post = (url: string, who: U, payload?: object) =>
+    app.inject({ method: "POST", url, headers: { cookie: who.headers.cookie }, ...(payload ? { payload } : {}) });
+
+  it("piano riscritto dopo la lettura → 409 plan_changed e nessuna approvazione; col digest letto si approva", async () => {
+    const t = await task();
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId: t, status: "awaiting_plan_approval", planText: "## Piano letto" })
+      .returning({ id: aiJobs.id });
+    const read = (await work(t, lead)).runs.at(-1)!.plan!;
+    expect(read.digest).toBe(planDigest("## Piano letto"));
+    // Nel frattempo il piano cambia (una ripianificazione, un'altra scrittura).
+    await testDb.db.update(aiJobs).set({ planText: "## Piano nuovo" }).where(eq(aiJobs.id, job!.id));
+    for (const route of ["approve-plan", "reject-plan"]) {
+      const res = await post(`/api/tickets/${t}/${route}`, lead, { planDigest: read.digest });
+      expect(res.statusCode, route).toBe(409);
+      expect(res.json()).toMatchObject({ code: "plan_changed" });
+    }
+    const [still] = await testDb.db.select({ status: aiJobs.status, plan: aiJobs.planText }).from(aiJobs).where(eq(aiJobs.id, job!.id));
+    expect(still).toEqual({ status: "awaiting_plan_approval", plan: "## Piano nuovo" });
+    expect(
+      (await testDb.db.select({ id: projectDecisions.id }).from(projectDecisions).where(eq(projectDecisions.ticketId, t))).length,
+    ).toBe(0);
+    // Col digest del piano attuale si approva.
+    const fresh = (await work(t, lead)).runs.at(-1)!.plan!.digest;
+    expect((await post(`/api/tickets/${t}/approve-plan`, lead, { planDigest: fresh })).statusCode).toBe(202);
+  });
+
+  it("senza planDigest si comporta come oggi (web vecchio e app mobile)", async () => {
+    const t = await task();
+    await testDb.db.insert(aiJobs).values({ ticketId: t, status: "awaiting_plan_approval", planText: "## P" });
+    expect((await post(`/api/tickets/${t}/approve-plan`, lead)).statusCode).toBe(202);
+  });
+
+  it("il digest è anche in «Da decidere»", async () => {
+    const t = await task();
+    await testDb.db.insert(aiJobs).values({ ticketId: t, status: "awaiting_plan_approval", planText: "## Da decidere" });
+    const res = await app.inject({ method: "GET", url: "/api/me/claude-decisions", headers: { cookie: lead.headers.cookie } });
+    const mine = (res.json() as { taskId: string; planDigest?: string }[]).find((d) => d.taskId === t);
+    expect(mine?.planDigest).toBe(planDigest("## Da decidere"));
+  });
+});
+
 describe("server vecchio", () => {
   it("una risposta senza i campi nuovi si legge coi default (la sezione degrada, non si rompe)", () => {
     const old = taskWorkViewSchema.parse({ claude: "none", pullRequests: [], webHref: "/tickets/x" });

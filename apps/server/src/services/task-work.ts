@@ -217,6 +217,7 @@ export async function loadTaskWorkExtras(
               text: j.planText,
               summary: j.planSummary ?? "",
               status: planStatus(j),
+              digest: planDigest(j.planText),
               at: (j.startedAt ?? j.createdAt).toISOString(),
             }
           : null,

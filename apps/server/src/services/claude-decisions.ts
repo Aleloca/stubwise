@@ -1,4 +1,4 @@
-import { agentQuestions, agentSessions, aiJobs, projects, tickets, type Db } from "@stubwise/db";
+import { agentQuestions, agentSessions, aiJobs, planDigest, projects, tickets, type Db } from "@stubwise/db";
 import { actorAllows, stateAllows } from "@stubwise/notifications";
 import type { ClaudeDecisionView, ProjectPermission } from "@stubwise/shared";
 import { and, eq, isNull } from "drizzle-orm";
@@ -29,6 +29,7 @@ export async function listClaudeDecisions(db: Db, viewer: Viewer): Promise<Claud
     status: aiJobs.status,
     jobRequestedBy: aiJobs.requestedByUserId,
     planSummary: aiJobs.planSummary,
+    planText: aiJobs.planText,
     lastActivityAt: aiJobs.lastActivityAt,
     ticketId: tickets.id,
     ticketNumber: tickets.number,
@@ -102,6 +103,7 @@ export async function listClaudeDecisions(db: Db, viewer: Viewer): Promise<Claud
       at: r.lastActivityAt.toISOString(),
       planId: r.jobId,
       summary: r.planSummary ?? "",
+      ...(r.planText ? { planDigest: planDigest(r.planText) } : {}),
     });
   }
   for (const r of questions) {

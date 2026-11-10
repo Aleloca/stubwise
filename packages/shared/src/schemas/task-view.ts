@@ -265,6 +265,12 @@ export const taskWorkRunSchema = z.object({
        */
       status: z.enum(["pending", "approved", "rejected", "pre_approved", "undecided"]),
       at: z.iso.datetime(),
+      /**
+       * Il digest del testo del piano (`planDigest`): rimandato come
+       * `planDigest` ad approve/reject-plan, fa rispondere 409 `plan_changed`
+       * se nel frattempo il piano è cambiato. Additivo.
+       */
+      digest: z.string().nullable().default(null),
     })
     .nullable()
     .default(null),
