@@ -6,6 +6,7 @@ import {
 } from "@stubwise/notifications";
 import type { ChronologyEvent, ChronologyPage, ProjectTimelineEntry, WeeklyBriefView } from "@stubwise/shared";
 import { and, desc, eq, inArray, min, sql } from "drizzle-orm";
+import { mapLimit } from "./map-limit.js";
 
 /**
  * La cronologia dell'Overview e l'attività del portafoglio dell'app nuova
@@ -118,6 +119,9 @@ export async function projectChronology(
   };
 }
 
+/** Le pagine dei progetti del portafoglio in volo insieme, al più. */
+const PORTFOLIO_CONCURRENCY = 4;
+
 /**
  * L'attività di tutti i progetti visibili, a pagine come la cronologia, col
  * progetto accanto. Solo ciò che è già successo: i traguardi futuri non sono
@@ -133,12 +137,11 @@ export async function portfolioActivity(
   const end = before ?? new Date(now.getTime() + 1);
   const from = new Date(end.getTime() - PAGE_MS);
   const projectIds = Object.keys(permissionsByProject);
-  const pages = await Promise.all(
-    projectIds.map(async (projectId) =>
-      (
-        await pageEvents(db, projectId, { userId: viewerId, permissions: new Set(permissionsByProject[projectId]) }, from, end)
-      ).map((e) => ({ ...e, projectId })),
-    ),
+  // Una pagina per progetto, al più PORTFOLIO_CONCURRENCY in parallelo: non il pool intero.
+  const pages = await mapLimit(projectIds, PORTFOLIO_CONCURRENCY, async (projectId) =>
+    (
+      await pageEvents(db, projectId, { userId: viewerId, permissions: new Set(permissionsByProject[projectId]) }, from, end)
+    ).map((e) => ({ ...e, projectId })),
   );
   const start = await historyStartOf(db, projectIds);
   return {
