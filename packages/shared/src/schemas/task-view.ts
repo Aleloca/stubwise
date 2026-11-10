@@ -447,6 +447,11 @@ export const newTaskBodySchema = z.object({
   type: uiTaskTypeSchema,
   priority: ticketPrioritySchema.optional(),
   requestId: z.string().uuid().optional(),
+  /**
+   * «Create task» da un messaggio della Chat (area 4, fetta 2): il messaggio
+   * mostra il codice della task («→ AUD-14»). Chi la crea lo deve leggere.
+   */
+  chatMessageId: z.string().uuid().optional(),
 });
 export type NewTaskBody = z.infer<typeof newTaskBodySchema>;
 

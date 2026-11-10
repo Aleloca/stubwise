@@ -55,6 +55,9 @@ export const notificationKindSchema = z.enum([
   // Area 4, Chat (fetta 1): una menzione diretta `@Nome` in un canale che chi
   // la riceve legge. Titolo, testo e link si DERIVANO a lettura.
   "chat.mention",
+  // Area 4, Chat (fetta 2): un messaggio chiede una risposta a un membro del
+  // canale (`asks_reply_of`). Come `chat.mention`, derivata a lettura.
+  "chat.question",
 ]);
 
 /**
@@ -729,7 +732,8 @@ export const inboxItemSchema = z.object({
    */
   objectGone: z.boolean().default(false),
   /**
-   * Area 4, Chat (fetta 1): solo sulle card `chat.mention`, il messaggio che
+   * Area 4, Chat (fetta 1): solo sulle card `chat.mention` e (fetta 2)
+   * `chat.question`, il messaggio che
    * nomina chi legge, DERIVATO a lettura (canale, thread, chi scrive, un
    * estratto). `null` per gli altri kind, un messaggio eliminato o un canale
    * che chi legge non vede più (allora `objectGone`). Additivo.

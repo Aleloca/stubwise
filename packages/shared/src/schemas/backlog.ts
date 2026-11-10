@@ -61,6 +61,11 @@ export const backlogIntakeManualPayloadSchema = z
     // Chi ha chiesto la voce (collaboratore via MCP). Opzionale: i job già in
     // coda, scritti prima di questo campo, restano validi.
     requestedByUserId: z.uuid().optional(),
+    // «Create request» da un messaggio della Chat (area 4, fetta 2): a fine
+    // intake il worker lega la richiesta al messaggio. Opzionale e additivo.
+    // ⚠️ Lo schema è `strict`: un worker più vecchio rifiuta un job che lo
+    // porta, quindi il worker si aggiorna PRIMA che un client lo mandi.
+    chatMessageId: z.uuid().optional(),
   })
   .strict();
 export type BacklogIntakeManualPayload = z.infer<typeof backlogIntakeManualPayloadSchema>;

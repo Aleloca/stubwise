@@ -616,6 +616,29 @@ describe("InboxCard", () => {
       expect(onOpenTicket).not.toHaveBeenCalled();
     });
 
+    test("chat.question (area 4, fetta 2): etichetta propria, si legge", async () => {
+      const client = makeClient();
+      const QUESTION = item({
+        id: "c2",
+        kind: "chat.question",
+        text: "Marta Rinaldi ti ha chiesto in #general",
+        actions: ["open", "snooze", "handled"],
+        url: "https://stubwise.example/app/#/chat/ch-1?message=m-2",
+        chat: {
+          channelId: "ch-1",
+          channelName: "general",
+          messageId: "m-2",
+          threadRootId: null,
+          authorId: "u-1",
+          authorName: "Marta Rinaldi",
+          excerpt: "@Luca ci sei domani?",
+        },
+      });
+      await renderCard(QUESTION, client);
+      expect(screen.getByText(QUESTION.text)).toBeTruthy();
+      expect(screen.getByText("Una domanda per te nella chat")).toBeTruthy();
+    });
+
     test("un kind sconosciuto (payload di un server più nuovo) non pianta: degrada a InfoCard generica", async () => {
       const client = makeClient();
       const UNKNOWN_ITEM = item({

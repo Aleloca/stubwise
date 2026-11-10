@@ -62,6 +62,7 @@ const KIND_META: Record<string, { i18nKey: string; tone: ColorToken }> = {
   // Area 4, Chat (D9: la Chat vive nell'app nuova): la menzione si legge qui,
   // «Apri» porta al messaggio nell'app; un'app precedente la vede `UNKNOWN`.
   "chat.mention": { i18nKey: "mobile.inbox.kinds.chatMention", tone: "signal" },
+  "chat.question": { i18nKey: "mobile.inbox.kinds.chatQuestion", tone: "signal" },
 };
 
 export interface InfoCardProps {

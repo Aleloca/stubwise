@@ -107,7 +107,8 @@
         "ticketActivity": "Attività su una task che segui",
         "planningChanged": "Il tuo piano è cambiato",
         "taskAssigned": "Assegnata a te",
-        "chatMention": "Nominato nella chat"
+        "chatMention": "Nominato nella chat",
+        "chatQuestion": "Una domanda per te nella chat"
       },
       "actions": {
         "respond": "Rispondi",

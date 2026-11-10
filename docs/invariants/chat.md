@@ -1,26 +1,67 @@
 # Chat fra persone (area 4)
 
 Design: `docs/plans/2026-11-10-integrazione-area4-chat-design.md`. Fetta 1
-(10 nov 2026): solo i canali di PROGETTO aperti, cioè il «general» e quelli
-creati. Il codice sta in `apps/server/src/chat/`; le rotte in
+(10 nov 2026): i canali di PROGETTO aperti, cioè il «general» e quelli
+creati. Fetta 2 (10 nov 2026, piano
+`docs/plans/2026-11-10-integrazione-area4-fetta2-plan.md`): DM, privati,
+generali d'istanza, ricerca, domande, task e richieste nate da un messaggio.
+Il codice sta in `apps/server/src/chat/`; le rotte in
 `apps/server/src/routes/chat.ts`, sotto `/api/chat`.
 
-## Chi vede, chi scrive, chi gestisce: UN posto
+## Chi vede, chi legge, chi gestisce: UN posto
 
-`apps/server/src/chat/access.ts` è l'unico posto della regola. Lista, lettura,
-stream, menzioni e card d'inbox passano tutti da lì:
+`apps/server/src/chat/access.ts` è l'unico posto della regola (quella di
+`data/chat/visibility.ts` del prototipo). Lista, lettura, stream, ricerca,
+menzioni, domande e card d'inbox passano tutti da lì. **Vedere** un canale
+vuol dire sapere che esiste (nome e membri); **leggerlo** vuol dire i
+messaggi. Sono due cose diverse, e la seconda non discende dalla prima:
 
-- **vede** un canale chi vede il suo progetto (`visibleProjectIds`). Un canale
-  che non si vede risponde **404**, come uno che non esiste;
-- **scrive** un membro, se il canale non è archiviato. Del «general» sono
-  membri tutti quelli che vedono il progetto: è un dato **derivato**, mai
-  copiato in `chat_channel_members`, così chi entra nel progetto ci scrive
-  subito e chi ne esce smette subito;
-- **gestisce** (rinomina, archivia, elimina) chi ha `chat.channels.manage` nel
-  progetto. Il «general» non lo gestisce nessuno (409 `general_channel`).
+- un **aperto di progetto** lo vede e lo legge chi vede il progetto;
+- un **aperto generale** (senza progetto) lo vedono e lo leggono tutti;
+- un **privato** lo leggono solo i suoi membri. Chi gestisce quell'ambito
+  (`chat.channels.manage` nel progetto, `chat.general.manage` per i generali,
+  quindi anche il full admin) lo **vede** ma **non lo legge** (D2): riceve
+  nome e membri, mentre argomento, descrizione, attività, messaggi, thread,
+  stream e ricerca gli rispondono vuoti o 404. Un privato di progetto
+  sparisce anche per un membro che non vede più il progetto;
+- un **DM** esiste solo per chi partecipa, **nemmeno per il full admin**
+  (D2). Per tutti gli altri è 404, e non compare in nessuna lista.
 
-Il client legge `canWrite`, `canJoin`, `canLeave` e `canManage` calcolati dal
-server, e non li deduce.
+Un canale che non si vede risponde **404**, come uno che non esiste, e lo
+stesso vale per un canale che si vede ma non si legge, sulle rotte dei
+messaggi. Le due WHERE sono `channelVisibleSql` e `channelReadableSql`: chi
+aggiunge una lettura di messaggi usa la seconda.
+
+Del «general» di un progetto sono membri tutti quelli che vedono il progetto:
+è un dato **derivato**, mai copiato in `chat_channel_members`, così chi entra
+nel progetto ci scrive subito e chi ne esce smette subito.
+
+**Chi fa cosa** (`channelAccess`, la `channelPermissions` del prototipo):
+- **scrive** un membro, in un canale non archiviato;
+- **nome, descrizione e archiviazione** li cambia il creatore o chi gestisce
+  l'ambito;
+- l'**argomento** lo cambia qualunque membro;
+- **elimina** solo chi gestisce l'ambito, non il creatore (R-G3);
+- **invita**: in un privato il creatore o chi gestisce, ma mai sé stesso
+  (altrimenti «chi gestisce non legge» si aggirerebbe con un clic); in un
+  aperto qualunque membro. Può entrare solo chi può stare nell'ambito: chi vede
+  il progetto, o chiunque per un generale;
+- **toglie** il creatore o chi gestisce. Un privato non resta mai senza
+  membri (409 `last_member`);
+- un **DM a due non si lascia**; da un gruppo si esce, e la sua `dm_key`
+  segue chi resta;
+- nel **«general»** e in un **DM** nessuno entra, esce, invita o toglie a
+  mano, e il «general» non lo gestisce nessuno (409 `general_channel`).
+
+Il client legge `canRead`, `canWrite`, `canInvite`, `canDelete` e gli altri
+permessi calcolati dal server, e non li deduce. `canManage` resta per i client
+della fetta 1 e vuol dire «almeno un'azione di gestione».
+
+**Un DM si ritrova dalle sue persone**: `dm_key` sono i loro id ordinati.
+`openDm` riapre il DM più vecchio con quella chiave, e due aperture uguali in
+contemporanea si serializzano con `pg_advisory_xact_lock`. La chiave non è
+unica, ed è voluto: un gruppo da cui qualcuno è uscito può coincidere con un
+DM che c'è già.
 
 ## Il «general» nasce col progetto, da un trigger
 
@@ -46,12 +87,24 @@ OR body = ''`). È la stessa regola dei commenti dei ticket: ogni lettore di
 `body` smette da solo di vederlo. Si modificano e si eliminano solo i propri
 messaggi (403 `not_yours`).
 
-## Le menzioni le decide il server
+## Le menzioni e le domande le decide il server
 
 - I `mentionedIds` li deriva il server dal testo. Un `@Nome` vale solo se
   `Nome` è il `personName` di qualcuno che LEGGE il canale. Chi scrive è
   escluso. Il client non li manda.
-- `@channel` e `@reparto` non avvisano nessuno (R-G6, fetta 1).
+- **Una domanda** (`asks_reply_of`, fetta 2): un messaggio che nomina
+  qualcuno e finisce con «?», o con «Ask for a reply» forzato (`asksReply`).
+  A un **membro** arriva una card `chat.question` e una voce in «Da decidere»
+  (`GET /api/chat/questions`). A chi legge senza esserne membro arriva una
+  `chat.mention`, perché da lì non risponderebbe. La voce esce quando la
+  persona risponde (nel thread, o nel canale per un messaggio del canale),
+  quando la ignora (`chat_dismissed_questions`), quando il canale è archiviato,
+  quando il messaggio viene eliminato o quando una modifica toglie il nome. È
+  una lettura derivata, nessun job la chiude. Le domande della Chat **non**
+  sono decisioni del progetto: non toccano il registro decisioni.
+- `@channel` e `@reparto` non avvisano nessuno (R-G6): nessuna card, nessuna
+  push. Contano solo fra le menzioni del canale, e solo con il livello
+  «tutti» (`countsOf`).
 - Una card `chat.mention` per persona nominata, con push, nella STESSA
   transazione del messaggio. Una modifica avvisa solo chi viene nominato per la
   PRIMA volta: chi era già nominato non riceve una seconda card.
@@ -59,22 +112,72 @@ messaggi (403 `not_yours`).
 
 ## La card d'inbox si DERIVA a lettura
 
-Nel jsonb della notifica ci sono solo gli id (`chatMessageId`, `channelId`) e
+Vale per `chat.mention` e `chat.question`. Nel jsonb della notifica ci sono solo gli id (`chatMessageId`, `channelId`) e
 il testo vero al momento della publish (`channelName`, `authorName`). Il blocco
 `chat` della card (canale, messaggio, radice del thread, autore, estratto) e
 l'url `/app/#/chat/…` li ricostruisce `chatMentionsFor`
-(`apps/server/src/chat/service.ts`) a ogni lettura. Lo fa con la stessa regola
-di visibilità, e con una query per pagina, non una per card.
+(`apps/server/src/chat/service.ts`) a ogni lettura. Lo fa con la regola di
+LETTURA (chi è tolto da un privato perde anche il link), e con una query per
+pagina, non una per card.
 
 Se il messaggio è eliminato, il canale non si vede più o il progetto non c'è
 più, `chat` è `null`, `objectGone` è `true` e la card non ha url. È
 l'invariante trasversale «i campi che un client legge su una card si derivano
 a lettura» (CLAUDE.md).
 
+## Non letti, livelli e il punto del binario
+
+`countsOf` (`apps/server/src/chat/service.ts`) è la regola del prototipo:
+- i **non letti** sono i messaggi del flusso dopo la lettura del canale, non
+  propri, quelli di sistema compresi. Con «solo menzioni» contano solo quelli
+  rivolti a chi guarda, con «silenziato» nessuno;
+- in un **DM** ogni messaggio di una persona è rivolto a chi partecipa;
+- il **punto del binario** (`signalOf`) si accende solo per ciò che è rivolto
+  proprio a chi guarda (menzioni dirette, domande, DM non silenziati) e per i
+  thread seguiti con risposte nuove, nei canali non archiviati. Il traffico
+  normale dei canali e `@channel` no: con molti progetti il punto sarebbe
+  sempre acceso.
+
+Il **flusso** del canale sono le radici più le risposte mandate «anche nel
+canale» (`also_in_channel`). Un messaggio eliminato senza risposte vive e più
+vecchio di un giorno **sparisce** dal flusso, dal thread e dalla ricerca
+(`goneSql`, a lettura, senza potatura); con risposte resta come «Message
+deleted».
+
+## La ricerca
+
+`searchChat` cerca solo nei canali che chi guarda **legge**
+(`channelReadableSql`): un privato di cui non è membro, anche se lo gestisce,
+e un DM altrui non ci sono mai. Gli archiviati sì, gli eliminati mai. Ogni
+parola (da 2 caratteri in su) deve comparire come **sottostringa** in
+`search_folded`, il testo senza maiuscole né accenti che il server scrive a
+ogni scrittura (`foldChatText`, NFD). Non è il full-text inglese dei ticket:
+lo stemming inglese su testo italiano cambierebbe i risultati, e il prototipo,
+che è la specifica, cerca sottostringhe. L'indice è un GIN trigram
+(`pg_trgm`).
+
+## Task e richieste nate da un messaggio
+
+`chatMessageId` su `POST /api/tasks` e `POST /api/requests`. Chi crea la task
+o la richiesta deve **leggere** il messaggio, e il messaggio non dev'essere
+eliminato (`messageLinkable`). Il percorso di creazione resta quello di
+sempre, coi suoi permessi.
+- Per una **task**, il legame (`chat_message_links`) si scrive nella stessa
+  transazione della task.
+- Per una **richiesta**, viaggia nel payload dell'intake e lo scrive il
+  **worker** a fine intake (`apps/worker/src/backlog/chat-link.ts`), anche
+  quando la richiesta viene fusa in una che c'era. È fail-open: un legame non
+  scritto non ripete l'intake, che creerebbe un doppione.
+
+Il codice («→ AUD-14») si **deriva a lettura** (`linksOf`) con la regola
+delle task (`visibleTasksCondition`) e quella delle richieste
+(`requestVisibility`): un codice che chi guarda non vede non esce. Un
+messaggio eliminato non annuncia più niente, e la task resta.
+
 ## Lo stream: cursore intero in microsecondi
 
 `GET /api/chat/channels/:id/stream?after=<cursore>` è un SSE che rilegge
-visibilità e utente a ogni giro. Il cursore è `updated_at` in **microsecondi
+visibilità e utente a ogni giro, e si apre solo a chi **legge** il canale. Il cursore è `updated_at` in **microsecondi
 interi**, come testo di sole cifre (`CHAT_STREAM_CURSOR_RE`), e il confronto si
 fa in SQL. Un `Date` di JS tronca ai millisecondi, e due messaggi nello stesso
 millisecondo si perderebbero. Ogni scrittura su un messaggio (modifica,
@@ -83,9 +186,8 @@ anche quello della radice, il cui conteggio cambia. Il bus (`chat/bus.ts`) usa L
 `chat_channel` e serve solo a svegliare lo stream prima del poll di 5 secondi:
 se manca, lo stream resta corretto, solo più lento.
 
-## Limiti della fetta 1, nel registro
+## Limiti, nel registro
 
-Restano fuori: canali privati e DM, `alsoInChannel`, la ricerca, i messaggi
-«via Claude» (`via_claude_action_id` c'è, ma vuoto), le domande in chat,
-«Create task/request» da un messaggio e @Claude. Sono elencati in
-`docs/plans/integrazione-registro-rimandi.md`, area 4.
+Restano fuori: @Claude (fetta 3), gli eventi dei progetti e gli allegati
+(fetta 4), i messaggi «via Claude» (`via_claude_action_id` c'è, ma vuoto) e le
+citazioni (`docs/plans/integrazione-registro-rimandi.md`, area 4).

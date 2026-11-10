@@ -63,6 +63,7 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "planning.changed": "inbox:kinds.planningChanged",
   "task.assigned": "inbox:kinds.taskAssigned",
   "chat.mention": "inbox:kinds.chatMention",
+  "chat.question": "inbox:kinds.chatQuestion",
 };
 
 /**
