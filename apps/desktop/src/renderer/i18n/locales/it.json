@@ -811,6 +811,12 @@
     }
   },
   "tasks": {
+    "claudeRun": {
+      "job_in_flight": "{{code}} è assegnata a Claude, ma non è partito un lavoro nuovo: Claude ci sta già lavorando.",
+      "other": "{{code}} è assegnata a Claude, ma il lavoro non è partito. Avvialo dalla sezione Claude della task.",
+      "bulk_one": "{{count}} task è assegnata a Claude, ma il suo lavoro non è partito. Avvialo dalla sezione Claude della task.",
+      "bulk_other": "{{count}} task sono assegnate a Claude, ma il loro lavoro non è partito. Avvialo dalla sezione Claude di ciascuna."
+    },
     "count_one": "{{count}} task",
     "count_other": "{{count}} task",
     "commands": "Comandi delle task",

@@ -160,6 +160,14 @@ export const taskViewSchema = z.object({
    * vecchio non lo manda.
    */
   canPlan: z.boolean().optional(),
+  /**
+   * Solo nella risposta di una SCRITTURA che ha appena assegnato la task a
+   * Claude (integrazione area 3, review punto 5): l'esito dell'avvio del
+   * lavoro, `started` o `refused:<codice>` di `startRun` (es.
+   * `refused:job_in_flight`). L'assegnazione è scritta comunque; il client
+   * dice la frase del codice. `null` altrove. Additivo.
+   */
+  claudeRun: z.string().nullable().default(null),
 });
 export type TaskViewData = z.infer<typeof taskViewSchema>;
 

@@ -18,6 +18,7 @@ import { FamilySign, StatusLabel } from "../../tasks-ui/StatusLabel";
 import { useToast } from "../../tasks-ui/Toast";
 import { Chevron, MenuButton } from "./controls";
 import { useCurrentWeek } from "../../data/clock";
+import { claudeRunText } from "../../tasks-ui/claudeRun";
 
 // Le scelte di un campo di task, come voci di menu: le usano il menu in riga
 // dell'elenco e la barra delle azioni in blocco.
@@ -191,6 +192,11 @@ export function useInlineUpdate() {
     update.mutate(
       { id: task.id, patch },
       {
+        // Assegnato a Claude ma il lavoro non è partito: la frase del codice.
+        onSuccess: (updated) => {
+          const text = claudeRunText(t, updated);
+          if (text) toast.error(text);
+        },
         // Claude a chi non ne può avviare il lavoro (area 3, 3e): la sua frase.
         onError: (error) =>
           toast.error(

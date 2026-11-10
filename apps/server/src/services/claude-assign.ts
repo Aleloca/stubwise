@@ -1,6 +1,8 @@
 import { users, type Db } from "@stubwise/db";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import { eq } from "drizzle-orm";
 import { projectPermissionsFor } from "../auth/access.js";
+import { publicUrlOrUndefined } from "../ingest/shared.js";
 import { startRun } from "./jobs.js";
 import type { TaskViewer } from "./task-view.js";
 
@@ -50,13 +52,43 @@ export async function startClaudeRuns(
   db: Db,
   viewer: TaskViewer,
   assigned: { ticketId: string; projectId: string }[],
-): Promise<void> {
+  options: ClaudeStartOptions = {},
+): Promise<Map<string, ClaudeRunOutcome>> {
+  const outcomes = new Map<string, ClaudeRunOutcome>();
   for (const { ticketId, projectId } of assigned) {
     const permissions = (await projectPermissionsFor(db, viewer, projectId)) ?? new Set();
     try {
-      await startRun(db, { ticketId, actor: { id: viewer.id, permissions } });
-    } catch {
-      // Best-effort: l'assegnazione è scritta; il lavoro si avvia anche a mano.
+      const result = await startRun(db, {
+        ticketId,
+        actor: { id: viewer.id, permissions },
+        // Il link della notifica `job.plan_review` quando il run nasce parcheggiato sul gate.
+        ...(options.publicUrl !== undefined ? { publicUrl: options.publicUrl } : {}),
+      });
+      outcomes.set(ticketId, result.ok ? "started" : `refused:${result.error}`);
+      if (!result.ok) options.log?.("Claude assegnato, il lavoro non parte", { ticketId, error: result.error });
+    } catch (error) {
+      // L'assegnazione è scritta; il lavoro si avvia anche a mano.
+      outcomes.set(ticketId, "refused:error");
+      options.log?.("Claude assegnato, avvio del lavoro fallito", { ticketId, err: error });
     }
   }
+  return outcomes;
+}
+
+/** L'esito dell'avvio per una task appena assegnata a Claude (`TaskViewData.claudeRun`). */
+export type ClaudeRunOutcome = "started" | `refused:${string}`;
+
+/** Dalla rotta: il link pubblico per la notifica e dove loggare un avvio che non parte. */
+export interface ClaudeStartOptions {
+  publicUrl?: string;
+  log?: (message: string, detail: Record<string, unknown>) => void;
+}
+
+/** Dalla rotta: il link pubblico dell'istanza e il log della richiesta. */
+export function claudeStart(app: FastifyInstance, request: { log: FastifyBaseLogger }): ClaudeStartOptions {
+  const publicUrl = publicUrlOrUndefined(app);
+  return {
+    ...(publicUrl !== undefined ? { publicUrl } : {}),
+    log: (message, detail) => request.log.warn(detail, message),
+  };
 }
