@@ -107,8 +107,8 @@ function toEvent(e: ChronologyEvent): TimelineEvent | null {
     case "pr_opened":
     case "pr_merged":
     case "pr_closed":
-      return e.prId && e.taskId && e.number !== undefined
-        ? { kind: e.kind, at, prId: e.prId, taskId: e.taskId, number: e.number }
+      return e.prId && e.taskId
+        ? { kind: e.kind, at, prId: e.prId, taskId: e.taskId, ...(e.number !== undefined ? { number: e.number } : {}) }
         : null;
     default:
       return null;

@@ -5,9 +5,9 @@ import { useMilestones, usePortfolioActivity, useTasks } from "../../data/querie
 import type { Milestone, PortfolioEvent, Project, Task } from "../../data/types";
 import { PageError, PageSkeleton } from "../../tasks-ui/PageStates";
 import { ghostButton } from "../task/parts";
-import { useOpenTask } from "../home/blocks/BlockSection";
 import { GeneratedTag } from "../overview/BriefCard";
 import { DeletedTaskSubject } from "../overview/DeletedTaskSubject";
+import { MilestoneEventSubject, TaskEventSubject } from "../overview/EventSubject";
 import { shiftDate } from "../overview/links";
 import { useToday } from "../../data/clock";
 
@@ -124,7 +124,6 @@ function ActivityRow({
   milestones: Milestone[];
 }) {
   const { t } = useTranslation();
-  const openTask = useOpenTask();
   let subject: ReactNode = null;
   let generated = false;
   switch (event.kind) {
@@ -132,35 +131,11 @@ function ActivityRow({
     case "task_closed":
     case "pr_opened":
     case "pr_merged":
-    case "pr_closed": {
-      const task = tasks.find((x) => x.id === event.taskId);
-      subject = task ? (
-        <button
-          type="button"
-          onClick={() => openTask(task.code)}
-          className="flex min-w-0 items-baseline gap-2 text-left outline-none after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-focus"
-        >
-          {"number" in event && (
-            <span className="num shrink-0 text-xs text-ink-muted">
-              {t("overview.timeline.prNumber", { number: event.number })}
-            </span>
-          )}
-          <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink-muted">
-            {task.code}
-          </span>
-          <span className="min-w-0 truncate text-ink" title={task.title}>
-            {task.title}
-          </span>
-        </button>
-      ) : null;
+    case "pr_closed":
+      subject = <TaskEventSubject event={event} tasks={tasks} />;
       break;
-    }
     case "milestone":
-      subject = (
-        <span className="min-w-0 truncate text-ink">
-          {milestones.find((m) => m.id === event.milestoneId)?.name ?? ""}
-        </span>
-      );
+      subject = <MilestoneEventSubject milestoneId={event.milestoneId} milestones={milestones} />;
       break;
     case "decision":
       subject = <span className="min-w-0 truncate text-ink">{event.title}</span>;

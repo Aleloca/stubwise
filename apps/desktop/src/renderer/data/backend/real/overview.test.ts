@@ -187,6 +187,8 @@ describe("brief e cronologia dal server", () => {
             { kind: "task_opened", at: AT, taskId: "44444444-4444-4444-8444-444444444444" },
             { kind: "decision", at: AT },
             { kind: "pr_merged", at: AT, prId: BRIEF, taskId: "44444444-4444-4444-8444-444444444444", number: 7 },
+            // Una PR senza numero si mostra senza numero, non si scarta.
+            { kind: "pr_opened", at: AT, prId: DECISION, taskId: "44444444-4444-4444-8444-444444444444" },
           ],
           nextBefore: "2026-10-04T00:00:00.000Z",
         },
@@ -199,6 +201,7 @@ describe("brief e cronologia dal server", () => {
         { kind: "milestone", at: "2026-11-20T00:00:00.000Z", milestoneId: MILESTONE },
         { kind: "task_opened", at: AT, taskId: "44444444-4444-4444-8444-444444444444" },
         { kind: "pr_merged", at: AT, prId: BRIEF, taskId: "44444444-4444-4444-8444-444444444444", number: 7 },
+        { kind: "pr_opened", at: AT, prId: DECISION, taskId: "44444444-4444-4444-8444-444444444444" },
       ],
       nextBefore: "2026-10-04T00:00:00.000Z",
     });

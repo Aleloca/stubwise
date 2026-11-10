@@ -6,10 +6,11 @@ import type { Milestone, Task, TimelineEvent, TimelineKind } from "../../data/ty
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
 import { formatDue } from "../../tasks-ui/TaskRow";
 import { ghostButton } from "../task/parts";
-import { BlockSection, queryState, useOpenTask } from "../home/blocks/BlockSection";
+import { BlockSection, queryState } from "../home/blocks/BlockSection";
 import { Chevron, MenuButton } from "../tasks/controls";
 import { GeneratedTag } from "./BriefCard";
 import { DeletedTaskSubject } from "./DeletedTaskSubject";
+import { MilestoneEventSubject, TaskEventSubject } from "./EventSubject";
 import { shiftDate } from "./links";
 import { useToday } from "../../data/clock";
 
@@ -205,8 +206,6 @@ function TimelineRow({
   milestones: Milestone[];
 }) {
   const { t, i18n } = useTranslation();
-  const openTask = useOpenTask();
-  const taskOf = (id: string) => tasks.find((x) => x.id === id);
   let subject: ReactNode = null;
   let generated = false;
   switch (event.kind) {
@@ -214,34 +213,12 @@ function TimelineRow({
     case "task_closed":
     case "pr_opened":
     case "pr_merged":
-    case "pr_closed": {
-      const task = taskOf(event.taskId);
-      subject = task ? (
-        <button
-          type="button"
-          onClick={() => openTask(task.code)}
-          className="flex min-w-0 items-baseline gap-2 text-left outline-none after:absolute after:inset-0 focus-visible:after:outline-2 focus-visible:after:-outline-offset-2 focus-visible:after:outline-focus"
-        >
-          {event.kind.startsWith("pr_") && "number" in event && (
-            <span className="num shrink-0 text-xs text-ink-muted">
-              {t("overview.timeline.prNumber", { number: event.number })}
-            </span>
-          )}
-          <span className="num shrink-0 text-xs font-semibold tracking-[0.02em] text-ink-muted">
-            {task.code}
-          </span>
-          <span className="min-w-0 truncate text-ink" title={task.title}>
-            {task.title}
-          </span>
-        </button>
-      ) : null;
+    case "pr_closed":
+      subject = <TaskEventSubject event={event} tasks={tasks} />;
       break;
-    }
-    case "milestone": {
-      const m = milestones.find((x) => x.id === event.milestoneId);
-      subject = <span className="min-w-0 truncate text-ink">{m?.name ?? ""}</span>;
+    case "milestone":
+      subject = <MilestoneEventSubject milestoneId={event.milestoneId} milestones={milestones} />;
       break;
-    }
     case "decision":
       subject = <span className="min-w-0 truncate text-ink">{event.title}</span>;
       break;

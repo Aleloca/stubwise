@@ -2191,6 +2191,8 @@
       "weekOf": "Week of {{date}}",
       "showEarlier": "Show earlier",
       "prNumber": "#{{number}}",
+      "taskUnavailable": "A task that isn't in this list",
+      "milestoneUnavailable": "a deleted milestone",
       "noSummary": "No summary for this day",
       "empty": "Nothing has happened in this project yet",
       "emptyType": "Nothing of this type yet"

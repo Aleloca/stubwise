@@ -143,7 +143,8 @@ export type TimelineEvent =
       at: string;
       prId: string;
       taskId: string;
-      number: number;
+      /** Assente se il server non lo sa: la voce si mostra senza numero. */
+      number?: number;
     }
   /**
    * Area 10a: una task eliminata, con codice e titolo di allora (la task non
