@@ -524,6 +524,20 @@ describe("le superfici della fetta 4 nella build app", () => {
     ).toBeInTheDocument();
   });
 
+  it("trasformare una richiesta già trasformata o archiviata lo dice con la sua frase", async () => {
+    signedInAs("p-laura");
+    renderRoute("/p/STW/requests?request=req-stw-1");
+    const panel = await screen.findByRole("dialog");
+    await userEvent.click(await within(panel).findByRole("button", { name: "Turn into task" }));
+    const dialog = await screen.findByRole("dialog", { name: /New task/ });
+    refusal.fn = "convertRequest";
+    refusal.code = "request_not_convertible";
+    await userEvent.click(within(dialog).getByRole("button", { name: /Create task/ }));
+    expect(
+      await within(dialog).findByText("This request has already been converted or archived."),
+    ).toBeInTheDocument();
+  });
+
   it("trasformare una richiesta che non vedi più lo dice con la sua frase", async () => {
     signedInAs("p-laura");
     renderRoute("/p/STW/requests?request=req-stw-1");

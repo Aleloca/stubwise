@@ -1441,7 +1441,8 @@
       "week": "Settimana",
       "milestone": "Traguardo"
     },
-    "requestGone": "Questa richiesta non è più disponibile: forse è stata trasformata, archiviata o nascosta."
+    "requestGone": "Questa richiesta non è più disponibile: forse è stata trasformata, archiviata o nascosta.",
+    "requestNotConvertible": "Questa richiesta è già stata trasformata o archiviata."
   },
   "home": {
     "customize": "Personalizza",

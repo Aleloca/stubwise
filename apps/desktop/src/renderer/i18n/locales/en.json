@@ -1441,7 +1441,8 @@
       "week": "Week",
       "milestone": "Milestone"
     },
-    "requestGone": "This request is no longer available: it may have been converted, archived or hidden."
+    "requestGone": "This request is no longer available: it may have been converted, archived or hidden.",
+    "requestNotConvertible": "This request has already been converted or archived."
   },
   "home": {
     "customize": "Customize",
