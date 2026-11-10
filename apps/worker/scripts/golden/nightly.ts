@@ -247,8 +247,23 @@ async function allowlistProbe(
   };
 }
 
+/**
+ * Il report è stato scritto: solo allora l'uscita può essere 0. Un giro che non
+ * arriva al report — il Postgres effimero morto con Docker a metà notte (10 nov
+ * 2026), un processo che termina per una strada che non passa da `main().then`
+ * — esce 1: un golden che non ha girato non è un golden verde (README).
+ */
+let reportWritten = false;
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  // Dopo `parseArgs`: `--help` esce 0 senza report, ed è giusto così.
+  process.on("exit", (code) => {
+    if (code === 0 && !reportWritten) {
+      console.error("[golden:nightly] il giro non è arrivato al report: esito 1, non verde");
+      process.exitCode = 1;
+    }
+  });
   const pinned = pinnedCliVersion();
   let claudeVersion: string;
   try {
@@ -432,6 +447,7 @@ async function main(): Promise<void> {
     await new Promise<void>((resolve, reject) => {
       process.stdout.write(json, (error) => (error ? reject(error) : resolve()));
     });
+    reportWritten = true;
     process.exitCode = report.passed ? 0 : 1;
   } finally {
     await testDb.stop();
