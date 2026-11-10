@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTask, STATUS_TODO } from "./fakeServer";
 import { createMilestone, deleteMilestone, updateMilestone } from "./milestones";
+import { listMilestones } from "./statuses";
 import {
   getLatestBrief,
   listDecisionLog,
@@ -73,7 +74,8 @@ describe("i traguardi dal server", () => {
       projectId: PROJECT_ID,
       name: "Beta",
       description: null,
-      dueDate: "2026-11-20T00:00:00.000Z",
+      // A mezzogiorno UTC come il web vecchio: il giorno è lo stesso in ogni fuso vicino.
+      dueDate: "2026-11-20T12:00:00.000Z",
     });
     expect(created).toEqual({
       id: MILESTONE,
@@ -83,11 +85,23 @@ describe("i traguardi dal server", () => {
       dueDate: "2026-11-20",
       closed: false,
     });
-    const closed = await updateMilestone(MILESTONE, { closed: true, description: "" });
-    expect(seen[1]!.body).toEqual({ status: "closed", description: null });
+    const closed = await updateMilestone(MILESTONE, { closed: true, description: "", dueDate: "2026-12-01" });
+    expect(seen[1]!.body).toEqual({ status: "closed", description: null, dueDate: "2026-12-01T12:00:00.000Z" });
     expect(closed.closed).toBe(true);
     await deleteMilestone(MILESTONE);
     expect(seen.map((r) => r.method)).toEqual(["POST", "PATCH", "DELETE"]);
+  });
+
+  it("la scadenza si legge come giorno, scritta a mezzanotte o a mezzogiorno UTC", async () => {
+    installFakeServer({
+      "GET /api/milestones": {
+        body: [
+          serverMilestone({ dueDate: "2026-11-20T12:00:00.000Z" }),
+          serverMilestone({ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab", dueDate: "2026-11-21T00:00:00.000Z" }),
+        ],
+      },
+    });
+    expect((await listMilestones(PROJECT_ID)).map((m) => m.dueDate)).toEqual(["2026-11-20", "2026-11-21"]);
   });
 });
 
