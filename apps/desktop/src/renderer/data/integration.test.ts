@@ -89,6 +89,8 @@ describe("isIntegrated", () => {
         "feature:claude-assign",
         "feature:commit-author-link",
         "feature:claude-chat-actions",
+        // Fetta 5 della chat: le pubbliche e la continuazione.
+        "feature:claude-public",
         // Fetta 3.0 della chat: «Elimina task».
         "feature:task-delete",
       ].sort(),

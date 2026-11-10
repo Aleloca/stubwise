@@ -8,16 +8,8 @@ import { forgetClaudeCaches } from "./claude";
 import { DEPT_ID, installFakeServer, me, ME_ID, PROJECT_ID, serverProject, type SeenRequest } from "./fakeServer";
 
 // Le conversazioni pubbliche nelle pagine della build app (chat, fetta 5,
-// F5.4), sulle rotte della F5.2. Il flag `claude-public` si accende col server
-// intero (F5.3, la continuazione): qui lo si accende per il test.
+// F5.4), sulle rotte della F5.2–F5.3, col flag `claude-public` acceso.
 vi.mock("@backend/api", async () => await import("./index"));
-vi.mock("../../integration", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("../../integration")>();
-  return {
-    ...mod,
-    featureIntegrated: (name: string) => name === "claude-public" || mod.featureIntegrated(name),
-  };
-});
 
 const CONV = "cccccccc-0000-4000-8000-0000000000f5";
 const MINE = "cccccccc-0000-4000-8000-0000000000f6";
