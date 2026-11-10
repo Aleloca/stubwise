@@ -826,6 +826,15 @@ export interface ChatMentionEvent {
   authorName: string;
 }
 
+/**
+ * Area 4, Chat (fetta 2): il messaggio chiede una risposta a un MEMBRO del
+ * canale (`asks_reply_of`); chi legge senza esserne membro riceve una
+ * `chat.mention`. Stessa forma, stessa derivazione a lettura.
+ */
+export interface ChatQuestionEvent extends Omit<ChatMentionEvent, "kind"> {
+  kind: "chat.question";
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -852,7 +861,8 @@ export type NotificationEvent =
   | TicketActivityEvent
   | PlanningChangedEvent
   | TaskAssignedEvent
-  | ChatMentionEvent;
+  | ChatMentionEvent
+  | ChatQuestionEvent;
 
 /**
  * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`,
@@ -876,7 +886,8 @@ type NonTicketedEvent =
   | TicketActivityEvent
   | PlanningChangedEvent
   | TaskAssignedEvent
-  | ChatMentionEvent;
+  | ChatMentionEvent
+  | ChatQuestionEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -903,7 +914,8 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "ticket.activity" &&
     event.kind !== "planning.changed" &&
     event.kind !== "task.assigned" &&
-    event.kind !== "chat.mention"
+    event.kind !== "chat.mention" &&
+    event.kind !== "chat.question"
   );
 }
 
@@ -968,6 +980,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "planning.changed": "🗓️",
   "task.assigned": "📌",
   "chat.mention": "💬",
+  "chat.question": "❓",
 };
 
 /**
@@ -1096,6 +1109,7 @@ function linkParam(
     case "planning.changed":
     case "task.assigned":
     case "chat.mention":
+    case "chat.question":
       // Il link si DERIVA a lettura (`openUrl`), e le frasi non hanno `{link}`.
       return "";
   }
@@ -1133,6 +1147,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "planning.changed": "notify.planningChanged.moved",
   "task.assigned": "notify.taskAssigned",
   "chat.mention": "notify.chatMention",
+  "chat.question": "notify.chatQuestion",
 };
 
 const TICKET_ACTIVITY_KEY: Record<TicketActivityChange, string> = {
@@ -1229,7 +1244,14 @@ export function reviewOutcomeOf(event: NotificationEvent): InboxReviewOutcome | 
  * (`notify.reviewStopped`) — stesso kind, nessun valore nuovo di
  * `notification_kind`.
  */
+/** Un DM non ha nome (`chat_channels.name` vuoto): la frase dice «in un messaggio diretto», non «in #». */
+export const isDirectMessageEvent = (event: NotificationEvent): boolean =>
+  (event.kind === "chat.mention" || event.kind === "chat.question") && event.channelName === "";
+
 function templateKey(event: NotificationEvent): string {
+  if (isDirectMessageEvent(event)) {
+    return event.kind === "chat.question" ? "notify.chatQuestion.dm" : "notify.chatMention.dm";
+  }
   if (event.kind === "security.alert") {
     // Un jsonb anomalo (soggetto ignoto) lancia qui: lo prende il recinto di
     // chi rende la card, che degrada al `kind`.
@@ -1378,7 +1400,7 @@ function textParams(
     if (event.kind === "task.assigned") {
       return { ref: taskRef(event) };
     }
-    if (event.kind === "chat.mention") {
+    if (event.kind === "chat.mention" || event.kind === "chat.question") {
       return { author: event.authorName, channel: event.channelName };
     }
     if (event.kind === "ticket.activity") {
@@ -1465,6 +1487,7 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   "docs.nightly_attention": ["lastError", "key"],
   // Il nome di chi scrive e quello del canale li scelgono le persone.
   "chat.mention": ["author", "channel"],
+  "chat.question": ["author", "channel"],
   // Email e titolo li scrive il collaboratore (e il titolo, via widget, chiunque).
   "request.created": ["email", "title"],
   // L'email di chi ha agito la scrive un utente al proprio account.
@@ -1667,7 +1690,7 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         message: formatNotificationText(event, lang),
       };
     }
-    if (event.kind === "chat.mention") {
+    if (event.kind === "chat.mention" || event.kind === "chat.question") {
       // Mai consegnato al webhook (`account_owner`): il ramo c'è per l'esaustività.
       return {
         event: event.kind,
@@ -2094,6 +2117,15 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
     {
       kind: "chat.mention",
       chatMessageId: "8d2e3f40-bbbb-4ccc-8ddd-eeeeffff0000",
+      channelId: "9e3f4051-cccc-4ddd-8eee-ffff00001111",
+      channelName: "general",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      authorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+      authorName: "Marta Rinaldi",
+    },
+    {
+      kind: "chat.question",
+      chatMessageId: "8d2e3f40-bbbb-4ccc-8ddd-eeeeffff0001",
       channelId: "9e3f4051-cccc-4ddd-8eee-ffff00001111",
       channelName: "general",
       projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",

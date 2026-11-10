@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   chatChannelNameSchema,
   chatChannelSchema,
+  chatMessageHitSchema,
   chatMessageSchema,
+  chatQuestionSchema,
+  chatSearchQuerySchema,
   createChatChannelSchema,
+  openChatDmSchema,
   postChatMessageSchema,
 } from "./chat.js";
 import { inboxItemSchema, notificationKindSchema } from "./notification.js";
@@ -62,5 +66,44 @@ describe("gli schemi della Chat", () => {
       handledBy: null,
     });
     expect(card.chat).toBeNull();
+  });
+
+  it("fetta 2: un canale della fetta 1 (senza i permessi nuovi) si legge: canRead vero, gli altri falsi", () => {
+    const ch = chatChannelSchema.parse({
+      id: ID,
+      kind: "project",
+      projectId: ID,
+      name: "general",
+      createdAt: "2026-11-10T10:00:00.000Z",
+    });
+    expect(ch.canRead).toBe(true);
+    expect([ch.canEditInfo, ch.canEditTopic, ch.canEditEvents, ch.canInvite, ch.canRemove, ch.canArchive, ch.canDelete]).toEqual([
+      false, false, false, false, false, false, false,
+    ]);
+  });
+
+  it("fetta 2: un messaggio senza i campi nuovi si legge con i default", () => {
+    const m = chatMessageSchema.parse({
+      id: ID,
+      channelId: ID,
+      authorId: ID,
+      text: "ciao",
+      createdAt: "2026-11-10T10:00:00.000Z",
+    });
+    expect(m).toMatchObject({ alsoInChannel: false, asksReplyOf: [], linked: [], linkedCodes: [], citations: [] });
+    const hit = chatMessageHitSchema.parse({ channelId: ID, message: m });
+    expect(hit).toMatchObject({ context: null, root: null });
+  });
+
+  it("fetta 2: generale senza progetto, privato con invitati, DM fino a 8, ricerca e domanda", () => {
+    expect(createChatChannelSchema.parse({ name: "annunci" })).toMatchObject({ visibility: "open" });
+    expect(createChatChannelSchema.parse({ projectId: null, name: "segreti", visibility: "private", memberIds: [ID] }).memberIds).toEqual([ID]);
+    expect(() => openChatDmSchema.parse({ personIds: [] })).toThrow();
+    expect(openChatDmSchema.parse({ personIds: Array.from({ length: 8 }, () => ID) }).personIds).toHaveLength(8);
+    expect(() => openChatDmSchema.parse({ personIds: Array.from({ length: 9 }, () => ID) })).toThrow();
+    expect(postChatMessageSchema.parse({ text: "ok?", asksReply: true, alsoInChannel: true })).toMatchObject({ asksReply: true });
+    expect(() => chatSearchQuerySchema.parse({ q: "x", from: "10/11/2026" })).toThrow();
+    expect(chatQuestionSchema.parse({ id: `chat:${ID}`, channelId: ID, messageId: ID, rootId: ID, askedById: ID, text: "?", createdAt: "2026-11-10T10:00:00.000Z" }).rootId).toBe(ID);
+    expect(notificationKindSchema.options).toContain("chat.question");
   });
 });

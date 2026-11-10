@@ -1,35 +1,73 @@
-import { chatChannelMembers, chatChannels, type Db } from "@stubwise/db";
+import { chatChannelMembers, chatChannels, users, type Db } from "@stubwise/db";
 import { projectViewerIds } from "@stubwise/notifications";
 import type { ProjectPermission } from "@stubwise/shared";
-import { and, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
-import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
+import { and, eq, exists, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { projectIdsWithPermission, projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 
 /**
- * Chi VEDE, chi SCRIVE e chi GESTISCE un canale della Chat (area 4, fetta 1):
- * la regola di `data/chat/visibility.ts` del prototipo, in UN posto. Lista,
- * lettura, stream, menzioni e notifiche passano tutte da qui. Un canale che
- * non si vede è `null`, cioè 404, come uno che non esiste.
+ * Chi VEDE, chi LEGGE e chi GESTISCE un canale della Chat (area 4): la regola
+ * di `data/chat/visibility.ts` del prototipo, in UN posto. Lista, lettura,
+ * stream, ricerca, menzioni, domande e card d'inbox passano tutte da qui. Un
+ * canale che non si vede è `null`, cioè 404, come uno che non esiste.
  *
- * Fetta 1: i soli canali di PROGETTO, aperti (il «general» e quelli creati).
- * - Si VEDE chi vede il progetto.
- * - Si SCRIVE da membro, in un canale non archiviato. Del «general» sono
- *   membri tutti quelli che vedono il progetto (derivato, mai copiato).
- * - Si GESTISCE (rinomina, archivia, elimina) con `chat.channels.manage` nel
- *   progetto. Il «general» non lo gestisce nessuno.
+ * Vedere = sapere che esiste (nome e membri); leggere = i messaggi.
+ * - Aperto di progetto: lo vede (e legge) chi vede il progetto.
+ * - Aperto generale: tutti.
+ * - Privato: i membri lo leggono; chi gestisce quell'ambito lo VEDE ma non
+ *   lo legge (D2). Uno di progetto, solo se il progetto si vede ancora.
+ * - DM: esiste solo per chi partecipa, nemmeno per il full admin (D2).
+ * Del «general» di un progetto sono membri tutti quelli che vedono il
+ * progetto (derivato, mai copiato).
  */
 
 export type ChatViewer = Pick<SessionUser, "id" | "instancePermissions">;
 export type ChannelRow = typeof chatChannels.$inferSelect;
 type DbLike = Pick<Db, "select">;
 
-/** La WHERE dei canali che chi guarda vede (fetta 1: di progetto, nei progetti che vede). */
+/** Chi guarda è membro del canale (le righe dei membri; il «general» a parte). */
+function memberSql(viewerId: string): SQL {
+  return exists(
+    sql`(select 1 from ${chatChannelMembers} where ${chatChannelMembers.channelId} = ${chatChannels.id} and ${chatChannelMembers.userId} = ${viewerId})`,
+  );
+}
+
+function inProjects(ids: "all" | string[]): SQL {
+  if (ids === "all") return isNotNull(chatChannels.projectId);
+  if (ids.length === 0) return sql`false`;
+  return inArray(chatChannels.projectId, ids);
+}
+
+/** La WHERE dei canali che chi guarda VEDE. */
 export async function channelVisibleSql(db: Db, viewer: ChatViewer): Promise<SQL> {
   const visible = await visibleProjectIds(db, viewer);
-  const projectChannel = and(eq(chatChannels.kind, "project"), isNotNull(chatChannels.projectId))!;
-  if (visible === "all") return projectChannel;
-  if (visible.length === 0) return sql`false`;
-  return and(projectChannel, inArray(chatChannels.projectId, visible))!;
+  const managed = await projectIdsWithPermission(db, viewer, "chat.channels.manage");
+  const member = memberSql(viewer.id);
+  const managesGeneral = viewer.instancePermissions.has("chat.general.manage");
+  return or(
+    and(
+      eq(chatChannels.kind, "project"),
+      inProjects(visible),
+      or(eq(chatChannels.visibility, "open"), member, inProjects(managed)),
+    ),
+    and(
+      eq(chatChannels.kind, "general"),
+      managesGeneral ? undefined : or(eq(chatChannels.visibility, "open"), member),
+    ),
+    and(eq(chatChannels.kind, "dm"), member),
+  )!;
+}
+
+/**
+ * La WHERE dei canali di cui chi guarda LEGGE i messaggi: quelli che vede,
+ * tranne i privati di cui non è membro (chi gestisce no, D2). La usano la
+ * ricerca, le menzioni, le domande e le card.
+ */
+export async function channelReadableSql(db: Db, viewer: ChatViewer): Promise<SQL> {
+  return and(
+    await channelVisibleSql(db, viewer),
+    or(eq(chatChannels.visibility, "open"), eq(chatChannels.isGeneral, true), memberSql(viewer.id)),
+  )!;
 }
 
 /** Il canale, se chi guarda lo vede; altrimenti null (404). */
@@ -43,52 +81,145 @@ export async function visibleChannel(db: Db, viewer: ChatViewer, id: string): Pr
 
 export interface ChannelAccess {
   isMember: boolean;
+  /** Legge i messaggi (un privato di cui non è membro no, nemmeno chi gestisce). */
+  canRead: boolean;
   canWrite: boolean;
   canJoin: boolean;
   canLeave: boolean;
+  canEditInfo: boolean;
+  canEditTopic: boolean;
+  canEditEvents: boolean;
+  canInvite: boolean;
+  canRemove: boolean;
+  canArchive: boolean;
+  canDelete: boolean;
+  /** Almeno un'azione di gestione (il campo della fetta 1). */
   canManage: boolean;
+  /** Gestisce i canali di quell'ambito (`chat.channels.manage` nel progetto, `chat.general.manage`). */
+  managesScope: boolean;
+  /** Il creatore o chi gestisce l'ambito; mai in un DM. */
+  managesChannel: boolean;
   permissions: ReadonlySet<ProjectPermission>;
+  memberCount: number;
 }
 
-/** Ciò che chi guarda può fare in un canale che VEDE (la sola fonte di `canWrite`, `canManage`…). */
+/**
+ * Ciò che chi guarda può fare in un canale che VEDE: `channelPermissions` del
+ * prototipo, la sola fonte di `canWrite`, `canInvite`, `canDelete`…
+ */
 export async function channelAccess(db: DbLike, viewer: ChatViewer, channel: ChannelRow): Promise<ChannelAccess> {
   const permissions = channel.projectId
     ? ((await projectPermissionsFor(db, viewer, channel.projectId)) ?? new Set<ProjectPermission>())
     : new Set<ProjectPermission>();
-  let isMember = channel.isGeneral;
-  if (!isMember) {
-    const [m] = await db
-      .select({ userId: chatChannelMembers.userId })
-      .from(chatChannelMembers)
-      .where(and(eq(chatChannelMembers.channelId, channel.id), eq(chatChannelMembers.userId, viewer.id)));
-    isMember = m !== undefined;
-  }
-  const archived = channel.archivedAt !== null;
-  return {
-    isMember,
-    canWrite: isMember && !archived,
-    canJoin: !isMember && !channel.isGeneral && !archived,
-    canLeave: isMember && !channel.isGeneral,
-    canManage: !channel.isGeneral && permissions.has("chat.channels.manage"),
-    permissions,
-  };
+  const memberRows = channel.isGeneral
+    ? []
+    : (
+        await db
+          .select({ userId: chatChannelMembers.userId })
+          .from(chatChannelMembers)
+          .where(eq(chatChannelMembers.channelId, channel.id))
+      ).map((r) => r.userId);
+  return accessFrom(viewer, channel, permissions, memberRows);
 }
 
 /**
- * Chi LEGGE il canale: le persone a cui una menzione può arrivare (un canale
- * di progetto aperto lo legge chi vede il progetto). Claude escluso dal
- * chiamante (non è una persona da avvisare).
+ * La regola di {@link channelAccess} senza query: i permessi di chi guarda nel
+ * progetto del canale e le righe dei suoi membri li passa il chiamante (le
+ * liste li caricano in blocco). È la sola fonte dei permessi del canale.
  */
-export async function channelReaderIds(db: Db, channel: ChannelRow): Promise<string[]> {
-  return channel.projectId ? projectViewerIds(db, channel.projectId) : [];
+export function accessFrom(
+  viewer: ChatViewer,
+  channel: ChannelRow,
+  permissions: ReadonlySet<ProjectPermission>,
+  memberRows: readonly string[],
+): ChannelAccess {
+  const dm = channel.kind === "dm";
+  const isMember = channel.isGeneral || memberRows.includes(viewer.id);
+  const memberCount = channel.isGeneral ? 0 : memberRows.length;
+  const managesScope =
+    !dm &&
+    (channel.kind === "project"
+      ? permissions.has("chat.channels.manage")
+      : viewer.instancePermissions.has("chat.general.manage"));
+  const managesChannel = !dm && (channel.createdBy === viewer.id || managesScope);
+  const canRead = channel.visibility === "open" || channel.isGeneral || isMember;
+  const live = channel.archivedAt === null;
+  // Il «general» segue il progetto e un DM le sue persone: nessuno entra, esce, invita o toglie a mano.
+  const fixedMembers = channel.isGeneral || dm;
+  const canEditInfo = managesChannel && live && !channel.isGeneral;
+  const canArchive = managesChannel && !channel.isGeneral;
+  const canDelete = managesScope && !channel.isGeneral;
+  return {
+    isMember,
+    canRead,
+    canWrite: isMember && canRead && live,
+    canJoin: !isMember && canRead && live && !fixedMembers && channel.visibility === "open",
+    // Un DM a due non si lascia; un gruppo sì. Un privato non resta senza membri.
+    canLeave:
+      isMember &&
+      !channel.isGeneral &&
+      (dm ? memberCount > 2 : channel.visibility === "open" || memberCount > 1),
+    canEditInfo,
+    canEditTopic: isMember && live && !dm,
+    canEditEvents: managesChannel && live && channel.kind === "project",
+    canInvite: live && !fixedMembers && (channel.visibility === "private" ? managesChannel : isMember || managesChannel),
+    canRemove: managesChannel && live && !fixedMembers,
+    canArchive,
+    canDelete,
+    canManage: canEditInfo || canArchive || canDelete,
+    managesScope,
+    managesChannel,
+    permissions,
+    memberCount,
+  };
 }
 
-/** I membri da mostrare: nel «general» quelli del progetto, altrove le righe dei membri. */
+/** Le persone dell'istanza (gli utenti che non sono un agente). */
+async function humanIds(db: Db): Promise<string[]> {
+  const rows = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, false));
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Chi LEGGE il canale: le persone a cui una menzione o una domanda può
+ * arrivare. Un aperto di progetto lo legge chi vede il progetto; un aperto
+ * generale tutti; un privato e un DM i loro membri (che, in un privato di
+ * progetto, vedono ancora il progetto). Claude escluso dal chiamante.
+ */
+export async function channelReaderIds(db: Db, channel: ChannelRow): Promise<string[]> {
+  if (channel.isGeneral || (channel.kind === "project" && channel.visibility === "open")) {
+    return channel.projectId ? projectViewerIds(db, channel.projectId) : [];
+  }
+  if (channel.kind === "general" && channel.visibility === "open") return humanIds(db);
+  const members = await channelMemberIds(db, channel);
+  if (channel.kind !== "project" || !channel.projectId) return members;
+  const viewers = new Set(await projectViewerIds(db, channel.projectId));
+  return members.filter((id) => viewers.has(id));
+}
+
+/**
+ * I membri da mostrare: nel «general» quelli del progetto, altrove le righe
+ * dei membri. In un canale di progetto, chi non vede più il progetto non c'è:
+ * la sua riga resta (torna se rientra), ma a lettura non è un membro.
+ */
 export async function channelMemberIds(db: Db, channel: ChannelRow): Promise<string[]> {
-  if (channel.isGeneral) return channelReaderIds(db, channel);
+  if (channel.isGeneral) return channel.projectId ? projectViewerIds(db, channel.projectId) : [];
   const rows = await db
     .select({ userId: chatChannelMembers.userId })
     .from(chatChannelMembers)
     .where(eq(chatChannelMembers.channelId, channel.id));
-  return rows.map((r) => r.userId);
+  const ids = rows.map((r) => r.userId);
+  if (channel.kind !== "project" || !channel.projectId) return ids;
+  const viewers = new Set(await projectViewerIds(db, channel.projectId));
+  return ids.filter((id) => viewers.has(id));
+}
+
+/**
+ * Chi può entrare in un canale di quell'ambito: in un progetto chi lo vede,
+ * altrove ogni persona (Claude mai: si chiama con «@Claude»).
+ */
+export async function allowedMemberIds(db: Db, projectId: string | null): Promise<Set<string>> {
+  const humans = new Set(await humanIds(db));
+  if (!projectId) return humans;
+  return new Set((await projectViewerIds(db, projectId)).filter((id) => humans.has(id)));
 }

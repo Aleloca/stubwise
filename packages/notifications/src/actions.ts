@@ -220,6 +220,7 @@ const CATALOG_FOR_KIND: Record<
   "task.assigned": { decisions: [], permission: null, archivable: true },
   // Area 4, Chat: si legge e si apre il messaggio; si risponde nella Chat.
   "chat.mention": { decisions: [], permission: null, archivable: true },
+  "chat.question": { decisions: [], permission: null, archivable: true },
 };
 
 /**
@@ -471,9 +472,12 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "planning.changed":
     case "task.assigned":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/tickets/${event.ticketId}` : "";
-    // Area 4, Chat: il messaggio nell'app nuova (la Chat vive solo lì, D9),
-    // DERIVATO a lettura. L'inbox lo sovrascrive col canale che chi legge vede.
+    // Area 4, Chat: il messaggio nell'app nuova (la Chat vive solo lì, D9).
+    // Il link nasce dagli id del jsonb (canale e messaggio non cambiano mai);
+    // l'inbox non lo riscrive, lo TOGLIE quando la card è `objectGone`
+    // (messaggio eliminato, canale che chi legge non legge più).
     case "chat.mention":
+    case "chat.question":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/chat/${event.channelId}?message=${event.chatMessageId}` : "";
     case "ticket.created":
     case "job.pr_closed":

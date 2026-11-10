@@ -1760,6 +1760,7 @@ export const notificationKind = pgEnum("notification_kind", [
   "task.assigned",
   // Area 4, Chat, fetta 1 (0136, DA SOLO): una menzione diretta in un canale.
   "chat.mention",
+  "chat.question",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -5550,13 +5551,23 @@ export const chatChannels = pgTable(
     archivedAt: timestamp("archived_at", { withTimezone: true }),
     archivedBy: uuid("archived_by").references(() => users.id, { onDelete: "set null" }),
     publishedEvents: text("published_events").array().notNull().default(sql`'{}'`),
+    /** Solo un DM: gli id delle sue persone, ordinati e separati da virgole (0137). */
+    dmKey: text("dm_key"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("chat_channels_project_idx").on(table.projectId),
+    index("chat_channels_dm_key_idx").on(table.dmKey).where(sql`${table.kind} = 'dm'`),
+    // Nomi unici solo fra i canali NON privati: un 409 non deve rivelare un privato (D2).
+    uniqueIndex("chat_channels_general_name_idx")
+      .on(table.name)
+      .where(sql`${table.kind} = 'general' and ${table.visibility} <> 'private'`),
+    check("chat_channels_dm_key_chk", sql`(${table.kind} = 'dm') = (${table.dmKey} is not null)`),
     uniqueIndex("chat_channels_one_general_idx").on(table.projectId).where(sql`${table.isGeneral}`),
-    uniqueIndex("chat_channels_project_name_idx").on(table.projectId, table.name).where(sql`${table.projectId} is not null`),
+    uniqueIndex("chat_channels_project_name_idx")
+      .on(table.projectId, table.name)
+      .where(sql`${table.projectId} is not null and ${table.visibility} <> 'private'`),
     check("chat_channels_kind_chk", sql`${table.kind} in ('project', 'general', 'dm')`),
     check("chat_channels_visibility_chk", sql`${table.visibility} in ('open', 'private')`),
     // Un canale di progetto ha il progetto; il «general» è un canale di progetto.
@@ -5608,9 +5619,16 @@ export const chatMessages = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
     viaClaudeActionId: uuid("via_claude_action_id"),
+    /** Chi è già stato avvisato (menzione o domanda): una menzione rimessa non riparte (0137). */
+    notifiedIds: uuid("notified_ids").array().notNull().default(sql`'{}'`),
+    /** Una risposta mandata «anche nel canale» (0137). */
+    alsoInChannel: boolean("also_in_channel").notNull().default(false),
+    /** Il testo senza maiuscole né accenti, per la ricerca (`foldChatText`, 0137). */
+    searchFolded: text("search_folded").notNull().default(""),
   },
   (table) => [
     index("chat_messages_channel_idx").on(table.channelId, table.createdAt),
+    index("chat_messages_search_idx").using("gin", sql`${table.searchFolded} gin_trgm_ops`),
     index("chat_messages_thread_idx").on(table.threadRootId, table.createdAt),
     index("chat_messages_updated_idx").on(table.channelId, table.updatedAt),
     check("chat_messages_kind_chk", sql`${table.kind} in ('person', 'system', 'claude')`),
@@ -5684,4 +5702,67 @@ export const chatThreadFollows = pgTable(
     following: boolean("following").notNull().default(true),
   },
   (table) => [primaryKey({ name: "chat_thread_follows_pk", columns: [table.userId, table.rootMessageId] })],
+);
+
+/**
+ * Le citazioni di un messaggio (0139): task, richieste, progetti, persone e
+ * pagine Docs. Nessuna FK verso l'oggetto (tabelle diverse): a lettura si
+ * filtrano su ciò che chi legge vede, e un oggetto che non c'è più non esce.
+ */
+export const chatMessageCitations = pgTable(
+  "chat_message_citations",
+  {
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"task" | "request" | "project" | "person" | "doc">().notNull(),
+    refId: uuid("ref_id").notNull(),
+    position: integer("position").notNull().default(0),
+  },
+  (table) => [
+    primaryKey({ name: "chat_message_citations_pk", columns: [table.messageId, table.kind, table.refId] }),
+    check("chat_message_citations_kind_chk", sql`${table.kind} in ('task', 'request', 'project', 'person', 'doc')`),
+  ],
+);
+
+/** «Da decidere»: le domande della Chat che chi guarda ha ignorato (0137). */
+export const chatDismissedQuestions = pgTable(
+  "chat_dismissed_questions",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ name: "chat_dismissed_questions_pk", columns: [table.userId, table.messageId] })],
+);
+
+/**
+ * Le task e le richieste nate da un messaggio («→ AUD-14», 0137): il codice
+ * si DERIVA a lettura, filtrato per chi guarda. Una task o una richiesta
+ * eliminata porta via il legame.
+ */
+export const chatMessageLinks = pgTable(
+  "chat_message_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => chatMessages.id, { onDelete: "cascade" }),
+    ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
+    backlogItemId: uuid("backlog_item_id").references(() => backlogItems.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("chat_message_links_message_idx").on(table.messageId),
+    uniqueIndex("chat_message_links_ticket_idx").on(table.messageId, table.ticketId).where(sql`${table.ticketId} IS NOT NULL`),
+    uniqueIndex("chat_message_links_backlog_idx")
+      .on(table.messageId, table.backlogItemId)
+      .where(sql`${table.backlogItemId} IS NOT NULL`),
+    check("chat_message_links_one_chk", sql`(${table.ticketId} is null) <> (${table.backlogItemId} is null)`),
+  ],
 );

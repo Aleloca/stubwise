@@ -35,6 +35,8 @@ export interface EnqueueBacklogIntakeInput {
   body: string;
   /** Chi ha chiesto la voce (utente autenticato): il worker lo aggiunge ai richiedenti. */
   requestedByUserId?: string;
+  /** «Create request» da un messaggio della Chat: il worker lo lega a fine intake. */
+  chatMessageId?: string;
 }
 
 export type EnqueueBacklogIntakeResult =
@@ -65,6 +67,7 @@ export async function enqueueBacklogIntake(
         title: input.title,
         body: input.body,
         ...(input.requestedByUserId ? { requestedByUserId: input.requestedByUserId } : {}),
+        ...(input.chatMessageId ? { chatMessageId: input.chatMessageId } : {}),
       },
     })
     .returning({ id: backlogJobs.id });

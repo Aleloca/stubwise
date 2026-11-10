@@ -18,6 +18,7 @@ import {
 } from "@stubwise/shared";
 import {
   formatNotificationText,
+  isDirectMessageEvent,
   isReviewFailedEvent,
   type NotificationEvent,
   type NotificationKind,
@@ -62,6 +63,7 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
   "planning.changed": "push.title.planning.changed",
   "task.assigned": "push.title.task.assigned",
   "chat.mention": "push.title.chat.mention",
+  "chat.question": "push.title.chat.question",
 };
 
 /**
@@ -193,6 +195,9 @@ export interface PushPayloadContext {
 export const PUSH_TITLE_REVIEW_STOPPED_KEY = "push.title.review.stopped";
 
 function pushTitleKey(event: NotificationEvent): string {
+  if (isDirectMessageEvent(event)) {
+    return event.kind === "chat.question" ? "push.title.chat.question.dm" : "push.title.chat.mention.dm";
+  }
   return isReviewFailedEvent(event) ? PUSH_TITLE_REVIEW_STOPPED_KEY : PUSH_TITLE_KEY[event.kind];
 }
 

@@ -25,6 +25,7 @@ import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import { archiveRequest, reopenRequest } from "../services/project-request-writes.js";
 import { loadRequestSummaries, loadRequestViews, requestView, requestVisibility } from "../services/project-requests.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import { messageLinkable } from "../chat/service.js";
 
 /**
  * Le richieste dell'app nuova (integrazione area 2, fetta 4): la sezione
@@ -132,16 +133,21 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
       config: { access: { kind: "project", permission: "backlog.create", project: fromBody("projectId") } },
       schema: {
         body: newRequestBodySchema,
-        response: { 202: z.object({ jobId: z.uuid() }), 404: errorSchema, ...authErrorResponses },
+        response: { 202: z.object({ jobId: z.uuid() }), 400: errorSchema, 404: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      const { projectId, title, description } = request.body;
+      const { projectId, title, description, chatMessageId } = request.body;
+      // Da un messaggio della Chat: chi chiede lo deve leggere, e non dev'essere eliminato.
+      if (chatMessageId && !(await messageLinkable(app.db, request.user!, chatMessageId))) {
+        return apiError(reply, 400, "chat_message_not_found", "Chat message not found");
+      }
       const result = await enqueueBacklogIntake(app.db, {
         projectId,
         title,
         body: description,
         requestedByUserId: request.user!.id,
+        ...(chatMessageId ? { chatMessageId } : {}),
       });
       if (!result.ok) return apiError(reply, 404, "project_not_found", "Project not found");
       return reply.code(202).send({ jobId: result.jobId });

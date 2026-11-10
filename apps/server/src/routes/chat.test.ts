@@ -17,6 +17,7 @@ let projectId: string;
 type U = Awaited<ReturnType<typeof createUserWithSession>>;
 let lead: U;
 let dev: U;
+let dev2: U;
 let legacy: U;
 let outsider: U;
 
@@ -27,10 +28,12 @@ beforeAll(async () => {
   ({ projectId } = await seedRepository(t.db));
   lead = await createUserWithSession(app, "lead-chat@example.com");
   dev = await createUserWithSession(app, "dev-chat@example.com");
+  dev2 = await createUserWithSession(app, "dev2-chat@example.com");
   legacy = await createUserWithSession(app, "legacy-chat@example.com");
   outsider = await createUserWithSession(app, "outsider-chat@example.com");
   await addMember(app, projectId, lead.id, "project_lead");
   await addMember(app, projectId, dev.id, "developer");
+  await addMember(app, projectId, dev2.id, "developer");
   await addMember(app, projectId, legacy.id, "legacy_member");
 }, 120_000);
 
@@ -71,7 +74,14 @@ describe("chi vede e chi scrive", () => {
 
   it("creare: Developer sì, Legacy Member no; un nome già usato è 409", async () => {
     const id = await channel();
-    expect((await as(dev, "GET", `/api/chat/channels/${id}`)).json()).toMatchObject({ isMember: true, canManage: false });
+    // Il creatore modifica e archivia il suo canale (fetta 2, come il prototipo), ma non lo elimina (R-G3).
+    expect((await as(dev, "GET", `/api/chat/channels/${id}`)).json()).toMatchObject({
+      isMember: true,
+      canManage: true,
+      canEditInfo: true,
+      canArchive: true,
+      canDelete: false,
+    });
     const denied = await as(legacy, "POST", "/api/chat/channels", { projectId, name: "da-legacy" });
     expect(denied.statusCode).toBe(403);
     const taken = await as(dev, "POST", "/api/chat/channels", { projectId, name: `tema ${n}` });
@@ -79,9 +89,15 @@ describe("chi vede e chi scrive", () => {
     expect(taken.json()).toMatchObject({ code: "name_taken" });
   });
 
-  it("gestire: il Lead rinomina, archivia ed elimina; il Developer no; il «general» mai", async () => {
+  it("gestire: il Lead rinomina, archivia ed elimina; il creatore rinomina ma non elimina; un altro Developer no; il «general» mai", async () => {
     const id = await channel();
-    expect((await as(dev, "PATCH", `/api/chat/channels/${id}`, { name: "nuovo" })).statusCode).toBe(403);
+    expect((await as(dev2, "PATCH", `/api/chat/channels/${id}`, { name: "nuovo" })).statusCode).toBe(403);
+    expect((await as(dev2, "GET", `/api/chat/channels/${id}`)).json()).toMatchObject({ canManage: false, canEditTopic: false });
+    // L'argomento lo cambia qualunque membro.
+    await as(dev2, "POST", `/api/chat/channels/${id}/join`);
+    expect((await as(dev2, "PATCH", `/api/chat/channels/${id}`, { topic: "di cosa si parla" })).json()).toMatchObject({ topic: "di cosa si parla" });
+    expect((await as(dev, "PATCH", `/api/chat/channels/${id}`, { name: "del creatore" })).json()).toMatchObject({ name: "del-creatore" });
+    expect((await as(dev, "DELETE", `/api/chat/channels/${id}`)).statusCode).toBe(403);
     const renamed = await as(lead, "PATCH", `/api/chat/channels/${id}`, { name: "Nuovo Nome" });
     expect(renamed.json()).toMatchObject({ name: "nuovo-nome", canManage: true });
     const g = await general();
@@ -152,11 +168,13 @@ describe("messaggi e thread", () => {
     expect((await as(lead, "POST", `/api/chat/channels/${id}/read`, {})).statusCode).toBe(204);
     expect((await as(lead, "GET", `/api/chat/channels/${id}`)).json()).toMatchObject({ unread: 0 });
     const viewer = { id: lead.id, instancePermissions: new Set<never>() };
-    const all = await changedSince(t.db, viewer, id, undefined);
-    expect(all!.messages.map((m) => m.text)).toEqual(["uno", "due"]);
+    // Senza cursore lo stream non rimanda la storia (la carica la pagina): parte da adesso.
+    const seen = new Map<string, string>();
+    const start = await changedSince(t.db, viewer, id, undefined, seen);
+    expect(start!.messages).toEqual([]);
     await new Promise((r) => setTimeout(r, 15));
     await as(dev, "POST", `/api/chat/messages/${first.id}/reactions/toggle`, { emoji: "🎉" });
-    const after = await changedSince(t.db, viewer, id, all!.cursor ?? undefined);
+    const after = await changedSince(t.db, viewer, id, start!.cursor ?? undefined, seen);
     expect(after!.messages.map((m) => m.id)).toEqual([first.id]);
   });
 });

@@ -1713,7 +1713,8 @@
       "ticketActivity": "Activity on a followed task",
       "planningChanged": "Your plan changed",
       "taskAssigned": "Assigned to you",
-      "chatMention": "Mentioned in the chat"
+      "chatMention": "Mentioned in the chat",
+      "chatQuestion": "A question for you in the chat"
     },
     "actions": {
       "approvePlan": "Approve plan",
