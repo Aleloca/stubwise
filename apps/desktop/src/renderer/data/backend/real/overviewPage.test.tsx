@@ -139,4 +139,31 @@ describe("l'Overview nella build app", () => {
     // La prima pagina, più al massimo sei.
     expect(pages).toHaveLength(7);
   });
+
+  it("il registro oltre le 200 voci lette dice che sono le più recenti", async () => {
+    installFakeServer({
+      ...baseRoutes(),
+      [`GET /api/projects/${PROJECT_ID}/decisions`]: {
+        body: Array.from({ length: 200 }, (_, i) => ({
+          id: `bbbbbbbb-bbbb-4bbb-8bbb-${String(i).padStart(12, "0")}`,
+          projectId: PROJECT_ID,
+          source: "manual",
+          ticketId: null,
+          ticketNumber: null,
+          title: `Decision ${i}`,
+          context: null,
+          decision: "x",
+          consequences: null,
+          decidedBy: { id: ME_ID, email: "ada@example.com" },
+          decidedAt: "2026-10-01T09:00:00.000Z",
+          supersededById: null,
+          createdAt: "2026-10-01T09:00:00.000Z",
+        })),
+      },
+    });
+    renderRoute("/p/AUD/overview");
+    expect(
+      await screen.findByText("These are the latest 200 decisions: older ones aren't shown here."),
+    ).toBeInTheDocument();
+  });
 });

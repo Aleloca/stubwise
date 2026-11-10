@@ -56,6 +56,7 @@ export const createRequestAs: typeof Fake.createRequestAs = notIntegratedSync("c
 export const createTask: typeof Fake.createTask = notIntegrated("createTask") as never;
 export const createTaskAs: typeof Fake.createTaskAs = notIntegratedSync("createTaskAs") as never;
 export const decidePlan: typeof Fake.decidePlan = notIntegrated("decidePlan") as never;
+export const decisionLogTruncated: typeof Fake.decisionLogTruncated = notIntegratedSync("decisionLogTruncated") as never;
 export const defaultDepartmentOf: typeof Fake.defaultDepartmentOf = notIntegratedSync("defaultDepartmentOf") as never;
 export const deleteComment: typeof Fake.deleteComment = notIntegrated("deleteComment") as never;
 export const deleteCommentAs: typeof Fake.deleteCommentAs = notIntegratedSync("deleteCommentAs") as never;

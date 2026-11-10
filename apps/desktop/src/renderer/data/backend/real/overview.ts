@@ -45,8 +45,19 @@ function toEntry(d: ProjectDecision): DecisionLogEntry {
   };
 }
 
-export const listDecisionLog: typeof Fake.listDecisionLog = async (projectId) =>
-  (await appClient().projects.decisions(projectId, { limit: 200 })).map((d) => toEntry(d as ProjectDecision));
+/** Quante voci del registro si leggono: oltre, il registro dice che sono le più recenti. */
+const DECISION_LOG_LIMIT = 200;
+const truncatedLogs = new Set<string>();
+
+export const listDecisionLog: typeof Fake.listDecisionLog = async (projectId) => {
+  const rows = await appClient().projects.decisions(projectId, { limit: DECISION_LOG_LIMIT });
+  if (rows.length >= DECISION_LOG_LIMIT) truncatedLogs.add(projectId);
+  else truncatedLogs.delete(projectId);
+  return rows.map((d) => toEntry(d as ProjectDecision));
+};
+
+/** L'ultima lettura del registro del progetto è arrivata al tetto: ce ne sono forse di più vecchie. */
+export const decisionLogTruncated: typeof Fake.decisionLogTruncated = (projectId) => truncatedLogs.has(projectId);
 
 /** «Supera» si scrive con la voce nuova, nella stessa transazione (400 `invalid_supersede`). */
 export const recordDecision: typeof Fake.recordDecision = async (projectId, draft) =>

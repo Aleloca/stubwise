@@ -8,6 +8,7 @@ import {
   listDecisionLog,
   listPortfolioActivityPage,
   listTimelinePage,
+  decisionLogTruncated,
   listProjectPulses,
   projectPulse,
   recordDecision,
@@ -106,6 +107,19 @@ describe("i traguardi dal server", () => {
 });
 
 describe("il registro decisioni dal server", () => {
+  it("oltre le 200 voci lette il registro lo dice", async () => {
+    installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/decisions`]: {
+        body: Array.from({ length: 200 }, (_, i) => serverDecision({ id: `bbbbbbbb-bbbb-4bbb-8bbb-${String(i).padStart(12, "0")}` })),
+      },
+    });
+    expect(await listDecisionLog(PROJECT_ID)).toHaveLength(200);
+    expect(decisionLogTruncated(PROJECT_ID)).toBe(true);
+    installFakeServer({ [`GET /api/projects/${PROJECT_ID}/decisions`]: { body: [serverDecision()] } });
+    await listDecisionLog(PROJECT_ID);
+    expect(decisionLogTruncated(PROJECT_ID)).toBe(false);
+  });
+
   it("le voci nella forma del prototipo; registrare con «supera»; segnare superata", async () => {
     const { seen } = installFakeServer({
       [`GET /api/projects/${PROJECT_ID}/decisions`]: {

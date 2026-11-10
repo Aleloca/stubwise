@@ -2200,6 +2200,7 @@
       "nothingInWeeks": "Nothing of this type in these weeks"
     },
     "decisions": {
+      "truncated": "These are the latest {{count}} decisions: older ones aren't shown here.",
       "title": "Decision log",
       "record": "Record a decision",
       "empty": "No decisions recorded yet",

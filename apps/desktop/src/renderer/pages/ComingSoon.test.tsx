@@ -174,6 +174,7 @@ const INTEGRATED_CALLS = new Set([
   "updateMilestone",
   "deleteMilestone",
   "listDecisionLog",
+  "decisionLogTruncated",
   "recordDecision",
   "setDecisionSuperseded",
   "getLatestBrief",

@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  decisionLogTruncated,
   useDecisionLog,
   usePeople,
   useRecordDecision,
@@ -128,6 +129,9 @@ export function DecisionLog({
             />
           )}
         />
+        {decisionLogTruncated(projectId, log.data) && (
+          <p className="mt-2 pl-4 text-sm text-ink-muted">{t("overview.decisions.truncated", { count: entries.length })}</p>
+        )}
       </BlockSection>
       {recording && (
         <RecordDecisionDialog

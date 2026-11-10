@@ -673,6 +673,11 @@ export function useTimeline(projectId: string) {
   return usePagedTimeline(queryKeys.timeline(me, projectId), (before) => api.listTimelinePage(projectId, before));
 }
 
+/** Il registro letto è arrivato al tetto (build app): si legge dopo la lettura, quando i dati ci sono. */
+export function decisionLogTruncated(projectId: string, data: unknown): boolean {
+  return data !== undefined && api.decisionLogTruncated(projectId);
+}
+
 export function useDecisionLog(projectId: string) {
   const me = useSessionPersonId();
   return useQuery({
