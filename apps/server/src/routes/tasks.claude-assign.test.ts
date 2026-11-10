@@ -44,7 +44,7 @@ beforeAll(async () => {
   // Chi modifica le task ma NON avvia il lavoro (nessun preset è così: un ruolo apposta).
   const [role] = await testDb.db
     .insert(roles)
-    .values({ name: "Solo modifica", scope: "project", permissions: ["tickets.view_all", "tickets.edit"] })
+    .values({ name: "Solo modifica", scope: "project", permissions: ["tickets.view_all", "tickets.edit", "tickets.create"] })
     .returning({ id: roles.id });
   await testDb.db.insert(projectMembers).values({ projectId, userId: editorOnly.id, roleId: role!.id });
   const [claude] = await testDb.db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
@@ -151,6 +151,55 @@ describe("assegnare Claude avvia il lavoro", () => {
     expect(
       await testDb.db.select().from(tickets).where(and(eq(tickets.id, t), eq(tickets.assigneeId, claudeId))),
     ).toEqual([]);
+  });
+});
+
+describe("pianificare Claude chiede anche di poter modificare, e una task aperta", () => {
+  it("con runs.start ma senza tickets.edit: 403 forbidden e niente cambia; su una task chiusa: 403 forbidden e nessun run", async () => {
+    const runner = await createUserWithSession(app, "runner-only@example.com");
+    const [role] = await testDb.db
+      .insert(roles)
+      .values({ name: "Solo avvio", scope: "project", permissions: ["tickets.view_all", "runs.start", "planning.others"] })
+      .returning({ id: roles.id });
+    await testDb.db.insert(projectMembers).values({ projectId, userId: runner.id, roleId: role!.id });
+    const t = await task();
+    const refused = await req("POST", `/api/tasks/${t}/plan`, runner, { assigneeId: claudeId, week: null });
+    expect(refused.statusCode, refused.body).toBe(403);
+    expect(refused.json()).toMatchObject({ code: "forbidden" });
+    expect(await jobsOf(t)).toEqual([]);
+    const closed = await task();
+    await testDb.db.update(tickets).set({ closedAt: new Date(), status: "done" }).where(eq(tickets.id, closed));
+    const onClosed = await req("POST", `/api/tasks/${closed}/plan`, developer, { assigneeId: claudeId, week: null });
+    expect(onClosed.statusCode, onClosed.body).toBe(403);
+    const [row] = await testDb.db.select({ assigneeId: tickets.assigneeId }).from(tickets).where(eq(tickets.id, closed));
+    expect(row!.assigneeId).toBeNull();
+    expect(await jobsOf(closed)).toEqual([]);
+  });
+});
+
+describe("le porte vecchie (web vecchio, mobile, MCP) seguono la stessa regola", () => {
+  it("PATCH /api/tickets/:id: senza runs.start 403 claude_assign_forbidden e niente cambia; con runs.start assegnato e il run parte", async () => {
+    const t = await task();
+    const refused = await req("PATCH", `/api/tickets/${t}`, editorOnly, { assigneeId: claudeId });
+    expect(refused.statusCode, refused.body).toBe(403);
+    expect(refused.json()).toMatchObject({ code: "claude_assign_forbidden" });
+    const [row] = await testDb.db.select({ assigneeId: tickets.assigneeId }).from(tickets).where(eq(tickets.id, t));
+    expect(row!.assigneeId).toBeNull();
+    expect(await jobsOf(t)).toEqual([]);
+    const ok = await req("PATCH", `/api/tickets/${t}`, developer, { assigneeId: claudeId });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect((await jobsOf(t)).length).toBe(1);
+  });
+
+  it("POST /api/tickets già assegnato a Claude: senza runs.start 403 e niente nasce; con runs.start nasce e il run parte", async () => {
+    const before = (await testDb.db.select({ id: tickets.id }).from(tickets)).length;
+    const refused = await req("POST", "/api/tickets", editorOnly, { projectId, title: "Vecchia porta", type: "bug", priority: "medium", assigneeId: claudeId });
+    expect(refused.statusCode, refused.body).toBe(403);
+    expect(refused.json()).toMatchObject({ code: "claude_assign_forbidden" });
+    expect((await testDb.db.select({ id: tickets.id }).from(tickets)).length).toBe(before);
+    const ok = await req("POST", "/api/tickets", developer, { projectId, title: "Vecchia porta", type: "bug", priority: "medium", assigneeId: claudeId });
+    expect(ok.statusCode, ok.body).toBe(201);
+    expect((await jobsOf((ok.json() as { id: string }).id)).length).toBe(1);
   });
 });
 
