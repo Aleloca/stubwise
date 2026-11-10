@@ -74,6 +74,9 @@ function ConversationDecisionItem({
             { name: name(byId) },
           ),
         );
+      } else if ((error as { code?: unknown } | null)?.code === "plan_changed") {
+        // Il piano è stato riscritto dopo che lo si è letto: non si decide al buio.
+        toast.error(t("home.decide.claude.planChanged", { code: label }));
       } else toast.error(failed);
     });
     toast.show(done, { action: { label: t("home.decide.undo"), run: cancel } });

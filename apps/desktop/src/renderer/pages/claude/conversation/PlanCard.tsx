@@ -60,7 +60,8 @@ export function PlanCard({
   const decide = useDecidePlan();
   const [full, setFull] = useState(false);
   const [rejecting, setRejecting] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
+  /** `changed`: 409 `plan_changed`, il piano è stato riscritto dopo che lo si è letto. */
+  const [failed, setFailed] = useState<boolean | "changed">(false);
   const [lostTo, setLostTo] = useState<string | null>(null);
   const decidedBy = usePersonName(event.decidedById);
   const lostToName = usePersonName(lostTo);
@@ -99,7 +100,9 @@ export function PlanCard({
 
   if (event.status !== "pending") {
     const line =
-      event.status === "approved"
+      event.status === "undecided"
+        ? t("claude.conversation.plan.undecided")
+        : event.status === "approved"
         ? t("claude.conversation.plan.approvedBy", { name: decidedBy })
         : event.status === "pre_approved"
           ? t("claude.conversation.plan.preApprovedBy", { name: decidedBy })
@@ -139,6 +142,8 @@ export function PlanCard({
         onError: (error) => {
           if (error.message === "already_answered") {
             setLostTo((error as Error & { byId?: string | null }).byId ?? "");
+          } else if ((error as { code?: unknown }).code === "plan_changed") {
+            setFailed("changed");
           } else setFailed(true);
         },
       },
@@ -315,7 +320,7 @@ export function PlanCard({
       )}
       {failed && (
         <p role="alert" className="text-sm text-critical">
-          {t("claude.conversation.plan.failed")}
+          {t(failed === "changed" ? "claude.conversation.plan.changed" : "claude.conversation.plan.failed")}
         </p>
       )}
     </section>

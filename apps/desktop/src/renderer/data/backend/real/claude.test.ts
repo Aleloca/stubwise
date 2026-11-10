@@ -315,4 +315,34 @@ describe("il lavoro di una task dal server", () => {
     expect((await getTaskWork(TICKET_ID))!.runs[0]!.events).toEqual([]);
     expect(await getTaskWork("44444444-4444-4444-8444-44444444dead")).toBeNull();
   });
+
+  it("un piano senza esito verificabile si legge «non deciso», mai approvato; una domanda annullata non si risponde", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject()] },
+      "GET /api/auth/me": { body: me() },
+      [`GET /api/agent-sessions/${SESSION_ID}`]: {
+        body: {
+          ...serverSession({ state: "ended", outcome: "skipped" }),
+          questions: [
+            { id: "dddddddd-0000-4000-8000-000000000001", source: "agent", question: "Which?", askedAt: "2026-11-10T09:02:00.000Z", answered: false, canAnswer: true, cancelled: true },
+          ],
+          inputs: [],
+        },
+      },
+      [`GET /api/agent-sessions/${SESSION_ID}/events`]: { body: { events: [], before: null } },
+      [`GET /api/tasks/${TICKET_ID}/work`]: {
+        body: {
+          claude: "none",
+          webHref: "/x",
+          runs: [
+            { id: JOB_ID, sessionId: SESSION_ID, createdAt: "2026-11-10T09:00:00.000Z", state: "finished", outcome: "stopped", plan: { text: "1.", summary: "s", status: "undecided", at: "2026-11-10T09:01:00.000Z", digest: "d1" } },
+          ],
+        },
+      },
+    });
+    const detail = await getConversation(SESSION_ID);
+    expect(detail!.events.find((e) => e.type === "plan")).toMatchObject({ status: "undecided", id: `plan:${JOB_ID}` });
+    expect(detail!.canAnswer).toBe(false);
+    expect(detail!.events.find((e) => e.type === "question")).toMatchObject({ answer: null });
+  });
 });

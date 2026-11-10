@@ -122,4 +122,6 @@ export {
   stopAndSend,
 } from "./claudeActions";
 // Fetta 3d: «By person» di Activity (lo standup aggregato dal server) e i report del giorno.
-export { listDailyReports, listPeopleActivity } from "./peopleActivity";
+export { generateDailyReport, listDailyReports, listPeopleActivity } from "./peopleActivity";
+// Fetta 3c: il refinement delle richieste.
+export { closeRefine, getRefineOf, startRefineConversation } from "./claudeRefine";

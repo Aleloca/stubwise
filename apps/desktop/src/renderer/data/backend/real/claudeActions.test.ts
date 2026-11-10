@@ -66,6 +66,9 @@ describe("le azioni sulla task", () => {
       },
       [`POST /api/tickets/${TICKET_ID}/run-ai`]: { status: 202, body: { jobId: HELD, status: "queued" } },
       [`POST /api/tickets/${TICKET_ID}/repositories/${REPO}/corrections`]: { status: 202, body: { correctionId: JOB, status: "queued" } },
+      [`GET /api/tasks/${TICKET_ID}/work`]: {
+        body: { claude: "done", webHref: "/x", requestChangesPerPr: [{ repo: "acme/app", number: 7, availability: "allowed" }] },
+      },
     });
     await resumeCorrection(TICKET_ID);
     expect(seen.find((r) => r.method === "POST")!.body).toEqual({ resumeCorrectionJobId: HELD });
@@ -155,5 +158,24 @@ describe("«Da decidere» di Claude", () => {
   it("un server senza la rotta (prima della 3b): nessuna voce, non un errore", async () => {
     installFakeServer({});
     expect(await listClaudeDecisions()).toEqual([]);
+  });
+
+  it("approvare e rifiutare dal «Da decidere» rimandano il digest del piano letto; plan_changed arriva col suo codice", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/me/claude-decisions": {
+        body: [
+          { id: `${JOB}:plan`, kind: "plan", conversationId: SESSION, title: "Export", projectId: PROJECT_ID, taskId: TICKET_ID, at: "2026-11-10T09:00:00.000Z", planId: JOB, summary: "Do it", planDigest: "sha256:abc", webHref: "/x" },
+        ],
+      },
+      [`POST /api/tickets/${TICKET_ID}/approve-plan`]: { status: 409, body: { code: "plan_changed", message: "x" } },
+      [`POST /api/tickets/${TICKET_ID}/reject-plan`]: { status: 202, body: { jobId: JOB } },
+    });
+    await listClaudeDecisions();
+    await expect(decidePlan(SESSION, "approve", undefined, JOB)).rejects.toMatchObject({ code: "plan_changed" });
+    await decidePlan(SESSION, "reject", "Smaller", JOB);
+    expect(seen.filter((r) => r.method === "POST").map((r) => r.body)).toEqual([
+      { planDigest: "sha256:abc" },
+      { instructions: "Smaller", planDigest: "sha256:abc" },
+    ]);
   });
 });

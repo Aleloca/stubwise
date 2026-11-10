@@ -198,7 +198,12 @@ const INTEGRATED_CALLS = new Set([
   "listClaudeDecisions",
   // Area 3, fetta 3d: «By person» di Activity.
   "listPeopleActivity",
+  // Area 3, fetta 3c: il refinement delle richieste.
+  "getRefineOf",
+  "startRefineConversation",
+  "closeRefine",
   "listDailyReports",
+  "generateDailyReport",
   "recordDecision",
   "setDecisionSuperseded",
   "getLatestBrief",
@@ -477,11 +482,12 @@ describe("le superfici della fetta 4 nella build app", () => {
     cleanup();
     renderRoute("/p/STW/requests?request=req-stw-1");
     const panel = await screen.findByRole("dialog");
-    // Il refine con Claude è dell'area 3: il bottone c'è, spento.
-    expect(await within(panel).findByRole("button", { name: "Refine with Claude" })).toBeDisabled();
+    // Dalla fetta 3c (area 3) il refine con Claude è acceso.
+    expect(await within(panel).findByRole("button", { name: "Refine with Claude" })).toBeEnabled();
     cleanup();
+    // `?refine=1` apre la vista del refinement (fetta 3c), che legge la sessione della richiesta.
     renderRoute("/p/STW/requests?request=req-stw-1&refine=1");
-    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("getRefineOf"));
     await settle();
     expect(outside()).toEqual([]);
   });

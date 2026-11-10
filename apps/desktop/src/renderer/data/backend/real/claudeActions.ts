@@ -2,7 +2,7 @@ import { ApiError } from "@stubwise/api-client";
 import type { ClaudeDecisionView, Reader } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ClaudeDecision, Conversation } from "../../types";
-import { ticketOfConversation } from "./claude";
+import { planDigestOf, ticketOfConversation } from "./claude";
 import { appClient } from "./client";
 
 // Le azioni di Claude nella build app (integrazione area 3, fetta 3b «Agire»).
@@ -71,9 +71,18 @@ export const resumeCorrection: typeof Fake.resumeCorrection = async (taskId) => 
 };
 
 /** «Chiedi modifiche»: sulla PR aperta che il server dice correggibile (o la prima aperta). */
+/** Il numero di una PR dal suo indirizzo (`…/pull/7`, `…/pull-requests/7`, `…/merge_requests/7`). */
+const prNumberOf = (url: string | null) => Number(/\/(?:pull|pull-requests|merge_requests)\/(\d+)/.exec(url ?? "")?.[1] ?? NaN);
+
 export const requestChanges: typeof Fake.requestChanges = async (taskId, text) => {
-  const repos = (await repositoriesOf(taskId)).filter((r) => r.prState === "open");
-  const repo = repos.find((r) => r.cycle?.canRequestCorrection) ?? repos[0];
+  const [repositories, work] = await Promise.all([repositoriesOf(taskId), appClient().tasks.work(taskId)]);
+  const repos = repositories.filter((r) => r.prState === "open");
+  // Su quale PR lo dice il server (`requestChangesPerPr`): la prima permessa.
+  const allowed = work.requestChangesPerPr.filter((p) => p.availability === "allowed");
+  const repo =
+    repos.find((r) => allowed.some((p) => p.number === prNumberOf(r.prUrl))) ??
+    repos.find((r) => r.cycle?.canRequestCorrection) ??
+    repos[0];
   if (!repo) throw Object.assign(new Error("pr_not_open"), { code: "pr_not_open" });
   const note = text.trim();
   const out = await appClient().tickets.requestCorrection(taskId, repo.repositoryId, note ? { note } : {});
@@ -102,10 +111,18 @@ async function ticketOf(conversationId: string): Promise<string> {
 }
 
 /** Approva o rifiuta il piano in attesa (solo `plans.approve`: lo decide il server). */
-export const decidePlan: typeof Fake.decidePlan = async (id, decision, instructions) => {
+export const decidePlan: typeof Fake.decidePlan = async (id, decision, instructions, planId) => {
   const ticketId = await ticketOf(id);
-  if (decision === "approve") await appClient().tickets.approvePlan(ticketId);
-  else await appClient().tickets.rejectPlan(ticketId, instructions?.trim() ? { instructions: instructions.trim() } : undefined);
+  // Il piano LETTO: col suo digest il server rifiuta (409 `plan_changed`) un piano riscritto nel frattempo.
+  const planDigest = planDigestOf.get(id) ?? (planId ? planDigestOf.get(planId.replace(/^plan:/, "")) : undefined);
+  const digest = planDigest ? { planDigest } : {};
+  if (decision === "approve") {
+    await appClient().tickets.approvePlan(ticketId, digest);
+  } else {
+    const text = instructions?.trim();
+    const body = { ...(text ? { instructions: text } : {}), ...digest };
+    await appClient().tickets.rejectPlan(ticketId, Object.keys(body).length > 0 ? body : undefined);
+  }
 };
 
 /** Sul piano salvato (409 `no_plan` senza): il server la tiene sul suo digest. */
@@ -145,6 +162,7 @@ function toDecision(d: Reader<ClaudeDecisionView>): ClaudeDecision | null {
   // Senza sessione la voce si riconosce dal suo id: le azioni vanno comunque al ticket.
   const conversationId = d.conversationId ?? d.id;
   ticketOfConversation.set(conversationId, d.taskId);
+  if (d.kind === "plan" && d.planDigest) planDigestOf.set(conversationId, d.planDigest);
   const base = {
     id: d.id,
     conversationId,

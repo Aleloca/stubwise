@@ -62,6 +62,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // (la sessione seguita), e le voci di Claude in «Da decidere».
     "claude-actions",
     "claude-decisions",
+    // Fetta 3c: il refinement delle richieste («Refine with Claude»).
+    "refine",
   ]),
 };
 

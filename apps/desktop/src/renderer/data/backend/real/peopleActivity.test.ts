@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { DEPT_ID, installFakeServer, ME_ID, PROJECT_ID, TICKET_ID } from "./fakeServer";
-import { listDailyReports, listPeopleActivity } from "./peopleActivity";
+import { generateDailyReport, listDailyReports, listPeopleActivity } from "./peopleActivity";
 
 // «By person» di Activity nella build app (integrazione area 3, fetta 3d): lo
 // standup aggregato dal server, solo dei progetti che chi guarda vede, con
@@ -56,7 +56,7 @@ describe("l'attività per persona dal server", () => {
     await expect(listPeopleActivity("2026-11-10")).rejects.toThrow("forbidden");
   });
 
-  it("i report del giorno: fatti o falliti, coi commit arrivati dopo; quelli in coda non ci sono ancora", async () => {
+  it("i report del giorno: fatti o falliti, coi commit arrivati dopo; quelli in coda si stanno scrivendo", async () => {
     installFakeServer({
       "GET /api/activity": {
         body: {
@@ -72,6 +72,18 @@ describe("l'attività per persona dal server", () => {
     expect(await listDailyReports("2026-11-10")).toEqual([
       { id: `${PROJECT_ID}:2026-11-10`, projectId: PROJECT_ID, date: "2026-11-10", summary: "Shipped the export.", generatedAt: null, newCommits: 2 },
       { id: "22222222-2222-4222-8222-222222222223:2026-11-10", projectId: "22222222-2222-4222-8222-222222222223", date: "2026-11-10", summary: null, generatedAt: null, newCommits: 0 },
+      { id: "22222222-2222-4222-8222-222222222224:2026-11-10", projectId: "22222222-2222-4222-8222-222222222224", date: "2026-11-10", summary: null, generatedAt: null, newCommits: 0, pending: true },
+    ]);
+  });
+
+  it("generare rigenera i report di TUTTI i progetti del giorno: una chiamata sola anche per più progetti", async () => {
+    const { seen } = installFakeServer({ "POST /api/activity/generate": { body: { queued: 3 } } });
+    await Promise.all([
+      generateDailyReport(PROJECT_ID, "2026-11-10"),
+      generateDailyReport("22222222-2222-4222-8222-222222222223", "2026-11-10"),
+    ]);
+    expect(seen.map((r) => [r.method, r.path, r.body])).toEqual([
+      ["POST", "/api/activity/generate", { date: "2026-11-10", force: true }],
     ]);
   });
 });

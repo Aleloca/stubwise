@@ -119,7 +119,7 @@ export const ipcTransport: StreamTransport = (path, handlers) => {
         messages: message.messages,
         lastId: message.lastId,
         invalidSession: message.invalidSession,
-        real: message.messages.length > 0 || message.lastId !== null,
+        real: message.real,
       });
     } else if (message.type === "end") {
       done = true;

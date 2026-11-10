@@ -234,6 +234,8 @@ export type PrFactView = Omit<PrFact, "taskId">;
 /** Un report giornaliero con i commit della giornata arrivati dopo che è stato scritto. */
 export interface DailyReportView extends DailyReport {
   newCommits: number;
+  /** Build app: il report è in coda o si sta scrivendo (`GET /api/activity`). Assente nel prototipo. */
+  pending?: boolean;
 }
 
 /**

@@ -16,6 +16,6 @@ standup aggregato dal server (decisione del maintainer). Piano:
 | Scelta o limite | Chi ha deciso |
 |---|---|
 | `tasksDeleted` sempre vuoto (il server non tiene le task eliminate), `viaClaude` sempre falso, i commit legati alla persona per email | server |
-| «Generate report» per progetto spento (`daily-report-generate`): il server rigenera i report di tutti i progetti insieme (`POST /api/activity/generate`, `settings.manage`) | costruttore |
-| «Link a person» per un autore di commit spento (`commit-author-link`): non c'è ancora una rotta | costruttore |
-| Un report in coda o in scrittura non si mostra come report (la riga dice «non generato»); il server non dice quando è stato scritto (`generatedAt: null`) | costruttore |
+| **Differenza dal prototipo**: «Rigenera i report di tutti i progetti di quel giorno» al posto di «Generate report» per progetto. Il server rigenera i report di TUTTI i progetti del giorno (`POST /api/activity/generate`, `force: true`, `settings.manage`); più progetti chiesti insieme fanno una chiamata sola | orchestratrice |
+| Un report in coda o in scrittura si legge «in generazione» (`pending`, solo nella build app); il server non dice quando è stato scritto (`generatedAt: null`) | costruttore |
+| «Link a person» per un autore di commit spento (`commit-author-link`): il server lega i commit dell'attività alla persona solo per `users.email`, quindi un'identità git o uno username del provider non cambierebbero lo standup; e la riga di un autore non collegato non porta la sua email | costruttore (segnalato all'orchestratrice) |
