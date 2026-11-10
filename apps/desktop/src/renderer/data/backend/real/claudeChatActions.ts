@@ -6,6 +6,7 @@ import type { ConversationEvent, ProposedAction, UndoView } from "../../types";
 import { appClient, session } from "./client";
 import { taskCodeOf } from "./claudeChat";
 import { knownTaskCode } from "./tasks";
+import { ACTIONS } from "../../../domain/access/actions";
 
 // Le proposte e le azioni di Claude nella chat della build app (chat, fetta 3,
 // F3.4; design `2026-11-10-integrazione-claude-chat-design.md`, «Proposte e
@@ -117,9 +118,12 @@ const needsCode = (fn: string) =>
 // --- le schede e le righe ------------------------------------------------------------
 
 /**
- * La voce di «Who can…?» per un rifiuto `forbidden`, come nel catalogo del
- * prototipo (`whoAction` di `data/claude/catalog.ts`, che qui non si importa:
- * porta con sé lo stato finto). Solo le `fn` del catalogo del server.
+ * RIPIEGO per un server più vecchio, che non dice il permesso mancante
+ * (`failure.permission`): la voce di «Who can…?» dalla `fn`, come nel
+ * catalogo del prototipo (`data/claude/catalog.ts`, che qui non si importa:
+ * porta con sé lo stato finto). Col permesso del server vale quello (vedi
+ * `whoActionOf`); qui serve anche a scegliere fra due azioni dello stesso
+ * permesso (`tickets.moderate`: commenti o task).
  */
 const WHO_ACTION: Partial<Record<string, string>> = {
   createTask: "createTasks",
@@ -158,10 +162,23 @@ function failureOf(p: ProposalView): ExecutedFailure | undefined {
   return {
     code,
     index: f.index,
-    whoAction: code === "forbidden" && fn ? (WHO_ACTION[fn] ?? null) : null,
+    whoAction: code === "forbidden" ? whoActionOf(f.permission ?? null, fn) : null,
     projectId: f.projectId,
     projectCode: null,
   };
+}
+
+/**
+ * Il «Who?» di un rifiuto per permesso: l'azione del catalogo `ACTIONS` col
+ * permesso che il SERVER dice mancare (`failure.permission`). Se più azioni
+ * hanno lo stesso permesso vale quella suggerita dalla `fn`, se coincide.
+ * Senza permesso (un server più vecchio) si ripiega su `WHO_ACTION`.
+ */
+function whoActionOf(permission: string | null, fn: string | undefined): string | null {
+  const hinted = fn ? WHO_ACTION[fn] : undefined;
+  if (permission === null) return hinted ?? null;
+  const matches = ACTIONS.filter((a) => a.permission === permission);
+  return (matches.find((a) => a.id === hinted) ?? matches[0])?.id ?? null;
 }
 
 const codeOfAction = (a: { fn: string; args: Record<string, unknown> }, codes: Map<string, string>) =>
@@ -429,11 +446,39 @@ async function undoClaudeActions(
         return { ok: false, error: "not_undoable" };
       case "reauth_required":
         return { ok: false, error: "reauth_required" };
+      case "refused":
+        return refusedUndo(error.details);
       default:
         if (error.status === 404) return { ok: false, error: "not_found" };
         throw error;
     }
   }
+}
+
+/**
+ * Un «Undo» rifiutato dal server (409 `refused` con `failure`): nella forma
+ * del prototipo — `forbidden` col «Who?» del permesso, `busy` occupato (la
+ * riga offre di riprovare con un clic); ogni altro motivo non si annulla da
+ * qui, senza un «Retry» che fallirebbe uguale.
+ */
+function refusedUndo(details: unknown): Awaited<ReturnType<Fake["claude"]["undoClaudeActions"]>> {
+  const failure = (details as { failure?: unknown } | undefined)?.failure as
+    | { code?: string; permission?: string | null; projectId?: string | null }
+    | undefined;
+  if (failure?.code === "forbidden") {
+    return {
+      ok: false,
+      error: "forbidden",
+      whoAction: whoActionOf(failure.permission ?? null, undefined),
+      projectId: failure.projectId ?? null,
+      projectCode: null,
+    };
+  }
+  if (failure?.code === "busy") {
+    // Il server non dice ancora PERCHÉ è occupato: la frase generica.
+    return { ok: false, error: "busy", reasons: [{ kind: "claude_session", code: null }] };
+  }
+  return { ok: false, error: "not_undoable" };
 }
 
 /** Il namespace `claude` della build app: solo «Undo» (il resto è del prototipo). */
