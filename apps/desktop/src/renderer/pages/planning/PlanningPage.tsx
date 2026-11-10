@@ -22,7 +22,7 @@ import {
   tasksTruncated,
   useTasks,
 } from "../../data/queries";
-import { featureIntegrated } from "../../data/integration";
+import { assignableIn, isAssignableIn } from "../../data/assignable";
 import type { FilterCriteria, Person, Project, Task } from "../../data/types";
 import { can, useViewer } from "../../data/viewing";
 import {
@@ -162,9 +162,9 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
       me,
       others: can(viewer, "planning.others", task.projectId),
       edit: can(viewer, "tickets.edit", task.projectId),
-      members: projectById.get(task.projectId)?.memberIds ?? [],
+      members: assignableIn(projectById.get(task.projectId), people.data ?? []),
     }),
-    [me, viewer, projectById],
+    [me, viewer, projectById, people.data],
   );
   const othersHere = projectId ? can(viewer, "planning.others", projectId) : false;
   const blockText = useCallback(
@@ -185,14 +185,10 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
 
   // --- righe e carico --------------------------------------------------------
   const rowPeople = useMemo(() => {
-    // Claude ha una riga solo dove assegnargli una task è integrato (nella build
-    // app non ancora: integrazione area 2, fetta 2).
-    const claudeRow = featureIntegrated("claude-assign");
-    const list = (people.data ?? []).filter((p) => claudeRow || !p.isClaude);
-    if (projectCode) {
-      const members = new Set(project?.memberIds ?? []);
-      return list.filter((p) => members.has(p.id)).sort(byName);
-    }
+    // Claude ha una riga dove si assegna (nella build app: i progetti della sua
+    // riga di `/api/people`, area 3 3e.2).
+    const list = people.data ?? [];
+    if (projectCode) return list.filter((p) => isAssignableIn(p, project)).sort(byName);
     // Trasversale: le persone del reparto, e Claude sempre ultimo.
     return list.filter((p) => p.isClaude || (departmentId && p.departmentIds.includes(departmentId))).sort(byName);
   }, [people.data, projectCode, project, departmentId]);
@@ -573,13 +569,11 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
 
 /**
  * I candidati del menu «Plan»: i membri del progetto della task, Claude per
- * ultimo dove assegnargli una task è integrato (come le righe: nella build app
- * non ancora).
+ * ultimo dove si assegna (come le righe: `isAssignableIn`).
  */
 function candidates(task: Task, projects: Map<string, Project>, people: Person[]): Person[] {
-  const members = new Set(projects.get(task.projectId)?.memberIds ?? []);
-  const claude = featureIntegrated("claude-assign");
-  return people.filter((p) => members.has(p.id) && (claude || !p.isClaude)).sort(byName);
+  const project = projects.get(task.projectId);
+  return people.filter((p) => isAssignableIn(p, project)).sort(byName);
 }
 
 /** «Oct 19 – Nov 6»: dal lunedì della prima settimana al venerdì dell'ultima. */

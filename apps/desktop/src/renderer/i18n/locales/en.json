@@ -887,7 +887,9 @@
       "done_one": "Changed {{count}} task.",
       "done_other": "Changed {{count}} tasks.",
       "failed_one": "Couldn't change {{count}} task. It's back as it was.",
-      "failed_other": "Couldn't change {{count}} tasks. They're back as they were."
+      "failed_other": "Couldn't change {{count}} tasks. They're back as they were.",
+      "claudeForbidden_one": "You can't give {{count}} task to Claude: only someone who can start Claude's work in its project can. It's back as it was.",
+      "claudeForbidden_other": "You can't give these {{count}} tasks to Claude: only someone who can start Claude's work in their project can. They're back as they were."
     },
     "board": {
       "label": "Board",
@@ -1845,7 +1847,8 @@
       "forbidden": "You can't move {{code}}: only its assignee or someone who plans for others can.",
       "invalid_assignee": "{{code}} can only go to a member of its project.",
       "past_week": "{{code}} can't be planned in a week that's over.",
-      "not_in_week": "{{code}} isn't in this week any more."
+      "not_in_week": "{{code}} isn't in this week any more.",
+      "claude_assign_forbidden": "You can't give {{code}} to Claude: only someone who can start Claude's work in this project can."
     }
   },
   "requests": {

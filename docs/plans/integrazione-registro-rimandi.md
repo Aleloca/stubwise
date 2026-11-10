@@ -19,10 +19,6 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
 
 ## Area 3 — Claude come collega (in corso)
 
-- 3e **Claude assegnabile, renderer (3e.2)** *(M)*: riga Claude nel Planning
-  con il suo carico; Claude fra gli assegnatari solo dove la sua riga di
-  `/api/people` lo dice (`claudeAssignableProjectIds`, calcolato dal server). Il
-  server è fatto (3e.1, sotto in «Chiuse»).
 - «Annulla il lavoro» DOPO il push *(O, 10 nov 2026)*: non vale più, la PR si
   apre comunque (il lavoro è già sul remoto). Accettato; da riguardare se un
   giorno serve «annulla e chiudi la PR».
@@ -33,8 +29,6 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   cambio l'ha fatto Claude per una persona).
 - Il dettaglio della sessione non porta il piano né il suo digest *(S)*: il
   digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».
-- Polso e «aspetta te» con Claude: «Claude al lavoro», «Claude aspetta te» nel
-  polso dei progetti e nel portafoglio *(O)* (oggi esclusi, `integration-slice4.md`).
 - «Link a person» nello standup, renderer *(O)*: dal desktop il gesto (con
   riconferma) apre il web; la riga senza persona porta già `authorEmail` e
   `authorUsername`. Il server è fatto (sotto in «Chiuse»).
@@ -48,6 +42,10 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
 - `generatedAt` dei report giornalieri *(S)*.
 - Report giornaliero per progetto (oggi si rigenerano tutti i progetti del
   giorno) *(O, differenza dal prototipo)*.
+- La riga di Claude nel Planning di progetto per chi NON può assegnarlo *(O,
+  10 nov 2026, costruttore)*: oggi c'è solo dove `claudeAssignableProjectIds`
+  elenca il progetto; chi non ha `runs.start` vede le task di Claude nelle
+  liste ma non la sua riga (`apps/desktop/docs/integration-area3e.md`).
 
 ## Fase «Chat con Claude e azioni» (dopo l'area 3)
 
@@ -146,6 +144,14 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- Area 3, 3e.2 **Claude assegnabile, renderer** *(M)*: riga e carico nel
+  Planning, assegnatario solo dove `claudeAssignableProjectIds` lo dice, la sua
+  frase per `claude_assign_forbidden` — commit «feat(desktop): Claude
+  assegnabile (3e.2)», `apps/desktop/docs/integration-area3e.md`.
+- Polso e «aspetta te» con Claude *(O)*: «Claude al lavoro» (sessioni `ai_job`
+  dal vivo) e «Claude aspetta te» (voci di Claude in «Da decidere») nel polso e
+  sulle tessere — stesso commit.
 
 - Area 3, 3e.1 **Claude assegnabile, server** *(M)*: utente di sistema (0125,
   `users.is_agent`), niente accesso né notifiche, assegnarlo avvia il run con le
