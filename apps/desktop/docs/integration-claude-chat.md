@@ -69,7 +69,7 @@ help you…»), `claude-chat-actions` (proposte e azioni in chat) e `product-doc
 |---|---|
 | Eliminazione VERA, regole del prototipo (chi: autore con `tickets.edit` o `tickets.moderate`; busy; niente annullamento né riconferma) | maintainer |
 | La lapide tiene codice, titolo, richiesta d'origine, chi, quando: mai descrizione, commenti, allegati, storia | orchestratrice / costruttore |
-| Le sessioni dell'agente della task se ne vanno con lei (il prototipo le tiene): la loro visibilità passa dal ticket | costruttore (registro) |
+| Le sessioni dell'agente della task se ne vanno con lei (il prototipo le tiene): la loro visibilità passa dal ticket. Il dialogo lo dice («Anche il lavoro di Claude su questa task… viene eliminato; restano i consumi e il registro decisioni») | maintainer |
 | Una ragione in più di `busy`: «una correzione della sua PR è ancora aperta» (`open_correction`); i fix di server e rilasci del prototipo non ci sono (aree non integrate) | costruttore |
 | Gli allegati si tolgono anche dallo storage, dopo il commit e best-effort (come l'eliminazione di un commento) | costruttore |
 

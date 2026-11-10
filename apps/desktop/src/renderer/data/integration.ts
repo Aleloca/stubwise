@@ -99,6 +99,15 @@ export function serverIntake(): boolean {
 }
 
 /**
+ * Sul server vero eliminare una task porta via anche il lavoro di Claude su
+ * di lei (sessioni, piano, domande; decisione del maintainer del 10 nov
+ * 2026): il dialogo lo dice. Nel prototipo le sessioni restano.
+ */
+export function serverDeletesClaudeWork(): boolean {
+  return isAppBuild();
+}
+
+/**
  * Sul server vero le conversazioni con Claude inattive da 14 giorni si potano
  * (come le altre sessioni): la casella lo dice. Nel prototipo non si potano.
  */

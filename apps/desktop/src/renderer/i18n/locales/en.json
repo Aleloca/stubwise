@@ -12240,7 +12240,8 @@
         "forbidden": "You can no longer delete {{code}}. Nothing was deleted.",
         "failed": "Couldn't delete {{code}}. Try again.",
         "retry": "Retry",
-        "quoted": "“{{title}}”"
+        "quoted": "“{{title}}”",
+        "goesClaude": "Claude's work on this task (sessions, plan, questions) is deleted too; the AI usage and the decision log stay."
       },
       "busy": {
         "title": "{{code}} can't be deleted yet",
