@@ -25,13 +25,12 @@ ALTER TABLE "backlog_items" ADD CONSTRAINT "backlog_items_project_number_unique"
 --> statement-breakpoint
 -- Il numero dopo del progetto, sotto il lock della sua riga: due voci
 -- concorrenti non prendono lo stesso. Anche una voce che cambia progetto
--- prende il numero dopo nel progetto nuovo.
+-- prende il numero dopo nel progetto nuovo. Un `number` passato all'insert è
+-- IGNORATO: rispettarlo lascerebbe il contatore indietro, e il prossimo
+-- insert fallirebbe sul vincolo unico.
 CREATE FUNCTION backlog_items_assign_number() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-	IF TG_OP = 'INSERT' AND NEW."number" IS NOT NULL THEN
-		RETURN NEW;
-	END IF;
 	IF TG_OP = 'UPDATE' AND NEW."project_id" IS NOT DISTINCT FROM OLD."project_id" THEN
 		RETURN NEW;
 	END IF;
