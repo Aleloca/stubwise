@@ -11,8 +11,10 @@ import {
   claudeConversationListQuerySchema,
   claudeConversationListSchema,
   claudeConversationSchema,
+  claudeVisibilityConfirmationSchema,
   createClaudeConversationSchema,
   patchClaudeConversationSchema,
+  setClaudeConversationVisibilitySchema,
 } from "@stubwise/shared";
 import { apiError } from "../errors.js";
 import {
@@ -21,6 +23,7 @@ import {
   getClaudeConversation,
   listClaudeConversations,
   patchClaudeConversation,
+  setClaudeConversationVisibility,
 } from "../services/claude-conversations.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
 import { createProposal, listGroups, listProposals, ownLiveConversation } from "../claude-actions/proposals.js";
@@ -56,6 +59,7 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
     },
     async (request) =>
       listClaudeConversations(app.db, request.user!, {
+        scope: request.query.scope,
         archived: request.query.archived === "true",
         ...(request.query.limit !== undefined ? { limit: request.query.limit } : {}),
         ...(request.query.before !== undefined ? { before: request.query.before } : {}),
@@ -105,6 +109,36 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
       const updated = await patchClaudeConversation(app.db, request.user!, request.params.id, request.body);
       if (!updated) return apiError(reply, 404, "not_found", "Conversation not found");
       return updated;
+    },
+  );
+
+  /**
+   * «Make public» / «Make private» e la riconferma del seguito privato (fetta
+   * 5): solo l'autore. Pubblicare vuole i progetti letti o toccati confermati
+   * (409 `needs_confirmation` con l'elenco e `includesToolReads`). Il token
+   * del turno non ci arriva (non è nell'allowlist).
+   */
+  app.post(
+    "/:id/visibility",
+    {
+      config: { access: ACCESS },
+      schema: {
+        params: idParams,
+        body: setClaudeConversationVisibilitySchema,
+        response: {
+          200: claudeConversationSchema,
+          404: errorSchema,
+          409: z.union([claudeVisibilityConfirmationSchema, errorSchema]),
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await setClaudeConversationVisibility(app.db, request.user!, request.params.id, request.body);
+      if (result.ok) return result.conversation;
+      if (result.error === "needs_confirmation") return reply.code(409).send(result.confirmation);
+      if (result.error === "not_found") return apiError(reply, 404, "not_found", "Conversation not found");
+      return apiError(reply, 409, "conversation_archived", "An archived conversation can't be made public");
     },
   );
 

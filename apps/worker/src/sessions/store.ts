@@ -1,6 +1,6 @@
 // apps/worker/src/sessions/store.ts
-import { and, eq, lt, sql } from "drizzle-orm";
-import { agentSessionEvents, agentSessionInputs, agentSessions, type Db } from "@stubwise/db";
+import { and, eq, lt, sql, type AnyColumn } from "drizzle-orm";
+import { agentSessionEvents, agentSessionInputs, agentSessions, claudeConversations, type Db } from "@stubwise/db";
 import {
   AGENT_SESSION_EVENTS_CHANNEL,
   AGENT_SESSION_PARTIAL_CHANNEL,
@@ -449,17 +449,22 @@ export async function pruneAgentSessions(
   // Stringa ISO con cast esplicito: postgres-js non serializza un Date dentro
   // un frammento `sql` grezzo (la coalesce), solo nei confronti su colonna.
   const cutoff = sql`${new Date(now.getTime() - AGENT_SESSION_RETENTION_DAYS * 86_400_000).toISOString()}::timestamptz`;
+  // Una conversazione PUBBLICA con Claude non si pota, e una tornata privata
+  // («Make private») riparte da quel momento (fetta 5, D5 del maintainer):
+  // né la sessione né i suoi eventi e interventi.
+  const kept = (sessionId: AnyColumn) =>
+    sql`not exists (select 1 from ${claudeConversations} cc where cc.session_id = ${sessionId} and (cc.visibility = 'public' or cc.visibility_changed_at >= ${cutoff}))`;
   const sessions = await db
     .delete(agentSessions)
-    .where(lt(sql`coalesce(${agentSessions.lastEventAt}, ${agentSessions.startedAt})`, cutoff))
+    .where(and(lt(sql`coalesce(${agentSessions.lastEventAt}, ${agentSessions.startedAt})`, cutoff), kept(agentSessions.id)))
     .returning({ id: agentSessions.id });
   const events = await db
     .delete(agentSessionEvents)
-    .where(lt(agentSessionEvents.createdAt, cutoff))
+    .where(and(lt(agentSessionEvents.createdAt, cutoff), kept(agentSessionEvents.sessionId)))
     .returning({ id: agentSessionEvents.id });
   const inputs = await db
     .delete(agentSessionInputs)
-    .where(lt(agentSessionInputs.createdAt, cutoff))
+    .where(and(lt(agentSessionInputs.createdAt, cutoff), kept(agentSessionInputs.sessionId)))
     .returning({ id: agentSessionInputs.id });
   return { sessions: sessions.length, events: events.length, inputs: inputs.length };
 }

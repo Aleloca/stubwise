@@ -365,3 +365,38 @@
     SOLO l'esecutore, e l'attore resta la persona.
   - **Al modello non arriva ciò che non serve**: dalle letture via le chiavi
     da segreto, da `list_people` via le email.
+
+- **Chat con Claude: una conversazione PUBBLICA si legge come la decide il
+  server, e gli eventi dei tool restano visibili ai lettori (10 nov 2026,
+  fetta 5).** La regola, in UN modulo (`apps/server/src/services/claude-public.ts`):
+  - **Chi la vede**: l'autore; da pubblica, chi ha `claude.public.view`
+    (`visibleTo`, nella WHERE). Una privata resta dell'autore, anche per un
+    full admin. Solo l'autore scrive, pubblica, archivia, elimina; un lettore
+    per proseguire CONTINUA (una conversazione nuova, sua).
+  - **Pubblicare vuole una conferma ESPLICITA** dei progetti letti o toccati
+    (sempre, anche un elenco vuoto). Li ricava il server (D2):
+    - le letture del token del turno per codice o per id (`onSend`,
+      `recordChatToolReadProjects`);
+    - le azioni proposte;
+    - i codici citati nelle risposte;
+    - il contesto della pagina.
+
+    Un elenco diverso da quello di adesso è `needs_confirmation`.
+  - **Decisione del maintainer (D1): gli eventi dei tool RESTANO** anche per
+    i lettori. Esempio confermato dal maintainer: i dati del progetto X letti
+    da Claude per l'autore li vede chi legge la pubblica. La difesa è la
+    conferma, che lo DICE (`includesToolReads`), non una proiezione che li
+    toglie. Chi «corregge» togliendo i tool ai lettori cambia una decisione di
+    prodotto, non un dettaglio.
+  - **Il seguito privato si deriva a lettura** (`holdOf`). Il messaggio
+    dell'autore in una pubblica fissa un confine (`private_from_event_id`), e
+    i lettori non ricevono nulla da lì in poi (eventi, tool compresi,
+    proposte, gruppi, parziali dello stream) finché il turno non è finito e
+    non ha toccato progetti nuovi. Se li ha toccati, finché l'autore non li
+    riconferma. Un confine attivo non si sposta in avanti: il seguito non
+    torna pubblico da solo.
+  - **I lettori non ricevono gli interventi** (in coda, consegnati o no), né il
+    contesto di un progetto che non vedono, né la classe ricalcolata delle
+    proposte (niente prova a secco per chi non le ha chieste).
+  - **Una pubblica non si pota**; tornata privata, la finestra dei 14 giorni
+    riparte da «Make private» (`pruneAgentSessions`, D5).
