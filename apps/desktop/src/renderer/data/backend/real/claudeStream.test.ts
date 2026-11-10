@@ -48,12 +48,15 @@ let streams: FakeStream[] = [];
 let streamStatus = 200;
 let workPlanStatus: string | null = null;
 let workReads = 0;
+/** Chat, fetta 3: le proposte che il server finto dà per la conversazione libera. */
+let chatProposals: unknown[] = [];
 
 beforeEach(() => {
   streams = [];
   streamStatus = 200;
   workPlanStatus = null;
   workReads = 0;
+  chatProposals = [];
   setAppClientForTests(null);
   resetStreamsForTests();
   vi.stubGlobal(
@@ -103,6 +106,8 @@ beforeEach(() => {
           ],
         });
       }
+      if (path === `/api/claude/conversations/${SESSION}/proposals`) return Response.json(chatProposals);
+      if (path === `/api/claude/conversations/${SESSION}/groups`) return Response.json([]);
       return new Response(JSON.stringify({ code: "not_found", message: path }), { status: 404 });
     }),
   );
@@ -274,6 +279,33 @@ describe("lo stream di una sessione", () => {
     streams[2]!.fail();
     await new Promise((r) => setTimeout(r, 5));
     expect(reconnectDelay(SESSION)).toBe(1000);
+  });
+
+  it("conversazione libera: una proposta arrivata dal vivo diventa la sua scheda, dalle viste del server (chat, fetta 3)", async () => {
+    const PROPOSAL = "dddddddd-0000-4000-8000-0000000000b1";
+    chatProposals = [
+      {
+        id: PROPOSAL,
+        sessionId: SESSION,
+        actions: [{ fn: "createMilestone", args: { projectId: PROJECT_ID, name: "Beta" } }],
+        summary: "",
+        cls: "B",
+        status: "open",
+        canConfirm: true,
+        canCancel: true,
+        createdAt: "2026-11-10T09:00:02.000Z",
+      },
+    ];
+    const c = collect();
+    const stop = subscribe(SESSION, c.onEvent, {});
+    await vi.waitFor(() => expect(streams).toHaveLength(1));
+    streams[0]!.push(frame({ type: "session", detail: detail({ kind: "free", ticketId: null, ticketNumber: null, aiJobId: null }) }));
+    streams[0]!.push(frame({ type: "events", events: [ev("1", "assistant_text", { text: "Here is the plan." })] }));
+    await vi.waitFor(() => expect(c.events.map((e) => e.type)).toEqual(["assistant"]));
+    streams[0]!.push(frame({ type: "events", events: [ev("2", "proposal", { proposalId: PROPOSAL })] }));
+    await vi.waitFor(() => expect(c.events.map((e) => e.type)).toEqual(["assistant", "proposal"]));
+    expect(c.events[1]).toMatchObject({ type: "proposal", proposalId: PROPOSAL, cls: "B", status: "open" });
+    stop();
   });
 
   it("le sessioni non ascoltate si dimenticano oltre le ultime IDLE_SESSIONS_MAX", () => {
