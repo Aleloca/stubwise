@@ -277,14 +277,29 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   di un progetto, mai l'autore di un ticket ingerito. Il suo ruolo d'istanza è
   il preset `User`, **mai il full admin**: lo conterebbe fra gli
   amministratori («resta sempre un full admin») e fra i destinatari degli admin.
+  E se un admin ALLARGA il preset `User` fino al full admin, Claude comunque non
+  conta: `assertFullAdminRemains` esclude `is_agent` (review dell'area 3, punto
+  9 — scelto al posto di un ruolo d'istanza dedicato, che vorrebbe una
+  migrazione e un preset in più da proteggere); gli altri effetti di un preset
+  allargato sono calcoli su chi GUARDA, e Claude non guarda mai, e i destinatari
+  li esclude già `publishNotification`.
   Vede le task che gli si assegnano per una regola esplicita
   (`canUserSeeTicket`), non per un permesso. **Assegnarlo AVVIA il lavoro**
-  (PATCH, in blocco, Planning, creazione: `services/task-writes.ts`), quindi
-  chiede `runs.start` nel progetto (403 `claude_assign_forbidden`, niente
-  scritto) — nel Planning al posto di `planning.others`, che riguarda le
-  persone —, e il run parte con `startRun` a nome di chi assegna: stesse
+  da OGNI porta — le rotte nuove (PATCH, in blocco, Planning, creazione:
+  `services/task-writes.ts`) e quelle vecchie del web vecchio, dell'app e
+  dell'MCP (`POST /api/tickets`, `PATCH /api/tickets/:id`) —, con la regola
+  in UN posto (`services/claude-assign.ts`: `claudeAssignGuard`,
+  `startClaudeRuns`); quindi chiede `runs.start` nel progetto (403
+  `claude_assign_forbidden`, niente scritto) — nel Planning al posto di
+  `planning.others`, che riguarda le persone, ma insieme a `tickets.edit` e
+  su una task aperta (altrimenti 403 `forbidden`, come la PATCH) —, e il run parte con `startRun` a nome di chi assegna: stesse
   precondizioni e stesso gate del piano di run-ai. Toglierlo non annulla niente
   (resta «Annulla il lavoro»). `/api/people` lo mostra a tutti (`isClaude`), così
   il nome di una task assegnata a lui si legge sempre; dove chi guarda può
-  assegnarlo lo dice il server (`claudeAssignableProjectIds`). L'impostazione
+  assegnarlo lo dice il server (`claudeAssignableProjectIds`). Sul web vecchio
+  e nell'app, che leggono i nomi da `/api/users` (dove Claude NON entra: il
+  Team, i conteggi degli admin e i selettori ne resterebbero sporcati), il
+  ticket porta `assigneeIsAgent` (additivo, facoltativo) e il client scrive
+  «Claude»; e non è mai «assegnatario senza accesso» (`assigneeWithoutAccess`
+  lo esclude: non è membro per costruzione, non per revoca). L'impostazione
   iniziale dell'istanza non lo conta fra gli utenti.

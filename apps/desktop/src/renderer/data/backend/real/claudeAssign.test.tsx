@@ -176,6 +176,36 @@ describe("assegnare Claude dalla task", () => {
   });
 });
 
+describe("assegnato a Claude, ma il lavoro non parte (claudeRun)", () => {
+  it("la PATCH risponde refused:job_in_flight: l'assegnazione resta e la frase lo dice", async () => {
+    server([PROJECT_ID], {
+      [`PATCH /api/tasks/${TICKET_ID}`]: { body: serverTask({ assigneeId: CLAUDE, claudeRun: "refused:job_in_flight" }) },
+    });
+    renderRoute("/p/AUD/tasks?task=AUD-12");
+    const panel = await screen.findByRole("dialog", { name: "Task AUD-12" });
+    await userEvent.click(await within(panel).findByRole("button", { name: /^Assignee: .*Change$/ }));
+    const people = await screen.findByRole("menu", { name: "Assignee of AUD-12" });
+    await userEvent.click(within(people).getByRole("menuitemradio", { name: /Claude/ }));
+    expect(
+      await screen.findByText("AUD-12 is assigned to Claude, but no new work started: Claude is already working on it."),
+    ).toBeInTheDocument();
+  });
+
+  it("dal Planning, un codice che il client non conosce: la frase generica", async () => {
+    server([PROJECT_ID], {
+      [`POST /api/tasks/${TICKET_ID}/plan`]: { body: serverTask({ assigneeId: CLAUDE, plannedWeek: WEEK, claudeRun: "refused:nuovo_codice" }) },
+    });
+    renderRoute("/p/AUD/planning");
+    const menu = await openPlanMenu();
+    fireEvent.click(within(menu).getByRole("menuitemradio", { name: /Claude/ }));
+    const weeks = await screen.findByRole("menu", { name: "Plan AUD-12 for Claude" });
+    fireEvent.click(within(weeks).getByRole("menuitemradio", { name: new RegExp(`^${SHORT} `) }));
+    expect(
+      await screen.findByText("AUD-12 is assigned to Claude, but the work didn't start. Start it from the task's Claude section."),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("assegnare Claude in blocco", () => {
   it("un 403 claude_assign_forbidden del blocco ha la sua frase", async () => {
     const { seen } = server([PROJECT_ID], {

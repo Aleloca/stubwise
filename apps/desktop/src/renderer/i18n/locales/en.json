@@ -811,6 +811,12 @@
     }
   },
   "tasks": {
+    "claudeRun": {
+      "job_in_flight": "{{code}} is assigned to Claude, but no new work started: Claude is already working on it.",
+      "other": "{{code}} is assigned to Claude, but the work didn't start. Start it from the task's Claude section.",
+      "bulk_one": "{{count}} task is assigned to Claude, but its work didn't start. Start it from the task's Claude section.",
+      "bulk_other": "{{count}} tasks are assigned to Claude, but their work didn't start. Start it from each task's Claude section."
+    },
     "count_one": "{{count}} task",
     "count_other": "{{count}} tasks",
     "commands": "Tasks commands",
@@ -1194,11 +1200,12 @@
       "cancelRun": {
         "action": "Cancel the work",
         "title": "Cancel Claude's work on this task?",
-        "description": "The work closes now, as stopped. Pull requests and branches stay as they are.",
+        "description": "The work closes as stopped: right away if Claude is waiting, within a few seconds if it's working. Pull requests and branches stay as they are.",
         "keep": "Keep it",
         "confirm": "Cancel the work",
         "stop": "Stop Claude",
         "done": "Claude's work was cancelled.",
+        "requested": "Request sent: Claude stops and the work closes in a moment.",
         "stopped": "Claude is stopping. Cancel the work once it has stopped.",
         "refusal": {
           "run_in_progress": "Claude is working right now: stop it first, then cancel.",

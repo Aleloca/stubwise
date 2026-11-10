@@ -134,6 +134,10 @@ export async function assertFullAdminRemains(
     .where(
       and(
         sql`${roles.permissions} @> array['instance.full_admin']::text[]`,
+        // L'utente di sistema «Claude» non è un amministratore che possa entrare
+        // (non entra mai): anche con un preset User allargato non conta (review
+        // dell'area 3, punto 9).
+        eq(users.isAgent, false),
         opts.excludingRoleId ? sql`${roles.id} <> ${opts.excludingRoleId}` : undefined,
       ),
     );

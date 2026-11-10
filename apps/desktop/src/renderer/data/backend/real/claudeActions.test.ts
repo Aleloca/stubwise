@@ -80,6 +80,31 @@ describe("le azioni sulla task", () => {
     });
   });
 
+  it("chiedi modifiche: la PR si sceglie per repository E numero (due repository con la stessa #7)", async () => {
+    const OTHER_REPO = "dddddddd-0000-4000-8000-0000000000aa";
+    const { seen } = installFakeServer({
+      [`GET /api/tickets/${TICKET_ID}`]: {
+        body: ticket([
+          repo(),
+          repo({ repositoryId: OTHER_REPO, repositorySlug: "api", prUrl: "https://git.example/acme/api/pull/7" }),
+        ]),
+      },
+      [`POST /api/tickets/${TICKET_ID}/repositories/${OTHER_REPO}/corrections`]: { status: 202, body: { correctionId: JOB, status: "queued" } },
+      [`GET /api/tasks/${TICKET_ID}/work`]: {
+        body: {
+          claude: "done",
+          webHref: "/x",
+          requestChangesPerPr: [
+            { repo: "acme/app", number: 7, availability: "forbidden" },
+            { repo: "acme/api", number: 7, availability: "allowed" },
+          ],
+        },
+      },
+    });
+    await requestChanges(TICKET_ID, "Fix it");
+    expect(seen.at(-1)).toMatchObject({ method: "POST", path: `/api/tickets/${TICKET_ID}/repositories/${OTHER_REPO}/corrections` });
+  });
+
   it("i rifiuti del server arrivano col loro codice", async () => {
     installFakeServer({
       [`POST /api/tickets/${TICKET_ID}/run-ai`]: { status: 409, body: { code: "job_in_flight", message: "x" } },
@@ -93,8 +118,22 @@ describe("le azioni sulla task", () => {
     const { seen } = installFakeServer({
       [`POST /api/tasks/${TICKET_ID}/cancel-run`]: { body: { claude: "none", webHref: "/x" } },
     });
-    await cancelRun(TICKET_ID);
+    expect(await cancelRun(TICKET_ID)).toBe("cancelled");
     expect(seen[0]).toMatchObject({ method: "POST", path: `/api/tasks/${TICKET_ID}/cancel-run` });
+  });
+
+  it("annulla un lavoro IN ESECUZIONE: il server registra la richiesta (202) e la chiusura arriva a breve: «requested»", async () => {
+    installFakeServer({
+      [`POST /api/tasks/${TICKET_ID}/cancel-run`]: {
+        status: 202,
+        body: {
+          claude: "working",
+          webHref: "/x",
+          runs: [{ id: JOB, sessionId: SESSION, ownerId: null, createdAt: "2026-10-20T09:00:00.000Z", state: "working", cancelRequested: true }],
+        },
+      },
+    });
+    expect(await cancelRun(TICKET_ID)).toBe("requested");
   });
 });
 
@@ -170,12 +209,31 @@ describe("«Da decidere» di Claude", () => {
       [`POST /api/tickets/${TICKET_ID}/approve-plan`]: { status: 409, body: { code: "plan_changed", message: "x" } },
       [`POST /api/tickets/${TICKET_ID}/reject-plan`]: { status: 202, body: { jobId: JOB } },
     });
-    await listClaudeDecisions();
-    await expect(decidePlan(SESSION, "approve", undefined, JOB)).rejects.toMatchObject({ code: "plan_changed" });
-    await decidePlan(SESSION, "reject", "Smaller", JOB);
+    const [decision] = await listClaudeDecisions();
+    // La voce porta il digest del SUO piano, e chi decide lo rimanda.
+    expect(decision).toMatchObject({ kind: "plan", planDigest: "sha256:abc" });
+    const digest = (decision as { planDigest?: string }).planDigest;
+    await expect(decidePlan(SESSION, "approve", undefined, JOB, digest)).rejects.toMatchObject({ code: "plan_changed" });
+    await decidePlan(SESSION, "reject", "Smaller", JOB, digest);
     expect(seen.filter((r) => r.method === "POST").map((r) => r.body)).toEqual([
       { planDigest: "sha256:abc" },
       { instructions: "Smaller", planDigest: "sha256:abc" },
     ]);
+  });
+
+  it("il digest è quello del piano MOSTRATO: una lettura più nuova dello stesso lavoro non lo cambia (review dell'area 3, punto 13)", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/me/claude-decisions": {
+        body: [
+          { id: `${JOB}:plan`, kind: "plan", conversationId: SESSION, title: "Export", projectId: PROJECT_ID, taskId: TICKET_ID, at: "2026-11-10T09:05:00.000Z", planId: JOB, summary: "Riscritto", planDigest: "sha256:nuovo", webHref: "/x" },
+        ],
+      },
+      [`POST /api/tickets/${TICKET_ID}/approve-plan`]: { status: 202, body: { jobId: JOB } },
+    });
+    // Chi guarda ha davanti il piano di prima («sha256:mostrato»); intanto una
+    // lettura in sottofondo vede il piano riscritto.
+    await listClaudeDecisions();
+    await decidePlan(SESSION, "approve", undefined, JOB, "sha256:mostrato");
+    expect(seen.find((r) => r.method === "POST")?.body).toEqual({ planDigest: "sha256:mostrato" });
   });
 });

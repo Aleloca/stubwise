@@ -161,6 +161,8 @@ describe("POST /api/tickets", () => {
       createdAt: expect.any(String),
       updatedAt: expect.any(String),
       requestedBy: { id: users.memberId, email: expect.any(String) },
+      // Area 3 (review, punto 6): l'assegnatario non è Claude.
+      assigneeIsAgent: false,
     });
   });
 

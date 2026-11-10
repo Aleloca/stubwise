@@ -22,6 +22,7 @@ import {
 } from "@stubwise/notifications";
 import type { AiJobStatus, ProjectPermission, TaskWorkView } from "@stubwise/shared";
 import { and, asc, eq, isNull, like, sql } from "drizzle-orm";
+import { CANCELLABLE_STATUSES } from "./cancel-run.js";
 
 /**
  * Il lavoro di Claude su una task per la sezione Claude dell'app nuova
@@ -312,6 +313,14 @@ export async function loadTaskWorkExtras(
     relaunch: pick(latest !== undefined && !IN_FLIGHT.has(latest.status) && !heldCorrection && runnable, canStart),
     resume,
     requestChanges: pick(requestByState, requestByViewer),
+    // «Annulla il lavoro» (punto 14 della review): le stesse regole di
+    // `cancelRun` — parcheggiato o in esecuzione, non già chiesto, `runs.start`.
+    cancel: pick(
+      latest !== undefined &&
+        (CANCELLABLE_STATUSES as readonly string[]).includes(latest.status) &&
+        !(latest.cancelRequestedAt !== null && (latest.status === "triaging" || latest.status === "fixing")),
+      canStart,
+    ),
   };
 
   // --- Claude aspetta chi guarda? ------------------------------------------

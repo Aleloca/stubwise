@@ -79,6 +79,7 @@ import {
   isForeignKeyViolation,
   isUniqueViolation,
 } from "./shared.js";
+import { agentUserId, claudeAssignGuard, claudeStart, startClaudeRuns } from "../services/claude-assign.js";
 
 // Le forme pubbliche di ticket (base, dettaglio, item di lista) vivono in
 // `@stubwise/shared`: le condividono server, SPA e app mobile, e restano
@@ -314,10 +315,13 @@ function sendAnswerError(
 /** Proiezione pubblica della riga ticket: date serializzate in ISO. */
 function toPublicTicket(
   row: Ticket,
-  requestedBy: { id: string; email: string } | null = null,
+  requestedBy: { id: string; email: string } | null,
+  /** L'id dell'utente di sistema Claude (`agentUserId`), per `assigneeIsAgent`. */
+  agentId: string | null,
 ): z.infer<typeof ticketSchema> {
   return {
     requestedBy,
+    assigneeIsAgent: agentId !== null && row.assigneeId === agentId,
     id: row.id,
     projectId: row.projectId,
     number: row.number,
@@ -508,11 +512,15 @@ async function ticketDetailResponse(
   const requestedBy = (await requestedByForTickets(db, [row])).get(row.requestedByUserId ?? "") ?? null;
   // «Assegnatario senza accesso»: né membro del progetto né full admin. La
   // revoca dell'accesso non riscrive i ticket, quindi si deriva a ogni lettura.
+  // Claude non è membro di nessun progetto e non è un caso di accesso revocato
+  // (review dell'area 3, punto 6).
+  const agentId = await agentUserId(db);
   const assigneeWithoutAccess =
     row.assigneeId !== null &&
+    row.assigneeId !== agentId &&
     (await projectPermissionsOfUser(db, row.assigneeId, row.projectId)) === null;
   return {
-    ...toPublicTicket(row, requestedBy),
+    ...toPublicTicket(row, requestedBy, agentId),
     implementationPlan: row.implementationPlan,
     originContent: row.originContent,
     planSummary: latestJob?.planSummary ?? null,
@@ -549,6 +557,15 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if (assigneeId !== undefined && !(await userExists(app.db, assigneeId))) {
         return apiError(reply, 400, "assignee_not_found", "Assignee not found");
       }
+      // Claude come assegnatario: la regola delle rotte nuove (review dell'area
+      // 3, punto 3). Assegnarlo avvia il lavoro, quindi chiede `runs.start`.
+      if ((await claudeAssignGuard(app.db, request.user!, projectId, assigneeId)) !== null) {
+        return apiError(reply, 403, "claude_assign_forbidden", "Assigning Claude requires runs.start in the project");
+      }
+      // Letto PRIMA della transazione: dopo il commit la risposta non deve
+      // dipendere da altre letture (un 201 mancato farebbe nascere un doppione).
+      const agentId = await agentUserId(app.db);
+      const claudeAssigned = assigneeId !== undefined && assigneeId === agentId;
       try {
         // Il ticket nasce a livello di PROGETTO (Fase 3): niente repository
         // bersaglio, il numero è per-progetto (row-lock su projects dentro
@@ -609,9 +626,13 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             request.log.warn({ err: error }, "avviso request.created non pubblicato");
           }
         }
+        // Nato già assegnato a Claude: parte il lavoro, dopo il commit, come run-ai.
+        if (claudeAssigned) {
+          await startClaudeRuns(app.db, request.user!, [{ ticketId: ticket.id, projectId: ticket.projectId }], claudeStart(app, request));
+        }
         return await reply
           .code(201)
-          .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }));
+          .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }, agentId));
       } catch (error) {
         if (error instanceof ProjectNotFoundError) {
           return apiError(reply, 404, "project_not_found", "Project not found");
@@ -760,9 +781,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         app.db,
         page.map((row) => row.ticket),
       );
+      const agentId = await agentUserId(app.db);
       return {
         items: page.map((row) => ({
-          ...toPublicTicket(row.ticket, requesters.get(row.ticket.requestedByUserId ?? "") ?? null),
+          ...toPublicTicket(row.ticket, requesters.get(row.ticket.requestedByUserId ?? "") ?? null, agentId),
           repositoryCount: countByTicket.get(row.ticket.id) ?? 0,
         })),
         nextCursor,
@@ -1322,6 +1344,16 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
     },
     async (request, reply) => {
       const id = request.params.id;
+      // Claude come assegnatario: la regola delle rotte nuove (review dell'area
+      // 3, punto 3). Su un ticket che non c'è decide il servizio (404).
+      const agent = request.body.assigneeId !== undefined ? await agentUserId(app.db) : null;
+      const [before] =
+        agent !== null && request.body.assigneeId === agent
+          ? await app.db.select({ projectId: tickets.projectId, assigneeId: tickets.assigneeId }).from(tickets).where(eq(tickets.id, id))
+          : [];
+      if (before && (await claudeAssignGuard(app.db, request.user!, before.projectId, request.body.assigneeId)) !== null) {
+        return apiError(reply, 403, "claude_assign_forbidden", "Assigning Claude requires runs.start in the project");
+      }
       try {
         // La mutazione vive in `services/tickets.ts`: qui restano la
         // transazione (SELECT della riga corrente, validazione della milestone,
@@ -1344,10 +1376,15 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
             "Milestone belongs to a different project",
           );
         }
+        // Appena assegnato a Claude: parte il lavoro, dopo il commit, come run-ai.
+        if (before && before.assigneeId !== agent) {
+          await startClaudeRuns(app.db, request.user!, [{ ticketId: id, projectId: before.projectId }], claudeStart(app, request));
+        }
         const requesters = await requestedByForTickets(app.db, [result.ticket]);
         return toPublicTicket(
           result.ticket,
           requesters.get(result.ticket.requestedByUserId ?? "") ?? null,
+          await agentUserId(app.db),
         );
       } catch (error) {
         // Finestra TOCTOU: l'utente verificato dal servizio può sparire prima

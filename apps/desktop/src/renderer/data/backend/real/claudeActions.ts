@@ -2,7 +2,7 @@ import { ApiError } from "@stubwise/api-client";
 import type { ClaudeDecisionView, Reader } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ClaudeDecision, Conversation } from "../../types";
-import { planDigestOf, ticketOfConversation } from "./claude";
+import { ticketOfConversation } from "./claude";
 import { call, isFreeConversation, sendFreeMessage } from "./claudeChat";
 import { appClient } from "./client";
 
@@ -71,17 +71,25 @@ export const resumeCorrection: typeof Fake.resumeCorrection = async (taskId) => 
   return queuedRun(taskId, (await appClient().tickets.runAi(taskId, { resumeCorrectionJobId: held })).jobId);
 };
 
-/** «Chiedi modifiche»: sulla PR aperta che il server dice correggibile (o la prima aperta). */
 /** Il numero di una PR dal suo indirizzo (`…/pull/7`, `…/pull-requests/7`, `…/merge_requests/7`). */
 const prNumberOf = (url: string | null) => Number(/\/(?:pull|pull-requests|merge_requests)\/(\d+)/.exec(url ?? "")?.[1] ?? NaN);
 
+/**
+ * `owner/repo` dall'indirizzo della PR, come lo calcola il server per
+ * `requestChangesPerPr` (`repoOf` in `task-work.ts`): il numero da solo non
+ * basta, due repository della stessa task possono avere ciascuno la sua #7
+ * (review dell'area 3, punto 12).
+ */
+const prRepoOf = (url: string | null) => /^https?:\/\/[^/]+\/([^/]+\/[^/]+)\//.exec(url ?? "")?.[1] ?? null;
+
+/** «Chiedi modifiche»: sulla PR aperta che il server dice correggibile (o la prima aperta). */
 export const requestChanges: typeof Fake.requestChanges = async (taskId, text) => {
   const [repositories, work] = await Promise.all([repositoriesOf(taskId), appClient().tasks.work(taskId)]);
   const repos = repositories.filter((r) => r.prState === "open");
   // Su quale PR lo dice il server (`requestChangesPerPr`): la prima permessa.
   const allowed = work.requestChangesPerPr.filter((p) => p.availability === "allowed");
   const repo =
-    repos.find((r) => allowed.some((p) => p.number === prNumberOf(r.prUrl))) ??
+    repos.find((r) => allowed.some((p) => p.repo === prRepoOf(r.prUrl) && p.number === prNumberOf(r.prUrl))) ??
     repos.find((r) => r.cycle?.canRequestCorrection) ??
     repos[0];
   if (!repo) throw Object.assign(new Error("pr_not_open"), { code: "pr_not_open" });
@@ -91,12 +99,16 @@ export const requestChanges: typeof Fake.requestChanges = async (taskId, text) =
 };
 
 /**
- * «Annulla il lavoro» (decisione del maintainer): chiude il lavoro
- * PARCHEGGIATO; su uno in esecuzione 409 `run_in_progress` (prima «Ferma»),
- * senza lavoro 409 `nothing_to_cancel`.
+ * «Annulla il lavoro» (decisione del maintainer): il lavoro PARCHEGGIATO lo
+ * chiude il server subito (200, `cancelled`); su uno IN ESECUZIONE il server
+ * registra la richiesta e sveglia il worker, che ferma Claude e chiude a breve
+ * (202, `requested`: lo dice `cancelRequested` dell'ultimo run). Senza lavoro
+ * 409 `nothing_to_cancel`; un server di prima del 3b.1-bis risponde ancora
+ * 409 `run_in_progress` su un lavoro in esecuzione.
  */
 export const cancelRun: typeof Fake.cancelRun = async (taskId) => {
-  await appClient().tasks.cancelRun(taskId);
+  const work = await appClient().tasks.cancelRun(taskId);
+  return work.runs?.at(-1)?.cancelRequested === true ? "requested" : "cancelled";
 };
 
 // --- su una sessione --------------------------------------------------------------
@@ -112,10 +124,12 @@ async function ticketOf(conversationId: string): Promise<string> {
 }
 
 /** Approva o rifiuta il piano in attesa (solo `plans.approve`: lo decide il server). */
-export const decidePlan: typeof Fake.decidePlan = async (id, decision, instructions, planId) => {
+export const decidePlan: typeof Fake.decidePlan = async (id, decision, instructions, _planId, planDigest) => {
   const ticketId = await ticketOf(id);
-  // Il piano LETTO: col suo digest il server rifiuta (409 `plan_changed`) un piano riscritto nel frattempo.
-  const planDigest = planDigestOf.get(id) ?? (planId ? planDigestOf.get(planId.replace(/^plan:/, "")) : undefined);
+  // Il piano MOSTRATO (review dell'area 3, punto 13): il suo digest lo passa
+  // chi decide, dall'evento o dalla voce che ha davanti — mai da una lettura
+  // successiva dello stesso lavoro. Col digest il server rifiuta (409
+  // `plan_changed`) un piano riscritto nel frattempo.
   const digest = planDigest ? { planDigest } : {};
   if (decision === "approve") {
     await appClient().tickets.approvePlan(ticketId, digest);
@@ -167,7 +181,6 @@ function toDecision(d: Reader<ClaudeDecisionView>): ClaudeDecision | null {
   // Senza sessione la voce si riconosce dal suo id: le azioni vanno comunque al ticket.
   const conversationId = d.conversationId ?? d.id;
   ticketOfConversation.set(conversationId, d.taskId);
-  if (d.kind === "plan" && d.planDigest) planDigestOf.set(conversationId, d.planDigest);
   const base = {
     id: d.id,
     conversationId,
@@ -195,7 +208,15 @@ function toDecision(d: Reader<ClaudeDecisionView>): ClaudeDecision | null {
     };
   }
   if (!d.planId) return null;
-  return { ...base, kind: "plan", planId: d.planId, summary: d.summary ?? "", blockedReason: null, serverCode: null };
+  return {
+    ...base,
+    kind: "plan",
+    planId: d.planId,
+    ...(d.planDigest ? { planDigest: d.planDigest } : {}),
+    summary: d.summary ?? "",
+    blockedReason: null,
+    serverCode: null,
+  };
 }
 
 /**

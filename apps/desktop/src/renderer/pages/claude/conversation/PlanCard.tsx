@@ -136,6 +136,8 @@ export function PlanCard({
         id: conversationId,
         decision,
         planId: event.id,
+        // Il digest del piano che chi decide ha davanti (build app).
+        ...(event.digest ? { planDigest: event.digest } : {}),
         ...(instructions ? { instructions } : {}),
       },
       {
