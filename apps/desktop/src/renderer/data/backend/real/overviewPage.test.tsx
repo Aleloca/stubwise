@@ -1,8 +1,9 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
-import { DEPT_ID, installFakeServer, me, ME_ID, PROJECT_ID, serverProject, STATUS_TODO } from "./fakeServer";
+import { DEPT_ID, installFakeServer, me, ME_ID, PROJECT_ID, serverProject, STATUS_TODO, type SeenRequest } from "./fakeServer";
 
 // L'Overview sulla build app vera, davanti a un server finto (fetta 4, Task R):
 // la cronologia arriva a pagine di 28 giorni, e «Show earlier» chiede la pagina
@@ -12,46 +13,48 @@ vi.mock("@backend/api", async () => await import("./index"));
 const decision = (id: string, title: string, at: string) => ({ kind: "decision", at, decisionId: id, title });
 let chronologyCalls: string[] = [];
 
+const baseRoutes = () => ({
+  "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: ["tickets.view_all", "tickets.edit"] } }) },
+  "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
+  "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
+  "GET /api/decisions": { body: [] },
+  "GET /api/inbox": { body: { items: [], nextCursor: null } },
+  "GET /api/people": {
+    body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [DEPT_ID], email: "ada@example.com" }],
+  },
+  "GET /api/departments": { body: [{ id: DEPT_ID, name: "General", colorToken: "--dept-1", isDefault: true }] },
+  "GET /api/tasks": { body: { items: [], truncated: false } },
+  "GET /api/tasks/stalled": { body: [] },
+  [`GET /api/projects/${PROJECT_ID}/statuses`]: {
+    body: [{ id: STATUS_TODO, projectId: PROJECT_ID, name: "To do", family: "todo", position: 0 }],
+  },
+  "GET /api/milestones": { body: [] },
+  "GET /api/requests/to-convert": { body: [] },
+  [`GET /api/projects/${PROJECT_ID}/decisions`]: { body: [] },
+  [`GET /api/projects/${PROJECT_ID}/briefs/latest`]: { body: null },
+  [`GET /api/projects/${PROJECT_ID}/chronology`]: (req: SeenRequest) => {
+    chronologyCalls.push(req.path);
+    return req.path.includes("before=")
+      ? {
+          body: {
+            events: [decision("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc", "Use SQLite", "2026-09-10T10:00:00.000Z")],
+            nextBefore: null,
+          },
+        }
+      : {
+          body: {
+            events: [decision("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Use Postgres", "2026-10-20T10:00:00.000Z")],
+            nextBefore: "2026-09-25T00:00:00.000Z",
+          },
+        };
+  },
+});
+
 beforeEach(() => {
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   chronologyCalls = [];
-  installFakeServer({
-    "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: ["tickets.view_all", "tickets.edit"] } }) },
-    "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
-    "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
-    "GET /api/decisions": { body: [] },
-    "GET /api/inbox": { body: { items: [], nextCursor: null } },
-    "GET /api/people": {
-      body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [DEPT_ID], email: "ada@example.com" }],
-    },
-    "GET /api/departments": { body: [{ id: DEPT_ID, name: "General", colorToken: "--dept-1", isDefault: true }] },
-    "GET /api/tasks": { body: { items: [], truncated: false } },
-    "GET /api/tasks/stalled": { body: [] },
-    [`GET /api/projects/${PROJECT_ID}/statuses`]: {
-      body: [{ id: STATUS_TODO, projectId: PROJECT_ID, name: "To do", family: "todo", position: 0 }],
-    },
-    "GET /api/milestones": { body: [] },
-    "GET /api/requests/to-convert": { body: [] },
-    [`GET /api/projects/${PROJECT_ID}/decisions`]: { body: [] },
-    [`GET /api/projects/${PROJECT_ID}/briefs/latest`]: { body: null },
-    [`GET /api/projects/${PROJECT_ID}/chronology`]: (req) => {
-      chronologyCalls.push(req.path);
-      return req.path.includes("before=")
-        ? {
-            body: {
-              events: [decision("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc", "Use SQLite", "2026-09-10T10:00:00.000Z")],
-              nextBefore: null,
-            },
-          }
-        : {
-            body: {
-              events: [decision("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Use Postgres", "2026-10-20T10:00:00.000Z")],
-              nextBefore: "2026-09-25T00:00:00.000Z",
-            },
-          };
-    },
-  });
+  installFakeServer(baseRoutes());
 });
 
 afterEach(() => {
@@ -72,5 +75,119 @@ describe("l'Overview nella build app", () => {
       `/api/projects/${PROJECT_ID}/chronology?before=2026-09-25T00%3A00%3A00.000Z`,
     ]);
     expect(screen.queryByRole("button", { name: "Show earlier" })).toBeNull();
+  });
+
+  it("una voce il cui soggetto non è fra quelli letti non resta vuota", async () => {
+    installFakeServer({
+      ...baseRoutes(),
+      [`GET /api/projects/${PROJECT_ID}/chronology`]: {
+        body: {
+          events: [
+            { kind: "task_closed", at: "2026-10-20T10:00:00.000Z", taskId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" },
+            { kind: "pr_merged", at: "2026-10-20T11:00:00.000Z", prId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeef", taskId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" },
+            { kind: "milestone", at: "2026-10-19T10:00:00.000Z", milestoneId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee0" },
+          ],
+          nextBefore: null,
+        },
+      },
+    });
+    renderRoute("/p/AUD/overview");
+    const closed = await waitFor(() => {
+      const row = document.querySelector('[data-timeline-event="task_closed"]');
+      if (!row) throw new Error("not yet");
+      return row as HTMLElement;
+    });
+    expect(closed).toHaveTextContent("A task that isn't in this list");
+    const pr = document.querySelector('[data-timeline-event="pr_merged"]') as HTMLElement;
+    expect(pr).toHaveTextContent("A task that isn't in this list");
+    expect(pr).not.toHaveTextContent("#");
+    expect(document.querySelector('[data-timeline-event="milestone"]')).toHaveTextContent("a deleted milestone");
+  });
+
+  it("«Show earlier» con un tipo: continua finché trova qualcosa (fino a 6 pagine), poi lo dice", async () => {
+    const pages: string[] = [];
+    const task = (at: string) => ({ kind: "task_opened", at, taskId: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee" });
+    // Pagina n (0 = la prima): una task ogni pagina, una decisione solo alla pagina `decisionAt`.
+    const pagesFrom = (decisionAt: number | null, total: number) => (req: SeenRequest) => {
+      const n = pages.push(req.path) - 1;
+      const day = (k: number) => new Date(Date.UTC(2026, 9, 20) - k * 28 * 86_400_000).toISOString();
+      const events: unknown[] = [task(day(n))];
+      if (n === 0) events.unshift(decision("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Use Postgres", day(0)));
+      if (n === decisionAt) events.unshift(decision("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbc", "Use SQLite", day(n)));
+      return { body: { events, nextBefore: n + 1 < total ? day(n + 1) : null } };
+    };
+    const ue = userEvent.setup();
+
+    installFakeServer({ ...baseRoutes(), [`GET /api/projects/${PROJECT_ID}/chronology`]: pagesFrom(3, 20) });
+    renderRoute("/p/AUD/overview");
+    expect(await screen.findByText("Use Postgres")).toBeInTheDocument();
+    await ue.click(screen.getByRole("button", { name: /^Type:/ }));
+    await ue.click(await screen.findByRole("menuitemradio", { name: "Decisions" }));
+    await ue.click(screen.getByRole("button", { name: "Show earlier" }));
+    expect(await screen.findByText("Use SQLite")).toBeInTheDocument();
+    expect(pages).toHaveLength(4);
+    cleanup();
+
+    pages.length = 0;
+    installFakeServer({ ...baseRoutes(), [`GET /api/projects/${PROJECT_ID}/chronology`]: pagesFrom(null, 20) });
+    renderRoute("/p/AUD/overview");
+    expect(await screen.findByText("Use Postgres")).toBeInTheDocument();
+    await ue.click(screen.getByRole("button", { name: /^Type:/ }));
+    await ue.click(await screen.findByRole("menuitemradio", { name: "Decisions" }));
+    await ue.click(screen.getByRole("button", { name: "Show earlier" }));
+    expect(await screen.findByText("Nothing of this type in these weeks")).toBeInTheDocument();
+    // La prima pagina, più al massimo sei.
+    expect(pages).toHaveLength(7);
+  });
+
+  it("il registro oltre le 200 voci lette dice che sono le più recenti", async () => {
+    installFakeServer({
+      ...baseRoutes(),
+      [`GET /api/projects/${PROJECT_ID}/decisions`]: {
+        body: Array.from({ length: 200 }, (_, i) => ({
+          id: `bbbbbbbb-bbbb-4bbb-8bbb-${String(i).padStart(12, "0")}`,
+          projectId: PROJECT_ID,
+          source: "manual",
+          ticketId: null,
+          ticketNumber: null,
+          title: `Decision ${i}`,
+          context: null,
+          decision: "x",
+          consequences: null,
+          decidedBy: { id: ME_ID, email: "ada@example.com" },
+          decidedAt: "2026-10-01T09:00:00.000Z",
+          supersededById: null,
+          createdAt: "2026-10-01T09:00:00.000Z",
+        })),
+      },
+    });
+    renderRoute("/p/AUD/overview");
+    expect(
+      await screen.findByText("These are the latest 200 decisions: older ones aren't shown here."),
+    ).toBeInTheDocument();
+  });
+
+  it("registrare una decisione: i rifiuti del server hanno la loro frase", async () => {
+    let reply = { status: 409, body: { code: "already_superseded", message: "x" } };
+    installFakeServer({
+      ...baseRoutes(),
+      "GET /api/auth/me": {
+        body: me({ projectPermissions: { [PROJECT_ID]: ["tickets.view_all", "tickets.edit", "decisions.record"] } }),
+      },
+      [`POST /api/projects/${PROJECT_ID}/decisions`]: () => reply,
+    });
+    const ue = userEvent.setup();
+    renderRoute("/p/AUD/overview");
+    await ue.click(await screen.findByRole("button", { name: "Record a decision" }));
+    const dialog = await screen.findByRole("dialog", { name: "Record a decision" });
+    await ue.type(within(dialog).getByLabelText("Title"), "Use SQLite");
+    await ue.type(within(dialog).getByLabelText("Decision"), "SQLite for the edge.");
+    await ue.click(within(dialog).getByRole("button", { name: "Record" }));
+    expect(
+      await within(dialog).findByText("That decision has already been superseded by another one. Nothing was saved."),
+    ).toBeInTheDocument();
+    reply = { status: 403, body: { code: "decision_forbidden", message: "x" } };
+    await ue.click(within(dialog).getByRole("button", { name: "Record" }));
+    expect(await within(dialog).findByText("You can't record decisions in this project.")).toBeInTheDocument();
   });
 });

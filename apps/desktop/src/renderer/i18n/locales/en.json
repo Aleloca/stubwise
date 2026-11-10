@@ -1441,7 +1441,8 @@
       "week": "Week",
       "milestone": "Milestone"
     },
-    "requestGone": "This request is no longer available: it may have been converted, archived or hidden."
+    "requestGone": "This request is no longer available: it may have been converted, archived or hidden.",
+    "requestNotConvertible": "This request has already been converted or archived."
   },
   "home": {
     "customize": "Customize",
@@ -1888,7 +1889,8 @@
       "sent": "Request sent to {{project}}.",
       "sentSimilar": "Request sent to {{project}}. It looks similar to another request: the team may merge them.",
       "sentMerged": "Merged into {{code}}: someone had already asked for this, and now you follow it.",
-      "sending": "Sending… checking whether someone already asked for this."
+      "sending": "Sending… checking whether someone already asked for this.",
+      "pending": "Received: we're still registering it. You'll find it in Requests."
     },
     "merge": {
       "title": "Merge into another request",
@@ -1901,6 +1903,7 @@
       "choose": "Choose the request to merge into.",
       "submit": "Merge",
       "failed": "Couldn't merge the requests. Nothing changed.",
+      "changed": "One of the two requests changed in the meantime. Nothing changed: try again.",
       "rewriting": "Merging into {{code}}: Claude is rewriting it. This can take a moment.",
       "retry": "Try again"
     },
@@ -2031,7 +2034,8 @@
       "listLabel": "Suggested changes",
       "reason": "Why",
       "accepted": "Suggestions accepted.",
-      "failed": "That didn't go through. Try again."
+      "failed": "That didn't go through. Try again.",
+      "savedNotDismissed": "Your changes were saved, but the suggestions are still open. Dismiss them again."
     },
     "nextStep": {
       "label": "Next step",
@@ -2059,9 +2063,11 @@
       "claudeWorking": "Claude working",
       "stalled_one": "{{count}} stalled",
       "stalled_other": "{{count}} stalled",
+      "stalledAtLeast": "{{count}}+ stalled",
       "nextDated": "next: {{name}} · {{date}}",
       "next": "next: {{name}}",
       "quiet": "Nothing waiting, nothing stalled",
+      "quietTruncated": "Nothing waiting · too many open tasks to count the stalled ones",
       "error": "Couldn't load the project's pulse."
     },
     "stalled": {
@@ -2187,11 +2193,15 @@
       "weekOf": "Week of {{date}}",
       "showEarlier": "Show earlier",
       "prNumber": "#{{number}}",
+      "taskUnavailable": "A task that isn't in this list",
+      "milestoneUnavailable": "a deleted milestone",
       "noSummary": "No summary for this day",
       "empty": "Nothing has happened in this project yet",
-      "emptyType": "Nothing of this type yet"
+      "emptyType": "Nothing of this type yet",
+      "nothingInWeeks": "Nothing of this type in these weeks"
     },
     "decisions": {
+      "truncated": "These are the latest {{count}} decisions: older ones aren't shown here.",
       "title": "Decision log",
       "record": "Record a decision",
       "empty": "No decisions recorded yet",
@@ -2222,6 +2232,8 @@
       "submit": "Record",
       "recorded": "Decision recorded",
       "failed": "Couldn't record the decision. Nothing was saved; try again.",
+      "alreadySuperseded": "That decision has already been superseded by another one. Nothing was saved.",
+      "forbidden": "You can't record decisions in this project.",
       "actions": "Actions for “{{title}}”",
       "supersededByGroup": "Superseded by",
       "supersededNone": "None, still valid",

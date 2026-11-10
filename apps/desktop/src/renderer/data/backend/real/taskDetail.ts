@@ -74,6 +74,7 @@ export const deleteComment: typeof Fake.deleteComment = async (id) => {
 const toDecision = (v: DecisionRequestView): DecisionRequest => ({
   id: v.id,
   taskId: v.taskId,
+  ...(v.projectId ? { projectId: v.projectId } : {}),
   askedById: v.askedById,
   askedOfId: v.askedOfId,
   question: v.question,

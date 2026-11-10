@@ -595,6 +595,8 @@ export interface ActivityEntry {
 export interface DecisionRequest {
   id: string;
   taskId: string;
+  /** Build app: il progetto della task, se il server lo dice (il polso non dipende dalla lista delle task). */
+  projectId?: string;
   /** `null` sul server vero se chi ha chiesto non c'è più. */
   askedById: string | null;
   askedOfId: string;

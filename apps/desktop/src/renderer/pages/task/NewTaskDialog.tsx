@@ -149,8 +149,12 @@ export function NewTaskDialog({
   const [milestoneId, setMilestone] = useState<string | null>(initial?.milestoneId ?? null);
   const [tried, setTried] = useState(false);
   const [failed, setFailed] = useState(false);
-  /** La richiesta da trasformare non c'è più per chi guarda (convertita, archiviata, nascosta). */
-  const [requestGone, setRequestGone] = useState(false);
+  /**
+   * Perché la richiesta da trasformare non si trasforma: non c'è più per chi
+   * guarda (`request_not_found`), o è già trasformata o archiviata (409
+   * `request_not_convertible`).
+   */
+  const [requestRefusal, setRequestRefusal] = useState<"gone" | "notConvertible" | null>(null);
   // La richiesta arriva dopo il primo disegno: i campi si riempiono una volta.
   const [seeded, setSeeded] = useState(false);
   if (request && !seeded) {
@@ -198,7 +202,10 @@ export function NewTaskDialog({
     const callbacks = {
       onSuccess: onCreated,
       onError: (error: unknown) => {
-        setRequestGone((error as { code?: unknown } | null)?.code === "request_not_found");
+        const code = (error as { code?: unknown } | null)?.code;
+        setRequestRefusal(
+          code === "request_not_found" ? "gone" : code === "request_not_convertible" ? "notConvertible" : null,
+        );
         setFailed(true);
       },
     };
@@ -483,7 +490,13 @@ export function NewTaskDialog({
 
         {failed && (
           <p role="alert" className="rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
-            {t(requestGone ? "newTask.requestGone" : "newTask.failed")}
+            {t(
+              requestRefusal === "gone"
+                ? "newTask.requestGone"
+                : requestRefusal === "notConvertible"
+                  ? "newTask.requestNotConvertible"
+                  : "newTask.failed",
+            )}
           </p>
         )}
       </form>

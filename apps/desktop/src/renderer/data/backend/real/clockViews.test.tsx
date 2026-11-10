@@ -13,12 +13,14 @@ vi.mock("@backend/clock", async () => await import("./clock"));
 
 let taskReads = 0;
 let stalledReads = 0;
+let toConvertReads = 0;
 
 beforeEach(() => {
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   taskReads = 0;
   stalledReads = 0;
+  toConvertReads = 0;
   // Sabato 14 novembre 2026: settimana W46.
   advanceClock(new Date("2026-11-14T10:00:00Z"));
   installFakeServer({
@@ -50,6 +52,13 @@ beforeEach(() => {
     "GET /api/me/day-arrangements": { body: [] },
     "GET /api/milestones": { body: [] },
     "GET /api/filters": { body: [] },
+    "GET /api/requests/to-convert": () => {
+      toConvertReads++;
+      return { body: [] };
+    },
+    [`GET /api/projects/${PROJECT_ID}/decisions`]: { body: [] },
+    [`GET /api/projects/${PROJECT_ID}/briefs/latest`]: { body: null },
+    [`GET /api/projects/${PROJECT_ID}/chronology`]: { body: { events: [], nextBefore: null } },
     "GET /api/me/pinned-filters": { body: [] },
   });
 });
@@ -87,5 +96,15 @@ describe("le viste e l'orologio", () => {
     expect(await screen.findByText(/^Overdue, due /)).toBeInTheDocument();
     await waitFor(() => expect(stalledReads).toBeGreaterThan(before.stalled));
     expect(taskReads).toBeGreaterThan(before.tasks);
+  });
+
+  it("al cambio di giorno si rilegge anche il polso (le ferme e «in ritardo» cambiano col giorno)", async () => {
+    renderRoute("/p/AUD/overview");
+    await waitFor(() => expect(toConvertReads).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 50));
+    const before = toConvertReads;
+    // Domenica 15, stessa settimana.
+    act(() => advanceClock(new Date("2026-11-15T09:00:00Z")));
+    await waitFor(() => expect(toConvertReads).toBeGreaterThan(before));
   });
 });

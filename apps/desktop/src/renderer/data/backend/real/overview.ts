@@ -10,9 +10,9 @@ import type {
 } from "../../types";
 import { appClient, session } from "./client";
 import { listRequestsToConvert } from "./requests";
-import { listMilestones, listProjectStatuses } from "./statuses";
+import { listMilestonesOf, listProjectStatuses } from "./statuses";
 import { listDecisionRequests } from "./taskDetail";
-import { listStalled, listTasks } from "./tasks";
+import { listStalled, listTasks, tasksTruncated } from "./tasks";
 
 // L'Overview e il portafoglio della build app (integrazione area 2, fetta 4):
 // registro decisioni, brief settimanale (testo generato), cronologia e attività
@@ -45,8 +45,19 @@ function toEntry(d: ProjectDecision): DecisionLogEntry {
   };
 }
 
-export const listDecisionLog: typeof Fake.listDecisionLog = async (projectId) =>
-  (await appClient().projects.decisions(projectId, { limit: 200 })).map((d) => toEntry(d as ProjectDecision));
+/** Quante voci del registro si leggono: oltre, il registro dice che sono le più recenti. */
+const DECISION_LOG_LIMIT = 200;
+const truncatedLogs = new Set<string>();
+
+export const listDecisionLog: typeof Fake.listDecisionLog = async (projectId) => {
+  const rows = await appClient().projects.decisions(projectId, { limit: DECISION_LOG_LIMIT });
+  if (rows.length >= DECISION_LOG_LIMIT) truncatedLogs.add(projectId);
+  else truncatedLogs.delete(projectId);
+  return rows.map((d) => toEntry(d as ProjectDecision));
+};
+
+/** L'ultima lettura del registro del progetto è arrivata al tetto: ce ne sono forse di più vecchie. */
+export const decisionLogTruncated: typeof Fake.decisionLogTruncated = (projectId) => truncatedLogs.has(projectId);
 
 /** «Supera» si scrive con la voce nuova, nella stessa transazione (400 `invalid_supersede`). */
 export const recordDecision: typeof Fake.recordDecision = async (projectId, draft) =>
@@ -107,8 +118,8 @@ function toEvent(e: ChronologyEvent): TimelineEvent | null {
     case "pr_opened":
     case "pr_merged":
     case "pr_closed":
-      return e.prId && e.taskId && e.number !== undefined
-        ? { kind: e.kind, at, prId: e.prId, taskId: e.taskId, number: e.number }
+      return e.prId && e.taskId
+        ? { kind: e.kind, at, prId: e.prId, taskId: e.taskId, ...(e.number !== undefined ? { number: e.number } : {}) }
         : null;
     default:
       return null;
@@ -135,38 +146,52 @@ export const listPortfolioActivityPage: typeof Fake.listPortfolioActivityPage = 
 
 // --- polso ------------------------------------------------------------------------
 
-/** Il polso dei progetti chiesti, con le stesse letture per tutti. */
+/**
+ * Il polso dei progetti chiesti, con le stesse letture per tutti: le sole task
+ * aperte (le famiglie `todo` e `active`). Oltre il tetto delle 2000 righe i
+ * numeri non sono esatti: il polso lo dice (`truncated`) e la riga mette un
+ * «+». Le ferme si contano dalla loro lettura, non dall'intersezione con la
+ * lista, che troncata ne perderebbe.
+ */
 async function pulsesOf(projectIds: string[]): Promise<ProjectPulse[]> {
   const me = session.personId ?? "";
-  const scope = projectIds.length === 1 ? { projectIds } : undefined;
+  const criteria = {
+    ...(projectIds.length === 1 ? { projectIds } : {}),
+    families: ["todo", "active"] as ("todo" | "active")[],
+  };
   const [tasks, stalled, milestones, decisions, requests, statuses] = await Promise.all([
-    listTasks(scope),
-    listStalled(scope),
-    projectIds.length === 1 ? listMilestones(projectIds[0]) : listMilestones(),
+    listTasks(criteria),
+    listStalled(criteria),
+    listMilestonesOf(projectIds),
     listDecisionRequests({ askedOfId: me, open: true }),
     listRequestsToConvert(),
     Promise.all(projectIds.map((id) => listProjectStatuses(id))),
   ]);
+  const truncated = tasksTruncated(criteria);
   const familyOf = new Map(statuses.flat().map((s) => [s.id, s.family] as const));
-  const stalledIds = new Set(stalled.map((r) => r.task.id));
   const projectOfTask = new Map(tasks.map((t) => [t.id, t.projectId] as const));
-  return projectIds.map((projectId) =>
-    pulseOf({
+  return projectIds.map((projectId) => {
+    const pulse = pulseOf({
       projectId,
       tasks: tasks
         .filter((t) => t.projectId === projectId && t.closedAt === null)
         .flatMap((t) => {
           const family = familyOf.get(t.statusId);
-          return family ? [{ family, stalled: stalledIds.has(t.id) }] : [];
+          return family ? [{ family, stalled: false }] : [];
         }),
       milestones: milestones.filter((m) => m.projectId === projectId),
-      decisionsForMe: decisions.filter((d) => projectOfTask.get(d.taskId) === projectId).length,
+      decisionsForMe: decisions.filter((d) => (d.projectId ?? projectOfTask.get(d.taskId)) === projectId).length,
       requestsToConvert: requests.filter((r) => r.projectId === projectId && r.status === "new").length,
       // Claude (area 3) non è integrato: niente domande né lavoro in corso da dire.
       claudeWaitingForMe: 0,
       claudeWorking: false,
-    }),
-  );
+    });
+    return {
+      ...pulse,
+      stalled: stalled.filter((r) => r.task.projectId === projectId && r.task.closedAt === null).length,
+      ...(truncated ? { truncated: true } : {}),
+    };
+  });
 }
 
 export const projectPulse: typeof Fake.projectPulse = async (projectId) =>

@@ -119,6 +119,11 @@ export interface ProjectPulse {
   claudeWaiting?: AiBlock | null;
   /** Il traguardo aperto con la data più vicina (anche se passata). */
   nextMilestone: Milestone | null;
+  /**
+   * Build app: la lettura delle task aperte ha superato il tetto del server,
+   * quindi i numeri sono «almeno» (la riga mette un «+»).
+   */
+  truncated?: boolean;
 }
 
 /**
@@ -138,7 +143,8 @@ export type TimelineEvent =
       at: string;
       prId: string;
       taskId: string;
-      number: number;
+      /** Assente se il server non lo sa: la voce si mostra senza numero. */
+      number?: number;
     }
   /**
    * Area 10a: una task eliminata, con codice e titolo di allora (la task non

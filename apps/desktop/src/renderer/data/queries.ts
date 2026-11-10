@@ -606,18 +606,28 @@ export function useStalled(
   });
 }
 
+/**
+ * Quanto restano fresche le letture del polso e delle cronologie: sul server
+ * vero un polso sono sei letture e una cronologia una pagina di 28 giorni
+ * (review della fetta 4). Le scritture che le toccano le ricaricano comunque.
+ */
+const OVERVIEW_STALE_MS = 60_000;
+
+/** Il polso di un progetto; `""` (il progetto non ancora letto) non si legge. */
 export function useProjectPulse(projectId: string) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.pulse(me, projectId),
     queryFn: () => api.projectPulse(projectId),
+    enabled: projectId !== "",
+    staleTime: OVERVIEW_STALE_MS,
   });
 }
 
 /** Il polso di ogni progetto visibile (il portafoglio). */
 export function useProjectPulses() {
   const me = useSessionPersonId();
-  return useQuery({ queryKey: queryKeys.pulses(me), queryFn: api.listProjectPulses });
+  return useQuery({ queryKey: queryKeys.pulses(me), queryFn: api.listProjectPulses, staleTime: OVERVIEW_STALE_MS });
 }
 
 /**
@@ -634,6 +644,9 @@ function usePagedTimeline<E>(
     queryFn: ({ pageParam }) => page(pageParam),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextBefore ?? undefined,
+    // Ogni pagina letta si rilegge a ogni ricarica: niente al ritorno sulla finestra.
+    staleTime: OVERVIEW_STALE_MS,
+    refetchOnWindowFocus: false,
   });
   const data = useMemo(() => query.data?.pages.flatMap((p) => p.events), [query.data]);
   return {
@@ -641,6 +654,8 @@ function usePagedTimeline<E>(
     isError: query.isError,
     refetch: query.refetch,
     hasMore: query.hasNextPage,
+    /** Le pagine lette: chi chiede la pagina prima sa quando è arrivata. */
+    pages: query.data?.pages.length ?? 0,
     loadingOlder: query.isFetchingNextPage,
     loadOlder: () => void query.fetchNextPage(),
   };
@@ -656,6 +671,11 @@ export function usePortfolioActivity() {
 export function useTimeline(projectId: string) {
   const me = useSessionPersonId();
   return usePagedTimeline(queryKeys.timeline(me, projectId), (before) => api.listTimelinePage(projectId, before));
+}
+
+/** Il registro letto è arrivato al tetto (build app): si legge dopo la lettura, quando i dati ci sono. */
+export function decisionLogTruncated(projectId: string, data: unknown): boolean {
+  return data !== undefined && api.decisionLogTruncated(projectId);
 }
 
 export function useDecisionLog(projectId: string) {
@@ -1287,8 +1307,13 @@ export function useWithdrawDecision() {
   return useWrite(api.withdrawDecision, DECISION_REQUEST_AREAS);
 }
 
+/** `signal`: sul server vero ferma l'attesa dell'intake quando il dialogo si chiude. */
 export function useCreateRequest() {
-  return useWrite(api.createRequest, REQUEST_AREAS);
+  return useWrite(
+    ({ input, signal }: { input: Parameters<typeof api.createRequest>[0]; signal?: AbortSignal }) =>
+      api.createRequest(input, { signal }),
+    REQUEST_AREAS,
+  );
 }
 
 export function useUpdateRequest() {
@@ -1417,8 +1442,18 @@ export function useSetPinned() {
   );
 }
 
+/**
+ * Chi crea un progetto ne diventa Project Lead: i suoi permessi lì li dice il
+ * server, quindi si rilegge anche il viewer (come `useAdminWrite`), o «New
+ * task» resterebbe nascosta fino al riavvio.
+ */
 export function useCreateProject() {
-  return useWrite(api.createProject, PROJECT_AREAS);
+  const client = useQueryClient();
+  const invalidate = useInvalidate(PROJECT_AREAS);
+  return useMutation({
+    mutationFn: api.createProject,
+    onSettled: () => Promise.all([invalidate(), client.invalidateQueries({ queryKey: ["viewer"] })]),
+  });
 }
 
 export function useSetProjectStatuses() {
