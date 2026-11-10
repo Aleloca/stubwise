@@ -347,3 +347,25 @@ e due persone: A membro di AUD, B che non vede ACQ.
   messaggio non parte.
 - Il web vecchio e il mobile non vedono le conversazioni libere fra le
   sessioni degli agenti.
+
+## Elimina task (fetta 3.0 della chat)
+
+⚠️ Su un'istanza di prova, o col backup appena fatto: si eliminano dati veri.
+
+- Con l'autrice (Legacy Member, `tickets.edit`) di una task: «⋯» → **Delete
+  task…** → il dialogo dice codice e titolo, «This can't be undone», cosa resta;
+  **Delete** → il pannello si chiude, il toast dice «… was deleted», la riga non
+  c'è più; per codice (`?task=`) e nella ricerca non si trova.
+- Con un altro Legacy Member: la voce è spenta con «Only its author or someone
+  who can moderate…» e **Who?**. Con un Developer (`tickets.moderate`) si elimina.
+- Una task con Claude al lavoro o con una PR aperta: il dialogo lo dice e
+  **Delete** è spento.
+- Una task madre: le figlie restano, senza madre; i collegamenti spariscono
+  anche dall'altra task.
+- Una task nata da una richiesta: la richiesta dice «La task … è stata
+  eliminata». Una task nuova nel progetto non riprende il codice.
+- Chi seguiva la task riceve «la task è stata eliminata»; le sue notifiche
+  vecchie su quella task restano, col codice in testo, e non si aprono (anche
+  dal web vecchio e dal mobile: nessun 404 cliccandole dal desktop; dal web
+  vecchio la card non ha più il link).
+- Lo standup del giorno elenca la task eliminata a chi l'ha eliminata.

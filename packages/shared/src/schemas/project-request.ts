@@ -56,6 +56,12 @@ export const projectRequestViewSchema = z.object({
   mergedIntoId: z.uuid().nullable().default(null),
   mergedIntoCode: z.string().nullable().default(null),
   taskIds: z.array(z.uuid()).default([]),
+  /**
+   * I codici delle task nate da questa richiesta e poi ELIMINATE («Elimina
+   * task»): la richiesta dice «La task MKX-31 è stata eliminata». Derivato
+   * dalla lapide a lettura; default per un server più vecchio.
+   */
+  deletedTaskCodes: z.array(z.string()).default([]),
   createdAt: z.iso.datetime(),
   /** Le proposte dell'intake ancora da decidere (testo dell'AI), o null. */
   suggestions: z

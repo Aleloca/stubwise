@@ -3714,7 +3714,8 @@
           "open_pr": "**{{code}}** has an open pull request ({{pr}}): it can be archived when it's closed",
           "open_prNoCode": "**{{code}}** has an open pull request: it can be archived when it's closed",
           "server_fix": "**{{code}}** has a fix open on **{{server}}**: it can be archived when that ends",
-          "release": "**{{code}}** has release **{{release}}** in progress: it can be archived when that ends"
+          "release": "**{{code}}** has release **{{release}}** in progress: it can be archived when that ends",
+          "open_correction": "**{{code}}** has a pull request correction still open: it can be archived when it ends"
         }
       },
       "member": {
@@ -4249,7 +4250,8 @@
         "openPrNoNumberOn": "a pull request is open on {{code}}",
         "serverFix": "a fix is running on {{code}}",
         "release": "release {{code}} is in progress",
-        "and": " and "
+        "and": " and ",
+        "openCorrection": "a correction of its pull request is still open"
       },
       "undo": {
         "undo": "Undo",
@@ -12249,7 +12251,8 @@
         "server": "It's the fix for server <b>{{code}}</b>, still open.",
         "release": "It's the fix for release <b>{{code}}</b>, still open.",
         "wait_one": "Wait for it to finish, or close it from its page, then try again.",
-        "wait_other": "Wait for them to finish, or close them from their page, then try again."
+        "wait_other": "Wait for them to finish, or close them from their page, then try again.",
+        "correction": "A correction of its pull request is still open."
       },
       "done": "{{code}} was deleted.",
       "gone": "Can't find {{code}}.",

@@ -104,6 +104,7 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     projectId: item.projectId,
     ticketId: item.ticketId,
     taskCode: item.taskCode,
+    objectGone: item.objectGone,
     jobId: item.jobId,
     createdAt: item.createdAt.toISOString(),
     readAt: item.readAt?.toISOString() ?? null,

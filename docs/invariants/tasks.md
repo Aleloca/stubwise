@@ -114,3 +114,29 @@ Task 2. Migrazione: `packages/db/drizzle/0108_project_statuses.sql`. Test:
   niente, quindi la lettura filtra anche sulla settimana effettiva: una
   sistemazione di una task slittata non compare, e su una settimana che non
   è quella effettiva della task la scrittura risponde 409 `not_in_week`.
+
+## Eliminare una task è VERO, e ciò che la nominava lo dice (10 nov 2026)
+
+`DELETE /api/tasks/:id` (`apps/server/src/services/task-delete.ts`) toglie la
+riga di `tickets`: non è un archivio, non si annulla, non chiede la
+riconferma. Le regole:
+
+- **Chi lo decide il server**: `tickets.moderate` nel progetto, o l'autore
+  (`requested_by_user_id`) con `tickets.edit`. L'utente di sistema Claude non
+  ha `tickets.moderate`. Il client legge `canDelete`/`whoAction`
+  dall'anteprima, non li deduce.
+- **Ordine**: invisibile = inesistente (404) → `forbidden` → `busy` (un job non
+  concluso, una PR aperta, una correzione aperta) → la scrittura, nella
+  transazione e col lock del ticket di `startRun`/`cancelRun`.
+- **Il numero non si riusa**: `projects.next_ticket_number` non scende mai.
+  Chi tocca l'assegnazione dei numeri non la ricavi da `max(number)`.
+- **La lapide** (`deleted_tickets`) tiene solo codice, titolo, richiesta
+  d'origine, chi, quando e il segno «via Claude»: MAI descrizione, commenti,
+  allegati o storia. Serve a chi la nominava: la richiesta d'origine
+  (`deletedTaskCodes`), le card d'inbox (`objectGone`, derivato a lettura e
+  senza link), lo standup (`tasksDeleted`). Ogni altra lettura la vede come un
+  codice mai esistito.
+- **Le FK** verso `tickets` sono decise una per una (commento di
+  `deletedTickets` in `packages/db/src/schema.ts`): chi ne aggiunge una nuova
+  decide anche lei — CASCADE se è della task, SET NULL se è un fatto che
+  resta — e la aggiunge al test `tasks.delete.test.ts`.

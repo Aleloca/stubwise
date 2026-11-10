@@ -331,6 +331,8 @@ function BusyLine({ reason }: { reason: TaskBusyReason }) {
           components={bold}
         />
       );
+    case "open_correction":
+      return <>{t("task.delete.busy.correction")}</>;
   }
 }
 

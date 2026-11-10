@@ -27,6 +27,8 @@ import {
   taskWorkViewSchema,
   type TaskActivityEntryView,
   type TaskWorkView,
+  taskDeleteBusySchema,
+  taskDeletionPreviewSchema,
 } from "@stubwise/shared";
 import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
@@ -57,6 +59,7 @@ import {
 import { authErrorResponses, errorSchema } from "./shared.js";
 import { loadTaskWorkExtras } from "../services/task-work.js";
 import { cancelRun } from "../services/cancel-run.js";
+import { deleteTask, taskDeletionPreview } from "../services/task-delete.js";
 
 /**
  * `/api/tasks` (integrazione area 2, fetta 1): le task nella forma del
@@ -270,6 +273,85 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
           }
           return writeError(reply, result.error, 400);
       }
+    },
+  );
+
+  /**
+   * «Elimina task» (fetta 3.0 della chat): il dialogo legge qui se si può,
+   * perché no, cosa la occupa e le figlie che restano (`services/task-delete.ts`).
+   * Chi può lo decide il SERVIZIO (autore con `tickets.edit`, o
+   * `tickets.moderate`): la rotta chiede solo di vedere la task.
+   */
+  app.get(
+    "/:ticketId/deletion",
+    {
+      config: { access: onTicket("member") },
+      schema: {
+        params: ticketParamsSchema,
+        response: { 200: taskDeletionPreviewSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const preview = await taskDeletionPreview(
+        app.db,
+        { ...request.user!, permissions: routePermissions(request) },
+        request.params.ticketId,
+      );
+      if (!preview) return apiError(reply, 404, "not_found", "Task not found");
+      return preview;
+    },
+  );
+
+  /**
+   * Elimina la task: un'eliminazione VERA, non si annulla (regole nel docblock
+   * di `services/task-delete.ts`). 403 `forbidden` senza il permesso, 409
+   * `busy` con le ragioni, 404 per una invisibile. I file degli allegati si
+   * tolgono DOPO il commit, best-effort (come l'eliminazione di un commento).
+   */
+  app.delete(
+    "/:ticketId",
+    {
+      config: { access: onTicket("member") },
+      schema: {
+        params: ticketParamsSchema,
+        response: {
+          204: z.null(),
+          404: errorSchema,
+          409: taskDeleteBusySchema,
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const result = await deleteTask(
+        app.db,
+        { ...request.user!, permissions: routePermissions(request) },
+        request.params.ticketId,
+      );
+      if (!result.ok) {
+        if (result.error === "busy") {
+          return reply.code(409).send({ code: "busy", message: "The task is busy", reasons: result.reasons });
+        }
+        if (result.error === "forbidden") return apiError(reply, 403, "forbidden", "You can't delete this task");
+        return apiError(reply, 404, "not_found", "Task not found");
+      }
+      if (result.storageKeys.length > 0) {
+        try {
+          const storage = await app.storage();
+          if (storage) {
+            for (const key of result.storageKeys) {
+              try {
+                await storage.deleteObject(key);
+              } catch (error) {
+                request.log.warn({ err: error }, "allegato della task eliminata non rimosso dallo storage");
+              }
+            }
+          }
+        } catch (error) {
+          request.log.warn({ err: error }, "storage non raggiungibile: allegati della task eliminata restano");
+        }
+      }
+      return reply.code(204).send(null);
     },
   );
 

@@ -3714,7 +3714,8 @@
           "open_pr": "**{{code}}** ha una pull request aperta ({{pr}}): si archivia quando si chiude",
           "open_prNoCode": "**{{code}}** ha una pull request aperta: si archivia quando si chiude",
           "server_fix": "**{{code}}** ha una correzione aperta su **{{server}}**: si archivia quando finisce",
-          "release": "**{{code}}** ha il rilascio **{{release}}** in corso: si archivia quando finisce"
+          "release": "**{{code}}** ha il rilascio **{{release}}** in corso: si archivia quando finisce",
+          "open_correction": "**{{code}}** ha una correzione di una pull request ancora aperta: si archivia quando finisce"
         }
       },
       "member": {
@@ -4249,7 +4250,8 @@
         "openPrNoNumberOn": "c'è una pull request aperta su {{code}}",
         "serverFix": "è in corso una correzione su {{code}}",
         "release": "il rilascio {{code}} è in corso",
-        "and": " e "
+        "and": " e ",
+        "openCorrection": "una correzione della sua pull request è ancora aperta"
       },
       "undo": {
         "undo": "Annulla l'azione",
@@ -12249,7 +12251,8 @@
         "server": "È la correzione del server <b>{{code}}</b>, ancora aperta.",
         "release": "È la correzione del rilascio <b>{{code}}</b>, ancora aperta.",
         "wait_one": "Aspetta che finisca, o chiudilo dalla sua pagina, poi riprova.",
-        "wait_other": "Aspetta che finiscano, o chiudili dalla loro pagina, poi riprova."
+        "wait_other": "Aspetta che finiscano, o chiudili dalla loro pagina, poi riprova.",
+        "correction": "Una correzione della sua pull request è ancora aperta."
       },
       "done": "{{code}} è stata eliminata.",
       "gone": "Non trovo {{code}}.",

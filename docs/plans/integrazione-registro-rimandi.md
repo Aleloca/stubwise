@@ -30,9 +30,9 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   (limite dichiarato di `ticket-history`). Copiarla in `ticket_events` alla
   chiusura vorrebbe una migrazione: rimandato. Né `requeueStale` scrive il
   commento quando chiude uno stantio annullato.
-- Standup per persona *(S)*: `tasksDeleted` sempre vuoto (il server non tiene
-  le task eliminate) e `viaClaude` sempre falso (nessun evento dice se un
-  cambio l'ha fatto Claude per una persona).
+- Standup per persona *(S)*: `viaClaude` sempre falso (nessun evento dice se
+  un cambio l'ha fatto Claude per una persona) — si chiude con la fetta 3
+  della chat. (`tasksDeleted`: chiuso, sotto.)
 - Il dettaglio della sessione non porta il piano né il suo digest *(S)*: il
   digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».
 - Abbinare un commit per **username** del provider *(S)*: nessuna tabella lega
@@ -151,8 +151,13 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 
 ## Area 10 — Integrazione di Claude
 
-- **Elimina task** (il server non la ha: regole per figlie, collegamenti, codice
-  mai riusato) e le task eliminate nella cronologia e nello standup.
+- Le task eliminate nella cronologia del progetto *(S)*: il server non ha una
+  cronologia di progetto che le nomini (la storia della task se ne va con
+  lei); lo standup e la richiesta d'origine sì. (Elimina task: chiusa, sotto.)
+- Le sessioni dell'agente di una task eliminata se ne vanno con lei *(S,
+  differenza dal prototipo, stubwise-72)*: il prototipo le tiene, ma la loro
+  visibilità passa dal ticket (R26) e senza ticket le vedrebbe chi prima non
+  poteva.
 
 ## Area 11 — Documentazione di prodotto
 
@@ -188,6 +193,14 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- **Elimina task** *(M, 10 nov 2026)* e lo standup «`tasksDeleted` sempre
+  vuoto» *(S)*: eliminazione vera (0130, lapide `deleted_tickets`, FK decise,
+  numero mai riusato, chi lo decide il server, `busy`), «Delete task…» nella
+  build app; la richiesta d'origine (`deletedTaskCodes`), le card d'inbox
+  (`objectGone`) e lo standup la nominano — commit «feat(server): elimina task
+  (F3.0, server)» e «feat(desktop): elimina task (F3.0, renderer)»,
+  `apps/desktop/docs/integration-claude-chat.md`.
 
 - Chat con Claude, **fette 1 e 2** *(O)*: conversazioni libere private sul
   server (sessioni `free`, 0126–0128), turni a sola lettura col token del turno

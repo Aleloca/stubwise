@@ -35,6 +35,7 @@ const ALL: IntegrationTarget[] = [
       "claude-suggestions",
       "claude-chat-actions",
       "product-docs",
+      "task-delete",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -87,6 +88,8 @@ describe("isIntegrated", () => {
         // Fetta 3e: Claude assegnabile.
         "feature:claude-assign",
         "feature:commit-author-link",
+        // Fetta 3.0 della chat: «Elimina task».
+        "feature:task-delete",
       ].sort(),
     );
   });

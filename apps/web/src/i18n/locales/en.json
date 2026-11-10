@@ -776,6 +776,7 @@
       "kinds": {
         "run_started": "Run started",
         "run_cancelled": "Work cancelled",
+        "task_deleted": "Task deleted",
         "question_asked": "The agent asked a question",
         "question_answered": "Question answered",
         "plan_approved": "Plan approved",

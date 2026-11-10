@@ -136,6 +136,13 @@ describe("le Requests dal server", () => {
     expect(await getRequestByCode("AUD-R404")).toBeNull();
   });
 
+  it("una richiesta con una task eliminata la nomina (deletedTaskCodes); senza il campo, niente", async () => {
+    installFakeServer({ [`GET /api/requests/${ITEM}`]: { body: full({ deletedTaskCodes: ["AUD-31"] }) } });
+    expect((await getRequest(ITEM))?.deletedTaskCodes).toEqual(["AUD-31"]);
+    installFakeServer({ [`GET /api/requests/${ITEM}`]: { body: full() } });
+    expect((await getRequest(ITEM))?.deletedTaskCodes).toBeUndefined();
+  });
+
   it("Nuova richiesta: si aspetta l'intake; nuova, oppure fusa in un'altra («Unita a R12»)", async () => {
     let polls = 0;
     const { seen } = installFakeServer({

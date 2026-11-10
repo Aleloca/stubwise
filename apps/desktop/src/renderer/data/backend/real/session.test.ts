@@ -94,6 +94,23 @@ describe("le card dell'inbox", () => {
     expect(n.objectCode).toBe("AUD-12");
   });
 
+  it("una card di una task ELIMINATA: il codice in testo, nessun link né «Open in web», objectGone", () => {
+    const item = inboxItemSchema.parse({
+      ...base,
+      kind: "ticket.activity",
+      ticketId: null,
+      taskCode: "AUD-12",
+      objectGone: true,
+    });
+    const n = presentInboxItem(item, ctx);
+    expect(n).toMatchObject({ link: "", objectGone: true, objectCode: "AUD-12" });
+    expect(n.webHref).toBeUndefined();
+  });
+
+  it("senza objectGone (server più vecchio) il campo vale false", () => {
+    expect(inboxItemSchema.parse({ ...base, kind: "decision.requested" }).objectGone).toBe(false);
+  });
+
   it("una card di un kind sconosciuto ha Apri nel web e non rompe", () => {
     const raw = { ...base, kind: "something.from.the.future", url: "https://stubwise.example.com/tickets/44444444-4444-4444-8444-444444444444" };
     // Come la parsa il client condiviso: il kind ignoto diventa `__unknown__`.

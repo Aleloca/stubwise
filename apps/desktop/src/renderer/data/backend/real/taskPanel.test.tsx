@@ -295,3 +295,50 @@ describe("Tasks nella build app", () => {
     });
   });
 });
+
+describe("«Elimina task» nella build app (fetta 3.0 della chat)", () => {
+  const preview = (over: Record<string, unknown> = {}) => ({
+    taskId: TICKET_ID,
+    code: "AUD-12",
+    title: "Export the report",
+    canDelete: true,
+    whoAction: null,
+    busy: [],
+    children: [],
+    ...over,
+  });
+
+  it("dal menu «⋯»: il dialogo del server, poi DELETE; il pannello si chiude", async () => {
+    const { seen } = installFakeServer({
+      ...routes(),
+      [`GET /api/tasks/${TICKET_ID}/deletion`]: { body: preview() },
+      [`DELETE /api/tasks/${TICKET_ID}`]: { status: 204 },
+    });
+    const ue = userEvent.setup();
+    renderRoute("/p/AUD/tasks?task=AUD-12");
+    const panel = await screen.findByRole("dialog");
+    await ue.click(await within(panel).findByRole("button", { name: "More actions for AUD-12" }));
+    await ue.click(await screen.findByRole("menuitem", { name: "Delete task…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete AUD-12?" });
+    expect(within(dialog).getByText("The code AUD-12 won't be used again.")).toBeInTheDocument();
+    await ue.click(within(dialog).getByRole("button", { name: "Delete AUD-12" }));
+    await waitFor(() => expect(seen.some((r) => r.method === "DELETE" && r.path === `/api/tasks/${TICKET_ID}`)).toBe(true));
+  });
+
+  it("occupata (correzione aperta): il dialogo lo dice e il bottone è spento", async () => {
+    const { seen } = installFakeServer({
+      ...routes(),
+      [`GET /api/tasks/${TICKET_ID}/deletion`]: { body: preview({ busy: [{ kind: "open_correction" }] }) },
+    });
+    const ue = userEvent.setup();
+    renderRoute("/p/AUD/tasks?task=AUD-12");
+    const panel = await screen.findByRole("dialog");
+    await ue.click(await within(panel).findByRole("button", { name: "More actions for AUD-12" }));
+    await ue.click(await screen.findByRole("menuitem", { name: "Delete task…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Delete AUD-12?" });
+    expect(within(dialog).getByText("A correction of its pull request is still open.")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Delete AUD-12" })).toBeDisabled();
+    expect(seen.some((r) => r.method === "DELETE")).toBe(false);
+  });
+});
+

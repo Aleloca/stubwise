@@ -911,6 +911,13 @@
       "when": 1795564800000,
       "tag": "0129_claude_cli_session_started",
       "breakpoints": true
+    },
+    {
+      "idx": 130,
+      "version": "7",
+      "when": 1795651200000,
+      "tag": "0130_task_delete",
+      "breakpoints": true
     }
   ]
 }

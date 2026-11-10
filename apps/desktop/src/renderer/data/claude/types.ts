@@ -145,7 +145,9 @@ export type ClaudeBusyReason =
   | { kind: "open_pr"; repo: string | null; number: number | null }
   | { kind: "server_fix"; serverCode: string }
   | { kind: "release_fix"; releaseCode: string }
-  | { kind: "release"; code: string };
+  | { kind: "release"; code: string }
+  /** Una correzione della PR ancora aperta (il server vero, «Elimina task»). */
+  | { kind: "open_correction" };
 
 /**
  * Perché una riga `executed` non è partita («Didn't run», Task 9), scritto

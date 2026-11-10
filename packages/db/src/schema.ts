@@ -1279,6 +1279,47 @@ export const ticketEvents = pgTable(
 );
 
 /**
+ * La LAPIDE di una task eliminata («Elimina task», 0130). Una task eliminata è
+ * INESISTENTE per ogni lettura (codice, elenchi, ricerca, mobile, MCP); la
+ * lapide serve solo a chi la NOMINAVA: la richiesta d'origine («La task
+ * MKX-31 è stata eliminata»), le notifiche rimaste (`objectGone`), lo standup
+ * (`tasksDeleted`). Tiene codice (progetto + numero: il numero non si riusa,
+ * `projects.next_ticket_number` non scende), titolo, richiesta d'origine, chi,
+ * quando e il segno «via Claude». Mai descrizione, commenti, allegati, storia.
+ *
+ * Le FK verso `tickets`, decise (0130): se ne vanno CON la task follower,
+ * richieste di decisione, gruppi d'errore (un errore che si ripresenta apre
+ * una task nuova), repository e PR, commenti, storia, collegamenti, job (i
+ * loro consumi restano: `agent_runs.job_id` SET NULL), allegati (e i loro file
+ * nello storage, tolti dal servizio), correzioni (solo chiuse: una aperta
+ * blocca), legame con la richiesta, domande, accordi della giornata e le
+ * SESSIONI DELL'AGENTE della task (la loro visibilità passa dal ticket, R26:
+ * senza, le vedrebbe chi prima non poteva). Restano, col riferimento nullo,
+ * notifiche, review delle PR, messaggi del widget e registro decisioni.
+ */
+export const deletedTickets = pgTable(
+  "deleted_tickets",
+  {
+    id: uuid("id").primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    title: text("title").notNull(),
+    originBacklogItemId: uuid("origin_backlog_item_id").references((): AnyPgColumn => backlogItems.id, {
+      onDelete: "set null",
+    }),
+    deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+    viaClaudeActionId: uuid("via_claude_action_id"),
+  },
+  (table) => [
+    unique("deleted_tickets_project_number_unique").on(table.projectId, table.number),
+    index("deleted_tickets_origin_idx").on(table.originBacklogItemId),
+  ],
+);
+
+/**
  * Relazioni dirette tra ticket: il `source` è in relazione `kind` col `target`
  * (es. source "blocks" target, source "parent" di target). Cancellazione in
  * cascata su entrambe le direzioni: rimuovere un ticket elimina i link in cui
@@ -1420,7 +1461,8 @@ export const agentRuns = pgTable(
     // referenziano pr_review_id), per la posta e per i run senza owner. Al più
     // uno fra job, review e messaggio è valorizzato (dalla 0096: zero = run
     // senza owner, vedi `agent_runs_owner_check`).
-    jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "cascade" }),
+    // SET NULL (0130, «Elimina task»): il consumo resta quando il job se ne va.
+    jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "set null" }),
     // Run dell'automazione PR Review; null per triage/fix.
     prReviewId: uuid("pr_review_id").references(() => prReviews.id, { onDelete: "cascade" }),
     // Messaggio di posta classificato (fase 6); null per tutti gli altri run.
@@ -3441,8 +3483,10 @@ export const notifications = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
-    ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "cascade" }),
-    jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "cascade" }),
+    // SET NULL (0130, «Elimina task»): la notifica è di chi la riceve e resta;
+    // «task eliminata» si deriva a lettura.
+    ticketId: uuid("ticket_id").references(() => tickets.id, { onDelete: "set null" }),
+    jobId: uuid("job_id").references(() => aiJobs.id, { onDelete: "set null" }),
     kind: notificationKind("kind").notNull(),
     // Payload dell'evento, già completo di tutto ciò che serve a renderlo
     // (titolo del ticket, url, dettaglio). Il tipo forte è `NotificationEvent`

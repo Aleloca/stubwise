@@ -62,8 +62,28 @@ export function webHrefFor(
 
 /** Una card dell'inbox come notifica del prototipo. Non lancia mai, nemmeno su un kind ignoto. */
 export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotification {
-  const taskCode = item.ticketId ? ctx.taskCodes.get(item.ticketId) : undefined;
   const projectCode = item.projectId ? ctx.projectCodes.get(item.projectId) : undefined;
+  // La task della card è stata eliminata («Elimina task»): la notifica resta
+  // com'era, col codice in testo e senza nessun link (`objectGone`).
+  if (item.objectGone) {
+    return {
+      id: item.id,
+      kind: item.kind,
+      projectId: item.projectId,
+      objectCode: item.taskCode ?? projectCode ?? "",
+      departmentId: null,
+      recipientIds: [],
+      title: item.text,
+      body: item.summary ?? "",
+      createdAt: item.createdAt,
+      read: item.readAt !== null,
+      archived: item.status === "handled",
+      snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
+      link: "",
+      objectGone: true,
+    };
+  }
+  const taskCode = item.ticketId ? ctx.taskCodes.get(item.ticketId) : undefined;
   const integrated = INTEGRATED_KINDS.has(item.kind) && taskCode !== undefined && projectCode !== undefined;
   return {
     id: item.id,

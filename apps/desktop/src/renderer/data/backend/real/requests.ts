@@ -82,6 +82,8 @@ function fromView(v: ProjectRequestView): ProjectRequest {
     similarToId: v.similarToId,
     mergedIntoId: v.mergedIntoId,
     taskIds: v.taskIds,
+    // Le task nate da qui e poi eliminate: «La task MKX-31 è stata eliminata» (dalla lapide).
+    ...(v.deletedTaskCodes && v.deletedTaskCodes.length > 0 ? { deletedTaskCodes: v.deletedTaskCodes } : {}),
     createdAt: v.createdAt,
     suggestions: v.suggestions ?? null,
     ...(v.webHref ? { webHref: v.webHref } : {}),
