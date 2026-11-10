@@ -3047,6 +3047,25 @@ deploy o di un rollback che la tocca.
   2.1.287 a **2.1.322** (`ARG CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile`,
   decisione del maintainer: il pin non resta fermo). Nessuna migrazione, nessuna
   env nuova; il server, caddy e l'app non cambiano.
+  ⚠️ **Il pin si rilascia SOLO insieme alla correzione dei tool nativi**
+  (decisione del maintainer, 10 nov 2026; commit «fix(worker): elenco
+  esplicito dei tool nativi per ogni run del CLI»). Il 2.1.322 espone nei run
+  del worker tool nativi che in `-p` partono SENZA permesso — misurato col
+  profilo del refinement: `RemoteTrigger` (chiamata all'API remota con
+  l'account del CLI), `SendMessage`, `CronCreate`, `ListAgents`, `ToolSearch`
+  eseguiti, `Write` negato. La correzione dà a ogni run un elenco esplicito
+  (`--tools`, fail-closed a `""`), mette sempre `--strict-mcp-config` e fa
+  fermare al runner in streaming un run il cui init esponga altro
+  (`docs/invariants/agent-sessions.md`, «I tool NATIVI di ogni run»). Anche
+  il 2.1.287 in produzione li espone (init della traccia di
+  `streaming-cli.test`), eseguibilità non verificata: nessun hotfix, si chiude
+  con questo rilascio. **Golden con la correzione** (2.1.322, superpowers
+  7.0.0): plan-only, execute, correction, stop-pause 1/1; ask-user e no-ask
+  5/5; intervene, intervene-plan, refine, refine-read, cancel 3/3;
+  `refine-read-bash` 3/3 (nessun Bash tentato: senza grafo il refinement non
+  ha più Bash); `golden:nightly` 15/15 (al primo giro il probe dell'allowlist per file del golden non passava ancora l'elenco dei nativi e non poteva leggere: corretto, e il test sul sorgente ora guarda anche `scripts/golden/`). **Rollback**: il pin e la
+  correzione scendono insieme; la correzione da sola non dipende dalla
+  versione del CLI, ma `--tools` sul 2.1.287 non è stato provato.
   **Golden** (`apps/worker/scripts/golden/`, `--claude` = la 2.1.322, plugin
   superpowers 7.0.0): tutti verdi nelle ripetizioni del README — plan-only,
   execute, correction, stop-pause 1/1; ask-user e no-ask 5/5; intervene,

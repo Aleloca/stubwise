@@ -130,7 +130,7 @@ function fakeEmbed(text: string): number[] {
 /** Import dinamici: con i workspace non buildati il fallimento è un exit 2 leggibile. */
 async function loadRuntime() {
   try {
-    const [dbTesting, db, drizzle, cli, streaming, mirrors, handler, orchestrator, readScope] = await Promise.all([
+    const [dbTesting, db, drizzle, cli, streaming, mirrors, handler, orchestrator, readScope, nativeTools] = await Promise.all([
       import("@stubwise/db/testing"),
       import("@stubwise/db"),
       import("drizzle-orm"),
@@ -140,8 +140,9 @@ async function loadRuntime() {
       import("../../src/handler.js"),
       import("../../src/nightly/orchestrator.js"),
       import("../../src/agent/read-scope.js"),
+      import("../../src/agent/native-tools.js"),
     ]);
-    return { dbTesting, db, drizzle, cli, streaming, mirrors, handler, orchestrator, readScope };
+    return { dbTesting, db, drizzle, cli, streaming, mirrors, handler, orchestrator, readScope, nativeTools };
   } catch (error) {
     fail(
       `Moduli non caricabili (${error instanceof Error ? error.message : String(error)}): ` +
@@ -221,6 +222,8 @@ async function allowlistProbe(
       // Solo per il tipo: il runner del golden non scrive in `agent_runs`.
       usage: { operation: "docs_nightly", projectId: null },
       permissionMode: "default",
+      // I nativi delle pagine notturne, gli STESSI della produzione (`native-tools.ts`).
+      builtinTools: rt.nativeTools.NATIVE_TOOLS.fileRead,
       allowedTools: rt.readScope.scopedFileReadTools(worktreeDir, [canaries.listed.file]),
       disallowedTools: rt.readScope.sensitiveReadDenyRules(),
       maxTurns: 10,

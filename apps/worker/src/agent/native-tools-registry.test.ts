@@ -9,8 +9,9 @@ import { describe, expect, it } from "vitest";
  * (senza elenco: `--tools ""`), ma un run che dimentica l'elenco fallirebbe
  * in silenzio nel modo opposto: un fix senza Write. Qui si legge il sorgente:
  * ogni chiamata `.run({ … })` (e `runProductAgent(deps, { … })`) deve nominare
- * `builtinTools`, o lo spread che lo porta (`graphAllowedTools(…)`). Un file
- * nuovo è coperto senza toccare il test.
+ * `builtinTools`, o lo spread che lo porta (`graphAllowedTools(…)`), anche
+ * negli scenari golden (`scripts/golden/`). Un file nuovo è coperto senza
+ * toccare il test.
  */
 const SRC = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -39,7 +40,9 @@ describe("ogni run del worker dichiara i suoi tool nativi", () => {
   it("nessuna chiamata .run({ … }) senza builtinTools", () => {
     const missing: string[] = [];
     let seen = 0;
-    for (const path of sources(SRC)) {
+    // Anche gli scenari golden: costruiscono le opzioni a mano, e un elenco
+    // dimenticato lì è un golden che prova un run diverso dalla produzione.
+    for (const path of [...sources(SRC), ...sources(join(SRC, "..", "scripts", "golden"))]) {
       const file = relative(SRC, path);
       if (WRAPPERS.has(file)) continue;
       const text = readFileSync(path, "utf8");
