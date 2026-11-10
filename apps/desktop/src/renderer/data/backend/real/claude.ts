@@ -512,7 +512,18 @@ export async function toDetail(
 }
 
 /** Una sessione invisibile, o inesistente, risponde 404: `null`. */
-export const getConversation: typeof Fake.getConversation = async (id) => {
+export const getConversation: typeof Fake.getConversation = (id) => readConversation(id, true);
+
+/**
+ * Il dettaglio di una sessione o di una conversazione libera. `withOrigin`:
+ * di una continuazione si legge anche l'originale (una volta: l'origine
+ * dell'origine non serve). Solo un 404 dice «non c'è»; ogni altro errore si
+ * propaga, e la lettura si riprova.
+ */
+async function readConversation(
+  id: string,
+  withOrigin: boolean,
+): ReturnType<typeof Fake.getConversation> {
   // Il riquadro senza conversazione la chiede con l'id vuoto: nessuna.
   if (!id) return null;
   let detail: Detail;
@@ -539,7 +550,7 @@ export const getConversation: typeof Fake.getConversation = async (id) => {
     const flow = withChatActionEvents(eventsOf(conversation.session, events, {}, null), chatActionEvents(events, actions));
     return {
       ...freeDetailOf(conversation, flow),
-      continuesFrom: await originOf(conversation.continuesFrom),
+      continuesFrom: withOrigin ? await originOf(conversation.continuesFrom) : null,
       undo: undoViewsOf(actions.groups, nameOf),
     };
   }
@@ -550,7 +561,7 @@ export const getConversation: typeof Fake.getConversation = async (id) => {
 /**
  * La pubblica da cui continua una conversazione (fetta 5), letta DAL VIVO e
  * come la vede chi continua (la proiezione del server): mai copiata. Non più
- * visibile, o eliminata: `available: false`, senza titolo né eventi.
+ * visibile, o eliminata (404): `available: false`, senza titolo né eventi.
  */
 async function originOf(
   from: { id: string; available: boolean } | null,
@@ -558,7 +569,9 @@ async function originOf(
   if (!from) return null;
   const gone = { id: from.id, available: false as const, title: null, ownerId: null, events: [] as [] };
   if (!from.available) return gone;
-  const origin = await getConversation(from.id).catch(() => null);
+  // Un 404 (privata nel frattempo, eliminata) dà `null`: non più disponibile.
+  // Un errore di rete NO: si propaga, e la lettura si riprova.
+  const origin = await readConversation(from.id, false);
   if (!origin) return gone;
   return {
     id: from.id,
