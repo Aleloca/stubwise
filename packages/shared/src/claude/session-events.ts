@@ -42,6 +42,11 @@ export interface SessionPlan {
   at: string;
   decidedById?: string;
   instructions?: string;
+  /**
+   * Il digest del piano (`planDigest`, dal server): passa sull'evento, così chi
+   * decide rimanda quello del piano MOSTRATO (review dell'area 3, punto 13).
+   */
+  digest?: string | null;
 }
 
 export interface SessionEventsInput {
@@ -170,6 +175,7 @@ export function toConversationEvents(input: SessionEventsInput): WorkEvent[] {
       status: plan.status,
       ...(plan.decidedById ? { decidedById: plan.decidedById } : {}),
       ...(plan.instructions ? { instructions: plan.instructions } : {}),
+      ...(plan.digest ? { digest: plan.digest } : {}),
     };
     const t = Date.parse(plan.at);
     let index = out.length;

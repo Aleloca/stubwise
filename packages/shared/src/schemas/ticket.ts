@@ -111,6 +111,10 @@ export const ticketSchema = z.object({
   technicalPayload: z.unknown().nullable(),
   occurrences: z.number().int(),
   lastSeenAt: z.iso.datetime(),
+  // L'assegnatario è Claude, l'utente di sistema (integrazione area 3, review
+  // punto 6): fuori da `/api/users` (il Team), quindi il web vecchio e l'app
+  // non ne troverebbero il nome. Additivo e facoltativo: assente = non è Claude.
+  assigneeIsAgent: z.boolean().optional(),
   // Chi ha chiesto il ticket (additivo: i server più vecchi non lo mandano).
   requestedBy: z.object({ id: z.uuid(), email: z.string() }).nullable().optional(),
   createdAt: z.iso.datetime(),

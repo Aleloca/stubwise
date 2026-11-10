@@ -74,6 +74,7 @@ export function toTask(view: TaskViewData): Task {
     attachments: view.attachments,
     manualStall: view.manualStall,
     claude: view.claude,
+    ...(view.claudeRun ? { claudeRun: view.claudeRun } : {}),
     createdAt: view.createdAt,
     closedAt: view.closedAt,
     lastActivityAt: view.lastActivityAt,

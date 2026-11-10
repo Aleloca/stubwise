@@ -234,6 +234,18 @@
   la richiesta di questo tentativo, invece di riaccodarlo; il commento di
   chiusura lì non c'è (il processo che l'avrebbe scritto è morto). Chi
   aggiunge una transizione verso `queued` aggiunge anche quell'oggetto.
+  ⚠️ **Nemmeno un parcheggio scavalca la richiesta** (review, punto 2): un
+  job annullato mentre lavorava può arrivare al gate del piano, a una domanda
+  o a un `held` (gate dell'automazione, budget, provider al limite) prima
+  che il CLI riceva l'abort. `parkForPlanApproval`, `parkForInput` e
+  `holdJob` (`apps/worker/src/queue.ts`) rifiutano nella stessa UPDATE un
+  job con la richiesta di questo tentativo, lo chiudono `skipped` con la sua
+  correzione (`closeCancelledJob`) e rispondono `cancelled` (`ParkResult`:
+  `parked` | `lost` | `cancelled`); il chiamante scrive il commento
+  dell'annullamento (`recordRunCancelledSafely`) al posto di quello e della
+  notifica del parcheggio. ⚠️ Chi chiama un parcheggio confronta il
+  risultato con le stringhe: `!parked` su una stringa compila e non vuol
+  dire più niente.
 - **I tool NATIVI di ogni run del CLI sono un elenco ESPLICITO, mai la sola
   lista dei negati (10 nov 2026, CLI 2.1.322).** Il CLI espone tool nativi
   nuovi — `CronCreate`/`CronDelete`/`CronList`, `RemoteTrigger`,

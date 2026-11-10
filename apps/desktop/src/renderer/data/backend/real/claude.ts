@@ -214,7 +214,6 @@ export type RunPlan = SessionPlan & { jobId: string; digest: string | null };
  * approvare o rifiutare lo rimanda, e il server risponde 409 `plan_changed`
  * se nel frattempo il piano è stato riscritto. Si decide il piano LETTO.
  */
-export const planDigestOf = new Map<string, string>();
 
 /**
  * Ciò che di una sessione fa cambiare le letture e il piano: stato, esito,
@@ -544,10 +543,6 @@ const known = <T extends string>(v: T | "__unknown__"): v is T => v !== "__unkno
 function sessionPlanOf(run: RunView): RunPlan | null {
   const plan = run.plan;
   if (!plan || !known(plan.status)) return null;
-  if (plan.digest) {
-    planDigestOf.set(run.id, plan.digest);
-    if (run.sessionId) planDigestOf.set(run.sessionId, plan.digest);
-  }
   return {
     jobId: run.id,
     digest: plan.digest,
@@ -638,6 +633,8 @@ export const getTaskWork: typeof Fake.getTaskWork = async (taskId) => {
       relaunch: availability(work.actions.relaunch),
       resume: availability(work.actions.resume),
       requestChanges: availability(work.actions.requestChanges),
+      // Lo calcola il server (review dell'area 3, punto 14).
+      cancel: availability(work.actions.cancel),
     },
     prFacts: work.prFacts.map((f) => ({
       repo: f.repo,

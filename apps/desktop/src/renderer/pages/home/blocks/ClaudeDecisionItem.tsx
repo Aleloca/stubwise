@@ -258,7 +258,7 @@ function PlanItem({ decision, claude, onOpenTask, defer, label }: ItemProps<Plan
 
   const decide = (choice: "approve" | "reject", instructions?: string) =>
     defer(
-      () => decideNow(decision.conversationId, decision.planId, choice, instructions),
+      () => decideNow(decision.conversationId, decision.planId, choice, instructions, decision.planDigest),
       t(choice === "approve" ? "home.decide.claude.approved" : "home.decide.claude.rejected", {
         code: label,
       }),

@@ -30,6 +30,8 @@ import {
   shortWeek,
   useProjectMembers,
 } from "../tasks/pickers";
+import { claudeRunText } from "../../tasks-ui/claudeRun";
+import { useToast } from "../../tasks-ui/Toast";
 
 /** I progetti dove chi guarda può creare task (`tickets.create`), per codice. */
 function useCreatableProjects(): Project[] | undefined {
@@ -125,6 +127,7 @@ export function NewTaskDialog({
   onClose: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  const toast = useToast();
   const { viewer } = useViewer();
   const projects = useCreatableProjects();
   const departments = useDepartments().data;
@@ -200,7 +203,12 @@ export function NewTaskDialog({
       milestoneId,
     };
     const callbacks = {
-      onSuccess: onCreated,
+      onSuccess: (created: Parameters<typeof onCreated>[0]) => {
+        // Nata assegnata a Claude ma il lavoro non è partito: la frase del codice.
+        const text = claudeRunText(t, created);
+        if (text) toast.error(text);
+        onCreated(created);
+      },
       onError: (error: unknown) => {
         const code = (error as { code?: unknown } | null)?.code;
         setRequestRefusal(

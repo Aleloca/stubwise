@@ -116,6 +116,8 @@ export const claudeClassReasonSchema = z.discriminatedUnion("kind", [
     more: z.boolean(),
   }),
   z.object({ kind: z.literal("irreversible") }),
+  /** Fa partire il lavoro di Claude (assegnargli una task, come `startRun`): chiede sempre conferma. */
+  z.object({ kind: z.literal("starts_work") }),
 ]);
 export type ClaudeClassReason = z.infer<typeof claudeClassReasonSchema>;
 

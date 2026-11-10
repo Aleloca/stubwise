@@ -34,6 +34,11 @@ const VIEW = {
 };
 
 describe("taskViewSchema", () => {
+  it("una taskView senza claudeRun (un server più vecchio, una lettura) parsa con null", () => {
+    expect(taskViewSchema.parse(VIEW).claudeRun).toBeNull();
+    expect(taskViewSchema.parse({ ...VIEW, claudeRun: "refused:job_in_flight" }).claudeRun).toBe("refused:job_in_flight");
+  });
+
   it("una taskView senza plannedWeek né slipCount parsa con i default", () => {
     const parsed = taskViewSchema.parse(VIEW);
     expect(parsed.plannedWeek).toBeNull();

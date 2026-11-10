@@ -1099,6 +1099,8 @@ export async function getTaskWork(taskId: string): Promise<TaskWork | null> {
       relaunch: availability(ready.relaunch, "runs.start"),
       resume: availability(ready.resume, "corrections.request"),
       requestChanges: availability(ready.requestChanges, "corrections.request"),
+      // «Annulla il lavoro»: un lavoro non concluso (le regole di `cancelRun`).
+      cancel: availability(!!latest && latest.state !== "finished", "runs.start"),
     },
     prFacts: software
       ? state.prFacts

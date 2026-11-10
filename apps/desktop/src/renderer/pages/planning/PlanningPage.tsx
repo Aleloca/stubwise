@@ -57,6 +57,7 @@ import { PlanMenu } from "./PlanMenu";
 import { planRefusalOf } from "./planRefusal";
 import { Unplanned, type PoolGroup } from "./Unplanned";
 import { useCurrentWeek } from "../../data/clock";
+import { claudeRunText } from "../../tasks-ui/claudeRun";
 
 /** Le settimane in vista secondo la larghezza della finestra (shape planning.md §6). */
 export const WEEKS_3_QUERY = "(min-width: 1440px)";
@@ -279,7 +280,10 @@ export function PlanningPage({ projectCode }: { projectCode?: string }) {
     planTask.mutate(
       { id: task.id, assigneeId, week },
       {
-        onSuccess: () => {
+        onSuccess: (updated) => {
+          // Assegnata a Claude ma il lavoro non è partito: la frase del codice.
+          const refused = claudeRunText(t, updated);
+          if (refused) toast.error(refused);
           if (opts.undo) return;
           toast.show(
             week === null

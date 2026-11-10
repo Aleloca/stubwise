@@ -17,7 +17,7 @@ import { securityEventsResponseSchema, updateInstanceRoleSchema } from "@stubwis
 import { userIsFullAdmin } from "@stubwise/notifications";
 import { setInstanceRole } from "../services/roles.js";
 import { roleRuleErrorSchema, sendRoleRuleError, targetUserNotAbove } from "./roles.js";
-import { authErrorResponses, errorSchema } from "./shared.js";
+import { authErrorResponses, errorSchema, rejectAgentUserParam } from "./shared.js";
 
 /** Identità pubblica di un utente: mai hash o altri campi sensibili. */
 export const publicUserSchema = z.object({
@@ -60,15 +60,8 @@ export const teamUserSchema = publicUserSchema.extend({
 export async function userRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
-  // L'utente di sistema «Claude» (area 3, fetta 3e) non è una persona da
-  // gestire: nessuna rotta `/:id` lo tocca (ruolo, password, secondo fattore,
-  // registro di sicurezza). Risponde come un utente che non c'è.
-  app.addHook("preHandler", async (request, reply) => {
-    const id = (request.params as { id?: unknown } | undefined)?.id;
-    if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) return;
-    const [row] = await app.db.select({ isAgent: users.isAgent }).from(users).where(eq(users.id, id));
-    if (row?.isAgent) return apiError(reply, 404, "user_not_found", "User not found");
-  });
+  // L'utente di sistema «Claude» non è una persona da gestire (vedi l'hook).
+  rejectAgentUserParam(instance);
 
   app.get(
     "/",

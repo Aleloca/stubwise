@@ -10,6 +10,7 @@ import {
   errorSchema,
   isForeignKeyViolation,
   isUniqueViolation,
+  rejectAgentUserParam,
 } from "./shared.js";
 
 /**
@@ -44,6 +45,8 @@ const observedAuthorSchema = z.object({
 
 export async function gitIdentityRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // Niente identità git né Bitbucket per l'utente di sistema «Claude».
+  rejectAgentUserParam(instance);
 
   /** Elenco delle git identities di un membro (per il refresh dopo una mutation). */
   async function identitiesOf(userId: string) {

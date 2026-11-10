@@ -46,10 +46,16 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
       },
     },
     async (request, reply) => {
-      const result = await confirmProposal(app.db, request.user!, request.params.id, {
-        ...(request.body.selected ? { selected: request.body.selected } : {}),
-        ...(request.body.edited ? { edited: request.body.edited } : {}),
-      });
+      const result = await confirmProposal(
+        app.db,
+        request.user!,
+        request.params.id,
+        {
+          ...(request.body.selected ? { selected: request.body.selected } : {}),
+          ...(request.body.edited ? { edited: request.body.edited } : {}),
+        },
+        { storage: () => app.storage(), log: (message, error) => request.log.warn({ err: error }, message) },
+      );
       if (result.ok) return result.proposal;
       if (result.error === "not_found") return apiError(reply, 404, "not_found", "Proposal not found");
       if (result.error === "refused") {
@@ -91,7 +97,10 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
       },
     },
     async (request, reply) => {
-      const result = await requestUndo(app.db, request.user!, request.params.id);
+      const result = await requestUndo(app.db, request.user!, request.params.id, {
+        storage: () => app.storage(),
+        log: (message, error) => request.log.warn({ err: error }, message),
+      });
       if (result.ok) return result.kind === "undone" ? { kind: "undone" as const } : { kind: "needs_confirmation" as const, proposal: result.proposal };
       if (result.error === "not_found" || result.error === "not_yours") return apiError(reply, 404, "not_found", "Not found");
       if (result.error === "refused") {
