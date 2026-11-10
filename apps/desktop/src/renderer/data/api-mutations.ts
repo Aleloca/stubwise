@@ -3948,28 +3948,28 @@ export async function relaunchWithInstructions(
 
 /**
  * «Annulla il lavoro» (`runs.start`, decisione del maintainer del 10 nov
- * 2026): chiude SUBITO l'ultimo lavoro della task se è PARCHEGGIATO — fermo,
- * in pausa, in attesa di una risposta o dell'approvazione, in coda — come
- * fermato. Uno al lavoro non si annulla (`run_in_progress`: prima «Ferma»),
- * e senza lavoro vivo non c'è niente da annullare (`nothing_to_cancel`). Le
- * PR non si toccano.
+ * 2026): chiude l'ultimo lavoro della task come fermato. PARCHEGGIATO —
+ * fermo, in pausa, in attesa di una risposta o dell'approvazione, in coda —
+ * si chiude subito (`cancelled`); AL LAVORO, come sul server vero (3b.1-bis),
+ * la richiesta parte e Claude si ferma da sé (`requested`: qui il copione si
+ * chiude come lo chiuderebbe il worker). Senza lavoro vivo non c'è niente da
+ * annullare (`nothing_to_cancel`). Le PR non si toccano.
  */
-export async function cancelRun(taskId: string): Promise<void> {
+export async function cancelRun(taskId: string): Promise<"cancelled" | "requested"> {
   const gen = storeGeneration();
   const me = await afterGate("cancelRun", gen);
   const task = taskFor(me, taskId);
   need(me, "runs.start", task.projectId);
   const run = latestRunOf(task.id);
   if (!run || run.state === "finished") throw Object.assign(new Error("nothing_to_cancel"), { code: "nothing_to_cancel" });
-  if (run.state === "working" && !run.waiting) {
-    throw Object.assign(new Error("run_in_progress"), { code: "run_in_progress" });
-  }
+  const requested = run.state === "working" && !run.waiting;
   if (run.waiting) {
     dropHeld(run.id);
     run.waiting = null;
   }
   interruptScripts(run.id, i18n.t("claude.conversation.delivery.stoppedBeforeTurn"));
   await runScript(run.id, [{ step: "state", state: "finished", outcome: "stopped" }], gen);
+  return requested ? "requested" : "cancelled";
 }
 
 /**

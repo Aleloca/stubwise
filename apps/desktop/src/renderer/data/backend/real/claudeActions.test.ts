@@ -93,8 +93,22 @@ describe("le azioni sulla task", () => {
     const { seen } = installFakeServer({
       [`POST /api/tasks/${TICKET_ID}/cancel-run`]: { body: { claude: "none", webHref: "/x" } },
     });
-    await cancelRun(TICKET_ID);
+    expect(await cancelRun(TICKET_ID)).toBe("cancelled");
     expect(seen[0]).toMatchObject({ method: "POST", path: `/api/tasks/${TICKET_ID}/cancel-run` });
+  });
+
+  it("annulla un lavoro IN ESECUZIONE: il server registra la richiesta (202) e la chiusura arriva a breve: «requested»", async () => {
+    installFakeServer({
+      [`POST /api/tasks/${TICKET_ID}/cancel-run`]: {
+        status: 202,
+        body: {
+          claude: "working",
+          webHref: "/x",
+          runs: [{ id: JOB, sessionId: SESSION, ownerId: null, createdAt: "2026-10-20T09:00:00.000Z", state: "working", cancelRequested: true }],
+        },
+      },
+    });
+    expect(await cancelRun(TICKET_ID)).toBe("requested");
   });
 });
 

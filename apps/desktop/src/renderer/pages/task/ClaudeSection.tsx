@@ -1021,8 +1021,9 @@ function CancelRunDialog({
   const [refusal, setRefusal] = useState<"run_in_progress" | "nothing_to_cancel" | "failed" | null>(null);
   const confirm = () =>
     cancel.mutate(task.id, {
-      onSuccess: () => {
-        toast.show(t(`${K}.cancelRun.done`));
+      onSuccess: (result) => {
+        // In esecuzione la richiesta è partita e la chiusura arriva a breve: non «annullato».
+        toast.show(t(`${K}.cancelRun.${result === "requested" ? "requested" : "done"}`));
         onClose();
       },
       onError: (error) => {

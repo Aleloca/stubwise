@@ -4,6 +4,7 @@ import {
   answerQuestion,
   archiveConversation,
   cancelProposal,
+  cancelRun,
   closeRefine,
   confirmProposal,
   continueConversation,
@@ -1007,6 +1008,16 @@ describe("piano", () => {
 });
 
 describe("sessioni di lavoro", () => {
+  it("annulla un lavoro AL LAVORO: come il server (3b.1-bis) la richiesta parte e il lavoro si chiude fermato", async () => {
+    as("p-marco"); // developer in AUD: runs.start
+    const run = await startRun("t-aud-2");
+    expect((await getConversation(run.id))!.state).toBe("working");
+    expect(await cancelRun("t-aud-2")).toBe("requested");
+    const after = (await getConversation(run.id))!;
+    expect(after.state).toBe("finished");
+    expect(after.outcome).toBe("stopped");
+  });
+
   it("avvia: con runs.start; un developer passa dal gate del piano", async () => {
     as("p-giulia"); // contributor in AUD
     const before = state.conversations.length;

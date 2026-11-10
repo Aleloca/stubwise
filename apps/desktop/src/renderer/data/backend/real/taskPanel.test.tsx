@@ -260,13 +260,33 @@ describe("Tasks nella build app", () => {
         [`POST /api/tasks/${TICKET_ID}/cancel-run`]: () => {
           seen.push("cancel");
           cancelRequested = true;
-          return { status: 202, body: { claude: "working", webHref: "/x" } };
+          // Il 202 vero porta il lavoro, con la richiesta registrata.
+          return {
+            status: 202,
+            body: {
+              claude: "working",
+              webHref: "/x",
+              runs: [
+                {
+                  id: "bbbbbbbb-0000-4000-8000-000000000003",
+                  sessionId: SESSION,
+                  ownerId: ME_ID,
+                  createdAt: "2026-10-20T09:00:00.000Z",
+                  state: "working",
+                  cancelRequested: true,
+                },
+              ],
+            },
+          };
         },
       });
       const { ue, dialog } = await openCancel();
       expect(within(dialog).queryByText(/stop it first/)).toBeNull();
       await ue.click(within(dialog).getByRole("button", { name: "Cancel the work" }));
       await waitFor(() => expect(seen).toEqual(["cancel"]));
+      // Non «annullato»: la richiesta è partita, la chiusura arriva a breve.
+      expect(await screen.findByText("Request sent: Claude stops and the work closes in a moment.")).toBeInTheDocument();
+      expect(screen.queryByText("Claude's work was cancelled.")).toBeNull();
       const panel = screen.getByRole("dialog", { name: "Task AUD-12" });
       const claude = () => within(panel).getByRole("region", { name: "Claude" });
       await waitFor(() => expect(claude()).toHaveTextContent("Cancelling…"));

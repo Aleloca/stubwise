@@ -90,12 +90,16 @@ export const requestChanges: typeof Fake.requestChanges = async (taskId, text) =
 };
 
 /**
- * «Annulla il lavoro» (decisione del maintainer): chiude il lavoro
- * PARCHEGGIATO; su uno in esecuzione 409 `run_in_progress` (prima «Ferma»),
- * senza lavoro 409 `nothing_to_cancel`.
+ * «Annulla il lavoro» (decisione del maintainer): il lavoro PARCHEGGIATO lo
+ * chiude il server subito (200, `cancelled`); su uno IN ESECUZIONE il server
+ * registra la richiesta e sveglia il worker, che ferma Claude e chiude a breve
+ * (202, `requested`: lo dice `cancelRequested` dell'ultimo run). Senza lavoro
+ * 409 `nothing_to_cancel`; un server di prima del 3b.1-bis risponde ancora
+ * 409 `run_in_progress` su un lavoro in esecuzione.
  */
 export const cancelRun: typeof Fake.cancelRun = async (taskId) => {
-  await appClient().tasks.cancelRun(taskId);
+  const work = await appClient().tasks.cancelRun(taskId);
+  return work.runs?.at(-1)?.cancelRequested === true ? "requested" : "cancelled";
 };
 
 // --- su una sessione --------------------------------------------------------------
