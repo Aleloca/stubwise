@@ -3265,7 +3265,7 @@ export const backlogRefineSessions = pgTable(
 
 /**
  * La conversazione libera con Claude (integrazione «Chat con Claude», fetta 1,
- * 0125): ciò che la sessione dell'agente di kind `free` non ha. PRIVATA
+ * 0126): ciò che la sessione dell'agente di kind `free` non ha. PRIVATA
  * dell'autore (`owner_id`): la visibilità delle sessioni la legge da qui
  * (`visibleTo`), senza ramo per ruolo — nemmeno un full admin la vede. CASCADE
  * dalla sessione (la potatura dei 14 giorni la porta via) e dall'utente.
