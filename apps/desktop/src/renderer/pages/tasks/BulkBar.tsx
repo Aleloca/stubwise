@@ -1,4 +1,5 @@
 import { featureIntegrated } from "../../data/integration";
+import { planRefusalOf } from "../planning/planRefusal";
 import { useTranslation } from "react-i18next";
 import { useBulkUpdateTasks, useMilestones, useProjectStatuses } from "../../data/queries";
 import type { Task, TaskPatch } from "../../data/types";
@@ -49,7 +50,12 @@ export function BulkBar({ tasks, onClear }: { tasks: Task[]; onClear: () => void
       { ids, patch },
       {
         onSuccess: () => toast.show(t("tasks.bulk.done", { count })),
-        onError: () => toast.error(t("tasks.bulk.failed", { count })),
+        onError: (error) =>
+          toast.error(
+            planRefusalOf(error) === "claude_assign_forbidden"
+              ? t("tasks.bulk.claudeForbidden", { count })
+              : t("tasks.bulk.failed", { count }),
+          ),
       },
     );
   };

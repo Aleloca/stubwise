@@ -19,6 +19,7 @@ const ALL: IntegrationTarget[] = [
       "view-as",
       "claude-panel",
       "claude-assign",
+      "commit-author-link",
       "planning-week",
       "my-week",
       "saved-filters",
@@ -83,6 +84,9 @@ describe("isIntegrated", () => {
         // suggerimenti, azioni in chat e riquadro restano fuori.
         "feature:claude-chat",
         "feature:claude-panel",
+        // Fetta 3e: Claude assegnabile.
+        "feature:claude-assign",
+        "feature:commit-author-link",
       ].sort(),
     );
   });

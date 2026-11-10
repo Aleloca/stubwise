@@ -1,4 +1,5 @@
-import { featureIntegrated } from "../../data/integration";
+import { isAssignableIn } from "../../data/assignable";
+import { planRefusalOf } from "../planning/planRefusal";
 import { useTranslation } from "react-i18next";
 import {
   usePeople,
@@ -44,11 +45,10 @@ export function useProjectMembers(projectId: string | undefined): Person[] | und
   const projects = useProjects().data;
   const people = usePeople().data;
   if (!projectId || !projects || !people) return undefined;
-  const members = projects.find((p) => p.id === projectId)?.memberIds ?? [];
-  // Nella build app Claude non si assegna (fetta 1 dell'integrazione: area 3 non integrata).
-  const claude = featureIntegrated("claude-assign");
+  // I membri, e Claude dove si assegna (nella build app: `claudeAssignableProjectIds`).
+  const project = projects.find((p) => p.id === projectId);
   return people
-    .filter((p) => members.includes(p.id) && !p.deactivated && (claude || !p.isClaude))
+    .filter((p) => isAssignableIn(p, project) && !p.deactivated)
     .sort((a, b) => Number(a.isClaude) - Number(b.isClaude) || a.name.localeCompare(b.name));
 }
 
@@ -190,7 +190,15 @@ export function useInlineUpdate() {
   return (task: Task, patch: TaskPatch) =>
     update.mutate(
       { id: task.id, patch },
-      { onError: () => toast.error(t("tasks.list.changeFailed", { code: task.code })) },
+      {
+        // Claude a chi non ne può avviare il lavoro (area 3, 3e): la sua frase.
+        onError: (error) =>
+          toast.error(
+            planRefusalOf(error) === "claude_assign_forbidden"
+              ? t("planning.refused.claude_assign_forbidden", { code: task.code })
+              : t("tasks.list.changeFailed", { code: task.code }),
+          ),
+      },
     );
 }
 

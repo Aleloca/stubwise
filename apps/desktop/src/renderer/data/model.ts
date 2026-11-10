@@ -40,6 +40,14 @@ export interface Person {
   email?: string;
   /** La foto del profilo (area 9a): un data URL tenuto in memoria; assente = le iniziali. */
   photo?: string;
+  /**
+   * Solo per Claude nella build app (integrazione area 3, 3e.2): i progetti in
+   * cui chi guarda può assegnargli una task (`claudeAssignableProjectIds`,
+   * calcolati dal server da `runs.start`). Sul server Claude non è membro di
+   * nessun progetto; nel prototipo è assente e vale `memberIds`. Lo legge
+   * `assignableIn` (`data/assignable.ts`).
+   */
+  assignableProjectIds?: string[];
 }
 
 export type ProjectModule = "docs" | "releases" | "support" | "servers";

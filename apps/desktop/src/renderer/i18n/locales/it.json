@@ -887,7 +887,9 @@
       "done_one": "{{count}} task modificata.",
       "done_other": "{{count}} task modificate.",
       "failed_one": "Impossibile modificare {{count}} task. È tornata com'era.",
-      "failed_other": "Impossibile modificare {{count}} task. Sono tornate com'erano."
+      "failed_other": "Impossibile modificare {{count}} task. Sono tornate com'erano.",
+      "claudeForbidden_one": "Non puoi dare {{count}} task a Claude: può farlo solo chi nel suo progetto avvia il lavoro di Claude. È tornata com'era.",
+      "claudeForbidden_other": "Non puoi dare queste {{count}} task a Claude: può farlo solo chi nel loro progetto avvia il lavoro di Claude. Sono tornate com'erano."
     },
     "board": {
       "label": "Board",
@@ -1845,7 +1847,8 @@
       "forbidden": "Non puoi spostare {{code}}: può farlo solo chi ce l'ha o chi pianifica per gli altri.",
       "invalid_assignee": "{{code}} può andare solo a un membro del suo progetto.",
       "past_week": "{{code}} non si può pianificare in una settimana già finita.",
-      "not_in_week": "{{code}} non è più in questa settimana."
+      "not_in_week": "{{code}} non è più in questa settimana.",
+      "claude_assign_forbidden": "Non puoi dare {{code}} a Claude: può farlo solo chi in questo progetto avvia il lavoro di Claude."
     }
   },
   "requests": {
@@ -2425,6 +2428,9 @@
       "link": "Collega una persona",
       "linkTo": "Collega «{{name}}» a",
       "linkFailed": "Non è stato possibile collegare «{{name}}». Non è cambiato nulla.",
+      "linkTaken": "«{{name}}» è già collegato a qualcuno. Non è cambiato nulla.",
+      "linkAction": "collegare «{{name}}» a {{person}}",
+      "linkOnWeb": "Apre questa pagina sul web, dove confermi che sei tu",
       "linked": "«{{name}}» ora è {{person}}: i commit sono passati sotto di lei o di lui.",
       "report": {
         "label": "Report giornaliero",

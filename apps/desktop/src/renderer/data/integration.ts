@@ -71,6 +71,12 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "claude-chat",
     // Fetta 2 della chat, il riquadro (⌘J, ⌘K «Ask Claude…») col chip del contesto.
     "claude-panel",
+    // Fetta 3e: Claude fra gli assegnatari, solo nei progetti che la sua riga
+    // di `/api/people` elenca (`claudeAssignableProjectIds`).
+    "claude-assign",
+    // «Link a person» nello standup (3e.2): sul web con la riconferma, dal
+    // desktop il gesto apre il web.
+    "commit-author-link",
   ]),
 };
 

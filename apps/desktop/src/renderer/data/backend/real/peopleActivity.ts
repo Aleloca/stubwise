@@ -16,6 +16,7 @@ export const listPeopleActivity: typeof Fake.listPeopleActivity = async (date, d
     return (await appClient().people.activity(date, departmentId)).map((p) => ({
       personId: p.personId,
       name: p.name,
+      ...(p.personId === null ? { authorEmail: p.authorEmail, authorUsername: p.authorUsername } : {}),
       departmentIds: p.departmentIds,
       tasksClosed: p.tasksClosed,
       tasksMoved: p.tasksMoved,
@@ -28,6 +29,28 @@ export const listPeopleActivity: typeof Fake.listPeopleActivity = async (date, d
   } catch (error) {
     // Come il prototipo: chi non ha il permesso riceve un rifiuto, non un elenco vuoto.
     if (error instanceof ApiError && error.status === 403) throw new Error("forbidden");
+    throw error;
+  }
+};
+
+/**
+ * «Link a person» (area 3, 3e.2): l'email git dell'autore diventa
+ * un'identità della persona (`POST /api/users/:id/git-identities`,
+ * `users.manage` con la riconferma), e da lì i suoi commit passano sotto di
+ * lei. Senza email (un server più vecchio) non si collega: la riga non offre
+ * il gesto.
+ */
+export const linkCommitAuthor: typeof Fake.linkCommitAuthor = async (authorName, personId, authorEmail) => {
+  if (!authorEmail) throw new Error("not_found");
+  try {
+    await appClient().request("POST", `/api/users/${encodeURIComponent(personId)}/git-identities`, {
+      email: authorEmail,
+      authorName,
+    });
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "reauth_required") return { ok: false, error: "reauth_required" };
+    if (error instanceof ApiError && error.code === "git_identity_taken") return { ok: false, error: "taken" };
     throw error;
   }
 };

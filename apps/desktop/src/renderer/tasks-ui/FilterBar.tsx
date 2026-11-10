@@ -1,4 +1,5 @@
 import { featureIntegrated } from "../data/integration";
+import { isAssignableIn } from "../data/assignable";
 import { useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -309,15 +310,11 @@ function useAssigneeOptions(singleProjectId: string | undefined): Person[] | und
   const projects = useProjects().data;
   const me = useViewer().viewer.personId;
   if (!people) return undefined;
-  const members = singleProjectId
-    ? new Set(projects?.find((p) => p.id === singleProjectId)?.memberIds ?? [])
-    : null;
+  const project = singleProjectId ? projects?.find((p) => p.id === singleProjectId) : undefined;
   const rank = (p: Person) => (p.id === me ? 0 : p.isClaude ? 2 : 1);
-  // Nella build app Claude non è un assegnatario (area 3 non integrata).
-  const claude = featureIntegrated("claude-assign");
+  // Nel progetto unico: chi vi si assegna (Claude compreso dove si assegna).
   return people
-    .filter((p) => !members || members.has(p.id) || p.id === me)
-    .filter((p) => claude || !p.isClaude)
+    .filter((p) => !singleProjectId || isAssignableIn(p, project) || p.id === me)
     .sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
 

@@ -12,6 +12,14 @@ export const personDayActivitySchema = z.object({
   /** `null`: un autore di commit non collegato a nessuna persona (la mail non è di un utente). */
   personId: z.uuid().nullable(),
   name: z.string(),
+  /**
+   * Solo su una riga SENZA persona: l'email dell'autore dei commit, quella da
+   * collegare a una persona («Link a person» → `POST
+   * /api/users/:id/git-identities`). Additivo.
+   */
+  authorEmail: z.string().nullable().default(null),
+  /** Solo senza persona: lo username GitHub di un'email noreply (`123+login@users.noreply.github.com`), se c'è. */
+  authorUsername: z.string().nullable().default(null),
   departmentIds: z.array(z.uuid()).default([]),
   tasksClosed: z.array(z.object(taskRef)).default([]),
   tasksMoved: z

@@ -4186,7 +4186,13 @@ export async function generateDailyReport(projectId: string, date: string): Prom
  * La scrittura è quella della pagina della persona (`linkIdentityAs`, area
  * 9a): un solo collegamento, con la sua voce nel registro.
  */
-export async function linkCommitAuthor(authorName: string, personId: string): Promise<void> {
+export async function linkCommitAuthor(
+  authorName: string,
+  personId: string,
+  // La build app collega l'email dell'autore (area 3, 3e.2); il finto per nome.
+  authorEmail?: string | null,
+): Promise<LinkCommitAuthorResult> {
+  void authorEmail;
   const me = await gate("linkCommitAuthor");
   need(me, "users.manage");
   const unlinked = COMMITS.some((c) => c.authorId === null && c.authorName === authorName);
@@ -4194,4 +4200,12 @@ export async function linkCommitAuthor(authorName: string, personId: string): Pr
   const person = PEOPLE.find((p) => p.id === personId);
   if (!person || person.isClaude) throw notFound();
   linkIdentityAs(me, personId, authorName);
+  return { ok: true };
 }
+
+/**
+ * L'esito di «Link a person». Sul server vero la rotta vuole la riconferma
+ * (`reauth_required`, la gestisce `useReauth`) e un'email già collegata a
+ * qualcuno è `taken`; ogni altro errore si lancia.
+ */
+export type LinkCommitAuthorResult = { ok: true } | { ok: false; error: "reauth_required" | "taken" };
