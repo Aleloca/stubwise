@@ -35,9 +35,12 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».
 - Polso e «aspetta te» con Claude: «Claude al lavoro», «Claude aspetta te» nel
   polso dei progetti e nel portafoglio *(O)* (oggi esclusi, `integration-slice4.md`).
-- «Link a person» nello standup *(S)*: il server deve legare i commit anche via
-  `git_identities`/username e dare `authorEmail` alle righe senza persona; dal
-  desktop il gesto (con riconferma) apre il web.
+- «Link a person» nello standup, renderer *(O)*: dal desktop il gesto (con
+  riconferma) apre il web; la riga senza persona porta già `authorEmail` e
+  `authorUsername`. Il server è fatto (sotto in «Chiuse»).
+- Abbinare un commit per **username** del provider *(S)*: nessuna tabella lega
+  un utente al suo login GitHub, quindi lo username (letto dalle noreply) si
+  mostra ma non abbina; si abbina per email (account o `git_identities`).
 - Chi ha avviato una sessione e chi ha risposto a una domanda (e quando) *(S)*:
   oggi non arrivano.
 - Consumi per task (`usage`) e blocco d'istanza (`blocked`) in `/work` *(S)*.
@@ -148,3 +151,7 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   `users.is_agent`), niente accesso né notifiche, assegnarlo avvia il run con le
   regole di `run-ai` e chiede `runs.start` — commit «feat(area3): Claude
   assegnabile (3e.1)».
+- Area 3, **«Link a person» nello standup, server** *(S)*: i commit si
+  attribuiscono anche via `git_identities`; le righe senza persona sono per
+  email e portano `authorEmail` e `authorUsername` — commit «feat(area3):
+  collegare un autore di commit allo standup».

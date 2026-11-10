@@ -5,6 +5,7 @@ import {
   commitSummaries,
   decisionRequests,
   departmentMembers,
+  gitIdentities,
   projectDecisions,
   projectStatuses,
   projects,
@@ -51,6 +52,12 @@ import { personName } from "./people.js";
 
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 type Row = PersonDayActivityView;
+
+/** Lo username GitHub di un'email noreply (`123+login@users.noreply.github.com` o `login@…`), altrimenti null. */
+function githubUsernameOf(email: string): string | null {
+  const match = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/i.exec(email);
+  return match?.[1] ?? null;
+}
 
 const onDay = (column: AnyColumn | SQL, date: string) =>
   sql`(${column} at time zone 'Europe/Rome')::date = ${date}::date`;
@@ -223,13 +230,16 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
   };
 
   const rows = new Map<string, Row>();
-  const row = (personId: string | null, name = ""): Row => {
-    const key = personId ?? `unlinked:${name}`;
+  const row = (personId: string | null, name = "", authorEmail: string | null = null): Row => {
+    // Senza persona la riga è per EMAIL (due autori omonimi restano distinti).
+    const key = personId ?? `unlinked:${authorEmail ?? name}`;
     let entry = rows.get(key);
     if (!entry) {
       entry = {
         personId,
         name,
+        authorEmail: personId ? null : authorEmail,
+        authorUsername: personId || !authorEmail ? null : githubUsernameOf(authorEmail),
         departmentIds: [],
         tasksClosed: [],
         tasksMoved: [],
@@ -292,20 +302,29 @@ export async function peopleActivity(db: Db, viewer: Viewer, date: string, depar
       at: r.at.toISOString(),
     });
   }
-  // Un commit va alla persona con la stessa email; altrimenti una riga senza persona.
+  // Un commit va alla persona con la stessa email — quella dell'account, o una
+  // collegata a lei («Link a person», `git_identities`) —; altrimenti una riga
+  // senza persona, con l'email da collegare.
   const emails = [...new Set(commitRows.map((c) => c.authorEmail.toLowerCase()))];
-  const byEmail = new Map(
-    (emails.length
-      ? await db
+  const [accountRows, identityRows] = emails.length
+    ? await Promise.all([
+        db
           .select({ id: users.id, email: users.email })
           .from(users)
-          .where(inArray(sql`lower(${users.email})`, emails))
-      : []
-    ).map((u) => [u.email.toLowerCase(), u.id]),
-  );
+          .where(and(inArray(sql`lower(${users.email})`, emails), eq(users.isAgent, false))),
+        db
+          .select({ id: gitIdentities.userId, email: gitIdentities.email })
+          .from(gitIdentities)
+          .where(inArray(sql`lower(${gitIdentities.email})`, emails)),
+      ])
+    : [[], []];
+  const byEmail = new Map<string, string>();
+  for (const r of identityRows) byEmail.set(r.email.toLowerCase(), r.id);
+  // L'email dell'account vince su un alias (lo stesso indirizzo non può essere di due persone).
+  for (const r of accountRows) byEmail.set(r.email.toLowerCase(), r.id);
   for (const c of commitRows) {
     const authorId = byEmail.get(c.authorEmail.toLowerCase()) ?? null;
-    row(authorId, c.authorName).commits.push({
+    row(authorId, c.authorName, c.authorEmail.toLowerCase()).commits.push({
       sha: c.sha,
       repo: c.repo,
       authorId,
