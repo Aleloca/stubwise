@@ -1727,11 +1727,18 @@ export function useConfirmProposal() {
       id,
       proposalId,
       actionIndexes,
+      edited,
     }: {
       id: string;
       proposalId: string;
       actionIndexes?: number[];
-    }) => api.confirmProposal(id, proposalId, actionIndexes ? { actionIndexes } : {}),
+      /** Build app: i valori di «Edit», confermati dal server. */
+      edited?: { index: number; args: Record<string, unknown> }[];
+    }) =>
+      api.confirmProposal(id, proposalId, {
+        ...(actionIndexes ? { actionIndexes } : {}),
+        ...(edited ? { edited } : {}),
+      }),
     PROPOSAL_AREAS,
   );
 }

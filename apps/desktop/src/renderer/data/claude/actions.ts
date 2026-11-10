@@ -169,6 +169,8 @@ function reasonPhrase(reasons: ClassReason[]): string {
       return i18n.t("claude.answers.classReason.irreversible");
     case "reauth":
       return i18n.t("claude.answers.classReason.reauth");
+    case "startsWork":
+      return i18n.t("claude.answers.classReason.startsWork");
   }
 }
 

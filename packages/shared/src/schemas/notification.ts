@@ -2,7 +2,7 @@ import { z } from "zod";
 // Vive in `actor.ts` (per evitare un import circolare con `ticket.ts`, che ne
 // ha bisogno per `planApprovedBy` della fase 7); ri-esportato più sotto perché
 // questo file continua a usarlo anche internamente.
-import { handledBySchema, type HandledBy } from "./actor.js";
+import { handledBySchema, viaClaudeShape, type HandledBy } from "./actor.js";
 import { ticketPrioritySchema } from "./ticket.js";
 
 /**
@@ -731,6 +731,13 @@ export const inboxItemSchema = z.object({
   snoozedUntil: z.iso.datetime().nullable(),
   handledAt: z.iso.datetime().nullable(),
   handledBy: handledBySchema.nullable(),
+  /**
+   * «via Claude» (chat, fetta 3): la notifica nasce da un'azione di Claude
+   * per conto di `viaClaudeRequesterId` («Claude per conto di X»). DERIVATI a
+   * lettura da `notifications.via_claude_action_id`, mai scritti nel jsonb:
+   * valgono anche per le card pubblicate prima.
+   */
+  ...viaClaudeShape,
 });
 export type InboxItem = z.infer<typeof inboxItemSchema>;
 

@@ -80,6 +80,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // «Link a person» nello standup (3e.2): sul web con la riconferma, dal
     // desktop il gesto apre il web.
     "commit-author-link",
+    // Chat, fetta 3: le proposte e le azioni di Claude (A/B, «Undo»), la riga
+    // di benvenuto del prototipo e i comandi «/» d'azione.
+    "claude-chat-actions",
   ]),
 };
 

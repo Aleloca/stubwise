@@ -5,10 +5,10 @@ import { appClient } from "./client";
 // «By person» di Activity nella build app (integrazione area 3, fetta 3d): lo
 // standup del giorno aggregato dal SERVER (decisione del maintainer), nel
 // fuso Europe/Rome, solo dei progetti che chi guarda vede, con il permesso
-// d'istanza `people.activity.view` (nel registro vero). Limiti del server:
-// `tasksDeleted` sempre vuoto (le task eliminate non si tengono), `viaClaude`
-// sempre falso, i commit legati alla persona per email (gli altri arrivano
-// con `personId: null` e il nome dell'autore). I report giornalieri vengono
+// d'istanza `people.activity.view` (nel registro vero). `viaClaude` lo
+// deriva il server dalle scritture (chat, fetta 3); le task eliminate vengono
+// dalla lapide. Limite: i commit legati alla persona per email (gli altri
+// arrivano con `personId: null` e il nome dell'autore). I report giornalieri vengono
 // dalla Daily Activity Report (`GET /api/activity?date=`).
 
 export const listPeopleActivity: typeof Fake.listPeopleActivity = async (date, departmentId) => {

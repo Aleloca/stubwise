@@ -3,6 +3,7 @@ import type * as Fake from "../../api";
 import type { AppNotification } from "../../types";
 import { daysFromToday } from "./clock";
 import { appClient } from "./client";
+import { listPeople } from "./people";
 
 // Le notifiche della build app (integrazione area 2, fetta 1): la stessa
 // inbox del web vecchio e del mobile (`/api/inbox`), con lo stato «letta»
@@ -32,6 +33,22 @@ export interface PresentContext {
   taskCodes: ReadonlyMap<string, string>;
   /** `projectId` → codice del progetto. */
   projectCodes: ReadonlyMap<string, string>;
+  /** Il nome di una persona per chi guarda (`null` se non la vede), per «Claude on behalf of …». */
+  personName?: (personId: string) => string | null;
+}
+
+/**
+ * «via Claude» (chat, fetta 3): il server lo deriva a lettura (azione e
+ * richiedente); il nome si risolve qui. Un server vecchio non manda i campi:
+ * nessun segno.
+ */
+function viaClaudeOf(item: InboxItem, ctx: PresentContext): Pick<AppNotification, "viaClaude" | "viaClaudeName"> {
+  const { viaClaude, viaClaudeActionId, viaClaudeRequesterId } = item as Partial<InboxItem>;
+  if (viaClaude !== true || !viaClaudeActionId || !viaClaudeRequesterId) return {};
+  return {
+    viaClaude: { personId: viaClaudeRequesterId, actionId: viaClaudeActionId },
+    viaClaudeName: ctx.personName?.(viaClaudeRequesterId) ?? null,
+  };
 }
 
 /**
@@ -81,6 +98,7 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
       snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
       link: "",
       objectGone: true,
+      ...viaClaudeOf(item, ctx),
     };
   }
   const taskCode = item.ticketId ? ctx.taskCodes.get(item.ticketId) : undefined;
@@ -100,6 +118,7 @@ export function presentInboxItem(item: InboxItem, ctx: PresentContext): AppNotif
     snoozedUntil: item.status === "snoozed" ? item.snoozedUntil : null,
     link: integrated ? `#/p/${projectCode}/tasks?task=${taskCode}` : "",
     ...(integrated ? {} : { webHref: webHrefFor(item, ctx.instanceOrigin) }),
+    ...viaClaudeOf(item, ctx),
   };
 }
 
@@ -152,8 +171,13 @@ export const listNotifications: typeof Fake.listNotifications = async () => {
     if (t && code) taskCodes.set(t.id, `${code}-${t.number}`);
   }
   const instanceOrigin = await instanceOriginOf();
+  // I nomi per «Claude on behalf of …»: le persone si leggono solo se una card è via Claude.
+  const people = items.some((i) => (i as Partial<InboxItem>).viaClaude === true)
+    ? await listPeople().catch(() => [])
+    : [];
+  const personName = (personId: string) => people.find((p) => p.id === personId)?.name ?? null;
   return items
-    .map((item) => presentInboxItem(item, { taskCodes, projectCodes, instanceOrigin }))
+    .map((item) => presentInboxItem(item, { taskCodes, projectCodes, instanceOrigin, personName }))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 };
 

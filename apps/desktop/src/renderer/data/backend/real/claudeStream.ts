@@ -18,6 +18,12 @@ import type * as Fake from "../../api";
 import type { ConversationEvent } from "../../types";
 import { eventsOf, forgetPlans, planOf, signatureOf, type RunPlan } from "./claude";
 import { appClient, session } from "./client";
+import {
+  chatActionEvents,
+  readChatActions,
+  withChatActionEvents,
+  type ChatActions,
+} from "./claudeChatActions";
 
 // Lo stream dal vivo di una sessione di lavoro nella build app (integrazione
 // area 3, fetta 3a). La parte pura (frame, backoff, percorso) è
@@ -214,6 +220,13 @@ interface SessionState {
   failures: number;
   /** Quante viste la ascoltano adesso: solo quelle senza ascoltatori si possono dimenticare. */
   listeners: number;
+  /**
+   * Conversazione libera (chat, fetta 3): proposte e gruppi delle azioni di
+   * Claude, riletti quando arriva un evento `proposal` o `actions_executed`
+   * nuovo (`actionsSig`: gli id di quegli eventi).
+   */
+  actions: ChatActions | null;
+  actionsSig: string;
 }
 
 /** Per persona e sessione: lo stato di una non passa a chi entra dopo. */
@@ -230,7 +243,18 @@ function stateFor(id: string): SessionState {
     // Usata adesso: in fondo all'ordine, ultima da dimenticare.
     sessions.delete(key);
   } else {
-    state = { raw: [], partials: {}, detail: null, plan: null, planRead: false, lastId: null, failures: 0, listeners: 0 };
+    state = {
+      raw: [],
+      partials: {},
+      detail: null,
+      plan: null,
+      planRead: false,
+      lastId: null,
+      failures: 0,
+      listeners: 0,
+      actions: null,
+      actionsSig: "",
+    };
   }
   sessions.set(key, state);
   return state;
@@ -373,13 +397,42 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
 
   const emit = () => {
     if (!state.detail || stopped) return;
-    for (const e of eventsOf(state.detail, state.raw, state.partials, state.plan)) {
+    const base = eventsOf(state.detail, state.raw, state.partials, state.plan);
+    const flow =
+      state.detail.kind === "free" && state.actions
+        ? withChatActionEvents(base, chatActionEvents(state.raw, state.actions))
+        : base;
+    for (const e of flow) {
       const json = JSON.stringify(e);
       const before = emitted.get(e.id);
       if (before === json) continue;
       emitted.set(e.id, json);
       onEvent(e as ConversationEvent, before === undefined ? "append" : "update");
     }
+  };
+
+  /**
+   * Le azioni di Claude di una conversazione libera, rilette quando cambiano
+   * i loro eventi; una risposta arrivata dopo un altro cambio si scarta.
+   */
+  const readActions = () => {
+    if (state.detail?.kind !== "free") return;
+    const sig = state.raw
+      .filter((e) => e.type === "proposal" || e.type === "actions_executed")
+      .map((e) => e.id)
+      .join(",");
+    if (sig === state.actionsSig && state.actions) return;
+    state.actionsSig = sig;
+    void readChatActions(conversationId).then(
+      (actions) => {
+        if (state.actionsSig !== sig) return;
+        state.actions = actions;
+        emit();
+        // Il dettaglio (lo stato di «Annulla») si rilegge con le viste nuove.
+        if (sig !== "") notifyChange(conversationId);
+      },
+      () => undefined,
+    );
   };
 
   /** Il piano per la firma attuale del dettaglio; una risposta arrivata dopo un altro cambio si scarta. */
@@ -417,6 +470,7 @@ export const subscribe: typeof Fake.subscribe = (conversationId, onEvent, option
         if (changed) notifyChange(conversationId);
       }
     }
+    readActions();
     emit();
   };
 

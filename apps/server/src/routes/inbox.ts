@@ -111,6 +111,9 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     snoozedUntil: item.snoozedUntil?.toISOString() ?? null,
     handledAt: item.handledAt?.toISOString() ?? null,
     handledBy: item.handledBy,
+    viaClaude: item.viaClaude,
+    viaClaudeActionId: item.viaClaudeActionId,
+    viaClaudeRequesterId: item.viaClaudeRequesterId,
   };
 }
 

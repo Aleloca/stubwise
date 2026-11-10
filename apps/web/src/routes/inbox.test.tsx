@@ -84,6 +84,9 @@ function item(overrides: Partial<InboxItem> & Pick<InboxItem, "id">): InboxItem 
     snoozedUntil: null,
     handledAt: null,
     handledBy: null,
+    viaClaude: false,
+    viaClaudeActionId: null,
+    viaClaudeRequesterId: null,
     ...overrides,
   };
 }
