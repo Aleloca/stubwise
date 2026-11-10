@@ -91,9 +91,10 @@ describe("il contesto della chat nella build app", () => {
     ]);
   });
 
-  it("«/»: solo i comandi che i tool coprono (/explain, /docs), con la descrizione tradotta", async () => {
+  it("«/»: i comandi di lettura e, dalla fetta 3, quelli d'azione (con una proposta), con la descrizione tradotta", async () => {
     const commands = await listCommands(null);
-    expect(commands.map((c) => c.label)).toEqual(["/explain", "/docs"]);
+    expect(commands.map((c) => c.label)).toEqual(["/explain", "/docs", "/plan", "/new-task", "/new-request", "/run"]);
     expect(commands[0]!.description).toBe("Explain a task or a request, by its code");
+    expect(commands.find((c) => c.label === "/new-task")!.description).toBe("Create a task, with a proposal to confirm");
   });
 });

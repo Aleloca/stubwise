@@ -121,11 +121,12 @@ afterEach(() => {
 });
 
 describe("la chat con Claude nella build app", () => {
-  it("«New conversation»: la casella crea la conversazione e manda la domanda; la promessa è di sola lettura", async () => {
+  it("«New conversation»: la casella crea la conversazione e manda la domanda; il benvenuto è quello del prototipo", async () => {
     install();
     const ue = userEvent.setup();
     renderRoute("/claude");
-    expect(await screen.findByText(/In this version it doesn't change anything/)).toBeInTheDocument();
+    // Fetta 3: Claude propone e il server esegue, la riga di benvenuto è quella del prototipo.
+    expect(await screen.findByText(/ask Claude to do it for you/)).toBeInTheDocument();
     await ue.type(await screen.findByLabelText("Your question for Claude"), "Who follows AUD-12?");
     await ue.click(screen.getByRole("button", { name: "Start conversation" }));
     await waitFor(() =>

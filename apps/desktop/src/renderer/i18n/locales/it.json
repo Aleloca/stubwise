@@ -4378,7 +4378,11 @@
       },
       "commands": {
         "explain": "Spiega una task o una richiesta, dal suo codice",
-        "docs": "Come funziona qualcosa in un progetto, dai suoi Docs"
+        "docs": "Come funziona qualcosa in un progetto, dai suoi Docs",
+        "plan": "Pianifica la prossima settimana dalle task aperte",
+        "new-task": "Crea una task, con una proposta da confermare",
+        "new-request": "Apri una richiesta in un progetto",
+        "run": "Avvia il lavoro di Claude su una task o una richiesta"
       }
     },
     "destination": {
