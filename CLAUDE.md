@@ -489,7 +489,7 @@ una voce ti riguarda.
   - Limiti noti, accettati (costo fuori dal budget, retention).
 - **Cassaforte delle credenziali → `docs/invariants/vault.md`** (23 ott 2026):
   - Il server non decifra mai; solo la password è cifrata, e esce solo da `reveal`.
-  - Il PAT crea e sostituisce, non legge né condivide né conferma.
+  - Il PAT crea e sostituisce, non legge né condivide né conferma, nemmeno il PAT desktop riconfermato finché il desktop non sa sbloccare la chiave (`config.browserOnly`, 10 nov 2026).
   - Conferma umana sempre (regola V1 solo per il primo admin); recupero con prova di possesso del kit.
   - Revoca a lettura, purga solo igiene; `recipients_changed` e `keyVersion`.
   - Isolamento: elenco chiuso di chi tocca le tabelle (`vault-isolation.test.ts`).
@@ -508,7 +508,8 @@ una voce ti riguarda.
   - Una sessione parziale apre SOLO le rotte `second_factor` (test del registro).
   - Ogni porta che dà una sessione o un token passa dal secondo fattore (`/login`, `/mobile-login`).
   - Ogni verifica di un codice o di una passkey passa da `attemptSecondFactor`.
-  - La riconferma si DICHIARA (`config.reauth`, test del registro), un PAT non la soddisfa mai.
+  - La riconferma si DICHIARA (`config.reauth`, test del registro); un PAT non la soddisfa mai, salvo il PAT `desktop` riconfermato nell'app (10 min, regola unica `browserOrConfirmedDesktop`, decisione del maintainer del 10 nov 2026).
+  - `/desktop-reauth` NON è una porta (verifica un codice, non dà sessione né token).
   - Il segreto TOTP è cifrato, i codici sono hash, niente in log/elenchi/notifiche.
   - Il tetto per account non tocca sessioni e token aperti.
   - `security.alert` ignora le preferenze e va solo all'interessato.
