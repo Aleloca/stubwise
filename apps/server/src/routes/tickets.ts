@@ -562,7 +562,10 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
       if ((await claudeAssignGuard(app.db, request.user!, projectId, assigneeId)) !== null) {
         return apiError(reply, 403, "claude_assign_forbidden", "Assigning Claude requires runs.start in the project");
       }
-      const claudeAssigned = assigneeId !== undefined && assigneeId === (await agentUserId(app.db));
+      // Letto PRIMA della transazione: dopo il commit la risposta non deve
+      // dipendere da altre letture (un 201 mancato farebbe nascere un doppione).
+      const agentId = await agentUserId(app.db);
+      const claudeAssigned = assigneeId !== undefined && assigneeId === agentId;
       try {
         // Il ticket nasce a livello di PROGETTO (Fase 3): niente repository
         // bersaglio, il numero è per-progetto (row-lock su projects dentro
@@ -629,7 +632,7 @@ export async function ticketRoutes(instance: FastifyInstance): Promise<void> {
         }
         return await reply
           .code(201)
-          .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }, await agentUserId(app.db)));
+          .send(toPublicTicket(ticket, { id: request.user!.id, email: request.user!.email }, agentId));
       } catch (error) {
         if (error instanceof ProjectNotFoundError) {
           return apiError(reply, 404, "project_not_found", "Project not found");
