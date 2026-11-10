@@ -28,6 +28,9 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
       "departments.manage",
       "people.activity.view",
       "claude.public.view",
+      // Area 4 della Chat: i canali generali (come il web).
+      "chat.general.create",
+      "chat.general.manage",
     ],
   },
   { key: "projects", permissions: ["projects.create"] },
@@ -46,8 +49,6 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
   {
     key: "prototype",
     permissions: [
-      "chat.general.create",
-      "chat.general.manage",
       "automations.manage",
       "servers.ssh.manage",
       "instance.status.view",
@@ -95,8 +96,6 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
   {
     key: "prototype",
     permissions: [
-      "chat.channels.create",
-      "chat.channels.manage",
       "drive.upload",
       "drive.manage",
       "drive.history",
@@ -107,6 +106,8 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
   },
   // La cassaforte delle credenziali (main, 23 ott 2026): lo stesso gruppo del web.
   { key: "credentials", permissions: ["credentials.create", "credentials.edit", "credentials.share"] },
+  // Area 4, Chat: i canali del progetto (registro condiviso, come il web).
+  { key: "chat", permissions: ["chat.channels.create", "chat.channels.manage"] },
 ];
 
 export const groupsFor = (scope: AccessScope): readonly PermissionGroup[] =>

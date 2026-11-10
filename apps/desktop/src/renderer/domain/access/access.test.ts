@@ -347,8 +347,9 @@ describe("ACTIONS e gruppi", () => {
     };
     check(INSTANCE_GROUPS, [...INSTANCE_SET]);
     check(PROJECT_GROUPS, ALL_PROJECT_PERMISSIONS);
-    // I 12 gruppi del web (con «credentials» della cassaforte), più «prototype» a ogni livello.
-    expect(INSTANCE_GROUPS.length + PROJECT_GROUPS.length).toBe(14);
+    // I 13 gruppi del web (con «credentials» della cassaforte e, dall'area 4,
+    // «chat»), più «prototype» a ogni livello.
+    expect(INSTANCE_GROUPS.length + PROJECT_GROUPS.length).toBe(15);
     expect(INSTANCE_GROUPS.at(-1)!.permissions).toEqual(LOCAL_INSTANCE_PERMISSIONS);
     for (const p of INSTANCE_PERMISSIONS) expect(groupOf("instance", p)).not.toBe("prototype");
     for (const p of PROJECT_PERMISSIONS) expect(groupOf("project", p)).not.toBe("prototype");

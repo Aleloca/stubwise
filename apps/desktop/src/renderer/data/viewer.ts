@@ -40,7 +40,6 @@ import { now } from "./store";
 import type {
   DepartmentPermission,
   LocalInstancePermission,
-  LocalProjectPermission,
   Viewer,
 } from "./types";
 
@@ -281,23 +280,24 @@ function revoke(personId: string, perm: string, projectId: string | null): void 
 }
 
 /**
- * Concede un permesso di progetto del prototipo (assegnabile a qualunque
- * ruolo) su un progetto di cui la persona è membro.
+ * Concede un permesso di progetto (assegnabile a qualunque ruolo) su un
+ * progetto di cui la persona è membro: uno del prototipo, o uno del registro
+ * condiviso (i canali della Chat, dall'area 4).
  */
 export function grantProjectPermission(
   personId: string,
   projectId: string,
-  perm: LocalProjectPermission,
+  perm: AnyProjectPermission,
 ): void {
   if (!isMember(personId, projectId)) return;
   grant(personId, perm, projectId);
 }
 
-/** Toglie un permesso di progetto del prototipo su un progetto, anche uno di base. */
+/** Toglie un permesso di progetto su un progetto, anche uno di base. */
 export function revokeProjectPermission(
   personId: string,
   projectId: string,
-  perm: LocalProjectPermission,
+  perm: AnyProjectPermission,
 ): void {
   if (!isMember(personId, projectId)) return;
   revoke(personId, perm, projectId);
