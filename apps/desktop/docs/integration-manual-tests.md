@@ -1,4 +1,4 @@
-# Integrazione area 2 — prove a mano (10 nov 2026)
+# Integrazione aree 2 e 3 — prove a mano (10 nov 2026)
 
 Le prove che i test automatici non fanno: il giro vero sul Mac, il mouse e la
 tastiera, l'aspetto delle pagine, il server vero con dati veri. Raccolgono le
@@ -174,3 +174,148 @@ annotare la prova e cosa si è visto: il resto lo ricostruiamo noi.
   - una richiesta creata dall'app nuova compare nel backlog.
 - **Avvisi**: un avviso dell'app nuova (decisione chiesta, task spostata) arriva
   anche sul telefono e nel web vecchio.
+
+# Area 3 — Claude come collega
+
+Le prove dell'area 3 (fette 3a–3e, `integration-area3{a,b,c,d}.md`). Valgono
+l'istanza e gli account A (Project Lead) e B (Developer) di sopra.
+
+## Cosa serve in più
+
+1. **Un account Claude nel worker**: dal web vecchio, Impostazioni → AI, un
+   account o una chiave API attivi, e il budget del mese non esaurito. Senza,
+   i lavori restano fermi in coda.
+2. **Un repository di prova collegato al progetto**: piccolo, con i test che
+   girano, e il token del provider che può aprire PR. Serve per le PR, le
+   correzioni e «Chiedi modifiche».
+3. **Un progetto col backlog acceso**: serve per il refinement.
+4. Per lo standup: ad **A** (o a un ruolo) il permesso d'istanza «Vedere
+   l'attività delle persone» (`people.activity.view`), dalla pagina dei ruoli.
+5. Il worker aggiornato a questo branch (`docker compose up -d --build worker`
+   dopo il server), senza lavori di Claude in corso al momento del riavvio.
+
+## Sessioni dal vivo (web e desktop)
+
+- **Pagina Claude**: apri Claude dal binario → atterri su «Working now» con
+  le sessioni in corso dei progetti che vedi. Mancano «New conversation»,
+  «Mine» e «Public»: la chat libera arriva dopo.
+- **Una sessione**: aprila → il flusso si riempie mentre Claude lavora (le
+  frasi crescono mentre le scrive, le azioni passano da «in corso» a
+  fatte), senza ricaricare. Prova su `/app` e sul dmg.
+- **Riconnessione dopo lo sleep**: con una sessione aperta sul Mac, chiudi il
+  coperchio per qualche minuto e riaprilo → la sessione riprende da sola
+  dal punto in cui era, senza messaggi doppi né buchi.
+- **Rete giù**: spegni il Wi‑Fi qualche secondo e riaccendilo → stesso
+  risultato.
+- **Molte sessioni**: apri più di otto sessioni in schede o finestre → le
+  ultime aspettano un posto; chiudendone una, parte la successiva.
+- **Sessione invisibile**: con B, apri il link di una sessione di un progetto
+  di cui B non è membro → «not found», nessun contenuto.
+- **Sezione Claude della task**: apri una task su cui Claude ha lavorato →
+  stato, piano, domande, PR col ciclo delle correzioni, storia del lavoro.
+  «Follow here» la segue nel pannello della task, dal vivo.
+
+## Avvio, rilancio, riprendi, chiedi modifiche
+
+- **Avvia**: con A, su una task del progetto col repository, «Start» →
+  parte il lavoro, la sezione dice che Claude è al lavoro, la sessione
+  compare in «Working now».
+- **Avvio di un operatore**: con B (Developer), avvia su una task col piano
+  già salvato → il lavoro si ferma ad aspettare l'approvazione del piano.
+- **Rilancia con indicazioni**: su un lavoro fallito o fermato, «Relaunch with
+  instructions», scrivi due righe, «Relaunch» → nel web vecchio le indicazioni
+  sono un commento della task, e il lavoro riparte tenendone conto.
+- **Riprendi la correzione**: una correzione ferma (per esempio sul budget)
+  → «Resume correction» la fa ripartire; se nel frattempo non è più ferma, la frase lo
+  dice e non nasce un lavoro nuovo.
+- **Chiedi modifiche**: su una PR aperta da Stubwise, «Request changes» con
+  una nota → la stessa PR riceve un commit di correzione.
+- **Rifiuti**: avvia mentre un lavoro è già in corso → «Claude sta già
+  lavorando su questa task», e non parte niente.
+
+## Piano
+
+- **Approva**: con A, sulla scheda del piano in attesa (nella sessione,
+  nella sezione o in «Da decidere») «Approve» → il lavoro riparte ed esegue.
+- **Rifiuta con indicazioni**: «Reject», scrivi cosa cambiare → Claude
+  riscrive il piano; le indicazioni sono un commento del team.
+- **Pre-approva e revoca**: con A, su una task col piano salvato e il lavoro
+  non ancora arrivato al piano, «⋯» → «Approve the plan in advance» → il lavoro non si
+  fermerà ad aspettare; «Revoke the advance approval» toglie la pre-approvazione.
+- **Chi non può**: con B, il piano si legge ma non ci sono «Approve» né
+  «Reject»: la riga dice chi decide.
+- **Piano cambiato**: tieni aperta la scheda del piano, fai riscrivere il piano
+  da un'altra parte (rifiuta dal web vecchio con un'altra finestra), poi
+  premi «Approve» sulla scheda vecchia → «il piano è cambiato dopo che l'hai
+  letto: rileggilo», niente approvato.
+- **Approvato da un altro**: tieni aperta la sessione su due account con
+  `plans.approve`; approva da uno → sull'altro la scheda passa ad
+  approvato senza ricaricare, e resta una sola.
+- **Non deciso**: un lavoro annullato sul piano → la scheda dice «Non
+  deciso», mai «approvato».
+
+## Domande
+
+- Claude fa una domanda (`ask_user`) → la trovi nella sessione, nella
+  sezione Claude e in «Da decidere»; risponde chi l'ha avviata o chi ha
+  `plans.approve`. Rispondi con un'opzione o col testo → il lavoro riparte.
+- Rispondi a una domanda già risposta da un'altra parte → la frase dice che
+  non è più aperta.
+- Annulla un lavoro che aspettava una risposta → la domanda si legge chiusa
+  e non si risponde più.
+
+## Ferma e Annulla
+
+- **Scrivere e Ferma**: in una sessione al lavoro, con A, scrivi un messaggio
+  → Claude lo riceve al passo successivo. «Ferma» → l'agente si mette in
+  pausa e aspetta; «Ferma e scrivi» lo ferma e riparte dal tuo messaggio.
+- **Senza permesso**: con B, la sessione si legge ma non c'è la casella; la
+  riga dice che scrive solo un maintainer.
+- **Annulla un lavoro parcheggiato**: un lavoro in coda, fermo, in attesa del
+  piano o di una risposta → «⋯» → «Cancel the work» → conferma → il lavoro si
+  chiude come fermato; PR e branch restano come sono.
+- **Annulla in esecuzione**: mentre Claude lavora, «Cancel the work» →
+  la sezione dice «Annullamento in corso…» e, in un attimo, il lavoro si
+  chiude; non c'è un secondo «Annulla».
+
+## «Da decidere»
+
+- Con A, nella Home: i piani da approvare e le domande di Claude
+  compaiono accanto alle altre voci; decidere o rispondere da lì ha il
+  tempo dell'«Undo» e poi parte davvero.
+- Con B: i piani non ci sono (non può approvarli); le domande sì, solo
+  quelle a cui può rispondere.
+
+## Refinement
+
+- Su una richiesta nuova, «Refine with Claude» → si apre la vista del
+  refinement con la sessione; scrivi cosa vuoi chiarire → Claude risponde e
+  scrive design, piano o metadati nella richiesta: l'esito compare con
+  «See», che apre il lato sul pezzo aggiornato.
+- Il web vecchio vede lo stesso design e piano nella voce di backlog; il
+  piano scritto qui NON è approvato.
+- «Close session» → la richiesta è pronta; riaprendo la vista, «Start new»
+  c'è solo se la richiesta si può ancora rifinire.
+- Con chi non può modificare le richieste: la vista si legge senza
+  casella.
+
+## Standup per persona
+
+- Con A (col permesso), Tutti i progetti → Activity → «By person» → per
+  ogni persona del giorno le task chiuse e spostate, i commenti, le
+  decisioni, le richieste e i commit; il filtro per reparto restringe.
+- I commit di un autore che non è un utente compaiono sotto «Commits from
+  unlinked authors».
+- Con `settings.manage`, «Rigenera i report di tutti i progetti di quel
+  giorno» → i report si rigenerano tutti, la riga dice che si stanno
+  generando e poi «pronto».
+- Con B senza il permesso: la scheda «By person» non c'è.
+
+## Claude assegnabile (quando arriva la 3e)
+
+- Con A, assegna una task a Claude → parte il lavoro; Claude compare fra
+  gli assegnatari, nel Planning e nel carico.
+- Con chi non può avviare il lavoro di Claude: Claude non è fra gli
+  assegnatari proposti.
+- Claude non riceve mai avvisi né notifiche push.
+
