@@ -24,7 +24,7 @@ type Touched = { id: string; code: string; name: string };
  */
 export function PublishDialog({
   detail,
-  reconfirm = false,
+  reconfirm: asked = false,
   onClose,
   onDone,
 }: {
@@ -39,6 +39,10 @@ export function PublishDialog({
   // Build app (fetta 5, D1): la conversazione ha letture dei tool, che chi
   // legge vedrà; il dialogo lo dice.
   const [toolReads, setToolReads] = useState(false);
+  // Build app: se è una riconferma lo dice il server (`reconfirm` del 409);
+  // senza, vale da dove si è aperto il dialogo (il prototipo).
+  const [serverReconfirm, setServerReconfirm] = useState<boolean | undefined>(undefined);
+  const reconfirm = serverReconfirm ?? asked;
   const [failed, setFailed] = useState(false);
   const listId = useId();
   const { mutate } = setVisibility;
@@ -52,6 +56,7 @@ export function PublishDialog({
           if (result.status === "needs_confirmation") {
             setTouched(result.touchedProjects);
             setToolReads(result.includesToolReads === true);
+            setServerReconfirm(result.reconfirm);
           }
           // Nulla da confermare (non succede: la prima chiamata chiede sempre).
           else onDone();
@@ -75,6 +80,7 @@ export function PublishDialog({
           if (result.status === "needs_confirmation") {
             setTouched(result.touchedProjects);
             setToolReads(result.includesToolReads === true);
+            setServerReconfirm(result.reconfirm);
           } else onDone();
         },
         onError: () => setFailed(true),

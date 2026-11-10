@@ -348,4 +348,32 @@ describe("le pubbliche nelle pagine della build app", () => {
     expect(seen.filter((r) => r.method === "POST" && r.path.endsWith("/continue"))).toHaveLength(1);
     release();
   });
+
+  it("titolo e testo del dialogo seguono `reconfirm` del server, non da dove lo si apre", async () => {
+    const MKX = "22222222-2222-4222-8222-2222222222b2";
+    const held = view({
+      visibility: "public",
+      publishedAt: "2026-11-10T10:06:00.000Z",
+      publishedBy: { id: ME_ID, name: "Ada" },
+      publishedProjects: [{ id: PROJECT_ID, code: "AUD", name: "Audin AI" }],
+      heldProjects: [{ id: MKX, code: "MKX", name: "Marketing" }],
+    });
+    install({
+      "GET /api/projects": {
+        body: [
+          serverProject({ memberIds: [ME_ID, GIULIA] }),
+          serverProject({ id: MKX, name: "Marketing", slug: "marketing", code: "MKX", memberIds: [ME_ID] }),
+        ],
+      },
+      [`GET /api/claude/conversations/${MINE}`]: { body: { ...held, session: session(MINE, { canWrite: true, canIntervene: true }) } },
+      [`POST /api/claude/conversations/${MINE}/visibility`]: {
+        status: 409,
+        body: { code: "needs_confirmation", message: "x", projects: [{ id: MKX, code: "MKX", name: "Marketing" }], includesToolReads: false, reconfirm: false },
+      },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${MINE}`);
+    await ue.click(await screen.findByRole("button", { name: "Review and share" }));
+    expect(await screen.findByRole("dialog", { name: "Make this conversation public?" })).toBeInTheDocument();
+  });
 });
