@@ -26,6 +26,7 @@ import { MirrorManager } from "./git/mirrors.js";
 import { createGraphifyRunner } from "./graph/graphify-cli.js";
 import { startGraphPoller } from "./graph/poller.js";
 import { createHandler, createProjectSerializer } from "./handler.js";
+import { createCancelRegistry, startCancelWatch } from "./pipeline/cancel.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
 import { PUSH_RELAY_TIMEOUT_MS, startDeliveriesPoller } from "./notify/deliveries-poller.js";
 import { startPluginPoller } from "./plugins/poller.js";
@@ -246,10 +247,23 @@ const select: SelectDeps = {
   legacyLimit: { until: null },
 };
 
+// «Annulla il lavoro» in esecuzione (area 3, 3b.1-bis, `pipeline/cancel.ts`):
+// il registro dei job in corso, svegliato dal NOTIFY del server e, come rete,
+// dal controllo della colonna `cancel_requested_at` ogni 10 s. Fail-open: senza
+// LISTEN resta il controllo periodico. Un worker a processo singolo, come il relay.
+const cancels = createCancelRegistry();
+const stopCancelWatch = await startCancelWatch({
+  db,
+  registry: cancels,
+  listen: (channel, cb) => client.listen(channel, cb),
+  log: (line) => console.error(`[stubwise-worker] ${line}`),
+});
+
 const handler = createHandler(
   {
     db,
     runner,
+    cancels,
     // Triage, fix e correzione risolvono il modello prima del log (stesso
     // resolver del decoratore): log e run nominano lo stesso modello.
     models: modelResolver,
@@ -849,5 +863,6 @@ await runWorker({
 await refineScheduler?.shutdown();
 await refineBridge?.close();
 relay?.stop();
+stopCancelWatch();
 await client.end();
 console.error("[stubwise-worker] fermato");

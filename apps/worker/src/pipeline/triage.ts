@@ -32,6 +32,8 @@ import {
 import type { ResolvedProvider } from "../providers/chain.js";
 import { isLimitError, ProviderLimitError } from "../providers/limit.js";
 import { getContentLanguage } from "../settings.js";
+import { RunCancelRequestedError } from "./cancel.js";
+import { recordRunCancelled } from "./job-outcomes.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import { generateFailureSummary } from "../summaries/failure-summary.js";
 import { aiJobSession, sessionOption } from "../sessions/owners.js";
@@ -307,6 +309,19 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
       output = result.output;
       exitCode = result.exitCode;
     } catch (err) {
+      if (err instanceof RunCancelRequestedError) {
+        // «Annulla il lavoro» durante il triage (area 3, 3b.1-bis): skipped,
+        // non failed; nessun repo toccato. Lo stesso commento del fix.
+        await recordTriageUsage();
+        const closed = await completeJob(db, job.id, {
+          status: "skipped",
+          log: `${invalidOutputsPrefix()}[triage] lavoro annullato da una persona`,
+        });
+        if (closed) {
+          await recordRunCancelled(db, { ticketId: job.ticketId, jobId: job.id, kind: "fix", lang }).catch(() => undefined);
+        }
+        return "skipped";
+      }
       if (err instanceof ProviderLimitError) {
         // Best-effort i consumi del run-limite prima di propagare: l'agente può
         // aver speso qualcosa prima di sbattere sul limite.

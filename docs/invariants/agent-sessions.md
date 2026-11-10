@@ -198,6 +198,30 @@
     (`AGENT_SESSION_EVENTS_CHANNEL`, `AGENT_SESSION_PARTIAL_CHANNEL`,
     `AGENT_SESSION_INPUT_CHANNEL`), importati da worker e server: mai un
     letterale, né nel codice né nei test.
+- **«Annulla il lavoro» (10 nov 2026, integrazione area 3, 3b.1 e
+  3b.1-bis): chi lo chiede lo dice la COLONNA, chi chiude è il proprietario
+  del job.** `POST /api/tasks/:id/cancel-run` (`runs.start`, task visibile,
+  `apps/server/src/services/cancel-run.ts`): un job PARCHEGGIATO (`queued`,
+  `held`, `awaiting_plan_approval`, `awaiting_input` — nessun processo vivo)
+  lo chiude il server, `skipped`, con correzione `done` nella stessa
+  transazione, le card `job.awaiting_input`/`job.plan_review` chiuse e la
+  domanda aperta segnata `cancelled_at` (mai una risposta). Un job IN
+  ESECUZIONE (`triaging`, `fixing`) il server NON lo tocca: scrive
+  `ai_jobs.cancel_requested_at`/`_by_user_id` (la fonte: sopravvive a un
+  LISTEN caduto e a un riavvio) e manda `AI_JOB_CANCEL_CHANNEL` (la sveglia);
+  il worker (`apps/worker/src/pipeline/cancel.ts`) tiene un AbortController
+  per job, lo fa scattare dal NOTIFY o dal controllo della colonna ogni 10 s,
+  passa il segnale a ogni run (`withCancelSignal`: lo streaming uccide il CLI
+  sul percorso di `AgentRunCancelledError`) e lo ricontrolla PRIMA di commit
+  e push (`assertNotCancelled`). La chiusura è `RunCancelRequestedError`, una
+  sottoclasse di `AgentRunCancelledError`: i catch di fix, correzione e
+  triage la prendono già (job `skipped`, niente commit, push né PR, niente
+  `job.failed`, stato del ticket intatto), e cambiano solo il commento
+  (`comment.runCancelled.head`, con chi). ⚠️ **Dopo il push l'annullamento non
+  vale più**: la PR si apre comunque (il lavoro è già sul remoto). Col runner
+  classico (`AGENT_STREAMING=false`) il CLI non si uccide a metà: vale solo il
+  controllo fra i passi. Il registro è in memoria: worker a processo SINGOLO,
+  come il relay. Lo scenario golden `cancel` lo rifissa sul CLI pinnato.
 - **Le sessioni degli agenti nell'app: privacy, fuoco, confini (9 ott 2026,
   piano C).** (1) **Mai su AsyncStorage**: una sessione contiene il testo
   delle email e l'output dei tool. `shouldPersistQuery`

@@ -1356,6 +1356,57 @@ describe("runFix", () => {
     expect(branches).toBe("");
   });
 
+  it("«Annulla il lavoro» in esecuzione (3b.1-bis): richiesto mentre il CLI lavora → skipped, niente commit/push/PR, commento con chi ha annullato", async () => {
+    const { db } = testDb;
+    const fixture = await makeFixture();
+    const ticket = await createTicket(db, fixture, { status: "triaged" });
+    const job = await createFixingJob(db, ticket.id);
+    const [canceller] = await db
+      .insert(users)
+      .values({ email: `cancel-${randomUUID()}@x.test`, passwordHash: "x", role: "admin" })
+      .returning();
+    const controller = new AbortController();
+    const runner = new FakeAgentRunner({
+      fileChanges: fixChanges(fixture),
+      script: async () => {
+        // La richiesta arriva mentre l'agente lavora; il CLI finisce comunque il suo turno.
+        await db
+          .update(aiJobs)
+          .set({ cancelRequestedAt: new Date(), cancelRequestedByUserId: canceller!.id })
+          .where(eq(aiJobs.id, job.id));
+        controller.abort();
+        return { output: "ho corretto il bug", exitCode: 0 };
+      },
+    });
+    const provider = makeProvider();
+    const published: string[] = [];
+
+    const outcome = await runFix(
+      {
+        ...makeDeps(fixture, runner, provider, {
+          publish: async (_db, event) => {
+            published.push((event as unknown as { kind: string }).kind);
+            return { published: 1, notificationIds: [randomUUID()] };
+          },
+        }),
+        cancelSignal: controller.signal,
+      },
+      job,
+    );
+
+    expect(outcome).toBe("skipped");
+    expect((await getJob(db, job.id)).status).toBe("skipped");
+    expect(provider.openPullRequest).not.toHaveBeenCalled();
+    expect(await git(["branch", "--list", `stubwise/ticket-${ticket.number}`], fixture.upstreamDir)).toBe("");
+    const lang = await getContentLanguage(db);
+    const notes = await db.select().from(comments).where(eq(comments.ticketId, ticket.id));
+    expect(notes.map((c) => [c.authorType, c.body])).toContainEqual([
+      "system",
+      [tr(lang, "comment.runCancelled.head", { who: canceller!.email }), tr(lang, "comment.agentStopCancelled.fix")].join(" "),
+    ]);
+    expect(published).not.toContain("job.failed");
+  });
+
   it("apertura PR fallita dopo il push → job failed con log azionabile (branch + upstream + recupero)", async () => {
     const { db } = testDb;
     const fixture = await makeFixture();

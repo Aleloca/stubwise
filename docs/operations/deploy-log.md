@@ -3073,3 +3073,30 @@ deploy o di un rollback che la tocca.
   **Rollback**: tornare all'`ARG` precedente (`2.1.287`) e ribuildare il
   worker, con le stesse condizioni; `limit.ts` nuovo resta compatibile con i
   testi della 2.1.287 (i marcatori di prima ci sono ancora).
+- **«Annulla il lavoro» (10 nov 2026, integrazione area 3, 3b.1 e
+  3b.1-bis)**: `POST /api/tasks/:id/cancel-run` chiude un job parcheggiato
+  dal server e, su un job in esecuzione, registra la richiesta e sveglia il
+  worker (`AI_JOB_CANCEL_CHANNEL`), che ferma il CLI e chiude `skipped` senza
+  commit, push né PR (`docs/invariants/agent-sessions.md`, «Annulla il
+  lavoro»). Migrazioni **0123** (`agent_questions.cancelled_at`) e **0124**
+  (`ai_jobs.cancel_requested_at`, `cancel_requested_by_user_id`), colonne
+  additive. Env nuove: **nessuna**. Nessun `notification_kind` nuovo
+  (`ticket.activity` col change `run_cancelled`).
+  **Golden** sulla CLI 2.1.322: lo scenario nuovo `cancel` 3/3 (annullato con
+  `AgentRunCancelledError` in 0,6–0,7 s, nessun `tool_result` dopo, nessun
+  commit/branch; un `tool_use` tardivo per giro, già scritto dal CLI e mai
+  eseguito: è nel dettaglio, non un cancello), `stop-pause` 1/1, `intervene`
+  3/3, `execute` 1/1, `correction` 1/1.
+  **ORDINE**: (1) **`server`** — applica 0123 e 0124; aspetta healthy; (2)
+  **`worker`** — solo SENZA lavoro dell'agente in corso (nessun job
+  `triaging`/`fixing`, nessuna generazione Docs `running`/`paused`, giro
+  notturno fermo: «Worker fail-on-restart» in `CLAUDE.md`); all'avvio il log
+  non deve dire «annullamenti: LISTEN fallito» (se lo dice, resta il controllo
+  ogni 10 s). (3) **`caddy`** quando il renderer della 3b lo usa.
+  **Rollback**: le colonne nuove sono inerti per un server o un worker
+  vecchio (nessuno le legge né le scrive). Con un worker vecchio e un server
+  nuovo, una richiesta di annullamento su un job in esecuzione resta
+  **ignorata**: il job finisce come avrebbe finito, e `cancel_requested_at`
+  resta scritto senza effetti (la storia non dice «annullato» perché il job
+  non è `skipped`). Un server vecchio risponde `run_in_progress`/404 come
+  prima. Le migrazioni non si annullano.

@@ -59,6 +59,7 @@ import {
   type AskUserPayload,
 } from "./ask-user.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
+import { assertNotCancelled, RunCancelRequestedError } from "./cancel.js";
 import {
   buildFixExecutePrompt,
   buildFixPlanContinuePrompt,
@@ -83,6 +84,7 @@ import {
   holdForBudget,
   notifyJobFailed,
   recordAgentStopExpired,
+  recordRunCancelled,
   type JobOutcomeContext,
 } from "./job-outcomes.js";
 import {
@@ -267,6 +269,12 @@ export async function defaultRunInstallCommand(
 export interface FixDeps extends NotifyDeps {
   db: Db;
   runner: AgentRunner;
+  /**
+   * «Annulla il lavoro» in esecuzione (area 3, 3b.1-bis, `pipeline/cancel.ts`):
+   * il segnale del job. Il runner lo riceve già avvolto (`withCancelSignal`);
+   * qui serve al controllo fra i passi, prima di commit e push.
+   */
+  cancelSignal?: AbortSignal;
   mirrors: MirrorManager;
   /** Chiave AES-256 per decifrare projects.encryptedCredentials. */
   encryptionKey: Buffer;
@@ -1528,6 +1536,8 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             repoStates.map((state) => state.dir),
           );
           const changedRepos: ChangedRepo[] = [];
+          // «Annulla il lavoro» arrivato a CLI già uscito: niente commit né push.
+          assertNotCancelled(deps.cancelSignal);
           for (const state of loop.changed) {
             await commitAsStubwise(
               state,
@@ -1579,6 +1589,23 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       // percorso budget-held — holdJob + commento + notifica — invece di
       // failJob/notifyFailed. I consumi del run sono già stati registrati sopra.
       return budgetHeld(err.scope, err.limitUsd, err.spentUsd);
+    }
+    if (err instanceof RunCancelRequestedError) {
+      // «Annulla il lavoro» (area 3, 3b.1-bis): come l'annullamento qui sotto
+      // — skipped, niente commit, push né PR, niente job.failed, stato del
+      // ticket intatto — ma chiesto da una persona, e il commento lo dice.
+      const closed = await completeJob(db, job.id, {
+        status: "skipped",
+        log: `[fix] output prima dell'annullamento:\n${truncateForLog(err.partialOutput)}\n[fix] lavoro annullato da una persona: niente commit, push né PR`,
+      });
+      if (closed) {
+        await recordRunCancelled(db, { ticketId: ticket.id, jobId: job.id, kind: "fix", lang }).catch(async (e: unknown) => {
+          await appendLog(db, job.id, `[fix] commento dell'annullamento non scritto: ${e instanceof Error ? e.message : String(e)}`).catch(
+            () => undefined,
+          );
+        });
+      }
+      return "skipped";
     }
     if (err instanceof AgentRunCancelledError) {
       // ANNULLAMENTO, non fallimento: un maintainer ha fermato l'agente e

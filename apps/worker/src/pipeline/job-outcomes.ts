@@ -1,6 +1,7 @@
-import { automationRules, comments, instanceSettings, users, type Db, type tickets } from "@stubwise/db";
+import { aiJobs, automationRules, comments, instanceSettings, projects, tickets as ticketsTable, users, type Db, type tickets } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { eq } from "drizzle-orm";
+import { publishNotification } from "@stubwise/notifications";
 import type { AgentRunCancelledError, AgentRunner } from "../agent/runner.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { appendLog, getJobLog, holdJob, writeFailureSummary } from "../queue.js";
@@ -281,4 +282,49 @@ export async function recordAgentStopExpired(
     t(input.lang, `comment.agentStopCancelled.${input.kind}`),
   ].join(" ");
   await db.insert(comments).values({ ticketId: input.ticketId, authorType: "system", body });
+}
+
+/**
+ * Commento e avviso di un lavoro ANNULLATO da una persona («Annulla il
+ * lavoro» su un job in esecuzione, area 3, 3b.1-bis): lo stesso testo
+ * dell'annullamento a riposo del server (`comment.runCancelled.head` + la
+ * frase del fix o della correzione), con chi l'ha chiesto letto dal job
+ * (`cancel_requested_by_user_id`), e `ticket.activity` ai follower col change
+ * `run_cancelled` come dato. Chiamato solo DOPO che il job è stato chiuso
+ * `skipped` da questo processo. La notifica non fa mai fallire niente.
+ */
+export async function recordRunCancelled(
+  db: Db,
+  input: { ticketId: string; jobId: string; kind: "fix" | "correction"; lang: Language },
+): Promise<void> {
+  const [row] = await db
+    .select({ by: aiJobs.cancelRequestedByUserId, email: users.email })
+    .from(aiJobs)
+    .leftJoin(users, eq(users.id, aiJobs.cancelRequestedByUserId))
+    .where(eq(aiJobs.id, input.jobId));
+  const head = row?.email
+    ? t(input.lang, "comment.runCancelled.head", { who: row.email })
+    : t(input.lang, "comment.agentStopCancelled.headGeneric");
+  const body = [head, t(input.lang, `comment.agentStopCancelled.${input.kind}`)].join(" ");
+  await db.insert(comments).values({ ticketId: input.ticketId, authorType: "system", body });
+  const [ticket] = await db
+    .select({ number: ticketsTable.number, projectId: ticketsTable.projectId, code: projects.code })
+    .from(ticketsTable)
+    .innerJoin(projects, eq(projects.id, ticketsTable.projectId))
+    .where(eq(ticketsTable.id, input.ticketId));
+  if (!ticket) return;
+  await publishNotification(
+    db,
+    {
+      kind: "ticket.activity",
+      ticketId: input.ticketId,
+      ticketNumber: ticket.number,
+      projectId: ticket.projectId,
+      projectCode: ticket.code,
+      change: "run_cancelled",
+      summary: "",
+      actorUserId: row?.by ?? null,
+    },
+    { projectId: ticket.projectId, ticketId: input.ticketId },
+  );
 }

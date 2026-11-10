@@ -19,6 +19,7 @@ export const SCENARIO_NAMES = [
   "intervene",
   "intervene-plan",
   "stop-pause",
+  "cancel",
   "refine",
   "refine-read",
   "refine-read-bash",
@@ -883,6 +884,55 @@ export function bashReadChecks(obs: BashReadObservation): Check[] {
       name: "registro dei Bash tentati (misura)",
       passed: true,
       detail: bash.length === 0 ? "nessun Bash tentato" : bash.map(describe).join(" | "),
+    },
+  ];
+}
+
+/** Cosa ha osservato lo scenario `cancel` («Annulla il lavoro» in esecuzione, area 3, 3b.1-bis). */
+export interface CancelObservation {
+  /** Il segnale è scattato (al primo `tool_use`). */
+  aborted: boolean;
+  /** Il nome dell'errore con cui il run è finito, o null se è finito da sé. */
+  errorName: string | null;
+  /** Dall'annullamento alla fine del run. */
+  msFromAbortToEnd: number;
+  /** I `tool_use` arrivati in un lotto DOPO quello dell'annullamento. */
+  toolUsesAfterAbort: number;
+  /** I `tool_result` dopo l'annullamento: tool davvero ESEGUITI. */
+  toolResultsAfterAbort: number;
+  /** I `tool_use` dello stesso messaggio del primo: già emessi, solo riportati nel dettaglio. */
+  sameBatchToolUses: number;
+}
+
+/** Tetto per «si ferma subito»: il CLI va ucciso, non lasciato finire il turno. */
+export const CANCEL_STOP_WITHIN_MS = 15_000;
+
+/** I check dello scenario `cancel`, puri come quelli di `stop-pause`. */
+export function cancelChecks(obs: CancelObservation): Check[] {
+  return [
+    {
+      name: "il segnale dell'annullamento è scattato a run vivo",
+      passed: obs.aborted,
+      detail: obs.aborted ? "sì, al primo tool_use" : "no: il run è finito prima di un tool_use",
+    },
+    {
+      name: "il run è annullato (AgentRunCancelledError), non finito da sé né per timeout",
+      passed: obs.errorName === "AgentRunCancelledError",
+      detail: obs.errorName ?? "nessun errore: il run è finito da sé",
+    },
+    {
+      name: `si ferma subito (entro ${CANCEL_STOP_WITHIN_MS / 1000} s dall'annullamento)`,
+      passed: obs.msFromAbortToEnd <= CANCEL_STOP_WITHIN_MS,
+      detail: `${obs.msFromAbortToEnd} ms`,
+    },
+    {
+      // Il cancello è «nessun LAVORO dopo»: un tool eseguito ha il suo
+      // `tool_result`. I `tool_use` tardivi — già scritti dal CLI sulla pipe
+      // prima di essere ucciso, drenati e registrati dal runner, mai eseguiti
+      // — stanno solo nel dettaglio (decisione del 10 nov 2026, README).
+      name: "nessun tool eseguito dopo l'annullamento",
+      passed: obs.toolResultsAfterAbort === 0,
+      detail: `${obs.toolResultsAfterAbort} tool_result dopo; ${obs.toolUsesAfterAbort} tool_use tardivi già scritti dal CLI e mai eseguiti (${obs.sameBatchToolUses} nello stesso messaggio del primo)`,
     },
   ];
 }

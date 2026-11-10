@@ -17,6 +17,7 @@ import {
   ticketRepositories,
   tickets,
   type Db,
+  users,
 } from "@stubwise/db";
 import { seedGitAccount, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { t } from "@stubwise/i18n";
@@ -620,6 +621,41 @@ describe("runCorrection", () => {
     expect((await testDb.db.select().from(prReviewJobs)).map((r) => r.headSha)).toEqual([f.prSha]);
     const [after] = await testDb.db.select().from(tickets).where(eq(tickets.id, f.ticket.id));
     expect(after!.status).toBe(before!.status);
+  });
+
+  it("«Annulla il lavoro» in esecuzione (3b.1-bis): skipped, niente push sulla PR, correzione done, commento con chi ha annullato", async () => {
+    const f = await makeFixture();
+    const { job, correctionId } = await seedCorrection(f, { reviewId: await seedReview(f) });
+    const [canceller] = await testDb.db
+      .insert(users)
+      .values({ email: `cancel-${randomUUID()}@x.test`, passwordHash: "x", role: "admin" })
+      .returning();
+    const controller = new AbortController();
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        await writeFile(join(opts.cwd, mirrorSlug(f.repoUrl), "app.test.js"), "// fatto\n");
+        await testDb.db
+          .update(aiJobs)
+          .set({ cancelRequestedAt: new Date(), cancelRequestedByUserId: canceller!.id })
+          .where(eq(aiJobs.id, job.id));
+        controller.abort();
+        return { output: "fatto", exitCode: 0 };
+      },
+    });
+
+    expect(await runCorrection({ ...makeDeps(f, runner, makeProvider()), cancelSignal: controller.signal }, job)).toBe("skipped");
+
+    expect(await upstreamHead(f)).toBe(f.prSha);
+    const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter!.status).toBe("skipped");
+    const [corr] = await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, correctionId));
+    expect(corr!.status).toBe("done");
+    const lang = await getContentLanguage(testDb.db);
+    const notes = await testDb.db.select().from(comments).where(eq(comments.ticketId, f.ticket.id));
+    expect(notes.map((c) => [c.authorType, c.body])).toContainEqual([
+      "system",
+      [t(lang, "comment.runCancelled.head", { who: canceller!.email }), t(lang, "comment.agentStopCancelled.correction")].join(" "),
+    ]);
   });
 
   it("push rifiutato perché qualcuno ha pushato nel frattempo: failed con messaggio chiaro, MAI force; review sulla head del remoto", async () => {
