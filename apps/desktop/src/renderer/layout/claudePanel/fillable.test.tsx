@@ -234,7 +234,7 @@ describe("il runner delle bozze", () => {
     await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
     act(() => setFromOutside("Claude's text. Mine."));
     await waitFor(() => expect(draftEvents()[0]!.status).toBe("changed_after"));
-    expect(undoDraft(draftEvents()[0]!.id)).toBe("not_undoable");
+    expect(undoDraft(LAURA, draftEvents()[0]!.id)).toBe("not_undoable");
     expect(toy()).toBe("Claude's text. Mine.");
   });
 
@@ -244,8 +244,23 @@ describe("il runner delle bozze", () => {
     await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
     act(() => commitFromOutside());
     await waitFor(() => expect(draftEvents()[0]!.status).toBe("changed_after"));
-    expect(undoDraft(draftEvents()[0]!.id)).toBe("not_undoable");
+    expect(undoDraft(LAURA, draftEvents()[0]!.id)).toBe("not_undoable");
     expect(toy()).toBe("Claude's text.");
+  });
+
+  it("la bozza è della persona che guarda, non della sessione del prototipo (vuota nella build app): due persone, due memorie", async () => {
+    const cid = await conversationWithDraft(LAURA, FIELD, "none");
+    mount(LAURA, { conversationId: cid, field: FIELD });
+    await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
+    const id = draftEvents()[0]!.id;
+    // La sessione del prototipo dice un'altra cosa (nella build app è vuota).
+    setSessionPersonId("");
+    // Un'altra persona sullo stesso computer non annulla la bozza di Laura.
+    expect(undoDraft("p-marco", id)).toBe("not_undoable");
+    expect(toy()).toBe("Claude's text.");
+    // Laura sì.
+    act(() => void expect(undoDraft(LAURA, id)).toBe("undone"));
+    expect(toy()).toBe("");
   });
 
   it("«Undo» rimette il testo di prima una volta; dopo un ricaricamento non c'è più niente da annullare", async () => {
@@ -253,11 +268,11 @@ describe("il runner delle bozze", () => {
     mount(LAURA, { conversationId: cid, field: FIELD });
     await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
     const id = draftEvents()[0]!.id;
-    act(() => void expect(undoDraft(id)).toBe("undone"));
+    act(() => void expect(undoDraft(LAURA, id)).toBe("undone"));
     expect(toy()).toBe("");
-    expect(undoDraft(id)).toBe("not_undoable");
+    expect(undoDraft(LAURA, id)).toBe("not_undoable");
     act(() => __forgetPageEventsForTest());
-    expect(undoDraft(id)).toBe("not_undoable");
+    expect(undoDraft(LAURA, id)).toBe("not_undoable");
   });
 
   it("T10 m1: campo occupato da «Ask Claude» della pagina: la riga resta `pending`, poi chiede", async () => {
@@ -277,7 +292,7 @@ describe("il runner delle bozze", () => {
       act(() => setFromOutside("Ask Claude wrote this."));
       await new Promise((r) => setTimeout(r, 30));
       expect(puts).toEqual([]);
-      act(() => answerDraft(draftEvents()[0]!.id, "below"));
+      act(() => answerDraft(LAURA, draftEvents()[0]!.id, "below"));
       await waitFor(() => expect(draftEvents()[0]!.status).toBe("placed"));
       expect(toy()).toBe("Ask Claude wrote this.\n\nClaude's text.");
     } finally {

@@ -3,7 +3,6 @@ import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useConversation, useSessionPersonId, useSettlePageEvent } from "../../data/queries";
 import { onStoreReset } from "@backend/runtime";
 import { isAppBuild } from "../../data/build";
-import { getSessionPersonId } from "../../data/session";
 import type { ConversationEvent, FieldRef, PageAction } from "../../data/types";
 import { placeDraft } from "../../domain/claude/intents/mailDraft";
 import i18n, { setLanguage, type Language } from "../../i18n";
@@ -491,12 +490,13 @@ function startDraft(
 }
 
 /**
- * La scelta della riga che chiede: «Add below» o «Replace». Il campo deve
+ * La scelta della riga che chiede: «Add below» o «Replace», a nome di
+ * `personId` (chi guarda: le bozze sono per persona). Il campo deve
  * essere ancora dichiarato; se la pagina nel frattempo è cambiata la bozza
  * aspetta (`waiting`). Un secondo clic non scrive.
  */
-export function answerDraft(eventId: string, how: "replace" | "below"): void {
-  const entry = drafts.get(getSessionPersonId())?.get(eventId);
+export function answerDraft(personId: string, eventId: string, how: "replace" | "below"): void {
+  const entry = drafts.get(personId)?.get(eventId);
   if (!entry || entry.stage !== "asking") return;
   const field = fillableFor(entry.ref);
   if (field) {
@@ -512,9 +512,9 @@ export function answerDraft(eventId: string, how: "replace" | "below"): void {
  * «Put it in the field»: la bozza aspetta il suo campo; chi chiama porta
  * alla pagina. Se il campo c'è già la mette (o chiede) subito.
  */
-export function wantDraft(conversationId: string, event: DraftEvent, settle: Settle): void {
+export function wantDraft(personId: string, conversationId: string, event: DraftEvent, settle: Settle): void {
   if (!event.field) return;
-  const mine = draftsOf(getSessionPersonId());
+  const mine = draftsOf(personId);
   const entry: DraftEntry = mine.get(event.id) ?? {
     conversationId,
     ref: event.field,
@@ -537,8 +537,8 @@ export function wantDraft(conversationId: string, event: DraftEvent, settle: Set
  * (un ricaricamento, un clic già fatto) o senza la pagina del campo:
  * `not_undoable`, e niente cambia. Chiudere l'evento tocca a chi chiama.
  */
-export function undoDraft(eventId: string): "undone" | "changed_after" | "not_undoable" {
-  const entry = drafts.get(getSessionPersonId())?.get(eventId);
+export function undoDraft(personId: string, eventId: string): "undone" | "changed_after" | "not_undoable" {
+  const entry = drafts.get(personId)?.get(eventId);
   if (!entry || entry.stage !== "placed" || entry.outcome) return "not_undoable";
   const field = fillableFor(entry.ref);
   if (!field) return "not_undoable";
@@ -555,7 +555,10 @@ export function undoDraft(eventId: string): "undone" | "changed_after" | "not_un
  * cancella mai le modifiche della persona.
  */
 subscribeFillable(() => {
-  const mine = drafts.get(getSessionPersonId());
+  // La persona del runner montato (il riquadro o la pagina della
+  // conversazione), non la sessione del prototipo: nella build app è vuota.
+  const person = currentPage()?.personId;
+  const mine = person === undefined ? undefined : drafts.get(person);
   if (!mine) return;
   for (const [eventId, entry] of mine) {
     if (entry.stage === "wanted" || entry.stage === "busy") {

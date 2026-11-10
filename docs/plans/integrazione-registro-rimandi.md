@@ -153,10 +153,15 @@ Fetta 2 chiusa lato server (sotto, «Chiuse»).
   dopo l'invio» (`useOpenHref`, `apps/desktop/src/renderer/pages/chat/ChannelView.tsx`)
   confrontava chi scrive con `getSessionPersonId()` del prototipo, vuota nella
   build app, e non navigava mai: ora usa la persona vera (`useSessionPersonId`),
-  test `real/chatOpenThread.test.tsx`. Il resto del codice della Chat non usa
-  `getSessionPersonId()`; le bozze del riquadro di Claude
-  (`layout/claudePanel/pageActions.ts`) la usano come chiave, che nella build
-  app è vuota ma la stessa per tutti: funzionano, senza separare le persone.
+  test `real/chatOpenThread.test.tsx`. Anche le bozze del riquadro di Claude
+  (`layout/claudePanel/pageActions.ts`) leggevano la bozza con
+  `getSessionPersonId()`: ora chi guarda la passa (`answerDraft`,
+  `wantDraft`, `undoDraft`) e i campi dichiarati usano la persona del runner
+  montato; test a due persone in `fillable.test.tsx`.
+- Limite (non conta: le fette 1 e 2 escono insieme) *(S)*: il renderer della
+  fetta 2 legge i permessi del canale uno per uno (`canEditInfo`…); contro un
+  server della sola fetta 1, che manda solo `canManage`, i bottoni di gestione
+  non comparirebbero.
 - **I flag del renderer da accendere con ogni fetta** *(O, 10 nov 2026)*
   (`CHAT_LATER_FEATURES` in `apps/desktop/src/renderer/data/integration.ts`):
   fetta 2 `chat-dm` (DM, «New message», ⌘N), `chat-private`, `chat-general`,
