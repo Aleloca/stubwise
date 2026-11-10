@@ -266,6 +266,26 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     expect(outside()).toEqual([]);
   });
 
+  it("un'azione della pagina (D3): la esegue il renderer, la riga lo dice e offre «Undo» locale; nessuna scrittura", async () => {
+    install({
+      proposals: [
+        cardB({
+          actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
+          cls: "A",
+          reasons: [],
+          canConfirm: false,
+          canCancel: false,
+        }),
+      ],
+    });
+    renderRoute(`/claude/${CONV}`);
+    expect(await screen.findByText("Switched to the dark theme")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /^Undo/ })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /Claude proposes/ })).toBeNull();
+    expect(seen.filter((r) => r.method === "POST")).toEqual([]);
+    expect(outside()).toEqual([]);
+  });
+
   it("«Cancel» annulla la scheda sul server; niente si esegue", async () => {
     install();
     const ue = userEvent.setup();

@@ -23,7 +23,13 @@ import type {
   Outcome,
 } from "../../types";
 import { freeDetailOf, listMine } from "./claudeChat";
-import { chatActionEvents, readChatActions, undoViewsOf, withChatActionEvents } from "./claudeChatActions";
+import {
+  chatActionEvents,
+  forgetPageStatuses,
+  readChatActions,
+  undoViewsOf,
+  withChatActionEvents,
+} from "./claudeChatActions";
 import { listPeople } from "./people";
 import { appClient } from "./client";
 import { listProjects } from "./projects";
@@ -432,6 +438,8 @@ export function forgetClaudeCaches(): void {
   ticketPlanCache.clear();
   refinableCache.clear();
   meCache = null;
+  // Gli esiti locali delle azioni della pagina (chat, fetta 3, D3).
+  forgetPageStatuses();
 }
 
 /**

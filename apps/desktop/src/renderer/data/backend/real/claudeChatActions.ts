@@ -201,6 +201,55 @@ function executedEvent(g: GroupView, at: string, actions: ChatActions): Conversa
   } as ConversationEvent;
 }
 
+// --- le azioni della pagina (D3) ------------------------------------------------
+
+type Fake = typeof import("../../api");
+
+/**
+ * L'esito delle azioni della pagina, per persona: le esegue il RENDERER (D3,
+ * il server le valida e non esegue niente), quindi lo stato — eseguita, non
+ * partita, annullata — resta qui, come il loro «Undo» locale. Una
+ * conversazione riaperta in un'altra sessione le rilegge in attesa, e il
+ * runner le dà non partite se sono vecchie (`isStale`).
+ */
+const pageStatusByPerson = new Map<string, Map<string, PageEventStatus>>();
+
+type PageEventStatus = Parameters<Fake["settlePageEvent"]>[2];
+
+function pageStatuses(): Map<string, PageEventStatus> {
+  const me = session.personId ?? "";
+  let map = pageStatusByPerson.get(me);
+  if (!map) pageStatusByPerson.set(me, (map = new Map()));
+  return map;
+}
+
+/** Il runner fissa l'esito di un'azione della pagina (eseguita, non partita, annullata). */
+export const settlePageEvent: Fake["settlePageEvent"] = async (_conversationId, eventId, status) => {
+  pageStatuses().set(eventId, status);
+};
+
+/** Solo nei test: nessun esito ricordato. */
+export function forgetPageStatuses(): void {
+  pageStatusByPerson.clear();
+}
+
+const isPageProposal = (p: ProposalView) => p.actions.length > 0 && p.actions.every((a) => a.fn === "pageAction");
+
+/** Un'azione della pagina per ogni azione della proposta, col suo esito locale. */
+function pageEvents(p: ProposalView, at: string): ConversationEvent[] {
+  return p.actions.map((a, i) => {
+    const id = `page:${p.id}:${i}`;
+    const status = pageStatuses().get(id);
+    return {
+      id,
+      at,
+      type: "pageAction",
+      action: a.args,
+      status: status === "done" || status === "undone" || status === "changed_after" || status === "failed" ? status : "pending",
+    } as ConversationEvent;
+  });
+}
+
 /**
  * Le schede (`proposal`) e le righe (`executed`) dagli eventi grezzi, al loro
  * posto nel tempo. Una proposta ha una scheda sola (anche quando la conferma o
@@ -223,7 +272,8 @@ export function chatActionEvents(
       const p = actions.proposals.find((x) => x.id === data.proposalId);
       if (!p || seen.has(p.id)) continue;
       seen.add(p.id);
-      out.push(proposalEvent(p, e.at, actions));
+      // Le azioni della pagina (D3) non sono una scheda: le esegue il renderer.
+      out.push(...(isPageProposal(p) ? pageEvents(p, e.at) : [proposalEvent(p, e.at, actions)]));
     } else if (e.type === "actions_executed") {
       if (typeof data.undoOf === "string") continue;
       if (typeof data.proposalId === "string" && carded.has(data.proposalId)) continue;
@@ -277,8 +327,6 @@ export function undoViewsOf(
 }
 
 // --- le decisioni della persona ----------------------------------------------------
-
-type Fake = typeof import("../../api");
 
 /**
  * «Confirm» / «Confirm selected» di una scheda: la conferma la fa il SERVER
