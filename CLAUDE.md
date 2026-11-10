@@ -37,7 +37,11 @@ repo, ricerca vettoriale e chat RAG.
   dal browser di sistema** (passkey compresa): PKCE, `/app/#/desktop-login`,
   ritorno con `stubwise://auth?code=…&state=…`, scambio su
   `POST /api/auth/desktop-exchange` (`apps/desktop/src/main/browserLogin.ts`,
-  `docs/invariants/second-factor.md`). Prima di toccarlo leggi
+  `docs/invariants/second-factor.md`). **Tutto ciò che l'integrazione ha
+  rimandato, con le decisioni già prese, sta in
+  `docs/plans/integrazione-registro-rimandi.md`**: il design di ogni fase o area
+  successiva parte da lì e ne chiude le voci (regola del maintainer, 10 nov
+  2026). Prima di toccarlo leggi
   `apps/desktop/README.md`: dice come provarlo e dove stanno le decisioni
   del maintainer (design e piani `docs/plans/*-desktop-*` e
   `docs/plans/2026-11-09-integrazione-area2-*`, shape in
