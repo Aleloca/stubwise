@@ -148,6 +148,8 @@ describe("proposte e azioni di Claude nella conversazione", () => {
     });
     // Il riassunto di ogni azione si legge dai dati (codice compreso), mai dal modello.
     expect((card as { actions: { summary: string }[] }).actions[0]!.summary).toContain("AUD-12");
+    // I campi cambiati con le loro etichette, non le chiavi grezze dello schema.
+    expect((card as { actions: { summary: string }[] }).actions[0]!.summary).toBe("Change AUD-12 (assignee)");
     // «Annulla» del gruppo: disponibile, come lo dice il server per chi guarda.
     expect(detail.undo?.[GROUP_A]).toEqual({ state: "available", needsReauth: false });
   });

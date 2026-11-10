@@ -92,7 +92,10 @@ function summaryOf(fn: string, args: Record<string, unknown>, code: string | nul
       break;
     case "updateTask": {
       const patch = (args["patch"] ?? {}) as Record<string, unknown>;
-      params["fields"] = Object.keys(patch).join(", ");
+      // Le etichette dei campi nella lingua di chi legge; una chiave ignota resta com'è.
+      params["fields"] = Object.keys(patch)
+        .map((k) => (i18n.exists(`claude.chatActions.field.${k}`) ? i18n.t(`claude.chatActions.field.${k}`) : k))
+        .join(", ");
       break;
     }
     case "planTask": {

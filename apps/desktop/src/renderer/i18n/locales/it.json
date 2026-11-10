@@ -4812,6 +4812,21 @@
         "pageAction": "Cambia questa pagina ({{kind}})",
         "deleteTask": "Elimina {{code}}",
         "deleteTaskNoCode": "Elimina una task"
+      },
+      "field": {
+        "title": "titolo",
+        "description": "descrizione",
+        "statusId": "stato",
+        "departmentId": "reparto",
+        "assigneeId": "assegnatario",
+        "size": "taglia",
+        "dueDate": "scadenza",
+        "milestoneId": "traguardo",
+        "plannedWeek": "settimana",
+        "labels": "etichette",
+        "type": "tipo",
+        "priority": "priorità",
+        "projectId": "progetto"
       }
     }
   },
