@@ -85,4 +85,28 @@ describe("endpoints chat", () => {
     expect(s.c.chat.streamPath(CH)).toBe(`/api/chat/channels/${CH}/stream`);
     expect(s.c.chat.streamPath(CH, "x|1")).toBe(`/api/chat/channels/${CH}/stream?after=x%7C1`);
   });
+
+  it("fetta 2: DM, membri, domande, ricerca, filtro per tipo", async () => {
+    const PERSON = "7f1c2a1e-0000-4000-8000-0000000000e1";
+    const one = client(channel);
+    await one.c.chat.openDm([PERSON]);
+    expect(last(one.fetchImpl)).toEqual({ url: "/api/chat/dm", method: "POST", body: { personIds: [PERSON] } });
+    await one.c.chat.channels.invite(CH, [PERSON]);
+    expect(last(one.fetchImpl)).toEqual({ url: `/api/chat/channels/${CH}/members`, method: "POST", body: { personIds: [PERSON] } });
+    await one.c.chat.channels.removeMember(CH, PERSON);
+    expect(last(one.fetchImpl)).toMatchObject({ url: `/api/chat/channels/${CH}/members/${PERSON}`, method: "DELETE" });
+    const list = client({ items: [] });
+    await list.c.chat.channels.list({ kind: "dm" });
+    expect(last(list.fetchImpl).url).toBe("/api/chat/channels?kind=dm");
+    await list.c.chat.questions();
+    expect(last(list.fetchImpl).url).toBe("/api/chat/questions");
+    await list.c.chat.search({ q: "pdf export", channelId: CH, peopleOnly: true, from: "2026-11-01" });
+    expect(last(list.fetchImpl).url).toBe(`/api/chat/search?q=pdf+export&channelId=${CH}&peopleOnly=true&from=2026-11-01`);
+    const gone = client(null, 204);
+    await gone.c.chat.dismissQuestion(MSG);
+    expect(last(gone.fetchImpl)).toMatchObject({ url: `/api/chat/questions/${MSG}/dismiss`, method: "POST" });
+    // Uscire da un privato o da un DM che non si vede più: 204, nessun canale.
+    expect(await gone.c.chat.channels.leave(CH)).toBeNull();
+    expect(await gone.c.chat.channels.removeMember(CH, PERSON)).toBeNull();
+  });
 });
