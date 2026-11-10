@@ -26,6 +26,7 @@ import { freeDetailOf, listMine, listPublic } from "./claudeChat";
 import {
   chatActionEvents,
   forgetPageStatuses,
+  rememberConversationOwner,
   readChatActions,
   undoViewsOf,
   withChatActionEvents,
@@ -511,7 +512,18 @@ export async function toDetail(
 }
 
 /** Una sessione invisibile, o inesistente, risponde 404: `null`. */
-export const getConversation: typeof Fake.getConversation = async (id) => {
+export const getConversation: typeof Fake.getConversation = (id) => readConversation(id, true);
+
+/**
+ * Il dettaglio di una sessione o di una conversazione libera. `withOrigin`:
+ * di una continuazione si legge anche l'originale (una volta: l'origine
+ * dell'origine non serve). Solo un 404 dice «non c'è»; ogni altro errore si
+ * propaga, e la lettura si riprova.
+ */
+async function readConversation(
+  id: string,
+  withOrigin: boolean,
+): ReturnType<typeof Fake.getConversation> {
   // Il riquadro senza conversazione la chiede con l'id vuoto: nessuna.
   if (!id) return null;
   let detail: Detail;
@@ -530,13 +542,15 @@ export const getConversation: typeof Fake.getConversation = async (id) => {
       if (error instanceof ApiError && error.status === 404) return null;
       throw error;
     }
+    // L'autore prima delle viste delle proposte: è il loro richiedente (fetta 5).
+    rememberConversationOwner(id, conversation.author?.id ?? "");
     const [events, actions, people] = await Promise.all([readEvents(id), readChatActions(id), listPeople()]);
     const nameOf = (personId: string) => people.find((p) => p.id === personId)?.name ?? null;
     // Le schede e le righe delle azioni di Claude (fetta 3): derivate dalle viste del server.
     const flow = withChatActionEvents(eventsOf(conversation.session, events, {}, null), chatActionEvents(events, actions));
     return {
       ...freeDetailOf(conversation, flow),
-      continuesFrom: await originOf(conversation.continuesFrom),
+      continuesFrom: withOrigin ? await originOf(conversation.continuesFrom) : null,
       undo: undoViewsOf(actions.groups, nameOf),
     };
   }
@@ -547,7 +561,7 @@ export const getConversation: typeof Fake.getConversation = async (id) => {
 /**
  * La pubblica da cui continua una conversazione (fetta 5), letta DAL VIVO e
  * come la vede chi continua (la proiezione del server): mai copiata. Non più
- * visibile, o eliminata: `available: false`, senza titolo né eventi.
+ * visibile, o eliminata (404): `available: false`, senza titolo né eventi.
  */
 async function originOf(
   from: { id: string; available: boolean } | null,
@@ -555,9 +569,18 @@ async function originOf(
   if (!from) return null;
   const gone = { id: from.id, available: false as const, title: null, ownerId: null, events: [] as [] };
   if (!from.available) return gone;
-  const origin = await getConversation(from.id).catch(() => null);
+  // Un 404 (privata nel frattempo, eliminata) dà `null`: non più disponibile.
+  // Un errore di rete NO: si propaga, e la lettura si riprova.
+  const origin = await readConversation(from.id, false);
   if (!origin) return gone;
-  return { id: from.id, available: true, title: origin.title, ownerId: origin.ownerId, events: origin.events };
+  return {
+    id: from.id,
+    available: true,
+    title: origin.title,
+    ownerId: origin.ownerId,
+    ownerName: origin.ownerName ?? null,
+    events: origin.events,
+  };
 }
 
 // --- il lavoro di una task ------------------------------------------------------------

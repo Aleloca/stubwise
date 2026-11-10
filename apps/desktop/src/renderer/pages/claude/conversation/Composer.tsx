@@ -154,6 +154,7 @@ export function Composer({
   draft,
   projectMenu = true,
   budgetBand = false,
+  sending = false,
 }: {
   detail: ConversationDetail;
   connection: ConversationStream["connection"];
@@ -177,6 +178,8 @@ export function Composer({
    * casella lascia il posto alla fascia, col testo scritto in sola lettura.
    */
   budgetBand?: boolean;
+  /** Un invio che non si ripete finché non torna (la continuazione che nasce). */
+  sending?: boolean;
 }) {
   const { t } = useTranslation();
   const me = useSessionPersonId();
@@ -276,7 +279,7 @@ export function Composer({
   };
 
   const submit = () => {
-    if (!hasContent || reconnecting || budget) return;
+    if (!hasContent || reconnecting || budget || sending) return;
     onSend(
       text.trim(),
       attachments.map((a) => a.attachment),
@@ -521,7 +524,7 @@ export function Composer({
                 <button
                   type="button"
                   className={primaryButton}
-                  disabled={!hasContent || reconnecting || budget}
+                  disabled={!hasContent || reconnecting || budget || sending}
                   onClick={submit}
                 >
                   <SendGlyph />

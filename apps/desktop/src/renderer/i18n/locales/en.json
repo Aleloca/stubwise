@@ -4573,6 +4573,9 @@
         "gone": "The original conversation is no longer available.",
         "originLabel": "The conversation this one continues",
         "yoursStarts": "Your conversation starts here"
+      },
+      "row": {
+        "by": "by {{name}}"
       }
     },
     "decisionLog": {

@@ -295,3 +295,52 @@ describe("Continue", () => {
     });
   });
 });
+
+describe("l'origine di una continuazione (review F5.4)", () => {
+  const ORIGIN_OF_ORIGIN = "cccccccc-0000-4000-8000-0000000000f7";
+  const base = () => ({
+    [`GET /api/claude/conversations/${MINE}`]: {
+      body: { ...mine({ continuesFrom: { id: CONV, available: true } }), session: session(MINE, { canWrite: true }) },
+    },
+    [`GET /api/agent-sessions/${MINE}`]: { body: session(MINE) },
+    [`GET /api/agent-sessions/${MINE}/events`]: noEvents,
+    [`GET /api/claude/conversations/${MINE}/proposals`]: { body: [] },
+    [`GET /api/claude/conversations/${MINE}/groups`]: { body: [] },
+  });
+
+  it("un errore di rete sull'originale non diventa «non più disponibile»: la lettura fallisce e si riprova", async () => {
+    install({
+      ...base(),
+      [`GET /api/claude/conversations/${CONV}`]: { status: 503, body: { code: "unavailable", message: "x" } },
+      [`GET /api/agent-sessions/${CONV}`]: { status: 503, body: { code: "unavailable", message: "x" } },
+    });
+    await getSessionPerson();
+    await expect(getConversation(MINE)).rejects.toBeTruthy();
+  });
+
+  it("un originale che non si vede più (404): «non più disponibile»", async () => {
+    install({
+      ...base(),
+      [`GET /api/claude/conversations/${CONV}`]: { status: 404, body: { code: "not_found", message: "x" } },
+      [`GET /api/agent-sessions/${CONV}`]: { status: 404, body: { code: "not_found", message: "x" } },
+    });
+    await getSessionPerson();
+    expect((await getConversation(MINE))!.continuesFrom).toMatchObject({ id: CONV, available: false });
+  });
+
+  it("l'origine dell'origine non si legge", async () => {
+    const { seen } = install({
+      ...base(),
+      [`GET /api/claude/conversations/${CONV}`]: {
+        body: { ...theirs({ continuesFrom: { id: ORIGIN_OF_ORIGIN, available: true } }), session: session(CONV) },
+      },
+      [`GET /api/agent-sessions/${CONV}`]: { body: session(CONV) },
+      [`GET /api/agent-sessions/${CONV}/events`]: noEvents,
+      [`GET /api/claude/conversations/${CONV}/proposals`]: { body: [] },
+      [`GET /api/claude/conversations/${CONV}/groups`]: { body: [] },
+    });
+    await getSessionPerson();
+    expect((await getConversation(MINE))!.continuesFrom).toMatchObject({ id: CONV, available: true });
+    expect(seen.some((r) => r.path.includes(ORIGIN_OF_ORIGIN))).toBe(false);
+  });
+});

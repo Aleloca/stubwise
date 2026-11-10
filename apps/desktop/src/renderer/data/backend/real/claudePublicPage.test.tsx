@@ -248,4 +248,132 @@ describe("le pubbliche nelle pagine della build app", () => {
     // L'originale in sola lettura in testa, dal vivo.
     expect(await screen.findByText("Giulia's callbacks are fine.")).toBeInTheDocument();
   });
+
+  it("una proposta APERTA dell'autrice letta da chi non può decidere (canConfirm false): nessun bottone, nessun «aspetta te», nessun annuncio", async () => {
+    const PROPOSAL = "dddddddd-0000-4000-8000-0000000000f1";
+    install({
+      [`GET /api/agent-sessions/${CONV}/events`]: {
+        body: {
+          events: [
+            { id: "2", type: "assistant_text", segmentId: "s1", at: "2026-11-10T10:01:00.000Z", data: { text: "Giulia's callbacks are fine." } },
+            { id: "3", type: "proposal", segmentId: "s1", at: "2026-11-10T10:01:10.000Z", data: { proposalId: PROPOSAL } },
+          ],
+          before: null,
+        },
+      },
+      [`GET /api/claude/conversations/${CONV}/proposals`]: {
+        body: [
+          {
+            id: PROPOSAL,
+            sessionId: CONV,
+            actions: [{ fn: "createMilestone", args: { projectId: PROJECT_ID, name: "Beta" } }],
+            summary: "",
+            cls: "B",
+            reasons: [],
+            status: "open",
+            canConfirm: false,
+            canCancel: false,
+            createdAt: "2026-11-10T10:01:10.000Z",
+          },
+        ],
+      },
+    });
+    renderRoute(`/claude/${CONV}`);
+    const card = await screen.findByRole("region", { name: "Proposal for Giulia Ferri" });
+    expect(within(card).queryByRole("button", { name: /^Confirm/ })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(within(card).queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(within(card).queryByText("Your proposal")).toBeNull();
+    expect(card).toHaveTextContent("Giulia Ferri");
+    expect(screen.queryByText("Claude is waiting for your decision.")).toBeNull();
+  });
+
+  describe("D6 e i nomi dal server, anche di chi non ha progetti in comune con chi guarda", () => {
+    const strangers = { "GET /api/people": { body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [DEPT_ID], email: "ada@example.com" }] } };
+
+    it("la riga di «Public» dice l'autrice", async () => {
+      install(strangers);
+      renderRoute("/claude?scope=public");
+      await waitFor(() => expect(document.querySelector(`[data-conversation-row="${CONV}"]`)).not.toBeNull());
+      expect(document.querySelector(`[data-conversation-row="${CONV}"]`)).toHaveTextContent("Giulia Ferri");
+    });
+
+    it("la testata dice chi l'ha resa pubblica col nome del server", async () => {
+      install(strangers);
+      renderRoute(`/claude/${CONV}`);
+      expect(await screen.findByText(/made public by Giulia Ferri/)).toBeInTheDocument();
+    });
+
+    it("la continuazione dice da chi continua, col nome del server", async () => {
+      const continued = view({ continuesFrom: { id: CONV, available: true } });
+      install({
+        ...strangers,
+        [`GET /api/claude/conversations/${MINE}`]: { body: { ...continued, session: session(MINE, { canWrite: true, canIntervene: true }) } },
+        [`GET /api/agent-sessions/${MINE}/events`]: { body: { events: [], before: null } },
+      });
+      renderRoute(`/claude/${MINE}`);
+      expect(await screen.findByText("Giulia's callbacks are fine.")).toBeInTheDocument();
+      expect(screen.getByText(/Giulia Ferri/)).toBeInTheDocument();
+    });
+  });
+
+  it("«Continue» col budget del mese finito: la riga dice il budget", async () => {
+    install({
+      [`POST /api/claude/conversations/${CONV}/continue`]: { status: 409, body: { code: "budget_exhausted", message: "x" } },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${CONV}`);
+    const box = await screen.findByPlaceholderText("Continue in your own conversation…");
+    await ue.type(box, "And mine?");
+    await ue.keyboard("{Enter}");
+    expect(await screen.findByText(/monthly AI budget/i)).toBeInTheDocument();
+  });
+
+  it("«Continue» non parte due volte: mentre nasce la conversazione la casella non manda", async () => {
+    let release: () => void = () => undefined;
+    const continued = view({ continuesFrom: { id: CONV, available: true } });
+    install({
+      [`POST /api/claude/conversations/${CONV}/continue`]: () =>
+        new Promise((resolve) => {
+          release = () => resolve({ status: 201, body: continued });
+        }),
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${CONV}`);
+    const box = await screen.findByPlaceholderText("Continue in your own conversation…");
+    await ue.type(box, "First");
+    await ue.keyboard("{Enter}");
+    await ue.type(box, "Second");
+    await ue.keyboard("{Enter}");
+    expect(seen.filter((r) => r.method === "POST" && r.path.endsWith("/continue"))).toHaveLength(1);
+    release();
+  });
+
+  it("titolo e testo del dialogo seguono `reconfirm` del server, non da dove lo si apre", async () => {
+    const MKX = "22222222-2222-4222-8222-2222222222b2";
+    const held = view({
+      visibility: "public",
+      publishedAt: "2026-11-10T10:06:00.000Z",
+      publishedBy: { id: ME_ID, name: "Ada" },
+      publishedProjects: [{ id: PROJECT_ID, code: "AUD", name: "Audin AI" }],
+      heldProjects: [{ id: MKX, code: "MKX", name: "Marketing" }],
+    });
+    install({
+      "GET /api/projects": {
+        body: [
+          serverProject({ memberIds: [ME_ID, GIULIA] }),
+          serverProject({ id: MKX, name: "Marketing", slug: "marketing", code: "MKX", memberIds: [ME_ID] }),
+        ],
+      },
+      [`GET /api/claude/conversations/${MINE}`]: { body: { ...held, session: session(MINE, { canWrite: true, canIntervene: true }) } },
+      [`POST /api/claude/conversations/${MINE}/visibility`]: {
+        status: 409,
+        body: { code: "needs_confirmation", message: "x", projects: [{ id: MKX, code: "MKX", name: "Marketing" }], includesToolReads: false, reconfirm: false },
+      },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${MINE}`);
+    await ue.click(await screen.findByRole("button", { name: "Review and share" }));
+    expect(await screen.findByRole("dialog", { name: "Make this conversation public?" })).toBeInTheDocument();
+  });
 });

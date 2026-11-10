@@ -33,7 +33,9 @@ export function ContinuesFromLine({
   origin: NonNullable<ConversationDetail["continuesFrom"]>;
 }) {
   const { t } = useTranslation();
-  const owner = usePersonName(origin.ownerId);
+  const known = usePersonName(origin.ownerId);
+  // Il nome del server prima: l'autrice può non avere progetti in comune con chi continua.
+  const owner = (origin.available && origin.ownerName) || known;
   if (!origin.available) {
     return (
       <p className="flex items-center gap-2 text-sm text-ink-muted" data-origin-gone>

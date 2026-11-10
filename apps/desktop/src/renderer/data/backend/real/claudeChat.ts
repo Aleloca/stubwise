@@ -195,6 +195,9 @@ export function toConversation(v: View): Conversation {
     visibility: v.visibility === "public" ? "public" : "private",
     publishedAt: v.publishedAt,
     publishedById: v.publishedBy?.id ?? null,
+    // I nomi del server: per chi guarda una conversazione d'altri, anche fuori dai suoi progetti.
+    ...(v.isOwner ? {} : { ownerName: v.author?.name ?? null }),
+    ...(v.publishedBy ? { publishedByName: v.publishedBy.name } : {}),
     // I progetti che chi guarda vede: quelli confermati e, per l'autore, i
     // NUOVI del seguito privato (da riconfermare).
     touchedProjectIds: [...published, ...held.filter((id) => !published.includes(id))],
@@ -497,6 +500,7 @@ export function freeDetailOf(
     planPreApproved: false,
     canContinue: !owner && v.canContinue,
     canManage: owner,
+    canPublish: owner && v.canPublish,
     canClose: false,
     canStartNew: false,
     readOnlyReason: !owner

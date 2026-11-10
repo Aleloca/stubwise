@@ -621,7 +621,7 @@ function PageHeader({
                 : t("claude.destination.page.objectRequest", { code: detail.objectCode ?? "" })}
             </button>
           )}
-          {free && detail.canManage && !detail.archived && featureIntegrated("claude-public") && (
+          {free && (detail.canPublish ?? detail.canManage) && !detail.archived && featureIntegrated("claude-public") && (
             <button
               type="button"
               className={secondaryButton}
@@ -694,7 +694,7 @@ function PageHeader({
           isPublic ? (
             <span data-public-line>
               {t("claude.destination.page.publicBy", {
-                name: nameOf(detail.publishedById),
+                name: detail.publishedByName ?? nameOf(detail.publishedById),
                 date: detail.publishedAt ? formatDate(detail.publishedAt, i18n.language) : "",
               })}
             </span>

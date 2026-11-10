@@ -1054,6 +1054,13 @@ export interface Conversation {
   publishedProjectIds: string[];
   /** La conversazione pubblica da cui questa continua. */
   continuesFromId: string | null;
+  /**
+   * Build app (chat, fetta 5): i nomi che dà il server dell'autore (solo
+   * quando non è chi guarda) e di chi l'ha resa pubblica, anche per chi non
+   * ha progetti in comune con chi guarda. Assenti nel prototipo.
+   */
+  ownerName?: string | null;
+  publishedByName?: string | null;
   createdAt: string;
   updatedAt: string;
   archived: boolean;
@@ -1315,6 +1322,12 @@ export type ConversationEvent =
       type: "proposal";
       proposalId: string;
       requesterId: string;
+      /**
+       * Build app (chat, fetta 5): chi guarda può confermarla o annullarla,
+       * come dice il server (`canConfirm`/`canCancel` della vista). Assente nel
+       * prototipo, dove decide il richiedente. La scheda lo legge, non lo deduce.
+       */
+      canDecide?: boolean;
       actions: ProposedAction[];
       status: "open" | "confirmed" | "cancelled" | "expired" | "failed";
       error?: string;
