@@ -1,10 +1,12 @@
+import { newTaskBodySchema } from "@stubwise/shared";
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
-import { resetStreamsForTests } from "./claudeStream";
+import { resetStreamsForTests, setStreamTransport, type StreamHandlers } from "./claudeStream";
 import { forgetClaudeCaches } from "./claude";
+import { __forgetPageEventsForTest, __forgetStartedForTest } from "../../../layout/claudePanel/pageActions";
 import {
   DEPT_ID,
   installFakeServer,
@@ -169,10 +171,19 @@ function install(over: { proposals?: unknown[]; groups?: unknown[]; routes?: Rec
 beforeEach(() => {
   setAppClientForTests(null);
   resetStreamsForTests();
+  __forgetStartedForTest();
+  __forgetPageEventsForTest();
+  document.documentElement.removeAttribute("data-theme");
+  try {
+    localStorage.clear();
+  } catch {
+    /* niente storage */
+  }
   forgetClaudeCaches();
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
 });
 afterEach(() => {
+  setStreamTransport(null);
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   setAppClientForTests(null);
@@ -236,6 +247,8 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     renderRoute(`/claude/${CONV}`);
     const proposal = await card();
     await ue.click(within(proposal).getByRole("button", { name: /^Confirm all/ }));
+    // L'esito del clic, a vista: la conferma non è passata.
+    expect(await screen.findByText("This proposal has expired: nothing was changed.")).toBeInTheDocument();
     await waitFor(async () => expect(await card()).toHaveTextContent("Not carried out · expired"));
     expect(within(await card()).queryByRole("button", { name: /^Confirm/ })).toBeNull();
   });
@@ -244,7 +257,7 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     install({
       proposals: [
         cardB({
-          actions: [{ fn: "createTask", args: { projectId: PROJECT_ID, title: "Export the CSV", type: "task", assigneeId: MARTA } }],
+          actions: [{ fn: "createTask", args: { projectId: PROJECT_ID, title: "Export the CSV", type: "activity", assigneeId: MARTA } }],
           reasons: [{ kind: "notifies", personIds: [MARTA], more: false }],
         }),
       ],
@@ -260,30 +273,129 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
     await ue.type(title, "Export the CSV report");
     await ue.click(within(dialog).getByRole("button", { name: "Create task" }));
     await waitFor(() => expect(seen.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([`/api/claude/proposals/${PROPOSAL}/confirm`]));
-    expect(seen.find((r) => r.method === "POST")!.body).toMatchObject({
-      edited: [{ index: 0, args: { projectId: PROJECT_ID, title: "Export the CSV report", assigneeId: MARTA } }],
-    });
+    const body = seen.find((r) => r.method === "POST")!.body as { edited: { index: number; args: unknown }[] };
+    expect(body.edited).toHaveLength(1);
+    expect(body.edited[0]!.index).toBe(0);
+    // Gli args devono passare lo schema VERO del server (`createTask` = `newTaskBodySchema`):
+    // un `requestId: null` lo rompe, e la proposta finirebbe `failed`.
+    const parsed = newTaskBodySchema.safeParse(body.edited[0]!.args);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+    expect(parsed.data).toMatchObject({ projectId: PROJECT_ID, title: "Export the CSV report", assigneeId: MARTA });
     expect(outside()).toEqual([]);
   });
 
-  it("un'azione della pagina (D3): la esegue il renderer, la riga lo dice e offre «Undo» locale; nessuna scrittura", async () => {
+  it("«Edit»: mentre la conferma parte, «Create task» è spento (niente doppio invio)", async () => {
+    let release: () => void = () => undefined;
     install({
       proposals: [
         cardB({
-          actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
-          cls: "A",
+          actions: [{ fn: "createTask", args: { projectId: PROJECT_ID, title: "Export the CSV", type: "activity" } }],
           reasons: [],
-          canConfirm: false,
-          canCancel: false,
         }),
       ],
+      routes: {
+        [`POST /api/claude/proposals/${PROPOSAL}/confirm`]: () =>
+          new Promise((resolve) => {
+            release = () => resolve({ body: cardB({ status: "confirmed", canConfirm: false, canCancel: false }) });
+          }),
+      },
     });
+    const ue = userEvent.setup();
     renderRoute(`/claude/${CONV}`);
-    expect(await screen.findByText("Switched to the dark theme")).toBeInTheDocument();
+    const proposal = await card();
+    await ue.click(within(proposal).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "New task" });
+    const save = within(dialog).getByRole("button", { name: "Create task" });
+    await ue.click(save);
+    await waitFor(() => expect(save).toBeDisabled());
+    release();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New task" })).toBeNull());
+  });
+
+  it("«Edit» la cui conferma non riesce (failed dal server): il dialogo resta aperto e dice l'errore", async () => {
+    install({
+      proposals: [
+        cardB({
+          actions: [{ fn: "createTask", args: { projectId: PROJECT_ID, title: "Export the CSV", type: "activity" } }],
+          reasons: [],
+        }),
+      ],
+      routes: {
+        [`POST /api/claude/proposals/${PROPOSAL}/confirm`]: () => ({
+          body: cardB({ status: "failed", canConfirm: false, canCancel: false }),
+        }),
+      },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${CONV}`);
+    const proposal = await card();
+    await ue.click(within(proposal).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "New task" });
+    await ue.click(within(dialog).getByRole("button", { name: "Create task" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Couldn't create the task");
+    expect(screen.getByRole("dialog", { name: "New task" })).toBeInTheDocument();
+  });
+
+  const pageProposal = () =>
+    cardB({
+      actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
+      cls: "A",
+      reasons: [],
+      canConfirm: false,
+      canCancel: false,
+    });
+
+  it("un'azione della pagina letta dalla storia (D3) NON riparte: la riga dice «non applicata» col gesto per rifarla", async () => {
+    install({ proposals: [pageProposal()] });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${CONV}`);
+    const row = await screen.findByText(/Not applied in this window/);
+    expect(row).toBeInTheDocument();
+    expect(document.documentElement.dataset.theme).not.toBe("dark");
+    expect(screen.queryByRole("button", { name: /^Undo/ })).toBeNull();
+    // Il gesto: la applica adesso, e da lì «Undo» come una partita dal vivo.
+    await ue.click(screen.getByRole("button", { name: "Apply" }));
     expect(await screen.findByRole("button", { name: /^Undo/ })).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: /Claude proposes/ })).toBeNull();
+    expect(document.documentElement.dataset.theme).toBe("dark");
     expect(seen.filter((r) => r.method === "POST")).toEqual([]);
     expect(outside()).toEqual([]);
+  });
+
+  it("un'azione della pagina arrivata DAL VIVO nello stream di questa vista parte da sola, con «Undo» locale", async () => {
+    let handlers: StreamHandlers | null = null;
+    setStreamTransport((_path, h) => {
+      handlers = h;
+      return () => undefined;
+    });
+    let proposals: unknown[] = [];
+    const history: unknown[] = [
+      { id: "1", type: "input", segmentId: "s1", at: "2026-11-10T10:00:10.000Z", data: { inputId: "i1", text: "Dark theme please" } },
+      { id: "4", type: "assistant_text", segmentId: "s1", at: "2026-11-10T10:01:00.000Z", data: { text: "I need your OK." } },
+    ];
+    install({
+      proposals: [],
+      routes: {
+        [`GET /api/claude/conversations/${CONV}/proposals`]: () => ({ body: proposals }),
+        [`GET /api/agent-sessions/${CONV}/events`]: () => ({ body: { events: history, before: null } }),
+      },
+    });
+    renderRoute(`/claude/${CONV}`);
+    expect(await screen.findByText("I need your OK.")).toBeInTheDocument();
+    await waitFor(() => expect(handlers).not.toBeNull());
+    proposals = [pageProposal()];
+    const live = { id: "9", type: "proposal", segmentId: "s2", at: "2026-11-10T10:02:00.000Z", data: { proposalId: PROPOSAL } };
+    // Il server ora ha l'evento anche nella storia (la lettura dopo lo stream lo trova).
+    history.push(live);
+    handlers!.onFrame({
+      messages: [{ type: "session", detail: session }, { type: "events", events: [live] }],
+      lastId: "9",
+      real: true,
+      invalidSession: false,
+    } as never);
+    // La riga arriva con la rilettura del dettaglio dopo lo stream.
+    expect(await screen.findByRole("button", { name: /^Undo/ }, { timeout: 4000 })).toBeInTheDocument();
+    expect(screen.queryByText(/Not applied in this window/)).toBeNull();
+    expect(seen.filter((r) => r.method === "POST")).toEqual([]);
   });
 
   it("«Cancel» annulla la scheda sul server; niente si esegue", async () => {

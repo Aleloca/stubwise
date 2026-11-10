@@ -85,9 +85,12 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   dagli schemi zod (`claudeActionSignatures`): `pageAction` di tipo
   `filter` vi compare, ma il modello non conosce le rotte del renderer: lo
   userà davvero solo dove la pagina gliele dà (F3.4).
-- Lo stato delle azioni della pagina (D3) è del renderer, per persona e in
-  memoria *(S, F3.4)*: il server le valida soltanto, quindi dopo un riavvio
-  dell'app una scheda già eseguita torna da rifare.
+- **Esito delle azioni della pagina salvato dal server** *(S, F3.4, review)*:
+  oggi l'esito (D3) è del renderer, per persona e in memoria, e un'azione
+  parte solo se arriva dal vivo in quella finestra; letta dalla storia (un
+  ricaricamento, un riavvio, un'altra scheda del browser) resta «non
+  applicata» col gesto «Apply». Salvato sul server, la riga direbbe l'esito
+  vero anche dopo.
 - Il contesto della pagina arriva al modello come `tipo: id`, non come il suo
   contenuto: Claude lo legge con i tool se serve *(S)*.
 - Conservazione *(M, review delle fette 1–2)*: le conversazioni inattive da 14
@@ -163,6 +166,11 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   previsti dal server, da decidere col maintainer se servono.
 - Azioni di Claude dell'area 9 (membri, ruoli, impostazioni senza segreti), con
   la riconferma.
+- Classe C delle azioni di Claude (la fetta 4 della chat è vuota: le C sono
+  solo dell'area 9) *(O, 10 nov 2026)*: nel renderer la conferma di una
+  proposta MODIFICATA (`confirmEdited`, scheda «Edit») salta il wrapper
+  `reauth()` che usa la conferma semplice. Oggi è innocuo (nessuna C ha
+  «Edit»), ma con le prime C va passata dalla riconferma come Confirm.
 - **Cassaforte dal desktop: aperta al desktop riconfermato per decisione del
   maintainer, bloccata tecnicamente dallo sblocco PRF** *(M, 10 nov 2026)*. Il
   maintainer vuole che dal desktop si faccia tutto quello che si fa dal
