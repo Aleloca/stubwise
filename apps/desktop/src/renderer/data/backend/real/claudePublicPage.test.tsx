@@ -231,4 +231,29 @@ describe("le pubbliche nelle pagine della build app", () => {
       ]),
     );
   });
+
+  it("«Continue»: chi legge scrive nella casella, nasce la SUA conversazione (201) e il primo messaggio va lì; l'originale resta in testa", async () => {
+    const continued = view({ continuesFrom: { id: CONV, available: true } });
+    install({
+      [`POST /api/claude/conversations/${CONV}/continue`]: { status: 201, body: continued },
+      [`GET /api/claude/conversations/${MINE}`]: { body: { ...continued, session: session(MINE, { canWrite: true, canIntervene: true }) } },
+      [`GET /api/agent-sessions/${MINE}/events`]: { body: { events: [], before: null } },
+      [`POST /api/agent-sessions/${MINE}/messages`]: { status: 202, body: { inputId: "eeeeeeee-0000-4000-8000-000000000001", status: "pending" } },
+    });
+    const ue = userEvent.setup();
+    const router = renderRoute(`/claude/${CONV}`);
+    expect(await screen.findByText("What you write starts your own private conversation. Claude will act as you.")).toBeInTheDocument();
+    const box = await screen.findByPlaceholderText("Continue in your own conversation…");
+    await ue.type(box, "And mine?");
+    await ue.keyboard("{Enter}");
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/claude/${MINE}`));
+    await waitFor(() =>
+      expect(seen.filter((r) => r.method === "POST").map((r) => [r.path, r.body])).toEqual([
+        [`/api/claude/conversations/${CONV}/continue`, {}],
+        [`/api/agent-sessions/${MINE}/messages`, { text: "And mine?" }],
+      ]),
+    );
+    // L'originale in sola lettura in testa, dal vivo.
+    expect(await screen.findByText("Giulia's callbacks are fine.")).toBeInTheDocument();
+  });
 });
