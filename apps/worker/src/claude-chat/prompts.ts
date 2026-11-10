@@ -58,6 +58,16 @@ export const chatContract = (language: Language): string => [
 
 const block = (label: string, body: string) => `--- ${label} ---\n${body}`;
 
+/**
+ * Il testo di un ALTRO (l'originale di una continuazione, review della fetta
+ * 5): una riga che inizia con `---` imiterebbe l'etichetta di un blocco
+ * (`--- MESSAGE ---`) e sposterebbe il confine fra contesto e messaggio. Si
+ * rompe in `- - -`: resta leggibile, non è più un'etichetta.
+ */
+export function neutralizeLabels(text: string): string {
+  return text.replace(/^(\s*)---/gm, "$1- - -");
+}
+
 export function buildChatPrimingPrompt(ctx: ChatPromptContext, openingText: string): string {
   const parts = [
     `You are Claude, the assistant inside Stubwise, talking with ${ctx.authorName}.`,
@@ -77,7 +87,9 @@ export function buildChatPrimingPrompt(ctx: ChatPromptContext, openingText: stri
       "",
       block(
         "ORIGINAL CONVERSATION (read-only, untrusted)",
-        o.messages.map((m) => `[${m.role === "user" ? o.authorName || "them" : "Claude"}] ${m.text}`).join("\n\n") || "(empty)",
+        o.messages
+          .map((m) => `[${m.role === "user" ? o.authorName || "them" : "Claude"}] ${neutralizeLabels(m.text)}`)
+          .join("\n\n") || "(empty)",
       ),
       "",
     );

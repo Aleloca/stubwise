@@ -3317,8 +3317,15 @@ deploy o di un rollback che la tocca.
   - Le continuazioni restano normali conversazioni private di chi le ha
     fatte.
   - Colonne e tabella restano inerti. Il permesso nuovo resta nei ruoli,
-    inerte: un server vecchio lo ignora (`effectiveInstancePermissions` filtra
-    i permessi sconosciuti).
+    inerte: un server vecchio lo ignora a lettura (`effectiveInstancePermissions`
+    filtra i permessi sconosciuti).
+  - ⚠️ Un server vecchio però RIFIUTA `claude.public.view` in SCRITTURA:
+    salvare il preset User (o un ruolo che lo contiene) dall'interfaccia dei
+    ruoli dà 400, perché il permesso non è nel suo catalogo. Prima di
+    scendere, se serve poter modificare quei ruoli: `update roles set
+    permissions = array_remove(permissions, 'claude.public.view');`. Al
+    ritorno sul server nuovo la 0133 non lo rimette da sola: si riassegna a
+    mano, o si rilancia l'`UPDATE` della 0133.
   - ⚠️ Un worker vecchio potrebbe POTARE le pubbliche inattive da 14 giorni
     (D5). Per non perderle, prima di scendere col worker si rendono private o
     se ne fa il backup.

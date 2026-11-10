@@ -1,13 +1,17 @@
 import {
   agentSessionEvents,
   agentSessionInputs,
+  agentSessions,
   claudeConversationProjects,
   claudeConversations,
   projects,
+  roles,
+  users,
   type Db,
 } from "@stubwise/db";
+import { effectiveInstancePermissions } from "@stubwise/shared";
 import type { ClaudeConversationProject } from "@stubwise/shared";
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -103,16 +107,42 @@ async function citedProjectIds(db: DbOrTx, sessionId: string, from?: bigint): Pr
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Il progetto del contesto della pagina (un progetto, una task o una richiesta per codice). */
+/** Il progetto del contesto della pagina (un progetto, una task o una richiesta per codice), se esiste. */
 export async function contextProjectId(db: DbOrTx, row: ConversationRow): Promise<string | null> {
   const ctx = row.contextRef;
   if (!ctx) return null;
-  if (ctx.kind === "project") return UUID.test(ctx.id) ? ctx.id : null;
+  if (ctx.kind === "project") {
+    if (!UUID.test(ctx.id)) return null;
+    const [p] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, ctx.id));
+    return p?.id ?? null;
+  }
   const [id] = await projectIdsByCode(db, prefixesOf(ctx.id.toUpperCase()));
   return id ?? null;
 }
 
-/** I progetti letti o toccati (D2): registrati, citati, il contesto; da `from` in poi se dato. */
+/** I progetti che l'AUTORE vede adesso (i suoi permessi d'istanza dal ruolo). */
+async function authorVisibleProjects(db: DbOrTx, ownerId: string): Promise<"all" | Set<string>> {
+  const [row] = await db
+    .select({ permissions: roles.permissions })
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .where(eq(users.id, ownerId));
+  const visible = await visibleProjectIds(db as Db, {
+    id: ownerId,
+    instancePermissions: effectiveInstancePermissions(row?.permissions ?? []),
+  });
+  return visible === "all" ? "all" : new Set(visible);
+}
+
+/**
+ * I progetti letti o toccati (D2): registrati, citati, il contesto; da `from`
+ * in poi se dato. I codici citati e il contesto entrano SOLO se l'autore vede
+ * quei progetti (review della fetta 5): un codice indovinato non deve far
+ * comparire nella conferma un progetto che l'autore non vede («invisibile =
+ * inesistente»), e un contesto su un progetto inesistente non deve bloccare
+ * la pubblicazione. Le letture registrate dal token del turno restano senza
+ * filtro: l'autore le ha davvero lette.
+ */
 export async function touchedProjectIds(db: DbOrTx, row: ConversationRow, from?: bigint): Promise<Set<string>> {
   const recorded = await db
     .select({ projectId: claudeConversationProjects.projectId })
@@ -124,13 +154,26 @@ export async function touchedProjectIds(db: DbOrTx, row: ConversationRow, from?:
       ),
     );
   const out = new Set(recorded.map((r) => r.projectId));
-  for (const id of await citedProjectIds(db, row.sessionId, from)) out.add(id);
+  const derived = await citedProjectIds(db, row.sessionId, from);
   const context = await contextProjectId(db, row);
-  if (context) out.add(context);
+  if (context) derived.push(context);
+  if (derived.length > 0) {
+    const visible = await authorVisibleProjects(db, row.ownerId);
+    for (const id of derived) if (visible === "all" || visible.has(id)) out.add(id);
+  }
   return out;
 }
 
-/** Un turno è in corso dopo `from`: un messaggio in coda, o l'ultimo `input` senza il suo `turn_end`. */
+/**
+ * Un turno è in corso dopo `from`: un messaggio in coda, oppure l'ultimo
+ * `input` senza il suo `turn_end` né `segment_end`, con la sessione ancora
+ * VIVA. Un turno morto (il segmento chiuso senza `turn_end`, o il worker
+ * sparito: niente heartbeat) si considera FINITO (review della fetta 5, punto
+ * 7): altrimenti resterebbe trattenuto per sempre senza che l'autore lo
+ * sappia. Il suo parziale è un sottoinsieme di ciò che sarebbe uscito a turno
+ * finito, e se ha toccato un progetto nuovo resta comunque fermo, coi suoi
+ * `heldProjects` davanti all'autore.
+ */
 async function turnOpen(db: DbOrTx, sessionId: string, from: bigint): Promise<boolean> {
   const [pending] = await db
     .select({ id: agentSessionInputs.id })
@@ -145,13 +188,27 @@ async function turnOpen(db: DbOrTx, sessionId: string, from: bigint): Promise<bo
       and(
         eq(agentSessionEvents.sessionId, sessionId),
         gte(agentSessionEvents.id, from),
-        inArray(agentSessionEvents.type, ["input", "turn_end"]),
+        inArray(agentSessionEvents.type, ["input", "turn_end", "segment_end"]),
       ),
     )
     .orderBy(desc(agentSessionEvents.id))
     .limit(1);
-  return last?.type === "input";
+  if (last?.type !== "input") return false;
+  const [live] = await db
+    .select({ id: agentSessions.id })
+    .from(agentSessions)
+    .where(
+      and(
+        eq(agentSessions.id, sessionId),
+        sql`cardinality(${agentSessions.liveSegmentIds}) > 0`,
+        sql`${agentSessions.heartbeatAt} > now() - make_interval(secs => ${LIVE_SECONDS}::int)`,
+      ),
+    );
+  return live !== undefined;
 }
+
+/** Come `LIVE_HEARTBEAT_SECONDS` di `agent-sessions.ts` (non importato: quel modulo importa questo). */
+const LIVE_SECONDS = 90;
 
 export interface HoldState {
   /** I lettori NON ricevono gli eventi da `boundary` in poi. */
@@ -288,4 +345,45 @@ export async function recordChatToolReadProjects(request: FastifyRequest, reply:
   } catch (error) {
     request.log.warn({ err: error }, "progetti letti dalla chat non registrati");
   }
+}
+
+/**
+ * Ciò che un LETTORE sa del momento e del titolo di una pubblica (review
+ * della fetta 5): l'ultima attività è quella dell'ultimo evento sotto il
+ * taglio, non del seguito privato (l'ordine di «Public» non si muove col
+ * seguito); e se nessun messaggio dell'autore è ancora uscito mentre il turno
+ * è trattenuto, il titolo (che nasce dal primo messaggio) non esce: vuoto.
+ */
+export async function readerSnapshot(
+  db: DbOrTx,
+  row: ConversationRow,
+): Promise<{ lastActivityAt: Date; titleHidden: boolean }> {
+  const hold = await holdOf(db, row);
+  const [last] = await db
+    .select({ at: agentSessionEvents.createdAt })
+    .from(agentSessionEvents)
+    .where(
+      and(
+        eq(agentSessionEvents.sessionId, row.sessionId),
+        hold.held && hold.boundary !== null ? lt(agentSessionEvents.id, hold.boundary) : undefined,
+      ),
+    )
+    .orderBy(desc(agentSessionEvents.id))
+    .limit(1);
+  let titleHidden = false;
+  if (hold.held && hold.boundary !== null) {
+    const [released] = await db
+      .select({ id: agentSessionEvents.id })
+      .from(agentSessionEvents)
+      .where(
+        and(
+          eq(agentSessionEvents.sessionId, row.sessionId),
+          eq(agentSessionEvents.type, "input"),
+          lt(agentSessionEvents.id, hold.boundary),
+        ),
+      )
+      .limit(1);
+    titleHidden = released === undefined;
+  }
+  return { lastActivityAt: last?.at ?? row.publishedAt ?? row.createdAt, titleHidden };
 }
