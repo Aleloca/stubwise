@@ -403,6 +403,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 2, fetta 3» (10 nov 2026)
   - «Integrazione area 2, fetta 4» (10 nov 2026)
   - «CLI claude 2.1.322» (10 nov 2026)
+  - «Annulla il lavoro» (10 nov 2026)
+  - «Claude assegnabile» (10 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -487,6 +489,7 @@ una voce ti riguarda.
   - La revoca si applica a lettura, senza riscrivere righe.
   - I full admin sono membri impliciti di ogni progetto.
   - `users.role` è DERIVATA (trigger), e la sua rimozione è un rilascio successivo.
+  - L'utente di sistema Claude (10 nov 2026): uno per istanza, nessun accesso né notifiche, assegnarlo avvia il lavoro con `runs.start`.
 - **Secondo fattore sul login → `docs/invariants/second-factor.md`** (23 ott 2026):
   - Una sessione parziale apre SOLO le rotte `second_factor` (test del registro).
   - Ogni porta che dà una sessione o un token passa dal secondo fattore (`/login`, `/mobile-login`).

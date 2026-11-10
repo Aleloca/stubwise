@@ -320,6 +320,9 @@ export const users = pgTable("users", {
   // mobili (fase 4). Default true; senza device attivi in `device_tokens` il
   // canale resta comunque muto.
   notifyPush: boolean("notify_push").notNull().default(true),
+  // Fetta 3e (0125): l'utente di SISTEMA «Claude», uno per istanza, senza
+  // accesso né notifiche. Vedi la migrazione e `docs/invariants/agent-sessions.md`.
+  isAgent: boolean("is_agent").notNull().default(false),
   // Tetto per account del secondo fattore (0100): codici sbagliati DI FILA,
   // da qualunque IP (il bucket per IP non basta: chi prova da tanti indirizzi
   // non ne supera nessuno). Un codice giusto lo azzera; al tetto il passo del

@@ -1,11 +1,11 @@
-import { departmentMembers, projectMembers, users } from "@stubwise/db";
+import { departmentMembers, projectMembers, projects, users } from "@stubwise/db";
 import { peopleActivityQuerySchema, personDayActivitySchema, personViewSchema, type PersonView } from "@stubwise/shared";
-import { asc, inArray } from "drizzle-orm";
+import { asc, eq, inArray, or } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { userIdsWithPermission } from "@stubwise/notifications";
-import { visibleProjectIds } from "../auth/access.js";
+import { projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
 import { initialsOf, personName } from "../services/people.js";
 import { peopleActivity } from "../services/people-activity.js";
 import { authErrorResponses } from "./shared.js";
@@ -61,10 +61,13 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
         const admins = visible.length > 0 ? await userIdsWithPermission(app.db, null, null) : [];
         ids = [...new Set([viewer.id, ...rows.map((r) => r.userId), ...admins])];
       }
+      // L'utente di sistema «Claude» (area 3, fetta 3e) c'è SEMPRE: chi legge una
+      // task assegnata a lui ne vede il nome. Dove chi guarda può assegnarlo lo
+      // dice `claudeAssignableProjectIds` (i progetti visibili con `runs.start`).
       const people = await app.db
-        .select({ id: users.id, email: users.email, displayName: users.displayName })
+        .select({ id: users.id, email: users.email, displayName: users.displayName, isAgent: users.isAgent })
         .from(users)
-        .where(ids === "all" ? undefined : inArray(users.id, ids))
+        .where(ids === "all" ? undefined : or(inArray(users.id, ids), eq(users.isAgent, true)))
         .orderBy(asc(users.email));
       if (people.length === 0) return [];
       const memberships = await app.db
@@ -74,6 +77,11 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
         .orderBy(asc(departmentMembers.position), asc(departmentMembers.departmentId));
       const deptsOf = new Map<string, string[]>();
       for (const m of memberships) deptsOf.set(m.userId, [...(deptsOf.get(m.userId) ?? []), m.departmentId]);
+      const canRun = people.some((p) => p.isAgent) ? await projectIdsWithPermission(app.db, viewer, "runs.start") : [];
+      const assignable =
+        canRun === "all"
+          ? (await app.db.select({ id: projects.id }).from(projects).orderBy(asc(projects.name))).map((p) => p.id)
+          : canRun;
       return people.map((p) => {
         const name = personName(p);
         return {
@@ -83,6 +91,8 @@ export async function peopleRoutes(instance: FastifyInstance): Promise<void> {
           departmentIds: deptsOf.get(p.id) ?? [],
           email: p.email,
           deactivated: false,
+          isClaude: p.isAgent,
+          claudeAssignableProjectIds: p.isAgent ? assignable : [],
         };
       });
     },

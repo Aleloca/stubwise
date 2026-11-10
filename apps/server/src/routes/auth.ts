@@ -144,7 +144,9 @@ async function verifyCredentials(
     .select({ ...sessionUserSelection, passwordHash: users.passwordHash })
     .from(users)
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-    .where(eq(users.email, email));
+    // L'utente di sistema «Claude» (area 3, fetta 3e) non entra MAI: è un
+    // utente che non c'è, con la stessa verifica a vuoto (tempo costante).
+    .where(and(eq(users.email, email), eq(users.isAgent, false)));
   if (!user) {
     await verifyPassword(await getDummyHash(), password);
     return null;
@@ -272,7 +274,7 @@ export async function authRoutes(
     "/setup",
     { config: { access: { kind: "public" } }, schema: { response: { 200: setupStatusSchema } } },
     async () => {
-      const [row] = await app.db.select({ value: count() }).from(users);
+      const [row] = await app.db.select({ value: count() }).from(users).where(eq(users.isAgent, false));
       return { needed: (row?.value ?? 0) === 0 };
     },
   );
@@ -288,7 +290,7 @@ export async function authRoutes(
     },
     async (request, reply) => {
       // Fast path: se un utente esiste già si rifiuta senza pagare l'hash.
-      const [row] = await app.db.select({ value: count() }).from(users);
+      const [row] = await app.db.select({ value: count() }).from(users).where(eq(users.isAgent, false));
       if ((row?.value ?? 0) > 0) {
         return apiError(reply, 403, "setup_already_completed", "Setup already completed");
       }
@@ -299,7 +301,7 @@ export async function authRoutes(
       // vengono serializzati e solo il primo crea l'admin.
       const user = await app.db.transaction(async (tx) => {
         await tx.execute(sql`select pg_advisory_xact_lock(${SETUP_LOCK_KEY})`);
-        const [recount] = await tx.select({ value: count() }).from(users);
+        const [recount] = await tx.select({ value: count() }).from(users).where(eq(users.isAgent, false));
         if ((recount?.value ?? 0) > 0) return null;
         const [created] = await tx
           .insert(users)

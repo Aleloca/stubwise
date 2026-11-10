@@ -3100,3 +3100,24 @@ deploy o di un rollback che la tocca.
   resta scritto senza effetti (la storia non dice «annullato» perché il job
   non è `skipped`). Un server vecchio risponde `run_in_progress`/404 come
   prima. Le migrazioni non si annullano.
+- **«Claude assegnabile» (10 nov 2026, integrazione area 3, 3e.1)**:
+  migrazione **0125** (`users.is_agent`, l'indice `users_single_agent` e la riga
+  dell'utente di sistema «Claude», `claude@agent.stubwise.invalid`, preset
+  `User`). Env nuove: **nessuna**. Regole in `docs/invariants/permissions.md`
+  («L'utente di sistema Claude»).
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0125; verifica `select
+  email, is_agent, role from users where is_agent;` = una riga, `member`; (3)
+  **`caddy`** quando il renderer della 3e lo usa. Il worker non cambia.
+  ⚠️ **L'impostazione iniziale** (`/api/auth/setup`) non conta l'agente: su
+  un'istanza nuova la 0125 crea la riga di Claude PRIMA del primo admin, e un
+  server vecchio con quella riga direbbe «setup già fatto». Quindi su
+  un'istanza ancora da impostare **non si scende** a un server di prima della 3e.
+  **Rollback** (server di prima): la riga resta. Un server vecchio la tratta
+  come un utente qualunque: compare nel Team, e un admin potrebbe
+  reimpostarne la password (e farla entrare). Prima di scendere: o
+  `update users set password_hash = '!agent-no-login' where is_agent;` resta
+  (non è un hash: nessun login la accetta) e si avvisano gli admin di non
+  reimpostarla, oppure si toglie l'assegnazione (`update tickets set
+  assignee_id = null where assignee_id = (select id from users where
+  is_agent);`) e si elimina la riga. Le task assegnate a Claude, con un server
+  vecchio, non avviano niente di nuovo.

@@ -264,3 +264,27 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   utenti completo → `users.view_all` (R24). Un PAT agisce coi permessi del
   suo utente; Slack con quelli dell'utente collegato (un utente Slack non
   collegato non apre ticket, R42).
+
+- **L'utente di sistema «Claude» (10 nov 2026, integrazione area 3, fetta 3e,
+  migrazione 0125).** Uno per istanza (`users.is_agent`, indice unico
+  parziale). **Non entra mai**: login (`verifyCredentials`), sessione
+  (`findSessionUser`), PAT (`findPatUser`) e reset della password lo
+  rifiutano nella query, per costruzione — la password è un segnaposto che non
+  è un hash. **Non riceve mai una notifica**: `publishNotification` lo toglie
+  dai destinatari di QUALUNQUE audience, un punto solo (anche se finisse fra
+  membri o follower). **Non è una persona da gestire**: fuori dal Team
+  (`/api/users`), 404 sulle rotte `/api/users/:id` e sull'aggiunta come membro
+  di un progetto, mai l'autore di un ticket ingerito. Il suo ruolo d'istanza è
+  il preset `User`, **mai il full admin**: lo conterebbe fra gli
+  amministratori («resta sempre un full admin») e fra i destinatari degli admin.
+  Vede le task che gli si assegnano per una regola esplicita
+  (`canUserSeeTicket`), non per un permesso. **Assegnarlo AVVIA il lavoro**
+  (PATCH, in blocco, Planning, creazione: `services/task-writes.ts`), quindi
+  chiede `runs.start` nel progetto (403 `claude_assign_forbidden`, niente
+  scritto) — nel Planning al posto di `planning.others`, che riguarda le
+  persone —, e il run parte con `startRun` a nome di chi assegna: stesse
+  precondizioni e stesso gate del piano di run-ai. Toglierlo non annulla niente
+  (resta «Annulla il lavoro»). `/api/people` lo mostra a tutti (`isClaude`), così
+  il nome di una task assegnata a lui si legge sempre; dove chi guarda può
+  assegnarlo lo dice il server (`claudeAssignableProjectIds`). L'impostazione
+  iniziale dell'istanza non lo conta fra gli utenti.
