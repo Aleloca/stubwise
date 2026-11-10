@@ -73,6 +73,27 @@ async function historyStartOf(db: Db, projectIds: string[]): Promise<Date | null
 
 const byNewest = (a: ChronologyEvent, b: ChronologyEvent) => b.at.localeCompare(a.at);
 
+/**
+ * Il codice della task (`<PROGETTO>-<n>`) sugli eventi che ne nominano una,
+ * con UNA query per pagina. Solo le task degli eventi già letti: la timeline
+ * li ha già filtrati con i permessi di chi guarda (`ticketScope` di
+ * `buildProjectTimeline`), quindi il codice esce solo per una task visibile.
+ */
+async function withTaskCodes(db: Db, events: ChronologyEvent[]): Promise<ChronologyEvent[]> {
+  const ids = [...new Set(events.flatMap((e) => (e.taskId ? [e.taskId] : [])))];
+  if (ids.length === 0) return events;
+  const rows = await db
+    .select({ id: tickets.id, number: tickets.number, code: projects.code })
+    .from(tickets)
+    .innerJoin(projects, eq(projects.id, tickets.projectId))
+    .where(inArray(tickets.id, ids));
+  const codeOf = new Map(rows.map((r) => [r.id, `${r.code}-${r.number}`]));
+  return events.map((e) => {
+    const taskCode = e.taskId ? codeOf.get(e.taskId) : undefined;
+    return taskCode ? { ...e, taskCode } : e;
+  });
+}
+
 async function pageEvents(
   db: Db,
   projectId: string,
@@ -114,7 +135,7 @@ export async function projectChronology(
   }
   const start = await historyStartOf(db, [projectId]);
   return {
-    events: events.sort(byNewest),
+    events: (await withTaskCodes(db, events)).sort(byNewest),
     nextBefore: start && start.getTime() < from.getTime() ? from.toISOString() : null,
   };
 }
@@ -145,7 +166,7 @@ export async function portfolioActivity(
   );
   const start = await historyStartOf(db, projectIds);
   return {
-    events: pages.flat().sort(byNewest),
+    events: (await withTaskCodes(db, pages.flat())).sort(byNewest),
     nextBefore: start && start.getTime() < from.getTime() ? from.toISOString() : null,
   };
 }

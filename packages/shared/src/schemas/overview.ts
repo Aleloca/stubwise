@@ -38,6 +38,12 @@ export const chronologyEventSchema = z.object({
   /** Il progetto: c'è sempre nell'attività del portafoglio. */
   projectId: z.uuid().optional(),
   taskId: z.uuid().optional(),
+  /**
+   * Il codice della task (`<PROGETTO>-<n>`) degli eventi `task_*` e `pr_*`,
+   * così l'app lo mostra anche per una task che non ha in memoria. Solo per
+   * le task che chi guarda vede: gli eventi stessi passano da quella regola.
+   */
+  taskCode: z.string().optional(),
   milestoneId: z.uuid().optional(),
   decisionId: z.uuid().optional(),
   /** Il titolo della decisione. */
