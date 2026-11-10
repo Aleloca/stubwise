@@ -19,6 +19,7 @@ const ALL: IntegrationTarget[] = [
       "view-as",
       "claude-panel",
       "claude-assign",
+      "commit-author-link",
       "planning-week",
       "my-week",
       "saved-filters",
@@ -77,6 +78,7 @@ describe("isIntegrated", () => {
         "feature:refine",
         // Fetta 3e: Claude assegnabile.
         "feature:claude-assign",
+        "feature:commit-author-link",
       ].sort(),
     );
   });

@@ -928,8 +928,8 @@ export function useGenerateDailyReport() {
 /** Collegato l'autore, i suoi commit passano sotto la persona. */
 export function useLinkCommitAuthor() {
   return useWrite(
-    ({ authorName, personId }: { authorName: string; personId: string }) =>
-      api.linkCommitAuthor(authorName, personId),
+    ({ authorName, personId, authorEmail }: { authorName: string; personId: string; authorEmail?: string | null }) =>
+      api.linkCommitAuthor(authorName, personId, authorEmail),
     ["peopleActivity"],
   );
 }

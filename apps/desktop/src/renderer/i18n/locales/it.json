@@ -2428,6 +2428,9 @@
       "link": "Collega una persona",
       "linkTo": "Collega «{{name}}» a",
       "linkFailed": "Non è stato possibile collegare «{{name}}». Non è cambiato nulla.",
+      "linkTaken": "«{{name}}» è già collegato a qualcuno. Non è cambiato nulla.",
+      "linkAction": "collegare «{{name}}» a {{person}}",
+      "linkOnWeb": "Apre questa pagina sul web, dove confermi che sei tu",
       "linked": "«{{name}}» ora è {{person}}: i commit sono passati sotto di lei o di lui.",
       "report": {
         "label": "Report giornaliero",
