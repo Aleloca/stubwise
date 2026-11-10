@@ -175,6 +175,13 @@ const INTEGRATED_CALLS = new Set([
   "deleteMilestone",
   "listDecisionLog",
   "decisionLogTruncated",
+  // Area 3, fetta 3a: le sessioni di lavoro in lettura e lo stream dal vivo.
+  "listConversations",
+  "getConversation",
+  "subscribe",
+  "mergeStreamEvent",
+  "reconnectDelay",
+  "onConversationChange",
   "recordDecision",
   "setDecisionSuperseded",
   "getLatestBrief",
@@ -237,20 +244,26 @@ describe("aree non integrate nella build app", () => {
   });
 
   // Dal Task 17 la sezione Claude dice lo stato vero (e «Open in web» nel web vecchio).
-  it("nel dettaglio della task la sezione Claude dice lo stato, senza azioni dell'area 3 né «Delete»", async () => {
+  it("nel dettaglio della task la sezione Claude c'è intera, in lettura: nessuna azione (3b) né «Delete»", async () => {
     const user = userEvent.setup();
     renderRoute("/p/AUD/tasks?task=AUD-9");
     const panel = await screen.findByRole("dialog", { name: "Task AUD-9" });
-    const claude = await within(panel).findByRole("region", { name: "Claude" });
-    const states = ["Claude isn't working on this task.", "Claude is working on it.", "Claude asked a question and is waiting for an answer.", "Claude is waiting for its plan to be approved.", "Claude stopped. Someone needs to look at it.", "Claude finished its work.", "Claude is waiting for the queue to resume."];
-    expect(await within(claude).findByText((text) => states.includes(text))).toBeInTheDocument();
-    expect(within(claude).queryByText("Coming soon")).toBeNull();
-    expect(within(claude).queryByRole("button", { name: /Assign to Claude|Start/ })).toBeNull();
+    const claudeRegion = () => within(panel).getByRole("region", { name: "Claude" });
+    // Dalla 3a la sezione legge il lavoro intero (`getTaskWork`), non più il riassunto della fetta 1.
+    await waitFor(() => expect(claudeRegion()).toHaveTextContent("Claude finished its work."));
+    expect(within(claudeRegion()).queryByText("Coming soon")).toBeNull();
+    expect(within(claudeRegion()).queryByText("Open in web")).toBeNull();
+    expect(
+      within(claudeRegion()).queryByRole("button", {
+        name: /Assign to Claude|^Start|Relaunch|Resume the correction|Request changes/,
+      }),
+    ).toBeNull();
     await user.click(within(panel).getByRole("button", { name: MORE }));
     expect(await screen.findByRole("menu")).toBeInTheDocument();
     expect(screen.queryByText(DELETE)).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
+    expect(calls).toContain("getTaskWork");
   });
 
   it("nel prototipo la Chat resta la Chat", async () => {
@@ -566,3 +579,39 @@ describe("le superfici della fetta 4 nella build app", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("le superfici della fetta 3a nella build app (area 3)", () => {
+  it("/claude atterra sulle sessioni dal vivo: niente «New conversation», niente «Mine»", async () => {
+    signedInAs("p-laura");
+    const router = renderRoute("/claude");
+    await waitFor(() => expect(router.state.location.search).toMatchObject({ scope: "live" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Working now" })).toBeInTheDocument();
+    expect(await screen.findByText("Board view with keyboard drag and drop")).toBeInTheDocument();
+    const column = screen.getByRole("navigation", { name: "Claude views" });
+    expect(within(column).queryByText("New conversation")).toBeNull();
+    expect(within(column).queryByText("Mine")).toBeNull();
+    expect(within(column).getByText("Finished")).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+    expect(calls).not.toContain("getClaudeSuggestion");
+  });
+
+  it("le proprie conversazioni e le pubbliche (la chat libera) sono «in arrivo», senza letture", async () => {
+    signedInAs("p-laura");
+    renderRoute("/claude?scope=mine");
+    expect(await screen.findByText("Coming soon")).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("una sessione di lavoro si apre e si legge dal vivo", async () => {
+    signedInAs("p-marco");
+    renderRoute("/claude/cv-run-aud-3");
+    expect(await screen.findByText(/Task run/)).toBeInTheDocument();
+    await settle();
+    expect(outside()).toEqual([]);
+    expect(calls).toContain("getConversation");
+    expect(calls).toContain("subscribe");
+  });
+});
+

@@ -26,6 +26,10 @@ const ALL: IntegrationTarget[] = [
       "department-permissions",
       "portfolio",
       "refine",
+      "claude",
+      "claude-chat",
+      "claude-actions",
+      "claude-decisions",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -37,7 +41,7 @@ describe("isIntegrated", () => {
     expect(ALL.filter((t) => !isIntegrated(t))).toEqual([]);
   });
 
-  it("nella build app l'ossatura, le Tasks (fetta 1), Planning e La mia settimana (fetta 2), Home e filtri (fetta 3), Overview, Requests e Tutti i progetti (fetta 4)", () => {
+  it("nella build app l'ossatura, le Tasks (fetta 1), Planning e La mia settimana (fetta 2), Home e filtri (fetta 3), Overview, Requests e Tutti i progetti (fetta 4), le sessioni di lavoro di Claude in lettura (area 3, 3a)", () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     expect(ALL.filter(isIntegrated).map(key).sort()).toEqual(
       [
@@ -63,6 +67,9 @@ describe("isIntegrated", () => {
         "projectSection:overview",
         "projectSection:requests",
         "feature:portfolio",
+        // Area 3, fetta 3a: la chat libera, le azioni e «Da decidere» restano fuori.
+        "destination:claude",
+        "feature:claude",
       ].sort(),
     );
   });

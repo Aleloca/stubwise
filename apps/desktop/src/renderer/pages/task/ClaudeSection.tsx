@@ -123,9 +123,8 @@ export function ClaudeSection({
   /** «Follow here»: il pannello diventa la conversazione della sessione. */
   onFollow: (conversationId: string) => void;
 }) {
-  // Nella build app la sezione è «in arrivo» finché il Task 17 dell'integrazione
-  // non la legge dal server (stato del lavoro e «Open in web»); «Assign to
-  // Claude», la sessione dal vivo e le azioni dell'area 3 non ci sono.
+  // Nella build app, prima della fetta 3a, la sezione è il riassunto della
+  // fetta 1 (stato del lavoro e «Open in web»); dalla 3a è quella intera, in lettura.
   if (!featureIntegrated("claude")) return <ClaudeSummarySection task={task} />;
   return <ClaudeSectionBody task={task} canEdit={canEdit} onFollow={onFollow} />;
 }
@@ -191,6 +190,13 @@ function ClaudeSummarySection({ task }: { task: Task }) {
   );
 }
 
+const NO_ACTIONS: TaskWork["actions"] = {
+  start: "unavailable",
+  relaunch: "unavailable",
+  resume: "unavailable",
+  requestChanges: "unavailable",
+};
+
 function ClaudeSectionBody({
   task,
   canEdit,
@@ -231,9 +237,11 @@ function ClaudeSectionBody({
       </Section>
     );
   }
-  const latest = work.data.runs.at(-1);
-  if (!latest) return <NoRun task={task} work={work.data} canEdit={canEdit} />;
-  return <WithRun key={latest.id} task={task} work={work.data} run={latest} onFollow={onFollow} />;
+  // Fetta 3a: si guarda e basta, le azioni arrivano con la 3b (nessun bottone, nessuna frase).
+  const shown = featureIntegrated("claude-actions") ? work.data : { ...work.data, actions: NO_ACTIONS };
+  const latest = shown.runs.at(-1);
+  if (!latest) return <NoRun task={task} work={shown} canEdit={canEdit} />;
+  return <WithRun key={latest.id} task={task} work={shown} run={latest} onFollow={onFollow} />;
 }
 
 // --- pezzi comuni ------------------------------------------------------------

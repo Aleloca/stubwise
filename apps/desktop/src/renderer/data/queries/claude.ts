@@ -35,8 +35,8 @@ export function useClaudeSuggestion(place: api.SuggestionPlace | null) {
   const me = useSessionPersonId();
   useConversationChanges();
   const budget = useAiBlock(null).data?.reason ?? null;
-  // La riga di Claude (area 3) non è integrata nella build app: niente chiave, niente lettura.
-  const on = featureIntegrated("claude");
+  // La riga «Claude can help you…» apre la chat libera, «in arrivo» nella build app: niente chiave, niente lettura.
+  const on = featureIntegrated("claude-chat");
   const placeKey = place && on ? api.suggestionKeyOf(place) : null;
   return useQuery({
     queryKey: [

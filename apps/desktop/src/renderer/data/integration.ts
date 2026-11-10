@@ -30,10 +30,13 @@ export type IntegrationTarget =
  * (`docs/plans/2026-11-09-integrazione-area2-fetta4-design.md`): Overview e
  * Requests di progetto, «Tutti i progetti» (`portfolio`); un progetto atterra
  * di nuovo sull'Overview. Refinement, task eliminate, archiviati, interruttori
- * di brief e report e pausa della coda restano delle loro aree.
+ * di brief e report e pausa della coda restano delle loro aree. Area 3, fetta
+ * 3a (`docs/plans/2026-11-10-integrazione-area3-claude-design.md`): la
+ * destinazione `claude` con le sole sessioni di lavoro, e la funzione
+ * `claude` (la sezione della task in lettura).
  */
 const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
-  destination: new Set(["home", "projects", "planning", "filters"]),
+  destination: new Set(["home", "projects", "planning", "filters", "claude"]),
   projectSection: new Set(["overview", "tasks", "requests", "planning"]),
   // Stati e soglie del progetto.
   projectSettings: new Set(["statuses"]),
@@ -49,6 +52,12 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "saved-filters",
     "department-home",
     "portfolio",
+    // Area 3, fetta 3a «Guardare»: le sessioni di lavoro in lettura (pagina
+    // Claude, sezione Claude della task, una sessione seguita nel pannello).
+    // Restano spente la chat libera (`claude-chat`, il riquadro come chat
+    // compreso), le azioni (`claude-actions`, 3b) e le voci di Claude in «Da
+    // decidere» (`claude-decisions`, 3b).
+    "claude",
   ]),
 };
 

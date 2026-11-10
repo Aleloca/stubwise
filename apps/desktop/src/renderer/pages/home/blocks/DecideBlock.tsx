@@ -137,7 +137,7 @@ export function DecideBlock() {
   // nemmeno per lo stato, o il blocco resterebbe in caricamento.
   const sources = [
     decisions,
-    ...(featureIntegrated("claude") ? [claude] : []),
+    ...(featureIntegrated("claude-decisions") ? [claude] : []),
     ...(featureIntegrated("chat") ? [chatQuestions, chatClaude] : []),
     ...(featureIntegrated("mail") ? [mail] : []),
     ...(featureIntegrated("automations") ? [automations] : []),

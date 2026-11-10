@@ -100,3 +100,8 @@ export {
   setFilterPinned,
   updateFilter,
 } from "./filters";
+
+// Integrazione area 3, fetta 3a «Guardare»: le sessioni di lavoro di Claude in
+// lettura, lo stream dal vivo e il lavoro della task.
+export { getConversation, getTaskWork, listConversations } from "./claude";
+export { mergeStreamEvent, onConversationChange, reconnectDelay, subscribe } from "./claudeStream";
