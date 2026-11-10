@@ -72,6 +72,24 @@ export const projectRequestViewSchema = z.object({
 });
 export type ProjectRequestView = z.infer<typeof projectRequestViewSchema>;
 
+/** Quanti caratteri della descrizione porta l'elenco. */
+export const REQUEST_EXCERPT_LENGTH = 300;
+
+/**
+ * Una richiesta nell'ELENCO (`GET /api/requests`): la vista senza i testi
+ * interi — descrizione, design e piano li porta solo il dettaglio. Al loro
+ * posto i primi {@link REQUEST_EXCERPT_LENGTH} caratteri della descrizione e
+ * se design e piano ci sono.
+ */
+export const projectRequestSummarySchema = projectRequestViewSchema
+  .omit({ description: true, design: true, plan: true })
+  .extend({
+    excerpt: z.string().default(""),
+    hasDesign: z.boolean().default(false),
+    hasPlan: z.boolean().default(false),
+  });
+export type ProjectRequestSummary = z.infer<typeof projectRequestSummarySchema>;
+
 /** Corpo di `POST /api/requests`: come oggi passa dall'intake, che può fonderla in una esistente. */
 export const newRequestBodySchema = z.object({
   projectId: z.uuid(),

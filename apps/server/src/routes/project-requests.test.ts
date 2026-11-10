@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { backlogItemRequesters, backlogItemTickets, backlogItems, backlogJobs, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
-import { projectRequestViewSchema, requestJobViewSchema } from "@stubwise/shared";
+import { projectRequestSummarySchema, projectRequestViewSchema, requestJobViewSchema } from "@stubwise/shared";
 import { eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -122,7 +122,7 @@ describe("la vista ProjectRequest", () => {
     expect((await view(`/api/requests/by-code/${projectCode.toLowerCase()}-R${a.number}`)).id).toBe(a.id);
     expect((await call("GET", `/api/requests/by-code/${projectCode}-R9999`)).statusCode).toBe(404);
     // L'elenco del progetto la contiene.
-    const list = z.array(projectRequestViewSchema).parse((await call("GET", `/api/requests?projectId=${projectId}`)).json());
+    const list = z.array(projectRequestSummarySchema).parse((await call("GET", `/api/requests?projectId=${projectId}`)).json());
     expect(list.some((r) => r.id === a.id)).toBe(true);
   });
 
@@ -131,7 +131,7 @@ describe("la vista ProjectRequest", () => {
     const own = await item();
     await testDb.db.insert(backlogItemRequesters).values({ itemId: own.id, userId: contributor.id });
     const list = z
-      .array(projectRequestViewSchema)
+      .array(projectRequestSummarySchema)
       .parse((await call("GET", `/api/requests?projectId=${projectId}`, undefined, contributor.headers.cookie)).json());
     expect(list.map((r) => r.id)).toContain(own.id);
     expect(list.map((r) => r.id)).not.toContain(others.id);
@@ -139,6 +139,23 @@ describe("la vista ProjectRequest", () => {
     expect(
       (await call("GET", `/api/requests/by-code/${projectCode}-R${others.number}`, undefined, contributor.headers.cookie)).statusCode,
     ).toBe(404);
+  });
+});
+
+describe("l'elenco è leggero", () => {
+  it("GET /api/requests non porta il documento: un estratto di 300 caratteri della descrizione e se c'è design o piano; il dettaglio sì", async () => {
+    const long = "x".repeat(1000);
+    const a = await item({ originContent: long, document: "# Design lungo ".repeat(200), implementationPlan: "Piano" });
+    const res = await call("GET", `/api/requests?projectId=${projectId}`);
+    expect(res.statusCode).toBe(200);
+    const listed = (res.json() as Record<string, unknown>[]).find((r) => r.id === a.id)!;
+    expect(listed).not.toHaveProperty("description");
+    expect(listed).not.toHaveProperty("design");
+    expect(listed).not.toHaveProperty("plan");
+    expect(projectRequestSummarySchema.parse(listed)).toMatchObject({ excerpt: "x".repeat(300), hasDesign: true, hasPlan: true });
+    expect(res.body.length).toBeLessThan(long.length * 3);
+    const detail = await view(`/api/requests/${a.id}`);
+    expect(detail.description).toBe(long);
   });
 });
 

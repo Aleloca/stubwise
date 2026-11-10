@@ -1,6 +1,7 @@
-import { projectRequestViewSchema, requestJobViewSchema, requestToConvertViewSchema } from "@stubwise/shared";
+import { projectRequestSummarySchema, projectRequestViewSchema, requestJobViewSchema, requestToConvertViewSchema } from "@stubwise/shared";
 import type {
   NewRequestBody,
+  ProjectRequestSummary,
   ProjectRequestView,
   Reader,
   RequestJobView,
@@ -28,9 +29,12 @@ export function createRequestsEndpoints(request: ApiRequest) {
     toConvert(): Promise<Reader<RequestToConvertView>[]> {
       return request("GET", "/api/requests/to-convert", undefined, z.array(requestToConvertViewSchema));
     },
-    /** Le richieste di un progetto che vedo, dalla più recente. */
-    list(projectId: string): Promise<Reader<ProjectRequestView>[]> {
-      return request("GET", `/api/requests${toQuery({ projectId })}`, undefined, z.array(projectRequestViewSchema));
+    /**
+     * Le richieste di un progetto che vedo, dalla più recente. Leggere: un
+     * estratto della descrizione al posto dei testi interi (`get` li porta).
+     */
+    list(projectId: string): Promise<Reader<ProjectRequestSummary>[]> {
+      return request("GET", `/api/requests${toQuery({ projectId })}`, undefined, z.array(projectRequestSummarySchema));
     },
     get(id: string): Promise<Reader<ProjectRequestView>> {
       return one("GET", `/api/requests/${seg(id)}`);

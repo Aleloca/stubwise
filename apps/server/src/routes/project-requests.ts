@@ -7,6 +7,7 @@ import {
 import {
   effortFromSize,
   newRequestBodySchema,
+  projectRequestSummarySchema,
   projectRequestViewSchema,
   requestJobViewSchema,
   requestPatchBodySchema,
@@ -22,7 +23,7 @@ import { apiError } from "../errors.js";
 import { applyBacklogMerge, MergeAiError, MergeChangedError, mergedDocumentOf, readMergeSnapshot } from "../services/backlog-merge.js";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import { closeRefineSessionForItem } from "../services/backlog-refine.js";
-import { loadRequestViews, requestView, requestVisibility } from "../services/project-requests.js";
+import { loadRequestSummaries, loadRequestViews, requestView, requestVisibility } from "../services/project-requests.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 /**
@@ -52,11 +53,12 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
       config: { access: { kind: "project", permission: "member", project: fromQuery("projectId") } },
       schema: {
         querystring: z.object({ projectId: z.uuid() }),
-        response: { 200: z.array(projectRequestViewSchema), ...authErrorResponses },
+        response: { 200: z.array(projectRequestSummarySchema), ...authErrorResponses },
       },
     },
+    // Leggero: un estratto al posto di descrizione, design e piano (il dettaglio li porta interi).
     async (request) =>
-      loadRequestViews(app.db, [
+      loadRequestSummaries(app.db, [
         eq(backlogItems.projectId, request.query.projectId),
         await requestVisibility(app.db, request.user!),
       ]),
