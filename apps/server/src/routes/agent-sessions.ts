@@ -14,6 +14,8 @@ import { eq } from "drizzle-orm";
 import { roles, users, type Db } from "@stubwise/db";
 import { sessionUserSelection, toSessionUser } from "../auth/session.js";
 import { apiError } from "../errors.js";
+import { projectPermissionsFor } from "../auth/access.js";
+import { memoPermissions } from "../services/permissions-memo.js";
 import {
   getAgentSession,
   listAgentSessionEvents,
@@ -31,6 +33,8 @@ const STREAM_PAGE = 200;
 /** Rete di sicurezza: una NOTIFY persa (LISTEN caduta) non ferma lo stream. */
 const STREAM_POLL_MS = 5000;
 const STREAM_PING_MS = 25_000;
+/** Quanto vale una lettura dei permessi di progetto in uno stream (per `waitsOnViewer`). */
+const STREAM_PERMISSIONS_TTL_MS = 30_000;
 
 type StreamMessage =
   | { type: "events"; events: unknown[] }
@@ -198,6 +202,12 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
         reply.raw.end();
       };
 
+      // `waitsOnViewer` del dettaglio: i permessi di progetto si rileggono al
+      // più ogni 30 s, non a ogni giro (`permissions-memo.ts`).
+      const permissionsOf = memoPermissions(
+        async (pid) => (await projectPermissionsFor(app.db, viewer, pid)) ?? new Set(),
+        STREAM_PERMISSIONS_TTL_MS,
+      );
       const pump = async () => {
         if (closed) return;
         if (reading) {
@@ -228,7 +238,7 @@ export async function agentSessionRoutes(instance: FastifyInstance): Promise<voi
               if (page.events.length < STREAM_PAGE) break;
             }
             // Dettaglio intero: stato, canWrite, domande e `inputs` (H4).
-            const detail = await getAgentSession(app.db, viewer, id);
+            const detail = await getAgentSession(app.db, viewer, id, { permissionsOf });
             if (!detail) {
               // Non più visibile (o potata): niente più messaggi, parziali compresi.
               visible = false;

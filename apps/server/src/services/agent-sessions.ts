@@ -47,6 +47,7 @@ import {
   type Language,
 } from "@stubwise/shared";
 import { getContentLanguage } from "../settings.js";
+import { memoPermissions, type PermissionsOf } from "./permissions-memo.js";
 import { reopenRefineSessionIfClosed } from "./backlog-refine.js";
 import {
   inProjects,
@@ -723,10 +724,13 @@ export async function listAgentSessions(
   const lastActivity = (s: AgentSessionSummary) => s.lastEventAt ?? s.startedAt;
   const byLastActivityDesc = (a: AgentSessionSummary, b: AgentSessionSummary) =>
     lastActivity(b).localeCompare(lastActivity(a));
-  const [active, rest] = await Promise.all([
-    withWaitsOnViewer(db, viewer, activeRows.map((row) => toSummary(row, lang))),
-    withWaitsOnViewer(db, viewer, restRows.map((row) => toSummary(row, lang))),
+  // Una sola lettura dei permessi per pagina: attive e recenti insieme.
+  const all = await withWaitsOnViewer(db, viewer, [
+    ...activeRows.map((row) => toSummary(row, lang)),
+    ...restRows.map((row) => toSummary(row, lang)),
   ]);
+  const active = all.slice(0, activeRows.length);
+  const rest = all.slice(activeRows.length);
   // Stato e «aspetta me» sono DERIVATI: si filtrano dopo la derivazione.
   const keep = (s: AgentSessionSummary) =>
     (filters.state === undefined || s.state === filters.state) &&
@@ -747,7 +751,12 @@ export async function listAgentSessions(
  * `answerQuestion` e di `canAnswer`. Una query per i job delle righe che
  * aspettano, una lettura di permessi per progetto.
  */
-async function withWaitsOnViewer(db: Db, viewer: SessionViewer, rows: AgentSessionSummary[]): Promise<AgentSessionSummary[]> {
+async function withWaitsOnViewer(
+  db: Db,
+  viewer: SessionViewer,
+  rows: AgentSessionSummary[],
+  permissionsOf: PermissionsOf = memoPermissions(async (pid) => (await projectPermissionsFor(db, viewer, pid)) ?? new Set()),
+): Promise<AgentSessionSummary[]> {
   const waiting = rows.filter(
     (r) => (r.state === "waiting_input" || r.state === "awaiting_approval") && r.aiJobId !== null && r.projectId !== null,
   );
@@ -758,11 +767,7 @@ async function withWaitsOnViewer(db: Db, viewer: SessionViewer, rows: AgentSessi
     .where(inArray(aiJobs.id, waiting.map((r) => r.aiJobId!)));
   const jobOf = new Map(jobs.map((j) => [j.id, j]));
   const projectIds = [...new Set(waiting.map((r) => r.projectId!))];
-  const permsOf = new Map(
-    await Promise.all(
-      projectIds.map(async (pid) => [pid, (await projectPermissionsFor(db, viewer, pid)) ?? new Set<ProjectPermission>()] as const),
-    ),
-  );
+  const permsOf = new Map(await Promise.all(projectIds.map(async (pid) => [pid, await permissionsOf(pid)] as const)));
   const waits = new Set<string>();
   for (const r of waiting) {
     const job = jobOf.get(r.aiJobId!);
@@ -837,6 +842,7 @@ export async function loadAgentSession(
   db: Db,
   viewer: SessionViewer,
   id: string,
+  opts: { permissionsOf?: PermissionsOf } = {},
 ): Promise<{
   detail: AgentSessionDetail;
   live: boolean;
@@ -851,7 +857,9 @@ export async function loadAgentSession(
   if (!row) return null;
   const permissions = await sessionPermissions(db, viewer, id);
   if (!permissions) return null;
-  const summary = (await withWaitsOnViewer(db, viewer, [toSummary(row, await getContentLanguage(db))]))[0]!;
+  const summary = (
+    await withWaitsOnViewer(db, viewer, [toSummary(row, await getContentLanguage(db))], opts.permissionsOf)
+  )[0]!;
   const live = row.live === true;
   const turnBased = TURN_BASED_SESSION_KINDS.has(row.kind);
   // La parte dell'ATTORE, senza lo stato del segmento: il permesso di
@@ -931,8 +939,9 @@ export async function getAgentSession(
   db: Db,
   viewer: SessionViewer,
   id: string,
+  opts: { permissionsOf?: PermissionsOf } = {},
 ): Promise<AgentSessionDetail | null> {
-  return (await loadAgentSession(db, viewer, id))?.detail ?? null;
+  return (await loadAgentSession(db, viewer, id, opts))?.detail ?? null;
 }
 
 export async function listAgentSessionEvents(
