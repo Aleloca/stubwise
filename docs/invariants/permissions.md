@@ -303,3 +303,24 @@ non è dato a nessun ruolo esistente salvo che la sua migrazione lo dica.
   «Claude»; e non è mai «assegnatario senza accesso» (`assigneeWithoutAccess`
   lo esclude: non è membro per costruzione, non per revoca). L'impostazione
   iniziale dell'istanza non lo conta fra gli utenti.
+
+- **Un permesso nuovo dato a un preset si dà anche ai ruoli che lo
+  contenevano (decisione del maintainer, 10 nov 2026).** La guardia
+  anti-escalation (`target_above`, R28) confronta i permessi. Se una
+  migrazione dà un permesso nuovo al solo preset, un ruolo fatto a mano che
+  stava SOPRA quel preset (per esempio il preset User più `users.manage`) si
+  ritrova sotto, e non gestisce più chi ha il preset.
+  **La regola**: la migrazione che dà un permesso nuovo a un preset lo dà,
+  nello stesso `UPDATE`, anche a ogni ruolo dello stesso scope che conteneva
+  già TUTTI i permessi di quel preset (`permissions @> ARRAY[…]::text[]`,
+  con l'elenco del preset DI PRIMA), con `distinct unnest` per restare
+  idempotente. Un ruolo che non lo conteneva non riceve niente.
+  Applicazioni:
+  - 0133, `claude.public.view` (User);
+  - 0135, i permessi `chat.*` (Project Lead, Developer, User).
+
+  Ciascuna ha il suo test in `packages/db/src/roles-migration.test.ts`.
+  Nei test, un ruolo creato OGGI che deve stare sopra un preset si
+  costruisce dal preset di adesso (`PRESET_ROLES`), non da un elenco scritto
+  a mano.
+
