@@ -26,6 +26,7 @@ import { randomUUID } from "node:crypto";
 import { FakeAgentRunner } from "./agent/fake.js";
 import type { AgentRunOptions } from "./agent/runner.js";
 import { MirrorManager, mirrorSlug } from "./git/mirrors.js";
+import { createCancelRegistry } from "./pipeline/cancel.js";
 import { createHandler } from "./handler.js";
 import { getContentLanguage } from "./settings.js";
 import { pollLimitResumeOnce } from "./providers/limit-resume-poller.js";
@@ -317,6 +318,47 @@ describe("createHandler", () => {
     expect(runner.calls).toHaveLength(1);
     const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
     expect(jobAfter?.status).toBe("skipped");
+  });
+
+  it("«Annulla il lavoro» (3b.1-bis): il registro fa scattare il segnale del job → il runner lo riceve, il job chiude skipped, niente PR", async () => {
+    const { db } = testDb;
+    const upstream = await makeUpstream();
+    const mirrors = await makeMirrors();
+    const repo = await createRepository(db, upstream.url);
+    await createQueuedJob(db, repo, "sum sbaglia il segno", 11, { resumeMode: "fix" });
+    const cancels = createCancelRegistry();
+    const seenSignals: (AbortSignal | undefined)[] = [];
+    let jobId = "";
+    const runner = new FakeAgentRunner({
+      script: async (opts: AgentRunOptions) => {
+        seenSignals.push(opts.signal);
+        await writeFixDiff(opts.cwd, upstream.url, "## Processo di indagine\nok\n## Causa radice\nok\n## Soluzione\nok\n## Motivazione\nok\n");
+        // La richiesta arriva (NOTIFY) mentre l'agente lavora.
+        cancels.abort(jobId);
+        return { output: "fix applicato", exitCode: 0 };
+      },
+    });
+    const openPullRequest = vi.fn().mockResolvedValue({ url: "https://github.com/acme/repo/pull/99" });
+    const handler = createHandler({
+      db,
+      runner,
+      mirrors,
+      encryptionKey: ENCRYPTION_KEY,
+      select: selectDeps(db),
+      cancels,
+      getProviderFn: () => ({ openPullRequest }) as never,
+    });
+
+    const job = await claim(db);
+    jobId = job.id;
+    await handler(job);
+
+    expect(seenSignals[0]).toBeInstanceOf(AbortSignal);
+    const [jobAfter] = await db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+    expect(jobAfter?.status).toBe("skipped");
+    expect(openPullRequest).not.toHaveBeenCalled();
+    // Finito il job, il registro non lo tiene più.
+    expect(cancels.ids()).toEqual([]);
   });
 
   it("job con resume_mode=fix: salta il triage e va dritto al fix", async () => {

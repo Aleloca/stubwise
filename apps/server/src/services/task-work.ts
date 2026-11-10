@@ -124,6 +124,7 @@ export async function loadTaskWorkExtras(
         planText: aiJobs.planText,
         planSummary: aiJobs.planSummary,
         failureSummary: aiJobs.failureSummary,
+        cancelRequestedAt: aiJobs.cancelRequestedAt,
         providerKind: aiProviders.kind,
         providerLabel: aiProviders.label,
         sessionId: agentSessions.id,
@@ -210,6 +211,7 @@ export async function loadTaskWorkExtras(
         provider: j.providerKind && j.providerLabel ? { kind: j.providerKind, name: j.providerLabel } : null,
         failureSummary: j.failureSummary,
         heldReason: j.heldReason,
+        cancelRequested: j.cancelRequestedAt !== null && (j.status === "triaging" || j.status === "fixing"),
         // Il piano vive col job (`plan_text`, azzerato al rifiuto); lo stato
         // lo dice `planStatus`, mai per esclusione.
         plan: j.planText

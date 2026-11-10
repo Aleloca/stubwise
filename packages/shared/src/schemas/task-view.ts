@@ -253,6 +253,11 @@ export const taskWorkRunSchema = z.object({
   failureSummary: z.string().nullable().default(null),
   /** Perché il job è parcheggiato (`ai_jobs.held_reason`), o null. */
   heldReason: z.string().nullable().default(null),
+  /**
+   * «Annulla il lavoro» chiesto su un job in esecuzione (3b.1-bis): il worker
+   * lo sta chiudendo. Additivo.
+   */
+  cancelRequested: z.boolean().default(false),
   /** Il piano del job (il prototipo lo mette fra gli eventi: lo fa l'app). */
   plan: z
     .object({

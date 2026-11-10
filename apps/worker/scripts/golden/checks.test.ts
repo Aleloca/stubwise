@@ -9,6 +9,7 @@ import {
   type BashReadObservation,
   declaresIdentifier,
   interveneChecks,
+  cancelChecks,
   stopPauseChecks,
   isScenarioName,
   planInterveneChecks,
@@ -850,5 +851,30 @@ describe("bashReadChecks", () => {
   it("bashCommand: il comando, o vuoto se l'input non ne ha uno", () => {
     expect(bashCommand({ input: { command: "ls" } })).toBe("ls");
     expect(bashCommand({ input: null })).toBe("");
+  });
+});
+
+describe("cancelChecks (scenario `cancel`, 3b.1-bis)", () => {
+  const base = {
+    aborted: true,
+    errorName: "AgentRunCancelledError" as string | null,
+    msFromAbortToEnd: 1_500,
+    toolUsesAfterAbort: 0,
+    toolResultsAfterAbort: 0,
+    sameBatchToolUses: 1,
+  };
+  it("verde: annullato col percorso di AgentRunCancelledError, subito, niente lavoro dopo", () => {
+    expect(cancelChecks(base).every((c) => c.passed)).toBe(true);
+  });
+  it("rosso se il run NON è stato annullato (finito da sé, o un timeout), se ci mette troppo, se esegue ancora un tool", () => {
+    expect(cancelChecks({ ...base, aborted: false }).some((c) => !c.passed)).toBe(true);
+    expect(cancelChecks({ ...base, errorName: null }).some((c) => !c.passed)).toBe(true);
+    expect(cancelChecks({ ...base, errorName: "AgentTimeoutError" }).some((c) => !c.passed)).toBe(true);
+    expect(cancelChecks({ ...base, msFromAbortToEnd: 60_000 }).some((c) => !c.passed)).toBe(true);
+    // Un tool_use tardivo, mai eseguito, NON è un cancello: è nel dettaglio.
+    const late = cancelChecks({ ...base, toolUsesAfterAbort: 1 });
+    expect(late.every((c) => c.passed)).toBe(true);
+    expect(late.map((c) => c.detail).join()).toContain("1 tool_use tardivi");
+    expect(cancelChecks({ ...base, toolResultsAfterAbort: 1 }).some((c) => !c.passed)).toBe(true);
   });
 });

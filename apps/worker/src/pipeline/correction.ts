@@ -82,10 +82,12 @@ import {
   holdForBudget,
   notifyJobFailed,
   recordAgentStopExpired,
+  recordRunCancelled,
   type JobOutcomeContext,
 } from "./job-outcomes.js";
 import { commitStatusTargetUrl } from "../review/cycle.js";
 import { ticketUrl, type NotifyDeps } from "./notify.js";
+import { assertNotCancelled, RunCancelRequestedError } from "./cancel.js";
 import { buildCorrectionPrompt, buildCorrectionRepairPrompt, REPORT_FILENAME, toSingleLine } from "./prompts.js";
 import { computeReleaseRisk } from "./release-risk.js";
 import { aiJobSession, envSecretsOf, sessionOption } from "../sessions/owners.js";
@@ -1187,6 +1189,8 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             .split("\n")
             .filter((line) => line.length > 0);
           const testStatus = loop.testStatusByRepo.get(state.prepared.repositoryId) ?? "skipped";
+          // «Annulla il lavoro» arrivato a CLI già uscito: niente push sulla PR.
+          assertNotCancelled(deps.cancelSignal);
           // MAI --force: un rifiuto è PushRejectedError, gestito sotto.
           await mirrors.pushBranch(mirrorProject, branch, adoptedOpt);
           pushed = { report, agentOutput: loop.output, testStatus, headSha, prFiles };
@@ -1262,6 +1266,26 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
       const held = await holdForBudget(outcomeCtx, err.scope, err.limitUsd, err.spentUsd, "comment.correctionBudgetHeld");
       if (held) await restoreStatus();
       return held ? "held" : "lost";
+    }
+    if (err instanceof RunCancelRequestedError) {
+      // «Annulla il lavoro» (area 3, 3b.1-bis): la stessa chiusura dello
+      // «Ferma» scaduto qui sotto, con il commento di chi l'ha chiesto.
+      const closure = await closeJobAndCorrection({
+        kind: "complete",
+        input: {
+          status: "skipped",
+          log: `[correction] output prima dell'annullamento:\n${truncateForLog(err.partialOutput)}\n[correction] lavoro annullato da una persona: niente push`,
+        },
+      });
+      if (closure === "lost") return "lost";
+      if (closure === "cancelled") return "skipped";
+      await restoreStatus();
+      await recordRunCancelled(db, { ticketId: ticket!.id, jobId: job.id, kind: "correction", lang }).catch(async (e: unknown) => {
+        await logLine(`commento dell'annullamento non scritto: ${e instanceof Error ? e.message : String(e)}`);
+      });
+      await promotePending();
+      await reviewCurrentHead();
+      return "skipped";
     }
     if (err instanceof AgentRunCancelledError) {
       // ANNULLAMENTO da un maintainer («Ferma» e pausa scaduta), come nel fix:

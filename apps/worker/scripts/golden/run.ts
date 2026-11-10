@@ -68,6 +68,14 @@
  *    e il run è ANNULLATO con `AgentRunCancelledError`, non un timeout. Cosa
  *    ne fa la pipeline (job `skipped`, ticket, commento) lo coprono i test di
  *    `src/pipeline/fix.test.ts` e `correction.test.ts`.
+ * 8-bis. `cancel` «Annulla il lavoro» in esecuzione (area 3, 3b.1-bis): un
+ *    run in streaming col runner VERO, e al primo `tool_use` scatta
+ *    l'AbortSignal del job (quello che il worker riceve dal NOTIFY del
+ *    server). Il CLI va ucciso subito: il run finisce con
+ *    `AgentRunCancelledError` (non un timeout, non da sé), nessun `tool_use`
+ *    dopo, nessun commit né branch. Cosa ne fa la pipeline (job `skipped`,
+ *    niente push né PR, commento) lo coprono `fix.test.ts`,
+ *    `correction.test.ts`, `triage.test.ts` e `handler.test.ts`.
  * 9. `refine`     un turno di una sessione di refinement del backlog (design
  *    2026-10-14 §7), cablato come `runRefineTurn`: `permissionMode: "default"`,
  *    allowlist chiusa (`Read`, `Grep`, `Glob`, `Skill`, i tre tool), server
@@ -143,6 +151,7 @@ import {
   type AskUserExpectation,
   type Check,
   interveneChecks,
+  cancelChecks,
   stopPauseChecks,
   type InterveneEvent,
   isScenarioName,
@@ -1508,6 +1517,98 @@ async function runStopPauseOnce(
   return { checks, parentDir, result, durationMs, gitState };
 }
 
+/* ------------------------------------------------------------------ *
+ * Scenario 8-bis — `cancel` («Annulla il lavoro» in esecuzione)
+ * ------------------------------------------------------------------ */
+
+async function runCancel(ctx: ScenarioContext): Promise<ScenarioResult> {
+  const parentDir = await mkdtemp(join(tmpdir(), "stubwise-golden-cancel-"));
+  const repoDir = await prepareWorkdir(parentDir);
+  const controller = new AbortController();
+  let abortedAt: number | null = null;
+  /** `tool_use` arrivati in un lotto DOPO quello dell'annullamento (lo stesso messaggio può portarne più d'uno). */
+  let toolUsesAfterAbort = 0;
+  /** `tool_use` dello stesso lotto del primo: emessi PRIMA dell'annullamento, solo riportati. */
+  let sameBatchToolUses = 0;
+  /** `tool_result` dopo l'annullamento: un tool ESEGUITO. */
+  let toolResultsAfterAbort = 0;
+  const runner = new ctx.rt.StreamingClaudeRunner({
+    claudePath: ctx.claudePath,
+    log,
+    hooks: {
+      openSegment: () => ({
+        onStart: () => undefined,
+        onEvents: (drafts) => {
+          const abortedBefore = abortedAt !== null;
+          for (const draft of drafts) {
+            if (draft.type === "tool_result" && abortedAt !== null) toolResultsAfterAbort += 1;
+            if (draft.type !== "tool_use") continue;
+            if (abortedBefore) {
+              toolUsesAfterAbort += 1;
+            } else if (abortedAt !== null) {
+              sameBatchToolUses += 1;
+            } else {
+              abortedAt = Date.now();
+              log("  [cancel] primo tool_use: «Annulla il lavoro»");
+              controller.abort();
+            }
+          }
+        },
+        onPartial: () => undefined,
+        onEnd: async () => undefined,
+      }),
+      register: () => () => undefined,
+    },
+  });
+  const startedAt = Date.now();
+  let result: AgentRunResult | null = null;
+  let errorName: string | null = null;
+  try {
+    result = await runner.run({
+      cwd: parentDir,
+      usage: GOLDEN_USAGE("fix_execute"),
+      prompt: INTERVENE_PROMPT,
+      model: ctx.model,
+      permissionMode: "acceptEdits",
+      maxTurns: INTERVENE_MAX_TURNS,
+      timeoutMs: INTERVENE_TIMEOUT_MS,
+      allowedTools: ctx.rt.DEFAULT_FIX_ALLOWED_TOOLS,
+      pluginDirs: ctx.pluginDirs,
+      settingSources: "",
+      signal: controller.signal,
+      session: { sessionId: randomUUID(), label: "execute", pauseKey: `golden:cancel:${randomUUID()}` },
+    });
+  } catch (error) {
+    errorName = error instanceof Error ? error.name : String(error);
+    log(`  [cancel] il run ha lanciato: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const endedAt = Date.now();
+  const gitState = await readGitState(repoDir);
+  const checks = [
+    ...cancelChecks({
+      aborted: abortedAt !== null,
+      errorName,
+      msFromAbortToEnd: abortedAt === null ? Number.POSITIVE_INFINITY : endedAt - abortedAt,
+      toolUsesAfterAbort,
+      toolResultsAfterAbort,
+      sameBatchToolUses,
+    }),
+    ...gitDisciplineChecks(gitState),
+  ];
+  if (!ctx.keep) await rm(parentDir, { recursive: true, force: true });
+  return {
+    scenario: "cancel",
+    passed: checks.every((check) => check.passed),
+    durationMs: endedAt - startedAt,
+    exitCode: result?.exitCode ?? -1,
+    cwd: parentDir,
+    checks,
+    gitState,
+    finalMessage: truncate(result?.output ?? "", FINAL_MESSAGE_MAX_CHARS),
+    ...(result?.usage !== undefined ? { usage: result.usage } : {}),
+  };
+}
+
 async function runStopPause(ctx: ScenarioContext): Promise<ScenarioResult> {
   const resume = await runStopPauseOnce(ctx, "pause-resume");
   const expire = await runStopPauseOnce(ctx, "pause-expire");
@@ -1957,6 +2058,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   intervene: runIntervene,
   "intervene-plan": runInterveneOnPlan,
   "stop-pause": runStopPause,
+  cancel: runCancel,
   refine: runRefine,
   "refine-read": runRefineRead,
   "refine-read-bash": runRefineReadBash,

@@ -155,18 +155,34 @@ describe("POST /api/tasks/:id/cancel-run", () => {
     expect(await systemComments(ticketId)).toHaveLength(0);
   });
 
-  it("un job in esecuzione → 409 run_in_progress; uno concluso o nessun job → 409 nothing_to_cancel; niente cambia", async () => {
-    for (const [status, code] of [
-      ["triaging", "run_in_progress"],
-      ["fixing", "run_in_progress"],
-      ["pr_opened", "nothing_to_cancel"],
-      ["failed", "nothing_to_cancel"],
-      ["skipped", "nothing_to_cancel"],
-    ] as const) {
+  it("un job in esecuzione (3b.1-bis): la richiesta si registra (chi, quando) e il job resta al worker; /work dice cancelRequested; ripeterla non cambia niente", async () => {
+    for (const status of ["triaging", "fixing"] as const) {
+      const { ticketId, jobId } = await taskWithJob(status);
+      const res = await cancel(ticketId, developer);
+      expect(res.statusCode, `${status}: ${res.body}`).toBe(202);
+      expect(taskWorkViewSchema.parse(res.json()).runs.at(-1)).toMatchObject({ cancelRequested: true, state: "working" });
+      const [row] = await testDb.db
+        .select({ status: aiJobs.status, at: aiJobs.cancelRequestedAt, by: aiJobs.cancelRequestedByUserId })
+        .from(aiJobs)
+        .where(eq(aiJobs.id, jobId));
+      // Lo chiude il worker: il server non tocca lo stato di un job che non è suo.
+      expect(row).toMatchObject({ status, by: developer.id });
+      expect(row!.at).not.toBeNull();
+      expect(await systemComments(ticketId)).toHaveLength(0);
+      // La seconda volta: stessa richiesta, stessa data.
+      const again = await cancel(ticketId, developer);
+      expect(again.statusCode).toBe(202);
+      const [same] = await testDb.db.select({ at: aiJobs.cancelRequestedAt }).from(aiJobs).where(eq(aiJobs.id, jobId));
+      expect(same!.at!.getTime()).toBe(row!.at!.getTime());
+    }
+  });
+
+  it("un job concluso o nessun job → 409 nothing_to_cancel; niente cambia", async () => {
+    for (const status of ["pr_opened", "failed", "skipped"] as const) {
       const { ticketId, jobId } = await taskWithJob(status);
       const res = await cancel(ticketId, developer);
       expect(res.statusCode, status).toBe(409);
-      expect(res.json()).toMatchObject({ code });
+      expect(res.json()).toMatchObject({ code: "nothing_to_cancel" });
       expect((await jobStatus(jobId)).status).toBe(status);
       expect(await systemComments(ticketId)).toHaveLength(0);
     }

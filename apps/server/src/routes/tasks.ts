@@ -566,7 +566,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       config: { access: onTicket("runs.start") },
       schema: {
         params: ticketParamsSchema,
-        response: { 200: taskWorkViewSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
+        response: { 200: taskWorkViewSchema, 202: taskWorkViewSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
@@ -584,6 +584,8 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
         }
         return apiError(reply, 409, "nothing_to_cancel", "There is no work to cancel");
       }
+      // Un job in esecuzione: richiesta registrata, la chiusura arriva dal worker.
+      if (result.kind === "requested") reply.code(202);
       return workView(ticketId, request.user!.id, permissions);
     },
   );

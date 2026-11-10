@@ -104,6 +104,12 @@ export const AGENT_SESSION_EVENTS_CHANNEL = "agent_session_events";
 export const AGENT_SESSION_PARTIAL_CHANNEL = "agent_session_partial";
 export const AGENT_SESSION_INPUT_CHANNEL = "agent_session_input";
 export const BACKLOG_REFINE_CLOSED_CHANNEL = "backlog_refine_closed";
+/**
+ * «Annulla il lavoro» su un job in esecuzione (integrazione area 3, 3b.1-bis):
+ * payload `{ jobId }`, dal server al worker. La fonte resta la colonna
+ * `ai_jobs.cancel_requested_at`; questo è la sveglia.
+ */
+export const AI_JOB_CANCEL_CHANNEL = "ai_job_cancel";
 
 /**
  * Sessioni A TURNI (design 2026-10-14 §3.2): nessun processo sempre acceso,
