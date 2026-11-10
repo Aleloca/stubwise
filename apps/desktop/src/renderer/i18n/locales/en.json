@@ -1202,7 +1202,8 @@
           "run_in_progress": "Claude is working right now: stop it first, then cancel.",
           "nothing_to_cancel": "There's no work to cancel any more.",
           "failed": "That didn't go through. Try again."
-        }
+        },
+        "cancelling": "Cancelling…"
       },
       "errors": {
         "job_in_flight": "Claude is already working on this task.",

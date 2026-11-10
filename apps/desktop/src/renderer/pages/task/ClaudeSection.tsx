@@ -721,8 +721,13 @@ function WithRun({
   // «Annulla il lavoro»: un lavoro non concluso, per chi può avviare il lavoro
   // nel progetto (`runs.start`, calcolato dal server). Se si può annullare
   // adesso lo dice il server (`run_in_progress`, `nothing_to_cancel`).
+  // Già chiesto su un lavoro in esecuzione (3b.1-bis): il worker lo sta chiudendo, niente secondo Annulla.
+  const cancelInFlight = run.cancelRequested === true && status.kind !== "ended";
   const canCancel =
-    featureIntegrated("claude-actions") && status.kind !== "ended" && can(viewer, "runs.start", task.projectId);
+    featureIntegrated("claude-actions") &&
+    status.kind !== "ended" &&
+    !cancelInFlight &&
+    can(viewer, "runs.start", task.projectId);
   const menu = (
     <MenuButton
       menuLabel={t(`${K}.more`)}
@@ -802,7 +807,9 @@ function WithRun({
       <StatusRow
         state={run.waiting ? "waiting" : status.kind}
         text={
-          run.waiting
+          cancelInFlight
+            ? t(`${K}.cancelRun.cancelling`)
+            : run.waiting
             ? waitingText(t, run.waiting, waitingName)
             : statusText(
                 t,

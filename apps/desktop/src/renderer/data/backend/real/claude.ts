@@ -585,6 +585,7 @@ export const getTaskWork: typeof Fake.getTaskWork = async (taskId) => {
         events,
         provider: run.provider && known(run.provider.kind) ? { kind: run.provider.kind, name: run.provider.name } : null,
         failureSummary: run.failureSummary,
+        ...(run.cancelRequested ? { cancelRequested: true } : {}),
         model: null,
         waiting: null,
         queued: null,
