@@ -3121,3 +3121,39 @@ deploy o di un rollback che la tocca.
   assignee_id = null where assignee_id = (select id from users where
   is_agent);`) e si elimina la riga. Le task assegnate a Claude, con un server
   vecchio, non avviano niente di nuovo.
+- **«Chat con Claude, fette 1 e 2» (10 nov 2026)**: design
+  `docs/plans/2026-11-10-integrazione-claude-chat-design.md`, parità in
+  `apps/desktop/docs/integration-claude-chat.md`. Conversazioni libere PRIVATE
+  (sessioni `free`, a turni) e turni di Claude a SOLA LETTURA: nessuna
+  proposta né azione. Migrazioni **0126** (`claude_conversations` e il kind
+  `free` nel CHECK di `agent_sessions`), **0127** (`claude_chat_tool_tokens`,
+  il token del turno: solo hash) e **0128** (l'operazione AI `claude_chat` nei
+  CHECK di `agent_runs` e `ai_model_settings`). Nessun `notification_kind`
+  nuovo. Env nuove sul **worker** (tutte con default, nel compose):
+  `CHAT_SERVER_URL` (default `http://server:${PORT}`, l'URL INTERNO su cui il
+  ponte dei tool chiama il server col token del turno), `CHAT_MAX_CONCURRENT`
+  (2), `CHAT_TURN_TIMEOUT_MS` (300000, e quindi la vita massima del token),
+  `CHAT_MAX_TURNS` (15). Invarianti: `docs/invariants/second-factor.md` («Il
+  token del turno della chat con Claude NON è una porta»).
+  **Golden** sulla CLI 2.1.322: `chat-read`, `chat-no-act`, `chat-no-leak`
+  3/3 ciascuno, coi turni a `--tools ""` (il primo giro senza era rosso:
+  `ToolSearch` eseguito).
+  **ORDINE**: (1) **backup**; (2) **`server`** — applica 0126–0128; aspetta
+  healthy; (3) **`worker`** — solo SENZA lavoro dell'agente in corso
+  («Worker fail-on-restart» in `CLAUDE.md`); all'avvio la riga di riepilogo
+  deve dire `chat max 2` (se dice «disabilitata (ponte non avviato)», il ponte
+  su loopback non è partito: la chat resta muta, i messaggi restano in
+  coda); (4) **`caddy`** (il renderer di `/app`); l'app desktop si rifà a mano.
+  Verifica: con un utente, da `/app/#/claude` una domanda su una task → la
+  risposta cita dati veri; nel log del worker nessuna riga `[chat]` con un
+  token (non devono essercene).
+  **Rollback**: ⚠️ **un server di prima della chat NON sa che le sessioni
+  `free` sono private** (filtra solo la posta): titoli ed eventi delle
+  conversazioni diventerebbero leggibili a chi vede le sessioni d'istanza.
+  Prima di scendere col server: `delete from agent_sessions where kind =
+  'free';` (porta via conversazioni, eventi, messaggi e token col CASCADE) —
+  e va detto agli utenti, perché le loro conversazioni spariscono. Un worker
+  vecchio con un server nuovo: i messaggi di una conversazione non trovano lo
+  scheduler e diventano `undelivered`/`session_not_live` (nessun turno parte);
+  le altre sessioni non cambiano. Il caddy scende insieme al server. Le
+  migrazioni non si annullano (tabelle e valori nuovi restano inerti).

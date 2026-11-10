@@ -319,3 +319,31 @@ l'istanza e gli account A (Project Lead) e B (Developer) di sopra.
   assegnatari proposti.
 - Claude non riceve mai avvisi né notifiche push.
 
+
+## Chat con Claude (fette 1 e 2)
+
+Servono il worker col runner in streaming (`AGENT_STREAMING`), un account AI
+e due persone: A membro di AUD, B che non vede ACQ.
+
+- Con A, /claude → la casella «New conversation» dice che Claude legge e non
+  cambia niente; scrivi «A che punto è AUD-12?» → la conversazione nasce col
+  titolo della domanda, Claude risponde citando stato e assegnatario veri;
+  AUD-12 nel testo si apre.
+- Chiedi «Crea una task in AUD per l'export PDF» → Claude dice che da qui non
+  può e dove si fa; nessuna task nuova.
+- Con B, chiedi di ACQ o di una sua task → Claude dice che non è visibile;
+  nessun dato di ACQ nella risposta.
+- «Mine» e «Recent» elencano solo le proprie; con un altro utente (anche
+  full admin) l'indirizzo della conversazione di A risponde «non trovata».
+- Rinomina, archivia (sparisce da Mine e Recent, si ritrova fra le
+  archiviate; la casella non scrive più), ripristina, elimina.
+- Archivia mentre Claude sta rispondendo → il turno si ferma.
+- «Ferma» mentre risponde → si ferma; il messaggio dopo riparte.
+- Su una task aperta, ⌘J → il riquadro col chip «task AUD-12»; chiedi «chi la
+  segue?» → Claude risponde su quella task. ⌘K «Ask Claude…» con un testo →
+  il testo è nella casella del riquadro, da mandare.
+- Budget del mese esaurito (Amministrazione → AI sul web vecchio) → la
+  casella si spegne con la frase del budget, nella pagina e nel riquadro; un
+  messaggio non parte.
+- Il web vecchio e il mobile non vedono le conversazioni libere fra le
+  sessioni degli agenti.

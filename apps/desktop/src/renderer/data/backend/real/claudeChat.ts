@@ -20,7 +20,7 @@ import type {
 import { appClient, session } from "./client";
 import { listPeople } from "./people";
 import { listProjects } from "./projects";
-import { getRequestByCode } from "./requests";
+import { getRequest, getRequestByCode } from "./requests";
 import { getTaskByCode, listTasks } from "./tasks";
 
 // La chat con Claude nella build app (integrazione «Chat con Claude», fetta 2):
@@ -54,25 +54,94 @@ export function contextProjectOf(context: ClaudeConversationContext | null | und
   return context?.kind === "project" ? context.id : null;
 }
 
+/** Il codice di ogni task e richiesta risolta per il chip (dall'indirizzo, `contextIdOf`). */
+const codeOfObject = new Map<string, string>();
+
+async function taskCodeOf(taskId: string): Promise<{ code: string; projectId: string } | null> {
+  try {
+    const ticket = await appClient().tickets.get(taskId);
+    const code = (await listProjects()).find((p) => p.id === ticket.projectId)?.code;
+    return code ? { code: `${code}-${ticket.number}`, projectId: ticket.projectId } : null;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
 /**
- * Il contesto di una pagina come lo legge il server: `tipo: id`. Il modello
- * lo vede così e legge l'oggetto coi suoi tool se gli serve (fetta 1).
+ * Il contesto di una pagina come lo legge il server: `tipo: id`, dove l'id è
+ * ciò con cui il modello lo rilegge coi suoi tool — il CODICE di una task o di
+ * una richiesta (`read_task`, `read_request`), l'id di un progetto. Gli
+ * oggetti delle aree non integrate (rilasci, supporto, PR, automazioni,
+ * posta) non danno contesto.
  */
-export function serverContextOf(ref: ContextRef): ClaudeConversationContext | null {
+export async function serverContextOf(ref: ContextRef): Promise<ClaudeConversationContext | null> {
   switch (ref.kind) {
-    case "task":
-      return { kind: "task", id: ref.taskId };
-    case "request":
-      return { kind: "request", id: ref.requestId };
+    case "task": {
+      const code = codeOfObject.get(ref.taskId) ?? (await taskCodeOf(ref.taskId))?.code;
+      return code ? { kind: "task", id: code } : null;
+    }
+    case "request": {
+      const code = codeOfObject.get(ref.requestId) ?? (await getRequest(ref.requestId).catch(() => null))?.code;
+      return code ? { kind: "request", id: code } : null;
+    }
     case "page":
       return ref.projectId ? { kind: "project", id: ref.projectId } : { kind: "page", id: ref.route };
     case "settings":
       return ref.projectId ? { kind: "project", id: ref.projectId } : null;
     default:
-      // Gli oggetti delle aree non integrate (rilasci, supporto, PR, automazioni, posta): nessun contesto.
       return null;
   }
 }
+
+const K = "claude.panel.chip";
+
+/** Il chip: rilegge l'oggetto ADESSO, con la visibilità di chi guarda; invisibile = `null`. */
+export const describeContext: typeof Fake.describeContext = async (ref) => {
+  switch (ref.kind) {
+    case "task": {
+      const found = await taskCodeOf(ref.taskId);
+      if (!found) return null;
+      codeOfObject.set(ref.taskId, found.code);
+      return { code: found.code, labelKey: `${K}.kind.task`, projectId: found.projectId };
+    }
+    case "request": {
+      const r = await getRequest(ref.requestId).catch(() => null);
+      if (!r) return null;
+      codeOfObject.set(ref.requestId, r.code);
+      return { code: r.code, labelKey: `${K}.kind.request`, projectId: r.projectId };
+    }
+    case "page": {
+      if (ref.projectId === null) return { code: null, labelKey: `nav.${ref.route}`, projectId: null };
+      const project = (await listProjects()).find((p) => p.id === ref.projectId);
+      return project ? { code: project.code, labelKey: `project.sections.${ref.route}`, projectId: project.id } : null;
+    }
+    case "settings": {
+      if (ref.projectId === null) return null;
+      const project = (await listProjects()).find((p) => p.id === ref.projectId);
+      return project
+        ? {
+            code: project.code,
+            labelKey: `${K}.projectSettings`,
+            projectId: project.id,
+            params: { sectionKey: `settings.sections.${ref.section}` },
+          }
+        : null;
+    }
+    default:
+      // Le aree non integrate: nessun chip.
+      return null;
+  }
+};
+
+/** L'id dell'oggetto che l'indirizzo nomina col codice: solo le task (le altre aree non sono integrate). */
+export const contextIdOf: typeof Fake.contextIdOf = async (kind, code) => {
+  if (kind !== "task") return null;
+  const task = await getTaskByCode(code);
+  if (!task) return null;
+  codeOfObject.set(task.id, task.code);
+  return task.id;
+};
 
 const stateOf = (state: View["state"]): Conversation["state"] =>
   state === "working" || state === "queued" ? "working" : state === "ended" ? "finished" : "idle";
@@ -158,7 +227,7 @@ export const setConversationContext: typeof Fake.setConversationContext = async 
  * turno lo legge; il server lo ripete al modello a ogni turno (`tipo: id`).
  */
 export async function sendFreeMessage(id: string, text: string, context: ContextRef | null): Promise<void> {
-  const serverContext = context ? serverContextOf(context) : null;
+  const serverContext = context ? await serverContextOf(context) : null;
   if (serverContext) await call(() => appClient().claude.conversations.update(id, { context: serverContext }));
   await call(() => appClient().agentSessions.send(id, { text }));
 }

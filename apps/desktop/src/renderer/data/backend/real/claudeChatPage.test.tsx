@@ -182,6 +182,24 @@ describe("la chat con Claude nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
+  it("il riquadro (⌘J): una conversazione nuova dalla casella, senza chiamate fuori elenco", async () => {
+    install({ list: [] });
+    const ue = userEvent.setup();
+    renderRoute("/claude?scope=mine");
+    await screen.findByRole("navigation", { name: "Claude views" });
+    await ue.keyboard("{Control>}j{/Control}");
+    const panel = await screen.findByRole("complementary", { name: "Claude" });
+    const box = await within(panel).findByRole("textbox");
+    await ue.type(box, "Where does AUD stand?{Enter}");
+    await waitFor(() =>
+      expect(seen.filter((r) => r.method === "POST").map((r) => [r.path, r.body])).toEqual([
+        ["/api/claude/conversations", {}],
+        [`/api/agent-sessions/${CONV}/messages`, { text: "Where does AUD stand?" }],
+      ]),
+    );
+    expect(outside()).toEqual([]);
+  });
+
   it("budget del mese finito: la casella dice perché e non manda niente", async () => {
     install({ budgetExhausted: true });
     const ue = userEvent.setup();

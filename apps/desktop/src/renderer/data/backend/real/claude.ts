@@ -504,6 +504,8 @@ export async function toDetail(
 
 /** Una sessione invisibile, o inesistente, risponde 404: `null`. */
 export const getConversation: typeof Fake.getConversation = async (id) => {
+  // Il riquadro senza conversazione la chiede con l'id vuoto: nessuna.
+  if (!id) return null;
   let detail: Detail;
   try {
     detail = await appClient().agentSessions.get(id);
