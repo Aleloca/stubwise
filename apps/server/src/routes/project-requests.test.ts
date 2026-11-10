@@ -3,7 +3,7 @@ import { backlogItemRequesters, backlogItemTickets, backlogItems, backlogJobs, p
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { projectRequestViewSchema, requestJobViewSchema } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod";
@@ -22,9 +22,12 @@ import type { ChatAvailability, ChatLlm, ChatLlmInput } from "./chat-llm.js";
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 
 let mergeOutput: string | Error = "# Documento fuso";
+/** Gira mentre il «modello» lavora: ciò che succede qui succede DURANTE l'AI. */
+let duringAi: (() => Promise<void>) | null = null;
 const fakeChatLlm: ChatLlm = {
   async *stream(input: ChatLlmInput): AsyncIterable<string> {
     void input;
+    if (duringAi) await duringAi();
     if (mergeOutput instanceof Error) throw mergeOutput;
     yield mergeOutput;
   },
@@ -257,6 +260,59 @@ describe("«Fondi in…» con la riscrittura AI", () => {
     expect(pick(after)).toEqual(pick(before));
     expect(await testDb.db.select().from(backlogItemRequesters).where(eq(backlogItemRequesters.itemId, target.id))).toHaveLength(0);
     mergeOutput = "# Documento fuso";
+  });
+
+  it("fusioni incrociate A→B e B→A: una sola riesce, l'altra 409 request_changed", async () => {
+    const a = await item();
+    const b = await item();
+    // Una barriera: le due fusioni leggono entrambe PRIMA che una delle due scriva.
+    let arrived = 0;
+    let release!: () => void;
+    const both = new Promise<void>((resolve) => (release = resolve));
+    duringAi = async () => {
+      arrived += 1;
+      if (arrived === 2) release();
+      await both;
+    };
+    try {
+      const [ab, ba] = await Promise.all([
+        call("POST", `/api/requests/${a.id}/merge`, { intoId: b.id }),
+        call("POST", `/api/requests/${b.id}/merge`, { intoId: a.id }),
+      ]);
+      expect([ab.statusCode, ba.statusCode].sort()).toEqual([200, 409]);
+      expect([ab, ba].find((r) => r.statusCode === 409)!.json()).toMatchObject({ code: "request_changed" });
+    } finally {
+      duringAi = null;
+    }
+    const rows = await testDb.db
+      .select({ id: backlogItems.id, status: backlogItems.status, mergedIntoId: backlogItems.mergedIntoId })
+      .from(backlogItems)
+      .where(inArray(backlogItems.id, [a.id, b.id]));
+    // Mai le due fuse l'una nell'altra: una archiviata, l'altra aperta.
+    expect(rows.filter((r) => r.status === "archived")).toHaveLength(1);
+    expect(rows.filter((r) => r.mergedIntoId !== null)).toHaveLength(1);
+  });
+
+  it("destinazione modificata durante l'AI → 409 request_changed e niente sovrascritto", async () => {
+    mergeOutput = "# Documento fuso";
+    const source = await item();
+    const target = await item();
+    duringAi = async () => {
+      await testDb.db.update(backlogItems).set({ document: "Scritto da un altro nel frattempo" }).where(eq(backlogItems.id, target.id));
+    };
+    try {
+      const res = await call("POST", `/api/requests/${source.id}/merge`, { intoId: target.id });
+      expect(res.statusCode, res.body).toBe(409);
+      expect(res.json()).toMatchObject({ code: "request_changed" });
+    } finally {
+      duringAi = null;
+    }
+    const rows = await testDb.db
+      .select({ id: backlogItems.id, status: backlogItems.status, document: backlogItems.document, mergedIntoId: backlogItems.mergedIntoId })
+      .from(backlogItems)
+      .where(inArray(backlogItems.id, [source.id, target.id]));
+    expect(rows.find((r) => r.id === target.id)).toMatchObject({ document: "Scritto da un altro nel frattempo" });
+    expect(rows.find((r) => r.id === source.id)).toMatchObject({ status: "new", mergedIntoId: null });
   });
 
   it("in sé stessa, in un'archiviata o da una trasformata: rifiutato", async () => {

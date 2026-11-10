@@ -20,7 +20,7 @@ import { z } from "zod";
 import { routePermissions, visibleProjectIds, inProjects } from "../auth/access.js";
 import { backlogItemAccess, fromBacklogJob, fromBody, fromQuery } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
-import { applyBacklogMerge, MergeAiError, mergedDocumentOf } from "../services/backlog-merge.js";
+import { applyBacklogMerge, MergeAiError, MergeChangedError, mergedDocumentOf, readMergeSnapshot } from "../services/backlog-merge.js";
 import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import { closeRefineSessionForItem } from "../services/backlog-refine.js";
 import { loadRequestViews, requestView, requestVisibility } from "../services/project-requests.js";
@@ -273,7 +273,8 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
    * «Fondi in…»: questa richiesta (aperta) si fonde in `intoId` (stesso
    * progetto, non archiviata né trasformata). La destinazione la riscrive il
    * modello, FUORI transazione; se non risponde, 502 `merge_failed` e niente
-   * cambia, così l'app offre «Riprova».
+   * cambia, così l'app offre «Riprova». Se nel frattempo una delle due è
+   * cambiata, 409 `request_changed` e niente cambia.
    */
   app.post(
     "/requests/:id/merge",
@@ -301,23 +302,21 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
         const availability = await app.chatLlm.isAvailable();
         if (!availability.available) return apiError(reply, 503, "chat_unavailable", "Merging needs an API-key AI provider");
       }
-      const [docs] = await Promise.all([
-        app.db
-          .select({ id: backlogItems.id, title: backlogItems.title, document: backlogItems.document })
-          .from(backlogItems)
-          .where(inArray(backlogItems.id, [id, intoId])),
-      ]);
-      const doc = (x: string) => docs.find((d) => d.id === x)!;
+      const before = await readMergeSnapshot(app.db, id, intoId);
+      if (!before) return apiError(reply, 409, "request_changed", "One of the two requests changed; nothing was merged");
       let merged: string;
       try {
-        merged = await mergedDocumentOf(app.chatLlm, doc(intoId), doc(id), target.projectId);
+        merged = await mergedDocumentOf(app.chatLlm, before.target, before.absorbed, target.projectId);
+        await applyBacklogMerge(app.db, before, merged);
       } catch (error) {
         if (error instanceof MergeAiError) {
           return apiError(reply, 502, "merge_failed", "The AI could not merge the two requests; nothing was changed");
         }
+        if (error instanceof MergeChangedError) {
+          return apiError(reply, 409, "request_changed", "One of the two requests changed while merging; nothing was merged");
+        }
         throw error;
       }
-      await applyBacklogMerge(app.db, id, intoId, merged);
       return (await requestView(app.db, request.user!, intoId)) as ProjectRequestView;
     },
   );
