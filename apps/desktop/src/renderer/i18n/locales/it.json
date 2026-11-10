@@ -4772,6 +4772,32 @@
         "line": "riassumere la spesa del mese",
         "prompt": "Quanto abbiamo speso in AI questo mese?"
       }
+    },
+    "chatActions": {
+      "summary": {
+        "createTask": "Crea la task «{{title}}»",
+        "updateTask": "Modifica {{code}} ({{fields}})",
+        "updateTaskNoCode": "Modifica una task ({{fields}})",
+        "planTask": "Pianifica {{code}}",
+        "planTaskNoCode": "Pianifica una task",
+        "addComment": "Commenta {{code}}",
+        "addCommentNoCode": "Commenta una task",
+        "deleteComment": "Elimina un commento di {{code}}",
+        "deleteCommentNoCode": "Elimina un commento",
+        "createRequest": "Invia la richiesta «{{title}}»",
+        "convertRequest": "Trasforma una richiesta in task",
+        "archiveRequest": "Archivia una richiesta",
+        "reopenRequest": "Riapri una richiesta",
+        "startRun": "Avvia il lavoro di Claude su {{code}}",
+        "startRunNoCode": "Avvia il lavoro di Claude su una task",
+        "createMilestone": "Crea il traguardo «{{name}}»",
+        "deleteMilestone": "Elimina un traguardo",
+        "saveFilter": "Salva il filtro «{{name}}»",
+        "deleteFilter": "Elimina un filtro salvato",
+        "pageAction": "Cambia questa pagina ({{kind}})",
+        "deleteTask": "Elimina {{code}}",
+        "deleteTaskNoCode": "Elimina una task"
+      }
     }
   },
   "chat": {

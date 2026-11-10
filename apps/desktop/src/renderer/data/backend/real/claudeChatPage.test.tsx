@@ -67,6 +67,8 @@ const ALLOWED = [
   /^(GET|POST) \/api\/claude\/conversations(\?|$)/,
   /^GET \/api\/claude\/conversations\/status$/,
   /^(GET|PATCH|DELETE) \/api\/claude\/conversations\/[^/]+$/,
+  // Fetta 3: le proposte e i gruppi della conversazione (solo letture qui).
+  /^GET \/api\/claude\/conversations\/[^/]+\/(proposals|groups)$/,
 ];
 const outside = () => seen.filter((r) => !ALLOWED.some((re) => re.test(`${r.method} ${r.path}`)));
 

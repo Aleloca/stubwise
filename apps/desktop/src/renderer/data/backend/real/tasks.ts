@@ -23,6 +23,9 @@ const codeById = new Map<string, string>();
  */
 const assigneeById = new Map<string, string | null>();
 
+/** Il codice di una task già letta in questa sessione, o `undefined`. */
+export const knownTaskCode = (id: string): string | undefined => codeById.get(id);
+
 /** `undefined` se la task non è mai stata letta in questa sessione. */
 export const assigneeOf = (id: string): string | null | undefined => assigneeById.get(id);
 

@@ -68,7 +68,7 @@ function codeOfObjectFor(): Map<string, string> {
   return codes;
 }
 
-async function taskCodeOf(taskId: string): Promise<{ code: string; projectId: string } | null> {
+export async function taskCodeOf(taskId: string): Promise<{ code: string; projectId: string } | null> {
   try {
     const ticket = await appClient().tickets.get(taskId);
     const code = (await listProjects()).find((p) => p.id === ticket.projectId)?.code;

@@ -23,6 +23,8 @@ import type {
   Outcome,
 } from "../../types";
 import { freeDetailOf, listMine } from "./claudeChat";
+import { chatActionEvents, readChatActions, undoViewsOf, withChatActionEvents } from "./claudeChatActions";
+import { listPeople } from "./people";
 import { appClient } from "./client";
 import { listProjects } from "./projects";
 
@@ -522,8 +524,11 @@ export const getConversation: typeof Fake.getConversation = async (id) => {
       if (error instanceof ApiError && error.status === 404) return null;
       throw error;
     }
-    const events = await readEvents(id);
-    return freeDetailOf(conversation, eventsOf(conversation.session, events, {}, null));
+    const [events, actions, people] = await Promise.all([readEvents(id), readChatActions(id), listPeople()]);
+    const nameOf = (personId: string) => people.find((p) => p.id === personId)?.name ?? null;
+    // Le schede e le righe delle azioni di Claude (fetta 3): derivate dalle viste del server.
+    const flow = withChatActionEvents(eventsOf(conversation.session, events, {}, null), chatActionEvents(events, actions));
+    return { ...freeDetailOf(conversation, flow), undo: undoViewsOf(actions.groups, nameOf) };
   }
   const [events, plan, codes] = await Promise.all([readEvents(id), planOf(detail), projectCodes()]);
   return toDetail(detail, codes, eventsOf(detail, events, {}, plan));
