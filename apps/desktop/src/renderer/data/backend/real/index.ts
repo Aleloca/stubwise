@@ -135,6 +135,7 @@ export { closeRefine, getRefineOf, startRefineConversation } from "./claudeRefin
 export {
   archiveConversation,
   contextIdOf,
+  continueConversation,
   createConversation,
   deleteConversation,
   describeContext,
@@ -144,6 +145,8 @@ export {
   resolveCodes,
   searchMentions,
   setConversationContext,
+  // Fetta 5: le pubbliche e la continuazione.
+  setVisibility,
 } from "./claudeChat";
 // Fetta 3.0 della chat: «Elimina task» (anteprima ed eliminazione dal server).
 export { deleteTask, getTaskDeletion } from "./taskDelete";

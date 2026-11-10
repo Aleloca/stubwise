@@ -4562,7 +4562,8 @@
         "checking": "Controllo dei progetti usati da Claude…",
         "loadFailed": "Impossibile controllare quali progetti ha usato Claude.",
         "retry": "Riprova",
-        "nothingNew": "Claude non ha usato progetti che non hai già condiviso: i nuovi messaggi si possono condividere così come sono."
+        "nothingNew": "Claude non ha usato progetti che non hai già condiviso: i nuovi messaggi si possono condividere così come sono.",
+        "toolReads": "Claude ha letto dati per te con i suoi strumenti: chi legge vedrà anche ciò che Claude ha letto per te."
       },
       "continue": {
         "banner": "Ciò che scrivi apre una tua conversazione privata. Claude agirà come te.",

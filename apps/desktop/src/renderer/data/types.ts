@@ -77,7 +77,6 @@ export type LocalProjectPermission =
  * quando si costruisce il backend.
  */
 export type LocalInstancePermission =
-  | "claude.public.view"
   | "chat.general.create"
   | "chat.general.manage"
   | "automations.manage"
@@ -560,7 +559,17 @@ export interface MentionResult {
 
 /** Il risultato di «Rendi pubblica»: la prima volta chiede di confermare i progetti toccati. */
 export type SetVisibilityResult =
-  | { status: "needs_confirmation"; touchedProjects: { id: string; code: string; name: string }[] }
+  | {
+      status: "needs_confirmation";
+      touchedProjects: { id: string; code: string; name: string }[];
+      /**
+       * Build app (fetta 5, D1 del maintainer): chi legge vedrà anche ciò che
+       * Claude ha letto per te, e il dialogo lo dice. Assente nel prototipo.
+       */
+      includesToolReads?: boolean;
+      /** Build app: è la riconferma di un seguito privato (i progetti sono solo i nuovi). */
+      reconfirm?: boolean;
+    }
   | { status: "done"; conversation: Conversation };
 
 /** La rassegna del giorno di una persona (o di un autore di commit non collegato). */

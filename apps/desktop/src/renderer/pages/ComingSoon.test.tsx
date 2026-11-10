@@ -646,11 +646,12 @@ describe("le superfici della fetta 3a nella build app (area 3)", () => {
     expect(calls).not.toContain("getClaudeSuggestion");
   });
 
-  it("le pubbliche sono «in arrivo», senza letture; le proprie si leggono", async () => {
+  // Dalla fetta 5 anche le pubbliche sono integrate: «Public» si legge.
+  it("le pubbliche e le proprie si leggono, nessuna è «in arrivo»", async () => {
     signedInAs("p-laura");
     renderRoute("/claude?scope=public");
-    expect(await screen.findByText("Coming soon")).toBeInTheDocument();
-    await settle();
+    await waitFor(() => expect(calls).toContain("listConversations"));
+    expect(screen.queryByText("Coming soon")).toBeNull();
     expect(outside()).toEqual([]);
     cleanup();
     renderRoute("/claude?scope=mine");

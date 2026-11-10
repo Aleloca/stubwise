@@ -65,10 +65,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Fetta 3c: il refinement delle richieste («Refine with Claude»).
     "refine",
     // Chat con Claude, fetta 2: le conversazioni libere PRIVATE («Mine»,
-    // «New», N) e, sotto, il riquadro. Restano spente le pubbliche
-    // (`claude-public`), le proposte e le azioni di Claude in chat
-    // (`claude-chat-actions`), la riga «Claude can help you…»
-    // (`claude-suggestions`) e le domande della doc di prodotto (`product-docs`).
+    // «New», N) e, sotto, il riquadro. Restano spente la riga «Claude can
+    // help you…» (`claude-suggestions`) e le domande della doc di prodotto
+    // (`product-docs`).
     "claude-chat",
     // Fetta 3.0 della chat: «Elimina task», a mano dal menu «⋯» della task.
     "task-delete",
@@ -83,6 +82,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Chat, fetta 3: le proposte e le azioni di Claude (A/B, «Undo»), la riga
     // di benvenuto del prototipo e i comandi «/» d'azione.
     "claude-chat-actions",
+    // Chat, fetta 5: le conversazioni pubbliche («Public», «Make public»,
+    // la riconferma del seguito privato) e la continuazione.
+    "claude-public",
   ]),
 };
 

@@ -13,8 +13,10 @@ import type {
   ClaudeProposalView,
   ClaudeConversation,
   ClaudeConversationDetail,
+  ContinueClaudeConversationInput,
   CreateClaudeConversationInput,
   PatchClaudeConversationInput,
+  SetClaudeConversationVisibilityInput,
   Reader,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
@@ -34,13 +36,14 @@ export function createClaudeEndpoints(request: ApiRequest) {
       return request("GET", "/api/claude/conversations/status", undefined, claudeChatStatusSchema);
     },
     conversations: {
+      /** Le proprie (`mine`), o dalla fetta 5 le pubbliche di altri (`public`, con `claude.public.view`). */
       list(
-        opts: { archived?: boolean; limit?: number; before?: string } = {},
+        opts: { scope?: "mine" | "public"; archived?: boolean; limit?: number; before?: string } = {},
       ): Promise<Reader<{ items: ClaudeConversation[]; nextCursor: string | null }>> {
         return request(
           "GET",
           `/api/claude/conversations${toQuery({
-            scope: "mine",
+            scope: opts.scope ?? "mine",
             archived: opts.archived ? "true" : undefined,
             limit: opts.limit,
             before: opts.before,
@@ -60,6 +63,18 @@ export function createClaudeEndpoints(request: ApiRequest) {
       },
       remove(id: string): Promise<void> {
         return request("DELETE", `/api/claude/conversations/${seg(id)}`);
+      },
+      /**
+       * Pubblica o rende privata (fetta 5, solo l'autore). 409
+       * `needs_confirmation` con i progetti da confermare nei `details`
+       * (`claudeVisibilityConfirmationSchema`).
+       */
+      setVisibility(id: string, body: SetClaudeConversationVisibilityInput): Promise<Reader<ClaudeConversation>> {
+        return request("POST", `/api/claude/conversations/${seg(id)}/visibility`, body, claudeConversationSchema);
+      },
+      /** Continua una pubblica di un altro (fetta 5): nasce una conversazione nuova, privata, di chi chiama. */
+      continue(id: string, body: ContinueClaudeConversationInput = {}): Promise<Reader<ClaudeConversation>> {
+        return request("POST", `/api/claude/conversations/${seg(id)}/continue`, body, claudeConversationSchema);
       },
       /** Le proposte di Claude della conversazione: classe e motivi calcolati adesso dal server. */
       proposals(id: string): Promise<Reader<ClaudeProposalView>[]> {

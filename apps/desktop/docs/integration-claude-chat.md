@@ -158,6 +158,27 @@ decisioni del maintainer D1–D6. Il modulo unico è
 | L'originale di una continuazione è un uuid senza FK: un'origine eliminata si legge «non più disponibile» | costruttore (approvato) |
 | L'istantanea della prosa al «Continua», non letta dal vivo, con un tetto di 40 messaggi e 12.000 caratteri; «Public» ordinato per `updated_at` (il messaggio dell'autore fa salire la riga anche se il turno resta privato) | costruttore; limiti nel registro |
 
+## F5.4 — il renderer delle pubbliche e della continuazione
+
+Il flag `claude-public` è acceso nella build app (con la F5.3 il server è
+completo). Le viste sono quelle del server (F5.1–F5.3); la UI è quella del
+prototipo.
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Il client: `list({ scope: "public" })`, `setVisibility` (409 `needs_confirmation` nei `details`), `continue` | `packages/api-client/src/endpoints/claude.ts` | `GET …?scope=public`, `POST …/:id/visibility`, `POST …/:id/continue` | `packages/api-client/src/endpoints/claude.test.ts` |
+| «Public»: le pubbliche di altri, con l'autrice e chi l'ha resa pubblica; il seguito privato (`privateTail`) nella riga e nel dettaglio | `data/backend/real/claudeChat.ts` (`listPublic`, `toConversation`, `toFreeRow`) | `GET …?scope=public` | `real/claudePublic.test.ts` |
+| Chi legge una pubblica di un altro la legge e basta (`isOwner: false`): niente casella, niente gestione, `readOnlyReason: "not_owner"`, «Continue» | `claudeChat.ts` (`freeDetailOf`) | `GET …/:id` | `claudePublic.test.ts`, `real/claudePublicPage.test.tsx` |
+| «Make public» / «Make private»: il dialogo si mostra sempre (anche senza progetti), coi progetti del 409 e la frase sulle letture di Claude (`includesToolReads`, D1); la riconferma del seguito privato chiede solo i progetti nuovi (`heldProjects`) | `claudeChat.ts` (`setVisibility`), `pages/claude/PublishDialog.tsx` | `POST …/:id/visibility` | `claudePublic.test.ts`, `claudePublicPage.test.tsx` |
+| «Continue»: nasce la conversazione di chi legge (201), il primo messaggio va lì; l'originale si legge DAL VIVO, come lo vede chi continua, e se non c'è più `available: false` | `claudeChat.ts` (`continueConversation`), `real/claude.ts` (`originOf`) | `POST …/:id/continue` | `claudePublic.test.ts`, `claudePublicPage.test.tsx` |
+| `claude.public.view` dal registro condiviso, nel gruppo «people» come il web (via dai permessi locali) | `data/access/catalog.ts`, `domain/access/actions.ts` | — | `domain/access/access.test.ts` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Il server non dà l'indice del seguito privato: per l'autrice `privateFromIndex` dice solo se c'è (`heldProjects` non vuoto); la pagina non usa altro | costruttore |
+| R-G5 regge per costruzione: nella build app i codici nella prosa di Claude non si collegano (solo le citazioni registrate, che il server non registra), quindi un codice che chi legge non vede non si apre | costruttore (limite che già c'era) |
+| Lo stream di chi legge si ferma al confine del seguito privato e riprende da sé al rilascio: lo fa il server (F5.2), il renderer legge e basta | orchestratrice |
+
 ## Rimandate
 
 | Voce | Fetta |
