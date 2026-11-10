@@ -35,6 +35,21 @@ Test: `packages/db/src/migration-0121.test.ts`.
 - **Se il modello non risponde, o risponde vuoto, non si scrive niente**:
   502 `merge_failed` (decisione del maintainer: l'app mostra l'errore con
   «Riprova» e nessuna delle due voci è cambiata).
+- **Fra la lettura e la scrittura passa il tempo del modello, e la
+  transazione lo riverifica.** La rotta prende una fotografia delle due voci
+  PRIMA dell'AI (`readMergeSnapshot`); `applyBacklogMerge` le blocca
+  (`FOR UPDATE`, in ordine di id: due fusioni incrociate A→B e B→A non si
+  incastrano) e le riconfronta — stato, documento, `origin_content`,
+  progetto, `merged_into_id` —, più sorgente non chiusa e destinazione né
+  archiviata né trasformata né fusa. Se qualcosa è cambiato: 409
+  `request_changed` e niente scritto, perché il testo del modello nasceva da
+  testi che non ci sono più.
+- **Il testo fuso va nella DESCRIZIONE della destinazione, mai nel suo
+  design.** Il modello fonde le due descrizioni (il corpo originale,
+  `origin_content`, se un design ha sostituito il corpo; altrimenti il
+  corpo), e il risultato si scrive lì: su `origin_content` se la
+  destinazione ha un design — che resta com'è —, su `document` se non ce
+  l'ha. Il design dell'assorbita resta sull'assorbita.
 - **Le scritture della voce restano in `backlog-item-writes.ts`** (vedi
   `docs/invariants/backlog-refine.md`): anche descrizione, accettazione e
   scarto delle proposte dell'intake (fetta 4) passano da lì, con la voce in

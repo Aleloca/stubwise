@@ -8,8 +8,9 @@ import { closeRefineSessionForItem } from "./backlog-refine.js";
  * La fusione di due voci del backlog («Fondi in…», web vecchio e app nuova):
  * la destinazione viene riscritta dal modello (decisione del maintainer, fetta
  * 4), FUORI dalla transazione; poi tutto il resto è atomico — link alle task,
- * richiedenti (l'unione: una voce fusa ricorda tutti), conteggio, documento
- * fuso, l'assorbita archiviata con `merged_into_id` e la sua sessione di
+ * richiedenti (l'unione: una voce fusa ricorda tutti), conteggio, testo
+ * fuso (nella DESCRIZIONE: `origin_content` se la destinazione ha un design,
+ * che resta com'è), l'assorbita archiviata con `merged_into_id` e la sua sessione di
  * refinement chiusa. Se il modello non risponde (o risponde vuoto) non si
  * scrive NIENTE.
  *
@@ -76,17 +77,29 @@ const same = (a: MergeSnapshot, b: MergeSnapshot) =>
   a.originContent === b.originContent &&
   a.mergedIntoId === b.mergedIntoId;
 
+type MergeSide = Pick<MergeSnapshot, "title" | "document" | "originContent">;
+
+/**
+ * Ciò che si fonde è la DESCRIZIONE di una voce, cioè la richiesta: il corpo
+ * originale se un design l'ha sostituito (`origin_content`), altrimenti il
+ * corpo. Il design della destinazione resta com'è.
+ */
+const descriptionOf = (side: MergeSide): BacklogItemContext => ({
+  title: side.title,
+  document: side.originContent ?? side.document,
+});
+
 /** Il documento fuso dal modello. Lancia `MergeAiError` se la chiamata fallisce o non dice niente. */
 export async function mergedDocumentOf(
   chatLlm: FastifyInstance["chatLlm"],
-  target: BacklogItemContext,
-  absorbed: BacklogItemContext,
+  target: MergeSide,
+  absorbed: MergeSide,
   projectId: string,
 ): Promise<string> {
   let text = "";
   try {
     for await (const delta of chatLlm.stream({
-      system: buildMergeDocumentPrompt(target, absorbed),
+      system: buildMergeDocumentPrompt(descriptionOf(target), descriptionOf(absorbed)),
       messages: [{ role: "user", content: "Fondi i due documenti e restituisci il Markdown del documento risultante." }],
       usage: { operation: "backlog_merge", projectId },
     })) {
@@ -165,7 +178,8 @@ export async function applyBacklogMerge(
       .update(backlogItems)
       .set({
         requestCount: sql`${backlogItems.requestCount} + (select bi.request_count from backlog_items bi where bi.id = ${absorbedId})`,
-        document: mergedDocument,
+        // Nella descrizione: su `origin_content` se la destinazione ha un design.
+        ...(target.originContent !== null ? { originContent: mergedDocument } : { document: mergedDocument }),
       })
       .where(eq(backlogItems.id, targetId));
     await tx

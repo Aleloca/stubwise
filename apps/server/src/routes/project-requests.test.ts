@@ -24,9 +24,10 @@ const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
 let mergeOutput: string | Error = "# Documento fuso";
 /** Gira mentre il «modello» lavora: ciò che succede qui succede DURANTE l'AI. */
 let duringAi: (() => Promise<void>) | null = null;
+let lastMergePrompt = "";
 const fakeChatLlm: ChatLlm = {
   async *stream(input: ChatLlmInput): AsyncIterable<string> {
-    void input;
+    lastMergePrompt = input.system;
     if (duringAi) await duringAi();
     if (mergeOutput instanceof Error) throw mergeOutput;
     yield mergeOutput;
@@ -275,6 +276,18 @@ describe("«Fondi in…» con la riscrittura AI", () => {
     expect(pick(after)).toEqual(pick(before));
     expect(await testDb.db.select().from(backlogItemRequesters).where(eq(backlogItemRequesters.itemId, target.id))).toHaveLength(0);
     mergeOutput = "# Documento fuso";
+  });
+
+  it("destinazione col design: il testo fuso va nella DESCRIZIONE (origin_content), il design resta com'è", async () => {
+    mergeOutput = "# Richieste fuse";
+    const source = await item({ document: "Anche io lo voglio" });
+    const target = await item({ originContent: "La richiesta originale", document: "# Il design approvato" });
+    const res = await call("POST", `/api/requests/${source.id}/merge`, { intoId: target.id });
+    expect(res.statusCode, res.body).toBe(200);
+    expect(projectRequestViewSchema.parse(res.json())).toMatchObject({ description: "# Richieste fuse", design: "# Il design approvato" });
+    // Il modello fonde le due DESCRIZIONI, non il design.
+    expect(lastMergePrompt).toContain("La richiesta originale");
+    expect(lastMergePrompt).not.toContain("# Il design approvato");
   });
 
   it("fusioni incrociate A→B e B→A: una sola riesce, l'altra 409 request_changed", async () => {
