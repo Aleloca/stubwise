@@ -1,8 +1,9 @@
-import { aiJobs, comments, type Db } from "@stubwise/db";
+import { agentQuestions, aiJobs, comments, type Db } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
 import { completeCorrection, promotePendingForTicket } from "@stubwise/notifications";
 import type { ProjectPermission } from "@stubwise/shared";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { mirrorDecision, propagateHandled } from "./notifications-propagation.js";
 import { getContentLanguage } from "../settings.js";
 
 /**
@@ -38,11 +39,16 @@ export type CancelRunResult =
 
 export async function cancelRun(
   db: Db,
-  input: { ticketId: string; actor: { id: string; email: string; permissions: ReadonlySet<ProjectPermission> } },
+  input: {
+    ticketId: string;
+    actor: { id: string; email: string; permissions: ReadonlySet<ProjectPermission> };
+    log?: { warn: (obj: object, msg: string) => void };
+  },
 ): Promise<CancelRunResult> {
-  const { ticketId, actor } = input;
+  const { ticketId, actor, log } = input;
   if (!actor.permissions.has("runs.start")) return { ok: false, error: "forbidden" };
   const lang = await getContentLanguage(db);
+  const closedCards: string[] = [];
   const result = await db.transaction(async (tx): Promise<CancelRunResult> => {
     // Lo stesso lock del ticket di `startRun`: un avvio e un annullamento non si incrociano.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${ticketId}))`);
@@ -63,6 +69,19 @@ export async function cancelRun(
       .returning({ id: aiJobs.id });
     if (closed.length === 0) return { ok: false, error: "run_in_progress" };
     if (latest.correctionId) await completeCorrection(tx, latest.correctionId);
+    // Un'altra uscita da `awaiting_input` (e dal gate): le card che aspettavano
+    // una risposta o una decisione si chiudono QUI, attribuite a chi annulla —
+    // non sono archiviabili, e resterebbero aperte per sempre
+    // (`packages/notifications/src/actions.ts`). Solo quei due kind: un
+    // `job.failed` di prima dello stesso job non c'entra.
+    for (const kind of ["job.awaiting_input", "job.plan_review"] as const) {
+      closedCards.push(...(await propagateHandled(tx, { jobId: latest.id, kind }, actor.id)));
+    }
+    // La domanda aperta si chiude come ANNULLATA, distinta da una risposta.
+    await tx
+      .update(agentQuestions)
+      .set({ cancelledAt: sql`now()` })
+      .where(and(eq(agentQuestions.jobId, latest.id), isNull(agentQuestions.answeredAt), isNull(agentQuestions.cancelledAt)));
     const body = [
       t(lang, "comment.runCancelled.head", { who: actor.email }),
       t(lang, latest.correctionId ? "comment.agentStopCancelled.correction" : "comment.agentStopCancelled.fix"),
@@ -70,6 +89,20 @@ export async function cancelRun(
     await tx.insert(comments).values({ ticketId, authorType: "system", body });
     return { ok: true };
   });
-  if (result.ok) await promotePendingForTicket(db, ticketId);
+  if (result.ok) {
+    // Dopo il commit, e mai a costo dell'annullamento già fatto: un errore qui
+    // si registra e basta (la pending la ripesca il tick del worker, il DM
+    // Slack resta da riscrivere).
+    try {
+      await promotePendingForTicket(db, ticketId);
+    } catch (error) {
+      log?.warn({ err: error, ticketId }, "cancel-run: promozione della pending non riuscita");
+    }
+    if (closedCards.length > 0) {
+      await mirrorDecision(db, { notificationIds: closedCards, action: "handled", actorId: actor.id }).catch((error: unknown) =>
+        log?.warn({ err: error, ticketId }, "cancel-run: rispecchiamento delle card non riuscito"),
+      );
+    }
+  }
   return result;
 }

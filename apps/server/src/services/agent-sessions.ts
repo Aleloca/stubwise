@@ -826,7 +826,8 @@ async function agentQuestionsOf(
     options: q.options,
     recommendedIndex: q.recommendedIndex ?? undefined,
     allowFreeText: q.allowFreeText,
-    canAnswer: q.answeredAt === null && mayAnswer,
+    canAnswer: q.answeredAt === null && q.cancelledAt === null && mayAnswer,
+    cancelled: q.cancelledAt !== null,
     ticketId: q.ticketId,
     answer: q.answeredAt !== null ? storedAnswerOf(q.answer) : null,
   }));

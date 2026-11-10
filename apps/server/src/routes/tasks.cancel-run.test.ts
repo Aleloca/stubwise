@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { aiJobs, comments, prCorrections, ticketRepositories, tickets } from "@stubwise/db";
+import { agentQuestions, agentSessions, aiJobs, comments, notifications, prCorrections, ticketRepositories, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { taskWorkViewSchema } from "@stubwise/shared";
@@ -79,6 +79,51 @@ describe("POST /api/tasks/:id/cancel-run", () => {
       expect(work.runs.at(-1)).toMatchObject({ state: "finished", outcome: "stopped" });
       expect(work.actions.relaunch).toBe("allowed");
     }
+  });
+
+  it("dopo l'annullamento le notifiche sono handled (da chi ha annullato) e la domanda non è più aperta, distinta da una risposta", async () => {
+    const { ticketId, jobId } = await taskWithJob("awaiting_input");
+    const [q] = await testDb.db
+      .insert(agentQuestions)
+      .values({ jobId, ticketId, round: 1, question: "Quale database?", options: [{ label: "A" }] })
+      .returning({ id: agentQuestions.id });
+    const card = (kind: "job.awaiting_input" | "job.plan_review" | "job.failed") => ({
+      userId: developer.id,
+      projectId,
+      ticketId,
+      jobId,
+      kind,
+      event: { kind },
+    });
+    await testDb.db.insert(notifications).values([card("job.awaiting_input"), card("job.plan_review"), card("job.failed")]);
+    expect((await cancel(ticketId, developer)).statusCode).toBe(200);
+    const rows = await testDb.db
+      .select({ kind: notifications.kind, status: notifications.status, by: notifications.handledByUserId })
+      .from(notifications)
+      .where(eq(notifications.jobId, jobId));
+    expect(rows.find((r) => r.kind === "job.awaiting_input")).toMatchObject({ status: "handled", by: developer.id });
+    expect(rows.find((r) => r.kind === "job.plan_review")).toMatchObject({ status: "handled", by: developer.id });
+    // Un'altra notifica dello stesso job (il fallimento di ieri) non si tocca.
+    expect(rows.find((r) => r.kind === "job.failed")).toMatchObject({ status: "open" });
+    const [question] = await testDb.db.select().from(agentQuestions).where(eq(agentQuestions.id, q!.id));
+    expect(question!.cancelledAt).not.toBeNull();
+    expect(question!.answeredAt).toBeNull();
+    expect(question!.answer).toBeNull();
+  });
+
+  it("nel dettaglio della sessione la domanda annullata si legge cancelled, non risposta né da rispondere", async () => {
+    const { ticketId, jobId } = await taskWithJob("awaiting_input");
+    await testDb.db.insert(agentQuestions).values({ jobId, ticketId, round: 1, question: "Q?", options: [{ label: "A" }] });
+    const [session] = await testDb.db
+      .insert(agentSessions)
+      .values({ ownerKey: `ai_job:${jobId}`, kind: "ai_job", title: "Lavoro", aiJobId: jobId, ticketId, projectId })
+      .returning({ id: agentSessions.id });
+    expect((await cancel(ticketId, developer)).statusCode).toBe(200);
+    const detail = await app.inject({ method: "GET", url: `/api/agent-sessions/${session!.id}`, headers: { cookie: developer.headers.cookie } });
+    expect(detail.statusCode, detail.body).toBe(200);
+    expect((detail.json() as { questions: unknown[] }).questions).toEqual([
+      expect.objectContaining({ answered: false, cancelled: true, canAnswer: false }),
+    ]);
   });
 
   it("chi non ha runs.start → 403 e niente cambia", async () => {

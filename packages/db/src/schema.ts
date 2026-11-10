@@ -3710,6 +3710,8 @@ export const agentQuestions = pgTable(
     answeredByUserId: uuid("answered_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    // Fetta 3b (0123): chiusa senza risposta perché il lavoro è stato annullato.
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
   },
   (table) => [
     // Una sola domanda APERTA per job. Indice unico PARZIALE: le domande già

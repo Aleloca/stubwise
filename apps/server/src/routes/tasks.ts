@@ -575,6 +575,7 @@ export async function taskRoutes(instance: FastifyInstance): Promise<void> {
       const result = await cancelRun(app.db, {
         ticketId,
         actor: { id: request.user!.id, email: request.user!.email, permissions },
+        log: request.log,
       });
       if (!result.ok) {
         if (result.error === "forbidden") return apiError(reply, 403, "forbidden", "Missing permission");

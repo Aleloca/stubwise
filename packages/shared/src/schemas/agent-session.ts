@@ -287,6 +287,12 @@ export const agentSessionQuestionSchema = z.object({
    * come prima.
    */
   answer: agentQuestionAnswerSchema.nullable().default(null),
+  /**
+   * Chiusa SENZA risposta perché il lavoro è stato annullato (area 3, fetta
+   * 3b, `agent_questions.cancelled_at`): non è più da rispondere, e non è una
+   * risposta. Additivo: un server più vecchio non lo manda.
+   */
+  cancelled: z.boolean().default(false),
 });
 export type AgentSessionQuestion = z.infer<typeof agentSessionQuestionSchema>;
 
