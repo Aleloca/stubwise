@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { backlogItemStatusSchema, backlogUrgencySchema } from "./backlog.js";
+import { backlogItemStatusSchema, backlogJobStatusSchema, backlogUrgencySchema } from "./backlog.js";
 import { taskSizeSchema } from "./task-view.js";
 
 /**
@@ -100,7 +100,8 @@ export type NewRequestBody = z.infer<typeof newRequestBodySchema>;
 
 /** L'esito dell'intake di una richiesta creata dall'app: nuova, o fusa in una esistente. */
 export const requestJobViewSchema = z.object({
-  status: z.enum(["queued", "running", "done", "failed"]),
+  /** Lo stato del job di intake: lo stesso enum dei job di backlog, non una copia. */
+  status: backlogJobStatusSchema,
   /** null finché il job non è finito (o se è fallito). */
   outcome: z.enum(["created", "merged"]).nullable(),
   request: projectRequestViewSchema.nullable(),

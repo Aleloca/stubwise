@@ -167,7 +167,13 @@ export type RepositorySaveResponse = z.infer<typeof repositorySaveResponseSchema
  * numerazione ticket per-progetto (`nextTicketNumber`). `description` è opzionale
  * (null = assente).
  */
-/** Codice di progetto: `^[A-Z][A-Z0-9]{1,5}$`, unico (0107). */
+/**
+ * Codice di progetto: `^[A-Z][A-Z0-9]{1,5}$`, unico (0107). È la regola LARGA,
+ * quella della VALIDAZIONE del server (creazione e PATCH): copre i codici dei
+ * progetti di prima, ricavati dagli slug. La regola stretta delle 2–4 lettere
+ * (`PROJECT_CODE_RE`, `tasks/project-code.ts`) è solo della proposta e del
+ * dialogo «Nuovo progetto».
+ */
 export const projectCodeSchema = z.string().regex(/^[A-Z][A-Z0-9]{1,5}$/);
 
 /** Fetta 4: il modello di un progetto e i suoi moduli (`tasks/templates.ts`). */
