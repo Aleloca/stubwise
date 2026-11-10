@@ -33,6 +33,8 @@ describe("activityForDateSchema", () => {
           project: { id: PROJECT_ID, name: "Portale B2B", slug: "portale-b2b" },
           status: "done",
           summary: "Sistemato il checkout, 3 commit.",
+          // Dalla fetta 3d dell'integrazione area 3: i commit arrivati dopo il report.
+          staleCommitCount: 0,
         },
       ],
     });
@@ -49,5 +51,14 @@ describe("activityForDateSchema", () => {
   it("un giorno senza report ha una lista progetti vuota", () => {
     const parsed = activityForDateSchema.parse({ date: "2026-09-01", projects: [] });
     expect(parsed.projects).toEqual([]);
+  });
+
+  it("staleCommitCount è nuovo: senza il campo vale 0, con il campo il suo valore", () => {
+    const project = { project: { id: PROJECT_ID, name: "X", slug: "x" }, status: "done", summary: "x" };
+    expect(activityForDateSchema.parse({ date: "2026-09-01", projects: [project] }).projects[0]!.staleCommitCount).toBe(0);
+    expect(
+      activityForDateSchema.parse({ date: "2026-09-01", projects: [{ ...project, staleCommitCount: 3 }] }).projects[0]!
+        .staleCommitCount,
+    ).toBe(3);
   });
 });

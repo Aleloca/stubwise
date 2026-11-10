@@ -40,6 +40,8 @@ describe("endpoint activity", () => {
         project: { id: "11111111-1111-4111-8111-111111111111", name: "Portale B2B", slug: "portale-b2b" },
         status: "done",
         summary: "3 commit, un fix.",
+        // Dalla fetta 3d (area 3): assente nella risposta, vale 0.
+        staleCommitCount: 0,
       },
     ]);
   });

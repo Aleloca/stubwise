@@ -121,3 +121,5 @@ export {
   stop,
   stopAndSend,
 } from "./claudeActions";
+// Fetta 3d: «By person» di Activity (lo standup aggregato dal server) e i report del giorno.
+export { listDailyReports, listPeopleActivity } from "./peopleActivity";

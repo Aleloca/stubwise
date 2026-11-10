@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -307,7 +308,9 @@ export function PeopleActivity({
   const [generating, setGenerating] = useState<ReadonlySet<string>>(new Set());
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
-  const canGenerate = can(viewer, "settings.manage");
+  // Nella build app il server rigenera i report di tutti i progetti insieme
+  // (`POST /api/activity/generate`), non di uno: il gesto per progetto è spento.
+  const canGenerate = can(viewer, "settings.manage") && featureIntegrated("daily-report-generate");
 
   // `[` e `]` cambiano giorno, J/K passano fra le persone. Niente scrivendo,
   // né con un dialogo o un menu aperti.
@@ -1090,7 +1093,8 @@ function UnlinkedGroup({
   const { viewer } = useViewer();
   const toast = useToast();
   const link = useLinkCommitAuthor();
-  const canLink = can(viewer, "users.manage");
+  // Collegare un autore di commit a una persona non ha ancora una rotta nella build app.
+  const canLink = can(viewer, "users.manage") && featureIntegrated("commit-author-link");
   const candidates = people.filter((p) => !p.isClaude);
   const title = t("projects.people.unlinked");
   return (

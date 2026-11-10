@@ -67,7 +67,7 @@ export type LocalProjectPermission =
 
 /**
  * Permessi d'istanza che vivono solo nel prototipo: vedere le conversazioni
- * pubbliche con Claude e l'attività delle persone (area 3), creare e gestire
+ * pubbliche con Claude (area 3; l'attività delle persone, `people.activity.view`, è nel registro dall'integrazione area 3, fetta 3d), creare e gestire
  * i canali generali della Chat (area 4), gestire le automazioni generali
  * (area 7: stesso nome del permesso di progetto, vedi `can`), collegare,
  * verificare, rigenerare e revocare gli accessi SSH dei server (area 8b,
@@ -78,7 +78,6 @@ export type LocalProjectPermission =
  */
 export type LocalInstancePermission =
   | "claude.public.view"
-  | "people.activity.view"
   | "chat.general.create"
   | "chat.general.manage"
   | "automations.manage"
