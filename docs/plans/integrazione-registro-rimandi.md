@@ -61,6 +61,18 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   registrate sui messaggi (oggi solo i codici nel testo) *(O)*. Menzioni,
   riquadro come chat e ⌘J/⌘K: chiuse (sotto).
 - Azioni delle altre aree: entrano **con la loro area** (sotto) *(O)*.
+- **Limiti della fetta 5 (server e worker)** *(S, stubwise-72, 10 nov 2026)*:
+  - **Ordine di «Public».** Si ordina per `updated_at`: il messaggio
+    dell'autore in una pubblica fa salire la riga anche se il turno resta
+    privato. Si vede che c'è attività, non il contenuto.
+  - **Progetti letti o toccati (D2).** Non vede ciò che Claude ricava senza
+    citarlo né leggerlo per codice o per id, cioè gli elenchi generici; la
+    responsabilità resta della conferma dell'autore.
+  - **La trascrizione dell'originale di una continuazione** è un'istantanea
+    presa al «Continua» (`origin_transcript`), non letta dal vivo. Ha un tetto
+    di 40 messaggi e 12.000 caratteri.
+  - **La prosa di Claude** resta com'è, e un codice invisibile si mostra come
+    testo (R-G5, il renderer).
 - **La classe C (riconferma) arriva con l'area 9** *(S, 10 nov 2026)*: la
   fetta 4 della chat per ora è vuota. Nel prototipo una C è un'azione la cui
   funzione sta in `REAUTH_REQUIRED` (`data/auth/reauth.ts`): sono solo

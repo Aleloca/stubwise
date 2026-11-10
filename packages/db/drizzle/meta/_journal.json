@@ -939,6 +939,13 @@
       "when": 1795910400000,
       "tag": "0133_claude_public_conversations",
       "breakpoints": true
+    },
+    {
+      "idx": 134,
+      "version": "7",
+      "when": 1795996800000,
+      "tag": "0134_claude_continuation_origin",
+      "breakpoints": true
     }
   ]
 }

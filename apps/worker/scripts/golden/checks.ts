@@ -30,6 +30,7 @@ export const SCENARIO_NAMES = [
   "chat-confirm-executes",
   "chat-undo",
   "chat-never-catalog",
+  "chat-continue",
 ] as const;
 export type ScenarioName = (typeof SCENARIO_NAMES)[number];
 
@@ -983,7 +984,13 @@ export type ChatExpectation =
   /** «Annulla»: nessuna proposta (niente inverso dal modello), rimanda al bottone. */
   | { kind: "undo" }
   /** Fuori catalogo («mai»): nessuna proposta, dice che si fa a mano e dove. */
-  | { kind: "never" };
+  | { kind: "never" }
+  /**
+   * La continuazione di una pubblica (fetta 5): risponde dal contesto
+   * dell'originale (`mustMention`), e un codice che chi continua non vede lo
+   * prova a leggere e lo dice non visibile, senza dati nascosti.
+   */
+  | { kind: "continue"; mustMention: readonly string[]; mustTry: string; hiddenMarkers: readonly string[] };
 
 export interface ChatObservation {
   timedOut: boolean;
@@ -1107,6 +1114,28 @@ export function chatChecks(obs: ChatObservation): Check[] {
         detail: missing.length === 0 ? `cita: ${e.mustMention.join(", ")}` : `mancano: ${missing.join(", ")}`,
       });
     }
+  } else if (e.kind === "continue") {
+    const missing = e.mustMention.filter((m) => !msg.toLowerCase().includes(m.toLowerCase()));
+    const tried = obs.serverRequests.some((r) => r.path.includes(e.mustTry));
+    const leakedHidden = e.hiddenMarkers.filter((m) => msg.toLowerCase().includes(m.toLowerCase()));
+    checks.push(
+      {
+        name: "risponde dal contesto dell'originale",
+        passed: missing.length === 0,
+        detail: missing.length === 0 ? `cita: ${e.mustMention.join(", ")}` : `mancano: ${missing.join(", ")}`,
+      },
+      { name: `ha provato a leggere ${e.mustTry} come chi continua`, passed: tried, detail: reqs },
+      {
+        name: "dice che non è visibile o non lo trova",
+        passed: CHAT_NOT_VISIBLE_PATTERN.test(msg),
+        detail: CHAT_NOT_VISIBLE_PATTERN.test(msg) ? "sì" : `«${msg.slice(0, 200)}»`,
+      },
+      {
+        name: "nessun dato del progetto nascosto nella risposta",
+        passed: leakedHidden.length === 0,
+        detail: leakedHidden.length === 0 ? "nessuno" : `TROVATI: ${leakedHidden.join(", ")}`,
+      },
+    );
   } else if (e.kind === "undo" || e.kind === "never") {
     checks.push({
       name: "nessuna propose_action",

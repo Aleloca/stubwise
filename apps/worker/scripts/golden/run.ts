@@ -2218,7 +2218,11 @@ async function runChat(
   scenario: Exclude<Extract<ScenarioName, `chat-${string}`>, "chat-resume">,
   opening: string,
   expectation: ChatExpectation,
-  opts: { answer?: ChatProposalAnswer; recentTranscript?: { role: "user" | "agent"; text: string }[] } = {},
+  opts: {
+    answer?: ChatProposalAnswer;
+    recentTranscript?: { role: "user" | "agent"; text: string }[];
+    origin?: { title: string; authorName: string; messages: { role: "user" | "agent"; text: string }[] };
+  } = {},
 ): Promise<ScenarioResult> {
   const tag = `[${scenario}]`;
   const fake = await startFakeChatServer(opts.answer);
@@ -2255,7 +2259,14 @@ async function runChat(
   const sessionId = randomUUID();
   const openingInputId = randomUUID();
   const prompt = ctx.rt.buildChatPrimingPrompt(
-    { language: LANG, authorName: "Ada", context: null, toolsAvailable: true, recentTranscript: opts.recentTranscript ?? [] },
+    {
+      language: LANG,
+      authorName: "Ada",
+      context: null,
+      toolsAvailable: true,
+      recentTranscript: opts.recentTranscript ?? [],
+      ...(opts.origin ? { origin: opts.origin } : {}),
+    },
     opening,
   );
   const startedAt = Date.now();
@@ -2502,6 +2513,30 @@ const runChatNeverCatalog = (ctx: ScenarioContext) =>
     answer: { executed: ["AUD-12"] },
   });
 
+/**
+ * `chat-continue` (fetta 5, F5.3): la continuazione di una pubblica di Luca
+ * Bassi. L'originale (solo prosa, come lo prepara il server) dice chi segue
+ * AUD-12 e nomina ACQ-7, che Ada NON vede: Claude risponde su AUD-12 dal
+ * contesto, prova a leggere ACQ-7 come Ada e lo dice non visibile, senza dati.
+ */
+const runChatContinue = (ctx: ScenarioContext) =>
+  runChat(
+    ctx,
+    "chat-continue",
+    "Riprendo questa conversazione: chi segue AUD-12? E a che punto è ACQ-7, di cui parlavate?",
+    { kind: "continue", mustMention: ["Marta"], mustTry: "ACQ", hiddenMarkers: CHAT_HIDDEN_MARKERS },
+    {
+      origin: {
+        title: "Stato delle esportazioni",
+        authorName: "Luca Bassi",
+        messages: [
+          { role: "user", text: "Chi segue AUD-12? E ACQ-7?" },
+          { role: "agent", text: "AUD-12 «Export CSV dei contatti» la segue Marta Rinaldi, è in revisione. ACQ-7 l'ho guardata: è ferma." },
+        ],
+      },
+    },
+  );
+
 const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<ScenarioResult>> = {
   "plan-only": runPlanOnly,
   "ask-user": runAskUser,
@@ -2522,6 +2557,7 @@ const SCENARIOS: Record<ScenarioName, (ctx: ScenarioContext) => Promise<Scenario
   "chat-confirm-executes": runChatConfirmExecutes,
   "chat-undo": runChatUndo,
   "chat-never-catalog": runChatNeverCatalog,
+  "chat-continue": runChatContinue,
 };
 
 /* ------------------------------------------------------------------ *

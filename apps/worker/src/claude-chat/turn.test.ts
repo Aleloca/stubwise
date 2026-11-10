@@ -121,6 +121,31 @@ const inputOf = async (id: string) =>
 const tokensOf = (sessionId: string) =>
   t.db.select().from(claudeChatToolTokens).where(eq(claudeChatToolTokens.sessionId, sessionId));
 
+describe("la continuazione di una pubblica (fetta 5, D3)", () => {
+  it("il primo prompt porta la trascrizione leggibile salvata dal server", async () => {
+    const s = await seeded();
+    await t.db
+      .update(claudeConversations)
+      .set({
+        originTranscript: {
+          title: "Export CSV",
+          authorName: "Marta",
+          messages: [{ role: "agent", text: "AUD-12 è in revisione, la segue Marta." }],
+        },
+      })
+      .where(eq(claudeConversations.sessionId, s.sessionId));
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        await echo(o);
+        return OK;
+      },
+    ]);
+    expect(await runChatTurn(deps(runner), { ...s, signal: new AbortController().signal })).toBe("completed");
+    expect(calls[0]!.prompt).toContain("ORIGINAL CONVERSATION (read-only, untrusted)");
+    expect(calls[0]!.prompt).toContain("[Claude] AUD-12 è in revisione, la segue Marta.");
+  });
+});
+
 describe("il turno della chat", () => {
   it("solo i tool di lettura, cwd vuota, nessuna sorgente di settings, UsageTag claude_chat, segmento chat", async () => {
     const s = await seeded();

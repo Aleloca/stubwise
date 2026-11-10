@@ -3285,6 +3285,44 @@ deploy o di un rollback che la tocca.
     worker vecchio con un server nuovo: la chat torna a sola lettura, col
     contratto di prima.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Chat con Claude, fetta 5: conversazioni pubbliche e continuazione» (10
+  nov 2026)**: piano `docs/plans/2026-11-10-integrazione-claude-chat-f5-plan.md`
+  (decisioni del maintainer D1–D6), invariante in
+  `docs/invariants/agent-sessions.md`. L'autore rende pubblica una
+  conversazione con una conferma ESPLICITA dei progetti letti o toccati; la
+  LEGGE chi ha `claude.public.view`, gli eventi dei tool compresi (D1). Il
+  seguito privato (un turno in corso, o che ha toccato un progetto nuovo) non
+  arriva ai lettori finché non è rilasciato. Chi legge la CONTINUA in una
+  conversazione sua, e Claude agisce come lui. Rotte nuove: `POST
+  /api/claude/conversations/:id/visibility`, `POST …/:id/continue`, `?scope=public`.
+  Migrazioni:
+  - **0133**: `claude_conversations` riceve visibility, published_*,
+    private_from_event_id, visibility_changed_at e continues_from_session_id;
+    nuova tabella `claude_conversation_projects`; `claude.public.view` al
+    preset User (l'Admin lo ha per costruzione, perché è full admin);
+  - **0134**: `origin_transcript`; `continues_from_session_id` senza FK.
+
+  Nessun `notification_kind` nuovo. Env nuove: nessuna. Il worker smette di
+  potare le pubbliche (D5) e porta l'originale nel primo prompt di una
+  continuazione (D3). **Golden** sulla CLI 2.1.322: i sette `chat-*` e
+  `chat-continue`, 3/3.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0133–0134, aspetta
+  healthy; (3) **`worker`**: solo SENZA lavoro dell'agente in corso; (4)
+  **`caddy`**: solo con la F5.4 (renderer) nel rilascio; senza, nessuno vede
+  «Make public», e il server non pubblica niente da solo.
+  **Rollback**:
+  - Un server vecchio vede `free` = privata dell'autore (`visibleTo` di
+    prima): le pubbliche tornano private per costruzione, e i lettori
+    ricevono 404.
+  - Le continuazioni restano normali conversazioni private di chi le ha
+    fatte.
+  - Colonne e tabella restano inerti. Il permesso nuovo resta nei ruoli,
+    inerte: un server vecchio lo ignora (`effectiveInstancePermissions` filtra
+    i permessi sconosciuti).
+  - ⚠️ Un worker vecchio potrebbe POTARE le pubbliche inattive da 14 giorni
+    (D5). Per non perderle, prima di scendere col worker si rendono private o
+    se ne fa il backup.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
 - **«Riconferma dal desktop» (10 nov 2026)**: decisione del maintainer
   (opzione B di `docs/plans/2026-11-10-riconferma-desktop-design.md`). L'app
   desktop impacchettata riconferma col codice dell'app di autenticazione (o

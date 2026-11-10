@@ -12,6 +12,7 @@ import {
   claudeConversationListSchema,
   claudeConversationSchema,
   claudeVisibilityConfirmationSchema,
+  continueClaudeConversationSchema,
   createClaudeConversationSchema,
   patchClaudeConversationSchema,
   setClaudeConversationVisibilitySchema,
@@ -21,6 +22,7 @@ import {
   createClaudeConversation,
   deleteClaudeConversation,
   getClaudeConversation,
+  continueClaudeConversation,
   listClaudeConversations,
   patchClaudeConversation,
   setClaudeConversationVisibility,
@@ -109,6 +111,30 @@ export async function claudeConversationRoutes(instance: FastifyInstance): Promi
       const updated = await patchClaudeConversation(app.db, request.user!, request.params.id, request.body);
       if (!updated) return apiError(reply, 404, "not_found", "Conversation not found");
       return updated;
+    },
+  );
+
+  /**
+   * «Continua» (fetta 5, F5.3): una pubblica di un altro diventa una
+   * conversazione NUOVA, privata, di chi continua. 404 se non la vede, 409 se
+   * è sua, privata o archiviata.
+   */
+  app.post(
+    "/:id/continue",
+    {
+      config: { access: ACCESS },
+      schema: {
+        params: idParams,
+        body: continueClaudeConversationSchema,
+        response: { 201: claudeConversationSchema, 404: errorSchema, 409: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const result = await continueClaudeConversation(app.db, request.user!, request.params.id, request.body);
+      if (result.ok) return reply.code(201).send(result.conversation);
+      if (result.error === "not_found") return apiError(reply, 404, "not_found", "Conversation not found");
+      if (result.error === "not_public") return apiError(reply, 409, "not_public", "Only someone else's public conversation can be continued");
+      return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
     },
   );
 
