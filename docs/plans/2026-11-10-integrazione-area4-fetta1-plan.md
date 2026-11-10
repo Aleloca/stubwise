@@ -113,7 +113,7 @@ Fuori dalla fetta 1, nelle fette dopo:
     da autore della radice, da chi risponde o da chi viene nominato; chi
     segue può smettere.
   - `chat_channel_prefs`: `(user_id, channel_id, level)`.
-  - Il «general» di ogni progetto esistente non archiviato, con i
+  - Il «general» di ogni progetto esistente (il server non archivia i progetti), con i
     `published_events` predefiniti (D8).
   - I 4 permessi ai preset (D3), con `distinct unnest` come la 0114.
 - **Migrazione 0136**: `ALTER TYPE notification_kind ADD VALUE

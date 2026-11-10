@@ -126,6 +126,8 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   // Mai consultati: pianificazione e assegnazione sono personali (fetta 2).
   "planning.changed": "notifyGoogleProposal",
   "task.assigned": "notifyGoogleProposal",
+  // Mai consultato: una menzione è personale (audience `account_owner`).
+  "chat.mention": "notifyGoogleProposal",
 };
 
 /** Una transazione drizzle aperta su `Db` (il `tx` di `db.transaction`). */

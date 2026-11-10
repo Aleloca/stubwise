@@ -61,6 +61,7 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
   "ticket.activity": "push.title.ticket.activity",
   "planning.changed": "push.title.planning.changed",
   "task.assigned": "push.title.task.assigned",
+  "chat.mention": "push.title.chat.mention",
 };
 
 /**

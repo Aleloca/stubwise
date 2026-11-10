@@ -733,6 +733,16 @@ export interface InboxItem extends ViaClaudeFields {
   taskCode: string | null;
   /** La task della card è stata eliminata (dalla lapide, a lettura). */
   objectGone: boolean;
+  /** Area 4, Chat: solo `chat.mention`, il messaggio come lo vede chi legge (`readChatMention`). */
+  chat?: {
+    channelId: string;
+    channelName: string;
+    messageId: string;
+    threadRootId: string | null;
+    authorId: string | null;
+    authorName: string;
+    excerpt: string;
+  } | null;
   jobId: string | null;
   createdAt: Date;
   readAt: Date | null;

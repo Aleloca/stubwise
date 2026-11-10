@@ -1572,6 +1572,7 @@
         "docs": "Docs",
         "code": "Code and environments",
         "credentials": "Credentials",
+        "chat": "Chat",
         "departmentHome": "Department Home"
       },
       "fullAdminHint": "Full administration includes every permission, on every project.",
@@ -1711,7 +1712,8 @@
       "decisionAnswered": "Your question has an answer",
       "ticketActivity": "Activity on a followed task",
       "planningChanged": "Your plan changed",
-      "taskAssigned": "Assigned to you"
+      "taskAssigned": "Assigned to you",
+      "chatMention": "Mentioned in the chat"
     },
     "actions": {
       "approvePlan": "Approve plan",
@@ -3393,6 +3395,16 @@
       "claude": {
         "public": {
           "view": "Read public conversations with Claude"
+        }
+      },
+      "chat": {
+        "general": {
+          "create": "Create general chat channels",
+          "manage": "Manage general chat channels"
+        },
+        "channels": {
+          "create": "Create chat channels in the project",
+          "manage": "Manage the project's chat channels"
         }
       },
       "roles": {

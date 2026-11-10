@@ -218,6 +218,8 @@ const CATALOG_FOR_KIND: Record<
   // Fetta 2: si legge e si apre la task; si ripianifica dal Planning.
   "planning.changed": { decisions: [], permission: null, archivable: true },
   "task.assigned": { decisions: [], permission: null, archivable: true },
+  // Area 4, Chat: si legge e si apre il messaggio; si risponde nella Chat.
+  "chat.mention": { decisions: [], permission: null, archivable: true },
 };
 
 /**
@@ -469,6 +471,10 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "planning.changed":
     case "task.assigned":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/tickets/${event.ticketId}` : "";
+    // Area 4, Chat: il messaggio nell'app nuova (la Chat vive solo lì, D9),
+    // DERIVATO a lettura. L'inbox lo sovrascrive col canale che chi legge vede.
+    case "chat.mention":
+      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/chat/${event.channelId}?message=${event.chatMessageId}` : "";
     case "ticket.created":
     case "job.pr_closed":
     case "job.held":

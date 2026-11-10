@@ -52,6 +52,9 @@ export const notificationKindSchema = z.enum([
   "ticket.activity",
   "planning.changed",
   "task.assigned",
+  // Area 4, Chat (fetta 1): una menzione diretta `@Nome` in un canale che chi
+  // la riceve legge. Titolo, testo e link si DERIVANO a lettura.
+  "chat.mention",
 ]);
 
 /**
@@ -725,6 +728,24 @@ export const inboxItemSchema = z.object({
    * resta com'era, senza link (`url` assente) e con «Task eliminata».
    */
   objectGone: z.boolean().default(false),
+  /**
+   * Area 4, Chat (fetta 1): solo sulle card `chat.mention`, il messaggio che
+   * nomina chi legge, DERIVATO a lettura (canale, thread, chi scrive, un
+   * estratto). `null` per gli altri kind, un messaggio eliminato o un canale
+   * che chi legge non vede più (allora `objectGone`). Additivo.
+   */
+  chat: z
+    .object({
+      channelId: z.uuid(),
+      channelName: z.string(),
+      messageId: z.uuid(),
+      threadRootId: z.uuid().nullable(),
+      authorId: z.uuid().nullable(),
+      authorName: z.string(),
+      excerpt: z.string(),
+    })
+    .nullable()
+    .default(null),
   jobId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
   readAt: z.iso.datetime().nullable(),

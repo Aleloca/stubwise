@@ -810,6 +810,22 @@ export interface TaskAssignedEvent {
   actorUserId: string | null;
 }
 
+/**
+ * Area 4, Chat (fetta 1): una menzione diretta `@Nome` in un canale che chi la
+ * riceve legge (audience: solo lui, la decide la scrittura). Nel jsonb solo
+ * gli id e i nomi di ALLORA per le frasi fuori dall'app (push): l'inbox
+ * DERIVA canale, estratto, link e `objectGone` a lettura.
+ */
+export interface ChatMentionEvent {
+  kind: "chat.mention";
+  chatMessageId: string;
+  channelId: string;
+  channelName: string;
+  projectId: string | null;
+  authorUserId: string | null;
+  authorName: string;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -835,7 +851,8 @@ export type NotificationEvent =
   | DecisionAnsweredEvent
   | TicketActivityEvent
   | PlanningChangedEvent
-  | TaskAssignedEvent;
+  | TaskAssignedEvent
+  | ChatMentionEvent;
 
 /**
  * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`,
@@ -858,7 +875,8 @@ type NonTicketedEvent =
   | DecisionAnsweredEvent
   | TicketActivityEvent
   | PlanningChangedEvent
-  | TaskAssignedEvent;
+  | TaskAssignedEvent
+  | ChatMentionEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -884,7 +902,8 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "decision.answered" &&
     event.kind !== "ticket.activity" &&
     event.kind !== "planning.changed" &&
-    event.kind !== "task.assigned"
+    event.kind !== "task.assigned" &&
+    event.kind !== "chat.mention"
   );
 }
 
@@ -948,6 +967,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "ticket.activity": "👀",
   "planning.changed": "🗓️",
   "task.assigned": "📌",
+  "chat.mention": "💬",
 };
 
 /**
@@ -1075,6 +1095,7 @@ function linkParam(
     case "ticket.activity":
     case "planning.changed":
     case "task.assigned":
+    case "chat.mention":
       // Il link si DERIVA a lettura (`openUrl`), e le frasi non hanno `{link}`.
       return "";
   }
@@ -1111,6 +1132,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   // Il template vero lo sceglie `templateKey` per cosa è cambiato.
   "planning.changed": "notify.planningChanged.moved",
   "task.assigned": "notify.taskAssigned",
+  "chat.mention": "notify.chatMention",
 };
 
 const TICKET_ACTIVITY_KEY: Record<TicketActivityChange, string> = {
@@ -1356,6 +1378,9 @@ function textParams(
     if (event.kind === "task.assigned") {
       return { ref: taskRef(event) };
     }
+    if (event.kind === "chat.mention") {
+      return { author: event.authorName, channel: event.channelName };
+    }
     if (event.kind === "ticket.activity") {
       return {
         ref: taskRef(event),
@@ -1438,6 +1463,8 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   "google.proposal_handed": ["from", "subject"],
   // L'ultimo errore è testo di un processo esterno (output del CLI/git).
   "docs.nightly_attention": ["lastError", "key"],
+  // Il nome di chi scrive e quello del canale li scelgono le persone.
+  "chat.mention": ["author", "channel"],
   // Email e titolo li scrive il collaboratore (e il titolo, via widget, chiunque).
   "request.created": ["email", "title"],
   // L'email di chi ha agito la scrive un utente al proprio account.
@@ -1637,6 +1664,15 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         event: event.kind,
         subject: event.subject,
         actorEmail: event.actorEmail,
+        message: formatNotificationText(event, lang),
+      };
+    }
+    if (event.kind === "chat.mention") {
+      // Mai consegnato al webhook (`account_owner`): il ramo c'è per l'esaustività.
+      return {
+        event: event.kind,
+        channelId: event.channelId,
+        chatMessageId: event.chatMessageId,
         message: formatNotificationText(event, lang),
       };
     }
@@ -2054,6 +2090,15 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
       projectCode: "NEG",
       actorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+    },
+    {
+      kind: "chat.mention",
+      chatMessageId: "8d2e3f40-bbbb-4ccc-8ddd-eeeeffff0000",
+      channelId: "9e3f4051-cccc-4ddd-8eee-ffff00001111",
+      channelName: "general",
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      authorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
+      authorName: "Marta Rinaldi",
     },
   ];
 }

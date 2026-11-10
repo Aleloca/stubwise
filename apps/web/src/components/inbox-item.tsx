@@ -62,6 +62,7 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   // Fetta 2: pianificazione cambiata da altri, task ricevuta da altri.
   "planning.changed": "inbox:kinds.planningChanged",
   "task.assigned": "inbox:kinds.taskAssigned",
+  "chat.mention": "inbox:kinds.chatMention",
 };
 
 /**
