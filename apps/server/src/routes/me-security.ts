@@ -85,7 +85,10 @@ const errorResponses = {
  *   nome di una passkey no. Si tocca solo ciò che è PROPRIO: la passkey di un
  *   altro risponde 404 come una che non esiste.
  *
- * Un PAT non riconferma mai: 403 `session_required`, come le rotte sensibili.
+ * Un PAT non riconferma mai qui: 403 `session_required`, come le rotte
+ * sensibili. Il PAT desktop riconferma con `POST /api/auth/desktop-reauth`, e
+ * nella sua finestra passa il gate delle rotte con `reauth` (non le passkey,
+ * `browserOnly`).
  */
 export async function meSecurityRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
@@ -221,9 +224,15 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
     },
     async (request, reply) => {
       const user = request.user!;
-      // Il gate ha già escluso i PAT: qui c'è sempre una sessione.
-      const sessionId = user.sessionId!;
+      // Il gate lascia passare una sessione o il PAT desktop riconfermato
+      // (10 nov 2026). Il PAT desktop arriva solo con un'app già configurata
+      // (`applyReauth`), quindi solo per la «riconfigura app»: la sessione serve
+      // soltanto alla prima configurazione, che è sempre del browser.
+      const sessionId = user.sessionId;
       const reconfigure = await hasConfirmedTotp(app.db, user.id);
+      if (!reconfigure && sessionId === undefined) {
+        return apiError(reply, 403, "session_required", "This action requires a browser session");
+      }
       // Il codice si verifica sotto il tetto SENZA scrivere: l'app si
       // conferma solo a tentativo riuscito, e insieme a ciò che ne segue
       // (una transazione), così un codice giusto che perde la corsa col
@@ -242,7 +251,7 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
         await tx
           .update(sessions)
           .set({ secondFactorAt: sql`now()` })
-          .where(eq(sessions.id, sessionId));
+          .where(eq(sessions.id, sessionId!));
         return { backupCodes };
       });
       // Pendente cambiato nel frattempo (un altro «configura»): il codice
@@ -340,12 +349,14 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/passkeys/options",
     {
-      config: { access: { kind: "user" }, reauth: true },
+      // Solo dal browser: la cerimonia WebAuthn vive sul dominio dell'istanza,
+      // e il challenge sta sulla SESSIONE. Il PAT desktop riconfermato no.
+      config: { access: { kind: "user" }, reauth: true, browserOnly: true },
       schema: { response: { 200: passkeyRegistrationOptionsSchema, ...errorResponses } },
     },
     async (request) => {
       const user = request.user!;
-      // Il gate della riconferma ha già escluso i PAT: qui c'è una sessione.
+      // `browserOnly`: il gate ha escluso ogni PAT, desktop compreso; qui c'è una sessione.
       return registrationOptions(app.db, user.sessionId!, user, passkeyRp(app.publicUrl));
     },
   );
@@ -353,7 +364,7 @@ export async function meSecurityRoutes(instance: FastifyInstance): Promise<void>
   app.post(
     "/passkeys",
     {
-      config: { access: { kind: "user" }, reauth: true },
+      config: { access: { kind: "user" }, reauth: true, browserOnly: true },
       schema: {
         body: passkeyRegisterBodySchema,
         response: { 201: passkeyViewSchema, ...errorResponses, 400: errorSchema },

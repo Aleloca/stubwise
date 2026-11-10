@@ -415,7 +415,7 @@ async function applyReauth(
     await apiError(reply, 403, "reauth_required", "Recent second factor confirmation required");
     return;
   }
-  if (desktopPat) await recordDesktopReauthUse(request, user);
+  if (desktopPat) markDesktopReauthUse(request);
 }
 
 /** Il PAT dell'app desktop (`kind = 'desktop'`, dal login nel browser). */
@@ -475,17 +475,31 @@ export async function requireBrowserOrConfirmedDesktop(
     return false;
   }
   const declared = (request.routeOptions.config as { reauth?: RouteReauth } | undefined)?.reauth;
-  if (verdict.via === "desktop" && declared === undefined) await recordDesktopReauthUse(request, user);
+  if (verdict.via === "desktop" && declared === undefined) markDesktopReauthUse(request);
   return true;
 }
 
-/** Una riga `reauth_desktop` con l'azione: quale rotta il PAT desktop ha fatto con la finestra. */
-async function recordDesktopReauthUse(request: FastifyRequest, user: SessionUser): Promise<void> {
+const DESKTOP_REAUTH_USE = Symbol("desktopReauthUse");
+
+/**
+ * Segna che la richiesta usa la finestra di riconferma del PAT desktop. La
+ * riga `reauth_desktop` con l'azione si scrive SOLO a risposta riuscita
+ * (`recordDesktopReauthUseOnResponse`, review della fetta 3): una richiesta che
+ * poi il permesso o il servizio rifiuta non è un'azione fatta.
+ */
+function markDesktopReauthUse(request: FastifyRequest): void {
+  (request as unknown as Record<symbol, true>)[DESKTOP_REAUTH_USE] = true;
+}
+
+/** Hook `onResponse` dell'app: la riga `reauth_desktop` con l'azione, se la richiesta è passata. */
+export async function recordDesktopReauthUseOnResponse(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  if ((request as unknown as Record<symbol, true | undefined>)[DESKTOP_REAUTH_USE] !== true) return;
+  if (reply.statusCode >= 400 || !request.user) return;
   await recordSecurityEvent(request.server.db, {
     kind: "reauth_desktop",
-    user,
+    user: request.user,
     detail: `${request.method} ${request.routeOptions.url ?? request.url.split("?")[0]}`,
-  });
+  }).catch((error: unknown) => request.log.warn({ err: error }, "reauth_desktop non registrato"));
 }
 
 export type ProjectAccessResult =

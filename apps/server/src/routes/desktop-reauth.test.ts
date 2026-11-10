@@ -337,3 +337,25 @@ describe("la cassaforte resta solo-browser (aperta per decisione, bloccata dallo
     expect(browserOrConfirmedDesktop({ id: "u", chatToolSessionId: "c" } as never)).toEqual({ ok: false, code: "session_required" });
   });
 });
+
+describe("reauth_desktop si registra solo quando la richiesta passa davvero", () => {
+  it("il desktop riconfermato di chi non ha il permesso: 403, e nessuna riga con l'azione", async () => {
+    const p = await pat("desktop", seeded.memberId);
+    await testDb.db
+      .update(personalAccessTokens)
+      .set({ secondFactorAt: new Date() })
+      .where(eq(personalAccessTokens.id, p.id));
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/users/${seeded.adminId}/git-identities`,
+      headers: bearer(p.token),
+      payload: { email: `no-${randomBytes(3).toString("hex")}@example.com` },
+    });
+    expect(res.statusCode).toBe(403);
+    const rows = await testDb.db
+      .select()
+      .from(securityEvents)
+      .where(and(eq(securityEvents.userId, seeded.memberId), eq(securityEvents.kind, "reauth_desktop")));
+    expect(rows).toEqual([]);
+  });
+});

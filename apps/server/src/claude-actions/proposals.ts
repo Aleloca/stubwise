@@ -22,7 +22,7 @@ import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
 import type { ActionEffects } from "./effects.js";
-import { classOfGroup, executeGroup, type ExecuteResult, type PlannedAction } from "./execute.js";
+import { classOfGroup, executeGroup, RECLASSIFIED, type ExecuteResult, type PlannedAction } from "./execute.js";
 import { undoGroup, undoStateOf } from "./undo.js";
 
 /**
@@ -87,10 +87,18 @@ async function outcomeOf(db: Db, row: ProposalRow): Promise<ClaudeProposalOutcom
   if (row.status === "failed") {
     return { status: "refused", proposalId: row.id, codes: [], reason: failureReason(row.failure as ClaudeActionFailure) };
   }
-  if (row.status === "confirmed" && row.groupId) {
+  // Annullata dalla persona, o scaduta: non è più «in attesa» (review della fetta 3).
+  if (row.status === "cancelled") {
+    return { status: "refused", proposalId: row.id, codes: [], reason: "The person cancelled this proposal." };
+  }
+  if (row.status === "confirmed") {
+    if (!row.groupId) return { status: "executed", proposalId: row.id, codes: [], reason: null };
     const actions = await db.select().from(claudeActions).where(eq(claudeActions.groupId, row.groupId));
     const codes = actions.flatMap((a) => (a.objects as { code?: string }[]).flatMap((o) => (o.code ? [o.code] : [])));
     return { status: "executed", proposalId: row.id, codes, reason: null };
+  }
+  if (await expired(db, row, new Date())) {
+    return { status: "refused", proposalId: row.id, codes: [], reason: "The proposal expired." };
   }
   return { status: "awaiting_confirmation", proposalId: row.id, codes: [], reason: null };
 }
@@ -164,7 +172,9 @@ export async function createProposal(
     if (page.length !== actions.length) {
       return refuse({ code: "invalid", index: 0, permission: null, projectId: null, message: "page actions go alone" });
     }
-    const row = await insert("open", "A");
+    // La esegue il renderer, subito: per il server è chiusa (`confirmed`, senza
+    // gruppo), mai una scheda aperta da confermare (review della fetta 3).
+    const row = await insert("confirmed", "A", { decidedAt: new Date(), decidedBy: user.id });
     if (!row) return outcomeOf(db, (await db.select().from(claudeProposals).where(and(eq(claudeProposals.sessionId, sessionId), eq(claudeProposals.toolUseId, input.toolUseId))))[0]!);
     const eventId = await sessionEvent(db, sessionId, "proposal", { proposalId: row.id });
     await db.update(claudeProposals).set({ eventId }).where(eq(claudeProposals.id, row.id));
@@ -183,7 +193,24 @@ export async function createProposal(
     return outcomeOf(db, again!);
   }
   if (cls === "A") {
-    const done = await executeGroup(db, user, { sessionId, actions, proposalId: row.id, effects });
+    let done: ExecuteResult;
+    try {
+      // La classe si riguarda DENTRO la transazione vera: se nel frattempo è
+      // salita, niente resta scritto e la proposta diventa una scheda.
+      done = await executeGroup(db, user, { sessionId, actions, proposalId: row.id, effects, expectClassA: true });
+    } catch (error) {
+      // Un errore inatteso non lascia una A aperta (review della fetta 3).
+      const f: ClaudeActionFailure = { code: "other", index: 0, permission: null, projectId: null, message: "" };
+      await db.update(claudeProposals).set({ status: "failed", failure: f, decidedAt: new Date() }).where(eq(claudeProposals.id, row.id));
+      effects.log?.("azione di Claude fallita", error);
+      return { status: "refused", proposalId: row.id, codes: [], reason: failureReason(f) };
+    }
+    if (!done.ok && done.failure.code === "conflict" && done.failure.message === RECLASSIFIED) {
+      await db.update(claudeProposals).set({ declaredCls: "B" }).where(eq(claudeProposals.id, row.id));
+      const eventId = await sessionEvent(db, sessionId, "proposal", { proposalId: row.id });
+      await db.update(claudeProposals).set({ eventId }).where(eq(claudeProposals.id, row.id));
+      return { status: "awaiting_confirmation", proposalId: row.id, codes: [], reason: null };
+    }
     if (!done.ok) {
       await db
         .update(claudeProposals)
@@ -313,7 +340,7 @@ export async function ownLiveConversation(db: Db, userId: string, sessionId: str
 
 export type DecideResult =
   | { ok: true; proposal: ClaudeProposalView }
-  | { ok: false; error: "not_found" | "conflict" | "expired" | "budget_exhausted" }
+  | { ok: false; error: "not_found" | "conflict" | "expired" | "budget_exhausted" | "invalid" }
   | { ok: false; error: "refused"; proposal: ClaudeProposalView };
 
 async function loadOwn(db: Db, user: SessionUser, proposalId: string): Promise<ProposalRow | null> {
@@ -343,6 +370,14 @@ export async function confirmProposal(
   if (row.status !== "open") return { ok: false, error: "conflict" };
   if (await expired(db, row, new Date())) return { ok: false, error: "expired" };
   if (await monthlyBudgetExhausted(db)) return { ok: false, error: "budget_exhausted" };
+  // «Conferma le selezionate»: indici unici e validi; un elenco vuoto non
+  // brucia la proposta (review della fetta 3).
+  const baseActions = row.actions as PlannedAction[];
+  const selected =
+    opts.selected === undefined
+      ? baseActions.map((_, i) => i)
+      : [...new Set(opts.selected)].filter((i) => i >= 0 && i < baseActions.length).sort((a, b) => a - b);
+  if (!row.undoOfGroupId && selected.length === 0) return { ok: false, error: "invalid" };
   // Una sola conferma: la riga si reclama prima di eseguire.
   const claimed = await db
     .update(claudeProposals)
@@ -360,11 +395,9 @@ export async function confirmProposal(
         ? { ok: false, failure: undone.failure }
         : { ok: false, failure: { code: "conflict", index: 0, permission: null, projectId: null, message: undone.error } };
   } else {
-    const base = row.actions as PlannedAction[];
+    const base = baseActions;
     const edited = new Map((opts.edited ?? []).map((e) => [e.index, e.args]));
-    const chosen = (opts.selected ?? base.map((_, i) => i))
-      .filter((i) => i >= 0 && i < base.length)
-      .map((i) => ({ fn: base[i]!.fn, args: edited.get(i) ?? base[i]!.args }));
+    const chosen = selected.map((i) => ({ fn: base[i]!.fn, args: edited.get(i) ?? base[i]!.args }));
     result =
       chosen.length === 0
         ? { ok: false, failure: { code: "invalid", index: 0, permission: null, projectId: null, message: "nothing selected" } }

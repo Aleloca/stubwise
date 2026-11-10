@@ -2,6 +2,7 @@ import {
   claudeActionGroups,
   claudeActions,
   notifications,
+  tickets,
   VIA_CLAUDE_SETTING,
   type Db,
 } from "@stubwise/db";
@@ -83,6 +84,17 @@ export async function executeGroup(
     dryRun?: boolean;
     /** Ciò che i seguiti dopo il commit usano (lo storage): mai toccato a secco. */
     effects?: ActionEffects;
+    /**
+     * Ricontrollo DENTRO la transazione vera (review della fetta 3): una A che
+     * nel frattempo avviserebbe qualcuno, farebbe partire lavoro o non si
+     * annullerebbe più si ferma con `conflict`/`reclassified`, e non resta
+     * scritto niente (`expectClassA`). Per gli inversi dell'Undo,
+     * `expectQuietUndo` ferma quelli che chiederebbero conferma.
+     */
+    expectClassA?: boolean;
+    expectQuietUndo?: boolean;
+    /** Un controllo all'inizio della transazione (l'Undo: `changed_after` coi lock presi). */
+    guard?: (tx: Db) => Promise<ClaudeActionFailure | null>;
   },
 ): Promise<ExecuteResult> {
   // Il contesto della prova a secco: ogni seguito passa da `effects.ts`, che a
@@ -97,11 +109,24 @@ export async function executeGroup(
 async function runGroup(
   db: Db,
   user: SessionUser,
-  input: { sessionId: string; actions: readonly PlannedAction[]; proposalId?: string; undoOfGroupId?: string; dryRun?: boolean },
+  input: {
+    sessionId: string;
+    actions: readonly PlannedAction[];
+    proposalId?: string;
+    undoOfGroupId?: string;
+    dryRun?: boolean;
+    expectClassA?: boolean;
+    expectQuietUndo?: boolean;
+    guard?: (tx: Db) => Promise<ClaudeActionFailure | null>;
+  },
   start: { publicUrl?: string },
 ): Promise<ExecuteResult> {
   try {
     return await db.transaction(async (tx) => {
+      if (input.guard) {
+        const refused = await input.guard(tx as unknown as Db);
+        if (refused) throw new Abort({ ok: false, failure: refused });
+      }
       const [group] = await tx
         .insert(claudeActionGroups)
         .values({
@@ -160,6 +185,22 @@ async function runGroup(
           .where(eq(claudeActions.id, row!.id));
         done.push({ id: row!.id, fn: planned.fn, args, ...ran.result });
       }
+      // Il timbro delle task toccate, a fine gruppo e dentro la transazione:
+      // `changed_after` lo confronta con `updated_at` (review della fetta 3),
+      // e così le scritture del gruppo stesso non contano come «dopo».
+      const taskIds = [...new Set(done.flatMap((a) => a.objects.filter((o) => o.kind === "task").map((o) => o.id)))];
+      if (taskIds.length > 0) {
+        const stamps = new Map(
+          (
+            await tx.select({ id: tickets.id, at: tickets.updatedAt }).from(tickets).where(inArray(tickets.id, taskIds))
+          ).map((r) => [r.id, r.at.toISOString()]),
+        );
+        for (const a of done) {
+          if (!a.objects.some((o) => o.kind === "task")) continue;
+          a.objects = a.objects.map((o) => (o.kind === "task" && stamps.has(o.id) ? { ...o, stamp: stamps.get(o.id)! } : o));
+          await tx.update(claudeActions).set({ objects: a.objects }).where(eq(claudeActions.id, a.id));
+        }
+      }
       const ids = done.map((a) => a.id);
       const notified =
         ids.length === 0
@@ -173,12 +214,26 @@ async function runGroup(
       const outcome: ExecuteResult = { ok: true, groupId: group!.id, actions: done, notified };
       // A secco: lo stesso giro, poi indietro tutto (il gruppo, le scritture, le notifiche).
       if (input.dryRun) throw new Abort(outcome);
+      if (
+        (input.expectClassA && classOfGroup(input.actions, outcome).cls !== "A") ||
+        (input.expectQuietUndo && inverseAsksConfirmation(outcome))
+      ) {
+        throw new Abort(failure("conflict", 0, { message: RECLASSIFIED }));
+      }
       return outcome;
     });
   } catch (error) {
     if (error instanceof Abort) return error.outcome;
     throw error;
   }
+}
+
+/** Il messaggio del `conflict` di un gruppo la cui classe è salita dentro la transazione vera. */
+export const RECLASSIFIED = "reclassified";
+
+/** L'inverso dell'Undo chiede conferma (come `undoAsks` del prototipo): avvisa qualcuno, o fa ripartire il lavoro di Claude. */
+export function inverseAsksConfirmation(result: Extract<ExecuteResult, { ok: true }>): boolean {
+  return result.notified.length > 0 || result.actions.some((a) => a.startsWork === true);
 }
 
 /**

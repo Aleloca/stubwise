@@ -73,7 +73,10 @@ export const pageActionSchema = z.discriminatedUnion("kind", [
 
 /** Gli argomenti di ogni azione, con gli STESSI schemi delle rotte. */
 export const CLAUDE_ACTION_ARGS = {
-  createTask: newTaskBodySchema,
+  // SENZA `requestId`, e strict (review della fetta 3): convertire una
+  // richiesta è `convertRequest` (B, non si annulla); una createTask con
+  // `requestId` la convertirebbe come A, e l'Undo la lascerebbe convertita.
+  createTask: newTaskBodySchema.omit({ requestId: true }).strict(),
   updateTask: z.object({ id, patch: taskPatchSchema }),
   planTask: z.object({ id, plan: z.object({ assigneeId: id.nullable(), week: isoWeekSchema.nullable() }) }),
   addComment: z.object({ taskId: id, body: z.string().trim().min(1).max(20_000), replyToId: id.optional() }),
