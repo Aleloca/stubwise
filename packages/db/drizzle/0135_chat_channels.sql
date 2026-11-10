@@ -142,7 +142,7 @@ ALTER TABLE "chat_thread_follows" ADD CONSTRAINT "chat_thread_follows_root_fk" F
 -- D8 (O): il «general» di ogni progetto esistente (il server non ha progetti
 -- archiviati), con gli
 -- eventi predefiniti (Release, traguardi, brief). I progetti nuovi lo
--- ricevono da `createProject`, nella stessa transazione.
+-- ricevono dal trigger qui sotto.
 INSERT INTO "chat_channels" ("project_id", "kind", "visibility", "name", "is_general", "published_events")
 SELECT "id", 'project', 'open', 'general', true, ARRAY['release_page', 'milestone_reached', 'brief_ready']
 FROM "projects"

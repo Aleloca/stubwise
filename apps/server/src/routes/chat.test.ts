@@ -200,6 +200,43 @@ describe("menzioni", () => {
   });
 });
 
+describe("eliminare il progetto", () => {
+  it("porta via canali, messaggi e reazioni; la card della menzione resta senza link", async () => {
+    const { projectId: other } = await seedRepository(t.db);
+    await addMember(app, other, lead.id, "project_lead");
+    await addMember(app, other, dev.id, "developer");
+    const [g] = await t.db
+      .select({ id: chatChannels.id })
+      .from(chatChannels)
+      .where(and(eq(chatChannels.projectId, other), eq(chatChannels.isGeneral, true)));
+    expect(g).toBeDefined();
+    const created = await as(dev, "POST", "/api/chat/channels", { projectId: other, name: "da eliminare" });
+    expect(created.statusCode, created.body).toBe(201);
+    const msg = await post(dev, g!.id, "Per @lead-chat, prima che sparisca");
+    expect(msg.statusCode, msg.body).toBe(201);
+    const msgId = (msg.json() as { id: string }).id;
+    await as(lead, "POST", `/api/chat/messages/${msgId}/reactions/toggle`, { emoji: "👍" });
+
+    const del = await app.inject({ method: "DELETE", url: `/api/projects/${other}`, headers: { cookie: seeded.adminCookie } });
+    expect(del.statusCode, del.body).toBe(204);
+
+    expect(await t.db.select().from(chatChannels).where(eq(chatChannels.projectId, other))).toEqual([]);
+    expect(await t.db.select().from(chatMessages).where(eq(chatMessages.id, msgId))).toEqual([]);
+    const inbox = (await as(lead, "GET", "/api/inbox")).json() as {
+      items: { kind: string; chat: { messageId: string } | null; objectGone: boolean; url?: string; id: string }[];
+    };
+    const cards = await t.db
+      .select({ id: notifications.id, event: notifications.event })
+      .from(notifications)
+      .where(and(eq(notifications.userId, lead.id), eq(notifications.kind, "chat.mention")));
+    const card = cards.find((c) => (c.event as { chatMessageId?: string }).chatMessageId === msgId);
+    expect(card).toBeDefined();
+    const orphan = inbox.items.find((i) => i.id === card!.id);
+    expect(orphan, JSON.stringify(inbox.items)).toMatchObject({ chat: null, objectGone: true });
+    expect(orphan!.url).toBeUndefined();
+  });
+});
+
 describe("registro", () => {
   it("le rotte della Chat dichiarano tutte l'accesso (il test di registro le copre) e il seed ha un general", async () => {
     expect(seeded.adminId).toBeTruthy();
