@@ -18,6 +18,7 @@
 
 import type { AgentSegmentLabel, AiOperation } from "@stubwise/shared";
 import type { ResolvedProvider } from "../providers/chain.js";
+import type { NativeTool } from "./native-tools.js";
 
 /**
  * Un singolo server MCP **stdio** locale al run: il CLI lo lancia come processo
@@ -183,6 +184,17 @@ export interface AgentRunOptions {
    * aggiunge un'unione con una lista NON vuota.
    */
   settingSources?: "";
+  /**
+   * I tool NATIVI del CLI per questo run (`--tools <lista>`, vedi
+   * `native-tools.ts`): un elenco di `NATIVE_TOOLS`, oppure `""`/`[]` per
+   * nessuno. ASSENTE = nessun nativo (`--tools ""`): fail-closed, perché dal CLI
+   * 2.1.322 i nativi nuovi (CronCreate, RemoteTrigger, SendMessage,
+   * PushNotification, ToolSearch…) partono in `-p` senza chiedere permesso, e
+   * un elenco dei negati resterebbe indietro. I tool MCP di `mcpConfig` non ne
+   * dipendono. Il runner in streaming confronta l'init del CLI con questo
+   * elenco e ferma il run se il CLI espone altro.
+   */
+  builtinTools?: "" | readonly NativeTool[];
   /**
    * Permission mode del CLI claude, mappato su `--permission-mode <mode>`:
    * - "acceptEdits" (default): consente le modifiche ai file ma NEGA Bash in

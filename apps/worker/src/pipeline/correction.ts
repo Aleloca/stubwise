@@ -88,6 +88,7 @@ import {
 import { commitStatusTargetUrl } from "../review/cycle.js";
 import { ticketUrl, type NotifyDeps } from "./notify.js";
 import { assertNotCancelled, RunCancelRequestedError } from "./cancel.js";
+import { NATIVE_TOOLS, nativeToolsWith } from "../agent/native-tools.js";
 import { buildCorrectionPrompt, buildCorrectionRepairPrompt, REPORT_FILENAME, toSingleLine } from "./prompts.js";
 import { computeReleaseRisk } from "./release-risk.js";
 import { aiJobSession, envSecretsOf, sessionOption } from "../sessions/owners.js";
@@ -1098,6 +1099,8 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
             maxTurns,
             timeoutMs,
             allowedTools,
+            // I nativi della correzione sono quelli dell'esecuzione (`native-tools.ts`).
+            builtinTools: nativeToolsWith(NATIVE_TOOLS.fixExecute, allowedTools),
             ...providerOpt,
             ...pluginOpt,
             ...(await sessionOpt("correction")),
@@ -1134,6 +1137,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
                 maxTurns,
                 timeoutMs,
                 allowedTools: baseAllowedTools,
+                builtinTools: nativeToolsWith(NATIVE_TOOLS.fixExecute, baseAllowedTools),
                 ...providerOpt,
                 ...pluginOpt,
                 ...(await sessionOpt("correction_self_repair")),

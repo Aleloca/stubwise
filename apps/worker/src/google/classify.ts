@@ -37,6 +37,7 @@ import {
 import { recordUsage } from "../queue.js";
 import { getContentLanguage } from "../settings.js";
 import { emailMessageSession, sessionOption } from "../sessions/owners.js";
+import { NATIVE_TOOLS } from "../agent/native-tools.js";
 
 /**
  * FASE 2 del tick delle caselle Google (fase 6, Task 8): da un messaggio
@@ -1675,6 +1676,8 @@ export async function reclassifyReassignedProposal(
           ...(deps.model !== undefined ? { model: deps.model } : {}),
           ...(provider !== undefined ? { provider } : {}),
           ...session,
+          // Solo testo: nessun tool nativo (`native-tools.ts`).
+          builtinTools: NATIVE_TOOLS.text,
           permissionMode: "default",
           maxTurns: CLASSIFY_MAX_TURNS,
           timeoutMs: CLASSIFY_TIMEOUT_MS,
@@ -1853,6 +1856,8 @@ export async function classifyEmail(
           ...(deps.model !== undefined ? { model: deps.model } : {}),
           ...(provider !== undefined ? { provider } : {}),
           ...session,
+          // Solo testo: nessun tool nativo (`native-tools.ts`).
+          builtinTools: NATIVE_TOOLS.text,
           permissionMode: "default",
           maxTurns: CLASSIFY_MAX_TURNS,
           timeoutMs: CLASSIFY_TIMEOUT_MS,

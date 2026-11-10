@@ -795,6 +795,8 @@ describe("runFix", () => {
     expect(plan?.model).toBe("opus");
     expect(plan?.permissionMode).toBe("plan");
     expect(plan?.allowedTools).toBeUndefined();
+    // I nativi (CLI 2.1.322): il piano legge, usa skill e sottoagenti, non scrive né lancia comandi.
+    expect(plan?.builtinTools).toEqual(["Read", "Grep", "Glob", "Skill", "Task"]);
     expect(plan?.prompt).toContain(ticket.title);
     expect(plan?.prompt).toMatch(/Do NOT write STUBWISE_REPORT/); // il plan non scrive il report
 
@@ -803,6 +805,7 @@ describe("runFix", () => {
     expect(execute?.maxTurns).toBe(80);
     expect(execute?.timeoutMs).toBe(1_800_000);
     expect(execute?.allowedTools).toEqual(DEFAULT_FIX_ALLOWED_TOOLS);
+    expect(execute?.builtinTools).toEqual(["Read", "Write", "Edit", "Glob", "Grep", "Bash", "NotebookEdit", "Skill", "Task"]);
     expect(execute?.prompt).toContain("STUBWISE_REPORT.md");
     expect(execute?.prompt).toContain(ticket.title);
     // Il prompt di esecuzione chiede il report nella lingua d'istanza (default 'en').
@@ -2004,6 +2007,7 @@ describe("runFix — self-repair (Task 5)", () => {
     expect(repair?.permissionMode).toBe("acceptEdits");
     expect(repair?.model).toBe("sonnet");
     expect(repair?.allowedTools).toEqual(DEFAULT_FIX_ALLOWED_TOOLS);
+    expect(repair?.builtinTools).toEqual(["Read", "Write", "Edit", "Glob", "Grep", "Bash", "NotebookEdit", "Skill", "Task"]);
     // Il prompt di riparazione contiene il blocco <test_failure> con l'output.
     expect(repair?.prompt).toContain("<test_failure>");
     expect(repair?.prompt).toContain("FAIL app.test.js: expected 5 got -1");

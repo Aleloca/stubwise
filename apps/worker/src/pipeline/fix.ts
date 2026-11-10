@@ -78,6 +78,7 @@ import {
   type LoadedEnvFile,
 } from "./env-files.js";
 import { computeReleaseRisk } from "./release-risk.js";
+import { NATIVE_TOOLS, nativeToolsWith } from "../agent/native-tools.js";
 import {
   checkBudgetsBeforeRun,
   DEFAULT_SUMMARY_TIMEOUT_MS,
@@ -978,6 +979,9 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
   // prima.
   const planTools = [...planGraphTools, ...(askUser?.tools ?? [])];
   const planAllowedToolsOpt = planTools.length > 0 ? { allowedTools: planTools } : {};
+  // I nativi del piano (`native-tools.ts`): letture, skill, sottoagenti; Bash
+  // solo coi comandi del grafo.
+  const planBuiltinTools = nativeToolsWith(NATIVE_TOOLS.fixPlan, planTools);
   // STORICO Q&A del job, solo le domande già RISPOSTE e in ordine di round. È
   // ciò che rende la ripresa possibile: il turno di `--resume` porta l'ultima
   // risposta (le precedenti sono già nel contesto della sessione), e il run di
@@ -1254,6 +1258,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       timeoutMs: planTimeoutMs,
       resumeSessionId: cliSessionId,
       ...planAllowedToolsOpt,
+      builtinTools: planBuiltinTools,
       ...askUserOpt,
       ...providerOpt,
       ...pluginOpt,
@@ -1333,6 +1338,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
       maxTurns: DEFAULT_PLAN_MAX_TURNS,
       timeoutMs: planTimeoutMs,
       ...planAllowedToolsOpt,
+      builtinTools: planBuiltinTools,
       ...askUserOpt,
       ...providerOpt,
       ...pluginOpt,
@@ -1464,6 +1470,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
             maxTurns,
             timeoutMs,
             allowedTools: executeAllowedTools,
+            builtinTools: nativeToolsWith(NATIVE_TOOLS.fixExecute, executeAllowedTools),
             ...providerOpt,
             ...pluginOpt,
             ...(await sessionOpt("execute")),
@@ -1513,6 +1520,7 @@ export async function runFix(deps: FixDeps, job: AiJob): Promise<FixOutcome> {
                 maxTurns,
                 timeoutMs,
                 allowedTools,
+                builtinTools: nativeToolsWith(NATIVE_TOOLS.fixExecute, allowedTools),
                 ...providerOpt,
                 ...pluginOpt,
                 ...(await sessionOpt("self_repair")),

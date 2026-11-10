@@ -12,6 +12,7 @@ import { backlogItemSession, sessionOption } from "../sessions/owners.js";
 import { assertAccountAvailable, runBacklogAgent } from "./provider.js";
 import { buildEstimatePrompt } from "./prompts.js";
 import type { BacklogDeps, BacklogJob } from "./poller.js";
+import { NATIVE_TOOLS } from "../agent/native-tools.js";
 
 /**
  * ESTIMATE del backlog di discovery: stima i SOLI metadati di una voce nata
@@ -93,6 +94,8 @@ export async function runEstimate(
       cwd: deps.workDir,
       prompt: buildEstimatePrompt(item.document),
       ...(deps.model !== undefined ? { model: deps.model } : {}),
+      // Solo testo: nessun tool nativo (`native-tools.ts`).
+      builtinTools: NATIVE_TOOLS.text,
       permissionMode: "default",
       maxTurns: 3,
       timeoutMs: deps.agentTimeoutMs,

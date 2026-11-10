@@ -32,6 +32,7 @@ import { backlogItemSession, backlogJobSession, sessionOption } from "../session
 import type { BacklogDeps, BacklogJob } from "./poller.js";
 import { buildIntakePrompt, buildMergePrompt } from "./prompts.js";
 import { assertAccountAvailable, runBacklogAgent } from "./provider.js";
+import { NATIVE_TOOLS } from "../agent/native-tools.js";
 
 /**
  * INTAKE del backlog di discovery: dedup semantico + generazione della voce.
@@ -178,6 +179,8 @@ async function mergeIntoItem(
       cwd: deps.workDir,
       prompt: buildMergePrompt(item.document, feedbackText(input.title, input.body)),
       ...(deps.model !== undefined ? { model: deps.model } : {}),
+      // Solo testo: nessun tool nativo (`native-tools.ts`).
+      builtinTools: NATIVE_TOOLS.text,
       permissionMode: "default",
       maxTurns: 3,
       timeoutMs: deps.agentTimeoutMs,
@@ -243,6 +246,8 @@ async function createNewItem(
         chunks,
       ),
       ...(deps.model !== undefined ? { model: deps.model } : {}),
+      // Solo testo: nessun tool nativo (`native-tools.ts`).
+      builtinTools: NATIVE_TOOLS.text,
       permissionMode: "default",
       maxTurns: 3,
       timeoutMs: deps.agentTimeoutMs,
