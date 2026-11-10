@@ -566,6 +566,13 @@ export interface PersonDayActivity {
   /** `null`: autore di commit non collegato a nessuna persona. */
   personId: string | null;
   name: string;
+  /**
+   * Solo senza persona, nella build app (area 3, 3e.2): l'email git
+   * dell'autore (quella che «Link a person» collega) e lo username GitHub di
+   * una noreply. Assenti nel prototipo e da un server più vecchio.
+   */
+  authorEmail?: string | null;
+  authorUsername?: string | null;
   departmentIds: string[];
   tasksClosed: { taskId: string; code: string; title: string; projectId: string; at: string }[];
   tasksMoved: {

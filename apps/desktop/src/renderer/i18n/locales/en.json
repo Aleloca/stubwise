@@ -2428,6 +2428,9 @@
       "link": "Link a person",
       "linkTo": "Link “{{name}}” to",
       "linkFailed": "Couldn't link “{{name}}”. Nothing changed.",
+      "linkTaken": "“{{name}}” is already linked to someone. Nothing changed.",
+      "linkAction": "link “{{name}}” to {{person}}",
+      "linkOnWeb": "Opens this page on the web, where you confirm it's you",
       "linked": "“{{name}}” is now {{person}}: the commits moved under them.",
       "report": {
         "label": "Daily report",

@@ -17,6 +17,20 @@ Assegnargli una task avvia il lavoro (lo fa il server). Funzione
 | Il polso: «Claude al lavoro» (una sessione di lavoro su una task, `ai_job`, al lavoro o in coda, nel progetto) e «Claude aspetta te» (le voci di Claude in «Da decidere») | `real/claudePulse.ts`, `real/overview.ts` (`pulsesOf`) | `GET /api/agent-sessions`, `GET /api/me/claude-decisions` | `real/claudePulse.test.ts` |
 | Le tessere del binario: «Claude al lavoro» (`signals.claudeWorking`) e il punto «ti aspetta» anche per Claude | `real/projects.ts` (`listProjects`, `getProjectByCode`, `listWaitingOnMeProjectIds`) | come sopra | `real/claudePulse.test.ts` |
 
+## «Link a person» nello standup
+
+Il gesto della scheda «By person» di Activity (3d) per gli autori di commit non
+collegati, sopra il server che attribuisce i commit anche via
+`git_identities`. Funzione `commit-author-link` accesa nella build app.
+
+| Voce | Dove vive (renderer) | Rotta | Test |
+|---|---|---|---|
+| La riga senza persona mostra l'email dell'autore (se non è già il nome) e lo username GitHub di una noreply | `pages/projects/PeopleActivity.tsx` (`authorLine`); `real/peopleActivity.ts`; `PersonDayActivity.authorEmail/authorUsername` | `GET /api/people/activity` | `real/peopleActivityPage.test.tsx` |
+| Sul web, con `users.manage`: «Link a person» → la persona → l'email dell'autore diventa una sua identità git; con la riconferma (`useReauth`: il dialogo si apre, col codice l'azione riparte da sola) | `PeopleActivity.tsx` (`doLink`); `real/peopleActivity.ts` (`linkCommitAuthor`) | `POST /api/users/:id/git-identities` (`users.manage`, `config.reauth`) | `real/peopleActivityPage.test.tsx` |
+| Un'email già collegata a qualcuno (409 `git_identity_taken`): la sua frase | `PeopleActivity.tsx`; `projects.people.linkTaken` | come sopra | `real/peopleActivityPage.test.tsx` |
+| Sul desktop il gesto apre la stessa pagina sul web (`/app/#…`, `openInWeb`), dove si fa con la riconferma; dal desktop non si scrive | `PeopleActivity.tsx`; `platform/openWeb.ts` | — | `real/peopleActivityPage.test.tsx` |
+| Senza `users.manage`, o su una riga senza email (un server più vecchio): niente gesto | `PeopleActivity.tsx` (`linkable`) | — | `real/peopleActivityPage.test.tsx` |
+
 ## Scelte e limiti
 
 | Scelta o limite | Chi ha deciso |
@@ -26,3 +40,5 @@ Assegnargli una task avvia il lavoro (lo fa il server). Funzione
 | «Claude al lavoro» conta le sole sessioni `ai_job`: le sessioni di sfondo (Docs, brief, report, posta) girano ogni notte su tutti i progetti e il segnale non direbbe più niente | costruttore |
 | Le letture di Claude del polso sono fail-open: un errore o un server senza le rotte lascia il polso senza Claude, non un errore | costruttore |
 | Nel prototipo Claude è un membro (`memberIds`) e `assignableProjectIds` è assente: il comportamento non cambia | — |
+| «Link a person» collega l'EMAIL dell'autore (le righe senza persona sono per email); lo username GitHub si mostra ma non abbina (nessuna tabella lega un utente al suo login) | server |
+| Dal desktop la riconferma non si fa nell'app: il gesto apre il web sulla stessa pagina | orchestratrice |

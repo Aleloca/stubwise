@@ -29,9 +29,6 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   cambio l'ha fatto Claude per una persona).
 - Il dettaglio della sessione non porta il piano né il suo digest *(S)*: il
   digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».
-- «Link a person» nello standup, renderer *(O)*: dal desktop il gesto (con
-  riconferma) apre il web; la riga senza persona porta già `authorEmail` e
-  `authorUsername`. Il server è fatto (sotto in «Chiuse»).
 - Abbinare un commit per **username** del provider *(S)*: nessuna tabella lega
   un utente al suo login GitHub, quindi lo username (letto dalle noreply) si
   mostra ma non abbina; si abbina per email (account o `git_identities`).
@@ -157,6 +154,11 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   `users.is_agent`), niente accesso né notifiche, assegnarlo avvia il run con le
   regole di `run-ai` e chiede `runs.start` — commit «feat(area3): Claude
   assegnabile (3e.1)».
+- Area 3, **«Link a person» nello standup, renderer** *(O)*: sul web
+  `POST /api/users/:id/git-identities` con la riconferma, dal desktop il gesto
+  apre il web sulla stessa pagina; la riga senza persona mostra email e
+  username — commit «feat(desktop): Link a person nello standup»,
+  `apps/desktop/docs/integration-area3e.md`.
 - Area 3, **«Link a person» nello standup, server** *(S)*: i commit si
   attribuiscono anche via `git_identities`; le righe senza persona sono per
   email e portano `authorEmail` e `authorUsername` — commit «feat(area3):
