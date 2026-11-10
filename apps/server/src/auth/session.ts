@@ -218,7 +218,8 @@ export async function findSessionUser(db: Db, sessionId: string): Promise<Sessio
     .from(sessions)
     .innerJoin(users, eq(sessions.userId, users.id))
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-    .where(eq(sessions.id, sessionId));
+    // L'utente di sistema «Claude» non ha sessioni valide, per costruzione (fetta 3e).
+    .where(and(eq(sessions.id, sessionId), eq(users.isAgent, false)));
 
   if (!row) return null;
   if (row.expiresAt.getTime() <= Date.now()) {
@@ -280,7 +281,8 @@ export async function findPatUser(
     .from(personalAccessTokens)
     .innerJoin(users, eq(personalAccessTokens.userId, users.id))
     .innerJoin(roles, eq(roles.id, users.instanceRoleId))
-    .where(eq(personalAccessTokens.tokenHash, tokenHash));
+    // Né PAT: l'utente di sistema «Claude» non agisce mai via API (fetta 3e).
+    .where(and(eq(personalAccessTokens.tokenHash, tokenHash), eq(users.isAgent, false)));
   if (!row) return null;
   if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return null;
   await db

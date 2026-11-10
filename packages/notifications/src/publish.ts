@@ -123,6 +123,11 @@ export const MANDATORY_KINDS: ReadonlySet<NotificationEvent["kind"]> = new Set<N
  * non confermabile. Chi scrive le righe sa già quali sono: restituirle chiude
  * la classe, mentre un `order by` l'avrebbe solo resa meno probabile.
  */
+async function agentUserIds(db: DbOrTx): Promise<ReadonlySet<string>> {
+  const rows = await db.select({ id: users.id }).from(users).where(eq(users.isAgent, true));
+  return new Set(rows.map((r) => r.id));
+}
+
 export async function publishNotification(
   db: DbOrTx,
   event: NotificationEvent,
@@ -136,7 +141,11 @@ export async function publishNotification(
       // lettura (`inbox-visibility.ts`, che legge la colonna).
       const projectId = opts.projectId ?? (await projectOfTicket(inner, opts.ticketId)) ?? null;
       const ctx = await resolveRoutingContext(inner, event, opts, projectId);
-      const recipients = recipientsFor(event, ctx);
+      // L'utente di sistema «Claude» (area 3, fetta 3e) non riceve MAI una
+      // notifica, da nessuna audience (né inbox, né push, né Slack): un punto
+      // solo, qui, invece di una regola in ogni audience.
+      const agentIds = await agentUserIds(inner);
+      const recipients = recipientsFor(event, ctx).filter((id) => !agentIds.has(id));
 
       const settings = await loadSettings(inner);
       // `shouldSendWebhook` è l'UNICO punto in cui vive il gating del webhook,

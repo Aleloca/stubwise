@@ -61,6 +61,17 @@ export const personViewSchema = z.object({
   departmentIds: z.array(z.string().uuid()),
   email: z.string(),
   deactivated: z.boolean().default(false),
+  /**
+   * L'utente di sistema «Claude» (area 3, fetta 3e): si assegna come una
+   * persona, e assegnarlo avvia il lavoro. Additivo.
+   */
+  isClaude: z.boolean().default(false),
+  /**
+   * Solo sulla riga di Claude: i progetti in cui CHI GUARDA può assegnarlo
+   * (`runs.start`). Lo calcola il server: il client mostra Claude fra gli
+   * assegnatari solo lì, senza dedurre la regola.
+   */
+  claudeAssignableProjectIds: z.array(z.string().uuid()).default([]),
 });
 export type PersonView = z.infer<typeof personViewSchema>;
 
