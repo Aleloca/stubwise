@@ -196,6 +196,36 @@ describe("GET /api/people/activity", () => {
     expect((z.array(personDayActivitySchema).parse((await get(`/api/people/activity?date=2026-01-01`, lead.headers.cookie)).json()))).toEqual([]);
   });
 
+  it("una riga senza persona porta authorEmail (e lo username GitHub di una noreply); dopo il collegamento (git-identities) i commit di quell'autore compaiono sotto la persona", async () => {
+    await testDb.db.insert(commitSummaries).values({
+      repositoryId,
+      sha: "d4",
+      committedAt: NOON,
+      authorName: "Anna (portatile)",
+      authorEmail: "12345+anna-dev@users.noreply.github.com",
+      subject: "wip",
+      summary: "Lavoro in corso",
+    });
+    const before = z.array(personDayActivitySchema).parse((await get(`/api/people/activity?date=${DAY}`, lead.headers.cookie)).json());
+    const unlinked = before.find((r) => r.personId === null && r.commits.some((c) => c.sha === "d4"));
+    expect(unlinked).toMatchObject({ authorEmail: "12345+anna-dev@users.noreply.github.com", authorUsername: "anna-dev" });
+    expect(before.find((r) => r.personId === null && r.commits.some((c) => c.sha === "b2"))).toMatchObject({
+      authorEmail: "ext@example.org",
+      authorUsername: null,
+    });
+    // «Link a person»: la rotta che c'è già, con la riconferma.
+    const link = await app.inject({
+      method: "POST",
+      url: `/api/users/${anna.id}/git-identities`,
+      headers: { cookie: users_.adminCookie },
+      payload: { email: "12345+anna-dev@users.noreply.github.com" },
+    });
+    expect(link.statusCode, link.body).toBeLessThan(300);
+    const after = z.array(personDayActivitySchema).parse((await get(`/api/people/activity?date=${DAY}`, lead.headers.cookie)).json());
+    expect(after.find((r) => r.personId === anna.id)!.commits.map((c) => c.sha).sort()).toEqual(["a1", "d4"]);
+    expect(after.some((r) => r.personId === null && r.commits.some((c) => c.sha === "d4"))).toBe(false);
+  });
+
   it("con departmentId: solo le persone del reparto (gli autori non collegati no)", async () => {
     const rows = z
       .array(personDayActivitySchema)
