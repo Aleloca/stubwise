@@ -745,7 +745,7 @@ export interface DecisionAnsweredEvent {
 }
 
 /** Cosa è cambiato su una task seguita. */
-export type TicketActivityChange = "status" | "assignee" | "comment" | "decision";
+export type TicketActivityChange = "status" | "assignee" | "comment" | "decision" | "run_cancelled";
 
 /**
  * Un cambiamento UMANO su una task (stato, assegnatario, commento): lo
@@ -1118,6 +1118,7 @@ const TICKET_ACTIVITY_KEY: Record<TicketActivityChange, string> = {
   assignee: "notify.ticketActivity.assignee",
   comment: "notify.ticketActivity.comment",
   decision: "notify.ticketActivity.decisionRequested",
+  run_cancelled: "notify.ticketActivity.runCancelled",
 };
 
 /**

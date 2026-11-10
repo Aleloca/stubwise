@@ -24,7 +24,7 @@ type StubwiseSessionChange = { signedIn: true; user: unknown } | { signedIn: fal
 // Lo stream dal vivo di una sessione (`api:stream-open`, `src/main/apiStream.ts`,
 // area 3 fetta 3a): `frame` è il risultato di `parseAgentStreamFrame` di
 // `@stubwise/shared` (solo i frame veri); `end` chiude, e `fatal` dice se
-// ripartire da `?after=` ha senso (401/403/404, percorso rifiutato, tetto di 8
+// ripartire da `?after=` ha senso (401/403/404, un 3xx, percorso rifiutato, tetto di 8
 // stream per finestra: no; rete, timeout dei ping, rotazione a 1 MB, 5xx: sì).
 type StubwiseStreamMessage =
   | { type: "open" }
@@ -32,11 +32,12 @@ type StubwiseStreamMessage =
       type: "frame";
       messages: import("@stubwise/shared").AgentStreamMessage[];
       lastId: string | null;
+      real: boolean;
       invalidSession: boolean;
     }
   | {
       type: "end";
-      reason: "closed" | "network" | "timeout" | "rotate" | "http" | "unauthorized" | "rejected" | "limit";
+      reason: "closed" | "network" | "timeout" | "rotate" | "http" | "redirect" | "unauthorized" | "rejected" | "limit";
       fatal: boolean;
       status?: number;
       code?: string;

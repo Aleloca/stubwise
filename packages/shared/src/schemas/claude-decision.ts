@@ -38,6 +38,8 @@ export const claudeDecisionViewSchema = z.object({
   /** Il job del piano: la decisione vale solo per questo piano. */
   planId: z.uuid().optional(),
   summary: z.string().optional(),
+  /** Il digest del piano letto: da rimandare ad approve/reject-plan (409 `plan_changed` se è cambiato). */
+  planDigest: z.string().optional(),
   /** Solo la correzione di un server (area 8b) lo usa: qui sempre `null`. */
   blockedReason: z.string().nullable().default(null),
   serverCode: z.string().nullable().default(null),

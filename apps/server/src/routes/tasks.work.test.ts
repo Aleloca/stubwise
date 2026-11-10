@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { agentSessions, aiJobs, prCorrections, projectDecisions, ticketRepositories, tickets } from "@stubwise/db";
+import { agentSessions, aiJobs, planDigest, prCorrections, prReviews, projectDecisions, ticketRepositories, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
 import { taskWorkViewSchema, type TaskWorkView } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -120,6 +120,45 @@ describe("runs: le sessioni di lavoro della task", () => {
     expect(w.claude).toBe("awaiting_approval");
   });
 
+  it("lo stato del piano solo da un esito verificabile: undecided senza decisione; approved da una decisione o da un'esecuzione; pre_approved dal digest", async () => {
+    const planOf = async (t: string) => (await work(t)).runs.at(-1)!.plan!.status;
+    // Fermo (held) o annullato sul gate (skipped) senza decisione: non «approved».
+    for (const status of ["held", "skipped", "failed", "queued"] as const) {
+      const t = await task();
+      await testDb.db.insert(aiJobs).values({ ticketId: t, status, planText: "## P" });
+      expect(await planOf(t), status).toBe("undecided");
+    }
+    // Una decisione approvata PER QUEL job.
+    const decided = await task();
+    const [job] = await testDb.db.insert(aiJobs).values({ ticketId: decided, status: "failed", planText: "## P" }).returning({ id: aiJobs.id });
+    await testDb.db.insert(projectDecisions).values({
+      projectId,
+      source: "plan_review",
+      sourceKey: `plan_review:${job!.id}:1`,
+      sourceRef: { jobId: job!.id, mode: "execute" },
+      ticketId: decided,
+      title: "T",
+      decision: "Approvato",
+      decidedByUserId: lead.id,
+    });
+    expect(await planOf(decided)).toBe("approved");
+    // Un job che ha eseguito il piano è uscito dal gate.
+    const executed = await task();
+    await testDb.db.insert(aiJobs).values({ ticketId: executed, status: "pr_opened", planText: "## P" });
+    expect(await planOf(executed)).toBe("approved");
+    // Una pre-approvazione VALIDA (il digest del piano del job).
+    const pre = await task();
+    await testDb.db
+      .update(tickets)
+      .set({ implementationPlan: "## Pre", planApprovedAt: new Date(), planApprovedDigest: planDigest("## Pre") })
+      .where(eq(tickets.id, pre));
+    await testDb.db.insert(aiJobs).values({ ticketId: pre, status: "queued", planText: "## Pre" });
+    expect(await planOf(pre)).toBe("pre_approved");
+    // Un digest di un ALTRO piano non vale.
+    await testDb.db.update(tickets).set({ planApprovedDigest: planDigest("## Vecchio") }).where(eq(tickets.id, pre));
+    expect(await planOf(pre)).toBe("undecided");
+  });
+
   it("chi non ha repos.view non riceve le sessioni (né il piano): hiddenRuns", async () => {
     const t = await task(contributor.id);
     await testDb.db.insert(aiJobs).values({ ticketId: t, status: "awaiting_plan_approval", planText: "## Segreto" });
@@ -210,6 +249,47 @@ describe("actions: le calcola il server coi permessi di chi guarda", () => {
     expect((await work(t, developer)).actions.requestChanges).toBe("unavailable");
   });
 
+  it("multi-repo: requestChangesPerPr dice la disponibilità di ogni PR accanto all'aggregato; la review approvata ha la sua data", async () => {
+    const t = await task();
+    await openPr(t, 51);
+    const secondId = await seedRepositoryInProject(testDb.db, projectId);
+    // La seconda PR non è di Stubwise (un branch qualunque): non si corregge.
+    await testDb.db.insert(ticketRepositories).values({
+      ticketId: t,
+      repositoryId: secondId,
+      branch: "feature/altro",
+      prUrl: `https://github.com/acme/web-${n}/pull/52`,
+      prNumber: 52,
+      prState: "open",
+    });
+    await testDb.db.insert(aiJobs).values({ ticketId: t, status: "pr_opened" });
+    const reviewedAt = new Date("2026-11-10T08:30:00.000Z");
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      prNumber: 51,
+      prUrl: "https://github.com/acme/shop/pull/51",
+      prTitle: "Fix",
+      headSha: "abc",
+      ticketId: t,
+      status: "completed",
+      verdict: "approve",
+      createdAt: reviewedAt,
+      startedAt: reviewedAt,
+      finishedAt: reviewedAt,
+    });
+    const w = await work(t, developer);
+    // La prima (di Stubwise) si corregge anche dopo un'approvazione; la seconda no.
+    expect(w.actions.requestChanges).toBe("allowed");
+    const byNumber = <T extends { number: number }>(xs: T[]) => [...xs].sort((a, b) => a.number - b.number);
+    expect(byNumber(w.requestChangesPerPr)).toEqual([
+      { repo: "acme/shop", number: 51, availability: "allowed" },
+      { repo: `acme/web-${n}`, number: 52, availability: "unavailable" },
+    ]);
+    expect(w.prFacts.find((f) => f.number === 51)?.review).toMatchObject({ verdict: "approved", at: reviewedAt.toISOString() });
+    // Chi non ha corrections.request: forbidden dove lo stato lo consente.
+    expect(byNumber((await work(t, viewer)).requestChangesPerPr).map((p) => p.availability)).toEqual(["forbidden", "unavailable"]);
+  });
+
   it("waitsOnViewer: un piano in attesa aspetta chi ha plans.approve, non gli altri", async () => {
     const t = await task();
     await testDb.db.insert(aiJobs).values({ ticketId: t, status: "awaiting_plan_approval", planText: "## P" });
@@ -251,6 +331,50 @@ describe("coerenza: le azioni seguono le rotte d'azione di sempre (area 3, fetta
     expect(after.waitsOnViewer).toBe(false);
     expect(after.runs.at(-1)).toMatchObject({ state: "working", plan: { status: "approved" } });
     expect(after.actions).toMatchObject({ start: "unavailable", relaunch: "unavailable" });
+  });
+});
+
+describe("il piano che si approva è quello letto (planDigest atteso, area 3)", () => {
+  const post = (url: string, who: U, payload?: object) =>
+    app.inject({ method: "POST", url, headers: { cookie: who.headers.cookie }, ...(payload ? { payload } : {}) });
+
+  it("piano riscritto dopo la lettura → 409 plan_changed e nessuna approvazione; col digest letto si approva", async () => {
+    const t = await task();
+    const [job] = await testDb.db
+      .insert(aiJobs)
+      .values({ ticketId: t, status: "awaiting_plan_approval", planText: "## Piano letto" })
+      .returning({ id: aiJobs.id });
+    const read = (await work(t, lead)).runs.at(-1)!.plan!;
+    expect(read.digest).toBe(planDigest("## Piano letto"));
+    // Nel frattempo il piano cambia (una ripianificazione, un'altra scrittura).
+    await testDb.db.update(aiJobs).set({ planText: "## Piano nuovo" }).where(eq(aiJobs.id, job!.id));
+    for (const route of ["approve-plan", "reject-plan"]) {
+      const res = await post(`/api/tickets/${t}/${route}`, lead, { planDigest: read.digest });
+      expect(res.statusCode, route).toBe(409);
+      expect(res.json()).toMatchObject({ code: "plan_changed" });
+    }
+    const [still] = await testDb.db.select({ status: aiJobs.status, plan: aiJobs.planText }).from(aiJobs).where(eq(aiJobs.id, job!.id));
+    expect(still).toEqual({ status: "awaiting_plan_approval", plan: "## Piano nuovo" });
+    expect(
+      (await testDb.db.select({ id: projectDecisions.id }).from(projectDecisions).where(eq(projectDecisions.ticketId, t))).length,
+    ).toBe(0);
+    // Col digest del piano attuale si approva.
+    const fresh = (await work(t, lead)).runs.at(-1)!.plan!.digest;
+    expect((await post(`/api/tickets/${t}/approve-plan`, lead, { planDigest: fresh })).statusCode).toBe(202);
+  });
+
+  it("senza planDigest si comporta come oggi (web vecchio e app mobile)", async () => {
+    const t = await task();
+    await testDb.db.insert(aiJobs).values({ ticketId: t, status: "awaiting_plan_approval", planText: "## P" });
+    expect((await post(`/api/tickets/${t}/approve-plan`, lead)).statusCode).toBe(202);
+  });
+
+  it("il digest è anche in «Da decidere»", async () => {
+    const t = await task();
+    await testDb.db.insert(aiJobs).values({ ticketId: t, status: "awaiting_plan_approval", planText: "## Da decidere" });
+    const res = await app.inject({ method: "GET", url: "/api/me/claude-decisions", headers: { cookie: lead.headers.cookie } });
+    const mine = (res.json() as { taskId: string; planDigest?: string }[]).find((d) => d.taskId === t);
+    expect(mine?.planDigest).toBe(planDigest("## Da decidere"));
   });
 });
 

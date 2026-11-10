@@ -118,6 +118,27 @@ describe("stream delle sessioni via IPC (main)", () => {
     }
   });
 
+  it("un 3xx è fatale («redirect»): il main non segue né riprova un reindirizzamento", async () => {
+    const d = deps({ fetch: vi.fn(async () => new Response(null, { status: 302, headers: { location: "https://evil.example/" } })) });
+    const port = fakePort();
+    createStreamRegistry(d).open(1, PATH, port);
+    await flush();
+    await flush();
+    expect(port.sent.at(-1)).toMatchObject({ type: "end", reason: "redirect", fatal: true, status: 302 });
+  });
+
+  it("il frame porta `real` del parse: un frame con solo un session illeggibile arriva, segnalato", async () => {
+    const body = sseBody();
+    const d = deps({ fetch: vi.fn(async () => new Response(body.stream, { status: 200 })) });
+    const port = fakePort();
+    createStreamRegistry(d).open(1, PATH, port);
+    await flush();
+    body.push(frame({ type: "session", detail: { id: "x" } }));
+    await flush();
+    await flush();
+    expect(port.sent.find((m) => m.type === "frame")).toMatchObject({ real: true, invalidSession: true, messages: [] });
+  });
+
   it("al più MAX_STREAMS_PER_WINDOW per finestra; chiudere la porta libera il posto e annulla il fetch", async () => {
     const signals: AbortSignal[] = [];
     const d = deps({

@@ -258,8 +258,19 @@ export const taskWorkRunSchema = z.object({
     .object({
       text: z.string(),
       summary: z.string(),
-      status: z.enum(["pending", "approved", "rejected", "pre_approved"]),
+      /**
+       * `undecided` (area 3, fetta 3b, review): nessun esito verificabile — un
+       * piano fermo, annullato sul gate o fallito prima di eseguire. Un client
+       * che non lo conosce lo legge `__unknown__` (readerSchema).
+       */
+      status: z.enum(["pending", "approved", "rejected", "pre_approved", "undecided"]),
       at: z.iso.datetime(),
+      /**
+       * Il digest del testo del piano (`planDigest`): rimandato come
+       * `planDigest` ad approve/reject-plan, fa rispondere 409 `plan_changed`
+       * se nel frattempo il piano è cambiato. Additivo.
+       */
+      digest: z.string().nullable().default(null),
     })
     .nullable()
     .default(null),
@@ -342,6 +353,14 @@ export const taskWorkViewSchema = z.object({
       requestChanges: actionAvailabilitySchema.default("unavailable"),
     })
     .default({ start: "unavailable", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" }),
+  /**
+   * «Chiedi modifiche» PER PR (multi-repo), accanto all'aggregato
+   * `actions.requestChanges` (che è `allowed` se lo è almeno una). Stesse
+   * regole, su ogni PR; una PR che non è di Stubwise è `unavailable`.
+   */
+  requestChangesPerPr: z
+    .array(z.object({ repo: z.string(), number: z.number().int(), availability: actionAvailabilitySchema }))
+    .default([]),
   /**
    * Perché un lavoro nuovo non partirebbe adesso. Sul server vero un avvio a
    * mano scavalca il budget (`manualTrigger`), quindi oggi è sempre `null`:

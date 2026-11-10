@@ -4,8 +4,10 @@ import {
   aiJobs,
   aiProviders,
   prCorrections,
+  prReviews,
   projectDecisions,
   repositories,
+  planDigest,
   ticketRepositories,
   tickets,
   type Db,
@@ -106,7 +108,7 @@ export async function loadTaskWorkExtras(
 ): Promise<Extras> {
   const { ticketId, viewerId, permissions } = input;
   const [ticket] = await db
-    .select({ projectId: tickets.projectId, type: tickets.type })
+    .select({ projectId: tickets.projectId, type: tickets.type, planApprovedDigest: tickets.planApprovedDigest })
     .from(tickets)
     .where(eq(tickets.id, ticketId));
   const [jobs, prRows, decisionRows, [repoCount]] = await Promise.all([
@@ -169,6 +171,28 @@ export async function loadTaskWorkExtras(
       : Promise.resolve([{ n: 0 }]),
   ]);
 
+  // I job il cui piano ha una decisione APPROVATA nel registro (`execute`).
+  const approvedJobs = new Set(
+    decisionRows.flatMap((d) => {
+      const ref = (d.sourceRef ?? {}) as { jobId?: unknown; mode?: unknown };
+      return ref.mode === "execute" && typeof ref.jobId === "string" ? [ref.jobId] : [];
+    }),
+  );
+  /**
+   * Lo stato del piano di un job, SOLO da un esito che si può verificare:
+   * in attesa sul gate → `pending`; una decisione approvata per quel job nel
+   * registro, o un job che ha ESEGUITO (è uscito dal gate verso il fix) →
+   * `approved`; il digest della pre-approvazione del ticket uguale a quello del
+   * piano → `pre_approved`; altrimenti `undecided` (fermo, annullato sul gate,
+   * fallito prima di eseguire: nessuno l'ha deciso).
+   */
+  const planStatus = (j: (typeof jobs)[number]): NonNullable<Run["plan"]>["status"] => {
+    if (j.status === "awaiting_plan_approval") return "pending";
+    if (approvedJobs.has(j.id)) return "approved";
+    if (j.status === "fixing" || j.status === "pr_opened" || j.status === "pr_merged" || j.status === "pr_closed") return "approved";
+    if (j.planText && ticket?.planApprovedDigest && ticket.planApprovedDigest === planDigest(j.planText)) return "pre_approved";
+    return "undecided";
+  };
   const canSeeRuns = permissions.has("repos.view");
   const runs: Run[] = canSeeRuns
     ? jobs.map((j) => ({
@@ -186,13 +210,14 @@ export async function loadTaskWorkExtras(
         provider: j.providerKind && j.providerLabel ? { kind: j.providerKind, name: j.providerLabel } : null,
         failureSummary: j.failureSummary,
         heldReason: j.heldReason,
-        // Il piano vive col job (`plan_text`, azzerato al rifiuto): in attesa
-        // finché il job è parcheggiato sul gate, altrimenti è quello eseguito.
+        // Il piano vive col job (`plan_text`, azzerato al rifiuto); lo stato
+        // lo dice `planStatus`, mai per esclusione.
         plan: j.planText
           ? {
               text: j.planText,
               summary: j.planSummary ?? "",
-              status: j.status === "awaiting_plan_approval" ? ("pending" as const) : ("approved" as const),
+              status: planStatus(j),
+              digest: planDigest(j.planText),
               at: (j.startedAt ?? j.createdAt).toISOString(),
             }
           : null,
@@ -216,6 +241,22 @@ export async function loadTaskWorkExtras(
       anyone: await derivePrCycle(db, { ticketId, repositoryId: p.repositoryId, viewerPermissions: EVERYONE }),
     })),
   );
+  // La data vera dell'ultima review completata di ogni PR (il ciclo dice il verdetto).
+  const reviewRows = prs.length
+    ? await db
+        .select({
+          repositoryId: prReviews.repositoryId,
+          prNumber: prReviews.prNumber,
+          at: sql<Date>`coalesce(${prReviews.finishedAt}, ${prReviews.createdAt})`,
+        })
+        .from(prReviews)
+        .where(and(eq(prReviews.ticketId, ticketId), eq(prReviews.status, "completed")))
+        .orderBy(asc(prReviews.createdAt))
+    : [];
+  const reviewedAt = new Map<string, string>();
+  for (const r of reviewRows) reviewedAt.set(`${r.repositoryId}#${r.prNumber}`, new Date(r.at).toISOString());
+  const reviewAt = (p: (typeof prs)[number]) =>
+    reviewedAt.get(`${p.repositoryId}#${p.number}`) ?? p.createdAt.toISOString();
   const prFacts: Extras["prFacts"] = cycles
     .filter((c) => c.viewer !== null)
     .map(({ pr, viewer }) => ({
@@ -223,7 +264,7 @@ export async function loadTaskWorkExtras(
       number: pr.number,
       review:
         viewer!.state === "approved"
-          ? { verdict: "approved" as const, at: viewer!.lastRequest?.at ?? pr.createdAt.toISOString(), byId: null, on: "stubwise" as const }
+          ? { verdict: "approved" as const, at: reviewAt(pr), byId: null, on: "stubwise" as const }
           : viewer!.state === "changes_requested" || viewer!.state === "stopped_at_cap"
             ? {
                 verdict: "changes_requested" as const,
@@ -238,6 +279,14 @@ export async function loadTaskWorkExtras(
       queued: viewer!.pendingRequest,
     }));
   const correctionCap = cycles.find((c) => c.viewer !== null)?.viewer?.maxRounds ?? 3;
+  const requestChangesPerPr: Extras["requestChangesPerPr"] = cycles.map(({ pr, viewer, anyone }) => ({
+    repo: pr.repo,
+    number: pr.number,
+    availability: pick(
+      anyone?.canRequestCorrection === true,
+      viewer?.canRequestCorrection === true && permissions.has("corrections.request"),
+    ),
+  }));
   const requestByState = cycles.some((c) => c.anyone?.canRequestCorrection === true);
   const requestByViewer = cycles.some((c) => c.viewer?.canRequestCorrection === true) && permissions.has("corrections.request");
 
@@ -300,6 +349,7 @@ export async function loadTaskWorkExtras(
     openPr: prs.some((p) => p.prState === "open"),
     waitsOnViewer,
     actions,
+    requestChangesPerPr,
     blocked: null,
   };
 }

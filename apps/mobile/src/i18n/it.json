@@ -682,6 +682,7 @@
         "prCorrection": "PR #{{number}} · correzione {{round}}",
         "kinds": {
           "run_started": "Lavoro avviato",
+          "run_cancelled": "Lavoro annullato",
           "question_asked": "L'agente ha fatto una domanda",
           "question_answered": "Domanda risposta",
           "plan_approved": "Piano approvato",

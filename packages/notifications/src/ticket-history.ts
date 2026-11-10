@@ -15,6 +15,7 @@ import { prNumberFromUrl, type TicketHistory, type TicketHistoryEvent } from "@s
  * | kind | sorgente |
  * |---|---|
  * | `run_started` | `ai_jobs` SENZA `correction_id` e PARTITI (`started_at` valorizzato), alla data dell'ultimo avvio |
+ * | `run_cancelled` | `ai_jobs` `skipped` con `cancel_requested_at` («Annulla il lavoro», area 3), con chi l'ha chiesto |
  * | `question_asked` / `question_answered` | `agent_questions` |
  * | `plan_approved` / `plan_rejected` | `project_decisions` `plan_review` del ticket: `mode: execute` o `digest` (pre-approvazione, `detail: pre_approved`) / `mode: fix` |
  * | `pr_opened` | `ai_jobs` SENZA `correction_id` con PR e stato `pr_opened`/`pr_merged`/`pr_closed` |
@@ -95,6 +96,9 @@ export interface HistoryJobRow {
   startedAt: Date | null;
   finishedAt: Date | null;
   requesterName: string | null;
+  /** Area 3, fetta 3b: chi ha annullato il lavoro, e quando (`cancel_requested_*`). Facoltativi per i chiamanti di prima. */
+  cancelRequestedAt?: Date | null;
+  cancellerName?: string | null;
 }
 
 /** Riga di `agent_questions` del ticket. */
@@ -238,6 +242,11 @@ export function buildTicketHistory(
   const correctionsById = new Map(rows.corrections.map((c) => [c.id, c]));
 
   for (const j of rows.jobs) {
+    // «Annulla il lavoro» (area 3, fetta 3b): solo un job davvero chiuso
+    // (`skipped`) con la richiesta registrata. Fix o correzione, è lo stesso fatto.
+    if (j.status === "skipped" && j.cancelRequestedAt) {
+      drafts.push({ kind: "run_cancelled", rowId: `${j.id}:cancelled`, at: j.cancelRequestedAt, actor: user(j.cancellerName ?? null) });
+    }
     if (j.correctionId === null) {
       // Solo un job PARTITO: `startRun`/`resolvePlan` riciclano la riga
       // azzerando `started_at` ma non `created_at`, quindi un ripiego sulla

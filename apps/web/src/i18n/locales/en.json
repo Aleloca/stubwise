@@ -775,6 +775,7 @@
       "prCorrection": "PR #{{number}} · correction {{round}}",
       "kinds": {
         "run_started": "Run started",
+        "run_cancelled": "Work cancelled",
         "question_asked": "The agent asked a question",
         "question_answered": "Question answered",
         "plan_approved": "Plan approved",

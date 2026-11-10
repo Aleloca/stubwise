@@ -56,3 +56,17 @@ describe("tasks.cancelRun (area 3, fetta 3b)", () => {
     expect(work.actions.relaunch).toBe("unavailable");
   });
 });
+
+describe("approvePlan / rejectPlan col digest letto (area 3)", () => {
+  it("mandano planDigest se c'è; senza, approvePlan non ha corpo come prima", async () => {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(
+      async () => new Response(JSON.stringify({ jobId: T }), { status: 202, headers: { "content-type": "application/json" } }),
+    );
+    const client = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
+    await client.tickets.approvePlan(T, { planDigest: "abc" });
+    await client.tickets.approvePlan(T);
+    await client.tickets.rejectPlan(T, { instructions: "usa Postgres", planDigest: "abc" });
+    const bodies = fetchImpl.mock.calls.map(([, init]) => (init!.body ? JSON.parse(init!.body as string) : undefined));
+    expect(bodies).toEqual([{ planDigest: "abc" }, undefined, { instructions: "usa Postgres", planDigest: "abc" }]);
+  });
+});
