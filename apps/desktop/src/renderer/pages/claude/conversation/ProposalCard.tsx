@@ -46,6 +46,7 @@ import {
   usePersonName,
 } from "./parts";
 import { UndoControl } from "./UndoControl";
+import { isAppBuild } from "../../../data/build";
 
 /** Le azioni che si possono rifare dal loro dialogo, precompilato («Edit»). */
 const EDITABLE: ReadonlySet<ProposedAction["fn"]> = new Set(["createTask", "createRequest"]);
@@ -96,6 +97,12 @@ export interface ProposalOps {
   cancel: () => Promise<unknown>;
   edit: () => Promise<NonNullable<EditState>>;
   complete: (code: string) => Promise<unknown>;
+  /**
+   * Build app (chat, fetta 3): salvare il dialogo di «Edit» CONFERMA la
+   * proposta coi valori cambiati (`edited`), e la esegue il server. Assente
+   * (prototipo e Chat): il dialogo crea a mano e `complete` chiude la scheda.
+   */
+  confirmEdited?: (index: number, args: Record<string, unknown>) => Promise<unknown>;
   busy: boolean;
 }
 
@@ -166,6 +173,9 @@ export function ProposalCard({
         cancel: () => cancel.mutateAsync(target),
         edit: () => edit.mutateAsync(target),
         complete: (code) => complete.mutateAsync({ ...target, resultCodes: [code] }),
+        ...(isAppBuild()
+          ? { confirmEdited: (index, args) => confirm.mutateAsync({ ...target, edited: [{ index, args }] }) }
+          : {}),
         busy: confirm.isPending || cancel.isPending || edit.isPending || complete.isPending,
       }}
     />
@@ -516,6 +526,9 @@ export function ProposalCardView({
           initial={editing.args as Partial<NewTaskInput>}
           onCreated={(task) => edited(task.code)}
           onClose={() => setEditing(null)}
+          {...(ops.confirmEdited
+            ? { submit: (input: NewTaskInput) => ops.confirmEdited!(0, { ...editing.args, ...input }) }
+            : {})}
         />
       )}
       {editing?.fn === "createRequest" && (
@@ -527,6 +540,9 @@ export function ProposalCardView({
           }}
           onCreated={(request) => edited(request.code)}
           onClose={() => setEditing(null)}
+          {...(ops.confirmEdited
+            ? { submit: (input: { projectId: string; title: string; description: string }) => ops.confirmEdited!(0, { ...editing.args, ...input }) }
+            : {})}
         />
       )}
     </section>
@@ -840,6 +856,14 @@ function ReasonRows({ reasons }: { reasons: readonly ClassReason[] }) {
             kind: "reauth",
             glyph: <LockGlyph />,
             text: t("claude.conversation.proposal.reasons.reauth"),
+          },
+        ];
+      case "startsWork":
+        return [
+          {
+            kind: "startsWork",
+            glyph: <IrreversibleGlyph />,
+            text: t("claude.conversation.proposal.reasons.startsWork"),
           },
         ];
     }

@@ -88,6 +88,7 @@ describe("isIntegrated", () => {
         // Fetta 3e: Claude assegnabile.
         "feature:claude-assign",
         "feature:commit-author-link",
+        "feature:claude-chat-actions",
         // Fetta 3.0 della chat: «Elimina task».
         "feature:task-delete",
       ].sort(),

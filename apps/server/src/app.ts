@@ -27,7 +27,7 @@ import {
   attachmentRoutes,
   ticketAttachmentRoutes,
 } from "./routes/attachments.js";
-import { accessPreHandler } from "./auth/access.js";
+import { accessPreHandler, recordDesktopReauthUseOnResponse } from "./auth/access.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
@@ -408,6 +408,12 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // globale: le rotte che non lo dichiarano ancora non sono toccate e usano i
   // loro preHandler (transizione). Vedi `auth/access.ts`.
   app.addHook("preHandler", accessPreHandler);
+  // La riga `reauth_desktop` con l'azione, solo a risposta riuscita (access.ts):
+  // `onSend`, atteso prima che la risposta parta.
+  app.addHook("onSend", async (request, reply, payload) => {
+    await recordDesktopReauthUseOnResponse(request, reply);
+    return payload;
+  });
 
   // Validazione e serializzazione via Zod su tutta l'app: gli schemi delle
   // route sono oggetti Zod e (Task 9) diventeranno la fonte dell'OpenAPI.

@@ -3488,7 +3488,8 @@
         "notifiesOthers": "it notifies people who follow this",
         "automation": "it starts an automation in {{code}}",
         "irreversible": "it can't be undone",
-        "reauth": "it asks for your code"
+        "reauth": "it asks for your code",
+        "startsWork": "it starts Claude's work, which can't be undone"
       },
       "remove": {
         "noCode": "Which task should I delete? Give me its code, like AUD-4.",
@@ -4076,7 +4077,8 @@
           "automation": "An automation in {{code}} starts",
           "irreversible": "Can't be undone",
           "reauth": "Asks for your two-step code",
-          "label": "What happens"
+          "label": "What happens",
+          "startsWork": "Starts Claude's work: it can't be undone"
         },
         "delete": "Delete",
         "needsCode": "This needs your two-step code first. Nothing was changed.",
@@ -4376,7 +4378,11 @@
       },
       "commands": {
         "explain": "Explain a task or a request, by its code",
-        "docs": "How something works in a project, from its Docs"
+        "docs": "How something works in a project, from its Docs",
+        "plan": "Plan your next week from the open tasks",
+        "new-task": "Create a task, with a proposal to confirm",
+        "new-request": "Open a request in a project",
+        "run": "Start Claude's work on a task or a request"
       }
     },
     "destination": {
@@ -4778,6 +4784,32 @@
       "monthSpend": {
         "line": "summarize this month's spend",
         "prompt": "How much have we spent on AI this month?"
+      }
+    },
+    "chatActions": {
+      "summary": {
+        "createTask": "Create the task “{{title}}”",
+        "updateTask": "Change {{code}} ({{fields}})",
+        "updateTaskNoCode": "Change a task ({{fields}})",
+        "planTask": "Plan {{code}}",
+        "planTaskNoCode": "Plan a task",
+        "addComment": "Comment on {{code}}",
+        "addCommentNoCode": "Comment on a task",
+        "deleteComment": "Delete a comment on {{code}}",
+        "deleteCommentNoCode": "Delete a comment",
+        "createRequest": "Send the request “{{title}}”",
+        "convertRequest": "Turn a request into a task",
+        "archiveRequest": "Archive a request",
+        "reopenRequest": "Reopen a request",
+        "startRun": "Start Claude's work on {{code}}",
+        "startRunNoCode": "Start Claude's work on a task",
+        "createMilestone": "Create the milestone “{{name}}”",
+        "deleteMilestone": "Delete a milestone",
+        "saveFilter": "Save the filter “{{name}}”",
+        "deleteFilter": "Delete a saved filter",
+        "pageAction": "Change this page ({{kind}})",
+        "deleteTask": "Delete {{code}}",
+        "deleteTaskNoCode": "Delete a task"
       }
     }
   },

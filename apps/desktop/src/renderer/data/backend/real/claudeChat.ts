@@ -23,6 +23,7 @@ import { listPeople } from "./people";
 import { listProjects } from "./projects";
 import { getRequest, getRequestByCode } from "./requests";
 import { getTaskByCode, listTasks } from "./tasks";
+import { featureIntegrated } from "../../integration";
 
 // La chat con Claude nella build app (integrazione «Chat con Claude», fetta 2):
 // le conversazioni libere PRIVATE di chi le apre (`/api/claude/conversations`).
@@ -68,7 +69,7 @@ function codeOfObjectFor(): Map<string, string> {
   return codes;
 }
 
-async function taskCodeOf(taskId: string): Promise<{ code: string; projectId: string } | null> {
+export async function taskCodeOf(taskId: string): Promise<{ code: string; projectId: string } | null> {
   try {
     const ticket = await appClient().tickets.get(taskId);
     const code = (await listProjects()).find((p) => p.id === ticket.projectId)?.code;
@@ -284,9 +285,11 @@ export async function chatAiBlock(projectId: string | null): Promise<AiBlock | n
  * espone). Le descrizioni nella lingua di chi guarda.
  */
 const READ_COMMANDS = ["explain", "docs"] as const;
+/** Fetta 3: i comandi d'azione, che diventano una proposta (Claude propone, il server esegue). */
+const ACTION_COMMANDS = ["plan", "new-task", "new-request", "run"] as const;
 
 export const listCommands: typeof Fake.listCommands = async () =>
-  READ_COMMANDS.map<SlashCommand>((id) => ({
+  [...READ_COMMANDS, ...(featureIntegrated("claude-chat-actions") ? ACTION_COMMANDS : [])].map<SlashCommand>((id) => ({
     id: `cmd-${id}`,
     label: `/${id}`,
     description: i18n.t(`claude.conversation.commands.${id}`),

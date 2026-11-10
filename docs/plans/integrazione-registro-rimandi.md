@@ -30,9 +30,6 @@ Legenda: *(M)* decisione del maintainer, *(O)* scelta dell'orchestratrice,
   (limite dichiarato di `ticket-history`). Copiarla in `ticket_events` alla
   chiusura vorrebbe una migrazione: rimandato. Né `requeueStale` scrive il
   commento quando chiude uno stantio annullato.
-- Standup per persona *(S)*: `viaClaude` sempre falso (nessun evento dice se
-  un cambio l'ha fatto Claude per una persona) — si chiude con la fetta 3
-  della chat. (`tasksDeleted`: chiuso, sotto.)
 - Il dettaglio della sessione non porta il piano né il suo digest *(S)*: il
   digest da rimandare ad approve/reject si legge da `/work` o da «Da decidere».
 - Abbinare un commit per **username** del provider *(S)*: nessuna tabella lega
@@ -88,6 +85,9 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   dagli schemi zod (`claudeActionSignatures`): `pageAction` di tipo
   `filter` vi compare, ma il modello non conosce le rotte del renderer: lo
   userà davvero solo dove la pagina gliele dà (F3.4).
+- Lo stato delle azioni della pagina (D3) è del renderer, per persona e in
+  memoria *(S, F3.4)*: il server le valida soltanto, quindi dopo un riavvio
+  dell'app una scheda già eseguita torna da rifare.
 - Il contesto della pagina arriva al modello come `tipo: id`, non come il suo
   contenuto: Claude lo legge con i tool se serve *(S)*.
 - Conservazione *(M, review delle fette 1–2)*: le conversazioni inattive da 14
@@ -98,10 +98,11 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   un progetto, quindi nessun `plans.approve`) *(S)*.
 - **Limiti della fetta 2 (renderer, destinazione)** *(S, stubwise-72)*:
   - «#» propone task e progetti, non richieste né pagine Docs; «@» le persone.
-  - «/» ha i soli comandi che i tool di lettura coprono (`/explain`, `/docs`);
-    `/status` e `/today` tornano quando i tool leggono progetti seguiti,
-    decisioni e la settimana di chi scrive; niente skill dei plugin del
-    progetto (il server non le espone).
+  - «/» ha i comandi di lettura (`/explain`, `/docs`) e, dalla F3.4, quelli
+    d'azione (`/plan`, `/new-task`, `/new-request`, `/run`); `/status` e
+    `/today` tornano quando i tool leggono progetti seguiti, decisioni e la
+    settimana di chi scrive; niente skill dei plugin del progetto (il server
+    non le espone).
   - Le citazioni registrate su un messaggio non esistono sul server: Claude
     cita col codice nel testo, che la pagina risolve (`resolveCodes`, task e
     richieste).
@@ -109,8 +110,6 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
     lo sostituisce (l'ultimo vince) e il turno lo ripete al modello; il
     contesto di progetto scelto all'inizio si perde dopo un messaggio con un
     chip di task.
-  - La riga di benvenuto dice la promessa di sola lettura
-    (`landing.introRead`) finché le azioni in chat non entrano.
   - Riquadro: il chip c'è per task, richieste, pagine e impostazioni di
     progetto; gli oggetti delle aree non integrate (rilasci, supporto, PR,
     automazioni, posta) non danno chip né contesto; le domande della doc di
@@ -233,6 +232,17 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
   (`browserOrConfirmedDesktop`) vale anche negli handler: aperti PAT,
   desktop-handoff, il link di reset altrui e la propria password. Resta fuori
   solo la cassaforte, bloccata dallo sblocco PRF (voce nell'area 9).
+
+- La riga di benvenuto con la promessa di sola lettura e «/» senza comandi
+  d'azione *(S, fetta 2)*: `landing.intro` e `/plan`, `/new-task`,
+  `/new-request`, `/run` col flag `claude-chat-actions` — commit
+  «feat(desktop): la chat con Claude agisce nella build app (F3.4)».
+- «via Claude» a lettura *(S, 10 nov 2026)*: commenti, registro della task,
+  card d'inbox e standup per persona (`tasksMoved`, `comments`, oltre a
+  `tasksDeleted`) derivano `viaClaude`, l'azione e il richiedente (dal gruppo)
+  dalle colonne `via_claude_action_id`; il jsonb delle notifiche non si tocca
+  — commit «feat(server): viaClaude derivato a lettura».
+
 - **Elimina task** *(M, 10 nov 2026)* e lo standup «`tasksDeleted` sempre
   vuoto» *(S)*: eliminazione vera (0130, lapide `deleted_tickets`, FK decise,
   numero mai riusato, chi lo decide il server, `busy`), «Delete task…» nella

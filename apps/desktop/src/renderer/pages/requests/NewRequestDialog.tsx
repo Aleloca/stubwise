@@ -34,12 +34,15 @@ export function NewRequestDialog({
   onCreated,
   onPending,
   onClose,
+  submit: deliver,
 }: {
   projectId?: string;
   /** Il messaggio della Chat da cui nasce («Create request»). */
   fromMessageId?: string;
   /** I valori di partenza (la proposta di Claude aperta con «Edit»). */
   initial?: { title?: string; description?: string };
+  /** Al posto della creazione: consegna i valori (la scheda di Claude nella build app li conferma con `edited`). */
+  submit?: (input: { projectId: string; title: string; description: string }) => Promise<unknown>;
   onCreated: (request: ProjectRequest, project: Project) => void;
   /**
    * Il server l'ha accodata ma l'esito dell'intake non è ancora arrivato:
@@ -81,7 +84,8 @@ export function NewRequestDialog({
         setFailed(true);
       },
     };
-    if (fromMessageId) fromMessage.mutate({ messageId: fromMessageId, input }, callbacks);
+    if (deliver) deliver(input).then(onClose, () => setFailed(true));
+    else if (fromMessageId) fromMessage.mutate({ messageId: fromMessageId, input }, callbacks);
     else {
       abort.current = new AbortController();
       create.mutate({ input, signal: abort.current.signal }, callbacks);

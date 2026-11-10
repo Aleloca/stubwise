@@ -212,6 +212,14 @@ const INTEGRATED_CALLS = new Set([
   "projectPulse",
   "listProjectPulses",
   "createProject",
+  // Chat, fette 1–2 (F1.x, F2.1a): i codici e le citazioni risolti nei
+  // messaggi, e il blocco dell'istanza (budget) che spegne la casella.
+  "resolveCodes",
+  "resolveCitations",
+  "instance.getAiBlock",
+  // F3.0 della chat: «Delete task…» (l'anteprima si legge all'apertura del menu).
+  "getTaskDeletion",
+  "deleteTask",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -266,7 +274,8 @@ describe("aree non integrate nella build app", () => {
   });
 
   // Dal Task 17 la sezione Claude dice lo stato vero (e «Open in web» nel web vecchio).
-  it("nel dettaglio della task la sezione Claude c'è intera, in lettura: nessuna azione (3b) né «Delete»", async () => {
+  // Da F3.0 della chat «Delete task…» c'è nel menu «⋯» (Marco può eliminare).
+  it("nel dettaglio della task la sezione Claude c'è intera; a lavoro finito nessuna azione, e «Delete» nel menu", async () => {
     const user = userEvent.setup();
     renderRoute("/p/AUD/tasks?task=AUD-9");
     const panel = await screen.findByRole("dialog", { name: "Task AUD-9" });
@@ -282,7 +291,7 @@ describe("aree non integrate nella build app", () => {
     ).toBeNull();
     await user.click(within(panel).getByRole("button", { name: MORE }));
     expect(await screen.findByRole("menu")).toBeInTheDocument();
-    expect(screen.queryByText(DELETE)).toBeNull();
+    expect(screen.getByText(DELETE)).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
     expect(calls).toContain("getTaskWork");
@@ -622,26 +631,31 @@ describe("le superfici della fetta 4 nella build app", () => {
 });
 
 describe("le superfici della fetta 3a nella build app (area 3)", () => {
-  it("/claude atterra sulle sessioni dal vivo: niente «New conversation», niente «Mine»", async () => {
+  // Dalle fette 1–2 della chat la chat libera è integrata: /claude atterra su
+  // «New conversation», con «Mine» nella colonna; le pubbliche restano «in arrivo».
+  it("/claude atterra su «New conversation», con «Mine» e le sessioni dal vivo nella colonna", async () => {
     signedInAs("p-laura");
-    const router = renderRoute("/claude");
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ scope: "live" }));
-    expect(await screen.findByRole("heading", { level: 1, name: "Working now" })).toBeInTheDocument();
-    expect(await screen.findByText("Board view with keyboard drag and drop")).toBeInTheDocument();
+    renderRoute("/claude");
+    expect(await screen.findByRole("heading", { level: 1, name: "New conversation" })).toBeInTheDocument();
     const column = screen.getByRole("navigation", { name: "Claude views" });
-    expect(within(column).queryByText("New conversation")).toBeNull();
-    expect(within(column).queryByText("Mine")).toBeNull();
+    expect(within(column).getByText("New conversation")).toBeInTheDocument();
+    expect(within(column).getByText("Mine")).toBeInTheDocument();
     expect(within(column).getByText("Finished")).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);
     expect(calls).not.toContain("getClaudeSuggestion");
   });
 
-  it("le proprie conversazioni e le pubbliche (la chat libera) sono «in arrivo», senza letture", async () => {
+  it("le pubbliche sono «in arrivo», senza letture; le proprie si leggono", async () => {
     signedInAs("p-laura");
-    renderRoute("/claude?scope=mine");
+    renderRoute("/claude?scope=public");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
+    expect(outside()).toEqual([]);
+    cleanup();
+    renderRoute("/claude?scope=mine");
+    await waitFor(() => expect(calls).toContain("listConversations"));
+    expect(screen.queryByText("Coming soon")).toBeNull();
     expect(outside()).toEqual([]);
   });
 

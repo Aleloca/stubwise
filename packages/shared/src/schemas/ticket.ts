@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { handledBySchema } from "./actor.js";
+import { handledBySchema, viaClaudeShape } from "./actor.js";
 import { prAdoptionSchema, prCycleSchema } from "./pr-correction.js";
 
 export const ticketStatusSchema = z.enum([
@@ -401,6 +401,13 @@ export const ticketCommentSchema = z.object({
   canEdit: z.boolean().default(false),
   canDelete: z.boolean().default(false),
   inDecisionLog: z.boolean().default(false),
+  /**
+   * «via Claude» (chat, fetta 3): il commento l'ha scritto Claude per conto
+   * dell'autore. DERIVATO a lettura dalla colonna `via_claude_action_id`; il
+   * richiedente viene dal gruppo dell'azione. ADDITIVI: un server vecchio non
+   * li manda, e allora nessun commento è «via Claude».
+   */
+  ...viaClaudeShape,
 });
 export type TicketComment = z.infer<typeof ticketCommentSchema>;
 

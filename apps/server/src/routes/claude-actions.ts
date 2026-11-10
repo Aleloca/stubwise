@@ -55,6 +55,7 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
           .default({}),
         response: {
           200: claudeProposalViewSchema,
+          400: errorSchema,
           404: errorSchema,
           409: z.union([refusedSchema, errorSchema]),
           ...authErrorResponses,
@@ -74,6 +75,7 @@ export async function claudeActionRoutes(instance: FastifyInstance): Promise<voi
       );
       if (result.ok) return result.proposal;
       if (result.error === "not_found") return apiError(reply, 404, "not_found", "Proposal not found");
+      if (result.error === "invalid") return apiError(reply, 400, "invalid", "Select at least one action");
       if (result.error === "refused") {
         return reply.code(409).send({ code: "refused", message: "The action was refused", proposal: result.proposal });
       }

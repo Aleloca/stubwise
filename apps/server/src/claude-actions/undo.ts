@@ -1,10 +1,21 @@
-import { backlogItems, claudeActionGroups, claudeActions, comments, taskFilters, ticketEvents, type Db } from "@stubwise/db";
+import {
+  attachments,
+  backlogItems,
+  claudeActionGroups,
+  claudeActions,
+  comments,
+  taskFilters,
+  ticketEvents,
+  ticketFollowers,
+  tickets,
+  type Db,
+} from "@stubwise/db";
 import type { ClaudeActionFn } from "@stubwise/shared";
-import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, notInArray, or, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
 import type { ActionObject } from "./catalog.js";
 import type { ActionEffects } from "./effects.js";
-import { executeGroup, type ExecuteResult, type PlannedAction } from "./execute.js";
+import { executeGroup, inverseAsksConfirmation, RECLASSIFIED, type ExecuteResult, type PlannedAction } from "./execute.js";
 
 /**
  * «Annulla» di un gruppo eseguito da Claude (chat, fetta 3), le regole del
@@ -28,6 +39,15 @@ export type UndoState =
   | { state: "not_found" };
 
 type Group = typeof claudeActionGroups.$inferSelect;
+const CHANGED_AFTER = "changed_after";
+
+/**
+ * `executed_at` del gruppo letto in SQL, non dal JS: il DB tiene i
+ * microsecondi, un `Date` solo i millisecondi, e le righe scritte nella STESSA
+ * transazione del gruppo (lo stesso `now()`) sembrerebbero «dopo».
+ */
+const executedAtOf = (group: Group) =>
+  sql`(select ${claudeActionGroups.executedAt} from ${claudeActionGroups} where ${claudeActionGroups.id} = ${group.id})`;
 
 /** La prima scrittura sugli oggetti del gruppo dopo di lui, che non sia sua. `undefined`: nessuna. */
 async function laterChangeOf(
@@ -46,6 +66,19 @@ async function laterChangeOf(
   }
   const taskIds = objects.filter((o) => o.kind === "task").map((o) => o.id);
   if (taskIds.length === 0) return undefined;
+  // Un allegato o un follower arrivati dopo: un «Annulla» li porterebbe via.
+  const [attachment] = await db
+    .select({ by: attachments.uploaderId })
+    .from(attachments)
+    .where(and(inArray(attachments.ticketId, taskIds), gt(attachments.createdAt, executedAtOf(group))))
+    .limit(1);
+  if (attachment) return { byUserId: attachment.by };
+  const [follower] = await db
+    .select({ by: ticketFollowers.userId })
+    .from(ticketFollowers)
+    .where(and(inArray(ticketFollowers.ticketId, taskIds), gt(ticketFollowers.createdAt, executedAtOf(group))))
+    .limit(1);
+  if (follower) return { byUserId: follower.by };
   const notOurs = (column: typeof ticketEvents.viaClaudeActionId | typeof comments.viaClaudeActionId) =>
     actionIds.length > 0 ? or(isNull(column), notInArray(column, actionIds)) : undefined;
   const [event] = await db
@@ -54,7 +87,7 @@ async function laterChangeOf(
     .where(
       and(
         inArray(ticketEvents.ticketId, taskIds),
-        gt(ticketEvents.createdAt, group.executedAt),
+        gt(ticketEvents.createdAt, executedAtOf(group)),
         notOurs(ticketEvents.viaClaudeActionId),
       ),
     )
@@ -65,11 +98,21 @@ async function laterChangeOf(
     .select({ by: comments.authorId })
     .from(comments)
     .where(
-      and(inArray(comments.ticketId, taskIds), gt(comments.createdAt, group.executedAt), notOurs(comments.viaClaudeActionId)),
+      and(inArray(comments.ticketId, taskIds), gt(comments.createdAt, executedAtOf(group)), notOurs(comments.viaClaudeActionId)),
     )
     .orderBy(asc(comments.createdAt))
     .limit(1);
-  return comment ? { byUserId: comment.by } : undefined;
+  if (comment) return { byUserId: comment.by };
+  // Le task: il loro `updated_at` è andato oltre quello letto a fine gruppo,
+  // dentro la sua transazione (`stamp`, review della fetta 3). Copre le
+  // scritture che non lasciano storia né commenti (scadenza, stallo manuale…):
+  // la sola esecuzione di Claude non la fa sembrare cambiata dopo.
+  for (const o of objects) {
+    if (o.kind !== "task" || !o.stamp) continue;
+    const [row] = await db.select({ at: tickets.updatedAt }).from(tickets).where(eq(tickets.id, o.id));
+    if (row && row.at.toISOString() > o.stamp) return { byUserId: null };
+  }
+  return undefined;
 }
 
 /** Lo stato di «Annulla» di un gruppo per chi guarda, coi dati di adesso. */
@@ -123,7 +166,9 @@ export async function undoGroup(
   if (!opts.confirmed) {
     const dry = await executeGroup(db, user, { sessionId, actions: state.inverses, undoOfGroupId: groupId, dryRun: true });
     if (!dry.ok) return { ok: false, error: "refused", failure: dry.failure };
-    if (dry.notified.length > 0) return { ok: true, kind: "needs_confirmation", inverses: state.inverses, notified: dry.notified };
+    // Come `undoAsks` del prototipo: un inverso che avviserebbe qualcuno, o che
+    // farebbe ripartire il lavoro di Claude (riassegnarlo), è una scheda.
+    if (inverseAsksConfirmation(dry)) return { ok: true, kind: "needs_confirmation", inverses: state.inverses, notified: dry.notified };
   }
   // Una volta sola: si RECLAMA la riga prima degli inversi (due «Annulla»
   // insieme: uno solo passa); se gli inversi falliscono, la riga torna libera.
@@ -133,14 +178,36 @@ export async function undoGroup(
     .where(and(eq(claudeActionGroups.id, groupId), isNull(claudeActionGroups.undoneAt)))
     .returning({ id: claudeActionGroups.id });
   if (claimed.length === 0) return { ok: false, error: "undone" };
+  const objects = (
+    await db.select({ objects: claudeActions.objects, id: claudeActions.id }).from(claudeActions).where(eq(claudeActions.groupId, groupId))
+  );
   const done = await executeGroup(db, user, {
     sessionId,
     actions: state.inverses,
     undoOfGroupId: groupId,
     ...(opts.effects ? { effects: opts.effects } : {}),
+    // Dentro la transazione degli inversi (review della fetta 3): si bloccano
+    // le task toccate e si riguarda `changed_after`; senza conferma, un inverso
+    // che chiederebbe conferma si ferma (la scheda la fa chi chiama).
+    ...(opts.confirmed ? {} : { expectQuietUndo: true }),
+    guard: async (tx) => {
+      const all = objects.flatMap((r) => r.objects as ActionObject[]);
+      const taskIds = all.filter((o) => o.kind === "task").map((o) => o.id);
+      if (taskIds.length > 0) {
+        await tx.execute(sql`select id from ${tickets} where ${inArray(tickets.id, taskIds)} for update`);
+      }
+      const later = await laterChangeOf(tx, group!, objects.map((r) => r.id), all);
+      return later ? { code: "conflict", index: 0, permission: null, projectId: null, message: CHANGED_AFTER } : null;
+    },
   });
   if (!done.ok) {
     await db.update(claudeActionGroups).set({ undoneAt: null, undoneBy: null }).where(eq(claudeActionGroups.id, groupId));
+    if (done.failure.code === "conflict" && done.failure.message === RECLASSIFIED) {
+      return { ok: true, kind: "needs_confirmation", inverses: state.inverses, notified: [] };
+    }
+    if (done.failure.code === "conflict" && done.failure.message === CHANGED_AFTER) {
+      return { ok: false, error: "changed_after" };
+    }
     return { ok: false, error: "refused", failure: done.failure };
   }
   return { ok: true, kind: "undone", groupId: done.groupId };

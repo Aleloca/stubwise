@@ -3032,7 +3032,9 @@ export type ProposalOutcome =
 export async function confirmProposal(
   id: string,
   proposalId: string,
-  options: { actionIndexes?: number[] } = {},
+  // `edited`: la build app (chat, fetta 3) conferma coi valori di «Edit»; il
+  // prototipo li esegue a mano dal dialogo (`completeEditedProposal`).
+  options: { actionIndexes?: number[]; edited?: { index: number; args: Record<string, unknown> }[] } = {},
 ): Promise<ProposalOutcome> {
   const gen = storeGeneration();
   const me = await afterGate("confirmProposal", gen);
