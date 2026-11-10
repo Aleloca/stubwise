@@ -1812,6 +1812,7 @@
     "loadOthers": "Altri progetti",
     "loadAll": "Tutti i progetti",
     "readOnlyRow": "Qui puoi pianificare solo le tue task",
+    "claudeReadOnly": "Solo chi può avviare il lavoro di Claude lo pianifica",
     "readOnlyProject": "Non puoi pianificare le task di {{project}}",
     "notMember": "Non è membro del progetto di questa task",
     "closed": "Le task chiuse non si pianificano",
