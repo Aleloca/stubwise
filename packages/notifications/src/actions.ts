@@ -472,8 +472,10 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "planning.changed":
     case "task.assigned":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/tickets/${event.ticketId}` : "";
-    // Area 4, Chat: il messaggio nell'app nuova (la Chat vive solo lì, D9),
-    // DERIVATO a lettura. L'inbox lo sovrascrive col canale che chi legge vede.
+    // Area 4, Chat: il messaggio nell'app nuova (la Chat vive solo lì, D9).
+    // Il link nasce dagli id del jsonb (canale e messaggio non cambiano mai);
+    // l'inbox non lo riscrive, lo TOGLIE quando la card è `objectGone`
+    // (messaggio eliminato, canale che chi legge non legge più).
     case "chat.mention":
     case "chat.question":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/chat/${event.channelId}?message=${event.chatMessageId}` : "";

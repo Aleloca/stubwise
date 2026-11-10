@@ -111,17 +111,31 @@ export async function channelAccess(db: DbLike, viewer: ChatViewer, channel: Cha
   const permissions = channel.projectId
     ? ((await projectPermissionsFor(db, viewer, channel.projectId)) ?? new Set<ProjectPermission>())
     : new Set<ProjectPermission>();
+  const memberRows = channel.isGeneral
+    ? []
+    : (
+        await db
+          .select({ userId: chatChannelMembers.userId })
+          .from(chatChannelMembers)
+          .where(eq(chatChannelMembers.channelId, channel.id))
+      ).map((r) => r.userId);
+  return accessFrom(viewer, channel, permissions, memberRows);
+}
+
+/**
+ * La regola di {@link channelAccess} senza query: i permessi di chi guarda nel
+ * progetto del canale e le righe dei suoi membri li passa il chiamante (le
+ * liste li caricano in blocco). È la sola fonte dei permessi del canale.
+ */
+export function accessFrom(
+  viewer: ChatViewer,
+  channel: ChannelRow,
+  permissions: ReadonlySet<ProjectPermission>,
+  memberRows: readonly string[],
+): ChannelAccess {
   const dm = channel.kind === "dm";
-  let isMember = channel.isGeneral;
-  let memberCount = 0;
-  if (!channel.isGeneral) {
-    const rows = await db
-      .select({ userId: chatChannelMembers.userId })
-      .from(chatChannelMembers)
-      .where(eq(chatChannelMembers.channelId, channel.id));
-    memberCount = rows.length;
-    isMember = rows.some((r) => r.userId === viewer.id);
-  }
+  const isMember = channel.isGeneral || memberRows.includes(viewer.id);
+  const memberCount = channel.isGeneral ? 0 : memberRows.length;
   const managesScope =
     !dm &&
     (channel.kind === "project"
@@ -183,14 +197,21 @@ export async function channelReaderIds(db: Db, channel: ChannelRow): Promise<str
   return members.filter((id) => viewers.has(id));
 }
 
-/** I membri da mostrare: nel «general» quelli del progetto, altrove le righe dei membri. */
+/**
+ * I membri da mostrare: nel «general» quelli del progetto, altrove le righe
+ * dei membri. In un canale di progetto, chi non vede più il progetto non c'è:
+ * la sua riga resta (torna se rientra), ma a lettura non è un membro.
+ */
 export async function channelMemberIds(db: Db, channel: ChannelRow): Promise<string[]> {
   if (channel.isGeneral) return channel.projectId ? projectViewerIds(db, channel.projectId) : [];
   const rows = await db
     .select({ userId: chatChannelMembers.userId })
     .from(chatChannelMembers)
     .where(eq(chatChannelMembers.channelId, channel.id));
-  return rows.map((r) => r.userId);
+  const ids = rows.map((r) => r.userId);
+  if (channel.kind !== "project" || !channel.projectId) return ids;
+  const viewers = new Set(await projectViewerIds(db, channel.projectId));
+  return ids.filter((id) => viewers.has(id));
 }
 
 /**

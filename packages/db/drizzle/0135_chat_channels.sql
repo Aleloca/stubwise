@@ -32,8 +32,10 @@ CREATE INDEX "chat_channels_project_idx" ON "chat_channels" USING btree ("projec
 --> statement-breakpoint
 CREATE UNIQUE INDEX "chat_channels_one_general_idx" ON "chat_channels" USING btree ("project_id") WHERE "chat_channels"."is_general";
 --> statement-breakpoint
--- Un nome per progetto (anche fra gli archiviati: il prototipo non li riusa).
-CREATE UNIQUE INDEX "chat_channels_project_name_idx" ON "chat_channels" USING btree ("project_id", "name") WHERE "chat_channels"."project_id" IS NOT NULL;
+-- Un nome per progetto (anche fra gli archiviati: il prototipo non li riusa),
+-- ma solo fra i canali NON privati: un 409 su un nome già preso da un privato
+-- direbbe che quel privato esiste a chi non lo vede (D2, review della fetta 2).
+CREATE UNIQUE INDEX "chat_channels_project_name_idx" ON "chat_channels" USING btree ("project_id", "name") WHERE "chat_channels"."project_id" IS NOT NULL AND "chat_channels"."visibility" <> 'private';
 --> statement-breakpoint
 CREATE TABLE "chat_channel_members" (
 	"channel_id" uuid NOT NULL,

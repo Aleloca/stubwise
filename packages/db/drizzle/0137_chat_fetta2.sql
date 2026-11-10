@@ -13,8 +13,15 @@ CREATE INDEX "chat_channels_dm_key_idx" ON "chat_channels" USING btree ("dm_key"
 -- Un DM ha la sua chiave; un canale che non è un DM no.
 ALTER TABLE "chat_channels" ADD CONSTRAINT "chat_channels_dm_key_chk" CHECK (("kind" = 'dm') = ("dm_key" is not null));
 --> statement-breakpoint
--- Un nome per i canali generali d'istanza, come per quelli di un progetto.
-CREATE UNIQUE INDEX "chat_channels_general_name_idx" ON "chat_channels" USING btree ("name") WHERE "chat_channels"."kind" = 'general';
+-- Un nome per i canali generali d'istanza, come per quelli di un progetto:
+-- solo fra i NON privati, perché un 409 non riveli un privato (D2).
+CREATE UNIQUE INDEX "chat_channels_general_name_idx" ON "chat_channels" USING btree ("name") WHERE "chat_channels"."kind" = 'general' AND "chat_channels"."visibility" <> 'private';
+--> statement-breakpoint
+-- Chi è già stato avvisato per un messaggio (menzione o domanda): una menzione
+-- tolta e rimessa con una modifica non manda una seconda card.
+ALTER TABLE "chat_messages" ADD COLUMN "notified_ids" uuid[] DEFAULT '{}' NOT NULL;
+--> statement-breakpoint
+UPDATE "chat_messages" SET "notified_ids" = "mentioned_ids";
 --> statement-breakpoint
 -- Una risposta mandata «anche nel canale» entra nel flusso del canale.
 ALTER TABLE "chat_messages" ADD COLUMN "also_in_channel" boolean DEFAULT false NOT NULL;

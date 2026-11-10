@@ -168,11 +168,13 @@ describe("messaggi e thread", () => {
     expect((await as(lead, "POST", `/api/chat/channels/${id}/read`, {})).statusCode).toBe(204);
     expect((await as(lead, "GET", `/api/chat/channels/${id}`)).json()).toMatchObject({ unread: 0 });
     const viewer = { id: lead.id, instancePermissions: new Set<never>() };
-    const all = await changedSince(t.db, viewer, id, undefined);
-    expect(all!.messages.map((m) => m.text)).toEqual(["uno", "due"]);
+    // Senza cursore lo stream non rimanda la storia (la carica la pagina): parte da adesso.
+    const seen = new Map<string, string>();
+    const start = await changedSince(t.db, viewer, id, undefined, seen);
+    expect(start!.messages).toEqual([]);
     await new Promise((r) => setTimeout(r, 15));
     await as(dev, "POST", `/api/chat/messages/${first.id}/reactions/toggle`, { emoji: "🎉" });
-    const after = await changedSince(t.db, viewer, id, all!.cursor ?? undefined);
+    const after = await changedSince(t.db, viewer, id, start!.cursor ?? undefined, seen);
     expect(after!.messages.map((m) => m.id)).toEqual([first.id]);
   });
 });

@@ -1244,7 +1244,14 @@ export function reviewOutcomeOf(event: NotificationEvent): InboxReviewOutcome | 
  * (`notify.reviewStopped`) — stesso kind, nessun valore nuovo di
  * `notification_kind`.
  */
+/** Un DM non ha nome (`chat_channels.name` vuoto): la frase dice «in un messaggio diretto», non «in #». */
+export const isDirectMessageEvent = (event: NotificationEvent): boolean =>
+  (event.kind === "chat.mention" || event.kind === "chat.question") && event.channelName === "";
+
 function templateKey(event: NotificationEvent): string {
+  if (isDirectMessageEvent(event)) {
+    return event.kind === "chat.question" ? "notify.chatQuestion.dm" : "notify.chatMention.dm";
+  }
   if (event.kind === "security.alert") {
     // Un jsonb anomalo (soggetto ignoto) lancia qui: lo prende il recinto di
     // chi rende la card, che degrada al `kind`.
