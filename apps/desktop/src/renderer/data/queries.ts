@@ -802,7 +802,7 @@ function listenToConversationChanges(client: QueryClient): () => void {
  */
 export function useConversationChanges(): void {
   const client = useQueryClient();
-  // Le conversazioni di Claude (area 3) non sono integrate nella build app.
+  // Le conversazioni di Claude: nella build app dalla fetta 3a (sessioni di lavoro).
   const on = featureIntegrated("claude");
   useEffect(() => (on ? listenToConversationChanges(client) : undefined), [client, on]);
 }
@@ -855,7 +855,8 @@ export function useCitations(refs: readonly CitationRef[]) {
   return useQuery({
     queryKey: queryKeys.citations(me, key),
     queryFn: () => api.resolveCitations([...refs]),
-    enabled: refs.length > 0,
+    // Le citazioni sono della chat libera, «in arrivo» nella build app: le sessioni di lavoro non ne hanno.
+    enabled: refs.length > 0 && featureIntegrated("claude-chat"),
   });
 }
 
@@ -1643,8 +1644,8 @@ export function useClaudeDecisions() {
   const me = useSessionPersonId();
   const client = useQueryClient();
   useConversationChanges();
-  // Claude (area 3) non è integrato nella build app: niente lettura né ascolto.
-  const on = featureIntegrated("claude");
+  // Le voci di Claude in «Da decidere» sono della 3b: niente lettura né ascolto.
+  const on = featureIntegrated("claude-decisions");
   // 11b: anche una domanda di Claude sulla doc di prodotto nata o chiusa,
   // da chiunque (il motore, un'altra persona).
   useEffect(

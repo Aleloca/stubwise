@@ -1,5 +1,4 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
@@ -25,7 +24,10 @@ beforeEach(() => {
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   window.open = open as never;
-  installFakeServer({
+  installFakeServer(routes());
+});
+
+const routes = () => ({
     "GET /api/auth/me": { body: me() },
     "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
     "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
@@ -55,7 +57,6 @@ beforeEach(() => {
       status: 400,
       body: { code: "storage_not_configured", message: "x" },
     },
-  });
 });
 
 afterEach(() => {
@@ -77,16 +78,94 @@ describe("Tasks nella build app", () => {
     expect(within(panel).queryByText("Export the report")).toBeNull();
   });
 
-  it("la sezione Claude dice lo stato vero, le PR e Open in web", async () => {
-    const ue = userEvent.setup();
-    const assign = vi.spyOn(window.location, "assign").mockImplementation(() => {});
+  it("la sezione Claude legge il lavoro vero, in lettura: anche col server che permette tutto, nessuna azione (3b)", async () => {
+    const SESSION = "aaaaaaaa-0000-4000-8000-000000000001";
+    installFakeServer({
+      ...routes(),
+      [`GET /api/tasks/${TICKET_ID}/work`]: {
+        body: {
+          claude: "awaiting_approval",
+          pullRequests: [{ repo: "acme/app", number: 7, url: "https://git.example/acme/app/pull/7", state: "open" }],
+          webHref: `/tickets/${TICKET_ID}`,
+          runs: [
+            {
+              id: "bbbbbbbb-0000-4000-8000-000000000001",
+              sessionId: SESSION,
+              ownerId: ME_ID,
+              createdAt: "2026-10-20T09:00:00.000Z",
+              state: "awaiting_approval",
+              plan: { text: "1. Do it", summary: "Do it", status: "pending", at: "2026-10-20T09:04:00.000Z" },
+            },
+          ],
+          software: true,
+          openPr: true,
+          actions: { start: "allowed", relaunch: "allowed", resume: "allowed", requestChanges: "allowed" },
+        },
+      },
+      [`GET /api/agent-sessions/${SESSION}`]: {
+        body: {
+          id: SESSION,
+          kind: "ai_job",
+          title: "Export the report",
+          projectId: PROJECT_ID,
+          projectName: "Audin AI",
+          ticketId: TICKET_ID,
+          ticketNumber: 12,
+          startedAt: "2026-10-20T09:00:00.000Z",
+          lastEventAt: "2026-10-20T09:04:00.000Z",
+          state: "awaiting_approval",
+          canWrite: true,
+          questions: [],
+          inputs: [],
+        },
+      },
+      [`GET /api/agent-sessions/${SESSION}/events`]: {
+        body: {
+          events: [{ id: "1", type: "segment_start", segmentId: "s1", at: "2026-10-20T09:01:00.000Z", data: { label: "plan", interactive: false } }],
+          before: null,
+        },
+      },
+    });
     renderRoute("/p/AUD/tasks?task=AUD-12");
     const panel = await screen.findByRole("dialog", { name: "Task AUD-12" });
-    const claude = await within(panel).findByRole("region", { name: "Claude" });
-    expect(await within(claude).findByText("Claude is waiting for its plan to be approved.")).toBeInTheDocument();
-    expect(within(claude).getByRole("link", { name: "PR #7" })).toHaveAttribute("href", "https://git.example/acme/app/pull/7");
-    await ue.click(within(claude).getByRole("button", { name: "Open in web" }));
-    expect(assign).toHaveBeenCalledWith(`/tickets/${TICKET_ID}`);
+    const claude = () => within(panel).getByRole("region", { name: "Claude" });
+    await waitFor(() => expect(claude()).toHaveTextContent("Waiting for approval"));
+    expect(
+      within(claude()).queryByRole("button", {
+        name: /^Approve|^Reject|Pre-approve|Relaunch|Request changes|Resume the correction|^Start/,
+      }),
+    ).toBeNull();
+  });
+
+  it("una sessione fallita con rilancio e modifiche permessi dal server: nella 3a niente bottoni", async () => {
+    installFakeServer({
+      ...routes(),
+      [`GET /api/tasks/${TICKET_ID}/work`]: {
+        body: {
+          claude: "failed",
+          webHref: `/tickets/${TICKET_ID}`,
+          runs: [
+            {
+              id: "bbbbbbbb-0000-4000-8000-000000000002",
+              sessionId: null,
+              ownerId: ME_ID,
+              createdAt: "2026-10-20T09:00:00.000Z",
+              state: "finished",
+              outcome: "failed",
+              failureSummary: "The tests failed.",
+            },
+          ],
+          software: true,
+          openPr: true,
+          actions: { start: "allowed", relaunch: "allowed", resume: "unavailable", requestChanges: "allowed" },
+        },
+      },
+    });
+    renderRoute("/p/AUD/tasks?task=AUD-12");
+    const panel = await screen.findByRole("dialog", { name: "Task AUD-12" });
+    const claude = () => within(panel).getByRole("region", { name: "Claude" });
+    await waitFor(() => expect(claude()).toHaveTextContent("The tests failed."));
+    expect(within(claude()).queryByRole("button", { name: /Relaunch|Request changes/ })).toBeNull();
   });
 
   it("allegati spenti mostrano il messaggio", async () => {

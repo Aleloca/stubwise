@@ -256,7 +256,9 @@ export function toDetail(
 ): ConversationDetail | null {
   const row = toRow(detail, codes, detail.paused);
   if (!row) return null;
-  return { ...row, ...READ_ONLY, events, planPreApproved: false, continuesFrom: null };
+  // Una conclusa dice come è finita; una viva che si può solo guardare.
+  const readOnlyReason = row.state === "finished" ? ("finished" as const) : READ_ONLY.readOnlyReason;
+  return { ...row, ...READ_ONLY, readOnlyReason, events, planPreApproved: false, continuesFrom: null };
 }
 
 /** Una sessione invisibile, o inesistente, risponde 404: `null`. */

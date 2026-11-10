@@ -1,3 +1,5 @@
+import { ComingSoon } from "../Placeholder";
+import { featureIntegrated } from "../../data/integration";
 import { Navigate, useNavigate, useSearch } from "@tanstack/react-router";
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -62,9 +64,10 @@ const overlayOpen = () => document.querySelector('[aria-modal="true"], [role="me
  * N (o ⌘N) nella destinazione «Claude»: una conversazione nuova. Niente
  * scrivendo, né con un dialogo o un menu aperti.
  */
-function useNewConversationKey() {
+function useNewConversationKey(on = true) {
   const navigate = useNavigate();
   useEffect(() => {
+    if (!on) return;
     function onKeyDown(e: globalThis.KeyboardEvent) {
       if (e.defaultPrevented || e.altKey || e.shiftKey || e.key.toLowerCase() !== "n") return;
       const mod = hasModKey(e);
@@ -78,7 +81,7 @@ function useNewConversationKey() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [navigate]);
+  }, [navigate, on]);
 }
 
 /**
@@ -89,10 +92,19 @@ function useNewConversationKey() {
 export function ClaudePage() {
   const { viewer } = useViewer();
   const search = useSearch({ strict: false }) as { scope?: string; ask?: string };
-  useNewConversationKey();
+  // La chat libera è «in arrivo» nella build app (fetta 3a): niente «N», niente
+  // atterraggio con la casella; si atterra sulle sessioni dal vivo.
+  const chat = featureIntegrated("claude-chat");
+  useNewConversationKey(chat);
   const scope = (CLAUDE_SCOPES as readonly string[]).includes(search.scope ?? "")
     ? (search.scope as ClaudeScope)
     : null;
+  if (!chat) {
+    if (scope === "mine" || scope === "public") {
+      return <ComingSoon titleKey={`claude.destination.column.${scope}`} />;
+    }
+    if (!scope) return <Navigate to="/claude" search={{ scope: "live" }} replace />;
+  }
   if (scope === "public" && !can(viewer, "claude.public.view")) {
     return <Navigate to="/claude" search={{}} replace />;
   }
