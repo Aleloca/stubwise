@@ -99,6 +99,15 @@ export function createTasksEndpoints(request: ApiRequest) {
     work(ticketId: string): Promise<Reader<TaskWorkView>> {
       return request("GET", `/api/tasks/${seg(ticketId)}/work`, undefined, taskWorkViewSchema);
     },
+    /**
+     * «Annulla il lavoro» (area 3, fetta 3b): chiude subito il job
+     * parcheggiato della task (con conferma lato client). 409
+     * `run_in_progress` se Claude sta lavorando (prima «Ferma»), 409
+     * `nothing_to_cancel` se non c'è lavoro vivo. Restituisce il lavoro aggiornato.
+     */
+    cancelRun(ticketId: string): Promise<Reader<TaskWorkView>> {
+      return request("POST", `/api/tasks/${seg(ticketId)}/cancel-run`, undefined, taskWorkViewSchema);
+    },
     create(body: NewTaskBody): Promise<Reader<TaskViewData>> {
       return request("POST", "/api/tasks", body, taskViewSchema);
     },

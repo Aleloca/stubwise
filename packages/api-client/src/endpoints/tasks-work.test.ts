@@ -38,3 +38,21 @@ describe("tasks.work", () => {
     expect(work.actions.relaunch).toBe("unavailable");
   });
 });
+
+describe("tasks.cancelRun (area 3, fetta 3b)", () => {
+  it("POST /api/tasks/:id/cancel-run e restituisce il lavoro aggiornato", async () => {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(
+      async () =>
+        new Response(JSON.stringify({ claude: "none", pullRequests: [], webHref: `/tickets/${T}` }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    const client = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
+    const work = await client.tasks.cancelRun(T);
+    const [url, init] = fetchImpl.mock.calls[0]!;
+    expect(String(url)).toBe(`/api/tasks/${T}/cancel-run`);
+    expect(init!.method).toBe("POST");
+    expect(work.actions.relaunch).toBe("unavailable");
+  });
+});
