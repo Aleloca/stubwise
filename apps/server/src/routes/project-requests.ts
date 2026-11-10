@@ -2,8 +2,7 @@ import { backlogItems, backlogJobs, projects } from "@stubwise/db";
 import {
   acceptBacklogItemSuggested,
   dismissBacklogItemSuggested,
-  setBacklogItemDescription,
-  updateBacklogItemMetadata,
+  updateRequestFields,
 } from "@stubwise/notifications";
 import {
   effortFromSize,
@@ -167,26 +166,24 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
     async (request, reply) => {
       const { id } = request.params;
       const { title, description, urgency, size, risk, riskNote } = request.body;
-      const meta =
-        description !== undefined || urgency !== undefined || size !== undefined || risk !== undefined || riskNote !== undefined;
-      const [current] = await app.db.select({ status: backlogItems.status }).from(backlogItems).where(eq(backlogItems.id, id));
-      if (!current) return apiError(reply, 404, "not_found", "Request not found");
-      if (meta && (current.status === "converted" || current.status === "archived")) {
+      // Una scrittura sola, sotto il lock della voce: lo stato si ricontrolla lì.
+      const res = await updateRequestFields(
+        app.db,
+        id,
+        {
+          ...(title !== undefined ? { title } : {}),
+          ...(description !== undefined ? { description } : {}),
+          ...(urgency !== undefined ? { urgency } : {}),
+          ...(size !== undefined ? { effort: effortFromSize(size) } : {}),
+          ...(risk !== undefined ? { risk } : {}),
+          ...(riskNote !== undefined ? { riskNote: riskNote ? riskNote : null } : {}),
+        },
+        { readOnlyClosed: true },
+      );
+      if (res === "not_found") return apiError(reply, 404, "not_found", "Request not found");
+      if (res === "read_only") {
         return apiError(reply, 409, "request_read_only", "A converted or archived request cannot change its metadata");
       }
-      if (description !== undefined) {
-        const res = await setBacklogItemDescription(app.db, id, description, { readOnlyClosed: true });
-        if (res === "read_only") {
-          return apiError(reply, 409, "request_read_only", "A converted or archived request cannot change its metadata");
-        }
-      }
-      await updateBacklogItemMetadata(app.db, id, {
-        ...(title !== undefined ? { title } : {}),
-        ...(urgency !== undefined ? { urgency } : {}),
-        ...(size !== undefined ? { effort: effortFromSize(size) } : {}),
-        ...(risk !== undefined ? { risk } : {}),
-        ...(riskNote !== undefined ? { riskNote: riskNote ? riskNote : null } : {}),
-      });
       return (await requestView(app.db, request.user!, id)) ?? apiError(reply, 404, "not_found", "Request not found");
     },
   );
