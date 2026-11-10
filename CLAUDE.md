@@ -277,8 +277,11 @@ percorso sul volume.
   nella stessa cwd) e, dalla fetta 3, le proposte: `chat-propose-not-execute`
   (UNA `propose_action` giusta; «in attesa» → non dice che è fatto),
   `chat-confirm-executes` (cita i codici dell'esecuzione), `chat-undo`
-  (nessun inverso proposto, rimanda al bottone) e `chat-never-catalog`
-  (approvare/mergiare: nessuna proposta, a mano e dove), 3 volte ciascuno
+  (nessun inverso proposto, rimanda al bottone), `chat-never-catalog`
+  (approvare/mergiare: nessuna proposta, a mano e dove) e, dalla fetta 5,
+  `chat-continue` (la continuazione di una pubblica: risponde dal contesto
+  dell'originale, un codice che chi continua non vede lo prova a leggere come
+  lui e lo dice non visibile, senza dati), 3 volte ciascuno
   (`chat-no-act` è ritirato: `createTask` è nel catalogo); opt-in, solo se nominato: `refine-read-bash`
   (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
   dell'invariante, va rilanciato quando si aggiorna il CLI). Lo scenario
@@ -417,6 +420,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Chat con Claude, fette 1 e 2» (10 nov 2026)
   - «Elimina task» (10 nov 2026)
   - «Chat con Claude, fetta 3: proposte e azioni» (10 nov 2026)
+  - «Chat con Claude, fetta 5: conversazioni pubbliche e continuazione» (10 nov 2026)
   - «Riconferma dal desktop» (10 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
@@ -434,6 +438,7 @@ una voce ti riguarda.
   - Sessioni degli agenti — le regole che reggono la vista dal vivo (8 ott 2026).
   - Le sessioni degli agenti nell'app: privacy, fuoco, confini (9 ott 2026, piano C).
   - Chat con Claude: Claude PROPONE, il server ESEGUE (10 nov 2026, fetta 3).
+  - Chat con Claude: una conversazione PUBBLICA si legge come la decide il server, e gli eventi dei tool restano visibili ai lettori (10 nov 2026, fetta 5, decisione del maintainer).
 - **Posta e calendario (Google) → `docs/invariants/mail-calendar.md`**:
   - L'audience `mailbox_owner` non include MAI gli admin.
   - Confermare una proposta chiede il permesso nel progetto; chi non ce l'ha la PASSA, e la card passata è una card NUOVA (22 ott 2026).
