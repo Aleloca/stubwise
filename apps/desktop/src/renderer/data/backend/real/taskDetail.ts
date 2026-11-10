@@ -17,9 +17,23 @@ export function forgetCommentTickets(): void {
   ticketOfComment.clear();
 }
 
+/**
+ * «via Claude» (chat, fetta 3): il server lo deriva a lettura; qui diventa il
+ * segno del prototipo (`via: "claude"`, `claudeActionId`). Un server vecchio
+ * non manda i campi: nessun segno.
+ */
+function viaOf(v: { viaClaude?: boolean; viaClaudeActionId?: string | null }): Pick<ActivityEntry, "via" | "claudeActionId"> {
+  if (v.viaClaude !== true) return {};
+  return { via: "claude", ...(v.viaClaudeActionId ? { claudeActionId: v.viaClaudeActionId } : {}) };
+}
+
 function toEntry(v: TaskActivityEntryView): ActivityEntry {
   if (v.kind === "comment") ticketOfComment.set(v.id, v.taskId);
-  return { ...v } as ActivityEntry;
+  const { viaClaude: _v, viaClaudeActionId: _a, viaClaudeRequesterId: _r, ...rest } = v;
+  void _v;
+  void _a;
+  void _r;
+  return { ...rest, ...viaOf(v) } as ActivityEntry;
 }
 
 export const listActivity: typeof Fake.listActivity = async (taskId) =>
@@ -34,6 +48,8 @@ interface ServerComment {
   createdAt: string;
   replyToCommentId?: string | null;
   editedAt?: string | null;
+  viaClaude?: boolean;
+  viaClaudeActionId?: string | null;
 }
 
 function commentEntry(taskId: string, c: ServerComment): ActivityEntry {
@@ -47,6 +63,7 @@ function commentEntry(taskId: string, c: ServerComment): ActivityEntry {
     body: c.body,
     ...(c.replyToCommentId ? { replyToId: c.replyToCommentId } : {}),
     ...(c.editedAt ? { editedAt: c.editedAt } : {}),
+    ...viaOf(c),
   };
 }
 
