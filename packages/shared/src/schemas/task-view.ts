@@ -348,6 +348,14 @@ export const taskWorkViewSchema = z.object({
     })
     .default({ start: "unavailable", relaunch: "unavailable", resume: "unavailable", requestChanges: "unavailable" }),
   /**
+   * «Chiedi modifiche» PER PR (multi-repo), accanto all'aggregato
+   * `actions.requestChanges` (che è `allowed` se lo è almeno una). Stesse
+   * regole, su ogni PR; una PR che non è di Stubwise è `unavailable`.
+   */
+  requestChangesPerPr: z
+    .array(z.object({ repo: z.string(), number: z.number().int(), availability: actionAvailabilitySchema }))
+    .default([]),
+  /**
    * Perché un lavoro nuovo non partirebbe adesso. Sul server vero un avvio a
    * mano scavalca il budget (`manualTrigger`), quindi oggi è sempre `null`:
    * il campo c'è perché la forma è quella del prototipo.

@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
-import { agentSessions, aiJobs, planDigest, prCorrections, projectDecisions, ticketRepositories, tickets } from "@stubwise/db";
+import { agentSessions, aiJobs, planDigest, prCorrections, prReviews, projectDecisions, ticketRepositories, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
 import { taskWorkViewSchema, type TaskWorkView } from "@stubwise/shared";
 import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -247,6 +247,47 @@ describe("actions: le calcola il server coi permessi di chi guarda", () => {
     expect(w.prFacts).toEqual([expect.objectContaining({ repo: "acme/shop", number: 41, branchProtected: false, queued: false })]);
     await testDb.db.update(aiJobs).set({ status: "fixing" }).where(eq(aiJobs.id, job!.id));
     expect((await work(t, developer)).actions.requestChanges).toBe("unavailable");
+  });
+
+  it("multi-repo: requestChangesPerPr dice la disponibilità di ogni PR accanto all'aggregato; la review approvata ha la sua data", async () => {
+    const t = await task();
+    await openPr(t, 51);
+    const secondId = await seedRepositoryInProject(testDb.db, projectId);
+    // La seconda PR non è di Stubwise (un branch qualunque): non si corregge.
+    await testDb.db.insert(ticketRepositories).values({
+      ticketId: t,
+      repositoryId: secondId,
+      branch: "feature/altro",
+      prUrl: `https://github.com/acme/web-${n}/pull/52`,
+      prNumber: 52,
+      prState: "open",
+    });
+    await testDb.db.insert(aiJobs).values({ ticketId: t, status: "pr_opened" });
+    const reviewedAt = new Date("2026-11-10T08:30:00.000Z");
+    await testDb.db.insert(prReviews).values({
+      repositoryId,
+      prNumber: 51,
+      prUrl: "https://github.com/acme/shop/pull/51",
+      prTitle: "Fix",
+      headSha: "abc",
+      ticketId: t,
+      status: "completed",
+      verdict: "approve",
+      createdAt: reviewedAt,
+      startedAt: reviewedAt,
+      finishedAt: reviewedAt,
+    });
+    const w = await work(t, developer);
+    // La prima (di Stubwise) si corregge anche dopo un'approvazione; la seconda no.
+    expect(w.actions.requestChanges).toBe("allowed");
+    const byNumber = <T extends { number: number }>(xs: T[]) => [...xs].sort((a, b) => a.number - b.number);
+    expect(byNumber(w.requestChangesPerPr)).toEqual([
+      { repo: "acme/shop", number: 51, availability: "allowed" },
+      { repo: `acme/web-${n}`, number: 52, availability: "unavailable" },
+    ]);
+    expect(w.prFacts.find((f) => f.number === 51)?.review).toMatchObject({ verdict: "approved", at: reviewedAt.toISOString() });
+    // Chi non ha corrections.request: forbidden dove lo stato lo consente.
+    expect(byNumber((await work(t, viewer)).requestChangesPerPr).map((p) => p.availability)).toEqual(["forbidden", "unavailable"]);
   });
 
   it("waitsOnViewer: un piano in attesa aspetta chi ha plans.approve, non gli altri", async () => {

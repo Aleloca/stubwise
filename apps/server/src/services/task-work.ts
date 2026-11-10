@@ -4,6 +4,7 @@ import {
   aiJobs,
   aiProviders,
   prCorrections,
+  prReviews,
   projectDecisions,
   repositories,
   planDigest,
@@ -239,6 +240,22 @@ export async function loadTaskWorkExtras(
       anyone: await derivePrCycle(db, { ticketId, repositoryId: p.repositoryId, viewerPermissions: EVERYONE }),
     })),
   );
+  // La data vera dell'ultima review completata di ogni PR (il ciclo dice il verdetto).
+  const reviewRows = prs.length
+    ? await db
+        .select({
+          repositoryId: prReviews.repositoryId,
+          prNumber: prReviews.prNumber,
+          at: sql<Date>`coalesce(${prReviews.finishedAt}, ${prReviews.createdAt})`,
+        })
+        .from(prReviews)
+        .where(and(eq(prReviews.ticketId, ticketId), eq(prReviews.status, "completed")))
+        .orderBy(asc(prReviews.createdAt))
+    : [];
+  const reviewedAt = new Map<string, string>();
+  for (const r of reviewRows) reviewedAt.set(`${r.repositoryId}#${r.prNumber}`, new Date(r.at).toISOString());
+  const reviewAt = (p: (typeof prs)[number]) =>
+    reviewedAt.get(`${p.repositoryId}#${p.number}`) ?? p.createdAt.toISOString();
   const prFacts: Extras["prFacts"] = cycles
     .filter((c) => c.viewer !== null)
     .map(({ pr, viewer }) => ({
@@ -246,7 +263,7 @@ export async function loadTaskWorkExtras(
       number: pr.number,
       review:
         viewer!.state === "approved"
-          ? { verdict: "approved" as const, at: viewer!.lastRequest?.at ?? pr.createdAt.toISOString(), byId: null, on: "stubwise" as const }
+          ? { verdict: "approved" as const, at: reviewAt(pr), byId: null, on: "stubwise" as const }
           : viewer!.state === "changes_requested" || viewer!.state === "stopped_at_cap"
             ? {
                 verdict: "changes_requested" as const,
@@ -261,6 +278,14 @@ export async function loadTaskWorkExtras(
       queued: viewer!.pendingRequest,
     }));
   const correctionCap = cycles.find((c) => c.viewer !== null)?.viewer?.maxRounds ?? 3;
+  const requestChangesPerPr: Extras["requestChangesPerPr"] = cycles.map(({ pr, viewer, anyone }) => ({
+    repo: pr.repo,
+    number: pr.number,
+    availability: pick(
+      anyone?.canRequestCorrection === true,
+      viewer?.canRequestCorrection === true && permissions.has("corrections.request"),
+    ),
+  }));
   const requestByState = cycles.some((c) => c.anyone?.canRequestCorrection === true);
   const requestByViewer = cycles.some((c) => c.viewer?.canRequestCorrection === true) && permissions.has("corrections.request");
 
@@ -323,6 +348,7 @@ export async function loadTaskWorkExtras(
     openPr: prs.some((p) => p.prState === "open"),
     waitsOnViewer,
     actions,
+    requestChangesPerPr,
     blocked: null,
   };
 }
