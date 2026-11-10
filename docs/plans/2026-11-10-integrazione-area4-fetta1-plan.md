@@ -35,6 +35,32 @@ branch del renderer (stubwise-94), entrambi a cascata da
 - **I permessi**: tutti e 4 nel registro condiviso con i preset (D3); i
   generali si usano dalla fetta 2.
 
+**Perimetro deciso dall'orchestratrice (O, 10 nov 2026)**:
+1. Creare, rinominare, archiviare ed eliminare i canali di progetto APERTI
+   entra nella fetta 1, con `chat.channels.create/manage`.
+2. La domanda rivolta a una persona (`asks_reply_of`, la card
+   `chat.question`) va nella fetta 2, con «Da decidere». Nella fetta 1 c'è
+   solo `chat.mention`.
+3. «Create task» e «Create request» da un messaggio vanno nella **fetta 2**.
+   Il prototipo lega al messaggio il codice di ciò che ne è nato («→ AUD-14»,
+   `linkedCodes`), e questo vuole una colonna e una scrittura del server.
+   Voce nel registro.
+
+**Le funzioni del renderer** (lo studio di stubwise-94):
+- letture: `listChannels`, `getChannel`, `listChannelMembers`,
+  `listMessages`, `getMessage`, `listThread`, `listThreadsWithNews`, `hasNews`
+  (il punto del binario), `listMentions`;
+- scritture: `sendMessage` (senza @Claude), `editMessage`, `deleteMessage`,
+  `toggleReaction`, `markRead`, `markThreadRead`, `setThreadFollow`,
+  `setNotifyLevel`, `joinChannel`, `leaveChannel`, `createChannel`,
+  `updateChannel`, `archiveChannel`, `deleteChannel`;
+- stream: `channelStream`, `threadStream`.
+
+Il server quindi tiene anche chi SEGUE un thread
+(`chat_thread_follows`, con l'autore della radice, chi risponde e chi viene
+nominato) e risponde a «Menzioni» (i messaggi che nominano chi guarda, nei
+canali che legge) e a «Thread con novità».
+
 Fuori dalla fetta 1, nelle fette dopo:
 - DM, canali privati, canali generali, ricerca, domande e «Da decidere»
   (`chat.question`): fetta 2;
@@ -83,6 +109,9 @@ Fuori dalla fetta 1, nelle fette dopo:
   - `chat_reactions`: `(message_id, user_id, emoji)`.
   - `chat_reads`: `(user_id, channel_id, thread_root_id nullable,
     last_read_at)`.
+  - `chat_thread_follows`: `(user_id, root_message_id, following)`. Si segue
+    da autore della radice, da chi risponde o da chi viene nominato; chi
+    segue può smettere.
   - `chat_channel_prefs`: `(user_id, channel_id, level)`.
   - Il «general» di ogni progetto esistente non archiviato, con i
     `published_events` predefiniti (D8).
