@@ -4562,7 +4562,8 @@
         "checking": "Checking which projects Claude used…",
         "loadFailed": "Couldn't check which projects Claude used.",
         "retry": "Retry",
-        "nothingNew": "Claude didn't use any project you haven't shared already: the new messages can be shared as they are."
+        "nothingNew": "Claude didn't use any project you haven't shared already: the new messages can be shared as they are.",
+        "toolReads": "Claude read data for you with its tools: whoever reads this will also see what Claude read for you."
       },
       "continue": {
         "banner": "What you write starts your own private conversation. Claude will act as you.",

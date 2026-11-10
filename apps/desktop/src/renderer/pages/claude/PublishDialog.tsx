@@ -36,6 +36,9 @@ export function PublishDialog({
   const { t } = useTranslation();
   const setVisibility = useSetVisibility();
   const [touched, setTouched] = useState<Touched[] | null>(null);
+  // Build app (fetta 5, D1): la conversazione ha letture dei tool, che chi
+  // legge vedrà; il dialogo lo dice.
+  const [toolReads, setToolReads] = useState(false);
   const [failed, setFailed] = useState(false);
   const listId = useId();
   const { mutate } = setVisibility;
@@ -46,7 +49,10 @@ export function PublishDialog({
       { id: detail.id, visibility: "public" },
       {
         onSuccess: (result) => {
-          if (result.status === "needs_confirmation") setTouched(result.touchedProjects);
+          if (result.status === "needs_confirmation") {
+            setTouched(result.touchedProjects);
+            setToolReads(result.includesToolReads === true);
+          }
           // Nulla da confermare (non succede: la prima chiamata chiede sempre).
           else onDone();
         },
@@ -66,8 +72,10 @@ export function PublishDialog({
       { id: detail.id, visibility: "public", confirmedProjectIds: touched.map((p) => p.id) },
       {
         onSuccess: (result) => {
-          if (result.status === "needs_confirmation") setTouched(result.touchedProjects);
-          else onDone();
+          if (result.status === "needs_confirmation") {
+            setTouched(result.touchedProjects);
+            setToolReads(result.includesToolReads === true);
+          } else onDone();
         },
         onError: () => setFailed(true),
       },
@@ -155,6 +163,11 @@ export function PublishDialog({
       </div>
       {touched !== null && shown.length > 0 && (
         <p className="text-sm text-ink-muted">{t("claude.destination.publish.note")}</p>
+      )}
+      {touched !== null && toolReads && (
+        <p className="text-sm text-ink-muted" data-tool-reads>
+          {t("claude.destination.publish.toolReads")}
+        </p>
       )}
       {failed && touched !== null && (
         <p role="alert" className="text-sm text-critical">
