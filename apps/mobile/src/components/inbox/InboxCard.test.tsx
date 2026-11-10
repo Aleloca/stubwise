@@ -28,6 +28,8 @@ function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "ki
     handledAt: null,
     handledBy: null,
     reviewOutcome: null,
+    objectGone: false,
+    chat: null,
     ...overrides,
   } as Reader<InboxItem>;
 }
@@ -582,6 +584,33 @@ describe("InboxCard", () => {
         url: "https://stubwise.example/backlog/b-1",
       });
       await renderCard(REQUEST_ITEM, client, { onOpenTicket });
+      expect(screen.getByTestId("info-card-open")).toBeTruthy();
+      await fireEvent.press(screen.getByTestId("info-card-open"));
+      expect(onOpenTicket).not.toHaveBeenCalled();
+    });
+
+    test("chat.mention (area 4): etichetta propria, si legge; «Apri» porta al messaggio nell'app", async () => {
+      const client = makeClient();
+      const onOpenTicket = jest.fn();
+      const MENTION = item({
+        id: "c1",
+        kind: "chat.mention",
+        text: "Marta Rinaldi ti ha nominato in #general",
+        actions: ["open", "snooze", "handled"],
+        url: "https://stubwise.example/app/#/chat/ch-1?message=m-1",
+        chat: {
+          channelId: "ch-1",
+          channelName: "general",
+          messageId: "m-1",
+          threadRootId: null,
+          authorId: "u-1",
+          authorName: "Marta Rinaldi",
+          excerpt: "Ciao @Luca, guardi tu?",
+        },
+      });
+      await renderCard(MENTION, client, { onOpenTicket });
+      expect(screen.getByText(MENTION.text)).toBeTruthy();
+      expect(screen.getByText("Nominato nella chat")).toBeTruthy();
       expect(screen.getByTestId("info-card-open")).toBeTruthy();
       await fireEvent.press(screen.getByTestId("info-card-open"));
       expect(onOpenTicket).not.toHaveBeenCalled();

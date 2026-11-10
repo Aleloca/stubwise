@@ -106,7 +106,8 @@
         "decisionAnswered": "Your question has an answer",
         "ticketActivity": "Activity on a followed task",
         "planningChanged": "Your plan changed",
-        "taskAssigned": "Assigned to you"
+        "taskAssigned": "Assigned to you",
+        "chatMention": "Mentioned in the chat"
       },
       "actions": {
         "respond": "Respond",

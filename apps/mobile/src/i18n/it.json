@@ -106,7 +106,8 @@
         "decisionAnswered": "La tua domanda ha una risposta",
         "ticketActivity": "Attività su una task che segui",
         "planningChanged": "Il tuo piano è cambiato",
-        "taskAssigned": "Assegnata a te"
+        "taskAssigned": "Assegnata a te",
+        "chatMention": "Nominato nella chat"
       },
       "actions": {
         "respond": "Rispondi",

@@ -32,6 +32,9 @@ CREATE INDEX "chat_channels_project_idx" ON "chat_channels" USING btree ("projec
 --> statement-breakpoint
 CREATE UNIQUE INDEX "chat_channels_one_general_idx" ON "chat_channels" USING btree ("project_id") WHERE "chat_channels"."is_general";
 --> statement-breakpoint
+-- Un nome per progetto (anche fra gli archiviati: il prototipo non li riusa).
+CREATE UNIQUE INDEX "chat_channels_project_name_idx" ON "chat_channels" USING btree ("project_id", "name") WHERE "chat_channels"."project_id" IS NOT NULL;
+--> statement-breakpoint
 CREATE TABLE "chat_channel_members" (
 	"channel_id" uuid NOT NULL,
 	"user_id" uuid NOT NULL,
@@ -56,6 +59,9 @@ CREATE TABLE "chat_messages" (
 	"mentioned_ids" uuid[] DEFAULT '{}' NOT NULL,
 	"asks_reply_of" uuid[] DEFAULT '{}' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	-- Ogni cambio del messaggio (modifica, eliminazione, reazione, una risposta
+	-- sulla radice) lo porta avanti: lo stream manda ciò che è cambiato dopo.
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"edited_at" timestamp with time zone,
 	"deleted_at" timestamp with time zone,
 	"deleted_by" uuid,
@@ -77,6 +83,8 @@ ALTER TABLE "chat_messages" ADD CONSTRAINT "chat_messages_deleted_by_fk" FOREIGN
 CREATE INDEX "chat_messages_channel_idx" ON "chat_messages" USING btree ("channel_id","created_at");
 --> statement-breakpoint
 CREATE INDEX "chat_messages_thread_idx" ON "chat_messages" USING btree ("thread_root_id","created_at");
+--> statement-breakpoint
+CREATE INDEX "chat_messages_updated_idx" ON "chat_messages" USING btree ("channel_id","updated_at");
 --> statement-breakpoint
 CREATE TABLE "chat_reactions" (
 	"message_id" uuid NOT NULL,
@@ -139,6 +147,20 @@ INSERT INTO "chat_channels" ("project_id", "kind", "visibility", "name", "is_gen
 SELECT "id", 'project', 'open', 'general', true, ARRAY['release_page', 'milestone_reached', 'brief_ready']
 FROM "projects"
 ON CONFLICT DO NOTHING;
+--> statement-breakpoint
+-- Il «general» di un progetto NUOVO, nella stessa transazione che lo crea:
+-- un trigger copre ogni punto che crea un progetto (la rotta, gli script, i
+-- seed), non solo la rotta.
+CREATE FUNCTION "chat_project_general"() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+	INSERT INTO "chat_channels" ("project_id", "kind", "visibility", "name", "is_general", "published_events")
+	VALUES (NEW."id", 'project', 'open', 'general', true, ARRAY['release_page', 'milestone_reached', 'brief_ready'])
+	ON CONFLICT DO NOTHING;
+	RETURN NEW;
+END;
+$$;
+--> statement-breakpoint
+CREATE TRIGGER "projects_chat_general" AFTER INSERT ON "projects" FOR EACH ROW EXECUTE FUNCTION "chat_project_general"();
 --> statement-breakpoint
 -- D3 (M): i permessi della Chat ai preset, come il prototipo: Developer crea;
 -- Project Lead crea e gestisce; User crea canali generali; il full admin li
