@@ -19,7 +19,8 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
   },
   {
     key: "people",
-    permissions: ["users.view_all", "users.invite", "users.manage", "departments.manage"],
+    // `people.activity.view` (lo standup) è nel registro vero dall'area 3.
+    permissions: ["users.view_all", "users.invite", "users.manage", "departments.manage", "people.activity.view"],
   },
   { key: "projects", permissions: ["projects.create"] },
   {
@@ -38,7 +39,6 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
     key: "prototype",
     permissions: [
       "claude.public.view",
-      "people.activity.view",
       "chat.general.create",
       "chat.general.manage",
       "automations.manage",
