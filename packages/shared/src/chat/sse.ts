@@ -1,5 +1,11 @@
 import { readerSchema, type Reader } from "../reader.js";
-import { chatChannelSchema, chatMessageSchema, type ChatChannelView, type ChatMessageView } from "../schemas/chat.js";
+import {
+  CHAT_STREAM_CURSOR_RE,
+  chatChannelSchema,
+  chatMessageSchema,
+  type ChatChannelView,
+  type ChatMessageView,
+} from "../schemas/chat.js";
 
 /**
  * Lo stream dal vivo di un canale della Chat (`GET
@@ -16,6 +22,10 @@ import { chatChannelSchema, chatMessageSchema, type ChatChannelView, type ChatMe
  *   `cursor` (microsecondi, solo cifre) da ripassare come `?after=`;
  * - `channel`: la vista del canale di chi guarda.
  * Un frame è «vero» solo con un messaggio riconosciuto.
+ *
+ * (Il frame `messages` è anche `chatStreamMessageSchema` di `schemas/chat.ts`;
+ * qui ogni messaggio si valida da solo, perché uno malformato non costi il
+ * frame intero.)
  */
 
 export type ChatStreamFrameMessage =
@@ -29,12 +39,8 @@ export interface ParsedChatStreamFrame {
   real: boolean;
 }
 
-/**
- * Il cursore: microsecondi dall'epoca, solo cifre (al più 20). Il server
- * rifiuta ogni altra forma. TODO(F1.2): sostituire con `CHAT_STREAM_CURSOR_RE`
- * di `schemas/chat.ts` quando arriva, così la regola resta una sola.
- */
-const CURSOR_RE = /^\d{1,20}$/;
+/** Il cursore: la regola è UNA, quella del server (`CHAT_STREAM_CURSOR_RE`). */
+const CURSOR_RE = CHAT_STREAM_CURSOR_RE;
 
 const messageReader = readerSchema(chatMessageSchema);
 const channelReader = readerSchema(chatChannelSchema);

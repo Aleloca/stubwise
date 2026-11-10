@@ -125,10 +125,10 @@ function toRow(v: ServerChannel): ChannelRow {
 export function toMessage(v: ServerMsg): ChatMessageView {
   channelOfMessage.set(v.id, v.channelId);
   const me = session.personId ?? "";
-  // Il momento dell'eliminazione: dal server se lo dice (`deletedAt`), se no
+  // Il momento dell'eliminazione dal server (`deletedAt`); da uno più vecchio
   // basta che ci sia (il testo non c'è più comunque).
   const deletedAt = v.deleted
-    ? ((v as { deletedAt?: string | null }).deletedAt ?? v.editedAt ?? v.createdAt)
+    ? (v.deletedAt ?? v.editedAt ?? v.createdAt)
     : null;
   return {
     id: v.id,
@@ -153,9 +153,8 @@ export function toMessage(v: ServerMsg): ChatMessageView {
         ? {
             replyCount: v.replyCount,
             lastReplyAt: v.lastReplyAt ?? v.createdAt,
-            // In arrivo con la F1.2 (additivi): chi ha risposto e chi per ultimo.
-            lastReplyById: (v as { lastReplyById?: string | null }).lastReplyById ?? null,
-            participantIds: [...((v as { replyParticipantIds?: string[] }).replyParticipantIds ?? [])],
+            lastReplyById: v.lastReplyById,
+            participantIds: [...v.replyParticipantIds],
             hasNews: false,
             following: v.following,
             claudeReplying: false,
@@ -215,8 +214,8 @@ const listMessages: Chat["listMessages"] = async (channelId, { before, limit } =
   return {
     messages,
     hasMore: page.before !== null,
-    // Il divisore dei nuovi: dal canale se il server lo dice (vedi il registro).
-    lastReadAt: (channel as { lastReadAt?: string | null } | null)?.lastReadAt ?? null,
+    // Il divisore dei nuovi: l'ultima lettura di chi guarda, dal canale.
+    lastReadAt: channel?.lastReadAt ?? null,
   };
 };
 
@@ -232,7 +231,7 @@ const listThread: Chat["listThread"] = async (messageId) => {
     channelId: t.root.channelId,
     root: toMessage(t.root),
     replies: t.replies.map(toMessage),
-    lastReadAt: (t as { lastReadAt?: string | null }).lastReadAt ?? null,
+    lastReadAt: t.lastReadAt,
   };
   return view;
 };
@@ -243,7 +242,7 @@ const listThreadsWithNews: Chat["listThreadsWithNews"] = async () => {
     (item): ThreadWithNews => ({
       channelId: item.root.channelId,
       root: toMessage(item.root),
-      latestReplies: ((item as { latestReplies?: ServerMsg[] }).latestReplies ?? []).map(toMessage),
+      latestReplies: item.latestReplies.map(toMessage),
       newCount: item.unreadReplies,
     }),
   );
