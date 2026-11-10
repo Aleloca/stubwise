@@ -54,6 +54,25 @@ describe("endpoints claude", () => {
     );
   });
 
+  it("list delle pubbliche (fetta 5): scope=public", async () => {
+    const { c, fetchImpl } = client({ items: [{ ...conversation, visibility: "public" }] });
+    const page = await c.claude.conversations.list({ scope: "public" });
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/claude/conversations?scope=public");
+    expect(page.items[0]).toMatchObject({ visibility: "public", privateTail: false, canContinue: false });
+  });
+
+  it("visibilità e continuazione (fetta 5): percorsi e corpi", async () => {
+    const { c, fetchImpl } = client({ ...conversation, visibility: "public" });
+    expect(await c.claude.conversations.setVisibility(ID, { visibility: "public", confirmedProjectIds: [ID] })).toMatchObject({
+      visibility: "public",
+    });
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/claude/conversations/${ID}/visibility`);
+    expect(JSON.parse(String(fetchImpl.mock.calls.at(-1)![1]!.body))).toEqual({ visibility: "public", confirmedProjectIds: [ID] });
+    await c.claude.conversations.continue(ID);
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/claude/conversations/${ID}/continue`);
+    expect(fetchImpl.mock.calls.at(-1)![1]!.method).toBe("POST");
+  });
+
   it("create e update: il corpo così com'è; uno stato ignoto si legge UNKNOWN", async () => {
     const { c, fetchImpl } = client({ ...conversation, state: "__nuovo__" });
     const created = await c.claude.conversations.create({ message: "Ciao" });
