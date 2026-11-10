@@ -932,6 +932,13 @@
       "when": 1795824000000,
       "tag": "0132_desktop_pat_reauth",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "7",
+      "when": 1795910400000,
+      "tag": "0133_claude_public_conversations",
+      "breakpoints": true
     }
   ]
 }

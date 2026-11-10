@@ -3390,6 +3390,11 @@
           "view": "View people's daily activity"
         }
       },
+      "claude": {
+        "public": {
+          "view": "Read public conversations with Claude"
+        }
+      },
       "roles": {
         "manage": "Manage roles"
       },

@@ -152,7 +152,8 @@ describe("catalogo dei permessi", () => {
   it("User ha le letture d'istanza di un member di oggi, e nessuna scrittura", () => {
     const perms = preset("User").permissions;
     expect([...perms].sort()).toEqual(
-      ["git_accounts.view", "mail_admission.view", "monitor.view", "users.view_all"].sort(),
+      // `claude.public.view`: leggere le pubbliche con Claude (fetta 5, D4 del maintainer).
+      ["claude.public.view", "git_accounts.view", "mail_admission.view", "monitor.view", "users.view_all"].sort(),
     );
     expect(perms.some((p) => p.endsWith(".manage") || p === "instance.full_admin")).toBe(false);
   });

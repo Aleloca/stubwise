@@ -32,6 +32,19 @@ function toView(row: ConversationRow, session: { state: ClaudeConversation["stat
     updatedAt: row.updatedAt.toISOString(),
     state: session.state,
     lastEventAt: session.lastEventAt,
+    // Fetta 5 (F5.1): i valori di una conversazione privata e propria; la
+    // visibilità vera e la proiezione per i lettori arrivano con la F5.2.
+    visibility: row.visibility,
+    author: null,
+    isOwner: true,
+    publishedAt: row.publishedAt?.toISOString() ?? null,
+    publishedBy: null,
+    publishedProjects: [],
+    privateTail: false,
+    heldProjects: [],
+    continuesFrom: null,
+    canPublish: false,
+    canContinue: false,
   } satisfies ClaudeConversation;
 }
 
