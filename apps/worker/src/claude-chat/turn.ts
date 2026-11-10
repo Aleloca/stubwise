@@ -56,9 +56,11 @@ import { buildChatPrimingPrompt, buildChatResumePrompt } from "./prompts.js";
  */
 
 /**
- * I tool NATIVI del CLI negati in ogni turno: la chat non ha file, shell, web
- * né sottoagenti. Cintura sopra l'allowlist chiusa (`allowedTools` = i soli
- * tool `stubwise_chat`) e la cwd vuota; esportata per gli scenari golden.
+ * I tool NATIVI del CLI negati in ogni turno. La difesa vera è `--tools ""`
+ * (`builtinTools: ""`: nessun tool nativo esiste nel turno — golden del 10 nov
+ * 2026: senza, il CLI 2.1.322 esponeva anche `ToolSearch`, `CronCreate`,
+ * `SendMessage`, `Workflow`…); questo elenco è la bretella sopra, insieme
+ * all'allowlist chiusa e alla cwd vuota. Esportata per gli scenari golden.
  */
 export const CHAT_DENIED_BUILTIN_TOOLS = [
   "Bash",
@@ -192,6 +194,8 @@ export async function runChatTurn(
         allowedTools,
         disallowedTools,
         settingSources: "",
+        // Nessun tool nativo: restano solo quelli di `stubwise_chat`.
+        builtinTools: "",
         maxTurns: deps.maxTurns,
         timeoutMs: deps.turnTimeoutMs,
         ...(deps.model !== undefined ? { model: deps.model } : {}),

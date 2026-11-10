@@ -134,6 +134,7 @@ describe("il turno della chat", () => {
     expect(o.allowedTools).toEqual([...CHAT_TOOL_NAMES]);
     for (const tool of CHAT_DENIED_BUILTIN_TOOLS) expect(o.disallowedTools).toContain(tool);
     expect(o.settingSources).toBe("");
+    expect(o.builtinTools).toBe("");
     expect(o.pluginDirs).toBeUndefined();
     expect(Object.keys(o.mcpConfig!.servers)).toEqual([CHAT_MCP_SERVER_NAME]);
     expect(o.usage).toEqual({ operation: "claude_chat", projectId: null });

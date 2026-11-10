@@ -527,6 +527,17 @@ printf '{"result":"altra risposta"}\\n'
     expect(await readCapturedArgv(root)).toEqual([...baseArgv(5), "--setting-sources", ""]);
   });
 
+  it("builtinTools '' passa `--tools` con la STRINGA VUOTA come argomento a sé", async () => {
+    const root = await makeRoot();
+    const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);
+    const cwd = await makeCwd(root);
+    const runner = new ClaudeCliRunner({ claudePath });
+
+    await runner.run({ usage: TAG, cwd, prompt: "ciao", maxTurns: 5, timeoutMs: 10_000, builtinTools: "" });
+
+    expect(await readCapturedArgv(root)).toEqual([...baseArgv(5), "--tools", ""]);
+  });
+
   it("le opzioni dei plugin convivono con allowedTools e mcpConfig senza interferire", async () => {
     const root = await makeRoot();
     const claudePath = await makeFakeClaude(root, ARGV_PROBE_SCRIPT);

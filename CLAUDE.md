@@ -269,8 +269,12 @@ percorso sul volume.
   assorbito a metà turno il piano resta tale, arrivato dopo il primo
   `result` viene rifiutato), `stop-pause` («Ferma» senza testo), `refine`
   (turno di refinement del backlog: design e piano salvati coi tool, nessun
-  file toccato, `Skill` invocabile) e `refine-read` (una lettura FUORI dalla
-  cartella di lavoro è negata); opt-in, solo se nominato: `refine-read-bash`
+  file toccato, `Skill` invocabile), `refine-read` (una lettura FUORI dalla
+  cartella di lavoro è negata) e, dal 10 nov 2026, i tre della chat con
+  Claude — `chat-read` (risponde leggendo coi tool di `stubwise_chat`),
+  `chat-no-act` (a «crea una task» non fa niente e dice dove si fa),
+  `chat-no-leak` (un progetto non visibile non entra nella risposta), 3 volte
+  ciascuno; opt-in, solo se nominato: `refine-read-bash`
   (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
   dell'invariante, va rilanciato quando si aggiorna il CLI). Lo scenario
   `refine-read-plan` (la plan mode della chat CODE e del deep dive, rosso
