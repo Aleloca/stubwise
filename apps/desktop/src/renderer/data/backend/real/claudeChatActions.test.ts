@@ -228,6 +228,20 @@ describe("«Undo» rifiutato dal server e il «Who?» (review F3.4)", () => {
     expect(await claudeChatNamespace.undoClaudeActions(CONV, GROUP_A)).toMatchObject({ ok: false, error: "not_undoable" });
   });
 
+  it("changed_after dopo il clic: il nome di chi ha cambiato, dalla vista del gruppo (changedBy)", async () => {
+    install({
+      [`POST /api/claude/groups/${GROUP_A}/undo`]: { status: 409, body: { code: "changed_after", message: "changed_after" } },
+      [`GET /api/claude/conversations/${CONV}/groups`]: { body: [{ ...groups[0], undo: "changed_after", changedBy: MARTA }] },
+    });
+    await getSessionPerson();
+    expect(await claudeChatNamespace.undoClaudeActions(CONV, GROUP_A)).toEqual({
+      ok: false,
+      error: "changed_after",
+      byName: "Marta Rinaldi",
+      code: null,
+    });
+  });
+
   it("una scheda fallita per permesso: il «Who?» dal permesso del server", async () => {
     install({
       [`GET /api/claude/conversations/${CONV}/proposals`]: {

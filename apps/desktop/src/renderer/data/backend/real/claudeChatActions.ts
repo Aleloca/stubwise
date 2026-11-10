@@ -6,6 +6,7 @@ import type { ConversationEvent, ProposedAction, UndoView } from "../../types";
 import { appClient, session } from "./client";
 import { taskCodeOf } from "./claudeChat";
 import { knownTaskCode } from "./tasks";
+import { listPeople } from "./people";
 import { ACTIONS } from "../../../domain/access/actions";
 
 // Le proposte e le azioni di Claude nella chat della build app (chat, fetta 3,
@@ -428,7 +429,7 @@ export const cancelProposal: Fake["cancelProposal"] = async (_conversationId, pr
  * I rifiuti nella forma del prototipo.
  */
 async function undoClaudeActions(
-  _conversationId: string,
+  conversationId: string,
   groupId: string,
 ): ReturnType<Fake["claude"]["undoClaudeActions"]> {
   try {
@@ -438,7 +439,8 @@ async function undoClaudeActions(
     if (!(error instanceof ApiError)) throw error;
     switch (error.code) {
       case "changed_after":
-        return { ok: false, error: "changed_after", byName: null, code: null };
+        // Il 409 non dice chi: lo dice la vista del gruppo (`changedBy`), riletta.
+        return { ok: false, error: "changed_after", byName: await changedByName(conversationId, groupId), code: null };
       case "undone":
       case "already_undone":
         return { ok: false, error: "already_undone" };
@@ -452,6 +454,20 @@ async function undoClaudeActions(
         if (error.status === 404) return { ok: false, error: "not_found" };
         throw error;
     }
+  }
+}
+
+/** Chi ha scritto dopo sugli oggetti del gruppo, per nome; `null` se non si sa o non si vede. */
+async function changedByName(conversationId: string, groupId: string): Promise<string | null> {
+  try {
+    const [groups, people] = await Promise.all([
+      appClient().claude.conversations.groups(conversationId),
+      listPeople(),
+    ]);
+    const by = groups.find((g) => g.id === groupId)?.changedBy ?? null;
+    return by ? (people.find((p) => p.id === by)?.name ?? null) : null;
+  } catch {
+    return null;
   }
 }
 
