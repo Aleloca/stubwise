@@ -287,4 +287,33 @@ describe("le pubbliche nelle pagine della build app", () => {
     expect(card).toHaveTextContent("Giulia Ferri");
     expect(screen.queryByText("Claude is waiting for your decision.")).toBeNull();
   });
+
+  describe("D6 e i nomi dal server, anche di chi non ha progetti in comune con chi guarda", () => {
+    const strangers = { "GET /api/people": { body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [DEPT_ID], email: "ada@example.com" }] } };
+
+    it("la riga di «Public» dice l'autrice", async () => {
+      install(strangers);
+      renderRoute("/claude?scope=public");
+      await waitFor(() => expect(document.querySelector(`[data-conversation-row="${CONV}"]`)).not.toBeNull());
+      expect(document.querySelector(`[data-conversation-row="${CONV}"]`)).toHaveTextContent("Giulia Ferri");
+    });
+
+    it("la testata dice chi l'ha resa pubblica col nome del server", async () => {
+      install(strangers);
+      renderRoute(`/claude/${CONV}`);
+      expect(await screen.findByText(/made public by Giulia Ferri/)).toBeInTheDocument();
+    });
+
+    it("la continuazione dice da chi continua, col nome del server", async () => {
+      const continued = view({ continuesFrom: { id: CONV, available: true } });
+      install({
+        ...strangers,
+        [`GET /api/claude/conversations/${MINE}`]: { body: { ...continued, session: session(MINE, { canWrite: true, canIntervene: true }) } },
+        [`GET /api/agent-sessions/${MINE}/events`]: { body: { events: [], before: null } },
+      });
+      renderRoute(`/claude/${MINE}`);
+      expect(await screen.findByText("Giulia's callbacks are fine.")).toBeInTheDocument();
+      expect(screen.getByText(/Giulia Ferri/)).toBeInTheDocument();
+    });
+  });
 });

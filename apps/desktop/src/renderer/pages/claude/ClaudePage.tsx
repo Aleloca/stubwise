@@ -694,7 +694,7 @@ function PageHeader({
           isPublic ? (
             <span data-public-line>
               {t("claude.destination.page.publicBy", {
-                name: nameOf(detail.publishedById),
+                name: detail.publishedByName ?? nameOf(detail.publishedById),
                 date: detail.publishedAt ? formatDate(detail.publishedAt, i18n.language) : "",
               })}
             </span>

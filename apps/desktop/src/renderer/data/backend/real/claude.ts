@@ -560,7 +560,14 @@ async function originOf(
   if (!from.available) return gone;
   const origin = await getConversation(from.id).catch(() => null);
   if (!origin) return gone;
-  return { id: from.id, available: true, title: origin.title, ownerId: origin.ownerId, events: origin.events };
+  return {
+    id: from.id,
+    available: true,
+    title: origin.title,
+    ownerId: origin.ownerId,
+    ownerName: origin.ownerName ?? null,
+    events: origin.events,
+  };
 }
 
 // --- il lavoro di una task ------------------------------------------------------------

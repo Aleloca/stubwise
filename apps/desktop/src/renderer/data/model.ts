@@ -1054,6 +1054,13 @@ export interface Conversation {
   publishedProjectIds: string[];
   /** La conversazione pubblica da cui questa continua. */
   continuesFromId: string | null;
+  /**
+   * Build app (chat, fetta 5): i nomi che dà il server dell'autore (solo
+   * quando non è chi guarda) e di chi l'ha resa pubblica, anche per chi non
+   * ha progetti in comune con chi guarda. Assenti nel prototipo.
+   */
+  ownerName?: string | null;
+  publishedByName?: string | null;
   createdAt: string;
   updatedAt: string;
   archived: boolean;

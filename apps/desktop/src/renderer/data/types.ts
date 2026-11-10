@@ -475,6 +475,8 @@ export interface ConversationDetail extends ConversationRow, ConversationPermiss
         title: string;
         /** Chi l'ha aperta («Continues from … · Giulia Ferri»). */
         ownerId: string;
+        /** Build app: il suo nome dal server (anche se chi guarda non la vede fra le persone). */
+        ownerName?: string | null;
         events: ConversationEvent[];
       }
     | { id: string; available: false; title: null; ownerId: null; events: [] }
