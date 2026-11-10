@@ -93,6 +93,17 @@ describe("conversazioni libere con Claude", () => {
     expect(msg.statusCode).toBe(202);
   });
 
+  it("nata vuota: il primo messaggio le dà il titolo (template), i successivi non lo cambiano", async () => {
+    const c = await create(asMember.cookie(), {});
+    expect(c.title).toBe("");
+    await inject("POST", `/api/agent-sessions/${c.id}/messages`, u.memberCookie, { text: "  Chi segue AUD-12?\nGrazie" });
+    await inject("POST", `/api/agent-sessions/${c.id}/messages`, u.memberCookie, { text: "E AUD-13?" });
+    const detail = (await inject("GET", `/api/claude/conversations/${c.id}`, u.memberCookie)).json() as { title: string };
+    expect(detail.title).toBe("Chi segue AUD-12?");
+    const [session] = await t.db.select().from(agentSessions).where(eq(agentSessions.id, c.id));
+    expect(session!.title).toBe("Chi segue AUD-12?");
+  });
+
   it("rinomina, contesto, archivia (non si scrive più), elimina", async () => {
     const c = await create(asMember.cookie(), { message: "Da rinominare" });
     const patched = await inject("PATCH", `/api/claude/conversations/${c.id}`, u.memberCookie, {
@@ -129,6 +140,9 @@ describe("conversazioni libere con Claude", () => {
       expect(res.statusCode).toBe(409);
       expect(res.json()).toMatchObject({ code: "budget_exhausted" });
       expect((await t.db.select().from(agentSessions)).length).toBe(sessionsBefore);
+      const status = await inject("GET", "/api/claude/conversations/status", u.memberCookie);
+      expect(status.statusCode).toBe(200);
+      expect(status.json()).toEqual({ budgetExhausted: true });
       const msg = await inject("POST", `/api/agent-sessions/${c.id}/messages`, u.memberCookie, { text: "Dopo" });
       expect(msg.statusCode).toBe(409);
       expect(msg.json()).toMatchObject({ code: "budget_exhausted" });
@@ -137,6 +151,12 @@ describe("conversazioni libere con Claude", () => {
     } finally {
       await t.db.update(instanceSettings).set({ monthlyBudgetUsd: null });
     }
+  });
+
+  it("lo stato della chat: budget non finito", async () => {
+    const res = await inject("GET", "/api/claude/conversations/status", u.memberCookie);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ budgetExhausted: false });
   });
 
   it("senza sessione: 401", async () => {

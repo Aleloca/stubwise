@@ -3,6 +3,7 @@ import type { ClaudeDecisionView, Reader } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { ClaudeDecision, Conversation } from "../../types";
 import { planDigestOf, ticketOfConversation } from "./claude";
+import { call, freeConversationIds, sendFreeMessage } from "./claudeChat";
 import { appClient } from "./client";
 
 // Le azioni di Claude nella build app (integrazione area 3, fetta 3b «Agire»).
@@ -141,7 +142,9 @@ export const answerQuestion: typeof Fake.answerQuestion = async (id, questionId,
 };
 
 /** Un messaggio nella sessione (chi può scrivere lo dice `canWrite`). Gli allegati non ci sono. */
-export const sendMessage: typeof Fake.sendMessage = async (id, message) => {
+export const sendMessage: typeof Fake.sendMessage = async (id, message, options = {}) => {
+  // La conversazione libera: il contesto della pagina e il rifiuto per budget.
+  if (freeConversationIds.has(id)) return sendFreeMessage(id, message.text, options.context ?? null);
   await appClient().agentSessions.send(id, { text: message.text });
 };
 
@@ -152,7 +155,9 @@ export const stop: typeof Fake.stop = async (id) => {
 
 /** «Ferma e scrivi». */
 export const stopAndSend: typeof Fake.stopAndSend = async (id, text) => {
-  await appClient().agentSessions.send(id, { text, interrupt: true });
+  // Nella libera il testo è un turno nuovo: col budget finito il server lo rifiuta.
+  const send = () => appClient().agentSessions.send(id, { text, interrupt: true });
+  await (freeConversationIds.has(id) ? call(send) : send());
 };
 
 // --- «Da decidere» -----------------------------------------------------------------

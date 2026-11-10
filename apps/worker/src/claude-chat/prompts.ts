@@ -67,7 +67,16 @@ export function buildChatPrimingPrompt(ctx: ChatPromptContext, openingText: stri
   return parts.join("\n");
 }
 
-/** Turno ripreso con `--resume`: il contesto è già nella conversazione CLI. */
-export function buildChatResumePrompt(openingText: string): string {
-  return openingText;
+/**
+ * Turno ripreso con `--resume`: la conversazione CLI ha già il contratto, ma
+ * il contesto della pagina può essere cambiato (chi scrive ha aperto un'altra
+ * task): si ripete, come `tipo: id`, solo quando c'è.
+ */
+export function buildChatResumePrompt(openingText: string, context: ClaudeConversationContext | null = null): string {
+  if (context === null) return openingText;
+  return [
+    block("PAGE THE PERSON IS LOOKING AT", `${context.kind}: ${context.id} (read it with the tools if it matters)`),
+    "",
+    block("MESSAGE", openingText),
+  ].join("\n");
 }

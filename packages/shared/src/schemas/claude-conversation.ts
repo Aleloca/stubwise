@@ -69,6 +69,16 @@ export const claudeConversationListQuerySchema = z.object({
 });
 
 /**
+ * `GET /api/claude/status`: ciò che la casella della chat deve sapere prima di
+ * scrivere. `budgetExhausted`: il budget AI del mese è finito, quindi né una
+ * conversazione nuova né un messaggio partono (409 `budget_exhausted`); la
+ * casella si spegne con la sua frase. Nasce con il default, per un server
+ * più vecchio che non lo manda.
+ */
+export const claudeChatStatusSchema = z.object({ budgetExhausted: z.boolean().default(false) });
+export type ClaudeChatStatus = z.infer<typeof claudeChatStatusSchema>;
+
+/**
  * Il titolo dalla prima domanda: la prima riga, senza spazi in eccesso,
  * troncata. Un TEMPLATE, mai il modello (titoli e testi automatici non sono
  * scritti dall'AI dove non serve).

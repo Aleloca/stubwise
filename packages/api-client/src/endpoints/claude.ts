@@ -1,9 +1,11 @@
 import {
+  claudeChatStatusSchema,
   claudeConversationDetailSchema,
   claudeConversationListSchema,
   claudeConversationSchema,
 } from "@stubwise/shared";
 import type {
+  ClaudeChatStatus,
   ClaudeConversation,
   ClaudeConversationDetail,
   CreateClaudeConversationInput,
@@ -22,6 +24,10 @@ import { seg, toQuery } from "../query.js";
  */
 export function createClaudeEndpoints(request: ApiRequest) {
   return {
+    /** Prima di scrivere: il budget del mese è finito? (Un server più vecchio: `false`.) */
+    status(): Promise<Reader<ClaudeChatStatus>> {
+      return request("GET", "/api/claude/conversations/status", undefined, claudeChatStatusSchema);
+    },
     conversations: {
       list(opts: { archived?: boolean } = {}): Promise<Reader<{ items: ClaudeConversation[] }>> {
         return request(

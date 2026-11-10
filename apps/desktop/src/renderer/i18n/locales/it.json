@@ -4456,6 +4456,7 @@
       "landing": {
         "title": "Nuova conversazione",
         "intro": "Chiedi di ciò che stai guardando, o chiedi a Claude di farlo per te. Ciò che tocca solo te parte subito e si annulla; ciò che tocca altri ti chiede prima.",
+        "introRead": "Chiedi del tuo lavoro, di una task o di un progetto: Claude legge Stubwise come lo vedi tu, e risponde. In questa versione non cambia niente: ti dice dove farlo.",
         "label": "La tua domanda per Claude",
         "placeholder": "Chiedi a Claude del tuo lavoro, di una task o di un progetto…",
         "send": "Inizia la conversazione",

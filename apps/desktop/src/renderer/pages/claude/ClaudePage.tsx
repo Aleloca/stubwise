@@ -105,6 +105,10 @@ export function ClaudePage() {
     }
     if (!scope) return <Navigate to="/claude" search={{ scope: "live" }} replace />;
   }
+  // Le pubbliche sono una fetta a sé: nella build app «in arrivo».
+  if (scope === "public" && !featureIntegrated("claude-public")) {
+    return <ComingSoon titleKey="claude.destination.column.public" />;
+  }
   if (scope === "public" && !can(viewer, "claude.public.view")) {
     return <Navigate to="/claude" search={{}} replace />;
   }
@@ -158,7 +162,8 @@ function NewConversation({ initial }: { initial: string }) {
             {t("claude.destination.landing.title")}
           </h1>
           <p className="max-w-[72ch] text-sm text-ink-muted">
-            {t("claude.destination.landing.intro")}
+            {/* Senza le azioni di Claude in chat (build app, chat fetta 2): la promessa di sola lettura. */}
+            {t(featureIntegrated("claude-chat-actions") ? "claude.destination.landing.intro" : "claude.destination.landing.introRead")}
           </p>
         </div>
         <NewConversationComposer
@@ -616,7 +621,7 @@ function PageHeader({
                 : t("claude.destination.page.objectRequest", { code: detail.objectCode ?? "" })}
             </button>
           )}
-          {free && detail.canManage && !detail.archived && (
+          {free && detail.canManage && !detail.archived && featureIntegrated("claude-public") && (
             <button
               type="button"
               className={secondaryButton}

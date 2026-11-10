@@ -22,14 +22,15 @@ import type {
   ConversationState,
   Outcome,
 } from "../../types";
+import { freeDetailOf, listMine } from "./claudeChat";
 import { appClient } from "./client";
 import { listProjects } from "./projects";
 
 // Le sessioni di lavoro di Claude nella build app (integrazione area 3, fetta
 // 3a «Guardare»): la pagina Claude, il riquadro (una sessione seguita) e la
 // sezione Claude della task le leggono da `/api/agent-sessions`, in LETTURA.
-// La chat libera (`free`: «mine», «public») resta «in arrivo» e non legge
-// niente. Chi vede una sessione e cosa può farci lo decide il server
+// La chat libera (`free`, «mine») la legge `claudeChat.ts` (fetta 2 della chat);
+// le pubbliche restano «in arrivo». Chi vede una sessione e cosa può farci lo decide il server
 // (`docs/invariants/agent-sessions.md`); nella 3a nessuna azione: i permessi
 // del dettaglio sono tutti spenti, con `readOnlyReason: "not_interactive"`.
 
@@ -158,7 +159,9 @@ export function toRow(s: Summary, codes: Map<string, string>, paused = false): C
  * tetto vale anche con `includeOlder`). La chat libera non è integrata.
  */
 export const listConversations: typeof Fake.listConversations = async (filter) => {
-  if (filter.scope === "mine" || filter.scope === "public") return [];
+  // Le proprie conversazioni libere (chat, fetta 2); le pubbliche sono una fetta a sé.
+  if (filter.scope === "mine") return listMine(filter.archived === true);
+  if (filter.scope === "public") return [];
   const serverKind = filter.kind ? SERVER_KIND_OF[filter.kind] : undefined;
   if (filter.kind === "free") return [];
   const [list, codes] = await Promise.all([
@@ -507,6 +510,18 @@ export const getConversation: typeof Fake.getConversation = async (id) => {
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) return null;
     throw error;
+  }
+  if (detail.kind === "free") {
+    // La conversazione libera: titolo, archivio e contesto dalla sua riga (solo dell'autore).
+    let conversation: Awaited<ReturnType<ReturnType<typeof appClient>["claude"]["conversations"]["get"]>>;
+    try {
+      conversation = await appClient().claude.conversations.get(id);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) return null;
+      throw error;
+    }
+    const events = await readEvents(id);
+    return freeDetailOf(conversation, eventsOf(conversation.session, events, {}, null));
   }
   const [events, plan, codes] = await Promise.all([readEvents(id), planOf(detail), projectCodes()]);
   return toDetail(detail, codes, eventsOf(detail, events, {}, plan));

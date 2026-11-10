@@ -104,11 +104,31 @@ describe("le sessioni di lavoro dal server", () => {
     ]);
   });
 
-  it("la chat libera non è integrata: «mine» e «public» non leggono niente", async () => {
-    const { seen } = installFakeServer({});
-    expect(await listConversations({ scope: "mine" })).toEqual([]);
+  it("«mine» legge le proprie conversazioni libere; «public» non legge niente (fetta a sé)", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/claude/conversations": {
+        body: {
+          items: [
+            {
+              id: SESSION_ID,
+              title: "Who follows AUD-12?",
+              archived: false,
+              context: { kind: "project", id: "p1" },
+              createdAt: "2026-11-10T10:00:00.000Z",
+              updatedAt: "2026-11-10T10:00:00.000Z",
+              state: "queued",
+              lastEventAt: null,
+            },
+          ],
+        },
+      },
+    });
+    expect(await listConversations({ scope: "mine" })).toMatchObject([
+      { id: SESSION_ID, kind: "free", title: "Who follows AUD-12?", contextProjectId: "p1", state: "working", visibility: "private" },
+    ]);
+    expect(seen.map((r) => r.path)).toEqual(["/api/claude/conversations?scope=mine"]);
     expect(await listConversations({ scope: "public" })).toEqual([]);
-    expect(seen).toHaveLength(0);
+    expect(seen).toHaveLength(1);
   });
 
   it("il dettaglio: gli eventi tradotti, tutto in lettura; una sessione invisibile è null", async () => {
