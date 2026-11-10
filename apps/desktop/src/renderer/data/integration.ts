@@ -70,6 +70,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // (`claude-chat-actions`), la riga «Claude can help you…»
     // (`claude-suggestions`) e le domande della doc di prodotto (`product-docs`).
     "claude-chat",
+    // Fetta 3.0 della chat: «Elimina task», a mano dal menu «⋯» della task.
+    "task-delete",
     // Fetta 2 della chat, il riquadro (⌘J, ⌘K «Ask Claude…») col chip del contesto.
     "claude-panel",
     // Fetta 3e: Claude fra gli assegnatari, solo nei progetti che la sua riga

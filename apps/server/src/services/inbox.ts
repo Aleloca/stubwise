@@ -1001,7 +1001,12 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       actions,
       projectId: r.projectId,
       ticketId: r.ticketId,
-      taskCode: r.ticketId ? (taskCodes.get(r.ticketId) ?? null) : null,
+      // Una task eliminata: il codice dalla lapide (in testo, senza link).
+      taskCode: r.ticketId
+        ? (taskCodes.get(r.ticketId) ?? null)
+        : objectGone
+          ? (goneTickets.get(eventTicketId as string) ?? null)
+          : null,
       jobId: r.jobId,
       createdAt: r.createdAt,
       readAt: r.readAt,
@@ -1014,15 +1019,16 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
   return { items, nextCursor, total };
 }
 
-/** Quali di questi id sono task eliminate (la lapide). UNA query. */
-async function deletedTicketIdsOf(db: Db, ids: readonly string[]): Promise<Set<string>> {
+/** Le task eliminate fra questi id, col loro codice (la lapide). UNA query. */
+async function deletedTicketIdsOf(db: Db, ids: readonly string[]): Promise<Map<string, string>> {
   const unique = [...new Set(ids)];
-  if (unique.length === 0) return new Set();
+  if (unique.length === 0) return new Map();
   const rows = await db
-    .select({ id: deletedTickets.id })
+    .select({ id: deletedTickets.id, number: deletedTickets.number, code: projects.code })
     .from(deletedTickets)
+    .innerJoin(projects, eq(projects.id, deletedTickets.projectId))
     .where(inArray(deletedTickets.id, unique));
-  return new Set(rows.map((r) => r.id));
+  return new Map(rows.map((r) => [r.id, `${r.code}-${r.number}`] as const));
 }
 
 /**

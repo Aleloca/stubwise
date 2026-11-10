@@ -56,6 +56,23 @@ help you…»), `claude-chat-actions` (proposte e azioni in chat) e `product-doc
 | «/» con `/explain` e `/docs` soli (i comandi che i tool di lettura coprono), descrizioni tradotte | review delle fette 1–2 |
 | Nessun allegato nei messaggi (`claude-attachments` resta spenta) | server |
 
+## Fetta 3.0 — «Elimina task» (server e renderer)
+
+| Voce | Dove vive | Rotta | Test |
+|---|---|---|---|
+| «Delete task…» nel menu «⋯» della task e il dialogo (si può, perché no col «Who?», cosa la occupa, le figlie che restano, il codice che non si riusa) | `pages/task/TaskMoreMenu.tsx`, `DeleteTaskDialog.tsx`; `real/taskDelete.ts` | `GET /api/tasks/:id/deletion`, `DELETE /api/tasks/:id` (409 `busy`, 403, 404) | `apps/server/src/routes/tasks.delete.test.ts`, `real/taskPanel.test.tsx` |
+| La richiesta d'origine dice «La task MKX-31 è stata eliminata» | `real/requests.ts` (`deletedTaskCodes`) | il dettaglio della richiesta | `real/requests.test.ts` |
+| La card d'inbox di una task eliminata: codice in testo, nessun link (`objectGone`) | `real/notifications.ts` | `/api/inbox` (`objectGone`, `taskCode` dalla lapide) | `real/session.test.ts`, test del server |
+| Lo standup elenca le task eliminate del giorno, a chi le ha eliminate | `real/peopleActivity.ts` (invariato) | `/api/people/activity` (`tasksDeleted`) | test del server |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Eliminazione VERA, regole del prototipo (chi: autore con `tickets.edit` o `tickets.moderate`; busy; niente annullamento né riconferma) | maintainer |
+| La lapide tiene codice, titolo, richiesta d'origine, chi, quando: mai descrizione, commenti, allegati, storia | orchestratrice / costruttore |
+| Le sessioni dell'agente della task se ne vanno con lei (il prototipo le tiene): la loro visibilità passa dal ticket | costruttore (registro) |
+| Una ragione in più di `busy`: «una correzione della sua PR è ancora aperta» (`open_correction`); i fix di server e rilasci del prototipo non ci sono (aree non integrate) | costruttore |
+| Gli allegati si tolgono anche dallo storage, dopo il commit e best-effort (come l'eliminazione di un commento) | costruttore |
+
 ## Rimandate
 
 | Voce | Fetta |

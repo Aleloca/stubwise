@@ -141,3 +141,5 @@ export {
   searchMentions,
   setConversationContext,
 } from "./claudeChat";
+// Fetta 3.0 della chat: «Elimina task» (anteprima ed eliminazione dal server).
+export { deleteTask, getTaskDeletion } from "./taskDelete";

@@ -51,7 +51,13 @@ export type TaskBusyReason =
    */
   | { kind: "open_pr"; repo: string | null; number: number | null }
   | { kind: "server_fix"; serverCode: string }
-  | { kind: "release_fix"; releaseCode: string };
+  | { kind: "release_fix"; releaseCode: string }
+  /**
+   * Una correzione della sua PR ancora aperta (in attesa o in coda): la dice
+   * il server vero (integrazione, fetta 3.0 della chat); il prototipo non la
+   * produce.
+   */
+  | { kind: "open_correction" };
 
 export interface TaskDeletionPreview {
   taskId: string;

@@ -151,5 +151,7 @@ export function busyLine(t: T, code: string, r: ClaudeBusyReason): string {
       return t(`${K}.release`, { code, release: r.releaseCode });
     case "release":
       return t(`${K}.release`, { code, release: r.code });
+    case "open_correction":
+      return t(`${K}.open_correction`, { code });
   }
 }

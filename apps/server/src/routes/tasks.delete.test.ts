@@ -260,10 +260,10 @@ describe("cosa se ne va, cosa resta", () => {
     expect(deleted).toBeDefined();
     expect(deleted!.ticketId).toBeNull();
     const inbox = (await app.inject({ method: "GET", url: "/api/inbox", headers: { cookie: legacyOther.headers.cookie } })).json() as {
-      items: { id: string; objectGone: boolean; url?: string; ticketId: string | null }[];
+      items: { id: string; objectGone: boolean; url?: string; ticketId: string | null; taskCode: string | null }[];
     };
     const card = inbox.items.find((i) => i.id === deleted!.id)!;
-    expect(card).toMatchObject({ objectGone: true, ticketId: null });
+    expect(card).toMatchObject({ objectGone: true, ticketId: null, taskCode: t.code });
     expect(card.url).toBeUndefined();
 
     const runs = await testDb.db.select().from(agentRuns).where(eq(agentRuns.costUsd, "1.5"));
