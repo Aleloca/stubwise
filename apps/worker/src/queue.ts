@@ -308,7 +308,7 @@ export interface HoldJobInput {
  * (job requeued e reclamato altrove) e in quel caso il chiamante non deve
  * toccare nulla.
  */
-export async function holdJob(db: Db, jobId: string, input: HoldJobInput): Promise<boolean> {
+export async function holdJob(db: Db, jobId: string, input: HoldJobInput): Promise<ParkResult> {
   const updated = await db
     .update(aiJobs)
     .set({
@@ -318,9 +318,54 @@ export async function holdJob(db: Db, jobId: string, input: HoldJobInput): Promi
       finishedAt: sql`now()`,
       lastActivityAt: sql`now()`,
     })
-    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .where(parkable(jobId))
     .returning({ id: aiJobs.id });
-  return updated.length > 0;
+  return updated.length > 0 ? "parked" : await cancelledOrLost(db, jobId);
+}
+
+/**
+ * L'esito di un parcheggio (`held`, piano, domanda): `parked`; `lost` se la
+ * ownership è persa (job riaccodato e reclamato altrove: il chiamante non
+ * tocca niente); `cancelled` se per QUESTO tentativo è stato chiesto «Annulla
+ * il lavoro» (review dell'area 3, punto 2): il job non si parcheggia, è già
+ * chiuso `skipped` con la sua correzione, e il chiamante scrive il commento
+ * (`recordRunCancelled`) invece della notifica del parcheggio. Senza, un job
+ * annullato mentre lavorava si parcheggiava prima dell'abort, e la richiesta
+ * si perdeva alla ripresa.
+ */
+export type ParkResult = "parked" | "lost" | "cancelled";
+
+/** Un job attivo, senza «Annulla il lavoro» chiesto in questo tentativo: si può parcheggiare. */
+const parkable = (jobId: string) =>
+  and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES]), sql`not ${cancelRequestedThisAttempt}`);
+
+/** Il parcheggio non è avvenuto: chiude il job se è per l'annullamento, altrimenti la ownership è persa. */
+async function cancelledOrLost(db: Db, jobId: string): Promise<"cancelled" | "lost"> {
+  return (await closeCancelledJob(db, jobId)) ? "cancelled" : "lost";
+}
+
+/**
+ * Chiude `skipped`, con la sua correzione (job e correzione si chiudono
+ * INSIEME), un job attivo con «Annulla il lavoro» chiesto in questo tentativo.
+ * `true` se l'ha chiuso.
+ */
+export async function closeCancelledJob(db: Db, jobId: string): Promise<boolean> {
+  return db.transaction(async (tx) => {
+    const closed = await tx
+      .update(aiJobs)
+      .set({
+        status: "skipped",
+        finishedAt: sql`now()`,
+        lastActivityAt: sql`now()`,
+        log: sql`${aiJobs.log} || ${"[stubwise] lavoro annullato da una persona prima del parcheggio: niente commit, push né PR\n"}`,
+      })
+      .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES]), cancelRequestedThisAttempt))
+      .returning({ correctionId: aiJobs.correctionId });
+    for (const { correctionId } of closed) {
+      if (correctionId !== null) await completeCorrection(tx, correctionId);
+    }
+    return closed.length > 0;
+  });
 }
 
 export interface ParkForPlanApprovalInput {
@@ -352,7 +397,7 @@ export async function parkForPlanApproval(
   db: Db,
   jobId: string,
   input: ParkForPlanApprovalInput,
-): Promise<boolean> {
+): Promise<ParkResult> {
   const updated = await db
     .update(aiJobs)
     .set({
@@ -362,9 +407,9 @@ export async function parkForPlanApproval(
       log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
       lastActivityAt: sql`now()`,
     })
-    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .where(parkable(jobId))
     .returning({ id: aiJobs.id });
-  return updated.length > 0;
+  return updated.length > 0 ? "parked" : await cancelledOrLost(db, jobId);
 }
 
 export interface ParkForInputInput {
@@ -394,7 +439,7 @@ export async function parkForInput(
   db: Db,
   jobId: string,
   input: ParkForInputInput,
-): Promise<boolean> {
+): Promise<ParkResult> {
   const updated = await db
     .update(aiJobs)
     .set({
@@ -403,9 +448,9 @@ export async function parkForInput(
       log: sql`${aiJobs.log} || ${`${input.log}\n`}`,
       lastActivityAt: sql`now()`,
     })
-    .where(and(eq(aiJobs.id, jobId), inArray(aiJobs.status, [...ACTIVE_STATUSES])))
+    .where(parkable(jobId))
     .returning({ id: aiJobs.id });
-  return updated.length > 0;
+  return updated.length > 0 ? "parked" : await cancelledOrLost(db, jobId);
 }
 
 /**

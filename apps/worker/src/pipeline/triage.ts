@@ -33,7 +33,7 @@ import type { ResolvedProvider } from "../providers/chain.js";
 import { isLimitError, ProviderLimitError } from "../providers/limit.js";
 import { getContentLanguage } from "../settings.js";
 import { RunCancelRequestedError } from "./cancel.js";
-import { recordRunCancelled } from "./job-outcomes.js";
+import { recordRunCancelled, recordRunCancelledSafely } from "./job-outcomes.js";
 import { notify, ticketUrl, type NotifyDeps } from "./notify.js";
 import { generateFailureSummary } from "../summaries/failure-summary.js";
 import { aiJobSession, sessionOption } from "../sessions/owners.js";
@@ -513,7 +513,13 @@ export async function runTriage(deps: TriageDeps, job: AiJob): Promise<TriageOut
         // serve un avvio umano — non è né un limite né un budget.
         heldReason: "other",
       });
-      if (!held) {
+      if (held === "cancelled") {
+        // «Annulla il lavoro» durante il triage (review dell'area 3, punto 2):
+        // chiuso skipped invece di fermarsi sul gate dell'automazione.
+        await recordRunCancelledSafely(db, { ticketId: job.ticketId, jobId: job.id, kind: "fix", lang });
+        return "skipped";
+      }
+      if (held === "lost") {
         await appendLog(db, job.id, "[triage] ownership persa dopo il hold");
       }
       // Notifica job.held best-effort, DOPO holdJob (stato committato). Il tipo
