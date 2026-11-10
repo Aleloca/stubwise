@@ -190,4 +190,45 @@ describe("le pubbliche nelle pagine della build app", () => {
     expect(within(column).getByText("Public")).toBeInTheDocument();
     expect(seen.filter((r) => r.method === "POST")).toEqual([]);
   });
+
+  it("l'autrice di una pubblica col seguito privato: la fascia nomina i progetti nuovi; la riconferma manda solo quelli", async () => {
+    const MKX = "22222222-2222-4222-8222-2222222222b2";
+    const held = view({
+      visibility: "public",
+      publishedAt: "2026-11-10T10:06:00.000Z",
+      publishedBy: { id: ME_ID, name: "Ada" },
+      publishedProjects: [{ id: PROJECT_ID, code: "AUD", name: "Audin AI" }],
+      heldProjects: [{ id: MKX, code: "MKX", name: "Marketing" }],
+    });
+    install({
+      "GET /api/projects": {
+        body: [
+          serverProject({ memberIds: [ME_ID, GIULIA] }),
+          serverProject({ id: MKX, name: "Marketing", slug: "marketing", code: "MKX", memberIds: [ME_ID] }),
+        ],
+      },
+      [`GET /api/claude/conversations/${MINE}`]: { body: { ...held, session: session(MINE, { canWrite: true, canIntervene: true }) } },
+      [`POST /api/claude/conversations/${MINE}/visibility`]: (req: SeenRequest) =>
+        (req.body as { confirmedProjectIds?: string[] }).confirmedProjectIds
+          ? { body: { ...held, heldProjects: [], publishedProjects: [...(held.publishedProjects as unknown[]), { id: MKX, code: "MKX", name: "Marketing" }] } }
+          : {
+              status: 409,
+              body: { code: "needs_confirmation", message: "x", projects: [{ id: MKX, code: "MKX", name: "Marketing" }], includesToolReads: false, reconfirm: true },
+            },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${MINE}`);
+    expect(await screen.findByText(/New messages are private: Claude used MKX/)).toBeInTheDocument();
+    await ue.click(screen.getByRole("button", { name: "Review and share" }));
+    const dialog = await screen.findByRole("dialog", { name: "Share the new messages?" });
+    expect(await within(dialog).findByText("Marketing")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Audin AI")).toBeNull();
+    await ue.click(within(dialog).getByRole("button", { name: "Share, I'm responsible" }));
+    await waitFor(() =>
+      expect(seen.filter((r) => r.method === "POST").map((r) => r.body)).toEqual([
+        { visibility: "public" },
+        { visibility: "public", confirmedProjectIds: [MKX] },
+      ]),
+    );
+  });
 });
