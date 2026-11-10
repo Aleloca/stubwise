@@ -34,7 +34,8 @@ const INVALID_OF: Record<string, string> = {
   invalid_thread: "threadOf",
 };
 
-async function call<T>(run: () => Promise<T>): Promise<T> {
+/** `invalid400`: cosa dice un 400 di validazione (il nome di un canale, nei dialoghi del canale). */
+async function call<T>(run: () => Promise<T>, invalid400 = "input"): Promise<T> {
   try {
     return await run();
   } catch (error) {
@@ -43,7 +44,7 @@ async function call<T>(run: () => Promise<T>): Promise<T> {
       if (error.status === 403) throw new Error("forbidden");
       const what = error.code ? INVALID_OF[error.code] : undefined;
       if (what) throw new Error(`invalid: ${what}`);
-      if (error.status === 400) throw new Error("invalid: input");
+      if (error.status === 400) throw new Error(`invalid: ${invalid400}`);
     }
     throw error;
   }
@@ -71,7 +72,8 @@ const channelOfMessage = new Map<string, string>();
 const cursorBefore = new Map<string, string>();
 
 /** Il canale di un messaggio già letto (lo stream di un thread ascolta quello del canale). */
-export const knownChannelOf = (messageId: string): string | undefined => channelOfMessage.get(messageId);
+export const knownChannelOf = (messageId: string): string | undefined =>
+  channelOfMessage.get(messageId);
 
 /** Cambio di persona o test: via le memorie della Chat. */
 export function forgetPeopleChatCaches(): void {
@@ -119,7 +121,12 @@ function toChannelView(v: ServerChannel): ChannelView {
 }
 
 function toRow(v: ServerChannel): ChannelRow {
-  return { ...toChannelView(v), unread: v.unread, mentions: v.mentions, lastActivityAt: v.lastMessageAt };
+  return {
+    ...toChannelView(v),
+    unread: v.unread,
+    mentions: v.mentions,
+    lastActivityAt: v.lastMessageAt,
+  };
 }
 
 export function toMessage(v: ServerMsg): ChatMessageView {
@@ -127,9 +134,7 @@ export function toMessage(v: ServerMsg): ChatMessageView {
   const me = session.personId ?? "";
   // Il momento dell'eliminazione dal server (`deletedAt`); da uno più vecchio
   // basta che ci sia (il testo non c'è più comunque).
-  const deletedAt = v.deleted
-    ? (v.deletedAt ?? v.editedAt ?? v.createdAt)
-    : null;
+  const deletedAt = v.deleted ? (v.deletedAt ?? v.editedAt ?? v.createdAt) : null;
   return {
     id: v.id,
     channelId: v.channelId,
@@ -166,7 +171,11 @@ export function toMessage(v: ServerMsg): ChatMessageView {
   };
 }
 
-const hitOf = (v: ServerMsg): ChatMessageHit => ({ channelId: v.channelId, message: toMessage(v), context: null });
+const hitOf = (v: ServerMsg): ChatMessageHit => ({
+  channelId: v.channelId,
+  message: toMessage(v),
+  context: null,
+});
 
 // --- letture ----------------------------------------------------------------------------
 
@@ -192,7 +201,9 @@ const getChannel: Chat["getChannel"] = async (id) => {
 const listChannelMembers: Chat["listChannelMembers"] = async (id) => {
   const v = await read(() => appClient().chat.channels.get(id));
   if (!v) return null;
-  return v.memberIds.map((personId): ChannelMember => ({ personId, isCreator: personId === v.createdBy }));
+  return v.memberIds.map(
+    (personId): ChannelMember => ({ personId, isCreator: personId === v.createdBy }),
+  );
 };
 
 /** Il massimo del server per pagina: oltre si va avanti col cursore. */
@@ -214,7 +225,10 @@ const listMessages: Chat["listMessages"] = async (channelId, { before, limit = 5
   for (;;) {
     const want = Math.min(limit - messages.length, SERVER_PAGE_MAX);
     const page = await read(() =>
-      appClient().chat.messages.page(channelId, { ...(cursor ? { before: cursor } : {}), limit: want }),
+      appClient().chat.messages.page(channelId, {
+        ...(cursor ? { before: cursor } : {}),
+        limit: want,
+      }),
     );
     if (!page) return null;
     messages = [...page.items.map(toMessage), ...messages];
@@ -263,7 +277,8 @@ const listThreadsWithNews: Chat["listThreadsWithNews"] = async () => {
 
 const hasNews: Chat["hasNews"] = async () => (await appClient().chat.signal()).hasNews;
 
-const listMentions: Chat["listMentions"] = async () => (await appClient().chat.mentions()).items.map(hitOf);
+const listMentions: Chat["listMentions"] = async () =>
+  (await appClient().chat.mentions()).items.map(hitOf);
 
 // --- scritture ------------------------------------------------------------------------------
 
@@ -298,8 +313,11 @@ const markRead: Chat["markRead"] = async (channelId, at) => {
 
 const markThreadRead: Chat["markThreadRead"] = async (rootId, at) => {
   const channelId =
-    channelOfMessage.get(rootId) ?? (await call(() => appClient().chat.messages.get(rootId))).channelId;
-  await call(() => appClient().chat.channels.markRead(channelId, { threadRootId: rootId, ...(at ? { at } : {}) }));
+    channelOfMessage.get(rootId) ??
+    (await call(() => appClient().chat.messages.get(rootId))).channelId;
+  await call(() =>
+    appClient().chat.channels.markRead(channelId, { threadRootId: rootId, ...(at ? { at } : {}) }),
+  );
 };
 
 const setThreadFollow: Chat["setThreadFollow"] = async (rootId, following) => {
@@ -319,21 +337,29 @@ const leaveChannel: Chat["leaveChannel"] = async (channelId) => {
 
 /** Solo i canali APERTI di un progetto: privati e generali sono della fetta 2. */
 const createChannel: Chat["createChannel"] = async (input) => {
-  if (input.projectId === null || input.visibility !== "open") throw new Error("invalid: visibility");
+  if (input.projectId === null || input.visibility !== "open")
+    throw new Error("invalid: visibility");
   const projectId = input.projectId;
   return toChannelView(
-    await call(() =>
-      appClient().chat.channels.create({
-        projectId,
-        name: input.name,
-        ...(input.description ? { description: input.description } : {}),
-      }),
+    await call(
+      () =>
+        appClient().chat.channels.create({
+          projectId,
+          name: input.name,
+          ...(input.description ? { description: input.description } : {}),
+        }),
+      "name",
     ),
   );
 };
 
 const updateChannel: Chat["updateChannel"] = async (channelId, patch) =>
-  toChannelView(await call(() => appClient().chat.channels.update(channelId, patch)));
+  toChannelView(
+    await call(
+      () => appClient().chat.channels.update(channelId, patch),
+      patch.name !== undefined ? "name" : "input",
+    ),
+  );
 
 const archiveChannel: Chat["archiveChannel"] = async (channelId, archived = true) =>
   toChannelView(await call(() => appClient().chat.channels.update(channelId, { archived })));

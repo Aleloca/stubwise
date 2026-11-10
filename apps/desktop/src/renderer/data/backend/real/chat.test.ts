@@ -168,6 +168,16 @@ describe("canali", () => {
     ]);
   });
 
+  it("un nome di canale che il server rifiuta (400) è «invalid: name», come nel dialogo", async () => {
+    install({
+      "POST /api/chat/channels": { status: 400, body: { code: "validation_error", message: "name" } },
+      [`PATCH /api/chat/channels/${CH}`]: { status: 400, body: { message: "name" } },
+    });
+    await getSessionPerson();
+    await expect(chat.createChannel({ projectId: PROJECT_ID, name: "!!", visibility: "open" })).rejects.toThrow("invalid: name");
+    await expect(chat.updateChannel(CH, { name: "!!" })).rejects.toThrow("invalid: name");
+  });
+
   it("i rifiuti del server negli errori del prototipo", async () => {
     install({
       "POST /api/chat/channels": { status: 409, body: { code: "name_taken", message: "x" } },
