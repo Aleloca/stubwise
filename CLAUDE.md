@@ -423,6 +423,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Chat con Claude, fetta 5: conversazioni pubbliche e continuazione» (10 nov 2026)
   - «Riconferma dal desktop» (10 nov 2026)
   - «Integrazione area 4, fetta 1: la Chat fra persone» (10 nov 2026)
+  - «Integrazione area 4, fetta 2: DM, privati, generali, domande, ricerca» (10 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -533,12 +534,14 @@ una voce ti riguarda.
   - I codici R<n> sono un contatore per progetto, dato dal trigger, mai riusato.
   - La fusione sta in UN posto (`services/backlog-merge.ts`): l'AI fuori transazione, il resto atomico; se l'AI fallisce, niente scritto.
 - **Chat fra persone → `docs/invariants/chat.md`** (10 nov 2026, area 4):
-  - Chi vede, scrive e gestisce un canale lo decide `chat/access.ts`, in UN posto; un canale invisibile è 404.
+  - Chi vede, LEGGE e gestisce un canale lo decide `chat/access.ts`, in UN posto (`channelVisibleSql`, `channelReadableSql`); un canale invisibile è 404, un DM non esiste nemmeno per il full admin, chi gestisce un privato lo vede ma non lo legge.
   - Il «general» nasce col progetto da un TRIGGER (`projects_chat_general`), non dalla rotta, e se ne va col progetto.
   - Un messaggio eliminato non ha più testo (CHECK), e si modificano solo i propri.
   - Le menzioni le decide il server sui nomi di chi LEGGE il canale; `@channel` non avvisa.
   - La card `chat.mention` si DERIVA a lettura (`chatMentionsFor`); `objectGone` senza link.
   - Il cursore dello stream è intero in microsecondi, confrontato in SQL.
+  - Una domanda della Chat (`chat.question`) si chiude a lettura (risposta, dismiss, archivio, modifica) e non tocca il registro decisioni.
+  - Il codice di una task o richiesta nata da un messaggio si DERIVA a lettura col filtro di chi guarda.
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:
