@@ -25,6 +25,10 @@ export { search } from "./search";
 
 /** Amministrazione: solo Reparti (e le persone che la pagina legge) nella fetta 1. */
 export const admin: typeof Fake.admin = partialNamespace<typeof Fake.admin>("admin", adminDepartments);
+// Chat, fetta 3: le decisioni sulle proposte di Claude e «Undo» dei suoi gruppi.
+export { cancelProposal, confirmProposal } from "./claudeChatActions";
+import { claudeChatNamespace } from "./claudeChatActions";
+export const claude: typeof Fake.claude = partialNamespace<typeof Fake.claude>("claude", claudeChatNamespace);
 // Dell'istanza la chat legge solo il budget del mese (la casella si spegne con la sua frase).
 export { instance } from "./instanceChat";
 

@@ -143,7 +143,9 @@ const reasonsOf = (p: ProposalView): ClassReason[] =>
       ? [{ kind: "notifies", personIds: [...r.personIds], more: r.more }]
       : r.kind === "irreversible"
         ? [{ kind: "irreversible" }]
-        : [],
+        : r.kind === "starts_work"
+          ? [{ kind: "startsWork" }]
+          : [],
   );
 
 /** Il rifiuto del server nella forma del prototipo («Couldn't do it · Who?»). */
@@ -273,3 +275,68 @@ export function undoViewsOf(
   }
   return out;
 }
+
+// --- le decisioni della persona ----------------------------------------------------
+
+type Fake = typeof import("../../api");
+
+/**
+ * «Confirm» / «Confirm selected» di una scheda: la conferma la fa il SERVER
+ * (permessi, classe e scadenza ricontrollati in quel momento). Un rifiuto
+ * (409 `expired`, `conflict`, `refused` col motivo) diventa l'esito
+ * `failed` del prototipo; la C (riconferma) è la fetta 4.
+ */
+export const confirmProposal: Fake["confirmProposal"] = async (_conversationId, proposalId, options = {}) => {
+  try {
+    const view = await appClient().claude.proposals.confirm(
+      proposalId,
+      options.actionIndexes ? { selected: options.actionIndexes } : {},
+    );
+    return view.status === "confirmed"
+      ? { status: "confirmed", resultCodes: [], runConversationIds: [] }
+      : { status: "failed", error: view.status };
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "reauth_required") return { ok: false, error: "reauth_required" };
+    if (error instanceof ApiError && error.status === 409) return { status: "failed", error: error.code ?? "conflict" };
+    throw error;
+  }
+};
+
+/** «Cancel» della scheda: niente si esegue. */
+export const cancelProposal: Fake["cancelProposal"] = async (_conversationId, proposalId) => {
+  await appClient().claude.proposals.cancel(proposalId);
+};
+
+/**
+ * «Undo» di un gruppo: subito, o una scheda da confermare quando gli inversi
+ * avviserebbero qualcuno (la scheda arriva come evento della conversazione).
+ * I rifiuti nella forma del prototipo.
+ */
+async function undoClaudeActions(
+  _conversationId: string,
+  groupId: string,
+): ReturnType<Fake["claude"]["undoClaudeActions"]> {
+  try {
+    const out = await appClient().claude.groups.undo(groupId);
+    return out.kind === "needs_confirmation" && out.proposal ? { ok: true, proposalId: out.proposal.id } : { ok: true };
+  } catch (error) {
+    if (!(error instanceof ApiError)) throw error;
+    switch (error.code) {
+      case "changed_after":
+        return { ok: false, error: "changed_after", byName: null, code: null };
+      case "undone":
+      case "already_undone":
+        return { ok: false, error: "already_undone" };
+      case "not_undoable":
+        return { ok: false, error: "not_undoable" };
+      case "reauth_required":
+        return { ok: false, error: "reauth_required" };
+      default:
+        if (error.status === 404) return { ok: false, error: "not_found" };
+        throw error;
+    }
+  }
+}
+
+/** Il namespace `claude` della build app: solo «Undo» (il resto è del prototipo). */
+export const claudeChatNamespace = { undoClaudeActions };

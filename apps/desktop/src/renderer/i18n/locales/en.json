@@ -3488,7 +3488,8 @@
         "notifiesOthers": "it notifies people who follow this",
         "automation": "it starts an automation in {{code}}",
         "irreversible": "it can't be undone",
-        "reauth": "it asks for your code"
+        "reauth": "it asks for your code",
+        "startsWork": "it starts Claude's work, which can't be undone"
       },
       "remove": {
         "noCode": "Which task should I delete? Give me its code, like AUD-4.",
@@ -4076,7 +4077,8 @@
           "automation": "An automation in {{code}} starts",
           "irreversible": "Can't be undone",
           "reauth": "Asks for your two-step code",
-          "label": "What happens"
+          "label": "What happens",
+          "startsWork": "Starts Claude's work: it can't be undone"
         },
         "delete": "Delete",
         "needsCode": "This needs your two-step code first. Nothing was changed.",

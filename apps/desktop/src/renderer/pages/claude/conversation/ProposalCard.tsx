@@ -842,6 +842,14 @@ function ReasonRows({ reasons }: { reasons: readonly ClassReason[] }) {
             text: t("claude.conversation.proposal.reasons.reauth"),
           },
         ];
+      case "startsWork":
+        return [
+          {
+            kind: "startsWork",
+            glyph: <IrreversibleGlyph />,
+            text: t("claude.conversation.proposal.reasons.startsWork"),
+          },
+        ];
     }
   });
   if (rows.length === 0) return null;

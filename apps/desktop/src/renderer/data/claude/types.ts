@@ -109,7 +109,9 @@ export type ClassReason =
   /** `event` (Task 9): quando parte, per la riga della scheda («…when a task is created»). */
   | { kind: "automation"; projectId: string; event?: "task_created" | "task_closed" }
   | { kind: "irreversible" }
-  | { kind: "reauth" };
+  | { kind: "reauth" }
+  /** Build app (chat, fetta 3): l'azione avvia il lavoro di Claude, e quello non si annulla. */
+  | { kind: "startsWork" };
 
 /** La classe calcolata di un'azione, o di un gruppo, coi motivi. */
 export interface ActionClass {

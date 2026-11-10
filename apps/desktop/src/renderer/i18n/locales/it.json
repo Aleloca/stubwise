@@ -3488,7 +3488,8 @@
         "notifiesOthers": "avvisa chi segue queste attività",
         "automation": "fa partire un'automazione in {{code}}",
         "irreversible": "non si annulla",
-        "reauth": "chiede il tuo codice"
+        "reauth": "chiede il tuo codice",
+        "startsWork": "avvia il lavoro di Claude, che non si annulla"
       },
       "remove": {
         "noCode": "Quale task elimino? Dammi il codice, per esempio AUD-4.",
@@ -4076,7 +4077,8 @@
           "automation": "In {{code}} parte un'automazione",
           "irreversible": "Non si annulla",
           "reauth": "Chiede il codice della verifica in due passaggi",
-          "label": "Cosa succede"
+          "label": "Cosa succede",
+          "startsWork": "Avvia il lavoro di Claude: non si annulla"
         },
         "delete": "Elimina",
         "needsCode": "Prima serve il tuo codice della verifica in due passaggi. Non è cambiato nulla.",
