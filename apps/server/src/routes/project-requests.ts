@@ -168,6 +168,25 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
     async (request, reply) => {
       const { id } = request.params;
       const { title, description, urgency, size, risk, riskNote } = request.body;
+      // Cambiata la descrizione, l'embedding segue (titolo + descrizione, come
+      // l'intake: è ciò con cui il dedup confronta le richieste nuove). Si
+      // calcola FUORI transazione ed è fail-open: se cade, la descrizione si
+      // salva lo stesso e l'embedding resta quello di prima.
+      let embedding: number[] | undefined;
+      if (description !== undefined) {
+        const [current] = await app.db
+          .select({ title: backlogItems.title, status: backlogItems.status })
+          .from(backlogItems)
+          .where(eq(backlogItems.id, id));
+        if (current && current.status !== "converted" && current.status !== "archived") {
+          const text = `${title ?? current.title}\n\n${description}`;
+          try {
+            [embedding] = await app.embeddingClient.embed([text]);
+          } catch (error) {
+            request.log.warn({ err: error, itemId: id }, "embedding della descrizione non riuscito: resta quello di prima");
+          }
+        }
+      }
       // Una scrittura sola, sotto il lock della voce: lo stato si ricontrolla lì.
       const res = await updateRequestFields(
         app.db,
@@ -180,7 +199,7 @@ export async function projectRequestRoutes(fastify: FastifyInstance): Promise<vo
           ...(risk !== undefined ? { risk } : {}),
           ...(riskNote !== undefined ? { riskNote: riskNote ? riskNote : null } : {}),
         },
-        { readOnlyClosed: true },
+        { readOnlyClosed: true, ...(embedding ? { embedding } : {}) },
       );
       if (res === "not_found") return apiError(reply, 404, "not_found", "Request not found");
       if (res === "read_only") {

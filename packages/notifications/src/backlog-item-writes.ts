@@ -183,7 +183,11 @@ export async function updateRequestFields(
   db: DbOrTx,
   itemId: string,
   patch: RequestFieldsPatch,
-  opts: { readOnlyClosed?: boolean } = {},
+  opts: {
+    readOnlyClosed?: boolean;
+    /** L'embedding della descrizione nuova, calcolato dal chiamante FUORI transazione; scritto solo con `description`. */
+    embedding?: number[];
+  } = {},
 ): Promise<"ok" | "not_found" | "read_only"> {
   return inTx(db, async (tx) => {
     const item = await lockItem(tx, itemId);
@@ -192,7 +196,12 @@ export async function updateRequestFields(
     const touchesClosedFields = description !== undefined || SUGGESTED_FIELDS.some((f) => metadata[f] !== undefined);
     if (opts.readOnlyClosed && touchesClosedFields && READ_ONLY_STATUSES.includes(item.status)) return "read_only" as const;
     const extra: ItemUpdate =
-      description === undefined ? {} : item.originContent !== null ? { originContent: description } : { document: description };
+      description === undefined
+        ? {}
+        : {
+            ...(item.originContent !== null ? { originContent: description } : { document: description }),
+            ...(opts.embedding ? { embedding: opts.embedding } : {}),
+          };
     await applyMetadata(tx, item, metadata, { extra });
     return "ok" as const;
   });

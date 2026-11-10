@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { backlogItemRequesters, backlogItemTickets, backlogItems, backlogJobs, projects, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
+import type { EmbeddingClient } from "@stubwise/embeddings";
 import { seedRepository, startTestDb } from "@stubwise/db/testing";
 import { projectRequestSummarySchema, projectRequestViewSchema, requestJobViewSchema } from "@stubwise/shared";
 import { eq, inArray } from "drizzle-orm";
@@ -37,6 +38,17 @@ const fakeChatLlm: ChatLlm = {
   },
 };
 
+/** L'embedding della descrizione: registra i testi, e può cadere. */
+const embedded: string[] = [];
+let embedFails = false;
+const fakeEmbeddingClient: EmbeddingClient = {
+  async embed(inputs: string[]) {
+    if (embedFails) throw new Error("embedding giù");
+    embedded.push(...inputs);
+    return inputs.map(() => Array.from({ length: 1024 }, () => 0.5));
+  },
+};
+
 let testDb: TestDb;
 let app: FastifyInstance;
 let users: SeededUsers;
@@ -52,6 +64,7 @@ beforeAll(async () => {
     sessionSecret: SESSION_SECRET,
     encryptionKey: randomBytes(32).toString("base64"),
     chatLlm: fakeChatLlm,
+    embeddingClient: fakeEmbeddingClient,
   });
   users = await seedUsers(app);
   ({ projectId } = await seedRepository(testDb.db));
@@ -222,6 +235,28 @@ describe("metadati e stati", () => {
 });
 
 describe("descrizione e proposte dell'intake", () => {
+  it("cambiata la descrizione, l'embedding segue (titolo + descrizione, come l'intake); se l'embedding cade, la descrizione si salva lo stesso", async () => {
+    const a = await item({ title: "Esportare" });
+    embedded.length = 0;
+    expect((await call("PATCH", `/api/requests/${a.id}`, { description: "In CSV" })).statusCode).toBe(200);
+    expect(embedded).toEqual(["Esportare\n\nIn CSV"]);
+    const [row] = await testDb.db.select({ e: backlogItems.embedding }).from(backlogItems).where(eq(backlogItems.id, a.id));
+    expect(row!.e?.[0]).toBeCloseTo(0.5);
+    // Solo i metadati: nessun embedding.
+    embedded.length = 0;
+    expect((await call("PATCH", `/api/requests/${a.id}`, { urgency: "low" })).statusCode).toBe(200);
+    expect(embedded).toEqual([]);
+    // Fail-open.
+    embedFails = true;
+    try {
+      const res = await call("PATCH", `/api/requests/${a.id}`, { description: "In Excel" });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(projectRequestViewSchema.parse(res.json()).description).toBe("In Excel");
+    } finally {
+      embedFails = false;
+    }
+  });
+
   it("la descrizione si modifica (il corpo, o il testo originale se c'è un design); trasformata o archiviata → 409", async () => {
     const plain = await item({ document: "Prima" });
     const res = await call("PATCH", `/api/requests/${plain.id}`, { description: "Dopo" });
