@@ -97,3 +97,34 @@ describe("limitResetAt", () => {
     expect(limitResetAt("You've hit your session limit", now)).toBeNull();
   });
 });
+
+/**
+ * I testi del CLI 2.1.322 (10 nov 2026, letti dal binario: `You've hit your
+ * ${nome}${coda}`, coi nomi «5-hour limit», «weekly limit», «Opus limit»,
+ * «Sonnet limit», «Fable limit», «usage credit limit», il generico «limit», e
+ * lo spend/budget di org e team). «session limit» e «usage limit» della
+ * 2.1.287 non escono più: senza questi un limite vero faceva fallire il job
+ * invece del failover.
+ */
+describe("limiti dell'abbonamento (CLI 2.1.322)", () => {
+  it.each([
+    "You've hit your 5-hour limit · resets 3pm (UTC)",
+    "You've hit your weekly limit · resets Nov 14, 1:30pm (UTC)",
+    "You've hit your Opus limit · resets 3pm (UTC)",
+    "You've hit your Sonnet limit",
+    "You've hit your Fable limit · progress saved",
+    "You've hit your usage credit limit",
+    "You've hit your limit · resets 3pm (UTC)",
+    "You've hit your monthly spend limit.",
+    "You've hit your org's monthly spend limit · ask your admin to raise it",
+    "You've hit your team's shared budget. /model to switch models.",
+    "You’ve hit your 5-hour limit", // apostrofo tipografico
+  ])("riconosce «%s»", (text) => {
+    expect(isLimitError(result(text, 1))).toBe(true);
+  });
+
+  it("non scatta su un testo che parla di limiti senza esserne uno", () => {
+    expect(isLimitError(result("Ho aggiunto un controllo sul limite di 5 elementi del carrello", 1))).toBe(false);
+    expect(isLimitError(result("The test checks that you hit your target coverage", 1))).toBe(false);
+  });
+});

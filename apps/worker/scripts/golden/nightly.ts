@@ -4,7 +4,7 @@
  * rollout del giro notturno, e ogni volta che si aggiorna il CLI pinnato o si
  * cambiano i prompt e le allowlist di `src/nightly/`.
  *
- *   pnpm --filter @stubwise/worker golden:nightly -- --claude <path del CLI 2.1.287>
+ *   pnpm --filter @stubwise/worker golden:nightly -- --claude <path del CLI pinnato>
  *
  * Entry SEPARATA da `run.ts`: quello richiede `--plugin` e non ha database,
  * il giro notturno vuole Postgres (la sua coda È il database). Qui lo script
