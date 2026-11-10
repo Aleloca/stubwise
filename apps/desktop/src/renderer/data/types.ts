@@ -77,7 +77,6 @@ export type LocalProjectPermission =
  * quando si costruisce il backend.
  */
 export type LocalInstancePermission =
-  | "claude.public.view"
   | "chat.general.create"
   | "chat.general.manage"
   | "automations.manage"
