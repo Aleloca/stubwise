@@ -5709,6 +5709,7 @@
       "error": "Couldn't read the content",
       "noSummary": "No summary for this file",
       "ocr": "Text read from a scan",
+      "ocrPartial": "Text read from a scan, first 30 pages only",
       "retry": "Retry"
     },
     "unavailable": {
@@ -5982,6 +5983,7 @@
       "sorted": "Sorted by relevance",
       "matchedName": "Matched the name",
       "scan": "from a scan",
+      "scanPartial": "from a scan, first 30 pages only",
       "reading": "Reading the content… found by name",
       "unavailable": "Not available · found by name",
       "labelSummary": "Summary: {{summary}}",
@@ -12209,6 +12211,7 @@
       "release_notes": "Release notes",
       "docs_nightly": "Nightly Docs",
       "docs_generation": "Docs generation",
+      "drive_summary": "Drive file summaries",
       "daily_report": "Daily report",
       "weekly_brief": "Weekly brief",
       "mail_classify": "Mail classification",

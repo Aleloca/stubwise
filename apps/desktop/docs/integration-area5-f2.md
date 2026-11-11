@@ -16,7 +16,7 @@ progetto e la feature `drive` (`data/integration.ts`). Google resta spento
 |---|---|---|
 | `listDriveFiles` (progetto o tutti i progetti, tipo, chi l'ha aggiunto, ordinamento) | `client.drive.list`/`listAll`; 403/404 è un elenco vuoto; `projectCode` dai progetti se un server più vecchio non lo dà; nascosti e fonte Google: vuoto, senza chiamate | `real/drive.test.ts` |
 | `getDriveFile` (per id o per codice `?file=AUD-F3`), aperture totali e storico con `drive.history` | `client.drive.resolveCode` poi `get`; non visibile è `null`; un riferimento che non è né id né codice non chiama | idem |
-| `searchDrive` | `list`/`listAll` con `q` (nome e codice), da 2 caratteri; nessun passaggio (`passage: null`) e nessun file fuori dai progetti | idem |
+| `searchDrive` | `list`/`listAll` con `q` (nome, codice e, dalla F3, contenuto), da 2 caratteri; il passaggio è lo `snippet` del server (testo puro, null se ha corrisposto il nome); nessun file fuori dai progetti | idem |
 | `uploadFiles` con l'avanzamento | desktop: `files.register` (il main apre il file una volta con `O_NOFOLLOW`, `O_NONBLOCK` e `fstat`, dà un token monouso che scade; una pulizia periodica chiude i descrittori scaduti, e un ricaricamento o un renderer caduto li chiude subito) e `api.upload` (streaming dal descrittore a `pull()`, un pezzo da 64 KiB alla volta secondo la backpressure, avanzamento sui byte consegnati; Content-Length esatta, bearer; un `uploadId` mancante, non valido o già in corso è rifiutato, oltre 3 attivi per finestra `busy`); web: XHR col FormData e il cookie. Oltre 100 MB `too_large` senza partire; `storage_not_configured` è `invalid: storage_off`; annullato `canceled` | `real/drive.test.ts`, `src/main/apiUpload.test.ts` |
 | La riga in caricamento (barra, «Cancel») | barra vera; «Cancel» (quello al passaggio del mouse sulla riga, già nel prototipo: nessun bottone nuovo), anche mentre il main apre il file, e lo smontaggio della pagina (cambio di persona compreso) annullano il caricamento | `pages/drive/UploadZone.test.tsx` |
 | `deleteDriveFile` | `client.drive.remove`; 403 `forbidden`, 404 `not_found` | `real/drive.test.ts` |
@@ -38,9 +38,24 @@ progetto e la feature `drive` (`data/integration.ts`). Google resta spento
   Look del prototipo (né ←/→ fra i file), né la miniatura nel dettaglio.
 - **`counted`** di `recordOpen` non si sa (lo decide il server): vero se il file
   si è aperto, falso per un salvataggio annullato.
-- **Contenuto** (F3): nessun testo estratto, riassunto, OCR, «Reading the
-  content…» né «Riprova»; la riga dice «nessun riassunto». La ricerca è per
-  nome e codice, senza passaggio.
+- **Contenuto** (F3, `data/backend/real/drive.ts`): lo stato viene dal server
+  (`pending` e `processing` sono «Reading the content…», e la lista si
+  rilegge ogni 3 s invece di 1 s, decisione dell'orchestratrice; uno stato
+  ignoto è «no text»; un server senza la F3, che non manda lo stato, è
+  «pronto» senza riassunto come prima). Il riassunto: nell'elenco la prima
+  frase (`summaryLine`), nel dettaglio intero. La ricerca trova anche per
+  contenuto, col passaggio del server (testo puro) evidenziato dal renderer.
+  Test: `real/drive.test.ts`, `data/queries.test.tsx`.
+- **Motivo del «no text»** (decisione A(a)): non si mostra, come nel
+  prototipo; nel registro.
+- **OCR solo sulle prime 30 pagine** (decisione B(b), differenza VOLUTA,
+  l'unica oltre il prototipo): con `contentOcr = partial` la nota del
+  dettaglio e del risultato di ricerca aggiunge «first 30 pages only» / «solo
+  le prime 30 pagine», perché chi cerca non creda cercabile tutto il
+  documento. Test: `pages/drive/Drive.test.tsx`, `DriveSearch.test.tsx`.
+- **«Retry»** (decisione C(a)): solo su `error`, come nel prototipo, anche se
+  il server lo permette su `no_text`; nel registro. Fino alla rotta di retry
+  (F3.4) non si offre affatto.
 - **Google** (area 6): spento per intero, compresi i file fuori dai progetti
   nella ricerca e «Apri in Google Drive».
 - **`modifiedAt`** è la data di caricamento; un file di una persona eliminata

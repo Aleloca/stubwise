@@ -136,6 +136,100 @@ describe("il Drive nella build app: le letture", () => {
   });
 });
 
+describe("il Drive nella build app: il contenuto (F3)", () => {
+  it("lo stato del contenuto: in coda o in lettura è «processing»; uno ignoto è «no_text»; un server senza la F3 è «ready»", async () => {
+    const cases = [
+      ["pending", "processing"],
+      ["processing", "processing"],
+      ["ready", "ready"],
+      ["no_text", "no_text"],
+      ["unsupported", "unsupported"],
+      ["error", "error"],
+      ["indexing_v2", "no_text"],
+      [undefined, "ready"],
+    ] as const;
+    const id = (i: number) => `0000000${i}-0000-4000-8000-000000000000`;
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      [`GET /api/projects/${PROJECT_ID}/drive/files`]: {
+        body: {
+          items: cases.map(([status], i) =>
+            serverRow({ id: id(i), code: `AUD-F${i + 1}`, ...(status ? { contentStatus: status } : {}) }),
+          ),
+        },
+      },
+    });
+    const rows = await drive.listDriveFiles({ projectId: PROJECT_ID, sort: "recent" });
+    expect(rows.map((r) => r.content)).toEqual(cases.map(([, content]) => content));
+  });
+
+  it("«Retry» non si offre finché la rotta di retry non c'è (F3.4), anche se il server lo permetterebbe", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      [`GET /api/projects/${PROJECT_ID}/drive/files`]: {
+        body: { items: [serverRow({ contentStatus: "error", permissions: { delete: true, remove: false, hide: false, retry: true } })] },
+      },
+    });
+    const [row] = await drive.listDriveFiles({ projectId: PROJECT_ID, sort: "recent" });
+    expect(row).toMatchObject({ content: "error", permissions: { delete: true, retry: false } });
+  });
+
+  it("il riassunto: nell'elenco la prima frase, nel dettaglio intero; l'OCR, e se è solo sulle prime pagine", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      [`GET /api/projects/${PROJECT_ID}/drive/files`]: {
+        body: {
+          items: [
+            serverRow({ contentStatus: "ready", contentOcr: "partial", summaryLine: "Il contratto di Audin." }),
+            serverRow({ id: "22222222-2222-4222-8222-222222222222", code: "AUD-F4", contentStatus: "ready", contentOcr: "full" }),
+            serverRow({ id: "33333333-3333-4333-8333-333333333333", code: "AUD-F5", contentStatus: "ready", contentOcr: "none" }),
+          ],
+        },
+      },
+      [`GET /api/drive/files/${FILE_ID}`]: {
+        body: {
+          ...serverRow({ contentStatus: "ready", contentOcr: "partial", summaryLine: "Il contratto di Audin." }),
+          summary: "Il contratto di Audin. Rinnovo annuale, disdetta a 60 giorni.",
+          opensTotal: 9,
+          history: null,
+        },
+      },
+    });
+    const rows = await drive.listDriveFiles({ projectId: PROJECT_ID, sort: "recent" });
+    expect(rows.map((r) => [r.code, r.content, r.ocr, r.ocrPartial ?? false, r.summaryLine])).toEqual([
+      ["AUD-F3", "ready", true, true, "Il contratto di Audin."],
+      ["AUD-F4", "ready", true, false, null],
+      ["AUD-F5", "ready", false, false, null],
+    ]);
+    const detail = await drive.getDriveFile(FILE_ID);
+    expect(detail).toMatchObject({
+      summary: "Il contratto di Audin. Rinnovo annuale, disdetta a 60 giorni.",
+      summaryLine: "Il contratto di Audin.",
+      ocr: true,
+      ocrPartial: true,
+    });
+  });
+
+  it("la ricerca per contenuto porta il passaggio (testo puro, dal server); per nome o codice nessuno", async () => {
+    installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      [`GET /api/projects/${PROJECT_ID}/drive/files`]: {
+        body: {
+          items: [
+            serverRow({ contentStatus: "ready", snippet: "…la disdetta va inviata 60 giorni prima…" }),
+            serverRow({ id: "22222222-2222-4222-8222-222222222222", code: "AUD-F4", contentStatus: "ready", snippet: null }),
+          ],
+        },
+      },
+    });
+    const result = await drive.searchDrive("disdetta", { projectId: PROJECT_ID });
+    expect(result.files.map((h) => [h.file.code, h.passage])).toEqual([
+      ["AUD-F3", "…la disdetta va inviata 60 giorni prima…"],
+      ["AUD-F4", null],
+    ]);
+  });
+});
+
 describe("il Drive nella build app: eliminare e aprire", () => {
   it("eliminare: DELETE; un file non proprio è forbidden, uno sparito not_found", async () => {
     const { seen } = installFakeServer({ [`DELETE /api/drive/files/${FILE_ID}`]: { status: 204 } });

@@ -378,6 +378,8 @@ describe("modelli per operazione", () => {
     expect(instance.modelFor("mail_classify")).toEqual({ model: "haiku", source: "env" });
     expect(instance.modelFor("triage")).toEqual({ model: "sonnet", source: "default" });
     expect(instance.modelFor("daily_report")).toEqual({ model: "haiku", source: "default" });
+    // I riassunti dei file del Drive (F3 dell'area 5): Haiku, come il default di codice del server.
+    expect(instance.modelFor("drive_summary")).toEqual({ model: "haiku", source: "default" });
   });
 
   it("setModel(op, null) torna alla fonte di prima", async () => {
@@ -403,8 +405,10 @@ describe("modelli per operazione", () => {
   it("listModels: solo le operazioni configurabili, con gruppo e fonte", async () => {
     const rows = await instance.listModels();
     expect(rows.map((r) => r.operation)).not.toContain("plugin_smoke");
-    // 17 con `claude_chat` (la conversazione libera con Claude, chat fetta 1).
-    expect(rows).toHaveLength(17);
+    // 17 con `claude_chat` (la conversazione libera con Claude, chat fetta 1); 18 con
+    // `drive_summary` (i riassunti dei file del Drive, F3 dell'area 5, gruppo docs).
+    expect(rows).toHaveLength(18);
+    expect(rows.find((r) => r.operation === "drive_summary")).toMatchObject({ group: "docs", model: "haiku", source: "default" });
     expect(rows.find((r) => r.operation === "claude_chat")).toMatchObject({ operation: "claude_chat" });
     expect(rows.find((r) => r.operation === "fix_plan")).toEqual({
       operation: "fix_plan",

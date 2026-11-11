@@ -608,7 +608,9 @@ function ContentSummary({ file, onRetry }: { file: DriveFileDetail; onRetry?: ()
         <p className="text-sm text-ink-faint">{t("drive.content.noSummary")}</p>
       )}
       {file.summary && <p className="text-xs text-ink-faint">{t("drive.detail.summaryNote")}</p>}
-      {file.ocr && <p className="text-xs text-ink-muted">{t("drive.content.ocr")}</p>}
+      {file.ocr && (
+        <p className="text-xs text-ink-muted">{t(file.ocrPartial ? "drive.content.ocrPartial" : "drive.content.ocr")}</p>
+      )}
     </div>
   );
 }
