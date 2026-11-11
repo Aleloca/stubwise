@@ -115,7 +115,6 @@ const RESULTS: Omit<SearchResults, "mail"> = {
         repositoryId: REPO_ID,
         repositorySlug: "web",
         repositoryName: "Web",
-        code: null,
       },
     ],
     hasMore: false,

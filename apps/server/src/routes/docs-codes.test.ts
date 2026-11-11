@@ -80,11 +80,15 @@ describe("i codici delle pagine nelle letture", () => {
     expect(forOutsider.docs.items).toEqual([]);
   });
 
-  it("le note di rilascio non hanno codice e non stanno nel gruppo docs della ricerca globale (il selettore «#» e ⌘K): nel prototipo non sono pagine", async () => {
+  it("con `citable=true` (il «#» e ⌘K del desktop) il gruppo docs della ricerca globale non ha le note di rilascio, che non hanno codice; senza, le ha come prima (il web)", async () => {
     await t.db.insert(docPages).values({ repositoryId, kind: "releases", slug: "release-20261111-0900-zib", title: "Release", body: "Novità zibaldone della notte" });
-    const global = (await as(lead, "GET", `/api/search?q=zibaldone`)).json() as { docs: { items: { slug: string }[] } };
-    expect(global.docs.items.length).toBeGreaterThan(0);
-    expect(global.docs.items.some((r) => r.slug.startsWith("release-"))).toBe(false);
+    type G = { docs: { items: { slug: string }[] } };
+    const citable = (await as(lead, "GET", `/api/search?q=zibaldone&citable=true`)).json() as G;
+    expect(citable.docs.items.length).toBeGreaterThan(0);
+    expect(citable.docs.items.some((r) => r.slug.startsWith("release-"))).toBe(false);
+    const web = (await as(lead, "GET", `/api/search?q=zibaldone`)).json() as G;
+    expect(web.docs.items.some((r) => r.slug.startsWith("release-"))).toBe(true);
+    expect((await as(lead, "GET", `/api/search?q=zibaldone&citable=false`)).json()).toMatchObject({ docs: { items: expect.arrayContaining([expect.objectContaining({ slug: "release-20261111-0900-zib" })]) } });
   });
 });
 
