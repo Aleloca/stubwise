@@ -1,6 +1,7 @@
 import { ApiError } from "@stubwise/api-client";
 import type * as Fake from "../../api";
 import { appClient } from "./client";
+import { downloadByPath } from "./download";
 import { reread } from "./tasks";
 
 // Gli allegati della build app (integrazione area 2, fetta 1): le rotte e i
@@ -40,3 +41,11 @@ export const removeAttachment: typeof Fake.removeAttachment = async (id, attachm
   }
   return reread(id);
 };
+
+/**
+ * Il download di un allegato della task (voce Trasversali del registro): la
+ * rotta di oggi (`GET /api/attachments/:id/download`, 302 verso l'URL firmato),
+ * dal main sul desktop e con un link sul web.
+ */
+export const downloadTaskAttachment: typeof Fake.downloadTaskAttachment = async (attachmentId) =>
+  downloadByPath(`/api/attachments/${encodeURIComponent(attachmentId)}/download`);

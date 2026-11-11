@@ -1,4 +1,4 @@
-import type { ChatDownloadResult } from "../../types";
+import type { AttachmentDownloadResult } from "../../types";
 
 /** Quanto resta l'iframe nascosto del download sul web: il browser ha già preso il file. */
 const FRAME_LIFETIME_MS = 60_000;
@@ -12,7 +12,7 @@ const FRAME_LIFETIME_MS = 60_000;
  * SPA su un JSON grezzo, e le bozze andrebbero perse). Il cookie di sessione
  * basta; il file arriva con `Content-Disposition: attachment`.
  */
-export async function downloadByPath(path: string): Promise<ChatDownloadResult> {
+export async function downloadByPath(path: string): Promise<AttachmentDownloadResult> {
   const main = window.stubwise?.api?.download;
   if (main) return main(path);
   let res: Response;

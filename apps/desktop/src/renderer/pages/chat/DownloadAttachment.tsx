@@ -1,9 +1,10 @@
 import { useTranslation } from "react-i18next";
-import { useDownloadChatAttachment } from "../../data/queries";
+import { useDownloadAttachment } from "../../data/queries";
 import type { Attachment } from "../../data/types";
 import { useToast } from "../../tasks-ui/Toast";
 
-// «Download» sull'allegato di un messaggio (area 4, fetta 4, build app). Sul
+// «Download» sull'allegato di un messaggio (area 4, fetta 4, build app) o di
+// una task (voce Trasversali del registro). Sul
 // desktop lo scarica il main e chiede dove salvarlo; sul web un link, col
 // cookie. Annullare la finestra «Salva» non è un errore; un allegato che non si
 // vede più (eliminato, canale lasciato) lo dice.
@@ -14,10 +15,19 @@ const DownloadGlyph = () => (
   </svg>
 );
 
-export function DownloadAttachmentButton({ attachment }: { attachment: Attachment }) {
+/** `of`: l'allegato di un messaggio della Chat o di una task (le rotte sono diverse). */
+export function DownloadAttachmentButton({
+  attachment,
+  of = "chat",
+  className,
+}: {
+  attachment: Attachment;
+  of?: "chat" | "task";
+  className?: string;
+}) {
   const { t } = useTranslation();
   const toast = useToast();
-  const download = useDownloadChatAttachment();
+  const download = useDownloadAttachment(of);
   const name = attachment.name;
   return (
     <button
@@ -38,7 +48,10 @@ export function DownloadAttachmentButton({ attachment }: { attachment: Attachmen
           onError: () => toast.error(t("chat.attachments.downloadFailed", { name })),
         })
       }
-      className="grid size-7 shrink-0 place-items-center rounded-md text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink disabled:opacity-40"
+      className={
+        className ??
+        "grid size-7 shrink-0 place-items-center rounded-md text-ink-muted transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink disabled:opacity-40"
+      }
     >
       <DownloadGlyph />
     </button>

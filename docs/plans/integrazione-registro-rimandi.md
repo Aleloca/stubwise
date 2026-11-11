@@ -246,9 +246,6 @@ Fetta 4: renderer (sotto, «Chiuse»).
 - **Ritiro del web vecchio** e passaggio di `/app` alla radice (decisione aperta
   del design della fetta 1); con il ritiro: togliere `tickets.status` enum,
   `saved_views`, `/api/projects/pulse` se nessuno lo legge più.
-- «Download» sugli allegati dei ticket nel pannello della task *(S, 11 nov
-  2026)*: il main lo accetta già (`api:download`, `/api/attachments/<uuid>/download`),
-  manca il bottone e la funzione del livello dati.
 - `downloadUrl` nelle liste degli allegati dei ticket *(S, 11 nov 2026, review
   della fetta 4)*: `GET /api/tickets/:id/attachments` dà già l'URL firmato, che
   così arriva al renderer. Da togliere quando i ticket scaricano solo da
@@ -293,8 +290,9 @@ Fetta 4: renderer (sotto, «Chiuse»).
   presigned non passava dal proxy. Ora `api:download` del main
   (`apps/desktop/src/main/apiDownload.ts`) vale per gli allegati della Chat e
   dei ticket: bearer solo verso l'istanza, Location https (http solo su
-  un'istanza http), «Salva» sempre chiesto, mai aperto. Per i ticket resta
-  aperto il solo bottone (Trasversali).
+  un'istanza http), «Salva» sempre chiesto, mai aperto. Il bottone
+  «Download» sugli allegati della task c'è (`downloadTaskAttachment`,
+  `pages/task/LinksSection.tsx`, test in `real/taskPanel.test.tsx`).
 
 - **Area 4, fetta 3: @Claude nei canali, server e worker** *(M/O, 10 nov
   2026)*: la chiamata e la sessione privata di chi chiama (D5), il contesto
