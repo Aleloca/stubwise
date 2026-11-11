@@ -94,6 +94,16 @@ describe("resolveDownload", () => {
     expect(await resolveDownload({ path }, offline)).toEqual({ ok: false, reason: "failed" });
   });
 
+  it("solo un 302: un altro reindirizzamento non si segue", async () => {
+    const path = `/api/chat/attachments/${ID}/download`;
+    for (const status of [301, 303, 307, 308]) {
+      expect(await resolveDownload({ path }, deps({ fetch: vi.fn(async () => redirect(SIGNED, status)) })), String(status)).toEqual({
+        ok: false,
+        reason: "failed",
+      });
+    }
+  });
+
   it("un 401 di sessione chiude la sessione, col token con cui è partito", async () => {
     const d = deps({
       fetch: vi.fn(async () => new Response(JSON.stringify({ code: "unauthorized" }), { status: 401, headers: { "content-type": "application/json" } })),

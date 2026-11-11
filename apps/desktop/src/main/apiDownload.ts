@@ -75,7 +75,8 @@ export async function resolveDownload(raw: unknown, deps: ApiProxyDeps): Promise
   }
   if (res.status === 404 || res.status === 403) return { ok: false, reason: "not_found" };
   const location = res.headers.get("location");
-  if (![301, 302, 303, 307, 308].includes(res.status) || !location) return { ok: false, reason: "failed" };
+  // Solo un 302, come la rotta (un altro reindirizzamento non è il download firmato).
+  if (res.status !== 302 || !location) return { ok: false, reason: "failed" };
   let url: string;
   try {
     url = new URL(location, base).href;
