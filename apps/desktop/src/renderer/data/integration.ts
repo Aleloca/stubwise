@@ -100,6 +100,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "chat-from-message",
     // Fetta 3: @Claude nei canali.
     "chat-claude",
+    // Fetta 4: gli eventi dei progetti nei canali e gli allegati.
+    "chat-events",
+    "chat-attachments",
   ]),
 };
 
@@ -109,10 +112,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
  * messaggi, thread, reazioni, letti, menzioni); dalla fetta 2 anche
  * `chat-dm`, `chat-private`, `chat-general`, `chat-search`,
  * `chat-questions`, `chat-also-in-channel` e `chat-from-message`; dalla
- * fetta 3 `chat-claude` (@Claude nei canali). Restano SPENTI, con la fetta
- * che li accende (anche nel registro dei rimandi):
- * - fetta 4: `chat-events` (gli eventi dei progetti nei canali),
- *   `chat-attachments` (gli allegati).
+ * fetta 3 `chat-claude` (@Claude nei canali); dalla fetta 4 `chat-events`
+ * (gli eventi dei progetti nei canali) e `chat-attachments` (gli allegati).
+ * Sono tutti accesi: l'elenco resta per i test che li spengono uno per uno.
  */
 export const CHAT_LATER_FEATURES = [
   "chat-dm",

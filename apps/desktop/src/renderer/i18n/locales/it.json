@@ -5313,6 +5313,18 @@
       "saved": "Salvato nel Drive di {{project}} come {{code}}",
       "tooLarge": "{{name}} supera i 100 MB, quindi non può andare nel Drive.",
       "failed": "Non è stato possibile salvare nel Drive. Riprova."
+    },
+    "attachments": {
+      "typeNotAllowed": "{{name}} non si può allegare: questo tipo di file non è ammesso.",
+      "download": "Scarica {{name}}",
+      "downloadFailed": "Non è stato possibile scaricare {{name}}.",
+      "downloadGone": "{{name}} non è più disponibile.",
+      "notSent": {
+        "type": "un file di questo tipo non è ammesso",
+        "size": "un file è troppo grande (fino a 25 MB)",
+        "off": "gli allegati sono spenti su questa istanza",
+        "gone": "un allegato è scaduto: allegalo di nuovo"
+      }
     }
   },
   "docs": {

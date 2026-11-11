@@ -127,12 +127,12 @@ describe("la Chat nella build app", () => {
     expect(screen.queryByText("Coming soon")).toBeNull();
   });
 
-  it("un canale: la casella manda il testo e la domanda («Ask for a reply»), senza allegati (fetta 4)", async () => {
+  it("un canale: la casella manda il testo e la domanda («Ask for a reply»); gli allegati ci sono (fetta 4)", async () => {
     install();
     const ue = userEvent.setup();
     renderRoute(`/chat/${CH}`);
     expect(await screen.findByText("The new layout is up.")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Attach files" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
     await ue.click(screen.getByRole("button", { name: "Message options" }));
     await ue.click(await screen.findByText("Ask for a reply"));
     const box = await screen.findByRole("combobox", { name: /^Message/ });
@@ -361,14 +361,6 @@ describe("la Chat nella build app", () => {
     handlers[1]!.onFrame({ messages: [], cursor: "7", real: true });
     // Tutte e due le pagine lette, non solo la più nuova.
     await waitFor(() => expect(pages().slice(before)).toEqual([null, "cur1"]), { timeout: 3000 });
-  });
-
-  it("la ricerca non offre «With attachments» finché gli allegati non ci sono (fetta 4)", async () => {
-    install({ "GET /api/chat/search": { body: { items: [] } } });
-    renderRoute("/chat?view=search&q=export");
-    const filters = await screen.findByRole("group", { name: "Search filters" }, { timeout: 3000 });
-    expect(within(filters).getAllByText("With citations").length).toBeGreaterThan(0);
-    expect(within(filters).queryByText("With attachments")).toBeNull();
   });
 
   it("una risposta nel thread «anche nel canale» (fetta 2)", async () => {
