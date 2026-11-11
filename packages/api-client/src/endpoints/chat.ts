@@ -1,6 +1,7 @@
 import {
   chatChannelListSchema,
   chatChannelSchema,
+  chatClaudeQuestionListSchema,
   chatMentionListSchema,
   chatMessagePageSchema,
   chatMessageSchema,
@@ -124,6 +125,29 @@ export function createChatEndpoints(request: ApiRequest) {
     /** Apre il DM con queste persone (2–8 con chi apre): quello che c'è già, o uno nuovo. 400 `invalid_members`. */
     openDm(personIds: string[]) {
       return request("POST", "/api/chat/dm", { personIds }, chatChannelSchema);
+    },
+    /**
+     * @Claude nei thread (fetta 3): solo chi l'ha chiamato ferma, rifà e
+     * risponde alla sua domanda (403 `not_yours`, 409 `invalid_status`,
+     * `already_answered`, `deleted`). Le proposte si decidono con le rotte di
+     * sempre (`claude.proposals.confirm|cancel`): in un canale archiviato o per
+     * chi non è più membro rispondono 404.
+     */
+    claude: {
+      stop(messageId: string) {
+        return request("POST", `/api/chat/messages/${seg(messageId)}/claude/stop`, undefined, chatMessageSchema);
+      },
+      /** «Try again» di una risposta fallita: la risposta NUOVA, in fondo al thread. */
+      retry(messageId: string) {
+        return request("POST", `/api/chat/messages/${seg(messageId)}/claude/retry`, undefined, chatMessageSchema);
+      },
+      answer(messageId: string, body: { questionId: string; optionIndex: number | null; text: string | null }) {
+        return request("POST", `/api/chat/messages/${seg(messageId)}/claude/answer`, body, chatMessageSchema);
+      },
+      /** Le domande di @Claude a chi guarda, aperte («Da decidere»). */
+      questions() {
+        return request("GET", "/api/chat/claude-questions", undefined, chatClaudeQuestionListSchema);
+      },
     },
     /** Le domande rivolte a chi guarda, aperte («Da decidere»). */
     questions() {

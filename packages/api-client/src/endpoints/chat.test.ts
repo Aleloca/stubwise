@@ -109,4 +109,26 @@ describe("endpoints chat", () => {
     expect(await gone.c.chat.channels.leave(CH)).toBeNull();
     expect(await gone.c.chat.channels.removeMember(CH, PERSON)).toBeNull();
   });
+  it("@Claude (fetta 3): fermare, rifare, rispondere, le domande; un messaggio vecchio senza `claude`", async () => {
+    const reply = client({ ...message, kind: "claude", claude: { state: "working", proposals: [{ id: MSG, summary: "x", status: "open" }] } });
+    const stopped = await reply.c.chat.claude.stop(MSG);
+    expect(last(reply.fetchImpl)).toMatchObject({ url: `/api/chat/messages/${MSG}/claude/stop`, method: "POST" });
+    // I default della vista: chi non ha chiamato non decide e non vede la sessione.
+    expect(stopped.claude).toMatchObject({ error: null, retried: false, sessionId: null, question: null, canStop: false, canRetry: false });
+    expect(stopped.claude!.proposals[0]).toMatchObject({ cls: "B", actions: [], resultCodes: [], canConfirm: false, canCancel: false });
+    const retried = client({ ...message, kind: "claude" }, 201);
+    await retried.c.chat.claude.retry(MSG);
+    expect(last(retried.fetchImpl)).toMatchObject({ url: `/api/chat/messages/${MSG}/claude/retry`, method: "POST" });
+    await reply.c.chat.claude.answer(MSG, { questionId: CH, optionIndex: 1, text: null });
+    expect(last(reply.fetchImpl)).toEqual({
+      url: `/api/chat/messages/${MSG}/claude/answer`,
+      method: "POST",
+      body: { questionId: CH, optionIndex: 1, text: null },
+    });
+    const list = client({ items: [] });
+    await list.c.chat.claude.questions();
+    expect(last(list.fetchImpl).url).toBe("/api/chat/claude-questions");
+    const old = client(message);
+    expect(await old.c.chat.messages.get(MSG)).toMatchObject({ claude: null, claudeReplying: false, calledById: null });
+  });
 });
