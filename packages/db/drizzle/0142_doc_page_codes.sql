@@ -25,30 +25,46 @@ CREATE UNIQUE INDEX "doc_page_codes_project_number_idx" ON "doc_page_codes" USIN
 --> statement-breakpoint
 CREATE UNIQUE INDEX "doc_page_codes_repository_slug_idx" ON "doc_page_codes" USING btree ("repository_id", "slug");
 --> statement-breakpoint
--- Il codice di una pagina NUOVA, nella transazione che la scrive: un trigger
--- copre ogni scrittore (generazione completa, giro notturno, pagine manuali).
--- Il numero dopo l'ultimo del progetto, sotto un lock per progetto: due
--- generazioni dello stesso progetto in parallelo si mettono in fila qui.
-CREATE FUNCTION "stubwise_doc_page_code"() RETURNS trigger LANGUAGE plpgsql AS $$
+-- Il codice di (repository, slug) che non ce l'ha: il numero dopo l'ultimo del
+-- progetto, sotto un lock per progetto (due scrittori dello stesso progetto si
+-- mettono in fila qui). Il lock vale fino alla fine della transazione che
+-- chiama: per questo gli scrittori LUNGHI (generazione completa, giro notturno,
+-- embedding compresi) la chiamano PRIMA, in una transazione breve e sua
+-- (`ensureDocPageCodes` di `@stubwise/db`), e nella loro il trigger trova i
+-- codici e non prende il lock. Senza, una pagina manuale nuova dello stesso
+-- progetto resterebbe in fila per minuti (review della fetta 1).
+CREATE FUNCTION "stubwise_ensure_doc_page_codes"(repository uuid, slugs text[]) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
 	project uuid;
+	missing text[];
+BEGIN
+	SELECT coalesce(array_agg(s ORDER BY ord), '{}') INTO missing
+	FROM (SELECT DISTINCT ON (s) s, ord FROM unnest(slugs) WITH ORDINALITY AS u(s, ord) ORDER BY s, ord) d
+	WHERE NOT EXISTS (SELECT 1 FROM "doc_page_codes" c WHERE c."repository_id" = repository AND c."slug" = d.s);
+	IF cardinality(missing) = 0 THEN
+		RETURN;
+	END IF;
+	SELECT "project_id" INTO project FROM "repositories" WHERE "id" = repository;
+	PERFORM pg_advisory_xact_lock(hashtext('stubwise-doc-code:' || project::text));
+	INSERT INTO "doc_page_codes" ("project_id", "number", "repository_id", "slug")
+	SELECT project,
+		coalesce((SELECT max("number") FROM "doc_page_codes" WHERE "project_id" = project), 0) + row_number() OVER (ORDER BY m.ord),
+		repository,
+		m.s
+	FROM unnest(missing) WITH ORDINALITY AS m(s, ord)
+	WHERE NOT EXISTS (SELECT 1 FROM "doc_page_codes" c WHERE c."repository_id" = repository AND c."slug" = m.s)
+	ON CONFLICT ("repository_id", "slug") DO NOTHING;
+END;
+$$;
+--> statement-breakpoint
+-- Il trigger copre ogni scrittore (pagine manuali comprese): una pagina nuova
+-- che non sia una nota di rilascio prende il suo codice, se non ce l'ha già.
+CREATE FUNCTION "stubwise_doc_page_code"() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
 	IF NEW."kind" = 'releases' THEN
 		RETURN NULL;
 	END IF;
-	IF EXISTS (SELECT 1 FROM "doc_page_codes" WHERE "repository_id" = NEW."repository_id" AND "slug" = NEW."slug") THEN
-		RETURN NULL;
-	END IF;
-	SELECT "project_id" INTO project FROM "repositories" WHERE "id" = NEW."repository_id";
-	PERFORM pg_advisory_xact_lock(hashtext('stubwise-doc-code:' || project::text));
-	INSERT INTO "doc_page_codes" ("project_id", "number", "repository_id", "slug")
-	VALUES (
-		project,
-		coalesce((SELECT max("number") FROM "doc_page_codes" WHERE "project_id" = project), 0) + 1,
-		NEW."repository_id",
-		NEW."slug"
-	)
-	ON CONFLICT ("repository_id", "slug") DO NOTHING;
+	PERFORM "stubwise_ensure_doc_page_codes"(NEW."repository_id", ARRAY[NEW."slug"]);
 	RETURN NULL;
 END;
 $$;
