@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { DRIVE_FILE_MAX_BYTES, driveFileDetailSchema, driveFileRowSchema, driveFileTypeOf, driveListQuerySchema } from "./drive.js";
+import { DRIVE_FILE_MAX_BYTES, driveContentKindOf, driveFileDetailSchema, driveFileRowSchema, driveFileTypeOf, driveListQuerySchema } from "./drive.js";
+import { readerSchema, UNKNOWN } from "../reader.js";
 import { CHAT_CITATION_KINDS, chatCitationSchema } from "./chat.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -47,3 +48,42 @@ describe("il Drive (area 5, fetta 2)", () => {
     expect(c.drive).toBeNull();
   });
 });
+
+describe("il contenuto dei file (area 5, fetta 3)", () => {
+  const base = {
+    id: ID,
+    code: "AUD-F1",
+    projectId: ID,
+    name: "Contratto.pdf",
+    mime: "application/pdf",
+    type: "pdf",
+    sizeBytes: 10,
+    addedById: null,
+    addedAt: "2026-11-11T10:00:00.000Z",
+  };
+
+  it("una riga di un server della fetta 2 (senza i campi del contenuto) si legge coi default", () => {
+    const row = driveFileRowSchema.parse(base);
+    expect(row).toMatchObject({ contentStatus: null, contentReason: null, contentOcr: null, snippet: null });
+    expect(driveFileDetailSchema.parse({ ...row, opensTotal: 1 }).summary).toBeNull();
+  });
+
+  it("uno stato o un motivo che il client non conosce si legge come UNKNOWN, non rompe l'elenco", () => {
+    const row = readerSchema(driveFileRowSchema).parse({ ...base, contentStatus: "vectorizing", contentReason: "nuovo_motivo", contentOcr: "magic" });
+    expect(row).toMatchObject({ contentStatus: UNKNOWN, contentReason: UNKNOWN, contentOcr: UNKNOWN });
+  });
+
+  it("cosa si estrae, dal MIME: testo, PDF, immagini (HEIC compreso), Office e ODF moderni; il resto no", () => {
+    expect(driveContentKindOf("text/markdown")).toBe("text");
+    expect(driveContentKindOf("text/csv")).toBe("text");
+    expect(driveContentKindOf("application/pdf")).toBe("pdf");
+    expect(driveContentKindOf("image/heic")).toBe("heic");
+    expect(driveContentKindOf("image/PNG")).toBe("image");
+    expect(driveContentKindOf("application/vnd.openxmlformats-officedocument.wordprocessingml.document")).toBe("office");
+    expect(driveContentKindOf("application/vnd.oasis.opendocument.presentation")).toBe("office");
+    // D Office/ODF = a: i formati binari vecchi no.
+    for (const old of ["application/msword", "application/vnd.ms-excel", "application/vnd.ms-powerpoint"]) expect(driveContentKindOf(old)).toBeNull();
+    for (const none of ["application/zip", "video/mp4", "audio/mpeg", "application/rtf"]) expect(driveContentKindOf(none)).toBeNull();
+  });
+});
+

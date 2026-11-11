@@ -1,6 +1,7 @@
 import {
   driveCodeResolutionSchema,
   driveFileDetailSchema,
+  driveFileRowSchema,
   driveFileListSchema,
   driveUploadResultSchema,
 } from "@stubwise/shared";
@@ -75,6 +76,14 @@ export function createDriveEndpoints(request: ApiRequest) {
      */
     saveFromChat(attachmentId: string, input: SaveToDriveInput = {}) {
       return request("POST", `/api/chat/attachments/${seg(attachmentId)}/save-to-drive`, input, driveUploadResultSchema);
+    },
+    /**
+     * «Riprova» (F3.4): rimette in coda l'estrazione del contenuto di un file
+     * `no_text` o `error`. Risponde con la riga, già `pending`. 403 senza
+     * `drive.manage`, 409 `not_retryable` in un altro stato.
+     */
+    retry(id: string) {
+      return request("POST", `/api/drive/files/${seg(id)}/retry`, {}, driveFileRowSchema);
     },
   };
 }

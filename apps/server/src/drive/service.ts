@@ -1,20 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { pipeline, Transform, type Readable } from "node:stream";
-import { chatChannels, driveFiles, driveOpens, projects, type Db } from "@stubwise/db";
+import { chatChannels, driveContentJobs, driveFileChunks, driveFiles, driveOpens, projects, type Db } from "@stubwise/db";
+import type { EmbeddingClient } from "@stubwise/embeddings";
 import {
   chatAttachmentAllowed,
+  DRIVE_CLAUDE_TEXT_MAX,
   DRIVE_CODE_RE,
   DRIVE_FILE_MAX_BYTES,
   driveCode,
+  driveContentKindOf,
   driveFileTypeOf,
   type DriveCodeResolution,
+  type DriveFileContent,
   type DriveFileDetail,
   type DriveFileRow,
   type driveListQuerySchema,
   type DriveUploadResult,
 } from "@stubwise/shared";
 import type { z } from "zod";
-import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { projectPermissionsFor, projectPermissionsMap, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { StorageObjectNotFound, type ObjectStorage } from "../storage/index.js";
@@ -39,7 +43,10 @@ import { downloadableAttachment } from "../chat/attachments.js";
 
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 type ListQuery = z.infer<typeof driveListQuerySchema>;
-type Row = typeof driveFiles.$inferSelect;
+/** Una riga SENZA il testo estratto e la sua tsvector: l'elenco non li carica mai (fino a 1.000.000 di caratteri). */
+type Row = Omit<typeof driveFiles.$inferSelect, "contentText" | "contentTsv">;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- si tolgono apposta dal select.
+const { contentText: _text, contentTsv: _tsv, ...ROW_COLUMNS } = getTableColumns(driveFiles);
 
 export class DriveError extends Error {
   constructor(
@@ -74,7 +81,7 @@ export async function assertCanUploadDrive(db: Db, viewer: Viewer, projectId: st
 function selectRows(db: Db) {
   return db
     .select({
-      file: driveFiles,
+      file: ROW_COLUMNS,
       projectCode: projects.code,
       opens90d: sql<number>`(select count(*)::int from ${driveOpens} o where o.file_id = ${driveFiles.id} and o.at > now() - interval '90 days')`,
       lastOpenedAt: sql<string | null>`(select to_char(max(o.at) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') from ${driveOpens} o where o.file_id = ${driveFiles.id})`,
@@ -100,14 +107,27 @@ function toRow(r: Selected, viewer: Viewer, permsOf: (projectId: string) => read
     addedAt: f.addedAt.toISOString(),
     opens90d: r.opens90d,
     lastOpenedAt: r.lastOpenedAt,
-    summaryLine: null,
+    summaryLine: firstSentence(f.summary),
+    contentStatus: f.contentStatus,
+    contentReason: f.contentReason,
+    contentOcr: f.contentOcr,
+    snippet: null,
     permissions: {
       delete: f.addedBy === viewer.id || permsOf(f.projectId).includes("drive.manage"),
       remove: false,
       hide: false,
-      retry: false,
+      // «Riprova» (F3.4): con `drive.manage`, su un file senza testo o in errore.
+      retry: permsOf(f.projectId).includes("drive.manage") && (f.contentStatus === "no_text" || f.contentStatus === "error"),
     },
   };
+}
+
+/** La prima frase del riassunto (la riga sotto il nome), o null. */
+function firstSentence(summary: string | null): string | null {
+  const text = summary?.trim();
+  if (!text) return null;
+  const m = /^.+?[.!?](?=\s|$)/s.exec(text);
+  return (m ? m[0] : text).trim();
 }
 
 async function permsLookup(db: Db, viewer: Viewer): Promise<(projectId: string) => readonly string[]> {
@@ -121,12 +141,38 @@ function codeCondition(q: string): SQL | undefined {
   return m ? and(eq(projects.code, m[1]!), eq(driveFiles.number, Number(m[2]))) : undefined;
 }
 
+/** La corsia semantica: solo passaggi davvero vicini alla domanda (distanza coseno), al più 20 file. */
+const SEMANTIC_MAX_DISTANCE = 0.35;
+const SEMANTIC_MAX_FILES = 20;
+/** Lo snippet: il passaggio trovato, in testo puro, al più 300 caratteri. */
+const SNIPPET_MAX = 300;
+/** Come la tsvector (0145): i primi 100.000 caratteri del testo. */
+const SNIPPET_SOURCE_CHARS = 100_000;
+
+function clipSnippet(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  if (flat.length <= SNIPPET_MAX) return flat;
+  const cut = flat.slice(0, SNIPPET_MAX - 1);
+  const space = cut.lastIndexOf(" ");
+  return `${space > SNIPPET_MAX / 2 ? cut.slice(0, space) : cut}…`;
+}
+
 /**
  * L'elenco: di un progetto (`projectId`, 404 se non lo si vede) o globale (i
- * progetti di cui si è membri). Filtri e ordinamento del prototipo; `q` cerca
- * nel nome e nel codice, mai nel contenuto (F3).
+ * progetti di cui si è membri). Filtri e ordinamento del prototipo. `q` cerca
+ * nel nome, nel codice e (F3.4) nel CONTENUTO: la tsvector, più la corsia
+ * semantica sui chunk se c'è l'embedder (fail-open). Una riga trovata per
+ * contenuto porta `snippet`, il passaggio in testo puro; con `q` e l'ordine
+ * «Più usati» decide prima la rilevanza, poi le aperture. La visibilità è
+ * nella WHERE, prima del limite, anche nella corsia semantica.
  */
-export async function listDriveFiles(db: Db, viewer: Viewer, query: ListQuery, scope: { projectId?: string }): Promise<DriveFileRow[]> {
+export async function listDriveFiles(
+  db: Db,
+  viewer: Viewer,
+  query: ListQuery,
+  scope: { projectId?: string },
+  opts: { embeddings?: EmbeddingClient | null; log?: (msg: string) => void } = {},
+): Promise<DriveFileRow[]> {
   const projectId = scope.projectId ?? query.projectId;
   if (scope.projectId) {
     const [project] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, scope.projectId));
@@ -136,28 +182,77 @@ export async function listDriveFiles(db: Db, viewer: Viewer, query: ListQuery, s
   if (visible !== "all" && visible.length === 0) return [];
   const q = query.q?.trim();
   const opens = sql`(select count(*) from ${driveOpens} o where o.file_id = ${driveFiles.id} and o.at > now() - interval '90 days')`;
+  const scopeConditions = [
+    isNull(driveFiles.deletedAt),
+    visible === "all" ? undefined : inArray(driveFiles.projectId, visible),
+    projectId ? eq(driveFiles.projectId, projectId) : undefined,
+    query.type ? eq(driveFiles.type, query.type) : undefined,
+    query.addedById ? eq(driveFiles.addedBy, query.addedById) : undefined,
+  ];
+
+  const tsq = q ? sql`plainto_tsquery('simple', ${q})` : null;
+  const nameHit = q ? or(ilike(driveFiles.name, `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`), codeCondition(q)) : undefined;
+  // La corsia semantica, fail-open: un embedder giù lascia la ricerca per testo.
+  const semantic = new Map<string, string>();
+  if (q && opts.embeddings) {
+    try {
+      const [vector] = await opts.embeddings.embed([q]);
+      if (vector) {
+        const literal = `[${vector.join(",")}]`;
+        const hits = await db
+          .select({ fileId: driveFileChunks.fileId, content: driveFileChunks.content })
+          .from(driveFileChunks)
+          .innerJoin(driveFiles, eq(driveFiles.id, driveFileChunks.fileId))
+          .where(and(...scopeConditions, sql`${driveFileChunks.embedding} is not null`, sql`(${driveFileChunks.embedding} <=> ${literal}::vector) < ${SEMANTIC_MAX_DISTANCE}`))
+          .orderBy(sql`${driveFileChunks.embedding} <=> ${literal}::vector`)
+          .limit(SEMANTIC_MAX_FILES * 4);
+        for (const h of hits) if (!semantic.has(h.fileId) && semantic.size < SEMANTIC_MAX_FILES) semantic.set(h.fileId, h.content);
+      }
+    } catch (error) {
+      opts.log?.(`[drive] ricerca semantica non disponibile, resta il testo: ${String(error)}`);
+    }
+  }
+  const qCondition = q
+    ? or(nameHit, sql`${driveFiles.contentTsv} @@ ${tsq}`, semantic.size > 0 ? inArray(driveFiles.id, [...semantic.keys()]) : undefined)
+    : undefined;
+
   const rows = await selectRows(db)
-    .where(
-      and(
-        isNull(driveFiles.deletedAt),
-        visible === "all" ? undefined : inArray(driveFiles.projectId, visible),
-        projectId ? eq(driveFiles.projectId, projectId) : undefined,
-        query.type ? eq(driveFiles.type, query.type) : undefined,
-        query.addedById ? eq(driveFiles.addedBy, query.addedById) : undefined,
-        q ? or(ilike(driveFiles.name, `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`), codeCondition(q)) : undefined,
-      ),
-    )
+    .where(and(...scopeConditions, qCondition))
     .orderBy(
       ...(query.sort === "name"
         ? [asc(sql`lower(${driveFiles.name})`)]
         : query.sort === "recent"
           ? [desc(driveFiles.addedAt)]
-          : [desc(opens), desc(driveFiles.addedAt)]),
+          : q
+            ? [desc(sql`(${nameHit})`), desc(sql`ts_rank(${driveFiles.contentTsv}, ${tsq})`), desc(opens), desc(driveFiles.addedAt)]
+            : [desc(opens), desc(driveFiles.addedAt)]),
       asc(driveFiles.id),
     )
     .limit(query.limit ?? LIST_DEFAULT);
   const permsOf = await permsLookup(db, viewer);
-  return rows.map((r) => toRow(r, viewer, permsOf));
+  const out = rows.map((r) => toRow(r, viewer, permsOf));
+  if (!q || out.length === 0) return out;
+
+  // Gli snippet, in UNA query sulle sole righe restituite (ts_headline costa):
+  // per le righe trovate per contenuto e non per nome.
+  const snippets = await db
+    .select({
+      id: driveFiles.id,
+      byName: sql<boolean>`coalesce(${nameHit}, false)`,
+      text: sql<string | null>`case when ${driveFiles.contentTsv} @@ ${tsq} and ${driveFiles.contentText} is not null
+        then ts_headline('simple', left(${driveFiles.contentText}, ${SNIPPET_SOURCE_CHARS}), ${tsq}, 'StartSel="", StopSel="", MaxWords=40, MinWords=15, MaxFragments=1')
+        else null end`,
+    })
+    .from(driveFiles)
+    .innerJoin(projects, eq(projects.id, driveFiles.projectId))
+    .where(inArray(driveFiles.id, out.map((r) => r.id)));
+  const byId = new Map(snippets.map((s) => [s.id, s]));
+  return out.map((row) => {
+    const hit = byId.get(row.id);
+    if (!hit || hit.byName) return row;
+    const text = hit.text ?? semantic.get(row.id) ?? null;
+    return text ? { ...row, snippet: clipSnippet(text) } : row;
+  });
 }
 
 /** Un file vivo che chi guarda vede, o null. */
@@ -183,7 +278,36 @@ export async function getDriveFile(db: Db, viewer: Viewer, id: string): Promise<
           .limit(200)
       ).map((h) => ({ personId: h.personId, at: h.at.toISOString(), via: h.via }))
     : null;
-  return { ...toRow(r, viewer, permsOf), opensTotal: total?.n ?? 0, history };
+  return { ...toRow(r, viewer, permsOf), opensTotal: total?.n ?? 0, summary: r.file.summary, history };
+}
+
+/**
+ * Ciò che Claude legge di un file (F3.5), per codice, coi permessi di chi
+ * parla: null (404) se non lo vede o non c'è. Il testo fino a 30.000
+ * caratteri; NON conta un'apertura (le aperture sono gesti delle persone).
+ */
+export async function getDriveFileContent(db: Db, viewer: Viewer, code: string): Promise<DriveFileContent | null> {
+  const condition = codeCondition(code);
+  if (!condition) return null;
+  const [r] = await db
+    .select({ id: driveFiles.id, projectId: driveFiles.projectId, number: driveFiles.number, projectCode: projects.code, name: driveFiles.name, type: driveFiles.type, contentStatus: driveFiles.contentStatus, contentReason: driveFiles.contentReason, summary: driveFiles.summary, truncated: driveFiles.contentTruncated, text: sql<string | null>`left(${driveFiles.contentText}, ${DRIVE_CLAUDE_TEXT_MAX + 1})` })
+    .from(driveFiles)
+    .innerJoin(projects, eq(projects.id, driveFiles.projectId))
+    .where(and(condition, isNull(driveFiles.deletedAt)));
+  if (!r || !(await sees(db, viewer, r.projectId))) return null;
+  const text = r.text ?? "";
+  return {
+    id: r.id,
+    code: driveCode(r.projectCode, r.number),
+    projectId: r.projectId,
+    name: r.name,
+    type: r.type,
+    contentStatus: r.contentStatus,
+    contentReason: r.contentReason,
+    summary: r.summary,
+    text: text.slice(0, DRIVE_CLAUDE_TEXT_MAX),
+    truncated: r.truncated || text.length > DRIVE_CLAUDE_TEXT_MAX,
+  };
 }
 
 /** Dove sta il file di un codice `<PRJ>-F<n>`, per chi lo vede; null altrimenti (404, R-G5). */
@@ -301,6 +425,9 @@ async function insertDriveFile(
         ).map((r) => r.name.toLowerCase()),
       );
       const name = freeName(file.requestedName, taken);
+      // Il contenuto (F3.1): un tipo che si estrae nasce `pending` col suo job,
+      // nella STESSA transazione; uno che non si estrae nasce `unsupported`, senza job.
+      const extractable = driveContentKindOf(file.mime) !== null;
       await tx.insert(driveFiles).values({
         id: file.id,
         projectId,
@@ -311,7 +438,9 @@ async function insertDriveFile(
         sizeBytes: file.sizeBytes,
         storageKey: file.storageKey,
         addedBy: viewer.id,
+        contentStatus: extractable ? "pending" : "unsupported",
       });
+      if (extractable) await tx.insert(driveContentJobs).values({ fileId: file.id });
       return { keptBoth: name !== file.requestedName };
     });
     const r = (await visibleFile(db, viewer, file.id))!;
@@ -380,13 +509,41 @@ export async function deleteDriveFile(db: Db, viewer: Viewer, id: string): Promi
   if (!r) throw notFound();
   const perms = await projectPermissionsFor(db, viewer, r.file.projectId);
   if (r.file.addedBy !== viewer.id && !perms?.has("drive.manage")) throw new DriveError(403, "forbidden", "Only who added it, or who manages the Drive");
-  const [gone] = await db
-    .update(driveFiles)
-    .set({ deletedAt: sql`now()`, deletedBy: viewer.id })
-    .where(and(eq(driveFiles.id, id), isNull(driveFiles.deletedAt)))
-    .returning({ id: driveFiles.id, storageKey: driveFiles.storageKey });
+  // La lapide porta via il CONTENUTO (F3.1) nella stessa transazione: il
+  // testo, il riassunto e i chunk. Un file eliminato non lascia il suo testo nel DB.
+  const gone = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(driveFiles)
+      .set({ deletedAt: sql`now()`, deletedBy: viewer.id, contentText: null, summary: null })
+      .where(and(eq(driveFiles.id, id), isNull(driveFiles.deletedAt)))
+      .returning({ id: driveFiles.id, storageKey: driveFiles.storageKey });
+    if (row) await tx.delete(driveFileChunks).where(eq(driveFileChunks.fileId, id));
+    return row;
+  });
   if (!gone) throw notFound();
   return gone;
+}
+
+/**
+ * «Riprova» (F3.4): con `drive.manage`, su un file `no_text` o `error`. Rimette
+ * il file `pending` e in coda (al più un job vivo: l'indice unico parziale), e
+ * risponde con la riga.
+ */
+export async function retryDriveFile(db: Db, viewer: Viewer, id: string): Promise<DriveFileRow> {
+  const r = await visibleFile(db, viewer, id);
+  if (!r) throw notFound();
+  const perms = await projectPermissionsFor(db, viewer, r.file.projectId);
+  if (!perms?.has("drive.manage")) throw new DriveError(403, "forbidden", "Only who manages the Drive can retry");
+  if (r.file.contentStatus !== "no_text" && r.file.contentStatus !== "error") throw new DriveError(409, "not_retryable", "Only a file without text, or in error, can be retried");
+  await db.transaction(async (tx) => {
+    await tx
+      .update(driveFiles)
+      .set({ contentStatus: "pending", contentReason: null })
+      .where(and(eq(driveFiles.id, id), isNull(driveFiles.deletedAt)));
+    await tx.insert(driveContentJobs).values({ fileId: id }).onConflictDoNothing();
+  });
+  const again = (await visibleFile(db, viewer, id))!;
+  return toRow(again, viewer, await permsLookup(db, viewer));
 }
 
 /** L'oggetto di una lapide è stato tolto dallo storage. */

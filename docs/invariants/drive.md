@@ -104,3 +104,41 @@ test `apps/server/src/routes/drive.test.ts`.
 - In gara con l'eliminazione del messaggio l'oggetto della Chat può non esserci
   più: `copyObject` lancia `StorageObjectNotFound` (S3 `NoSuchKey`) e la
   rotta risponde 404, non 500.
+
+## Il contenuto (fetta 3): il worker LEGGE lo storage, e solo quello
+
+- (Area 5, fetta 3, decisione (a) dell'orchestratrice.) Il worker legge gli
+  oggetti del Drive per estrarne il testo: `apps/worker/src/drive/storage-read.ts`,
+  UNA funzione (`getObjectStream`), solo chiavi `drive/` senza `..`, e un tetto
+  di byte letti pari al peso nel DB più 1 MB (oltre, lo stream si ferma e il
+  file è `no_text` `limits`). Le credenziali sono quelle dell'istanza, quindi la
+  sola lettura è una regola del CODICE: il sorgente del worker non importa
+  niente che scriva, cancelli, copii o firmi (`storage-read.test.ts` lo verifica
+  sul sorgente, e che l'SDK S3 compaia solo lì, con `GetObjectCommand` e
+  `S3Client`). La configurazione S3 è una sola, `s3ConfigFromSettings` in
+  `@stubwise/db`. Scrivere e potare restano del server. Limite accettato,
+  nel registro: credenziali di sola lettura separate per il worker, se lo
+  storage lo permette.
+- Il file sta nella tmp del job col nome nostro (`input.<ext>`), scritto in
+  streaming: il worker non tiene mai il file intero in memoria. Il resto delle
+  regole sull'input non fidato sta nel docblock di `drive/extract/extract.ts`
+  e `drive/extract/exec.ts`.
+- Il riassunto è un run di un turno SENZA tool (nessun nativo, nessun MCP),
+  `UsageTag { operation: "drive_summary", projectId }`, sui primi 20.000
+  caratteri, con il testo incorniciato come documento da non seguire. È
+  narrativa generata: non entra mai nel registro decisioni. Un documento ostile
+  può far mentire solo il SUO riassunto (limite accettato).
+- Il testo, il riassunto e i chunk si scrivono in UNA transazione guardata sulla
+  lapide (`deleted_at is null`): un file eliminato a metà non riceve niente; la
+  lapide li toglie nella sua transazione.
+- La ricerca (F3.4): `q` cerca nel nome, nel codice e nel contenuto (la
+  tsvector, più la corsia semantica sui chunk, fail-open, solo sotto una
+  distanza coseno di 0,35 e al più 20 file). Visibilità nella WHERE di
+  ENTRAMBE le corsie, prima del limite: un non membro col testo giusto non
+  trova niente (test negativo). Lo `snippet` è testo PURO (ts_headline senza
+  marcatori, al più 300 caratteri), calcolato in una query sola sulle righe
+  restituite; null per le righe trovate per nome.
+- «Riprova» (`POST /api/drive/files/:id/retry`): solo `drive.manage`, solo su
+  `no_text` o `error` (409 `not_retryable` altrimenti); `permissions.retry` lo
+  calcola il server con la stessa regola.
+

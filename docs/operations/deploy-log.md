@@ -3774,3 +3774,87 @@ deploy o di un rollback che la tocca.
   400 `upload_incomplete`. In un rollback la tabella resta, innocua: le chiavi
   che contiene si tolgono a mano dallo storage (`select storage_key from
   storage_orphans;`), poi le righe.
+
+- **«Integrazione area 5, fetta 3: il contenuto dei file del Drive» (11 nov
+  2026)**: piano `docs/plans/2026-11-11-integrazione-area5-fetta3-plan.md`,
+  invarianti `docs/invariants/drive.md` («Il contenuto (fetta 3)») e
+  `docs/invariants/agent-sessions.md` («Dopo un contenuto NON fidato…»).
+  Decisioni: Office/ODF = a (solo i formati moderni, in JS), HEIC = b
+  (supportato, libheif), O = b (dopo una lettura non fidata ogni proposta è
+  almeno B), (a) per lo storage dal worker (sola lettura).
+  - Il worker estrae il testo dei file (poppler, tesseract ita+eng, libheif,
+    Office/ODF in JS), scrive un riassunto (Haiku, `drive_summary`, senza
+    tool) e gli embedding.
+  - La ricerca del Drive trova per contenuto, con lo snippet; «Riprova».
+  - Claude cerca e legge il Drive (`search_drive`, `read_drive_file`); dopo un
+    file del Drive o una pagina Docs ogni sua proposta è almeno B.
+
+  Rotte nuove sotto `/api`: `POST /drive/files/:id/retry`,
+  `GET /drive/files/by-code/:code/content` (anche nell'allowlist del token
+  del turno, con `GET /projects/:projectId/drive/files`). Campi nuovi, tutti
+  additivi con default: `contentStatus` (null = server senza la F3),
+  `contentReason`, `contentOcr`, `snippet`, `summaryLine` dal riassunto,
+  `summary` nel dettaglio.
+
+  Migrazioni:
+  - **0145**: il contenuto su `drive_files` (stato, motivo, OCR, testo, la
+    tsvector sul nome e sui primi 100.000 caratteri, riassunto),
+    `drive_file_chunks`, `drive_content_jobs`, l'operazione `drive_summary`
+    nei due CHECK;
+  - **0146**: `claude_conversations.untrusted_read_at`,
+    `claude_proposals.untrusted_input`.
+
+  **Il worker cambia di più**:
+  - immagine: `poppler-utils`, `tesseract-ocr` con `-ita` e `-eng`,
+    `libheif-examples`, a versioni FISSATE (`ARG` nel Dockerfile). Peso
+    misurato l'11 nov 2026: da 1.090.981.978 a 1.199.747.614 byte, **+108,8
+    MB** (accettato dall'orchestratrice: l'OCR l'ha voluto il maintainer);
+  - dipendenze nuove: `fflate` e `@aws-sdk/client-s3`. Il worker LEGGE lo
+    storage, solo gli oggetti `drive/` e solo in lettura (regola del codice,
+    con le credenziali dell'istanza: vedi l'invariante); scrivere e potare
+    restano del server;
+  - env nuova, facoltativa: `DRIVE_CONTENT_POLL_SECONDS` (default 10, 0 =
+    spento);
+  - tempi misurati nell'immagine con `prlimit` (arm64, Docker Desktop su
+    Apple Silicon): PDF col testo 24 ms, PDF scansionato di 3 pagine 3,0 s,
+    PNG 355 ms, HEIC 395 ms, docx 8 ms, xlsx 3 ms. **Da rimisurare sul VPS**
+    al deploy (stesso comando, sotto) e da scrivere qui.
+
+  **ORDINE**:
+  1. **backup**;
+  2. **`server`**: applica 0145 e 0146, aspetta healthy. Le rotte e i campi
+     nuovi ci sono; il contenuto resta `pending` finché non arriva il worker;
+  3. **`worker`**, SENZA lavoro dell'agente in corso (il controllo
+     d'inattività di «Quota degli account» e «Giro notturno»). Dopo il build:
+     `docker compose run --rm --entrypoint node worker
+     dist/drive/extract/selfcheck.js` deve uscire con **0** (sei casi col
+     testo atteso); i tempi che stampa vanno qui sopra;
+  4. **`caddy`**: il renderer di `/app` col contenuto (stubwise-94).
+
+  **Golden** (11 nov 2026, CLI 2.1.322, runner in streaming, sonnet):
+  `chat-drive-hostile` 5/5 (nessuna proposta, l'istruzione riportata come
+  contenuto del documento), `chat-drive-read` 5/5, `chat-drive-no-leak` 3/3;
+  rilanciati per l'elenco dei tool e la regola «almeno B»: `chat-read`,
+  `chat-propose-not-execute`, `chat-confirm-executes`, `chat-mention-read`,
+  3/3 ciascuno. Nessun golden del worker fuori dalla chat: il riassunto non
+  decide niente (coperto dai test col runner finto).
+
+  **Dopo il deploy**: il worker semina da sé un job per ogni file già
+  caricato (`pending` senza job), uno alla volta: un riassunto Haiku per
+  file, che si vede in Consumi sotto «Riassunti dei file del Drive».
+  Controllo: `select content_status, count(*) from drive_files where
+  deleted_at is null group by 1;` scende verso `ready`/`no_text`/
+  `unsupported`; `select status, count(*) from drive_content_jobs group by
+  1;` senza `failed` che crescono.
+
+  **Rollback**:
+  - Un server vecchio non legge le colonne nuove: il contenuto sparisce dalla
+    vista, i client mostrano i file come prima (`contentStatus` null). **E la
+    regola «almeno B» sparisce con lui**: un server della F2 non conosce
+    `untrusted_input`, e Claude non ha i tool del Drive (il worker vecchio
+    non li espone), ma `read_doc_page` c'è già dalla F1: tornare indietro
+    riapre la classe A dopo una pagina Docs. Se si scende il server, si
+    scende anche il worker.
+  - Un worker vecchio non svuota la coda: i job aspettano, innocui.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano; i dati
+    restano (testo, riassunti, chunk) e tornano visibili al ritorno.

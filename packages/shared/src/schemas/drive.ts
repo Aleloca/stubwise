@@ -28,6 +28,45 @@ export function driveFileTypeOf(mime: string): DriveFileType {
   return "other";
 }
 
+/**
+ * Il contenuto di un file (area 5, fetta 3): il worker ne estrae il testo, il
+ * riassunto e gli embedding. `no_text` ha sempre un motivo; `error` è per i
+ * guasti NOSTRI (storage, database), che il job ritenta. Un tipo senza
+ * estrazione nasce `unsupported`, senza job.
+ */
+export const DRIVE_CONTENT_STATUSES = ["pending", "processing", "ready", "no_text", "unsupported", "error"] as const;
+export const driveContentStatusSchema = z.enum(DRIVE_CONTENT_STATUSES);
+export type DriveContentStatus = z.infer<typeof driveContentStatusSchema>;
+export const DRIVE_CONTENT_REASONS = ["no_text_found", "ocr_timeout", "ocr_unavailable", "unreadable", "too_large", "limits"] as const;
+export const driveContentReasonSchema = z.enum(DRIVE_CONTENT_REASONS);
+export type DriveContentReason = z.infer<typeof driveContentReasonSchema>;
+export const DRIVE_CONTENT_OCR = ["none", "full", "partial"] as const;
+export const driveContentOcrSchema = z.enum(DRIVE_CONTENT_OCR);
+export type DriveContentOcr = z.infer<typeof driveContentOcrSchema>;
+
+/** Come si estrae il testo di un tipo; null = `unsupported` (D Office/ODF = a: doc, xls, ppt vecchi no). */
+export type DriveContentKind = "text" | "pdf" | "image" | "heic" | "office";
+const CONTENT_KINDS: Readonly<Record<string, DriveContentKind>> = {
+  "text/plain": "text",
+  "text/csv": "text",
+  "text/markdown": "text",
+  "application/pdf": "pdf",
+  "image/png": "image",
+  "image/jpeg": "image",
+  "image/gif": "image",
+  "image/webp": "image",
+  "image/heic": "heic",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "office",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "office",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "office",
+  "application/vnd.oasis.opendocument.text": "office",
+  "application/vnd.oasis.opendocument.spreadsheet": "office",
+  "application/vnd.oasis.opendocument.presentation": "office",
+};
+export function driveContentKindOf(mime: string): DriveContentKind | null {
+  return CONTENT_KINDS[mime.toLowerCase()] ?? null;
+}
+
 /** I permessi di chi guarda su un file, calcolati dal server e letti dal client. */
 export const driveFilePermissionsSchema = z.object({
   /** Eliminare un file caricato: il proprio, o qualunque con `drive.manage`. */
@@ -60,6 +99,18 @@ export const driveFileRowSchema = z.object({
   lastOpenedAt: z.iso.datetime().nullable().default(null),
   /** La prima riga del riassunto AI (F3); null finché non c'è. */
   summaryLine: z.string().nullable().default(null),
+  /**
+   * Lo stato del contenuto (F3). Null = un server SENZA la F3 (rollback, istanza
+   * non aggiornata), che non lo manda: il client lo mostra come oggi, non come
+   * «in elaborazione» per sempre. Un server F3 lo manda sempre.
+   */
+  contentStatus: driveContentStatusSchema.nullable().default(null),
+  /** Perché non c'è testo (solo `no_text`). */
+  contentReason: driveContentReasonSchema.nullable().default(null),
+  /** Quanto è passato dall'OCR; null finché non si è estratto. */
+  contentOcr: driveContentOcrSchema.nullable().default(null),
+  /** Il passaggio trovato, solo nelle righe di una ricerca per contenuto (al più 300 caratteri). */
+  snippet: z.string().nullable().default(null),
   permissions: driveFilePermissionsSchema.default({ delete: false, remove: false, hide: false, retry: false }),
 });
 export type DriveFileRow = z.infer<typeof driveFileRowSchema>;
@@ -67,6 +118,8 @@ export type DriveFileRow = z.infer<typeof driveFileRowSchema>;
 /** Il dettaglio: la riga, le aperture totali e la storia (solo con `drive.history`, altrimenti null). */
 export const driveFileDetailSchema = driveFileRowSchema.extend({
   opensTotal: z.number().int().default(0),
+  /** Il riassunto AI intero (F3), solo nel dettaglio; l'elenco ha `summaryLine`. Narrativa generata. */
+  summary: z.string().nullable().default(null),
   history: z
     .array(z.object({ personId: z.uuid(), at: z.iso.datetime(), via: z.enum(["preview", "download"]) }))
     .nullable()
@@ -102,6 +155,31 @@ export type DriveListQuery = z.input<typeof driveListQuerySchema>;
 /** `GET /api/drive/codes/:code`: dove sta il file di un codice. */
 export const driveCodeResolutionSchema = z.object({ code: z.string(), projectId: z.uuid(), fileId: z.uuid() });
 export type DriveCodeResolution = z.infer<typeof driveCodeResolutionSchema>;
+
+/** Il tetto del testo che Claude legge di un file (come `read_doc_page`). */
+export const DRIVE_CLAUDE_TEXT_MAX = 30_000;
+
+/**
+ * `GET /api/drive/files/by-code/:code/content` (F3.5): ciò che Claude legge di
+ * un file, coi permessi di chi parla. Il testo è contenuto NON fidato: il
+ * ponte del worker lo consegna come `untrusted_document`. Leggerlo non conta
+ * un'apertura.
+ */
+export const driveFileContentSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  projectId: z.uuid(),
+  name: z.string(),
+  type: driveFileTypeSchema,
+  contentStatus: driveContentStatusSchema,
+  contentReason: driveContentReasonSchema.nullable().default(null),
+  summary: z.string().nullable().default(null),
+  /** Al più `DRIVE_CLAUDE_TEXT_MAX` caratteri; vuoto se non c'è testo. */
+  text: z.string().default(""),
+  /** Il testo è più lungo di quanto restituito (o era già troncato all'estrazione). */
+  truncated: z.boolean().default(false),
+});
+export type DriveFileContent = z.infer<typeof driveFileContentSchema>;
 
 /** «Save to Drive» da un allegato della Chat: in un DM o in un generale serve il progetto. */
 export const saveToDriveBodySchema = z.object({ projectId: z.uuid().optional() });

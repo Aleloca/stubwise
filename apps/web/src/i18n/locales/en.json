@@ -1878,6 +1878,7 @@
         "release_notes": "Release notes",
         "docs_nightly": "Nightly Docs",
         "docs_generation": "Docs generation",
+        "drive_summary": "Drive file summaries",
         "daily_report": "Daily report",
         "weekly_brief": "Weekly brief",
         "mail_classify": "Mail classification",

@@ -127,7 +127,7 @@ const getDriveFile: Drive["getDriveFile"] = async (ref) => {
   }
   const d = await orNone(() => appClient().drive.get(id), null);
   if (!d) return null;
-  const [row] = await rowsOf([d as ServerDriveFileRow]);
+  const [row] = await rowsOf([d as unknown as ServerDriveFileRow]);
   const detail: DriveFileDetail = {
     ...row!,
     opensTotal: d.opensTotal,

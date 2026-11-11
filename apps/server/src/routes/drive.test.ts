@@ -2,8 +2,9 @@ import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { driveFiles, driveOpens, projects, storageOrphans } from "@stubwise/db";
+import { driveContentJobs, driveFileChunks, driveFiles, driveOpens, projects, storageOrphans } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
 import { DriveError, openDriveFile, purgeDeletedDriveObjects, uploadDriveFile } from "../drive/service.js";
 import type { ObjectStorage } from "../storage/index.js";
@@ -39,6 +40,8 @@ function fakeStorage(origin = "https://bucket.example") {
   };
 }
 
+const fakeEmbeddings = createFakeEmbeddingClient();
+let embedder: { embed: (inputs: string[]) => Promise<number[][]> } = fakeEmbeddings;
 let t: TestDb;
 let app: ReturnType<typeof buildApp>;
 let projectId: string;
@@ -60,6 +63,7 @@ beforeAll(async () => {
     publicUrl: "https://stubwise.example",
     encryptionKey: randomBytes(32).toString("base64"),
     storageFactory: async () => active,
+    embeddingClient: { embed: (inputs: string[]) => embedder.embed(inputs) },
   });
   ({ adminCookie } = await seedUsers(app));
   ({ projectId } = await seedRepository(t.db));
@@ -391,3 +395,123 @@ describe("review della fetta 2", () => {
     await purgeDeletedDriveObjects(t.db, storage, () => undefined);
   });
 });
+
+describe("il contenuto (fetta 3, F3.1)", () => {
+  const jobsOf = (fileId: string) => t.db.select().from(driveContentJobs).where(eq(driveContentJobs.fileId, fileId));
+
+  it("un caricamento accoda il job del contenuto con la riga; un tipo senza estrazione nasce `unsupported`, senza job", async () => {
+    const pdf = (await upload(dev, projectId, { filename: "da-leggere.pdf", contentType: "application/pdf" })).json() as Upload & { file: { contentStatus: string } };
+    expect(pdf.file.contentStatus).toBe("pending");
+    expect(await jobsOf(pdf.file.id)).toMatchObject([{ status: "queued", attempts: 0 }]);
+    const zip = (await upload(dev, projectId, { filename: "pacco-f3.zip", contentType: "application/zip" })).json() as Upload & { file: { contentStatus: string } };
+    expect(zip.file.contentStatus).toBe("unsupported");
+    expect(await jobsOf(zip.file.id)).toEqual([]);
+    const old = (await upload(dev, projectId, { filename: "vecchio.doc", contentType: "application/msword" })).json() as Upload & { file: { contentStatus: string } };
+    expect(old.file.contentStatus).toBe("unsupported");
+  });
+
+  it("la riga porta stato, motivo, OCR e la prima frase del riassunto; il testo non esce dall'elenco", async () => {
+    const f = (await upload(dev, projectId, { filename: "riassunto.pdf", contentType: "application/pdf" })).json() as Upload;
+    await t.db
+      .update(driveFiles)
+      .set({ contentStatus: "ready", contentOcr: "partial", contentText: "TESTO SEGRETO DEL FILE", summary: "Un contratto di fornitura. Scade a marzo." })
+      .where(eq(driveFiles.id, f.file.id));
+    const res = await as(dev, "GET", `/api/projects/${projectId}/drive/files`);
+    const row = (res.json() as { items: Record<string, unknown>[] }).items.find((r) => r.id === f.file.id)!;
+    expect(row).toMatchObject({ contentStatus: "ready", contentReason: null, contentOcr: "partial", summaryLine: "Un contratto di fornitura." });
+    expect(row).not.toHaveProperty("summary");
+    expect(res.body).not.toContain("TESTO SEGRETO");
+    expect(((await as(dev, "GET", `/api/drive/files/${f.file.id}`)).json() as { summary: string }).summary).toBe("Un contratto di fornitura. Scade a marzo.");
+    await t.db.update(driveFiles).set({ contentStatus: "no_text", contentReason: "ocr_timeout", contentOcr: "none", contentText: null, summary: null }).where(eq(driveFiles.id, f.file.id));
+    expect(((await as(dev, "GET", `/api/drive/files/${f.file.id}`)).json() as Record<string, unknown>)).toMatchObject({ contentStatus: "no_text", contentReason: "ocr_timeout", summaryLine: null });
+  });
+
+  it("la lapide porta via testo, riassunto e chunk, nella stessa transazione", async () => {
+    const f = (await upload(dev, projectId, { filename: "via-tutto.pdf", contentType: "application/pdf" })).json() as Upload;
+    await t.db.update(driveFiles).set({ contentStatus: "ready", contentOcr: "none", contentText: "riservato", summary: "Riservato." }).where(eq(driveFiles.id, f.file.id));
+    await t.db.insert(driveFileChunks).values({ fileId: f.file.id, position: 0, content: "riservato", embedding: Array.from({ length: 1024 }, () => 0.1) });
+    expect((await as(dev, "DELETE", `/api/drive/files/${f.file.id}`)).statusCode).toBe(204);
+    const [row] = await t.db.select().from(driveFiles).where(eq(driveFiles.id, f.file.id));
+    expect(row).toMatchObject({ contentText: null, summary: null });
+    expect(row!.deletedAt).not.toBeNull();
+    expect(await t.db.select().from(driveFileChunks).where(eq(driveFileChunks.fileId, f.file.id))).toEqual([]);
+  });
+});
+
+describe("ricerca per contenuto e «Riprova» (fetta 3, F3.4)", () => {
+  type SearchRow = Row & { snippet: string | null; contentStatus: string; permissions: { delete: boolean; retry: boolean } };
+  const search = async (u: U, q: string, scope: "project" | "global" = "global") => {
+    const url = scope === "project" ? `/api/projects/${projectId}/drive/files?q=${encodeURIComponent(q)}` : `/api/drive/files?q=${encodeURIComponent(q)}`;
+    const res = await as(u, "GET", url);
+    return { status: res.statusCode, items: res.statusCode === 200 ? (res.json() as { items: SearchRow[] }).items : [] };
+  };
+  async function withText(filename: string, text: string, by: U = dev) {
+    const res = await upload(by, projectId, { filename, contentType: "application/pdf" });
+    expect(res.statusCode, res.body).toBe(201);
+    const f = res.json() as Upload;
+    await t.db.update(driveFiles).set({ contentStatus: "ready", contentOcr: "none", contentText: text }).where(eq(driveFiles.id, f.file.id));
+    return f.file;
+  }
+
+  it("trova per contenuto, col passaggio in testo puro (niente marcatori, al più 300 caratteri); per nome lo snippet è null", async () => {
+    const lungo = `${"premessa ".repeat(200)}La penale contrattuale scatta dopo trenta giorni di ritardo. ${"coda ".repeat(200)}`;
+    const f = await withText("fornitura-2026.pdf", lungo);
+    const byContent = (await search(dev, "penale contrattuale")).items.find((r) => r.id === f.id)!;
+    expect(byContent).toBeDefined();
+    expect(byContent.snippet).toContain("penale");
+    expect(byContent.snippet!.length).toBeLessThanOrEqual(300);
+    expect(byContent.snippet).not.toMatch(/<\/?b>|\*\*/);
+    const byName = (await search(dev, "fornitura-2026")).items.find((r) => r.id === f.id)!;
+    expect(byName.snippet).toBeNull();
+    expect((await search(dev, "penale contrattuale", "project")).items.map((r) => r.id)).toContain(f.id);
+  });
+
+  it("il negativo: chi non è membro, col testo giusto, non trova niente; un file eliminato non si trova più per contenuto", async () => {
+    const f = await withText("riservato-f34.pdf", "parolasegretissima del contratto");
+    expect((await search(outsider, "parolasegretissima")).items).toEqual([]);
+    expect((await search(outsider, "parolasegretissima", "project")).status).toBe(404);
+    expect((await search(dev, "parolasegretissima")).items.map((r) => r.id)).toEqual([f.id]);
+    await as(dev, "DELETE", `/api/drive/files/${f.id}`);
+    expect((await search(dev, "parolasegretissima")).items).toEqual([]);
+  });
+
+  it("la corsia semantica: un passaggio vicino alla domanda trova il file anche senza la parola; con l'embedder giù resta il testo", async () => {
+    const f = await withText("semantico.pdf", "nessuna parola in comune qui");
+    const [vec] = await fakeEmbeddings.embed(["quanto costa il ritardo"]);
+    await t.db.insert(driveFileChunks).values({ fileId: f.id, position: 0, content: "Il ritardo nella consegna costa il 2% al giorno.", embedding: vec! });
+    const hit = (await search(dev, "quanto costa il ritardo")).items.find((r) => r.id === f.id)!;
+    expect(hit.snippet).toBe("Il ritardo nella consegna costa il 2% al giorno.");
+    embedder = { embed: async () => Promise.reject(new Error("embedder giù")) };
+    try {
+      const g = await withText("solo-testo.pdf", "parolaunicatesto qui");
+      const r = await search(dev, "parolaunicatesto");
+      expect(r.status).toBe(200);
+      expect(r.items.map((x) => x.id)).toContain(g.id);
+    } finally {
+      embedder = fakeEmbeddings;
+    }
+  });
+
+  it("«Riprova»: solo con drive.manage, solo su `no_text` o `error`; rimette il file in coda e risponde con la riga", async () => {
+    // Caricato dal Lead: `dev` ha già superato i 30 caricamenti al minuto in questo file.
+    const f = await withText("da-riprovare.pdf", "x", lead);
+    const retry = (u: U, id: string) => as(u, "POST", `/api/drive/files/${id}/retry`);
+    // `ready`: non si riprova (409), e il permesso è falso anche per il Project Lead.
+    expect((await retry(lead, f.id)).json()).toMatchObject({ code: "not_retryable" });
+    await t.db.update(driveFiles).set({ contentStatus: "no_text", contentReason: "ocr_timeout", contentText: null }).where(eq(driveFiles.id, f.id));
+    await t.db.update(driveContentJobs).set({ status: "done" }).where(eq(driveContentJobs.fileId, f.id));
+    expect(((await as(lead, "GET", `/api/drive/files/${f.id}`)).json() as SearchRow).permissions.retry).toBe(true);
+    expect(((await as(dev, "GET", `/api/drive/files/${f.id}`)).json() as SearchRow).permissions.retry).toBe(false);
+    expect((await retry(dev, f.id)).statusCode).toBe(403);
+    expect((await retry(outsider, f.id)).statusCode).toBe(404);
+    const ok = await retry(lead, f.id);
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json()).toMatchObject({ id: f.id, contentStatus: "pending", contentReason: null });
+    expect((await t.db.select().from(driveContentJobs).where(eq(driveContentJobs.fileId, f.id))).filter((j) => j.status === "queued")).toHaveLength(1);
+    // Due «Riprova» di fila: un job vivo solo.
+    await t.db.update(driveFiles).set({ contentStatus: "error", contentReason: null }).where(eq(driveFiles.id, f.id));
+    expect((await retry(lead, f.id)).statusCode).toBe(200);
+    expect((await t.db.select().from(driveContentJobs).where(eq(driveContentJobs.fileId, f.id))).filter((j) => j.status === "queued")).toHaveLength(1);
+  });
+});
+

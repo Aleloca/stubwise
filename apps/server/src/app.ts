@@ -28,7 +28,7 @@ import {
   ticketAttachmentRoutes,
 } from "./routes/attachments.js";
 import { accessPreHandler, recordDesktopReauthUseOnResponse } from "./auth/access.js";
-import { recordChatToolReadProjects } from "./services/claude-public.js";
+import { recordChatToolReadProjects, recordChatToolUntrustedRead } from "./services/claude-public.js";
 import { authRoutes } from "./routes/auth.js";
 import { commentRoutes } from "./routes/comments.js";
 import { createAnthropicChatLlm, type ChatLlm } from "./routes/chat-llm.js";
@@ -427,6 +427,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     await recordDesktopReauthUseOnResponse(request, reply);
     // I progetti letti dal token del turno della chat (fetta 5, D2).
     await recordChatToolReadProjects(request, reply, payload);
+    // Il contenuto NON fidato letto dal token del turno (area 5, fetta 3): fail-closed.
+    await recordChatToolUntrustedRead(request, reply);
     return payload;
   });
 
@@ -565,8 +567,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
 
   // Gli allegati della Chat in sospeso da più di 24 ore ([DECIDE] 3 della
-  // fetta 4): li pota il SERVER, una volta l'ora, perché lo storage lo ha solo
-  // lui. Anche ogni caricamento pota. Fail-open: uno storage giù aspetta il giro dopo.
+  // fetta 4): li pota il SERVER, una volta l'ora. Lo storage lo SCRIVE e lo
+  // PULISCE solo il server; il worker dall'area 5, fetta 3 lo LEGGE soltanto
+  // (gli oggetti del Drive, per estrarne il contenuto) e non pota niente.
+  // Anche ogni caricamento pota. Fail-open: uno storage giù aspetta il giro dopo.
   const chatPrune = setInterval(() => {
     void (async () => {
       try {

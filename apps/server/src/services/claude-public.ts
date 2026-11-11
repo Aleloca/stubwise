@@ -13,6 +13,7 @@ import { effectiveInstancePermissions } from "@stubwise/shared";
 import type { ClaudeConversationProject } from "@stubwise/shared";
 import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { visibleProjectIds } from "../auth/access.js";
+import { CHAT_TOOL_UNTRUSTED_ROUTES } from "../auth/chat-tool-routes.js";
 import type { SessionUser } from "../auth/session.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
@@ -313,6 +314,23 @@ export async function hasToolReads(db: DbOrTx, sessionId: string): Promise<boole
     .where(and(eq(agentSessionEvents.sessionId, sessionId), eq(agentSessionEvents.type, "tool_use")))
     .limit(1);
   return row !== undefined;
+}
+
+/**
+ * Hook `onSend` dell'app (area 5, fetta 3, decisione O): una lettura RIUSCITA
+ * del token del turno su una rotta di `CHAT_TOOL_UNTRUSTED_ROUTES` segna la
+ * conversazione, e da lì ogni proposta è almeno B. FAIL-CLOSED, al contrario
+ * di quello dei progetti: se il segno non si scrive, l'errore fa fallire la
+ * risposta e il contenuto non arriva al modello.
+ */
+export async function recordChatToolUntrustedRead(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  const sessionId = request.user?.chatToolSessionId;
+  if (sessionId === undefined || request.method !== "GET" || reply.statusCode !== 200) return;
+  if (!CHAT_TOOL_UNTRUSTED_ROUTES.has(request.routeOptions.url ?? "")) return;
+  await request.server.db
+    .update(claudeConversations)
+    .set({ untrustedReadAt: sql`coalesce(${claudeConversations.untrustedReadAt}, now())` })
+    .where(eq(claudeConversations.sessionId, sessionId));
 }
 
 /** Le letture per codice del token del turno: il progetto sta nella risposta. */

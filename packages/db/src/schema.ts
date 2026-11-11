@@ -3394,6 +3394,8 @@ export const claudeConversations = pgTable(
     cliSessionId: text("cli_session_id"),
     /** Quando è nata la sessione del CLI: oltre la potatura (14 giorni) si scarta con le sue trascrizioni. */
     cliSessionStartedAt: timestamp("cli_session_started_at", { withTimezone: true }),
+    // La prima lettura di contenuto NON fidato (0146, area 5, fetta 3): da lì ogni proposta è almeno B.
+    untrustedReadAt: timestamp("untrusted_read_at", { withTimezone: true }),
     // Fetta 5 (0133): le pubbliche e la continuazione. La visibilità la decide
     // il server (`canSeeConversation`); i lettori ricevono la proiezione
     // (`claude-conversations/public-view.ts`).
@@ -3468,6 +3470,8 @@ export const claudeProposals = pgTable(
     actions: jsonb("actions").$type<{ fn: string; args: Record<string, unknown> }[]>().notNull(),
     summary: text("summary").notNull().default(""),
     declaredCls: text("declared_cls").$type<"A" | "B" | "C">().notNull(),
+    // Nata in un turno che aveva letto contenuto NON fidato (0146): almeno B, anche ricalcolata.
+    untrustedInput: boolean("untrusted_input").notNull().default(false),
     status: text("status").$type<"open" | "confirmed" | "cancelled" | "failed">().notNull().default("open"),
     failure: jsonb("failure").$type<Record<string, unknown>>(),
     groupId: uuid("group_id").references((): AnyPgColumn => claudeActionGroups.id, { onDelete: "set null" }),
@@ -5899,6 +5903,18 @@ export const driveFiles = pgTable(
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
     storagePurged: boolean("storage_purged").notNull().default(false),
+    // Il contenuto (0145, fetta 3): lo scrive il worker; `no_text` ha sempre il motivo.
+    contentStatus: text("content_status").$type<"pending" | "processing" | "ready" | "no_text" | "unsupported" | "error">().notNull().default("pending"),
+    contentReason: text("content_reason").$type<"no_text_found" | "ocr_timeout" | "ocr_unavailable" | "unreadable" | "too_large" | "limits">(),
+    contentOcr: text("content_ocr").$type<"none" | "full" | "partial">(),
+    contentText: text("content_text"),
+    contentTruncated: boolean("content_truncated").notNull().default(false),
+    summary: text("summary"),
+    contentUpdatedAt: timestamp("content_updated_at", { withTimezone: true }),
+    // Nome + i primi 100.000 caratteri del testo (una tsvector regge al più 1 MB). Sola lettura.
+    contentTsv: tsvector("content_tsv").generatedAlwaysAs(
+      (): SQL => sql`to_tsvector('simple', regexp_replace(coalesce(${driveFiles.name}, ''), '[._-]+', ' ', 'g') || ' ' || left(coalesce(${driveFiles.contentText}, ''), 100000))`,
+    ),
   },
   (table) => [
     uniqueIndex("drive_files_project_number_idx").on(table.projectId, table.number),
@@ -5907,6 +5923,48 @@ export const driveFiles = pgTable(
     index("drive_files_unpurged_idx").on(table.deletedAt).where(sql`${table.deletedAt} IS NOT NULL AND NOT ${table.storagePurged}`),
     check("drive_files_source_chk", sql`${table.source} in ('upload')`),
     check("drive_files_type_chk", sql`${table.type} in ('document', 'sheet', 'slides', 'pdf', 'image', 'other')`),
+    index("drive_files_content_tsv_idx").using("gin", table.contentTsv),
+    check("drive_files_content_status_chk", sql`${table.contentStatus} in ('pending', 'processing', 'ready', 'no_text', 'unsupported', 'error')`),
+    check("drive_files_content_reason_chk", sql`${table.contentReason} in ('no_text_found', 'ocr_timeout', 'ocr_unavailable', 'unreadable', 'too_large', 'limits')`),
+    check("drive_files_content_reason_status_chk", sql`(${table.contentStatus} = 'no_text') = (${table.contentReason} IS NOT NULL)`),
+    check("drive_files_content_ocr_chk", sql`${table.contentOcr} in ('none', 'full', 'partial')`),
+    check("drive_files_summary_len_chk", sql`char_length(${table.summary}) <= 600`),
+  ],
+);
+
+/** I passaggi del testo di un file del Drive con l'embedding (0145), come `doc_chunks`. La lapide li toglie. */
+export const driveFileChunks = pgTable(
+  "drive_file_chunks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => driveFiles.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    content: text("content").notNull(),
+    embedding: vector(1024),
+  },
+  (table) => [index("drive_file_chunks_file_idx").on(table.fileId), index("drive_file_chunks_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops"))],
+);
+
+/** La coda del contenuto dei file del Drive (0145): al più un job vivo per file, `FOR UPDATE SKIP LOCKED`. */
+export const driveContentJobs = pgTable(
+  "drive_content_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => driveFiles.id, { onDelete: "cascade" }),
+    status: text("status").$type<"queued" | "running" | "done" | "failed">().notNull().default("queued"),
+    attempts: integer("attempts").notNull().default(0),
+    error: text("error"),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("drive_content_jobs_active_unique").on(table.fileId).where(sql`status IN ('queued', 'running')`),
+    check("drive_content_jobs_status_chk", sql`${table.status} in ('queued', 'running', 'done', 'failed')`),
   ],
 );
 

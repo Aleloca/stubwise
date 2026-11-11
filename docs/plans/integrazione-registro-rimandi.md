@@ -207,6 +207,22 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   sa; niente contenuto, riassunto e passaggi fino alla F3; «#» cerca i file da
   2 caratteri; sul web una sessione scaduta durante un caricamento la chiude
   la richiesta dopo. Elenco completo in `apps/desktop/docs/integration-area5-f2.md`.
+- Gli snippet di `search_docs` nella chat con Claude *(S, area 5, fetta 3,
+  da decidere)*: oggi segnano la conversazione come «contenuto non fidato» il
+  contenuto e la ricerca del Drive e la pagina Docs intera (`read_doc_page`),
+  non gli snippet della ricerca dei Docs, che di una pagina manuale portano
+  qualche riga. Si allarga aggiungendo la rotta a `CHAT_TOOL_UNTRUSTED_ROUTES`.
+- Il contenuto dei file: limiti dichiarati *(S, area 5, fetta 3)*: doc, xls,
+  ppt e RTF sono `unsupported` (D Office/ODF = a); un documento ostile può far
+  mentire il SUO riassunto (narrativa generata, mai nel registro decisioni);
+  la ricerca per testo copre i primi 100.000 caratteri, oltre trova la sola
+  corsia semantica (al più 200 chunk per file); i tempi del VPS sono da
+  misurare al deploy.
+- Credenziali di sola lettura separate per il worker, se lo storage lo
+  permette *(S, area 5, fetta 3)*: oggi il worker legge gli oggetti del Drive
+  con le credenziali dell'istanza, e la sola lettura è una regola del codice
+  (una funzione, solo `drive/`, test sul sorgente). Un utente S3 di sola
+  lettura sul prefisso `drive/` la renderebbe una regola dello storage.
 - `nosniff` sull'anteprima del Drive *(S, limite accettato, review della
   fetta 2)*: l'URL firmato di S3 non può aggiungere
   `X-Content-Type-Options: nosniff` (le firme permettono di sovrascrivere solo

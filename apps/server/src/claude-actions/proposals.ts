@@ -57,6 +57,17 @@ async function isChatMention(db: Db, sessionId: string): Promise<boolean> {
   const [row] = await db.select({ kind: agentSessions.kind }).from(agentSessions).where(eq(agentSessions.id, sessionId));
   return row?.kind === "chat_mention";
 }
+
+/**
+ * La conversazione ha già letto contenuto NON fidato (area 5, fetta 3,
+ * decisione O): un file del Drive o una pagina Docs, segnati dall'accesso
+ * (`recordChatToolUntrustedRead`). Da lì ogni proposta è almeno B: un
+ * documento ostile non fa partire niente senza la conferma della persona.
+ */
+async function readUntrusted(db: Db, sessionId: string): Promise<boolean> {
+  const [row] = await db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
+  return row?.at != null;
+}
 const PROPOSABLE = new Set<string>(CLAUDE_PROPOSABLE_FNS);
 
 /** Un evento della conversazione (proposta o gruppo eseguito), con il NOTIFY dello stream. */
@@ -208,9 +219,11 @@ export async function createProposal(
   // I progetti toccati da questa proposta (fetta 5, D2): per la conferma della
   // pubblicazione e per il seguito privato di una pubblica.
   await recordConversationProjects(db, sessionId, await projectsOfPlan(db, actions, dry));
-  // Nella Chat tutto è proposta: la classe calcolata sale SEMPRE a B (prototipo, maintainer).
-  const cls = inChat ? "B" : classOfGroup(actions, dry).cls;
-  const row = await insert("open", cls);
+  // Nella Chat tutto è proposta: la classe calcolata sale SEMPRE a B (prototipo,
+  // maintainer). Lo stesso dopo una lettura di contenuto non fidato (fetta 3, O).
+  const untrusted = await readUntrusted(db, sessionId);
+  const cls = inChat || untrusted ? "B" : classOfGroup(actions, dry).cls;
+  const row = await insert("open", cls, { untrustedInput: untrusted });
   if (!row) {
     const [again] = await db
       .select()
@@ -329,7 +342,8 @@ export async function proposalView(db: Db, user: SessionUser, row: ProposalRow, 
     const dry = plan ? await executeGroup(db, user, { sessionId: row.sessionId, actions: plan, dryRun: true }) : null;
     if (dry?.ok) ({ cls, reasons } = classOfGroup(actions, dry));
     // Nella Chat la classe resta B (i motivi restano: chi avviserebbe, se parte il lavoro).
-    if (cls === "A" && (await isChatMention(db, row.sessionId))) cls = "B";
+    // E così una proposta nata dopo un contenuto non fidato (fetta 3, O).
+    if (cls === "A" && (row.untrustedInput || (await isChatMention(db, row.sessionId)))) cls = "B";
   }
   const open = row.status === "open" && !isExpired;
   return {

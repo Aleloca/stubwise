@@ -30,6 +30,9 @@ import { createGenerationWorktreeRegistry } from "./docs/recursive/registry.js";
 import { MirrorManager } from "./git/mirrors.js";
 import { createGraphifyRunner } from "./graph/graphify-cli.js";
 import { startGraphPoller } from "./graph/poller.js";
+import { startDriveContentPoller } from "./drive/content-job.js";
+import { createExec } from "./drive/extract/exec.js";
+import { activeDriveObjectReader } from "./drive/storage-read.js";
 import { createHandler, createProjectSerializer } from "./handler.js";
 import { createCancelRegistry, startCancelWatch } from "./pipeline/cancel.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
@@ -748,6 +751,24 @@ startGraphPoller({
   timeoutMs: config.graphBuildTimeoutMs,
   serializer,
   intervalSeconds: config.graphPollSeconds,
+  signal: controller.signal,
+});
+
+// Poller del CONTENUTO dei file del Drive (area 5, fetta 3): legge il file dallo
+// storage in SOLA LETTURA (`drive/storage-read.ts`, solo chiavi `drive/`), ne
+// estrae il testo con poppler/tesseract/libheif dietro `prlimit`, scrive il
+// riassunto (drive_summary, senza tool) e gli embedding. Fuori dal serializer
+// per progetto (non tocca mirror né worktree), uno per volta, best-effort.
+startDriveContentPoller({
+  db,
+  reader: () => activeDriveObjectReader(db, config.encryptionKey),
+  exec: createExec({ prlimit: true }),
+  runner,
+  select,
+  model: effectiveModelDefaults(config).drive_summary,
+  embeddings: embeddingClient,
+  log: (m) => console.error(`[stubwise-worker] ${m}`),
+  intervalSeconds: config.driveContentPollSeconds,
   signal: controller.signal,
 });
 
