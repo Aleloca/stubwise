@@ -34,11 +34,12 @@ import {
   docGenerations,
   docPagePendingCommits,
   docPages,
+  projects,
   repositories,
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
-import { BACKGROUND_THRESHOLD_PAUSE_REASON, DOCS_WORKER_RESTART_ERROR, PROVIDER_LIMIT_PAUSE_REASON } from "@stubwise/notifications";
+import { BACKGROUND_THRESHOLD_PAUSE_REASON, DOCS_WORKER_RESTART_ERROR, docsPauseReasonOf } from "@stubwise/notifications";
 import { resolveDocCode, withDocCodesIn } from "../services/doc-codes.js";
 import { embedManualPage } from "../services/doc-embed.js";
 import { buildDocsExportZip, safeFilenamePart } from "./docs-export-zip.js";
@@ -148,21 +149,42 @@ function docGenerationReasonCode(
   paused: { pauseReason: string | null } | null,
   job: { status: string; heldReason: string | null; error: string | null } | null,
 ): DocGenerationReasonCode | null {
-  if (paused) {
-    return paused.pauseReason === PROVIDER_LIMIT_PAUSE_REASON || paused.pauseReason === BACKGROUND_THRESHOLD_PAUSE_REASON ? "usage_limit" : "other";
-  }
+  // Una pausa è sempre per il limite o per la soglia (`docsPauseReasonOf` legge
+  // anche le frasi storiche): per chi guarda, in entrambi i casi è la quota.
+  if (paused) return "usage_limit";
   if (job?.status === "held") return job.heldReason === "limit" ? "usage_limit" : job.heldReason === "budget" ? "monthly_budget" : "other";
   if (job?.status === "failed") return job.error === DOCS_WORKER_RESTART_ERROR ? "worker_restart" : "other";
   return null;
 }
 
-/** Il rientro più vicino degli account abilitati al limite (`limited_until` nel futuro), o null. */
-async function accountsBackAt(db: Db): Promise<string | null> {
-  const [row] = await db
-    .select({ at: sql<Date | null>`min(${aiProviders.limitedUntil})` })
+/**
+ * Quando rientra il lavoro fermo al LIMITE degli account: il rientro più vicino
+ * (`limited_until` nel futuro) fra gli account che quel lavoro può usare,
+ * scelti come li sceglie il worker (`selectProviders`,
+ * `docs/invariants/providers.md`): il pin della generazione, o il provider del
+ * progetto con «solo questo», è l'unico; altrimenti il preferito più gli altri
+ * abilitati, e la chiave API solo se non c'è nessun abbonamento. Null se il
+ * server non lo sa.
+ */
+async function accountsBackAt(db: Db, scope: { projectId: string; pinnedProviderId: string | null }): Promise<string | null> {
+  const rows = await db
+    .select({ id: aiProviders.id, kind: aiProviders.kind, limitedUntil: aiProviders.limitedUntil })
     .from(aiProviders)
-    .where(and(eq(aiProviders.enabled, true), sql`${aiProviders.limitedUntil} > now()`));
-  return row?.at ? new Date(row.at).toISOString() : null;
+    .where(eq(aiProviders.enabled, true));
+  const [project] = scope.pinnedProviderId
+    ? [{ id: scope.pinnedProviderId as string | null, exclusive: true }]
+    : await db.select({ id: projects.aiProviderId, exclusive: projects.aiProviderExclusive }).from(projects).where(eq(projects.id, scope.projectId));
+  const exclusive = project?.exclusive === true && project.id != null;
+  const hasAccount = rows.some((r) => r.kind === "account");
+  const candidates = exclusive
+    ? rows.filter((r) => r.id === project!.id)
+    : rows.filter((r) => r.id === project?.id || r.kind === "account" || !hasAccount);
+  const now = Date.now();
+  const back = candidates
+    .map((r) => r.limitedUntil?.getTime() ?? null)
+    .filter((at): at is number => at !== null && at > now)
+    .sort((a, b) => a - b)[0];
+  return back !== undefined ? new Date(back).toISOString() : null;
 }
 
 /** Nodi fatti su totali della generazione più recente in corso o in pausa; null se non ce n'è una o non ha nodi. */
@@ -454,7 +476,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       const { repositoryId } = request.params;
 
       const [repository] = await app.db
-        .select({ id: repositories.id, currentDocGenerationId: repositories.currentDocGenerationId })
+        .select({ id: repositories.id, projectId: repositories.projectId, currentDocGenerationId: repositories.currentDocGenerationId })
         .from(repositories)
         .where(eq(repositories.id, repositoryId));
       if (!repository) return apiError(reply, 404, "repository_not_found", "Repository not found");
@@ -514,7 +536,16 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       // Area 5, fetta 1: perché è ferma, quando riprende, quanto è avanti. Solo
       // ciò che il server SA: niente stime.
       const reasonCode = docGenerationReasonCode(pausedGen ?? null, job ?? null);
-      const resumesAt = reasonCode === "usage_limit" ? await accountsBackAt(app.db) : null;
+      // La SOGLIA settimanale dello sfondo non è il `limited_until` degli
+      // account: riprende al reset settimanale o, dopo
+      // `DOCS_BACKGROUND_PAUSE_MAX_HOURS` (env del WORKER, che il server non
+      // sa), come lavoro interattivo. Il server non sa quale delle due viene
+      // prima: null, invece di un'ora che può sbagliare di giorni.
+      const thresholdPause = pausedGen ? docsPauseReasonOf(pausedGen.pauseReason) === BACKGROUND_THRESHOLD_PAUSE_REASON : false;
+      const resumesAt =
+        reasonCode === "usage_limit" && !thresholdPause
+          ? await accountsBackAt(app.db, { projectId: repository.projectId, pinnedProviderId: pausedGen?.pinnedProviderId ?? null })
+          : null;
       const progress = await generationProgress(app.db, repositoryId);
       return { generation, latestJob: job ? toJob(job) : null, pinnedProvider, reasonCode, resumesAt, progress };
     },
