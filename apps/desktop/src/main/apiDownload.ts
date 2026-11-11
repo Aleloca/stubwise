@@ -14,9 +14,12 @@ const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const DOWNLOAD_PATHS = [
   new RegExp(`^/api/chat/attachments/${UUID}/download$`, "i"),
   new RegExp(`^/api/attachments/${UUID}/download$`, "i"),
+  // Area 5, fetta 2: un file del Drive. Sul desktop anche l'«anteprima» è un
+  // salvataggio (decisione dell'orchestratrice): la rotta `preview` non c'è.
+  new RegExp(`^/api/drive/files/${UUID}/download$`, "i"),
 ];
 
-/** Solo il download di un allegato della Chat o di un ticket: nient'altro passa da `api:download`. */
+/** Solo il download di un allegato della Chat o di un ticket, o di un file del Drive: nient'altro passa da `api:download`. */
 export function isAllowedDownloadPath(path: unknown): path is string {
   return typeof path === "string" && DOWNLOAD_PATHS.some((re) => re.test(path));
 }

@@ -31,6 +31,10 @@ describe("i percorsi che si scaricano", () => {
   it("solo il download di un allegato della Chat o di un ticket, con un uuid", () => {
     expect(isAllowedDownloadPath(`/api/chat/attachments/${ID}/download`)).toBe(true);
     expect(isAllowedDownloadPath(`/api/attachments/${ID}/download`)).toBe(true);
+    // Area 5, fetta 2: il download di un file del Drive (anche l'«anteprima» sul desktop); la rotta `preview` no.
+    expect(isAllowedDownloadPath(`/api/drive/files/${ID}/download`)).toBe(true);
+    expect(isAllowedDownloadPath(`/api/drive/files/${ID}/preview`)).toBe(false);
+    expect(isAllowedDownloadPath(`/api/drive/files/not-a-uuid/download`)).toBe(false);
     for (const path of [
       `/api/chat/attachments/${ID}`,
       `/api/chat/attachments/not-a-uuid/download`,
