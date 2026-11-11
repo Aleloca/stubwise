@@ -3605,3 +3605,62 @@ deploy o di un rollback che la tocca.
     on m.id = a.message_id where m.deleted_at is not null;`. Prima si tolgono gli
     oggetti dallo storage, poi le righe con la stessa condizione.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Integrazione area 5, fetta 1: Docs nel desktop» (11 nov 2026)**: design
+  `docs/plans/2026-11-11-integrazione-area5-docs-design.md`, piano
+  `docs/plans/2026-11-11-integrazione-area5-fetta1-plan.md`, invariante
+  `docs/invariants/docs.md`. I Docs «come oggi» nel desktop.
+  - Codici stabili `<PRJ>-D<n>` delle pagine.
+  - Citazioni `doc` della Chat che puntano al codice e portano il link.
+  - Embedding delle pagine manuali.
+  - Claude legge una pagina intera (`read_doc_page`).
+  - Lo stato della generazione dice il motivo, il rientro e l'avanzamento.
+  - L'api-client dei Docs e le forme del grafo in `@stubwise/shared`.
+
+  Rotta nuova: `GET /api/docs/codes/:code`. Campi nuovi, tutti additivi:
+  - `code` su albero, pagina, highlights, ricerche e fonti della chat RAG;
+  - `code` e `doc` sulle citazioni della Chat;
+  - `reasonCode`, `resumesAt` e `progress` sullo stato;
+  - `projectId` sugli spazi.
+
+  Migrazione **0142**:
+  - la tabella `doc_page_codes`;
+  - il trigger `doc_pages_code` su `doc_pages`;
+  - le funzioni `stubwise_backfill_doc_page_codes()` e
+    `stubwise_doc_citations_to_codes()`, chiamate una volta: i codici delle
+    pagine visibili e le citazioni `doc` portate al codice.
+
+  Il server dipende ora da `@stubwise/docs-engine` (il chunking delle pagine
+  manuali): il Dockerfile del server lo builda col filtro
+  `@stubwise/server...` e non ha bisogno del suo manifest nel layer di
+  install, perché il pacchetto non ha deps esterne (come per il worker).
+  Nessun `notification_kind` nuovo. Env nuove: nessuna. **Golden** sul CLI
+  2.1.322: `chat-read` e `chat-mention-read`, perché cambia l'elenco dei tool.
+  **ORDINE**:
+  1. **backup**;
+  2. **`server`**: applica 0142, aspetta healthy. Da qui c'è la rotta della
+     pagina nell'allowlist del token del turno;
+  3. **`worker`**, solo SENZA lavoro dell'agente in corso: ha il tool
+     `read_doc_page` e la costante `DOCS_WORKER_RESTART_ERROR` (lo stesso testo
+     di prima);
+  4. **`caddy`**: il renderer di `/app` con i Docs.
+
+  Un worker nuovo davanti a un server vecchio troverebbe la rotta della pagina
+  fuori dall'allowlist (403 `chat_tool_forbidden`, che il tool rende come «non
+  visibile»): per questo il server va prima.
+  **Rollback**:
+  - Le citazioni `doc` della Chat puntano ai CODICI. Un server della fetta 4
+    dell'area 4 le cerca fra le pagine, non le trova e non le mostra. Prima di
+    scendere col server, per riportarle alle pagine di adesso:
+    `update chat_message_citations c set ref_id = p.id from doc_page_codes dc
+    join repositories r on r.id = dc.repository_id join doc_pages p on
+    p.repository_id = dc.repository_id and p.slug = dc.slug and (p.generation_id
+    = r.current_doc_generation_id or p.generation_id is null) where c.kind = 'doc'
+    and c.ref_id = dc.id;`. Se due pagine (una generata e una manuale) hanno lo
+    stesso slug, la query ne prende una; i duplicati per lo stesso messaggio li
+    rifiuta la chiave primaria, e vanno tolti prima. Senza la query, le
+    citazioni `doc` spariscono dalla vista finché non si risale.
+  - Il trigger `doc_pages_code` resta e un server vecchio non lo vede: i codici
+    continuano a nascere, ed è innocuo.
+  - I chunk delle pagine manuali restano: un server vecchio li trova con la
+    ricerca semantica, ed è un miglioramento, non un problema.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
