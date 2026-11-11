@@ -2889,6 +2889,22 @@ export function useUploadFiles() {
   );
 }
 
+/** «Save to Drive» da un allegato della Chat: nel progetto del canale o in quello scelto. */
+export function useSaveAttachmentToDrive() {
+  return useWrite(
+    ({
+      attachmentId,
+      input,
+      target,
+    }: {
+      attachmentId: string;
+      input: DriveUploadInput;
+      target: { projectId: string; channelProject: boolean };
+    }) => api.drive.saveAttachmentToDrive(attachmentId, input, target),
+    DRIVE_FILE_AREAS,
+  );
+}
+
 export function useDeleteDriveFile() {
   return useWrite((id: string) => api.drive.deleteDriveFile(id), DRIVE_FILE_AREAS);
 }

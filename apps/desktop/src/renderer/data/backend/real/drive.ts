@@ -279,6 +279,26 @@ const uploadFiles: Drive["uploadFiles"] = async (projectId, files, options: Driv
   return results;
 };
 
+/**
+ * «Save to Drive» da un allegato della Chat (`POST …/save-to-drive`): la
+ * copia la fa il server. In un canale di progetto il progetto non si manda
+ * (è il suo: un altro sarebbe `project_mismatch`); in un DM o in un generale sì.
+ */
+const saveAttachmentToDrive: Drive["saveAttachmentToDrive"] = async (attachmentId, input, target) => {
+  try {
+    const out = await write(() =>
+      appClient().drive.saveFromChat(attachmentId, target.channelProject ? {} : { projectId: target.projectId }),
+    );
+    const [row] = await rowsOf([out.file as ServerDriveFileRow]);
+    return { name: input.name, file: row!, error: null };
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 413 || error.code === "file_too_large")) {
+      return { name: input.name, file: null, error: "too_large" };
+    }
+    throw error;
+  }
+};
+
 export const driveFunctions: Partial<Drive> = {
   listDriveFiles,
   getDriveFile,
@@ -286,6 +306,7 @@ export const driveFunctions: Partial<Drive> = {
   deleteDriveFile,
   recordOpen,
   uploadFiles,
+  saveAttachmentToDrive,
 };
 
 export const drive: Drive = partialNamespace<Drive>("drive", driveFunctions);

@@ -305,3 +305,32 @@ describe("il Drive nella build app: caricare", () => {
     expect(seen).toEqual([]);
   });
 });
+
+describe("il Drive nella build app: «Save to Drive» da un allegato della Chat", () => {
+  const ATT = "55555555-5555-4555-8555-555555555555";
+  const input = { name: "spec.pdf", mime: "application/pdf", sizeBytes: 4 };
+  const saved = { file: serverRow({ name: "spec.pdf" }), keptBoth: false, requestedName: "spec.pdf" };
+
+  it("in un canale di progetto non manda il progetto (è il suo); in un DM sì", async () => {
+    const { seen } = installFakeServer({ [`POST /api/chat/attachments/${ATT}/save-to-drive`]: { status: 201, body: saved } });
+    const here = await drive.saveAttachmentToDrive(ATT, input, { projectId: PROJECT_ID, channelProject: true });
+    expect(here).toEqual({ name: "spec.pdf", file: expect.objectContaining({ id: FILE_ID }), error: null });
+    await drive.saveAttachmentToDrive(ATT, input, { projectId: PROJECT_ID, channelProject: false });
+    expect(seen.map((r) => r.body)).toEqual([{}, { projectId: PROJECT_ID }]);
+  });
+
+  it("troppo grande è un esito; senza permesso o allegato non leggibile un errore", async () => {
+    installFakeServer({
+      [`POST /api/chat/attachments/${ATT}/save-to-drive`]: { status: 413, body: { code: "file_too_large", message: "x" } },
+    });
+    expect(await drive.saveAttachmentToDrive(ATT, input, { projectId: PROJECT_ID, channelProject: true })).toEqual({
+      name: "spec.pdf",
+      file: null,
+      error: "too_large",
+    });
+    installFakeServer({
+      [`POST /api/chat/attachments/${ATT}/save-to-drive`]: { status: 403, body: { code: "forbidden", message: "x" } },
+    });
+    await expect(drive.saveAttachmentToDrive(ATT, input, { projectId: PROJECT_ID, channelProject: true })).rejects.toThrow("forbidden");
+  });
+});

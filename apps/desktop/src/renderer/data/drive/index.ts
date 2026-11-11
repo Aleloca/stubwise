@@ -25,6 +25,7 @@ export {
   recordOpen,
   removeGoogleFile,
   retryExtraction,
+  saveAttachmentToDrive,
   setHidden,
   syncFolder,
   unlinkFolder,

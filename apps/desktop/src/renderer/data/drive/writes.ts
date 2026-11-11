@@ -139,6 +139,21 @@ export async function uploadFiles(
   return results;
 }
 
+/**
+ * «Save to Drive» da un allegato della Chat: una copia nel Drive del
+ * progetto (`channelProject`: quello del canale, altrimenti scelto). Il
+ * prototipo la carica come un file scelto dal disco; nella build app la fa il
+ * server dall'allegato (`attachmentId`).
+ */
+export async function saveAttachmentToDrive(
+  _attachmentId: string,
+  input: DriveUploadInput,
+  target: { projectId: string; channelProject: boolean },
+): Promise<DriveUploadResult> {
+  const [result] = await uploadFiles(target.projectId, [input]);
+  return result!;
+}
+
 /** Elimina un caricato: il proprio, o con `drive.manage`. Le sue aperture se ne vanno con lui. */
 export async function deleteDriveFile(id: string): Promise<void> {
   const me = await gate("drive.deleteDriveFile");
