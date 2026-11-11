@@ -14,7 +14,7 @@ import {
 } from "@stubwise/db";
 import { AGENT_SESSION_INPUT_CHANNEL, CLAUDE_CONVERSATION_CLOSED_CHANNEL, CLAUDE_PROPOSAL_EXPIRY } from "@stubwise/shared";
 import type { ChatCitationKind, ChatClaudeReplyView } from "@stubwise/shared";
-import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { projectIdsWithPermission } from "../auth/access.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
@@ -418,7 +418,7 @@ export async function claudeReplyViews(
               answer: q.answeredAt
                 ? { optionIndex: q.answerOptionIndex, text: q.answerText, byId: q.answeredBy, at: q.answeredAt.toISOString() }
                 : null,
-              canAnswer: own && live && q.answeredAt === null && r.claudeState === "waiting",
+              canAnswer: own && live && q.answeredAt === null && r.claudeState === "waiting" && r.agentSessionId !== null,
             }
           : null,
       canStop: own && r.deletedAt === null && (r.claudeState === "working" || r.claudeState === "waiting"),
@@ -475,6 +475,8 @@ export async function claudeQuestionsOf(db: Db, viewer: ChatViewer): Promise<Cha
         isNull(chatClaudeQuestions.answeredAt),
         eq(chatMessages.calledById, viewer.id),
         eq(chatMessages.claudeState, "waiting"),
+        // Una sessione potata (14 giorni) non riprende: la domanda esce (review della fetta 3).
+        isNotNull(chatMessages.agentSessionId),
         isNull(chatMessages.deletedAt),
         isNull(chatChannels.archivedAt),
         await channelReadableSql(db, viewer),

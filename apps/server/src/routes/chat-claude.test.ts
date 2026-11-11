@@ -378,4 +378,12 @@ describe("review della fetta 3 (11 nov 2026)", () => {
     const afterCancel = (await changedSince(t.db, leadViewer, g, afterConfirm.cursor!, seen))!;
     expect(afterCancel.messages.find((m) => m.id === reply.id)!.claude!.proposals.find((p) => p.id === b.proposalId)!.status).toBe("cancelled");
   });
+
+  it("7. potata la sessione (14 giorni), la domanda esce da «Da decidere» e non si risponde più", async () => {
+    const { reply, questionId } = await waitingReply("prima della potatura");
+    expect(((await as(dev, "GET", "/api/chat/claude-questions")).json() as { items: { questionId: string }[] }).items.map((i) => i.questionId)).toContain(questionId);
+    await t.db.delete(agentSessions).where(eq(agentSessions.id, reply.agentSessionId!));
+    expect(((await as(dev, "GET", "/api/chat/claude-questions")).json() as { items: { questionId: string }[] }).items.map((i) => i.questionId)).not.toContain(questionId);
+    expect((await view(dev, reply.id)).claude!.question).toMatchObject({ canAnswer: false });
+  });
 });

@@ -289,6 +289,21 @@ Piano: `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`. Codice:
   risposta la ferma e fa decadere le sue proposte aperte.
 - **Budget**: a budget finito la risposta nasce `failed`/`budget`, senza turno.
   Nessun altro tetto (decisione del maintainer).
+- **Dopo 14 giorni la sessione si pota, e con lei pezzi della scheda**
+  (review della fetta 3). `chat_messages.agent_session_id` va a null; il
+  testo della risposta resta. Spariscono, per tutti i lettori:
+  - le schede delle proposte (`claude_proposals` va in cascata con la
+    sessione), comprese quelle confermate: i codici nati restano nelle task;
+  - «cosa ha letto», per chi ha chiamato;
+  - la possibilità di rispondere a una domanda ancora aperta: `canAnswer`
+    diventa falso e la domanda esce da «Da decidere» (`claudeQuestionsOf`
+    vuole la sessione), il suo testo resta nel thread.
+- **Limite accettato: il testo eliminato resta nella copia della sessione**
+  (review della fetta 3). Il contesto del thread entra nella sessione di chi
+  ha chiamato come primo input: un messaggio eliminato DOPO la chiamata
+  esce dalla Chat, ma resta in quella copia (e nei suoi eventi) finché la
+  sessione non si pota, 14 giorni. Come WAL e backup: il testo si conserva
+  finché quei dati non vengono riscritti.
 - **Il registro decisioni non si scrive**: i moduli della Chat sono nei test
   `decisions-never-ai` e `claude-actions-never`.
 
