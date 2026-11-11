@@ -118,7 +118,7 @@ export async function extractContent(
       if (!infoRun.ok) return noText(reasonOf(infoRun));
       const infoText = infoRun.stdout.toString("utf8");
       const pages = Number(/^Pages:\s+(\d+)/m.exec(infoText)?.[1] ?? "0");
-      const textRun = await run("pdftotext", ["-enc", "UTF-8", "-eol", "unix", "input.pdf", "out.txt"], L.pdfTextMs);
+      const textRun = await run("pdftotext", ["-enc", "UTF-8", "-eol", "unix", "-f", "1", "-l", String(L.pdfTextMaxPages), "input.pdf", "out.txt"], L.pdfTextMs);
       if (textRun.ok) {
         const text = decode(await head(join(dir, "out.txt"), L.textMaxChars * 4).catch(() => Buffer.alloc(0)));
         if (text.replace(/\s/g, "").length >= L.pdfTextMinChars) return finish(text, "none");

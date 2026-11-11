@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createExec } from "./exec.js";
+import { EXTRACT_LIMITS } from "./limits.js";
 
 // Il lanciatore dei processi figli (area 5, fetta 3): mai una shell, il
 // figlio ucciso con SIGKILL al timeout, un binario assente è `missing` (un
@@ -43,6 +44,7 @@ describe("createExec", () => {
     const calls: { file: string; args: readonly string[] }[] = [];
     const wrapped = createExec({ prlimit: true, memoryBytes: 1024 ** 3, which: async () => true, spawn: (file, args) => (calls.push({ file, args }), Promise.resolve({ ok: true as const, stdout: Buffer.alloc(0) })) });
     await wrapped("tesseract", ["a.png", "stdout"], { cwd: "/tmp", timeoutMs: 60_000, maxBuffer: 10 });
-    expect(calls[0]).toEqual({ file: "prlimit", args: [`--as=${1024 ** 3}`, "--cpu=65", "--", "tesseract", "a.png", "stdout"] });
+    // Anche il disco (review della F3): un file scritto dal figlio non passa il tetto.
+    expect(calls[0]).toEqual({ file: "prlimit", args: [`--as=${1024 ** 3}`, "--cpu=65", `--fsize=${EXTRACT_LIMITS.childFileBytes}`, "--", "tesseract", "a.png", "stdout"] });
   });
 });

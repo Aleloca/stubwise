@@ -21,6 +21,10 @@ export const EXTRACT_LIMITS = {
   maxDpi: 300,
   /** Pixel massimi di un'immagine (o di una pagina) passata a tesseract. */
   maxPixels: 40_000_000,
+  /** Il file più grande che un figlio può scrivere (`prlimit --fsize`): una pagina a 40 megapixel ci sta. */
+  childFileBytes: 256 * 1024 * 1024,
+  /** Le pagine che pdftotext legge al più: il testo si ferma comunque a un milione di caratteri. */
+  pdfTextMaxPages: 500,
   /** Lo stdout di ogni figlio. */
   childStdoutBytes: 8 * 1024 * 1024,
   /** Il testo estratto complessivo. */
