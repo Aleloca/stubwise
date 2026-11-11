@@ -94,7 +94,8 @@ const fetchTransport: ChatStreamTransport = (path, handlers) => {
       }
       finish({});
     } catch {
-      finish(abort.signal.aborted && done ? null : {});
+      // Già chiuso (lo stop di chi ascolta): `finish` non fa più niente.
+      finish({});
     }
   })();
   return () => {
