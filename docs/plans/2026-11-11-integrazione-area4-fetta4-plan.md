@@ -84,7 +84,20 @@
    - le regole complesse degli eventi (area 7, automazioni);
    - gli eventi delle aree non integrate, salvo [DECIDE] 1.
 
-## [DECIDE] per l'orchestratrice
+## Decisioni (11 nov 2026)
+
+- **[DECIDE] 1 = (a)** (M): `release_page` acceso ma inerte fino all'area 8;
+  rimando nel registro, area 8.
+- **[DECIDE] 2 = (b)** (M), con i valori del maintainer:
+  - 25 MB per file, al più 10 file per messaggio;
+  - tipi più larghi dei ticket: immagini, PDF, documenti, archivi (zip),
+    audio e video;
+  - niente eseguibili: un allowlist MIME esplicito, un controllo anche
+    sull'estensione, e il download sempre con `Content-Disposition:
+    attachment`.
+- **[DECIDE] 3 = (a)** (O): il worker pota gli allegati in sospeso dopo 24 ore.
+
+## [DECIDE] per l'orchestratrice (com'erano poste)
 
 1. **`release_page`: da dove nasce.** Il «general» lo ha acceso di default
    (D8), ma la «pagina di Release» del prototipo è un oggetto dell'area 8, non
