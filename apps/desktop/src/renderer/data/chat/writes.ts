@@ -717,7 +717,12 @@ export async function inviteMembers(channelId: string, personIds: string[]): Pro
  * Toglie una persona: il creatore o chi gestisce (mai nel «general» né in
  * un DM); un privato non resta senza membri.
  */
-export async function removeMember(channelId: string, personId: string): Promise<ChannelView> {
+/**
+ * Toglie una persona dal canale. Il canale come lo legge chi toglie; `null`
+ * quando non lo vede più (la build app: si è tolto da un privato, 204). Qui
+ * non succede: chi toglie sé stesso da un privato resta chi lo gestisce.
+ */
+export async function removeMember(channelId: string, personId: string): Promise<ChannelView | null> {
   const me = await gate("chat.removeMember");
   const ch = seen(me, channelId);
   if (!channelPermissions(me, ch).canRemove) throw forbidden();

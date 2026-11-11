@@ -439,10 +439,8 @@ const inviteMembers: Chat["inviteMembers"] = async (channelId, personIds) =>
 /** Toglie una persona; se chi agisce non vede più il canale (204), la sua ultima vista. */
 const removeMember: Chat["removeMember"] = async (channelId, personId) => {
   const view = await call(() => appClient().chat.channels.removeMember(channelId, personId));
-  if (view) return toChannelView(view);
-  const now = await getChannel(channelId);
-  if (!now) throw new Error("not_found");
-  return now;
+  // 204: chi l'ha tolto non lo vede più (si è tolto da un privato): niente da rileggere.
+  return view ? toChannelView(view) : null;
 };
 
 /** Il canale come lo legge chi guarda (`AUD · general`, i nomi del DM), per le righe di «Da decidere». */

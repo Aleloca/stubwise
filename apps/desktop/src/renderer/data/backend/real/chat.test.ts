@@ -415,6 +415,13 @@ describe("fetta 2: DM, privati, generali, domande, ricerca, da un messaggio", ()
     await expect(chat.leaveChannel(PRIVATE)).resolves.toBeUndefined();
   });
 
+  it("togliersi da un privato (204): null, senza rileggere il canale che non si vede più", async () => {
+    const { seen } = install({ [`DELETE /api/chat/channels/${PRIVATE}/members/${ME_ID}`]: { status: 204 } });
+    await getSessionPerson();
+    await expect(chat.removeMember(PRIVATE, ME_ID)).resolves.toBeNull();
+    expect(seen.some((r) => r.method === "GET" && r.path === `/api/chat/channels/${PRIVATE}`)).toBe(false);
+  });
+
   it("le domande in «Da decidere», col canale come lo legge chi guarda; ignorarne una", async () => {
     const { seen } = install({
       "GET /api/chat/questions": {
