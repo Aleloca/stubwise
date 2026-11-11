@@ -277,6 +277,29 @@ describe("la Chat nella build app", () => {
     expect(within(menu).getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
   });
 
+  it("in un canale archiviato i flag falsi del server spengono Modifica ed Elimina anche sui propri messaggi", async () => {
+    const MINE = "7f1c2a1e-0000-4000-8000-0000000000d7";
+    const archived = channel({ archived: true, canWrite: false });
+    install({
+      "GET /api/chat/channels": { body: { items: [archived] } },
+      [`GET /api/chat/channels/${CH}`]: { body: archived },
+      [`GET /api/chat/channels/${CH}/messages`]: {
+        body: {
+          items: [message({ id: MINE, authorId: ME_ID, text: "My note", canEdit: false, canDelete: false })],
+          before: null,
+        },
+      },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/chat/${CH}`);
+    await screen.findByText("My note");
+    const row = document.querySelector<HTMLElement>(`[data-message="${MINE}"]`)!;
+    await ue.click(within(row).getByRole("button", { name: "More actions" }));
+    const menu = screen.getByRole("menu", { name: "Message actions" });
+    expect(within(menu).queryByRole("menuitem", { name: "Edit" })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: "Delete" })).toBeNull();
+  });
+
   it("la ricerca: i messaggi dal server, coi canali che chi guarda legge (fetta 2)", async () => {
     install({
       "GET /api/chat/search": { body: { items: [{ channelId: CH, message: message({ text: "Export the PDF" }), context: null, root: null }] } },
