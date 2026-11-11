@@ -314,4 +314,23 @@ describe("review fetta 2, seconda (11 nov 2026)", () => {
     const forContributor = (await search(contributor)).json() as { items: unknown[] };
     expect(forContributor.items).toEqual([]);
   });
+
+  it("4. «Threads»: l'appartenenza sta nella WHERE (100 thread di un canale lasciato non nascondono il 101°)", async () => {
+    const left = await openChannel(w1);
+    await as(w1, "DELETE", `/api/chat/channels/${left}/join`);
+    const kept = await openChannel(w1);
+    const old = new Date(Date.now() - 3_600_000);
+    const [keptRoot] = await t.db.insert(chatMessages).values({ channelId: kept, authorId: w1.id, body: "il thread buono", updatedAt: old, createdAt: old }).returning({ id: chatMessages.id });
+    await t.db.insert(chatMessages).values({ channelId: kept, authorId: lead.id, body: "novità", threadRootId: keptRoot!.id });
+    await t.db.insert(chatThreadFollows).values({ userId: w1.id, rootMessageId: keptRoot!.id, following: true });
+    const roots = await t.db
+      .insert(chatMessages)
+      .values(Array.from({ length: 100 }, (_, i) => ({ channelId: left, authorId: w1.id, body: `lasciato ${i}` })))
+      .returning({ id: chatMessages.id });
+    await t.db.insert(chatMessages).values(roots.map((r) => ({ channelId: left, authorId: lead.id, body: "nuova", threadRootId: r.id })));
+    await t.db.insert(chatThreadFollows).values(roots.map((r) => ({ userId: w1.id, rootMessageId: r.id, following: true })));
+    const items = ((await as(w1, "GET", "/api/chat/threads")).json() as { items: { root: { id: string; channelId: string } }[] }).items;
+    expect(items.map((i) => i.root.id)).toContain(keptRoot!.id);
+    expect(items.some((i) => i.root.channelId === left)).toBe(false);
+  });
 });

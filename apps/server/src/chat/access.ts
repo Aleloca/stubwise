@@ -71,6 +71,17 @@ export async function channelReadableSql(db: Db, viewer: ChatViewer): Promise<SQ
 }
 
 /** Il canale, se chi guarda lo vede; altrimenti null (404). */
+/**
+ * Chi guarda è MEMBRO del canale della riga `chat_channels` corrente, in SQL:
+ * la regola di `accessFrom` (`isGeneral` o una riga fra i membri), per le
+ * liste che filtrano sull'appartenenza prima del limite.
+ */
+export function channelMemberSql(viewerId: string): SQL {
+  return sql`(${chatChannels.isGeneral} or exists (
+    select 1 from ${chatChannelMembers} cm where cm.channel_id = ${chatChannels.id} and cm.user_id = ${viewerId}
+  ))`;
+}
+
 export async function visibleChannel(db: Db, viewer: ChatViewer, id: string): Promise<ChannelRow | null> {
   const [row] = await db
     .select()

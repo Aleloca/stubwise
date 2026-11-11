@@ -45,6 +45,7 @@ import {
   allowedMemberIds,
   channelAccess,
   channelMemberIds,
+  channelMemberSql,
   channelReadableSql,
   channelReaderIds,
   channelVisibleSql,
@@ -1356,6 +1357,10 @@ export async function threadsWithNews(
       and(
         eq(chatThreadFollows.following, true),
         readable,
+        // Membro del canale, nella WHERE (review della fetta 2): i thread di un
+        // canale lasciato non occupano i 100 posti. Chi esce smette così di
+        // seguirne i thread, a lettura, senza riscrivere i follow.
+        channelMemberSql(viewer.id),
         // Le novità PRIMA del limite: cento thread seguiti senza risposte nuove non nascondono il centunesimo.
         sql`exists (
           select 1 from chat_messages r
@@ -1371,9 +1376,7 @@ export async function threadsWithNews(
     )
     .orderBy(desc(chatMessages.updatedAt))
     .limit(100);
-  const accessOf = membershipCache(db, viewer);
-  const withNews: typeof rows = [];
-  for (const r of rows) if (r.unread > 0 && (await accessOf(r.channel)).isMember) withNews.push(r);
+  const withNews = rows;
   if (withNews.length === 0) return [];
   // Le ultime tre risposte vive di OGNI thread in una query a finestra, e una vista sola per tutto.
   const rootIds = withNews.map((r) => r.root.id);
