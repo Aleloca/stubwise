@@ -247,8 +247,44 @@ function sendFromBrowser(path: string, file: File, options: DriveUploadOptions):
   });
 }
 
+/** Quanti caricamenti alla volta per finestra (orchestratrice, 11 nov 2026): gli altri in coda. */
+export const DRIVE_UPLOAD_CONCURRENCY = 3;
+
+let active = 0;
+const waiting: (() => void)[] = [];
+
 /**
- * Carica dei file nel Drive di un progetto, uno alla volta, ciascuno col suo
+ * Un posto fra i caricamenti di questa finestra (un renderer = una finestra):
+ * `null` se annullato mentre aspettava. Chi lo prende lo rende con `release`.
+ */
+function takeSlot(signal: AbortSignal | undefined): Promise<(() => void) | null> {
+  const release = () => {
+    active -= 1;
+    waiting.shift()?.();
+  };
+  if (signal?.aborted) return Promise.resolve(null);
+  if (active < DRIVE_UPLOAD_CONCURRENCY) {
+    active += 1;
+    return Promise.resolve(release);
+  }
+  return new Promise((resolve) => {
+    const go = () => {
+      signal?.removeEventListener("abort", drop);
+      active += 1;
+      resolve(release);
+    };
+    const drop = () => {
+      const i = waiting.indexOf(go);
+      if (i >= 0) waiting.splice(i, 1);
+      resolve(null);
+    };
+    waiting.push(go);
+    signal?.addEventListener("abort", drop, { once: true });
+  });
+}
+
+/**
+ * Carica dei file nel Drive di un progetto (al più 3 alla volta per finestra), ciascuno col suo
  * esito: oltre 100 MB `too_large` (senza partire); un nome già nel progetto lo
  * rinomina il server («(2)»). Gli errori come nel prototipo: archiviazione
  * spenta `invalid: storage_off`, annullato `canceled`, il resto `failed`.
@@ -263,7 +299,15 @@ const uploadFiles: Drive["uploadFiles"] = async (projectId, files, options: Driv
     }
     if (!input.file) throw new Error("failed");
     const fromMain = window.stubwise?.files && window.stubwise.api?.upload;
-    const sent = fromMain ? await sendFromMain(path, input.file, options) : await sendFromBrowser(path, input.file, options);
+    // In coda finché non c'è posto: il main non apre il file prima.
+    const release = await takeSlot(options.signal);
+    if (!release) throw new Error("canceled");
+    let sent: Sent;
+    try {
+      sent = fromMain ? await sendFromMain(path, input.file, options) : await sendFromBrowser(path, input.file, options);
+    } finally {
+      release();
+    }
     if (!sent.ok) {
       if (sent.reason === "too_large") {
         results.push({ name: input.name, file: null, error: "too_large" });

@@ -334,3 +334,37 @@ describe("il Drive nella build app: «Save to Drive» da un allegato della Chat"
     await expect(drive.saveAttachmentToDrive(ATT, input, { projectId: PROJECT_ID, channelProject: true })).rejects.toThrow("forbidden");
   });
 });
+
+describe("il Drive nella build app: al più 3 caricamenti alla volta per finestra", () => {
+  it("il quarto aspetta che uno finisca; uno annullato in coda non parte nemmeno", async () => {
+    const releases: ((v: unknown) => void)[] = [];
+    const upload = vi.fn(() => new Promise((resolve) => releases.push(resolve)));
+    const register = vi.fn(async () => ({ ok: true, grant: "g", name: "a.pdf", sizeBytes: 4 }));
+    (window as { stubwise?: unknown }).stubwise = { api: { upload }, files: { register, cancel: vi.fn(), onProgress: () => () => undefined } };
+    const one = () => {
+      const file = new File(["abcd"], "a.pdf", { type: "application/pdf" });
+      return [{ name: file.name, mime: file.type, sizeBytes: file.size, file }];
+    };
+    const ok = { ok: true, status: 201, body: { file: serverRow(), keptBoth: false, requestedName: "a.pdf" } };
+    const running = [1, 2, 3, 4].map(() => drive.uploadFiles(PROJECT_ID, one()));
+    const queued = new AbortController();
+    const fifth = drive.uploadFiles(PROJECT_ID, one(), { signal: queued.signal });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(3));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(register).toHaveBeenCalledTimes(3);
+    queued.abort();
+    await expect(fifth).rejects.toThrow("canceled");
+    releases[0]!(ok);
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(4));
+    releases.slice(1).forEach((r) => r(ok));
+    await vi.waitFor(() => expect(releases).toHaveLength(4));
+    releases[3]!(ok);
+    await Promise.all(running);
+    expect(register).toHaveBeenCalledTimes(4);
+    // Nessun posto è rimasto preso (nemmeno da quello annullato in coda): ne ripartono 3.
+    const again = [1, 2, 3].map(() => drive.uploadFiles(PROJECT_ID, one()));
+    await vi.waitFor(() => expect(upload).toHaveBeenCalledTimes(7));
+    releases.slice(4).forEach((r) => r(ok));
+    await Promise.all(again);
+  });
+});
