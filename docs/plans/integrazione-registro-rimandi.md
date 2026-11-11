@@ -139,30 +139,30 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 Design: `docs/plans/2026-11-10-integrazione-area4-chat-design.md`. Fetta 1
 chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
 
-Fetta 2 chiusa (sotto, «Chiuse»).
+Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse»).
 
-- @Claude nella chat, e le sue domande in «Da decidere» *(fetta 3)*: regole
-  proprie del prototipo, tutto proposte e niente «Annulla».
 - Il filtro «con allegati» della ricerca *(fetta 4, con gli allegati)*.
-- Messaggi «via Claude» *(fetta 3, con @Claude)*:
-  `chat_messages.via_claude_action_id` c'è, ma nessuno lo scrive.
-- Fetta 3 (@Claude), da sapere *(S, review della fetta 1)*: «apri il thread
-  dopo l'invio» (`useOpenHref`, `apps/desktop/src/renderer/pages/chat/ChannelView.tsx`)
-  confrontava chi scrive con `getSessionPersonId()` del prototipo, vuota nella
-  build app, e non navigava mai: ora usa la persona vera (`useSessionPersonId`),
-  test `real/chatOpenThread.test.tsx`. Anche le bozze del riquadro di Claude
-  (`layout/claudePanel/pageActions.ts`) leggevano la bozza con
-  `getSessionPersonId()`: ora chi guarda la passa (`answerDraft`,
-  `wantDraft`, `undoDraft`) e i campi dichiarati usano la persona del runner
-  montato; test a due persone in `fillable.test.tsx`.
+- Differenza dal prototipo, da confermare *(S, renderer della fetta 3)*: chi
+  non ha chiamato @Claude legge le schede senza gli argomenti (il server non
+  glieli dà: «Create a task», non «Create the task “Export PDF”»). Il
+  prototipo mostrava i titoli che il lettore vede e toglieva solo gli altri.
+- Limite *(S, renderer della fetta 3)*: mentre Claude scrive, ogni frame dello
+  stream (circa uno al secondo) rilegge gli eventi della sessione di chi ha
+  chiamato per le righe d'azione. Una lettura per risposta alla volta, solo
+  per chi ha chiamato; le altre persone non leggono niente.
+- Limite *(S, renderer della fetta 3)*: «Delete Claude's reply» compare per
+  chi ha chiamato in un canale che scrive (regola del prototipo). Il server
+  manda anche `canDelete`, che la scheda della risposta non legge ancora: se
+  il server rifiuta, la riga di conferma dice che l'eliminazione non è
+  riuscita.
 - Limite (non conta: le fette 1 e 2 escono insieme) *(S)*: il renderer della
   fetta 2 legge i permessi del canale uno per uno (`canEditInfo`…); contro un
   server della sola fetta 1, che manda solo `canManage`, i bottoni di gestione
   non comparirebbero.
 - **I flag del renderer da accendere con ogni fetta** *(O, 10 nov 2026)*
   (`CHAT_LATER_FEATURES` in `apps/desktop/src/renderer/data/integration.ts`):
-  quelli della fetta 2 sono accesi; restano fetta 3 `chat-claude`, fetta 4
-  `chat-events` e `chat-attachments`. Ognuno va acceso col suo test di pagina.
+  quelli delle fette 2 e 3 sono accesi; restano fetta 4 `chat-events` e
+  `chat-attachments`. Ognuno va acceso col suo test di pagina.
 - `@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
   1, da riprendere se il maintainer vuole avvisi di gruppo.
 - Limite accettato: modificare un messaggio avvisa solo chi viene nominato
@@ -287,6 +287,14 @@ Fetta 2 chiusa (sotto, «Chiuse»).
   domanda a chi chiama (`ask_question` scritto dal worker) in «Da decidere»,
   stop, «Try again», eliminazione, budget → `failed`/`budget`. Migrazione
   0140; golden `chat-mention-*`. Il renderer è di stubwise-94.
+
+- **Area 4, fetta 3: @Claude nei canali, renderer** *(M/O, 11 nov 2026)*:
+  `chat-claude` acceso; la parità sta in
+  `apps/desktop/docs/integration-area4-f3.md` («Renderer»). Comprende anche
+  i difetti trovati nella review della fetta 1: «apri il thread dopo l'invio»
+  con la persona vera della build app (`useSessionPersonId`, test
+  `real/chatOpenThread.test.tsx`) e le bozze del riquadro di Claude per
+  persona (`answerDraft`, `wantDraft`, `undoDraft`, `fillable.test.tsx`).
 
 - Messaggi «via Claude» nella Chat *(M, 10 nov 2026, piano della fetta 3)*:
   si chiude senza codice. Nessuna azione del catalogo scrive in Chat, e
