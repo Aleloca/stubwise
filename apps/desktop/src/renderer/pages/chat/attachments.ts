@@ -47,6 +47,9 @@ const SEND_REFUSALS: Record<string, string> = {
   "invalid: attachmentSize": "chat.attachments.notSent.size",
   "invalid: attachmentsOff": "chat.attachments.notSent.off",
   "invalid: attachments": "chat.attachments.notSent.gone",
+  "invalid: attachmentQuota": "chat.attachments.notSent.quota",
+  "invalid: attachmentName": "chat.attachments.notSent.name",
+  "invalid: attachmentRate": "chat.attachments.notSent.rate",
 };
 
 /** La chiave i18n del perché di un invio fallito per un allegato; `null` per gli altri errori. */

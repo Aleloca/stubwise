@@ -164,6 +164,10 @@ describe("gli allegati", () => {
       [400, "unsupported_type", "invalid: attachmentType"],
       [413, "file_too_large", "invalid: attachmentSize"],
       [400, "storage_not_configured", "invalid: attachmentsOff"],
+      // Review della fetta 4 (server): troppi file in sospeso, un nome troppo lungo, troppi caricamenti.
+      [409, "pending_quota", "invalid: attachmentQuota"],
+      [400, "invalid_filename", "invalid: attachmentName"],
+      [429, "rate_limited", "invalid: attachmentRate"],
     ] as const) {
       const { seen } = install({ [`POST /api/chat/channels/${CH}/attachments`]: { status, body: { code, message: "x" } } });
       await getSessionPerson();
