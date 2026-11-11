@@ -485,3 +485,16 @@ describe("lo stato della generazione col motivo (server dopo 1deba629)", () => {
   });
 });
 
+describe("review della fetta 1 dell'area 5", () => {
+  it("un lettore dei Docs senza repos.view (Contributor): il grafo 403 è «niente grafo», lo spazio e la Home si aprono", async () => {
+    install(
+      { [`GET /api/repositories/${REPO}/graph`]: { status: 403, body: { code: "forbidden", message: "x" } } },
+      ["docs.view"],
+    );
+    await getSessionPerson();
+    const [view] = await docs.listDocSpaces(PROJECT_ID);
+    expect(view).toMatchObject({ repositoryId: REPO, graph: { status: "disabled" } });
+    expect(await docs.getProjectDocsHome(PROJECT_ID)).toMatchObject({ projectId: PROJECT_ID });
+  });
+});
+

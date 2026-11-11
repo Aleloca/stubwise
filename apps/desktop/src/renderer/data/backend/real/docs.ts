@@ -288,13 +288,26 @@ export function communitiesOf(markdown: string): GraphCommunity[] {
 /** Le comunità lette, per repository e costruzione: il resoconto cambia solo con un grafo nuovo. */
 const reports = new Map<string, GraphCommunity[]>();
 
+/**
+ * Il grafo lo legge chi ha `repos.view` nel progetto: un lettore dei soli Docs
+ * (Contributor) riceve 403, ed è «niente grafo», mai un errore dello spazio.
+ */
+async function readGraph<T>(run: () => Promise<T>): Promise<T | null> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return null;
+    throw error;
+  }
+}
+
 async function graphNow(repositoryId: string): Promise<GraphState> {
-  const g = await read(() => appClient().graph.state(repositoryId));
+  const g = await readGraph(() => appClient().graph.state(repositoryId));
   if (!g?.enabled || g.status !== "done") return graphOf(g);
   const key = `${repositoryId}\u0000${g.generatedAt ?? ""}\u0000${g.commitSha ?? ""}`;
   let report = reports.get(key);
   if (!report) {
-    const text = await read(() => appClient().graph.report(repositoryId)).catch(() => null);
+    const text = await readGraph(() => appClient().graph.report(repositoryId)).catch(() => null);
     if (text !== null) {
       report = communitiesOf(text);
       reports.set(key, report);
