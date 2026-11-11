@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { chatChannelMembers, chatChannels, chatMessages, chatThreadFollows, notifications } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { chatChannelMembers, chatChannels, chatMessageCitations, chatMessages, chatThreadFollows, notifications } from "@stubwise/db";
+import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 import { changedSince } from "../chat/service.js";
@@ -298,5 +298,20 @@ describe("review fetta 2, seconda (11 nov 2026)", () => {
     const person = { kind: "person" as const, id: "u", label: "Ale", projectId: null };
     expect(stillNamed(person, "ciao @Ale")).toBe(true);
     expect(stillNamed(person, "ciao @Alessio")).toBe(false);
+  });
+
+  it("3. «con citazioni» conta solo le citazioni che chi cerca vede", async () => {
+    const contributor = await createUserWithSession(app, "contrib-rv@example.com");
+    await addMember(app, projectId, contributor.id, "contributor");
+    const g = await general();
+    const { ticketId } = await seedTicket(t.db, { projectId, number: 77 });
+    const msg = idOf(await post(dev, g, "nascosta citazionefantasma"));
+    await t.db.insert(chatMessageCitations).values({ messageId: msg, kind: "task", refId: ticketId });
+    const search = (u: U) => as(u, "GET", `/api/chat/search?q=citazionefantasma&withCitations=true`);
+    const forDev = (await search(dev)).json() as { items: { message: { id: string } }[] };
+    expect(forDev.items.map((h) => h.message.id)).toEqual([msg]);
+    // Il Contributor legge il «general» ma non vede la task: il filtro non gli conferma che esiste.
+    const forContributor = (await search(contributor)).json() as { items: unknown[] };
+    expect(forContributor.items).toEqual([]);
   });
 });

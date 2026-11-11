@@ -38,7 +38,7 @@ import { isUniqueViolation } from "../routes/shared.js";
 import { personName } from "../services/people.js";
 import { requestVisibility } from "../services/project-requests.js";
 import { visibleTasksCondition } from "../services/task-view.js";
-import { citationsToStore, citationViews } from "./citations.js";
+import { citationsToStore, citationViews, hasVisibleCitationSql } from "./citations.js";
 import { callContext, callsClaude, claudeReplyViews, rootsWithClaudeWorking, startClaudeReply, stopSession } from "./claude.js";
 import {
   accessFrom,
@@ -1645,9 +1645,7 @@ export async function searchChat(
         filters.channelId ? eq(chatMessages.channelId, filters.channelId) : undefined,
         filters.authorId ? eq(chatMessages.authorId, filters.authorId) : undefined,
         filters.peopleOnly ? ne(chatMessages.kind, "system") : undefined,
-        filters.withCitations
-          ? sql`exists (select 1 from ${chatMessageCitations} c where c.message_id = ${chatMessages.id})`
-          : undefined,
+        filters.withCitations ? await hasVisibleCitationSql(db, viewer, chatMessages.id) : undefined,
         filters.from ? sql`(${chatMessages.createdAt} at time zone 'UTC')::date >= ${filters.from}::date` : undefined,
         filters.to ? sql`(${chatMessages.createdAt} at time zone 'UTC')::date <= ${filters.to}::date` : undefined,
       ),

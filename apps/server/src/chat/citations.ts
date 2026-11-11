@@ -1,6 +1,6 @@
-import { backlogItems, docPages, projects, repositories, tickets, users, type Db } from "@stubwise/db";
+import { backlogItems, chatMessageCitations, docPages, projects, repositories, tickets, users, type Db } from "@stubwise/db";
 import type { ChatCitationKind, ChatCitationRef, ChatCitationView } from "@stubwise/shared";
-import { and, eq, inArray, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
 import { personName } from "../services/people.js";
 import { requestVisibility } from "../services/project-requests.js";
@@ -133,6 +133,39 @@ export async function citeablesFor(
     }
   }
   return out;
+}
+
+/**
+ * Il messaggio `messageId` ha almeno una citazione che chi guarda VEDE, in SQL
+ * (review della fetta 2): il filtro «con citazioni» sta nella WHERE, prima del
+ * limite, con le stesse regole di `citeablesFor`. Una citazione di un oggetto
+ * nascosto non conta, così il filtro non conferma che esiste.
+ */
+export async function hasVisibleCitationSql(db: Db, viewer: ChatViewer, messageId: AnyColumn): Promise<SQL> {
+  const visible = await visibleProjectIds(db, viewer);
+  const inVisible = (column: AnyColumn): SQL =>
+    visible === "all" ? sql`true` : visible.length === 0 ? sql`false` : inArray(column, visible);
+  const readable = await projectIdsWithPermission(db, viewer, "docs.view");
+  const inReadable: SQL =
+    readable === "all" ? sql`true` : readable.length === 0 ? sql`false` : inArray(repositories.projectId, readable);
+  const tasks = (await visibleTasksCondition(db, viewer)) ?? sql`true`;
+  const requests = (await requestVisibility(db, viewer)) ?? sql`true`;
+  return sql`exists (
+    select 1 from ${chatMessageCitations} c
+    where c.message_id = ${messageId}
+      and (
+        (c.kind = 'task' and exists (select 1 from ${tickets} where ${tickets.id} = c.ref_id and ${tasks}))
+        or (c.kind = 'request' and exists (
+          select 1 from ${backlogItems} where ${backlogItems.id} = c.ref_id and ${inVisible(backlogItems.projectId)} and ${requests}
+        ))
+        or (c.kind = 'project' and exists (select 1 from ${projects} where ${projects.id} = c.ref_id and ${inVisible(projects.id)}))
+        or (c.kind = 'person' and exists (select 1 from ${users} where ${users.id} = c.ref_id and ${users.isAgent} = false))
+        or (c.kind = 'doc' and exists (
+          select 1 from ${docPages} inner join ${repositories} on ${repositories.id} = ${docPages.repositoryId}
+          where ${docPages.id} = c.ref_id and ${inReadable}
+        ))
+      )
+  )`;
 }
 
 /** Le task e le richieste che chi guarda vede, dai codici scritti nel testo. */
