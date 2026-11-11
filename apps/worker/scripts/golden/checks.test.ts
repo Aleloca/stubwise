@@ -921,11 +921,17 @@ describe("chatChecks di @Claude nella Chat (area 4, fetta 3)", () => {
     const expectation = { kind: "ask" } as const;
     const ask = call("ask_question", { question: "A chi?", options: [{ label: "Luca" }, { label: "Ada" }] });
     expect(failed(chatChecks({ ...base, expectation, toolCalls: [ask] }))).toEqual([]);
-    expect(failed(chatChecks({ ...base, expectation }))).toEqual(["UNA ask_question con almeno due opzioni"]);
-    expect(failed(chatChecks({ ...base, expectation, toolCalls: [ask, ask] }))).toEqual(["UNA ask_question con almeno due opzioni"]);
+    expect(failed(chatChecks({ ...base, expectation }))).toEqual(["UNA domanda accettata, con almeno due opzioni"]);
+    // Una seconda chiamata rifiutata (come dal worker): verde, con un avviso.
+    const refused: ToolCall = { ...ask, toolUseId: "ask2", isError: true };
+    const twice = chatChecks({ ...base, expectation, toolCalls: [ask, refused] });
+    expect(failed(twice)).toEqual([]);
+    expect(twice.find((c) => c.name.startsWith("UNA domanda"))?.warning).toMatch(/2 volte/);
+    // Due ACCETTATE (un gestore che non rifiuta): rosso.
+    expect(failed(chatChecks({ ...base, expectation, toolCalls: [ask, ask] }))).toEqual(["UNA domanda accettata, con almeno due opzioni"]);
     expect(
       failed(chatChecks({ ...base, expectation, toolCalls: [call("ask_question", { question: "?", options: [{ label: "solo" }] })] })),
-    ).toEqual(["UNA ask_question con almeno due opzioni"]);
+    ).toEqual(["UNA domanda accettata, con almeno due opzioni"]);
   });
 
   it("mention-propose: in attesa, non «fatto»", () => {

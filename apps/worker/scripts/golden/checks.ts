@@ -59,6 +59,12 @@ export interface Check {
   passed: boolean;
   /** Cosa si è osservato: è la riga che un umano legge quando un check è rosso. */
   detail: string;
+  /**
+   * Un avviso NON bloccante: il check è verde, ma c'è un comportamento da
+   * tenere d'occhio (es. due `ask_question` di cui una rifiutata). Il report
+   * lo stampa e lo conserva nel JSON.
+   */
+  warning?: string;
 }
 
 /** Cosa ci si aspetta dall'agente davanti a `ask_user` cablato. */
@@ -1117,13 +1123,21 @@ export function chatChecks(obs: ChatObservation): Check[] {
       },
     );
   } else if (e.kind === "ask") {
+    // Conta le domande ACCETTATE, come in produzione: il worker rifiuta una
+    // seconda domanda nella stessa risposta (indice unico), e a chi ha chiamato
+    // ne arriva una sola. Più chiamate restano visibili come avviso.
     const asks = obs.toolCalls.filter((call) => call.name === CHAT_GOLDEN_ASK_TOOL);
-    const options = (asks[0]?.input as { options?: unknown } | undefined)?.options;
+    const accepted = asks.filter((call) => call.isError !== true);
+    const options = (accepted[0]?.input as { options?: unknown } | undefined)?.options;
     checks.push(
       {
-        name: "UNA ask_question con almeno due opzioni",
-        passed: asks.length === 1 && Array.isArray(options) && options.length >= 2,
-        detail: asks.length === 0 ? "nessuna domanda" : JSON.stringify(asks.map((a) => a.input)).slice(0, 400),
+        name: "UNA domanda accettata, con almeno due opzioni",
+        passed: accepted.length === 1 && Array.isArray(options) && options.length >= 2,
+        detail:
+          asks.length === 0
+            ? "nessuna domanda"
+            : `${accepted.length} accettate su ${asks.length}: ${JSON.stringify(accepted.map((a) => a.input)).slice(0, 400)}`,
+        ...(asks.length > 1 ? { warning: `ask_question chiamata ${asks.length} volte (le altre rifiutate come dal worker)` } : {}),
       },
       {
         name: "nessuna proposta prima della risposta",
