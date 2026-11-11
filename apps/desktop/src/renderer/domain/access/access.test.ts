@@ -5,7 +5,6 @@ import {
   ALL_PROJECT_PERMISSIONS,
   INSTANCE_SET,
   LOCAL_INSTANCE_PERMISSIONS,
-  LOCAL_PROJECT_PERMISSIONS,
   accessState,
   effectivePermissions,
   roleIdOf,
@@ -337,10 +336,18 @@ describe("ACTIONS e gruppi", () => {
   });
 
   it("un permesso locale del prototipo non è già nel registro condiviso (si toglie dai locali quando ci entra)", () => {
-    const shared = new Set<string>([...PROJECT_PERMISSIONS, ...INSTANCE_PERMISSIONS]);
-    const locals = [...new Set([...Object.values(LOCAL_PROJECT_PERMISSIONS).flat(), ...LOCAL_INSTANCE_PERMISSIONS])];
+    // I locali presi dagli elenchi COMPLETI (anche `servers.operate`, che non è
+    // di nessun preset): ciò che sta oltre il registro condiviso.
+    const projectLocals = ALL_PROJECT_PERMISSIONS.slice(PROJECT_PERMISSIONS.length);
+    expect(ALL_PROJECT_PERMISSIONS.slice(0, PROJECT_PERMISSIONS.length)).toEqual([...PROJECT_PERMISSIONS]);
+    expect(projectLocals).toContain("servers.operate");
+    const instanceLocals = LOCAL_INSTANCE_PERMISSIONS;
+    expect([...INSTANCE_SET].filter((p) => !(INSTANCE_PERMISSIONS as readonly string[]).includes(p)).sort()).toEqual(
+      [...instanceLocals].sort(),
+    );
+    expect(projectLocals.filter((p) => (PROJECT_PERMISSIONS as readonly string[]).includes(p))).toEqual([]);
     // `automations.manage` esiste a due livelli (BOTH_LEVELS), ma nessuno dei due è ancora condiviso.
-    expect(locals.filter((p) => shared.has(p))).toEqual([]);
+    expect(instanceLocals.filter((p) => (INSTANCE_PERMISSIONS as readonly string[]).includes(p))).toEqual([]);
   });
 
   it("ogni permesso sta in un solo gruppo del suo livello, ogni gruppo ha un'etichetta", () => {
