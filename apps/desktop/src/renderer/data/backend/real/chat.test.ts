@@ -558,3 +558,51 @@ describe("fetta 2: le citazioni (F2.7)", () => {
     expect(seen.find((r) => r.method === "POST")!.body).toEqual({ text: "See AUD-D3 Sync" });
   });
 });
+
+describe("area 5, fetta 2: le citazioni dei file del Drive", () => {
+  const FILE = "7f1c2a1e-0000-4000-8000-0000000000f3";
+
+  it("una citazione `drive` del server: la scheda (tipo, aperture, progetto) e il dettaglio nel Drive", async () => {
+    install({
+      [`GET /api/chat/messages/${ROOT}`]: {
+        body: message({
+          citations: [
+            {
+              kind: "drive",
+              id: FILE,
+              label: "spec.pdf",
+              projectId: PROJECT_ID,
+              code: "AUD-F3",
+              drive: { type: "pdf", projectCode: "AUD", projectName: "Audin AI", opens90d: 3, summary: null },
+            },
+          ],
+        }),
+      },
+    });
+    await getSessionPerson();
+    const m = (await chat.getMessage(ROOT))!.message;
+    expect(m.citations).toEqual([{ kind: "drive", id: FILE, code: "AUD-F3" }]);
+    expect(await resolveCitations(m.citations)).toMatchObject([
+      {
+        kind: "drive",
+        id: FILE,
+        visible: true,
+        code: "AUD-F3",
+        name: "spec.pdf",
+        projectCode: "AUD",
+        route: "#/p/AUD/drive?file=AUD-F3",
+        drive: { type: "pdf", google: false, summary: null, opens90d: 3, unavailable: null, projectName: "Audin AI" },
+      },
+    ]);
+  });
+
+  it("un file scelto con «#» parte fra le citazioni", async () => {
+    const { seen } = install({ [`POST /api/chat/channels/${CH}/messages`]: { status: 201, body: message() } });
+    await getSessionPerson();
+    await chat.sendMessage(CH, { text: "See AUD-F3 spec.pdf", citations: [{ kind: "drive", id: FILE, code: "AUD-F3" }] });
+    expect(seen.find((r) => r.method === "POST")!.body).toEqual({
+      text: "See AUD-F3 spec.pdf",
+      citations: [{ kind: "drive", id: FILE }],
+    });
+  });
+});

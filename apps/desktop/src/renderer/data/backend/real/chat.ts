@@ -1,5 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
-import type { ChatChannelView, ChatMessageView as ServerMessage, Reader } from "@stubwise/shared";
+import { DRIVE_FILE_TYPES, type ChatChannelView, type ChatMessageView as ServerMessage, type Reader } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type {
   CitationRef,
@@ -10,6 +10,7 @@ import type {
   ChatMessageHit,
   ChatMessageView,
   ChatQuestion,
+  DriveFileType,
   ThreadView,
   ThreadWithNews,
 } from "../../types";
@@ -115,6 +116,8 @@ const citedViews = new Map<
     /** Solo una pagina Docs (area 5, fetta 1): il codice stabile e dove aprirla. */
     code?: string | null;
     doc?: { repositorySlug: string; slug: string } | null;
+    /** Solo un file del Drive (area 5, fetta 2): la scheda del gettone. */
+    drive?: { type: DriveFileType; projectCode: string; projectName: string; opens90d: number; summary: string | null } | null;
   }
 >();
 /**
@@ -144,7 +147,7 @@ export function rememberDocCitation(c: {
 }
 
 /** I tipi che il server sa citare (gli altri, scelti da «#», non partono). */
-const CITABLE = new Set(["task", "request", "project", "person", "doc"]);
+const CITABLE = new Set(["task", "request", "project", "person", "doc", "drive"]);
 
 /**
  * La vista di una citazione della Chat confermata dal server, o `null`.
@@ -176,6 +179,29 @@ export function chatCitationView(ref: CitationRef, codeOf: (projectId: string) =
       return { ...base, code: c.label, projectCode: c.label, route: `#/p/${c.label}/overview` };
     case "person":
       return { ...base, name: c.label, personId: c.id };
+    case "drive": {
+      // Un file del Drive (area 5, fetta 2): il dettaglio nel Drive del suo progetto.
+      const code = c.drive?.projectCode ?? project;
+      return {
+        ...base,
+        code: c.code ?? null,
+        name: c.label,
+        projectCode: code,
+        route: code && c.code ? `#/p/${code}/drive?file=${c.code}` : null,
+        ...(c.drive
+          ? {
+              drive: {
+                type: c.drive.type,
+                google: false,
+                summary: c.drive.summary,
+                opens90d: c.drive.opens90d,
+                unavailable: null,
+                projectName: c.drive.projectName,
+              },
+            }
+          : {}),
+      };
+    }
     default:
       // Una pagina dei Docs (area 5, fetta 1): il codice stabile, il titolo di
       // adesso, e la pagina dal suo repository e slug. Da un server senza
@@ -319,8 +345,18 @@ export function toMessage(v: ServerMsg): ChatMessageView {
         projectId: c.projectId,
         code: c.code,
         doc: c.doc ? { repositorySlug: c.doc.repositorySlug, slug: c.doc.slug } : null,
+        drive: c.drive
+          ? {
+              type: (DRIVE_FILE_TYPES as readonly string[]).includes(c.drive.type) ? (c.drive.type as DriveFileType) : "other",
+              projectCode: c.drive.projectCode,
+              projectName: c.drive.projectName,
+              opens90d: c.drive.opens90d,
+              summary: c.drive.summary,
+            }
+          : null,
       });
-      return [{ kind, id: c.id }];
+      // Un file porta il suo codice nel riferimento (R-H5): resta anche se il file se ne va.
+      return [kind === "drive" && c.code ? { kind, id: c.id, code: c.code } : { kind, id: c.id }];
     }),
     reactions: v.reactions.map((r) => ({ emoji: r.emoji, personIds: [...r.personIds] })),
     asksReplyOf: [...v.asksReplyOf],
@@ -504,7 +540,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const citationsOf = (refs: readonly CitationRef[] | undefined) =>
   (refs ?? []).flatMap((r) =>
     CITABLE.has(r.kind) && UUID_RE.test(r.id)
-      ? [{ kind: r.kind as "task" | "request" | "project" | "person" | "doc", id: r.id }]
+      ? [{ kind: r.kind as "task" | "request" | "project" | "person" | "doc" | "drive", id: r.id }]
       : [],
   );
 
