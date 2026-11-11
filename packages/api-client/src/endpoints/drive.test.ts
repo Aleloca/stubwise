@@ -48,7 +48,8 @@ describe("endpoints drive", () => {
   });
 
   it("una riga senza i campi con default (un server più vecchio) si legge lo stesso", async () => {
-    const { opens90d: _o, lastOpenedAt: _l, summaryLine: _s, permissions: _p, projectCode: _c, ...bare } = row;
+    const bare: Record<string, unknown> = { ...row };
+    for (const key of ["opens90d", "lastOpenedAt", "summaryLine", "permissions", "projectCode"]) delete bare[key];
     const g = client({ items: [bare] });
     expect((await g.c.drive.list(PROJECT)).items[0]).toMatchObject({ opens90d: 0, summaryLine: null, permissions: { delete: false } });
   });
