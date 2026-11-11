@@ -130,6 +130,17 @@ export const chatCitationSchema = z.object({
   label: z.string(),
   /** Il progetto dell'oggetto, quando ne ha uno (per aprirlo nel posto giusto). */
   projectId: z.uuid().nullable().default(null),
+  /**
+   * Il codice dell'oggetto, quando ne ha uno a sé: oggi la pagina Docs
+   * (`<PRJ>-D<n>`, area 5 fetta 1). Per task e richieste il codice è `label`.
+   */
+  code: z.string().nullable().default(null),
+  /**
+   * Solo una pagina Docs (area 5, fetta 1): dove aprirla, `#/p/<CODE>/docs/
+   * <repositorySlug>/<slug>`. L'`id` della citazione è il CODICE della pagina,
+   * stabile alle rigenerazioni; `label` è il titolo di adesso.
+   */
+  doc: z.object({ repositoryId: z.uuid(), repositorySlug: z.string(), slug: z.string() }).nullable().default(null),
 });
 export type ChatCitationView = z.infer<typeof chatCitationSchema>;
 
