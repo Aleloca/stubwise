@@ -588,7 +588,15 @@ const listClaudeQuestions: Chat["listClaudeQuestions"] = async () => {
 async function proposalGone(messageId: string): Promise<Error> {
   const channelId = channelOfMessage.get(messageId);
   if (!channelId) return new Error("not_found");
-  const ch = await read(() => appClient().chat.channels.get(channelId)).catch(() => null);
+  let ch: ServerChannel | null;
+  try {
+    // Un 404 (`read` → null) o un 403: non lo si legge più.
+    ch = await read(() => appClient().chat.channels.get(channelId));
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 403) return new Error("not_member");
+    // Un altro guasto (500, rete) non dice niente sul canale: resta un errore.
+    return error instanceof Error ? error : new Error("other");
+  }
   if (!ch || !ch.isMember) return new Error("not_member");
   if (ch.archived) return new Error("invalid: archived");
   return new Error("not_found");

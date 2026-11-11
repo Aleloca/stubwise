@@ -362,6 +362,35 @@ describe("le proposte", () => {
     await expect(chat.confirmChatProposal(REPLY, PROPOSAL)).rejects.toThrow("not_member");
   });
 
+  it("se rileggere il canale fallisce (500), il 404 della proposta resta un errore, non «not_member»", async () => {
+    const gone = { status: 404, body: { code: "not_found", message: "x" } };
+    install({
+      ...thread,
+      [`POST /api/claude/proposals/${PROPOSAL}/confirm`]: gone,
+    });
+    await getSessionPerson();
+    await chat.listThread(ROOT);
+    install({
+      ...thread,
+      [`POST /api/claude/proposals/${PROPOSAL}/confirm`]: gone,
+      [`GET /api/chat/channels/${CH}`]: { status: 500, body: { code: "internal", message: "x" } },
+    });
+    const error = await chat.confirmChatProposal(REPLY, PROPOSAL).then(
+      () => null,
+      (e: Error) => e,
+    );
+    expect(error).not.toBeNull();
+    expect(error!.message).not.toBe("not_member");
+    expect(error!.message).not.toBe("invalid: archived");
+    // Un 403 sul canale, invece, vuol dire che non lo si legge più.
+    install({
+      ...thread,
+      [`POST /api/claude/proposals/${PROPOSAL}/confirm`]: gone,
+      [`GET /api/chat/channels/${CH}`]: { status: 403, body: { code: "forbidden", message: "x" } },
+    });
+    await expect(chat.confirmChatProposal(REPLY, PROPOSAL)).rejects.toThrow("not_member");
+  });
+
   it("una proposta che il server non esegue (409) è «failed», come nella conversazione", async () => {
     install({
       ...thread,
