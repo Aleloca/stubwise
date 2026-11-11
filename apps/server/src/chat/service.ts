@@ -508,6 +508,8 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
       citations: deleted ? [] : (citations.get(m.id) ?? []),
       claude: claude.get(m.id) ?? null,
       claudeReplying: replying.has(m.id),
+      event: null,
+      attachments: [],
     } satisfies ChatMessageView;
   });
 }
