@@ -4,12 +4,14 @@ import { chatChannels, driveContentJobs, driveFileChunks, driveFiles, driveOpens
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import {
   chatAttachmentAllowed,
+  DRIVE_CLAUDE_TEXT_MAX,
   DRIVE_CODE_RE,
   DRIVE_FILE_MAX_BYTES,
   driveCode,
   driveContentKindOf,
   driveFileTypeOf,
   type DriveCodeResolution,
+  type DriveFileContent,
   type DriveFileDetail,
   type DriveFileRow,
   type driveListQuerySchema,
@@ -277,6 +279,35 @@ export async function getDriveFile(db: Db, viewer: Viewer, id: string): Promise<
       ).map((h) => ({ personId: h.personId, at: h.at.toISOString(), via: h.via }))
     : null;
   return { ...toRow(r, viewer, permsOf), opensTotal: total?.n ?? 0, summary: r.file.summary, history };
+}
+
+/**
+ * Ciò che Claude legge di un file (F3.5), per codice, coi permessi di chi
+ * parla: null (404) se non lo vede o non c'è. Il testo fino a 30.000
+ * caratteri; NON conta un'apertura (le aperture sono gesti delle persone).
+ */
+export async function getDriveFileContent(db: Db, viewer: Viewer, code: string): Promise<DriveFileContent | null> {
+  const condition = codeCondition(code);
+  if (!condition) return null;
+  const [r] = await db
+    .select({ id: driveFiles.id, projectId: driveFiles.projectId, number: driveFiles.number, projectCode: projects.code, name: driveFiles.name, type: driveFiles.type, contentStatus: driveFiles.contentStatus, contentReason: driveFiles.contentReason, summary: driveFiles.summary, truncated: driveFiles.contentTruncated, text: sql<string | null>`left(${driveFiles.contentText}, ${DRIVE_CLAUDE_TEXT_MAX + 1})` })
+    .from(driveFiles)
+    .innerJoin(projects, eq(projects.id, driveFiles.projectId))
+    .where(and(condition, isNull(driveFiles.deletedAt)));
+  if (!r || !(await sees(db, viewer, r.projectId))) return null;
+  const text = r.text ?? "";
+  return {
+    id: r.id,
+    code: driveCode(r.projectCode, r.number),
+    projectId: r.projectId,
+    name: r.name,
+    type: r.type,
+    contentStatus: r.contentStatus,
+    contentReason: r.contentReason,
+    summary: r.summary,
+    text: text.slice(0, DRIVE_CLAUDE_TEXT_MAX),
+    truncated: r.truncated || text.length > DRIVE_CLAUDE_TEXT_MAX,
+  };
 }
 
 /** Dove sta il file di un codice `<PRJ>-F<n>`, per chi lo vede; null altrimenti (404, R-G5). */

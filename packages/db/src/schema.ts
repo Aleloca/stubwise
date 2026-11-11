@@ -3394,6 +3394,8 @@ export const claudeConversations = pgTable(
     cliSessionId: text("cli_session_id"),
     /** Quando è nata la sessione del CLI: oltre la potatura (14 giorni) si scarta con le sue trascrizioni. */
     cliSessionStartedAt: timestamp("cli_session_started_at", { withTimezone: true }),
+    // La prima lettura di contenuto NON fidato (0146, area 5, fetta 3): da lì ogni proposta è almeno B.
+    untrustedReadAt: timestamp("untrusted_read_at", { withTimezone: true }),
     // Fetta 5 (0133): le pubbliche e la continuazione. La visibilità la decide
     // il server (`canSeeConversation`); i lettori ricevono la proiezione
     // (`claude-conversations/public-view.ts`).
@@ -3468,6 +3470,8 @@ export const claudeProposals = pgTable(
     actions: jsonb("actions").$type<{ fn: string; args: Record<string, unknown> }[]>().notNull(),
     summary: text("summary").notNull().default(""),
     declaredCls: text("declared_cls").$type<"A" | "B" | "C">().notNull(),
+    // Nata in un turno che aveva letto contenuto NON fidato (0146): almeno B, anche ricalcolata.
+    untrustedInput: boolean("untrusted_input").notNull().default(false),
     status: text("status").$type<"open" | "confirmed" | "cancelled" | "failed">().notNull().default("open"),
     failure: jsonb("failure").$type<Record<string, unknown>>(),
     groupId: uuid("group_id").references((): AnyPgColumn => claudeActionGroups.id, { onDelete: "set null" }),

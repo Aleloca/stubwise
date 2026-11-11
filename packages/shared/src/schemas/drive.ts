@@ -156,6 +156,31 @@ export type DriveListQuery = z.input<typeof driveListQuerySchema>;
 export const driveCodeResolutionSchema = z.object({ code: z.string(), projectId: z.uuid(), fileId: z.uuid() });
 export type DriveCodeResolution = z.infer<typeof driveCodeResolutionSchema>;
 
+/** Il tetto del testo che Claude legge di un file (come `read_doc_page`). */
+export const DRIVE_CLAUDE_TEXT_MAX = 30_000;
+
+/**
+ * `GET /api/drive/files/by-code/:code/content` (F3.5): ciò che Claude legge di
+ * un file, coi permessi di chi parla. Il testo è contenuto NON fidato: il
+ * ponte del worker lo consegna come `untrusted_document`. Leggerlo non conta
+ * un'apertura.
+ */
+export const driveFileContentSchema = z.object({
+  id: z.uuid(),
+  code: z.string(),
+  projectId: z.uuid(),
+  name: z.string(),
+  type: driveFileTypeSchema,
+  contentStatus: driveContentStatusSchema,
+  contentReason: driveContentReasonSchema.nullable().default(null),
+  summary: z.string().nullable().default(null),
+  /** Al più `DRIVE_CLAUDE_TEXT_MAX` caratteri; vuoto se non c'è testo. */
+  text: z.string().default(""),
+  /** Il testo è più lungo di quanto restituito (o era già troncato all'estrazione). */
+  truncated: z.boolean().default(false),
+});
+export type DriveFileContent = z.infer<typeof driveFileContentSchema>;
+
 /** «Save to Drive» da un allegato della Chat: in un DM o in un generale serve il progetto. */
 export const saveToDriveBodySchema = z.object({ projectId: z.uuid().optional() });
 export type SaveToDriveInput = z.input<typeof saveToDriveBodySchema>;

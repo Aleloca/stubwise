@@ -198,6 +198,9 @@ export const CHAT_READ_TOOLS = [
   // Area 5, fetta 1: una pagina Docs intera (repository e slug da search_docs).
   "read_doc_page",
   "read_project_overview",
+  // Area 5, fetta 3: il Drive. Il testo dei file è contenuto NON fidato.
+  "search_drive",
+  "read_drive_file",
 ] as const;
 export type ChatReadToolName = (typeof CHAT_READ_TOOLS)[number];
 /** Il solo tool che non legge: scrive una proposta, mai un'esecuzione diretta. */

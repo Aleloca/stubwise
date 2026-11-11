@@ -365,6 +365,25 @@
     SOLO l'esecutore, e l'attore resta la persona.
   - **Al modello non arriva ciò che non serve**: dalle letture via le chiavi
     da segreto, da `list_people` via le email.
+  - **Dopo un contenuto NON fidato ogni proposta è almeno B (11 nov 2026,
+    area 5, fetta 3, decisione O dell'orchestratrice).** Il testo di un file
+    del Drive (`read_drive_file`, e gli snippet di `search_drive`) e una
+    pagina Docs (`read_doc_page`: le manuali le scrive chiunque abbia
+    `docs.edit`) li ha scritti qualcun altro. Una lettura RIUSCITA del token
+    del turno su una rotta di `CHAT_TOOL_UNTRUSTED_ROUTES`
+    (`auth/chat-tool-routes.ts`) segna la CONVERSAZIONE
+    (`claude_conversations.untrusted_read_at`, 0146) nell'`onSend`, e
+    FAIL-CLOSED: se il segno non si scrive, il contenuto non parte. Da lì
+    `createProposal` dà almeno B e lo scrive sulla proposta
+    (`untrusted_input`), e `proposalView` non la riporta ad A quando ricalcola.
+    Per conversazione e non per turno: il testo letto resta nel contesto dei
+    turni dopo. Lo calcola il server, non il modello né il client
+    (`claude-actions/untrusted-input.test.ts`). Il testo arriva al modello
+    dentro `untrusted_document` con una nota fissa (`UNTRUSTED_DOCUMENT_NOTE`
+    del ponte, la stessa nelle descrizioni dei tool), come dato. Chi aggiunge
+    un tool che legge testo scritto da altri aggiunge la sua rotta a
+    quell'elenco. Il golden `chat-drive-hostile` prova il comportamento del
+    modello; la regola regge anche se il golden sbaglia.
 
 - **Chat con Claude: una conversazione PUBBLICA si legge come la decide il
   server, e gli eventi dei tool restano visibili ai lettori (10 nov 2026,

@@ -30,6 +30,26 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // L'Overview: l'ultimo brief e il registro decisioni (in lettura).
   "/api/projects/:projectId/briefs/latest",
   "/api/projects/:projectId/decisions",
+  // Il Drive (area 5, fetta 3: `search_drive` e `read_drive_file`), coi file
+  // dei progetti di cui l'autore è membro. Leggere il contenuto non conta
+  // un'apertura.
+  "/api/projects/:projectId/drive/files",
+  "/api/drive/files/by-code/:code/content",
+]);
+
+/**
+ * Le rotte di lettura che consegnano a Claude contenuto NON fidato, scritto da
+ * altri (area 5, fetta 3, decisione O): il testo di un file del Drive (anche
+ * nello snippet di una ricerca) e una pagina Docs (le manuali le scrive
+ * chiunque abbia `docs.edit`). Una lettura RIUSCITA del token del turno su una
+ * di queste segna la conversazione (`claude_conversations.untrusted_read_at`),
+ * e da lì ogni proposta è almeno B (`claude-actions/proposals.ts`). Chi
+ * aggiunge un tool che legge testo scritto da altri aggiunge qui la sua rotta.
+ */
+export const CHAT_TOOL_UNTRUSTED_ROUTES: ReadonlySet<string> = new Set([
+  "/api/projects/:projectId/drive/files",
+  "/api/drive/files/by-code/:code/content",
+  "/api/repositories/:repositoryId/docs/pages/:slug",
 ]);
 
 /**
