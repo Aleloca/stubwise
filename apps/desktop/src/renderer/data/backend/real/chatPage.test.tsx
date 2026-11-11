@@ -330,6 +330,39 @@ describe("la Chat nella build app", () => {
     expect(pages).toEqual([null, "cur1"]);
   });
 
+  it("una ripresa dello stream senza cursore rilegge tutte le pagine del canale, non solo l'ultima", async () => {
+    const handlers: { onFrame: (f: unknown) => void; onClose: (e: unknown) => void }[] = [];
+    setChatStreamTransport((_path, h) => {
+      handlers.push(h as never);
+      return () => undefined;
+    });
+    const OLD = "7f1c2a1e-0000-4000-8000-0000000000a9";
+    const old = message({ id: OLD, text: "The first sketch.", createdAt: "2026-11-01T10:00:00.000Z" });
+    install({
+      [`GET /api/chat/channels/${CH}/messages`]: (req: SeenRequest) => {
+        const before = new URL(`http://x${req.path}`).searchParams.get("before");
+        return before === "cur1"
+          ? { body: { items: [old], before: null } }
+          : { body: { items: [message()], before: "cur1" } };
+      },
+      [`GET /api/chat/messages/${OLD}`]: { body: old },
+    });
+    renderRoute(`/chat/${CH}?message=${OLD}`);
+    expect(await screen.findByText("The first sketch.", {}, { timeout: 3000 })).toBeInTheDocument();
+    const pages = () =>
+      seen
+        .filter((r) => r.method === "GET" && r.path.startsWith(`/api/chat/channels/${CH}/messages`))
+        .map((r) => new URL(`http://x${r.path}`).searchParams.get("before"));
+    await waitFor(() => expect(handlers).toHaveLength(1));
+    const before = pages().length;
+    // Cade prima di ogni frame (nessun cursore), poi riparte e manda il primo frame.
+    handlers[0]!.onClose({ fatal: false });
+    await waitFor(() => expect(handlers).toHaveLength(2), { timeout: 3000 });
+    handlers[1]!.onFrame({ messages: [], cursor: "7", real: true });
+    // Tutte e due le pagine lette, non solo la più nuova.
+    await waitFor(() => expect(pages().slice(before)).toEqual([null, "cur1"]), { timeout: 3000 });
+  });
+
   it("la ricerca non offre «With attachments» finché gli allegati non ci sono (fetta 4)", async () => {
     install({ "GET /api/chat/search": { body: { items: [] } } });
     renderRoute("/chat?view=search&q=export");

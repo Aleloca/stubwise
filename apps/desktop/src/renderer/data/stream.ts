@@ -675,7 +675,16 @@ interface ChatSubscriber {
 }
 
 const chatSubscribers = new Set<ChatSubscriber>();
-const chatChangeListeners = new Set<(channelId: string) => void>();
+/**
+ * Cosa cambia, quando lo si sa: `messages` = il flusso del canale va riletto
+ * per intero (la build app, dopo una ripresa dello stream senza cursore: ciò
+ * che è arrivato nel buco non lo porta lo stream).
+ */
+export interface ChatChange {
+  messages?: boolean;
+}
+
+const chatChangeListeners = new Set<(channelId: string, change?: ChatChange) => void>();
 
 /**
  * Avvisa che nella Chat qualcosa è cambiato in un canale (un messaggio
@@ -683,7 +692,7 @@ const chatChangeListeners = new Set<(channelId: string) => void>();
  * rilegge con le letture, che filtrano per persona. Restituisce la
  * disiscrizione.
  */
-export function onChatChange(fn: (channelId: string) => void): () => void {
+export function onChatChange(fn: (channelId: string, change?: ChatChange) => void): () => void {
   chatChangeListeners.add(fn);
   return () => {
     chatChangeListeners.delete(fn);

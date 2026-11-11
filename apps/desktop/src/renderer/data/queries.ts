@@ -2015,7 +2015,14 @@ function listenToChatChanges(client: QueryClient): () => void {
   let entry = chatListeners.get(client);
   if (!entry) {
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const off = api.chat.onChatChange(() => {
+    const off = api.chat.onChatChange((channelId, change) => {
+      // Una ripresa senza cursore: il flusso di quel canale si rilegge per intero.
+      if (change?.messages) {
+        void client.invalidateQueries({
+          predicate: (query) =>
+            query.queryKey[0] === "as" && query.queryKey[2] === "chatMessages" && query.queryKey[3] === channelId,
+        });
+      }
       if (timer !== undefined) return;
       timer = setTimeout(() => {
         timer = undefined;

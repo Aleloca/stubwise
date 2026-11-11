@@ -147,7 +147,7 @@ function currentTransport(): ChatStreamTransport {
  * Chi rinfresca le letture (`listenToChatChanges`, uno per app): resta
  * iscritto per tutta la vita dell'app, anche ai cambi di persona.
  */
-const changeListeners = new Set<(channelId: string) => void>();
+const changeListeners = new Set<(channelId: string, change?: { messages?: boolean }) => void>();
 
 /** Qualcosa è cambiato in un canale (un messaggio, la vista): le letture si rinfrescano. */
 export const onChatChange: Chat["onChatChange"] = (fn) => {
@@ -157,8 +157,8 @@ export const onChatChange: Chat["onChatChange"] = (fn) => {
   };
 };
 
-function notifyChange(channelId: string): void {
-  for (const fn of [...changeListeners]) fn(channelId);
+function notifyChange(channelId: string, change?: { messages?: boolean }): void {
+  for (const fn of [...changeListeners]) fn(channelId, change);
 }
 
 // --- le connessioni, una per canale ------------------------------------------------
@@ -183,8 +183,12 @@ interface ChannelConnection {
   latest: string | null;
   /** La vista del canale dell'ultimo frame `channel`, per avvisare solo se cambia. */
   channelSig: string | null;
-  /** Una ripresa dopo una caduta: alla prima risposta si rilegge la pagina. */
-  resumed: boolean;
+  /**
+   * Una ripresa dopo una caduta: alla prima risposta si recupera il buco.
+   * `full` = caduta prima di avere un cursore: lo stream ricomincia da «ora»,
+   * quindi il flusso si rilegge per intero (tutte le pagine lette).
+   */
+  resumed: false | "cursor" | "full";
   /** L'ordine di arrivo: ogni frame (o rilettura) di un messaggio ha un numero che cresce. */
   seq: number;
   /** L'ultimo numero consegnato per messaggio: uno più vecchio non si consegna. */
@@ -259,10 +263,14 @@ function withExtras(conn: ChannelConnection, id: string, fromFrame = true): void
 }
 
 /** Dopo una caduta: la pagina del canale (e i thread aperti), per ciò che si è perso. */
-async function catchUp(conn: ChannelConnection): Promise<void> {
+async function catchUp(conn: ChannelConnection, full: boolean): Promise<void> {
   try {
-    const page = await appClient().chat.messages.page(conn.channelId, { limit: 50 });
-    for (const m of page.items) arrive(conn, m);
+    // Senza cursore: tutte le pagine che chi guarda ha letto, non solo le ultime 50 radici.
+    if (full) notifyChange(conn.channelId, { messages: true });
+    else {
+      const page = await appClient().chat.messages.page(conn.channelId, { limit: 50 });
+      for (const m of page.items) arrive(conn, m);
+    }
     for (const l of conn.listeners) {
       if (!l.threadOf) continue;
       const t = await appClient().chat.messages.thread(l.threadOf);
@@ -303,8 +311,9 @@ function connect(conn: ChannelConnection) {
       conn.failures = 0;
       if (frame.cursor) conn.cursor = frame.cursor;
       if (conn.resumed) {
+        const full = conn.resumed === "full";
         conn.resumed = false;
-        void catchUp(conn);
+        void catchUp(conn, full);
       }
       for (const message of frame.messages) {
         if (message.type === "channel") {
@@ -330,7 +339,7 @@ function connect(conn: ChannelConnection) {
       if (end.fatal) return endAll(conn, "closed");
       const delay = streamBackoffMs(conn.failures);
       conn.failures += 1;
-      conn.resumed = true;
+      conn.resumed = conn.cursor === null ? "full" : "cursor";
       conn.timer = setTimeout(() => connect(conn), delay);
     },
   });
