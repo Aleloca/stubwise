@@ -36,8 +36,9 @@ export type IntegrationTarget =
  * `claude` (la sezione della task in lettura).
  */
 const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
-  destination: new Set(["home", "projects", "planning", "filters", "claude"]),
-  projectSection: new Set(["overview", "tasks", "requests", "planning"]),
+  // Area 4, fetta 1: la Chat fra persone (`chat`, destinazione e sezione di progetto).
+  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat"]),
+  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat"]),
   // Stati e soglie del progetto.
   projectSettings: new Set(["statuses"]),
   admin: new Set(["departments"]),
@@ -85,8 +86,46 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Chat, fetta 5: le conversazioni pubbliche («Public», «Make public»,
     // la riconferma del seguito privato) e la continuazione.
     "claude-public",
+    // Area 4, fetta 1: la Chat fra persone (vedi CHAT_LATER_FEATURES per le fette dopo).
+    "chat",
+    // Area 4, fetta 2: DM, canali privati e generali, ricerca, domande e
+    // «Da decidere», «anche nel canale», task e richieste da un messaggio
+    // (le citazioni non hanno un flag: c'erano già, ora si risolvono).
+    "chat-dm",
+    "chat-private",
+    "chat-general",
+    "chat-search",
+    "chat-questions",
+    "chat-also-in-channel",
+    "chat-from-message",
+    // Fetta 3: @Claude nei canali.
+    "chat-claude",
   ]),
 };
+
+/**
+ * Area 4, la Chat fra persone: dalla fetta 1 sono accesi la destinazione, la
+ * sezione di progetto e la feature `chat` (canali di progetto e il «general»,
+ * messaggi, thread, reazioni, letti, menzioni); dalla fetta 2 anche
+ * `chat-dm`, `chat-private`, `chat-general`, `chat-search`,
+ * `chat-questions`, `chat-also-in-channel` e `chat-from-message`; dalla
+ * fetta 3 `chat-claude` (@Claude nei canali). Restano SPENTI, con la fetta
+ * che li accende (anche nel registro dei rimandi):
+ * - fetta 4: `chat-events` (gli eventi dei progetti nei canali),
+ *   `chat-attachments` (gli allegati).
+ */
+export const CHAT_LATER_FEATURES = [
+  "chat-dm",
+  "chat-private",
+  "chat-general",
+  "chat-search",
+  "chat-questions",
+  "chat-also-in-channel",
+  "chat-from-message",
+  "chat-claude",
+  "chat-events",
+  "chat-attachments",
+] as const;
 
 export function isIntegrated(target: IntegrationTarget): boolean {
   if (!isAppBuild()) return true;

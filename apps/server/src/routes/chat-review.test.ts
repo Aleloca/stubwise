@@ -1,10 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { chatChannelMembers, chatChannels, chatMessages, chatThreadFollows, notifications } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { chatChannelMembers, chatChannels, chatMessageCitations, chatMessages, chatThreadFollows, notifications } from "@stubwise/db";
+import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 import { changedSince } from "../chat/service.js";
+import { stillNamed } from "../chat/citations.js";
 
 // La Chat, le correzioni delle review delle fette 1 e 2 (10 nov 2026): ogni
 // test è nato rosso sul difetto che la review ha trovato.
@@ -168,7 +169,8 @@ describe("review fetta 1", () => {
     const late = idOf(await post(dev, id, "in ritardo"));
     await t.db.update(chatMessages).set({ updatedAt: sql`to_timestamp(${String(Number(start!.cursor) / 1e6)}::double precision - 1)` }).where(eq(chatMessages.id, late));
     const next = await changedSince(t.db, viewerOf(dev), id, start!.cursor!, seen);
-    expect(next!.messages.map((m) => m.id)).toEqual([late]);
+    // Il primo giro rimanda la finestra (anche «storia», che il client ha già dalla pagina).
+    expect(next!.messages.map((m) => m.id)).toContain(late);
     const again = await changedSince(t.db, viewerOf(dev), id, next!.cursor!, seen);
     expect(again!.messages).toEqual([]);
   });
@@ -245,5 +247,122 @@ describe("review fetta 1", () => {
     await as(gone, "POST", `/api/chat/channels/${id}/join`);
     await t.db.execute(sql`delete from project_members where user_id = ${gone.id}`);
     expect(((await as(dev, "GET", `/api/chat/channels/${id}`)).json() as { memberIds: string[] }).memberIds).not.toContain(gone.id);
+  });
+});
+
+describe("review fetta 2, seconda (11 nov 2026)", () => {
+  it("1. un messaggio arrivato fra la pagina e l'apertura dello stream non si perde", async () => {
+    const id = await openChannel(dev);
+    // La pagina è letta; poi arriva un messaggio, poi lo stream si apre senza cursore.
+    const between = idOf(await post(dev, id, "fra pagina e stream"));
+    const seen = new Map<string, string>();
+    const start = await changedSince(t.db, viewerOf(dev), id, undefined, seen);
+    expect(start!.messages).toEqual([]);
+    const next = await changedSince(t.db, viewerOf(dev), id, start!.cursor!, seen);
+    expect(next!.messages.map((m) => m.id)).toContain(between);
+    // Una volta mandato, non riparte.
+    const again = await changedSince(t.db, viewerOf(dev), id, next!.cursor!, seen);
+    expect(again!.messages.map((m) => m.id)).not.toContain(between);
+  });
+
+  it("6. con più di 500 righe nella finestra lo stream non si blocca", async () => {
+    const id = await openChannel(dev);
+    const [author] = [dev.id];
+    await t.db.insert(chatMessages).values(Array.from({ length: 501 }, (_, i) => ({ channelId: id, authorId: author, body: `m${i}` })));
+    const seen = new Map<string, string>();
+    let cursor = (await changedSince(t.db, viewerOf(dev), id, undefined, seen))!.cursor!;
+    const delivered = new Set<string>();
+    let last = "";
+    for (let tick = 0; tick < 6; tick++) {
+      if (tick === 2) last = idOf(await post(dev, id, "dopo la folla"));
+      const r = (await changedSince(t.db, viewerOf(dev), id, cursor, seen))!;
+      for (const m of r.messages) delivered.add(m.id);
+      cursor = r.cursor!;
+    }
+    expect(delivered.has(last)).toBe(true);
+    expect(delivered.size).toBe(502);
+  });
+
+  it("2. una citazione resta solo se il testo nomina ANCORA l'oggetto, col suo confine", () => {
+    const task = { kind: "task" as const, id: "t", label: "AUD-1", projectId: null };
+    expect(stillNamed(task, "vedi AUD-1, grazie")).toBe(true);
+    expect(stillNamed(task, "vedi AUD-12")).toBe(false);
+    expect(stillNamed(task, "vedi XAUD-1")).toBe(false);
+    const project = { kind: "project" as const, id: "p", label: "AUD", projectId: null };
+    expect(stillNamed(project, "il progetto AUD")).toBe(true);
+    expect(stillNamed(project, "la task AUD-12")).toBe(false);
+    expect(stillNamed(project, "AUDIT")).toBe(false);
+    const doc = { kind: "doc" as const, id: "d", label: "Sync", projectId: null };
+    expect(stillNamed(doc, "leggi Sync.")).toBe(true);
+    expect(stillNamed(doc, "leggi Syncing")).toBe(false);
+    const person = { kind: "person" as const, id: "u", label: "Ale", projectId: null };
+    expect(stillNamed(person, "ciao @Ale")).toBe(true);
+    expect(stillNamed(person, "ciao @Alessio")).toBe(false);
+  });
+
+  it("3. «con citazioni» conta solo le citazioni che chi cerca vede", async () => {
+    const contributor = await createUserWithSession(app, "contrib-rv@example.com");
+    await addMember(app, projectId, contributor.id, "contributor");
+    const g = await general();
+    const { ticketId } = await seedTicket(t.db, { projectId, number: 77 });
+    const msg = idOf(await post(dev, g, "nascosta citazionefantasma"));
+    await t.db.insert(chatMessageCitations).values({ messageId: msg, kind: "task", refId: ticketId });
+    const search = (u: U) => as(u, "GET", `/api/chat/search?q=citazionefantasma&withCitations=true`);
+    const forDev = (await search(dev)).json() as { items: { message: { id: string } }[] };
+    expect(forDev.items.map((h) => h.message.id)).toEqual([msg]);
+    // Il Contributor legge il «general» ma non vede la task: il filtro non gli conferma che esiste.
+    const forContributor = (await search(contributor)).json() as { items: unknown[] };
+    expect(forContributor.items).toEqual([]);
+  });
+
+  it("4. «Threads»: l'appartenenza sta nella WHERE (100 thread di un canale lasciato non nascondono il 101°)", async () => {
+    const left = await openChannel(w1);
+    await as(w1, "DELETE", `/api/chat/channels/${left}/join`);
+    const kept = await openChannel(w1);
+    const old = new Date(Date.now() - 3_600_000);
+    const [keptRoot] = await t.db.insert(chatMessages).values({ channelId: kept, authorId: w1.id, body: "il thread buono", updatedAt: old, createdAt: old }).returning({ id: chatMessages.id });
+    await t.db.insert(chatMessages).values({ channelId: kept, authorId: lead.id, body: "novità", threadRootId: keptRoot!.id });
+    await t.db.insert(chatThreadFollows).values({ userId: w1.id, rootMessageId: keptRoot!.id, following: true });
+    const roots = await t.db
+      .insert(chatMessages)
+      .values(Array.from({ length: 100 }, (_, i) => ({ channelId: left, authorId: w1.id, body: `lasciato ${i}` })))
+      .returning({ id: chatMessages.id });
+    await t.db.insert(chatMessages).values(roots.map((r) => ({ channelId: left, authorId: lead.id, body: "nuova", threadRootId: r.id })));
+    await t.db.insert(chatThreadFollows).values(roots.map((r) => ({ userId: w1.id, rootMessageId: r.id, following: true })));
+    const items = ((await as(w1, "GET", "/api/chat/threads")).json() as { items: { root: { id: string; channelId: string } }[] }).items;
+    expect(items.map((i) => i.root.id)).toContain(keptRoot!.id);
+    expect(items.some((i) => i.root.channelId === left)).toBe(false);
+  });
+
+  it("5. uscire o togliere conta solo chi legge ancora: un privato non resta con i soli ex membri", async () => {
+    const gone = await createUserWithSession(app, "gone2-rv@example.com");
+    await addMember(app, projectId, gone.id, "developer");
+    const id = await openChannel(dev2, { visibility: "private", memberIds: [gone.id] });
+    await t.db.execute(sql`delete from project_members where user_id = ${gone.id}`);
+    // La riga di `gone` resta, ma non legge più: dev2 è l'ultimo che legge.
+    const leave = await as(dev2, "DELETE", `/api/chat/channels/${id}/join`);
+    expect(leave.statusCode).toBe(409);
+    expect(leave.json()).toMatchObject({ code: "cannot_leave" });
+    // Chi gestisce non toglie l'ultimo che legge: resterebbero solo ex membri.
+    const remove = await as(lead, "DELETE", `/api/chat/channels/${id}/members/${dev2.id}`);
+    expect(remove.statusCode, remove.body).toBe(409);
+    expect(remove.json()).toMatchObject({ code: "last_member" });
+  });
+
+  it("R. canEdit e canDelete seguono le scritture: un archiviato no, un canale lasciato si elimina ma non si modifica", async () => {
+    const id = await openChannel(dev);
+    const msg = idOf(await post(dev, id, "mio"));
+    const flags = async () => {
+      const m = (await as(dev, "GET", `/api/chat/messages/${msg}`)).json() as { canEdit: boolean; canDelete: boolean };
+      return { canEdit: m.canEdit, canDelete: m.canDelete };
+    };
+    expect(await flags()).toEqual({ canEdit: true, canDelete: true });
+    await as(dev, "DELETE", `/api/chat/channels/${id}/join`);
+    // Fuori dal canale: la modifica dà 403 not_member, l'eliminazione passa.
+    expect(await flags()).toEqual({ canEdit: false, canDelete: true });
+    await as(dev, "POST", `/api/chat/channels/${id}/join`);
+    await as(lead, "PATCH", `/api/chat/channels/${id}`, { archived: true });
+    expect(await flags()).toEqual({ canEdit: false, canDelete: false });
+    expect((await as(dev, "DELETE", `/api/chat/messages/${msg}`)).json()).toMatchObject({ code: "channel_archived" });
   });
 });

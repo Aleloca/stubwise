@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_SECTIONS, APP_ROUTES, PROJECT_SECTIONS, PROJECT_SETTINGS_SECTIONS } from "./routes";
-import { integrationTargetOf, isIntegrated, landingSearch, type IntegrationTarget } from "./integration";
+import { CHAT_LATER_FEATURES, integrationTargetOf, isIntegrated, landingSearch, type IntegrationTarget } from "./integration";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -36,6 +36,8 @@ const ALL: IntegrationTarget[] = [
       "claude-chat-actions",
       "product-docs",
       "task-delete",
+      "chat",
+      ...CHAT_LATER_FEATURES,
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -93,6 +95,20 @@ describe("isIntegrated", () => {
         "feature:claude-public",
         // Fetta 3.0 della chat: «Elimina task».
         "feature:task-delete",
+        // Area 4, fetta 1: la Chat fra persone (le fette dopo restano spente).
+        "destination:chat",
+        "projectSection:chat",
+        "feature:chat",
+        // Area 4, fetta 2: DM, privati, generali, ricerca, domande, «anche nel canale», da un messaggio.
+        "feature:chat-dm",
+        "feature:chat-private",
+        "feature:chat-general",
+        "feature:chat-search",
+        "feature:chat-questions",
+        "feature:chat-also-in-channel",
+        "feature:chat-from-message",
+        // Area 4, fetta 3: @Claude nei canali.
+        "feature:chat-claude",
       ].sort(),
     );
   });

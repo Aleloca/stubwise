@@ -27,4 +27,49 @@ messaggio) sta nel registro dei rimandi, area 4.
 
 ## Renderer (F1.3)
 
-La scrive la F1.3 (stubwise-94).
+Nella build app sono accesi la destinazione, la sezione di progetto e la
+feature `chat`. Le viste sono quelle del server; la UI è quella del
+prototipo, con gli ingressi delle fette dopo spenti dietro flag
+(`CHAT_LATER_FEATURES` in `data/integration.ts`, con la fetta che li accende).
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Il client della Chat: canali, messaggi, thread, reazioni, letti, preferenze, follow, Threads, Mentions, il segnale, il percorso dello stream | `packages/api-client/src/endpoints/chat.ts` | `/api/chat/*` | `packages/api-client/src/endpoints/chat.test.ts` |
+| Le 23 funzioni della fetta 1 nella forma del prototipo: i permessi del server (`canManage` → rinomina, argomento, archivia, elimina; inviti, rimozioni ed eventi spenti), i rifiuti negli errori del prototipo (`forbidden`, `not_found`, `invalid: archived/general/name_taken/deleted/threadOf`), «altri messaggi» col cursore opaco del server, attivi e archiviati per «Browse» | `data/backend/real/chat.ts` | — | `real/chat.test.ts` |
+| Lo stream: un SSE per canale, il thread ascolta quello del canale e tiene la radice e le sue risposte; ripresa dal cursore col backoff delle sessioni; 401/403/404 chiude; ogni cambio rinfresca le letture | `real/chatStream.ts`; la parte pura `packages/shared/src/chat/sse.ts` | `GET /api/chat/channels/:id/stream?after=` | `real/chatStream.test.ts`, `packages/shared/src/chat/sse.test.ts` |
+| Sul desktop lo stream lo apre il main col Bearer, con un'allowlist stretta (uuid e cursore di cifre) accanto a quella delle sessioni; i frame arrivano come `chatFrame` | `apps/desktop/src/main/apiStream.ts` | — | `apps/desktop/src/main/apiStream.test.ts` («stream della Chat») |
+| La card `chat.mention` nell'inbox apre il messaggio nel suo canale (o nel suo thread); eliminato, canale o progetto che non si vedono più: senza link | `real/notifications.ts` | `GET /api/inbox` | `real/chatNotifications.test.ts` |
+| I permessi `chat.*` dal registro condiviso (gruppi «people» e «chat», come il web) | `data/access/catalog.ts`, `domain/access/actions.ts` | — | `domain/access/access.test.ts` |
+| Le pagine: la colonna coi canali del server, senza «New message», ricerca e DM; il canale con la casella che manda il testo (niente allegati né opzioni); il menu del messaggio senza «Create task/request»; ⌘N non apre un DM; «New channel» senza privati né generali; le impostazioni senza gli eventi | `pages/chat/*`, `layout/useShortcuts.ts` | — | `real/chatPage.test.tsx`; `pages/ComingSoon.test.tsx` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Gli ingressi delle fette dopo spenti con flag di feature, ognuno con la sua fetta (2: `chat-dm`, `chat-private`, `chat-general`, `chat-search`, `chat-questions`, `chat-also-in-channel`, `chat-from-message`; 3: `chat-claude`; 4: `chat-events`, `chat-attachments`) | orchestratrice |
+| «Load earlier» e «vai al messaggio»: il prototipo alza `limit`; l'adapter chiede al server pagine da al più 200 e va avanti col cursore opaco `before` della pagina, accumulandole fino al `limit` (review della fetta 1: oltre 200 il server rispondeva 400). Verso un messaggio lontano si sale di 200; su un errore ci si ferma e la pagina lo dice, con «Retry» | costruttore (review) |
+| Il canale della Chat in «Browse»: due letture (attivi e archiviati), unite per id | costruttore |
+| Lo stream: UNA connessione per canale, condivisa dai suoi thread (che trovano il canale della radice, riprovando col backoff); «arrivato» solo un messaggio più nuovo dell'ultimo visto (il server può ripeterne); le letture si rinfrescano solo se la vista del canale cambia; alla ripresa si rilegge la pagina; watchdog dei ping a 60 s anche sul web; il cursore dello stream lo dà il server (senza `after`, «adesso»), la pagina letta non ne ha uno da seminare | stubwise-72 (server), costruttore (review) |
+
+## Renderer della fetta 2
+
+Accesi nella build app `chat-dm`, `chat-private`, `chat-general`,
+`chat-search`, `chat-questions`, `chat-also-in-channel` e `chat-from-message`;
+le citazioni (F2.7) non hanno un flag. Restano spenti `chat-claude` (fetta
+3), `chat-events` e `chat-attachments` (fetta 4).
+
+| Voce | Dove vive | Rotta / pezzo | Test |
+|---|---|---|---|
+| Il client della fetta 2: DM, inviti e rimozioni (`null` su un 204), domande e «ignora», ricerca coi filtri (anche «con citazioni»), il filtro `kind` | `packages/api-client/src/endpoints/chat.ts` | `POST /api/chat/dm`, `…/channels/:id/members[/:userId]`, `GET /questions`, `POST /questions/:id/dismiss`, `GET /search`, `?kind=` | `packages/api-client/src/endpoints/chat.test.ts` |
+| I permessi del canale uno per uno dal server (`canRead`, `canEditInfo`, `canEditTopic`, `canInvite`, `canRemove`, `canArchive`, `canDelete`); un privato visto da chi gestisce non si legge | `data/backend/real/chat.ts` (`toChannelView`) | — | `real/chat.test.ts` |
+| DM («New message», ⌘N, il DM che c'è già o uno nuovo), canali generali e privati coi membri, inviti e rimozioni; i rifiuti (`invalid: members`, `last_member`, `alsoInChannel`) | `real/chat.ts` | — | `real/chat.test.ts`, `real/chatPage.test.tsx` |
+| Il messaggio: «anche nel canale», chi deve rispondere (`asksReplyOf`), i codici di ciò che ne è nato (`linkedCodes`, `linkedRefs`), filtrati dal server | `real/chat.ts` (`toMessage`) | — | `real/chat.test.ts` |
+| «Ask for a reply» e «Also send to …» nella casella; «Create task» e «Create request» da un messaggio con `chatMessageId` (le creazioni di sempre) | `real/chat.ts`, `real/tasks.ts` (`createTaskWith`), `real/requests.ts` (`createRequestWith`) | `POST /api/tasks`, `POST /api/requests` | `real/chatPage.test.tsx` |
+| Le domande in «Da decidere», col canale come lo legge chi guarda | `real/chat.ts` (`listQuestions`), `pages/home/blocks/DecideBlock.tsx` | `GET /api/chat/questions` | `real/chat.test.ts`, `real/homePage.test.tsx` |
+| La ricerca della Chat | `real/chat.ts` (`searchChat`) | `GET /api/chat/search` | `real/chat.test.ts`, `real/chatPage.test.tsx` |
+| Le citazioni (F2.7): quelle confermate dal server sul messaggio si risolvono da lì (codice, nome, indirizzo), le altre restano non visibili; «#» manda le scelte dei tipi che il server sa citare | `real/chat.ts` (`chatCitationView`), `real/claudeChat.ts` (`resolveCitations`) | `citations` di invio e messaggio | `real/chat.test.ts`, `real/chatPage.test.tsx` |
+| Le persone vere della build app (review): «apri il thread dopo l'invio» e le bozze del riquadro di Claude non usano più la sessione del prototipo | `pages/chat/ChannelView.tsx` (`useOpenHref`), `layout/claudePanel/pageActions.ts` | — | `real/chatOpenThread.test.tsx`, `layout/claudePanel/fillable.test.tsx` |
+
+| Scelta o limite | Chi ha deciso |
+|---|---|
+| Le pagine Docs citate hanno il nome ma nessun link: l'area Docs non è integrata | costruttore |
+| Contro un server della sola fetta 1 (solo `canManage`) i bottoni di gestione del canale non comparirebbero; le fette 1 e 2 escono insieme | orchestratrice |
+| Togliere sé stessi da un privato che non si vede più (204): la vista di adesso, o «non trovato» | costruttore |

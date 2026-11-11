@@ -2145,7 +2145,8 @@ export function useChatQuestions() {
   return useQuery({
     queryKey: queryKeys.chatQuestions(me),
     queryFn: api.chat.listQuestions,
-    enabled: featureIntegrated("chat"),
+    // Le domande della Chat sono della fetta 2 (`chat-questions`).
+    enabled: featureIntegrated("chat") && featureIntegrated("chat-questions"),
   });
 }
 
@@ -2196,7 +2197,8 @@ export function useChatSearch(q: string, filters: ChatSearchFilters = {}) {
   return useQuery({
     queryKey: queryKeys.chatSearch(me, q, filters),
     queryFn: () => api.chat.searchChat(q, filters),
-    enabled: q.trim().length >= 2,
+    // La ricerca della Chat è della fetta 2 (`chat-search`).
+    enabled: q.trim().length >= 2 && featureIntegrated("chat-search"),
     // Come la ricerca: i risultati di prima restano solo per la stessa persona.
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
@@ -2365,7 +2367,8 @@ export function useChatClaudeQuestions() {
   return useQuery({
     queryKey: queryKeys.chatClaudeQuestions(me),
     queryFn: api.chat.listClaudeQuestions,
-    enabled: featureIntegrated("chat"),
+    // Le domande di @Claude nella Chat sono della fetta 3 (`chat-claude`).
+    enabled: featureIntegrated("chat") && featureIntegrated("chat-claude"),
   });
 }
 
@@ -2402,12 +2405,18 @@ export function useConfirmChatProposal() {
       messageId,
       proposalId,
       actionIndexes,
+      edited,
     }: {
       messageId: string;
       proposalId: string;
       actionIndexes?: number[];
+      /** Build app: i valori di «Edit», confermati dal server. */
+      edited?: { index: number; args: Record<string, unknown> }[];
     }) =>
-      api.chat.confirmChatProposal(messageId, proposalId, actionIndexes ? { actionIndexes } : {}),
+      api.chat.confirmChatProposal(messageId, proposalId, {
+        ...(actionIndexes ? { actionIndexes } : {}),
+        ...(edited ? { edited } : {}),
+      }),
     CHAT_PROPOSAL_AREAS,
   );
 }
@@ -2446,7 +2455,10 @@ export function useCompleteEditedChatProposal() {
 export interface ChatStream {
   /** I messaggi arrivati (o cambiati) dal vivo dopo l'iscrizione, per id: da unire alla pagina letta. */
   messages: ChatMessageView[];
-  /** `not_found`: il canale (o il thread) non esiste o chi guarda non lo legge; `closed`: non lo legge più. */
+  /**
+   * `not_found`: il canale (o il thread) non esiste o chi guarda non lo legge;
+   * `closed`: non lo legge più; `limit`: troppi stream aperti in questa finestra.
+   */
   error: string | null;
 }
 
@@ -2488,9 +2500,10 @@ function useChatStream(streamId: api.chat.ChatStreamId): ChatStream {
           if (active) setStream({ key, messages, error: null });
         },
         {
-          onConnection: () => {
+          // `limit`: troppi stream aperti in questa finestra (il main); i messaggi letti restano.
+          onConnection: (connection) => {
             unsubscribe = null;
-            if (active) setStream({ key, messages: [], error: "closed" });
+            if (active) setStream({ key, messages: connection === "limit" ? messages : [], error: connection });
           },
         },
       );

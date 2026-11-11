@@ -15,6 +15,7 @@ import { createFiltersEndpoints } from "./endpoints/filters.js";
 import { createHomeEndpoints } from "./endpoints/home.js";
 import { createRequestsEndpoints } from "./endpoints/requests.js";
 import { createMeEndpoints } from "./endpoints/me.js";
+import { createChatEndpoints } from "./endpoints/chat.js";
 import { createClaudeEndpoints } from "./endpoints/claude.js";
 import { createMilestonesEndpoints } from "./endpoints/milestones.js";
 import { createPatsEndpoints } from "./endpoints/pats.js";
@@ -151,6 +152,8 @@ export function createEndpoints(request: ApiRequest) {
     requests: createRequestsEndpoints(request),
     // Fetta 4: i traguardi (scritture; l'elenco è projects.milestones).
     milestones: createMilestonesEndpoints(request),
+    // Area 4: la Chat fra persone.
+    chat: createChatEndpoints(request),
   };
 }
 

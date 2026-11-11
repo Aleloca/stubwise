@@ -51,6 +51,8 @@ const session = (over: Record<string, unknown> = {}) => ({
 
 /** Le rotte che la chat può chiamare; ogni altra risponde 404 e il test lo dice. */
 const ALLOWED = [
+  // Il punto della Chat sul binario (area 4, fetta 1).
+  /^GET \/api\/chat\/(signal|channels)(\?|$)/,
   /^GET \/api\/auth\/me$/,
   /^GET \/api\/projects$/,
   /^GET \/api\/me\/follows$/,

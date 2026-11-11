@@ -21,4 +21,24 @@ sono in `integration-area4.md` e `integration-area4-f2.md`.
 
 ## Renderer (stubwise-94)
 
-La scrive il renderer.
+`chat-claude` è acceso nella build app (`data/integration.ts`). Il livello dati
+è `data/backend/real/chatClaude.ts` (la vista) più le funzioni in
+`real/chat.ts`; la scheda e la casella sono quelle del prototipo.
+
+| Voce del prototipo | Build app | Test |
+|---|---|---|
+| La risposta «Claude · called by X» nel thread, il segnale «Claude is replying…» sulla radice | `toMessage` + `claudeFieldsOf`: `claudeRun` (stato, motivo, `retried`) dal blocco `claude` del server; `claudeReplying` della radice | `real/chatClaude.test.ts`, `real/chatClaudePage.test.tsx` |
+| Le righe d'azione («cosa ha letto») solo a chi ha chiamato (D5) | lette dalla sessione (`/api/agent-sessions/:id/events`) SOLO se il server dà `sessionId`, cioè a chi ha chiamato; per gli altri nessuna richiesta | idem («un altro lettore»: nessuna richiesta alle sessioni) |
+| Il testo e le righe dal vivo | lo stream del canale porta la risposta; le righe si leggono a parte e la risposta torna «cambiata» quando cambiano: la sessione al più ogni 4 s mentre lavora, subito quando cambia lo stato, mai più a risposta finita (lo stream della Chat non dice quando arriva un evento di tool) | `real/chatStream.test.ts` («@Claude dal vivo») |
+| Le schede (R-G1): B, niente «Annulla», decide solo chi ha chiamato | evento `proposal` con `cls: "B"`, senza gruppo; `canDecide` = `canConfirm`/`canCancel` del server; gli argomenti: chi ha chiamato li ha tutti, un altro lettore quelli delle azioni sugli oggetti che vede (server 63ccd90a), e un'azione con `{}` si legge senza titolo né codice (`claude.chatActions.summaryHidden.*`) | `chatClaude.test.ts` («due lettori»), `chatClaudePage.test.tsx` (anche chi ha chiamato coi flag spenti; confermata senza «Undo») |
+| `confirmChatProposal` / `cancelChatProposal` / `editChatProposal` | le rotte delle proposte (`/api/claude/proposals/:id/confirm|cancel`); «Edit» conferma coi valori cambiati (`edited`, li esegue il server); `completeEditedChatProposal` resta del prototipo | `chatClaude.test.ts` («le proposte») |
+| Il canale archiviato o lasciato mentre la scheda è aperta | il 404 della rotta si distingue col canale: archiviato → «invalid: archived», non più membro o non letto → «not_member»; la scheda lo dice (`refusalText`: `chat.claude.proposalArchived`, `proposalNotMember`) | `chatClaude.test.ts`, `chatClaudePage.test.tsx` |
+| `answerChatClaudeQuestion` (R-G4), dal thread e da «Da decidere» | `POST …/claude/answer`; chi arriva secondo legge `already_answered` | `chatClaude.test.ts`, `chatClaudePage.test.tsx`, `homePage.test.tsx` |
+| `chatClaudeQuestionsOf` («Da decidere») | `listClaudeQuestions` su `GET /api/chat/claude-questions`, col canale come lo legge chi guarda | `chatClaude.test.ts`, `homePage.test.tsx` |
+| `stopClaudeReply`, `retryClaudeReply` | le rotte `…/claude/stop|retry`; i bottoni seguono `canStop`/`canRetry`/`canAnswer` del server | `chatClaude.test.ts`, `chatClaudePage.test.tsx` («seguono i flag del server») |
+| Eliminare la risposta (D6), modificare ed eliminare un messaggio | `canDelete` / `canEdit` del messaggio dal server (anche ↑ per modificare l'ultimo) | `chatClaudePage.test.tsx`, `chatPage.test.tsx` |
+| Il budget finito | `failed` col motivo `budget` (nuovo nel tipo `ChatClaudeFailure` e in i18n) | `chatClaudePage.test.tsx` |
+| La casella: «@Claude» fra le menzioni, l'avviso, il thread che si apre dopo l'invio | accesi col flag | `chatClaudePage.test.tsx`, `real/chatOpenThread.test.tsx` |
+
+Restano del prototipo (non chiamate dalla build app): `whenClaudeIdle`,
+`callText`, `completeEditedChatProposal`.

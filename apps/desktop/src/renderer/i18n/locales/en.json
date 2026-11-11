@@ -4817,6 +4817,13 @@
         "deleteTask": "Delete {{code}}",
         "deleteTaskNoCode": "Delete a task"
       },
+      "summaryHidden": {
+        "createTask": "Create a task",
+        "createRequest": "Send a request",
+        "createMilestone": "Create a milestone",
+        "saveFilter": "Save a filter",
+        "updateTask": "Change a task"
+      },
       "field": {
         "title": "title",
         "description": "description",
@@ -4867,7 +4874,8 @@
       "settings": "Settings",
       "membersOpen_one": "{{count}} member · settings",
       "membersOpen_other": "{{count}} members · settings",
-      "openSettings": "Opens the channel settings"
+      "openSettings": "Opens the channel settings",
+      "streamLimit": "Too many live views are open in this window: new messages here appear when you reopen the channel."
     },
     "flow": {
       "today": "Today",
@@ -5031,6 +5039,7 @@
       "reasons": {
         "forbidden": "the person who called it can no longer read this channel",
         "not_found": "something it needed no longer exists",
+        "budget": "the monthly Claude budget is used up",
         "other": "something went wrong"
       },
       "tryAgain": "Try again",
@@ -5042,7 +5051,9 @@
       "asks": "Claude asks {{name}}",
       "waitingFor": "Waiting for {{name}}",
       "questionClosed": "Not answered: the reply was stopped.",
-      "cantAct": "You can no longer act on this here: you're not in the channel or it's archived."
+      "cantAct": "You can no longer act on this here: you're not in the channel or it's archived.",
+      "proposalArchived": "This channel is archived: nothing was changed.",
+      "proposalNotMember": "You're no longer in this channel: nothing was changed."
     },
     "column": {
       "newMessage": "New message",
@@ -9772,7 +9783,8 @@
       "docs": "Docs",
       "code": "Code",
       "credentials": "Credentials",
-      "prototype": "Prototype"
+      "prototype": "Prototype",
+      "chat": "Chat"
     },
     "page": {
       "intro": "Find out who can do something in a project, or what someone can do — and why. You only see the projects and people you can see.",

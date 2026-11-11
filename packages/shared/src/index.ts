@@ -56,6 +56,7 @@ export * from "./elapsed.js";
 export * from "./ai-operations.js";
 export * from "./tasks/index.js";
 export * from "./claude/index.js";
+export * from "./chat/sse.js";
 export * from "./schemas/task-view.js";
 export * from "./schemas/task-delete.js";
 export * from "./schemas/claude-actions.js";

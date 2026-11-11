@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCreateChannel, usePeople, useProjects, useSessionPersonId } from "../../data/queries";
 import type { ChannelView, Project } from "../../data/types";
+import { featureIntegrated } from "../../data/integration";
 import { can, useViewer } from "../../data/viewing";
 import { Dialog, DialogField, inputClass, selectButtonClass } from "../../tasks-ui/Dialog";
 import { MenuGroup, RadioItem } from "../../tasks-ui/Menu";
@@ -55,7 +56,9 @@ export function NewChannelDialog({
   const allProjects = useProjects().data;
   const people = usePeople().data;
   const create = useCreateChannel();
-  const company = can(viewer, "chat.general.create");
+  // Build app: i canali generali e i privati sono della fetta 2 (`chat-general`, `chat-private`).
+  const company = featureIntegrated("chat-general") && can(viewer, "chat.general.create");
+  const privateOn = featureIntegrated("chat-private");
   const nameId = useId();
   const descriptionId = useId();
   const nameHintId = useId();
@@ -264,6 +267,7 @@ export function NewChannelDialog({
           />
         </DialogField>
 
+        {privateOn && (
         <fieldset className="flex min-w-0 flex-col gap-2">
           <legend className="mb-1.5 text-sm font-medium text-ink">
             {t("chat.newChannel.visibility")}
@@ -296,6 +300,7 @@ export function NewChannelDialog({
             </label>
           ))}
         </fieldset>
+        )}
 
         {visibility === "private" && (
           <div className="flex min-w-0 flex-col gap-1.5">

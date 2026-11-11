@@ -269,11 +269,11 @@ export function DraftRow({
       : event.status;
   const answer = (how: "replace" | "below") => {
     wantFocus.current = true;
-    answerDraft(event.id, how);
+    answerDraft(viewerId, event.id, how);
   };
   const putInField = () => {
     wantFocus.current = true;
-    wantDraft(conversationId, event, settle.mutateAsync);
+    wantDraft(viewerId, conversationId, event, settle.mutateAsync);
     if (!view.fieldOpen) void router.navigate({ href: where.route });
   };
   const show = () => {
@@ -344,7 +344,7 @@ export function DraftRow({
 
   function undo() {
     wantFocus.current = true;
-    const result = undoDraft(event.id);
+    const result = undoDraft(viewerId, event.id);
     // Un secondo clic (o nessun testo di prima) non scrive niente.
     if (result === "not_undoable") return;
     settle.mutate({ id: conversationId, eventId: event.id, status: result });

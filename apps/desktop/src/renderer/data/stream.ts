@@ -671,7 +671,7 @@ interface ChatSubscriber {
   streamId: ChatStreamId;
   personId: string;
   onMessage: (m: ChatMessageView, mode: StreamMode) => void;
-  onConnection?: (connection: "closed") => void;
+  onConnection?: (connection: "closed" | "limit") => void;
 }
 
 const chatSubscribers = new Set<ChatSubscriber>();
@@ -702,7 +702,8 @@ export function notifyChatChange(channelId: string): void {
 export function subscribeChat(
   streamId: ChatStreamId,
   onMessage: (m: ChatMessageView, mode: StreamMode) => void,
-  options: { onConnection?: (connection: "closed") => void } = {},
+  /** `closed`: non si legge più; `limit` (build app): troppi stream aperti in questa finestra. */
+  options: { onConnection?: (connection: "closed" | "limit") => void } = {},
 ): () => void {
   const personId = getSessionPersonId();
   const ch = streamId.startsWith(CLAUDE_PREFIX) ? undefined : channelOfStream(streamId);

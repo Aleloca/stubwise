@@ -738,9 +738,10 @@ export async function listAgentSessions(
   const conditions: SQL[] = [
     visibleTo(viewer),
     sql`${lastActivitySql} > now() - make_interval(days => ${WINDOW_DAYS}::int)`,
-    // Le conversazioni libere hanno il loro elenco (`/api/claude/conversations`):
-    // qui solo le sessioni di lavoro.
-    sql`${agentSessions.kind} <> 'free'`,
+    // Le conversazioni libere hanno il loro elenco (`/api/claude/conversations`)
+    // e le chiamate di @Claude nella Chat vivono nel loro thread (review della
+    // fetta 3): qui solo le sessioni di lavoro.
+    sql`${agentSessions.kind} not in ('free', 'chat_mention')`,
   ];
   // Solo le sessioni dei progetti in cui chi guarda ha `repos.view` (ruling
   // R26; le sessioni senza progetto, la posta, restano governate da

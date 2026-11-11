@@ -36,6 +36,12 @@ type StubwiseStreamMessage =
       invalidSession: boolean;
     }
   | {
+      /** Area 4: un frame dello stream di un canale della Chat. */
+      type: "chatFrame";
+      messages: import("@stubwise/shared").ChatStreamFrameMessage[];
+      cursor: string | null;
+    }
+  | {
       type: "end";
       reason: "closed" | "network" | "timeout" | "rotate" | "http" | "redirect" | "unauthorized" | "rejected" | "limit";
       fatal: boolean;

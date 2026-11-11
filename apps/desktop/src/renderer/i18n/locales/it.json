@@ -4817,6 +4817,13 @@
         "deleteTask": "Elimina {{code}}",
         "deleteTaskNoCode": "Elimina una task"
       },
+      "summaryHidden": {
+        "createTask": "Crea una task",
+        "createRequest": "Invia una richiesta",
+        "createMilestone": "Crea un traguardo",
+        "saveFilter": "Salva un filtro",
+        "updateTask": "Modifica una task"
+      },
       "field": {
         "title": "titolo",
         "description": "descrizione",
@@ -4867,7 +4874,8 @@
       "settings": "Impostazioni",
       "membersOpen_one": "{{count}} membro · impostazioni",
       "membersOpen_other": "{{count}} membri · impostazioni",
-      "openSettings": "Apre le impostazioni del canale"
+      "openSettings": "Apre le impostazioni del canale",
+      "streamLimit": "Troppe viste dal vivo aperte in questa finestra: i messaggi nuovi qui compaiono riaprendo il canale."
     },
     "flow": {
       "today": "Oggi",
@@ -5031,6 +5039,7 @@
       "reasons": {
         "forbidden": "chi l'ha chiamato non legge più questo canale",
         "not_found": "qualcosa che gli serviva non c'è più",
+        "budget": "il budget mensile di Claude è finito",
         "other": "qualcosa è andato storto"
       },
       "tryAgain": "Riprova",
@@ -5042,7 +5051,9 @@
       "asks": "Claude chiede a {{name}}",
       "waitingFor": "In attesa di {{name}}",
       "questionClosed": "Senza risposta: la risposta è stata fermata.",
-      "cantAct": "Qui non puoi più agire: non sei nel canale o è archiviato."
+      "cantAct": "Qui non puoi più agire: non sei nel canale o è archiviato.",
+      "proposalArchived": "Il canale è archiviato: non è cambiato nulla.",
+      "proposalNotMember": "Non sei più nel canale: non è cambiato nulla."
     },
     "column": {
       "newMessage": "Nuovo messaggio",
@@ -9772,7 +9783,8 @@
       "docs": "Documenti",
       "code": "Codice",
       "credentials": "Credenziali",
-      "prototype": "Prototipo"
+      "prototype": "Prototipo",
+      "chat": "Chat"
     },
     "page": {
       "intro": "Scopri chi può fare una cosa in un progetto, o cosa può fare una persona — e perché. Vedi solo i progetti e le persone che vedi già.",

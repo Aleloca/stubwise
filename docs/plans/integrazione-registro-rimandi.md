@@ -139,12 +139,13 @@ Design: `docs/plans/2026-11-10-integrazione-claude-chat-design.md`.
 Design: `docs/plans/2026-11-10-integrazione-area4-chat-design.md`. Fetta 1
 chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
 
-Fetta 2 chiusa lato server (sotto, «Chiuse»).
+Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse»).
 
-- Le citazioni nei messaggi (`citations`) *(in attesa del [DECIDE] 1 del
-  piano della fetta 2)*: oggi il renderer manda `[]`, e la ricerca e il filtro
-  «con citazioni» non le vedono.
 - Il filtro «con allegati» della ricerca *(fetta 4, con gli allegati)*.
+- **I flag del renderer da accendere con ogni fetta** *(O, 10 nov 2026)*
+  (`CHAT_LATER_FEATURES` in `apps/desktop/src/renderer/data/integration.ts`):
+  quelli delle fette 2 e 3 sono accesi; restano fetta 4 `chat-events` e
+  `chat-attachments`. Ognuno va acceso col suo test di pagina.
 - `@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
   1, da riprendere se il maintainer vuole avvisi di gruppo.
 - Limite accettato: modificare un messaggio avvisa solo chi viene nominato
@@ -272,6 +273,18 @@ Fetta 2 chiusa lato server (sotto, «Chiuse»).
   domanda a chi chiama (`ask_question` scritto dal worker) in «Da decidere»,
   stop, «Try again», eliminazione, budget → `failed`/`budget`. Migrazione
   0140; golden `chat-mention-*`. Il renderer è di stubwise-94.
+
+- **Area 4, fetta 3: @Claude nei canali, renderer** *(M/O, 11 nov 2026)*:
+  `chat-claude` acceso; la parità sta in
+  `apps/desktop/docs/integration-area4-f3.md` («Renderer»). Comprende anche
+  i difetti trovati nella review della fetta 1: «apri il thread dopo l'invio»
+  con la persona vera della build app (`useSessionPersonId`, test
+  `real/chatOpenThread.test.tsx`) e le bozze del riquadro di Claude per
+  persona (`answerDraft`, `wantDraft`, `undoDraft`, `fillable.test.tsx`).
+  Dopo il primo giro: le schede per chi non ha chiamato mostrano i dettagli
+  degli oggetti che vede (decisione del maintainer, server 63ccd90a); Modifica
+  ed Elimina dei messaggi seguono `canEdit`/`canDelete` del server; gli
+  eventi della sessione si rileggono al più ogni 4 s mentre Claude scrive.
 
 - Messaggi «via Claude» nella Chat *(M, 10 nov 2026, piano della fetta 3)*:
   si chiude senza codice. Nessuna azione del catalogo scrive in Chat, e

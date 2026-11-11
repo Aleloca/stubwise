@@ -82,6 +82,7 @@ export {
   projectPermissionsByProject,
   projectPermissionsOfUser,
   projectViewerIds,
+  projectViewerIdsByProject,
   userIdsWithPermission,
   userIsFullAdmin,
   type CardAnchor,

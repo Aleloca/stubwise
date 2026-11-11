@@ -2252,6 +2252,13 @@ export interface ChatMessage {
   /** Solo `claude`: chi l'ha chiamato. */
   calledById?: string;
   /**
+   * Build app: chi guarda può modificare / eliminare il messaggio, come lo
+   * calcola il SERVER (una risposta di Claude: chi l'ha chiamata, D6).
+   * Assenti nel prototipo, dove la UI li ricava dall'autore e dal canale.
+   */
+  canEdit?: boolean;
+  canDelete?: boolean;
+  /**
    * Markdown; le menzioni come le scrive la casella: `@Nome Cognome`,
    * `@channel`, `@<Reparto>`, `@Claude`.
    */
@@ -2291,15 +2298,25 @@ export interface ChatMessage {
     state: "working" | "waiting" | "done" | "stopped" | "failed";
     errorCode?: ChatClaudeFailure;
     retried?: boolean;
+    /**
+     * Build app (fetta 3): fermare, rifare e rispondere alla domanda come li
+     * calcola il SERVER per chi guarda. Assenti nel prototipo, dove la UI li
+     * ricava da chi ha chiamato e dallo stato.
+     */
+    canStop?: boolean;
+    canRetry?: boolean;
+    canAnswer?: boolean;
   };
 }
 
 /**
  * Perché una risposta di @Claude non è finita: chi l'ha chiamato non legge
  * più il canale (`forbidden`), qualcosa che serviva non c'è più
- * (`not_found`), o un errore qualunque (`other`).
+ * (`not_found`), il budget mensile dell'istanza è finito (`budget`, solo
+ * nella build app: il server non fa partire il turno), o un errore
+ * qualunque (`other`).
  */
-export type ChatClaudeFailure = "forbidden" | "not_found" | "other";
+export type ChatClaudeFailure = "forbidden" | "not_found" | "budget" | "other";
 
 /** Fin dove una persona ha letto un canale e, per id della radice, i thread. */
 export interface ReadState {

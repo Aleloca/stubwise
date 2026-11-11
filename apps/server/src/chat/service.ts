@@ -20,7 +20,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import { projectViewerIds, publishNotification } from "@stubwise/notifications";
+import { projectViewerIdsByProject, publishNotification } from "@stubwise/notifications";
 import { AGENT_SESSION_INPUT_CHANNEL } from "@stubwise/shared";
 import type {
   ProjectPermission,
@@ -38,7 +38,7 @@ import { isUniqueViolation } from "../routes/shared.js";
 import { personName } from "../services/people.js";
 import { requestVisibility } from "../services/project-requests.js";
 import { visibleTasksCondition } from "../services/task-view.js";
-import { citationsToStore, citationViews } from "./citations.js";
+import { citationsToStore, citationViews, hasVisibleCitationSql } from "./citations.js";
 import { eventViews } from "./events.js";
 import { callContext, callsClaude, claudeReplyViews, rootsWithClaudeWorking, startClaudeReply, stopSession } from "./claude.js";
 import {
@@ -46,6 +46,7 @@ import {
   allowedMemberIds,
   channelAccess,
   channelMemberIds,
+  channelMemberSql,
   channelReadableSql,
   channelReaderIds,
   channelVisibleSql,
@@ -67,7 +68,8 @@ import {
  * del canale).
  */
 
-export const CHAT_CHANNEL_NOTIFY = "chat_channel";
+import { CHAT_CHANNEL_NOTIFY } from "./notify.js";
+export { CHAT_CHANNEL_NOTIFY };
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type MessageRow = typeof chatMessages.$inferSelect;
 
@@ -241,10 +243,11 @@ async function channelViewsBatch(
   const membersOf = new Map<string, string[]>();
   for (const r of memberRows) membersOf.set(r.channelId, [...(membersOf.get(r.channelId) ?? []), r.userId]);
   // Chi vede ciascun progetto: i membri del «general», e il filtro degli ex membri.
-  const viewersOf = new Map<string, Set<string>>();
-  for (const projectId of new Set(channels.flatMap((c) => (c.projectId ? [c.projectId] : [])))) {
-    viewersOf.set(projectId, new Set(await projectViewerIds(db, projectId)));
-  }
+  const viewersOf = new Map(
+    [...(await projectViewerIdsByProject(db, channels.flatMap((c) => (c.projectId ? [c.projectId] : [])))).entries()].map(
+      ([projectId, ids]) => [projectId, new Set(ids)] as const,
+    ),
+  );
   const candidates = new Set([...memberRows.map((r) => r.userId), ...[...viewersOf.values()].flatMap((v) => [...v])]);
   const humans = new Set((await peopleOf(db, [...candidates])).map((p) => p.id));
   const prefs = new Map(
@@ -456,19 +459,29 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
           .where(inArray(chatMessageCitations.messageId, live))
           .orderBy(asc(chatMessageCitations.position));
   const citations = await citationViews(db, viewer, citationRows);
-  // Le risposte di @Claude (fetta 3): chi guarda è membro del loro canale? (decide chi può decidere)
+  // Chi guarda è membro del canale di ogni messaggio, e il canale è archiviato?
+  // Lo chiedono le risposte di @Claude (chi può decidere) e `canEdit`/`canDelete`
+  // (le stesse condizioni delle scritture). Due query, non per canale.
+  const channelIds = [...new Set(rows.map((r) => r.channelId))];
   const memberOf = new Map<string, { isMember: boolean; archived: boolean }>();
-  const claude = await claudeReplyViews(db, viewer, rows, async (channelId) => {
-    let known = memberOf.get(channelId);
-    if (!known) {
-      const [channel] = await db.select().from(chatChannels).where(eq(chatChannels.id, channelId));
-      known = channel
-        ? { isMember: (await channelAccess(db, viewer, channel)).isMember, archived: channel.archivedAt !== null }
-        : { isMember: false, archived: true };
-      memberOf.set(channelId, known);
-    }
-    return known;
-  });
+  if (channelIds.length > 0) {
+    const channelRows = await db
+      .select({ id: chatChannels.id, isGeneral: chatChannels.isGeneral, archivedAt: chatChannels.archivedAt })
+      .from(chatChannels)
+      .where(inArray(chatChannels.id, channelIds));
+    const mine = new Set(
+      (
+        await db
+          .select({ channelId: chatChannelMembers.channelId })
+          .from(chatChannelMembers)
+          .where(and(eq(chatChannelMembers.userId, viewer.id), inArray(chatChannelMembers.channelId, channelIds)))
+      ).map((r) => r.channelId),
+    );
+    // La regola di `accessFrom`: il «general» o una riga fra i membri.
+    for (const c of channelRows) memberOf.set(c.id, { isMember: c.isGeneral || mine.has(c.id), archived: c.archivedAt !== null });
+  }
+  const placeOf = (channelId: string) => memberOf.get(channelId) ?? { isMember: false, archived: true };
+  const claude = await claudeReplyViews(db, viewer, rows, async (channelId) => placeOf(channelId));
   const replying = await rootsWithClaudeWorking(db, rows.filter((r) => r.threadRootId === null).map((r) => r.id));
   const events = await eventViews(db, viewer, rows);
   return rows.map((m) => {
@@ -499,9 +512,12 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
       replyParticipantIds: reply?.participants ?? [],
       following: followOf.get(m.id) === true,
       mentionedIds: deleted ? [] : m.mentionedIds,
-      canEdit: own && !deleted,
+      // Le condizioni delle scritture (review del renderer della fetta 3): si
+      // modifica da membro di un canale non archiviato (`canWrite`), si elimina
+      // in un canale non archiviato (`ownMessage`).
+      canEdit: own && !deleted && placeOf(m.channelId).isMember && !placeOf(m.channelId).archived,
       // La risposta di @Claude la elimina chi l'ha chiamata (D6).
-      canDelete: (own || (m.kind === "claude" && m.calledById === viewer.id)) && !deleted,
+      canDelete: (own || (m.kind === "claude" && m.calledById === viewer.id)) && !deleted && !placeOf(m.channelId).archived,
       viaClaude: m.viaClaudeActionId !== null,
       alsoInChannel: m.alsoInChannel,
       asksReplyOf: deleted ? [] : m.asksReplyOf,
@@ -714,7 +730,9 @@ export async function joinChannel(db: Db, viewer: ChatViewer, id: string, join: 
       // conteggio dei membri si rilegge DOPO il lock, così due uscite insieme
       // non lasciano un privato vuoto né una `dm_key` vecchia.
       const locked = await lockChannel(tx, id);
-      const now = await channelAccess(tx, viewer, locked);
+      // Contano solo i membri che leggono ancora (review della fetta 2): la riga
+      // di chi non vede più il progetto resta, ma non tiene vivo un privato.
+      const now = accessFrom(viewer, locked, access.permissions, await channelMemberIds(tx, locked));
       if (!now.isMember) return;
       if (!now.canLeave) throw new ChatError(409, "cannot_leave", "You can't leave this conversation");
       await tx
@@ -729,9 +747,13 @@ export async function joinChannel(db: Db, viewer: ChatViewer, id: string, join: 
   return still ? channelView(db, viewer, still) : null;
 }
 
-/** Il canale con il lock della riga (`FOR UPDATE`), dentro la transazione di chi cambia i membri. */
+/**
+ * Il canale con il lock della riga, dentro la transazione di chi cambia i
+ * membri. `FOR NO KEY UPDATE`: mette in fila uscite e rimozioni senza
+ * bloccare chi inserisce messaggi o membri (le FK prendono `FOR KEY SHARE`).
+ */
 async function lockChannel(tx: Tx, id: string): Promise<ChannelRow> {
-  const [row] = await tx.select().from(chatChannels).where(eq(chatChannels.id, id)).for("update");
+  const [row] = await tx.select().from(chatChannels).where(eq(chatChannels.id, id)).for("no key update");
   if (!row) throw notFound();
   return row;
 }
@@ -773,10 +795,9 @@ export async function removeMember(db: Db, viewer: ChatViewer, id: string, perso
   if (!access.canRemove) throw forbidden("Can't remove people from this channel");
   await db.transaction(async (tx) => {
     // Come all'uscita: il conteggio si rilegge sotto il lock del canale.
-    await lockChannel(tx, id);
-    const current = (
-      await tx.select({ userId: chatChannelMembers.userId }).from(chatChannelMembers).where(eq(chatChannelMembers.channelId, id))
-    ).map((r) => r.userId);
+    const locked = await lockChannel(tx, id);
+    // Solo chi legge ancora (review della fetta 2), come all'uscita.
+    const current = await channelMemberIds(tx, locked);
     if (!current.includes(personId)) throw notFound();
     if (channel.visibility === "private" && current.length <= 1) {
       throw new ChatError(409, "last_member", "A private channel can't be left empty");
@@ -1315,7 +1336,14 @@ export async function answerClaudeQuestion(
       .where(and(eq(chatClaudeQuestions.id, question.id), isNull(chatClaudeQuestions.answeredAt)))
       .returning({ id: chatClaudeQuestions.id });
     if (claimed.length === 0) throw new ChatError(409, "already_answered", "Already answered");
-    await tx.update(chatMessages).set({ claudeState: "working", updatedAt: sql`now()` }).where(eq(chatMessages.id, id));
+    // Solo una risposta ancora in attesa e non eliminata (review della fetta 3):
+    // uno Stop o un'eliminazione arrivati nel frattempo non si annullano.
+    const resumed = await tx
+      .update(chatMessages)
+      .set({ claudeState: "working", updatedAt: sql`now()` })
+      .where(and(eq(chatMessages.id, id), eq(chatMessages.claudeState, "waiting"), isNull(chatMessages.deletedAt)))
+      .returning({ id: chatMessages.id });
+    if (resumed.length === 0) throw new ChatError(409, "invalid_status", "The reply isn't waiting");
     // La ripresa: la stessa sessione, con la risposta come messaggio di chi ha chiamato.
     const label = option?.label ?? text!;
     await tx.insert(agentSessionInputs).values({
@@ -1332,17 +1360,32 @@ export async function answerClaudeQuestion(
 
 // --- Viste trasversali ---------------------------------------------------------
 
-/** I canali (letti) di cui chi guarda è membro, con la cache dell'accesso. */
-function membershipCache(db: Db, viewer: ChatViewer) {
-  const cache = new Map<string, ChannelAccess>();
-  return async (channel: ChannelRow): Promise<ChannelAccess> => {
-    let access = cache.get(channel.id);
-    if (!access) {
-      access = await channelAccess(db, viewer, channel);
-      cache.set(channel.id, access);
-    }
-    return access;
-  };
+/**
+ * I thread seguiti con novità per chi guarda (la WHERE di `threadsWithNews`,
+ * sopra `chat_messages` della radice, `chat_thread_follows` e `chat_channels`):
+ * la usa anche `signalOf`, con un EXISTS, senza costruire viste.
+ */
+async function threadNewsWhere(db: Db, viewer: ChatViewer): Promise<SQL> {
+  const readable = await channelReadableSql(db, viewer);
+  return and(
+        eq(chatThreadFollows.following, true),
+        readable,
+        // Membro del canale, nella WHERE (review della fetta 2): i thread di un
+        // canale lasciato non occupano i 100 posti. Chi esce smette così di
+        // seguirne i thread, a lettura, senza riscrivere i follow.
+        channelMemberSql(viewer.id),
+        // Le novità PRIMA del limite: cento thread seguiti senza risposte nuove non nascondono il centunesimo.
+        sql`exists (
+          select 1 from chat_messages r
+          where r.thread_root_id = ${chatMessages.id}
+            and r.deleted_at is null
+            and (r.author_id is null or r.author_id <> ${viewer.id})
+            and r.created_at > coalesce((
+              select cr.last_read_at from chat_reads cr
+              where cr.user_id = ${viewer.id} and cr.thread_root_id = ${chatMessages.id}
+            ), to_timestamp(0))
+        )`,
+  )!;
 }
 
 /**
@@ -1353,7 +1396,6 @@ export async function threadsWithNews(
   db: Db,
   viewer: ChatViewer,
 ): Promise<{ root: ChatMessageView; unreadReplies: number; latestReplies: ChatMessageView[]; archived: boolean }[]> {
-  const readable = await channelReadableSql(db, viewer);
   const rows = await db
     .select({
       root: chatMessages,
@@ -1372,28 +1414,10 @@ export async function threadsWithNews(
     .from(chatMessages)
     .innerJoin(chatThreadFollows, and(eq(chatThreadFollows.rootMessageId, chatMessages.id), eq(chatThreadFollows.userId, viewer.id)))
     .innerJoin(chatChannels, eq(chatChannels.id, chatMessages.channelId))
-    .where(
-      and(
-        eq(chatThreadFollows.following, true),
-        readable,
-        // Le novità PRIMA del limite: cento thread seguiti senza risposte nuove non nascondono il centunesimo.
-        sql`exists (
-          select 1 from chat_messages r
-          where r.thread_root_id = ${chatMessages.id}
-            and r.deleted_at is null
-            and (r.author_id is null or r.author_id <> ${viewer.id})
-            and r.created_at > coalesce((
-              select cr.last_read_at from chat_reads cr
-              where cr.user_id = ${viewer.id} and cr.thread_root_id = ${chatMessages.id}
-            ), to_timestamp(0))
-        )`,
-      ),
-    )
+    .where(await threadNewsWhere(db, viewer))
     .orderBy(desc(chatMessages.updatedAt))
     .limit(100);
-  const accessOf = membershipCache(db, viewer);
-  const withNews: typeof rows = [];
-  for (const r of rows) if (r.unread > 0 && (await accessOf(r.channel)).isMember) withNews.push(r);
+  const withNews = rows;
   if (withNews.length === 0) return [];
   // Le ultime tre risposte vive di OGNI thread in una query a finestra, e una vista sola per tutto.
   const rootIds = withNews.map((r) => r.root.id);
@@ -1436,21 +1460,16 @@ export async function mentionsOf(db: Db, viewer: ChatViewer): Promise<ChatMessag
     .innerJoin(chatChannels, eq(chatChannels.id, chatMessages.channelId))
     .where(
       and(
-        or(direct, group),
+        // `@channel`/reparto solo dove è membro, nella WHERE (review della fetta 2).
+        or(direct, and(group, channelMemberSql(viewer.id))),
         isNull(chatMessages.deletedAt),
         or(isNull(chatMessages.authorId), ne(chatMessages.authorId, viewer.id)),
         await channelReadableSql(db, viewer),
       ),
     )
     .orderBy(desc(chatMessages.createdAt))
-    .limit(100);
-  const accessOf = membershipCache(db, viewer);
-  const kept: MessageRow[] = [];
-  for (const r of rows) {
-    if (r.direct || (await accessOf(r.channel)).isMember) kept.push(r.message);
-    if (kept.length >= 50) break;
-  }
-  return messageViews(db, viewer, kept);
+    .limit(50);
+  return messageViews(db, viewer, rows.map((r) => r.message));
 }
 
 /**
@@ -1463,8 +1482,15 @@ export async function signalOf(db: Db, viewer: ChatViewer): Promise<{ hasNews: b
   const channels = await listChannelsWithSignal(db, viewer, { archived: false });
   const mentions = channels.reduce((n, c) => n + c.toMe, 0);
   if (mentions > 0) return { hasNews: true, mentions };
-  const threads = await threadsWithNews(db, viewer);
-  return { hasNews: threads.some((t) => !t.archived), mentions };
+  // Un EXISTS, non le viste dei thread (review della fetta 2).
+  const [row] = await db
+    .select({ yes: sql<number>`1` })
+    .from(chatMessages)
+    .innerJoin(chatThreadFollows, and(eq(chatThreadFollows.rootMessageId, chatMessages.id), eq(chatThreadFollows.userId, viewer.id)))
+    .innerJoin(chatChannels, eq(chatChannels.id, chatMessages.channelId))
+    .where(and(await threadNewsWhere(db, viewer), isNull(chatChannels.archivedAt)))
+    .limit(1);
+  return { hasNews: row !== undefined, mentions };
 }
 
 /** Il cursore più grande che Postgres accetta in un `bigint` (oltre è 400, non un giro infinito). */
@@ -1477,6 +1503,10 @@ export const CHAT_CURSOR_MAX = 9223372036854775807n;
  * che è già partito con lo stesso `updated_at`.
  */
 export const CHAT_STREAM_OVERLAP_MICROS = 5_000_000n;
+/** Le righe in avanti per giro: oltre, il cursore avanza e il giro dopo continua. */
+export const CHAT_STREAM_PAGE = 500;
+/** Le righe della finestra dietro il cursore: tetto di sicurezza, ben sopra un canale vivo. */
+export const CHAT_STREAM_OVERLAP_MAX = 2_000;
 
 /**
  * I messaggi del canale cambiati dopo `after` (lo stream): nuovi, modificati,
@@ -1503,28 +1533,36 @@ export async function changedSince(
       .select({ max: sql<string>`coalesce(max(${micros}), (extract(epoch from now()) * 1000000)::bigint)::text` })
       .from(chatMessages)
       .where(eq(chatMessages.channelId, channelId));
-    const cursor = row?.max ?? "0";
-    // Ciò che è già nella finestra prima del cursore lo ha la pagina: non riparte al giro dopo.
-    const recent = await db
-      .select({ id: chatMessages.id, cursor: sql<string>`${micros}::text` })
-      .from(chatMessages)
-      .where(and(eq(chatMessages.channelId, channelId), sql`${micros} > ${(BigInt(cursor) - CHAT_STREAM_OVERLAP_MICROS).toString()}::bigint`));
-    for (const r of recent) seen.set(r.id, r.cursor);
-    return { messages: [], cursor };
+    // Niente in `seen` all'apertura (review della fetta 2): un messaggio arrivato
+    // fra la lettura della pagina e l'apertura dello stream è nella finestra, e
+    // il primo giro lo rimanda. Il client deduplica per id.
+    return { messages: [], cursor: row?.max ?? "0" };
   }
-  const from = BigInt(after) > CHAT_STREAM_OVERLAP_MICROS ? BigInt(after) - CHAT_STREAM_OVERLAP_MICROS : 0n;
-  const rows = await db
+  // Due letture distinte (review della fetta 2): la finestra di sovrapposizione
+  // DIETRO il cursore (le transazioni committate in ritardo), e la lettura IN
+  // AVANTI a pagine. Con una lettura sola e un `limit`, 500 righe nella
+  // finestra già viste tenevano il cursore fermo per sempre.
+  const at = BigInt(after);
+  const from = at > CHAT_STREAM_OVERLAP_MICROS ? at - CHAT_STREAM_OVERLAP_MICROS : 0n;
+  const overlap = await db
     .select({ message: chatMessages, cursor: sql<string>`${micros}::text` })
     .from(chatMessages)
-    .where(and(eq(chatMessages.channelId, channelId), sql`${micros} > ${from.toString()}::bigint`))
+    .where(and(eq(chatMessages.channelId, channelId), sql`${micros} > ${from.toString()}::bigint`, sql`${micros} <= ${at.toString()}::bigint`))
     .orderBy(asc(chatMessages.updatedAt), asc(chatMessages.id))
-    .limit(500);
+    .limit(CHAT_STREAM_OVERLAP_MAX);
+  const forward = await db
+    .select({ message: chatMessages, cursor: sql<string>`${micros}::text` })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.channelId, channelId), sql`${micros} > ${at.toString()}::bigint`))
+    .orderBy(asc(chatMessages.updatedAt), asc(chatMessages.id))
+    .limit(CHAT_STREAM_PAGE);
+  const rows = [...overlap, ...forward];
   const fresh = rows.filter((r) => seen.get(r.message.id) !== r.cursor);
   for (const r of fresh) seen.set(r.message.id, r.cursor);
+  const top = forward.reduce((max, r) => (BigInt(r.cursor) > max ? BigInt(r.cursor) : max), at);
   // `seen` non cresce senza fine: ciò che è uscito dalla finestra non può tornare.
-  const floor = rows.reduce((max, r) => (BigInt(r.cursor) > max ? BigInt(r.cursor) : max), BigInt(after)) - CHAT_STREAM_OVERLAP_MICROS;
-  for (const [id, at] of seen) if (BigInt(at) < floor) seen.delete(id);
-  const top = rows.reduce((max, r) => (BigInt(r.cursor) > max ? BigInt(r.cursor) : max), BigInt(after));
+  const floor = top - CHAT_STREAM_OVERLAP_MICROS;
+  for (const [id, cursorOf] of seen) if (BigInt(cursorOf) < floor) seen.delete(id);
   return {
     messages: await messageViews(db, viewer, fresh.map((r) => r.message)),
     cursor: top.toString(),
@@ -1581,15 +1619,14 @@ export async function questionsOf(db: Db, viewer: ChatViewer): Promise<ChatQuest
           where d.user_id = ${viewer.id} and d.message_id = ${chatMessages.id}
         )`,
         sql`not ${answeredSql(viewer.id)}`,
+        // Solo dove può ancora rispondere: membro, nella WHERE (review della fetta 2).
+        channelMemberSql(viewer.id),
       ),
     )
     .orderBy(desc(chatMessages.createdAt))
     .limit(200);
-  const accessOf = membershipCache(db, viewer);
   const out: ChatQuestionItem[] = [];
-  for (const { message: m, channel } of rows) {
-    // Solo dove può ancora rispondere: membro di un canale non archiviato.
-    if (!(await accessOf(channel)).isMember) continue;
+  for (const { message: m } of rows) {
     out.push({
       id: `chat:${m.id}`,
       channelId: m.channelId,
@@ -1653,9 +1690,7 @@ export async function searchChat(
         filters.channelId ? eq(chatMessages.channelId, filters.channelId) : undefined,
         filters.authorId ? eq(chatMessages.authorId, filters.authorId) : undefined,
         filters.peopleOnly ? ne(chatMessages.kind, "system") : undefined,
-        filters.withCitations
-          ? sql`exists (select 1 from ${chatMessageCitations} c where c.message_id = ${chatMessages.id})`
-          : undefined,
+        filters.withCitations ? await hasVisibleCitationSql(db, viewer, chatMessages.id) : undefined,
         filters.from ? sql`(${chatMessages.createdAt} at time zone 'UTC')::date >= ${filters.from}::date` : undefined,
         filters.to ? sql`(${chatMessages.createdAt} at time zone 'UTC')::date <= ${filters.to}::date` : undefined,
       ),

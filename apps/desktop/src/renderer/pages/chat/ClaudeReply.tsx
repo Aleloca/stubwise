@@ -30,6 +30,7 @@ import { quietButton } from "../claude/conversation/parts";
 import { ProposalCardView, routeOfCode } from "../claude/conversation/ProposalCard";
 import { QuestionCardView } from "../claude/conversation/QuestionCard";
 import { MenuButton } from "../tasks/controls";
+import { isAppBuild } from "../../data/build";
 import { hm } from "./flow";
 import { ChatAvatar, useMessageDecorator } from "./MessageItem";
 
@@ -112,6 +113,11 @@ export function ClaudeReply({
   const state = run?.state ?? "done";
   const live = state === "working" || state === "waiting";
   const deleted = m.deletedAt !== null;
+  // Build app: i flag del server per chi guarda; nel prototipo si ricavano.
+  const canStop = run?.canStop ?? (mine && live);
+  const canRetry = run?.canRetry ?? (mine && !run?.retried && canWrite);
+  const canAnswer = run?.canAnswer ?? (mine && state === "waiting" && canWrite);
+  const canDelete = m.canDelete ?? (mine && canWrite);
 
   // I codici che chi guarda non vede: quelli citati e quelli delle righe e delle schede.
   const hidden = useMemo(() => {
@@ -208,7 +214,7 @@ export function ClaudeReply({
               {state === "working" && empty && (
                 <span className="text-xs text-ink-muted">· {t("chat.claude.thinking")}</span>
               )}
-              {mine && live && (
+              {canStop && (
                 <button
                   type="button"
                   className="ml-auto rounded-md px-1.5 text-sm font-medium text-ink-muted underline decoration-ink/30 underline-offset-2 hover:text-ink hover:decoration-ink disabled:opacity-60"
@@ -273,7 +279,7 @@ export function ClaudeReply({
                   <QuestionCardView
                     key={e.id}
                     event={e}
-                    canAnswer={mine && state === "waiting" && canWrite}
+                    canAnswer={canAnswer}
                     pending={answer.isPending}
                     onAnswer={(payload) =>
                       answer.mutateAsync({
@@ -304,6 +310,16 @@ export function ClaudeReply({
                     viewerId={viewerId}
                     canAct={canWrite}
                     cantActNote={t("chat.claude.cantAct")}
+                    // Build app: le rotte delle proposte rispondono 404 anche in un
+                    // canale archiviato o per chi non è più membro (il livello dati
+                    // lo distingue col canale).
+                    refusalText={(error) =>
+                      error.message === "invalid: archived"
+                        ? t("chat.claude.proposalArchived")
+                        : error.message === "not_member"
+                          ? t("chat.claude.proposalNotMember")
+                          : null
+                    }
                     renderText={linked}
                     renderCode={renderCode}
                     ops={{
@@ -315,6 +331,17 @@ export function ClaudeReply({
                       cancel: () => cancel.mutateAsync(target),
                       edit: () => edit.mutateAsync(target),
                       complete: (code) => complete.mutateAsync({ ...target, resultCodes: [code] }),
+                      ...(isAppBuild()
+                        ? {
+                            // Build app: salvare «Edit» CONFERMA coi valori cambiati
+                            // (li esegue il server); un rifiuto lo dice il dialogo.
+                            confirmEdited: async (index: number, args: Record<string, unknown>) => {
+                              const result = await confirm.mutateAsync({ ...target, edited: [{ index, args }] });
+                              if ("status" in result && result.status === "failed") throw new Error(result.error);
+                              return result;
+                            },
+                          }
+                        : {}),
                       busy:
                         confirm.isPending ||
                         cancel.isPending ||
@@ -338,7 +365,7 @@ export function ClaudeReply({
                     reason: t(`chat.claude.reasons.${run?.errorCode ?? "other"}`),
                   })}
                 </span>
-                {mine && !run?.retried && canWrite && (
+                {canRetry && (
                   <button
                     type="button"
                     disabled={retry.isPending}
@@ -405,7 +432,7 @@ export function ClaudeReply({
                 >
                   {t("chat.actions.copyLink")}
                 </button>
-                {mine && canWrite && (
+                {canDelete && (
                   <button
                     type="button"
                     role="menuitem"
