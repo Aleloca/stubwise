@@ -37,9 +37,21 @@ function mentions(text: string, name: string): boolean {
   return new RegExp(`@${escaped}(?![\\p{L}\\p{N}_])`, "u").test(text);
 }
 
-/** Il testo nomina ancora l'oggetto: il codice, il titolo della pagina, «@Nome» della persona. */
-function stillNamed(c: Citeable, text: string): boolean {
-  return c.kind === "person" ? mentions(text, c.label) : text.includes(c.label);
+/**
+ * Il testo nomina ancora l'oggetto, col suo confine (review della fetta 2):
+ * - il codice di una task o di una richiesta come lo trova `codesIn`
+ *   («AUD-1» non vive dentro «AUD-12» né dentro «XAUD-1»);
+ * - il codice di un progetto da solo, non come prefisso di un codice
+ *   («AUD» non è citato da «AUD-12» né da «AUDIT»);
+ * - il titolo di una pagina col confine di parola;
+ * - «@Nome» della persona come le menzioni.
+ */
+export function stillNamed(c: Citeable, text: string): boolean {
+  if (c.kind === "person") return mentions(text, c.label);
+  if (c.kind === "task" || c.kind === "request") return codesIn(text).some((found) => found.code === c.label);
+  const escaped = c.label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const tail = c.kind === "project" ? "(?![\\p{L}\\p{N}_]|-R?\\d)" : "(?![\\p{L}\\p{N}_])";
+  return new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}${tail}`, "u").test(text);
 }
 
 /**

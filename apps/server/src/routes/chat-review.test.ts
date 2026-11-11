@@ -5,6 +5,7 @@ import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 import { changedSince } from "../chat/service.js";
+import { stillNamed } from "../chat/citations.js";
 
 // La Chat, le correzioni delle review delle fette 1 e 2 (10 nov 2026): ogni
 // test è nato rosso sul difetto che la review ha trovato.
@@ -280,5 +281,22 @@ describe("review fetta 2, seconda (11 nov 2026)", () => {
     }
     expect(delivered.has(last)).toBe(true);
     expect(delivered.size).toBe(502);
+  });
+
+  it("2. una citazione resta solo se il testo nomina ANCORA l'oggetto, col suo confine", () => {
+    const task = { kind: "task" as const, id: "t", label: "AUD-1", projectId: null };
+    expect(stillNamed(task, "vedi AUD-1, grazie")).toBe(true);
+    expect(stillNamed(task, "vedi AUD-12")).toBe(false);
+    expect(stillNamed(task, "vedi XAUD-1")).toBe(false);
+    const project = { kind: "project" as const, id: "p", label: "AUD", projectId: null };
+    expect(stillNamed(project, "il progetto AUD")).toBe(true);
+    expect(stillNamed(project, "la task AUD-12")).toBe(false);
+    expect(stillNamed(project, "AUDIT")).toBe(false);
+    const doc = { kind: "doc" as const, id: "d", label: "Sync", projectId: null };
+    expect(stillNamed(doc, "leggi Sync.")).toBe(true);
+    expect(stillNamed(doc, "leggi Syncing")).toBe(false);
+    const person = { kind: "person" as const, id: "u", label: "Ale", projectId: null };
+    expect(stillNamed(person, "ciao @Ale")).toBe(true);
+    expect(stillNamed(person, "ciao @Alessio")).toBe(false);
   });
 });
