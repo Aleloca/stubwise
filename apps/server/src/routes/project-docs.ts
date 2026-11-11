@@ -441,7 +441,8 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
           : Promise.resolve(null),
         retrieveDecisionContext(app.db, { projectId, question: message }, request.log),
       ]);
-      const citations = buildCitations(chunks);
+      // Il codice D di ogni fonte (area 5, fetta 1).
+      const citations = await withDocCodes(app.db, buildCitations(chunks));
       // Le decisioni per ULTIME: sono vincoli che valgono nonostante ciò che
       // le fonti descrittive dicono (vedi `appendDecisionContext`).
       const system = appendDecisionContext(

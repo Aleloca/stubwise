@@ -1,16 +1,18 @@
 import {
-  aiProviderKindSchema,
-  docGenerationStatusSchema,
   docPageLinkSchema,
   docPageSchema,
   type DocPageStaleCommit,
   docSpaceSchema,
   docTreeNodeSchema,
-  docGenerationTriggerSchema,
-  docJobStatusSchema,
   docPageKindSchema,
   docBriefResponseSchema,
   docCodeResolutionSchema,
+  createManualDocPageSchema,
+  docGenerationJobSchema,
+  docGenerationViewSchema,
+  docStatusResponseSchema,
+  docPinnedProviderSchema,
+  updateManualDocPageSchema,
   productExclusionSchema,
   projectBriefSchema,
   repoHighlightsSchema,
@@ -49,16 +51,7 @@ function onRepository(permission: ProjectPermission): RouteAccess {
 const slugParamsSchema = z.object({ repositoryId: z.uuid(), slug: z.string().min(1) });
 const manualIdParamsSchema = z.object({ repositoryId: z.uuid(), id: z.uuid() });
 
-/** Job di generazione restituito dalle route di trigger/stato. */
-const jobSchema = z.object({
-  id: z.uuid(),
-  status: docJobStatusSchema,
-  trigger: docGenerationTriggerSchema,
-  error: z.string().nullable(),
-  createdAt: z.string(),
-  startedAt: z.string().nullable(),
-  finishedAt: z.string().nullable(),
-});
+const jobSchema = docGenerationJobSchema;
 
 type DocGenerationJobRow = typeof docGenerationJobs.$inferSelect;
 
@@ -74,29 +67,7 @@ function toJob(row: DocGenerationJobRow): z.infer<typeof jobSchema> {
   };
 }
 
-/**
- * Provider bloccato esposto dallo stato: l'identità minima per mostrarlo in UI.
- * `kind` riusa l'enum dei provider (account|api_key). null = nessun pin (o il
- * provider è stato eliminato nel frattempo).
- */
-const pinnedProviderSchema = z.object({
-  id: z.uuid(),
-  label: z.string(),
-  kind: aiProviderKindSchema,
-});
-
-/** Generazione corrente (puntata da projects.currentDocGenerationId). */
-const generationSchema = z.object({
-  id: z.uuid(),
-  status: docGenerationStatusSchema,
-  commitSha: z.string().nullable(),
-  model: z.string().nullable(),
-  cost: z.string().nullable(),
-  stats: z.unknown().nullable(),
-  startedAt: z.string().nullable(),
-  finishedAt: z.string().nullable(),
-  createdAt: z.string(),
-});
+const generationSchema = docGenerationViewSchema;
 
 type DocGenerationRow = typeof docGenerations.$inferSelect;
 
@@ -244,21 +215,8 @@ async function loadStaleSince(
   }));
 }
 
-const createManualSchema = z.object({
-  title: z.string().min(1).max(300),
-  // Slug opzionale: assente = derivato dal titolo. Unico per progetto (409).
-  slug: z.string().min(1).max(300).optional(),
-  parentId: z.uuid().nullable().optional(),
-  position: z.int().min(0).optional(),
-  body: z.string().default(""),
-});
-
-const updateManualSchema = z.object({
-  title: z.string().min(1).max(300).optional(),
-  parentId: z.uuid().nullable().optional(),
-  position: z.int().min(0).optional(),
-  body: z.string().optional(),
-});
+const createManualSchema = createManualDocPageSchema;
+const updateManualSchema = updateManualDocPageSchema;
 
 /**
  * Slug URL-safe dal titolo: minuscole, accenti rimossi, resto in trattini.
@@ -440,11 +398,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       schema: {
         params: repositoryIdParamsSchema,
         response: {
-          200: z.object({
-            generation: generationSchema.nullable(),
-            latestJob: jobSchema.nullable(),
-            pinnedProvider: pinnedProviderSchema.nullable(),
-          }),
+          200: docStatusResponseSchema,
           404: errorSchema,
           ...authErrorResponses,
         },
@@ -502,7 +456,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
 
       // Risolvi il provider bloccato: se l'id non esiste più (provider eliminato)
       // o non c'è alcun pin, esponi null.
-      let pinnedProvider: z.infer<typeof pinnedProviderSchema> | null = null;
+      let pinnedProvider: z.infer<typeof docPinnedProviderSchema> | null = null;
       if (pinnedProviderId) {
         const [provider] = await app.db
           .select({ id: aiProviders.id, label: aiProviders.label, kind: aiProviders.kind })
