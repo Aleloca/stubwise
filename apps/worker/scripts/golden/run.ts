@@ -2230,14 +2230,20 @@ async function runChat(
   const tag = `[${scenario}]`;
   const fake = await startFakeChatServer(opts.answer);
   const mention = opts.mention !== undefined;
-  // `ask_question` la scrive il worker nel DB: qui si registra e basta.
+  // `ask_question` la scrive il worker nel DB: qui si risponde come lui — la
+  // prima domanda accettata, una seconda nella stessa risposta rifiutata
+  // (l'indice unico di `chat_claude_questions`), con gli stessi testi.
+  let asked = 0;
   const bridge = await ctx.rt.startChatBridge({
     serverUrl: fake.url,
     log,
-    askQuestion: async () => ({
-      ok: true,
-      text: "The question is in the thread for the person who called you. End your turn now, with nothing else: when they answer, you will continue.",
-    }),
+    askQuestion: async () =>
+      ++asked === 1
+        ? {
+            ok: true,
+            text: "The question is in the thread for the person who called you. End your turn now, with nothing else: when they answer, you will continue.",
+          }
+        : { ok: false, text: "You already asked your one question in this answer: say what is still unclear in words." },
   });
   const grant = bridge.grant({ sessionId: "golden", serverToken: CHAT_TOKEN, ...(mention ? { ask: true } : {}) });
   const mcp = ctx.rt.buildChatMcpConfig(bridge, grant, ctx.chatServerPath, { ask: mention });
@@ -2750,6 +2756,7 @@ async function main(): Promise<void> {
     results.push(result);
     for (const check of result.checks) {
       log(`  ${check.passed ? "OK  " : "KO  "} ${check.name} — ${check.detail}`);
+      if (check.warning) log(`  AVVISO ${check.warning}`);
     }
     log(`  → ${result.passed ? "PASSATO" : "FALLITO"} in ${Math.round(result.durationMs / 1000)}s`);
     if (args.keep) log(`  working dir conservata: ${result.cwd}`);

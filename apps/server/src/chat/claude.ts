@@ -8,6 +8,7 @@ import {
   claudeActions,
   claudeConversations,
   claudeProposals,
+  milestones,
   users,
   type Db,
 } from "@stubwise/db";
@@ -222,11 +223,80 @@ export async function chatProposalGuard(
 
 // --- La vista di una risposta -------------------------------------------------------
 
+type ProposedAction = { fn: string; args: Record<string, unknown> };
+type ActionRef = { kind: ChatCitationKind; id: string };
+
+/**
+ * Gli oggetti che un'azione proposta tocca, da cui dipende chi può leggerne gli
+ * argomenti; `null`: argomenti mai per gli altri lettori (i filtri sono
+ * PERSONALI di chi chiama, le azioni della pagina non esistono in Chat, e una
+ * `fn` che non conosco resta chiusa). Il milestone si legge dal suo progetto.
+ */
+function actionRefs(a: ProposedAction, milestoneProject: Map<string, string>): ActionRef[] | null {
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  const one = (kind: ChatCitationKind, v: unknown): ActionRef[] | null => {
+    const id = str(v);
+    return id ? [{ kind, id }] : null;
+  };
+  switch (a.fn) {
+    case "createTask":
+    case "createRequest":
+    case "createMilestone":
+      return one("project", a.args.projectId);
+    case "updateTask":
+    case "planTask":
+    case "deleteTask":
+      return one("task", a.args.id);
+    case "addComment":
+    case "deleteComment":
+    case "startRun":
+      return one("task", a.args.taskId);
+    case "convertRequest":
+    case "archiveRequest":
+    case "reopenRequest":
+      return one("request", a.args.id);
+    case "deleteMilestone": {
+      const id = str(a.args.id);
+      return one("project", id ? milestoneProject.get(id) : null);
+    }
+    default:
+      return null;
+  }
+}
+
+/**
+ * Gli argomenti delle azioni proposte come li legge chi NON ha chiamato
+ * (correzione della fetta 3, decisa dal maintainer): un'azione si legge per
+ * intero se chi guarda vede TUTTI gli oggetti che tocca (le regole delle task,
+ * delle richieste e dei progetti di `citeablesFor`), altrimenti esce senza
+ * argomenti, così né il codice né il titolo di ciò che non vede escono.
+ * Le chiavi del risultato sono `${proposalId}:${indice}`.
+ */
+async function argsVisibleTo(
+  db: Db,
+  viewer: ChatViewer,
+  proposals: readonly { id: string; actions: unknown }[],
+): Promise<Set<string>> {
+  const all = proposals.flatMap((p) => (p.actions as ProposedAction[]).map((a, i) => ({ key: `${p.id}:${i}`, a })));
+  const milestoneIds = all.flatMap(({ a }) => (a.fn === "deleteMilestone" && typeof a.args.id === "string" ? [a.args.id] : []));
+  const milestoneProject = new Map(
+    milestoneIds.length > 0
+      ? (await db.select({ id: milestones.id, projectId: milestones.projectId }).from(milestones).where(inArray(milestones.id, milestoneIds))).map(
+          (m) => [m.id, m.projectId] as const,
+        )
+      : [],
+  );
+  const refsOf = all.map(({ key, a }) => ({ key, refs: actionRefs(a, milestoneProject) }));
+  const seen = await citeablesFor(db, viewer, refsOf.flatMap((r) => r.refs ?? []));
+  return new Set(refsOf.filter((r) => r.refs !== null && r.refs.every((ref) => seen.has(`${ref.kind}:${ref.id}`))).map((r) => r.key));
+}
+
 /**
  * Il blocco `claude` delle risposte come lo legge chi guarda. Chi ha chiamato
  * vede la sessione («cosa ha letto», D5), gli argomenti delle azioni e può
- * decidere; gli altri lettori vedono la scheda (riassunto, stato) senza
- * argomenti, e dei codici nati da una conferma solo quelli che vedono. Il testo
+ * decidere; gli altri lettori vedono la scheda (riassunto, stato) con gli
+ * argomenti delle sole azioni sugli oggetti che vedono (`argsVisibleTo`), e
+ * dei codici nati da una conferma solo quelli che vedono. Il testo
  * di Claude lo leggono tutti uguale: ne risponde chi chiama.
  */
 export async function claudeReplyViews(
@@ -260,6 +330,8 @@ export async function claudeReplyViews(
     if (!seen.has(`${o.kind}:${o.id}`)) continue;
     codesOf.set(o.groupId, [...(codesOf.get(o.groupId) ?? []), o.code]);
   }
+  const othersProposals = proposals.filter((p) => replies.some((r) => r.agentSessionId === p.sessionId && r.calledById !== viewer.id));
+  const argsSeen = await argsVisibleTo(db, viewer, othersProposals);
   const questions = await db
     .select()
     .from(chatClaudeQuestions)
@@ -279,8 +351,8 @@ export async function claudeReplyViews(
         summary: p.summary,
         status: isExpired ? "expired" : p.status,
         cls: "B",
-        // Gli argomenti (titoli, campi) sono solo di chi può confermarle.
-        actions: (p.actions as { fn: string; args: Record<string, unknown> }[]).map((a) => ({ fn: a.fn, args: own ? a.args : {} })),
+        // Gli argomenti: tutti per chi ha chiamato, per gli altri solo sugli oggetti che vedono.
+        actions: (p.actions as ProposedAction[]).map((a, i) => ({ fn: a.fn, args: own || argsSeen.has(`${p.id}:${i}`) ? a.args : {} })),
         resultCodes: p.groupId ? (codesOf.get(p.groupId) ?? []) : [],
         canConfirm: own && open && live,
         canCancel: own && open && live,

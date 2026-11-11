@@ -261,8 +261,16 @@ Piano: `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`. Codice:
   scadono dopo 20 messaggi del THREAD o 24 ore, a lettura. Le decide solo chi
   ha chiamato, se legge il canale, ne è membro e il canale non è archiviato
   (`chatProposalGuard`, dentro `loadOwn`), con le rotte di sempre
-  `/api/claude/proposals/:id/…`. Gli altri lettori vedono la scheda senza
-  argomenti, e dei codici nati dalla conferma solo quelli che vedono.
+  `/api/claude/proposals/:id/…`. Gli altri lettori vedono la scheda con gli
+  argomenti delle sole azioni sugli oggetti che vedono (correzione dell'11 nov
+  2026, del maintainer: «Crea la task "Export PDF"» come nel prototipo).
+  `argsVisibleTo` in `chat/claude.ts` lega ogni `fn` agli oggetti che tocca
+  (progetto per le creazioni, task, richiesta, il progetto del milestone) e
+  li misura con `citeablesFor`. Un'azione su un oggetto che non vedono esce
+  con `args: {}`, così né codice né titolo escono. Una `fn` nuova, i filtri
+  personali e le azioni di pagina restano chiusi per costruzione: chi
+  aggiunge una `fn` al catalogo la aggiunga lì. Dei codici nati dalla
+  conferma escono solo quelli che vedono.
 - **Il testo di Claude lo leggono tutti uguale**: lo scrive il worker sul
   messaggio (a intervalli e alla fine), dai testi dell'assistente della
   sessione.
