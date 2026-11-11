@@ -60,6 +60,13 @@ function sessionDue(id: string, state: string): boolean {
 
 /** Il codice di ogni task citata negli argomenti di una proposta (id → «AUD-12»). */
 const taskCodes = new Map<string, string>();
+/**
+ * Le task il cui codice non è arrivato (un errore, o non la si vede): fino a
+ * quando non si richiedono. Senza, un errore del server si ripeterebbe a ogni
+ * frame dello stream.
+ */
+const taskMisses = new Map<string, number>();
+const TASK_RETRY_MS = 15_000;
 /** Gli argomenti di ogni proposta letta con gli argomenti (di chi ha chiamato), per «Edit». */
 const proposalActions = new Map<string, ServerAction[]>();
 
@@ -67,6 +74,7 @@ export function forgetChatClaudeCaches(): void {
   actionRows.clear();
   sessionReads.clear();
   taskCodes.clear();
+  taskMisses.clear();
   proposalActions.clear();
   loads.clear();
 }
@@ -174,7 +182,10 @@ export function needsClaudeLoad(v: ServerMsg): boolean {
 }
 
 function missingTaskIds(c: Block): string[] {
-  return c.proposals.flatMap((p) => p.actions.flatMap((a) => taskIdsOf(a.fn, a.args))).filter((id) => !taskCodes.has(id));
+  const now = Date.now();
+  return c.proposals
+    .flatMap((p) => p.actions.flatMap((a) => taskIdsOf(a.fn, a.args)))
+    .filter((id) => !taskCodes.has(id) && (taskMisses.get(id) ?? 0) <= now);
 }
 
 async function load(v: ServerMsg): Promise<boolean> {
@@ -205,8 +216,9 @@ async function load(v: ServerMsg): Promise<boolean> {
     const code = await cachedTaskCode(id);
     if (code) {
       taskCodes.set(id, code);
+      taskMisses.delete(id);
       changed = true;
-    }
+    } else taskMisses.set(id, Date.now() + TASK_RETRY_MS);
   }
   return changed;
 }

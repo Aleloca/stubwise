@@ -288,6 +288,40 @@ describe("la risposta di @Claude", () => {
     expect(p.actions.map((a) => a.summary)).toEqual(["Change this page", "A change"]);
   });
 
+  it("un codice di task che il server non dà (500) non si richiede a ogni lettura: si riprova dopo un po'", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const TASK = "7f1c2a1e-0000-4000-8000-0000000000b9";
+      const { seen } = install({
+        [`GET /api/chat/messages/${ROOT}/thread`]: {
+          body: {
+            root: root(),
+            replies: [
+              reply({}, {
+                state: "done",
+                sessionId: null,
+                question: null,
+                proposals: [{ id: PROPOSAL, summary: "x", status: "open", actions: [{ fn: "planTask", args: { id: TASK, plan: {} } }] }],
+              }),
+            ],
+          },
+        },
+        [`GET /api/tickets/${TASK}`]: { status: 500, body: { code: "internal", message: "x" } },
+      });
+      await getSessionPerson();
+      const asks = () => seen.filter((r) => r.path === `/api/tickets/${TASK}`).length;
+      await chat.listThread(ROOT);
+      await chat.listThread(ROOT);
+      await chat.listThread(ROOT);
+      expect(asks()).toBe(1);
+      vi.setSystemTime(Date.now() + 30_000);
+      await chat.listThread(ROOT);
+      expect(asks()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("finita male: il motivo del server, anche il budget; «Try again» già usato", async () => {
     install({
       [`GET /api/chat/messages/${REPLY}`]: {
