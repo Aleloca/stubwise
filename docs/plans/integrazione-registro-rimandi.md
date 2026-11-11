@@ -207,6 +207,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   sa; niente contenuto, riassunto e passaggi fino alla F3; «#» cerca i file da
   2 caratteri; sul web una sessione scaduta durante un caricamento la chiude
   la richiesta dopo. Elenco completo in `apps/desktop/docs/integration-area5-f2.md`.
+- `nosniff` sull'anteprima del Drive *(S, limite accettato, review della
+  fetta 2)*: l'URL firmato di S3 non può aggiungere
+  `X-Content-Type-Options: nosniff` (le firme permettono di sovrascrivere solo
+  Content-Type e Content-Disposition). Accettato perché il Content-Type
+  dell'anteprima inline lo decide il server (solo PDF, immagini raster e
+  testo come `text/plain`) e l'anteprima inline esiste solo da un'origine
+  diversa dall'istanza. Si riapre se lo storage passa dietro un proxy nostro.
 
 ## Area 6 — Posta e Calendario
 

@@ -5910,6 +5910,21 @@ export const driveFiles = pgTable(
   ],
 );
 
+/**
+ * Un oggetto dello storage rimasto senza riga (0144, review della fetta 2): un
+ * caricamento interrotto, un insert fallito, che lo storage non ha tolto
+ * subito. La pulizia oraria del server lo ritenta e toglie la riga.
+ */
+export const storageOrphans = pgTable(
+  "storage_orphans",
+  {
+    storageKey: text("storage_key").primaryKey(),
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("storage_orphans_created_at_idx").on(table.createdAt), check("storage_orphans_reason_chk", sql`${table.reason} <> ''`)],
+);
+
 /** Un'apertura di un file del Drive (0143): anteprima o download, per «Più usati» e la storia. */
 export const driveOpens = pgTable(
   "drive_opens",

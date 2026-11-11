@@ -256,6 +256,25 @@ describe("lo storage del Drive (area 5, fetta 2)", () => {
     expect(Buffer.isBuffer(params.Body)).toBe(false);
   });
 
+  it("putObjectStream: uno stream che si rompe a metà annulla il multipart (abort) e rilancia", async () => {
+    const { Readable } = await import("node:stream");
+    const storage = createS3Storage(config);
+    const body = new Readable({ read() {} });
+    body.push(Buffer.alloc(5));
+    setTimeout(() => body.destroy(new Error("chiuso")), 10);
+    await expect(storage.putObjectStream("drive/p/1/b.pdf", body, "application/pdf")).rejects.toThrow("chiuso");
+    expect(uploadAbort).toHaveBeenCalledTimes(1);
+  });
+
+  it("copyObject di una chiave che non c'è più: StorageObjectNotFound, non l'errore dell'SDK", async () => {
+    const { StorageObjectNotFound } = await import("./index.js");
+    sendMock.mockRejectedValueOnce(Object.assign(new Error("The specified key does not exist."), { name: "NoSuchKey" }));
+    const storage = createS3Storage(config);
+    await expect(storage.copyObject("chat/c/1/via.pdf", "drive/p/2/via.pdf")).rejects.toBeInstanceOf(StorageObjectNotFound);
+    sendMock.mockRejectedValueOnce(Object.assign(new Error("boom"), { name: "InternalError" }));
+    await expect(storage.copyObject("chat/c/1/via.pdf", "drive/p/2/via.pdf")).rejects.not.toBeInstanceOf(StorageObjectNotFound);
+  });
+
   it("copyObject copia una chiave in un'altra (Save to Drive: due oggetti indipendenti)", async () => {
     const storage = createS3Storage(config);
     await storage.copyObject("chat/c/1/a b.pdf", "drive/p/2/a b.pdf");

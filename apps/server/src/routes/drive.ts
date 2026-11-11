@@ -11,6 +11,7 @@ import {
   saveToDriveBodySchema,
 } from "@stubwise/shared";
 import { apiError } from "../errors.js";
+import { isMultipartLimit } from "./multipart.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 import {
   assertCanUploadDrive,
@@ -88,9 +89,11 @@ export async function driveRoutes(instance: FastifyInstance): Promise<void> {
         if (!storage) return apiError(reply, 400, "storage_not_configured", "Object storage is not configured");
         let part;
         try {
-          part = await request.file({ limits: { fileSize: DRIVE_FILE_MAX_BYTES, files: 1 } });
+          // UN file e nient'altro (review della fetta 2): nessun campo, una parte.
+          part = await request.file({ limits: { fileSize: DRIVE_FILE_MAX_BYTES, files: 1, fields: 0, parts: 1 } });
         } catch (error) {
           if ((error as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") return apiError(reply, 413, "file_too_large", "File exceeds the 100 MB limit");
+          if (isMultipartLimit(error)) return apiError(reply, 400, "invalid_multipart", "Send one file and nothing else");
           throw error;
         }
         if (!part) return apiError(reply, 400, "file_required", "A file is required");

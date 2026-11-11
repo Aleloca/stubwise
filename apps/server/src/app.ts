@@ -74,6 +74,8 @@ import { agentSessionRoutes } from "./routes/agent-sessions.js";
 import { chatRoutes } from "./routes/chat.js";
 import { driveRoutes } from "./routes/drive.js";
 import { purgeDeletedDriveObjects } from "./drive/service.js";
+import { runStorageHygiene } from "./storage/hygiene.js";
+import { purgeStorageOrphans } from "./storage/orphans.js";
 import { NOOP_CHAT_BUS, type ChatBus } from "./chat/bus.js";
 import { claudeConversationRoutes } from "./routes/claude-conversations.js";
 import { claudeActionRoutes } from "./routes/claude-actions.js";
@@ -569,11 +571,19 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     void (async () => {
       try {
         const storage = await app.storage();
-        await pruneChatUploads(app.db, storage, (m) => app.log.warn(m));
-        // Gli oggetti del Drive eliminati che lo storage non aveva tolto (area 5, fetta 2).
-        await purgeDeletedDriveObjects(app.db, storage, (m) => app.log.warn(m));
+        // Ogni passo nel suo try (review della fetta 2): la Chat che fallisce non salta il Drive.
+        await runStorageHygiene(
+          [
+            { name: "chat", run: () => pruneChatUploads(app.db, storage, (m) => app.log.warn(m)) },
+            // Le lapidi del Drive (area 5, fetta 2).
+            { name: "drive", run: () => purgeDeletedDriveObjects(app.db, storage, (m) => app.log.warn(m)) },
+            // Gli oggetti rimasti senza riga che lo storage non aveva tolto (0144).
+            { name: "orphans", run: () => purgeStorageOrphans(app.db, storage, (m) => app.log.warn(m)) },
+          ],
+          (error, name) => app.log.warn({ err: error }, `pulizia oraria dello storage non riuscita: ${name}`),
+        );
       } catch (error) {
-        app.log.warn({ err: error }, "potatura degli allegati della Chat non riuscita");
+        app.log.warn({ err: error }, "pulizia oraria dello storage: storage non disponibile");
       }
     })();
   }, 60 * 60 * 1000);

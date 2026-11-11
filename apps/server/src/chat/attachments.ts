@@ -3,6 +3,8 @@ import { attachments, chatChannels, chatMessageAttachments, chatMessages, ticket
 import { CHAT_ATTACHMENTS_PER_MESSAGE, chatAttachmentAllowed, type ChatAttachmentView } from "@stubwise/shared";
 import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { ObjectStorage } from "../storage/index.js";
+import { displayFileName } from "../storage/filenames.js";
+import { removeOrRecordOrphan } from "../storage/orphans.js";
 import { channelAccess, visibleChannel, type ChannelAccess, type ChannelRow, type ChatViewer } from "./access.js";
 
 /**
@@ -96,7 +98,7 @@ function sanitizeForKey(filename: string): string {
 }
 
 /** Il nome mostrato: l'ultimo segmento, senza percorsi. */
-const displayName = (filename: string): string => (filename.split(/[/\\]/).pop() ?? "").trim() || "file";
+const displayName = displayFileName;
 
 /**
  * Carica un file nel canale: chi ci scrive, in un canale non archiviato, un
@@ -126,7 +128,7 @@ export async function uploadChatAttachment(
     return view(row!);
   } catch (error) {
     // L'oggetto c'è ma la riga no: si toglie, per non lasciare orfani.
-    await storage.deleteObject(storageKey).catch(() => undefined);
+    await removeOrRecordOrphan(db, storage, storageKey, "chat_insert_failed");
     throw error;
   }
 }
