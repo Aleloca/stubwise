@@ -2,9 +2,6 @@ import { ApiError } from "@stubwise/api-client";
 import {
   DRIVE_CODE_RE,
   DRIVE_FILE_TYPES,
-  driveCodeResolutionSchema,
-  driveFileDetailSchema,
-  driveFileListSchema,
   driveUploadResultSchema,
   DRIVE_FILE_MAX_BYTES,
   type DriveFileRow as ServerDriveFileRow,
@@ -105,16 +102,11 @@ async function write<T>(run: () => Promise<T>): Promise<T> {
 }
 
 async function listFiles(filters: Omit<DriveFilters, "sort" | "hidden"> & { sort?: DriveFilters["sort"]; q?: string }) {
-  const params = new URLSearchParams();
-  if (filters.type) params.set("type", filters.type);
-  if (filters.addedById) params.set("addedById", filters.addedById);
-  if (filters.q) params.set("q", filters.q);
-  if (filters.sort) params.set("sort", filters.sort);
-  const qs = params.toString() ? `?${params.toString()}` : "";
-  const path = filters.projectId
-    ? `/api/projects/${encodeURIComponent(filters.projectId)}/drive/files${qs}`
-    : `/api/drive/files${qs}`;
-  const page = await orNone(() => appClient().request("GET", path, undefined, driveFileListSchema), { items: [] });
+  const opts = { type: filters.type, addedById: filters.addedById, q: filters.q, sort: filters.sort };
+  const page = await orNone(
+    () => (filters.projectId ? appClient().drive.list(filters.projectId, opts) : appClient().drive.listAll(opts)),
+    { items: [] },
+  );
   return rowsOf(page.items as ServerDriveFileRow[]);
 }
 
@@ -129,17 +121,11 @@ const getDriveFile: Drive["getDriveFile"] = async (ref) => {
   let id = ref;
   if (!UUID.test(ref)) {
     if (!DRIVE_CODE_RE.test(ref.toUpperCase())) return null;
-    const where = await orNone(
-      () => appClient().request("GET", `/api/drive/codes/${encodeURIComponent(ref)}`, undefined, driveCodeResolutionSchema),
-      null,
-    );
+    const where = await orNone(() => appClient().drive.resolveCode(ref), null);
     if (!where) return null;
     id = where.fileId;
   }
-  const d = await orNone(
-    () => appClient().request("GET", `/api/drive/files/${encodeURIComponent(id)}`, undefined, driveFileDetailSchema),
-    null,
-  );
+  const d = await orNone(() => appClient().drive.get(id), null);
   if (!d) return null;
   const [row] = await rowsOf([d as ServerDriveFileRow]);
   const detail: DriveFileDetail = {
@@ -165,7 +151,7 @@ const searchDrive: Drive["searchDrive"] = async (q, scope: DriveSearchScope = {}
 };
 
 const deleteDriveFile: Drive["deleteDriveFile"] = async (id) => {
-  await write(() => appClient().request("DELETE", `/api/drive/files/${encodeURIComponent(id)}`));
+  await write(() => appClient().drive.remove(id));
 };
 
 /**
@@ -177,13 +163,13 @@ const deleteDriveFile: Drive["deleteDriveFile"] = async (id) => {
  */
 const recordOpen: Drive["recordOpen"] = async (fileId, via) => {
   if (via === "google") throw new Error("invalid: google");
-  const base = `/api/drive/files/${encodeURIComponent(fileId)}`;
+  const client = appClient();
   if (via === "preview" && !window.stubwise?.api?.download) {
     // Con `noopener` `window.open` dà sempre null: non dice se s'è aperta.
-    window.open(`${base}/preview`, "_blank", "noopener");
+    window.open(client.drive.previewPath(fileId), "_blank", "noopener");
     return { counted: true };
   }
-  const result = await downloadByPath(`${base}/download`);
+  const result = await downloadByPath(client.drive.downloadPath(fileId));
   if (result.ok) return { counted: true };
   if (result.reason === "canceled") return { counted: false };
   throw new Error(result.reason === "not_found" ? "not_found" : result.reason);
@@ -268,7 +254,7 @@ function sendFromBrowser(path: string, file: File, options: DriveUploadOptions):
  * spenta `invalid: storage_off`, annullato `canceled`, il resto `failed`.
  */
 const uploadFiles: Drive["uploadFiles"] = async (projectId, files, options: DriveUploadOptions = {}) => {
-  const path = `/api/projects/${encodeURIComponent(projectId)}/drive/files`;
+  const path = `/api/projects/${encodeURIComponent(projectId)}/drive/files`; // la rotta di `client.drive.upload`
   const results: DriveUploadResult[] = [];
   for (const input of files as DriveUploadInput[]) {
     if (input.sizeBytes > DRIVE_FILE_MAX_BYTES) {
