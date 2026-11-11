@@ -36,8 +36,9 @@ le sue in `nightly.md`.
   alla sua fine. Un codice dato a uno slug la cui transazione poi fallisce
   resta (non si riusa, e torna buono alla prossima pagina con quello slug).
 - Le note di rilascio non hanno codice: nel prototipo non sono pagine. Per
-  lo stesso motivo non stanno nel gruppo docs della ricerca globale
-  (`GET /api/search`, cioè ⌘K e il selettore «#»), e il backfill delle
+  lo stesso motivo non stanno nel gruppo docs della ricerca globale quando
+  chi chiede passa `citable=true` (`GET /api/search` del desktop, cioè ⌘K e
+  il selettore «#»; il web vecchio non lo passa e le vede come prima), e il backfill delle
   citazioni della 0142 ha tolto quelle che puntavano a una nota.
 - Una pagina che cambia slug riceve un codice nuovo; il vecchio resta, e si
   risolve con `available: false`.

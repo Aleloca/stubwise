@@ -3642,9 +3642,6 @@ deploy o di un rollback che la tocca.
   doc_chunks c where c.page_id = p.id);` arriva a 0 (al massimo un'ora dopo,
   se all'avvio l'embedder era giù).
 
-  Le note di rilascio non stanno più nel gruppo docs di `GET /api/search`
-  (la palette del web e ⌘K del desktop): non hanno codice, e nel prototipo
-  non sono pagine. Si leggono dalla loro sezione, come prima.
 
   Il server dipende ora da `@stubwise/docs-engine` (il chunking delle pagine
   manuali): il Dockerfile del server lo builda col filtro
@@ -3697,7 +3694,8 @@ deploy o di un rollback che la tocca.
     `stubwise_ensure_doc_page_codes`: i codici li dà il trigger dentro la sua
     transazione, e una pagina manuale nuova dello stesso progetto aspetta la
     fine di una finalize (lento, non rotto).
-  - Un server vecchio rimette le note di rilascio nella ricerca globale.
+  - Un server vecchio ignora `citable=true` su `GET /api/search`: nel «#» e
+    in ⌘K del desktop tornano le note di rilascio, senza codice.
   - I chunk delle pagine manuali restano: un server vecchio li trova con la
     ricerca semantica, ed è un miglioramento, non un problema.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.

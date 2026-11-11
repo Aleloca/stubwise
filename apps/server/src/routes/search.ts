@@ -68,6 +68,10 @@ const searchQuerySchema = z.object({
   // Scope Docs: se presente, RISTRINGE SOLO il gruppo docs a questo repository.
   // Gli altri gruppi (ticket/progetti/repo) restano su tutti i progetti visibili.
   repositoryId: z.uuid().optional(),
+  // Il gruppo docs delle sole pagine CITABILI (area 5, fetta 1): senza le note
+  // di rilascio, che non hanno un codice e nel prototipo non sono pagine. Lo
+  // chiede il desktop per il «#» e ⌘K; il web non lo passa e le vede come prima.
+  citable: z.enum(["true", "false"]).optional(),
 });
 
 const docsSemanticQuerySchema = z.object({
@@ -282,10 +286,10 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           .where(
             and(
               sql`${docPages.searchTsv} @@ ${tsq}`,
-              // Le note di rilascio no (review della fetta 1 dell'area 5): non
-              // hanno un codice, e nel prototipo non sono pagine, quindi non si
-              // citano col «#» né si aprono da ⌘K.
-              ne(docPages.kind, "releases"),
+              // Con `citable=true` le note di rilascio no (review della fetta 1
+              // dell'area 5): non hanno un codice, e nel prototipo non sono
+              // pagine, quindi non si citano col «#» né si aprono da ⌘K.
+              request.query.citable === "true" ? ne(docPages.kind, "releases") : undefined,
               // Solo la generazione corrente del repo (o le pagine manuali,
               // generation_id null): le generazioni stale non compaiono.
               or(
