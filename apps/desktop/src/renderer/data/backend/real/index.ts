@@ -37,6 +37,8 @@ export { instance } from "./instanceChat";
 // lo stream); DM, privati, ricerca, domande, @Claude ed eventi restano «non integrati».
 // I Docs (area 5, fetta 1): le letture, poi le scritture e il grafo (`docs.ts`).
 export { docs } from "./docs";
+// Il Drive (area 5, fetta 2): i caricati, senza Google né contenuto (`drive.ts`).
+export { drive } from "./drive";
 export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
   ...chatFunctions,
   channelStream,
