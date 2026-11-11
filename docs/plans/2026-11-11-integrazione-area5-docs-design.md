@@ -117,6 +117,17 @@ Il maintainer ha deciso che i Docs arrivano «come oggi», senza funzioni nuove.
   - 60 secondi per pagina;
   - un job alla volta (la coda del contenuto ha concorrenza 1), così l'OCR
     non toglie CPU ai run dell'agente.
+- **Il file è input NON fidato** (approvato dall'orchestratrice, da
+  riportare nel piano della F3):
+  - `pdftotext`, `pdftoppm` e `tesseract` con `execFile`, senza shell, con
+    argomenti fissi (il nome del file mai in un argomento: il file sta in una
+    tmp col nome dato da noi);
+  - una tmp per job, tolta SEMPRE (`finally`), anche su timeout e crash del
+    processo figlio;
+  - limiti di memoria (ulimit sul processo figlio) e di dimensione del
+    rasterizzato: 300 dpi al più, 30 pagine, e un tetto ai pixel per pagina;
+  - le versioni dei pacchetti apt pinnate nel Dockerfile del worker, come il
+    CLI `claude`.
 - **Fail-open**: un motore assente, un timeout, un file che non si apre o
   un testo vuoto chiudono il file a `no_text`, col motivo (`ocr_timeout`,
   `ocr_unavailable`, `no_text_found`, `unreadable`): il file si trova per
