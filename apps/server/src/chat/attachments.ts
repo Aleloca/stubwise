@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { attachments, chatChannels, chatMessageAttachments, tickets, type Db } from "@stubwise/db";
+import { attachments, chatChannels, chatMessageAttachments, chatMessages, tickets, type Db } from "@stubwise/db";
 import { CHAT_ATTACHMENTS_PER_MESSAGE, chatAttachmentAllowed, type ChatAttachmentView } from "@stubwise/shared";
 import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { ObjectStorage } from "../storage/index.js";
@@ -62,6 +62,9 @@ export async function assertCanUpload(db: Db, viewer: ChatViewer, channelId: str
   }
 }
 
+/** La lunghezza massima del nome di un file. */
+export const CHAT_ATTACHMENT_NAME_MAX = 255;
+
 /** Quanto resta in sospeso un allegato caricato e mai mandato. */
 export const CHAT_PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 /** Scadenza degli URL firmati: breve, come i ticket. */
@@ -109,6 +112,8 @@ export async function uploadChatAttachment(
   // Di nuovo, col peso del file: la rotta ha già controllato prima di leggerlo.
   await assertCanUpload(db, viewer, channelId, file.body.length);
   const filename = displayName(file.filename);
+  // Un nome al più di 255 caratteri (review della fetta 4): il limite dei file system.
+  if (filename.length > CHAT_ATTACHMENT_NAME_MAX) throw new ChatAttachmentError(400, "invalid_filename", `File names are at most ${CHAT_ATTACHMENT_NAME_MAX} characters`);
   if (!chatAttachmentAllowed(filename, file.mimeType)) throw new ChatAttachmentError(400, "unsupported_type", "Unsupported file type");
   const id = randomUUID();
   const storageKey = `chat/${channelId}/${id}/${sanitizeForKey(filename)}`;
@@ -247,6 +252,10 @@ export async function downloadableAttachment(db: Db, viewer: ChatViewer, id: str
   const [row] = await db.select().from(chatMessageAttachments).where(eq(chatMessageAttachments.id, id));
   if (!row) return null;
   if (row.messageId === null) return row.uploaderId === viewer.id ? row : null;
+  // Il messaggio deve essere vivo (review della fetta 4): una riga rimasta su un
+  // messaggio eliminato (un server di prima non toglieva gli allegati) non si scarica.
+  const [message] = await db.select({ deletedAt: chatMessages.deletedAt }).from(chatMessages).where(eq(chatMessages.id, row.messageId));
+  if (!message || message.deletedAt !== null) return null;
   return (await readable(db, viewer, row.channelId)) ? row : null;
 }
 

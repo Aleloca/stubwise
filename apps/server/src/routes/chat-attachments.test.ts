@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { chatChannels, chatMessageAttachments } from "@stubwise/db";
+import { chatChannels, chatMessageAttachments, chatMessages } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { pruneChatUploads } from "../chat/attachments.js";
@@ -349,6 +349,23 @@ describe("review della fetta 4 (11 nov 2026)", () => {
     // Al giro dopo, con lo storage tornato, se ne va anche lei.
     await pruneChatUploads(t.db, fakeStorage(), () => undefined);
     expect(await ids()).toEqual([]);
+  });
+
+  it("5. il download vuole il messaggio vivo (anche se la riga è rimasta, come sotto un server di prima)", async () => {
+    const g = await general();
+    const a = (await upload(dev, g, { filename: "resta.pdf", contentType: "application/pdf" })).json() as Att;
+    const msg = idOf(await as(dev, "POST", `/api/chat/channels/${g}/messages`, { text: "con file", attachmentIds: [a.id] }));
+    // Un server della fetta 3 elimina il messaggio senza toccare gli allegati.
+    await t.db.update(chatMessages).set({ body: "", deletedAt: new Date() }).where(eq(chatMessages.id, msg));
+    expect((await as(lead, "GET", `/api/chat/attachments/${a.id}/download`)).statusCode).toBe(404);
+  });
+
+  it("5. un nome di file oltre 255 caratteri: 400", async () => {
+    const g = await general();
+    const res = await upload(dev, g, { filename: `${"n".repeat(252)}.pdf`, contentType: "application/pdf" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "invalid_filename" });
+    expect((await upload(dev, g, { filename: `${"n".repeat(251)}.pdf`, contentType: "application/pdf" })).statusCode).toBe(201);
   });
 });
 

@@ -3585,7 +3585,8 @@ deploy o di un rollback che la tocca.
     `drop trigger tickets_chat_task_closed on tickets; drop trigger
     backlog_items_chat_request_new on backlog_items; drop trigger
     milestones_chat_reached on milestones; drop trigger project_briefs_chat_ready
-    on project_briefs; drop trigger ticket_repositories_chat_pr on
+    on project_briefs; drop trigger ticket_repositories_chat_pr_insert on
+    ticket_repositories; drop trigger ticket_repositories_chat_pr_update on
     ticket_repositories;`, e poi, se non si vogliono le righe vuote,
     `delete from chat_messages where kind = 'system' and event_kind is not null;`.
     Per risalire, i trigger si ricreano rilanciando le loro istruzioni dalla
@@ -3593,4 +3594,11 @@ deploy o di un rollback che la tocca.
   - Gli allegati restano: righe e oggetti. Un server della fetta 3 non li
     mostra, e un messaggio con soli allegati gli appare vuoto. Senza il timer
     del server nuovo, i sospesi non si potano: si potano al ritorno.
+  - Un messaggio ELIMINATO sotto un server della fetta 3 tiene le righe dei
+    suoi allegati (quel server non le conosce). Al ritorno il download le
+    rifiuta, perché vuole il messaggio vivo (review della fetta 4); righe e
+    oggetti restano però finché non si tolgono. Le chiavi sono:
+    `select a.storage_key from chat_message_attachments a join chat_messages m
+    on m.id = a.message_id where m.deleted_at is not null;`. Prima si tolgono gli
+    oggetti dallo storage, poi le righe con la stessa condizione.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.
