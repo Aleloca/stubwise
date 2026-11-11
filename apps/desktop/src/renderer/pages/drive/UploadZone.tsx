@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { isAppBuild } from "../../data/build";
 import { UPLOAD_LIMIT_BYTES } from "../../data/drive/content";
 import { useUploadFiles } from "../../data/queries";
 import type { DriveFileRow } from "../../data/types";
@@ -18,11 +19,13 @@ import { formatSize } from "./format";
 import { ErrorGlyph } from "./glyphs";
 
 // Il caricamento (shape drive.md §5): trascinando sulla pagina o da
-// «Upload». Il renderer legge nome, tipo e dimensione veri del File; la
-// barra d'avanzamento è simulata (nessun byte va da nessuna parte), poi il
-// livello dati crea il riferimento (`uploadFiles`), che parte «Reading the
-// content…». Oltre 100 MB la riga non parte; un nome già nel progetto
-// diventa «(2)» con l'avviso «Kept both». Nessun lavoro nel processo main.
+// «Upload». Il renderer legge nome, tipo e dimensione veri del File; nel
+// prototipo la barra d'avanzamento è simulata (nessun byte va da nessuna
+// parte), poi il livello dati crea il riferimento (`uploadFiles`), che parte
+// «Reading the content…». Oltre 100 MB la riga non parte; un nome già nel
+// progetto diventa «(2)» con l'avviso «Kept both». Nella build app (area 5,
+// fetta 2) il File parte davvero: l'avanzamento è quello vero (dal main sul
+// desktop, dall'XHR sul web), e «Cancel» o lo smontaggio lo annullano.
 
 /** Quanto dura l'avanzamento simulato di un file (i test lo azzerano). */
 export const UPLOAD_PACE = { ms: 1200 };
@@ -87,6 +90,8 @@ export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
   const [api] = useState(() => {
     const store = createUploadsStore();
     const timers = new Map<number, number>();
+    // Build app: il caricamento vero di ogni riga, da annullare.
+    const controllers = new Map<number, AbortController>();
     let alive = true;
     const patch = (key: number, p: Partial<UploadItem>) =>
       store.set((s) => ({ ...s, items: s.items.map((i) => (i.key === key ? { ...i, ...p } : i)) }));
@@ -97,7 +102,10 @@ export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
     async function save(item: UploadItem) {
       if (!alive) return;
       const { t: tr, toast: toasts, mutateAsync: upload } = live.current;
-      patch(item.key, { status: "saving", loaded: item.sizeBytes });
+      const real = isAppBuild();
+      const controller = real ? new AbortController() : null;
+      if (controller) controllers.set(item.key, controller);
+      else patch(item.key, { status: "saving", loaded: item.sizeBytes });
       try {
         const [result] = await upload({
           projectId: item.projectId,
@@ -106,16 +114,28 @@ export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
               name: item.name,
               mime: item.file.type || "application/octet-stream",
               sizeBytes: item.sizeBytes,
+              ...(real ? { file: item.file } : {}),
             },
           ],
+          ...(controller
+            ? {
+                options: {
+                  signal: controller.signal,
+                  // Mandato tutto: il server sta salvando.
+                  onProgress: (loaded: number) =>
+                    patch(item.key, loaded >= item.sizeBytes ? { loaded, status: "saving" } : { loaded }),
+                },
+              }
+            : {}),
         });
-        if (!alive) return;
+        if (!alive || controller?.signal.aborted) return;
         if (!result || result.error === "too_large" || !result.file) {
           patch(item.key, { status: "too_large" });
           return;
         }
         const row = result.file;
-        const kind = previewKind(row);
+        // Il blob serve all'anteprima del prototipo; nella build app si apre dal server.
+        const kind = real ? null : previewKind(row);
         if (kind) await rememberBlob(row.id, item.file, kind);
         if (!alive) return;
         drop(item.key);
@@ -128,7 +148,7 @@ export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
           announce(tr("drive.uploads.done", { name: row.name, code: row.code }));
         }
       } catch (error) {
-        if (!alive) return;
+        if (!alive || controller?.signal.aborted) return;
         if (error instanceof Error && error.message === "invalid: storage_off") {
           patch(item.key, { status: "storage_off" });
           announce(`${item.name}: ${live.current.t("instanceEffects.storage.failed")}`);
@@ -136,11 +156,14 @@ export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
         }
         patch(item.key, { status: "failed" });
         announce(`${item.name}: ${live.current.t("drive.uploads.failed")}`);
+      } finally {
+        if (controller && controllers.get(item.key) === controller) controllers.delete(item.key);
       }
     }
 
     function run(item: UploadItem) {
-      if (UPLOAD_PACE.ms <= 0) {
+      // Build app: niente barra simulata, la dà il caricamento vero.
+      if (UPLOAD_PACE.ms <= 0 || isAppBuild()) {
         void save(item);
         return;
       }
@@ -191,6 +214,8 @@ export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
         const id = timers.get(key);
         if (id !== undefined) window.clearInterval(id);
         timers.delete(key);
+        controllers.get(key)?.abort();
+        controllers.delete(key);
         drop(key);
       },
       retry(item: UploadItem) {
@@ -208,6 +233,8 @@ export function useUploads(onUploaded?: (file: DriveFileRow) => void) {
         alive = false;
         for (const id of timers.values()) window.clearInterval(id);
         timers.clear();
+        for (const c of controllers.values()) c.abort();
+        controllers.clear();
       },
     };
   });

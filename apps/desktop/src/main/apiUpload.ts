@@ -149,6 +149,8 @@ export type UploadResult =
       ok: false;
       reason: "invalid" | "unauthenticated" | "too_large" | "unsupported_type" | "failed" | "canceled";
       status?: number;
+      /** Il codice d'errore del server, se c'era (un nome breve, mai il corpo). */
+      code?: string;
     };
 
 /**
@@ -229,8 +231,9 @@ export async function uploadFile(
     }
     if (res.status === 413 || code === "file_too_large") return { ok: false, reason: "too_large", status: res.status };
     if (code === "unsupported_type") return { ok: false, reason: "unsupported_type", status: res.status };
-    if (res.status === 400 || res.status === 403 || res.status === 404) return { ok: false, reason: "invalid", status: res.status };
-    return { ok: false, reason: "failed", status: res.status };
+    const known = typeof code === "string" && /^[a-z_]{1,64}$/.test(code) ? { code } : {};
+    if (res.status === 400 || res.status === 403 || res.status === 404) return { ok: false, reason: "invalid", status: res.status, ...known };
+    return { ok: false, reason: "failed", status: res.status, ...known };
   } finally {
     await entry.handle.close().catch(() => undefined);
   }

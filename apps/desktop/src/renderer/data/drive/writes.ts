@@ -6,6 +6,7 @@ import type {
   DriveFileRow,
   DriveOpen,
   DriveUploadInput,
+  DriveUploadOptions,
   DriveUploadResult,
   FolderLink,
   FolderLinkView,
@@ -88,6 +89,9 @@ function dropFiles(ids: ReadonlySet<string>): void {
 export async function uploadFiles(
   projectId: string,
   files: DriveUploadInput[],
+  // Il prototipo non manda byte: niente avanzamento né annullamento (la build app sì).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _options?: DriveUploadOptions,
 ): Promise<DriveUploadResult[]> {
   const me = await gate("drive.uploadFiles");
   projectFor(me, projectId);

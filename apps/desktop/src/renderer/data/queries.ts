@@ -50,6 +50,7 @@ import type {
   DriveOpen,
   DriveSearchScope,
   DriveUploadInput,
+  DriveUploadOptions,
   GraphActionKind,
   GraphState,
   ManualPageInput,
@@ -2882,8 +2883,8 @@ export function useGoogleFiles(projectId: string, q: string, enabled = true) {
 
 export function useUploadFiles() {
   return useWrite(
-    ({ projectId, files }: { projectId: string; files: DriveUploadInput[] }) =>
-      api.drive.uploadFiles(projectId, files),
+    ({ projectId, files, options }: { projectId: string; files: DriveUploadInput[]; options?: DriveUploadOptions }) =>
+      api.drive.uploadFiles(projectId, files, options),
     DRIVE_FILE_AREAS,
   );
 }

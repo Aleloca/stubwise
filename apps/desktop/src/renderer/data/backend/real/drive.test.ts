@@ -174,3 +174,134 @@ describe("il Drive nella build app: eliminare e aprire", () => {
     await expect(drive.recordOpen(FILE_ID, "google")).rejects.toThrow();
   });
 });
+
+describe("il Drive nella build app: caricare", () => {
+  const uploaded = (over: Record<string, unknown> = {}) => ({
+    file: serverRow({ name: "Contratto (2).pdf" }),
+    keptBoth: true,
+    requestedName: "Contratto.pdf",
+    ...over,
+  });
+  const pdf = () => new File(["%PDF"], "Contratto.pdf", { type: "application/pdf" });
+
+  it("sul desktop: il main apre il file (token), lo manda in streaming e dice l'avanzamento", async () => {
+    let progress: ((p: { uploadId: string; sent: number; total: number }) => void) | null = null;
+    const register = vi.fn(async () => ({ ok: true, grant: "g1", name: "Contratto.pdf", sizeBytes: 4 }));
+    const upload = vi.fn(async (req: { grant: string; path: string; uploadId: string }) => {
+      progress?.({ uploadId: "other", sent: 9, total: 9 });
+      progress?.({ uploadId: req.uploadId, sent: 2, total: 4 });
+      return { ok: true, status: 201, body: uploaded() };
+    });
+    (window as { stubwise?: unknown }).stubwise = {
+      api: { upload },
+      files: {
+        register,
+        cancel: vi.fn(),
+        onProgress: (fn: typeof progress) => {
+          progress = fn;
+          return () => (progress = null);
+        },
+      },
+    };
+    const seenProgress: number[] = [];
+    const file = pdf();
+    const [result] = await drive.uploadFiles(PROJECT_ID, [{ name: file.name, mime: file.type, sizeBytes: file.size, file }], {
+      onProgress: (loaded) => seenProgress.push(loaded),
+    });
+    expect(register).toHaveBeenCalledWith(file);
+    expect(upload).toHaveBeenCalledWith(expect.objectContaining({ grant: "g1", path: `/api/projects/${PROJECT_ID}/drive/files` }));
+    expect(seenProgress).toEqual([2]);
+    expect(progress).toBeNull();
+    expect(result).toEqual({ name: "Contratto.pdf", file: expect.objectContaining({ id: FILE_ID, name: "Contratto (2).pdf" }), error: null });
+  });
+
+  it("sul desktop: troppo grande, archiviazione spenta, annullato, rifiutato", async () => {
+    const upload = vi.fn();
+    const register = vi.fn();
+    (window as { stubwise?: unknown }).stubwise = { api: { upload }, files: { register, cancel: vi.fn(), onProgress: () => () => undefined } };
+    const file = pdf();
+    const input = [{ name: file.name, mime: file.type, sizeBytes: file.size, file }];
+    register.mockResolvedValue({ ok: false, reason: "too_large" });
+    expect(await drive.uploadFiles(PROJECT_ID, input)).toEqual([{ name: "Contratto.pdf", file: null, error: "too_large" }]);
+    register.mockResolvedValue({ ok: true, grant: "g", name: "Contratto.pdf", sizeBytes: 4 });
+    upload.mockResolvedValueOnce({ ok: false, reason: "too_large", status: 413 });
+    expect(await drive.uploadFiles(PROJECT_ID, input)).toEqual([{ name: "Contratto.pdf", file: null, error: "too_large" }]);
+    upload.mockResolvedValueOnce({ ok: false, reason: "invalid", status: 400, code: "storage_not_configured" });
+    await expect(drive.uploadFiles(PROJECT_ID, input)).rejects.toThrow("invalid: storage_off");
+    upload.mockResolvedValueOnce({ ok: false, reason: "canceled" });
+    await expect(drive.uploadFiles(PROJECT_ID, input)).rejects.toThrow("canceled");
+    upload.mockResolvedValueOnce({ ok: false, reason: "unsupported_type", status: 400 });
+    await expect(drive.uploadFiles(PROJECT_ID, input)).rejects.toThrow("failed");
+  });
+
+  it("sul desktop l'annullamento ferma il caricamento nel main", async () => {
+    const cancel = vi.fn(async () => true);
+    let release: (v: unknown) => void = () => undefined;
+    const upload = vi.fn(() => new Promise((resolve) => (release = resolve)));
+    (window as { stubwise?: unknown }).stubwise = {
+      api: { upload },
+      files: { register: async () => ({ ok: true, grant: "g", name: "a.pdf", sizeBytes: 4 }), cancel, onProgress: () => () => undefined },
+    };
+    const controller = new AbortController();
+    const file = pdf();
+    const pending = drive.uploadFiles(PROJECT_ID, [{ name: file.name, mime: file.type, sizeBytes: file.size, file }], {
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(upload).toHaveBeenCalled());
+    controller.abort();
+    const uploadId = (upload.mock.calls[0] as unknown as [{ uploadId: string }])[0].uploadId;
+    expect(cancel).toHaveBeenCalledWith(uploadId);
+    release({ ok: false, reason: "canceled" });
+    await expect(pending).rejects.toThrow("canceled");
+  });
+
+  it("sul web: il FormData col campo `file`, col cookie, e l'avanzamento vero", async () => {
+    const sent: { method: string; url: string; body: unknown; withCredentials: boolean }[] = [];
+    class FakeXhr {
+      upload: { onprogress: ((e: { loaded: number; lengthComputable: boolean }) => void) | null } = { onprogress: null };
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onabort: (() => void) | null = null;
+      status = 0;
+      responseText = "";
+      withCredentials = false;
+      private method = "";
+      private url = "";
+      open(method: string, url: string) {
+        this.method = method;
+        this.url = url;
+      }
+      send(body: unknown) {
+        sent.push({ method: this.method, url: this.url, body, withCredentials: this.withCredentials });
+        this.upload.onprogress?.({ loaded: 3, lengthComputable: true });
+        this.status = 201;
+        this.responseText = JSON.stringify(uploaded({ keptBoth: false, file: serverRow() }));
+        this.onload?.();
+      }
+      abort() {
+        this.onabort?.();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+    const loaded: number[] = [];
+    const file = pdf();
+    const [result] = await drive.uploadFiles(PROJECT_ID, [{ name: file.name, mime: file.type, sizeBytes: file.size, file }], {
+      onProgress: (n) => loaded.push(n),
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ method: "POST", url: `/api/projects/${PROJECT_ID}/drive/files`, withCredentials: true });
+    const part = (sent[0]!.body as FormData).get("file") as File;
+    expect([part.name, part.size, part.type]).toEqual(["Contratto.pdf", 4, "application/pdf"]);
+    expect(loaded).toEqual([3]);
+    expect(result).toMatchObject({ name: "Contratto.pdf", file: { name: "Contratto.pdf" }, error: null });
+  });
+
+  it("oltre 100 MB non parte nulla; senza il File (un client che non lo passa) neppure", async () => {
+    const { seen } = installFakeServer({});
+    expect(await drive.uploadFiles(PROJECT_ID, [{ name: "big.bin", mime: "", sizeBytes: 101 * 1024 * 1024 }])).toEqual([
+      { name: "big.bin", file: null, error: "too_large" },
+    ]);
+    await expect(drive.uploadFiles(PROJECT_ID, [{ name: "a.pdf", mime: "", sizeBytes: 1 }])).rejects.toThrow("failed");
+    expect(seen).toEqual([]);
+  });
+});

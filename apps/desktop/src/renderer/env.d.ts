@@ -25,7 +25,12 @@ type StubwiseRegisterResult =
   | { ok: false; reason: "invalid" | "too_large" | "too_many" };
 type StubwiseUploadResult =
   | { ok: true; status: number; body: unknown }
-  | { ok: false; reason: "invalid" | "unauthenticated" | "too_large" | "unsupported_type" | "failed" | "canceled"; status?: number };
+  | {
+      ok: false;
+      reason: "invalid" | "unauthenticated" | "too_large" | "unsupported_type" | "failed" | "canceled";
+      status?: number;
+      code?: string;
+    };
 type StubwiseDownloadResult =
   | { ok: true }
   | { ok: false; reason: "invalid" | "unauthenticated" | "not_found" | "failed" | "canceled" };

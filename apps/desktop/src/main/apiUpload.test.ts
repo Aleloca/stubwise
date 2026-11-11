@@ -189,6 +189,12 @@ describe("il caricamento", () => {
       const out = await uploadFile(entry, ROUTE, { ...deps(), fetch: reading(status, { code }) as never });
       expect(out, code).toMatchObject({ ok: false, reason, status });
     }
+    // Il codice del server passa (`storage_not_configured`: il renderer dice «archiviazione spenta»).
+    const off = await uploadFile(await registered("spec.pdf", "x"), ROUTE, {
+      ...deps(),
+      fetch: reading(400, { code: "storage_not_configured" }) as never,
+    });
+    expect(off).toMatchObject({ ok: false, reason: "invalid", status: 400, code: "storage_not_configured" });
     const d = deps({ fetch: reading(401, { code: "unauthorized" }) });
     expect(await uploadFile(await registered("spec.pdf", "x"), ROUTE, d as never)).toMatchObject({ ok: false, reason: "unauthenticated" });
     expect(d.onUnauthorized).toHaveBeenCalledWith("stw_pat_x");

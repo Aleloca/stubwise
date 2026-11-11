@@ -2194,6 +2194,15 @@ export interface DriveUploadInput {
   name: string;
   mime: string;
   sizeBytes: number;
+  /** Il File stesso: lo carica la build app (il prototipo non manda byte). */
+  file?: File;
+}
+
+/** Avanzamento e annullamento di un caricamento (la build app; il prototipo li ignora). */
+export interface DriveUploadOptions {
+  /** I byte del file mandati fin qui. */
+  onProgress?: (loaded: number) => void;
+  signal?: AbortSignal;
 }
 
 /** L'esito del caricamento di un file: la riga nuova, o perché no. */

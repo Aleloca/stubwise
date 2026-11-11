@@ -5,10 +5,20 @@ import {
   driveCodeResolutionSchema,
   driveFileDetailSchema,
   driveFileListSchema,
+  driveUploadResultSchema,
+  DRIVE_FILE_MAX_BYTES,
   type DriveFileRow as ServerDriveFileRow,
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import type { DriveFileDetail, DriveFileRow, DriveFilters, DriveSearchScope } from "../../types";
+import type {
+  DriveFileDetail,
+  DriveFileRow,
+  DriveFilters,
+  DriveSearchScope,
+  DriveUploadInput,
+  DriveUploadOptions,
+  DriveUploadResult,
+} from "../../types";
 import { appClient } from "./client";
 import { downloadByPath } from "./download";
 import { partialNamespace } from "./notIntegrated";
@@ -179,12 +189,117 @@ const recordOpen: Drive["recordOpen"] = async (fileId, via) => {
   throw new Error(result.reason === "not_found" ? "not_found" : result.reason);
 };
 
+// --- caricare ---------------------------------------------------------------------
+
+/** L'esito di un caricamento, prima di leggerne la riga. */
+type Sent =
+  | { ok: true; body: unknown }
+  | { ok: false; reason: "too_large" | "canceled" | "storage_off" | "failed" };
+
+/**
+ * Sul desktop il main apre il file scelto (`files.register`: un token, mai il
+ * percorso nel renderer) e lo manda in streaming col bearer (`api.upload`);
+ * l'avanzamento arriva da `files.onProgress`, l'annullamento è `files.cancel`.
+ */
+async function sendFromMain(path: string, file: File, options: DriveUploadOptions): Promise<Sent> {
+  const bridge = window.stubwise!;
+  const registered = await bridge.files!.register(file);
+  if (!registered.ok) return { ok: false, reason: registered.reason === "too_large" ? "too_large" : "failed" };
+  const uploadId = crypto.randomUUID();
+  const stop = bridge.files!.onProgress((p) => {
+    if (p.uploadId === uploadId) options.onProgress?.(p.sent);
+  });
+  const abort = () => void bridge.files!.cancel(uploadId);
+  options.signal?.addEventListener("abort", abort, { once: true });
+  try {
+    const out = await bridge.api!.upload!({ grant: registered.grant, path, uploadId });
+    if (out.ok) return { ok: true, body: out.body };
+    if (out.reason === "too_large") return { ok: false, reason: "too_large" };
+    if (out.reason === "canceled") return { ok: false, reason: "canceled" };
+    if (out.code === "storage_not_configured") return { ok: false, reason: "storage_off" };
+    return { ok: false, reason: "failed" };
+  } finally {
+    stop();
+    options.signal?.removeEventListener("abort", abort);
+  }
+}
+
+/** Sul web un XHR col FormData (il campo `file`) e il cookie: è l'unico modo di avere l'avanzamento vero. */
+function sendFromBrowser(path: string, file: File, options: DriveUploadOptions): Promise<Sent> {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", path);
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) options.onProgress?.(Math.min(e.loaded, file.size));
+    };
+    const done = (sent: Sent) => {
+      options.signal?.removeEventListener("abort", abort);
+      resolve(sent);
+    };
+    const abort = () => xhr.abort();
+    xhr.onabort = () => done({ ok: false, reason: "canceled" });
+    xhr.onerror = () => done({ ok: false, reason: "failed" });
+    xhr.onload = () => {
+      let body: unknown = null;
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        body = null;
+      }
+      const code = (body as { code?: unknown } | null)?.code;
+      if (xhr.status >= 200 && xhr.status < 300) return done({ ok: true, body });
+      if (xhr.status === 413 || code === "file_too_large") return done({ ok: false, reason: "too_large" });
+      if (code === "storage_not_configured") return done({ ok: false, reason: "storage_off" });
+      done({ ok: false, reason: "failed" });
+    };
+    if (options.signal?.aborted) return done({ ok: false, reason: "canceled" });
+    options.signal?.addEventListener("abort", abort, { once: true });
+    const form = new FormData();
+    form.append("file", file, file.name);
+    xhr.send(form);
+  });
+}
+
+/**
+ * Carica dei file nel Drive di un progetto, uno alla volta, ciascuno col suo
+ * esito: oltre 100 MB `too_large` (senza partire); un nome già nel progetto lo
+ * rinomina il server («(2)»). Gli errori come nel prototipo: archiviazione
+ * spenta `invalid: storage_off`, annullato `canceled`, il resto `failed`.
+ */
+const uploadFiles: Drive["uploadFiles"] = async (projectId, files, options: DriveUploadOptions = {}) => {
+  const path = `/api/projects/${encodeURIComponent(projectId)}/drive/files`;
+  const results: DriveUploadResult[] = [];
+  for (const input of files as DriveUploadInput[]) {
+    if (input.sizeBytes > DRIVE_FILE_MAX_BYTES) {
+      results.push({ name: input.name, file: null, error: "too_large" });
+      continue;
+    }
+    if (!input.file) throw new Error("failed");
+    const fromMain = window.stubwise?.files && window.stubwise.api?.upload;
+    const sent = fromMain ? await sendFromMain(path, input.file, options) : await sendFromBrowser(path, input.file, options);
+    if (!sent.ok) {
+      if (sent.reason === "too_large") {
+        results.push({ name: input.name, file: null, error: "too_large" });
+        continue;
+      }
+      throw new Error(sent.reason === "storage_off" ? "invalid: storage_off" : sent.reason);
+    }
+    const parsed = driveUploadResultSchema.safeParse(sent.body);
+    if (!parsed.success) throw new Error("failed");
+    const [row] = await rowsOf([parsed.data.file as ServerDriveFileRow]);
+    results.push({ name: input.name, file: row!, error: null });
+  }
+  return results;
+};
+
 export const driveFunctions: Partial<Drive> = {
   listDriveFiles,
   getDriveFile,
   searchDrive,
   deleteDriveFile,
   recordOpen,
+  uploadFiles,
 };
 
 export const drive: Drive = partialNamespace<Drive>("drive", driveFunctions);
