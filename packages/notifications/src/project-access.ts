@@ -199,6 +199,28 @@ export async function projectViewerIds(db: DbOrTx, projectId: string): Promise<s
   return [...new Set([...members.map((row) => row.id), ...(await fullAdminIds(db))])];
 }
 
+/**
+ * {@link projectViewerIds} per più progetti in DUE query (i membri di tutti e
+ * i full admin una volta), per le liste che altrimenti la chiamerebbero un
+ * progetto alla volta (review della fetta 2 della Chat).
+ */
+export async function projectViewerIdsByProject(db: DbOrTx, projectIds: readonly string[]): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  const ids = [...new Set(projectIds)];
+  if (ids.length === 0) return out;
+  const admins = await fullAdminIds(db);
+  const members = await db
+    .select({ projectId: projectMembers.projectId, id: projectMembers.userId })
+    .from(projectMembers)
+    .where(inArray(projectMembers.projectId, ids));
+  // Lo stesso ordine di `projectViewerIds`: i membri, poi i full admin.
+  for (const projectId of ids) {
+    const own = members.filter((m) => m.projectId === projectId).map((m) => m.id);
+    out.set(projectId, [...new Set([...own, ...admins])]);
+  }
+  return out;
+}
+
 const INSTANCE_PERMISSION_SET: ReadonlySet<string> = new Set(INSTANCE_PERMISSIONS);
 
 /**

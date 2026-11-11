@@ -88,7 +88,8 @@ export async function citeablesFor(
     for (const r of rows) put({ kind: "task", id: r.id, label: r.code, projectId: r.projectId });
   }
 
-  const visible = await visibleProjectIds(db, viewer);
+  // I progetti visibili solo se servono (richieste, progetti): niente query per una lista senza.
+  const visible = ids("request").length > 0 || ids("project").length > 0 ? await visibleProjectIds(db, viewer) : [];
   const inVisible = (column: typeof backlogItems.projectId | typeof projects.id): SQL | undefined =>
     visible === "all" ? undefined : visible.length === 0 ? sql`false` : inArray(column, visible);
 
