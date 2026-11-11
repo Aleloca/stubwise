@@ -16,6 +16,7 @@ import { AGENT_SESSION_INPUT_CHANNEL, CLAUDE_CONVERSATION_CLOSED_CHANNEL, CLAUDE
 import type { ChatCitationKind, ChatClaudeReplyView } from "@stubwise/shared";
 import { and, asc, desc, eq, gt, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
+import { projectIdsWithPermission } from "../auth/access.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
 import { agentUserId } from "../services/claude-assign.js";
 import { personName } from "../services/people.js";
@@ -243,7 +244,12 @@ export async function touchChatReply(tx: Pick<Db, "update" | "execute">, session
 // --- La vista di una risposta -------------------------------------------------------
 
 type ProposedAction = { fn: string; args: Record<string, unknown> };
-type ActionRef = { kind: ChatCitationKind; id: string };
+/**
+ * Un oggetto che l'azione tocca. `newTask`/`newRequest`: la task o la richiesta
+ * che l'azione CREA nel progetto `id`; la vede solo chi vedrebbe quell'oggetto
+ * creato da un altro (`tickets.view_all` o `backlog.view_all` nel progetto).
+ */
+type ActionRef = { kind: ChatCitationKind | "newTask" | "newRequest"; id: string };
 
 /**
  * Gli oggetti che un'azione proposta tocca, da cui dipende chi può leggerne gli
@@ -253,13 +259,17 @@ type ActionRef = { kind: ChatCitationKind; id: string };
  */
 function actionRefs(a: ProposedAction, milestoneProject: Map<string, string>): ActionRef[] | null {
   const str = (v: unknown) => (typeof v === "string" ? v : null);
-  const one = (kind: ChatCitationKind, v: unknown): ActionRef[] | null => {
+  const one = (kind: ActionRef["kind"], v: unknown): ActionRef[] | null => {
     const id = str(v);
     return id ? [{ kind, id }] : null;
   };
   switch (a.fn) {
+    // Le creazioni (review della fetta 3): i dettagli solo a chi vedrebbe
+    // l'oggetto creato, la stessa regola dei codici. Agli altri «Crea una task».
     case "createTask":
+      return one("newTask", a.args.projectId);
     case "createRequest":
+      return one("newRequest", a.args.projectId);
     case "createMilestone":
       return one("project", a.args.projectId);
     case "updateTask":
@@ -306,8 +316,22 @@ async function argsVisibleTo(
       : [],
   );
   const refsOf = all.map(({ key, a }) => ({ key, refs: actionRefs(a, milestoneProject) }));
-  const seen = await citeablesFor(db, viewer, refsOf.flatMap((r) => r.refs ?? []));
-  return new Set(refsOf.filter((r) => r.refs !== null && r.refs.every((ref) => seen.has(`${ref.kind}:${ref.id}`))).map((r) => r.key));
+  const flat = refsOf.flatMap((r) => r.refs ?? []);
+  const citeable = (ref: ActionRef): ref is { kind: ChatCitationKind; id: string } => ref.kind !== "newTask" && ref.kind !== "newRequest";
+  // Chi crea si legge nel progetto: lo deve vedere, più il permesso di vedere ciò che altri creano.
+  const projectsOfNew = flat.filter((r) => !citeable(r)).map((r) => ({ kind: "project" as const, id: r.id }));
+  const seen = await citeablesFor(db, viewer, [...flat.filter(citeable), ...projectsOfNew]);
+  const viewAll = async (permission: "tickets.view_all" | "backlog.view_all", needed: boolean) =>
+    needed ? await projectIdsWithPermission(db, viewer, permission) : [];
+  const tasksAll = await viewAll("tickets.view_all", flat.some((r) => r.kind === "newTask"));
+  const requestsAll = await viewAll("backlog.view_all", flat.some((r) => r.kind === "newRequest"));
+  const within = (ids: "all" | string[], projectId: string) => ids === "all" || ids.includes(projectId);
+  const sees = (ref: ActionRef): boolean => {
+    if (ref.kind === "newTask") return seen.has(`project:${ref.id}`) && within(tasksAll, ref.id);
+    if (ref.kind === "newRequest") return seen.has(`project:${ref.id}`) && within(requestsAll, ref.id);
+    return seen.has(`${ref.kind}:${ref.id}`);
+  };
+  return new Set(refsOf.filter((r) => r.refs !== null && r.refs.every(sees)).map((r) => r.key));
 }
 
 /**

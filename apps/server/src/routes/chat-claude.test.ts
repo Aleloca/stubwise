@@ -201,12 +201,14 @@ describe("le proposte in Chat", () => {
     const forLead = (await view(lead, reply.id)).claude!.proposals[0]!;
     expect(forLead.actions[0]!.args).toMatchObject({ projectId, title: "Export PDF" });
     expect(forLead.actions[1]!.args).toMatchObject({ id: ticketId, patch: { title: "Vecchio export, da togliere" } });
-    // Il Contributor vede il progetto ma non le task: la task da creare sì, la
-    // modifica di una che non vede esce senza argomenti (né id né titolo).
+    // Il Contributor vede il progetto ma non le task (niente tickets.view_all):
+    // né la task da creare, che non vedrebbe (review della fetta 3), né la
+    // modifica di una che non vede. Escono senza argomenti (né id né titolo).
     const forContributor = (await view(contributor, reply.id)).claude!.proposals[0]!;
     expect(forContributor.actions.map((a) => a.fn)).toEqual(["createTask", "updateTask"]);
-    expect(forContributor.actions[0]!.args).toMatchObject({ projectId, title: "Export PDF" });
+    expect(forContributor.actions[0]!.args).toEqual({});
     expect(forContributor.actions[1]!.args).toEqual({});
+    expect(JSON.stringify(forContributor)).not.toContain("Export PDF");
     expect(JSON.stringify(forContributor)).not.toContain("Vecchio export");
     expect(JSON.stringify(forContributor)).not.toContain(ticketId);
   });

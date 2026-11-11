@@ -265,8 +265,12 @@ Piano: `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`. Codice:
   argomenti delle sole azioni sugli oggetti che vedono (correzione dell'11 nov
   2026, del maintainer: «Crea la task "Export PDF"» come nel prototipo).
   `argsVisibleTo` in `chat/claude.ts` lega ogni `fn` agli oggetti che tocca
-  (progetto per le creazioni, task, richiesta, il progetto del milestone) e
-  li misura con `citeablesFor`. Un'azione su un oggetto che non vedono esce
+  (task, richiesta, il progetto del milestone) e li misura con
+  `citeablesFor`. Una CREAZIONE vale come l'oggetto creato (review della
+  fetta 3, scelta dell'orchestratrice): titolo e descrizione di
+  `createTask`/`createRequest` solo a chi vedrebbe quella task o quella
+  richiesta creata da un altro (`tickets.view_all` o `backlog.view_all` nel
+  progetto); agli altri «Crea una task», senza argomenti. Un'azione su un oggetto che non vedono esce
   con `args: {}`, così né codice né titolo escono. Una `fn` nuova, i filtri
   personali e le azioni di pagina restano chiusi per costruzione: chi
   aggiunge una `fn` al catalogo la aggiunga lì. Dei codici nati dalla
