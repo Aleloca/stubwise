@@ -249,6 +249,10 @@ Fetta 4: renderer (sotto, «Chiuse»).
 - «Download» sugli allegati dei ticket nel pannello della task *(S, 11 nov
   2026)*: il main lo accetta già (`api:download`, `/api/attachments/<uuid>/download`),
   manca il bottone e la funzione del livello dati.
+- `downloadUrl` nelle liste degli allegati dei ticket *(S, 11 nov 2026, review
+  della fetta 4)*: `GET /api/tickets/:id/attachments` dà già l'URL firmato, che
+  così arriva al renderer. Da togliere quando i ticket scaricano solo da
+  `api:download` (il proxy toglie già il `Location` dei percorsi di download).
 - **MCP** (`@stubwise/mcp`): imparare stati per progetto, reparti, taglie, codici
   R<n>, Home e filtri.
 - Elenchi oltre le 2000 righe (oggi troncati e dichiarati); una rotta aggregata

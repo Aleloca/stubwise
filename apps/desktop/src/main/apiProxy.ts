@@ -1,4 +1,5 @@
 import { endsSession } from "@stubwise/shared";
+import { isAllowedDownloadPath } from "./apiDownload";
 
 // Il proxy delle richieste API dell'app desktop (integrazione area 2, fetta
 // 1): il renderer non fa rete (CSP `connect-src 'self'`) e non vede il token;
@@ -133,8 +134,13 @@ export async function handleApiRequest(raw: unknown, deps: ApiProxyDeps): Promis
     return fail(502, "network_error");
   }
   const headers: Record<string, string> = {};
+  // Il download di un allegato: il Location è l'URL firmato, e al renderer non
+  // arriva (lo segue solo `api:download`). La query non conta: un `?x=1` in
+  // coda non lo fa passare.
+  const download = isAllowedDownloadPath(req.path.split("?")[0]);
   res.headers.forEach((v, k) => {
-    if (k !== "set-cookie") headers[k] = v;
+    if (k === "set-cookie" || (download && k === "location")) return;
+    headers[k] = v;
   });
   const type = res.headers.get("content-type") ?? "";
   const body = type === "" || isText(type) ? await res.text() : await res.arrayBuffer();
