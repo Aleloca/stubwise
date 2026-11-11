@@ -276,7 +276,7 @@ export async function createClaudeConversation(
   viewer: SessionViewer,
   input: CreateClaudeConversationInput,
   /** Solo la continuazione (F5.3): l'originale e la sua trascrizione leggibile. */
-  continuation?: { fromSessionId: string; originTranscript: ClaudeOriginTranscript },
+  continuation?: { fromSessionId: string; originTranscript: ClaudeOriginTranscript; untrustedReadAt: Date | null },
 ): Promise<CreateClaudeConversationResult> {
   if (await monthlyBudgetExhausted(db)) return { ok: false, error: "budget_exhausted" };
   const title = input.title ?? (input.message ? conversationTitleFrom(input.message) : "");
@@ -291,7 +291,13 @@ export async function createClaudeConversation(
       title,
       contextRef: input.context ?? null,
       ...(continuation
-        ? { continuesFromSessionId: continuation.fromSessionId, originTranscript: continuation.originTranscript }
+        ? {
+            continuesFromSessionId: continuation.fromSessionId,
+            originTranscript: continuation.originTranscript,
+            // La trascrizione dell'originale entra nel contesto: se aveva letto contenuto
+            // NON fidato, lo eredita anche il segno (review della F3).
+            untrustedReadAt: continuation.untrustedReadAt,
+          }
         : {}),
     });
     if (input.message) {
@@ -550,6 +556,6 @@ export async function continueClaudeConversation(
     db,
     viewer,
     { title: (hiddenTitle ? "" : row.title) || "Continuation", ...(input.message ? { message: input.message } : {}), context },
-    { fromSessionId: row.sessionId, originTranscript: await readableTranscript(db, viewer, row) },
+    { fromSessionId: row.sessionId, originTranscript: await readableTranscript(db, viewer, row), untrustedReadAt: row.untrustedReadAt ?? null },
   );
 }
