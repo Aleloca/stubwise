@@ -79,6 +79,13 @@ describe("i codici delle pagine nelle letture", () => {
     const forOutsider = (await as(outsider, "GET", `/api/search?q=${projectCode}-D2`)).json() as { docs: { items: unknown[] } };
     expect(forOutsider.docs.items).toEqual([]);
   });
+
+  it("le note di rilascio non hanno codice e non stanno nel gruppo docs della ricerca globale (il selettore «#» e ⌘K): nel prototipo non sono pagine", async () => {
+    await t.db.insert(docPages).values({ repositoryId, kind: "releases", slug: "release-20261111-0900-zib", title: "Release", body: "Novità zibaldone della notte" });
+    const global = (await as(lead, "GET", `/api/search?q=zibaldone`)).json() as { docs: { items: { slug: string }[] } };
+    expect(global.docs.items.length).toBeGreaterThan(0);
+    expect(global.docs.items.some((r) => r.slug.startsWith("release-"))).toBe(false);
+  });
 });
 
 describe("la risoluzione di un codice", () => {
