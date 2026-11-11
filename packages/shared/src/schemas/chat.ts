@@ -19,12 +19,13 @@ export const chatNotifyLevelSchema = z.enum(["all", "mentions", "muted"]);
 export type ChatNotifyLevel = z.infer<typeof chatNotifyLevelSchema>;
 
 /** Gli eventi di progetto che un canale può pubblicare (fetta 4). */
+/** Gli eventi dei progetti, nell'ordine canonico del prototipo (`constants.ts`): `publishedEvents` si scrive così. */
 export const CHAT_EVENT_KINDS = [
   "release_page",
-  "pr_opened",
-  "pr_merged",
   "milestone_reached",
   "brief_ready",
+  "pr_opened",
+  "pr_merged",
   "request_new",
   "task_closed",
 ] as const;
