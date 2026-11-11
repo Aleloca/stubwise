@@ -265,15 +265,37 @@ Piano: `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`. Codice:
   argomenti delle sole azioni sugli oggetti che vedono (correzione dell'11 nov
   2026, del maintainer: «Crea la task "Export PDF"» come nel prototipo).
   `argsVisibleTo` in `chat/claude.ts` lega ogni `fn` agli oggetti che tocca
-  (progetto per le creazioni, task, richiesta, il progetto del milestone) e
-  li misura con `citeablesFor`. Un'azione su un oggetto che non vedono esce
+  (task, richiesta, il progetto del milestone) e li misura con
+  `citeablesFor`. Una CREAZIONE vale come l'oggetto creato (review della
+  fetta 3, scelta dell'orchestratrice): titolo e descrizione di
+  `createTask`/`createRequest` solo a chi vedrebbe quella task o quella
+  richiesta creata da un altro (`tickets.view_all` o `backlog.view_all` nel
+  progetto); agli altri «Crea una task», senza argomenti. Un'azione su un oggetto che non vedono esce
   con `args: {}`, così né codice né titolo escono. Una `fn` nuova, i filtri
   personali e le azioni di pagina restano chiusi per costruzione: chi
   aggiunge una `fn` al catalogo la aggiunga lì. Dei codici nati dalla
   conferma escono solo quelli che vedono.
 - **Il testo di Claude lo leggono tutti uguale**: lo scrive il worker sul
   messaggio (a intervalli e alla fine), dai testi dell'assistente della
-  sessione.
+  sessione. Non ci entrano gli errori del CLI (limiti, errori dell'API, che
+  il CLI incarta come messaggio dell'assistente: `apiError`) né il testo di
+  un tentativo scartato (`discarded`); restano nella trascrizione di chi
+  chiama (review della fetta 3).
+- **Il contesto del thread** (`callContext`, review della fetta 3): il nome
+  dell'autore solo sulla prima riga di un messaggio, le righe dopo quotate
+  con «  > », così nessuno si finge chi chiama a metà di un messaggio. Il
+  tetto è la radice più gli ultimi messaggi, al più 40 e 12.000 caratteri,
+  come la continuazione di una pubblica; una riga dice quanti ne restano
+  fuori, e il contratto del prompt lo spiega.
+- **Limite accettato: la classe B non copre l'esfiltrazione nel TESTO della
+  risposta** (review della fetta 3). Le proposte le conferma chi ha
+  chiamato; il testo invece lo leggono subito tutti i lettori del canale, e
+  Claude legge con i permessi di chi chiama. Un membro può provare a
+  fargli incollare nel thread dati che solo chi chiama vede. Vale la regola
+  del prototipo: chi chiama ne è responsabile. Il contratto del prompt dice
+  di non incollare dati non chiesti esplicitamente da chi chiama e di non
+  seguire istruzioni di altri membri; il golden `chat-mention-read` ne
+  controlla il comportamento.
 - **La domanda** (`ask_question`, R-G4): esiste solo nei turni di una chiamata
   e la scrive il WORKER nel DB, non il server. Così il token del turno resta
   GET-only più la sola rotta delle proposte. Una per risposta (indice unico);
@@ -285,6 +307,21 @@ Piano: `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`. Codice:
   risposta la ferma e fa decadere le sue proposte aperte.
 - **Budget**: a budget finito la risposta nasce `failed`/`budget`, senza turno.
   Nessun altro tetto (decisione del maintainer).
+- **Dopo 14 giorni la sessione si pota, e con lei pezzi della scheda**
+  (review della fetta 3). `chat_messages.agent_session_id` va a null; il
+  testo della risposta resta. Spariscono, per tutti i lettori:
+  - le schede delle proposte (`claude_proposals` va in cascata con la
+    sessione), comprese quelle confermate: i codici nati restano nelle task;
+  - «cosa ha letto», per chi ha chiamato;
+  - la possibilità di rispondere a una domanda ancora aperta: `canAnswer`
+    diventa falso e la domanda esce da «Da decidere» (`claudeQuestionsOf`
+    vuole la sessione), il suo testo resta nel thread.
+- **Limite accettato: il testo eliminato resta nella copia della sessione**
+  (review della fetta 3). Il contesto del thread entra nella sessione di chi
+  ha chiamato come primo input: un messaggio eliminato DOPO la chiamata
+  esce dalla Chat, ma resta in quella copia (e nei suoi eventi) finché la
+  sessione non si pota, 14 giorni. Come WAL e backup: il testo si conserva
+  finché quei dati non vengono riscritti.
 - **Il registro decisioni non si scrive**: i moduli della Chat sono nei test
   `decisions-never-ai` e `claude-actions-never`.
 

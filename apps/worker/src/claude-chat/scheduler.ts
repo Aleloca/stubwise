@@ -2,6 +2,7 @@ import { and, asc, eq, exists, inArray, isNotNull, lt, ne, or, notExists, sql } 
 import { agentSessionInputs, claudeConversations, purgeChatToolTokens, type Db } from "@stubwise/db";
 import { AGENT_SESSION_EVENTS_CHANNEL, CLAUDE_CONVERSATION_CLOSED_CHANNEL } from "@stubwise/shared";
 import { AGENT_SESSION_RETENTION_DAYS } from "../sessions/store.js";
+import { closeOrphanReplies } from "./mention.js";
 import {
   chatSessionIdsInCliProjects,
   removeChatCliState,
@@ -57,6 +58,14 @@ export class ChatScheduler implements TurnStarter {
 
   /** LISTEN di archiviazioni ed eliminazioni. Fail-open: senza, il turno si ferma al token rifiutato. */
   async start(): Promise<void> {
+    // Nessun turno è vivo all'avvio: le risposte di @Claude «working» senza un
+    // input in coda non le chiuderebbe nessuno (review della fetta 3).
+    try {
+      const closed = await closeOrphanReplies(this.deps.db);
+      if (closed > 0) this.deps.log(`[chat] ${closed} risposte di @Claude rimaste a metà chiuse «failed» all'avvio`);
+    } catch (error) {
+      this.deps.log(`[chat] chiusura delle risposte rimaste a metà fallita: ${String(error)}`);
+    }
     if (!this.deps.listen) return;
     try {
       await this.deps.listen(CLAUDE_CONVERSATION_CLOSED_CHANNEL, (payload) => {

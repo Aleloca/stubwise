@@ -1,4 +1,4 @@
-import { chatProposalExpired, chatProposalGuard } from "../chat/claude.js";
+import { chatProposalExpired, chatProposalGuard, touchChatReply } from "../chat/claude.js";
 import {
   agentSessions,
   agentSessionEvents,
@@ -167,6 +167,8 @@ export async function createProposal(
       })
       .onConflictDoNothing()
       .returning();
+    // Nella Chat la scheda nuova arriva anche agli stream degli altri lettori.
+    if (row) await touchChatReply(db, sessionId);
     return row ?? null;
   };
   const refuse = async (f: ClaudeActionFailure): Promise<ClaudeProposalOutcome> => {
@@ -483,15 +485,19 @@ export async function confirmProposal(
         : await executeGroup(db, user, { sessionId: row.sessionId, actions: chosen, proposalId: row.id, effects });
   }
   if (!result.ok) {
-    await db
-      .update(claudeProposals)
-      .set({ status: "failed", failure: result.failure })
-      .where(eq(claudeProposals.id, row.id));
+    await db.transaction(async (tx) => {
+      await tx.update(claudeProposals).set({ status: "failed", failure: result.failure }).where(eq(claudeProposals.id, row.id));
+      await touchChatReply(tx, row.sessionId);
+    });
     const [after] = await db.select().from(claudeProposals).where(eq(claudeProposals.id, row.id));
     return { ok: false, error: "refused", proposal: await proposalView(db, user, after!) };
   }
   if (result.actions.length > 0) await persistCodes(db, result);
-  await db.update(claudeProposals).set({ groupId: result.groupId }).where(eq(claudeProposals.id, row.id));
+  await db.transaction(async (tx) => {
+    await tx.update(claudeProposals).set({ groupId: result.groupId }).where(eq(claudeProposals.id, row.id));
+    // Nella Chat la vedono cambiare anche gli altri lettori (review della fetta 3).
+    await touchChatReply(tx, row.sessionId);
+  });
   await sessionEvent(db, row.sessionId, "actions_executed", { groupId: result.groupId, proposalId: row.id });
   const [after] = await db.select().from(claudeProposals).where(eq(claudeProposals.id, row.id));
   return { ok: true, proposal: await proposalView(db, user, after!) };
@@ -500,11 +506,15 @@ export async function confirmProposal(
 export async function cancelProposal(db: Db, user: SessionUser, proposalId: string): Promise<DecideResult> {
   const row = await loadOwn(db, user, proposalId);
   if (!row) return { ok: false, error: "not_found" };
-  const updated = await db
-    .update(claudeProposals)
-    .set({ status: "cancelled", decidedAt: new Date(), decidedBy: user.id })
-    .where(and(eq(claudeProposals.id, row.id), eq(claudeProposals.status, "open")))
-    .returning();
+  const updated = await db.transaction(async (tx) => {
+    const rows = await tx
+      .update(claudeProposals)
+      .set({ status: "cancelled", decidedAt: new Date(), decidedBy: user.id })
+      .where(and(eq(claudeProposals.id, row.id), eq(claudeProposals.status, "open")))
+      .returning();
+    if (rows.length > 0) await touchChatReply(tx, row.sessionId);
+    return rows;
+  });
   if (updated.length === 0) return { ok: false, error: "conflict" };
   await sessionEvent(db, row.sessionId, "proposal", { proposalId: row.id });
   return { ok: true, proposal: await proposalView(db, user, updated[0]!) };

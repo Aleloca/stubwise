@@ -28,6 +28,26 @@ describe("parseStreamLine", () => {
 });
 
 describe("toSessionEvents", () => {
+  it("un errore del CLI incartato come messaggio dell'assistente è segnato apiError (review della fetta 3)", () => {
+    // Le forme del CLI 2.1.322: l'involucro `is_api_error_message`, e il modello `<synthetic>`.
+    const wrapped = parseStreamLine(
+      JSON.stringify({
+        type: "assistant",
+        is_api_error_message: true,
+        message: { model: "<synthetic>", content: [{ type: "text", text: "You've hit your session limit · resets 3pm" }] },
+      }),
+    )!;
+    expect(toSessionEvents(wrapped)).toEqual([{ type: "assistant_text", data: { text: "You've hit your session limit · resets 3pm", apiError: true } }]);
+    const synthetic = parseStreamLine(
+      JSON.stringify({ type: "assistant", message: { model: "<synthetic>", content: [{ type: "text", text: "API Error: 500" }] } }),
+    )!;
+    expect(toSessionEvents(synthetic)[0]!.data).toMatchObject({ apiError: true });
+    const normal = parseStreamLine(
+      JSON.stringify({ type: "assistant", message: { model: "claude-sonnet-5-5", content: [{ type: "text", text: "Ciao" }] } }),
+    )!;
+    expect(toSessionEvents(normal)).toEqual([{ type: "assistant_text", data: { text: "Ciao" } }]);
+  });
+
   it("su due turni produce testo e due turn_end, e niente dagli stream_event", () => {
     const events = trace("two-turns").flatMap(toSessionEvents);
     expect(events.filter((e) => e.type === "turn_end")).toHaveLength(2);
