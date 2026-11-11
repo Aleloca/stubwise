@@ -256,3 +256,30 @@ describe("la ricerca e la potatura", () => {
     expect(storage.deleteObject).toHaveBeenCalledWith(oldRow!.storageKey);
   });
 });
+
+describe("review della fetta 4 (11 nov 2026)", () => {
+  it("2. eliminare un canale porta via dallo storage gli oggetti dei suoi allegati", async () => {
+    const ch = await openChannel(lead);
+    const a = (await upload(lead, ch, { filename: "canale.pdf", contentType: "application/pdf" })).json() as Att;
+    await as(lead, "POST", `/api/chat/channels/${ch}/messages`, { text: "x", attachmentIds: [a.id] });
+    const pending = (await upload(lead, ch, { filename: "sospeso.pdf", contentType: "application/pdf" })).json() as Att;
+    const keys = (await t.db.select().from(chatMessageAttachments).where(inArray(chatMessageAttachments.id, [a.id, pending.id]))).map((r) => r.storageKey);
+    expect((await as(lead, "DELETE", `/api/chat/channels/${ch}`)).statusCode).toBe(204);
+    for (const key of keys) expect(storage.deleteObject).toHaveBeenCalledWith(key);
+  });
+
+  it("2. eliminare un progetto porta via dallo storage gli allegati della sua Chat e dei suoi ticket", async () => {
+    const { projectId: other } = await seedRepository(t.db);
+    await addMember(app, other, lead.id, "project_lead");
+    const [g] = await t.db
+      .select({ id: chatChannels.id })
+      .from(chatChannels)
+      .where(and(eq(chatChannels.projectId, other), eq(chatChannels.isGeneral, true)));
+    const a = (await upload(lead, g!.id, { filename: "progetto.pdf", contentType: "application/pdf" })).json() as Att;
+    const [row] = await t.db.select().from(chatMessageAttachments).where(eq(chatMessageAttachments.id, a.id));
+    const res = await as(lead, "DELETE", `/api/projects/${other}`);
+    expect(res.statusCode, res.body).toBe(204);
+    expect(storage.deleteObject).toHaveBeenCalledWith(row!.storageKey);
+  });
+});
+

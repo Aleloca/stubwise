@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chatMessageAttachments, type Db } from "@stubwise/db";
+import { attachments, chatChannels, chatMessageAttachments, tickets, type Db } from "@stubwise/db";
 import { CHAT_ATTACHMENTS_PER_MESSAGE, chatAttachmentAllowed, type ChatAttachmentView } from "@stubwise/shared";
 import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { ObjectStorage } from "../storage/index.js";
@@ -181,6 +181,31 @@ export async function deleteStoredObjects(storage: ObjectStorage | null, keys: r
   for (const key of keys) {
     await storage.deleteObject(key).catch((error: unknown) => log(`[chat] oggetto ${key} non tolto dallo storage: ${String(error)}`));
   }
+}
+
+/**
+ * Le chiavi dello storage che una cancellazione in CASCATA porterebbe via
+ * senza dirlo (review della fetta 4): gli allegati di un canale, o di tutti i
+ * canali di un progetto più gli allegati dei suoi ticket. Si leggono PRIMA
+ * della delete e si tolgono dallo storage DOPO il commit.
+ */
+export async function storageKeysOfChannel(db: Db | Tx, channelId: string): Promise<string[]> {
+  const rows = await db.select({ key: chatMessageAttachments.storageKey }).from(chatMessageAttachments).where(eq(chatMessageAttachments.channelId, channelId));
+  return rows.map((r) => r.key);
+}
+
+export async function storageKeysOfProject(db: Db | Tx, projectId: string): Promise<string[]> {
+  const chat = await db
+    .select({ key: chatMessageAttachments.storageKey })
+    .from(chatMessageAttachments)
+    .innerJoin(chatChannels, eq(chatChannels.id, chatMessageAttachments.channelId))
+    .where(eq(chatChannels.projectId, projectId));
+  const ticket = await db
+    .select({ key: attachments.storageKey })
+    .from(attachments)
+    .innerJoin(tickets, eq(tickets.id, attachments.ticketId))
+    .where(eq(tickets.projectId, projectId));
+  return [...chat, ...ticket].map((r) => r.key);
 }
 
 /**

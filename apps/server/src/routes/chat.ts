@@ -207,7 +207,8 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
     { config: { access: ACCESS }, schema: { params: idParams, response: { 204: z.null(), ...errors } } },
     async (request, reply) =>
       handle(reply, async () => {
-        await deleteChannel(app.db, request.user!, request.params.id);
+        const keys = await deleteChannel(app.db, request.user!, request.params.id);
+        if (keys.length > 0) await cleanStorage(app, keys, request.log);
         return reply.code(204).send(null);
       }),
   );
