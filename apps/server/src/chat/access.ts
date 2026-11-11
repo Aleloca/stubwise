@@ -1,5 +1,5 @@
 import { chatChannelMembers, chatChannels, users, type Db } from "@stubwise/db";
-import { projectViewerIds } from "@stubwise/notifications";
+import { projectViewerIds, type DbOrTx } from "@stubwise/notifications";
 import type { ProjectPermission } from "@stubwise/shared";
 import { and, eq, exists, inArray, isNotNull, or, sql, type SQL } from "drizzle-orm";
 import { projectIdsWithPermission, projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
@@ -213,7 +213,7 @@ export async function channelReaderIds(db: Db, channel: ChannelRow): Promise<str
  * dei membri. In un canale di progetto, chi non vede più il progetto non c'è:
  * la sua riga resta (torna se rientra), ma a lettura non è un membro.
  */
-export async function channelMemberIds(db: Db, channel: ChannelRow): Promise<string[]> {
+export async function channelMemberIds(db: DbOrTx, channel: ChannelRow): Promise<string[]> {
   if (channel.isGeneral) return channel.projectId ? projectViewerIds(db, channel.projectId) : [];
   const rows = await db
     .select({ userId: chatChannelMembers.userId })

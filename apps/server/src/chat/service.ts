@@ -695,7 +695,9 @@ export async function joinChannel(db: Db, viewer: ChatViewer, id: string, join: 
       // conteggio dei membri si rilegge DOPO il lock, così due uscite insieme
       // non lasciano un privato vuoto né una `dm_key` vecchia.
       const locked = await lockChannel(tx, id);
-      const now = await channelAccess(tx, viewer, locked);
+      // Contano solo i membri che leggono ancora (review della fetta 2): la riga
+      // di chi non vede più il progetto resta, ma non tiene vivo un privato.
+      const now = accessFrom(viewer, locked, access.permissions, await channelMemberIds(tx, locked));
       if (!now.isMember) return;
       if (!now.canLeave) throw new ChatError(409, "cannot_leave", "You can't leave this conversation");
       await tx
@@ -710,9 +712,13 @@ export async function joinChannel(db: Db, viewer: ChatViewer, id: string, join: 
   return still ? channelView(db, viewer, still) : null;
 }
 
-/** Il canale con il lock della riga (`FOR UPDATE`), dentro la transazione di chi cambia i membri. */
+/**
+ * Il canale con il lock della riga, dentro la transazione di chi cambia i
+ * membri. `FOR NO KEY UPDATE`: mette in fila uscite e rimozioni senza
+ * bloccare chi inserisce messaggi o membri (le FK prendono `FOR KEY SHARE`).
+ */
 async function lockChannel(tx: Tx, id: string): Promise<ChannelRow> {
-  const [row] = await tx.select().from(chatChannels).where(eq(chatChannels.id, id)).for("update");
+  const [row] = await tx.select().from(chatChannels).where(eq(chatChannels.id, id)).for("no key update");
   if (!row) throw notFound();
   return row;
 }
@@ -754,10 +760,9 @@ export async function removeMember(db: Db, viewer: ChatViewer, id: string, perso
   if (!access.canRemove) throw forbidden("Can't remove people from this channel");
   await db.transaction(async (tx) => {
     // Come all'uscita: il conteggio si rilegge sotto il lock del canale.
-    await lockChannel(tx, id);
-    const current = (
-      await tx.select({ userId: chatChannelMembers.userId }).from(chatChannelMembers).where(eq(chatChannelMembers.channelId, id))
-    ).map((r) => r.userId);
+    const locked = await lockChannel(tx, id);
+    // Solo chi legge ancora (review della fetta 2), come all'uscita.
+    const current = await channelMemberIds(tx, locked);
     if (!current.includes(personId)) throw notFound();
     if (channel.visibility === "private" && current.length <= 1) {
       throw new ChatError(409, "last_member", "A private channel can't be left empty");

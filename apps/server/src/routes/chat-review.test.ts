@@ -333,4 +333,19 @@ describe("review fetta 2, seconda (11 nov 2026)", () => {
     expect(items.map((i) => i.root.id)).toContain(keptRoot!.id);
     expect(items.some((i) => i.root.channelId === left)).toBe(false);
   });
+
+  it("5. uscire o togliere conta solo chi legge ancora: un privato non resta con i soli ex membri", async () => {
+    const gone = await createUserWithSession(app, "gone2-rv@example.com");
+    await addMember(app, projectId, gone.id, "developer");
+    const id = await openChannel(dev2, { visibility: "private", memberIds: [gone.id] });
+    await t.db.execute(sql`delete from project_members where user_id = ${gone.id}`);
+    // La riga di `gone` resta, ma non legge più: dev2 è l'ultimo che legge.
+    const leave = await as(dev2, "DELETE", `/api/chat/channels/${id}/join`);
+    expect(leave.statusCode).toBe(409);
+    expect(leave.json()).toMatchObject({ code: "cannot_leave" });
+    // Chi gestisce non toglie l'ultimo che legge: resterebbero solo ex membri.
+    const remove = await as(lead, "DELETE", `/api/chat/channels/${id}/members/${dev2.id}`);
+    expect(remove.statusCode, remove.body).toBe(409);
+    expect(remove.json()).toMatchObject({ code: "last_member" });
+  });
 });
