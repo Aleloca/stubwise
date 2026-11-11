@@ -5632,6 +5632,18 @@ export const chatMessages = pgTable(
     claudeState: text("claude_state").$type<"working" | "waiting" | "done" | "failed" | "stopped">(),
     claudeError: text("claude_error").$type<"forbidden" | "not_found" | "budget" | "other">(),
     claudeRetried: boolean("claude_retried").notNull().default(false),
+    /**
+     * Solo un messaggio di SISTEMA (0141, fetta 4): l'evento del progetto e il
+     * suo oggetto. Li scrivono i trigger (`chat_publish_event`); il testo della
+     * scheda si deriva a lettura, il corpo resta vuoto.
+     */
+    eventKind: text("event_kind").$type<
+      "release_page" | "pr_opened" | "pr_merged" | "milestone_reached" | "brief_ready" | "request_new" | "task_closed"
+    >(),
+    eventRefKind: text("event_ref_kind").$type<"task" | "request" | "milestone" | "brief" | "release">(),
+    eventRefId: uuid("event_ref_id"),
+    /** `pr_opened`/`pr_merged`: la riga della PR (numero e repository a lettura). */
+    eventPrId: uuid("event_pr_id").references(() => ticketRepositories.id, { onDelete: "set null" }),
   },
   (table) => [
     index("chat_messages_channel_idx").on(table.channelId, table.createdAt),
@@ -5641,6 +5653,10 @@ export const chatMessages = pgTable(
     check("chat_messages_kind_chk", sql`${table.kind} in ('person', 'system', 'claude')`),
     check("chat_messages_deleted_chk", sql`${table.deletedAt} is null or ${table.body} = ''`),
     index("chat_messages_agent_session_idx").on(table.agentSessionId).where(sql`${table.agentSessionId} IS NOT NULL`),
+    check(
+      "chat_messages_event_chk",
+      sql`(${table.eventKind} is null and ${table.eventRefKind} is null and ${table.eventRefId} is null and ${table.eventPrId} is null) or (${table.kind} = 'system' and ${table.eventKind} in ('release_page', 'pr_opened', 'pr_merged', 'milestone_reached', 'brief_ready', 'request_new', 'task_closed') and ${table.eventRefKind} in ('task', 'request', 'milestone', 'brief', 'release') and ${table.eventRefId} is not null)`,
+    ),
   ],
 );
 
@@ -5730,6 +5746,36 @@ export const chatMessageCitations = pgTable(
   (table) => [
     primaryKey({ name: "chat_message_citations_pk", columns: [table.messageId, table.kind, table.refId] }),
     check("chat_message_citations_kind_chk", sql`${table.kind} in ('task', 'request', 'project', 'person', 'doc')`),
+  ],
+);
+
+/**
+ * Gli allegati dei messaggi (0141, fetta 4). Nascono in sospeso
+ * (`messageId` null), caricati nel canale; un messaggio di chi li ha caricati,
+ * nello stesso canale, li lega. Il binario sta nello storage, mai nell'API: si
+ * scarica con un URL firmato, solo da chi legge il canale.
+ */
+export const chatMessageAttachments = pgTable(
+  "chat_message_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    channelId: uuid("channel_id")
+      .notNull()
+      .references(() => chatChannels.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id").references(() => chatMessages.id, { onDelete: "cascade" }),
+    uploaderId: uuid("uploader_id").references(() => users.id, { onDelete: "set null" }),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storageKey: text("storage_key").notNull(),
+    /** L'ordine nel messaggio (quello di `attachmentIds`). */
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("chat_message_attachments_storage_key_idx").on(table.storageKey),
+    index("chat_message_attachments_message_idx").on(table.messageId),
+    index("chat_message_attachments_pending_idx").on(table.createdAt).where(sql`${table.messageId} IS NULL`),
   ],
 );
 

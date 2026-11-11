@@ -26,6 +26,7 @@ import {
   markChatReadSchema,
   openChatDmSchema,
   patchChatChannelSchema,
+  setChatEventsSchema,
   postChatMessageSchema,
   CHAT_STREAM_CURSOR_RE,
   type ChatStreamMessage,
@@ -65,6 +66,7 @@ import {
   threadsWithNews,
   toggleReaction,
   updateChannel,
+  setPublishedEvents,
 } from "../chat/service.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -168,6 +170,12 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
     "/channels/:id",
     { config: { access: ACCESS }, schema: { params: idParams, body: patchChatChannelSchema, response: { 200: chatChannelSchema, ...errors } } },
     async (request, reply) => handle(reply, () => updateChannel(app.db, request.user!, request.params.id, request.body)),
+  );
+  // Gli eventi del progetto che il canale pubblica (fetta 4): l'insieme intero.
+  app.put(
+    "/channels/:id/events",
+    { config: { access: ACCESS }, schema: { params: idParams, body: setChatEventsSchema, response: { 200: chatChannelSchema, ...errors } } },
+    async (request, reply) => handle(reply, () => setPublishedEvents(app.db, request.user!, request.params.id, request.body.events)),
   );
   app.delete(
     "/channels/:id",

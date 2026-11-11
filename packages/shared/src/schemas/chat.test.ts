@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  chatAttachmentAllowed,
   chatChannelNameSchema,
   chatChannelSchema,
   chatMessageHitSchema,
@@ -7,8 +8,10 @@ import {
   chatQuestionSchema,
   chatSearchQuerySchema,
   createChatChannelSchema,
+  editChatMessageSchema,
   openChatDmSchema,
   postChatMessageSchema,
+  setChatEventsSchema,
 } from "./chat.js";
 import { inboxItemSchema, notificationKindSchema } from "./notification.js";
 
@@ -105,5 +108,45 @@ describe("gli schemi della Chat", () => {
     expect(() => chatSearchQuerySchema.parse({ q: "x", from: "10/11/2026" })).toThrow();
     expect(chatQuestionSchema.parse({ id: `chat:${ID}`, channelId: ID, messageId: ID, rootId: ID, askedById: ID, text: "?", createdAt: "2026-11-10T10:00:00.000Z" }).rootId).toBe(ID);
     expect(notificationKindSchema.options).toContain("chat.question");
+  });
+  it("fetta 4: un messaggio della fetta 3 si legge senza evento né allegati; un evento si legge", () => {
+    const old = chatMessageSchema.parse({ id: ID, channelId: ID, authorId: null, kind: "system", text: "", createdAt: "2026-11-10T10:00:00.000Z" });
+    expect(old).toMatchObject({ event: null, attachments: [] });
+    const m = chatMessageSchema.parse({
+      id: ID,
+      channelId: ID,
+      authorId: null,
+      kind: "system",
+      text: "",
+      createdAt: "2026-11-11T10:00:00.000Z",
+      event: { kind: "task_closed", ref: { kind: "task", id: ID } },
+    });
+    expect(m.event).toMatchObject({ object: null, pr: null });
+  });
+
+  it("fetta 4: il testo è facoltativo solo con allegati; al più 10; gli eventi di un canale sono l'elenco chiuso", () => {
+    expect(() => postChatMessageSchema.parse({ text: "  " })).toThrow();
+    expect(postChatMessageSchema.parse({ attachmentIds: [ID] })).toMatchObject({ text: "", attachmentIds: [ID] });
+    expect(() => postChatMessageSchema.parse({ text: "x", attachmentIds: Array.from({ length: 11 }, () => ID) })).toThrow();
+    expect(editChatMessageSchema.parse({ text: "", attachmentIds: [] })).toMatchObject({ text: "" });
+    expect(setChatEventsSchema.parse({ events: ["task_closed", "pr_merged"] }).events).toHaveLength(2);
+    expect(() => setChatEventsSchema.parse({ events: ["deploy"] })).toThrow();
+  });
+
+  it("fetta 4: un allegato passa se il tipo è nell'elenco E l'estensione è di quel tipo", () => {
+    expect(chatAttachmentAllowed("report.PDF", "application/pdf")).toBe(true);
+    expect(chatAttachmentAllowed("demo.mov", "video/quicktime")).toBe(true);
+    expect(chatAttachmentAllowed("voce.m4a", "audio/mp4")).toBe(true);
+    expect(chatAttachmentAllowed("archivio.zip", "application/zip")).toBe(true);
+    // Un eseguibile, anche travestito.
+    expect(chatAttachmentAllowed("setup.exe", "application/x-msdownload")).toBe(false);
+    expect(chatAttachmentAllowed("foto.exe", "image/png")).toBe(false);
+    expect(chatAttachmentAllowed("foto.png", "application/octet-stream")).toBe(false);
+    expect(chatAttachmentAllowed("script.sh", "text/plain")).toBe(false);
+    expect(chatAttachmentAllowed("disegno.svg", "image/svg+xml")).toBe(false);
+    // Senza estensione, o solo un punto iniziale.
+    expect(chatAttachmentAllowed("README", "text/plain")).toBe(false);
+    expect(chatAttachmentAllowed(".txt", "text/plain")).toBe(false);
+    expect(chatAttachmentAllowed("../../x/nota.txt", "text/plain")).toBe(true);
   });
 });

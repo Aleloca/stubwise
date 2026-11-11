@@ -39,6 +39,7 @@ import { personName } from "../services/people.js";
 import { requestVisibility } from "../services/project-requests.js";
 import { visibleTasksCondition } from "../services/task-view.js";
 import { citationsToStore, citationViews, hasVisibleCitationSql } from "./citations.js";
+import { eventViews } from "./events.js";
 import { callContext, callsClaude, claudeReplyViews, rootsWithClaudeWorking, startClaudeReply, stopSession } from "./claude.js";
 import {
   accessFrom,
@@ -482,6 +483,7 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
   const placeOf = (channelId: string) => memberOf.get(channelId) ?? { isMember: false, archived: true };
   const claude = await claudeReplyViews(db, viewer, rows, async (channelId) => placeOf(channelId));
   const replying = await rootsWithClaudeWorking(db, rows.filter((r) => r.threadRootId === null).map((r) => r.id));
+  const events = await eventViews(db, viewer, rows);
   return rows.map((m) => {
     const own = m.authorId === viewer.id && m.kind === "person";
     const deleted = m.deletedAt !== null;
@@ -524,11 +526,29 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
       citations: deleted ? [] : (citations.get(m.id) ?? []),
       claude: claude.get(m.id) ?? null,
       claudeReplying: replying.has(m.id),
+      event: events.get(m.id) ?? null,
+      attachments: [],
     } satisfies ChatMessageView;
   });
 }
 
 // --- Canali -----------------------------------------------------------------
+
+/**
+ * Gli eventi che un canale di progetto pubblica (`setPublishedEvents`, fetta
+ * 4): l'insieme intero, scritto nell'ordine canonico. Solo con `canEditEvents`
+ * (canale di progetto vivo, il creatore o chi gestisce l'ambito).
+ */
+export async function setPublishedEvents(db: Db, viewer: ChatViewer, id: string, events: readonly string[]): Promise<ChatChannelView> {
+  const channel = await visibleChannel(db, viewer, id);
+  if (!channel) throw notFound();
+  const access = await channelAccess(db, viewer, channel);
+  if (!access.canEditEvents) throw forbidden("Can't change the events of this channel");
+  const canonical = CHAT_EVENT_KINDS.filter((e) => events.includes(e));
+  await db.update(chatChannels).set({ publishedEvents: [...canonical], updatedAt: sql`now()` }).where(eq(chatChannels.id, id));
+  await notifyChannel(db, id);
+  return getChannel(db, viewer, id);
+}
 
 export async function listChannels(
   db: Db,

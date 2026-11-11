@@ -183,6 +183,9 @@ Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse�
 - Adozione delle PR e rilascio (merge) — confine di prodotto invariato.
 - Azioni di Claude: iscrizioni agli avvisi, bozze di risposta di supporto e
   delle note di rilascio della PR.
+- L'evento `release_page` della Chat (area 4, fetta 4, [DECIDE] 1 = a): il
+  «general» lo ha acceso (D8), ma non ha una fonte finché l'area 8 non
+  definisce la pagina di Release. Nasce qui, con la sua scheda.
 
 ## Area 9 — Amministrazione, preferenze, accesso
 
