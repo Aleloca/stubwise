@@ -5497,7 +5497,8 @@
         "slugConflict": "Un'altra pagina usa già questo slug",
         "slugInvalid": "Usa lettere minuscole, numeri e trattini.",
         "generic": "Non è stato possibile salvare la pagina. Riprova.",
-        "slugReserved": "«{{slug}}» è riservato a una vista dello spazio: scegli un altro slug"
+        "slugReserved": "«{{slug}}» è riservato a una vista dello spazio: scegli un altro slug",
+        "slugFixed": "L'indirizzo di una pagina non cambia dopo la creazione: lascia lo slug com'è."
       }
     },
     "off": {

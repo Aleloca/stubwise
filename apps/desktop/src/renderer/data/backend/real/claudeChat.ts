@@ -1,5 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
-import { claudeVisibilityConfirmationSchema } from "@stubwise/shared";
+import { claudeVisibilityConfirmationSchema, DOC_CODE_RE, docCodeResolutionSchema } from "@stubwise/shared";
 import type {
   ClaudeConversation,
   ClaudeConversationContext,
@@ -419,6 +419,31 @@ const TASK_CODE = /^[A-Z][A-Z0-9]*-\d+$/;
 const REQUEST_CODE = /^[A-Z][A-Z0-9]*-R\d+$/;
 
 /**
+ * Una pagina Docs dal suo codice (area 5, fetta 1): dove sta (`GET
+ * /api/docs/codes/:code`, 404 per un codice che non c'è o che non si vede) e
+ * il suo titolo. Una pagina tolta (`available` falso) non torna.
+ */
+async function docByCode(code: string, codesOf: Map<string, string>): Promise<CitationView | null> {
+  try {
+    const where = await appClient().request("GET", `/api/docs/codes/${encodeURIComponent(code)}`, undefined, docCodeResolutionSchema);
+    const project = codesOf.get(where.projectId);
+    if (!where.available || !project) return null;
+    const page = await appClient().docs.page(where.repositoryId, where.slug);
+    return {
+      ...hidden({ kind: "doc", id: where.code }),
+      visible: true,
+      code: where.code,
+      name: page.title,
+      projectCode: project,
+      route: `#/p/${project}/docs/${where.repositorySlug}/${where.slug}`,
+    };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
+/**
  * I codici scritti nel testo (di Claude o di chi scrive) che chi guarda VEDE:
  * task e richieste, letti col server. Uno nascosto e uno inesistente non
  * tornano, nello stesso modo (404 in entrambi i casi).
@@ -428,6 +453,7 @@ export const resolveCodes: typeof Fake.resolveCodes = async (codes) => {
   const codesOf = new Map((await listProjects()).map((p) => [p.id, p.code] as const));
   const views = await Promise.all(
     unique.map(async (code): Promise<CitationView | null> => {
+      if (DOC_CODE_RE.test(code)) return docByCode(code, codesOf);
       if (REQUEST_CODE.test(code)) {
         const r = await getRequestByCode(code).catch(() => null);
         const project = r ? codesOf.get(r.projectId) : undefined;

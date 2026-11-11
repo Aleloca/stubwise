@@ -100,6 +100,8 @@ function ManualPageForm({ initial }: { initial: DocPage | null }) {
   const fail = (error: unknown) => {
     const message = error instanceof Error ? error.message : "";
     if (message === "slug_conflict") setErrors({ slug: t("docs.form.errors.slugConflict") });
+    // Build app: lo slug di una pagina sul server non cambia (l'indirizzo e il codice restano).
+    else if (message === "slug_fixed") setErrors({ slug: t("docs.form.errors.slugFixed") });
     else if (message.includes("slug")) setErrors({ slug: t("docs.form.errors.slugInvalid") });
     else setErrors({ form: t("docs.form.errors.generic") });
   };

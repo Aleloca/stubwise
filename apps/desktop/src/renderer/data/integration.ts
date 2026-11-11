@@ -38,7 +38,8 @@ export type IntegrationTarget =
 const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 4, fetta 1: la Chat fra persone (`chat`, destinazione e sezione di progetto).
   destination: new Set(["home", "projects", "planning", "filters", "claude", "chat"]),
-  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat"]),
+  // Area 5, fetta 1: i Docs del progetto (`docs`, sezione e feature).
+  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs"]),
   // Stati e soglie del progetto.
   projectSettings: new Set(["statuses"]),
   admin: new Set(["departments"]),
@@ -103,6 +104,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Fetta 4: gli eventi dei progetti nei canali e gli allegati.
     "chat-events",
     "chat-attachments",
+    // Area 5, fetta 1: i Docs «come oggi» (spazi, albero, pagine, manuali,
+    // generazione, ricerca, chat senza streaming, grafo).
+    "docs",
   ]),
 };
 

@@ -38,6 +38,7 @@ const ALL: IntegrationTarget[] = [
       "task-delete",
       "chat",
       ...CHAT_LATER_FEATURES,
+      "docs",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -98,6 +99,9 @@ describe("isIntegrated", () => {
         // Area 4, fetta 1: la Chat fra persone (le fette dopo restano spente).
         "destination:chat",
         "projectSection:chat",
+        // Area 5, fetta 1: i Docs.
+        "projectSection:docs",
+        "feature:docs",
         "feature:chat",
         // Area 4, fetta 2: DM, privati, generali, ricerca, domande, «anche nel canale», da un messaggio.
         "feature:chat-dm",

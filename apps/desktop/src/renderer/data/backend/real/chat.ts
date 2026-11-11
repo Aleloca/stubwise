@@ -105,7 +105,18 @@ const cursorBefore = new Map<string, string>();
  * filtrate per chi guarda, con l'etichetta (codice, titolo, nome). Una
  * citazione che non è qui non si apre e non si nomina (R-G5).
  */
-const citedViews = new Map<string, { kind: CitationRef["kind"]; id: string; label: string; projectId: string | null }>();
+const citedViews = new Map<
+  string,
+  {
+    kind: CitationRef["kind"];
+    id: string;
+    label: string;
+    projectId: string | null;
+    /** Solo una pagina Docs (area 5, fetta 1): il codice stabile e dove aprirla. */
+    code?: string | null;
+    doc?: { repositorySlug: string; slug: string } | null;
+  }
+>();
 /**
  * Gli oggetti delle schede degli eventi (fetta 4), come li legge chi guarda:
  * `label` è il codice (task, richiesta) o il nome (traguardo, periodo del
@@ -116,6 +127,21 @@ const eventViews = new Map<
   { kind: CitationRef["kind"]; id: string; label: string; title: string | null; visible: boolean; projectId: string | null }
 >();
 const citeKey = (kind: string, id: string) => `${kind}\u0000${id}`;
+
+/**
+ * Una pagina citata fuori dalla Chat (la risposta della chat dei Docs, area 5):
+ * la stessa vista di una citazione `doc` confermata dal server, così si
+ * risolve con `resolveCitations` come le altre.
+ */
+export function rememberDocCitation(c: {
+  id: string;
+  label: string;
+  projectId: string;
+  code: string | null;
+  doc: { repositorySlug: string; slug: string };
+}): void {
+  citedViews.set(citeKey("doc", c.id), { kind: "doc", id: c.id, label: c.label, projectId: c.projectId, code: c.code, doc: c.doc });
+}
 
 /** I tipi che il server sa citare (gli altri, scelti da «#», non partono). */
 const CITABLE = new Set(["task", "request", "project", "person", "doc"]);
@@ -151,8 +177,15 @@ export function chatCitationView(ref: CitationRef, codeOf: (projectId: string) =
     case "person":
       return { ...base, name: c.label, personId: c.id };
     default:
-      // Una pagina dei Docs: il nome; l'area Docs non è ancora integrata (nessun link).
-      return { ...base, name: c.label };
+      // Una pagina dei Docs (area 5, fetta 1): il codice stabile, il titolo di
+      // adesso, e la pagina dal suo repository e slug. Da un server senza
+      // codici D: il solo nome, senza link.
+      return {
+        ...base,
+        code: c.code ?? null,
+        name: c.label,
+        route: c.doc && project ? `#/p/${project}/docs/${c.doc.repositorySlug}/${c.doc.slug}` : null,
+      };
   }
 }
 
@@ -279,7 +312,14 @@ export function toMessage(v: ServerMsg): ChatMessageView {
     citations: v.citations.flatMap((c) => {
       if (!CITABLE.has(c.kind)) return [];
       const kind = c.kind as CitationRef["kind"];
-      citedViews.set(citeKey(kind, c.id), { kind, id: c.id, label: c.label, projectId: c.projectId });
+      citedViews.set(citeKey(kind, c.id), {
+        kind,
+        id: c.id,
+        label: c.label,
+        projectId: c.projectId,
+        code: c.code,
+        doc: c.doc ? { repositorySlug: c.doc.repositorySlug, slug: c.doc.slug } : null,
+      });
       return [{ kind, id: c.id }];
     }),
     reactions: v.reactions.map((r) => ({ emoji: r.emoji, personIds: [...r.personIds] })),

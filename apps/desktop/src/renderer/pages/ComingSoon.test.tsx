@@ -316,7 +316,8 @@ describe("aree non integrate nella build app", () => {
   });
 
   it("una sezione di progetto non integrata mostra «Coming soon»", async () => {
-    renderRoute("/p/AUD/docs");
+    // Dall'area 5 (fetta 1) i Docs sono integrati: il Drive non ancora.
+    renderRoute("/p/AUD/drive");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
     expect(outside()).toEqual([]);

@@ -12,11 +12,11 @@ export interface SeenRequest {
   authorization: string | null;
 }
 
-type Answer = { status?: number; body?: unknown } | undefined;
+type Answer = { status?: number; body?: unknown; contentType?: string } | undefined;
 /** Una risposta subito o più tardi (una promessa: la richiesta resta in volo finché non si risolve). */
 type Handler = (req: SeenRequest) => Answer | Promise<Answer>;
 
-export function installFakeServer(routes: Record<string, Handler | { status?: number; body?: unknown }>) {
+export function installFakeServer(routes: Record<string, Handler | { status?: number; body?: unknown; contentType?: string }>) {
   const seen: SeenRequest[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -36,6 +36,9 @@ export function installFakeServer(routes: Record<string, Handler | { status?: nu
     if (!out) return new Response(JSON.stringify({ code: "not_found", message: path }), { status: 404 });
     const status = out.status ?? 200;
     if (status === 204) return new Response(null, { status });
+    // Un `contentType` non JSON (il resoconto del grafo, `text/markdown`): il corpo così com'è.
+    const contentType = out.contentType;
+    if (contentType) return new Response(String(out.body ?? ""), { status, headers: { "content-type": contentType } });
     // Un `body: null` esplicito resta null (una risposta «nessuno»); assente, un oggetto vuoto.
     return new Response(JSON.stringify("body" in out ? out.body : {}), {
       status,

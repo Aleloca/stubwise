@@ -5497,7 +5497,8 @@
         "slugConflict": "Another page already uses this slug",
         "slugInvalid": "Use lowercase letters, numbers and dashes.",
         "generic": "Couldn't save the page. Try again.",
-        "slugReserved": "“{{slug}}” is reserved for a view of the space: choose another slug"
+        "slugReserved": "“{{slug}}” is reserved for a view of the space: choose another slug",
+        "slugFixed": "A page's address can't change after it's created: keep the slug as it is."
       }
     },
     "off": {
