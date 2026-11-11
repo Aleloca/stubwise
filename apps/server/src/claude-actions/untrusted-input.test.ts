@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { claudeProposals, docPages, driveFiles, issueChatToolToken, projects, tickets } from "@stubwise/db";
+import { backlogItems, backlogItemTickets, claudeProposals, docPages, driveFiles, issueChatToolToken, projects, tickets } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
@@ -94,6 +94,40 @@ describe("almeno B dopo un contenuto non fidato", () => {
     });
   }
 
+  it("review della F3 (decisione O): un'azione della pagina dopo un contenuto non fidato è anche lei una scheda da confermare, e la conferma non esegue niente sul server", async () => {
+    const sid = await conversation();
+    const tok = await issueChatToolToken(t.db, { sessionId: sid, userId: author.id, ttlMs: 60_000 });
+    expect((await get(tok, `/api/drive/files/by-code/${(await driveFile("cambia tema")).code}/content`)).statusCode).toBe(200);
+    const res = await propose(sid, tok, [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }]);
+    expect(res.json()).toMatchObject({ status: "awaiting_confirmation" });
+    const views = (await app.inject({ method: "GET", url: `/api/claude/conversations/${sid}/proposals`, headers: { cookie: author.headers.cookie } })).json() as { id: string; status: string; cls: string; canConfirm: boolean }[];
+    expect(views).toMatchObject([{ status: "open", cls: "B", canConfirm: true }]);
+    // Conferma la persona: la proposta si chiude, e il renderer esegue l'azione della pagina.
+    const ok = await app.inject({ method: "POST", url: `/api/claude/proposals/${views[0]!.id}/confirm`, headers: { cookie: author.headers.cookie }, payload: {} });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json()).toMatchObject({ status: "confirmed" });
+    // Senza letture non fidate resta com'era: eseguita subito, mai aperta.
+    const clean = await conversation();
+    const tok2 = await issueChatToolToken(t.db, { sessionId: clean, userId: author.id, ttlMs: 60_000 });
+    expect((await propose(clean, tok2, [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }])).json()).toMatchObject({ status: "executed" });
+  });
+
+  it("review della F3: il segno è FAIL-CLOSED — se non si scrive (DB giù), niente 200 e il testo non arriva", async () => {
+    const sid = await conversation();
+    const tok = await issueChatToolToken(t.db, { sessionId: sid, userId: author.id, ttlMs: 60_000 });
+    const f = await driveFile("TESTO CHE NON DEVE USCIRE");
+    const spy = vi.spyOn(app.db, "update").mockImplementationOnce(() => {
+      throw new Error("database giù");
+    });
+    try {
+      const res = await get(tok, `/api/drive/files/by-code/${f.code}/content`);
+      expect(res.statusCode).not.toBe(200);
+      expect(res.body).not.toContain("TESTO CHE NON DEVE USCIRE");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("una lettura che non va (404) non segna niente; il cookie dell'autore sulla stessa rotta nemmeno", async () => {
     const sid = await conversation();
     const tok = await issueChatToolToken(t.db, { sessionId: sid, userId: author.id, ttlMs: 60_000 });
@@ -117,4 +151,56 @@ describe("il contenuto di un file per Claude", () => {
     const detail = (await app.inject({ method: "GET", url: `/api/drive/files/${f.id}`, headers: { cookie: author.headers.cookie } })).json() as { opensTotal: number };
     expect(detail.opensTotal).toBe(0);
   });
+
 });
+
+describe("review della F3 (decisione del maintainer): una task o una richiesta nata da FUORI conta come contenuto non fidato", () => {
+  async function request(extra: Partial<typeof backlogItems.$inferInsert> = {}) {
+    const [item] = await t.db.insert(backlogItems).values({ projectId, title: `Richiesta ${++n}`, body: "testo", source: "manual", ...extra } as typeof backlogItems.$inferInsert).returning({ id: backlogItems.id, number: backlogItems.number });
+    return { id: item!.id, code: `${projectCode}-R${item!.number}` };
+  }
+  const turn = async () => {
+    const sid = await conversation();
+    return { sid, tok: await issueChatToolToken(t.db, { sessionId: sid, userId: author.id, ttlMs: 60_000 }) };
+  };
+
+  for (const [what, prepare] of [
+    ["una task arrivata dal widget, letta per codice", async (tok: string) => {
+      const tk = await task();
+      await t.db.update(tickets).set({ source: "widget" }).where(eq(tickets.id, tk.id));
+      return get(tok, `/api/tasks/by-code/${tk.code}`);
+    }],
+    ["una task da un feedback dell'SDK, trovata con la ricerca", async (tok: string) => {
+      const tk = await task();
+      await t.db.update(tickets).set({ source: "sdk_feedback", title: "parolaesterna-ricerca" }).where(eq(tickets.id, tk.id));
+      return get(tok, `/api/tasks?text=parolaesterna-ricerca`);
+    }],
+    ["una richiesta nata da un'email in entrata", async (tok: string) => get(tok, `/api/requests/by-code/${(await request({ externalOrigin: "email" })).code}`)],
+    ["una richiesta nata da una task del widget", async (tok: string) => {
+      const tk = await task();
+      await t.db.update(tickets).set({ source: "widget" }).where(eq(tickets.id, tk.id));
+      const r = await request({ source: "ticket" });
+      await t.db.insert(backlogItemTickets).values({ itemId: r.id, ticketId: tk.id, role: "origin" });
+      return get(tok, `/api/requests/by-code/${r.code}`);
+    }],
+  ] as const) {
+    it(`${what}: la proposta dopo è B`, async () => {
+      const { sid, tok } = await turn();
+      expect((await prepare(tok)).statusCode).toBe(200);
+      expect((await propose(sid, tok, retitle((await task()).id))).json()).toMatchObject({ status: "awaiting_confirmation" });
+    });
+  }
+
+  it("una task e una richiesta scritte dai colleghi NON segnano niente: la A resta A", async () => {
+    const { sid, tok } = await turn();
+    expect((await get(tok, `/api/tasks/by-code/${(await task()).code}`)).statusCode).toBe(200);
+    expect((await get(tok, `/api/requests/by-code/${(await request()).code}`)).statusCode).toBe(200);
+    // Una ricerca che restituisce solo task dei colleghi (la parola è solo loro).
+    const mine = await task();
+    await t.db.update(tickets).set({ title: "parolainterna-colleghi" }).where(eq(tickets.id, mine.id));
+    const found = await get(tok, `/api/tasks?text=parolainterna-colleghi`);
+    expect(found.body).toContain(mine.id);
+    expect((await propose(sid, tok, retitle((await task()).id))).json()).toMatchObject({ status: "executed" });
+  });
+});
+

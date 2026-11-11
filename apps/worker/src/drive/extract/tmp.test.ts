@@ -1,6 +1,9 @@
 import { existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { withJobTmp } from "./tmp.js";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { sweepStaleJobTmps, withJobTmp } from "./tmp.js";
 
 // Una tmp per job, tolta SEMPRE: su successo, su eccezione.
 describe("withJobTmp", () => {
@@ -13,4 +16,19 @@ describe("withJobTmp", () => {
     expect(seen).not.toContain("..");
     expect(existsSync(seen)).toBe(false);
   });
+
+  it("all'avvio si spazzano le tmp dei job rimaste da un worker morto, e solo quelle", async () => {
+    const root = await mkdtemp(join(tmpdir(), "stubwise-sweep-test-"));
+    try {
+      await mkdir(join(root, "stubwise-drive-aaaa-1"));
+      await mkdir(join(root, "stubwise-drive-bbbb-2"), { recursive: true });
+      await mkdir(join(root, "altro-programma"));
+      expect(await sweepStaleJobTmps(root)).toBe(2);
+      expect(existsSync(join(root, "stubwise-drive-aaaa-1"))).toBe(false);
+      expect(existsSync(join(root, "altro-programma"))).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
+

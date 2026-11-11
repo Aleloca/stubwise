@@ -84,6 +84,8 @@ describe("PDF", () => {
     const r = await run("application/pdf", strToU8("%PDF"), { pdfinfo: () => info(3), pdftotext: pdfText("Il contratto scade a marzo.") });
     expect(r).toEqual({ status: "ready", ocr: "none", text: "Il contratto scade a marzo.", truncated: false });
     expect(calls.map((c) => c.cmd)).toEqual(["pdfinfo", "pdftotext"]);
+    // pdftotext legge al più le prime pagine (review della F3): il testo ha già un tetto.
+    expect(calls[1]!.args).toEqual(["-enc", "UTF-8", "-eol", "unix", "-f", "1", "-l", String(EXTRACT_LIMITS.pdfTextMaxPages), "input.pdf", "out.txt"]);
     expectFixedArgs();
   });
 

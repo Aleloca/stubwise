@@ -249,6 +249,26 @@ describe("proposte e gruppi per chi legge", () => {
 });
 
 describe("«Continua» (F5.3)", () => {
+  it("review della F3: la continuazione EREDITA il segno del contenuto non fidato dell'originale", async () => {
+    const marked = await conversation();
+    await event(marked, "input", { text: "Leggi AUD-F4" });
+    await event(marked, "assistant_text", { text: "Letto." });
+    await event(marked, "turn_end", {});
+    await t.db.update(claudeConversations).set({ untrustedReadAt: new Date("2026-11-11T10:00:00Z") }).where(eq(claudeConversations.sessionId, marked));
+    await publish(marked);
+    const cont = (await as(reader, "POST", `/api/claude/conversations/${marked}/continue`, {})).json() as { id: string };
+    const [row] = await t.db.select().from(claudeConversations).where(eq(claudeConversations.sessionId, cont.id));
+    expect(row!.untrustedReadAt).not.toBeNull();
+    // Un originale senza segno dà una continuazione senza segno.
+    const clean = await conversation();
+    await event(clean, "input", { text: "Ciao" });
+    await event(clean, "turn_end", {});
+    await publish(clean);
+    const cont2 = (await as(reader, "POST", `/api/claude/conversations/${clean}/continue`, {})).json() as { id: string };
+    const [row2] = await t.db.select().from(claudeConversations).where(eq(claudeConversations.sessionId, cont2.id));
+    expect(row2!.untrustedReadAt).toBeNull();
+  });
+
   it("chi legge continua in una conversazione NUOVA e sua, con la sola prosa leggibile dell'originale", async () => {
     const sid = await conversation();
     await event(sid, "input", { text: "Com'è AUD-12?" });

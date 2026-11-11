@@ -31,7 +31,10 @@ export class DriveObjectTooLarge extends Error {
 }
 
 /** L'UNICA operazione sullo storage che il worker conosce. */
-export type DriveObjectReader = { getObjectStream: (key: string, opts: { maxBytes: number }) => Promise<Readable> };
+export type DriveObjectReader = { getObjectStream: (key: string, opts: { maxBytes: number }) => Promise<Readable>; close?: () => void };
+
+/** Il tempo massimo di un download dallo storage (review della F3): richiesta e corpo. */
+export const DRIVE_DOWNLOAD_TIMEOUT_MS = 5 * 60_000;
 
 /** Una chiave del Drive: `drive/<progetto>/<file>/<nome>`, senza `..` e senza percorsi assoluti. */
 export function isDriveKey(key: string): boolean {
@@ -39,12 +42,19 @@ export function isDriveKey(key: string): boolean {
 }
 
 /** Il lettore sopra una configurazione S3; `send` iniettabile nei test. */
-export function createDriveObjectReader(config: S3Config, client: Pick<S3Client, "send"> = s3Client(config)): DriveObjectReader {
+export function createDriveObjectReader(
+  config: S3Config,
+  client: Pick<S3Client, "send"> & Partial<Pick<S3Client, "destroy">> = s3Client(config),
+  opts: { timeoutMs?: number } = {},
+): DriveObjectReader {
   const getObjectStream: DriveObjectReader["getObjectStream"] = async (key, { maxBytes }) => {
     if (!isDriveKey(key)) throw new Error(`not a Drive key: ${key}`);
     let body: Readable;
     try {
-      const out = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }));
+      // Il timeout copre anche il corpo: l'AbortSignal dell'SDK chiude lo stream.
+      const out = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }), {
+        abortSignal: AbortSignal.timeout(opts.timeoutMs ?? DRIVE_DOWNLOAD_TIMEOUT_MS),
+      });
       body = out.Body as Readable;
     } catch (error) {
       if ((error as { name?: string }).name === "NoSuchKey") throw new DriveObjectMissing(key);
@@ -61,20 +71,51 @@ export function createDriveObjectReader(config: S3Config, client: Pick<S3Client,
     // `pipeline`, non `.pipe()`: un errore o una chiusura da una parte ferma anche l'altra.
     return pipeline(body, cap, () => undefined);
   };
-  return { getObjectStream };
+  return { getObjectStream, close: () => client.destroy?.() };
 }
 
 function s3Client(config: S3Config): S3Client {
   return new S3Client({ endpoint: config.endpoint, region: config.region, credentials: { accessKeyId: config.accessKey, secretAccessKey: config.secretKey }, forcePathStyle: true });
 }
 
-/** Il lettore dalla configurazione d'istanza, o null se lo storage non è configurato (o la secret non si decifra). */
-export async function activeDriveObjectReader(db: Db, encryptionKey: Buffer): Promise<DriveObjectReader | null> {
+/**
+ * UN lettore (e un client S3) riusato finché la configurazione dello storage
+ * non cambia (review della F3); cambiata, o tolta, il client vecchio si
+ * distrugge, e `close` (all'arresto del worker) distrugge quello vivo.
+ */
+export function createDriveReaderCache(
+  loadConfig: () => Promise<S3Config | null>,
+  make: (config: S3Config) => DriveObjectReader = (config) => createDriveObjectReader(config),
+): { get: () => Promise<DriveObjectReader | null>; close: () => void } {
+  let cached: { key: string; reader: DriveObjectReader } | null = null;
+  const drop = () => {
+    cached?.reader.close?.();
+    cached = null;
+  };
+  return {
+    async get() {
+      const config = await loadConfig();
+      if (!config) {
+        drop();
+        return null;
+      }
+      const key = [config.endpoint, config.region, config.bucket, config.accessKey, config.secretKey].join("\u0000");
+      if (cached?.key !== key) {
+        drop();
+        cached = { key, reader: make(config) };
+      }
+      return cached.reader;
+    },
+    close: drop,
+  };
+}
+
+/** La configurazione S3 d'istanza, o null se non c'è (o la secret non si decifra). */
+export async function loadDriveS3Config(db: Db, encryptionKey: Buffer): Promise<S3Config | null> {
   const [row] = await db.select().from(instanceSettings).limit(1);
   if (!row) return null;
   try {
-    const config = s3ConfigFromSettings(row, encryptionKey);
-    return config ? createDriveObjectReader(config) : null;
+    return s3ConfigFromSettings(row, encryptionKey);
   } catch {
     return null;
   }

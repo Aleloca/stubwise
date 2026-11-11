@@ -3839,6 +3839,19 @@ deploy o di un rollback che la tocca.
   3/3 ciascuno. Nessun golden del worker fuori dalla chat: il riassunto non
   decide niente (coperto dai test col runner finto).
 
+  **Review della F3 (stesso rilascio)**: migrazioni **0147** (un indice per
+  i file in `pending`) e **0148** (`backlog_items.external_origin`). ⚠️ Il
+  payload dell'intake è `strict`: fra il passo del server e quello del worker
+  (l'ORDINE resta server, poi worker: il worker nomina le colonne della 0145),
+  un'email confermata accoda un intake con `externalOrigin` che il worker
+  VECCHIO rifiuta. Si fa il worker subito dopo il server; un intake rimasto
+  fallito nel mezzo si ritrova con `select id from backlog_jobs where kind =
+  'intake' and status = 'failed' and payload ? 'externalOrigin';` e si
+  riaccoda (`status = 'queued'`, `attempts = 0`).
+  L'estrazione Office gira in un worker_thread (timeout e tetto
+  di memoria), i figli hanno `prlimit --fsize`, e all'avvio il worker toglie
+  le tmp `stubwise-drive-*` rimaste.
+
   **Dopo il deploy**: il worker semina da sé un job per ogni file già
   caricato (`pending` senza job), uno alla volta: un riassunto Haiku per
   file, che si vede in Consumi sotto «Riassunti dei file del Drive».

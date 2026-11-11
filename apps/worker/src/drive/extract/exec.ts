@@ -70,6 +70,6 @@ export function createExec(opts: {
     if (!(await which(cmd))) return { ok: false, kind: "missing", detail: `${cmd} not found` };
     if (!opts.prlimit) return spawn(cmd, args, run);
     const cpuSeconds = Math.ceil(run.timeoutMs / 1000) + 5;
-    return spawn("prlimit", [`--as=${memory}`, `--cpu=${cpuSeconds}`, "--", cmd, ...args], run);
+    return spawn("prlimit", [`--as=${memory}`, `--cpu=${cpuSeconds}`, `--fsize=${EXTRACT_LIMITS.childFileBytes}`, "--", cmd, ...args], run);
   };
 }

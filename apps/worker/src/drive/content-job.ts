@@ -144,7 +144,7 @@ export function buildDriveSummaryPrompt(name: string, text: string): string {
 
 /** Al più 600 caratteri, tagliati su una parola; spazi compattati. */
 export function clipSummary(raw: string): string | null {
-  const text = raw.replace(/\s+/g, " ").trim();
+  const text = raw.replace(/\u0000/g, "").replace(/\s+/g, " ").trim();
   if (!text) return null;
   if (text.length <= SUMMARY_MAX_CHARS) return text;
   const cut = text.slice(0, SUMMARY_MAX_CHARS - 1);
@@ -182,7 +182,7 @@ async function summarize(deps: DriveContentDeps, file: { name: string; projectId
 async function embed(deps: DriveContentDeps, text: string): Promise<{ content: string; embedding: number[] }[]> {
   if (!deps.embeddings) return [];
   const contents = chunkMarkdown(text, { targetTokens: DOC_CHUNK_TARGET_TOKENS, overlap: DOC_CHUNK_OVERLAP_WORDS })
-    .map((c) => c.content)
+    .map((c) => c.content.replace(/\u0000/g, ""))
     .filter((c) => c.trim().length > 0)
     .slice(0, MAX_DRIVE_CHUNKS);
   try {
@@ -248,7 +248,9 @@ export async function processDriveContentJob(deps: DriveContentDeps, job: Job): 
 
   const summary = await summarize(deps, file, result.text);
   const chunks = await embed(deps, result.text);
-  await db.transaction(async (tx) => {
+  // Un errore del DB qui ritenta SOLO la scrittura (review della F3): riassunto
+  // ed embedding, già pagati, non si rifanno a ogni tentativo del job.
+  await retryWrite(() => db.transaction(async (tx) => {
     const [row] = await tx
       .update(driveFiles)
       .set({ contentStatus: "ready", contentReason: null, contentOcr: result.ocr, contentText: result.text, contentTruncated: result.truncated, summary, contentUpdatedAt: sql`now()` })
@@ -257,7 +259,20 @@ export async function processDriveContentJob(deps: DriveContentDeps, job: Job): 
     if (!row) return; // eliminato a metà: niente testo né chunk
     await tx.delete(driveFileChunks).where(eq(driveFileChunks.fileId, file.id));
     if (chunks.length > 0) await tx.insert(driveFileChunks).values(chunks.map((c, position) => ({ fileId: file.id, position, content: c.content, embedding: c.embedding })));
-  });
+  }));
+}
+
+/** La scrittura finale, ritentata fino a 3 volte con una breve attesa; poi l'errore risale al job. */
+async function retryWrite(write: () => Promise<unknown>, attempts = 3, waitMs = 200): Promise<void> {
+  for (let i = 1; ; i++) {
+    try {
+      await write();
+      return;
+    } catch (error) {
+      if (i >= attempts) throw error;
+      await new Promise((r) => setTimeout(r, waitMs * i));
+    }
+  }
 }
 
 /** Un giro: recupero, semina, poi la coda finché c'è (uno alla volta). Non lancia mai. */

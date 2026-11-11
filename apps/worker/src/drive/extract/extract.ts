@@ -1,11 +1,10 @@
-import { createReadStream } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { driveContentKindOf, type DriveContentOcr, type DriveContentReason } from "@stubwise/shared";
 import type { Exec, ExecResult } from "./exec.js";
 import { imageSize } from "./image.js";
 import { EXTRACT_LIMITS as L } from "./limits.js";
-import { extractOffice } from "./office.js";
+import { extractOfficeInThread } from "./office-thread.js";
 import { withJobTmp } from "./tmp.js";
 
 /**
@@ -51,7 +50,8 @@ const reasonOf = (r: Exclude<ExecResult, { ok: true }>): DriveContentReason =>
   r.kind === "missing" ? "ocr_unavailable" : r.kind === "timeout" ? "ocr_timeout" : r.kind === "output_limit" ? "limits" : "unreadable";
 
 function finish(raw: string, ocr: DriveContentOcr): ExtractResult {
-  const text = raw.replace(/\r\n?/g, "\n").trim();
+  // Il NUL (testo UTF-16, pdftotext, Office) Postgres non lo accetta in un `text`: via (review della F3).
+  const text = raw.replace(/\u0000/g, "").replace(/\r\n?/g, "\n").trim();
   if (text.replace(/\s/g, "").length === 0) return noText("no_text_found", ocr);
   const truncated = text.length > L.textMaxChars;
   return { status: "ready", ocr, text: truncated ? text.slice(0, L.textMaxChars) : text, truncated };
@@ -93,7 +93,8 @@ export async function extractContent(
       if (kind === "text") return finish(decode(await head(inputPath, L.textMaxChars * 4 + 4)), "none");
       if (kind === "office") {
         const { size } = await stat(inputPath);
-        const r = await extractOffice(createReadStream(inputPath, { highWaterMark: 64 * 1024 }), size, input.mime);
+        // In un worker_thread col suo tempo e la sua memoria (review della F3): mai nel thread principale.
+        const r = await extractOfficeInThread({ path: inputPath, size, mime: input.mime }, { timeoutMs: budget(L.officeMs) });
         return r.kind === "ok" ? finish(r.text, "none") : noText(r.kind);
       }
 
@@ -117,7 +118,7 @@ export async function extractContent(
       if (!infoRun.ok) return noText(reasonOf(infoRun));
       const infoText = infoRun.stdout.toString("utf8");
       const pages = Number(/^Pages:\s+(\d+)/m.exec(infoText)?.[1] ?? "0");
-      const textRun = await run("pdftotext", ["-enc", "UTF-8", "-eol", "unix", "input.pdf", "out.txt"], L.pdfTextMs);
+      const textRun = await run("pdftotext", ["-enc", "UTF-8", "-eol", "unix", "-f", "1", "-l", String(L.pdfTextMaxPages), "input.pdf", "out.txt"], L.pdfTextMs);
       if (textRun.ok) {
         const text = decode(await head(join(dir, "out.txt"), L.textMaxChars * 4).catch(() => Buffer.alloc(0)));
         if (text.replace(/\s/g, "").length >= L.pdfTextMinChars) return finish(text, "none");

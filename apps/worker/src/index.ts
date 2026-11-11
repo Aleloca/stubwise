@@ -32,7 +32,8 @@ import { createGraphifyRunner } from "./graph/graphify-cli.js";
 import { startGraphPoller } from "./graph/poller.js";
 import { startDriveContentPoller } from "./drive/content-job.js";
 import { createExec } from "./drive/extract/exec.js";
-import { activeDriveObjectReader } from "./drive/storage-read.js";
+import { sweepStaleJobTmps } from "./drive/extract/tmp.js";
+import { createDriveReaderCache, loadDriveS3Config } from "./drive/storage-read.js";
 import { createHandler, createProjectSerializer } from "./handler.js";
 import { createCancelRegistry, startCancelWatch } from "./pipeline/cancel.js";
 import { startMonitorAlertPoller } from "./monitor/alerts.js";
@@ -759,9 +760,17 @@ startGraphPoller({
 // estrae il testo con poppler/tesseract/libheif dietro `prlimit`, scrive il
 // riassunto (drive_summary, senza tool) e gli embedding. Fuori dal serializer
 // per progetto (non tocca mirror né worktree), uno per volta, best-effort.
+// Le tmp dei job del contenuto rimaste da un worker morto (review della F3).
+void sweepStaleJobTmps().then(
+  (n) => n > 0 && console.error(`[stubwise-worker] drive: tolte ${n} tmp di job rimaste`),
+  (error: unknown) => console.error("[stubwise-worker] drive: pulizia delle tmp non riuscita", error),
+);
+// Un lettore dello storage (e un client S3) riusato, distrutto all'arresto (review della F3).
+const driveReaders = createDriveReaderCache(() => loadDriveS3Config(db, config.encryptionKey));
+controller.signal.addEventListener("abort", () => driveReaders.close(), { once: true });
 startDriveContentPoller({
   db,
-  reader: () => activeDriveObjectReader(db, config.encryptionKey),
+  reader: () => driveReaders.get(),
   exec: createExec({ prlimit: true }),
   runner,
   select,

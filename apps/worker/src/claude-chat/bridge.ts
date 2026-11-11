@@ -270,6 +270,29 @@ export function projectToolResult(tool: ChatReadToolName, json: unknown): unknow
   return json;
 }
 
+/**
+ * Il risultato di `read_drive_file` entro `max` caratteri SERIALIZZATI (review
+ * della F3): si accorcia `untrusted_document.content`, mai il JSON a metà. Il
+ * JSON gonfia il testo (virgolette, a capo, barre), quindi si misura la
+ * stringa serializzata e si taglia finché ci sta, segnandolo.
+ */
+export function fitDriveFile(result: unknown, max: number): string {
+  let out = JSON.stringify(result);
+  const doc = (result as { untrusted_document?: { content?: unknown } } | null)?.untrusted_document;
+  if (out.length <= max || !doc || typeof doc.content !== "string") return out;
+  let content = doc.content;
+  const marked = (c: string) => ({
+    ...(result as Record<string, unknown>),
+    untrusted_document: { ...doc, content: c, truncated: "only the first part of the file is shown here; the person can open the whole file in the Drive" },
+  });
+  for (let i = 0; i < 20 && out.length > max; i++) {
+    const over = out.length - max;
+    content = content.slice(0, Math.max(0, content.length - Math.ceil(over / 2) - 16));
+    out = JSON.stringify(marked(content));
+  }
+  return out;
+}
+
 /** L'id del `tool_use` (idempotenza della proposta); senza, uno nuovo. */
 const TOOL_USE_ID = /^[A-Za-z0-9_-]{1,200}$/;
 
@@ -441,7 +464,8 @@ export async function startChatBridge(deps: {
         return { status: 200, body: { ok: false, text: `Stubwise is unavailable right now (${res.status}).` } };
       }
       const json: unknown = await res.json().catch(() => null);
-      parts.push(JSON.stringify(compact(projectToolResult(tool, json))));
+      const projected = compact(projectToolResult(tool, json));
+      parts.push(tool === "read_drive_file" ? fitDriveFile(projected, CHAT_DOC_PAGE_TEXT_MAX) : JSON.stringify(projected));
     }
     return { status: 200, body: { ok: true, text: truncate(parts.join("\n"), tool === "read_doc_page" || tool === "read_drive_file" ? CHAT_DOC_PAGE_TEXT_MAX : CHAT_TOOL_TEXT_MAX) } };
   }

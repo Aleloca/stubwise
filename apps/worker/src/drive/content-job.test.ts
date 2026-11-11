@@ -208,4 +208,37 @@ describe("il job del contenuto", () => {
     expect(spy).toHaveBeenCalledTimes(1);
     expect(await rowOf(f.id)).toMatchObject({ contentStatus: "ready" });
   });
+
+  it("review della F3: un NUL nel testo (UTF-16, pdftotext, Office) non fa fallire il file: si toglie dal testo e dai chunk", async () => {
+    const f = await file("utf16.txt", "text/plain", 20);
+    await pollDriveContentOnce(deps({ objects: new Map([[f.storageKey, Buffer.from("c\u0000i\u0000a\u0000o\u0000 mondo")]]) }));
+    const row = await rowOf(f.id);
+    expect(row).toMatchObject({ contentStatus: "ready" });
+    expect(row.contentText).toBe("ciao mondo");
+    for (const c of await chunksOf(f.id)) expect(c.content).not.toContain("\u0000");
+  });
+
+  it("review della F3: un errore del DB nella scrittura finale ritenta SOLO la scrittura, non riassunto ed embedding", async () => {
+    const f = await file("una-scrittura.txt", "text/plain", 10);
+    let failures = 1;
+    const flaky = new Proxy(t.db, {
+      get(target, prop, receiver) {
+        if (prop === "transaction" && failures > 0) {
+          return async () => {
+            failures -= 1;
+            throw new Error("connessione caduta");
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as typeof t.db;
+    const embed = vi.fn(async (inputs: string[]) => createFakeEmbeddingClient().embed(inputs));
+    const d = deps({ db: flaky, objects: new Map([[f.storageKey, Buffer.from("testo da scrivere")]]), embeddings: { embed } });
+    await pollDriveContentOnce(d);
+    expect(d.runs).toHaveLength(1);
+    expect(embed).toHaveBeenCalledTimes(1);
+    expect(await rowOf(f.id)).toMatchObject({ contentStatus: "ready", summary: "Un contratto di fornitura. Scade a marzo." });
+    expect(await jobOf(f.id)).toMatchObject({ status: "done", attempts: 0 });
+  });
 });
+

@@ -66,6 +66,11 @@ export const backlogIntakeManualPayloadSchema = z
     // ⚠️ Lo schema è `strict`: un worker più vecchio rifiuta un job che lo
     // porta, quindi il worker si aggiorna PRIMA che un client lo mandi.
     chatMessageId: z.uuid().optional(),
+    // Nata da FUORI (review della F3 dell'area 5): un'email in entrata. Il
+    // worker lo scrive sulla voce (`backlog_items.external_origin`), e leggerla
+    // nella chat con Claude conta come contenuto non fidato. Stesso avviso
+    // dello `strict` qui sopra: il worker si aggiorna PRIMA del server.
+    externalOrigin: z.enum(["email"]).optional(),
   })
   .strict();
 export type BacklogIntakeManualPayload = z.infer<typeof backlogIntakeManualPayloadSchema>;

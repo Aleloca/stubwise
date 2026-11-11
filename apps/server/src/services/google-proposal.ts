@@ -657,6 +657,8 @@ async function applyModelAction(
         // sull'oggetto della email e, in ultima istanza, sull'etichetta
         // dell'opzione — mai una stringa fissa senza contesto.
         body: nonEmpty(args.action.body, args.subject, args.optionLabel),
+        // Il testo viene da un'email in entrata: contenuto non fidato per Claude (review della F3).
+        externalOrigin: "email",
       });
       if (!result.ok) return { ok: false, error: "target_gone" };
       return { ok: true, detail: { type: "backlog_item", jobId: result.jobId } };

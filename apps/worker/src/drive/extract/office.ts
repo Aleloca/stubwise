@@ -57,16 +57,78 @@ function decodeEntities(text: string): string {
   });
 }
 
+/** I tag che chiudono un paragrafo (un a capo), quelli di a capo e di tabulazione. */
+const PARAGRAPH_END = new Set(["w:p", "a:p", "text:p", "text:h", "si"]);
+const LINE_BREAK = new Set(["w:br", "text:line-break", "a:br"]);
+const TAB = new Set(["w:tab", "text:tab"]);
+
+/**
+ * Il testo di un XML in UNA passata con `indexOf` (review della F3): niente
+ * espressioni regolari sul documento, che su un input ostile («<» senza «>»)
+ * diventavano quadratiche e bloccavano il worker. Ogni costrutto si cerca UNA
+ * volta dalla posizione corrente in avanti; uno non chiuso termina il testo.
+ * CDATA è testo; commenti, istruzioni e DOCTYPE si tolgono, senza risolvere
+ * nulla. Nei fogli di calcolo (non le stringhe condivise) conta solo il testo
+ * dentro `<is>`: i `<v>` sono numeri o indici.
+ */
 function xmlToText(format: Format, xml: string): string {
-  let s = xml.replace(/<!DOCTYPE[^[>]*(\[[\s\S]*?\])?\s*>/gi, "").replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, c: string) => c.replace(/[<&]/g, (ch) => (ch === "<" ? "&lt;" : "&amp;")));
-  // Nei fogli di calcolo solo le stringhe in linea: i <v> sono numeri o indici.
-  if (format === "xlsx" && !xml.includes("<sst")) s = (s.match(/<is>[\s\S]*?<\/is>/g) ?? []).map((x) => `${x}\n`).join("");
-  s = s
-    .replace(/<\/(w:p|a:p|text:p|text:h|si)>/g, "\n")
-    .replace(/<(w:br|text:line-break|a:br)\b[^>]*\/?>/g, "\n")
-    .replace(/<(w:tab|text:tab)\b[^>]*\/?>/g, "\t")
-    .replace(/<[^>]*>/g, "");
-  return decodeEntities(s);
+  const inlineOnly = format === "xlsx" && !xml.includes("<sst");
+  let inInline = 0;
+  const out: string[] = [];
+  const emit = (text: string) => {
+    if (!inlineOnly || inInline > 0) out.push(text);
+  };
+  let i = 0;
+  while (i < xml.length) {
+    const lt = xml.indexOf("<", i);
+    if (lt === -1) {
+      emit(decodeEntities(xml.slice(i)));
+      break;
+    }
+    if (lt > i) emit(decodeEntities(xml.slice(i, lt)));
+    if (xml.startsWith("<![CDATA[", lt)) {
+      const close = xml.indexOf("]]>", lt + 9);
+      if (close === -1) break;
+      emit(xml.slice(lt + 9, close));
+      i = close + 3;
+      continue;
+    }
+    if (xml.startsWith("<!--", lt)) {
+      const close = xml.indexOf("-->", lt + 4);
+      if (close === -1) break;
+      i = close + 3;
+      continue;
+    }
+    if (xml.startsWith("<!DOCTYPE", lt) || xml.startsWith("<!doctype", lt)) {
+      // Con un sottoinsieme interno («[ … ]») si chiude a «]>», altrimenti al primo «>».
+      const gt = xml.indexOf(">", lt);
+      const bracket = xml.indexOf("[", lt);
+      const close = bracket !== -1 && (gt === -1 || bracket < gt) ? xml.indexOf("]>", bracket) : gt;
+      if (close === -1) break;
+      i = close + (bracket !== -1 && (gt === -1 || bracket < gt) ? 2 : 1);
+      continue;
+    }
+    const gt = xml.indexOf(">", lt + 1);
+    if (gt === -1) break;
+    const tag = xml.slice(lt + 1, gt);
+    i = gt + 1;
+    if (tag.startsWith("?") || tag.startsWith("!")) continue;
+    const closing = tag.startsWith("/");
+    let end = closing ? 1 : 0;
+    while (end < tag.length && tag[end] !== " " && tag[end] !== "/" && tag[end] !== "\t" && tag[end] !== "\n" && tag[end] !== "\r") end += 1;
+    const name = tag.slice(closing ? 1 : 0, end);
+    if (name === "is") {
+      if (closing) {
+        inInline = Math.max(0, inInline - 1);
+        if (inlineOnly) out.push("\n");
+      } else if (!tag.endsWith("/")) inInline += 1;
+      continue;
+    }
+    if (closing && PARAGRAPH_END.has(name)) emit("\n");
+    else if (!closing && LINE_BREAK.has(name)) emit("\n");
+    else if (!closing && TAB.has(name)) emit("\t");
+  }
+  return out.join("");
 }
 
 /**
