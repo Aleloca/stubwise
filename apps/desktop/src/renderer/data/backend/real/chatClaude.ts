@@ -27,6 +27,22 @@ type ServerAction = Block["proposals"][number]["actions"][number];
 
 /** Le righe d'azione di ogni sessione letta (solo quelle di chi guarda: il server non dà le altrui). */
 const actionRows = new Map<string, ConversationEvent[]>();
+/**
+ * L'ultima lettura di ogni sessione: quando e in che stato era la risposta.
+ * Mentre Claude scrive lo stream porta un frame circa al secondo, e lo stream
+ * della Chat non dice quando arriva un evento di tool: la sessione si rilegge
+ * al più ogni `SESSION_REREAD_MS` mentre lavora, SUBITO quando lo stato cambia
+ * (il turno finito, la domanda, fermata), mai più a risposta finita.
+ */
+const sessionReads = new Map<string, { at: number; state: string }>();
+export const SESSION_REREAD_MS = 4000;
+
+function sessionDue(id: string, state: string): boolean {
+  const last = sessionReads.get(id);
+  if (!last || last.state !== state) return true;
+  return state === "working" && Date.now() - last.at >= SESSION_REREAD_MS;
+}
+
 /** Il codice di ogni task citata negli argomenti di una proposta (id → «AUD-12»). */
 const taskCodes = new Map<string, string>();
 /** Gli argomenti di ogni proposta letta con gli argomenti (di chi ha chiamato), per «Edit». */
@@ -34,6 +50,7 @@ const proposalActions = new Map<string, ServerAction[]>();
 
 export function forgetChatClaudeCaches(): void {
   actionRows.clear();
+  sessionReads.clear();
   taskCodes.clear();
   proposalActions.clear();
   loads.clear();
@@ -129,11 +146,11 @@ async function sessionEvents(id: string): Promise<Reader<AgentSessionEvent>[]> {
   }
 }
 
-/** C'è qualcosa da leggere a parte: la sessione di chi guarda, o codici di task non ancora noti. */
+/** C'è qualcosa da leggere a parte: la sessione di chi guarda (quando tocca), o codici di task non ancora noti. */
 export function needsClaudeLoad(v: ServerMsg): boolean {
   const c = v.kind === "claude" ? v.claude : null;
   if (!c) return false;
-  return c.sessionId !== null || missingTaskIds(c).length > 0;
+  return (c.sessionId !== null && sessionDue(c.sessionId, c.state)) || missingTaskIds(c).length > 0;
 }
 
 function missingTaskIds(c: Block): string[] {
@@ -143,7 +160,8 @@ function missingTaskIds(c: Block): string[] {
 async function load(v: ServerMsg): Promise<boolean> {
   const c = v.claude!;
   let changed = false;
-  if (c.sessionId) {
+  if (c.sessionId && sessionDue(c.sessionId, c.state)) {
+    sessionReads.set(c.sessionId, { at: Date.now(), state: c.state });
     try {
       const rows = toConversationEvents({
         events: await sessionEvents(c.sessionId),
@@ -158,7 +176,9 @@ async function load(v: ServerMsg): Promise<boolean> {
         changed = true;
       }
     } catch {
-      // Fail-open: la risposta si legge senza righe (o con quelle di prima).
+      // Fail-open: la risposta si legge senza righe (o con quelle di prima);
+      // al prossimo frame si riprova.
+      sessionReads.delete(c.sessionId);
     }
   }
   for (const id of missingTaskIds(c)) {

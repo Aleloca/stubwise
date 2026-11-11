@@ -147,11 +147,26 @@ describe("@Claude dal vivo (fetta 3)", () => {
     opened[0]!.handlers.onFrame(messages([reply]));
     expect(got).toEqual([[REPLY, "append", 0]]);
     await vi.waitFor(() => expect(got).toEqual([[REPLY, "append", 0], [REPLY, "update", 1]]));
-    // Un frame nuovo (il testo che cresce) porta le righe già lette, e non le rilegge se non cambiano.
+    const reads = () => seen.filter((r) => r.path.includes("/events")).length;
+    // Il testo che cresce (un frame al secondo): le righe già lette, senza rileggere la sessione.
     opened[0]!.handlers.onFrame(messages([{ ...reply, text: "Looking…" }]));
     expect(got.at(-1)).toEqual([REPLY, "update", 1]);
-    await vi.waitFor(() => expect(seen.filter((r) => r.path.includes("/events")).length).toBe(2));
-    expect(got).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(1000);
+    opened[0]!.handlers.onFrame(messages([{ ...reply, text: "Looking at it…" }]));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(reads()).toBe(1);
+    // Passati 4 s mentre lavora: una lettura.
+    await vi.advanceTimersByTimeAsync(4000);
+    opened[0]!.handlers.onFrame(messages([{ ...reply, text: "Looking at it, still…" }]));
+    await vi.waitFor(() => expect(reads()).toBe(2));
+    // Il turno finito: subito, anche dentro i 4 s.
+    opened[0]!.handlers.onFrame(messages([{ ...reply, text: "Done.", claude: { state: "done", sessionId: SESSION } }]));
+    await vi.waitFor(() => expect(reads()).toBe(3));
+    // Una risposta finita non si rilegge più.
+    await vi.advanceTimersByTimeAsync(10_000);
+    opened[0]!.handlers.onFrame(messages([{ ...reply, text: "Done.", claude: { state: "done", sessionId: SESSION } }]));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(reads()).toBe(3);
   });
 });
 
