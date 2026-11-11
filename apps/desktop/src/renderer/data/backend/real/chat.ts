@@ -51,6 +51,12 @@ const INVALID_OF: Record<string, string> = {
   invalid_thread: "threadOf",
   // Fetta 3 (@Claude).
   invalid_status: "status",
+  // Fetta 4: gli allegati (l'upload nel canale).
+  unsupported_type: "attachmentType",
+  file_too_large: "attachmentSize",
+  storage_not_configured: "attachmentsOff",
+  empty_message: "text",
+  invalid_attachments: "attachments",
 };
 
 /** `invalid400`: cosa dice un 400 di validazione (il nome di un canale, nei dialoghi del canale). */
@@ -96,6 +102,15 @@ const cursorBefore = new Map<string, string>();
  * citazione che non è qui non si apre e non si nomina (R-G5).
  */
 const citedViews = new Map<string, { kind: CitationRef["kind"]; id: string; label: string; projectId: string | null }>();
+/**
+ * Gli oggetti delle schede degli eventi (fetta 4), come li legge chi guarda:
+ * `label` è il codice (task, richiesta) o il nome (traguardo, periodo del
+ * brief); `title` c'è solo se chi guarda vede l'oggetto.
+ */
+const eventViews = new Map<
+  string,
+  { kind: CitationRef["kind"]; id: string; label: string; title: string | null; visible: boolean; projectId: string | null }
+>();
 const citeKey = (kind: string, id: string) => `${kind}\u0000${id}`;
 
 /** I tipi che il server sa citare (gli altri, scelti da «#», non partono). */
@@ -106,6 +121,8 @@ const CITABLE = new Set(["task", "request", "project", "person", "doc"]);
  * `codeOf` dà il codice di un progetto per l'indirizzo.
  */
 export function chatCitationView(ref: CitationRef, codeOf: (projectId: string) => string | undefined): CitationView | null {
+  const event = eventViews.get(citeKey(ref.kind, ref.id));
+  if (event && !citedViews.has(citeKey(ref.kind, ref.id))) return eventObjectView(event, codeOf);
   const c = citedViews.get(citeKey(ref.kind, ref.id));
   if (!c) return null;
   const project = c.projectId ? (codeOf(c.projectId) ?? null) : null;
@@ -135,6 +152,42 @@ export function chatCitationView(ref: CitationRef, codeOf: (projectId: string) =
   }
 }
 
+/**
+ * L'oggetto della scheda di un evento: codice e titolo a chi lo vede, il solo
+ * codice (tenue, senza link) a chi no; traguardi e brief col progetto, come
+ * il prototipo.
+ */
+function eventObjectView(
+  e: { kind: CitationRef["kind"]; id: string; label: string; title: string | null; visible: boolean; projectId: string | null },
+  codeOf: (projectId: string) => string | undefined,
+): CitationView {
+  const project = e.projectId ? (codeOf(e.projectId) ?? null) : null;
+  const base: CitationView = {
+    kind: e.kind,
+    id: e.id,
+    visible: e.visible,
+    code: null,
+    name: null,
+    projectCode: project,
+    status: null,
+    personId: null,
+    route: null,
+  };
+  if (e.kind === "task" || e.kind === "request") {
+    if (!e.visible) return { ...base, code: e.label };
+    const route =
+      project === null
+        ? null
+        : e.kind === "task"
+          ? `#/p/${project}/tasks?task=${e.label}`
+          : `#/p/${project}/requests?request=${e.id}`;
+    return { ...base, code: e.label, name: e.title, route };
+  }
+  // Traguardo, brief, pagina di Release: il progetto e il nome.
+  if (!e.visible) return { ...base, code: project };
+  return { ...base, code: project, name: e.label, route: project ? `#/p/${project}` : null };
+}
+
 /** Il canale di un messaggio già letto (lo stream di un thread ascolta quello del canale). */
 export const knownChannelOf = (messageId: string): string | undefined =>
   channelOfMessage.get(messageId);
@@ -144,6 +197,7 @@ export function forgetPeopleChatCaches(): void {
   channelOfMessage.clear();
   cursorBefore.clear();
   citedViews.clear();
+  eventViews.clear();
   forgetChatClaudeCaches();
 }
 
@@ -165,8 +219,8 @@ function toChannelView(v: ServerChannel): ChannelView {
     archivedAt: v.archivedAt,
     isGeneral: v.isGeneral,
     memberIds: [...v.memberIds],
-    // Gli eventi dei progetti nei canali sono della fetta 4.
-    publishedEvents: [],
+    // Gli eventi dei progetti che il canale pubblica (fetta 4); un tipo ignoto si scarta.
+    publishedEvents: v.publishedEvents.filter((e): e is Exclude<typeof e, "__unknown__"> => e !== "__unknown__"),
     createdAt: v.createdAt,
     // Fetta 2: i permessi uno per uno, come `channelPermissions` del prototipo
     // (un privato visto da chi lo gestisce senza esserne membro: `canRead` falso).
@@ -209,8 +263,15 @@ export function toMessage(v: ServerMsg): ChatMessageView {
     kind: v.kind === "system" || v.kind === "claude" ? v.kind : "person",
     ...(v.calledById ? { calledById: v.calledById } : {}),
     text: v.deleted ? "" : v.text,
-    // Allegati: fetta 4. Le citazioni (F2.7): quelle confermate dal server.
-    attachments: [],
+    // Gli allegati (fetta 4), nel loro ordine; le citazioni (F2.7): quelle confermate dal server.
+    attachments: v.deleted
+      ? []
+      : v.attachments.map((a) => ({
+          id: a.id,
+          name: a.filename,
+          sizeBytes: a.sizeBytes,
+          kind: a.mimeType.toLowerCase().startsWith("image/") ? ("image" as const) : ("file" as const),
+        })),
     citations: v.citations.flatMap((c) => {
       if (!CITABLE.has(c.kind)) return [];
       const kind = c.kind as CitationRef["kind"];
@@ -220,6 +281,7 @@ export function toMessage(v: ServerMsg): ChatMessageView {
     reactions: v.reactions.map((r) => ({ emoji: r.emoji, personIds: [...r.personIds] })),
     asksReplyOf: [...v.asksReplyOf],
     ...(v.alsoInChannel ? { alsoInChannel: true } : {}),
+    ...eventOf(v),
     // Ciò che è nato dal messaggio, filtrato dal server per chi guarda.
     linkedCodes: [...v.linkedCodes],
     createdAt: v.createdAt,
@@ -246,6 +308,23 @@ export function toMessage(v: ServerMsg): ChatMessageView {
     mentionsViewer: v.mentionedIds.includes(me),
     linkedRefs: v.linked.flatMap((l) => (l.kind === "task" || l.kind === "request" ? [{ kind: l.kind, id: l.id }] : [])),
   };
+}
+
+/** L'evento di un messaggio di sistema (fetta 4); un tipo che questo renderer non conosce non ha scheda. */
+function eventOf(v: ServerMsg): Pick<ChatMessageView, "event"> {
+  const e = v.kind === "system" ? v.event : null;
+  if (!e || e.kind === "__unknown__" || e.ref.kind === "__unknown__") return {};
+  const ref: CitationRef = { kind: e.ref.kind, id: e.ref.id };
+  if (!e.object) return { event: { kind: e.kind, ref, gone: true } };
+  eventViews.set(citeKey(ref.kind, ref.id), {
+    kind: ref.kind,
+    id: ref.id,
+    label: e.object.label,
+    title: e.object.title,
+    visible: e.object.visible,
+    projectId: e.object.projectId,
+  });
+  return { event: { kind: e.kind, ref } };
 }
 
 const hitOf = (v: ServerMsg): ChatMessageHit => ({
@@ -376,11 +455,24 @@ const citationsOf = (refs: readonly CitationRef[] | undefined) =>
     CITABLE.has(r.kind) ? [{ kind: r.kind as "task" | "request" | "project" | "person" | "doc", id: r.id }] : [],
   );
 
-const sendMessage: Chat["sendMessage"] = async (channelId, input) =>
-  toMessage(
+/**
+ * L'invio: prima ogni file della casella si carica nel canale (uno alla volta,
+ * nell'ordine), poi il messaggio li lega con `attachmentIds`. Un file rifiutato
+ * ferma l'invio prima del messaggio (`invalid: attachmentType|Size|sOff`).
+ */
+const sendMessage: Chat["sendMessage"] = async (channelId, input) => {
+  const attachmentIds: string[] = [];
+  for (const a of input.attachments ?? []) {
+    if (!a.file) continue;
+    const file = a.file;
+    const uploaded = await call(() => appClient().chat.attachments.upload(channelId, file, a.name));
+    attachmentIds.push(uploaded.id);
+  }
+  return toMessage(
     await call(() =>
       appClient().chat.messages.send(channelId, {
         text: input.text,
+        ...(attachmentIds.length ? { attachmentIds } : {}),
         ...(input.threadOf ? { threadRootId: input.threadOf } : {}),
         ...(input.alsoInChannel ? { alsoInChannel: true } : {}),
         ...(input.asksReply ? { asksReply: true } : {}),
@@ -388,6 +480,7 @@ const sendMessage: Chat["sendMessage"] = async (channelId, input) =>
       }),
     ),
   );
+};
 
 const editMessage: Chat["editMessage"] = async (id, text) =>
   toMessage(await call(() => appClient().chat.messages.edit(id, text)));
@@ -498,6 +591,7 @@ const searchChat: Chat["searchChat"] = async (q, filters = {}) => {
     ...(filters.authorId ? { authorId: filters.authorId } : {}),
     ...(filters.peopleOnly ? { peopleOnly: true } : {}),
     ...(filters.withCitations ? { withCitations: true } : {}),
+    ...(filters.withAttachments ? { withAttachments: true } : {}),
     ...(filters.from ? { from: filters.from.slice(0, 10) } : {}),
     ...(filters.to ? { to: filters.to.slice(0, 10) } : {}),
   });
@@ -545,6 +639,27 @@ const updateChannel: Chat["updateChannel"] = async (channelId, patch) =>
       patch.name !== undefined ? "name" : "input",
     ),
   );
+
+/** Gli eventi dei progetti che il canale pubblica (fetta 4): l'insieme intero; il server lo ordina. */
+const setPublishedEvents: Chat["setPublishedEvents"] = async (channelId, events) =>
+  toChannelView(await call(() => appClient().chat.channels.setEvents(channelId, events)));
+
+/**
+ * Il download di un allegato (fetta 4). Sul desktop lo fa il main (`api:download`:
+ * col token, segue il 302 e chiede dove salvare): qui passa solo il percorso.
+ * Sul web un link allo stesso percorso: il cookie di sessione basta, e il
+ * browser segue il 302 verso l'URL firmato (`Content-Disposition: attachment`).
+ */
+const downloadAttachment: Chat["downloadAttachment"] = async (attachmentId) => {
+  const path = appClient().chat.attachments.downloadPath(attachmentId);
+  const main = window.stubwise?.api?.download;
+  if (main) return main(path);
+  const link = document.createElement("a");
+  link.href = path;
+  link.rel = "noopener";
+  link.click();
+  return { ok: true };
+};
 
 const archiveChannel: Chat["archiveChannel"] = async (channelId, archived = true) =>
   toChannelView(await call(() => appClient().chat.channels.update(channelId, { archived })));
@@ -671,6 +786,8 @@ export const chatFunctions: Partial<Chat> = {
   searchChat,
   createTaskFromMessage,
   createRequestFromMessage,
+  setPublishedEvents,
+  downloadAttachment,
   stopClaudeReply,
   retryClaudeReply,
   answerChatClaudeQuestion,

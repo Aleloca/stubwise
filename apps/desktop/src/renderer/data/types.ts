@@ -786,6 +786,11 @@ export interface ChatMessageHit {
   root?: ChatMessageView | null;
 }
 
+/** L'esito del download di un allegato della Chat (fetta 4): mai il percorso scelto né l'URL. */
+export type ChatDownloadResult =
+  | { ok: true }
+  | { ok: false; reason: "invalid" | "unauthenticated" | "not_found" | "failed" | "canceled" };
+
 export interface ChatSearchFilters {
   channelId?: string;
   authorId?: string;

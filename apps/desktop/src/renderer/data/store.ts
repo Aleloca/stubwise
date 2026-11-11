@@ -378,6 +378,7 @@ export type ApiFnName =
   | "chat.createChannel"
   | "chat.updateChannel"
   | "chat.setPublishedEvents"
+  | "chat.downloadAttachment"
   | "chat.archiveChannel"
   | "chat.deleteChannel"
   | "chat.inviteMembers"
