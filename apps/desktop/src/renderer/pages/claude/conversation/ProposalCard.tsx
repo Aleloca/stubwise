@@ -239,7 +239,10 @@ export function ProposalCardView({
   const open = event.status === "open";
   // Build app: su una scheda aperta chi decide lo dice il server
   // (`canDecide`), non chi guarda (fetta 5: una pubblica, una continuazione).
-  const own = event.requesterId === viewerId && !(open && event.canDecide === false);
+  // Quando è il posto a non lasciar agire (`canAct` falso: nella Chat un
+  // canale archiviato o lasciato), chi l'ha chiesta resta lui: legge «Your
+  // proposal» con la nota, e il `canDecide` falso del server toglie solo i bottoni.
+  const own = event.requesterId === viewerId && (!canAct || !(open && event.canDecide === false));
   const mine = own && canAct;
   // Un «Annulla» è tutto o niente: niente caselle (I1).
   const many = event.actions.length > 1 && !event.undoOf;

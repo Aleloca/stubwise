@@ -304,6 +304,22 @@ describe("@Claude nei canali, nella build app", () => {
     expect(within(menu).getByRole("menuitem", { name: "Delete Claude's reply" })).toBeInTheDocument();
   });
 
+  it("chi ha chiamato, in un canale archiviato: «Your proposal» con la nota, non «Proposal for» sé stesso", async () => {
+    const archived = channel({ archived: true, canWrite: false });
+    install(
+      { root: root(), replies: [reply({}, { state: "done", question: null, proposals: [proposal({ canConfirm: false, canCancel: false })] })] },
+      { "GET /api/chat/channels": { body: { items: [archived] } }, [`GET /api/chat/channels/${CH}`]: { body: archived } },
+    );
+    renderRoute(`/chat/${CH}?thread=${ROOT}`);
+    const article = await replyArticle();
+    expect(await within(article).findByText("Your proposal")).toBeInTheDocument();
+    expect(within(article).queryByText("Proposal for Ada")).toBeNull();
+    expect(
+      within(article).getByText("You can no longer act on this here: you're not in the channel or it's archived."),
+    ).toBeInTheDocument();
+    expect(within(article).queryByRole("button", { name: "Confirm" })).toBeNull();
+  });
+
   it("una scheda confermata nella Chat non ha «Annulla»", async () => {
     install({
       root: root(),
