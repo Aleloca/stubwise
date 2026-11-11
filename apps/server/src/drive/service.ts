@@ -10,9 +10,10 @@ import {
   type DriveCodeResolution,
   type DriveFileDetail,
   type DriveFileRow,
-  type DriveListQuery,
+  type driveListQuerySchema,
   type DriveUploadResult,
 } from "@stubwise/shared";
+import type { z } from "zod";
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { projectPermissionsFor, projectPermissionsMap, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
@@ -33,6 +34,7 @@ import type { ObjectStorage } from "../storage/index.js";
  */
 
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
+type ListQuery = z.infer<typeof driveListQuerySchema>;
 type Row = typeof driveFiles.$inferSelect;
 
 export class DriveError extends Error {
@@ -120,7 +122,7 @@ function codeCondition(q: string): SQL | undefined {
  * progetti di cui si è membri). Filtri e ordinamento del prototipo; `q` cerca
  * nel nome e nel codice, mai nel contenuto (F3).
  */
-export async function listDriveFiles(db: Db, viewer: Viewer, query: DriveListQuery & { sort: "most_used" | "recent" | "name" }, scope: { projectId?: string }): Promise<DriveFileRow[]> {
+export async function listDriveFiles(db: Db, viewer: Viewer, query: ListQuery, scope: { projectId?: string }): Promise<DriveFileRow[]> {
   const projectId = scope.projectId ?? query.projectId;
   if (scope.projectId) {
     const [project] = await db.select({ id: projects.id }).from(projects).where(eq(projects.id, scope.projectId));

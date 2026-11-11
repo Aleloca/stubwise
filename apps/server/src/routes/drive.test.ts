@@ -1,11 +1,11 @@
 import { randomBytes } from "node:crypto";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { driveFiles, projects } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
-import { purgeDeletedDriveObjects } from "../drive/service.js";
+import { DriveError, purgeDeletedDriveObjects, uploadDriveFile } from "../drive/service.js";
 import type { ObjectStorage } from "../storage/index.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
@@ -84,12 +84,17 @@ beforeEach(() => {
 const as = (u: U, method: "GET" | "POST" | "DELETE", url: string, payload?: unknown) =>
   app.inject({ method, url, headers: { cookie: u.headers.cookie }, ...(payload !== undefined ? { payload: payload as Record<string, unknown> } : {}) });
 const BOUNDARY = "----stubwisedriveboundary";
-function upload(u: U, project: string, file: { filename: string; contentType: string; content?: Buffer }) {
-  const payload = Buffer.concat([
+function upload(u: U, project: string, file: { filename: string; contentType: string; content?: Buffer }, opts: { chunked?: boolean } = {}) {
+  const body = Buffer.concat([
     Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="${file.filename}"\r\nContent-Type: ${file.contentType}\r\n\r\n`),
     file.content ?? Buffer.from("contenuto del file"),
     Buffer.from(`\r\n--${BOUNDARY}--\r\n`),
   ]);
+  // A pezzi da 64 KB, come arriva dalla rete: `inject` con un Buffer lo darebbe in un pezzo solo.
+  const CHUNK = 64 * 1024;
+  const payload = opts.chunked
+    ? Readable.from(Array.from({ length: Math.ceil(body.length / CHUNK) }, (_, i) => body.subarray(i * CHUNK, (i + 1) * CHUNK)))
+    : body;
   return app.inject({
     method: "POST",
     url: `/api/projects/${project}/drive/files`,
@@ -104,7 +109,7 @@ const list = async (u: U, query = "") => ((await as(u, "GET", `/api/projects/${p
 describe("caricare", () => {
   it("chi ha drive.upload carica: 201, codice F, chiave del Drive, in STREAMING verso lo storage", async () => {
     const content = Buffer.alloc(3 * 1024 * 1024, 7);
-    const res = await upload(dev, projectId, { filename: "Contratto.pdf", contentType: "application/pdf", content });
+    const res = await upload(dev, projectId, { filename: "Contratto.pdf", contentType: "application/pdf", content }, { chunked: true });
     expect(res.statusCode, res.body).toBe(201);
     const body = res.json() as Upload;
     expect(body).toMatchObject({ keptBoth: false, requestedName: "Contratto.pdf", file: { name: "Contratto.pdf", type: "pdf" } });
@@ -136,6 +141,25 @@ describe("caricare", () => {
     expect(await t.db.select({ id: driveFiles.id }).from(driveFiles)).toHaveLength(before.length);
     expect([...storage.objects.keys()].filter((k) => k.includes("enorme"))).toEqual([]);
   }, 120_000);
+
+  it("il servizio conta i byte da sé: uno stream oltre 100 MB senza il limite di busboy si ferma, 413, e l'oggetto si toglie", async () => {
+    const MB = Buffer.alloc(1024 * 1024, 1);
+    const stream = Readable.from((function* () {
+      for (let i = 0; i < 101; i++) yield MB;
+    })());
+    const err = await uploadDriveFile(t.db, storage as unknown as ObjectStorage, { id: dev.id, instancePermissions: [] } as never, projectId, {
+      filename: "senza-limite.zip",
+      mime: "application/zip",
+      stream,
+      truncated: () => false,
+    }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(DriveError);
+    expect(err).toMatchObject({ status: 413, code: "file_too_large" });
+    expect(storage.deleteObject).toHaveBeenCalledTimes(1);
+    expect([...storage.objects.keys()].filter((k) => k.includes("senza-limite"))).toEqual([]);
+    // Fermato A METÀ: lo storage non ha ricevuto i 101 MB, solo fino al tetto.
+    expect(storage.chunks.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(100 * 1024 * 1024);
+  }, 60_000);
 
   it("tipi della Chat: un eseguibile no; chi non ha drive.upload no; chi non è membro 404", async () => {
     expect((await upload(dev, projectId, { filename: "setup.exe", contentType: "application/x-msdownload" })).json()).toMatchObject({ code: "unsupported_type" });
