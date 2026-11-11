@@ -48,4 +48,4 @@ progetto e la feature `drive` (`data/integration.ts`). Google resta spento
 - **«#»** cerca i file da 2 caratteri (come la ricerca del Drive), non da 1.
 - **Web, sessione scaduta durante un caricamento**: il caricamento fallisce
   («Upload failed»); la sessione si chiude alla richiesta successiva.
-- Più file scelti insieme partono in parallelo, ciascuno col suo caricamento e il suo esito (come nel prototipo, una riga per file).
+- Più file scelti insieme: al più 3 caricamenti alla volta per finestra (orchestratrice), gli altri in coda (la riga resta a zero finché non parte; il main non apre il file prima); ciascuno col suo esito, una riga per file come nel prototipo.
