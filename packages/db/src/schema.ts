@@ -5924,6 +5924,7 @@ export const driveFiles = pgTable(
     check("drive_files_source_chk", sql`${table.source} in ('upload')`),
     check("drive_files_type_chk", sql`${table.type} in ('document', 'sheet', 'slides', 'pdf', 'image', 'other')`),
     index("drive_files_content_tsv_idx").using("gin", table.contentTsv),
+    index("drive_files_content_pending_idx").on(table.addedAt).where(sql`${table.contentStatus} = 'pending' AND ${table.deletedAt} IS NULL`),
     check("drive_files_content_status_chk", sql`${table.contentStatus} in ('pending', 'processing', 'ready', 'no_text', 'unsupported', 'error')`),
     check("drive_files_content_reason_chk", sql`${table.contentReason} in ('no_text_found', 'ocr_timeout', 'ocr_unavailable', 'unreadable', 'too_large', 'limits')`),
     check("drive_files_content_reason_status_chk", sql`(${table.contentStatus} = 'no_text') = (${table.contentReason} IS NOT NULL)`),

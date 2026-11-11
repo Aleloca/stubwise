@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { claudeProposals, docPages, driveFiles, issueChatToolToken, projects, tickets } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
@@ -110,6 +110,22 @@ describe("almeno B dopo un contenuto non fidato", () => {
     const clean = await conversation();
     const tok2 = await issueChatToolToken(t.db, { sessionId: clean, userId: author.id, ttlMs: 60_000 });
     expect((await propose(clean, tok2, [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }])).json()).toMatchObject({ status: "executed" });
+  });
+
+  it("review della F3: il segno è FAIL-CLOSED — se non si scrive (DB giù), niente 200 e il testo non arriva", async () => {
+    const sid = await conversation();
+    const tok = await issueChatToolToken(t.db, { sessionId: sid, userId: author.id, ttlMs: 60_000 });
+    const f = await driveFile("TESTO CHE NON DEVE USCIRE");
+    const spy = vi.spyOn(app.db, "update").mockImplementationOnce(() => {
+      throw new Error("database giù");
+    });
+    try {
+      const res = await get(tok, `/api/drive/files/by-code/${f.code}/content`);
+      expect(res.statusCode).not.toBe(200);
+      expect(res.body).not.toContain("TESTO CHE NON DEVE USCIRE");
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("una lettura che non va (404) non segna niente; il cookie dell'autore sulla stessa rotta nemmeno", async () => {

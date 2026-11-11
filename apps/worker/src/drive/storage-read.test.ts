@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Readable, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { describe, expect, it, vi } from "vitest";
-import { createDriveObjectReader, DriveObjectMissing, DriveObjectTooLarge, isDriveKey } from "./storage-read.js";
+import { createDriveObjectReader, createDriveReaderCache, DriveObjectMissing, DriveObjectTooLarge, isDriveKey } from "./storage-read.js";
 
 // Lo storage dal worker (area 5, fetta 3): SOLA LETTURA, solo `drive/`, con un
 // tetto di byte. La sola lettura è una regola del codice: il sorgente del
@@ -39,6 +39,40 @@ describe("createDriveObjectReader", () => {
   it("un oggetto che non c'è più è DriveObjectMissing", async () => {
     const read = createDriveObjectReader(config, { send: async () => Promise.reject(Object.assign(new Error("x"), { name: "NoSuchKey" })) } as never).getObjectStream;
     await expect(read("drive/p/f/a.pdf", { maxBytes: 10 })).rejects.toBeInstanceOf(DriveObjectMissing);
+  });
+});
+
+describe("review della F3: un client S3 solo, chiuso alla fine, e un timeout sul download", () => {
+  it("il download ha un AbortSignal col suo timeout", async () => {
+    const send = vi.fn(async () => ({ Body: Readable.from([Buffer.from("x")]) }));
+    await createDriveObjectReader(config, { send } as never, { timeoutMs: 1234 }).getObjectStream("drive/p/f/a.pdf", { maxBytes: 10 });
+    const opts = (send.mock.calls[0] as unknown as [unknown, { abortSignal?: AbortSignal }])[1];
+    expect(opts?.abortSignal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("la cache riusa UN lettore finché la configurazione non cambia; cambiata o chiusa, il client vecchio si distrugge", async () => {
+    let current: typeof config | null = config;
+    const destroyed: string[] = [];
+    const made: string[] = [];
+    const cache = createDriveReaderCache(async () => current, (cfg) => {
+      made.push(cfg.accessKey);
+      return { getObjectStream: async () => Readable.from([]), close: () => void destroyed.push(cfg.accessKey) };
+    });
+    const a = await cache.get();
+    const b = await cache.get();
+    expect(a).toBe(b);
+    expect(made).toEqual(["a"]);
+    current = { ...config, accessKey: "nuova" };
+    const c = await cache.get();
+    expect(c).not.toBe(a);
+    expect(destroyed).toEqual(["a"]);
+    current = null;
+    expect(await cache.get()).toBeNull();
+    expect(destroyed).toEqual(["a", "nuova"]);
+    current = config;
+    await cache.get();
+    cache.close();
+    expect(destroyed).toEqual(["a", "nuova", "a"]);
   });
 });
 
