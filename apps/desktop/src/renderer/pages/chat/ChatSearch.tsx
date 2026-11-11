@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../data/integration";
 import { Link, useNavigate, useRouter, useRouterState, useSearch } from "@tanstack/react-router";
 import {
   Fragment,
@@ -646,7 +647,10 @@ function FilterRow({
       : t(`chat.search.${DATE_LABEL[params.when]}`)
     : null;
   const toggles = [
-    { key: "att" as const, label: t("chat.search.withAttachments") },
+    // Build app: gli allegati sono della fetta 4 (`chat-attachments`), e la ricerca non lo manderebbe.
+    ...(featureIntegrated("chat-attachments")
+      ? [{ key: "att" as const, label: t("chat.search.withAttachments") }]
+      : []),
     { key: "cit" as const, label: t("chat.search.withCitations") },
     { key: "ppl" as const, label: t("chat.search.peopleOnly") },
   ];

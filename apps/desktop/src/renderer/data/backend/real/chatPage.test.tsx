@@ -310,6 +310,14 @@ describe("la Chat nella build app", () => {
     expect(seen.some((r) => r.path.startsWith("/api/chat/search?q=export"))).toBe(true);
   });
 
+  it("la ricerca non offre «With attachments» finché gli allegati non ci sono (fetta 4)", async () => {
+    install({ "GET /api/chat/search": { body: { items: [] } } });
+    renderRoute("/chat?view=search&q=export");
+    const filters = await screen.findByRole("group", { name: "Search filters" }, { timeout: 3000 });
+    expect(within(filters).getAllByText("With citations").length).toBeGreaterThan(0);
+    expect(within(filters).queryByText("With attachments")).toBeNull();
+  });
+
   it("una risposta nel thread «anche nel canale» (fetta 2)", async () => {
     install({
       [`GET /api/chat/messages/${ROOT}/thread`]: { body: { root: message({ replyCount: 0 }), replies: [], lastReadAt: null } },
