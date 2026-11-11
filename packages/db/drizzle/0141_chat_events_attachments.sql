@@ -14,10 +14,17 @@ ALTER TABLE "chat_messages" ADD COLUMN "event_ref_id" uuid;
 --> statement-breakpoint
 ALTER TABLE "chat_messages" ADD COLUMN "event_pr_id" uuid;
 --> statement-breakpoint
+-- Numero e URL della PR al momento dell'evento (review della fetta 4): la riga
+-- di `ticket_repositories` è mutabile (una seconda PR la riscrive), e una
+-- scheda vecchia deve tenere la SUA PR.
+ALTER TABLE "chat_messages" ADD COLUMN "event_pr_number" integer;
+--> statement-breakpoint
+ALTER TABLE "chat_messages" ADD COLUMN "event_pr_url" text;
+--> statement-breakpoint
 ALTER TABLE "chat_messages" ADD CONSTRAINT "chat_messages_event_pr_fk" FOREIGN KEY ("event_pr_id") REFERENCES "public"."ticket_repositories"("id") ON DELETE set null ON UPDATE no action;
 --> statement-breakpoint
 ALTER TABLE "chat_messages" ADD CONSTRAINT "chat_messages_event_chk" CHECK (
-	("event_kind" is null and "event_ref_kind" is null and "event_ref_id" is null and "event_pr_id" is null)
+	("event_kind" is null and "event_ref_kind" is null and "event_ref_id" is null and "event_pr_id" is null and "event_pr_number" is null and "event_pr_url" is null)
 	or (
 		"kind" = 'system'
 		and "event_kind" in ('release_page', 'pr_opened', 'pr_merged', 'milestone_reached', 'brief_ready', 'request_new', 'task_closed')
@@ -60,7 +67,7 @@ CREATE INDEX "chat_message_attachments_pending_idx" ON "chat_message_attachments
 -- qui sotto, nella transazione di chi scrive: coprono OGNI scrittore (rotte,
 -- pipeline del worker, intake, webhook), come il «general» della 0135. I
 -- NOTIFY uguali di una transazione Postgres li manda una volta sola.
-CREATE FUNCTION "chat_publish_event"(p_project uuid, p_kind text, p_ref_kind text, p_ref_id uuid, p_pr uuid) RETURNS void LANGUAGE plpgsql AS $$
+CREATE FUNCTION "chat_publish_event"(p_project uuid, p_kind text, p_ref_kind text, p_ref_id uuid, p_pr uuid, p_pr_number integer DEFAULT NULL, p_pr_url text DEFAULT NULL) RETURNS void LANGUAGE plpgsql AS $$
 DECLARE
 	ch uuid;
 BEGIN
@@ -69,8 +76,10 @@ BEGIN
 		WHERE "project_id" = p_project AND "kind" = 'project' AND "archived_at" IS NULL
 			AND p_kind = ANY ("published_events")
 	LOOP
-		INSERT INTO "chat_messages" ("channel_id", "kind", "body", "event_kind", "event_ref_kind", "event_ref_id", "event_pr_id")
-		VALUES (ch, 'system', '', p_kind, p_ref_kind, p_ref_id, p_pr);
+		-- `clock_timestamp()`, non `now()`: due eventi della stessa transazione
+		-- (una riga nata già mergiata) restano nell'ordine in cui nascono.
+		INSERT INTO "chat_messages" ("channel_id", "kind", "body", "event_kind", "event_ref_kind", "event_ref_id", "event_pr_id", "event_pr_number", "event_pr_url", "created_at")
+		VALUES (ch, 'system', '', p_kind, p_ref_kind, p_ref_id, p_pr, p_pr_number, p_pr_url, clock_timestamp());
 		PERFORM pg_notify('chat_channel', json_build_object('channelId', ch)::text);
 	END LOOP;
 END;
@@ -130,22 +139,33 @@ CREATE TRIGGER "project_briefs_chat_ready" AFTER UPDATE ON "project_briefs"
 	FOR EACH ROW WHEN (NEW."status" = 'done' AND NEW."summary" IS NOT NULL AND NOT (OLD."status" = 'done' AND OLD."summary" IS NOT NULL))
 	EXECUTE FUNCTION "chat_event_brief_ready"();
 --> statement-breakpoint
--- La PR di una task: aperta quando nasce l'URL (anche una riga nata con la PR,
--- l'adozione), mergiata quando lo stato diventa `merged`.
+-- La PR di una task (review della fetta 4):
+-- - aperta quando l'URL CAMBIA in un valore non nullo: la prima PR, e una
+--   seconda PR sulla stessa riga (la pipeline riscrive `pr_url`);
+-- - mergiata quando lo stato diventa `merged`;
+-- - una riga nata già mergiata (la webhook che la fa nascere al merge,
+--   `webhooks.ts`) pubblica le due, nell'ordine: prima aperta, poi mergiata.
+-- Numero e URL si scrivono sul messaggio: la riga è mutabile.
 CREATE FUNCTION "chat_event_pr"() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
 	project uuid;
 BEGIN
 	SELECT "project_id" INTO project FROM "tickets" WHERE "id" = NEW."ticket_id";
-	IF NEW."pr_url" IS NOT NULL AND (TG_OP = 'INSERT' OR OLD."pr_url" IS NULL) THEN
-		PERFORM "chat_publish_event"(project, 'pr_opened', 'task', NEW."ticket_id", NEW."id");
+	IF NEW."pr_url" IS NOT NULL AND (TG_OP = 'INSERT' OR OLD."pr_url" IS DISTINCT FROM NEW."pr_url") THEN
+		PERFORM "chat_publish_event"(project, 'pr_opened', 'task', NEW."ticket_id", NEW."id", NEW."pr_number", NEW."pr_url");
 	END IF;
-	IF NEW."pr_state" = 'merged' AND (TG_OP = 'INSERT' OR OLD."pr_state" <> 'merged') THEN
-		PERFORM "chat_publish_event"(project, 'pr_merged', 'task', NEW."ticket_id", NEW."id");
+	IF NEW."pr_state" = 'merged' AND (TG_OP = 'INSERT' OR OLD."pr_state" IS DISTINCT FROM NEW."pr_state") THEN
+		PERFORM "chat_publish_event"(project, 'pr_merged', 'task', NEW."ticket_id", NEW."id", NEW."pr_number", NEW."pr_url");
 	END IF;
 	RETURN NULL;
 END;
 $$;
 --> statement-breakpoint
-CREATE TRIGGER "ticket_repositories_chat_pr" AFTER INSERT OR UPDATE ON "ticket_repositories"
-	FOR EACH ROW EXECUTE FUNCTION "chat_event_pr"();
+-- Il trigger gira solo quando URL o stato della PR cambiano, non a ogni UPDATE.
+CREATE TRIGGER "ticket_repositories_chat_pr_insert" AFTER INSERT ON "ticket_repositories"
+	FOR EACH ROW WHEN (NEW."pr_url" IS NOT NULL OR NEW."pr_state" = 'merged')
+	EXECUTE FUNCTION "chat_event_pr"();
+--> statement-breakpoint
+CREATE TRIGGER "ticket_repositories_chat_pr_update" AFTER UPDATE ON "ticket_repositories"
+	FOR EACH ROW WHEN (OLD."pr_url" IS DISTINCT FROM NEW."pr_url" OR OLD."pr_state" IS DISTINCT FROM NEW."pr_state")
+	EXECUTE FUNCTION "chat_event_pr"();

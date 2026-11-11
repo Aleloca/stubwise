@@ -14,7 +14,10 @@ type MessageRow = typeof chatMessages.$inferSelect;
  *   il titolo solo a chi vede l'oggetto;
  * - traguardo e brief: dal progetto, che chi legge un canale di progetto vede;
  * - la PR (numero, URL, repository) solo a chi vede la task: l'URL porta il
- *   branch, il numero la ritrova sulla piattaforma;
+ *   branch, il numero la ritrova sulla piattaforma. Numero e URL sono quelli
+ *   scritti sul messaggio all'evento, non della riga viva;
+ * - il periodo di un brief e il nome di un traguardo solo a chi vede il
+ *   progetto;
  * - un oggetto che non c'è più: `object` null, la scheda dice solo il tipo.
  * `release_page` non ha ancora una fonte (area 8): resta senza oggetto.
  */
@@ -65,7 +68,7 @@ export async function eventViews(db: Db, viewer: ChatViewer, rows: readonly Mess
   const prRows =
     prIds.length > 0
       ? await db
-          .select({ id: ticketRepositories.id, number: ticketRepositories.prNumber, url: ticketRepositories.prUrl, repository: repositories.name })
+          .select({ id: ticketRepositories.id, repository: repositories.name })
           .from(ticketRepositories)
           .innerJoin(repositories, eq(repositories.id, ticketRepositories.repositoryId))
           .where(inArray(ticketRepositories.id, prIds))
@@ -95,18 +98,22 @@ export async function eventViews(db: Db, viewer: ChatViewer, rows: readonly Mess
   }
   for (const r of briefRows) {
     const visible = sees("project", r.projectId);
-    objects.set(`brief:${r.id}`, { label: `${r.start}/${r.end}`, title: null, visible, projectId: r.projectId });
+    // Il periodo solo a chi vede il progetto (review della fetta 4), come il nome di un traguardo.
+    objects.set(`brief:${r.id}`, { label: visible ? `${r.start}/${r.end}` : "", title: null, visible, projectId: r.projectId });
   }
   const prOf = new Map(prRows.map((p) => [p.id, p]));
 
   for (const r of evented) {
     const object = objects.get(`${r.eventRefKind}:${r.eventRefId}`) ?? null;
-    const pr = r.eventPrId && r.eventRefKind === "task" && object?.visible ? prOf.get(r.eventPrId) : undefined;
+    // Numero e URL dal MESSAGGIO, scritti all'evento: la riga della PR è
+    // mutabile (una seconda PR la riscrive). Il repository dalla riga, se c'è.
+    const showPr = r.eventKind === "pr_opened" || r.eventKind === "pr_merged";
+    const repo = r.eventPrId ? prOf.get(r.eventPrId) : undefined;
     out.set(r.id, {
       kind: r.eventKind!,
       ref: { kind: r.eventRefKind!, id: r.eventRefId! },
       object,
-      pr: pr ? { number: pr.number, url: pr.url, repository: pr.repository } : null,
+      pr: showPr && r.eventRefKind === "task" && object?.visible ? { number: r.eventPrNumber, url: r.eventPrUrl, repository: repo?.repository ?? "" } : null,
     });
   }
   return out;
