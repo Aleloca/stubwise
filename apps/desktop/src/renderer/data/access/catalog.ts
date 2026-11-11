@@ -32,9 +32,8 @@ export const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.ma
  * registro di `@stubwise/shared` quando si costruisce il backend.
  * (`planning.others` è nel registro condiviso dall'integrazione area 2,
  * fetta 2: del Project Lead e implicito per il full admin.) I canali della Chat (area 4) sono nel registro condiviso dalla fetta 1
- * dell'integrazione. Il Drive (area 5): carica chiunque lavori nel
- * progetto (anche il Legacy Member, shape drive.md [A 14]), non il Viewer;
- * gestire e vedere lo storico delle aperture è del Project Lead. Le
+ * dell'integrazione, il Drive (area 5: `drive.upload`, `drive.manage`,
+ * `drive.history`) dalla fetta 2. Le
  * automazioni del progetto (area 7) le gestisce il Project Lead. Ai clienti di
  * Support (area 8a) risponde chi lavora al progetto: Project Lead, Developer e
  * Legacy Member, non il Contributor né il Viewer. `servers.operate` (area 8b)
@@ -43,16 +42,9 @@ export const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.ma
 export const LOCAL_PROJECT_PERMISSIONS: Readonly<
   Record<string, readonly LocalProjectPermission[]>
 > = {
-  project_lead: [
-    "drive.upload",
-    "drive.manage",
-    "drive.history",
-    "automations.manage",
-    "support.reply",
-  ],
-  developer: ["drive.upload", "support.reply"],
-  contributor: ["drive.upload"],
-  legacy_member: ["drive.upload", "support.reply"],
+  project_lead: ["automations.manage", "support.reply"],
+  developer: ["support.reply"],
+  legacy_member: ["support.reply"],
 };
 
 /** Ogni permesso di progetto, del registro condiviso e del prototipo (quelli che il full admin ha ovunque). */

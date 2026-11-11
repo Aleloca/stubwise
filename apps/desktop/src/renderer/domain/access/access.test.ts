@@ -5,6 +5,7 @@ import {
   ALL_PROJECT_PERMISSIONS,
   INSTANCE_SET,
   LOCAL_INSTANCE_PERMISSIONS,
+  LOCAL_PROJECT_PERMISSIONS,
   accessState,
   effectivePermissions,
   roleIdOf,
@@ -335,6 +336,13 @@ describe("ACTIONS e gruppi", () => {
     }
   });
 
+  it("un permesso locale del prototipo non è già nel registro condiviso (si toglie dai locali quando ci entra)", () => {
+    const shared = new Set<string>([...PROJECT_PERMISSIONS, ...INSTANCE_PERMISSIONS]);
+    const locals = [...new Set([...Object.values(LOCAL_PROJECT_PERMISSIONS).flat(), ...LOCAL_INSTANCE_PERMISSIONS])];
+    // `automations.manage` esiste a due livelli (BOTH_LEVELS), ma nessuno dei due è ancora condiviso.
+    expect(locals.filter((p) => shared.has(p))).toEqual([]);
+  });
+
   it("ogni permesso sta in un solo gruppo del suo livello, ogni gruppo ha un'etichetta", () => {
     const check = (groups: typeof INSTANCE_GROUPS, universe: readonly string[]) => {
       const all = groups.flatMap((g) => g.permissions);
@@ -347,9 +355,9 @@ describe("ACTIONS e gruppi", () => {
     };
     check(INSTANCE_GROUPS, [...INSTANCE_SET]);
     check(PROJECT_GROUPS, ALL_PROJECT_PERMISSIONS);
-    // I 13 gruppi del web (con «credentials» della cassaforte e, dall'area 4,
-    // «chat»), più «prototype» a ogni livello.
-    expect(INSTANCE_GROUPS.length + PROJECT_GROUPS.length).toBe(15);
+    // I 14 gruppi del web (con «credentials» della cassaforte e, dall'area 4,
+    // «chat», dall'area 5 «drive»), più «prototype» a ogni livello.
+    expect(INSTANCE_GROUPS.length + PROJECT_GROUPS.length).toBe(16);
     expect(INSTANCE_GROUPS.at(-1)!.permissions).toEqual(LOCAL_INSTANCE_PERMISSIONS);
     for (const p of INSTANCE_PERMISSIONS) expect(groupOf("instance", p)).not.toBe("prototype");
     for (const p of PROJECT_PERMISSIONS) expect(groupOf("project", p)).not.toBe("prototype");
