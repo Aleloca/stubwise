@@ -1,4 +1,6 @@
 import {
+  CHAT_EVENT_KINDS,
+  chatAttachmentSchema,
   chatChannelListSchema,
   chatChannelSchema,
   chatClaudeQuestionListSchema,
@@ -55,6 +57,10 @@ export function createChatEndpoints(request: ApiRequest) {
       remove(id: string): Promise<void> {
         return request("DELETE", `/api/chat/channels/${seg(id)}`);
       },
+      /** Gli eventi dei progetti che il canale pubblica (fetta 4): l'insieme intero. 403 senza `canEditEvents`. */
+      setEvents(id: string, events: (typeof CHAT_EVENT_KINDS)[number][]) {
+        return request("PUT", `/api/chat/channels/${seg(id)}/events`, { events }, chatChannelSchema);
+      },
       join(id: string) {
         return request("POST", `/api/chat/channels/${seg(id)}/join`, undefined, chatChannelSchema);
       },
@@ -106,9 +112,17 @@ export function createChatEndpoints(request: ApiRequest) {
       send(channelId: string, body: PostChatMessageInput) {
         return request("POST", `/api/chat/channels/${seg(channelId)}/messages`, body, chatMessageSchema);
       },
-      /** 403 `not_yours`, 409 `deleted`. */
-      edit(id: string, text: string) {
-        return request("PATCH", `/api/chat/messages/${seg(id)}`, { text }, chatMessageSchema);
+      /**
+       * 403 `not_yours`, 409 `deleted`. `attachmentIds` (fetta 4): gli allegati
+       * che RESTANO; assente = invariati. Toglie, non aggiunge.
+       */
+      edit(id: string, text: string, attachmentIds?: string[]) {
+        return request(
+          "PATCH",
+          `/api/chat/messages/${seg(id)}`,
+          { text, ...(attachmentIds ? { attachmentIds } : {}) },
+          chatMessageSchema,
+        );
       },
       /** 403 `not_yours`; il messaggio resta, senza testo (`deleted`). */
       remove(id: string): Promise<void> {
@@ -149,6 +163,22 @@ export function createChatEndpoints(request: ApiRequest) {
         return request("GET", "/api/chat/claude-questions", undefined, chatClaudeQuestionListSchema);
       },
     },
+    /**
+     * Gli allegati (fetta 4): si caricano nel canale, uno alla volta, e restano
+     * «in sospeso» finché un messaggio non li lega (`attachmentIds`). 400
+     * `unsupported_type` / `storage_not_configured`, 413 `file_too_large`.
+     */
+    attachments: {
+      upload(channelId: string, file: Blob, filename: string) {
+        const form = new FormData();
+        form.append("file", file, filename);
+        return request("POST", `/api/chat/channels/${seg(channelId)}/attachments`, form, chatAttachmentSchema);
+      },
+      /** Il download: 302 verso l'URL firmato, solo per chi legge il canale (404 agli altri). */
+      downloadPath(id: string): string {
+        return `/api/chat/attachments/${seg(id)}/download`;
+      },
+    },
     /** Le domande rivolte a chi guarda, aperte («Da decidere»). */
     questions() {
       return request("GET", "/api/chat/questions", undefined, chatQuestionListSchema);
@@ -164,6 +194,7 @@ export function createChatEndpoints(request: ApiRequest) {
       authorId?: string;
       peopleOnly?: boolean;
       withCitations?: boolean;
+      withAttachments?: boolean;
       from?: string;
       to?: string;
       limit?: number;
@@ -176,6 +207,7 @@ export function createChatEndpoints(request: ApiRequest) {
           authorId: opts.authorId,
           peopleOnly: opts.peopleOnly ? "true" : undefined,
           withCitations: opts.withCitations ? "true" : undefined,
+          withAttachments: opts.withAttachments ? "true" : undefined,
           from: opts.from,
           to: opts.to,
           limit: opts.limit,
