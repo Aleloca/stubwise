@@ -20,7 +20,8 @@ import { CHAT_MENTION_TOOL_NAMES, CHAT_TOOL_NAMES } from "@stubwise/shared";
 import type { AgentRunOptions, AgentRunResult, AgentRunner } from "../agent/runner.js";
 import { fakeSelect } from "../providers/select-fake.js";
 import { startChatBridge, type ChatBridge } from "./bridge.js";
-import { askChatQuestion } from "./mention.js";
+import { askChatQuestion, closeOrphanReplies, syncReplyText } from "./mention.js";
+import { AgentRunCancelledError } from "../agent/runner.js";
 import { runChatTurn, type ChatTurnDeps } from "./turn.js";
 
 // @Claude nella Chat, lato worker (area 4, fetta 3): il turno di una chiamata
@@ -216,5 +217,121 @@ describe("ask_question, dal ponte", () => {
   it("una conversazione libera non ha `ask_question` fra i tool", () => {
     expect(CHAT_TOOL_NAMES.some((n) => n.endsWith("__ask_question"))).toBe(false);
     expect(CHAT_MENTION_TOOL_NAMES.some((n) => n.endsWith("__ask_question"))).toBe(true);
+  });
+});
+
+describe("review della fetta 3 (11 nov 2026)", () => {
+  const signal = () => new AbortController().signal;
+
+  it("1. una conversazione non più viva chiude la risposta «failed», uno stop resta «stopped»", async () => {
+    const c = await call();
+    await t.db.update(claudeConversations).set({ archivedAt: new Date() }).where(eq(claudeConversations.sessionId, c.sessionId));
+    const { runner } = fakeRunner([async () => OK]);
+    expect(await runChatTurn(deps(runner), { sessionId: c.sessionId, inputId: c.inputId, signal: signal() })).toBe("skipped");
+    expect(await replyRow(c.replyId)).toMatchObject({ claudeState: "failed", claudeError: "other" });
+    const stopped = await call();
+    await t.db.update(chatMessages).set({ claudeState: "stopped" }).where(eq(chatMessages.id, stopped.replyId));
+    await t.db.update(claudeConversations).set({ archivedAt: new Date() }).where(eq(claudeConversations.sessionId, stopped.sessionId));
+    await runChatTurn(deps(runner), { sessionId: stopped.sessionId, inputId: stopped.inputId, signal: signal() });
+    expect((await replyRow(stopped.replyId)).claudeState).toBe("stopped");
+  });
+
+  it("1. un turno annullato con l'input già preso (il worker si spegne) chiude la risposta «failed»", async () => {
+    const c = await call();
+    const controller = new AbortController();
+    const { runner } = fakeRunner([
+      async (o) => {
+        await speak(o, "A metà…");
+        controller.abort();
+        throw new AgentRunCancelledError(null, "", 0);
+      },
+    ]);
+    expect(await runChatTurn(deps(runner), { sessionId: c.sessionId, inputId: c.inputId, signal: controller.signal })).toBe("cancelled");
+    expect(await replyRow(c.replyId)).toMatchObject({ claudeState: "failed", claudeError: "other", body: "A metà…" });
+  });
+
+  it("1. annullato PRIMA di prendere l'input: l'input torna in coda e la risposta resta «working»", async () => {
+    const c = await call();
+    const controller = new AbortController();
+    const { runner } = fakeRunner([
+      async () => {
+        controller.abort();
+        throw new AgentRunCancelledError(null, "", 0);
+      },
+    ]);
+    expect(await runChatTurn(deps(runner), { sessionId: c.sessionId, inputId: c.inputId, signal: controller.signal })).toBe("cancelled");
+    expect((await replyRow(c.replyId)).claudeState).toBe("working");
+  });
+
+  it("1. all'avvio: le risposte «working» senza un input in coda si chiudono, le altre no", async () => {
+    const orphan = await call();
+    await t.db.update(agentSessionInputs).set({ status: "delivered" }).where(eq(agentSessionInputs.id, orphan.inputId));
+    const queued = await call();
+    const waiting = await call();
+    await t.db.update(agentSessionInputs).set({ status: "delivered" }).where(eq(agentSessionInputs.id, waiting.inputId));
+    await t.db.update(chatMessages).set({ claudeState: "waiting" }).where(eq(chatMessages.id, waiting.replyId));
+    await closeOrphanReplies(t.db);
+    expect(await replyRow(orphan.replyId)).toMatchObject({ claudeState: "failed", claudeError: "other" });
+    expect((await replyRow(queued.replyId)).claudeState).toBe("working");
+    expect((await replyRow(waiting.replyId)).claudeState).toBe("waiting");
+  });
+
+  it("11. una risposta alla domanda in coda a fine turno: la risposta non diventa «done»", async () => {
+    const c = await call();
+    const { runner } = fakeRunner([
+      async (o) => {
+        await speak(o, "Ti chiedo una cosa.");
+        // La risposta di chi chiama arriva mentre il turno finisce.
+        await t.db.insert(agentSessionInputs).values({ sessionId: c.sessionId, text: "Marco", authorUserId: callerId });
+        return OK;
+      },
+    ]);
+    expect(await runChatTurn(deps(runner), { sessionId: c.sessionId, inputId: c.inputId, signal: signal() })).toBe("completed");
+    expect((await replyRow(c.replyId)).claudeState).toBe("working");
+  });
+
+  it("10. --resume rifiutato nella ripresa: il prompt nuovo ha il contesto della chiamata e la risposta; il testo del tentativo scartato non si ripete", async () => {
+    const c = await call({ cliSessionId: "cli-perso", text: "riassumi\n\n--- The thread so far ---\nLuca: venerdì no" });
+    // Il primo turno è andato: input consegnato, la domanda nel testo.
+    await t.db.update(agentSessionInputs).set({ status: "delivered" }).where(eq(agentSessionInputs.id, c.inputId));
+    await t.db.insert(agentSessionEvents).values({ sessionId: c.sessionId, segmentId: "old", type: "assistant_text", data: { text: "A chi la assegno?" } });
+    const [answer] = await t.db.insert(agentSessionInputs).values({ sessionId: c.sessionId, text: "Marco", authorUserId: callerId }).returning();
+    const { runner, calls } = fakeRunner([
+      async (o) => {
+        // Il --resume rifiutato scrive un pezzo di testo senza prendere l'input.
+        await t.db.insert(agentSessionEvents).values({ sessionId: o.session!.sessionId, segmentId: "seg", type: "assistant_text", data: { text: "parziale" } });
+        return { exitCode: 1, output: "No conversation found" };
+      },
+      async (o) => {
+        await speak(o, "Assegnata a Marco.");
+        return OK;
+      },
+    ]);
+    expect(await runChatTurn(deps(runner), { sessionId: c.sessionId, inputId: answer!.id, signal: signal() })).toBe("completed");
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.resumeSessionId).toBeUndefined();
+    expect(calls[1]!.prompt).toContain("Luca: venerdì no");
+    expect(calls[1]!.prompt).toContain("ADA ANSWERED YOUR QUESTION");
+    expect(calls[1]!.prompt).toContain("Marco");
+    expect((await replyRow(c.replyId)).body).toBe("A chi la assegno?\n\nAssegnata a Marco.");
+  });
+
+  it("13. un errore del CLI (limite, errore API) non finisce nella risposta pubblica, e la risposta è «failed»", async () => {
+    const c = await call();
+    const { runner } = fakeRunner([
+      async (o) => {
+        await t.db.insert(agentSessionEvents).values([
+          { sessionId: o.session!.sessionId, segmentId: "seg", type: "input", data: { inputId: o.openingInput!.inputId, text: o.openingInput!.text } },
+          { sessionId: o.session!.sessionId, segmentId: "seg", type: "assistant_text", data: { text: "API Error: 500 Internal server error", apiError: true } },
+        ]);
+        return OK;
+      },
+    ]);
+    await runChatTurn(deps(runner), { sessionId: c.sessionId, inputId: c.inputId, signal: signal() });
+    const row = await replyRow(c.replyId);
+    expect(row.body).not.toContain("API Error");
+    expect(row).toMatchObject({ claudeState: "failed", claudeError: "other" });
+    await syncReplyText(t.db, c.sessionId);
+    expect((await replyRow(c.replyId)).body).toBe("");
   });
 });

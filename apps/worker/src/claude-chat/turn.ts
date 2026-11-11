@@ -32,7 +32,7 @@ import { claudeChatSession } from "../sessions/owners.js";
 import { getContentLanguage } from "../settings.js";
 import { buildChatMcpConfig, chatServerPath, type ChatBridge } from "./bridge.js";
 import { ensureChatCwd, type ChatCliPaths } from "./cli-dir.js";
-import { finishReply, syncReplyText } from "./mention.js";
+import { callInputText, discardAttemptText, finishReply, lastEventId, syncReplyText } from "./mention.js";
 import {
   buildChatMentionAnswerPrompt,
   buildChatMentionPrimingPrompt,
@@ -144,15 +144,17 @@ export async function runChatTurn(
     .from(claudeConversations)
     .innerJoin(users, eq(users.id, claudeConversations.ownerId))
     .where(eq(claudeConversations.sessionId, sid));
-  if (!conv || conv.conversation.archivedAt !== null || opening.authorUserId !== conv.conversation.ownerId) {
-    await markUndelivered(db, sid, opening.id, "session_not_live", ["pending"]);
-    return "skipped";
-  }
-  const ownerId = conv.conversation.ownerId;
   // @Claude nella Chat (area 4, fetta 3): la stessa conversazione CLI, con il
   // contratto della Chat, `ask_question` e la risposta scritta sul messaggio.
   const [sessionRow] = await db.select({ kind: agentSessions.kind }).from(agentSessions).where(eq(agentSessions.id, sid));
   const mention = sessionRow?.kind === "chat_mention";
+  if (!conv || conv.conversation.archivedAt !== null || opening.authorUserId !== conv.conversation.ownerId) {
+    await markUndelivered(db, sid, opening.id, "session_not_live", ["pending"]);
+    // Nessuno riprenderà la risposta (review della fetta 3); uno stop resta «stopped».
+    if (mention) await finishReply(db, sid, "failed");
+    return "skipped";
+  }
+  const ownerId = conv.conversation.ownerId;
   const callerName = conv.displayName?.trim() || conv.email.split("@")[0]!;
 
   // 2. Budget mensile.
@@ -196,9 +198,22 @@ export async function runChatTurn(
     const cwd = await ensureChatCwd(sid, deps.cliPaths);
     const disallowedTools = chatDisallowedTools();
 
+    /**
+     * Il prompt d'avvio della menzione. Su una RIPRESA (la risposta alla
+     * domanda) il primo input della sessione è la chiamata col contesto del
+     * thread, e l'input di adesso è la risposta: il ripiego di un `--resume`
+     * rifiutato le rimette insieme (review della fetta 3), invece di prendere
+     * la risposta come se fosse la chiamata.
+     */
+    const mentionPriming = async () => {
+      const language = await getContentLanguage(db);
+      const call = await callInputText(db, sid);
+      if (call === null || call === opening.text) return buildChatMentionPrimingPrompt({ language, callerName }, opening.text);
+      return `${buildChatMentionPrimingPrompt({ language, callerName }, call)}\n\n${buildChatMentionAnswerPrompt(callerName, opening.text)}`;
+    };
     const priming = async () =>
       mention
-        ? buildChatMentionPrimingPrompt({ language: await getContentLanguage(db), callerName }, opening.text)
+        ? mentionPriming()
         : buildChatPrimingPrompt(
         {
           language: await getContentLanguage(db),
@@ -282,6 +297,7 @@ export async function runChatTurn(
     // 6. Run per account, con UN nuovo tentativo se il --resume è rifiutato.
     type ProviderAttempt = { kind: "run"; result: AgentRunResult } | { kind: "skipped" };
     let firstAccount = true;
+    let attemptMark: bigint | null = null;
     const outcome = await runBacklogWithProviders<ProviderAttempt>(
       deps,
       null,
@@ -291,6 +307,9 @@ export async function runChatTurn(
           return { kind: "skipped" };
         }
         firstAccount = false;
+        // Il testo di un tentativo abbandonato (account al limite) non si ripete nella risposta.
+        if (mention && attemptMark !== null) await discardAttemptText(db, sid, attemptMark);
+        attemptMark = mention ? await lastEventId(db, sid) : null;
         const resumeId = resumeRejected ? null : stored;
         let res = await attempt(resumeId, resumeId !== null || stored === null ? firstPrompt : await priming(), provider);
         if (isLimitError(res)) return { kind: "run", result: res };
@@ -298,6 +317,8 @@ export async function runChatTurn(
           log(`[chat] --resume rifiutato per la sessione ${sid}: riparto col prompt d'avvio`);
           resumeRejected = true;
           if (!(await claimOpening(db, opening.id, ["pending", "delivered"]))) return { kind: "skipped" };
+          if (mention && attemptMark !== null) await discardAttemptText(db, sid, attemptMark);
+          attemptMark = mention ? await lastEventId(db, sid) : null;
           res = await attempt(null, await priming(), provider);
         }
         return { kind: "run", result: res };
@@ -341,19 +362,25 @@ export async function runChatTurn(
     return "completed";
   } catch (error) {
     if (error instanceof AgentRunCancelledError) {
+      let requeued = false;
       if (!(await echoed(db, sid, opening.id).catch(() => true))) {
         if (input.signal.aborted) {
-          await backToPending(db, sid, opening.id).catch((e: unknown) => {
-            log(`[chat] input ${opening.id} non riportato in coda: ${describeError(e)}`);
-          });
+          await backToPending(db, sid, opening.id).then(
+            () => (requeued = true),
+            (e: unknown) => {
+              log(`[chat] input ${opening.id} non riportato in coda: ${describeError(e)}`);
+            },
+          );
         } else {
           await markUndelivered(db, sid, opening.id, "stdin_closed", ["pending", "delivered"]).catch((e: unknown) => {
             log(`[chat] input ${opening.id} non marcato stdin_closed: ${describeError(e)}`);
           });
         }
       }
-      // Fermata (lo stop la mette già «stopped») o worker che si spegne (l'input torna in coda).
-      await settleMention(null);
+      // Fermata (lo stop la mette già «stopped», e `finishReply` non la tocca) o
+      // worker che si spegne: con l'input tornato in coda la riprende il turno
+      // dopo; con l'input già preso nessuno la chiuderebbe (review della fetta 3).
+      await settleMention(requeued ? null : "failed");
       return "cancelled";
     }
     log(`[chat] turno della sessione ${sid} fallito: ${describeError(error)}`);

@@ -69,13 +69,29 @@ function resultText(content: unknown): string {
   return "";
 }
 
+/**
+ * Il CLI incarta gli errori dell'API (limiti, 5xx, rete) in un messaggio
+ * `assistant` sintetico: `is_api_error_message` sull'involucro (il CLI 2.1.322
+ * lo scrive nello stream-json), `isApiErrorMessage` nella forma interna, e il
+ * modello `<synthetic>`. Verificato sul binario pinnato (review della fetta 3).
+ */
+export function isApiErrorMessage(ev: CliStreamEvent): boolean {
+  if (ev["is_api_error_message"] === true || ev["isApiErrorMessage"] === true) return true;
+  const message = ev["message"];
+  return typeof message === "object" && message !== null && (message as Record<string, unknown>)["model"] === "<synthetic>";
+}
+
 /** Eventi COMPLETI da salvare. I parziali (`stream_event`) non producono nulla qui. */
 export function toSessionEvents(ev: CliStreamEvent): SessionEventDraft[] {
   if (ev.type === "assistant") {
     const out: SessionEventDraft[] = [];
+    const apiError = isApiErrorMessage(ev);
     for (const block of contentBlocks(ev)) {
       if (block["type"] === "text" && typeof block["text"] === "string" && block["text"] !== "") {
-        out.push({ type: "assistant_text", data: { text: block["text"] } });
+        // Un errore del CLI (limite, errore dell'API) arriva come messaggio
+        // dell'assistente: resta nella trascrizione, segnato, così chi pubblica
+        // il testo (la risposta di @Claude nella Chat) lo lascia fuori.
+        out.push({ type: "assistant_text", data: apiError ? { text: block["text"], apiError: true } : { text: block["text"] } });
       } else if (block["type"] === "tool_use") {
         out.push({
           type: "tool_use",
