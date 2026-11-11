@@ -554,7 +554,9 @@ function chatProposalPlace(me: string, messageId: string, proposalId: string): P
 export async function confirmChatProposal(
   messageId: string,
   proposalId: string,
-  options: { actionIndexes?: number[] } = {},
+  // `edited`: la build app conferma coi valori di «Edit» (li esegue il server);
+  // qui il dialogo crea a mano e `completeEditedChatProposal` chiude la scheda.
+  options: { actionIndexes?: number[]; edited?: { index: number; args: Record<string, unknown> }[] } = {},
 ): Promise<ProposalOutcome> {
   const gen = storeGeneration();
   const me = await gate("chat.confirmProposal");

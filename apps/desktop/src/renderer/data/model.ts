@@ -2297,9 +2297,11 @@ export interface ChatMessage {
 /**
  * Perché una risposta di @Claude non è finita: chi l'ha chiamato non legge
  * più il canale (`forbidden`), qualcosa che serviva non c'è più
- * (`not_found`), o un errore qualunque (`other`).
+ * (`not_found`), il budget mensile dell'istanza è finito (`budget`, solo
+ * nella build app: il server non fa partire il turno), o un errore
+ * qualunque (`other`).
  */
-export type ChatClaudeFailure = "forbidden" | "not_found" | "other";
+export type ChatClaudeFailure = "forbidden" | "not_found" | "budget" | "other";
 
 /** Fin dove una persona ha letto un canale e, per id della radice, i thread. */
 export interface ReadState {

@@ -306,7 +306,7 @@ describe("le viste di chi guarda", () => {
   });
 
   it("le funzioni delle fette dopo restano «non integrate»", async () => {
-    await expect(chat.answerChatClaudeQuestion(ROOT, "q", { optionIndex: 0, text: null })).rejects.toThrow();
+    await expect(chat.completeEditedChatProposal(ROOT, "p", [])).rejects.toThrow();
   });
 });
 

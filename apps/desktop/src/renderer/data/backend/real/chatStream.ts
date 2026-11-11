@@ -11,6 +11,7 @@ import type * as Fake from "../../api";
 import type { ChatMessageView } from "../../types";
 import { appClient } from "./client";
 import { knownChannelOf, toMessage } from "./chat";
+import { loadClaudeExtras } from "./chatClaude";
 
 // Lo stream dal vivo della Chat nella build app (integrazione area 4, fetta
 // 1): UN SSE per canale (`GET /api/chat/channels/:id/stream`), CONDIVISO da
@@ -204,6 +205,21 @@ function deliver(conn: ChannelConnection, view: ChatMessageView, raw: { id: stri
   return delivered;
 }
 
+/**
+ * Una risposta di @Claude arriva subito con ciò che si sa; le righe d'azione
+ * (solo di chi ha chiamato) e i codici si leggono a parte, e quando cambiano
+ * la risposta torna «cambiata» con loro.
+ */
+function withExtras(conn: ChannelConnection, raw: Parameters<typeof toMessage>[0]): void {
+  void loadClaudeExtras(raw).then(
+    (changed) => {
+      if (!changed || connections.get(conn.channelId) !== conn) return;
+      if (deliver(conn, toMessage(raw), raw)) notifyChange(conn.channelId);
+    },
+    () => undefined,
+  );
+}
+
 /** Dopo una caduta: la pagina del canale (e i thread aperti), per ciò che si è perso. */
 async function catchUp(conn: ChannelConnection): Promise<void> {
   try {
@@ -212,7 +228,10 @@ async function catchUp(conn: ChannelConnection): Promise<void> {
     for (const l of conn.listeners) {
       if (!l.threadOf) continue;
       const t = await appClient().chat.messages.thread(l.threadOf);
-      for (const m of [t.root, ...t.replies]) deliver(conn, toMessage(m), m);
+      for (const m of [t.root, ...t.replies]) {
+        deliver(conn, toMessage(m), m);
+        withExtras(conn, m);
+      }
     }
     notifyChange(conn.channelId);
   } catch {
@@ -257,7 +276,10 @@ function connect(conn: ChannelConnection) {
           continue;
         }
         let any = false;
-        for (const m of message.messages) any = deliver(conn, toMessage(m), m) || any;
+        for (const m of message.messages) {
+          any = deliver(conn, toMessage(m), m) || any;
+          withExtras(conn, m);
+        }
         if (any) notifyChange(conn.channelId);
       }
     },

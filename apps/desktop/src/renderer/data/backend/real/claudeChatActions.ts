@@ -40,7 +40,7 @@ async function orEmpty<T>(read: () => Promise<T[]>): Promise<T[]> {
 }
 
 /** Gli id delle task citate dagli argomenti (task, commento, avvio, pianificazione, eliminazione). */
-function taskIdsOf(fn: string, args: Record<string, unknown>): string[] {
+export function taskIdsOf(fn: string, args: Record<string, unknown>): string[] {
   const id = typeof args["id"] === "string" ? (args["id"] as string) : null;
   const taskId = typeof args["taskId"] === "string" ? (args["taskId"] as string) : null;
   if (fn === "updateTask" || fn === "planTask" || fn === "deleteTask") return id ? [id] : [];
@@ -86,7 +86,7 @@ export async function readChatActions(conversationId: string): Promise<ChatActio
  * Un errore diverso non si ricorda: alla prossima si riprova.
  */
 const taskCodesByPerson = new Map<string, Map<string, Promise<string | null>>>();
-function cachedTaskCode(id: string): Promise<string | null> {
+export function cachedTaskCode(id: string): Promise<string | null> {
   const me = session.personId ?? "";
   let cache = taskCodesByPerson.get(me);
   if (!cache) taskCodesByPerson.set(me, (cache = new Map()));
@@ -107,7 +107,7 @@ function cachedTaskCode(id: string): Promise<string | null> {
 // --- i riassunti ----------------------------------------------------------------
 
 /** Il riassunto di un'azione come frase (`summaryText`), dai suoi argomenti: mai scritto dal modello. */
-function summaryOf(fn: string, args: Record<string, unknown>, code: string | null): ProposedAction {
+export function summaryOf(fn: string, args: Record<string, unknown>, code: string | null): ProposedAction {
   const params: Record<string, string | number> = { code: code ?? "" };
   const text = (k: string) => (typeof args[k] === "string" ? (args[k] as string) : "");
   switch (fn) {
@@ -430,7 +430,7 @@ export const confirmProposal: Fake["confirmProposal"] = async (conversationId, p
   return result;
 };
 
-async function confirmOnServer(
+export async function confirmOnServer(
   proposalId: string,
   options: Parameters<Fake["confirmProposal"]>[2] = {},
 ): ReturnType<Fake["confirmProposal"]> {

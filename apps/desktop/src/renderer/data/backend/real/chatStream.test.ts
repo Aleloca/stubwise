@@ -111,6 +111,50 @@ describe("lo stream di un thread", () => {
   });
 });
 
+describe("@Claude dal vivo (fetta 3)", () => {
+  it("la risposta arriva subito; quando le righe della sessione di chi ha chiamato sono lette, torna «cambiata» con le righe", async () => {
+    const SESSION = "7f1c2a1e-0000-4000-8000-0000000000f1";
+    const { seen } = installFakeServer({
+      [`GET /api/chat/messages/${ROOT}`]: { body: msg({ replyCount: 1 }) },
+      [`GET /api/agent-sessions/${SESSION}/events`]: {
+        body: {
+          events: [
+            {
+              id: "1",
+              type: "tool_use",
+              segmentId: "s1",
+              at: "2026-11-10T10:00:01.000Z",
+              data: { toolUseId: "t1", name: "mcp__stubwise_chat__search_tasks", input: { q: "x" } },
+            },
+          ],
+          before: null,
+        },
+      },
+    });
+    const got: [string, string, number][] = [];
+    subscribeChat(threadStream(ROOT), (m, mode) =>
+      got.push([m.id, mode, (m.claudeEvents ?? []).filter((e) => e.type === "action").length]),
+    );
+    await vi.waitFor(() => expect(opened).toHaveLength(1));
+    const reply = msg({
+      id: REPLY,
+      threadRootId: ROOT,
+      kind: "claude",
+      calledById: ROOT,
+      createdAt: "2026-11-10T10:00:05.000Z",
+      claude: { state: "working", sessionId: SESSION },
+    });
+    opened[0]!.handlers.onFrame(messages([reply]));
+    expect(got).toEqual([[REPLY, "append", 0]]);
+    await vi.waitFor(() => expect(got).toEqual([[REPLY, "append", 0], [REPLY, "update", 1]]));
+    // Un frame nuovo (il testo che cresce) porta le righe già lette, e non le rilegge se non cambiano.
+    opened[0]!.handlers.onFrame(messages([{ ...reply, text: "Looking…" }]));
+    expect(got.at(-1)).toEqual([REPLY, "update", 1]);
+    await vi.waitFor(() => expect(seen.filter((r) => r.path.includes("/events")).length).toBe(2));
+    expect(got).toHaveLength(3);
+  });
+});
+
 describe("review della fetta 1", () => {
   const later = (id: string, at: string, over: Record<string, unknown> = {}) => msg({ id, createdAt: at, ...over });
 

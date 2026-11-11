@@ -14,6 +14,8 @@ import type {
   ThreadWithNews,
 } from "../../types";
 import { channelName } from "../../../domain/chatLabel";
+import { claudeFieldsOf, forgetChatClaudeCaches, loadClaudeExtras, proposalActionsOf } from "./chatClaude";
+import { confirmOnServer } from "./claudeChatActions";
 import { appClient, session } from "./client";
 import { partialNamespace } from "./notIntegrated";
 import { listPeople } from "./people";
@@ -26,8 +28,9 @@ import { createTaskWith } from "./tasks";
 // preferenze, menzioni (`/api/chat`, schemi della F1.1). Chi vede, chi scrive e
 // chi gestisce lo dice il SERVER (le viste sono di chi guarda): qui si legge,
 // non si deduce. Dalla fetta 2 anche DM, privati e generali, la ricerca, le
-// domande e task e richieste da un messaggio. Restano «non integrati» @Claude
-// (fetta 3), gli eventi dei progetti e gli allegati (fetta 4).
+// domande e task e richieste da un messaggio. Dalla fetta 3 @Claude nei thread
+// (la vista in `chatClaude.ts`). Restano «non integrati» gli eventi dei
+// progetti e gli allegati (fetta 4).
 
 type Chat = typeof Fake.chat;
 type ServerChannel = Reader<ChatChannelView>;
@@ -46,6 +49,8 @@ const INVALID_OF: Record<string, string> = {
   name_taken: "name_taken",
   deleted: "deleted",
   invalid_thread: "threadOf",
+  // Fetta 3 (@Claude).
+  invalid_status: "status",
 };
 
 /** `invalid400`: cosa dice un 400 di validazione (il nome di un canale, nei dialoghi del canale). */
@@ -139,6 +144,7 @@ export function forgetPeopleChatCaches(): void {
   channelOfMessage.clear();
   cursorBefore.clear();
   citedViews.clear();
+  forgetChatClaudeCaches();
 }
 
 // --- le forme -------------------------------------------------------------------------
@@ -220,6 +226,7 @@ export function toMessage(v: ServerMsg): ChatMessageView {
     editedAt: v.editedAt,
     deletedAt,
     deletedById: v.deletedBy,
+    ...claudeFieldsOf(v),
     thread:
       v.threadRootId === null && v.replyCount > 0
         ? {
@@ -229,7 +236,7 @@ export function toMessage(v: ServerMsg): ChatMessageView {
             participantIds: [...v.replyParticipantIds],
             hasNews: false,
             following: v.following,
-            claudeReplying: false,
+            claudeReplying: v.claudeReplying,
           }
         : null,
     answeredIds: [],
@@ -313,14 +320,20 @@ const listMessages: Chat["listMessages"] = async (channelId, { before, limit = 5
   };
 };
 
+/** Prima di leggere le risposte di @Claude: le righe d'azione e i codici, a parte (`chatClaude.ts`). */
+const withClaudeExtras = (items: readonly ServerMsg[]) => Promise.all(items.map(loadClaudeExtras));
+
 const getMessage: Chat["getMessage"] = async (id) => {
   const v = await read(() => appClient().chat.messages.get(id));
-  return v ? hitOf(v) : null;
+  if (!v) return null;
+  await withClaudeExtras([v]);
+  return hitOf(v);
 };
 
 const listThread: Chat["listThread"] = async (messageId) => {
   const t = await read(() => appClient().chat.messages.thread(messageId));
   if (!t) return null;
+  await withClaudeExtras([t.root, ...t.replies]);
   const view: ThreadView = {
     channelId: t.root.channelId,
     root: toMessage(t.root),
@@ -429,16 +442,11 @@ const removeMember: Chat["removeMember"] = async (channelId, personId) => {
   return now;
 };
 
-/** Le domande aperte rivolte a chi guarda, col canale come lo legge lui (`AUD · general`, i nomi del DM). */
-const listQuestions: Chat["listQuestions"] = async () => {
-  const [questions, channels, projects, people] = await Promise.all([
-    appClient().chat.questions(),
-    appClient().chat.channels.list(),
-    listProjects(),
-    listPeople(),
-  ]);
+/** Il canale come lo legge chi guarda (`AUD · general`, i nomi del DM), per le righe di «Da decidere». */
+async function channelLabels(): Promise<(channelId: string) => string> {
+  const [channels, projects, people] = await Promise.all([appClient().chat.channels.list(), listProjects(), listPeople()]);
   const me = session.personId ?? "";
-  const label = (channelId: string): string => {
+  return (channelId) => {
     const ch = channels.items.find((c) => c.id === channelId);
     if (!ch) return "";
     return channelName(
@@ -448,6 +456,11 @@ const listQuestions: Chat["listQuestions"] = async () => {
       (id) => people.find((p) => p.id === id)?.name,
     ).label;
   };
+}
+
+/** Le domande aperte rivolte a chi guarda, col canale come lo legge lui (`AUD · general`, i nomi del DM). */
+const listQuestions: Chat["listQuestions"] = async () => {
+  const [questions, label] = await Promise.all([appClient().chat.questions(), channelLabels()]);
   return questions.items.map(
     (q): ChatQuestion => ({
       id: q.id,
@@ -528,6 +541,81 @@ const deleteChannel: Chat["deleteChannel"] = async (channelId) => {
   await call(() => appClient().chat.channels.remove(channelId));
 };
 
+// --- @Claude nei thread (fetta 3) ------------------------------------------------------
+
+const stopClaudeReply: Chat["stopClaudeReply"] = async (id) =>
+  toMessage(await call(() => appClient().chat.claude.stop(id)));
+
+/** «Try again»: la risposta NUOVA, in fondo al thread. */
+const retryClaudeReply: Chat["retryClaudeReply"] = async (id) =>
+  toMessage(await call(() => appClient().chat.claude.retry(id)));
+
+/** Solo chi ha chiamato, una volta: chi arriva secondo legge `already_answered`, come nel prototipo. */
+const answerChatClaudeQuestion: Chat["answerChatClaudeQuestion"] = async (messageId, questionId, answer) => {
+  try {
+    await appClient().chat.claude.answer(messageId, { questionId, optionIndex: answer.optionIndex, text: answer.text });
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "already_answered") {
+      throw Object.assign(new Error("already_answered"), { byId: null });
+    }
+    return call(() => Promise.reject(error));
+  }
+};
+
+const listClaudeQuestions: Chat["listClaudeQuestions"] = async () => {
+  const [questions, label] = await Promise.all([appClient().chat.claude.questions(), channelLabels()]);
+  return questions.items.map((q) => ({
+    id: q.id,
+    channelId: q.channelId,
+    messageId: q.messageId,
+    rootId: q.rootId,
+    channelLabel: label(q.channelId),
+    questionId: q.questionId,
+    text: q.text,
+    options: q.options.map((o) => ({ label: o.label, ...(o.description ? { consequence: o.description } : {}) })),
+    createdAt: q.createdAt,
+  }));
+};
+
+/**
+ * Le rotte delle proposte rispondono 404 anche quando il canale è archiviato
+ * o chi conferma non ne è più membro: qui si distingue col canale, per dirlo
+ * come il prototipo («archiviato», «non sei più nel canale»).
+ */
+async function proposalGone(messageId: string): Promise<Error> {
+  const channelId = channelOfMessage.get(messageId);
+  if (!channelId) return new Error("not_found");
+  const ch = await read(() => appClient().chat.channels.get(channelId)).catch(() => null);
+  if (!ch || !ch.isMember) return new Error("not_member");
+  if (ch.archived) return new Error("invalid: archived");
+  return new Error("not_found");
+}
+
+async function onProposal<T>(messageId: string, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) throw await proposalGone(messageId);
+    throw error;
+  }
+}
+
+/** Conferma (anche coi valori di «Edit», che il server esegue): la conferma della conversazione. */
+const confirmChatProposal: Chat["confirmChatProposal"] = (messageId, proposalId, options = {}) =>
+  onProposal(messageId, () => confirmOnServer(proposalId, options));
+
+const cancelChatProposal: Chat["cancelChatProposal"] = async (messageId, proposalId) => {
+  await onProposal(messageId, () => appClient().claude.proposals.cancel(proposalId));
+};
+
+/** «Edit»: gli argomenti dalla vista (solo chi ha chiamato li ha); riletta se non c'è ancora. */
+const editChatProposal: Chat["editChatProposal"] = async (messageId, proposalId, actionIndex = 0) => {
+  if (!proposalActionsOf(proposalId)) await getMessage(messageId);
+  const action = proposalActionsOf(proposalId)?.[actionIndex];
+  if (!action) throw new Error("not_found");
+  return { fn: action.fn as Awaited<ReturnType<Chat["editChatProposal"]>>["fn"], args: action.args };
+};
+
 /** Le funzioni della fetta 1 (lo stream, in `chatStream.ts`, lo aggiunge `index.ts`). */
 export const chatFunctions: Partial<Chat> = {
   listChannels,
@@ -561,6 +649,13 @@ export const chatFunctions: Partial<Chat> = {
   searchChat,
   createTaskFromMessage,
   createRequestFromMessage,
+  stopClaudeReply,
+  retryClaudeReply,
+  answerChatClaudeQuestion,
+  listClaudeQuestions,
+  confirmChatProposal,
+  cancelChatProposal,
+  editChatProposal,
 };
 
 /** Il namespace `chat` senza lo stream (i test del livello dati); il resto resta «non integrato». */
