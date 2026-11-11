@@ -113,6 +113,10 @@ export function ClaudeReply({
   const state = run?.state ?? "done";
   const live = state === "working" || state === "waiting";
   const deleted = m.deletedAt !== null;
+  // Build app: i flag del server per chi guarda; nel prototipo si ricavano.
+  const canStop = run?.canStop ?? (mine && live);
+  const canRetry = run?.canRetry ?? (mine && !run?.retried && canWrite);
+  const canAnswer = run?.canAnswer ?? (mine && state === "waiting" && canWrite);
 
   // I codici che chi guarda non vede: quelli citati e quelli delle righe e delle schede.
   const hidden = useMemo(() => {
@@ -209,7 +213,7 @@ export function ClaudeReply({
               {state === "working" && empty && (
                 <span className="text-xs text-ink-muted">· {t("chat.claude.thinking")}</span>
               )}
-              {mine && live && (
+              {canStop && (
                 <button
                   type="button"
                   className="ml-auto rounded-md px-1.5 text-sm font-medium text-ink-muted underline decoration-ink/30 underline-offset-2 hover:text-ink hover:decoration-ink disabled:opacity-60"
@@ -274,7 +278,7 @@ export function ClaudeReply({
                   <QuestionCardView
                     key={e.id}
                     event={e}
-                    canAnswer={mine && state === "waiting" && canWrite}
+                    canAnswer={canAnswer}
                     pending={answer.isPending}
                     onAnswer={(payload) =>
                       answer.mutateAsync({
@@ -360,7 +364,7 @@ export function ClaudeReply({
                     reason: t(`chat.claude.reasons.${run?.errorCode ?? "other"}`),
                   })}
                 </span>
-                {mine && !run?.retried && canWrite && (
+                {canRetry && (
                   <button
                     type="button"
                     disabled={retry.isPending}

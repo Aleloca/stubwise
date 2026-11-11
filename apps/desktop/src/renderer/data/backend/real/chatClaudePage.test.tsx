@@ -237,6 +237,35 @@ describe("@Claude nei canali, nella build app", () => {
     expect(within(article).queryByRole("button", { name: "Cancel" })).toBeNull();
   });
 
+  it("Stop, «Try again» e la risposta alla domanda seguono i flag del server, anche per chi ha chiamato", async () => {
+    install({
+      root: root(),
+      replies: [
+        reply(
+          {},
+          {
+            state: "waiting",
+            canStop: false,
+            proposals: [],
+            question: { id: QUESTION, text: "Which format first?", options: [{ label: "PDF" }], answer: null, canAnswer: false },
+          },
+        ),
+        reply(
+          { id: "7f1c2a1e-0000-4000-8000-0000000000d3", createdAt: "2026-11-10T10:01:00.000Z", text: "" },
+          { state: "failed", error: "other", sessionId: null, proposals: [], question: null, canStop: false, canRetry: false },
+        ),
+      ],
+    });
+    renderRoute(`/chat/${CH}?thread=${ROOT}`);
+    const articles = await screen.findAllByRole("article", { name: /called by/ }, { timeout: 3000 });
+    expect(articles).toHaveLength(2);
+    expect(within(articles[0]!).getByText("Which format first?")).toBeInTheDocument();
+    expect(within(articles[0]!).queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(within(articles[0]!).queryByRole("button", { name: "PDF" })).toBeNull();
+    expect(within(articles[1]!).getByText(/Claude couldn't finish/)).toBeInTheDocument();
+    expect(within(articles[1]!).queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
   it("una scheda confermata nella Chat non ha «Annulla»", async () => {
     install({
       root: root(),

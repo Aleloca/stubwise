@@ -105,6 +105,10 @@ export function claudeFieldsOf(v: ServerMsg): Pick<ChatMessage, "claudeRun" | "c
       state: c.state === "__unknown__" ? "done" : c.state,
       ...(c.state === "failed" ? { errorCode: !c.error || c.error === "__unknown__" ? "other" : c.error } : {}),
       retried: c.retried,
+      // Chi ferma, rifà e risponde lo dice il server (solo chi ha chiamato, membro, canale aperto).
+      canStop: c.canStop,
+      canRetry: c.canRetry,
+      canAnswer: c.question?.canAnswer ?? false,
     },
     claudeEvents: events,
   };

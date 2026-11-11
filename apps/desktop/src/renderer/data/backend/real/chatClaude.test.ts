@@ -216,12 +216,21 @@ describe("la risposta di @Claude", () => {
   it("finita male: il motivo del server, anche il budget; «Try again» già usato", async () => {
     install({
       [`GET /api/chat/messages/${REPLY}`]: {
-        body: reply({}, { state: "failed", error: "budget", retried: true, proposals: [], question: null }),
+        body: reply({}, { state: "failed", error: "budget", retried: true, proposals: [], question: null, canStop: false }),
       },
     });
     await getSessionPerson();
     const hit = (await chat.getMessage(REPLY))!;
-    expect(hit.message.claudeRun).toEqual({ callMessageId: ROOT, state: "failed", errorCode: "budget", retried: true });
+    expect(hit.message.claudeRun).toEqual({
+      callMessageId: ROOT,
+      state: "failed",
+      errorCode: "budget",
+      retried: true,
+      // I flag del server: qui nessuno (già rifatta, niente domanda).
+      canStop: false,
+      canRetry: false,
+      canAnswer: false,
+    });
   });
 
   it("un messaggio di un server senza fetta 3: nessun blocco di Claude", async () => {
