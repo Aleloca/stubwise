@@ -988,6 +988,13 @@
       "when": 1796515200000,
       "tag": "0140_chat_claude",
       "breakpoints": true
+    },
+    {
+      "idx": 141,
+      "version": "7",
+      "when": 1796601600000,
+      "tag": "0141_chat_events_attachments",
+      "breakpoints": true
     }
   ]
 }

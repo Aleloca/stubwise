@@ -19,18 +19,23 @@ export const chatNotifyLevelSchema = z.enum(["all", "mentions", "muted"]);
 export type ChatNotifyLevel = z.infer<typeof chatNotifyLevelSchema>;
 
 /** Gli eventi di progetto che un canale può pubblicare (fetta 4). */
+/** Gli eventi dei progetti, nell'ordine canonico del prototipo (`constants.ts`): `publishedEvents` si scrive così. */
 export const CHAT_EVENT_KINDS = [
   "release_page",
-  "pr_opened",
-  "pr_merged",
   "milestone_reached",
   "brief_ready",
+  "pr_opened",
+  "pr_merged",
   "request_new",
   "task_closed",
 ] as const;
 export const chatEventKindSchema = z.enum(CHAT_EVENT_KINDS);
 /** Quelli del «general» alla sua nascita (D8, come il prototipo). */
-export const CHAT_GENERAL_DEFAULT_EVENTS = ["release_page", "milestone_reached", "brief_ready"] as const;
+export const CHAT_GENERAL_DEFAULT_EVENTS = [
+  "release_page",
+  "milestone_reached",
+  "brief_ready",
+] as const;
 
 /** Il nome di un canale: minuscole, cifre e trattini, come il prototipo (`writes.ts`). */
 export const CHAT_CHANNEL_NAME_MAX = 40;
@@ -139,7 +144,9 @@ export const chatClaudeProposalSchema = z.object({
   status: z.enum(["open", "confirmed", "cancelled", "failed", "expired"]),
   /** Sempre B nella Chat: niente esecuzione immediata, niente «Annulla». */
   cls: z.enum(["A", "B", "C"]).default("B"),
-  actions: z.array(z.object({ fn: z.string(), args: z.record(z.string(), z.unknown()) })).default([]),
+  actions: z
+    .array(z.object({ fn: z.string(), args: z.record(z.string(), z.unknown()) }))
+    .default([]),
   /** I codici nati dalla conferma, solo quelli che chi guarda vede. */
   resultCodes: z.array(z.string()).default([]),
   canConfirm: z.boolean().default(false),
@@ -152,7 +159,12 @@ export const chatClaudeQuestionSchema = z.object({
   text: z.string(),
   options: z.array(z.object({ label: z.string(), description: z.string().default("") })),
   answer: z
-    .object({ optionIndex: z.number().int().nullable(), text: z.string().nullable(), byId: z.uuid().nullable(), at: z.iso.datetime() })
+    .object({
+      optionIndex: z.number().int().nullable(),
+      text: z.string().nullable(),
+      byId: z.uuid().nullable(),
+      at: z.iso.datetime(),
+    })
     .nullable()
     .default(null),
   canAnswer: z.boolean().default(false),
@@ -180,6 +192,128 @@ export const chatReactionSchema = z.object({
 });
 
 /** Un messaggio come lo vede chi guarda. Eliminato: niente testo (`text` vuoto, `deleted`). */
+/**
+ * Gli oggetti a cui un evento del progetto si riferisce (fetta 4). Le PR si
+ * riferiscono alla loro task, come nel prototipo; `release` arriva con
+ * l'area 8.
+ */
+export const CHAT_EVENT_REF_KINDS = ["task", "request", "milestone", "brief", "release"] as const;
+export const chatEventRefKindSchema = z.enum(CHAT_EVENT_REF_KINDS);
+
+/**
+ * L'evento di un messaggio di sistema come lo legge chi guarda (fetta 4). Il
+ * testo della scheda lo compone il client: il messaggio salvato non ne ha.
+ */
+export const chatEventSchema = z.object({
+  kind: chatEventKindSchema,
+  ref: z.object({ kind: chatEventRefKindSchema, id: z.uuid() }),
+  /**
+   * L'oggetto per chi guarda; null se non c'è più (una task eliminata): la
+   * scheda mostra solo il tipo dell'evento. `label` è il codice di una task o
+   * di una richiesta, il nome di un traguardo, il periodo di un brief.
+   * `title` (task, richiesta) solo se chi guarda vede l'oggetto: chi legge il
+   * canale ma non vede la task legge il codice senza il titolo (`visible`
+   * falso), come le citazioni.
+   */
+  object: z
+    .object({
+      label: z.string(),
+      title: z.string().nullable().default(null),
+      visible: z.boolean().default(false),
+      projectId: z.uuid().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
+  /** `pr_opened`/`pr_merged`: la PR, solo a chi vede la task. */
+  pr: z
+    .object({
+      number: z.number().int().nullable(),
+      url: z.string().nullable(),
+      repository: z.string(),
+    })
+    .nullable()
+    .default(null),
+});
+export type ChatEventView = z.infer<typeof chatEventSchema>;
+
+/** Un allegato di un messaggio (fetta 4): i metadati; il file si scarica da `GET /api/chat/attachments/:id/download`. */
+export const chatAttachmentSchema = z.object({
+  id: z.uuid(),
+  filename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number().int(),
+  createdAt: z.iso.datetime(),
+});
+export type ChatAttachmentView = z.infer<typeof chatAttachmentSchema>;
+
+/**
+ * Gli allegati della Chat ([DECIDE] 2 della fetta 4, maintainer): fino a 25 MB
+ * per file e 10 per messaggio; immagini, PDF, documenti, archivi, audio e
+ * video. Niente eseguibili: un allowlist di tipi MIME, ciascuno con le SUE
+ * estensioni, e il download sempre come `attachment`. Più largo dei ticket
+ * (`ALLOWED_ATTACHMENT_MIME_TYPES` del server), apposta.
+ */
+export const CHAT_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+export const CHAT_ATTACHMENTS_PER_MESSAGE = 10;
+export const CHAT_ATTACHMENT_TYPES: Readonly<Record<string, readonly string[]>> = {
+  // Immagini (niente SVG: è un documento attivo).
+  "image/png": ["png"],
+  "image/jpeg": ["jpg", "jpeg"],
+  "image/gif": ["gif"],
+  "image/webp": ["webp"],
+  "image/heic": ["heic"],
+  // PDF e testo.
+  "application/pdf": ["pdf"],
+  "text/plain": ["txt", "log"],
+  "text/csv": ["csv"],
+  "text/markdown": ["md"],
+  // Documenti d'ufficio.
+  "application/rtf": ["rtf"],
+  "application/msword": ["doc"],
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ["docx"],
+  "application/vnd.ms-excel": ["xls"],
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ["xlsx"],
+  "application/vnd.ms-powerpoint": ["ppt"],
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": ["pptx"],
+  "application/vnd.oasis.opendocument.text": ["odt"],
+  "application/vnd.oasis.opendocument.spreadsheet": ["ods"],
+  "application/vnd.oasis.opendocument.presentation": ["odp"],
+  // Archivi.
+  "application/zip": ["zip"],
+  "application/x-zip-compressed": ["zip"],
+  "application/gzip": ["gz", "tgz"],
+  "application/x-tar": ["tar"],
+  "application/x-7z-compressed": ["7z"],
+  // Audio.
+  "audio/mpeg": ["mp3"],
+  "audio/mp4": ["m4a"],
+  "audio/x-m4a": ["m4a"],
+  "audio/aac": ["aac"],
+  "audio/wav": ["wav"],
+  "audio/x-wav": ["wav"],
+  "audio/ogg": ["ogg", "oga", "opus"],
+  "audio/flac": ["flac"],
+  "audio/webm": ["weba"],
+  // Video.
+  "video/mp4": ["mp4", "m4v"],
+  "video/quicktime": ["mov"],
+  "video/webm": ["webm"],
+};
+
+/**
+ * Un file si può allegare se il suo tipo è nell'allowlist E la sua estensione
+ * è una di quelle di quel tipo: un eseguibile rinominato `foto.exe` con
+ * `image/png`, o un `.png` mandato come `application/x-msdownload`, no.
+ */
+export function chatAttachmentAllowed(filename: string, mimeType: string): boolean {
+  const extensions = CHAT_ATTACHMENT_TYPES[mimeType.toLowerCase()];
+  if (!extensions) return false;
+  const base = filename.split(/[/\\]/).pop() ?? "";
+  const dot = base.lastIndexOf(".");
+  if (dot <= 0) return false;
+  return extensions.includes(base.slice(dot + 1).toLowerCase());
+}
+
 export const chatMessageSchema = z.object({
   id: z.uuid(),
   channelId: z.uuid(),
@@ -216,7 +350,9 @@ export const chatMessageSchema = z.object({
    * Le task e le richieste nate dal messaggio («→ AUD-14»): solo quelle che
    * chi guarda vede, derivate a lettura. `linkedCodes` sono i loro codici.
    */
-  linked: z.array(z.object({ kind: z.enum(["task", "request"]), id: z.uuid(), code: z.string() })).default([]),
+  linked: z
+    .array(z.object({ kind: z.enum(["task", "request"]), id: z.uuid(), code: z.string() }))
+    .default([]),
   linkedCodes: z.array(z.string()).default([]),
   /** Le citazioni (fetta 2, F2.7): solo quelle che chi guarda vede, in ordine. Un eliminato non ne ha. */
   citations: z.array(chatCitationSchema).default([]),
@@ -224,6 +360,10 @@ export const chatMessageSchema = z.object({
   claude: chatClaudeReplySchema.nullable().default(null),
   /** Su una radice: una risposta di Claude nel suo thread sta lavorando. */
   claudeReplying: z.boolean().default(false),
+  /** Solo un messaggio di sistema (fetta 4): l'evento del progetto. */
+  event: chatEventSchema.nullable().default(null),
+  /** Gli allegati (fetta 4), nell'ordine del messaggio. Un eliminato non ne ha. */
+  attachments: z.array(chatAttachmentSchema).default([]),
 });
 export type ChatMessageView = z.infer<typeof chatMessageSchema>;
 
@@ -284,6 +424,8 @@ export const chatSearchQuerySchema = z.object({
   peopleOnly: z.enum(["true", "false"]).optional(),
   /** Solo i messaggi con almeno una citazione. */
   withCitations: z.enum(["true", "false"]).optional(),
+  /** Solo i messaggi con almeno un allegato (fetta 4). */
+  withAttachments: z.enum(["true", "false"]).optional(),
   /** Giorni ISO (`YYYY-MM-DD`), inclusi, in UTC. */
   from: z.iso.date().optional(),
   to: z.iso.date().optional(),
@@ -319,14 +461,18 @@ export const chatClaudeQuestionItemSchema = z.object({
   options: z.array(z.object({ label: z.string(), description: z.string().default("") })),
   createdAt: z.iso.datetime(),
 });
-export const chatClaudeQuestionListSchema = z.object({ items: z.array(chatClaudeQuestionItemSchema) });
+export const chatClaudeQuestionListSchema = z.object({
+  items: z.array(chatClaudeQuestionItemSchema),
+});
 export const answerChatClaudeQuestionSchema = z
   .object({
     questionId: z.uuid(),
     optionIndex: z.number().int().min(0).nullable().default(null),
     text: z.string().trim().max(2000).nullable().default(null),
   })
-  .refine((b) => b.optionIndex !== null || (b.text !== null && b.text !== ""), { message: "answer" });
+  .refine((b) => b.optionIndex !== null || (b.text !== null && b.text !== ""), {
+    message: "answer",
+  });
 
 /** I messaggi che nominano chi guarda, nei canali che legge («Mentions»). */
 export const chatMentionListSchema = z.object({ items: z.array(chatMessageSchema) });
@@ -365,23 +511,46 @@ export const patchChatChannelSchema = z
   .partial();
 export type PatchChatChannelInput = z.input<typeof patchChatChannelSchema>;
 
-export const postChatMessageSchema = z.object({
-  text: z.string().trim().min(1).max(CHAT_MESSAGE_MAX),
-  /** Una risposta: la radice del thread (un livello solo). */
-  threadRootId: z.uuid().optional(),
-  /** Solo una risposta: «Rispondi anche nel canale». */
-  alsoInChannel: z.boolean().optional(),
-  /** «Ask for a reply»: chiede risposta alle persone nominate anche senza «?». */
-  asksReply: z.boolean().optional(),
-  /** Gli oggetti scelti con «#»/«@»: il server tiene quelli che chi scrive vede e che il testo nomina. */
-  citations: z.array(chatCitationRefSchema).max(50).optional(),
-});
+/**
+ * Un messaggio nuovo. Il testo è facoltativo solo se ci sono allegati (fetta
+ * 4, come il prototipo): `attachmentIds` sono allegati caricati nel canale da
+ * chi scrive e non ancora legati, nell'ordine in cui compaiono.
+ */
+export const postChatMessageSchema = z
+  .object({
+    text: z.string().trim().max(CHAT_MESSAGE_MAX).default(""),
+    attachmentIds: z.array(z.uuid()).max(CHAT_ATTACHMENTS_PER_MESSAGE).optional(),
+    /** Una risposta: la radice del thread (un livello solo). */
+    threadRootId: z.uuid().optional(),
+    /** Solo una risposta: «Rispondi anche nel canale». */
+    alsoInChannel: z.boolean().optional(),
+    /** «Ask for a reply»: chiede risposta alle persone nominate anche senza «?». */
+    asksReply: z.boolean().optional(),
+    /** Gli oggetti scelti con «#»/«@»: il server tiene quelli che chi scrive vede e che il testo nomina. */
+    citations: z.array(chatCitationRefSchema).max(50).optional(),
+  })
+  .refine((b) => b.text.length > 0 || (b.attachmentIds?.length ?? 0) > 0, {
+    message: "text or attachments required",
+    path: ["text"],
+  });
 export type PostChatMessageInput = z.input<typeof postChatMessageSchema>;
 
-/** Le citazioni si ricalcolano dal testo nuovo; `citations` aggiunge scelte nuove. */
+/**
+ * Le citazioni si ricalcolano dal testo nuovo; `citations` aggiunge scelte
+ * nuove. `attachmentIds` (fetta 4): gli allegati che RESTANO, fra quelli del
+ * messaggio (una modifica toglie, non aggiunge); assente = restano tutti. Il
+ * testo vuoto è ammesso solo se resta almeno un allegato (lo controlla il
+ * server, che conosce gli allegati).
+ */
 export const editChatMessageSchema = z.object({
-  text: z.string().trim().min(1).max(CHAT_MESSAGE_MAX),
+  text: z.string().trim().max(CHAT_MESSAGE_MAX),
   citations: z.array(chatCitationRefSchema).max(50).optional(),
+  attachmentIds: z.array(z.uuid()).max(CHAT_ATTACHMENTS_PER_MESSAGE).optional(),
+});
+
+/** Gli eventi che un canale di progetto pubblica (`setPublishedEvents`, fetta 4): l'insieme intero. */
+export const setChatEventsSchema = z.object({
+  events: z.array(chatEventKindSchema).max(CHAT_EVENT_KINDS.length),
 });
 export const chatReactionBodySchema = z.object({ emoji: z.string().trim().min(1).max(32) });
 /** Letto fino a ora (o fino a `at`); con `threadRootId`, il thread. */
