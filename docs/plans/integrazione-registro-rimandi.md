@@ -168,6 +168,12 @@ Fetta 4: renderer (sotto, «Chiuse»).
 
 ## Area 6 — Posta e Calendario
 
+- I riferimenti a Google Drive nel Drive dei progetti (area 5, D1 = a): le
+  cartelle collegate, «Aggiungi da Google Drive», «Quale progetto?», i file
+  non disponibili. Servono lo scope `drive.readonly` (ristretto: riconsenso e
+  verifica di Google) e il cassetto Google comune a Drive, Posta e
+  Calendario.
+
 - Blocchi della Home «Eventi in arrivo» e «Posta importante» (oggi nascosti e
   conservati al salvataggio).
 - Azione di Claude «bozza del corpo dell'email».
@@ -231,6 +237,10 @@ Fetta 4: renderer (sotto, «Chiuse»).
   alternativa a `session_id`, con un CHECK) e la rimozione di `browserOnly`.
 
 ## Area 10 — Integrazione di Claude
+
+- Le citazioni di file del repository (`kind file`, `<repo>:<path>`, visibili
+  con `repos.view`, senza destinazione) (area 5, D6 = a): arrivano con un tool
+  di Claude che legge il codice; oggi niente le produce.
 
 - Le task eliminate nella cronologia del progetto *(S)*: il server non ha una
   cronologia di progetto che le nomini (la storia della task se ne va con

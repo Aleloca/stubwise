@@ -169,6 +169,8 @@ export const docTreeNodeSchema = z.object({
   viewCount: z.number().int(),
   // Solo per kind="releases": significatività della release; null altrove.
   significant: z.boolean().nullable(),
+  /** Il codice stabile `<PRJ>-D<n>` (area 5, fetta 1); null da un server che non lo conosce, o per una nota di rilascio. */
+  code: z.string().nullable().default(null),
 });
 export type DocTreeNode = z.infer<typeof docTreeNodeSchema>;
 
@@ -223,6 +225,8 @@ export const docPageSchema = z.object({
     )
     .nullable()
     .default(null),
+  /** Il codice stabile `<PRJ>-D<n>` (area 5, fetta 1); null da un server che non lo conosce, o per una nota di rilascio. */
+  code: z.string().nullable().default(null),
 });
 export type DocPage = z.infer<typeof docPageSchema>;
 /** Un commit dell'avviso «il codice è cambiato dopo questa pagina». */
@@ -309,6 +313,8 @@ export const highlightRefSchema = z.object({
   title: z.string(),
   kind: docPageKindSchema,
   viewCount: z.number().int(),
+  /** Il codice stabile `<PRJ>-D<n>` (area 5, fetta 1); null da un server che non lo conosce, o per una nota di rilascio. */
+  code: z.string().nullable().default(null),
 });
 
 /**
@@ -428,5 +434,29 @@ export const projectDocsSearchResultSchema = z.object({
   repositoryId: z.uuid(),
   repositorySlug: z.string(),
   repositoryName: z.string(),
+  /** Il codice stabile `<PRJ>-D<n>` (area 5, fetta 1); null da un server che non lo conosce, o per una nota di rilascio. */
+  code: z.string().nullable().default(null),
 });
 export type ProjectDocsSearchResult = z.infer<typeof projectDocsSearchResultSchema>;
+
+/**
+ * Il codice di una pagina Docs, `<PRJ>-D<n>` (area 5, fetta 1): il codice del
+ * progetto, poi `D` e il numero. Stabile alle rigenerazioni, mai riusato.
+ */
+export const DOC_CODE_RE = /^([A-Z][A-Z0-9]{1,5})-D(\d{1,9})$/;
+export const docCode = (projectCode: string, number: number): string => `${projectCode}-D${number}`;
+
+/**
+ * `GET /api/docs/codes/:code`: dove sta la pagina di un codice. `available`
+ * falso: il codice c'è, ma la pagina non più (una manuale eliminata, uno slug
+ * sparito da una rigenerazione).
+ */
+export const docCodeResolutionSchema = z.object({
+  code: z.string(),
+  projectId: z.uuid(),
+  repositoryId: z.uuid(),
+  repositorySlug: z.string(),
+  slug: z.string(),
+  available: z.boolean(),
+});
+export type DocCodeResolution = z.infer<typeof docCodeResolutionSchema>;

@@ -140,3 +140,15 @@ riconferma. Le regole:
   `deletedTickets` in `packages/db/src/schema.ts`): chi ne aggiunge una nuova
   decide anche lei — CASCADE se è della task, SET NULL se è un fatto che
   resta — e la aggiunge al test `tasks.delete.test.ts`.
+
+## Eliminare un progetto toglie anche gli oggetti degli allegati (11 nov 2026)
+
+- **Le righe degli allegati dei ticket se ne vanno in cascata col progetto,
+  gli oggetti dello storage no**: la cascata non li vede. La rotta
+  `DELETE /api/projects/:projectId` legge PRIMA, nella stessa transazione
+  della delete, le chiavi degli allegati dei ticket e della Chat del progetto
+  (`storageKeysOfProject` in `apps/server/src/chat/attachments.ts`), e le
+  toglie dallo storage DOPO il commit, senza far fallire l'eliminazione se
+  lo storage è giù (lo dice il log). Nata nella review della fetta 4 della
+  Chat; chi aggiunge un'altra tabella di allegati la aggiunga lì.
+

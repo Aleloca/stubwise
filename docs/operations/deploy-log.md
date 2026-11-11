@@ -3570,7 +3570,10 @@ deploy o di un rollback che la tocca.
   Nessun `notification_kind` nuovo. Env nuove: nessuna. Lo storage è quello
   degli allegati dei ticket (Impostazioni → Storage): senza storage il
   caricamento risponde 400 `storage_not_configured`. Caddy non limita il body,
-  e i 25 MB passano. La potatura dei sospesi oltre le 24 ore la fa il SERVER,
+  e i 25 MB passano. Eliminare un canale o un progetto toglie dallo storage
+  gli oggetti dei suoi allegati; per il progetto anche quelli degli allegati
+  dei TICKET (review della fetta 4: prima restavano per sempre).
+  La potatura dei sospesi oltre le 24 ore la fa il SERVER,
   una volta l'ora e a ogni caricamento, perché il worker non ha lo storage.
   Misura: 200 task chiuse in un UPDATE scrivono 200 messaggi in circa 170 ms,
   dentro la transazione di chi scrive.

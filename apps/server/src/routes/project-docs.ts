@@ -40,6 +40,7 @@ import {
   users,
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { withDocCodes } from "../services/doc-codes.js";
 import { chatQuerySchema, loadHistory, streamChatResponse } from "./docs-chat-core.js";
 import { emptyCountsByKind, HIGHLIGHT_LIMITS } from "./docs-highlights.js";
 import { buildCitations, buildDocsSystemPrompt } from "./docs-rag.js";
@@ -303,17 +304,20 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
         query,
         { logger: request.log },
       );
-      return results.map((r) => ({
-        slug: r.slug,
-        title: r.title,
-        kind: r.kind,
-        snippet: r.snippet,
-        score: r.score,
-        source: r.source,
-        repositoryId: r.repositoryId,
-        repositorySlug: r.repositorySlug,
-        repositoryName: r.repositoryName,
-      }));
+      return withDocCodes(
+        app.db,
+        results.map((r) => ({
+          slug: r.slug,
+          title: r.title,
+          kind: r.kind,
+          snippet: r.snippet,
+          score: r.score,
+          source: r.source,
+          repositoryId: r.repositoryId,
+          repositorySlug: r.repositorySlug,
+          repositoryName: r.repositoryName,
+        })),
+      );
     },
   );
 
