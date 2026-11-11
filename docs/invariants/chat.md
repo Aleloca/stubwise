@@ -336,8 +336,12 @@ Piano: `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`. Codice:
     `status_id`, e il sync dell'enum lo scrive anche per chi scrive l'enum;
     fra due stati chiusi non ripubblica); una richiesta inserita non fusa
     (l'intake inserisce solo quando non fonde); un traguardo `open` →
-    `closed`; un brief `done` CON il testo; la PR di una task (URL che nasce,
-    stato che diventa `merged`).
+    `closed`; un brief `done` CON il testo; la PR di una task: aperta quando
+    l'URL CAMBIA (anche una seconda PR sulla stessa riga), mergiata quando lo
+    stato diventa `merged`. Una riga nata già mergiata (la webhook) pubblica
+    le due, in ordine (`clock_timestamp()`). Numero e URL della PR si scrivono
+    sul MESSAGGIO, perché la riga di `ticket_repositories` è mutabile (review
+    della fetta 4).
   - `release_page` è acceso nel «general» ma inerte fino all'area 8
     ([DECIDE] 1 = a).
   - Il messaggio è `system` col corpo VUOTO: la scheda si DERIVA a lettura
@@ -359,12 +363,23 @@ Piano: `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`. Codice:
     attachment`) solo da chi LEGGE il canale: un DM e un privato solo dai
     membri, mai da chi gestisce senza esserne membro (D2). Un sospeso lo
     scarica solo chi l'ha caricato;
+  - il caricamento controlla l'accesso PRIMA di leggere il file. Al più 200
+    MB in sospeso per persona e 60 caricamenti al minuto; nomi al più di 255
+    caratteri (review della fetta 4);
+  - eliminare un canale o un progetto legge le chiavi dello storage PRIMA
+    della cascata e le toglie dopo il commit; per il progetto anche quelle
+    degli allegati dei ticket;
+  - il download vuole il messaggio vivo; `Content-Disposition` lo fa
+    `contentDisposition` dello storage, in UN posto per ticket e Chat (niente
+    caratteri di controllo, `filename*` UTF-8 per i nomi non ASCII);
   - il binario non passa mai dall'API. Lo storage si pulisce dopo il commit e
     senza bloccare: un oggetto rimasto non si scarica, perché l'URL lo firma
     solo la rotta di download, e la rotta vuole la riga;
   - limiti e tipi ([DECIDE] 2 = b): 25 MB, 10 per messaggio. Un allowlist di
     tipi MIME, ciascuno con le SUE estensioni (`chatAttachmentAllowed`):
     niente eseguibili, niente SVG;
+  - la potatura dei sospesi: prima l'oggetto, poi la riga. Senza storage
+    salta, e un oggetto che lo storage rifiuta tiene la riga per il giro dopo;
   - la potatura dei sospesi oltre le 24 ore ([DECIDE] 3 = a) la fa il SERVER,
     una volta l'ora e a ogni caricamento (scelta confermata dall'orchestratrice
     l'11 nov 2026). I motivi: lo storage lo ha solo lui, e il worker non ne ha

@@ -183,6 +183,31 @@ describe("Tasks nella build app", () => {
     await waitFor(() => expect(posts).toEqual([`/api/tickets/${TICKET_ID}/comments`, `/api/tickets/${TICKET_ID}/run-ai`]));
   });
 
+  it("«Download» su un allegato della task: lo scarica il main (Trasversali); uno che non c'è più lo dice", async () => {
+    const ATT = "12121212-1212-4121-8121-121212121212";
+    installFakeServer({
+      ...routes(),
+      "GET /api/tasks/by-code/AUD-12": { body: serverTask({ attachments: [{ id: ATT, name: "a.txt", sizeBytes: 4 }] }) },
+    });
+    const download = vi
+      .fn<(path: string) => Promise<{ ok: true } | { ok: false; reason: "not_found" }>>()
+      .mockResolvedValueOnce({ ok: true })
+      .mockResolvedValueOnce({ ok: false, reason: "not_found" });
+    try {
+      renderRoute("/p/AUD/tasks?task=AUD-12");
+      const panel = await screen.findByRole("dialog", { name: "Task AUD-12" });
+      const section = await within(panel).findByRole("region", { name: /Attachments/ });
+      // Il main del desktop, a pagina caricata (prima, il client sceglierebbe il trasporto IPC).
+      Object.assign(window, { stubwise: { ...(window.stubwise ?? {}), api: { ...(window.stubwise?.api ?? {}), download } } });
+      fireEvent.click(await within(section).findByRole("button", { name: "Download a.txt" }));
+      await waitFor(() => expect(download).toHaveBeenCalledWith(`/api/attachments/${ATT}/download`));
+      fireEvent.click(within(section).getByRole("button", { name: "Download a.txt" }));
+      expect(await screen.findByText("a.txt is no longer available.")).toBeInTheDocument();
+    } finally {
+      Object.assign(window, { stubwise: undefined });
+    }
+  });
+
   it("allegati spenti mostrano il messaggio", async () => {
     renderRoute("/p/AUD/tasks?task=AUD-12");
     const panel = await screen.findByRole("dialog", { name: "Task AUD-12" });

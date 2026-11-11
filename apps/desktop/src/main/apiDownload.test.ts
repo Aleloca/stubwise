@@ -3,9 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ app: { getPath: () => "/nonexistent" }, safeStorage: {} }));
 
-const { isAllowedDownloadLocation, isAllowedDownloadPath, resolveDownload, safeDownloadName } = await import(
-  "./apiDownload"
-);
+const { createPendingDownloads, downloadDecision, isAllowedDownloadLocation, isAllowedDownloadPath, resolveDownload, safeDownloadName } =
+  await import("./apiDownload");
 
 // Il download di un allegato dal desktop (area 4, fetta 4; voce Trasversali
 // del registro per i ticket): il main chiede il download COL bearer, pretende
@@ -95,6 +94,16 @@ describe("resolveDownload", () => {
     expect(await resolveDownload({ path }, offline)).toEqual({ ok: false, reason: "failed" });
   });
 
+  it("solo un 302: un altro reindirizzamento non si segue", async () => {
+    const path = `/api/chat/attachments/${ID}/download`;
+    for (const status of [301, 303, 307, 308]) {
+      expect(await resolveDownload({ path }, deps({ fetch: vi.fn(async () => redirect(SIGNED, status)) })), String(status)).toEqual({
+        ok: false,
+        reason: "failed",
+      });
+    }
+  });
+
   it("un 401 di sessione chiude la sessione, col token con cui è partito", async () => {
     const d = deps({
       fetch: vi.fn(async () => new Response(JSON.stringify({ code: "unauthorized" }), { status: 401, headers: { "content-type": "application/json" } })),
@@ -112,5 +121,48 @@ describe("il nome del file", () => {
     expect(safeDownloadName("a\u0000b\nc.txt")).toBe("abc.txt");
     expect(safeDownloadName("..")).toBe("download");
     expect(safeDownloadName("")).toBe("download");
+  });
+});
+
+describe("chi passa da will-download", () => {
+  const pending = (url: string) => url === SIGNED;
+  it("i blob: e i data: della finestra dell'app passano (codici di backup del 2FA, guida SDK), sempre col «Salva»", () => {
+    expect(downloadDecision("blob:file:///6f1c-4e2a", pending, true)).toBe("local");
+    expect(downloadDecision("data:text/plain;charset=utf-8,codes", pending, true)).toBe("local");
+  });
+  it("un download chiesto con api:download passa; un URL estraneo, o un blob da fuori l'app, no", () => {
+    expect(downloadDecision(SIGNED, pending, true)).toBe("requested");
+    expect(downloadDecision("https://evil.example/payload.dmg", pending, true)).toBe("reject");
+    expect(downloadDecision("blob:https://evil.example/x", pending, false)).toBe("reject");
+    expect(downloadDecision("file:///etc/passwd", pending, true)).toBe("reject");
+  });
+});
+
+describe("i download in attesa", () => {
+  it("due api:download con lo stesso URL firmato: ognuno ha il suo esito, in ordine", () => {
+    const pending = createPendingDownloads<string>();
+    pending.add(SIGNED, "first");
+    pending.add(SIGNED, "second");
+    expect(pending.has(SIGNED)).toBe(true);
+    expect(pending.take(SIGNED)).toBe("first");
+    expect(pending.take(SIGNED)).toBe("second");
+    expect(pending.has(SIGNED)).toBe(false);
+    expect(pending.take(SIGNED)).toBeUndefined();
+  });
+
+  it("il ritiro (il timer) toglie solo quello di chi lo chiede, e dice se c'era ancora", () => {
+    const pending = createPendingDownloads<string>();
+    const dropFirst = pending.add(SIGNED, "first");
+    pending.add(SIGNED, "second");
+    expect(dropFirst()).toBe(true);
+    expect(dropFirst()).toBe(false);
+    expect(pending.take(SIGNED)).toBe("second");
+  });
+
+  it("l'URL si confronta normalizzato: caratteri speciali nella query, scritti in due modi", () => {
+    const pending = createPendingDownloads<string>();
+    pending.add("https://storage.example.com/k?X-Amz-Signature=a b&name=città", "one");
+    expect(pending.has("https://storage.example.com/k?X-Amz-Signature=a%20b&name=citt%C3%A0")).toBe(true);
+    expect(pending.take("https://storage.example.com/k?X-Amz-Signature=a%20b&name=citt%C3%A0")).toBe("one");
   });
 });

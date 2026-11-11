@@ -150,6 +150,42 @@ describe("0141 gli eventi dei progetti", () => {
     expect((await eventsIn(all, adopted)).map((e) => e.eventKind)).toEqual(["pr_opened"]);
   });
 
+  it("una seconda PR sulla stessa riga pubblica di nuovo, e ogni scheda tiene numero e URL della SUA PR (review)", async () => {
+    const id = await newTicket();
+    const [tr] = await t.db
+      .insert(ticketRepositories)
+      .values({ ticketId: id, repositoryId, branch: "stubwise/ticket-y", prUrl: "https://github.com/o/r/pull/7", prNumber: 7 })
+      .returning({ id: ticketRepositories.id });
+    await t.db.update(ticketRepositories).set({ prState: "closed_unmerged" }).where(eq(ticketRepositories.id, tr!.id));
+    // La pipeline riapre una PR nuova sulla stessa riga.
+    await t.db
+      .update(ticketRepositories)
+      .set({ prUrl: "https://github.com/o/r/pull/9", prNumber: 9, prState: "open" })
+      .where(eq(ticketRepositories.id, tr!.id));
+    const events = await eventsIn(all, id);
+    expect(events.map((e) => [e.eventKind, e.eventPrNumber, e.eventPrUrl])).toEqual([
+      ["pr_opened", 7, "https://github.com/o/r/pull/7"],
+      ["pr_opened", 9, "https://github.com/o/r/pull/9"],
+    ]);
+    // Un UPDATE che non tocca PR né stato non pubblica (e il trigger non gira: WHEN).
+    await t.db.update(ticketRepositories).set({ branch: "altro" }).where(eq(ticketRepositories.id, tr!.id));
+    expect(await eventsIn(all, id)).toHaveLength(2);
+  });
+
+  it("una riga nata già mergiata (la webhook): prima pr_opened, poi pr_merged", async () => {
+    const id = await newTicket();
+    await t.db.insert(ticketRepositories).values({ ticketId: id, repositoryId, branch: "b", prUrl: "https://github.com/o/r/pull/11", prNumber: 11, prState: "merged" });
+    const events = await eventsIn(all, id);
+    expect(events.map((e) => e.eventKind)).toEqual(["pr_opened", "pr_merged"]);
+    expect(events.every((e) => e.eventPrNumber === 11)).toBe(true);
+    // L'ordine è nei dati, non nel caso: «mergiata» nasce DOPO «aperta».
+    const [{ ordered }] = (await t.db.execute(
+      sql`select (array_agg(event_kind order by created_at))::text[] = array['pr_opened','pr_merged'] and count(distinct created_at) = 2 as ordered
+          from chat_messages where channel_id = ${all} and event_ref_id = ${id}`,
+    )) as unknown as [{ ordered: boolean }];
+    expect(ordered).toBe(true);
+  });
+
   it("l'evento c'è solo su un messaggio di sistema, sull'elenco chiuso", async () => {
     await expect(
       t.db.insert(chatMessages).values({ channelId: general, body: "x", eventKind: "task_closed", eventRefKind: "task", eventRefId: projectId }),

@@ -181,4 +181,17 @@ describe("«Apri nel web»", () => {
       expect((await send(method, path, 14)).called, `${method} ${path}`).toBe(1);
     }
   });
+  it("su un percorso di download il proxy non consegna il Location: l'URL firmato non arriva al renderer", async () => {
+    const ID = "7f1c2a1e-0000-4000-8000-0000000000a1";
+    const redirectTo = (location: string) =>
+      deps({ fetch: vi.fn(async () => new Response(null, { status: 302, headers: { location } })) });
+    for (const path of [`/api/chat/attachments/${ID}/download`, `/api/attachments/${ID}/download`]) {
+      const res = await handleApiRequest({ method: "GET", path }, redirectTo("https://storage.example.com/x?sig=1"));
+      expect(res.status, path).toBe(302);
+      expect(res.headers.location, path).toBeUndefined();
+    }
+    // Altrove il Location resta (non è un URL firmato).
+    const other = await handleApiRequest({ method: "GET", path: "/api/tasks" }, redirectTo("/api/tasks/"));
+    expect(other.headers.location).toBe("/api/tasks/");
+  });
 });

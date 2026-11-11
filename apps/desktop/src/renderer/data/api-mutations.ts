@@ -111,6 +111,7 @@ import {
 } from "./stream";
 import type {
   ActivityEntry,
+  AttachmentDownloadResult,
   AiBlock,
   AppNotification,
   Attachment,
@@ -666,6 +667,16 @@ export async function addAttachment(
 export async function removeAttachment(id: string, attachmentId: string): Promise<Task> {
   const files = state.tasksById.get(id)?.attachments ?? [];
   return updateTask(id, { attachments: files.filter((a) => a.id !== attachmentId) });
+}
+
+/**
+ * Il download di un allegato della task. Nel prototipo gli allegati sono
+ * finti (nessun byte): non c'è niente da scaricare. La build app lo chiede al
+ * server (sul desktop dal main, che chiede dove salvarlo).
+ */
+export async function downloadTaskAttachment(attachmentId: string): Promise<AttachmentDownloadResult> {
+  void attachmentId;
+  return { ok: false, reason: "invalid" };
 }
 
 /** Un collegamento si scrive sulla task che lo tiene (`blocks`, `relates`, `parent`). */

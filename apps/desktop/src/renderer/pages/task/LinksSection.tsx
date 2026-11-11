@@ -13,6 +13,8 @@ import { Chevron, MenuButton } from "../tasks/controls";
 import { isAppBuild } from "../../data/build";
 import { useInlineWrite } from "../tasks/pickers";
 import { CloseIcon, InlineConfirm, PlusIcon, Section, ghostButton, smallSecondary } from "./parts";
+import { DownloadAttachmentButton } from "../chat/DownloadAttachment";
+
 
 // Si salva solo il verso «diretto», come sul web: «bloccata da» e «figlia» si vedono
 // dall'altra task, e aggiungerli da qui chiederebbe di poter modificare quella.
@@ -430,6 +432,14 @@ function Attachments({ task, canEdit }: { task: Task; canEdit: boolean }) {
                 <span className="num shrink-0 text-xs text-ink-faint">
                   {formatBytes(file.sizeBytes, i18n.language)}
                 </span>
+                {/* Build app: il file vero, dal server (dal main sul desktop). Il prototipo non ne ha. */}
+                {real && (
+                  <DownloadAttachmentButton
+                    attachment={{ ...file, kind: "file" }}
+                    of="task"
+                    className={`${ghostButton} w-7 justify-center px-0 opacity-60 group-hover/file:opacity-100 focus-visible:opacity-100`}
+                  />
+                )}
                 {canEdit && (
                   <button
                     type="button"

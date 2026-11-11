@@ -2,7 +2,13 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, session, shell } from "electron";
-import { resolveDownload, safeDownloadName, type DownloadResult } from "./apiDownload";
+import {
+  createPendingDownloads,
+  downloadDecision,
+  resolveDownload,
+  safeDownloadName,
+  type DownloadResult,
+} from "./apiDownload";
 import { handleApiRequest, isWebPath } from "./apiProxy";
 import { createStreamRegistry } from "./apiStream";
 import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./instance";
@@ -160,8 +166,8 @@ ipcMain.handle("api:request", async (event, raw: unknown) => {
 // propone il nome del Content-Disposition ridotto al solo nome, e non apre mai
 // il file. Un download che non è partito da qui si annulla.
 
-/** I download avviati da `api:download`, per URL firmato: chi aspetta l'esito. */
-const pendingDownloads = new Map<string, (result: DownloadResult) => void>();
+/** I download avviati da `api:download`, in coda per URL firmato: chi aspetta l'esito. */
+const pendingDownloads = createPendingDownloads<(result: DownloadResult) => void>();
 /** Se Electron non fa partire il download (rete), l'attesa non resta aperta. */
 const DOWNLOAD_START_TIMEOUT_MS = 60_000;
 
@@ -170,16 +176,15 @@ ipcMain.handle("api:download", async (event, raw: unknown): Promise<DownloadResu
   const target = await resolveDownload(raw, { instanceUrl: readInstanceUrl, token: readToken, onUnauthorized });
   if (!target.ok) return target;
   return new Promise<DownloadResult>((resolve) => {
-    const timer = setTimeout(() => {
-      if (pendingDownloads.get(target.url) !== settle) return;
-      pendingDownloads.delete(target.url);
-      resolve({ ok: false, reason: "failed" });
-    }, DOWNLOAD_START_TIMEOUT_MS);
     const settle = (result: DownloadResult) => {
       clearTimeout(timer);
       resolve(result);
     };
-    pendingDownloads.set(target.url, settle);
+    const withdraw = pendingDownloads.add(target.url, settle);
+    // Il timer risolve SEMPRE: se il download non è partito, si ritira e fallisce.
+    const timer = setTimeout(() => {
+      if (withdraw()) resolve({ ok: false, reason: "failed" });
+    }, DOWNLOAD_START_TIMEOUT_MS);
     event.sender.downloadURL(target.url);
   });
 });
@@ -187,24 +192,30 @@ ipcMain.handle("api:download", async (event, raw: unknown): Promise<DownloadResu
 function installDownloads(): void {
   session.defaultSession.on("will-download", (_event, item, contents) => {
     const url = item.getURLChain()[0] ?? item.getURL();
-    const settle = pendingDownloads.get(url);
-    // Solo i download chiesti con `api:download`.
-    if (!settle) {
+    // Dalla finestra dell'app: la stessa regola della navigazione.
+    const fromAppContents = isNavigationAllowed(contents.getURL(), {
+      devUrl,
+      packagedUrl: pathToFileURL(packagedFile).href,
+    });
+    const decision = downloadDecision(url, (u) => pendingDownloads.has(u), fromAppContents);
+    // Un http(s) non chiesto con `api:download`, un blob da fuori: si annulla.
+    if (decision === "reject") {
       item.cancel();
       return;
     }
-    pendingDownloads.delete(url);
+    // Un blob/data del renderer (codici di backup, guida SDK): nessuno aspetta l'esito.
+    const settle = decision === "requested" ? pendingDownloads.take(url) : undefined;
     const win = BrowserWindow.fromWebContents(contents);
     const options = { defaultPath: join(app.getPath("downloads"), safeDownloadName(item.getFilename())) };
     const chosen = win ? dialog.showSaveDialogSync(win, options) : dialog.showSaveDialogSync(options);
     if (!chosen) {
       item.cancel();
-      settle({ ok: false, reason: "canceled" });
+      settle?.({ ok: false, reason: "canceled" });
       return;
     }
     item.setSavePath(chosen);
     item.once("done", (_e, state) =>
-      settle(state === "completed" ? { ok: true } : { ok: false, reason: state === "cancelled" ? "canceled" : "failed" }),
+      settle?.(state === "completed" ? { ok: true } : { ok: false, reason: state === "cancelled" ? "canceled" : "failed" }),
     );
   });
 }

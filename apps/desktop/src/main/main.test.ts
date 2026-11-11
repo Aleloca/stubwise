@@ -175,7 +175,7 @@ describe("canali IPC", () => {
 
   it("api:download (fetta 4 della Chat): guarda il mittente, risolve col bearer e scarica solo i download avviati da lui, chiedendo dove salvare", () => {
     expect(main).toMatch(/ipcMain\.handle\("api:download",[\s\S]*?fromApp\(event\)[\s\S]*?resolveDownload\(/);
-    expect(main).toMatch(/on\("will-download",[\s\S]*?pendingDownloads\.get\([\s\S]*?item\.cancel\(\)[\s\S]*?safeDownloadName\([\s\S]*?showSaveDialogSync\(/);
+    expect(main).toMatch(/on\("will-download",[\s\S]*?downloadDecision\([\s\S]*?item\.cancel\(\)[\s\S]*?safeDownloadName\([\s\S]*?showSaveDialogSync\(/);
     // Mai aprire il file scaricato.
     expect(main).not.toMatch(/shell\.openPath/);
     expect(preload).toMatch(/ipcRenderer\.invoke\("api:download", \{ path \}\)/);

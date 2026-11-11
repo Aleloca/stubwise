@@ -5323,7 +5323,7 @@
         "type": "un file di questo tipo non è ammesso",
         "size": "un file è troppo grande (fino a 25 MB)",
         "off": "gli allegati sono spenti su questa istanza",
-        "gone": "un allegato è scaduto: allegalo di nuovo"
+        "gone": "un allegato era scaduto: «Rimanda» lo carica di nuovo"
       }
     }
   },

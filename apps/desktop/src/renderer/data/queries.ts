@@ -2480,9 +2480,12 @@ export function useEditChatProposal() {
   });
 }
 
-/** Il download di un allegato della Chat (fetta 4): non scrive nulla, non rilegge nulla. */
-export function useDownloadChatAttachment() {
-  return useMutation({ mutationFn: (attachmentId: string) => api.chat.downloadAttachment(attachmentId) });
+/** Il download di un allegato della Chat (fetta 4) o di una task: non scrive nulla, non rilegge nulla. */
+export function useDownloadAttachment(of: "chat" | "task") {
+  return useMutation({
+    mutationFn: (attachmentId: string) =>
+      of === "chat" ? api.chat.downloadAttachment(attachmentId) : api.downloadTaskAttachment(attachmentId),
+  });
 }
 
 export function useCompleteEditedChatProposal() {

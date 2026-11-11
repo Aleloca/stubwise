@@ -69,6 +69,7 @@ export const deleteMilestoneAs: typeof Fake.deleteMilestoneAs = notIntegratedSyn
 export const deleteTask: typeof Fake.deleteTask = notIntegrated("deleteTask") as never;
 export const describeContext: typeof Fake.describeContext = notIntegrated("describeContext") as never;
 export const docs: typeof Fake.docs = notIntegratedNamespace("docs") as never;
+export const downloadTaskAttachment: typeof Fake.downloadTaskAttachment = notIntegrated("downloadTaskAttachment") as never;
 export const drive: typeof Fake.drive = notIntegratedNamespace("drive") as never;
 export const editComment: typeof Fake.editComment = notIntegrated("editComment") as never;
 export const editProposal: typeof Fake.editProposal = notIntegrated("editProposal") as never;

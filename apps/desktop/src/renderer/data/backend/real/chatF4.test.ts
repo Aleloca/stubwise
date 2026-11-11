@@ -186,12 +186,22 @@ describe("gli allegati", () => {
     Object.assign(window, { stubwise: { api: { request: vi.fn(), download } } });
     expect(await chat.downloadAttachment(A1)).toEqual({ ok: true });
     expect(download).toHaveBeenCalledWith(`/api/chat/attachments/${A1}/download`);
-    // Il web: niente main, un link (col cookie di sessione).
+    // Il web: niente main. Prima si chiede se c'è (un 302, senza seguirlo), poi un
+    // iframe nascosto lo fa partire: la pagina resta dov'è, le bozze anche.
     Object.assign(window, { stubwise: undefined });
-    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    install({ [`GET /api/chat/attachments/${A1}/download`]: { status: 302, body: null } });
+    const before = window.location.href;
     expect(await chat.downloadAttachment(A1)).toEqual({ ok: true });
-    const anchor = click.mock.contexts[0] as HTMLAnchorElement;
-    expect(anchor.getAttribute("href")).toBe(`/api/chat/attachments/${A1}/download`);
-    click.mockRestore();
+    expect(document.querySelector<HTMLIFrameElement>(`iframe[src="/api/chat/attachments/${A1}/download"]`)).not.toBeNull();
+    expect(window.location.href).toBe(before);
+    // Non c'è più (404): lo si dice, e niente parte.
+    install({ [`GET /api/chat/attachments/${A2}/download`]: { status: 404, body: { code: "not_found", message: "x" } } });
+    expect(await chat.downloadAttachment(A2)).toEqual({ ok: false, reason: "not_found" });
+    expect(document.querySelector(`iframe[src="/api/chat/attachments/${A2}/download"]`)).toBeNull();
+    // La sessione scaduta (401) e un altro guasto.
+    install({ [`GET /api/chat/attachments/${A2}/download`]: { status: 401, body: { code: "unauthorized", message: "x" } } });
+    expect(await chat.downloadAttachment(A2)).toEqual({ ok: false, reason: "unauthenticated" });
+    install({ [`GET /api/chat/attachments/${A2}/download`]: { status: 400, body: { code: "storage_not_configured", message: "x" } } });
+    expect(await chat.downloadAttachment(A2)).toEqual({ ok: false, reason: "failed" });
   });
 });

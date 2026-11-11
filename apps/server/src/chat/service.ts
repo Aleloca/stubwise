@@ -40,7 +40,7 @@ import { requestVisibility } from "../services/project-requests.js";
 import { visibleTasksCondition } from "../services/task-view.js";
 import { citationsToStore, citationViews, hasVisibleCitationSql } from "./citations.js";
 import { eventViews } from "./events.js";
-import { attachmentsOf, bindChatAttachments, chatAttachmentViews, dropChatAttachments } from "./attachments.js";
+import { attachmentsOf, bindChatAttachments, chatAttachmentViews, dropChatAttachments, storageKeysOfChannel } from "./attachments.js";
 import { callContext, callsClaude, claudeReplyViews, rootsWithClaudeWorking, startClaudeReply, stopSession } from "./claude.js";
 import {
   accessFrom,
@@ -698,13 +698,20 @@ export async function updateChannel(
 }
 
 /** Elimina un canale coi suoi messaggi: solo chi gestisce i canali dell'ambito (R-G3), mai il «general» né un DM. */
-export async function deleteChannel(db: Db, viewer: ChatViewer, id: string): Promise<void> {
+export async function deleteChannel(db: Db, viewer: ChatViewer, id: string): Promise<string[]> {
   const channel = await visibleChannel(db, viewer, id);
   if (!channel) throw notFound();
   if (channel.isGeneral) throw new ChatError(409, "general_channel", "The general channel can't be changed");
   if (!(await channelAccess(db, viewer, channel)).canDelete) throw forbidden("Can't delete this channel");
-  await db.delete(chatChannels).where(eq(chatChannels.id, id));
+  // Gli allegati vanno via in cascata: le loro chiavi dello storage si leggono
+  // prima, nella stessa transazione, e la rotta le toglie dopo il commit.
+  const keys = await db.transaction(async (tx) => {
+    const found = await storageKeysOfChannel(tx, id);
+    await tx.delete(chatChannels).where(eq(chatChannels.id, id));
+    return found;
+  });
   await notifyChannel(db, id);
+  return keys;
 }
 
 /** La chiave di un DM: gli id delle sue persone, ordinati. */

@@ -75,7 +75,8 @@ export async function resolveDownload(raw: unknown, deps: ApiProxyDeps): Promise
   }
   if (res.status === 404 || res.status === 403) return { ok: false, reason: "not_found" };
   const location = res.headers.get("location");
-  if (![301, 302, 303, 307, 308].includes(res.status) || !location) return { ok: false, reason: "failed" };
+  // Solo un 302, come la rotta (un altro reindirizzamento non è il download firmato).
+  if (res.status !== 302 || !location) return { ok: false, reason: "failed" };
   let url: string;
   try {
     url = new URL(location, base).href;
@@ -84,6 +85,73 @@ export async function resolveDownload(raw: unknown, deps: ApiProxyDeps): Promise
   }
   if (!isAllowedDownloadLocation(url, base)) return { ok: false, reason: "failed" };
   return { ok: true, url };
+}
+
+/** Un URL nella forma che usa Electron (`new URL().href`): la query scritta in due modi è la stessa. */
+function normalizedUrl(url: string): string {
+  try {
+    return new URL(url).href;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * I download chiesti con `api:download` e non ancora partiti, per URL firmato
+ * normalizzato: una CODA per URL (due richieste dello stesso file nello
+ * stesso secondo hanno ognuna il suo esito). `add` restituisce il ritiro: il
+ * timer di chi aspetta lo chiama, e sa se c'era ancora.
+ */
+export function createPendingDownloads<T>() {
+  const queues = new Map<string, T[]>();
+  return {
+    add(url: string, item: T): () => boolean {
+      const key = normalizedUrl(url);
+      queues.set(key, [...(queues.get(key) ?? []), item]);
+      return () => {
+        const queue = queues.get(key) ?? [];
+        const index = queue.indexOf(item);
+        if (index === -1) return false;
+        queue.splice(index, 1);
+        if (queue.length === 0) queues.delete(key);
+        return true;
+      };
+    },
+    has(url: string): boolean {
+      return (queues.get(normalizedUrl(url))?.length ?? 0) > 0;
+    },
+    take(url: string): T | undefined {
+      const key = normalizedUrl(url);
+      const queue = queues.get(key);
+      const item = queue?.shift();
+      if (queue && queue.length === 0) queues.delete(key);
+      return item;
+    },
+  };
+}
+
+/**
+ * Chi passa da `will-download`:
+ * - `requested`: un URL firmato chiesto con `api:download` (in attesa);
+ * - `local`: un `blob:` o un `data:` della finestra dell'app — i file che il
+ *   renderer prepara da sé (i codici di backup del secondo fattore, la guida
+ *   dell'SDK): si salvano, sempre col «Salva»;
+ * - `reject`: tutto il resto (un http(s) non chiesto, un blob da fuori, altri schemi).
+ */
+export function downloadDecision(
+  url: string,
+  isPending: (url: string) => boolean,
+  fromAppContents: boolean,
+): "requested" | "local" | "reject" {
+  let protocol: string;
+  try {
+    protocol = new URL(url).protocol;
+  } catch {
+    return "reject";
+  }
+  if (protocol === "blob:" || protocol === "data:") return fromAppContents ? "local" : "reject";
+  if ((protocol === "https:" || protocol === "http:") && isPending(url)) return "requested";
+  return "reject";
 }
 
 /**

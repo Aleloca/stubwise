@@ -71,7 +71,7 @@ export {
   withdrawDecision,
 } from "./taskDetail";
 export { listMilestones, listProjectStatuses, setProjectStatuses, setStallThresholds } from "./statuses";
-export { addAttachment, removeAttachment } from "./attachments";
+export { addAttachment, downloadTaskAttachment, removeAttachment } from "./attachments";
 export { listDayArrangements, planTask, setDay } from "./planning";
 export {
   archiveRequest,

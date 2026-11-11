@@ -17,6 +17,7 @@ import { channelName } from "../../../domain/chatLabel";
 import { claudeFieldsOf, forgetChatClaudeCaches, loadClaudeExtras, proposalActionsOf } from "./chatClaude";
 import { confirmOnServer } from "./claudeChatActions";
 import { appClient, session } from "./client";
+import { downloadByPath } from "./download";
 import { partialNamespace } from "./notIntegrated";
 import { listPeople } from "./people";
 import { listProjects } from "./projects";
@@ -644,22 +645,9 @@ const updateChannel: Chat["updateChannel"] = async (channelId, patch) =>
 const setPublishedEvents: Chat["setPublishedEvents"] = async (channelId, events) =>
   toChannelView(await call(() => appClient().chat.channels.setEvents(channelId, events)));
 
-/**
- * Il download di un allegato (fetta 4). Sul desktop lo fa il main (`api:download`:
- * col token, segue il 302 e chiede dove salvare): qui passa solo il percorso.
- * Sul web un link allo stesso percorso: il cookie di sessione basta, e il
- * browser segue il 302 verso l'URL firmato (`Content-Disposition: attachment`).
- */
-const downloadAttachment: Chat["downloadAttachment"] = async (attachmentId) => {
-  const path = appClient().chat.attachments.downloadPath(attachmentId);
-  const main = window.stubwise?.api?.download;
-  if (main) return main(path);
-  const link = document.createElement("a");
-  link.href = path;
-  link.rel = "noopener";
-  link.click();
-  return { ok: true };
-};
+/** Il download di un allegato (fetta 4): dal main sul desktop, controllato e in un iframe sul web (`download.ts`). */
+const downloadAttachment: Chat["downloadAttachment"] = async (attachmentId) =>
+  downloadByPath(appClient().chat.attachments.downloadPath(attachmentId));
 
 const archiveChannel: Chat["archiveChannel"] = async (channelId, archived = true) =>
   toChannelView(await call(() => appClient().chat.channels.update(channelId, { archived })));

@@ -13,7 +13,27 @@ import type { ObjectStorage, S3Config } from "./index.js";
  * injection). Il risultato finisce in `attachment; filename="..."`.
  */
 function sanitizeFilename(filename: string): string {
-  return filename.replace(/["\r\n]/g, "");
+  // Tutti i caratteri di controllo (non solo CR/LF), virgolette e backslash
+  // (review della fetta 4 della Chat): niente che chiuda il valore quoted o
+  // spezzi l'header.
+  return filename.replace(/[\u0000-\u001f\u007f"\\]/g, "");
+}
+
+/** RFC 5987: `encodeURIComponent` più i caratteri che lì restano letterali. */
+function encodeRfc5987(value: string): string {
+  return encodeURIComponent(value).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+/**
+ * Il `Content-Disposition` di un download (allegati dei ticket e della Chat):
+ * sempre `attachment`. Un nome ASCII va in `filename="…"`; uno con caratteri
+ * non ASCII ha un ripiego ASCII (`_` al posto di quei caratteri) e il nome vero
+ * in `filename*=UTF-8''…` (RFC 6266), che i browser preferiscono.
+ */
+export function contentDisposition(filename: string): string {
+  const clean = sanitizeFilename(filename);
+  const ascii = clean.replace(/[^\x20-\x7e]/g, "_");
+  return ascii === clean ? `attachment; filename="${clean}"` : `attachment; filename="${ascii}"; filename*=UTF-8''${encodeRfc5987(clean)}`;
 }
 
 /**
@@ -51,7 +71,7 @@ export function createS3Storage(config: S3Config): ObjectStorage {
         new GetObjectCommand({
           Bucket: config.bucket,
           Key: key,
-          ResponseContentDisposition: `attachment; filename="${sanitizeFilename(filename)}"`,
+          ResponseContentDisposition: contentDisposition(filename),
         }),
         { expiresIn: expiresInSeconds },
       );

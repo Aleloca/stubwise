@@ -186,6 +186,19 @@ describe("chat: Review Focus 1 — privato e DM per Roberta (full admin)", () =>
   });
 });
 
+describe("chat: gli allegati mandati non tengono il file della casella (review della fetta 4)", () => {
+  it("il Blob della bozza non resta nel messaggio, né nello stato né nella vista", async () => {
+    as("p-giulia");
+    const sent = await chat.sendMessage("ch-stw-desktop", {
+      text: "the mock",
+      attachments: [{ id: "att-x", name: "mock.png", sizeBytes: 4, kind: "image", file: new Blob(["png!"]) }],
+    });
+    expect(sent.attachments).toEqual([{ id: "att-x", name: "mock.png", sizeBytes: 4, kind: "image" }]);
+    const stored = state.chatMessages.find((m) => m.id === sent.id)!;
+    expect(stored.attachments[0]).not.toHaveProperty("file");
+  });
+});
+
 describe("chat: Review Focus 3 — un messaggio eliminato non ha più testo, da nessuna parte", () => {
   it("canale, thread, ricerca, menzioni, notifiche e domande", async () => {
     const SECRET = "zebracode";

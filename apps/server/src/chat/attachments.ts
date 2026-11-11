@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { chatMessageAttachments, type Db } from "@stubwise/db";
+import { attachments, chatChannels, chatMessageAttachments, chatMessages, tickets, type Db } from "@stubwise/db";
 import { CHAT_ATTACHMENTS_PER_MESSAGE, chatAttachmentAllowed, type ChatAttachmentView } from "@stubwise/shared";
 import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import type { ObjectStorage } from "../storage/index.js";
@@ -29,6 +29,41 @@ async function readable(db: Db, viewer: ChatViewer, id: string): Promise<{ chann
   const access = await channelAccess(db, viewer, channel);
   return access.canRead ? { channel, access } : null;
 }
+
+/**
+ * Quanto una persona può tenere IN SOSPESO (caricato e non ancora mandato), in
+ * tutti i canali (review della fetta 4): un tetto contro chi riempie lo
+ * storage senza mai mandare, oltre alla potatura delle 24 ore.
+ */
+export const CHAT_PENDING_MAX_BYTES = 200 * 1024 * 1024;
+
+async function pendingBytesOf(db: Db, userId: string): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`coalesce(sum(${chatMessageAttachments.sizeBytes}), 0)::bigint` })
+    .from(chatMessageAttachments)
+    .where(and(eq(chatMessageAttachments.uploaderId, userId), isNull(chatMessageAttachments.messageId)));
+  return Number(row?.total ?? 0);
+}
+
+/**
+ * Chi può caricare nel canale, PRIMA di leggere il file (review della fetta
+ * 4): il canale si legge, non è archiviato, chi carica ci scrive, e non ha già
+ * pieno il tetto dei sospesi. Così un file grande di chi non può non si legge
+ * nemmeno.
+ */
+export async function assertCanUpload(db: Db, viewer: ChatViewer, channelId: string, incomingBytes = 0): Promise<void> {
+  const found = await readable(db, viewer, channelId);
+  if (!found) throw new ChatAttachmentError(404, "not_found", "Not found");
+  if (found.channel.archivedAt !== null) throw new ChatAttachmentError(409, "channel_archived", "The channel is archived");
+  if (!found.access.canWrite) throw new ChatAttachmentError(403, "not_member", "Join the channel to attach files");
+  const pending = await pendingBytesOf(db, viewer.id);
+  if (pending >= CHAT_PENDING_MAX_BYTES || pending + incomingBytes > CHAT_PENDING_MAX_BYTES) {
+    throw new ChatAttachmentError(409, "pending_quota", "Too many files waiting to be sent: send or remove some first");
+  }
+}
+
+/** La lunghezza massima del nome di un file. */
+export const CHAT_ATTACHMENT_NAME_MAX = 255;
 
 /** Quanto resta in sospeso un allegato caricato e mai mandato. */
 export const CHAT_PENDING_TTL_MS = 24 * 60 * 60 * 1000;
@@ -74,12 +109,11 @@ export async function uploadChatAttachment(
   channelId: string,
   file: { filename: string; mimeType: string; body: Buffer },
 ): Promise<ChatAttachmentView> {
-  const found = await readable(db, viewer, channelId);
-  if (!found) throw new ChatAttachmentError(404, "not_found", "Not found");
-  const { channel, access } = found;
-  if (channel.archivedAt !== null) throw new ChatAttachmentError(409, "channel_archived", "The channel is archived");
-  if (!access.canWrite) throw new ChatAttachmentError(403, "not_member", "Join the channel to attach files");
+  // Di nuovo, col peso del file: la rotta ha già controllato prima di leggerlo.
+  await assertCanUpload(db, viewer, channelId, file.body.length);
   const filename = displayName(file.filename);
+  // Un nome al più di 255 caratteri (review della fetta 4): il limite dei file system.
+  if (filename.length > CHAT_ATTACHMENT_NAME_MAX) throw new ChatAttachmentError(400, "invalid_filename", `File names are at most ${CHAT_ATTACHMENT_NAME_MAX} characters`);
   if (!chatAttachmentAllowed(filename, file.mimeType)) throw new ChatAttachmentError(400, "unsupported_type", "Unsupported file type");
   const id = randomUUID();
   const storageKey = `chat/${channelId}/${id}/${sanitizeForKey(filename)}`;
@@ -184,6 +218,31 @@ export async function deleteStoredObjects(storage: ObjectStorage | null, keys: r
 }
 
 /**
+ * Le chiavi dello storage che una cancellazione in CASCATA porterebbe via
+ * senza dirlo (review della fetta 4): gli allegati di un canale, o di tutti i
+ * canali di un progetto più gli allegati dei suoi ticket. Si leggono PRIMA
+ * della delete e si tolgono dallo storage DOPO il commit.
+ */
+export async function storageKeysOfChannel(db: Db | Tx, channelId: string): Promise<string[]> {
+  const rows = await db.select({ key: chatMessageAttachments.storageKey }).from(chatMessageAttachments).where(eq(chatMessageAttachments.channelId, channelId));
+  return rows.map((r) => r.key);
+}
+
+export async function storageKeysOfProject(db: Db | Tx, projectId: string): Promise<string[]> {
+  const chat = await db
+    .select({ key: chatMessageAttachments.storageKey })
+    .from(chatMessageAttachments)
+    .innerJoin(chatChannels, eq(chatChannels.id, chatMessageAttachments.channelId))
+    .where(eq(chatChannels.projectId, projectId));
+  const ticket = await db
+    .select({ key: attachments.storageKey })
+    .from(attachments)
+    .innerJoin(tickets, eq(tickets.id, attachments.ticketId))
+    .where(eq(tickets.projectId, projectId));
+  return [...chat, ...ticket].map((r) => r.key);
+}
+
+/**
  * L'allegato da scaricare, se chi guarda può: di un messaggio vivo di un
  * canale che LEGGE (le regole di `access.ts`: DM e privati compresi, mai chi
  * gestisce senza esserne membro), o in sospeso e suo. Altrimenti null (404,
@@ -193,6 +252,10 @@ export async function downloadableAttachment(db: Db, viewer: ChatViewer, id: str
   const [row] = await db.select().from(chatMessageAttachments).where(eq(chatMessageAttachments.id, id));
   if (!row) return null;
   if (row.messageId === null) return row.uploaderId === viewer.id ? row : null;
+  // Il messaggio deve essere vivo (review della fetta 4): una riga rimasta su un
+  // messaggio eliminato (un server di prima non toglieva gli allegati) non si scarica.
+  const [message] = await db.select({ deletedAt: chatMessages.deletedAt }).from(chatMessages).where(eq(chatMessages.id, row.messageId));
+  if (!message || message.deletedAt !== null) return null;
   return (await readable(db, viewer, row.channelId)) ? row : null;
 }
 
@@ -215,21 +278,31 @@ export async function removePendingAttachment(db: Db, viewer: ChatViewer, id: st
  * vanno, righe e oggetti. La chiamano il timer del server e ogni caricamento.
  */
 export async function pruneChatUploads(db: Db, storage: ObjectStorage | null, log: (msg: string) => void, limit = 200): Promise<number> {
+  // Senza storage non si pota (review della fetta 4): togliere la riga
+  // lascerebbe l'oggetto per sempre, senza più nessuno che lo sappia.
+  if (!storage) return 0;
   const old = await db
-    .select({ id: chatMessageAttachments.id })
+    .select({ id: chatMessageAttachments.id, storageKey: chatMessageAttachments.storageKey })
     .from(chatMessageAttachments)
     .where(
       and(isNull(chatMessageAttachments.messageId), lt(chatMessageAttachments.createdAt, sql`now() - make_interval(secs => ${CHAT_PENDING_TTL_MS / 1000})`)),
     )
     .limit(limit);
-  if (old.length === 0) return 0;
-  const keys = await db.transaction(async (tx) => {
-    const rows = await tx
+  let pruned = 0;
+  for (const row of old) {
+    // Prima l'oggetto, poi la riga: se lo storage rifiuta, la riga resta e il
+    // giro dopo ci riprova. Una riga legata nel frattempo non si tocca.
+    try {
+      await storage.deleteObject(row.storageKey);
+    } catch (error) {
+      log(`[chat] allegato in sospeso ${row.id} non tolto dallo storage, riprovo al giro dopo: ${String(error)}`);
+      continue;
+    }
+    const gone = await db
       .delete(chatMessageAttachments)
-      .where(and(inArray(chatMessageAttachments.id, old.map((r) => r.id)), isNull(chatMessageAttachments.messageId)))
-      .returning({ storageKey: chatMessageAttachments.storageKey });
-    return rows.map((r) => r.storageKey);
-  });
-  await deleteStoredObjects(storage, keys, log);
-  return keys.length;
+      .where(and(eq(chatMessageAttachments.id, row.id), isNull(chatMessageAttachments.messageId)))
+      .returning({ id: chatMessageAttachments.id });
+    pruned += gone.length;
+  }
+  return pruned;
 }

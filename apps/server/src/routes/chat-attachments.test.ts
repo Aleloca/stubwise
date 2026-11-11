@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { chatChannels, chatMessageAttachments } from "@stubwise/db";
+import { chatChannels, chatMessageAttachments, chatMessages } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { pruneChatUploads } from "../chat/attachments.js";
@@ -256,3 +256,116 @@ describe("la ricerca e la potatura", () => {
     expect(storage.deleteObject).toHaveBeenCalledWith(oldRow!.storageKey);
   });
 });
+
+describe("review della fetta 4 (11 nov 2026)", () => {
+  it("2. eliminare un canale porta via dallo storage gli oggetti dei suoi allegati", async () => {
+    const ch = await openChannel(lead);
+    const a = (await upload(lead, ch, { filename: "canale.pdf", contentType: "application/pdf" })).json() as Att;
+    await as(lead, "POST", `/api/chat/channels/${ch}/messages`, { text: "x", attachmentIds: [a.id] });
+    const pending = (await upload(lead, ch, { filename: "sospeso.pdf", contentType: "application/pdf" })).json() as Att;
+    const keys = (await t.db.select().from(chatMessageAttachments).where(inArray(chatMessageAttachments.id, [a.id, pending.id]))).map((r) => r.storageKey);
+    expect((await as(lead, "DELETE", `/api/chat/channels/${ch}`)).statusCode).toBe(204);
+    for (const key of keys) expect(storage.deleteObject).toHaveBeenCalledWith(key);
+  });
+
+  it("2. eliminare un progetto porta via dallo storage gli allegati della sua Chat e dei suoi ticket", async () => {
+    const { projectId: other } = await seedRepository(t.db);
+    await addMember(app, other, lead.id, "project_lead");
+    const [g] = await t.db
+      .select({ id: chatChannels.id })
+      .from(chatChannels)
+      .where(and(eq(chatChannels.projectId, other), eq(chatChannels.isGeneral, true)));
+    const a = (await upload(lead, g!.id, { filename: "progetto.pdf", contentType: "application/pdf" })).json() as Att;
+    const [row] = await t.db.select().from(chatMessageAttachments).where(eq(chatMessageAttachments.id, a.id));
+    const res = await as(lead, "DELETE", `/api/projects/${other}`);
+    expect(res.statusCode, res.body).toBe(204);
+    expect(storage.deleteObject).toHaveBeenCalledWith(row!.storageKey);
+  });
+
+  it("3. l'accesso si controlla PRIMA di leggere il file: chi non scrive riceve 403 anche con un file troppo grande", async () => {
+    const ch = await openChannel(dev);
+    const big = await upload(dev2, ch, { filename: "grande.zip", contentType: "application/zip", content: Buffer.alloc(25 * 1024 * 1024 + 1) });
+    expect(big.statusCode).toBe(403);
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("3. un tetto per persona sui file in sospeso", async () => {
+    const g = await general();
+    const heavy = await createUserWithSession(app, "heavy-at@example.com");
+    await addMember(app, projectId, heavy.id, "developer");
+    await t.db.insert(chatMessageAttachments).values(
+      Array.from({ length: 8 }, (_, i) => ({
+        channelId: g,
+        uploaderId: heavy.id,
+        filename: `pieno-${i}.zip`,
+        mimeType: "application/zip",
+        sizeBytes: 25 * 1024 * 1024,
+        storageKey: `chat/${g}/pieno-${heavy.id}-${i}`,
+      })),
+    );
+    const res = await upload(heavy, g, { filename: "ancora.pdf", contentType: "application/pdf" });
+    expect(res.statusCode, res.body).toBe(409);
+    expect(res.json()).toMatchObject({ code: "pending_quota" });
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("3. la rotta di caricamento ha un tetto di richieste per persona", async () => {
+    const g = await general();
+    const busy = await createUserWithSession(app, "busy-at@example.com");
+    await addMember(app, projectId, busy.id, "developer");
+    const codes: number[] = [];
+    for (let i = 0; i < 61; i++) codes.push((await upload(busy, g, { filename: `f${i}.txt`, contentType: "text/plain" })).statusCode);
+    expect(codes.slice(0, 60).every((c) => c === 201)).toBe(true);
+    expect(codes[60]).toBe(429);
+  });
+
+  it("4. la potatura: senza storage non tocca niente; un oggetto che lo storage rifiuta tiene la riga per il giro dopo", async () => {
+    const g = await general();
+    // Righe scritte a mano: un caricamento vero lancerebbe una potatura sua, in corsa col test.
+    const [a, b] = await t.db
+      .insert(chatMessageAttachments)
+      .values(
+        ["a", "b"].map((x) => ({
+          channelId: g,
+          uploaderId: dev.id,
+          filename: `vecchio-${x}.pdf`,
+          mimeType: "application/pdf",
+          sizeBytes: 3,
+          storageKey: `chat/${g}/vecchio-${x}-${crypto.randomUUID()}`,
+          createdAt: sql`now() - interval '25 hours'`,
+        })),
+      )
+      .returning({ id: chatMessageAttachments.id });
+    const ids = async () => (await t.db.select({ id: chatMessageAttachments.id }).from(chatMessageAttachments).where(inArray(chatMessageAttachments.id, [a!.id, b!.id]))).map((r) => r.id);
+    await pruneChatUploads(t.db, null, () => undefined);
+    expect((await ids()).sort()).toEqual([a!.id, b!.id].sort());
+    const [aRow] = await t.db.select().from(chatMessageAttachments).where(eq(chatMessageAttachments.id, a!.id));
+    const failing = fakeStorage();
+    failing.deleteObject.mockImplementation(async (key: string) => {
+      if (key === aRow!.storageKey) throw new Error("storage giù");
+    });
+    await pruneChatUploads(t.db, failing, () => undefined);
+    expect(await ids()).toEqual([a!.id]);
+    // Al giro dopo, con lo storage tornato, se ne va anche lei.
+    await pruneChatUploads(t.db, fakeStorage(), () => undefined);
+    expect(await ids()).toEqual([]);
+  });
+
+  it("5. il download vuole il messaggio vivo (anche se la riga è rimasta, come sotto un server di prima)", async () => {
+    const g = await general();
+    const a = (await upload(dev, g, { filename: "resta.pdf", contentType: "application/pdf" })).json() as Att;
+    const msg = idOf(await as(dev, "POST", `/api/chat/channels/${g}/messages`, { text: "con file", attachmentIds: [a.id] }));
+    // Un server della fetta 3 elimina il messaggio senza toccare gli allegati.
+    await t.db.update(chatMessages).set({ body: "", deletedAt: new Date() }).where(eq(chatMessages.id, msg));
+    expect((await as(lead, "GET", `/api/chat/attachments/${a.id}/download`)).statusCode).toBe(404);
+  });
+
+  it("5. un nome di file oltre 255 caratteri: 400", async () => {
+    const g = await general();
+    const res = await upload(dev, g, { filename: `${"n".repeat(252)}.pdf`, contentType: "application/pdf" });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "invalid_filename" });
+    expect((await upload(dev, g, { filename: `${"n".repeat(251)}.pdf`, contentType: "application/pdf" })).statusCode).toBe(201);
+  });
+});
+

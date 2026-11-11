@@ -5670,6 +5670,9 @@ export const chatMessages = pgTable(
     eventRefId: uuid("event_ref_id"),
     /** `pr_opened`/`pr_merged`: la riga della PR (numero e repository a lettura). */
     eventPrId: uuid("event_pr_id").references(() => ticketRepositories.id, { onDelete: "set null" }),
+    /** Numero e URL della PR al momento dell'evento: la riga della PR è mutabile. */
+    eventPrNumber: integer("event_pr_number"),
+    eventPrUrl: text("event_pr_url"),
   },
   (table) => [
     index("chat_messages_channel_idx").on(table.channelId, table.createdAt),
@@ -5681,7 +5684,7 @@ export const chatMessages = pgTable(
     index("chat_messages_agent_session_idx").on(table.agentSessionId).where(sql`${table.agentSessionId} IS NOT NULL`),
     check(
       "chat_messages_event_chk",
-      sql`(${table.eventKind} is null and ${table.eventRefKind} is null and ${table.eventRefId} is null and ${table.eventPrId} is null) or (${table.kind} = 'system' and ${table.eventKind} in ('release_page', 'pr_opened', 'pr_merged', 'milestone_reached', 'brief_ready', 'request_new', 'task_closed') and ${table.eventRefKind} in ('task', 'request', 'milestone', 'brief', 'release') and ${table.eventRefId} is not null)`,
+      sql`(${table.eventKind} is null and ${table.eventRefKind} is null and ${table.eventRefId} is null and ${table.eventPrId} is null and ${table.eventPrNumber} is null and ${table.eventPrUrl} is null) or (${table.kind} = 'system' and ${table.eventKind} in ('release_page', 'pr_opened', 'pr_merged', 'milestone_reached', 'brief_ready', 'request_new', 'task_closed') and ${table.eventRefKind} in ('task', 'request', 'milestone', 'brief', 'release') and ${table.eventRefId} is not null)`,
     ),
   ],
 );

@@ -36,6 +36,7 @@ vi.mock("@aws-sdk/s3-request-presigner", () => ({
 
 // Import dopo i mock.
 const { createS3Storage, s3ConfigFromSettings } = await import("./index.js");
+const { contentDisposition } = await import("./s3.js");
 
 const config = {
   endpoint: "https://s3.example.com",
@@ -199,3 +200,25 @@ describe("createS3Storage", () => {
     expect(disposition.ResponseContentDisposition).toContain("evilname.pdf");
   });
 });
+
+describe("contentDisposition (review della fetta 4): ticket e Chat scaricano con la stessa regola", () => {
+  it("toglie tutti i caratteri di controllo, virgolette e backslash", () => {
+    expect(contentDisposition("re\tpo\u0000rt\u007f\"x\\.pdf")).toBe('attachment; filename="reportx.pdf"');
+  });
+  it("un nome non ASCII ha il ripiego ASCII e filename* in UTF-8", () => {
+    expect(contentDisposition("Fattura già (ottobre).pdf")).toBe(
+      "attachment; filename=\"Fattura gi_ (ottobre).pdf\"; filename*=UTF-8''Fattura%20gi%C3%A0%20%28ottobre%29.pdf",
+    );
+  });
+  it("getSignedDownloadUrl la usa, per una chiave di ticket e per una della Chat", async () => {
+    getSignedUrlMock.mockResolvedValue("https://signed.example/url");
+    const storage = createS3Storage(config);
+    for (const key of ["tickets/t/1/a.pdf", "chat/c/1/a.pdf"]) {
+      await storage.getSignedDownloadUrl(key, "Città.pdf");
+    }
+    const dispositions = getSignedUrlMock.mock.calls.map((c) => ((c[1] as GetObjectCommand).input as { ResponseContentDisposition: string }).ResponseContentDisposition);
+    expect(dispositions).toEqual([contentDisposition("Città.pdf"), contentDisposition("Città.pdf")]);
+    expect(dispositions[0]).toContain("filename*=UTF-8''Citt%C3%A0.pdf");
+  });
+});
+
