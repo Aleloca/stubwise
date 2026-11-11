@@ -1,6 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { chatChannels, chatMessageCitations, chatMessages, docGenerations, docPageCodes, docPages, projects, repositories } from "./schema.js";
+import { ensureDocPageCodes } from "./doc-page-codes.js";
 import { seedRepository, seedRepositoryInProject, startTestDb, type TestDb } from "./testing.js";
 
 /**
@@ -95,6 +96,48 @@ describe("0142 i codici delle pagine Docs", () => {
     console.log(`[0142] 300 pagine in un INSERT: ${(performance.now() - started).toFixed(0)} ms`);
     const numbers = (await t.db.select({ n: docPageCodes.number }).from(docPageCodes).where(eq(docPageCodes.repositoryId, repo3))).map((r) => r.n);
     expect(new Set(numbers).size).toBe(300);
+  });
+
+  it("una transazione LUNGA che inserisce pagine coi codici già dati da `ensureDocPageCodes` non blocca una pagina manuale nuova dello stesso progetto", async () => {
+    const repo4 = await seedRepositoryInProject(t.db, projectId);
+    const g = await generation(repo4);
+    const slugs = ["long-a", "long-b"];
+    // Il passo breve, fuori dalla transazione lunga (come finalize e il giro notturno).
+    await ensureDocPageCodes(t.db, repo4, slugs);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let inserted!: () => void;
+    const didInsert = new Promise<void>((r) => (inserted = r));
+    const long = t.db.transaction(async (tx) => {
+      await tx.insert(docPages).values(slugs.map((slug) => ({ repositoryId: repo4, generationId: g, kind: "technical" as const, slug, title: slug })));
+      inserted();
+      await gate; // gli embedding: minuti, in produzione
+    });
+    try {
+      await didInsert;
+      const manual = t.db.insert(docPages).values({ repositoryId: repositoryId, kind: "manual", slug: "while-long", title: "Mentre", isManual: true });
+      const outcome = await Promise.race([manual.then(() => "done"), new Promise((r) => setTimeout(() => r("blocked"), 3000))]);
+      expect(outcome).toBe("done");
+      expect(await codeOf(repositoryId, "while-long")).not.toBeNull();
+    } finally {
+      release();
+      await long;
+    }
+    const numbers = (await t.db.select({ n: docPageCodes.number }).from(docPageCodes).where(eq(docPageCodes.projectId, projectId))).map((r) => r.n);
+    expect(new Set(numbers).size).toBe(numbers.length);
+    expect(await codeOf(repo4, "long-a")).not.toBeNull();
+  });
+
+  it("`ensureDocPageCodes` è idempotente: un codice per slug, una volta sola, in numeri consecutivi", async () => {
+    const repo5 = await seedRepositoryInProject(t.db, projectId);
+    await ensureDocPageCodes(t.db, repo5, ["x", "y", "x"]);
+    const first = await codeOf(repo5, "x");
+    await ensureDocPageCodes(t.db, repo5, ["x", "z"]);
+    expect((await codeOf(repo5, "x"))!.id).toBe(first!.id);
+    const numbers = (await t.db.select({ n: docPageCodes.number }).from(docPageCodes).where(eq(docPageCodes.repositoryId, repo5))).map((r) => r.n).sort((a, b) => a - b);
+    expect(numbers).toHaveLength(3);
+    expect(numbers[1]).toBe(numbers[0]! + 1);
+    await ensureDocPageCodes(t.db, repo5, []);
   });
 
   it("il backfill dei codici: le pagine visibili, per repository, tipo e posizione; le generazioni vecchie no", async () => {

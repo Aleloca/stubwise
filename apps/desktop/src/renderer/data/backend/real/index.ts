@@ -35,6 +35,8 @@ export const claude: typeof Fake.claude = partialNamespace<typeof Fake.claude>("
 export { instance } from "./instanceChat";
 // Area 4, fetta 1: la Chat fra persone (canali di progetto, messaggi, menzioni,
 // lo stream); DM, privati, ricerca, domande, @Claude ed eventi restano «non integrati».
+// I Docs (area 5, fetta 1): le letture, poi le scritture e il grafo (`docs.ts`).
+export { docs } from "./docs";
 export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
   ...chatFunctions,
   channelStream,

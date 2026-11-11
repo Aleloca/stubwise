@@ -1786,6 +1786,12 @@ export interface DocSpace {
   projectId: string;
   /** Il nome del repository. */
   name: string;
+  /**
+   * La chiave dell'indirizzo dello spazio (`#/p/<CODE>/docs/<chiave>`): lo slug
+   * del repository nella build app (stabile, sicuro in un URL). Assente nel
+   * prototipo, dove la chiave è il nome. Si legge con `spaceKey`.
+   */
+  slug?: string;
   generation: DocGeneration;
   brief: RepoBrief | null;
   releases: DocRelease[];

@@ -175,6 +175,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - Limite accettato (fetta 1): `provider_error` nello stato della generazione
   non si emette, perché manca un segnale strutturato che lo distingua da
   `other`.
+- Differenze dichiarate del renderer (fetta 1, *S*): le «pagine toccate» da
+  una nota di rilascio (il server non le dà); l'estratto negli elenchi; lo
+  slug di una manuale che non cambia; il riassunto e le vicine delle comunità
+  del grafo; «Abilita» il grafo dal desktop (impostazioni del repository non
+  integrate). Elenco completo in `apps/desktop/docs/integration-area5-f1.md`.
+- Stato della PR di setup del grafo *(S, fetta 1, review del renderer)*: il
+  server dà l'indirizzo della PR (`setupPrUrl`), non se è aperta, mergiata o
+  chiusa; il desktop la mostra sempre aperta.
+- Chat dei Docs senza streaming *(S, fetta 1)*: se `CHAT_MAX_TOKENS` sale molto
+  o arriva un modello lento, il primo a scattare è il timeout di 300 s del main
+  (undici); la strada è lo streaming, non un timeout più alto.
 
 ## Area 6 — Posta e Calendario
 

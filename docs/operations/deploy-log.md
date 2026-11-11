@@ -3625,9 +3625,26 @@ deploy o di un rollback che la tocca.
   Migrazione **0142**:
   - la tabella `doc_page_codes`;
   - il trigger `doc_pages_code` su `doc_pages`;
+  - la funzione `stubwise_ensure_doc_page_codes(repository, slugs)`, che il
+    trigger chiama per ogni riga e che il worker chiama PRIMA delle sue
+    transazioni lunghe (finalize, creazione notturna), in un passo breve e
+    suo: così il lock per progetto non resta tenuto durante gli embedding;
   - le funzioni `stubwise_backfill_doc_page_codes()` e
     `stubwise_doc_citations_to_codes()`, chiamate una volta: i codici delle
-    pagine visibili e le citazioni `doc` portate al codice.
+    pagine visibili e le citazioni `doc` portate al codice. Le citazioni di
+    una nota di rilascio (che non ha codice) se ne vanno.
+
+  Gli **embedding delle pagine manuali** scritte prima della 0142 li recupera
+  il server da solo: all'avvio e poi una volta l'ora, a lotti, fermandosi al
+  primo errore dell'embedder (`backfillManualPageEmbeddings`). Controllo
+  dopo il deploy, a ollama su: `select count(*) from doc_pages p where
+  p.is_manual and length(btrim(p.body)) > 0 and not exists (select 1 from
+  doc_chunks c where c.page_id = p.id);` arriva a 0 (al massimo un'ora dopo,
+  se all'avvio l'embedder era giù).
+
+  Le note di rilascio non stanno più nel gruppo docs di `GET /api/search`
+  (la palette del web e ⌘K del desktop): non hanno codice, e nel prototipo
+  non sono pagine. Si leggono dalla loro sezione, come prima.
 
   Il server dipende ora da `@stubwise/docs-engine` (il chunking delle pagine
   manuali): il Dockerfile del server lo builda col filtro
@@ -3637,12 +3654,24 @@ deploy o di un rollback che la tocca.
   2.1.322: `chat-read` e `chat-mention-read`, perché cambia l'elenco dei tool.
   **ORDINE**:
   1. **backup**;
-  2. **`server`**: applica 0142, aspetta healthy. Da qui c'è la rotta della
+  2. **controllo d'inattività del worker, PRIMA del server**: la 0142 fa un
+     `CREATE TRIGGER` su `doc_pages`, che aspetta ogni transazione aperta
+     che vi scrive (una finalize o una pagina notturna con i suoi embedding,
+     minuti) e intanto tiene in fila chiunque tocchi la tabella, server
+     compreso. Su più campioni a qualche minuto di distanza: `select id from
+     doc_generations where status in ('running','paused');` vuoto (le
+     `paused` non tengono transazioni, ma una ripresa può partire mentre la
+     migrazione gira); `select count(*) from nightly_items where status =
+     'pending' and claimed_at > now() - interval '60 minutes';` = 0. Se il
+     giro notturno è in corso, si aspetta che finisca (si ferma da solo alla
+     quota) o si fa il deploy di giorno;
+  3. **`server`**: applica 0142, aspetta healthy. Da qui c'è la rotta della
      pagina nell'allowlist del token del turno;
-  3. **`worker`**, solo SENZA lavoro dell'agente in corso: ha il tool
+  4. **`worker`**, solo SENZA lavoro dell'agente in corso: ha il tool
      `read_doc_page` e la costante `DOCS_WORKER_RESTART_ERROR` (lo stesso testo
-     di prima);
-  4. **`caddy`**: il renderer di `/app` con i Docs.
+     di prima), e chiama `stubwise_ensure_doc_page_codes`, che c'è solo dopo
+     la 0142;
+  5. **`caddy`**: il renderer di `/app` con i Docs.
 
   Un worker nuovo davanti a un server vecchio troverebbe la rotta della pagina
   fuori dall'allowlist (403 `chat_tool_forbidden`, che il tool rende come «non
@@ -3659,8 +3688,16 @@ deploy o di un rollback che la tocca.
     stesso slug, la query ne prende una; i duplicati per lo stesso messaggio li
     rifiuta la chiave primaria, e vanno tolti prima. Senza la query, le
     citazioni `doc` spariscono dalla vista finché non si risale.
+  - Le citazioni di una NOTA DI RILASCIO le ha tolte il backfill della 0142
+    (una nota non ha codice): né la query qui sopra né il rollback le
+    riportano. Erano poche (si citava col «#» del web, raramente una nota) e
+    il testo del messaggio resta.
   - Il trigger `doc_pages_code` resta e un server vecchio non lo vede: i codici
-    continuano a nascere, ed è innocuo.
+    continuano a nascere, ed è innocuo. Un worker vecchio non chiama
+    `stubwise_ensure_doc_page_codes`: i codici li dà il trigger dentro la sua
+    transazione, e una pagina manuale nuova dello stesso progetto aspetta la
+    fine di una finalize (lento, non rotto).
+  - Un server vecchio rimette le note di rilascio nella ricerca globale.
   - I chunk delle pagine manuali restano: un server vecchio li trova con la
     ricerca semantica, ed è un miglioramento, non un problema.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.

@@ -9,6 +9,7 @@ import { createBacklogEndpoints } from "./endpoints/backlog.js";
 import { createBacklogRefineEndpoints } from "./endpoints/backlog-refine.js";
 import { createCalendarEndpoints } from "./endpoints/calendar.js";
 import { createDocsEndpoints } from "./endpoints/docs.js";
+import { createGraphEndpoints } from "./endpoints/graph.js";
 import { createInboxEndpoints } from "./endpoints/inbox.js";
 import { createMailEndpoints } from "./endpoints/mail.js";
 import { createFiltersEndpoints } from "./endpoints/filters.js";
@@ -134,6 +135,8 @@ export function createEndpoints(request: ApiRequest) {
     backlog: createBacklogEndpoints(request),
     backlogRefine: createBacklogRefineEndpoints(request),
     docs: createDocsEndpoints(request),
+    // Il grafo del codice di un repository (area 5, fetta 1 del desktop).
+    graph: createGraphEndpoints(request),
     search: createSearchEndpoints(request),
     activity: createActivityEndpoints(request),
     mail: createMailEndpoints(request),
@@ -233,6 +236,9 @@ export function createStubwiseClient(options: StubwiseClientOptions): StubwiseCl
     if (!response.ok) throw await errorFromResponse(response);
 
     if (response.status === 204) return undefined;
+    // Una risposta di testo (il resoconto del grafo, `text/markdown`): il testo,
+    // non un JSON da leggere.
+    if (!schema && /^text\//i.test(response.headers.get("content-type") ?? "")) return await response.text();
     const data: unknown = await response.json();
     if (!schema) return data;
     try {

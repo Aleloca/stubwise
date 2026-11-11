@@ -2727,9 +2727,13 @@ export function useAskDocs() {
   return useMutation({ mutationFn: (q: DocsQuestion) => api.docs.askDocs(q) });
 }
 
-/** Una visita alla pagina («più lette»). */
+/**
+ * Una visita alla pagina («più lette»): fire-and-forget. Non ricarica i Docs:
+ * le «più lette» si aggiornano alla prossima lettura (review della fetta 1
+ * dell'area 5, punto 6).
+ */
 export function useRecordDocView() {
-  return useWrite((pageId: string) => api.docs.recordDocView(pageId), DOCS_AREAS);
+  return useMutation({ mutationFn: (pageId: string) => api.docs.recordDocView(pageId) });
 }
 
 // --- Drive (area 5) ------------------------------------------------------------

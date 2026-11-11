@@ -24,4 +24,49 @@ albero, pagina, brief, release, grafo e chat c'erano già.
 
 ## Renderer (stubwise-94)
 
-La scrive il renderer.
+Accesi nella build app: la sezione `docs` del progetto e la feature `docs`
+(`data/integration.ts`). Il livello dati è `data/backend/real/docs.ts`; il
+grafo ha i suoi metodi in `packages/api-client/src/endpoints/graph.ts`. I Docs
+arrivano «come oggi» (maintainer): nessuna funzione oltre il prototipo.
+
+| Voce del prototipo | Build app | Test |
+|---|---|---|
+| Citazione `doc` nella Chat e codici D scritti a mano | codice e titolo, link `#/p/<CODE>/docs/<repo>/<slug>`; un codice D si risolve con `GET /api/docs/codes/:code` e la pagina (404 o pagina tolta: non torna) | `real/docCodes.test.ts` |
+| `listDocSpaces`, `getDocSpace` | spazi del progetto + per ciascuno albero, highlights, stato, brief e grafo; permessi `docs.edit`/`docs.generate`/`repos.manage` da quelli di progetto che il server calcola | `real/docs.test.ts`, `real/docsPage.test.tsx` |
+| `listDocTree` | l'albero del server (piatto, con `parentId`) nelle quattro categorie; il percorso è la catena dei titoli delle madri | idem |
+| `getDocPage`, `recordDocView` | la pagina col codice, `staleSince` come commit successivi, i link risolti per slug sull'albero; la visita con `docs.viewPage`, fire-and-forget | idem |
+| `searchDocs` | `projectSearch` dei progetti con i Docs (o di quello del repository) | `real/docs.test.ts` |
+| `getRepoBrief` | il brief del server nei campi del prototipo | idem |
+| `getProjectDocsHome` | spazi, «inizia da qui», le decisioni dal registro del progetto (recenti e totale vero, fino al tetto di 200), «novità» dalle note di rilascio | idem |
+| `createManualPage`, `updateManualPage`, `deleteManualPage` | le rotte `…/docs/manual`; 409 `doc_page_slug_conflict` è `slug_conflict` | `real/docs.test.ts`, `real/docsPage.test.tsx` |
+| `startGeneration`, `resumeGeneration` | `generate`/`resume`, lo stato riletto; `reasonCode`, `resumesAt`, `progress` del server | `real/docs.test.ts` |
+| `askDocs` | la chat del progetto o del repository con `stream=false`, ogni domanda a sé (nessuna sessione che continua), come il prototipo; 503 è «non disponibile» | idem, `real/docsPage.test.tsx` |
+| `graphAction`, lo stato del grafo, le comunità | `graph.state`/`generate` (`force` per «da zero»)/`setupPr`/`report`; le comunità dal resoconto Markdown, lette una volta per costruzione | `real/docs.test.ts`, `real/docsPage.test.tsx`, `packages/api-client/src/endpoints/graph.test.ts` |
+| `generationHistory`, `whenDocsIdle` | strumenti del prototipo: nessuna storia, niente da aspettare | — |
+
+### Differenze dichiarate
+
+- **Niente streaming nella chat** (come il prototipo): la risposta arriva intera.
+  Nessun timeout la taglia oggi (server limitato da `CHAT_MAX_TOKENS` = 4096; il
+  main senza timeout proprio, quindi i 300 s di intestazioni di undici; web e
+  Caddy senza). Se il tetto dei token sale molto o un modello è molto lento, i
+  300 s del main scattano per primi: allora la strada è lo streaming.
+- **La chat si assume disponibile**: il server non lo dice prima di una
+  domanda; un 503 mostra la riga «non disponibile».
+- **Note di rilascio**: le «pagine toccate» il server non le dà (vuote); il
+  testo si legge solo aprendo lo spazio (le 30 più recenti).
+- **Estratto** delle pagine negli elenchi vuoto (lo dà solo la ricerca e la
+  pagina aperta); negli elenchi niente data di modifica né «commit successivi».
+- **Albero**: una pagina che ha figlie compare sia come cartella sia come pagina.
+- **Slug** di una manuale: sul server non cambia; il form lo dice (`slug_fixed`).
+- **Brief**: i percorsi sono un titolo e un riassunto (un solo passo); le fonti
+  sono percorsi.
+- **Grafo**: il resoconto non dà il riassunto delle comunità né le comunità
+  vicine; «Abilita» su un grafo spento non funziona dal desktop (si accende
+  nelle impostazioni del repository, non integrate) e dice l'errore;
+  `graph.json` scaricato è quello composto dallo stato, non il file del server.
+- **PR di setup del grafo**: il server dà solo l'indirizzo, non se è aperta,
+  mergiata o chiusa; il renderer la mostra sempre «aperta» (`open: true`).
+- **Spazio Prodotto** (area 11a) nella pagina iniziale: assente.
+- **Export** zip dei Docs: assente (il prototipo non lo ha), e `api:download`
+  non cambia allowlist.

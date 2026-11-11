@@ -426,6 +426,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 4, fetta 2: DM, privati, generali, domande, ricerca» (10 nov 2026)
   - «Integrazione area 4, fetta 3: @Claude nei canali» (10 nov 2026)
   - «Integrazione area 4, fetta 4: eventi dei progetti e allegati» (11 nov 2026)
+  - «Integrazione area 5, fetta 1: Docs nel desktop» (11 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -547,6 +548,13 @@ una voce ti riguarda.
   - @Claude: ogni chiamata è di chi la scrive, con una sessione PRIVATA (`chat_mention`, anche in `visibleTo`); il contesto del thread lo costruisce il server; tutto è proposta B senza «Annulla»; `ask_question` lo scrive il worker, mai una rotta per il token del turno.
   - Gli eventi dei progetti li scrive il DB (trigger della 0141, `chat_publish_event`), non una rotta; il messaggio ha il corpo vuoto e la scheda si DERIVA a lettura col filtro di chi guarda; non avvisano.
   - Gli allegati della Chat si scaricano (302 a un URL firmato) solo da chi LEGGE il canale, mai da chi gestisce un privato senza esserne membro; i sospesi oltre 24 ore li pota il SERVER, perché il worker non ha lo storage. Dal desktop si scaricano solo da `api:download` del main (bearer solo verso l'istanza, «Salva» sempre chiesto, mai aperto).
+- **Docs → `docs/invariants/docs.md`** (11 nov 2026, area 5):
+  - Il riferimento stabile a una pagina è il CODICE (`doc_page_codes`, per repository e slug), mai `doc_pages.id`, che le rigenerazioni cambiano.
+  - Le citazioni `doc` della Chat puntano al codice; un codice D scritto a mano diventa citazione per chi legge la pagina.
+  - Le pagine manuali hanno gli embedding dal server, fail-open; i numeri del chunking stanno in `docs-engine`.
+  - Lo stato della generazione dice solo ciò che il server sa: niente stime.
+  - Il numero di un codice D lo dà `stubwise_ensure_doc_page_codes`; uno scrittore di `doc_pages` con una transazione lunga chiama `ensureDocPageCodes` PRIMA (il lock per progetto).
+  - Embedding delle manuali: fail-open, chunk vecchi tolti, backfill all'avvio e ogni ora.
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:
