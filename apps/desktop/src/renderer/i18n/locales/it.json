@@ -5709,6 +5709,7 @@
       "error": "Non è stato possibile leggere il contenuto",
       "noSummary": "Nessun riassunto per questo file",
       "ocr": "Testo letto da una scansione",
+      "ocrPartial": "Testo letto da una scansione, solo le prime 30 pagine",
       "retry": "Riprova"
     },
     "unavailable": {
@@ -5982,6 +5983,7 @@
       "sorted": "Ordinati per pertinenza",
       "matchedName": "Corrisponde il nome",
       "scan": "da una scansione",
+      "scanPartial": "da una scansione, solo le prime 30 pagine",
       "reading": "Lettura del contenuto… trovato per nome",
       "unavailable": "Non disponibile · trovato per nome",
       "labelSummary": "Riassunto: {{summary}}",
@@ -9803,7 +9805,8 @@
       "code": "Codice",
       "credentials": "Credenziali",
       "prototype": "Prototipo",
-      "chat": "Chat"
+      "chat": "Chat",
+      "drive": "Drive"
     },
     "page": {
       "intro": "Scopri chi può fare una cosa in un progetto, o cosa può fare una persona — e perché. Vedi solo i progetti e le persone che vedi già.",
@@ -12209,6 +12212,7 @@
       "release_notes": "Note di rilascio",
       "docs_nightly": "Docs notturni",
       "docs_generation": "Generazione dei Docs",
+      "drive_summary": "Riassunti dei file del Drive",
       "daily_report": "Report giornaliero",
       "weekly_brief": "Brief settimanale",
       "mail_classify": "Classificazione della posta",

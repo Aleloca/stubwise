@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "@backend/api";
+import { isAppBuild } from "./build";
 import { featureIntegrated } from "./integration";
 import type { ChangeFilter } from "./changelog/types";
 import type { MailDraftRequest } from "../domain/claude/intents/mailDraft";
@@ -2747,8 +2748,12 @@ export function useRecordDocView() {
 const DRIVE_AREAS = ["drive"] as const;
 const DRIVE_FILE_AREAS = ["drive", "citations", "codeCitations", "mentions"] as const;
 
-/** Mentre un file è in elaborazione la lettura si ripete da sola, finché non è pronto. */
-const DRIVE_REFRESH_MS = 1000;
+/**
+ * Mentre un file è in elaborazione la lettura si ripete da sola, finché non è
+ * pronto: ogni secondo nel prototipo, ogni 3 s contro il server vero
+ * (decisione dell'orchestratrice, F3 dell'area 5).
+ */
+export const driveRefreshMs = () => (isAppBuild() ? 3000 : 1000);
 const reading = (rows: readonly Pick<DriveFileRow, "content">[] | null | undefined) =>
   !!rows?.some((r) => r.content === "processing");
 
@@ -2759,7 +2764,7 @@ export function useDriveFiles(filters: DriveFilters, { enabled = true } = {}) {
     queryKey: queryKeys.driveFiles(me, filters),
     queryFn: () => api.drive.listDriveFiles(filters),
     enabled,
-    refetchInterval: (query) => (reading(query.state.data) ? DRIVE_REFRESH_MS : false),
+    refetchInterval: (query) => (reading(query.state.data) ? driveRefreshMs() : false),
   });
 }
 
@@ -2771,7 +2776,7 @@ export function useDriveFile(id: string | null) {
     queryFn: () => api.drive.getDriveFile(id!),
     enabled: id !== null,
     refetchInterval: (query) =>
-      query.state.data?.content === "processing" ? DRIVE_REFRESH_MS : false,
+      query.state.data?.content === "processing" ? driveRefreshMs() : false,
   });
 }
 

@@ -68,6 +68,15 @@ describe("Ricerca nel Drive", () => {
     expect(opensOf("drv-aud-7")).toBe(before);
   });
 
+  it("un passaggio da un OCR fermo alle prime 30 pagine lo dice (build app)", async () => {
+    Object.assign(state.driveFiles.find((x) => x.id === "drv-aud-7")!, { ocr: true, ocrPartial: true });
+    await openDrive("/p/AUD/drive");
+    await screen.findByRole("grid", { name: /Files of Audin/ });
+    await searchFor("penalty");
+    await waitFor(() => expect(result("AUD-F7")).toBeTruthy());
+    expect(result("AUD-F7")).toHaveTextContent("from a scan, first 30 pages only");
+  });
+
   it("Enter apre il file e conta; ⌥Enter apre solo il dettaglio e non conta", async () => {
     const router = await openDrive("/p/AUD/drive");
     const user = await searchFor("penalty");

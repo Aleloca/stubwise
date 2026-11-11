@@ -96,9 +96,6 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
   {
     key: "prototype",
     permissions: [
-      "drive.upload",
-      "drive.manage",
-      "drive.history",
       "automations.manage",
       "support.reply",
       "servers.operate",
@@ -108,6 +105,8 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
   { key: "credentials", permissions: ["credentials.create", "credentials.edit", "credentials.share"] },
   // Area 4, Chat: i canali del progetto (registro condiviso, come il web).
   { key: "chat", permissions: ["chat.channels.create", "chat.channels.manage"] },
+  // Area 5, il Drive dei progetti (registro condiviso dalla fetta 2, come il web).
+  { key: "drive", permissions: ["drive.upload", "drive.manage", "drive.history"] },
 ];
 
 export const groupsFor = (scope: AccessScope): readonly PermissionGroup[] =>

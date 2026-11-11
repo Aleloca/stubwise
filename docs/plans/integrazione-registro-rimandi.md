@@ -204,7 +204,7 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - Differenze dichiarate del renderer (fetta 2, *S*): l'anteprima sul desktop è
   un salvataggio e sul web la rotta `preview` in una scheda nuova (niente
   Quick Look né miniatura nella build app); `counted` di un'apertura non si
-  sa; niente contenuto, riassunto e passaggi fino alla F3; «#» cerca i file da
+  sa; (contenuto, riassunto e passaggi: arrivati con la F3); «#» cerca i file da
   2 caratteri; sul web una sessione scaduta durante un caricamento la chiude
   la richiesta dopo. Elenco completo in `apps/desktop/docs/integration-area5-f2.md`.
 - Gli snippet di `search_docs` nella chat con Claude *(S, area 5, fetta 3,
@@ -218,6 +218,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   la ricerca per testo copre i primi 100.000 caratteri, oltre trova la sola
   corsia semantica (al più 200 chunk per file); i tempi del VPS sono da
   misurare al deploy.
+- Motivo del `no_text` visibile *(S, F3, decisione dell'orchestratrice A(a))*:
+  il server manda `contentReason` (`no_text_found`, `ocr_timeout`,
+  `ocr_unavailable`, `unreadable`, `too_large`, `limits`), il desktop dice solo
+  «nessun testo» come il prototipo.
+- «Retry» anche su un `no_text` transitorio *(S, F3, decisione
+  dell'orchestratrice C(a))*: il server lo permette (`permissions.retry`) su
+  `no_text` ed `error`; il desktop mostra «Retry» solo su `error`, come il
+  prototipo. Riaprire per `ocr_timeout` e `ocr_unavailable`.
 - Credenziali di sola lettura separate per il worker, se lo storage lo
   permette *(S, area 5, fetta 3)*: oggi il worker legge gli oggetti del Drive
   con le credenziali dell'istanza, e la sola lettura è una regola del codice

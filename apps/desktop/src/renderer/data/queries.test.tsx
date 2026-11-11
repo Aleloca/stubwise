@@ -24,6 +24,7 @@ import {
   useConversationStream,
   useConversations,
   useDayArrangements,
+  driveRefreshMs,
   useDriveFile,
   useDriveFiles,
   useConfirmMailProposal,
@@ -602,5 +603,15 @@ describe("Rilasci: lo stato delle PR di Stubwise e i falliti seguono sessioni e 
     );
     await waitFor(() => expect(read.mock.calls.length).toBeGreaterThan(before));
     read.mockRestore();
+  });
+});
+
+describe("il Drive si rilegge mentre un file è in lettura", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it("ogni secondo nel prototipo, ogni 3 s contro il server vero (build app)", () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "prototype");
+    expect(driveRefreshMs()).toBe(1000);
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    expect(driveRefreshMs()).toBe(3000);
   });
 });

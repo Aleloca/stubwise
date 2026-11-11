@@ -50,15 +50,11 @@ export type { ActionClass, ClassReason, ClaudeBusyReason, ExecutedFailure } from
 /**
  * Permessi di progetto che vivono solo nel prototipo (non nel registro
  * condiviso): pianificare per altri, dall'area 4 creare e gestire i
- * canali della Chat del progetto, dall'area 5 caricare nel Drive, gestirlo e
- * vederne lo storico delle aperture, dall'area 7 gestire le automazioni del
+ * canali della Chat del progetto, dall'area 7 gestire le automazioni del
  * progetto, dall'area 8b avviare la correzione di un server da una task
  * (`servers.operate`: nessun preset, solo concessioni persona × progetto).
  */
 export type LocalProjectPermission =
-  | "drive.upload"
-  | "drive.manage"
-  | "drive.history"
   | "automations.manage"
   | "support.reply"
   | "servers.operate";

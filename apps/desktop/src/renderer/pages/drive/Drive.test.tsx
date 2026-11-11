@@ -227,6 +227,23 @@ describe("Drive — dettaglio e aperture", () => {
     await waitFor(() => expect(opensOf("drv-aud-7", "p-laura")).toBe(before + 1));
   });
 
+  it("l'OCR fermo alle prime 30 pagine lo dice la nota (build app, decisione dell'orchestratrice)", async () => {
+    const f = state.driveFiles.find((x) => x.id === "drv-aud-7")!;
+    Object.assign(f, { source: "upload", content: "ready", summary: "Penali del contratto.", ocr: true, ocrPartial: true });
+    await openDrive("/p/AUD/drive?file=AUD-F7");
+    const panel = await screen.findByLabelText("File AUD-F7");
+    expect(await within(panel).findByText("Text read from a scan, first 30 pages only")).toBeInTheDocument();
+  });
+
+  it("un OCR su tutto il documento: la nota del prototipo, senza «prime 30 pagine»", async () => {
+    const f = state.driveFiles.find((x) => x.id === "drv-aud-7")!;
+    Object.assign(f, { source: "upload", content: "ready", summary: "Penali del contratto.", ocr: true, ocrPartial: false });
+    await openDrive("/p/AUD/drive?file=AUD-F7");
+    const panel = await screen.findByLabelText("File AUD-F7");
+    expect(await within(panel).findByText("Text read from a scan")).toBeInTheDocument();
+    expect(within(panel).queryByText(/first 30 pages/)).toBeNull();
+  });
+
   it("aperture: il numero per tutti, lo storico solo con drive.history", async () => {
     await openDrive("/p/AUD/drive?file=AUD-F7");
     const panel = await screen.findByLabelText("File AUD-F7");

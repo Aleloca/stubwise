@@ -464,7 +464,12 @@ function ResultRow({
                   <span className="line-clamp-2 @max-[1100px]:line-clamp-1">
                     <Highlighted text={passage} words={words} />
                   </span>
-                  {file.ocr && <span className="text-xs text-ink-faint"> {t("drive.search.scan")}</span>}
+                  {file.ocr && (
+                    <span className="text-xs text-ink-faint">
+                      {" "}
+                      {t(file.ocrPartial ? "drive.search.scanPartial" : "drive.search.scan")}
+                    </span>
+                  )}
                 </span>
               ) : (
                 <span className="text-sm text-ink-faint">{t("drive.search.matchedName")}</span>

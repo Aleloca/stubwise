@@ -8,6 +8,7 @@ import {
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type {
+  ContentState,
   DriveFileDetail,
   DriveFileRow,
   DriveFilters,
@@ -20,10 +21,10 @@ import { appClient } from "./client";
 import { downloadByPath } from "./download";
 import { partialNamespace } from "./notIntegrated";
 
-// Il Drive nella build app (area 5, fetta 2): i file CARICATI «come oggi».
+// Il Drive nella build app (area 5, fette 2 e 3): i file CARICATI «come oggi»,
+// col loro contenuto (stato, riassunto, OCR, passaggio della ricerca: F3).
 // Google (account, cartelle, riferimenti, file fuori dai progetti) è
-// dell'area 6, il contenuto (testo, riassunto, OCR, «Riprova») della F3:
-// qui non ci sono. Le aperture le conta il server quando si apre davvero
+// dell'area 6: qui non c'è. Le aperture le conta il server quando si apre davvero
 // (`/download`, `/preview`, una per persona ogni 30′): `recordOpen` È il gesto.
 
 type Drive = typeof Fake.drive;
@@ -39,7 +40,30 @@ async function projectCodes(): Promise<Map<string, string>> {
   return new Map(rows.map((p) => [p.id, p.code ?? p.slug.toUpperCase()]));
 }
 
-/** Una riga del server nella forma del prototipo: un caricato, pronto, senza riassunto finché non c'è la F3. */
+/**
+ * Lo stato del contenuto (F3) nei nomi del prototipo: in coda o in lettura è
+ * «processing» (la lista si rilegge da sola finché ce n'è uno); uno stato che
+ * questa app non conosce (lettore: `UNKNOWN`) è «no_text», trovabile per nome;
+ * `null` è un server senza la F3: pronto, senza riassunto, come prima.
+ */
+function contentOf(status: ServerDriveFileRow["contentStatus"] | string | null): ContentState {
+  switch (status) {
+    case null:
+    case "ready":
+      return "ready";
+    case "pending":
+    case "processing":
+      return "processing";
+    case "no_text":
+    case "unsupported":
+    case "error":
+      return status;
+    default:
+      return "no_text";
+  }
+}
+
+/** Una riga del server nella forma del prototipo: un caricato, col suo contenuto (F3). */
 function rowOf(r: ServerDriveFileRow, codes: Map<string, string> | null): DriveFileRow {
   return {
     id: r.id,
@@ -60,14 +84,18 @@ function rowOf(r: ServerDriveFileRow, codes: Map<string, string> | null): DriveF
     googleOwner: null,
     hidden: false,
     unavailable: null,
-    content: "ready",
+    content: contentOf(r.contentStatus),
+    // Nell'elenco il server dà solo la prima frase; il riassunto intero sta nel dettaglio.
     summary: r.summaryLine,
-    ocr: false,
+    ocr: r.contentOcr === "full" || r.contentOcr === "partial",
+    ocrPartial: r.contentOcr === "partial",
     opens90d: r.opens90d,
     lastOpenedAt: r.lastOpenedAt,
     summaryLine: r.summaryLine,
     folder: null,
     hiddenBy: null,
+    // `retry` lo calcola il server (`drive.manage` su `no_text` o `error`);
+    // la pagina offre «Retry» solo su `error`, come il prototipo (decisione C(a)).
     permissions: r.permissions,
   };
 }
@@ -101,13 +129,21 @@ async function write<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-async function listFiles(filters: Omit<DriveFilters, "sort" | "hidden"> & { sort?: DriveFilters["sort"]; q?: string }) {
+type ListFilters = Omit<DriveFilters, "sort" | "hidden"> & { sort?: DriveFilters["sort"]; q?: string };
+
+/** Le righe, e per ognuna il passaggio trovato per contenuto (testo puro, al più 300 caratteri; `null` per nome o codice). */
+async function listFilesWithSnippets(filters: ListFilters) {
   const opts = { type: filters.type, addedById: filters.addedById, q: filters.q, sort: filters.sort };
   const page = await orNone(
     () => (filters.projectId ? appClient().drive.list(filters.projectId, opts) : appClient().drive.listAll(opts)),
     { items: [] },
   );
-  return rowsOf(page.items as ServerDriveFileRow[]);
+  const items = page.items as ServerDriveFileRow[];
+  return { rows: await rowsOf(items), snippets: items.map((r) => r.snippet ?? null) };
+}
+
+async function listFiles(filters: ListFilters) {
+  return (await listFilesWithSnippets(filters)).rows;
 }
 
 /** L'elenco: di un progetto o di tutti quelli di cui si è membri. Nascosti e Google non esistono qui. */
@@ -130,6 +166,7 @@ const getDriveFile: Drive["getDriveFile"] = async (ref) => {
   const [row] = await rowsOf([d as unknown as ServerDriveFileRow]);
   const detail: DriveFileDetail = {
     ...row!,
+    summary: d.summary ?? row!.summaryLine,
     opensTotal: d.opensTotal,
     history:
       d.history?.map((h) => ({
@@ -142,12 +179,12 @@ const getDriveFile: Drive["getDriveFile"] = async (ref) => {
   return detail;
 };
 
-/** La ricerca: per nome e codice (il contenuto arriva con la F3), senza passaggi né file fuori dai progetti. */
+/** La ricerca: per nome, codice e contenuto (F3, col passaggio del server); nessun file fuori dai progetti. */
 const searchDrive: Drive["searchDrive"] = async (q, scope: DriveSearchScope = {}) => {
   const query = q.trim();
   if (query.length < MIN_QUERY || scope.source === "google") return { files: [], outside: [] };
-  const rows = await listFiles({ ...scope, q: query });
-  return { files: rows.map((file) => ({ file, passage: null })), outside: [] };
+  const { rows, snippets } = await listFilesWithSnippets({ ...scope, q: query });
+  return { files: rows.map((file, i) => ({ file, passage: snippets[i] ?? null })), outside: [] };
 };
 
 const deleteDriveFile: Drive["deleteDriveFile"] = async (id) => {
@@ -345,6 +382,24 @@ const saveAttachmentToDrive: Drive["saveAttachmentToDrive"] = async (attachmentI
   }
 };
 
+/**
+ * «Retry» l'estrazione (`drive.manage`, F3.4): il server rimette il file in
+ * coda e dà la riga, già in lettura. 409 `not_retryable` (lo stato non è
+ * `no_text` né `error`) ha il nome del prototipo.
+ */
+const retryExtraction: Drive["retryExtraction"] = async (id) => {
+  const row = await write(async () => {
+    try {
+      return await appClient().drive.retry(id);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) throw new Error("invalid: content not in error");
+      throw error;
+    }
+  });
+  const [out] = await rowsOf([row as unknown as ServerDriveFileRow]);
+  return out!;
+};
+
 export const driveFunctions: Partial<Drive> = {
   listDriveFiles,
   getDriveFile,
@@ -353,6 +408,7 @@ export const driveFunctions: Partial<Drive> = {
   recordOpen,
   uploadFiles,
   saveAttachmentToDrive,
+  retryExtraction,
 };
 
 export const drive: Drive = partialNamespace<Drive>("drive", driveFunctions);

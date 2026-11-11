@@ -1994,6 +1994,11 @@ export interface DriveFile {
   summary: string | null;
   /** Il testo viene dall'OCR (un PDF scansionato). */
   ocr: boolean;
+  /**
+   * L'OCR si è fermato alle prime 30 pagine (build app, F3 dell'area 5): il
+   * resto del documento non si trova cercando. Il prototipo non lo conosce.
+   */
+  ocrPartial?: boolean;
 }
 
 /**
