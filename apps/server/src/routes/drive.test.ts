@@ -125,6 +125,42 @@ describe("caricare", () => {
     expect(storage.objects.get(row!.storageKey)!.length).toBe(content.length);
   });
 
+  it("un file di 100 MB non sta mai tutto in memoria: la memoria dei buffer cresce di poco, non del file", async () => {
+    // Lo storage conta i byte e li butta: quello che resta in memoria è solo del server.
+    let received = 0;
+    storage.putObjectStream.mockImplementation(async (_key: string, body: Readable) => {
+      for await (const chunk of body) received += (chunk as Buffer).length;
+    });
+    // Il corpo multipart si prepara PRIMA della misura: è del client, non del server.
+    const size = 100 * 1024 * 1024 - 1024;
+    const body = Buffer.alloc(size + 512, 3);
+    const head = Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="grande.zip"\r\nContent-Type: application/zip\r\n\r\n`);
+    const tail = Buffer.from(`\r\n--${BOUNDARY}--\r\n`);
+    head.copy(body, 0);
+    tail.copy(body, head.length + size);
+    const total = head.length + size + tail.length;
+    const CHUNK = 64 * 1024;
+    const pieces = Array.from({ length: Math.ceil(total / CHUNK) }, (_, i) => body.subarray(i * CHUNK, Math.min((i + 1) * CHUNK, total)));
+    const base = process.memoryUsage().arrayBuffers;
+    let peak = base;
+    const sampler = setInterval(() => (peak = Math.max(peak, process.memoryUsage().arrayBuffers)), 5);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/drive/files`,
+        headers: { cookie: dev.headers.cookie, "content-type": `multipart/form-data; boundary=${BOUNDARY}` },
+        payload: Readable.from(pieces),
+      });
+      expect(res.statusCode, res.body).toBe(201);
+    } finally {
+      clearInterval(sampler);
+    }
+    peak = Math.max(peak, process.memoryUsage().arrayBuffers);
+    expect(received).toBe(size);
+    console.log(`[drive] memoria dei buffer durante 100 MB: +${((peak - base) / 1024 / 1024).toFixed(1)} MB`);
+    expect(peak - base).toBeLessThan(40 * 1024 * 1024);
+  }, 120_000);
+
   it("un nome già usato fra i vivi: « (2)», « (3)», e la risposta lo dice", async () => {
     const a = (await upload(dev, projectId, { filename: "Piano.pdf", contentType: "application/pdf" })).json() as Upload;
     const b = (await upload(lead, projectId, { filename: "piano.pdf", contentType: "application/pdf" })).json() as Upload;
