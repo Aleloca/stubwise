@@ -265,6 +265,9 @@ const INTEGRATED_CALLS = new Set([
   "chat.confirmChatProposal",
   "chat.cancelChatProposal",
   "chat.editChatProposal",
+  // Area 4, fetta 4: eventi dei progetti e allegati.
+  "chat.setPublishedEvents",
+  "chat.downloadAttachment",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));

@@ -127,6 +127,7 @@ describe("canali IPC", () => {
   const main = read("./index.ts");
   const preload = read("../preload/index.ts");
   const EXPECTED = [
+    "api:download",
     "api:request",
     "api:stream-open",
     "api:stream-port",
@@ -172,6 +173,14 @@ describe("canali IPC", () => {
     expect(preload).not.toMatch(/window\.postMessage/);
   });
 
+  it("api:download (fetta 4 della Chat): guarda il mittente, risolve col bearer e scarica solo i download avviati da lui, chiedendo dove salvare", () => {
+    expect(main).toMatch(/ipcMain\.handle\("api:download",[\s\S]*?fromApp\(event\)[\s\S]*?resolveDownload\(/);
+    expect(main).toMatch(/on\("will-download",[\s\S]*?pendingDownloads\.get\([\s\S]*?item\.cancel\(\)[\s\S]*?safeDownloadName\([\s\S]*?showSaveDialogSync\(/);
+    // Mai aprire il file scaricato.
+    expect(main).not.toMatch(/shell\.openPath/);
+    expect(preload).toMatch(/ipcRenderer\.invoke\("api:download", \{ path \}\)/);
+  });
+
   it("nessuna chiamata IPC con un canale che non sia letterale (tranne i menu della lista fissa)", () => {
     const calls = [...`${main}\n${preload}`.matchAll(/ipc(?:Main|Renderer)\.(on|handle|send|invoke|once)\(\s*([^,)]+)/g)];
     const dynamic = calls.map((m) => m[2]!.trim()).filter((arg) => !/^"[a-z]+:[a-z-]+"$/.test(arg));
@@ -207,6 +216,7 @@ describe("canali IPC", () => {
   it("ogni ipcMain.handle guarda il mittente come prima cosa", () => {
     const channels = [...main.matchAll(/ipcMain\.handle\("([a-z]+:[a-z-]+)",/g)].map((m) => m[1]!);
     expect(channels.sort()).toEqual([
+      "api:download",
       "api:request",
       "file:save",
       "instance:get",

@@ -101,6 +101,7 @@ import { webhookRoutes } from "./routes/webhooks.js";
 import { widgetAdminRoutes } from "./routes/widget-admin.js";
 import { NOOP_BUS, type AgentSessionBus } from "./agent-session-bus.js";
 import { getActiveStorage, type ObjectStorage, type StorageFactory } from "./storage/index.js";
+import { pruneChatUploads } from "./chat/attachments.js";
 
 // Versione letta dal package.json (accanto a src/ e a dist/, quindi il
 // percorso relativo vale sia in sviluppo che dopo la build).
@@ -556,6 +557,23 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // file chiude la sua app): senza, il processo resterebbe appeso al transport.
   app.addHook("onClose", async () => {
     await graphMcpClient?.close();
+  });
+
+  // Gli allegati della Chat in sospeso da più di 24 ore ([DECIDE] 3 della
+  // fetta 4): li pota il SERVER, una volta l'ora, perché lo storage lo ha solo
+  // lui. Anche ogni caricamento pota. Fail-open: uno storage giù aspetta il giro dopo.
+  const chatPrune = setInterval(() => {
+    void (async () => {
+      try {
+        await pruneChatUploads(app.db, await app.storage(), (m) => app.log.warn(m));
+      } catch (error) {
+        app.log.warn({ err: error }, "potatura degli allegati della Chat non riuscita");
+      }
+    })();
+  }, 60 * 60 * 1000);
+  chatPrune.unref();
+  app.addHook("onClose", async () => {
+    clearInterval(chatPrune);
   });
 
   // Senza secret il plugin si registra comunque (parsing dei cookie), ma

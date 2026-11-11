@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { DownloadResult } from "../main/apiDownload";
 import type { ApiProxyRequest, ApiProxyResponse } from "../main/apiProxy";
 import type { StreamPortMessage } from "../main/apiStream";
 import type { SaveFileRequest, SaveFileResult } from "../main/security";
@@ -38,6 +39,11 @@ contextBridge.exposeInMainWorld("stubwise", {
   // qui passano solo richieste, esiti e l'utente della sessione.
   api: {
     request: (req: ApiProxyRequest): Promise<ApiProxyResponse> => ipcRenderer.invoke("api:request", req),
+    /**
+     * Il download di un allegato (area 4, fetta 4): il main lo chiede col
+     * token, segue il 302 e apre la finestra «Salva». Qui torna solo l'esito.
+     */
+    download: (path: string): Promise<DownloadResult> => ipcRenderer.invoke("api:download", { path }),
   },
   /**
    * Lo stream dal vivo di una sessione (area 3, fetta 3a): il main apre

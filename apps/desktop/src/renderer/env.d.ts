@@ -18,6 +18,10 @@ type StubwiseApiRequest = {
   body?: string | ArrayBuffer;
 };
 type StubwiseApiResponse = { status: number; headers: Record<string, string>; body: string | ArrayBuffer };
+/** L'esito di un download (`api:download`): mai il percorso scelto, mai l'URL firmato. */
+type StubwiseDownloadResult =
+  | { ok: true }
+  | { ok: false; reason: "invalid" | "unauthenticated" | "not_found" | "failed" | "canceled" };
 // `session:changed` (`src/main/browserLogin.ts`): l'esito del login dal browser
 // o la sessione scaduta, mai il token.
 type StubwiseSessionChange = { signedIn: true; user: unknown } | { signedIn: false; error?: string };
@@ -62,7 +66,11 @@ interface Window {
     /** Salva un PDF (stampato dal main) o un Word: la finestra di salvataggio, poi l'esito (area 11a). */
     saveFile?: (req: StubwiseSaveFileRequest) => Promise<StubwiseSaveFileResult>;
     /** Le richieste API verso l'istanza, col token aggiunto dal main (build app, integrazione area 2). */
-    api?: { request: (req: StubwiseApiRequest) => Promise<StubwiseApiResponse> };
+    api?: {
+      request: (req: StubwiseApiRequest) => Promise<StubwiseApiResponse>;
+      /** Il download di un allegato (fetta 4 della Chat): il main lo scarica e chiede dove salvarlo. */
+      download?: (path: string) => Promise<StubwiseDownloadResult>;
+    };
     /**
      * Lo stream di una sessione (`/api/agent-sessions/:uuid/stream?after=n`),
      * col token aggiunto dal main; restituisce la funzione che lo chiude.

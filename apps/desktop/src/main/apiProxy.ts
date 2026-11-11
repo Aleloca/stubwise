@@ -25,6 +25,17 @@ export interface ApiProxyResponse {
 const DROPPED_HEADERS = new Set(["authorization", "cookie", "host", "origin", "referer", "connection"]);
 const MAX_PATH = 4096;
 const MAX_BODY = 15 * 1024 * 1024;
+/**
+ * L'upload di un allegato della Chat (area 4, fetta 4): fino a 25 MB per file
+ * (`CHAT_ATTACHMENT_MAX_BYTES`), più il multipart. Vale SOLO per questa rotta:
+ * altrove il tetto resta `MAX_BODY`.
+ */
+const MAX_CHAT_UPLOAD_BODY = 26 * 1024 * 1024;
+const CHAT_UPLOAD_PATH = /^\/api\/chat\/channels\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/attachments$/i;
+
+function bodyLimit(method: string, path: string): number {
+  return method === "POST" && CHAT_UPLOAD_PATH.test(path) ? MAX_CHAT_UPLOAD_BODY : MAX_BODY;
+}
 
 /** Un percorso sotto `/api/`, nient'altro: niente schema, host, `..`, `//`, `\` o frammento. */
 export function isAllowedApiPath(path: unknown): path is string {
@@ -67,7 +78,7 @@ function parseRequest(raw: unknown): ApiProxyRequest | null {
     body = new Uint8Array(view.buffer, view.byteOffset, view.byteLength).slice().buffer;
   } else if (r.body !== undefined && r.body !== null) return null;
   const size = typeof body === "string" ? body.length : (body?.byteLength ?? 0);
-  if (size > MAX_BODY) return null;
+  if (size > bodyLimit(r.method, r.path)) return null;
   return { method: r.method as ApiMethod, path: r.path, headers, ...(body !== undefined ? { body } : {}) };
 }
 

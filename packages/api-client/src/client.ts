@@ -206,7 +206,11 @@ export function createStubwiseClient(options: StubwiseClientOptions): StubwiseCl
 
     const init: FetchInit = { method, headers };
     if (credentials !== undefined) init.credentials = credentials;
-    if (body !== undefined) {
+    if (typeof FormData !== "undefined" && body instanceof FormData) {
+      // Un multipart (gli allegati) passa così com'è: il content-type col
+      // boundary lo mette fetch.
+      init.body = body;
+    } else if (body !== undefined) {
       headers["content-type"] = "application/json";
       init.body = JSON.stringify(body);
     }

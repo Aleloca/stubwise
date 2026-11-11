@@ -38,6 +38,7 @@ export {
   sendMessage,
   setNotifyLevel,
   setPublishedEvents,
+  downloadAttachment,
   setThreadFollow,
   toggleReaction,
   updateChannel,

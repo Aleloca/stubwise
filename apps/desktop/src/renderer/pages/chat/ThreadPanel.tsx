@@ -60,6 +60,7 @@ import { mostUsed } from "./emoji";
 import { mergeThread, threadRows } from "./flow";
 import { flashMessage } from "./search";
 import { ChatAvatar, MessageItem } from "./MessageItem";
+import { attachmentLimits, attachmentRefusal, sendRefusalKey } from "./attachments";
 
 // Il pannello del thread (`?thread=<radice>`): lo stesso posto del dettaglio
 // della task — 400px agganciato da 1200px, sovrapposto con il velo sotto —
@@ -76,8 +77,6 @@ const CODE_RE = new RegExp(CODE_IN_TEXT.source, "g");
 const BOTTOM_SLACK = 48;
 /** La larghezza di partenza del pannello (shape: le schede a 360 vanno a capo troppo). */
 const THREAD_WIDTH = 400;
-const MAX_ATTACHMENTS = 10;
-const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 /** Un istante subito prima di `iso` («Mark unread»). */
 const justBefore = (iso: string) =>
@@ -292,6 +291,8 @@ interface LocalSend {
   key: number;
   input: ChatSendInput;
   state: "sending" | "failed";
+  /** Build app: un invio rifiutato per un allegato, il perché (chiave i18n). */
+  reason?: string | null;
 }
 
 function ThreadBody({
@@ -466,7 +467,10 @@ function ThreadBody({
       })
       .then(
         () => setLocal((list) => list.filter((l) => l.key !== key)),
-        () => setLocal((list) => list.map((l) => (l.key === key ? { ...l, state: "failed" } : l))),
+        (error: unknown) =>
+          setLocal((list) =>
+            list.map((l) => (l.key === key ? { ...l, state: "failed", reason: sendRefusalKey(error) } : l)),
+          ),
       );
   };
   const onSend = (input: ChatSendInput) => {
@@ -487,13 +491,19 @@ function ThreadBody({
     setDrafts((current) => {
       const next = [...current];
       let error: string | null = null;
+      const limits = attachmentLimits();
       for (const file of files) {
-        if (next.length >= MAX_ATTACHMENTS) {
-          error = t("claude.conversation.attachments.tooMany", { count: MAX_ATTACHMENTS });
+        if (next.length >= limits.count) {
+          error = t("claude.conversation.attachments.tooMany", { count: limits.count });
           break;
         }
-        if (file.size > MAX_ATTACHMENT_BYTES) {
-          error = t("claude.conversation.attachments.tooBig", { name: file.name, mb: 20 });
+        const refusal = attachmentRefusal(file);
+        if (refusal === "tooBig") {
+          error = t("claude.conversation.attachments.tooBig", { name: file.name, mb: limits.mb });
+          continue;
+        }
+        if (refusal === "type") {
+          error = t("chat.attachments.typeNotAllowed", { name: file.name });
           continue;
         }
         nextKey.current += 1;
@@ -503,6 +513,8 @@ function ThreadBody({
             name: file.name || t("claude.conversation.attachments.pasted"),
             sizeBytes: file.size,
             kind: file.type.startsWith("image/") ? "image" : "file",
+            // La build app lo carica nel canale all'invio (fetta 4).
+            file,
           },
         });
       }
@@ -599,6 +611,7 @@ function ThreadBody({
               {l.state === "failed" && (
                 <p className="text-xs">
                   <span className="font-semibold text-critical">{t("chat.message.notSent")}</span>
+                  {l.reason && <span className="text-ink-muted"> · {t(l.reason)}</span>}
                   {" · "}
                   <button
                     type="button"

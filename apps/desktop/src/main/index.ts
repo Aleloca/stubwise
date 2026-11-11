@@ -1,7 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, session, shell } from "electron";
+import { resolveDownload, safeDownloadName, type DownloadResult } from "./apiDownload";
 import { handleApiRequest, isWebPath } from "./apiProxy";
 import { createStreamRegistry } from "./apiStream";
 import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./instance";
@@ -137,21 +138,76 @@ function receiveAuthUrl(url: string): void {
   void browserLogin.handleAuthUrl(url);
 }
 
+/** Un 401 di sessione: si chiude, ma una richiesta partita col token di prima non chiude la sessione nuova. */
+function onUnauthorized(used: string): void {
+  if (readToken() !== used) return;
+  clearToken();
+  notifySession({ signedIn: false, error: "unauthorized" });
+}
+
 ipcMain.handle("api:request", async (event, raw: unknown) => {
   if (!fromApp(event)) {
     return { status: 400, headers: {}, body: JSON.stringify({ code: "invalid_request" }) };
   }
-  return handleApiRequest(raw, {
-    instanceUrl: readInstanceUrl,
-    token: readToken,
-    onUnauthorized: (used) => {
-      // Una richiesta partita col token di prima non chiude la sessione nuova.
-      if (readToken() !== used) return;
-      clearToken();
-      notifySession({ signedIn: false, error: "unauthorized" });
-    },
+  return handleApiRequest(raw, { instanceUrl: readInstanceUrl, token: readToken, onUnauthorized });
+});
+
+// --- il download degli allegati (area 4, fetta 4) -----------------------------------
+//
+// `api:download`: il main chiede il download col bearer e pretende un 302
+// (`apiDownload.ts`); l'URL firmato lo scarica Electron, senza intestazioni.
+// `will-download` chiede SEMPRE dove salvare (niente salvataggio automatico),
+// propone il nome del Content-Disposition ridotto al solo nome, e non apre mai
+// il file. Un download che non è partito da qui si annulla.
+
+/** I download avviati da `api:download`, per URL firmato: chi aspetta l'esito. */
+const pendingDownloads = new Map<string, (result: DownloadResult) => void>();
+/** Se Electron non fa partire il download (rete), l'attesa non resta aperta. */
+const DOWNLOAD_START_TIMEOUT_MS = 60_000;
+
+ipcMain.handle("api:download", async (event, raw: unknown): Promise<DownloadResult> => {
+  if (!fromApp(event)) return { ok: false, reason: "invalid" };
+  const target = await resolveDownload(raw, { instanceUrl: readInstanceUrl, token: readToken, onUnauthorized });
+  if (!target.ok) return target;
+  return new Promise<DownloadResult>((resolve) => {
+    const timer = setTimeout(() => {
+      if (pendingDownloads.get(target.url) !== settle) return;
+      pendingDownloads.delete(target.url);
+      resolve({ ok: false, reason: "failed" });
+    }, DOWNLOAD_START_TIMEOUT_MS);
+    const settle = (result: DownloadResult) => {
+      clearTimeout(timer);
+      resolve(result);
+    };
+    pendingDownloads.set(target.url, settle);
+    event.sender.downloadURL(target.url);
   });
 });
+
+function installDownloads(): void {
+  session.defaultSession.on("will-download", (_event, item, contents) => {
+    const url = item.getURLChain()[0] ?? item.getURL();
+    const settle = pendingDownloads.get(url);
+    // Solo i download chiesti con `api:download`.
+    if (!settle) {
+      item.cancel();
+      return;
+    }
+    pendingDownloads.delete(url);
+    const win = BrowserWindow.fromWebContents(contents);
+    const options = { defaultPath: join(app.getPath("downloads"), safeDownloadName(item.getFilename())) };
+    const chosen = win ? dialog.showSaveDialogSync(win, options) : dialog.showSaveDialogSync(options);
+    if (!chosen) {
+      item.cancel();
+      settle({ ok: false, reason: "canceled" });
+      return;
+    }
+    item.setSavePath(chosen);
+    item.once("done", (_e, state) =>
+      settle(state === "completed" ? { ok: true } : { ok: false, reason: state === "cancelled" ? "canceled" : "failed" }),
+    );
+  });
+}
 
 // Lo stream dal vivo delle sessioni (integrazione area 3, fetta 3a,
 // `apiStream.ts`): il preload chiede `api:stream-open` col percorso, il main
@@ -274,6 +330,7 @@ app.on("open-url", (event, url) => {
 
 void app.whenReady().then(() => {
   installMenu();
+  installDownloads();
   createWindow();
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -28,6 +28,7 @@ import type {
   CitationRef,
   ChannelPatch,
   ChannelView,
+  ChatDownloadResult,
   ChatEventKind,
   ChatMessage,
   ChatMessageInput,
@@ -809,4 +810,15 @@ export async function createRequestFromMessage(
   const request = createRequestAs(me, input);
   link(m, request.code);
   return structuredClone(request);
+}
+
+/**
+ * Il download di un allegato (fetta 4). Nel prototipo gli allegati non hanno
+ * un file (solo nome e peso): non c'è niente da scaricare. La build app lo
+ * chiede al server (sul desktop dal main, che chiede dove salvarlo).
+ */
+export async function downloadAttachment(attachmentId: string): Promise<ChatDownloadResult> {
+  await gate("chat.downloadAttachment");
+  void attachmentId;
+  return { ok: false, reason: "invalid" };
 }

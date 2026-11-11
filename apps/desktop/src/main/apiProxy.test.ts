@@ -158,4 +158,27 @@ describe("«Apri nel web»", () => {
       expect(isWebPath(bad), String(bad)).toBe(false);
     }
   });
+  it("il tetto del corpo: 26 MB solo per l'upload di un allegato della Chat, 15 MB altrove", async () => {
+    const CH = "7f1c2a1e-0000-4000-8000-0000000000c1";
+    const mb = (n: number) => new ArrayBuffer(n * 1024 * 1024);
+    const send = async (method: string, path: string, size: number) => {
+      const d = deps();
+      const res = await handleApiRequest({ method, path, body: mb(size) }, d);
+      return { status: res.status, called: (d.fetch as ReturnType<typeof vi.fn>).mock.calls.length };
+    };
+    // L'upload della Chat: 25 MB passano, 27 no.
+    expect(await send("POST", `/api/chat/channels/${CH}/attachments`, 25)).toEqual({ status: 200, called: 1 });
+    expect((await send("POST", `/api/chat/channels/${CH}/attachments`, 27)).called).toBe(0);
+    // Altrove resta 15 MB: anche gli allegati dei ticket, un altro metodo o un percorso simile.
+    for (const [method, path] of [
+      ["POST", `/api/tickets/${CH}/attachments`],
+      ["PUT", `/api/chat/channels/${CH}/attachments`],
+      ["POST", `/api/chat/channels/${CH}/attachments/x`],
+      ["POST", `/api/chat/channels/not-a-uuid/attachments`],
+      ["POST", "/api/tasks"],
+    ] as const) {
+      expect((await send(method, path, 16)).called, `${method} ${path}`).toBe(0);
+      expect((await send(method, path, 14)).called, `${method} ${path}`).toBe(1);
+    }
+  });
 });
