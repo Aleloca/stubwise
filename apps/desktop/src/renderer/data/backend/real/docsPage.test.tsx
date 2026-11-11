@@ -82,6 +82,9 @@ function install(routes: Record<string, unknown> = {}) {
     [`GET /api/projects/${PROJECT_ID}/docs/spaces`]: {
       body: [{ repositoryId: REPO, projectId: PROJECT_ID, slug: "audin-app", name: "audin-app", pageCount: 2, lastGenerationAt: null, lastCommitSha: null }],
     },
+    "GET /api/docs/spaces": {
+      body: [{ repositoryId: REPO, projectId: PROJECT_ID, slug: "audin-app", name: "audin-app", pageCount: 2, lastGenerationAt: null, lastCommitSha: null }],
+    },
     [`GET /api/repositories/${REPO}/docs/tree`]: { body: [node({}), node({ id: P2, slug: "dialer", title: "Dialer", parentId: P1, code: "AUD-D2", viewCount: 7 })] },
     [`GET /api/repositories/${REPO}/docs/highlights`]: {
       body: {
@@ -184,5 +187,29 @@ describe("i Docs nella build app", () => {
     await ue.click(screen.getByRole("button", { name: "Save page" }));
     expect(await screen.findByText("A page's address can't change after it's created: keep the slug as it is.")).toBeInTheDocument();
     expect(seen.some((r) => r.method === "PATCH")).toBe(false);
+  });
+  it("un repository col nome diverso dallo slug: i link per slug si aprono (e quelli vecchi per nome)", async () => {
+    install({
+      [`GET /api/projects/${PROJECT_ID}/docs/spaces`]: {
+        body: [{ repositoryId: REPO, projectId: PROJECT_ID, slug: "audin-app", name: "Audin App", pageCount: 2, lastGenerationAt: null, lastCommitSha: null }],
+      },
+    });
+    const router = renderRoute("/p/AUD/docs/audin-app/dialer");
+    expect(await screen.findByRole("heading", { level: 1, name: "Dialer" }, { timeout: 3000 })).toBeInTheDocument();
+    // Un link vecchio, col nome del repository.
+    void router.navigate({ to: "/p/$code/docs/$repo/$slug", params: { code: "AUD", repo: "Audin App", slug: "dialer" } });
+    await waitFor(() => expect(decodeURIComponent(router.state.location.pathname)).toBe("/p/AUD/docs/Audin App/dialer"));
+    expect(await screen.findByRole("heading", { level: 1, name: "Dialer" }, { timeout: 3000 })).toBeInTheDocument();
+  });
+  it("la visita a una pagina non ricarica i Docs (fire-and-forget)", async () => {
+    install();
+    renderRoute("/p/AUD/docs/audin-app/dialer");
+    expect(await screen.findByRole("heading", { level: 1, name: "Dialer" }, { timeout: 3000 })).toBeInTheDocument();
+    await waitFor(() => expect(seen.some((r) => r.method === "POST" && r.path.endsWith("/view"))).toBe(true));
+    await new Promise((r) => setTimeout(r, 400));
+    // Dopo la visita, nessuna rilettura dei Docs (spazi, albero, highlights).
+    const post = seen.findIndex((r) => r.method === "POST" && r.path.endsWith("/view"));
+    const after = seen.slice(post + 1).filter((r) => r.method === "GET" && /\/docs\/(spaces|tree|highlights)$/.test(r.path));
+    expect(after).toEqual([]);
   });
 });

@@ -1,11 +1,5 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   usePeople,
@@ -48,6 +42,7 @@ import {
   releaseFirstLine,
   rowLinkClass,
   spaceLink,
+  spaceKey,
 } from "./parts";
 
 /**
@@ -96,8 +91,7 @@ export function DocsProjectGate({
     );
   }
   if (!project) return <ProjectNotFound />;
-  if (!project.modules.includes("docs"))
-    return <DocsTurnedOff project={project} />;
+  if (!project.modules.includes("docs")) return <DocsTurnedOff project={project} />;
   return <>{children(project)}</>;
 }
 
@@ -421,33 +415,33 @@ function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }
       {/* Senza repository CODE non c'è, e nemmeno l'invito ad aggiungerne
           uno: quello vive nelle impostazioni del progetto ([PS 4]). */}
       {home.spaces.length > 0 && (
-      <DocsGroup title={t("docs.groups.code")} count={home.spaces.length}>
-        <ul aria-label={t("docs.groups.code")} className="border-t border-rule">
-          {home.spaces.map((space) => (
-            <li key={space.repositoryId}>
-              <Link {...spaceLink(project.code, space.name)} className={rowLinkClass}>
-                <span
-                  className="min-w-0 shrink truncate text-md font-semibold text-ink"
-                  title={space.name}
-                >
-                  {space.name}
-                </span>
-                {/* Lo stato sta accanto al nome, dopo il conteggio: chi legge
+        <DocsGroup title={t("docs.groups.code")} count={home.spaces.length}>
+          <ul aria-label={t("docs.groups.code")} className="border-t border-rule">
+            {home.spaces.map((space) => (
+              <li key={space.repositoryId}>
+                <Link {...spaceLink(project.code, spaceKey(space))} className={rowLinkClass}>
+                  <span
+                    className="min-w-0 shrink truncate text-md font-semibold text-ink"
+                    title={space.name}
+                  >
+                    {space.name}
+                  </span>
+                  {/* Lo stato sta accanto al nome, dopo il conteggio: chi legge
                     la riga lo trova dove guarda, non all'altro capo. */}
-                <span className="flex min-w-0 items-center gap-2 text-sm">
-                  <span className="num shrink-0 text-ink-faint">
-                    {t("docs.space.pages", { count: space.pageCount })}
+                  <span className="flex min-w-0 items-center gap-2 text-sm">
+                    <span className="num shrink-0 text-ink-faint">
+                      {t("docs.space.pages", { count: space.pageCount })}
+                    </span>
+                    <span aria-hidden="true" className="text-ink-faint">
+                      ·
+                    </span>
+                    <GenerationLine space={space} className="text-ink-muted" />
                   </span>
-                  <span aria-hidden="true" className="text-ink-faint">
-                    ·
-                  </span>
-                  <GenerationLine space={space} className="text-ink-muted" />
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </DocsGroup>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </DocsGroup>
       )}
 
       <DocsGroup
@@ -484,35 +478,38 @@ function HomeBody({ project, home }: { project: Project; home: ProjectDocsHome }
 
       {/* Senza repository non ci sono commit né note di rilascio: niente WHAT'S NEW ([PS 4]). */}
       {home.spaces.length > 0 && (
-      <DocsGroup title={t("docs.groups.whatsNew")}>
-        {home.whatsNew.length === 0 ? (
-          <p className="border-t border-rule px-2 py-3 text-md text-ink-muted">
-            {nightlyOff
-              ? t("projectEffects.docs.noReleases", { code: project.code })
-              : t("docs.home.noReleases")}
-          </p>
-        ) : (
-          <ul aria-label={t("docs.groups.whatsNew")} className="border-t border-rule">
-            {home.whatsNew.map((r) => (
-              <li
-                key={r.id}
-                className="grid grid-cols-[56px_minmax(0,1fr)] gap-x-3 gap-y-0.5 border-b border-rule px-2 py-2.5"
-              >
-                <span className="num text-md font-semibold text-ink">{r.version}</span>
-                <span className="flex min-w-0 items-center gap-2 text-xs text-ink-muted">
-                  <span className="truncate">{r.repositoryName}</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="num shrink-0">{formatDate(r.date, i18n.language)}</span>
-                  {r.minor && <MinorMark />}
-                </span>
-                <span className="col-start-2 truncate text-md text-ink" title={releaseFirstLine(r)}>
-                  {releaseFirstLine(r)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </DocsGroup>
+        <DocsGroup title={t("docs.groups.whatsNew")}>
+          {home.whatsNew.length === 0 ? (
+            <p className="border-t border-rule px-2 py-3 text-md text-ink-muted">
+              {nightlyOff
+                ? t("projectEffects.docs.noReleases", { code: project.code })
+                : t("docs.home.noReleases")}
+            </p>
+          ) : (
+            <ul aria-label={t("docs.groups.whatsNew")} className="border-t border-rule">
+              {home.whatsNew.map((r) => (
+                <li
+                  key={r.id}
+                  className="grid grid-cols-[56px_minmax(0,1fr)] gap-x-3 gap-y-0.5 border-b border-rule px-2 py-2.5"
+                >
+                  <span className="num text-md font-semibold text-ink">{r.version}</span>
+                  <span className="flex min-w-0 items-center gap-2 text-xs text-ink-muted">
+                    <span className="truncate">{r.repositoryName}</span>
+                    <span aria-hidden="true">·</span>
+                    <span className="num shrink-0">{formatDate(r.date, i18n.language)}</span>
+                    {r.minor && <MinorMark />}
+                  </span>
+                  <span
+                    className="col-start-2 truncate text-md text-ink"
+                    title={releaseFirstLine(r)}
+                  >
+                    {releaseFirstLine(r)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </DocsGroup>
       )}
     </>
   );
@@ -603,11 +600,11 @@ function StartHereWithRepo({
         </li>
       )}
       {product.map((page) => (
-        <PageRefRow key={page.id} page={page} projectCode={project.code} repo={main.name} />
+        <PageRefRow key={page.id} page={page} projectCode={project.code} repo={spaceKey(main)} />
       ))}
       {product.length === 0 && (
         <li>
-          <Link {...spaceLink(project.code, main.name)} className={rowLinkClass}>
+          <Link {...spaceLink(project.code, spaceKey(main))} className={rowLinkClass}>
             <span className="min-w-0 truncate text-md text-ink">
               {t("docs.home.indexOf", { name: main.name })}
             </span>

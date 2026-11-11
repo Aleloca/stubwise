@@ -60,6 +60,8 @@ export function forgetDocsCaches(): void {
   spaceOf.clear();
   pageWhere.clear();
   reports.clear();
+  releaseTexts.clear();
+  slowParts.clear();
 }
 
 async function read<T>(run: () => Promise<T>): Promise<T | null> {
@@ -82,17 +84,28 @@ async function viewer(): Promise<Viewer> {
   } as Viewer;
 }
 
-/** Il progetto di un repository: dagli spazi già letti, o dagli spazi dei progetti visibili. */
+/** Una lettura a ventaglio su più progetti: un progetto che non si vede (404) o non si legge (403) non c'è. */
+async function readOrNone<T>(run: () => Promise<T>): Promise<T | null> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return null;
+    throw error;
+  }
+}
+
+/**
+ * Il progetto di un repository: dagli spazi già letti, o da `GET /api/docs/spaces`
+ * (tutti quelli che chi guarda legge, già filtrati dal server, in una lettura).
+ */
 async function projectOfRepository(repositoryId: string): Promise<string | null> {
   const known = spaceOf.get(repositoryId);
   if (known) return known.projectId;
-  for (const project of await listProjects()) {
-    if (!project.modules.includes("docs")) continue;
-    const spaces = (await read(() => appClient().docs.projectSpaces(project.id))) ?? [];
-    for (const s of spaces) spaceOf.set(s.repositoryId, { projectId: s.projectId ?? project.id, name: s.name, slug: s.slug });
-    if (spaceOf.has(repositoryId)) return project.id;
+  const spaces = (await readOrNone(() => appClient().docs.spaces())) ?? [];
+  for (const s of spaces) {
+    if (s.projectId) spaceOf.set(s.repositoryId, { projectId: s.projectId, name: s.name, slug: s.slug });
   }
-  return null;
+  return spaceOf.get(repositoryId)?.projectId ?? null;
 }
 
 // --- le forme -----------------------------------------------------------------------
@@ -197,16 +210,23 @@ function briefOf(b: Reader<DocBriefResponse> | null): RepoBrief | null {
   };
 }
 
-/** Le note di rilascio dello spazio, dalla più recente; il testo solo quando si legge (`withText`). */
-async function releasesOf(repositoryId: string, nodes: readonly Node[], withText: boolean): Promise<DocRelease[]> {
+/** Il testo di ogni nota di rilascio letta, per id: una nota non cambia, il polling non la rilegge. */
+const releaseTexts = new Map<string, string>();
+
+/** Le note di rilascio dello spazio, dalla più recente, coi testi delle più recenti (letti una volta per nota). */
+async function releasesOf(repositoryId: string, nodes: readonly Node[]): Promise<DocRelease[]> {
   const rows = nodes
     .filter((n) => n.kind === "releases")
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const texts = withText
-    ? await Promise.all(
-        rows.slice(0, RELEASE_TEXTS).map(async (n) => (await read(() => appClient().docs.page(repositoryId, n.slug)))?.body ?? ""),
-      )
-    : [];
+  const texts = await Promise.all(
+    rows.slice(0, RELEASE_TEXTS).map(async (n) => {
+      const known = releaseTexts.get(n.id);
+      if (known !== undefined) return known;
+      const page = await read(() => appClient().docs.page(repositoryId, n.slug)).catch(() => null);
+      if (page) releaseTexts.set(n.id, page.body);
+      return page?.body ?? "";
+    }),
+  );
   return rows.map((n, i) => ({
     id: n.id,
     version: n.title,
@@ -288,13 +308,26 @@ export function communitiesOf(markdown: string): GraphCommunity[] {
 /** Le comunità lette, per repository e costruzione: il resoconto cambia solo con un grafo nuovo. */
 const reports = new Map<string, GraphCommunity[]>();
 
+/**
+ * Il grafo lo legge chi ha `repos.view` nel progetto: un lettore dei soli Docs
+ * (Contributor) riceve 403, ed è «niente grafo», mai un errore dello spazio.
+ */
+async function readGraph<T>(run: () => Promise<T>): Promise<T | null> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return null;
+    throw error;
+  }
+}
+
 async function graphNow(repositoryId: string): Promise<GraphState> {
-  const g = await read(() => appClient().graph.state(repositoryId));
+  const g = await readGraph(() => appClient().graph.state(repositoryId));
   if (!g?.enabled || g.status !== "done") return graphOf(g);
   const key = `${repositoryId}\u0000${g.generatedAt ?? ""}\u0000${g.commitSha ?? ""}`;
   let report = reports.get(key);
   if (!report) {
-    const text = await read(() => appClient().graph.report(repositoryId)).catch(() => null);
+    const text = await readGraph(() => appClient().graph.report(repositoryId)).catch(() => null);
     if (text !== null) {
       report = communitiesOf(text);
       reports.set(key, report);
@@ -325,19 +358,51 @@ async function treeOf(repositoryId: string, projectId: string) {
   return { nodes, byId, refs };
 }
 
+/**
+ * Le parti «lente» di uno spazio (albero, highlights, brief, note di rilascio),
+ * per repository, con la chiave dello stato da cui sono state lette: il polling
+ * a 1 s di una generazione in corso rilegge solo stato e grafo, e queste si
+ * rileggono quando lo stato cambia (una generazione che finisce) o dopo una
+ * scrittura sullo spazio (`stale`).
+ */
+const slowParts = new Map<
+  string,
+  {
+    key: string;
+    tree: Awaited<ReturnType<typeof treeOf>>;
+    highlights: Reader<RepoHighlights> | null;
+    brief: Reader<DocBriefResponse> | null;
+    releases: DocRelease[];
+  }
+>();
+const stale = (repositoryId: string) => slowParts.delete(repositoryId);
+
+function statusKey(status: Reader<DocStatusResponse> | null): string {
+  const g = status?.generation;
+  const j = status?.latestJob;
+  return [g?.id, g?.status, g?.finishedAt, j?.id, j?.status, j?.finishedAt].join("\u0000");
+}
+
 async function spaceView(
-  s: { repositoryId: string; name: string },
+  s: { repositoryId: string; name: string; slug?: string },
   projectId: string,
   me: Viewer,
-  { withReleaseTexts = false } = {},
 ): Promise<DocSpaceView> {
-  const [{ nodes, refs }, highlights, status, brief, graph] = await Promise.all([
-    treeOf(s.repositoryId, projectId),
-    read(() => appClient().docs.repoHighlights(s.repositoryId)),
-    read(() => appClient().docs.status(s.repositoryId)),
-    read(() => appClient().docs.brief(s.repositoryId)),
-    graphNow(s.repositoryId),
-  ]);
+  const [status, graph] = await Promise.all([read(() => appClient().docs.status(s.repositoryId)), graphNow(s.repositoryId)]);
+  const key = statusKey(status);
+  let slow = slowParts.get(s.repositoryId);
+  if (!slow || slow.key !== key) {
+    const [tree, highlights, brief] = await Promise.all([
+      treeOf(s.repositoryId, projectId),
+      read(() => appClient().docs.repoHighlights(s.repositoryId)),
+      read(() => appClient().docs.brief(s.repositoryId)),
+    ]);
+    slow = { key, tree, highlights, brief, releases: await releasesOf(s.repositoryId, tree.nodes) };
+    slowParts.set(s.repositoryId, slow);
+  }
+  const { refs } = slow.tree;
+  const highlights = slow.highlights;
+  const brief = slow.brief;
   const bySlug = new Map(refs.map((r) => [r.slug, r] as const));
   const refsFrom = (list: readonly { slug: string }[] | undefined) =>
     (list ?? []).flatMap((h) => bySlug.get(h.slug) ?? []).slice(0, 5);
@@ -345,9 +410,11 @@ async function spaceView(
     repositoryId: s.repositoryId,
     projectId,
     name: s.name,
+    // La chiave dell'indirizzo: lo slug del repository (gli stessi link delle citazioni e dei codici D).
+    ...(s.slug ? { slug: s.slug } : {}),
     generation: generationOf(status),
     brief: briefOf(brief),
-    releases: await releasesOf(s.repositoryId, nodes, withReleaseTexts),
+    releases: slow.releases,
     graph,
     pageCount: refs.length,
     manualOnly: refs.length > 0 && refs.every((r) => r.kind === "manual"),
@@ -384,7 +451,7 @@ const getDocSpace: Docs["getDocSpace"] = async (repositoryId) => {
   const projectId = await projectOfRepository(repositoryId);
   const s = spaceOf.get(repositoryId);
   if (!projectId || !s) return null;
-  return spaceView({ repositoryId, name: s.name }, projectId, await viewer(), { withReleaseTexts: true });
+  return spaceView({ repositoryId, name: s.name, slug: s.slug }, projectId, await viewer());
 };
 
 /** L'albero di uno spazio: le quattro categorie, sempre tutte e nell'ordine. */
@@ -488,7 +555,7 @@ const searchDocs: Docs["searchDocs"] = async (q, { repositoryId } = {}) => {
   const targets = repositoryId ? projects.filter((p) => p.id === scoped) : projects;
   const results = await Promise.all(
     targets.map(async (p) => {
-      const hits = (await read(() => appClient().docs.projectSearch(p.id, q))) ?? [];
+      const hits = (await readOrNone(() => appClient().docs.projectSearch(p.id, q))) ?? [];
       return hits
         .filter((h) => !repositoryId || h.repositoryId === repositoryId)
         .flatMap((h) => hitOf(h, p.id, p.code) ?? []);
@@ -540,6 +607,8 @@ async function write<T>(run: () => Promise<T>): Promise<T> {
     if (error instanceof ApiError) {
       if (error.code === "doc_page_slug_conflict") throw new Error("slug_conflict");
       if (error.code === "generation_not_paused") throw new Error("invalid: generation not paused");
+      // Il grafo ha già una costruzione in coda: lo stato del grafo, non una generazione dei Docs.
+      if (error.code === "graph_job_pending") throw new Error("invalid: graph state");
       if (error.status === 409) throw new Error("generation_in_progress");
       if (error.status === 404) throw new Error("not_found");
       if (error.status === 403) throw new Error("forbidden");
@@ -586,6 +655,7 @@ const createManualPage: Docs["createManualPage"] = async (repositoryId, input) =
       body: input.body,
     }),
   );
+  stale(repositoryId);
   return pageOf(created, projectId, repositoryId);
 };
 
@@ -605,6 +675,7 @@ const updateManualPage: Docs["updateManualPage"] = async (id, patch) => {
       ...(patch.body !== undefined ? { body: patch.body } : {}),
     }),
   );
+  stale(where.repositoryId);
   return pageOf(updated, projectId, where.repositoryId);
 };
 
@@ -613,6 +684,7 @@ const deleteManualPage: Docs["deleteManualPage"] = async (id) => {
   if (!where) throw new Error("not_found");
   await write(() => appClient().docs.deleteManualPage(where.repositoryId, id));
   pageWhere.delete(id);
+  stale(where.repositoryId);
 };
 
 /** Lo stato della generazione riletto dopo un avvio o una ripresa. */

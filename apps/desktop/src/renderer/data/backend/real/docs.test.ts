@@ -83,6 +83,7 @@ function install(routes: Record<string, unknown> = {}, permissions = ["docs.view
     "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: permissions } }) },
     "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
     [`GET /api/projects/${PROJECT_ID}/docs/spaces`]: { body: [space] },
+    "GET /api/docs/spaces": { body: [{ ...space, projectId: PROJECT_ID }] },
     [`GET /api/repositories/${REPO}/docs/tree`]: { body: tree },
     [`GET /api/repositories/${REPO}/docs/highlights`]: { body: highlights },
     [`GET /api/repositories/${REPO}/docs/status`]: { body: { generation: null, latestJob: null, pinnedProvider: null } },
@@ -482,6 +483,89 @@ describe("lo stato della generazione col motivo (server dopo 1deba629)", () => {
     const [view] = await docs.listDocSpaces(PROJECT_ID);
     expect(view!.generation).toMatchObject({ status: "failed", reason: null });
     expect(view!.generation).not.toHaveProperty("resumesAt");
+  });
+});
+
+describe("review della fetta 1 dell'area 5", () => {
+  it("un lettore dei Docs senza repos.view (Contributor): il grafo 403 è «niente grafo», lo spazio e la Home si aprono", async () => {
+    install(
+      { [`GET /api/repositories/${REPO}/graph`]: { status: 403, body: { code: "forbidden", message: "x" } } },
+      ["docs.view"],
+    );
+    await getSessionPerson();
+    const [view] = await docs.listDocSpaces(PROJECT_ID);
+    expect(view).toMatchObject({ repositoryId: REPO, graph: { status: "disabled" } });
+    expect(await docs.getProjectDocsHome(PROJECT_ID)).toMatchObject({ projectId: PROJECT_ID });
+  });
+  it("i testi delle note di rilascio arrivano anche dall'elenco degli spazi, letti una volta sola per nota", async () => {
+    const { seen } = install({
+      [`GET /api/repositories/${REPO}/docs/pages/release-2026-11-10`]: {
+        body: page({ id: REL, slug: "release-2026-11-10", title: "Nov 10", kind: "releases", body: "## Fixed\n- Calls", links: null, staleSince: null }),
+      },
+    });
+    await getSessionPerson();
+    const [first] = await docs.listDocSpaces(PROJECT_ID);
+    expect(first!.releases[0]).toMatchObject({ version: "Nov 10", text: "## Fixed\n- Calls" });
+    await docs.listDocSpaces(PROJECT_ID);
+    expect(seen.filter((r) => r.path.endsWith("/docs/pages/release-2026-11-10"))).toHaveLength(1);
+  });
+  it("un progetto che risponde 403 non rompe la ricerca degli altri; il repository si trova con /api/docs/spaces", async () => {
+    const OTHER = "7f1c2a1e-0000-4000-8000-0000000000d9";
+    const { seen } = install({
+      "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] }), serverProject({ id: OTHER, code: "OTH", slug: "other", name: "Other" })] },
+      "GET /api/docs/spaces": { body: [{ ...space, projectId: PROJECT_ID }] },
+      [`GET /api/projects/${OTHER}/docs/spaces`]: { status: 403, body: { code: "forbidden", message: "x" } },
+      [`GET /api/projects/${OTHER}/docs/search`]: { status: 403, body: { code: "forbidden", message: "x" } },
+      [`GET /api/projects/${PROJECT_ID}/docs/search`]: {
+        body: [{ slug: "dialer", title: "Dialer", kind: "functional", snippet: "x", score: 1, source: "hybrid", repositoryId: REPO, repositorySlug: "audin-app", repositoryName: "audin-app", code: "AUD-D2" }],
+      },
+    });
+    await getSessionPerson();
+    expect((await docs.searchDocs("dialer")).map((h) => h.page.code)).toEqual(["AUD-D2"]);
+    expect((await docs.getDocPage(REPO, "dialer"))?.projectId).toBe(PROJECT_ID);
+    // Il progetto del repository da una sola lettura, non scorrendo gli spazi dei progetti.
+    expect(seen.some((r) => r.path === `/api/projects/${OTHER}/docs/spaces`)).toBe(false);
+  });
+  it("il cambio di persona dimentica ciò che i Docs ricordavano dell'altra", async () => {
+    install();
+    await getSessionPerson();
+    await docs.getDocPage(REPO, "dialer");
+    // Entra un'altra persona, che non vede questo progetto.
+    const OTHER_ID = "99999999-9999-4999-8999-999999999999";
+    const { seen } = installFakeServer({
+      "GET /api/auth/me": { body: me({ user: { ...me().user, id: OTHER_ID }, projectPermissions: {} }) },
+      "GET /api/projects": { body: [] },
+      "GET /api/docs/spaces": { body: [] },
+      [`POST /api/repositories/${REPO}/docs/pages/dialer/view`]: { status: 204 },
+    } as Parameters<typeof installFakeServer>[0]);
+    await getSessionPerson();
+    await docs.recordDocView(P2);
+    expect(seen.some((r) => r.method === "POST")).toBe(false);
+    expect(await docs.listDocTree(REPO)).toEqual([]);
+  });
+  it("il polling rilegge solo lo stato (generazione e grafo); albero, highlights e brief solo quando lo stato cambia", async () => {
+    let status: unknown = { generation: null, latestJob: { id: P1, status: "running", trigger: "manual", error: null, createdAt: "2026-11-11T10:00:00.000Z", startedAt: null, finishedAt: null }, pinnedProvider: null };
+    const { seen } = install({ [`GET /api/repositories/${REPO}/docs/status`]: () => ({ body: status }) });
+    await getSessionPerson();
+    await docs.listDocSpaces(PROJECT_ID);
+    await docs.listDocSpaces(PROJECT_ID);
+    const count = (suffix: string) => seen.filter((r) => r.path.endsWith(suffix)).length;
+    expect(count("/docs/status")).toBe(2);
+    expect(count("/graph")).toBe(2);
+    expect(count("/docs/tree")).toBe(1);
+    expect(count("/docs/highlights")).toBe(1);
+    expect(count("/docs/brief")).toBe(1);
+    // La generazione finisce: lo spazio si rilegge per intero.
+    status = { generation: { id: P2, status: "succeeded", commitSha: "abc", model: null, cost: null, stats: null, startedAt: null, finishedAt: "2026-11-11T10:05:00.000Z", createdAt: "2026-11-11T10:00:00.000Z" }, latestJob: null, pinnedProvider: null };
+    await docs.listDocSpaces(PROJECT_ID);
+    expect(count("/docs/tree")).toBe(2);
+  });
+  it("il grafo già in costruzione (409 graph_job_pending) non è una generazione in corso", async () => {
+    install({ [`POST /api/repositories/${REPO}/graph/generate`]: { status: 409, body: { code: "graph_job_pending", message: "x" } } });
+    await getSessionPerson();
+    await docs.listDocSpaces(PROJECT_ID);
+    const error = await docs.graphAction(REPO, "generate").then(() => null, (e: Error) => e);
+    expect(error?.message).toBe("invalid: graph state");
   });
 });
 

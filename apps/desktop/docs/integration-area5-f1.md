@@ -65,6 +65,8 @@ arrivano «come oggi» (maintainer): nessuna funzione oltre il prototipo.
   vicine; «Abilita» su un grafo spento non funziona dal desktop (si accende
   nelle impostazioni del repository, non integrate) e dice l'errore;
   `graph.json` scaricato è quello composto dallo stato, non il file del server.
+- **PR di setup del grafo**: il server dà solo l'indirizzo, non se è aperta,
+  mergiata o chiusa; il renderer la mostra sempre «aperta» (`open: true`).
 - **Spazio Prodotto** (area 11a) nella pagina iniziale: assente.
 - **Export** zip dei Docs: assente (il prototipo non lo ha), e `api:download`
   non cambia allowlist.
