@@ -424,6 +424,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Riconferma dal desktop» (10 nov 2026)
   - «Integrazione area 4, fetta 1: la Chat fra persone» (10 nov 2026)
   - «Integrazione area 4, fetta 2: DM, privati, generali, domande, ricerca» (10 nov 2026)
+  - «Integrazione area 4, fetta 3: @Claude nei canali» (10 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -542,6 +543,7 @@ una voce ti riguarda.
   - Il cursore dello stream è intero in microsecondi, confrontato in SQL.
   - Una domanda della Chat (`chat.question`) si chiude a lettura (risposta, dismiss, archivio, modifica) e non tocca il registro decisioni.
   - Il codice di una task o richiesta nata da un messaggio si DERIVA a lettura col filtro di chi guarda.
+  - @Claude: ogni chiamata è di chi la scrive, con una sessione PRIVATA (`chat_mention`, anche in `visibleTo`); il contesto del thread lo costruisce il server; tutto è proposta B senza «Annulla»; `ask_question` lo scrive il worker, mai una rotta per il token del turno.
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:
