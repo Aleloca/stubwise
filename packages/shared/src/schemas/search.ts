@@ -86,6 +86,8 @@ export const searchDocHitSchema = z.object({
   repositoryId: z.string(),
   repositorySlug: z.string(),
   repositoryName: z.string(),
+  /** Il codice `<PRJ>-D<n>` (area 5, fetta 1); null da un server che non lo conosce. */
+  code: z.string().nullable().default(null),
 });
 export type SearchDocHit = z.infer<typeof searchDocHitSchema>;
 

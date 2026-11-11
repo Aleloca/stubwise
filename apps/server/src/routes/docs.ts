@@ -10,6 +10,7 @@ import {
   docJobStatusSchema,
   docPageKindSchema,
   docBriefResponseSchema,
+  docCodeResolutionSchema,
   productExclusionSchema,
   projectBriefSchema,
   repoHighlightsSchema,
@@ -33,6 +34,7 @@ import {
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { resolveDocCode, withDocCodesIn } from "../services/doc-codes.js";
 import { buildDocsExportZip, safeFilenamePart } from "./docs-export-zip.js";
 import { emptyCountsByKind, HIGHLIGHT_LIMITS } from "./docs-highlights.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
@@ -156,6 +158,8 @@ function toPage(
     viewCount: row.viewCount,
     significant: row.significant,
     staleSince,
+    // Il codice lo aggiungono le rotte (`withDocCodesIn`), in una query.
+    code: null,
   };
 }
 
@@ -628,6 +632,28 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
    * pagina (autogenerata o manuale). Per ognuno: conteggio pagine e data/commit
    * dell'ultima generazione (terminata con successo).
    */
+  /**
+   * Dove sta la pagina di un codice `<PRJ>-D<n>` (area 5, fetta 1): per i link
+   * delle citazioni e dei codici scritti a mano. Solo con `docs.view` nel
+   * progetto del codice; un progetto che non si legge e un codice che non c'è
+   * danno lo stesso 404 (R-G5).
+   */
+  app.get(
+    "/docs/codes/:code",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: z.object({ code: z.string().min(1).max(40) }),
+        response: { 200: docCodeResolutionSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const found = await resolveDocCode(app.db, request.user!, request.params.code);
+      if (!found) return apiError(reply, 404, "not_found", "Not found");
+      return found;
+    },
+  );
+
   app.get(
     "/docs/spaces",
     {
@@ -745,7 +771,11 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         .where(and(eq(docPages.repositoryId, repositoryId), genFilter))
         .orderBy(asc(docPages.kind), asc(docPages.position), asc(docPages.title));
 
-      return rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() }));
+      return withDocCodesIn(
+        app.db,
+        repositoryId,
+        rows.map((row) => ({ ...row, createdAt: row.createdAt.toISOString() })),
+      );
     },
   );
 
@@ -829,8 +859,8 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
 
       return {
         countsByKind,
-        topViewed,
-        recentlyUpdated,
+        topViewed: await withDocCodesIn(app.db, repositoryId, topViewed),
+        recentlyUpdated: await withDocCodesIn(app.db, repositoryId, recentlyUpdated),
         latestReleases: releases.map((r) => ({
           ...r,
           createdAt: r.createdAt.toISOString(),
@@ -974,7 +1004,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         ? commitWebUrl(repository.provider, repository.repoUrl, commitSha)
         : null;
       const staleSince = await loadStaleSince(app.db, page, currentGen);
-      return toPage(page, commitSha, commitUrl, staleSince);
+      return (await withDocCodesIn(app.db, repositoryId, [toPage(page, commitSha, commitUrl, staleSince)]))[0]!;
     },
   );
 
@@ -1064,7 +1094,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
           })
           .returning();
         if (!created) throw new Error("insert della pagina manuale non ha restituito la riga");
-        return reply.code(201).send(toPage(created));
+        return reply.code(201).send((await withDocCodesIn(app.db, repositoryId, [toPage(created)]))[0]!);
       } catch (error) {
         if (isUniqueViolation(error)) {
           return apiError(reply, 409, "doc_page_slug_conflict", "Slug already used in this project");
@@ -1135,7 +1165,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
               .returning();
       if (!row) return apiError(reply, 404, "doc_page_not_found", "Manual page not found");
 
-      return toPage(row);
+      return (await withDocCodesIn(app.db, row.repositoryId, [toPage(row)]))[0]!;
     },
   );
 

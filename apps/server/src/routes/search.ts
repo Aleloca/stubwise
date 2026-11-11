@@ -22,6 +22,7 @@ import {
   tickets,
 } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { exactDocCode, resolveDocCode, withDocCodes } from "../services/doc-codes.js";
 import { retrieveChunks, retrieveChunksAll } from "./docs-retrieval.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -383,6 +384,45 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
         (a, b) => b.rank - a.rank || b.receivedAt.getTime() - a.receivedAt.getTime(),
       );
 
+      // Un codice D esatto (area 5, fetta 1) va in cima ai Docs, anche se la
+      // pagina non contiene la parola: con `docs.view`, nello scope del gruppo.
+      let docHits = docRows.slice(0, PER_GROUP).map((r) => ({
+        slug: r.slug,
+        title: r.title,
+        kind: r.kind,
+        snippet: r.snippet,
+        repositoryId: r.repositoryId,
+        repositorySlug: r.repositorySlug,
+        repositoryName: r.repositoryName,
+      }));
+      const exact = exactDocCode(q);
+      const resolved = exact ? await resolveDocCode(app.db, user, exact) : null;
+      if (resolved?.available && (!scopeRepositoryId || scopeRepositoryId === resolved.repositoryId)) {
+        const [hit] = await app.db
+          .select({
+            slug: docPages.slug,
+            title: docPages.title,
+            kind: docPages.kind,
+            snippet: sql<string>`left(${docPages.body}, 200)`,
+            repositoryId: repositories.id,
+            repositorySlug: repositories.slug,
+            repositoryName: repositories.name,
+          })
+          .from(docPages)
+          .innerJoin(repositories, eq(docPages.repositoryId, repositories.id))
+          .where(
+            and(
+              eq(docPages.repositoryId, resolved.repositoryId),
+              eq(docPages.slug, resolved.slug),
+              or(eq(docPages.generationId, repositories.currentDocGenerationId), isNull(docPages.generationId)),
+            ),
+          )
+          .orderBy(sql`${docPages.generationId} DESC NULLS LAST`)
+          .limit(1);
+        if (hit) docHits = [hit, ...docHits.filter((d) => !(d.repositoryId === hit.repositoryId && d.slug === hit.slug))].slice(0, PER_GROUP);
+      }
+      const docItems = await withDocCodes(app.db, docHits);
+
       return {
         tickets: {
           items: ticketRows.slice(0, PER_GROUP).map((r) => ({
@@ -416,15 +456,7 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           hasMore: repositoryRows.length > PER_GROUP,
         },
         docs: {
-          items: docRows.slice(0, PER_GROUP).map((r) => ({
-            slug: r.slug,
-            title: r.title,
-            kind: r.kind,
-            snippet: r.snippet,
-            repositoryId: r.repositoryId,
-            repositorySlug: r.repositorySlug,
-            repositoryName: r.repositoryName,
-          })),
+          items: docItems,
           hasMore: docRows.length > PER_GROUP,
         },
         mail: {
