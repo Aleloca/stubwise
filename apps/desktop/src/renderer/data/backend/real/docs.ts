@@ -26,6 +26,7 @@ import type {
 } from "../../types";
 import { buildDocTree } from "../../../domain/docs";
 import { can } from "../../viewing";
+import { rememberDocCitation } from "./chat";
 import { appClient } from "./client";
 import { notIntegrated, partialNamespace } from "./notIntegrated";
 import { listDecisionLog } from "./overview";
@@ -542,7 +543,42 @@ const generationHistory: Docs["generationHistory"] = () => [];
 /** Nel prototipo aspetta le generazioni finte; qui non c'è niente da aspettare. */
 const whenDocsIdle: Docs["whenDocsIdle"] = async () => undefined;
 
-/** Le funzioni dei passi 2a e 2b; il resto resta «non integrato» fino ai passi dopo. */
+// --- la chat dei Docs (passo 2c) ----------------------------------------------------
+
+/**
+ * Una domanda alla chat dei Docs, del progetto o di un repository. Come il
+ * prototipo: la risposta intera (`stream=false`), e ogni domanda a sé (nessuna
+ * sessione che continua). Le pagine citate diventano citazioni `doc` col
+ * codice e il link; 503 `chat_unavailable` se l'istanza non ha un provider.
+ */
+const askDocs: Docs["askDocs"] = async ({ projectId, repositoryId, question }) => {
+  let out;
+  try {
+    out = repositoryId
+      ? await appClient().docs.chat(repositoryId, { message: question })
+      : await appClient().docs.projectChat(projectId, { message: question });
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.status === 503 || error.code === "chat_unavailable") throw new Error("chat_unavailable");
+      if (error.status === 404) throw new Error("not_found");
+      if (error.status === 403) throw new Error("forbidden");
+    }
+    throw error;
+  }
+  const refs = out.sources.map((s) => {
+    const id = s.code ?? `${s.repositoryId}/${s.slug}`;
+    rememberDocCitation({ id, label: s.title, projectId, code: s.code, doc: { repositorySlug: s.repositorySlug, slug: s.slug } });
+    return { kind: "doc" as const, id };
+  });
+  return {
+    answeredAt: new Date().toISOString(),
+    text: out.answer,
+    refs,
+    sources: out.sources.map((s, i) => ({ pageId: refs[i]!.id, repositoryName: s.repositoryName })),
+  };
+};
+
+/** Le funzioni dei passi 2a, 2b e 2c; il grafo resta «non integrato» fino al passo 2d. */
 export const docsFunctions: Partial<Docs> = {
   DOC_KINDS,
   listDocSpaces,
@@ -560,6 +596,7 @@ export const docsFunctions: Partial<Docs> = {
   resumeGeneration,
   generationHistory,
   whenDocsIdle,
+  askDocs,
 };
 
 void notIntegrated;

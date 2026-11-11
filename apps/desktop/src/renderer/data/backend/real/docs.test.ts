@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { docs, forgetDocsCaches } from "./docs";
+import { resolveCitations } from "./claudeChat";
 import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject } from "./fakeServer";
 import { getSessionPerson } from "./session";
 
@@ -328,6 +329,38 @@ describe("le pagine manuali e la generazione", () => {
     expect(seen.some((r) => r.method === "POST" && r.path.endsWith("/docs/generate"))).toBe(true);
     await expect(docs.resumeGeneration(REPO)).rejects.toThrow("generation not paused");
     expect(docs.generationHistory(REPO)).toEqual([]);
+  });
+});
+
+describe("la chat dei Docs (senza streaming, come il prototipo)", () => {
+  const answer = {
+    answer: "The dialer calls leads in order (AUD-D2).",
+    sessionId: "7f1c2a1e-0000-4000-8000-0000000000e9",
+    sources: [{ slug: "dialer", title: "Dialer", kind: "functional", repositoryId: REPO, repositorySlug: "audin-app", repositoryName: "audin-app", code: "AUD-D2" }],
+  };
+
+  it("la domanda del progetto: la risposta, le pagine citate col codice e il link, da quale repository", async () => {
+    const { seen } = install({ [`POST /api/projects/${PROJECT_ID}/docs/chat`]: { body: answer } });
+    await getSessionPerson();
+    const out = await docs.askDocs({ projectId: PROJECT_ID, question: "How does the dialer work?" });
+    expect(seen.find((r) => r.method === "POST")).toMatchObject({
+      path: `/api/projects/${PROJECT_ID}/docs/chat?stream=false`,
+      body: { message: "How does the dialer work?" },
+    });
+    expect(out.text).toBe(answer.answer);
+    expect(out.sources).toEqual([{ pageId: out.refs[0]!.id, repositoryName: "audin-app" }]);
+    expect(await resolveCitations(out.refs)).toMatchObject([
+      { kind: "doc", visible: true, code: "AUD-D2", name: "Dialer", route: "#/p/AUD/docs/audin-app/dialer" },
+    ]);
+  });
+
+  it("la domanda di un repository va alla sua chat; senza provider è «chat_unavailable»", async () => {
+    const { seen } = install({
+      [`POST /api/repositories/${REPO}/docs/chat`]: { status: 503, body: { code: "chat_unavailable", message: "x" } },
+    });
+    await getSessionPerson();
+    await expect(docs.askDocs({ projectId: PROJECT_ID, repositoryId: REPO, question: "Hi" })).rejects.toThrow("chat_unavailable");
+    expect(seen.some((r) => r.path === `/api/repositories/${REPO}/docs/chat?stream=false`)).toBe(true);
   });
 });
 

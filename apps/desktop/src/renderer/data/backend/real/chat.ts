@@ -128,6 +128,21 @@ const eventViews = new Map<
 >();
 const citeKey = (kind: string, id: string) => `${kind}\u0000${id}`;
 
+/**
+ * Una pagina citata fuori dalla Chat (la risposta della chat dei Docs, area 5):
+ * la stessa vista di una citazione `doc` confermata dal server, così si
+ * risolve con `resolveCitations` come le altre.
+ */
+export function rememberDocCitation(c: {
+  id: string;
+  label: string;
+  projectId: string;
+  code: string | null;
+  doc: { repositorySlug: string; slug: string };
+}): void {
+  citedViews.set(citeKey("doc", c.id), { kind: "doc", id: c.id, label: c.label, projectId: c.projectId, code: c.code, doc: c.doc });
+}
+
 /** I tipi che il server sa citare (gli altri, scelti da «#», non partono). */
 const CITABLE = new Set(["task", "request", "project", "person", "doc"]);
 
