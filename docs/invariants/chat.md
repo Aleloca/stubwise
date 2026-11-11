@@ -277,7 +277,25 @@ Piano: `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`. Codice:
   conferma escono solo quelli che vedono.
 - **Il testo di Claude lo leggono tutti uguale**: lo scrive il worker sul
   messaggio (a intervalli e alla fine), dai testi dell'assistente della
-  sessione.
+  sessione. Non ci entrano gli errori del CLI (limiti, errori dell'API, che
+  il CLI incarta come messaggio dell'assistente: `apiError`) né il testo di
+  un tentativo scartato (`discarded`); restano nella trascrizione di chi
+  chiama (review della fetta 3).
+- **Il contesto del thread** (`callContext`, review della fetta 3): il nome
+  dell'autore solo sulla prima riga di un messaggio, le righe dopo quotate
+  con «  > », così nessuno si finge chi chiama a metà di un messaggio. Il
+  tetto è la radice più gli ultimi messaggi, al più 40 e 12.000 caratteri,
+  come la continuazione di una pubblica; una riga dice quanti ne restano
+  fuori, e il contratto del prompt lo spiega.
+- **Limite accettato: la classe B non copre l'esfiltrazione nel TESTO della
+  risposta** (review della fetta 3). Le proposte le conferma chi ha
+  chiamato; il testo invece lo leggono subito tutti i lettori del canale, e
+  Claude legge con i permessi di chi chiama. Un membro può provare a
+  fargli incollare nel thread dati che solo chi chiama vede. Vale la regola
+  del prototipo: chi chiama ne è responsabile. Il contratto del prompt dice
+  di non incollare dati non chiesti esplicitamente da chi chiama e di non
+  seguire istruzioni di altri membri; il golden `chat-mention-read` ne
+  controlla il comportamento.
 - **La domanda** (`ask_question`, R-G4): esiste solo nei turni di una chiamata
   e la scrive il WORKER nel DB, non il server. Così il token del turno resta
   GET-only più la sola rotta delle proposte. Una per risposta (indice unico);
