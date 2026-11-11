@@ -87,6 +87,30 @@ export async function resolveDownload(raw: unknown, deps: ApiProxyDeps): Promise
 }
 
 /**
+ * Chi passa da `will-download`:
+ * - `requested`: un URL firmato chiesto con `api:download` (in attesa);
+ * - `local`: un `blob:` o un `data:` della finestra dell'app — i file che il
+ *   renderer prepara da sé (i codici di backup del secondo fattore, la guida
+ *   dell'SDK): si salvano, sempre col «Salva»;
+ * - `reject`: tutto il resto (un http(s) non chiesto, un blob da fuori, altri schemi).
+ */
+export function downloadDecision(
+  url: string,
+  isPending: (url: string) => boolean,
+  fromAppContents: boolean,
+): "requested" | "local" | "reject" {
+  let protocol: string;
+  try {
+    protocol = new URL(url).protocol;
+  } catch {
+    return "reject";
+  }
+  if (protocol === "blob:" || protocol === "data:") return fromAppContents ? "local" : "reject";
+  if ((protocol === "https:" || protocol === "http:") && isPending(url)) return "requested";
+  return "reject";
+}
+
+/**
  * Il nome con cui si propone di salvare: quello del Content-Disposition (lo
  * legge Electron), ridotto al solo nome — mai un percorso dal server — e senza
  * caratteri di controllo.

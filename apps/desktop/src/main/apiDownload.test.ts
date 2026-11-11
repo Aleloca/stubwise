@@ -3,9 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ app: { getPath: () => "/nonexistent" }, safeStorage: {} }));
 
-const { isAllowedDownloadLocation, isAllowedDownloadPath, resolveDownload, safeDownloadName } = await import(
-  "./apiDownload"
-);
+const { downloadDecision, isAllowedDownloadLocation, isAllowedDownloadPath, resolveDownload, safeDownloadName } =
+  await import("./apiDownload");
 
 // Il download di un allegato dal desktop (area 4, fetta 4; voce Trasversali
 // del registro per i ticket): il main chiede il download COL bearer, pretende
@@ -112,5 +111,19 @@ describe("il nome del file", () => {
     expect(safeDownloadName("a\u0000b\nc.txt")).toBe("abc.txt");
     expect(safeDownloadName("..")).toBe("download");
     expect(safeDownloadName("")).toBe("download");
+  });
+});
+
+describe("chi passa da will-download", () => {
+  const pending = (url: string) => url === SIGNED;
+  it("i blob: e i data: della finestra dell'app passano (codici di backup del 2FA, guida SDK), sempre col «Salva»", () => {
+    expect(downloadDecision("blob:file:///6f1c-4e2a", pending, true)).toBe("local");
+    expect(downloadDecision("data:text/plain;charset=utf-8,codes", pending, true)).toBe("local");
+  });
+  it("un download chiesto con api:download passa; un URL estraneo, o un blob da fuori l'app, no", () => {
+    expect(downloadDecision(SIGNED, pending, true)).toBe("requested");
+    expect(downloadDecision("https://evil.example/payload.dmg", pending, true)).toBe("reject");
+    expect(downloadDecision("blob:https://evil.example/x", pending, false)).toBe("reject");
+    expect(downloadDecision("file:///etc/passwd", pending, true)).toBe("reject");
   });
 });

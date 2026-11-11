@@ -2,7 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, Menu, MessageChannelMain, nativeTheme, session, shell } from "electron";
-import { resolveDownload, safeDownloadName, type DownloadResult } from "./apiDownload";
+import { downloadDecision, resolveDownload, safeDownloadName, type DownloadResult } from "./apiDownload";
 import { handleApiRequest, isWebPath } from "./apiProxy";
 import { createStreamRegistry } from "./apiStream";
 import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./instance";
@@ -187,24 +187,31 @@ ipcMain.handle("api:download", async (event, raw: unknown): Promise<DownloadResu
 function installDownloads(): void {
   session.defaultSession.on("will-download", (_event, item, contents) => {
     const url = item.getURLChain()[0] ?? item.getURL();
-    const settle = pendingDownloads.get(url);
-    // Solo i download chiesti con `api:download`.
-    if (!settle) {
+    // Dalla finestra dell'app: la stessa regola della navigazione.
+    const fromAppContents = isNavigationAllowed(contents.getURL(), {
+      devUrl,
+      packagedUrl: pathToFileURL(packagedFile).href,
+    });
+    const decision = downloadDecision(url, (u) => pendingDownloads.has(u), fromAppContents);
+    // Un http(s) non chiesto con `api:download`, un blob da fuori: si annulla.
+    if (decision === "reject") {
       item.cancel();
       return;
     }
-    pendingDownloads.delete(url);
+    // Un blob/data del renderer (codici di backup, guida SDK): nessuno aspetta l'esito.
+    const settle = decision === "requested" ? pendingDownloads.get(url) : undefined;
+    if (settle) pendingDownloads.delete(url);
     const win = BrowserWindow.fromWebContents(contents);
     const options = { defaultPath: join(app.getPath("downloads"), safeDownloadName(item.getFilename())) };
     const chosen = win ? dialog.showSaveDialogSync(win, options) : dialog.showSaveDialogSync(options);
     if (!chosen) {
       item.cancel();
-      settle({ ok: false, reason: "canceled" });
+      settle?.({ ok: false, reason: "canceled" });
       return;
     }
     item.setSavePath(chosen);
     item.once("done", (_e, state) =>
-      settle(state === "completed" ? { ok: true } : { ok: false, reason: state === "cancelled" ? "canceled" : "failed" }),
+      settle?.(state === "completed" ? { ok: true } : { ok: false, reason: state === "cancelled" ? "canceled" : "failed" }),
     );
   });
 }
