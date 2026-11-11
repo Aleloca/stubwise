@@ -368,8 +368,8 @@
   - **Dopo un contenuto NON fidato ogni proposta è almeno B (11 nov 2026,
     area 5, fetta 3, decisione O dell'orchestratrice).** Il testo di un file
     del Drive (`read_drive_file`, e gli snippet di `search_drive`) e una
-    pagina Docs (`read_doc_page`: le manuali le scrive chiunque abbia
-    `docs.edit`) li ha scritti qualcun altro. Una lettura RIUSCITA del token
+    pagina Docs (`read_doc_page`, e gli snippet di `search_docs`: le manuali
+    le scrive chiunque abbia `docs.edit`) li ha scritti qualcun altro. Una lettura RIUSCITA del token
     del turno su una rotta di `CHAT_TOOL_UNTRUSTED_ROUTES`
     (`auth/chat-tool-routes.ts`) segna la CONVERSAZIONE
     (`claude_conversations.untrusted_read_at`, 0146) nell'`onSend`, e

@@ -40,8 +40,8 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
 /**
  * Le rotte di lettura che consegnano a Claude contenuto NON fidato, scritto da
  * altri (area 5, fetta 3, decisione O): il testo di un file del Drive (anche
- * nello snippet di una ricerca) e una pagina Docs (le manuali le scrive
- * chiunque abbia `docs.edit`). Una lettura RIUSCITA del token del turno su una
+ * nello snippet di una ricerca) e le pagine Docs, intere o negli snippet della
+ * ricerca (le manuali le scrive chiunque abbia `docs.edit`). Una lettura RIUSCITA del token del turno su una
  * di queste segna la conversazione (`claude_conversations.untrusted_read_at`),
  * e da lì ogni proposta è almeno B (`claude-actions/proposals.ts`). Chi
  * aggiunge un tool che legge testo scritto da altri aggiunge qui la sua rotta.
@@ -50,6 +50,8 @@ export const CHAT_TOOL_UNTRUSTED_ROUTES: ReadonlySet<string> = new Set([
   "/api/projects/:projectId/drive/files",
   "/api/drive/files/by-code/:code/content",
   "/api/repositories/:repositoryId/docs/pages/:slug",
+  // Gli snippet della ricerca nei Docs: righe delle stesse pagine (decisione (a), 11 nov 2026).
+  "/api/projects/:projectId/docs/search",
 ]);
 
 /**

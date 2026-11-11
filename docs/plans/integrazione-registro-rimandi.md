@@ -207,11 +207,6 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   sa; (contenuto, riassunto e passaggi: arrivati con la F3); «#» cerca i file da
   2 caratteri; sul web una sessione scaduta durante un caricamento la chiude
   la richiesta dopo. Elenco completo in `apps/desktop/docs/integration-area5-f2.md`.
-- Gli snippet di `search_docs` nella chat con Claude *(S, area 5, fetta 3,
-  da decidere)*: oggi segnano la conversazione come «contenuto non fidato» il
-  contenuto e la ricerca del Drive e la pagina Docs intera (`read_doc_page`),
-  non gli snippet della ricerca dei Docs, che di una pagina manuale portano
-  qualche riga. Si allarga aggiungendo la rotta a `CHAT_TOOL_UNTRUSTED_ROUTES`.
 - Il contenuto dei file: limiti dichiarati *(S, area 5, fetta 3)*: doc, xls,
   ppt e RTF sono `unsupported` (D Office/ODF = a); un documento ostile può far
   mentire il SUO riassunto (narrativa generata, mai nel registro decisioni);
@@ -356,6 +351,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- **Gli snippet di `search_docs` come contenuto non fidato** *(S, area 5,
+  fetta 3, chiusa l'11 nov 2026, decisione (a) dell'orchestratrice)*: la
+  ricerca nei Docs è in `CHAT_TOOL_UNTRUSTED_ROUTES` accanto alla pagina
+  intera; dopo una ricerca nei Docs ogni proposta della conversazione è almeno
+  B (`claude-actions/untrusted-input.test.ts`).
 
 - **Area 5, fetta 2: il Drive dei file caricati, server** *(M/O, 11 nov
   2026)*: 0143 (`drive_files`, `drive_opens`, permessi `drive.*`), le rotte
