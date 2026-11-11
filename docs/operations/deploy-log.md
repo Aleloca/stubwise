@@ -3699,3 +3699,69 @@ deploy o di un rollback che la tocca.
   - I chunk delle pagine manuali restano: un server vecchio li trova con la
     ricerca semantica, ed è un miglioramento, non un problema.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Integrazione area 5, fetta 2: il Drive dei file caricati» (11 nov 2026)**:
+  piano `docs/plans/2026-11-11-integrazione-area5-fetta2-plan.md`, invariante
+  `docs/invariants/drive.md`. Decisioni: D1 = a (niente Google, arriva con
+  l'area 6), D3 = a (permessi come il prototipo), D4 = a (100 MB, i tipi della
+  Chat).
+  - Il Drive di ogni progetto: i file caricati, codici `<PRJ>-F<n>`, aperture,
+    anteprima e download firmati, eliminazione con lapide.
+  - «Save to Drive» da un allegato della Chat, come COPIA.
+  - Le citazioni `drive` nella Chat (il «#» e i codici F scritti a mano).
+  - `client.drive` nell'api-client.
+
+  Rotte nuove, tutte sotto `/api`: `GET`/`POST
+  /projects/:projectId/drive/files`, `GET /drive/files`, `GET`/`DELETE
+  /drive/files/:id`, `GET /drive/files/:id/download|preview` (302), `GET
+  /drive/codes/:code`, `POST /chat/attachments/:id/save-to-drive`. Campi
+  nuovi: `drive` sulle citazioni della Chat (additivo, default null).
+
+  Migrazione **0143**:
+  - le tabelle `drive_files` (lapide `deleted_at`, `storage_purged`) e
+    `drive_opens`;
+  - il CHECK di `chat_message_citations.kind` ricreato con `drive`;
+  - i permessi `drive.upload` (Project Lead, Developer, Contributor, Legacy
+    Member), `drive.manage` e `drive.history` (solo Project Lead) ai preset, e
+    ai ruoli di progetto che contenevano già tutti i permessi di un preset (la
+    regola della 0135).
+
+  Dipendenza nuova del server: `@aws-sdk/lib-storage` (il caricamento in
+  streaming a parti da 5 MB), allineata a `@aws-sdk/client-s3`; il
+  Dockerfile del server non cambia. Nessun `notification_kind` nuovo, nessuna
+  env nuova, nessun golden (non cambia niente del worker né dei prompt).
+
+  **L'anteprima inline** vale solo se lo storage ha un `endpoint` su un'origine
+  DIVERSA da `PUBLIC_URL` (un bucket S3/R2/MinIO col suo host). Con lo storage
+  sullo stesso host dell'istanza, o senza `endpoint` configurato, l'anteprima è
+  sempre un download: è voluto (`docs/invariants/drive.md`). Il desktop la
+  mostra comunque come «scarica».
+
+  **Il tetto del caricamento**: 100 MB per file, 30 caricamenti al minuto per
+  persona. Il proxy di caddy non ha un limite di corpo che lo tagli. Il main
+  del desktop legge il file dal disco e lo manda in streaming (stubwise-94).
+
+  **ORDINE**:
+  1. **backup**;
+  2. **`server`**: applica 0143, aspetta healthy. Da qui ci sono le rotte e i
+     permessi nuovi;
+  3. **`caddy`**: il renderer di `/app` col Drive.
+  Il worker non cambia.
+
+  Controllo dopo il deploy: `select preset_key, permissions @>
+  array['drive.upload'] from roles where preset_key in ('project_lead',
+  'developer', 'contributor', 'legacy_member', 'viewer');` vero per i primi
+  quattro, falso per `viewer`.
+
+  **Rollback**:
+  - Un server vecchio non conosce il `kind` `drive` delle citazioni: le
+    citazioni dei file spariscono dalla vista (il testo del messaggio resta,
+    col codice). Al ritorno si rivedono.
+  - Un server vecchio non conosce i permessi `drive.*`: restano nei ruoli, ed è
+    innocuo (nessuna rotta li legge).
+  - Le tabelle `drive_files` e `drive_opens` restano, e gli OGGETTI del Drive
+    restano nello storage sotto `drive/`. Nessun server vecchio li pota.
+    Tornando giù per sempre, si tolgono a mano: prima gli oggetti (`select
+    storage_key from drive_files where not storage_purged;`), poi le righe.
+  - Un file eliminato sotto un server vecchio non si può: la lapide la scrive
+    solo il server nuovo.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.
