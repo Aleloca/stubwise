@@ -50,7 +50,8 @@ const reasonOf = (r: Exclude<ExecResult, { ok: true }>): DriveContentReason =>
   r.kind === "missing" ? "ocr_unavailable" : r.kind === "timeout" ? "ocr_timeout" : r.kind === "output_limit" ? "limits" : "unreadable";
 
 function finish(raw: string, ocr: DriveContentOcr): ExtractResult {
-  const text = raw.replace(/\r\n?/g, "\n").trim();
+  // Il NUL (testo UTF-16, pdftotext, Office) Postgres non lo accetta in un `text`: via (review della F3).
+  const text = raw.replace(/\u0000/g, "").replace(/\r\n?/g, "\n").trim();
   if (text.replace(/\s/g, "").length === 0) return noText("no_text_found", ocr);
   const truncated = text.length > L.textMaxChars;
   return { status: "ready", ocr, text: truncated ? text.slice(0, L.textMaxChars) : text, truncated };
