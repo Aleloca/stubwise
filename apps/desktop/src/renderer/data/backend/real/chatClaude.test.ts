@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
 import { chat, forgetPeopleChatCaches } from "./chat";
-import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject } from "./fakeServer";
+import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTicketDetail } from "./fakeServer";
 import { getSessionPerson } from "./session";
 
 // @Claude nei canali nella build app (integrazione area 4, fetta 3): la vista
@@ -211,6 +211,46 @@ describe("la risposta di @Claude", () => {
     expect(proposal).toMatchObject({ requesterId: MARTA, canDecide: false, actions: [{ fn: "createTask" }] });
     // Il titolo non c'è: la frase non lo nomina (niente virgolette vuote).
     expect((proposal as { actions: { summary: string }[] }).actions[0]!.summary).not.toContain("“");
+  });
+
+  it("due lettori della stessa scheda: chi ha chiamato legge tutto, l'altro i dettagli degli oggetti che vede", async () => {
+    const TASK = "7f1c2a1e-0000-4000-8000-0000000000b1";
+    const actions = (hiddenTask: boolean) => [
+      { fn: "createTask", args: { projectId: PROJECT_ID, title: "Export PDF" } },
+      { fn: "updateTask", args: hiddenTask ? {} : { id: TASK, patch: { title: "PDF" } } },
+    ];
+    const thread = (calledById: string, hiddenTask: boolean, decide: boolean) => ({
+      [`GET /api/chat/messages/${ROOT}/thread`]: {
+        body: {
+          root: root({ authorId: calledById }),
+          replies: [
+            reply(
+              { calledById },
+              {
+                state: "done",
+                question: null,
+                sessionId: decide ? SESSION : null,
+                proposals: [{ id: PROPOSAL, summary: "x", status: "open", actions: actions(hiddenTask), canConfirm: decide, canCancel: decide }],
+              },
+            ),
+          ],
+        },
+      },
+      [`GET /api/tickets/${TASK}`]: { body: serverTicketDetail({ id: TASK, number: 7 }) },
+    });
+    const summaries = async () => {
+      const m = (await chat.listThread(ROOT))!.replies[0]!;
+      const p = m.claudeEvents!.find((e) => e.type === "proposal") as { actions: { summary: string }[]; canDecide: boolean };
+      return { canDecide: p.canDecide, lines: p.actions.map((a) => a.summary) };
+    };
+    // Chi ha chiamato.
+    install(thread(ME_ID, false, true));
+    await getSessionPerson();
+    expect(await summaries()).toEqual({ canDecide: true, lines: ["Create the task “Export PDF”", "Change AUD-7 (title)"] });
+    // Un altro lettore, che vede il progetto ma non la task: il titolo sì, la task no.
+    forgetPeopleChatCaches();
+    install(thread(MARTA, true, false));
+    expect(await summaries()).toEqual({ canDecide: false, lines: ["Create the task “Export PDF”", "Change a task"] });
   });
 
   it("finita male: il motivo del server, anche il budget; «Try again» già usato", async () => {

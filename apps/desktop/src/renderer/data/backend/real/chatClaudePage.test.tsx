@@ -208,7 +208,17 @@ describe("@Claude nei canali, nella build app", () => {
           {
             sessionId: null,
             canStop: false,
-            proposals: [proposal({ actions: [{ fn: "createTask", args: {} }], canConfirm: false, canCancel: false })],
+            // Due azioni: il progetto della prima lo vede (argomenti pieni), quello della seconda no (`{}`).
+            proposals: [
+              proposal({
+                actions: [
+                  { fn: "createTask", args: { projectId: PROJECT_ID, title: "Export PDF" } },
+                  { fn: "createRequest", args: {} },
+                ],
+                canConfirm: false,
+                canCancel: false,
+              }),
+            ],
             question: { id: QUESTION, text: "Which format first?", options: [{ label: "PDF" }], answer: null, canAnswer: false },
           },
         ),
@@ -220,7 +230,8 @@ describe("@Claude nei canali, nella build app", () => {
     expect(within(article).queryByRole("button", { name: "Stop" })).toBeNull();
     expect(within(article).queryByRole("button", { name: "Confirm" })).toBeNull();
     expect(within(article).getByText("Proposal for Marta Rinaldi")).toBeInTheDocument();
-    expect(within(article).getByText("Create a task")).toBeInTheDocument();
+    expect(within(article).getByText(/Create the task “Export PDF”/)).toBeInTheDocument();
+    expect(within(article).getByText("Send a request")).toBeInTheDocument();
     expect(within(article).getByText("Waiting for Marta Rinaldi")).toBeInTheDocument();
     expect(seen.some((r) => r.path.startsWith("/api/agent-sessions/"))).toBe(false);
   });

@@ -15,8 +15,9 @@ import { cachedTaskCode, summaryOf, taskIdsOf } from "./claudeChatActions";
 // - le proposte sono B, decise solo da chi ha chiamato: `canDecide` è il
 //   `canConfirm`/`canCancel` del server, mai una deduzione; niente gruppo,
 //   quindi niente «Annulla»;
-// - gli argomenti delle azioni li ha solo chi ha chiamato: per gli altri il
-//   riassunto non nomina ciò che non hanno (nessun titolo, nessun codice).
+// - gli argomenti: chi ha chiamato li ha tutti; un altro lettore li ha per
+//   un'azione solo se vede tutti gli oggetti che tocca (il server), altrimenti
+//   `{}`: il riassunto di QUELL'azione non nomina niente (né titolo né codice).
 // Le righe e i codici delle task si leggono a parte (async): `toMessage`
 // resta sincrono e usa ciò che è già stato letto; chi legge un thread o lo
 // stream aspetta `loadClaudeExtras` e rilegge.
@@ -57,13 +58,14 @@ export function forgetChatClaudeCaches(): void {
 }
 
 /**
- * Le funzioni che senza argomenti direbbero un titolo o un elenco vuoto: chi
- * non ha chiamato legge la frase senza (il server non gli dà gli argomenti).
+ * Le funzioni che senza argomenti direbbero un titolo o un elenco vuoto: per
+ * un'azione senza argomenti (un lettore che non vede ciò che tocca) la frase
+ * senza.
  */
 const HIDDEN_SUMMARY = new Set(["createTask", "createRequest", "createMilestone", "saveFilter", "updateTask"]);
 
-function actionOf(a: ServerAction, redacted: boolean): ProposedAction {
-  if (redacted && HIDDEN_SUMMARY.has(a.fn)) {
+function actionOf(a: ServerAction): ProposedAction {
+  if (Object.keys(a.args).length === 0 && HIDDEN_SUMMARY.has(a.fn)) {
     const key = `claude.chatActions.summaryHidden.${a.fn}`;
     return { fn: a.fn as ProposedAction["fn"], args: {}, summary: i18n.t(key), summaryText: { key, params: {} } };
   }
@@ -72,10 +74,8 @@ function actionOf(a: ServerAction, redacted: boolean): ProposedAction {
 }
 
 function proposalEvent(p: Block["proposals"][number], calledById: string, at: string): ConversationEvent {
-  // Il server toglie gli argomenti a chi non ha chiamato: una proposta con
-  // azioni e argomenti tutti vuoti è letta da un altro.
-  const redacted = p.actions.length > 0 && p.actions.every((a) => Object.keys(a.args).length === 0);
-  if (!redacted) proposalActions.set(p.id, p.actions);
+  // «Edit» è di chi decide: gli argomenti si ricordano solo per lui.
+  if (p.canConfirm) proposalActions.set(p.id, p.actions);
   return {
     id: `proposal:${p.id}`,
     at,
@@ -83,7 +83,7 @@ function proposalEvent(p: Block["proposals"][number], calledById: string, at: st
     proposalId: p.id,
     requesterId: calledById,
     canDecide: p.canConfirm || p.canCancel,
-    actions: p.actions.map((a) => actionOf(a, redacted)),
+    actions: p.actions.map(actionOf),
     // Uno stato che questo renderer non conosce: una scheda su cui non si agisce.
     status: p.status === "__unknown__" ? "expired" : p.status,
     cls: "B",
