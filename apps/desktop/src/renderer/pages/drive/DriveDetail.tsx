@@ -393,7 +393,12 @@ function FileBody({ file, onClose }: { file: DriveFileDetail; onClose: () => voi
       <Section title={t("drive.detail.summary")}>
         <ContentSummary
           file={file}
-          onRetry={file.permissions.retry ? () => retry.mutate(file.id) : undefined}
+          onRetry={
+            file.permissions.retry
+              ? () => retry.mutate(file.id, { onError: () => toast.error(t("drive.detail.failed")) })
+              : undefined
+          }
+          retrying={retry.isPending}
         />
       </Section>
 
@@ -564,7 +569,16 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 }
 
 /** Il contenuto per esteso: il riassunto intero, o lo stato in parole (con «Retry» per chi gestisce). */
-function ContentSummary({ file, onRetry }: { file: DriveFileDetail; onRetry?: () => void }) {
+function ContentSummary({
+  file,
+  onRetry,
+  retrying = false,
+}: {
+  file: DriveFileDetail;
+  onRetry?: () => void;
+  /** «Retry» in volo: il bottone è spento finché non torna. */
+  retrying?: boolean;
+}) {
   const { t } = useTranslation();
   if (file.unavailable) {
     return (
@@ -590,7 +604,7 @@ function ContentSummary({ file, onRetry }: { file: DriveFileDetail; onRetry?: ()
           {t("drive.content.error")}
         </p>
         {onRetry && (
-          <button type="button" className={ghostButton} onClick={onRetry}>
+          <button type="button" className={ghostButton} onClick={onRetry} disabled={retrying}>
             {t("drive.content.retry")}
           </button>
         )}

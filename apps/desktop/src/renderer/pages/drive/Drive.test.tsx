@@ -244,6 +244,20 @@ describe("Drive — dettaglio e aperture", () => {
     expect(within(panel).queryByText(/first 30 pages/)).toBeNull();
   });
 
+  it("«Retry» fallito lo dice l'avviso delle altre azioni; in volo non si ripete", async () => {
+    Object.assign(state.driveFiles.find((x) => x.id === "drv-aud-1")!, { content: "error", text: "", summary: null });
+    await openDrive("/p/AUD/drive?file=AUD-F1");
+    const panel = await screen.findByLabelText("File AUD-F1");
+    const retry = await within(panel).findByRole("button", { name: "Retry" });
+    failNext("drive.retryExtraction");
+    await userEvent.click(retry);
+    expect(await screen.findByText("Couldn't do that. Nothing changed.")).toBeInTheDocument();
+    // In volo: il bottone è spento, un secondo clic non parte.
+    setLatency(400);
+    await userEvent.click(within(panel).getByRole("button", { name: "Retry" }));
+    expect(within(panel).getByRole("button", { name: "Retry" })).toBeDisabled();
+  });
+
   it("aperture: il numero per tutti, lo storico solo con drive.history", async () => {
     await openDrive("/p/AUD/drive?file=AUD-F7");
     const panel = await screen.findByLabelText("File AUD-F7");
