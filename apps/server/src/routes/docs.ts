@@ -35,6 +35,7 @@ import {
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
 import { resolveDocCode, withDocCodesIn } from "../services/doc-codes.js";
+import { embedManualPage } from "../services/doc-embed.js";
 import { buildDocsExportZip, safeFilenamePart } from "./docs-export-zip.js";
 import { emptyCountsByKind, HIGHLIGHT_LIMITS } from "./docs-highlights.js";
 import { authErrorResponses, errorSchema, isUniqueViolation } from "./shared.js";
@@ -1094,6 +1095,8 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
           })
           .returning();
         if (!created) throw new Error("insert della pagina manuale non ha restituito la riga");
+        // Gli embedding della pagina manuale (area 5, fetta 1), fail-open.
+        await embedManualPage(app.db, app.embeddingClient, created, request.log);
         return reply.code(201).send((await withDocCodesIn(app.db, repositoryId, [toPage(created)]))[0]!);
       } catch (error) {
         if (isUniqueViolation(error)) {
@@ -1165,6 +1168,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
               .returning();
       if (!row) return apiError(reply, 404, "doc_page_not_found", "Manual page not found");
 
+      await embedManualPage(app.db, app.embeddingClient, row, request.log);
       return (await withDocCodesIn(app.db, row.repositoryId, [toPage(row)]))[0]!;
     },
   );
