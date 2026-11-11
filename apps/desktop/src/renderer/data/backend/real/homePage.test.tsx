@@ -22,11 +22,14 @@ let claudeDecisions: unknown[] = [];
 let chatQuestions: unknown[] = [];
 /** Area 4, fetta 3: le domande di @Claude a chi l'ha chiamato. */
 let chatClaudeQuestions: unknown[] = [];
+/** Un server della sola fetta 1: le rotte delle domande non ci sono (404). */
+let chatQuestionsMissing = false;
 let seen: SeenRequest[] = [];
 
 beforeEach(() => {
   chatQuestions = [];
   chatClaudeQuestions = [];
+  chatQuestionsMissing = false;
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   personalBlocks = null;
@@ -55,8 +58,10 @@ beforeEach(() => {
   seen = installFakeServer({
     "GET /api/me/claude-decisions": () => ({ body: claudeDecisions }),
     // Area 4, fetta 2: le domande della Chat in «Da decidere».
-    "GET /api/chat/questions": () => ({ body: { items: chatQuestions } }),
-    "GET /api/chat/claude-questions": () => ({ body: { items: chatClaudeQuestions } }),
+    "GET /api/chat/questions": () =>
+      chatQuestionsMissing ? { status: 404, body: { code: "not_found", message: "x" } } : { body: { items: chatQuestions } },
+    "GET /api/chat/claude-questions": () =>
+      chatQuestionsMissing ? { status: 404, body: { code: "not_found", message: "x" } } : { body: { items: chatClaudeQuestions } },
     "POST /api/chat/messages/7f1c2a1e-0000-4000-8000-0000000000d2/claude/answer": () => {
       chatClaudeQuestions = [];
       return { body: { id: "7f1c2a1e-0000-4000-8000-0000000000d2", channelId: "7f1c2a1e-0000-4000-8000-0000000000c1", text: "", createdAt: "2026-11-10T10:00:05.000Z" } };
@@ -164,6 +169,13 @@ describe("la Home nella build app", () => {
         { questionId: "7f1c2a1e-0000-4000-8000-0000000000f3", optionIndex: 0, text: null },
       ]),
     );
+  });
+
+  it("«Da decidere» con un server della sola fetta 1 (404 sulle domande della Chat): il blocco c'è, col resto", async () => {
+    chatQuestionsMissing = true;
+    renderRoute("/home");
+    const decide = await screen.findByRole("region", { name: /^Decide/ });
+    expect(await within(decide).findByText("AUD-R4")).toBeInTheDocument();
   });
 
   it("«Da decidere»: una richiesta da trasformare apre il suo pannello in Requests (fetta 4)", async () => {

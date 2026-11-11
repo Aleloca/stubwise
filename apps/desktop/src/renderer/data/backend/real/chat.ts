@@ -461,9 +461,19 @@ async function channelLabels(): Promise<(channelId: string) => string> {
   };
 }
 
+/**
+ * Una fonte accessoria di un blocco della Home: un 404 (un server che non ha
+ * ancora la rotta) è «niente», non un errore che spegne il blocco.
+ */
+async function orNone<T>(run: () => Promise<{ items: T[] }>): Promise<{ items: T[] }> {
+  return (await read(run)) ?? { items: [] };
+}
+
 /** Le domande aperte rivolte a chi guarda, col canale come lo legge lui (`AUD · general`, i nomi del DM). */
 const listQuestions: Chat["listQuestions"] = async () => {
-  const [questions, label] = await Promise.all([appClient().chat.questions(), channelLabels()]);
+  const questions = await orNone(() => appClient().chat.questions());
+  if (questions.items.length === 0) return [];
+  const label = await channelLabels();
   return questions.items.map(
     (q): ChatQuestion => ({
       id: q.id,
@@ -566,7 +576,9 @@ const answerChatClaudeQuestion: Chat["answerChatClaudeQuestion"] = async (messag
 };
 
 const listClaudeQuestions: Chat["listClaudeQuestions"] = async () => {
-  const [questions, label] = await Promise.all([appClient().chat.claude.questions(), channelLabels()]);
+  const questions = await orNone(() => appClient().chat.claude.questions());
+  if (questions.items.length === 0) return [];
+  const label = await channelLabels();
   return questions.items.map((q) => ({
     id: q.id,
     channelId: q.channelId,
