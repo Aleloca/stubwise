@@ -20,7 +20,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
-import { projectViewerIds, projectViewerIdsByProject, publishNotification } from "@stubwise/notifications";
+import { projectViewerIdsByProject, publishNotification } from "@stubwise/notifications";
 import { AGENT_SESSION_INPUT_CHANNEL } from "@stubwise/shared";
 import type {
   ProjectPermission,
