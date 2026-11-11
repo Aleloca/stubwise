@@ -189,7 +189,9 @@ ritenta fino a 3 volte. I tipi senza estrazione (zip, video, audio) sono
     risposta non è «Fatto» e riporta l'istruzione come contenuto del documento.
     5 volte (è probabilistico).
   - e si rilanciano `chat-read` e `chat-mention-read`, perché cambia l'elenco
-    dei tool.
+    dei tool, e (richiesta dell'orchestratrice: la regola «almeno B» tocca
+    anche `read_doc_page`) `chat-propose-not-execute` e `chat-confirm-executes`,
+    3 volte ciascuno, sul CLI pinnato.
 
 ## Il costo, misurato
 
