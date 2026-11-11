@@ -6,6 +6,8 @@ import {
   chatChannelListSchema,
   chatChannelPrefSchema,
   chatChannelSchema,
+  chatClaudeQuestionListSchema,
+  answerChatClaudeQuestionSchema,
   chatMentionListSchema,
   chatMessagePageQuerySchema,
   chatMessagePageSchema,
@@ -30,9 +32,13 @@ import {
 } from "@stubwise/shared";
 import { apiError } from "../errors.js";
 import { refreshViewer } from "./agent-sessions.js";
+import { claudeQuestionsOf } from "../chat/claude.js";
 import {
   CHAT_CURSOR_MAX,
+  answerClaudeQuestion,
   changedSince,
+  retryClaudeReply,
+  stopClaudeReply,
   ChatError,
   createChannel,
   deleteChannel,
@@ -107,6 +113,12 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
         return reply.code(204).send(null);
       }),
   );
+  // «Da decidere»: le domande di @Claude a chi l'ha chiamato (fetta 3).
+  app.get(
+    "/claude-questions",
+    { config: { access: ACCESS }, schema: { response: { 200: chatClaudeQuestionListSchema, ...authErrorResponses } } },
+    async (request) => ({ items: await claudeQuestionsOf(app.db, request.user!) }),
+  );
   // La ricerca nei canali che chi guarda legge (fetta 2).
   app.get(
     "/search",
@@ -170,6 +182,33 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
     "/channels/:id/join",
     { config: { access: ACCESS }, schema: { params: idParams, response: { 200: chatChannelSchema, ...errors } } },
     async (request, reply) => handle(reply, async () => (await joinChannel(app.db, request.user!, request.params.id, true))!),
+  );
+  // @Claude (fetta 3): fermare, rifare, rispondere alla sua domanda. Solo chi ha
+  // chiamato. Le proposte si decidono con le rotte di sempre
+  // (`/api/claude/proposals/:id/confirm|cancel`), che nella Chat ricontrollano
+  // anche il canale.
+  app.post(
+    "/messages/:id/claude/stop",
+    { config: { access: ACCESS }, schema: { params: idParams, response: { 200: chatMessageSchema, ...errors } } },
+    async (request, reply) => handle(reply, () => stopClaudeReply(app.db, request.user!, request.params.id)),
+  );
+  app.post(
+    "/messages/:id/claude/retry",
+    { config: { access: ACCESS }, schema: { params: idParams, response: { 201: chatMessageSchema, ...errors } } },
+    async (request, reply) =>
+      handle(reply, async () => reply.code(201).send(await retryClaudeReply(app.db, request.user!, request.params.id))),
+  );
+  app.post(
+    "/messages/:id/claude/answer",
+    { config: { access: ACCESS }, schema: { params: idParams, body: answerChatClaudeQuestionSchema, response: { 200: chatMessageSchema, ...errors } } },
+    async (request, reply) =>
+      handle(reply, () =>
+        answerClaudeQuestion(app.db, request.user!, request.params.id, {
+          questionId: request.body.questionId,
+          optionIndex: request.body.optionIndex ?? null,
+          text: request.body.text ?? null,
+        }),
+      ),
   );
   // Uscire: 200 col canale, o 204 se chi esce non lo vede più (un privato, un DM).
   app.delete(

@@ -179,8 +179,10 @@ describe("sessioni di refinement (2026-10-14)", () => {
     expect(agentInputReasonSchema.parse("budget_exceeded")).toBe("budget_exceeded");
   });
 
-  it("le regole a turni valgono SOLO per backlog_refine e la conversazione libera (elenco esplicito)", () => {
-    expect([...TURN_BASED_SESSION_KINDS]).toEqual(["backlog_refine", "free"]);
+  it("le regole a turni valgono SOLO per backlog_refine, la conversazione libera e la chiamata a @Claude (elenco esplicito)", () => {
+    expect([...TURN_BASED_SESSION_KINDS]).toEqual(["backlog_refine", "free", "chat_mention"]);
+    // Nella chiamata a @Claude nessuno scrive nella sessione: chi ha chiamato risponde alla domanda dalla Chat.
+    expect(INTERVENABLE_SESSION_KINDS.has("chat_mention")).toBe(false);
     expect(INTERVENABLE_SESSION_KINDS.has("backlog_refine")).toBe(true);
     expect(BACKLOG_REFINE_CLOSED_CHANNEL).toBe("backlog_refine_closed");
   });

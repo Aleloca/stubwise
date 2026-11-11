@@ -232,8 +232,56 @@ anche quello della radice, il cui conteggio cambia. Il bus (`chat/bus.ts`) usa L
 `chat_channel` e serve solo a svegliare lo stream prima del poll di 5 secondi:
 se manca, lo stream resta corretto, solo più lento.
 
+## @Claude nella Chat (fetta 3)
+
+Piano: `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`. Codice:
+`apps/server/src/chat/claude.ts`, le proposte in
+`apps/server/src/claude-actions/proposals.ts`, il turno in
+`apps/worker/src/claude-chat/{turn,mention,prompts}.ts`.
+
+- **Ogni «@Claude» è una chiamata NUOVA di chi la scrive**, con i suoi permessi
+  e senza altri controlli: ne risponde lui. La risposta nasce SUBITO, nella
+  transazione del messaggio, nel thread di quel messaggio (anche da una
+  radice). È un messaggio `kind claude` con autore l'utente di sistema Claude
+  e `called_by` chi chiama. Una modifica che aggiunge «@Claude» non chiama, e
+  «@Claude» non è una menzione da avvisare.
+- **Una sessione per chiamata, PRIVATA di chi chiama** (kind `chat_mention`,
+  con la sua riga in `claude_conversations`). Gli eventi dei tool («cosa ha
+  letto») li legge solo lui (D5): `visibleTo` esclude `chat_mention` come
+  `free`, e la vista del messaggio dà `sessionId` solo a lui. Le chiamate non
+  compaiono fra le conversazioni della destinazione «Claude»
+  (`isConversation`).
+- **Il contesto lo costruisce il SERVER** alla chiamata: il thread prima della
+  chiamata, come lo legge chi chiama (niente eliminati, citazioni che vede), e
+  nel prompt è marcato come DATO scritto da altre persone. La difesa vera
+  contro un'istruzione nel thread è la classe B: niente succede senza la
+  conferma di chi ha chiamato (golden `chat-mention-read`).
+- **Tutto è proposta, classe B**, anche quando il calcolo dice A. Niente
+  `pageAction`, niente «Annulla» (`requestUndo` → `not_undoable`). Le proposte
+  scadono dopo 20 messaggi del THREAD o 24 ore, a lettura. Le decide solo chi
+  ha chiamato, se legge il canale, ne è membro e il canale non è archiviato
+  (`chatProposalGuard`, dentro `loadOwn`), con le rotte di sempre
+  `/api/claude/proposals/:id/…`. Gli altri lettori vedono la scheda senza
+  argomenti, e dei codici nati dalla conferma solo quelli che vedono.
+- **Il testo di Claude lo leggono tutti uguale**: lo scrive il worker sul
+  messaggio (a intervalli e alla fine), dai testi dell'assistente della
+  sessione.
+- **La domanda** (`ask_question`, R-G4): esiste solo nei turni di una chiamata
+  e la scrive il WORKER nel DB, non il server. Così il token del turno resta
+  GET-only più la sola rotta delle proposte. Una per risposta (indice unico);
+  la vedono tutti, risponde solo chi ha chiamato, una volta (claim), e la
+  risposta riparte come input della stessa sessione.
+- **Stop, «Try again», eliminazione**: solo chi ha chiamato. Lo stop archivia la
+  riga della conversazione della chiamata (il worker ferma il turno);
+  «Try again» solo su una fallita, una volta, come risposta nuova; eliminare la
+  risposta la ferma e fa decadere le sue proposte aperte.
+- **Budget**: a budget finito la risposta nasce `failed`/`budget`, senza turno.
+  Nessun altro tetto (decisione del maintainer).
+- **Il registro decisioni non si scrive**: i moduli della Chat sono nei test
+  `decisions-never-ai` e `claude-actions-never`.
+
 ## Limiti, nel registro
 
-Restano fuori: @Claude (fetta 3), gli eventi dei progetti e gli allegati
-(fetta 4), i messaggi «via Claude» (`via_claude_action_id` c'è, ma vuoto) e le
-citazioni (`docs/plans/integrazione-registro-rimandi.md`, area 4).
+Restano fuori gli eventi dei progetti e gli allegati (fetta 4). I messaggi «via
+Claude» non esistono per decisione del maintainer: `via_claude_action_id` resta
+inerte (`docs/plans/integrazione-registro-rimandi.md`, area 4).

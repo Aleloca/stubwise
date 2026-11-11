@@ -348,6 +348,12 @@ describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", ()
     "../claude-actions/execute.ts",
     "../claude-actions/proposals.ts",
     "../claude-actions/undo.ts",
+    // Area 4, fetta 3: @Claude nella Chat. La chiamata, le risposte, le domande
+    // e le loro proposte non scrivono nel registro decisioni (una domanda della
+    // Chat non è una decisione del progetto) e il server non esegue agenti:
+    // il turno è del worker.
+    "../chat/claude.ts",
+    "../chat/service.ts",
   ];
 
   it.each(MODULES)("%s non nomina nessun esecutore di agenti", async (relative) => {

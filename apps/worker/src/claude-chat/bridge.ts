@@ -4,6 +4,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  CHAT_ASK_TOOL,
+  CHAT_MENTION_TOOL_NAMES,
   CHAT_MCP_SERVER_NAME,
   CHAT_PROPOSE_TOOL,
   CHAT_TOOL_NAMES,
@@ -44,9 +46,24 @@ export interface ChatTurnGrant {
   secret: string;
   revoke(): void;
 }
+/** Un turno del ponte: la sessione, il token del turno e, solo per @Claude nella Chat, la domanda. */
+export interface ChatTurn {
+  sessionId: string;
+  serverToken: string;
+  /** Il turno di una chiamata a @Claude (area 4, fetta 3): può usare `ask_question`. */
+  ask?: boolean;
+}
+
+/**
+ * `ask_question` (area 4, fetta 3): la scrive il WORKER nel DB, non il server —
+ * il token del turno resta GET-only più le proposte. L'esito è il testo per il
+ * modello.
+ */
+export type ChatAskHandler = (sessionId: string, args: Record<string, unknown>) => Promise<{ ok: boolean; text: string }>;
+
 export interface ChatBridge {
   readonly url: string;
-  grant(turn: { sessionId: string; serverToken: string }): ChatTurnGrant;
+  grant(turn: ChatTurn): ChatTurnGrant;
   revokeSession(sessionId: string): void;
   close(): Promise<void>;
 }
@@ -61,6 +78,7 @@ export function buildChatMcpConfig(
   bridge: ChatBridge,
   grant: ChatTurnGrant,
   serverPath: string,
+  opts: { ask?: boolean } = {},
 ): { mcpConfig: AgentMcpConfig; tools: readonly string[] } | null {
   if (!existsSync(serverPath)) return null;
   return {
@@ -69,11 +87,16 @@ export function buildChatMcpConfig(
         [CHAT_MCP_SERVER_NAME]: {
           command: process.execPath,
           args: [serverPath],
-          env: { CHAT_BRIDGE_URL: bridge.url, CHAT_BRIDGE_SECRET: grant.secret },
+          env: {
+            CHAT_BRIDGE_URL: bridge.url,
+            CHAT_BRIDGE_SECRET: grant.secret,
+            // Solo nei turni di @Claude nella Chat: il server MCP espone `ask_question`.
+            ...(opts.ask ? { CHAT_ASK_QUESTION: "1" } : {}),
+          },
         },
       },
     },
-    tools: CHAT_TOOL_NAMES,
+    tools: opts.ask ? CHAT_MENTION_TOOL_NAMES : CHAT_TOOL_NAMES,
   };
 }
 
@@ -212,16 +235,18 @@ export async function startChatBridge(deps: {
   serverUrl: string;
   fetchImpl?: typeof fetch;
   log?: (m: string) => void;
+  /** `ask_question` dei turni di @Claude nella Chat (scrive nel DB). Senza, il tool non risponde. */
+  askQuestion?: ChatAskHandler;
 }): Promise<ChatBridge> {
   const log = deps.log ?? ((m: string) => console.warn(m));
   const fetchImpl = deps.fetchImpl ?? fetch;
   const serverUrl = deps.serverUrl.replace(/\/+$/, "");
-  const grants = new Map<string, { sessionId: string; serverToken: string }>();
+  const grants = new Map<string, ChatTurn>();
 
   const turnOf = (header: string | undefined) => {
     const given = header?.startsWith("Bearer ") ? Buffer.from(header.slice(7)) : null;
     if (given === null) return undefined;
-    let found: { sessionId: string; serverToken: string } | undefined;
+    let found: ChatTurn | undefined;
     for (const [secret, turn] of grants) {
       const expected = Buffer.from(secret);
       if (expected.length === given.length && timingSafeEqual(expected, given)) found = turn;
@@ -289,8 +314,12 @@ export async function startChatBridge(deps: {
 
   async function handle(req: IncomingMessage): Promise<Reply> {
     const match = /^\/tools\/([a-z_]+)$/.exec(req.url ?? "");
-    const tool = match?.[1] as ChatToolName | undefined;
-    if (req.method !== "POST" || tool === undefined || !(CHAT_TOOLS as readonly string[]).includes(tool)) {
+    const tool = match?.[1] as ChatToolName | typeof CHAT_ASK_TOOL | undefined;
+    if (
+      req.method !== "POST" ||
+      tool === undefined ||
+      !([...CHAT_TOOLS, CHAT_ASK_TOOL] as readonly string[]).includes(tool)
+    ) {
       return { status: 404, body: { ok: false, error: "not_found" } };
     }
     const turn = turnOf(req.headers.authorization);
@@ -306,6 +335,11 @@ export async function startChatBridge(deps: {
     }
 
     if (tool === CHAT_PROPOSE_TOOL) return propose(turn, args);
+    // La domanda: solo un turno di @Claude nella Chat, e solo col gestore del worker.
+    if (tool === CHAT_ASK_TOOL) {
+      if (!turn.ask || !deps.askQuestion) return { status: 404, body: { ok: false, error: "not_found" } };
+      return { status: 200, body: await deps.askQuestion(turn.sessionId, args) };
+    }
 
     let paths: string[];
     try {

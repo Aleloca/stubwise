@@ -1,4 +1,6 @@
+import { chatProposalExpired, chatProposalGuard } from "../chat/claude.js";
 import {
+  agentSessions,
   agentSessionEvents,
   backlogItems,
   claudeActionGroups,
@@ -45,6 +47,16 @@ import { undoGroup, undoStateOf } from "./undo.js";
 
 type ProposalRow = typeof claudeProposals.$inferSelect;
 const EVENT_SEGMENT = "stubwise-claude-actions";
+
+/**
+ * La sessione è una chiamata a @Claude nella Chat (area 4, fetta 3): lì ogni
+ * proposta è di classe B (niente esecuzione immediata, niente «Annulla»), le
+ * azioni della pagina non esistono e la scadenza conta i messaggi del thread.
+ */
+async function isChatMention(db: Db, sessionId: string): Promise<boolean> {
+  const [row] = await db.select({ kind: agentSessions.kind }).from(agentSessions).where(eq(agentSessions.id, sessionId));
+  return row?.kind === "chat_mention";
+}
 const PROPOSABLE = new Set<string>(CLAUDE_PROPOSABLE_FNS);
 
 /** Un evento della conversazione (proposta o gruppo eseguito), con il NOTIFY dello stream. */
@@ -169,8 +181,13 @@ export async function createProposal(
     return refuse({ code: "budget_exhausted", index: 0, permission: null, projectId: null, message: "" });
   }
 
-  // Le azioni della pagina: le esegue il renderer (D3). Da sole, mai insieme ad altre.
+  const inChat = await isChatMention(db, sessionId);
+  // Le azioni della pagina: le esegue il renderer (D3). Da sole, mai insieme ad
+  // altre; nella Chat non ci sono (non c'è una pagina dietro una risposta).
   const page = actions.filter((a) => a.fn === "pageAction");
+  if (page.length > 0 && inChat) {
+    return refuse({ code: "invalid", index: actions.findIndex((a) => a.fn === "pageAction"), permission: null, projectId: null, message: "no page actions in the chat" });
+  }
   if (page.length > 0) {
     if (page.length !== actions.length) {
       return refuse({ code: "invalid", index: 0, permission: null, projectId: null, message: "page actions go alone" });
@@ -189,7 +206,8 @@ export async function createProposal(
   // I progetti toccati da questa proposta (fetta 5, D2): per la conferma della
   // pubblicazione e per il seguito privato di una pubblica.
   await recordConversationProjects(db, sessionId, await projectsOfPlan(db, actions, dry));
-  const { cls } = classOfGroup(actions, dry);
+  // Nella Chat tutto è proposta: la classe calcolata sale SEMPRE a B (prototipo, maintainer).
+  const cls = inChat ? "B" : classOfGroup(actions, dry).cls;
   const row = await insert("open", cls);
   if (!row) {
     const [again] = await db
@@ -289,6 +307,8 @@ async function messagesAfter(db: Db, row: ProposalRow): Promise<number> {
 
 async function expired(db: Db, row: ProposalRow, now: Date): Promise<boolean> {
   if (row.status !== "open") return false;
+  // Nella Chat: 20 messaggi del THREAD dopo la risposta, o 24 ore.
+  if (await isChatMention(db, row.sessionId)) return chatProposalExpired(db, row, now);
   if (now.getTime() - row.createdAt.getTime() >= CLAUDE_PROPOSAL_EXPIRY.ms) return true;
   return (await messagesAfter(db, row)) >= CLAUDE_PROPOSAL_EXPIRY.messages;
 }
@@ -306,6 +326,8 @@ export async function proposalView(db: Db, user: SessionUser, row: ProposalRow, 
     const plan = row.undoOfGroupId ? await undoInversesOf(db, user, row.undoOfGroupId) : actions;
     const dry = plan ? await executeGroup(db, user, { sessionId: row.sessionId, actions: plan, dryRun: true }) : null;
     if (dry?.ok) ({ cls, reasons } = classOfGroup(actions, dry));
+    // Nella Chat la classe resta B (i motivi restano: chi avviserebbe, se parte il lavoro).
+    if (cls === "A" && (await isChatMention(db, row.sessionId))) cls = "B";
   }
   const open = row.status === "open" && !isExpired;
   return {
@@ -359,7 +381,7 @@ export async function listGroups(db: Db, user: SessionUser, sessionId: string): 
   const out: ClaudeActionGroupView[] = [];
   for (const g of groups) {
     const actions = await db.select().from(claudeActions).where(eq(claudeActions.groupId, g.id)).orderBy(asc(claudeActions.seq));
-    const undo = await undoStateOf(db, user.id, g.id);
+    const undo = (await isChatMention(db, sessionId)) ? { state: "not_undoable" as const } : await undoStateOf(db, user.id, g.id);
     out.push({
       id: g.id,
       sessionId: g.sessionId,
@@ -400,7 +422,12 @@ async function loadOwn(db: Db, user: SessionUser, proposalId: string): Promise<P
     .select()
     .from(claudeProposals)
     .where(and(eq(claudeProposals.id, proposalId), eq(claudeProposals.requesterId, user.id)));
-  if (!row || !(await ownLiveConversation(db, user.id, row.sessionId))) return null;
+  if (!row) return null;
+  // Nella Chat: la risposta c'è, chi decide legge il canale, ne è membro, e il
+  // canale non è archiviato (`chatProposalPlace` del prototipo). Una risposta
+  // fermata archivia la sua conversazione, ma le sue schede restano decidibili.
+  if (await isChatMention(db, row.sessionId)) return (await chatProposalGuard(db, user, row.sessionId)) === "ok" ? row : null;
+  if (!(await ownLiveConversation(db, user.id, row.sessionId))) return null;
   return row;
 }
 
@@ -499,6 +526,8 @@ export async function requestUndo(
 > {
   const [group] = await db.select().from(claudeActionGroups).where(eq(claudeActionGroups.id, groupId));
   if (!group || group.requesterId !== user.id || !group.sessionId) return { ok: false, error: "not_found" };
+  // Nella Chat niente «Annulla»: la conferma di una B è la decisione (prototipo, maintainer).
+  if (await isChatMention(db, group.sessionId)) return { ok: false, error: "not_undoable" };
   if (!(await ownLiveConversation(db, user.id, group.sessionId))) return { ok: false, error: "not_found" };
   const result = await undoGroup(db, user, groupId, { effects });
   if (!result.ok) return { ok: false, error: result.error, ...(result.error === "refused" ? { failure: result.failure } : {}) };

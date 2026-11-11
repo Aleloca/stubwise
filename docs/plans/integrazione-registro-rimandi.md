@@ -141,10 +141,6 @@ chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
 
 Fetta 2 chiusa (sotto, «Chiuse»).
 
-- **I flag del renderer ancora spenti** *(O, 10 nov 2026)*
-  (`CHAT_LATER_FEATURES` in `apps/desktop/src/renderer/data/integration.ts`):
-  fetta 3 `chat-claude`; fetta 4 `chat-events`, `chat-attachments`. Ognuno va
-  acceso col suo test di pagina (quelli della fetta 2 sono accesi).
 - @Claude nella chat, e le sue domande in «Da decidere» *(fetta 3)*: regole
   proprie del prototipo, tutto proposte e niente «Annulla».
 - Il filtro «con allegati» della ricerca *(fetta 4, con gli allegati)*.
@@ -284,6 +280,19 @@ Fetta 2 chiusa (sotto, «Chiuse»).
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- **Area 4, fetta 3: @Claude nei canali, server e worker** *(M/O, 10 nov
+  2026)*: la chiamata e la sessione privata di chi chiama (D5), il contesto
+  del thread costruito dal server, le proposte sempre B senza «Annulla», la
+  domanda a chi chiama (`ask_question` scritto dal worker) in «Da decidere»,
+  stop, «Try again», eliminazione, budget → `failed`/`budget`. Migrazione
+  0140; golden `chat-mention-*`. Il renderer è di stubwise-94.
+
+- Messaggi «via Claude» nella Chat *(M, 10 nov 2026, piano della fetta 3)*:
+  si chiude senza codice. Nessuna azione del catalogo scrive in Chat, e
+  «Claude nella Chat» è la risposta `kind claude` «chiamato da X».
+  `chat_messages.via_claude_action_id` resta inerte: un'azione «scrivi nel
+  canale» sarebbe una decisione nuova.
 
 - **Area 4, fetta 2: DM, privati, generali, domande, ricerca, server**
   *(M/O, 10 nov 2026)*. Comprende:

@@ -20,6 +20,8 @@ const ROOTS = [
   here,
   join(here, "..", "routes", "claude-actions.ts"),
   join(here, "..", "routes", "claude-conversations.ts"),
+  // Area 4, fetta 3: @Claude nella Chat (la chiamata, le risposte, le domande).
+  join(here, "..", "chat", "claude.ts"),
   join(here, "..", "..", "..", "worker", "src", "claude-chat"),
   join(here, "..", "..", "..", "worker", "src", "chat-mcp"),
 ];

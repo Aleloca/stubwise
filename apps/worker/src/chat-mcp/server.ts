@@ -46,6 +46,8 @@ const TOOL_USE_META = "claudecode/toolUseId";
 export interface ChatMcpConfig {
   bridgeUrl: string;
   secret: string;
+  /** Solo nei turni di @Claude nella Chat: il tool `ask_question` (area 4, fetta 3). */
+  askQuestion?: boolean;
 }
 
 export function loadChatMcpConfig(env: NodeJS.ProcessEnv): ChatMcpConfig {
@@ -53,7 +55,7 @@ export function loadChatMcpConfig(env: NodeJS.ProcessEnv): ChatMcpConfig {
   const secret = env["CHAT_BRIDGE_SECRET"];
   if (!bridgeUrl) throw new Error("CHAT_BRIDGE_URL mancante");
   if (!secret) throw new Error("CHAT_BRIDGE_SECRET mancante");
-  return { bridgeUrl, secret };
+  return { bridgeUrl, secret, ...(env["CHAT_ASK_QUESTION"] === "1" ? { askQuestion: true } : {}) };
 }
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
@@ -144,5 +146,19 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
       });
     }) as Parameters<McpServer["registerTool"]>[2],
   );
+  if (config.askQuestion) {
+    register(
+      "ask_question",
+      "Ask the person who called you ONE multiple-choice question, when you cannot go on without a choice only they can make. Then end your turn: they answer and you continue. Only once per call.",
+      {
+        question: z.string().min(1).max(500).describe("The question, short, in the person's language"),
+        options: z
+          .array(z.object({ label: z.string().min(1).max(120), description: z.string().max(300).optional() }))
+          .min(2)
+          .max(5)
+          .describe("2 to 5 choices"),
+      },
+    );
+  }
   return server;
 }
