@@ -348,4 +348,21 @@ describe("review fetta 2, seconda (11 nov 2026)", () => {
     expect(remove.statusCode, remove.body).toBe(409);
     expect(remove.json()).toMatchObject({ code: "last_member" });
   });
+
+  it("R. canEdit e canDelete seguono le scritture: un archiviato no, un canale lasciato si elimina ma non si modifica", async () => {
+    const id = await openChannel(dev);
+    const msg = idOf(await post(dev, id, "mio"));
+    const flags = async () => {
+      const m = (await as(dev, "GET", `/api/chat/messages/${msg}`)).json() as { canEdit: boolean; canDelete: boolean };
+      return { canEdit: m.canEdit, canDelete: m.canDelete };
+    };
+    expect(await flags()).toEqual({ canEdit: true, canDelete: true });
+    await as(dev, "DELETE", `/api/chat/channels/${id}/join`);
+    // Fuori dal canale: la modifica dà 403 not_member, l'eliminazione passa.
+    expect(await flags()).toEqual({ canEdit: false, canDelete: true });
+    await as(dev, "POST", `/api/chat/channels/${id}/join`);
+    await as(lead, "PATCH", `/api/chat/channels/${id}`, { archived: true });
+    expect(await flags()).toEqual({ canEdit: false, canDelete: false });
+    expect((await as(dev, "DELETE", `/api/chat/messages/${msg}`)).json()).toMatchObject({ code: "channel_archived" });
+  });
 });

@@ -458,27 +458,29 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
           .where(inArray(chatMessageCitations.messageId, live))
           .orderBy(asc(chatMessageCitations.position));
   const citations = await citationViews(db, viewer, citationRows);
-  // Le risposte di @Claude (fetta 3): chi guarda è membro del loro canale? (decide chi può decidere)
-  // I canali e l'appartenenza in due query, non per canale (review della fetta 2).
-  const claudeChannelIds = [...new Set(rows.filter((r) => r.kind === "claude").map((r) => r.channelId))];
+  // Chi guarda è membro del canale di ogni messaggio, e il canale è archiviato?
+  // Lo chiedono le risposte di @Claude (chi può decidere) e `canEdit`/`canDelete`
+  // (le stesse condizioni delle scritture). Due query, non per canale.
+  const channelIds = [...new Set(rows.map((r) => r.channelId))];
   const memberOf = new Map<string, { isMember: boolean; archived: boolean }>();
-  if (claudeChannelIds.length > 0) {
+  if (channelIds.length > 0) {
     const channelRows = await db
       .select({ id: chatChannels.id, isGeneral: chatChannels.isGeneral, archivedAt: chatChannels.archivedAt })
       .from(chatChannels)
-      .where(inArray(chatChannels.id, claudeChannelIds));
+      .where(inArray(chatChannels.id, channelIds));
     const mine = new Set(
       (
         await db
           .select({ channelId: chatChannelMembers.channelId })
           .from(chatChannelMembers)
-          .where(and(eq(chatChannelMembers.userId, viewer.id), inArray(chatChannelMembers.channelId, claudeChannelIds)))
+          .where(and(eq(chatChannelMembers.userId, viewer.id), inArray(chatChannelMembers.channelId, channelIds)))
       ).map((r) => r.channelId),
     );
     // La regola di `accessFrom`: il «general» o una riga fra i membri.
     for (const c of channelRows) memberOf.set(c.id, { isMember: c.isGeneral || mine.has(c.id), archived: c.archivedAt !== null });
   }
-  const claude = await claudeReplyViews(db, viewer, rows, async (channelId) => memberOf.get(channelId) ?? { isMember: false, archived: true });
+  const placeOf = (channelId: string) => memberOf.get(channelId) ?? { isMember: false, archived: true };
+  const claude = await claudeReplyViews(db, viewer, rows, async (channelId) => placeOf(channelId));
   const replying = await rootsWithClaudeWorking(db, rows.filter((r) => r.threadRootId === null).map((r) => r.id));
   return rows.map((m) => {
     const own = m.authorId === viewer.id && m.kind === "person";
@@ -508,9 +510,12 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
       replyParticipantIds: reply?.participants ?? [],
       following: followOf.get(m.id) === true,
       mentionedIds: deleted ? [] : m.mentionedIds,
-      canEdit: own && !deleted,
+      // Le condizioni delle scritture (review del renderer della fetta 3): si
+      // modifica da membro di un canale non archiviato (`canWrite`), si elimina
+      // in un canale non archiviato (`ownMessage`).
+      canEdit: own && !deleted && placeOf(m.channelId).isMember && !placeOf(m.channelId).archived,
       // La risposta di @Claude la elimina chi l'ha chiamata (D6).
-      canDelete: (own || (m.kind === "claude" && m.calledById === viewer.id)) && !deleted,
+      canDelete: (own || (m.kind === "claude" && m.calledById === viewer.id)) && !deleted && !placeOf(m.channelId).archived,
       viaClaude: m.viaClaudeActionId !== null,
       alsoInChannel: m.alsoInChannel,
       asksReplyOf: deleted ? [] : m.asksReplyOf,
