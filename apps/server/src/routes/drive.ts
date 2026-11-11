@@ -6,6 +6,7 @@ import {
   driveCodeResolutionSchema,
   driveFileDetailSchema,
   driveFileListSchema,
+  driveFileRowSchema,
   driveListQuerySchema,
   driveUploadResultSchema,
   saveToDriveBodySchema,
@@ -23,6 +24,7 @@ import {
   markPurged,
   openDriveFile,
   resolveDriveCode,
+  retryDriveFile,
   saveAttachmentToDrive,
   uploadDriveFile,
 } from "../drive/service.js";
@@ -63,12 +65,14 @@ function originOf(url: string | undefined): string | null {
 
 export async function driveRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  // La ricerca per contenuto (F3.4) usa l'embedder del server per la corsia semantica, fail-open.
+  const searchOpts = (request: FastifyRequest) => ({ embeddings: app.embeddingClient, log: (m: string) => request.log.warn(m) });
 
   app.get(
     "/projects/:projectId/drive/files",
     { config: { access: ACCESS }, schema: { params: projectParams, querystring: driveListQuerySchema, response: { 200: driveFileListSchema, ...errors } } },
     async (request, reply) =>
-      handle(reply, async () => ({ items: await listDriveFiles(app.db, request.user!, request.query, { projectId: request.params.projectId }) })),
+      handle(reply, async () => ({ items: await listDriveFiles(app.db, request.user!, request.query, { projectId: request.params.projectId }, searchOpts(request)) })),
   );
 
   // Il caricamento: multipart, un file, al più 100 MB (D4 = a), in STREAMING
@@ -131,7 +135,14 @@ export async function driveRoutes(instance: FastifyInstance): Promise<void> {
   app.get(
     "/drive/files",
     { config: { access: ACCESS }, schema: { querystring: driveListQuerySchema, response: { 200: driveFileListSchema, ...errors } } },
-    async (request, reply) => handle(reply, async () => ({ items: await listDriveFiles(app.db, request.user!, request.query, {}) })),
+    async (request, reply) => handle(reply, async () => ({ items: await listDriveFiles(app.db, request.user!, request.query, {}, searchOpts(request)) })),
+  );
+
+  // «Riprova» (F3.4): rimette in coda l'estrazione di un file `no_text` o `error`.
+  app.post(
+    "/drive/files/:id/retry",
+    { config: { access: ACCESS }, schema: { params: idParams, response: { 200: driveFileRowSchema, 409: errorSchema, ...errors } } },
+    async (request, reply) => handle(reply, () => retryDriveFile(app.db, request.user!, request.params.id)),
   );
 
   app.get(

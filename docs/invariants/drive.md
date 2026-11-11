@@ -131,4 +131,14 @@ test `apps/server/src/routes/drive.test.ts`.
 - Il testo, il riassunto e i chunk si scrivono in UNA transazione guardata sulla
   lapide (`deleted_at is null`): un file eliminato a metà non riceve niente; la
   lapide li toglie nella sua transazione.
+- La ricerca (F3.4): `q` cerca nel nome, nel codice e nel contenuto (la
+  tsvector, più la corsia semantica sui chunk, fail-open, solo sotto una
+  distanza coseno di 0,35 e al più 20 file). Visibilità nella WHERE di
+  ENTRAMBE le corsie, prima del limite: un non membro col testo giusto non
+  trova niente (test negativo). Lo `snippet` è testo PURO (ts_headline senza
+  marcatori, al più 300 caratteri), calcolato in una query sola sulle righe
+  restituite; null per le righe trovate per nome.
+- «Riprova» (`POST /api/drive/files/:id/retry`): solo `drive.manage`, solo su
+  `no_text` o `error` (409 `not_retryable` altrimenti); `permissions.retry` lo
+  calcola il server con la stessa regola.
 
