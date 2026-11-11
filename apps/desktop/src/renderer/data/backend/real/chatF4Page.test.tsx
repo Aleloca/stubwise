@@ -141,6 +141,24 @@ describe("gli allegati, nella build app", () => {
     expect(within(failed).getByText(/too big/)).toBeInTheDocument();
   });
 
+  it("un allegato scaduto (24 ore in sospeso): «Not sent», e «Resend» lo ricarica da sé", async () => {
+    install({
+      [`POST /api/chat/channels/${CH}/attachments`]: { status: 201, body: pdf },
+      [`POST /api/chat/channels/${CH}/messages`]: { status: 400, body: { code: "invalid_attachments", message: "x" } },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/chat/${CH}`);
+    expect(await screen.findByText("The new layout is up.")).toBeInTheDocument();
+    await ue.upload(fileInput(), new File(["%PDF"], "spec.pdf", { type: "application/pdf" }));
+    await ue.click(screen.getByRole("combobox", { name: /^Message/ }));
+    await ue.keyboard("{Enter}");
+    const failed = await screen.findByRole("alert");
+    expect(within(failed).getByText(/expired/)).toBeInTheDocument();
+    // Non chiede di allegarlo di nuovo: «Resend» lo ricarica.
+    expect(within(failed).queryByText(/attach it again/)).toBeNull();
+    expect(within(failed).getByText(/Resend uploads it again/)).toBeInTheDocument();
+  });
+
   it("«Download» su un allegato: lo scarica il main, col solo percorso", async () => {
     const download = vi.fn(async () => ({ ok: true as const }));
     install({ [`GET /api/chat/channels/${CH}/messages`]: { body: { items: [message({ attachments: [pdf] })], before: null } } });
