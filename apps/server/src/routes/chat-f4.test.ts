@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, asc, eq } from "drizzle-orm";
-import { chatChannels, milestones, projectStatuses, ticketRepositories, tickets } from "@stubwise/db";
+import { chatChannels, chatMessages, milestones, projectStatuses, ticketRepositories, tickets } from "@stubwise/db";
+import { eventViews } from "../chat/events.js";
 import { seedBacklogItem, seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
@@ -124,6 +125,10 @@ describe("gli eventi dei progetti nei canali", () => {
     expect(pr.event).toMatchObject({ object: { title: "Con la PR", visible: true }, pr: { number: 12, url: "https://github.com/o/r/pull/12" } });
     expect(pr.event!.pr!.repository.length).toBeGreaterThan(0);
 
+    // Una seconda PR sulla stessa riga: la scheda vecchia tiene la SUA (review).
+    await t.db.update(ticketRepositories).set({ prUrl: "https://github.com/o/r/pull/13", prNumber: 13 }).where(eq(ticketRepositories.id, tr!.id));
+    const again = (await events(lead, ch)).filter((m) => m.event?.kind === "pr_opened" && m.event.ref.id === id);
+    expect(again.map((m) => m.event!.pr!.number)).toEqual([12, 13]);
     const forContributor = await events(contributor, ch);
     const prHidden = forContributor.find((m) => m.event?.kind === "pr_opened" && m.event.ref.id === id)!;
     expect(prHidden.event).toMatchObject({ object: { title: null, visible: false }, pr: null });
@@ -136,6 +141,16 @@ describe("gli eventi dei progetti nei canali", () => {
     await t.db.update(projectBriefs).set({ status: "done", summary: "# Brief" }).where(eq(projectBriefs.id, b!.id));
     const m = (await events(contributor, await general())).find((e) => e.event?.ref.id === b!.id)!;
     expect(m.event).toMatchObject({ kind: "brief_ready", object: { label: "2026-11-02/2026-11-08", visible: true } });
+  });
+
+  it("a chi non vede il progetto la scheda del brief non dice il periodo, né quella del traguardo il nome (review)", async () => {
+    const { projectBriefs } = await import("@stubwise/db");
+    const [b] = await t.db.insert(projectBriefs).values({ projectId, periodStart: "2026-10-26", periodEnd: "2026-11-01" }).returning({ id: projectBriefs.id });
+    await t.db.update(projectBriefs).set({ status: "done", summary: "# Brief" }).where(eq(projectBriefs.id, b!.id));
+    const rows = await t.db.select().from(chatMessages).where(eq(chatMessages.eventRefId, b!.id));
+    const outsider = await createUserWithSession(app, "outsider-f4@example.com");
+    const views = await eventViews(t.db, { id: outsider.id, instancePermissions: new Set<never>() }, rows);
+    expect([...views.values()][0]!.object).toMatchObject({ label: "", visible: false });
   });
 });
 

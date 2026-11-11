@@ -1,4 +1,4 @@
-import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
@@ -35,6 +35,7 @@ import {
 } from "@stubwise/shared";
 import { apiError } from "../errors.js";
 import {
+  assertCanUpload,
   ChatAttachmentError,
   deleteStoredObjects,
   downloadableAttachment,
@@ -207,7 +208,8 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
     { config: { access: ACCESS }, schema: { params: idParams, response: { 204: z.null(), ...errors } } },
     async (request, reply) =>
       handle(reply, async () => {
-        await deleteChannel(app.db, request.user!, request.params.id);
+        const keys = await deleteChannel(app.db, request.user!, request.params.id);
+        if (keys.length > 0) await cleanStorage(app, keys, request.log);
         return reply.code(204).send(null);
       }),
   );
@@ -310,11 +312,17 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
   app.post(
     "/channels/:id/attachments",
     {
-      config: { access: ACCESS },
+      config: {
+        access: ACCESS,
+        // Un tetto di caricamenti per persona (review della fetta 4).
+        rateLimit: { max: 60, timeWindow: "1 minute", hook: "preHandler", keyGenerator: (request: FastifyRequest) => request.user?.id ?? request.ip },
+      },
       schema: { params: idParams, response: { 201: chatAttachmentSchema, 413: errorSchema, ...errors } },
     },
     async (request, reply) =>
       handle(reply, async () => {
+        // Chi può caricare, PRIMA di leggere il file (review della fetta 4).
+        await assertCanUpload(app.db, request.user!, request.params.id);
         const storage = await app.storage();
         if (!storage) return apiError(reply, 400, "storage_not_configured", "Object storage is not configured");
         const tooLarge = () => apiError(reply, 413, "file_too_large", "File exceeds the 25 MB limit");

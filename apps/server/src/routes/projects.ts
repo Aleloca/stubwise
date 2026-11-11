@@ -56,6 +56,7 @@ import {
   uniqueViolationConstraint,
 } from "./shared.js";
 import { apiError } from "../errors.js";
+import { deleteStoredObjects, storageKeysOfProject } from "../chat/attachments.js";
 import {
   TIMELINE_MAX_DAYS,
   buildProjectTimeline,
@@ -1066,11 +1067,22 @@ export async function projectRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const [deleted] = await app.db
-        .delete(projects)
-        .where(eq(projects.id, request.params.projectId))
-        .returning({ id: projects.id });
+      // Gli allegati (Chat e ticket) vanno via in cascata col progetto: le chiavi
+      // dello storage si leggono prima, e si tolgono dopo il commit (review
+      // della fetta 4 della Chat). Lo storage giù non fa fallire l'eliminazione.
+      const { deleted, keys } = await app.db.transaction(async (tx) => {
+        const found = await storageKeysOfProject(tx, request.params.projectId);
+        const [row] = await tx.delete(projects).where(eq(projects.id, request.params.projectId)).returning({ id: projects.id });
+        return { deleted: row, keys: found };
+      });
       if (!deleted) return apiError(reply, 404, "project_not_found", "Project not found");
+      if (keys.length > 0) {
+        try {
+          await deleteStoredObjects(await app.storage(), keys, (m) => request.log.warn(m));
+        } catch (error) {
+          request.log.warn({ err: error }, "storage non raggiungibile: oggetti degli allegati del progetto da togliere a mano");
+        }
+      }
       return reply.code(204).send(null);
     },
   );
