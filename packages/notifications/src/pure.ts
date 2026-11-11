@@ -29,6 +29,7 @@ export {
   eventSummary,
   formatNotification,
   formatNotificationText,
+  isDirectMessageEvent,
   isReviewFailedEvent,
   reviewOutcomeOf,
   sampleEvents,
