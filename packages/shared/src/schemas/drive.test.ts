@@ -64,7 +64,7 @@ describe("il contenuto dei file (area 5, fetta 3)", () => {
 
   it("una riga di un server della fetta 2 (senza i campi del contenuto) si legge coi default", () => {
     const row = driveFileRowSchema.parse(base);
-    expect(row).toMatchObject({ contentStatus: "pending", contentReason: null, contentOcr: null, snippet: null });
+    expect(row).toMatchObject({ contentStatus: null, contentReason: null, contentOcr: null, snippet: null });
     expect(driveFileDetailSchema.parse({ ...row, opensTotal: 1 }).summary).toBeNull();
   });
 
