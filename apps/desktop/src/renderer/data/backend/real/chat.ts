@@ -62,6 +62,9 @@ const INVALID_OF: Record<string, string> = {
   invalid_filename: "attachmentName",
   empty_message: "text",
   invalid_attachments: "attachments",
+  // Review della fetta 2 dell'area 5 (server): un upload interrotto, un multipart con campi in più.
+  upload_incomplete: "attachmentFailed",
+  invalid_multipart: "attachmentFailed",
 };
 
 /** `invalid400`: cosa dice un 400 di validazione (il nome di un canale, nei dialoghi del canale). */

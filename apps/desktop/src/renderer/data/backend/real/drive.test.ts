@@ -232,6 +232,39 @@ describe("il Drive nella build app: caricare", () => {
     await expect(drive.uploadFiles(PROJECT_ID, input)).rejects.toThrow("canceled");
     upload.mockResolvedValueOnce({ ok: false, reason: "unsupported_type", status: 400 });
     await expect(drive.uploadFiles(PROJECT_ID, input)).rejects.toThrow("failed");
+    // Un upload interrotto, un multipart con campi in più (review della fetta 2, server): «Upload failed».
+    for (const code of ["upload_incomplete", "invalid_multipart"]) {
+      upload.mockResolvedValueOnce({ ok: false, reason: "invalid", status: 400, code });
+      await expect(drive.uploadFiles(PROJECT_ID, input), code).rejects.toThrow(/^failed$/);
+    }
+  });
+
+  it("sul web: un upload interrotto o un multipart con campi in più è «failed»", async () => {
+    let code = "";
+    class FakeXhr {
+      upload = { onprogress: null };
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onabort: (() => void) | null = null;
+      status = 0;
+      responseText = "";
+      withCredentials = false;
+      open() {}
+      send() {
+        this.status = 400;
+        this.responseText = JSON.stringify({ code, message: "x" });
+        this.onload?.();
+      }
+      abort() {}
+    }
+    vi.stubGlobal("XMLHttpRequest", FakeXhr);
+    const file = pdf();
+    for (code of ["upload_incomplete", "invalid_multipart"]) {
+      await expect(
+        drive.uploadFiles(PROJECT_ID, [{ name: file.name, mime: file.type, sizeBytes: file.size, file }]),
+        code,
+      ).rejects.toThrow(/^failed$/);
+    }
   });
 
   it("sul desktop l'annullamento ferma il caricamento nel main", async () => {

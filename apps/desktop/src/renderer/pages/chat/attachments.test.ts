@@ -28,6 +28,7 @@ describe("sendRefusalKey", () => {
       ["invalid: attachmentQuota", "chat.attachments.notSent.quota"],
       ["invalid: attachmentName", "chat.attachments.notSent.name"],
       ["invalid: attachmentRate", "chat.attachments.notSent.rate"],
+      ["invalid: attachmentFailed", "chat.attachments.notSent.failed"],
     ]) {
       expect(sendRefusalKey(new Error(error)), error).toBe(key);
     }

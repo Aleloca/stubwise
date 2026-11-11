@@ -168,6 +168,9 @@ describe("gli allegati", () => {
       [409, "pending_quota", "invalid: attachmentQuota"],
       [400, "invalid_filename", "invalid: attachmentName"],
       [429, "rate_limited", "invalid: attachmentRate"],
+      // Review della fetta 2 dell'area 5 (server): un upload interrotto, un multipart con campi in più.
+      [400, "upload_incomplete", "invalid: attachmentFailed"],
+      [400, "invalid_multipart", "invalid: attachmentFailed"],
     ] as const) {
       const { seen } = install({ [`POST /api/chat/channels/${CH}/attachments`]: { status, body: { code, message: "x" } } });
       await getSessionPerson();

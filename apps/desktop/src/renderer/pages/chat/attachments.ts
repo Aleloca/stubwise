@@ -50,6 +50,7 @@ const SEND_REFUSALS: Record<string, string> = {
   "invalid: attachmentQuota": "chat.attachments.notSent.quota",
   "invalid: attachmentName": "chat.attachments.notSent.name",
   "invalid: attachmentRate": "chat.attachments.notSent.rate",
+  "invalid: attachmentFailed": "chat.attachments.notSent.failed",
 };
 
 /** La chiave i18n del perché di un invio fallito per un allegato; `null` per gli altri errori. */

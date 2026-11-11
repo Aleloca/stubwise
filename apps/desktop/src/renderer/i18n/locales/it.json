@@ -5326,7 +5326,8 @@
         "gone": "un allegato era scaduto: «Rimanda» lo carica di nuovo",
         "quota": "hai troppi file in attesa di invio (fino a 200 MB): riprova più tardi",
         "name": "il nome di un file è troppo lungo (fino a 255 caratteri)",
-        "rate": "troppi caricamenti in un minuto: aspetta un attimo, poi «Rimanda»"
+        "rate": "troppi caricamenti in un minuto: aspetta un attimo, poi «Rimanda»",
+        "failed": "un file non si è caricato per intero: «Rimanda» ci riprova"
       }
     }
   },
