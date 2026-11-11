@@ -18,12 +18,8 @@ import {
 // Chat): `openHref` confrontava chi scrive con la sessione del prototipo, che
 // nella build app è vuota, e non navigava mai.
 vi.mock("@backend/api", async () => await import("./index"));
-// Qui `chat-claude` è acceso: si prova solo che «apri il thread» dopo un invio
-// usi la persona vera della build app (`openHref`), non la sessione del prototipo.
-vi.mock("../../integration", async (importOriginal) => {
-  const mod = await importOriginal<typeof import("../../integration")>();
-  return { ...mod, featureIntegrated: (name: string) => name === "chat-claude" || mod.featureIntegrated(name) };
-});
+// `chat-claude` è acceso nella build app (fetta 3): si prova che «apri il
+// thread» dopo un invio usi la persona vera (`openHref`), non la sessione del prototipo.
 
 const CH = "7f1c2a1e-0000-4000-8000-0000000000c1";
 const ROOT = "7f1c2a1e-0000-4000-8000-0000000000d1";

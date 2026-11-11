@@ -257,6 +257,14 @@ const INTEGRATED_CALLS = new Set([
   "chat.searchChat",
   "chat.createTaskFromMessage",
   "chat.createRequestFromMessage",
+  // Area 4, fetta 3: @Claude nei canali.
+  "chat.stopClaudeReply",
+  "chat.retryClaudeReply",
+  "chat.answerChatClaudeQuestion",
+  "chat.listClaudeQuestions",
+  "chat.confirmChatProposal",
+  "chat.cancelChatProposal",
+  "chat.editChatProposal",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));

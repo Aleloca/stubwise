@@ -30,6 +30,7 @@ import { quietButton } from "../claude/conversation/parts";
 import { ProposalCardView, routeOfCode } from "../claude/conversation/ProposalCard";
 import { QuestionCardView } from "../claude/conversation/QuestionCard";
 import { MenuButton } from "../tasks/controls";
+import { isAppBuild } from "../../data/build";
 import { hm } from "./flow";
 import { ChatAvatar, useMessageDecorator } from "./MessageItem";
 
@@ -304,6 +305,16 @@ export function ClaudeReply({
                     viewerId={viewerId}
                     canAct={canWrite}
                     cantActNote={t("chat.claude.cantAct")}
+                    // Build app: le rotte delle proposte rispondono 404 anche in un
+                    // canale archiviato o per chi non è più membro (il livello dati
+                    // lo distingue col canale).
+                    refusalText={(error) =>
+                      error.message === "invalid: archived"
+                        ? t("chat.claude.proposalArchived")
+                        : error.message === "not_member"
+                          ? t("chat.claude.proposalNotMember")
+                          : null
+                    }
                     renderText={linked}
                     renderCode={renderCode}
                     ops={{
@@ -315,6 +326,17 @@ export function ClaudeReply({
                       cancel: () => cancel.mutateAsync(target),
                       edit: () => edit.mutateAsync(target),
                       complete: (code) => complete.mutateAsync({ ...target, resultCodes: [code] }),
+                      ...(isAppBuild()
+                        ? {
+                            // Build app: salvare «Edit» CONFERMA coi valori cambiati
+                            // (li esegue il server); un rifiuto lo dice il dialogo.
+                            confirmEdited: async (index: number, args: Record<string, unknown>) => {
+                              const result = await confirm.mutateAsync({ ...target, edited: [{ index, args }] });
+                              if ("status" in result && result.status === "failed") throw new Error(result.error);
+                              return result;
+                            },
+                          }
+                        : {}),
                       busy:
                         confirm.isPending ||
                         cancel.isPending ||

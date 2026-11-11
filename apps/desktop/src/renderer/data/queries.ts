@@ -2405,12 +2405,18 @@ export function useConfirmChatProposal() {
       messageId,
       proposalId,
       actionIndexes,
+      edited,
     }: {
       messageId: string;
       proposalId: string;
       actionIndexes?: number[];
+      /** Build app: i valori di «Edit», confermati dal server. */
+      edited?: { index: number; args: Record<string, unknown> }[];
     }) =>
-      api.chat.confirmChatProposal(messageId, proposalId, actionIndexes ? { actionIndexes } : {}),
+      api.chat.confirmChatProposal(messageId, proposalId, {
+        ...(actionIndexes ? { actionIndexes } : {}),
+        ...(edited ? { edited } : {}),
+      }),
     CHAT_PROPOSAL_AREAS,
   );
 }

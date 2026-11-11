@@ -107,6 +107,8 @@ describe("isIntegrated", () => {
         "feature:chat-questions",
         "feature:chat-also-in-channel",
         "feature:chat-from-message",
+        // Area 4, fetta 3: @Claude nei canali.
+        "feature:chat-claude",
       ].sort(),
     );
   });

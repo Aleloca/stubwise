@@ -98,6 +98,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "chat-questions",
     "chat-also-in-channel",
     "chat-from-message",
+    // Fetta 3: @Claude nei canali.
+    "chat-claude",
   ]),
 };
 
@@ -106,9 +108,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
  * sezione di progetto e la feature `chat` (canali di progetto e il «general»,
  * messaggi, thread, reazioni, letti, menzioni); dalla fetta 2 anche
  * `chat-dm`, `chat-private`, `chat-general`, `chat-search`,
- * `chat-questions`, `chat-also-in-channel` e `chat-from-message`. Restano
- * SPENTI, con la fetta che li accende (anche nel registro dei rimandi):
- * - fetta 3: `chat-claude` (@Claude nei canali);
+ * `chat-questions`, `chat-also-in-channel` e `chat-from-message`; dalla
+ * fetta 3 `chat-claude` (@Claude nei canali). Restano SPENTI, con la fetta
+ * che li accende (anche nel registro dei rimandi):
  * - fetta 4: `chat-events` (gli eventi dei progetti nei canali),
  *   `chat-attachments` (gli allegati).
  */

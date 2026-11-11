@@ -206,6 +206,7 @@ export function ProposalCardView({
   renderCode,
   canAct = true,
   cantActNote,
+  refusalText,
   after,
 }: {
   event: Ev<"proposal">;
@@ -219,6 +220,11 @@ export function ProposalCardView({
   canAct?: boolean;
   /** La riga per chi l'ha chiesta e non può più agire. */
   cantActNote?: string;
+  /**
+   * Un rifiuto che il posto della scheda sa dire meglio (nella Chat: il canale
+   * archiviato, chi non è più membro); `null` = la frase di sempre.
+   */
+  refusalText?: (error: Error) => string | null;
 }) {
   const { t, i18n } = useTranslation();
   const requester = usePersonName(event.requesterId);
@@ -287,11 +293,12 @@ export function ProposalCardView({
 
   const fail = (e: Error) =>
     setError(
-      e.message === "expired"
+      refusalText?.(e) ??
+      (e.message === "expired"
         ? t("claude.conversation.proposal.expiredNow")
         : e.message === "forbidden"
           ? t("claude.conversation.proposal.notYours")
-          : t("claude.conversation.proposal.failedNow"),
+          : t("claude.conversation.proposal.failedNow")),
     );
 
   const doConfirm = () => {

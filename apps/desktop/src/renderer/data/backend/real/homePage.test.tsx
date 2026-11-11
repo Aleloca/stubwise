@@ -20,10 +20,13 @@ let savedBodies: unknown[] = [];
 let claudeDecisions: unknown[] = [];
 /** Area 4, fetta 2: le domande della Chat a chi guarda. */
 let chatQuestions: unknown[] = [];
+/** Area 4, fetta 3: le domande di @Claude a chi l'ha chiamato. */
+let chatClaudeQuestions: unknown[] = [];
 let seen: SeenRequest[] = [];
 
 beforeEach(() => {
   chatQuestions = [];
+  chatClaudeQuestions = [];
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   personalBlocks = null;
@@ -53,6 +56,11 @@ beforeEach(() => {
     "GET /api/me/claude-decisions": () => ({ body: claudeDecisions }),
     // Area 4, fetta 2: le domande della Chat in «Da decidere».
     "GET /api/chat/questions": () => ({ body: { items: chatQuestions } }),
+    "GET /api/chat/claude-questions": () => ({ body: { items: chatClaudeQuestions } }),
+    "POST /api/chat/messages/7f1c2a1e-0000-4000-8000-0000000000d2/claude/answer": () => {
+      chatClaudeQuestions = [];
+      return { body: { id: "7f1c2a1e-0000-4000-8000-0000000000d2", channelId: "7f1c2a1e-0000-4000-8000-0000000000c1", text: "", createdAt: "2026-11-10T10:00:05.000Z" } };
+    },
     "GET /api/chat/channels": { body: { items: [] } },
     [`POST /api/tickets/${TICKET_ID}/approve-plan`]: { status: 202, body: { jobId: "bbbbbbbb-0000-4000-8000-000000000001" } },
     "GET /api/auth/me": { body: me() },
@@ -130,6 +138,32 @@ describe("la Home nella build app", () => {
     renderRoute("/home");
     const decide = await screen.findByRole("region", { name: /^Decide/ });
     expect(await within(decide).findByText(/Can you review the PDF export\?/)).toBeInTheDocument();
+  });
+
+  it("«Da decidere»: la domanda di @Claude a chi l'ha chiamato, e la risposta da lì (area 4, fetta 3)", async () => {
+    chatClaudeQuestions = [
+      {
+        id: "chat-claude:7f1c2a1e-0000-4000-8000-0000000000d2:7f1c2a1e-0000-4000-8000-0000000000f3",
+        channelId: "7f1c2a1e-0000-4000-8000-0000000000c1",
+        messageId: "7f1c2a1e-0000-4000-8000-0000000000d2",
+        rootId: "7f1c2a1e-0000-4000-8000-0000000000d1",
+        questionId: "7f1c2a1e-0000-4000-8000-0000000000f3",
+        text: "Which format first?",
+        options: [{ label: "PDF" }, { label: "CSV" }],
+        createdAt: "2026-11-10T10:00:06.000Z",
+      },
+    ];
+    // La finestra di «Annulla» della Home: qui la risposta parte subito.
+    setUndoWindow(0);
+    renderRoute("/home");
+    const decide = await screen.findByRole("region", { name: /^Decide/ });
+    expect(await within(decide).findByText(/Which format first\?/)).toBeInTheDocument();
+    fireEvent.click(within(decide).getByRole("button", { name: /PDF/ }));
+    await waitFor(() =>
+      expect(seen.filter((r) => r.method === "POST" && r.path.endsWith("/claude/answer")).map((r) => r.body)).toEqual([
+        { questionId: "7f1c2a1e-0000-4000-8000-0000000000f3", optionIndex: 0, text: null },
+      ]),
+    );
   });
 
   it("«Da decidere»: una richiesta da trasformare apre il suo pannello in Requests (fetta 4)", async () => {
