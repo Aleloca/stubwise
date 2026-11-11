@@ -160,10 +160,11 @@ export const pollingTransport: StreamTransport = (path, handlers) => {
     return () => undefined;
   }
   const id = decodeURIComponent(match[1]!);
-  let after = match[2];
+  // In avanti dall'inizio: senza cursore il server darebbe gli ultimi 500.
+  let after = match[2] ?? "0";
   const tick = async () => {
     try {
-      const page = await appClient().agentSessions.events(id, { ...(after ? { after } : {}), limit: 500 });
+      const page = await appClient().agentSessions.events(id, { after, limit: 500 });
       if (stopped) return;
       const detail = await appClient().agentSessions.get(id);
       if (stopped) return;

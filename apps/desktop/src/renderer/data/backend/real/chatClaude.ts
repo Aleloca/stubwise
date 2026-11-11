@@ -149,11 +149,12 @@ export function claudeFieldsOf(v: ServerMsg): Pick<ChatMessage, "claudeRun" | "c
 
 const EVENTS_PAGE = 500;
 
+/** Tutti gli eventi, IN AVANTI dall'inizio: senza `after` il server darebbe gli ultimi N. */
 async function sessionEvents(id: string): Promise<Reader<AgentSessionEvent>[]> {
   const out: Reader<AgentSessionEvent>[] = [];
-  let after: string | undefined;
+  let after = "0";
   for (;;) {
-    const page = await appClient().agentSessions.events(id, { ...(after ? { after } : {}), limit: EVENTS_PAGE });
+    const page = await appClient().agentSessions.events(id, { after, limit: EVENTS_PAGE });
     out.push(...page.events);
     if (page.events.length < EVENTS_PAGE) return out;
     after = page.events.at(-1)!.id;

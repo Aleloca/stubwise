@@ -198,15 +198,16 @@ export const listConversations: typeof Fake.listConversations = async (filter) =
 /** Quanti eventi per pagina si leggono (il massimo del server). */
 const EVENTS_PAGE = 500;
 
-/** Tutti gli eventi di una sessione dopo `after`, in ordine. */
+/**
+ * Tutti gli eventi di una sessione dopo `after` (dall'inizio senza), in
+ * ordine: si legge IN AVANTI da `"0"`, perché senza cursore il server dà gli
+ * ultimi N e oltre la prima pagina i primi si perdevano.
+ */
 export async function readEvents(id: string, after?: string): Promise<Reader<AgentSessionEvent>[]> {
   const out: Reader<AgentSessionEvent>[] = [];
-  let cursor = after;
+  let cursor = after ?? "0";
   for (;;) {
-    const page = await appClient().agentSessions.events(id, {
-      ...(cursor ? { after: cursor } : {}),
-      limit: EVENTS_PAGE,
-    });
+    const page = await appClient().agentSessions.events(id, { after: cursor, limit: EVENTS_PAGE });
     out.push(...page.events);
     if (page.events.length < EVENTS_PAGE) return out;
     cursor = page.events.at(-1)!.id;
