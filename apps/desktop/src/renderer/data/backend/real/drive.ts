@@ -191,6 +191,8 @@ async function sendFromMain(path: string, file: File, options: DriveUploadOption
   const bridge = window.stubwise!;
   const registered = await bridge.files!.register(file);
   if (!registered.ok) return { ok: false, reason: registered.reason === "too_large" ? "too_large" : "failed" };
+  // Annullato mentre il main apriva il file: non si parte (il token scade da solo).
+  if (options.signal?.aborted) return { ok: false, reason: "canceled" };
   const uploadId = crypto.randomUUID();
   const stop = bridge.files!.onProgress((p) => {
     if (p.uploadId === uploadId) options.onProgress?.(p.sent);

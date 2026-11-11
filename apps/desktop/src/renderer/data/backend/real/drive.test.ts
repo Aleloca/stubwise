@@ -255,6 +255,26 @@ describe("il Drive nella build app: caricare", () => {
     await expect(pending).rejects.toThrow("canceled");
   });
 
+  it("sul desktop un annullamento mentre il main apre il file: niente caricamento, «canceled»", async () => {
+    const upload = vi.fn(async () => ({ ok: true, status: 201, body: {} }));
+    let opened: (v: unknown) => void = () => undefined;
+    const register = vi.fn(() => new Promise((resolve) => (opened = resolve)));
+    (window as { stubwise?: unknown }).stubwise = {
+      api: { upload },
+      files: { register, cancel: vi.fn(async () => false), onProgress: () => () => undefined },
+    };
+    const controller = new AbortController();
+    const file = pdf();
+    const pending = drive.uploadFiles(PROJECT_ID, [{ name: file.name, mime: file.type, sizeBytes: file.size, file }], {
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(register).toHaveBeenCalled());
+    controller.abort();
+    opened({ ok: true, grant: "g", name: "a.pdf", sizeBytes: 4 });
+    await expect(pending).rejects.toThrow("canceled");
+    expect(upload).not.toHaveBeenCalled();
+  });
+
   it("sul web: il FormData col campo `file`, col cookie, e l'avanzamento vero", async () => {
     const sent: { method: string; url: string; body: unknown; withCredentials: boolean }[] = [];
     class FakeXhr {
