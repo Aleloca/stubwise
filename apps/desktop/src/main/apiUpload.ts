@@ -79,8 +79,11 @@ export function createUploadTokens({
       if (openOf(owner) >= max) return { ok: false, reason: "too_many" };
       let handle: FileHandle;
       try {
-        // Una volta sola, senza seguire un collegamento simbolico.
-        handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+        // Una volta sola, senza seguire un collegamento simbolico. `O_NONBLOCK`:
+        // una FIFO o un dispositivo non tengono appeso un thread di libuv
+        // aspettando chi scrive (su un file normale non cambia niente); il
+        // controllo `isFile()` subito dopo li rifiuta.
+        handle = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
       } catch {
         return { ok: false, reason: "invalid" };
       }

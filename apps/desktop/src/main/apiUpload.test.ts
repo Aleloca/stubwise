@@ -1,4 +1,6 @@
 // @vitest-environment node
+import { execFileSync } from "node:child_process";
+import { closeSync, constants as fsConstants, openSync } from "node:fs";
 import { mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -76,6 +78,27 @@ describe("i token dei file scelti", () => {
     expect(await tokens.register(1, folder, "application/pdf")).toEqual({ ok: false, reason: "invalid" });
     expect(await tokens.register(1, "", "application/pdf")).toEqual({ ok: false, reason: "invalid" });
     expect(await tokens.register(1, join(dir, "missing.pdf"), "application/pdf")).toEqual({ ok: false, reason: "invalid" });
+  });
+
+  it.skipIf(process.platform === "win32")("una FIFO non blocca il main: rifiutata senza aspettare chi scrive", async () => {
+    const fifo = join(dir, "pipe.pdf");
+    execFileSync("mkfifo", [fifo]);
+    const tokens = createUploadTokens();
+    try {
+      const out = await Promise.race([
+        tokens.register(1, fifo, "application/pdf"),
+        new Promise((resolve) => setTimeout(() => resolve("blocked"), 1_000)),
+      ]);
+      expect(out).toEqual({ ok: false, reason: "invalid" });
+    } finally {
+      // Se l'apertura era rimasta appesa, uno scrittore la sblocca.
+      try {
+        closeSync(openSync(fifo, fsConstants.O_WRONLY | fsConstants.O_NONBLOCK));
+      } catch {
+        /* nessuno in attesa */
+      }
+      await tokens.dropOwner(1);
+    }
   });
 
   it("oltre 100 MB: «too_large», senza token", async () => {
