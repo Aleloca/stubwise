@@ -195,6 +195,8 @@ export const CHAT_READ_TOOLS = [
   "read_task",
   "read_request",
   "search_docs",
+  // Area 5, fetta 1: una pagina Docs intera (repository e slug da search_docs).
+  "read_doc_page",
   "read_project_overview",
 ] as const;
 export type ChatReadToolName = (typeof CHAT_READ_TOOLS)[number];

@@ -164,7 +164,17 @@ Fetta 4: renderer (sotto, «Chiuse»).
 
 ## Area 5 — Docs e Drive
 
-- Docs del progetto e Drive (sezioni «in arrivo»); modulo Docs dei progetti.
+Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
+(Docs) chiusa lato server (sotto, «Chiuse»); invariante `docs/invariants/docs.md`.
+
+- Il Drive: file caricati (fetta 2), contenuto, OCR e ricerca (fetta 3). I
+  riferimenti a Google Drive stanno nell'area 6.
+- Limite accettato (fetta 1): la cronologia della ricerca globale
+  (`search_history`, `type = 'doc'`) punta a id di pagina, che una
+  rigenerazione cambia. Un clic vecchio può non trovare più la pagina.
+- Limite accettato (fetta 1): `provider_error` nello stato della generazione
+  non si emette, perché manca un segnale strutturato che lo distingua da
+  `other`.
 
 ## Area 6 — Posta e Calendario
 
@@ -283,6 +293,13 @@ Fetta 4: renderer (sotto, «Chiuse»).
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- **Area 5, fetta 1: Docs nel desktop, server** *(M/O, 11 nov 2026)*: codici
+  D stabili (0142) con le citazioni `doc` della Chat sul codice e il link;
+  `GET /api/docs/codes/:code`; embedding delle pagine manuali; `read_doc_page`
+  per Claude; nello stato motivo, rientro e avanzamento; `projectId` sugli
+  spazi; l'api-client dei Docs e le forme del grafo in shared. Il renderer è di
+  stubwise-94. Chiude «Docs del progetto e modulo Docs dei progetti».
 
 - **Area 4, fetta 4: eventi dei progetti e allegati, server** *(M/O, 11 nov
   2026)*: i messaggi di sistema dai trigger della 0141 (task chiusa,

@@ -24,6 +24,9 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   "/api/requests/by-code/:code",
   // Cerca nella documentazione di un progetto.
   "/api/projects/:projectId/docs/search",
+  // Leggi una pagina Docs intera (area 5, fetta 1: tool `read_doc_page`), con
+  // `docs.view` nel progetto del repository, come la rotta.
+  "/api/repositories/:repositoryId/docs/pages/:slug",
   // L'Overview: l'ultimo brief e il registro decisioni (in lettura).
   "/api/projects/:projectId/briefs/latest",
   "/api/projects/:projectId/decisions",

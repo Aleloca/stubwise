@@ -2,7 +2,7 @@ import type { RouteOptions } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
-import { claudeChatToolTokens, claudeConversations, issueChatToolToken, revokeChatToolToken, tickets, projects } from "@stubwise/db";
+import { claudeChatToolTokens, claudeConversations, docPages, issueChatToolToken, revokeChatToolToken, tickets, projects } from "@stubwise/db";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 import { CHAT_TOOL_READ_ROUTES, CHAT_TOOL_WRITE_ROUTES } from "./chat-tool-routes.js";
@@ -17,6 +17,8 @@ let u: Awaited<ReturnType<typeof seedUsers>>;
 let author: Awaited<ReturnType<typeof createUserWithSession>>;
 let visibleCode: string;
 let hiddenCode: string;
+let seenRepo: string;
+let hiddenRepo: string;
 
 beforeAll(async () => {
   t = await startTestDb();
@@ -36,6 +38,12 @@ beforeAll(async () => {
   };
   visibleCode = await code(seen.ticketId);
   hiddenCode = await code(hidden.ticketId);
+  seenRepo = seen.repositoryId;
+  hiddenRepo = hidden.repositoryId;
+  await t.db.insert(docPages).values([
+    { repositoryId: seen.repositoryId, kind: "manual", slug: "runbook", title: "Runbook", body: "passi", isManual: true },
+    { repositoryId: hidden.repositoryId, kind: "manual", slug: "segreto", title: "Segreto", body: "no", isManual: true },
+  ]);
 });
 
 afterAll(async () => {
@@ -60,6 +68,14 @@ describe("il token del turno della chat", () => {
     expect((await get(`/api/tasks/by-code/${hiddenCode}`, token)).statusCode).toBe(404);
     // Fetta 3: le persone, per proporre un assegnatario per nome.
     expect((await get("/api/people", token)).statusCode).toBe(200);
+  });
+
+  it("legge una pagina Docs intera (area 5, fetta 1) di un progetto che l'autore vede; l'albero no", async () => {
+    const sessionId = await conversationOf(author.headers.cookie);
+    const token = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 });
+    expect((await get(`/api/repositories/${seenRepo}/docs/pages/runbook`, token)).statusCode).toBe(200);
+    expect((await get(`/api/repositories/${hiddenRepo}/docs/pages/segreto`, token)).statusCode).toBe(404);
+    expect((await get(`/api/repositories/${seenRepo}/docs/tree`, token)).statusCode).toBe(403);
   });
 
   it("solo GET e solo l'allowlist: altre GET, scritture e rotte di credenziale sono rifiutate", async () => {
