@@ -4822,7 +4822,9 @@
         "createRequest": "Send a request",
         "createMilestone": "Create a milestone",
         "saveFilter": "Save a filter",
-        "updateTask": "Change a task"
+        "updateTask": "Change a task",
+        "pageAction": "Change this page",
+        "other": "A change"
       },
       "field": {
         "title": "title",

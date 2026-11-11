@@ -76,12 +76,17 @@ export function forgetChatClaudeCaches(): void {
  * un'azione senza argomenti (un lettore che non vede ciò che tocca) la frase
  * senza.
  */
-const HIDDEN_SUMMARY = new Set(["createTask", "createRequest", "createMilestone", "saveFilter", "updateTask"]);
+const HIDDEN_SUMMARY = new Set(["createTask", "createRequest", "createMilestone", "saveFilter", "updateTask", "pageAction"]);
+
+function plainSummary(fn: string, key: string): ProposedAction {
+  return { fn: fn as ProposedAction["fn"], args: {}, summary: i18n.t(key), summaryText: { key, params: {} } };
+}
 
 function actionOf(a: ServerAction): ProposedAction {
+  // Una funzione che questo renderer non conosce: una frase tradotta, mai la chiave grezza.
+  if (!i18n.exists(`claude.chatActions.summary.${a.fn}`)) return plainSummary(a.fn, "claude.chatActions.summaryHidden.other");
   if (Object.keys(a.args).length === 0 && HIDDEN_SUMMARY.has(a.fn)) {
-    const key = `claude.chatActions.summaryHidden.${a.fn}`;
-    return { fn: a.fn as ProposedAction["fn"], args: {}, summary: i18n.t(key), summaryText: { key, params: {} } };
+    return plainSummary(a.fn, `claude.chatActions.summaryHidden.${a.fn}`);
   }
   const code = taskIdsOf(a.fn, a.args).map((id) => taskCodes.get(id)).find((c) => c !== undefined) ?? null;
   return summaryOf(a.fn, a.args, code);

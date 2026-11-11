@@ -253,6 +253,41 @@ describe("la risposta di @Claude", () => {
     expect(await summaries()).toEqual({ canDecide: false, lines: ["Create the task “Export PDF”", "Change a task"] });
   });
 
+  it("riassunti senza argomenti: «pageAction» senza «()», una funzione sconosciuta con una frase tradotta", async () => {
+    install({
+      [`GET /api/chat/messages/${ROOT}/thread`]: {
+        body: {
+          root: root({ authorId: MARTA }),
+          replies: [
+            reply(
+              { calledById: MARTA },
+              {
+                state: "done",
+                sessionId: null,
+                question: null,
+                proposals: [
+                  {
+                    id: PROPOSAL,
+                    summary: "x",
+                    status: "open",
+                    actions: [
+                      { fn: "pageAction", args: {} },
+                      { fn: "teleportProject", args: {} },
+                    ],
+                  },
+                ],
+              },
+            ),
+          ],
+        },
+      },
+    });
+    await getSessionPerson();
+    const m = (await chat.listThread(ROOT))!.replies[0]!;
+    const p = m.claudeEvents!.find((e) => e.type === "proposal") as { actions: { summary: string }[] };
+    expect(p.actions.map((a) => a.summary)).toEqual(["Change this page", "A change"]);
+  });
+
   it("finita male: il motivo del server, anche il budget; «Try again» già usato", async () => {
     install({
       [`GET /api/chat/messages/${REPLY}`]: {
