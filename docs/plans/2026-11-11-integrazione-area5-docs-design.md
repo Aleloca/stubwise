@@ -1,7 +1,8 @@
 # Integrazione area 5 — Docs e Drive — design (11 nov 2026)
 
 > Autore: stubwise-72 (server e worker); il renderer è di stubwise-94.
-> **Solo il design**: niente codice prima delle decisioni dell'orchestratrice.
+> Decisioni dell'11 nov 2026 qui sotto («Decisioni»); il piano della F1 è
+> `docs/plans/2026-11-11-integrazione-area5-fetta1-plan.md`.
 > Branch: `feat/area5-docs-server`, da `feat/integrazione-area4` (a9ad4556).
 >
 > **Specifica**: il prototipo.
@@ -71,7 +72,58 @@ Il maintainer ha deciso che i Docs arrivano «come oggi», senza funzioni nuove.
    - le pagine prodotto dell'area 11;
    - i file del Drive come allegati di posta e nelle automazioni (area 7, R-J18).
 
-## [DECIDE] per l'orchestratrice
+## Decisioni (11 nov 2026)
+
+- **D1 = (a)** (M): prima i file caricati; i riferimenti a Google Drive con
+  l'area 6 (registro, area 6).
+- **D2 = (a)** (O): codici D stabili (`doc_page_codes`), con backfill delle
+  citazioni.
+- **D3 = (a)** (M): permessi come il prototipo, con la regola dei preset: i
+  ruoli che contenevano un preset ricevono i permessi nuovi.
+- **D4 = (a)** (M): 100 MB per file. ⚠️ Il proxy del desktop (`api:request`
+  del main) ha un tetto per rotta: va allargato anche lì per il caricamento
+  del Drive. Lo si dice a stubwise-94 con la F2.
+- **D5 = (b)** (M): OCR SUBITO, con un motore nell'immagine del worker (la
+  proposta è sotto, «OCR»), con limiti espliciti e fail-open a `no_text` col
+  motivo.
+- **D6 = (a)** (O): le citazioni di file del repository vanno all'area 10
+  (registro, area 10).
+
+## OCR (proposta per la F3, D5 = b)
+
+- **Motore**: Tesseract 5 (`tesseract-ocr`, con `tesseract-ocr-ita` e
+  `tesseract-ocr-eng`, i modelli «fast» di Debian), più `poppler-utils`
+  (`pdftotext` per i PDF con testo, `pdftoppm` per rasterizzare quelli
+  senza). Tutto da apt, sull'immagine di oggi (`node:22-slim`, Debian
+  bookworm): nessun servizio nuovo, nessuna rete, nessun modello scaricato
+  a runtime. Lo si chiama come processo (`execFile`), con un timeout.
+- **Costo sull'immagine** (stima, da misurare al build della F3):
+  - `tesseract-ocr` con leptonica, intorno ai 25–30 MB;
+  - i due modelli «fast», circa 7 MB;
+  - poppler, circa 5–8 MB.
+  In tutto 40–50 MB in più sull'immagine del worker. La versione va pinnata
+  come il CLI, e un aggiornamento passa dal test di estrazione.
+- **Tempi** (stima, da misurare su una fixture nella F3): con i modelli fast
+  a 300 dpi, una pagina A4 costa 1–3 secondi su un core. Un PDF con il suo
+  testo non passa dall'OCR: `pdftotext` ne estrae il testo in decine di
+  millisecondi.
+- **Quando**: solo dove il testo non c'è, cioè le immagini (png, jpeg, webp,
+  heic se il decoder lo regge) e le pagine di un PDF senza testo estraibile.
+  Lingue `ita+eng`.
+- **Limiti espliciti**:
+  - al più 30 pagine OCR per file (le altre restano fuori, e lo stato lo
+    dice: `ready`, con `ocr: partial`);
+  - 5 minuti per job di contenuto, poi stop;
+  - 60 secondi per pagina;
+  - un job alla volta (la coda del contenuto ha concorrenza 1), così l'OCR
+    non toglie CPU ai run dell'agente.
+- **Fail-open**: un motore assente, un timeout, un file che non si apre o
+  un testo vuoto chiudono il file a `no_text`, col motivo (`ocr_timeout`,
+  `ocr_unavailable`, `no_text_found`, `unreadable`): il file si trova per
+  nome, e «Riprova» lo rimette in coda (con `drive.manage`). Mai `error` per
+  l'OCR: `error` resta per i guasti nostri (lo storage, il DB).
+
+## [DECIDE] per l'orchestratrice (com'erano poste)
 
 1. **I riferimenti a Google Drive: quando.** Servono lo scope `drive.readonly` e la cartella collegata, con la sua sincronizzazione. `drive.readonly` è uno scope RISTRETTO di Google:
    - ogni account già collegato (Posta e Calendario) deve riconsentire;
