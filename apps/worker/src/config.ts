@@ -1308,6 +1308,8 @@ export function effectiveModelDefaults(
     release_notes: config.releaseNotesModel,
     docs_nightly: config.docsNightlyModel,
     docs_generation: config.docGenerationModel,
+    // Il riassunto di un file del Drive (area 5, fetta 3): breve, senza tool.
+    drive_summary: "haiku",
     daily_report: config.dailyReportModel,
     weekly_brief: config.summaryModel,
     mail_classify: config.gmailModel,

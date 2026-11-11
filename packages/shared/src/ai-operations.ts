@@ -20,6 +20,8 @@ export const AI_OPERATIONS = [
   "release_notes",
   "docs_nightly",
   "docs_generation",
+  // Il riassunto di un file del Drive (area 5, fetta 3): Haiku, senza tool.
+  "drive_summary",
   "daily_report",
   "weekly_brief",
   "mail_classify",
@@ -54,7 +56,7 @@ export const AI_OPERATION_GROUPS: {
   { group: "tickets", operations: ["triage", "fix_plan", "fix_execute", "pr_review", "summary"] },
   { group: "backlog", operations: ["backlog_intake", "backlog_refine"] },
   { group: "nightly", operations: ["commit_summary", "release_notes", "docs_nightly"] },
-  { group: "docs", operations: ["docs_generation"] },
+  { group: "docs", operations: ["docs_generation", "drive_summary"] },
   { group: "reports", operations: ["daily_report", "weekly_brief"] },
   { group: "mail", operations: ["mail_classify"] },
   { group: "chat", operations: ["chat", "claude_chat", "backlog_merge"] },

@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { driveFiles, driveOpens, projects, storageOrphans } from "@stubwise/db";
+import { driveContentJobs, driveFileChunks, driveFiles, driveOpens, projects, storageOrphans } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { DriveError, openDriveFile, purgeDeletedDriveObjects, uploadDriveFile } from "../drive/service.js";
@@ -391,3 +391,46 @@ describe("review della fetta 2", () => {
     await purgeDeletedDriveObjects(t.db, storage, () => undefined);
   });
 });
+
+describe("il contenuto (fetta 3, F3.1)", () => {
+  const jobsOf = (fileId: string) => t.db.select().from(driveContentJobs).where(eq(driveContentJobs.fileId, fileId));
+
+  it("un caricamento accoda il job del contenuto con la riga; un tipo senza estrazione nasce `unsupported`, senza job", async () => {
+    const pdf = (await upload(dev, projectId, { filename: "da-leggere.pdf", contentType: "application/pdf" })).json() as Upload & { file: { contentStatus: string } };
+    expect(pdf.file.contentStatus).toBe("pending");
+    expect(await jobsOf(pdf.file.id)).toMatchObject([{ status: "queued", attempts: 0 }]);
+    const zip = (await upload(dev, projectId, { filename: "pacco-f3.zip", contentType: "application/zip" })).json() as Upload & { file: { contentStatus: string } };
+    expect(zip.file.contentStatus).toBe("unsupported");
+    expect(await jobsOf(zip.file.id)).toEqual([]);
+    const old = (await upload(dev, projectId, { filename: "vecchio.doc", contentType: "application/msword" })).json() as Upload & { file: { contentStatus: string } };
+    expect(old.file.contentStatus).toBe("unsupported");
+  });
+
+  it("la riga porta stato, motivo, OCR e la prima frase del riassunto; il testo non esce dall'elenco", async () => {
+    const f = (await upload(dev, projectId, { filename: "riassunto.pdf", contentType: "application/pdf" })).json() as Upload;
+    await t.db
+      .update(driveFiles)
+      .set({ contentStatus: "ready", contentOcr: "partial", contentText: "TESTO SEGRETO DEL FILE", summary: "Un contratto di fornitura. Scade a marzo." })
+      .where(eq(driveFiles.id, f.file.id));
+    const res = await as(dev, "GET", `/api/projects/${projectId}/drive/files`);
+    const row = (res.json() as { items: Record<string, unknown>[] }).items.find((r) => r.id === f.file.id)!;
+    expect(row).toMatchObject({ contentStatus: "ready", contentReason: null, contentOcr: "partial", summaryLine: "Un contratto di fornitura." });
+    expect(row).not.toHaveProperty("summary");
+    expect(res.body).not.toContain("TESTO SEGRETO");
+    expect(((await as(dev, "GET", `/api/drive/files/${f.file.id}`)).json() as { summary: string }).summary).toBe("Un contratto di fornitura. Scade a marzo.");
+    await t.db.update(driveFiles).set({ contentStatus: "no_text", contentReason: "ocr_timeout", contentOcr: "none", contentText: null, summary: null }).where(eq(driveFiles.id, f.file.id));
+    expect(((await as(dev, "GET", `/api/drive/files/${f.file.id}`)).json() as Record<string, unknown>)).toMatchObject({ contentStatus: "no_text", contentReason: "ocr_timeout", summaryLine: null });
+  });
+
+  it("la lapide porta via testo, riassunto e chunk, nella stessa transazione", async () => {
+    const f = (await upload(dev, projectId, { filename: "via-tutto.pdf", contentType: "application/pdf" })).json() as Upload;
+    await t.db.update(driveFiles).set({ contentStatus: "ready", contentOcr: "none", contentText: "riservato", summary: "Riservato." }).where(eq(driveFiles.id, f.file.id));
+    await t.db.insert(driveFileChunks).values({ fileId: f.file.id, position: 0, content: "riservato", embedding: Array.from({ length: 1024 }, () => 0.1) });
+    expect((await as(dev, "DELETE", `/api/drive/files/${f.file.id}`)).statusCode).toBe(204);
+    const [row] = await t.db.select().from(driveFiles).where(eq(driveFiles.id, f.file.id));
+    expect(row).toMatchObject({ contentText: null, summary: null });
+    expect(row!.deletedAt).not.toBeNull();
+    expect(await t.db.select().from(driveFileChunks).where(eq(driveFileChunks.fileId, f.file.id))).toEqual([]);
+  });
+});
+

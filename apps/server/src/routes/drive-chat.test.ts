@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { chatChannels, chatMessageAttachments, driveFiles } from "@stubwise/db";
+import { chatChannels, chatMessageAttachments, driveContentJobs, driveFiles } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { StorageObjectNotFound, type ObjectStorage } from "../storage/index.js";
@@ -256,3 +256,15 @@ describe("review della fetta 2: la Chat", () => {
     expect((up.json() as { filename: string }).filename).toBe("nullo.pdf");
   });
 });
+
+describe("il contenuto (fetta 3, F3.1)", () => {
+  it("una copia da «Save to Drive» accoda anche lei il job del contenuto", async () => {
+    const channel = await general(projectId);
+    const { attachmentId } = await sent(dev, channel, "da-chat.pdf");
+    const saved = await as(dev, "POST", `/api/chat/attachments/${attachmentId}/save-to-drive`, {});
+    expect(saved.statusCode, saved.body).toBe(201);
+    const fileId = (saved.json() as Upload).file.id;
+    expect(await t.db.select().from(driveContentJobs).where(eq(driveContentJobs.fileId, fileId))).toMatchObject([{ status: "queued" }]);
+  });
+});
+

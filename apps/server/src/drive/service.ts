@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { pipeline, Transform, type Readable } from "node:stream";
-import { chatChannels, driveFiles, driveOpens, projects, type Db } from "@stubwise/db";
+import { chatChannels, driveContentJobs, driveFileChunks, driveFiles, driveOpens, projects, type Db } from "@stubwise/db";
 import {
   chatAttachmentAllowed,
   DRIVE_CODE_RE,
   DRIVE_FILE_MAX_BYTES,
   driveCode,
+  driveContentKindOf,
   driveFileTypeOf,
   type DriveCodeResolution,
   type DriveFileDetail,
@@ -14,7 +15,7 @@ import {
   type DriveUploadResult,
 } from "@stubwise/shared";
 import type { z } from "zod";
-import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { projectPermissionsFor, projectPermissionsMap, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import { StorageObjectNotFound, type ObjectStorage } from "../storage/index.js";
@@ -39,7 +40,10 @@ import { downloadableAttachment } from "../chat/attachments.js";
 
 type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
 type ListQuery = z.infer<typeof driveListQuerySchema>;
-type Row = typeof driveFiles.$inferSelect;
+/** Una riga SENZA il testo estratto e la sua tsvector: l'elenco non li carica mai (fino a 1.000.000 di caratteri). */
+type Row = Omit<typeof driveFiles.$inferSelect, "contentText" | "contentTsv">;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- si tolgono apposta dal select.
+const { contentText: _text, contentTsv: _tsv, ...ROW_COLUMNS } = getTableColumns(driveFiles);
 
 export class DriveError extends Error {
   constructor(
@@ -74,7 +78,7 @@ export async function assertCanUploadDrive(db: Db, viewer: Viewer, projectId: st
 function selectRows(db: Db) {
   return db
     .select({
-      file: driveFiles,
+      file: ROW_COLUMNS,
       projectCode: projects.code,
       opens90d: sql<number>`(select count(*)::int from ${driveOpens} o where o.file_id = ${driveFiles.id} and o.at > now() - interval '90 days')`,
       lastOpenedAt: sql<string | null>`(select to_char(max(o.at) at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') from ${driveOpens} o where o.file_id = ${driveFiles.id})`,
@@ -100,7 +104,11 @@ function toRow(r: Selected, viewer: Viewer, permsOf: (projectId: string) => read
     addedAt: f.addedAt.toISOString(),
     opens90d: r.opens90d,
     lastOpenedAt: r.lastOpenedAt,
-    summaryLine: null,
+    summaryLine: firstSentence(f.summary),
+    contentStatus: f.contentStatus,
+    contentReason: f.contentReason,
+    contentOcr: f.contentOcr,
+    snippet: null,
     permissions: {
       delete: f.addedBy === viewer.id || permsOf(f.projectId).includes("drive.manage"),
       remove: false,
@@ -108,6 +116,14 @@ function toRow(r: Selected, viewer: Viewer, permsOf: (projectId: string) => read
       retry: false,
     },
   };
+}
+
+/** La prima frase del riassunto (la riga sotto il nome), o null. */
+function firstSentence(summary: string | null): string | null {
+  const text = summary?.trim();
+  if (!text) return null;
+  const m = /^.+?[.!?](?=\s|$)/s.exec(text);
+  return (m ? m[0] : text).trim();
 }
 
 async function permsLookup(db: Db, viewer: Viewer): Promise<(projectId: string) => readonly string[]> {
@@ -183,7 +199,7 @@ export async function getDriveFile(db: Db, viewer: Viewer, id: string): Promise<
           .limit(200)
       ).map((h) => ({ personId: h.personId, at: h.at.toISOString(), via: h.via }))
     : null;
-  return { ...toRow(r, viewer, permsOf), opensTotal: total?.n ?? 0, history };
+  return { ...toRow(r, viewer, permsOf), opensTotal: total?.n ?? 0, summary: r.file.summary, history };
 }
 
 /** Dove sta il file di un codice `<PRJ>-F<n>`, per chi lo vede; null altrimenti (404, R-G5). */
@@ -301,6 +317,9 @@ async function insertDriveFile(
         ).map((r) => r.name.toLowerCase()),
       );
       const name = freeName(file.requestedName, taken);
+      // Il contenuto (F3.1): un tipo che si estrae nasce `pending` col suo job,
+      // nella STESSA transazione; uno che non si estrae nasce `unsupported`, senza job.
+      const extractable = driveContentKindOf(file.mime) !== null;
       await tx.insert(driveFiles).values({
         id: file.id,
         projectId,
@@ -311,7 +330,9 @@ async function insertDriveFile(
         sizeBytes: file.sizeBytes,
         storageKey: file.storageKey,
         addedBy: viewer.id,
+        contentStatus: extractable ? "pending" : "unsupported",
       });
+      if (extractable) await tx.insert(driveContentJobs).values({ fileId: file.id });
       return { keptBoth: name !== file.requestedName };
     });
     const r = (await visibleFile(db, viewer, file.id))!;
@@ -380,11 +401,17 @@ export async function deleteDriveFile(db: Db, viewer: Viewer, id: string): Promi
   if (!r) throw notFound();
   const perms = await projectPermissionsFor(db, viewer, r.file.projectId);
   if (r.file.addedBy !== viewer.id && !perms?.has("drive.manage")) throw new DriveError(403, "forbidden", "Only who added it, or who manages the Drive");
-  const [gone] = await db
-    .update(driveFiles)
-    .set({ deletedAt: sql`now()`, deletedBy: viewer.id })
-    .where(and(eq(driveFiles.id, id), isNull(driveFiles.deletedAt)))
-    .returning({ id: driveFiles.id, storageKey: driveFiles.storageKey });
+  // La lapide porta via il CONTENUTO (F3.1) nella stessa transazione: il
+  // testo, il riassunto e i chunk. Un file eliminato non lascia il suo testo nel DB.
+  const gone = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(driveFiles)
+      .set({ deletedAt: sql`now()`, deletedBy: viewer.id, contentText: null, summary: null })
+      .where(and(eq(driveFiles.id, id), isNull(driveFiles.deletedAt)))
+      .returning({ id: driveFiles.id, storageKey: driveFiles.storageKey });
+    if (row) await tx.delete(driveFileChunks).where(eq(driveFileChunks.fileId, id));
+    return row;
+  });
   if (!gone) throw notFound();
   return gone;
 }

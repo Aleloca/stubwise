@@ -921,6 +921,8 @@ describe("effectiveModelDefaults", () => {
       release_notes: config.releaseNotesModel,
       docs_nightly: config.docsNightlyModel,
       docs_generation: config.docGenerationModel,
+      // Il riassunto di un file del Drive (fetta 3): Haiku, nessuna env.
+      drive_summary: "haiku",
       daily_report: config.dailyReportModel,
       weekly_brief: "claude-sonnet-5-5",
       mail_classify: "sonnet",
