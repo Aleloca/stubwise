@@ -1573,7 +1573,8 @@
         "code": "Code and environments",
         "credentials": "Credentials",
         "chat": "Chat",
-        "departmentHome": "Department Home"
+        "departmentHome": "Department Home",
+        "drive": "Drive"
       },
       "fullAdminHint": "Full administration includes every permission, on every project.",
       "save": "Save role",
@@ -3508,6 +3509,11 @@
         "home": {
           "manage": "Manage the department's Home"
         }
+      },
+      "drive": {
+        "upload": "Upload files to the project's Drive",
+        "manage": "Manage the project's Drive (remove others' files)",
+        "history": "See who opened the Drive's files"
       }
     }
   },

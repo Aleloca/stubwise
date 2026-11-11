@@ -87,6 +87,8 @@ export const PROJECT_PERMISSION_GROUPS: readonly PermissionGroup<ProjectPermissi
   { id: "credentials", permissions: ["credentials.create", "credentials.edit", "credentials.share"] },
   // Area 4, Chat: i canali del progetto.
   { id: "chat", permissions: ["chat.channels.create", "chat.channels.manage"] },
+  // Area 5, il Drive dei progetti.
+  { id: "drive", permissions: ["drive.upload", "drive.manage", "drive.history"] },
 ];
 
 /** I permessi di reparto (fetta 3): si danno dalla pagina Reparti, non dai ruoli. */

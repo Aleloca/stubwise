@@ -256,6 +256,8 @@ describe("migrazione 0097: ruoli, membri di progetto e conversione", () => {
     await applyRoleUpdates(db, "0133_claude_public_conversations.sql");
     // E i permessi della Chat (area 4) a Lead, Developer e User, con la 0135.
     await applyRoleUpdates(db, "0135_chat_channels.sql");
+    // E i permessi del Drive (area 5) a Lead, Developer, Contributor e Legacy Member, con la 0143.
+    await applyRoleUpdates(db, "0143_drive_files.sql");
     const rows = await db.execute<{
       preset_key: string;
       name: string;
@@ -295,6 +297,37 @@ describe("migrazione 0097: ruoli, membri di progetto e conversione", () => {
     // Idempotente: una seconda volta non duplica.
     await applyRoleUpdates(db, "0133_claude_public_conversations.sql");
     expect((await permsOf(above!.id)).filter((p) => p === "claude.public.view")).toHaveLength(1);
+  });
+
+  it("i permessi del Drive vanno anche ai ruoli che contenevano Lead, Developer, Contributor, Legacy Member (0143)", async () => {
+    const presetPerms = async (key: string) =>
+      (await db.execute<{ permissions: string[] }>(sql`select "permissions" from "roles" where "preset_key" = ${key}`))[0]!.permissions;
+    const insertRole = async (name: string, perms: string[]) => {
+      const [row] = await db.execute<{ id: string }>(sql`
+        insert into "roles" ("name", "scope", "permissions")
+        values (${name}, 'project', ${sql.raw(`ARRAY[${perms.map((p) => `'${p}'`).join(",") || "''"}]::text[]`)})
+        returning "id"`);
+      return row!.id;
+    };
+    const permsOf = async (id: string) =>
+      (await db.execute<{ permissions: string[] }>(sql`select "permissions" from "roles" where "id" = ${id}`))[0]!.permissions;
+    // Si riparte da «prima» della 0143: senza i drive.*.
+    await db.execute(sql`update "roles" set "permissions" = array_remove(array_remove(array_remove("permissions", 'drive.upload'), 'drive.manage'), 'drive.history')`);
+    const lead = (await presetPerms("project_lead")).filter((p) => p !== "");
+    const contributor = (await presetPerms("contributor")).filter((p) => p !== "");
+    const aboveLead = await insertRole("Sopra Lead 0143", [...lead]);
+    const aboveContributor = await insertRole("Sopra Contributor 0143", [...contributor, "docs.edit"]);
+    const partial = await insertRole("Parziale 0143", ["docs.view"]);
+    await applyRoleUpdates(db, "0143_drive_files.sql");
+    expect(await permsOf(aboveLead)).toEqual(expect.arrayContaining(["drive.upload", "drive.manage", "drive.history"]));
+    expect(await permsOf(aboveContributor)).toContain("drive.upload");
+    expect(await permsOf(aboveContributor)).not.toContain("drive.manage");
+    expect(await permsOf(partial)).not.toContain("drive.upload");
+    // I preset stessi, e il Viewer niente.
+    expect(await presetPerms("viewer")).not.toContain("drive.upload");
+    expect(await presetPerms("legacy_member")).toContain("drive.upload");
+    await applyRoleUpdates(db, "0143_drive_files.sql");
+    expect((await permsOf(aboveLead)).filter((p) => p === "drive.upload")).toHaveLength(1);
   });
 
   it("i permessi della Chat vanno anche ai ruoli che contenevano Lead, Developer, User (0135)", async () => {

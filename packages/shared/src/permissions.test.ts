@@ -93,8 +93,9 @@ describe("catalogo dei permessi", () => {
       ...CREDENTIAL_PERMISSIONS,
     ])
       expect(perms).not.toContain(p);
-    // Le sette di prima, planning.others (fetta 2) e chat.channels.manage (area 4).
-    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 9);
+    // Le sette di prima, planning.others (fetta 2), chat.channels.manage (area 4)
+    // e drive.manage, drive.history (area 5).
+    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 11);
     expect(perms).toContain("docs.generate");
     expect(perms).toContain("prs.adopt");
   });
@@ -108,9 +109,9 @@ describe("catalogo dei permessi", () => {
     }
   });
 
-  it("Contributor è esattamente docs.view, tickets.create, tickets.comment, backlog.create", () => {
+  it("Contributor è esattamente docs.view, tickets.create, tickets.comment, backlog.create, drive.upload", () => {
     expect([...preset("Contributor").permissions].sort()).toEqual(
-      ["backlog.create", "docs.view", "tickets.comment", "tickets.create"].sort(),
+      ["backlog.create", "docs.view", "drive.upload", "tickets.comment", "tickets.create"].sort(),
     );
   });
 
@@ -148,6 +149,9 @@ describe("catalogo dei permessi", () => {
         // Chat, area 4 (D3, i preset del prototipo): scrive, ma non crea né gestisce canali.
         "chat.channels.create",
         "chat.channels.manage",
+        // Drive, area 5 (D3): carica, ma non gestisce né vede la storia delle aperture.
+        "drive.manage",
+        "drive.history",
       ].sort(),
     );
   });
@@ -166,6 +170,17 @@ describe("catalogo dei permessi", () => {
     expect(preset("User").permissions).toContain("claude.public.view");
     expect(preset("Admin").permissions).toEqual(["instance.full_admin"]);
     expect(effectiveInstancePermissions(["instance.full_admin"]).has("claude.public.view")).toBe(true);
+  });
+
+  it("Drive (area 5, D3): upload a tutti salvo il Viewer; manage e history al solo Lead", () => {
+    const has = (name: string, p: string) => (preset(name).permissions as readonly string[]).includes(p);
+    for (const name of ["Project Lead", "Developer", "Contributor", "Legacy Member"]) expect(has(name, "drive.upload"), name).toBe(true);
+    expect(has("Viewer", "drive.upload")).toBe(false);
+    expect(has("Project Lead", "drive.manage") && has("Project Lead", "drive.history")).toBe(true);
+    for (const name of ["Developer", "Contributor", "Legacy Member", "Viewer"]) {
+      expect(has(name, "drive.manage"), name).toBe(false);
+      expect(has(name, "drive.history"), name).toBe(false);
+    }
   });
 
   it("Chat (area 4, D3): create a Lead e Developer, manage al solo Lead; general.create a User", () => {
