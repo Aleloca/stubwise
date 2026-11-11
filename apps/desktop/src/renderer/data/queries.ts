@@ -16,6 +16,7 @@ import { resolveHome } from "../domain/home";
 import { MIN_QUERY } from "../pages/chat/search";
 import type {
   Attachment,
+  ChannelMessagesPage,
   ContextRef,
   AutomationFlow,
   AutomationMeta,
@@ -223,8 +224,8 @@ export const queryKeys = {
   chatChannel: (personId: string, id: string) => ["as", personId, "chatChannel", id] as const,
   chatMembers: (personId: string, channelId: string) =>
     ["as", personId, "chatMembers", channelId] as const,
-  chatMessages: (personId: string, channelId: string, limit = CHAT_PAGE) =>
-    ["as", personId, "chatMessages", channelId, limit] as const,
+  chatMessages: (personId: string, channelId: string) =>
+    ["as", personId, "chatMessages", channelId] as const,
   chatMessage: (personId: string, id: string) => ["as", personId, "chatMessage", id] as const,
   chatThread: (personId: string, messageId: string) =>
     ["as", personId, "chatThread", messageId] as const,
@@ -2095,12 +2096,47 @@ export function useChannelMembers(channelId: string) {
  * Gli ultimi `limit` messaggi del flusso del canale; `null` se chi guarda
  * non ne legge i messaggi. I nuovi arrivano da `useChannelStream`.
  */
-export function useChannelMessages(channelId: string, limit = CHAT_PAGE) {
+/**
+ * Il flusso di un canale a pagine: la più nuova, poi le precedenti DAL CURSORE
+ * dell'ultima letta (`before` = il suo primo messaggio). Le pagine già lette
+ * restano: salire non rilegge da capo. `older(limit)` chiede la pagina prima,
+ * della grandezza voluta («Load earlier» o il salto a un messaggio lontano).
+ * `data` è la forma di sempre: i messaggi in ordine, `hasMore` dell'ultima
+ * pagina, la lettura della prima; `null` se il canale non si legge.
+ */
+export function useChannelMessages(channelId: string) {
   const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.chatMessages(me, channelId, limit),
-    queryFn: () => api.chat.listMessages(channelId, { limit }),
+  const nextLimit = useRef(CHAT_PAGE);
+  const query = useInfiniteQuery({
+    queryKey: queryKeys.chatMessages(me, channelId),
+    queryFn: ({ pageParam }) =>
+      api.chat.listMessages(channelId, pageParam ? { before: pageParam.before, limit: pageParam.limit } : { limit: CHAT_PAGE }),
+    initialPageParam: null as { before: string; limit: number } | null,
+    getNextPageParam: (last) =>
+      last?.hasMore && last.messages[0] ? { before: last.messages[0].id, limit: nextLimit.current } : undefined,
   });
+  const data = useMemo((): ChannelMessagesPage | null | undefined => {
+    const pages = query.data?.pages;
+    if (!pages) return undefined;
+    const first = pages[0];
+    if (!first) return null;
+    const read = pages.filter((p): p is ChannelMessagesPage => p !== null);
+    return {
+      messages: [...read].reverse().flatMap((p) => p.messages),
+      hasMore: read.at(-1)?.hasMore ?? false,
+      lastReadAt: first.lastReadAt,
+    };
+  }, [query.data]);
+  return {
+    data,
+    isError: query.isError,
+    isFetching: query.isFetching,
+    refetch: query.refetch,
+    older: (limit: number) => {
+      nextLimit.current = limit;
+      void query.fetchNextPage();
+    },
+  };
 }
 
 /** Un messaggio (link, anteprima, salto); `null` se non lo legge o non c'è più. */

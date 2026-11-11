@@ -310,6 +310,26 @@ describe("la Chat nella build app", () => {
     expect(seen.some((r) => r.path.startsWith("/api/chat/search?q=export"))).toBe(true);
   });
 
+  it("il salto a un messaggio vecchio continua dal cursore dell'ultima pagina, senza rileggere le più nuove", async () => {
+    const OLD = "7f1c2a1e-0000-4000-8000-0000000000a9";
+    const old = message({ id: OLD, text: "The first sketch.", createdAt: "2026-11-01T10:00:00.000Z" });
+    install({
+      [`GET /api/chat/channels/${CH}/messages`]: (req: SeenRequest) => {
+        const before = new URL(`http://x${req.path}`).searchParams.get("before");
+        return before === "cur1"
+          ? { body: { items: [old], before: null } }
+          : { body: { items: [message()], before: "cur1" } };
+      },
+      [`GET /api/chat/messages/${OLD}`]: { body: old },
+    });
+    renderRoute(`/chat/${CH}?message=${OLD}`);
+    expect(await screen.findByText("The first sketch.", {}, { timeout: 3000 })).toBeInTheDocument();
+    const pages = seen
+      .filter((r) => r.method === "GET" && r.path.startsWith(`/api/chat/channels/${CH}/messages`))
+      .map((r) => new URL(`http://x${r.path}`).searchParams.get("before"));
+    expect(pages).toEqual([null, "cur1"]);
+  });
+
   it("la ricerca non offre «With attachments» finché gli allegati non ci sono (fetta 4)", async () => {
     install({ "GET /api/chat/search": { body: { items: [] } } });
     renderRoute("/chat?view=search&q=export");

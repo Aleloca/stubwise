@@ -236,8 +236,7 @@ function ChannelBody({
   const people = usePeople().data;
   const departments = useDepartments().data;
   const name = useChannelName(channel, me);
-  const [limit, setLimit] = useState(PAGE);
-  const query = useChannelMessages(channel.id, limit);
+  const query = useChannelMessages(channel.id);
   const stream = useChannelStream(channel.id);
   // Caricando i più vecchi la pagina precedente resta a schermo.
   const lastPage = useRef<ChannelMessagesPage | null>(null);
@@ -297,8 +296,9 @@ function ChannelBody({
     // Su un errore ci si ferma (la pagina lo dice, con «Retry»): niente giri a vuoto.
     if (!reachId || !inFlow || !page?.hasMore || fetching || failed) return;
     if (page.messages.some((m) => m.id === reachId)) return;
-    // Verso un messaggio lontano si sale di una pagina intera del server.
-    setLimit((n) => n + SEEK_PAGE);
+    // Verso un messaggio lontano si sale di una pagina intera del server,
+    // dal cursore dell'ultima letta (le più nuove non si rileggono).
+    query.older(SEEK_PAGE);
   }, [reachId, inFlow, page, fetching, failed]);
 
   const messages = useMemo(
@@ -717,7 +717,7 @@ function ChannelBody({
             days={days}
             hasMore={page.hasMore}
             loadingEarlier={query.isFetching && !query.data}
-            onLoadEarlier={() => setLimit((n) => n + PAGE)}
+            onLoadEarlier={() => query.older(PAGE)}
             renderRow={renderRow}
             onAtBottom={onAtBottom}
             focusId={reachId}
