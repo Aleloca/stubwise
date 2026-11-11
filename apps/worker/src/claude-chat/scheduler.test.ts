@@ -97,7 +97,10 @@ describe("lo scheduler della chat", () => {
     s.requestTurn(a);
     s.requestTurn(b);
     s.requestTurn(c);
-    await tick();
+    // L'evento, non il tempo (era un tick da 50 ms, rosso sotto carico): con
+    // due turni partiti lo stato è finale. Il secondo `requestTurn(a)` è
+    // scartato subito, e `c` aspetta un posto che nessuno libera.
+    await vi.waitFor(() => expect(calls).toHaveLength(2), { timeout: 10_000 });
     expect(calls.map((x) => x.sessionId)).toEqual([a, b]);
     expect(calls[0]!.inputId).toBe(first);
     for (const call of calls) call.finish("completed");
@@ -111,8 +114,7 @@ describe("lo scheduler della chat", () => {
     const a = await conversation();
     await input(a);
     s.requestTurn(a);
-    await tick();
-    expect(deliverPending).toHaveBeenCalled();
+    await vi.waitFor(() => expect(deliverPending).toHaveBeenCalled(), { timeout: 10_000 });
   });
 
   it("archiviata (NOTIFY del server): ponte revocato, turno annullato, coda chiusa", async () => {
@@ -186,8 +188,7 @@ describe("lo scheduler della chat", () => {
     const a = await conversation();
     await input(a);
     s.requestTurn(a);
-    await tick();
-    expect(deliverPending).toHaveBeenCalled();
+    await vi.waitFor(() => expect(deliverPending).toHaveBeenCalled(), { timeout: 10_000 });
   });
 
   const cliDir = (id: string) => join(cliTmp, "config", "projects", cliProjectDirName(chatCwd(id, cliTmp)));
