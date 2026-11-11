@@ -241,6 +241,9 @@ Fetta 4: renderer (sotto, «Chiuse»).
 - **Ritiro del web vecchio** e passaggio di `/app` alla radice (decisione aperta
   del design della fetta 1); con il ritiro: togliere `tickets.status` enum,
   `saved_views`, `/api/projects/pulse` se nessuno lo legge più.
+- «Download» sugli allegati dei ticket nel pannello della task *(S, 11 nov
+  2026)*: il main lo accetta già (`api:download`, `/api/attachments/<uuid>/download`),
+  manca il bottone e la funzione del livello dati.
 - **MCP** (`@stubwise/mcp`): imparare stati per progetto, reparti, taglie, codici
   R<n>, Home e filtri.
 - Elenchi oltre le 2000 righe (oggi troncati e dichiarati); una rotta aggregata
@@ -273,7 +276,8 @@ Fetta 4: renderer (sotto, «Chiuse»).
   presigned non passava dal proxy. Ora `api:download` del main
   (`apps/desktop/src/main/apiDownload.ts`) vale per gli allegati della Chat e
   dei ticket: bearer solo verso l'istanza, Location https (http solo su
-  un'istanza http), «Salva» sempre chiesto, mai aperto.
+  un'istanza http), «Salva» sempre chiesto, mai aperto. Per i ticket resta
+  aperto il solo bottone (Trasversali).
 
 - **Area 4, fetta 3: @Claude nei canali, server e worker** *(M/O, 10 nov
   2026)*: la chiamata e la sessione privata di chi chiama (D5), il contesto
