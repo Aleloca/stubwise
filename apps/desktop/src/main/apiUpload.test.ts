@@ -1,12 +1,26 @@
 // @vitest-environment node
 import { execFileSync } from "node:child_process";
 import { closeSync, constants as fsConstants, openSync } from "node:fs";
-import { mkdtempSync, readdirSync, rmSync, symlinkSync, truncateSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ app: { getPath: () => "/nonexistent" }, safeStorage: {} }));
+// I descrittori aperti dal codice sotto prova, per controllare che si chiudano
+// (solo i suoi: non quelli del processo, che altro lavoro dello stesso worker sposta).
+const opened = vi.hoisted(() => [] as { fd: number }[]);
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...real,
+    open: async (...args: Parameters<typeof real.open>) => {
+      const handle = await real.open(...args);
+      opened.push(handle);
+      return handle;
+    },
+  };
+});
 
 const { createActiveUploads, createUploadTokens, formDataHeader, isAllowedUploadPath, uploadFile, DRIVE_UPLOAD_MAX_BYTES } = await import(
   "./apiUpload"
@@ -130,26 +144,27 @@ describe("i token dei file scelti", () => {
     await tokens.dropOwner(2);
   });
 
-  it.skipIf(process.platform === "win32")(
+  it(
     "una pulizia periodica chiude i descrittori dei token scaduti, senza tenere vivo il processo",
     async () => {
-      // I descrittori aperti del processo (macOS e Linux).
-      const fds = () => readdirSync("/dev/fd").length;
       vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
       try {
         let now = 1_000;
         const tokens = createUploadTokens({ ttlMs: 60_000, now: () => now });
-        const before = fds();
+        const before = opened.length;
         expect((await tokens.register(1, file("a.txt", "a"), "text/plain")).ok).toBe(true);
-        expect(fds()).toBe(before + 1);
+        expect(opened).toHaveLength(before + 1);
+        // Il descrittore del token: aperto finché il token vale (un FileHandle chiuso ha `fd` -1).
+        const handle = opened.at(-1)!;
+        expect(handle.fd).toBeGreaterThan(-1);
         const timer = tokens.startSweeper(30_000);
         expect(timer.hasRef()).toBe(false);
         vi.advanceTimersByTime(30_000);
         await new Promise((resolve) => setImmediate(resolve));
-        expect(fds()).toBe(before + 1);
+        expect(handle.fd).toBeGreaterThan(-1);
         now += 60_001;
         vi.advanceTimersByTime(30_000);
-        await vi.waitFor(() => expect(fds()).toBe(before));
+        await vi.waitFor(() => expect(handle.fd).toBe(-1));
         clearInterval(timer);
       } finally {
         vi.useRealTimers();
