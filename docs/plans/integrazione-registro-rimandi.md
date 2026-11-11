@@ -207,6 +207,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   sa; niente contenuto, riassunto e passaggi fino alla F3; «#» cerca i file da
   2 caratteri; sul web una sessione scaduta durante un caricamento la chiude
   la richiesta dopo. Elenco completo in `apps/desktop/docs/integration-area5-f2.md`.
+- Credenziali di sola lettura separate per il worker, se lo storage lo
+  permette *(S, area 5, fetta 3)*: oggi il worker legge gli oggetti del Drive
+  con le credenziali dell'istanza, e la sola lettura è una regola del codice
+  (una funzione, solo `drive/`, test sul sorgente). Un utente S3 di sola
+  lettura sul prefisso `drive/` la renderebbe una regola dello storage.
 - `nosniff` sull'anteprima del Drive *(S, limite accettato, review della
   fetta 2)*: l'URL firmato di S3 non può aggiungere
   `X-Content-Type-Options: nosniff` (le firme permettono di sovrascrivere solo

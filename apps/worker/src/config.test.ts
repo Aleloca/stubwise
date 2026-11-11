@@ -77,6 +77,7 @@ describe("loadWorkerConfig", () => {
     expect(config.graphifyBin).toBe("graphify");
     expect(config.graphBuildTimeoutMs).toBe(1_200_000);
     expect(config.graphPollSeconds).toBe(20);
+    expect(config.driveContentPollSeconds).toBe(10);
     // Outbox delle notifiche: default 5".
     expect(config.notifyPollSeconds).toBe(5);
     // Pulse proattivo: poller ogni 15', finestra alle 9 UTC, solo feriali.
@@ -128,8 +129,10 @@ describe("loadWorkerConfig", () => {
       GRAPHIFY_BIN: "/opt/graphify/bin/graphify",
       GRAPH_BUILD_TIMEOUT_MINUTES: "45",
       GRAPH_POLL_SECONDS: "45",
+      DRIVE_CONTENT_POLL_SECONDS: "0",
     });
     expect(config.graphPollSeconds).toBe(45);
+    expect(config.driveContentPollSeconds).toBe(0);
     expect(config.graphsDir).toBe("/srv/graphs");
     expect(config.graphLabelEnabled).toBe(false);
     expect(config.graphifyBin).toBe("/opt/graphify/bin/graphify");

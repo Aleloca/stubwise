@@ -808,6 +808,17 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 in secondi (es. 20; 0 = disabilitato)")
       .default(20),
   ),
+  // Intervallo di poll (secondi) della coda del CONTENUTO dei file del Drive
+  // (area 5, fetta 3, `drive/content-job.ts`): estrazione, riassunto, embedding.
+  // Fuori dal serializer per progetto. 0 = disabilitato. Default 10".
+  DRIVE_CONTENT_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 10; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 10; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 10; 0 = disabilitato)")
+      .default(10),
+  ),
   // Radice del VOLUME dei plugin Claude Code del registro d'istanza: il worker
   // ci materializza `<PLUGINS_DIR>/<slug>/<sha>/` ed è l'UNICO a montarlo (il
   // server non lo vede: legge l'inventario dal DB).
@@ -1204,6 +1215,8 @@ export interface WorkerConfig {
   /** Intervallo in secondi del poller della coda `graph_jobs` (default 20;
    * 0 = disabilitato). */
   graphPollSeconds: number;
+  /** Intervallo in secondi della coda del contenuto del Drive (default 10; 0 = disabilitato). */
+  driveContentPollSeconds: number;
   /** Radice del volume dei plugin del registro d'istanza (default "/plugins"). */
   pluginsDir: string;
   /** Intervallo in secondi del poller della coda `plugin_jobs` (default 20;
@@ -1430,6 +1443,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     // Minuti → ms: il runner del CLI vuole millisecondi.
     graphBuildTimeoutMs: parsed.GRAPH_BUILD_TIMEOUT_MINUTES * 60_000,
     graphPollSeconds: parsed.GRAPH_POLL_SECONDS,
+    driveContentPollSeconds: parsed.DRIVE_CONTENT_POLL_SECONDS,
     pluginsDir: parsed.PLUGINS_DIR,
     pluginPollSeconds: parsed.PLUGIN_POLL_SECONDS,
     notifyPollSeconds: parsed.NOTIFY_POLL_SECONDS,

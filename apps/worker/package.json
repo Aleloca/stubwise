@@ -15,6 +15,7 @@
     "nightly:once": "node dist/nightly/once.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1069.0",
     "@modelcontextprotocol/sdk": "^1.20.0",
     "@stubwise/db": "workspace:*",
     "@stubwise/docs-engine": "workspace:*",
