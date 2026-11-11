@@ -40,6 +40,7 @@ import { requestVisibility } from "../services/project-requests.js";
 import { visibleTasksCondition } from "../services/task-view.js";
 import { citationsToStore, citationViews, hasVisibleCitationSql } from "./citations.js";
 import { eventViews } from "./events.js";
+import { attachmentsOf, bindChatAttachments, chatAttachmentViews, dropChatAttachments } from "./attachments.js";
 import { callContext, callsClaude, claudeReplyViews, rootsWithClaudeWorking, startClaudeReply, stopSession } from "./claude.js";
 import {
   accessFrom,
@@ -484,6 +485,7 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
   const claude = await claudeReplyViews(db, viewer, rows, async (channelId) => placeOf(channelId));
   const replying = await rootsWithClaudeWorking(db, rows.filter((r) => r.threadRootId === null).map((r) => r.id));
   const events = await eventViews(db, viewer, rows);
+  const attachments = await chatAttachmentViews(db, live);
   return rows.map((m) => {
     const own = m.authorId === viewer.id && m.kind === "person";
     const deleted = m.deletedAt !== null;
@@ -527,7 +529,7 @@ async function messageViews(db: Db, viewer: ChatViewer, rows: readonly MessageRo
       claude: claude.get(m.id) ?? null,
       claudeReplying: replying.has(m.id),
       event: events.get(m.id) ?? null,
-      attachments: [],
+      attachments: deleted ? [] : (attachments.get(m.id) ?? []),
     } satisfies ChatMessageView;
   });
 }
@@ -971,11 +973,23 @@ export async function postMessage(
   db: Db,
   viewer: ChatViewer,
   channelId: string,
-  input: { text: string; threadRootId?: string; alsoInChannel?: boolean; asksReply?: boolean; citations?: readonly ChatCitationRef[] },
+  input: {
+    text: string;
+    threadRootId?: string;
+    alsoInChannel?: boolean;
+    asksReply?: boolean;
+    citations?: readonly ChatCitationRef[];
+    /** Gli allegati in sospeso da legare (fetta 4), nell'ordine. */
+    attachmentIds?: readonly string[];
+  },
 ): Promise<ChatMessageView> {
   const { channel, access } = await readableChannel(db, viewer, channelId);
   if (channel.archivedAt !== null) throw new ChatError(409, "channel_archived", "The channel is archived");
   if (!access.canWrite) throw new ChatError(403, "not_member", "Join the channel to write");
+  // Il testo è facoltativo solo con almeno un allegato (fetta 4, come il prototipo).
+  if (input.text.trim() === "" && (input.attachmentIds?.length ?? 0) === 0) {
+    throw new ChatError(400, "empty_message", "Write something or attach a file");
+  }
   let root: MessageRow | undefined;
   if (input.threadRootId) {
     [root] = await db.select().from(chatMessages).where(eq(chatMessages.id, input.threadRootId));
@@ -1008,6 +1022,12 @@ export async function postMessage(
       })
       .returning();
     await writeCitations(tx, row!.id, citations);
+    // Gli allegati (fetta 4): i propri, in sospeso, di questo canale. I loro
+    // nomi entrano nella ricerca (`haystack` del prototipo).
+    const names = await bindChatAttachments(tx, viewer, channelId, row!.id, input.attachmentIds ?? []);
+    if (names.length > 0) {
+      await tx.update(chatMessages).set({ searchFolded: foldChatText([input.text, ...names].join("\n")) }).where(eq(chatMessages.id, row!.id));
+    }
     // «@Claude»: la risposta nasce SUBITO nel thread di questo messaggio, a nome
     // di chi scrive (fetta 3). Una modifica che aggiunge «@Claude» non chiama.
     if (callsClaude(input.text)) {
@@ -1069,10 +1089,16 @@ export async function editMessage(
   id: string,
   text: string,
   picked: readonly ChatCitationRef[] = [],
-): Promise<ChatMessageView> {
+  /** Gli allegati che RESTANO (fetta 4): toglie, non aggiunge; assente = invariati. */
+  keepAttachmentIds?: readonly string[],
+): Promise<{ message: ChatMessageView; removedKeys: string[] }> {
   const { message, channel, access } = await ownMessage(db, viewer, id);
   // Modificare è scrivere: solo da membro (`writable` del prototipo).
   if (!access.canWrite) throw new ChatError(403, "not_member", "Join the channel to edit");
+  const attached = await attachmentsOf(db, id);
+  const keep = keepAttachmentIds === undefined ? attached : attached.filter((a) => keepAttachmentIds.includes(a.id));
+  const removed = attached.filter((a) => !keep.includes(a));
+  if (text.trim() === "" && keep.length === 0) throw new ChatError(400, "empty_message", "Write something or keep a file");
   // Le citazioni si ricalcolano dal testo nuovo: quelle di prima più le scelte nuove.
   const before = await db
     .select({ kind: chatMessageCitations.kind, id: chatMessageCitations.refId })
@@ -1089,6 +1115,7 @@ export async function editMessage(
   const asks = [...new Set([...kept, ...asked])];
   const members = new Set(await channelMemberIds(db, channel));
   const [author] = await peopleOf(db, [viewer.id]);
+  const removedKeys: string[] = [];
   await db.transaction(async (tx) => {
     await tx
       .update(chatMessages)
@@ -1097,12 +1124,13 @@ export async function editMessage(
         mentionedIds: mentioned,
         notifiedIds: [...new Set([...message.notifiedIds, ...added])],
         asksReplyOf: asks,
-        searchFolded: foldChatText(text),
+        searchFolded: foldChatText([text, ...keep.map((a) => a.filename)].join("\n")),
         editedAt: sql`now()`,
         updatedAt: sql`now()`,
       })
       .where(eq(chatMessages.id, id));
     await writeCitations(tx, id, citations);
+    removedKeys.push(...(await dropChatAttachments(tx, removed.map((a) => a.id))));
     // Chi è nominato con una modifica segue il thread, come alla scrittura.
     if (added.length > 0) await follow(tx, message.threadRootId ? added : [viewer.id, ...added], message.threadRootId ?? id);
     await publishCards(tx, {
@@ -1116,13 +1144,15 @@ export async function editMessage(
     });
     await notifyChannel(tx, channel.id);
   });
-  return getMessage(db, viewer, id);
+  return { message: await getMessage(db, viewer, id), removedKeys };
 }
 
 /** Eliminazione: solo i propri (D6); il testo sparisce (CHECK `deleted_at` ⇒ `body = ''`), con domande e reazioni. */
-export async function deleteMessage(db: Db, viewer: ChatViewer, id: string): Promise<void> {
+export async function deleteMessage(db: Db, viewer: ChatViewer, id: string): Promise<string[]> {
   const { channel, message } = await ownMessage(db, viewer, id, { claudeReply: true });
-  await db.transaction(async (tx) => {
+  // Gli allegati se ne vanno col messaggio (fetta 4, `scrubDeleted`): righe qui,
+  // oggetti dello storage dopo, dalla rotta. Restituisce le loro chiavi.
+  return db.transaction(async (tx) => {
     // Una risposta di @Claude che lavora si ferma con lei, e le sue proposte aperte decadono.
     if (message.kind === "claude") {
       await stopSession(tx, message.agentSessionId);
@@ -1150,11 +1180,13 @@ export async function deleteMessage(db: Db, viewer: ChatViewer, id: string): Pro
       .where(eq(chatMessages.id, id));
     await tx.delete(chatReactions).where(eq(chatReactions.messageId, id));
     await tx.delete(chatMessageCitations).where(eq(chatMessageCitations.messageId, id));
+    const keys = await dropChatAttachments(tx, (await attachmentsOf(tx, id)).map((a) => a.id));
     // Una risposta eliminata cambia la radice (risposte, ultima): lo stream la rimanda.
     if (message.threadRootId) {
       await tx.update(chatMessages).set({ updatedAt: sql`now()` }).where(eq(chatMessages.id, message.threadRootId));
     }
     await notifyChannel(tx, channel.id);
+    return keys;
   });
 }
 
@@ -1656,6 +1688,7 @@ export interface ChatSearchFilters {
   authorId?: string;
   peopleOnly?: boolean;
   withCitations?: boolean;
+  withAttachments?: boolean;
   from?: string;
   to?: string;
   limit?: number;
@@ -1691,6 +1724,10 @@ export async function searchChat(
         filters.authorId ? eq(chatMessages.authorId, filters.authorId) : undefined,
         filters.peopleOnly ? ne(chatMessages.kind, "system") : undefined,
         filters.withCitations ? await hasVisibleCitationSql(db, viewer, chatMessages.id) : undefined,
+        // «Con allegati» (fetta 4): un messaggio vivo ne ha solo se sono legati a lui.
+        filters.withAttachments
+          ? sql`exists (select 1 from chat_message_attachments a where a.message_id = ${chatMessages.id})`
+          : undefined,
         filters.from ? sql`(${chatMessages.createdAt} at time zone 'UTC')::date >= ${filters.from}::date` : undefined,
         filters.to ? sql`(${chatMessages.createdAt} at time zone 'UTC')::date <= ${filters.to}::date` : undefined,
       ),

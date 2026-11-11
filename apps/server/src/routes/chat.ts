@@ -1,7 +1,9 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import {
+  CHAT_ATTACHMENT_MAX_BYTES,
+  chatAttachmentSchema,
   chatChannelListQuerySchema,
   chatChannelListSchema,
   chatChannelPrefSchema,
@@ -32,6 +34,15 @@ import {
   type ChatStreamMessage,
 } from "@stubwise/shared";
 import { apiError } from "../errors.js";
+import {
+  ChatAttachmentError,
+  deleteStoredObjects,
+  downloadableAttachment,
+  pruneChatUploads,
+  removePendingAttachment,
+  signedDownloadUrl,
+  uploadChatAttachment,
+} from "../chat/attachments.js";
 import { refreshViewer } from "./agent-sessions.js";
 import { claudeQuestionsOf } from "../chat/claude.js";
 import {
@@ -84,8 +95,21 @@ async function handle<T>(reply: FastifyReply, fn: () => Promise<T>): Promise<T |
   try {
     return await fn();
   } catch (error) {
-    if (error instanceof ChatError) return apiError(reply, error.status, error.code, error.message);
+    if (error instanceof ChatError || error instanceof ChatAttachmentError) return apiError(reply, error.status, error.code, error.message);
     throw error;
+  }
+}
+
+/**
+ * Toglie dallo storage gli oggetti di allegati già tolti dal DB, senza mai far
+ * fallire la richiesta: la riga non c'è più, quindi l'oggetto non è comunque
+ * scaricabile (lo firma solo la rotta di download, che vuole la riga).
+ */
+async function cleanStorage(app: FastifyInstance, keys: readonly string[], log: FastifyBaseLogger): Promise<void> {
+  try {
+    await deleteStoredObjects(await app.storage(), keys, (m) => log.warn(m));
+  } catch (error) {
+    log.warn({ err: error }, "storage degli allegati della Chat non raggiungibile: oggetti da togliere a mano");
   }
 }
 
@@ -131,6 +155,7 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
         ...(request.query.authorId ? { authorId: request.query.authorId } : {}),
         ...(request.query.peopleOnly === "true" ? { peopleOnly: true } : {}),
         ...(request.query.withCitations === "true" ? { withCitations: true } : {}),
+        ...(request.query.withAttachments === "true" ? { withAttachments: true } : {}),
         ...(request.query.from ? { from: request.query.from } : {}),
         ...(request.query.to ? { to: request.query.to } : {}),
         ...(request.query.limit ? { limit: request.query.limit } : {}),
@@ -275,9 +300,49 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
             ...(request.body.alsoInChannel ? { alsoInChannel: true } : {}),
             ...(request.body.asksReply ? { asksReply: true } : {}),
             ...(request.body.citations ? { citations: request.body.citations } : {}),
+            ...(request.body.attachmentIds ? { attachmentIds: request.body.attachmentIds } : {}),
           }),
         ),
       ),
+  );
+  // Gli allegati (fetta 4). Il caricamento: multipart, un file, al più 25 MB;
+  // nasce in sospeso, lo lega un messaggio di chi l'ha caricato.
+  app.post(
+    "/channels/:id/attachments",
+    {
+      config: { access: ACCESS },
+      schema: { params: idParams, response: { 201: chatAttachmentSchema, 413: errorSchema, ...errors } },
+    },
+    async (request, reply) =>
+      handle(reply, async () => {
+        const storage = await app.storage();
+        if (!storage) return apiError(reply, 400, "storage_not_configured", "Object storage is not configured");
+        const tooLarge = () => apiError(reply, 413, "file_too_large", "File exceeds the 25 MB limit");
+        let part;
+        try {
+          part = await request.file({ limits: { fileSize: CHAT_ATTACHMENT_MAX_BYTES, files: 1 } });
+        } catch (error) {
+          if ((error as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") return tooLarge();
+          throw error;
+        }
+        if (!part) return apiError(reply, 400, "file_required", "A file is required");
+        let body: Buffer;
+        try {
+          body = await part.toBuffer();
+        } catch (error) {
+          if ((error as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") return tooLarge();
+          throw error;
+        }
+        if (part.file.truncated || body.length > CHAT_ATTACHMENT_MAX_BYTES) return tooLarge();
+        const created = await uploadChatAttachment(app.db, storage, request.user!, request.params.id, {
+          filename: part.filename,
+          mimeType: part.mimetype,
+          body,
+        });
+        // Igiene: chi carica pota anche i sospesi scaduti ([DECIDE] 3), senza aspettare.
+        void pruneChatUploads(app.db, storage, (m) => request.log.warn(m)).catch((e: unknown) => request.log.warn(e, "potatura allegati"));
+        return reply.code(201).send(created);
+      }),
   );
   app.post(
     "/channels/:id/read",
@@ -297,6 +362,31 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
     async (request, reply) => handle(reply, () => setNotifyLevel(app.db, request.user!, request.params.id, request.body.level)),
   );
 
+  // Il download: 302 verso l'URL firmato (`Content-Disposition: attachment`),
+  // solo per chi legge il canale. La seconda richiesta va allo storage senza
+  // header: basta la firma, che scade in pochi minuti.
+  app.get(
+    "/attachments/:id/download",
+    { config: { access: ACCESS }, schema: { params: idParams, response: { 302: z.null(), ...errors } } },
+    async (request, reply) => {
+      const row = await downloadableAttachment(app.db, request.user!, request.params.id);
+      if (!row) return apiError(reply, 404, "not_found", "Not found");
+      const storage = await app.storage();
+      if (!storage) return apiError(reply, 400, "storage_not_configured", "Object storage is not configured");
+      return reply.redirect(await signedDownloadUrl(storage, row), 302);
+    },
+  );
+  // Togliere un allegato in sospeso (prima di mandare): solo chi l'ha caricato.
+  app.delete(
+    "/attachments/:id",
+    { config: { access: ACCESS }, schema: { params: idParams, response: { 204: z.null(), ...errors } } },
+    async (request, reply) => {
+      const key = await removePendingAttachment(app.db, request.user!, request.params.id);
+      if (key === null) return apiError(reply, 404, "not_found", "Not found");
+      await cleanStorage(app, [key], request.log);
+      return reply.code(204).send(null);
+    },
+  );
   app.get(
     "/messages/:id",
     { config: { access: ACCESS }, schema: { params: idParams, response: { 200: chatMessageSchema, ...errors } } },
@@ -310,14 +400,28 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
   app.patch(
     "/messages/:id",
     { config: { access: ACCESS }, schema: { params: idParams, body: editChatMessageSchema, response: { 200: chatMessageSchema, ...errors } } },
-    async (request, reply) => handle(reply, () => editMessage(app.db, request.user!, request.params.id, request.body.text, request.body.citations ?? [])),
+    async (request, reply) =>
+      handle(reply, async () => {
+        const { message, removedKeys } = await editMessage(
+          app.db,
+          request.user!,
+          request.params.id,
+          request.body.text,
+          request.body.citations ?? [],
+          request.body.attachmentIds,
+        );
+        // Gli allegati tolti: lo storage dopo il commit, senza bloccare la risposta.
+        if (removedKeys.length > 0) void cleanStorage(app, removedKeys, request.log);
+        return message;
+      }),
   );
   app.delete(
     "/messages/:id",
     { config: { access: ACCESS }, schema: { params: idParams, response: { 204: z.null(), ...errors } } },
     async (request, reply) =>
       handle(reply, async () => {
-        await deleteMessage(app.db, request.user!, request.params.id);
+        const keys = await deleteMessage(app.db, request.user!, request.params.id);
+        if (keys.length > 0) await cleanStorage(app, keys, request.log);
         return reply.code(204).send(null);
       }),
   );
