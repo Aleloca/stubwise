@@ -1457,6 +1457,10 @@ export const CHAT_CURSOR_MAX = 9223372036854775807n;
  * che è già partito con lo stesso `updated_at`.
  */
 export const CHAT_STREAM_OVERLAP_MICROS = 5_000_000n;
+/** Le righe in avanti per giro: oltre, il cursore avanza e il giro dopo continua. */
+export const CHAT_STREAM_PAGE = 500;
+/** Le righe della finestra dietro il cursore: tetto di sicurezza, ben sopra un canale vivo. */
+export const CHAT_STREAM_OVERLAP_MAX = 2_000;
 
 /**
  * I messaggi del canale cambiati dopo `after` (lo stream): nuovi, modificati,
@@ -1483,28 +1487,36 @@ export async function changedSince(
       .select({ max: sql<string>`coalesce(max(${micros}), (extract(epoch from now()) * 1000000)::bigint)::text` })
       .from(chatMessages)
       .where(eq(chatMessages.channelId, channelId));
-    const cursor = row?.max ?? "0";
-    // Ciò che è già nella finestra prima del cursore lo ha la pagina: non riparte al giro dopo.
-    const recent = await db
-      .select({ id: chatMessages.id, cursor: sql<string>`${micros}::text` })
-      .from(chatMessages)
-      .where(and(eq(chatMessages.channelId, channelId), sql`${micros} > ${(BigInt(cursor) - CHAT_STREAM_OVERLAP_MICROS).toString()}::bigint`));
-    for (const r of recent) seen.set(r.id, r.cursor);
-    return { messages: [], cursor };
+    // Niente in `seen` all'apertura (review della fetta 2): un messaggio arrivato
+    // fra la lettura della pagina e l'apertura dello stream è nella finestra, e
+    // il primo giro lo rimanda. Il client deduplica per id.
+    return { messages: [], cursor: row?.max ?? "0" };
   }
-  const from = BigInt(after) > CHAT_STREAM_OVERLAP_MICROS ? BigInt(after) - CHAT_STREAM_OVERLAP_MICROS : 0n;
-  const rows = await db
+  // Due letture distinte (review della fetta 2): la finestra di sovrapposizione
+  // DIETRO il cursore (le transazioni committate in ritardo), e la lettura IN
+  // AVANTI a pagine. Con una lettura sola e un `limit`, 500 righe nella
+  // finestra già viste tenevano il cursore fermo per sempre.
+  const at = BigInt(after);
+  const from = at > CHAT_STREAM_OVERLAP_MICROS ? at - CHAT_STREAM_OVERLAP_MICROS : 0n;
+  const overlap = await db
     .select({ message: chatMessages, cursor: sql<string>`${micros}::text` })
     .from(chatMessages)
-    .where(and(eq(chatMessages.channelId, channelId), sql`${micros} > ${from.toString()}::bigint`))
+    .where(and(eq(chatMessages.channelId, channelId), sql`${micros} > ${from.toString()}::bigint`, sql`${micros} <= ${at.toString()}::bigint`))
     .orderBy(asc(chatMessages.updatedAt), asc(chatMessages.id))
-    .limit(500);
+    .limit(CHAT_STREAM_OVERLAP_MAX);
+  const forward = await db
+    .select({ message: chatMessages, cursor: sql<string>`${micros}::text` })
+    .from(chatMessages)
+    .where(and(eq(chatMessages.channelId, channelId), sql`${micros} > ${at.toString()}::bigint`))
+    .orderBy(asc(chatMessages.updatedAt), asc(chatMessages.id))
+    .limit(CHAT_STREAM_PAGE);
+  const rows = [...overlap, ...forward];
   const fresh = rows.filter((r) => seen.get(r.message.id) !== r.cursor);
   for (const r of fresh) seen.set(r.message.id, r.cursor);
+  const top = forward.reduce((max, r) => (BigInt(r.cursor) > max ? BigInt(r.cursor) : max), at);
   // `seen` non cresce senza fine: ciò che è uscito dalla finestra non può tornare.
-  const floor = rows.reduce((max, r) => (BigInt(r.cursor) > max ? BigInt(r.cursor) : max), BigInt(after)) - CHAT_STREAM_OVERLAP_MICROS;
-  for (const [id, at] of seen) if (BigInt(at) < floor) seen.delete(id);
-  const top = rows.reduce((max, r) => (BigInt(r.cursor) > max ? BigInt(r.cursor) : max), BigInt(after));
+  const floor = top - CHAT_STREAM_OVERLAP_MICROS;
+  for (const [id, cursorOf] of seen) if (BigInt(cursorOf) < floor) seen.delete(id);
   return {
     messages: await messageViews(db, viewer, fresh.map((r) => r.message)),
     cursor: top.toString(),

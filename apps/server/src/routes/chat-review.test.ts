@@ -168,7 +168,8 @@ describe("review fetta 1", () => {
     const late = idOf(await post(dev, id, "in ritardo"));
     await t.db.update(chatMessages).set({ updatedAt: sql`to_timestamp(${String(Number(start!.cursor) / 1e6)}::double precision - 1)` }).where(eq(chatMessages.id, late));
     const next = await changedSince(t.db, viewerOf(dev), id, start!.cursor!, seen);
-    expect(next!.messages.map((m) => m.id)).toEqual([late]);
+    // Il primo giro rimanda la finestra (anche «storia», che il client ha già dalla pagina).
+    expect(next!.messages.map((m) => m.id)).toContain(late);
     const again = await changedSince(t.db, viewerOf(dev), id, next!.cursor!, seen);
     expect(again!.messages).toEqual([]);
   });
@@ -245,5 +246,39 @@ describe("review fetta 1", () => {
     await as(gone, "POST", `/api/chat/channels/${id}/join`);
     await t.db.execute(sql`delete from project_members where user_id = ${gone.id}`);
     expect(((await as(dev, "GET", `/api/chat/channels/${id}`)).json() as { memberIds: string[] }).memberIds).not.toContain(gone.id);
+  });
+});
+
+describe("review fetta 2, seconda (11 nov 2026)", () => {
+  it("1. un messaggio arrivato fra la pagina e l'apertura dello stream non si perde", async () => {
+    const id = await openChannel(dev);
+    // La pagina è letta; poi arriva un messaggio, poi lo stream si apre senza cursore.
+    const between = idOf(await post(dev, id, "fra pagina e stream"));
+    const seen = new Map<string, string>();
+    const start = await changedSince(t.db, viewerOf(dev), id, undefined, seen);
+    expect(start!.messages).toEqual([]);
+    const next = await changedSince(t.db, viewerOf(dev), id, start!.cursor!, seen);
+    expect(next!.messages.map((m) => m.id)).toContain(between);
+    // Una volta mandato, non riparte.
+    const again = await changedSince(t.db, viewerOf(dev), id, next!.cursor!, seen);
+    expect(again!.messages.map((m) => m.id)).not.toContain(between);
+  });
+
+  it("6. con più di 500 righe nella finestra lo stream non si blocca", async () => {
+    const id = await openChannel(dev);
+    const [author] = [dev.id];
+    await t.db.insert(chatMessages).values(Array.from({ length: 501 }, (_, i) => ({ channelId: id, authorId: author, body: `m${i}` })));
+    const seen = new Map<string, string>();
+    let cursor = (await changedSince(t.db, viewerOf(dev), id, undefined, seen))!.cursor!;
+    const delivered = new Set<string>();
+    let last = "";
+    for (let tick = 0; tick < 6; tick++) {
+      if (tick === 2) last = idOf(await post(dev, id, "dopo la folla"));
+      const r = (await changedSince(t.db, viewerOf(dev), id, cursor, seen))!;
+      for (const m of r.messages) delivered.add(m.id);
+      cursor = r.cursor!;
+    }
+    expect(delivered.has(last)).toBe(true);
+    expect(delivered.size).toBe(502);
   });
 });
