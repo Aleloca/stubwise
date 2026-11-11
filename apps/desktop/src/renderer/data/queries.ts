@@ -2480,6 +2480,11 @@ export function useEditChatProposal() {
   });
 }
 
+/** Il download di un allegato della Chat (fetta 4): non scrive nulla, non rilegge nulla. */
+export function useDownloadChatAttachment() {
+  return useMutation({ mutationFn: (attachmentId: string) => api.chat.downloadAttachment(attachmentId) });
+}
+
 export function useCompleteEditedChatProposal() {
   return useWrite(
     ({

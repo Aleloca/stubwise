@@ -131,4 +131,33 @@ describe("endpoints chat", () => {
     const old = client(message);
     expect(await old.c.chat.messages.get(MSG)).toMatchObject({ claude: null, claudeReplying: false, calledById: null });
   });
+  it("fetta 4: upload in multipart, download, eventi pubblicati, modifica con gli allegati che restano, ricerca", async () => {
+    const att = { id: MSG, filename: "spec.pdf", mimeType: "application/pdf", sizeBytes: 4, createdAt: "2026-11-10T10:00:00.000Z" };
+    const up = client(att, 201);
+    const file = new Blob(["%PDF"], { type: "application/pdf" });
+    expect(await up.c.chat.attachments.upload(CH, file, "spec.pdf")).toEqual(att);
+    const [url, init] = up.fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/chat/channels/${CH}/attachments`);
+    expect(init?.method).toBe("POST");
+    // Il corpo è il multipart, non un JSON; il boundary lo mette fetch.
+    expect(init?.body).toBeInstanceOf(FormData);
+    expect((init?.body as FormData).get("file")).toBeInstanceOf(Blob);
+    expect(((init?.body as FormData).get("file") as File).name).toBe("spec.pdf");
+    expect(new Headers(init?.headers).get("content-type")).toBeNull();
+    expect(up.c.chat.attachments.downloadPath(MSG)).toBe(`/api/chat/attachments/${MSG}/download`);
+    const one = client(channel);
+    await one.c.chat.channels.setEvents(CH, ["task_closed", "pr_merged"]);
+    expect(last(one.fetchImpl)).toEqual({ url: `/api/chat/channels/${CH}/events`, method: "PUT", body: { events: ["task_closed", "pr_merged"] } });
+    const edit = client(message);
+    await edit.c.chat.messages.edit(MSG, "Ciao", [MSG]);
+    expect(last(edit.fetchImpl)).toEqual({ url: `/api/chat/messages/${MSG}`, method: "PATCH", body: { text: "Ciao", attachmentIds: [MSG] } });
+    await edit.c.chat.messages.edit(MSG, "Ciao");
+    expect(last(edit.fetchImpl).body).toEqual({ text: "Ciao" });
+    const search = client({ items: [] });
+    await search.c.chat.search({ q: "spec", withAttachments: true });
+    expect(last(search.fetchImpl).url).toBe("/api/chat/search?q=spec&withAttachments=true");
+    // Un messaggio della fetta 3: niente allegati né evento.
+    const old = client(message);
+    expect(await old.c.chat.messages.get(MSG)).toMatchObject({ attachments: [], event: null });
+  });
 });

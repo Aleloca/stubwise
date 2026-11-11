@@ -1133,6 +1133,12 @@ export interface Attachment {
   name: string;
   sizeBytes: number;
   kind: "image" | "file";
+  /**
+   * Solo una bozza della casella della Chat nella build app (area 4, fetta 4):
+   * il file scelto, che l'invio carica nel canale prima del messaggio. Mai in
+   * un allegato già inviato.
+   */
+  file?: Blob;
 }
 
 /**
@@ -2270,8 +2276,11 @@ export interface ChatMessage {
   asksReplyOf: string[];
   /** Una risposta del thread mostrata anche nel canale («Rispondi anche nel canale»). */
   alsoInChannel?: boolean;
-  /** Solo `system`: l'evento e l'oggetto della scheda. */
-  event?: { kind: ChatEventKind; ref: CitationRef };
+  /**
+   * Solo `system`: l'evento e l'oggetto della scheda. `gone` (build app): l'oggetto
+   * non c'è più (una task eliminata), la scheda dice solo il tipo dell'evento.
+   */
+  event?: { kind: ChatEventKind; ref: CitationRef; gone?: boolean };
   /** Task e richieste nate da questo messaggio («→ AUD-14»). */
   linkedCodes: string[];
   createdAt: string;

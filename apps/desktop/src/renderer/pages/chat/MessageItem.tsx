@@ -27,6 +27,9 @@ import { requestReplyFocus } from "./drafts";
 import { MessageMenu, type MessageActions } from "./MessageMenu";
 import { ReactionPicker, Reactions } from "./Reactions";
 import { SaveToDriveButton } from "./SaveToDrive";
+import { DownloadAttachmentButton } from "./DownloadAttachment";
+import { isAppBuild } from "../../data/build";
+import { featureIntegrated } from "../../data/integration";
 
 // Un messaggio del canale: nessuna bolla, nessun colore per autore. Il primo
 // di un gruppo ha l'avatar 32px e «Nome · 16:02»; i successivi l'ora nel
@@ -314,9 +317,15 @@ export function MessageItem(props: MessageItemProps) {
                 <AttachmentChip
                   attachment={a}
                   action={
-                    props.driveProjectId !== undefined && (
-                      <SaveToDriveButton attachment={a} projectId={props.driveProjectId} />
-                    )
+                    <>
+                      {/* Build app (fetta 4): il file vero, dal server. Il prototipo non ne ha. */}
+                      {isAppBuild() && featureIntegrated("chat-attachments") && (
+                        <DownloadAttachmentButton attachment={a} />
+                      )}
+                      {props.driveProjectId !== undefined && (
+                        <SaveToDriveButton attachment={a} projectId={props.driveProjectId} />
+                      )}
+                    </>
                   }
                 />
               </li>

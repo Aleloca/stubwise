@@ -5313,6 +5313,18 @@
       "saved": "Saved to the {{project}} Drive as {{code}}",
       "tooLarge": "{{name}} is over 100 MB, so it can't go in the Drive.",
       "failed": "Couldn't save to the Drive. Try again."
+    },
+    "attachments": {
+      "typeNotAllowed": "{{name}} can't be attached: this type of file isn't allowed.",
+      "download": "Download {{name}}",
+      "downloadFailed": "Couldn't download {{name}}.",
+      "downloadGone": "{{name}} is no longer available.",
+      "notSent": {
+        "type": "a file of this type isn't allowed",
+        "size": "a file is too big (up to 25 MB)",
+        "off": "attachments are off on this instance",
+        "gone": "an attachment expired: attach it again"
+      }
     }
   },
   "docs": {

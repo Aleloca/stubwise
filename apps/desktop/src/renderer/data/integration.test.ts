@@ -109,6 +109,9 @@ describe("isIntegrated", () => {
         "feature:chat-from-message",
         // Area 4, fetta 3: @Claude nei canali.
         "feature:chat-claude",
+        // Area 4, fetta 4: gli eventi dei progetti e gli allegati.
+        "feature:chat-events",
+        "feature:chat-attachments",
       ].sort(),
     );
   });
