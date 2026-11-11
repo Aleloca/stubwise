@@ -194,6 +194,15 @@ describe("sul sorgente: nessun modulo raggiungibile dal catalogo esce da solo", 
     expect(files.some((f) => f.endsWith("jobs.ts"))).toBe(true);
   });
 
+  it("il catalogo non raggiunge la Chat che scrive nello storage (service, allegati, storage)", () => {
+    // Le scritture delle task usano dalla Chat solo il legame col messaggio,
+    // in un modulo foglia (`chat/links.ts`): la catena task-writes → chat/service
+    // → chat/attachments → storage portava `deleteObject` dentro il catalogo.
+    const files = reachable();
+    expect(files.some((f) => f.endsWith("chat/links.ts"))).toBe(true);
+    expect(files.filter((f) => /chat\/service\.ts$|chat\/attachments\.ts$|\/storage\//.test(f))).toEqual([]);
+  });
+
   it("solo `effects.ts` può uscire (e lo fa solo dopo il commit, mai a secco)", () => {
     const offenders = reachable()
       .filter((f) => !f.endsWith("effects.ts"))
