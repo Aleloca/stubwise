@@ -117,6 +117,7 @@ export function ClaudeReply({
   const canStop = run?.canStop ?? (mine && live);
   const canRetry = run?.canRetry ?? (mine && !run?.retried && canWrite);
   const canAnswer = run?.canAnswer ?? (mine && state === "waiting" && canWrite);
+  const canDelete = m.canDelete ?? (mine && canWrite);
 
   // I codici che chi guarda non vede: quelli citati e quelli delle righe e delle schede.
   const hidden = useMemo(() => {
@@ -431,7 +432,7 @@ export function ClaudeReply({
                 >
                   {t("chat.actions.copyLink")}
                 </button>
-                {mine && canWrite && (
+                {canDelete && (
                   <button
                     type="button"
                     role="menuitem"

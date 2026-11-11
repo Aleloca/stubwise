@@ -226,6 +226,9 @@ export function toMessage(v: ServerMsg): ChatMessageView {
     editedAt: v.editedAt,
     deletedAt,
     deletedById: v.deletedBy,
+    // Chi modifica ed elimina lo dice il server.
+    canEdit: v.canEdit,
+    canDelete: v.canDelete,
     ...claudeFieldsOf(v),
     thread:
       v.threadRootId === null && v.replyCount > 0

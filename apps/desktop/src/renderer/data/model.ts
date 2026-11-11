@@ -2252,6 +2252,13 @@ export interface ChatMessage {
   /** Solo `claude`: chi l'ha chiamato. */
   calledById?: string;
   /**
+   * Build app: chi guarda può modificare / eliminare il messaggio, come lo
+   * calcola il SERVER (una risposta di Claude: chi l'ha chiamata, D6).
+   * Assenti nel prototipo, dove la UI li ricava dall'autore e dal canale.
+   */
+  canEdit?: boolean;
+  canDelete?: boolean;
+  /**
    * Markdown; le menzioni come le scrive la casella: `@Nome Cognome`,
    * `@channel`, `@<Reparto>`, `@Claude`.
    */

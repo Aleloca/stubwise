@@ -266,6 +266,33 @@ describe("@Claude nei canali, nella build app", () => {
     expect(within(articles[1]!).queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
+  it("«Delete Claude's reply» segue canDelete del server, non chi ha chiamato", async () => {
+    const OTHER = "7f1c2a1e-0000-4000-8000-0000000000d3";
+    install({
+      root: root(),
+      replies: [
+        reply({ canDelete: false }, { state: "done", question: null, proposals: [] }),
+        reply({ id: OTHER, calledById: MARTA, canDelete: true, createdAt: "2026-11-10T10:01:00.000Z" }, {
+          state: "done",
+          sessionId: null,
+          question: null,
+          proposals: [],
+          canStop: false,
+        }),
+      ],
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/chat/${CH}?thread=${ROOT}`);
+    const [mine, other] = await screen.findAllByRole("article", { name: /called by/ }, { timeout: 3000 });
+    await ue.click(within(mine!).getByRole("button", { name: "More actions" }));
+    let menu = screen.getByRole("menu", { name: "Message actions" });
+    expect(within(menu).queryByRole("menuitem", { name: "Delete Claude's reply" })).toBeNull();
+    await ue.keyboard("{Escape}");
+    await ue.click(within(other!).getByRole("button", { name: "More actions" }));
+    menu = screen.getByRole("menu", { name: "Message actions" });
+    expect(within(menu).getByRole("menuitem", { name: "Delete Claude's reply" })).toBeInTheDocument();
+  });
+
   it("una scheda confermata nella Chat non ha «Annulla»", async () => {
     install({
       root: root(),

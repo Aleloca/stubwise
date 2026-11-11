@@ -491,7 +491,8 @@ function ChannelBody({
   const editLast = () => {
     const mine = [...messages]
       .reverse()
-      .find((m) => m.kind === "person" && m.authorId === me && m.deletedAt === null);
+      // Build app: solo un messaggio che il server lascia modificare.
+      .find((m) => m.kind === "person" && m.authorId === me && m.deletedAt === null && m.canEdit !== false);
     if (!mine) return false;
     setEditingId(mine.id);
     return true;

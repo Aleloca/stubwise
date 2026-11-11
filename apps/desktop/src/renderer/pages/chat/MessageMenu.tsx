@@ -43,18 +43,17 @@ export function MessageMenu({
   actions,
   quick,
   canReact,
-  canWrite,
-  own,
+  canEdit,
+  canDelete,
   member,
 }: {
   actions: MessageActions;
   /** Le 3 reazioni rapide (le più usate da chi guarda). */
   quick: readonly string[];
   canReact: boolean;
-  /** Il canale si scrive (membro, non archiviato): rispondere, modificare, eliminare. */
-  canWrite: boolean;
-  /** Il messaggio è di chi guarda. */
-  own: boolean;
+  /** Chi guarda modifica / elimina il messaggio (il server nella build app). */
+  canEdit: boolean;
+  canDelete: boolean;
   /** Chi guarda è membro (ha una lettura da spostare). */
   member: boolean;
 }) {
@@ -145,10 +144,10 @@ export function MessageMenu({
                   {item(t("chat.actions.createRequest"), actions.onCreateRequest)}
                 </MenuGroup>
               )}
-              {own && canWrite && (
+              {(canEdit || canDelete) && (
                 <MenuGroup>
-                  {item(t("chat.actions.edit"), actions.onEdit)}
-                  {item(t("chat.actions.delete"), actions.onDelete, "text-critical")}
+                  {canEdit && item(t("chat.actions.edit"), actions.onEdit)}
+                  {canDelete && item(t("chat.actions.delete"), actions.onDelete, "text-critical")}
                 </MenuGroup>
               )}
             </>

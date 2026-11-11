@@ -194,6 +194,9 @@ export function MessageItem(props: MessageItemProps) {
   const [deleteFailed, setDeleteFailed] = useState(false);
   const own = m.kind === "person" && m.authorId === viewerId;
   const deleted = m.deletedAt !== null;
+  // Build app: i flag del server; nel prototipo i propri messaggi in un canale che si scrive.
+  const canEditMessage = m.canEdit ?? (own && canWrite);
+  const canDeleteMessage = m.canDelete ?? (own && canWrite);
   const canReact = canWrite && !deleted;
 
   const actions: MessageActions = {
@@ -377,8 +380,8 @@ export function MessageItem(props: MessageItemProps) {
           actions={actions}
           quick={props.quick}
           canReact={canReact}
-          canWrite={canWrite}
-          own={own}
+          canEdit={canEditMessage}
+          canDelete={canDeleteMessage}
           member={member}
         />
       )}

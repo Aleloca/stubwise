@@ -249,6 +249,34 @@ describe("la Chat nella build app", () => {
     expect(await screen.findByText(/Too many live views are open in this window/)).toBeInTheDocument();
   });
 
+  it("Modifica ed Elimina di un messaggio seguono canEdit e canDelete del server", async () => {
+    const MINE = "7f1c2a1e-0000-4000-8000-0000000000d7";
+    install({
+      [`GET /api/chat/channels/${CH}/messages`]: {
+        body: {
+          items: [
+            message({ canEdit: false, canDelete: true }),
+            message({ id: MINE, authorId: ME_ID, text: "My note", createdAt: "2026-11-10T10:01:00.000Z", canEdit: false, canDelete: false }),
+          ],
+          before: null,
+        },
+      },
+    });
+    const ue = userEvent.setup();
+    renderRoute(`/chat/${CH}`);
+    await screen.findByText("My note");
+    const row = (id: string) => document.querySelector<HTMLElement>(`[data-message="${id}"]`)!;
+    await ue.click(within(row(MINE)).getByRole("button", { name: "More actions" }));
+    let menu = screen.getByRole("menu", { name: "Message actions" });
+    expect(within(menu).queryByRole("menuitem", { name: "Edit" })).toBeNull();
+    expect(within(menu).queryByRole("menuitem", { name: "Delete" })).toBeNull();
+    await ue.keyboard("{Escape}");
+    await ue.click(within(row(ROOT)).getByRole("button", { name: "More actions" }));
+    menu = screen.getByRole("menu", { name: "Message actions" });
+    expect(within(menu).queryByRole("menuitem", { name: "Edit" })).toBeNull();
+    expect(within(menu).getByRole("menuitem", { name: "Delete" })).toBeInTheDocument();
+  });
+
   it("la ricerca: i messaggi dal server, coi canali che chi guarda legge (fetta 2)", async () => {
     install({
       "GET /api/chat/search": { body: { items: [{ channelId: CH, message: message({ text: "Export the PDF" }), context: null, root: null }] } },
