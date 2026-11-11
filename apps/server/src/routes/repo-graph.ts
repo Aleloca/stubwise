@@ -6,7 +6,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
-import type { ProjectPermission } from "@stubwise/shared";
+import { repoGraphGenerateBodySchema, repoGraphQueuedSchema, repoGraphStateSchema, type ProjectPermission } from "@stubwise/shared";
 import type { RouteAccess } from "../auth/access.js";
 import { repositoryAccess } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
@@ -71,37 +71,8 @@ function onRepository(permission: ProjectPermission): RouteAccess {
   return repositoryAccess("id", permission);
 }
 
-const generateBodySchema = z.object({
-  // Passa `--force` a graphify: rifà il grafo da zero invece che in incrementale.
-  // Escape hatch manuale (il webhook del push non lo imposta mai).
-  force: z.boolean().optional(),
-});
-
-/**
- * Stato del grafo di un repository per la UI. `status`/`error` descrivono la
- * BUILD (riga `repo_graphs`); `setupPrJobPending`/`setupPrError` descrivono la PR
- * di setup, che ha un ciclo di vita indipendente: un setup_pr fallito NON tocca
- * `repo_graphs` (il grafo resta `done`), perciò il suo errore ha un campo suo.
- */
-const repoGraphStateSchema = z.object({
-  /** Toggle `repositories.graph_enabled`: senza, nulla viene generato ai push. */
-  enabled: z.boolean(),
-  status: z.enum(["none", "queued", "running", "done", "failed"]),
-  commitSha: z.string().nullable(),
-  nodeCount: z.int().nullable(),
-  edgeCount: z.int().nullable(),
-  communityCount: z.int().nullable(),
-  labeled: z.boolean(),
-  generatedAt: z.iso.datetime().nullable(),
-  setupPrUrl: z.string().nullable(),
-  error: z.string().nullable(),
-  /** Esiste un job `build` queued/running (la UI fa polling finché è true). */
-  jobPending: z.boolean(),
-  /** Esiste un job `setup_pr` queued/running. */
-  setupPrJobPending: z.boolean(),
-  /** Errore dell'ULTIMO job `setup_pr`, se è fallito; null se l'ultimo è andato a buon fine. */
-  setupPrError: z.string().nullable(),
-});
+const generateBodySchema = repoGraphGenerateBodySchema;
+// Le forme stanno in `@stubwise/shared` (area 5, fetta 1): le legge anche il desktop.
 
 /** Opzioni del plugin: la radice del volume dei grafi (GRAPHS_DIR), montato read-only. */
 export interface RepoGraphRoutesOptions {
@@ -271,7 +242,7 @@ export async function repoGraphRoutes(
         params: repositoryParamsSchema,
         body: generateBodySchema,
         response: {
-          202: z.object({ queued: z.literal(true) }),
+          202: repoGraphQueuedSchema,
           404: errorSchema,
           409: errorSchema,
           412: errorSchema,
@@ -301,7 +272,7 @@ export async function repoGraphRoutes(
       schema: {
         params: repositoryParamsSchema,
         response: {
-          202: z.object({ queued: z.literal(true) }),
+          202: repoGraphQueuedSchema,
           404: errorSchema,
           409: errorSchema,
           412: errorSchema,
