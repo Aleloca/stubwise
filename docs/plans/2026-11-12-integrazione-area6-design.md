@@ -16,7 +16,8 @@
 > **Invarianti toccate**: `docs/invariants/mail-calendar.md` (tutte da
 > rileggere a ogni fetta), `agent-sessions.md` (azioni di Claude),
 > `permissions.md`.
-> **Niente codice prima delle decisioni.**
+> **Decisioni prese il 12 nov 2026** (sotto); piano della F1:
+> `docs/plans/2026-11-12-integrazione-area6-fetta1-plan.md`.
 
 ## Cosa c'è già e cosa no
 
@@ -87,7 +88,44 @@ sotto vanno in ordine di dipendenza, e ognuna è usabile da sola.
   di preparazione completa; i riferimenti a Google Drive nel Drive dei
   progetti (il rimando dell'area 5), che usano lo stesso scope.
 
-## [DECIDE] per l'orchestratrice
+## Decisioni (12 nov 2026)
+
+Del maintainer (M), salvo D2 (orchestratrice, O):
+
+- **D1 = a**: UN solo riconsenso, all'inizio della F1, con tutti gli scope
+  dell'area. Verificato l'11–12 nov 2026 sulla documentazione di Google:
+  - gli scope che servono davvero sono `openid`, `email`, **`gmail.modify`**
+    (leggere, letto/non letto, bozze, invio: `drafts.create` accetta
+    `gmail.modify`, quindi `gmail.compose` e `gmail.readonly` non servono
+    più), `calendar.readonly` (c'è: legge i calendari e basta per la
+    freeBusy), **`calendar.events`** (creare, modificare, rispondere),
+    **`drive.readonly`** (D9);
+  - `gmail.modify`, `drive.readonly` (e già oggi `gmail.readonly`) sono
+    scope **ristretti**. Con un client OAuth di tipo **Internal** (consenso
+    del Workspace dell'istanza) la verifica di Google NON è richiesta; con un
+    client **External** sì. Lo dice la configurazione d'istanza in
+    Impostazioni → Google, e la F1 lo scrive nel testo d'aiuto: un'istanza
+    con un client External deve passare la verifica prima di aggiornare.
+- **D2 = a** (O): l'ordine F1 → F5.
+- **D3 = a**: ogni email al modello, dietro budget mensile, quota e
+  interruttore personale; il costo misurato su una casella vera prima di
+  accenderla; regole della posta e ammissione tolte anche dal web.
+- **D4 = a**: una proposta condivisa per email (Message-ID) e progetto, una
+  notifica per ogni destinatario membro, MAI agli admin non destinatari;
+  l'invariante `mailbox_owner` si riscrive (F2).
+- **D5 = b**: letto/non letto SINCRONIZZATO con Gmail (`gmail.modify`).
+- **D6**: il server trattiene l'invio per **10 secondi**.
+- **D7 = b**: le bozze sono bozze di **Gmail** (Drafts API).
+- **D8 = b**: la disponibilità solo dei colleghi COLLEGATI, ognuno col suo
+  token, e solo libero/occupato (la freeBusy di Google), mai i dettagli.
+- **D9 = a**: `drive.readonly`, che chiude anche i riferimenti a Google Drive
+  dell'area 5.
+- Sempre: nessuna scrittura verso Google senza un gesto della persona; il
+  testo di email e trascrizioni è contenuto NON fidato anche per Claude, e
+  conta per la regola «almeno B» (`CHAT_TOOL_UNTRUSTED_ROUTES`) quando un
+  tool lo legge.
+
+## [DECIDE] per l'orchestratrice (storia)
 
 **D1. Scope di Google e riconsenso.** Ogni scope nuovo vuole che ogni
 persona ricolleghi la casella.
