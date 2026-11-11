@@ -366,8 +366,12 @@ Piano: `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`. Codice:
     tipi MIME, ciascuno con le SUE estensioni (`chatAttachmentAllowed`):
     niente eseguibili, niente SVG;
   - la potatura dei sospesi oltre le 24 ore ([DECIDE] 3 = a) la fa il SERVER,
-    una volta l'ora e a ogni caricamento: lo storage lo ha solo lui. Il
-    worker non ne ha le credenziali, e non deve averle.
+    una volta l'ora e a ogni caricamento (scelta confermata dall'orchestratrice
+    l'11 nov 2026). I motivi: lo storage lo ha solo lui, e il worker non ne ha
+    le credenziali, né deve averle; il server è UN processo, quindi il timer
+    gira una volta sola. Chi un giorno scala il server su più istanze lo
+    ricordi: la potatura è idempotente (cancella solo righe ancora in sospeso),
+    ma girerebbe una volta per istanza.
 
 ## Limiti, nel registro
 
