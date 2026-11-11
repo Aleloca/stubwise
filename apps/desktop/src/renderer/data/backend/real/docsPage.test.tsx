@@ -191,7 +191,11 @@ describe("i Docs nella build app", () => {
         body: [{ repositoryId: REPO, projectId: PROJECT_ID, slug: "audin-app", name: "Audin App", pageCount: 2, lastGenerationAt: null, lastCommitSha: null }],
       },
     });
-    renderRoute("/p/AUD/docs/audin-app/dialer");
+    const router = renderRoute("/p/AUD/docs/audin-app/dialer");
+    expect(await screen.findByRole("heading", { level: 1, name: "Dialer" }, { timeout: 3000 })).toBeInTheDocument();
+    // Un link vecchio, col nome del repository.
+    void router.navigate({ to: "/p/$code/docs/$repo/$slug", params: { code: "AUD", repo: "Audin App", slug: "dialer" } });
+    await waitFor(() => expect(decodeURIComponent(router.state.location.pathname)).toBe("/p/AUD/docs/Audin App/dialer"));
     expect(await screen.findByRole("heading", { level: 1, name: "Dialer" }, { timeout: 3000 })).toBeInTheDocument();
   });
 });
