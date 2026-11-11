@@ -39,6 +39,15 @@ import type { AgentMcpConfig } from "../agent/runner.js";
 const MAX_BODY_BYTES = 16_384;
 /** Tetto del testo restituito all'agente per una chiamata. */
 export const CHAT_TOOL_TEXT_MAX = 12_000;
+/**
+ * Il tetto del CORPO di una pagina per `read_doc_page`: 30.000 caratteri come
+ * l'MCP dei collaboratori (`read_doc_page` di `@stubwise/mcp`). Con quello
+ * generico una pagina media arrivava a metà, e l'avviso diceva di fare una
+ * domanda più stretta, che per una pagina non vuol dire niente.
+ */
+export const CHAT_DOC_PAGE_BODY_MAX = 30_000;
+/** Il tetto dell'intera risposta di `read_doc_page`: il corpo più i campi della pagina e l'escape del JSON. */
+const CHAT_DOC_PAGE_TEXT_MAX = CHAT_DOC_PAGE_BODY_MAX + 10_000;
 const SERVER_TIMEOUT_MS = 20_000;
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
@@ -204,6 +213,15 @@ export function projectToolResult(tool: ChatReadToolName, json: unknown): unknow
       return out;
     });
   }
+  if (tool === "read_doc_page" && json !== null && typeof json === "object" && typeof (json as { body?: unknown }).body === "string") {
+    const page = json as Record<string, unknown> & { body: string };
+    if (page.body.length <= CHAT_DOC_PAGE_BODY_MAX) return page;
+    return {
+      ...page,
+      body: page.body.slice(0, CHAT_DOC_PAGE_BODY_MAX),
+      note: `page truncated: showing the first ${CHAT_DOC_PAGE_BODY_MAX} of ${page.body.length} characters; the rest is not available here, and the person can open the full page in Docs.`,
+    };
+  }
   return json;
 }
 
@@ -231,10 +249,8 @@ export function proposalOutcomeText(json: unknown): { ok: boolean; text: string 
   }
 }
 
-function truncate(text: string): string {
-  return text.length <= CHAT_TOOL_TEXT_MAX
-    ? text
-    : `${text.slice(0, CHAT_TOOL_TEXT_MAX)}\n…(truncated: ask a narrower question)`;
+function truncate(text: string, max = CHAT_TOOL_TEXT_MAX): string {
+  return text.length <= max ? text : `${text.slice(0, max)}\n…(truncated: ask a narrower question)`;
 }
 
 const subjectOf = (args: Args) => str(args["code"]) ?? str(args["projectId"]) ?? "the requested item";
@@ -382,7 +398,7 @@ export async function startChatBridge(deps: {
       const json: unknown = await res.json().catch(() => null);
       parts.push(JSON.stringify(compact(projectToolResult(tool, json))));
     }
-    return { status: 200, body: { ok: true, text: truncate(parts.join("\n")) } };
+    return { status: 200, body: { ok: true, text: truncate(parts.join("\n"), tool === "read_doc_page" ? CHAT_DOC_PAGE_TEXT_MAX : CHAT_TOOL_TEXT_MAX) } };
   }
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {

@@ -113,6 +113,7 @@ const RESULTS: Omit<SearchResults, "mail"> = {
         repositoryId: REPO_ID,
         repositorySlug: "web",
         repositoryName: "Web",
+        code: null,
       },
     ],
     hasMore: false,
@@ -157,6 +158,7 @@ const SEMANTIC: SearchDocsSemanticResults = [
     repositoryId: REPO_ID,
     repositorySlug: "web",
     repositoryName: "Web",
+    code: null,
     score: 0.95,
   },
 ];

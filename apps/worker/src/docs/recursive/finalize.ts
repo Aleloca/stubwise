@@ -5,6 +5,7 @@ import {
   docPagePendingCommits,
   docPages,
   docGenerations,
+  ensureDocPageCodes,
   repositories,
   type Db,
 } from "@stubwise/db";
@@ -380,6 +381,16 @@ export async function finalizeGeneration(
       sourcePaths: nodeSourcePaths(n),
     }));
   const implementsLinks = resolveImplementsLinks(linkable);
+
+  // I codici `<PRJ>-D<n>` delle pagine (0142) in un passo BREVE e suo, prima
+  // della transazione lunga: dati dal trigger là dentro, il lock per progetto
+  // resterebbe tenuto per tutti gli embedding, e una pagina manuale nuova dello
+  // stesso progetto aspetterebbe (review della fetta 1 dell'area 5).
+  await ensureDocPageCodes(
+    db,
+    repositoryId,
+    doneNodes.map((n) => n.slug),
+  );
 
   let stats: DagGenerationStats;
   try {

@@ -5,6 +5,7 @@ export { createDb, runMigrations, type Db, type DbHandle } from "./client.js";
 // serve sia al server (encrypt alla creazione/validazione dell'account) sia al
 // worker (decrypt dell'account collegato al progetto nel fix).
 export { decrypt, encrypt } from "./secrets.js";
+export { ensureDocPageCodes } from "./doc-page-codes.js";
 export {
   CHAT_TOOL_TOKEN_PREFIX,
   hashChatToolToken,

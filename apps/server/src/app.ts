@@ -102,6 +102,7 @@ import { widgetAdminRoutes } from "./routes/widget-admin.js";
 import { NOOP_BUS, type AgentSessionBus } from "./agent-session-bus.js";
 import { getActiveStorage, type ObjectStorage, type StorageFactory } from "./storage/index.js";
 import { pruneChatUploads } from "./chat/attachments.js";
+import { backfillManualPageEmbeddings } from "./services/doc-embed.js";
 
 // Versione letta dal package.json (accanto a src/ e a dist/, quindi il
 // percorso relativo vale sia in sviluppo che dopo la build).
@@ -574,6 +575,19 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   chatPrune.unref();
   app.addHook("onClose", async () => {
     clearInterval(chatPrune);
+  });
+
+  // Gli embedding delle pagine manuali scritte prima della 0142 (review della
+  // fetta 1 dell'area 5): una volta l'ora, e all'avvio da `index.ts` (non qui,
+  // o girerebbe in ogni test). Idempotente e fail-open.
+  const manualEmbedBackfill = setInterval(() => {
+    void backfillManualPageEmbeddings(app.db, app.embeddingClient, app.log).catch((error: unknown) =>
+      app.log.warn({ err: error }, "backfill degli embedding delle pagine manuali non riuscito"),
+    );
+  }, 60 * 60 * 1000);
+  manualEmbedBackfill.unref();
+  app.addHook("onClose", async () => {
+    clearInterval(manualEmbedBackfill);
   });
 
   // Senza secret il plugin si registra comunque (parsing dei cookie), ma
