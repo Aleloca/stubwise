@@ -35,6 +35,7 @@ export function NewRequestDialog({
   onPending,
   onClose,
   submit: deliver,
+  refusalText,
 }: {
   projectId?: string;
   /** Il messaggio della Chat da cui nasce («Create request»). */
@@ -43,6 +44,8 @@ export function NewRequestDialog({
   initial?: { title?: string; description?: string };
   /** Al posto della creazione: consegna i valori (la scheda di Claude nella build app li conferma con `edited`). */
   submit?: (input: { projectId: string; title: string; description: string }) => Promise<unknown>;
+  /** Un rifiuto di `submit` che chi apre il dialogo sa dire meglio (la Chat: archiviato, non membro). */
+  refusalText?: (error: Error) => string | null;
   onCreated: (request: ProjectRequest, project: Project) => void;
   /**
    * Il server l'ha accodata ma l'esito dell'intake non è ancora arrivato:
@@ -64,6 +67,8 @@ export function NewRequestDialog({
   const [description, setDescription] = useState(initial?.description ?? "");
   const [tried, setTried] = useState(false);
   const [failed, setFailed] = useState(false);
+  /** La frase di `refusalText` per l'ultimo rifiuto di `submit`, se ce n'è una. */
+  const [refusal, setRefusal] = useState<string | null>(null);
   // «Edit» di una proposta di Claude: la conferma è in volo (niente doppio invio).
   const [delivering, setDelivering] = useState(false);
   const project = projects?.find((p) => p.id === chosen);
@@ -88,8 +93,9 @@ export function NewRequestDialog({
     };
     if (deliver) {
       setDelivering(true);
-      deliver(input).then(onClose, () => {
+      deliver(input).then(onClose, (error: unknown) => {
         setDelivering(false);
+        setRefusal(error instanceof Error ? (refusalText?.(error) ?? null) : null);
         setFailed(true);
       });
     }
@@ -228,7 +234,7 @@ export function NewRequestDialog({
         )}
         {failed && (
           <p role="alert" className="rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
-            {t("requests.newDialog.failed")}
+            {refusal ?? t("requests.newDialog.failed")}
           </p>
         )}
       </form>

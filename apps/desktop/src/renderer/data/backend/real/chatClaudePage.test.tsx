@@ -361,6 +361,26 @@ describe("@Claude nei canali, nella build app", () => {
     expect(await screen.findByText(/Claude will act as you and reply here/)).toBeInTheDocument();
   });
 
+  it("«Edit» salvato in un canale archiviato nel frattempo: il dialogo lo dice, non il generico", async () => {
+    let archived = false;
+    install(
+      { root: root(), replies: [reply({}, { state: "done", question: null })] },
+      {
+        [`GET /api/chat/channels/${CH}`]: () => ({ body: channel({ archived }) }),
+        [`POST /api/claude/proposals/${PROPOSAL}/confirm`]: { status: 404, body: { code: "not_found", message: "x" } },
+      },
+    );
+    const ue = userEvent.setup();
+    renderRoute(`/chat/${CH}?thread=${ROOT}`);
+    const article = await replyArticle();
+    await ue.click(within(article).getByRole("button", { name: "Edit" }));
+    const dialog = await screen.findByRole("dialog", { name: "New task" });
+    archived = true;
+    await ue.click(within(dialog).getByRole("button", { name: "Create task" }));
+    expect(await within(dialog).findByText("This channel is archived: nothing was changed.")).toBeInTheDocument();
+    expect(within(dialog).queryByText(/Couldn't create the task/)).toBeNull();
+  });
+
   it("budget finito: il motivo, e «Try again» per chi ha chiamato", async () => {
     install({
       root: root(),

@@ -552,6 +552,7 @@ export function ProposalCardView({
           {...(ops.confirmEdited
             ? { submit: (input: NewTaskInput) => ops.confirmEdited!(0, { ...editing.args, ...input }) }
             : {})}
+          {...(refusalText ? { refusalText } : {})}
         />
       )}
       {editing?.fn === "createRequest" && (
@@ -566,6 +567,7 @@ export function ProposalCardView({
           {...(ops.confirmEdited
             ? { submit: (input: { projectId: string; title: string; description: string }) => ops.confirmEdited!(0, { ...editing.args, ...input }) }
             : {})}
+          {...(refusalText ? { refusalText } : {})}
         />
       )}
     </section>

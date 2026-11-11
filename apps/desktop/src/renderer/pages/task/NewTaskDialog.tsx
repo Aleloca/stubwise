@@ -105,6 +105,7 @@ export function NewTaskDialog({
   onCreated,
   onClose,
   submit: deliver,
+  refusalText,
 }: {
   projectId?: string;
   fromRequestId?: string;
@@ -132,6 +133,8 @@ export function NewTaskDialog({
    * Riuscita: il dialogo si chiude; un errore lo dice come una creazione.
    */
   submit?: (input: NewTaskInput) => Promise<unknown>;
+  /** Un rifiuto di `submit` che chi apre il dialogo sa dire meglio (la Chat: archiviato, non membro). */
+  refusalText?: (error: Error) => string | null;
 }) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
@@ -158,6 +161,8 @@ export function NewTaskDialog({
   const [week, setWeek] = useState<string | null>(initial?.plannedWeek ?? null);
   const [milestoneId, setMilestone] = useState<string | null>(initial?.milestoneId ?? null);
   const [tried, setTried] = useState(false);
+  /** La frase di `refusalText` per l'ultimo rifiuto di `submit`, se ce n'è una. */
+  const [refusal, setRefusal] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   /**
    * Perché la richiesta da trasformare non si trasforma: non c'è più per chi
@@ -229,8 +234,9 @@ export function NewTaskDialog({
     if (deliver) {
       // Niente `requestId: null`: lo schema del server (`newTaskBodySchema`) vuole un uuid o niente.
       setDelivering(true);
-      deliver({ ...input, projectId: project.id }).then(onClose, () => {
+      deliver({ ...input, projectId: project.id }).then(onClose, (error: unknown) => {
         setDelivering(false);
+        setRefusal(error instanceof Error ? (refusalText?.(error) ?? null) : null);
         setFailed(true);
       });
     } else if (fromRequestId) {
@@ -514,7 +520,7 @@ export function NewTaskDialog({
 
         {failed && (
           <p role="alert" className="rounded-md bg-critical/10 px-3 py-2 text-sm text-ink">
-            {t(
+            {refusal ?? t(
               requestRefusal === "gone"
                 ? "newTask.requestGone"
                 : requestRefusal === "notConvertible"
