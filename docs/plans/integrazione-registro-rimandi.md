@@ -186,6 +186,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - Chat dei Docs senza streaming *(S, fetta 1)*: se `CHAT_MAX_TOKENS` sale molto
   o arriva un modello lento, il primo a scattare è il timeout di 300 s del main
   (undici); la strada è lo streaming, non un timeout più alto.
+- Differenze dichiarate del renderer (fetta 2, *S*): l'anteprima sul desktop è
+  un salvataggio e sul web la rotta `preview` in una scheda nuova (niente
+  Quick Look né miniatura nella build app); `counted` di un'apertura non si
+  sa; niente contenuto, riassunto e passaggi fino alla F3; «#» cerca i file da
+  2 caratteri; sul web una sessione scaduta durante un caricamento la chiude
+  la richiesta dopo. Elenco completo in `apps/desktop/docs/integration-area5-f2.md`.
 
 ## Area 6 — Posta e Calendario
 
