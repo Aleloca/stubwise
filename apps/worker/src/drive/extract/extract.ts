@@ -1,11 +1,10 @@
-import { createReadStream } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { driveContentKindOf, type DriveContentOcr, type DriveContentReason } from "@stubwise/shared";
 import type { Exec, ExecResult } from "./exec.js";
 import { imageSize } from "./image.js";
 import { EXTRACT_LIMITS as L } from "./limits.js";
-import { extractOffice } from "./office.js";
+import { extractOfficeInThread } from "./office-thread.js";
 import { withJobTmp } from "./tmp.js";
 
 /**
@@ -93,7 +92,8 @@ export async function extractContent(
       if (kind === "text") return finish(decode(await head(inputPath, L.textMaxChars * 4 + 4)), "none");
       if (kind === "office") {
         const { size } = await stat(inputPath);
-        const r = await extractOffice(createReadStream(inputPath, { highWaterMark: 64 * 1024 }), size, input.mime);
+        // In un worker_thread col suo tempo e la sua memoria (review della F3): mai nel thread principale.
+        const r = await extractOfficeInThread({ path: inputPath, size, mime: input.mime }, { timeoutMs: budget(L.officeMs) });
         return r.kind === "ok" ? finish(r.text, "none") : noText(r.kind);
       }
 

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { strToU8, zipSync } from "fflate";
 import { describe, expect, it } from "vitest";
 import { extractOffice as fromStream, OFFICE_LIMITS } from "./office.js";
@@ -60,4 +61,28 @@ describe("extractOffice", () => {
     }
     expect((await extractOffice(lied, DOCX)).kind).not.toBe("ok");
   });
+
+  it("review della F3: un XML ostile (200.000 «<» senza «>») si legge in tempo LINEARE, non quadratico", async () => {
+    const n = 200_000;
+    // Come il file della review: una voce di riempimento non compressa tiene il rapporto sotto 100.
+    const padded = (xml: string) => zipSync({ "word/document.xml": strToU8(xml), "pad.bin": [new Uint8Array(randomBytes(Math.ceil(xml.length / 50) + 1000)), { level: 0 }] });
+    const bomb = padded("<".repeat(n));
+    const started = Date.now();
+    const r = await extractOffice(bomb, DOCX);
+    // Con le regex di prima: decine di secondi (21 s a 100.000). Un parser lineare sta sotto il secondo.
+    expect(Date.now() - started).toBeLessThan(1500);
+    expect(r.kind).toBe("ok");
+    // Anche le altre forme cattive: un CDATA, un commento, un DOCTYPE non chiusi.
+    for (const bad of ["<![CDATA[".repeat(20_000), "<!--".repeat(20_000), "<!DOCTYPE [".repeat(20_000), "<w:t>a</w:t><".repeat(20_000)]) {
+      const t0 = Date.now();
+      expect((await extractOffice(padded(bad), DOCX)).kind).toBe("ok");
+      expect(Date.now() - t0, bad.slice(0, 12)).toBeLessThan(1500);
+    }
+  }, 120_000);
+
+  it("il parser lineare tiene le stesse regole: paragrafi, tab, a capo, CDATA come testo, commenti e DOCTYPE tolti", async () => {
+    const doc = `<?xml version="1.0"?><!DOCTYPE x [<!ENTITY a "b">]><!-- nota --><w:p><w:t>Uno</w:t><w:tab/><w:t>Due</w:t><w:br/><w:t><![CDATA[<tre> & quattro]]></w:t></w:p><w:p><w:t>Cinque</w:t></w:p>`;
+    expect(await extractOffice(zip({ "word/document.xml": doc }), DOCX)).toEqual({ kind: "ok", text: "Uno\tDue\n<tre> & quattro\nCinque" });
+  });
 });
+
