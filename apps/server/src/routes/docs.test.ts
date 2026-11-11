@@ -333,7 +333,8 @@ describe("GET /api/repositories/:projectId/docs/status", () => {
       headers: { cookie: memberCookie },
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ generation: null, latestJob: null, pinnedProvider: null });
+    // Area 5, fetta 1: motivo, rientro e avanzamento, tutti null quando niente è fermo.
+    expect(res.json()).toEqual({ generation: null, latestJob: null, pinnedProvider: null, reasonCode: null, resumesAt: null, progress: null });
   });
 
   it("con generazione corrente e job: li restituisce entrambi", async () => {

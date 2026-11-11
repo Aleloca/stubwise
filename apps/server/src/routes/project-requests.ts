@@ -25,7 +25,7 @@ import { enqueueBacklogIntake } from "../services/backlog-intake.js";
 import { archiveRequest, reopenRequest } from "../services/project-request-writes.js";
 import { loadRequestSummaries, loadRequestViews, requestView, requestVisibility } from "../services/project-requests.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
-import { messageLinkable } from "../chat/service.js";
+import { messageLinkable } from "../chat/links.js";
 
 /**
  * Le richieste dell'app nuova (integrazione area 2, fetta 4): la sezione

@@ -11,6 +11,7 @@ import {
   docGenerationJobSchema,
   docGenerationViewSchema,
   docStatusResponseSchema,
+  type DocGenerationReasonCode,
   docPinnedProviderSchema,
   updateManualDocPageSchema,
   productExclusionSchema,
@@ -27,6 +28,7 @@ import { projectIdsWithPermission, type RouteAccess } from "../auth/access.js";
 import { repositoryAccess } from "../auth/project-resolvers.js";
 import {
   aiProviders,
+  docNodes,
   commitSummaries,
   docGenerationJobs,
   docGenerations,
@@ -36,6 +38,7 @@ import {
 } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { BACKGROUND_THRESHOLD_PAUSE_REASON, DOCS_WORKER_RESTART_ERROR, PROVIDER_LIMIT_PAUSE_REASON } from "@stubwise/notifications";
 import { resolveDocCode, withDocCodesIn } from "../services/doc-codes.js";
 import { embedManualPage } from "../services/doc-embed.js";
 import { buildDocsExportZip, safeFilenamePart } from "./docs-export-zip.js";
@@ -133,6 +136,49 @@ function toPage(
     // Il codice lo aggiungono le rotte (`withDocCodesIn`), in una query.
     code: null,
   };
+}
+
+/**
+ * Il motivo di una generazione ferma, come codice (area 5, fetta 1): una pausa
+ * (limite degli account o soglia di sfondo) è `usage_limit`; un job fermo dice
+ * il suo `held_reason`; un job fallito per il fail-on-restart è
+ * `worker_restart`, ogni altro fallimento `other`. Null se niente è fermo.
+ */
+function docGenerationReasonCode(
+  paused: { pauseReason: string | null } | null,
+  job: { status: string; heldReason: string | null; error: string | null } | null,
+): DocGenerationReasonCode | null {
+  if (paused) {
+    return paused.pauseReason === PROVIDER_LIMIT_PAUSE_REASON || paused.pauseReason === BACKGROUND_THRESHOLD_PAUSE_REASON ? "usage_limit" : "other";
+  }
+  if (job?.status === "held") return job.heldReason === "limit" ? "usage_limit" : job.heldReason === "budget" ? "monthly_budget" : "other";
+  if (job?.status === "failed") return job.error === DOCS_WORKER_RESTART_ERROR ? "worker_restart" : "other";
+  return null;
+}
+
+/** Il rientro più vicino degli account abilitati al limite (`limited_until` nel futuro), o null. */
+async function accountsBackAt(db: Db): Promise<string | null> {
+  const [row] = await db
+    .select({ at: sql<Date | null>`min(${aiProviders.limitedUntil})` })
+    .from(aiProviders)
+    .where(and(eq(aiProviders.enabled, true), sql`${aiProviders.limitedUntil} > now()`));
+  return row?.at ? new Date(row.at).toISOString() : null;
+}
+
+/** Nodi fatti su totali della generazione più recente in corso o in pausa; null se non ce n'è una o non ha nodi. */
+async function generationProgress(db: Db, repositoryId: string): Promise<{ done: number; total: number } | null> {
+  const [active] = await db
+    .select({ id: docGenerations.id })
+    .from(docGenerations)
+    .where(and(eq(docGenerations.repositoryId, repositoryId), inArray(docGenerations.status, ["running", "paused"])))
+    .orderBy(desc(docGenerations.createdAt))
+    .limit(1);
+  if (!active) return null;
+  const [row] = await db
+    .select({ done: sql<number>`count(*) filter (where ${docNodes.status} = 'done')::int`, total: sql<number>`count(*)::int` })
+    .from(docNodes)
+    .where(eq(docNodes.generationId, active.id));
+  return row && row.total > 0 ? { done: row.done, total: row.total } : null;
 }
 
 /** Quanti commit al massimo porta l'avviso «il codice è cambiato dopo questa pagina». */
@@ -465,7 +511,12 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
         pinnedProvider = provider ?? null;
       }
 
-      return { generation, latestJob: job ? toJob(job) : null, pinnedProvider };
+      // Area 5, fetta 1: perché è ferma, quando riprende, quanto è avanti. Solo
+      // ciò che il server SA: niente stime.
+      const reasonCode = docGenerationReasonCode(pausedGen ?? null, job ?? null);
+      const resumesAt = reasonCode === "usage_limit" ? await accountsBackAt(app.db) : null;
+      const progress = await generationProgress(app.db, repositoryId);
+      return { generation, latestJob: job ? toJob(job) : null, pinnedProvider, reasonCode, resumesAt, progress };
     },
   );
 
@@ -631,6 +682,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
       const rows = await app.db
         .select({
           repositoryId: repositories.id,
+          projectId: repositories.projectId,
           slug: repositories.slug,
           name: repositories.name,
           pageCount: sql<number>`count(${docPages.id})::int`,
@@ -667,6 +719,7 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
 
       return rows.map((r) => ({
         repositoryId: r.repositoryId,
+        projectId: r.projectId,
         slug: r.slug,
         name: r.name,
         pageCount: r.pageCount,

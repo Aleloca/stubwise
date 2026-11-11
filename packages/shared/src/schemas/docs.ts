@@ -241,6 +241,8 @@ export type DocPageStaleCommit = NonNullable<DocPage["staleSince"]>[number];
  */
 export const docSpaceSchema = z.object({
   repositoryId: z.uuid(),
+  /** Il progetto del repository (area 5, fetta 1); null da un server che non lo manda. */
+  projectId: z.uuid().nullable().default(null),
   slug: z.string(),
   name: z.string(),
   pageCount: z.number().int(),
@@ -504,10 +506,25 @@ export const docGenerationViewSchema = z.object({
 export type DocGenerationView = z.infer<typeof docGenerationViewSchema>;
 
 /** `GET /api/repositories/:id/docs/status`. */
+/**
+ * Perché una generazione è ferma o fallita, come codice (area 5, fetta 1;
+ * `DocGeneration.reason` del prototipo): dalla pausa della generazione, dal
+ * `held_reason` del job, dall'errore del fail-on-restart. Il resto è `other`.
+ */
+export const DOC_GENERATION_REASON_CODES = ["usage_limit", "monthly_budget", "provider_error", "worker_restart", "other"] as const;
+export const docGenerationReasonCodeSchema = z.enum(DOC_GENERATION_REASON_CODES);
+export type DocGenerationReasonCode = z.infer<typeof docGenerationReasonCodeSchema>;
+
 export const docStatusResponseSchema = z.object({
   generation: docGenerationViewSchema.nullable(),
   latestJob: docGenerationJobSchema.nullable(),
   pinnedProvider: docPinnedProviderSchema.nullable(),
+  /** Il motivo di una generazione in pausa, ferma (held) o fallita; null se non è ferma. */
+  reasonCode: docGenerationReasonCodeSchema.nullable().default(null),
+  /** Quando gli account rientrano dal limite (il `limited_until` più vicino), solo se il server lo sa. */
+  resumesAt: z.iso.datetime().nullable().default(null),
+  /** Le pagine (nodi) fatte su quelle totali della generazione in corso o in pausa; null se non ce n'è una. */
+  progress: z.object({ done: z.number().int(), total: z.number().int() }).nullable().default(null),
 });
 export type DocStatusResponse = z.infer<typeof docStatusResponseSchema>;
 

@@ -38,7 +38,7 @@ import { loadTaskViews, visibleTasksCondition, type TaskViewer } from "./task-vi
 import { personName } from "./people.js";
 import { notifyTaskActivity, notifyTaskPeople } from "./task-notify.js";
 import { agentUserId, claudeAssignGuard, startClaudeRuns, type ClaudeStartOptions } from "./claude-assign.js";
-import { linkMessage, messageLinkable } from "../chat/service.js";
+import { linkMessage, messageLinkable } from "../chat/links.js";
 
 /**
  * Le scritture delle task dall'app nuova (integrazione area 2, fetta 1).
