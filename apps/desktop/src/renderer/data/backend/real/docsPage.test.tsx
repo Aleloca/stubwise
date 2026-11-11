@@ -82,6 +82,9 @@ function install(routes: Record<string, unknown> = {}) {
     [`GET /api/projects/${PROJECT_ID}/docs/spaces`]: {
       body: [{ repositoryId: REPO, projectId: PROJECT_ID, slug: "audin-app", name: "audin-app", pageCount: 2, lastGenerationAt: null, lastCommitSha: null }],
     },
+    "GET /api/docs/spaces": {
+      body: [{ repositoryId: REPO, projectId: PROJECT_ID, slug: "audin-app", name: "audin-app", pageCount: 2, lastGenerationAt: null, lastCommitSha: null }],
+    },
     [`GET /api/repositories/${REPO}/docs/tree`]: { body: [node({}), node({ id: P2, slug: "dialer", title: "Dialer", parentId: P1, code: "AUD-D2", viewCount: 7 })] },
     [`GET /api/repositories/${REPO}/docs/highlights`]: {
       body: {

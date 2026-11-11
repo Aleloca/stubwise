@@ -83,6 +83,7 @@ function install(routes: Record<string, unknown> = {}, permissions = ["docs.view
     "GET /api/auth/me": { body: me({ projectPermissions: { [PROJECT_ID]: permissions } }) },
     "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
     [`GET /api/projects/${PROJECT_ID}/docs/spaces`]: { body: [space] },
+    "GET /api/docs/spaces": { body: [{ ...space, projectId: PROJECT_ID }] },
     [`GET /api/repositories/${REPO}/docs/tree`]: { body: tree },
     [`GET /api/repositories/${REPO}/docs/highlights`]: { body: highlights },
     [`GET /api/repositories/${REPO}/docs/status`]: { body: { generation: null, latestJob: null, pinnedProvider: null } },
@@ -507,6 +508,23 @@ describe("review della fetta 1 dell'area 5", () => {
     expect(first!.releases[0]).toMatchObject({ version: "Nov 10", text: "## Fixed\n- Calls" });
     await docs.listDocSpaces(PROJECT_ID);
     expect(seen.filter((r) => r.path.endsWith("/docs/pages/release-2026-11-10"))).toHaveLength(1);
+  });
+  it("un progetto che risponde 403 non rompe la ricerca degli altri; il repository si trova con /api/docs/spaces", async () => {
+    const OTHER = "7f1c2a1e-0000-4000-8000-0000000000d9";
+    const { seen } = install({
+      "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] }), serverProject({ id: OTHER, code: "OTH", slug: "other", name: "Other" })] },
+      "GET /api/docs/spaces": { body: [{ ...space, projectId: PROJECT_ID }] },
+      [`GET /api/projects/${OTHER}/docs/spaces`]: { status: 403, body: { code: "forbidden", message: "x" } },
+      [`GET /api/projects/${OTHER}/docs/search`]: { status: 403, body: { code: "forbidden", message: "x" } },
+      [`GET /api/projects/${PROJECT_ID}/docs/search`]: {
+        body: [{ slug: "dialer", title: "Dialer", kind: "functional", snippet: "x", score: 1, source: "hybrid", repositoryId: REPO, repositorySlug: "audin-app", repositoryName: "audin-app", code: "AUD-D2" }],
+      },
+    });
+    await getSessionPerson();
+    expect((await docs.searchDocs("dialer")).map((h) => h.page.code)).toEqual(["AUD-D2"]);
+    expect((await docs.getDocPage(REPO, "dialer"))?.projectId).toBe(PROJECT_ID);
+    // Il progetto del repository da una sola lettura, non scorrendo gli spazi dei progetti.
+    expect(seen.some((r) => r.path === `/api/projects/${OTHER}/docs/spaces`)).toBe(false);
   });
 });
 

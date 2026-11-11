@@ -83,17 +83,28 @@ async function viewer(): Promise<Viewer> {
   } as Viewer;
 }
 
-/** Il progetto di un repository: dagli spazi già letti, o dagli spazi dei progetti visibili. */
+/** Una lettura a ventaglio su più progetti: un progetto che non si vede (404) o non si legge (403) non c'è. */
+async function readOrNone<T>(run: () => Promise<T>): Promise<T | null> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return null;
+    throw error;
+  }
+}
+
+/**
+ * Il progetto di un repository: dagli spazi già letti, o da `GET /api/docs/spaces`
+ * (tutti quelli che chi guarda legge, già filtrati dal server, in una lettura).
+ */
 async function projectOfRepository(repositoryId: string): Promise<string | null> {
   const known = spaceOf.get(repositoryId);
   if (known) return known.projectId;
-  for (const project of await listProjects()) {
-    if (!project.modules.includes("docs")) continue;
-    const spaces = (await read(() => appClient().docs.projectSpaces(project.id))) ?? [];
-    for (const s of spaces) spaceOf.set(s.repositoryId, { projectId: s.projectId ?? project.id, name: s.name, slug: s.slug });
-    if (spaceOf.has(repositoryId)) return project.id;
+  const spaces = (await readOrNone(() => appClient().docs.spaces())) ?? [];
+  for (const s of spaces) {
+    if (s.projectId) spaceOf.set(s.repositoryId, { projectId: s.projectId, name: s.name, slug: s.slug });
   }
-  return null;
+  return spaceOf.get(repositoryId)?.projectId ?? null;
 }
 
 // --- le forme -----------------------------------------------------------------------
@@ -510,7 +521,7 @@ const searchDocs: Docs["searchDocs"] = async (q, { repositoryId } = {}) => {
   const targets = repositoryId ? projects.filter((p) => p.id === scoped) : projects;
   const results = await Promise.all(
     targets.map(async (p) => {
-      const hits = (await read(() => appClient().docs.projectSearch(p.id, q))) ?? [];
+      const hits = (await readOrNone(() => appClient().docs.projectSearch(p.id, q))) ?? [];
       return hits
         .filter((h) => !repositoryId || h.repositoryId === repositoryId)
         .flatMap((h) => hitOf(h, p.id, p.code) ?? []);
