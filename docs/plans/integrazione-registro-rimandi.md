@@ -143,7 +143,7 @@ Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse�
 Fetta 4: renderer (sotto, «Chiuse»).
 
 - Limite *(S, renderer della fetta 4)*: un invio con più file si ferma al primo
-  file rifiutato; quelli già caricati restano «in sospeso» e il worker li pota
+  file rifiutato; quelli già caricati restano «in sospeso» e il server li pota
   dopo 24 ore (non li si toglie con `DELETE /api/chat/attachments/:id`).
 - `@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
   1, da riprendere se il maintainer vuole avvisi di gruppo.
