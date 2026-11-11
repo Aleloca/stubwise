@@ -550,4 +550,11 @@ describe("fetta 2: le citazioni (F2.7)", () => {
     expect(seen.find((r) => r.method === "POST")!.body).toEqual({ text: "See AUD-14", citations: [{ kind: "task", id: TASK }] });
     expect(seen.map((r) => r.path)).toContain("/api/chat/search?q=export&withCitations=true");
   });
+
+  it("una pagina scelta con «#» ha per id il suo codice: non parte fra le citazioni, la cita il codice nel testo", async () => {
+    const { seen } = install({ [`POST /api/chat/channels/${CH}/messages`]: { status: 201, body: message() } });
+    await getSessionPerson();
+    await chat.sendMessage(CH, { text: "See AUD-D3 Sync", citations: [{ kind: "doc", id: "AUD-D3" }] });
+    expect(seen.find((r) => r.method === "POST")!.body).toEqual({ text: "See AUD-D3 Sync" });
+  });
 });

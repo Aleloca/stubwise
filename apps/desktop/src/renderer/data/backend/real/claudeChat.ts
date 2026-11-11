@@ -5,6 +5,7 @@ import type {
   ClaudeConversationContext,
   ClaudeConversationDetail as ClaudeConversationDetailView,
   Reader,
+  SearchDocHit,
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type {
@@ -370,9 +371,9 @@ export const listCommands: typeof Fake.listCommands = async () =>
 const MENTION_LIMIT = 8;
 
 /**
- * «#»: task e progetti che chi guarda vede (il server filtra); «@»: le
- * persone. Le richieste e le pagine Docs non ci sono ancora (limite della
- * fetta, nel registro dei rimandi).
+ * «#»: task, progetti e pagine Docs che chi guarda vede (il server filtra);
+ * «@»: le persone. Le richieste non ci sono ancora (limite della fetta, nel
+ * registro dei rimandi).
  */
 export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
   const needle = q.trim().toLowerCase();
@@ -385,9 +386,10 @@ export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
       .slice(0, MENTION_LIMIT)
       .map<MentionResult>((p) => ({ ref: { kind: "person", id: p.id }, code: null, label: p.name, detail: null, projectId: null }));
   }
-  const [projects, tasks] = await Promise.all([
+  const [projects, tasks, docHits] = await Promise.all([
     listProjects(),
     needle ? listTasks({ text: q.trim(), families: ["todo", "active"] }) : Promise.resolve([]),
+    needle && featureIntegrated("docs") ? docMentionHits(q.trim()) : Promise.resolve([]),
   ]);
   const nameOf = new Map(projects.map((p) => [p.id, p.name] as const));
   const projectRows = projects
@@ -400,8 +402,25 @@ export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
     detail: nameOf.get(t.projectId) ?? null,
     projectId: t.projectId,
   }));
-  return [...taskRows, ...projectRows].slice(0, MENTION_LIMIT);
+  // Una pagina si cita col suo codice (`AUD-D3`): il progetto è il prefisso.
+  const byCode = new Map(projects.map((p) => [p.code, p] as const));
+  const docRows = docHits.flatMap<MentionResult>((d) => {
+    const project = byCode.get(DOC_CODE_RE.exec(d.code)?.[1] ?? "");
+    if (!project) return [];
+    return [{ ref: { kind: "doc", id: d.code }, code: d.code, label: d.title, detail: `${project.code} · ${d.repositoryName}`, projectId: project.id }];
+  });
+  return [...[...taskRows, ...projectRows].slice(0, MENTION_LIMIT), ...docRows.slice(0, MENTION_LIMIT)];
 };
+
+/**
+ * Le pagine Docs per «#»: la ricerca globale con `citable` (niente note di
+ * rilascio). Un server che non conosce il parametro le manda comunque, e senza
+ * codice: si tengono solo le pagine che ne hanno uno.
+ */
+async function docMentionHits(q: string): Promise<(SearchDocHit & { code: string })[]> {
+  const hits = await appClient().search.global(q, undefined, { citable: true });
+  return hits.docs.items.filter((d): d is SearchDocHit & { code: string } => d.code !== null && d.kind !== "releases");
+}
 
 const hidden = (ref: CitationRef): CitationView => ({
   kind: ref.kind,

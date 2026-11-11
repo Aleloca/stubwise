@@ -493,10 +493,19 @@ const listMentions: Chat["listMentions"] = async () =>
  * domanda forzata (fetta 2). Allegati e citazioni sono delle fette dopo. Le
  * menzioni e chi deve rispondere li ricava il server dal testo.
  */
-/** Le citazioni scelte con «#», dei soli tipi che il server sa citare. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Le citazioni scelte con «#», dei soli tipi che il server sa citare. Una
+ * pagina Docs scelta con «#» ha per id il suo CODICE (`AUD-D3`), che il
+ * server non accetta come riferimento ma riconosce nel testo, dove la casella
+ * l'ha già scritto: non parte.
+ */
 const citationsOf = (refs: readonly CitationRef[] | undefined) =>
   (refs ?? []).flatMap((r) =>
-    CITABLE.has(r.kind) ? [{ kind: r.kind as "task" | "request" | "project" | "person" | "doc", id: r.id }] : [],
+    CITABLE.has(r.kind) && UUID_RE.test(r.id)
+      ? [{ kind: r.kind as "task" | "request" | "project" | "person" | "doc", id: r.id }]
+      : [],
   );
 
 /**

@@ -12,7 +12,8 @@ export const search: typeof Fake.search = async (q) => {
   if (!needle) return [];
   const client = appClient();
   const [hits, rows] = await Promise.all([
-    client.search.global(needle),
+    // `citable`: niente note di rilascio nel gruppo Docs (area 5, fetta 1).
+    client.search.global(needle, undefined, { citable: true }),
     client.projects.list() as unknown as Promise<{ id: string; name: string; slug: string; code?: string }[]>,
   ]);
   const codeOf = new Map(rows.map((p) => [p.id, p.code ?? p.slug.toUpperCase()]));

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setAppClientForTests } from "./client";
-import { contextIdOf, describeContext, listCommands, resolveCodes, sendFreeMessage, serverContextOf } from "./claudeChat";
+import { contextIdOf, describeContext, listCommands, resolveCodes, searchMentions, sendFreeMessage, serverContextOf } from "./claudeChat";
 import { installFakeServer, PROJECT_ID, serverProject, serverTask, serverTicketDetail, TICKET_ID } from "./fakeServer";
 
 // Il chip del riquadro e il contesto della chat (fetta 2): il chip rilegge
@@ -96,5 +96,47 @@ describe("il contesto della chat nella build app", () => {
     expect(commands.map((c) => c.label)).toEqual(["/explain", "/docs", "/plan", "/new-task", "/new-request", "/run"]);
     expect(commands[0]!.description).toBe("Explain a task or a request, by its code");
     expect(commands.find((c) => c.label === "/new-task")!.description).toBe("Create a task, with a proposal to confirm");
+  });
+});
+
+describe("«#» nella build app: le pagine Docs (area 5, fetta 1)", () => {
+  const docHit = (over: Record<string, unknown>) => ({
+    slug: "sync",
+    title: "Sincronizzazione",
+    kind: "page",
+    snippet: "",
+    repositoryId: "33333333-3333-4333-8333-333333333333",
+    repositorySlug: "audin",
+    repositoryName: "Audin",
+    code: "AUD-D3",
+    ...over,
+  });
+  const empty = { items: [], hasMore: false };
+
+  it("dalla ricerca globale con citable=true; le pagine senza codice (server vecchio) no", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      "GET /api/tasks": { body: { items: [], truncated: false } },
+      "GET /api/search": {
+        body: {
+          tickets: empty,
+          projects: empty,
+          repositories: empty,
+          docs: { items: [docHit({}), docHit({ slug: "releases", title: "Note", kind: "releases", code: null })], hasMore: false },
+        },
+      },
+    });
+    const rows = await searchMentions("sinc", "objects");
+    const search = seen.find((r) => r.path.startsWith("/api/search"));
+    expect(new URL(`http://x${search!.path}`).searchParams.get("citable")).toBe("true");
+    expect(rows.filter((r) => r.ref.kind === "doc")).toEqual([
+      { ref: { kind: "doc", id: "AUD-D3" }, code: "AUD-D3", label: "Sincronizzazione", detail: "AUD · Audin", projectId: PROJECT_ID },
+    ]);
+  });
+
+  it("senza testo nessuna ricerca globale", async () => {
+    const { seen } = installFakeServer({ "GET /api/projects": { body: [serverProject({ memberIds: [] })] } });
+    await searchMentions("", "objects");
+    expect(seen.some((r) => r.path.startsWith("/api/search"))).toBe(false);
   });
 });
