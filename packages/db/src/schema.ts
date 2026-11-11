@@ -2449,6 +2449,32 @@ export const docPages = pgTable(
 );
 
 /**
+ * I codici `<PRJ>-D<n>` delle pagine Docs (0142, area 5 fetta 1): uno per
+ * (repository, slug), numerato per progetto e mai riusato, stabile alle
+ * rigenerazioni. Li dà il trigger `doc_pages_code` a ogni pagina nuova (non
+ * alle note di rilascio). Le citazioni `doc` della Chat puntano a questa riga.
+ */
+export const docPageCodes = pgTable(
+  "doc_page_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    repositoryId: uuid("repository_id")
+      .notNull()
+      .references(() => repositories.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("doc_page_codes_project_number_idx").on(table.projectId, table.number),
+    uniqueIndex("doc_page_codes_repository_slug_idx").on(table.repositoryId, table.slug),
+  ],
+);
+
+/**
  * Chunk di una pagina di documentazione con il suo embedding (pgvector, 1024
  * dim / bge-m3): alimenta la ricerca semantica e il retrieval della chat RAG.
  * `metadata` jsonb porta heading di provenienza e simili. L'indice HNSW
