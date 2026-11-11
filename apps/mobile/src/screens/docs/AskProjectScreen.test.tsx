@@ -23,6 +23,7 @@ function answer(overrides: Partial<Reader<DocsChatAnswer>> = {}): Reader<DocsCha
         repositoryId: REPO_ID,
         repositorySlug: "portale-b2b",
         repositoryName: "Portale B2B",
+        code: null,
       },
     ],
     sessionId: SESSION_ID,
