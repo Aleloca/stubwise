@@ -9,7 +9,7 @@ import { Highlighted } from "../chat/ChatSearch";
 import { fold, searchWords } from "../chat/search";
 import { SwitchOffLine } from "../../components/ProjectSwitchOff";
 import { useNightlyOff } from "./DocsHome";
-import { MinorMark, pageLink, useSpace } from "./parts";
+import { MinorMark, pageLink, useSpace, spaceKey } from "./parts";
 
 // Le note di rilascio dello spazio (shape docs.md §5; «Release notes» dal 28
 // ott 2026, releases.md [R 25]): scritte ogni notte dai commit
@@ -127,7 +127,7 @@ export function DocReleases() {
                       {touched.map((p) => (
                         <Link
                           key={p.id}
-                          {...pageLink(project.code, space.name, p.slug)}
+                          {...pageLink(project.code, spaceKey(space), p.slug)}
                           className="inline-flex h-6 max-w-[320px] min-w-0 items-center gap-1.5 rounded-md border border-rule px-2 text-sm text-ink transition-colors duration-[var(--duration-fast)] ease-out hover:border-rule-strong hover:bg-ink/4"
                         >
                           <span className="num shrink-0 text-xs font-semibold text-ink-muted">

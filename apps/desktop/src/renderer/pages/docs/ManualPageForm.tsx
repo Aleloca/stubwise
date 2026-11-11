@@ -16,6 +16,7 @@ import {
   pageLink,
   spaceLink,
   useSpace,
+  spaceKey,
 } from "./parts";
 
 // La pagina manuale (shape docs.md §5, A 8): un form a pagina, non un
@@ -28,7 +29,8 @@ import {
 /** «+ New manual page»: solo con `docs.edit`. */
 export function NewManualPageRoute() {
   const { project, space } = useSpace();
-  if (!space.permissions.edit) return <Navigate {...spaceLink(project.code, space.name)} replace />;
+  if (!space.permissions.edit)
+    return <Navigate {...spaceLink(project.code, spaceKey(space))} replace />;
   return <ManualPageForm initial={null} />;
 }
 
@@ -49,7 +51,7 @@ export function EditManualPageRoute({ slug }: { slug: string }) {
     return (
       <DocNotFound
         back={
-          <Link {...spaceLink(project.code, space.name)} className={backLinkClass}>
+          <Link {...spaceLink(project.code, spaceKey(space))} className={backLinkClass}>
             {t("docs.page.backToIndex")}
           </Link>
         }
@@ -57,7 +59,7 @@ export function EditManualPageRoute({ slug }: { slug: string }) {
     );
   }
   if (!page.data.permissions.edit) {
-    return <Navigate {...pageLink(project.code, space.name, slug)} replace />;
+    return <Navigate {...pageLink(project.code, spaceKey(space), slug)} replace />;
   }
   return <ManualPageForm key={page.data.id} initial={page.data} />;
 }
@@ -94,8 +96,8 @@ function ManualPageForm({ initial }: { initial: DocPage | null }) {
   const effectiveSlug = slug.trim() || slugify(title);
   const pending = create.isPending || update.isPending;
   const back = initial
-    ? pageLink(project.code, space.name, initial.slug)
-    : spaceLink(project.code, space.name);
+    ? pageLink(project.code, spaceKey(space), initial.slug)
+    : spaceLink(project.code, spaceKey(space));
 
   const fail = (error: unknown) => {
     const message = error instanceof Error ? error.message : "";
@@ -107,7 +109,7 @@ function ManualPageForm({ initial }: { initial: DocPage | null }) {
   };
   const done = (page: DocPage) => {
     saved.current = true;
-    void navigate({ ...pageLink(project.code, space.name, page.slug), replace: !initial });
+    void navigate({ ...pageLink(project.code, spaceKey(space), page.slug), replace: !initial });
   };
 
   const submit = () => {

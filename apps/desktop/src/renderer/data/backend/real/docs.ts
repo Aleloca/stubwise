@@ -347,7 +347,7 @@ async function treeOf(repositoryId: string, projectId: string) {
 }
 
 async function spaceView(
-  s: { repositoryId: string; name: string },
+  s: { repositoryId: string; name: string; slug?: string },
   projectId: string,
   me: Viewer,
 ): Promise<DocSpaceView> {
@@ -365,6 +365,8 @@ async function spaceView(
     repositoryId: s.repositoryId,
     projectId,
     name: s.name,
+    // La chiave dell'indirizzo: lo slug del repository (gli stessi link delle citazioni e dei codici D).
+    ...(s.slug ? { slug: s.slug } : {}),
     generation: generationOf(status),
     brief: briefOf(brief),
     releases: await releasesOf(s.repositoryId, nodes),
@@ -404,7 +406,7 @@ const getDocSpace: Docs["getDocSpace"] = async (repositoryId) => {
   const projectId = await projectOfRepository(repositoryId);
   const s = spaceOf.get(repositoryId);
   if (!projectId || !s) return null;
-  return spaceView({ repositoryId, name: s.name }, projectId, await viewer());
+  return spaceView({ repositoryId, name: s.name, slug: s.slug }, projectId, await viewer());
 };
 
 /** L'albero di uno spazio: le quattro categorie, sempre tutte e nell'ordine. */

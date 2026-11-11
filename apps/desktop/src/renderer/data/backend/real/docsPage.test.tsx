@@ -185,4 +185,13 @@ describe("i Docs nella build app", () => {
     expect(await screen.findByText("A page's address can't change after it's created: keep the slug as it is.")).toBeInTheDocument();
     expect(seen.some((r) => r.method === "PATCH")).toBe(false);
   });
+  it("un repository col nome diverso dallo slug: i link per slug si aprono (e quelli vecchi per nome)", async () => {
+    install({
+      [`GET /api/projects/${PROJECT_ID}/docs/spaces`]: {
+        body: [{ repositoryId: REPO, projectId: PROJECT_ID, slug: "audin-app", name: "Audin App", pageCount: 2, lastGenerationAt: null, lastCommitSha: null }],
+      },
+    });
+    renderRoute("/p/AUD/docs/audin-app/dialer");
+    expect(await screen.findByRole("heading", { level: 1, name: "Dialer" }, { timeout: 3000 })).toBeInTheDocument();
+  });
 });
