@@ -386,4 +386,16 @@ describe("review della fetta 3 (11 nov 2026)", () => {
     expect(((await as(dev, "GET", "/api/chat/claude-questions")).json() as { items: { questionId: string }[] }).items.map((i) => i.questionId)).not.toContain(questionId);
     expect((await view(dev, reply.id)).claude!.question).toMatchObject({ canAnswer: false });
   });
+
+  it("8. le chiamate di @Claude non finiscono nell'elenco delle sessioni di lavoro di chi chiama", async () => {
+    const g = await general();
+    const root = idOf(await post(dev, g, "@Claude fuori dall'elenco"));
+    const reply = await replyIn(root);
+    const res = await as(dev, "GET", "/api/agent-sessions");
+    expect(res.statusCode, res.body).toBe(200);
+    const body = res.json() as { live: { id: string }[]; recent: { id: string }[] };
+    expect([...body.live, ...body.recent].map((s) => s.id)).not.toContain(reply.agentSessionId);
+    // La sessione resta leggibile a chi ha chiamato, per id («cosa ha letto»).
+    expect((await as(dev, "GET", `/api/agent-sessions/${reply.agentSessionId}`)).statusCode).toBe(200);
+  });
 });
