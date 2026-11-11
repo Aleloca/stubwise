@@ -142,6 +142,11 @@ chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
 Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse»).
 
 - Il filtro «con allegati» della ricerca *(fetta 4, con gli allegati)*.
+- (S) Motivo «limite» per le risposte di @Claude: oggi un limite o un errore
+  dell'API del CLI chiude la risposta `failed`/`other` (review della fetta 3,
+  scelta dell'orchestratrice dell'11 nov 2026). Un valore a sé vuole il CHECK
+  della 0140 e il client: da riprendere col prossimo aggiornamento del pin del
+  CLI.
 - **I flag del renderer da accendere con ogni fetta** *(O, 10 nov 2026)*
   (`CHAT_LATER_FEATURES` in `apps/desktop/src/renderer/data/integration.ts`):
   quelli delle fette 2 e 3 sono accesi; restano fetta 4 `chat-events` e
