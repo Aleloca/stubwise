@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ app: { getPath: () => "/nonexistent" }, safeStorage: {} }));
 
-const { createUploadTokens, formDataHeader, isAllowedUploadPath, uploadFile, DRIVE_UPLOAD_MAX_BYTES } = await import(
+const { createActiveUploads, createUploadTokens, formDataHeader, isAllowedUploadPath, uploadFile, DRIVE_UPLOAD_MAX_BYTES } = await import(
   "./apiUpload"
 );
 
@@ -135,6 +135,49 @@ describe("i token dei file scelti", () => {
     const r = await tokens.register(1, file("x.bin", "x"), 'text/plain"\r\nX-Evil: 1');
     if (!r.ok) throw new Error("no token");
     expect(tokens.take(1, r.grant)!.mime).toBe("application/octet-stream");
+  });
+});
+
+describe("i caricamenti in corso", () => {
+  const ID = "0b6f2c1e-1111-4000-8000-000000000001";
+
+  it("un `uploadId` mancante, non valido o già in corso: rifiutato", () => {
+    const active = createActiveUploads();
+    for (const id of [undefined, "", 42, "a b", "x".repeat(65), "../x"]) {
+      expect(active.begin(1, id), String(id)).toEqual({ ok: false, reason: "invalid" });
+    }
+    const first = active.begin(1, ID);
+    expect(first.ok).toBe(true);
+    expect(active.begin(1, ID)).toEqual({ ok: false, reason: "invalid" });
+    // Un'altra finestra ha i suoi id.
+    expect(active.begin(2, ID).ok).toBe(true);
+  });
+
+  it("al più 3 attivi per finestra, gli altri «busy»; finito uno, ne parte un altro", () => {
+    const active = createActiveUploads();
+    const started = [1, 2, 3].map((n) => active.begin(1, `id-${n}`));
+    expect(started.every((s) => s.ok)).toBe(true);
+    expect(active.begin(1, "id-4")).toEqual({ ok: false, reason: "busy" });
+    expect(active.begin(2, "id-4").ok).toBe(true);
+    const done = started[0]!;
+    if (done.ok) done.end();
+    expect(active.begin(1, "id-4").ok).toBe(true);
+  });
+
+  it("«Cancel» annulla quello di chi chiede; la finestra che se ne va li annulla tutti", () => {
+    const active = createActiveUploads();
+    const a = active.begin(1, "a");
+    const b = active.begin(1, "b");
+    const other = active.begin(2, "a");
+    if (!a.ok || !b.ok || !other.ok) throw new Error("not started");
+    expect(active.cancel(2, "b")).toBe(false);
+    expect(active.cancel(1, "a")).toBe(true);
+    expect(a.signal.aborted).toBe(true);
+    expect(b.signal.aborted).toBe(false);
+    active.dropOwner(1);
+    expect(b.signal.aborted).toBe(true);
+    expect(other.signal.aborted).toBe(false);
+    expect(active.begin(1, "c").ok).toBe(true);
   });
 });
 

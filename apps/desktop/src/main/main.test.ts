@@ -188,7 +188,10 @@ describe("canali IPC", () => {
   it("il caricamento del Drive (fetta 2 dell'area 5): il preload dà solo File veri, il main dà un token, il progresso solo a chi chiede", () => {
     expect(preload).toMatch(/webUtils\.getPathForFile\(file\)/);
     expect(main).toMatch(/ipcMain\.handle\("files:register",[\s\S]*?fromApp\(event\)[\s\S]*?uploadTokens\.register\(\s*event\.sender\.id/);
-    expect(main).toMatch(/ipcMain\.handle\("api:upload",[\s\S]*?fromApp\(event\)[\s\S]*?uploadTokens\.take\(event\.sender\.id/);
+    expect(main).toMatch(
+      /ipcMain\.handle\("api:upload",[\s\S]*?fromApp\(event\)[\s\S]*?const owner = event\.sender\.id;[\s\S]*?uploads\.begin\(owner, r\?\.uploadId\)[\s\S]*?uploadTokens\.take\(owner,/,
+    );
+    expect(main).toMatch(/ipcMain\.handle\("files:cancel",[\s\S]*?uploads\.cancel\(event\.sender\.id,/);
     expect(main).toMatch(/event\.sender\.send\("files:progress",/);
     expect(main).toMatch(/once\("destroyed",[\s\S]*?uploadTokens\.dropOwner\(owner\)/);
   });

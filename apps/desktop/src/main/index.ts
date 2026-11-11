@@ -10,7 +10,7 @@ import {
   type DownloadResult,
 } from "./apiDownload";
 import { handleApiRequest, isWebPath } from "./apiProxy";
-import { createUploadTokens, uploadFile, type UploadResult } from "./apiUpload";
+import { createActiveUploads, createUploadTokens, uploadFile, type UploadResult } from "./apiUpload";
 import { createStreamRegistry } from "./apiStream";
 import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./instance";
 import { buildMenuTemplate } from "./menu";
@@ -63,10 +63,7 @@ function createWindow(): BrowserWindow {
   const owner = win.webContents.id;
   win.webContents.once("destroyed", () => {
     void uploadTokens.dropOwner(owner);
-    for (const [key, upload] of uploads) if (upload.owner === owner) {
-      upload.abort.abort();
-      uploads.delete(key);
-    }
+    uploads.dropOwner(owner);
   });
 
   if (devUrl) void win.loadURL(devUrl);
@@ -210,8 +207,7 @@ ipcMain.handle("api:download", async (event, raw: unknown): Promise<DownloadResu
 // `files:cancel` annulla.
 
 const uploadTokens = createUploadTokens();
-const uploads = new Map<string, { owner: number; abort: AbortController }>();
-const UPLOAD_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const uploads = createActiveUploads();
 const PROGRESS_EVERY_MS = 250;
 
 ipcMain.handle("files:register", async (event, raw: unknown) => {
@@ -227,13 +223,16 @@ ipcMain.handle("files:register", async (event, raw: unknown) => {
 ipcMain.handle("api:upload", async (event, raw: unknown): Promise<UploadResult> => {
   if (!fromApp(event)) return { ok: false, reason: "invalid" };
   const r = raw as { grant?: unknown; path?: unknown; uploadId?: unknown } | null;
-  const entry = uploadTokens.take(event.sender.id, r?.grant);
-  if (!entry) return { ok: false, reason: "invalid" };
-  const uploadId = typeof r?.uploadId === "string" && UPLOAD_ID_RE.test(r.uploadId) ? r.uploadId : null;
   const owner = event.sender.id;
-  const abort = new AbortController();
-  const key = `${owner}:${uploadId ?? ""}`;
-  if (uploadId) uploads.set(key, { owner, abort });
+  // Prima l'id e il tetto (il token resta valido finché non scade), poi il file.
+  const begun = uploads.begin(owner, r?.uploadId);
+  if (!begun.ok) return { ok: false, reason: begun.reason };
+  const entry = uploadTokens.take(owner, r?.grant);
+  if (!entry) {
+    begun.end();
+    return { ok: false, reason: "invalid" };
+  }
+  const uploadId = r!.uploadId as string;
   let last = 0;
   try {
     return await uploadFile(entry, typeof r?.path === "string" ? r.path : "", {
@@ -241,26 +240,22 @@ ipcMain.handle("api:upload", async (event, raw: unknown): Promise<UploadResult> 
       token: readToken,
       onUnauthorized,
     }, {
-      signal: abort.signal,
+      signal: begun.signal,
       onProgress: (sent, total) => {
         const t = Date.now();
-        if (!uploadId || (t - last < PROGRESS_EVERY_MS && sent < total)) return;
+        if (t - last < PROGRESS_EVERY_MS && sent < total) return;
         last = t;
         if (!event.sender.isDestroyed()) event.sender.send("files:progress", { uploadId, sent, total });
       },
     });
   } finally {
-    if (uploadId) uploads.delete(key);
+    begun.end();
   }
 });
 
 ipcMain.handle("files:cancel", (event, raw: unknown) => {
   if (!fromApp(event)) return false;
-  const uploadId = (raw as { uploadId?: unknown } | null)?.uploadId;
-  if (typeof uploadId !== "string") return false;
-  const upload = uploads.get(`${event.sender.id}:${uploadId}`);
-  upload?.abort.abort();
-  return upload !== undefined;
+  return uploads.cancel(event.sender.id, (raw as { uploadId?: unknown } | null)?.uploadId);
 });
 
 function installDownloads(): void {

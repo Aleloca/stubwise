@@ -131,6 +131,61 @@ export function createUploadTokens({
   };
 }
 
+// --- i caricamenti in corso ---------------------------------------------------------
+
+/** Al più tanti caricamenti attivi per finestra (il renderer ne manda 3 alla volta). */
+export const DRIVE_UPLOADS_PER_WINDOW = 3;
+const UPLOAD_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+export type BeginResult =
+  | { ok: true; signal: AbortSignal; end: () => void }
+  | { ok: false; reason: "invalid" | "busy" };
+
+/**
+ * I caricamenti in corso, per finestra: ognuno col suo `uploadId` (quello
+ * che il progresso e «Cancel» nominano) e il suo annullamento. Un id
+ * mancante, non valido o già in corso è rifiutato; oltre il tetto per
+ * finestra, `busy` — così un renderer che sbaglia non ne lancia 50.
+ */
+export function createActiveUploads({ max = DRIVE_UPLOADS_PER_WINDOW }: { max?: number } = {}) {
+  const active = new Map<number, Map<string, AbortController>>();
+  return {
+    begin(owner: number, uploadId: unknown): BeginResult {
+      if (typeof uploadId !== "string" || !UPLOAD_ID_RE.test(uploadId)) return { ok: false, reason: "invalid" };
+      const mine = active.get(owner) ?? new Map<string, AbortController>();
+      if (mine.has(uploadId)) return { ok: false, reason: "invalid" };
+      if (mine.size >= max) return { ok: false, reason: "busy" };
+      const abort = new AbortController();
+      mine.set(uploadId, abort);
+      active.set(owner, mine);
+      return {
+        ok: true,
+        signal: abort.signal,
+        end: () => {
+          if (mine.get(uploadId) !== abort) return;
+          mine.delete(uploadId);
+          if (mine.size === 0 && active.get(owner) === mine) active.delete(owner);
+        },
+      };
+    },
+    /** «Cancel»: solo un caricamento della finestra che chiede. */
+    cancel(owner: number, uploadId: unknown): boolean {
+      if (typeof uploadId !== "string") return false;
+      const abort = active.get(owner)?.get(uploadId);
+      abort?.abort();
+      return abort !== undefined;
+    },
+    /** La finestra se ne va (chiusa, ricaricata, renderer caduto): tutti annullati. */
+    dropOwner(owner: number): void {
+      const mine = active.get(owner);
+      if (!mine) return;
+      active.delete(owner);
+      for (const abort of mine.values()) abort.abort();
+      mine.clear();
+    },
+  };
+}
+
 // --- il multipart --------------------------------------------------------------------
 
 /** Un valore fra virgolette in un'intestazione: niente CR, LF, virgolette né barre inverse. */
@@ -153,7 +208,7 @@ export type UploadResult =
   | { ok: true; status: number; body: unknown }
   | {
       ok: false;
-      reason: "invalid" | "unauthenticated" | "too_large" | "unsupported_type" | "failed" | "canceled";
+      reason: "invalid" | "busy" | "unauthenticated" | "too_large" | "unsupported_type" | "failed" | "canceled";
       status?: number;
       /** Il codice d'errore del server, se c'era (un nome breve, mai il corpo). */
       code?: string;

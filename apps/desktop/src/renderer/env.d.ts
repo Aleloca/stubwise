@@ -27,7 +27,7 @@ type StubwiseUploadResult =
   | { ok: true; status: number; body: unknown }
   | {
       ok: false;
-      reason: "invalid" | "unauthenticated" | "too_large" | "unsupported_type" | "failed" | "canceled";
+      reason: "invalid" | "busy" | "unauthenticated" | "too_large" | "unsupported_type" | "failed" | "canceled";
       status?: number;
       code?: string;
     };
