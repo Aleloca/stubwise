@@ -565,8 +565,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   });
 
   // Gli allegati della Chat in sospeso da più di 24 ore ([DECIDE] 3 della
-  // fetta 4): li pota il SERVER, una volta l'ora, perché lo storage lo ha solo
-  // lui. Anche ogni caricamento pota. Fail-open: uno storage giù aspetta il giro dopo.
+  // fetta 4): li pota il SERVER, una volta l'ora. Lo storage lo SCRIVE e lo
+  // PULISCE solo il server; il worker dall'area 5, fetta 3 lo LEGGE soltanto
+  // (gli oggetti del Drive, per estrarne il contenuto) e non pota niente.
+  // Anche ogni caricamento pota. Fail-open: uno storage giù aspetta il giro dopo.
   const chatPrune = setInterval(() => {
     void (async () => {
       try {

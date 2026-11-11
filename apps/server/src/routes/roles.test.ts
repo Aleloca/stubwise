@@ -128,13 +128,13 @@ describe("membri di progetto: anti-escalation", () => {
   beforeAll(async () => {
     manager = await createUserWithSession(app, "members-manager@example.com");
     target = await createUserWithSession(app, "members-target@example.com");
-    // Gestisce i membri, ma non può mergiare: non può dare Project Lead.
+    // Gestisce i membri, ma non può mergiare: non può dare Project Lead. I
+    // permessi sono quelli del preset Contributor PIÙ la gestione dei membri,
+    // presi da PRESET_ROLES: un permesso nuovo del Contributor (come
+    // `drive.upload`, area 5) non rompe il caso «ruolo incluso».
     managerRoleId = await createRole("Members manager", "project", [
       "project.members.manage",
-      "docs.view",
-      "tickets.create",
-      "tickets.comment",
-      "backlog.create",
+      ...PRESET_ROLES.find((r) => r.key === "contributor")!.permissions,
     ]);
     await testDb.db
       .insert(projectMembers)

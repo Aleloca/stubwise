@@ -80,4 +80,12 @@ describe("endpoints drive", () => {
     await s.c.drive.saveFromChat(FILE);
     expect(last(s.fetchImpl).body).toBe("{}");
   });
+
+  it("«Riprova» (F3.4): POST sul file, risponde con la riga; lo stato del contenuto e lo snippet si leggono", async () => {
+    const r = client({ ...row, contentStatus: "pending", snippet: null, permissions: { ...row.permissions, retry: false } });
+    expect(await r.c.drive.retry(FILE)).toMatchObject({ id: FILE, contentStatus: "pending" });
+    expect(last(r.fetchImpl)).toMatchObject({ url: `/api/drive/files/${FILE}/retry`, method: "POST" });
+    const s = client({ items: [{ ...row, contentStatus: "ready", snippet: "la penale scatta" }] });
+    expect((await s.c.drive.listAll({ q: "penale" })).items[0]).toMatchObject({ contentStatus: "ready", snippet: "la penale scatta" });
+  });
 });

@@ -215,6 +215,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   dell'orchestratrice C(a))*: il server lo permette (`permissions.retry`) su
   `no_text` ed `error`; il desktop mostra «Retry» solo su `error`, come il
   prototipo. Riaprire per `ocr_timeout` e `ocr_unavailable`.
+- Credenziali di sola lettura separate per il worker, se lo storage lo
+  permette *(S, area 5, fetta 3)*: oggi il worker legge gli oggetti del Drive
+  con le credenziali dell'istanza, e la sola lettura è una regola del codice
+  (una funzione, solo `drive/`, test sul sorgente). Un utente S3 di sola
+  lettura sul prefisso `drive/` la renderebbe una regola dello storage.
 - `nosniff` sull'anteprima del Drive *(S, limite accettato, review della
   fetta 2)*: l'URL firmato di S3 non può aggiungere
   `X-Content-Type-Options: nosniff` (le firme permettono di sovrascrivere solo
