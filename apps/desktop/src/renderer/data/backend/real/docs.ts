@@ -436,7 +436,113 @@ const getProjectDocsHome: Docs["getProjectDocsHome"] = async (projectId) => {
   return home;
 };
 
-/** Le funzioni del passo 2a (letture); il resto resta «non integrato» fino ai passi dopo. */
+// --- scritture: pagine manuali e generazione (passo 2b) ------------------------------
+
+/** I rifiuti del server negli errori del prototipo, che il form e il pannello sanno dire. */
+async function write<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.code === "doc_page_slug_conflict") throw new Error("slug_conflict");
+      if (error.code === "generation_not_paused") throw new Error("invalid: generation not paused");
+      if (error.status === 409) throw new Error("generation_in_progress");
+      if (error.status === 404) throw new Error("not_found");
+      if (error.status === 403) throw new Error("forbidden");
+      if (error.status === 400) throw new Error("invalid: input");
+    }
+    throw error;
+  }
+}
+
+/** Una pagina scritta dal server nella forma del prototipo (senza l'albero: in cima alle manuali). */
+function pageOf(p: Page, projectId: string, repositoryId: string): DocPageView {
+  pageWhere.set(p.id, { repositoryId, slug: p.slug });
+  return {
+    id: p.id,
+    code: p.code ?? "",
+    projectId,
+    repositoryId,
+    kind: kindOf(p.kind) ?? "manual",
+    title: p.title,
+    slug: p.slug,
+    path: "",
+    excerpt: excerptOf(p.body),
+    body: p.body,
+    documentsPath: p.sourcePath,
+    generatedAtCommit: p.commitSha,
+    updatedAt: p.updatedAt,
+    staleCommits: [],
+    links: [],
+    views: p.viewCount,
+    repositoryName: spaceOf.get(repositoryId)?.name ?? "",
+    resolvedLinks: [],
+    permissions: { edit: p.isManual, delete: p.isManual },
+  };
+}
+
+/** «+ Nuova pagina manuale»: lo slug, se manca, lo ricava il server dal titolo. */
+const createManualPage: Docs["createManualPage"] = async (repositoryId, input) => {
+  const projectId = await projectOfRepository(repositoryId);
+  if (!projectId) throw new Error("not_found");
+  const created = await write(() =>
+    appClient().docs.createManualPage(repositoryId, {
+      title: input.title.trim(),
+      ...(input.slug?.trim() ? { slug: input.slug.trim() } : {}),
+      body: input.body,
+    }),
+  );
+  return pageOf(created, projectId, repositoryId);
+};
+
+/**
+ * Modifica una manuale: titolo e corpo. Lo slug di una pagina sul server non
+ * cambia (l'indirizzo e il codice restano): uno slug diverso è `slug_fixed`.
+ */
+const updateManualPage: Docs["updateManualPage"] = async (id, patch) => {
+  const where = pageWhere.get(id);
+  if (!where) throw new Error("not_found");
+  if (patch.slug !== undefined && patch.slug.trim() !== where.slug) throw new Error("slug_fixed");
+  const projectId = await projectOfRepository(where.repositoryId);
+  if (!projectId) throw new Error("not_found");
+  const updated = await write(() =>
+    appClient().docs.updateManualPage(where.repositoryId, id, {
+      ...(patch.title !== undefined ? { title: patch.title.trim() } : {}),
+      ...(patch.body !== undefined ? { body: patch.body } : {}),
+    }),
+  );
+  return pageOf(updated, projectId, where.repositoryId);
+};
+
+const deleteManualPage: Docs["deleteManualPage"] = async (id) => {
+  const where = pageWhere.get(id);
+  if (!where) throw new Error("not_found");
+  await write(() => appClient().docs.deleteManualPage(where.repositoryId, id));
+  pageWhere.delete(id);
+};
+
+/** Lo stato della generazione riletto dopo un avvio o una ripresa. */
+async function generationNow(repositoryId: string): Promise<DocGeneration> {
+  return generationOf(await read(() => appClient().docs.status(repositoryId)));
+}
+
+const startGeneration: Docs["startGeneration"] = async (repositoryId) => {
+  await write(() => appClient().docs.generate(repositoryId));
+  return generationNow(repositoryId);
+};
+
+const resumeGeneration: Docs["resumeGeneration"] = async (repositoryId) => {
+  await write(() => appClient().docs.resume(repositoryId));
+  return generationNow(repositoryId);
+};
+
+/** Gli stati attraversati: è uno strumento del prototipo (lo stato finto); qui nessuna storia. */
+const generationHistory: Docs["generationHistory"] = () => [];
+
+/** Nel prototipo aspetta le generazioni finte; qui non c'è niente da aspettare. */
+const whenDocsIdle: Docs["whenDocsIdle"] = async () => undefined;
+
+/** Le funzioni dei passi 2a e 2b; il resto resta «non integrato» fino ai passi dopo. */
 export const docsFunctions: Partial<Docs> = {
   DOC_KINDS,
   listDocSpaces,
@@ -447,6 +553,13 @@ export const docsFunctions: Partial<Docs> = {
   getRepoBrief,
   searchDocs,
   getProjectDocsHome,
+  createManualPage,
+  updateManualPage,
+  deleteManualPage,
+  startGeneration,
+  resumeGeneration,
+  generationHistory,
+  whenDocsIdle,
 };
 
 void notIntegrated;

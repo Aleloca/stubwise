@@ -276,3 +276,58 @@ describe("la pagina iniziale del progetto", () => {
     expect(home.whatsNew.map((r) => r.version)).toEqual(["Nov 10"]);
   });
 });
+
+describe("le pagine manuali e la generazione", () => {
+  const manual = (over: Record<string, unknown> = {}) =>
+    page({ id: P3, slug: "notes", title: "Team notes", kind: "manual", isManual: true, parentId: null, links: null, staleSince: null, sourcePath: null, commitSha: null, code: "AUD-D3", ...over });
+
+  it("crea, modifica ed elimina una manuale con le rotte di oggi; il codice resta", async () => {
+    const { seen } = install({
+      [`POST /api/repositories/${REPO}/docs/manual`]: { status: 201, body: manual() },
+      [`PATCH /api/repositories/${REPO}/docs/manual/${P3}`]: { body: manual({ title: "Team notes v2", body: "New" }) },
+      [`DELETE /api/repositories/${REPO}/docs/manual/${P3}`]: { status: 204 },
+    });
+    await getSessionPerson();
+    await docs.listDocTree(REPO);
+    const created = await docs.createManualPage(REPO, { title: "Team notes", slug: "notes", body: "# Notes" });
+    expect(created).toMatchObject({ id: P3, code: "AUD-D3", kind: "manual", slug: "notes", repositoryId: REPO, projectId: PROJECT_ID });
+    const updated = await docs.updateManualPage(P3, { title: "Team notes v2", slug: "notes", body: "New" });
+    expect(updated).toMatchObject({ code: "AUD-D3", title: "Team notes v2" });
+    await docs.deleteManualPage(P3);
+    expect(seen.filter((r) => r.method !== "GET").map((r) => [r.method, r.path, r.body])).toEqual([
+      ["POST", `/api/repositories/${REPO}/docs/manual`, { title: "Team notes", slug: "notes", body: "# Notes" }],
+      ["PATCH", `/api/repositories/${REPO}/docs/manual/${P3}`, { title: "Team notes v2", body: "New" }],
+      ["DELETE", `/api/repositories/${REPO}/docs/manual/${P3}`, undefined],
+    ]);
+  });
+
+  it("i rifiuti negli errori del form: slug già usato; lo slug di una pagina non cambia", async () => {
+    install({
+      [`POST /api/repositories/${REPO}/docs/manual`]: { status: 409, body: { code: "doc_page_slug_conflict", message: "x" } },
+      [`GET /api/repositories/${REPO}/docs/pages/notes`]: { body: manual() },
+    });
+    await getSessionPerson();
+    await expect(docs.createManualPage(REPO, { title: "Notes", slug: "notes", body: "" })).rejects.toThrow("slug_conflict");
+    await docs.getDocPage(REPO, "notes");
+    await expect(docs.updateManualPage(P3, { title: "Notes", slug: "renamed", body: "" })).rejects.toThrow("slug_fixed");
+  });
+
+  it("avvia e riprende la generazione: lo stato riletto dal server; i rifiuti del prototipo", async () => {
+    const job = { id: "7f1c2a1e-0000-4000-8000-0000000000f1", status: "queued", trigger: "manual", error: null, createdAt: "2026-11-11T10:00:00.000Z", startedAt: null, finishedAt: null };
+    let generated = false;
+    const { seen } = install({
+      [`POST /api/repositories/${REPO}/docs/generate`]: () => {
+        generated = true;
+        return { status: 202, body: job };
+      },
+      [`GET /api/repositories/${REPO}/docs/status`]: () => ({ body: { generation: null, latestJob: generated ? job : null, pinnedProvider: null } }),
+      [`POST /api/repositories/${REPO}/docs/resume`]: { status: 409, body: { code: "generation_not_paused", message: "x" } },
+    });
+    await getSessionPerson();
+    expect(await docs.startGeneration(REPO)).toMatchObject({ status: "queued" });
+    expect(seen.some((r) => r.method === "POST" && r.path.endsWith("/docs/generate"))).toBe(true);
+    await expect(docs.resumeGeneration(REPO)).rejects.toThrow("generation not paused");
+    expect(docs.generationHistory(REPO)).toEqual([]);
+  });
+});
+
