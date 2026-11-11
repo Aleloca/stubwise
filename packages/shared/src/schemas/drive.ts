@@ -76,6 +76,18 @@ export type DriveFileDetail = z.infer<typeof driveFileDetailSchema>;
 
 export const driveFileListSchema = z.object({ items: z.array(driveFileRowSchema) });
 
+/**
+ * La risposta 201 del caricamento. `keptBoth`: il nome c'era già fra i file
+ * vivi del progetto, e il server ha salvato «Nome (2).ext» (l'avviso «Kept
+ * both» del prototipo); `requestedName` è il nome mandato.
+ */
+export const driveUploadResultSchema = z.object({
+  file: driveFileRowSchema,
+  keptBoth: z.boolean().default(false),
+  requestedName: z.string(),
+});
+export type DriveUploadResult = z.infer<typeof driveUploadResultSchema>;
+
 /** I filtri dell'elenco (nella URL nel prototipo). `q` cerca nel nome e nel codice. */
 export const driveListQuerySchema = z.object({
   projectId: z.uuid().optional(),
