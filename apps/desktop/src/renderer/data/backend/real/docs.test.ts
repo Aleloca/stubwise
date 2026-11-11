@@ -560,5 +560,12 @@ describe("review della fetta 1 dell'area 5", () => {
     await docs.listDocSpaces(PROJECT_ID);
     expect(count("/docs/tree")).toBe(2);
   });
+  it("il grafo già in costruzione (409 graph_job_pending) non è una generazione in corso", async () => {
+    install({ [`POST /api/repositories/${REPO}/graph/generate`]: { status: 409, body: { code: "graph_job_pending", message: "x" } } });
+    await getSessionPerson();
+    await docs.listDocSpaces(PROJECT_ID);
+    const error = await docs.graphAction(REPO, "generate").then(() => null, (e: Error) => e);
+    expect(error?.message).toBe("invalid: graph state");
+  });
 });
 

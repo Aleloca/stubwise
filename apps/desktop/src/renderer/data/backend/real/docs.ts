@@ -607,6 +607,8 @@ async function write<T>(run: () => Promise<T>): Promise<T> {
     if (error instanceof ApiError) {
       if (error.code === "doc_page_slug_conflict") throw new Error("slug_conflict");
       if (error.code === "generation_not_paused") throw new Error("invalid: generation not paused");
+      // Il grafo ha già una costruzione in coda: lo stato del grafo, non una generazione dei Docs.
+      if (error.code === "graph_job_pending") throw new Error("invalid: graph state");
       if (error.status === 409) throw new Error("generation_in_progress");
       if (error.status === 404) throw new Error("not_found");
       if (error.status === 403) throw new Error("forbidden");
