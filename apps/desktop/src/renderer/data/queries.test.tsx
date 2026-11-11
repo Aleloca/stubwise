@@ -24,6 +24,7 @@ import {
   useConversationStream,
   useConversations,
   useDayArrangements,
+  drivePollInterval,
   driveRefreshMs,
   useDriveFile,
   useDriveFiles,
@@ -613,5 +614,19 @@ describe("il Drive si rilegge mentre un file è in lettura", () => {
     expect(driveRefreshMs()).toBe(1000);
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     expect(driveRefreshMs()).toBe(3000);
+  });
+
+  it("contro il server vero rallenta se la lettura dura: 3 s, poi 10 s dopo 2 minuti, 30 s dopo 10; finita, riparte da capo", () => {
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    const t0 = 1_000_000;
+    expect(drivePollInterval("q1", true, t0)).toBe(3000);
+    expect(drivePollInterval("q1", true, t0 + 119_000)).toBe(3000);
+    expect(drivePollInterval("q1", true, t0 + 121_000)).toBe(10_000);
+    expect(drivePollInterval("q1", true, t0 + 601_000)).toBe(30_000);
+    // Un'altra query ha il suo orologio.
+    expect(drivePollInterval("q2", true, t0 + 601_000)).toBe(3000);
+    // Niente più in lettura: niente rilettura, e la prossima volta si riparte da 3 s.
+    expect(drivePollInterval("q1", false, t0 + 602_000)).toBe(false);
+    expect(drivePollInterval("q1", true, t0 + 700_000)).toBe(3000);
   });
 });

@@ -39,8 +39,11 @@ progetto e la feature `drive` (`data/integration.ts`). Google resta spento
 - **`counted`** di `recordOpen` non si sa (lo decide il server): vero se il file
   si è aperto, falso per un salvataggio annullato.
 - **Contenuto** (F3, `data/backend/real/drive.ts`): lo stato viene dal server
-  (`pending` e `processing` sono «Reading the content…», e la lista si
-  rilegge ogni 3 s invece di 1 s, decisione dell'orchestratrice; uno stato
+  (`pending` e `processing` sono «Reading the content…», e si rilegge ogni
+  3 s invece di 1 s, decisione dell'orchestratrice, poi 10 s dopo 2 minuti e
+  30 s dopo 10; si rilegge solo la query più stretta della vista, l'elenco che
+  si guarda o il dettaglio aperto, mai la colonna; il codice di un file si
+  risolve una volta sola; uno stato
   ignoto è «no text»; un server senza la F3, che non manda lo stato, è
   «pronto» senza riassunto come prima). Il riassunto: nell'elenco la prima
   frase (`summaryLine`), nel dettaglio intero. La ricerca trova anche per

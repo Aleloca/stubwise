@@ -112,6 +112,27 @@ describe("il Drive nella build app: le letture", () => {
     );
   });
 
+  it("il codice si risolve una volta sola: le riletture del dettaglio non chiedono di nuovo dove sta", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      "GET /api/drive/codes/AUD-F3": { body: { code: "AUD-F3", projectId: PROJECT_ID, fileId: FILE_ID } },
+      [`GET /api/drive/files/${FILE_ID}`]: { body: { ...serverRow(), opensTotal: 9, history: null } },
+    });
+    for (let i = 0; i < 3; i++) expect(await drive.getDriveFile("AUD-F3")).toMatchObject({ id: FILE_ID });
+    expect(seen.filter((r) => r.path === "/api/drive/codes/AUD-F3")).toHaveLength(1);
+    expect(seen.filter((r) => r.path === `/api/drive/files/${FILE_ID}`)).toHaveLength(3);
+  });
+
+  it("un codice in cache il cui file non si vede più: null, e la volta dopo si risolve di nuovo", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      "GET /api/drive/codes/AUD-F9": { body: { code: "AUD-F9", projectId: PROJECT_ID, fileId: FILE_ID } },
+    });
+    expect(await drive.getDriveFile("AUD-F9")).toBeNull();
+    expect(await drive.getDriveFile("AUD-F9")).toBeNull();
+    expect(seen.filter((r) => r.path === "/api/drive/codes/AUD-F9")).toHaveLength(2);
+  });
+
   it("un file che non si vede è null; un riferimento che non è né id né codice non chiama", async () => {
     const { seen } = installFakeServer({ "GET /api/projects": { body: [serverProject({ memberIds: [] })] } });
     expect(await drive.getDriveFile(FILE_ID)).toBeNull();

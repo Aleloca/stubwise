@@ -152,17 +152,41 @@ const listDriveFiles: Drive["listDriveFiles"] = async (filters) => {
   return listFiles(filters);
 };
 
+/**
+ * Dove sta il file di ogni codice già risolto: un codice non cambia file, e
+ * il dettaglio aperto si rilegge mentre è in lettura (review della F3). La
+ * visibilità la decide comunque `get` a ogni lettura: un file che non si vede
+ * più è 404 lì, e il suo codice esce dalla cache. Una cache per client:
+ * un'istanza nuova (o un client nuovo) riparte da vuota.
+ */
+const codeCaches = new WeakMap<object, Map<string, string>>();
+function codeCache(): Map<string, string> {
+  const client = appClient();
+  let cache = codeCaches.get(client);
+  if (!cache) codeCaches.set(client, (cache = new Map()));
+  return cache;
+}
+
 /** Il dettaglio, per id o per codice (`?file=AUD-F3`); `null` se non si vede. */
 const getDriveFile: Drive["getDriveFile"] = async (ref) => {
   let id = ref;
-  if (!UUID.test(ref)) {
-    if (!DRIVE_CODE_RE.test(ref.toUpperCase())) return null;
-    const where = await orNone(() => appClient().drive.resolveCode(ref), null);
-    if (!where) return null;
-    id = where.fileId;
+  const code = UUID.test(ref) ? null : ref.toUpperCase();
+  if (code !== null) {
+    if (!DRIVE_CODE_RE.test(code)) return null;
+    const cached = codeCache().get(code);
+    if (cached) id = cached;
+    else {
+      const where = await orNone(() => appClient().drive.resolveCode(ref), null);
+      if (!where) return null;
+      id = where.fileId;
+      codeCache().set(code, id);
+    }
   }
   const d = await orNone(() => appClient().drive.get(id), null);
-  if (!d) return null;
+  if (!d) {
+    if (code !== null) codeCache().delete(code);
+    return null;
+  }
   const [row] = await rowsOf([d as unknown as ServerDriveFileRow]);
   const detail: DriveFileDetail = {
     ...row!,

@@ -2750,21 +2750,49 @@ const DRIVE_FILE_AREAS = ["drive", "citations", "codeCitations", "mentions"] as 
 
 /**
  * Mentre un file è in elaborazione la lettura si ripete da sola, finché non è
- * pronto: ogni secondo nel prototipo, ogni 3 s contro il server vero
- * (decisione dell'orchestratrice, F3 dell'area 5).
+ * pronto: ogni secondo nel prototipo; contro il server vero ogni 3 s
+ * (decisione dell'orchestratrice, F3 dell'area 5), poi più di rado se dura
+ * (review del renderer della F3): 10 s dopo 2 minuti, 30 s dopo 10 — la
+ * semina dei file già caricati può durare ore.
  */
-export const driveRefreshMs = () => (isAppBuild() ? 3000 : 1000);
+export function driveRefreshMs(elapsedMs = 0): number {
+  if (!isAppBuild()) return 1000;
+  if (elapsedMs < 2 * 60_000) return 3000;
+  if (elapsedMs < 10 * 60_000) return 10_000;
+  return 30_000;
+}
+
+/** Da quando ogni query del Drive vede un file in lettura (per il rallentamento). */
+const readingSince = new Map<string, number>();
+
+/** L'intervallo di una query del Drive: nessuno se non c'è niente in lettura. */
+export function drivePollInterval(queryHash: string, processing: boolean, now = Date.now()): number | false {
+  if (!processing) {
+    readingSince.delete(queryHash);
+    return false;
+  }
+  const since = readingSince.get(queryHash) ?? now;
+  readingSince.set(queryHash, since);
+  return driveRefreshMs(now - since);
+}
+
 const reading = (rows: readonly Pick<DriveFileRow, "content">[] | null | undefined) =>
   !!rows?.some((r) => r.content === "processing");
 
-/** Il Drive: di un progetto o, senza `projectId`, di tutti i progetti che vedo. */
-export function useDriveFiles(filters: DriveFilters, { enabled = true } = {}) {
+/**
+ * Il Drive: di un progetto o, senza `projectId`, di tutti i progetti che vedo.
+ * `poll`: si rilegge mentre un file è in lettura. Solo la query più stretta
+ * della vista lo chiede (l'elenco che si guarda, o il dettaglio aperto), mai
+ * la colonna né le query di contorno della pagina: altrimenti le richieste
+ * si moltiplicano per il numero di query aperte.
+ */
+export function useDriveFiles(filters: DriveFilters, { enabled = true, poll = false } = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.driveFiles(me, filters),
     queryFn: () => api.drive.listDriveFiles(filters),
     enabled,
-    refetchInterval: (query) => (reading(query.state.data) ? driveRefreshMs() : false),
+    refetchInterval: (query) => (poll ? drivePollInterval(query.queryHash, reading(query.state.data)) : false),
   });
 }
 
@@ -2775,8 +2803,7 @@ export function useDriveFile(id: string | null) {
     queryKey: queryKeys.driveFile(me, id ?? ""),
     queryFn: () => api.drive.getDriveFile(id!),
     enabled: id !== null,
-    refetchInterval: (query) =>
-      query.state.data?.content === "processing" ? driveRefreshMs() : false,
+    refetchInterval: (query) => drivePollInterval(query.queryHash, query.state.data?.content === "processing"),
   });
 }
 

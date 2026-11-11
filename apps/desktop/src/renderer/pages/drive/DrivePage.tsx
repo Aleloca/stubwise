@@ -150,7 +150,8 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   const hiddenView = filters.hidden === true;
   const base: DriveFilters = project ? { projectId: project.id, sort: filters.sort } : { sort: filters.sort };
   const enabled = global ? !!projects : !!project;
-  const filesQuery = useDriveFiles(filters, { enabled });
+  // Si rilegge l'elenco che si guarda, non le query di contorno; col dettaglio aperto si rilegge il dettaglio.
+  const filesQuery = useDriveFiles(filters, { enabled, poll: !search.file });
   const allQuery = useDriveFiles(base, { enabled });
   // Google (area 6): cartelle, riferimenti, nascosti. Nella build app non c'è ancora.
   const google = featureIntegrated("google");
