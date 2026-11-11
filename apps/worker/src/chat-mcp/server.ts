@@ -120,6 +120,11 @@ export function buildChatMcpServer(config: ChatMcpConfig, fetchImpl: typeof fetc
     query: z.string().min(1),
   });
   register(
+    "read_doc_page",
+    "Read a whole documentation page: use the repositoryId and slug of a result of search_docs. The page has a code (e.g. AUD-D12) you can cite.",
+    { repositoryId: z.string().min(1), slug: z.string().min(1) },
+  );
+  register(
     "read_project_overview",
     "Read a project's latest weekly brief (generated text) and its decision log (facts recorded by people).",
     { projectId: z.string().min(1) },

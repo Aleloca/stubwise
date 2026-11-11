@@ -155,6 +155,16 @@ export function chatServerPaths(tool: ChatReadToolName, args: Args): string[] {
       const q = new URLSearchParams({ q: (str(args["query"]) ?? "").slice(0, 300) });
       return [`/api/projects/${seg(projectArg(args, true)!)}/docs/search?${q.toString()}`];
     }
+    case "read_doc_page": {
+      // Il repository e lo slug che dà search_docs: un uuid e uno slug, codificato.
+      const repositoryId = str(args["repositoryId"]);
+      if (repositoryId === undefined || !UUID.test(repositoryId)) {
+        throw new ChatToolArgError("Invalid repositoryId: use the repositoryId of a result of search_docs.");
+      }
+      const slug = str(args["slug"]);
+      if (slug === undefined || slug.length > 300) throw new ChatToolArgError("Invalid slug: use the slug of a result of search_docs.");
+      return [`/api/repositories/${seg(repositoryId)}/docs/pages/${seg(slug)}`];
+    }
     case "read_project_overview": {
       const p = seg(projectArg(args, true)!);
       return [`/api/projects/${p}/briefs/latest`, `/api/projects/${p}/decisions?limit=50`];

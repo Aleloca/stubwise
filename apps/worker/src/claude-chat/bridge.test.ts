@@ -34,7 +34,7 @@ describe("il ponte dei tool della chat", () => {
     const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
     for (const tool of CHAT_READ_TOOLS) {
       const code = tool === "read_request" ? "AUD-R1" : "AUD-1";
-      expect(chatServerPaths(tool, { code, projectId: P, query: "q" }).length).toBeGreaterThan(0);
+      expect(chatServerPaths(tool, { code, projectId: P, query: "q", repositoryId: P, slug: "s" }).length).toBeGreaterThan(0);
     }
   });
 
@@ -67,6 +67,10 @@ describe("il ponte dei tool della chat", () => {
     expect(chatServerPaths("search_docs", { projectId: P, query: "login" })).toEqual([
       `/api/projects/${P}/docs/search?q=login`,
     ]);
+    // Area 5, fetta 1: una pagina Docs intera, dal repository e dallo slug che dà search_docs.
+    expect(chatServerPaths("read_doc_page", { repositoryId: P, slug: "auth/login flow" })).toEqual([
+      `/api/repositories/${P}/docs/pages/auth%2Flogin%20flow`,
+    ]);
     expect(chatServerPaths("read_project_overview", { projectId: P })).toEqual([
       `/api/projects/${P}/briefs/latest`,
       `/api/projects/${P}/decisions?limit=50`,
@@ -81,6 +85,9 @@ describe("il ponte dei tool della chat", () => {
       ["search_docs", { projectId: "../../auth", query: "x" }],
       ["read_project_overview", {}],
       ["search_tasks", { projectId: "AUD" }],
+      ["read_doc_page", { repositoryId: "../../auth", slug: "x" }],
+      ["read_doc_page", { repositoryId: "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01" }],
+      ["read_doc_page", { repositoryId: "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01", slug: "x".repeat(301) }],
     ] as const) {
       expect(() => chatServerPaths(tool, args), `${tool} ${JSON.stringify(args)}`).toThrow(ChatToolArgError);
     }
