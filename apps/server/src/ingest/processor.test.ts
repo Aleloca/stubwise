@@ -19,6 +19,8 @@ function fakeStorage(): ObjectStorage & { puts: Array<{ key: string; size: numbe
     },
     getSignedDownloadUrl: async () => "https://example.com/signed",
     deleteObject: async () => undefined,
+    putObjectStream: async () => undefined,
+    copyObject: async () => undefined,
   };
 }
 
@@ -367,6 +369,8 @@ describe("processEvents — screenshot del feedback come allegato", () => {
       putObject: async () => {
         throw new Error("S3 down");
       },
+      putObjectStream: async () => undefined,
+      copyObject: async () => undefined,
       getSignedDownloadUrl: async () => "",
       deleteObject: async () => undefined,
     };

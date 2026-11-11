@@ -35,7 +35,10 @@ function createFakeStorage(): ObjectStorage & {
   const deleteObject = vi.fn(async (key: string) => {
     objects.delete(key);
   });
-  return { objects, putObject, getSignedDownloadUrl, deleteObject };
+  // Area 5, fetta 2: lo storage ha anche lo stream e la copia (qui non servono).
+  const putObjectStream = vi.fn(async () => undefined);
+  const copyObject = vi.fn(async () => undefined);
+  return { objects, putObject, getSignedDownloadUrl, deleteObject, putObjectStream, copyObject };
 }
 
 let testDb: TestDb;

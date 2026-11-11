@@ -16,6 +16,9 @@ class GetObjectCommand {
 class DeleteObjectCommand {
   constructor(public input: unknown) {}
 }
+class CopyObjectCommand {
+  constructor(public input: unknown) {}
+}
 
 vi.mock("@aws-sdk/client-s3", () => ({
   S3Client: class {
@@ -27,6 +30,26 @@ vi.mock("@aws-sdk/client-s3", () => ({
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  CopyObjectCommand,
+}));
+
+// Il caricamento multipart (area 5, fetta 2): `Upload` fittizio che consuma lo stream.
+const uploadMock = vi.fn();
+const uploadAbort = vi.fn();
+vi.mock("@aws-sdk/lib-storage", () => ({
+  Upload: class {
+    constructor(public options: { params: { Body: AsyncIterable<Buffer> } }) {
+      uploadMock(options);
+    }
+    async done() {
+      let size = 0;
+      for await (const chunk of this.options.params.Body) size += chunk.length;
+      return { size };
+    }
+    async abort() {
+      uploadAbort();
+    }
+  },
 }));
 
 const getSignedUrlMock = vi.fn();
@@ -219,6 +242,43 @@ describe("contentDisposition (review della fetta 4): ticket e Chat scaricano con
     const dispositions = getSignedUrlMock.mock.calls.map((c) => ((c[1] as GetObjectCommand).input as { ResponseContentDisposition: string }).ResponseContentDisposition);
     expect(dispositions).toEqual([contentDisposition("Città.pdf"), contentDisposition("Città.pdf")]);
     expect(dispositions[0]).toContain("filename*=UTF-8''Citt%C3%A0.pdf");
+  });
+});
+
+describe("lo storage del Drive (area 5, fetta 2)", () => {
+  it("putObjectStream carica uno stream col multipart, senza bufferizzarlo", async () => {
+    const { Readable } = await import("node:stream");
+    const storage = createS3Storage(config);
+    await storage.putObjectStream("drive/p/1/a.pdf", Readable.from([Buffer.alloc(5), Buffer.alloc(7)]), "application/pdf");
+    expect(uploadMock).toHaveBeenCalledTimes(1);
+    const { params } = uploadMock.mock.calls[0]![0] as { params: { Bucket: string; Key: string; ContentType: string; Body: unknown } };
+    expect(params).toMatchObject({ Bucket: config.bucket, Key: "drive/p/1/a.pdf", ContentType: "application/pdf" });
+    expect(Buffer.isBuffer(params.Body)).toBe(false);
+  });
+
+  it("copyObject copia una chiave in un'altra (Save to Drive: due oggetti indipendenti)", async () => {
+    const storage = createS3Storage(config);
+    await storage.copyObject("chat/c/1/a b.pdf", "drive/p/2/a b.pdf");
+    const command = sendMock.mock.calls[0]?.[0] as CopyObjectCommand;
+    expect(command).toBeInstanceOf(CopyObjectCommand);
+    expect(command.input).toEqual({ Bucket: config.bucket, Key: "drive/p/2/a b.pdf", CopySource: `${config.bucket}/chat/c/1/a%20b.pdf` });
+  });
+
+  it("l'anteprima inline ha un Content-Type esplicito; senza, sempre attachment", async () => {
+    getSignedUrlMock.mockResolvedValue("https://signed.example/url");
+    const storage = createS3Storage(config);
+    await storage.getSignedDownloadUrl("drive/p/1/n.txt", "nota.txt", 300, { inlineContentType: "text/plain; charset=utf-8" });
+    const input = (getSignedUrlMock.mock.calls[0]![1] as GetObjectCommand).input as Record<string, string>;
+    expect(input.ResponseContentDisposition).toBe('inline; filename="nota.txt"');
+    expect(input.ResponseContentType).toBe("text/plain; charset=utf-8");
+    await storage.getSignedDownloadUrl("drive/p/1/n.txt", "nota.txt");
+    const plain = (getSignedUrlMock.mock.calls[1]![1] as GetObjectCommand).input as Record<string, string>;
+    expect(plain.ResponseContentDisposition).toBe('attachment; filename="nota.txt"');
+    expect(plain.ResponseContentType).toBeUndefined();
+  });
+
+  it("lo storage dice la sua origine (per non servire inline dallo stesso host dell'istanza)", () => {
+    expect(createS3Storage(config).origin).toBe("https://s3.example.com");
   });
 });
 
