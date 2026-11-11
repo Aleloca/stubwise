@@ -1,0 +1,97 @@
+import { endsSession } from "@stubwise/shared";
+import type { ApiProxyDeps } from "./apiProxy";
+
+// Il download di un allegato dal desktop (area 4, fetta 4; chiude anche la
+// voce Trasversali del registro per gli allegati dei ticket). Il token sta nel
+// main: il main chiede il download COL bearer e `redirect: "manual"`, pretende
+// un 302 con `Location`, e consegna quell'URL firmato al download di Electron
+// (`webContents.downloadURL`), che lo chiede SENZA intestazioni — la firma
+// basta, il bearer non va mai allo storage. Né il token né l'URL firmato né i
+// byte passano dal renderer. Qui solo la logica pura (testata); la colla con
+// Electron (`will-download`, la finestra «Salva») sta in `index.ts`.
+
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const DOWNLOAD_PATHS = [
+  new RegExp(`^/api/chat/attachments/${UUID}/download$`, "i"),
+  new RegExp(`^/api/attachments/${UUID}/download$`, "i"),
+];
+
+/** Solo il download di un allegato della Chat o di un ticket: nient'altro passa da `api:download`. */
+export function isAllowedDownloadPath(path: unknown): path is string {
+  return typeof path === "string" && DOWNLOAD_PATHS.some((re) => re.test(path));
+}
+
+/** Dove può portare il 302: https sempre; http solo se l'istanza stessa è http (sviluppo locale). */
+export function isAllowedDownloadLocation(location: string, instanceUrl: string): boolean {
+  let target: URL;
+  let instance: URL;
+  try {
+    target = new URL(location);
+    instance = new URL(instanceUrl);
+  } catch {
+    return false;
+  }
+  if (target.protocol === "https:") return true;
+  return target.protocol === "http:" && instance.protocol === "http:";
+}
+
+/** L'esito di `api:download` per il renderer: mai un percorso, mai l'URL firmato. */
+export type DownloadResult =
+  | { ok: true }
+  | { ok: false; reason: "invalid" | "unauthenticated" | "not_found" | "failed" | "canceled" };
+
+export type DownloadTarget =
+  | { ok: true; url: string }
+  | { ok: false; reason: "invalid" | "unauthenticated" | "not_found" | "failed" };
+
+/** `api:download`: il percorso, il bearer, il 302; l'URL firmato o il perché no. */
+export async function resolveDownload(raw: unknown, deps: ApiProxyDeps): Promise<DownloadTarget> {
+  const path = (raw as { path?: unknown } | null)?.path;
+  if (!isAllowedDownloadPath(path)) return { ok: false, reason: "invalid" };
+  const base = deps.instanceUrl();
+  if (!base) return { ok: false, reason: "invalid" };
+  const token = deps.token();
+  if (!token) return { ok: false, reason: "unauthenticated" };
+  let res: Response;
+  try {
+    res = await (deps.fetch ?? fetch)(`${base}${path}`, {
+      method: "GET",
+      headers: { authorization: `Bearer ${token}` },
+      redirect: "manual",
+    });
+  } catch {
+    return { ok: false, reason: "failed" };
+  }
+  if (res.status === 401) {
+    const code = await res
+      .json()
+      .then((b: unknown) => {
+        const code = (b as { code?: unknown } | null)?.code;
+        return typeof code === "string" ? code : undefined;
+      })
+      .catch(() => undefined);
+    if (endsSession(path, 401, code)) deps.onUnauthorized(token);
+    return { ok: false, reason: "unauthenticated" };
+  }
+  if (res.status === 404 || res.status === 403) return { ok: false, reason: "not_found" };
+  const location = res.headers.get("location");
+  if (![301, 302, 303, 307, 308].includes(res.status) || !location) return { ok: false, reason: "failed" };
+  let url: string;
+  try {
+    url = new URL(location, base).href;
+  } catch {
+    return { ok: false, reason: "failed" };
+  }
+  if (!isAllowedDownloadLocation(url, base)) return { ok: false, reason: "failed" };
+  return { ok: true, url };
+}
+
+/**
+ * Il nome con cui si propone di salvare: quello del Content-Disposition (lo
+ * legge Electron), ridotto al solo nome — mai un percorso dal server — e senza
+ * caratteri di controllo.
+ */
+export function safeDownloadName(name: string): string {
+  const base = (name.split(/[\\/]/).pop() ?? "").replace(/[\u0000-\u001f\u007f]/g, "").trim();
+  return base === "" || base === "." || base === ".." ? "download" : base;
+}
