@@ -142,23 +142,6 @@ chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
 Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse»).
 
 - Il filtro «con allegati» della ricerca *(fetta 4, con gli allegati)*.
-- Differenza dal prototipo, da confermare *(S, renderer della fetta 3)*: chi
-  non ha chiamato @Claude legge le schede senza gli argomenti (il server non
-  glieli dà: «Create a task», non «Create the task “Export PDF”»). Il
-  prototipo mostrava i titoli che il lettore vede e toglieva solo gli altri.
-- Limite *(S, renderer della fetta 3)*: mentre Claude scrive, ogni frame dello
-  stream (circa uno al secondo) rilegge gli eventi della sessione di chi ha
-  chiamato per le righe d'azione. Una lettura per risposta alla volta, solo
-  per chi ha chiamato; le altre persone non leggono niente.
-- Limite *(S, renderer della fetta 3)*: «Delete Claude's reply» compare per
-  chi ha chiamato in un canale che scrive (regola del prototipo). Il server
-  manda anche `canDelete`, che la scheda della risposta non legge ancora: se
-  il server rifiuta, la riga di conferma dice che l'eliminazione non è
-  riuscita.
-- Limite (non conta: le fette 1 e 2 escono insieme) *(S)*: il renderer della
-  fetta 2 legge i permessi del canale uno per uno (`canEditInfo`…); contro un
-  server della sola fetta 1, che manda solo `canManage`, i bottoni di gestione
-  non comparirebbero.
 - **I flag del renderer da accendere con ogni fetta** *(O, 10 nov 2026)*
   (`CHAT_LATER_FEATURES` in `apps/desktop/src/renderer/data/integration.ts`):
   quelli delle fette 2 e 3 sono accesi; restano fetta 4 `chat-events` e
@@ -295,6 +278,10 @@ Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse�
   con la persona vera della build app (`useSessionPersonId`, test
   `real/chatOpenThread.test.tsx`) e le bozze del riquadro di Claude per
   persona (`answerDraft`, `wantDraft`, `undoDraft`, `fillable.test.tsx`).
+  Dopo il primo giro: le schede per chi non ha chiamato mostrano i dettagli
+  degli oggetti che vede (decisione del maintainer, server 63ccd90a); Modifica
+  ed Elimina dei messaggi seguono `canEdit`/`canDelete` del server; gli
+  eventi della sessione si rileggono al più ogni 4 s mentre Claude scrive.
 
 - Messaggi «via Claude» nella Chat *(M, 10 nov 2026, piano della fetta 3)*:
   si chiude senza codice. Nessuna azione del catalogo scrive in Chat, e
