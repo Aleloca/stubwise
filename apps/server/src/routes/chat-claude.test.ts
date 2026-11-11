@@ -13,7 +13,7 @@ import {
   issueChatToolToken,
   notifications,
 } from "@stubwise/db";
-import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
@@ -24,6 +24,7 @@ import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js
 let t: TestDb;
 let app: ReturnType<typeof buildApp>;
 let projectId: string;
+let repositoryId: string;
 type U = Awaited<ReturnType<typeof createUserWithSession>>;
 let lead: U;
 let dev: U;
@@ -34,7 +35,7 @@ beforeAll(async () => {
   t = await startTestDb();
   app = buildApp({ db: t.db, sessionSecret: "x".repeat(40), publicUrl: "https://stubwise.example" });
   await seedUsers(app);
-  ({ projectId } = await seedRepository(t.db));
+  ({ projectId, repositoryId } = await seedRepository(t.db));
   lead = await createUserWithSession(app, "lead-cc@example.com");
   dev = await createUserWithSession(app, "dev-cc@example.com");
   contributor = await createUserWithSession(app, "contributor-cc@example.com");
@@ -158,7 +159,7 @@ describe("la chiamata", () => {
 });
 
 describe("le proposte in Chat", () => {
-  it("sempre B, anche quando il calcolo dice A; gli altri lettori non vedono gli argomenti; conferma solo chi ha chiamato", async () => {
+  it("sempre B, anche quando il calcolo dice A; conferma solo chi ha chiamato", async () => {
     const g = await general();
     const root = idOf(await post(dev, g, "@Claude crea una task per il rilascio"));
     const reply = await replyIn(root);
@@ -172,7 +173,6 @@ describe("le proposte in Chat", () => {
     expect(forDev.actions[0]!.args).toMatchObject({ title: "Preparare il rilascio" });
     const forLead = (await view(lead, reply.id)).claude!.proposals[0]!;
     expect(forLead).toMatchObject({ status: "open", canConfirm: false });
-    expect(forLead.actions[0]!.args).toEqual({});
     expect((await as(lead, "POST", `/api/claude/proposals/${proposalId}/confirm`, {})).statusCode).toBe(404);
     const ok = await as(dev, "POST", `/api/claude/proposals/${proposalId}/confirm`, {});
     expect(ok.statusCode, ok.body).toBe(200);
@@ -184,6 +184,30 @@ describe("le proposte in Chat", () => {
     // Niente «Annulla» nella Chat.
     const groupId = (ok.json() as { groupId: string }).groupId;
     expect((await as(dev, "POST", `/api/claude/groups/${groupId}/undo`)).json()).toMatchObject({ code: "not_undoable" });
+  });
+
+  it("gli altri lettori vedono gli argomenti degli oggetti che vedono, e solo quelli (due lettori)", async () => {
+    const g = await general();
+    const { ticketId } = await seedTicket(t.db, { projectId, repositoryId, number: 900 });
+    const root = idOf(await post(dev, g, "@Claude crea l'export e riassegna la vecchia"));
+    const reply = await replyIn(root);
+    const res = await propose(reply.agentSessionId!, dev.id, [
+      { fn: "createTask", args: { projectId, title: "Export PDF", type: "feature" } },
+      { fn: "updateTask", args: { id: ticketId, patch: { title: "Vecchio export, da togliere" } } },
+    ]);
+    expect(res.json(), res.body).toMatchObject({ status: "awaiting_confirmation" });
+    // Il Lead vede il progetto e la task: gli argomenti come li vede chi ha chiamato.
+    const forLead = (await view(lead, reply.id)).claude!.proposals[0]!;
+    expect(forLead.actions[0]!.args).toMatchObject({ projectId, title: "Export PDF" });
+    expect(forLead.actions[1]!.args).toMatchObject({ id: ticketId, patch: { title: "Vecchio export, da togliere" } });
+    // Il Contributor vede il progetto ma non le task: la task da creare sì, la
+    // modifica di una che non vede esce senza argomenti (né id né titolo).
+    const forContributor = (await view(contributor, reply.id)).claude!.proposals[0]!;
+    expect(forContributor.actions.map((a) => a.fn)).toEqual(["createTask", "updateTask"]);
+    expect(forContributor.actions[0]!.args).toMatchObject({ projectId, title: "Export PDF" });
+    expect(forContributor.actions[1]!.args).toEqual({});
+    expect(JSON.stringify(forContributor)).not.toContain("Vecchio export");
+    expect(JSON.stringify(forContributor)).not.toContain(ticketId);
   });
 
   it("scadono dopo 20 messaggi del thread; in un canale archiviato non si decidono; le azioni della pagina non esistono", async () => {
