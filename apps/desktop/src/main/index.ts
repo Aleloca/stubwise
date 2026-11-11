@@ -59,11 +59,18 @@ function createWindow(): BrowserWindow {
     if (!isNavigationAllowed(url, { devUrl, packagedUrl })) event.preventDefault();
   });
 
-  // I file scelti e i caricamenti in corso di questa finestra finiscono con lei.
+  // I file scelti e i caricamenti in corso di questa finestra finiscono con
+  // lei, e con la pagina: un ricaricamento (non un cambio di hash) o un
+  // renderer caduto non li erediterebbe mai.
   const owner = win.webContents.id;
-  win.webContents.once("destroyed", () => {
+  const dropUploads = () => {
     void uploadTokens.dropOwner(owner);
     uploads.dropOwner(owner);
+  };
+  win.webContents.once("destroyed", dropUploads);
+  win.webContents.on("render-process-gone", dropUploads);
+  win.webContents.on("did-start-navigation", (details) => {
+    if (details.isMainFrame && !details.isSameDocument) dropUploads();
   });
 
   if (devUrl) void win.loadURL(devUrl);
@@ -207,6 +214,8 @@ ipcMain.handle("api:download", async (event, raw: unknown): Promise<DownloadResu
 // `files:cancel` annulla.
 
 const uploadTokens = createUploadTokens();
+// I token scaduti chiudono il descrittore anche se nessuno chiede più niente.
+uploadTokens.startSweeper();
 const uploads = createActiveUploads();
 const PROGRESS_EVERY_MS = 250;
 

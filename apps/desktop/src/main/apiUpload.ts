@@ -122,6 +122,13 @@ export function createUploadTokens({
       sweep();
       return openOf(owner);
     },
+    /**
+     * Una pulizia periodica: un token scaduto chiude il suo descrittore anche
+     * se nessuno chiede più niente. `unref`: non tiene vivo il processo.
+     */
+    startSweeper(everyMs = 60_000): NodeJS.Timeout {
+      return setInterval(sweep, everyMs).unref();
+    },
     /** La finestra si chiude (o cambia persona): via tutti i suoi token. */
     async dropOwner(owner: number): Promise<void> {
       const mine = [...entries].filter(([, e]) => e.owner === owner);

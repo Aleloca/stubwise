@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { execFileSync } from "node:child_process";
 import { closeSync, constants as fsConstants, openSync } from "node:fs";
-import { mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, symlinkSync, truncateSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -129,6 +129,33 @@ describe("i token dei file scelti", () => {
     expect(tokens.take(3, e.grant)).toBeNull();
     await tokens.dropOwner(2);
   });
+
+  it.skipIf(process.platform === "win32")(
+    "una pulizia periodica chiude i descrittori dei token scaduti, senza tenere vivo il processo",
+    async () => {
+      // I descrittori aperti del processo (macOS e Linux).
+      const fds = () => readdirSync("/dev/fd").length;
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+      try {
+        let now = 1_000;
+        const tokens = createUploadTokens({ ttlMs: 60_000, now: () => now });
+        const before = fds();
+        expect((await tokens.register(1, file("a.txt", "a"), "text/plain")).ok).toBe(true);
+        expect(fds()).toBe(before + 1);
+        const timer = tokens.startSweeper(30_000);
+        expect(timer.hasRef()).toBe(false);
+        vi.advanceTimersByTime(30_000);
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(fds()).toBe(before + 1);
+        now += 60_001;
+        vi.advanceTimersByTime(30_000);
+        await vi.waitFor(() => expect(fds()).toBe(before));
+        clearInterval(timer);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("il tipo del File si accetta solo se è un tipo MIME; altrimenti octet-stream", async () => {
     const tokens = createUploadTokens();

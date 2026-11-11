@@ -193,7 +193,11 @@ describe("canali IPC", () => {
     );
     expect(main).toMatch(/ipcMain\.handle\("files:cancel",[\s\S]*?uploads\.cancel\(event\.sender\.id,/);
     expect(main).toMatch(/event\.sender\.send\("files:progress",/);
-    expect(main).toMatch(/once\("destroyed",[\s\S]*?uploadTokens\.dropOwner\(owner\)/);
+    expect(main).toMatch(/const dropUploads = \(\) => \{\s*void uploadTokens\.dropOwner\(owner\);\s*uploads\.dropOwner\(owner\);/);
+    expect(main).toMatch(/once\("destroyed", dropUploads\)/);
+    expect(main).toMatch(/on\("render-process-gone", dropUploads\)/);
+    expect(main).toMatch(/on\("did-start-navigation", \(details\) => \{\s*if \(details\.isMainFrame && !details\.isSameDocument\) dropUploads\(\);/);
+    expect(main).toMatch(/uploadTokens\.startSweeper\(\);/);
   });
 
   it("nessuna chiamata IPC con un canale che non sia letterale (tranne i menu della lista fissa)", () => {
