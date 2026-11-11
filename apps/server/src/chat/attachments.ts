@@ -30,6 +30,38 @@ async function readable(db: Db, viewer: ChatViewer, id: string): Promise<{ chann
   return access.canRead ? { channel, access } : null;
 }
 
+/**
+ * Quanto una persona può tenere IN SOSPESO (caricato e non ancora mandato), in
+ * tutti i canali (review della fetta 4): un tetto contro chi riempie lo
+ * storage senza mai mandare, oltre alla potatura delle 24 ore.
+ */
+export const CHAT_PENDING_MAX_BYTES = 200 * 1024 * 1024;
+
+async function pendingBytesOf(db: Db, userId: string): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`coalesce(sum(${chatMessageAttachments.sizeBytes}), 0)::bigint` })
+    .from(chatMessageAttachments)
+    .where(and(eq(chatMessageAttachments.uploaderId, userId), isNull(chatMessageAttachments.messageId)));
+  return Number(row?.total ?? 0);
+}
+
+/**
+ * Chi può caricare nel canale, PRIMA di leggere il file (review della fetta
+ * 4): il canale si legge, non è archiviato, chi carica ci scrive, e non ha già
+ * pieno il tetto dei sospesi. Così un file grande di chi non può non si legge
+ * nemmeno.
+ */
+export async function assertCanUpload(db: Db, viewer: ChatViewer, channelId: string, incomingBytes = 0): Promise<void> {
+  const found = await readable(db, viewer, channelId);
+  if (!found) throw new ChatAttachmentError(404, "not_found", "Not found");
+  if (found.channel.archivedAt !== null) throw new ChatAttachmentError(409, "channel_archived", "The channel is archived");
+  if (!found.access.canWrite) throw new ChatAttachmentError(403, "not_member", "Join the channel to attach files");
+  const pending = await pendingBytesOf(db, viewer.id);
+  if (pending >= CHAT_PENDING_MAX_BYTES || pending + incomingBytes > CHAT_PENDING_MAX_BYTES) {
+    throw new ChatAttachmentError(409, "pending_quota", "Too many files waiting to be sent: send or remove some first");
+  }
+}
+
 /** Quanto resta in sospeso un allegato caricato e mai mandato. */
 export const CHAT_PENDING_TTL_MS = 24 * 60 * 60 * 1000;
 /** Scadenza degli URL firmati: breve, come i ticket. */
@@ -74,11 +106,8 @@ export async function uploadChatAttachment(
   channelId: string,
   file: { filename: string; mimeType: string; body: Buffer },
 ): Promise<ChatAttachmentView> {
-  const found = await readable(db, viewer, channelId);
-  if (!found) throw new ChatAttachmentError(404, "not_found", "Not found");
-  const { channel, access } = found;
-  if (channel.archivedAt !== null) throw new ChatAttachmentError(409, "channel_archived", "The channel is archived");
-  if (!access.canWrite) throw new ChatAttachmentError(403, "not_member", "Join the channel to attach files");
+  // Di nuovo, col peso del file: la rotta ha già controllato prima di leggerlo.
+  await assertCanUpload(db, viewer, channelId, file.body.length);
   const filename = displayName(file.filename);
   if (!chatAttachmentAllowed(filename, file.mimeType)) throw new ChatAttachmentError(400, "unsupported_type", "Unsupported file type");
   const id = randomUUID();

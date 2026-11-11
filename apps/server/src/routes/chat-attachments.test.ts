@@ -281,5 +281,42 @@ describe("review della fetta 4 (11 nov 2026)", () => {
     expect(res.statusCode, res.body).toBe(204);
     expect(storage.deleteObject).toHaveBeenCalledWith(row!.storageKey);
   });
+
+  it("3. l'accesso si controlla PRIMA di leggere il file: chi non scrive riceve 403 anche con un file troppo grande", async () => {
+    const ch = await openChannel(dev);
+    const big = await upload(dev2, ch, { filename: "grande.zip", contentType: "application/zip", content: Buffer.alloc(25 * 1024 * 1024 + 1) });
+    expect(big.statusCode).toBe(403);
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("3. un tetto per persona sui file in sospeso", async () => {
+    const g = await general();
+    const heavy = await createUserWithSession(app, "heavy-at@example.com");
+    await addMember(app, projectId, heavy.id, "developer");
+    await t.db.insert(chatMessageAttachments).values(
+      Array.from({ length: 8 }, (_, i) => ({
+        channelId: g,
+        uploaderId: heavy.id,
+        filename: `pieno-${i}.zip`,
+        mimeType: "application/zip",
+        sizeBytes: 25 * 1024 * 1024,
+        storageKey: `chat/${g}/pieno-${heavy.id}-${i}`,
+      })),
+    );
+    const res = await upload(heavy, g, { filename: "ancora.pdf", contentType: "application/pdf" });
+    expect(res.statusCode, res.body).toBe(409);
+    expect(res.json()).toMatchObject({ code: "pending_quota" });
+    expect(storage.putObject).not.toHaveBeenCalled();
+  });
+
+  it("3. la rotta di caricamento ha un tetto di richieste per persona", async () => {
+    const g = await general();
+    const busy = await createUserWithSession(app, "busy-at@example.com");
+    await addMember(app, projectId, busy.id, "developer");
+    const codes: number[] = [];
+    for (let i = 0; i < 61; i++) codes.push((await upload(busy, g, { filename: `f${i}.txt`, contentType: "text/plain" })).statusCode);
+    expect(codes.slice(0, 60).every((c) => c === 201)).toBe(true);
+    expect(codes[60]).toBe(429);
+  });
 });
 
