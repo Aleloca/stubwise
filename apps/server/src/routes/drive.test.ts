@@ -49,6 +49,7 @@ let lead: U;
 let dev: U;
 let viewer: U;
 let outsider: U;
+let adminCookie: string;
 
 beforeAll(async () => {
   t = await startTestDb();
@@ -59,7 +60,7 @@ beforeAll(async () => {
     encryptionKey: randomBytes(32).toString("base64"),
     storageFactory: async () => active,
   });
-  await seedUsers(app);
+  ({ adminCookie } = await seedUsers(app));
   ({ projectId } = await seedRepository(t.db));
   projectCode = (await t.db.select({ code: projects.code }).from(projects).where(eq(projects.id, projectId)))[0]!.code;
   lead = await createUserWithSession(app, "lead-dr@example.com");
@@ -124,6 +125,42 @@ describe("caricare", () => {
     expect(storage.objects.get(row!.storageKey)!.length).toBe(content.length);
   });
 
+  it("un file di 100 MB non sta mai tutto in memoria: la memoria dei buffer cresce di poco, non del file", async () => {
+    // Lo storage conta i byte e li butta: quello che resta in memoria è solo del server.
+    let received = 0;
+    storage.putObjectStream.mockImplementation(async (_key: string, body: Readable) => {
+      for await (const chunk of body) received += (chunk as Buffer).length;
+    });
+    // Il corpo multipart si prepara PRIMA della misura: è del client, non del server.
+    const size = 100 * 1024 * 1024 - 1024;
+    const body = Buffer.alloc(size + 512, 3);
+    const head = Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="grande.zip"\r\nContent-Type: application/zip\r\n\r\n`);
+    const tail = Buffer.from(`\r\n--${BOUNDARY}--\r\n`);
+    head.copy(body, 0);
+    tail.copy(body, head.length + size);
+    const total = head.length + size + tail.length;
+    const CHUNK = 64 * 1024;
+    const pieces = Array.from({ length: Math.ceil(total / CHUNK) }, (_, i) => body.subarray(i * CHUNK, Math.min((i + 1) * CHUNK, total)));
+    const base = process.memoryUsage().arrayBuffers;
+    let peak = base;
+    const sampler = setInterval(() => (peak = Math.max(peak, process.memoryUsage().arrayBuffers)), 5);
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/drive/files`,
+        headers: { cookie: dev.headers.cookie, "content-type": `multipart/form-data; boundary=${BOUNDARY}` },
+        payload: Readable.from(pieces),
+      });
+      expect(res.statusCode, res.body).toBe(201);
+    } finally {
+      clearInterval(sampler);
+    }
+    peak = Math.max(peak, process.memoryUsage().arrayBuffers);
+    expect(received).toBe(size);
+    console.log(`[drive] memoria dei buffer durante 100 MB: +${((peak - base) / 1024 / 1024).toFixed(1)} MB`);
+    expect(peak - base).toBeLessThan(40 * 1024 * 1024);
+  }, 120_000);
+
   it("un nome già usato fra i vivi: « (2)», « (3)», e la risposta lo dice", async () => {
     const a = (await upload(dev, projectId, { filename: "Piano.pdf", contentType: "application/pdf" })).json() as Upload;
     const b = (await upload(lead, projectId, { filename: "piano.pdf", contentType: "application/pdf" })).json() as Upload;
@@ -182,6 +219,27 @@ describe("vedere e aprire", () => {
     const global = ((await as(outsider, "GET", "/api/drive/files")).json() as { items: Row[] }).items;
     expect(global.map((r) => r.id)).not.toContain(f.file.id);
     expect((await as(viewer, "GET", `/api/drive/codes/${f.file.code}`)).json()).toMatchObject({ fileId: f.file.id, projectId });
+  });
+
+  it("un full admin è membro implicito di ogni progetto (permissions.md): vede, apre, risolve il codice, carica e toglie, senza essere fra i membri", async () => {
+    const f = (await upload(dev, projectId, { filename: "per-admin.pdf", contentType: "application/pdf" })).json() as Upload;
+    const asAdmin = (method: "GET" | "DELETE", url: string) => app.inject({ method, url, headers: { cookie: adminCookie } });
+    const items = ((await asAdmin("GET", `/api/projects/${projectId}/drive/files`)).json() as { items: Row[] }).items;
+    expect(items.find((r) => r.id === f.file.id)!.permissions.delete).toBe(true);
+    expect(((await asAdmin("GET", "/api/drive/files")).json() as { items: Row[] }).items.map((r) => r.id)).toContain(f.file.id);
+    const detail = await asAdmin("GET", `/api/drive/files/${f.file.id}`);
+    expect(detail.statusCode).toBe(200);
+    expect((detail.json() as { history: unknown }).history).not.toBeNull();
+    expect((await asAdmin("GET", `/api/drive/files/${f.file.id}/download`)).statusCode).toBe(302);
+    expect((await asAdmin("GET", `/api/drive/codes/${f.file.code}`)).statusCode).toBe(200);
+    const up = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/drive/files`,
+      headers: { cookie: adminCookie, "content-type": `multipart/form-data; boundary=${BOUNDARY}` },
+      payload: Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="admin.pdf"\r\nContent-Type: application/pdf\r\n\r\nx\r\n--${BOUNDARY}--\r\n`),
+    });
+    expect(up.statusCode, up.body).toBe(201);
+    expect((await asAdmin("DELETE", `/api/drive/files/${f.file.id}`)).statusCode).toBe(204);
   });
 
   it("le aperture: una per persona ogni 30 minuti; «Più usati» le conta; la storia solo con drive.history", async () => {
