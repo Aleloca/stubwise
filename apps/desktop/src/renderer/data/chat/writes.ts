@@ -353,7 +353,8 @@ export async function sendMessage(
     authorId: me,
     kind: "person",
     text,
-    attachments: structuredClone(attachments),
+    // Solo nome, peso e tipo: il file della bozza (`file`) non resta nel messaggio.
+    attachments: attachments.map(({ id, name, sizeBytes, kind }) => ({ id, name, sizeBytes, kind })),
     citations: citationsOf(me, text, input.citations ?? []),
     reactions: [],
     asksReplyOf: questionTargets(text, me, input.asksReply === true),
