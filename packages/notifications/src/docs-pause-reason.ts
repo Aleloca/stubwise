@@ -24,6 +24,14 @@
  */
 
 export const PROVIDER_LIMIT_PAUSE_REASON = "provider_limit" as const;
+
+/**
+ * L'errore con cui il fail-on-restart chiude una generazione (e il suo
+ * trigger) dopo un riavvio del worker. Una costante condivisa (area 5, fetta
+ * 1): il server la confronta per dire `worker_restart` nello stato dei Docs, e
+ * le righe già scritte hanno lo stesso testo. Non va ritoccata da sola.
+ */
+export const DOCS_WORKER_RESTART_ERROR = "generazione interrotta da un riavvio del worker: ri-triggerare la generazione";
 export const BACKGROUND_THRESHOLD_PAUSE_REASON = "background_threshold" as const;
 
 export type DocsPauseReason =

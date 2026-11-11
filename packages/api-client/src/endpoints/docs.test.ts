@@ -162,3 +162,12 @@ describe("endpoints docs — area 5, fetta 1: pagine manuali, generazione, codic
   });
 });
 
+describe("endpoints docs — stato e spazi da un server di prima (area 5, fetta 1)", () => {
+  it("lo stato senza reasonCode, resumesAt e progress li legge null; uno spazio senza projectId lo legge null", async () => {
+    const st = clientReturning(200, { generation: null, latestJob: null, pinnedProvider: null });
+    expect(await st.c.docs.status(REPO)).toEqual({ generation: null, latestJob: null, pinnedProvider: null, reasonCode: null, resumesAt: null, progress: null });
+    const sp = clientReturning(200, [{ repositoryId: REPO, slug: "web", name: "Web", pageCount: 1, lastGenerationAt: null, lastCommitSha: null }]);
+    expect((await sp.c.docs.spaces())[0]!.projectId).toBeNull();
+  });
+});
+

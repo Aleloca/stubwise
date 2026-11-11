@@ -105,6 +105,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
       const rows = await app.db
         .select({
           repositoryId: repositories.id,
+          projectId: repositories.projectId,
           slug: repositories.slug,
           name: repositories.name,
           pageCount: sql<number>`count(${docPages.id})::int`,
@@ -141,6 +142,7 @@ export async function projectDocsRoutes(instance: FastifyInstance): Promise<void
 
       return rows.map((r) => ({
         repositoryId: r.repositoryId,
+        projectId: r.projectId,
         slug: r.slug,
         name: r.name,
         pageCount: r.pageCount,
