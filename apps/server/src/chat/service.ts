@@ -67,7 +67,8 @@ import {
  * del canale).
  */
 
-export const CHAT_CHANNEL_NOTIFY = "chat_channel";
+import { CHAT_CHANNEL_NOTIFY } from "./notify.js";
+export { CHAT_CHANNEL_NOTIFY };
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type MessageRow = typeof chatMessages.$inferSelect;
 

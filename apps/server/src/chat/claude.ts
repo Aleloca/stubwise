@@ -21,6 +21,7 @@ import { agentUserId } from "../services/claude-assign.js";
 import { personName } from "../services/people.js";
 import { channelAccess, channelReadableSql, visibleChannel, type ChannelRow, type ChatViewer } from "./access.js";
 import { citationViews, citeablesFor } from "./citations.js";
+import { CHAT_CHANNEL_NOTIFY } from "./notify.js";
 
 /**
  * @Claude nella Chat (area 4, fetta 3; piano
@@ -219,6 +220,24 @@ export async function chatProposalGuard(
   if (!access.isMember) return "forbidden";
   if (channel.archivedAt !== null) return "archived";
   return "ok";
+}
+
+/**
+ * Una scheda di una risposta di @Claude è cambiata (confermata, annullata,
+ * fallita): la risposta porta avanti `updated_at` e lo stream del suo canale
+ * lo sa, così la vedono cambiare anche gli altri lettori (review della fetta
+ * 3). Nella transazione di chi decide; per una sessione che non è della Chat
+ * non tocca niente.
+ */
+export async function touchChatReply(tx: Pick<Db, "update" | "execute">, sessionId: string): Promise<void> {
+  const touched = await tx
+    .update(chatMessages)
+    .set({ updatedAt: sql`now()` })
+    .where(eq(chatMessages.agentSessionId, sessionId))
+    .returning({ channelId: chatMessages.channelId });
+  for (const channelId of new Set(touched.map((r) => r.channelId))) {
+    await tx.execute(sql`select pg_notify(${CHAT_CHANNEL_NOTIFY}, ${JSON.stringify({ channelId })})`);
+  }
 }
 
 // --- La vista di una risposta -------------------------------------------------------

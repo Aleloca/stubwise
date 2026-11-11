@@ -15,6 +15,7 @@ import {
 } from "@stubwise/db";
 import { seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
+import { changedSince } from "../chat/service.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
 // @Claude nella Chat, area 4 fetta 3: la chiamata (una sessione per chiamata,
@@ -353,5 +354,26 @@ describe("review della fetta 3 (11 nov 2026)", () => {
     expect(q!.answeredAt).toBeNull();
     const inputs = await t.db.select().from(agentSessionInputs).where(eq(agentSessionInputs.sessionId, reply.agentSessionId!));
     expect(inputs.map((i) => i.text)).not.toContain("A");
+  });
+
+  it("3. confermare o annullare una scheda arriva agli stream degli altri", async () => {
+    const g = await general();
+    const root = idOf(await post(dev, g, "@Claude due task"));
+    const reply = await replyIn(root);
+    const a = (await propose(reply.agentSessionId!, dev.id, [{ fn: "createTask", args: { projectId, title: "Uno stream", type: "bug" } }])).json() as { proposalId: string };
+    const b = (await propose(reply.agentSessionId!, dev.id, [{ fn: "createTask", args: { projectId, title: "Due stream", type: "bug" } }])).json() as { proposalId: string };
+    // La risposta è ferma da un minuto: fuori dalla finestra dello stream.
+    await t.db.update(chatMessages).set({ updatedAt: sql`now() - interval '1 minute'` }).where(eq(chatMessages.id, reply.id));
+    const leadViewer = { id: lead.id, instancePermissions: new Set<never>() };
+    const seen = new Map<string, string>();
+    let cursor = (await changedSince(t.db, leadViewer, g, undefined, seen))!.cursor!;
+    cursor = (await changedSince(t.db, leadViewer, g, cursor, seen))!.cursor!;
+    expect((await as(dev, "POST", `/api/claude/proposals/${a.proposalId}/confirm`, {})).statusCode).toBe(200);
+    const afterConfirm = (await changedSince(t.db, leadViewer, g, cursor, seen))!;
+    expect(afterConfirm.messages.map((m) => m.id)).toContain(reply.id);
+    expect(afterConfirm.messages.find((m) => m.id === reply.id)!.claude!.proposals.find((p) => p.id === a.proposalId)!.status).toBe("confirmed");
+    expect((await as(dev, "POST", `/api/claude/proposals/${b.proposalId}/cancel`, {})).statusCode).toBe(200);
+    const afterCancel = (await changedSince(t.db, leadViewer, g, afterConfirm.cursor!, seen))!;
+    expect(afterCancel.messages.find((m) => m.id === reply.id)!.claude!.proposals.find((p) => p.id === b.proposalId)!.status).toBe("cancelled");
   });
 });
