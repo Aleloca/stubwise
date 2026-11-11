@@ -526,5 +526,22 @@ describe("review della fetta 1 dell'area 5", () => {
     // Il progetto del repository da una sola lettura, non scorrendo gli spazi dei progetti.
     expect(seen.some((r) => r.path === `/api/projects/${OTHER}/docs/spaces`)).toBe(false);
   });
+  it("il cambio di persona dimentica ciò che i Docs ricordavano dell'altra", async () => {
+    install();
+    await getSessionPerson();
+    await docs.getDocPage(REPO, "dialer");
+    // Entra un'altra persona, che non vede questo progetto.
+    const OTHER_ID = "99999999-9999-4999-8999-999999999999";
+    const { seen } = installFakeServer({
+      "GET /api/auth/me": { body: me({ user: { ...me().user, id: OTHER_ID }, projectPermissions: {} }) },
+      "GET /api/projects": { body: [] },
+      "GET /api/docs/spaces": { body: [] },
+      [`POST /api/repositories/${REPO}/docs/pages/dialer/view`]: { status: 204 },
+    } as Parameters<typeof installFakeServer>[0]);
+    await getSessionPerson();
+    await docs.recordDocView(P2);
+    expect(seen.some((r) => r.method === "POST")).toBe(false);
+    expect(await docs.listDocTree(REPO)).toEqual([]);
+  });
 });
 

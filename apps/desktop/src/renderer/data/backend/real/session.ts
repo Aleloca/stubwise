@@ -7,6 +7,7 @@ import type { Viewer } from "../../types";
 import { forgetPeopleChatCaches } from "./chat";
 import { resetChatStreams } from "./chatStream";
 import { forgetChatCaches } from "./claudeChat";
+import { forgetDocsCaches } from "./docs";
 import { appClient, session } from "./client";
 import { NotIntegratedError, partialNamespace } from "./notIntegrated";
 import { forgetCommentTickets } from "./taskDetail";
@@ -61,6 +62,8 @@ export const getSessionPerson: typeof Fake.getSessionPerson = async () => {
 };
 
 function forgetClientCaches(): void {
+  // I Docs (area 5): spazi, pagine lette, resoconti del grafo, testi delle note.
+  forgetDocsCaches();
   forgetTaskCodes();
   forgetCommentTickets();
   forgetHomeCaches();
