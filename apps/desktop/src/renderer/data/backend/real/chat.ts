@@ -516,8 +516,9 @@ const createTaskFromMessage: Chat["createTaskFromMessage"] = async (messageId, i
   call(() => createTaskWith(input, messageId));
 
 /** «Create request»: il codice compare sul messaggio a fine intake (lo scrive il worker). */
-const createRequestFromMessage: Chat["createRequestFromMessage"] = async (messageId, input) =>
-  call(() => createRequestWith(input, undefined, messageId));
+/** Col segnale del dialogo: chiuderlo ferma l'attesa dell'intake. */
+const createRequestFromMessage: Chat["createRequestFromMessage"] = async (messageId, input, options) =>
+  call(() => createRequestWith(input, options, messageId));
 
 /** Di progetto o generale (`projectId` null), aperto o privato coi suoi membri. */
 const createChannel: Chat["createChannel"] = async (input) =>

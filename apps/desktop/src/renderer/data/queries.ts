@@ -2395,8 +2395,8 @@ export function useCreateTaskFromMessage() {
 
 export function useCreateRequestFromMessage() {
   return useWrite(
-    ({ messageId, input }: { messageId: string; input: api.NewRequestInput }) =>
-      api.chat.createRequestFromMessage(messageId, input),
+    ({ messageId, input, signal }: { messageId: string; input: api.NewRequestInput; signal?: AbortSignal }) =>
+      api.chat.createRequestFromMessage(messageId, input, signal ? { signal } : {}),
     CHAT_CREATE_AREAS,
   );
 }

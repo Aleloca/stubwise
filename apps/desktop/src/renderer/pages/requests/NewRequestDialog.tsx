@@ -99,7 +99,11 @@ export function NewRequestDialog({
         setFailed(true);
       });
     }
-    else if (fromMessageId) fromMessage.mutate({ messageId: fromMessageId, input }, callbacks);
+    else if (fromMessageId) {
+      // Il dialogo che si chiude ferma l'attesa dell'intake, come la creazione.
+      abort.current = new AbortController();
+      fromMessage.mutate({ messageId: fromMessageId, input, signal: abort.current.signal }, callbacks);
+    }
     else {
       abort.current = new AbortController();
       create.mutate({ input, signal: abort.current.signal }, callbacks);

@@ -799,6 +799,9 @@ export async function createTaskFromMessage(messageId: string, input: NewTaskInp
 export async function createRequestFromMessage(
   messageId: string,
   input: NewRequestInput,
+  // Sul server vero ferma l'attesa dell'intake (il dialogo si chiude); qui non serve.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _options?: { signal?: AbortSignal },
 ): Promise<ProjectRequest> {
   const me = await gate("chat.createRequestFromMessage");
   const { m } = message(me, messageId);

@@ -466,6 +466,22 @@ describe("fetta 2: DM, privati, generali, domande, ricerca, da un messaggio", ()
     expect(hits).toMatchObject([{ channelId: CH, message: { id: REPLY, threadOf: ROOT }, context: null, root: { id: ROOT } }]);
   });
 
+  it("una richiesta da un messaggio si ferma col segnale (il dialogo chiuso): niente più attesa dell'intake", async () => {
+    const abort = new AbortController();
+    const { seen } = install({
+      "POST /api/requests": { status: 202, body: { jobId: "job-2" } },
+      "GET /api/requests/jobs/job-2": () => {
+        abort.abort();
+        return { body: { status: "pending", outcome: null, request: null } };
+      },
+    });
+    await getSessionPerson();
+    await expect(
+      chat.createRequestFromMessage(ROOT, { projectId: PROJECT_ID, title: "PDF export", description: "" }, { signal: abort.signal }),
+    ).rejects.toThrow("aborted");
+    expect(seen.filter((r) => r.path === "/api/requests/jobs/job-2")).toHaveLength(1);
+  });
+
   it("task e richiesta da un messaggio: la creazione di sempre, col messaggio da cui nasce", async () => {
     const { seen } = install({
       "POST /api/tasks": { status: 201, body: serverTask() },
