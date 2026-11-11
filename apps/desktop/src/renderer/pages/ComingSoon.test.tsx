@@ -268,6 +268,14 @@ const INTEGRATED_CALLS = new Set([
   // Area 4, fetta 4: eventi dei progetti e allegati.
   "chat.setPublishedEvents",
   "chat.downloadAttachment",
+  // Area 5, fetta 2: il Drive dei caricati.
+  "drive.listDriveFiles",
+  "drive.getDriveFile",
+  "drive.searchDrive",
+  "drive.uploadFiles",
+  "drive.deleteDriveFile",
+  "drive.recordOpen",
+  "drive.saveAttachmentToDrive",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -316,10 +324,33 @@ describe("aree non integrate nella build app", () => {
   });
 
   it("una sezione di progetto non integrata mostra «Coming soon»", async () => {
-    // Dall'area 5 (fetta 1) i Docs sono integrati: il Drive non ancora.
-    renderRoute("/p/AUD/drive");
+    // Dall'area 5 (fetta 2) anche il Drive è integrato: le Release non ancora.
+    renderRoute("/p/AUD/releases");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("il Drive del progetto (area 5, fetta 2): i caricati, senza Google", async () => {
+    renderRoute("/p/AUD/drive");
+    expect(await screen.findByRole("heading", { level: 1, name: /Drive/ })).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("drive.listDriveFiles"));
+    await settle();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    // Né «Add from Google Drive» né «Link a Google folder» (nel menu «More») né il filtro della fonte.
+    // (I file Google del seed finto qui ci sono: nel server vero no.)
+    expect(screen.queryByRole("button", { name: "Add from Google Drive" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "More Drive actions" })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Source/ })).toBeNull();
+    expect(outside()).toEqual([]);
+  });
+
+  it("la destinazione Drive: tutti i progetti, senza Google", async () => {
+    renderRoute("/drive");
+    await waitFor(() => expect(calls).toContain("drive.listDriveFiles"));
+    await settle();
+    expect(screen.queryByText("Coming soon")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add from Google Drive" })).toBeNull();
     expect(outside()).toEqual([]);
   });
 

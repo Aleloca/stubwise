@@ -140,3 +140,44 @@ describe("«#» nella build app: le pagine Docs (area 5, fetta 1)", () => {
     expect(seen.some((r) => r.path.startsWith("/api/search"))).toBe(false);
   });
 });
+
+describe("«#» nella build app: i file del Drive (area 5, fetta 2)", () => {
+  const FILE = "44444444-4444-4444-8444-444444444444";
+  it("dall'elenco globale per nome e codice (`q`): il riferimento porta il codice, la riga tipo e progetto", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      "GET /api/tasks": { body: { items: [], truncated: false } },
+      "GET /api/search": { body: { tickets: { items: [], hasMore: false }, projects: { items: [], hasMore: false }, repositories: { items: [], hasMore: false }, docs: { items: [], hasMore: false } } },
+      "GET /api/drive/files": {
+        body: {
+          items: [
+            {
+              id: FILE,
+              code: "AUD-F3",
+              projectId: PROJECT_ID,
+              projectCode: "AUD",
+              name: "spec.pdf",
+              mime: "application/pdf",
+              type: "pdf",
+              sizeBytes: 4,
+              addedById: null,
+              addedAt: "2026-11-10T09:00:00.000Z",
+            },
+          ],
+        },
+      },
+    });
+    const rows = await searchMentions("spec", "objects");
+    expect(new URL(`http://x${seen.find((r) => r.path.startsWith("/api/drive/files"))!.path}`).searchParams.get("q")).toBe("spec");
+    expect(rows.filter((r) => r.ref.kind === "drive")).toEqual([
+      {
+        ref: { kind: "drive", id: FILE, code: "AUD-F3" },
+        code: "AUD-F3",
+        label: "spec.pdf",
+        detail: "AUD",
+        projectId: PROJECT_ID,
+        drive: { type: "pdf", google: false },
+      },
+    ]);
+  });
+});

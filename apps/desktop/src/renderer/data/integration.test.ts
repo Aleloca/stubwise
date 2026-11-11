@@ -39,6 +39,8 @@ const ALL: IntegrationTarget[] = [
       "chat",
       ...CHAT_LATER_FEATURES,
       "docs",
+      "drive",
+      "google",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -102,6 +104,10 @@ describe("isIntegrated", () => {
         // Area 5, fetta 1: i Docs.
         "projectSection:docs",
         "feature:docs",
+        // Area 5, fetta 2: il Drive dei caricati (Google e contenuto restano fuori).
+        "destination:drive",
+        "projectSection:drive",
+        "feature:drive",
         "feature:chat",
         // Area 4, fetta 2: DM, privati, generali, ricerca, domande, «anche nel canale», da un messaggio.
         "feature:chat-dm",

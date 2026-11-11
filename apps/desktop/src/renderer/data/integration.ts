@@ -37,9 +37,10 @@ export type IntegrationTarget =
  */
 const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 4, fetta 1: la Chat fra persone (`chat`, destinazione e sezione di progetto).
-  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat"]),
+  // Area 5, fetta 2: il Drive (`drive`, destinazione, sezione e feature).
+  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat", "drive"]),
   // Area 5, fetta 1: i Docs del progetto (`docs`, sezione e feature).
-  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs"]),
+  projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive"]),
   // Stati e soglie del progetto.
   projectSettings: new Set(["statuses"]),
   admin: new Set(["departments"]),
@@ -107,6 +108,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 5, fetta 1: i Docs «come oggi» (spazi, albero, pagine, manuali,
     // generazione, ricerca, chat senza streaming, grafo).
     "docs",
+    // Area 5, fetta 2: il Drive dei file CARICATI «come oggi» (elenco,
+    // dettaglio, ricerca per nome, caricare, eliminare, aprire, «Save to
+    // Drive», le citazioni F). Google (`google`, area 6) e il contenuto (F3)
+    // restano fuori.
+    "drive",
   ]),
 };
 

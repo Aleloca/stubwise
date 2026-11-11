@@ -27,6 +27,7 @@ import { listProjects } from "./projects";
 import { getRequest, getRequestByCode } from "./requests";
 import { getTaskByCode, listTasks } from "./tasks";
 import { featureIntegrated } from "../../integration";
+import { drive } from "./drive";
 
 // La chat con Claude nella build app (integrazione «Chat con Claude», fetta 2):
 // le conversazioni libere PRIVATE di chi le apre (`/api/claude/conversations`).
@@ -371,7 +372,7 @@ export const listCommands: typeof Fake.listCommands = async () =>
 const MENTION_LIMIT = 8;
 
 /**
- * «#»: task, progetti e pagine Docs che chi guarda vede (il server filtra);
+ * «#»: task, progetti, pagine Docs e file del Drive che chi guarda vede (il server filtra);
  * «@»: le persone. Le richieste non ci sono ancora (limite della fetta, nel
  * registro dei rimandi).
  */
@@ -386,10 +387,11 @@ export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
       .slice(0, MENTION_LIMIT)
       .map<MentionResult>((p) => ({ ref: { kind: "person", id: p.id }, code: null, label: p.name, detail: null, projectId: null }));
   }
-  const [projects, tasks, docHits] = await Promise.all([
+  const [projects, tasks, docHits, driveRows] = await Promise.all([
     listProjects(),
     needle ? listTasks({ text: q.trim(), families: ["todo", "active"] }) : Promise.resolve([]),
     needle && featureIntegrated("docs") ? docMentionHits(q.trim()) : Promise.resolve([]),
+    needle && featureIntegrated("drive") ? drive.searchDrive(q.trim()).then((r) => r.files.map((h) => h.file)) : Promise.resolve([]),
   ]);
   const nameOf = new Map(projects.map((p) => [p.id, p.name] as const));
   const projectRows = projects
@@ -409,7 +411,21 @@ export const searchMentions: typeof Fake.searchMentions = async (q, kind) => {
     if (!project) return [];
     return [{ ref: { kind: "doc", id: d.code }, code: d.code, label: d.title, detail: `${project.code} · ${d.repositoryName}`, projectId: project.id }];
   });
-  return [...[...taskRows, ...projectRows].slice(0, MENTION_LIMIT), ...docRows.slice(0, MENTION_LIMIT)];
+  // I file del Drive dei progetti di cui si è membri, per nome e codice. Il
+  // riferimento porta il codice (R-H5): resta anche se il file se ne va.
+  const driveMentions = driveRows.map<MentionResult>((f) => ({
+    ref: { kind: "drive", id: f.id, code: f.code },
+    code: f.code,
+    label: f.name,
+    detail: f.projectCode || null,
+    projectId: f.projectId,
+    drive: { type: f.type, google: false },
+  }));
+  return [
+    ...[...taskRows, ...projectRows].slice(0, MENTION_LIMIT),
+    ...docRows.slice(0, MENTION_LIMIT),
+    ...driveMentions.slice(0, MENTION_LIMIT),
+  ];
 };
 
 /**

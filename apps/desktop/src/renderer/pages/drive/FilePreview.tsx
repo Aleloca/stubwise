@@ -10,6 +10,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { isAppBuild } from "../../data/build";
 import { useDriveFile, useRecordDriveOpen } from "../../data/queries";
 import { onBeforePersonaChange } from "../../data/session";
 import type { DriveFileRow } from "../../data/types";
@@ -61,6 +62,11 @@ export function viewItemsFor(file: ViewItem): ViewItem[] {
   return viewItems.some((i) => i.code === file.code) ? viewItems : [file];
 }
 
+/** L'anteprima sovrapposta è aperta? */
+export function isPreviewOpen(): boolean {
+  return current !== null;
+}
+
 /** Chiude l'anteprima (Esc, «Open details», cambio di persona, test). */
 export function closePreview(): void {
   if (current) setPreview(null);
@@ -89,12 +95,35 @@ export function useDriveOpeners() {
   const toast = useToast();
   const record = useRecordDriveOpen();
   const { mutate } = record;
+  // Build app (area 5, fetta 2): il file vero lo apre `recordOpen` (sul desktop
+  // un salvataggio dal main, sul web la rotta `preview` in una scheda nuova);
+  // un fallimento lo dice un avviso. Niente sovrapposizione né blob del prototipo.
+  const real = isAppBuild();
+  const fromServer = useCallback(
+    (file: Pick<DriveFileRow, "id" | "name">, via: "preview" | "download") =>
+      mutate(
+        { fileId: file.id, via },
+        {
+          onError: (error: unknown) =>
+            toast.error(
+              error instanceof Error && error.message === "not_found"
+                ? t("chat.attachments.downloadGone", { name: file.name })
+                : t("chat.attachments.downloadFailed", { name: file.name }),
+            ),
+        },
+      ),
+    [mutate, toast, t],
+  );
   const preview = useCallback(
-    (file: ViewItem, items: ViewItem[]) => {
+    (file: ViewItem & { name?: string }, items: ViewItem[]) => {
+      if (real) {
+        fromServer({ id: file.id, name: file.name ?? file.code }, "preview");
+        return;
+      }
       mutate({ fileId: file.id, via: "preview" });
       setPreview({ code: file.code, items: items.length > 0 ? items : [file] });
     },
-    [mutate],
+    [mutate, real, fromServer],
   );
   const google = useCallback(
     (file: Pick<DriveFileRow, "id">) => {
@@ -105,6 +134,10 @@ export function useDriveOpeners() {
   );
   const download = useCallback(
     (file: Pick<DriveFileRow, "id" | "name">) => {
+      if (real) {
+        fromServer(file, "download");
+        return;
+      }
       mutate({ fileId: file.id, via: "download" });
       const url = blobOf(file.id)?.url;
       if (url) {
@@ -116,7 +149,7 @@ export function useDriveOpeners() {
         toast.show(t("drive.detail.downloaded", { name: file.name }));
       }
     },
-    [mutate, toast, t],
+    [mutate, toast, t, real, fromServer],
   );
   // Stabile: le righe (memo) e i loro gestori non si ridisegnano per un render della pagina.
   return useMemo(() => ({ preview, google, download }), [preview, google, download]);

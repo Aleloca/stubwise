@@ -67,6 +67,7 @@ import {
   previewKind,
   type DriveSearch,
 } from "./driveFilters";
+import { featureIntegrated } from "../../data/integration";
 import { useDriveOpeners } from "./FilePreview";
 import { useOpenDriveFile } from "./openFile";
 import { GoogleDriveGlyph, HiddenGlyph, UploadGlyph } from "./glyphs";
@@ -151,7 +152,9 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   const enabled = global ? !!projects : !!project;
   const filesQuery = useDriveFiles(filters, { enabled });
   const allQuery = useDriveFiles(base, { enabled });
-  const hiddenQuery = useDriveFiles({ ...base, hidden: true }, { enabled: enabled && canManage });
+  // Google (area 6): cartelle, riferimenti, nascosti. Nella build app non c'è ancora.
+  const google = featureIntegrated("google");
+  const hiddenQuery = useDriveFiles({ ...base, hidden: true }, { enabled: enabled && canManage && google });
   const folders = useFolderLinks(project?.id ?? "").data ?? [];
   const rows = enabled ? filesQuery.data : undefined;
   const { projectId: fProject, type: fType, source: fSource, addedById: fAdded } = filters;
@@ -176,7 +179,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
     if (bodyRef.current) bodyRef.current.scrollTop = searching ? 0 : listScroll.current;
     wasSearching.current = searching;
   }, [searching]);
-  const canAddGoogle = !!project && can(viewer, "drive.upload", project.id);
+  const canAddGoogle = google && !!project && can(viewer, "drive.upload", project.id);
 
   const peopleNames = useMemo(() => new Map((people ?? []).map((p) => [p.id, p.name])), [people]);
   const projectNames = useMemo(
@@ -508,10 +511,12 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
               >
                 {t("drive.states.uploadFirst")}
               </button>
-              <button type="button" className={quietButton} onClick={() => setAdding(true)}>
-                {t("drive.google.addFrom")}
-              </button>
-              {canManage && (
+              {canAddGoogle && (
+                <button type="button" className={quietButton} onClick={() => setAdding(true)}>
+                  {t("drive.google.addFrom")}
+                </button>
+              )}
+              {canManage && google && (
                 <button type="button" className={quietButton} onClick={() => project && openLinkFolder(project.code)}>
                   {t("drive.google.linkFolder")}
                 </button>
@@ -623,7 +628,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
                   </MenuButton>
               </span>
             )}
-            {project && canManage && (
+            {project && canManage && google && (
               <MenuButton
                 menuLabel={t("drive.google.more")}
                 ariaLabel={t("drive.google.more")}
@@ -916,12 +921,14 @@ function DriveToolbar({
             typeSummary,
             DRIVE_TYPES.map((v) => ({ value: v, label: t(`drive.types.${v}`) })),
           )}
-          {chip(
-            "source",
-            t("drive.filters.source"),
-            sourceSummary,
-            DRIVE_SOURCES.map((v) => ({ value: v, label: t(`drive.sources.${v}`) })),
-          )}
+          {/* La fonte (caricato o Google) solo dove c'è Google (area 6). */}
+          {featureIntegrated("google") &&
+            chip(
+              "source",
+              t("drive.filters.source"),
+              sourceSummary,
+              DRIVE_SOURCES.map((v) => ({ value: v, label: t(`drive.sources.${v}`) })),
+            )}
           {chip(
             "addedBy",
             t("drive.filters.addedBy"),

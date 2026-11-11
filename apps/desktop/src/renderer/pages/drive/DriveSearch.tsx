@@ -7,6 +7,7 @@ import { PageError } from "../../tasks-ui/PageStates";
 import { Highlighted } from "../chat/ChatSearch";
 import { searchWords } from "../chat/search";
 import { quietButton, secondaryButton } from "../tasks/controls";
+import { featureIntegrated } from "../../data/integration";
 import { GoogleConnectInvite } from "./DriveBanners";
 import { modifiedLabel } from "./format";
 import {
@@ -351,7 +352,8 @@ export function DriveSearchResults({
       )}
       {/* Vuoto (account collegato): niente filetto. */}
       <div className={`empty:hidden ${files.length > 0 || result.outside.length > 0 ? "mt-2 border-t border-rule" : ""}`}>
-        <GoogleConnectInvite />
+        {/* L'invito a collegare Google (area 6) solo dove Google c'è. */}
+        {featureIntegrated("google") && <GoogleConnectInvite />}
       </div>
     </div>
   );

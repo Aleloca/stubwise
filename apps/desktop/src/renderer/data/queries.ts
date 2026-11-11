@@ -2780,6 +2780,8 @@ export function useFolderLinks(projectId: string) {
   return useQuery({
     queryKey: queryKeys.folderLinks(me, projectId),
     queryFn: () => api.drive.listFolderLinks(projectId),
+    // Le cartelle collegate sono di Google (area 6).
+    enabled: featureIntegrated("google"),
   });
 }
 
@@ -2821,7 +2823,8 @@ export function useDriveSearch(q: string, scope: DriveSearchScope = {}, enabled 
   return useQuery({
     queryKey: queryKeys.driveSearch(me, q, scope),
     queryFn: () => api.drive.searchDrive(q, scope),
-    enabled: enabled && q.trim().length >= MIN_QUERY,
+    // ⌘K la chiede anche fuori dal Drive: nella build app solo col Drive integrato.
+    enabled: enabled && featureIntegrated("drive") && q.trim().length >= MIN_QUERY,
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
