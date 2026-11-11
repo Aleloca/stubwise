@@ -1031,6 +1031,22 @@ export interface ChatObservation {
   /** Il token del turno, che solo il ponte conosce. */
   token: string;
   expectation: ChatExpectation;
+  /**
+   * Cosa ha emesso il CLI prima della fine (diagnostica di un timeout): gli
+   * eventi di sessione, il tipo dell'ultimo e i delta parziali. Un run appeso
+   * PRIMA di ogni evento (il CLI non ha mai risposto) si distingue da uno
+   * fermo a metà turno. Facoltativo: i chiamanti vecchi non lo passano.
+   */
+  cli?: { events: number; lastEvent: string | null; partials: number };
+}
+
+/** Il dettaglio del controllo di timeout, con la diagnostica del CLI se c'è. */
+function timeoutDetail(obs: Pick<ChatObservation, "timedOut" | "cli">): string {
+  if (!obs.timedOut) return "nessun timeout";
+  if (!obs.cli) return "AgentTimeoutError";
+  const { events, lastEvent, partials } = obs.cli;
+  const tail = events === 0 ? "nessun evento: il CLI non ha mai risposto" : `ultimo: ${lastEvent ?? "?"}`;
+  return `AgentTimeoutError — eventi del CLI: ${events}, parziali: ${partials} (${tail})`;
 }
 
 /** Una risposta che dice «non posso / si fa a mano / non ho gli strumenti». */
@@ -1074,7 +1090,7 @@ export function chatChecks(obs: ChatObservation): Check[] {
   const reqs = obs.serverRequests.map((r) => `${r.method} ${r.path}`).join(", ") || "nessuna";
   const leaked = obs.token !== "" && (obs.transcript.includes(obs.token) || obs.finalMessage.includes(obs.token));
   const checks: Check[] = [
-    { name: "il run finisce entro il timeout", passed: !obs.timedOut, detail: obs.timedOut ? "AgentTimeoutError" : "nessun timeout" },
+    { name: "il run finisce entro il timeout", passed: !obs.timedOut, detail: timeoutDetail(obs) },
     { name: "exit 0", passed: obs.exitCode === 0, detail: `exit code: ${obs.exitCode}` },
     {
       name: "nessun tool fuori da stubwise_chat eseguito",

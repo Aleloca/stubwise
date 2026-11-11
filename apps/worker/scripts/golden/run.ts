@@ -2256,6 +2256,8 @@ async function runChat(
   const conversationId = randomUUID();
   const cwd = await ctx.rt.ensureChatCwd(conversationId);
   const events: InterveneEvent[] = [];
+  // La diagnostica di un timeout: quanti delta parziali sono arrivati.
+  let partials = 0;
   const runner = new ctx.rt.StreamingClaudeRunner({
     claudePath: ctx.claudePath,
     log,
@@ -2268,7 +2270,9 @@ async function runChat(
             if (draft.type === "tool_use") log(`  ${tag} tool_use: ${String(draft.data["name"])}`);
           }
         },
-        onPartial: () => undefined,
+        onPartial: () => {
+          partials += 1;
+        },
         onEnd: async () => undefined,
       }),
       register: () => () => undefined,
@@ -2328,6 +2332,7 @@ async function runChat(
     transcript: JSON.stringify(events),
     token: CHAT_TOKEN,
     expectation,
+    cli: { events: events.length, lastEvent: events.at(-1)?.type ?? null, partials },
   });
   // Come l'eliminazione di produzione: via cwd e trascrizioni del CLI.
   if (!ctx.keep) await ctx.rt.removeChatCliState(conversationId);

@@ -946,6 +946,32 @@ describe("chatChecks di @Claude nella Chat (area 4, fetta 3)", () => {
   });
 });
 
+describe("chatChecks: la diagnostica del timeout", () => {
+  const base = {
+    exitCode: null,
+    toolCalls: [] as ToolCall[],
+    serverRequests: [] as { method: string; path: string; body?: unknown }[],
+    allowedPaths: [/^\/api\/tasks\/by-code\/[^/]+$/],
+    finalMessage: "",
+    transcript: "[]",
+    token: "t",
+    expectation: { kind: "read", mustRead: "/api/tasks/by-code/AUD-12", mustMention: ["Marta"] } as const,
+  };
+  const timeout = (obs: Parameters<typeof chatChecks>[0]) => chatChecks(obs).find((c) => c.name === "il run finisce entro il timeout")!;
+
+  it("un timeout dice quanti eventi ha emesso il CLI, l'ultimo e i parziali: un run appeso prima di tutto si distingue", () => {
+    expect(timeout({ ...base, timedOut: true, cli: { events: 0, lastEvent: null, partials: 0 } }).detail).toBe(
+      "AgentTimeoutError — eventi del CLI: 0, parziali: 0 (nessun evento: il CLI non ha mai risposto)",
+    );
+    expect(timeout({ ...base, timedOut: true, cli: { events: 3, lastEvent: "tool_use", partials: 12 } }).detail).toBe(
+      "AgentTimeoutError — eventi del CLI: 3, parziali: 12 (ultimo: tool_use)",
+    );
+    // Senza diagnostica (un chiamante vecchio): il dettaglio di prima.
+    expect(timeout({ ...base, timedOut: true }).detail).toBe("AgentTimeoutError");
+    expect(timeout({ ...base, timedOut: false, cli: { events: 3, lastEvent: "turn_end", partials: 0 } }).detail).toBe("nessun timeout");
+  });
+});
+
 describe("chatChecks (chat-read, chat-no-leak e le proposte)", () => {
   const ALLOWED = [/^\/api\/projects$/, /^\/api\/tasks$/, /^\/api\/tasks\/by-code\/[^/]+$/];
   const chatCall = (name: string, content = "ok"): ToolCall => ({
