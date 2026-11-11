@@ -167,8 +167,23 @@ Fetta 4: renderer (sotto, «Chiuse»).
 Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 (Docs) chiusa lato server (sotto, «Chiuse»); invariante `docs/invariants/docs.md`.
 
-- Il Drive: file caricati (fetta 2), contenuto, OCR e ricerca (fetta 3). I
-  riferimenti a Google Drive stanno nell'area 6.
+- Il Drive, fetta 3: il contenuto dei file (estrazione del testo, OCR con le
+  regole dell'input non fidato), il riassunto (`summaryLine`, `drive.summary`
+  delle citazioni, oggi null), la ricerca per contenuto e i tool di Claude sul
+  Drive. I riferimenti a Google Drive (sorgente `google`, «Togli», «Nascondi»,
+  le cartelle collegate) stanno nell'area 6. Fuori da entrambe: versioni,
+  modifica dei file, cartelle in Stubwise, condivisione esterna.
+- Limite accettato (fetta 2): l'anteprima inline vuole lo storage su
+  un'origine diversa dall'istanza; senza `endpoint`, o sullo stesso host, è
+  sempre un download (`docs/invariants/drive.md`).
+- Limite accettato (fetta 2): una citazione `drive` scelta col «#» resta solo
+  se il testo nomina il file per NOME o per codice, come il titolo di una
+  pagina; rinominare un file non è possibile oggi, quindi il nome non cambia
+  sotto i piedi.
+- Limite accettato (fetta 2): gli allegati della Chat (`chat.attachments.upload`
+  nell'api-client) stanno in un gruppo annidato, e il guardiano dei tipi
+  (`reader.test.ts`) guarda solo i metodi di primo livello: il loro schema di
+  risposta non è controllato da lui. Il Drive sta al primo livello apposta.
 - Limite accettato (fetta 1): la cronologia della ricerca globale
   (`search_history`, `type = 'doc'`) punta a id di pagina, che una
   rigenerazione cambia. Un clic vecchio può non trovare più la pagina.
@@ -310,6 +325,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- **Area 5, fetta 2: il Drive dei file caricati, server** *(M/O, 11 nov
+  2026)*: 0143 (`drive_files`, `drive_opens`, permessi `drive.*`), le rotte
+  del Drive col caricamento in streaming fino a 100 MB, l'anteprima inline
+  solo per i tipi sicuri e da un'altra origine, la lapide e la pulizia oraria
+  degli oggetti, i codici F, «Save to Drive» come copia, le citazioni `drive`
+  e `client.drive`. Il renderer è di stubwise-94.
 
 - **Area 5, fetta 1: Docs nel desktop, server** *(M/O, 11 nov 2026)*: codici
   D stabili (0142) con le citazioni `doc` della Chat sul codice e il link;
