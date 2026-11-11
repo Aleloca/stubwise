@@ -427,6 +427,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 4, fetta 3: @Claude nei canali» (10 nov 2026)
   - «Integrazione area 4, fetta 4: eventi dei progetti e allegati» (11 nov 2026)
   - «Integrazione area 5, fetta 1: Docs nel desktop» (11 nov 2026)
+  - «Integrazione area 5, fetta 2: il Drive dei file caricati» (11 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -548,6 +549,13 @@ una voce ti riguarda.
   - @Claude: ogni chiamata è di chi la scrive, con una sessione PRIVATA (`chat_mention`, anche in `visibleTo`); il contesto del thread lo costruisce il server; tutto è proposta B senza «Annulla»; `ask_question` lo scrive il worker, mai una rotta per il token del turno.
   - Gli eventi dei progetti li scrive il DB (trigger della 0141, `chat_publish_event`), non una rotta; il messaggio ha il corpo vuoto e la scheda si DERIVA a lettura col filtro di chi guarda; non avvisano.
   - Gli allegati della Chat si scaricano (302 a un URL firmato) solo da chi LEGGE il canale, mai da chi gestisce un privato senza esserne membro; i sospesi oltre 24 ore li pota il SERVER, perché il worker non ha lo storage. Dal desktop si scaricano solo da `api:download` del main (bearer solo verso l'istanza, «Salva» sempre chiesto, mai aperto).
+- **Drive dei progetti → `docs/invariants/drive.md`** (11 nov 2026, area 5):
+  - Vedere il Drive = essere membri del progetto (i full admin lo sono di ogni progetto); un file invisibile o eliminato è 404 ovunque, citazioni comprese.
+  - Il binario va in streaming verso lo storage (`putObjectStream`), mai tutto in memoria; due difese sul tetto di 100 MB (busboy e il contatore del servizio).
+  - Anteprima inline solo da un'origine DIVERSA dall'istanza e solo per i tipi sicuri, col Content-Type deciso dal server (il testo come `text/plain; charset=utf-8`); mai HTML né SVG.
+  - Il codice `<PRJ>-F<n>` non si riusa: eliminare lascia una lapide, e l'oggetto lo ritenta la pulizia oraria.
+  - Le aperture si contano una volta ogni 30 minuti per persona, nella INSERT.
+  - «Save to Drive» è una COPIA dell'oggetto, mai un riferimento.
 - **Docs → `docs/invariants/docs.md`** (11 nov 2026, area 5):
   - Il riferimento stabile a una pagina è il CODICE (`doc_page_codes`, per repository e slug), mai `doc_pages.id`, che le rigenerazioni cambiano.
   - Le citazioni `doc` della Chat puntano al codice; un codice D scritto a mano diventa citazione per chi legge la pagina.
