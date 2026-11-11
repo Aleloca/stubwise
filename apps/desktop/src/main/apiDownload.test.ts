@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("electron", () => ({ app: { getPath: () => "/nonexistent" }, safeStorage: {} }));
 
-const { downloadDecision, isAllowedDownloadLocation, isAllowedDownloadPath, resolveDownload, safeDownloadName } =
+const { createPendingDownloads, downloadDecision, isAllowedDownloadLocation, isAllowedDownloadPath, resolveDownload, safeDownloadName } =
   await import("./apiDownload");
 
 // Il download di un allegato dal desktop (area 4, fetta 4; voce Trasversali
@@ -125,5 +125,34 @@ describe("chi passa da will-download", () => {
     expect(downloadDecision("https://evil.example/payload.dmg", pending, true)).toBe("reject");
     expect(downloadDecision("blob:https://evil.example/x", pending, false)).toBe("reject");
     expect(downloadDecision("file:///etc/passwd", pending, true)).toBe("reject");
+  });
+});
+
+describe("i download in attesa", () => {
+  it("due api:download con lo stesso URL firmato: ognuno ha il suo esito, in ordine", () => {
+    const pending = createPendingDownloads<string>();
+    pending.add(SIGNED, "first");
+    pending.add(SIGNED, "second");
+    expect(pending.has(SIGNED)).toBe(true);
+    expect(pending.take(SIGNED)).toBe("first");
+    expect(pending.take(SIGNED)).toBe("second");
+    expect(pending.has(SIGNED)).toBe(false);
+    expect(pending.take(SIGNED)).toBeUndefined();
+  });
+
+  it("il ritiro (il timer) toglie solo quello di chi lo chiede, e dice se c'era ancora", () => {
+    const pending = createPendingDownloads<string>();
+    const dropFirst = pending.add(SIGNED, "first");
+    pending.add(SIGNED, "second");
+    expect(dropFirst()).toBe(true);
+    expect(dropFirst()).toBe(false);
+    expect(pending.take(SIGNED)).toBe("second");
+  });
+
+  it("l'URL si confronta normalizzato: caratteri speciali nella query, scritti in due modi", () => {
+    const pending = createPendingDownloads<string>();
+    pending.add("https://storage.example.com/k?X-Amz-Signature=a b&name=città", "one");
+    expect(pending.has("https://storage.example.com/k?X-Amz-Signature=a%20b&name=citt%C3%A0")).toBe(true);
+    expect(pending.take("https://storage.example.com/k?X-Amz-Signature=a%20b&name=citt%C3%A0")).toBe("one");
   });
 });

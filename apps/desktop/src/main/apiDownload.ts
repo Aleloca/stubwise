@@ -86,6 +86,49 @@ export async function resolveDownload(raw: unknown, deps: ApiProxyDeps): Promise
   return { ok: true, url };
 }
 
+/** Un URL nella forma che usa Electron (`new URL().href`): la query scritta in due modi è la stessa. */
+function normalizedUrl(url: string): string {
+  try {
+    return new URL(url).href;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * I download chiesti con `api:download` e non ancora partiti, per URL firmato
+ * normalizzato: una CODA per URL (due richieste dello stesso file nello
+ * stesso secondo hanno ognuna il suo esito). `add` restituisce il ritiro: il
+ * timer di chi aspetta lo chiama, e sa se c'era ancora.
+ */
+export function createPendingDownloads<T>() {
+  const queues = new Map<string, T[]>();
+  return {
+    add(url: string, item: T): () => boolean {
+      const key = normalizedUrl(url);
+      queues.set(key, [...(queues.get(key) ?? []), item]);
+      return () => {
+        const queue = queues.get(key) ?? [];
+        const index = queue.indexOf(item);
+        if (index === -1) return false;
+        queue.splice(index, 1);
+        if (queue.length === 0) queues.delete(key);
+        return true;
+      };
+    },
+    has(url: string): boolean {
+      return (queues.get(normalizedUrl(url))?.length ?? 0) > 0;
+    },
+    take(url: string): T | undefined {
+      const key = normalizedUrl(url);
+      const queue = queues.get(key);
+      const item = queue?.shift();
+      if (queue && queue.length === 0) queues.delete(key);
+      return item;
+    },
+  };
+}
+
 /**
  * Chi passa da `will-download`:
  * - `requested`: un URL firmato chiesto con `api:download` (in attesa);
