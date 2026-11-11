@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { driveContentJobs, driveFileChunks, driveFiles, driveOpens, projects, storageOrphans } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
@@ -512,6 +512,53 @@ describe("ricerca per contenuto e «Riprova» (fetta 3, F3.4)", () => {
     await t.db.update(driveFiles).set({ contentStatus: "error", contentReason: null }).where(eq(driveFiles.id, f.id));
     expect((await retry(lead, f.id)).statusCode).toBe(200);
     expect((await t.db.select().from(driveContentJobs).where(eq(driveContentJobs.fileId, f.id))).filter((j) => j.status === "queued")).toHaveLength(1);
+  });
+
+  it("review della F3: la corsia semantica non perde il file giusto quando i chunk PIÙ vicini sono di un altro progetto (HNSW, ef_search)", async () => {
+    const f = await withText("semantico-hnsw.pdf", "niente in comune", lead);
+    const [q] = await fakeEmbeddings.embed(["la penale per il ritardo hnsw"]);
+    const near = (scale: number, seed: number) => q!.map((v, i) => v + scale * Math.sin(i * 7.13 + seed));
+    const other = { id: (await seedRepository(t.db)).projectId };
+    const [foreign] = await t.db
+      .insert(driveFiles)
+      .values({ projectId: other!.id, number: 1, name: "altrui.pdf", mime: "application/pdf", type: "pdf", sizeBytes: 1, storageKey: `drive/${other!.id}/x/altrui.pdf`, contentStatus: "ready", contentOcr: "none" })
+      .returning({ id: driveFiles.id });
+    // 300 chunk ALTRUI vicinissimi alla domanda, 3.000 lontani (perché il planner usi l'indice), e il nostro un po' più in là.
+    const rows = [
+      ...Array.from({ length: 300 }, (_, i) => ({ fileId: foreign!.id, position: i, content: `altrui ${i}`, embedding: near(0.01, i) })),
+      ...Array.from({ length: 3000 }, (_, i) => ({ fileId: foreign!.id, position: 300 + i, content: `lontano ${i}`, embedding: Array.from({ length: 1024 }, (_, k) => Math.sin(k * (i + 3))) })),
+    ];
+    for (let i = 0; i < rows.length; i += 500) await t.db.insert(driveFileChunks).values(rows.slice(i, i + 500));
+    await t.db.insert(driveFileChunks).values({ fileId: f.id, position: 0, content: "La penale del ritardo è del 2%.", embedding: near(0.05, 999) });
+    await t.db.execute(sql`analyze drive_file_chunks`);
+    // Un full admin vede TUTTI i progetti: il filtro non è selettivo e il planner scende sull'indice HNSW,
+    // che restituisce al più `ef_search` chunk — tutti del file altrui, se non si alza il tetto.
+    const res = await app.inject({ method: "GET", url: `/api/drive/files?q=${encodeURIComponent("la penale per il ritardo hnsw")}`, headers: { cookie: adminCookie } });
+    const hit = (res.json() as { items: SearchRow[] }).items.find((r) => r.id === f.id);
+    expect(hit?.snippet).toBe("La penale del ritardo è del 2%.");
+  }, 120_000);
+
+  it("review della F3: ts_headline gira solo sulle prime 30 righe restituite", async () => {
+    const base = (await t.db.select({ n: sql<number>`coalesce(max(${driveFiles.number}), 0)::int` }).from(driveFiles).where(eq(driveFiles.projectId, projectId)))[0]!.n;
+    await t.db.insert(driveFiles).values(
+      Array.from({ length: 35 }, (_, i) => ({
+        projectId,
+        number: base + i + 1,
+        name: `molti-${i}.pdf`,
+        mime: "application/pdf",
+        type: "pdf" as const,
+        sizeBytes: 1,
+        storageKey: `drive/${projectId}/molti/${i}.pdf`,
+        addedBy: dev.id,
+        contentStatus: "ready" as const,
+        contentOcr: "none" as const,
+        contentText: `intestazione e poi la parolamoltiplicata nel testo numero ${i}`,
+      })),
+    );
+    const items = (await search(dev, "parolamoltiplicata", "project")).items;
+    expect(items).toHaveLength(35);
+    expect(items.slice(0, 30).every((r) => typeof r.snippet === "string")).toBe(true);
+    expect(items.slice(30).every((r) => r.snippet === null)).toBe(true);
   });
 });
 

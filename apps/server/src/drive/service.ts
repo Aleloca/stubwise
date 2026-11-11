@@ -146,6 +146,8 @@ const SEMANTIC_MAX_DISTANCE = 0.35;
 const SEMANTIC_MAX_FILES = 20;
 /** Lo snippet: il passaggio trovato, in testo puro, al più 300 caratteri. */
 const SNIPPET_MAX = 300;
+/** Le righe restituite che ricevono uno snippet (review della F3): ts_headline costa, e oltre non si legge. */
+const SNIPPET_MAX_ROWS = 30;
 /** Come la tsvector (0145): i primi 100.000 caratteri del testo. */
 const SNIPPET_SOURCE_CHARS = 100_000;
 
@@ -199,14 +201,20 @@ export async function listDriveFiles(
       const [vector] = await opts.embeddings.embed([q]);
       if (vector) {
         const literal = `[${vector.join(",")}]`;
+        // PRIMA il filtro (visibilità, progetto, tipo), POI la distanza, e il
+        // passaggio migliore PER FILE (review della F3): un `ORDER BY distanza
+        // LIMIT` scenderebbe sull'indice HNSW, che restituisce al più
+        // `ef_search` chunk, e i chunk più vicini di un file (o di un progetto)
+        // riempirebbero il tetto lasciando fuori il file giusto. Senza
+        // `ORDER BY` sulla distanza il planner non usa l'indice: è esatto.
+        const distance = sql<number>`(${driveFileChunks.embedding} <=> ${literal}::vector)`;
         const hits = await db
-          .select({ fileId: driveFileChunks.fileId, content: driveFileChunks.content })
+          .selectDistinctOn([driveFileChunks.fileId], { fileId: driveFileChunks.fileId, content: driveFileChunks.content, distance })
           .from(driveFileChunks)
           .innerJoin(driveFiles, eq(driveFiles.id, driveFileChunks.fileId))
-          .where(and(...scopeConditions, sql`${driveFileChunks.embedding} is not null`, sql`(${driveFileChunks.embedding} <=> ${literal}::vector) < ${SEMANTIC_MAX_DISTANCE}`))
-          .orderBy(sql`${driveFileChunks.embedding} <=> ${literal}::vector`)
-          .limit(SEMANTIC_MAX_FILES * 4);
-        for (const h of hits) if (!semantic.has(h.fileId) && semantic.size < SEMANTIC_MAX_FILES) semantic.set(h.fileId, h.content);
+          .where(and(...scopeConditions, sql`${driveFileChunks.embedding} is not null`, sql`${distance} < ${SEMANTIC_MAX_DISTANCE}`))
+          .orderBy(driveFileChunks.fileId, distance);
+        for (const h of hits.sort((a, b) => a.distance - b.distance).slice(0, SEMANTIC_MAX_FILES)) semantic.set(h.fileId, h.content);
       }
     } catch (error) {
       opts.log?.(`[drive] ricerca semantica non disponibile, resta il testo: ${String(error)}`);
@@ -245,7 +253,7 @@ export async function listDriveFiles(
     })
     .from(driveFiles)
     .innerJoin(projects, eq(projects.id, driveFiles.projectId))
-    .where(inArray(driveFiles.id, out.map((r) => r.id)));
+    .where(inArray(driveFiles.id, out.slice(0, SNIPPET_MAX_ROWS).map((r) => r.id)));
   const byId = new Map(snippets.map((s) => [s.id, s]));
   return out.map((row) => {
     const hit = byId.get(row.id);
