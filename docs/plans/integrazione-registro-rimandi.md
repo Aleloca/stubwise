@@ -140,12 +140,11 @@ Design: `docs/plans/2026-11-10-integrazione-area4-chat-design.md`. Fetta 1
 chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
 
 Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse»).
+Fetta 4: renderer (sotto, «Chiuse»).
 
-- Il filtro «con allegati» della ricerca *(fetta 4, con gli allegati)*.
-- **I flag del renderer da accendere con ogni fetta** *(O, 10 nov 2026)*
-  (`CHAT_LATER_FEATURES` in `apps/desktop/src/renderer/data/integration.ts`):
-  quelli delle fette 2 e 3 sono accesi; restano fetta 4 `chat-events` e
-  `chat-attachments`. Ognuno va acceso col suo test di pagina.
+- Limite *(S, renderer della fetta 4)*: un invio con più file si ferma al primo
+  file rifiutato; quelli già caricati restano «in sospeso» e il worker li pota
+  dopo 24 ore (non li si toglie con `DELETE /api/chat/attachments/:id`).
 - `@channel` e `@reparto` non avvisano nessuno (R-G6). È la regola della fetta
   1, da riprendere se il maintainer vuole avvisi di gruppo.
 - Limite accettato: modificare un messaggio avvisa solo chi viene nominato
@@ -244,7 +243,6 @@ Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse�
   `saved_views`, `/api/projects/pulse` se nessuno lo legge più.
 - **MCP** (`@stubwise/mcp`): imparare stati per progetto, reparti, taglie, codici
   R<n>, Home e filtri.
-- Download degli allegati dal desktop (oggi 302 presigned non passa dal proxy).
 - Elenchi oltre le 2000 righe (oggi troncati e dichiarati); una rotta aggregata
   per il polso del portafoglio.
 - **CLI `claude` del worker aggiornato con regolarità** *(M)*, ogni volta col
@@ -266,6 +264,16 @@ Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse�
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- **Area 4, fetta 4: eventi dei progetti e allegati, renderer** *(M, 11 nov
+  2026)*: `chat-events` e `chat-attachments` accesi (sono accesi tutti i flag
+  della Chat); parità in `apps/desktop/docs/integration-area4-f4.md`. Chiude
+  anche il filtro «con allegati» della ricerca.
+- **Download degli allegati dal desktop** *(Trasversali, 11 nov 2026)*: il 302
+  presigned non passava dal proxy. Ora `api:download` del main
+  (`apps/desktop/src/main/apiDownload.ts`) vale per gli allegati della Chat e
+  dei ticket: bearer solo verso l'istanza, Location https (http solo su
+  un'istanza http), «Salva» sempre chiesto, mai aperto.
 
 - **Area 4, fetta 3: @Claude nei canali, server e worker** *(M/O, 10 nov
   2026)*: la chiamata e la sessione privata di chi chiama (D5), il contesto
