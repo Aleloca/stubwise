@@ -318,5 +318,37 @@ describe("review della fetta 4 (11 nov 2026)", () => {
     expect(codes.slice(0, 60).every((c) => c === 201)).toBe(true);
     expect(codes[60]).toBe(429);
   });
+
+  it("4. la potatura: senza storage non tocca niente; un oggetto che lo storage rifiuta tiene la riga per il giro dopo", async () => {
+    const g = await general();
+    // Righe scritte a mano: un caricamento vero lancerebbe una potatura sua, in corsa col test.
+    const [a, b] = await t.db
+      .insert(chatMessageAttachments)
+      .values(
+        ["a", "b"].map((x) => ({
+          channelId: g,
+          uploaderId: dev.id,
+          filename: `vecchio-${x}.pdf`,
+          mimeType: "application/pdf",
+          sizeBytes: 3,
+          storageKey: `chat/${g}/vecchio-${x}-${crypto.randomUUID()}`,
+          createdAt: sql`now() - interval '25 hours'`,
+        })),
+      )
+      .returning({ id: chatMessageAttachments.id });
+    const ids = async () => (await t.db.select({ id: chatMessageAttachments.id }).from(chatMessageAttachments).where(inArray(chatMessageAttachments.id, [a!.id, b!.id]))).map((r) => r.id);
+    await pruneChatUploads(t.db, null, () => undefined);
+    expect((await ids()).sort()).toEqual([a!.id, b!.id].sort());
+    const [aRow] = await t.db.select().from(chatMessageAttachments).where(eq(chatMessageAttachments.id, a!.id));
+    const failing = fakeStorage();
+    failing.deleteObject.mockImplementation(async (key: string) => {
+      if (key === aRow!.storageKey) throw new Error("storage giù");
+    });
+    await pruneChatUploads(t.db, failing, () => undefined);
+    expect(await ids()).toEqual([a!.id]);
+    // Al giro dopo, con lo storage tornato, se ne va anche lei.
+    await pruneChatUploads(t.db, fakeStorage(), () => undefined);
+    expect(await ids()).toEqual([]);
+  });
 });
 

@@ -269,21 +269,31 @@ export async function removePendingAttachment(db: Db, viewer: ChatViewer, id: st
  * vanno, righe e oggetti. La chiamano il timer del server e ogni caricamento.
  */
 export async function pruneChatUploads(db: Db, storage: ObjectStorage | null, log: (msg: string) => void, limit = 200): Promise<number> {
+  // Senza storage non si pota (review della fetta 4): togliere la riga
+  // lascerebbe l'oggetto per sempre, senza più nessuno che lo sappia.
+  if (!storage) return 0;
   const old = await db
-    .select({ id: chatMessageAttachments.id })
+    .select({ id: chatMessageAttachments.id, storageKey: chatMessageAttachments.storageKey })
     .from(chatMessageAttachments)
     .where(
       and(isNull(chatMessageAttachments.messageId), lt(chatMessageAttachments.createdAt, sql`now() - make_interval(secs => ${CHAT_PENDING_TTL_MS / 1000})`)),
     )
     .limit(limit);
-  if (old.length === 0) return 0;
-  const keys = await db.transaction(async (tx) => {
-    const rows = await tx
+  let pruned = 0;
+  for (const row of old) {
+    // Prima l'oggetto, poi la riga: se lo storage rifiuta, la riga resta e il
+    // giro dopo ci riprova. Una riga legata nel frattempo non si tocca.
+    try {
+      await storage.deleteObject(row.storageKey);
+    } catch (error) {
+      log(`[chat] allegato in sospeso ${row.id} non tolto dallo storage, riprovo al giro dopo: ${String(error)}`);
+      continue;
+    }
+    const gone = await db
       .delete(chatMessageAttachments)
-      .where(and(inArray(chatMessageAttachments.id, old.map((r) => r.id)), isNull(chatMessageAttachments.messageId)))
-      .returning({ storageKey: chatMessageAttachments.storageKey });
-    return rows.map((r) => r.storageKey);
-  });
-  await deleteStoredObjects(storage, keys, log);
-  return keys.length;
+      .where(and(eq(chatMessageAttachments.id, row.id), isNull(chatMessageAttachments.messageId)))
+      .returning({ id: chatMessageAttachments.id });
+    pruned += gone.length;
+  }
+  return pruned;
 }
