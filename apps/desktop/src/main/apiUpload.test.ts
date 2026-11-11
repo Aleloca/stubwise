@@ -58,10 +58,10 @@ describe("i token dei file scelti", () => {
     const r = await tokens.register(1, file("spec.pdf", "%PDF-1"), "application/pdf");
     expect(r).toMatchObject({ ok: true, name: "spec.pdf", sizeBytes: 6 });
     if (!r.ok) throw new Error("no token");
-    expect(tokens.take(2, r.token)).toBeNull();
-    const entry = tokens.take(1, r.token)!;
+    expect(tokens.take(2, r.grant)).toBeNull();
+    const entry = tokens.take(1, r.grant)!;
     expect(entry).toMatchObject({ name: "spec.pdf", size: 6, mime: "application/pdf" });
-    expect(tokens.take(1, r.token)).toBeNull();
+    expect(tokens.take(1, r.grant)).toBeNull();
     await entry.handle.close();
   });
 
@@ -98,12 +98,12 @@ describe("i token dei file scelti", () => {
     await tokens.dropOwner(1);
     expect(tokens.open(1)).toBe(0);
     if (!a.ok || !b.ok) throw new Error("no token");
-    expect(tokens.take(1, a.token)).toBeNull();
+    expect(tokens.take(1, a.grant)).toBeNull();
     // Scaduto.
     const e = await tokens.register(3, file("e.txt", "e"), "text/plain");
     if (!e.ok) throw new Error("no token");
     now += 60_001;
-    expect(tokens.take(3, e.token)).toBeNull();
+    expect(tokens.take(3, e.grant)).toBeNull();
     await tokens.dropOwner(2);
   });
 
@@ -111,7 +111,7 @@ describe("i token dei file scelti", () => {
     const tokens = createUploadTokens();
     const r = await tokens.register(1, file("x.bin", "x"), 'text/plain"\r\nX-Evil: 1');
     if (!r.ok) throw new Error("no token");
-    expect(tokens.take(1, r.token)!.mime).toBe("application/octet-stream");
+    expect(tokens.take(1, r.grant)!.mime).toBe("application/octet-stream");
   });
 });
 
@@ -134,7 +134,7 @@ describe("il caricamento", () => {
     const tokens = createUploadTokens();
     const r = await tokens.register(1, file(name, content), mime);
     if (!r.ok) throw new Error("no token");
-    return tokens.take(1, r.token)!;
+    return tokens.take(1, r.grant)!;
   }
   const deps = (over: Record<string, unknown> = {}) => ({
     instanceUrl: () => "https://stubwise.example.com",

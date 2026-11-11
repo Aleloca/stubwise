@@ -38,7 +38,7 @@ export interface UploadEntry {
 }
 
 export type RegisterResult =
-  | { ok: true; token: string; name: string; sizeBytes: number }
+  | { ok: true; grant: string; name: string; sizeBytes: number }
   | { ok: false; reason: "invalid" | "too_large" | "too_many" };
 
 /**
@@ -90,9 +90,9 @@ export function createUploadTokens({
         await closeQuietly(handle);
         return { ok: false, reason: "too_large" };
       }
-      const token = randomBytes(24).toString("base64url");
+      const grant = randomBytes(24).toString("base64url");
       const name = basename(path);
-      entries.set(token, {
+      entries.set(grant, {
         owner,
         handle,
         size: stat.size,
@@ -100,15 +100,15 @@ export function createUploadTokens({
         mime: typeof mime === "string" && MIME_RE.test(mime) ? mime : "application/octet-stream",
         expiresAt: now() + ttlMs,
       });
-      return { ok: true, token, name, sizeBytes: stat.size };
+      return { ok: true, grant, name, sizeBytes: stat.size };
     },
     /** Il file di un token, una volta sola e solo per chi l'ha chiesto; chi lo prende chiude il descrittore. */
-    take(owner: number, token: unknown): UploadEntry | null {
+    take(owner: number, grant: unknown): UploadEntry | null {
       sweep();
-      if (typeof token !== "string") return null;
-      const e = entries.get(token);
+      if (typeof grant !== "string") return null;
+      const e = entries.get(grant);
       if (!e || e.owner !== owner) return null;
-      entries.delete(token);
+      entries.delete(grant);
       return { handle: e.handle, size: e.size, name: e.name, mime: e.mime };
     },
     /** Quanti token ha aperti una finestra. */

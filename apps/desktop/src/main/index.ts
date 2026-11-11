@@ -10,6 +10,7 @@ import {
   type DownloadResult,
 } from "./apiDownload";
 import { handleApiRequest, isWebPath } from "./apiProxy";
+import { createUploadTokens, uploadFile, type UploadResult } from "./apiUpload";
 import { createStreamRegistry } from "./apiStream";
 import { normalizeInstanceUrl, readInstanceUrl, writeInstanceUrl } from "./instance";
 import { buildMenuTemplate } from "./menu";
@@ -56,6 +57,16 @@ function createWindow(): BrowserWindow {
   win.webContents.on("will-navigate", (event, url) => {
     const packagedUrl = pathToFileURL(packagedFile).href;
     if (!isNavigationAllowed(url, { devUrl, packagedUrl })) event.preventDefault();
+  });
+
+  // I file scelti e i caricamenti in corso di questa finestra finiscono con lei.
+  const owner = win.webContents.id;
+  win.webContents.once("destroyed", () => {
+    void uploadTokens.dropOwner(owner);
+    for (const [key, upload] of uploads) if (upload.owner === owner) {
+      upload.abort.abort();
+      uploads.delete(key);
+    }
   });
 
   if (devUrl) void win.loadURL(devUrl);
@@ -187,6 +198,69 @@ ipcMain.handle("api:download", async (event, raw: unknown): Promise<DownloadResu
     }, DOWNLOAD_START_TIMEOUT_MS);
     event.sender.downloadURL(target.url);
   });
+});
+
+// --- il caricamento dei file del Drive (area 5, fetta 2) -----------------------------
+//
+// `files:register`: il preload passa il percorso di un File scelto dall'utente
+// (`webUtils.getPathForFile`); il main apre il file una volta sola e restituisce
+// un token monouso (mai il percorso). `api:upload`: il main manda in streaming
+// quel file alla rotta del Drive (`apiUpload.ts`); il progresso va solo alla
+// finestra che chiede (`files:progress`, al più 4 volte al secondo);
+// `files:cancel` annulla.
+
+const uploadTokens = createUploadTokens();
+const uploads = new Map<string, { owner: number; abort: AbortController }>();
+const UPLOAD_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const PROGRESS_EVERY_MS = 250;
+
+ipcMain.handle("files:register", async (event, raw: unknown) => {
+  if (!fromApp(event)) return { ok: false, reason: "invalid" };
+  const r = raw as { path?: unknown; mime?: unknown } | null;
+  return uploadTokens.register(
+    event.sender.id,
+    typeof r?.path === "string" ? r.path : "",
+    typeof r?.mime === "string" ? r.mime : "",
+  );
+});
+
+ipcMain.handle("api:upload", async (event, raw: unknown): Promise<UploadResult> => {
+  if (!fromApp(event)) return { ok: false, reason: "invalid" };
+  const r = raw as { grant?: unknown; path?: unknown; uploadId?: unknown } | null;
+  const entry = uploadTokens.take(event.sender.id, r?.grant);
+  if (!entry) return { ok: false, reason: "invalid" };
+  const uploadId = typeof r?.uploadId === "string" && UPLOAD_ID_RE.test(r.uploadId) ? r.uploadId : null;
+  const owner = event.sender.id;
+  const abort = new AbortController();
+  const key = `${owner}:${uploadId ?? ""}`;
+  if (uploadId) uploads.set(key, { owner, abort });
+  let last = 0;
+  try {
+    return await uploadFile(entry, typeof r?.path === "string" ? r.path : "", {
+      instanceUrl: readInstanceUrl,
+      token: readToken,
+      onUnauthorized,
+    }, {
+      signal: abort.signal,
+      onProgress: (sent, total) => {
+        const t = Date.now();
+        if (!uploadId || (t - last < PROGRESS_EVERY_MS && sent < total)) return;
+        last = t;
+        if (!event.sender.isDestroyed()) event.sender.send("files:progress", { uploadId, sent, total });
+      },
+    });
+  } finally {
+    if (uploadId) uploads.delete(key);
+  }
+});
+
+ipcMain.handle("files:cancel", (event, raw: unknown) => {
+  if (!fromApp(event)) return false;
+  const uploadId = (raw as { uploadId?: unknown } | null)?.uploadId;
+  if (typeof uploadId !== "string") return false;
+  const upload = uploads.get(`${event.sender.id}:${uploadId}`);
+  upload?.abort.abort();
+  return upload !== undefined;
 });
 
 function installDownloads(): void {

@@ -19,6 +19,13 @@ type StubwiseApiRequest = {
 };
 type StubwiseApiResponse = { status: number; headers: Record<string, string>; body: string | ArrayBuffer };
 /** L'esito di un download (`api:download`): mai il percorso scelto, mai l'URL firmato. */
+/** Un file scelto dall'utente, aperto dal main: il token, mai il percorso. */
+type StubwiseRegisterResult =
+  | { ok: true; grant: string; name: string; sizeBytes: number }
+  | { ok: false; reason: "invalid" | "too_large" | "too_many" };
+type StubwiseUploadResult =
+  | { ok: true; status: number; body: unknown }
+  | { ok: false; reason: "invalid" | "unauthenticated" | "too_large" | "unsupported_type" | "failed" | "canceled"; status?: number };
 type StubwiseDownloadResult =
   | { ok: true }
   | { ok: false; reason: "invalid" | "unauthenticated" | "not_found" | "failed" | "canceled" };
@@ -65,11 +72,19 @@ interface Window {
     ) => () => void;
     /** Salva un PDF (stampato dal main) o un Word: la finestra di salvataggio, poi l'esito (area 11a). */
     saveFile?: (req: StubwiseSaveFileRequest) => Promise<StubwiseSaveFileResult>;
+    /** I file scelti dall'utente (fetta 2 dell'area 5): il main li apre e dà un token monouso. */
+    files?: {
+      register: (file: File) => Promise<StubwiseRegisterResult>;
+      cancel: (uploadId: string) => Promise<boolean>;
+      onProgress: (fn: (progress: { uploadId: string; sent: number; total: number }) => void) => () => void;
+    };
     /** Le richieste API verso l'istanza, col token aggiunto dal main (build app, integrazione area 2). */
     api?: {
       request: (req: StubwiseApiRequest) => Promise<StubwiseApiResponse>;
       /** Il download di un allegato (fetta 4 della Chat): il main lo scarica e chiede dove salvarlo. */
       download?: (path: string) => Promise<StubwiseDownloadResult>;
+      /** Il caricamento di un file del Drive (fetta 2 dell'area 5): il main legge il file in streaming. */
+      upload?: (req: { grant: string; path: string; uploadId: string }) => Promise<StubwiseUploadResult>;
     };
     /**
      * Lo stream di una sessione (`/api/agent-sessions/:uuid/stream?after=n`),

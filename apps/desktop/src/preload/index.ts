@@ -1,6 +1,7 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type { DownloadResult } from "../main/apiDownload";
 import type { ApiProxyRequest, ApiProxyResponse } from "../main/apiProxy";
+import type { RegisterResult, UploadResult } from "../main/apiUpload";
 import type { StreamPortMessage } from "../main/apiStream";
 import type { SaveFileRequest, SaveFileResult } from "../main/security";
 import type { SessionChange } from "../main/browserLogin";
@@ -44,6 +45,31 @@ contextBridge.exposeInMainWorld("stubwise", {
      * token, segue il 302 e apre la finestra «Salva». Qui torna solo l'esito.
      */
     download: (path: string): Promise<DownloadResult> => ipcRenderer.invoke("api:download", { path }),
+    /**
+     * Il caricamento di un file del Drive (area 5, fetta 2): `grant` viene da
+     * `files.register`, il main legge il file in streaming e lo manda alla rotta.
+     */
+    upload: (req: { grant: string; path: string; uploadId: string }): Promise<UploadResult> =>
+      ipcRenderer.invoke("api:upload", req),
+  },
+  /**
+   * I file scelti dall'utente (area 5, fetta 2). `register` prende il percorso
+   * di un File vero (`webUtils`: vuoto per un File costruito dalla pagina) e lo
+   * dà al main, che apre il file e restituisce un permesso monouso (`grant`): la pagina non vede mai
+   * il percorso.
+   */
+  files: {
+    register: (file: File): Promise<RegisterResult> =>
+      ipcRenderer.invoke("files:register", { path: webUtils.getPathForFile(file), mime: file.type }),
+    cancel: (uploadId: string): Promise<boolean> => ipcRenderer.invoke("files:cancel", { uploadId }),
+    onProgress: (fn: (progress: { uploadId: string; sent: number; total: number }) => void): (() => void) => {
+      const handler = (_event: Electron.IpcRendererEvent, progress: { uploadId: string; sent: number; total: number }) =>
+        fn(progress);
+      ipcRenderer.on("files:progress", handler);
+      return () => {
+        ipcRenderer.removeListener("files:progress", handler);
+      };
+    },
   },
   /**
    * Lo stream dal vivo di una sessione (area 3, fetta 3a): il main apre

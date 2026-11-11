@@ -131,7 +131,11 @@ describe("canali IPC", () => {
     "api:request",
     "api:stream-open",
     "api:stream-port",
+    "api:upload",
     "file:save",
+    "files:cancel",
+    "files:progress",
+    "files:register",
     "instance:get",
     "instance:set",
     "menu:ask-claude",
@@ -181,6 +185,14 @@ describe("canali IPC", () => {
     expect(preload).toMatch(/ipcRenderer\.invoke\("api:download", \{ path \}\)/);
   });
 
+  it("il caricamento del Drive (fetta 2 dell'area 5): il preload dà solo File veri, il main dà un token, il progresso solo a chi chiede", () => {
+    expect(preload).toMatch(/webUtils\.getPathForFile\(file\)/);
+    expect(main).toMatch(/ipcMain\.handle\("files:register",[\s\S]*?fromApp\(event\)[\s\S]*?uploadTokens\.register\(\s*event\.sender\.id/);
+    expect(main).toMatch(/ipcMain\.handle\("api:upload",[\s\S]*?fromApp\(event\)[\s\S]*?uploadTokens\.take\(event\.sender\.id/);
+    expect(main).toMatch(/event\.sender\.send\("files:progress",/);
+    expect(main).toMatch(/once\("destroyed",[\s\S]*?uploadTokens\.dropOwner\(owner\)/);
+  });
+
   it("nessuna chiamata IPC con un canale che non sia letterale (tranne i menu della lista fissa)", () => {
     const calls = [...`${main}\n${preload}`.matchAll(/ipc(?:Main|Renderer)\.(on|handle|send|invoke|once)\(\s*([^,)]+)/g)];
     const dynamic = calls.map((m) => m[2]!.trim()).filter((arg) => !/^"[a-z]+:[a-z-]+"$/.test(arg));
@@ -218,7 +230,10 @@ describe("canali IPC", () => {
     expect(channels.sort()).toEqual([
       "api:download",
       "api:request",
+      "api:upload",
       "file:save",
+      "files:cancel",
+      "files:register",
       "instance:get",
       "instance:set",
       "open:web",
@@ -234,7 +249,7 @@ describe("canali IPC", () => {
     }
   });
 
-  it("il preload espone solo platform, setTheme, onMenu, saveFile, api, openStream, instance, session e openWeb", () => {
+  it("il preload espone solo platform, setTheme, onMenu, saveFile, api, files, openStream, instance, session e openWeb", () => {
     const exposed = preload.match(/exposeInMainWorld\("stubwise", \{([\s\S]*)\}\);/)?.[1] ?? "";
     const keys = [...exposed.matchAll(/^ {2}([a-zA-Z]+):/gm)].map((m) => m[1]);
     expect(keys).toEqual([
@@ -243,6 +258,7 @@ describe("canali IPC", () => {
       "onMenu",
       "saveFile",
       "api",
+      "files",
       "openStream",
       "instance",
       "session",
