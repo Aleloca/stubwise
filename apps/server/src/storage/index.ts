@@ -1,5 +1,6 @@
 import { decrypt, instanceSettings } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
+import type { Readable } from "node:stream";
 import { createS3Storage } from "./s3.js";
 
 export { createS3Storage };
@@ -49,12 +50,24 @@ export interface ObjectStorage {
   /** Carica `body` con il `contentType` dato sotto la chiave `key`. */
   putObject(key: string, body: Buffer, contentType: string): Promise<void>;
   /**
-   * URL firmato per il download diretto di `key`, valido `expiresInSeconds`
-   * (default 300s). `filename` finisce nel Content-Disposition `attachment`.
+   * Carica uno STREAM (area 5, fetta 2: il Drive, fino a 100 MB) col caricamento
+   * multipart: il file non sta mai tutto in memoria. Chi chiama conta i byte e
+   * tronca lo stream oltre il tetto; un errore annulla il multipart.
    */
-  getSignedDownloadUrl(key: string, filename: string, expiresInSeconds?: number): Promise<string>;
+  putObjectStream(key: string, body: Readable, contentType: string): Promise<void>;
+  /** Copia `fromKey` in `toKey` (Save to Drive: due oggetti indipendenti). */
+  copyObject(fromKey: string, toKey: string): Promise<void>;
+  /**
+   * URL firmato per il download diretto di `key`, valido `expiresInSeconds`
+   * (default 300s). `filename` finisce nel Content-Disposition `attachment`;
+   * con `inlineContentType` (l'anteprima di un tipo sicuro) `inline`, col
+   * Content-Type forzato a quello.
+   */
+  getSignedDownloadUrl(key: string, filename: string, expiresInSeconds?: number, opts?: { inlineContentType?: string }): Promise<string>;
   /** Elimina l'oggetto `key` (no-op lato S3 se non esiste). */
   deleteObject(key: string): Promise<void>;
+  /** L'origine degli URL firmati (`https://host`): un'anteprima inline vuole un'origine diversa dall'istanza. */
+  readonly origin?: string;
 }
 
 /** Configurazione di un backend S3-compatibile, con secret key in chiaro. */

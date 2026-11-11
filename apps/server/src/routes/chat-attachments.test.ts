@@ -19,6 +19,8 @@ function fakeStorage() {
     putObject: vi.fn(async (key: string, body: Buffer) => void objects.set(key, body)),
     getSignedDownloadUrl: vi.fn(async (key: string, filename: string) => `https://fake-storage.test/${key}?filename=${encodeURIComponent(filename)}`),
     deleteObject: vi.fn(async (key: string) => void objects.delete(key)),
+    putObjectStream: vi.fn(async () => undefined),
+    copyObject: vi.fn(async (from: string, to: string) => void objects.set(to, objects.get(from) ?? Buffer.alloc(0))),
   };
 }
 

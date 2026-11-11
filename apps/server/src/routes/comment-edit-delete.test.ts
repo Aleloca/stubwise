@@ -42,6 +42,8 @@ const fakeStorage: ObjectStorage = {
   putObject: async () => {},
   getSignedDownloadUrl: async (key) => `https://fake-storage.test/${key}`,
   deleteObject,
+  putObjectStream: async () => {},
+  copyObject: async () => {},
 };
 /** Lo storage che l'app vede: un test può sostituirlo con uno che lancia. */
 let currentStorage: () => Promise<ObjectStorage | null> = async () => fakeStorage;
