@@ -88,7 +88,7 @@ async function projectOfRepository(repositoryId: string): Promise<string | null>
   for (const project of await listProjects()) {
     if (!project.modules.includes("docs")) continue;
     const spaces = (await read(() => appClient().docs.projectSpaces(project.id))) ?? [];
-    for (const s of spaces) spaceOf.set(s.repositoryId, { projectId: project.id, name: s.name, slug: s.slug });
+    for (const s of spaces) spaceOf.set(s.repositoryId, { projectId: s.projectId ?? project.id, name: s.name, slug: s.slug });
     if (spaceOf.has(repositoryId)) return project.id;
   }
   return null;
@@ -147,18 +147,27 @@ function excerptOf(body: string): string {
 /**
  * Lo stato della generazione dallo stato del server: il job più nuovo se è
  * ancora in coda, in corso o trattenuto, altrimenti l'ultima generazione. Il
- * motivo (un codice) il server non lo dà ancora: la UI dice la frase generica.
+ * motivo è il codice del server (`reasonCode`); `other` (o un codice che il
+ * renderer non conosce) è nessun motivo: la UI dice la frase generica.
+ * `resumesAt` e l'avanzamento solo quando il server li sa.
  */
 function generationOf(status: Reader<DocStatusResponse> | null): DocGeneration {
   const g = status?.generation ?? null;
   const job = status?.latestJob ?? null;
   const provider = status?.pinnedProvider?.label ?? null;
+  const code = status?.reasonCode ?? null;
+  const reason: DocGeneration["reason"] =
+    code === "usage_limit" || code === "monthly_budget" || code === "worker_restart" || code === "provider_error"
+      ? code
+      : null;
   const base = {
     lastAt: g ? (g.finishedAt ?? g.startedAt ?? g.createdAt) : null,
     commit: g?.commitSha ?? null,
     costUsd: g?.cost != null && Number.isFinite(Number(g.cost)) ? Number(g.cost) : null,
     provider,
-    reason: null,
+    reason,
+    ...(status?.resumesAt ? { resumesAt: status.resumesAt } : {}),
+    ...(status?.progress ? { progress: { done: status.progress.done, total: status.progress.total } } : {}),
   };
   const jobNewer = job && (!g || job.createdAt >= g.createdAt);
   if (job && jobNewer && (job.status === "queued" || job.status === "running" || job.status === "held")) {

@@ -453,3 +453,35 @@ describe("il grafo del codice", () => {
   });
 });
 
+describe("lo stato della generazione col motivo (server dopo 1deba629)", () => {
+  const gen = { id: "7f1c2a1e-0000-4000-8000-0000000000f2", status: "paused", commitSha: "abc", model: null, cost: "1.25", stats: null, startedAt: "2026-11-11T09:00:00.000Z", finishedAt: null, createdAt: "2026-11-11T09:00:00.000Z" };
+  it("una pausa sul limite: il codice, quando riprende e l'avanzamento", async () => {
+    install({
+      [`GET /api/repositories/${REPO}/docs/status`]: {
+        body: { generation: gen, latestJob: null, pinnedProvider: { id: REPO, label: "Claude (team)", kind: "anthropic" }, reasonCode: "usage_limit", resumesAt: "2026-11-11T14:00:00.000Z", progress: { done: 4, total: 10 } },
+      },
+    });
+    await getSessionPerson();
+    const [view] = await docs.listDocSpaces(PROJECT_ID);
+    expect(view!.generation).toEqual({
+      status: "paused",
+      lastAt: "2026-11-11T09:00:00.000Z",
+      commit: "abc",
+      costUsd: 1.25,
+      provider: "Claude (team)",
+      reason: "usage_limit",
+      resumesAt: "2026-11-11T14:00:00.000Z",
+      progress: { done: 4, total: 10 },
+    });
+  });
+  it("«other» (o un codice che il renderer non conosce): nessun motivo, la frase generica", async () => {
+    install({
+      [`GET /api/repositories/${REPO}/docs/status`]: { body: { generation: { ...gen, status: "failed" }, latestJob: null, pinnedProvider: null, reasonCode: "other" } },
+    });
+    await getSessionPerson();
+    const [view] = await docs.listDocSpaces(PROJECT_ID);
+    expect(view!.generation).toMatchObject({ status: "failed", reason: null });
+    expect(view!.generation).not.toHaveProperty("resumesAt");
+  });
+});
+
