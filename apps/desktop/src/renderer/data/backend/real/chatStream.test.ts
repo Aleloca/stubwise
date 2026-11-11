@@ -170,6 +170,68 @@ describe("@Claude dal vivo (fetta 3)", () => {
   });
 });
 
+describe("@Claude dal vivo, review della fetta 3", () => {
+  const SESSION = "7f1c2a1e-0000-4000-8000-0000000000f1";
+  const toolEvent = {
+    id: "1",
+    type: "tool_use",
+    segmentId: "s1",
+    at: "2026-11-10T10:00:01.000Z",
+    data: { toolUseId: "t1", name: "mcp__stubwise_chat__search_tasks", input: { q: "x" } },
+  };
+  const reply = (text: string) =>
+    msg({
+      id: REPLY,
+      threadRootId: ROOT,
+      kind: "claude",
+      calledById: ROOT,
+      text,
+      createdAt: "2026-11-10T10:00:05.000Z",
+      claude: { state: "working", sessionId: SESSION },
+    });
+
+  it("la risposta riletta dopo le righe non riporta indietro un testo più nuovo già consegnato", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    installFakeServer({
+      [`GET /api/chat/messages/${ROOT}`]: { body: msg({ replyCount: 1 }) },
+      [`GET /api/agent-sessions/${SESSION}/events`]: async () => {
+        await gate;
+        return { body: { events: [toolEvent], before: null } };
+      },
+    });
+    const got: string[] = [];
+    subscribeChat(threadStream(ROOT), (m) => got.push(m.text));
+    await vi.waitFor(() => expect(opened).toHaveLength(1));
+    opened[0]!.handlers.onFrame(messages([reply("A")]));
+    opened[0]!.handlers.onFrame(messages([reply("AB")]));
+    release();
+    await vi.waitFor(() => expect(got.length).toBeGreaterThan(2));
+    expect(got.at(-1)).toBe("AB");
+  });
+
+  it("un frame dentro la finestra dei 4 s fa una lettura alla sua fine, anche senza altri frame", async () => {
+    const { seen } = installFakeServer({
+      [`GET /api/chat/messages/${ROOT}`]: { body: msg({ replyCount: 1 }) },
+      [`GET /api/agent-sessions/${SESSION}/events`]: { body: { events: [toolEvent], before: null } },
+    });
+    const reads = () => seen.filter((r) => r.path.includes("/events")).length;
+    subscribeChat(threadStream(ROOT), () => undefined);
+    await vi.waitFor(() => expect(opened).toHaveLength(1));
+    opened[0]!.handlers.onFrame(messages([reply("A")]));
+    await vi.waitFor(() => expect(reads()).toBe(1));
+    await vi.advanceTimersByTimeAsync(1000);
+    opened[0]!.handlers.onFrame(messages([reply("AB")]));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(reads()).toBe(1);
+    await vi.advanceTimersByTimeAsync(3500);
+    await vi.waitFor(() => expect(reads()).toBe(2));
+    // Senza frame nella finestra seguente, nessun'altra lettura.
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(reads()).toBe(2);
+  });
+});
+
 describe("review della fetta 1", () => {
   const later = (id: string, at: string, over: Record<string, unknown> = {}) => msg({ id, createdAt: at, ...over });
 

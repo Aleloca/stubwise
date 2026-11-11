@@ -11,7 +11,7 @@ import type * as Fake from "../../api";
 import type { ChatMessageView } from "../../types";
 import { appClient } from "./client";
 import { knownChannelOf, toMessage } from "./chat";
-import { loadClaudeExtras } from "./chatClaude";
+import { loadClaudeExtras, sessionReadIn } from "./chatClaude";
 
 // Lo stream dal vivo della Chat nella build app (integrazione area 4, fetta
 // 1): UN SSE per canale (`GET /api/chat/channels/:id/stream`), CONDIVISO da
@@ -185,6 +185,14 @@ interface ChannelConnection {
   channelSig: string | null;
   /** Una ripresa dopo una caduta: alla prima risposta si rilegge la pagina. */
   resumed: boolean;
+  /** L'ordine di arrivo: ogni frame (o rilettura) di un messaggio ha un numero che cresce. */
+  seq: number;
+  /** L'ultimo numero consegnato per messaggio: uno più vecchio non si consegna. */
+  versions: Map<string, number>;
+  /** L'ultima forma arrivata per messaggio (la rilettura delle righe consegna questa). */
+  rawById: Map<string, Parameters<typeof toMessage>[0]>;
+  /** La lettura in coda alla finestra dei 4 s di una risposta di @Claude. */
+  trailing: Map<string, ReturnType<typeof setTimeout>>;
 }
 
 const connections = new Map<string, ChannelConnection>();
@@ -192,7 +200,15 @@ const connections = new Map<string, ChannelConnection>();
 const keeps = (l: Listener, m: { id: string; threadRootId: string | null; alsoInChannel?: boolean }) =>
   l.threadOf ? m.id === l.threadOf || m.threadRootId === l.threadOf : m.threadRootId === null || m.alsoInChannel === true;
 
-function deliver(conn: ChannelConnection, view: ChatMessageView, raw: { id: string; threadRootId: string | null; alsoInChannel?: boolean }) {
+function deliver(
+  conn: ChannelConnection,
+  view: ChatMessageView,
+  raw: { id: string; threadRootId: string | null; alsoInChannel?: boolean },
+  seq: number,
+) {
+  // Un frame più vecchio dell'ultimo consegnato per questo messaggio non lo sovrascrive.
+  if (seq < (conn.versions.get(raw.id) ?? 0)) return false;
+  conn.versions.set(raw.id, seq);
   const fresh = conn.latest === null || view.createdAt > conn.latest;
   if (fresh) conn.latest = view.createdAt;
   let delivered = false;
@@ -210,11 +226,33 @@ function deliver(conn: ChannelConnection, view: ChatMessageView, raw: { id: stri
  * (solo di chi ha chiamato) e i codici si leggono a parte, e quando cambiano
  * la risposta torna «cambiata» con loro.
  */
-function withExtras(conn: ChannelConnection, raw: Parameters<typeof toMessage>[0]): void {
+function arrive(conn: ChannelConnection, raw: Parameters<typeof toMessage>[0]): boolean {
+  const seq = ++conn.seq;
+  conn.rawById.set(raw.id, raw);
+  return deliver(conn, toMessage(raw), raw, seq);
+}
+
+function withExtras(conn: ChannelConnection, id: string, fromFrame = true): void {
+  const raw = conn.rawById.get(id);
+  if (!raw) return;
+  // Un frame dentro la finestra dei 4 s: una lettura alla sua fine (una sola),
+  // così le righe arrivano anche se poi non arriva più niente.
+  const wait = fromFrame ? sessionReadIn(raw) : null;
+  if (wait !== null && !conn.trailing.has(id)) {
+    conn.trailing.set(
+      id,
+      setTimeout(() => {
+        conn.trailing.delete(id);
+        if (connections.get(conn.channelId) === conn) withExtras(conn, id, false);
+      }, wait),
+    );
+  }
   void loadClaudeExtras(raw).then(
     (changed) => {
       if (!changed || connections.get(conn.channelId) !== conn) return;
-      if (deliver(conn, toMessage(raw), raw)) notifyChange(conn.channelId);
+      // Si consegna l'ultima forma arrivata, non quella che ha fatto partire la lettura.
+      const latest = conn.rawById.get(id) ?? raw;
+      if (deliver(conn, toMessage(latest), latest, conn.versions.get(id) ?? 0)) notifyChange(conn.channelId);
     },
     () => undefined,
   );
@@ -224,13 +262,13 @@ function withExtras(conn: ChannelConnection, raw: Parameters<typeof toMessage>[0
 async function catchUp(conn: ChannelConnection): Promise<void> {
   try {
     const page = await appClient().chat.messages.page(conn.channelId, { limit: 50 });
-    for (const m of page.items) deliver(conn, toMessage(m), m);
+    for (const m of page.items) arrive(conn, m);
     for (const l of conn.listeners) {
       if (!l.threadOf) continue;
       const t = await appClient().chat.messages.thread(l.threadOf);
       for (const m of [t.root, ...t.replies]) {
-        deliver(conn, toMessage(m), m);
-        withExtras(conn, m);
+        arrive(conn, m);
+        withExtras(conn, m.id);
       }
     }
     notifyChange(conn.channelId);
@@ -247,6 +285,8 @@ function endAll(conn: ChannelConnection, connection: Connection) {
 
 function drop(conn: ChannelConnection) {
   clearTimeout(conn.timer);
+  for (const t of conn.trailing.values()) clearTimeout(t);
+  conn.trailing.clear();
   conn.close?.();
   conn.close = null;
   conn.listeners.clear();
@@ -277,8 +317,8 @@ function connect(conn: ChannelConnection) {
         }
         let any = false;
         for (const m of message.messages) {
-          any = deliver(conn, toMessage(m), m) || any;
-          withExtras(conn, m);
+          any = arrive(conn, m) || any;
+          withExtras(conn, m.id);
         }
         if (any) notifyChange(conn.channelId);
       }
@@ -309,6 +349,10 @@ function attach(channelId: string, listener: Listener): () => void {
       latest: null,
       channelSig: null,
       resumed: false,
+      seq: 0,
+      versions: new Map(),
+      rawById: new Map(),
+      trailing: new Map(),
     };
     connections.set(channelId, conn);
     conn.listeners.add(listener);

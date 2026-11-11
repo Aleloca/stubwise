@@ -38,6 +38,20 @@ const actionRows = new Map<string, ConversationEvent[]>();
 const sessionReads = new Map<string, { at: number; state: string }>();
 export const SESSION_REREAD_MS = 4000;
 
+/**
+ * Fra quanto la sessione di questa risposta si potrà rileggere, se adesso è
+ * dentro la finestra (lavora e l'ha già letta da poco); `null` = niente da
+ * aspettare (già dovuta, finita, o non di chi guarda).
+ */
+export function sessionReadIn(v: ServerMsg): number | null {
+  const c = v.kind === "claude" ? v.claude : null;
+  if (!c?.sessionId || c.state !== "working") return null;
+  const last = sessionReads.get(c.sessionId);
+  if (!last || last.state !== c.state) return null;
+  const wait = SESSION_REREAD_MS - (Date.now() - last.at);
+  return wait > 0 ? wait : null;
+}
+
 function sessionDue(id: string, state: string): boolean {
   const last = sessionReads.get(id);
   if (!last || last.state !== state) return true;
