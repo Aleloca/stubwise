@@ -201,4 +201,15 @@ describe("i Docs nella build app", () => {
     await waitFor(() => expect(decodeURIComponent(router.state.location.pathname)).toBe("/p/AUD/docs/Audin App/dialer"));
     expect(await screen.findByRole("heading", { level: 1, name: "Dialer" }, { timeout: 3000 })).toBeInTheDocument();
   });
+  it("la visita a una pagina non ricarica i Docs (fire-and-forget)", async () => {
+    install();
+    renderRoute("/p/AUD/docs/audin-app/dialer");
+    expect(await screen.findByRole("heading", { level: 1, name: "Dialer" }, { timeout: 3000 })).toBeInTheDocument();
+    await waitFor(() => expect(seen.some((r) => r.method === "POST" && r.path.endsWith("/view"))).toBe(true));
+    await new Promise((r) => setTimeout(r, 400));
+    // Dopo la visita, nessuna rilettura dei Docs (spazi, albero, highlights).
+    const post = seen.findIndex((r) => r.method === "POST" && r.path.endsWith("/view"));
+    const after = seen.slice(post + 1).filter((r) => r.method === "GET" && /\/docs\/(spaces|tree|highlights)$/.test(r.path));
+    expect(after).toEqual([]);
+  });
 });

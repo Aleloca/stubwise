@@ -543,5 +543,22 @@ describe("review della fetta 1 dell'area 5", () => {
     expect(seen.some((r) => r.method === "POST")).toBe(false);
     expect(await docs.listDocTree(REPO)).toEqual([]);
   });
+  it("il polling rilegge solo lo stato (generazione e grafo); albero, highlights e brief solo quando lo stato cambia", async () => {
+    let status: unknown = { generation: null, latestJob: { id: P1, status: "running", trigger: "manual", error: null, createdAt: "2026-11-11T10:00:00.000Z", startedAt: null, finishedAt: null }, pinnedProvider: null };
+    const { seen } = install({ [`GET /api/repositories/${REPO}/docs/status`]: () => ({ body: status }) });
+    await getSessionPerson();
+    await docs.listDocSpaces(PROJECT_ID);
+    await docs.listDocSpaces(PROJECT_ID);
+    const count = (suffix: string) => seen.filter((r) => r.path.endsWith(suffix)).length;
+    expect(count("/docs/status")).toBe(2);
+    expect(count("/graph")).toBe(2);
+    expect(count("/docs/tree")).toBe(1);
+    expect(count("/docs/highlights")).toBe(1);
+    expect(count("/docs/brief")).toBe(1);
+    // La generazione finisce: lo spazio si rilegge per intero.
+    status = { generation: { id: P2, status: "succeeded", commitSha: "abc", model: null, cost: null, stats: null, startedAt: null, finishedAt: "2026-11-11T10:05:00.000Z", createdAt: "2026-11-11T10:00:00.000Z" }, latestJob: null, pinnedProvider: null };
+    await docs.listDocSpaces(PROJECT_ID);
+    expect(count("/docs/tree")).toBe(2);
+  });
 });
 

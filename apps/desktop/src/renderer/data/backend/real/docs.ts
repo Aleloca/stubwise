@@ -61,6 +61,7 @@ export function forgetDocsCaches(): void {
   pageWhere.clear();
   reports.clear();
   releaseTexts.clear();
+  slowParts.clear();
 }
 
 async function read<T>(run: () => Promise<T>): Promise<T | null> {
@@ -357,18 +358,51 @@ async function treeOf(repositoryId: string, projectId: string) {
   return { nodes, byId, refs };
 }
 
+/**
+ * Le parti «lente» di uno spazio (albero, highlights, brief, note di rilascio),
+ * per repository, con la chiave dello stato da cui sono state lette: il polling
+ * a 1 s di una generazione in corso rilegge solo stato e grafo, e queste si
+ * rileggono quando lo stato cambia (una generazione che finisce) o dopo una
+ * scrittura sullo spazio (`stale`).
+ */
+const slowParts = new Map<
+  string,
+  {
+    key: string;
+    tree: Awaited<ReturnType<typeof treeOf>>;
+    highlights: Reader<RepoHighlights> | null;
+    brief: Reader<DocBriefResponse> | null;
+    releases: DocRelease[];
+  }
+>();
+const stale = (repositoryId: string) => slowParts.delete(repositoryId);
+
+function statusKey(status: Reader<DocStatusResponse> | null): string {
+  const g = status?.generation;
+  const j = status?.latestJob;
+  return [g?.id, g?.status, g?.finishedAt, j?.id, j?.status, j?.finishedAt].join("\u0000");
+}
+
 async function spaceView(
   s: { repositoryId: string; name: string; slug?: string },
   projectId: string,
   me: Viewer,
 ): Promise<DocSpaceView> {
-  const [{ nodes, refs }, highlights, status, brief, graph] = await Promise.all([
-    treeOf(s.repositoryId, projectId),
-    read(() => appClient().docs.repoHighlights(s.repositoryId)),
-    read(() => appClient().docs.status(s.repositoryId)),
-    read(() => appClient().docs.brief(s.repositoryId)),
-    graphNow(s.repositoryId),
-  ]);
+  const [status, graph] = await Promise.all([read(() => appClient().docs.status(s.repositoryId)), graphNow(s.repositoryId)]);
+  const key = statusKey(status);
+  let slow = slowParts.get(s.repositoryId);
+  if (!slow || slow.key !== key) {
+    const [tree, highlights, brief] = await Promise.all([
+      treeOf(s.repositoryId, projectId),
+      read(() => appClient().docs.repoHighlights(s.repositoryId)),
+      read(() => appClient().docs.brief(s.repositoryId)),
+    ]);
+    slow = { key, tree, highlights, brief, releases: await releasesOf(s.repositoryId, tree.nodes) };
+    slowParts.set(s.repositoryId, slow);
+  }
+  const { refs } = slow.tree;
+  const highlights = slow.highlights;
+  const brief = slow.brief;
   const bySlug = new Map(refs.map((r) => [r.slug, r] as const));
   const refsFrom = (list: readonly { slug: string }[] | undefined) =>
     (list ?? []).flatMap((h) => bySlug.get(h.slug) ?? []).slice(0, 5);
@@ -380,7 +414,7 @@ async function spaceView(
     ...(s.slug ? { slug: s.slug } : {}),
     generation: generationOf(status),
     brief: briefOf(brief),
-    releases: await releasesOf(s.repositoryId, nodes),
+    releases: slow.releases,
     graph,
     pageCount: refs.length,
     manualOnly: refs.length > 0 && refs.every((r) => r.kind === "manual"),
@@ -619,6 +653,7 @@ const createManualPage: Docs["createManualPage"] = async (repositoryId, input) =
       body: input.body,
     }),
   );
+  stale(repositoryId);
   return pageOf(created, projectId, repositoryId);
 };
 
@@ -638,6 +673,7 @@ const updateManualPage: Docs["updateManualPage"] = async (id, patch) => {
       ...(patch.body !== undefined ? { body: patch.body } : {}),
     }),
   );
+  stale(where.repositoryId);
   return pageOf(updated, projectId, where.repositoryId);
 };
 
@@ -646,6 +682,7 @@ const deleteManualPage: Docs["deleteManualPage"] = async (id) => {
   if (!where) throw new Error("not_found");
   await write(() => appClient().docs.deleteManualPage(where.repositoryId, id));
   pageWhere.delete(id);
+  stale(where.repositoryId);
 };
 
 /** Lo stato della generazione riletto dopo un avvio o una ripresa. */
