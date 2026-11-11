@@ -217,6 +217,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   il server manda `contentReason` (`no_text_found`, `ocr_timeout`,
   `ocr_unavailable`, `unreadable`, `too_large`, `limits`), il desktop dice solo
   «nessun testo» come il prototipo.
+- La ricerca del Drive non si rilegge mentre un risultato è «in lettura»
+  *(S, F3, review del renderer)*: parità col prototipo. Un file che finisce
+  di leggersi mentre si guardano i risultati resta «Reading the content…»
+  finché non si ricerca o si apre; l'elenco e il dettaglio invece si
+  rileggono.
 - «Retry» anche su un `no_text` transitorio *(S, F3, decisione
   dell'orchestratrice C(a))*: il server lo permette (`permissions.retry`) su
   `no_text` ed `error`; il desktop mostra «Retry» solo su `error`, come il
