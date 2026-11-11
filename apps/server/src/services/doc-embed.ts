@@ -10,7 +10,8 @@ import { eq } from "drizzle-orm";
  * si rifanno; all'eliminazione vanno via in cascata con la pagina.
  *
  * Fail-open: un embedder giù lascia la pagina salvata e trovabile per testo
- * (la ricerca è ibrida), e lo dice il log. Senza chunk validi niente si scrive.
+ * (la ricerca è ibrida), e lo dice il log; i chunk del testo di prima si
+ * tolgono comunque. Senza chunk validi niente si scrive.
  */
 export async function embedManualPage(
   db: Db,
@@ -38,5 +39,11 @@ export async function embedManualPage(
     });
   } catch (error) {
     log.warn({ err: error, pageId: page.id }, "embedding della pagina manuale non riuscito: si trova per testo");
+    // I chunk di prima dicono il testo VECCHIO: lasciati lì, la ricerca per
+    // significato e la chat RAG troverebbero ciò che la pagina non dice più.
+    await db
+      .delete(docChunks)
+      .where(eq(docChunks.pageId, page.id))
+      .catch((err: unknown) => log.warn({ err, pageId: page.id }, "chunk vecchi della pagina manuale non tolti"));
   }
 }
