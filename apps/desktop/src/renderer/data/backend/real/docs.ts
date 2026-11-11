@@ -60,6 +60,7 @@ export function forgetDocsCaches(): void {
   spaceOf.clear();
   pageWhere.clear();
   reports.clear();
+  releaseTexts.clear();
 }
 
 async function read<T>(run: () => Promise<T>): Promise<T | null> {
@@ -197,16 +198,23 @@ function briefOf(b: Reader<DocBriefResponse> | null): RepoBrief | null {
   };
 }
 
-/** Le note di rilascio dello spazio, dalla più recente; il testo solo quando si legge (`withText`). */
-async function releasesOf(repositoryId: string, nodes: readonly Node[], withText: boolean): Promise<DocRelease[]> {
+/** Il testo di ogni nota di rilascio letta, per id: una nota non cambia, il polling non la rilegge. */
+const releaseTexts = new Map<string, string>();
+
+/** Le note di rilascio dello spazio, dalla più recente, coi testi delle più recenti (letti una volta per nota). */
+async function releasesOf(repositoryId: string, nodes: readonly Node[]): Promise<DocRelease[]> {
   const rows = nodes
     .filter((n) => n.kind === "releases")
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const texts = withText
-    ? await Promise.all(
-        rows.slice(0, RELEASE_TEXTS).map(async (n) => (await read(() => appClient().docs.page(repositoryId, n.slug)))?.body ?? ""),
-      )
-    : [];
+  const texts = await Promise.all(
+    rows.slice(0, RELEASE_TEXTS).map(async (n) => {
+      const known = releaseTexts.get(n.id);
+      if (known !== undefined) return known;
+      const page = await read(() => appClient().docs.page(repositoryId, n.slug)).catch(() => null);
+      if (page) releaseTexts.set(n.id, page.body);
+      return page?.body ?? "";
+    }),
+  );
   return rows.map((n, i) => ({
     id: n.id,
     version: n.title,
@@ -342,7 +350,6 @@ async function spaceView(
   s: { repositoryId: string; name: string },
   projectId: string,
   me: Viewer,
-  { withReleaseTexts = false } = {},
 ): Promise<DocSpaceView> {
   const [{ nodes, refs }, highlights, status, brief, graph] = await Promise.all([
     treeOf(s.repositoryId, projectId),
@@ -360,7 +367,7 @@ async function spaceView(
     name: s.name,
     generation: generationOf(status),
     brief: briefOf(brief),
-    releases: await releasesOf(s.repositoryId, nodes, withReleaseTexts),
+    releases: await releasesOf(s.repositoryId, nodes),
     graph,
     pageCount: refs.length,
     manualOnly: refs.length > 0 && refs.every((r) => r.kind === "manual"),
@@ -397,7 +404,7 @@ const getDocSpace: Docs["getDocSpace"] = async (repositoryId) => {
   const projectId = await projectOfRepository(repositoryId);
   const s = spaceOf.get(repositoryId);
   if (!projectId || !s) return null;
-  return spaceView({ repositoryId, name: s.name }, projectId, await viewer(), { withReleaseTexts: true });
+  return spaceView({ repositoryId, name: s.name }, projectId, await viewer());
 };
 
 /** L'albero di uno spazio: le quattro categorie, sempre tutte e nell'ordine. */

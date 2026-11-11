@@ -496,5 +496,17 @@ describe("review della fetta 1 dell'area 5", () => {
     expect(view).toMatchObject({ repositoryId: REPO, graph: { status: "disabled" } });
     expect(await docs.getProjectDocsHome(PROJECT_ID)).toMatchObject({ projectId: PROJECT_ID });
   });
+  it("i testi delle note di rilascio arrivano anche dall'elenco degli spazi, letti una volta sola per nota", async () => {
+    const { seen } = install({
+      [`GET /api/repositories/${REPO}/docs/pages/release-2026-11-10`]: {
+        body: page({ id: REL, slug: "release-2026-11-10", title: "Nov 10", kind: "releases", body: "## Fixed\n- Calls", links: null, staleSince: null }),
+      },
+    });
+    await getSessionPerson();
+    const [first] = await docs.listDocSpaces(PROJECT_ID);
+    expect(first!.releases[0]).toMatchObject({ version: "Nov 10", text: "## Fixed\n- Calls" });
+    await docs.listDocSpaces(PROJECT_ID);
+    expect(seen.filter((r) => r.path.endsWith("/docs/pages/release-2026-11-10"))).toHaveLength(1);
+  });
 });
 
