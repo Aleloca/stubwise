@@ -1,5 +1,9 @@
 import {
   docBriefResponseSchema,
+  docCodeResolutionSchema,
+  docGenerationJobSchema,
+  docGenerationViewSchema,
+  docStatusResponseSchema,
   docChatMessageSchema,
   docChatSessionSchema,
   docPageSchema,
@@ -11,6 +15,13 @@ import {
   repoHighlightsSchema,
 } from "@stubwise/shared";
 import type {
+  CreateManualDocPageInput,
+  DocCodeResolution,
+  DocGenerationJob,
+  DocGenerationView,
+  DocPageKind,
+  DocStatusResponse,
+  UpdateManualDocPageInput,
   Reader,
   DocChatMessage,
   DocChatSession,
@@ -201,6 +212,48 @@ export function createDocsEndpoints(request: ApiRequest) {
         undefined,
         messagesSchema,
       );
+    },
+
+    // --- Area 5, fetta 1: pagine manuali, generazione, codici -----------------
+
+    /** Una pagina manuale nuova (`docs.edit`). 409 `doc_page_slug_conflict` se lo slug c'è già. */
+    createManualPage(repositoryId: string, input: CreateManualDocPageInput): Promise<Reader<DocPage>> {
+      return request("POST", `/api/repositories/${seg(repositoryId)}/docs/manual`, input, docPageSchema);
+    },
+
+    /** Modifica una pagina manuale (una patch: gli assenti restano). Solo le manuali: le generate sono 404. */
+    updateManualPage(repositoryId: string, pageId: string, patch: UpdateManualDocPageInput): Promise<Reader<DocPage>> {
+      return request("PATCH", `/api/repositories/${seg(repositoryId)}/docs/manual/${seg(pageId)}`, patch, docPageSchema);
+    },
+
+    /** Elimina una pagina manuale (204). Il suo codice non si riusa. */
+    deleteManualPage(repositoryId: string, pageId: string): Promise<void> {
+      return request("DELETE", `/api/repositories/${seg(repositoryId)}/docs/manual/${seg(pageId)}`);
+    },
+
+    /** Avvia una generazione (`docs.generate`): il job nuovo, o quello già attivo. */
+    generate(repositoryId: string): Promise<Reader<DocGenerationJob>> {
+      return request("POST", `/api/repositories/${seg(repositoryId)}/docs/generate`, undefined, docGenerationJobSchema);
+    },
+
+    /** Riprende una generazione in pausa (`docs.generate`); 409 `generation_not_paused`. */
+    resume(repositoryId: string): Promise<Reader<DocGenerationView>> {
+      return request("POST", `/api/repositories/${seg(repositoryId)}/docs/resume`, undefined, docGenerationViewSchema);
+    },
+
+    /** Lo stato della generazione: la corrente, l'ultimo job, il provider bloccato. */
+    status(repositoryId: string): Promise<Reader<DocStatusResponse>> {
+      return request("GET", `/api/repositories/${seg(repositoryId)}/docs/status`, undefined, docStatusResponseSchema);
+    },
+
+    /** Il percorso del download zip di una categoria: lo scarica chi ha la sessione (il main sul desktop). */
+    exportPath(repositoryId: string, kind: DocPageKind): string {
+      return `/api/repositories/${seg(repositoryId)}/docs/export${toQuery({ kind })}`;
+    },
+
+    /** Dove sta la pagina di un codice `<PRJ>-D<n>`; 404 per un codice che non c'è o un progetto che non si vede. */
+    resolveCode(code: string): Promise<Reader<DocCodeResolution>> {
+      return request("GET", `/api/docs/codes/${seg(code)}`, undefined, docCodeResolutionSchema);
     },
   };
 }

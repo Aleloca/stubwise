@@ -40,6 +40,7 @@ import { routePermissions } from "../auth/access.js";
 import { repositoryAccess } from "../auth/project-resolvers.js";
 import { docChatMessages, docChatSessions, repositories } from "@stubwise/db";
 import { apiError } from "../errors.js";
+import { withDocCodes } from "../services/doc-codes.js";
 import type { ChatLlm } from "./chat-llm.js";
 import { retrieveChunks } from "./docs-retrieval.js";
 import { buildCitations, buildDocsSystemPrompt, CHAT_RETRIEVAL_K } from "./docs-rag.js";
@@ -222,7 +223,8 @@ export async function docsChatRoutes(instance: FastifyInstance): Promise<void> {
           request.log,
         ),
       ]);
-      const citations = buildCitations(chunks);
+      // Il codice D di ogni fonte (area 5, fetta 1).
+      const citations = await withDocCodes(app.db, buildCitations(chunks));
       // Le decisioni per ULTIME (vedi `appendDecisionContext`).
       const system = appendDecisionContext(
         appendGraphContext(buildDocsSystemPrompt(chunks), graphBlock),

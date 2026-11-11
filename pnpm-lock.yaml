@@ -363,6 +363,9 @@ importers:
       '@stubwise/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@stubwise/docs-engine':
+        specifier: workspace:*
+        version: link:../../packages/docs-engine
       '@stubwise/embeddings':
         specifier: workspace:*
         version: link:../../packages/embeddings

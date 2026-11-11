@@ -3,6 +3,7 @@ import { commitWebUrl } from "@stubwise/git";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
 import {
   aiProviders,
@@ -133,6 +134,9 @@ beforeAll(async () => {
     sessionSecret: SESSION_SECRET,
     encryptionKey: ENCRYPTION_KEY.toString("base64"),
     publicUrl: "https://stubwise.example.com",
+    // Le pagine manuali hanno i loro embedding (area 5, fetta 1): un embedder
+    // finto, mai la rete.
+    embeddingClient: createFakeEmbeddingClient(),
   });
   ({ adminCookie, memberCookie, memberId } = await seedUsers(app));
 }, 120_000);

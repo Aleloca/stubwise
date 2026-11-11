@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { aiProviderKindSchema } from "./ai-job.js";
 import { decisionSourceSchema } from "./project.js";
 
 /**
@@ -281,6 +282,8 @@ export const docsChatSourceSchema = z.object({
   repositoryId: z.uuid(),
   repositorySlug: z.string(),
   repositoryName: z.string(),
+  /** Il codice `<PRJ>-D<n>` della pagina (area 5, fetta 1); null da un server che non lo conosce. */
+  code: z.string().nullable().default(null),
 });
 export type DocsChatSource = z.infer<typeof docsChatSourceSchema>;
 
@@ -460,3 +463,70 @@ export const docCodeResolutionSchema = z.object({
   available: z.boolean(),
 });
 export type DocCodeResolution = z.infer<typeof docCodeResolutionSchema>;
+
+// ---------------------------------------------------------------------------
+// GENERAZIONE E PAGINE MANUALI (area 5, fetta 1). Erano scritti solo nel server
+// (`routes/docs.ts`); li legge ora anche il desktop, via `@stubwise/api-client`:
+// spostati qui SENZA cambiarne la forma, le rotte li importano.
+// ---------------------------------------------------------------------------
+
+/** Un job di generazione, restituito dalle rotte di avvio e di stato. */
+export const docGenerationJobSchema = z.object({
+  id: z.uuid(),
+  status: docJobStatusSchema,
+  trigger: docGenerationTriggerSchema,
+  error: z.string().nullable(),
+  createdAt: z.string(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+});
+export type DocGenerationJob = z.infer<typeof docGenerationJobSchema>;
+
+/** Il provider bloccato sulla generazione: l'identità minima da mostrare; null = nessun pin. */
+export const docPinnedProviderSchema = z.object({
+  id: z.uuid(),
+  label: z.string(),
+  kind: aiProviderKindSchema,
+});
+
+/** La generazione corrente di un repository. */
+export const docGenerationViewSchema = z.object({
+  id: z.uuid(),
+  status: docGenerationStatusSchema,
+  commitSha: z.string().nullable(),
+  model: z.string().nullable(),
+  cost: z.string().nullable(),
+  stats: z.unknown().nullable(),
+  startedAt: z.string().nullable(),
+  finishedAt: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type DocGenerationView = z.infer<typeof docGenerationViewSchema>;
+
+/** `GET /api/repositories/:id/docs/status`. */
+export const docStatusResponseSchema = z.object({
+  generation: docGenerationViewSchema.nullable(),
+  latestJob: docGenerationJobSchema.nullable(),
+  pinnedProvider: docPinnedProviderSchema.nullable(),
+});
+export type DocStatusResponse = z.infer<typeof docStatusResponseSchema>;
+
+/** `POST /api/repositories/:id/docs/manual`: lo slug assente si deriva dal titolo, unico per repository (409). */
+export const createManualDocPageSchema = z.object({
+  title: z.string().min(1).max(300),
+  slug: z.string().min(1).max(300).optional(),
+  parentId: z.uuid().nullable().optional(),
+  position: z.int().min(0).optional(),
+  body: z.string().default(""),
+});
+export type CreateManualDocPageInput = z.input<typeof createManualDocPageSchema>;
+
+/** `PATCH /api/repositories/:id/docs/manual/:pageId`: una patch, gli assenti restano. */
+export const updateManualDocPageSchema = z.object({
+  title: z.string().min(1).max(300).optional(),
+  parentId: z.uuid().nullable().optional(),
+  position: z.int().min(0).optional(),
+  body: z.string().optional(),
+});
+export type UpdateManualDocPageInput = z.input<typeof updateManualDocPageSchema>;
+

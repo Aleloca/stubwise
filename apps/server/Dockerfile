@@ -37,8 +37,11 @@ COPY packages/git/package.json packages/git/package.json
 # dipendenze ESTERNE proprie (zod, drizzle-orm): senza il suo manifest in questo
 # layer `pnpm install` non le installa e il `tsc` del package fallisce nel build
 # qui sotto. È la stessa trappola annotata in Dockerfile.caddy per
-# `@stubwise/api-client` — e la ragione per cui `@stubwise/embeddings`, pure
-# assente da questa lista, non la fa scattare è solo che non ha deps esterne.
+# `@stubwise/api-client` — e la ragione per cui `@stubwise/embeddings` e
+# `@stubwise/docs-engine` (dipendenza del server dall'area 5, fetta 1: il
+# chunking delle pagine manuali), pure assenti da questa lista, non la fanno
+# scattare è solo che non hanno deps esterne. Il filtro `@stubwise/server...`
+# del build qui sotto li builda come dipendenze, come fa il worker.
 COPY packages/google/package.json packages/google/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
 COPY packages/notifications/package.json packages/notifications/package.json

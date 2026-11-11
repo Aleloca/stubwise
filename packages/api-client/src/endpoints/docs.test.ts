@@ -79,7 +79,8 @@ describe("endpoints docs — highlights, brief, ricerca, visite", () => {
       repositoryName: "Web",
     };
     const { c, fetchImpl } = clientReturning(200, [hit]);
-    expect(await c.docs.projectSearch(PROJECT, "login & sso")).toEqual([hit]);
+    // Un server di prima dell'area 5 non manda `code`: il client lo legge null.
+    expect(await c.docs.projectSearch(PROJECT, "login & sso")).toEqual([{ ...hit, code: null }]);
     expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/projects/${PROJECT}/docs/search?q=login+%26+sso`);
   });
 
@@ -91,3 +92,73 @@ describe("endpoints docs — highlights, brief, ricerca, visite", () => {
     expect(init?.method).toBe("POST");
   });
 });
+
+describe("endpoints docs — area 5, fetta 1: pagine manuali, generazione, codici", () => {
+  const PAGE = {
+    id: "33333333-3333-4333-8333-333333333333",
+    slug: "runbook",
+    title: "Runbook",
+    kind: "manual",
+    parentId: null,
+    position: 0,
+    sourcePath: null,
+    body: "passi",
+    isManual: true,
+    commitSha: null,
+    commitUrl: null,
+    links: null,
+    updatedAt: "2026-11-11T10:00:00.000Z",
+    createdAt: "2026-11-11T10:00:00.000Z",
+    viewCount: 0,
+    significant: null,
+    staleSince: null,
+    code: "AUD-D7",
+  };
+  const JOB = { id: PAGE.id, status: "queued", trigger: "manual", error: null, createdAt: PAGE.createdAt, startedAt: null, finishedAt: null };
+
+  it("createManualPage: POST …/docs/manual col body, e la pagina col codice", async () => {
+    const { c, fetchImpl } = clientReturning(201, PAGE);
+    expect(await c.docs.createManualPage(REPO, { title: "Runbook", body: "passi" })).toMatchObject({ code: "AUD-D7" });
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/repositories/${REPO}/docs/manual`);
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body))).toEqual({ title: "Runbook", body: "passi" });
+  });
+
+  it("updateManualPage e deleteManualPage: PATCH e DELETE …/docs/manual/:id", async () => {
+    const upd = clientReturning(200, PAGE);
+    await upd.c.docs.updateManualPage(REPO, PAGE.id, { body: "nuovi passi" });
+    expect(upd.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/repositories/${REPO}/docs/manual/${PAGE.id}`);
+    expect(upd.fetchImpl.mock.calls.at(-1)![1]?.method).toBe("PATCH");
+    const del = clientReturning(204, null);
+    await del.c.docs.deleteManualPage(REPO, PAGE.id);
+    expect(del.fetchImpl.mock.calls.at(-1)![1]?.method).toBe("DELETE");
+  });
+
+  it("generate, resume, status", async () => {
+    const gen = clientReturning(202, JOB);
+    expect(await gen.c.docs.generate(REPO)).toMatchObject({ status: "queued" });
+    expect(gen.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/repositories/${REPO}/docs/generate`);
+    const res = clientReturning(200, { id: PAGE.id, status: "running", commitSha: null, model: null, cost: null, stats: null, startedAt: null, finishedAt: null, createdAt: PAGE.createdAt });
+    expect(await res.c.docs.resume(REPO)).toMatchObject({ status: "running" });
+    expect(res.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/repositories/${REPO}/docs/resume`);
+    const st = clientReturning(200, { generation: null, latestJob: JOB, pinnedProvider: null });
+    expect(await st.c.docs.status(REPO)).toMatchObject({ generation: null, latestJob: { status: "queued" } });
+    expect(st.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/repositories/${REPO}/docs/status`);
+  });
+
+  it("exportPath e resolveCode", async () => {
+    const { c, fetchImpl } = clientReturning(200, { code: "AUD-D7", projectId: PROJECT, repositoryId: REPO, repositorySlug: "web", slug: "runbook", available: true });
+    expect(c.docs.exportPath(REPO, "manual")).toBe(`/api/repositories/${REPO}/docs/export?kind=manual`);
+    expect(await c.docs.resolveCode("AUD-D7")).toMatchObject({ slug: "runbook", available: true });
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/docs/codes/AUD-D7");
+  });
+
+  it("una pagina da un server che non conosce i codici: code null", async () => {
+    const { code: _code, ...old } = PAGE;
+    void _code;
+    const { c } = clientReturning(200, old);
+    expect((await c.docs.page(REPO, "runbook")).code).toBeNull();
+  });
+});
+
