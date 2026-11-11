@@ -3540,3 +3540,57 @@ deploy o di un rollback che la tocca.
     mano: `update chat_messages set claude_state = 'failed', claude_error =
     'other' where claude_state in ('working', 'waiting');`.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.
+- **«Integrazione area 4, fetta 4: eventi dei progetti e allegati» (11 nov
+  2026)**: piano `docs/plans/2026-11-11-integrazione-area4-fetta4-plan.md`,
+  invariante `docs/invariants/chat.md` (sezione «Eventi dei progetti e
+  allegati»).
+  - Gli eventi dei progetti sono messaggi di sistema nei canali di progetto che
+    li pubblicano: task chiusa, richiesta nuova, traguardo raggiunto, brief
+    pronto, PR aperta e PR mergiata. `release_page` resta acceso ma inerte fino
+    all'area 8.
+  - Li scrivono TRIGGER del DB (`chat_publish_event`), quindi ogni scrittore li
+    produce: rotte, pipeline del worker, intake, webhook. Non avvisano nessuno.
+  - Gli allegati dei messaggi: fino a 25 MB e 10 per messaggio, con l'elenco
+    dei tipi della Chat; il download passa da un URL firmato.
+
+  Rotte nuove, tutte sotto `/api/chat`:
+  - `PUT /channels/:id/events`;
+  - `POST /channels/:id/attachments`;
+  - `GET /attachments/:id/download` (302);
+  - `DELETE /attachments/:id`.
+
+  Migrazione **0141**:
+  - su `chat_messages`, `event_kind`, `event_ref_kind`, `event_ref_id` ed
+    `event_pr_id`, con un CHECK;
+  - la tabella `chat_message_attachments`;
+  - la funzione `chat_publish_event` e cinque trigger: `tickets_chat_task_closed`,
+    `backlog_items_chat_request_new`, `milestones_chat_reached`,
+    `project_briefs_chat_ready` e `ticket_repositories_chat_pr`.
+
+  Nessun `notification_kind` nuovo. Env nuove: nessuna. Lo storage è quello
+  degli allegati dei ticket (Impostazioni → Storage): senza storage il
+  caricamento risponde 400 `storage_not_configured`. Caddy non limita il body,
+  e i 25 MB passano. La potatura dei sospesi oltre le 24 ore la fa il SERVER,
+  una volta l'ora e a ogni caricamento, perché il worker non ha lo storage.
+  Misura: 200 task chiuse in un UPDATE scrivono 200 messaggi in circa 170 ms,
+  dentro la transazione di chi scrive.
+  **ORDINE**: (1) **backup**; (2) **`server`**: applica 0141, aspetta healthy.
+  Da qui i trigger pubblicano; (3) **`caddy`**: il renderer di `/app` con le
+  schede e gli allegati. Il worker non cambia. Se le fette 1–3 escono nello
+  stesso rilascio, valgono anche le loro voci (0135–0141 in una volta).
+  **Rollback**:
+  - ⚠️ I trigger restano nel DB e continuano a scrivere messaggi di sistema
+    anche sotto un server della fetta 3, che li mostra VUOTI (il testo si
+    deriva a lettura). Prima di scendere col server:
+    `drop trigger tickets_chat_task_closed on tickets; drop trigger
+    backlog_items_chat_request_new on backlog_items; drop trigger
+    milestones_chat_reached on milestones; drop trigger project_briefs_chat_ready
+    on project_briefs; drop trigger ticket_repositories_chat_pr on
+    ticket_repositories;`, e poi, se non si vogliono le righe vuote,
+    `delete from chat_messages where kind = 'system' and event_kind is not null;`.
+    Per risalire, i trigger si ricreano rilanciando le loro istruzioni dalla
+    0141 (la migrazione non si riapplica da sola).
+  - Gli allegati restano: righe e oggetti. Un server della fetta 3 non li
+    mostra, e un messaggio con soli allegati gli appare vuoto. Senza il timer
+    del server nuovo, i sospesi non si potano: si potano al ritorno.
+  - Il caddy scende insieme al server. Le migrazioni non si annullano.

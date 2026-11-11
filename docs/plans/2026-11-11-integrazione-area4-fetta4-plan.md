@@ -95,7 +95,23 @@
   - niente eseguibili: un allowlist MIME esplicito, un controllo anche
     sull'estensione, e il download sempre con `Content-Disposition:
     attachment`.
-- **[DECIDE] 3 = (a)** (O): il worker pota gli allegati in sospeso dopo 24 ore.
+- **[DECIDE] 3 = (a)** (O): gli allegati in sospeso si potano dopo 24 ore.
+  Scelta tecnica nell'esecuzione: la potatura la fa il SERVER (ogni ora e a
+  ogni caricamento), non il worker, perché lo storage lo ha solo il server.
+
+## Scelte tecniche dell'esecuzione (11 nov 2026)
+
+- `brief_ready` scatta su un brief `done` CON il testo (`summary` non nullo):
+  un brief senza testo, a provider mancante, non è da leggere.
+- Le PR si riferiscono alla loro task (`event_ref_kind = 'task'`) più la riga
+  della PR (`event_pr_id`), come il prototipo; numero, URL e repository
+  escono solo a chi vede la task.
+- Nessuna raccolta per transazione: 200 task chiuse in un UPDATE costano circa
+  170 ms (test della 0141).
+- `CHAT_EVENT_KINDS` riordinato nell'ordine canonico del prototipo.
+- Il download è un 302 come quello dei ticket (richiesta di stubwise-94,
+  appoggiata dall'orchestratrice); `attachmentIds` assente in modifica vuol
+  dire «invariati».
 
 ## [DECIDE] per l'orchestratrice (com'erano poste)
 

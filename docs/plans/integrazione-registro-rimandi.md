@@ -141,7 +141,6 @@ chiusa (sotto, «Chiuse»); invariante `docs/invariants/chat.md`.
 
 Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse»).
 
-- Il filtro «con allegati» della ricerca *(fetta 4, con gli allegati)*.
 - (S) Motivo «limite» per le risposte di @Claude: oggi un limite o un errore
   dell'API del CLI chiude la risposta `failed`/`other` (review della fetta 3,
   scelta dell'orchestratrice dell'11 nov 2026). Un valore a sé vuole il CHECK
@@ -271,6 +270,15 @@ Fetta 2 chiusa (sotto, «Chiuse»). Fetta 3: server e renderer (sotto, «Chiuse�
 ## Chiuse
 
 (Le voci fatte si spostano qui con il riferimento che le chiude.)
+
+- **Area 4, fetta 4: eventi dei progetti e allegati, server** *(M/O, 11 nov
+  2026)*: i messaggi di sistema dai trigger della 0141 (task chiusa,
+  richiesta nuova, traguardo, brief, PR aperta e mergiata), con la scheda
+  derivata a lettura; `setPublishedEvents`; gli allegati dei messaggi
+  (25 MB, 10 per messaggio, tipo ed estensione, download firmato per chi
+  legge, potatura dei sospesi dopo 24 ore dal server); il filtro «con
+  allegati» e i nomi dei file nella ricerca. `release_page` resta all'area 8.
+  Il renderer è di stubwise-94.
 
 - **Area 4, fetta 3: @Claude nei canali, server e worker** *(M/O, 10 nov
   2026)*: la chiamata e la sessione privata di chi chiama (D5), il contesto

@@ -325,8 +325,52 @@ Piano: `docs/plans/2026-11-10-integrazione-area4-fetta3-plan.md`. Codice:
 - **Il registro decisioni non si scrive**: i moduli della Chat sono nei test
   `decisions-never-ai` e `claude-actions-never`.
 
+## Eventi dei progetti e allegati (fetta 4)
+
+- **Gli eventi li scrive il DATABASE**, con un trigger per fonte e una sola
+  funzione, `chat_publish_event` (0141), come il «general» della 0135. Così
+  li produce OGNI scrittore (rotte, pipeline del worker, intake, webhook),
+  non una rotta sola. Chi aggiunge una fonte la aggiunge lì, non in un
+  servizio.
+  - Fonti: una task che ENTRA nella famiglia «closed» (lo stato vero è
+    `status_id`, e il sync dell'enum lo scrive anche per chi scrive l'enum;
+    fra due stati chiusi non ripubblica); una richiesta inserita non fusa
+    (l'intake inserisce solo quando non fonde); un traguardo `open` →
+    `closed`; un brief `done` CON il testo; la PR di una task (URL che nasce,
+    stato che diventa `merged`).
+  - `release_page` è acceso nel «general» ma inerte fino all'area 8
+    ([DECIDE] 1 = a).
+  - Il messaggio è `system` col corpo VUOTO: la scheda si DERIVA a lettura
+    (`chat/events.ts`), con le regole delle citazioni. Il codice di una task o
+    di una richiesta esce sempre, il titolo solo a chi vede l'oggetto; la PR
+    (numero, URL, repository) solo a chi vede la task; un oggetto che non c'è
+    più lascia solo il tipo dell'evento.
+  - Non avvisano nessuno (nessun `notification_kind`): contano fra i non letti
+    col livello «tutti», come nel prototipo.
+  - `PUT /api/chat/channels/:id/events` vale solo con `canEditEvents`, e
+    l'elenco si scrive nell'ordine canonico (`CHAT_EVENT_KINDS`, quello del
+    prototipo).
+- **Gli allegati** (`chat/attachments.ts`):
+  - si CARICANO nel canale da chi ci scrive e nascono in sospeso; li LEGA un
+    messaggio della stessa persona nello stesso canale, entro 24 ore; una
+    modifica toglie e non aggiunge; se ne vanno col messaggio, righe e
+    oggetti;
+  - si SCARICANO con un URL firmato (5 minuti, `Content-Disposition:
+    attachment`) solo da chi LEGGE il canale: un DM e un privato solo dai
+    membri, mai da chi gestisce senza esserne membro (D2). Un sospeso lo
+    scarica solo chi l'ha caricato;
+  - il binario non passa mai dall'API. Lo storage si pulisce dopo il commit e
+    senza bloccare: un oggetto rimasto non si scarica, perché l'URL lo firma
+    solo la rotta di download, e la rotta vuole la riga;
+  - limiti e tipi ([DECIDE] 2 = b): 25 MB, 10 per messaggio. Un allowlist di
+    tipi MIME, ciascuno con le SUE estensioni (`chatAttachmentAllowed`):
+    niente eseguibili, niente SVG;
+  - la potatura dei sospesi oltre le 24 ore ([DECIDE] 3 = a) la fa il SERVER,
+    una volta l'ora e a ogni caricamento: lo storage lo ha solo lui. Il
+    worker non ne ha le credenziali, e non deve averle.
+
 ## Limiti, nel registro
 
-Restano fuori gli eventi dei progetti e gli allegati (fetta 4). I messaggi «via
+I messaggi «via
 Claude» non esistono per decisione del maintainer: `via_claude_action_id` resta
 inerte (`docs/plans/integrazione-registro-rimandi.md`, area 4).
