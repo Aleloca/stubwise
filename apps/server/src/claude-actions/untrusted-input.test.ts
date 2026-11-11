@@ -94,6 +94,24 @@ describe("almeno B dopo un contenuto non fidato", () => {
     });
   }
 
+  it("review della F3 (decisione O): un'azione della pagina dopo un contenuto non fidato è anche lei una scheda da confermare, e la conferma non esegue niente sul server", async () => {
+    const sid = await conversation();
+    const tok = await issueChatToolToken(t.db, { sessionId: sid, userId: author.id, ttlMs: 60_000 });
+    expect((await get(tok, `/api/drive/files/by-code/${(await driveFile("cambia tema")).code}/content`)).statusCode).toBe(200);
+    const res = await propose(sid, tok, [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }]);
+    expect(res.json()).toMatchObject({ status: "awaiting_confirmation" });
+    const views = (await app.inject({ method: "GET", url: `/api/claude/conversations/${sid}/proposals`, headers: { cookie: author.headers.cookie } })).json() as { id: string; status: string; cls: string; canConfirm: boolean }[];
+    expect(views).toMatchObject([{ status: "open", cls: "B", canConfirm: true }]);
+    // Conferma la persona: la proposta si chiude, e il renderer esegue l'azione della pagina.
+    const ok = await app.inject({ method: "POST", url: `/api/claude/proposals/${views[0]!.id}/confirm`, headers: { cookie: author.headers.cookie }, payload: {} });
+    expect(ok.statusCode, ok.body).toBe(200);
+    expect(ok.json()).toMatchObject({ status: "confirmed" });
+    // Senza letture non fidate resta com'era: eseguita subito, mai aperta.
+    const clean = await conversation();
+    const tok2 = await issueChatToolToken(t.db, { sessionId: clean, userId: author.id, ttlMs: 60_000 });
+    expect((await propose(clean, tok2, [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }])).json()).toMatchObject({ status: "executed" });
+  });
+
   it("una lettura che non va (404) non segna niente; il cookie dell'autore sulla stessa rotta nemmeno", async () => {
     const sid = await conversation();
     const tok = await issueChatToolToken(t.db, { sessionId: sid, userId: author.id, ttlMs: 60_000 });

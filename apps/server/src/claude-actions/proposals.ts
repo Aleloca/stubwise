@@ -201,9 +201,19 @@ export async function createProposal(
   if (page.length > 0 && inChat) {
     return refuse({ code: "invalid", index: actions.findIndex((a) => a.fn === "pageAction"), permission: null, projectId: null, message: "no page actions in the chat" });
   }
+  // Dopo un contenuto non fidato ogni proposta è almeno B, anche un'azione della pagina (fetta 3, O).
+  const untrusted = await readUntrusted(db, sessionId);
   if (page.length > 0) {
     if (page.length !== actions.length) {
       return refuse({ code: "invalid", index: 0, permission: null, projectId: null, message: "page actions go alone" });
+    }
+    if (untrusted) {
+      // Una scheda da confermare: alla conferma il server chiude la proposta e il renderer esegue l'azione.
+      const row = await insert("open", "B", { untrustedInput: true });
+      if (!row) return outcomeOf(db, (await db.select().from(claudeProposals).where(and(eq(claudeProposals.sessionId, sessionId), eq(claudeProposals.toolUseId, input.toolUseId))))[0]!);
+      const eventId = await sessionEvent(db, sessionId, "proposal", { proposalId: row.id });
+      await db.update(claudeProposals).set({ eventId }).where(eq(claudeProposals.id, row.id));
+      return { status: "awaiting_confirmation", proposalId: row.id, codes: [], reason: null };
     }
     // La esegue il renderer, subito: per il server è chiusa (`confirmed`, senza
     // gruppo), mai una scheda aperta da confermare (review della fetta 3).
@@ -221,7 +231,6 @@ export async function createProposal(
   await recordConversationProjects(db, sessionId, await projectsOfPlan(db, actions, dry));
   // Nella Chat tutto è proposta: la classe calcolata sale SEMPRE a B (prototipo,
   // maintainer). Lo stesso dopo una lettura di contenuto non fidato (fetta 3, O).
-  const untrusted = await readUntrusted(db, sessionId);
   const cls = inChat || untrusted ? "B" : classOfGroup(actions, dry).cls;
   const row = await insert("open", cls, { untrustedInput: untrusted });
   if (!row) {
@@ -480,6 +489,13 @@ export async function confirmProposal(
     .where(and(eq(claudeProposals.id, row.id), eq(claudeProposals.status, "open")))
     .returning({ id: claudeProposals.id });
   if (claimed.length === 0) return { ok: false, error: "conflict" };
+  // Un'azione della pagina confermata (dopo un contenuto non fidato, fetta 3):
+  // il server la chiude e basta, la esegue il renderer, come una A della pagina.
+  if (!row.undoOfGroupId && baseActions.every((a) => a.fn === "pageAction")) {
+    await touchChatReply(db, row.sessionId);
+    const [after] = await db.select().from(claudeProposals).where(eq(claudeProposals.id, row.id));
+    return { ok: true, proposal: await proposalView(db, user, after!) };
+  }
 
   let result: ExecuteResult;
   if (row.undoOfGroupId) {
