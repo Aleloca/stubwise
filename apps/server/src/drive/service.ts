@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Transform, type Readable } from "node:stream";
-import { driveFiles, driveOpens, projects, type Db } from "@stubwise/db";
+import { chatChannels, driveFiles, driveOpens, projects, type Db } from "@stubwise/db";
 import {
   chatAttachmentAllowed,
   DRIVE_CODE_RE,
@@ -18,6 +18,8 @@ import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQ
 import { projectPermissionsFor, projectPermissionsMap, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
 import type { ObjectStorage } from "../storage/index.js";
+import type { ChatViewer } from "../chat/access.js";
+import { downloadableAttachment } from "../chat/attachments.js";
 
 /**
  * Il Drive dei progetti, i file CARICATI (area 5, fetta 2; invariante
@@ -259,6 +261,21 @@ export async function uploadDriveFile(
     await storage.deleteObject(storageKey).catch(() => undefined);
     throw tooLarge();
   }
+  return insertDriveFile(db, storage, viewer, projectId, { id, requestedName, mime: file.mime, sizeBytes: bytes, storageKey });
+}
+
+/**
+ * La riga di un file il cui oggetto è GIÀ nello storage (caricamento o copia):
+ * il numero e il nome liberi sotto un lock del progetto. Se l'insert fallisce
+ * l'oggetto si toglie, così non resta un oggetto senza riga.
+ */
+async function insertDriveFile(
+  db: Db,
+  storage: ObjectStorage,
+  viewer: Viewer,
+  projectId: string,
+  file: { id: string; requestedName: string; mime: string; sizeBytes: number; storageKey: string },
+): Promise<DriveUploadResult> {
   try {
     const result = await db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`stubwise-drive:${projectId}`}))`);
@@ -271,26 +288,72 @@ export async function uploadDriveFile(
             .where(and(eq(driveFiles.projectId, projectId), isNull(driveFiles.deletedAt)))
         ).map((r) => r.name.toLowerCase()),
       );
-      const name = freeName(requestedName, taken);
+      const name = freeName(file.requestedName, taken);
       await tx.insert(driveFiles).values({
-        id,
+        id: file.id,
         projectId,
         number: (max?.n ?? 0) + 1,
         name,
         mime: file.mime,
         type: driveFileTypeOf(file.mime),
-        sizeBytes: bytes,
-        storageKey,
+        sizeBytes: file.sizeBytes,
+        storageKey: file.storageKey,
         addedBy: viewer.id,
       });
-      return { keptBoth: name !== requestedName };
+      return { keptBoth: name !== file.requestedName };
     });
-    const r = (await visibleFile(db, viewer, id))!;
-    return { file: toRow(r, viewer, await permsLookup(db, viewer)), keptBoth: result.keptBoth, requestedName };
+    const r = (await visibleFile(db, viewer, file.id))!;
+    return { file: toRow(r, viewer, await permsLookup(db, viewer)), keptBoth: result.keptBoth, requestedName: file.requestedName };
+  } catch (error) {
+    await storage.deleteObject(file.storageKey).catch(() => undefined);
+    throw error;
+  }
+}
+
+/**
+ * «Save to Drive» da un allegato della Chat (F2.4): una COPIA dell'oggetto
+ * sotto una chiave del Drive, mai un riferimento a quello della Chat, che la
+ * Chat pota o elimina col messaggio. Solo un allegato di un messaggio vivo che
+ * chi chiama LEGGE (un sospeso non si salva). In un canale di progetto il
+ * progetto è il suo (un altro è 400 `project_mismatch`); in un DM o in un
+ * generale va scelto (`project_required`). Nel progetto serve `drive.upload`.
+ */
+export async function saveAttachmentToDrive(
+  db: Db,
+  storage: ObjectStorage,
+  viewer: Viewer & ChatViewer,
+  attachmentId: string,
+  input: { projectId?: string | undefined },
+): Promise<DriveUploadResult> {
+  const att = await downloadableAttachment(db, viewer, attachmentId);
+  if (!att || att.messageId === null) throw notFound();
+  const [channel] = await db
+    .select({ kind: chatChannels.kind, projectId: chatChannels.projectId })
+    .from(chatChannels)
+    .where(eq(chatChannels.id, att.channelId));
+  if (!channel) throw notFound();
+  let projectId: string;
+  if (channel.kind === "project" && channel.projectId) {
+    if (input.projectId && input.projectId !== channel.projectId) {
+      throw new DriveError(400, "project_mismatch", "A file from a project channel goes to that project's Drive");
+    }
+    projectId = channel.projectId;
+  } else {
+    if (!input.projectId) throw new DriveError(400, "project_required", "Choose the project whose Drive gets the file");
+    projectId = input.projectId;
+  }
+  await assertCanUploadDrive(db, viewer, projectId);
+  const requestedName = displayName(att.filename);
+  if (requestedName.length > NAME_MAX) throw new DriveError(400, "invalid_filename", `File names are at most ${NAME_MAX} characters`);
+  const id = randomUUID();
+  const storageKey = `drive/${projectId}/${id}/${sanitizeForKey(requestedName)}`;
+  try {
+    await storage.copyObject(att.storageKey, storageKey);
   } catch (error) {
     await storage.deleteObject(storageKey).catch(() => undefined);
     throw error;
   }
+  return insertDriveFile(db, storage, viewer, projectId, { id, requestedName, mime: att.mimeType, sizeBytes: att.sizeBytes, storageKey });
 }
 
 /**

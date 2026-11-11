@@ -8,6 +8,7 @@ import {
   driveFileListSchema,
   driveListQuerySchema,
   driveUploadResultSchema,
+  saveToDriveBodySchema,
 } from "@stubwise/shared";
 import { apiError } from "../errors.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
@@ -21,6 +22,7 @@ import {
   markPurged,
   openDriveFile,
   resolveDriveCode,
+  saveAttachmentToDrive,
   uploadDriveFile,
 } from "../drive/service.js";
 
@@ -100,6 +102,25 @@ export async function driveRoutes(instance: FastifyInstance): Promise<void> {
           truncated: () => file.truncated,
         });
         return reply.code(201).send(created);
+      }),
+  );
+
+  // «Save to Drive» da un allegato della Chat (F2.4): una COPIA dell'oggetto.
+  app.post(
+    "/chat/attachments/:id/save-to-drive",
+    {
+      config: {
+        access: ACCESS,
+        rateLimit: { max: 30, timeWindow: "1 minute", hook: "preHandler", keyGenerator: (request: FastifyRequest) => request.user?.id ?? request.ip },
+      },
+      schema: { params: idParams, body: saveToDriveBodySchema, response: { 201: driveUploadResultSchema, ...errors } },
+    },
+    async (request, reply) =>
+      handle(reply, async () => {
+        const storage = await app.storage();
+        if (!storage) return apiError(reply, 400, "storage_not_configured", "Object storage is not configured");
+        const saved = await saveAttachmentToDrive(app.db, storage, request.user!, request.params.id, { projectId: request.body.projectId });
+        return reply.code(201).send(saved);
       }),
   );
 

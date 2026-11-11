@@ -1,4 +1,4 @@
-import { backlogItems, chatMessageCitations, docPageCodes, docPages, projects, repositories, tickets, users, type Db } from "@stubwise/db";
+import { backlogItems, chatMessageCitations, docPageCodes, docPages, driveFiles, driveOpens, projects, repositories, tickets, users, type Db } from "@stubwise/db";
 import type { ChatCitationKind, ChatCitationRef, ChatCitationView } from "@stubwise/shared";
 import { and, eq, inArray, isNull, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { projectIdsWithPermission, visibleProjectIds } from "../auth/access.js";
@@ -9,16 +9,16 @@ import type { ChatViewer } from "./access.js";
 
 /**
  * Le citazioni di un messaggio della Chat (area 4, fetta 2, F2.7; decisione
- * del maintainer del 10 nov 2026): task, richieste, progetti, persone e
- * pagine Docs. Le regole sono di `writes.ts` del prototipo (`canCite`,
+ * del maintainer del 10 nov 2026): task, richieste, progetti, persone,
+ * pagine Docs e file del Drive (area 5). Le regole sono di `writes.ts` del prototipo (`canCite`,
  * `stillNamed`, `citationsOf`):
  * - alla SCRITTURA il server tiene solo ciò che chi scrive vede e che il testo
  *   nomina ancora, più i codici di task e richieste scritti a mano che vede (un
  *   codice diventa link da sé); alla modifica le ricalcola dal testo nuovo;
  * - alla LETTURA le filtra su ciò che chi legge vede, con le regole di sempre
  *   (task: `tickets.view_all` o richiedente; richieste: `backlog.view_all` o
- *   richiedente; progetti: chi li vede; pagine: `docs.view`; persone: chi
- *   esiste). Un oggetto che non c'è più non esce.
+ *   richiedente; progetti: chi li vede; pagine: `docs.view`; file: i membri
+ *   del progetto; persone: chi esiste). Un oggetto che non c'è più non esce.
  */
 
 /** Ciò che chi guarda vede di un oggetto citabile: l'etichetta e come il testo lo nomina. */
@@ -65,13 +65,17 @@ export function stillNamed(c: Citeable, text: string): boolean {
  * I codici di task e richieste scritti nel testo (`findCodes` del prototipo):
  * maiuscoli, come li scrive il Catalogo, così «utf-8» non diventa un codice.
  */
-export function codesIn(text: string): { projectCode: string; number: number; kind: "task" | "request" | "doc"; code: string }[] {
-  const out: { projectCode: string; number: number; kind: "task" | "request" | "doc"; code: string }[] = [];
-  // `-R` una richiesta, `-D` una pagina Docs (area 5, fetta 1), niente una task.
-  for (const m of text.matchAll(/\b([A-Z][A-Z0-9]{1,5})-([RD]?)(\d{1,9})\b/g)) {
+type CodeKind = "task" | "request" | "doc" | "drive";
+const CODE_KIND: Record<string, CodeKind> = { "": "task", R: "request", D: "doc", F: "drive" };
+
+export function codesIn(text: string): { projectCode: string; number: number; kind: CodeKind; code: string }[] {
+  const out: { projectCode: string; number: number; kind: CodeKind; code: string }[] = [];
+  // `-R` una richiesta, `-D` una pagina Docs (area 5, fetta 1), `-F` un file del
+  // Drive (fetta 2), niente una task.
+  for (const m of text.matchAll(/\b([A-Z][A-Z0-9]{1,5})-([RDF]?)(\d{1,9})\b/g)) {
     const code = m[0];
     if (out.some((c) => c.code === code)) continue;
-    out.push({ projectCode: m[1]!, number: Number(m[3]), kind: m[2] === "R" ? "request" : m[2] === "D" ? "doc" : "task", code });
+    out.push({ projectCode: m[1]!, number: Number(m[3]), kind: CODE_KIND[m[2]!]!, code });
   }
   return out;
 }
@@ -96,9 +100,10 @@ export async function citeablesFor(
     for (const r of rows) put({ kind: "task", id: r.id, label: r.code, projectId: r.projectId });
   }
 
-  // I progetti visibili solo se servono (richieste, progetti): niente query per una lista senza.
-  const visible = ids("request").length > 0 || ids("project").length > 0 ? await visibleProjectIds(db, viewer) : [];
-  const inVisible = (column: typeof backlogItems.projectId | typeof projects.id): SQL | undefined =>
+  // I progetti visibili solo se servono (richieste, progetti, file): niente query per una lista senza.
+  const visible =
+    ids("request").length > 0 || ids("project").length > 0 || ids("drive").length > 0 ? await visibleProjectIds(db, viewer) : [];
+  const inVisible = (column: typeof backlogItems.projectId | typeof projects.id | typeof driveFiles.projectId): SQL | undefined =>
     visible === "all" ? undefined : visible.length === 0 ? sql`false` : inArray(column, visible);
 
   const requestIds = ids("request");
@@ -127,6 +132,38 @@ export async function citeablesFor(
       .from(users)
       .where(and(inArray(users.id, personIds), eq(users.isAgent, false)));
     for (const r of rows) put({ kind: "person", id: r.id, label: personName(r), projectId: null });
+  }
+
+  // I file del Drive (area 5, fetta 2): solo i VIVI dei progetti di cui chi
+  // guarda è membro (le regole del Drive, `drive/service.ts`). Un file
+  // eliminato o di un progetto invisibile non esce: il renderer disegna il
+  // codice del testo come tenue (R-H5).
+  const driveIds = ids("drive");
+  if (driveIds.length > 0) {
+    const rows = await db
+      .select({
+        id: driveFiles.id,
+        name: driveFiles.name,
+        type: driveFiles.type,
+        number: driveFiles.number,
+        projectId: driveFiles.projectId,
+        projectCode: projects.code,
+        projectName: projects.name,
+        opens90d: sql<number>`(select count(*)::int from ${driveOpens} o where o.file_id = ${driveFiles.id} and o.at > now() - interval '90 days')`,
+      })
+      .from(driveFiles)
+      .innerJoin(projects, eq(projects.id, driveFiles.projectId))
+      .where(and(inArray(driveFiles.id, driveIds), isNull(driveFiles.deletedAt), inVisible(driveFiles.projectId)));
+    for (const r of rows) {
+      put({
+        kind: "drive",
+        id: r.id,
+        label: r.name,
+        projectId: r.projectId,
+        code: `${r.projectCode}-F${r.number}`,
+        drive: { type: r.type, projectCode: r.projectCode, projectName: r.projectName, opens90d: r.opens90d, summary: null },
+      });
+    }
   }
 
   // Le pagine Docs (area 5, fetta 1): il riferimento è il CODICE della pagina,
@@ -214,6 +251,9 @@ export async function hasVisibleCitationSql(db: Db, viewer: ChatViewer, messageI
         ))
         or (c.kind = 'project' and exists (select 1 from ${projects} where ${projects.id} = c.ref_id and ${inVisible(projects.id)}))
         or (c.kind = 'person' and exists (select 1 from ${users} where ${users.id} = c.ref_id and ${users.isAgent} = false))
+        or (c.kind = 'drive' and exists (
+          select 1 from ${driveFiles} where ${driveFiles.id} = c.ref_id and ${driveFiles.deletedAt} is null and ${inVisible(driveFiles.projectId)}
+        ))
         or (c.kind = 'doc' and exists (
           select 1 from ${docPageCodes} dc
           inner join ${repositories} on ${repositories.id} = dc.repository_id
@@ -231,7 +271,7 @@ async function citeablesFromCodes(db: Db, viewer: ChatViewer, text: string): Pro
   if (codes.length === 0) return [];
   const byCode = (kind: "task" | "request") =>
     codes.filter((c) => c.kind === kind).map((c) => and(eq(projects.code, c.projectCode), eq(kind === "task" ? tickets.number : backlogItems.number, c.number))!);
-  const found: { kind: "task" | "request" | "doc"; id: string }[] = [];
+  const found: { kind: CodeKind; id: string }[] = [];
   const tasks = byCode("task");
   if (tasks.length > 0) {
     const rows = await db
@@ -258,6 +298,15 @@ async function citeablesFromCodes(db: Db, viewer: ChatViewer, text: string): Pro
       .innerJoin(projects, eq(projects.id, docPageCodes.projectId))
       .where(or(...docs.map((c) => and(eq(projects.code, c.projectCode), eq(docPageCodes.number, c.number))!)));
     found.push(...rows.map((r) => ({ kind: "doc" as const, id: r.id })));
+  }
+  const files = codes.filter((c) => c.kind === "drive");
+  if (files.length > 0) {
+    const rows = await db
+      .select({ id: driveFiles.id })
+      .from(driveFiles)
+      .innerJoin(projects, eq(projects.id, driveFiles.projectId))
+      .where(or(...files.map((c) => and(eq(projects.code, c.projectCode), eq(driveFiles.number, c.number))!)));
+    found.push(...rows.map((r) => ({ kind: "drive" as const, id: r.id })));
   }
   // La visibilità la decide `citeablesFor`, la stessa della lettura.
   const visible = await citeablesFor(db, viewer, found);

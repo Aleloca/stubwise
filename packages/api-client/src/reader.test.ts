@@ -17,6 +17,16 @@ const NOW = "2026-09-02T10:00:00.000Z";
  * dimenticare" resti vero anche al task 20. Gli argomenti sono finti di
  * proposito: lo schema è scelto prima che il corpo conti qualcosa.
  */
+/**
+ * Gli argomenti dei metodi a cui un id finto non basta, per nome: un upload
+ * vuole un Blob vero (`FormData.append` lancia su una stringa). Scritti qui,
+ * uno per uno, invece di saltare il metodo: saltato, il suo schema uscirebbe
+ * dai controlli.
+ */
+const ARGS_FOR: Record<string, unknown[]> = {
+  "drive.upload": [ID, new Blob(["x"]), "x.pdf"],
+};
+
 function responseSchemas(): {
   schemas: { name: string; schema: ZodType }[];
   failures: { name: string; error: string }[];
@@ -35,7 +45,7 @@ function responseSchemas(): {
       if (typeof fn !== "function") continue;
       current = `${groupName}.${method}`;
       try {
-        (fn as (...a: unknown[]) => unknown).call(group, ID, ID, ID);
+        (fn as (...a: unknown[]) => unknown).call(group, ...(ARGS_FOR[current] ?? [ID, ID, ID]));
       } catch (error) {
         // Gli argomenti sono finti, ma un endpoint NON deve lanciare prima di
         // chiamare `request`: se lo facesse uscirebbe da questi controlli in

@@ -17,6 +17,7 @@ import { createHomeEndpoints } from "./endpoints/home.js";
 import { createRequestsEndpoints } from "./endpoints/requests.js";
 import { createMeEndpoints } from "./endpoints/me.js";
 import { createChatEndpoints } from "./endpoints/chat.js";
+import { createDriveEndpoints } from "./endpoints/drive.js";
 import { createClaudeEndpoints } from "./endpoints/claude.js";
 import { createMilestonesEndpoints } from "./endpoints/milestones.js";
 import { createPatsEndpoints } from "./endpoints/pats.js";
@@ -157,6 +158,8 @@ export function createEndpoints(request: ApiRequest) {
     milestones: createMilestonesEndpoints(request),
     // Area 4: la Chat fra persone.
     chat: createChatEndpoints(request),
+    // Area 5: il Drive dei progetti.
+    drive: createDriveEndpoints(request),
   };
 }
 
