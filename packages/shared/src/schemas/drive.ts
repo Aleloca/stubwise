@@ -99,8 +99,12 @@ export const driveFileRowSchema = z.object({
   lastOpenedAt: z.iso.datetime().nullable().default(null),
   /** La prima riga del riassunto AI (F3); null finché non c'è. */
   summaryLine: z.string().nullable().default(null),
-  /** Lo stato del contenuto (F3); un server della fetta 2 non lo manda. */
-  contentStatus: driveContentStatusSchema.default("pending"),
+  /**
+   * Lo stato del contenuto (F3). Null = un server SENZA la F3 (rollback, istanza
+   * non aggiornata), che non lo manda: il client lo mostra come oggi, non come
+   * «in elaborazione» per sempre. Un server F3 lo manda sempre.
+   */
+  contentStatus: driveContentStatusSchema.nullable().default(null),
   /** Perché non c'è testo (solo `no_text`). */
   contentReason: driveContentReasonSchema.nullable().default(null),
   /** Quanto è passato dall'OCR; null finché non si è estratto. */
