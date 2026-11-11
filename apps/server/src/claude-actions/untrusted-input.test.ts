@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { claudeProposals, docPages, driveFiles, issueChatToolToken, projects, tickets } from "@stubwise/db";
+import { backlogItems, backlogItemTickets, claudeProposals, docPages, driveFiles, issueChatToolToken, projects, tickets } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { buildApp } from "../app.js";
@@ -151,4 +151,56 @@ describe("il contenuto di un file per Claude", () => {
     const detail = (await app.inject({ method: "GET", url: `/api/drive/files/${f.id}`, headers: { cookie: author.headers.cookie } })).json() as { opensTotal: number };
     expect(detail.opensTotal).toBe(0);
   });
+
 });
+
+describe("review della F3 (decisione del maintainer): una task o una richiesta nata da FUORI conta come contenuto non fidato", () => {
+  async function request(extra: Partial<typeof backlogItems.$inferInsert> = {}) {
+    const [item] = await t.db.insert(backlogItems).values({ projectId, title: `Richiesta ${++n}`, body: "testo", source: "manual", ...extra } as typeof backlogItems.$inferInsert).returning({ id: backlogItems.id, number: backlogItems.number });
+    return { id: item!.id, code: `${projectCode}-R${item!.number}` };
+  }
+  const turn = async () => {
+    const sid = await conversation();
+    return { sid, tok: await issueChatToolToken(t.db, { sessionId: sid, userId: author.id, ttlMs: 60_000 }) };
+  };
+
+  for (const [what, prepare] of [
+    ["una task arrivata dal widget, letta per codice", async (tok: string) => {
+      const tk = await task();
+      await t.db.update(tickets).set({ source: "widget" }).where(eq(tickets.id, tk.id));
+      return get(tok, `/api/tasks/by-code/${tk.code}`);
+    }],
+    ["una task da un feedback dell'SDK, trovata con la ricerca", async (tok: string) => {
+      const tk = await task();
+      await t.db.update(tickets).set({ source: "sdk_feedback", title: "parolaesterna-ricerca" }).where(eq(tickets.id, tk.id));
+      return get(tok, `/api/tasks?text=parolaesterna-ricerca`);
+    }],
+    ["una richiesta nata da un'email in entrata", async (tok: string) => get(tok, `/api/requests/by-code/${(await request({ externalOrigin: "email" })).code}`)],
+    ["una richiesta nata da una task del widget", async (tok: string) => {
+      const tk = await task();
+      await t.db.update(tickets).set({ source: "widget" }).where(eq(tickets.id, tk.id));
+      const r = await request({ source: "ticket" });
+      await t.db.insert(backlogItemTickets).values({ itemId: r.id, ticketId: tk.id, role: "origin" });
+      return get(tok, `/api/requests/by-code/${r.code}`);
+    }],
+  ] as const) {
+    it(`${what}: la proposta dopo è B`, async () => {
+      const { sid, tok } = await turn();
+      expect((await prepare(tok)).statusCode).toBe(200);
+      expect((await propose(sid, tok, retitle((await task()).id))).json()).toMatchObject({ status: "awaiting_confirmation" });
+    });
+  }
+
+  it("una task e una richiesta scritte dai colleghi NON segnano niente: la A resta A", async () => {
+    const { sid, tok } = await turn();
+    expect((await get(tok, `/api/tasks/by-code/${(await task()).code}`)).statusCode).toBe(200);
+    expect((await get(tok, `/api/requests/by-code/${(await request()).code}`)).statusCode).toBe(200);
+    // Una ricerca che restituisce solo task dei colleghi (la parola è solo loro).
+    const mine = await task();
+    await t.db.update(tickets).set({ title: "parolainterna-colleghi" }).where(eq(tickets.id, mine.id));
+    const found = await get(tok, `/api/tasks?text=parolainterna-colleghi`);
+    expect(found.body).toContain(mine.id);
+    expect((await propose(sid, tok, retitle((await task()).id))).json()).toMatchObject({ status: "executed" });
+  });
+});
+

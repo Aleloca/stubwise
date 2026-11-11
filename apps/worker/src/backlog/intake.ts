@@ -459,6 +459,12 @@ export async function runIntake(
     await announceRequest(deps, projectId, requesterId, result, false);
   }
 
+  // Nata da fuori (un'email in entrata, review della F3): la voce lo ricorda,
+  // anche quando la richiesta è stata fusa in una che c'era.
+  if (!("ticketId" in payload) && payload.externalOrigin) {
+    await db.update(backlogItems).set({ externalOrigin: payload.externalOrigin }).where(eq(backlogItems.id, result.itemId));
+  }
+
   // 6. «Create request» da un messaggio della Chat: «→ AUD-R7» sul messaggio,
   // anche quando la richiesta è stata fusa (il prototipo lega ciò che riceve).
   if (!("ticketId" in payload) && payload.chatMessageId) {

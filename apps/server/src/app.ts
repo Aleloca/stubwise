@@ -428,7 +428,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     // I progetti letti dal token del turno della chat (fetta 5, D2).
     await recordChatToolReadProjects(request, reply, payload);
     // Il contenuto NON fidato letto dal token del turno (area 5, fetta 3): fail-closed.
-    await recordChatToolUntrustedRead(request, reply);
+    await recordChatToolUntrustedRead(request, reply, payload);
     return payload;
   });
 

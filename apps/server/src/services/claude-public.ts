@@ -11,9 +11,9 @@ import {
 } from "@stubwise/db";
 import { effectiveInstancePermissions } from "@stubwise/shared";
 import type { ClaudeConversationProject } from "@stubwise/shared";
-import { and, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt, sql, type SQL } from "drizzle-orm";
 import { visibleProjectIds } from "../auth/access.js";
-import { CHAT_TOOL_UNTRUSTED_ROUTES } from "../auth/chat-tool-routes.js";
+import { CHAT_TOOL_EXTERNAL_CONTENT_ROUTES, CHAT_TOOL_UNTRUSTED_ROUTES, EXTERNAL_TICKET_SOURCES } from "../auth/chat-tool-routes.js";
 import type { SessionUser } from "../auth/session.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
@@ -323,14 +323,48 @@ export async function hasToolReads(db: DbOrTx, sessionId: string): Promise<boole
  * di quello dei progetti: se il segno non si scrive, l'errore fa fallire la
  * risposta e il contenuto non arriva al modello.
  */
-export async function recordChatToolUntrustedRead(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+export async function recordChatToolUntrustedRead(request: FastifyRequest, reply: FastifyReply, payload?: unknown): Promise<void> {
   const sessionId = request.user?.chatToolSessionId;
   if (sessionId === undefined || request.method !== "GET" || reply.statusCode !== 200) return;
-  if (!CHAT_TOOL_UNTRUSTED_ROUTES.has(request.routeOptions.url ?? "")) return;
+  const route = request.routeOptions.url ?? "";
+  if (!CHAT_TOOL_UNTRUSTED_ROUTES.has(route)) {
+    if (!CHAT_TOOL_EXTERNAL_CONTENT_ROUTES.has(route)) return;
+    if (!(await readsExternalContent(request.server.db, route, payload))) return;
+  }
   await request.server.db
     .update(claudeConversations)
     .set({ untrustedReadAt: sql`coalesce(${claudeConversations.untrustedReadAt}, now())` })
     .where(eq(claudeConversations.sessionId, sessionId));
+}
+
+/** Gli id restituiti da una lettura di task o richieste: un oggetto, o `{ items }`, o un elenco. */
+function idsOf(payload: unknown): string[] {
+  if (typeof payload !== "string") return [];
+  const body = JSON.parse(payload) as unknown;
+  const rows = Array.isArray(body) ? body : body !== null && typeof body === "object" && Array.isArray((body as { items?: unknown }).items) ? (body as { items: unknown[] }).items : [body];
+  return rows.map((r) => (r !== null && typeof r === "object" ? (r as { id?: unknown }).id : null)).filter((id): id is string => typeof id === "string" && UUID.test(id));
+}
+
+/**
+ * Fra le task o le richieste restituite ce n'è una nata da FUORI? (review della
+ * F3, decisione del maintainer). Una task: `source` esterno, o convertita da
+ * una richiesta esterna. Una richiesta: un'email in entrata
+ * (`external_origin`), o nata da una task esterna.
+ */
+async function readsExternalContent(db: Db, route: string, payload: unknown): Promise<boolean> {
+  const ids = idsOf(payload);
+  if (ids.length === 0) return false;
+  const external = sql.raw(EXTERNAL_TICKET_SOURCES.map((s) => `'${s}'`).join(", "));
+  const idList = sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `);
+  const externalItem = (item: SQL) => sql`(${item}.external_origin is not null or exists (
+    select 1 from backlog_item_tickets bo join tickets ot on ot.id = bo.ticket_id
+    where bo.item_id = ${item}.id and bo.role = 'origin' and ot.source::text in (${external})))`;
+  const rows = route.startsWith("/api/requests")
+    ? await db.execute(sql`select 1 from backlog_items b where b.id in (${idList}) and ${externalItem(sql`b`)} limit 1`)
+    : await db.execute(sql`select 1 from tickets t where t.id in (${idList}) and (t.source::text in (${external}) or exists (
+        select 1 from backlog_item_tickets bc join backlog_items b on b.id = bc.item_id
+        where bc.ticket_id = t.id and bc.role = 'converted_to' and ${externalItem(sql`b`)})) limit 1`);
+  return rows.length > 0;
 }
 
 /** Le letture per codice del token del turno: il progetto sta nella risposta. */

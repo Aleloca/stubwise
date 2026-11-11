@@ -306,6 +306,26 @@ describe("runIntake — nuova voce", () => {
     expect(await db.select().from(backlogItems).where(eq(backlogItems.projectId, other))).toHaveLength(1);
   });
 
+  it("review della F3: una richiesta nata da un'email (externalOrigin) lo ricorda, sia nuova sia fusa in una che c'era", async () => {
+    const db = testDb.db;
+    const projectId = await createProject(db);
+    const feedback = "Da email\n\nIl cliente chiede l'export";
+    const deps = makeDeps(db, { embeddingClient: embeddingClient({ [feedback]: vecOrtho }), runner: fakeRunner(INTAKE_JSON) });
+    await runIntake(deps, fakeJob(projectId), { title: "Da email", body: "Il cliente chiede l'export", externalOrigin: "email" });
+    const [item] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, projectId));
+    expect(item!.externalOrigin).toBe("email");
+    // Senza il campo, niente segno.
+    const other = await createProject(db);
+    await runIntake(deps, fakeJob(other), { title: "Da email", body: "Il cliente chiede l'export" });
+    const [plain] = await db.select().from(backlogItems).where(eq(backlogItems.projectId, other));
+    expect(plain!.externalOrigin).toBeNull();
+    // Fusa nella voce che c'era (stesso vettore, sopra soglia): la voce prende il segno.
+    await runIntake(deps, fakeJob(other), { title: "Da email", body: "Il cliente chiede l'export", externalOrigin: "email" });
+    const merged = await db.select().from(backlogItems).where(eq(backlogItems.projectId, other));
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.externalOrigin).toBe("email");
+  });
+
   it("(d-bis) titolo che è l'INIZIO del corpo (cattura dall'app) → trattato come assente, non come un punto troncato", async () => {
     // L'app manda come titolo i primi 300 caratteri del testo, tagliati dove
     // capita: il 19 ott 2026 l'agente l'ha letto come un punto a sé e ha

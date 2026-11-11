@@ -3231,6 +3231,8 @@ export const backlogItems = pgTable(
     // ~decine di migliaia di voci per progetto.
     embedding: vector(1024),
     source: backlogItemSource("source").notNull(),
+    // Nata da FUORI (0148): un'email in entrata. Leggerla nella chat con Claude è contenuto non fidato.
+    externalOrigin: text("external_origin").$type<"email">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()

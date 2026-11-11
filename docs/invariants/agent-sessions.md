@@ -384,6 +384,17 @@
     un tool che legge testo scritto da altri aggiunge la sua rotta a
     quell'elenco. Il golden `chat-drive-hostile` prova il comportamento del
     modello; la regola regge anche se il golden sbaglia.
+    **E una task o una richiesta nata da FUORI** (12 nov 2026, decisione del
+    maintainer, review della F3): leggerla (per codice, per id, nella ricerca
+    delle task) segna la conversazione come sopra, ma SOLO se fra ciò che la
+    risposta restituisce c'è un oggetto esterno — una task con `source`
+    `widget`, `sdk_error`, `sdk_feedback` o `webhook`
+    (`EXTERNAL_TICKET_SOURCES`), una richiesta nata da un'email in entrata
+    (`backlog_items.external_origin`, 0148, scritta dall'intake) o da una di
+    quelle task, una task convertita da una richiesta così
+    (`CHAT_TOOL_EXTERNAL_CONTENT_ROUTES`). Quelle scritte dai colleghi no.
+    Anche la continuazione di una pubblica eredita il segno dell'originale, e
+    un'azione della pagina dopo il segno è una scheda da confermare.
 
 - **Chat con Claude: una conversazione PUBBLICA si legge come la decide il
   server, e gli eventi dei tool restano visibili ai lettori (10 nov 2026,

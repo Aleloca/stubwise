@@ -55,6 +55,24 @@ export const CHAT_TOOL_UNTRUSTED_ROUTES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Le letture di task e richieste (review della F3, decisione del maintainer):
+ * segnano la conversazione SOLO se fra ciò che restituiscono c'è un oggetto
+ * nato da FUORI — una task arrivata dal widget, dall'SDK o da un webhook
+ * (`EXTERNAL_TICKET_SOURCES`), una richiesta nata da un'email in entrata
+ * (`backlog_items.external_origin`) o da una di quelle task, o una task
+ * convertita da una richiesta così. Quelle scritte dai colleghi no.
+ */
+export const CHAT_TOOL_EXTERNAL_CONTENT_ROUTES: ReadonlySet<string> = new Set([
+  "/api/tasks",
+  "/api/tasks/:id",
+  "/api/tasks/by-code/:code",
+  "/api/requests/:id",
+  "/api/requests/by-code/:code",
+]);
+/** Le origini di una task che vengono da fuori del team. */
+export const EXTERNAL_TICKET_SOURCES = ["widget", "sdk_error", "sdk_feedback", "webhook"] as const;
+
+/**
  * La sola rotta di SCRITTURA del token del turno (chat, fetta 3; decisione D2
  * dell'orchestratrice, 10 nov 2026): creare una PROPOSTA di Claude (tool
  * `propose_action`). Non esegue niente da sé: la classe la calcola il server
