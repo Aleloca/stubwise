@@ -59,6 +59,7 @@ const pageWhere = new Map<string, { repositoryId: string; slug: string }>();
 export function forgetDocsCaches(): void {
   spaceOf.clear();
   pageWhere.clear();
+  reports.clear();
 }
 
 async function read<T>(run: () => Promise<T>): Promise<T | null> {
@@ -284,13 +285,22 @@ export function communitiesOf(markdown: string): GraphCommunity[] {
   return out.sort((a, b) => b.size - a.size);
 }
 
-async function graphNow(repositoryId: string, withReport: boolean): Promise<GraphState> {
+/** Le comunità lette, per repository e costruzione: il resoconto cambia solo con un grafo nuovo. */
+const reports = new Map<string, GraphCommunity[]>();
+
+async function graphNow(repositoryId: string): Promise<GraphState> {
   const g = await read(() => appClient().graph.state(repositoryId));
-  const report =
-    withReport && g?.enabled && g.status === "done"
-      ? await read(() => appClient().graph.report(repositoryId)).catch(() => null)
-      : null;
-  return graphOf(g, report ? communitiesOf(report) : undefined);
+  if (!g?.enabled || g.status !== "done") return graphOf(g);
+  const key = `${repositoryId}\u0000${g.generatedAt ?? ""}\u0000${g.commitSha ?? ""}`;
+  let report = reports.get(key);
+  if (!report) {
+    const text = await read(() => appClient().graph.report(repositoryId)).catch(() => null);
+    if (text !== null) {
+      report = communitiesOf(text);
+      reports.set(key, report);
+    }
+  }
+  return graphOf(g, report);
 }
 
 /** L'ordine delle categorie per le domande suggerite, come il prototipo. */
@@ -326,8 +336,7 @@ async function spaceView(
     read(() => appClient().docs.repoHighlights(s.repositoryId)),
     read(() => appClient().docs.status(s.repositoryId)),
     read(() => appClient().docs.brief(s.repositoryId)),
-    // Il resoconto delle comunità solo aprendo lo spazio (`getDocSpace`).
-    graphNow(s.repositoryId, withReleaseTexts),
+    graphNow(s.repositoryId),
   ]);
   const bySlug = new Map(refs.map((r) => [r.slug, r] as const));
   const refsFrom = (list: readonly { slug: string }[] | undefined) =>
@@ -673,7 +682,7 @@ const graphAction: Docs["graphAction"] = async (repositoryId, kind) => {
       ? appClient().graph.setupPr(repositoryId)
       : appClient().graph.generate(repositoryId, kind === "rebuild" ? { force: true } : {}),
   );
-  return graphNow(repositoryId, false);
+  return graphNow(repositoryId);
 };
 
 /** Le funzioni dei passi 2a–2d della fetta 1 dei Docs. */
