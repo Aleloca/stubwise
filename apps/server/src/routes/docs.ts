@@ -665,11 +665,6 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
   // --- M6.2: hub spazi + albero + pagina ---------------------------------
 
   /**
-   * Hub degli spazi: i progetti che hanno documentazione, cioè almeno una
-   * pagina (autogenerata o manuale). Per ognuno: conteggio pagine e data/commit
-   * dell'ultima generazione (terminata con successo).
-   */
-  /**
    * Dove sta la pagina di un codice `<PRJ>-D<n>` (area 5, fetta 1): per i link
    * delle citazioni e dei codici scritti a mano. Solo con `docs.view` nel
    * progetto del codice; un progetto che non si legge e un codice che non c'è
@@ -691,6 +686,11 @@ export async function docsRoutes(instance: FastifyInstance): Promise<void> {
     },
   );
 
+  /**
+   * Hub degli spazi: i progetti che hanno documentazione, cioè almeno una
+   * pagina (autogenerata o manuale). Per ognuno: conteggio pagine e data/commit
+   * dell'ultima generazione (terminata con successo).
+   */
   app.get(
     "/docs/spaces",
     {

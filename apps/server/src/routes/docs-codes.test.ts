@@ -92,6 +92,13 @@ describe("la risoluzione di un codice", () => {
     expect((await as(lead, "GET", `/api/docs/codes/${projectCode}-T2`)).statusCode).toBe(404);
   });
 
+  it("senza distinzione di maiuscole, come la ricerca", async () => {
+    const lower = await as(lead, "GET", `/api/docs/codes/${projectCode.toLowerCase()}-d2`);
+    expect(lower.statusCode, lower.body).toBe(200);
+    expect(lower.json()).toMatchObject({ projectId, slug: "login" });
+    expect((await as(outsider, "GET", `/api/docs/codes/${projectCode.toLowerCase()}-d2`)).statusCode).toBe(404);
+  });
+
   it("una pagina manuale eliminata: il codice resta, `available` falso", async () => {
     const created = await as(lead, "POST", `/api/repositories/${repositoryId}/docs/manual`, { title: "Runbook", body: "passi" });
     expect(created.statusCode, created.body).toBe(201);
