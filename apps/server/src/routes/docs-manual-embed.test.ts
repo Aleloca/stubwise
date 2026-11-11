@@ -80,4 +80,17 @@ describe("gli embedding delle pagine manuali", () => {
       embedderDown = false;
     }
   });
+
+  it("con l'embedder giù una MODIFICA toglie i chunk del testo vecchio: la ricerca per significato non trova più quello che la pagina non dice", async () => {
+    const { id } = (await as("POST", `/api/repositories/${repositoryId}/docs/manual`, { title: "Rotazione", body: "Il turno di reperibilità ruota il lunedì" })).json() as { id: string };
+    expect((await chunksOf(id)).length).toBeGreaterThan(0);
+    embedderDown = true;
+    try {
+      const res = await as("PATCH", `/api/repositories/${repositoryId}/docs/manual/${id}`, { body: "Testo nuovo, senza vettori" });
+      expect(res.statusCode, res.body).toBe(200);
+      expect(await chunksOf(id)).toHaveLength(0);
+    } finally {
+      embedderDown = false;
+    }
+  });
 });

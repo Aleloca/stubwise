@@ -4,7 +4,7 @@ import {
   searchHistoryItemSchema,
   searchResultsSchema,
 } from "@stubwise/shared";
-import { and, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -282,6 +282,10 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
           .where(
             and(
               sql`${docPages.searchTsv} @@ ${tsq}`,
+              // Le note di rilascio no (review della fetta 1 dell'area 5): non
+              // hanno un codice, e nel prototipo non sono pagine, quindi non si
+              // citano col «#» né si aprono da ⌘K.
+              ne(docPages.kind, "releases"),
               // Solo la generazione corrente del repo (o le pagine manuali,
               // generation_id null): le generazioni stale non compaiono.
               or(

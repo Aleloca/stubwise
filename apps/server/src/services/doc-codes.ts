@@ -49,7 +49,8 @@ export async function withDocCodesIn<T extends { slug: string }>(db: Db, reposit
  * c'è ancora (generazione corrente o manuale).
  */
 export async function resolveDocCode(db: Db, viewer: Viewer, code: string): Promise<DocCodeResolution | null> {
-  const match = DOC_CODE_RE.exec(code.trim());
+  // Senza distinzione di maiuscole, come la ricerca (i codici di progetto sono maiuscoli).
+  const match = DOC_CODE_RE.exec(code.trim().toUpperCase());
   if (!match) return null;
   const [, projectCode, number] = match;
   const [row] = await db

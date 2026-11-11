@@ -56,6 +56,26 @@ describe("il ponte dei tool della chat", () => {
     expect(body.text).toContain("AUD");
   });
 
+  it("read_doc_page ha un tetto suo, 30.000 caratteri come l'MCP: una pagina di 20.000 arriva intera, una di 50.000 si tronca e lo dice con la lunghezza totale", async () => {
+    const page = (n: number) => ({ id: "p", slug: "guida", title: "Guida", code: "AUD-D3", body: `${"a".repeat(n - 4)}FINE` });
+    let size = 20_000;
+    const fetchImpl = vi.fn(async () => Response.json(page(size)));
+    bridge = await startChatBridge({ serverUrl: "http://server:3000", fetchImpl: fetchImpl as never });
+    const grant = bridge.grant({ sessionId: "s1", serverToken: "stw_chat_t" });
+    const args = { repositoryId: "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01", slug: "guida" };
+    const whole = (await (await call(bridge, grant.secret, "read_doc_page", args)).json()) as { ok: boolean; text: string };
+    expect(whole.ok).toBe(true);
+    expect(whole.text).toContain("FINE");
+    expect(whole.text).not.toContain("truncated");
+    size = 50_000;
+    const cut = (await (await call(bridge, grant.secret, "read_doc_page", args)).json()) as { ok: boolean; text: string };
+    expect(cut.text).not.toContain("FINE");
+    expect(cut.text).toContain("page truncated");
+    expect(cut.text).toContain("50000");
+    expect(cut.text).not.toContain("ask a narrower question");
+    expect(cut.text).toContain("a".repeat(29_000));
+  });
+
   it("i percorsi dei tool: testo e progetto nella query, codici nel percorso", () => {
     const P = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
     expect(chatServerPaths("search_tasks", { text: "csv export", projectId: P })).toEqual([

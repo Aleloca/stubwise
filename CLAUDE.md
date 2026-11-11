@@ -553,6 +553,8 @@ una voce ti riguarda.
   - Le citazioni `doc` della Chat puntano al codice; un codice D scritto a mano diventa citazione per chi legge la pagina.
   - Le pagine manuali hanno gli embedding dal server, fail-open; i numeri del chunking stanno in `docs-engine`.
   - Lo stato della generazione dice solo ciò che il server sa: niente stime.
+  - Il numero di un codice D lo dà `stubwise_ensure_doc_page_codes`; uno scrittore di `doc_pages` con una transazione lunga chiama `ensureDocPageCodes` PRIMA (il lock per progetto).
+  - Embedding delle manuali: fail-open, chunk vecchi tolti, backfill all'avvio e ogni ora.
 - **Account e provider dell'agente → `docs/invariants/providers.md`**:
   - La scelta dell'account sta in `providers/select.ts`, e la ripresa usa la stessa funzione (15 ott 2026).
 - **Giro notturno → `docs/invariants/nightly.md`**:

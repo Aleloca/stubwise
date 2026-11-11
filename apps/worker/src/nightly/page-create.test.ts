@@ -1,4 +1,4 @@
-import { commitSummaries, docChunks, docGenerations, docPages, nightlyItems, repositories } from "@stubwise/db";
+import { commitSummaries, docChunks, docPageCodes, docGenerations, docPages, nightlyItems, repositories } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import {
   EXPLORE_BODY_END_MARKER,
@@ -195,6 +195,27 @@ describe("runPageCreateItem", () => {
     expect(g!.stats).toMatchObject({ pages: 2, nodes: 9 });
     expect((g!.stats as { chunks: number }).chunks).toBeGreaterThan(3);
     expect(Number(g!.cost)).toBeCloseTo(1.5);
+  });
+
+  it("il codice della pagina nuova è dato PRIMA della transazione: durante l'embedding è già committato (review F1, il lock per progetto)", async () => {
+    const gen = await seedCurrentGeneration(testDb.db, repositoryId, BOOKMARK);
+    await enqueueArea(gen, "src/billing", BILLING);
+    const { deps } = makeDeps({
+      run: async (opts) => (isOrient(opts.prompt) ? ok(orientOutput([{ title: "Codici prima", paths: "src/billing" }])) : ok(EXPLORED)),
+    });
+    const fake = createFakeEmbeddingClient();
+    const seen: string[][] = [];
+    deps.embeddingClient = {
+      ...fake,
+      embed: async (inputs: string[]) => {
+        seen.push((await testDb.db.select({ slug: docPageCodes.slug }).from(docPageCodes).where(eq(docPageCodes.repositoryId, repositoryId))).map((r) => r.slug));
+        return fake.embed(inputs);
+      },
+    };
+    expect(await runPageCreateItem(deps, repo(), WT, await claim())).toBe("created");
+    const created = (await pagesOf(gen)).find((p) => p.title === "Codici prima")!;
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen[0]).toContain(created.slug);
   });
 
   it("allowlist CHIUSA sui soli file dell'area, orient ed explore: default mode, cwd fuori dal worktree, nessun tetto, lingua della Docs", async () => {

@@ -1,6 +1,7 @@
 import { createAgentSessionBus } from "./agent-session-bus.js";
 import { createChatBus } from "./chat/bus.js";
 import { buildApp } from "./app.js";
+import { backfillManualPageEmbeddings } from "./services/doc-embed.js";
 import { loadConfig, type Config } from "./config.js";
 import { createDb, runMigrations } from "@stubwise/db";
 
@@ -57,3 +58,11 @@ try {
   app.log.error(err);
   process.exit(1);
 }
+
+// Gli embedding delle pagine manuali di prima della 0142, all'avvio (poi ogni
+// ora dal timer di `buildApp`): in sottofondo, fail-open.
+void backfillManualPageEmbeddings(app.db, app.embeddingClient, app.log)
+  .then((n) => {
+    if (n > 0) app.log.info({ pages: n }, "embedding delle pagine manuali recuperati");
+  })
+  .catch((error: unknown) => app.log.warn({ err: error }, "backfill degli embedding delle pagine manuali non riuscito"));
