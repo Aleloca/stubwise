@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { attachmentRefusal } from "./attachments";
+import { attachmentRefusal, sendRefusalKey } from "./attachments";
 
 // La casella della Chat nella build app (fetta 4): il controllo prima del
 // caricamento. Un file senza tipo (il sistema non lo sa dire) si giudica
@@ -19,5 +19,17 @@ describe("attachmentRefusal", () => {
     expect(attachmentRefusal(new File(["x"], "archive.zip", { type: "" }))).toBeNull();
     expect(attachmentRefusal(new File(["x"], "setup.exe", { type: "" }))).toBe("type");
     expect(attachmentRefusal(new File(["x"], "no-extension", { type: "" }))).toBe("type");
+  });
+});
+
+describe("sendRefusalKey", () => {
+  it("i rifiuti dell'upload hanno ognuno la sua frase in «Not sent»", () => {
+    for (const [error, key] of [
+      ["invalid: attachmentQuota", "chat.attachments.notSent.quota"],
+      ["invalid: attachmentName", "chat.attachments.notSent.name"],
+      ["invalid: attachmentRate", "chat.attachments.notSent.rate"],
+    ]) {
+      expect(sendRefusalKey(new Error(error)), error).toBe(key);
+    }
   });
 });

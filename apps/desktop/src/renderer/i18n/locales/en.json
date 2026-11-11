@@ -5323,7 +5323,10 @@
         "type": "a file of this type isn't allowed",
         "size": "a file is too big (up to 25 MB)",
         "off": "attachments are off on this instance",
-        "gone": "an attachment had expired: Resend uploads it again"
+        "gone": "an attachment had expired: Resend uploads it again",
+        "quota": "too many of your files are waiting to be sent (up to 200 MB): try again later",
+        "name": "a file name is too long (up to 255 characters)",
+        "rate": "too many uploads in a minute: wait a moment, then Resend"
       }
     }
   },

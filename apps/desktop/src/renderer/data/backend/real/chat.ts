@@ -56,6 +56,9 @@ const INVALID_OF: Record<string, string> = {
   unsupported_type: "attachmentType",
   file_too_large: "attachmentSize",
   storage_not_configured: "attachmentsOff",
+  // Review della fetta 4 (server): troppi file in sospeso (200 MB), un nome oltre 255 caratteri.
+  pending_quota: "attachmentQuota",
+  invalid_filename: "attachmentName",
   empty_message: "text",
   invalid_attachments: "attachments",
 };
@@ -466,7 +469,15 @@ const sendMessage: Chat["sendMessage"] = async (channelId, input) => {
   for (const a of input.attachments ?? []) {
     if (!a.file) continue;
     const file = a.file;
-    const uploaded = await call(() => appClient().chat.attachments.upload(channelId, file, a.name));
+    const uploaded = await call(async () => {
+      try {
+        return await appClient().chat.attachments.upload(channelId, file, a.name);
+      } catch (error) {
+        // Più di 60 caricamenti al minuto per persona: il 429 si dice nella casella.
+        if (error instanceof ApiError && error.status === 429) throw new Error("invalid: attachmentRate");
+        throw error;
+      }
+    });
     attachmentIds.push(uploaded.id);
   }
   return toMessage(
