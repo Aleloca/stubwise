@@ -1310,7 +1310,14 @@ export async function answerClaudeQuestion(
       .where(and(eq(chatClaudeQuestions.id, question.id), isNull(chatClaudeQuestions.answeredAt)))
       .returning({ id: chatClaudeQuestions.id });
     if (claimed.length === 0) throw new ChatError(409, "already_answered", "Already answered");
-    await tx.update(chatMessages).set({ claudeState: "working", updatedAt: sql`now()` }).where(eq(chatMessages.id, id));
+    // Solo una risposta ancora in attesa e non eliminata (review della fetta 3):
+    // uno Stop o un'eliminazione arrivati nel frattempo non si annullano.
+    const resumed = await tx
+      .update(chatMessages)
+      .set({ claudeState: "working", updatedAt: sql`now()` })
+      .where(and(eq(chatMessages.id, id), eq(chatMessages.claudeState, "waiting"), isNull(chatMessages.deletedAt)))
+      .returning({ id: chatMessages.id });
+    if (resumed.length === 0) throw new ChatError(409, "invalid_status", "The reply isn't waiting");
     // La ripresa: la stessa sessione, con la risposta come messaggio di chi ha chiamato.
     const label = option?.label ?? text!;
     await tx.insert(agentSessionInputs).values({

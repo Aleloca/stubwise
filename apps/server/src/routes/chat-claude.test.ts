@@ -311,3 +311,47 @@ describe("fermare, rifare, eliminare, rispondere", () => {
     expect((await t.db.select().from(agentSessions).where(eq(agentSessions.kind, "chat_mention"))).length).toBe(before);
   });
 });
+
+describe("review della fetta 3 (11 nov 2026)", () => {
+  /** Una risposta in attesa con una domanda. */
+  async function waitingReply(text: string) {
+    const g = await general();
+    const root = idOf(await post(dev, g, `@Claude ${text}`));
+    const reply = await replyIn(root);
+    const [q] = await t.db
+      .insert(chatClaudeQuestions)
+      .values({ replyMessageId: reply.id, text: "Quale?", options: [{ label: "A" }, { label: "B" }] })
+      .returning({ id: chatClaudeQuestions.id });
+    await t.db.update(chatMessages).set({ claudeState: "waiting" }).where(eq(chatMessages.id, reply.id));
+    return { reply, questionId: q!.id };
+  }
+
+  it("2. una risposta alla domanda in corsa con uno Stop non riaccende la risposta: 409", async () => {
+    const { reply, questionId } = await waitingReply("in corsa con lo stop");
+    // Lo Stop tiene il lock della riga mentre la ferma; la risposta lo aspetta.
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    const held = t.client.begin(async (tx) => {
+      await tx`update chat_messages set claude_state = 'stopped' where id = ${reply.id}`;
+      await released;
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const answering = as(dev, "POST", `/api/chat/messages/${reply.id}/claude/answer`, { questionId, optionIndex: 0 });
+    for (let i = 0; i < 100; i++) {
+      const [row] = await t.client`select count(*)::int as n from pg_stat_activity where wait_event_type = 'Lock' and datname = current_database()`;
+      if ((row as { n: number }).n >= 1) break;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    release();
+    await held;
+    const res = await answering;
+    expect(res.statusCode, res.body).toBe(409);
+    const [row] = await t.db.select().from(chatMessages).where(eq(chatMessages.id, reply.id));
+    expect(row!.claudeState).toBe("stopped");
+    // Né la domanda risulta risposta, né parte un input.
+    const [q] = await t.db.select().from(chatClaudeQuestions).where(eq(chatClaudeQuestions.id, questionId));
+    expect(q!.answeredAt).toBeNull();
+    const inputs = await t.db.select().from(agentSessionInputs).where(eq(agentSessionInputs.sessionId, reply.agentSessionId!));
+    expect(inputs.map((i) => i.text)).not.toContain("A");
+  });
+});
