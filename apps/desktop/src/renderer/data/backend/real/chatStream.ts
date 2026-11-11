@@ -179,6 +179,8 @@ interface ChannelConnection {
   timer: ReturnType<typeof setTimeout> | undefined;
   cursor: string | null;
   failures: number;
+  /** Da quando la connessione di adesso è aperta (per azzerare il backoff dopo un po'). */
+  upSince: number;
   /** Il momento del messaggio più nuovo visto: «arrivato» è solo ciò che viene dopo. */
   latest: string | null;
   /** La vista del canale dell'ultimo frame `channel`, per avvisare solo se cambia. */
@@ -200,6 +202,9 @@ interface ChannelConnection {
 }
 
 const connections = new Map<string, ChannelConnection>();
+
+/** Dopo quanto una connessione aperta conta come «su» anche senza messaggi. */
+const STREAM_STABLE_MS = 30_000;
 
 const keeps = (l: Listener, m: { id: string; threadRootId: string | null; alsoInChannel?: boolean }) =>
   l.threadOf ? m.id === l.threadOf || m.threadRootId === l.threadOf : m.threadRootId === null || m.alsoInChannel === true;
@@ -305,10 +310,16 @@ function connect(conn: ChannelConnection) {
   if (!connections.has(conn.channelId)) return;
   const path = chatStreamPath(conn.channelId, conn.cursor);
   if (!isAllowedChatStreamPath(path)) return endAll(conn, "closed");
+  conn.upSince = Date.now();
   conn.close = currentTransport()(path, {
     onFrame: (frame) => {
       if (!connections.has(conn.channelId)) return;
-      conn.failures = 0;
+      // Il backoff si azzera solo per una connessione davvero su: un frame di
+      // messaggi, o 30 s di fila (un ping da solo non basta: cadere subito dopo
+      // riporterebbe i tentativi a 1 s per sempre).
+      if (frame.messages.some((m) => m.type === "messages") || Date.now() - conn.upSince >= STREAM_STABLE_MS) {
+        conn.failures = 0;
+      }
       if (frame.cursor) conn.cursor = frame.cursor;
       if (conn.resumed) {
         const full = conn.resumed === "full";
@@ -355,6 +366,7 @@ function attach(channelId: string, listener: Listener): () => void {
       timer: undefined,
       cursor: null,
       failures: 0,
+      upSince: 0,
       latest: null,
       channelSig: null,
       resumed: false,

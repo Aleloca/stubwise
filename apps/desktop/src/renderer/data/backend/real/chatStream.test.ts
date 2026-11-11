@@ -170,6 +170,31 @@ describe("@Claude dal vivo (fetta 3)", () => {
   });
 });
 
+describe("review della fetta 2", () => {
+  it("il backoff non si azzera a ogni frame: un ping prima di cadere non lo riporta a 1 s", async () => {
+    subscribeChat(channelStream(CH), () => undefined);
+    await vi.waitFor(() => expect(opened).toHaveLength(1));
+    const ping = parseChatStreamFrame(": ping");
+    opened[0]!.handlers.onFrame(ping);
+    opened[0]!.handlers.onClose({ fatal: false });
+    // Primo tentativo dopo 1 s.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(opened).toHaveLength(2);
+    opened[1]!.handlers.onFrame(ping);
+    opened[1]!.handlers.onClose({ fatal: false });
+    // Il secondo dopo 2 s, non 1: il ping non era «connessione su».
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(opened).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(opened).toHaveLength(3);
+    // Un frame di messaggi, invece, lo azzera.
+    opened[2]!.handlers.onFrame(messages([msg()], "1"));
+    opened[2]!.handlers.onClose({ fatal: false });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(opened).toHaveLength(4);
+  });
+});
+
 describe("@Claude dal vivo, review della fetta 3", () => {
   const SESSION = "7f1c2a1e-0000-4000-8000-0000000000f1";
   const toolEvent = {
