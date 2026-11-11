@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { chatChannels, chatMessageAttachments, driveFiles } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
-import type { ObjectStorage } from "../storage/index.js";
+import { StorageObjectNotFound, type ObjectStorage } from "../storage/index.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
 // Il Drive e la Chat (area 5, fetta 2, F2.4): «Save to Drive» è una COPIA
@@ -24,7 +24,7 @@ function fakeStorage() {
     }),
     copyObject: vi.fn(async (from: string, to: string) => {
       const src = objects.get(from);
-      if (!src) throw new Error("NoSuchKey");
+      if (!src) throw new StorageObjectNotFound(from);
       objects.set(to, Buffer.from(src));
     }),
     getSignedDownloadUrl: vi.fn(async (key: string) => `https://bucket.example/${key}`),
@@ -220,5 +220,39 @@ describe("le citazioni `drive`", () => {
     const g = await general(projectId);
     const res = await as(lead, "POST", `/api/chat/channels/${g}/messages`, { text: `prova ${hidden.code}` });
     expect(await citationsOf(lead, idOf(res))).toEqual([]);
+  });
+});
+
+describe("review della fetta 2: la Chat", () => {
+  it("Save to Drive in gara con l'eliminazione: l'oggetto della Chat non c'è più, 404 e non 500", async () => {
+    const channel = await general(projectId);
+    const { attachmentId } = await sent(dev, channel, "sparito.pdf");
+    const [att] = await t.db.select().from(chatMessageAttachments).where(eq(chatMessageAttachments.id, attachmentId));
+    storage.objects.delete(att!.storageKey);
+    const res = await as(dev, "POST", `/api/chat/attachments/${attachmentId}/save-to-drive`, {});
+    expect(res.statusCode, res.body).toBe(404);
+    expect(await t.db.select().from(driveFiles).where(eq(driveFiles.name, "sparito.pdf"))).toEqual([]);
+  });
+
+  it("gli allegati della Chat: UN file e nessun campo (400 `invalid_multipart`); un NUL nel nome non è un 500", async () => {
+    const channel = await general(projectId);
+    const BOUNDARY = "----stubwisedc";
+    const payload = Buffer.concat([
+      Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="extra"\r\n\r\nvalore\r\n`),
+      Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="campi.pdf"\r\nContent-Type: application/pdf\r\n\r\nx\r\n--${BOUNDARY}--\r\n`),
+    ]);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/chat/channels/${channel}/attachments`,
+      headers: { cookie: dev.headers.cookie, "content-type": `multipart/form-data; boundary=${BOUNDARY}` },
+      payload,
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json()).toMatchObject({ code: "invalid_multipart" });
+    expect(storage.putObject).not.toHaveBeenCalled();
+    const m = multipart("nul\u0000lo\u202E.pdf", "application/pdf");
+    const up = await app.inject({ method: "POST", url: `/api/chat/channels/${channel}/attachments`, headers: { cookie: dev.headers.cookie, ...m.headers }, payload: m.payload });
+    expect(up.statusCode, up.body).toBe(201);
+    expect((up.json() as { filename: string }).filename).toBe("nullo.pdf");
   });
 });

@@ -2,11 +2,12 @@ import { randomBytes } from "node:crypto";
 import { Readable } from "node:stream";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
-import { driveFiles, projects } from "@stubwise/db";
+import { driveFiles, driveOpens, projects, storageOrphans } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
-import { DriveError, purgeDeletedDriveObjects, uploadDriveFile } from "../drive/service.js";
+import { DriveError, openDriveFile, purgeDeletedDriveObjects, uploadDriveFile } from "../drive/service.js";
 import type { ObjectStorage } from "../storage/index.js";
+import { purgeStorageOrphans } from "../storage/orphans.js";
 import { addMember, createUserWithSession, seedUsers } from "../test/fixtures.js";
 
 // Il Drive dei file caricati (area 5, fetta 2): chi vede (i membri), chi
@@ -302,5 +303,91 @@ describe("eliminare", () => {
     await purgeDeletedDriveObjects(t.db, storage, () => undefined);
     expect(await purged()).toBe(true);
     expect(storage.objects.has(row!.storageKey)).toBe(false);
+  });
+});
+
+describe("review della fetta 2", () => {
+  const asDev = () => ({ id: dev.id, instancePermissions: new Set() }) as never;
+  const direct = (filename: string, stream: Readable, truncated = () => false) =>
+    uploadDriveFile(t.db, storage as unknown as ObjectStorage, asDev(), projectId, { filename, mime: "application/pdf", stream, truncated });
+
+  it("un client che si stacca a metà (destroy SENZA errore): il servizio risponde, niente handler appeso, e l'oggetto parziale si toglie", async () => {
+    const source = new Readable({ read() {} });
+    source.push(Buffer.alloc(64 * 1024, 1));
+    setTimeout(() => source.destroy(), 20);
+    const outcome = await Promise.race([
+      direct("staccato.pdf", source).then(
+        () => "caricato",
+        (e: unknown) => e,
+      ),
+      new Promise((r) => setTimeout(() => r("appeso"), 3000)),
+    ]);
+    expect(outcome).toBeInstanceOf(DriveError);
+    expect(outcome).toMatchObject({ status: 400, code: "upload_incomplete" });
+    expect(storage.deleteObject).toHaveBeenCalledTimes(1);
+    expect(await t.db.select().from(driveFiles).where(eq(driveFiles.name, "staccato.pdf"))).toEqual([]);
+  }, 10_000);
+
+  it("il multipart vuole UN file e nessun campo: un campo in più è 400 `invalid_multipart`, e lo storage non si tocca", async () => {
+    const body = Buffer.concat([
+      Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="extra"\r\n\r\nvalore\r\n`),
+      Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="campi.pdf"\r\nContent-Type: application/pdf\r\n\r\nx\r\n--${BOUNDARY}--\r\n`),
+    ]);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/drive/files`,
+      headers: { cookie: dev.headers.cookie, "content-type": `multipart/form-data; boundary=${BOUNDARY}` },
+      payload: body,
+    });
+    expect(res.statusCode, res.body).toBe(400);
+    expect(res.json()).toMatchObject({ code: "invalid_multipart" });
+    expect(storage.putObjectStream).not.toHaveBeenCalled();
+  });
+
+  it("un oggetto parziale che lo storage non toglie non si perde: resta da ritentare, e la pulizia lo toglie", async () => {
+    storage.deleteObject.mockRejectedValueOnce(new Error("storage giù"));
+    const err = await direct("orfano.pdf", Readable.from([Buffer.from("x")]), () => true).catch((e: unknown) => e);
+    expect(err).toMatchObject({ status: 413 });
+    const orphans = await t.db.select().from(storageOrphans);
+    const mine = orphans.filter((o) => o.storageKey.endsWith("/orfano.pdf"));
+    expect(mine).toHaveLength(1);
+    expect(storage.objects.has(mine[0]!.storageKey)).toBe(true);
+    await purgeStorageOrphans(t.db, storage, () => undefined);
+    expect(storage.objects.has(mine[0]!.storageKey)).toBe(false);
+    expect((await t.db.select().from(storageOrphans)).filter((o) => o.storageKey === mine[0]!.storageKey)).toEqual([]);
+  });
+
+  it("i nomi: via i caratteri di controllo (NUL compreso) e i bidi; « (2)» resta entro 255", async () => {
+    const one = (name: string) => direct(name, Readable.from([Buffer.from("x")]));
+    expect((await one("a\u0000b\u0007c.pdf")).file.name).toBe("abc.pdf");
+    expect((await one("fattura\u202Efdp\u2066\u2069.pdf")).file.name).toBe("fatturafdp.pdf");
+    const long = `${"n".repeat(251)}.pdf`;
+    expect(long).toHaveLength(255);
+    await one(long);
+    const second = await one(long);
+    expect(second.keptBoth).toBe(true);
+    expect(second.file.name.length).toBeLessThanOrEqual(255);
+    expect(second.file.name.endsWith(" (2).pdf")).toBe(true);
+  });
+
+  it("le aperture in concorrenza: venti aperture INSIEME della stessa persona contano una", async () => {
+    const f = (await upload(dev, projectId, { filename: "conteso.pdf", contentType: "application/pdf" })).json() as Upload;
+    await Promise.all(Array.from({ length: 20 }, () => openDriveFile(t.db, asDev(), f.file.id, "download")));
+    expect(await t.db.select().from(driveOpens).where(eq(driveOpens.fileId, f.file.id))).toHaveLength(1);
+  });
+
+  it("la pulizia prende le lapidi dalla più VECCHIA", async () => {
+    const a = (await upload(dev, projectId, { filename: "vecchia-a.pdf", contentType: "application/pdf" })).json() as Upload;
+    const b = (await upload(dev, projectId, { filename: "vecchia-b.pdf", contentType: "application/pdf" })).json() as Upload;
+    storage.deleteObject.mockRejectedValueOnce(new Error("giù")).mockRejectedValueOnce(new Error("giù"));
+    await as(dev, "DELETE", `/api/drive/files/${a.file.id}`);
+    await as(dev, "DELETE", `/api/drive/files/${b.file.id}`);
+    await t.db.update(driveFiles).set({ deletedAt: new Date("2000-01-01T00:00:00Z") }).where(eq(driveFiles.id, a.file.id));
+    await t.db.update(driveFiles).set({ deletedAt: new Date("1999-01-01T00:00:00Z") }).where(eq(driveFiles.id, b.file.id));
+    await purgeDeletedDriveObjects(t.db, storage, () => undefined, 1);
+    const purged = async (id: string) => (await t.db.select().from(driveFiles).where(eq(driveFiles.id, id)))[0]!.storagePurged;
+    expect(await purged(b.file.id)).toBe(true);
+    expect(await purged(a.file.id)).toBe(false);
+    await purgeDeletedDriveObjects(t.db, storage, () => undefined);
   });
 });

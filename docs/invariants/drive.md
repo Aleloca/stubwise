@@ -32,11 +32,26 @@ test `apps/server/src/routes/drive.test.ts`.
   Lo stream va dritto allo storage (`putObjectStream`, `@aws-sdk/lib-storage`,
   parti da 5 MB, una alla volta): il server non tiene mai il file intero.
   `putObject` col Buffer resta per gli allegati della Chat (25 MB).
+- Il multipart è UN file e nient'altro: `files: 1, fields: 0, parts: 1`; un
+  campo o una parte in più è 400 `invalid_multipart` (anche per gli allegati
+  della Chat).
+- Lo stream passa da `stream.pipeline`, MAI da `.pipe()`: un client che si
+  stacca distrugge lo stream senza errore, e con `.pipe()` il contatore non
+  finiva mai, l'handler restava appeso e il multipart S3 restava aperto. Con
+  `pipeline` la chiusura prematura è un errore (400 `upload_incomplete`), e
+  `putObjectStream` chiama `Upload.abort()`.
 - Due difese contro un file troppo grande, e servono entrambe: il limite di
   busboy (`request.file({ limits })`) e un contatore di byte nel servizio, che
   ferma lo stream A METÀ anche per un chiamante che non passa da busboy. Oltre
   il tetto: 413 `file_too_large`, l'oggetto parziale si toglie, nessuna riga.
 - La riga nasce DOPO l'oggetto; se l'insert fallisce, l'oggetto si toglie.
+- Un oggetto rimasto senza riga (caricamento interrotto o troppo grande,
+  insert o copia falliti) non si ingoia: si prova a toglierlo, e se lo storage
+  rifiuta la chiave va in `storage_orphans` (0144), che la pulizia oraria
+  ritenta (`purgeStorageOrphans`). Mai un `deleteObject(...).catch(() => undefined)`.
+- Il nome mostrato perde i caratteri di controllo (NUL compreso) e quelli di
+  direzione del testo (bidi), e resta entro 255 anche con « (2)»
+  (`displayFileName`, `storage/filenames.ts`, lo stesso per la Chat).
 
 ## L'anteprima inline solo da un'ALTRA origine, e solo per i tipi sicuri
 
@@ -52,6 +67,10 @@ test `apps/server/src/routes/drive.test.ts`.
   `attachment`. Il download è sempre `attachment`.
 - Chi aggiunge un tipo all'elenco inline si chiede se un browser può
   ESEGUIRLO: se sì, non ci va.
+- Limite accettato: l'URL firmato di S3 non può portare
+  `X-Content-Type-Options: nosniff`. Regge perché il Content-Type lo forza il
+  server sui soli tipi sicuri e perché inline c'è solo da un'altra origine;
+  sta nel registro dei rimandi.
 
 ## Il codice `<PRJ>-F<n>` non si riusa: eliminare lascia una LAPIDE
 
@@ -65,13 +84,16 @@ test `apps/server/src/routes/drive.test.ts`.
 - L'oggetto nello storage si toglie DOPO la lapide, e `storage_purged` dice se è
   andata. Con lo storage giù la lapide si scrive comunque, e
   `purgeDeletedDriveObjects` (timer orario del server, accanto alla potatura
-  degli allegati della Chat) ritenta; senza storage configurato non tocca niente.
+  degli allegati della Chat) ritenta, dalla lapide più vecchia; senza storage
+  configurato non tocca niente. Ogni passo della pulizia oraria (Chat, lapidi,
+  orfani) ha il SUO try (`runStorageHygiene`): uno che fallisce non salta gli altri.
 
 ## Le aperture si contano UNA volta ogni 30 minuti
 
 - Download e anteprima scrivono un'apertura in `drive_opens`, salvo che la
   stessa persona abbia aperto lo stesso file negli ultimi 30 minuti: la
-  deduplica è nella stessa INSERT (`where not exists`), non a lettura.
+  deduplica è nella stessa INSERT (`where not exists`), non a lettura, sotto
+  un advisory lock per (file, persona): due aperture insieme ne contano una.
 - «Più usati» ordina per aperture degli ultimi 90 giorni, di tutti.
 
 ## «Save to Drive» è una COPIA, mai un riferimento
@@ -79,3 +101,6 @@ test `apps/server/src/routes/drive.test.ts`.
 - (Fetta 2.4.) Salvare un allegato della Chat nel Drive copia l'oggetto
   (`copyObject`) sotto una chiave nuova del Drive: le due vite sono separate, e
   eliminare il messaggio non tocca il file del Drive, né il contrario.
+- In gara con l'eliminazione del messaggio l'oggetto della Chat può non esserci
+  più: `copyObject` lancia `StorageObjectNotFound` (S3 `NoSuchKey`) e la
+  rotta risponde 404, non 500.

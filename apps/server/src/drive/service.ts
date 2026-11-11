@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Transform, type Readable } from "node:stream";
+import { pipeline, Transform, type Readable } from "node:stream";
 import { chatChannels, driveFiles, driveOpens, projects, type Db } from "@stubwise/db";
 import {
   chatAttachmentAllowed,
@@ -17,7 +17,9 @@ import type { z } from "zod";
 import { and, asc, desc, eq, ilike, inArray, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { projectPermissionsFor, projectPermissionsMap, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
-import type { ObjectStorage } from "../storage/index.js";
+import { StorageObjectNotFound, type ObjectStorage } from "../storage/index.js";
+import { clip, displayFileName } from "../storage/filenames.js";
+import { removeOrRecordOrphan } from "../storage/orphans.js";
 import type { ChatViewer } from "../chat/access.js";
 import { downloadableAttachment } from "../chat/attachments.js";
 
@@ -198,15 +200,20 @@ function sanitizeForKey(filename: string): string {
   const cleaned = filename.replace(/[^A-Za-z0-9._-]/g, "_").replace(/^\.+/, "");
   return cleaned.length > 0 ? cleaned : "file";
 }
-const displayName = (filename: string): string => (filename.split(/[/\\]/).pop() ?? "").trim() || "file";
+const displayName = displayFileName;
 
-/** «Nome (2).ext», «Nome (3).ext»… il primo libero fra i nomi vivi (senza maiuscole). */
+/**
+ * «Nome (2).ext», «Nome (3).ext»… il primo libero fra i nomi vivi (senza
+ * maiuscole), sempre entro i 255 caratteri: si accorcia il nome, non l'estensione.
+ */
 function freeName(requested: string, taken: ReadonlySet<string>): string {
   if (!taken.has(requested.toLowerCase())) return requested;
   const dot = requested.lastIndexOf(".");
   const [base, ext] = dot > 0 ? [requested.slice(0, dot), requested.slice(dot)] : [requested, ""];
   for (let i = 2; ; i++) {
-    const candidate = `${base} (${i})${ext}`;
+    const suffix = ` (${i})`;
+    const room = NAME_MAX - suffix.length - ext.length;
+    const candidate = room > 0 ? `${clip(base, room)}${suffix}${ext}` : `${clip(requested, NAME_MAX - suffix.length)}${suffix}`;
     if (!taken.has(candidate.toLowerCase())) return candidate;
   }
 }
@@ -248,17 +255,22 @@ export async function uploadDriveFile(
       else done(null, chunk);
     },
   });
-  file.stream.on("error", (error) => counter.destroy(error));
   const tooLarge = () => new DriveError(413, "file_too_large", "File exceeds the 100 MB limit");
   try {
-    await storage.putObjectStream(storageKey, file.stream.pipe(counter), file.mime);
+    // `pipeline`, non `.pipe()` (review della fetta 2): un client che si stacca
+    // (lo stream distrutto SENZA errore) diventa un errore `ERR_STREAM_PREMATURE_CLOSE`
+    // anche per chi legge il contatore, e lo storage annulla il multipart.
+    // Con `.pipe()` il contatore non finiva mai e l'handler restava appeso.
+    await storage.putObjectStream(storageKey, pipeline(file.stream, counter, () => undefined), file.mime);
   } catch (error) {
-    await storage.deleteObject(storageKey).catch(() => undefined);
-    if ((error as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") throw tooLarge();
+    await removeOrRecordOrphan(db, storage, storageKey, "drive_upload_failed");
+    const code = (error as { code?: string }).code;
+    if (code === "FST_REQ_FILE_TOO_LARGE") throw tooLarge();
+    if (code === "ERR_STREAM_PREMATURE_CLOSE") throw new DriveError(400, "upload_incomplete", "The upload was interrupted");
     throw error;
   }
   if (file.truncated() || bytes > DRIVE_FILE_MAX_BYTES) {
-    await storage.deleteObject(storageKey).catch(() => undefined);
+    await removeOrRecordOrphan(db, storage, storageKey, "drive_upload_too_large");
     throw tooLarge();
   }
   return insertDriveFile(db, storage, viewer, projectId, { id, requestedName, mime: file.mime, sizeBytes: bytes, storageKey });
@@ -305,7 +317,7 @@ async function insertDriveFile(
     const r = (await visibleFile(db, viewer, file.id))!;
     return { file: toRow(r, viewer, await permsLookup(db, viewer)), keptBoth: result.keptBoth, requestedName: file.requestedName };
   } catch (error) {
-    await storage.deleteObject(file.storageKey).catch(() => undefined);
+    await removeOrRecordOrphan(db, storage, file.storageKey, "drive_insert_failed");
     throw error;
   }
 }
@@ -350,7 +362,9 @@ export async function saveAttachmentToDrive(
   try {
     await storage.copyObject(att.storageKey, storageKey);
   } catch (error) {
-    await storage.deleteObject(storageKey).catch(() => undefined);
+    await removeOrRecordOrphan(db, storage, storageKey, "drive_copy_failed");
+    // In gara con l'eliminazione del messaggio: l'allegato non c'è più, 404.
+    if (error instanceof StorageObjectNotFound) throw notFound();
     throw error;
   }
   return insertDriveFile(db, storage, viewer, projectId, { id, requestedName, mime: att.mimeType, sizeBytes: att.sizeBytes, storageKey });
@@ -390,6 +404,7 @@ export async function purgeDeletedDriveObjects(db: Db, storage: ObjectStorage | 
     .select({ id: driveFiles.id, storageKey: driveFiles.storageKey })
     .from(driveFiles)
     .where(and(isNotNull(driveFiles.deletedAt), eq(driveFiles.storagePurged, false)))
+    .orderBy(asc(driveFiles.deletedAt))
     .limit(limit);
   let purged = 0;
   for (const row of rows) {
@@ -412,13 +427,18 @@ export async function purgeDeletedDriveObjects(db: Db, storage: ObjectStorage | 
 export async function openDriveFile(db: Db, viewer: Viewer, id: string, via: "preview" | "download"): Promise<Row | null> {
   const r = await visibleFile(db, viewer, id);
   if (!r) return null;
-  await db.execute(sql`
-    insert into drive_opens (file_id, person_id, via)
-    select ${id}, ${viewer.id}, ${via}
-    where not exists (
-      select 1 from drive_opens o
-      where o.file_id = ${id} and o.person_id = ${viewer.id} and o.at > now() - make_interval(mins => ${OPEN_DEDUP_MINUTES})
-    )`);
+  // Un advisory lock per (file, persona) (review della fetta 2): due aperture
+  // insieme non vedono entrambe «nessuna apertura recente» e ne contano una.
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`stubwise-drive-open:${id}:${viewer.id}`}))`);
+    await tx.execute(sql`
+      insert into drive_opens (file_id, person_id, via)
+      select ${id}, ${viewer.id}, ${via}
+      where not exists (
+        select 1 from drive_opens o
+        where o.file_id = ${id} and o.person_id = ${viewer.id} and o.at > now() - make_interval(mins => ${OPEN_DEDUP_MINUTES})
+      )`);
+  });
   return r.file;
 }
 

@@ -34,6 +34,7 @@ import {
   type ChatStreamMessage,
 } from "@stubwise/shared";
 import { apiError } from "../errors.js";
+import { isMultipartLimit } from "./multipart.js";
 import {
   assertCanUpload,
   ChatAttachmentError,
@@ -328,9 +329,11 @@ export async function chatRoutes(instance: FastifyInstance): Promise<void> {
         const tooLarge = () => apiError(reply, 413, "file_too_large", "File exceeds the 25 MB limit");
         let part;
         try {
-          part = await request.file({ limits: { fileSize: CHAT_ATTACHMENT_MAX_BYTES, files: 1 } });
+          // UN file e nient'altro (review della fetta 2 dell'area 5): nessun campo, una parte.
+          part = await request.file({ limits: { fileSize: CHAT_ATTACHMENT_MAX_BYTES, files: 1, fields: 0, parts: 1 } });
         } catch (error) {
           if ((error as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") return tooLarge();
+          if (isMultipartLimit(error)) return apiError(reply, 400, "invalid_multipart", "Send one file and nothing else");
           throw error;
         }
         if (!part) return apiError(reply, 400, "file_required", "A file is required");

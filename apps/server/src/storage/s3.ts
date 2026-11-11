@@ -8,6 +8,7 @@ import {
 import { Upload } from "@aws-sdk/lib-storage";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { ObjectStorage, S3Config } from "./index.js";
+import { StorageObjectNotFound } from "./errors.js";
 
 /**
  * Rimuove dal filename i caratteri che romperebbero l'header
@@ -77,18 +78,30 @@ export function createS3Storage(config: S3Config): ObjectStorage {
         partSize: 5 * 1024 * 1024,
         leavePartsOnError: false,
       });
-      await upload.done();
+      try {
+        await upload.done();
+      } catch (error) {
+        // Uno stream rotto a metà: il multipart si annulla esplicitamente, così
+        // non restano parti orfane nel bucket (review della fetta 2).
+        await upload.abort().catch(() => undefined);
+        throw error;
+      }
     },
 
     async copyObject(fromKey, toKey) {
-      await client.send(
+      try {
+        await client.send(
         new CopyObjectCommand({
           Bucket: config.bucket,
           Key: toKey,
           // `CopySource` è «bucket/chiave» con la chiave codificata come in un URL.
           CopySource: `${config.bucket}/${fromKey.split("/").map(encodeURIComponent).join("/")}`,
-        }),
-      );
+          }),
+        );
+      } catch (error) {
+        if ((error as { name?: string }).name === "NoSuchKey") throw new StorageObjectNotFound(fromKey);
+        throw error;
+      }
     },
 
     async getSignedDownloadUrl(key, filename, expiresInSeconds = 300, opts = {}) {

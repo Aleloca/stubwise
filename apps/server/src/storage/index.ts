@@ -2,6 +2,7 @@ import { decrypt, instanceSettings } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
 import type { Readable } from "node:stream";
 import { createS3Storage } from "./s3.js";
+export { StorageObjectNotFound } from "./errors.js";
 
 export { createS3Storage };
 
@@ -55,7 +56,7 @@ export interface ObjectStorage {
    * tronca lo stream oltre il tetto; un errore annulla il multipart.
    */
   putObjectStream(key: string, body: Readable, contentType: string): Promise<void>;
-  /** Copia `fromKey` in `toKey` (Save to Drive: due oggetti indipendenti). */
+  /** Copia `fromKey` in `toKey` (Save to Drive: due oggetti indipendenti); `StorageObjectNotFound` se `fromKey` non c'è. */
   copyObject(fromKey: string, toKey: string): Promise<void>;
   /**
    * URL firmato per il download diretto di `key`, valido `expiresInSeconds`

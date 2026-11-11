@@ -3765,3 +3765,12 @@ deploy o di un rollback che la tocca.
   - Un file eliminato sotto un server vecchio non si può: la lapide la scrive
     solo il server nuovo.
   - Il caddy scende insieme al server. Le migrazioni non si annullano.
+
+  **Review della fetta 2 (stesso rilascio)**: migrazione **0144**, la tabella
+  `storage_orphans` (gli oggetti rimasti senza riga che lo storage non ha tolto
+  subito; la pulizia oraria li ritenta). Va col server, nello stesso passo
+  della 0143. Il multipart del Drive e degli allegati della Chat accetta UN
+  file e nessun campo (400 `invalid_multipart`); un caricamento interrotto è
+  400 `upload_incomplete`. In un rollback la tabella resta, innocua: le chiavi
+  che contiene si tolgono a mano dallo storage (`select storage_key from
+  storage_orphans;`), poi le righe.
