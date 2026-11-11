@@ -72,6 +72,8 @@ import { projectEnvironmentRoutes } from "./routes/project-environments.js";
 import { releaseRoutes } from "./routes/release.js";
 import { agentSessionRoutes } from "./routes/agent-sessions.js";
 import { chatRoutes } from "./routes/chat.js";
+import { driveRoutes } from "./routes/drive.js";
+import { purgeDeletedDriveObjects } from "./drive/service.js";
 import { NOOP_CHAT_BUS, type ChatBus } from "./chat/bus.js";
 import { claudeConversationRoutes } from "./routes/claude-conversations.js";
 import { claudeActionRoutes } from "./routes/claude-actions.js";
@@ -566,7 +568,10 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   const chatPrune = setInterval(() => {
     void (async () => {
       try {
-        await pruneChatUploads(app.db, await app.storage(), (m) => app.log.warn(m));
+        const storage = await app.storage();
+        await pruneChatUploads(app.db, storage, (m) => app.log.warn(m));
+        // Gli oggetti del Drive eliminati che lo storage non aveva tolto (area 5, fetta 2).
+        await purgeDeletedDriveObjects(app.db, storage, (m) => app.log.warn(m));
       } catch (error) {
         app.log.warn({ err: error }, "potatura degli allegati della Chat non riuscita");
       }
@@ -666,6 +671,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(agentSessionRoutes, { prefix: "/api/agent-sessions" });
   // Area 4, Chat fra persone (fetta 1).
   void app.register(chatRoutes, { prefix: "/api/chat" });
+  void app.register(driveRoutes, { prefix: "/api" });
   // Chat con Claude, fetta 1: le conversazioni libere (private dell'autore).
   void app.register(claudeConversationRoutes, { prefix: "/api/claude/conversations" });
   void app.register(claudeActionRoutes, { prefix: "/api/claude" });
