@@ -6,6 +6,7 @@ import type {
   DocTreeNode as ServerNode,
   ProjectDocsSearchResult,
   Reader,
+  RepoGraphState,
   RepoHighlights,
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
@@ -19,6 +20,7 @@ import type {
   DocSearchHit,
   DocSpaceView,
   DocTreeCategory,
+  GraphCommunity,
   GraphState,
   ProjectDocsHome,
   RepoBrief,
@@ -28,7 +30,7 @@ import { buildDocTree } from "../../../domain/docs";
 import { can } from "../../viewing";
 import { rememberDocCitation } from "./chat";
 import { appClient } from "./client";
-import { notIntegrated, partialNamespace } from "./notIntegrated";
+import { partialNamespace } from "./notIntegrated";
 import { listDecisionLog } from "./overview";
 import { listProjects } from "./projects";
 
@@ -208,8 +210,79 @@ async function releasesOf(repositoryId: string, nodes: readonly Node[], withText
 /** Quante note di rilascio si leggono per intero aprendo uno spazio. */
 const RELEASE_TEXTS = 30;
 
-/** Il grafo: fino al passo 2d dell'integrazione, nessuno stato (la vista lo dice «in arrivo»). */
-const NO_GRAPH: GraphState = { status: "disabled" };
+// --- il grafo del codice (passo 2d) ---------------------------------------------------
+
+/**
+ * Lo stato del grafo nella forma del prototipo. Una costruzione in coda vince
+ * su un grafo già fatto (il prototipo passa di nuovo per «in coda»); un errore
+ * che parla di dimensioni è «troppo grande», gli altri un errore di graphify.
+ */
+function graphOf(g: Reader<RepoGraphState> | null, report?: GraphCommunity[]): GraphState {
+  if (!g || !g.enabled) return { status: "disabled" };
+  const counts = {
+    ...(g.nodeCount !== null ? { nodes: g.nodeCount } : {}),
+    ...(g.edgeCount !== null ? { edges: g.edgeCount } : {}),
+    ...(g.communityCount !== null ? { communities: g.communityCount } : {}),
+    ...(g.generatedAt ? { updatedAt: g.generatedAt } : {}),
+    // Il server dà l'indirizzo della PR di setup, non se è ancora aperta.
+    ...(g.setupPrUrl ? { setupPr: { url: g.setupPrUrl, open: true } } : {}),
+  };
+  if (g.jobPending && g.status !== "running") return { status: "queued", ...counts };
+  switch (g.status) {
+    case "none":
+      return { status: "never", ...counts };
+    case "queued":
+    case "running":
+      return { status: g.status, ...counts };
+    case "failed":
+      return {
+        status: "failed",
+        reason: /too large|too big|size/i.test(g.error ?? "") ? "repository_too_large" : "graphify_error",
+        ...counts,
+      };
+    case "done":
+      return { status: "ready", ...counts, ...(report ? { report } : {}) };
+    default:
+      return { status: "never", ...counts };
+  }
+}
+
+/**
+ * Le comunità dal resoconto di graphify (Markdown): «### Community N - "nome"»
+ * e «Nodes (n): a, b (+k more)». Il resoconto non dà un riassunto né le
+ * comunità vicine: restano vuoti (differenza dichiarata). Dalla più grande.
+ */
+export function communitiesOf(markdown: string): GraphCommunity[] {
+  const out: GraphCommunity[] = [];
+  let current: GraphCommunity | null = null;
+  for (const line of markdown.split("\n")) {
+    const head = /^###\s+Community\s+(\S+)\s+-\s+"(.*)"\s*$/.exec(line);
+    if (head) {
+      current = { id: head[1]!, name: head[2]!, size: 0, summary: "", nodes: [], links: [] };
+      out.push(current);
+      continue;
+    }
+    const nodes = current && /^Nodes\s+\((\d+)\):\s*(.*)$/.exec(line);
+    if (current && nodes) {
+      current.size = Number(nodes[1]);
+      current.nodes = nodes[2]!
+        .replace(/\s*\(\+\d+ more\)\s*$/, "")
+        .split(",")
+        .map((n) => n.trim())
+        .filter(Boolean);
+    }
+  }
+  return out.sort((a, b) => b.size - a.size);
+}
+
+async function graphNow(repositoryId: string, withReport: boolean): Promise<GraphState> {
+  const g = await read(() => appClient().graph.state(repositoryId));
+  const report =
+    withReport && g?.enabled && g.status === "done"
+      ? await read(() => appClient().graph.report(repositoryId)).catch(() => null)
+      : null;
+  return graphOf(g, report ? communitiesOf(report) : undefined);
+}
 
 /** L'ordine delle categorie per le domande suggerite, come il prototipo. */
 const SUGGEST_ORDER: readonly DocKind[] = ["functional", "product", "technical"];
@@ -239,11 +312,13 @@ async function spaceView(
   me: Viewer,
   { withReleaseTexts = false } = {},
 ): Promise<DocSpaceView> {
-  const [{ nodes, refs }, highlights, status, brief] = await Promise.all([
+  const [{ nodes, refs }, highlights, status, brief, graph] = await Promise.all([
     treeOf(s.repositoryId, projectId),
     read(() => appClient().docs.repoHighlights(s.repositoryId)),
     read(() => appClient().docs.status(s.repositoryId)),
     read(() => appClient().docs.brief(s.repositoryId)),
+    // Il resoconto delle comunità solo aprendo lo spazio (`getDocSpace`).
+    graphNow(s.repositoryId, withReleaseTexts),
   ]);
   const bySlug = new Map(refs.map((r) => [r.slug, r] as const));
   const refsFrom = (list: readonly { slug: string }[] | undefined) =>
@@ -255,7 +330,7 @@ async function spaceView(
     generation: generationOf(status),
     brief: briefOf(brief),
     releases: await releasesOf(s.repositoryId, nodes, withReleaseTexts),
-    graph: NO_GRAPH,
+    graph,
     pageCount: refs.length,
     manualOnly: refs.length > 0 && refs.every((r) => r.kind === "manual"),
     recent: refsFrom((highlights as Reader<RepoHighlights> | null)?.recentlyUpdated),
@@ -578,7 +653,21 @@ const askDocs: Docs["askDocs"] = async ({ projectId, repositoryId, question }) =
   };
 };
 
-/** Le funzioni dei passi 2a, 2b e 2c; il grafo resta «non integrato» fino al passo 2d. */
+/**
+ * Le azioni del grafo (`repos.manage`, lo dice la rotta): genera e rigenera
+ * (lo stesso «costruisci»), ricostruisci da zero (`force`), la PR di setup.
+ * Lo stato si rilegge dal server.
+ */
+const graphAction: Docs["graphAction"] = async (repositoryId, kind) => {
+  await write(() =>
+    kind === "setup_pr"
+      ? appClient().graph.setupPr(repositoryId)
+      : appClient().graph.generate(repositoryId, kind === "rebuild" ? { force: true } : {}),
+  );
+  return graphNow(repositoryId, false);
+};
+
+/** Le funzioni dei passi 2a–2d della fetta 1 dei Docs. */
 export const docsFunctions: Partial<Docs> = {
   DOC_KINDS,
   listDocSpaces,
@@ -597,7 +686,7 @@ export const docsFunctions: Partial<Docs> = {
   generationHistory,
   whenDocsIdle,
   askDocs,
+  graphAction,
 };
 
-void notIntegrated;
 export const docs: Docs = partialNamespace<Docs>("docs", docsFunctions);

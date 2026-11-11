@@ -364,3 +364,92 @@ describe("la chat dei Docs (senza streaming, come il prototipo)", () => {
   });
 });
 
+describe("il grafo del codice", () => {
+  const graph = (over: Record<string, unknown> = {}) => ({
+    enabled: true,
+    status: "done",
+    commitSha: "abc",
+    nodeCount: 120,
+    edgeCount: 300,
+    communityCount: 2,
+    labeled: true,
+    generatedAt: "2026-11-10T10:00:00.000Z",
+    setupPrUrl: "https://git.example/acme/app/pull/9",
+    error: null,
+    jobPending: false,
+    setupPrJobPending: false,
+    setupPrError: null,
+    ...over,
+  });
+  const report = [
+    "# Graph Report - app (2026-11-10)",
+    "## Communities (2 total, 0 thin omitted)",
+    "",
+    '### Community 0 - "dialer.ts"',
+    "Cohesion: 0.10",
+    "Nodes (12): Dialer, callNext(), Lead (+9 more)",
+    "",
+    '### Community 1 - "api.ts"',
+    "Cohesion: 0.20",
+    "Nodes (30): request(), ApiError (+28 more)",
+  ].join("\n");
+
+  it("lo stato nello spazio: pronto coi conteggi, la PR di setup, le comunità dalla più grande", async () => {
+    install({
+      [`GET /api/repositories/${REPO}/graph`]: { body: graph() },
+      [`GET /api/repositories/${REPO}/graph/report`]: { body: report, contentType: "text/markdown; charset=utf-8" },
+    });
+    await getSessionPerson();
+    await docs.listDocSpaces(PROJECT_ID);
+    const view = (await docs.getDocSpace(REPO))!;
+    expect(view.graph).toMatchObject({
+      status: "ready",
+      nodes: 120,
+      edges: 300,
+      communities: 2,
+      updatedAt: "2026-11-10T10:00:00.000Z",
+      setupPr: { url: "https://git.example/acme/app/pull/9", open: true },
+    });
+    expect(view.graph.report?.map((c) => [c.name, c.size, c.nodes])).toEqual([
+      ["api.ts", 30, ["request()", "ApiError"]],
+      ["dialer.ts", 12, ["Dialer", "callNext()", "Lead"]],
+    ]);
+  });
+
+  it("spento, mai fatto, in coda, fallito (troppo grande)", async () => {
+    for (const [g, status, reason] of [
+      [graph({ enabled: false }), "disabled", undefined],
+      [graph({ status: "none", nodeCount: null }), "never", undefined],
+      [graph({ jobPending: true }), "queued", undefined],
+      [graph({ status: "failed", error: "repository too large for graphify" }), "failed", "repository_too_large"],
+      [graph({ status: "failed", error: "boom" }), "failed", "graphify_error"],
+    ] as const) {
+      install({ [`GET /api/repositories/${REPO}/graph`]: { body: g } });
+      await getSessionPerson();
+      const [view] = await docs.listDocSpaces(PROJECT_ID);
+      expect(view!.graph.status, status).toBe(status);
+      expect(view!.graph.reason).toBe(reason);
+    }
+  });
+
+  it("le azioni: genera, rigenera, ricostruisci da zero, la PR di setup; lo stato riletto", async () => {
+    const { seen } = install({
+      [`GET /api/repositories/${REPO}/graph`]: { body: graph({ jobPending: true }) },
+      [`POST /api/repositories/${REPO}/graph/generate`]: { status: 202, body: { queued: true } },
+      [`POST /api/repositories/${REPO}/graph/setup-pr`]: { status: 202, body: { queued: true } },
+    });
+    await getSessionPerson();
+    await docs.listDocSpaces(PROJECT_ID);
+    expect(await docs.graphAction(REPO, "generate")).toMatchObject({ status: "queued" });
+    await docs.graphAction(REPO, "regenerate");
+    await docs.graphAction(REPO, "rebuild");
+    await docs.graphAction(REPO, "setup_pr");
+    expect(seen.filter((r) => r.method === "POST").map((r) => [r.path.split("/").pop(), r.body])).toEqual([
+      ["generate", {}],
+      ["generate", {}],
+      ["generate", { force: true }],
+      ["setup-pr", undefined],
+    ]);
+  });
+});
+
