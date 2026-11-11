@@ -11,6 +11,7 @@ export * from "./schemas/second-factor.js";
 export * from "./schemas/vault.js";
 export * from "./schemas/docs.js";
 export * from "./schemas/repo-graph.js";
+export * from "./schemas/drive.js";
 export * from "./schemas/search.js";
 export * from "./schemas/server.js";
 export * from "./schemas/pat.js";

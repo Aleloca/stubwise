@@ -110,6 +110,8 @@ const RESULTS: Omit<SearchResults, "mail"> = {
         title: "Auth (full-text)",
         kind: "technical",
         snippet: "full-text auth doc",
+        // Il codice D (area 5, fetta 1): la palette web non lo legge.
+        code: null,
         repositoryId: REPO_ID,
         repositorySlug: "web",
         repositoryName: "Web",
@@ -157,6 +159,7 @@ const SEMANTIC: SearchDocsSemanticResults = [
     repositoryId: REPO_ID,
     repositorySlug: "web",
     repositoryName: "Web",
+    code: null,
     score: 0.95,
   },
 ];

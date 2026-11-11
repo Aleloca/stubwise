@@ -1573,7 +1573,8 @@
         "code": "Codice e ambienti",
         "credentials": "Credenziali",
         "chat": "Chat",
-        "departmentHome": "Home del reparto"
+        "departmentHome": "Home del reparto",
+        "drive": "Drive"
       },
       "fullAdminHint": "L'amministrazione completa comprende ogni permesso, su ogni progetto.",
       "save": "Salva il ruolo",
@@ -3508,6 +3509,11 @@
         "home": {
           "manage": "Gestire la Home del reparto"
         }
+      },
+      "drive": {
+        "upload": "Caricare file nel Drive del progetto",
+        "manage": "Gestire il Drive del progetto (togliere i file altrui)",
+        "history": "Vedere chi ha aperto i file del Drive"
       }
     }
   },

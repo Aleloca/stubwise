@@ -114,6 +114,16 @@ export const PROJECT_PERMISSIONS = [
    */
   "chat.channels.create",
   "chat.channels.manage",
+  /**
+   * Drive dei progetti, area 5 (11 nov 2026, D3 del maintainer, i preset del
+   * prototipo): caricare un file (tutti salvo il Viewer), gestire il Drive
+   * (togliere i file degli altri: solo il Project Lead) e vedere la storia
+   * delle aperture (solo il Project Lead). VEDERE il Drive non vuole un
+   * permesso: basta essere membri del progetto, Viewer compreso.
+   */
+  "drive.upload",
+  "drive.manage",
+  "drive.history",
 ] as const;
 
 /**
@@ -197,6 +207,9 @@ const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
   // Chat (D3): il Legacy Member scrive nei canali ma non li crea né li gestisce.
   "chat.channels.create",
   "chat.channels.manage",
+  // Drive (area 5, D3): carica, ma non gestisce il Drive né ne vede la storia.
+  "drive.manage",
+  "drive.history",
 ];
 
 /**
@@ -256,14 +269,17 @@ export const PRESET_ROLES: readonly PresetRole[] = [
         p !== "credentials.edit" &&
         p !== "credentials.share" &&
         p !== "planning.others" &&
-        p !== "chat.channels.manage",
+        p !== "chat.channels.manage" &&
+        p !== "drive.manage" &&
+        p !== "drive.history",
     ),
   },
   {
     key: "contributor",
     name: "Contributor",
     scope: "project",
-    permissions: ["docs.view", "tickets.create", "tickets.comment", "backlog.create"],
+    // `drive.upload` (area 5, D3): il prototipo dà il caricamento anche al Contributor.
+    permissions: ["docs.view", "tickets.create", "tickets.comment", "backlog.create", "drive.upload"],
   },
   { key: "viewer", name: "Viewer", scope: "project", permissions: VIEW_PROJECT_PERMISSIONS },
   {

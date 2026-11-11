@@ -112,7 +112,7 @@ export type ChatChannelView = z.infer<typeof chatChannelSchema>;
  * maintainer, 10 nov 2026). Traguardi, Release, brief, file del repo e Drive
  * arrivano con le fette 4 e 5.
  */
-export const CHAT_CITATION_KINDS = ["task", "request", "project", "person", "doc"] as const;
+export const CHAT_CITATION_KINDS = ["task", "request", "project", "person", "doc", "drive"] as const;
 export const chatCitationKindSchema = z.enum(CHAT_CITATION_KINDS);
 export type ChatCitationKind = z.infer<typeof chatCitationKindSchema>;
 
@@ -141,6 +141,22 @@ export const chatCitationSchema = z.object({
    * stabile alle rigenerazioni; `label` è il titolo di adesso.
    */
   doc: z.object({ repositoryId: z.uuid(), repositorySlug: z.string(), slug: z.string() }).nullable().default(null),
+  /**
+   * Solo un file del Drive (area 5, fetta 2): la scheda. `id` è il file,
+   * `code` il suo `<PRJ>-F<n>`, `label` il nome; la destinazione è
+   * `#/p/<CODE>/drive?file=<code>`.
+   */
+  drive: z
+    .object({
+      type: z.enum(["document", "sheet", "slides", "pdf", "image", "other"]),
+      projectCode: z.string(),
+      projectName: z.string(),
+      opens90d: z.number().int().default(0),
+      /** La prima riga del riassunto (F3); null finché non c'è. */
+      summary: z.string().nullable().default(null),
+    })
+    .nullable()
+    .default(null),
 });
 export type ChatCitationView = z.infer<typeof chatCitationSchema>;
 

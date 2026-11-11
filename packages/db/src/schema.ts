@@ -5768,13 +5768,13 @@ export const chatMessageCitations = pgTable(
     messageId: uuid("message_id")
       .notNull()
       .references(() => chatMessages.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<"task" | "request" | "project" | "person" | "doc">().notNull(),
+    kind: text("kind").$type<"task" | "request" | "project" | "person" | "doc" | "drive">().notNull(),
     refId: uuid("ref_id").notNull(),
     position: integer("position").notNull().default(0),
   },
   (table) => [
     primaryKey({ name: "chat_message_citations_pk", columns: [table.messageId, table.kind, table.refId] }),
-    check("chat_message_citations_kind_chk", sql`${table.kind} in ('task', 'request', 'project', 'person', 'doc')`),
+    check("chat_message_citations_kind_chk", sql`${table.kind} in ('task', 'request', 'project', 'person', 'doc', 'drive')`),
   ],
 );
 
@@ -5871,3 +5871,58 @@ export const chatMessageLinks = pgTable(
     check("chat_message_links_one_chk", sql`(${table.ticketId} is null) <> (${table.backlogItemId} is null)`),
   ],
 );
+
+/**
+ * Un file del Drive di un progetto (0143, area 5 fetta 2): oggi solo CARICATO
+ * (`source` upload; i riferimenti Google arrivano con l'area 6). Il codice è
+ * `<PRJ>-F<number>`, mai riusato: eliminare lascia una lapide (`deletedAt`) e
+ * la riga sparisce da ogni lettura; l'oggetto si toglie dopo il commit
+ * (`storagePurged`, ritentato dal timer del server). Il nome è unico fra i
+ * file vivi del progetto, senza maiuscole.
+ */
+export const driveFiles = pgTable(
+  "drive_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    source: text("source").$type<"upload">().notNull().default("upload"),
+    name: text("name").notNull(),
+    mime: text("mime").notNull(),
+    type: text("type").$type<"document" | "sheet" | "slides" | "pdf" | "image" | "other">().notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    storageKey: text("storage_key").notNull(),
+    addedBy: uuid("added_by").references(() => users.id, { onDelete: "set null" }),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
+    storagePurged: boolean("storage_purged").notNull().default(false),
+  },
+  (table) => [
+    uniqueIndex("drive_files_project_number_idx").on(table.projectId, table.number),
+    uniqueIndex("drive_files_storage_key_idx").on(table.storageKey),
+    uniqueIndex("drive_files_live_name_idx").on(table.projectId, sql`lower(${table.name})`).where(sql`${table.deletedAt} IS NULL`),
+    index("drive_files_unpurged_idx").on(table.deletedAt).where(sql`${table.deletedAt} IS NOT NULL AND NOT ${table.storagePurged}`),
+    check("drive_files_source_chk", sql`${table.source} in ('upload')`),
+    check("drive_files_type_chk", sql`${table.type} in ('document', 'sheet', 'slides', 'pdf', 'image', 'other')`),
+  ],
+);
+
+/** Un'apertura di un file del Drive (0143): anteprima o download, per «Più usati» e la storia. */
+export const driveOpens = pgTable(
+  "drive_opens",
+  {
+    fileId: uuid("file_id")
+      .notNull()
+      .references(() => driveFiles.id, { onDelete: "cascade" }),
+    personId: uuid("person_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+    via: text("via").$type<"preview" | "download">().notNull(),
+  },
+  (table) => [index("drive_opens_file_at_idx").on(table.fileId, table.at), check("drive_opens_via_chk", sql`${table.via} in ('preview', 'download')`)],
+);
+

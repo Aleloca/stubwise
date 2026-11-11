@@ -30,6 +30,8 @@ interface Citeable {
   /** Solo una pagina Docs: il suo codice e dove aprirla (area 5, fetta 1). */
   code?: string | null;
   doc?: { repositoryId: string; repositorySlug: string; slug: string } | null;
+  /** Solo un file del Drive (area 5, fetta 2): la sua scheda. */
+  drive?: ChatCitationView["drive"];
 }
 
 const keyOf = (kind: string, id: string) => `${kind}:${id}`;
@@ -298,7 +300,7 @@ export async function citationViews(
     if (!c) continue;
     out.set(r.messageId, [
       ...(out.get(r.messageId) ?? []),
-      { kind: c.kind, id: c.id, label: c.label, projectId: c.projectId, code: c.code ?? null, doc: c.doc ?? null },
+      { kind: c.kind, id: c.id, label: c.label, projectId: c.projectId, code: c.code ?? null, doc: c.doc ?? null, drive: c.drive ?? null },
     ]);
   }
   return out;
