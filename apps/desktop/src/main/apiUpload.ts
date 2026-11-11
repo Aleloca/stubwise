@@ -16,6 +16,9 @@ import type { ApiProxyDeps } from "./apiProxy";
 // esatta, solo alla rotta del Drive. Qui la logica pura (testata); la colla con
 // Electron sta in `index.ts`.
 
+/** Un pezzo del file per lettura dal disco (e per consegna alla rete). */
+const UPLOAD_CHUNK_BYTES = 64 * 1024;
+
 /** Il tetto del Drive (D4 del maintainer): 100 MB per file. */
 export const DRIVE_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 
@@ -156,7 +159,7 @@ export type UploadResult =
 /**
  * Manda il file in streaming dal descrittore: il multipart con la sua
  * Content-Length esatta, il bearer solo all'istanza, nessun reindirizzamento
- * seguito. `onProgress` riceve i byte del file letti; `signal` annulla.
+ * seguito. `onProgress` riceve i byte del file consegnati alla rete; `signal` annulla.
  * Il descrittore si chiude sempre.
  */
 export async function uploadFile(
@@ -178,31 +181,49 @@ export async function uploadFile(
     const tail = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
     const length = head.byteLength + entry.size + tail.byteLength;
 
-    const source = entry.handle.createReadStream({ start: 0, autoClose: false });
-    let sent = 0;
-    const body = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        controller.enqueue(new Uint8Array(head));
-        try {
-          for await (const chunk of source) {
+    // A `pull()`, un pezzo per chiamata e senza riserva (`highWaterMark: 0`):
+    // si legge dal disco solo quando undici chiede il pezzo successivo, cioè
+    // quando ha consegnato il precedente. Il progresso conta ciò che è stato
+    // consegnato, non ciò che è stato letto.
+    let position = 0;
+    let headSent = false;
+    let done = false;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        async pull(controller) {
+          try {
             if (signal?.aborted) throw new Error("aborted");
-            const bytes = chunk as Buffer;
-            sent += bytes.byteLength;
-            // Il file non cresce dopo la scelta: oltre il peso letto all'apertura, ci si ferma.
-            if (sent > entry.size) throw new Error("grown");
-            controller.enqueue(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
-            onProgress?.(sent, entry.size);
+            if (!headSent) {
+              headSent = true;
+              controller.enqueue(new Uint8Array(head));
+              return;
+            }
+            if (position < entry.size) {
+              const want = Math.min(UPLOAD_CHUNK_BYTES, entry.size - position);
+              const buffer = Buffer.allocUnsafe(want);
+              const { bytesRead } = await entry.handle.read(buffer, 0, want, position);
+              // Il file si è accorciato dopo la scelta: la Content-Length mentirebbe.
+              if (bytesRead === 0) throw new Error("shrunk");
+              position += bytesRead;
+              controller.enqueue(new Uint8Array(buffer.buffer, buffer.byteOffset, bytesRead));
+              onProgress?.(position, entry.size);
+              return;
+            }
+            if (!done) {
+              // Il file non cresce dopo la scelta: oltre il peso letto all'apertura, ci si ferma.
+              const probe = await entry.handle.read(Buffer.alloc(1), 0, 1, entry.size);
+              if (probe.bytesRead > 0) throw new Error("grown");
+              done = true;
+              controller.enqueue(new Uint8Array(tail));
+              controller.close();
+            }
+          } catch (error) {
+            controller.error(error);
           }
-          controller.enqueue(new Uint8Array(tail));
-          controller.close();
-        } catch (error) {
-          controller.error(error);
-        }
+        },
       },
-      cancel() {
-        source.destroy();
-      },
-    });
+      { highWaterMark: 0 },
+    );
 
     let res: Response;
     try {
@@ -219,7 +240,6 @@ export async function uploadFile(
         duplex: "half",
       } as RequestInit);
     } catch {
-      source.destroy();
       return signal?.aborted ? { ok: false, reason: "canceled" } : { ok: false, reason: "failed" };
     }
     const json = await res.json().catch(() => null);

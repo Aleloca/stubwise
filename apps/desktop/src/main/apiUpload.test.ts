@@ -221,6 +221,40 @@ describe("il caricamento", () => {
     });
   });
 
+  it("la backpressure: con un consumatore lento il disco non corre avanti, e il progresso segue ciò che è stato consegnato", async () => {
+    const entry = await registered("big.bin", 20 * 1024 * 1024, "application/zip");
+    // Quanto è stato letto dal disco: lo stream del descrittore passa da `read`.
+    let fromDisk = 0;
+    const read = entry.handle.read.bind(entry.handle) as (...a: unknown[]) => Promise<{ bytesRead: number }>;
+    (entry.handle as unknown as { read: unknown }).read = async (...a: unknown[]) => {
+      const r = await read(...a);
+      fromDisk += r.bytesRead;
+      return r;
+    };
+    let delivered = 0;
+    let paused = { fromDisk: 0, delivered: 0, progress: 0 };
+    const progress: number[] = [];
+    const slow = vi.fn(async (_url: string, init: RequestInit) => {
+      const reader = (init.body as ReadableStream<Uint8Array>).getReader();
+      while (delivered < 1024 * 1024) delivered += (await reader.read()).value!.byteLength;
+      // Il consumatore si ferma (la rete è lenta): il disco non deve continuare.
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      paused = { fromDisk, delivered, progress: progress.at(-1) ?? 0 };
+      for (;;) {
+        const { done } = await reader.read();
+        if (done) break;
+      }
+      return new Response(JSON.stringify({ file: {}, keptBoth: false, requestedName: "big.bin" }), { status: 201 });
+    });
+    const out = await uploadFile(entry, ROUTE, { ...deps(), fetch: slow as never }, { onProgress: (sent) => progress.push(sent) });
+    expect(out.ok).toBe(true);
+    // In pausa: dal disco al più qualche pezzo oltre il consegnato; il progresso non va oltre.
+    expect(paused.fromDisk).toBeLessThan(4 * 1024 * 1024);
+    expect(paused.progress).toBeLessThanOrEqual(paused.delivered);
+    expect(paused.progress).toBeGreaterThan(512 * 1024);
+    expect(progress.at(-1)).toBe(20 * 1024 * 1024);
+  });
+
   it("100 MB non stanno mai tutti in memoria: lo stream passa a pezzi", async () => {
     const entry = await registered("big.bin", DRIVE_UPLOAD_MAX_BYTES, "application/zip");
     let largest = 0;
