@@ -54,8 +54,10 @@ progetto e la feature `drive` (`data/integration.ts`). Google resta spento
   le prime 30 pagine», perché chi cerca non creda cercabile tutto il
   documento. Test: `pages/drive/Drive.test.tsx`, `DriveSearch.test.tsx`.
 - **«Retry»** (decisione C(a)): solo su `error`, come nel prototipo, anche se
-  il server lo permette su `no_text`; nel registro. Fino alla rotta di retry
-  (F3.4) non si offre affatto.
+  il server lo permette su `no_text`; nel registro. `retryExtraction` è
+  `client.drive.retry` (F3.4): la riga torna in lettura; 409 `not_retryable`
+  è `invalid: content not in error` come nel prototipo. Test:
+  `real/drive.test.ts`.
 - **Google** (area 6): spento per intero, compresi i file fuori dai progetti
   nella ricerca e «Apri in Google Drive».
 - **`modifiedAt`** è la data di caricamento; un file di una persona eliminata

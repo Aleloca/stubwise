@@ -163,7 +163,7 @@ describe("il Drive nella build app: il contenuto (F3)", () => {
     expect(rows.map((r) => r.content)).toEqual(cases.map(([, content]) => content));
   });
 
-  it("«Retry» non si offre finché la rotta di retry non c'è (F3.4), anche se il server lo permetterebbe", async () => {
+  it("«Retry» lo permette il server (`permissions.retry`); la pagina lo mostra solo su un errore", async () => {
     installFakeServer({
       "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
       [`GET /api/projects/${PROJECT_ID}/drive/files`]: {
@@ -171,7 +171,25 @@ describe("il Drive nella build app: il contenuto (F3)", () => {
       },
     });
     const [row] = await drive.listDriveFiles({ projectId: PROJECT_ID, sort: "recent" });
-    expect(row).toMatchObject({ content: "error", permissions: { delete: true, retry: false } });
+    expect(row).toMatchObject({ content: "error", permissions: { delete: true, retry: true } });
+  });
+
+  it("«Retry»: POST alla rotta di retry, la riga torna in lettura; 403, 404 e 409 coi nomi del prototipo", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      [`POST /api/drive/files/${FILE_ID}/retry`]: { body: serverRow({ contentStatus: "pending" }) },
+    });
+    const row = await drive.retryExtraction(FILE_ID);
+    expect(seen.some((r) => r.method === "POST" && r.path === `/api/drive/files/${FILE_ID}/retry`)).toBe(true);
+    expect(row).toMatchObject({ id: FILE_ID, content: "processing" });
+    for (const [status, code, error] of [
+      [403, "forbidden", "forbidden"],
+      [404, "not_found", "not_found"],
+      [409, "not_retryable", "invalid: content not in error"],
+    ] as const) {
+      installFakeServer({ [`POST /api/drive/files/${FILE_ID}/retry`]: { status, body: { code, message: "x" } } });
+      await expect(drive.retryExtraction(FILE_ID), code).rejects.toThrow(error);
+    }
   });
 
   it("il riassunto: nell'elenco la prima frase, nel dettaglio intero; l'OCR, e se è solo sulle prime pagine", async () => {

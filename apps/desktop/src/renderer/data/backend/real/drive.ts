@@ -94,8 +94,9 @@ function rowOf(r: ServerDriveFileRow, codes: Map<string, string> | null): DriveF
     summaryLine: r.summaryLine,
     folder: null,
     hiddenBy: null,
-    // «Retry» arriva con la rotta di retry (F3.4): fino ad allora non si offre.
-    permissions: { ...r.permissions, retry: false },
+    // `retry` lo calcola il server (`drive.manage` su `no_text` o `error`);
+    // la pagina offre «Retry» solo su `error`, come il prototipo (decisione C(a)).
+    permissions: r.permissions,
   };
 }
 
@@ -381,6 +382,24 @@ const saveAttachmentToDrive: Drive["saveAttachmentToDrive"] = async (attachmentI
   }
 };
 
+/**
+ * «Retry» l'estrazione (`drive.manage`, F3.4): il server rimette il file in
+ * coda e dà la riga, già in lettura. 409 `not_retryable` (lo stato non è
+ * `no_text` né `error`) ha il nome del prototipo.
+ */
+const retryExtraction: Drive["retryExtraction"] = async (id) => {
+  const row = await write(async () => {
+    try {
+      return await appClient().drive.retry(id);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409) throw new Error("invalid: content not in error");
+      throw error;
+    }
+  });
+  const [out] = await rowsOf([row as unknown as ServerDriveFileRow]);
+  return out!;
+};
+
 export const driveFunctions: Partial<Drive> = {
   listDriveFiles,
   getDriveFile,
@@ -389,6 +408,7 @@ export const driveFunctions: Partial<Drive> = {
   recordOpen,
   uploadFiles,
   saveAttachmentToDrive,
+  retryExtraction,
 };
 
 export const drive: Drive = partialNamespace<Drive>("drive", driveFunctions);
