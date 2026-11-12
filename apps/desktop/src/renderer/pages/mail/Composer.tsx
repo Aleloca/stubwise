@@ -53,6 +53,7 @@ import {
 import { AlertGlyph } from "./glyphs";
 import { ADDRESS, RecipientField } from "./RecipientField";
 import { useComposerDraft } from "./useComposerDraft";
+import { mailClaudeDraft } from "./mailFeatures";
 
 // La casella di scrittura della Posta (shape mail-compose §3, §5, §6): la
 // stessa casella della conversazione con Claude, allargata a un modulo —
@@ -707,7 +708,7 @@ export function Composer(props: ComposerProps) {
             e.target.value = "";
           }}
         />
-        <ClaudeDraftButton flow={claude} />
+        {mailClaudeDraft() && <ClaudeDraftButton flow={claude} />}
         <span className="ml-auto flex items-center gap-1">
           {status === "failed" ? (
             <span className="flex items-center gap-1 px-1 text-xs text-critical">

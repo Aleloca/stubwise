@@ -294,11 +294,17 @@ export function MailPage({
         }}
         onSent={(result, recipients) => {
           // L'email nuova diventa una conversazione in cima all'elenco, e si apre.
-          void navigate({
-            to: "/mail/$threadId",
-            params: { threadId: result.threadId },
-            search: (prev: Record<string, unknown>) => ({ ...prev, compose: undefined }),
-          } as never);
+          // Build app: la conversazione la crea Gmail quando parte (dopo i 10 s):
+          // fino ad allora si resta sull'elenco, col suo «Annulla».
+          void navigate(
+            (result.threadId
+              ? {
+                  to: "/mail/$threadId",
+                  params: { threadId: result.threadId },
+                  search: (prev: Record<string, unknown>) => ({ ...prev, compose: undefined }),
+                }
+              : { to: "/mail", search: (prev: Record<string, unknown>) => ({ ...prev, compose: undefined }) }) as never,
+          );
           showUndo(result, recipients, true);
         }}
       />

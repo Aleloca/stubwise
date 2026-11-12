@@ -267,9 +267,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   occorrenze): la colonna non la dice a parole.
 - La Posta in lettura *(F1)*: la posta TRATTATA per conversazione, le
   proposte della casella accanto al messaggio d'origine, letto/non letto
-  con Gmail. Nascosti nella build app: scrivere (nuova email, rispondi,
-  inoltra, bozze, la bozza di Claude: F3), i campi modificabili di una
-  proposta e gli incaricati fuori dal progetto (F2, col task 6 del server).
+  con Gmail. Dalla F3 si scrive (nuova email, rispondi, inoltra, le bozze
+  di Gmail, gli allegati, Invia coi 10 s del server); resta spenta la bozza
+  di Claude finché non c'è il suo SSE. Un'email nuova appena inviata non ha
+  ancora una conversazione (la crea Gmail quando parte): si resta
+  sull'elenco col suo «Annulla», e la conversazione arriva al giro del
+  poller.
   Dalla F2 ci sono importanza, scadenza, «Importanti» e l'estratto
   nell'elenco. Differenze dichiarate: un allegato non ha
   la dimensione e si apre da Gmail; la proposta mostra la frase che il

@@ -51,6 +51,7 @@ const ALL: IntegrationTarget[] = [
       "mail-importance",
       "mail-proposal-edit",
       "mail-contributors",
+      "mail-claude-draft",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -145,6 +146,7 @@ describe("isIntegrated", () => {
         "feature:mail-importance",
         "feature:mail-proposal-edit",
         "feature:mail-contributors",
+        "feature:mail-write",
       ].sort(),
     );
   });

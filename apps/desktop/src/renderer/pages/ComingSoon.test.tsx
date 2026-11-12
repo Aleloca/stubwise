@@ -306,6 +306,22 @@ const INTEGRATED_CALLS = new Set([
   "mail.reassignMailProposal",
   // Area 6, fetta 2: «Quale progetto?».
   "mail.chooseProjectFor",
+  // Area 6, fetta 3: scrivere (`data/backend/real/{mailDrafts,mailSend}.ts`).
+  "mail.MAIL_UNDO_MS",
+  "mail.MAIL_MAX_ATTACHMENTS",
+  "mail.MAIL_MAX_BYTES",
+  "mail.listDrafts",
+  "mail.getDraft",
+  "mail.saveDraft",
+  "mail.discardDraft",
+  "mail.restoreDiscardedDraft",
+  "mail.attachDriveFile",
+  "mail.suggestRecipients",
+  "mail.sendDraft",
+  "mail.whenSendSettled",
+  "mail.undoSend",
+  "mail.retrySend",
+  "mail.deleteFailedSend",
   // Area 6, fetta 1: il Calendario in lettura e le serie (`data/backend/real/calendar.ts`).
   "calendar.calendarWindow",
   "calendar.spanOf",

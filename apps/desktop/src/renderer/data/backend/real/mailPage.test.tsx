@@ -132,10 +132,10 @@ afterEach(() => {
 });
 
 describe("la Posta nella build app", () => {
-  it("l'elenco per conversazione; niente «Nuova email»", async () => {
+  it("l'elenco per conversazione; «Nuova email» dalla F3", async () => {
     renderRoute("/mail");
     expect(await screen.findByText("Preventivo Rossi")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /New email/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /New email/ })).toBeInTheDocument();
   });
 
   it("F2: «Importanti», il filtro per importanza e l'importanza sulla riga", async () => {
@@ -147,15 +147,15 @@ describe("la Posta nella build app", () => {
     expect(screen.getAllByTitle("High importance").length).toBeGreaterThan(0);
   });
 
-  it("una conversazione: il messaggio, la proposta della casella accanto, nessuna risposta; «Apri in Gmail» apre Gmail", async () => {
+  it("una conversazione: il messaggio, la proposta della casella accanto, «Rispondi»; «Apri in Gmail» apre Gmail", async () => {
     const open = vi.fn();
     window.open = open as never;
     renderRoute(`/mail/${KEY}`);
     expect(await screen.findByText("Ecco il preventivo per la consegna.")).toBeInTheDocument();
     expect(await screen.findByText(/Create request in AUD: “Preventivo Rossi”/)).toBeInTheDocument();
     expect(screen.getByText(/Create milestone in AUD: “Consegna”/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Reply/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Forward/ })).toBeNull();
+    // Dalla F3 si risponde e si inoltra (`mailCompose.test.tsx`).
+    expect(screen.getByRole("button", { name: "Reply" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "More actions" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Open in Gmail" }));
     expect(open).toHaveBeenCalledWith("https://mail.google.com/mail/#all/t-1", "_blank", "noopener");

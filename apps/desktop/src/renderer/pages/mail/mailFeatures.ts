@@ -16,6 +16,9 @@ export const mailImportance = (): boolean => featureIntegrated("mail-importance"
 /** Modificare i campi di una proposta prima di confermarla (F2). */
 export const mailProposalEdits = (): boolean => featureIntegrated("mail-proposal-edit");
 
+/** La bozza di Claude nel compositore (F3, il suo SSE). */
+export const mailClaudeDraft = (): boolean => featureIntegrated("mail-claude-draft");
+
 /** Aggiungere come Contributor gli incaricati fuori dal progetto, alla conferma (F2). */
 export const mailContributors = (): boolean => featureIntegrated("mail-contributors");
 

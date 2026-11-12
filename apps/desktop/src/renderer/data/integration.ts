@@ -118,9 +118,12 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // F1.2: «Aggiorna ora» di una casella (Posta e Calendario).
     "google-sync",
     // Area 6, fetta 1: la Posta TRATTATA per conversazione, la lettura, le
-    // proposte della casella, letto/non letto con Gmail. Resta spento
-    // `mail-write` (scrivere, F3).
+    // proposte della casella, letto/non letto con Gmail.
     "mail",
+    // Area 6, fetta 3: scrivere (Rispondi, Rispondi a tutti, Inoltra, Nuova,
+    // le bozze di Gmail, gli allegati, Invia coi 10 s del server). Resta
+    // spenta `mail-claude-draft` (la bozza di Claude, finché non c'è il suo SSE).
+    "mail-write",
     // Area 6, fetta 2: la classificazione nuova, cioè importanza e scadenza delle
     // conversazioni, «Importanti» e il blocco Home «Posta importante».
     "mail-importance",
