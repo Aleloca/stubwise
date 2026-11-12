@@ -91,6 +91,8 @@ export async function legacyView(db: Db, viewerId: string, row: LegacyRow): Prom
     canConfirm,
     canHand: open && !canConfirm,
     canReassign: open && (row.card?.actions ?? []).some((a) => a.type === "reassign_project"),
+    // Il servizio di prima non conosce le modifiche ai campi.
+    editable: false,
     blockedIndices,
     outsiders: [],
     decidedBy: null,

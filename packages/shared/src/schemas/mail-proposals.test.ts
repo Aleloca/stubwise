@@ -61,6 +61,7 @@ describe("la proposta condivisa (F2)", () => {
       canConfirm: false,
       canHand: false,
       canReassign: false,
+      editable: false,
       blockedIndices: [],
       outsiders: [],
       decidedBy: null,
