@@ -1072,6 +1072,13 @@
       "when": 1797552000000,
       "tag": "0152_ticket_source_email",
       "breakpoints": true
+    },
+    {
+      "idx": 153,
+      "version": "7",
+      "when": 1797638400000,
+      "tag": "0153_mail_drafts_outgoing",
+      "breakpoints": true
     }
   ]
 }

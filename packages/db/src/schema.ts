@@ -6095,3 +6095,97 @@ export const driveOpens = pgTable(
   (table) => [index("drive_opens_file_at_idx").on(table.fileId, table.at), check("drive_opens_via_chk", sql`${table.via} in ('preview', 'download')`)],
 );
 
+/**
+ * Le bozze della posta (area 6, F3, 0153). Le bozze sono di GMAIL (D7 = b):
+ * testo e destinatari stanno su Gmail; qui solo ciò che Gmail non sa (modalità,
+ * citazione, il messaggio a cui si risponde) e `gmail_message_id`, la versione
+ * vista all'ultimo salvataggio (una bozza cambiata da Gmail: `draft_changed`).
+ * Una bozza ATTIVA per persona, casella, conversazione e modalità; `sending` =
+ * un invio in corso la sta portando via, e lo slot torna libero.
+ */
+export const mailDrafts = pgTable(
+  "mail_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => googleAccounts.id, { onDelete: "cascade" }),
+    gmailDraftId: text("gmail_draft_id").notNull(),
+    gmailMessageId: text("gmail_message_id"),
+    /** Il thread Gmail; null = un'email nuova. */
+    threadId: text("thread_id"),
+    mode: text("mode").$type<"new" | "reply" | "replyAll" | "forward">().notNull(),
+    replyToMessageId: uuid("reply_to_message_id").references(() => emailMessages.id, { onDelete: "set null" }),
+    quote: boolean("quote").notNull().default(true),
+    /**
+     * La COPIA dell'ultimo salvataggio (destinatari, oggetto, testo): la fonte
+     * resta la bozza di Gmail, ma leggerla da lì costerebbe una chiamata per
+     * bozza *(O)*. Una modifica fatta da Gmail si scopre al salvataggio dopo
+     * (`gmail_message_id` diverso: `draft_changed`).
+     */
+    toAddresses: jsonb("to_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    ccAddresses: jsonb("cc_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    subject: text("subject").notNull().default(""),
+    body: text("body").notNull().default(""),
+    state: text("state").$type<"active" | "sending">().notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("mail_drafts_slot_unique")
+      .on(table.userId, table.accountId, sql`coalesce(${table.threadId}, '')`, table.mode)
+      .where(sql`state = 'active'`),
+    index("mail_drafts_user_id_idx").on(table.userId),
+    check("mail_drafts_mode_chk", sql`${table.mode} in ('new', 'reply', 'replyAll', 'forward')`),
+    check("mail_drafts_state_chk", sql`${table.state} in ('active', 'sending')`),
+  ],
+);
+
+/** Gli allegati di una bozza: un file caricato (storage) o del Drive del progetto. */
+export const mailDraftAttachments = pgTable(
+  "mail_draft_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    draftId: uuid("draft_id").notNull().references(() => mailDrafts.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    mimeType: text("mime_type").notNull(),
+    storageKey: text("storage_key"),
+    driveFileId: uuid("drive_file_id").references(() => driveFiles.id, { onDelete: "set null" }),
+    as: text("as").$type<"copy" | "link">().notNull().default("copy"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("mail_draft_attachments_draft_id_idx").on(table.draftId),
+    check("mail_draft_attachments_as_chk", sql`${table.as} in ('copy', 'link')`),
+  ],
+);
+
+/**
+ * Gli invii trattenuti dal server (area 6, F3, D6: 10 s). Una riga per Invia,
+ * con chi l'ha chiesto; il worker la manda allo scadere di `send_at` e non
+ * ritenta MAI da solo un fallimento (Riprova è un gesto della persona).
+ */
+export const mailOutgoing = pgTable(
+  "mail_outgoing",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => googleAccounts.id, { onDelete: "cascade" }),
+    draftId: uuid("draft_id").references(() => mailDrafts.id, { onDelete: "set null" }),
+    gmailDraftId: text("gmail_draft_id").notNull(),
+    threadId: text("thread_id"),
+    sendAt: timestamp("send_at", { withTimezone: true }).notNull(),
+    state: text("state").$type<"queued" | "sending" | "sent" | "failed" | "cancelled">().notNull().default("queued"),
+    error: text("error"),
+    gmailMessageId: text("gmail_message_id"),
+    gmailThreadId: text("gmail_thread_id"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("mail_outgoing_due_idx").on(table.sendAt).where(sql`state = 'queued'`),
+    index("mail_outgoing_user_id_idx").on(table.userId),
+    check("mail_outgoing_state_chk", sql`${table.state} in ('queued', 'sending', 'sent', 'failed', 'cancelled')`),
+  ],
+);
+

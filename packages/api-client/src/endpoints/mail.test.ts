@@ -273,6 +273,17 @@ describe("endpoints mail", () => {
     expect(calls[4]![1]).toEqual({ projectId: ID });
   });
 
+  it("F3: le bozze — elenco, la bozza di, salva, elimina", async () => {
+    const draft = { id: null, accountId: ID, mode: "reply" };
+    const { c, fetchImpl } = clientReturning(200, draft);
+    const out = await c.mail.draft({ account: ID, thread: "t/1", mode: "reply" });
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/drafts/compose?account=${ID}&thread=t%2F1&mode=reply`);
+    expect(out).toMatchObject({ id: null, to: [], subject: "", quote: true });
+    await c.mail.saveDraft({ accountId: ID, mode: "new", subject: "x" });
+    const [, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(init!.method).toBe("PUT");
+  });
+
   it("setRead (area 6, F1.3): POST col body { account, read }; `unread` assente (server di prima) si legge false", async () => {
     const { c, fetchImpl } = clientReturning(200, {
       threadId: "t1",

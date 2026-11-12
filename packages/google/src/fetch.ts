@@ -94,7 +94,7 @@ export interface GoogleRequestSpec {
   /** Endpoint logico, per messaggi e log: `oauth.token`, `gmail.history.list`, … */
   api: string;
   url: string;
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "PUT" | "DELETE";
   /** Bearer token da mettere in `Authorization`. */
   accessToken?: string;
   /** Corpo `application/x-www-form-urlencoded` (gli endpoint OAuth vogliono questo, non JSON). */
