@@ -529,7 +529,9 @@ function toCalendarItem(row: CalendarItemRow, options: { light?: boolean } = {})
     projectBy: row.projectBy,
     eventType: row.eventType,
     transparency: row.transparency === "transparent" || row.transparency === "opaque" ? row.transparency : null,
-    myResponse: mine?.responseStatus ?? null,
+    // null SOLO se la casella non è fra gli invitati; fra gli invitati senza
+    // una risposta da Google = needsAction, come il dettaglio (richiesta di 94).
+    myResponse: mine ? (mine.responseStatus ?? "needsAction") : null,
     attendeeCount: row.attendees.length,
   };
 }

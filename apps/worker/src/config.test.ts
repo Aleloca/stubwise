@@ -929,6 +929,8 @@ describe("effectiveModelDefaults", () => {
       daily_report: config.dailyReportModel,
       weekly_brief: "claude-sonnet-5-5",
       mail_classify: "sonnet",
+      // La bozza di Claude nella Posta (area 6, F3): Sonnet, nessuna env.
+      mail_draft: "sonnet",
       chat: "claude-opus-4-8",
       claude_chat: config.backlogModel,
       backlog_merge: "claude-opus-4-8",

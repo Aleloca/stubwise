@@ -4221,6 +4221,11 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
     await pollGoogleOnce({ ...deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events, nextSyncToken: "tok" }]) }), classifyV2: true });
   }
+  async function ownerSees(account: typeof googleAccounts.$inferSelect, projectId: string) {
+    const { projectMembers, roles } = await import("@stubwise/db");
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId, userId: account.userId, roleId: role!.id });
+  }
   async function member(projectId: string, email: string) {
     const { projectMembers, roles } = await import("@stubwise/db");
     const [u] = await db.insert(users).values({ email, passwordHash: "x", role: "member" }).returning();
@@ -4236,6 +4241,7 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     await member(projectId, `marta-${crypto.randomUUID()}@acme.com`);
     const mate = (await db.select().from(users).where(eq(users.role, "member")).orderBy(users.createdAt)).at(-1)!;
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: null });
+    await ownerSees(account, projectId);
     await tickV2(account, [
       calendarEvent({ id: "con-marta", title: "Revisione", attendees: [att(MAILBOX), att(mate.email)] }),
       // In perimetro per le REGOLE, ma nessun invitato membro: col flag acceso non è lavoro.
@@ -4257,6 +4263,7 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     const marta = `marta-${crypto.randomUUID()}@acme.com`;
     await member(projectId, marta);
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: null });
+    await ownerSees(account, projectId);
     const ev = calendarEvent({ id: "gia-visto", title: "Revisione", attendees: [att(MAILBOX), att(marta)] });
     // Flag spento: nessuna regola, quindi solo visto.
     await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
@@ -4266,6 +4273,28 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     await tickV2(fresh!, [ev]);
     expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: true, projectId, outcome: { type: "baseline" }, proposalNotificationId: null });
     expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("review F3b, punto 3 — NEGATIVO: il progetto di un invitato che il PROPRIETARIO non vede non arriva sulla sua card", async () => {
+    const hidden = await seedProject("Riservato");
+    const marta = `marta-${crypto.randomUUID()}@acme.com`;
+    await member(hidden, marta);
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: new Date() });
+    await tickV2(account, [calendarEvent({ id: "con-marta", title: "Revisione", attendees: [att(MAILBOX), att(marta)] })]);
+    expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: false, projectId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("l'indirizzo di un invitato con le MAIUSCOLE riconosce la persona (lower)", async () => {
+    const projectId = await seedProject("Audin");
+    const id = crypto.randomUUID().slice(0, 6);
+    await member(projectId, `Marta.${id}@Acme.com`);
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: new Date() });
+    const { projectMembers, roles } = await import("@stubwise/db");
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId, userId: account.userId, roleId: role!.id });
+    await tickV2(account, [calendarEvent({ id: "m", title: "Revisione", attendees: [att(MAILBOX), att(`marta.${id}@acme.com`)] })]);
+    expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: true, projectId });
   });
 
   it("invitati membri di DUE progetti: nessuna proposta (la «Quale progetto?» del calendario è rimandata), e il solo proprietario non conta", async () => {
@@ -4280,6 +4309,8 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     const { projectMembers, roles } = await import("@stubwise/db");
     const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
     await db.insert(projectMembers).values({ projectId: a, userId: account.userId, roleId: role!.id });
+    // …e vede anche B: entrambi i progetti degli invitati sono suoi da vedere.
+    await db.insert(projectMembers).values({ projectId: b, userId: account.userId, roleId: role!.id });
     await tickV2(account, [
       calendarEvent({ id: "due", title: "Riunione", attendees: [att(MAILBOX), att(ada), att(bob.email)] }),
       calendarEvent({ id: "solo-io", title: "Promemoria mio", attendees: [att(MAILBOX)] }),
@@ -4288,5 +4319,109 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     expect(rows.find((r) => r.googleEventId === "due")).toMatchObject({ proposalCandidate: false });
     expect(rows.find((r) => r.googleEventId === "solo-io")).toMatchObject({ proposalCandidate: false });
     expect(await db.select().from(notifications)).toEqual([]);
+  });
+});
+
+describe("review F3b, punto 1: la linea di base si chiude SOLO dopo un resync completo della finestra", () => {
+  async function runWith(account: typeof googleAccounts.$inferSelect, calendar: ReturnType<typeof fakeCalendarSequence>, extra: Partial<GooglePollerDeps> = {}) {
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce({ ...deps(account, fakeGmail({ listed: [] }), { calendar }), ...extra });
+    return (await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id)))[0]!;
+  }
+
+  it("linea di base null ma col token (il worker vecchio ha già risincronizzato): si ignora il token e si rifà la finestra", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null, calendarSyncToken: "vecchio" });
+    const calendar = fakeCalendarSequence([{ events: [calendarEvent({ id: "personale", title: "Dentista", attendees: [att(MAILBOX)] })], nextSyncToken: "nuovo" }]);
+    const after = await runWith(account, calendar);
+    expect(calendar.calls[0]!.syncToken ?? null).toBeNull();
+    expect(calendar.calls[0]!.timeMin).toBeInstanceOf(Date);
+    expect(after).toMatchObject({ calendarSyncToken: "nuovo" });
+    expect(after.calendarBaselineAt).toBeInstanceOf(Date);
+    expect((await calendarRows()).map((r) => r.googleEventId)).toEqual(["personale"]);
+  });
+
+  it("flag acceso col token e la linea di base v2 null: anche qui la finestra intera, non l'incrementale", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: null, calendarSyncToken: "tok" });
+    const calendar = fakeCalendarSequence([{ events: [], nextSyncToken: "tok-2" }]);
+    const after = await runWith(account, calendar, { classifyV2: true });
+    expect(calendar.calls[0]!.syncToken ?? null).toBeNull();
+    expect(after.calendarV2BaselineAt).toBeInstanceOf(Date);
+  });
+
+  it("un resync senza nextSyncToken (troncato) non chiude la linea di base", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null });
+    const after = await runWith(account, fakeCalendarSequence([{ events: [calendarEvent({ id: "a" })], nextSyncToken: null }]));
+    expect(after.calendarBaselineAt).toBeNull();
+  });
+
+  it("un giro INTERROTTO a metà non chiude la linea di base e non salva il token: il giro dopo riparte", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null });
+    const controller = new AbortController();
+    const calendar = fakeCalendarSequence([{ events: [calendarEvent({ id: "a" }), calendarEvent({ id: "b" })], nextSyncToken: "tok" }]);
+    const original = calendar.listEvents;
+    calendar.listEvents = (async (input: Parameters<typeof original>[0]) => {
+      const page = await original(input);
+      controller.abort();
+      return page;
+    }) as typeof original;
+    const after = await runWith(account, calendar, { signal: controller.signal });
+    expect(after.calendarBaselineAt).toBeNull();
+    expect(after.calendarSyncToken).toBeNull();
+  });
+});
+
+describe("review F3b, punto 2: un evento cancellato chiude la sua card, e la potatura non toglie una riga con la card aperta", () => {
+  it("cancellato su Google: outcome cancelled E card chiusa, nella stessa transazione", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "e1" })], nextSyncToken: "t1" }]) }));
+    const [row] = await calendarRows();
+    expect(row!.proposalNotificationId).not.toBeNull();
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    const [fresh] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce(deps(fresh!, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "e1", status: "cancelled", title: "", attendees: [] })], nextSyncToken: "t2" }]) }));
+    const [card] = await db.select().from(notifications).where(eq(notifications.id, row!.proposalNotificationId!));
+    expect(card!.status).toBe("handled");
+  });
+
+  it("la potatura non toglie una riga vecchia la cui card è ancora aperta (anche con un esito scritto)", async () => {
+    const { pruneOldCalendarEvents } = await import("./poller.js");
+    const account = await seedAccount({});
+    const [n] = await db.insert(notifications).values({ userId: account.userId, kind: "google.proposal", status: "open", event: {} } as typeof notifications.$inferInsert).returning();
+    await db.insert(calendarEvents).values({ accountId: account.id, googleEventId: "vecchio", startsAt: new Date(Date.now() - 40 * 86_400_000), fingerprint: "x", outcome: { type: "cancelled" }, proposalNotificationId: n!.id });
+    await pruneOldCalendarEvents(db);
+    expect((await calendarRows()).map((r) => r.googleEventId)).toEqual(["vecchio"]);
+  });
+});
+
+describe("review F3b, minore: le serie col progetto scelto diverso, prima scartate, entrano nella linea di base del deploy", () => {
+  it("un'occorrenza già in tabella di una serie col progetto scelto diverso, alla linea di base del deploy, si chiude invece di proporre", async () => {
+    const routed = await seedProject("Acme");
+    const chosen = await seedProject("Scelto");
+    await db.insert(projectEmailRoutes).values({ projectId: routed, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null });
+    const { calendarSeries } = await import("@stubwise/db");
+    await db.insert(calendarSeries).values({ accountId: account.id, recurringEventId: "serie-sal", enabled: true, projectId: chosen, leadDays: 30 });
+    // Riga di PRIMA del deploy: candidata col progetto delle regole, mai proposta (era scartata).
+    await db.insert(calendarEvents).values({ accountId: account.id, googleEventId: "sal-1", title: "SAL mensile", startsAt: new Date(Date.now() + 7 * 86_400_000), fingerprint: "sal", recurringEventId: "serie-sal", projectId: routed, proposalCandidate: true });
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "sal-1", title: "SAL mensile", recurringEventId: "serie-sal" })], nextSyncToken: "t" }]) }));
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ outcome: { type: "baseline" }, proposalNotificationId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+});
+
+describe("review F3b, minore: la potatura guarda la FINE dell'evento", () => {
+  it("un evento di più giorni iniziato 40 giorni fa e ancora in corso non si pota", async () => {
+    const { pruneOldCalendarEvents } = await import("./poller.js");
+    const account = await seedAccount({});
+    await db.insert(calendarEvents).values([
+      { accountId: account.id, googleEventId: "in-corso", startsAt: new Date(Date.now() - 40 * 86_400_000), endsAt: new Date(Date.now() + 2 * 86_400_000), fingerprint: "a", proposalCandidate: false },
+      { accountId: account.id, googleEventId: "finito", startsAt: new Date(Date.now() - 40 * 86_400_000), endsAt: new Date(Date.now() - 39 * 86_400_000), fingerprint: "b", proposalCandidate: false },
+    ]);
+    await pruneOldCalendarEvents(db);
+    expect((await calendarRows()).map((r) => r.googleEventId)).toEqual(["in-corso"]);
   });
 });
