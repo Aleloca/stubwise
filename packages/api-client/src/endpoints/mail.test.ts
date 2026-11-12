@@ -242,6 +242,8 @@ describe("endpoints mail", () => {
     const items = await list.c.mail.proposals({ message: ID, status: "open" });
     expect(list.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/proposals?message=${ID}&status=open`);
     expect(items.items[0]!.canConfirm).toBe(false);
+    await list.c.mail.proposals({ thread: "t/1", account: ID });
+    expect(list.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/proposals?thread=t%2F1&account=${ID}`);
     const one = clientReturning(200, proposal);
     await one.c.mail.proposal(ID);
     expect(one.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/proposals/${ID}`);

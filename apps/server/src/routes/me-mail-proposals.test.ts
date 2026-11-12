@@ -708,3 +708,24 @@ describe("review F2, punto 7, lato server: «Quale progetto?» per chi vede solo
   });
 });
 
+describe("GET /api/me/mail/proposals?thread=&account= (le proposte di una conversazione)", () => {
+  it("tutte le proposte dei messaggi di quella conversazione della MIA casella; un'altra conversazione no; la casella di un altro: vuoto", async () => {
+    const { ada, bruno, proposal, message } = await seed();
+    const { eq } = await import("drizzle-orm");
+    const [box] = await db.select({ id: googleAccounts.id }).from(googleAccounts).where(eq(googleAccounts.id, message.accountId));
+    const [other] = await db
+      .insert(emailMessages)
+      .values({ accountId: box!.id, gmailMessageId: "g2", threadId: "t2", fromAddress: "x@x.it", subject: "Altro", receivedAt: new Date(), rfcMessageId: "<altro@x>" })
+      .returning();
+    await db.insert(emailProposals).values({ emailMessageId: other!.id, projectId, rfcMessageId: "<altro@x>", audience: "mail_recipients", status: "proposed", classification: { version: 2, summary: "", actions: [{ type: "create_task", args: { title: "Altro", description: "", assigneeId: null, dueDate: null } }] } }).returning();
+    const { emailProposalRecipients: r } = await import("@stubwise/db");
+    const [p2] = await db.select({ id: emailProposals.id }).from(emailProposals).where(eq(emailProposals.emailMessageId, other!.id));
+    await db.insert(r).values({ proposalId: p2!.id, userId: ada.id });
+    const ids = async (headers: { cookie: string }, q: string) => ((await get(headers, `/api/me/mail/proposals?${q}`)).json() as { items: { id: string }[] }).items.map((i) => i.id);
+    expect(await ids(ada.headers, `thread=t1&account=${box!.id}`)).toEqual([proposal.id]);
+    expect(await ids(ada.headers, `thread=t2&account=${box!.id}`)).toEqual([p2!.id]);
+    // Bruno è destinatario, ma la casella non è sua: il filtro per conversazione non trova niente.
+    expect(await ids(bruno.headers, `thread=t1&account=${box!.id}`)).toEqual([]);
+  });
+});
+

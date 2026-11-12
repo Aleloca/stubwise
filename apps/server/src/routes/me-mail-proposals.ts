@@ -35,7 +35,10 @@ export async function meMailProposalsRoutes(instance: FastifyInstance): Promise<
     {
       config: { access: { kind: "user" } },
       schema: {
-        querystring: z.object({ message: z.uuid().optional(), status: mailProposalStatusSchema.optional() }),
+        // `thread` + `account`: le proposte di una conversazione (insieme, o nessuno dei due).
+        querystring: z
+          .object({ message: z.uuid().optional(), thread: z.string().max(200).optional(), account: z.uuid().optional(), status: mailProposalStatusSchema.optional() })
+          .refine((q) => (q.thread === undefined) === (q.account === undefined), { message: "thread and account go together" }),
         response: { 200: mailProposalListSchema, ...authErrorResponses },
       },
     },
@@ -43,7 +46,11 @@ export async function meMailProposalsRoutes(instance: FastifyInstance): Promise<
       const items = await listMailProposals(
         app.db,
         request.user!,
-        { messageId: request.query.message, status: request.query.status },
+        {
+          messageId: request.query.message,
+          thread: request.query.thread && request.query.account ? { threadId: request.query.thread, accountId: request.query.account } : undefined,
+          status: request.query.status,
+        },
         request.user!.language,
       );
       return { items };

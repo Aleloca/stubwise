@@ -56,6 +56,8 @@ export interface MailProposalFilter {
   messageId?: string | undefined;
   /** Una proposta sola. */
   id?: string | undefined;
+  /** Una conversazione di una casella di chi guarda (thread Gmail + casella). */
+  thread?: { threadId: string; accountId: string } | undefined;
   status?: MailProposalStatus | undefined;
 }
 
@@ -95,6 +97,16 @@ export async function listMailProposals(
       )`,
     );
   }
+  if (filter.thread) {
+    // I messaggi di quella conversazione, nella casella di chi guarda; da lì le chiavi.
+    conditions.push(
+      sql`${emailProposals.rfcMessageId} in (
+        select coalesce(m.rfc_message_id, 'gmail:' || m.account_id || ':' || m.gmail_message_id)
+        from ${emailMessages} m join ${googleAccounts} a on a.id = m.account_id
+        where m.thread_id = ${filter.thread.threadId} and m.account_id = ${filter.thread.accountId} and a.user_id = ${viewer.id}
+      )`,
+    );
+  }
   const rows = await db
     .select({ proposal: emailProposals, excerpt: emailMessages.textExcerpt, recipient: emailProposalRecipients.userId })
     .from(emailProposals)
@@ -119,7 +131,7 @@ export async function listMailProposals(
     out.push(view);
   }
   // Le proposte di PRIMA (per casella), nella stessa forma: UNA fonte sola.
-  for (const row of await legacyRows(db, viewer.id, { id: filter.id, messageId: filter.messageId })) {
+  for (const row of await legacyRows(db, viewer.id, { id: filter.id, messageId: filter.messageId, thread: filter.thread })) {
     const view = await legacyView(db, viewer.id, row);
     if (!view || (filter.status && view.status !== filter.status)) continue;
     out.push(view);

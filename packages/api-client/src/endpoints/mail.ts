@@ -157,8 +157,14 @@ export function createMailEndpoints(request: ApiRequest) {
      * quelle di un messaggio della sua casella (`message`), per stato. I
      * permessi (`canConfirm`, `blockedIndices`, …) li calcola il server.
      */
-    proposals(filter: { message?: string; status?: MailProposalStatus } = {}): Promise<Reader<MailProposalList>> {
-      return request("GET", `/api/me/mail/proposals${toQuery({ message: filter.message, status: filter.status })}`, undefined, mailProposalListSchema);
+    /** `thread` + `account` insieme: le proposte di una conversazione di una mia casella. */
+    proposals(filter: { message?: string; thread?: string; account?: string; status?: MailProposalStatus } = {}): Promise<Reader<MailProposalList>> {
+      return request(
+        "GET",
+        `/api/me/mail/proposals${toQuery({ message: filter.message, thread: filter.thread, account: filter.account, status: filter.status })}`,
+        undefined,
+        mailProposalListSchema,
+      );
     },
 
     /** Una proposta condivisa; 404 `not_found` se chi guarda non la vede. */
