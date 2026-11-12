@@ -683,3 +683,36 @@ describe("la firma di Gmail (decisione M; basta gmail.modify)", () => {
   });
 });
 
+describe("review F3, punti 6, 7 e 10: Message-ID nostro, catena dei References, l'invio che resta leggibile", () => {
+  const raw = (i = -1) => Buffer.from(String(calls.filter((c) => c.fn === "create" || c.fn === "update").at(i)!.input.raw), "base64url").toString("utf8");
+
+  it("il Message-ID è nostro e stabile fra i salvataggi; References ha la catena del thread fino al messaggio a cui si risponde", async () => {
+    const { me, box, message } = await scenario();
+    await db.insert(emailMessages).values({ accountId: box.id, gmailMessageId: "g0", threadId: "t1", fromAddress: "a@x.it", subject: "Export", receivedAt: new Date("2026-11-09T09:00:00.000Z"), rfcMessageId: "<m0@x.it>" });
+    const body = { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, to: [{ email: "cliente@x.it" }], subject: "Re: Export", body: "a" };
+    await save(me.headers, body);
+    const first = raw().match(/Message-ID: (<stubwise\.[^>]+>)/)![1];
+    expect(first).toMatch(/@acme\.com>$/);
+    expect(raw()).toContain("References: <m0@x.it> <m1@x.it>");
+    await save(me.headers, { ...body, body: "b" });
+    expect(raw().match(/Message-ID: (<stubwise\.[^>]+>)/)![1]).toBe(first);
+  });
+
+  it("Invia copia destinatari, oggetto, corpo e Message-ID sull'invio: il fumetto «inviata» si legge anche dopo che la bozza se n'è andata", async () => {
+    const { me, box, message } = await scenario();
+    const saved = (await save(me.headers, { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, to: [{ email: "cliente@x.it" }], subject: "Re: Export", body: "Fatto." })).json() as { id: string };
+    const sent = (await app.inject({ method: "POST", url: `/api/me/mail/drafts/${saved.id}/send`, headers: me.headers, payload: {} })).json() as { messageId: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, sent.messageId));
+    expect(row).toMatchObject({ subject: "Re: Export", body: "Fatto." });
+    expect(row!.rfcMessageId).toMatch(/^<stubwise\./);
+    // Il worker l'ha mandata e ha tolto la bozza.
+    await db.update(mailOutgoing).set({ state: "sent", gmailMessageId: "gm-x" }).where(eq(mailOutgoing.id, sent.messageId));
+    await db.delete(mailDrafts).where(eq(mailDrafts.id, saved.id));
+    const detail = (await app.inject({ method: "GET", url: `/api/me/mail/threads/t1?account=${box.id}`, headers: me.headers })).json() as { messages: { textExcerpt: string | null; to: string[]; delivery: { state: string } | null }[] };
+    const bubble = detail.messages.find((m) => m.delivery?.state === "sent")!;
+    expect(bubble).toMatchObject({ textExcerpt: "Fatto.", to: ["cliente@x.it"] });
+  });
+});
+

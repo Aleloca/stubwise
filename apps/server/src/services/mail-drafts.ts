@@ -17,7 +17,7 @@ import {
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import { normalizeAddress, projectPermissionsOfUser } from "@stubwise/notifications";
 import type { MailComposeAddress, MailComposeMode, MailDraft } from "@stubwise/shared";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lte, sql } from "drizzle-orm";
 
 /**
  * LE BOZZE DELLA POSTA (area 6, fetta 3, D7 = b): bozze di GMAIL. Stubwise
@@ -263,6 +263,23 @@ export async function draftFor(
   return { ...blank, replyToMessageId: ref.id, to, cc, subject: withPrefix("Re:", ref.subject) };
 }
 
+/**
+ * `References`: la catena del thread fino al messaggio a cui si risponde,
+ * dal più vecchio (review F3, punto 7). Dai Message-ID che abbiamo dei
+ * messaggi della conversazione, nella casella di chi scrive.
+ */
+async function referenceChain(db: Db, accountId: string, threadId: string | null, replyTo: string | null): Promise<string[]> {
+  if (!threadId || !replyTo) return [];
+  const [ref] = await db.select({ receivedAt: emailMessages.receivedAt }).from(emailMessages).where(eq(emailMessages.id, replyTo));
+  if (!ref) return [];
+  const rows = await db
+    .select({ rfc: emailMessages.rfcMessageId })
+    .from(emailMessages)
+    .where(and(eq(emailMessages.accountId, accountId), eq(emailMessages.threadId, threadId), lte(emailMessages.receivedAt, ref.receivedAt)))
+    .orderBy(emailMessages.receivedAt, emailMessages.id);
+  return [...new Set(rows.flatMap((r) => (r.rfc ? [r.rfc] : [])))];
+}
+
 /** Il testo che va su Gmail: il corpo, più la citazione se chiesta. */
 async function composedBody(
   db: Db,
@@ -346,6 +363,10 @@ export async function saveDraft(
   await refreshSignature(db, client, accessToken, writable.account);
   const { signature } = await signatureOf(db, input.accountId);
   const { text, inReplyTo } = await composedBody(db, input.body, input.quote, input.replyToMessageId, signature);
+  // Il Message-ID è NOSTRO e stabile per la bozza (review F3, punto 6): il
+  // poller riconosce così l'email mandata da Stubwise. Il dominio è quello
+  // del mittente, come vuole la RFC.
+  const rfcMessageId = existing?.rfcMessageId ?? `<stubwise.${randomUUID()}@${writable.account.email.split("@")[1] ?? "stubwise.invalid"}>`;
   const raw = encodeRaw(
     buildMimeMessage({
       from: { email: writable.account.email },
@@ -354,8 +375,9 @@ export async function saveDraft(
       subject: input.subject,
       body: text,
       inReplyTo,
-      references: inReplyTo ? [inReplyTo] : [],
+      references: inReplyTo ? await referenceChain(db, input.accountId, input.threadId, input.replyToMessageId) : [],
       attachments: files,
+      messageId: rfcMessageId,
     }),
   );
 
@@ -384,6 +406,7 @@ export async function saveDraft(
       subject: input.subject,
       body: input.body,
       quote: input.quote,
+      rfcMessageId,
     };
     const [row] = existing
       ? await db.update(mailDrafts).set(values).where(eq(mailDrafts.id, existing.id)).returning()
