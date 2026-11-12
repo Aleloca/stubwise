@@ -2059,7 +2059,7 @@ export interface GoogleAccount {
 }
 
 /** Una funzione di Google che Stubwise usa e che dipende da uno scope (oggi: letto/non letto). */
-export type GoogleFeature = "markRead" | "drive";
+export type GoogleFeature = "markRead" | "calendarWrite" | "drive";
 
 /**
  * Una cartella Google collegata a un progetto: Stubwise la legge con
@@ -2857,6 +2857,13 @@ export interface CalendarEvent {
   transparency?: "opaque" | "transparent";
   /** Build app, F3b: quanti invitati, anche sulla lista leggera senza `attendees`. */
   attendeeCount?: number | null;
+  /**
+   * Build app, F4: lo dice il SERVER — modifico, sposto, elimino
+   * (`canEdit`, l'organizzatore) e rispondo (`canRespond`, un invitato che
+   * non organizza). Assenti (prototipo): dall'organizzatore e dalla risposta.
+   */
+  canEdit?: boolean;
+  canRespond?: boolean;
 }
 
 /** Una serie ricorrente e la sua configurazione (spenta di default). */
@@ -2934,6 +2941,12 @@ export interface FreeBusy {
 export type CalendarGuestInput = { personId: string } | { email: string; name?: string };
 
 export interface CalendarEventInput {
+  /**
+   * Build app, F4: l'id della riunione nuova, UNO per bozza (l'editor lo
+   * genera all'apertura): un nuovo tentativo dopo un errore manda lo stesso,
+   * così Google non la crea due volte (d1bd1fc2 di 72). base32hex.
+   */
+  draftId?: string;
   title: string;
   startsAt: string;
   endsAt: string;

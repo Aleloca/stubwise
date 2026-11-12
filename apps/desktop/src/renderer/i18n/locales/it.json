@@ -5936,6 +5936,7 @@
       "scopesMissing": "Finché non ricolleghi, Stubwise non può {{what}}.",
       "feature": {
         "markRead": "segnare la posta come letta o non letta",
+        "calendarWrite": "creare o cambiare le tue riunioni",
         "drive": "usare i file del tuo Google Drive e gli appunti delle riunioni"
       }
     },
@@ -6463,7 +6464,9 @@
       "retry": "Riprova",
       "undo": "Annulla la modifica",
       "rejected": "Google non ha accettato la modifica.",
-      "unreachable": "Google non è raggiungibile. La modifica non è ancora salvata."
+      "unreachable": "Google non è raggiungibile. La modifica non è ancora salvata.",
+      "changed": "La riunione è cambiata su Google Calendar. Ricaricala e riprova.",
+      "reload": "Ricarica"
     },
     "sync": {
       "justNow": "Aggiornato adesso",

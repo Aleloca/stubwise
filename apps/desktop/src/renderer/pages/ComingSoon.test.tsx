@@ -334,6 +334,18 @@ const INTEGRATED_CALLS = new Set([
   "calendar.configureSeries",
   "calendar.syncCalendar",
   "calendar.whenCalendarIdle",
+  // Area 6, F4: la scrittura (review F4, minori).
+  "calendar.createEvent",
+  "calendar.updateEvent",
+  "calendar.moveEvent",
+  "calendar.deleteEvent",
+  "calendar.respond",
+  "calendar.setEventProject",
+  "calendar.retrySave",
+  "calendar.revertEvent",
+  "calendar.freeBusy",
+  "calendar.findFirstFreeSlot",
+  "calendar.onSaving",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -362,6 +374,19 @@ describe("aree non integrate nella build app", () => {
   it("aprire il Calendario legge solo ciò che è integrato", async () => {
     renderRoute("/calendar");
     await waitFor(() => expect(calls).toContain("calendar.listEvents"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 6, F4: la scrittura del Calendario è integrata (review F4): una nuova
+  // riunione passa solo da funzioni integrate.
+  it("scrivere nel Calendario (nuova riunione) chiama solo ciò che è integrato", async () => {
+    renderRoute("/calendar?newMeeting=1&date=2026-10-23");
+    const dialog = await screen.findByRole("dialog", { name: "New meeting" });
+    const user = userEvent.setup();
+    await user.type(within(dialog).getByLabelText("Title"), "Kickoff");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls).toContain("calendar.createEvent"));
     await settle();
     expect(outside()).toEqual([]);
   });

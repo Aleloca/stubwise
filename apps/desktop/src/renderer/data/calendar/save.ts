@@ -123,3 +123,13 @@ export function revertGroup(e: CalendarEvent): void {
     else state.calendarEvents[index] = before;
   }
 }
+
+/**
+ * Chi vuole sapere subito di un evento in salvataggio. Nel prototipo non serve:
+ * le scritture rispondono SUBITO con «Saving…» (la build app lo annuncia
+ * prima di aspettare Google, review F4).
+ */
+export function onSaving(fn: (e: CalendarEvent) => void): () => void {
+  void fn;
+  return () => {};
+}

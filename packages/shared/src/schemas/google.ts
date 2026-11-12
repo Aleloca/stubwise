@@ -981,6 +981,17 @@ export type CalendarAttendeeResponseStatus = z.infer<typeof calendarAttendeeResp
 export const calendarAttendeeSchema = z.object({
   email: z.string(),
   responseStatus: calendarAttendeeResponseStatusSchema.nullable(),
+  // F4, task 0: opzionali (additivi; le righe di prima non li hanno).
+  /** Il nome che Google dà all'invitato. NON FIDATO. */
+  name: z.string().nullable().optional(),
+  /** La nota della sua risposta. NON FIDATO. */
+  comment: z.string().nullable().optional(),
+  /** È la casella stessa (`self` di Google). */
+  self: z.boolean().optional(),
+  /** F4, solo nel dettaglio: la persona di Stubwise riconosciuta dall'indirizzo (lato server). */
+  personId: z.uuid().nullable().optional(),
+  /** F4, solo nel dettaglio: è chi organizza. */
+  organizer: z.boolean().optional(),
 });
 export type CalendarAttendee = z.infer<typeof calendarAttendeeSchema>;
 
@@ -1119,6 +1130,16 @@ export const calendarEventItemSchema = z.object({
   myResponse: calendarAttendeeResponseStatusSchema.nullable().default(null),
   /** Quanti invitati («N guests»), anche nella lista leggera dove `attendees` è vuoto. */
   attendeeCount: z.number().int().min(0).nullable().default(null),
+
+  // --- Area 6, F4: le letture per scrivere, calcolate dal SERVER.
+  /** La casella organizza: modifico, sposto, elimino. */
+  canEdit: z.boolean().default(false),
+  /** La casella è invitata e non organizza: rispondo. */
+  canRespond: z.boolean().default(false),
+  /** La versione di Google (`changed_on_google`). */
+  etag: z.string().nullable().default(null),
+  /** La nota della MIA risposta. NON FIDATO. */
+  myNote: z.string().nullable().default(null),
 });
 export type CalendarEventItem = z.infer<typeof calendarEventItemSchema>;
 
@@ -1213,3 +1234,139 @@ export type CalendarSeriesPatch = z.input<typeof calendarSeriesPatchSchema>;
  */
 export const calendarSeriesWriteResultSchema = z.object({ ok: z.literal(true) });
 export type CalendarSeriesWriteResult = z.infer<typeof calendarSeriesWriteResultSchema>;
+
+// --- Area 6, F4: scrivere sul calendario --------------------------------
+//
+// I CORPI delle scritture (`/api/me/calendar/events…`, tutte di un gesto
+// della persona) e la loro risposta. Le regole stanno in
+// `apps/server/src/services/calendar-writes.ts`.
+
+/** «Solo questo» o «tutta la serie». */
+export const calendarWriteScopeSchema = z.enum(["one", "series"]);
+export type CalendarWriteScope = z.infer<typeof calendarWriteScopeSchema>;
+
+/** Un invitato: una persona di Stubwise (l'indirizzo lo risolve il server) o un indirizzo, anche esterno (Q6). */
+export const calendarGuestInputSchema = z.union([
+  z.object({ personId: z.uuid() }),
+  z.object({ email: z.email().max(320), name: z.string().max(200).nullable().optional() }),
+]);
+export type CalendarGuestInput = z.infer<typeof calendarGuestInputSchema>;
+
+/** I promemoria: quelli predefiniti del calendario, o una lista (Google ne tiene al più 5). */
+export const calendarRemindersInputSchema = z.union([
+  z.literal("default"),
+  z.array(z.object({ minutes: z.number().int().min(0).max(40_320), method: z.enum(["popup", "email"]) })).max(5),
+]);
+
+const calendarTitleSchema = z.string().trim().min(1).max(1024);
+
+/**
+ * Un orario di una scrittura (review F4, punto 12): per un evento con orario
+ * un ISTANTE ISO; per un tutto il giorno una DATA `YYYY-MM-DD`, con la fine
+ * ESCLUSIVA (un giorno solo: dal 15 al 16). Mai la mezzanotte locale di un
+ * client come istante: tagliata, a est di Greenwich, sarebbe il giorno prima.
+ */
+const calendarWhenSchema = z.union([z.iso.datetime(), z.iso.date()]);
+const isDateOnly = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+/** Tutto il giorno ⇔ date; con orario ⇔ istanti (quando `allDay` è dichiarato). */
+function checkWhen(value: { allDay?: boolean | undefined; startsAt: string; endsAt: string }, ctx: z.RefinementCtx) {
+  if (value.allDay === undefined) return;
+  for (const key of ["startsAt", "endsAt"] as const) {
+    if (isDateOnly(value[key]) !== value.allDay) ctx.addIssue({ code: "custom", path: [key], message: value.allDay ? "an all-day event takes a YYYY-MM-DD date" : "a timed event takes an ISO instant" });
+  }
+}
+const calendarTextSchema = z.string().max(8192).nullable();
+
+export const calendarEventCreateSchema = z.object({
+  accountId: z.uuid(),
+  /**
+   * L'id dell'evento su Google, GENERATO DAL CLIENT (base32hex: `a`–`v` e
+   * cifre, 5–1024 caratteri) e rimandato identico da Riprova: la creazione è
+   * idempotente — se il primo tentativo è arrivato a Google ma la risposta
+   * no, il secondo non crea una seconda riunione né rimanda gli inviti
+   * (review F4). Obbligatorio: la rotta nasce con la F4, nessun client
+   * vecchio la chiama.
+   */
+  eventId: z.string().regex(/^[a-v0-9]{5,1024}$/),
+  title: calendarTitleSchema,
+  startsAt: calendarWhenSchema,
+  endsAt: calendarWhenSchema,
+  allDay: z.boolean().default(false),
+  guests: z.array(calendarGuestInputSchema).max(200).default([]),
+  addMeet: z.boolean().default(false),
+  description: calendarTextSchema.default(null),
+  location: z.string().max(1024).nullable().default(null),
+  projectId: z.uuid().nullable().default(null),
+  reminders: calendarRemindersInputSchema.default("default"),
+}).superRefine(checkWhen);
+export type CalendarEventCreate = z.infer<typeof calendarEventCreateSchema>;
+/** Il corpo come lo scrive un client (i campi con default sono facoltativi). */
+export type CalendarEventCreateInput = z.input<typeof calendarEventCreateSchema>;
+
+export const calendarEventEditSchema = z.object({
+  scope: calendarWriteScopeSchema.default("one"),
+  /** La versione letta (`etag` della riga): diversa da quella vera → `changed_on_google`. */
+  etag: z.string().nullable(),
+  patch: z.object({
+    title: calendarTitleSchema.optional(),
+    guests: z.array(calendarGuestInputSchema).max(200).optional(),
+    addMeet: z.boolean().optional(),
+    description: calendarTextSchema.optional(),
+    location: z.string().max(1024).nullable().optional(),
+    reminders: calendarRemindersInputSchema.optional(),
+  }),
+});
+export type CalendarEventEdit = z.infer<typeof calendarEventEditSchema>;
+export type CalendarEventEditInput = z.input<typeof calendarEventEditSchema>;
+
+export const calendarEventMoveSchema = z.object({
+  scope: calendarWriteScopeSchema.default("one"),
+  etag: z.string().nullable(),
+  /** Come in {@link calendarEventCreateSchema}: date per un tutto il giorno, istanti altrimenti (senza `allDay`, quello della riga). */
+  startsAt: calendarWhenSchema,
+  endsAt: calendarWhenSchema,
+  allDay: z.boolean().optional(),
+}).superRefine(checkWhen);
+export type CalendarEventMove = z.infer<typeof calendarEventMoveSchema>;
+export type CalendarEventMoveInput = z.input<typeof calendarEventMoveSchema>;
+
+export const calendarEventRespondSchema = z.object({
+  scope: calendarWriteScopeSchema.default("one"),
+  response: z.enum(["accepted", "tentative", "declined"]),
+  note: z.string().max(1000).nullable().optional(),
+});
+export type CalendarEventRespond = z.infer<typeof calendarEventRespondSchema>;
+export type CalendarEventRespondInput = z.input<typeof calendarEventRespondSchema>;
+
+/** Il progetto dell'evento, a mano (task 4): `null` lo toglie. */
+export const calendarEventProjectSchema = z.object({ projectId: z.uuid().nullable() });
+export type CalendarEventProject = z.infer<typeof calendarEventProjectSchema>;
+
+/**
+ * La risposta di una scrittura: le righe toccate, come le legge `range`
+ * (una per «solo questo», le date della serie nella finestra per «tutta la
+ * serie» — spostarla cambia gli id delle date).
+ */
+export const calendarWriteResultSchema = z.object({ items: z.array(calendarEventItemSchema).default([]) });
+export type CalendarWriteResult = z.infer<typeof calendarWriteResultSchema>;
+
+/**
+ * IL LIBERO/OCCUPATO DEI COLLEGHI (area 6, F4, task 5, D8 = b con Q3 = a):
+ * un'ECCEZIONE DICHIARATA a «Posta e Calendario personali»
+ * (`docs/invariants/mail-calendar.md`). Esce SOLO questo: chi, se ha il
+ * calendario collegato, e gli intervalli occupati — mai un titolo, un luogo,
+ * un invitato o un id. Il serializzatore della rotta toglie ogni chiave non
+ * dichiarata qui (e i test del server controllano le chiavi esatte); NON
+ * `strictObject`: il catchall non passa da `readerSchema`.
+ */
+export const calendarBusyIntervalSchema = z.object({ startsAt: z.iso.datetime(), endsAt: z.iso.datetime() });
+export const calendarAvailabilitySchema = z.enum(["connected", "not_connected", "expired"]);
+export const calendarFreeBusyPersonSchema = z.object({
+  personId: z.uuid(),
+  availability: calendarAvailabilitySchema,
+  busy: z.array(calendarBusyIntervalSchema).default([]),
+});
+export const calendarFreeBusySchema = z.object({ items: z.array(calendarFreeBusyPersonSchema).default([]) });
+export type CalendarFreeBusy = z.infer<typeof calendarFreeBusySchema>;
+export type CalendarFreeBusyPerson = z.infer<typeof calendarFreeBusyPersonSchema>;

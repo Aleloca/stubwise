@@ -31,7 +31,7 @@ import { eventDayLabel, spanLabel } from "./calendarFormat";
 import { kindWordKey } from "./EventBlock";
 import { SeriesScopeDialog } from "./SeriesScopeDialog";
 import { RsvpBar } from "./RsvpBar";
-import { calendarWrites, canEditEvent, meetingNotes } from "./calendarWrites";
+import { calendarWrites, canEditEvent, canRespondTo, meetingNotes } from "./calendarWrites";
 import { useRecurrenceWords } from "./SeriesSidebar";
 import { MeetingPrep } from "./MeetingPrep";
 import { MeetingSummary } from "./MeetingSummary";
@@ -175,7 +175,8 @@ function Detail({
   const project = e.projectId ? projects?.find((p) => p.id === e.projectId) : undefined;
   const past = Date.parse(e.endsAt) <= Date.parse(now());
   const organizer = e.attendees.find((a) => a.organizer);
-  const invited = e.myResponse !== null && !e.isOrganizer;
+  // Chi risponde lo dice il server (F4, `canRespond`); il prototipo dall'invito.
+  const invited = canRespondTo(e);
   const dateLabel = new Intl.DateTimeFormat(i18n.language, {
     weekday: "long",
     month: "short",
@@ -247,16 +248,33 @@ function Detail({
               <AlertGlyph size={14} />
             </span>
             {t(
-              e.save.error === "rejected" ? "calendar.save.rejected" : "calendar.save.unreachable",
+              e.save.error === "rejected"
+                ? "calendar.save.rejected"
+                : e.save.error === "changed"
+                  ? "calendar.save.changed"
+                  : "calendar.save.unreachable",
             )}
           </p>
           <div className="flex gap-2">
-            <button type="button" className={smallSecondary} onClick={() => retry.mutate(e.id)}>
-              {t("calendar.save.retry")}
-            </button>
-            <button type="button" className={smallSecondary} onClick={() => revert.mutate(e.id)}>
-              {t("calendar.save.undo")}
-            </button>
+            {/* Cambiato su Google nel frattempo (F4, Q4 = a): solo «Reload», niente da rimandare. */}
+            {e.save.error === "changed" ? (
+              <button type="button" className={smallSecondary} onClick={() => revert.mutate(e.id)}>
+                {t("calendar.save.reload")}
+              </button>
+            ) : (
+              <>
+                <button type="button" className={smallSecondary} onClick={() => retry.mutate(e.id)}>
+                  {t("calendar.save.retry")}
+                </button>
+                <button
+                  type="button"
+                  className={smallSecondary}
+                  onClick={() => revert.mutate(e.id)}
+                >
+                  {t("calendar.save.undo")}
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -306,7 +324,7 @@ function Detail({
         </div>
       )}
 
-      {invited && calendarWrites() && (
+      {invited && (
         <div className="border-t border-rule px-4 py-3">
           <RsvpBar event={e} barRef={rsvpRef} announce={announce} dateLabel={dateLabel} />
         </div>

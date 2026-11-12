@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { calendarEventItemSchema } from "@stubwise/shared";
 import { now } from "../../dates";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
@@ -93,7 +94,13 @@ beforeEach(() => {
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   events = [item(), item({ id: PAST, title: "Retro", startsAt: at(-1), endsAt: at(-1, 15) })];
-  seen = installFakeServer({
+  seen = installFakeServerWith();
+});
+
+/** Il server finto della pagina, con le rotte in più (o diverse) di un test. */
+function installFakeServerWith(extra: Record<string, unknown> = {}): SeenRequest[] {
+  const byIdOf = (req: SeenRequest) => byId(req.path.split("/")[5]!.split("?")[0]!);
+  return installFakeServer({
     "GET /api/auth/me": { body: me() },
     "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
     "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
@@ -111,8 +118,24 @@ beforeEach(() => {
     [`GET /api/me/calendar/events/${PAST}`]: () => byId(PAST),
     "GET /api/me/calendar/series": { body: { items: [] } },
     [`POST /api/me/google/accounts/${ACC}/sync`]: { status: 202, body: { status: "queued" } },
-  }).seen;
-});
+    // F4: le scritture della bozza del piano, che rispondono con la riga come il server vero.
+    [`POST /api/me/calendar/events/${EV}/respond`]: (req: SeenRequest) => ({
+      body: {
+        ...(byIdOf(req).body as object),
+        myResponse: (req.body as { response: string }).response,
+      },
+    }),
+    [`PUT /api/me/calendar/events/${EV}/project`]: (req: SeenRequest) => ({
+      body: {
+        ...(byIdOf(req).body as object),
+        projectId: (req.body as { projectId: string | null }).projectId,
+        projectBy: "manual",
+      },
+    }),
+    [`DELETE /api/me/calendar/events/${EV}`]: { status: 204 },
+    ...extra,
+  } as Parameters<typeof installFakeServer>[0]).seen;
+}
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -121,11 +144,11 @@ afterEach(() => {
 });
 
 describe("il Calendario nella build app", () => {
-  it("si apre, con gli eventi visti; niente «Nuova riunione»", async () => {
+  it("si apre, con gli eventi visti; con «New meeting» (F4)", async () => {
     renderRoute("/calendar");
     await screen.findByRole("heading", { level: 1, name: "Calendar" });
     expect(await screen.findAllByText("Sprint review")).not.toHaveLength(0);
-    expect(screen.queryByRole("button", { name: "New meeting" })).toBeNull();
+    expect(screen.getByRole("button", { name: "New meeting" })).toBeInTheDocument();
   });
 
   it("«Aggiorna ora» (F1.2) chiede il giro della casella", async () => {
@@ -139,16 +162,15 @@ describe("il Calendario nella build app", () => {
     );
   });
 
-  it("il dettaglio in lettura: niente modifica, elimina, risposta, progetto a mano; «Apri in Google Calendar» apre l'evento", async () => {
+  it("F4: l'organizzatore (canEdit dal server) ha «Edit» e «Delete»; «Apri in Google Calendar» apre l'evento", async () => {
     const open = vi.fn();
     window.open = open as never;
+    events = [item({ canEdit: true, canRespond: false })];
     renderRoute(`/calendar?event=${EV}`);
     const panel = await eventPanel();
     await within(panel).findByRole("heading", { name: "Sprint review" });
-    expect(within(panel).queryByRole("button", { name: "Edit" })).toBeNull();
-    expect(within(panel).queryByRole("button", { name: /Delete|More actions/ })).toBeNull();
+    expect(within(panel).getByRole("button", { name: "Edit" })).toBeInTheDocument();
     expect(within(panel).queryByRole("group", { name: "Going?" })).toBeNull();
-    expect(within(panel).queryByRole("button", { name: /^(Change|Choose)$/ })).toBeNull();
     fireEvent.click(within(panel).getByRole("button", { name: /Open in Google Calendar/ }));
     expect(open).toHaveBeenCalledWith(
       "https://calendar.google.com/event?eid=1",
@@ -157,13 +179,37 @@ describe("il Calendario nella build app", () => {
     );
   });
 
-  it("un invitato: niente «Andrai?» né la frase «puoi cambiare solo la tua risposta»", async () => {
-    events = [item({ organizer: "bob@acme.test" })];
+  // Si accende da sé quando lo schema condiviso porta `canEdit` (task 1 del piano della F4,
+  // di 72): oggi il client lo toglie al parse e vale il ripiego dell'organizzatore.
+  it.skipIf(!("canEdit" in calendarEventItemSchema.shape))(
+    "F4: se il server dice che non posso modificare (canEdit false), niente «Edit» anche da organizzatore",
+    async () => {
+      events = [item({ canEdit: false, canRespond: false })];
+      renderRoute(`/calendar?event=${EV}`);
+      const panel = await eventPanel();
+      await within(panel).findByRole("heading", { name: "Sprint review" });
+      expect(within(panel).queryByRole("button", { name: "Edit" })).toBeNull();
+    },
+  );
+
+  it("F4: un invitato (canRespond dal server) risponde «Maybe»: la richiesta esatta", async () => {
+    events = [item({ organizer: "bob@acme.test", canEdit: false, canRespond: true })];
     renderRoute(`/calendar?event=${EV}`);
     const panel = await eventPanel();
-    await within(panel).findByRole("heading", { name: "Sprint review" });
-    expect(within(panel).queryByRole("group", { name: "Going?" })).toBeNull();
-    expect(panel).not.toHaveTextContent("you can change only your answer");
+    const going = await within(panel).findByRole("group", { name: "Going?" });
+    fireEvent.click(within(going).getByRole("button", { name: "Maybe" }));
+    await waitFor(() =>
+      expect(
+        seen.find((r) => r.method === "POST" && r.path === `/api/me/calendar/events/${EV}/respond`)
+          ?.body,
+      ).toEqual({
+        scope: "one",
+        response: "tentative",
+        // Senza nota la si toglie, come nel prototipo (contratto respond di 72).
+        note: null,
+      }),
+    );
+    expect(within(panel).queryByRole("button", { name: "Edit" })).toBeNull();
   });
 
   it("una riunione passata: nessun riassunto né task nate (F5), nessuna lettura non integrata", async () => {
@@ -249,5 +295,67 @@ describe("F3b (review, 5): il dettaglio dice il tipo dell'evento", () => {
     await within(panel).findByText("Sprint review");
     for (const w of ["Out of office", "Focus time", "Free"])
       expect(within(panel).queryByText(w)).toBeNull();
+  });
+});
+
+describe("F4: il salvataggio verso Google dalla pagina", () => {
+  const RESPOND = `POST /api/me/calendar/events/${EV}/respond`;
+  it("Google non raggiungibile: «Couldn't save» con «Retry», che rimanda la risposta", async () => {
+    let fail = true;
+    events = [item({ organizer: "bob@acme.test", canEdit: false, canRespond: true })];
+    seen = installFakeServerWith({
+      [RESPOND]: (req: SeenRequest) =>
+        fail
+          ? { status: 502, body: { code: "google_unavailable", message: "x" } }
+          : {
+              body: {
+                items: [
+                  {
+                    ...item({ organizer: "bob@acme.test" }),
+                    myResponse: (req.body as { response: string }).response,
+                  },
+                ],
+              },
+            },
+    });
+    renderRoute(`/calendar?event=${EV}`);
+    const panel = await eventPanel();
+    fireEvent.click(
+      within(await within(panel).findByRole("group", { name: "Going?" })).getByRole("button", {
+        name: "No",
+      }),
+    );
+    expect(
+      await within(panel).findByText("Google couldn't be reached. The change isn't saved yet."),
+    ).toBeInTheDocument();
+    fail = false;
+    fireEvent.click(within(panel).getByRole("button", { name: "Retry" }));
+    await waitFor(() =>
+      expect(seen.filter((r) => r.method === "POST" && r.path.endsWith("/respond"))).toHaveLength(
+        2,
+      ),
+    );
+  });
+
+  it("cambiato su Google nel frattempo: lo dice e offre solo «Reload» (Q4)", async () => {
+    events = [item({ canEdit: true })];
+    seen = installFakeServerWith({
+      [`PUT /api/me/calendar/events/${EV}/project`]: {
+        status: 409,
+        body: { code: "changed_on_google", message: "x" },
+      },
+    });
+    renderRoute(`/calendar?event=${EV}`);
+    const panel = await eventPanel();
+    await within(panel).findByRole("heading", { name: "Sprint review" });
+    fireEvent.click(within(panel).getByRole("button", { name: /^(Change|Choose)$/ }));
+    fireEvent.click(await screen.findByRole("menuitemradio", { name: /AUD|Audin/ }));
+    expect(
+      await within(panel).findByText(
+        "This meeting changed in Google Calendar. Reload it and try again.",
+      ),
+    ).toBeInTheDocument();
+    expect(within(panel).getByRole("button", { name: "Reload" })).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", { name: "Retry" })).toBeNull();
   });
 });

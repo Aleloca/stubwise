@@ -4,6 +4,7 @@ import { accountSecurityResponseSchema, passkeyAuthenticationOptionsSchema } fro
 import type * as Fake from "../../api";
 import { SECOND_FACTOR_MAX_FAILURES } from "../../auth/constants";
 import type { Viewer } from "../../types";
+import { forgetCalendarWrites } from "./calendarWrites";
 import { forgetPeopleChatCaches } from "./chat";
 import { resetChatStreams } from "./chatStream";
 import { forgetChatCaches } from "./claudeChat";
@@ -66,6 +67,8 @@ function forgetClientCaches(): void {
   forgetDocsCaches();
   forgetTaskCodes();
   forgetCommentTickets();
+  // Il Calendario (F4): etag visti e salvataggi in corso o non riusciti.
+  forgetCalendarWrites();
   forgetHomeCaches();
   forgetFilterCaches();
   forgetStreams();

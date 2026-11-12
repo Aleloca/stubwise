@@ -118,6 +118,15 @@ describe("il cassetto Google: l'account", () => {
     });
   });
 
+  it("F4: senza `calendar.events` il cassetto dice che non può creare né cambiare le riunioni", async () => {
+    installFakeServer({
+      "GET /api/me/google/accounts": {
+        body: [account({ missingScopes: ["https://www.googleapis.com/auth/calendar.events"] })],
+      },
+    });
+    session.personId = ME_ID;
+    expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "scopes", missing: ["calendarWrite"] });
+  });
   // Si accende col Drive Google (`google`, F5): prima la funzione non c'è e non si promette.
   it.skipIf(!googleInApp)(
     "F5: senza `drive.readonly` il cassetto dice che non può usare il Drive Google (i file e gli appunti delle riunioni)",
