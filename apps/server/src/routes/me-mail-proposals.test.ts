@@ -729,3 +729,47 @@ describe("GET /api/me/mail/proposals?thread=&account= (le proposte di una conver
   });
 });
 
+
+describe("F3b, task 7: le proposte del CALENDARIO in /proposals (col flag acceso)", () => {
+  async function calendarProposal() {
+    const { ada } = await seed();
+    const { calendarEvents } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    const [box] = await db.select().from(googleAccounts).where(eq(googleAccounts.userId, ada.id));
+    const startsAt = new Date(Date.now() + 3 * 86_400_000);
+    const [ev] = await db.insert(calendarEvents).values({ accountId: box!.id, googleEventId: `g-${randomUUID()}`, title: "Consegna", startsAt, allDay: false, fingerprint: "f", projectId }).returning();
+    const [card] = await db
+      .insert(notifications)
+      .values({
+        userId: ada.id,
+        kind: "google.proposal",
+        projectId,
+        status: "open",
+        event: { kind: "google.proposal", proposalId: randomUUID(), source: "calendar", calendarEventId: ev!.id, from: "x", subject: "Consegna", question: "?", options: [{ label: "Crea il traguardo" }, { label: "Non fare nulla" }], actions: [{ type: "create_milestone", projectId, name: "Consegna", dueDate: startsAt.toISOString().slice(0, 10) }, { type: "ignore" }], recommendedIndex: 0, allowFreeText: false, messageUrl: "https://calendar.google.com/x", signal: "deadline" },
+      })
+      .returning();
+    await db.update(calendarEvents).set({ proposalNotificationId: card!.id }).where(eq(calendarEvents.id, ev!.id));
+    return { ada, ev: ev!, card: card! };
+  }
+
+  it("flag acceso: la proposta del calendario c'è, kind calendar, senza messageId, con l'origine dell'evento; flag spento: no", async () => {
+    const { ada, ev } = await calendarProposal();
+    const v2 = buildApp({ db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", mailClassifyV2: true });
+    try {
+      const items = ((await v2.inject({ method: "GET", url: "/api/me/mail/proposals", headers: ada.headers })).json() as { items: Record<string, unknown>[] }).items;
+      const cal = items.find((i) => i.kind === "calendar")!;
+      expect(cal).toMatchObject({ id: ev.id, messageId: null, origin: null, status: "open", projectId, calendarOrigin: { eventId: ev.id, title: "Consegna", allDay: false } });
+      expect((cal.actions as { type: string }[]).map((a) => a.type)).toEqual(["create_milestone"]);
+      // L'evento di un altro non c'è.
+      const other = await person("developer", "Olga");
+      expect(((await v2.inject({ method: "GET", url: "/api/me/mail/proposals", headers: other.headers })).json() as { items: { kind: string }[] }).items.filter((i) => i.kind === "calendar")).toEqual([]);
+      // Si decide dalla stessa rotta: «Ignora» chiude la card.
+      const res = await v2.inject({ method: "POST", url: `/api/me/mail/proposals/${ev.id}/ignore`, headers: ada.headers, payload: {} });
+      expect(res.statusCode).toBe(200);
+    } finally {
+      await v2.close();
+    }
+    const listOff = ((await app.inject({ method: "GET", url: "/api/me/mail/proposals", headers: ada.headers })).json() as { items: { kind: string }[] }).items;
+    expect(listOff.filter((i) => i.kind === "calendar")).toEqual([]);
+  });
+});

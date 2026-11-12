@@ -4398,6 +4398,15 @@ export const googleAccounts = pgTable(
      * Una casella collegata dopo nasce con `now()` (default): propone come oggi.
      */
     calendarBaselineAt: timestamp("calendar_baseline_at", { withTimezone: true }).defaultNow(),
+    /**
+     * F3b: la linea di base della DOTTRINA NUOVA del calendario (flag
+     * `MAIL_CLASSIFY_V2`). `null` = il primo giro col flag acceso: ogni riga
+     * che DIVENTA candidata (nuova, o che prima non lo era) nasce chiusa
+     * (`baseline`), così accendere il flag non sforna proposte sugli eventi
+     * già visti. Null per tutte, anche le caselle nuove: è il flag a decidere
+     * quando arriva il primo giro.
+     */
+    calendarV2BaselineAt: timestamp("calendar_v2_baseline_at", { withTimezone: true }),
     connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     nextSyncAt: timestamp("next_sync_at", { withTimezone: true }).notNull().defaultNow(),

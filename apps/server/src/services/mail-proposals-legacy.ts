@@ -4,6 +4,7 @@ import type { MailProposal, MailProposalAction, MailProposalStatus } from "@stub
 import { and, eq } from "drizzle-orm";
 import { answerGoogleProposal, handGoogleProposal } from "./google-proposal.js";
 import type { DecideResult } from "./mail-proposals-decide.js";
+import { decideCalendar } from "./mail-proposals-calendar.js";
 
 /**
  * LE PROPOSTE DI PRIMA nella stessa forma delle condivise (area 6, F2, scelta
@@ -17,9 +18,9 @@ import type { DecideResult } from "./mail-proposals-decide.js";
  */
 
 /** I tipi del modello sulla card (le opzioni «Sposta» e «Non fare nulla» no). */
-const MODEL_TYPES = new Set(["create_backlog_item", "create_milestone", "update_ticket", "comment_ticket", "record_decision"]);
+const MODEL_TYPES = new Set(["create_backlog_item", "create_milestone", "update_ticket", "comment_ticket", "record_decision", "acknowledge_reminder"]);
 
-interface CardEvent {
+export interface CardEvent {
   options?: { label?: string }[];
   actions?: ({ type?: string } & Record<string, unknown>)[];
 }
@@ -53,7 +54,7 @@ export async function legacyRows(
 }
 
 /** Le azioni del modello della card, con l'indice dell'opzione corrispondente. */
-function modelActions(card: CardEvent | null): { action: MailProposalAction; optionIndex: number }[] {
+export function modelActions(card: CardEvent | null): { action: MailProposalAction; optionIndex: number }[] {
   const out: { action: MailProposalAction; optionIndex: number }[] = [];
   for (const [optionIndex, raw] of (card?.actions ?? []).entries()) {
     if (!raw.type || !MODEL_TYPES.has(raw.type)) continue;
@@ -66,7 +67,7 @@ function modelActions(card: CardEvent | null): { action: MailProposalAction; opt
   return out;
 }
 
-function legacyStatus(status: string): MailProposalStatus {
+export function legacyStatus(status: string): MailProposalStatus {
   if (status === "actioned") return "confirmed";
   if (status === "ignored") return "ignored";
   if (status === "failed") return "failed";
@@ -87,6 +88,8 @@ export async function legacyView(db: Db, viewerId: string, row: LegacyRow): Prom
   const canConfirm = open && actions.length > 0 && blockedIndices.length === 0;
   return {
     id: row.proposal.id,
+    kind: "email",
+    calendarOrigin: null,
     messageId: row.message.id,
     projectId: row.proposal.projectId,
     status,
@@ -129,7 +132,8 @@ export async function decideLegacy(
     | { kind: "reassign"; projectId: string },
 ): Promise<DecideResult | null> {
   const [row] = await legacyRows(db, viewerId, { id });
-  if (!row) return null;
+  // F3b: un id che non è una proposta di prima può essere una proposta del calendario.
+  if (!row) return decideCalendar(db, viewerId, id, decision);
   if (!row.notificationId || legacyStatus(row.proposal.status) !== "open") {
     return { ok: false, error: "already_handled", decidedBy: null };
   }
@@ -169,7 +173,7 @@ export async function decideLegacy(
   return { ok: true, status: "confirmed", results: [] };
 }
 
-function mapError(error: string): DecideResult {
+export function mapError(error: string): DecideResult {
   if (error === "already_handled") return { ok: false, error: "already_handled", decidedBy: null };
   if (error === "forbidden") return { ok: false, error: "forbidden" };
   if (error === "not_found") return { ok: false, error: "not_found" };

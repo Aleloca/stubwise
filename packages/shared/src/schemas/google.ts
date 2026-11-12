@@ -1117,6 +1117,8 @@ export const calendarEventItemSchema = z.object({
   transparency: z.enum(["opaque", "transparent"]).nullable().default(null),
   /** La risposta della casella all'invito, senza leggere gli invitati (la lista di `range` è leggera). */
   myResponse: calendarAttendeeResponseStatusSchema.nullable().default(null),
+  /** Quanti invitati («N guests»), anche nella lista leggera dove `attendees` è vuoto. */
+  attendeeCount: z.number().int().min(0).nullable().default(null),
 });
 export type CalendarEventItem = z.infer<typeof calendarEventItemSchema>;
 
