@@ -79,6 +79,10 @@ const listGoogleOutside: Drive["listGoogleOutside"] = async (q) => {
 const listGoogleFolders: Drive["listGoogleFolders"] = async (projectId) =>
   listOrEmpty<GoogleFolderChoice>(`${projectPath(projectId)}/folders`);
 
+/** Le cartelle che ho collegato io, in tutti i progetti (il cassetto, scollegando l'account). */
+const listMyFolderLinks: Drive["listMyFolderLinks"] = async () =>
+  listOrEmpty<FolderLinkView>("/api/drive/google/links");
+
 /** Le cartelle collegate al progetto. */
 const listFolderLinks: Drive["listFolderLinks"] = async (projectId) =>
   listOrEmpty<FolderLinkView>(`${projectPath(projectId)}/links`);
@@ -125,6 +129,7 @@ export const driveGoogleFunctions: Partial<Drive> = {
   listGoogleOutside,
   listGoogleFolders,
   listFolderLinks,
+  listMyFolderLinks,
   addGoogleFile,
   linkFolder,
   syncFolder,

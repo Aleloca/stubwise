@@ -227,3 +227,15 @@ describe("F5: la ricerca fuori dai progetti (solo il mio Drive)", () => {
     expect(new URLSearchParams(seen[0]!.path.split("?")[1]).get("q")).toBe("piano");
   });
 });
+
+describe("F5: le cartelle che ho collegato io (il cassetto, scollegando)", () => {
+  it("in tutti i progetti, quelle di chi guarda: il cassetto dice quali smettono di aggiornarsi", async () => {
+    installFakeServer({ "GET /api/drive/google/links": { body: [link()] } });
+    expect(await g.listMyFolderLinks!()).toMatchObject([{ id: LINK, name: "Clienti" }]);
+  });
+
+  it("un server di prima (la rotta non c'è): nessuna cartella", async () => {
+    installFakeServer({});
+    expect(await g.listMyFolderLinks!()).toEqual([]);
+  });
+});
