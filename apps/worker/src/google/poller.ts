@@ -52,7 +52,6 @@ import {
   inArray,
   isNotNull,
   isNull,
-  lt,
   ne,
   notExists,
   notInArray,
@@ -2679,7 +2678,8 @@ export async function pruneOldCalendarEvents(db: Db, now: Date = new Date()): Pr
     .delete(calendarEventsTable)
     .where(
       and(
-        lt(calendarEventsTable.startsAt, cutoff),
+        // La FINE dell'evento (review F3b): uno di più giorni ancora in corso resta.
+        sql`coalesce(${calendarEventsTable.endsAt}, ${calendarEventsTable.startsAt}) < ${cutoff.toISOString()}::timestamptz`,
         sql`(${calendarEventsTable.proposalNotificationId} is null or ${calendarEventsTable.outcome} is not null)`,
         // Mai una riga la cui card è ancora APERTA (review F3b, punto 2).
         sql`not exists (select 1 from notifications n where n.id = ${calendarEventsTable.proposalNotificationId} and n.status = 'open')`,
@@ -2692,7 +2692,7 @@ export async function pruneOldCalendarEvents(db: Db, now: Date = new Date()): Pr
       .set({ outcome: CALENDAR_EXPIRED_OUTCOME })
       .where(
         and(
-          lt(calendarEventsTable.startsAt, cutoff),
+          sql`coalesce(${calendarEventsTable.endsAt}, ${calendarEventsTable.startsAt}) < ${cutoff.toISOString()}::timestamptz`,
           isNotNull(calendarEventsTable.proposalNotificationId),
           isNull(calendarEventsTable.outcome),
         ),

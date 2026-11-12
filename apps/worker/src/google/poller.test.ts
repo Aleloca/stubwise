@@ -4412,3 +4412,16 @@ describe("review F3b, minore: le serie col progetto scelto diverso, prima scarta
     expect(await db.select().from(notifications)).toEqual([]);
   });
 });
+
+describe("review F3b, minore: la potatura guarda la FINE dell'evento", () => {
+  it("un evento di più giorni iniziato 40 giorni fa e ancora in corso non si pota", async () => {
+    const { pruneOldCalendarEvents } = await import("./poller.js");
+    const account = await seedAccount({});
+    await db.insert(calendarEvents).values([
+      { accountId: account.id, googleEventId: "in-corso", startsAt: new Date(Date.now() - 40 * 86_400_000), endsAt: new Date(Date.now() + 2 * 86_400_000), fingerprint: "a", proposalCandidate: false },
+      { accountId: account.id, googleEventId: "finito", startsAt: new Date(Date.now() - 40 * 86_400_000), endsAt: new Date(Date.now() - 39 * 86_400_000), fingerprint: "b", proposalCandidate: false },
+    ]);
+    await pruneOldCalendarEvents(db);
+    expect((await calendarRows()).map((r) => r.googleEventId)).toEqual(["in-corso"]);
+  });
+});
