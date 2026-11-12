@@ -10,6 +10,7 @@ import {
   useMarkMailUnread,
   usePeople,
   useProjects,
+  useSessionPersonId,
   useReproposeMessage,
   useRetryMailSend,
 } from "../../data/queries";
@@ -107,6 +108,7 @@ export function ReadingPane({
   const drafts = useMailDrafts({ enabled: mailWrites() });
   const retry = useRetryMailSend();
   const removeFailed = useDeleteFailedMailSend();
+  const me = useSessionPersonId();
   const showUndo = useUndoSendToast();
   const droppedNotice = useDroppedNotice();
   const discardedNotice = useDiscardedNotice();
@@ -373,14 +375,16 @@ export function ReadingPane({
           onRetry: () =>
             void retry
               .mutateAsync(m.id)
-              .then((result) => showUndo(result, [...m.to, ...(m.cc ?? [])], false))
+              // Dopo un ricaricamento la casella dell'invio non si sa (`threadId` ""):
+              // è questa conversazione, e «Undo» deve chiuderne la casella.
+              .then((result) => showUndo({ ...result, threadId: result.threadId || threadId }, [...m.to, ...(m.cc ?? [])], false))
               .catch(() => toast.error(t("mail.compose.couldntSend", { reason: t("mail.compose.reason.other") }))),
           onEdit: () =>
             void closeComposer(threadId)
               .then(() => removeFailed.mutateAsync(m.id))
               .then((restored) => {
                 droppedNotice(restored);
-                holdRestored(restored);
+                holdRestored(restored, me);
                 if (restored.draft.mode !== "new") openCompose(restored.draft.mode, "body");
               })
               .catch(() => toast.error(t("mail.compose.actionFailed"))),

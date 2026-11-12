@@ -292,6 +292,16 @@ describe("il caricamento", () => {
     expect(progress.at(-1)).toBe(14);
   });
 
+  it("un allegato della Posta oltre 25 MB (il tetto di Gmail): «too_large» senza partire; nel Drive lo stesso file va", async () => {
+    const MAIL = "/api/me/mail/drafts/dfdfdfdf-1111-4111-8111-111111111111/attachments";
+    const entry = { ...(await registered("grosso.pdf", "x")), size: 25 * 1024 * 1024 + 1 };
+    const fetchImpl = reading(201, {});
+    expect(await uploadFile(entry, MAIL, { ...deps(), fetch: fetchImpl as never })).toEqual({ ok: false, reason: "too_large" });
+    expect(fetchImpl).not.toHaveBeenCalled();
+    const exact = { ...entry, size: 25 * 1024 * 1024 };
+    expect(await uploadFile(exact, ROUTE, { ...deps(), fetch: reading(201, {}) as never })).not.toEqual({ ok: false, reason: "too_large" });
+  });
+
   it("i rifiuti del server come esito; un 401 di sessione chiude la sessione; un reindirizzamento non si segue", async () => {
     for (const [status, code, reason] of [
       [413, "file_too_large", "too_large"],

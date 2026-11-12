@@ -6349,6 +6349,8 @@
       "sendingTo": "Invio a {{names}}",
       "sent": "Inviata",
       "notSent": "Non inviata: {{reason}}",
+      "sentUnrecorded": "Inviata, stato da verificare: Gmail l'ha mandata, ma Stubwise non è riuscito a registrarlo.",
+      "alreadyFailed": "Questa email non era partita: usa Riprova o modificala.",
       "edit": "Modifica",
       "delete": "Elimina",
       "tooLate": "Troppo tardi per annullare: l'email è partita.",

@@ -1,6 +1,7 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
+import { forgetUnsavedDraftsForTests } from "../../../pages/mail/composeRequest";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, type SeenRequest } from "./fakeServer";
 
@@ -122,8 +123,14 @@ beforeEach(() => {
   confirmAnswer = { body: { status: "confirmed", results: [{ kind: "request", id: "r", code: "AUD-R9" }] } };
   readAnswer = { body: detail };
   setAppClientForTests(null);
+  forgetUnsavedDraftsForTests();
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
-  seen = installFakeServer({
+  seen = installFakeServerAgain();
+});
+
+/** Il server finto di ogni test, con le rotte in più (o diverse) di un test. */
+function installFakeServerAgain(extra: Record<string, unknown> = {}): SeenRequest[] {
+  return installFakeServer({
     "GET /api/auth/me": { body: me() },
     "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
     "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
@@ -185,8 +192,9 @@ beforeEach(() => {
     [`GET /api/me/mail/email_triage/${M2}/original`]: { status: 404, body: { code: "not_found", message: "x" } },
     "POST /api/me/mail/threads/t-2/read": () => readAnswer,
     "GET /api/me/google/workspaces": { body: [] },
-  }).seen;
-});
+    ...extra,
+  } as Parameters<typeof installFakeServer>[0]).seen;
+}
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -215,12 +223,31 @@ describe("scrivere nella Posta della build app", () => {
     const form = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
     fireEvent.click(within(form).getByRole("button", { name: "Ask Claude" }));
     const hint = within(form).getByRole("textbox", { name: "What should it say? (optional)" });
+    // Lo stesso tetto del server e del main.
+    expect(hint).toHaveAttribute("maxLength", "2000");
     fireEvent.change(hint, { target: { value: "digli che arriva lunedì" } });
     fireEvent.keyDown(hint, { key: "Enter" });
     await waitFor(() => expect(within(form).getByRole("textbox", { name: "Message" })).toHaveValue("Arriva lunedì."));
     const post = seen.find((r) => r.method === "POST" && r.path === "/api/me/mail/drafts/claude")!;
     expect(post.body).toMatchObject({ accountId: ACC, threadId: "t-1", mode: "reply", hint: "digli che arriva lunedì" });
+    // Oltre gli 800 ms del salvataggio da sé: il testo di Claude non va su Gmail da solo.
+    await new Promise((r) => setTimeout(r, 1_100));
     expect(saved).toHaveLength(0);
+    // Toccato dalla persona, è suo: si salva.
+    fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), { target: { value: "Arriva lunedì, a presto." } });
+    await waitFor(() => expect(saved.at(-1)).toMatchObject({ body: "Arriva lunedì, a presto." }), { timeout: 2_000 });
+  });
+
+  it("«Ask Claude» in «Forward»: la bozza chiesta è un inoltro", async () => {
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText("Ecco il preventivo per la consegna.");
+    fireEvent.click(screen.getByRole("button", { name: "Forward" }));
+    const form = await screen.findByRole("form", { name: /Forward/ });
+    fireEvent.click(within(form).getByRole("button", { name: "Ask Claude" }));
+    const hint = within(form).getByRole("textbox", { name: "What should it say? (optional)" });
+    fireEvent.keyDown(hint, { key: "Enter" });
+    await waitFor(() => expect(seen.some((r) => r.method === "POST" && r.path === "/api/me/mail/drafts/claude")).toBe(true));
+    expect(seen.find((r) => r.path === "/api/me/mail/drafts/claude")!.body).toMatchObject({ mode: "forward" });
   });
 
   it("l'email nuova: dopo Invia si resta sull'elenco, con «Annulla» (la conversazione arriva quando Gmail la crea)", async () => {
@@ -251,6 +278,205 @@ describe("scrivere nella Posta della build app", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Keep mine" }));
     await waitFor(() => expect(saved.at(-1)).toMatchObject({ body: "La mia versione.", overwrite: true }));
     await waitFor(() => expect(within(form).queryByText("This draft was changed in Gmail.")).toBeNull());
+  });
+});
+
+describe("la review della F3: l'«Annulla» dura quanto la finestra del server", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("l'avviso con «Undo» e ⌘Z restano per i 10 s di `undoUntil`, non per i 5 s di un avviso qualunque", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const form = await reply();
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    await screen.findByRole("button", { name: "Undo" });
+    await act(() => vi.advanceTimersByTimeAsync(7_000));
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(3_500));
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+
+  it("i salvataggi vanno in fila: Invia aspetta il salvataggio da sé ancora in volo (mai due PUT insieme)", async () => {
+    let live = 0;
+    let most = 0;
+    seen = installFakeServerAgain({
+      "PUT /api/me/mail/drafts": async (req: SeenRequest) => {
+        live += 1;
+        most = Math.max(most, live);
+        saved.push(req.body);
+        await new Promise((r) => setTimeout(r, 300));
+        live -= 1;
+        return { body: { ...(req.body as Record<string, unknown>), id: DRAFT, attachments: [], updatedAt: new Date().toISOString() } };
+      },
+    });
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText("Ecco il preventivo per la consegna.");
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const form = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), { target: { value: "Ricevuto." } });
+    // Il salvataggio da sé parte a 800 ms e resta in volo 300 ms: Invia arriva in mezzo.
+    await waitFor(() => expect(live).toBe(1), { timeout: 2_000 });
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(sends()).toHaveLength(1), { timeout: 3_000 });
+    expect(saved).toHaveLength(2);
+    expect(most).toBe(1);
+  });
+
+  it("una bozza cambiata su Gmail scoperta da Invia: il conflitto con «Keep mine», non «Couldn't send: other»", async () => {
+    changedInGmail = true;
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText("Ecco il preventivo per la consegna.");
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const form = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), { target: { value: "Subito." } });
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    expect(await within(form).findByText("This draft was changed in Gmail.")).toBeInTheDocument();
+    expect(within(form).queryByText(/^Couldn't send/)).toBeNull();
+    expect(within(form).getByRole("button", { name: "Keep mine" })).toBeInTheDocument();
+    expect(sends()).toHaveLength(0);
+  });
+
+  it("«Retry» dopo un ricaricamento (la casella dell'invio non si sa): l'«Undo» chiude prima la casella aperta di QUESTA conversazione", async () => {
+    const OUT2 = "0f0f0f0f-2222-4222-8222-222222222222";
+    detailOverride = {
+      ...detail,
+      messages: [
+        ...detail.messages,
+        {
+          ...detail.messages[0],
+          id: OUT2,
+          from: "Ada <ada@acme.test>",
+          to: ["bob@client.test"],
+          receivedAt: "2026-10-23T10:00:00.000Z",
+          textExcerpt: "La mia risposta.",
+          proposalIds: [],
+          delivery: { state: "failed", error: "quota", outgoingId: OUT2 },
+        },
+      ],
+    };
+    seen = installFakeServerAgain({
+      [`POST /api/me/mail/outgoing/${OUT2}/retry`]: () => ({
+        body: { messageId: OUT2, threadId: "t-1", state: "queued", undoUntil: new Date(Date.now() + 10_000).toISOString(), error: null, sentAt: null },
+      }),
+      [`POST /api/me/mail/outgoing/${OUT2}/undo`]: { body: { draft: null, droppedAttachments: [] } },
+    });
+    // Finestra larga: casella e messaggi insieme (in quella stretta la casella copre la conversazione).
+    vi.stubGlobal("matchMedia", (media: string) => ({
+      matches: true,
+      media,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }));
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText("Ecco il preventivo per la consegna.");
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const form = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), { target: { value: "Altro testo." } });
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    await waitFor(() => expect(seen.some((r) => r.path === `/api/me/mail/outgoing/${OUT2}/undo`)).toBe(true));
+    const put = seen.findIndex((r) => r.method === "PUT" && (r.body as { body?: string }).body === "Altro testo.");
+    const undo = seen.findIndex((r) => r.path === `/api/me/mail/outgoing/${OUT2}/undo`);
+    expect(put).toBeGreaterThan(-1);
+    expect(put).toBeLessThan(undo);
+  });
+
+  it("Gmail l'ha mandata ma lo stato non è registrato (`sent_unrecorded`): «Sent, status to verify», senza Retry, Edit né Delete", async () => {
+    const OUT2 = "0f0f0f0f-2222-4222-8222-222222222222";
+    detailOverride = {
+      ...detail,
+      messages: [
+        ...detail.messages,
+        {
+          ...detail.messages[0],
+          id: OUT2,
+          from: "Ada <ada@acme.test>",
+          to: ["bob@client.test"],
+          receivedAt: "2026-10-23T10:00:00.000Z",
+          textExcerpt: "La mia risposta.",
+          proposalIds: [],
+          delivery: { state: "failed", error: "sent_unrecorded", outgoingId: OUT2 },
+        },
+      ],
+    };
+    renderRoute(`/mail/${KEY}`);
+    expect(await screen.findByText(/Sent, status to verify/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Not sent/)).toBeNull();
+    for (const name of ["Retry", "Edit", "Delete"]) expect(screen.queryByRole("button", { name })).toBeNull();
+  });
+
+  it("Invia su una bozza il cui ultimo invio è FALLITO (il server ridà quello): non sembra riuscito; la casella resta, lo dice, e il fuoco va al messaggio fallito", async () => {
+    detailOverride = {
+      ...detail,
+      messages: [
+        ...detail.messages,
+        {
+          ...detail.messages[0],
+          id: OUT,
+          from: "Ada <ada@acme.test>",
+          to: ["bob@client.test"],
+          receivedAt: "2026-10-23T10:00:00.000Z",
+          textExcerpt: "La mia risposta.",
+          proposalIds: [],
+          delivery: { state: "failed", error: "quota", outgoingId: OUT },
+        },
+      ],
+    };
+    sendAnswer = {
+      status: 200,
+      body: { messageId: OUT, threadId: "t-1", state: "failed", undoUntil: new Date(Date.now() - 60_000).toISOString(), error: "quota", sentAt: null },
+    };
+    vi.stubGlobal("matchMedia", (media: string) => ({
+      matches: true,
+      media,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }));
+    const form = await reply();
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    expect(await within(form).findByText("This email hadn't gone out: use Retry or edit it.")).toBeInTheDocument();
+    expect(screen.getByRole("form", { name: /Reply to Bob Rossi/ })).toBe(form);
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    await waitFor(() => expect(document.activeElement?.closest(`[data-message="${OUT}"]`)).not.toBeNull());
+  });
+
+  it("«Retry» di un invio fallito che il server manda subito (`undoUntil` già passato): nessun «Undo» che non funzionerebbe", async () => {
+    const OUT2 = "0f0f0f0f-2222-4222-8222-222222222222";
+    detailOverride = {
+      ...detail,
+      messages: [
+        ...detail.messages,
+        {
+          ...detail.messages[0],
+          id: OUT2,
+          from: "Ada <ada@acme.test>",
+          to: ["bob@client.test"],
+          receivedAt: "2026-10-23T10:00:00.000Z",
+          textExcerpt: "La mia risposta.",
+          proposalIds: [],
+          delivery: { state: "failed", error: "quota", outgoingId: OUT2 },
+        },
+      ],
+    };
+    seen = installFakeServerAgain({
+      [`POST /api/me/mail/outgoing/${OUT2}/retry`]: {
+        body: { messageId: OUT2, threadId: "t-1", state: "queued", undoUntil: new Date(Date.now() - 1).toISOString(), error: null, sentAt: null },
+      },
+    });
+    renderRoute(`/mail/${KEY}`);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(seen.some((r) => r.path === `/api/me/mail/outgoing/${OUT2}/retry`)).toBe(true));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 });
 
@@ -395,6 +621,25 @@ describe("scrivere nella build app: i casi limite", () => {
     await waitFor(() => expect(saved.at(-1)).toMatchObject({ body: "Ricevuto, grazie mille.", overwrite: true }));
     await waitFor(() => expect(within(again).queryByText(/Not saved:/)).toBeNull());
     expect(within(again).getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  it("«Annulla» con un'altra bozza: Esc non butta il testo; «Reply» lo riapre non salvato", async () => {
+    undoAnswer = { body: unsavedRestore() };
+    const form = await reply();
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    const before = saved.length;
+    fireEvent.click(undo);
+    let again = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    await within(again).findByText(/Not saved:/);
+    fireEvent.change(within(again).getByRole("textbox", { name: "Message" }), { target: { value: "Testo cambiato." } });
+    fireEvent.keyDown(within(again).getByRole("textbox", { name: "Message" }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("form", { name: /Reply to Bob Rossi/ })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    again = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    await waitFor(() => expect(within(again).getByRole("textbox", { name: "Message" })).toHaveValue("Testo cambiato."));
+    expect(within(again).getByText(/Not saved:/)).toBeInTheDocument();
+    expect(saved).toHaveLength(before);
   });
 
   it("«Annulla» con un'altra bozza: «Discard» chiude senza salvare nulla", async () => {

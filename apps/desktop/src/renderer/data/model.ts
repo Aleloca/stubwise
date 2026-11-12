@@ -2666,6 +2666,13 @@ export interface MailSendResult {
   /** L'email nuova partita da uno slot (R-K14): «Undo» chiude quella casella. */
   slot?: string;
   undoUntil: string;
+  /**
+   * Build app: quanto resta della finestra di «Annulla», da `undoUntil` del
+   * server letto all'arrivo della risposta. L'avviso e ⌘Z durano questo; a
+   * zero (un «Retry» che il server manda subito) l'«Annulla» non c'è.
+   * Assente nel prototipo: la finestra è `MAIL_UNDO_MS` dall'invio.
+   */
+  undoWindowMs?: number;
 }
 
 /**

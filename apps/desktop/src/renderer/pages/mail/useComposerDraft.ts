@@ -8,6 +8,7 @@ import {
 import { getSessionPersonId, onBeforePersonaChange } from "../../data/session";
 import type { MailAddress, MailDraft, MailDraftAttachment } from "../../data/types";
 import {
+  holdUnsavedDraft,
   registerComposer,
   takeUnsavedDraft,
   type UnsavedDraft,
@@ -98,6 +99,18 @@ export function useComposerDraft({
   /** L'ultimo salvataggio partito, e se è fallito (decide lui lo stato). */
   const issued = useRef(0);
   const newestFailed = useRef(false);
+  /**
+   * I salvataggi IN FILA su una promessa sola (review F3, 8): due PUT dello
+   * stesso posto in volo insieme darebbero doppioni o lo slot occupato, e
+   * «Send» manderebbe la bozza di prima. Ognuno parte quando il precedente
+   * è finito (riuscito o no).
+   */
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const inLine = <T,>(work: () => Promise<T>): Promise<T> => {
+    const next = queue.current.then(work, work);
+    queue.current = next.catch(() => undefined);
+    return next;
+  };
   const callbacks = useRef({ onClose, onLoaded, onEdit });
   callbacks.current = { onClose, onLoaded, onEdit };
 
@@ -137,7 +150,7 @@ export function useComposerDraft({
       if (inFlight.current === 0 && !newestFailed.current) setStatus(dirty.current ? "idle" : "saved");
     };
     try {
-      await saveMutation.mutateAsync(inputOf(f, modeRef.current));
+      await inLine(() => saveMutation.mutateAsync(inputOf(f, modeRef.current)));
       inFlight.current -= 1;
       settle();
     } catch (error) {
@@ -160,8 +173,38 @@ export function useComposerDraft({
   const saveRef = useRef(saveNow);
   saveRef.current = saveNow;
 
+  /**
+   * Una bozza non salvata lasciata senza decidere torna in attesa coi campi
+   * di adesso, a nome di chi la scriveva (`owner`): la ritrova riaprendo.
+   */
+  const stashUnsaved = (personId: string = owner) => {
+    const held = unsavedRef.current;
+    const f = fieldsRef.current;
+    if (!held || !f || gone.current) return;
+    holdUnsavedDraft(
+      {
+        draft: {
+          ...held.draft,
+          mode: modeRef.current,
+          replyToMessageId: f.replyToMessageId,
+          to: f.to,
+          cc: f.cc,
+          subject: f.subject,
+          body: f.body,
+          attachments: f.attachments,
+          ...(f.quote ? {} : { quote: false }),
+        },
+        leftInGmail: held.leftInGmail,
+      },
+      personId,
+    );
+  };
+  const stashRef = useRef(stashUnsaved);
+  stashRef.current = stashUnsaved;
+
   /** Chiude salvando; la promessa si risolve a bozza salvata. */
   const closeNow = () => {
+    stashRef.current();
     const saved = saveRef.current();
     gone.current = true;
     callbacks.current.onClose();
@@ -172,11 +215,21 @@ export function useComposerDraft({
   // Chi rimette una bozza («Undo», «Edit») chiude prima questa casella.
   useEffect(() => registerComposer(threadId, () => closeRef.current(), slot), [threadId, slot]);
 
-  const setFields = (patch: Partial<ComposerFields>) => {
+  /**
+   * `byClaude`: il testo l'ha messo Claude (bozza dal pulsante o dal
+   * riquadro). Resta una PROPOSTA *(O, review F3)*: non rende la bozza da
+   * salvare finché la persona non lo tocca o non preme «Send».
+   */
+  const setFields = (patch: Partial<ComposerFields>, { byClaude = false }: { byClaude?: boolean } = {}) => {
     const next = { ...fieldsRef.current!, ...patch };
     fieldsRef.current = next;
     setFieldsState(next);
     callbacks.current.onEdit();
+    if (byClaude) {
+      clearTimer();
+      setStatus("idle");
+      return;
+    }
     dirty.current = true;
     if (unsavedRef.current) return;
     // Nessuna etichetta finché la modifica non è salvata (scelta del
@@ -197,7 +250,7 @@ export function useComposerDraft({
   useEffect(() => {
     // Presa una volta (il ref regge il doppio effetto di StrictMode).
     if (unsavedRef.current) return;
-    const held = takeUnsavedDraft(threadId, slot);
+    const held = takeUnsavedDraft(owner, threadId, slot);
     if (held) {
       unsavedRef.current = held;
       setUnsaved(held);
@@ -258,6 +311,7 @@ export function useComposerDraft({
         clearTimer();
         const f = fieldsRef.current;
         if (f && dirty.current && !gone.current && !unsavedRef.current) void saveMailDraftNow(inputOf(f, modeRef.current));
+        stashRef.current();
         gone.current = true;
       }),
     [],
@@ -266,6 +320,8 @@ export function useComposerDraft({
   useEffect(
     () => () => {
       clearTimer();
+      // Smontata senza decidere (un'altra conversazione): la non salvata torna in attesa.
+      stashRef.current();
       if (gone.current || getSessionPersonId() !== owner) return;
       void saveRef.current();
     },
@@ -287,9 +343,19 @@ export function useComposerDraft({
     /** Per «Send»: salva i campi così come sono e restituisce la bozza salvata. */
     saveForSend: async () => {
       clearTimer();
-      const saved = await saveMutation.mutateAsync(inputOf(fieldsRef.current!, modeRef.current));
-      dirty.current = false;
-      return saved;
+      // In fila dopo un salvataggio da sé in volo, coi campi di quel momento.
+      try {
+        const saved = await inLine(() => saveMutation.mutateAsync(inputOf(fieldsRef.current!, modeRef.current)));
+        dirty.current = false;
+        return saved;
+      } catch (error) {
+        // Cambiata su Gmail: lo stesso conflitto del salvataggio da sé, con «Tieni la mia».
+        if (error instanceof Error && error.message === "draft_changed") {
+          dirty.current = true;
+          setStatus("conflict");
+        }
+        throw error;
+      }
     },
     /** Inviata: la casella non salva più nulla. */
     markSent: () => {
@@ -313,7 +379,7 @@ export function useComposerDraft({
       if (!f || gone.current || !unsavedRef.current) return;
       setStatus("saving");
       try {
-        await saveMutation.mutateAsync({ ...inputOf(f, modeRef.current), overwrite: true });
+        await inLine(() => saveMutation.mutateAsync({ ...inputOf(f, modeRef.current), overwrite: true }));
         unsavedRef.current = null;
         setUnsaved(null);
         dirty.current = false;
@@ -337,7 +403,7 @@ export function useComposerDraft({
       clearTimer();
       setStatus("saving");
       try {
-        await saveMutation.mutateAsync({ ...inputOf(f, modeRef.current), overwrite: true });
+        await inLine(() => saveMutation.mutateAsync({ ...inputOf(f, modeRef.current), overwrite: true }));
         dirty.current = false;
         newestFailed.current = false;
         setStatus("saved");

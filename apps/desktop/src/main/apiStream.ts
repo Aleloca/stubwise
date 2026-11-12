@@ -78,8 +78,8 @@ const FATAL_STATUSES = new Set([401, 403, 404]);
 const MAIL_DRAFT_PATH = "/api/me/mail/drafts/claude";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAIL_DRAFT_MODES = new Set(["new", "reply", "replyAll", "forward"]);
-/** L'indicazione a Claude, al più. */
-const MAIL_DRAFT_HINT_MAX = 4000;
+/** L'indicazione a Claude, al più: lo stesso tetto del server (`mailClaudeDraftRequestSchema`) e del campo. */
+const MAIL_DRAFT_HINT_MAX = 2000;
 
 /** Il corpo della bozza di Claude, coi soli campi previsti; `null` se non va. */
 export function mailDraftBody(raw: unknown): string | null {

@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import { MAIL_LIMITS, useRestoreDiscardedMailDraft, useUndoMailSend } from "../../data/queries";
+import { MAIL_LIMITS, useRestoreDiscardedMailDraft, useSessionPersonId, useUndoMailSend } from "../../data/queries";
 import { onBeforePersonaChange } from "../../data/session";
 import type {
   MailAddress,
@@ -63,7 +63,7 @@ function onKeyDown(e: KeyboardEvent) {
   run();
 }
 
-function armUndoKey(run: () => void, toastId: number) {
+function armUndoKey(run: () => void, toastId: number, windowMs: number) {
   if (!listening) {
     window.addEventListener("keydown", onKeyDown);
     onBeforePersonaChange(clearUndoKey);
@@ -73,7 +73,7 @@ function armUndoKey(run: () => void, toastId: number) {
     listening = true;
   }
   clearUndoKey();
-  active = { run, toastId, timer: window.setTimeout(clearUndoKey, MAIL_LIMITS.undoMs) };
+  active = { run, toastId, timer: window.setTimeout(clearUndoKey, windowMs) };
 }
 
 /** Il nome dei file rimasti fuori, per l'avviso. */
@@ -162,8 +162,8 @@ export function useDiscardedNotice() {
 }
 
 /** Una bozza tornata non salvata aspetta la casella del suo posto (`composeRequest.ts`). */
-export function holdRestored(restored: MailDraftRestore): void {
-  if (restored.unsaved) holdUnsavedDraft({ draft: restored.draft, leftInGmail: restored.leftInGmail ?? [] });
+export function holdRestored(restored: MailDraftRestore, personId: string): void {
+  if (restored.unsaved) holdUnsavedDraft({ draft: restored.draft, leftInGmail: restored.leftInGmail ?? [] }, personId);
 }
 
 /**
@@ -176,6 +176,7 @@ export function useUndoSendToast() {
   const undo = useUndoMailSend();
   const dropped = useDroppedNotice();
   const reopen = useReopen();
+  const me = useSessionPersonId();
   const undoAsync = undo.mutateAsync;
 
   return useCallback(
@@ -192,7 +193,7 @@ export function useUndoSendToast() {
               // Build app: con un'altra bozza nella conversazione l'invio è
               // fermo lo stesso, e il testo torna NON salvato: la casella lo
               // riapre così, e chi scrive lo salva o lo scarta.
-              holdRestored(restored);
+              holdRestored(restored, me);
               reopen(restored.draft);
               dropped(restored);
             },
@@ -204,12 +205,17 @@ export function useUndoSendToast() {
             },
           );
       };
+      // La finestra la dice il SERVER (`undoUntil`), non il clic: l'avviso e
+      // ⌘Z durano quanto resta. Già passata (un «Retry» che parte subito): un
+      // «Undo» non funzionerebbe, e non si mostra.
+      const windowMs = result.undoWindowMs ?? MAIL_LIMITS.undoMs;
+      if (!(windowMs > 0)) return;
       const id = toast.show(
         t("mail.compose.sendingTo", { names: recipientNames(recipients, t, i18n.language) }),
-        { action: { label: t("mail.compose.undo"), run } },
+        { action: { label: t("mail.compose.undo"), run }, durationMs: windowMs },
       );
-      armUndoKey(run, id);
+      armUndoKey(run, id, windowMs);
     },
-    [t, i18n.language, toast, undoAsync, reopen, dropped],
+    [t, i18n.language, toast, undoAsync, reopen, dropped, me],
   );
 }

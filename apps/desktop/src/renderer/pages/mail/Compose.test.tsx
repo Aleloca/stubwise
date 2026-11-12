@@ -766,25 +766,21 @@ describe("«Salvato» solo a bozza salvata (area 8)", () => {
       watch.disconnect();
     }
   });
-  it("il salvataggio più vecchio fallisce dopo il più nuovo riuscito: resta «Salvato»", async () => {
+  it("i salvataggi in fila (review F3, 8): il secondo aspetta il primo lento, e alla fine «Saved» col testo più recente", async () => {
     await openMail(`/mail/${CALL_NOTES()}`);
     const p = await pane(CALL_NOTES());
     await userEvent.click(within(p).getByRole("button", { name: "Reply" }));
     const form = await composer("Reply to Matteo Conti");
-    // Il primo salvataggio è lento; il secondo parte dopo e finisce prima.
+    // Il primo salvataggio è lento; il secondo non lo scavalca: parte dopo.
     setLatency(2500);
     write(form, "First.");
     await within(form).findByText("Saving…");
     setLatency(0);
     write(form, "First and second.");
-    await waitFor(() => expect(savedBody("First and second.")).toBe(true), { timeout: 2000 });
-    // Il vecchio, ancora in volo, fallisce DOPO: il testo più recente è salvato.
-    failNext("mail.saveDraft");
-    await waitFor(() => expect(within(form).getByText("Saved")).toBeInTheDocument(), {
-      timeout: 3000,
-    });
-    await new Promise((r) => setTimeout(r, 300));
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(savedBody("First and second.")).toBe(false);
+    await waitFor(() => expect(savedBody("First and second.")).toBe(true), { timeout: 4000 });
+    await waitFor(() => expect(within(form).getByText("Saved")).toBeInTheDocument(), { timeout: 3000 });
     expect(within(form).queryByText(/Couldn't save/)).toBeNull();
-    expect(within(form).getByText("Saved")).toBeInTheDocument();
-  }, 10000);
+  }, 12000);
 });

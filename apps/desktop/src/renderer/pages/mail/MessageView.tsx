@@ -282,6 +282,15 @@ function Delivery({
       </p>
     );
   }
+  // Gmail l'ha mandata ma Stubwise non ha potuto registrarlo (review F3, 12): non
+  // è un fallimento da riprovare né da eliminare (il server li rifiuta).
+  if (state === "failed" && message.delivery?.error === "sent_unrecorded") {
+    return (
+      <p role="status" className="flex items-center gap-1.5 text-sm text-ink-muted">
+        {t("mail.compose.sentUnrecorded")}
+      </p>
+    );
+  }
   if (state === "failed") {
     const link =
       "rounded-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink disabled:opacity-40";

@@ -34,6 +34,8 @@ const BEFORE_SEND: Readonly<Record<string, string>> = {
   too_large: "invalid: too_large",
   attachment_unavailable: "attachment_unavailable",
   account_disabled: "google_not_connected",
+  // Le credenziali della casella non si usano più: si ricollega.
+  account_unavailable: "google_not_connected",
   google_scope_missing: "google_scope_missing",
 };
 
@@ -53,6 +55,7 @@ function resultOf(o: MailOutgoing, accountId: string | null): MailSendResult {
     messageId: o.messageId,
     threadId: o.threadId !== null && accountId ? threadKey(accountId, o.threadId) : "",
     undoUntil: o.undoUntil,
+    undoWindowMs: Math.max(0, Date.parse(o.undoUntil) - Date.now()),
   };
 }
 
@@ -79,6 +82,9 @@ const sendDraft: Mail["sendDraft"] = async (id) => {
   try {
     const o = (await appClient().mail.sendDraft(id)) as MailOutgoing;
     if (accountId) sendAccounts().set(o.messageId, accountId);
+    // Il suo ultimo invio era fallito: il server ridà quello, senza un secondo
+    // invio. Non è riuscito, e non deve sembrarlo (`already_failed`, col messaggio).
+    if (o.state === "failed") throw Object.assign(new Error("already_failed"), { messageId: o.messageId });
     return resultOf(o, accountId);
   } catch (error) {
     throw sendError(error);
@@ -132,7 +138,11 @@ const undoSend: Mail["undoSend"] = async (messageId) => {
   }
 };
 
-/** «Riprova» un invio fallito: un invio nuovo, coi suoi 10 s. */
+/**
+ * «Riprova» un invio fallito: un invio nuovo. Oggi il server lo manda
+ * subito (`undoUntil` già passato, quindi nessun «Annulla»); se lo
+ * trattiene, la finestra è la sua.
+ */
 const retrySend: Mail["retrySend"] = async (messageId) => {
   try {
     const o = (await appClient().mail.retrySend(messageId)) as MailOutgoing;

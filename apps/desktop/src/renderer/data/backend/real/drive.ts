@@ -267,6 +267,7 @@ async function sendFromMain(path: string, file: File, options: DriveUploadOption
     if (out.reason === "too_large") return { ok: false, reason: "too_large" };
     if (out.reason === "canceled") return { ok: false, reason: "canceled" };
     if (out.code === "storage_not_configured") return { ok: false, reason: "storage_off" };
+    if (out.reason === "unsupported_type") return { ok: false, reason: "failed", code: "unsupported_type" };
     return { ok: false, reason: "failed", ...(typeof out.code === "string" ? { code: out.code } : {}) };
   } finally {
     stop();

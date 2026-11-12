@@ -40,13 +40,15 @@ export function onComposeRequest(fn: (req: ComposeRequest) => void): () => void 
 
 onBeforePersonaChange(() => {
   pending = null;
-  unsaved.clear();
 });
 
 // La bozza di un invio annullato che è tornata NON salvata (build app: nello
 // stesso slot c'era già un'altra bozza). Aspetta qui la casella del suo
 // posto, che aprendosi la prende al posto della bozza del server e non la
-// salva da sé (salvarla sostituirebbe l'altra). Cambiare persona la cancella.
+// salva da sé (salvarla sostituirebbe l'altra). Chiudendo la casella senza
+// decidere (Esc, «Close», un'altra conversazione, un'altra persona) torna
+// qui coi campi di quel momento: mai testo buttato in silenzio. È per
+// PERSONA: un'altra persona non la vede, e chi torna la ritrova.
 export interface UnsavedDraft {
   draft: MailDraft;
   /** Gli allegati rimasti nella bozza su Gmail. */
@@ -54,13 +56,22 @@ export interface UnsavedDraft {
 }
 const unsaved = new Map<string, UnsavedDraft>();
 
-export function holdUnsavedDraft(entry: UnsavedDraft): void {
-  unsaved.set(place(entry.draft.threadId, entry.draft.slot), entry);
+const keyOf = (personId: string | null, threadId: string | null, slot?: string) =>
+  `${personId ?? ""}|${place(threadId, slot)}`;
+
+/** `personId`: di chi è (chi guarda, `useSessionPersonId`). */
+export function holdUnsavedDraft(entry: UnsavedDraft, personId: string): void {
+  unsaved.set(keyOf(personId, entry.draft.threadId, entry.draft.slot), entry);
+}
+
+/** Solo nei test: nessuna bozza non salvata in attesa. */
+export function forgetUnsavedDraftsForTests(): void {
+  unsaved.clear();
 }
 
 /** La casella del posto prende la bozza non salvata (una volta). */
-export function takeUnsavedDraft(threadId: string | null, slot?: string): UnsavedDraft | null {
-  const key = place(threadId, slot);
+export function takeUnsavedDraft(personId: string, threadId: string | null, slot?: string): UnsavedDraft | null {
+  const key = keyOf(personId, threadId, slot);
   const entry = unsaved.get(key) ?? null;
   unsaved.delete(key);
   return entry;
