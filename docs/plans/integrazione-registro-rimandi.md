@@ -433,12 +433,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - il prototipo NON riconosce l'email di Gemini (il seme la scrive
     `kind: "transcript"`): la regola e l'aggancio email ↔ evento sono del
     server. Per 72 prima gli `attachments` dell'evento, poi Meet + orario;
-  - **visibilità di riassunto e proposte, da decidere** *(M o O)*: il
-    prototipo dice «solo i partecipanti» (invitati di Stubwise con qualunque
-    risposta, R-I15; senza evento, chi ha ricevuto l'email), il design dice
-    «Posta e Calendario restano PERSONALI». La proposta di 94: un
-    partecipante vede se l'evento sta nel SUO calendario o se ha ricevuto
-    lui l'email di Gemini;
+  - **visibilità di riassunto e proposte, decisa** *(M, 12 nov 2026)*: le
+    vedono TUTTI GLI INVITATI che sono persone di Stubwise, con qualunque
+    risposta (anche declined, R-I15), anche senza l'evento nel loro
+    calendario, come nel prototipo; senza evento, chi ha ricevuto l'email
+    di Gemini. Mai un membro che non c'era, mai un admin. È un'eccezione
+    dichiarata a «Posta e Calendario restano PERSONALI», da scrivere in
+    `docs/invariants/mail-calendar.md` col piano della F5;
   - la trascrizione intera non va al client: il prototipo mostra il riassunto
     e «Open the transcript» (un avviso), l'app apre il Doc (`docUrl`);
   - il prototipo non ha la regola «almeno B» per le letture non fidate: la
