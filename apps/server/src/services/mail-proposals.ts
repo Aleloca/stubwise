@@ -3,7 +3,6 @@ import {
   emailProposalRecipients,
   emailProposals,
   googleAccounts,
-  projectMembers,
   projects,
   tickets,
   users,
