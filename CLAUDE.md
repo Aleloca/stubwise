@@ -55,7 +55,8 @@ repo, ricerca vettoriale e chat RAG.
   calendario: i gruppi `mail` e `calendar`, verso `/api/me/mail` e
   `/api/me/calendar`), `db` (Drizzle + Postgres/pgvector),
   `docs-engine`, `embeddings`, `git`, `google` (client HTTP puro OAuth/Gmail/
-  Calendar, `fetch` iniettabile, condiviso da server e worker — fase 6, nessuna
+  Calendar (dall'area 6 anche la scrittura `threads.modify`, solo da un gesto
+  della persona), `fetch` iniettabile, condiviso da server e worker — fase 6, nessuna
   API Google chiamata da nessun altro punto del monorepo), `i18n`,
   `notifications`, `sdk`, `shared`, `widget` (bundle embeddabile del customer
   service, servito come `/widget.js` da caddy).
@@ -430,6 +431,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 5, fetta 1: Docs nel desktop» (11 nov 2026)
   - «Integrazione area 5, fetta 2: il Drive dei file caricati» (11 nov 2026)
   - «Integrazione area 5, fetta 3: il contenuto dei file del Drive» (11 nov 2026)
+  - «Integrazione area 6, fetta 1: la lettura che c'è, il cassetto Google, il riconsenso» (12 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -448,6 +450,9 @@ una voce ti riguarda.
   - Chat con Claude: Claude PROPONE, il server ESEGUE (10 nov 2026, fetta 3).
   - Chat con Claude: una conversazione PUBBLICA si legge come la decide il server, e gli eventi dei tool restano visibili ai lettori (10 nov 2026, fetta 5, decisione del maintainer).
 - **Posta e calendario (Google) → `docs/invariants/mail-calendar.md`**:
+  - Con le proposte spente una casella si LEGGE; si spengono solo le proposte (12 nov 2026).
+  - Nessuna scrittura verso Google senza un gesto della persona, e lo stato locale solo dopo il sì di Google (area 6).
+  - «Aggiorna ora» non ha un percorso a parte (area 6).
   - L'audience `mailbox_owner` non include MAI gli admin.
   - Confermare una proposta chiede il permesso nel progetto; chi non ce l'ha la PASSA, e la card passata è una card NUOVA (22 ott 2026).
   - Passare al progetto: le regole di contorno e i limiti accettati (calendario escluso, veto di «Non fare nulla», proposta orfana).
