@@ -4066,7 +4066,11 @@ deploy o di un rollback che la tocca.
   (`calendar_events`: `proposal_candidate`, `event_type`, `transparency`,
   `project_by`, l'indice per casella e inizio; `google_accounts.calendar_baseline_at`;
   il **syncToken del calendario si azzera**) e **0162**
-  (`calendar_v2_baseline_at`). Ordine: server, poi worker, poi caddy.
+  (`calendar_v2_baseline_at`), e dalla review della F3b **0163** (l'indice
+  della potatura su `coalesce(ends_at, starts_at)`). Ordine: server, poi
+  worker, poi caddy. La linea di base si chiude solo dopo un resync COMPLETO
+  della finestra (con un token, non interrotto): se il worker vecchio ha
+  già risincronizzato col token azzerato, il nuovo rifà comunque la finestra.
   Nessuna env nuova.
 
   **Cosa succede al primo giro**: ogni casella fa un resync della finestra
@@ -4089,8 +4093,21 @@ deploy o di un rollback che la tocca.
   della posta) fa a sua volta una linea di base per casella al primo giro:
   niente proposte sugli eventi già visti.
 
-  **Rollback d'immagine**: un worker vecchio ignora le colonne nuove ma
-  NON sa dei candidati: proporrebbe dalle righe solo viste che hanno un
-  progetto (nessuna: le righe viste nascono senza progetto) — sicuro.
-  Un server vecchio mostra in `range` anche gli eventi personali (è il
-  comportamento voluto) senza i campi nuovi. Le migrazioni non si annullano.
+  ⚠️ **Rollback d'immagine del worker: NON è sicuro così com'è** (review
+  F3b, punto 4). La query delle proposte del worker vecchio non filtra
+  `proposal_candidate`, e il suo ramo delle serie prende ogni occorrenza con
+  `calendar_series.project_id is not null`: le occorrenze PERSONALI ora sono
+  righe viste, e una serie vista si può configurare, quindi verrebbero
+  proposte (ed eseguite, se `auto`). **Prima di scendere sul worker**, a
+  worker fermo, si tolgono le righe solo viste:
+
+  ```sql
+  select count(*) from calendar_events where proposal_candidate = false;
+  delete from calendar_events where proposal_candidate = false;
+  ```
+
+  (il prossimo giro del worker nuovo, se si risale, le riscrive col resync
+  della linea di base: azzerare anche `calendar_baseline_at` e
+  `calendar_sync_token` delle caselle). Un server vecchio mostra in `range`
+  anche gli eventi personali senza i campi nuovi. Le migrazioni non si
+  annullano.
