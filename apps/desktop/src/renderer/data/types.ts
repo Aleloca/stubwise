@@ -859,6 +859,8 @@ export interface MeetingSummary {
   summary: string | null;
   transcript: string | null;
   email: { threadId: string; sourceId: string; at: string } | null;
+  /** Build app (F5): il link al Doc di Gemini («Open the transcript» apre Google Docs). */
+  docUrl?: string | null;
 }
 
 /**
