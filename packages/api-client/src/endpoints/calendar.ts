@@ -3,6 +3,8 @@ import {
   calendarEventPageSchema,
   calendarSeriesListSchema,
   calendarSeriesWriteResultSchema,
+  calendarWriteResultSchema,
+  calendarFreeBusySchema,
 } from "@stubwise/shared";
 import type {
   CalendarEventItem,
@@ -10,6 +12,13 @@ import type {
   CalendarSeriesList,
   CalendarSeriesPatch,
   CalendarSeriesWriteResult,
+  CalendarEventCreateInput,
+  CalendarEventEditInput,
+  CalendarEventMoveInput,
+  CalendarEventRespondInput,
+  CalendarWriteResult,
+  CalendarWriteScope,
+  CalendarFreeBusy,
   MailItemStatus,
   Reader,
 } from "@stubwise/shared";
@@ -159,6 +168,57 @@ export function createCalendarEndpoints(request: ApiRequest) {
         undefined,
         calendarSeriesWriteResultSchema,
       );
+    },
+
+    // --- Area 6, F4: scrivere sul calendario ---------------------------
+    // Ogni scrittura è un GESTO della persona e risponde DOPO il sì di Google
+    // (Q2): `{ items }`, le righe toccate nella forma di `range` — una per
+    // «solo questo», le date della serie nella finestra per «tutta la serie»
+    // (spostarla ne cambia gli id: rileggi `range`). Gli errori, nelle parole
+    // del piano F4: 400 `invalid_range`/`outside_window`/`all_day_series`/
+    // `organizer`/`not_invited`, 403 `not_organizer`, 404 `not_found`, 409
+    // `changed_on_google` (rileggi e rifai il gesto, Q4)/
+    // `google_scope_missing` (+`missing`)/`account_disabled`/`token_expired`,
+    // 422 `google_rejected` (+`reason`), 502 `google_unavailable`.
+
+    /** Nuova riunione: gli inviti li manda Google, anche agli esterni (Q6). */
+    createEvent(body: CalendarEventCreateInput): Promise<Reader<CalendarWriteResult>> {
+      return request("POST", "/api/me/calendar/events", body, calendarWriteResultSchema);
+    },
+
+    /** Modifica (solo l'organizzatore), sull'`etag` letto. */
+    editEvent(id: string, body: CalendarEventEditInput): Promise<Reader<CalendarWriteResult>> {
+      return request("PATCH", `/api/me/calendar/events/${seg(id)}`, body, calendarWriteResultSchema);
+    },
+
+    /** Sposta o ridimensiona (solo l'organizzatore); una serie con lo stesso scarto su ogni data. */
+    moveEvent(id: string, body: CalendarEventMoveInput): Promise<Reader<CalendarWriteResult>> {
+      return request("POST", `/api/me/calendar/events/${seg(id)}/move`, body, calendarWriteResultSchema);
+    },
+
+    /** Sì / Forse / No con una nota (un invitato, non l'organizzatore). */
+    respondEvent(id: string, body: CalendarEventRespondInput): Promise<Reader<CalendarWriteResult>> {
+      return request("POST", `/api/me/calendar/events/${seg(id)}/respond`, body, calendarWriteResultSchema);
+    },
+
+    /** Elimina (solo l'organizzatore): 204. Le proposte aperte nate da lui se ne vanno con lui (Q5). */
+    deleteEvent(id: string, options: { scope?: CalendarWriteScope; etag?: string | null } = {}): Promise<void> {
+      return request("DELETE", `/api/me/calendar/events/${seg(id)}${toQuery({ scope: options.scope, etag: options.etag ?? undefined })}`);
+    },
+
+    /** Il progetto dell'evento, a mano (`projectBy: "manual"`), per tutti quelli che lo vedono (Q1). */
+    setEventProject(id: string, projectId: string | null): Promise<Reader<CalendarWriteResult>> {
+      return request("PUT", `/api/me/calendar/events/${seg(id)}/project`, { projectId }, calendarWriteResultSchema);
+    },
+
+    /**
+     * Il libero/occupato dei colleghi (F4, task 5): SOLO intervalli fusi, per
+     * chi ha il calendario collegato (`not_connected`, `expired` altrimenti),
+     * dalle righe salvate — nessuna chiamata a Google. Al più 50 persone e
+     * 31 giorni (400 `range_too_wide`).
+     */
+    freeBusy(input: { personIds: string[]; from: string; to: string }): Promise<Reader<CalendarFreeBusy>> {
+      return request("GET", `/api/me/calendar/freebusy${toQuery({ personIds: input.personIds.join(","), from: input.from, to: input.to })}`, undefined, calendarFreeBusySchema);
     },
   };
 }

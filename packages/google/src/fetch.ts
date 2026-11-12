@@ -94,7 +94,9 @@ export interface GoogleRequestSpec {
   /** Endpoint logico, per messaggi e log: `oauth.token`, `gmail.history.list`, … */
   api: string;
   url: string;
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  /** `If-Match` (area 6, F4: le scritture di Calendar sull'etag dell'evento). */
+  ifMatch?: string;
   /** Bearer token da mettere in `Authorization`. */
   accessToken?: string;
   /** Corpo `application/x-www-form-urlencoded` (gli endpoint OAuth vogliono questo, non JSON). */
@@ -116,6 +118,7 @@ export interface GoogleRequestSpec {
 export async function requestGoogle(spec: GoogleRequestSpec, options: GoogleClientOptions = {}): Promise<unknown> {
   const headers: Record<string, string> = { accept: "application/json" };
   if (spec.accessToken) headers.authorization = `Bearer ${spec.accessToken}`;
+  if (spec.ifMatch) headers["if-match"] = spec.ifMatch;
   const init: RequestInit = { method: spec.method ?? "GET", headers };
   if (spec.form) {
     headers["content-type"] = "application/x-www-form-urlencoded";

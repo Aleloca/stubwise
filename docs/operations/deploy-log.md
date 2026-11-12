@@ -4111,3 +4111,35 @@ deploy o di un rollback che la tocca.
   `calendar_sync_token` delle caselle). Un server vecchio mostra in `range`
   anche gli eventi personali senza i campi nuovi. Le migrazioni non si
   annullano.
+
+- **«Integrazione area 6, fetta 4: scrivere sul calendario» (12 nov 2026)**:
+  piano `docs/plans/2026-11-12-integrazione-area6-fetta4-plan.md`, branch
+  `feat/area6-f4` (sopra `feat/area6-f3b-fix`). Migrazione **0164**, solo
+  additiva (`calendar_events`: `etag`, `ical_uid` con l'indice, `visibility`,
+  `organizer_self`; nel jsonb degli invitati `name`, `comment`, `self`).
+  Nessun enum nuovo, nessun `notification_kind` nuovo, nessuna env nuova.
+  Ordine: **server** (healthy, 0164 applicata), poi **worker** (scrive le
+  colonne nuove a ogni giro), poi **caddy** (il renderer). Le righe di prima
+  hanno `etag` null finché il worker non le ripassa: fino ad allora una
+  modifica parte senza `If-Match` (l'etag del client è null come quello della
+  riga) — la finestra è il primo giro dopo il deploy.
+
+  **Lo scope**: le scritture vogliono `calendar.events`, già nel riconsenso
+  unico della F1 (D1 = a). Una casella che non l'ha concesso risponde 409
+  `google_scope_missing` con `missing`, e il cassetto Google lo dice: niente
+  da fare al deploy. Controllo, sola lettura: `select count(*) from
+  google_accounts where disabled_at is null and not
+  ('https://www.googleapis.com/auth/calendar.events' = any(scopes));`.
+
+  **Le scritture partono solo da un gesto** (le rotte
+  `/api/me/calendar/events…`): il worker non scrive su Google; gli inviti li
+  manda Google (`sendUpdates=all`), anche agli esterni (Q6). Il
+  libero/occupato (`/freebusy`) legge solo le righe salvate.
+
+  **Rollback**: il server scende **insieme** al caddy (un renderer nuovo su un
+  server vecchio chiama rotte che non ci sono: 404 sulle scritture, le
+  letture restano). Il worker vecchio ignora le colonne nuove e non le
+  scrive più (restano col valore dell'ultimo giro: un etag vecchio dà
+  `changed_on_google` al primo gesto dopo una risalita, che rilegge — nessun
+  danno). Gli eventi creati o cambiati da Stubwise restano su Google: il
+  rollback non li tocca. La 0164 non si annulla.

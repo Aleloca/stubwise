@@ -90,11 +90,41 @@ describe("listEvents", () => {
     expect(event.startsAt?.toISOString()).toBe("2026-09-10T07:00:00.000Z");
     expect(event.endsAt?.toISOString()).toBe("2026-09-10T08:00:00.000Z");
     expect(event.attendees).toEqual([
-      { email: "ada@acme.test", responseStatus: "accepted" },
-      { email: "bob@acme.test", responseStatus: "needsAction" },
+      { email: "ada@acme.test", responseStatus: "accepted", name: null, comment: null, self: false },
+      { email: "bob@acme.test", responseStatus: "needsAction", name: null, comment: null, self: false },
     ]);
     expect(event.organizer).toBe("ada@acme.test");
     expect(event.htmlLink).toBe("https://calendar.google.test/e1");
+  });
+
+  it("F4, task 0: etag, iCalUID, visibilità, organizzatore e i dati degli invitati (nome, nota, self)", async () => {
+    const { impl } = fakeFetch([
+      jsonResponse({
+        items: [
+          {
+            id: "e1",
+            etag: '"3412"',
+            iCalUID: "abc@google.com",
+            visibility: "private",
+            summary: "Revisione",
+            start: { dateTime: "2026-09-10T09:00:00Z" },
+            organizer: { email: "Ada@ACME.test", self: true },
+            attendees: [
+              { email: "ada@acme.test", self: true, responseStatus: "accepted", organizer: true },
+              { email: "Bob@acme.test", displayName: "Bob Rossi", responseStatus: "tentative", comment: "arrivo tardi" },
+            ],
+          },
+          { id: "e2", summary: "Vecchio", start: { dateTime: "2026-09-11T09:00:00Z" } },
+        ],
+      }),
+    ]);
+    const page = await listEvents({ accessToken: "at" }, { fetchImpl: impl });
+    expect(page.events[0]).toMatchObject({ etag: '"3412"', iCalUID: "abc@google.com", visibility: "private", organizerSelf: true });
+    expect(page.events[0]!.attendees).toEqual([
+      { email: "ada@acme.test", responseStatus: "accepted", name: null, comment: null, self: true },
+      { email: "bob@acme.test", responseStatus: "tentative", name: "Bob Rossi", comment: "arrivo tardi", self: false },
+    ]);
+    expect(page.events[1]).toMatchObject({ etag: null, iCalUID: null, visibility: "default", organizerSelf: false });
   });
 
   it("F3b: eventType e transparency — assenti valgono default/opaque (le regole di Google), gli altri si portano come sono", async () => {
@@ -133,8 +163,8 @@ describe("listEvents", () => {
     ]);
     const page = await listEvents({ accessToken: "at" }, { fetchImpl: impl });
     expect(page.events[0]!.attendees).toEqual([
-      { email: "senza-stato@acme.test", responseStatus: null },
-      { email: "stato-ignoto@acme.test", responseStatus: null },
+      { email: "senza-stato@acme.test", responseStatus: null, name: null, comment: null, self: false },
+      { email: "stato-ignoto@acme.test", responseStatus: null, name: null, comment: null, self: false },
     ]);
   });
 

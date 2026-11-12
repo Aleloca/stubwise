@@ -86,6 +86,7 @@ export {
   CALENDAR_API_BASE,
   getEvent,
   listEvents,
+  parseCalendarEvent,
   type CalendarEventsPage,
   type GetEventInput,
   type GoogleCalendarEvent,
@@ -107,3 +108,16 @@ export {
   type MimeAttachment,
   type MimeInput,
 } from "./gmail-compose.js";
+// Area 6, F4: scrivere sul calendario.
+export {
+  deleteCalendarEvent,
+  getCalendarEvent,
+  insertCalendarEvent,
+  listEventInstances,
+  patchCalendarEvent,
+  respondToCalendarEvent,
+  type CalendarEventPatch,
+  type CalendarGuest,
+  type CalendarReminders,
+  type NewCalendarEvent,
+} from "./calendar-write.js";
