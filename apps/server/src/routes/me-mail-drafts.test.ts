@@ -279,7 +279,7 @@ describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () =
     // Di nuovo in coda, poi «scaduto»: Annulla non vale più.
     const again = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
     const { mailOutgoing } = await import("@stubwise/db");
-    const { eq, sql } = await import("drizzle-orm");
+    const { eq } = await import("drizzle-orm");
     // Il worker l'ha già reclamata (la corsa vera): Annulla non vale più.
     await db.update(mailOutgoing).set({ state: "sending" }).where(eq(mailOutgoing.id, again.messageId));
     const late = await post(me.headers, `/api/me/mail/outgoing/${again.messageId}/undo`);
