@@ -109,7 +109,7 @@ export async function listMailProposals(
   const out: MailProposal[] = [];
   for (const { proposal, excerpt, recipient } of rows) {
     // Il progetto deve essere visibile ADESSO (la revoca vale a lettura).
-    const permissions = await projectPermissionsOfUser(db, viewer.id, proposal.projectId);
+    const permissions = await proposalPermissionsOf(db, viewer.id, proposal);
     if (!permissions) continue;
     // Un non destinatario vede solo una proposta passata di cui può decidere
     // OGNI azione (la stessa regola di `mail-proposals-decide.ts`).
@@ -137,7 +137,8 @@ async function buildView(
 ): Promise<MailProposal> {
   const stored = proposal.classification as StoredV2;
   const status = publicStatus(proposal);
-  const choose = stored.choose?.projectIds;
+  // «Quale progetto?»: solo i progetti incerti che chi guarda vede (review F2, punto 7).
+  const choose = stored.choose?.projectIds ? await seenOf(db, viewer.id, stored.choose.projectIds) : undefined;
   const rawActions = choose ? [{ type: "choose_project", args: { projectIds: choose } }] : (stored.actions ?? []);
 
   // I codici delle task nominate, in una query.
@@ -209,7 +210,8 @@ async function buildView(
   return {
     id: proposal.id,
     messageId: own?.id ?? proposal.emailMessageId,
-    projectId: proposal.projectId,
+    // Un «Quale progetto?» sta sotto un progetto che chi guarda vede.
+    projectId: choose?.[0] ?? proposal.projectId,
     status,
     createdAt: proposal.createdAt.toISOString(),
     excerpt: (excerpt ?? "").slice(0, 500),
@@ -267,5 +269,31 @@ export function assigneeIdsOf(actions: readonly { type: string; args?: Record<st
         .filter((id): id is string => typeof id === "string"),
     ),
   ];
+}
+
+async function seenOf(db: Db, userId: string, projectIds: readonly string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const id of projectIds) if (await projectPermissionsOfUser(db, userId, id)) out.push(id);
+  return out;
+}
+
+/**
+ * I permessi con cui chi guarda vede una proposta condivisa: quelli del suo
+ * progetto — o, per un «Quale progetto?», del primo progetto incerto che vede
+ * (la domanda arriva a chi ne vede ALMENO UNO, review F2, punto 7). `null` =
+ * non la vede.
+ */
+export async function proposalPermissionsOf(
+  db: Db,
+  userId: string,
+  proposal: { projectId: string; classification: unknown },
+): Promise<ReadonlySet<ProjectPermission> | null> {
+  const choose = (proposal.classification as { choose?: { projectIds?: string[] } } | null)?.choose?.projectIds;
+  if (!choose) return projectPermissionsOfUser(db, userId, proposal.projectId);
+  for (const id of choose) {
+    const permissions = await projectPermissionsOfUser(db, userId, id);
+    if (permissions) return permissions;
+  }
+  return null;
 }
 

@@ -24,7 +24,7 @@ import { enqueueBacklogIntake } from "./backlog-intake.js";
 import { addSystemComment } from "./comments.js";
 import { createMilestone } from "./milestones.js";
 import { patchTicket } from "./tickets.js";
-import { assigneeIdsOf } from "./mail-proposals.js";
+import { assigneeIdsOf, proposalPermissionsOf } from "./mail-proposals.js";
 
 /**
  * DECIDERE UNA PROPOSTA CONDIVISA DELLA POSTA (area 6, fetta 2, D4).
@@ -99,7 +99,7 @@ async function loadDecidable(db: Db, viewer: Viewer, id: string) {
     .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
     .where(and(eq(emailProposals.id, id), eq(emailProposals.audience, "mail_recipients")));
   if (!row) return null;
-  const permissions = await projectPermissionsOfUser(db, viewer.id, row.proposal.projectId);
+  const permissions = await proposalPermissionsOf(db, viewer.id, row.proposal);
   if (!permissions) return null;
   // Non destinatario: solo una proposta PASSATA, e solo a chi ha il permesso
   // di OGNI sua azione nel progetto (il prototipo).

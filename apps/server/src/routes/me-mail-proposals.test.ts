@@ -677,3 +677,34 @@ describe("review F2, punto 6 e review del renderer F2: outsiders e Contributor",
     expect(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, outsider.id)))).toEqual([]);
   });
 });
+
+describe("review F2, punto 7, lato server: «Quale progetto?» per chi vede solo un progetto incerto", () => {
+  it("Zoe, destinataria e membro SOLO del secondo progetto incerto, la vede (coi soli suoi progetti) e sceglie il suo", async () => {
+    const { proposal } = await seed();
+    const { eq } = await import("drizzle-orm");
+    const [beta] = await db.insert(projects).values({ name: "Beta", slug: `beta-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning();
+    const zoe = await person(null, "Zoe");
+    await addMember(app, beta!.id, zoe.id, "developer");
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal.id, userId: zoe.id });
+    await db.update(emailProposals).set({ classification: { version: 2, summary: "", actions: [], choose: { projectIds: [projectId, beta!.id] } } }).where(eq(emailProposals.id, proposal.id));
+    const res = await get(zoe.headers, `/api/me/mail/proposals/${proposal.id}`);
+    expect(res.statusCode).toBe(200);
+    const view = res.json() as { projectId: string; actions: { type: string; args: { projectIds: string[] } }[] };
+    expect(view.actions[0]!.args.projectIds).toEqual([beta!.id]);
+    // Nemmeno l'id del progetto che Zoe non vede.
+    expect(view.projectId).toBe(beta!.id);
+    expect(JSON.stringify(view)).not.toContain(projectId);
+    const chosen = await app.inject({ method: "POST", url: `/api/me/mail/proposals/${proposal.id}/choose-project`, headers: zoe.headers, payload: { projectId: beta!.id } });
+    expect(chosen.json()).toEqual({ status: "moved", projectId: beta!.id });
+  });
+
+  it("NEGATIVO: chi non vede NESSUNO dei progetti incerti non la vede", async () => {
+    const { proposal } = await seed();
+    const { eq } = await import("drizzle-orm");
+    const outsiderToAll = await person(null, "Ugo");
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal.id, userId: outsiderToAll.id });
+    await db.update(emailProposals).set({ classification: { version: 2, summary: "", actions: [], choose: { projectIds: [projectId] } } }).where(eq(emailProposals.id, proposal.id));
+    expect((await get(outsiderToAll.headers, `/api/me/mail/proposals/${proposal.id}`)).statusCode).toBe(404);
+  });
+});
+

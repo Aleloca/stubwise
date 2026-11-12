@@ -69,8 +69,13 @@ export async function publishSharedProposals(
     const people = await resolveRecipientUserIds(db, addresses);
     // Chi vede il progetto: i membri e i full admin — ma qui solo se sono
     // ANCHE destinatari (l'intersezione).
-    const viewers = new Set(await projectViewerIds(db, proposal.projectId));
-    const recipients = people.filter((id) => viewers.has(id));
+    // «Quale progetto?» (review F2, punto 7): chi vede ALMENO UNO dei
+    // progetti incerti, e ognuno vede sulla sua card solo i SUOI.
+    const scopeIds = choose ?? [proposal.projectId];
+    const viewersBy = new Map<string, Set<string>>();
+    for (const id of scopeIds) viewersBy.set(id, new Set(await projectViewerIds(db, id)));
+    const seenBy = (userId: string) => scopeIds.filter((id) => viewersBy.get(id)!.has(userId));
+    const recipients = people.filter((id) => seenBy(id).length > 0);
 
     if (recipients.length === 0) {
       await db
@@ -84,17 +89,22 @@ export async function publishSharedProposals(
     const names = new Map(
       (await db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, projectIds))).map((r) => [r.id, r.name]),
     );
-    const event = buildSharedProposalEvent({
-      lang,
-      proposalId: proposal.id,
-      projectId: proposal.projectId,
-      projectNames: names,
-      mailboxEmail,
-      message,
-      actions: stored.actions ?? [],
-      ...(choose ? { choose } : {}),
-    });
-    if (!event) {
+    const eventFor = (userId: string) => {
+      const mine = choose ? seenBy(userId) : null;
+      return buildSharedProposalEvent({
+        lang,
+        proposalId: proposal.id,
+        // La card di un «Quale progetto?» sta sotto un progetto che chi la riceve vede.
+        projectId: mine ? mine[0]! : proposal.projectId,
+        projectNames: names,
+        mailboxEmail,
+        message,
+        actions: stored.actions ?? [],
+        ...(mine ? { choose: mine } : {}),
+      });
+    };
+    const events = new Map(recipients.map((userId) => [userId, eventFor(userId)]));
+    if ([...events.values()].some((e) => !e)) {
       await db
         .update(emailProposals)
         .set({ status: "failed", error: "nessuna azione pubblicabile" })
@@ -113,7 +123,8 @@ export async function publishSharedProposals(
       for (const userId of recipients) {
         // Audience `mailbox_owner` con UN destinatario alla volta: è la regola
         // di consegna «solo questa persona», mai gli admin.
-        const { notificationIds } = await publish(tx, event, { mailboxOwnerUserId: userId, projectId: proposal.projectId });
+        const event = events.get(userId)!;
+        const { notificationIds } = await publish(tx, event, { mailboxOwnerUserId: userId, projectId: event.projectId ?? proposal.projectId });
         await tx
           .insert(emailProposalRecipients)
           .values({ proposalId: proposal.id, userId, notificationId: notificationIds[0] ?? null })
