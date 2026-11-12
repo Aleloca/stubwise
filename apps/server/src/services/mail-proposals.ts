@@ -14,6 +14,7 @@ import { permissionForMailAction, projectPermissionsOfUser } from "@stubwise/not
 import type { Language, MailProposal, MailProposalAction, MailProposalStatus, ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { coversAll } from "./mail-proposals-decide.js";
+import { legacyRows, legacyView } from "./mail-proposals-legacy.js";
 
 /**
  * LE PROPOSTE CONDIVISE DELLA POSTA, IN LETTURA (area 6, fetta 2, D4).
@@ -118,7 +119,13 @@ export async function listMailProposals(
     if (filter.status && view.status !== filter.status) continue;
     out.push(view);
   }
-  return out;
+  // Le proposte di PRIMA (per casella), nella stessa forma: UNA fonte sola.
+  for (const row of await legacyRows(db, viewer.id, { id: filter.id, messageId: filter.messageId })) {
+    const view = await legacyView(db, viewer.id, row);
+    if (!view || (filter.status && view.status !== filter.status)) continue;
+    out.push(view);
+  }
+  return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
 async function buildView(

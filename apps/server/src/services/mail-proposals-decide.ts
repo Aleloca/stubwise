@@ -17,6 +17,7 @@ import { permissionForMailAction, projectPermissionsOfUser, projectViewerIds } f
 import type { MailProposal, ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
+import { decideLegacy } from "./mail-proposals-legacy.js";
 import { putProjectMember, RoleRuleError } from "./roles.js";
 import { createTicket } from "../db/tickets.js";
 import { enqueueBacklogIntake } from "./backlog-intake.js";
@@ -170,7 +171,7 @@ export async function confirmMailProposal(
   lang: Language,
 ): Promise<DecideResult> {
   const loaded = await loadDecidable(db, viewer, id);
-  if (!loaded) return { ok: false, error: "not_found" };
+  if (!loaded) return (await decideLegacy(db, viewer.id, id, { kind: "confirm", indices: input.indices, edits: input.edits })) ?? { ok: false, error: "not_found" };
   const { proposal, message, mailboxEmail, permissions } = loaded;
   if (!OPEN.has(proposal.status)) {
     return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, proposal.decidedByUserId) };
@@ -320,7 +321,7 @@ export async function confirmMailProposal(
 /** «Ignora»: chiude la proposta per tutti. Chi la vede può ignorarla. */
 export async function ignoreMailProposal(db: Db, viewer: Viewer, id: string): Promise<DecideResult> {
   const loaded = await loadDecidable(db, viewer, id);
-  if (!loaded) return { ok: false, error: "not_found" };
+  if (!loaded) return (await decideLegacy(db, viewer.id, id, { kind: "ignore" })) ?? { ok: false, error: "not_found" };
   return db.transaction(async (tx) => {
     const [updated] = await tx
       .update(emailProposals)
@@ -355,7 +356,8 @@ const PORTABLE = new Set(["create_task", "create_backlog_item", "record_decision
  */
 export async function handMailProposal(db: Db, viewer: Viewer, id: string): Promise<DecideResult> {
   const loaded = await loadDecidable(db, viewer, id);
-  if (!loaded || !loaded.isRecipient) return { ok: false, error: "not_found" };
+  if (!loaded) return (await decideLegacy(db, viewer.id, id, { kind: "hand" })) ?? { ok: false, error: "not_found" };
+  if (!loaded.isRecipient) return { ok: false, error: "not_found" };
   const { proposal, permissions } = loaded;
   if (!OPEN.has(proposal.status) || proposal.handedAt) {
     return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, proposal.decidedByUserId ?? proposal.handedByUserId) };
@@ -380,7 +382,8 @@ export async function handMailProposal(db: Db, viewer: Viewer, id: string): Prom
  */
 export async function reassignMailProposal(db: Db, viewer: Viewer, id: string, targetProjectId: string): Promise<DecideResult> {
   const loaded = await loadDecidable(db, viewer, id);
-  if (!loaded || !loaded.isRecipient) return { ok: false, error: "not_found" };
+  if (!loaded) return (await decideLegacy(db, viewer.id, id, { kind: "reassign", projectId: targetProjectId })) ?? { ok: false, error: "not_found" };
+  if (!loaded.isRecipient) return { ok: false, error: "not_found" };
   const { proposal } = loaded;
   if (!OPEN.has(proposal.status)) return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, proposal.decidedByUserId) };
   const stored = proposal.classification as { actions?: StoredAction[]; choose?: unknown; summary?: string };
@@ -458,6 +461,10 @@ export async function confirmMailProposalWithMembers(
   id: string,
   input: { indices?: number[] | undefined; edits?: Record<string, Record<string, unknown>> | undefined; addOutsiders: string[] },
   lang: Language,
+  /** La traccia di ogni aggiunta e rimozione (il log della rotta). */
+  log: (line: string, fields: Record<string, unknown>) => void = () => {},
+  /** SOLO per i test: gira fra l'aggiunta dei Contributor e la conferma. */
+  afterMembersAdded?: () => Promise<void>,
 ): Promise<DecideResult | { ok: false; error: "rule"; rule: RoleRuleError }> {
   const loaded = await loadDecidable(db, viewer, id);
   if (!loaded) return { ok: false, error: "not_found" };
@@ -467,26 +474,57 @@ export async function confirmMailProposalWithMembers(
   const already = new Set(
     (await db.select({ userId: projectMembers.userId }).from(projectMembers).where(eq(projectMembers.projectId, proposal.projectId))).map((r) => r.userId),
   );
-  const added: string[] = [];
+  // Le righe CREATE da questa chiamata, con la loro creazione: la rimozione
+  // tocca solo quelle, e solo se sono ancora le stesse (stesso ruolo, stessa
+  // creazione). Chi era già membro non si aggiunge e non si toglie mai.
+  const added: { userId: string; createdAt: Date }[] = [];
+  const undo = async () => {
+    for (const row of added) {
+      const removed = await db
+        .delete(projectMembers)
+        .where(
+          and(
+            eq(projectMembers.projectId, proposal.projectId),
+            eq(projectMembers.userId, row.userId),
+            eq(projectMembers.roleId, contributor),
+            // Al millisecondo: `Date` non porta i µs di Postgres.
+            sql`date_trunc('milliseconds', ${projectMembers.createdAt}) = ${row.createdAt.toISOString()}::timestamptz`,
+          ),
+        )
+        .returning({ userId: projectMembers.userId });
+      log(
+        removed.length > 0
+          ? "posta: Contributor tolto, la conferma della proposta non è riuscita"
+          : "posta: Contributor NON tolto, la riga è cambiata nel frattempo",
+        { proposalId: id, projectId: proposal.projectId, userId: row.userId, byUserId: viewer.id },
+      );
+    }
+  };
   try {
     for (const userId of [...new Set(input.addOutsiders)]) {
       if (already.has(userId)) continue;
-      await putProjectMember(db, viewer, permissions, proposal.projectId, userId, contributor);
-      added.push(userId);
+      const member = await putProjectMember(db, viewer, permissions, proposal.projectId, userId, contributor);
+      const [created] = await db
+        .select({ createdAt: projectMembers.createdAt })
+        .from(projectMembers)
+        .where(and(eq(projectMembers.projectId, proposal.projectId), eq(projectMembers.userId, userId)));
+      added.push({ userId, createdAt: created!.createdAt });
+      log("posta: Contributor aggiunto per una proposta della posta", {
+        proposalId: id,
+        projectId: proposal.projectId,
+        userId: member.userId,
+        byUserId: viewer.id,
+      });
     }
   } catch (err) {
-    await removeMembers(db, proposal.projectId, added);
+    await undo();
     if (err instanceof RoleRuleError) return { ok: false, error: "rule", rule: err };
     throw err;
   }
+  await afterMembersAdded?.();
   const result = await confirmMailProposal(db, viewer, id, input, lang);
-  if (!result.ok || result.status !== "confirmed") await removeMembers(db, proposal.projectId, added);
+  if (!result.ok || result.status !== "confirmed") await undo();
   return result;
-}
-
-async function removeMembers(db: Db, projectId: string, userIds: string[]): Promise<void> {
-  if (userIds.length === 0) return;
-  await db.delete(projectMembers).where(and(eq(projectMembers.projectId, projectId), inArray(projectMembers.userId, userIds)));
 }
 
 async function presetRoleIdOf(db: Db, key: string): Promise<string> {
