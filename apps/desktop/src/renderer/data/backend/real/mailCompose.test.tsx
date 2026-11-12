@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
+import { forgetUnsavedDraftsForTests } from "../../../pages/mail/composeRequest";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, type SeenRequest } from "./fakeServer";
 
@@ -122,6 +123,7 @@ beforeEach(() => {
   confirmAnswer = { body: { status: "confirmed", results: [{ kind: "request", id: "r", code: "AUD-R9" }] } };
   readAnswer = { body: detail };
   setAppClientForTests(null);
+  forgetUnsavedDraftsForTests();
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   seen = installFakeServerAgain();
 });
@@ -226,7 +228,12 @@ describe("scrivere nella Posta della build app", () => {
     await waitFor(() => expect(within(form).getByRole("textbox", { name: "Message" })).toHaveValue("Arriva lunedì."));
     const post = seen.find((r) => r.method === "POST" && r.path === "/api/me/mail/drafts/claude")!;
     expect(post.body).toMatchObject({ accountId: ACC, threadId: "t-1", mode: "reply", hint: "digli che arriva lunedì" });
+    // Oltre gli 800 ms del salvataggio da sé: il testo di Claude non va su Gmail da solo.
+    await new Promise((r) => setTimeout(r, 1_100));
     expect(saved).toHaveLength(0);
+    // Toccato dalla persona, è suo: si salva.
+    fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), { target: { value: "Arriva lunedì, a presto." } });
+    await waitFor(() => expect(saved.at(-1)).toMatchObject({ body: "Arriva lunedì, a presto." }), { timeout: 2_000 });
   });
 
   it("l'email nuova: dopo Invia si resta sull'elenco, con «Annulla» (la conversazione arriva quando Gmail la crea)", async () => {
@@ -448,6 +455,25 @@ describe("scrivere nella build app: i casi limite", () => {
     await waitFor(() => expect(saved.at(-1)).toMatchObject({ body: "Ricevuto, grazie mille.", overwrite: true }));
     await waitFor(() => expect(within(again).queryByText(/Not saved:/)).toBeNull());
     expect(within(again).getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  it("«Annulla» con un'altra bozza: Esc non butta il testo; «Reply» lo riapre non salvato", async () => {
+    undoAnswer = { body: unsavedRestore() };
+    const form = await reply();
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    const before = saved.length;
+    fireEvent.click(undo);
+    let again = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    await within(again).findByText(/Not saved:/);
+    fireEvent.change(within(again).getByRole("textbox", { name: "Message" }), { target: { value: "Testo cambiato." } });
+    fireEvent.keyDown(within(again).getByRole("textbox", { name: "Message" }), { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("form", { name: /Reply to Bob Rossi/ })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    again = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    await waitFor(() => expect(within(again).getByRole("textbox", { name: "Message" })).toHaveValue("Testo cambiato."));
+    expect(within(again).getByText(/Not saved:/)).toBeInTheDocument();
+    expect(saved).toHaveLength(before);
   });
 
   it("«Annulla» con un'altra bozza: «Discard» chiude senza salvare nulla", async () => {

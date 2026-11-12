@@ -8,6 +8,7 @@ import {
 import { getSessionPersonId, onBeforePersonaChange } from "../../data/session";
 import type { MailAddress, MailDraft, MailDraftAttachment } from "../../data/types";
 import {
+  holdUnsavedDraft,
   registerComposer,
   takeUnsavedDraft,
   type UnsavedDraft,
@@ -160,8 +161,38 @@ export function useComposerDraft({
   const saveRef = useRef(saveNow);
   saveRef.current = saveNow;
 
+  /**
+   * Una bozza non salvata lasciata senza decidere torna in attesa coi campi
+   * di adesso, a nome di chi la scriveva (`owner`): la ritrova riaprendo.
+   */
+  const stashUnsaved = (personId: string = owner) => {
+    const held = unsavedRef.current;
+    const f = fieldsRef.current;
+    if (!held || !f || gone.current) return;
+    holdUnsavedDraft(
+      {
+        draft: {
+          ...held.draft,
+          mode: modeRef.current,
+          replyToMessageId: f.replyToMessageId,
+          to: f.to,
+          cc: f.cc,
+          subject: f.subject,
+          body: f.body,
+          attachments: f.attachments,
+          ...(f.quote ? {} : { quote: false }),
+        },
+        leftInGmail: held.leftInGmail,
+      },
+      personId,
+    );
+  };
+  const stashRef = useRef(stashUnsaved);
+  stashRef.current = stashUnsaved;
+
   /** Chiude salvando; la promessa si risolve a bozza salvata. */
   const closeNow = () => {
+    stashRef.current();
     const saved = saveRef.current();
     gone.current = true;
     callbacks.current.onClose();
@@ -197,7 +228,7 @@ export function useComposerDraft({
   useEffect(() => {
     // Presa una volta (il ref regge il doppio effetto di StrictMode).
     if (unsavedRef.current) return;
-    const held = takeUnsavedDraft(threadId, slot);
+    const held = takeUnsavedDraft(owner, threadId, slot);
     if (held) {
       unsavedRef.current = held;
       setUnsaved(held);
@@ -258,6 +289,7 @@ export function useComposerDraft({
         clearTimer();
         const f = fieldsRef.current;
         if (f && dirty.current && !gone.current && !unsavedRef.current) void saveMailDraftNow(inputOf(f, modeRef.current));
+        stashRef.current();
         gone.current = true;
       }),
     [],
@@ -266,6 +298,8 @@ export function useComposerDraft({
   useEffect(
     () => () => {
       clearTimer();
+      // Smontata senza decidere (un'altra conversazione): la non salvata torna in attesa.
+      stashRef.current();
       if (gone.current || getSessionPersonId() !== owner) return;
       void saveRef.current();
     },

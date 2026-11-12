@@ -10,6 +10,7 @@ import {
   useMarkMailUnread,
   usePeople,
   useProjects,
+  useSessionPersonId,
   useReproposeMessage,
   useRetryMailSend,
 } from "../../data/queries";
@@ -107,6 +108,7 @@ export function ReadingPane({
   const drafts = useMailDrafts({ enabled: mailWrites() });
   const retry = useRetryMailSend();
   const removeFailed = useDeleteFailedMailSend();
+  const me = useSessionPersonId();
   const showUndo = useUndoSendToast();
   const droppedNotice = useDroppedNotice();
   const discardedNotice = useDiscardedNotice();
@@ -380,7 +382,7 @@ export function ReadingPane({
               .then(() => removeFailed.mutateAsync(m.id))
               .then((restored) => {
                 droppedNotice(restored);
-                holdRestored(restored);
+                holdRestored(restored, me);
                 if (restored.draft.mode !== "new") openCompose(restored.draft.mode, "body");
               })
               .catch(() => toast.error(t("mail.compose.actionFailed"))),
