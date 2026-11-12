@@ -30,9 +30,9 @@ di Claude (`apiStream.ts`).
 - **La firma di Gmail** *(M, decisione del maintainer)*: `signature` e
   `signatureStatus` (present, none, scope_missing) sulla bozza, aggiunta dal
   server nel messaggio. Il compositore la mostra sotto il campo, in sola
-  lettura, e con `scope_missing` dice che si manda senza firma; il cassetto
-  già elenca la firma fra le funzioni che mancano senza
-  `gmail.settings.basic` (f0bc3823).
+  lettura, e con `scope_missing` dice che si manda senza firma. Si legge con
+  `gmail.modify` (`users.settings.sendAs.get`): niente scope nuovo, e senza
+  `gmail.modify` rientra nel «Ricollega» di quello scope.
 - **Le proposte di una conversazione** con il filtro `thread` + `account` su
   `/api/me/mail/proposals` (review della F2, punto 9): oggi la pagina della
   conversazione legge l'elenco intero.
