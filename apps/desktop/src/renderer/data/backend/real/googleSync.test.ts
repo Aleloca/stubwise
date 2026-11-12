@@ -56,7 +56,8 @@ function server(sync: (id: string) => { status?: number; body?: unknown }) {
 }
 
 const queued = (id: string) => {
-  rows = rows.map((r) => (r["id"] === id ? { ...r, syncRequestedAt: "2026-11-12T10:00:00.000Z" } : r));
+  // Il server scrive l'istante della richiesta.
+  rows = rows.map((r) => (r["id"] === id ? { ...r, syncRequestedAt: new Date().toISOString() } : r));
   return { status: 202, body: { status: "queued" } };
 };
 
@@ -138,5 +139,18 @@ describe("«Aggiorna ora» del Calendario", () => {
     rows = [account({ disabledAt: BEFORE })];
     server(queued);
     await expect(calendar.syncCalendar()).rejects.toThrow("google_not_connected");
+  });
+});
+
+describe("una richiesta che il server non chiude", () => {
+  it("oltre 2 minuti da `syncRequestedAt` la casella è «non riuscita» (e smette di rileggersi)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-12T10:05:00Z"));
+    rows = [
+      account({ syncRequestedAt: "2026-11-12T10:02:30.000Z" }),
+      account({ id: ACC2, email: "ada@beta.test", syncRequestedAt: "2026-11-12T10:04:00.000Z" }),
+    ];
+    server(queued);
+    expect((await mail.listMailboxes()).map((b) => b.sync)).toEqual(["failed", "syncing"]);
   });
 });

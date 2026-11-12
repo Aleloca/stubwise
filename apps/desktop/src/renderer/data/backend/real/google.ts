@@ -154,7 +154,11 @@ function syncsOf() {
  * non è avanzato.
  */
 export function syncStateOf(a: ServerGoogleAccount): "ok" | "syncing" | "failed" {
-  if (a.syncRequestedAt !== null) return "syncing";
+  // Una richiesta che il server non chiude in 2 minuti non è più «in corso»:
+  // la casella smette di rileggersi e dice «non riuscita» («Riprova»).
+  if (a.syncRequestedAt !== null) {
+    return Date.now() - Date.parse(a.syncRequestedAt) > SYNC_WAIT_MS ? "failed" : "syncing";
+  }
   const { asked } = syncsOf();
   if (!asked.has(a.id)) return "ok";
   if (asked.get(a.id) === a.lastSyncAt) return "failed";
