@@ -260,9 +260,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   una rotta che rilanci il seguito per quell'azione;
   (b) la bozza di Claude in json (`?stream=false`) per un client che non
   legge SSE (il mobile): oggi solo SSE;
-  (c) un Annulla con lo slot occupato toglie la copia di Stubwise: gli
-  oggetti dello storage degli allegati caricati dal disco restano orfani
-  (la bozza su Gmail li ha ancora), come gli altri orfani dello storage;
+  (c) ~~gli oggetti dello storage degli allegati restano orfani~~ CHIUSO
+  dalla review della F3 (0158): ogni riga d'allegato che se ne va lascia il
+  suo oggetto in `storage_orphans` nella stessa transazione, cascate
+  comprese, e il purge orario lo toglie;
   (d) la firma solo in testo e solo per l'indirizzo della casella (nessun
   alias);
   (e) un `fillMailBody` riuscito non si annulla (Gmail ha la bozza: si
