@@ -295,57 +295,174 @@ scattare (capisce solo DAILY e WEEKLY): un buco del prototipo, da non portare.
 
 ## 5. Domande di prodotto per il maintainer
 
-1. **Quanto del motore nella prima integrazione?** Proposta: a fette —
-   (a) automazioni di progetto con inizi di Stubwise e passi crea/avvisa,
-   approvazioni, registro, prova; (b) email e attese della risposta; (c) passi
-   di Claude; (d) generali, sorgenti esterne, tabella cliente → progetto.
-   Oppure il motore intero insieme?
-2. **Audin e HubSpot**: connettori veri in questa area, o restano fuori (la
-   build app nasconde le sorgenti finché non ci sono)? Il webhook in arrivo
-   per automazione basta come prima sorgente esterna?
-3. **Il motore nel worker**: un'esecuzione può durare giorni e un riavvio del
-   worker non deve né perderla né ripetere un effetto. Va bene un poller con
-   lease (come il giro notturno), con la regola «un effetto si scrive con la
-   sua chiave d'idempotenza nella stessa transazione in cui avanza il
-   cursore»?
-4. **Email mandate da un'automazione**: sono le prime email che Stubwise
-   manda senza che una persona prema «Invia». Il prototipo le fa partire da
-   sole se il passo è «parte da solo» (il modello «Nuovo contratto» chiede
-   l'approvazione solo per il benvenuto). Si tiene, o **ogni email di
-   un'automazione chiede sempre l'approvazione** (almeno nella prima fetta)?
-5. **Il registro dice «segnale alla conversione di una richiesta», il
-   prototipo no**: segnala la *creazione* (`request_created`) e la
-   conversione non fa partire nulla (nemmeno `task_created`, perché la task
-   nasce con `addTask`). Quale serve: «richiesta creata», «richiesta
-   convertita in task», o entrambi? E una task nata da una conversione deve
-   valere come «task creata»?
-6. **Quali scrittori pubblicano gli eventi**: anche il worker (una task chiusa
-   dal merge di una PR, un ticket creato dall'intake o dall'SDK) e il catalogo
-   di Claude? Proposta: sì, tutti, da un punto unico; un evento perso è
-   un'automazione che «non è partita» senza un perché.
-7. **Permessi**: `automations.manage` di progetto e d'istanza come nel
-   prototipo, nei preset Project Lead e admin? E le sorgenti con
-   `integrations.manage` (il prototipo lo richiede anche per «ricorda il
-   cliente»)?
-8. **Passi di Claude e l'invariante delle serie**: un'automazione a orario o
-   da un'email può avviare un passo di Claude (lavoro AI senza un umano che
-   preme)? Se sì, è un'eccezione da scrivere in `docs/invariants/`; il passo
-   di Claude non esegue azioni (regola 2) ma costa.
-9. **Costi**: i passi di Claude contano sul budget mensile dell'istanza? Serve
-   un tetto per automazione o per esecuzione? La **prova** con un passo di
-   Claude chiama il modello vero (costa) o resta finta?
-10. **Approvazioni e inbox**: oltre al «Da decidere» della Home, una richiesta
-    d'approvazione diventa una notifica (inbox, push, Slack DM come le altre
-    decisioni)? Il prototipo ha solo l'avviso al fallimento e «Avvisa».
-11. **Le automazioni nel web e nel mobile**: solo l'app nuova (desktop e
-    `/app`), o anche approvazioni dal mobile? (Il mobile ha un solo utente,
-    nessun rollout a fasi.)
-12. **Il nome**: `automation_rules` e Settings → Automations esistono già con
-    un altro significato. Si rinomina qualcosa (per esempio le regole
-    dell'auto-fix diventano «AI rules») o il motore prende un altro nome
-    interno (`workflows`)?
-13. **La ricorrenza mensile** che il costruttore offre e il prototipo non fa
-    scattare: si porta (e si fa scattare) o si toglie?
+Per ogni domanda, 2–3 opzioni concrete; la consigliata è la prima, con il
+perché e cosa costa.
+
+### Q1. Quanto del motore nella prima integrazione?
+
+- **a) A fette, nell'ordine del rischio** *(consigliata)*. F1: automazioni di
+  progetto, inizi di Stubwise (task creata/chiusa, richiesta, traguardo) e a
+  mano, passi crea task/traguardo/richiesta e avvisa, condizioni e «per ogni»,
+  approvazioni, registro, prova senza effetti, blocco della Home. F2: email e
+  attese (tempo, risposta, task chiusa), «ripeti finché», orari. F3: passi di
+  Claude. F4: generali, webhook in arrivo, tabella cliente → progetto, avvia
+  un'altra automazione. Ogni fetta si usa da sola, e il motore (fermarsi,
+  riprendere, non ripetere un effetto) si prova prima di aggiungerci email e
+  modello. Costo: per un po' il costruttore nasconde i passi delle fette
+  successive.
+- **b) Il motore intero in una volta.** Parità col prototipo subito, ma un
+  rilascio enorme, con email, AI e connettori insieme alla prima versione
+  dell'esecutore.
+- **c) Solo le esecuzioni a mano e la prova.** Il motore senza inizi
+  automatici: utile per provarlo, ma non risolve i due casi d'uso del
+  maintainer.
+
+### Q2. Audin e HubSpot
+
+- **a) Fuori da questa area: prima il webhook in arrivo per automazione**
+  *(consigliata)*. Copre anche Audin e HubSpot (entrambi mandano webhook), con
+  un esempio → campi già disegnato nel prototipo. Le sorgenti «Audin» e
+  «HubSpot» del costruttore restano nascoste nella build app. Costo: chi
+  collega deve configurare il webhook dal CRM.
+- **b) Connettore vero per Audin (il CRM di casa), HubSpot dopo.** Trattative
+  chiuse con prodotti e documenti già tipizzati; serve OAuth o una chiave,
+  il polling o i loro webhook, e la gestione della scadenza.
+- **c) Entrambi i connettori in questa area.** Il caso «contratto chiuso → task
+  per tutti» funziona chiavi in mano, al costo di due integrazioni esterne
+  dentro un'area già grande.
+
+### Q3. Il motore nel worker: durata e riavvii
+
+- **a) Coda con lease come il giro notturno, e una chiave d'idempotenza per
+  effetto scritta nella stessa transazione che avanza il cursore**
+  *(consigliata)*. Un riavvio riprende l'esecuzione; un effetto già scritto
+  non si rifà (una task, un traguardo); per l'email la chiave è l'invio
+  trattenuto della F3 dell'area 6. Costo: ogni passo con un effetto va scritto
+  come «effetto + cursore» atomico.
+- **b) Lease senza idempotenza, come gli altri poller: «al più una volta»
+  sospendendo prima dell'effetto.** Più semplice, ma un crash a metà effetto
+  lascia l'esecuzione ferma e da riprovare a mano.
+- **c) Un servizio a sé per il motore.** Isola i riavvii del worker (oggi
+  vietati con lavoro in corso), ma è un servizio in più da operare.
+
+### Q4. Le email mandate da un'automazione
+
+- **a) Ogni email chiede sempre l'approvazione nella prima fetta con le email;
+  «parte da sola» si apre dopo, per automazione, a chi ha il permesso**
+  *(consigliata)*. Sono le prime email che Stubwise manda senza che una persona
+  prema «Invia»: si comincia con un umano davanti, col testo correggibile.
+  Costo: il promemoria al cliente («Richiesta dati») chiede un clic.
+- **b) Come il prototipo: l'approvazione si sceglie per passo.** Pieno
+  potere da subito, con i tetti (20 email per esecuzione) come rete.
+- **c) Approvazione obbligatoria solo per i destinatari esterni al team.**
+  Le email interne partono da sole, quelle verso i clienti chiedono.
+
+### Q5. «Richiesta convertita» o «richiesta creata»?
+
+- **a) Tutti e due: «richiesta creata» (c'è nel prototipo) e «richiesta
+  convertita in task», e una task nata da una conversione vale anche come
+  «task creata»** *(consigliata)*. È coerente con quello che vede chi usa
+  Stubwise: una task nuova è una task nuova, comunque nasca. Costo: il
+  prototipo va corretto (la conversione oggi non fa partire nulla).
+- **b) Solo «richiesta creata», come il prototipo; il registro si corregge.**
+  Nessun inizio nuovo, ma la conversione resta invisibile alle automazioni.
+- **c) Solo «convertita», come dice il registro.** Si perde «richiesta creata»,
+  che il prototipo e la creazione da Claude (S1) usano già.
+
+### Q6. Chi pubblica gli eventi
+
+- **a) Tutti gli scrittori (server, worker, catalogo di Claude), da un punto
+  unico nella stessa transazione della scrittura, con un elenco chiuso
+  verificato da un test** *(consigliata)*. Una task chiusa dal merge di una
+  PR o un ticket aperto dall'SDK fanno partire le automazioni come una scritta
+  a mano; nessun evento perso. Costo: toccare ogni scrittore di task,
+  richieste e traguardi.
+- **b) Solo le scritture delle persone (rotte del server).** Più semplice, ma
+  «task chiusa» non scatta quando la chiude una PR mergiata, che è il caso più
+  frequente.
+- **c) Derivarli dopo da `ticket_events` con un poller.** Nessuno scrittore da
+  toccare, ma la creazione non c'è e il ritardo è quello del poller.
+
+### Q7. Permessi
+
+- **a) Come il prototipo: `automations.manage` di progetto (preset Project
+  Lead) e d'istanza (preset admin); sorgenti e tabella cliente → progetto con
+  `integrations.manage`** *(consigliata)*. Già provato nel prototipo, coi suoi
+  test. Costo: un permesso nuovo nei preset (e nei ruoli personalizzati, dove
+  nasce spento).
+- **b) Riusare `project.settings.manage` per le automazioni di progetto.**
+  Nessun permesso nuovo, ma chi gestisce le impostazioni non è sempre chi
+  deve scrivere flussi che agiscono a nome suo.
+- **c) Solo admin d'istanza nella prima fetta.** Più prudente, ma tiene fuori i
+  Project Lead, che sono il pubblico del motore.
+
+### Q8. Passi di Claude e l'invariante «una serie non avvia mai lavoro AI»
+
+- **a) Eccezione dichiarata e scritta in `docs/invariants/`: un passo di
+  Claude può partire senza un umano, ma sceglie solo fra le strade disegnate
+  (regola 2), non esegue azioni, e conta su un tetto di costo per esecuzione**
+  *(consigliata)*. È il senso del motore («Claude legge il contratto e ne
+  ricava le task»). Costo: un'invariante da riscrivere, e un test che lo dica.
+- **b) Un passo di Claude parte solo da un'esecuzione avviata da una persona
+  (a mano o da un'approvazione prima del passo).** L'invariante resta intatta,
+  ma «contratto chiuso → task» chiede un clic.
+- **c) Nessun passo di Claude nel motore per ora.** La F3 di Q1 salta; il
+  motore resta deterministico.
+
+### Q9. Costi dei passi di Claude e della prova
+
+- **a) Sul budget mensile dell'istanza, con un tetto per esecuzione
+  (proposta: lo stesso tetto per tipo di `automation_rules`, o un valore
+  nuovo per automazione) e un'operazione nuova in `AI_OPERATIONS` per
+  vederli in Usage; la prova chiama il modello vero, perché provare con un
+  finto non dice niente** *(consigliata)*. Costo: ogni prova con un passo di
+  Claude costa.
+- **b) Come (a), ma la prova usa una risposta scritta a mano da chi prova al
+  posto di Claude.** Prove gratuite, ma non si vede cosa Claude sceglierebbe
+  davvero.
+- **c) Nessun tetto per esecuzione, solo il budget dell'istanza.** Più
+  semplice; un ciclo mal disegnato consuma il budget di tutti.
+
+### Q10. Dove arriva una richiesta d'approvazione
+
+- **a) Notifica come le altre decisioni (inbox, push, Slack DM), più il
+  «Da decidere» della Home** *(consigliata)*. Un'esecuzione ferma su
+  un'approvazione per giorni è il modo più facile di perdere un cliente. Costo:
+  un `notification_kind` nuovo (rollback non sicuro finché ne esistono righe).
+- **b) Solo il «Da decidere» della Home, come nel prototipo.** Nessun kind
+  nuovo, ma chi non apre l'app non lo sa.
+- **c) La notifica solo dopo N ore di attesa.** Meno rumore, una regola in più.
+
+### Q11. Web e mobile
+
+- **a) Solo l'app nuova (desktop e `/app`); sul mobile nulla per ora**
+  *(consigliata)*. Il web vecchio non ha l'area, e l'app nuova è la specifica.
+  Costo: un'approvazione si dà solo da un computer, salvo la notifica di Q10.
+- **b) Anche Approva / Rifiuta dal mobile.** Utile per le approvazioni in
+  giro; una schermata nuova nell'app (un utente solo, niente rollout).
+- **c) Anche il web vecchio.** Sconsigliata: è da ritirare.
+
+### Q12. Il nome
+
+- **a) Il motore resta «Automations» nell'interfaccia; nel codice le tabelle
+  nuove si chiamano `automation_*` e le vecchie `automation_rules` diventano
+  «AI rules» nell'interfaccia dell'area 9 (la tabella resta)** *(consigliata)*.
+  Chi usa l'app vede un solo significato. Costo: rinominare la sezione
+  dell'area 9 e le sue stringhe.
+- **b) Nome interno diverso (`workflows`), «Automations» solo
+  nell'interfaccia.** Nessun rinomina, ma due nomi per la stessa cosa nel
+  codice.
+- **c) Lasciare le due «Automations».** Nessun lavoro, confusione garantita
+  nelle impostazioni di progetto.
+
+### Q13. La ricorrenza mensile
+
+- **a) Si porta e la si fa scattare (giorno del mese nel fuso Europe/Rome,
+  con il 31 che cade all'ultimo giorno)** *(consigliata)*. Il costruttore la
+  offre già, e un report mensile è un caso naturale. Costo: una regola in più
+  nella funzione delle ricorrenze.
+- **b) Si toglie dal costruttore.** Il prototipo smette di offrire ciò che non
+  fa.
 
 ## 6. Cosa resta fuori in ogni caso
 
