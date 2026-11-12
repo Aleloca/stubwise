@@ -336,6 +336,8 @@ export function ProposalCardView({
   const outcome = (() => {
     switch (event.status) {
       case "confirmed": {
+        // Build app: confermata, ma Gmail non ha salvato il corpo: mai «Done».
+        if (event.mailNotSaved) return <MailNotSaved text={event.mailNotSaved.text} />;
         const codes = event.resultCodes ?? [];
         const partial = event.confirmedActions
           ? t("claude.conversation.proposal.partial", {
@@ -908,5 +910,32 @@ function ReasonRows({ reasons }: { reasons: readonly ClassReason[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * `fillMailBody` confermata ma non salvata su Gmail (area 6, F3): lo dice, e
+ * dà il testo da copiare. «Retry» non c'è in questa fetta (registro).
+ */
+function MailNotSaved({ text }: { text: string }) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+  return (
+    <p className="flex flex-wrap items-baseline gap-x-1 text-sm text-critical">
+      <span className="font-semibold">{t("claude.conversation.proposal.mailNotSaved")}</span>
+      <button
+        type="button"
+        className="rounded-sm font-medium text-ink underline underline-offset-2"
+        onClick={() =>
+          void navigator.clipboard?.writeText(text).then(
+            () => setCopied(true),
+            () => setCopied(false),
+          )
+        }
+      >
+        {t("claude.conversation.proposal.copyText")}
+      </button>
+      {copied && <span role="status" className="text-ink-muted">{t("claude.conversation.proposal.copied")}</span>}
+    </p>
   );
 }

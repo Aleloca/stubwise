@@ -48,6 +48,8 @@ export type StreamPortMessage =
   | { type: "frame"; messages: AgentStreamMessage[]; lastId: string | null; real: boolean; invalidSession: boolean }
   /** Area 4: un frame dello stream di un canale della Chat (`parseChatStreamFrame`). */
   | { type: "chatFrame"; messages: ChatStreamFrameMessage[]; cursor: string | null }
+  /** Area 6, F3: un pezzo della bozza di Claude per la Posta (`parseMailDraftFrame`). */
+  | { type: "mailDraft"; event: MailDraftStreamEvent }
   | { type: "end"; reason: StreamEndReason; fatal: boolean; status?: number; code?: string };
 
 /** Il minimo di `MessagePortMain` che serve (finto nei test). */
@@ -68,6 +70,65 @@ export interface StreamDeps {
 
 const FATAL_STATUSES = new Set([401, 403, 404]);
 
+// --- La bozza di Claude per la Posta (area 6, F3) --------------------------------
+//
+// L'unico stream in POST: il percorso esatto, e il corpo ricostruito qui dai
+// soli campi previsti (il renderer non sceglie né il metodo né altro).
+
+const MAIL_DRAFT_PATH = "/api/me/mail/drafts/claude";
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const MAIL_DRAFT_MODES = new Set(["new", "reply", "replyAll", "forward"]);
+/** L'indicazione a Claude, al più. */
+const MAIL_DRAFT_HINT_MAX = 4000;
+
+/** Il corpo della bozza di Claude, coi soli campi previsti; `null` se non va. */
+export function mailDraftBody(raw: unknown): string | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const b = raw as Record<string, unknown>;
+  if (typeof b.accountId !== "string" || !UUID.test(b.accountId)) return null;
+  if (b.threadId !== null && (typeof b.threadId !== "string" || b.threadId.length === 0 || b.threadId.length > 200)) return null;
+  if (typeof b.mode !== "string" || !MAIL_DRAFT_MODES.has(b.mode)) return null;
+  const hint = b.hint ?? "";
+  if (typeof hint !== "string" || hint.length > MAIL_DRAFT_HINT_MAX) return null;
+  const projectId = b.projectId ?? null;
+  if (projectId !== null && (typeof projectId !== "string" || !UUID.test(projectId))) return null;
+  return JSON.stringify({ accountId: b.accountId, threadId: b.threadId, mode: b.mode, hint, projectId });
+}
+
+export type MailDraftStreamEvent =
+  | { type: "delta"; text: string }
+  | { type: "done"; text: string; projectId: string | null; used: unknown[] }
+  | { type: "error"; code: string };
+
+/** Un frame SSE della bozza (`data: {json}`), se è uno dei tre previsti. */
+export function parseMailDraftFrame(raw: string): MailDraftStreamEvent | null {
+  const data = raw
+    .split("\n")
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trimStart())
+    .join("\n");
+  if (!data) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  const e = parsed as Record<string, unknown> | null;
+  if (!e || typeof e !== "object") return null;
+  if (e.type === "delta" && typeof e.text === "string") return { type: "delta", text: e.text };
+  if (e.type === "done" && typeof e.text === "string") {
+    return {
+      type: "done",
+      text: e.text,
+      projectId: typeof e.projectId === "string" ? e.projectId : null,
+      used: Array.isArray(e.used) ? e.used : [],
+    };
+  }
+  if (e.type === "error" && typeof e.code === "string") return { type: "error", code: e.code };
+  return null;
+}
+
 function codeOf(text: string): string | undefined {
   try {
     const parsed = JSON.parse(text) as { code?: unknown };
@@ -83,7 +144,7 @@ export function createStreamRegistry(deps: StreamDeps) {
 
   const count = (windowId: number) => open.get(windowId)?.size ?? 0;
 
-  function start(windowId: number, path: unknown, port: StreamPort): void {
+  function start(windowId: number, path: unknown, port: StreamPort, options: { body?: unknown } = {}): void {
     port.start();
     let ended = false;
     const end = (message: Extract<StreamPortMessage, { type: "end" }>) => {
@@ -96,9 +157,12 @@ export function createStreamRegistry(deps: StreamDeps) {
       }
       port.close();
     };
-    // Due allowlist strette: le sessioni dell'agente e, dall'area 4, i canali della Chat.
+    // Tre allowlist strette: le sessioni dell'agente, dall'area 4 i canali della
+    // Chat, dall'area 6 la bozza di Claude per la Posta (un POST, col suo corpo).
     const chat = typeof path === "string" && isAllowedChatStreamPath(path);
-    if (typeof path !== "string" || (!chat && !isAllowedAgentStreamPath(path))) {
+    const mailDraft = path === MAIL_DRAFT_PATH;
+    const draftBody = mailDraft ? mailDraftBody(options.body) : null;
+    if (typeof path !== "string" || (!chat && !mailDraft && !isAllowedAgentStreamPath(path)) || (mailDraft && draftBody === null)) {
       end({ type: "end", reason: "rejected", fatal: true });
       return;
     }
@@ -152,8 +216,13 @@ export function createStreamRegistry(deps: StreamDeps) {
       let response: Response;
       try {
         response = await (deps.fetch ?? fetch)(`${base}${path}`, {
-          method: "GET",
-          headers: { accept: "text/event-stream", authorization: `Bearer ${token}` },
+          method: mailDraft ? "POST" : "GET",
+          headers: {
+            accept: "text/event-stream",
+            authorization: `Bearer ${token}`,
+            ...(mailDraft ? { "content-type": "application/json" } : {}),
+          },
+          ...(mailDraft ? { body: draftBody! } : {}),
           redirect: "manual",
           signal: abort.signal,
         });
@@ -206,6 +275,11 @@ export function createStreamRegistry(deps: StreamDeps) {
         const { frames, rest } = splitSseFrames(buffer);
         buffer = rest;
         for (const raw of frames) {
+          if (mailDraft) {
+            const event = parseMailDraftFrame(raw);
+            if (event) port.postMessage({ type: "mailDraft", event } satisfies StreamPortMessage);
+            continue;
+          }
           if (chat) {
             const parsed = parseChatStreamFrame(raw);
             if (!parsed.real) continue;

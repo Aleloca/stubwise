@@ -224,9 +224,23 @@ export function rememberConversationOwner(conversationId: string, ownerId: strin
 }
 const ownerOf = (conversationId: string) => owners.get(conversationId) ?? session.personId ?? "";
 
+/**
+ * Il corpo di `fillMailBody` che Gmail non ha salvato (`effectFailure`), da
+ * copiare. Un server di prima non manda il campo: `?? null`, cioè riuscita
+ * (il web e l'app leggono senza parse, quindi la difesa sta qui).
+ */
+function mailNotSavedOf(group: GroupView | undefined): { text: string } | undefined {
+  const failed = group?.actions.find(
+    (a) => a.fn === "fillMailBody" && ((a as { effectFailure?: string | null }).effectFailure ?? null) === "mail_not_saved",
+  );
+  if (!failed) return undefined;
+  return { text: typeof failed.args["text"] === "string" ? (failed.args["text"] as string) : "" };
+}
+
 function proposalEvent(p: ProposalView, at: string, actions: ChatActions): ConversationEvent {
   const group = p.groupId ? actions.groups.find((g) => g.id === p.groupId) : undefined;
   const failure = failureOf(p);
+  const mailNotSaved = mailNotSavedOf(group);
   return {
     id: `proposal:${p.id}`,
     at,
@@ -243,6 +257,7 @@ function proposalEvent(p: ProposalView, at: string, actions: ChatActions): Conve
     ...(p.groupId ? { groupId: p.groupId } : {}),
     ...(group ? { resultCodes: group.actions.flatMap((a) => a.codes), objectCodes: group.actions.map((a) => a.codes[0] ?? null) } : {}),
     ...(failure ? { failure } : {}),
+    ...(mailNotSaved ? { mailNotSaved } : {}),
     ...(p.undoOfGroupId ? { undoOf: p.undoOfGroupId } : {}),
   } as ConversationEvent;
 }

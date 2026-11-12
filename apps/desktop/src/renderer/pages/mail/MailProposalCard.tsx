@@ -39,12 +39,13 @@ import {
   assigneeOf,
   effectiveArgs,
   isLiveProposal,
+  isOutsideAssignee,
   phraseOf,
   type Args,
   type Ctx,
   type Edits,
 } from "./proposalText";
-import { mailProposalEdits } from "./mailFeatures";
+import { mailContributors, mailProposalEdits } from "./mailFeatures";
 
 // Una proposta nata da un'email (shape mail.md §4): la stessa scheda nella
 // Posta (sotto il messaggio d'origine) e in «Da decidere». Parla la lingua
@@ -154,8 +155,7 @@ export function MailProposalCard({
    */
   const isOutside = (index: number, personId: string) => {
     const action = p.actions[index]!;
-    const original = assigneeOf(action.fn, action.args);
-    return personId === original ? outsiderIds.has(personId) : !members.has(personId);
+    return isOutsideAssignee(personId, assigneeOf(action.fn, action.args), outsiderIds, members);
   };
 
   // Chi la sta decidendo altrove non deve trovarla aperta qui: un esito nuovo
@@ -176,6 +176,9 @@ export function MailProposalCard({
       setEditing(null);
       return;
     }
+    // Una proposta di cui il server non accetta i campi cambiati (le proposte di prima,
+    // `editable` falso); su una modificabile `invalid_edits` è un campo non valido.
+    if (err.message === "invalid: edits" && view.editable === false) return setError(t("mail.proposal.errorEdits"));
     setError(t(err.message === "forbidden" ? "mail.proposal.errorForbidden" : "mail.proposal.error"));
   };
 
@@ -304,7 +307,7 @@ export function MailProposalCard({
       const row = target.closest<HTMLElement>("[data-action-row]");
       if (!row) return;
       const index = Number(row.dataset.actionRow);
-      if (mailProposalEdits() && EDITABLE.has(p.actions[index]!.fn)) {
+      if (mailProposalEdits() && view.editable !== false && EDITABLE.has(p.actions[index]!.fn)) {
         e.preventDefault();
         setEditing({ index });
       }
@@ -487,7 +490,7 @@ export function MailProposalCard({
                       <Phrase action={action} args={args} who={who} ctx={ctx} isOutside={(who) => isOutside(i, who)} edited={!!edits[i]} />
                     </span>
                   )}
-                  {decidable && mailProposalEdits() && EDITABLE.has(action.fn) && !rowEditing && (
+                  {decidable && mailProposalEdits() && view.editable !== false && EDITABLE.has(action.fn) && !rowEditing && (
                     <button
                       type="button"
                       className={`${quietButton} h-7`}
@@ -570,7 +573,7 @@ export function MailProposalCard({
         <OutsiderPrompt
           outsiders={asking}
           code={code}
-          canAdd={can(viewer, "project.members.manage", p.projectId)}
+          canAdd={mailContributors() && can(viewer, "project.members.manage", p.projectId)}
           busy={busy}
           onAdd={() => run({ add: asking.map((o) => o.personId) })}
           onChoose={chooseSomeoneElse}

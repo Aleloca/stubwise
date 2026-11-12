@@ -13,7 +13,7 @@ import type {
 import { hasModKey } from "../../platform/platform";
 import { isToastShown, onToastsChange, useToast } from "../../tasks-ui/Toast";
 import { typing } from "../tasks/useTaskKeys";
-import { closeComposer, requestCompose } from "./composeRequest";
+import { closeComposer, holdUnsavedDraft, requestCompose } from "./composeRequest";
 
 // L'avviso dopo «Send» (shape mail-compose §5 [A 12]): «Sending to Monica
 // Corsi · Undo» per i 5 s dell'invio — la `Toast` esistente, che dura già
@@ -161,6 +161,11 @@ export function useDiscardedNotice() {
   );
 }
 
+/** Una bozza tornata non salvata aspetta la casella del suo posto (`composeRequest.ts`). */
+export function holdRestored(restored: MailDraftRestore): void {
+  if (restored.unsaved) holdUnsavedDraft({ draft: restored.draft, leftInGmail: restored.leftInGmail ?? [] });
+}
+
 /**
  * Mostra l'avviso di un invio appena partito (o di un «Retry»). `newEmail`:
  * «Undo» riapre la nuova email.
@@ -184,6 +189,10 @@ export function useUndoSendToast() {
           .then(() => undoAsync(result.messageId))
           .then(
             (restored) => {
+              // Build app: con un'altra bozza nella conversazione l'invio è
+              // fermo lo stesso, e il testo torna NON salvato: la casella lo
+              // riapre così, e chi scrive lo salva o lo scarta.
+              holdRestored(restored);
               reopen(restored.draft);
               dropped(restored);
             },

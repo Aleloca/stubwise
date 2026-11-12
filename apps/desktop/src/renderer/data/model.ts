@@ -1356,6 +1356,13 @@ export type ConversationEvent =
       /** Area 10a (Task 9): il rifiuto della conferma in forma di dato, per «Couldn't do it: … · Who?». */
       failure?: ExecutedFailure;
       /**
+       * Build app (area 6, F3): confermata, ma Gmail non ha salvato il corpo
+       * proposto da `fillMailBody` (`effectFailure: "mail_not_saved"` del
+       * server). La scheda non dice «Done»: dice che non è nella bozza e dà
+       * il testo da copiare.
+       */
+      mailNotSaved?: { text: string };
+      /**
        * Area 10a (I1 della revisione finale): la scheda di un «Annulla» il cui
        * inverso avviserebbe qualcuno o farebbe partire un'automazione. È il
        * gruppo che annulla; le azioni sono gli inversi, coi riassunti delle
@@ -2542,6 +2549,8 @@ export interface MailProposal {
 export interface MailProposalFilters {
   sourceId?: string;
   status?: MailProposal["status"];
+  /** Le proposte dei messaggi di una conversazione (la pagina di lettura). */
+  threadId?: string;
 }
 
 /**
@@ -2575,6 +2584,11 @@ export interface MailProposalView {
    * letta per il solo estratto. La calcola `listMailDecisions`.
    */
   origin?: MailProposalOrigin | null;
+  /**
+   * Build app: i campi si possono cambiare prima di confermare. Lo dice il
+   * server (falso sulle proposte di prima); assente nel prototipo = sì.
+   */
+  editable?: boolean;
 }
 
 /** L'origine di una proposta della posta, come la vede chi guarda. */
@@ -2614,6 +2628,13 @@ export interface MailDraft {
    */
   slot?: string;
   updatedAt: string;
+  /**
+   * Build app: la firma di Gmail della casella (testo), che il server aggiunge
+   * all'invio sotto il corpo — mai nel corpo; `scope_missing` = la casella
+   * non ha il permesso per leggerla e l'email parte senza.
+   */
+  signature?: string | null;
+  signatureStatus?: "present" | "none" | "scope_missing";
 }
 
 export interface MailDraftAttachment {
@@ -2622,6 +2643,8 @@ export interface MailDraftAttachment {
   sizeBytes: number;
   driveFileId: string | null;
   as: "copy" | "link";
+  /** Build app: il file scelto dal disco, caricato sulla bozza al salvataggio. */
+  file?: File;
 }
 
 /**
@@ -2653,6 +2676,15 @@ export interface MailSendResult {
 export interface MailDraftRestore {
   draft: MailDraft;
   droppedAttachments: MailDraftAttachment[];
+  /**
+   * Build app: la bozza è tornata NON salvata, perché nella stessa
+   * conversazione c'era già un'altra bozza. L'invio è fermo comunque; il
+   * compositore la riapre senza salvarla da sé, e chi scrive la salva
+   * (sopra l'altra) o la scarta. Il prototipo unisce le due bozze: mai vero.
+   */
+  unsaved?: boolean;
+  /** Con `unsaved`: i nomi degli allegati rimasti nella bozza su Gmail. */
+  leftInGmail?: string[];
 }
 
 /** I filtri dell'elenco della Posta (tutti facoltativi). */

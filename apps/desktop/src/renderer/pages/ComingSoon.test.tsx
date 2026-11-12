@@ -290,6 +290,8 @@ const INTEGRATED_CALLS = new Set([
   "mail.whenMailSynced",
   "mail.whenMailIdle",
   "mail.listMailThreads",
+  // Area 6, fetta 2: «Importanti» e il blocco Home «Posta importante».
+  "mail.listImportantMail",
   "mail.getMailThread",
   "mail.searchMail",
   "mail.reproposeMessage",
@@ -302,6 +304,25 @@ const INTEGRATED_CALLS = new Set([
   "mail.ignoreMailProposal",
   "mail.handMailProposal",
   "mail.reassignMailProposal",
+  // Area 6, fetta 2: «Quale progetto?».
+  "mail.chooseProjectFor",
+  // Area 6, fetta 3: scrivere (`data/backend/real/{mailDrafts,mailSend}.ts`).
+  "mail.MAIL_UNDO_MS",
+  "mail.MAIL_MAX_ATTACHMENTS",
+  "mail.MAIL_MAX_BYTES",
+  "mail.listDrafts",
+  "mail.getDraft",
+  "mail.saveDraft",
+  "mail.discardDraft",
+  "mail.restoreDiscardedDraft",
+  "mail.attachDriveFile",
+  "mail.suggestRecipients",
+  "mail.sendDraft",
+  "mail.whenSendSettled",
+  "mail.undoSend",
+  "mail.retrySend",
+  "mail.deleteFailedSend",
+  "mail.streamClaudeDraft",
   // Area 6, fetta 1: il Calendario in lettura e le serie (`data/backend/real/calendar.ts`).
   "calendar.calendarWindow",
   "calendar.spanOf",
@@ -545,8 +566,8 @@ describe("le superfici della fetta 2 nella build app", () => {
 });
 
 /** I blocchi delle aree non integrate (posta e calendario, automazioni, rilasci, assistenza). */
-// «Upcoming» (gli appuntamenti) è acceso dall'area 6, fetta 1.
-const FUTURE_BLOCKS = /^(Important email|Automations|Releases|Customers waiting)/;
+// «Upcoming» (gli appuntamenti) è acceso dall'area 6, fetta 1; «Important email» dalla fetta 2.
+const FUTURE_BLOCKS = /^(Automations|Releases|Customers waiting)/;
 
 describe("le superfici della fetta 3 nella build app", () => {
   it("dopo il login si atterra sulla Home a blocchi", async () => {
@@ -585,7 +606,7 @@ describe("le superfici della fetta 3 nella build app", () => {
       { kind: "myWeek" },
       { kind: "releases" },
       { kind: "automations" },
-      { kind: "importantMail" },
+      { kind: "waitingCustomers" },
       { kind: "myTasks" },
     ]);
     calls.length = 0;

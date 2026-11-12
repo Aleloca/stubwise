@@ -23,11 +23,16 @@ const UPLOAD_CHUNK_BYTES = 64 * 1024;
 export const DRIVE_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-const UPLOAD_PATH = new RegExp(`^/api/projects/${UUID}/drive/files$`, "i");
+const UPLOAD_PATHS = [
+  // Area 5, fetta 2: un file nel Drive di un progetto.
+  new RegExp(`^/api/projects/${UUID}/drive/files$`, "i"),
+  // Area 6, fetta 3: un allegato dal disco su una bozza della Posta.
+  new RegExp(`^/api/me/mail/drafts/${UUID}/attachments$`, "i"),
+];
 
-/** Solo il caricamento del Drive di un progetto, esatto. */
+/** Solo i caricamenti previsti, esatti: il Drive di un progetto e gli allegati di una bozza. */
 export function isAllowedUploadPath(path: unknown): path is string {
-  return typeof path === "string" && UPLOAD_PATH.test(path);
+  return typeof path === "string" && UPLOAD_PATHS.some((re) => re.test(path));
 }
 
 /** Un tipo MIME come lo scrive un File (`tipo/sottotipo`), o niente. */

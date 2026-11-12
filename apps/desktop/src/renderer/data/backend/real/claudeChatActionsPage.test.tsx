@@ -99,6 +99,8 @@ const ALLOWED = [
   /^GET \/api\/decisions/,
   /^GET \/api\/me\/claude-decisions$/,
   /^GET \/api\/inbox/,
+  // Area 6, fetta 2: le proposte della Posta in «Da decidere» (prima dalle card dell'inbox).
+  /^GET \/api\/me\/mail\/proposals(\?|$)/,
   /^GET \/api\/people$/,
   /^GET \/api\/departments$/,
   /^GET \/api\/tasks(\?|$)/,
@@ -194,6 +196,54 @@ afterEach(() => {
 const card = () => screen.findByRole("region", { name: /Claude proposes/ });
 
 describe("le azioni di Claude nella pagina della conversazione", () => {
+  describe("«fillMailBody» confermata (area 6, F3)", () => {
+    const ACC = "aaaaaaaa-1111-4111-8111-111111111111";
+    const fill = { fn: "fillMailBody", args: { accountId: ACC, threadId: "t-1", mode: "reply", text: "Ciao Bob, arriva lunedì." } };
+    const setup = (action: Record<string, unknown>) =>
+      install({
+        proposals: [
+          cardB({ actions: [fill], reasons: [], status: "confirmed", canConfirm: false, canCancel: false, groupId: GROUP_A }),
+        ],
+        groups: [groupA({ proposalId: PROPOSAL, actions: [action] })],
+        routes: {
+          [`GET /api/agent-sessions/${CONV}/events`]: {
+            body: {
+              events: [
+                { id: "1", type: "input", segmentId: "s1", at: "2026-11-10T10:00:10.000Z", data: { inputId: "i1", text: "Rispondi a Bob" } },
+                { id: "3", type: "proposal", segmentId: "s1", at: "2026-11-10T10:00:50.000Z", data: { proposalId: PROPOSAL } },
+                { id: "5", type: "actions_executed", segmentId: "s1", at: "2026-11-10T10:00:55.000Z", data: { groupId: GROUP_A, proposalId: PROPOSAL } },
+              ],
+              before: null,
+            },
+          },
+        },
+      });
+
+    it("Gmail non l'ha salvata (`mail_not_saved`): la scheda non dice «Done» ma «Not saved to Gmail», e «Copy the text» copia il testo", async () => {
+      setup({ ...fill, codes: [], effectFailure: "mail_not_saved" });
+      // userEvent mette i suoi appunti: si rileggono da lì.
+      const ue = userEvent.setup();
+      renderRoute(`/claude/${CONV}`);
+      const proposal = await card();
+      await waitFor(() => expect(proposal).toHaveTextContent("Not saved to Gmail"));
+      expect(proposal).not.toHaveTextContent(/\bDone\b/);
+      expect(within(proposal).queryByRole("button", { name: /Retry/ })).toBeNull();
+      await ue.click(within(proposal).getByRole("button", { name: "Copy the text" }));
+      expect(await navigator.clipboard.readText()).toBe("Ciao Bob, arriva lunedì.");
+      expect(await within(proposal).findByText("Copied")).toBeInTheDocument();
+    });
+
+    it("un server di prima, senza `effectFailure` nel gruppo: «Done» come ogni scheda confermata", async () => {
+      // Fixture SENZA il campo, apposta: è la prova della difesa `?? null`.
+      setup({ ...fill, codes: [] });
+      renderRoute(`/claude/${CONV}`);
+      const proposal = await card();
+      await waitFor(() => expect(proposal).toHaveTextContent("Done"));
+      expect(proposal).not.toHaveTextContent("Not saved to Gmail");
+      expect(proposal).toHaveTextContent("Write the email body in your Gmail draft");
+    });
+  });
+
   it("una B: la scheda coi motivi del server, l'avvio del lavoro compreso; «Confirm» la conferma sul server", async () => {
     install();
     const ue = userEvent.setup();

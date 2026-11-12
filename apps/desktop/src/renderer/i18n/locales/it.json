@@ -411,7 +411,7 @@
       "syncFailed": "Collegata · l'ultima sincronizzazione non è riuscita",
       "needsReconnect": "Da ricollegare: l'accesso è stato revocato su Google",
       "proposals": "Proposte",
-      "proposalsHint": "Trasforma in proposte le email e gli eventi di questa casella.",
+      "proposalsHint": "Trasforma in proposte le email e gli eventi di questa casella. Le proposte che altri condividono con te ti arrivano comunque.",
       "proposalsFailed": "Non è stato possibile cambiare le Proposte. Riprova.",
       "reconnect": "Ricollega",
       "more": "Altro per {{email}}",
@@ -429,7 +429,7 @@
         "title": "Collega una casella",
         "reconnectTitle": "Ricollega {{email}}",
         "workspace": "Workspace",
-        "consent": "Collegando una casella, Stubwise leggerà oggetto e corpo di ogni email ammessa e li invierà al provider di analisi AI configurato su questa istanza, per proporre azioni.",
+        "consent": "Collegando una casella, Stubwise leggerà oggetto e testo delle email di questa casella e li invierà al provider di analisi AI configurato su questa istanza, per proporti task e richieste.",
         "continue": "Continua su Google",
         "continuing": "In attesa di Google…",
         "tryAgain": "Riprova",
@@ -4054,6 +4054,9 @@
         "confirmSelected_other": "Conferma le {{count}} scelte",
         "done": "Fatto",
         "doneEdited": "Fatto (modificata)",
+        "mailNotSaved": "Non salvato su Gmail: il testo non è nella tua bozza.",
+        "copyText": "Copia il testo",
+        "copied": "Copiato",
         "partial_one": "{{done}} di {{count}} modifica",
         "partial_other": "{{done}} di {{count}} modifiche",
         "cancelled": "Annullata",
@@ -4813,6 +4816,7 @@
         "deleteMilestone": "Elimina un traguardo",
         "saveFilter": "Salva il filtro «{{name}}»",
         "deleteFilter": "Elimina un filtro salvato",
+        "fillMailBody": "Scrivere il corpo dell'email nella tua bozza di Gmail",
         "pageAction": "Cambia questa pagina ({{kind}})",
         "deleteTask": "Elimina {{code}}",
         "deleteTaskNoCode": "Elimina una task"
@@ -6177,6 +6181,7 @@
       "outcomeTitle": "Proposta per {{code}}",
       "error": "Non è stato possibile farlo. Riprova.",
       "errorForbidden": "In questo progetto non puoi più farlo.",
+      "errorEdits": "Questa proposta non si può modificare: confermala così com'è.",
       "ability": {
         "createTasks": "creare task",
         "editTasks": "modificare task",
@@ -6275,6 +6280,9 @@
       "andOthers_one": "{{names}} e un altro",
       "andOthers_other": "{{names}} e altri {{count}}",
       "undoFailed": "Non è stato possibile annullare: l'email potrebbe essere già in partenza. Controlla la conversazione.",
+      "unsaved": "Non salvata: in questa conversazione c'è già un'altra bozza. Salvarla la sostituisce.",
+      "unsavedAttachments": "Gli allegati sono rimasti nella bozza su Gmail: {{names}}.",
+      "save": "Salva",
       "restoreFailed": "Non è stato possibile recuperare la bozza.",
       "actionFailed": "Non ha funzionato. Il tuo testo non è cambiato; riprova.",
       "team": "Team",
@@ -6356,7 +6364,12 @@
         "address": "uno degli indirizzi non è valido",
         "recipients": "aggiungi almeno un destinatario",
         "other": "qualcosa non ha funzionato"
-      }
+      },
+      "changedInGmail": "Questa bozza è stata modificata su Gmail.",
+      "keepMine": "Tieni la mia",
+      "openGmail": "Apri su Gmail",
+      "signature": "La tua firma di Gmail",
+      "noSignature": "Questa email parte senza la tua firma di Gmail: ricollega l'account Google per aggiungerla."
     },
     "readState": {
       "reconnect": "Ricollega l'account Google per tenere letto e non letto allineati con Gmail.",

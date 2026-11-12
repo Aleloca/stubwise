@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { MailProposalView, Person, ProposedAction, Task } from "../../data/types";
+import type { Person, ProposedAction, Task } from "../../data/types";
 import { spoken } from "../../domain/claude/answers";
 import { dayLabel } from "./format";
 
@@ -7,18 +7,22 @@ import { dayLabel } from "./format";
 // la scheda (`MailProposalCard`), la modifica sul posto (`EditRow`) e l'esito
 // (`Outcome`) condividono.
 
+export { isLiveProposal } from "../../domain/mail/liveProposal";
+
 /**
- * Una proposta che aspetta chi guarda: può confermarla (aperta o passata al
- * progetto), passarla, o sceglierne il progetto. È la scheda viva, col punto.
+ * L'incaricato è fuori dal progetto? Quello del modello lo dice il server
+ * (`outsiders`); uno scelto nella modifica sul posto si confronta coi membri
+ * del progetto, ma solo se si conoscono: un elenco vuoto (non letto) non
+ * permette di dedurlo, e alla conferma decide il server (`invalid: assignee`).
  */
-export function isLiveProposal(view: MailProposalView): boolean {
-  const p = view.proposal;
-  const choose = p.actions.find((a) => a.fn === "chooseProject");
-  if (choose) return p.status === "open" && ((choose.args.projectIds as string[] | undefined) ?? []).length > 0;
-  return (
-    ((p.status === "open" || p.status === "handed") && view.canConfirm) ||
-    (p.status === "open" && view.canHand)
-  );
+export function isOutsideAssignee(
+  personId: string,
+  original: string | null | undefined,
+  outsiderIds: ReadonlySet<string>,
+  members: ReadonlySet<string>,
+): boolean {
+  if (personId === original) return outsiderIds.has(personId);
+  return members.size > 0 && !members.has(personId);
 }
 
 export type Args = Record<string, unknown>;
@@ -94,6 +98,8 @@ export function phraseOf(action: ProposedAction, args: Args, ctx: Ctx): string {
     case "addComment":
       return t("mail.proposal.phrase.addComment", { task: task(args.taskId), body: args.body });
     case "recordDecision":
+      // Il server (build app) non dà il titolo: il registro lo scrive da template alla conferma.
+      if (typeof args.title !== "string" && action.summary) return action.summary;
       return t("mail.proposal.phrase.recordDecision", { code, title: args.title });
     case "createMilestone": {
       const base = t("mail.proposal.phrase.createMilestone", { code, name: args.name });

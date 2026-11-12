@@ -59,6 +59,8 @@ const ALLOWED = [
   /^GET \/api\/decisions/,
   /^GET \/api\/me\/claude-decisions$/,
   /^GET \/api\/inbox/,
+  // Area 6, fetta 2: le proposte della Posta in «Da decidere» (prima dalle card dell'inbox).
+  /^GET \/api\/me\/mail\/proposals(\?|$)/,
   /^GET \/api\/people$/,
   /^GET \/api\/departments$/,
   /^GET \/api\/tasks(\?|$)/,

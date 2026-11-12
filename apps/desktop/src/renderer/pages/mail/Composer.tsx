@@ -53,6 +53,10 @@ import {
 import { AlertGlyph } from "./glyphs";
 import { ADDRESS, RecipientField } from "./RecipientField";
 import { useComposerDraft } from "./useComposerDraft";
+import { mailClaudeDraft } from "./mailFeatures";
+
+/** Le bozze su Gmail («Apri su Gmail» di una bozza cambiata là). */
+const GMAIL_DRAFTS = "https://mail.google.com/mail/#drafts";
 
 // La casella di scrittura della Posta (shape mail-compose §3, §5, §6): la
 // stessa casella della conversazione con Claude, allargata a un modulo —
@@ -104,7 +108,8 @@ export interface MailFieldBridge {
 /** La ragione di un invio rifiutato, in parole. */
 function reasonKey(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
-  if (message === "google_not_connected") return "mail.compose.reason.notConnected";
+  // Scaduta, o senza il permesso nuovo del riconsenso: in entrambi i casi si ricollega.
+  if (message === "google_not_connected" || message === "google_scope_missing") return "mail.compose.reason.notConnected";
   if (message === "attachment_unavailable") return "mail.compose.reason.attachment";
   if (message === "invalid: too_large" || message === "invalid: attachments")
     return "mail.compose.reason.tooLarge";
@@ -302,7 +307,8 @@ export function Composer(props: ComposerProps) {
             : expired
               ? t("mail.compose.expired", { email: box?.email ?? "" })
               : null;
-  const canSend = blocked === null && !sending;
+  // Una bozza tornata non salvata (build app): prima si salva o si scarta.
+  const canSend = blocked === null && !sending && !draft.unsaved;
 
   async function doSend(force = false) {
     const f = draft.current();
@@ -329,6 +335,8 @@ export function Composer(props: ComposerProps) {
   }
 
   function doDiscard() {
+    // Non salvata: niente da togliere (l'altra bozza resta, la copia è su Gmail).
+    if (draft.unsaved) return draft.discardUnsaved();
     const snapshot = draft.discarded();
     discard.mutate(snapshot.id);
     onDiscarded(snapshot);
@@ -351,6 +359,8 @@ export function Composer(props: ComposerProps) {
         sizeBytes: file.size,
         driveFileId: null,
         as: "copy" as const,
+        // Build app: il file vero, che il salvataggio carica sulla bozza.
+        file,
       })),
     );
   }
@@ -539,6 +549,18 @@ export function Composer(props: ComposerProps) {
           />
         )}
         <ClaudeDraftNote flow={claude} id={markId} />
+        {/* Build app: la firma di Gmail, che il server aggiunge all'invio sotto il corpo. */}
+        {fields.signatureStatus === "present" && fields.signature && (
+          <p
+            aria-label={t("mail.compose.signature")}
+            className="px-3 pb-2 text-sm whitespace-pre-line text-ink-muted"
+          >
+            {`-- \n${fields.signature}`}
+          </p>
+        )}
+        {fields.signatureStatus === "scope_missing" && (
+          <p className="px-3 pb-2 text-xs text-ink-muted">{t("mail.compose.noSignature")}</p>
+        )}
         {original && mode !== "new" && (
           <div className="flex flex-col gap-2 px-3 pb-2">
             <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
@@ -705,9 +727,45 @@ export function Composer(props: ComposerProps) {
             e.target.value = "";
           }}
         />
-        <ClaudeDraftButton flow={claude} />
+        {mailClaudeDraft() && <ClaudeDraftButton flow={claude} />}
         <span className="ml-auto flex items-center gap-1">
-          {status === "failed" ? (
+          {draft.unsaved ? (
+            <span role="alert" className="flex flex-wrap items-center gap-1 px-1 text-xs text-critical">
+              <span>
+                {t("mail.compose.unsaved")}
+                {draft.unsaved.leftInGmail.length > 0 &&
+                  ` ${t("mail.compose.unsavedAttachments", { names: draft.unsaved.leftInGmail.join(", ") })}`}
+                {status === "failed" && ` ${t("mail.compose.saveFailed")}`}
+              </span>
+              <button
+                type="button"
+                disabled={status === "saving"}
+                onClick={() => void draft.saveUnsaved()}
+                className="rounded-sm font-medium underline underline-offset-2"
+              >
+                {t("mail.compose.save")}
+              </button>
+            </span>
+          ) : status === "conflict" ? (
+            <span role="alert" className="flex items-center gap-1 px-1 text-xs text-critical">
+              <span>{t("mail.compose.changedInGmail")}</span>
+              <button
+                type="button"
+                onClick={() => void draft.keepMine()}
+                className="rounded-sm font-medium underline underline-offset-2"
+              >
+                {t("mail.compose.keepMine")}
+              </button>
+              ·
+              <button
+                type="button"
+                onClick={() => window.open(GMAIL_DRAFTS, "_blank", "noopener")}
+                className="rounded-sm font-medium underline underline-offset-2"
+              >
+                {t("mail.compose.openGmail")}
+              </button>
+            </span>
+          ) : status === "failed" ? (
             <span className="flex items-center gap-1 px-1 text-xs text-critical">
               {t("mail.compose.saveFailed")} ·
               <button

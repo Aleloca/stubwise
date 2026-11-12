@@ -58,6 +58,14 @@ type StubwiseStreamMessage =
       cursor: string | null;
     }
   | {
+      /** Area 6, F3: un pezzo della bozza di Claude per la Posta. */
+      type: "mailDraft";
+      event:
+        | { type: "delta"; text: string }
+        | { type: "done"; text: string; projectId: string | null; used: unknown[] }
+        | { type: "error"; code: string };
+    }
+  | {
       type: "end";
       reason: "closed" | "network" | "timeout" | "rotate" | "http" | "redirect" | "unauthorized" | "rejected" | "limit";
       fatal: boolean;
@@ -95,7 +103,12 @@ interface Window {
      * Lo stream di una sessione (`/api/agent-sessions/:uuid/stream?after=n`),
      * col token aggiunto dal main; restituisce la funzione che lo chiude.
      */
-    openStream?: (path: string, onMessage: (message: StubwiseStreamMessage) => void) => () => void;
+    openStream?: (
+      path: string,
+      onMessage: (message: StubwiseStreamMessage) => void,
+      /** Area 6, F3: il corpo del POST della bozza di Claude (lo valida il main). */
+      options?: { body?: unknown },
+    ) => () => void;
     /** L'indirizzo dell'istanza scelto al primo avvio. */
     instance?: {
       get: () => Promise<string | null>;

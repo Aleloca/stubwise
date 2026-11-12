@@ -148,6 +148,8 @@ describe("Account", () => {
     renderRoute("/preferences/account", GIULIA);
     const proposals = await screen.findByRole("switch", { name: "Proposals" });
     expect(proposals).toHaveAttribute("aria-checked", "true");
+    // Spegne solo la classificazione della propria posta (decisione B della F2).
+    expect(screen.getByText(/Proposals that others share with you still reach you\./)).toBeVisible();
     await user.click(proposals);
     await waitFor(() =>
       expect(state.mailboxes.find((b) => b.personId === GIULIA)!.proposalsEnabled).toBe(false),
@@ -169,6 +171,10 @@ describe("Account", () => {
 
     await user.click(screen.getByRole("button", { name: "Connect a mailbox" }));
     const dialog = await screen.findByRole("dialog", { name: "Connect a mailbox" });
+    // Il consenso vale con la classificazione vecchia e con la nuova: niente «ammessa».
+    expect(dialog).toHaveTextContent(
+      "Stubwise will read the subject and body of the emails in this mailbox and send them to the AI analysis provider configured on this instance, to suggest tasks and requests.",
+    );
     // Il consenso del web resta, in un paragrafo a sé.
     expect(within(dialog).getByText(/send them to the AI analysis provider/)).toBeVisible();
     await user.click(within(dialog).getByRole("radio", { name: "Wrong domain" }));

@@ -1,183 +1,148 @@
 import { ApiError } from "@stubwise/api-client";
-import type { InboxGoogleActionType, InboxItem } from "@stubwise/shared";
+import type { MailProposal as ServerProposal } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import type { MailProposal, MailProposalView, ProposedAction } from "../../types";
+import { isLiveProposal } from "../../../domain/mail/liveProposal";
 import { appClient } from "./client";
+import { splitThreadKey } from "./mailKeys";
+import { proposalViewOf } from "./mailProposalView";
 
-// Le proposte accanto all'email nella build app (area 6, fetta 1): le card
-// `google.proposal` di `/api/inbox`, PER CASELLA (`mailbox_owner`: le vede
-// solo chi possiede la casella). Ogni azione della proposta è un'opzione
-// della card, con l'etichetta che scrive il server; le azioni del modello si
-// confermano insieme (`optionIndices`) o una per volta (`optionIndex`).
-// Niente modifica dei campi, niente incaricati fuori dal progetto, niente
-// condivisione fra destinatari (F2). La scelta del progetto di un'email
-// incerta (`choose_project`) il worker non la produce più: qui non c'è.
+// Le proposte accanto all'email nella build app (area 6, fetta 2): la rotta
+// `/api/me/mail/proposals`, una proposta per email e progetto condivisa fra i
+// destinatari membri, più le proposte di prima (per casella). Leggere e
+// decidere passano tutti da lì: confermare (anche in parte, coi campi
+// cambiati, aggiungendo gli incaricati fuori dal progetto come Contributor),
+// ignorare, passare al progetto, spostare, scegliere il progetto. Chi decide
+// per primo la chiude per tutti; il secondo ha `already_handled` con chi.
 
 type Mail = typeof Fake.mail;
 
-/** Le azioni del modello e la loro funzione nel prototipo; le altre opzioni sono gesti della card. */
-const FN_OF: Partial<Record<InboxGoogleActionType, ProposedAction["fn"]>> = {
-  create_backlog_item: "createRequest",
-  create_milestone: "createMilestone",
-  update_ticket: "updateTask",
-  comment_ticket: "addComment",
-  record_decision: "recordDecision",
-  acknowledge_reminder: "acknowledgeReminder",
+/** L'esito di una decisione come lo legge il client (gli stati ignoti via `readerSchema`). */
+type Decision = Awaited<ReturnType<ReturnType<typeof appClient>["mail"]["confirmProposal"]>>;
+
+const viewsOf = (items: readonly unknown[]) => items.map((p) => proposalViewOf(p as ServerProposal));
+
+const listMailProposals: Mail["listMailProposals"] = async (filters = {}) => {
+  // Una conversazione: il thread Gmail e la sua casella (vanno insieme).
+  const parts = filters.threadId === undefined ? null : splitThreadKey(filters.threadId);
+  if (filters.threadId !== undefined && !parts) return [];
+  const { items } = await appClient().mail.proposals({
+    message: filters.sourceId,
+    status: filters.status,
+    ...(parts ? { thread: parts.threadId, account: parts.accountId } : {}),
+  });
+  return viewsOf(items);
 };
 
-type Card = InboxItem & { google: NonNullable<InboxItem["google"]>; question: NonNullable<InboxItem["question"]> };
-
-const isMailCard = (i: InboxItem): i is Card =>
-  i.kind === "google.proposal" && i.google?.source === "email" && i.question !== undefined;
-
-/** Gli indici delle opzioni della card che sono azioni del modello, nell'ordine. */
-const modelIndices = (c: Card) => c.google.actions.flatMap((a, i) => (FN_OF[a.type] ? [i] : []));
-const optionOf = (c: Card, type: InboxGoogleActionType) => c.google.actions.findIndex((a) => a.type === type);
-
-function statusOf(c: Card): MailProposal["status"] {
-  if (c.status !== "handled") return "open";
-  if (c.google.handed) return "handed";
-  const d = c.google.decision;
-  if (d?.status === "actioned") return "confirmed";
-  if (d?.status === "failed") return "failed";
-  return "ignored";
-}
-
-function viewOf(c: Card): MailProposalView {
-  const indices = modelIndices(c);
-  const actions = indices.map<ProposedAction>((i) => ({
-    fn: FN_OF[c.google.actions[i]!.type]!,
-    args: {},
-    summary: c.question.options[i]?.label ?? "",
-  }));
-  const status = statusOf(c);
-  const chosen = new Set(c.google.decision?.chosen ?? []);
-  const proposal: MailProposal = {
-    id: c.id,
-    source: "email",
-    // La proposta del server (`email_proposals.id`): il messaggio d'origine la elenca in `proposalIds`.
-    sourceId: c.google.sourceProposalId ?? c.id,
-    projectId: c.projectId ?? "",
-    actions,
-    // Il server non dà l'estratto letto sulla card: lo mostra il messaggio sopra.
-    excerpt: "",
-    createdAt: c.createdAt,
-    status,
-    decidedById: c.handledBy?.id ?? null,
-    decidedAt: c.handledAt,
-    resultCodes: [],
-    error: c.google.decision?.error ?? null,
-    handedAt: null,
-    handedById: null,
-  };
-  if (status === "confirmed" && chosen.size > 0) {
-    proposal.confirmedActions = indices.flatMap((i, k) => (chosen.has(c.question.options[i]?.label ?? "") ? [k] : []));
-  }
-  const handable = c.actions.includes("hand_to_project");
-  return {
-    proposal,
-    // Si conferma la proposta intera: un'azione senza permesso (bloccata) la fa passare al progetto.
-    canConfirm: status === "open" && indices.every((i) => !c.google.blockedIndices.includes(i)),
-    canHand: status === "open" && handable,
-    canReassign: status === "open" && optionOf(c, "reassign_project") !== -1,
-    outsiders: [],
-    decidedBy: c.handledBy ? { personId: c.handledBy.id, name: c.handledBy.email } : null,
-    sharedWith: [],
-  };
-}
-
-/**
- * Quante pagine dell'inbox leggere al più: le aperte tutte (in pratica), le
- * decise solo le più recenti. `/api/inbox` non filtra per tipo (registro):
- * le card della Posta stanno in mezzo a tutte le altre.
- */
-const OPEN_PAGES = 20;
-const HANDLED_PAGES = 4;
-
-async function pagesOf(status: "open" | "handled", pages: number): Promise<InboxItem[]> {
-  const items: InboxItem[] = [];
-  let cursor: string | undefined;
-  for (let i = 0; i < pages; i++) {
-    const page = await appClient().inbox.list({ status }, cursor, 100);
-    items.push(...(page.items as InboxItem[]));
-    if (!page.nextCursor) break;
-    cursor = page.nextCursor;
-  }
-  return items;
-}
-
-/** Le card della Posta che vedo: le aperte e le decise di recente. */
-async function cards(): Promise<Card[]> {
-  const [open, handled] = await Promise.all([pagesOf("open", OPEN_PAGES), pagesOf("handled", HANDLED_PAGES)]);
-  return [...open, ...handled].filter(isMailCard);
-}
-
-async function cardOf(id: string): Promise<Card> {
-  const found = (await cards()).find((c) => c.id === id);
-  if (!found) throw new Error("not_found");
-  return found;
-}
-
-const listMailProposals: Mail["listMailProposals"] = async (filters = {}) =>
-  (await cards())
-    .map(viewOf)
-    .filter(
-      (v) =>
-        (filters.sourceId === undefined || v.proposal.sourceId === filters.sourceId) &&
-        (filters.status === undefined || v.proposal.status === filters.status),
-    );
-
-const getMailProposal: Mail["getMailProposal"] = async (id) => viewOf(await cardOf(id));
-
-/**
- * «Da decidere» della Home: le proposte aperte della mia casella, che posso
- * confermare o passare. L'origine (la riga «da un'email a…») non c'è: il
- * server non la dice, e l'email è nella Posta.
- */
-const listMailDecisions: Mail["listMailDecisions"] = async () =>
-  (await cards())
-    .map(viewOf)
-    .filter((v) => v.canConfirm || v.canHand)
-    .map((v) => ({ ...v, origin: null }));
-
-/** Già decisa da altri, o non più valida: non riuscita, col motivo del server. */
-const STALE = new Set(["already_handled", "proposal_stale", "question_not_pending"]);
-
-const confirmMailProposal: Mail["confirmMailProposal"] = async (id, input = {}) => {
-  if (input.edits && Object.keys(input.edits).length > 0) throw new Error("invalid: edits");
-  const c = await cardOf(id);
-  const indices = modelIndices(c);
-  const chosen = (input.actionIndexes ?? indices.map((_, k) => k)).map((k) => indices[k]);
-  if (chosen.length === 0 || chosen.some((i) => i === undefined)) throw new Error("invalid: actions");
-  const body = chosen.length === 1 ? { optionIndex: chosen[0]! } : { optionIndices: chosen as number[] };
+const getMailProposal: Mail["getMailProposal"] = async (id) => {
   try {
-    await appClient().inbox.answer(id, body);
+    return proposalViewOf((await appClient().mail.proposal(id)) as ServerProposal);
   } catch (error) {
-    if (error instanceof ApiError && error.code && STALE.has(error.code)) return { status: "failed", error: error.code };
+    if (error instanceof ApiError && (error.status === 404 || error.status === 400)) throw new Error("not_found");
     throw error;
   }
-  return { status: "confirmed", resultCodes: [] };
 };
 
-/** «Ignora»: l'opzione «non fare nulla» della card. */
+/**
+ * «Da decidere» della Home: le proposte che aspettano me (`isLiveProposal`):
+ * aperte da confermare o passare, passate da confermare, «Quale progetto?»;
+ * con l'origine (la conversazione della mia casella, se c'è).
+ */
+const listMailDecisions: Mail["listMailDecisions"] = async () => {
+  // Anche le PASSATE al progetto: chi può deciderle senza esserne destinatario non le vede altrove.
+  const [open, handed] = await Promise.all([
+    appClient().mail.proposals({ status: "open" }),
+    appClient().mail.proposals({ status: "handed" }),
+  ]);
+  return viewsOf([...open.items, ...handed.items]).filter(isLiveProposal);
+};
+
+/** I 400 del server con le parole del prototipo. */
+const INVALID: Readonly<Record<string, string>> = {
+  invalid_assignee: "invalid: assignee",
+  invalid_edits: "invalid: edits",
+  invalid_selection: "invalid: selection",
+  invalid_target: "invalid: target",
+};
+
+/** Un errore del server su una decisione, come lo dice il prototipo. */
+function decisionError(error: unknown): unknown {
+  if (!(error instanceof ApiError)) return error;
+  if (error.code === "already_handled") {
+    const by = (error.details as { decidedBy?: { userId?: string } | null } | undefined)?.decidedBy;
+    return Object.assign(new Error("already_handled"), { byId: by?.userId ?? null });
+  }
+  if (error.status === 404) return new Error("not_found");
+  if (error.code && INVALID[error.code]) return new Error(INVALID[error.code]);
+  if (error.code === "forbidden") return new Error("forbidden");
+  return error;
+}
+
+async function decide(run: () => Promise<Decision>): Promise<Decision> {
+  try {
+    return await run();
+  } catch (error) {
+    throw decisionError(error);
+  }
+}
+
+/** Gli argomenti cambiati prima di confermare, per indice d'azione (i nomi sono già quelli del server). */
+type Edits = Record<string, Record<string, unknown>>;
+
+/**
+ * Conferma, tutta o in parte, coi campi cambiati. Con incaricati fuori dal
+ * progetto da aggiungere come Contributor, la rotta che lo fa: chiede la
+ * riconferma (il rifiuto che `useReauth` riconosce) e le regole di Membri
+ * (`escalation`; `target_above` è un permesso che manca), e niente cambia se
+ * rifiuta.
+ */
+const confirmMailProposal: Mail["confirmMailProposal"] = async (id, input = {}) => {
+  const body: { indices?: number[]; edits?: Edits } = {};
+  if (input.actionIndexes !== undefined) body.indices = [...input.actionIndexes];
+  if (input.edits && Object.keys(input.edits).length > 0) body.edits = input.edits as Edits;
+  const adding = input.addOutsiders ?? [];
+  let result: Decision;
+  try {
+    result =
+      adding.length > 0
+        ? await appClient().mail.confirmProposalWithMembers(id, { ...body, addOutsiders: [...adding] })
+        : await appClient().mail.confirmProposal(id, body);
+  } catch (error) {
+    if (error instanceof ApiError && adding.length > 0) {
+      if (error.code === "reauth_required") return { status: "refused", ok: false, error: "reauth_required" };
+      if (error.code === "escalation") {
+        // Le regole di Membri dicono la chiave che manca a chi agisce (`permission`, una).
+        const permission = (error.details as { permission?: unknown } | undefined)?.permission;
+        return { status: "refused", ok: false, error: "escalation", missing: typeof permission === "string" ? [permission] : [] };
+      }
+      if (error.code === "target_above") return { status: "refused", ok: false, error: "forbidden" };
+    }
+    throw decisionError(error);
+  }
+  if (result.status === "confirmed") {
+    return { status: "confirmed", resultCodes: result.results.flatMap((r) => (r.code ? [r.code] : [])) };
+  }
+  if (result.status === "failed" && "error" in result) return { status: "failed", error: result.error };
+  // Un esito diverso a una conferma non c'è: è di un server che non conosco.
+  return { status: "failed", error: result.status };
+};
+
 const ignoreMailProposal: Mail["ignoreMailProposal"] = async (id) => {
-  const c = await cardOf(id);
-  const index = optionOf(c, "ignore");
-  if (index === -1) throw new Error("invalid: ignore");
-  await appClient().inbox.answer(id, { optionIndex: index });
+  await decide(() => appClient().mail.ignoreProposal(id));
 };
 
-/** «Passa al progetto»: la card nuova va a chi nel progetto può decidere. */
+/** «Passa al progetto»: la decide chi nel progetto ha i permessi di ogni azione. */
 const handMailProposal: Mail["handMailProposal"] = async (id) => {
-  await appClient().inbox.act(id, "hand_to_project");
+  await decide(() => appClient().mail.handProposal(id));
 };
 
-/** «Sposta su un altro progetto»: l'opzione apposta, col progetto scelto. */
+/** «Sposta su un altro progetto»: la proposta nuova, sul progetto scelto, è in analisi. */
 const reassignMailProposal: Mail["reassignMailProposal"] = async (id, projectId) => {
-  const c = await cardOf(id);
-  const index = optionOf(c, "reassign_project");
-  if (index === -1) throw new Error("invalid: reassign");
-  await appClient().inbox.answer(id, { optionIndex: index, projectId });
+  await decide(() => appClient().mail.reassignProposal(id, projectId));
+};
+
+/** «Quale progetto?»: come «Sposta», sul progetto scelto fra quelli incerti. */
+const chooseProjectFor: Mail["chooseProjectFor"] = async (id, projectId) => {
+  await decide(() => appClient().mail.chooseProposalProject(id, projectId));
 };
 
 export const mailProposalFunctions: Partial<Mail> = {
@@ -188,4 +153,5 @@ export const mailProposalFunctions: Partial<Mail> = {
   ignoreMailProposal,
   handMailProposal,
   reassignMailProposal,
+  chooseProjectFor,
 };

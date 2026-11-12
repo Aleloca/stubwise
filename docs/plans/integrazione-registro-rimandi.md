@@ -267,27 +267,56 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   occorrenze): la colonna non la dice a parole.
 - La Posta in lettura *(F1)*: la posta TRATTATA per conversazione, le
   proposte della casella accanto al messaggio d'origine, letto/non letto
-  con Gmail. Nascosti nella build app: scrivere (nuova email, rispondi,
-  inoltra, bozze, la bozza di Claude: F3), l'importanza, la scadenza e la
-  vista «Importanti» (F2), i campi modificabili di una proposta e gli
-  incaricati fuori dal progetto (F2). Differenze dichiarate: l'elenco non ha
-  l'estratto dell'ultimo messaggio (il server non lo dà); un allegato non ha
+  con Gmail. Dalla F3 si scrive (nuova email, rispondi, inoltra, le bozze
+  di Gmail, gli allegati, Invia coi 10 s del server, la bozza di Claude in
+  streaming, che resta una proposta). Un'email nuova appena inviata non ha
+  ancora una conversazione (la crea Gmail quando parte): si resta
+  sull'elenco col suo «Annulla», e la conversazione arriva al giro del
+  poller.
+  Dalla F2 ci sono importanza, scadenza, «Importanti» e l'estratto
+  nell'elenco. Differenze dichiarate: un allegato non ha
   la dimensione e si apre da Gmail; la proposta mostra la frase che il
   server scrive per ogni azione (non i campi) e non l'estratto letto; la
   scelta del progetto di un'email incerta (`choose_project`) non c'è (il
   worker non la produce più).
+- Le proposte di PRIMA (classificazione vecchia, per casella) *(F2)*: si
+  leggono e si decidono dalla stessa rotta, conferma parziale compresa, ma
+  i campi non si modificano: il server lo dice (`editable` falso) e «Edit»
+  non c'è; se un server di prima risponde `invalid_edits`, la scheda lo dice
+  in parole chiare. Lo smistamento di prima (`email_triage`, «Quale progetto?»
+  della classificazione vecchia) resta sull'inbox e nella Posta non compare.
+- Scrivere *(F3)*, i rimandi dal prototipo: i file di Google Drive allegati
+  come LINK (F5, `drive.readonly`); lo slot «Scrivigli anche per email» di
+  una conversazione di Support (R-K14: area 8, non integrata).
+- Il consenso del collegamento della casella *(O, decisione
+  dell'orchestratrice)*: un testo unico, valido con la classificazione
+  vecchia e con la nuova (`classifyV2`), senza «ammessa» e senza leggere
+  `mail-admission` (rotta d'istanza). Il consenso può promettere più di
+  quanto avviene, mai meno: resta la frase sul provider di analisi AI.
+- Scrivere sul calendario *(F4)*, i rimandi: la disponibilità dei colleghi
+  è quella dei calendari collegati in Stubwise (D8 = b), non la freeBusy di
+  Google sul Workspace (D8 = a, scartata); «Trova un orario» si calcola nel
+  client dal libero/occupato; la scheda di preparazione resta della F5. Il
+  libero/occupato dei colleghi collegati lo vede chiunque nell'istanza
+  organizzi una riunione, solo gli intervalli *(O, decisione
+  dell'orchestratrice)*.
+- Il Calendario con TUTTI gli eventi *(F3b, decisione del maintainer; O
+  dell'orchestratrice sui dettagli)*: i calendari come nel prototipo; esclusi
+  `workingLocation` e compleanni, `outOfOffice` resta; le proposte del
+  calendario dentro `/api/me/mail/proposals` con un `kind`. Nel renderer:
+  «Suggested by Stubwise» solo per un evento riconosciuto (`recognized`,
+  `projectBy`), una lista leggera per la griglia col dettaglio per id, le
+  serie di lavoro prima, il libero/occupato da `transparency`.
 - I progetti di una conversazione abbinati per NOME *(S, review della F1)*:
   le righe di `/threads` danno solo `projectNames`, e due progetti con lo
-  stesso nome si confondono. Chiusa con la F2: `projectIds` additivo nel
-  piano di stubwise-72 (§4).
+  stesso nome si confondono. Chiusa con la F2: `projectIds` dal server (per
+  nome resta solo con un server di prima).
 - La lettura automatica dopo 1 s scrive su Gmail *(O, decisione
   dell'orchestratrice)*: aprire la conversazione È il gesto, come nel
   prototipo (D5 = b). Va scritto esplicito nell'invariante «Nessuna
   scrittura verso Google senza un gesto» (chiesto a stubwise-72).
-- `/api/inbox` senza filtro per tipo *(S, review della F1)*: la Posta legge le
-  proprie card `google.proposal` sfogliando l'inbox intera (le aperte fino a
-  20 pagine da 100, le decise le 4 più recenti). Un filtro `kind` lato server
-  lo toglierebbe; con la F2 le proposte hanno la loro rotta.
+- `/api/inbox` senza filtro per tipo *(S, review della F1)*: chiusa con la
+  F2, la Posta legge e decide le proposte da `/api/me/mail/proposals`.
 - Una casella con le proposte spente si legge e si allinea come le altre
   *(M, decisione del maintainer: come il prototipo; chiusa con la F1 del
   server, 02df56c8)*: il poller la legge comunque e «Aggiorna ora» funziona;
@@ -324,8 +353,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   verifica di Google) e il cassetto Google comune a Drive, Posta e
   Calendario.
 
-- Blocco della Home «Posta importante» (F2; oggi nascosto e conservato al
-  salvataggio). «Prossimi appuntamenti» è acceso dalla F1, con la finestra
+- Il blocco della Home «Posta importante» è acceso dalla F2 (le conversazioni
+  con un messaggio di importanza alta non letto). «Prossimi appuntamenti» è
+  acceso dalla F1, con la finestra
   del prototipo (da adesso a fine di domani, senza i rifiutati) *(O,
   decisione dell'orchestratrice: il prototipo è la specifica)*.
 - Azione di Claude «bozza del corpo dell'email».
@@ -385,6 +415,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono
   `unread = null`, lette come «letto». Un recupero (rileggere le etichette
   dei thread recenti al resync) costa una chiamata per messaggio: non ora.
+
+- F3, «Riprova» di `fillMailBody` *(O, 12 nov 2026)*: quando Gmail non
+  salva il corpo confermato (`effectFailure: "mail_not_saved"`) la scheda di
+  Claude lo dice e offre «Copy the text»; rimettere il testo nella bozza con
+  un clic è rimandato.
 
 ## Area 7 — Automazioni
 

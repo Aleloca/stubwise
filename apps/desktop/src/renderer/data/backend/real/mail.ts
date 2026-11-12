@@ -1,9 +1,14 @@
 import { ApiError } from "@stubwise/api-client";
+import type { MailThreadQuery } from "@stubwise/api-client";
 import type { MailThreadDetail as ServerThread, MailThreadItem, MailThreadMessage } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import type { MailAddress, MailboxView, MailMessageView, MailSearchHit, MailThreadRow } from "../../types";
+import type { MailAddress, MailboxView, MailMessageView, MailSearchHit, MailThreadFilters, MailThreadRow } from "../../types";
 import { appClient, session } from "./client";
 import { myAccounts, requestSync, syncStateOf, whenSynced } from "./google";
+import { splitThreadKey, threadKey } from "./mailKeys";
+import { mailClaudeDraftFunctions } from "./mailClaudeDraft";
+import { mailDraftFunctions } from "./mailDrafts";
+import { mailSendFunctions } from "./mailSend";
 import { mailProposalFunctions } from "./mailProposals";
 import { partialNamespace } from "./notIntegrated";
 
@@ -53,19 +58,6 @@ const syncMailbox: Mail["syncMailbox"] = async (email) => {
 
 // --- Le conversazioni -------------------------------------------------------------
 
-/**
- * L'id di una conversazione nell'app: l'uuid della casella + `_` + l'id
- * Gmail del thread (passa per l'indirizzo, `/mail/<id>`, che ammette
- * lettere, cifre, `-` e `_`). L'id Gmail da solo non basta: lo stesso thread
- * su due caselle mie sono due conversazioni (e il server vuole `account`).
- */
-const UUID_LENGTH = 36;
-const threadKey = (accountId: string, gmailThreadId: string) => `${accountId}_${gmailThreadId}`;
-function splitThreadKey(key: string): { accountId: string; threadId: string } | null {
-  if (key.length <= UUID_LENGTH + 1 || key[UUID_LENGTH] !== "_") return null;
-  return { accountId: key.slice(0, UUID_LENGTH), threadId: key.slice(UUID_LENGTH + 1) };
-}
-
 /** «Bob Rossi <bob@x.test>» → nome e indirizzo; un indirizzo nudo è anche il nome. Io sono io sul mio indirizzo. */
 function addressOf(raw: string, mine: ReadonlySet<string>): MailAddress {
   const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(raw);
@@ -89,10 +81,13 @@ async function projectIdsByName(): Promise<Map<string, string>> {
   return new Map(rows.map((p) => [p.name, p.id]));
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (id: string | undefined): id is string => id !== undefined && UUID.test(id);
+
 /** Quante pagine dell'elenco leggere al più (la posta trattata è corta per costruzione). */
 const MAX_THREAD_PAGES = 20;
 
-async function threadItems(options: { account?: string; q?: string }): Promise<MailThreadItem[]> {
+async function threadItems(options: Omit<MailThreadQuery, "cursor">): Promise<MailThreadItem[]> {
   const items: MailThreadItem[] = [];
   let cursor: string | undefined;
   for (let i = 0; i < MAX_THREAD_PAGES; i++) {
@@ -110,29 +105,30 @@ function rowOf(t: MailThreadItem, projects: Map<string, string>, mine: ReadonlyS
     subject: t.subject ?? "",
     lastAt: t.lastReceivedAt,
     participants: [addressOf(t.lastFrom, mine)],
-    projectIds: t.projectNames.flatMap((n) => (projects.has(n) ? [projects.get(n)!] : [])),
-    // Importanza e scadenza sono della F2.
-    importance: null,
-    dueDate: null,
+    // Gli id dal server (F2); un server di prima dà solo i nomi.
+    projectIds:
+      t.projectIds.length > 0 ? [...t.projectIds] : t.projectNames.flatMap((n) => (projects.has(n) ? [projects.get(n)!] : [])),
+    // La classificazione nuova (F2): la più alta e la più vicina; null finché nessun messaggio è classificato.
+    importance: t.importance,
+    dueDate: t.dueDate,
     // Letto/non letto è quello di Gmail (F1.3): la riga dice solo se c'è un non letto.
     unread: t.unread ? 1 : 0,
     openProposals: t.openProposals,
-    analysing: false,
-    failed: false,
+    analysing: t.analysing,
+    failed: t.failed,
     messages: t.messageCount,
     attachments: false,
-    // Il server non dà un estratto nell'elenco.
-    snippet: "",
+    snippet: t.snippet,
   };
 }
 
 /**
- * L'elenco per conversazione, dalla più recente. La casella e la ricerca le
- * filtra il server (`account`, `q`: oggetto, mittente, estratto); il
- * progetto qui. L'importanza è della F2: chiederla non trova nulla.
+ * L'elenco per conversazione, dalla più recente. Casella, ricerca (`q`:
+ * oggetto, mittente, estratto), importanza e progetto li filtra il server;
+ * importanza e progetto si riguardano qui, per un server di prima che non li
+ * conosce (lì nessuna riga ha importanza).
  */
-const listMailThreads: Mail["listMailThreads"] = async (filters = {}) => {
-  if (filters.importance !== undefined) return [];
+async function threadRows(filters: MailThreadFilters, extra: { important?: boolean } = {}): Promise<MailThreadRow[]> {
   const { byEmail, mine } = await myAddresses();
   let account: string | undefined;
   if (filters.mailbox !== undefined) {
@@ -140,12 +136,29 @@ const listMailThreads: Mail["listMailThreads"] = async (filters = {}) => {
     if (!account) return [];
   }
   const q = filters.q?.trim() || undefined;
-  const [items, projects] = await Promise.all([threadItems({ account, q }), projectIdsByName()]);
+  // Un progetto che l'indirizzo non riconosce (`unknown:<codice>`) non va al server (vuole un uuid):
+  // lo esclude il filtro qui sotto.
+  const project = isUuid(filters.projectId) ? filters.projectId : undefined;
+  const items = await threadItems({ account, q, importance: filters.importance, project, ...extra });
+  // Per nome solo con un server di prima (le righe senza `projectIds`): i progetti si leggono allora.
+  const byName = items.some((t) => t.projectIds.length === 0 && t.projectNames.length > 0);
+  const projects = byName ? await projectIdsByName() : new Map<string, string>();
   return items
     .map((t) => rowOf(t, projects, mine))
-    .filter((r) => filters.projectId === undefined || r.projectIds.includes(filters.projectId))
+    .filter(
+      (r) =>
+        (filters.projectId === undefined || r.projectIds.includes(filters.projectId)) &&
+        (filters.importance === undefined || r.importance === filters.importance),
+    )
     .sort((a, b) => b.lastAt.localeCompare(a.lastAt) || a.threadId.localeCompare(b.threadId));
-};
+}
+
+const listMailThreads: Mail["listMailThreads"] = (filters = {}) => threadRows(filters);
+
+/** «Importanti» e il blocco Home: le conversazioni con un messaggio di importanza alta non letto (F2). */
+const listImportantMail: Mail["listImportantMail"] = async () =>
+  // Riguardato qui: un server di prima ignora `important` e manderebbe tutto.
+  (await threadRows({}, { important: true })).filter((r) => r.importance === "high" && r.unread > 0);
 
 /** La ricerca nella posta (⌘K): da 2 caratteri, una riga per conversazione trovata. */
 const searchMail: Mail["searchMail"] = async (q) => {
@@ -225,6 +238,27 @@ async function originalOf(id: string): Promise<Original | null> {
   }
 }
 
+/**
+ * La classificazione del messaggio (F2). Un server di prima non la manda
+ * (`off`): resta la regola della F1, «fallita» se c'è da riproporre una
+ * proposta fallita o uno smistamento.
+ */
+function classificationOf(m: MailThreadMessage): MailMessageView["classification"] {
+  const c = m.classification;
+  if (c.state === "done") {
+    return {
+      state: "done",
+      projectIds: [...c.projectIds],
+      importance: c.importance ?? "normal",
+      dueDate: c.dueDate,
+      uncertainProjectIds: [...c.uncertainProjectIds],
+    };
+  }
+  if (c.state === "pending") return { state: "pending" };
+  if (c.state === "failed" || failedAnalysis(m)) return { state: "failed" };
+  return { state: "off" };
+}
+
 async function messageView(
   key: string,
   subject: string,
@@ -253,9 +287,19 @@ async function messageView(
     kind: "email",
     context: !m.admitted,
     read: !m.unread,
+    // Un mio invio (F3): solo io lo vedo, finché il messaggio vero non arriva.
+    ...(m.delivery
+      ? {
+          delivery: {
+            state: m.delivery.state,
+            sentById: session.personId ?? "",
+            ...(m.delivery.error ? { error: m.delivery.error } : {}),
+          },
+        }
+      : {}),
     proposalIds: m.proposalIds,
     gmailUrl,
-    classification: failedAnalysis(m) ? { state: "failed" } : { state: "off" },
+    classification: classificationOf(m),
   };
 }
 
@@ -315,10 +359,14 @@ const markUnread: Mail["markUnread"] = (key) => setRead(key, false);
 
 export const mailFunctions: Partial<Mail> = {
   ...mailProposalFunctions,
+  ...mailDraftFunctions,
+  ...mailSendFunctions,
+  ...mailClaudeDraftFunctions,
   listMailboxes,
   setProposalsEnabled,
   syncMailbox,
   listMailThreads,
+  listImportantMail,
   getMailThread,
   searchMail,
   reproposeMessage,

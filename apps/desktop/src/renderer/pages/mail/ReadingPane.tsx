@@ -28,7 +28,7 @@ import { fold, searchWords } from "../chat/search";
 import { ArrowLeftGlyph, MoreGlyph } from "./glyphs";
 import { Composer, type MailFieldBridge } from "./Composer";
 import { closeComposer, onComposeRequest, takeCompose, type ComposeRequest } from "./composeRequest";
-import { useDiscardedNotice, useDroppedNotice, useUndoSendToast } from "./UndoSendToast";
+import { holdRestored, useDiscardedNotice, useDroppedNotice, useUndoSendToast } from "./UndoSendToast";
 import { MailProposalCard } from "./MailProposalCard";
 import { isLiveProposal } from "./proposalText";
 import { MessageView } from "./MessageView";
@@ -96,7 +96,8 @@ export function ReadingPane({
   const { t } = useTranslation();
   const toast = useToast();
   const thread = useMailThread(threadId);
-  const proposals = useMailProposals({});
+  // Le proposte dei messaggi di questa conversazione, non l'elenco intero.
+  const proposals = useMailProposals({ threadId });
   const peopleList = usePeople().data;
   const projects = useProjects().data;
   const markRead = useMarkMailRead();
@@ -220,7 +221,7 @@ export function ReadingPane({
     for (const m of thread.data?.messages ?? []) for (const id of m.proposalIds ?? []) ownerOf.set(id, m.messageId);
     for (const v of proposals.data ?? []) {
       if (v.proposal.source === "calendar") continue;
-      const key = ownerOf.get(v.proposal.sourceId) ?? v.proposal.sourceId;
+      const key = ownerOf.get(v.proposal.id) ?? v.proposal.sourceId;
       const list = map.get(key) ?? [];
       list.push(v);
       map.set(key, list);
@@ -379,6 +380,7 @@ export function ReadingPane({
               .then(() => removeFailed.mutateAsync(m.id))
               .then((restored) => {
                 droppedNotice(restored);
+                holdRestored(restored);
                 if (restored.draft.mode !== "new") openCompose(restored.draft.mode, "body");
               })
               .catch(() => toast.error(t("mail.compose.actionFailed"))),
