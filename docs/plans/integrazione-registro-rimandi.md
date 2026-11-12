@@ -293,9 +293,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - Scrivere sul calendario *(F4)*, i rimandi: la disponibilità dei colleghi
   è quella dei calendari collegati in Stubwise (D8 = b), non la freeBusy di
   Google sul Workspace (D8 = a, scartata); «Trova un orario» si calcola nel
-  client dal libero/occupato; la scheda di preparazione resta della F5. Da
-  chiarire col server: il Calendario mostra solo gli appuntamenti
-  riconosciuti, e scrivere chiede di vederli tutti.
+  client dal libero/occupato; la scheda di preparazione resta della F5. Il
+  libero/occupato dei colleghi collegati lo vede chiunque nell'istanza
+  organizzi una riunione, solo gli intervalli *(O, decisione
+  dell'orchestratrice)*. Aperta, per il maintainer: il worker ingerisce solo
+  gli appuntamenti riconosciuti dalle regole (`poller.ts`, `routeEvent`), e
+  scrivere sul calendario chiede di vederli tutti.
 - I progetti di una conversazione abbinati per NOME *(S, review della F1)*:
   le righe di `/threads` danno solo `projectNames`, e due progetti con lo
   stesso nome si confondono. Chiusa con la F2: `projectIds` dal server (per
