@@ -153,7 +153,9 @@ describe("il Calendario in lettura: gli eventi", () => {
   it("un'occorrenza di una serie porta l'id della SUA serie (casella + serie Google)", async () => {
     installFakeServer({ "GET /api/me/calendar/range": range([item({ recurringEventId: "rec-1" })]) });
     const [e] = await calendar.listEvents({ from: "2026-11-12T00:00:00Z", to: "2026-11-13T00:00:00Z" });
-    expect(e!.seriesId).toBe(`${ACC}:rec-1`);
+    expect(e!.seriesId).toBe(`${ACC}_rec-1`);
+    // L'id della serie passa per l'indirizzo (`?series=`: lettere, cifre, `-`, `_`).
+    expect(e!.seriesId).toMatch(/^[\w-]+$/);
   });
 
   it("l'intervallo chiesto si taglia alla finestra letta; dalla più vecchia", async () => {
@@ -203,7 +205,7 @@ describe("il Calendario in lettura: un evento, le serie, i calendari", () => {
     });
     const e = await calendar.getEvent(EV);
     expect(e.id).toBe(EV);
-    expect(e.series).toMatchObject({ id: `${ACC}:rec-1`, title: "Standup" });
+    expect(e.series).toMatchObject({ id: `${ACC}_rec-1`, title: "Standup" });
     expect(seen.some((r) => r.path.startsWith("/api/me/calendar/range"))).toBe(false);
   });
 
@@ -240,7 +242,7 @@ describe("il Calendario in lettura: un evento, le serie, i calendari", () => {
       ["Standup", "milestone"],
     ]);
     expect(list.find((s) => s.title === "Standup")).toMatchObject({
-      id: `${ACC}:rec-1`,
+      id: `${ACC}_rec-1`,
       rule: "",
       enabled: false,
       projectId: null,
@@ -256,20 +258,20 @@ describe("il Calendario in lettura: un evento, le serie, i calendari", () => {
       "GET /api/me/calendar/series": { body: { items: [series()] } },
       "PUT /api/me/calendar/series/rec-1": { body: { ok: true } },
     });
-    await calendar.configureSeries(`${ACC}:rec-1`, { enabled: true, projectId: PROJECT_ID, action: "request" });
+    await calendar.configureSeries(`${ACC}_rec-1`, { enabled: true, projectId: PROJECT_ID, action: "request" });
     const put = seen.find((r) => r.method === "PUT")!;
     expect(put.body).toEqual({ accountId: ACC, enabled: true, projectId: PROJECT_ID, action: "backlog_item", leadDays: 2, auto: false });
   });
 
   it("accesa senza progetto: `choose_project_first`, senza scrivere", async () => {
     const { seen } = installFakeServer({ "GET /api/me/calendar/series": { body: { items: [series()] } } });
-    await expect(calendar.configureSeries(`${ACC}:rec-1`, { enabled: true })).rejects.toThrow("choose_project_first");
+    await expect(calendar.configureSeries(`${ACC}_rec-1`, { enabled: true })).rejects.toThrow("choose_project_first");
     expect(seen.some((r) => r.method === "PUT")).toBe(false);
   });
 
   it("una serie che non è fra le mie: `not_found`", async () => {
     installFakeServer({ "GET /api/me/calendar/series": { body: { items: [series()] } } });
-    await expect(calendar.configureSeries(`${ACC}:rec-9`, { enabled: false })).rejects.toThrow("not_found");
+    await expect(calendar.configureSeries(`${ACC}_rec-9`, { enabled: false })).rejects.toThrow("not_found");
   });
 
   it("una casella senza gli scope nuovi legge ancora: non è scaduta (il cassetto chiede di ricollegarla)", async () => {

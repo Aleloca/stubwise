@@ -45,10 +45,11 @@ const calendarWindow: Calendar["calendarWindow"] = () => ({
 });
 
 /**
- * L'id di una serie nell'app: casella + id della serie su Google. L'id di
- * Google da solo non basta: la stessa serie su due caselle mie ha lo stesso.
+ * L'id di una serie nell'app: casella + id della serie su Google, uniti da
+ * `_` (passa per l'indirizzo, `?series=`). L'id di Google da solo non basta:
+ * la stessa serie su due caselle mie ha lo stesso.
  */
-const seriesIdOf = (accountId: string, recurringEventId: string) => `${accountId}:${recurringEventId}`;
+const seriesIdOf = (accountId: string, recurringEventId: string) => `${accountId}_${recurringEventId}`;
 
 /** Le azioni di una serie: il vocabolario del prototipo e quello del server. */
 const ACTION_OF_SERVER = {

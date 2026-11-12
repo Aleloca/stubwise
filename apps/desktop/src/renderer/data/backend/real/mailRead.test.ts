@@ -104,7 +104,7 @@ describe("la Posta in lettura: l'elenco per conversazione", () => {
     installFakeServer({ ...common, "GET /api/me/mail/threads": page([thread()]) });
     expect(await mail.listMailThreads()).toEqual([
       {
-        threadId: `${ACC}:t-1`,
+        threadId: `${ACC}_t-1`,
         subject: "Preventivo",
         lastAt: "2026-11-12T09:00:00.000Z",
         participants: [{ name: "Bob Rossi", email: "bob@client.test", personId: null }],
@@ -127,7 +127,7 @@ describe("la Posta in lettura: l'elenco per conversazione", () => {
       ...common,
       "GET /api/me/mail/threads": page([thread(), thread({ accountId: ACC2, accountEmail: "ada@beta.test" })]),
     });
-    expect((await mail.listMailThreads()).map((r) => r.threadId)).toEqual([`${ACC}:t-1`, `${ACC2}:t-1`]);
+    expect((await mail.listMailThreads()).map((r) => r.threadId)).toEqual([`${ACC}_t-1`, `${ACC2}_t-1`]);
   });
 
   it("legge tutte le pagine; dalla più recente", async () => {
@@ -138,7 +138,7 @@ describe("la Posta in lettura: l'elenco per conversazione", () => {
           ? page([thread({ threadId: "t-0", lastReceivedAt: "2026-11-10T09:00:00.000Z" })])
           : page([thread()], "c2"),
     });
-    expect((await mail.listMailThreads()).map((r) => r.threadId)).toEqual([`${ACC}:t-1`, `${ACC}:t-0`]);
+    expect((await mail.listMailThreads()).map((r) => r.threadId)).toEqual([`${ACC}_t-1`, `${ACC}_t-0`]);
   });
 
   it("la casella e la ricerca vanno al server (`account`, `q`); il progetto si filtra qui", async () => {
@@ -150,7 +150,7 @@ describe("la Posta in lettura: l'elenco per conversazione", () => {
     const q = query(seen.find((r) => r.path.startsWith("/api/me/mail/threads"))!.path);
     expect(q.get("account")).toBe(ACC2);
     expect(q.get("q")).toBe("preventivo");
-    expect(rows.map((r) => r.threadId)).toEqual([`${ACC}:t-1`]);
+    expect(rows.map((r) => r.threadId)).toEqual([`${ACC}_t-1`]);
   });
 
   it("una casella che non è mia: nessuna conversazione, senza chiedere", async () => {
@@ -170,8 +170,8 @@ describe("la Posta in lettura: l'elenco per conversazione", () => {
     expect(seen).toHaveLength(0);
     expect(await mail.searchMail("prev")).toEqual([
       {
-        id: `${ACC}:t-1`,
-        threadId: `${ACC}:t-1`,
+        id: `${ACC}_t-1`,
+        threadId: `${ACC}_t-1`,
         subject: "Preventivo",
         from: { name: "Bob Rossi", email: "bob@client.test", personId: null },
         at: "2026-11-12T09:00:00.000Z",
@@ -189,14 +189,14 @@ describe("la Posta in lettura: una conversazione", () => {
       [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
       [`GET /api/me/mail/email/${M2}/original`]: { body: original({ bodyHtml: null, attachments: [], cc: [] }) },
     });
-    const t = await mail.getMailThread(`${ACC}:t-1`);
+    const t = await mail.getMailThread(`${ACC}_t-1`);
     expect(query(seen.find((r) => r.path.startsWith("/api/me/mail/threads/t-1"))!.path).get("account")).toBe(ACC);
-    expect(t.threadId).toBe(`${ACC}:t-1`);
+    expect(t.threadId).toBe(`${ACC}_t-1`);
     expect(t.subject).toBe("Preventivo");
     expect(t.messages[0]).toMatchObject({
       id: M1,
       messageId: M1,
-      threadId: `${ACC}:t-1`,
+      threadId: `${ACC}_t-1`,
       from: { name: "Bob Rossi", email: "bob@client.test", personId: null },
       to: [
         { name: "ada@acme.test", email: "ada@acme.test", personId: ME_ID },
@@ -223,7 +223,7 @@ describe("la Posta in lettura: una conversazione", () => {
       "GET /api/me/mail/threads/t-1": { body: detail({ messages: [message()] }) },
       [`GET /api/me/mail/email/${M1}/original`]: { status: 409, body: { code: "token_expired", message: "x" } },
     });
-    const [m] = (await mail.getMailThread(`${ACC}:t-1`)).messages;
+    const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
     expect(m).toMatchObject({ text: "Ecco il preventivo.", html: null, attachments: [], cc: null });
   });
 
@@ -241,7 +241,7 @@ describe("la Posta in lettura: una conversazione", () => {
       [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
       [`POST /api/me/mail/email/${P1}/repropose`]: { body: { ok: true } },
     });
-    const [m] = (await mail.getMailThread(`${ACC}:t-1`)).messages;
+    const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
     expect(m!.classification).toEqual({ state: "failed" });
     await mail.reproposeMessage(M1);
     expect(seen.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([`/api/me/mail/email/${P1}/repropose`]);
@@ -256,7 +256,7 @@ describe("la Posta in lettura: una conversazione", () => {
       [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
       [`POST /api/me/mail/email_triage/${M1}/repropose`]: { body: { ok: true } },
     });
-    const [m] = (await mail.getMailThread(`${ACC}:t-1`)).messages;
+    const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
     expect(m!.classification).toEqual({ state: "failed" });
     await mail.reproposeMessage(M1);
     expect(seen.some((r) => r.path === `/api/me/mail/email_triage/${M1}/repropose`)).toBe(true);
@@ -270,13 +270,19 @@ describe("la Posta in lettura: una conversazione", () => {
       }) },
       [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
     });
-    const [m] = (await mail.getMailThread(`${ACC}:t-1`)).messages;
+    const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
     expect(m!.classification).toEqual({ state: "off" });
   });
 
   it("un id che non è di una mia conversazione: `not_found`", async () => {
     installFakeServer({ ...common, "GET /api/me/mail/threads/t-9": { status: 404, body: { code: "not_found", message: "x" } } });
-    await expect(mail.getMailThread(`${ACC}:t-9`)).rejects.toThrow("not_found");
+    await expect(mail.getMailThread(`${ACC}_t-9`)).rejects.toThrow("not_found");
     await expect(mail.getMailThread("senza-casella")).rejects.toThrow("not_found");
+  });
+
+  it("l'id di una conversazione passa per l'indirizzo dell'app (`/mail/<id>`: lettere, cifre, `-`, `_`)", async () => {
+    installFakeServer({ ...common, "GET /api/me/mail/threads": page([thread({ threadId: "18c2f0a1b2" })]) });
+    const [row] = await mail.listMailThreads();
+    expect(row!.threadId).toMatch(/^[\w-]+$/);
   });
 });

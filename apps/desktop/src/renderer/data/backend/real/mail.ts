@@ -54,15 +54,16 @@ const syncMailbox: Mail["syncMailbox"] = async (email) => {
 // --- Le conversazioni -------------------------------------------------------------
 
 /**
- * L'id di una conversazione nell'app: casella + id Gmail del thread. L'id
- * Gmail da solo non basta: lo stesso thread su due caselle mie sono due
- * conversazioni (e il server vuole `account` per distinguerle).
+ * L'id di una conversazione nell'app: l'uuid della casella + `_` + l'id
+ * Gmail del thread (passa per l'indirizzo, `/mail/<id>`, che ammette
+ * lettere, cifre, `-` e `_`). L'id Gmail da solo non basta: lo stesso thread
+ * su due caselle mie sono due conversazioni (e il server vuole `account`).
  */
-const threadKey = (accountId: string, gmailThreadId: string) => `${accountId}:${gmailThreadId}`;
+const UUID_LENGTH = 36;
+const threadKey = (accountId: string, gmailThreadId: string) => `${accountId}_${gmailThreadId}`;
 function splitThreadKey(key: string): { accountId: string; threadId: string } | null {
-  const at = key.indexOf(":");
-  if (at <= 0 || at === key.length - 1) return null;
-  return { accountId: key.slice(0, at), threadId: key.slice(at + 1) };
+  if (key.length <= UUID_LENGTH + 1 || key[UUID_LENGTH] !== "_") return null;
+  return { accountId: key.slice(0, UUID_LENGTH), threadId: key.slice(UUID_LENGTH + 1) };
 }
 
 /** «Bob Rossi <bob@x.test>» → nome e indirizzo; un indirizzo nudo è anche il nome. Io sono io sul mio indirizzo. */
