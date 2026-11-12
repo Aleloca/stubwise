@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { MailProposalView, Person, ProposedAction, Task } from "../../data/types";
+import type { Person, ProposedAction, Task } from "../../data/types";
 import { spoken } from "../../domain/claude/answers";
 import { dayLabel } from "./format";
 
