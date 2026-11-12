@@ -1,9 +1,19 @@
-import { mailProposalListSchema, mailProposalSchema, mailProposalStatusSchema } from "@stubwise/shared";
+import { mailProposalDecisionSchema, mailProposalListSchema, mailProposalSchema, mailProposalStatusSchema } from "@stubwise/shared";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
-import { confirmMailProposal, ignoreMailProposal, type DecideResult } from "../services/mail-proposals-decide.js";
+import {
+  chooseMailProposalProject,
+  confirmMailProposal,
+  confirmMailProposalWithMembers,
+  handMailProposal,
+  ignoreMailProposal,
+  reassignMailProposal,
+  type DecideResult,
+} from "../services/mail-proposals-decide.js";
+import type { RoleRuleError } from "../services/roles.js";
+import { roleRuleErrorSchema, sendRoleRuleError } from "./roles.js";
 import { listMailProposals } from "../services/mail-proposals.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -58,24 +68,28 @@ export async function meMailProposalsRoutes(instance: FastifyInstance): Promise<
 
   const idParams = z.object({ id: z.uuid() });
   const decideResponses = {
-    200: z.union([
-      z.object({ status: z.literal("confirmed"), results: mailProposalSchema.shape.results }),
-      z.object({ status: z.literal("failed"), error: z.string() }),
-      z.object({ status: z.literal("ignored") }),
-    ]),
-    400: errorSchema,
-    404: errorSchema,
+    200: mailProposalDecisionSchema,
+    400: roleRuleErrorSchema,
     409: errorSchema.extend({ decidedBy: mailProposalSchema.shape.decidedBy.optional() }),
+    404: errorSchema,
     ...authErrorResponses,
   };
 
   /** L'esito di una decisione, con i codici d'errore del contratto (piano F2, §4). */
-  function send(reply: FastifyReply, result: DecideResult) {
+  function send(reply: FastifyReply, result: DecideResult | { ok: false; error: "rule"; rule: RoleRuleError }) {
     if (result.ok) {
-      if (result.status === "confirmed") return { status: "confirmed" as const, results: result.results };
-      if (result.status === "failed") return { status: "failed" as const, error: result.error };
-      return { status: "ignored" as const };
+      switch (result.status) {
+        case "confirmed":
+          return { status: result.status, results: result.results };
+        case "failed":
+          return { status: result.status, error: result.error };
+        case "moved":
+          return { status: result.status, projectId: result.projectId };
+        default:
+          return { status: result.status };
+      }
     }
+    if (result.error === "rule") return sendRoleRuleError(reply, result.rule);
     switch (result.error) {
       case "not_found":
         return apiError(reply, 404, "not_found", "Mail proposal not found");
@@ -115,5 +129,57 @@ export async function meMailProposalsRoutes(instance: FastifyInstance): Promise<
     "/:id/ignore",
     { config: { access: { kind: "user" } }, schema: { params: idParams, response: decideResponses } },
     async (request, reply) => send(reply, await ignoreMailProposal(app.db, request.user!, request.params.id)),
+  );
+
+  /** «Passa al progetto»: chi non può confermarla la passa a chi può. */
+  app.post(
+    "/:id/hand",
+    { config: { access: { kind: "user" } }, schema: { params: idParams, response: decideResponses } },
+    async (request, reply) => send(reply, await handMailProposal(app.db, request.user!, request.params.id)),
+  );
+
+  /** «Sposta su un altro progetto». */
+  app.post(
+    "/:id/reassign",
+    {
+      config: { access: { kind: "user" } },
+      schema: { params: idParams, body: z.object({ projectId: z.uuid() }), response: decideResponses },
+    },
+    async (request, reply) =>
+      send(reply, await reassignMailProposal(app.db, request.user!, request.params.id, request.body.projectId)),
+  );
+
+  /** «Quale progetto?»: l'email si riclassifica per il progetto scelto. */
+  app.post(
+    "/:id/choose-project",
+    {
+      config: { access: { kind: "user" } },
+      schema: { params: idParams, body: z.object({ projectId: z.uuid() }), response: decideResponses },
+    },
+    async (request, reply) =>
+      send(reply, await chooseMailProposalProject(app.db, request.user!, request.params.id, request.body.projectId)),
+  );
+
+  /**
+   * Conferma aggiungendo come Contributor gli incaricati fuori dal progetto.
+   * Rotta a sé perché la riconferma si DICHIARA per rotta (`config.reauth`), e
+   * non deve pesare su ogni conferma. Serve `project.members.manage`.
+   */
+  app.post(
+    "/:id/confirm-with-members",
+    {
+      config: { access: { kind: "user" }, reauth: true },
+      schema: {
+        params: idParams,
+        body: z.object({
+          indices: z.array(z.number().int().nonnegative()).max(20).optional(),
+          edits: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
+          addOutsiders: z.array(z.uuid()).min(1).max(20),
+        }),
+        response: decideResponses,
+      },
+    },
+    async (request, reply) =>
+      send(reply, await confirmMailProposalWithMembers(app.db, request.user!, request.params.id, request.body, request.user!.language)),
   );
 }

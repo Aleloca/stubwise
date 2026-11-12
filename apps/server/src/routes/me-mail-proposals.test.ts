@@ -295,3 +295,112 @@ describe("decidere una proposta condivisa (F2, task 6)", () => {
     expect((await get(bruno.headers, `/api/me/mail/threads/${message.threadId}`)).statusCode).toBe(404);
   });
 });
+
+describe("passare, spostare, scegliere il progetto, aggiungere Contributor (F2, task 6, seconda parte)", () => {
+  const post = (headers: { cookie: string }, url: string, payload: unknown = {}) =>
+    app.inject({ method: "POST", url, headers, payload: payload as Record<string, unknown> });
+  async function row(id: string) {
+    const { eq } = await import("drizzle-orm");
+    return (await db.select().from(emailProposals).where(eq(emailProposals.id, id)))[0];
+  }
+  async function secondProject(memberIds: string[]) {
+    const [p] = await db.insert(projects).values({ name: "Beta", slug: `beta-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning();
+    for (const id of memberIds) await addMember(app, p!.id, id, "developer");
+    return p!.id;
+  }
+  async function onlyTask(proposalId: string, assigneeId: string | null) {
+    const { eq } = await import("drizzle-orm");
+    await db
+      .update(emailProposals)
+      .set({ classification: { version: 2, summary: "s", actions: [{ type: "create_task", args: { title: "Export CSV", description: "", assigneeId, dueDate: null } }] } })
+      .where(eq(emailProposals.id, proposalId));
+  }
+
+  it("passare: chi non può confermarla la passa; la vede e la decide chi nel progetto ha i permessi di ogni azione, non destinatario", async () => {
+    const { ada, bruno, carla, proposal } = await seed();
+    // Ada può confermarla: non la passa.
+    expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/hand`)).json()).toMatchObject({ code: "invalid_selection" });
+    // Carla (membro, non destinataria) prima non la vede.
+    expect((await get(carla.headers, `/api/me/mail/proposals/${proposal.id}`)).statusCode).toBe(404);
+    const res = await post(bruno.headers, `/api/me/mail/proposals/${proposal.id}/hand`);
+    expect(res.json()).toEqual({ status: "handed" });
+    const seen = (await get(carla.headers, `/api/me/mail/proposals/${proposal.id}`)).json() as { status: string; canConfirm: boolean; handedBy: { name: string } };
+    expect(seen).toMatchObject({ status: "handed", canConfirm: true, handedBy: { name: "Bruno" } });
+    expect((await post(carla.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { indices: [1] })).json()).toMatchObject({ status: "confirmed" });
+  });
+
+  it("NEGATIVO: una proposta passata resta invisibile a chi nel progetto NON ha i permessi di ogni azione, e a un admin non destinatario senza membership no — vede tutto, ma non è destinatario: la vede solo perché ha i permessi", async () => {
+    const { bruno, outsider, proposal } = await seed();
+    await post(bruno.headers, `/api/me/mail/proposals/${proposal.id}/hand`);
+    expect((await get(outsider.headers, `/api/me/mail/proposals/${proposal.id}`)).statusCode).toBe(404);
+    // Un membro NON destinatario senza i permessi di ogni azione: né la vede né la decide.
+    const gino = await person("viewer", "Gino");
+    expect((await get(gino.headers, `/api/me/mail/proposals/${proposal.id}`)).statusCode).toBe(404);
+    expect((await post(gino.headers, `/api/me/mail/proposals/${proposal.id}/ignore`)).statusCode).toBe(404);
+  });
+
+  it("spostare: una proposta nuova sul progetto scelto (in analisi), questa chiusa per tutti; le azioni non spostabili no", async () => {
+    const { ada, proposal } = await seed();
+    const beta = await secondProject([ada.id]);
+    expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/reassign`, { projectId: beta })).json()).toMatchObject({ code: "invalid_selection" });
+    await onlyTask(proposal.id, null);
+    const res = await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/reassign`, { projectId: beta });
+    expect(res.json()).toEqual({ status: "moved", projectId: beta });
+    expect(await row(proposal.id)).toMatchObject({ status: "ignored", outcome: { type: "reassigned_to", projectId: beta } });
+    const { and, eq } = await import("drizzle-orm");
+    const [moved] = await db.select().from(emailProposals).where(and(eq(emailProposals.projectId, beta), eq(emailProposals.rfcMessageId, "<e@x>")));
+    expect(moved).toMatchObject({ status: "classified", audience: "mail_recipients" });
+    expect((await db.select().from(notifications).where(eq(notifications.status, "open")))).toEqual([]);
+  });
+
+  it("spostare su un progetto che chi sposta non vede: 400 invalid_target", async () => {
+    const { ada, proposal } = await seed();
+    await onlyTask(proposal.id, null);
+    const hidden = await secondProject([]);
+    expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/reassign`, { projectId: hidden })).json()).toMatchObject({ code: "invalid_target" });
+  });
+
+  it("«Quale progetto?»: la domanda se ne va e l'email torna da classificare per il progetto scelto", async () => {
+    const { ada, proposal, message } = await seed();
+    const beta = await secondProject([ada.id]);
+    const { eq } = await import("drizzle-orm");
+    await db.update(emailProposals).set({ classification: { version: 2, summary: "", actions: [], choose: { projectIds: [projectId, beta] } } }).where(eq(emailProposals.id, proposal.id));
+    expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/choose-project`, { projectId: randomUUID() })).json()).toMatchObject({ code: "invalid_target" });
+    // Un progetto che Ada vede, ma che non era fra quelli incerti.
+    const gamma = await secondProject([ada.id]);
+    expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/choose-project`, { projectId: gamma })).json()).toMatchObject({ code: "invalid_target" });
+    const res = await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/choose-project`, { projectId: beta });
+    expect(res.json()).toEqual({ status: "moved", projectId: beta });
+    expect(await row(proposal.id)).toBeUndefined();
+    const [m] = await db.select().from(emailMessages).where(eq(emailMessages.id, message.id));
+    expect(m).toMatchObject({ classificationState: null, status: "new", projectId: beta, scopeProjectIds: [beta] });
+  });
+
+  it("aggiungere Contributor: senza project.members.manage 403; con, l'incaricato entra e la task nasce assegnata a lui", async () => {
+    const { ada, outsider, proposal } = await seed();
+    await onlyTask(proposal.id, outsider.id);
+    expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/confirm-with-members`, { addOutsiders: [outsider.id] })).statusCode).toBe(403);
+    const lead = await person("project_lead", "Lea");
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal.id, userId: lead.id });
+    const res = await post(lead.headers, `/api/me/mail/proposals/${proposal.id}/confirm-with-members`, { addOutsiders: [outsider.id] });
+    expect(res.json()).toMatchObject({ status: "confirmed" });
+    const { and, eq } = await import("drizzle-orm");
+    const { projectMembers } = await import("@stubwise/db");
+    expect(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, outsider.id)))).toHaveLength(1);
+  });
+
+  it("aggiungere Contributor: se la conferma non riesce, chi è stato aggiunto se ne va", async () => {
+    const { outsider, proposal } = await seed();
+    await onlyTask(proposal.id, outsider.id);
+    const lead = await person("project_lead", "Lea");
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal.id, userId: lead.id });
+    // Un'altra persona decide prima: la conferma non riesce.
+    const { eq } = await import("drizzle-orm");
+    await db.update(emailProposals).set({ status: "ignored" }).where(eq(emailProposals.id, proposal.id));
+    const res = await post(lead.headers, `/api/me/mail/proposals/${proposal.id}/confirm-with-members`, { addOutsiders: [outsider.id] });
+    expect(res.statusCode).toBe(409);
+    const { and } = await import("drizzle-orm");
+    const { projectMembers } = await import("@stubwise/db");
+    expect(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, outsider.id)))).toEqual([]);
+  });
+});

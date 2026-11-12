@@ -247,6 +247,32 @@ describe("endpoints mail", () => {
     expect(one.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/proposals/${ID}`);
   });
 
+  it("F2: decidere una proposta condivisa — ogni gesto è un POST col suo corpo, e l'esito si legge con lo schema condiviso", async () => {
+    const calls: [string, unknown][] = [];
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async (url, init) => {
+      calls.push([String(url), init?.body ? JSON.parse(String(init.body)) : undefined]);
+      return jsonResponse(200, { status: "confirmed", results: [{ kind: "task", id: "t1", code: "AUD-12" }] });
+    });
+    const c = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
+    const out = await c.mail.confirmProposal(ID, { indices: [0], edits: { "0": { title: "X" } } });
+    expect(out).toEqual({ status: "confirmed", results: [{ kind: "task", id: "t1", code: "AUD-12" }] });
+    await c.mail.confirmProposalWithMembers(ID, { addOutsiders: [ID] });
+    await c.mail.ignoreProposal(ID);
+    await c.mail.handProposal(ID);
+    await c.mail.reassignProposal(ID, ID);
+    await c.mail.chooseProposalProject(ID, ID);
+    expect(calls.map(([url]) => url.replace(`/api/me/mail/proposals/${ID}`, ""))).toEqual([
+      "/confirm",
+      "/confirm-with-members",
+      "/ignore",
+      "/hand",
+      "/reassign",
+      "/choose-project",
+    ]);
+    expect(calls[0]![1]).toEqual({ indices: [0], edits: { "0": { title: "X" } } });
+    expect(calls[4]![1]).toEqual({ projectId: ID });
+  });
+
   it("setRead (area 6, F1.3): POST col body { account, read }; `unread` assente (server di prima) si legge false", async () => {
     const { c, fetchImpl } = clientReturning(200, {
       threadId: "t1",

@@ -91,3 +91,19 @@ export type MailProposal = z.infer<typeof mailProposalSchema>;
 
 export const mailProposalListSchema = z.object({ items: z.array(mailProposalSchema) });
 export type MailProposalList = z.infer<typeof mailProposalListSchema>;
+
+/**
+ * L'esito di una decisione (`POST /api/me/mail/proposals/:id/{confirm,
+ * confirm-with-members,ignore,hand,reassign,choose-project}`), 200. Gli
+ * errori sono `ApiError` col codice: 409 `already_handled` (con `decidedBy`),
+ * 403 `forbidden`, 400 `invalid_*`, 404 `not_found`.
+ */
+export const mailProposalDecisionSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("confirmed"), results: z.array(mailProposalResultSchema).default([]) }),
+  z.object({ status: z.literal("failed"), error: z.string() }),
+  z.object({ status: z.literal("ignored") }),
+  z.object({ status: z.literal("handed") }),
+  /** «Sposta» e «Quale progetto?»: la proposta nuova, sul progetto scelto, è in analisi. */
+  z.object({ status: z.literal("moved"), projectId: z.uuid() }),
+]);
+export type MailProposalDecision = z.infer<typeof mailProposalDecisionSchema>;
