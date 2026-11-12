@@ -284,4 +284,11 @@ describe("la Posta nella build app", () => {
     expect(screen.queryByRole("button", { name: /^Edit line/ })).toBeNull();
     expect(screen.getByRole("button", { name: /^Confirm/ })).toBeInTheDocument();
   });
+
+  it("la proposta sta sotto il messaggio che la elenca (`proposalIds`), anche se ne cita un altro", async () => {
+    proposals = [{ ...proposal, messageId: "dddddddd-9999-4999-8999-999999999999" }];
+    renderRoute(`/mail/${KEY}`);
+    expect(await screen.findByText(/Create request in AUD: “Preventivo Rossi”/)).toBeInTheDocument();
+  });
 });
+

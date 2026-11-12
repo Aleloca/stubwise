@@ -220,7 +220,7 @@ export function ReadingPane({
     for (const m of thread.data?.messages ?? []) for (const id of m.proposalIds ?? []) ownerOf.set(id, m.messageId);
     for (const v of proposals.data ?? []) {
       if (v.proposal.source === "calendar") continue;
-      const key = ownerOf.get(v.proposal.sourceId) ?? v.proposal.sourceId;
+      const key = ownerOf.get(v.proposal.id) ?? v.proposal.sourceId;
       const list = map.get(key) ?? [];
       list.push(v);
       map.set(key, list);
