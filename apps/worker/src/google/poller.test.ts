@@ -4030,3 +4030,38 @@ describe("la posta MANDATA nei thread che Stubwise ha (area 6, F3)", () => {
     await db.delete(mailOutgoing);
   });
 });
+
+describe("review F2, punto 1 (critico): col flag acceso le proposte CONDIVISE arrivano dal giro intero", () => {
+  it("una proposta v2 (audience mail_recipients) classificata diventa una card per il destinatario membro, non `ignored`", async () => {
+    const { projectMembers, roles, emailProposalRecipients } = await import("@stubwise/db");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const [owner] = await db.select().from(users).where(eq(users.id, account.userId));
+    const projectId = await seedProject("Audin");
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId, userId: owner!.id, roleId: role!.id });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({ accountId: account.id, gmailMessageId: "v2", threadId: "t-v2", fromAddress: "c@cliente.com", toAddresses: [owner!.email], subject: "Export", receivedAt: new Date(), rfcMessageId: "<v2@cliente.com>", classificationState: "done" })
+      .returning();
+    const [proposal] = await db
+      .insert(emailProposals)
+      .values({
+        emailMessageId: message!.id,
+        projectId,
+        rfcMessageId: "<v2@cliente.com>",
+        audience: "mail_recipients",
+        status: "classified",
+        classification: { version: 2, summary: "s", actions: [{ type: "create_task", args: { title: "Export CSV", description: "", assigneeId: null, dueDate: null } }] },
+      })
+      .returning();
+
+    await pollGoogleOnce({ ...deps(account, fakeGmail({})), runner: fakeRunner(IGNORED_OUTPUT), classifyV2: true });
+
+    const [row] = await db.select().from(emailProposals).where(eq(emailProposals.id, proposal!.id));
+    expect(row!.status).toBe("proposed");
+    expect((await db.select().from(notifications)).map((n) => n.userId)).toEqual([owner!.id]);
+    expect((await db.select().from(emailProposalRecipients)).map((r) => r.userId)).toEqual([owner!.id]);
+    await db.delete(emailProposalRecipients);
+    await db.delete(projectMembers);
+  });
+});

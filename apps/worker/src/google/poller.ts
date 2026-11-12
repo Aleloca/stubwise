@@ -1806,6 +1806,11 @@ async function runProposePhase(
         and(
           eq(emailMessages.accountId, account.id),
           eq(emailProposals.status, "classified"),
+          // Solo le proposte del proprietario della casella: quelle CONDIVISE
+          // (F2, `mail_recipients`) le pubblica `publishSharedProposals` più
+          // sotto. Senza questo filtro la fase le prendeva prima, non ne
+          // leggeva la classificazione v2 e le chiudeva `ignored` (review F2).
+          eq(emailProposals.audience, "mailbox_owner"),
           isNull(emailProposals.proposalNotificationId),
           accountProposingSql(emailMessages.accountId),
           afterProposalsCutSql(emailMessages.accountId, emailMessages.createdAt),
