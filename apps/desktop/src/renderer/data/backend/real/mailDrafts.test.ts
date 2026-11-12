@@ -277,3 +277,19 @@ describe("gli allegati di una bozza (salvati con lei)", () => {
     }
   });
 });
+
+describe("allegare un file del Drive a una bozza salvata", () => {
+  it("dal Drive, la bozza riscritta; un file che non vedo: `attachment_unavailable`", async () => {
+    const DRV = "d1d1d1d1-1111-4111-8111-111111111111";
+    installFakeServer({
+      ...accounts,
+      [`POST /api/me/mail/drafts/${D1}/attachments/drive`]: { body: draft({ attachments: [{ id: "a7a7a7a7-1111-4111-8111-111111111111", name: "brief.pdf", sizeBytes: 9, driveFileId: DRV, as: "copy" }] }) },
+    });
+    expect((await mail.attachDriveFile(D1, DRV)).attachments.map((a) => a.driveFileId)).toEqual([DRV]);
+    installFakeServer({
+      ...accounts,
+      [`POST /api/me/mail/drafts/${D1}/attachments/drive`]: { status: 409, body: { code: "attachment_unavailable", message: "x" } },
+    });
+    await expect(mail.attachDriveFile(D1, DRV)).rejects.toThrow("attachment_unavailable");
+  });
+});
