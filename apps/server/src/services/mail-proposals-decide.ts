@@ -308,12 +308,22 @@ export async function confirmMailProposal(
     });
   } catch (err) {
     if (!(err instanceof ActionFailed)) throw err;
-    // Tutto annullato; la proposta resta fallita, per tutti, con l'errore.
-    await db
-      .update(emailProposals)
-      .set({ status: "failed", error: err.message, decidedByUserId: viewer.id, decidedAt: new Date() })
-      .where(eq(emailProposals.id, id));
-    await db.transaction((tx) => closeCards(tx, id));
+    // Tutto annullato; la proposta resta fallita, per tutti, con l'errore —
+    // ma SOLO se è ancora aperta: fra il rollback e qui un altro destinatario
+    // può averla decisa, e il suo esito non si sovrascrive (review F2, punto 3).
+    const failed = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(emailProposals)
+        .set({ status: "failed", error: err.message, decidedByUserId: viewer.id, decidedAt: new Date() })
+        .where(and(eq(emailProposals.id, id), inArray(emailProposals.status, ["classified", "proposed"])))
+        .returning({ id: emailProposals.id });
+      if (updated) await closeCards(tx, id);
+      return Boolean(updated);
+    });
+    if (!failed) {
+      const [now] = await db.select({ decidedByUserId: emailProposals.decidedByUserId }).from(emailProposals).where(eq(emailProposals.id, id));
+      return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, now?.decidedByUserId ?? null) };
+    }
     return { ok: true, status: "failed", error: err.message };
   }
 }

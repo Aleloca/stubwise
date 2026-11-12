@@ -416,6 +416,35 @@ describe("passare, spostare, scegliere il progetto, aggiungere Contributor (F2, 
     expect((await row(proposal.id))!.status).toBe("ignored");
   });
 
+  it("review F2, punto 3: A fallisce mentre B conferma — il `failed` di A non scrive sopra l'`actioned` di B", async () => {
+    const { ada, proposal, ticket } = await seed();
+    const { eq } = await import("drizzle-orm");
+    const { confirmMailProposal } = await import("../services/mail-proposals-decide.js");
+    // L'azione 1 di A (comment_ticket) fallirà: il ticket non c'è più.
+    await db.delete(tickets).where(eq(tickets.id, ticket.id));
+    let first = true;
+    const racing = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "transaction") return Reflect.get(target, prop, receiver);
+        return async (fn: Parameters<Db["transaction"]>[0]) => {
+          try {
+            return await target.transaction(fn);
+          } catch (err) {
+            // Fra il rollback di A e il suo `failed`: B ha confermato.
+            if (first) {
+              first = false;
+              await target.update(emailProposals).set({ status: "actioned", results: [] }).where(eq(emailProposals.id, proposal.id));
+            }
+            throw err;
+          }
+        };
+      },
+    }) as Db;
+    const out = await confirmMailProposal(racing, { id: ada.id }, proposal.id, { indices: [1] }, "it");
+    expect(out).toMatchObject({ ok: false, error: "already_handled" });
+    expect((await row(proposal.id))!.status).toBe("actioned");
+  });
+
   it("aggiungere Contributor: senza project.members.manage 403; con, l'incaricato entra e la task nasce assegnata a lui", async () => {
     const { ada, outsider, proposal } = await seed();
     await onlyTask(proposal.id, outsider.id);
