@@ -151,6 +151,31 @@ describe("il cassetto Google: «Collega»", () => {
     await expect(pending).resolves.toMatchObject({ email: "ada@acme.test", status: "connected" });
   });
 
+  it("web: la scheda aperta nel clic riceve l'URL di Google (e perde l'opener); nessuna scheda nuova", async () => {
+    installFakeServer({
+      "GET /api/me/google/workspaces": { body: [workspace()] },
+      "POST /api/me/google/connect": { body: { authorizeUrl: "https://accounts.google.com/x" } },
+      "GET /api/me/google/accounts": { body: [] },
+    });
+    const opened = vi.fn(() => null);
+    vi.stubGlobal("open", opened);
+    const tab = { location: { href: "about:blank" }, opener: {} as unknown, closed: false, close: vi.fn() };
+    session.personId = ME_ID;
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
+    void drive.connectGoogle({ tab: tab as unknown as Window }).catch(() => undefined);
+    await vi.waitFor(() => expect(tab.location.href).toBe("https://accounts.google.com/x"));
+    expect(tab.opener).toBeNull();
+    expect(opened).not.toHaveBeenCalled();
+  });
+
+  it("web: se il collegamento non parte, la scheda aperta nel clic si chiude", async () => {
+    installFakeServer({ "GET /api/me/google/workspaces": { body: [] } });
+    const tab = { location: { href: "about:blank" }, opener: null, closed: false, close: vi.fn() };
+    session.personId = ME_ID;
+    await expect(drive.connectGoogle({ tab: tab as unknown as Window })).rejects.toThrow("invalid: google_not_configured");
+    expect(tab.close).toHaveBeenCalled();
+  });
+
   it("ricollegare: la stessa casella che non ha più scope mancanti è collegata", async () => {
     let accounts: unknown[] = [account({ missingScopes: ["https://www.googleapis.com/auth/gmail.modify"] })];
     installFakeServer({

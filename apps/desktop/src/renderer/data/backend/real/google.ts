@@ -79,14 +79,30 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * google_not_configured`. Dopo 10 minuti senza esito, `failed`.
  */
 const connectGoogle: Drive["connectGoogle"] = async (options = {}) => {
-  const usable = await listGoogleWorkspaces();
-  if (usable.length === 0) throw new Error("invalid: google_not_configured");
-  const workspaceId = options.workspaceId ?? (usable.length === 1 ? usable[0]!.id : null);
-  if (!workspaceId || !usable.some((w) => w.id === workspaceId)) throw new Error("invalid: workspace");
-  const before = new Map((await myAccounts()).map((a) => [a.id, a]));
-  const { authorizeUrl } = await appClient().google.connect(workspaceId);
-  // Con `noopener` `window.open` dà sempre null: non dice se s'è aperta.
-  window.open(authorizeUrl, "_blank", "noopener");
+  const { tab } = options;
+  let before: Map<string, ServerGoogleAccount>;
+  let authorizeUrl: string;
+  try {
+    const usable = await listGoogleWorkspaces();
+    if (usable.length === 0) throw new Error("invalid: google_not_configured");
+    const workspaceId = options.workspaceId ?? (usable.length === 1 ? usable[0]!.id : null);
+    if (!workspaceId || !usable.some((w) => w.id === workspaceId)) throw new Error("invalid: workspace");
+    before = new Map((await myAccounts()).map((a) => [a.id, a]));
+    ({ authorizeUrl } = await appClient().google.connect(workspaceId));
+  } catch (error) {
+    // La scheda aperta nel clic resterebbe vuota.
+    tab?.close();
+    throw error;
+  }
+  if (tab && !tab.closed) {
+    // Web: la scheda aperta nel clic; prima di navigare perde l'accesso a questa pagina.
+    tab.opener = null;
+    tab.location.href = authorizeUrl;
+  } else {
+    // Desktop (il link va al browser di sistema). Con `noopener` `window.open`
+    // dà sempre null: non dice se s'è aperta.
+    window.open(authorizeUrl, "_blank", "noopener");
+  }
   const deadline = Date.now() + CONNECT_TIMEOUT_MS;
   for (;;) {
     await pause(CONNECT_POLL_MS);

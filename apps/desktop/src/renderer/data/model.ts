@@ -2026,6 +2026,11 @@ export interface GoogleWorkspaceChoice {
 /** Le opzioni di «Collega»: il Workspace scelto, quando ce n'è più d'uno. */
 export interface ConnectGoogleOptions {
   workspaceId?: string;
+  /**
+   * Web: la scheda aperta NEL clic (`window.open("", "_blank")`), che riceve
+   * l'URL del consenso. Aperta dopo le richieste, Safari la bloccherebbe.
+   */
+  tab?: Window | null;
 }
 
 export interface GoogleAccount {

@@ -33,6 +33,8 @@ const connected: GoogleAccount = { personId: "p", email: "ada@acme.test", status
 
 beforeEach(() => {
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+  // Di default il desktop (il ponte del preload): la scheda del web ha i suoi test.
+  vi.stubGlobal("stubwise", { api: {} });
   q.account = null;
   q.workspaces = [{ id: "ws-1", name: "Acme", domains: ["acme.test"] }];
   q.connect.mockReset();
@@ -41,6 +43,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => closeGoogleAccount());
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 async function open() {
@@ -56,6 +59,26 @@ describe("il cassetto Google nella build app", () => {
     expect(dialog).not.toHaveTextContent(/Google Drive files|link folders/);
     expect(within(dialog).queryByRole("radiogroup")).toBeNull();
     await userEvent.click(within(dialog).getByRole("button", { name: "Connect Google account" }));
+    expect(q.connect).toHaveBeenCalledWith({ workspaceId: "ws-1" });
+  });
+
+  it("web: la scheda del consenso si apre NEL clic (Safari blocca una scheda aperta dopo le richieste)", async () => {
+    vi.stubGlobal("stubwise", undefined);
+    const tab = {};
+    const opened = vi.fn(() => tab);
+    vi.stubGlobal("open", opened);
+    const dialog = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Connect Google account" }));
+    expect(opened).toHaveBeenCalledWith("", "_blank");
+    expect(q.connect).toHaveBeenCalledWith({ workspaceId: "ws-1", tab });
+  });
+
+  it("desktop: nessuna scheda dal renderer (il link va al browser di sistema)", async () => {
+    const opened = vi.fn(() => null);
+    vi.stubGlobal("open", opened);
+    const dialog = await open();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Connect Google account" }));
+    expect(opened).not.toHaveBeenCalled();
     expect(q.connect).toHaveBeenCalledWith({ workspaceId: "ws-1" });
   });
 
