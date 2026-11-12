@@ -19,6 +19,7 @@ import type {
 } from "../../types";
 import { appClient } from "./client";
 import { downloadByPath } from "./download";
+import { googleDriveFunctions } from "./google";
 import { partialNamespace } from "./notIntegrated";
 
 // Il Drive nella build app (area 5, fette 2 e 3): i file CARICATI «come oggi»,
@@ -433,6 +434,8 @@ export const driveFunctions: Partial<Drive> = {
   uploadFiles,
   saveAttachmentToDrive,
   retryExtraction,
+  // Il cassetto Google (area 6, fetta 1): l'account delle caselle, comune a Posta e Calendario.
+  ...googleDriveFunctions,
 };
 
 export const drive: Drive = partialNamespace<Drive>("drive", driveFunctions);

@@ -2013,6 +2013,21 @@ export interface DriveOpen {
 }
 
 /** L'account Google personale di una persona; senza riga = non collegato. */
+/**
+ * Un Workspace da cui collegare la casella (build app, area 6 fetta 1): con
+ * più d'uno utilizzabile, «Collega» chiede quale. Il prototipo non ne ha.
+ */
+export interface GoogleWorkspaceChoice {
+  id: string;
+  name: string;
+  domains: string[];
+}
+
+/** Le opzioni di «Collega»: il Workspace scelto, quando ce n'è più d'uno. */
+export interface ConnectGoogleOptions {
+  workspaceId?: string;
+}
+
 export interface GoogleAccount {
   personId: string;
   email: string;

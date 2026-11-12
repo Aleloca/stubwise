@@ -466,6 +466,7 @@ export type ApiFnName =
   | "drive.listMyFolderLinks"
   | "drive.countDriveReaders"
   | "drive.getGoogleAccount"
+  | "drive.listGoogleWorkspaces"
   | "drive.listGoogleOutside"
   | "drive.searchDrive"
   | "drive.listGoogleFolders"

@@ -5,6 +5,7 @@
 export {
   getDriveFile,
   getGoogleAccount,
+  listGoogleWorkspaces,
   listDriveFiles,
   listDriveFilesForClaude,
   listFolderLinks,

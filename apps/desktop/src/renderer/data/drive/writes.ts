@@ -2,6 +2,7 @@ import { storageAllowsUploads } from "../instance/blocks";
 import { person as mailAddressOf } from "../seed/mail/helpers";
 import { copy, gate, newId, now, state } from "../store";
 import type {
+  ConnectGoogleOptions,
   DriveFile,
   DriveFileRow,
   DriveOpen,
@@ -472,7 +473,8 @@ export function unlinkGoogleAccount(personId: string): void {
  * cartelle collegate da me riprendono ad aggiornarsi, e i loro file non più
  * disponibili per l'accesso perso tornano disponibili.
  */
-export async function connectGoogle(): Promise<GoogleAccount> {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- il prototipo non ha Workspace: la scelta è della build app
+export async function connectGoogle(_options: ConnectGoogleOptions = {}): Promise<GoogleAccount> {
   const me = await gate("drive.connectGoogle");
   return copy(linkGoogleAccount(me));
 }

@@ -12,6 +12,7 @@ import type {
   DriveSearchScope,
   FolderLinkView,
   GoogleAccount,
+  GoogleWorkspaceChoice,
   GoogleFileChoice,
   GoogleFolderChoice,
   GoogleOutsideFile,
@@ -171,6 +172,16 @@ export async function countDriveReaders(projectId: string): Promise<number> {
   const me = await gate("drive.countDriveReaders");
   if (!canSeeDriveProject(me, projectId)) return 0;
   return PEOPLE.filter((p) => !p.isClaude && canSeeDriveProject(p.id, projectId)).length;
+}
+
+/**
+ * I Workspace da cui collegare la casella. Il prototipo non ne ha (collega
+ * «l'account Google» senza scelta): la scelta c'è nella build app, con più
+ * Workspace utilizzabili (area 6, fetta 1).
+ */
+export async function listGoogleWorkspaces(): Promise<GoogleWorkspaceChoice[]> {
+  await gate("drive.listGoogleWorkspaces");
+  return [];
 }
 
 /** L'account Google personale di chi guarda (collegato o scaduto), o `null`. */

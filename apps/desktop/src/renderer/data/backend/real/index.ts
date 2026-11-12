@@ -39,6 +39,8 @@ export { instance } from "./instanceChat";
 export { docs } from "./docs";
 // Il Drive (area 5, fetta 2): i caricati, senza Google né contenuto (`drive.ts`).
 export { drive } from "./drive";
+// La Posta (area 6, fetta 1): le caselle del cassetto Google, per ora (`mail.ts`).
+export { mail } from "./mail";
 export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
   ...chatFunctions,
   channelStream,
