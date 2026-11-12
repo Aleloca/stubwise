@@ -463,6 +463,8 @@ export async function confirmMailProposalWithMembers(
   lang: Language,
   /** La traccia di ogni aggiunta e rimozione (il log della rotta). */
   log: (line: string, fields: Record<string, unknown>) => void = () => {},
+  /** SOLO per i test: gira fra l'aggiunta dei Contributor e la conferma. */
+  afterMembersAdded?: () => Promise<void>,
 ): Promise<DecideResult | { ok: false; error: "rule"; rule: RoleRuleError }> {
   const loaded = await loadDecidable(db, viewer, id);
   if (!loaded) return { ok: false, error: "not_found" };
@@ -519,6 +521,7 @@ export async function confirmMailProposalWithMembers(
     if (err instanceof RoleRuleError) return { ok: false, error: "rule", rule: err };
     throw err;
   }
+  await afterMembersAdded?.();
   const result = await confirmMailProposal(db, viewer, id, input, lang);
   if (!result.ok || result.status !== "confirmed") await undo();
   return result;

@@ -317,6 +317,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 9 — Amministrazione, preferenze, accesso
 
+- Audit vera dei membri di progetto *(O)* (area 6, F2, 12 nov 2026): oggi
+  `putProjectMember` non lascia traccia, e i Contributor aggiunti (e tolti)
+  da una conferma della posta lasciano solo una riga nel log della rotta.
+  Va col registro delle modifiche qui sotto.
 - Registro delle modifiche dell'istanza vero (oggi i ruoli di reparto lasciano
   solo una riga di log).
 - Archiviati, interruttori di brief e report, pausa della coda e lavoro fermo.

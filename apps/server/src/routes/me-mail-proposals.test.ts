@@ -485,3 +485,37 @@ describe("le proposte di PRIMA in /proposals (una fonte sola)", () => {
     expect(n!.status).toBe("handled");
   });
 });
+
+describe("Contributor: la guardia «cambiato nel frattempo» (review della seconda parte, b)", () => {
+  it("una riga promossa da un altro fra l'aggiunta e la conferma NON si toglie, anche se la conferma fallisce", async () => {
+    const { outsider, proposal, ticket } = await seed();
+    const { and, eq } = await import("drizzle-orm");
+    const { projectMembers, roles } = await import("@stubwise/db");
+    const { confirmMailProposalWithMembers } = await import("../services/mail-proposals-decide.js");
+    // Una proposta che FALLIRÀ: la task del commento non c'è più.
+    await db
+      .update(emailProposals)
+      .set({ classification: { version: 2, summary: "s", actions: [{ type: "create_task", args: { title: "X", description: "", assigneeId: outsider.id, dueDate: null } }, { type: "comment_ticket", args: { ticketId: ticket.id, body: "b" } }] } })
+      .where(eq(emailProposals.id, proposal.id));
+    await db.delete(tickets).where(eq(tickets.id, ticket.id));
+    const lead = await person("project_lead", "Lea");
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal.id, userId: lead.id });
+    const [developer] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "developer"));
+    const result = await confirmMailProposalWithMembers(
+      db,
+      { id: lead.id, instancePermissions: new Set() },
+      proposal.id,
+      { addOutsiders: [outsider.id] },
+      "it",
+      () => {},
+      // Un'altra persona promuove Dario a Developer mentre la conferma è in corso.
+      async () => {
+        await db.update(projectMembers).set({ roleId: developer!.id }).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, outsider.id)));
+      },
+    );
+    expect(result).toMatchObject({ ok: true, status: "failed" });
+    const rows = await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, outsider.id)));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.roleId).toBe(developer!.id);
+  });
+});
