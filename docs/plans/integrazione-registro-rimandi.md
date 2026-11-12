@@ -290,6 +290,19 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   progetto; i Contributor si aggiungono con `putProjectMember` (le regole di
   Membri) prima della conferma, e se ne vanno se la conferma non riesce
   (non sono nella stessa transazione delle azioni).
+- F2, dopo che la classificazione nuova è accesa e stabile *(O)*: togliere
+  le rotte `/api/projects/:id/email-routes`, `/email-labels`,
+  `/api/settings/mail-admission` (PATCH), le colonne d'ammissione di
+  `instance_settings`, `project_email_routes`, le sezioni web (oggi un avviso
+  al posto del modulo) e `email_rejections` con la schermata mobile «Le mail
+  tenute fuori» (oggi la rotta resta e si svuota in 30 giorni).
+- F2, la misura vera del costo *(S)*: le tre query di `cost.sql` su
+  produzione (le lancia il maintainer); la stima resta nel piano e nel
+  deploy-log finché non arrivano i numeri.
+- F2, card per chi riceve una proposta PASSATA *(O)*: oggi la vede in
+  `/proposals?status=handed`, senza una card in inbox.
+- F2, lo smistamento di prima (`email_triage`) resta solo sull'inbox, non in
+  Posta *(O)*.
 - F1.3 letto / non letto, limite *(S)*: dopo un resync per query (primo
   giro, history scaduta) i messaggi GIÀ ingeriti non rileggono `UNREAD`
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono
