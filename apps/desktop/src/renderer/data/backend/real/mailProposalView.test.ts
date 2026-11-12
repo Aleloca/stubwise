@@ -140,3 +140,35 @@ describe("una proposta della F2 nella Posta", () => {
     expect(proposalViewOf(proposal()).editable).toBe(false);
   });
 });
+
+describe("F3b: le proposte del calendario nella stessa lista (`kind: \"calendar\"`)", () => {
+  const EVENT = "eeeeeeee-1111-4111-8111-111111111111";
+  // Le forme del task 7 di 72 (additive): finché lo schema non le porta le
+  // si mette sopra a una proposta parsata, come arriveranno.
+  const calendarProposal = (over: Record<string, unknown> = {}) =>
+    ({
+      ...proposal({ origin: null }),
+      kind: "calendar",
+      messageId: null,
+      origin: { eventId: EVENT, title: "Board trimestrale", startsAt: "2026-11-20T09:00:00.000Z", allDay: false },
+      ...over,
+    }) as never;
+
+  it("viene dall'evento, non da un messaggio: la sorgente e l'origine del calendario", () => {
+    const v = proposalViewOf(calendarProposal());
+    expect(v.proposal).toMatchObject({ source: "calendar", sourceId: EVENT });
+    expect(v.origin).toEqual({ kind: "calendar", eventId: EVENT, title: "Board trimestrale", startsAt: "2026-11-20T09:00:00.000Z", allDay: false });
+  });
+
+  it("senza l'origine (un evento che non vedo più): sorgente calendario, nessuna riga d'origine", () => {
+    const v = proposalViewOf(calendarProposal({ origin: null }));
+    expect(v.proposal.source).toBe("calendar");
+    expect(v.origin).toBeNull();
+  });
+
+  it("un server di prima (senza `kind`): è della posta, come sempre", () => {
+    const v = proposalViewOf(proposal());
+    expect(v.proposal).toMatchObject({ source: "email", sourceId: M1 });
+    expect(v.origin).toMatchObject({ kind: "email" });
+  });
+});

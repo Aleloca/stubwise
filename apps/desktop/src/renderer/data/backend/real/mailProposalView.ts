@@ -27,7 +27,30 @@ const ACTION_OF: Record<MailProposalActionType, (args: Args) => { fn: ProposedAc
 
 const person = (p: { userId: string; name: string }) => ({ personId: p.userId, name: p.name });
 
-export function proposalViewOf(p: ServerProposal): MailProposalView {
+/**
+ * F3b (task 7 di 72, additivo): le proposte del calendario nella stessa
+ * lista, con `kind` e l'origine dell'evento al posto del messaggio. Un server
+ * di prima non manda `kind`: è della posta. La build web non parsa (`as`),
+ * quindi la difesa sta qui.
+ */
+type CalendarOrigin = { eventId?: string; title?: string | null; startsAt?: string; allDay?: boolean };
+type F3bProposal = ServerProposal & { kind?: "email" | "calendar"; eventId?: string | null };
+
+function calendarOriginOf(origin: CalendarOrigin | null | undefined): MailProposalView["origin"] {
+  if (!origin?.eventId || !origin.startsAt) return null;
+  return {
+    kind: "calendar",
+    eventId: origin.eventId,
+    title: origin.title ?? "",
+    startsAt: origin.startsAt,
+    allDay: origin.allDay === true,
+  };
+}
+
+export function proposalViewOf(raw: ServerProposal): MailProposalView {
+  const p = raw as F3bProposal;
+  const fromCalendar = p.kind === "calendar";
+  const calendarOrigin = fromCalendar ? calendarOriginOf(p.origin as CalendarOrigin | null) : null;
   const actions = p.actions.flatMap<ProposedAction>((a) => {
     const map = ACTION_OF[a.type];
     // Un tipo che questo client non conosce (`readerSchema`): non lo propone.
@@ -36,9 +59,12 @@ export function proposalViewOf(p: ServerProposal): MailProposalView {
   });
   const proposal: MailProposal = {
     id: p.id,
-    source: "email",
-    // Il messaggio d'origine (`email_messages.id`): è il `messageId` dei messaggi della Posta.
-    sourceId: p.messageId,
+    source: fromCalendar ? "calendar" : "email",
+    // Il messaggio d'origine (`email_messages.id`): è il `messageId` dei messaggi della Posta;
+    // per il calendario, l'evento.
+    sourceId: fromCalendar
+      ? ((calendarOrigin?.kind === "calendar" ? calendarOrigin.eventId : null) ?? p.eventId ?? "")
+      : p.messageId,
     projectId: p.projectId,
     actions,
     excerpt: p.excerpt,
@@ -61,8 +87,10 @@ export function proposalViewOf(p: ServerProposal): MailProposalView {
     decidedBy: p.decidedBy ? person(p.decidedBy) : null,
     sharedWith: p.sharedWith.map(person),
     editable: p.editable,
-    origin: p.origin
-      ? { kind: "email", threadId: threadKey(p.origin.accountId, p.origin.threadId), from: p.origin.from, subject: p.origin.subject ?? "" }
-      : null,
+    origin: fromCalendar
+      ? calendarOrigin
+      : p.origin
+        ? { kind: "email", threadId: threadKey(p.origin.accountId, p.origin.threadId), from: p.origin.from, subject: p.origin.subject ?? "" }
+        : null,
   };
 }
