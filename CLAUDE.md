@@ -854,6 +854,13 @@ una voce ti riguarda.
   confronto) né lì né in una migrazione successiva dello stesso batch: il
   seed che ne ha bisogno va fatto **dopo**, in `runMigrations`. È il motivo
   per cui la 0068 aggiunge `project.brief` da sola e non lo tocca più.
+  ⚠️ **E il migratore applica solo le voci del journal con `when` MAGGIORE
+  dell'ultima applicata** (`created_at` di `__drizzle_migrations`, non idx né
+  nome): l'idx può avere buchi (successo nell'area 6, una 0157 rinumerata
+  0161), ma una migrazione con un `when` più piccolo dell'ultima già applicata
+  viene SALTATA in silenzio. Chi aggiunge una migrazione su un branch vecchio
+  le dia un `when` più grande dell'ultimo già su main, non solo il numero
+  libero.
 - **Il registro decisioni non è MAI scritto dall'AI.** `project_decisions`
   raccoglie *fatti* — la risposta a una domanda dell'agente, un piano
   approvato o rifiutato con indicazioni, una proposta del pulse accettata,
