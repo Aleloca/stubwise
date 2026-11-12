@@ -4388,8 +4388,9 @@ export const googleAccounts = pgTable(
      * candidata nasce con `outcome = { type: "baseline" }` (chiusa: niente
      * proposta, card, né azione automatica), e a fine giro qui si scrive
      * `now()`. Così il deploy non sforna proposte sugli eventi già esistenti.
+     * Una casella collegata dopo nasce con `now()` (default): propone come oggi.
      */
-    calendarBaselineAt: timestamp("calendar_baseline_at", { withTimezone: true }),
+    calendarBaselineAt: timestamp("calendar_baseline_at", { withTimezone: true }).defaultNow(),
     connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     nextSyncAt: timestamp("next_sync_at", { withTimezone: true }).notNull().defaultNow(),

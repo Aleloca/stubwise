@@ -9,7 +9,12 @@ ALTER TABLE "calendar_events" ADD COLUMN "project_by" text;
 --> statement-breakpoint
 CREATE INDEX "calendar_events_account_starts_idx" ON "calendar_events" USING btree ("account_id", "starts_at");
 --> statement-breakpoint
-ALTER TABLE "google_accounts" ADD COLUMN "calendar_baseline_at" timestamp with time zone;
+-- Le caselle collegate DOPO il deploy nascono con la linea di base già fatta
+-- (`now()`): il loro primo giro propone come oggi. Solo quelle di PRIMA la
+-- rifanno (null), perché ora ricevono anche gli eventi che non vedevano.
+ALTER TABLE "google_accounts" ADD COLUMN "calendar_baseline_at" timestamp with time zone DEFAULT now();
+--> statement-breakpoint
+UPDATE "google_accounts" SET "calendar_baseline_at" = NULL;
 --> statement-breakpoint
 -- Un resync della finestra al primo giro: col syncToken un giro incrementale
 -- non porterebbe mai gli eventi personali già esistenti.

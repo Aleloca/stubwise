@@ -1340,13 +1340,26 @@ async function syncCalendar(
 ): Promise<{ syncToken: string | null; stats: CalendarPhaseStats }> {
   const stats: CalendarPhaseStats = { events: 0, ready: 0, cancelled: 0 };
   const { events, syncToken } = await collectCalendarEvents(deps, ctx, account);
-  if (events.length === 0) return { syncToken, stats };
+  if (events.length === 0) {
+    await settleCalendarBaseline(deps.db, account);
+    return { syncToken, stats };
+  }
 
-  stats.cancelled = await closeCancelledEvents(
-    deps.db,
-    account.id,
-    events.filter(isCancelled).map((event) => event.id),
-  );
+  const cancelledIds = events.filter(isCancelled).map((event) => event.id);
+  // F3b: un evento VISTO (non candidato) cancellato su Google se ne va, e
+  // sparisce dal calendario; un candidato si chiude come prima (la sua storia).
+  if (cancelledIds.length > 0) {
+    await deps.db
+      .delete(calendarEventsTable)
+      .where(
+        and(
+          eq(calendarEventsTable.accountId, account.id),
+          inArray(calendarEventsTable.googleEventId, cancelledIds),
+          eq(calendarEventsTable.proposalCandidate, false),
+        ),
+      );
+  }
+  stats.cancelled = await closeCancelledEvents(deps.db, account.id, cancelledIds);
 
   const lang = deps.lang ?? (await getContentLanguage(deps.db));
 
@@ -1367,17 +1380,24 @@ async function syncCalendar(
   // Un evento può comparire più volte in un resync paginato: vince l'ultima
   // versione letta, che è anche la più recente. `startsAt` viaggia a parte
   // perché qui è garantito non nullo e il tipo di Google non lo sa.
-  const live = new Map<string, { event: GoogleCalendarEvent; startsAt: Date; fingerprint: string }>();
+  // F3b: TUTTI gli eventi della finestra diventano righe (il calendario è
+  // della persona), tranne quelli che non sono appuntamenti. Il CANDIDATO a
+  // una proposta è esattamente ciò che entrava prima: con un titolo e in
+  // perimetro per le regole (`proposal_candidate`). Le proposte non cambiano.
+  const live = new Map<string, { event: GoogleCalendarEvent; startsAt: Date; fingerprint: string; candidate: boolean }>();
   for (const event of events) {
     if (isCancelled(event)) continue;
+    if (CALENDAR_EXCLUDED_EVENT_TYPES.has(event.eventType)) continue;
     const startsAt = event.startsAt;
     if (!startsAt) continue;
     if (startsAt < timeMin || startsAt > timeMax) continue;
-    if (!buildMilestoneProposal(lang, event)) continue;
-    if (!routeEvent(event, ctx.routes).inScope) continue;
-    live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt) });
+    const candidate = buildMilestoneProposal(lang, event) !== null && routeEvent(event, ctx.routes).inScope;
+    live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt), candidate });
   }
-  if (live.size === 0) return { syncToken, stats };
+  if (live.size === 0) {
+    await settleCalendarBaseline(deps.db, account);
+    return { syncToken, stats };
+  }
 
   // La regola di ricorrenza delle serie toccate da questo lotto: UNA
   // chiamata per SERIE, e solo per quelle che non conosciamo o che sono
@@ -1390,7 +1410,9 @@ async function syncCalendar(
   );
 
   const ids = [...live.keys()];
-  const fingerprints = [...live.values()].map((entry) => entry.fingerprint);
+  // L'impronta (il doppione «stesso giorno, stesso titolo») vale fra CANDIDATI,
+  // come prima: un evento solo visto non possiede né ruba un'impronta.
+  const fingerprints = [...live.values()].filter((entry) => entry.candidate).map((entry) => entry.fingerprint);
 
   // Due letture per tutto il lotto, non due per evento: quello che serve è
   // "questa riga esiste già?" e "questo appuntamento è già tracciato sotto un
@@ -1410,7 +1432,7 @@ async function syncCalendar(
     );
   const byEventId = new Map(known.map((row) => [row.googleEventId, row]));
 
-  const sameFingerprint = await deps.db
+  const sameFingerprint = fingerprints.length === 0 ? [] : await deps.db
     .select({
       googleEventId: calendarEventsTable.googleEventId,
       fingerprint: calendarEventsTable.fingerprint,
@@ -1420,6 +1442,7 @@ async function syncCalendar(
       and(
         eq(calendarEventsTable.accountId, account.id),
         inArray(calendarEventsTable.fingerprint, fingerprints),
+        eq(calendarEventsTable.proposalCandidate, true),
       ),
     );
   const ownerOfFingerprint = new Map<string, string>();
@@ -1429,7 +1452,8 @@ async function syncCalendar(
     }
   }
 
-  for (const { event, startsAt, fingerprint } of live.values()) {
+  const baseline = account.calendarBaselineAt === null;
+  for (const { event, startsAt, fingerprint, candidate } of live.values()) {
     if (deps.signal?.aborted) break;
     const resolved = routeEvent(event, ctx.routes);
     const fresh = {
@@ -1455,9 +1479,23 @@ async function syncCalendar(
       status: normalizeStatus(event.status),
       fingerprint,
       recurringEventId: event.recurringEventId,
+      eventType: event.eventType,
+      transparency: event.transparency,
     };
 
     const existing = byEventId.get(event.id);
+    if (existing && !candidate) {
+      // Un evento che ORA non è candidato: prima non sarebbe stato nemmeno
+      // aggiornato. Si rinfrescano i dati visti, mai il progetto né lo stato
+      // di candidato (un candidato non torna indietro: le sue proposte restano
+      // quelle di prima).
+      await deps.db
+        .update(calendarEventsTable)
+        .set(fresh)
+        .where(and(eq(calendarEventsTable.accountId, account.id), eq(calendarEventsTable.googleEventId, event.id)));
+      stats.events += 1;
+      continue;
+    }
     if (existing) {
       const stillOpen = existing.proposalNotificationId === null && existing.outcome === null;
       // Una proposta GIÀ PUBBLICATA e non ancora decisa: è l'unico caso in
@@ -1502,7 +1540,11 @@ async function syncCalendar(
 
       await deps.db
         .update(calendarEventsTable)
-        .set(stillOpen ? { ...fresh, projectId: resolved.projectId } : fresh)
+        .set(
+          stillOpen
+            ? { ...fresh, proposalCandidate: true, projectId: resolved.projectId, projectBy: resolved.projectId ? ("rules" as const) : null }
+            : { ...fresh, proposalCandidate: true },
+        )
         .where(
           and(
             eq(calendarEventsTable.accountId, account.id),
@@ -1516,15 +1558,20 @@ async function syncCalendar(
     // Stesso giorno e stesso titolo sotto un altro id: è l'appuntamento che
     // stiamo già seguendo, ricreato. Si scrive la riga (tracciabilità) con un
     // esito che la esclude dalle candidate.
-    const owner = ownerOfFingerprint.get(fingerprint);
+    const owner = candidate ? ownerOfFingerprint.get(fingerprint) : undefined;
     const duplicate = owner !== undefined && owner !== event.id;
     const inserted = await deps.db
       .insert(calendarEventsTable)
       .values({
         accountId: account.id,
         googleEventId: event.id,
-        projectId: resolved.projectId,
-        outcome: duplicate ? duplicateOutcome(owner) : null,
+        // Un evento solo visto non ha progetto: nessuna regola l'ha riconosciuto.
+        projectId: candidate ? resolved.projectId : null,
+        projectBy: candidate && resolved.projectId ? "rules" : null,
+        proposalCandidate: candidate,
+        // La LINEA DI BASE: nel primo giro completo dopo «tutti gli eventi»
+        // un candidato nuovo nasce chiuso (niente proposta, card, auto).
+        outcome: duplicate ? duplicateOutcome(owner) : candidate && baseline ? CALENDAR_BASELINE_OUTCOME : null,
         ...fresh,
       })
       // L'unique `(account_id, google_event_id)` è l'idempotenza della fase 3.
@@ -1533,6 +1580,7 @@ async function syncCalendar(
     if (inserted.length === 0) continue;
 
     stats.events += 1;
+    if (!candidate) continue;
     // Fix di review (fase 9, Task 1): questo conteggio è ciò che il log e i
     // test leggono come «pronta a una proposta» — deve restare d'accordo con
     // `isReadyForProposal`, non solo con la query del propose phase. Per un
@@ -1553,7 +1601,20 @@ async function syncCalendar(
     if (!ownerOfFingerprint.has(fingerprint)) ownerOfFingerprint.set(fingerprint, event.id);
   }
 
+  await settleCalendarBaseline(deps.db, account);
   return { syncToken, stats };
+}
+
+/** I tipi di Google che non sono appuntamenti (F3b, decisione di 46): non entrano. */
+export const CALENDAR_EXCLUDED_EVENT_TYPES: ReadonlySet<string> = new Set(["workingLocation", "birthday"]);
+
+/** L'esito della linea di base (F3b): un candidato già esistente al primo giro completo non propone. */
+export const CALENDAR_BASELINE_OUTCOME = { type: "baseline" } as const;
+
+/** Fine del primo giro completo: da qui in poi un evento nuovo propone come sempre. */
+async function settleCalendarBaseline(db: Db, account: ClaimedAccount): Promise<void> {
+  if (account.calendarBaselineAt !== null) return;
+  await db.update(googleAccounts).set({ calendarBaselineAt: new Date() }).where(and(eq(googleAccounts.id, account.id), isNull(googleAccounts.calendarBaselineAt)));
 }
 
 /**
@@ -1884,6 +1945,10 @@ async function runProposePhase(
           // Il calendario non ha taglio (regola dell'orchestratrice): solo le
           // proposte accese ADESSO.
           accountProposingSql(calendarEventsTable.accountId),
+          // F3b: un evento solo VISTO non diventa MAI una proposta, nemmeno
+          // un'occorrenza di una serie accesa (a flag spento le occorrenze
+          // proponibili restano quelle in perimetro, come prima).
+          eq(calendarEventsTable.proposalCandidate, true),
           sql`${calendarEventsTable.status} is distinct from 'cancelled'`,
           isNull(calendarEventsTable.proposalNotificationId),
           isNull(calendarEventsTable.outcome),
