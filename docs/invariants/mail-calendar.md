@@ -177,6 +177,45 @@
   lascia non letta finché non la si RIAPRE: il renderer non la risegna letta
   mentre resta aperta. Nessun altro percorso (anteprima, notifica, ricerca,
   il worker) segna letta una conversazione.
+- **Scrivere sul calendario (area 6, F4): un gesto, i no prima di Google, la
+  riga dopo il sì.** Le sole scritture su Google Calendar sono le rotte di
+  `/api/me/calendar/events…` (`services/calendar-writes.ts`,
+  `services/calendar-project.ts`): nessun poller, job o azione di Claude
+  scrive sul calendario (i nomi sono nel `NEVER` di
+  `claude-actions-never.test.ts`). Solo le PROPRIE caselle: un evento altrui
+  è 404, anche per un admin. Chi non organizza non modifica, sposta o
+  elimina (`not_organizer`); l'organizzatore non risponde (`organizer`), chi
+  non è invitato nemmeno (`not_invited`); un etag diverso da quello della
+  riga è `changed_on_google` — e in questi casi Google NON viene chiamato
+  (verificato negativamente: risposta E nessuna chiamata). Le modifiche
+  portano l'etag in `If-Match` (un 412 è `changed_on_google`, si rilegge:
+  Q4). La riga si scrive nella stessa richiesta DOPO il sì di Google. **La
+  creazione è idempotente** (review F4): l'id dell'evento lo genera il
+  client (`eventId`, base32hex) e Riprova lo rimanda; un 409 `duplicate` di
+  Google vuol dire «già creato» e si rilegge — solo se lo organizza la
+  casella. Senza, un DB che fallisce dopo il sì creerebbe una SECONDA
+  riunione al Riprova, con gli inviti agli esterni mandati due volte (Q6).
+  «Tutta la serie» scrive sul PADRE e riscrive le date da
+  `events.instances`; eliminare chiude le righe come il poller chiude un
+  evento cancellato (la card aperta si chiude, Q5) e toglie
+  `calendar_series`.
+- **⚠️ ECCEZIONE DICHIARATA a «Posta e Calendario personali»: il
+  libero/occupato dei colleghi (area 6, F4, task 5; D8 = b, Q3 = a).** `GET
+  /api/me/calendar/freebusy` lo legge CHIUNQUE nell'istanza *(O, 46)*, per
+  organizzare una riunione — è l'unico punto in cui una riga del calendario
+  di una persona produce qualcosa per un'altra. Il perimetro, che non si
+  allarga: escono SOLO `personId`, `availability` (`connected` /
+  `not_connected` / `expired`) e intervalli `{ startsAt, endsAt }` FUSI e
+  tagliati all'intervallo chiesto — mai un titolo, un luogo, una descrizione,
+  un invitato, un organizzatore, un id di evento o di casella, nemmeno di un
+  evento `private` (che occupa, e basta). Dalle righe salvate, nessuna
+  chiamata a Google; una casella disattivata non conta. Occupa un evento con
+  orario, non cancellato, non `transparent`, non rifiutato; un tutto il
+  giorno no, un fuori ufficio sì (`services/calendar-freebusy.ts`). I test
+  (`me-calendar-freebusy.test.ts`) controllano le CHIAVI ESATTE della
+  risposta e che nessun dettaglio compaia nel corpo: chi aggiunge un campo
+  «utile» (il titolo per chi è nello stesso progetto, il numero di eventi)
+  rompe l'eccezione, non solo il test — è una decisione del maintainer.
 - **«Aggiorna ora» non ha un percorso a parte (area 6, F1.2).** La rotta porta
   `next_sync_at` a adesso e fa un `pg_notify` (`google_sync_request`) nella
   stessa transazione; il worker si sveglia e il claim di sempre (`SKIP

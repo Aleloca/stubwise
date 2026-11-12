@@ -72,6 +72,18 @@ const NEVER = [
   "sendDraftLater",
   "sendDraft",
   "retrySend",
+  // Scrivere sul calendario (area 6, F4): sempre un gesto della persona, mai di
+  // Claude — gli inviti partono da Google verso chiunque, anche fuori (Q6).
+  "createCalendarEvent",
+  "editCalendarEvent",
+  "moveCalendarEvent",
+  "respondCalendarEvent",
+  "deleteCalendarEventRow",
+  "setCalendarEventProject",
+  "insertCalendarEvent",
+  "patchCalendarEvent",
+  "deleteCalendarEvent",
+  "respondToCalendarEvent",
   "postWebhook",
   "replyToCustomer",
 ];

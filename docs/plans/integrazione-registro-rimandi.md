@@ -438,6 +438,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono
   `unread = null`, lette come «letto». Un recupero (rileggere le etichette
   dei thread recenti al resync) costa una chiamata per messaggio: non ora.
+- F4, il nome di un invitato di Stubwise *(S)*: `users` non ha un nome,
+  quindi l'invito a una persona di Stubwise parte col solo indirizzo (il nome
+  lo mette Google dal suo elenco, se c'è).
+- F4, il libero/occupato legge solo il calendario `primary` *(S)*: come il
+  poller; un evento su un calendario secondario del collega non occupa.
+- F4, le righe di prima della 0164 senza `etag` *(S)*: finché il worker non
+  le ripassa, una modifica parte senza `If-Match` (il primo giro dopo il
+  deploy; vedi la voce del deploy-log).
 - F4, il progetto dell'evento per tutti (Q1 = a), limite *(O, 46)*: le
   righe degli ALTRI invitati (stesso iCalUID) prendono il progetto, ma le
   loro card aperte restano col progetto con cui sono nate — la card è nella
