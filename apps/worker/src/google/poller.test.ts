@@ -2889,6 +2889,8 @@ function calendarEvent(input: Partial<GoogleCalendarEvent> & { id: string }): Go
     attendees: [att("cliente@cliente.com"), att(MAILBOX)],
     organizer: MAILBOX,
     htmlLink: null,
+    eventType: "default",
+    transparency: "opaque",
     updatedAt: null,
     recurringEventId: null,
     originalStartTime: null,
@@ -4063,5 +4065,98 @@ describe("review F2, punto 1 (critico): col flag acceso le proposte CONDIVISE ar
     expect((await db.select().from(emailProposalRecipients)).map((r) => r.userId)).toEqual([owner!.id]);
     await db.delete(emailProposalRecipients);
     await db.delete(projectMembers);
+  });
+});
+
+describe("F3b: il calendario con TUTTI gli eventi", () => {
+  async function tick(account: typeof googleAccounts.$inferSelect, events: GoogleCalendarEvent[]) {
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events, nextSyncToken: "tok" }]) }));
+  }
+  /** L'insieme misto: ciò che entrava prima (candidato) e ciò che prima restava fuori. */
+  const mixed = () => [
+    calendarEvent({ id: "lavoro" }),
+    calendarEvent({ id: "lavoro-senza-titolo", title: "" }),
+    calendarEvent({ id: "personale", title: "Dentista", attendees: [att(MAILBOX)] }),
+    calendarEvent({ id: "ferie", title: "Ferie", attendees: [att(MAILBOX)], eventType: "outOfOffice", transparency: "transparent" }),
+    calendarEvent({ id: "dove", title: "In ufficio", attendees: [att(MAILBOX)], eventType: "workingLocation" }),
+    calendarEvent({ id: "compleanno", title: "Compleanno di Ada", attendees: [att(MAILBOX)], eventType: "birthday" }),
+  ];
+
+  it("flag spento: entrano tutti (tranne posizione e compleanni), ma i CANDIDATI e le PROPOSTE sono esattamente quelli di prima", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await tick(account, mixed());
+
+    const rows = await calendarRows();
+    expect(rows.map((r) => r.googleEventId)).toEqual(["ferie", "lavoro", "lavoro-senza-titolo", "personale"]);
+    // Prima entrava SOLO «lavoro»: è l'unico candidato, e l'unico proposto.
+    expect(rows.filter((r) => r.proposalCandidate).map((r) => r.googleEventId)).toEqual(["lavoro"]);
+    expect(rows.filter((r) => r.proposalNotificationId !== null).map((r) => r.googleEventId)).toEqual(["lavoro"]);
+    expect(rows.find((r) => r.googleEventId === "lavoro")).toMatchObject({ projectId, projectBy: "rules" });
+    expect(rows.find((r) => r.googleEventId === "personale")).toMatchObject({ projectId: null, projectBy: null, outcome: null });
+    expect(rows.find((r) => r.googleEventId === "ferie")).toMatchObject({ eventType: "outOfOffice", transparency: "transparent" });
+    expect((await db.select().from(notifications)).length).toBe(1);
+  });
+
+  it("un evento solo visto, cancellato su Google, se ne va; un candidato cancellato si chiude come prima", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await tick(account, mixed());
+    await tick(account, [
+      calendarEvent({ id: "personale", status: "cancelled", title: "", attendees: [] }),
+      calendarEvent({ id: "lavoro", status: "cancelled", title: "", attendees: [] }),
+    ]);
+    const rows = await calendarRows();
+    expect(rows.find((r) => r.googleEventId === "personale")).toBeUndefined();
+    expect(rows.find((r) => r.googleEventId === "lavoro")).toMatchObject({ status: "cancelled" });
+  });
+
+  it("la LINEA DI BASE: una casella di prima, al primo giro completo, non propone sugli eventi già esistenti — nemmeno uno in perimetro; dal giro dopo sì", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null });
+    await tick(account, mixed());
+    const first = await calendarRows();
+    expect(first.find((r) => r.googleEventId === "lavoro")).toMatchObject({ proposalCandidate: true, outcome: { type: "baseline" }, proposalNotificationId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+    const [after] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    expect(after!.calendarBaselineAt).toBeInstanceOf(Date);
+    // Un appuntamento NUOVO dopo la linea di base propone come sempre.
+    await tick(after!, [calendarEvent({ id: "nuovo", title: "Revisione contratto" })]);
+    expect((await calendarRows()).find((r) => r.googleEventId === "nuovo")!.proposalNotificationId).not.toBeNull();
+  });
+
+  it("un'occorrenza PERSONALE di una serie accesa con un progetto non diventa una proposta (solo i candidati, anche per le serie)", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const { calendarSeries } = await import("@stubwise/db");
+    await db.insert(calendarSeries).values({ accountId: account.id, recurringEventId: "serie-yoga", enabled: true, projectId, leadDays: 30 });
+    await tick(account, [calendarEvent({ id: "yoga-1", title: "Yoga", attendees: [att(MAILBOX)], recurringEventId: "serie-yoga" })]);
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ proposalCandidate: false, proposalNotificationId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("un candidato SENZA proposta (proposte spente) uscito dalle regole tiene il suo progetto", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsEnabled: false });
+    await tick(account, [calendarEvent({ id: "lavoro" })]);
+    await tick(account, [calendarEvent({ id: "lavoro", title: "Revisione (spostata)", attendees: [att(MAILBOX)] })]);
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ title: "Revisione (spostata)", proposalCandidate: true, projectId, proposalNotificationId: null });
+  });
+
+  it("un candidato non torna indietro: uscito dalle regole, la riga si aggiorna ma resta candidata col suo progetto", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await tick(account, [calendarEvent({ id: "lavoro" })]);
+    await tick(account, [calendarEvent({ id: "lavoro", title: "Revisione (spostata)", attendees: [att(MAILBOX)] })]);
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ title: "Revisione (spostata)", proposalCandidate: true, projectId });
   });
 });

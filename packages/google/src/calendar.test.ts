@@ -97,6 +97,22 @@ describe("listEvents", () => {
     expect(event.htmlLink).toBe("https://calendar.google.test/e1");
   });
 
+  it("F3b: eventType e transparency — assenti valgono default/opaque (le regole di Google), gli altri si portano come sono", async () => {
+    const { impl } = fakeFetch([
+      jsonResponse({
+        items: [
+          { id: "a", summary: "A", start: { dateTime: "2026-09-10T09:00:00Z" } },
+          { id: "b", summary: "Ferie", start: { date: "2026-09-11" }, eventType: "outOfOffice", transparency: "transparent" },
+        ],
+      }),
+    ]);
+    const page = await listEvents({ accessToken: "at" }, { fetchImpl: impl });
+    expect(page.events.map((e) => [e.eventType, e.transparency])).toEqual([
+      ["default", "opaque"],
+      ["outOfOffice", "transparent"],
+    ]);
+  });
+
   it("responseStatus assente o non riconosciuto → null, mai un valore inventato (fase 9, Task 2)", async () => {
     const { impl } = fakeFetch([
       jsonResponse({

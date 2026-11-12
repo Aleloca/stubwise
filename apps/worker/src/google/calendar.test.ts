@@ -202,6 +202,8 @@ function event(input: Partial<GoogleCalendarEvent> & { id: string }): GoogleCale
     attendees: [att("cliente@cliente.com"), att(MAILBOX)],
     organizer: MAILBOX,
     htmlLink: null,
+    eventType: "default",
+    transparency: "opaque",
     updatedAt: null,
     recurringEventId: null,
     originalStartTime: null,
