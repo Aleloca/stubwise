@@ -7,6 +7,7 @@ import {
   deleteDraft,
   encodeRaw,
   getDraft,
+  getSendAsSignature,
   GMAIL_MODIFY_SCOPE,
   GoogleApiError,
   missingGoogleScopes,
@@ -42,9 +43,39 @@ export interface MailComposeClient {
   updateDraft: typeof updateDraft;
   getDraft: typeof getDraft;
   deleteDraft: typeof deleteDraft;
+  getSendAsSignature: typeof getSendAsSignature;
 }
 
-export const realMailComposeClient: MailComposeClient = { refreshAccessToken, createDraft, updateDraft, getDraft, deleteDraft };
+export const realMailComposeClient: MailComposeClient = { refreshAccessToken, createDraft, updateDraft, getDraft, deleteDraft, getSendAsSignature };
+
+/** Quanto vale la copia della firma per il compositore, prima di rileggerla. */
+export const SIGNATURE_MAX_AGE_MS = 24 * 3600_000;
+
+type SignatureView = Pick<MailDraft, "signature" | "signatureStatus">;
+
+/** La firma dalla copia della casella (nessuna chiamata a Google). */
+async function signatureOf(db: Db, accountId: string): Promise<SignatureView> {
+  const [row] = await db
+    .select({ scopes: googleAccounts.scopes, text: googleAccounts.signatureText })
+    .from(googleAccounts)
+    .where(eq(googleAccounts.id, accountId));
+  if (!row || !row.scopes.includes(GMAIL_MODIFY_SCOPE)) return { signature: null, signatureStatus: "scope_missing" };
+  return row.text ? { signature: row.text, signatureStatus: "present" } : { signature: null, signatureStatus: "none" };
+}
+
+/**
+ * Rilegge la firma da Gmail (`users.settings.sendAs`, basta gmail.modify) e
+ * aggiorna la copia. FAIL-OPEN: se Google non risponde resta la copia di
+ * prima — una firma vecchia non vale un salvataggio fallito.
+ */
+async function refreshSignature(db: Db, client: MailComposeClient, accessToken: string, account: { id: string; email: string }): Promise<void> {
+  try {
+    const text = await client.getSendAsSignature({ accessToken, sendAsEmail: account.email });
+    await db.update(googleAccounts).set({ signatureText: text, signatureFetchedAt: new Date() }).where(eq(googleAccounts.id, account.id));
+  } catch {
+    // La copia resta quella che c'era.
+  }
+}
 
 export type DraftError =
   | { error: "not_found" }
@@ -111,6 +142,7 @@ async function toView(db: Db, row: DraftRow): Promise<MailDraft> {
     attachments: attachments.map((a) => ({ id: a.id, name: a.name, sizeBytes: a.sizeBytes, driveFileId: a.driveFileId, as: a.as })),
     quote: row.quote,
     updatedAt: row.updatedAt.toISOString(),
+    ...(await signatureOf(db, row.accountId)),
   };
 }
 
@@ -151,9 +183,24 @@ export async function draftFor(
   db: Db,
   userId: string,
   input: { accountId: string; threadId: string | null; mode: MailComposeMode; replyToMessageId: string | null },
+  /** Per rileggere la firma quando la copia manca o è vecchia; senza, si usa la copia. */
+  google?: { encryptionKey: Buffer; client: MailComposeClient },
 ): Promise<MailDraft | { error: "not_found" }> {
-  const [account] = await db.select({ id: googleAccounts.id }).from(googleAccounts).where(and(eq(googleAccounts.id, input.accountId), eq(googleAccounts.userId, userId)));
+  const [account] = await db
+    .select({ id: googleAccounts.id, email: googleAccounts.email, scopes: googleAccounts.scopes, fetchedAt: googleAccounts.signatureFetchedAt, disabledAt: googleAccounts.disabledAt })
+    .from(googleAccounts)
+    .where(and(eq(googleAccounts.id, input.accountId), eq(googleAccounts.userId, userId)));
   if (!account) return { error: "not_found" };
+  // La firma nel compositore: dalla copia; una LETTURA da Google solo se manca o ha più di un giorno.
+  const stale = !account.fetchedAt || Date.now() - account.fetchedAt.getTime() > SIGNATURE_MAX_AGE_MS;
+  if (google && stale && !account.disabledAt && account.scopes.includes(GMAIL_MODIFY_SCOPE)) {
+    try {
+      const accessToken = await accessTokenFor(db, google.encryptionKey, google.client, account.id);
+      if (accessToken) await refreshSignature(db, google.client, accessToken, account);
+    } catch {
+      // Fail-open: il compositore si apre con la copia che c'è.
+    }
+  }
   const [saved] = await db
     .select()
     .from(mailDrafts)
@@ -181,6 +228,7 @@ export async function draftFor(
     attachments: [],
     quote: input.mode !== "new",
     updatedAt: null,
+    ...(await signatureOf(db, input.accountId)),
   };
   if (input.mode === "new" || !input.threadId) return { ...blank, mode: input.threadId ? input.mode : "new" };
   const ref = await referenceMessage(db, userId, input.accountId, input.threadId, input.replyToMessageId);
@@ -207,7 +255,16 @@ export async function draftFor(
 }
 
 /** Il testo che va su Gmail: il corpo, più la citazione se chiesta. */
-async function composedBody(db: Db, body: string, quote: boolean, replyTo: string | null): Promise<{ text: string; inReplyTo: string | null }> {
+async function composedBody(
+  db: Db,
+  rawBody: string,
+  quote: boolean,
+  replyTo: string | null,
+  signature: string | null,
+): Promise<{ text: string; inReplyTo: string | null }> {
+  // La firma: sotto il corpo, PRIMA della citazione, una volta sola (il
+  // separatore standard «-- »). Non entra mai nella copia di `body`.
+  const body = signature ? `${rawBody}\n\n-- \n${signature}` : rawBody;
   if (!replyTo) return { text: body, inReplyTo: null };
   const [ref] = await db.select().from(emailMessages).where(eq(emailMessages.id, replyTo));
   if (!ref) return { text: body, inReplyTo: null };
@@ -277,7 +334,9 @@ export async function saveDraft(
 
   const files = existing ? await attachmentBytes(db, storage, userId, existing.id) : [];
   if (!Array.isArray(files)) return files;
-  const { text, inReplyTo } = await composedBody(db, input.body, input.quote, input.replyToMessageId);
+  await refreshSignature(db, client, accessToken, writable.account);
+  const { signature } = await signatureOf(db, input.accountId);
+  const { text, inReplyTo } = await composedBody(db, input.body, input.quote, input.replyToMessageId, signature);
   const raw = encodeRaw(
     buildMimeMessage({
       from: { email: writable.account.email },

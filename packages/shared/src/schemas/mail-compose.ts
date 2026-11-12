@@ -41,6 +41,14 @@ export const mailDraftSchema = z.object({
   /** Rispondi cita il messaggio sotto (default sì); Inoltra sempre. */
   quote: z.boolean().default(true),
   updatedAt: z.string().nullable().default(null),
+  /**
+   * La firma di Gmail dell'indirizzo mittente, in testo (decisione M del
+   * maintainer). La mette il SERVER nel messaggio, sotto il corpo e una volta
+   * sola: non è mai in `body`, e il compositore la mostra in sola lettura.
+   */
+  signature: z.string().nullable().default(null),
+  /** `scope_missing` = la casella non concede gmail.modify: si manda senza firma. */
+  signatureStatus: z.enum(["present", "none", "scope_missing"]).default("none"),
 });
 export type MailDraft = z.infer<typeof mailDraftSchema>;
 

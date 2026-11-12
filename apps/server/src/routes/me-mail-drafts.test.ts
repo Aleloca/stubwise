@@ -24,6 +24,9 @@ let app: FastifyInstance;
 const calls: { fn: string; input: Record<string, unknown> }[] = [];
 let current: { id: string; messageId: string | null; threadId: string | null } | null = null;
 let getError: unknown = null;
+const sigCalls: string[] = [];
+let signature: string | null = "Ada Lovelace\nAcme";
+let sigError: unknown = null;
 const objects = new Map<string, Buffer>();
 let storage: ObjectStorage | null = null;
 const memoryStorage: ObjectStorage = {
@@ -63,6 +66,12 @@ const fake: MailComposeClient = {
   deleteDraft: async (input) => {
     calls.push({ fn: "delete", input });
   },
+  // La firma si traccia a parte: le sequenze di `calls` restano quelle delle bozze.
+  getSendAsSignature: async (input) => {
+    sigCalls.push(input.sendAsEmail);
+    if (sigError) throw sigError;
+    return signature;
+  },
 };
 
 beforeAll(async () => {
@@ -80,6 +89,9 @@ beforeEach(() => {
   calls.length = 0;
   current = null;
   getError = null;
+  sigCalls.length = 0;
+  signature = "Ada Lovelace\nAcme";
+  sigError = null;
   objects.clear();
   storage = memoryStorage;
 });
@@ -103,7 +115,7 @@ async function scenario(scopes = ["openid", "email", GMAIL_MODIFY]) {
   const boxEmail = `ada-box-${randomUUID().slice(0, 6)}@acme.com`;
   const [box] = await db
     .insert(googleAccounts)
-    .values({ userId: me.id, workspaceId: ws!.id, email: boxEmail, googleSub: randomUUID(), refreshTokenEncrypted: encrypt("r", KEY), scopes })
+    .values({ userId: me.id, workspaceId: ws!.id, email: boxEmail, googleSub: randomUUID(), refreshTokenEncrypted: encrypt("r", KEY), scopes, signatureText: "Ada (copia)", signatureFetchedAt: new Date() })
     .returning();
   const [message] = await db
     .insert(emailMessages)
@@ -537,6 +549,61 @@ describe("gli allegati di una bozza: nel MIME a ogni salvataggio, dal disco o da
     expect(res.statusCode).toBe(502);
     expect(await db.select().from(mailDraftAttachments)).toEqual([]);
     expect(objects.size).toBe(0);
+  });
+});
+
+describe("la firma di Gmail (decisione M; basta gmail.modify)", () => {
+  const textOf = (raw: unknown) => {
+    const mime = Buffer.from(String(raw), "base64url").toString("utf8");
+    return Buffer.from(mime.split("\r\n\r\n").slice(1).join("").replace(/\r\n/g, ""), "base64").toString("utf8");
+  };
+
+  it("al salvataggio: letta FRESCA dall'indirizzo mittente, sotto il corpo e PRIMA della citazione, una volta sola; mai in body", async () => {
+    const { me, box, message } = await scenario();
+    const res = await save(me.headers, { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, to: [{ email: "cliente@x.it" }], subject: "Re: Export", body: "Fatto.", quote: true });
+    expect(sigCalls).toEqual([box.email]);
+    const text = textOf(calls[0]!.input.raw);
+    expect(text).toContain("Fatto.\n\n-- \nAda Lovelace\nAcme");
+    expect(text.indexOf("Ada Lovelace")).toBeLessThan(text.indexOf("> Ci serve l'export."));
+    expect(text.split("Ada Lovelace")).toHaveLength(2);
+    expect(res.json()).toMatchObject({ body: "Fatto.", signature: "Ada Lovelace\nAcme", signatureStatus: "present" });
+    // E la copia della casella è aggiornata.
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, box.id));
+    expect(row!.signatureText).toBe("Ada Lovelace\nAcme");
+  });
+
+  it("compose: dalla copia fresca, SENZA chiamare Google; con la copia vecchia di un giorno (o assente) la rilegge", async () => {
+    const { me, box } = await scenario();
+    const first = (await compose(me.headers, `account=${box.id}&mode=new`)).json() as { signature: string | null; signatureStatus: string };
+    expect(first).toMatchObject({ signature: "Ada (copia)", signatureStatus: "present" });
+    expect(sigCalls).toEqual([]);
+    const { eq } = await import("drizzle-orm");
+    await db.update(googleAccounts).set({ signatureFetchedAt: new Date(Date.now() - 25 * 3600_000) }).where(eq(googleAccounts.id, box.id));
+    const second = (await compose(me.headers, `account=${box.id}&mode=new`)).json() as { signature: string | null };
+    expect(second.signature).toBe("Ada Lovelace\nAcme");
+    expect(sigCalls).toEqual([box.email]);
+  });
+
+  it("nessuna firma su Gmail: status none e niente blocco nel messaggio; Google irraggiungibile: si usa la copia, il salvataggio non fallisce", async () => {
+    const { me, box } = await scenario();
+    signature = null;
+    const res = await save(me.headers, { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "a" });
+    expect(res.json()).toMatchObject({ signature: null, signatureStatus: "none" });
+    expect(textOf(calls[0]!.input.raw)).not.toContain("-- ");
+    const { eq } = await import("drizzle-orm");
+    await db.update(googleAccounts).set({ signatureText: "Ada (copia)" }).where(eq(googleAccounts.id, box.id));
+    sigError = new GoogleApiError({ api: "gmail.settings.sendAs.get", status: 500, code: "server_error", reason: "backendError" });
+    const again = await save(me.headers, { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "b" });
+    expect(again.statusCode).toBe(200);
+    expect(textOf(calls.filter((c) => c.fn === "update").at(-1)!.input.raw)).toContain("-- \nAda (copia)");
+  });
+
+  it("una casella senza gmail.modify: scope_missing nel compositore, e nessuna chiamata", async () => {
+    const { me, box } = await scenario(["openid", "email", "https://www.googleapis.com/auth/gmail.readonly"]);
+    const view = (await compose(me.headers, `account=${box.id}&mode=new`)).json() as { signature: string | null; signatureStatus: string };
+    expect(view).toMatchObject({ signature: null, signatureStatus: "scope_missing" });
+    expect(sigCalls).toEqual([]);
   });
 });
 

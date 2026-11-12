@@ -321,6 +321,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   *(M, decisione del maintainer: come il prototipo; chiusa con la F1 del
   server, 02df56c8)*: il poller la legge comunque e «Aggiorna ora» funziona;
   «Proposte attive» spegne solo le proposte.
+- Firma di Gmail *(M)* (area 6, F3, 12 nov 2026): decisa «la firma di
+  Gmail», con `gmail.modify` e NON con `gmail.settings.basic` — la lettura di
+  `users.settings.sendAs` accetta gmail.modify, e gmail.settings.basic è
+  restricted e serve solo a scrivere le impostazioni (pagine Google citate
+  nel piano della F3). Nessun riconsenso in più. Rimandato: nessuna firma
+  HTML (mandiamo text/plain), nessuna firma per alias diversi
+  dall'indirizzo della casella.
+- Calendario «Tutti, come il prototipo» *(M)* (12 nov 2026): fetta F3b,
+  prima della F4. Decisioni *(O)* di 46: `workingLocation` e `birthday`
+  esclusi dall'ingestione, `outOfOffice` resta; calendari come il
+  prototipo; proposte del calendario dentro `/api/me/mail/proposals` col
+  flag acceso.
 
 - I riferimenti a Google Drive nel Drive dei progetti (area 5, D1 = a): le
   cartelle collegate, «Aggiungi da Google Drive», «Quale progetto?», i file

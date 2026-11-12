@@ -41,9 +41,24 @@ corpo dell'email» (`mailBody`).
 
 ## [DECIDE] per il maintainer
 
+> **Decisa *(M)*, 12 nov 2026: la firma di Gmail.** Il COME è cambiato dopo
+> una verifica: la lettura (`users.settings.sendAs.get`,
+> https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.settings.sendAs/get)
+> accetta anche `gmail.modify`, che l'area chiede già (riconsenso F1);
+> `gmail.settings.basic` serve solo a CAMBIARE impostazioni ed è
+> **restricted** (https://developers.google.com/workspace/gmail/api/auth/scopes).
+> Quindi NESSUNO scope nuovo (via libera di 46 a nome del maintainer). La
+> firma si legge con gmail.modify, si tiene in copia sulla casella
+> (`google_accounts.signature_text`, 0155: il compositore la mostra senza
+> chiamare Google, e la rilegge se manca o ha più di un giorno), il server la
+> mette nel MIME a ogni salvataggio (fresca), sotto il corpo e prima della
+> citazione, una volta sola; `MailDraft.signature`/`signatureStatus`
+> (`scope_missing` solo per le caselle vecchie senza gmail.modify).
+> Fail-open: Google che non risponde lascia la copia.
+
 **A — La firma delle email mandate da Stubwise.** L'API non mette la firma di
 Gmail: la si legge solo con lo scope `gmail.settings.basic`, che oggi non
-chiediamo.
+chiediamo. *(premessa smentita dalla verifica sopra)*
 - (a, consigliata) Nessuna firma automatica in questa fetta: chi scrive la
   mette nel testo; la firma per casella nelle Preferenze va nel registro.
 - (b) Chiedere `gmail.settings.basic` (un riconsenso in più per tutti) e
