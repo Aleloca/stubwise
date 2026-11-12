@@ -19,6 +19,8 @@ export const mailProposalActionTypeSchema = z.enum([
   "comment_ticket",
   "create_milestone",
   "record_decision",
+  // F3b: il promemoria di una serie del calendario («Visto»).
+  "acknowledge_reminder",
   "choose_project",
 ]);
 export type MailProposalActionType = z.infer<typeof mailProposalActionTypeSchema>;
@@ -55,13 +57,23 @@ export const mailProposalOriginSchema = z.object({
   subject: z.string().nullable().default(null),
 });
 
+/** F3b: l'origine di una proposta del CALENDARIO (accanto a `origin`, che è dell'email). */
+export const mailProposalCalendarOriginSchema = z.object({
+  eventId: z.uuid(),
+  title: z.string().nullable().default(null),
+  startsAt: z.iso.datetime(),
+  allDay: z.boolean().default(false),
+});
+
 export const mailProposalStatusSchema = z.enum(["open", "confirmed", "ignored", "handed", "failed"]);
 export type MailProposalStatus = z.infer<typeof mailProposalStatusSchema>;
 
 export const mailProposalSchema = z.object({
   id: z.uuid(),
   /** `email_messages.id` del messaggio, nella casella di chi guarda. */
-  messageId: z.uuid(),
+  /** F3b: `calendar` = una proposta da un evento (allora `messageId` è null e c'è `calendarOrigin`). */
+  kind: z.enum(["email", "calendar"]).default("email"),
+  messageId: z.uuid().nullable().default(null),
   projectId: z.uuid(),
   status: mailProposalStatusSchema,
   createdAt: z.string(),
@@ -93,6 +105,7 @@ export const mailProposalSchema = z.object({
   /** Gli ALTRI destinatari membri che la vedono (mai i ccn). */
   sharedWith: z.array(mailProposalPersonSchema).default([]),
   origin: mailProposalOriginSchema.nullable().default(null),
+  calendarOrigin: mailProposalCalendarOriginSchema.nullable().default(null),
 });
 export type MailProposal = z.infer<typeof mailProposalSchema>;
 

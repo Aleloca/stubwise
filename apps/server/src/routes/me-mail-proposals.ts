@@ -27,7 +27,9 @@ import { authErrorResponses, errorSchema } from "./shared.js";
  * parte letterale sullo stesso prefisso di `/:source/:id` (la trappola di
  * routing di Fastify, CLAUDE.md).
  */
-export async function meMailProposalsRoutes(instance: FastifyInstance): Promise<void> {
+export async function meMailProposalsRoutes(instance: FastifyInstance, opts: { mailClassifyV2?: boolean } = {}): Promise<void> {
+  // F3b: col flag della dottrina nuova anche le proposte del calendario.
+  const includeCalendar = opts.mailClassifyV2 === true;
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   app.get(
@@ -50,6 +52,7 @@ export async function meMailProposalsRoutes(instance: FastifyInstance): Promise<
           messageId: request.query.message,
           thread: request.query.thread && request.query.account ? { threadId: request.query.thread, accountId: request.query.account } : undefined,
           status: request.query.status,
+          includeCalendar,
         },
         request.user!.language,
       );
@@ -67,7 +70,7 @@ export async function meMailProposalsRoutes(instance: FastifyInstance): Promise<
       },
     },
     async (request, reply) => {
-      const [item] = await listMailProposals(app.db, request.user!, { id: request.params.id }, request.user!.language);
+      const [item] = await listMailProposals(app.db, request.user!, { id: request.params.id, includeCalendar }, request.user!.language);
       if (!item) return apiError(reply, 404, "not_found", "Mail proposal not found");
       return item;
     },

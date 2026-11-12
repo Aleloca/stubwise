@@ -909,7 +909,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // la stessa ragione di leggibilità (un file, un pezzo di superficie).
   // Area 6, F2: le proposte condivise, PRIMA di `meMailRoutes` (la parte
   // letterale `/proposals` sullo stesso prefisso di `/:source/:id`).
-  void app.register(meMailProposalsRoutes, { prefix: "/api/me/mail/proposals" });
+  void app.register(meMailProposalsRoutes, { prefix: "/api/me/mail/proposals", mailClassifyV2: opts.mailClassifyV2 ?? false });
   // Area 6, F3: le bozze, anch'esse prima di `meMailRoutes`.
   void app.register(meMailDraftsRoutes, { prefix: "/api/me/mail/drafts", ...(opts.mailComposeClient ? { client: opts.mailComposeClient } : {}) });
   void app.register(meMailOutgoingRoutes, { prefix: "/api/me/mail/outgoing" });

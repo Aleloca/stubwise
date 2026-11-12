@@ -13,6 +13,7 @@ import { permissionForMailAction, projectPermissionsOfUser, projectViewerIds } f
 import type { Language, MailProposal, MailProposalAction, MailProposalStatus, ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { coversAll } from "./mail-proposals-decide.js";
+import { listCalendarProposals } from "./mail-proposals-calendar.js";
 import { legacyRows, legacyView } from "./mail-proposals-legacy.js";
 
 /**
@@ -59,6 +60,8 @@ export interface MailProposalFilter {
   /** Una conversazione di una casella di chi guarda (thread Gmail + casella). */
   thread?: { threadId: string; accountId: string } | undefined;
   status?: MailProposalStatus | undefined;
+  /** F3b: col flag della dottrina nuova anche le proposte del calendario (della casella di chi guarda). */
+  includeCalendar?: boolean | undefined;
 }
 
 /** Lo stato pubblico di una riga. */
@@ -135,6 +138,14 @@ export async function listMailProposals(
     const view = await legacyView(db, viewer.id, row);
     if (!view || (filter.status && view.status !== filter.status)) continue;
     out.push(view);
+  }
+  // F3b: le proposte del calendario, una fonte sola per «Da decidere». Non
+  // hanno un messaggio né una conversazione: i filtri per email le escludono.
+  if (filter.includeCalendar && !filter.messageId && !filter.thread) {
+    for (const view of await listCalendarProposals(db, viewer.id, { id: filter.id })) {
+      if (filter.status && view.status !== filter.status) continue;
+      out.push(view);
+    }
   }
   return out.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
@@ -221,6 +232,8 @@ async function buildView(
 
   return {
     id: proposal.id,
+    kind: "email",
+    calendarOrigin: null,
     messageId: own?.id ?? proposal.emailMessageId,
     // Un «Quale progetto?» sta sotto un progetto che chi guarda vede.
     projectId: choose?.[0] ?? proposal.projectId,
