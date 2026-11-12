@@ -136,6 +136,20 @@ describe("le proposte della Posta: lettura", () => {
     expect(await mail.listMailProposals({})).toHaveLength(2);
   });
 
+  it("l'inbox si legge a pagine: una card della Posta dopo cento card d'altro tipo c'è", async () => {
+    const other = (i: number) => ({ ...card({ id: `9b9b9b9b-0000-4000-8000-${String(i).padStart(12, "0")}`, kind: "plan.ready" }), google: undefined, question: undefined });
+    installFakeServer({
+      "GET /api/inbox": (req: { path: string }) => {
+        const q = new URLSearchParams(req.path.split("?")[1] ?? "");
+        if (q.get("status") !== "open") return { body: { items: [], nextCursor: null } };
+        return q.get("cursor") === "p2"
+          ? { body: { items: [card()], nextCursor: null } }
+          : { body: { items: Array.from({ length: 100 }, (_, i) => other(i)), nextCursor: "p2" } };
+      },
+    });
+    expect((await mail.listMailProposals({})).map((v) => v.proposal.id)).toEqual([N1]);
+  });
+
   it("una proposta per id; una che non c'è è `not_found`", async () => {
     installFakeServer(inbox([card()]));
     expect((await mail.getMailProposal(N1)).proposal.id).toBe(N1);
