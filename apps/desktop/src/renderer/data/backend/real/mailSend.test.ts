@@ -117,6 +117,11 @@ describe("Invia", () => {
     }
   });
 
+  it("una bozza il cui ultimo invio è fallito: il server ridà quello; non è riuscito (`already_failed`, col messaggio)", async () => {
+    installFakeServer({ ...base, [`POST /api/me/mail/drafts/${D1}/send`]: { body: outgoing({ state: "failed", error: "quota" }) } });
+    await expect(mail.sendDraft(D1)).rejects.toMatchObject({ message: "already_failed", messageId: O1 });
+  });
+
   it("una bozza che non c'è (o non è mia): `not_found`", async () => {
     installFakeServer({ ...base, [`POST /api/me/mail/drafts/${D1}/send`]: { status: 404, body: { code: "not_found", message: "x" } } });
     await expect(mail.sendDraft(D1)).rejects.toThrow("not_found");

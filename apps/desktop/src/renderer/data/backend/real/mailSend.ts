@@ -82,6 +82,9 @@ const sendDraft: Mail["sendDraft"] = async (id) => {
   try {
     const o = (await appClient().mail.sendDraft(id)) as MailOutgoing;
     if (accountId) sendAccounts().set(o.messageId, accountId);
+    // Il suo ultimo invio era fallito: il server ridà quello, senza un secondo
+    // invio. Non è riuscito, e non deve sembrarlo (`already_failed`, col messaggio).
+    if (o.state === "failed") throw Object.assign(new Error("already_failed"), { messageId: o.messageId });
     return resultOf(o, accountId);
   } catch (error) {
     throw sendError(error);

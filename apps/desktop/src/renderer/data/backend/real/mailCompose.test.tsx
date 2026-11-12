@@ -410,6 +410,45 @@ describe("la review della F3: l'«Annulla» dura quanto la finestra del server",
     for (const name of ["Retry", "Edit", "Delete"]) expect(screen.queryByRole("button", { name })).toBeNull();
   });
 
+  it("Invia su una bozza il cui ultimo invio è FALLITO (il server ridà quello): non sembra riuscito; la casella resta, lo dice, e il fuoco va al messaggio fallito", async () => {
+    detailOverride = {
+      ...detail,
+      messages: [
+        ...detail.messages,
+        {
+          ...detail.messages[0],
+          id: OUT,
+          from: "Ada <ada@acme.test>",
+          to: ["bob@client.test"],
+          receivedAt: "2026-10-23T10:00:00.000Z",
+          textExcerpt: "La mia risposta.",
+          proposalIds: [],
+          delivery: { state: "failed", error: "quota", outgoingId: OUT },
+        },
+      ],
+    };
+    sendAnswer = {
+      status: 200,
+      body: { messageId: OUT, threadId: "t-1", state: "failed", undoUntil: new Date(Date.now() - 60_000).toISOString(), error: "quota", sentAt: null },
+    };
+    vi.stubGlobal("matchMedia", (media: string) => ({
+      matches: true,
+      media,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }));
+    const form = await reply();
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    expect(await within(form).findByText("This email hadn't gone out: use Retry or edit it.")).toBeInTheDocument();
+    expect(screen.getByRole("form", { name: /Reply to Bob Rossi/ })).toBe(form);
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+    await waitFor(() => expect(document.activeElement?.closest(`[data-message="${OUT}"]`)).not.toBeNull());
+  });
+
   it("«Retry» di un invio fallito che il server manda subito (`undoUntil` già passato): nessun «Undo» che non funzionerebbe", async () => {
     const OUT2 = "0f0f0f0f-2222-4222-8222-222222222222";
     detailOverride = {

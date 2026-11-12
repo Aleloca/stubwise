@@ -326,6 +326,21 @@ export function Composer(props: ComposerProps) {
       draft.markSent();
       onSent(result, [...f.to, ...f.cc]);
     } catch (error) {
+      // L'ultimo invio di questa bozza era fallito: la casella resta, lo dice, e il
+      // fuoco va al messaggio fallito, coi suoi Retry ed Edit.
+      if (error instanceof Error && error.message === "already_failed") {
+        setSendError(t("mail.compose.alreadyFailed"));
+        setSending(false);
+        const id = (error as { messageId?: string }).messageId;
+        const el = id
+          ? ([...document.querySelectorAll<HTMLElement>("[data-message]")].find((m) => m.dataset.message === id) ?? null)
+          : null;
+        if (el) {
+          if (!el.hasAttribute("tabindex")) el.setAttribute("tabindex", "-1");
+          el.focus();
+        }
+        return;
+      }
       // Il conflitto con Gmail lo dice già la riga «Keep mine» (review F3, 9).
       if (!(error instanceof Error && error.message === "draft_changed")) {
         setSendError(t("mail.compose.couldntSend", { reason: t(reasonKey(error)) }));
