@@ -4394,3 +4394,21 @@ describe("review F3b, punto 2: un evento cancellato chiude la sua card, e la pot
     expect((await calendarRows()).map((r) => r.googleEventId)).toEqual(["vecchio"]);
   });
 });
+
+describe("review F3b, minore: le serie col progetto scelto diverso, prima scartate, entrano nella linea di base del deploy", () => {
+  it("un'occorrenza già in tabella di una serie col progetto scelto diverso, alla linea di base del deploy, si chiude invece di proporre", async () => {
+    const routed = await seedProject("Acme");
+    const chosen = await seedProject("Scelto");
+    await db.insert(projectEmailRoutes).values({ projectId: routed, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null });
+    const { calendarSeries } = await import("@stubwise/db");
+    await db.insert(calendarSeries).values({ accountId: account.id, recurringEventId: "serie-sal", enabled: true, projectId: chosen, leadDays: 30 });
+    // Riga di PRIMA del deploy: candidata col progetto delle regole, mai proposta (era scartata).
+    await db.insert(calendarEvents).values({ accountId: account.id, googleEventId: "sal-1", title: "SAL mensile", startsAt: new Date(Date.now() + 7 * 86_400_000), fingerprint: "sal", recurringEventId: "serie-sal", projectId: routed, proposalCandidate: true });
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "sal-1", title: "SAL mensile", recurringEventId: "serie-sal" })], nextSyncToken: "t" }]) }));
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ outcome: { type: "baseline" }, proposalNotificationId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+});

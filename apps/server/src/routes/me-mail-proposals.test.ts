@@ -752,6 +752,25 @@ describe("F3b, task 7: le proposte del CALENDARIO in /proposals (col flag acceso
     return { ada, ev: ev!, card: card! };
   }
 
+  it("review F3b: il progetto è quello della CARD (per una serie col progetto scelto), e un esito fallito è failed, non confirmed", async () => {
+    const { ada, ev, card } = await calendarProposal();
+    const { calendarEvents } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    const [beta] = await db.insert(projects).values({ name: "Beta", slug: `beta-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning();
+    await addMember(app, beta!.id, ada.id, "developer");
+    // La card dice Beta (il progetto scelto sulla serie), la riga ha ancora quello delle regole.
+    await db.update(notifications).set({ event: { ...(card.event as Record<string, unknown>), projectId: beta!.id } }).where(eq(notifications.id, card.id));
+    const v2 = buildApp({ db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", mailClassifyV2: true });
+    try {
+      const list = async () => ((await v2.inject({ method: "GET", url: "/api/me/mail/proposals", headers: ada.headers })).json() as { items: Record<string, unknown>[] }).items.find((i) => i.id === ev.id)!;
+      expect((await list()).projectId).toBe(beta!.id);
+      await db.update(calendarEvents).set({ outcome: { type: "failed", error: "x" } }).where(eq(calendarEvents.id, ev.id));
+      expect((await list()).status).toBe("failed");
+    } finally {
+      await v2.close();
+    }
+  });
+
   it("flag acceso: la proposta del calendario c'è, kind calendar, senza messageId, con l'origine dell'evento; flag spento: no", async () => {
     const { ada, ev } = await calendarProposal();
     const v2 = buildApp({ db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", mailClassifyV2: true });

@@ -39,16 +39,22 @@ async function calendarRows(db: Db, viewerId: string, filter: { id?: string | un
 function calendarStatus(row: CalendarRow): MailProposal["status"] {
   const outcome = (row.event.outcome as { type?: string } | null)?.type;
   if (!outcome) return legacyStatus("proposed");
-  if (outcome === "ignored" || outcome === "cancelled" || outcome === "declined" || outcome === "expired") return "ignored";
+  if (outcome === "failed" || outcome === "error") return "failed";
+  if (outcome === "ignored" || outcome === "cancelled" || outcome === "declined" || outcome === "expired" || outcome === "baseline") return "ignored";
   return "confirmed";
 }
 
 export async function listCalendarProposals(db: Db, viewerId: string, filter: { id?: string | undefined } = {}): Promise<MailProposal[]> {
   const out: MailProposal[] = [];
+  // I permessi una volta per PROGETTO, non per riga (review F3b).
+  const permissionsOf = new Map<string, Awaited<ReturnType<typeof projectPermissionsOfUser>>>();
   for (const row of await calendarRows(db, viewerId, filter)) {
-    const projectId = row.event.projectId ?? (row.card as { projectId?: string } | null)?.projectId ?? null;
+    // Il progetto della CARD prima: per un'occorrenza di serie è quello scelto
+    // sulla serie, che può essere diverso da quello delle regole sulla riga.
+    const projectId = (row.card as { projectId?: string } | null)?.projectId ?? row.event.projectId ?? null;
     if (!projectId) continue;
-    const permissions = await projectPermissionsOfUser(db, viewerId, projectId);
+    if (!permissionsOf.has(projectId)) permissionsOf.set(projectId, await projectPermissionsOfUser(db, viewerId, projectId));
+    const permissions = permissionsOf.get(projectId);
     if (!permissions) continue;
     const actions = modelActions(row.card);
     const status = calendarStatus(row);

@@ -1698,6 +1698,18 @@ export const CALENDAR_BASELINE_OUTCOME = { type: "baseline" } as const;
 /** Fine del primo giro completo: da qui in poi un evento nuovo propone come sempre. */
 async function settleCalendarBaseline(db: Db, account: ClaimedAccount, v2 = false): Promise<void> {
   if (account.calendarBaselineAt === null) {
+    // Le occorrenze già in tabella di una serie accesa col progetto SCELTO
+    // diverso da quello della riga: prima del fix a40c1a61 erano scartate in
+    // silenzio, e ora proporrebbero tutte insieme al primo giro (anche `auto`).
+    // Entrano nella linea di base del deploy (review F3b, minore).
+    await db.execute(sql`
+      update calendar_events e set outcome = ${JSON.stringify(CALENDAR_BASELINE_OUTCOME)}::jsonb
+      from calendar_series s
+      where e.account_id = ${account.id}
+        and s.account_id = e.account_id and s.recurring_event_id = e.recurring_event_id
+        and s.enabled and s.project_id is not null and s.project_id is distinct from e.project_id
+        and e.proposal_notification_id is null and e.outcome is null
+    `);
     await db.update(googleAccounts).set({ calendarBaselineAt: new Date() }).where(and(eq(googleAccounts.id, account.id), isNull(googleAccounts.calendarBaselineAt)));
   }
   if (v2 && account.calendarV2BaselineAt === null) {
