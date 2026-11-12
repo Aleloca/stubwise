@@ -122,6 +122,12 @@ describe("il cassetto Google nella build app", () => {
     expect(q.connect).toHaveBeenCalledWith({ workspaceId: "ws-2" });
   });
 
+  it("le funzioni che mancano, in fila: letto/non letto e la firma", async () => {
+    q.account = { ...connected, status: "expired", reconnect: "scopes", missing: ["markRead", "signature"] };
+    const dialog = await open();
+    expect(dialog).toHaveTextContent("Until you reconnect, Stubwise can't mark mail as read or unread, add your Gmail signature.");
+  });
+
   it("senza funzioni elencate (uno scope di una fetta futura): solo il titolo", async () => {
     q.account = { ...connected, status: "expired", reconnect: "scopes", missing: [] };
     const dialog = await open();

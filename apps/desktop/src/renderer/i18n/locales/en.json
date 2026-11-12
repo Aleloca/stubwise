@@ -5931,7 +5931,8 @@
       "scopes": "Reconnect to give Stubwise the new permissions",
       "scopesMissing": "Until you reconnect, Stubwise can't {{what}}.",
       "feature": {
-        "markRead": "mark mail as read or unread"
+        "markRead": "mark mail as read or unread",
+        "signature": "add your Gmail signature"
       }
     },
     "expired": {

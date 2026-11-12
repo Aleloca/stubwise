@@ -37,6 +37,8 @@ const drawerAccount = (accounts: readonly ServerGoogleAccount[]) => accounts.fin
  */
 const FEATURES_OF_SCOPE: Readonly<Record<string, readonly GoogleFeature[]>> = {
   "https://www.googleapis.com/auth/gmail.modify": ["markRead"],
+  // La firma di Gmail nel compositore (F3, decisione del maintainer).
+  "https://www.googleapis.com/auth/gmail.settings.basic": ["signature"],
 };
 
 function accountOf(a: ServerGoogleAccount): GoogleAccount {
