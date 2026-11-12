@@ -271,6 +271,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   precedente non si classifica mai e resta `new`; il calendario non ha
   taglio (propone solo appuntamenti futuri, come al primo collegamento).
   Invariante in `mail-calendar.md`, voce del deploy-log dell'area 6 F1.
+- Ritorno OAuth al desktop *(O)* (area 6, F1): nessun deep link, il callback
+  resta quello del web e il renderer rilegge `accounts()` al ritorno in primo
+  piano. Rimandato `stubwise://google?outcome=…` (come `stubwise://auth`),
+  che riporterebbe l'esito direttamente all'app.
 - F1.3 letto / non letto, limite *(S)*: dopo un resync per query (primo
   giro, history scaduta) i messaggi GIÀ ingeriti non rileggono `UNREAD`
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono

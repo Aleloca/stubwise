@@ -3879,7 +3879,32 @@ deploy o di un rollback che la tocca.
   `sync_last_requested_at`, `email_messages.unread`) e **0150**
   (`google_accounts.proposals_since`, indice `google_accounts_due_idx`
   senza `proposals_enabled`). Ordine: **server, poi worker** (il worker nomina
-  le colonne nuove), poi caddy. La voce si completa alla F1.5 (il riconsenso).
+  le colonne nuove), poi caddy. Nessuna env nuova.
+
+  **Il riconsenso (D1 = a)**: la richiesta OAuth chiede ora `openid email
+  gmail.modify calendar.readonly calendar.events drive.readonly`
+  (`gmail.modify` al posto di `gmail.readonly`). ⚠️ **Prima del deploy**, su
+  un'app OAuth **External** gli scope nuovi (ristretti) vanno aggiunti alla
+  schermata di consenso in Google Cloud Console e passano dalla verifica di
+  Google; un'app **Internal** (solo l'organizzazione) no — il testo d'aiuto
+  di Impostazioni → Google lo dice. Senza, il consenso nuovo fallisce e
+  nessuno riesce a collegare o ricollegare una casella.
+  Chi ha già una casella collegata **non perde niente**: il callback accetta
+  `gmail.readonly` o `gmail.modify` (`REQUIRED_GOOGLE_SCOPES` a gruppi
+  «uno fra»), quindi la casella continua a leggere posta e calendario. Sulla
+  riga della casella `missingScopes` elenca ciò che le manca (le funzioni
+  nuove: letto/non letto su Gmail risponde 409 `google_scope_missing`), e
+  ricollegare dallo stesso Workspace aggiorna la STESSA riga.
+  Quante sono da ricollegare: `select count(*) from google_accounts where
+  disabled_at is null and not ('https://www.googleapis.com/auth/gmail.modify'
+  = any(scopes));`.
+
+  **«Aggiorna ora»** sveglia il worker con `pg_notify` sul canale
+  `google_sync_request` (ripiego ogni 15 s); con `GMAIL_POLL_MINUTES=0` una
+  richiesta non viene servita (è il rollback della funzione).
+  **Letto / non letto** scrive su Gmail (`threads.modify`) solo da un gesto
+  della persona; la history ora chiede anche i cambi di etichetta (una
+  chiamata `history.list` per giro come prima, pagine più fitte).
 
   ⚠️ **Cambio di comportamento per le caselle ESISTENTI** (decisione del
   maintainer, 12 nov 2026): una casella con le proposte SPENTE prima non si
@@ -3902,4 +3927,10 @@ deploy o di un rollback che la tocca.
   google_accounts where not proposals_enabled);`. Il caddy scende insieme al
   server. Le migrazioni non si annullano (colonne nullable, indice più largo:
   innocui per un codice vecchio, che filtra `proposals_enabled` da sé).
+  Un server vecchio non ha le rotte `…/sync`, `…/read`, `…/events/:id` né
+  `q`: i client nuovi ricevono 404 (o ignorano `q`) e `unread`/`missingScopes`
+  /`syncRequestedAt` tornano ai default. Le caselle già ricollegate con
+  `gmail.modify` continuano a leggere con un worker vecchio (`gmail.modify`
+  copre la lettura); un server vecchio, a un consenso nuovo, torna a chiedere
+  i suoi scope di sola lettura.
 

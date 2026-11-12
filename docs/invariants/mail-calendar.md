@@ -23,6 +23,27 @@
   primo collegamento. Chi aggiunge una fase che propone la mette sotto lo
   stesso `if`, e chi aggiunge un percorso di classificazione mette lo stesso
   taglio.
+- **Nessuna scrittura verso Google senza un gesto della persona, e lo stato
+  locale solo dopo il sì di Google (area 6, F1.3).** La prima scrittura è il
+  letto/non letto: `POST /api/me/mail/threads/:threadId/read` chiama
+  `threads.modify` col token della casella di chi guarda (`user_id` nella
+  WHERE: un thread altrui è 404 senza chiamare Google) e scrive
+  `email_messages.unread` SOLO dopo la risposta positiva; un rifiuto lascia
+  la riga com'era (test «un rifiuto di Google NON cambia lo stato locale»).
+  Senza `gmail.modify` (una casella di prima) 409 `google_scope_missing` con
+  `missing`, PRIMA di qualunque chiamata. Il poller non scrive mai su Google:
+  rilegge `UNREAD` dalla history. Chi aggiunge una scrittura (bozze, invio,
+  calendario) la fa partire da una rotta chiamata da un gesto, con lo stesso
+  ordine.
+- **«Aggiorna ora» non ha un percorso a parte (area 6, F1.2).** La rotta porta
+  `next_sync_at` a adesso e fa un `pg_notify` (`google_sync_request`) nella
+  stessa transazione; il worker si sveglia e il claim di sempre (`SKIP
+  LOCKED`, richieste prima delle altre dovute) prende la casella: il payload
+  non decide chi sincronizzare, quindi un NOTIFY non può far girare la
+  casella di un altro né due giri della stessa. A fine giro si azzera la
+  richiesta VISTA al claim; una scritta a giro in corso resta e torna dovuta.
+  Limite accettato: con `GMAIL_POLL_MINUTES=0` (poller spento, il rollback)
+  una richiesta resta in attesa per sempre.
 - **L'audience `mailbox_owner` non include MAI gli admin.** È un'audience a
   sé nell'enum di `routing.ts` (`packages/notifications/src/routing.ts`),
   non un caso speciale di `requester` (che invece gli admin li include
