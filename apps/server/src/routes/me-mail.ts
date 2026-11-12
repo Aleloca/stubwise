@@ -6,6 +6,8 @@ import {
   emailProposals,
   emailRejections,
   googleAccounts,
+  mailDrafts,
+  mailOutgoing,
   notifications,
   projects,
   type Db,
@@ -214,6 +216,50 @@ function threadClassificationFilters(query: {
     out.push(sql`coalesce(bool_or(${done} and ${emailMessages.importance} = 'high' and ${emailMessages.unread}), false)`);
   }
   return out;
+}
+
+/**
+ * Area 6, F3: gli invii di chi guarda in una conversazione, come messaggi con
+ * `delivery` (solo suoi: l'id di chi guarda nella WHERE). In coda e in invio
+ * sono `sending`; un fallito `failed` col codice; un mandato resta `sent`
+ * finché il poller non ingerisce il messaggio vero, poi se ne va (lo stesso
+ * `gmail_message_id`). Il testo è la copia dell'ultimo salvataggio della bozza.
+ */
+async function outgoingMessages(db: Db, userId: string, accountId: string, accountEmail: string, threadId: string, ingested: string[]) {
+  const rows = await db
+    .select({ outgoing: mailOutgoing, draft: mailDrafts })
+    .from(mailOutgoing)
+    .leftJoin(mailDrafts, eq(mailDrafts.id, mailOutgoing.draftId))
+    .where(
+      and(
+        eq(mailOutgoing.userId, userId),
+        eq(mailOutgoing.accountId, accountId),
+        sql`coalesce(${mailOutgoing.gmailThreadId}, ${mailOutgoing.threadId}) = ${threadId}`,
+        sql`${mailOutgoing.state} in ('queued', 'sending', 'failed', 'sent')`,
+      ),
+    )
+    .orderBy(asc(mailOutgoing.createdAt));
+  const seen = new Set(ingested);
+  return rows
+    .filter((r) => !(r.outgoing.state === "sent" && r.outgoing.gmailMessageId && seen.has(r.outgoing.gmailMessageId)))
+    .map(({ outgoing, draft }) => ({
+      id: outgoing.id,
+      from: accountEmail,
+      to: (draft?.toAddresses ?? []).map((a) => a.email),
+      receivedAt: outgoing.createdAt.toISOString(),
+      textExcerpt: draft?.body ?? null,
+      admitted: true,
+      proposalIds: [],
+      reproposals: [],
+      proposalOutcomes: [],
+      unread: false,
+      delivery: {
+        state: outgoing.state === "sent" ? ("sent" as const) : outgoing.state === "failed" ? ("failed" as const) : ("sending" as const),
+        error: outgoing.error,
+        outgoingId: outgoing.id,
+      },
+      classification: { state: "off" as const, projectIds: [], importance: null, dueDate: null, uncertainProjectIds: [] },
+    }));
 }
 
 /** I limiti di `q` su `GET /threads` (area 6, F1.4): sotto i 2, ogni riga combacia. */
@@ -997,6 +1043,7 @@ export async function meMailRoutes(
         textExcerpt: emailMessages.textExcerpt,
         admitted: emailMessages.admitted,
         unread: emailMessages.unread,
+        gmailMessageId: emailMessages.gmailMessageId,
         // Area 6, F2: la classificazione nuova (null = un messaggio di prima).
         classificationState: emailMessages.classificationState,
         importance: emailMessages.importance,
@@ -1098,6 +1145,9 @@ export async function meMailRoutes(
     }
 
     const last = rows[rows.length - 1]!;
+    // Area 6, F3: gli invii di chi guarda in questa conversazione, subito nel
+    // thread (solo suoi), finché il messaggio vero non è ingerito.
+    const outgoing = await outgoingMessages(app.db, input.userId, first.accountId, first.accountEmail, threadId, rows.map((r) => r.gmailMessageId));
     return {
       threadId,
       accountId: first.accountId,
@@ -1107,7 +1157,7 @@ export async function meMailRoutes(
       // confonderebbero e basta.
       subject: last.subject,
       url: gmailThreadUrl(first.accountEmail, threadId),
-      messages: rows.map((row) => ({
+      messages: [...rows.map((row) => ({
         id: row.id,
         from: row.fromName ? `${row.fromName} <${row.fromAddress}>` : row.fromAddress,
         to: row.toAddresses,
@@ -1118,6 +1168,7 @@ export async function meMailRoutes(
         reproposals: reproposalsFor(row, reproposalsByMessage.get(row.id) ?? []),
         proposalOutcomes: outcomesByMessage.get(row.id) ?? [],
         unread: row.unread === true,
+        delivery: null,
         classification: {
           state: row.classificationState ?? "off",
           // Solo a classificazione finita: prima i progetti sono quelli del
@@ -1127,7 +1178,7 @@ export async function meMailRoutes(
           dueDate: row.classificationState === "done" ? row.dueDate : null,
           uncertainProjectIds: row.classificationState === "done" ? row.uncertainProjectIds : [],
         },
-      })),
+      })), ...outgoing],
     };
   }
 

@@ -262,3 +262,71 @@ describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () =
     expect((await app.inject({ method: "GET", url: `/api/me/mail/outgoing/${sent.messageId}`, headers: other.headers })).statusCode).toBe(404);
   });
 });
+
+describe("l'invio nel thread (delivery, solo di chi scrive)", () => {
+  it("l'invio in coda compare nel thread di chi scrive come `sending`, col testo; a un altro no", async () => {
+    const s = await scenario();
+    const draft = (await save(s.me.headers, { accountId: s.box.id, threadId: "t1", mode: "reply", replyToMessageId: s.message.id, to: [{ email: "cliente@x.it" }], subject: "Re: Export", body: "Eccolo." })).json() as { id: string };
+    const sent = (await app.inject({ method: "POST", url: `/api/me/mail/drafts/${draft.id}/send`, headers: s.me.headers, payload: {} })).json() as { messageId: string };
+    const detail = (await app.inject({ method: "GET", url: `/api/me/mail/threads/t1?account=${s.box.id}`, headers: s.me.headers })).json() as { messages: { id: string; delivery: { state: string } | null; textExcerpt: string | null }[] };
+    const mine = detail.messages.find((m) => m.id === sent.messageId);
+    expect(mine).toMatchObject({ delivery: { state: "sending" }, textExcerpt: "Eccolo." });
+    expect(detail.messages.find((m) => m.id === s.message.id)?.delivery).toBeNull();
+  });
+});
+
+describe("i controlli PRIMA di accodare: subito sul bottone Invia, la bozza resta lì", () => {
+  async function draftWith(overrides: Record<string, unknown>) {
+    const s = await scenario();
+    const d = (await save(s.me.headers, { accountId: s.box.id, threadId: null, mode: "new", subject: "x", body: "y", to: [{ email: "ok@x.it" }], ...overrides })).json() as { id: string };
+    return { ...s, draftId: d.id };
+  }
+  const send = (headers: { cookie: string }, id: string) => app.inject({ method: "POST", url: `/api/me/mail/drafts/${id}/send`, headers, payload: {} });
+  async function nothingQueued() {
+    const { mailOutgoing } = await import("@stubwise/db");
+    expect(await db.select().from(mailOutgoing)).toEqual([]);
+  }
+
+  it("senza destinatari: 400 invalid_recipients", async () => {
+    const { me, draftId } = await draftWith({ to: [] });
+    const res = await send(me.headers, draftId);
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { code: string }).code).toBe("invalid_recipients");
+    await nothingQueued();
+  });
+
+  it("un indirizzo malformato: 400 invalid_address, con l'indirizzo", async () => {
+    const { me, draftId } = await draftWith({ to: [{ email: "ok@x.it" }], cc: [{ email: "non-un-indirizzo" }] });
+    expect((await send(me.headers, draftId)).json()).toMatchObject({ code: "invalid_address", address: "non-un-indirizzo" });
+    await nothingQueued();
+  });
+
+  it("troppi allegati, troppo grandi, uno sparito: 400 / 400 / 409", async () => {
+    const { me, draftId } = await draftWith({});
+    const { mailDraftAttachments } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    await db.insert(mailDraftAttachments).values(Array.from({ length: 11 }, (_, i) => ({ draftId, name: `f${i}`, sizeBytes: 1, mimeType: "text/plain", storageKey: `mail/${i}` })));
+    expect((await send(me.headers, draftId)).json()).toMatchObject({ code: "too_many_attachments" });
+    await db.delete(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draftId));
+    await db.insert(mailDraftAttachments).values({ draftId, name: "big", sizeBytes: 26 * 1024 * 1024, mimeType: "application/pdf", storageKey: "mail/big" });
+    expect((await send(me.headers, draftId)).json()).toMatchObject({ code: "too_large" });
+    await db.delete(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draftId));
+    await db.insert(mailDraftAttachments).values({ draftId, name: "via", sizeBytes: 10, mimeType: "application/pdf" });
+    const gone = await send(me.headers, draftId);
+    expect(gone.statusCode).toBe(409);
+    expect((gone.json() as { code: string }).code).toBe("attachment_unavailable");
+    await nothingQueued();
+  });
+
+  it("la casella scaduta o senza gmail.modify: 409", async () => {
+    const { me, box, draftId } = await draftWith({});
+    const { eq } = await import("drizzle-orm");
+    await db.update(googleAccounts).set({ scopes: ["openid"] }).where(eq(googleAccounts.id, box.id));
+    expect((await send(me.headers, draftId)).json()).toMatchObject({ code: "google_scope_missing" });
+    await db.update(googleAccounts).set({ disabledAt: new Date(), disabledReason: "revoked" }).where(eq(googleAccounts.id, box.id));
+    expect((await send(me.headers, draftId)).json()).toMatchObject({ code: "account_disabled" });
+    await nothingQueued();
+    // La bozza è ancora lì.
+    expect(((await app.inject({ method: "GET", url: "/api/me/mail/drafts", headers: me.headers })).json() as { items: unknown[] }).items).toHaveLength(1);
+  });
+});
