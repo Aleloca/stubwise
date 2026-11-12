@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import Anthropic from "@anthropic-ai/sdk";
 import { agentRuns, aiModelSettings, aiProviders, decrypt } from "@stubwise/db";
 import type { Db } from "@stubwise/db";
-import { aiModelChoiceSchema, resolveApiModelId } from "@stubwise/shared";
+import { aiModelChoiceSchema, estimateCostUsd, resolveApiModelId } from "@stubwise/shared";
 import { asc, eq } from "drizzle-orm";
 
 /** Messaggio della conversazione passato all'LLM (senza il system, separato). */
@@ -53,6 +53,8 @@ export interface ChatUsage {
    * Sonnet (area 6, F3).
    */
   defaultModel?: string;
+  /** Chi ha chiesto (la riga dei consumi lo registra: il tetto per persona delle bozze). */
+  userId?: string | null;
 }
 
 /**
@@ -227,7 +229,13 @@ export function createAnthropicChatLlm(options: CreateAnthropicChatLlmOptions): 
         outputTokens: args.tokens.outputTokens,
         cacheReadTokens: args.tokens.cacheReadTokens,
         cacheCreationTokens: args.tokens.cacheCreationTokens,
-        costUsd: null,
+        // L'API non dà il costo: si STIMA dai token (review F3, punto 8),
+        // altrimenti il budget mensile d'istanza conterebbe zero.
+        costUsd: (() => {
+          const cost = estimateCostUsd(args.model, args.tokens);
+          return cost === null ? null : cost.toFixed(6);
+        })(),
+        requestedByUserId: args.usage.userId ?? null,
       });
     } catch (err) {
       logger?.warn({ err, operation: args.usage.operation }, "chat: consumi non registrati");

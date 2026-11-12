@@ -1529,6 +1529,12 @@ export const agentRuns = pgTable(
     // Costo in USD del modello per questo run. Nullable: il CLI può non
     // riportarlo (vecchie versioni, chiave senza usage nel JSON).
     costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+    /**
+     * Chi ha chiesto la chiamata, quando il server lo sa (review F3, punto 8):
+     * la chat e la bozza di Claude. Serve al tetto giornaliero per persona
+     * delle bozze; null per i run del worker.
+     */
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -1539,6 +1545,7 @@ export const agentRuns = pgTable(
     // Aggregazione del costo per messaggio + cascade delete da email_messages.
     index("agent_runs_email_message_id_idx").on(table.emailMessageId),
     index("agent_runs_created_at_idx").on(table.createdAt),
+    index("agent_runs_requester_operation_idx").on(table.requestedByUserId, table.operation, table.createdAt),
     index("agent_runs_operation_created_at_idx").on(table.operation, table.createdAt),
     index("agent_runs_project_id_idx").on(table.projectId),
     // AL PIÙ uno tra job_id, pr_review_id ed email_message_id valorizzato
@@ -6144,6 +6151,12 @@ export const mailDrafts = pgTable(
     ccAddresses: jsonb("cc_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
     subject: text("subject").notNull().default(""),
     body: text("body").notNull().default(""),
+    /**
+     * Il Message-ID che mettiamo noi nel MIME (review F3, punto 6), stabile
+     * per la bozza: il poller riconosce così l'email mandata da Stubwise anche
+     * prima che il mittente ne scriva il `gmail_message_id`.
+     */
+    rfcMessageId: text("rfc_message_id"),
     state: text("state").$type<"active" | "sending">().notNull().default("active"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
@@ -6196,6 +6209,12 @@ export const mailOutgoing = pgTable(
     state: text("state").$type<"queued" | "sending" | "sent" | "failed" | "cancelled">().notNull().default("queued"),
     error: text("error"),
     gmailMessageId: text("gmail_message_id"),
+    /** Copiati da Invia (review F3, punti 6 e 10): servono dopo che la bozza se n'è andata. */
+    rfcMessageId: text("rfc_message_id"),
+    toAddresses: jsonb("to_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    ccAddresses: jsonb("cc_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    subject: text("subject").notNull().default(""),
+    body: text("body").notNull().default(""),
     gmailThreadId: text("gmail_thread_id"),
     sentAt: timestamp("sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -6203,6 +6222,7 @@ export const mailOutgoing = pgTable(
   (table) => [
     index("mail_outgoing_due_idx").on(table.sendAt).where(sql`state = 'queued'`),
     index("mail_outgoing_user_id_idx").on(table.userId),
+    index("mail_outgoing_rfc_message_id_idx").on(table.accountId, table.rfcMessageId),
     check("mail_outgoing_state_chk", sql`${table.state} in ('queued', 'sending', 'sent', 'failed', 'cancelled')`),
   ],
 );

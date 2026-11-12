@@ -4029,6 +4029,19 @@ describe("la posta MANDATA nei thread che Stubwise ha (area 6, F3)", () => {
     expect(row).toMatchObject({ admitted: false, threadId: "thread-nuovo" });
     await db.delete(mailOutgoing);
   });
+
+  it("review F3, punto 6: vista PRIMA che il mittente ne scriva il gmail_message_id, la si riconosce dal NOSTRO Message-ID", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const { mailOutgoing } = await import("@stubwise/db");
+    await db.insert(mailOutgoing).values({ userId: account.userId, accountId: account.id, gmailDraftId: "d", sendAt: new Date(), state: "sending", rfcMessageId: "<stubwise.abc@acme.com>" });
+    const m = message({ id: "presto", threadId: "thread-presto", from: `Io <${MAILBOX}>` });
+    m.headers["message-id"] = "<stubwise.abc@acme.com>";
+    const gmail = fakeGmail({ history: { addedMessageIds: ["presto"], historyId: "1010" }, messages: { presto: m } });
+    await pollGoogleOnce({ ...deps(account, gmail), classifyV2: true });
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.gmailMessageId, "presto"));
+    expect(row).toMatchObject({ admitted: false, threadId: "thread-presto" });
+    await db.delete(mailOutgoing);
+  });
 });
 
 describe("review F2, punto 1 (critico): col flag acceso le proposte CONDIVISE arrivano dal giro intero", () => {

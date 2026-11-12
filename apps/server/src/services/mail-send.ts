@@ -28,6 +28,9 @@ export type SendError =
   | { error: "not_found" }
   | { error: "too_late" }
   | { error: "not_failed" }
+  // Gmail l'ha mandata ma la riga non è stata registrata (review F3, punto 2):
+  // Riprova ed Elimina manderebbero un doppione.
+  | { error: "sent_unrecorded" }
   // I controlli PRIMA di accodare: arrivano subito, sul bottone Invia, e la
   // bozza resta lì (invece di un fallimento dopo 10 s).
   | { error: "invalid_recipients" }
@@ -92,10 +95,15 @@ export async function sendDraftLater(db: Db, userId: string, draftId: string): P
       .for("update");
     if (!draft) return { error: "not_found" as const };
     if (draft.state === "sending") {
+      // L'invio di questa bozza che c'è già: in corso, mandato, o FALLITO
+      // (review F3, punto 5: un secondo invio accanto a un fallito, e poi
+      // Elimina sul vecchio, riattiverebbe la bozza col nuovo in coda).
       const [pending] = await tx
         .select()
         .from(mailOutgoing)
-        .where(and(eq(mailOutgoing.draftId, draft.id), sql`${mailOutgoing.state} in ('queued', 'sending', 'sent')`));
+        .where(and(eq(mailOutgoing.draftId, draft.id), sql`${mailOutgoing.state} in ('queued', 'sending', 'sent', 'failed')`))
+        .orderBy(sql`${mailOutgoing.createdAt} desc`)
+        .limit(1);
       if (pending) return toView(pending);
     }
     const refused = await preflight(tx, draft);
@@ -108,6 +116,12 @@ export async function sendDraftLater(db: Db, userId: string, draftId: string): P
         draftId: draft.id,
         gmailDraftId: draft.gmailDraftId,
         threadId: draft.threadId,
+        // La copia per dopo (review F3, punti 6 e 10): la bozza se ne va all'invio.
+        rfcMessageId: draft.rfcMessageId,
+        toAddresses: draft.toAddresses,
+        ccAddresses: draft.ccAddresses,
+        subject: draft.subject,
+        body: draft.body,
         sendAt: sql`now() + make_interval(secs => ${MAIL_UNDO_SECONDS})`,
       })
       .returning();
@@ -166,7 +180,10 @@ export async function undoSend(db: Db, userId: string, id: string): Promise<Rest
   const out = await db.transaction(async (tx): Promise<SendError | { draftId: string | null; unsaved?: { draft: MailDraft; attachmentNames: string[] } }> => {
     const [row] = await tx.select().from(mailOutgoing).where(and(eq(mailOutgoing.id, id), eq(mailOutgoing.userId, userId))).for("update");
     if (!row) return { error: "not_found" as const };
-    if (row.state !== "queued" || row.sendAt.getTime() <= Date.now()) return { error: "too_late" as const };
+    // Sotto il lock basta lo STATO: il worker reclama solo righe `queued`
+    // (review F3, punto 4 — l'orologio del server non decide, uno sfasato
+    // darebbe `too_late` dentro la finestra mostrata).
+    if (row.state !== "queued") return { error: "too_late" as const };
     // L'invio si ferma QUI, prima di tutto il resto: nessun esito della bozza
     // lo lascia partire (correzione di 46, D6).
     await tx.update(mailOutgoing).set({ state: "cancelled" }).where(eq(mailOutgoing.id, id));
@@ -189,7 +206,19 @@ export async function retrySend(db: Db, userId: string, id: string): Promise<Mai
     const [row] = await tx.select().from(mailOutgoing).where(and(eq(mailOutgoing.id, id), eq(mailOutgoing.userId, userId))).for("update");
     if (!row) return { error: "not_found" as const };
     if (row.state !== "failed") return { error: "not_failed" as const };
-    const [updated] = await tx.update(mailOutgoing).set({ state: "queued", error: null, sendAt: sql`now()` }).where(eq(mailOutgoing.id, id)).returning();
+    if (row.error === "sent_unrecorded") return { error: "sent_unrecorded" as const };
+    // I controlli di Invia, di nuovo: nel frattempo un file del Drive può non
+    // essere più visibile, la casella disabilitata (review F3, punto 3).
+    const [draft] = row.draftId ? await tx.select().from(mailDrafts).where(eq(mailDrafts.id, row.draftId)) : [];
+    if (!draft) return { error: "not_found" as const };
+    const refused = await preflight(tx, draft);
+    if (refused) return refused;
+    // Trattenuto 10 s come Invia, con un Annulla vero (decisione di 46).
+    const [updated] = await tx
+      .update(mailOutgoing)
+      .set({ state: "queued", error: null, sendAt: sql`now() + make_interval(secs => ${MAIL_UNDO_SECONDS})` })
+      .where(eq(mailOutgoing.id, id))
+      .returning();
     await tx.execute(sql`select pg_notify(${MAIL_OUTGOING_CHANNEL}, ${JSON.stringify({ outgoingId: id })})`);
     return toView(updated!);
   });
@@ -201,6 +230,7 @@ export async function discardFailedSend(db: Db, userId: string, id: string): Pro
     const [row] = await tx.select().from(mailOutgoing).where(and(eq(mailOutgoing.id, id), eq(mailOutgoing.userId, userId))).for("update");
     if (!row) return { error: "not_found" as const };
     if (row.state !== "failed") return { error: "not_failed" as const };
+    if (row.error === "sent_unrecorded") return { error: "sent_unrecorded" as const };
     await tx.update(mailOutgoing).set({ state: "cancelled" }).where(eq(mailOutgoing.id, id));
     const restored = await restoreDraft(tx, userId, row.draftId);
     if (restored && "unsaved" in restored) return { draftId: null, unsaved: restored.unsaved };

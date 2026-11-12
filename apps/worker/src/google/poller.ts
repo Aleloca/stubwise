@@ -52,6 +52,7 @@ import {
   ne,
   notExists,
   notInArray,
+  or,
   sql,
   type AnyColumn,
   type SQL,
@@ -789,11 +790,21 @@ async function applyUnreadChanges(
 }
 
 /** Il messaggio l'ha mandato Stubwise (un'email NUOVA crea così la sua conversazione)? */
-async function sentFromStubwise(db: Db, accountId: string, gmailMessageId: string): Promise<boolean> {
+async function sentFromStubwise(db: Db, accountId: string, gmailMessageId: string, rfcMessageId: string | null): Promise<boolean> {
+  // Dal `gmail_message_id` (scritto dal mittente dopo l'invio) o dal NOSTRO
+  // Message-ID (review F3, punto 6): il poller può vedere l'email prima che il
+  // mittente abbia registrato l'invio, e saltarla sarebbe per sempre.
   const [row] = await db
     .select({ id: mailOutgoing.id })
     .from(mailOutgoing)
-    .where(and(eq(mailOutgoing.accountId, accountId), eq(mailOutgoing.gmailMessageId, gmailMessageId)))
+    .where(
+      and(
+        eq(mailOutgoing.accountId, accountId),
+        rfcMessageId
+          ? or(eq(mailOutgoing.gmailMessageId, gmailMessageId), eq(mailOutgoing.rfcMessageId, rfcMessageId))
+          : eq(mailOutgoing.gmailMessageId, gmailMessageId),
+      ),
+    )
     .limit(1);
   return Boolean(row);
 }
@@ -1040,7 +1051,7 @@ async function syncGmail(
       // Stubwise ha già (una risposta scritta da Stubwise o da Gmail), come
       // CONTESTO (`admitted = false`, mai classificata: non è una richiesta
       // ricevuta). Un thread che Stubwise non ha resta fuori, come prima.
-      if ((await threadKnown(deps.db, account.id, metadata.threadId)) || (await sentFromStubwise(deps.db, account.id, id))) {
+      if ((await threadKnown(deps.db, account.id, metadata.threadId)) || (await sentFromStubwise(deps.db, account.id, id, metadata.headers["message-id"]?.trim() || null))) {
         const sentFull = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
         const rows = await deps.db
           .insert(emailMessages)

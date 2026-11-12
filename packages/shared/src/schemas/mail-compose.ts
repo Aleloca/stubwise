@@ -72,6 +72,13 @@ export const mailDraftSaveSchema = z.object({
    * sovrascrive in silenzio).
    */
   overwrite: z.boolean().default(false),
+  /**
+   * La versione che il client ha letto (`MailDraft.updatedAt`). Se la bozza è
+   * cambiata da allora (un altro client di Stubwise, un `fillMailBody`
+   * confermato), 409 `draft_changed` invece di sovrascrivere (review F3,
+   * punto 11). Assente = come prima; `overwrite` la scavalca.
+   */
+  baseUpdatedAt: z.iso.datetime().nullable().default(null),
 });
 export type MailDraftSave = z.input<typeof mailDraftSaveSchema>;
 

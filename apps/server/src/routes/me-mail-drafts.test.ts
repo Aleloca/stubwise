@@ -207,6 +207,24 @@ describe("salvare ed eliminare una bozza (scritture verso Gmail)", () => {
     expect((await save(me.headers, { ...body, body: "c" })).statusCode).toBe(200);
   });
 
+  it("review F3, punto 11: due client di Stubwise sulla stessa bozza — chi salva con una versione vecchia (baseUpdatedAt) riceve draft_changed, non sovrascrive", async () => {
+    const { me, box } = await scenario();
+    const body = { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "a" };
+    const first = (await save(me.headers, body)).json() as { updatedAt: string };
+    // Il secondo client salva (o un fillMailBody confermato): la versione cambia.
+    await new Promise((r) => setTimeout(r, 15));
+    const second = (await save(me.headers, { ...body, body: "dal desktop", baseUpdatedAt: first.updatedAt })).json() as { updatedAt: string; body: string };
+    expect(second.body).toBe("dal desktop");
+    calls.length = 0;
+    const stale = await save(me.headers, { ...body, body: "dal web, vecchio", baseUpdatedAt: first.updatedAt });
+    expect(stale.statusCode).toBe(409);
+    expect((stale.json() as { code: string }).code).toBe("draft_changed");
+    expect(calls).toEqual([]);
+    // Senza versione (client di prima) e con quella giusta, si salva.
+    expect((await save(me.headers, { ...body, body: "giusto", baseUpdatedAt: second.updatedAt })).statusCode).toBe(200);
+    expect((await save(me.headers, { ...body, body: "senza versione" })).statusCode).toBe(200);
+  });
+
   it("una bozza sparita da Gmail (eliminata da lì) si ricrea", async () => {
     const { me, box } = await scenario();
     const body = { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "a" };
@@ -279,11 +297,14 @@ describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () =
     // Di nuovo in coda, poi «scaduto»: Annulla non vale più.
     const again = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
     const { mailOutgoing } = await import("@stubwise/db");
-    const { eq, sql } = await import("drizzle-orm");
-    await db.update(mailOutgoing).set({ sendAt: sql`now() - interval '1 second'` }).where(eq(mailOutgoing.id, again.messageId));
+    const { eq } = await import("drizzle-orm");
+    // Il worker l'ha già reclamata (la corsa vera): Annulla non vale più.
+    await db.update(mailOutgoing).set({ state: "sending" }).where(eq(mailOutgoing.id, again.messageId));
     const late = await post(me.headers, `/api/me/mail/outgoing/${again.messageId}/undo`);
     expect(late.statusCode).toBe(409);
     expect((late.json() as { code: string }).code).toBe("too_late");
+    const [still] = await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, again.messageId));
+    expect(still!.state).toBe("sending");
   });
 
   it("Annulla a 9 s con un'altra bozza nello stesso slot: l'invio si FERMA comunque, e il contenuto torna NON salvato (correzione di 46)", async () => {
@@ -326,6 +347,60 @@ describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () =
     await db.update(mailOutgoing).set({ state: "failed", error: "quota" }).where(eq(mailOutgoing.id, sent.messageId));
     const discarded = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/discard`);
     expect((discarded.json() as { draft: { id: string } }).draft.id).toBe(draftId);
+  });
+
+  it("review F3, punto 4: Annulla decide sullo STATO sotto il lock, non sull'orologio — `queued` oltre send_at (orologi sfasati) si annulla ancora", async () => {
+    const { me, draftId } = await savedDraft();
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq, sql } = await import("drizzle-orm");
+    await db.update(mailOutgoing).set({ sendAt: sql`now() - interval '1 second'` }).where(eq(mailOutgoing.id, sent.messageId));
+    const undo = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`);
+    expect(undo.statusCode).toBe(200);
+    expect((await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, sent.messageId)))[0]!.state).toBe("cancelled");
+  });
+
+  it("review F3, punto 2: `sent_unrecorded` (Gmail l'ha mandata) — Riprova ed Elimina sono rifiutati, niente doppioni", async () => {
+    const { me, draftId } = await savedDraft();
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    await db.update(mailOutgoing).set({ state: "failed", error: "sent_unrecorded" }).where(eq(mailOutgoing.id, sent.messageId));
+    const retry = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/retry`);
+    expect(retry.statusCode).toBe(409);
+    expect((retry.json() as { code: string }).code).toBe("sent_unrecorded");
+    const discard = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/discard`);
+    expect((discard.json() as { code: string }).code).toBe("sent_unrecorded");
+    expect((await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, sent.messageId)))[0]).toMatchObject({ state: "failed", error: "sent_unrecorded" });
+  });
+
+  it("review F3, punto 3: Riprova rifà i controlli e trattiene 10 s come Invia, con un Annulla che funziona", async () => {
+    const { me, box, draftId } = await savedDraft();
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    await db.update(mailOutgoing).set({ state: "failed", error: "quota" }).where(eq(mailOutgoing.id, sent.messageId));
+    // Nel frattempo la casella è stata disabilitata: Riprova non parte.
+    await db.update(googleAccounts).set({ disabledAt: new Date(), disabledReason: "revoked" }).where(eq(googleAccounts.id, box.id));
+    const refused = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/retry`);
+    expect((refused.json() as { code: string }).code).toBe("account_disabled");
+    expect((await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, sent.messageId)))[0]!.state).toBe("failed");
+    await db.update(googleAccounts).set({ disabledAt: null, disabledReason: null }).where(eq(googleAccounts.id, box.id));
+    const retried = (await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/retry`)).json() as { undoUntil: string; state: string };
+    expect(retried.state).toBe("queued");
+    expect(new Date(retried.undoUntil).getTime() - Date.now()).toBeGreaterThan(5_000);
+    expect((await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`)).statusCode).toBe(200);
+  });
+
+  it("review F3, punto 5: Invia su una bozza il cui ultimo invio è FALLITO restituisce quello, senza un secondo invio", async () => {
+    const { me, draftId } = await savedDraft();
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    await db.update(mailOutgoing).set({ state: "failed", error: "quota" }).where(eq(mailOutgoing.id, sent.messageId));
+    const again = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string; state: string };
+    expect(again).toMatchObject({ messageId: sent.messageId, state: "failed" });
+    expect(await db.select().from(mailOutgoing).where(eq(mailOutgoing.draftId, draftId))).toHaveLength(1);
   });
 
   it("NEGATIVO: l'invio e la bozza di un altro sono 404", async () => {
@@ -577,8 +652,10 @@ describe("la firma di Gmail (decisione M; basta gmail.modify)", () => {
     return Buffer.from(mime.split("\r\n\r\n").slice(1).join("").replace(/\r\n/g, ""), "base64").toString("utf8");
   };
 
-  it("al salvataggio: letta FRESCA dall'indirizzo mittente, sotto il corpo e PRIMA della citazione, una volta sola; mai in body", async () => {
+  it("al salvataggio: con la copia VECCHIA si rilegge dall'indirizzo mittente; sotto il corpo e PRIMA della citazione, una volta sola; mai in body", async () => {
     const { me, box, message } = await scenario();
+    const { eq: eqOld } = await import("drizzle-orm");
+    await db.update(googleAccounts).set({ signatureFetchedAt: new Date(Date.now() - 25 * 3600_000) }).where(eqOld(googleAccounts.id, box.id));
     const res = await save(me.headers, { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, to: [{ email: "cliente@x.it" }], subject: "Re: Export", body: "Fatto.", quote: true });
     expect(sigCalls).toEqual([box.email]);
     const text = textOf(calls[0]!.input.raw);
@@ -607,15 +684,31 @@ describe("la firma di Gmail (decisione M; basta gmail.modify)", () => {
   it("nessuna firma su Gmail: status none e niente blocco nel messaggio; Google irraggiungibile: si usa la copia, il salvataggio non fallisce", async () => {
     const { me, box } = await scenario();
     signature = null;
+    const { eq: eqStale } = await import("drizzle-orm");
+    const stale = () => db.update(googleAccounts).set({ signatureFetchedAt: new Date(Date.now() - 25 * 3600_000) }).where(eqStale(googleAccounts.id, box.id));
+    await stale();
     const res = await save(me.headers, { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "a" });
     expect(res.json()).toMatchObject({ signature: null, signatureStatus: "none" });
     expect(textOf(calls[0]!.input.raw)).not.toContain("-- ");
     const { eq } = await import("drizzle-orm");
     await db.update(googleAccounts).set({ signatureText: "Ada (copia)" }).where(eq(googleAccounts.id, box.id));
+    await stale();
     sigError = new GoogleApiError({ api: "gmail.settings.sendAs.get", status: 500, code: "server_error", reason: "backendError" });
     const again = await save(me.headers, { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "b" });
     expect(again.statusCode).toBe(200);
     expect(textOf(calls.filter((c) => c.fn === "update").at(-1)!.input.raw)).toContain("-- \nAda (copia)");
+  });
+
+  it("review F3, punto 9: con la copia FRESCA il salvataggio non chiama Google; una firma lunghissima si taglia a 2000 caratteri", async () => {
+    const { me, box } = await scenario();
+    await save(me.headers, { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "a" });
+    expect(sigCalls).toEqual([]);
+    expect(textOf(calls[0]!.input.raw)).toContain("-- \nAda (copia)");
+    const { eq } = await import("drizzle-orm");
+    await db.update(googleAccounts).set({ signatureFetchedAt: null }).where(eq(googleAccounts.id, box.id));
+    signature = "x".repeat(5000);
+    const res = await save(me.headers, { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "b" });
+    expect((res.json() as { signature: string }).signature).toHaveLength(2000);
   });
 
   it("una casella senza gmail.modify: scope_missing nel compositore, e nessuna chiamata", async () => {
@@ -623,6 +716,39 @@ describe("la firma di Gmail (decisione M; basta gmail.modify)", () => {
     const view = (await compose(me.headers, `account=${box.id}&mode=new`)).json() as { signature: string | null; signatureStatus: string };
     expect(view).toMatchObject({ signature: null, signatureStatus: "scope_missing" });
     expect(sigCalls).toEqual([]);
+  });
+});
+
+describe("review F3, punti 6, 7 e 10: Message-ID nostro, catena dei References, l'invio che resta leggibile", () => {
+  const raw = (i = -1) => Buffer.from(String(calls.filter((c) => c.fn === "create" || c.fn === "update").at(i)!.input.raw), "base64url").toString("utf8");
+
+  it("il Message-ID è nostro e stabile fra i salvataggi; References ha la catena del thread fino al messaggio a cui si risponde", async () => {
+    const { me, box, message } = await scenario();
+    await db.insert(emailMessages).values({ accountId: box.id, gmailMessageId: "g0", threadId: "t1", fromAddress: "a@x.it", subject: "Export", receivedAt: new Date("2026-11-09T09:00:00.000Z"), rfcMessageId: "<m0@x.it>" });
+    const body = { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, to: [{ email: "cliente@x.it" }], subject: "Re: Export", body: "a" };
+    await save(me.headers, body);
+    const first = raw().match(/Message-ID: (<stubwise\.[^>]+>)/)![1];
+    expect(first).toMatch(/@acme\.com>$/);
+    expect(raw()).toContain("References: <m0@x.it> <m1@x.it>");
+    await save(me.headers, { ...body, body: "b" });
+    expect(raw().match(/Message-ID: (<stubwise\.[^>]+>)/)![1]).toBe(first);
+  });
+
+  it("Invia copia destinatari, oggetto, corpo e Message-ID sull'invio: il fumetto «inviata» si legge anche dopo che la bozza se n'è andata", async () => {
+    const { me, box, message } = await scenario();
+    const saved = (await save(me.headers, { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, to: [{ email: "cliente@x.it" }], subject: "Re: Export", body: "Fatto." })).json() as { id: string };
+    const sent = (await app.inject({ method: "POST", url: `/api/me/mail/drafts/${saved.id}/send`, headers: me.headers, payload: {} })).json() as { messageId: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    const [row] = await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, sent.messageId));
+    expect(row).toMatchObject({ subject: "Re: Export", body: "Fatto." });
+    expect(row!.rfcMessageId).toMatch(/^<stubwise\./);
+    // Il worker l'ha mandata e ha tolto la bozza.
+    await db.update(mailOutgoing).set({ state: "sent", gmailMessageId: "gm-x" }).where(eq(mailOutgoing.id, sent.messageId));
+    await db.delete(mailDrafts).where(eq(mailDrafts.id, saved.id));
+    const detail = (await app.inject({ method: "GET", url: `/api/me/mail/threads/t1?account=${box.id}`, headers: me.headers })).json() as { messages: { textExcerpt: string | null; to: string[]; delivery: { state: string } | null }[] };
+    const bubble = detail.messages.find((m) => m.delivery?.state === "sent")!;
+    expect(bubble).toMatchObject({ textExcerpt: "Fatto.", to: ["cliente@x.it"] });
   });
 });
 
