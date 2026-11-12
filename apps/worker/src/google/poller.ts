@@ -1259,17 +1259,24 @@ async function collectCalendarEvents(
   deps: GooglePollerDeps,
   ctx: AccountContext,
   account: ClaimedAccount,
-): Promise<{ events: GoogleCalendarEvent[]; syncToken: string | null }> {
+): Promise<{ events: GoogleCalendarEvent[]; syncToken: string | null; full: boolean }> {
   const logger = deps.logger ?? defaultLogger;
   const now = deps.now ?? (() => new Date());
 
-  if (account.calendarSyncToken) {
+  // Con una LINEA DI BASE da fare (F3b: il primo giro dopo «tutti gli eventi»,
+  // o il primo col flag della dottrina nuova) il token NON vale: serve la
+  // finestra intera, o gli eventi già esistenti non entrerebbero mai (review
+  // F3b, punto 1 — un worker vecchio può aver salvato un token nuovo).
+  if (account.calendarSyncToken && !calendarBaselinePending(deps, account)) {
     try {
-      return await drainCalendarPages(deps, account, {
-        accessToken: ctx.accessToken,
-        syncToken: account.calendarSyncToken,
-        showDeleted: true,
-      });
+      return {
+        ...(await drainCalendarPages(deps, account, {
+          accessToken: ctx.accessToken,
+          syncToken: account.calendarSyncToken,
+          showDeleted: true,
+        })),
+        full: false,
+      };
     } catch (err) {
       if (!isSyncTokenExpired(err)) throw err;
       logger.info(
@@ -1283,12 +1290,20 @@ async function collectCalendarEvents(
   }
 
   const { timeMin, timeMax } = calendarWindow(now());
-  return drainCalendarPages(deps, account, {
-    accessToken: ctx.accessToken,
-    timeMin,
-    timeMax,
-    showDeleted: true,
-  });
+  return {
+    ...(await drainCalendarPages(deps, account, {
+      accessToken: ctx.accessToken,
+      timeMin,
+      timeMax,
+      showDeleted: true,
+    })),
+    full: true,
+  };
+}
+
+/** Una linea di base del calendario è ancora da fare (F3b)? */
+function calendarBaselinePending(deps: GooglePollerDeps, account: ClaimedAccount): boolean {
+  return account.calendarBaselineAt === null || (deps.classifyV2 === true && account.calendarV2BaselineAt === null);
 }
 
 /**
@@ -1354,11 +1369,15 @@ async function syncCalendar(
   account: ClaimedAccount,
 ): Promise<{ syncToken: string | null; stats: CalendarPhaseStats }> {
   const stats: CalendarPhaseStats = { events: 0, ready: 0, cancelled: 0 };
-  const { events, syncToken } = await collectCalendarEvents(deps, ctx, account);
-  if (events.length === 0) {
-    await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
+  const { events, syncToken, full } = await collectCalendarEvents(deps, ctx, account);
+  // La linea di base si chiude SOLO dopo un resync della finestra finito con
+  // un token e non interrotto (review F3b, punto 1).
+  const finish = async (aborted: boolean) => {
+    if (aborted) return { syncToken: null, stats };
+    if (full && syncToken !== null) await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
     return { syncToken, stats };
-  }
+  };
+  if (events.length === 0) return finish(false);
 
   const cancelledIds = events.filter(isCancelled).map((event) => event.id);
   // F3b: un evento VISTO (non candidato) cancellato su Google se ne va, e
@@ -1432,10 +1451,7 @@ async function syncCalendar(
     }
     live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt), candidate, projectId, projectBy });
   }
-  if (live.size === 0) {
-    await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
-    return { syncToken, stats };
-  }
+  if (live.size === 0) return finish(false);
 
   // La regola di ricorrenza delle serie toccate da questo lotto: UNA
   // chiamata per SERIE, e solo per quelle che non conosciamo o che sono
@@ -1495,8 +1511,14 @@ async function syncCalendar(
   // primo col flag della dottrina nuova acceso.
   const v2Baseline = v2 && account.calendarV2BaselineAt === null;
   const baseline = account.calendarBaselineAt === null || v2Baseline;
+  let aborted = false;
   for (const { event, startsAt, fingerprint, candidate, projectId: candidateProjectId, projectBy } of live.values()) {
-    if (deps.signal?.aborted) break;
+    if (deps.signal?.aborted) {
+      // Interrotto a metà: niente token (il giro dopo riparte da qui) e
+      // nessuna linea di base chiusa (review F3b, punto 1).
+      aborted = true;
+      break;
+    }
     const resolved = { projectId: candidateProjectId };
     const fresh = {
       title: event.title.trim(),
@@ -1651,8 +1673,7 @@ async function syncCalendar(
     if (!ownerOfFingerprint.has(fingerprint)) ownerOfFingerprint.set(fingerprint, event.id);
   }
 
-  await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
-  return { syncToken, stats };
+  return finish(aborted);
 }
 
 /** I tipi di Google che non sono appuntamenti (F3b, decisione di 46): non entrano. */

@@ -4290,3 +4290,51 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     expect(await db.select().from(notifications)).toEqual([]);
   });
 });
+
+describe("review F3b, punto 1: la linea di base si chiude SOLO dopo un resync completo della finestra", () => {
+  async function runWith(account: typeof googleAccounts.$inferSelect, calendar: ReturnType<typeof fakeCalendarSequence>, extra: Partial<GooglePollerDeps> = {}) {
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce({ ...deps(account, fakeGmail({ listed: [] }), { calendar }), ...extra });
+    return (await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id)))[0]!;
+  }
+
+  it("linea di base null ma col token (il worker vecchio ha già risincronizzato): si ignora il token e si rifà la finestra", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null, calendarSyncToken: "vecchio" });
+    const calendar = fakeCalendarSequence([{ events: [calendarEvent({ id: "personale", title: "Dentista", attendees: [att(MAILBOX)] })], nextSyncToken: "nuovo" }]);
+    const after = await runWith(account, calendar);
+    expect(calendar.calls[0]!.syncToken ?? null).toBeNull();
+    expect(calendar.calls[0]!.timeMin).toBeInstanceOf(Date);
+    expect(after).toMatchObject({ calendarSyncToken: "nuovo" });
+    expect(after.calendarBaselineAt).toBeInstanceOf(Date);
+    expect((await calendarRows()).map((r) => r.googleEventId)).toEqual(["personale"]);
+  });
+
+  it("flag acceso col token e la linea di base v2 null: anche qui la finestra intera, non l'incrementale", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: null, calendarSyncToken: "tok" });
+    const calendar = fakeCalendarSequence([{ events: [], nextSyncToken: "tok-2" }]);
+    const after = await runWith(account, calendar, { classifyV2: true });
+    expect(calendar.calls[0]!.syncToken ?? null).toBeNull();
+    expect(after.calendarV2BaselineAt).toBeInstanceOf(Date);
+  });
+
+  it("un resync senza nextSyncToken (troncato) non chiude la linea di base", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null });
+    const after = await runWith(account, fakeCalendarSequence([{ events: [calendarEvent({ id: "a" })], nextSyncToken: null }]));
+    expect(after.calendarBaselineAt).toBeNull();
+  });
+
+  it("un giro INTERROTTO a metà non chiude la linea di base e non salva il token: il giro dopo riparte", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarBaselineAt: null });
+    const controller = new AbortController();
+    const calendar = fakeCalendarSequence([{ events: [calendarEvent({ id: "a" }), calendarEvent({ id: "b" })], nextSyncToken: "tok" }]);
+    const original = calendar.listEvents;
+    calendar.listEvents = (async (input: Parameters<typeof original>[0]) => {
+      const page = await original(input);
+      controller.abort();
+      return page;
+    }) as typeof original;
+    const after = await runWith(account, calendar, { signal: controller.signal });
+    expect(after.calendarBaselineAt).toBeNull();
+    expect(after.calendarSyncToken).toBeNull();
+  });
+});
