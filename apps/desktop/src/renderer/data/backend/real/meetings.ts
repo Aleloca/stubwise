@@ -34,7 +34,7 @@ async function orNull<T>(read: () => Promise<T>): Promise<T | null> {
   }
 }
 
-const getMeetingSummary: Mail["getMeetingSummary"] = async (eventId) => {
+export const getMeetingSummary: Mail["getMeetingSummary"] = async (eventId) => {
   const s = await orNull(
     () =>
       appClient().request("GET", `${eventPath(eventId)}/summary`) as Promise<ServerSummary | null>,
@@ -54,26 +54,39 @@ const getMeetingSummary: Mail["getMeetingSummary"] = async (eventId) => {
   };
 };
 
-/** Le task nate dalla riunione, solo ai membri del progetto (R-I21): `null` agli altri. */
-const tasksBornFrom: Mail["tasksBornFrom"] = async (eventId) => {
+/**
+ * Le task nate dalla riunione e quante ne sono ancora proposte, solo ai
+ * membri del progetto (R-I21): `null` agli altri (e a un server di prima).
+ */
+export async function meetingTasksOf(
+  eventId: string,
+): Promise<{ tasks: MeetingTask[]; proposedTasks: number } | null> {
   const out = await orNull(
     () =>
       appClient().request("GET", `${eventPath(eventId)}/tasks`) as Promise<{
         tasks?: MeetingTask[];
+        proposedTasks?: number;
       } | null>,
   );
   if (!out) return null;
-  return (out.tasks ?? []).map((t) => ({
-    kind: t.kind === "request" ? "request" : "task",
-    id: t.id,
-    code: t.code,
-    title: t.title,
-    status: t.status,
-    inProgress: t.inProgress === true,
-    dueDate: t.dueDate ?? null,
-    departmentId: t.departmentId ?? null,
-  }));
-};
+  return {
+    tasks: (out.tasks ?? []).map((t) => ({
+      kind: t.kind === "request" ? "request" : "task",
+      id: t.id,
+      code: t.code,
+      title: t.title,
+      status: t.status,
+      inProgress: t.inProgress === true,
+      dueDate: t.dueDate ?? null,
+      departmentId: t.departmentId ?? null,
+    })),
+    proposedTasks: out.proposedTasks ?? 0,
+  };
+}
+
+/** Le task nate dalla riunione, solo ai membri del progetto (R-I21): `null` agli altri. */
+const tasksBornFrom: Mail["tasksBornFrom"] = async (eventId) =>
+  (await meetingTasksOf(eventId))?.tasks ?? null;
 
 export const meetingFunctions: Partial<Mail> = {
   getMeetingSummary,
