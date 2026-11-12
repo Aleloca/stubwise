@@ -222,6 +222,7 @@ const saveDraft: Mail["saveDraft"] = async (input) => {
       subject: input.subject,
       body: input.body,
       quote: input.quote !== false,
+      ...(input.overwrite ? { overwrite: true } : {}),
     });
     return draftOf(await reconcileAttachments(saved as ServerDraft, input.attachments), mine);
   } catch (error) {

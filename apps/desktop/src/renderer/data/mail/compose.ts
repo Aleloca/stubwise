@@ -257,7 +257,10 @@ export type MailDraftInput = Pick<
   MailDraft,
   "threadId" | "mode" | "replyToMessageId" | "to" | "cc" | "subject" | "body" | "attachments"
 > &
-  Pick<MailDraft, "quote" | "slot">;
+  Pick<MailDraft, "quote" | "slot"> & {
+    /** Build app: «Tieni la mia», sopra una bozza cambiata su Gmail (il prototipo non ha conflitti). */
+    overwrite?: boolean;
+  };
 
 /** Un allegato del Drive com'è nel Drive (nome, peso, copia o link), se chi scrive vede il file. */
 function driveAttachment(me: string, driveFileId: string): MailDraftAttachment {

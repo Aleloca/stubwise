@@ -146,6 +146,14 @@ describe("le bozze: salvare ed eliminare", () => {
     expect(saved.id).toBe(D1);
   });
 
+  it("«Tieni la mia»: il salvataggio scrive sopra la versione di Gmail (`overwrite`)", async () => {
+    const { seen } = installFakeServer({ ...accounts, "PUT /api/me/mail/drafts": { body: draft() } });
+    await mail.saveDraft({ threadId: `${ACC}_t-1`, mode: "reply", replyToMessageId: null, to: [], cc: [], subject: "", body: "x", attachments: [], overwrite: true });
+    expect(seen.find((r) => r.method === "PUT")!.body).toMatchObject({ overwrite: true });
+    await mail.saveDraft({ threadId: `${ACC}_t-1`, mode: "reply", replyToMessageId: null, to: [], cc: [], subject: "", body: "x", attachments: [] });
+    expect((seen.filter((r) => r.method === "PUT")[1]!.body as Record<string, unknown>).overwrite).toBeUndefined();
+  });
+
   it("modificata da Gmail nel frattempo: `draft_changed` (non vince l'ultimo)", async () => {
     installFakeServer({ ...accounts, "PUT /api/me/mail/drafts": { status: 409, body: { code: "draft_changed", message: "x" } } });
     await expect(
