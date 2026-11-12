@@ -329,6 +329,8 @@ export async function saveDraft(
     quote: boolean;
     /** «Tieni la mia»: scrive sopra una bozza cambiata da Gmail (un gesto, mai il default). */
     overwrite?: boolean;
+    /** La versione letta dal client: una bozza cambiata da allora è `draft_changed` (review F3, punto 11). */
+    baseUpdatedAt?: string | null;
   },
 ): Promise<MailDraft | DraftError> {
   const writable = await writableAccount(db, userId, input.accountId);
@@ -354,6 +356,11 @@ export async function saveDraft(
       ),
     );
 
+  // Due client di Stubwise sulla stessa bozza: chi parte da una versione
+  // vecchia non sovrascrive in silenzio (al millisecondo: il client legge un ISO).
+  if (existing && input.baseUpdatedAt && !input.overwrite && existing.updatedAt.toISOString() !== new Date(input.baseUpdatedAt).toISOString()) {
+    return { error: "draft_changed" };
+  }
   let accessToken: string | null;
   try {
     accessToken = await accessTokenFor(db, encryptionKey, client, input.accountId);

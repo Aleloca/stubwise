@@ -207,6 +207,24 @@ describe("salvare ed eliminare una bozza (scritture verso Gmail)", () => {
     expect((await save(me.headers, { ...body, body: "c" })).statusCode).toBe(200);
   });
 
+  it("review F3, punto 11: due client di Stubwise sulla stessa bozza — chi salva con una versione vecchia (baseUpdatedAt) riceve draft_changed, non sovrascrive", async () => {
+    const { me, box } = await scenario();
+    const body = { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "a" };
+    const first = (await save(me.headers, body)).json() as { updatedAt: string };
+    // Il secondo client salva (o un fillMailBody confermato): la versione cambia.
+    await new Promise((r) => setTimeout(r, 15));
+    const second = (await save(me.headers, { ...body, body: "dal desktop", baseUpdatedAt: first.updatedAt })).json() as { updatedAt: string; body: string };
+    expect(second.body).toBe("dal desktop");
+    calls.length = 0;
+    const stale = await save(me.headers, { ...body, body: "dal web, vecchio", baseUpdatedAt: first.updatedAt });
+    expect(stale.statusCode).toBe(409);
+    expect((stale.json() as { code: string }).code).toBe("draft_changed");
+    expect(calls).toEqual([]);
+    // Senza versione (client di prima) e con quella giusta, si salva.
+    expect((await save(me.headers, { ...body, body: "giusto", baseUpdatedAt: second.updatedAt })).statusCode).toBe(200);
+    expect((await save(me.headers, { ...body, body: "senza versione" })).statusCode).toBe(200);
+  });
+
   it("una bozza sparita da Gmail (eliminata da lì) si ricrea", async () => {
     const { me, box } = await scenario();
     const body = { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "a" };
