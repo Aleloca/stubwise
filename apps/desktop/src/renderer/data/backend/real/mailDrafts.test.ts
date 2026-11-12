@@ -248,6 +248,33 @@ describe("gli allegati di una bozza (salvati con lei)", () => {
     expect(upload).toHaveBeenCalledTimes(1);
   });
 
+  it("«Annulla» di Elimina con un file dal disco: si ricarica sulla bozza NUOVA, niente si perde in silenzio", async () => {
+    const D2 = "dfdfdfdf-2222-4222-8222-222222222222";
+    const upload = bridge();
+    let id = D1;
+    installFakeServer({
+      ...accounts,
+      "PUT /api/me/mail/drafts": () => ({ body: draft({ id }) }),
+      [`DELETE /api/me/mail/drafts/${D1}`]: { status: 204 },
+    });
+    const file = new File(["abc"], "listino.pdf");
+    const local = { id: "up-1", name: "listino.pdf", sizeBytes: 3, driveFileId: null, as: "copy", file };
+    await mail.saveDraft(input([local]));
+    await mail.discardDraft(D1);
+    id = D2;
+    const r = await mail.restoreDiscardedDraft(input([local]));
+    expect(upload).toHaveBeenCalledTimes(2);
+    expect(upload.mock.calls[1]![0]).toMatchObject({ path: `/api/me/mail/drafts/${D2}/attachments` });
+    expect(r.droppedAttachments).toEqual([]);
+  });
+
+  it("«Annulla» di Elimina con un allegato che non si può rimettere (salvato prima, senza il file): detto scartato per nome", async () => {
+    installFakeServer({ ...accounts, "PUT /api/me/mail/drafts": { body: draft({ id: "dfdfdfdf-3333-4333-8333-333333333333" }) } });
+    const gone = { id: ATT, name: "vecchio.pdf", sizeBytes: 3, driveFileId: null, as: "copy" };
+    const r = await mail.restoreDiscardedDraft(input([gone]));
+    expect(r.droppedAttachments.map((a) => a.name)).toEqual(["vecchio.pdf"]);
+  });
+
   it("un file del Drive si allega dal Drive; già sulla bozza non si riallega", async () => {
     const { seen } = installFakeServer({
       ...accounts,

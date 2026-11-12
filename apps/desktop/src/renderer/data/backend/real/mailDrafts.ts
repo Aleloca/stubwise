@@ -107,7 +107,12 @@ const getDraft: Mail["getDraft"] = async (threadId, mode, slot) => {
 // ricorda, anche con due salvataggi in volo), uno del Drive si riconosce dal
 // suo file, e quello che non c'è più si toglie.
 
-/** Per client: l'id sul server dell'allegato caricato da un id locale (o il caricamento in corso). */
+/**
+ * Per client: l'id sul server dell'allegato caricato da un id locale (o il
+ * caricamento in corso), PER BOZZA (`<draftId>:<id locale>`): una bozza
+ * eliminata e rimessa («Annulla» di Elimina) è una bozza nuova, e il file
+ * si ricarica lì invece di ritrovare l'id di un allegato che non c'è più.
+ */
 const uploaded = new WeakMap<object, Map<string, Promise<string>>>();
 function uploadedOf(): Map<string, Promise<string>> {
   const client = appClient();
@@ -142,7 +147,8 @@ async function uploadOnce(
   before: ReadonlySet<string>,
 ): Promise<{ id: string; draft: ServerDraft | null }> {
   const map = uploadedOf();
-  const known = map.get(a.id);
+  const key = `${draftId}:${a.id}`;
+  const known = map.get(key);
   if (known) return { id: await known, draft: null };
   let draft: ServerDraft | null = null;
   const work: Promise<string> = (async () => {
@@ -155,20 +161,29 @@ async function uploadOnce(
     draft = body;
     return body.attachments.find((x) => !before.has(x.id))?.id ?? "";
   })();
-  map.set(a.id, work);
+  map.set(key, work);
   try {
     return { id: await work, draft };
   } catch (error) {
-    map.delete(a.id);
+    map.delete(key);
     throw error;
   }
 }
 
-/** Mette gli allegati del server com'erano nel compositore; restituisce la bozza dopo l'ultima operazione. */
-async function reconcileAttachments(saved: ServerDraft, wanted: readonly MailDraftAttachment[]): Promise<ServerDraft> {
+/**
+ * Mette gli allegati del server com'erano nel compositore; restituisce la
+ * bozza dopo l'ultima operazione e gli allegati voluti che non si sono
+ * potuti rimettere (uno già salvato su una bozza che non c'è più, senza il
+ * file da ricaricare): chi rimette una bozza li dice, mai in silenzio.
+ */
+async function reconcileAttachments(
+  saved: ServerDraft,
+  wanted: readonly MailDraftAttachment[],
+): Promise<{ draft: ServerDraft; missing: MailDraftAttachment[] }> {
   const draftId = saved.id;
-  if (!draftId) return saved;
+  if (!draftId) return { draft: saved, missing: [] };
   let current = saved;
+  const missing: MailDraftAttachment[] = [];
   const keep = new Set<string>();
   for (const a of wanted) {
     if (a.file) {
@@ -190,7 +205,9 @@ async function reconcileAttachments(saved: ServerDraft, wanted: readonly MailDra
       }
       const added = current.attachments.find((x) => x.driveFileId === a.driveFileId);
       if (added) keep.add(added.id);
+      continue;
     }
+    missing.push(a);
   }
   for (const x of current.attachments) {
     if (keep.has(x.id)) continue;
@@ -200,7 +217,7 @@ async function reconcileAttachments(saved: ServerDraft, wanted: readonly MailDra
       throw attachmentError(error);
     }
   }
-  return current;
+  return { draft: current, missing };
 }
 
 /**
@@ -208,7 +225,11 @@ async function reconcileAttachments(saved: ServerDraft, wanted: readonly MailDra
  * bozza modificata da Gmail nel frattempo è `draft_changed`: non vince
  * l'ultimo, si ricarica.
  */
-const saveDraft: Mail["saveDraft"] = async (input) => {
+const saveDraft: Mail["saveDraft"] = async (input) => (await saveWithAttachments(input)).draft;
+
+async function saveWithAttachments(
+  input: Parameters<Mail["saveDraft"]>[0],
+): Promise<{ draft: MailDraft; missing: MailDraftAttachment[] }> {
   if (input.slot) throw new Error("invalid: slot");
   const { mine, firstConnected } = await myMailboxes();
   const { accountId, thread } = placeOf(input.threadId, firstConnected);
@@ -226,11 +247,12 @@ const saveDraft: Mail["saveDraft"] = async (input) => {
       quote: input.quote !== false,
       ...(input.overwrite ? { overwrite: true } : {}),
     });
-    return draftOf(await reconcileAttachments(saved as ServerDraft, input.attachments), mine);
+    const out = await reconcileAttachments(saved as ServerDraft, input.attachments);
+    return { draft: draftOf(out.draft, mine), missing: out.missing };
   } catch (error) {
     throw draftError(error);
   }
-};
+}
 
 /** Elimina la bozza, su Gmail e in Stubwise; una mai salvata non c'è da eliminare. */
 const discardDraft: Mail["discardDraft"] = async (id) => {
@@ -242,11 +264,15 @@ const discardDraft: Mail["discardDraft"] = async (id) => {
   }
 };
 
-/** «Annulla» di «Elimina»: la bozza eliminata si salva di nuovo, com'era. */
-const restoreDiscardedDraft: Mail["restoreDiscardedDraft"] = async (snapshot) => ({
-  draft: await saveDraft(snapshot),
-  droppedAttachments: [],
-});
+/**
+ * «Annulla» di «Elimina»: la bozza eliminata si salva di nuovo, com'era. Un
+ * file dal disco si ricarica sulla bozza nuova; un allegato che non si può
+ * rimettere torna fra gli scartati, detto per nome.
+ */
+const restoreDiscardedDraft: Mail["restoreDiscardedDraft"] = async (snapshot) => {
+  const { draft, missing } = await saveWithAttachments(snapshot);
+  return { draft, droppedAttachments: missing };
+};
 
 /** Allega un file del Drive a una bozza già salvata (come copia; i link Google sono della F5). */
 const attachDriveFile: Mail["attachDriveFile"] = async (draftId, driveFileId) => {
