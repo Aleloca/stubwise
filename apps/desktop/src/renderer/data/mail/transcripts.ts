@@ -181,6 +181,9 @@ export function meetingNote(me: string, m: MailMessage): MeetingNote | undefined
     doc: visible ? t.doc : null,
     visible,
     ...(visible ? content(t) : { summary: null, transcript: null }),
+    // Il link e il motivo (F5a) solo a chi c'era, come il resto del Doc.
+    ...(visible && t.docUrl ? { docUrl: t.docUrl } : {}),
+    ...(visible && t.docReason ? { docReason: t.docReason } : {}),
     event:
       e && canReadEvent(me, e)
         ? {

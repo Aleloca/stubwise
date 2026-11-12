@@ -6149,7 +6149,10 @@
       "transcriptNotice": "Nell'app si apre la trascrizione in Google Documenti.",
       "reading": "Lettura della trascrizione…",
       "unreachable": "Stubwise non è riuscito ad aprire la trascrizione. Potrebbe essere stata spostata o non condivisa con te.",
-      "notVisible": "Riassunto e trascrizione li vede solo chi ha partecipato alla riunione."
+      "notVisible": "Riassunto e trascrizione li vede solo chi ha partecipato alla riunione.",
+      "scopeMissing": "Stubwise non ha ancora il permesso di leggere Google Drive: ricollega il tuo account Google per aprire la trascrizione.",
+      "deleted": "La trascrizione è stata eliminata da Google Drive.",
+      "tooLong": "La trascrizione è lunga: il riassunto ne copre solo la prima parte."
     },
     "proposal": {
       "proposes_one": "Stubwise propone · {{count}} modifica",

@@ -2512,6 +2512,9 @@ export interface MeetingTranscript {
   doc: "reading" | "ready" | "unreachable";
   transcript: string;
   summary: string | null;
+  /** Build app (F5a): il link al Google Doc e perché non si legge (o solo in parte). */
+  docUrl?: string | null;
+  docReason?: MeetingDocReason | null;
 }
 
 export type MailProposalSource = "email" | "transcript" | "calendar";

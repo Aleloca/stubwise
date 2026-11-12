@@ -24,5 +24,10 @@ export const mailContributors = (): boolean => featureIntegrated("mail-contribut
 
 /** Apre la conversazione su Gmail, fuori dall'app (build app). */
 export function openInGmail(url: string): void {
+  openOnGoogle(url);
+}
+
+/** Un link di Google (Gmail, un Google Doc) fuori dall'app. */
+export function openOnGoogle(url: string): void {
   window.open(url, "_blank", "noopener");
 }

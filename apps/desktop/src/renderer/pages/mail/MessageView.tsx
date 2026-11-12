@@ -11,7 +11,7 @@ import { itemClass } from "../../tasks-ui/Menu";
 import { relativeDay, whenLabel, whenWithTime } from "./format";
 import { AlertGlyph, MoreGlyph, VideoGlyph } from "./glyphs";
 import { UntrustedHtmlFrame } from "./UntrustedHtmlFrame";
-import { openInGmail } from "./mailFeatures";
+import { openInGmail, openOnGoogle } from "./mailFeatures";
 
 // Un messaggio della conversazione (shape mail.md §3, §5): espanso — chi,
 // a chi, il testo pulito (l'originale HTML a richiesta, A9), il testo
@@ -167,7 +167,13 @@ function MeetingBlock({ message }: { message: MailMessageView }) {
           <span className="mt-0.5">
             <AlertGlyph size={14} />
           </span>
-          {t("mail.meeting.unreachable")}
+          {t(
+            note.docReason === "scope_missing"
+              ? "mail.meeting.scopeMissing"
+              : note.docReason === "deleted"
+                ? "mail.meeting.deleted"
+                : "mail.meeting.unreachable",
+          )}
         </p>
       ) : (
         <>
@@ -176,9 +182,15 @@ function MeetingBlock({ message }: { message: MailMessageView }) {
             <span className="text-xs text-ink-faint">{t("mail.meeting.generated")}</span>
           </p>
           {note.summary && <p className="text-md text-ink">{note.summary}</p>}
+          {note.docReason === "too_long" && (
+            <p className="text-sm text-ink-muted">{t("mail.meeting.tooLong")}</p>
+          )}
           <button
             type="button"
-            onClick={() => toast.show(t("mail.meeting.transcriptNotice"))}
+            onClick={() =>
+              // Nella build app apre il Google Doc (F5a); nel prototipo lo dice.
+              note.docUrl ? openOnGoogle(note.docUrl) : toast.show(t("mail.meeting.transcriptNotice"))
+            }
             className="self-start rounded-sm text-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
           >
             {t("mail.meeting.open")}
