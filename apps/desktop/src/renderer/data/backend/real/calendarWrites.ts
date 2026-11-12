@@ -94,11 +94,16 @@ async function write(run: () => Promise<unknown>): Promise<CalendarEventView> {
 }
 
 /** Nuova riunione: dalla prima casella collegata (il prototipo ha un account per persona). */
+/** Un id di Google per una riunione nuova: base32hex (`[a-v0-9]`), l'esadecimale di un uuid lo è. */
+export const newEventId = (): string => crypto.randomUUID().replace(/-/g, "");
+
 const createEvent: Calendar["createEvent"] = async (input) => {
   const { firstConnected } = await myMailboxes();
   if (!firstConnected) throw new Error("google_not_connected");
   return write(() =>
     appClient().calendar.createEvent({
+      // Uno per bozza (l'editor), lo stesso a ogni tentativo; un esadecimale è già base32hex.
+      eventId: input.draftId ?? newEventId(),
       accountId: firstConnected,
       title: input.title,
       startsAt: input.startsAt,

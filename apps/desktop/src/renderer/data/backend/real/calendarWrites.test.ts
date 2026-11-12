@@ -104,6 +104,7 @@ describe("F4: creare", () => {
         "POST",
         "/api/me/calendar/events",
         {
+          eventId: expect.stringMatching(/^[a-v0-9]{5,1024}$/),
           accountId: ACC,
           title: "Kick-off",
           startsAt: "2026-11-13T09:00:00.000Z",
@@ -448,5 +449,42 @@ describe("F4: la risposta delle scritture è un elenco (`{ items }`, calendarWri
     await expect(
       w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T11:00:00.000Z", "one"),
     ).rejects.toThrow("invalid: time");
+  });
+});
+
+describe("F4: l'id della riunione nuova (d1bd1fc2 di 72): uno per bozza, lo stesso a ogni tentativo", () => {
+  const input = (draftId?: string) => ({
+    title: "Kick-off",
+    startsAt: "2026-11-13T09:00:00.000Z",
+    endsAt: "2026-11-13T10:00:00.000Z",
+    ...(draftId ? { draftId } : {}),
+  });
+  it("la bozza dà l'id: un secondo tentativo dopo un errore manda LO STESSO", async () => {
+    let calls = 0;
+    const { seen } = installFakeServer({
+      ...base,
+      "POST /api/me/calendar/events": () =>
+        ++calls === 1
+          ? { status: 500, body: { code: "internal", message: "x" } }
+          : { status: 201, body: { items: [row()] } },
+    });
+    const draft = "0123456789abcdef0123456789abcdef";
+    await expect(w.createEvent!(input(draft))).rejects.toBeTruthy();
+    await w.createEvent!(input(draft));
+    const ids = seen
+      .filter((r) => r.method === "POST")
+      .map((r) => (r.body as { eventId: string }).eventId);
+    expect(ids).toEqual([draft, draft]);
+  });
+
+  it("senza bozza (un chiamante di prima): un id valido per Google, base32hex", async () => {
+    const { seen } = installFakeServer({
+      ...base,
+      "POST /api/me/calendar/events": { status: 201, body: { items: [row()] } },
+    });
+    await w.createEvent!(input());
+    expect((seen.find((r) => r.method === "POST")!.body as { eventId: string }).eventId).toMatch(
+      /^[a-v0-9]{5,1024}$/,
+    );
   });
 });

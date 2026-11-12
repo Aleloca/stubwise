@@ -131,6 +131,8 @@ export function EventEditor({
 
   const s = new Date(start.startsAt);
   const e = new Date(start.endsAt);
+  // F4: l'id della riunione nuova, uno per bozza: «Save» dopo un errore manda lo stesso.
+  const [draftId] = useState(() => crypto.randomUUID().replace(/-/g, ""));
   const [title, setTitle] = useState(event?.title ?? "");
   const [allDay, setAllDay] = useState(start.allDay);
   const [date, setDate] = useState(start.allDay ? start.startsAt.slice(0, 10) : localDayKey(s));
@@ -215,6 +217,7 @@ export function EventEditor({
       // `mutate`, che a editor chiuso (smontato) non scatterebbero.
       await create
         .mutateAsync({
+          draftId,
           title: title.trim(),
           startsAt: iso(startMs),
           endsAt: iso(endMs),

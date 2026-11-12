@@ -2941,6 +2941,12 @@ export interface FreeBusy {
 export type CalendarGuestInput = { personId: string } | { email: string; name?: string };
 
 export interface CalendarEventInput {
+  /**
+   * Build app, F4: l'id della riunione nuova, UNO per bozza (l'editor lo
+   * genera all'apertura): un nuovo tentativo dopo un errore manda lo stesso,
+   * così Google non la crea due volte (d1bd1fc2 di 72). base32hex.
+   */
+  draftId?: string;
   title: string;
   startsAt: string;
   endsAt: string;
