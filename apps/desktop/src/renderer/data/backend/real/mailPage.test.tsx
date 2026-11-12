@@ -265,7 +265,7 @@ describe("la Posta nella build app", () => {
     );
   });
 
-  it("una proposta che il server non lascia modificare (400 `invalid_edits`): lo dice in parole chiare", async () => {
+  it("su una proposta modificabile, `invalid_edits` è un campo non valido: l'errore della scheda, non «non si può modificare»", async () => {
     confirmAnswer = { status: 400, body: { code: "invalid_edits", message: "x" } };
     renderRoute(`/mail/${KEY}`);
     await screen.findByText(/Create request in AUD: “Preventivo Rossi”/);
@@ -273,7 +273,8 @@ describe("la Posta nella build app", () => {
     fireEvent.change(await screen.findByLabelText("Title"), { target: { value: "Altro" } });
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     fireEvent.click(screen.getByRole("button", { name: /^Confirm/ }));
-    expect(await screen.findByText("This proposal can't be edited. Confirm it as it is.")).toBeInTheDocument();
+    expect(await screen.findByText("Couldn't do that. Try again.")).toBeInTheDocument();
+    expect(screen.queryByText("This proposal can't be edited. Confirm it as it is.")).toBeNull();
   });
 
   it("una proposta che il server dice non modificabile (`editable: false`): niente «Edit»", async () => {
