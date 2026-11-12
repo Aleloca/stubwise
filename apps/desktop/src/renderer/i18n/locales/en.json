@@ -6357,6 +6357,11 @@
         "recipients": "add at least one recipient",
         "other": "something went wrong"
       }
+    },
+    "readState": {
+      "reconnect": "Reconnect your Google account to keep read and unread in step with Gmail.",
+      "busy": "Gmail is busy. Try again in a moment.",
+      "failed": "Couldn't change read and unread on Gmail."
     }
   },
   "calendar": {

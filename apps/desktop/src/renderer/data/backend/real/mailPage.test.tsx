@@ -16,6 +16,8 @@ const M1 = "dddddddd-1111-4111-8111-111111111111";
 const P1 = "cccccccc-1111-4111-8111-111111111111";
 const N1 = "9a9a9a9a-1111-4111-8111-111111111111";
 const KEY = `${ACC}_t-1`;
+const KEY2 = `${ACC}_t-2`;
+const M2 = "dddddddd-2222-4222-8222-222222222222";
 
 const account = {
   id: ACC,
@@ -107,8 +109,11 @@ const card = {
 };
 
 let seen: SeenRequest[] = [];
+/** Come risponde Gmail (via server) a «letto / non letto». */
+let readAnswer: { status?: number; body: unknown } = { body: detail };
 
 beforeEach(() => {
+  readAnswer = { body: detail };
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   seen = installFakeServer({
@@ -128,7 +133,11 @@ beforeEach(() => {
     [`GET /api/me/mail/email_triage/${M1}/original`]: {
       body: { subject: "Preventivo Rossi", from: "Bob Rossi <bob@client.test>", to: [], cc: [], bodyText: null, bodyHtml: null, attachments: [{ filename: "preventivo.pdf", mimeType: "application/pdf" }] },
     },
-    "POST /api/me/mail/threads/t-1/read": { body: detail },
+    "POST /api/me/mail/threads/t-1/read": () => readAnswer,
+    "GET /api/me/mail/threads/t-2": { body: { ...detail, threadId: "t-2", messages: [{ ...detail.messages[0], id: M2, unread: true }] } },
+    [`GET /api/me/mail/email_triage/${M2}/original`]: { status: 404, body: { code: "not_found", message: "x" } },
+    "POST /api/me/mail/threads/t-2/read": () => readAnswer,
+    "GET /api/me/google/workspaces": { body: [] },
   }).seen;
 });
 
@@ -190,5 +199,36 @@ describe("la Posta nella build app", () => {
     fireEvent.click(attachment);
     expect(open).toHaveBeenCalledWith("https://mail.google.com/mail/#all/t-1", "_blank", "noopener");
     expect(within(document.body).queryByText(/The prototype stays in Stubwise|opens from Gmail/)).toBeNull();
+  });
+
+  it("«Segna come non letta» senza il permesso nuovo: lo dice, con «Ricollega» che apre il cassetto", async () => {
+    readAnswer = { status: 409, body: { code: "google_scope_missing", message: "x", missing: ["https://www.googleapis.com/auth/gmail.modify"] } };
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText("Ecco il preventivo per la consegna.");
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Mark as unread/ }));
+    const alert = await screen.findByText("Reconnect your Google account to keep read and unread in step with Gmail.");
+    fireEvent.click(within(alert.closest("[role=alert]") as HTMLElement).getByRole("button", { name: "Reconnect" }));
+    expect(await screen.findByRole("dialog", { name: "Google account" })).toBeInTheDocument();
+  });
+
+  it("Gmail occupato: «riprova fra poco»", async () => {
+    readAnswer = { status: 503, body: { code: "google_rate_limited", message: "x" } };
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText("Ecco il preventivo per la consegna.");
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Mark as unread/ }));
+    expect(await screen.findByText("Gmail is busy. Try again in a moment.")).toBeInTheDocument();
+  });
+
+  it("la lettura automatica che non riesce lo dice UNA volta per casella, non a ogni apertura", async () => {
+    readAnswer = { status: 409, body: { code: "google_scope_missing", message: "x" } };
+    const router = renderRoute(`/mail/${KEY2}`);
+    expect(await screen.findByText("Reconnect your Google account to keep read and unread in step with Gmail.", {}, { timeout: 3000 })).toBeInTheDocument();
+    await waitFor(() => expect(seen.filter((r) => r.path === "/api/me/mail/threads/t-2/read")).toHaveLength(1));
+    await router.navigate({ to: "/mail" } as never);
+    await router.navigate({ to: `/mail/${KEY2}` } as never);
+    await waitFor(() => expect(seen.filter((r) => r.path === "/api/me/mail/threads/t-2/read")).toHaveLength(2), { timeout: 3000 });
+    expect(screen.getAllByText("Reconnect your Google account to keep read and unread in step with Gmail.")).toHaveLength(1);
   });
 });

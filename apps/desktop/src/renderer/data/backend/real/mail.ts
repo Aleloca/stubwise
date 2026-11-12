@@ -237,7 +237,7 @@ const getMailThread: Mail["getMailThread"] = async (key) => {
   const seen = reproposalsOf();
   for (const m of t.messages) seen.set(m.id, m.reproposals);
   const messages = await Promise.all(t.messages.map((m) => messageView(key, subject, t.url, m, mine)));
-  return { threadId: key, subject, gmailUrl: t.url, messages };
+  return { threadId: key, subject, gmailUrl: t.url, mailbox: t.accountEmail, messages };
 };
 
 /**
@@ -265,6 +265,7 @@ async function setRead(key: string, read: boolean): Promise<void> {
     if (error instanceof ApiError) {
       if (error.code === "google_scope_missing") throw new Error("google_scope_missing");
       if (error.code === "account_disabled" || error.code === "token_expired") throw new Error("google_not_connected");
+      if (error.code === "google_rate_limited") throw new Error("google_rate_limited");
       if (error.status === 404) throw new Error("not_found");
     }
     throw error;

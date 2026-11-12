@@ -2728,8 +2728,9 @@ export interface MeetingNote {
 export interface MailThreadDetail {
   threadId: string;
   subject: string;
-  /** Build app: la conversazione su Gmail («Apri in Gmail»). */
+  /** Build app: la conversazione su Gmail («Apri in Gmail») e la casella che la contiene. */
   gmailUrl?: string;
+  mailbox?: string;
   messages: MailMessageView[];
 }
 

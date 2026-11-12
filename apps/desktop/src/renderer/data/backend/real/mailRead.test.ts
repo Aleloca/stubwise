@@ -327,4 +327,11 @@ describe("letto / non letto, sincronizzato con Gmail (F1.3)", () => {
     await expect(mail.markUnread(`${ACC}_t-3`)).rejects.toThrow("not_found");
     await expect(mail.markRead("senza-casella")).rejects.toThrow("not_found");
   });
+
+  it("Gmail troppo occupato (503 `google_rate_limited`): da riprovare più tardi", async () => {
+    installFakeServer({
+      "POST /api/me/mail/threads/t-1/read": { status: 503, body: { code: "google_rate_limited", message: "x" } },
+    });
+    await expect(mail.markRead(`${ACC}_t-1`)).rejects.toThrow("google_rate_limited");
+  });
 });
