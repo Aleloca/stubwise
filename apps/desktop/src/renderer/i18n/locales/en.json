@@ -5935,7 +5935,8 @@
       "scopes": "Reconnect to give Stubwise the new permissions",
       "scopesMissing": "Until you reconnect, Stubwise can't {{what}}.",
       "feature": {
-        "markRead": "mark mail as read or unread"
+        "markRead": "mark mail as read or unread",
+        "calendarWrite": "create or change your meetings"
       }
     },
     "expired": {
@@ -6462,7 +6463,9 @@
       "retry": "Retry",
       "undo": "Undo change",
       "rejected": "Google didn't accept the change.",
-      "unreachable": "Google couldn't be reached. The change isn't saved yet."
+      "unreachable": "Google couldn't be reached. The change isn't saved yet.",
+      "changed": "This meeting changed in Google Calendar. Reload it and try again.",
+      "reload": "Reload"
     },
     "sync": {
       "justNow": "Updated just now",

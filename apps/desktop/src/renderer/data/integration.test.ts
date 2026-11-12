@@ -88,6 +88,7 @@ describe("isIntegrated", () => {
         "feature:department-home",
         "projectSection:overview",
         "projectSection:requests",
+        "feature:calendar-write",
         "feature:portfolio",
         // Area 3, fetta 3a: la chat libera, le azioni e «Da decidere» restano fuori.
         "destination:claude",

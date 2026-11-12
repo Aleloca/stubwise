@@ -31,12 +31,13 @@ const drawerAccount = (accounts: readonly ServerGoogleAccount[]) => accounts.fin
 
 /**
  * Le funzioni di OGGI che ogni scope apre, per dire cosa manca a una casella
- * da ricollegare. Solo quelle che esistono già: `calendar.events` (F4) e
- * `drive.readonly` (F5) entrano con le loro fette; l'invio (F3) è anch'esso
- * di `gmail.modify`.
+ * da ricollegare. Solo quelle che esistono già: `drive.readonly` (F5) entra
+ * con la sua fetta; l'invio (F3) è anch'esso di `gmail.modify`.
  */
 const FEATURES_OF_SCOPE: Readonly<Record<string, readonly GoogleFeature[]>> = {
   "https://www.googleapis.com/auth/gmail.modify": ["markRead"],
+  // F4: creare, modificare, spostare, eliminare le riunioni e rispondere.
+  "https://www.googleapis.com/auth/calendar.events": ["calendarWrite"],
 };
 
 function accountOf(a: ServerGoogleAccount): GoogleAccount {

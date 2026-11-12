@@ -9,13 +9,10 @@ import {
 } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import { spanOf } from "../../calendar/span";
-import type {
-  CalendarAttendee,
-  CalendarEventView,
-  CalendarSeries,
-  CalendarSeriesView,
-  CalendarSyncView,
-} from "../../types";
+import type { CalendarEventView, CalendarSeriesView, CalendarSyncView } from "../../types";
+import { onSaving, pendingSave, withPendingSaves } from "./calendarSave";
+import { ACTION_TO_SERVER, bySeries, eventView, seriesIdOf, seriesView } from "./calendarView";
+import { calendarWriteFunctions, rememberEtags } from "./calendarWrites";
 import { appClient, session } from "./client";
 import { daysFromToday } from "./clock";
 import { myAccounts, requestSync, syncable, syncStateOf, whenSynced } from "./google";
@@ -29,9 +26,11 @@ import { partialNamespace } from "./notIntegrated";
 
 type Calendar = typeof Fake.calendar;
 
+// Le viste di evento e serie stanno in `calendarView.ts`; si riesportano da qui.
+export { bySeries, eventView, seriesView };
+
 /** Un calendario non allineato da più di 5 minuti è «vecchio», come nel prototipo. */
 const CALENDAR_STALE_MS = 5 * 60_000;
-const DAY_MS = 86_400_000;
 
 /**
  * La finestra letta, a giorni interi UTC, come nel prototipo: dall'inizio
@@ -44,131 +43,6 @@ const calendarWindow: Calendar["calendarWindow"] = () => ({
   to: `${daysFromToday(CALENDAR_WINDOW_DAYS + 1)}T00:00:00Z`,
 });
 
-/**
- * L'id di una serie nell'app: casella + id della serie su Google, uniti da
- * `_` (passa per l'indirizzo, `?series=`). L'id di Google da solo non basta:
- * la stessa serie su due caselle mie ha lo stesso.
- */
-const seriesIdOf = (accountId: string, recurringEventId: string) =>
-  `${accountId}_${recurringEventId}`;
-
-/** Le azioni di una serie: il vocabolario del prototipo e quello del server. */
-const ACTION_OF_SERVER = {
-  milestone: "milestone",
-  backlog_item: "request",
-  reminder: "remind",
-} as const satisfies Record<CalendarSeriesItem["action"], CalendarSeries["action"]>;
-const ACTION_TO_SERVER = {
-  milestone: "milestone",
-  request: "backlog_item",
-  remind: "reminder",
-} as const satisfies Record<CalendarSeries["action"], CalendarSeriesItem["action"]>;
-
-const same = (a: string | null, b: string) => a !== null && a.toLowerCase() === b.toLowerCase();
-
-/**
- * Un appuntamento visto, come lo legge chi guarda. Il server non sa i nomi né
- * le persone degli invitati: il nome è l'indirizzo, la persona sono io solo
- * sul mio indirizzo. Senza fine (righe vecchie): un «tutto il giorno» dura il
- * suo giorno, uno con orario resta un istante — nessuna durata inventata.
- */
-/**
- * I campi della F3b (piano di 72, tutti additivi), letti con la difesa per un
- * server che non li manda: lo schema li porterà con `.default()`, ma la build
- * web non parsa (`as`), quindi la difesa sta qui.
- */
-type F3bFields = {
-  recognized?: boolean;
-  projectBy?: "rules" | "model" | "manual" | null;
-  eventType?: string;
-  transparency?: "opaque" | "transparent";
-  myResponse?: CalendarAttendee["response"] | null;
-};
-
-/** Chi ha deciso il progetto: le regole e il modello sono un suggerimento di Stubwise. */
-function projectByOf(e: CalendarEventItem & F3bFields): CalendarEventView["projectBy"] {
-  if (e.projectBy === "manual") return "manual";
-  if (e.projectBy === "rules" || e.projectBy === "model") return "model";
-  // Un server di prima non lo dice (e lo schema dà `null`; anche le righe prima della
-  // F3b): un progetto c'era solo se lo aveva messo Stubwise.
-  return e.projectId === null ? null : "model";
-}
-
-export function eventView(raw: CalendarEventItem): CalendarEventView {
-  const e = raw as CalendarEventItem & F3bFields;
-  const me = session.personId ?? "";
-  const endsAt =
-    e.endsAt ?? (e.allDay ? new Date(Date.parse(e.startsAt) + DAY_MS).toISOString() : e.startsAt);
-  const isOrganizer = e.organizer === null || same(e.organizer, e.accountEmail);
-  const recognized = e.recognized ?? true;
-  const by = projectByOf(e);
-  // `range` è leggero (F3b): invitati, descrizione e promemoria solo in `event(id)`.
-  const attendees = (e.attendees ?? []).map<CalendarAttendee>((a) => ({
-    email: a.email,
-    name: a.email,
-    personId: same(a.email, e.accountEmail) ? me : null,
-    response: a.responseStatus ?? "needsAction",
-    organizer: same(e.organizer, a.email),
-  }));
-  return {
-    id: e.id,
-    calendarPersonIds: [me],
-    title: e.title ?? "",
-    description: e.descriptionText ?? null,
-    startsAt: e.startsAt,
-    endsAt,
-    allDay: e.allDay,
-    location: e.location,
-    meetUrl: e.hangoutLink,
-    attendees,
-    reminders: e.remindersUseDefault
-      ? "default"
-      : (e.reminders ?? []).map((r) => ({
-          minutes: r.minutes,
-          method: r.method === "email" ? "email" : "popup",
-        })),
-    seriesId: e.recurringEventId === null ? null : seriesIdOf(e.accountId, e.recurringEventId),
-    // Un evento personale (non riconosciuto) non ha un suggerimento: «No project»,
-    // salvo un progetto messo a mano.
-    projectId: recognized || by === "manual" ? e.projectId : null,
-    projectBy: recognized || by === "manual" ? by : null,
-    recognized,
-    eventType: e.eventType ?? "default",
-    transparency: e.transparency === "transparent" ? "transparent" : "opaque",
-    attendeeCount: e.attendeeCount ?? null,
-    googleUrl: e.eventUrl ?? e.url,
-    // Sulla riga leggera la dice il server; altrimenti dagli invitati.
-    myResponse:
-      e.myResponse ?? attendees.find((a) => a.personId === me && me !== "")?.response ?? null,
-    isOrganizer,
-    calendarEmail: e.accountEmail,
-    hasPrep: false,
-  };
-}
-
-export function seriesView(s: CalendarSeriesItem): CalendarSeriesView {
-  return {
-    id: seriesIdOf(s.accountId, s.recurringEventId),
-    title: s.title ?? "",
-    // La regola sta sulle occorrenze, non sulla serie: senza, «a parole» non si dice.
-    rule: "",
-    projectId: s.projectId,
-    enabled: s.enabled,
-    action: ACTION_OF_SERVER[s.action],
-    leadDays: s.leadDays,
-    auto: s.auto,
-    occurrencesInWindow: s.occurrenceCount,
-    nextAt: s.nextOccurrenceAt,
-    recognized: (s as CalendarSeriesItem & { recognized?: boolean }).recognized ?? true,
-  };
-}
-
-/** Le serie: prima quelle di lavoro (F3b), poi per titolo. */
-export const bySeries = (a: CalendarSeriesView, b: CalendarSeriesView) =>
-  Number(b.recognized !== false) - Number(a.recognized !== false) ||
-  a.title.localeCompare(b.title) ||
-  a.id.localeCompare(b.id);
-
 const byStart = (a: CalendarEventView, b: CalendarEventView) =>
   a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id);
 
@@ -180,7 +54,9 @@ async function eventsIn(from: number, to: number): Promise<CalendarEventView[]> 
     to: new Date(to).toISOString(),
     fields: "summary",
   });
-  return page.items.map((e) => eventView(e as CalendarEventItem)).sort(byStart);
+  return fresh(page.items)
+    .map((e) => eventView(e as CalendarEventItem))
+    .sort(byStart);
 }
 
 /** Un intervallo richiesto, in ms, tagliato alla finestra letta; non valido → `invalid: range`. */
@@ -194,6 +70,14 @@ function rangeOf(fromIso: string, toIso: string): { from: number; to: number } {
 
 const isoOfMs = (ms: number) => new Date(ms).toISOString().replace(/\.000Z$/, "Z");
 
+/** Le righe lette portano l'etag fresco per le scritture (F4, review). */
+const fresh = <T extends { id: string; etag?: string | null }>(
+  items: readonly T[],
+): readonly T[] => {
+  rememberEtags(items);
+  return items;
+};
+
 const listEvents: Calendar["listEvents"] = async (range) => {
   const { from, to } = rangeOf(range.from, range.to);
   if (to <= from) return [];
@@ -203,7 +87,11 @@ const listEvents: Calendar["listEvents"] = async (range) => {
     to: isoOfMs(to),
     fields: "summary",
   });
-  return page.items.map((e) => eventView(e as CalendarEventItem)).sort(byStart);
+  // Gli eventi in salvataggio o non salvati (F4) si vedono al loro posto nuovo.
+  return withPendingSaves(
+    fresh(page.items).map((e) => eventView(e as CalendarEventItem)),
+    { from, to },
+  ).sort(byStart);
 };
 
 /**
@@ -246,7 +134,8 @@ const getEvent: Calendar["getEvent"] = async (id) => {
       throw new Error("not_found");
     throw error;
   }
-  const e = eventView(item);
+  rememberEtags([item]);
+  const e = pendingSave(item.id) ?? eventView(item);
   const w = calendarWindow();
   if (!(Date.parse(e.startsAt) < Date.parse(w.to) && Date.parse(e.endsAt) > Date.parse(w.from))) {
     throw new Error("not_found");
@@ -334,6 +223,10 @@ const syncCalendar: Calendar["syncCalendar"] = async () => {
 };
 
 export const calendarFunctions: Partial<Calendar> = {
+  // F4: le scritture (crea, modifica, sposta, elimina, rispondi, progetto a
+  // mano, Riprova/Annulla, libero/occupato, «Trova un orario»).
+  ...calendarWriteFunctions,
+  onSaving,
   calendarWindow,
   spanOf,
   listEvents,

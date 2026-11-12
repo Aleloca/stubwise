@@ -98,6 +98,16 @@ describe("il cassetto Google: l'account", () => {
     expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "scopes", missing: ["markRead"] });
   });
 
+  it("F4: senza `calendar.events` il cassetto dice che non può creare né cambiare le riunioni", async () => {
+    installFakeServer({
+      "GET /api/me/google/accounts": {
+        body: [account({ missingScopes: ["https://www.googleapis.com/auth/calendar.events"] })],
+      },
+    });
+    session.personId = ME_ID;
+    expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "scopes", missing: ["calendarWrite"] });
+  });
+
   it("uno scope mancante di una funzione che non c'è ancora (Drive, F5): da ricollegare, senza funzioni elencate", async () => {
     installFakeServer({
       "GET /api/me/google/accounts": {
