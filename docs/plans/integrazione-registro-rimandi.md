@@ -282,6 +282,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   non c'è; se un server di prima risponde `invalid_edits`, la scheda lo dice
   in parole chiare. Lo smistamento di prima (`email_triage`, «Quale progetto?»
   della classificazione vecchia) resta sull'inbox e nella Posta non compare.
+- Scrivere *(F3)*, i rimandi dal prototipo: i file di Google Drive allegati
+  come LINK (F5, `drive.readonly`); lo slot «Scrivigli anche per email» di
+  una conversazione di Support (R-K14: area 8, non integrata); la frase del
+  consenso del collegamento («every admitted email») con la classificazione
+  nuova accesa (`classifyV2`) non è più esatta: da decidere il testo.
 - I progetti di una conversazione abbinati per NOME *(S, review della F1)*:
   le righe di `/threads` danno solo `projectNames`, e due progetti con lo
   stesso nome si confondono. Chiusa con la F2: `projectIds` dal server (per
