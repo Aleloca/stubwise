@@ -32,7 +32,16 @@ const event = (over: Partial<CalendarEventView> = {}): CalendarEventView => ({
 
 const body = (e: CalendarEventView) =>
   render(
-    <GridBlockBody e={e} heightPx={40} project={undefined} past={false} roomy={false} continues={false} fromPrevious={false} hideCode={false} />,
+    <GridBlockBody
+      e={e}
+      heightPx={40}
+      project={undefined}
+      past={false}
+      roomy={false}
+      continues={false}
+      fromPrevious={false}
+      hideCode={false}
+    />,
   );
 
 describe("il tipo dell'evento e il libero/occupato (F3b)", () => {
@@ -48,6 +57,10 @@ describe("il tipo dell'evento e il libero/occupato (F3b)", () => {
     expect(screen.getByText("Free")).toBeInTheDocument();
     expect(blockShape(event({ transparency: "transparent" }))).toContain("border-dashed");
     expect(blockShape(event())).not.toContain("border-dashed");
+    // Tutto il giorno: il libero è il default di Google, non si segna (O di 46).
+    expect(blockShape(event({ allDay: true, transparency: "transparent" }))).not.toContain(
+      "border-dashed",
+    );
     // Un salvataggio fallito vince: il bordo dice l'errore, non il libero (review F3b, 7).
     const failed = blockShape(event({ transparency: "transparent", save: { state: "failed" } }));
     expect(failed).toContain("!border-critical");
@@ -57,30 +70,66 @@ describe("il tipo dell'evento e il libero/occupato (F3b)", () => {
   it("un evento normale (o di un server di prima, senza i campi): nessuna parola in più", () => {
     body(event({ eventType: "default", transparency: "opaque" }));
     body(event({ id: "e3" }));
-    for (const w of ["Out of office", "Focus time", "Free"]) expect(screen.queryByText(w)).toBeNull();
+    for (const w of ["Out of office", "Focus time", "Free"])
+      expect(screen.queryByText(w)).toBeNull();
   });
 
   it("anche nella riga d'elenco e nel nome accessibile", () => {
-    render(<EventListRow e={event({ eventType: "outOfOffice" })} project={undefined} name="x" onOpen={() => undefined} />);
+    render(
+      <EventListRow
+        e={event({ eventType: "outOfOffice" })}
+        project={undefined}
+        name="x"
+        onOpen={() => undefined}
+      />,
+    );
     expect(screen.getByText("Out of office")).toBeInTheDocument();
     const { result } = renderHook(() => useEventName());
-    expect(result.current(event({ transparency: "transparent" }), undefined, false)).toContain("Free");
+    expect(result.current(event({ transparency: "transparent" }), undefined, false)).toContain(
+      "Free",
+    );
   });
 });
 
 describe("gli invitati nella vista Giorno, dalla lista leggera (F3b)", () => {
   it("senza gli invitati sulla riga, il loro numero (`attendeeCount`): «3 guests»", () => {
     render(
-      <GridBlockBody e={event({ attendees: [], attendeeCount: 3 })} heightPx={120} project={undefined} past={false} roomy continues={false} fromPrevious={false} hideCode={false} />,
+      <GridBlockBody
+        e={event({ attendees: [], attendeeCount: 3 })}
+        heightPx={120}
+        project={undefined}
+        past={false}
+        roomy
+        continues={false}
+        fromPrevious={false}
+        hideCode={false}
+      />,
     );
     expect(screen.getByText("3 guests")).toBeInTheDocument();
   });
 
   it("nessuno (o un server che non lo dice): niente riga", () => {
     render(
-      <GridBlockBody e={event({ attendees: [], attendeeCount: null })} heightPx={120} project={undefined} past={false} roomy continues={false} fromPrevious={false} hideCode={false} />,
+      <GridBlockBody
+        e={event({ attendees: [], attendeeCount: null })}
+        heightPx={120}
+        project={undefined}
+        past={false}
+        roomy
+        continues={false}
+        fromPrevious={false}
+        hideCode={false}
+      />,
     );
     expect(screen.queryByText(/guests?$/)).toBeNull();
   });
 });
 
+describe("il libero solo sugli eventi a orario (O di 46)", () => {
+  it("un tutto il giorno libero: nessuna parola; un fuori ufficio tutto il giorno sì", () => {
+    body(event({ id: "a1", allDay: true, transparency: "transparent" }));
+    expect(screen.queryByText("Free")).toBeNull();
+    body(event({ id: "a2", allDay: true, eventType: "outOfOffice", transparency: "transparent" }));
+    expect(screen.getByText("Out of office")).toBeInTheDocument();
+  });
+});

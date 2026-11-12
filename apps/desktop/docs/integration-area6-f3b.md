@@ -18,7 +18,7 @@ server di prima, con un test la cui fixture NON lo porta.
 | Tutti gli eventi nella griglia | `range` con `fields: "summary"`: la lista LEGGERA (senza le cancellate; descrizione, invitati, conferenza e promemoria dal dettaglio, `event(id)`); la mia risposta dalla riga (`myResponse`), il numero degli invitati (`attendeeCount`) per «N guests» nella vista Giorno | `real/calendar.test.ts` («F3b, dal server (task 6)»), `pages/calendar/EventBlock.test.tsx` |
 | Un evento personale | `recognized: false`: «No project», nessun «Suggested by Stubwise», salvo un progetto messo a mano | `real/calendar.test.ts` («F3b: il calendario con TUTTI gli eventi») |
 | Chi ha deciso il progetto | `projectBy`: le regole e il modello sono un suggerimento, `manual` è «Set manually»; `null` con un progetto (righe di prima) resta un suggerimento | idem |
-| Fuori ufficio, concentrazione, libero | `eventType` e `transparency`: a parola sul blocco, nella riga d'elenco e nel nome accessibile; «Free» anche col contorno tratteggiato. Un tipo sconosciuto non dice niente | `pages/calendar/EventBlock.test.tsx` |
+| Fuori ufficio, concentrazione, libero | `eventType` e `transparency`: a parola sul blocco, nella riga del mese, nella striscia del tutto il giorno, nella riga d'elenco, in «Upcoming», nel dettaglio e nel nome accessibile; «Free» anche col contorno tratteggiato, ma SOLO sugli eventi a orario (un tutto il giorno è libero per default su Google: non si segna, *O di 46*). Un tipo sconosciuto non dice niente | `pages/calendar/EventBlock.test.tsx` |
 | Le serie | `recognized` anche sulle serie: prima quelle di lavoro, poi per titolo | `real/calendar.test.ts` |
 | Le proposte del calendario in «Da decidere» | nella lista della Posta (`/api/me/mail/proposals`, col flag acceso) con `kind: "calendar"`, `messageId` null e l'origine in `calendarOrigin` (`eventId`, `title`, `startsAt`, `allDay`): sorgente `calendar` e la riga d'origine del prototipo; le azioni `create_milestone`, `create_backlog_item` e `acknowledge_reminder` («Visto»); senza `kind` (server di prima) è della posta | `real/mailProposalView.test.ts`, `real/mailProposalsShared.test.ts` |
 
@@ -44,7 +44,8 @@ Il server finto risponde come quello vero (`calendarRangeRoute` in
 Nessun critico; 2 importanti e 5 minori, corretti sul ramo
 `feat/area6-f3b-renderer` con un test rosso prima:
 - «Free» e «Out of office» a parola anche nella riga del mese e nella
-  striscia del tutto il giorno (non solo il contorno);
+  striscia del tutto il giorno (non solo il contorno); poi, *(O di 46)*, il
+  libero non si segna sui tutto il giorno, né col contorno né con la parola;
 - «Not answered» uguale in lista e dettaglio: una mappatura sola (la riga
   del server, poi gli invitati con `null` → needsAction); a 72 è chiesto
   che `myResponse` sia `null` solo per «non sono fra gli invitati»;

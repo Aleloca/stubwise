@@ -219,18 +219,18 @@ describe("F3b (review): il tipo e il libero a PAROLA anche nel mese e nella stri
     ];
   });
 
-  it("settimana: il tutto il giorno libero dice «Free» nella striscia, non solo il contorno", async () => {
+  it("settimana: un tutto il giorno libero NON dice «Free» (è il default di Google, O di 46)", async () => {
     renderRoute(`/calendar?view=week&date=${tomorrow().key}`);
     await waitFor(() => expect(blockText(ALL)).toContain("Ferie"));
-    expect(blockText(ALL)).toContain("Free");
+    expect(blockText(ALL)).not.toContain("Free");
   });
 
-  it("mese: «Free» e «Out of office» a parola nella riga", async () => {
+  it("mese: «Out of office» a parola nella riga; il tutto il giorno libero senza «Free»", async () => {
     renderRoute(`/calendar?view=month&date=${tomorrow().key}`);
-    await waitFor(() => expect(blockText(ALL)).toContain("Ferie"));
-    expect(blockText(ALL)).toContain("Free");
     await waitFor(() => expect(blockText(OOO)).toContain("Dal medico"));
     expect(blockText(OOO)).toContain("Out of office");
+    await waitFor(() => expect(blockText(ALL)).toContain("Ferie"));
+    expect(blockText(ALL)).not.toContain("Free");
   });
 });
 

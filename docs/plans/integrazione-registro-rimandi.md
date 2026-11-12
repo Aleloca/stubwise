@@ -422,6 +422,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   Claude lo dice e offre «Copy the text»; rimettere il testo nella bozza con
   un clic è rimandato.
 
+- F3b, il libero sugli eventi tutto il giorno *(O, 46, 12 nov 2026)*: NON
+  si segna, né col contorno né con la parola, perché per Google un tutto il
+  giorno è libero per default e segnarlo sarebbe rumore. «Out of office» e
+  «Focus time» restano a parola dovunque; il libero solo sugli eventi a
+  orario (`isMarkedFree` in `pages/calendar/EventBlock.tsx`).
+
 - F5, riunioni registrate e Google Drive: l'inventario di 94 *(12 nov 2026)*,
   con le forme mandate a 72 per il suo piano. Da ricordare:
   - **il «permesso di lettura Drive» è D9 = a, lo scope `drive.readonly`**
