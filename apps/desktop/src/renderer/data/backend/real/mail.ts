@@ -6,6 +6,7 @@ import type { MailAddress, MailboxView, MailMessageView, MailSearchHit, MailThre
 import { appClient, session } from "./client";
 import { myAccounts, requestSync, syncStateOf, whenSynced } from "./google";
 import { splitThreadKey, threadKey } from "./mailKeys";
+import { mailDraftFunctions } from "./mailDrafts";
 import { mailProposalFunctions } from "./mailProposals";
 import { partialNamespace } from "./notIntegrated";
 
@@ -338,6 +339,7 @@ const markUnread: Mail["markUnread"] = (key) => setRead(key, false);
 
 export const mailFunctions: Partial<Mail> = {
   ...mailProposalFunctions,
+  ...mailDraftFunctions,
   listMailboxes,
   setProposalsEnabled,
   syncMailbox,
