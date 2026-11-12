@@ -140,6 +140,8 @@ describe("isIntegrated", () => {
         // Area 6, fetta 1: la Posta in lettura (scrivere, importanza e campi delle proposte restano spenti).
         "destination:mail",
         "feature:mail",
+        // Area 6, fetta 2: importanza, «Importanti» e «Posta importante».
+        "feature:mail-importance",
       ].sort(),
     );
   });

@@ -109,10 +109,12 @@ const card = {
 };
 
 let seen: SeenRequest[] = [];
+let threads: unknown[] = [];
 /** Come risponde Gmail (via server) a «letto / non letto». */
 let readAnswer: { status?: number; body: unknown } = { body: detail };
 
 beforeEach(() => {
+  threads = [thread];
   readAnswer = { body: detail };
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
@@ -128,7 +130,7 @@ beforeEach(() => {
         : { body: { items: [], nextCursor: null } },
     [`POST /api/inbox/${N1}/actions/answer`]: { body: { kind: "google.proposal", changedNotificationIds: [N1] } },
     "GET /api/me/google/accounts": { body: [account] },
-    "GET /api/me/mail/threads": { body: { items: [thread], nextCursor: null } },
+    "GET /api/me/mail/threads": () => ({ body: { items: threads, nextCursor: null } }),
     "GET /api/me/mail/threads/t-1": { body: detail },
     [`GET /api/me/mail/email_triage/${M1}/original`]: {
       body: { subject: "Preventivo Rossi", from: "Bob Rossi <bob@client.test>", to: [], cc: [], bodyText: null, bodyHtml: null, attachments: [{ filename: "preventivo.pdf", mimeType: "application/pdf" }] },
@@ -148,12 +150,19 @@ afterEach(() => {
 });
 
 describe("la Posta nella build app", () => {
-  it("l'elenco per conversazione; niente «Nuova email» né «Importanti»", async () => {
+  it("l'elenco per conversazione; niente «Nuova email»", async () => {
     renderRoute("/mail");
     expect(await screen.findByText("Preventivo Rossi")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /New email/ })).toBeNull();
-    expect(screen.queryByRole("link", { name: /^Important/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Importance/ })).toBeNull();
+  });
+
+  it("F2: «Importanti», il filtro per importanza e l'importanza sulla riga", async () => {
+    threads = [{ ...thread, importance: "high", unread: true }];
+    renderRoute("/mail");
+    expect(await screen.findByText("Preventivo Rossi")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /^Important/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Importance/ })).toBeInTheDocument();
+    expect(screen.getAllByTitle("High importance").length).toBeGreaterThan(0);
   });
 
   it("una conversazione: il messaggio, la proposta della casella accanto, nessuna risposta; «Apri in Gmail» apre Gmail", async () => {

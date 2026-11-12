@@ -119,9 +119,12 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "google-sync",
     // Area 6, fetta 1: la Posta TRATTATA per conversazione, la lettura, le
     // proposte della casella, letto/non letto con Gmail. Restano spenti
-    // `mail-write` (scrivere, F3), `mail-importance` (importanza e scadenza,
-    // F2) e `mail-proposal-edit` (i campi di una proposta, F2).
+    // `mail-write` (scrivere, F3) e `mail-proposal-edit` (i campi di una
+    // proposta, F2, col task 6 del server).
     "mail",
+    // Area 6, fetta 2: la classificazione nuova, cioè importanza e scadenza delle
+    // conversazioni, «Importanti» e il blocco Home «Posta importante».
+    "mail-importance",
     // Area 5, fetta 1: i Docs «come oggi» (spazi, albero, pagine, manuali,
     // generazione, ricerca, chat senza streaming, grafo).
     "docs",

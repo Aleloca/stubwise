@@ -268,18 +268,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - La Posta in lettura *(F1)*: la posta TRATTATA per conversazione, le
   proposte della casella accanto al messaggio d'origine, letto/non letto
   con Gmail. Nascosti nella build app: scrivere (nuova email, rispondi,
-  inoltra, bozze, la bozza di Claude: F3), l'importanza, la scadenza e la
-  vista «Importanti» (F2), i campi modificabili di una proposta e gli
-  incaricati fuori dal progetto (F2). Differenze dichiarate: l'elenco non ha
-  l'estratto dell'ultimo messaggio (il server non lo dà); un allegato non ha
+  inoltra, bozze, la bozza di Claude: F3), i campi modificabili di una
+  proposta e gli incaricati fuori dal progetto (F2, col task 6 del server).
+  Dalla F2 ci sono importanza, scadenza, «Importanti» e l'estratto
+  nell'elenco. Differenze dichiarate: un allegato non ha
   la dimensione e si apre da Gmail; la proposta mostra la frase che il
   server scrive per ogni azione (non i campi) e non l'estratto letto; la
   scelta del progetto di un'email incerta (`choose_project`) non c'è (il
   worker non la produce più).
 - I progetti di una conversazione abbinati per NOME *(S, review della F1)*:
   le righe di `/threads` danno solo `projectNames`, e due progetti con lo
-  stesso nome si confondono. Chiusa con la F2: `projectIds` additivo nel
-  piano di stubwise-72 (§4).
+  stesso nome si confondono. Chiusa con la F2: `projectIds` dal server (per
+  nome resta solo con un server di prima).
 - La lettura automatica dopo 1 s scrive su Gmail *(O, decisione
   dell'orchestratrice)*: aprire la conversazione È il gesto, come nel
   prototipo (D5 = b). Va scritto esplicito nell'invariante «Nessuna
@@ -299,8 +299,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   verifica di Google) e il cassetto Google comune a Drive, Posta e
   Calendario.
 
-- Blocco della Home «Posta importante» (F2; oggi nascosto e conservato al
-  salvataggio). «Prossimi appuntamenti» è acceso dalla F1, con la finestra
+- Il blocco della Home «Posta importante» è acceso dalla F2 (le conversazioni
+  con un messaggio di importanza alta non letto). «Prossimi appuntamenti» è
+  acceso dalla F1, con la finestra
   del prototipo (da adesso a fine di domani, senza i rifiutati) *(O,
   decisione dell'orchestratrice: il prototipo è la specifica)*.
 - Azione di Claude «bozza del corpo dell'email».

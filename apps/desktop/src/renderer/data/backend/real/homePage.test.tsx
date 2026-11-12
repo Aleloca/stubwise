@@ -28,10 +28,12 @@ let seen: SeenRequest[] = [];
 /** Area 6, fetta 1: le caselle Google e gli appuntamenti visti. */
 let googleAccounts: unknown[] = [];
 let calendarItems: unknown[] = [];
+let importantThreads: unknown[] = [];
 
 beforeEach(() => {
   googleAccounts = [];
   calendarItems = [];
+  importantThreads = [];
   chatQuestions = [];
   chatClaudeQuestions = [];
   chatQuestionsMissing = false;
@@ -51,7 +53,7 @@ beforeEach(() => {
         blocks: [
           { kind: "decide" },
           { kind: "myWeek" },
-          { kind: "importantMail" },
+          { kind: "waitingCustomers" },
           { kind: "myTasks" },
           { kind: "filter", filterId: GONE },
         ],
@@ -65,6 +67,8 @@ beforeEach(() => {
     // Area 6, fetta 1: «Prossimi appuntamenti» dal Calendario in lettura.
     "GET /api/me/google/accounts": () => ({ body: googleAccounts }),
     "GET /api/me/calendar/range": () => ({ body: { items: calendarItems, nextCursor: null } }),
+    // Area 6, fetta 2: «Posta importante» (`important: true`).
+    "GET /api/me/mail/threads": () => ({ body: { items: importantThreads, nextCursor: null } }),
     // Area 4, fetta 2: le domande della Chat in «Da decidere».
     "GET /api/chat/questions": () =>
       chatQuestionsMissing ? { status: 404, body: { code: "not_found", message: "x" } } : { body: { items: chatQuestions } },
@@ -129,12 +133,12 @@ afterEach(() => {
 });
 
 describe("la Home nella build app", () => {
-  it("la Home del reparto dal server; il filtro eliminato è «non disponibile»; la posta non c'è", async () => {
+  it("la Home del reparto dal server; il filtro eliminato è «non disponibile»; i clienti in attesa (area 8) non ci sono", async () => {
     renderRoute("/home");
     const tasks = await screen.findByRole("region", { name: /^My tasks/ });
     expect(await within(tasks).findByText("Export the report")).toBeInTheDocument();
     expect(await screen.findByText("This filter is no longer available")).toBeInTheDocument();
-    expect(screen.queryByRole("region", { name: /^Important email/ })).toBeNull();
+    expect(screen.queryByRole("region", { name: /^Customers waiting/ })).toBeNull();
   });
 
   it("«Da decidere»: una domanda della Chat a chi guarda, dal server (area 4, fetta 2)", async () => {
@@ -234,7 +238,7 @@ describe("la Home nella build app", () => {
     personalBlocks = [
       { kind: "decide" },
       { kind: "myWeek" },
-      { kind: "importantMail" },
+      { kind: "waitingCustomers" },
       { kind: "__future__" },
       { kind: "myTasks" },
     ];
@@ -243,7 +247,7 @@ describe("la Home nella build app", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Customize" }));
     const list = await screen.findByRole("list", { name: "Blocks of the Home" });
     // L'editor non elenca ciò che questa build non mostra.
-    expect(within(list).queryByText("Important email")).toBeNull();
+    expect(within(list).queryByText("Customers waiting")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Add block" }));
     const menu = await screen.findByRole("menu", { name: "Add block" });
     fireEvent.click(within(menu).getByRole("menuitem", { name: /Stalled in my projects/ }));
@@ -253,7 +257,7 @@ describe("la Home nella build app", () => {
       blocks: [
         { kind: "decide" },
         { kind: "myWeek" },
-        { kind: "importantMail" },
+        { kind: "waitingCustomers" },
         { kind: "__future__" },
         { kind: "myTasks" },
         { kind: "stalledInMyProjects" },
@@ -297,5 +301,40 @@ describe("la Home nella build app", () => {
     renderRoute("/home");
     const upcoming = await screen.findByRole("region", { name: /^Upcoming/ });
     expect(await within(upcoming).findByText(/Sprint review/)).toBeInTheDocument();
+  });
+
+  it("«Posta importante»: le conversazioni con un messaggio alto non letto (area 6, fetta 2)", async () => {
+    personalBlocks = [{ kind: "importantMail" }, { kind: "myTasks" }];
+    googleAccounts = [
+      {
+        id: "aaaaaaaa-1111-4111-8111-111111111111",
+        email: "ada@acme.test",
+        workspaceId: "11111111-1111-4111-8111-111111111111",
+        workspaceName: "Acme",
+        scopes: [],
+        proposalsEnabled: true,
+        connectedAt: "2026-10-01T09:00:00.000Z",
+        lastSyncAt: "2026-10-23T11:59:00.000Z",
+        disabledAt: null,
+        disabledReason: null,
+        missingScopes: [],
+      },
+    ];
+    importantThreads = [
+      {
+        threadId: "t-1",
+        accountId: "aaaaaaaa-1111-4111-8111-111111111111",
+        accountEmail: "ada@acme.test",
+        subject: "Contratto da firmare",
+        lastFrom: "Bob Rossi <bob@client.test>",
+        lastReceivedAt: "2026-10-23T09:00:00.000Z",
+        unread: true,
+        importance: "high",
+      },
+    ];
+    renderRoute("/home");
+    const block = await screen.findByRole("region", { name: /^Important email/ });
+    expect(await within(block).findByText(/Contratto da firmare/)).toBeInTheDocument();
+    expect(new URLSearchParams(seen.find((r) => r.path.startsWith("/api/me/mail/threads"))!.path.split("?")[1]).get("important")).toBe("true");
   });
 });
