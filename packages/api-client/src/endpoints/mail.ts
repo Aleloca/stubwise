@@ -12,6 +12,8 @@ import {
   mailProposalDecisionSchema,
   mailDraftListSchema,
   mailDraftSchema,
+  mailDraftRestoreSchema,
+  mailOutgoingSchema,
 } from "@stubwise/shared";
 import type {
   Reader,
@@ -34,6 +36,8 @@ import type {
   MailDraftList,
   MailDraft,
   MailDraftSave,
+  MailDraftRestore,
+  MailOutgoing,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { seg, toQuery } from "../query.js";
@@ -211,6 +215,29 @@ export function createMailEndpoints(request: ApiRequest) {
      */
     saveDraft(input: MailDraftSave): Promise<Reader<MailDraft>> {
       return request("PUT", "/api/me/mail/drafts", input, mailDraftSchema);
+    },
+    /**
+     * Invia (D6): il server lo trattiene 10 s, fino a `undoUntil`. `messageId`
+     * è l'id dell'invio. Un doppio Invia restituisce lo stesso invio.
+     */
+    sendDraft(id: string): Promise<Reader<MailOutgoing>> {
+      return request("POST", `/api/me/mail/drafts/${seg(id)}/send`, {}, mailOutgoingSchema);
+    },
+    /** Lo stato di un invio (`queued`, `sending`, `sent`, `failed` con `error`, `cancelled`). */
+    outgoing(messageId: string): Promise<Reader<MailOutgoing>> {
+      return request("GET", `/api/me/mail/outgoing/${seg(messageId)}`, undefined, mailOutgoingSchema);
+    },
+    /** Annulla prima di `undoUntil`: la bozza torna. Dopo, 409 `too_late`; con un'altra bozza nello slot, 409 `draft_slot_taken`. */
+    undoSend(messageId: string): Promise<Reader<MailDraftRestore>> {
+      return request("POST", `/api/me/mail/outgoing/${seg(messageId)}/undo`, {}, mailDraftRestoreSchema);
+    },
+    /** Riprova un invio fallito (un gesto: il server non ritenta mai da solo). */
+    retrySend(messageId: string): Promise<Reader<MailOutgoing>> {
+      return request("POST", `/api/me/mail/outgoing/${seg(messageId)}/retry`, {}, mailOutgoingSchema);
+    },
+    /** Elimina un invio fallito: la bozza torna, da correggere. */
+    deleteFailedSend(messageId: string): Promise<Reader<MailDraftRestore>> {
+      return request("POST", `/api/me/mail/outgoing/${seg(messageId)}/discard`, {}, mailDraftRestoreSchema);
     },
     /** Elimina la bozza, su Gmail e in Stubwise. «Annulla» = salvarla di nuovo. */
     discardDraft(id: string): Promise<void> {
