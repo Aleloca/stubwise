@@ -155,3 +155,16 @@ posta:
   mai a una proposta, né col flag spento né acceso.
 - Il carico: una casella con 1.500 eventi in finestra non fa N query per
   evento (le letture per lotto di oggi restano tali).
+
+## Chiusura (12 nov 2026)
+
+Fatti i task 1–8 su `feat/area6-f3b`. Cambiamenti rispetto al piano, tutti
+annotati *(O)* e riferiti a 46: la lista leggera di `range` è su richiesta
+(`fields=summary`), perché web e app leggono ancora i campi pesanti; la
+linea di base (per il deploy e per l'accensione del flag) l'ha chiesta 46;
+la «Quale progetto?» del calendario è rimandata (registro); l'origine di una
+proposta del calendario sta in `calendarOrigin`. Trovato e corretto un bug
+preesistente: l'occorrenza di una serie col progetto scelto diverso da
+quello delle regole spariva in silenzio. Migrazioni 0161 (era la 0157) e
+0162.
+

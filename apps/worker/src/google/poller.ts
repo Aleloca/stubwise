@@ -40,6 +40,7 @@ import {
   admit,
   matchRoutes,
   normalizeAddress,
+  projectPermissionsOfUser,
   type AdmissionConfig,
   type AdmissionResult,
   type EmailRoute,
@@ -51,7 +52,6 @@ import {
   inArray,
   isNotNull,
   isNull,
-  lt,
   ne,
   notExists,
   notInArray,
@@ -1259,17 +1259,24 @@ async function collectCalendarEvents(
   deps: GooglePollerDeps,
   ctx: AccountContext,
   account: ClaimedAccount,
-): Promise<{ events: GoogleCalendarEvent[]; syncToken: string | null }> {
+): Promise<{ events: GoogleCalendarEvent[]; syncToken: string | null; full: boolean }> {
   const logger = deps.logger ?? defaultLogger;
   const now = deps.now ?? (() => new Date());
 
-  if (account.calendarSyncToken) {
+  // Con una LINEA DI BASE da fare (F3b: il primo giro dopo «tutti gli eventi»,
+  // o il primo col flag della dottrina nuova) il token NON vale: serve la
+  // finestra intera, o gli eventi già esistenti non entrerebbero mai (review
+  // F3b, punto 1 — un worker vecchio può aver salvato un token nuovo).
+  if (account.calendarSyncToken && !calendarBaselinePending(deps, account)) {
     try {
-      return await drainCalendarPages(deps, account, {
-        accessToken: ctx.accessToken,
-        syncToken: account.calendarSyncToken,
-        showDeleted: true,
-      });
+      return {
+        ...(await drainCalendarPages(deps, account, {
+          accessToken: ctx.accessToken,
+          syncToken: account.calendarSyncToken,
+          showDeleted: true,
+        })),
+        full: false,
+      };
     } catch (err) {
       if (!isSyncTokenExpired(err)) throw err;
       logger.info(
@@ -1283,12 +1290,20 @@ async function collectCalendarEvents(
   }
 
   const { timeMin, timeMax } = calendarWindow(now());
-  return drainCalendarPages(deps, account, {
-    accessToken: ctx.accessToken,
-    timeMin,
-    timeMax,
-    showDeleted: true,
-  });
+  return {
+    ...(await drainCalendarPages(deps, account, {
+      accessToken: ctx.accessToken,
+      timeMin,
+      timeMax,
+      showDeleted: true,
+    })),
+    full: true,
+  };
+}
+
+/** Una linea di base del calendario è ancora da fare (F3b)? */
+function calendarBaselinePending(deps: GooglePollerDeps, account: ClaimedAccount): boolean {
+  return account.calendarBaselineAt === null || (deps.classifyV2 === true && account.calendarV2BaselineAt === null);
 }
 
 /**
@@ -1306,20 +1321,32 @@ async function closeCancelledEvents(
   googleEventIds: string[],
 ): Promise<number> {
   if (googleEventIds.length === 0) return 0;
-  const closed = await db
-    .update(calendarEventsTable)
-    .set({
-      status: "cancelled",
-      outcome: sql`coalesce(${calendarEventsTable.outcome}, ${JSON.stringify(CALENDAR_CANCELLED_OUTCOME)}::jsonb)`,
-    })
-    .where(
-      and(
-        eq(calendarEventsTable.accountId, accountId),
-        inArray(calendarEventsTable.googleEventId, googleEventIds),
-      ),
-    )
-    .returning({ id: calendarEventsTable.id });
-  return closed.length;
+  // Riga e card nella STESSA transazione, come il ramo del rifiuto (review
+  // F3b, punto 2): una card rimasta aperta su un evento cancellato puntava a
+  // una riga che la potatura poi toglieva.
+  return db.transaction(async (tx) => {
+    const closed = await tx
+      .update(calendarEventsTable)
+      .set({
+        status: "cancelled",
+        outcome: sql`coalesce(${calendarEventsTable.outcome}, ${JSON.stringify(CALENDAR_CANCELLED_OUTCOME)}::jsonb)`,
+      })
+      .where(
+        and(
+          eq(calendarEventsTable.accountId, accountId),
+          inArray(calendarEventsTable.googleEventId, googleEventIds),
+        ),
+      )
+      .returning({ id: calendarEventsTable.id, notificationId: calendarEventsTable.proposalNotificationId });
+    const cards = closed.flatMap((r) => (r.notificationId ? [r.notificationId] : []));
+    if (cards.length > 0) {
+      await tx
+        .update(notifications)
+        .set({ status: "handled", handledAt: new Date() })
+        .where(and(inArray(notifications.id, cards), eq(notifications.status, "open")));
+    }
+    return closed.length;
+  });
 }
 
 /**
@@ -1354,11 +1381,15 @@ async function syncCalendar(
   account: ClaimedAccount,
 ): Promise<{ syncToken: string | null; stats: CalendarPhaseStats }> {
   const stats: CalendarPhaseStats = { events: 0, ready: 0, cancelled: 0 };
-  const { events, syncToken } = await collectCalendarEvents(deps, ctx, account);
-  if (events.length === 0) {
-    await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
+  const { events, syncToken, full } = await collectCalendarEvents(deps, ctx, account);
+  // La linea di base si chiude SOLO dopo un resync della finestra finito con
+  // un token e non interrotto (review F3b, punto 1).
+  const finish = async (aborted: boolean) => {
+    if (aborted) return { syncToken: null, stats };
+    if (full && syncToken !== null) await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
     return { syncToken, stats };
-  }
+  };
+  if (events.length === 0) return finish(false);
 
   const cancelledIds = events.filter(isCancelled).map((event) => event.id);
   // F3b: un evento VISTO (non candidato) cancellato su Google se ne va, e
@@ -1432,10 +1463,7 @@ async function syncCalendar(
     }
     live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt), candidate, projectId, projectBy });
   }
-  if (live.size === 0) {
-    await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
-    return { syncToken, stats };
-  }
+  if (live.size === 0) return finish(false);
 
   // La regola di ricorrenza delle serie toccate da questo lotto: UNA
   // chiamata per SERIE, e solo per quelle che non conosciamo o che sono
@@ -1495,8 +1523,14 @@ async function syncCalendar(
   // primo col flag della dottrina nuova acceso.
   const v2Baseline = v2 && account.calendarV2BaselineAt === null;
   const baseline = account.calendarBaselineAt === null || v2Baseline;
+  let aborted = false;
   for (const { event, startsAt, fingerprint, candidate, projectId: candidateProjectId, projectBy } of live.values()) {
-    if (deps.signal?.aborted) break;
+    if (deps.signal?.aborted) {
+      // Interrotto a metà: niente token (il giro dopo riparte da qui) e
+      // nessuna linea di base chiusa (review F3b, punto 1).
+      aborted = true;
+      break;
+    }
     const resolved = { projectId: candidateProjectId };
     const fresh = {
       title: event.title.trim(),
@@ -1651,8 +1685,7 @@ async function syncCalendar(
     if (!ownerOfFingerprint.has(fingerprint)) ownerOfFingerprint.set(fingerprint, event.id);
   }
 
-  await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
-  return { syncToken, stats };
+  return finish(aborted);
 }
 
 /** I tipi di Google che non sono appuntamenti (F3b, decisione di 46): non entrano. */
@@ -1664,6 +1697,18 @@ export const CALENDAR_BASELINE_OUTCOME = { type: "baseline" } as const;
 /** Fine del primo giro completo: da qui in poi un evento nuovo propone come sempre. */
 async function settleCalendarBaseline(db: Db, account: ClaimedAccount, v2 = false): Promise<void> {
   if (account.calendarBaselineAt === null) {
+    // Le occorrenze già in tabella di una serie accesa col progetto SCELTO
+    // diverso da quello della riga: prima del fix a40c1a61 erano scartate in
+    // silenzio, e ora proporrebbero tutte insieme al primo giro (anche `auto`).
+    // Entrano nella linea di base del deploy (review F3b, minore).
+    await db.execute(sql`
+      update calendar_events e set outcome = ${JSON.stringify(CALENDAR_BASELINE_OUTCOME)}::jsonb
+      from calendar_series s
+      where e.account_id = ${account.id}
+        and s.account_id = e.account_id and s.recurring_event_id = e.recurring_event_id
+        and s.enabled and s.project_id is not null and s.project_id is distinct from e.project_id
+        and e.proposal_notification_id is null and e.outcome is null
+    `);
     await db.update(googleAccounts).set({ calendarBaselineAt: new Date() }).where(and(eq(googleAccounts.id, account.id), isNull(googleAccounts.calendarBaselineAt)));
   }
   if (v2 && account.calendarV2BaselineAt === null) {
@@ -1683,12 +1728,14 @@ async function attendeeProjectsByEvent(db: Db, events: readonly GoogleCalendarEv
   const out = new Map<string, string[]>();
   if (all.length === 0) return out;
   const people = new Map<string, string>();
-  for (const row of await db.select({ id: users.id, email: users.email }).from(users).where(and(eq(users.isAgent, false), inArray(users.email, all)))) people.set(normalizeAddress(row.email), row.id);
+  // `lower()`: un indirizzo salvato con le maiuscole è la stessa persona (review F3b).
+  const lowered = sql`array[${sql.join(all.map((a) => sql`${a}`), sql`, `)}]::text[]`;
+  for (const row of await db.select({ id: users.id, email: users.email }).from(users).where(and(eq(users.isAgent, false), sql`lower(${users.email}) = any(${lowered})`))) people.set(normalizeAddress(row.email), row.id);
   for (const row of await db
     .select({ id: googleAccounts.userId, email: googleAccounts.email })
     .from(googleAccounts)
     .innerJoin(users, eq(users.id, googleAccounts.userId))
-    .where(and(eq(users.isAgent, false), inArray(googleAccounts.email, all)))) people.set(normalizeAddress(row.email), row.id);
+    .where(and(eq(users.isAgent, false), sql`lower(${googleAccounts.email}) = any(${lowered})`))) people.set(normalizeAddress(row.email), row.id);
   const ids = [...new Set([...people.values()].filter((id) => id !== account.userId))];
   const projectsOf = new Map<string, string[]>();
   if (ids.length > 0) {
@@ -1696,9 +1743,14 @@ async function attendeeProjectsByEvent(db: Db, events: readonly GoogleCalendarEv
       projectsOf.set(row.userId, [...(projectsOf.get(row.userId) ?? []), row.projectId]);
     }
   }
+  // Solo i progetti che il PROPRIETARIO della casella vede (review F3b, punto
+  // 3): la card va a lui, e un progetto che per lui è 404 non ci finisce. Una
+  // verifica per progetto distinto del lotto, non per evento.
+  const ownerSees = new Map<string, boolean>();
+  for (const id of new Set([...projectsOf.values()].flat())) ownerSees.set(id, Boolean(await projectPermissionsOfUser(db, account.userId, id)));
   for (const e of events) {
     const userIds = new Set(addressesOf(e).flatMap((a) => (people.has(a) ? [people.get(a)!] : [])).filter((id) => id !== account.userId));
-    out.set(e.id, [...new Set([...userIds].flatMap((id) => projectsOf.get(id) ?? []))]);
+    out.set(e.id, [...new Set([...userIds].flatMap((id) => projectsOf.get(id) ?? []))].filter((id) => ownerSees.get(id) === true));
   }
   return out;
 }
@@ -2626,8 +2678,11 @@ export async function pruneOldCalendarEvents(db: Db, now: Date = new Date()): Pr
     .delete(calendarEventsTable)
     .where(
       and(
-        lt(calendarEventsTable.startsAt, cutoff),
+        // La FINE dell'evento (review F3b): uno di più giorni ancora in corso resta.
+        sql`coalesce(${calendarEventsTable.endsAt}, ${calendarEventsTable.startsAt}) < ${cutoff.toISOString()}::timestamptz`,
         sql`(${calendarEventsTable.proposalNotificationId} is null or ${calendarEventsTable.outcome} is not null)`,
+        // Mai una riga la cui card è ancora APERTA (review F3b, punto 2).
+        sql`not exists (select 1 from notifications n where n.id = ${calendarEventsTable.proposalNotificationId} and n.status = 'open')`,
       ),
     )
     .returning({ id: calendarEventsTable.id });
@@ -2637,7 +2692,7 @@ export async function pruneOldCalendarEvents(db: Db, now: Date = new Date()): Pr
       .set({ outcome: CALENDAR_EXPIRED_OUTCOME })
       .where(
         and(
-          lt(calendarEventsTable.startsAt, cutoff),
+          sql`coalesce(${calendarEventsTable.endsAt}, ${calendarEventsTable.startsAt}) < ${cutoff.toISOString()}::timestamptz`,
           isNotNull(calendarEventsTable.proposalNotificationId),
           isNull(calendarEventsTable.outcome),
         ),

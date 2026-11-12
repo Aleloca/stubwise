@@ -342,6 +342,28 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   alias);
   (e) un `fillMailBody` riuscito non si annulla (Gmail ha la bozza: si
   cambia dal compositore).
+- F3b, rimandati e limiti accettati *(O)* (12 nov 2026):
+  (a) la «Quale progetto?» del calendario: col flag acceso un evento con
+  invitati di più progetti oggi non propone niente (servono una colonna dei
+  progetti incerti, una variante di card e la scelta);
+  (b) una classificazione col MODELLO degli eventi (oggi la scelta è
+  deterministica dagli invitati: tanti eventi e poco testo);
+  (c) i calendari diversi dal principale (il prototipo ne ha uno per account);
+  (d) le proposte del calendario condivise fra gli invitati (oggi restano
+  della casella di chi le vede, `mailbox_owner`).
+  Dalla review della F3b, limiti accettati *(O)*:
+  (e) la linea di base del deploy chiude anche un evento IN PERIMETRO nato
+  fra l'ultimo giro prima del deploy e il resync (una finestra di minuti):
+  quel candidato non propone. Il campo `created` di Google non lo salviamo,
+  quindi non si distingue; il costo è una proposta mancata, non una in più;
+  (f) `mailProposalSchema.messageId` è passato da uuid obbligatorio a
+  nullable: per un client vecchio NON è additivo (con `readerSchema` una
+  lista con una proposta del calendario non parsa). Accettato perché l'app
+  mobile ha un solo utente e non è sugli store (nessun client vecchio in
+  giro), e le proposte del calendario compaiono solo col flag acceso;
+  (g) a ogni resync della finestra un UPDATE per evento già visto (il ramo
+  dei non candidati): i resync sono rari (linea di base, 410), e un giro
+  incrementale porta solo gli eventi cambiati.
 - Calendario «Tutti, come il prototipo» *(M)* (12 nov 2026): fetta F3b,
   prima della F4. Decisioni *(O)* di 46: `workingLocation` e `birthday`
   esclusi dall'ingestione, `outOfOffice` resta; calendari come il

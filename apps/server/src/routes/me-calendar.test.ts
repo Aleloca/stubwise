@@ -609,6 +609,15 @@ describe("F3b, task 6: range leggero, i campi nuovi, le cancellate fuori", () =>
     expect((detail.attendees as unknown[]).length).toBe(2);
   });
 
+  it("myResponse: null SOLO se la mia casella non è fra gli invitati; fra gli invitati senza risposta = needsAction (come il dettaglio)", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, { title: "Senza risposta", startsAt: new Date("2026-09-15T09:00:00.000Z"), attendees: [{ email, responseStatus: null }] });
+    await seedCalendarEvent(accountId, { title: "Mio, senza invitati", startsAt: new Date("2026-09-15T10:00:00.000Z"), attendees: [] });
+    const items = (await range(memberCookie)).json().items as { title: string; myResponse: string | null }[];
+    expect(items.find((i) => i.title === "Senza risposta")!.myResponse).toBe("needsAction");
+    expect(items.find((i) => i.title === "Mio, senza invitati")!.myResponse).toBeNull();
+  });
+
   it("un evento cancellato su Google non compare nel calendario", async () => {
     const { accountId } = await seedAccount(memberId);
     await seedCalendarEvent(accountId, { title: "Annullato", startsAt: new Date("2026-09-15T09:00:00.000Z"), status: "cancelled" });

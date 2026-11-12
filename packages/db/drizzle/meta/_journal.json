@@ -1135,6 +1135,13 @@
       "when": 1798416000000,
       "tag": "0162_calendar_v2_baseline",
       "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "7",
+      "when": 1798502400000,
+      "tag": "0163_calendar_events_ends_idx",
+      "breakpoints": true
     }
   ]
 }
