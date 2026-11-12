@@ -3934,3 +3934,20 @@ deploy o di un rollback che la tocca.
   copre la lettura); un server vecchio, a un consenso nuovo, torna a chiedere
   i suoi scope di sola lettura.
 
+- **«Integrazione area 6, fetta 2: la classificazione nuova» (in corso, 12 nov
+  2026)**: piano `docs/plans/2026-11-12-integrazione-area6-fetta2-plan.md`,
+  branch `feat/area6-f2`. Migrazioni **0151** (classificazione per email e
+  proposta condivisa, `email_proposal_recipients`) e **0152**
+  (`ticket_source` + `email`). Ordine: server, poi worker, poi caddy. Env
+  nuova sul worker: `MAIL_CLASSIFY_V2` (default `false`): spenta, tutto come
+  prima; si accende SOLO dopo la misura del costo scritta qui (la sezione 1
+  del piano) e il golden `mail-classify-v2`. La voce si completa al task 9.
+
+  ⚠️ **Rollback e 0152**: una task nata da una proposta della posta ha
+  `tickets.source = 'email'`, che un server di PRIMA non conosce (lo schema
+  di risposta è un enum chiuso): finché esiste una di quelle righe, scendere
+  d'immagine sul server rompe le letture delle task. Prima di scendere:
+  `select count(*) from tickets where source = 'email';` deve essere 0, o le
+  righe vanno riportate a `manual` (perdendo il segno «da fuori» per la regola
+  «almeno B»). Col flag spento non ne nasce nessuna.
+

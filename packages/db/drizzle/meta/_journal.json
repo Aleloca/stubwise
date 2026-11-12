@@ -1065,6 +1065,13 @@
       "when": 1797465600000,
       "tag": "0151_mail_shared_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 152,
+      "version": "7",
+      "when": 1797552000000,
+      "tag": "0152_ticket_source_email",
+      "breakpoints": true
     }
   ]
 }

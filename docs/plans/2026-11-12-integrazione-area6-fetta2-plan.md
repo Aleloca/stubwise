@@ -75,6 +75,11 @@ la misura vera è scritta qui e nel deploy-log.
   proposta, due notifiche. Il primo che conferma la chiude per l'altro (409
   `already_handled` con `decidedBy`).
 
+**Decisioni del maintainer *(M)*, 12 nov 2026: A = (a), B = (b)** (sotto le
+opzioni com'erano poste). Con B = (b) il publish NON filtra per interruttore:
+la notifica arriva a tutti i destinatari membri, anche a chi le ha spente; un
+test lo fissa, e restano i negativi sugli admin non destinatari.
+
 **[DECIDE] A — un destinatario membro che NON ha collegato la casella.**
 - (a, consigliata) Vede la proposta con l'estratto (era destinatario), e il
   messaggio intero solo se è nella SUA casella; la Posta resta personale.

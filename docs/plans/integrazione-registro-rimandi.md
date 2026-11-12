@@ -324,6 +324,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   resta quello del web e il renderer rilegge `accounts()` al ritorno in primo
   piano. Rimandato `stubwise://google?outcome=…` (come `stubwise://auth`),
   che riporterebbe l'esito direttamente all'app.
+- F2, chi riceve la proposta condivisa *(M)* (12 nov 2026): A = (a) un
+  destinatario membro senza casella collegata la riceve e la vede con
+  l'estratto, il messaggio intero solo se è nella SUA casella; B = (b)
+  l'interruttore «Proposte attive per questa casella» decide solo se
+  classificare la PROPRIA posta, e la notifica arriva a TUTTI i destinatari
+  membri, anche a chi le ha spente (la frase dell'interruttore nella UI non
+  promette più «niente notifiche»).
 - F1.3 letto / non letto, limite *(S)*: dopo un resync per query (primo
   giro, history scaduta) i messaggi GIÀ ingeriti non rileggono `UNREAD`
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono

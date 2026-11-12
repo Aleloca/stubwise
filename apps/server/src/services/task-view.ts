@@ -201,6 +201,7 @@ const SOURCE: Record<TicketSource, NonNullable<TaskViewData["source"]>> = {
   slack: "slack",
   webhook: "webhook",
   widget: "widget",
+  email: "email",
 };
 
 /** Lo stato del lavoro di Claude dall'ultimo job della task. */

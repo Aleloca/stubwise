@@ -224,6 +224,8 @@ export type InboxPulse = z.infer<typeof inboxPulseSchema>;
  * `@stubwise/shared` finisce nel bundle browser e dipende dal solo `zod`.
  */
 export const inboxGoogleActionTypeSchema = z.enum([
+  /** Area 6, F2: una task, dalle proposte condivise della classificazione nuova. */
+  "create_task",
   "create_backlog_item",
   "create_milestone",
   "update_ticket",

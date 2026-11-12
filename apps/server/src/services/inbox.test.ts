@@ -7,6 +7,7 @@ import {
   calendarEvents,
   comments,
   emailMessages,
+  emailProposalRecipients,
   emailProposals,
   googleAccounts,
   googleWorkspaces,
@@ -2372,6 +2373,24 @@ describe("google.proposal — la fonte, derivata a lettura", () => {
     // E NON è quello che diceva il jsonb: se coincidessero, questo test
     // passerebbe anche con il campo letto dall'evento.
     expect(google?.sourceProposalId).not.toBe(google?.proposalId);
+  });
+
+  it("area 6, F2: la card di una proposta CONDIVISA porta l'id della proposta, dalla riga del suo destinatario", async () => {
+    const user = await seedUser("member");
+    const accountId = await seedMailbox(user.id);
+    const notificationId = await seedRawNotification({ userId: user.id, kind: "google.proposal", event: event({ proposalId: randomUUID() }) });
+    const [message] = await db
+      .insert(emailMessages)
+      .values({ accountId, gmailMessageId: `m-${randomUUID()}`, threadId: "t", fromAddress: "a@x.it", receivedAt: new Date(), status: "classified" })
+      .returning({ id: emailMessages.id });
+    const [proposal] = await db
+      .insert(emailProposals)
+      .values({ emailMessageId: message!.id, projectId, status: "proposed", audience: "mail_recipients", rfcMessageId: `<${randomUUID()}@x>`, classification: { version: 2, actions: [] } })
+      .returning({ id: emailProposals.id });
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal!.id, userId: user.id, notificationId });
+
+    const { items } = await listInbox(db, { userId: user.id, lang: "it" });
+    expect(items.find((i) => i.id === notificationId)?.google?.sourceProposalId).toBe(proposal!.id);
   });
 
   it("è `null` per il CALENDARIO: non c'è nessuna classificazione AI da mostrare", async () => {
