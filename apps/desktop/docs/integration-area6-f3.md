@@ -25,6 +25,18 @@ di Claude (`apiStream.ts`).
 | «Invio…», «Non inviato», «Riprova», «Elimina» | `delivery` del messaggio, solo per chi scrive; un invio fallito non si ritenta da solo | `real/mailSend.test.ts`, `real/mailRead.test.ts` |
 | La bozza di Claude in streaming | `POST /api/me/mail/drafts/claude` (SSE): dal main sul desktop, col fetch e il cookie sul web; il testo a pezzi, le task citate, «Ferma»; resta una proposta, non salva né spedisce | `real/mailClaudeDraft.test.ts`, `src/main/apiStream.test.ts`, `real/mailCompose.test.tsx` |
 
+### In arrivo
+
+- **La firma di Gmail** *(M, decisione del maintainer)*: `signature` e
+  `signatureStatus` (present, none, scope_missing) sulla bozza, aggiunta dal
+  server nel messaggio. Il compositore la mostra sotto il campo, in sola
+  lettura, e con `scope_missing` dice che si manda senza firma; il cassetto
+  già elenca la firma fra le funzioni che mancano senza
+  `gmail.settings.basic` (f0bc3823).
+- **Le proposte di una conversazione** con il filtro `thread` + `account` su
+  `/api/me/mail/proposals` (review della F2, punto 9): oggi la pagina della
+  conversazione legge l'elenco intero.
+
 ### Differenze dichiarate
 
 - **Un'email nuova appena inviata** non ha conversazione finché Gmail non
