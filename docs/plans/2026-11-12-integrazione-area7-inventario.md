@@ -293,12 +293,41 @@ scattare (capisce solo DAILY e WEEKLY): un buco del prototipo, da non portare.
 - **Cambi additivi verso l'app**: ogni schema nuovo nasce coi campi
   `.default()`/`.optional()`.
 
-## 5. Domande di prodotto per il maintainer
+## 5. Domande di prodotto per il maintainer — DECISE (12 nov 2026)
+
+Decise il 12 nov 2026: *(M)* = del maintainer, *(O)* = dell'orchestratrice
+con la consigliata. Sotto, per memoria, le opzioni come erano state poste.
+
+| Domanda | Decisione |
+|---|---|
+| Q1 | *(O)* a) a fette (F1 progetto e inizi di Stubwise, F2 email e attese, F3 Claude, F4 generali e webhook) |
+| Q2 | *(M)* a) prima il webhook in arrivo per automazione; Audin e HubSpot dopo |
+| Q3 | *(O)* a) coda con lease e chiave d'idempotenza per effetto nella transazione del cursore |
+| Q4 | *(M)* b) come il prototipo: chi crea l'automazione sceglie passo per passo se l'email parte da sola o va approvata (NON la consigliata) |
+| Q5 | *(M)* a) «richiesta creata» e «richiesta convertita», e la task da conversione vale come «task creata» |
+| Q6 | *(O)* a) tutti gli scrittori, da un punto unico nella transazione, con elenco chiuso e test |
+| Q7 | *(O)* a) `automations.manage` di progetto e d'istanza; sorgenti e tabella con `integrations.manage` |
+| Q8 | *(M)* a) eccezione dichiarata in `docs/invariants/`, con tetto di costo per esecuzione |
+| Q9 | *(O)* a) budget d'istanza, tetto per esecuzione, operazione nuova in Usage; la prova usa Claude vero |
+| Q10 | *(O)* a) notifica come le altre decisioni (inbox, push, Slack DM) più il «Da decidere» |
+| Q11 | *(O)* a) solo l'app nuova (desktop e `/app`) |
+| Q12 | *(O)* a) «Automations» resta il motore; `automation_rules` diventa «AI rules» nell'interfaccia dell'area 9 |
+| Q13 | *(O)* a) la ricorrenza mensile si porta e scatta |
+
+⚠️ **Q4 non è la consigliata**: un'email di un'automazione può partire da
+sola se chi crea l'automazione lo sceglie per quel passo (come nel
+prototipo). Restano i tetti (20 email per esecuzione, sulla catena) e il
+proprietario che agisce con la sua casella; chi scrive il design delle email
+(F2) parta da qui.
+
+### Le opzioni poste
 
 Per ogni domanda, 2–3 opzioni concrete; la consigliata è la prima, con il
 perché e cosa costa.
 
-### Q1. Quanto del motore nella prima integrazione?
+#### Q1. Quanto del motore nella prima integrazione?
+
+**Deciso *(O)*:** a) a fette (F1 progetto e inizi di Stubwise, F2 email e attese, F3 Claude, F4 generali e webhook).
 
 - **a) A fette, nell'ordine del rischio** *(consigliata)*. F1: automazioni di
   progetto, inizi di Stubwise (task creata/chiusa, richiesta, traguardo) e a
@@ -317,7 +346,9 @@ perché e cosa costa.
   automatici: utile per provarlo, ma non risolve i due casi d'uso del
   maintainer.
 
-### Q2. Audin e HubSpot
+#### Q2. Audin e HubSpot
+
+**Deciso *(M)*:** a) prima il webhook in arrivo per automazione; Audin e HubSpot dopo.
 
 - **a) Fuori da questa area: prima il webhook in arrivo per automazione**
   *(consigliata)*. Copre anche Audin e HubSpot (entrambi mandano webhook), con
@@ -331,7 +362,9 @@ perché e cosa costa.
   per tutti» funziona chiavi in mano, al costo di due integrazioni esterne
   dentro un'area già grande.
 
-### Q3. Il motore nel worker: durata e riavvii
+#### Q3. Il motore nel worker: durata e riavvii
+
+**Deciso *(O)*:** a) coda con lease e chiave d'idempotenza per effetto nella transazione del cursore.
 
 - **a) Coda con lease come il giro notturno, e una chiave d'idempotenza per
   effetto scritta nella stessa transazione che avanza il cursore**
@@ -345,7 +378,9 @@ perché e cosa costa.
 - **c) Un servizio a sé per il motore.** Isola i riavvii del worker (oggi
   vietati con lavoro in corso), ma è un servizio in più da operare.
 
-### Q4. Le email mandate da un'automazione
+#### Q4. Le email mandate da un'automazione
+
+**Deciso *(M)*:** b) come il prototipo: chi crea l'automazione sceglie passo per passo se l'email parte da sola o va approvata (NON la consigliata).
 
 - **a) Ogni email chiede sempre l'approvazione nella prima fetta con le email;
   «parte da sola» si apre dopo, per automazione, a chi ha il permesso**
@@ -357,7 +392,9 @@ perché e cosa costa.
 - **c) Approvazione obbligatoria solo per i destinatari esterni al team.**
   Le email interne partono da sole, quelle verso i clienti chiedono.
 
-### Q5. «Richiesta convertita» o «richiesta creata»?
+#### Q5. «Richiesta convertita» o «richiesta creata»?
+
+**Deciso *(M)*:** a) «richiesta creata» e «richiesta convertita», e la task da conversione vale come «task creata».
 
 - **a) Tutti e due: «richiesta creata» (c'è nel prototipo) e «richiesta
   convertita in task», e una task nata da una conversione vale anche come
@@ -369,7 +406,9 @@ perché e cosa costa.
 - **c) Solo «convertita», come dice il registro.** Si perde «richiesta creata»,
   che il prototipo e la creazione da Claude (S1) usano già.
 
-### Q6. Chi pubblica gli eventi
+#### Q6. Chi pubblica gli eventi
+
+**Deciso *(O)*:** a) tutti gli scrittori, da un punto unico nella transazione, con elenco chiuso e test.
 
 - **a) Tutti gli scrittori (server, worker, catalogo di Claude), da un punto
   unico nella stessa transazione della scrittura, con un elenco chiuso
@@ -383,7 +422,9 @@ perché e cosa costa.
 - **c) Derivarli dopo da `ticket_events` con un poller.** Nessuno scrittore da
   toccare, ma la creazione non c'è e il ritardo è quello del poller.
 
-### Q7. Permessi
+#### Q7. Permessi
+
+**Deciso *(O)*:** a) `automations.manage` di progetto e d'istanza; sorgenti e tabella con `integrations.manage`.
 
 - **a) Come il prototipo: `automations.manage` di progetto (preset Project
   Lead) e d'istanza (preset admin); sorgenti e tabella cliente → progetto con
@@ -396,7 +437,9 @@ perché e cosa costa.
 - **c) Solo admin d'istanza nella prima fetta.** Più prudente, ma tiene fuori i
   Project Lead, che sono il pubblico del motore.
 
-### Q8. Passi di Claude e l'invariante «una serie non avvia mai lavoro AI»
+#### Q8. Passi di Claude e l'invariante «una serie non avvia mai lavoro AI»
+
+**Deciso *(M)*:** a) eccezione dichiarata in `docs/invariants/`, con tetto di costo per esecuzione.
 
 - **a) Eccezione dichiarata e scritta in `docs/invariants/`: un passo di
   Claude può partire senza un umano, ma sceglie solo fra le strade disegnate
@@ -409,7 +452,9 @@ perché e cosa costa.
 - **c) Nessun passo di Claude nel motore per ora.** La F3 di Q1 salta; il
   motore resta deterministico.
 
-### Q9. Costi dei passi di Claude e della prova
+#### Q9. Costi dei passi di Claude e della prova
+
+**Deciso *(O)*:** a) budget d'istanza, tetto per esecuzione, operazione nuova in Usage; la prova usa Claude vero.
 
 - **a) Sul budget mensile dell'istanza, con un tetto per esecuzione
   (proposta: lo stesso tetto per tipo di `automation_rules`, o un valore
@@ -423,7 +468,9 @@ perché e cosa costa.
 - **c) Nessun tetto per esecuzione, solo il budget dell'istanza.** Più
   semplice; un ciclo mal disegnato consuma il budget di tutti.
 
-### Q10. Dove arriva una richiesta d'approvazione
+#### Q10. Dove arriva una richiesta d'approvazione
+
+**Deciso *(O)*:** a) notifica come le altre decisioni (inbox, push, Slack DM) più il «Da decidere».
 
 - **a) Notifica come le altre decisioni (inbox, push, Slack DM), più il
   «Da decidere» della Home** *(consigliata)*. Un'esecuzione ferma su
@@ -433,7 +480,9 @@ perché e cosa costa.
   nuovo, ma chi non apre l'app non lo sa.
 - **c) La notifica solo dopo N ore di attesa.** Meno rumore, una regola in più.
 
-### Q11. Web e mobile
+#### Q11. Web e mobile
+
+**Deciso *(O)*:** a) solo l'app nuova (desktop e `/app`).
 
 - **a) Solo l'app nuova (desktop e `/app`); sul mobile nulla per ora**
   *(consigliata)*. Il web vecchio non ha l'area, e l'app nuova è la specifica.
@@ -442,7 +491,9 @@ perché e cosa costa.
   giro; una schermata nuova nell'app (un utente solo, niente rollout).
 - **c) Anche il web vecchio.** Sconsigliata: è da ritirare.
 
-### Q12. Il nome
+#### Q12. Il nome
+
+**Deciso *(O)*:** a) «Automations» resta il motore; `automation_rules` diventa «AI rules» nell'interfaccia dell'area 9.
 
 - **a) Il motore resta «Automations» nell'interfaccia; nel codice le tabelle
   nuove si chiamano `automation_*` e le vecchie `automation_rules` diventano
@@ -455,7 +506,9 @@ perché e cosa costa.
 - **c) Lasciare le due «Automations».** Nessun lavoro, confusione garantita
   nelle impostazioni di progetto.
 
-### Q13. La ricorrenza mensile
+#### Q13. La ricorrenza mensile
+
+**Deciso *(O)*:** a) la ricorrenza mensile si porta e scatta.
 
 - **a) Si porta e la si fa scattare (giorno del mese nel fuso Europe/Rome,
   con il 31 che cade all'ultimo giorno)** *(consigliata)*. Il costruttore la

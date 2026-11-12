@@ -333,7 +333,20 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 - Blocco della Home delle automazioni.
 - Effetti che il prototipo ha e la build app spegne: segnali alle automazioni
-  alla chiusura di un traguardo e alla conversione di una richiesta.
+  alla chiusura di un traguardo, alla **creazione e alla conversione** di una
+  richiesta *(M, 12 nov 2026, Q5)*. Correzione: il prototipo segnala la
+  creazione (`request_created`), non la conversione, e una task nata da una
+  conversione non fa partire «task creata» (`convertRequestAs` usa
+  `addTask`): servono entrambi gli inizi, e la task convertita vale come
+  creata.
+- Decisioni dell'integrazione *(12 nov 2026)*, in
+  `docs/plans/2026-11-12-integrazione-area7-inventario.md` §5: a fette (F1
+  progetto + inizi di Stubwise, F2 email e attese, F3 Claude, F4 generali e
+  webhook) *(O)*; prima il webhook in arrivo, Audin e HubSpot dopo *(M)*;
+  email che partono da sole o approvate, a scelta per passo come nel
+  prototipo *(M)*; passi di Claude senza un umano come eccezione dichiarata
+  all'invariante delle serie, con tetto di costo *(M)*; il resto con la
+  consigliata *(O)*.
 - Azioni di Claude: crea automazione in bozza, salva/elimina bozza, prova.
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
