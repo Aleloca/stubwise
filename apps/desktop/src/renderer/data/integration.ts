@@ -112,9 +112,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "google-account",
     // Area 6, fetta 1: il Calendario in LETTURA (la destinazione e il blocco
     // «Prossimi appuntamenti» della Home), con le serie. Restano spenti
-    // `calendar-write` (scrivere su Google, F4), `google-sync` («Aggiorna ora»,
-    // F1.2) e `meeting-notes` (riassunto e task di una riunione, F5).
+    // `calendar-write` (scrivere su Google, F4) e `meeting-notes` (riassunto e
+    // task di una riunione, F5).
     "calendar",
+    // F1.2: «Aggiorna ora» di una casella (Posta e Calendario).
+    "google-sync",
     // Area 5, fetta 1: i Docs «come oggi» (spazi, albero, pagine, manuali,
     // generazione, ricerca, chat senza streaming, grafo).
     "docs",

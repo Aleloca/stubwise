@@ -18,7 +18,7 @@ import type {
 } from "../../types";
 import { appClient, session } from "./client";
 import { daysFromToday } from "./clock";
-import { myAccounts } from "./google";
+import { myAccounts, requestSync, syncable, syncStateOf, whenSynced } from "./google";
 import { partialNamespace } from "./notIntegrated";
 
 // Il Calendario nella build app (area 6, fetta 1): gli appuntamenti che il
@@ -192,7 +192,7 @@ const listCalendars: Calendar["listCalendars"] = async () => {
       personId: session.personId ?? "",
       email: a.email,
       syncedAt,
-      sync: "ok",
+      sync: syncStateOf(a),
       stale: at - Date.parse(syncedAt) > CALENDAR_STALE_MS,
       // Scaduta è la casella disattivata (token revocato): una a cui mancano solo
       // gli scope nuovi legge ancora, e il cassetto chiede di ricollegarla.
@@ -243,6 +243,17 @@ const configureSeries: Calendar["configureSeries"] = async (id, patch) => {
   return { ...next, projectId: next.projectId };
 };
 
+/**
+ * «Aggiorna ora» del Calendario: il giro di tutte le mie caselle che il
+ * server allinea (il calendario si legge da ogni casella). Nessuna →
+ * `google_not_connected`.
+ */
+const syncCalendar: Calendar["syncCalendar"] = async () => {
+  const accounts = (await myAccounts()).filter(syncable);
+  if (accounts.length === 0) throw new Error("google_not_connected");
+  await Promise.all(accounts.map(requestSync));
+};
+
 export const calendarFunctions: Partial<Calendar> = {
   calendarWindow,
   spanOf,
@@ -252,8 +263,9 @@ export const calendarFunctions: Partial<Calendar> = {
   listCalendars,
   listUpcomingEvents,
   configureSeries,
-  // Nessuna scrittura verso Google in questa fetta: non c'è niente da aspettare.
-  whenCalendarIdle: async () => {},
+  syncCalendar,
+  // Nessuna scrittura verso Google in questa fetta: si aspettano solo i giri chiesti.
+  whenCalendarIdle: whenSynced,
 };
 
 export const calendar: Calendar = partialNamespace<Calendar>("calendar", calendarFunctions);

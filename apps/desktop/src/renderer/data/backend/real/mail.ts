@@ -1,7 +1,7 @@
 import type * as Fake from "../../api";
 import type { MailboxView } from "../../types";
 import { appClient, session } from "./client";
-import { myAccounts } from "./google";
+import { myAccounts, requestSync, syncStateOf, whenSynced } from "./google";
 import { partialNamespace } from "./notIntegrated";
 
 // La Posta nella build app (area 6, fetta 1): la lettura che il server sa già
@@ -23,7 +23,7 @@ const listMailboxes: Mail["listMailboxes"] = async () => {
       email: a.email,
       proposalsEnabled: a.proposalsEnabled,
       syncedAt,
-      sync: "ok",
+      sync: syncStateOf(a),
       stale: at - Date.parse(syncedAt) > MAIL_STALE_MS,
       // Scaduta è la casella disattivata (token revocato): una a cui mancano solo
       // gli scope nuovi legge ancora, e il cassetto chiede di ricollegarla.
@@ -39,9 +39,20 @@ const setProposalsEnabled: Mail["setProposalsEnabled"] = async (email, on) => {
   await appClient().google.setProposals(account.id, on);
 };
 
+/** «Aggiorna ora» sulla casella di questa email (F1.2). */
+const syncMailbox: Mail["syncMailbox"] = async (email) => {
+  const account = (await myAccounts()).find((a) => a.email === email);
+  if (!account) throw new Error("not_found");
+  await requestSync(account);
+};
+
 export const mailFunctions: Partial<Mail> = {
   listMailboxes,
   setProposalsEnabled,
+  syncMailbox,
+  // La fine del giro; la classificazione non si segue da qui (la Posta si rilegge da sé).
+  whenMailSynced: whenSynced,
+  whenMailIdle: whenSynced,
 };
 
 export const mail: Mail = partialNamespace<Mail>("mail", mailFunctions);

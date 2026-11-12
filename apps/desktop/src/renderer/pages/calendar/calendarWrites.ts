@@ -4,8 +4,8 @@ import type { CalendarEventView } from "../../data/types";
 // Cosa il Calendario può fare oltre a leggere, in questa build. Nel prototipo
 // tutto; nella build app (area 6, fetta 1) solo leggere e configurare le
 // serie: i gesti che scrivono su Google (nuova riunione, sposta, modifica,
-// elimina, rispondi, progetto a mano) sono della F4, «Aggiorna ora» della
-// F1.2, il riassunto e le task di una riunione della F5. Nascosti, come le
+// elimina, rispondi, progetto a mano) sono della F4, il riassunto e le task
+// di una riunione della F5; «Aggiorna ora» c'è dalla F1.2. Nascosti, come le
 // altre parti non integrate (decisione dell'orchestratrice).
 
 /** Scrivere sul calendario (F4). */

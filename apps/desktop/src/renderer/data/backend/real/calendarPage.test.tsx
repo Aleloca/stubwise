@@ -1,4 +1,4 @@
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { now } from "../../dates";
 import { renderRoute } from "../../../test/renderRoute";
@@ -7,8 +7,8 @@ import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, type SeenReque
 
 // Il Calendario nella build app (area 6, fetta 1), davanti a un server finto:
 // in LETTURA. Nessun gesto che scrive su Google (nuova riunione, sposta,
-// modifica, elimina, rispondi, progetto a mano: F4), niente «Aggiorna ora»
-// finché la F1.2 non c'è, niente note della riunione (F5). Le serie si
+// modifica, elimina, rispondi, progetto a mano: F4), niente note della
+// riunione (F5); «Aggiorna ora» c'è dalla F1.2. Le serie si
 // configurano (sono di Stubwise). «Apri in Google Calendar» apre l'evento.
 vi.mock("@backend/api", async () => await import("./index"));
 
@@ -98,6 +98,7 @@ beforeEach(() => {
     [`GET /api/me/calendar/events/${EV}`]: () => byId(EV),
     [`GET /api/me/calendar/events/${PAST}`]: () => byId(PAST),
     "GET /api/me/calendar/series": { body: { items: [] } },
+    [`POST /api/me/google/accounts/${ACC}/sync`]: { status: 202, body: { status: "queued" } },
   }).seen;
 });
 
@@ -108,12 +109,20 @@ afterEach(() => {
 });
 
 describe("il Calendario nella build app", () => {
-  it("si apre, con gli eventi visti; niente «Nuova riunione» né «Aggiorna ora»", async () => {
+  it("si apre, con gli eventi visti; niente «Nuova riunione»", async () => {
     renderRoute("/calendar");
     await screen.findByRole("heading", { level: 1, name: "Calendar" });
     expect(await screen.findAllByText("Sprint review")).not.toHaveLength(0);
     expect(screen.queryByRole("button", { name: "New meeting" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Refresh now" })).toBeNull();
+  });
+
+  it("«Aggiorna ora» (F1.2) chiede il giro della casella", async () => {
+    renderRoute("/calendar");
+    await screen.findAllByText("Sprint review");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh now" }));
+    await waitFor(() =>
+      expect(seen.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([`/api/me/google/accounts/${ACC}/sync`]),
+    );
   });
 
   it("il dettaglio in lettura: niente modifica, elimina, risposta, progetto a mano; «Apri in Google Calendar» apre l'evento", async () => {

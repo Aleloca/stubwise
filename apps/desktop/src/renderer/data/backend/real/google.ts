@@ -109,6 +109,82 @@ const disconnectGoogle: Drive["disconnectGoogle"] = async () => {
   await appClient().google.disconnect(account.id);
 };
 
+// --- «Aggiorna ora» (F1.2) -------------------------------------------------------
+
+/** Ogni quanto si rilegge la casella mentre il suo giro è in coda o in corso. */
+const SYNC_POLL_MS = 2_000;
+/** Dopo quanto si smette di aspettare: la casella dice da sé com'è andata. */
+const SYNC_WAIT_MS = 2 * 60_000;
+
+/**
+ * Per client: le caselle di cui ho chiesto il giro, con il `lastSyncAt` di
+ * quel momento (un giro finito senza che avanzi non è riuscito), e le attese
+ * in corso (`whenSynced`).
+ */
+const syncs = new WeakMap<object, { asked: Map<string, string | null>; waits: Set<Promise<void>> }>();
+function syncsOf() {
+  const client = appClient();
+  let entry = syncs.get(client);
+  if (!entry) {
+    entry = { asked: new Map(), waits: new Set() };
+    syncs.set(client, entry);
+  }
+  return entry;
+}
+
+/**
+ * L'allineamento di una casella: «in allineamento» finché il server ha una
+ * richiesta in attesa; dopo una richiesta mia, «non riuscito» se `lastSyncAt`
+ * non è avanzato.
+ */
+export function syncStateOf(a: ServerGoogleAccount): "ok" | "syncing" | "failed" {
+  if (a.syncRequestedAt !== null) return "syncing";
+  const { asked } = syncsOf();
+  if (!asked.has(a.id)) return "ok";
+  if (asked.get(a.id) === a.lastSyncAt) return "failed";
+  asked.delete(a.id);
+  return "ok";
+}
+
+/** La casella si allinea con «Aggiorna ora»: il server non allinea le disattivate né quelle con le proposte spente. */
+export const syncable = (a: ServerGoogleAccount) => a.disabledAt === null && a.proposalsEnabled;
+
+/**
+ * «Aggiorna ora» di una casella. Una richiesta già in attesa o di meno di un
+ * minuto fa (429) non è un errore: il giro c'è già. Scaduta →
+ * `google_not_connected` («Ricollega»), proposte spente → `proposals_disabled`.
+ */
+export async function requestSync(a: ServerGoogleAccount): Promise<void> {
+  try {
+    await appClient().google.sync(a.id);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.status === 429) return;
+      if (error.code === "account_disabled") throw new Error("google_not_connected");
+      if (error.code === "proposals_disabled") throw new Error("proposals_disabled");
+      if (error.status === 404) throw new Error("not_found");
+    }
+    throw error;
+  }
+  const { asked, waits } = syncsOf();
+  asked.set(a.id, a.lastSyncAt);
+  const wait = (async () => {
+    const deadline = Date.now() + SYNC_WAIT_MS;
+    while (Date.now() < deadline) {
+      await pause(SYNC_POLL_MS);
+      const now = (await myAccounts()).find((x) => x.id === a.id);
+      if (!now || now.syncRequestedAt === null) return;
+    }
+  })().catch(() => undefined);
+  waits.add(wait);
+  void wait.finally(() => waits.delete(wait));
+}
+
+/** Finiscono i giri chiesti da qui (o si smette di aspettarli). */
+export async function whenSynced(): Promise<void> {
+  await Promise.all([...syncsOf().waits]);
+}
+
 export const googleDriveFunctions: Partial<Drive> = {
   getGoogleAccount,
   listGoogleWorkspaces,

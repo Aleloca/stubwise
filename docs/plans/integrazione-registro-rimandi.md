@@ -260,11 +260,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   cartelle); con la F5 tornano i testi del prototipo.
 - Il Calendario in lettura *(F1)*: nella build app restano nascosti i gesti
   che scrivono su Google (nuova riunione, sposta e ridimensiona, modifica,
-  elimina, rispondi, il progetto a mano: F4), «Aggiorna ora» (F1.2) e il
-  riassunto e le task di una riunione passata (F5). Il server non sa i NOMI
+  elimina, rispondi, il progetto a mano: F4) e il riassunto e le task di una
+  riunione passata (F5). Il server non sa i NOMI
   degli invitati (solo l'indirizzo e la risposta): il dettaglio mostra
   l'indirizzo. La serie non porta la sua regola (`RRULE` sta sulle
   occorrenze): la colonna non la dice a parole.
+- Una casella con le proposte spente non si allinea *(F1.2)*: il poller del
+  server non la legge, quindi «Aggiorna ora» non la include (il Calendario
+  allinea le altre caselle; la Posta lo dice sulla casella). Nel prototipo
+  le proposte spente non fermano l'allineamento.
 
 - I riferimenti a Google Drive nel Drive dei progetti (area 5, D1 = a): le
   cartelle collegate, «Aggiungi da Google Drive», «Quale progetto?», i file
@@ -274,7 +278,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 - Blocco della Home «Posta importante» (F2; oggi nascosto e conservato al
   salvataggio). «Prossimi appuntamenti» è acceso dalla F1, con la finestra
-  del prototipo (da adesso a fine di domani).
+  del prototipo (da adesso a fine di domani, senza i rifiutati) *(O,
+  decisione dell'orchestratrice: il prototipo è la specifica)*.
 - Azione di Claude «bozza del corpo dell'email».
 - F1.2 «Aggiorna ora», scelte accettate *(O)* (12 nov 2026, commit 31151503):
   (a) 409 `proposals_disabled` per una casella con le proposte spente, che il

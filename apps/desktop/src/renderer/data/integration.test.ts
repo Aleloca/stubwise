@@ -129,9 +129,10 @@ describe("isIntegrated", () => {
         "feature:chat-attachments",
         // Area 6, fetta 1: il cassetto Google (account e caselle), separato dal Drive Google (`google`, F5).
         "feature:google-account",
-        // Area 6, fetta 1: il Calendario in lettura (scrivere, «Aggiorna ora» e le note di riunione restano spenti).
+        // Area 6, fetta 1: il Calendario in lettura (scrivere e le note di riunione restano spenti), «Aggiorna ora» (F1.2).
         "destination:calendar",
         "feature:calendar",
+        "feature:google-sync",
       ].sort(),
     );
   });
