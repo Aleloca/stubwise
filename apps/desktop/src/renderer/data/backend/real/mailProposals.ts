@@ -86,14 +86,30 @@ function viewOf(c: Card): MailProposalView {
   };
 }
 
+/**
+ * Quante pagine dell'inbox leggere al più: le aperte tutte (in pratica), le
+ * decise solo le più recenti. `/api/inbox` non filtra per tipo (registro):
+ * le card della Posta stanno in mezzo a tutte le altre.
+ */
+const OPEN_PAGES = 20;
+const HANDLED_PAGES = 4;
+
+async function pagesOf(status: "open" | "handled", pages: number): Promise<InboxItem[]> {
+  const items: InboxItem[] = [];
+  let cursor: string | undefined;
+  for (let i = 0; i < pages; i++) {
+    const page = await appClient().inbox.list({ status }, cursor, 100);
+    items.push(...(page.items as InboxItem[]));
+    if (!page.nextCursor) break;
+    cursor = page.nextCursor;
+  }
+  return items;
+}
+
 /** Le card della Posta che vedo: le aperte e le decise di recente. */
 async function cards(): Promise<Card[]> {
-  const client = appClient();
-  const [open, handled] = await Promise.all([
-    client.inbox.list({ status: "open" }, undefined, 100),
-    client.inbox.list({ status: "handled" }, undefined, 50),
-  ]);
-  return [...open.items, ...handled.items].filter((i): i is Card => isMailCard(i as InboxItem));
+  const [open, handled] = await Promise.all([pagesOf("open", OPEN_PAGES), pagesOf("handled", HANDLED_PAGES)]);
+  return [...open, ...handled].filter(isMailCard);
 }
 
 async function cardOf(id: string): Promise<Card> {

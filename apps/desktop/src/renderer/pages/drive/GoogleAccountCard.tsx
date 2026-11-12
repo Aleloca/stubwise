@@ -14,6 +14,7 @@ import { Dialog } from "../../tasks-ui/Dialog";
 import { formatDate } from "../../notifications/time";
 import { dangerSolidButton, primaryButton, secondaryButton } from "../tasks/controls";
 import { GoogleDriveGlyph, Spinner, WarningGlyph } from "./glyphs";
+import { openConsentTab } from "./consentTab";
 
 // L'account Google personale (shape drive-google.md §3, A1): un dialogo
 // aperto dal menu del profilo, finché il desktop non ha Impostazioni →
@@ -65,7 +66,11 @@ export function GoogleAccountHost() {
 function useConnect() {
   const connect = useConnectGoogle();
   return {
-    run: (workspaceId?: string) => connect.mutate(workspaceId ? { workspaceId } : {}),
+    run: (workspaceId?: string) => {
+      // Nel clic, prima di ogni richiesta (web).
+      const tab = openConsentTab();
+      connect.mutate({ ...(workspaceId ? { workspaceId } : {}), ...(tab ? { tab } : {}) });
+    },
     pending: connect.isPending,
     failed: connect.isError,
   };
@@ -81,7 +86,10 @@ function ConnectButton({ label, primary = true }: { label: string; primary?: boo
   const { t } = useTranslation();
   const connect = useConnect();
   const workspaces = useGoogleWorkspaces().data ?? [];
-  const [chosen, setChosen] = useState<string | null>(null);
+  // «Ricollega»: il Workspace della casella è già scelto (build app).
+  const own = useGoogleAccount().data?.workspaceId;
+  const [picked, setChosen] = useState<string | null>(null);
+  const chosen = picked ?? (own && workspaces.some((w) => w.id === own) ? own : null);
   const workspaceId = workspaces.length === 1 ? workspaces[0]!.id : chosen;
   const choosing = workspaces.length > 1;
   if (connect.pending) {

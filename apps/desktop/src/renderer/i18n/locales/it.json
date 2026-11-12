@@ -6357,6 +6357,11 @@
         "recipients": "aggiungi almeno un destinatario",
         "other": "qualcosa non ha funzionato"
       }
+    },
+    "readState": {
+      "reconnect": "Ricollega l'account Google per tenere letto e non letto allineati con Gmail.",
+      "busy": "Gmail è occupato. Riprova fra poco.",
+      "failed": "Non è stato possibile cambiare letto e non letto su Gmail."
     }
   },
   "calendar": {

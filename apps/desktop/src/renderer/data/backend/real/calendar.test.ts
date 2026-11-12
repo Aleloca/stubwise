@@ -216,6 +216,11 @@ describe("il Calendario in lettura: un evento, le serie, i calendari", () => {
     await expect(calendar.getEvent(EV2)).rejects.toThrow("not_found");
   });
 
+  it("un id malformato (400 di validazione): `not_found`", async () => {
+    installFakeServer({ "GET /api/me/calendar/events/x": { status: 400, body: { code: "validation", message: "x" } } });
+    await expect(calendar.getEvent("x")).rejects.toThrow("not_found");
+  });
+
   it("un evento fuori dalla finestra letta: `not_found`, come nel prototipo", async () => {
     installFakeServer({
       [`GET /api/me/calendar/events/${EV}`]: { body: item({ startsAt: "2020-01-01T10:00:00.000Z", endsAt: "2020-01-01T11:00:00.000Z" }) },
@@ -309,8 +314,49 @@ describe("«Prossimi appuntamenti» della Home", () => {
     const list = await calendar.listUpcomingEvents();
     expect(list.map((e) => e.id)).toEqual([EV]);
     const q = query(seen[0]!.path);
-    expect(q.get("from")).toBe("2026-11-12T10:00:00.000Z");
+    // Da ieri, giorno locale: il taglio a «da adesso» lo fa la lettura.
+    expect(q.get("from")).toBe(new Date(2026, 10, 11).toISOString());
     const end = new Date(2026, 10, 14);
     expect(q.get("to")).toBe(end.toISOString());
+  });
+});
+
+describe("«Prossimi appuntamenti»: il taglio da adesso", () => {
+  it("un appuntamento già finito stamattina non c'è (il server ne manda da ieri)", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-12T10:00:00Z"));
+    installFakeServer({
+      "GET /api/me/calendar/range": range([
+        item({ id: EV2, title: "Colazione", startsAt: "2026-11-12T07:00:00.000Z", endsAt: "2026-11-12T08:00:00.000Z" }),
+        item(),
+      ]),
+    });
+    expect((await calendar.listUpcomingEvents()).map((e) => e.id)).toEqual([EV]);
+  });
+});
+
+describe("«Prossimi appuntamenti» in un fuso negativo", () => {
+  const tz = process.env.TZ;
+  afterEach(() => {
+    process.env.TZ = tz;
+  });
+
+  it("alle 20 di New York un «tutto il giorno» di oggi c'è ancora (il server filtra per istanti)", async () => {
+    process.env.TZ = "America/New_York";
+    vi.useFakeTimers({ toFake: ["Date"] });
+    // 12 novembre, 20:00 a New York = 13 novembre, 01:00 UTC.
+    vi.setSystemTime(new Date("2026-11-13T01:00:00Z"));
+    const allDay = item({ id: EV2, title: "Ferie", allDay: true, startsAt: "2026-11-12T00:00:00.000Z", endsAt: "2026-11-13T00:00:00.000Z", attendees: [] });
+    installFakeServer({
+      // Come il server: gli eventi che si sovrappongono a [from, to) per istanti.
+      "GET /api/me/calendar/range": (req) => {
+        const q = query(req.path);
+        const from = Date.parse(q.get("from")!);
+        const to = Date.parse(q.get("to")!);
+        const items = [allDay].filter((e) => Date.parse(e.startsAt as string) < to && Date.parse(e.endsAt as string) > from);
+        return { body: { items, nextCursor: null } };
+      },
+    });
+    expect((await calendar.listUpcomingEvents()).map((e) => e.title)).toEqual(["Ferie"]);
   });
 });

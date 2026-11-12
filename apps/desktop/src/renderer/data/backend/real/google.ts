@@ -40,7 +40,7 @@ const FEATURES_OF_SCOPE: Readonly<Record<string, readonly GoogleFeature[]>> = {
 };
 
 function accountOf(a: ServerGoogleAccount): GoogleAccount {
-  const base = { personId: session.personId ?? "", email: a.email };
+  const base = { personId: session.personId ?? "", email: a.email, workspaceId: a.workspaceId };
   if (a.disabledAt !== null) return { ...base, status: "expired", reconnect: "expired", since: a.disabledAt };
   if (a.missingScopes.length > 0) {
     const missing = [...new Set(a.missingScopes.flatMap((s) => FEATURES_OF_SCOPE[s] ?? []))];
@@ -79,14 +79,30 @@ const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * google_not_configured`. Dopo 10 minuti senza esito, `failed`.
  */
 const connectGoogle: Drive["connectGoogle"] = async (options = {}) => {
-  const usable = await listGoogleWorkspaces();
-  if (usable.length === 0) throw new Error("invalid: google_not_configured");
-  const workspaceId = options.workspaceId ?? (usable.length === 1 ? usable[0]!.id : null);
-  if (!workspaceId || !usable.some((w) => w.id === workspaceId)) throw new Error("invalid: workspace");
-  const before = new Map((await myAccounts()).map((a) => [a.id, a]));
-  const { authorizeUrl } = await appClient().google.connect(workspaceId);
-  // Con `noopener` `window.open` dà sempre null: non dice se s'è aperta.
-  window.open(authorizeUrl, "_blank", "noopener");
+  const { tab } = options;
+  let before: Map<string, ServerGoogleAccount>;
+  let authorizeUrl: string;
+  try {
+    const usable = await listGoogleWorkspaces();
+    if (usable.length === 0) throw new Error("invalid: google_not_configured");
+    const workspaceId = options.workspaceId ?? (usable.length === 1 ? usable[0]!.id : null);
+    if (!workspaceId || !usable.some((w) => w.id === workspaceId)) throw new Error("invalid: workspace");
+    before = new Map((await myAccounts()).map((a) => [a.id, a]));
+    ({ authorizeUrl } = await appClient().google.connect(workspaceId));
+  } catch (error) {
+    // La scheda aperta nel clic resterebbe vuota.
+    tab?.close();
+    throw error;
+  }
+  if (tab && !tab.closed) {
+    // Web: la scheda aperta nel clic; prima di navigare perde l'accesso a questa pagina.
+    tab.opener = null;
+    tab.location.href = authorizeUrl;
+  } else {
+    // Desktop (il link va al browser di sistema). Con `noopener` `window.open`
+    // dà sempre null: non dice se s'è aperta.
+    window.open(authorizeUrl, "_blank", "noopener");
+  }
   const deadline = Date.now() + CONNECT_TIMEOUT_MS;
   for (;;) {
     await pause(CONNECT_POLL_MS);
@@ -138,7 +154,11 @@ function syncsOf() {
  * non è avanzato.
  */
 export function syncStateOf(a: ServerGoogleAccount): "ok" | "syncing" | "failed" {
-  if (a.syncRequestedAt !== null) return "syncing";
+  // Una richiesta che il server non chiude in 2 minuti non è più «in corso»:
+  // la casella smette di rileggersi e dice «non riuscita» («Riprova»).
+  if (a.syncRequestedAt !== null) {
+    return Date.now() - Date.parse(a.syncRequestedAt) > SYNC_WAIT_MS ? "failed" : "syncing";
+  }
   const { asked } = syncsOf();
   if (!asked.has(a.id)) return "ok";
   if (asked.get(a.id) === a.lastSyncAt) return "failed";

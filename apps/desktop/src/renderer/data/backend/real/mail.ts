@@ -183,6 +183,48 @@ function failedAnalysis(m: MailThreadMessage): boolean {
   return m.proposalOutcomes.some((o) => o.failed) || m.reproposals.some((r) => r.source === "email_triage");
 }
 
+type Original = Awaited<ReturnType<ReturnType<typeof appClient>["mail"]["original"]>>;
+
+/** Quanti originali si chiedono insieme (ogni messaggio è una lettura, spesso da Gmail). */
+const ORIGINAL_CONCURRENCY = 4;
+
+/**
+ * Per client: gli originali già letti (un messaggio Gmail non cambia dopo
+ * l'invio, quindi una volta basta: rileggere la conversazione, anche dopo
+ * «letta», non li richiede) e la coda che ne tiene al più 4 in volo. Uno
+ * che non si è letto non resta in cache: si riprova alla lettura dopo.
+ */
+const originals = new WeakMap<object, { done: Map<string, Original>; active: number; queue: (() => void)[] }>();
+function originalsOf() {
+  const client = appClient();
+  let entry = originals.get(client);
+  if (!entry) {
+    entry = { done: new Map(), active: 0, queue: [] };
+    originals.set(client, entry);
+  }
+  return entry;
+}
+
+async function originalOf(id: string): Promise<Original | null> {
+  const entry = originalsOf();
+  const cached = entry.done.get(id);
+  if (cached) return cached;
+  if (entry.active >= ORIGINAL_CONCURRENCY) await new Promise<void>((resolve) => entry.queue.push(resolve));
+  entry.active++;
+  try {
+    // `email_triage` è la source dello spazio di id dei MESSAGGI (`email_messages.id`,
+    // con la proprietà della casella nella WHERE); `email` vorrebbe l'id di una proposta.
+    const body = await appClient().mail.original("email_triage", id);
+    entry.done.set(id, body);
+    return body;
+  } catch {
+    return null;
+  } finally {
+    entry.active--;
+    entry.queue.shift()?.();
+  }
+}
+
 async function messageView(
   key: string,
   subject: string,
@@ -192,9 +234,7 @@ async function messageView(
 ): Promise<MailMessageView> {
   // L'originale (riletto da Gmail o dalla cache del server, già sanificato):
   // l'HTML in un frame isolato, gli allegati, le copie. Se non si legge, resta l'estratto.
-  const body = await appClient()
-    .mail.original("email", m.id)
-    .catch(() => null);
+  const body = await originalOf(m.id);
   return {
     id: m.id,
     // Il Message-ID RFC il server non lo dà: la chiave delle proposte è la riga del messaggio.
@@ -227,7 +267,8 @@ const getMailThread: Mail["getMailThread"] = async (key) => {
   try {
     t = (await appClient().mail.thread(parts.threadId, parts.accountId)) as ServerThread;
   } catch (error) {
-    if (error instanceof ApiError && error.status === 404) throw new Error("not_found");
+    // Un id malformato (400 di validazione) è una conversazione che non c'è.
+    if (error instanceof ApiError && (error.status === 404 || error.status === 400)) throw new Error("not_found");
     throw error;
   }
   const { mine } = await myAddresses();
@@ -235,7 +276,7 @@ const getMailThread: Mail["getMailThread"] = async (key) => {
   const seen = reproposalsOf();
   for (const m of t.messages) seen.set(m.id, m.reproposals);
   const messages = await Promise.all(t.messages.map((m) => messageView(key, subject, t.url, m, mine)));
-  return { threadId: key, subject, gmailUrl: t.url, messages };
+  return { threadId: key, subject, gmailUrl: t.url, mailbox: t.accountEmail, messages };
 };
 
 /**
@@ -263,6 +304,7 @@ async function setRead(key: string, read: boolean): Promise<void> {
     if (error instanceof ApiError) {
       if (error.code === "google_scope_missing") throw new Error("google_scope_missing");
       if (error.code === "account_disabled" || error.code === "token_expired") throw new Error("google_not_connected");
+      if (error.code === "google_rate_limited") throw new Error("google_rate_limited");
       if (error.status === 404) throw new Error("not_found");
     }
     throw error;

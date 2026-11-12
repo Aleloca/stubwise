@@ -34,6 +34,7 @@ import { isLiveProposal } from "./proposalText";
 import { MessageView } from "./MessageView";
 import { DueLabel } from "./ThreadRow";
 import { mailWrites, openInGmail } from "./mailFeatures";
+import { useReadStateError } from "./readErrors";
 
 // Il pannello di lettura (shape mail.md §3, §5): la testata della
 // conversazione (oggetto per intero, A7), poi i messaggi — espansi i non
@@ -197,10 +198,18 @@ export function ReadingPane({
   // Letta dopo 1 s di permanenza; «Mark as unread» la lascia com'è finché non si riapre.
   const hasUnread = !!thread.data?.messages.some((m) => !m.read);
   const markReadMutate = markRead.mutate;
+  // Nel ref, così il timer della lettura automatica non ripartirà a ogni render.
+  const reportReadError = useReadStateError();
+  const readError = useRef(reportReadError);
+  readError.current = reportReadError;
   useEffect(() => {
     if (!hasUnread || keptUnread.current) return;
-    const timer = window.setTimeout(() => markReadMutate(threadId), READ_AFTER_MS);
+    const timer = window.setTimeout(
+      () => markReadMutate(threadId, { onError: (e) => readError.current(e, { auto: true, mailbox: thread.data?.mailbox }) }),
+      READ_AFTER_MS,
+    );
     return () => window.clearTimeout(timer);
+    // `thread.data` lo legge solo l'errore, al momento: non rilancia il timer.
   }, [hasUnread, threadId, markReadMutate]);
 
   // Le proposte per messaggio d'origine: il Message-ID nel prototipo; nella
@@ -342,7 +351,7 @@ export function ReadingPane({
 
   function unread() {
     keptUnread.current = true;
-    markUnread.mutate(threadId);
+    markUnread.mutate(threadId, { onError: (e) => readError.current(e, { auto: false }) });
   }
 
   const closeCompose = () => {

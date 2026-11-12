@@ -182,12 +182,16 @@ describe("la Posta in lettura: l'elenco per conversazione", () => {
 });
 
 describe("la Posta in lettura: una conversazione", () => {
+  // L'originale di un MESSAGGIO si chiede con la source `email_triage`: con
+  // `email` il server cerca una PROPOSTA (`email_proposals.id`) e risponde 404.
+  // Il server finto risponde 404 a ogni rotta che non conosce, come quello vero.
+
   it("i messaggi dal più vecchio: l'estratto, l'originale HTML isolato, gli allegati, il contesto", async () => {
     const { seen } = installFakeServer({
       ...common,
       "GET /api/me/mail/threads/t-1": { body: detail() },
-      [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
-      [`GET /api/me/mail/email/${M2}/original`]: { body: original({ bodyHtml: null, attachments: [], cc: [] }) },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
+      [`GET /api/me/mail/email_triage/${M2}/original`]: { body: original({ bodyHtml: null, attachments: [], cc: [] }) },
     });
     const t = await mail.getMailThread(`${ACC}_t-1`);
     expect(query(seen.find((r) => r.path.startsWith("/api/me/mail/threads/t-1"))!.path).get("account")).toBe(ACC);
@@ -221,7 +225,7 @@ describe("la Posta in lettura: una conversazione", () => {
     installFakeServer({
       ...common,
       "GET /api/me/mail/threads/t-1": { body: detail({ messages: [message()] }) },
-      [`GET /api/me/mail/email/${M1}/original`]: { status: 409, body: { code: "token_expired", message: "x" } },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { status: 409, body: { code: "token_expired", message: "x" } },
     });
     const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
     expect(m).toMatchObject({ text: "Ecco il preventivo.", html: null, attachments: [], cc: null });
@@ -238,7 +242,7 @@ describe("la Posta in lettura: una conversazione", () => {
           }),
         ],
       }) },
-      [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
       [`POST /api/me/mail/email/${P1}/repropose`]: { body: { ok: true } },
     });
     const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
@@ -253,7 +257,7 @@ describe("la Posta in lettura: una conversazione", () => {
       "GET /api/me/mail/threads/t-1": { body: detail({
         messages: [message({ proposalIds: [], reproposals: [{ source: "email_triage", id: M1, projectName: null }] })],
       }) },
-      [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
       [`POST /api/me/mail/email_triage/${M1}/repropose`]: { body: { ok: true } },
     });
     const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
@@ -268,10 +272,15 @@ describe("la Posta in lettura: una conversazione", () => {
       "GET /api/me/mail/threads/t-1": { body: detail({
         messages: [message({ reproposals: [{ source: "email", id: P1, projectName: "Audin AI" }], proposalOutcomes: [{ id: P1, projectName: "Audin AI", failed: false, label: "Ignored" }] })],
       }) },
-      [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
     });
     const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
     expect(m!.classification).toEqual({ state: "off" });
+  });
+
+  it("un id malformato (400 di validazione): `not_found`", async () => {
+    installFakeServer({ ...common, "GET /api/me/mail/threads/t%20x": { status: 400, body: { code: "validation", message: "x" } } });
+    await expect(mail.getMailThread(`${ACC}_t x`)).rejects.toThrow("not_found");
   });
 
   it("un id che non è di una mia conversazione: `not_found`", async () => {
@@ -293,7 +302,7 @@ describe("letto / non letto, sincronizzato con Gmail (F1.3)", () => {
       ...common,
       "GET /api/me/mail/threads": page([thread({ unread: true }), thread({ threadId: "t-2", unread: false })]),
       "GET /api/me/mail/threads/t-1": { body: detail({ messages: [message({ unread: true })] }) },
-      [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
     });
     expect((await mail.listMailThreads()).map((r) => [r.threadId, r.unread])).toEqual([
       [`${ACC}_t-1`, 1],
@@ -322,5 +331,62 @@ describe("letto / non letto, sincronizzato con Gmail (F1.3)", () => {
     await expect(mail.markRead(`${ACC}_t-2`)).rejects.toThrow("google_not_connected");
     await expect(mail.markUnread(`${ACC}_t-3`)).rejects.toThrow("not_found");
     await expect(mail.markRead("senza-casella")).rejects.toThrow("not_found");
+  });
+
+  it("Gmail troppo occupato (503 `google_rate_limited`): da riprovare più tardi", async () => {
+    installFakeServer({
+      "POST /api/me/mail/threads/t-1/read": { status: 503, body: { code: "google_rate_limited", message: "x" } },
+    });
+    await expect(mail.markRead(`${ACC}_t-1`)).rejects.toThrow("google_rate_limited");
+  });
+});
+
+describe("l'originale di un messaggio: una volta, e non tutti insieme", () => {
+  it("rileggere la conversazione non richiede di nuovo gli originali già letti", async () => {
+    const { seen } = installFakeServer({
+      ...common,
+      "GET /api/me/mail/threads/t-1": { body: detail({ messages: [message()] }) },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
+    });
+    await mail.getMailThread(`${ACC}_t-1`);
+    await mail.getMailThread(`${ACC}_t-1`);
+    expect(seen.filter((r) => r.path.endsWith("/original"))).toHaveLength(1);
+  });
+
+  it("un originale che non si è letto si riprova alla lettura dopo", async () => {
+    let fail = true;
+    const { seen } = installFakeServer({
+      ...common,
+      "GET /api/me/mail/threads/t-1": { body: detail({ messages: [message()] }) },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: () => (fail ? { status: 502, body: { code: "google_unavailable", message: "x" } } : { body: original() }),
+    });
+    expect((await mail.getMailThread(`${ACC}_t-1`)).messages[0]!.html).toBeNull();
+    fail = false;
+    expect((await mail.getMailThread(`${ACC}_t-1`)).messages[0]!.html).not.toBeNull();
+    expect(seen.filter((r) => r.path.endsWith("/original"))).toHaveLength(2);
+  });
+
+  it("al più 4 originali in volo insieme", async () => {
+    const ids = Array.from({ length: 7 }, (_, i) => `dddddddd-0000-4000-8000-${String(i).padStart(12, "0")}`);
+    let inFlight = 0;
+    let peak = 0;
+    const routes: Record<string, unknown> = {
+      ...common,
+      "GET /api/me/mail/threads/t-1": { body: detail({ messages: ids.map((id) => message({ id, proposalIds: [] })) }) },
+    };
+    for (const id of ids) {
+      routes[`GET /api/me/mail/email_triage/${id}/original`] = async () => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight--;
+        return { body: original() };
+      };
+    }
+    installFakeServer(routes as Parameters<typeof installFakeServer>[0]);
+    const t = await mail.getMailThread(`${ACC}_t-1`);
+    expect(t.messages).toHaveLength(7);
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(peak).toBeGreaterThan(1);
   });
 });

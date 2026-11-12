@@ -2026,6 +2026,11 @@ export interface GoogleWorkspaceChoice {
 /** Le opzioni di «Collega»: il Workspace scelto, quando ce n'è più d'uno. */
 export interface ConnectGoogleOptions {
   workspaceId?: string;
+  /**
+   * Web: la scheda aperta NEL clic (`window.open("", "_blank")`), che riceve
+   * l'URL del consenso. Aperta dopo le richieste, Safari la bloccherebbe.
+   */
+  tab?: Window | null;
 }
 
 export interface GoogleAccount {
@@ -2042,6 +2047,8 @@ export interface GoogleAccount {
   reconnect?: "expired" | "scopes";
   /** Le funzioni che mancano finché non si ricollega (da `missingScopes`, mai dedotte). */
   missing?: GoogleFeature[];
+  /** Build app: il Workspace della casella («Ricollega» lo preseleziona). */
+  workspaceId?: string;
 }
 
 /** Una funzione di Google che Stubwise usa e che dipende da uno scope (oggi: letto/non letto). */
@@ -2728,8 +2735,9 @@ export interface MeetingNote {
 export interface MailThreadDetail {
   threadId: string;
   subject: string;
-  /** Build app: la conversazione su Gmail («Apri in Gmail»). */
+  /** Build app: la conversazione su Gmail («Apri in Gmail») e la casella che la contiene. */
   gmailUrl?: string;
+  mailbox?: string;
   messages: MailMessageView[];
 }
 

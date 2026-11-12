@@ -276,6 +276,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   server scrive per ogni azione (non i campi) e non l'estratto letto; la
   scelta del progetto di un'email incerta (`choose_project`) non c'è (il
   worker non la produce più).
+- I progetti di una conversazione abbinati per NOME *(S, review della F1)*:
+  le righe di `/threads` danno solo `projectNames`, e due progetti con lo
+  stesso nome si confondono. Chiusa con la F2: `projectIds` additivo nel
+  piano di stubwise-72 (§4).
+- La lettura automatica dopo 1 s scrive su Gmail *(O, decisione
+  dell'orchestratrice)*: aprire la conversazione È il gesto, come nel
+  prototipo (D5 = b). Va scritto esplicito nell'invariante «Nessuna
+  scrittura verso Google senza un gesto» (chiesto a stubwise-72).
+- `/api/inbox` senza filtro per tipo *(S, review della F1)*: la Posta legge le
+  proprie card `google.proposal` sfogliando l'inbox intera (le aperte fino a
+  20 pagine da 100, le decise le 4 più recenti). Un filtro `kind` lato server
+  lo toglierebbe; con la F2 le proposte hanno la loro rotta.
 - Una casella con le proposte spente si legge e si allinea come le altre
   *(M, decisione del maintainer: come il prototipo; chiusa con la F1 del
   server, 02df56c8)*: il poller la legge comunque e «Aggiorna ora» funziona;
