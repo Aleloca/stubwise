@@ -58,6 +58,7 @@ export * from "./agent-activity.js";
 export * from "./agent-transcript.js";
 export * from "./elapsed.js";
 export * from "./ai-operations.js";
+export * from "./ai-pricing.js";
 export * from "./tasks/index.js";
 export * from "./claude/index.js";
 export * from "./chat/sse.js";

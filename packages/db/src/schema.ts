@@ -1529,6 +1529,12 @@ export const agentRuns = pgTable(
     // Costo in USD del modello per questo run. Nullable: il CLI può non
     // riportarlo (vecchie versioni, chiave senza usage nel JSON).
     costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+    /**
+     * Chi ha chiesto la chiamata, quando il server lo sa (review F3, punto 8):
+     * la chat e la bozza di Claude. Serve al tetto giornaliero per persona
+     * delle bozze; null per i run del worker.
+     */
+    requestedByUserId: uuid("requested_by_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -1539,6 +1545,7 @@ export const agentRuns = pgTable(
     // Aggregazione del costo per messaggio + cascade delete da email_messages.
     index("agent_runs_email_message_id_idx").on(table.emailMessageId),
     index("agent_runs_created_at_idx").on(table.createdAt),
+    index("agent_runs_requester_operation_idx").on(table.requestedByUserId, table.operation, table.createdAt),
     index("agent_runs_operation_created_at_idx").on(table.operation, table.createdAt),
     index("agent_runs_project_id_idx").on(table.projectId),
     // AL PIÙ uno tra job_id, pr_review_id ed email_message_id valorizzato

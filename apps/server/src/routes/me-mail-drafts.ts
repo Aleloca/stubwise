@@ -18,7 +18,7 @@ import {
 } from "../services/mail-drafts.js";
 import { isMultipartLimit } from "./multipart.js";
 import { suggestRecipients } from "../services/mail-recipients.js";
-import { MAIL_DRAFT_DEFAULT_MODEL, MAIL_DRAFT_OPERATION, prepareClaudeDraft, usedTasks } from "../services/mail-claude-draft.js";
+import { MAIL_DRAFT_DEFAULT_MODEL, MAIL_DRAFT_OPERATION, mailDraftLimitReached, prepareClaudeDraft, usedTasks } from "../services/mail-claude-draft.js";
 import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
 import { writeSseEvent } from "./docs-chat-core.js";
 import { discardFailedSend, getOutgoing, retrySend, sendDraftLater, undoSend, type SendError } from "../services/mail-send.js";
@@ -114,7 +114,7 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
       config: { access: { kind: "user" } },
       schema: {
         body: mailClaudeDraftRequestSchema,
-        response: { 400: errorSchema, 503: errorSchema, ...errors },
+        response: { 400: errorSchema, 429: errorSchema, 503: errorSchema, ...errors },
       },
     },
     async (request, reply) => {
@@ -125,6 +125,7 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
           : apiError(reply, 400, "invalid_hint", "A new email needs an instruction");
       }
       if (await monthlyBudgetExhausted(app.db)) return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
+      if (await mailDraftLimitReached(app.db, request.user!.id)) return apiError(reply, 429, "daily_limit", "Too many Claude drafts today");
       const availability = (await app.chatLlm.isAvailable?.()) ?? { available: true };
       if (!availability.available) return apiError(reply, 503, "claude_unavailable", "Claude is not available");
 
@@ -148,7 +149,7 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
           system: prepared.system,
           messages: prepared.messages,
           signal: controller.signal,
-          usage: { operation: MAIL_DRAFT_OPERATION, projectId: prepared.projectId, defaultModel: MAIL_DRAFT_DEFAULT_MODEL },
+          usage: { operation: MAIL_DRAFT_OPERATION, projectId: prepared.projectId, defaultModel: MAIL_DRAFT_DEFAULT_MODEL, userId: request.user!.id },
         })) {
           if (gone) break;
           text += delta;
