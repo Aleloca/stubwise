@@ -254,6 +254,19 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   nel piano della F3). Nessun riconsenso in più. Rimandato: nessuna firma
   HTML (mandiamo text/plain), nessuna firma per alias diversi
   dall'indirizzo della casella.
+- F3, rimandati e limiti accettati *(O)* (12 nov 2026):
+  (a) «Riprova» per un `fillMailBody` non salvato su Gmail: oggi la scheda
+  lo dice (`effectFailure`) e offre il testo da copiare; il riprova vuole
+  una rotta che rilanci il seguito per quell'azione;
+  (b) la bozza di Claude in json (`?stream=false`) per un client che non
+  legge SSE (il mobile): oggi solo SSE;
+  (c) un Annulla con lo slot occupato toglie la copia di Stubwise: gli
+  oggetti dello storage degli allegati caricati dal disco restano orfani
+  (la bozza su Gmail li ha ancora), come gli altri orfani dello storage;
+  (d) la firma solo in testo e solo per l'indirizzo della casella (nessun
+  alias);
+  (e) un `fillMailBody` riuscito non si annulla (Gmail ha la bozza: si
+  cambia dal compositore).
 - Calendario «Tutti, come il prototipo» *(M)* (12 nov 2026): fetta F3b,
   prima della F4. Decisioni *(O)* di 46: `workingLocation` e `birthday`
   esclusi dall'ingestione, `outOfOffice` resta; calendari come il

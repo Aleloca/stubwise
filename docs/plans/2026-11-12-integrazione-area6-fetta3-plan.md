@@ -151,3 +151,15 @@ Quelle che ha mandato, con questi nomi:
 - Annulla nei 10 s, anche col worker che sta per mandare (lo stato si
   ricontrolla in transazione).
 - La bozza modificata da Gmail nel frattempo non si sovrascrive in silenzio.
+
+## Chiusura (12 nov 2026)
+
+Fatti i task 1–8 su `feat/area6-f3`, con le correzioni della review della F2
+(critico e importanti 1–6, minori 7–10) e quelle di 46 (Annulla che ferma
+sempre l'invio; `fillMailBody` che dice quando Gmail non ha salvato).
+Migrazioni 0153–0156; la voce del rilascio è in
+`docs/operations/deploy-log.md` («Integrazione area 6, fetta 3: scrivere»),
+le regole in `docs/invariants/mail-calendar.md` («Scrivere la posta»), i
+rimandi nel registro (area 6, «F3, rimandati e limiti accettati»).
+Prossima: la F3b (il calendario «tutti»), poi la F4.
+

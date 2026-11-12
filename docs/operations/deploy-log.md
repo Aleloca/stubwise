@@ -3980,3 +3980,45 @@ deploy o di un rollback che la tocca.
   righe vanno riportate a `manual` (perdendo il segno «da fuori» per la regola
   «almeno B»). Col flag spento non ne nasce nessuna.
 
+- **«Integrazione area 6, fetta 3: scrivere» (12 nov 2026)**: piano
+  `docs/plans/2026-11-12-integrazione-area6-fetta3-plan.md`, branch
+  `feat/area6-f3` (sopra `feat/area6-f2`, che contiene: si rilasciano
+  insieme, o la F2 prima). Le bozze di Gmail, l'invio trattenuto 10 s, la
+  posta mandata nei thread, gli allegati (disco e Drive), i destinatari
+  suggeriti, la firma di Gmail, la bozza di Claude in streaming e l'azione
+  di Claude `fillMailBody`; più le correzioni della review della F2.
+  Migrazioni **0153** (`mail_drafts`, `mail_draft_attachments`,
+  `mail_outgoing`), **0154** (operazione AI `mail_draft` nei due CHECK),
+  **0155** (`google_accounts.signature_text`/`signature_fetched_at`),
+  **0156** (`claude_actions.effect_failure`). Nessuna env nuova; nessuno
+  scope nuovo (la firma si legge con `gmail.modify`, già nel riconsenso della
+  F1). Ordine: **server** (healthy, migrazioni applicate), poi **worker** (il
+  mittente della posta legge `mail_outgoing`, l'ingestione la posta mandata),
+  poi **caddy**.
+
+  **Prima del rebuild del worker**: niente invii in volo. `select count(*)
+  from mail_outgoing where state in ('queued', 'sending');` deve essere 0: un
+  invio `sending` a un riavvio diventa `failed` con `interrupted` (MAI
+  rimandato da solo: non si sa se Gmail l'abbia mandato), e la persona lo
+  vede nel thread e decide.
+
+  **La bozza di Claude** (`POST /api/me/mail/drafts/claude`) usa il provider
+  `api_key` della chat (senza, 503 `claude_unavailable`), l'operazione
+  `mail_draft` (Sonnet di default, Impostazioni → Modelli) e il budget
+  mensile d'istanza (409 `budget_exhausted`).
+
+  **Controlli dopo il deploy**: `select state, error, count(*) from
+  mail_outgoing group by 1, 2;` — nessun `failed` che cresce;
+  `select count(*) from claude_actions where effect_failure is not null;` —
+  un `mail_not_saved` è un `fillMailBody` confermato che Gmail non ha
+  salvato (la scheda lo dice).
+
+  **Rollback d'immagine**: un server vecchio non ha le rotte delle bozze e
+  dell'invio (il compositore del desktop risponde 404) e non conosce
+  `fillMailBody` (una proposta aperta con quell'azione resta non
+  confermabile); un worker vecchio NON manda gli invii accodati — prima di
+  scendere sul worker: nessuna riga `queued` (aspettare i 10 s o annullare).
+  Il caddy scende insieme al server. Le migrazioni non si annullano (colonne
+  e tabelle nuove, ignorate dal codice di prima; i due CHECK della 0154 sono
+  più larghi).
+
