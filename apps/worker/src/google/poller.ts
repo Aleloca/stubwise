@@ -6,6 +6,7 @@ import {
   emailProposals,
   emailRejections,
   googleAccounts,
+  mailOutgoing,
   googleWorkspaces,
   instanceSettings,
   notifications,
@@ -787,6 +788,26 @@ async function applyUnreadChanges(
   }
 }
 
+/** Il messaggio l'ha mandato Stubwise (un'email NUOVA crea così la sua conversazione)? */
+async function sentFromStubwise(db: Db, accountId: string, gmailMessageId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: mailOutgoing.id })
+    .from(mailOutgoing)
+    .where(and(eq(mailOutgoing.accountId, accountId), eq(mailOutgoing.gmailMessageId, gmailMessageId)))
+    .limit(1);
+  return Boolean(row);
+}
+
+/** Il thread è già in Stubwise, per questa casella? */
+async function threadKnown(db: Db, accountId: string, threadId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: emailMessages.id })
+    .from(emailMessages)
+    .where(and(eq(emailMessages.accountId, accountId), eq(emailMessages.threadId, threadId)))
+    .limit(1);
+  return Boolean(row);
+}
+
 /** Gli id che questa casella ha già in `email_messages`: non si riscaricano. */
 async function filterAlreadyIngested(db: Db, accountId: string, ids: string[]): Promise<string[]> {
   if (ids.length === 0) return [];
@@ -1014,7 +1035,34 @@ async function syncGmail(
     // l'unica difesa che vale per entrambi.
     seenHistoryId = maxHistoryId(seenHistoryId, metadata.historyId);
 
-    if (isFromMailbox(metadata, ctx.credentials.email)) continue;
+    if (isFromMailbox(metadata, ctx.credentials.email)) {
+      // Area 6, F3 *(O)*: la posta MANDATA dalla casella entra nel thread che
+      // Stubwise ha già (una risposta scritta da Stubwise o da Gmail), come
+      // CONTESTO (`admitted = false`, mai classificata: non è una richiesta
+      // ricevuta). Un thread che Stubwise non ha resta fuori, come prima.
+      if ((await threadKnown(deps.db, account.id, metadata.threadId)) || (await sentFromStubwise(deps.db, account.id, id))) {
+        const sentFull = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
+        const rows = await deps.db
+          .insert(emailMessages)
+          .values({
+            ...buildEmailMessageInsert({
+              accountId: account.id,
+              message: sentFull,
+              text: sentFull.payload ? extractText(sentFull.payload) : "",
+              projectId: null,
+              candidateProjectIds: [],
+              scopeProjectIds: [],
+              now: now(),
+              admitted: false,
+            }),
+            status: "ignored",
+          })
+          .onConflictDoNothing()
+          .returning({ id: emailMessages.id });
+        if (rows.length > 0) ingested += 1;
+      }
+      continue;
+    }
 
     if (!deps.classifyV2) {
       const admission = admit(messageToRouting(metadata), ctx.admission, ctx.receivingDomain);

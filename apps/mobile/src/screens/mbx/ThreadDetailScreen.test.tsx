@@ -36,6 +36,7 @@ function detail(overrides: Partial<Reader<MailThreadDetail>> = {}): Reader<MailT
         // riproporre: non è «non ancora», è «mai».
         reproposals: [],
         unread: false,
+        delivery: null,
         classification: { state: "off", projectIds: [], importance: null, dueDate: null, uncertainProjectIds: [] },
         proposalOutcomes: [],
       },
@@ -49,6 +50,7 @@ function detail(overrides: Partial<Reader<MailThreadDetail>> = {}): Reader<MailT
         proposalIds: [PROPOSTA],
         reproposals: [{ source: "email", id: PROPOSTA, projectName: "Apollo" }],
         unread: false,
+        delivery: null,
         classification: { state: "off", projectIds: [], importance: null, dueDate: null, uncertainProjectIds: [] },
         proposalOutcomes: [],
       },
@@ -162,6 +164,7 @@ describe("ThreadDetailScreen", () => {
             proposalIds: [],
             reproposals: [],
             unread: false,
+            delivery: null,
             classification: { state: "off", projectIds: [], importance: null, dueDate: null, uncertainProjectIds: [] },
             proposalOutcomes: [],
           },
@@ -191,6 +194,7 @@ describe("ThreadDetailScreen", () => {
             proposalIds: ["p1", "p2"],
             reproposals: [],
             unread: false,
+            delivery: null,
             classification: { state: "off", projectIds: [], importance: null, dueDate: null, uncertainProjectIds: [] },
             proposalOutcomes: [
               // Il testo arriva GIÀ localizzato dal server: qui si verifica
@@ -231,6 +235,7 @@ describe("ThreadDetailScreen", () => {
             proposalIds: ["p9"],
             reproposals: [],
             unread: false,
+            delivery: null,
             classification: { state: "off", projectIds: [], importance: null, dueDate: null, uncertainProjectIds: [] },
             proposalOutcomes: [{ id: "p9", projectName: "Wilco", failed: false, label: null }],
           },

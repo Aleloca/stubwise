@@ -82,11 +82,37 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
   /** Invia: il server lo trattiene 10 s (D6); un doppio Invia dà lo stesso invio. */
   app.post(
     "/:id/send",
-    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), response: { 202: mailOutgoingSchema, 404: errorSchema, ...authErrorResponses } } },
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        response: {
+          202: mailOutgoingSchema,
+          400: errorSchema.extend({ address: z.string().optional() }),
+          404: errorSchema,
+          409: errorSchema.extend({ missing: z.array(z.string()).optional() }),
+          ...authErrorResponses,
+        },
+      },
+    },
     async (request, reply) => {
       const out = await sendDraftLater(app.db, request.user!.id, request.params.id);
-      if (!("messageId" in out)) return apiError(reply, 404, "not_found", "Draft not found");
-      return reply.code(202).send(out);
+      if ("messageId" in out) return reply.code(202).send(out);
+      switch (out.error) {
+        case "invalid_recipients":
+        case "too_many_attachments":
+        case "too_large":
+          return apiError(reply, 400, out.error, "The draft cannot be sent as it is");
+        case "invalid_address":
+          return reply.code(400).send({ code: out.error, message: "An address is not valid", address: out.address });
+        case "google_scope_missing":
+          return reply.code(409).send({ code: out.error, message: "Reconnect the mailbox to send from Stubwise", missing: out.missing });
+        case "attachment_unavailable":
+        case "account_disabled":
+          return apiError(reply, 409, out.error, "The draft cannot be sent now");
+        default:
+          return apiError(reply, 404, "not_found", "Draft not found");
+      }
     },
   );
 }

@@ -736,6 +736,20 @@ export const mailThreadMessageSchema = z.object({
   proposalOutcomes: z.array(mailThreadProposalOutcomeSchema).default([]),
   /** Area 6, F1.3: non letto su Gmail (`false` se non si sa ancora). */
   unread: z.boolean().default(false),
+  /**
+   * Area 6, F3: un invio di chi guarda (solo suo), che entra subito nel thread:
+   * `sending` nei 10 s e mentre parte, `sent` finché il poller non ingerisce il
+   * messaggio vero, `failed` col codice. Null per i messaggi veri.
+   */
+  delivery: z
+    .object({
+      state: z.enum(["sending", "sent", "failed"]),
+      error: z.string().nullable().default(null),
+      /** L'id dell'invio, per Annulla, Riprova ed Elimina dalla conversazione. */
+      outgoingId: z.uuid(),
+    })
+    .nullable()
+    .default(null),
   /** Area 6, F2: la classificazione nuova; un server di prima non la manda. */
   classification: mailClassificationSchema.default({
     state: "off",

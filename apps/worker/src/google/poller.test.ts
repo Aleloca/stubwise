@@ -3495,7 +3495,8 @@ describe("«Aggiorna ora»", () => {
 
   it("una casella con la richiesta in attesa passa PRIMA delle altre dovute, anche con un batch pieno", async () => {
     await seedAccount({ email: `a-${randomUUID()}@acme.com`, nextSyncAt: new Date(Date.now() - 3_600_000) });
-    const asked = await seedAccount({ nextSyncAt: new Date(), syncRequestedAt: new Date() });
+    // Un secondo nel passato: l'orologio del container può essere indietro rispetto all'host.
+    const asked = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date() });
     const claimed = await claimDueAccounts(db, 1, 5);
     expect(claimed.map((row) => row.id)).toEqual([asked.id]);
   });
@@ -3589,7 +3590,7 @@ describe("«Aggiorna ora»", () => {
   });
 
   it("senza NOTIFY (LISTEN caduto) ci pensa il ripiego periodico", async () => {
-    const account = await seedAccount({ nextSyncAt: new Date(), syncRequestedAt: new Date() });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date() });
     const controller = new AbortController();
     const stop = startGooglePoller({
       ...deps(account, fakeGmail({})),
@@ -3995,5 +3996,37 @@ describe("il giro col flag della classificazione nuova (F2, task 3)", () => {
     await pollGoogleOnce({ ...deps(account, gmail), runner, classifyV2: true });
     const [row] = await db.select().from(emailMessages);
     expect(row).toMatchObject({ classificationState: "done", importance: "low" });
+  });
+});
+
+describe("la posta MANDATA nei thread che Stubwise ha (area 6, F3)", () => {
+  it("una risposta mandata dalla casella in un thread già noto entra come CONTESTO, mai classificata; in un thread ignoto resta fuori", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    // La ricevuta è già classificata: il runner deve restare a zero per la mandata.
+    await db.insert(emailMessages).values({ accountId: account.id, gmailMessageId: "ricevuta", threadId: "thread-noto", fromAddress: "c@cliente.com", receivedAt: new Date(), status: "ignored", classificationState: "done" });
+    const mine = message({ id: "mandata", threadId: "thread-noto", from: `Io <${MAILBOX}>`, body: "Ecco l'export." });
+    const stray = message({ id: "altra", threadId: "thread-ignoto", from: `Io <${MAILBOX}>` });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    const gmail = fakeGmail({ history: { addedMessageIds: ["mandata", "altra"], historyId: "1010" }, messages: { mandata: mine, altra: stray } });
+
+    await pollGoogleOnce({ ...deps(account, gmail), runner, classifyV2: true });
+
+    const rows = await db.select().from(emailMessages).where(eq(emailMessages.accountId, account.id));
+    const sent = rows.find((r) => r.gmailMessageId === "mandata");
+    expect(sent).toMatchObject({ admitted: false, status: "ignored", threadId: "thread-noto" });
+    expect(sent!.textExcerpt).toContain("Ecco l'export.");
+    expect(rows.find((r) => r.gmailMessageId === "altra")).toBeUndefined();
+    expect(runner.calls).toEqual([]);
+  });
+
+  it("un'email NUOVA mandata da Stubwise entra anche senza un thread noto (crea la sua conversazione)", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const { mailOutgoing } = await import("@stubwise/db");
+    await db.insert(mailOutgoing).values({ userId: account.userId, accountId: account.id, gmailDraftId: "d", sendAt: new Date(), state: "sent", gmailMessageId: "nuova" });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["nuova"], historyId: "1010" }, messages: { nuova: message({ id: "nuova", threadId: "thread-nuovo", from: `Io <${MAILBOX}>` }) } });
+    await pollGoogleOnce({ ...deps(account, gmail), classifyV2: true });
+    const [row] = await db.select().from(emailMessages).where(eq(emailMessages.gmailMessageId, "nuova"));
+    expect(row).toMatchObject({ admitted: false, threadId: "thread-nuovo" });
+    await db.delete(mailOutgoing);
   });
 });

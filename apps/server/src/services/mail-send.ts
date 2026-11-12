@@ -1,4 +1,5 @@
-import { mailDrafts, mailOutgoing, type Db } from "@stubwise/db";
+import { googleAccounts, mailDraftAttachments, mailDrafts, mailOutgoing, type Db } from "@stubwise/db";
+import { GMAIL_MODIFY_SCOPE, missingGoogleScopes } from "@stubwise/google";
 import { MAIL_OUTGOING_CHANNEL, type MailDraft, type MailOutgoing } from "@stubwise/shared";
 import { and, eq, sql } from "drizzle-orm";
 import { listDrafts } from "./mail-drafts.js";
@@ -22,7 +23,43 @@ import { listDrafts } from "./mail-drafts.js";
 /** Quanto il server trattiene un invio (D6). */
 export const MAIL_UNDO_SECONDS = 10;
 
-export type SendError = { error: "not_found" } | { error: "too_late" } | { error: "draft_slot_taken" } | { error: "not_failed" };
+export type SendError =
+  | { error: "not_found" }
+  | { error: "too_late" }
+  | { error: "draft_slot_taken" }
+  | { error: "not_failed" }
+  // I controlli PRIMA di accodare: arrivano subito, sul bottone Invia, e la
+  // bozza resta lì (invece di un fallimento dopo 10 s).
+  | { error: "invalid_recipients" }
+  | { error: "invalid_address"; address: string }
+  | { error: "too_many_attachments" }
+  | { error: "too_large" }
+  | { error: "attachment_unavailable" }
+  | { error: "account_disabled" }
+  | { error: "google_scope_missing"; missing: string[] };
+
+/** I limiti di Gmail sugli allegati: al più 10 file, 25 MB in tutto. */
+export const MAIL_MAX_ATTACHMENTS = 10;
+export const MAIL_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+const ADDRESS = /^[^\s@<>",;]+@[^\s@<>",;]+\.[^\s@<>",;]+$/;
+
+/** I controlli prima di accodare un invio; `null` = si può mandare. */
+async function preflight(tx: Parameters<Parameters<Db["transaction"]>[0]>[0], draft: typeof mailDrafts.$inferSelect): Promise<SendError | null> {
+  const [account] = await tx.select({ scopes: googleAccounts.scopes, disabledAt: googleAccounts.disabledAt }).from(googleAccounts).where(eq(googleAccounts.id, draft.accountId));
+  if (!account || account.disabledAt) return { error: "account_disabled" };
+  if (!account.scopes.includes(GMAIL_MODIFY_SCOPE)) return { error: "google_scope_missing", missing: missingGoogleScopes(account.scopes) };
+  const recipients = [...draft.toAddresses, ...draft.ccAddresses];
+  if (recipients.length === 0) return { error: "invalid_recipients" };
+  const bad = recipients.find((a) => !ADDRESS.test(a.email.trim()));
+  if (bad) return { error: "invalid_address", address: bad.email };
+  const attachments = await tx.select().from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draft.id));
+  if (attachments.length > MAIL_MAX_ATTACHMENTS) return { error: "too_many_attachments" };
+  if (attachments.reduce((sum, a) => sum + a.sizeBytes, 0) > MAIL_MAX_ATTACHMENT_BYTES) return { error: "too_large" };
+  // Un allegato senza più né il suo oggetto né il file del Drive (eliminato).
+  if (attachments.some((a) => !a.storageKey && !a.driveFileId)) return { error: "attachment_unavailable" };
+  return null;
+}
 
 function toView(row: typeof mailOutgoing.$inferSelect): MailOutgoing {
   return {
@@ -51,6 +88,8 @@ export async function sendDraftLater(db: Db, userId: string, draftId: string): P
         .where(and(eq(mailOutgoing.draftId, draft.id), sql`${mailOutgoing.state} in ('queued', 'sending', 'sent')`));
       if (pending) return toView(pending);
     }
+    const refused = await preflight(tx, draft);
+    if (refused) return refused;
     const [row] = await tx
       .insert(mailOutgoing)
       .values({
