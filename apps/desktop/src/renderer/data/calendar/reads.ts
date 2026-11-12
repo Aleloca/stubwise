@@ -18,6 +18,9 @@ import {
   isOrganizer,
   readableEvents,
 } from "./visibility";
+import { spanOf } from "./span";
+
+export { spanOf };
 
 // Le letture del Calendario (area 6). Chi vede che cosa lo decide
 // `visibility.ts`: solo gli eventi del mio calendario o a cui sono invitato,
@@ -38,21 +41,6 @@ const STEP_MS = 15 * 60_000;
 export const isoAt = (ms: number): string => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
 const notFound = () => new Error("not_found");
 const invalid = (what: string) => new Error(`invalid: ${what}`);
-
-/** La mezzanotte LOCALE della data UTC di un istante: il giorno di un «tutto il giorno». */
-function localDateOf(iso: string): Date {
-  const d = new Date(iso);
-  return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-}
-
-/** L'intervallo (in ms) che l'evento occupa per chi guarda. */
-export function spanOf(e: Pick<CalendarEvent, "startsAt" | "endsAt" | "allDay">): {
-  from: number;
-  to: number;
-} {
-  if (!e.allDay) return { from: Date.parse(e.startsAt), to: Date.parse(e.endsAt) };
-  return { from: localDateOf(e.startsAt).getTime(), to: localDateOf(e.endsAt).getTime() };
-}
 
 const touches = (e: CalendarEvent, from: number, to: number) => {
   const s = spanOf(e);

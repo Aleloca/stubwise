@@ -24,6 +24,7 @@ import {
 } from "./blockMove";
 import { timeLabel } from "./calendarFormat";
 import { outsideWindow, type WindowDays } from "./calendarParams";
+import { calendarWrites, canEditEvent } from "./calendarWrites";
 
 // Tastiera e puntatore sui blocchi della griglia oraria (shape calendar.md
 // §6): Space prende, frecce spostano, Space lascia, Esc annulla; col
@@ -129,6 +130,7 @@ export function useBlockMove({
     if (e.key === " ") {
       e.preventDefault();
       if (!pending) {
+        if (!calendarWrites()) return;
         if (!focused.isOrganizer) {
           const organizer = focused.attendees.find((a) => a.organizer)?.name ?? "";
           announce(t("calendar.move.cantMove", { name: organizer }));
@@ -335,7 +337,7 @@ export function useBlockMove({
     if (e.button !== 0) return;
     suppressClick.current = false;
     const original = events.find((x) => x.id === ev.id)!;
-    if (!original.isOrganizer || (kind === "resize" && original.allDay)) return;
+    if (!canEditEvent(original) || (kind === "resize" && original.allDay)) return;
     e.stopPropagation();
     const under = dayAt(e.clientX);
     startGesture({
@@ -383,7 +385,7 @@ export function useBlockMove({
         if (k.key === " ") k.preventDefault();
       },
       onBlur: (f: ReactFocusEvent<HTMLElement>) => onBlockBlur(f, ev),
-      onPointerDown: original.isOrganizer
+      onPointerDown: canEditEvent(original)
         ? (p: ReactPointerEvent<HTMLElement>) => onBlockPointerDown(p, ev, "move", day)
         : undefined,
     };

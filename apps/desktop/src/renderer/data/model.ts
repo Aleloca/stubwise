@@ -2785,6 +2785,8 @@ export interface CalendarEvent {
   projectBy: "model" | "manual" | null;
   /** Una scrittura verso Google: in corso, confermata, rifiutata. */
   save?: { state: "saving" | "saved" | "failed"; error?: string };
+  /** Build app: il link all'evento su Google Calendar (o alla sua giornata); il prototipo non ne ha. */
+  googleUrl?: string | null;
 }
 
 /** Una serie ricorrente e la sua configurazione (spenta di default). */

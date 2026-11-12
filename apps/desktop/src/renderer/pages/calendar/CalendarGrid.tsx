@@ -23,6 +23,7 @@ import {
 } from "./EventBlock";
 import { MAX_LANES, lanesFor, layoutLanes, type MailboxMark } from "./gridLayout";
 import { MonthGrid } from "./MonthGrid";
+import { canEditEvent } from "./calendarWrites";
 import { useBlockMove, type GridMove } from "./useBlockMove";
 import { itemClass } from "../../tasks-ui/Menu";
 import { MoreIcon } from "../task/parts";
@@ -260,7 +261,7 @@ function TimeGrid({
                   type="button"
                   {...blockProps(ev, start)}
                   style={{ gridColumn: `${start + 1} / ${end + 2}`, gridRow: row + 1 }}
-                  className={`relative mx-1 flex h-6 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-xs transition-[background-color,box-shadow] duration-[var(--duration-fast)] ease-out ${blockShape(ev)} ${ev.isOrganizer ? "cursor-move" : ""} ${pending?.id === ev.id ? "ring-1 ring-ink" : ""}`}
+                  className={`relative mx-1 flex h-6 min-w-0 items-center gap-1.5 rounded-md border px-2 text-left text-xs transition-[background-color,box-shadow] duration-[var(--duration-fast)] ease-out ${blockShape(ev)} ${canEditEvent(ev) ? "cursor-move" : ""} ${pending?.id === ev.id ? "ring-1 ring-ink" : ""}`}
                 >
                   {mark && <MailboxRule mark={mark} />}
                   {project && (
@@ -375,7 +376,7 @@ function TimeGrid({
                       <button
                         type="button"
                         {...blockProps(ev, i)}
-                        className={`relative flex h-full w-full min-w-0 flex-col items-stretch overflow-hidden border px-1.5 ${minutes <= 20 ? "py-px" : "py-0.5"} text-left text-ink transition-[background-color,box-shadow,top] duration-[var(--duration-fast)] ease-out ${blockShape(ev)} ${fromPrevious ? "rounded-t-none rounded-b-md" : continues ? "rounded-t-md rounded-b-none" : "rounded-md"} ${original.isOrganizer ? "cursor-move" : ""} ${moving ? "z-10 ring-1 ring-ink" : ""}`}
+                        className={`relative flex h-full w-full min-w-0 flex-col items-stretch overflow-hidden border px-1.5 ${minutes <= 20 ? "py-px" : "py-0.5"} text-left text-ink transition-[background-color,box-shadow,top] duration-[var(--duration-fast)] ease-out ${blockShape(ev)} ${fromPrevious ? "rounded-t-none rounded-b-md" : continues ? "rounded-t-md rounded-b-none" : "rounded-md"} ${canEditEvent(original) ? "cursor-move" : ""} ${moving ? "z-10 ring-1 ring-ink" : ""}`}
                       >
                         {mark && <MailboxRule mark={mark} />}
                         {moving && (
@@ -408,7 +409,7 @@ function TimeGrid({
                           {t("calendar.save.retry")}
                         </button>
                       )}
-                      {original.isOrganizer && !moving && minutes >= 30 && (
+                      {canEditEvent(original) && !moving && minutes >= 30 && (
                         <span
                           className="absolute top-0.5 right-0.5 z-10 opacity-0 transition-opacity duration-[var(--duration-fast)] group-focus-within:opacity-100 group-hover:opacity-100 has-[[aria-expanded=true]]:opacity-100"
                           onPointerDown={(e) => e.stopPropagation()}
@@ -437,7 +438,7 @@ function TimeGrid({
                           </MenuButton>
                         </span>
                       )}
-                      {original.isOrganizer && !continues && (
+                      {canEditEvent(original) && !continues && (
                         <span
                           aria-hidden="true"
                           data-resize-handle

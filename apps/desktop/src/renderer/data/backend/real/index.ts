@@ -41,6 +41,8 @@ export { docs } from "./docs";
 export { drive } from "./drive";
 // La Posta (area 6, fetta 1): le caselle del cassetto Google, per ora (`mail.ts`).
 export { mail } from "./mail";
+// Il Calendario (area 6, fetta 1): in lettura, e le serie (`calendar.ts`).
+export { calendar } from "./calendar";
 export const chat: typeof Fake.chat = partialNamespace<typeof Fake.chat>("chat", {
   ...chatFunctions,
   channelStream,

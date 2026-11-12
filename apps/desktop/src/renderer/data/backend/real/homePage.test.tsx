@@ -25,8 +25,13 @@ let chatClaudeQuestions: unknown[] = [];
 /** Un server della sola fetta 1: le rotte delle domande non ci sono (404). */
 let chatQuestionsMissing = false;
 let seen: SeenRequest[] = [];
+/** Area 6, fetta 1: le caselle Google e gli appuntamenti visti. */
+let googleAccounts: unknown[] = [];
+let calendarItems: unknown[] = [];
 
 beforeEach(() => {
+  googleAccounts = [];
+  calendarItems = [];
   chatQuestions = [];
   chatClaudeQuestions = [];
   chatQuestionsMissing = false;
@@ -57,6 +62,9 @@ beforeEach(() => {
   });
   seen = installFakeServer({
     "GET /api/me/claude-decisions": () => ({ body: claudeDecisions }),
+    // Area 6, fetta 1: «Prossimi appuntamenti» dal Calendario in lettura.
+    "GET /api/me/google/accounts": () => ({ body: googleAccounts }),
+    "GET /api/me/calendar/range": () => ({ body: { items: calendarItems, nextCursor: null } }),
     // Area 4, fetta 2: le domande della Chat in «Da decidere».
     "GET /api/chat/questions": () =>
       chatQuestionsMissing ? { status: 404, body: { code: "not_found", message: "x" } } : { body: { items: chatQuestions } },
@@ -113,6 +121,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   setUndoWindow(null);
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -250,5 +259,43 @@ describe("la Home nella build app", () => {
         { kind: "stalledInMyProjects" },
       ],
     });
+  });
+
+  it("«Prossimi appuntamenti»: l'appuntamento di oggi dal Calendario vero (area 6, fetta 1)", async () => {
+    // L'oggi della Home (`@backend/clock` del prototipo, nei test) e quello del livello dati coincidono.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-23T12:00:00Z"));
+    personalBlocks = [{ kind: "upcomingEvents" }, { kind: "myTasks" }];
+    googleAccounts = [
+      {
+        id: "aaaaaaaa-1111-4111-8111-111111111111",
+        email: "ada@acme.test",
+        workspaceId: "11111111-1111-4111-8111-111111111111",
+        workspaceName: "Acme",
+        scopes: [],
+        proposalsEnabled: true,
+        connectedAt: "2026-10-01T09:00:00.000Z",
+        lastSyncAt: "2026-10-23T11:59:00.000Z",
+        disabledAt: null,
+        disabledReason: null,
+        missingScopes: [],
+      },
+    ];
+    calendarItems = [
+      {
+        id: "eeeeeeee-1111-4111-8111-111111111111",
+        accountId: "aaaaaaaa-1111-4111-8111-111111111111",
+        accountEmail: "ada@acme.test",
+        projectId: null,
+        title: "Sprint review",
+        organizer: "ada@acme.test",
+        startsAt: "2026-10-23T15:00:00.000Z",
+        endsAt: "2026-10-23T16:00:00.000Z",
+        status: "proposed",
+      },
+    ];
+    renderRoute("/home");
+    const upcoming = await screen.findByRole("region", { name: /^Upcoming/ });
+    expect(await within(upcoming).findByText(/Sprint review/)).toBeInTheDocument();
   });
 });

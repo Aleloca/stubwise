@@ -18,6 +18,7 @@ import { dayLabel, minutesSince } from "../mail/format";
 import { calendarSearch, resolveCalendar, windowDays, type CalendarSearch } from "./calendarParams";
 import { MailboxSwatch } from "./EventBlock";
 import { mailboxMarks } from "./gridLayout";
+import { googleSync } from "./calendarWrites";
 import { MiniMonth } from "./MiniMonth";
 import { SeriesSidebar } from "./SeriesSidebar";
 
@@ -146,10 +147,15 @@ export function CalendarSyncRow({
     return (
       <span data-calendar-sync="failed" className={`${base} text-critical`}>
         <AlertGlyph />
-        {t("calendar.sync.failed")} ·
-        <button type="button" className={`${link} text-ink`} onClick={refresh}>
-          {t("calendar.sync.tryAgain")}
-        </button>
+        {t("calendar.sync.failed")}
+        {googleSync() && (
+          <>
+            {" · "}
+            <button type="button" className={`${link} text-ink`} onClick={refresh}>
+              {t("calendar.sync.tryAgain")}
+            </button>
+          </>
+        )}
       </span>
     );
   }
@@ -158,24 +164,28 @@ export function CalendarSyncRow({
       <span data-calendar-sync="stale" className={`${base} text-warning`}>
         <ClockGlyph />
         {t("calendar.sync.behind", { updated: updated(calendar.syncedAt) })}
-        <button type="button" className={`${link} text-ink`} onClick={refresh}>
-          {t("calendar.sync.refreshNow")}
-        </button>
+        {googleSync() && (
+          <button type="button" className={`${link} text-ink`} onClick={refresh}>
+            {t("calendar.sync.refreshNow")}
+          </button>
+        )}
       </span>
     );
   }
   return (
     <span data-calendar-sync="ok" className={`${base} text-ink-faint`}>
       {updated(calendar.syncedAt)}
-      <button
-        type="button"
-        onClick={refresh}
-        aria-label={t("calendar.sync.refreshNow")}
-        title={t("calendar.sync.refreshNow")}
-        className="grid size-5 place-items-center rounded-sm text-ink-faint transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
-      >
-        <RefreshGlyph />
-      </button>
+      {googleSync() && (
+        <button
+          type="button"
+          onClick={refresh}
+          aria-label={t("calendar.sync.refreshNow")}
+          title={t("calendar.sync.refreshNow")}
+          className="grid size-5 place-items-center rounded-sm text-ink-faint transition-colors duration-[var(--duration-fast)] ease-out hover:bg-ink/6 hover:text-ink"
+        >
+          <RefreshGlyph />
+        </button>
+      )}
     </span>
   );
 }

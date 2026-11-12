@@ -258,6 +258,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - I testi del cassetto Google col Drive *(S, F1 → F5)*: senza il Drive Google
   il cassetto parla di Posta e Calendario (intro, scaduto, scollegare senza
   cartelle); con la F5 tornano i testi del prototipo.
+- Il Calendario in lettura *(F1)*: nella build app restano nascosti i gesti
+  che scrivono su Google (nuova riunione, sposta e ridimensiona, modifica,
+  elimina, rispondi, il progetto a mano: F4), «Aggiorna ora» (F1.2) e il
+  riassunto e le task di una riunione passata (F5). Il server non sa i NOMI
+  degli invitati (solo l'indirizzo e la risposta): il dettaglio mostra
+  l'indirizzo. La serie non porta la sua regola (`RRULE` sta sulle
+  occorrenze): la colonna non la dice a parole.
 
 - I riferimenti a Google Drive nel Drive dei progetti (area 5, D1 = a): le
   cartelle collegate, «Aggiungi da Google Drive», «Quale progetto?», i file
@@ -265,8 +272,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   verifica di Google) e il cassetto Google comune a Drive, Posta e
   Calendario.
 
-- Blocchi della Home «Eventi in arrivo» e «Posta importante» (oggi nascosti e
-  conservati al salvataggio).
+- Blocco della Home «Posta importante» (F2; oggi nascosto e conservato al
+  salvataggio). «Prossimi appuntamenti» è acceso dalla F1, con la finestra
+  del prototipo (da adesso a fine di domani).
 - Azione di Claude «bozza del corpo dell'email».
 
 ## Area 7 — Automazioni

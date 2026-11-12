@@ -30,6 +30,7 @@ import { MenuButton, secondaryButton } from "../tasks/controls";
 import { eventDayLabel, spanLabel } from "./calendarFormat";
 import { SeriesScopeDialog } from "./SeriesScopeDialog";
 import { RsvpBar } from "./RsvpBar";
+import { calendarWrites, canEditEvent, meetingNotes } from "./calendarWrites";
 import { useRecurrenceWords } from "./SeriesSidebar";
 import { MeetingPrep } from "./MeetingPrep";
 import { MeetingSummary } from "./MeetingSummary";
@@ -302,7 +303,7 @@ function Detail({
         </div>
       )}
 
-      {invited && (
+      {invited && calendarWrites() && (
         <div className="border-t border-rule px-4 py-3">
           <RsvpBar event={e} barRef={rsvpRef} announce={announce} dateLabel={dateLabel} />
         </div>
@@ -377,23 +378,26 @@ function Detail({
           il livello dati — solo chi ha partecipato, membro o no del progetto,
           come in Posta —, le task chi le vede. Evento futuro o in corso: la
           scheda di preparazione, solo per un membro del progetto dell'evento. */}
-      {past ? (
-        <MeetingSummary eventId={e.id} projectCode={project?.code ?? null} />
-      ) : (
-        e.hasPrep && project && <MeetingPrep eventId={e.id} project={project} />
-      )}
+      {past
+        ? meetingNotes() && <MeetingSummary eventId={e.id} projectCode={project?.code ?? null} />
+        : e.hasPrep && project && <MeetingPrep eventId={e.id} project={project} />}
 
       <footer className="mt-2 flex flex-col gap-3 border-t border-rule px-4 pt-3">
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={() => notice("calendar.googleNotice")}
+            onClick={() =>
+              // Build app: l'evento su Google Calendar; il prototipo resta in Stubwise.
+              e.googleUrl
+                ? window.open(e.googleUrl, "_blank", "noopener")
+                : notice("calendar.googleNotice")
+            }
             className={ghostButton}
           >
             {t("calendar.detail.openInGoogle")}
             <span aria-hidden="true">↗</span>
           </button>
-          {e.isOrganizer && (
+          {canEditEvent(e) && (
             <span className="ml-auto flex items-center gap-1">
               <button type="button" className={smallSecondary} onClick={() => onEdit(e)}>
                 {t("calendar.detail.edit")}
@@ -425,7 +429,7 @@ function Detail({
             </span>
           )}
         </div>
-        {!e.isOrganizer && organizer && (
+        {!e.isOrganizer && organizer && calendarWrites() && (
           <p className="text-xs text-ink-muted">
             {t("calendar.detail.organizedBy", { name: organizer.name || organizer.email })}
           </p>
@@ -526,58 +530,60 @@ function ProjectRow({
               : t("calendar.detail.suggested")}
           </span>
         )}
-        <MenuButton
-          menuLabel={t("calendar.detail.chooseProject")}
-          align="right"
-          wrapperClassName="ml-auto inline-flex"
-          className={ghostButton}
-          label={project ? t("calendar.detail.change") : t("calendar.detail.choose")}
-        >
-          {(close) => (
-            <>
-              {mine.length > PROJECT_SEARCH_FROM && (
-                <input
-                  value={q}
-                  onChange={(ev) => setQ(ev.target.value)}
-                  role="menuitem"
-                  aria-label={t("calendar.detail.searchProjects")}
-                  placeholder={t("calendar.detail.searchProjects")}
-                  className={`${inputClass} mb-1 h-8 text-sm`}
-                />
-              )}
-              {shown.map((p) => (
+        {calendarWrites() && (
+          <MenuButton
+            menuLabel={t("calendar.detail.chooseProject")}
+            align="right"
+            wrapperClassName="ml-auto inline-flex"
+            className={ghostButton}
+            label={project ? t("calendar.detail.change") : t("calendar.detail.choose")}
+          >
+            {(close) => (
+              <>
+                {mine.length > PROJECT_SEARCH_FROM && (
+                  <input
+                    value={q}
+                    onChange={(ev) => setQ(ev.target.value)}
+                    role="menuitem"
+                    aria-label={t("calendar.detail.searchProjects")}
+                    placeholder={t("calendar.detail.searchProjects")}
+                    className={`${inputClass} mb-1 h-8 text-sm`}
+                  />
+                )}
+                {shown.map((p) => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={p.id === e.projectId}
+                    tabIndex={-1}
+                    className={itemClass}
+                    onClick={() => {
+                      close();
+                      choose(p.id);
+                    }}
+                  >
+                    <span className="num w-9 shrink-0 text-xs font-semibold">{p.code}</span>
+                    <span className="min-w-0 truncate">{p.name}</span>
+                  </button>
+                ))}
                 <button
-                  key={p.id}
                   type="button"
                   role="menuitemradio"
-                  aria-checked={p.id === e.projectId}
+                  aria-checked={e.projectId === null}
                   tabIndex={-1}
-                  className={itemClass}
+                  className={`${itemClass} border-t border-rule`}
                   onClick={() => {
                     close();
-                    choose(p.id);
+                    choose(null);
                   }}
                 >
-                  <span className="num w-9 shrink-0 text-xs font-semibold">{p.code}</span>
-                  <span className="min-w-0 truncate">{p.name}</span>
+                  {t("calendar.detail.noProject")}
                 </button>
-              ))}
-              <button
-                type="button"
-                role="menuitemradio"
-                aria-checked={e.projectId === null}
-                tabIndex={-1}
-                className={`${itemClass} border-t border-rule`}
-                onClick={() => {
-                  close();
-                  choose(null);
-                }}
-              >
-                {t("calendar.detail.noProject")}
-              </button>
-            </>
-          )}
-        </MenuButton>
+              </>
+            )}
+          </MenuButton>
+        )}
       </div>
     </Row>
   );

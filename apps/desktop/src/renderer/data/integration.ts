@@ -38,7 +38,8 @@ export type IntegrationTarget =
 const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 4, fetta 1: la Chat fra persone (`chat`, destinazione e sezione di progetto).
   // Area 5, fetta 2: il Drive (`drive`, destinazione, sezione e feature).
-  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat", "drive"]),
+  // Area 6, fetta 1: il Calendario in lettura (`calendar`).
+  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat", "drive", "calendar"]),
   // Area 5, fetta 1: i Docs del progetto (`docs`, sezione e feature).
   projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive"]),
   // Stati e soglie del progetto.
@@ -109,6 +110,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Calendario). Il Drive Google (`google`: cartelle, riferimenti, file fuori
     // dai progetti) resta spento fino alla F5.
     "google-account",
+    // Area 6, fetta 1: il Calendario in LETTURA (la destinazione e il blocco
+    // «Prossimi appuntamenti» della Home), con le serie. Restano spenti
+    // `calendar-write` (scrivere su Google, F4), `google-sync` («Aggiorna ora»,
+    // F1.2) e `meeting-notes` (riassunto e task di una riunione, F5).
+    "calendar",
     // Area 5, fetta 1: i Docs «come oggi» (spazi, albero, pagine, manuali,
     // generazione, ricerca, chat senza streaming, grafo).
     "docs",

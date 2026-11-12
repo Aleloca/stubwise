@@ -42,6 +42,10 @@ const ALL: IntegrationTarget[] = [
       "drive",
       "google",
       "google-account",
+      "calendar",
+      "calendar-write",
+      "google-sync",
+      "meeting-notes",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -125,6 +129,9 @@ describe("isIntegrated", () => {
         "feature:chat-attachments",
         // Area 6, fetta 1: il cassetto Google (account e caselle), separato dal Drive Google (`google`, F5).
         "feature:google-account",
+        // Area 6, fetta 1: il Calendario in lettura (scrivere, «Aggiorna ora» e le note di riunione restano spenti).
+        "destination:calendar",
+        "feature:calendar",
       ].sort(),
     );
   });
