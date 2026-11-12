@@ -111,7 +111,9 @@ export function eventView(raw: CalendarEventItem): CalendarEventView {
     eventType: e.eventType ?? "default",
     transparency: e.transparency === "transparent" ? "transparent" : "opaque",
     attendeeCount: e.attendeeCount ?? null,
-    // F4: chi modifica e chi risponde lo dice il server; un server di prima no.
+    // F4: chi modifica e chi risponde lo dice il server. Lo schema condiviso dà
+    // `false` a un server di prima (c7c5b714 di 72), che infatti non scrive; il
+    // ripiego dall'organizzatore vale solo per una riga letta senza schema.
     canEdit: e.canEdit ?? isOrganizer,
     canRespond: e.canRespond ?? (!isOrganizer && myResponse !== null),
     googleUrl: e.eventUrl ?? e.url,
