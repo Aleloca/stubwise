@@ -235,7 +235,7 @@ export function createMailEndpoints(request: ApiRequest) {
     outgoing(messageId: string): Promise<Reader<MailOutgoing>> {
       return request("GET", `/api/me/mail/outgoing/${seg(messageId)}`, undefined, mailOutgoingSchema);
     },
-    /** Annulla prima di `undoUntil`: la bozza torna. Dopo, 409 `too_late`; con un'altra bozza nello slot, 409 `draft_slot_taken`. */
+    /** Annulla prima di `undoUntil`: l'invio si ferma SEMPRE e la bozza torna — con un'altra bozza nello slot torna NON salvata (`unsaved`, `draft.id` null). Dopo, 409 `too_late`. */
     undoSend(messageId: string): Promise<Reader<MailDraftRestore>> {
       return request("POST", `/api/me/mail/outgoing/${seg(messageId)}/undo`, {}, mailDraftRestoreSchema);
     },

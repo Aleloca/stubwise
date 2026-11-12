@@ -3,7 +3,7 @@ import { GMAIL_MODIFY_SCOPE, missingGoogleScopes } from "@stubwise/google";
 import { MAIL_OUTGOING_CHANNEL, type MailDraft, type MailOutgoing } from "@stubwise/shared";
 import { projectPermissionsOfUser } from "@stubwise/notifications";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { listDrafts } from "./mail-drafts.js";
+import { listDrafts, unsavedViewOf } from "./mail-drafts.js";
 
 /**
  * L'INVIO TRATTENUTO DAL SERVER (area 6, fetta 3, D6: 10 secondi).
@@ -27,7 +27,6 @@ export const MAIL_UNDO_SECONDS = 10;
 export type SendError =
   | { error: "not_found" }
   | { error: "too_late" }
-  | { error: "draft_slot_taken" }
   | { error: "not_failed" }
   // I controlli PRIMA di accodare: arrivano subito, sul bottone Invia, e la
   // bozza resta lì (invece di un fallimento dopo 10 s).
@@ -124,7 +123,7 @@ export async function getOutgoing(db: Db, userId: string, id: string): Promise<M
   return row ? toView(row) : null;
 }
 
-/** Riporta la bozza fra le attive; se lo slot è occupato da una bozza più nuova, `draft_slot_taken` *(O)*. */
+/** Riporta la bozza fra le attive; se lo slot è di un'altra bozza, ne restituisce il contenuto NON salvato (Annulla ferma comunque l'invio). */
 async function restoreDraft(tx: Parameters<Parameters<Db["transaction"]>[0]>[0], userId: string, draftId: string | null) {
   if (!draftId) return null;
   const [draft] = await tx.select().from(mailDrafts).where(and(eq(mailDrafts.id, draftId), eq(mailDrafts.userId, userId)));
@@ -143,34 +142,46 @@ async function restoreDraft(tx: Parameters<Parameters<Db["transaction"]>[0]>[0],
         sql`coalesce(${mailDrafts.threadId}, '') = coalesce(${draft.threadId}, '')`,
       ),
     );
-  if (taken) return "slot_taken" as const;
+  if (taken) {
+    // Lo slot è di un'altra bozza: il contenuto torna NON salvato (la persona
+    // lo salva o lo scarta), e la copia di Stubwise se ne va per non occupare
+    // lo slot. La bozza su Gmail resta fra le bozze di Gmail, con gli allegati:
+    // è la copia di sicurezza (correzione di 46: Annulla ferma SEMPRE l'invio).
+    const unsaved = await unsavedViewOf(tx as unknown as Db, draft);
+    await tx.delete(mailDrafts).where(eq(mailDrafts.id, draftId));
+    return { unsaved };
+  }
   const [restored] = await tx.update(mailDrafts).set({ state: "active" }).where(eq(mailDrafts.id, draftId)).returning();
   return restored ?? null;
 }
+
+type Restored = { draft: MailDraft | null; droppedAttachments: string[]; unsaved: boolean };
 
 async function draftView(db: Db, userId: string, draftId: string): Promise<MailDraft | null> {
   return (await listDrafts(db, userId)).find((d) => d.id === draftId) ?? null;
 }
 
 /** Annulla l'invio, prima che scadano i 10 s: la bozza torna. Dopo, `too_late`. */
-export async function undoSend(db: Db, userId: string, id: string): Promise<{ draft: MailDraft | null; droppedAttachments: string[] } | SendError> {
-  const out: SendError | { draftId: string | null } = await db.transaction(async (tx): Promise<SendError | { draftId: string | null }> => {
+export async function undoSend(db: Db, userId: string, id: string): Promise<Restored | SendError> {
+  const out = await db.transaction(async (tx): Promise<SendError | { draftId: string | null; unsaved?: { draft: MailDraft; attachmentNames: string[] } }> => {
     const [row] = await tx.select().from(mailOutgoing).where(and(eq(mailOutgoing.id, id), eq(mailOutgoing.userId, userId))).for("update");
     if (!row) return { error: "not_found" as const };
     if (row.state !== "queued" || row.sendAt.getTime() <= Date.now()) return { error: "too_late" as const };
+    // L'invio si ferma QUI, prima di tutto il resto: nessun esito della bozza
+    // lo lascia partire (correzione di 46, D6).
     await tx.update(mailOutgoing).set({ state: "cancelled" }).where(eq(mailOutgoing.id, id));
     const restored = await restoreDraft(tx, userId, row.draftId);
-    if (restored === "slot_taken") throw new SlotTaken();
+    if (restored && "unsaved" in restored) return { draftId: null, unsaved: restored.unsaved };
     return { draftId: row.draftId };
-  }).catch((err: unknown): SendError => {
-    if (err instanceof SlotTaken) return { error: "draft_slot_taken" };
-    throw err;
   });
   if ("error" in out) return out;
-  return { draft: out.draftId ? await draftView(db, userId, out.draftId) : null, droppedAttachments: [] };
+  return finished(db, userId, out);
 }
 
-class SlotTaken extends Error {}
+async function finished(db: Db, userId: string, out: { draftId: string | null; unsaved?: { draft: MailDraft; attachmentNames: string[] } }): Promise<Restored> {
+  if (out.unsaved) return { draft: out.unsaved.draft, droppedAttachments: out.unsaved.attachmentNames, unsaved: true };
+  return { draft: out.draftId ? await draftView(db, userId, out.draftId) : null, droppedAttachments: [], unsaved: false };
+}
 
 /** Riprova un invio FALLITO: un gesto della persona, mai il worker da solo. Parte subito. */
 export async function retrySend(db: Db, userId: string, id: string): Promise<MailOutgoing | SendError> {
@@ -185,19 +196,16 @@ export async function retrySend(db: Db, userId: string, id: string): Promise<Mai
 }
 
 /** Elimina un invio FALLITO: la bozza torna, per correggerla. */
-export async function discardFailedSend(db: Db, userId: string, id: string): Promise<{ draft: MailDraft | null; droppedAttachments: string[] } | SendError> {
-  const out: SendError | { draftId: string | null } = await db.transaction(async (tx): Promise<SendError | { draftId: string | null }> => {
+export async function discardFailedSend(db: Db, userId: string, id: string): Promise<Restored | SendError> {
+  const out = await db.transaction(async (tx): Promise<SendError | { draftId: string | null; unsaved?: { draft: MailDraft; attachmentNames: string[] } }> => {
     const [row] = await tx.select().from(mailOutgoing).where(and(eq(mailOutgoing.id, id), eq(mailOutgoing.userId, userId))).for("update");
     if (!row) return { error: "not_found" as const };
     if (row.state !== "failed") return { error: "not_failed" as const };
     await tx.update(mailOutgoing).set({ state: "cancelled" }).where(eq(mailOutgoing.id, id));
     const restored = await restoreDraft(tx, userId, row.draftId);
-    if (restored === "slot_taken") throw new SlotTaken();
+    if (restored && "unsaved" in restored) return { draftId: null, unsaved: restored.unsaved };
     return { draftId: row.draftId };
-  }).catch((err: unknown): SendError => {
-    if (err instanceof SlotTaken) return { error: "draft_slot_taken" };
-    throw err;
   });
   if ("error" in out) return out;
-  return { draft: out.draftId ? await draftView(db, userId, out.draftId) : null, droppedAttachments: [] };
+  return finished(db, userId, out);
 }

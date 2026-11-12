@@ -6,6 +6,7 @@ import { apiError } from "../errors.js";
 import type { ActionEffects } from "../claude-actions/effects.js";
 import { cancelProposal, confirmProposal, requestUndo } from "../claude-actions/proposals.js";
 import { publicUrlOrUndefined } from "../ingest/shared.js";
+import { fillDraftBody } from "../services/mail-drafts.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 // Le decisioni della PERSONA sulle azioni di Claude (chat, fetta 3), sotto
@@ -26,6 +27,11 @@ export function actionEffects(app: FastifyInstance, request: { log: FastifyBaseL
     storage: () => app.storage(),
     ...(publicUrl !== undefined ? { publicUrl } : {}),
     log: (message, error) => request.log.warn({ err: error }, message),
+    // `fillMailBody`: la bozza Gmail di chi ha confermato, dopo il commit.
+    mailBody: async (userId, args) => {
+      const out = await fillDraftBody(app.db, app.encryptionKey, app.mailComposeClient, await app.storage(), userId, args);
+      if ("error" in out) throw new Error(`fillMailBody: ${out.error}`);
+    },
   };
 }
 

@@ -3,6 +3,7 @@ import { newFilterBodySchema } from "./task-filter.js";
 import { isoWeekSchema, newTaskBodySchema, taskPatchSchema } from "./task-view.js";
 import { milestoneDraftSchema } from "./milestone.js";
 import { newRequestBodySchema } from "./project-request.js";
+import { mailComposeModeSchema } from "./mail-compose.js";
 
 /**
  * Il catalogo delle azioni di Claude (chat, fetta 3): l'elenco CHIUSO di ciò
@@ -35,6 +36,8 @@ export const CLAUDE_ACTION_FNS = [
   "saveFilter",
   "deleteFilter",
   "pageAction",
+  // Area 6, F3: il corpo di un'email nella bozza di chi conferma. SEMPRE B.
+  "fillMailBody",
   // Solo inverso.
   "deleteTask",
 ] as const;
@@ -61,6 +64,8 @@ export const CLAUDE_DECLARED_CLASS: Record<ClaudeActionFn, "A" | "B"> = {
   saveFilter: "A",
   deleteFilter: "B",
   pageAction: "A",
+  // Scrive su Gmail (la bozza di chi conferma): mai senza conferma.
+  fillMailBody: "B",
   deleteTask: "B",
 };
 
@@ -93,6 +98,16 @@ export const CLAUDE_ACTION_ARGS = {
   saveFilter: newFilterBodySchema,
   deleteFilter: z.object({ id }),
   pageAction: pageActionSchema,
+  // La conversazione (`threadId` null = un'email nuova) di una casella di chi
+  // conferma; il testo va nel corpo, destinatari e oggetto li calcola il server.
+  fillMailBody: z
+    .object({
+      accountId: id,
+      threadId: z.string().max(200).nullable(),
+      mode: mailComposeModeSchema,
+      text: z.string().trim().min(1).max(200_000),
+    })
+    .strict(),
   deleteTask: z.object({ id }),
 } satisfies Record<ClaudeActionFn, z.ZodType>;
 

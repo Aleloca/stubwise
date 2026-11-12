@@ -146,6 +146,15 @@ async function toView(db: Db, row: DraftRow): Promise<MailDraft> {
   };
 }
 
+/**
+ * Il contenuto di una bozza come bozza NON salvata (`id` null, niente
+ * allegati): ciò che Annulla restituisce quando lo slot è già occupato.
+ */
+export async function unsavedViewOf(db: Db, row: DraftRow): Promise<{ draft: MailDraft; attachmentNames: string[] }> {
+  const view = await toView(db, row);
+  return { draft: { ...view, id: null, attachments: [], updatedAt: null }, attachmentNames: view.attachments.map((a) => a.name) };
+}
+
 /** Le MIE bozze attive. */
 export async function listDrafts(db: Db, userId: string): Promise<MailDraft[]> {
   const rows = await db
@@ -547,5 +556,34 @@ export async function removeAttachment(
   if (!removed) return { error: "not_found" };
   if (removed.storageKey && storage) await storage.deleteObject(removed.storageKey);
   return rewrite(db, encryptionKey, client, storage, userId, row);
+}
+
+/**
+ * Il corpo di Claude nella bozza (azione `fillMailBody`, confermata da chi la
+ * esegue): la bozza dello slot se c'è, altrimenti una nuova già indirizzata
+ * dal server; si sostituisce SOLO il corpo (destinatari, oggetto, allegati e
+ * citazione restano). Mai un invio.
+ */
+export async function fillDraftBody(
+  db: Db,
+  encryptionKey: Buffer,
+  client: MailComposeClient,
+  storage: ObjectStorage | null,
+  userId: string,
+  input: { accountId: string; threadId: string | null; mode: MailComposeMode; text: string },
+): Promise<MailDraft | DraftError> {
+  const base = await draftFor(db, userId, { accountId: input.accountId, threadId: input.threadId, mode: input.mode, replyToMessageId: null });
+  if ("error" in base) return base;
+  return saveDraft(db, encryptionKey, client, storage, userId, {
+    accountId: input.accountId,
+    threadId: base.threadId,
+    mode: base.mode,
+    replyToMessageId: base.replyToMessageId,
+    to: base.to,
+    cc: base.cc,
+    subject: base.subject,
+    body: input.text,
+    quote: base.quote,
+  });
 }
 
