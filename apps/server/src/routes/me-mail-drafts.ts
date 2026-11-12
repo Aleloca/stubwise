@@ -73,7 +73,7 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
         threadId: request.query.thread ?? null,
         mode: request.query.mode,
         replyToMessageId: request.query.replyTo ?? null,
-      });
+      }, { encryptionKey: app.encryptionKey, client });
       if ("error" in out) return apiError(reply, 404, "not_found", "Not found");
       return out;
     },

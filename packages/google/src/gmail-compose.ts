@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { GMAIL_API_BASE } from "./gmail.js";
+import { GMAIL_API_BASE, htmlToText } from "./gmail.js";
 import { buildUrl, parseGoogleJson, requestGoogle, type GoogleClientOptions } from "./fetch.js";
 import { z } from "zod";
 
@@ -184,4 +184,27 @@ export async function sendDraft(
   );
   const raw = parseGoogleJson(api, sentSchema, payload);
   return { messageId: raw.id, threadId: raw.threadId };
+}
+
+const sendAsSchema = z.object({ sendAsEmail: z.string().optional(), signature: z.string().optional().nullable() });
+
+/**
+ * La firma di Gmail di un indirizzo mittente (`users.settings.sendAs.get`),
+ * in testo: mandiamo text/plain. `null` se l'indirizzo non ha firma. Basta
+ * `gmail.modify` (la lettura accetta anche `gmail.readonly`;
+ * `gmail.settings.basic` serve solo a CAMBIARE le impostazioni).
+ */
+export async function getSendAsSignature(
+  input: { accessToken: string; sendAsEmail: string },
+  options: GoogleClientOptions = {},
+): Promise<string | null> {
+  const api = "gmail.settings.sendAs.get";
+  const payload = await requestGoogle(
+    { api, url: `${GMAIL_API_BASE}/settings/sendAs/${encodeURIComponent(input.sendAsEmail)}`, accessToken: input.accessToken },
+    options,
+  );
+  const parsed = sendAsSchema.safeParse(payload);
+  const html = parsed.success ? (parsed.data.signature ?? "") : "";
+  const text = htmlToText(html).trim();
+  return text === "" ? null : text;
 }

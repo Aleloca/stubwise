@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildMimeMessage, createDraft, deleteDraft, encodeRaw, getDraft, sendDraft, updateDraft } from "./gmail-compose.js";
+import { buildMimeMessage, createDraft, deleteDraft, encodeRaw, getDraft, getSendAsSignature, sendDraft, updateDraft } from "./gmail-compose.js";
 import { fakeFetch, jsonResponse } from "./test-support.js";
 
 /**
@@ -108,5 +108,17 @@ describe("le bozze di Gmail", () => {
   it("una bozza che non c'è più: GoogleApiError 404", async () => {
     const { impl } = fakeFetch([jsonResponse({ error: { code: 404, message: "Not Found", errors: [{ reason: "notFound" }] } }, { status: 404 })]);
     await expect(getDraft({ accessToken: "at", id: "x" }, { fetchImpl: impl })).rejects.toMatchObject({ status: 404 });
+  });
+});
+
+describe("getSendAsSignature (la firma di Gmail, F3: basta gmail.modify)", () => {
+  it("GET sendAs/<indirizzo>: la firma in testo, null se vuota; l'indirizzo è codificato nel path", async () => {
+    const { impl, calls } = fakeFetch([
+      jsonResponse({ sendAsEmail: "ada@acme.com", signature: "<div>Ada Lovelace<br>Acme &amp; co.</div>" }),
+      jsonResponse({ sendAsEmail: "ada@acme.com", signature: "" }),
+    ]);
+    expect(await getSendAsSignature({ accessToken: "at", sendAsEmail: "ada+x@acme.com" }, { fetchImpl: impl })).toBe("Ada Lovelace\nAcme & co.");
+    expect(calls[0]!.url).toBe("https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs/ada%2Bx%40acme.com");
+    expect(await getSendAsSignature({ accessToken: "at", sendAsEmail: "ada@acme.com" }, { fetchImpl: impl })).toBeNull();
   });
 });

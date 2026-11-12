@@ -4391,6 +4391,17 @@ export const googleAccounts = pgTable(
     syncRequestedAt: timestamp("sync_requested_at", { withTimezone: true }),
     /** L'ultima richiesta fatta, che resta dopo il giro: il tetto dei 60 s. */
     syncLastRequestedAt: timestamp("sync_last_requested_at", { withTimezone: true }),
+    /**
+     * La firma di Gmail dell'indirizzo della casella, in testo (area 6, F3,
+     * decisione M del maintainer: «la firma di Gmail»), letta con
+     * `gmail.modify` da `users.settings.sendAs`. Una COPIA per mostrarla nel
+     * compositore senza chiamare Google a ogni apertura: la riscrive ogni
+     * salvataggio di una bozza (che a Gmail parla già), e il compositore la
+     * rilegge da Google solo se manca o ha più di un giorno. `null` con
+     * `signature_fetched_at` valorizzato = la casella non ha firma.
+     */
+    signatureText: text("signature_text"),
+    signatureFetchedAt: timestamp("signature_fetched_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("google_accounts_email_unique").on(table.email),

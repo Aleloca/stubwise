@@ -99,6 +99,7 @@ export {
   deleteDraft,
   encodeRaw,
   getDraft,
+  getSendAsSignature,
   sendDraft,
   updateDraft,
   type GmailDraftRef,
