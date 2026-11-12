@@ -32,9 +32,15 @@ di Claude (`apiStream.ts`).
 - **Un'email nuova appena inviata** non ha conversazione finché Gmail non
   gliela dà (dopo i 10 s): si resta sull'elenco col suo «Annulla», e la
   conversazione arriva al giro del poller *(O)*.
-- **«Annulla» con un'altra bozza nella stessa conversazione** è rifiutato
-  (`draft_slot_taken`): l'unione delle due bozze del prototipo è un rimando
-  del server.
+- **«Annulla» con un'altra bozza nella stessa conversazione** ferma l'invio
+  lo stesso (mai un'email che parte dopo «Annulla»): il testo torna **non
+  salvato** (`unsaved`) e il compositore lo riapre con la riga «Not saved:
+  this conversation already has another draft. Saving replaces it.», senza
+  salvarlo da sé (né scrivendo, né chiudendo); «Save» lo scrive sopra
+  l'altra bozza (`overwrite`), «Discard» chiude, e la copia resta fra le
+  bozze di Gmail coi suoi allegati (detti per nome). «Send» è spento finché
+  non si decide. Vale anche per «Edit» di un invio fallito. Il prototipo
+  unisce le due bozze; l'unione resta un rimando del server.
 - **Un allegato rimasto fuori dai limiti** all'«Annulla» si dice per nome,
   senza dimensione.
 - **I file di Google Drive come link** sono della F5; **lo slot «Scrivigli

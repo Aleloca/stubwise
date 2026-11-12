@@ -307,7 +307,8 @@ export function Composer(props: ComposerProps) {
             : expired
               ? t("mail.compose.expired", { email: box?.email ?? "" })
               : null;
-  const canSend = blocked === null && !sending;
+  // Una bozza tornata non salvata (build app): prima si salva o si scarta.
+  const canSend = blocked === null && !sending && !draft.unsaved;
 
   async function doSend(force = false) {
     const f = draft.current();
@@ -334,6 +335,8 @@ export function Composer(props: ComposerProps) {
   }
 
   function doDiscard() {
+    // Non salvata: niente da togliere (l'altra bozza resta, la copia è su Gmail).
+    if (draft.unsaved) return draft.discardUnsaved();
     const snapshot = draft.discarded();
     discard.mutate(snapshot.id);
     onDiscarded(snapshot);
@@ -726,7 +729,24 @@ export function Composer(props: ComposerProps) {
         />
         {mailClaudeDraft() && <ClaudeDraftButton flow={claude} />}
         <span className="ml-auto flex items-center gap-1">
-          {status === "conflict" ? (
+          {draft.unsaved ? (
+            <span role="alert" className="flex flex-wrap items-center gap-1 px-1 text-xs text-critical">
+              <span>
+                {t("mail.compose.unsaved")}
+                {draft.unsaved.leftInGmail.length > 0 &&
+                  ` ${t("mail.compose.unsavedAttachments", { names: draft.unsaved.leftInGmail.join(", ") })}`}
+                {status === "failed" && ` ${t("mail.compose.saveFailed")}`}
+              </span>
+              <button
+                type="button"
+                disabled={status === "saving"}
+                onClick={() => void draft.saveUnsaved()}
+                className="rounded-sm font-medium underline underline-offset-2"
+              >
+                {t("mail.compose.save")}
+              </button>
+            </span>
+          ) : status === "conflict" ? (
             <span role="alert" className="flex items-center gap-1 px-1 text-xs text-critical">
               <span>{t("mail.compose.changedInGmail")}</span>
               <button

@@ -2669,6 +2669,15 @@ export interface MailSendResult {
 export interface MailDraftRestore {
   draft: MailDraft;
   droppedAttachments: MailDraftAttachment[];
+  /**
+   * Build app: la bozza è tornata NON salvata, perché nella stessa
+   * conversazione c'era già un'altra bozza. L'invio è fermo comunque; il
+   * compositore la riapre senza salvarla da sé, e chi scrive la salva
+   * (sopra l'altra) o la scarta. Il prototipo unisce le due bozze: mai vero.
+   */
+  unsaved?: boolean;
+  /** Con `unsaved`: i nomi degli allegati rimasti nella bozza su Gmail. */
+  leftInGmail?: string[];
 }
 
 /** I filtri dell'elenco della Posta (tutti facoltativi). */

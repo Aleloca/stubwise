@@ -28,7 +28,7 @@ import { fold, searchWords } from "../chat/search";
 import { ArrowLeftGlyph, MoreGlyph } from "./glyphs";
 import { Composer, type MailFieldBridge } from "./Composer";
 import { closeComposer, onComposeRequest, takeCompose, type ComposeRequest } from "./composeRequest";
-import { useDiscardedNotice, useDroppedNotice, useUndoSendToast } from "./UndoSendToast";
+import { holdRestored, useDiscardedNotice, useDroppedNotice, useUndoSendToast } from "./UndoSendToast";
 import { MailProposalCard } from "./MailProposalCard";
 import { isLiveProposal } from "./proposalText";
 import { MessageView } from "./MessageView";
@@ -380,6 +380,7 @@ export function ReadingPane({
               .then(() => removeFailed.mutateAsync(m.id))
               .then((restored) => {
                 droppedNotice(restored);
+                holdRestored(restored);
                 if (restored.draft.mode !== "new") openCompose(restored.draft.mode, "body");
               })
               .catch(() => toast.error(t("mail.compose.actionFailed"))),

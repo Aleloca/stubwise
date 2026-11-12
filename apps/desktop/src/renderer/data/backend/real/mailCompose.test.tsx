@@ -254,6 +254,28 @@ describe("scrivere nella Posta della build app", () => {
   });
 });
 
+/** Il contenuto di un invio annullato con lo slot già occupato da un'altra bozza (f181115c). */
+function unsavedRestore() {
+  return {
+    draft: {
+      id: null,
+      accountId: ACC,
+      threadId: "t-1",
+      mode: "reply",
+      replyToMessageId: M1,
+      to: [{ email: "bob@client.test", name: "Bob Rossi" }],
+      cc: [],
+      subject: "Re: Preventivo Rossi",
+      body: "Ricevuto, grazie.",
+      attachments: [],
+      quote: true,
+      updatedAt: null,
+    },
+    droppedAttachments: ["preventivo.pdf"],
+    unsaved: true,
+  };
+}
+
 /** Apre «Rispondi» sulla conversazione e scrive il corpo. */
 async function reply(text = "Ricevuto, grazie.") {
   renderRoute(`/mail/${KEY}`);
@@ -352,14 +374,42 @@ describe("scrivere nella build app: i casi limite", () => {
     expect(await screen.findByText("Too late to undo: the email was sent.")).toBeInTheDocument();
   });
 
-  it("«Annulla» con un'altra bozza nella conversazione (409 draft_slot_taken): l'email parte, e lo dice", async () => {
-    undoAnswer = { status: 409, body: { code: "draft_slot_taken", message: "x" } };
+  it("«Annulla» con un'altra bozza nella conversazione: l'invio è fermo, il testo torna NON salvato; nessun salvataggio da solo; «Save» la scrive sopra", async () => {
+    undoAnswer = { body: unsavedRestore() };
     const form = await reply();
     fireEvent.click(within(form).getByRole("button", { name: "Send" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
-    expect(
-      await screen.findByText("Couldn't undo: there's another draft in this conversation. The email will be sent."),
-    ).toBeInTheDocument();
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    const before = saved.length;
+    fireEvent.click(undo);
+    const again = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    await waitFor(() => expect(within(again).getByRole("textbox", { name: "Message" })).toHaveValue("Ricevuto, grazie."));
+    expect(within(again).getByText(/Not saved: this conversation already has another draft/)).toBeInTheDocument();
+    expect(within(again).getByText(/preventivo\.pdf/)).toBeInTheDocument();
+    expect(screen.queryByText(/will be sent/)).toBeNull();
+    // Scrivere non salva da sé: salvare sostituirebbe l'altra bozza.
+    fireEvent.change(within(again).getByRole("textbox", { name: "Message" }), { target: { value: "Ricevuto, grazie mille." } });
+    await new Promise((r) => setTimeout(r, 1_000));
+    expect(saved).toHaveLength(before);
+    expect(within(again).getByRole("button", { name: "Send" })).toBeDisabled();
+    fireEvent.click(within(again).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(saved.at(-1)).toMatchObject({ body: "Ricevuto, grazie mille.", overwrite: true }));
+    await waitFor(() => expect(within(again).queryByText(/Not saved:/)).toBeNull());
+    expect(within(again).getByRole("button", { name: "Send" })).toBeEnabled();
+  });
+
+  it("«Annulla» con un'altra bozza: «Discard» chiude senza salvare nulla", async () => {
+    undoAnswer = { body: unsavedRestore() };
+    const form = await reply();
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    const undo = await screen.findByRole("button", { name: "Undo" });
+    const before = saved.length;
+    fireEvent.click(undo);
+    const again = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    await within(again).findByText(/Not saved:/);
+    fireEvent.click(within(again).getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("form", { name: /Reply to Bob Rossi/ })).toBeNull());
+    await new Promise((r) => setTimeout(r, 1_000));
+    expect(saved).toHaveLength(before);
   });
 
   it("una risposta su una conversazione di 50 messaggi: i più vecchi raccolti, Rispondi funziona", async () => {

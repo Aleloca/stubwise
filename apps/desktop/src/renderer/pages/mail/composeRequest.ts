@@ -40,7 +40,31 @@ export function onComposeRequest(fn: (req: ComposeRequest) => void): () => void 
 
 onBeforePersonaChange(() => {
   pending = null;
+  unsaved.clear();
 });
+
+// La bozza di un invio annullato che è tornata NON salvata (build app: nello
+// stesso slot c'era già un'altra bozza). Aspetta qui la casella del suo
+// posto, che aprendosi la prende al posto della bozza del server e non la
+// salva da sé (salvarla sostituirebbe l'altra). Cambiare persona la cancella.
+export interface UnsavedDraft {
+  draft: MailDraft;
+  /** Gli allegati rimasti nella bozza su Gmail. */
+  leftInGmail: string[];
+}
+const unsaved = new Map<string, UnsavedDraft>();
+
+export function holdUnsavedDraft(entry: UnsavedDraft): void {
+  unsaved.set(place(entry.draft.threadId, entry.draft.slot), entry);
+}
+
+/** La casella del posto prende la bozza non salvata (una volta). */
+export function takeUnsavedDraft(threadId: string | null, slot?: string): UnsavedDraft | null {
+  const key = place(threadId, slot);
+  const entry = unsaved.get(key) ?? null;
+  unsaved.delete(key);
+  return entry;
+}
 
 // La casella aperta di una conversazione, per chiuderla da fuori PRIMA che
 // una bozza torni dal livello dati («Undo», «Edit», «Delete»): chiudendo

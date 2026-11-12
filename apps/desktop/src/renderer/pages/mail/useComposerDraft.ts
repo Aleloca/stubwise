@@ -7,7 +7,11 @@ import {
 } from "../../data/queries";
 import { getSessionPersonId, onBeforePersonaChange } from "../../data/session";
 import type { MailAddress, MailDraft, MailDraftAttachment } from "../../data/types";
-import { registerComposer } from "./composeRequest";
+import {
+  registerComposer,
+  takeUnsavedDraft,
+  type UnsavedDraft,
+} from "./composeRequest";
 
 // La vita della bozza di una casella di scrittura (shape mail-compose §5):
 // letta all'apertura, salvata da sé 800 ms dopo l'ultima modifica, chiudendo,
@@ -15,6 +19,12 @@ import { registerComposer } from "./composeRequest";
 // scriveva: dopo il cambio non salva più nulla). Aprire senza scrivere non
 // crea una bozza. Passare a un'altra modalità salva il corpo e rifà
 // destinatari e oggetto [A 1].
+//
+// Build app: la bozza di un invio annullato può tornare NON salvata (nello
+// stesso slot c'è già un'altra bozza). Allora la casella la mostra ma non la
+// salva da sé — né scrivendo, né chiudendo, né cambiando persona: salvarla
+// sostituirebbe l'altra. Decide chi scrive, «Save» (sopra l'altra) o
+// «Discard»; nel frattempo la copia resta fra le bozze di Gmail.
 
 /** Quanto si aspetta dopo l'ultima modifica per salvare la bozza. */
 export const DRAFT_SAVE_MS = 800;
@@ -74,6 +84,9 @@ export function useComposerDraft({
   const [loadFailed, setLoadFailed] = useState(false);
   // `conflict`: la bozza è cambiata su Gmail nel frattempo (build app): non vince l'ultimo.
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "failed" | "conflict">("idle");
+  /** La bozza tornata non salvata, finché chi scrive non la salva o la scarta. */
+  const [unsaved, setUnsaved] = useState<UnsavedDraft | null>(null);
+  const unsavedRef = useRef<UnsavedDraft | null>(null);
 
   const fieldsRef = useRef<ComposerFields | null>(null);
   const modeRef = useRef(mode);
@@ -110,7 +123,7 @@ export function useComposerDraft({
   const saveNow = async () => {
     clearTimer();
     const f = fieldsRef.current;
-    if (!f || !dirty.current || gone.current) return;
+    if (!f || !dirty.current || gone.current || unsavedRef.current) return;
     dirty.current = false;
     setStatus("saving");
     inFlight.current += 1;
@@ -165,6 +178,7 @@ export function useComposerDraft({
     setFieldsState(next);
     callbacks.current.onEdit();
     dirty.current = true;
+    if (unsavedRef.current) return;
     // Nessuna etichetta finché la modifica non è salvata (scelta del
     // costruttore, area 8): «Salvato» sopra un testo nuovo mentirebbe.
     setStatus("idle");
@@ -181,6 +195,16 @@ export function useComposerDraft({
   // All'apertura: la bozza salvata (o una nuova, già indirizzata). Una volta
   // per casella: la modalità cambia sotto (effetto qui sotto).
   useEffect(() => {
+    // Presa una volta (il ref regge il doppio effetto di StrictMode).
+    if (unsavedRef.current) return;
+    const held = takeUnsavedDraft(threadId, slot);
+    if (held) {
+      unsavedRef.current = held;
+      setUnsaved(held);
+      dirty.current = true;
+      loaded(fieldsOf(held.draft));
+      return;
+    }
     let live = true;
     load(threadId, modeRef.current, slot).then(
       (draft) => live && loaded(fieldsOf(draft)),
@@ -233,7 +257,7 @@ export function useComposerDraft({
       onBeforePersonaChange(() => {
         clearTimer();
         const f = fieldsRef.current;
-        if (f && dirty.current && !gone.current) void saveMailDraftNow(inputOf(f, modeRef.current));
+        if (f && dirty.current && !gone.current && !unsavedRef.current) void saveMailDraftNow(inputOf(f, modeRef.current));
         gone.current = true;
       }),
     [],
@@ -253,6 +277,7 @@ export function useComposerDraft({
     fields,
     loadFailed,
     status,
+    unsaved,
     setFields,
     /** I campi più recenti (anche fra due render). */
     current: () => fieldsRef.current,
@@ -281,6 +306,29 @@ export function useComposerDraft({
     retrySave: () => {
       dirty.current = true;
       void saveRef.current();
+    },
+    /** «Save» della bozza tornata non salvata: la scrive sopra quella dello slot. */
+    saveUnsaved: async () => {
+      const f = fieldsRef.current;
+      if (!f || gone.current || !unsavedRef.current) return;
+      setStatus("saving");
+      try {
+        await saveMutation.mutateAsync({ ...inputOf(f, modeRef.current), overwrite: true });
+        unsavedRef.current = null;
+        setUnsaved(null);
+        dirty.current = false;
+        setStatus("saved");
+      } catch {
+        setStatus("failed");
+      }
+    },
+    /** «Discard» della bozza tornata non salvata: si chiude, senza toccare l'altra. */
+    discardUnsaved: () => {
+      clearTimer();
+      unsavedRef.current = null;
+      dirty.current = false;
+      gone.current = true;
+      callbacks.current.onClose();
     },
     /** «Tieni la mia»: salva sopra la versione cambiata su Gmail. */
     keepMine: async () => {

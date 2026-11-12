@@ -136,11 +136,38 @@ describe("Annulla, Riprova, Elimina", () => {
     expect(r.droppedAttachments).toEqual([]);
   });
 
-  it("«Annulla» troppo tardi: `too_late`; con un'altra bozza nella conversazione: `draft_slot_taken`", async () => {
+  it("«Annulla» troppo tardi: `too_late`", async () => {
     installFakeServer({ ...base, [`POST /api/me/mail/outgoing/${O1}/undo`]: { status: 409, body: { code: "too_late", message: "x" } } });
     await expect(mail.undoSend(O1)).rejects.toThrow("too_late");
-    installFakeServer({ ...base, [`POST /api/me/mail/outgoing/${O1}/undo`]: { status: 409, body: { code: "draft_slot_taken", message: "x" } } });
-    await expect(mail.undoSend(O1)).rejects.toThrow("draft_slot_taken");
+  });
+
+  it("«Annulla» con un'altra bozza nella conversazione: l'invio è fermo, il contenuto torna NON salvato, gli allegati restano su Gmail", async () => {
+    installFakeServer({
+      ...base,
+      [`POST /api/me/mail/outgoing/${O1}/undo`]: {
+        body: { draft: draft({ id: null, updatedAt: null }), droppedAttachments: ["listino.pdf"], unsaved: true },
+      },
+    });
+    const r = await mail.undoSend(O1);
+    expect(r.unsaved).toBe(true);
+    expect(r.draft).toMatchObject({ threadId: `${ACC}_t-1`, body: "Grazie." });
+    expect(r.draft.id).not.toBe(D1);
+    // Non «fuori dai limiti»: sono rimasti nella bozza su Gmail.
+    expect(r.droppedAttachments).toEqual([]);
+    expect(r.leftInGmail).toEqual(["listino.pdf"]);
+  });
+
+  it("«Elimina» un invio fallito con un'altra bozza nella conversazione: anche lì il contenuto torna non salvato", async () => {
+    installFakeServer({
+      ...base,
+      [`POST /api/me/mail/outgoing/${O1}/discard`]: { body: { draft: draft({ id: null, updatedAt: null }), droppedAttachments: [], unsaved: true } },
+    });
+    expect((await mail.deleteFailedSend(O1)).unsaved).toBe(true);
+  });
+
+  it("un server di prima (senza `unsaved`): la bozza tornata è salvata", async () => {
+    installFakeServer({ ...base, [`POST /api/me/mail/outgoing/${O1}/undo`]: { body: { draft: draft(), droppedAttachments: [] } } });
+    expect((await mail.undoSend(O1)).unsaved).toBe(false);
   });
 
   it("gli allegati che non stanno più nei limiti sono detti per nome", async () => {

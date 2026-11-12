@@ -41,7 +41,7 @@ function sendError(error: unknown): unknown {
   if (!(error instanceof ApiError)) return error;
   if (error.status === 404) return new Error("not_found");
   if (error.code && BEFORE_SEND[error.code]) return new Error(BEFORE_SEND[error.code]);
-  if (error.code === "too_late" || error.code === "draft_slot_taken" || error.code === "not_failed") {
+  if (error.code === "too_late" || error.code === "not_failed") {
     return new Error(error.code);
   }
   return error;
@@ -97,10 +97,22 @@ const whenSendSettled: Mail["whenSendSettled"] = async (messageId) => {
   }
 };
 
-/** Una bozza tornata: gli allegati che non stanno più nei limiti, detti per nome. */
-async function restoreOf(r: { draft: ServerDraft | null; droppedAttachments: readonly string[] }): Promise<MailDraftRestore> {
+/**
+ * Una bozza tornata: gli allegati che non stanno più nei limiti, detti per
+ * nome. Con un'altra bozza nella conversazione torna NON salvata
+ * (`unsaved`): l'invio è fermo, e i suoi allegati restano nella bozza su
+ * Gmail (non sono «fuori dai limiti»).
+ */
+async function restoreOf(r: {
+  draft: ServerDraft | null;
+  droppedAttachments: readonly string[];
+  unsaved?: boolean;
+}): Promise<MailDraftRestore> {
   if (!r.draft) throw new Error("not_found");
   const { mine } = await myMailboxes();
+  if (r.unsaved === true) {
+    return { draft: draftOf(r.draft, mine), droppedAttachments: [], unsaved: true, leftInGmail: [...r.droppedAttachments] };
+  }
   const dropped = r.droppedAttachments.map<MailDraftAttachment>((name, i) => ({
     id: `dropped-${i}`,
     name,
@@ -108,10 +120,10 @@ async function restoreOf(r: { draft: ServerDraft | null; droppedAttachments: rea
     driveFileId: null,
     as: "copy",
   }));
-  return { draft: draftOf(r.draft, mine), droppedAttachments: dropped };
+  return { draft: draftOf(r.draft, mine), droppedAttachments: dropped, unsaved: false };
 }
 
-/** «Annulla» entro i 10 s: la bozza torna. Dopo `too_late`; con un'altra bozza nella conversazione `draft_slot_taken`. */
+/** «Annulla» entro i 10 s: l'invio si ferma SEMPRE e la bozza torna (non salvata se lo slot è occupato). Dopo, `too_late`. */
 const undoSend: Mail["undoSend"] = async (messageId) => {
   try {
     return await restoreOf((await appClient().mail.undoSend(messageId)) as never);
