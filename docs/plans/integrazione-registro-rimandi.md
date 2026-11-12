@@ -299,9 +299,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   client dal libero/occupato; la scheda di preparazione resta della F5. Il
   libero/occupato dei colleghi collegati lo vede chiunque nell'istanza
   organizzi una riunione, solo gli intervalli *(O, decisione
-  dell'orchestratrice)*. Aperta, per il maintainer: il worker ingerisce solo
-  gli appuntamenti riconosciuti dalle regole (`poller.ts`, `routeEvent`), e
-  scrivere sul calendario chiede di vederli tutti.
+  dell'orchestratrice)*.
+- Il Calendario con TUTTI gli eventi *(F3b, decisione del maintainer; O
+  dell'orchestratrice sui dettagli)*: i calendari come nel prototipo; esclusi
+  `workingLocation` e compleanni, `outOfOffice` resta; le proposte del
+  calendario dentro `/api/me/mail/proposals` con un `kind`. Nel renderer:
+  «Suggested by Stubwise» solo per un evento riconosciuto (`recognized`,
+  `projectBy`), una lista leggera per la griglia col dettaglio per id, le
+  serie di lavoro prima, il libero/occupato da `transparency`.
 - I progetti di una conversazione abbinati per NOME *(S, review della F1)*:
   le righe di `/threads` danno solo `projectNames`, e due progetti con lo
   stesso nome si confondono. Chiusa con la F2: `projectIds` dal server (per
