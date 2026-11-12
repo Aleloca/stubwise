@@ -4006,6 +4006,35 @@ deploy o di un rollback che la tocca.
   rimandato da solo: non si sa se Gmail l'abbia mandato), e la persona lo
   vede nel thread e decide.
 
+  ⚠️ **Cambio di comportamento: la chat entra nel budget mensile.** Dalla
+  review della F3 (punto 8) le chiamate dirette del server — la chat dei
+  Docs, l'unione del backlog, la bozza di Claude — registrano un `cost_usd`
+  STIMATO dai token (`@stubwise/shared/ai-pricing`); prima era `null` e il
+  budget mensile d'istanza (`instance_settings.monthly_budget_usd`) le
+  contava zero. Un'istanza vicina al budget può quindi fermarsi (lavoro
+  dell'agente, conversazioni con Claude, bozze) dopo il deploy. **Prima del
+  deploy**, quanto avrebbe pesato la chat negli ultimi 30 giorni con le
+  tariffe nuove (sola lettura):
+
+  ```sql
+  select operation, model, round(sum(
+    case model
+      when 'claude-fable-5-1'  then input_tokens * 10   + output_tokens * 50  + cache_read_tokens * 0.25 + cache_creation_tokens * 12.5
+      when 'claude-opus-5-5'   then input_tokens * 4    + output_tokens * 20  + cache_read_tokens * 0.20 + cache_creation_tokens * 5
+      when 'claude-sonnet-5-5' then input_tokens * 2    + output_tokens * 10  + cache_read_tokens * 0.20 + cache_creation_tokens * 2.5
+      when 'claude-haiku-5-5'  then input_tokens * 0.10 + output_tokens * 0.5 + cache_read_tokens * 0.01 + cache_creation_tokens * 0.125
+      when 'claude-opus-4-8'   then input_tokens * 5    + output_tokens * 25  + cache_read_tokens * 0.50 + cache_creation_tokens * 6.25
+    end) / 1000000.0, 2) as usd_stimati
+  from agent_runs
+  where cost_usd is null and created_at > now() - interval '30 days'
+  group by 1, 2 order by 3 desc nulls last;
+  ```
+
+  Confrontala col budget e con `select monthly_budget_usd from
+  instance_settings;`: se la somma del mese più questa stima lo supera,
+  alza il budget prima del deploy (o accetta che si fermi). Le righe vecchie
+  non si riscrivono: contano solo le chiamate dopo il deploy.
+
   **La bozza di Claude** (`POST /api/me/mail/drafts/claude`) usa il provider
   `api_key` della chat (senza, 503 `claude_unavailable`), l'operazione
   `mail_draft` (Sonnet di default, Impostazioni → Modelli) e il budget
