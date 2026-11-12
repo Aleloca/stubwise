@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { setUndoWindow } from "../../../pages/home/pendingAnswers";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
-import { DEPT_ID, installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTask, TICKET_ID, type SeenRequest } from "./fakeServer";
+import { calendarRangeRoute, DEPT_ID, installFakeServer, me, ME_ID, PROJECT_ID, serverProject, serverTask, TICKET_ID, type SeenRequest } from "./fakeServer";
 
 // La Home a blocchi sulla build app vera, davanti a un server finto
 // (integrazione area 2, fetta 3, Task L): la Home del reparto viene dal
@@ -66,7 +66,7 @@ beforeEach(() => {
     "GET /api/me/claude-decisions": () => ({ body: claudeDecisions }),
     // Area 6, fetta 1: «Prossimi appuntamenti» dal Calendario in lettura.
     "GET /api/me/google/accounts": () => ({ body: googleAccounts }),
-    "GET /api/me/calendar/range": () => ({ body: { items: calendarItems, nextCursor: null } }),
+    "GET /api/me/calendar/range": (req: SeenRequest) => calendarRangeRoute(calendarItems)(req),
     // Area 6, fetta 2: «Posta importante» (`important: true`).
     "GET /api/me/mail/threads": () => ({ body: { items: importantThreads, nextCursor: null } }),
     // Area 6, fetta 2: le proposte della Posta in «Da decidere».

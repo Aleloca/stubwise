@@ -12,22 +12,51 @@ import { threadKey } from "./mailKeys";
 type Args = Record<string, unknown>;
 
 /** Il tipo del server, la funzione del prototipo e i suoi argomenti. */
-const ACTION_OF: Record<MailProposalActionType, (args: Args) => { fn: ProposedAction["fn"]; args: Args }> = {
+const ACTION_OF: Record<
+  MailProposalActionType,
+  (args: Args) => { fn: ProposedAction["fn"]; args: Args }
+> = {
   create_task: (a) => ({ fn: "createTask", args: a }),
   create_backlog_item: (a) => ({ fn: "createRequest", args: a }),
   update_ticket: ({ ticketId, ...rest }) => ({ fn: "updateTask", args: { id: ticketId, ...rest } }),
-  comment_ticket: ({ ticketId, ...rest }) => ({ fn: "addComment", args: { taskId: ticketId, ...rest } }),
+  comment_ticket: ({ ticketId, ...rest }) => ({
+    fn: "addComment",
+    args: { taskId: ticketId, ...rest },
+  }),
   create_milestone: (a) => ({ fn: "createMilestone", args: a }),
   record_decision: ({ ticketId, ...rest }) => ({
     fn: "recordDecision",
     args: ticketId === undefined ? rest : { taskId: ticketId, ...rest },
   }),
   choose_project: (a) => ({ fn: "chooseProject", args: a }),
+  // F3b: il promemoria di una serie del calendario, «Visto» (non crea nulla).
+  acknowledge_reminder: (a) => ({ fn: "acknowledgeReminder", args: a }),
 };
 
 const person = (p: { userId: string; name: string }) => ({ personId: p.userId, name: p.name });
 
+/**
+ * F3b (task 7 di 72): le proposte del calendario nella stessa lista, con
+ * `kind: "calendar"`, `messageId` null e l'origine dell'evento in
+ * `calendarOrigin`. Un server di prima non manda `kind` (default «email»);
+ * la build web non parsa (`as`), quindi `?? null` qui.
+ */
+function calendarOriginOf(
+  origin: ServerProposal["calendarOrigin"] | undefined,
+): MailProposalView["origin"] {
+  if (!origin) return null;
+  return {
+    kind: "calendar",
+    eventId: origin.eventId,
+    title: origin.title ?? "",
+    startsAt: origin.startsAt,
+    allDay: origin.allDay === true,
+  };
+}
+
 export function proposalViewOf(p: ServerProposal): MailProposalView {
+  const fromCalendar = p.kind === "calendar";
+  const calendarOrigin = fromCalendar ? calendarOriginOf(p.calendarOrigin ?? null) : null;
   const actions = p.actions.flatMap<ProposedAction>((a) => {
     const map = ACTION_OF[a.type];
     // Un tipo che questo client non conosce (`readerSchema`): non lo propone.
@@ -36,9 +65,10 @@ export function proposalViewOf(p: ServerProposal): MailProposalView {
   });
   const proposal: MailProposal = {
     id: p.id,
-    source: "email",
-    // Il messaggio d'origine (`email_messages.id`): è il `messageId` dei messaggi della Posta.
-    sourceId: p.messageId,
+    source: fromCalendar ? "calendar" : "email",
+    // Il messaggio d'origine (`email_messages.id`): è il `messageId` dei messaggi della Posta;
+    // per il calendario, l'evento.
+    sourceId: fromCalendar ? (p.calendarOrigin?.eventId ?? "") : (p.messageId ?? ""),
     projectId: p.projectId,
     actions,
     excerpt: p.excerpt,
@@ -61,8 +91,15 @@ export function proposalViewOf(p: ServerProposal): MailProposalView {
     decidedBy: p.decidedBy ? person(p.decidedBy) : null,
     sharedWith: p.sharedWith.map(person),
     editable: p.editable,
-    origin: p.origin
-      ? { kind: "email", threadId: threadKey(p.origin.accountId, p.origin.threadId), from: p.origin.from, subject: p.origin.subject ?? "" }
-      : null,
+    origin: fromCalendar
+      ? calendarOrigin
+      : p.origin
+        ? {
+            kind: "email",
+            threadId: threadKey(p.origin.accountId, p.origin.threadId),
+            from: p.origin.from,
+            subject: p.origin.subject ?? "",
+          }
+        : null,
   };
 }

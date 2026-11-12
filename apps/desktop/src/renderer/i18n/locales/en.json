@@ -6428,6 +6428,9 @@
       "zone": "Times are in your time zone"
     },
     "block": {
+      "outOfOffice": "Out of office",
+      "focusTime": "Focus time",
+      "free": "Free",
       "continues": "continues",
       "from": "from {{day}} {{time}}",
       "more_one": "+{{count}} more",

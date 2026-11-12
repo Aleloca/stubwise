@@ -71,12 +71,38 @@ const same = (a: string | null, b: string) => a !== null && a.toLowerCase() === 
  * sul mio indirizzo. Senza fine (righe vecchie): un «tutto il giorno» dura il
  * suo giorno, uno con orario resta un istante — nessuna durata inventata.
  */
-function eventView(e: CalendarEventItem): CalendarEventView {
+/**
+ * I campi della F3b (piano di 72, tutti additivi), letti con la difesa per un
+ * server che non li manda: lo schema li porterà con `.default()`, ma la build
+ * web non parsa (`as`), quindi la difesa sta qui.
+ */
+type F3bFields = {
+  recognized?: boolean;
+  projectBy?: "rules" | "model" | "manual" | null;
+  eventType?: string;
+  transparency?: "opaque" | "transparent";
+  myResponse?: CalendarAttendee["response"] | null;
+};
+
+/** Chi ha deciso il progetto: le regole e il modello sono un suggerimento di Stubwise. */
+function projectByOf(e: CalendarEventItem & F3bFields): CalendarEventView["projectBy"] {
+  if (e.projectBy === "manual") return "manual";
+  if (e.projectBy === "rules" || e.projectBy === "model") return "model";
+  // Un server di prima non lo dice (e lo schema dà `null`; anche le righe prima della
+  // F3b): un progetto c'era solo se lo aveva messo Stubwise.
+  return e.projectId === null ? null : "model";
+}
+
+export function eventView(raw: CalendarEventItem): CalendarEventView {
+  const e = raw as CalendarEventItem & F3bFields;
   const me = session.personId ?? "";
   const endsAt =
     e.endsAt ?? (e.allDay ? new Date(Date.parse(e.startsAt) + DAY_MS).toISOString() : e.startsAt);
   const isOrganizer = e.organizer === null || same(e.organizer, e.accountEmail);
-  const attendees = e.attendees.map<CalendarAttendee>((a) => ({
+  const recognized = e.recognized ?? true;
+  const by = projectByOf(e);
+  // `range` è leggero (F3b): invitati, descrizione e promemoria solo in `event(id)`.
+  const attendees = (e.attendees ?? []).map<CalendarAttendee>((a) => ({
     email: a.email,
     name: a.email,
     personId: same(a.email, e.accountEmail) ? me : null,
@@ -87,7 +113,7 @@ function eventView(e: CalendarEventItem): CalendarEventView {
     id: e.id,
     calendarPersonIds: [me],
     title: e.title ?? "",
-    description: e.descriptionText,
+    description: e.descriptionText ?? null,
     startsAt: e.startsAt,
     endsAt,
     allDay: e.allDay,
@@ -96,19 +122,26 @@ function eventView(e: CalendarEventItem): CalendarEventView {
     attendees,
     reminders: e.remindersUseDefault
       ? "default"
-      : e.reminders.map((r) => ({ minutes: r.minutes, method: r.method === "email" ? "email" : "popup" })),
+      : (e.reminders ?? []).map((r) => ({ minutes: r.minutes, method: r.method === "email" ? "email" : "popup" })),
     seriesId: e.recurringEventId === null ? null : seriesIdOf(e.accountId, e.recurringEventId),
-    projectId: e.projectId,
-    projectBy: e.projectId === null ? null : "model",
+    // Un evento personale (non riconosciuto) non ha un suggerimento: «No project»,
+    // salvo un progetto messo a mano.
+    projectId: recognized || by === "manual" ? e.projectId : null,
+    projectBy: recognized || by === "manual" ? by : null,
+    recognized,
+    eventType: e.eventType ?? "default",
+    transparency: e.transparency === "transparent" ? "transparent" : "opaque",
+    attendeeCount: e.attendeeCount ?? null,
     googleUrl: e.eventUrl ?? e.url,
-    myResponse: attendees.find((a) => a.personId === me && me !== "")?.response ?? null,
+    // Sulla riga leggera la dice il server; altrimenti dagli invitati.
+    myResponse: e.myResponse ?? attendees.find((a) => a.personId === me && me !== "")?.response ?? null,
     isOrganizer,
     calendarEmail: e.accountEmail,
     hasPrep: false,
   };
 }
 
-function seriesView(s: CalendarSeriesItem): CalendarSeriesView {
+export function seriesView(s: CalendarSeriesItem): CalendarSeriesView {
   return {
     id: seriesIdOf(s.accountId, s.recurringEventId),
     title: s.title ?? "",
@@ -121,17 +154,26 @@ function seriesView(s: CalendarSeriesItem): CalendarSeriesView {
     auto: s.auto,
     occurrencesInWindow: s.occurrenceCount,
     nextAt: s.nextOccurrenceAt,
+    recognized: (s as CalendarSeriesItem & { recognized?: boolean }).recognized ?? true,
   };
 }
+
+/** Le serie: prima quelle di lavoro (F3b), poi per titolo. */
+export const bySeries = (a: CalendarSeriesView, b: CalendarSeriesView) =>
+  Number(b.recognized !== false) - Number(a.recognized !== false) ||
+  a.title.localeCompare(b.title) ||
+  a.id.localeCompare(b.id);
 
 const byStart = (a: CalendarEventView, b: CalendarEventView) =>
   a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id);
 
 /** Gli eventi che toccano `[from, to)` (ms), già tagliati alla finestra; dalla più vecchia. */
 async function eventsIn(from: number, to: number): Promise<CalendarEventView[]> {
+  // La lista LEGGERA (F3b): i campi pesanti li rilegge il dettaglio (`event(id)`).
   const page = await appClient().calendar.range({
     from: new Date(from).toISOString(),
     to: new Date(to).toISOString(),
+    fields: "summary",
   });
   return page.items.map((e) => eventView(e as CalendarEventItem)).sort(byStart);
 }
@@ -151,15 +193,13 @@ const listEvents: Calendar["listEvents"] = async (range) => {
   const { from, to } = rangeOf(range.from, range.to);
   if (to <= from) return [];
   // Gli estremi nel formato della finestra (`…T00:00:00Z`), come li chiede la griglia.
-  const page = await appClient().calendar.range({ from: isoOfMs(from), to: isoOfMs(to) });
+  const page = await appClient().calendar.range({ from: isoOfMs(from), to: isoOfMs(to), fields: "summary" });
   return page.items.map((e) => eventView(e as CalendarEventItem)).sort(byStart);
 };
 
 const listSeries: Calendar["listSeries"] = async () => {
   const { items } = await appClient().calendar.series();
-  return items
-    .map((s) => seriesView(s as CalendarSeriesItem))
-    .sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
+  return items.map((s) => seriesView(s as CalendarSeriesItem)).sort(bySeries);
 };
 
 /**

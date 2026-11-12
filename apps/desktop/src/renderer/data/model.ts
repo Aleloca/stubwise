@@ -2845,6 +2845,18 @@ export interface CalendarEvent {
   save?: { state: "saving" | "saved" | "failed"; error?: string };
   /** Build app: il link all'evento su Google Calendar (o alla sua giornata); il prototipo non ne ha. */
   googleUrl?: string | null;
+  /**
+   * Build app, F3b: lavoro riconosciuto da Stubwise (un candidato a una
+   * proposta). Un evento personale non lo è: «No project», nessun
+   * suggerimento. Assente (prototipo, server di prima) = riconosciuto.
+   */
+  recognized?: boolean;
+  /** Build app, F3b: il tipo di Google (`default`, `outOfOffice`, `focusTime`, …; aperto). */
+  eventType?: string;
+  /** Build app, F3b: occupato (`opaque`) o libero (`transparent`) per Google. */
+  transparency?: "opaque" | "transparent";
+  /** Build app, F3b: quanti invitati, anche sulla lista leggera senza `attendees`. */
+  attendeeCount?: number | null;
 }
 
 /** Una serie ricorrente e la sua configurazione (spenta di default). */
@@ -2858,6 +2870,8 @@ export interface CalendarSeries {
   action: "milestone" | "request" | "remind";
   leadDays: number;
   auto: boolean;
+  /** Build app, F3b: almeno un'occorrenza è lavoro riconosciuto. Assente = di lavoro. */
+  recognized?: boolean;
 }
 
 /** L'allineamento del calendario di una persona con Google. */

@@ -140,3 +140,46 @@ describe("una proposta della F2 nella Posta", () => {
     expect(proposalViewOf(proposal()).editable).toBe(false);
   });
 });
+
+describe("F3b: le proposte del calendario nella stessa lista (`kind: \"calendar\"`)", () => {
+  const EVENT = "eeeeeeee-1111-4111-8111-111111111111";
+  // La forma del task 7 di 72: `messageId` null, l'origine in `calendarOrigin`
+  // (`origin` resta quella dell'email, qui null); hand e reassign non ci sono.
+  const calendarProposal = (over: Record<string, unknown> = {}) =>
+    proposal({
+      kind: "calendar",
+      messageId: null,
+      origin: null,
+      canHand: false,
+      canReassign: false,
+      calendarOrigin: { eventId: EVENT, title: "Board trimestrale", startsAt: "2026-11-20T09:00:00.000Z", allDay: false },
+      actions: [
+        { type: "create_milestone", args: { projectId: PROJECT_ID, name: "Board trimestrale", dueDate: "2026-11-20" }, label: "Traguardo «Board trimestrale»" },
+        { type: "acknowledge_reminder", args: {}, label: "Visto" },
+      ],
+      ...over,
+    });
+
+  it("viene dall'evento, non da un messaggio: la sorgente e l'origine del calendario", () => {
+    const v = proposalViewOf(calendarProposal());
+    expect(v.proposal).toMatchObject({ source: "calendar", sourceId: EVENT });
+    expect(v.origin).toEqual({ kind: "calendar", eventId: EVENT, title: "Board trimestrale", startsAt: "2026-11-20T09:00:00.000Z", allDay: false });
+    expect([v.canHand, v.canReassign]).toEqual([false, false]);
+  });
+
+  it("le azioni del calendario coi nomi del prototipo: il traguardo e il promemoria «Visto»", () => {
+    expect(proposalViewOf(calendarProposal()).proposal.actions.map((a) => a.fn)).toEqual(["createMilestone", "acknowledgeReminder"]);
+  });
+
+  it("senza l'origine (un evento che non vedo più): sorgente calendario, nessuna riga d'origine", () => {
+    const v = proposalViewOf(calendarProposal({ calendarOrigin: null }));
+    expect(v.proposal.source).toBe("calendar");
+    expect(v.origin).toBeNull();
+  });
+
+  it("un server di prima (senza `kind`): è della posta, come sempre", () => {
+    const v = proposalViewOf(proposal());
+    expect(v.proposal).toMatchObject({ source: "email", sourceId: M1 });
+    expect(v.origin).toMatchObject({ kind: "email" });
+  });
+});

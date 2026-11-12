@@ -28,6 +28,18 @@ export function answerWordKey(answer: Answer): string | null {
   return null;
 }
 
+/**
+ * La parola del tipo di Google e del libero/occupato (build app, F3b): fuori
+ * ufficio, tempo di concentrazione, libero. Il fuori ufficio vince sul libero.
+ * Un tipo che non conosco, o un server di prima, non dice niente.
+ */
+export function kindWordKey(e: Pick<CalendarEventView, "eventType" | "transparency">): string | null {
+  if (e.eventType === "outOfOffice") return "calendar.block.outOfOffice";
+  if (e.eventType === "focusTime") return "calendar.block.focusTime";
+  if (e.transparency === "transparent") return "calendar.block.free";
+  return null;
+}
+
 export interface ProjectRef {
   id: string;
   code: string;
@@ -66,6 +78,8 @@ export function useEventName() {
         : spanLabel(e, i18n.language),
     ];
     if (project) parts.push(`${project.code} ${project.name}`);
+    const kind = kindWordKey(e);
+    if (kind) parts.push(t(kind));
     if (e.hasPrep) parts.push(t("calendar.prep.available"));
     const word = answerWordKey(answerOf(e));
     if (word) parts.push(t(word));
@@ -151,7 +165,9 @@ export function GridBlockBody({
   const lines = Math.max(1, Math.floor((heightPx - 4) / BLOCK_LINE_PX));
   const code = project && !hideCode ? project.code : null;
   const failed = e.save?.state === "failed";
+  const kind = kindWordKey(e);
   const states = [
+    kind ? t(kind) : null,
     word ? t(word) : null,
     continues ? t("calendar.block.continues") : null,
     e.save?.state === "saving" ? t("calendar.save.saving") : null,
@@ -237,10 +253,12 @@ export function GridBlockBody({
       </span>,
     );
   }
-  if (roomy && e.attendees.length > 0) {
+  // Sulla lista leggera (F3b) gli invitati non ci sono, il loro numero sì.
+  const guests = e.attendees.length > 0 ? e.attendees.length : (e.attendeeCount ?? 0);
+  if (roomy && guests > 0) {
     extra.push(
       <span key="guests" className="num truncate text-xs leading-4 text-ink-muted">
-        {t("calendar.block.guests", { count: e.attendees.length })}
+        {t("calendar.block.guests", { count: guests })}
       </span>,
     );
   }
@@ -309,7 +327,9 @@ export function GridBlockBody({
 /** Le classi della forma del blocco (griglia oraria e mese). */
 export function blockShape(e: CalendarEventView): string {
   const failed = e.save?.state === "failed" ? "!border-critical" : "";
-  return `${SHAPE[answerOf(e)]} ${failed}`;
+  // Libero per Google (F3b): il contorno tratteggiato, oltre alla parola.
+  const free = e.transparency === "transparent" ? "border-dashed !border-rule-strong" : "";
+  return `${SHAPE[answerOf(e)]} ${free} ${failed}`;
 }
 
 /**
@@ -349,6 +369,7 @@ export function EventListRow({
       >
         {e.title}
       </span>
+      {kindWordKey(e) && <span className="shrink-0 text-xs text-ink-muted">{t(kindWordKey(e)!)}</span>}
       {word && <span className="shrink-0 text-xs text-ink-muted">{t(word)}</span>}
     </button>
   );

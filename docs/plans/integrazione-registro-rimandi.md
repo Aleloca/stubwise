@@ -426,6 +426,32 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `unread = null`, lette come «letto». Un recupero (rileggere le etichette
   dei thread recenti al resync) costa una chiamata per messaggio: non ora.
 
+- F5, riunioni registrate e Google Drive: l'inventario di 94 *(12 nov 2026)*,
+  con le forme mandate a 72 per il suo piano. Da ricordare:
+  - **il «permesso di lettura Drive» è D9 = a, lo scope `drive.readonly`**
+    (design, righe 121-125 e 194-197): legge il Doc di Gemini e chiude i
+    riferimenti a Google Drive dell'area 5. Non `documents.readonly`, che è
+    l'opzione b, scartata. È già nella lista degli scope, è ristretto, e alla
+    callback non è obbligatorio (solo `missingScopes`): le rotte del Drive
+    rispondono `google_scope_missing`;
+  - il prototipo NON riconosce l'email di Gemini (il seme la scrive
+    `kind: "transcript"`): la regola e l'aggancio email ↔ evento sono del
+    server. Per 72 prima gli `attachments` dell'evento, poi Meet + orario;
+  - **visibilità di riassunto e proposte** *(M, 12 nov 2026: «Tutti gli
+    invitati», come il prototipo, NON la consigliata)*: tutti gli invitati
+    che sono persone di Stubwise, con qualunque risposta (R-I15), anche
+    senza l'evento nel loro calendario; senza evento, chi ha ricevuto
+    l'email di Gemini; mai un membro che non c'era, mai un admin non
+    invitato. È un'eccezione dichiarata a «Posta e Calendario restano
+    PERSONALI», da scrivere nell'invariante con i test negativi;
+  - la trascrizione intera non va al client: il prototipo mostra il riassunto
+    e «Open the transcript» (un avviso), l'app apre il Doc (`docUrl`);
+  - il prototipo non ha la regola «almeno B» per le letture non fidate: la
+    autorità è il server (`CHAT_TOOL_UNTRUSTED_ROUTES`), e la trascrizione e
+    i file Google ci entrano quando un tool li legge;
+  - «Aggiungi da Google Drive» del prototipo è un elenco piatto con la
+    ricerca, senza navigare le cartelle (R-H3, `ossatura-follow-ups.md`).
+
 ## Area 7 — Automazioni
 
 - Blocco della Home delle automazioni.
