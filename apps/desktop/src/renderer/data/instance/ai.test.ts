@@ -6,6 +6,8 @@ import { setSessionPersonId } from "../session";
 import { now, state } from "../store";
 import { grantInstancePermission, type LocalInstancePermission } from "../viewer";
 import type { InstanceResult } from "./types";
+import en from "../../i18n/locales/en.json";
+import it_ from "../../i18n/locales/it.json";
 
 // L'AI d'istanza nel livello dati (area 9b, Task 3): provider e catena,
 // modelli per operazione, automazione, budget e lingua. Ogni rifiuto si
@@ -406,8 +408,13 @@ describe("modelli per operazione", () => {
     const rows = await instance.listModels();
     expect(rows.map((r) => r.operation)).not.toContain("plugin_smoke");
     // 17 con `claude_chat` (la conversazione libera con Claude, chat fetta 1); 18 con
-    // `drive_summary` (i riassunti dei file del Drive, F3 dell'area 5, gruppo docs).
-    expect(rows).toHaveLength(18);
+    // `drive_summary` (i riassunti dei file del Drive, F3 dell'area 5, gruppo docs);
+    // 19 con `mail_draft` (la bozza di Claude per la Posta, F3 dell'area 6, gruppo mail).
+    expect(rows).toHaveLength(19);
+    expect(rows.find((r) => r.operation === "mail_draft")).toMatchObject({ group: "mail" });
+    // La sua etichetta c'è, in tutte e due le lingue (Usage e Impostazioni → AI la mostrano).
+    expect(en.usage.operations.mail_draft).toBe("Email drafts by Claude");
+    expect(it_.usage.operations.mail_draft).toBe("Bozze delle email di Claude");
     expect(rows.find((r) => r.operation === "drive_summary")).toMatchObject({ group: "docs", model: "haiku", source: "default" });
     expect(rows.find((r) => r.operation === "claude_chat")).toMatchObject({ operation: "claude_chat" });
     expect(rows.find((r) => r.operation === "fix_plan")).toEqual({
