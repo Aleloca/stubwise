@@ -443,6 +443,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 6, fetta 1: la lettura che c'è, il cassetto Google, il riconsenso» (12 nov 2026)
   - «Integrazione area 6, fetta 2: la classificazione nuova» (12 nov 2026)
   - «Integrazione area 6, fetta 3: scrivere» (12 nov 2026)
+  - «Integrazione area 6, fetta 3b: il calendario con tutti gli eventi» (12 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -463,6 +464,7 @@ una voce ti riguarda.
 - **Posta e calendario (Google) → `docs/invariants/mail-calendar.md`**:
   - Con le proposte spente una casella si LEGGE; si spengono solo le proposte (12 nov 2026).
   - La proposta CONDIVISA (D4): chi la riceve, chi la vede, chi la decide (12 nov 2026).
+  - Il calendario salva TUTTI gli eventi, ma solo un candidato (`proposal_candidate`) diventa una proposta; a flag spento i candidati sono quelli di prima; le linee di base chiudono ciò che diventa candidato al primo giro (F3b).
   - Scrivere la posta (area 6, F3): bozze di Gmail, invio trattenuto 10 s senza ritentativi, Annulla che ferma SEMPRE, Claude che propone (`fillMailBody`, sempre B) ma non manda mai.
   - Nessuna scrittura verso Google senza un gesto della persona, e lo stato locale solo dopo il sì di Google (area 6).
   - «Aggiorna ora» non ha un percorso a parte (area 6).
