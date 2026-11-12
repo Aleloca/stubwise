@@ -84,6 +84,50 @@
   primo collegamento. Chi aggiunge una fase che propone la mette sotto lo
   stesso `if`, e chi aggiunge un percorso di classificazione mette lo stesso
   taglio.
+- **Scrivere la posta (area 6, F3): bozze di Gmail, invio trattenuto, e
+  Claude che PROPONE ma non manda mai.**
+  - **Le bozze sono bozze di Gmail** (D7): `mail_drafts` tiene ciò che Gmail
+    non sa e la copia dell'ultimo salvataggio (l'elenco non chiama Google).
+    Una bozza cambiata da Gmail nel frattempo non si sovrascrive in
+    silenzio: 409 `draft_changed`, e solo il gesto «Tieni la mia»
+    (`overwrite: true`) scrive sopra. Bozze e invii sono di chi scrive: il
+    suo id nella WHERE, una riga altrui è 404.
+  - **Invia = una riga `mail_outgoing`, 10 s, e il worker la manda**
+    (`mail-sender.ts`): claim `queued → sending` con SKIP LOCKED, MAI un
+    ritentativo automatico (Riprova è un gesto), e all'avvio una riga
+    rimasta `sending` diventa `failed`/`interrupted`, mai rimandata (non si
+    sa se Gmail l'abbia mandata). I controlli (destinatari, indirizzi,
+    allegati, casella, scope, file del Drive ancora visibili) stanno PRIMA
+    di accodare.
+  - ⚠️ **Annulla ferma SEMPRE l'invio entro i 10 s** (correzione di 46): la
+    riga va a `cancelled` per prima, sulla riga bloccata. Se lo slot è di
+    un'altra bozza, il contenuto torna NON salvato (`unsaved`) e la copia di
+    Stubwise se ne va; la bozza resta fra quelle di Gmail. Nessun esito
+    della bozza lascia partire un'email annullata — chi tocca `undoSend` non
+    reintroduca un rifiuto che lasci la riga `queued`.
+  - **La posta mandata entra nei thread come CONTESTO** (`admitted =
+    false`), solo in un thread già noto o se l'ha mandata Stubwise, e non si
+    classifica mai.
+  - **Un file del Drive allegato è un riferimento**, riletto a ogni
+    salvataggio e ricontrollato a Invia col permesso di chi scrive: chi non
+    vede più il progetto (o il file è eliminato) riceve
+    `attachment_unavailable`, mai i byte.
+  - **La firma di Gmail si legge con `gmail.modify`**
+    (`users.settings.sendAs`), mai con `gmail.settings.basic` (ristretto, e
+    serve solo a scrivere le impostazioni). Il server la mette nel MIME a
+    ogni salvataggio, sotto il corpo e prima della citazione, una volta sola;
+    non entra mai in `body`. La copia sulla casella serve al compositore.
+  - **La bozza di Claude è solo un testo** (`mail-claude-draft.ts`): legge
+    con gli occhi di chi chiede (la sua casella, i progetti attribuiti che
+    vede, le task aperte), il testo delle email e i titoli delle task stanno
+    in blocchi delimitati con `<`, `>` e `&` scappati e dichiarati DATI; non
+    salva e non manda niente.
+  - **`fillMailBody` è SEMPRE B e non manda mai**: B perché dichiarata e
+    perché senza inverso; nella transazione (e a secco) solo letture; Gmail
+    è un seguito dopo il commit, e se fallisce lo dice
+    (`claude_actions.effect_failure = mail_not_saved`, nella vista dei
+    gruppi) invece di un «fatto» falso. Il test sul sorgente del catalogo
+    vieta `sendDraftLater`, `sendDraft` e `retrySend`.
 - **Nessuna scrittura verso Google senza un gesto della persona, e lo stato
   locale solo dopo il sì di Google (area 6, F1.3).** La prima scrittura è il
   letto/non letto: `POST /api/me/mail/threads/:threadId/read` chiama

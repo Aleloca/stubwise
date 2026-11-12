@@ -1100,6 +1100,13 @@
       "when": 1797897600000,
       "tag": "0156_claude_action_effect_failure",
       "breakpoints": true
+    },
+    {
+      "idx": 158,
+      "version": "7",
+      "when": 1798070400000,
+      "tag": "0158_mail_attachment_orphans",
+      "breakpoints": true
     }
   ]
 }

@@ -92,18 +92,20 @@ export async function sendDueMail(deps: MailSenderDeps): Promise<{ sent: number;
         refreshToken: credentials.refreshToken,
       });
       const sent = await client.sendDraft({ accessToken: tokens.accessToken, id: row.gmailDraftId });
-      await deps.db.transaction(async (tx) => {
-        await tx
-          .update(mailOutgoing)
-          .set({ state: "sent", gmailMessageId: sent.messageId, gmailThreadId: sent.threadId, sentAt: sql`now()`, error: null })
-          .where(eq(mailOutgoing.id, row.id));
-        // La bozza è uscita da Gmail: anche da qui.
-        if (row.draftId) await tx.delete(mailDrafts).where(eq(mailDrafts.id, row.draftId));
-      });
-      stats.sent += 1;
+      // Gmail HA MANDATO: da qui un errore non è mai un invio fallito. Si
+      // ritenta la scrittura; se non riesce, `sent_unrecorded` (review F3,
+      // punto 2) — un `failed`/`other` farebbe premere Elimina o Riprova e
+      // mandare un DOPPIONE.
+      if (await recordSent(deps.db, row, sent)) {
+        stats.sent += 1;
+      } else {
+        await markFailed(deps.db, row.id, "sent_unrecorded", logger);
+        logger.error(`posta: invio ${row.id} MANDATO da Gmail ma non registrato (sent_unrecorded)`);
+        stats.failed += 1;
+      }
     } catch (err) {
       const code = err instanceof SendRefused ? err.message : sendErrorCode(err);
-      await deps.db.update(mailOutgoing).set({ state: "failed", error: code }).where(eq(mailOutgoing.id, row.id));
+      await markFailed(deps.db, row.id, code, logger);
       logger.warn(`posta: invio ${row.id} fallito (${code})`);
       stats.failed += 1;
     }
@@ -112,6 +114,38 @@ export async function sendDueMail(deps: MailSenderDeps): Promise<{ sent: number;
 }
 
 class SendRefused extends Error {}
+
+/** Quante volte si ritenta la scrittura di `sent` dopo un invio riuscito. */
+export const RECORD_SENT_ATTEMPTS = 3;
+
+async function recordSent(db: Db, row: typeof mailOutgoing.$inferSelect, sent: { messageId: string; threadId: string }): Promise<boolean> {
+  for (let attempt = 0; attempt < RECORD_SENT_ATTEMPTS; attempt += 1) {
+    try {
+      await db.transaction(async (tx) => {
+        await tx
+          .update(mailOutgoing)
+          .set({ state: "sent", gmailMessageId: sent.messageId, gmailThreadId: sent.threadId, sentAt: sql`now()`, error: null })
+          .where(eq(mailOutgoing.id, row.id));
+        // La bozza è uscita da Gmail: anche da qui.
+        if (row.draftId) await tx.delete(mailDrafts).where(eq(mailDrafts.id, row.draftId));
+      });
+      return true;
+    } catch {
+      // Si riprova: l'email è partita, la riga deve dirlo.
+    }
+  }
+  return false;
+}
+
+/** Il fallimento sulla riga, PROTETTO: un intoppo del DB qui non fa uscire il worker. */
+async function markFailed(db: Db, id: string, code: string, logger: { error: (m: string) => void }): Promise<void> {
+  try {
+    await db.update(mailOutgoing).set({ state: "failed", error: code }).where(eq(mailOutgoing.id, id));
+  } catch (err) {
+    // La riga resta `sending`: al riavvio diventa `interrupted`, mai rimandata.
+    logger.error(`posta: impossibile segnare l'invio ${id} (${code}): ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
 /**
  * Avvia il mittente: un giro ogni `pollMs` (default 2 s) e a ogni NOTIFY del
@@ -136,6 +170,10 @@ export function startMailSender(
     again = false;
     try {
       await sendDueMail(deps);
+    } catch (err) {
+      // `void tick()`: un rifiuto qui farebbe uscire il worker (e perdere le
+      // generazioni Docs in corso). Si logga e si aspetta il giro dopo.
+      logger.error(`posta: giro degli invii fallito: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       running = false;
       if (again && !deps.signal.aborted) void tick();
