@@ -173,4 +173,21 @@ describe("le bozze: salvare ed eliminare", () => {
     await mail.discardDraft("unsaved_x");
     expect(seen.filter((r) => r.method === "DELETE").map((r) => r.path)).toEqual([`/api/me/mail/drafts/${D1}`]);
   });
+
+  it("«Annulla» di Elimina: la bozza si salva di nuovo, uguale", async () => {
+    const { seen } = installFakeServer({ ...accounts, "PUT /api/me/mail/drafts": { body: draft() } });
+    const r = await mail.restoreDiscardedDraft({
+      threadId: `${ACC}_t-1`,
+      mode: "reply",
+      replyToMessageId: M1,
+      to: [{ name: "Bob Rossi", email: "bob@client.test", personId: null }],
+      cc: [],
+      subject: "Re: Preventivo",
+      body: "Grazie, ci sentiamo.",
+      attachments: [],
+    });
+    expect(seen.filter((x) => x.method === "PUT")).toHaveLength(1);
+    expect(r).toMatchObject({ draft: { id: D1 }, droppedAttachments: [] });
+  });
 });
+

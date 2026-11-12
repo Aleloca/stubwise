@@ -133,9 +133,16 @@ const discardDraft: Mail["discardDraft"] = async (id) => {
   }
 };
 
+/** «Annulla» di «Elimina»: la bozza eliminata si salva di nuovo, com'era. */
+const restoreDiscardedDraft: Mail["restoreDiscardedDraft"] = async (snapshot) => ({
+  draft: await saveDraft(snapshot),
+  droppedAttachments: [],
+});
+
 export const mailDraftFunctions: Partial<Mail> = {
   listDrafts,
   getDraft,
   saveDraft,
   discardDraft,
+  restoreDiscardedDraft,
 };
