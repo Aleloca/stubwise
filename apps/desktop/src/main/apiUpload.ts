@@ -22,13 +22,20 @@ const UPLOAD_CHUNK_BYTES = 64 * 1024;
 /** Il tetto del Drive (D4 del maintainer): 100 MB per file. */
 export const DRIVE_UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
 
+/** Il tetto di un allegato della Posta: quello di Gmail, 25 MB per email (review F3, 11). */
+export const MAIL_UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+
 const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const MAIL_ATTACHMENT_PATH = new RegExp(`^/api/me/mail/drafts/${UUID}/attachments$`, "i");
 const UPLOAD_PATHS = [
   // Area 5, fetta 2: un file nel Drive di un progetto.
   new RegExp(`^/api/projects/${UUID}/drive/files$`, "i"),
   // Area 6, fetta 3: un allegato dal disco su una bozza della Posta.
-  new RegExp(`^/api/me/mail/drafts/${UUID}/attachments$`, "i"),
+  MAIL_ATTACHMENT_PATH,
 ];
+
+/** Il tetto del percorso: un allegato della Posta 25 MB, un file del Drive 100. */
+const maxBytesFor = (path: string) => (MAIL_ATTACHMENT_PATH.test(path) ? MAIL_UPLOAD_MAX_BYTES : DRIVE_UPLOAD_MAX_BYTES);
 
 /** Solo i caricamenti previsti, esatti: il Drive di un progetto e gli allegati di una bozza. */
 export function isAllowedUploadPath(path: unknown): path is string {
@@ -244,7 +251,7 @@ export async function uploadFile(
     if (!base) return { ok: false, reason: "invalid" };
     const token = deps.token();
     if (!token) return { ok: false, reason: "unauthenticated" };
-    if (entry.size > DRIVE_UPLOAD_MAX_BYTES) return { ok: false, reason: "too_large" };
+    if (entry.size > maxBytesFor(path)) return { ok: false, reason: "too_large" };
 
     const boundary = `----stubwise-${randomUUID()}`;
     const head = Buffer.from(`--${boundary}\r\n${formDataHeader("file", entry.name, entry.mime)}`, "utf8");
