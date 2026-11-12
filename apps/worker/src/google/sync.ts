@@ -242,6 +242,8 @@ export interface EmailMessageInsert {
   toAddresses: string[];
   /** Area 6, F1.3: non letto su Gmail all'ingestione (etichetta `UNREAD`). */
   unread: boolean;
+  /** Area 6, F2: il Message-ID RFC dell'header, null se l'email non ne ha uno. */
+  rfcMessageId: string | null;
   /**
    * Chi è in COPIA (16 set 2026). Mai `null` da qui: un messaggio senza
    * header `Cc` dà `[]`, cioè «guardato, nessuno in copia» — il `null` in
@@ -307,6 +309,9 @@ export function buildEmailMessageInsert(input: {
     labels: message.labelIds,
     // Area 6, F1.3: letto / non letto come lo dice Gmail adesso.
     unread: message.labelIds.includes(GMAIL_UNREAD_LABEL),
+    // Area 6, F2: la chiave dell'email fra le caselle. Nessuna chiamata in
+    // più: `Message-Id` è in `DEFAULT_METADATA_HEADERS`.
+    rfcMessageId: message.headers["message-id"]?.trim() || null,
     textExcerpt: input.text.trim() === "" ? null : input.text,
     projectId: input.projectId,
     candidateProjectIds: input.candidateProjectIds,

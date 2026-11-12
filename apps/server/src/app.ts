@@ -41,6 +41,7 @@ import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
 import { meGoogleRoutes } from "./routes/me-google.js";
 import { meCalendarRoutes } from "./routes/me-calendar.js";
+import { meMailProposalsRoutes } from "./routes/me-mail-proposals.js";
 import { meMailRoutes, type MailOriginalClient } from "./routes/me-mail.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
@@ -897,6 +898,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // per utente — sempre filtrati per `userId` via il JOIN su google_accounts
   // (vedi il docblock del modulo). Prefisso a sé come meGoogleRoutes, per
   // la stessa ragione di leggibilità (un file, un pezzo di superficie).
+  // Area 6, F2: le proposte condivise, PRIMA di `meMailRoutes` (la parte
+  // letterale `/proposals` sullo stesso prefisso di `/:source/:id`).
+  void app.register(meMailProposalsRoutes, { prefix: "/api/me/mail/proposals" });
   void app.register(meMailRoutes, {
     prefix: "/api/me/mail",
     ...(opts.mailGoogleClient ? { googleClient: opts.mailGoogleClient } : {}),

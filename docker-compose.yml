@@ -316,6 +316,7 @@ services:
       # STESSO thread — un thread già classificato nella finestra viene saltato
       # (resta `new`) senza bloccare il resto della coda. 0 = disattivato.
       - GMAIL_THREAD_COOLDOWN_MINUTES=${GMAIL_THREAD_COOLDOWN_MINUTES:-60}
+      - MAIL_CLASSIFY_V2=${MAIL_CLASSIFY_V2:-false}
       # --- Backlog di discovery (poller separato dal loop dei job) ---
       # Reclama i job backlog_jobs (intake + stima) ed esegue gli agenti nella
       # catena PER-PROGETTO. Soglie del dedup semantico: merge (fusione automatica)

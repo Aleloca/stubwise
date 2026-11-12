@@ -223,6 +223,30 @@ describe("endpoints mail", () => {
     expect(detail.subject).toBeNull();
   });
 
+  it("F2: i filtri nuovi di threads (importanza, progetto, senza progetto, importanti)", async () => {
+    const { c, fetchImpl } = clientReturning(200, { items: [], nextCursor: null });
+    await c.mail.threads({ importance: "high", project: ID, noProject: true, important: true, limit: 5 });
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/threads?limit=5&importance=high&project=${ID}&noProject=true&important=true`);
+  });
+
+  it("F2: le proposte condivise, per messaggio e per id", async () => {
+    const proposal = {
+      id: ID,
+      messageId: ID,
+      projectId: ID,
+      status: "open",
+      createdAt: "2026-11-12T10:00:00.000Z",
+      actions: [{ type: "create_task", args: { title: "X" }, label: "Crea la task «X»" }],
+    };
+    const list = clientReturning(200, { items: [proposal] });
+    const items = await list.c.mail.proposals({ message: ID, status: "open" });
+    expect(list.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/proposals?message=${ID}&status=open`);
+    expect(items.items[0]!.canConfirm).toBe(false);
+    const one = clientReturning(200, proposal);
+    await one.c.mail.proposal(ID);
+    expect(one.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/proposals/${ID}`);
+  });
+
   it("setRead (area 6, F1.3): POST col body { account, read }; `unread` assente (server di prima) si legge false", async () => {
     const { c, fetchImpl } = clientReturning(200, {
       threadId: "t1",

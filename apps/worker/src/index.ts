@@ -918,6 +918,8 @@ startGooglePoller({
   // default di `classify.ts`).
   gmailMaxPerDay: config.gmailMaxPerDay,
   gmailThreadCooldownMinutes: config.gmailThreadCooldownMinutes,
+  // Area 6, F2: la classificazione nuova, dietro MAIL_CLASSIFY_V2.
+  classifyV2: config.mailClassifyV2,
   signal: controller.signal,
 });
 

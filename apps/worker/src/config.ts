@@ -1021,6 +1021,13 @@ const envSchema = z.object({
   // nella finestra viene saltato (resta `new`) e il ciclo passa al
   // successivo, così un thread attivo non blocca la coda. 0 = disattivato.
   // Default 60.
+  // Area 6, F2 (D3): la classificazione nuova della posta. Spenta di default:
+  // si accende dopo la misura del costo (deploy-log), e spegnerla è il
+  // rollback (tornano l'ammissione e le regole della posta).
+  MAIL_CLASSIFY_V2: z.preprocess(
+    (value) => (value === "" ? undefined : value === "true" ? true : value === "false" ? false : value),
+    z.boolean({ error: "deve essere true o false" }).default(false),
+  ),
   GMAIL_THREAD_COOLDOWN_MINUTES: z.preprocess(
     emptyAsUndefined,
     z.coerce
@@ -1269,6 +1276,8 @@ export interface WorkerConfig {
    * STESSO thread (default 60; 0 = disattivato).
    */
   gmailThreadCooldownMinutes: number;
+  /** Area 6, F2: la classificazione nuova della posta (MAIL_CLASSIFY_V2, default false). */
+  mailClassifyV2: boolean;
   /**
    * Relay a cui spedire le notifiche push, o `null` = PUSH SPENTE.
    *
@@ -1461,6 +1470,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     gmailMaxProjectsPerMessage: parsed.GMAIL_MAX_PROJECTS_PER_MESSAGE,
     gmailMaxPerDay: parsed.GMAIL_MAX_PER_DAY,
     gmailThreadCooldownMinutes: parsed.GMAIL_THREAD_COOLDOWN_MINUTES,
+    mailClassifyV2: parsed.MAIL_CLASSIFY_V2,
     // Letta dall'env GREZZO, non da `parsed`: `envSchema` non la conosce (e non
     // deve, vedi il campo `push` di WorkerConfig). LANCIA su un valore
     // inutilizzabile — un relay in chiaro o con credenziali — così il worker

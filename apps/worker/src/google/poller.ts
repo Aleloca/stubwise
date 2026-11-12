@@ -77,6 +77,7 @@ import {
   type CalendarSeriesProposalContext,
 } from "./calendar.js";
 import { executeAutoCalendarAction } from "./calendar-auto.js";
+import { classifyNewMessagesV2 } from "./classify-v2.js";
 import {
   classifyNewMessages,
   needsReclassification,
@@ -311,6 +312,14 @@ export interface GooglePollerDeps {
   signal?: AbortSignal;
   /** Orologio iniettabile: solo per il `received_at` di ripiego. */
   now?: () => Date;
+  /**
+   * Area 6, F2 (`MAIL_CLASSIFY_V2`, default spento): la classificazione
+   * nuova. Acceso, l'ingestione non chiama `admit` né `matchRoutes` (D3:
+   * ogni email ricevuta al modello, niente regole della posta) e non scrive
+   * scarti. Spento, tutto come prima: è il rollback, e la regola di rilascio
+   * di D3 (si accende dopo la misura del costo).
+   */
+  classifyV2?: boolean;
 }
 
 /** Riga di `google_accounts` come il claim la restituisce. */
@@ -1006,15 +1015,21 @@ async function syncGmail(
 
     if (isFromMailbox(metadata, ctx.credentials.email)) continue;
 
-    const admission = admit(messageToRouting(metadata), ctx.admission, ctx.receivingDomain);
-    if (!admission.admitted) {
-      await recordRejection(deps, account, metadata, admission.reason);
-      continue;
+    if (!deps.classifyV2) {
+      const admission = admit(messageToRouting(metadata), ctx.admission, ctx.receivingDomain);
+      if (!admission.admitted) {
+        await recordRejection(deps, account, metadata, admission.reason);
+        continue;
+      }
     }
 
     const full = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
     const text = full.payload ? extractText(full.payload) : "";
-    const resolved = matchRoutes(messageToRouting(full, text), ctx.routes);
+    // Con la classificazione nuova i progetti li dice il classificatore (fra
+    // i candidati dei destinatari), non le regole della posta.
+    const resolved = deps.classifyV2
+      ? { projectId: null, candidateProjectIds: [], scopeProjectIds: [] }
+      : matchRoutes(messageToRouting(full, text), ctx.routes);
 
     const inserted = await deps.db
       .insert(emailMessages)
@@ -1088,7 +1103,8 @@ async function runClassifyPhase(
   // Nessun runner = fase 2 spenta (vedi GooglePollerDeps.runner).
   if (!deps.runner) return empty;
   try {
-    return await classifyNewMessages(
+    // Area 6, F2: la classificazione nuova dietro MAIL_CLASSIFY_V2.
+    return await (deps.classifyV2 ? classifyNewMessagesV2 : classifyNewMessages)(
       {
         db: deps.db,
         runner: deps.runner,

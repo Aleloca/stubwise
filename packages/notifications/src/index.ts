@@ -121,6 +121,7 @@ export {
 } from "./project-pulse-summary.js";
 
 export {
+  permissionForMailAction,
   permissionForProposalAction,
   permissionsForProposalActions,
 } from "./proposal-permissions.js";
@@ -317,3 +318,4 @@ export {
   type ReviewAccountResolution,
   type ReviewAccountSource,
 } from "./review-account.js";
+export { resolveRecipientUserIds } from "./mail-recipients.js";

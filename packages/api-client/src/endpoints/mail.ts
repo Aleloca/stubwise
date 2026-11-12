@@ -7,6 +7,8 @@ import {
   mailSummarySchema,
   mailThreadDetailSchema,
   mailThreadPageSchema,
+  mailProposalListSchema,
+  mailProposalSchema,
 } from "@stubwise/shared";
 import type {
   Reader,
@@ -20,6 +22,10 @@ import type {
   MailSummary,
   MailThreadDetail,
   MailThreadPage,
+  MailImportance,
+  MailProposal,
+  MailProposalList,
+  MailProposalStatus,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { seg, toQuery } from "../query.js";
@@ -74,6 +80,17 @@ export interface MailThreadQuery {
   cursor?: string | undefined;
   limit?: number | undefined;
   q?: string | undefined;
+  /** Area 6, F2: solo le conversazioni di questa importanza. */
+  importance?: MailImportance | undefined;
+  /** Area 6, F2: solo quelle di questo progetto (id). */
+  project?: string | undefined;
+  /** Area 6, F2: solo quelle classificate senza progetto («Senza progetto»). */
+  noProject?: boolean | undefined;
+  /**
+   * Area 6, F2: le «Importanti» (e il blocco Home «Posta importante»): almeno
+   * un messaggio di importanza alta NON letto, dalla più recente.
+   */
+  important?: boolean | undefined;
 }
 
 export function createMailEndpoints(request: ApiRequest) {
@@ -108,8 +125,31 @@ export function createMailEndpoints(request: ApiRequest) {
       // l'oggetto (area 6, F1.4), che porta anche `q`.
       const options: MailThreadQuery =
         typeof accountOrOptions === "object" ? accountOrOptions : { account: accountOrOptions, cursor, limit };
-      const query = toQuery({ account: options.account, cursor: options.cursor, limit: options.limit, q: options.q });
+      const query = toQuery({
+        account: options.account,
+        cursor: options.cursor,
+        limit: options.limit,
+        q: options.q,
+        importance: options.importance,
+        project: options.project,
+        noProject: options.noProject ? "true" : undefined,
+        important: options.important ? "true" : undefined,
+      });
       return request("GET", `/api/me/mail/threads${query}`, undefined, mailThreadPageSchema);
+    },
+
+    /**
+     * Le proposte CONDIVISE (area 6, F2, D4) che chi guarda può vedere:
+     * quelle di un messaggio della sua casella (`message`), per stato. I
+     * permessi (`canConfirm`, `blockedIndices`, …) li calcola il server.
+     */
+    proposals(filter: { message?: string; status?: MailProposalStatus } = {}): Promise<Reader<MailProposalList>> {
+      return request("GET", `/api/me/mail/proposals${toQuery({ message: filter.message, status: filter.status })}`, undefined, mailProposalListSchema);
+    },
+
+    /** Una proposta condivisa; 404 `not_found` se chi guarda non la vede. */
+    proposal(id: string): Promise<Reader<MailProposal>> {
+      return request("GET", `/api/me/mail/proposals/${seg(id)}`, undefined, mailProposalSchema);
     },
 
     /**

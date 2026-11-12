@@ -43,6 +43,7 @@ export * from "./schemas/roles.js";
 // È esposto come sottopercorso: `@stubwise/shared/mirror-slug`.
 export * from "./schemas/milestone.js";
 export * from "./schemas/google.js";
+export * from "./schemas/mail-proposals.js";
 export * from "./schemas/environment.js";
 export * from "./schemas/release.js";
 export * from "./schemas/pr-correction.js";

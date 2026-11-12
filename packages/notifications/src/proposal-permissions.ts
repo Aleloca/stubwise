@@ -76,3 +76,14 @@ export function permissionsForProposalActions(
   }
   return out;
 }
+
+/**
+ * Area 6, F2: il permesso per un'azione della classificazione NUOVA della
+ * posta. `create_task` è nuovo (`tickets.create`, come il prototipo); gli
+ * altri tipi sono quelli di sempre, dalla stessa mappa.
+ */
+export function permissionForMailAction(type: string): ProjectPermission | null {
+  if (type === "create_task") return "tickets.create";
+  if (type === "create_backlog_item") return "backlog.create";
+  return permissionForProposalAction(type);
+}

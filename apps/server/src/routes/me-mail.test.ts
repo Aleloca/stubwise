@@ -2199,3 +2199,57 @@ describe("POST /api/me/mail/threads/:threadId/read (area 6, F1.3)", () => {
     expect(await unreadOf(threadId)).toEqual([true, null]);
   });
 });
+
+describe("GET /api/me/mail/threads — la classificazione nuova (area 6, F2, task 5)", () => {
+  function getThreads(cookie: string, query = "") {
+    return app.inject({ method: "GET", url: `/api/me/mail/threads${query}`, headers: { cookie } });
+  }
+  type Row = { threadId: string; importance: string | null; dueDate: string | null; analysing: boolean; failed: boolean; projectIds: string[]; projectNames: string[]; snippet: string };
+  const rows = (res: { json(): unknown }) => (res.json() as { items: Row[] }).items;
+
+  it("importanza più alta, scadenza più vicina, in analisi, fallita, progetti per id, l'inizio dell'ultimo messaggio", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject("Audin");
+    const t = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: t, classificationState: "done", importance: "low", dueDate: "2026-12-01", scopeProjectIds: [projectId], receivedAt: new Date("2026-11-01T08:00:00.000Z") });
+    await seedEmail(accountId, { threadId: t, classificationState: "done", importance: "high", dueDate: "2026-11-20", receivedAt: new Date("2026-11-02T08:00:00.000Z") });
+    await seedEmail(accountId, { threadId: t, classificationState: "pending", importance: null, textExcerpt: "\n  Ciao, ecco l'ultimo\nseconda riga", receivedAt: new Date("2026-11-03T08:00:00.000Z") });
+    const other = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: other, classificationState: "failed" });
+
+    const items = rows(await getThreads(memberCookie));
+    const row = items.find((r) => r.threadId === t)!;
+    expect(row).toMatchObject({ importance: "high", dueDate: "2026-11-20", analysing: true, failed: false, projectIds: [projectId], projectNames: ["Audin"], snippet: "Ciao, ecco l'ultimo" });
+    expect(items.find((r) => r.threadId === other)).toMatchObject({ failed: true, importance: null });
+  });
+
+  it("una riga di prima (nessuna classificazione nuova): i default", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, {});
+    expect(rows(await getThreads(memberCookie))[0]).toMatchObject({ importance: null, dueDate: null, analysing: false, failed: false, projectIds: [] });
+  });
+
+  it("i filtri: importanza, progetto, senza progetto, importanti (alta E non letta)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const projectId = await seedProject("Audin");
+    const high = `t-${randomUUID()}`;
+    const highRead = `t-${randomUUID()}`;
+    const none = `t-${randomUUID()}`;
+    const legacy = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: high, classificationState: "done", importance: "high", unread: true, scopeProjectIds: [projectId] });
+    await seedEmail(accountId, { threadId: highRead, classificationState: "done", importance: "high", unread: false });
+    await seedEmail(accountId, { threadId: none, classificationState: "done", importance: "normal" });
+    await seedEmail(accountId, { threadId: legacy });
+    const ids = async (q: string) => rows(await getThreads(memberCookie, q)).map((r) => r.threadId).sort();
+    expect(await ids("?importance=high")).toEqual([high, highRead].sort());
+    expect(await ids(`?project=${projectId}`)).toEqual([high]);
+    expect(await ids("?noProject=true")).toEqual([highRead, none].sort());
+    expect(await ids("?important=true")).toEqual([high]);
+  });
+
+  it("NEGATIVO: i filtri non allargano mai alla casella di un altro", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, { classificationState: "done", importance: "high", unread: true });
+    expect(rows(await getThreads(adminCookie, "?important=true"))).toEqual([]);
+  });
+});

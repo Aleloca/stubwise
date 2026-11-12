@@ -938,3 +938,12 @@ describe("effectiveModelDefaults", () => {
     });
   });
 });
+
+describe("classificazione nuova della posta (area 6, F2)", () => {
+  it("MAIL_CLASSIFY_V2: spenta di default e con la stringa vuota, accesa solo con true", () => {
+    expect(loadWorkerConfig({ ...VALID }).mailClassifyV2).toBe(false);
+    expect(loadWorkerConfig({ ...VALID, MAIL_CLASSIFY_V2: "" }).mailClassifyV2).toBe(false);
+    expect(loadWorkerConfig({ ...VALID, MAIL_CLASSIFY_V2: "true" }).mailClassifyV2).toBe(true);
+    expect(() => loadWorkerConfig({ ...VALID, MAIL_CLASSIFY_V2: "si" })).toThrow(/MAIL_CLASSIFY_V2/);
+  });
+});
