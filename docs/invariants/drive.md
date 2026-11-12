@@ -138,6 +138,14 @@ test `apps/server/src/routes/drive.test.ts`.
   trova niente (test negativo). Lo `snippet` è testo PURO (ts_headline senza
   marcatori, al più 300 caratteri), calcolato in una query sola sulle righe
   restituite; null per le righe trovate per nome.
+- La corsia semantica è ESATTA (review della F3): filtro prima, poi la
+  distanza, il passaggio migliore per file (`DISTINCT ON`), senza `ORDER BY
+  distanza LIMIT`, che scenderebbe sull'indice HNSW e perderebbe file oltre
+  `ef_search`. Il costo, misurato il 12 nov 2026 (Docker Desktop, Apple
+  Silicon): per un full admin che vede tutto, con 50.000 chunk nell'istanza,
+  l'intera richiesta di ricerca sta a 290–340 ms a caldo (1,5 s la prima).
+  Sopra la soglia di ~200 ms: la strada, se serve, è nel registro (HNSW con
+  `ef_search` alto per chi vede tutto).
 - «Riprova» (`POST /api/drive/files/:id/retry`): solo `drive.manage`, solo su
   `no_text` o `error` (409 `not_retryable` altrimenti); `permissions.retry` lo
   calcola il server con la stessa regola.

@@ -226,6 +226,12 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   dell'orchestratrice C(a))*: il server lo permette (`permissions.retry`) su
   `no_text` ed `error`; il desktop mostra «Retry» solo su `error`, come il
   prototipo. Riaprire per `ocr_timeout` e `ocr_unavailable`.
+- La corsia semantica del Drive per chi vede tutto *(S, area 5, review della
+  F3)*: oggi esatta (filtro prima, senza indice); con 50.000 chunk la ricerca
+  di un full admin sta a 290–340 ms. Se le istanze crescono, si torna
+  all'indice HNSW con `SET LOCAL hnsw.ef_search` alto (e, con pgvector ≥ 0.8,
+  `hnsw.iterative_scan`) per chi vede tutti i progetti, lasciando esatto chi
+  ne vede pochi.
 - Credenziali di sola lettura separate per il worker, se lo storage lo
   permette *(S, area 5, fetta 3)*: oggi il worker legge gli oggetti del Drive
   con le credenziali dell'istanza, e la sola lettura è una regola del codice
