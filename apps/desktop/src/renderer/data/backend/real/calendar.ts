@@ -172,7 +172,8 @@ const getEvent: Calendar["getEvent"] = async (id) => {
   try {
     item = (await appClient().calendar.event(id)) as CalendarEventItem;
   } catch (error) {
-    if (error instanceof ApiError && error.status === 404) throw new Error("not_found");
+    // Un id malformato (400 di validazione) è un evento che non c'è.
+    if (error instanceof ApiError && (error.status === 404 || error.status === 400)) throw new Error("not_found");
     throw error;
   }
   const e = eventView(item);

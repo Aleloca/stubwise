@@ -278,6 +278,11 @@ describe("la Posta in lettura: una conversazione", () => {
     expect(m!.classification).toEqual({ state: "off" });
   });
 
+  it("un id malformato (400 di validazione): `not_found`", async () => {
+    installFakeServer({ ...common, "GET /api/me/mail/threads/t%20x": { status: 400, body: { code: "validation", message: "x" } } });
+    await expect(mail.getMailThread(`${ACC}_t x`)).rejects.toThrow("not_found");
+  });
+
   it("un id che non è di una mia conversazione: `not_found`", async () => {
     installFakeServer({ ...common, "GET /api/me/mail/threads/t-9": { status: 404, body: { code: "not_found", message: "x" } } });
     await expect(mail.getMailThread(`${ACC}_t-9`)).rejects.toThrow("not_found");

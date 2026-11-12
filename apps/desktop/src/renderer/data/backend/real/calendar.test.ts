@@ -216,6 +216,11 @@ describe("il Calendario in lettura: un evento, le serie, i calendari", () => {
     await expect(calendar.getEvent(EV2)).rejects.toThrow("not_found");
   });
 
+  it("un id malformato (400 di validazione): `not_found`", async () => {
+    installFakeServer({ "GET /api/me/calendar/events/x": { status: 400, body: { code: "validation", message: "x" } } });
+    await expect(calendar.getEvent("x")).rejects.toThrow("not_found");
+  });
+
   it("un evento fuori dalla finestra letta: `not_found`, come nel prototipo", async () => {
     installFakeServer({
       [`GET /api/me/calendar/events/${EV}`]: { body: item({ startsAt: "2020-01-01T10:00:00.000Z", endsAt: "2020-01-01T11:00:00.000Z" }) },

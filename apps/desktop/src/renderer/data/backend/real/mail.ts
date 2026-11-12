@@ -267,7 +267,8 @@ const getMailThread: Mail["getMailThread"] = async (key) => {
   try {
     t = (await appClient().mail.thread(parts.threadId, parts.accountId)) as ServerThread;
   } catch (error) {
-    if (error instanceof ApiError && error.status === 404) throw new Error("not_found");
+    // Un id malformato (400 di validazione) è una conversazione che non c'è.
+    if (error instanceof ApiError && (error.status === 404 || error.status === 400)) throw new Error("not_found");
     throw error;
   }
   const { mine } = await myAddresses();
