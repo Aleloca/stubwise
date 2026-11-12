@@ -61,10 +61,17 @@ async function etagOf(id: string): Promise<string | null> {
  * quella dell'evento toccato o, se il suo id è cambiato (una serie
  * spostata), la prima. Le altre date le porta la rilettura di `range`.
  */
-function viewOfResult(raw: unknown, id?: string): CalendarEventView {
+function viewOfResult(raw: unknown, id?: string, startsAt?: string): CalendarEventView {
   const items = ((raw as { items?: unknown[] } | null)?.items ?? []) as Raw[];
   for (const row of items) etagMap().set(row.id, row.etag ?? null);
-  const row = items.find((r) => r.id === id) ?? items[0];
+  // Spostata la serie, gli id possono cambiare: torna la data con l'orario
+  // chiesto (review F4), non la prima dell'elenco.
+  const row =
+    items.find((r) => r.id === id) ??
+    (startsAt === undefined
+      ? undefined
+      : items.find((r) => Date.parse(r.startsAt) === Date.parse(startsAt))) ??
+    items[0];
   if (!row) throw new Error("not_found");
   return eventView(calendarEventItemSchema.parse(row));
 }
@@ -176,15 +183,16 @@ async function saving(
   request: (etag: string | null, before: CalendarEventView) => Promise<unknown>,
 ): Promise<CalendarEventView> {
   const before = await currentView(id);
+  const patched = { ...before, ...patch(before) };
   const etag = await etagOf(id);
   const run = async () => {
     try {
-      return viewOfResult(await request(etagMap().get(id) ?? etag, before), id);
+      return viewOfResult(await request(etagMap().get(id) ?? etag, before), id, patched.startsAt);
     } catch (error) {
       throw saveErrorOf(error) === null ? writeError(error) : error;
     }
   };
-  return saveWith({ ...before, ...patch(before) }, run, saveErrorOf);
+  return saveWith(patched, run, saveErrorOf);
 }
 
 const updateEvent: Calendar["updateEvent"] = async (id, patch, scope = "one") =>

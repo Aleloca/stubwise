@@ -425,7 +425,7 @@ describe("F4: il salvataggio verso Google (Q2 = a: sincrono, il «non riuscito»
 });
 
 describe("F4: la risposta delle scritture è un elenco (`{ items }`, calendarWriteResultSchema di 72)", () => {
-  it("«tutta la serie»: l'elenco delle date; la vista è quella dell'evento toccato, o la prima se il suo id è cambiato", async () => {
+  it("«tutta la serie»: l'elenco delle date; la vista è quella dell'evento toccato, o — se il suo id è cambiato — la data con l'orario chiesto", async () => {
     const OTHER = "eeeeeeee-9999-4999-8999-999999999999";
     installFakeServer({
       ...base,
@@ -685,5 +685,28 @@ describe("contratto di 72 (review F4, punto 12): «tutto il giorno» viaggia com
     expect(posts(seen)[0]![2]).toEqual(
       expect.objectContaining({ startsAt: "2026-11-15", endsAt: "2026-11-16", allDay: true }),
     );
+  });
+});
+
+describe("review F4 (minore): spostata la serie, torna la data spostata, non la prima dell'elenco", () => {
+  it("nessun id coincide: si sceglie l'occorrenza con l'orario chiesto", async () => {
+    installFakeServer({
+      ...base,
+      [`POST /api/me/calendar/events/${EV}/move`]: {
+        body: {
+          items: [
+            row({ id: "aaaaaaaa-1111-4111-8111-111111111111", startsAt: "2026-11-06T11:00:00Z", endsAt: "2026-11-06T12:00:00Z" }),
+            row({ id: "bbbbbbbb-2222-4222-8222-222222222222", startsAt: "2026-11-13T11:00:00Z", endsAt: "2026-11-13T12:00:00Z" }),
+          ],
+        },
+      },
+    });
+    const e = await w.moveEvent!(
+      EV,
+      "2026-11-13T11:00:00.000Z",
+      "2026-11-13T12:00:00.000Z",
+      "series",
+    );
+    expect(e.id).toBe("bbbbbbbb-2222-4222-8222-222222222222");
   });
 });
