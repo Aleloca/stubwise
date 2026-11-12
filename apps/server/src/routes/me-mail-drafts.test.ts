@@ -634,8 +634,10 @@ describe("la firma di Gmail (decisione M; basta gmail.modify)", () => {
     return Buffer.from(mime.split("\r\n\r\n").slice(1).join("").replace(/\r\n/g, ""), "base64").toString("utf8");
   };
 
-  it("al salvataggio: letta FRESCA dall'indirizzo mittente, sotto il corpo e PRIMA della citazione, una volta sola; mai in body", async () => {
+  it("al salvataggio: con la copia VECCHIA si rilegge dall'indirizzo mittente; sotto il corpo e PRIMA della citazione, una volta sola; mai in body", async () => {
     const { me, box, message } = await scenario();
+    const { eq: eqOld } = await import("drizzle-orm");
+    await db.update(googleAccounts).set({ signatureFetchedAt: new Date(Date.now() - 25 * 3600_000) }).where(eqOld(googleAccounts.id, box.id));
     const res = await save(me.headers, { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, to: [{ email: "cliente@x.it" }], subject: "Re: Export", body: "Fatto.", quote: true });
     expect(sigCalls).toEqual([box.email]);
     const text = textOf(calls[0]!.input.raw);
@@ -664,15 +666,31 @@ describe("la firma di Gmail (decisione M; basta gmail.modify)", () => {
   it("nessuna firma su Gmail: status none e niente blocco nel messaggio; Google irraggiungibile: si usa la copia, il salvataggio non fallisce", async () => {
     const { me, box } = await scenario();
     signature = null;
+    const { eq: eqStale } = await import("drizzle-orm");
+    const stale = () => db.update(googleAccounts).set({ signatureFetchedAt: new Date(Date.now() - 25 * 3600_000) }).where(eqStale(googleAccounts.id, box.id));
+    await stale();
     const res = await save(me.headers, { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "a" });
     expect(res.json()).toMatchObject({ signature: null, signatureStatus: "none" });
     expect(textOf(calls[0]!.input.raw)).not.toContain("-- ");
     const { eq } = await import("drizzle-orm");
     await db.update(googleAccounts).set({ signatureText: "Ada (copia)" }).where(eq(googleAccounts.id, box.id));
+    await stale();
     sigError = new GoogleApiError({ api: "gmail.settings.sendAs.get", status: 500, code: "server_error", reason: "backendError" });
     const again = await save(me.headers, { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "b" });
     expect(again.statusCode).toBe(200);
     expect(textOf(calls.filter((c) => c.fn === "update").at(-1)!.input.raw)).toContain("-- \nAda (copia)");
+  });
+
+  it("review F3, punto 9: con la copia FRESCA il salvataggio non chiama Google; una firma lunghissima si taglia a 2000 caratteri", async () => {
+    const { me, box } = await scenario();
+    await save(me.headers, { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "a" });
+    expect(sigCalls).toEqual([]);
+    expect(textOf(calls[0]!.input.raw)).toContain("-- \nAda (copia)");
+    const { eq } = await import("drizzle-orm");
+    await db.update(googleAccounts).set({ signatureFetchedAt: null }).where(eq(googleAccounts.id, box.id));
+    signature = "x".repeat(5000);
+    const res = await save(me.headers, { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "b" });
+    expect((res.json() as { signature: string }).signature).toHaveLength(2000);
   });
 
   it("una casella senza gmail.modify: scope_missing nel compositore, e nessuna chiamata", async () => {

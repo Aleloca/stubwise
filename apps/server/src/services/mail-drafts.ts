@@ -50,6 +50,8 @@ export const realMailComposeClient: MailComposeClient = { refreshAccessToken, cr
 
 /** Quanto vale la copia della firma per il compositore, prima di rileggerla. */
 export const SIGNATURE_MAX_AGE_MS = 24 * 3600_000;
+/** Il tetto della firma, in caratteri. */
+export const SIGNATURE_MAX_CHARS = 2000;
 
 type SignatureView = Pick<MailDraft, "signature" | "signatureStatus">;
 
@@ -70,7 +72,9 @@ async function signatureOf(db: Db, accountId: string): Promise<SignatureView> {
  */
 async function refreshSignature(db: Db, client: MailComposeClient, accessToken: string, account: { id: string; email: string }): Promise<void> {
   try {
-    const text = await client.getSendAsSignature({ accessToken, sendAsEmail: account.email });
+    const raw = await client.getSendAsSignature({ accessToken, sendAsEmail: account.email });
+    // Un tetto: una firma è qualche riga, non un documento (review F3, punto 9).
+    const text = raw === null ? null : raw.slice(0, SIGNATURE_MAX_CHARS);
     await db.update(googleAccounts).set({ signatureText: text, signatureFetchedAt: new Date() }).where(eq(googleAccounts.id, account.id));
   } catch {
     // La copia resta quella che c'era.
@@ -360,7 +364,10 @@ export async function saveDraft(
 
   const files = existing ? await attachmentBytes(db, storage, userId, existing.id) : [];
   if (!Array.isArray(files)) return files;
-  await refreshSignature(db, client, accessToken, writable.account);
+  // La copia vale un giorno anche qui (review F3, punto 9): ogni salvataggio
+  // (anche l'autosalvataggio) non rilegge Google.
+  const [cached] = await db.select({ at: googleAccounts.signatureFetchedAt }).from(googleAccounts).where(eq(googleAccounts.id, input.accountId));
+  if (!cached?.at || Date.now() - cached.at.getTime() > SIGNATURE_MAX_AGE_MS) await refreshSignature(db, client, accessToken, writable.account);
   const { signature } = await signatureOf(db, input.accountId);
   const { text, inReplyTo } = await composedBody(db, input.body, input.quote, input.replyToMessageId, signature);
   // Il Message-ID è NOSTRO e stabile per la bozza (review F3, punto 6): il
