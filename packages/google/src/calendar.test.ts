@@ -127,6 +127,31 @@ describe("listEvents", () => {
     expect(page.events[1]).toMatchObject({ etag: null, iCalUID: null, visibility: "default", organizerSelf: false });
   });
 
+  it("F5: gli allegati dell'evento (dove Gemini attacca gli appunti), coi soli campi che servono; assenti = []", async () => {
+    const { impl } = fakeFetch([
+      jsonResponse({
+        items: [
+          {
+            id: "e1",
+            summary: "Revisione",
+            start: { dateTime: "2026-09-10T09:00:00Z" },
+            attachments: [
+              { fileUrl: "https://docs.google.com/document/d/doc1/edit", title: "Notes – Revisione", mimeType: "application/vnd.google-apps.document", fileId: "doc1", iconLink: "x" },
+              { fileUrl: "https://example.com/x.pdf", title: "x.pdf" },
+            ],
+          },
+          { id: "e2", summary: "Senza", start: { dateTime: "2026-09-11T09:00:00Z" } },
+        ],
+      }),
+    ]);
+    const page = await listEvents({ accessToken: "at" }, { fetchImpl: impl });
+    expect(page.events[0]!.attachments).toEqual([
+      { fileId: "doc1", title: "Notes – Revisione", mimeType: "application/vnd.google-apps.document", fileUrl: "https://docs.google.com/document/d/doc1/edit" },
+      { fileId: null, title: "x.pdf", mimeType: null, fileUrl: "https://example.com/x.pdf" },
+    ]);
+    expect(page.events[1]!.attachments).toEqual([]);
+  });
+
   it("F3b: eventType e transparency — assenti valgono default/opaque (le regole di Google), gli altri si portano come sono", async () => {
     const { impl } = fakeFetch([
       jsonResponse({

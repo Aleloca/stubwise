@@ -34,6 +34,14 @@ function normalizeResponseStatus(value: string | undefined): CalendarAttendeeRes
 export const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 
 /** Un evento normalizzato, nella forma che serve a `calendar_events`. */
+/** Un allegato di un evento di Calendar (area 6, F5). */
+export interface CalendarEventAttachment {
+  fileId: string | null;
+  title: string | null;
+  mimeType: string | null;
+  fileUrl: string | null;
+}
+
 export interface GoogleCalendarEvent {
   id: string;
   /** `confirmed | tentative | cancelled` (lo stesso CHECK della tabella). */
@@ -89,6 +97,12 @@ export interface GoogleCalendarEvent {
    * un'ora). `null` se manca.
    */
   timeZone: string | null;
+  /**
+   * Gli allegati dell'evento (area 6, F5): Gemini ci attacca il Doc degli
+   * appunti, ed è così che la sua email si collega all'evento (`fileId`).
+   * Titolo e link sono testo NON FIDATO di chi ha allegato.
+   */
+  attachments: CalendarEventAttachment[];
   /**
    * Dove si tiene, come l'ha scritto chi ha creato l'invito (15 set 2026,
    * §2). Testo LIBERO e NON FIDATO: una stanza, un indirizzo, o un link
@@ -159,6 +173,9 @@ const eventSchema = z.object({
   originalStartTime: dateSchema.optional(),
   location: z.string().optional(),
   hangoutLink: z.string().optional(),
+  attachments: z
+    .array(z.object({ fileUrl: z.string().optional(), title: z.string().optional(), mimeType: z.string().optional(), fileId: z.string().optional() }))
+    .optional(),
   conferenceData: z
     .object({
       entryPoints: z
@@ -255,6 +272,7 @@ function toEvent(raw: z.infer<typeof eventSchema>): GoogleCalendarEvent {
     recurringEventId: raw.recurringEventId ?? null,
     originalStartTime: toDateValue(raw.originalStartTime),
     timeZone: nonEmpty(raw.start?.timeZone),
+    attachments: (raw.attachments ?? []).map((a) => ({ fileId: nonEmpty(a.fileId), title: nonEmpty(a.title), mimeType: nonEmpty(a.mimeType), fileUrl: nonEmpty(a.fileUrl) })),
     // ⚠️ `null` e non `""` quando Google non manda il campo: la convenzione
     // del modulo (vedi `extractRawBody` in `gmail.ts`) distingue «non c'era»
     // da «c'era ed era vuoto», e una stringa vuota farebbe disegnare alla UI
