@@ -180,6 +180,11 @@ export async function meMailProposalsRoutes(instance: FastifyInstance): Promise<
       },
     },
     async (request, reply) =>
-      send(reply, await confirmMailProposalWithMembers(app.db, request.user!, request.params.id, request.body, request.user!.language)),
+      send(
+        reply,
+        await confirmMailProposalWithMembers(app.db, request.user!, request.params.id, request.body, request.user!.language, (line, fields) =>
+          request.log.info(fields, line),
+        ),
+      ),
   );
 }

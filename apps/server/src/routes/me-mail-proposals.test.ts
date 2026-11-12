@@ -404,3 +404,84 @@ describe("passare, spostare, scegliere il progetto, aggiungere Contributor (F2, 
     expect(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, outsider.id)))).toEqual([]);
   });
 });
+
+describe("Contributor: si toglie solo chi questa chiamata ha creato (review della seconda parte)", () => {
+  it("un incaricato GIÀ membro non viene tolto dopo un fallimento", async () => {
+    const { outsider, proposal } = await seed();
+    const { and, eq } = await import("drizzle-orm");
+    const { projectMembers } = await import("@stubwise/db");
+    // Dario è già membro (Contributor, aggiunto da qualcun altro prima).
+    await addMember(app, projectId, outsider.id, "contributor");
+    await db
+      .update(emailProposals)
+      .set({ status: "ignored", classification: { version: 2, summary: "s", actions: [{ type: "create_task", args: { title: "X", description: "", assigneeId: outsider.id, dueDate: null } }] } })
+      .where(eq(emailProposals.id, proposal.id));
+    const lead = await person("project_lead", "Lea");
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal.id, userId: lead.id });
+    const res = await app.inject({ method: "POST", url: `/api/me/mail/proposals/${proposal.id}/confirm-with-members`, headers: lead.headers, payload: { addOutsiders: [outsider.id] } });
+    expect(res.statusCode).toBe(409);
+    expect(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, outsider.id)))).toHaveLength(1);
+  });
+});
+
+describe("le proposte di PRIMA in /proposals (una fonte sola)", () => {
+  async function legacy() {
+    const { ada, carla, message: shared } = await seed();
+    const [message] = await db
+      .insert(emailMessages)
+      .values({ accountId: shared.accountId, gmailMessageId: `g-old-${randomUUID()}`, threadId: "t-old", fromAddress: "cliente@x.it", subject: "Export", receivedAt: new Date(), textExcerpt: "Vecchia." })
+      .returning();
+    const [card] = await db
+      .insert(notifications)
+      .values({
+        userId: ada.id,
+        kind: "google.proposal",
+        projectId,
+        status: "open",
+        event: {
+          kind: "google.proposal",
+          proposalId: randomUUID(),
+          source: "email",
+          from: "Cliente",
+          subject: "Export",
+          question: "?",
+          options: [{ label: "Apri la richiesta «Export»" }, { label: "Sposta" }, { label: "Non fare nulla" }],
+          actions: [{ type: "create_backlog_item", projectId, title: "Export", body: "corpo" }, { type: "reassign_project" }, { type: "ignore" }],
+          recommendedIndex: 0,
+          allowFreeText: false,
+          messageUrl: "https://mail.google.com/x",
+          signal: "request",
+        },
+      })
+      .returning();
+    const [old] = await db
+      .insert(emailProposals)
+      .values({ emailMessageId: message!.id, projectId, status: "proposed", classification: { summary: "s", proposals: [], recommendedIndex: 0 }, proposalNotificationId: card!.id })
+      .returning();
+    return { ada, carla, message: message!, old: old!, card: card! };
+  }
+
+  it("il proprietario della casella la vede nella stessa forma, con le azioni del modello e le loro etichette", async () => {
+    const { ada, old } = await legacy();
+    const item = (await get(ada.headers, `/api/me/mail/proposals/${old.id}`)).json() as { actions: { type: string; label: string; args: Record<string, unknown> }[]; sharedWith: unknown[]; canReassign: boolean; status: string };
+    expect(item.status).toBe("open");
+    expect(item.actions).toEqual([{ type: "create_backlog_item", label: "Apri la richiesta «Export»", args: expect.objectContaining({ title: "Export", description: "corpo" }) }]);
+    expect(item.sharedWith).toEqual([]);
+    expect(item.canReassign).toBe(true);
+  });
+
+  it("NEGATIVO: un altro, anche membro del progetto, non la vede", async () => {
+    const { carla, old } = await legacy();
+    expect((await get(carla.headers, `/api/me/mail/proposals/${old.id}`)).statusCode).toBe(404);
+  });
+
+  it("si decide dalle rotte nuove, passando dal servizio di prima: ignorare chiude la card", async () => {
+    const { ada, old, card } = await legacy();
+    const { eq } = await import("drizzle-orm");
+    expect((await app.inject({ method: "POST", url: `/api/me/mail/proposals/${old.id}/confirm`, headers: ada.headers, payload: { edits: { "0": { title: "Y" } } } })).json()).toMatchObject({ code: "invalid_edits" });
+    const res = await app.inject({ method: "POST", url: `/api/me/mail/proposals/${old.id}/ignore`, headers: ada.headers, payload: {} });
+    expect(res.json()).toEqual({ status: "ignored" });
+    const [n] = await db.select().from(notifications).where(eq(notifications.id, card.id));
+    expect(n!.status).toBe("handled");
+  });
+});
