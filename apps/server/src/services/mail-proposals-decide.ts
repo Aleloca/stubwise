@@ -14,7 +14,7 @@ import {
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
-import type { MailProposal, ProjectPermission } from "@stubwise/shared";
+import { ticketPrioritySchema, ticketStatusSchema, type MailProposal, type ProjectPermission, type TicketPriority, type TicketStatus } from "@stubwise/shared";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
 import { decideLegacy } from "./mail-proposals-legacy.js";
@@ -139,6 +139,34 @@ function validDate(value: unknown): boolean {
   return value === null || (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)));
 }
 
+/**
+ * La patch di una task, ristretta e validata (review F2, punto 5): solo
+ * `status`, `priority` e `assigneeId`, con gli enum delle task. La scrive il
+ * MODELLO (o chi modifica la proposta): un campo in più o un valore inventato
+ * non arrivano mai a `patchTicket`. `null` = patch non valida o vuota.
+ */
+export function validTicketPatch(raw: unknown): { status?: TicketStatus; priority?: TicketPriority; assigneeId?: string | null } | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: { status?: TicketStatus; priority?: TicketPriority; assigneeId?: string | null } = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (key === "status") {
+      const parsed = ticketStatusSchema.safeParse(value);
+      if (!parsed.success) return null;
+      out.status = parsed.data;
+    } else if (key === "priority") {
+      const parsed = ticketPrioritySchema.safeParse(value);
+      if (!parsed.success) return null;
+      out.priority = parsed.data;
+    } else if (key === "assigneeId") {
+      if (value !== null && typeof value !== "string") return null;
+      out.assigneeId = value;
+    } else {
+      return null;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** Applica le modifiche consentite; `null` = modifiche non valide. */
 function applyEdits(action: StoredAction, edit: Record<string, unknown>): StoredAction | null {
   const allowed = EDITABLE[action.type] ?? [];
@@ -149,7 +177,7 @@ function applyEdits(action: StoredAction, edit: Record<string, unknown>): Stored
     if (key === "description" && typeof value !== "string") return null;
     if (key === "dueDate" && !validDate(value)) return null;
     if (key === "assigneeId" && value !== null && typeof value !== "string") return null;
-    if (key === "patch" && (value === null || typeof value !== "object")) return null;
+    if (key === "patch" && !validTicketPatch(value)) return null;
     args[key] = typeof value === "string" ? value.trim() : value;
   }
   return { type: action.type, args };
@@ -259,7 +287,11 @@ export async function confirmMailProposal(
             const [ticket] = await tx.select({ id: tickets.id, number: tickets.number }).from(tickets).where(and(eq(tickets.id, ticketId), eq(tickets.projectId, proposal.projectId)));
             if (!ticket) throw new ActionFailed("target_gone");
             if (action.type === "update_ticket") {
-              const r = await patchTicket(tx, { ticketId, actorId: viewer.id, patch: (a.patch ?? {}) as Parameters<typeof patchTicket>[1]["patch"] });
+              // La patch del modello si rivalida qui: un enum inventato
+              // fallisce pulito, invece di far lanciare `patchTicket` (500).
+              const patch = validTicketPatch(a.patch);
+              if (!patch) throw new ActionFailed("invalid_action");
+              const r = await patchTicket(tx, { ticketId, actorId: viewer.id, patch });
               if (!r.ok) throw new ActionFailed("target_gone");
             } else {
               await addSystemComment(tx, {

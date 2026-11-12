@@ -445,6 +445,37 @@ describe("passare, spostare, scegliere il progetto, aggiungere Contributor (F2, 
     expect((await row(proposal.id))!.status).toBe("actioned");
   });
 
+  it("review F2, punto 5: una patch del modello con uno stato inventato fallisce pulita (failed, mai 500), e non tocca la task", async () => {
+    const { ada, proposal, ticket } = await seed();
+    const { eq } = await import("drizzle-orm");
+    await db
+      .update(emailProposals)
+      .set({ classification: { version: 2, summary: "s", actions: [{ type: "update_ticket", args: { ticketId: ticket.id, patch: { status: "inventato", priority: "high" } } }] } })
+      .where(eq(emailProposals.id, proposal.id));
+    const res = await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { indices: [0] });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ status: "failed", error: "invalid_action" });
+    const [t] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    expect(t!.priority).toBe("medium");
+  });
+
+  it("review F2, punto 5: la patch si modifica solo su status/priority/assigneeId validi — title o un enum inventato sono invalid_edits", async () => {
+    const { ada, proposal, ticket } = await seed();
+    const { eq } = await import("drizzle-orm");
+    await db
+      .update(emailProposals)
+      .set({ classification: { version: 2, summary: "s", actions: [{ type: "update_ticket", args: { ticketId: ticket.id, patch: { priority: "high" } } }] } })
+      .where(eq(emailProposals.id, proposal.id));
+    const confirm = (patch: Record<string, unknown>) => post(ada.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { indices: [0], edits: { "0": { patch } } });
+    expect((await confirm({ title: "rinominata" })).json()).toMatchObject({ code: "invalid_edits" });
+    // Un campo fuori elenco insieme a uno valido: rifiutata lo stesso, non «ripulita».
+    expect((await confirm({ priority: "high", title: "rinominata" })).json()).toMatchObject({ code: "invalid_edits" });
+    expect((await confirm({ priority: "altissima" })).json()).toMatchObject({ code: "invalid_edits" });
+    expect((await confirm({ priority: "urgent" })).json()).toMatchObject({ status: "confirmed" });
+    const [t] = await db.select().from(tickets).where(eq(tickets.id, ticket.id));
+    expect(t!.priority).toBe("urgent");
+  });
+
   it("aggiungere Contributor: senza project.members.manage 403; con, l'incaricato entra e la task nasce assegnata a lui", async () => {
     const { ada, outsider, proposal } = await seed();
     await onlyTask(proposal.id, outsider.id);
