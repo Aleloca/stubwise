@@ -148,15 +148,14 @@ export function syncStateOf(a: ServerGoogleAccount): "ok" | "syncing" | "failed"
 
 /**
  * La casella si allinea con «Aggiorna ora»: ogni casella collegata, anche
- * con le proposte spente (decisione del maintainer, come il prototipo). Un
- * server che risponde ancora `proposals_disabled` dà l'errore.
+ * con le proposte spente (decisione del maintainer, come il prototipo).
  */
 export const syncable = (a: ServerGoogleAccount) => a.disabledAt === null;
 
 /**
  * «Aggiorna ora» di una casella. Una richiesta già in attesa o di meno di un
  * minuto fa (429) non è un errore: il giro c'è già. Scaduta →
- * `google_not_connected` («Ricollega»), proposte spente → `proposals_disabled`.
+ * `google_not_connected` («Ricollega»).
  */
 export async function requestSync(a: ServerGoogleAccount): Promise<void> {
   try {
@@ -165,7 +164,6 @@ export async function requestSync(a: ServerGoogleAccount): Promise<void> {
     if (error instanceof ApiError) {
       if (error.status === 429) return;
       if (error.code === "account_disabled") throw new Error("google_not_connected");
-      if (error.code === "proposals_disabled") throw new Error("proposals_disabled");
       if (error.status === 404) throw new Error("not_found");
     }
     throw error;

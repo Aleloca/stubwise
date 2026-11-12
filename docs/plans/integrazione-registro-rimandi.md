@@ -278,8 +278,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   worker non la produce più).
 - Una casella con le proposte spente si legge e si allinea come le altre
   *(M, decisione del maintainer: come il prototipo; chiusa con la F1 del
-  server)*: il poller la legge comunque e «Aggiorna ora» funziona. Finché il
-  server non lo fa, il suo 409 `proposals_disabled` si mostra come errore.
+  server, 02df56c8)*: il poller la legge comunque e «Aggiorna ora» funziona;
+  «Proposte attive» spegne solo le proposte.
 
 - I riferimenti a Google Drive nel Drive dei progetti (area 5, D1 = a): le
   cartelle collegate, «Aggiungi da Google Drive», «Quale progetto?», i file

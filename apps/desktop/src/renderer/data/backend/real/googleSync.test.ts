@@ -96,11 +96,9 @@ describe("«Aggiorna ora» della Posta", () => {
     await expect(mail.syncMailbox("ada@acme.test")).resolves.toBeUndefined();
   });
 
-  it("una casella scaduta è `google_not_connected` (Ricollega); una con le proposte spente `proposals_disabled`", async () => {
+  it("una casella scaduta è `google_not_connected` (Ricollega)", async () => {
     server(() => ({ status: 409, body: { code: "account_disabled", message: "x" } }));
     await expect(mail.syncMailbox("ada@acme.test")).rejects.toThrow("google_not_connected");
-    server(() => ({ status: 409, body: { code: "proposals_disabled", message: "x" } }));
-    await expect(mail.syncMailbox("ada@acme.test")).rejects.toThrow("proposals_disabled");
   });
 
   it("un'email che non è fra le mie caselle: `not_found`, senza chiamare il server", async () => {
