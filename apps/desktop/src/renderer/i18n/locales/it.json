@@ -6358,7 +6358,10 @@
         "address": "uno degli indirizzi non è valido",
         "recipients": "aggiungi almeno un destinatario",
         "other": "qualcosa non ha funzionato"
-      }
+      },
+      "changedInGmail": "Questa bozza è stata modificata su Gmail.",
+      "keepMine": "Tieni la mia",
+      "openGmail": "Apri su Gmail"
     },
     "readState": {
       "reconnect": "Ricollega l'account Google per tenere letto e non letto allineati con Gmail.",

@@ -67,7 +67,8 @@ export function useComposerDraft({
   const saveMutation = useSaveMailDraft();
   const [fields, setFieldsState] = useState<ComposerFields | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
-  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "failed">("idle");
+  // `conflict`: la bozza è cambiata su Gmail nel frattempo (build app): non vince l'ultimo.
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "failed" | "conflict">("idle");
 
   const fieldsRef = useRef<ComposerFields | null>(null);
   const modeRef = useRef(mode);
@@ -121,13 +122,20 @@ export function useComposerDraft({
       await saveMutation.mutateAsync(inputOf(f, modeRef.current));
       inFlight.current -= 1;
       settle();
-    } catch {
+    } catch (error) {
       inFlight.current -= 1;
       // Un salvataggio più vecchio che fallisce non conta: uno più nuovo ha
       // portato (o sta portando) il testo più recente, e decide lui.
       if (mine !== issued.current) return settle();
       newestFailed.current = true;
       dirty.current = true;
+      // Cambiata su Gmail: non si risalva da soli (darebbe di nuovo lo stesso
+      // errore); decide chi scrive, «Tieni la mia» o «Apri su Gmail».
+      if (error instanceof Error && error.message === "draft_changed") {
+        clearTimer();
+        setStatus("conflict");
+        return;
+      }
       setStatus("failed");
     }
   };
@@ -268,6 +276,21 @@ export function useComposerDraft({
     retrySave: () => {
       dirty.current = true;
       void saveRef.current();
+    },
+    /** «Tieni la mia»: salva sopra la versione cambiata su Gmail. */
+    keepMine: async () => {
+      const f = fieldsRef.current;
+      if (!f || gone.current) return;
+      clearTimer();
+      setStatus("saving");
+      try {
+        await saveMutation.mutateAsync({ ...inputOf(f, modeRef.current), overwrite: true });
+        dirty.current = false;
+        newestFailed.current = false;
+        setStatus("saved");
+      } catch {
+        setStatus("failed");
+      }
     },
   };
 }

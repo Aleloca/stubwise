@@ -96,6 +96,7 @@ const DRAFT = "dfdfdfdf-1111-4111-8111-111111111111";
 const OUT = "0f0f0f0f-1111-4111-8111-111111111111";
 let saved: unknown[] = [];
 let newEmail = false;
+let changedInGmail = false;
 let threads: unknown[] = [];
 let proposals: unknown[] = [];
 let confirmAnswer: { status?: number; body: unknown } = { body: {} };
@@ -105,6 +106,7 @@ let readAnswer: { status?: number; body: unknown } = { body: detail };
 beforeEach(() => {
   saved = [];
   newEmail = false;
+  changedInGmail = false;
   threads = [thread];
   proposals = [proposal];
   confirmAnswer = { body: { status: "confirmed", results: [{ kind: "request", id: "r", code: "AUD-R9" }] } };
@@ -151,6 +153,9 @@ beforeEach(() => {
     },
     "PUT /api/me/mail/drafts": (req) => {
       saved.push(req.body);
+      if (changedInGmail && !(req.body as { overwrite?: boolean }).overwrite) {
+        return { status: 409, body: { code: "draft_changed", message: "x" } };
+      }
       const b = req.body as Record<string, unknown>;
       return { body: { ...b, id: DRAFT, attachments: [], updatedAt: new Date().toISOString() } };
     },
@@ -211,4 +216,19 @@ describe("scrivere nella Posta della build app", () => {
     expect(await screen.findByRole("button", { name: "Undo" })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/mail");
   });
+
+  it("una bozza cambiata su Gmail nel frattempo: lo dice; «Tieni la mia» la scrive sopra", async () => {
+    changedInGmail = true;
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText("Ecco il preventivo per la consegna.");
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const form = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), { target: { value: "La mia versione." } });
+    expect(await within(form).findByText("This draft was changed in Gmail.", {}, { timeout: 4000 })).toBeInTheDocument();
+    expect(within(form).getByRole("button", { name: "Open in Gmail" })).toBeInTheDocument();
+    fireEvent.click(within(form).getByRole("button", { name: "Keep mine" }));
+    await waitFor(() => expect(saved.at(-1)).toMatchObject({ body: "La mia versione.", overwrite: true }));
+    await waitFor(() => expect(within(form).queryByText("This draft was changed in Gmail.")).toBeNull());
+  });
 });
+

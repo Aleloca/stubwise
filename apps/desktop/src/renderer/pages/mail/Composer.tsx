@@ -55,6 +55,9 @@ import { ADDRESS, RecipientField } from "./RecipientField";
 import { useComposerDraft } from "./useComposerDraft";
 import { mailClaudeDraft } from "./mailFeatures";
 
+/** Le bozze su Gmail («Apri su Gmail» di una bozza cambiata là). */
+const GMAIL_DRAFTS = "https://mail.google.com/mail/#drafts";
+
 // La casella di scrittura della Posta (shape mail-compose §3, §5, §6): la
 // stessa casella della conversazione con Claude, allargata a un modulo —
 // bordo `rule-strong`, 8 px, nessuna ombra — con le righe A, Cc, Oggetto
@@ -710,7 +713,26 @@ export function Composer(props: ComposerProps) {
         />
         {mailClaudeDraft() && <ClaudeDraftButton flow={claude} />}
         <span className="ml-auto flex items-center gap-1">
-          {status === "failed" ? (
+          {status === "conflict" ? (
+            <span role="alert" className="flex items-center gap-1 px-1 text-xs text-critical">
+              <span>{t("mail.compose.changedInGmail")}</span>
+              <button
+                type="button"
+                onClick={() => void draft.keepMine()}
+                className="rounded-sm font-medium underline underline-offset-2"
+              >
+                {t("mail.compose.keepMine")}
+              </button>
+              ·
+              <button
+                type="button"
+                onClick={() => window.open(GMAIL_DRAFTS, "_blank", "noopener")}
+                className="rounded-sm font-medium underline underline-offset-2"
+              >
+                {t("mail.compose.openGmail")}
+              </button>
+            </span>
+          ) : status === "failed" ? (
             <span className="flex items-center gap-1 px-1 text-xs text-critical">
               {t("mail.compose.saveFailed")} ·
               <button

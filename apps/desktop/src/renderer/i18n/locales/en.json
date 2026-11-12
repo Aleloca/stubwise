@@ -6358,7 +6358,10 @@
         "address": "one of the addresses isn't valid",
         "recipients": "add at least one recipient",
         "other": "something went wrong"
-      }
+      },
+      "changedInGmail": "This draft was changed in Gmail.",
+      "keepMine": "Keep mine",
+      "openGmail": "Open in Gmail"
     },
     "readState": {
       "reconnect": "Reconnect your Google account to keep read and unread in step with Gmail.",
