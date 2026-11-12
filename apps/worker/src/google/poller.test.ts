@@ -3935,3 +3935,54 @@ describe("history fatta solo di cambi di etichetta (review F1, punto 6)", () => 
     expect(message!.unread).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Area 6, F2 (task 2): l'ingestione senza ammissione, dietro MAIL_CLASSIFY_V2
+// ---------------------------------------------------------------------------
+
+describe("ingestione della classificazione nuova (F2)", () => {
+  function newsletter(id: string) {
+    const m = message({ id, from: "Novità <news@negozio-qualunque.it>", subject: "Le offerte della settimana" });
+    m.headers["list-unsubscribe"] = "<mailto:off@negozio-qualunque.it>";
+    m.headers["message-id"] = `<${id}@negozio-qualunque.it>`;
+    return m;
+  }
+
+  it("con il flag acceso entra TUTTA la posta ricevuta: nessuna ammissione, nessuno scarto, il Message-ID salvato", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["n1"], historyId: "1010" }, messages: { n1: newsletter("n1") } });
+
+    const stats = await pollGoogleOnce({ ...deps(account, gmail), classifyV2: true });
+
+    expect(stats.ingested).toBe(1);
+    const [row] = await db.select().from(emailMessages);
+    expect(row).toMatchObject({ gmailMessageId: "n1", admitted: true, rfcMessageId: "<n1@negozio-qualunque.it>", projectId: null, scopeProjectIds: [] });
+    expect(await db.select().from(emailRejections)).toEqual([]);
+  });
+
+  it("con il flag acceso la posta MANDATA dalla casella resta fuori (non è una richiesta ricevuta)", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["s1"], historyId: "1010" }, messages: { s1: message({ id: "s1", from: `Io <${MAILBOX}>` }) } });
+    await pollGoogleOnce({ ...deps(account, gmail), classifyV2: true });
+    expect(await db.select().from(emailMessages)).toEqual([]);
+  });
+
+  it("con il flag spento resta l'ammissione di oggi: la newsletter è tenuta fuori", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["n1"], historyId: "1010" }, messages: { n1: newsletter("n1") } });
+    await pollGoogleOnce(deps(account, gmail));
+    expect(await db.select().from(emailMessages)).toEqual([]);
+    expect(await db.select().from(emailRejections)).toHaveLength(1);
+  });
+
+  it("il Message-ID si salva anche col flag spento", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const m1 = message({ id: "m1" });
+    m1.headers["message-id"] = "<m1@cliente.com>";
+    await pollGoogleOnce(deps(account, fakeGmail({ history: { addedMessageIds: ["m1"], historyId: "1010" }, messages: { m1 } })));
+    const [row] = await db.select().from(emailMessages);
+    expect(row!.rfcMessageId).toBe("<m1@cliente.com>");
+  });
+});
