@@ -49,6 +49,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lt,
   ne,
   notExists,
   notInArray,
@@ -64,6 +65,7 @@ import { getContentLanguage } from "../settings.js";
 import {
   buildMilestoneProposal,
   CALENDAR_CANCELLED_OUTCOME,
+  CALENDAR_LOOKBACK_DAYS,
   CALENDAR_DECLINED_OUTCOME,
   CALENDAR_MAX_PAGES,
   CALENDAR_PAGE_SIZE,
@@ -2520,6 +2522,61 @@ async function runAccountTick(
  */
 const admittedAlias = alias(emailMessages, "admitted_sibling");
 
+/**
+ * Quanti giorni oltre l'inizio della finestra del calendario (−30) una riga
+ * resta, prima di potarla: uno, così il bordo non oscilla fra un giro e
+ * l'altro (F3b).
+ */
+export const CALENDAR_PRUNE_GRACE_DAYS = 1;
+
+/** L'esito di una proposta del calendario rimasta aperta su un evento uscito dalla finestra. */
+export const CALENDAR_EXPIRED_OUTCOME = { type: "expired" } as const;
+
+/**
+ * LA POTATURA DEL CALENDARIO (area 6, F3b). Con TUTTI gli eventi la tabella
+ * cresce di centinaia di righe per casella: a regime deve restare quella della
+ * finestra. Prima si tolgono le righe vecchie SENZA una proposta aperta;
+ * POI si chiudono come `expired` le proposte rimaste aperte su eventi vecchi
+ * (riga e card insieme), che se ne vanno al giro dopo — mai una card che
+ * punta a una riga sparita. Nessuna tabella punta a `calendar_events`, e il
+ * registro decisioni tiene i fatti per conto suo.
+ */
+export async function pruneOldCalendarEvents(db: Db, now: Date = new Date()): Promise<number> {
+  // L'orologio del GIRO (`deps.now`), non quello del database: la finestra
+  // del calendario si calcola con quello, e i due devono essere d'accordo.
+  const cutoff = new Date(now.getTime() - (CALENDAR_LOOKBACK_DAYS + CALENDAR_PRUNE_GRACE_DAYS) * 24 * 3600_000);
+  const removed = await db
+    .delete(calendarEventsTable)
+    .where(
+      and(
+        lt(calendarEventsTable.startsAt, cutoff),
+        sql`(${calendarEventsTable.proposalNotificationId} is null or ${calendarEventsTable.outcome} is not null)`,
+      ),
+    )
+    .returning({ id: calendarEventsTable.id });
+  await db.transaction(async (tx) => {
+    const expired = await tx
+      .update(calendarEventsTable)
+      .set({ outcome: CALENDAR_EXPIRED_OUTCOME })
+      .where(
+        and(
+          lt(calendarEventsTable.startsAt, cutoff),
+          isNotNull(calendarEventsTable.proposalNotificationId),
+          isNull(calendarEventsTable.outcome),
+        ),
+      )
+      .returning({ notificationId: calendarEventsTable.proposalNotificationId });
+    const cards = expired.flatMap((r) => (r.notificationId ? [r.notificationId] : []));
+    if (cards.length > 0) {
+      await tx
+        .update(notifications)
+        .set({ status: "handled", handledAt: new Date() })
+        .where(and(inArray(notifications.id, cards), eq(notifications.status, "open")));
+    }
+  });
+  return removed.length;
+}
+
 export async function pruneOldEmails(db: Db, retentionDays: number): Promise<number> {
   if (retentionDays <= 0) return 0;
 
@@ -2658,6 +2715,11 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
     stats.pruned = await pruneOldEmails(deps.db, deps.retentionDays);
   } catch (err) {
     logger.error(`google: potatura dei messaggi fallita: ${errText(err)}`);
+  }
+  try {
+    stats.pruned += await pruneOldCalendarEvents(deps.db, (deps.now ?? (() => new Date()))());
+  } catch (err) {
+    logger.error(`google: potatura del calendario fallita: ${errText(err)}`);
   }
   try {
     await pruneOldRejections(deps.db, REJECTIONS_RETENTION_DAYS);
