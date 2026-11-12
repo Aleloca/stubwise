@@ -319,3 +319,4 @@ export {
   type ReviewAccountSource,
 } from "./review-account.js";
 export { resolveRecipientUserIds } from "./mail-recipients.js";
+export { canSeeMeeting, meetingAudienceEmails, meetingViewerIds } from "./meeting-visibility.js";
