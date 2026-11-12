@@ -4382,6 +4382,14 @@ export const googleAccounts = pgTable(
     gmailHistoryId: text("gmail_history_id"),
     /** Cursore incrementale del calendario `primary`. Null = primo giro. */
     calendarSyncToken: text("calendar_sync_token"),
+    /**
+     * Area 6, F3b: la LINEA DI BASE del calendario. `null` = il prossimo giro
+     * completo è il primo dopo «tutti gli eventi»: ogni riga NUOVA che risulta
+     * candidata nasce con `outcome = { type: "baseline" }` (chiusa: niente
+     * proposta, card, né azione automatica), e a fine giro qui si scrive
+     * `now()`. Così il deploy non sforna proposte sugli eventi già esistenti.
+     */
+    calendarBaselineAt: timestamp("calendar_baseline_at", { withTimezone: true }),
     connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
     nextSyncAt: timestamp("next_sync_at", { withTimezone: true }).notNull().defaultNow(),
@@ -4826,6 +4834,20 @@ export const calendarEvents = pgTable(
      * serie, insieme ad `accountId`.
      */
     recurringEventId: text("recurring_event_id"),
+    /**
+     * Area 6, F3b: il calendario salva TUTTI gli eventi della finestra.
+     * `proposal_candidate` separa l'evento VISTO dal candidato a una proposta:
+     * solo un candidato può diventarlo (a flag spento: le regole di oggi,
+     * `routeEvent(...).inScope`). Default true: le righe di prima erano tutte
+     * in perimetro.
+     */
+    proposalCandidate: boolean("proposal_candidate").notNull().default(true),
+    /** Il tipo di Google (`default`, `outOfOffice`, `focusTime`, `fromGmail`…), aperto. */
+    eventType: text("event_type"),
+    /** `opaque` | `transparent`: un evento «libero» non occupa (F4). */
+    transparency: text("transparency"),
+    /** Chi ha deciso il progetto: le regole, la dottrina nuova, una persona. */
+    projectBy: text("project_by").$type<"rules" | "model" | "manual">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -4840,6 +4862,8 @@ export const calendarEvents = pgTable(
     // "Le occorrenze di questa serie": la fase D ("gli appuntamenti visti" per
     // serie) e il propose phase (isReadyForProposal consapevole della serie).
     index("calendar_events_account_recurring_idx").on(table.accountId, table.recurringEventId),
+    // F3b: `range` per casella e finestra, e la potatura (`starts_at` vecchio).
+    index("calendar_events_account_starts_idx").on(table.accountId, table.startsAt),
     check(
       "calendar_events_status_chk",
       sql`status is null or status in ('confirmed', 'tentative', 'cancelled')`,
