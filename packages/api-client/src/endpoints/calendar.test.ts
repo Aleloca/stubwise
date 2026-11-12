@@ -75,6 +75,9 @@ describe("endpoints calendar — l'intervallo della griglia", () => {
 
     await c.calendar.range({ from: "2026-08-31T00:00:00.000Z", to: "2026-10-05T00:00:00.000Z", account: ID });
     expect(fetchImpl.mock.calls.at(-1)![0]).toContain(`account=${ID}`);
+    // F3b: la lista leggera, su richiesta.
+    await c.calendar.range({ from: "2026-08-31T00:00:00.000Z", to: "2026-10-05T00:00:00.000Z", fields: "summary" });
+    expect(fetchImpl.mock.calls.at(-1)![0]).toContain("fields=summary");
   });
 
   it("range: 400 invalid_range — 'to' non è dopo 'from'", async () => {

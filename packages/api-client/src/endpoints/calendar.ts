@@ -36,6 +36,8 @@ export interface CalendarRange {
   from: string;
   to: string;
   account?: string;
+  /** F3b: `summary` = la lista leggera (i campi pesanti in `event(id)`), senza le cancellate. */
+  fields?: "summary";
 }
 
 /**
@@ -83,7 +85,7 @@ export function createCalendarEndpoints(request: ApiRequest) {
      * oltre i 100 giorni.
      */
     range(input: CalendarRange): Promise<Reader<CalendarEventPage>> {
-      const query = toQuery({ from: input.from, to: input.to, account: input.account });
+      const query = toQuery({ from: input.from, to: input.to, account: input.account, fields: input.fields });
       return request("GET", `/api/me/calendar/range${query}`, undefined, calendarEventPageSchema);
     },
 
