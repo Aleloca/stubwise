@@ -69,6 +69,13 @@ describe("le proposte condivise: lettura", () => {
     expect(q.get("status")).toBe("open");
   });
 
+  it("le proposte di una conversazione: il thread Gmail e la sua casella", async () => {
+    const { seen } = installFakeServer({ "GET /api/me/mail/proposals": list([proposal()]) });
+    await mail.listMailProposals({ threadId: `${ACC}_t-1` });
+    const q = query(seen[0]!.path);
+    expect([q.get("thread"), q.get("account"), q.get("message")]).toEqual(["t-1", ACC, null]);
+  });
+
   it("una proposta per id; non mia o inesistente è `not_found`", async () => {
     installFakeServer({
       [`GET /api/me/mail/proposals/${P1}`]: { body: proposal() },

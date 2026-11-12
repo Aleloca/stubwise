@@ -3,6 +3,7 @@ import type { MailProposal as ServerProposal } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import { isLiveProposal } from "../../../domain/mail/liveProposal";
 import { appClient } from "./client";
+import { splitThreadKey } from "./mailKeys";
 import { proposalViewOf } from "./mailProposalView";
 
 // Le proposte accanto all'email nella build app (area 6, fetta 2): la rotta
@@ -21,7 +22,14 @@ type Decision = Awaited<ReturnType<ReturnType<typeof appClient>["mail"]["confirm
 const viewsOf = (items: readonly unknown[]) => items.map((p) => proposalViewOf(p as ServerProposal));
 
 const listMailProposals: Mail["listMailProposals"] = async (filters = {}) => {
-  const { items } = await appClient().mail.proposals({ message: filters.sourceId, status: filters.status });
+  // Una conversazione: il thread Gmail e la sua casella (vanno insieme).
+  const parts = filters.threadId === undefined ? null : splitThreadKey(filters.threadId);
+  if (filters.threadId !== undefined && !parts) return [];
+  const { items } = await appClient().mail.proposals({
+    message: filters.sourceId,
+    status: filters.status,
+    ...(parts ? { thread: parts.threadId, account: parts.accountId } : {}),
+  });
   return viewsOf(items);
 };
 

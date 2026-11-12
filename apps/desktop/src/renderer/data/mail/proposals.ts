@@ -202,10 +202,16 @@ export async function listMailProposals(
   filters: MailProposalFilters = {},
 ): Promise<MailProposalView[]> {
   const me = await gate("mail.listMailProposals");
+  // Una conversazione: i Message-ID dei suoi messaggi.
+  const inThread =
+    filters.threadId === undefined
+      ? null
+      : new Set(state.mailMessages.filter((m) => m.threadId === filters.threadId).map((m) => m.messageId));
   return state.mailProposals
     .filter(
       (p) =>
         (filters.sourceId === undefined || p.sourceId === filters.sourceId) &&
+        (inThread === null || inThread.has(p.sourceId)) &&
         (filters.status === undefined || p.status === filters.status) &&
         canSeeMailProposal(me, p),
     )

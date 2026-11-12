@@ -2542,6 +2542,8 @@ export interface MailProposal {
 export interface MailProposalFilters {
   sourceId?: string;
   status?: MailProposal["status"];
+  /** Le proposte dei messaggi di una conversazione (la pagina di lettura). */
+  threadId?: string;
 }
 
 /**

@@ -290,5 +290,13 @@ describe("la Posta nella build app", () => {
     renderRoute(`/mail/${KEY}`);
     expect(await screen.findByText(/Create request in AUD: “Preventivo Rossi”/)).toBeInTheDocument();
   });
+
+  it("la conversazione chiede le proposte dei suoi messaggi, non l'elenco intero", async () => {
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText(/Create request in AUD: “Preventivo Rossi”/);
+    const reads = seen.filter((r) => r.path.startsWith("/api/me/mail/proposals?") && r.path.includes("thread="));
+    expect(reads.length).toBeGreaterThan(0);
+    expect(new URLSearchParams(reads[0]!.path.split("?")[1]).get("account")).toBe(ACC);
+  });
 });
 

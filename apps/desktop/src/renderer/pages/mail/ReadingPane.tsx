@@ -96,7 +96,8 @@ export function ReadingPane({
   const { t } = useTranslation();
   const toast = useToast();
   const thread = useMailThread(threadId);
-  const proposals = useMailProposals({});
+  // Le proposte dei messaggi di questa conversazione, non l'elenco intero.
+  const proposals = useMailProposals({ threadId });
   const peopleList = usePeople().data;
   const projects = useProjects().data;
   const markRead = useMarkMailRead();
