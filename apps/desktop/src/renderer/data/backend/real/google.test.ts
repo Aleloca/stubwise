@@ -231,7 +231,7 @@ describe("le caselle nella Posta", () => {
             email: "ada@other.test",
             proposalsEnabled: false,
             lastSyncAt: "2026-11-12T09:00:00.000Z",
-            missingScopes: ["https://www.googleapis.com/auth/gmail.modify"],
+            disabledAt: "2026-11-11T08:00:00.000Z",
           }),
         ],
       },
@@ -241,6 +241,14 @@ describe("le caselle nella Posta", () => {
       { personId: ME_ID, email: "ada@acme.test", proposalsEnabled: true, syncedAt: "2026-11-12T09:58:00.000Z", sync: "ok", stale: false, expired: false },
       { personId: ME_ID, email: "ada@other.test", proposalsEnabled: false, syncedAt: "2026-11-12T09:00:00.000Z", sync: "ok", stale: true, expired: true },
     ]);
+  });
+
+  it("una casella a cui mancano solo gli scope nuovi legge ancora: non è scaduta", async () => {
+    installFakeServer({
+      "GET /api/me/google/accounts": { body: [account({ missingScopes: ["https://www.googleapis.com/auth/gmail.modify"] })] },
+    });
+    session.personId = ME_ID;
+    expect((await mail.listMailboxes())[0]!.expired).toBe(false);
   });
 
   it("«Proposte attive» si scrive sulla casella della sua email; una che non è mia è not_found", async () => {

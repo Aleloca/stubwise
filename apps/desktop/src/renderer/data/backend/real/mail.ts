@@ -1,7 +1,7 @@
 import type * as Fake from "../../api";
 import type { MailboxView } from "../../types";
 import { appClient, session } from "./client";
-import { myAccounts, needsReconnect } from "./google";
+import { myAccounts } from "./google";
 import { partialNamespace } from "./notIntegrated";
 
 // La Posta nella build app (area 6, fetta 1): la lettura che il server sa già
@@ -25,7 +25,9 @@ const listMailboxes: Mail["listMailboxes"] = async () => {
       syncedAt,
       sync: "ok",
       stale: at - Date.parse(syncedAt) > MAIL_STALE_MS,
-      expired: needsReconnect(a),
+      // Scaduta è la casella disattivata (token revocato): una a cui mancano solo
+      // gli scope nuovi legge ancora, e il cassetto chiede di ricollegarla.
+      expired: a.disabledAt !== null,
     };
   });
 };
