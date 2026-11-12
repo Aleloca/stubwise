@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { googleAccountSchema, googleConnectResponseSchema, googleWorkspaceOptionSchema } from "@stubwise/shared";
+import {
+  googleAccountSchema,
+  googleConnectResponseSchema,
+  googleSyncResponseSchema,
+  googleWorkspaceOptionSchema,
+} from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { seg } from "../query.js";
 
@@ -29,6 +34,17 @@ export function createGoogleEndpoints(request: ApiRequest) {
     /** «Proposte attive per questa casella». */
     setProposals(id: string, proposalsEnabled: boolean) {
       return request("PATCH", `/api/me/google/accounts/${seg(id)}`, { proposalsEnabled }, googleAccountSchema);
+    },
+    /**
+     * «Aggiorna ora»: il giro di questa casella adesso. 202 `queued` o
+     * `already_queued`; 429 `sync_too_soon` (meno di 60 s dall'ultima, con
+     * `retryAfterSeconds` nei `details` dell'errore); 409 `account_disabled`
+     * («Ricollega») o `proposals_disabled` (la casella non si sincronizza);
+     * 404 una casella non tua. La fine si legge su `accounts()`:
+     * `syncRequestedAt` torna null, e `lastSyncAt` avanza se il giro è riuscito.
+     */
+    sync(id: string) {
+      return request("POST", `/api/me/google/accounts/${seg(id)}/sync`, undefined, googleSyncResponseSchema);
     },
     /** Scollega: revoca su Google e toglie la posta ingerita della casella. */
     disconnect(id: string): Promise<void> {

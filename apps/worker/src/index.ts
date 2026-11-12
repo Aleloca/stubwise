@@ -897,6 +897,9 @@ startGooglePoller({
   db,
   encryptionKey: config.encryptionKey,
   intervalMinutes: config.gmailPollMinutes,
+  // «Aggiorna ora» (area 6, F1.2): la sveglia dal NOTIFY del server, col
+  // ripiego ogni 15 s sulla colonna. Spento il poller, niente LISTEN.
+  listen: (channel, cb) => client.listen(channel, cb),
   retentionDays: config.gmailRetentionDays,
   classifyMaxPerTick: config.gmailMaxPerTick,
   // Fase 2 del tick: la classificazione dei segnali. Stesso runner CLI del

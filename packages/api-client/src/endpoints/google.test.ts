@@ -50,4 +50,17 @@ describe("endpoints google", () => {
     await d.c.google.disconnect(ACCOUNT);
     expect(last(d.fetchImpl)).toMatchObject({ url: `/api/me/google/accounts/${ACCOUNT}`, method: "DELETE" });
   });
+
+  it("«Aggiorna ora»: POST sulla casella, esito queued/already_queued; un 429 porta retryAfterSeconds nei details", async () => {
+    const q = client({ status: "queued" }, 202);
+    expect(await q.c.google.sync(ACCOUNT)).toEqual({ status: "queued" });
+    expect(last(q.fetchImpl)).toMatchObject({ url: `/api/me/google/accounts/${ACCOUNT}/sync`, method: "POST" });
+    const r = client({ code: "sync_too_soon", message: "x", retryAfterSeconds: 42 }, 429);
+    await expect(r.c.google.sync(ACCOUNT)).rejects.toMatchObject({ status: 429, code: "sync_too_soon", details: { retryAfterSeconds: 42 } });
+  });
+
+  it("una casella senza `syncRequestedAt` (un server di prima) si legge con null", async () => {
+    const a = client([account]);
+    expect(await a.c.google.accounts()).toMatchObject([{ syncRequestedAt: null }]);
+  });
 });

@@ -3492,3 +3492,168 @@ describe("fase 7b — voce di backlog, milestone o promemoria, proposte o automa
     expect(await db.select().from(backlogJobs)).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// «Aggiorna ora» (area 6, F1.2): la richiesta, il claim e la sveglia
+// ---------------------------------------------------------------------------
+
+describe("«Aggiorna ora»", () => {
+  const transient = () => new GoogleApiError({ api: "gmail.history.list", status: 503, code: "backendError", reason: "backendError" });
+
+  it("una casella con la richiesta in attesa passa PRIMA delle altre dovute, anche con un batch pieno", async () => {
+    await seedAccount({ email: `a-${randomUUID()}@acme.com`, nextSyncAt: new Date(Date.now() - 3_600_000) });
+    const asked = await seedAccount({ nextSyncAt: new Date(), syncRequestedAt: new Date() });
+    const claimed = await claimDueAccounts(db, 1, 5);
+    expect(claimed.map((row) => row.id)).toEqual([asked.id]);
+  });
+
+  it("un giro riuscito azzera la richiesta e fa avanzare lastSyncAt", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date(Date.now() - 1000) });
+    await pollGoogleOnce(deps(account, fakeGmail({})));
+    const row = await reload(account.id);
+    expect(row.syncRequestedAt).toBeNull();
+    expect(row.lastSyncAt).not.toBeNull();
+  });
+
+  it("un giro FALLITO la azzera lo stesso (la fine si vede), e lastSyncAt non avanza", async () => {
+    const account = await seedAccount({
+      nextSyncAt: new Date(Date.now() - 1000),
+      syncRequestedAt: new Date(Date.now() - 1000),
+      gmailHistoryId: "100",
+    });
+    await pollGoogleOnce(deps(account, fakeGmail({ historyError: transient() })));
+    const row = await reload(account.id);
+    expect(row.syncAttempts).toBe(1);
+    expect(row.syncRequestedAt).toBeNull();
+    expect(row.lastSyncAt).toBeNull();
+  });
+
+  it("una casella che il giro disabilita: la richiesta si azzera", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date(Date.now() - 1000) });
+    const gmail = fakeGmail({
+      refreshError: new GoogleApiError({ api: "oauth.token.refresh_token", status: 400, code: "invalid_grant", reason: "invalid_grant" }),
+    });
+    await pollGoogleOnce(deps(account, gmail));
+    const row = await reload(account.id);
+    expect(row.disabledReason).toBe("invalid_grant");
+    expect(row.syncRequestedAt).toBeNull();
+  });
+
+  it("una richiesta arrivata DURANTE il giro non si azzera: la serve il giro dopo", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date(Date.now() - 5000) });
+    const gmail = fakeGmail({});
+    const refresh = gmail.refreshAccessToken.bind(gmail);
+    gmail.refreshAccessToken = (async (...args: Parameters<typeof refresh>) => {
+      // La rotta, a giro in corso (dopo il claim).
+      await db.update(googleAccounts).set({ syncRequestedAt: sql`now()`, nextSyncAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+      return refresh(...args);
+    }) as typeof gmail.refreshAccessToken;
+    await pollGoogleOnce(deps(account, gmail));
+    const row = await reload(account.id);
+    expect(row.syncRequestedAt).not.toBeNull();
+    // E resta DOVUTA: l'esito del giro non la rimanda all'intervallo.
+    expect(row.nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    expect(await claimDueAccounts(db, 10, 5)).toHaveLength(1);
+  });
+
+  it("una richiesta a giro in corso su una casella che il giro disabilita: azzerata anche lei", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000) });
+    const gmail = fakeGmail({});
+    gmail.refreshAccessToken = (async () => {
+      await db.update(googleAccounts).set({ syncRequestedAt: sql`now()`, nextSyncAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+      throw new GoogleApiError({ api: "oauth.token.refresh_token", status: 400, code: "invalid_grant", reason: "invalid_grant" });
+    }) as typeof gmail.refreshAccessToken;
+    await pollGoogleOnce(deps(account, gmail));
+    const row = await reload(account.id);
+    expect(row.disabledReason).toBe("invalid_grant");
+    expect(row.syncRequestedAt).toBeNull();
+  });
+
+  it("il NOTIFY sveglia il poller: il giro parte subito, non all'intervallo", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() + 3_600_000) });
+    const controller = new AbortController();
+    let wake: ((payload: string) => void) | undefined;
+    const stop = startGooglePoller({
+      ...deps(account, fakeGmail({})),
+      intervalMinutes: 60,
+      // Il ripiego lontano: qui deve bastare la sveglia.
+      requestPollMs: 3_600_000,
+      listen: async (_channel, cb) => {
+        wake = cb;
+      },
+      signal: controller.signal,
+    });
+    try {
+      await vi.waitFor(() => expect(wake).toBeDefined());
+      await db.update(googleAccounts).set({ syncRequestedAt: sql`now()`, nextSyncAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+      wake!(JSON.stringify({ accountId: account.id }));
+      await vi.waitFor(async () => expect((await reload(account.id)).syncRequestedAt).toBeNull(), { timeout: 5000 });
+      expect((await reload(account.id)).lastSyncAt).not.toBeNull();
+    } finally {
+      stop();
+      controller.abort();
+    }
+  });
+
+  it("senza NOTIFY (LISTEN caduto) ci pensa il ripiego periodico", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(), syncRequestedAt: new Date() });
+    const controller = new AbortController();
+    const stop = startGooglePoller({
+      ...deps(account, fakeGmail({})),
+      intervalMinutes: 60,
+      requestPollMs: 50,
+      listen: async () => {
+        throw new Error("LISTEN giù");
+      },
+      signal: controller.signal,
+    });
+    try {
+      await vi.waitFor(async () => expect((await reload(account.id)).syncRequestedAt).toBeNull(), { timeout: 5000 });
+    } finally {
+      stop();
+      controller.abort();
+    }
+  });
+
+  it("una sveglia a giro in corso non si perde: il giro dopo parte appena finisce quello", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() + 3_600_000) });
+    const controller = new AbortController();
+    let wake: ((payload: string) => void) | undefined;
+    let release: (() => void) | undefined;
+    let refreshes = 0;
+    const gmail = fakeGmail({});
+    const refresh = gmail.refreshAccessToken.bind(gmail);
+    gmail.refreshAccessToken = (async (...args: Parameters<typeof refresh>) => {
+      refreshes += 1;
+      if (refreshes === 1) {
+        // Il primo giro resta aperto finché il test non lo lascia andare; nel
+        // frattempo arriva una richiesta nuova.
+        await new Promise<void>((resolve) => (release = resolve));
+      }
+      return refresh(...args);
+    }) as typeof gmail.refreshAccessToken;
+    const stop = startGooglePoller({
+      ...deps(account, gmail),
+      intervalMinutes: 60,
+      requestPollMs: 3_600_000,
+      listen: async (_channel, cb) => {
+        wake = cb;
+      },
+      signal: controller.signal,
+    });
+    try {
+      await vi.waitFor(() => expect(wake).toBeDefined());
+      await db.update(googleAccounts).set({ syncRequestedAt: sql`now()`, nextSyncAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+      wake!("{}");
+      await vi.waitFor(() => expect(release).toBeDefined());
+      await db.update(googleAccounts).set({ syncRequestedAt: sql`now()`, nextSyncAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+      wake!("{}");
+      release!();
+      await vi.waitFor(() => expect(refreshes).toBe(2), { timeout: 5000 });
+      await vi.waitFor(async () => expect((await reload(account.id)).syncRequestedAt).toBeNull(), { timeout: 5000 });
+    } finally {
+      stop();
+      controller.abort();
+    }
+  });
+});
