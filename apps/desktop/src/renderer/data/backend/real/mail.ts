@@ -5,6 +5,7 @@ import type * as Fake from "../../api";
 import type { MailAddress, MailboxView, MailMessageView, MailSearchHit, MailThreadFilters, MailThreadRow } from "../../types";
 import { appClient, session } from "./client";
 import { myAccounts, requestSync, syncStateOf, whenSynced } from "./google";
+import { splitThreadKey, threadKey } from "./mailKeys";
 import { mailProposalFunctions } from "./mailProposals";
 import { partialNamespace } from "./notIntegrated";
 
@@ -53,19 +54,6 @@ const syncMailbox: Mail["syncMailbox"] = async (email) => {
 
 
 // --- Le conversazioni -------------------------------------------------------------
-
-/**
- * L'id di una conversazione nell'app: l'uuid della casella + `_` + l'id
- * Gmail del thread (passa per l'indirizzo, `/mail/<id>`, che ammette
- * lettere, cifre, `-` e `_`). L'id Gmail da solo non basta: lo stesso thread
- * su due caselle mie sono due conversazioni (e il server vuole `account`).
- */
-const UUID_LENGTH = 36;
-const threadKey = (accountId: string, gmailThreadId: string) => `${accountId}_${gmailThreadId}`;
-function splitThreadKey(key: string): { accountId: string; threadId: string } | null {
-  if (key.length <= UUID_LENGTH + 1 || key[UUID_LENGTH] !== "_") return null;
-  return { accountId: key.slice(0, UUID_LENGTH), threadId: key.slice(UUID_LENGTH + 1) };
-}
 
 /** «Bob Rossi <bob@x.test>» → nome e indirizzo; un indirizzo nudo è anche il nome. Io sono io sul mio indirizzo. */
 function addressOf(raw: string, mine: ReadonlySet<string>): MailAddress {
