@@ -127,3 +127,58 @@ describe("recoverInterruptedSends", () => {
     expect(sent).toEqual([]);
   });
 });
+
+describe("review F3, punto 2: un intoppo del DB non fa uscire il worker, e un invio riuscito non diventa un doppione", () => {
+  /** Il db, con le prime `n` transazioni che falliscono (dopo che Gmail ha mandato). */
+  function flakyTransactions(n: number): Db {
+    let left = n;
+    return new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop !== "transaction") return Reflect.get(target, prop, receiver);
+        return async (fn: Parameters<Db["transaction"]>[0]) => {
+          if (left > 0) {
+            left -= 1;
+            throw new Error("connessione persa");
+          }
+          return target.transaction(fn);
+        };
+      },
+    }) as Db;
+  }
+
+  it("Gmail ha mandato, la scrittura di `sent` fallisce una volta: si ritenta, ed è sent (una sola email)", async () => {
+    const { row } = await queued(-1000);
+    const { c, sent } = client();
+    await sendDueMail({ ...deps(c), db: flakyTransactions(1) });
+    expect(sent).toHaveLength(1);
+    expect((await reload(row.id)).state).toBe("sent");
+  });
+
+  it("…e se fallisce sempre: failed con `sent_unrecorded` (MAI other: Elimina e Riprova manderebbero un doppione)", async () => {
+    const { row } = await queued(-1000);
+    const { c, sent } = client();
+    await sendDueMail({ ...deps(c), db: flakyTransactions(99) });
+    expect(sent).toHaveLength(1);
+    expect(await reload(row.id)).toMatchObject({ state: "failed", error: "sent_unrecorded" });
+  });
+
+  it("un errore del DB scrivendo il fallimento non fa RIFIUTARE il giro (il worker non esce)", async () => {
+    await queued(-1000);
+    const { c } = client(async () => {
+      throw new GoogleApiError({ api: "gmail.drafts.send", status: 400, code: "bad_request", reason: "invalid" });
+    });
+    let updates = 0;
+    const broken = new Proxy(db, {
+      get(target, prop, receiver) {
+        if (prop === "update") {
+          updates += 1;
+          // La prima è il claim; la seconda (il fallimento) si rompe.
+          if (updates >= 2) throw new Error("db giù");
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as Db;
+    await expect(sendDueMail({ ...deps(c), db: broken })).resolves.toBeDefined();
+  });
+});
+

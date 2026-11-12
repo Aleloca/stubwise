@@ -280,10 +280,13 @@ describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () =
     const again = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
     const { mailOutgoing } = await import("@stubwise/db");
     const { eq, sql } = await import("drizzle-orm");
-    await db.update(mailOutgoing).set({ sendAt: sql`now() - interval '1 second'` }).where(eq(mailOutgoing.id, again.messageId));
+    // Il worker l'ha già reclamata (la corsa vera): Annulla non vale più.
+    await db.update(mailOutgoing).set({ state: "sending" }).where(eq(mailOutgoing.id, again.messageId));
     const late = await post(me.headers, `/api/me/mail/outgoing/${again.messageId}/undo`);
     expect(late.statusCode).toBe(409);
     expect((late.json() as { code: string }).code).toBe("too_late");
+    const [still] = await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, again.messageId));
+    expect(still!.state).toBe("sending");
   });
 
   it("Annulla a 9 s con un'altra bozza nello stesso slot: l'invio si FERMA comunque, e il contenuto torna NON salvato (correzione di 46)", async () => {
@@ -326,6 +329,60 @@ describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () =
     await db.update(mailOutgoing).set({ state: "failed", error: "quota" }).where(eq(mailOutgoing.id, sent.messageId));
     const discarded = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/discard`);
     expect((discarded.json() as { draft: { id: string } }).draft.id).toBe(draftId);
+  });
+
+  it("review F3, punto 4: Annulla decide sullo STATO sotto il lock, non sull'orologio — `queued` oltre send_at (orologi sfasati) si annulla ancora", async () => {
+    const { me, draftId } = await savedDraft();
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq, sql } = await import("drizzle-orm");
+    await db.update(mailOutgoing).set({ sendAt: sql`now() - interval '1 second'` }).where(eq(mailOutgoing.id, sent.messageId));
+    const undo = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`);
+    expect(undo.statusCode).toBe(200);
+    expect((await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, sent.messageId)))[0]!.state).toBe("cancelled");
+  });
+
+  it("review F3, punto 2: `sent_unrecorded` (Gmail l'ha mandata) — Riprova ed Elimina sono rifiutati, niente doppioni", async () => {
+    const { me, draftId } = await savedDraft();
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    await db.update(mailOutgoing).set({ state: "failed", error: "sent_unrecorded" }).where(eq(mailOutgoing.id, sent.messageId));
+    const retry = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/retry`);
+    expect(retry.statusCode).toBe(409);
+    expect((retry.json() as { code: string }).code).toBe("sent_unrecorded");
+    const discard = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/discard`);
+    expect((discard.json() as { code: string }).code).toBe("sent_unrecorded");
+    expect((await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, sent.messageId)))[0]).toMatchObject({ state: "failed", error: "sent_unrecorded" });
+  });
+
+  it("review F3, punto 3: Riprova rifà i controlli e trattiene 10 s come Invia, con un Annulla che funziona", async () => {
+    const { me, box, draftId } = await savedDraft();
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    await db.update(mailOutgoing).set({ state: "failed", error: "quota" }).where(eq(mailOutgoing.id, sent.messageId));
+    // Nel frattempo la casella è stata disabilitata: Riprova non parte.
+    await db.update(googleAccounts).set({ disabledAt: new Date(), disabledReason: "revoked" }).where(eq(googleAccounts.id, box.id));
+    const refused = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/retry`);
+    expect((refused.json() as { code: string }).code).toBe("account_disabled");
+    expect((await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, sent.messageId)))[0]!.state).toBe("failed");
+    await db.update(googleAccounts).set({ disabledAt: null, disabledReason: null }).where(eq(googleAccounts.id, box.id));
+    const retried = (await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/retry`)).json() as { undoUntil: string; state: string };
+    expect(retried.state).toBe("queued");
+    expect(new Date(retried.undoUntil).getTime() - Date.now()).toBeGreaterThan(5_000);
+    expect((await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`)).statusCode).toBe(200);
+  });
+
+  it("review F3, punto 5: Invia su una bozza il cui ultimo invio è FALLITO restituisce quello, senza un secondo invio", async () => {
+    const { me, draftId } = await savedDraft();
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    await db.update(mailOutgoing).set({ state: "failed", error: "quota" }).where(eq(mailOutgoing.id, sent.messageId));
+    const again = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string; state: string };
+    expect(again).toMatchObject({ messageId: sent.messageId, state: "failed" });
+    expect(await db.select().from(mailOutgoing).where(eq(mailOutgoing.draftId, draftId))).toHaveLength(1);
   });
 
   it("NEGATIVO: l'invio e la bozza di un altro sono 404", async () => {
