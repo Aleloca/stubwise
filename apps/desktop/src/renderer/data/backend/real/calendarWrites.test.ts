@@ -514,3 +514,39 @@ describe("F4: il libero/occupato col metodo (188b8340 di 72)", () => {
     ).rejects.toThrow("invalid: range");
   });
 });
+
+describe("review F4 (critico): l'etag non resta vecchio", () => {
+  it("cambiato su Google → «Reload» → la scrittura dopo parte con l'etag FRESCO e riesce", async () => {
+    let serverEtag = '"e1"';
+    const { seen } = installFakeServer({
+      ...base,
+      [`GET /api/me/calendar/events/${EV}`]: () => ({ body: row({ etag: serverEtag }) }),
+      "GET /api/me/calendar/range": () => ({ body: { items: [row({ etag: serverEtag })], nextCursor: null } }),
+      [`POST /api/me/calendar/events/${EV}/move`]: (req: SeenRequest) =>
+        (req.body as { etag: string }).etag === serverEtag
+          ? { body: { items: [row({ ...(req.body as Record<string, unknown>), etag: '"e3"' })] } }
+          : { status: 409, body: { code: "changed_on_google", message: "x" } },
+    });
+    await w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one");
+    // Google cambia l'etag (un invitato risponde) e il poller riscrive la riga.
+    serverEtag = '"e7"';
+    const failed = await w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T13:00:00.000Z", "one");
+    expect(failed.save).toEqual({ state: "failed", error: "changed" });
+    await w.revertEvent!(EV);
+    const ok = await w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T13:00:00.000Z", "one");
+    expect(ok.save).toEqual({ state: "saved" });
+    expect(seen.filter((r) => r.path.endsWith("/move")).map((r) => (r.body as { etag: string }).etag).at(-1)).toBe('"e7"');
+  });
+
+  it("una lettura della griglia porta l'etag fresco: la scrittura dopo usa quello", async () => {
+    const { seen } = installFakeServer({
+      ...base,
+      "GET /api/me/calendar/range": { body: { items: [row({ etag: '"e5"' })], nextCursor: null } },
+      [`POST /api/me/calendar/events/${EV}/move`]: (req: SeenRequest) => ({ body: { items: [row({ ...(req.body as Record<string, unknown>) })] } }),
+    });
+    await w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one");
+    await calendar.listEvents({ from: "2026-11-13T00:00:00Z", to: "2026-11-14T00:00:00Z" });
+    await w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T13:00:00.000Z", "one");
+    expect(seen.filter((r) => r.path.endsWith("/move")).map((r) => (r.body as { etag: string }).etag).at(-1)).toBe('"e5"');
+  });
+});

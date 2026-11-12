@@ -12,7 +12,7 @@ import { spanOf } from "../../calendar/span";
 import type { CalendarEventView, CalendarSeriesView, CalendarSyncView } from "../../types";
 import { pendingSave, withPendingSaves } from "./calendarSave";
 import { ACTION_TO_SERVER, bySeries, eventView, seriesIdOf, seriesView } from "./calendarView";
-import { calendarWriteFunctions } from "./calendarWrites";
+import { calendarWriteFunctions, rememberEtags } from "./calendarWrites";
 import { appClient, session } from "./client";
 import { daysFromToday } from "./clock";
 import { myAccounts, requestSync, syncable, syncStateOf, whenSynced } from "./google";
@@ -54,7 +54,9 @@ async function eventsIn(from: number, to: number): Promise<CalendarEventView[]> 
     to: new Date(to).toISOString(),
     fields: "summary",
   });
-  return page.items.map((e) => eventView(e as CalendarEventItem)).sort(byStart);
+  return fresh(page.items)
+    .map((e) => eventView(e as CalendarEventItem))
+    .sort(byStart);
 }
 
 /** Un intervallo richiesto, in ms, tagliato alla finestra letta; non valido → `invalid: range`. */
@@ -68,6 +70,14 @@ function rangeOf(fromIso: string, toIso: string): { from: number; to: number } {
 
 const isoOfMs = (ms: number) => new Date(ms).toISOString().replace(/\.000Z$/, "Z");
 
+/** Le righe lette portano l'etag fresco per le scritture (F4, review). */
+const fresh = <T extends { id: string; etag?: string | null }>(
+  items: readonly T[],
+): readonly T[] => {
+  rememberEtags(items);
+  return items;
+};
+
 const listEvents: Calendar["listEvents"] = async (range) => {
   const { from, to } = rangeOf(range.from, range.to);
   if (to <= from) return [];
@@ -78,7 +88,9 @@ const listEvents: Calendar["listEvents"] = async (range) => {
     fields: "summary",
   });
   // Gli eventi in salvataggio o non salvati (F4) si vedono al loro posto nuovo.
-  return withPendingSaves(page.items.map((e) => eventView(e as CalendarEventItem))).sort(byStart);
+  return withPendingSaves(fresh(page.items).map((e) => eventView(e as CalendarEventItem))).sort(
+    byStart,
+  );
 };
 
 /**
@@ -121,6 +133,7 @@ const getEvent: Calendar["getEvent"] = async (id) => {
       throw new Error("not_found");
     throw error;
   }
+  rememberEtags([item]);
   const e = pendingSave(item.id) ?? eventView(item);
   const w = calendarWindow();
   if (!(Date.parse(e.startsAt) < Date.parse(w.to) && Date.parse(e.endsAt) > Date.parse(w.from))) {

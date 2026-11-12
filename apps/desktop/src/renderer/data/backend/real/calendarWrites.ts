@@ -30,6 +30,17 @@ function etagMap(): Map<string, string | null> {
   return map;
 }
 
+/**
+ * Ogni lettura delle righe (la griglia, il dettaglio) porta l'etag FRESCO:
+ * Google lo cambia anche quando un invitato risponde, e il poller riscrive la
+ * riga (review F4, critico). Senza, un etag vecchio darebbe
+ * `changed_on_google` per tutta la sessione.
+ */
+export function rememberEtags(rows: readonly { id: string; etag?: string | null }[]): void {
+  const map = etagMap();
+  for (const r of rows) map.set(r.id, r.etag ?? null);
+}
+
 /** L'etag da cui parte una scrittura: quello ricordato, altrimenti la riga riletta. */
 async function etagOf(id: string): Promise<string | null> {
   const known = etagMap().get(id);
@@ -139,6 +150,9 @@ async function currentView(id: string): Promise<CalendarEventView> {
   if (pending) return pending;
   try {
     const raw = (await appClient().calendar.event(id)) as Raw;
+    // L'etag è quello che la persona ha VISTO (la griglia, il dettaglio): una
+    // rilettura qui al momento della scrittura sovrascriverebbe in silenzio una
+    // modifica fatta su Google che non ha visto. Solo se non ce n'è uno.
     if (!etagMap().has(id)) etagMap().set(id, raw.etag ?? null);
     return eventView(calendarEventItemSchema.parse(raw));
   } catch (error) {
@@ -199,6 +213,8 @@ const retrySave: Calendar["retrySave"] = async (id) => retryPending(id, saveErro
 /** «Undo the change»: torna la riga del server (dove niente è cambiato). */
 const revertEvent: Calendar["revertEvent"] = async (id) => {
   dropPending(id);
+  // «Reload» (e «Undo»): l'etag ricordato può essere quello vecchio; la prossima scrittura rilegge.
+  etagMap().delete(id);
 };
 
 /** Eliminare (solo l'organizzatore): le proposte aperte nate da lui se ne vanno con lui (Q5 = a). */
