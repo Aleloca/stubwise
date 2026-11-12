@@ -121,7 +121,7 @@ describe("«Aggiorna ora» della Posta", () => {
 });
 
 describe("«Aggiorna ora» del Calendario", () => {
-  it("accoda il giro delle mie caselle che il server allinea (non le scadute né quelle con le proposte spente)", async () => {
+  it("accoda il giro delle mie caselle collegate, anche con le proposte spente (non le scadute)", async () => {
     rows = [
       account(),
       account({ id: ACC2, email: "ada@beta.test", proposalsEnabled: false }),
@@ -129,7 +129,10 @@ describe("«Aggiorna ora» del Calendario", () => {
     ];
     const { seen } = server(queued);
     await calendar.syncCalendar();
-    expect(seen.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([`/api/me/google/accounts/${ACC}/sync`]);
+    expect(seen.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([
+      `/api/me/google/accounts/${ACC}/sync`,
+      `/api/me/google/accounts/${ACC2}/sync`,
+    ]);
     expect((await calendar.listCalendars())[0]!.sync).toBe("syncing");
   });
 

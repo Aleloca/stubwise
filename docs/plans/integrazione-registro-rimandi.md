@@ -265,10 +265,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   degli invitati (solo l'indirizzo e la risposta): il dettaglio mostra
   l'indirizzo. La serie non porta la sua regola (`RRULE` sta sulle
   occorrenze): la colonna non la dice a parole.
-- Una casella con le proposte spente non si allinea *(F1.2)*: il poller del
-  server non la legge, quindi «Aggiorna ora» non la include (il Calendario
-  allinea le altre caselle; la Posta lo dice sulla casella). Nel prototipo
-  le proposte spente non fermano l'allineamento.
+- Una casella con le proposte spente si legge e si allinea come le altre
+  *(M, decisione del maintainer: come il prototipo; chiusa con la F1 del
+  server)*: il poller la legge comunque e «Aggiorna ora» funziona. Finché il
+  server non lo fa, il suo 409 `proposals_disabled` si mostra come errore.
 
 - I riferimenti a Google Drive nel Drive dei progetti (area 5, D1 = a): le
   cartelle collegate, «Aggiungi da Google Drive», «Quale progetto?», i file

@@ -146,8 +146,12 @@ export function syncStateOf(a: ServerGoogleAccount): "ok" | "syncing" | "failed"
   return "ok";
 }
 
-/** La casella si allinea con «Aggiorna ora»: il server non allinea le disattivate né quelle con le proposte spente. */
-export const syncable = (a: ServerGoogleAccount) => a.disabledAt === null && a.proposalsEnabled;
+/**
+ * La casella si allinea con «Aggiorna ora»: ogni casella collegata, anche
+ * con le proposte spente (decisione del maintainer, come il prototipo). Un
+ * server che risponde ancora `proposals_disabled` dà l'errore.
+ */
+export const syncable = (a: ServerGoogleAccount) => a.disabledAt === null;
 
 /**
  * «Aggiorna ora» di una casella. Una richiesta già in attesa o di meno di un
