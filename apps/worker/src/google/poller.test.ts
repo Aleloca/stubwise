@@ -4338,3 +4338,28 @@ describe("review F3b, punto 1: la linea di base si chiude SOLO dopo un resync co
     expect(after.calendarSyncToken).toBeNull();
   });
 });
+
+describe("review F3b, punto 2: un evento cancellato chiude la sua card, e la potatura non toglie una riga con la card aperta", () => {
+  it("cancellato su Google: outcome cancelled E card chiusa, nella stessa transazione", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "e1" })], nextSyncToken: "t1" }]) }));
+    const [row] = await calendarRows();
+    expect(row!.proposalNotificationId).not.toBeNull();
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    const [fresh] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce(deps(fresh!, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [calendarEvent({ id: "e1", status: "cancelled", title: "", attendees: [] })], nextSyncToken: "t2" }]) }));
+    const [card] = await db.select().from(notifications).where(eq(notifications.id, row!.proposalNotificationId!));
+    expect(card!.status).toBe("handled");
+  });
+
+  it("la potatura non toglie una riga vecchia la cui card è ancora aperta (anche con un esito scritto)", async () => {
+    const { pruneOldCalendarEvents } = await import("./poller.js");
+    const account = await seedAccount({});
+    const [n] = await db.insert(notifications).values({ userId: account.userId, kind: "google.proposal", status: "open", event: {} } as typeof notifications.$inferInsert).returning();
+    await db.insert(calendarEvents).values({ accountId: account.id, googleEventId: "vecchio", startsAt: new Date(Date.now() - 40 * 86_400_000), fingerprint: "x", outcome: { type: "cancelled" }, proposalNotificationId: n!.id });
+    await pruneOldCalendarEvents(db);
+    expect((await calendarRows()).map((r) => r.googleEventId)).toEqual(["vecchio"]);
+  });
+});

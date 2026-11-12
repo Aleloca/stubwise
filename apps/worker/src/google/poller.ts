@@ -1321,20 +1321,32 @@ async function closeCancelledEvents(
   googleEventIds: string[],
 ): Promise<number> {
   if (googleEventIds.length === 0) return 0;
-  const closed = await db
-    .update(calendarEventsTable)
-    .set({
-      status: "cancelled",
-      outcome: sql`coalesce(${calendarEventsTable.outcome}, ${JSON.stringify(CALENDAR_CANCELLED_OUTCOME)}::jsonb)`,
-    })
-    .where(
-      and(
-        eq(calendarEventsTable.accountId, accountId),
-        inArray(calendarEventsTable.googleEventId, googleEventIds),
-      ),
-    )
-    .returning({ id: calendarEventsTable.id });
-  return closed.length;
+  // Riga e card nella STESSA transazione, come il ramo del rifiuto (review
+  // F3b, punto 2): una card rimasta aperta su un evento cancellato puntava a
+  // una riga che la potatura poi toglieva.
+  return db.transaction(async (tx) => {
+    const closed = await tx
+      .update(calendarEventsTable)
+      .set({
+        status: "cancelled",
+        outcome: sql`coalesce(${calendarEventsTable.outcome}, ${JSON.stringify(CALENDAR_CANCELLED_OUTCOME)}::jsonb)`,
+      })
+      .where(
+        and(
+          eq(calendarEventsTable.accountId, accountId),
+          inArray(calendarEventsTable.googleEventId, googleEventIds),
+        ),
+      )
+      .returning({ id: calendarEventsTable.id, notificationId: calendarEventsTable.proposalNotificationId });
+    const cards = closed.flatMap((r) => (r.notificationId ? [r.notificationId] : []));
+    if (cards.length > 0) {
+      await tx
+        .update(notifications)
+        .set({ status: "handled", handledAt: new Date() })
+        .where(and(inArray(notifications.id, cards), eq(notifications.status, "open")));
+    }
+    return closed.length;
+  });
 }
 
 /**
@@ -2649,6 +2661,8 @@ export async function pruneOldCalendarEvents(db: Db, now: Date = new Date()): Pr
       and(
         lt(calendarEventsTable.startsAt, cutoff),
         sql`(${calendarEventsTable.proposalNotificationId} is null or ${calendarEventsTable.outcome} is not null)`,
+        // Mai una riga la cui card è ancora APERTA (review F3b, punto 2).
+        sql`not exists (select 1 from notifications n where n.id = ${calendarEventsTable.proposalNotificationId} and n.status = 'open')`,
       ),
     )
     .returning({ id: calendarEventsTable.id });
