@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { calendar } from "./calendar";
+import { bySeries, calendar, eventView, seriesView } from "./calendar";
 import { session, setAppClientForTests } from "./client";
 import { installFakeServer, ME_ID, PROJECT_ID } from "./fakeServer";
 
@@ -358,5 +358,69 @@ describe("«Prossimi appuntamenti» in un fuso negativo", () => {
       },
     });
     expect((await calendar.listUpcomingEvents()).map((e) => e.title)).toEqual(["Ferie"]);
+  });
+});
+
+describe("F3b: il calendario con TUTTI gli eventi", () => {
+  // Le forme del piano della F3b (additive): finché lo schema di
+  // `@stubwise/shared` non le porta, il client le toglie al parse. Qui si
+  // prova la LETTURA dell'adattatore sulle righe come le manderà il server;
+  // le prove dal server finto arrivano con lo schema di 72.
+  const view = (over: Record<string, unknown> = {}) => eventView(item(over) as never);
+
+  it("un evento non riconosciuto (`recognized: false`): «No project», nessun suggerimento", () => {
+    expect(view({ recognized: false, projectId: null, projectName: null, projectBy: null })).toMatchObject({
+      recognized: false,
+      projectId: null,
+      projectBy: null,
+    });
+  });
+
+  it("anche se il server mandasse un progetto automatico su un evento non riconosciuto: nessun suggerimento", () => {
+    expect(view({ recognized: false, projectBy: "rules" })).toMatchObject({ projectId: null, projectBy: null });
+  });
+
+  it("un progetto messo a mano resta, anche su un evento non riconosciuto", () => {
+    expect(view({ recognized: false, projectBy: "manual" })).toMatchObject({ projectId: PROJECT_ID, projectBy: "manual" });
+  });
+
+  it("`projectBy`: le regole e il modello sono un suggerimento, «manual» è a mano", () => {
+    expect(["rules", "model", "manual"].map((b) => view({ recognized: true, projectBy: b }).projectBy)).toEqual([
+      "model",
+      "model",
+      "manual",
+    ]);
+  });
+
+  it("`eventType` e `transparency` arrivano alla griglia; un tipo che non conosco resta com'è", () => {
+    expect(view({ eventType: "outOfOffice", transparency: "opaque" })).toMatchObject({ eventType: "outOfOffice", transparency: "opaque" });
+    expect(view({ eventType: "somethingNew", transparency: "transparent" })).toMatchObject({ eventType: "somethingNew", transparency: "transparent" });
+  });
+
+  it("un server di prima, senza i campi nuovi (anche dal server finto): riconosciuto, «default», occupato, il progetto come prima", async () => {
+    // Fixture SENZA recognized / projectBy / eventType / transparency, apposta.
+    installFakeServer({ "GET /api/me/calendar/range": range([item()]) });
+    const [e] = await calendar.listEvents({ from: "2026-11-12T00:00:00Z", to: "2026-11-13T00:00:00Z" });
+    expect(e).toMatchObject({ recognized: true, eventType: "default", transparency: "opaque", projectId: PROJECT_ID, projectBy: "model" });
+  });
+
+  it("`range` leggero: senza invitati, descrizione e promemoria non si rompe; la mia risposta dalla riga se c'è", () => {
+    const e = view({ attendees: undefined, descriptionHtml: undefined, descriptionText: undefined, reminders: undefined, myResponse: "needsAction" });
+    expect(e).toMatchObject({ attendees: [], description: null, myResponse: "needsAction" });
+  });
+
+  it("le serie: prima quelle di lavoro (`recognized`), poi per titolo; senza il campo è di lavoro", () => {
+    const out = [
+      series({ recurringEventId: "rec-1", title: "Allenamento", recognized: false }),
+      series({ recurringEventId: "rec-2", title: "Standup", recognized: true }),
+      series({ recurringEventId: "rec-3", title: "Board" }),
+    ]
+      .map((x) => seriesView(x as never))
+      .sort(bySeries);
+    expect(out.map((x) => [x.title, x.recognized])).toEqual([
+      ["Board", true],
+      ["Standup", true],
+      ["Allenamento", false],
+    ]);
   });
 });
