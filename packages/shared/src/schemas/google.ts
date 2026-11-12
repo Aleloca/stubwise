@@ -1332,3 +1332,23 @@ export type CalendarEventProject = z.infer<typeof calendarEventProjectSchema>;
  */
 export const calendarWriteResultSchema = z.object({ items: z.array(calendarEventItemSchema).default([]) });
 export type CalendarWriteResult = z.infer<typeof calendarWriteResultSchema>;
+
+/**
+ * IL LIBERO/OCCUPATO DEI COLLEGHI (area 6, F4, task 5, D8 = b con Q3 = a):
+ * un'ECCEZIONE DICHIARATA a «Posta e Calendario personali»
+ * (`docs/invariants/mail-calendar.md`). Esce SOLO questo: chi, se ha il
+ * calendario collegato, e gli intervalli occupati — mai un titolo, un luogo,
+ * un invitato o un id. Il serializzatore della rotta toglie ogni chiave non
+ * dichiarata qui (e i test del server controllano le chiavi esatte); NON
+ * `strictObject`: il catchall non passa da `readerSchema`.
+ */
+export const calendarBusyIntervalSchema = z.object({ startsAt: z.iso.datetime(), endsAt: z.iso.datetime() });
+export const calendarAvailabilitySchema = z.enum(["connected", "not_connected", "expired"]);
+export const calendarFreeBusyPersonSchema = z.object({
+  personId: z.uuid(),
+  availability: calendarAvailabilitySchema,
+  busy: z.array(calendarBusyIntervalSchema).default([]),
+});
+export const calendarFreeBusySchema = z.object({ items: z.array(calendarFreeBusyPersonSchema).default([]) });
+export type CalendarFreeBusy = z.infer<typeof calendarFreeBusySchema>;
+export type CalendarFreeBusyPerson = z.infer<typeof calendarFreeBusyPersonSchema>;

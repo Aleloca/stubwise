@@ -4,6 +4,7 @@ import {
   calendarSeriesListSchema,
   calendarSeriesWriteResultSchema,
   calendarWriteResultSchema,
+  calendarFreeBusySchema,
 } from "@stubwise/shared";
 import type {
   CalendarEventItem,
@@ -17,6 +18,7 @@ import type {
   CalendarEventRespondInput,
   CalendarWriteResult,
   CalendarWriteScope,
+  CalendarFreeBusy,
   MailItemStatus,
   Reader,
 } from "@stubwise/shared";
@@ -207,6 +209,16 @@ export function createCalendarEndpoints(request: ApiRequest) {
     /** Il progetto dell'evento, a mano (`projectBy: "manual"`), per tutti quelli che lo vedono (Q1). */
     setEventProject(id: string, projectId: string | null): Promise<Reader<CalendarWriteResult>> {
       return request("PUT", `/api/me/calendar/events/${seg(id)}/project`, { projectId }, calendarWriteResultSchema);
+    },
+
+    /**
+     * Il libero/occupato dei colleghi (F4, task 5): SOLO intervalli fusi, per
+     * chi ha il calendario collegato (`not_connected`, `expired` altrimenti),
+     * dalle righe salvate — nessuna chiamata a Google. Al più 50 persone e
+     * 31 giorni (400 `range_too_wide`).
+     */
+    freeBusy(input: { personIds: string[]; from: string; to: string }): Promise<Reader<CalendarFreeBusy>> {
+      return request("GET", `/api/me/calendar/freebusy${toQuery({ personIds: input.personIds.join(","), from: input.from, to: input.to })}`, undefined, calendarFreeBusySchema);
     },
   };
 }

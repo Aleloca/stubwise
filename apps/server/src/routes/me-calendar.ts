@@ -21,6 +21,7 @@ import {
   calendarWriteResultSchema,
   calendarWriteScopeSchema,
   calendarEventProjectSchema,
+  calendarFreeBusySchema,
   mailItemStatusSchema,
   type CalendarAttendee,
   type CalendarConferenceEntryPoint,
@@ -49,6 +50,7 @@ import {
   type CalendarWriteOutcome,
 } from "../services/calendar-writes.js";
 import { setCalendarEventProject } from "../services/calendar-project.js";
+import { FREEBUSY_MAX_DAYS, FREEBUSY_MAX_PEOPLE, freeBusyOf } from "../services/calendar-freebusy.js";
 
 /**
  * SEZIONE CALENDARIO (fase 7b), sotto `/api/me/calendar`: la superficie che
@@ -148,6 +150,36 @@ export async function meCalendarRoutes(instance: FastifyInstance, opts: { client
     const items = out.rowIds.length === 0 ? [] : await queryCalendarEventRows(app.db, userId, [inArray(calendarEvents.id, out.rowIds)]);
     return { items };
   }
+
+  /**
+   * Il libero/occupato dei colleghi (F4, task 5): ECCEZIONE DICHIARATA a
+   * «Posta e Calendario personali», solo intervalli — regole e perimetro in
+   * `services/calendar-freebusy.ts`. Chiunque nell'istanza lo legge *(O)*.
+   */
+  app.get(
+    "/freebusy",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        querystring: z.object({
+          personIds: z
+            .string()
+            .transform((v) => v.split(",").map((s) => s.trim()).filter((s) => s !== ""))
+            .pipe(z.array(z.uuid()).min(1).max(FREEBUSY_MAX_PEOPLE)),
+          from: z.iso.datetime(),
+          to: z.iso.datetime(),
+        }),
+        response: { 200: calendarFreeBusySchema, 400: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const from = new Date(request.query.from);
+      const to = new Date(request.query.to);
+      if (to <= from) return apiError(reply, 400, "invalid_range", "'to' must be after 'from'");
+      if (to.getTime() - from.getTime() > FREEBUSY_MAX_DAYS * 24 * 3600_000) return apiError(reply, 400, "range_too_wide", "Range too wide");
+      return { items: await freeBusyOf(app.db, request.query.personIds, from, to) };
+    },
+  );
 
   // --- Area 6, F4: scrivere sul calendario (sempre un gesto della persona) ---
   // Le regole stanno in `services/calendar-writes.ts`.
