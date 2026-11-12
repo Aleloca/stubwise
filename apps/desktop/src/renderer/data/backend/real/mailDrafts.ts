@@ -255,6 +255,22 @@ const attachDriveFile: Mail["attachDriveFile"] = async (draftId, driveFileId) =>
   }
 };
 
+/**
+ * I destinatari suggeriti mentre si scrive, da 2 caratteri: prima le persone
+ * del team (riconosciute dal server), poi gli indirizzi visti nelle mie
+ * caselle, mai nella posta altrui.
+ */
+const suggestRecipients: Mail["suggestRecipients"] = async (q) => {
+  if (q.trim().length < 2) return [];
+  const { items } = await appClient().mail.recipients(q.trim());
+  return items.map((r) => ({
+    name: r.name ?? r.email,
+    email: r.email,
+    personId: r.personId,
+    group: r.group === "team" ? "team" : "mail",
+  }));
+};
+
 export const mailDraftFunctions: Partial<Mail> = {
   listDrafts,
   getDraft,
@@ -262,4 +278,5 @@ export const mailDraftFunctions: Partial<Mail> = {
   discardDraft,
   restoreDiscardedDraft,
   attachDriveFile,
+  suggestRecipients,
 };

@@ -293,3 +293,28 @@ describe("allegare un file del Drive a una bozza salvata", () => {
     await expect(mail.attachDriveFile(D1, DRV)).rejects.toThrow("attachment_unavailable");
   });
 });
+
+describe("i destinatari suggeriti", () => {
+  it("prima il team, poi gli indirizzi della mia posta; da 2 caratteri", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/me/mail/recipients": {
+        body: {
+          items: [
+            { name: "Carla Bianchi", email: "carla@acme.test", personId: "88888888-2222-4222-8222-222222222222", group: "team" },
+            { name: "Bob Rossi", email: "bob@client.test", personId: null, group: "mail" },
+            { name: null, email: "dan@client.test", personId: null, group: "mail" },
+          ],
+        },
+      },
+    });
+    expect(await mail.suggestRecipients("b")).toEqual([]);
+    expect(seen).toHaveLength(0);
+    expect(await mail.suggestRecipients("bo")).toEqual([
+      { name: "Carla Bianchi", email: "carla@acme.test", personId: "88888888-2222-4222-8222-222222222222", group: "team" },
+      { name: "Bob Rossi", email: "bob@client.test", personId: null, group: "mail" },
+      // Senza nome, il nome è l'indirizzo (come nel prototipo).
+      { name: "dan@client.test", email: "dan@client.test", personId: null, group: "mail" },
+    ]);
+    expect(query(seen[0]!.path).get("q")).toBe("bo");
+  });
+});
