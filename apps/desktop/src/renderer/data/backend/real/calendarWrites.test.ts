@@ -849,3 +849,18 @@ describe("review F4 (minore): cambiata la persona, niente etag né «non salvato
     expect((moves.at(-1)!.body as { etag: string }).etag).toBe('"e7"');
   });
 });
+
+describe("contratto di 72 (respond): senza nota la si TOGLIE, come nel prototipo", () => {
+  it("risposta senza nota: `note: null` (assente, il server terrebbe quella di prima)", async () => {
+    const { seen } = installFakeServer({
+      ...base,
+      [`POST /api/me/calendar/events/${EV}/respond`]: { body: { items: [row()] } },
+    });
+    await w.respond!(EV, "accepted");
+    await w.respond!(EV, "declined", "  ");
+    await w.respond!(EV, "tentative", "In ritardo");
+    expect(
+      seen.filter((r) => r.path.endsWith("/respond")).map((r) => (r.body as { note?: unknown }).note),
+    ).toEqual([null, null, "In ritardo"]);
+  });
+});

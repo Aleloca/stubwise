@@ -304,7 +304,9 @@ const respond: Calendar["respond"] = async (id, rsvp, note, scope = "one") => {
       appClient().calendar.respondEvent(id, {
         scope,
         response,
-        ...(note !== undefined ? { note } : {}),
+        // Come nel prototipo, una risposta senza nota TOGLIE quella di prima: per
+        // il server (72) un campo assente la terrebbe, `null` la toglie.
+        note: note?.trim() ? note.trim() : null,
       }),
   );
 };
