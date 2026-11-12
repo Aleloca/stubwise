@@ -6,6 +6,7 @@ import {
   emailProposals,
   emailRejections,
   googleAccounts,
+  mailOutgoing,
   googleWorkspaces,
   instanceSettings,
   notifications,
@@ -77,6 +78,8 @@ import {
   type CalendarSeriesProposalContext,
 } from "./calendar.js";
 import { executeAutoCalendarAction } from "./calendar-auto.js";
+import { classifyNewMessagesV2 } from "./classify-v2.js";
+import { publishSharedProposals } from "./publish-shared.js";
 import {
   classifyNewMessages,
   needsReclassification,
@@ -311,6 +314,14 @@ export interface GooglePollerDeps {
   signal?: AbortSignal;
   /** Orologio iniettabile: solo per il `received_at` di ripiego. */
   now?: () => Date;
+  /**
+   * Area 6, F2 (`MAIL_CLASSIFY_V2`, default spento): la classificazione
+   * nuova. Acceso, l'ingestione non chiama `admit` né `matchRoutes` (D3:
+   * ogni email ricevuta al modello, niente regole della posta) e non scrive
+   * scarti. Spento, tutto come prima: è il rollback, e la regola di rilascio
+   * di D3 (si accende dopo la misura del costo).
+   */
+  classifyV2?: boolean;
 }
 
 /** Riga di `google_accounts` come il claim la restituisce. */
@@ -777,6 +788,26 @@ async function applyUnreadChanges(
   }
 }
 
+/** Il messaggio l'ha mandato Stubwise (un'email NUOVA crea così la sua conversazione)? */
+async function sentFromStubwise(db: Db, accountId: string, gmailMessageId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: mailOutgoing.id })
+    .from(mailOutgoing)
+    .where(and(eq(mailOutgoing.accountId, accountId), eq(mailOutgoing.gmailMessageId, gmailMessageId)))
+    .limit(1);
+  return Boolean(row);
+}
+
+/** Il thread è già in Stubwise, per questa casella? */
+async function threadKnown(db: Db, accountId: string, threadId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: emailMessages.id })
+    .from(emailMessages)
+    .where(and(eq(emailMessages.accountId, accountId), eq(emailMessages.threadId, threadId)))
+    .limit(1);
+  return Boolean(row);
+}
+
 /** Gli id che questa casella ha già in `email_messages`: non si riscaricano. */
 async function filterAlreadyIngested(db: Db, accountId: string, ids: string[]): Promise<string[]> {
   if (ids.length === 0) return [];
@@ -1004,17 +1035,50 @@ async function syncGmail(
     // l'unica difesa che vale per entrambi.
     seenHistoryId = maxHistoryId(seenHistoryId, metadata.historyId);
 
-    if (isFromMailbox(metadata, ctx.credentials.email)) continue;
-
-    const admission = admit(messageToRouting(metadata), ctx.admission, ctx.receivingDomain);
-    if (!admission.admitted) {
-      await recordRejection(deps, account, metadata, admission.reason);
+    if (isFromMailbox(metadata, ctx.credentials.email)) {
+      // Area 6, F3 *(O)*: la posta MANDATA dalla casella entra nel thread che
+      // Stubwise ha già (una risposta scritta da Stubwise o da Gmail), come
+      // CONTESTO (`admitted = false`, mai classificata: non è una richiesta
+      // ricevuta). Un thread che Stubwise non ha resta fuori, come prima.
+      if ((await threadKnown(deps.db, account.id, metadata.threadId)) || (await sentFromStubwise(deps.db, account.id, id))) {
+        const sentFull = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
+        const rows = await deps.db
+          .insert(emailMessages)
+          .values({
+            ...buildEmailMessageInsert({
+              accountId: account.id,
+              message: sentFull,
+              text: sentFull.payload ? extractText(sentFull.payload) : "",
+              projectId: null,
+              candidateProjectIds: [],
+              scopeProjectIds: [],
+              now: now(),
+              admitted: false,
+            }),
+            status: "ignored",
+          })
+          .onConflictDoNothing()
+          .returning({ id: emailMessages.id });
+        if (rows.length > 0) ingested += 1;
+      }
       continue;
+    }
+
+    if (!deps.classifyV2) {
+      const admission = admit(messageToRouting(metadata), ctx.admission, ctx.receivingDomain);
+      if (!admission.admitted) {
+        await recordRejection(deps, account, metadata, admission.reason);
+        continue;
+      }
     }
 
     const full = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
     const text = full.payload ? extractText(full.payload) : "";
-    const resolved = matchRoutes(messageToRouting(full, text), ctx.routes);
+    // Con la classificazione nuova i progetti li dice il classificatore (fra
+    // i candidati dei destinatari), non le regole della posta.
+    const resolved = deps.classifyV2
+      ? { projectId: null, candidateProjectIds: [], scopeProjectIds: [] }
+      : matchRoutes(messageToRouting(full, text), ctx.routes);
 
     const inserted = await deps.db
       .insert(emailMessages)
@@ -1088,7 +1152,8 @@ async function runClassifyPhase(
   // Nessun runner = fase 2 spenta (vedi GooglePollerDeps.runner).
   if (!deps.runner) return empty;
   try {
-    return await classifyNewMessages(
+    // Area 6, F2: la classificazione nuova dietro MAIL_CLASSIFY_V2.
+    return await (deps.classifyV2 ? classifyNewMessagesV2 : classifyNewMessages)(
       {
         db: deps.db,
         runner: deps.runner,
@@ -1741,6 +1806,11 @@ async function runProposePhase(
         and(
           eq(emailMessages.accountId, account.id),
           eq(emailProposals.status, "classified"),
+          // Solo le proposte del proprietario della casella: quelle CONDIVISE
+          // (F2, `mail_recipients`) le pubblica `publishSharedProposals` più
+          // sotto. Senza questo filtro la fase le prendeva prima, non ne
+          // leggeva la classificazione v2 e le chiudeva `ignored` (review F2).
+          eq(emailProposals.audience, "mailbox_owner"),
           isNull(emailProposals.proposalNotificationId),
           accountProposingSql(emailMessages.accountId),
           afterProposalsCutSql(emailMessages.accountId, emailMessages.createdAt),
@@ -2267,7 +2337,20 @@ async function runAccountTick(
   // Fase 4 — le righe pronte (di questo giro e di quelli prima) diventano
   // proposte in inbox. Dopo i cursori: non parla con Google, e un suo guasto
   // non deve poter costare una risincronizzazione.
-  const proposed = account.proposalsEnabled ? await runProposePhase(deps, account) : 0;
+  let proposed = account.proposalsEnabled ? await runProposePhase(deps, account) : 0;
+  // Area 6, F2: le proposte CONDIVISE nate dalla posta di questa casella, una
+  // card per destinatario membro (D4). Le crea solo la classificazione nuova,
+  // che ha già rispettato l'interruttore di questa casella.
+  if (account.proposalsEnabled) {
+    try {
+      proposed += await publishSharedProposals(
+        { db: deps.db, ...(deps.lang ? { lang: deps.lang } : {}), ...(deps.publish ? { publish: deps.publish } : {}) },
+        account.id,
+      );
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: pubblicazione delle proposte condivise di ${account.email} fallita: ${errText(err)}`);
+    }
+  }
 
   return { ingested: gmailResult.ingested, classify, calendar: calendar.stats, proposed };
 }

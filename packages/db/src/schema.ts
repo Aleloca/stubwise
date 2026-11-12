@@ -3532,6 +3532,13 @@ export const claudeActions = pgTable(
     inverse: jsonb("inverse").$type<{ fn: string; args: Record<string, unknown> } | null>(),
     objects: jsonb("objects").$type<{ kind: string; id: string }[]>().notNull().default([]),
     executedAt: timestamp("executed_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Il seguito fuori dalla transazione NON è riuscito (area 6, F3): oggi
+     * solo `fillMailBody`, `mail_not_saved` = il testo non è nella bozza di
+     * Gmail. Lo scrive il seguito dopo il commit; la scheda lo dice, invece
+     * di un «fatto» che non è vero. `null` = riuscito, o nessun seguito.
+     */
+    effectFailure: text("effect_failure"),
   },
   (table) => [
     index("claude_actions_group_idx").on(table.groupId, table.seq),
@@ -4391,6 +4398,17 @@ export const googleAccounts = pgTable(
     syncRequestedAt: timestamp("sync_requested_at", { withTimezone: true }),
     /** L'ultima richiesta fatta, che resta dopo il giro: il tetto dei 60 s. */
     syncLastRequestedAt: timestamp("sync_last_requested_at", { withTimezone: true }),
+    /**
+     * La firma di Gmail dell'indirizzo della casella, in testo (area 6, F3,
+     * decisione M del maintainer: «la firma di Gmail»), letta con
+     * `gmail.modify` da `users.settings.sendAs`. Una COPIA per mostrarla nel
+     * compositore senza chiamare Google a ogni apertura: la riscrive ogni
+     * salvataggio di una bozza (che a Gmail parla già), e il compositore la
+     * rilegge da Google solo se manca o ha più di un giorno. `null` con
+     * `signature_fetched_at` valorizzato = la casella non ha firma.
+     */
+    signatureText: text("signature_text"),
+    signatureFetchedAt: timestamp("signature_fetched_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("google_accounts_email_unique").on(table.email),
@@ -4543,6 +4561,24 @@ export const emailMessages = pgTable(
      * `labels` qui sopra non si rilegge dalla history: non è questa la fonte.
      */
     unread: boolean("unread"),
+    /**
+     * Area 6, F2 (0151): il Message-ID RFC dell'header, la chiave dell'email
+     * fra le caselle (la stessa email in due caselle si classifica una volta
+     * e ha UNA proposta per progetto, D4). Null nelle righe di prima.
+     */
+    rfcMessageId: text("rfc_message_id"),
+    /**
+     * Lo stato della classificazione NUOVA (D3): `off` (nessuna casella che
+     * la contiene ha le proposte accese), `pending`, `failed`, `done`. Null =
+     * righe di prima (il percorso di `status`).
+     */
+    classificationState: text("classification_state").$type<"off" | "pending" | "failed" | "done">(),
+    /** Importanza (D3, tre livelli del prototipo), solo con `done`. */
+    importance: text("importance").$type<"high" | "normal" | "low">(),
+    /** Scadenza estratta dal modello: una DATA (`YYYY-MM-DD`), non un istante. */
+    dueDate: date("due_date", { mode: "string" }),
+    /** I progetti candidati fra cui il modello è incerto («Quale progetto?»). */
+    uncertainProjectIds: uuid("uncertain_project_ids").array().notNull().default([]),
     textExcerpt: text("text_excerpt"),
     /**
      * AMMESSO dal cancello dell'ammissione (fase 6c, `admit()`), oppure
@@ -4946,6 +4982,26 @@ export const emailProposals = pgTable(
     }),
     outcome: jsonb("outcome").$type<Record<string, unknown>>(),
     error: text("error"),
+    /**
+     * Area 6, F2 (0151, D4): la chiave della proposta CONDIVISA (unica con
+     * `project_id`); null nelle righe di prima, che restano per casella.
+     */
+    rfcMessageId: text("rfc_message_id"),
+    /**
+     * Chi la riceve: `mailbox_owner` (le righe di prima, una casella) o
+     * `mail_recipients` (i destinatari in Stubwise membri del progetto, in
+     * `email_proposal_recipients`; MAI gli admin non destinatari).
+     */
+    audience: text("audience").$type<"mailbox_owner" | "mail_recipients">().notNull().default("mailbox_owner"),
+    /** La decisione, una per tutti: chi e quando. */
+    decidedByUserId: uuid("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** La conferma PARZIALE: gli indici delle azioni eseguite (null = tutte o nessuna). */
+    confirmedIndices: integer("confirmed_indices").array(),
+    /** Cosa è nato: `[{ kind, id, code }]` (i codici, «AUD-12»). */
+    results: jsonb("results").$type<{ kind: string; id: string; code: string | null }[]>(),
+    handedAt: timestamp("handed_at", { withTimezone: true }),
+    handedByUserId: uuid("handed_by_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -4953,6 +5009,9 @@ export const emailProposals = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [
+    uniqueIndex("email_proposals_rfc_message_id_project_id_unique")
+      .on(table.rfcMessageId, table.projectId)
+      .where(sql`rfc_message_id is not null`),
     uniqueIndex("email_proposals_email_message_id_project_id_unique").on(
       table.emailMessageId,
       table.projectId,
@@ -4969,6 +5028,32 @@ export const emailProposals = pgTable(
       "email_proposals_status_chk",
       sql`status in ('classified', 'proposed', 'actioned', 'ignored', 'failed')`,
     ),
+    check("email_proposals_audience_chk", sql`audience in ('mailbox_owner', 'mail_recipients')`),
+  ],
+);
+
+/**
+ * I destinatari di una proposta CONDIVISA (area 6, F2, 0151, D4): i
+ * destinatari dell'email (mittente, to, cc) che sono utenti di Stubwise e
+ * membri del progetto, uno per persona, con la notifica della loro inbox.
+ * Una persona che non è qui non vede la proposta.
+ */
+export const emailProposalRecipients = pgTable(
+  "email_proposal_recipients",
+  {
+    proposalId: uuid("proposal_id")
+      .notNull()
+      .references(() => emailProposals.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    notificationId: uuid("notification_id").references(() => notifications.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "email_proposal_recipients_pk", columns: [table.proposalId, table.userId] }),
+    index("email_proposal_recipients_user_id_idx").on(table.userId),
+    index("email_proposal_recipients_notification_id_idx").on(table.notificationId),
   ],
 );
 
@@ -6026,5 +6111,99 @@ export const driveOpens = pgTable(
     via: text("via").$type<"preview" | "download">().notNull(),
   },
   (table) => [index("drive_opens_file_at_idx").on(table.fileId, table.at), check("drive_opens_via_chk", sql`${table.via} in ('preview', 'download')`)],
+);
+
+/**
+ * Le bozze della posta (area 6, F3, 0153). Le bozze sono di GMAIL (D7 = b):
+ * testo e destinatari stanno su Gmail; qui solo ciò che Gmail non sa (modalità,
+ * citazione, il messaggio a cui si risponde) e `gmail_message_id`, la versione
+ * vista all'ultimo salvataggio (una bozza cambiata da Gmail: `draft_changed`).
+ * Una bozza ATTIVA per persona, casella, conversazione e modalità; `sending` =
+ * un invio in corso la sta portando via, e lo slot torna libero.
+ */
+export const mailDrafts = pgTable(
+  "mail_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => googleAccounts.id, { onDelete: "cascade" }),
+    gmailDraftId: text("gmail_draft_id").notNull(),
+    gmailMessageId: text("gmail_message_id"),
+    /** Il thread Gmail; null = un'email nuova. */
+    threadId: text("thread_id"),
+    mode: text("mode").$type<"new" | "reply" | "replyAll" | "forward">().notNull(),
+    replyToMessageId: uuid("reply_to_message_id").references(() => emailMessages.id, { onDelete: "set null" }),
+    quote: boolean("quote").notNull().default(true),
+    /**
+     * La COPIA dell'ultimo salvataggio (destinatari, oggetto, testo): la fonte
+     * resta la bozza di Gmail, ma leggerla da lì costerebbe una chiamata per
+     * bozza *(O)*. Una modifica fatta da Gmail si scopre al salvataggio dopo
+     * (`gmail_message_id` diverso: `draft_changed`).
+     */
+    toAddresses: jsonb("to_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    ccAddresses: jsonb("cc_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    subject: text("subject").notNull().default(""),
+    body: text("body").notNull().default(""),
+    state: text("state").$type<"active" | "sending">().notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("mail_drafts_slot_unique")
+      .on(table.userId, table.accountId, sql`coalesce(${table.threadId}, '')`, table.mode)
+      .where(sql`state = 'active'`),
+    index("mail_drafts_user_id_idx").on(table.userId),
+    check("mail_drafts_mode_chk", sql`${table.mode} in ('new', 'reply', 'replyAll', 'forward')`),
+    check("mail_drafts_state_chk", sql`${table.state} in ('active', 'sending')`),
+  ],
+);
+
+/** Gli allegati di una bozza: un file caricato (storage) o del Drive del progetto. */
+export const mailDraftAttachments = pgTable(
+  "mail_draft_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    draftId: uuid("draft_id").notNull().references(() => mailDrafts.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    mimeType: text("mime_type").notNull(),
+    storageKey: text("storage_key"),
+    driveFileId: uuid("drive_file_id").references(() => driveFiles.id, { onDelete: "set null" }),
+    as: text("as").$type<"copy" | "link">().notNull().default("copy"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("mail_draft_attachments_draft_id_idx").on(table.draftId),
+    check("mail_draft_attachments_as_chk", sql`${table.as} in ('copy', 'link')`),
+  ],
+);
+
+/**
+ * Gli invii trattenuti dal server (area 6, F3, D6: 10 s). Una riga per Invia,
+ * con chi l'ha chiesto; il worker la manda allo scadere di `send_at` e non
+ * ritenta MAI da solo un fallimento (Riprova è un gesto della persona).
+ */
+export const mailOutgoing = pgTable(
+  "mail_outgoing",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull().references(() => googleAccounts.id, { onDelete: "cascade" }),
+    draftId: uuid("draft_id").references(() => mailDrafts.id, { onDelete: "set null" }),
+    gmailDraftId: text("gmail_draft_id").notNull(),
+    threadId: text("thread_id"),
+    sendAt: timestamp("send_at", { withTimezone: true }).notNull(),
+    state: text("state").$type<"queued" | "sending" | "sent" | "failed" | "cancelled">().notNull().default("queued"),
+    error: text("error"),
+    gmailMessageId: text("gmail_message_id"),
+    gmailThreadId: text("gmail_thread_id"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("mail_outgoing_due_idx").on(table.sendAt).where(sql`state = 'queued'`),
+    index("mail_outgoing_user_id_idx").on(table.userId),
+    check("mail_outgoing_state_chk", sql`${table.state} in ('queued', 'sending', 'sent', 'failed', 'cancelled')`),
+  ],
 );
 

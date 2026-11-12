@@ -65,9 +65,13 @@ const NEVER = [
   "issueChatToolToken",
   "createInvite",
   "passwordResetTokens",
-  // Inviare fuori.
+  // Inviare fuori. `fillMailBody` SALVA una bozza (un gesto confermato, B):
+  // mandarla resta un gesto della persona, mai di Claude.
   "sendMail",
   "sendEmail",
+  "sendDraftLater",
+  "sendDraft",
+  "retrySend",
   "postWebhook",
   "replyToCustomer",
 ];

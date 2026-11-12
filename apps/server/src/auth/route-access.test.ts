@@ -135,6 +135,7 @@ describe("rotte con riconferma recente", () => {
       "POST /api/auth/desktop-handoff",
       "POST /api/auth/invites",
       "POST /api/auth/me/password",
+      "POST /api/me/mail/proposals/:id/confirm-with-members",
       "POST /api/me/security/backup-codes",
       "POST /api/me/security/passkeys",
       "POST /api/me/security/passkeys/options",

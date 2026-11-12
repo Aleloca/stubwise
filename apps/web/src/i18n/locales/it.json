@@ -1400,6 +1400,7 @@
       "apisHint": "Abilita l'API Gmail, l'API Google Calendar e l'API Google Drive sullo stesso progetto, poi incolla qui client ID e client secret.",
       "guideHint": "// guida passo-passo: documentazione utente, Integrazioni → Google Workspace.",
       "mailAdmission": {
+        "classifyV2Notice": "Con la classificazione nuova ogni email ricevuta va al modello, che sceglie i progetti fra quelli dei destinatari: l'ammissione della posta non si applica più.",
         "title": "Posta ammessa",
         "subtitle": "// quali email entrano in Stubwise, a livello d'istanza. Le regole di progetto qui sotto decidono solo a quale progetto va un'email già ammessa.",
         "dataUsageNotice": "Di ogni email ammessa vengono scaricati oggetto e corpo, inviati al provider di analisi AI configurato su questa istanza, per la classificazione.",
@@ -1882,6 +1883,7 @@
         "daily_report": "Report giornaliero",
         "weekly_brief": "Brief settimanale",
         "mail_classify": "Classificazione della posta",
+        "mail_draft": "Bozze delle email di Claude",
         "chat": "Chat dei Docs",
         "claude_chat": "Conversazioni private con Claude",
         "backlog_merge": "Unione dei documenti del backlog"
@@ -1965,7 +1967,8 @@
       "api": "API",
       "slack": "Slack",
       "webhook": "Webhook",
-      "widget": "Widget"
+      "widget": "Widget",
+      "email": "Email"
     },
     "effort": {
       "1": "Banale",
@@ -2219,6 +2222,7 @@
       "noText": "// questo brief non ha nessun testo: l'istanza non ha un provider AI utilizzabile per generarlo."
     },
     "email": {
+      "classifyV2Notice": "Con la classificazione nuova i progetti di un'email li sceglie il modello fra quelli dei destinatari: le regole della posta non si applicano più.",
       "title": "Posta",
       "subtitle": "// quali email si legano a questo progetto. Le regole qui decidono solo l'attribuzione; se un'email entra in Stubwise si decide in Impostazioni → Google.",
       "perimeterWarning": "Queste regole decidono a quale progetto va un'email già ammessa nel sistema. L'ammissione — quali email entrano — si configura in Impostazioni → Google.",

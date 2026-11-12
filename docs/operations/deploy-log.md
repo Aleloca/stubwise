@@ -3934,3 +3934,91 @@ deploy o di un rollback che la tocca.
   copre la lettura); un server vecchio, a un consenso nuovo, torna a chiedere
   i suoi scope di sola lettura.
 
+- **«Integrazione area 6, fetta 2: la classificazione nuova» (in corso, 12 nov
+  2026)**: piano `docs/plans/2026-11-12-integrazione-area6-fetta2-plan.md`,
+  branch `feat/area6-f2`. Migrazioni **0151** (classificazione per email e
+  proposta condivisa, `email_proposal_recipients`) e **0152**
+  (`ticket_source` + `email`). Ordine: server, poi worker, poi caddy. Env
+  nuova sul worker: `MAIL_CLASSIFY_V2` (default `false`): spenta, tutto come
+  prima; si accende SOLO dopo la misura del costo scritta qui (la sezione 1
+  del piano) e il golden `mail-classify-v2`.
+
+  **Il costo** (D3): da sostituire con la misura su produzione (le tre query di
+  sola lettura di `cost.sql`, da lanciare dal maintainer: classificazioni dei
+  30 giorni coi token e `cost_usd`, email al giorno per casella, posta tenuta
+  fuori dall'ammissione). Stima dichiarata intanto: ≈ 0,008 $ per email con
+  Haiku a listino, ≈ 190 $ al mese con l'ipotesi di 800 email al giorno; una
+  classificazione per Message-ID, il cooldown, il tetto giornaliero
+  (`GMAIL_MAX_PER_DAY`) e il budget mensile la frenano.
+
+  **Accendere la classificazione nuova** (dopo questo rilascio, non con lui):
+  1. la misura del costo scritta qui sopra, e il budget mensile d'istanza
+     impostato di conseguenza;
+  2. il golden `mail-classify-v2` (`--model haiku`, 3 volte) verde col CLI
+     pinnato (12 nov 2026, CLI 2.1.322: 3/3);
+  3. `MAIL_CLASSIFY_V2=true` nell'`.env`, poi `docker compose up -d server`
+     e `worker` (la leggono entrambi: il worker per classificare, il server
+     per dire alle superfici dell'ammissione che non contano più);
+  4. controllo: `select classification_state, count(*) from email_messages
+     where created_at > now() - interval '1 day' group by 1;` cresce in
+     `done` senza `failed` che crescono; `select status, count(*) from
+     email_proposals where audience = 'mail_recipients' group by 1;`.
+  Lo spegnimento è lo stesso passo con `false`: tornano l'ammissione e le
+  regole; le proposte condivise già nate restano decidibili.
+
+  **Rollback d'immagine**: un worker vecchio non conosce la classificazione
+  nuova (col flag acceso l'ammissione torna da sola); un server vecchio non ha
+  `/api/me/mail/proposals` né le card condivise decidibili dall'inbox
+  (risponderebbero `proposal_stale`): spegnere prima il flag, poi scendere. Il
+  caddy scende insieme al server. Le migrazioni non si annullano.
+
+  ⚠️ **Rollback e 0152**: una task nata da una proposta della posta ha
+  `tickets.source = 'email'`, che un server di PRIMA non conosce (lo schema
+  di risposta è un enum chiuso): finché esiste una di quelle righe, scendere
+  d'immagine sul server rompe le letture delle task. Prima di scendere:
+  `select count(*) from tickets where source = 'email';` deve essere 0, o le
+  righe vanno riportate a `manual` (perdendo il segno «da fuori» per la regola
+  «almeno B»). Col flag spento non ne nasce nessuna.
+
+- **«Integrazione area 6, fetta 3: scrivere» (12 nov 2026)**: piano
+  `docs/plans/2026-11-12-integrazione-area6-fetta3-plan.md`, branch
+  `feat/area6-f3` (sopra `feat/area6-f2`, che contiene: si rilasciano
+  insieme, o la F2 prima). Le bozze di Gmail, l'invio trattenuto 10 s, la
+  posta mandata nei thread, gli allegati (disco e Drive), i destinatari
+  suggeriti, la firma di Gmail, la bozza di Claude in streaming e l'azione
+  di Claude `fillMailBody`; più le correzioni della review della F2.
+  Migrazioni **0153** (`mail_drafts`, `mail_draft_attachments`,
+  `mail_outgoing`), **0154** (operazione AI `mail_draft` nei due CHECK),
+  **0155** (`google_accounts.signature_text`/`signature_fetched_at`),
+  **0156** (`claude_actions.effect_failure`). Nessuna env nuova; nessuno
+  scope nuovo (la firma si legge con `gmail.modify`, già nel riconsenso della
+  F1). Ordine: **server** (healthy, migrazioni applicate), poi **worker** (il
+  mittente della posta legge `mail_outgoing`, l'ingestione la posta mandata),
+  poi **caddy**.
+
+  **Prima del rebuild del worker**: niente invii in volo. `select count(*)
+  from mail_outgoing where state in ('queued', 'sending');` deve essere 0: un
+  invio `sending` a un riavvio diventa `failed` con `interrupted` (MAI
+  rimandato da solo: non si sa se Gmail l'abbia mandato), e la persona lo
+  vede nel thread e decide.
+
+  **La bozza di Claude** (`POST /api/me/mail/drafts/claude`) usa il provider
+  `api_key` della chat (senza, 503 `claude_unavailable`), l'operazione
+  `mail_draft` (Sonnet di default, Impostazioni → Modelli) e il budget
+  mensile d'istanza (409 `budget_exhausted`).
+
+  **Controlli dopo il deploy**: `select state, error, count(*) from
+  mail_outgoing group by 1, 2;` — nessun `failed` che cresce;
+  `select count(*) from claude_actions where effect_failure is not null;` —
+  un `mail_not_saved` è un `fillMailBody` confermato che Gmail non ha
+  salvato (la scheda lo dice).
+
+  **Rollback d'immagine**: un server vecchio non ha le rotte delle bozze e
+  dell'invio (il compositore del desktop risponde 404) e non conosce
+  `fillMailBody` (una proposta aperta con quell'azione resta non
+  confermabile); un worker vecchio NON manda gli invii accodati — prima di
+  scendere sul worker: nessuna riga `queued` (aspettare i 10 s o annullare).
+  Il caddy scende insieme al server. Le migrazioni non si annullano (colonne
+  e tabelle nuove, ignorate dal codice di prima; i due CHECK della 0154 sono
+  più larghi).
+

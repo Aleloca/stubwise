@@ -69,8 +69,8 @@ export const CHAT_TOOL_EXTERNAL_CONTENT_ROUTES: ReadonlySet<string> = new Set([
   "/api/requests/:id",
   "/api/requests/by-code/:code",
 ]);
-/** Le origini di una task che vengono da fuori del team. */
-export const EXTERNAL_TICKET_SOURCES = ["widget", "sdk_error", "sdk_feedback", "webhook"] as const;
+/** Le origini di una task che vengono da fuori del team (dall'area 6, F2, anche `email`: una task nata da una proposta della posta). */
+export const EXTERNAL_TICKET_SOURCES = ["widget", "sdk_error", "sdk_feedback", "webhook", "email"] as const;
 
 /**
  * La sola rotta di SCRITTURA del token del turno (chat, fetta 3; decisione D2

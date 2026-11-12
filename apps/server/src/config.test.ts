@@ -10,6 +10,12 @@ const validEnv = {
 };
 
 describe("loadConfig", () => {
+  it("MAIL_CLASSIFY_V2: spenta di default e con la stringa vuota, accesa solo con true (area 6, F2)", () => {
+    expect(loadConfig({ ...validEnv }).mailClassifyV2).toBe(false);
+    expect(loadConfig({ ...validEnv, MAIL_CLASSIFY_V2: "" }).mailClassifyV2).toBe(false);
+    expect(loadConfig({ ...validEnv, MAIL_CLASSIFY_V2: "true" }).mailClassifyV2).toBe(true);
+  });
+
   it("restituisce la config parsata con un env valido", () => {
     const config = loadConfig({ ...validEnv, PORT: "8080" });
     expect(config).toEqual({
@@ -18,6 +24,8 @@ describe("loadConfig", () => {
       encryptionKey: validEnv.ENCRYPTION_KEY,
       port: 8080,
       publicUrl: validEnv.PUBLIC_URL,
+      // Area 6, F2: la classificazione nuova spenta di default.
+      mailClassifyV2: false,
       trustProxy: false,
       // Default degli embedding (Ollama in-rete, bge-m3, niente API key).
       embeddingBaseUrl: "http://ollama:11434/v1",

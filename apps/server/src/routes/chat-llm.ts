@@ -45,8 +45,14 @@ export interface ChatLlmInput {
 
 /** Operazione e progetto di una generazione della chat (vedi {@link ChatLlmInput.usage}). */
 export interface ChatUsage {
-  operation: "chat" | "backlog_merge";
+  operation: "chat" | "backlog_merge" | "mail_draft";
   projectId: string | null;
+  /**
+   * Il modello quando `ai_model_settings` non ha una riga per l'operazione;
+   * assente = il default della chat. La bozza di Claude nella Posta usa
+   * Sonnet (area 6, F3).
+   */
+  defaultModel?: string;
 }
 
 /**
@@ -246,7 +252,7 @@ export function createAnthropicChatLlm(options: CreateAnthropicChatLlmOptions): 
             "La chat richiede una API key Anthropic (i provider 'account'/oauth non sono supportati dall'SDK HTTP).",
         );
       }
-      const model = await resolveChatModel(db, input.usage.operation, fallbackModel, logger);
+      const model = await resolveChatModel(db, input.usage.operation, input.usage.defaultModel ?? fallbackModel, logger);
 
       const client = createClient(resolved.apiKey);
       // Il signal è inoltrato come request option dell'SDK (secondo argomento):

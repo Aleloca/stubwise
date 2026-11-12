@@ -426,6 +426,22 @@ export interface ProjectBriefEvent {
  * l'invariante `actions[i] ↔ options[i]` deve reggere anche su di lei.
  */
 export type GoogleProposalAction =
+  /**
+   * Area 6, F2: una TASK, il caso normale della classificazione nuova (le
+   * proposte CONDIVISE, `email_proposals.audience = mail_recipients`). La
+   * card di una proposta condivisa si decide dal servizio delle proposte
+   * condivise (`apps/server/src/services/mail-proposals-decide.ts`), mai
+   * dall'esecutore di `google-proposal.ts`.
+   */
+  | {
+      type: "create_task";
+      projectId: string;
+      title: string;
+      body?: string;
+      assigneeId?: string;
+      /** Una DATA, `YYYY-MM-DD`. */
+      dueDate?: string;
+    }
   | {
       type: "create_backlog_item";
       projectId: string;

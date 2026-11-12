@@ -117,6 +117,8 @@ export const SOURCE_LABEL_KEYS: Record<TicketSource, string> = {
   slack: "badges:source.slack",
   webhook: "badges:source.webhook",
   widget: "badges:source.widget",
+  // Area 6, F2: una task nata da una proposta della posta.
+  email: "badges:source.email",
 };
 
 const badgeBase =

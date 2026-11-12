@@ -37,6 +37,8 @@ import type { ProjectPermission } from "@stubwise/shared";
 import type { GoogleProposalActionType } from "./format.js";
 
 const PERMISSION_FOR_ACTION: Record<GoogleProposalActionType, ProjectPermission | null> = {
+  // Area 6, F2: la task delle proposte condivise.
+  create_task: "tickets.create",
   create_backlog_item: "backlog.edit",
   create_milestone: "tickets.edit",
   update_ticket: "tickets.edit",
@@ -75,4 +77,15 @@ export function permissionsForProposalActions(
     if (permission !== null && !out.includes(permission)) out.push(permission);
   }
   return out;
+}
+
+/**
+ * Area 6, F2: il permesso per un'azione della classificazione NUOVA della
+ * posta. `create_task` è nuovo (`tickets.create`, come il prototipo); gli
+ * altri tipi sono quelli di sempre, dalla stessa mappa.
+ */
+export function permissionForMailAction(type: string): ProjectPermission | null {
+  if (type === "create_task") return "tickets.create";
+  if (type === "create_backlog_item") return "backlog.create";
+  return permissionForProposalAction(type);
 }

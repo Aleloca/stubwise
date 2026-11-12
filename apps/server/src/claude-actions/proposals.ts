@@ -415,6 +415,7 @@ export async function listGroups(db: Db, user: SessionUser, sessionId: string): 
         fn: a.fn as ClaudeActionFn,
         args: a.args,
         codes: (a.objects as { code?: string }[]).flatMap((o) => (o.code ? [o.code] : [])),
+        effectFailure: a.effectFailure,
       })),
       executedAt: g.executedAt.toISOString(),
       undo:

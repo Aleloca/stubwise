@@ -720,6 +720,16 @@ export const en: Catalog = {
   "agentSession.title.emailNoSubject": "(no subject)",
   "agentSession.title.projectBrief": "Weekly brief · {project}",
   "agentSession.title.dailyReport": "Daily report {day} · {project}",
+  // --- mailProposal.action.* (area 6, F2): l'etichetta di un'azione proposta
+  // dalla classificazione nuova, accanto all'email. Template, mai prosa del
+  // modello: i campi tra virgolette sono quelli che la persona può modificare.
+  "mailProposal.action.create_task": "Create the task “{title}”",
+  "mailProposal.action.create_backlog_item": "Add the request “{title}”",
+  "mailProposal.action.update_ticket": "Update {ticket}",
+  "mailProposal.action.comment_ticket": "Comment on {ticket}",
+  "mailProposal.action.create_milestone": "Add the milestone “{name}”",
+  "mailProposal.action.record_decision": "Record the decision “{title}”",
+  "mailProposal.action.choose_project": "Which project is this about?",
 };
 
 /** Testi italiani: copia esatta dei testi attualmente hard-coded nel backend. */
@@ -1238,6 +1248,13 @@ export const it: Catalog = {
   "agentSession.title.emailNoSubject": "(senza oggetto)",
   "agentSession.title.projectBrief": "Brief settimanale · {project}",
   "agentSession.title.dailyReport": "Report {day} · {project}",
+  "mailProposal.action.create_task": "Crea la task «{title}»",
+  "mailProposal.action.create_backlog_item": "Aggiungi la richiesta «{title}»",
+  "mailProposal.action.update_ticket": "Aggiorna {ticket}",
+  "mailProposal.action.comment_ticket": "Commenta {ticket}",
+  "mailProposal.action.create_milestone": "Aggiungi la milestone «{name}»",
+  "mailProposal.action.record_decision": "Registra la decisione «{title}»",
+  "mailProposal.action.choose_project": "Di quale progetto si tratta?",
 };
 
 /** Catalogo per lingua. Mappato per `t()`/`languageName()`. */

@@ -292,6 +292,31 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   *(M, decisione del maintainer: come il prototipo; chiusa con la F1 del
   server, 02df56c8)*: il poller la legge comunque e «Aggiorna ora» funziona;
   «Proposte attive» spegne solo le proposte.
+- Firma di Gmail *(M)* (area 6, F3, 12 nov 2026): decisa «la firma di
+  Gmail», con `gmail.modify` e NON con `gmail.settings.basic` — la lettura di
+  `users.settings.sendAs` accetta gmail.modify, e gmail.settings.basic è
+  restricted e serve solo a scrivere le impostazioni (pagine Google citate
+  nel piano della F3). Nessun riconsenso in più. Rimandato: nessuna firma
+  HTML (mandiamo text/plain), nessuna firma per alias diversi
+  dall'indirizzo della casella.
+- F3, rimandati e limiti accettati *(O)* (12 nov 2026):
+  (a) «Riprova» per un `fillMailBody` non salvato su Gmail: oggi la scheda
+  lo dice (`effectFailure`) e offre il testo da copiare; il riprova vuole
+  una rotta che rilanci il seguito per quell'azione;
+  (b) la bozza di Claude in json (`?stream=false`) per un client che non
+  legge SSE (il mobile): oggi solo SSE;
+  (c) un Annulla con lo slot occupato toglie la copia di Stubwise: gli
+  oggetti dello storage degli allegati caricati dal disco restano orfani
+  (la bozza su Gmail li ha ancora), come gli altri orfani dello storage;
+  (d) la firma solo in testo e solo per l'indirizzo della casella (nessun
+  alias);
+  (e) un `fillMailBody` riuscito non si annulla (Gmail ha la bozza: si
+  cambia dal compositore).
+- Calendario «Tutti, come il prototipo» *(M)* (12 nov 2026): fetta F3b,
+  prima della F4. Decisioni *(O)* di 46: `workingLocation` e `birthday`
+  esclusi dall'ingestione, `outOfOffice` resta; calendari come il
+  prototipo; proposte del calendario dentro `/api/me/mail/proposals` col
+  flag acceso.
 
 - I riferimenti a Google Drive nel Drive dei progetti (area 5, D1 = a): le
   cartelle collegate, «Aggiungi da Google Drive», «Quale progetto?», i file
@@ -323,6 +348,38 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   resta quello del web e il renderer rilegge `accounts()` al ritorno in primo
   piano. Rimandato `stubwise://google?outcome=…` (come `stubwise://auth`),
   che riporterebbe l'esito direttamente all'app.
+- F2, chi riceve la proposta condivisa *(M)* (12 nov 2026): A = (a) un
+  destinatario membro senza casella collegata la riceve e la vede con
+  l'estratto, il messaggio intero solo se è nella SUA casella; B = (b)
+  l'interruttore «Proposte attive per questa casella» decide solo se
+  classificare la PROPRIA posta, e la notifica arriva a TUTTI i destinatari
+  membri, anche a chi le ha spente (la frase dell'interruttore nella UI non
+  promette più «niente notifiche»).
+- F2, decidere una proposta condivisa, scelte *(O)* (12 nov 2026):
+  «Passa al progetto» non crea una card nuova: la proposta passata la vede e
+  la decide chi nel progetto ha i permessi di OGNI sua azione, in
+  `/proposals?status=handed` (rimandato: una card per loro); «Quale
+  progetto?» scelto cancella la domanda e riclassifica l'email solo per quel
+  progetto; i Contributor si aggiungono con `putProjectMember` (le regole di
+  Membri) prima della conferma, e se ne vanno se la conferma non riesce
+  (non sono nella stessa transazione delle azioni).
+- F2, dopo che la classificazione nuova è accesa e stabile *(O)*: togliere
+  le rotte `/api/projects/:id/email-routes`, `/email-labels`,
+  `/api/settings/mail-admission` (PATCH), le colonne d'ammissione di
+  `instance_settings`, `project_email_routes`, le sezioni web (oggi un avviso
+  al posto del modulo) e `email_rejections` con la schermata mobile «Le mail
+  tenute fuori» (oggi la rotta resta e si svuota in 30 giorni).
+- F2, la misura vera del costo *(S)*: le tre query di `cost.sql` su
+  produzione (le lancia il maintainer); la stima resta nel piano e nel
+  deploy-log finché non arrivano i numeri.
+- F2, card per chi riceve una proposta PASSATA *(O)*: oggi la vede in
+  `/proposals?status=handed`, senza una card in inbox.
+- F2, lo smistamento di prima (`email_triage`) resta solo sull'inbox, non in
+  Posta *(O)*.
+- F3, Annulla l'invio con un'altra bozza nello stesso slot *(O)*: oggi 409
+  `draft_slot_taken` (l'invio resta in coda); il prototipo unisce le due bozze
+  (il testo tornato sotto, gli allegati oltre i limiti elencati). Rimandato:
+  l'unione chiede di riscrivere la bozza su Gmail.
 - F1.3 letto / non letto, limite *(S)*: dopo un resync per query (primo
   giro, history scaduta) i messaggi GIÀ ingeriti non rileggono `UNREAD`
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono
@@ -350,6 +407,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 9 — Amministrazione, preferenze, accesso
 
+- Audit vera dei membri di progetto *(O)* (area 6, F2, 12 nov 2026): oggi
+  `putProjectMember` non lascia traccia, e i Contributor aggiunti (e tolti)
+  da una conferma della posta lasciano solo una riga nel log della rotta.
+  Va col registro delle modifiche qui sotto.
 - Registro delle modifiche dell'istanza vero (oggi i ruoli di reparto lasciano
   solo una riga di log).
 - Archiviati, interruttori di brief e report, pausa della coda e lavoro fermo.

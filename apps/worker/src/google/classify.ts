@@ -396,7 +396,7 @@ export interface ClassifyLogger {
  *   esclusivo sparito, segreti non decifrabili): un fallimento del lavoro,
  *   col testo che dice perché — mai «exit N» per un limite.
  */
-type MailRun =
+export type MailRun =
   | { kind: "ran"; result: AgentRunResult }
   | { kind: "deferred"; reason: EmptyReason | "all_limited_now" }
   | { kind: "failed"; reason: string };
@@ -422,7 +422,7 @@ type MailRun =
  * Nessun provider abilitato NON è un errore: un tentativo con l'auth
  * dell'ambiente del container, come prima (istanza self-hosted senza catena).
  */
-async function runMailAgent(
+export async function runMailAgent(
   deps: { db: Db; select: SelectDeps },
   messageId: string,
   projectId: string | null,
@@ -1932,7 +1932,7 @@ export async function classifyEmail(
 }
 
 /** Formatta un importo USD come `fix.ts` (4 decimali) — stesso stile del log del budget dei fix. */
-function fmtUsd(n: number): string {
+export function fmtUsd(n: number): string {
   return n.toFixed(4);
 }
 
@@ -1941,7 +1941,7 @@ function fmtUsd(n: number): string {
  * casella, non un id opaco. `accountId` come fallback SOLO se la riga è
  * sparita fra il claim e questo controllo (caso limite, mai visto in pratica).
  */
-async function loadAccountEmail(db: Db, accountId: string): Promise<string> {
+export async function loadAccountEmail(db: Db, accountId: string): Promise<string> {
   const [row] = await db
     .select({ email: googleAccounts.email })
     .from(googleAccounts)
@@ -1962,7 +1962,7 @@ async function loadAccountEmail(db: Db, accountId: string): Promise<string> {
  * corrente via `date_trunc('month', now())`) e di `pruneOldEmails` in
  * `poller.ts` (`make_interval`).
  */
-async function countClassifyRunsSince(db: Db, accountId: string, hours: number): Promise<number> {
+export async function countClassifyRunsSince(db: Db, accountId: string, hours: number): Promise<number> {
   const [row] = await db
     .select({ count: sql<string>`count(*)` })
     .from(agentRuns)
@@ -1983,7 +1983,7 @@ async function countClassifyRunsSince(db: Db, accountId: string, hours: number):
  * scelta di `now()` DI POSTGRES di {@link countClassifyRunsSince} — vedi lì
  * il motivo.
  */
-async function threadClassifiedRecently(db: Db, threadId: string, minutes: number): Promise<boolean> {
+export async function threadClassifiedRecently(db: Db, threadId: string, minutes: number): Promise<boolean> {
   const [row] = await db
     .select({ id: agentRuns.id })
     .from(agentRuns)
@@ -2005,7 +2005,7 @@ async function threadClassifiedRecently(db: Db, threadId: string, minutes: numbe
  * (`instance_settings.monthly_budget_usd`, singleton id=1). `null` = nessun
  * tetto configurato. I numeric di Postgres arrivano come stringa.
  */
-async function loadMonthlyBudgetUsd(db: Db): Promise<number | null> {
+export async function loadMonthlyBudgetUsd(db: Db): Promise<number | null> {
   const [row] = await db
     .select({ monthlyBudgetUsd: instanceSettings.monthlyBudgetUsd })
     .from(instanceSettings)

@@ -12229,6 +12229,7 @@
       "daily_report": "Report giornaliero",
       "weekly_brief": "Brief settimanale",
       "mail_classify": "Classificazione della posta",
+      "mail_draft": "Bozze delle email di Claude",
       "chat": "Conversazioni con Claude",
       "claude_chat": "Conversazioni private con Claude",
       "backlog_merge": "Unione dei documenti del backlog",

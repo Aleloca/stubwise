@@ -2,9 +2,12 @@ import {
   calendarEvents,
   emailBodies,
   emailMessages,
+  emailProposalRecipients,
   emailProposals,
   emailRejections,
   googleAccounts,
+  mailDrafts,
+  mailOutgoing,
   notifications,
   projects,
   type Db,
@@ -23,6 +26,8 @@ import {
   GoogleApiError,
 } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
+import { projectPermissionsOfUser } from "@stubwise/notifications";
+import { visibleProjectIds } from "../auth/access.js";
 import { t } from "@stubwise/i18n";
 import {
   closedReason,
@@ -49,7 +54,7 @@ import {
   type MailThreadProposalOutcome,
   type MailThreadReproposal,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -175,6 +180,106 @@ const mailDetailSourceSchema = z.enum(["email", "email_triage"]);
 const mailDetailParamsSchema = z.object({ source: mailDetailSourceSchema, id: z.uuid() });
 
 /** Quante righe per pagina se il chiamante non lo dice, e il tetto massimo — come `/api/inbox`. */
+/**
+ * Area 6, F2: l'importanza come numero, per prendere la più alta di un
+ * thread con un `max` (0 = nessun messaggio classificato).
+ */
+const IMPORTANCE_RANK_SQL = sql`case ${emailMessages.importance} when 'high' then 3 when 'normal' then 2 when 'low' then 1 else 0 end`;
+const IMPORTANCE_BY_RANK: Record<number, "high" | "normal" | "low"> = { 3: "high", 2: "normal", 1: "low" };
+const RANK_BY_IMPORTANCE = { high: 3, normal: 2, low: 1 } as const;
+
+/** La prima riga dell'ultimo messaggio, al più 160 caratteri. NON FIDATO. */
+function firstLine(text: string | null): string {
+  const line = (text ?? "").split(/\r?\n/).map((l) => l.trim()).find((l) => l !== "") ?? "";
+  return line.length > 160 ? `${line.slice(0, 159)}…` : line;
+}
+
+/**
+ * Area 6, F2: i filtri di `/threads` sulla classificazione nuova, nella
+ * HAVING (sul thread intero, non sul singolo messaggio). Il filtro di
+ * proprietà resta nella WHERE: questi lo restringono soltanto.
+ */
+/**
+ * Lo scope di un messaggio RISTRETTO ai progetti che chi guarda vede (review
+ * F2, punto 4): lo scope nasce dai candidati di TUTTI i destinatari, quindi
+ * può contenere progetti altrui — e un progetto invisibile è come uno che
+ * non esiste, anche nei filtri.
+ */
+function visibleScopeSql(visible: "all" | string[]): SQL {
+  if (visible === "all") return sql`${emailMessages.scopeProjectIds}`;
+  const list = visible.length === 0 ? sql`'{}'::uuid[]` : sql`array[${sql.join(visible.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+  return sql`array(select x from unnest(${emailMessages.scopeProjectIds}) as x where x = any(${list}))`;
+}
+
+function threadClassificationFilters(
+  query: {
+    importance?: "high" | "normal" | "low" | undefined;
+    project?: string | undefined;
+    noProject?: "true" | "false" | undefined;
+    important?: "true" | "false" | undefined;
+  },
+  visible: "all" | string[],
+): SQL[] {
+  const scope = visibleScopeSql(visible);
+  const done = sql`${emailMessages.classificationState} = 'done'`;
+  const out: SQL[] = [];
+  if (query.importance) {
+    out.push(sql`coalesce(max(${IMPORTANCE_RANK_SQL}) filter (where ${done}), 0) = ${RANK_BY_IMPORTANCE[query.importance]}`);
+  }
+  if (query.project) out.push(sql`coalesce(bool_or(${done} and ${query.project}::uuid = any(${scope})), false)`);
+  if (query.noProject === "true") {
+    out.push(sql`coalesce(bool_or(${done}), false) and not coalesce(bool_or(${done} and cardinality(${scope}) > 0), false)`);
+  }
+  if (query.important === "true") {
+    out.push(sql`coalesce(bool_or(${done} and ${emailMessages.importance} = 'high' and ${emailMessages.unread}), false)`);
+  }
+  return out;
+}
+
+/**
+ * Area 6, F3: gli invii di chi guarda in una conversazione, come messaggi con
+ * `delivery` (solo suoi: l'id di chi guarda nella WHERE). In coda e in invio
+ * sono `sending`; un fallito `failed` col codice; un mandato resta `sent`
+ * finché il poller non ingerisce il messaggio vero, poi se ne va (lo stesso
+ * `gmail_message_id`). Il testo è la copia dell'ultimo salvataggio della bozza.
+ */
+async function outgoingMessages(db: Db, userId: string, accountId: string, accountEmail: string, threadId: string, ingested: string[]) {
+  const rows = await db
+    .select({ outgoing: mailOutgoing, draft: mailDrafts })
+    .from(mailOutgoing)
+    .leftJoin(mailDrafts, eq(mailDrafts.id, mailOutgoing.draftId))
+    .where(
+      and(
+        eq(mailOutgoing.userId, userId),
+        eq(mailOutgoing.accountId, accountId),
+        sql`coalesce(${mailOutgoing.gmailThreadId}, ${mailOutgoing.threadId}) = ${threadId}`,
+        sql`${mailOutgoing.state} in ('queued', 'sending', 'failed', 'sent')`,
+      ),
+    )
+    .orderBy(asc(mailOutgoing.createdAt));
+  const seen = new Set(ingested);
+  return rows
+    .filter((r) => !(r.outgoing.state === "sent" && r.outgoing.gmailMessageId && seen.has(r.outgoing.gmailMessageId)))
+    .map(({ outgoing, draft }) => ({
+      id: outgoing.id,
+      from: accountEmail,
+      to: (draft?.toAddresses ?? []).map((a) => a.email),
+      receivedAt: outgoing.createdAt.toISOString(),
+      textExcerpt: draft?.body ?? null,
+      admitted: true,
+      proposalIds: [],
+      reproposals: [],
+      proposalOutcomes: [],
+      unread: false,
+      delivery: {
+        state: outgoing.state === "sent" ? ("sent" as const) : outgoing.state === "failed" ? ("failed" as const) : ("sending" as const),
+        error: outgoing.error,
+        outgoingId: outgoing.id,
+      },
+      classification: { state: "off" as const, projectIds: [], importance: null, dueDate: null, uncertainProjectIds: [] },
+    }));
+}
+
 /** I limiti di `q` su `GET /threads` (area 6, F1.4): sotto i 2, ogni riga combacia. */
 const THREAD_QUERY_MIN = 2;
 const THREAD_QUERY_MAX = 200;
@@ -956,6 +1061,13 @@ export async function meMailRoutes(
         textExcerpt: emailMessages.textExcerpt,
         admitted: emailMessages.admitted,
         unread: emailMessages.unread,
+        gmailMessageId: emailMessages.gmailMessageId,
+        // Area 6, F2: la classificazione nuova (null = un messaggio di prima).
+        classificationState: emailMessages.classificationState,
+        importance: emailMessages.importance,
+        dueDate: emailMessages.dueDate,
+        uncertainProjectIds: emailMessages.uncertainProjectIds,
+        scopeProjectIds: emailMessages.scopeProjectIds,
         // Servono al solo ramo «smistamento» di `reproposals` più sotto.
         status: emailMessages.status,
         outcome: emailMessages.outcome,
@@ -967,6 +1079,11 @@ export async function meMailRoutes(
 
     const first = rows[0];
     if (!first) return null;
+    // Solo i progetti che chi guarda vede (review F2, punto 4).
+    const mentioned = [...new Set(rows.flatMap((r) => [...r.scopeProjectIds, ...r.uncertainProjectIds]))];
+    const seenProjects = new Set<string>();
+    for (const id of mentioned) if (await projectPermissionsOfUser(app.db, input.userId, id)) seenProjects.add(id);
+    const onlySeen = (ids: string[]) => ids.filter((id) => seenProjects.has(id));
 
     const proposalRows = await app.db
       .select({
@@ -1051,6 +1168,9 @@ export async function meMailRoutes(
     }
 
     const last = rows[rows.length - 1]!;
+    // Area 6, F3: gli invii di chi guarda in questa conversazione, subito nel
+    // thread (solo suoi), finché il messaggio vero non è ingerito.
+    const outgoing = await outgoingMessages(app.db, input.userId, first.accountId, first.accountEmail, threadId, rows.map((r) => r.gmailMessageId));
     return {
       threadId,
       accountId: first.accountId,
@@ -1060,7 +1180,7 @@ export async function meMailRoutes(
       // confonderebbero e basta.
       subject: last.subject,
       url: gmailThreadUrl(first.accountEmail, threadId),
-      messages: rows.map((row) => ({
+      messages: [...rows.map((row) => ({
         id: row.id,
         from: row.fromName ? `${row.fromName} <${row.fromAddress}>` : row.fromAddress,
         to: row.toAddresses,
@@ -1071,7 +1191,17 @@ export async function meMailRoutes(
         reproposals: reproposalsFor(row, reproposalsByMessage.get(row.id) ?? []),
         proposalOutcomes: outcomesByMessage.get(row.id) ?? [],
         unread: row.unread === true,
-      })),
+        delivery: null,
+        classification: {
+          state: row.classificationState ?? "off",
+          // Solo a classificazione finita: prima i progetti sono quelli del
+          // routing di prima, che non sono una classificazione.
+          projectIds: row.classificationState === "done" ? onlySeen(row.scopeProjectIds) : [],
+          importance: row.classificationState === "done" ? row.importance : null,
+          dueDate: row.classificationState === "done" ? row.dueDate : null,
+          uncertainProjectIds: row.classificationState === "done" ? onlySeen(row.uncertainProjectIds) : [],
+        },
+      })), ...outgoing],
     };
   }
 
@@ -1106,6 +1236,11 @@ export async function meMailRoutes(
           // Area 6, F1.4: la ricerca nella pagina. Validata a mano per dare
           // `invalid_query` (vedi THREAD_QUERY_MIN/MAX).
           q: z.string().max(2000).optional(),
+          // Area 6, F2: i filtri della classificazione nuova.
+          importance: z.enum(["high", "normal", "low"]).optional(),
+          project: z.uuid().optional(),
+          noProject: z.enum(["true", "false"]).optional(),
+          important: z.enum(["true", "false"]).optional(),
         }),
         response: { 200: mailThreadPageSchema, 400: errorSchema, ...authErrorResponses },
       },
@@ -1123,6 +1258,8 @@ export async function meMailRoutes(
 
       const conditions = [eq(googleAccounts.userId, request.user!.id)];
       if (account) conditions.push(eq(emailMessages.accountId, account));
+      const visible = await visibleProjectIds(app.db, request.user!);
+      const sees = (id: string) => visible === "all" || visible.includes(id);
 
       // Una riga per `(account_id, thread_id)`: il thread è l'unità, e due
       // caselle con lo stesso thread Gmail restano due conversazioni.
@@ -1138,6 +1275,12 @@ export async function meMailRoutes(
           lastFrom: sql<string>`(array_agg(${emailMessages.fromAddress} order by ${emailMessages.receivedAt} desc))[1]`,
           // Area 6, F1.3: un messaggio non letto basta; null (non saputo) = letto.
           unread: sql<boolean>`coalesce(bool_or(${emailMessages.unread}), false)`,
+          // Area 6, F2: dai messaggi a classificazione nuova FINITA.
+          importanceRank: sql<number>`coalesce(max(${IMPORTANCE_RANK_SQL}) filter (where ${emailMessages.classificationState} = 'done'), 0)::int`,
+          dueDate: sql<string | null>`min(${emailMessages.dueDate}) filter (where ${emailMessages.classificationState} = 'done')`,
+          analysing: sql<boolean>`coalesce(bool_or(${emailMessages.classificationState} = 'pending'), false)`,
+          failed: sql<boolean>`coalesce(bool_or(${emailMessages.classificationState} = 'failed'), false)`,
+          snippet: sql<string | null>`(array_agg(${emailMessages.textExcerpt} order by ${emailMessages.receivedAt} desc))[1]`,
         })
         .from(emailMessages)
         .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
@@ -1149,6 +1292,7 @@ export async function meMailRoutes(
               ? sql`(max(${emailMessages.receivedAt}), ${emailMessages.threadId}) < (${cursor.date}::timestamptz, ${cursor.threadId})`
               : sql`true`,
             q === "" ? sql`true` : threadMatchesSql(q),
+            ...threadClassificationFilters(request.query, visible),
           ),
         )
         .orderBy(desc(sql`max(${emailMessages.receivedAt})`), desc(emailMessages.threadId))
@@ -1161,11 +1305,63 @@ export async function meMailRoutes(
       // (non una per thread).
       const openByThread = new Map<string, number>();
       const projectsByThread = new Map<string, string[]>();
+      const projectIdsByThread = new Map<string, Set<string>>();
+      const addProject = (threadId: string, id: string | null, name: string | null) => {
+        if (id) projectIdsByThread.set(threadId, (projectIdsByThread.get(threadId) ?? new Set()).add(id));
+        if (name) {
+          const names = projectsByThread.get(threadId) ?? [];
+          if (!names.includes(name)) names.push(name);
+          projectsByThread.set(threadId, names);
+        }
+      };
       if (threadIds.length > 0) {
+        // Area 6, F2: i progetti della classificazione nuova (scope dei
+        // messaggi `done`) e le proposte CONDIVISE di cui chi guarda è
+        // destinatario, ritrovate per Message-ID dai SUOI messaggi.
+        const classified = await app.db
+          .select({ threadId: emailMessages.threadId, scope: emailMessages.scopeProjectIds })
+          .from(emailMessages)
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .where(
+            and(
+              eq(googleAccounts.userId, request.user!.id),
+              inArray(emailMessages.threadId, threadIds),
+              eq(emailMessages.classificationState, "done"),
+            ),
+          );
+        const classifiedIds = [...new Set(classified.flatMap((row) => row.scope))].filter(sees);
+        const names = new Map<string, string>();
+        if (classifiedIds.length > 0) {
+          for (const row of await app.db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, classifiedIds))) {
+            names.set(row.id, row.name);
+          }
+        }
+        for (const row of classified) for (const id of row.scope.filter(sees)) addProject(row.threadId, id, names.get(id) ?? null);
+        const shared = await app.db
+          .select({ threadId: emailMessages.threadId, status: emailProposals.status, handedAt: emailProposals.handedAt })
+          .from(emailMessages)
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .innerJoin(
+            emailProposals,
+            sql`${emailProposals.rfcMessageId} = coalesce(${emailMessages.rfcMessageId}, 'gmail:' || ${emailMessages.accountId} || ':' || ${emailMessages.gmailMessageId})
+              and ${emailProposals.audience} = 'mail_recipients'`,
+          )
+          .innerJoin(
+            emailProposalRecipients,
+            and(eq(emailProposalRecipients.proposalId, emailProposals.id), eq(emailProposalRecipients.userId, request.user!.id)),
+          )
+          .where(and(eq(googleAccounts.userId, request.user!.id), inArray(emailMessages.threadId, threadIds)));
+        for (const row of shared) {
+          if ((row.status === "classified" || row.status === "proposed") && !row.handedAt) {
+            openByThread.set(row.threadId, (openByThread.get(row.threadId) ?? 0) + 1);
+          }
+        }
+
         const proposalRows = await app.db
           .select({
             threadId: emailMessages.threadId,
             status: emailProposals.status,
+            projectId: emailProposals.projectId,
             projectName: projects.name,
           })
           .from(emailProposals)
@@ -1176,17 +1372,15 @@ export async function meMailRoutes(
             and(
               eq(googleAccounts.userId, request.user!.id),
               inArray(emailMessages.threadId, threadIds),
+              // Le proposte condivise si contano sopra, per destinatario.
+              eq(emailProposals.audience, "mailbox_owner"),
             ),
           );
         for (const row of proposalRows) {
           if (row.status === "classified" || row.status === "proposed") {
             openByThread.set(row.threadId, (openByThread.get(row.threadId) ?? 0) + 1);
           }
-          if (row.projectName) {
-            const names = projectsByThread.get(row.threadId) ?? [];
-            if (!names.includes(row.projectName)) names.push(row.projectName);
-            projectsByThread.set(row.threadId, names);
-          }
+          addProject(row.threadId, row.projectId, row.projectName);
         }
       }
 
@@ -1211,6 +1405,12 @@ export async function meMailRoutes(
           openProposals: openByThread.get(row.threadId) ?? 0,
           projectNames: projectsByThread.get(row.threadId) ?? [],
           unread: row.unread,
+          importance: IMPORTANCE_BY_RANK[row.importanceRank] ?? null,
+          dueDate: row.dueDate,
+          analysing: row.analysing,
+          failed: row.failed,
+          projectIds: [...(projectIdsByThread.get(row.threadId) ?? [])],
+          snippet: firstLine(row.snippet),
         })),
         nextCursor,
       };

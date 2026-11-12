@@ -1,4 +1,4 @@
-import { tickets, type Db } from "@stubwise/db";
+import { tickets, VIA_CLAUDE_SETTING, type Db } from "@stubwise/db";
 import {
   CLAUDE_ACTION_ARGS,
   CLAUDE_DECLARED_CLASS,
@@ -7,7 +7,7 @@ import {
   type ProjectPermission,
   type TaskPatch,
 } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { FastifyRequest } from "fastify";
 import type { RouteAccess } from "../auth/access.js";
 import { backlogItemAccess, fromBody, fromMilestone, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
@@ -22,7 +22,8 @@ import { createMilestone, deleteMilestone } from "../services/milestones.js";
 import { archiveRequest, reopenRequest } from "../services/project-request-writes.js";
 import { deleteTask } from "../services/task-delete.js";
 import { createTaskFilter, deleteTaskFilter } from "../services/task-filters.js";
-import { deleteStoredObjects } from "./effects.js";
+import { deleteStoredObjects, saveMailBody } from "./effects.js";
+import { mailBodyTarget } from "../services/mail-body-target.js";
 import { loadTaskViews } from "../services/task-view.js";
 import { createTask, planTask, updateTask } from "../services/task-writes.js";
 
@@ -414,6 +415,26 @@ const ENTRIES: CatalogEntry[] = [
           codes: [],
         },
       };
+    },
+  },
+  {
+    // Area 6, F3: il corpo di un'email nella bozza Gmail di chi conferma.
+    // Nella transazione (e a secco) SOLO il controllo del bersaglio; la
+    // scrittura su Gmail è un seguito dopo il commit. Non si annulla (Gmail
+    // ha già la bozza: la si cambia dal compositore), e non manda MAI.
+    fn: "fillMailBody",
+    route: "PUT /api/me/mail/drafts",
+    access: { kind: "user" },
+    request: (args) => ({ body: args }),
+    async run(tx, user, args) {
+      const input = args as { accountId: string; threadId: string | null; mode: "new" | "reply" | "replyAll" | "forward"; text: string };
+      const target = await mailBodyTarget(tx, user.id, input);
+      if (target !== "ok") return refused(target, `mail_${target}`);
+      // L'id di QUESTA azione (l'esecutore lo mette nella transazione prima di `run`):
+      // il seguito ci scrive l'esito se Gmail non risponde.
+      const [current] = await tx.execute<{ id: string | null }>(sql`select nullif(current_setting(${VIA_CLAUDE_SETTING}, true), '') as id`);
+      saveMailBody(user.id, input, current?.id ?? null);
+      return { ok: true, result: { inverse: null, objects: [], codes: [] } };
     },
   },
   {

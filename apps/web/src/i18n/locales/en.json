@@ -1400,6 +1400,7 @@
       "apisHint": "Enable the Gmail API, the Google Calendar API and the Google Drive API on the same project, then paste the client ID and the client secret here.",
       "guideHint": "// step-by-step guide: user docs, Integrations → Google Workspace.",
       "mailAdmission": {
+        "classifyV2Notice": "With the new classification every incoming email goes to the model, which picks among the recipients' projects: mail admission no longer applies.",
         "title": "Admitted mail",
         "subtitle": "// which emails enter Stubwise at all, instance-wide. Project rules below only decide where an admitted email goes.",
         "dataUsageNotice": "Of every admitted email, the subject and body are downloaded and sent to the AI analysis provider configured on this instance, for classification.",
@@ -1882,6 +1883,7 @@
         "daily_report": "Daily report",
         "weekly_brief": "Weekly brief",
         "mail_classify": "Mail classification",
+        "mail_draft": "Email drafts by Claude",
         "chat": "Docs chat",
         "claude_chat": "Private conversations with Claude",
         "backlog_merge": "Backlog document merge"
@@ -1965,7 +1967,8 @@
       "api": "API",
       "slack": "Slack",
       "webhook": "Webhook",
-      "widget": "Widget"
+      "widget": "Widget",
+      "email": "Email"
     },
     "effort": {
       "1": "Trivial",
@@ -2219,6 +2222,7 @@
       "noText": "// this brief has no text: the instance has no usable AI provider to generate it."
     },
     "email": {
+      "classifyV2Notice": "With the new classification the model picks an email's projects among the recipients' projects: mail rules no longer apply.",
       "title": "Mail",
       "subtitle": "// which emails attach to this project. Rules here decide attribution only; whether an email enters Stubwise at all is set in Settings → Google.",
       "perimeterWarning": "These rules decide which project an email already admitted to the system goes to. Admission — which emails come in at all — is configured in Settings → Google.",

@@ -352,7 +352,7 @@ async function loadPrReviewSettings(db: Db): Promise<z.infer<typeof prReviewSett
  * instance_settings). Legge il default difensivo se la riga manca (DB
  * ripristinato senza seed), come `loadInstanceSettings`.
  */
-async function loadMailAdmission(db: Db): Promise<z.infer<typeof mailAdmissionSchema>> {
+async function loadMailAdmission(db: Db): Promise<Omit<z.infer<typeof mailAdmissionSchema>, "classifyV2">> {
   const [row] = await db
     .select({
       admitWorkspaceDomains: instanceSettings.emailAdmitWorkspaceDomains,
@@ -380,7 +380,7 @@ async function loadMailAdmission(db: Db): Promise<z.infer<typeof mailAdmissionSc
  * renderebbe la sezione "Posta" del progetto incomprensibile a chi non è
  * admin. La scrittura resta `settings.manage`, come per le regole di progetto.
  */
-export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
+export async function settingsRoutes(instance: FastifyInstance, opts: { mailClassifyV2?: boolean } = {}): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
 
   app.get(
@@ -647,7 +647,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
       },
     },
     async () => {
-      return loadMailAdmission(app.db);
+      return { ...(await loadMailAdmission(app.db)), classifyV2: opts.mailClassifyV2 ?? false };
     },
   );
 
@@ -701,7 +701,7 @@ export async function settingsRoutes(instance: FastifyInstance): Promise<void> {
           target: instanceSettings.id,
           set: { ...set, updatedAt: new Date() },
         });
-      return loadMailAdmission(app.db);
+      return { ...(await loadMailAdmission(app.db)), classifyV2: opts.mailClassifyV2 ?? false };
     },
   );
 }

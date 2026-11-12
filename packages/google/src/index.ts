@@ -92,3 +92,18 @@ export {
   type GoogleParentEvent,
   type ListEventsInput,
 } from "./calendar.js";
+// Area 6, F3: scrivere (MIME e bozze di Gmail).
+export {
+  buildMimeMessage,
+  createDraft,
+  deleteDraft,
+  encodeRaw,
+  getDraft,
+  getSendAsSignature,
+  sendDraft,
+  updateDraft,
+  type GmailDraftRef,
+  type MailAddressInput,
+  type MimeAttachment,
+  type MimeInput,
+} from "./gmail-compose.js";

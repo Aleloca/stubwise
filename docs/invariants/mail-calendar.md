@@ -7,6 +7,67 @@
 > in `CLAUDE.md` (sezione «Invarianti e trappole»), quelle per area in
 > `docs/invariants/*.md`.
 
+- **La proposta CONDIVISA (area 6, F2, D4): chi la riceve, chi la vede, chi
+  la decide.** La classificazione nuova (`MAIL_CLASSIFY_V2`, `classify-v2.ts`)
+  manda OGNI email ricevuta al modello (niente `admit` né regole della posta;
+  `admitted` resta il confine fra «classificabile» e «contesto del thread»),
+  UNA volta per Message-ID, e produce una proposta per email e progetto
+  (`email_proposals.rfc_message_id` unico col progetto, `audience =
+  mail_recipients`).
+  - **Chi la riceve** (`publish-shared.ts`): i destinatari di ogni copia
+    dell'email (mittente, to, cc, mai bcc; i proprietari delle caselle) che
+    sono persone di Stubwise (`resolveRecipientUserIds`) E vedono il
+    progetto. Un admin la riceve SOLO se è anche destinatario: l'intersezione
+    lo esclude per costruzione, non c'è un ramo `if (admin)`. Test NEGATIVI in
+    `publish-shared.test.ts`. Decisioni del maintainer: A = (a) un
+    destinatario senza casella collegata la riceve e vede l'estratto, mai il
+    messaggio (il dettaglio, `/original` e il thread gli sono 404, test in
+    `me-mail-proposals.test.ts`); B = (b) l'interruttore della casella decide
+    solo se classificare la propria posta, non chi riceve.
+  - ⚠️ **La card si consegna con l'audience `mailbox_owner`, UN destinatario
+    alla volta**: il nome resta quello del catalogo per kind
+    (`google.proposal`), ma qui vuol dire «solo questa persona, mai gli
+    admin», non «proprietario della casella». Chi legge una card condivisa
+    non deduce la proprietà della casella: `sourceProposalId` viene da
+    `email_proposal_recipients`, il vecchio esecutore non la trova (cerca per
+    `proposal_notification_id`), dettaglio e originale filtrano sul
+    proprietario.
+  - **Chi la vede e la decide**: un destinatario registrato in
+    `email_proposal_recipients`, col progetto visibile ADESSO; una proposta
+    PASSATA anche chi nel progetto ha il permesso di OGNI sua azione. Il primo
+    che decide la chiude per tutti (riga `FOR UPDATE`, stato ricontrollato,
+    tutte le card chiuse); conferma parziale e modifiche dei soli campi
+    consentiti; tutto o niente. Una task nata da qui ha `source = email`:
+    contenuto da fuori per la regola «almeno B».
+  - Le proposte di PRIMA (`mailbox_owner`, per casella) restano com'erano e
+    si vedono anche in `/api/me/mail/proposals`, solo dal proprietario.
+  - **«Quale progetto?»** (review F2, 12 nov 2026): la ricevono i
+    destinatari che vedono ALMENO UNO dei progetti incerti, e ognuno ha la
+    SUA card con i soli progetti incerti che vede (`publish-shared.ts`). Lato
+    server vederla e deciderla segue la stessa regola
+    (`proposalPermissionsOf` in `mail-proposals.ts`), e la vista non porta
+    l'id dei progetti che chi guarda non vede. Dall'inbox l'indice
+    dell'opzione si legge sulla mappa che la card MOSTRA (`event.actions`),
+    non ricalcolato dalla classificazione.
+  - **Invisibile = inesistente anche nei thread**: lo scope di un messaggio
+    nasce dai candidati di TUTTI i destinatari, quindi può contenere
+    progetti altrui. Elenco, filtri `project`/`noProject` e dettaglio
+    intersecano coi progetti di chi guarda (`visibleScopeSql` in
+    `me-mail.ts`).
+  - ⚠️ **Limite accettato: il PROMPT vede i candidati di tutti i
+    destinatari.** `loadCandidateProjects` mette nel prompt titoli delle
+    task aperte e nomi dei membri dei progetti di cui è membro un
+    QUALUNQUE destinatario: servono alla scelta (il progetto, l'incaricato,
+    il ticket). Il rischio è che un testo GENERATO li riporti a chi non vede
+    quel progetto: le azioni sono per progetto (una proposta = un progetto,
+    ricevuta solo da chi lo vede), mentre il `summary` è condiviso, quindi
+    il prompt gli vieta di citare task e persone dei candidati (test in
+    `classify-v2.test.ts`). È un divieto al modello, non una garanzia: chi
+    aggiunge al riassunto un uso nuovo (una superficie che lo mostra fuori
+    dalla proposta) riapra questa voce.
+  - **Una classificazione per Message-ID anche fra copie in attesa**: fra le
+    copie della stessa email ancora da classificare guida quella con l'id
+    più basso, le altre la copiano al giro dopo (`classifyNewMessagesV2`).
 - **Con le proposte spente una casella si LEGGE; si spengono solo le
   proposte (decisione del maintainer, 12 nov 2026, area 6).** Il claim del
   poller e l'indice `google_accounts_due_idx` guardano solo `disabled_at`;
@@ -23,6 +84,50 @@
   primo collegamento. Chi aggiunge una fase che propone la mette sotto lo
   stesso `if`, e chi aggiunge un percorso di classificazione mette lo stesso
   taglio.
+- **Scrivere la posta (area 6, F3): bozze di Gmail, invio trattenuto, e
+  Claude che PROPONE ma non manda mai.**
+  - **Le bozze sono bozze di Gmail** (D7): `mail_drafts` tiene ciò che Gmail
+    non sa e la copia dell'ultimo salvataggio (l'elenco non chiama Google).
+    Una bozza cambiata da Gmail nel frattempo non si sovrascrive in
+    silenzio: 409 `draft_changed`, e solo il gesto «Tieni la mia»
+    (`overwrite: true`) scrive sopra. Bozze e invii sono di chi scrive: il
+    suo id nella WHERE, una riga altrui è 404.
+  - **Invia = una riga `mail_outgoing`, 10 s, e il worker la manda**
+    (`mail-sender.ts`): claim `queued → sending` con SKIP LOCKED, MAI un
+    ritentativo automatico (Riprova è un gesto), e all'avvio una riga
+    rimasta `sending` diventa `failed`/`interrupted`, mai rimandata (non si
+    sa se Gmail l'abbia mandata). I controlli (destinatari, indirizzi,
+    allegati, casella, scope, file del Drive ancora visibili) stanno PRIMA
+    di accodare.
+  - ⚠️ **Annulla ferma SEMPRE l'invio entro i 10 s** (correzione di 46): la
+    riga va a `cancelled` per prima, sulla riga bloccata. Se lo slot è di
+    un'altra bozza, il contenuto torna NON salvato (`unsaved`) e la copia di
+    Stubwise se ne va; la bozza resta fra quelle di Gmail. Nessun esito
+    della bozza lascia partire un'email annullata — chi tocca `undoSend` non
+    reintroduca un rifiuto che lasci la riga `queued`.
+  - **La posta mandata entra nei thread come CONTESTO** (`admitted =
+    false`), solo in un thread già noto o se l'ha mandata Stubwise, e non si
+    classifica mai.
+  - **Un file del Drive allegato è un riferimento**, riletto a ogni
+    salvataggio e ricontrollato a Invia col permesso di chi scrive: chi non
+    vede più il progetto (o il file è eliminato) riceve
+    `attachment_unavailable`, mai i byte.
+  - **La firma di Gmail si legge con `gmail.modify`**
+    (`users.settings.sendAs`), mai con `gmail.settings.basic` (ristretto, e
+    serve solo a scrivere le impostazioni). Il server la mette nel MIME a
+    ogni salvataggio, sotto il corpo e prima della citazione, una volta sola;
+    non entra mai in `body`. La copia sulla casella serve al compositore.
+  - **La bozza di Claude è solo un testo** (`mail-claude-draft.ts`): legge
+    con gli occhi di chi chiede (la sua casella, i progetti attribuiti che
+    vede, le task aperte), il testo delle email e i titoli delle task stanno
+    in blocchi delimitati con `<`, `>` e `&` scappati e dichiarati DATI; non
+    salva e non manda niente.
+  - **`fillMailBody` è SEMPRE B e non manda mai**: B perché dichiarata e
+    perché senza inverso; nella transazione (e a secco) solo letture; Gmail
+    è un seguito dopo il commit, e se fallisce lo dice
+    (`claude_actions.effect_failure = mail_not_saved`, nella vista dei
+    gruppi) invece di un «fatto» falso. Il test sul sorgente del catalogo
+    vieta `sendDraftLater`, `sendDraft` e `retrySend`.
 - **Nessuna scrittura verso Google senza un gesto della persona, e lo stato
   locale solo dopo il sì di Google (area 6, F1.3).** La prima scrittura è il
   letto/non letto: `POST /api/me/mail/threads/:threadId/read` chiama
@@ -35,6 +140,13 @@
   rilegge `UNREAD` dalla history. Chi aggiunge una scrittura (bozze, invio,
   calendario) la fa partire da una rotta chiamata da un gesto, con lo stesso
   ordine.
+  **Aprire una conversazione È il gesto che la segna letta** *(O)*,
+  decisione dell'orchestratrice dalla review del renderer della F1, come il
+  prototipo con D5 = b): il renderer chiama la rotta dopo 1 s di permanenza
+  sulla conversazione aperta, non al passaggio. «Segna come non letta» la
+  lascia non letta finché non la si RIAPRE: il renderer non la risegna letta
+  mentre resta aperta. Nessun altro percorso (anteprima, notifica, ricerca,
+  il worker) segna letta una conversazione.
 - **«Aggiorna ora» non ha un percorso a parte (area 6, F1.2).** La rotta porta
   `next_sync_at` a adesso e fa un `pg_notify` (`google_sync_request`) nella
   stessa transazione; il worker si sveglia e il claim di sempre (`SKIP
@@ -44,7 +156,7 @@
   richiesta VISTA al claim; una scritta a giro in corso resta e torna dovuta.
   Limite accettato: con `GMAIL_POLL_MINUTES=0` (poller spento, il rollback)
   una richiesta resta in attesa per sempre.
-- **L'audience `mailbox_owner` non include MAI gli admin.** È un'audience a
+- **L'audience `mailbox_owner` non include MAI gli admin.** (Per le proposte CONDIVISE della classificazione nuova vedi la voce in testa: la card usa la stessa audience, un destinatario alla volta.) È un'audience a
   sé nell'enum di `routing.ts` (`packages/notifications/src/routing.ts`),
   non un caso speciale di `requester` (che invece gli admin li include
   sempre): `recipientsFor` per `mailbox_owner` restituisce **un solo**

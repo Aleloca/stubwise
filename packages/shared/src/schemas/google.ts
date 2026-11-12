@@ -374,6 +374,14 @@ export const mailAdmissionSchema = z.object({
   // Scarta la posta automatica (List-Unsubscribe, List-Id, Precedence: bulk,
   // Auto-Submitted diverso da "no").
   denyAutomated: z.boolean().default(true),
+  /**
+   * Area 6, F2: la classificazione nuova è accesa (`MAIL_CLASSIFY_V2`) e ogni
+   * email va al modello: l'ammissione e le regole della posta non si
+   * applicano più, e le superfici che le gestiscono lo dicono invece di
+   * mostrare un modulo che non conta. Solo in lettura; un server di prima non
+   * lo manda.
+   */
+  classifyV2: z.boolean().default(false),
 });
 export type MailAdmission = z.infer<typeof mailAdmissionSchema>;
 
@@ -545,6 +553,24 @@ export type MailPage = z.infer<typeof mailPageSchema>;
 // anche il calendario, che thread non ne ha.
 // ---------------------------------------------------------------------------
 
+/** L'importanza di un'email (area 6, F2, tre livelli del prototipo). */
+export const mailImportanceSchema = z.enum(["high", "normal", "low"]);
+export type MailImportance = z.infer<typeof mailImportanceSchema>;
+
+/**
+ * La classificazione NUOVA di un messaggio (area 6, F2, D3). `off`: nessuna
+ * casella che lo contiene ha le proposte accese (o un messaggio di prima);
+ * `done` senza progetti: «non riguarda i tuoi progetti».
+ */
+export const mailClassificationSchema = z.object({
+  state: z.enum(["off", "pending", "failed", "done"]).default("off"),
+  projectIds: z.array(z.uuid()).default([]),
+  importance: mailImportanceSchema.nullable().default(null),
+  dueDate: z.string().nullable().default(null),
+  uncertainProjectIds: z.array(z.uuid()).default([]),
+});
+export type MailClassification = z.infer<typeof mailClassificationSchema>;
+
 /**
  * UNA conversazione nella lista: quello che serve a decidere se aprirla.
  *
@@ -573,6 +599,20 @@ export const mailThreadItemSchema = z.object({
    * server di prima non lo manda.
    */
   unread: z.boolean().default(false),
+  /**
+   * Area 6, F2 (D3): l'importanza più alta fra i messaggi classificati, null
+   * finché nessuno lo è; la scadenza più vicina (una DATA). Un server di prima
+   * non li manda.
+   */
+  importance: mailImportanceSchema.nullable().default(null),
+  dueDate: z.string().nullable().default(null),
+  /** Un messaggio in analisi / un'analisi fallita («Riproponi»). */
+  analysing: z.boolean().default(false),
+  failed: z.boolean().default(false),
+  /** Gli id dei progetti accanto a `projectNames` (i nomi non sono una chiave). */
+  projectIds: z.array(z.uuid()).default([]),
+  /** L'inizio dell'ultimo messaggio, una riga. NON FIDATO. */
+  snippet: z.string().default(""),
 });
 export type MailThreadItem = z.infer<typeof mailThreadItemSchema>;
 
@@ -696,6 +736,28 @@ export const mailThreadMessageSchema = z.object({
   proposalOutcomes: z.array(mailThreadProposalOutcomeSchema).default([]),
   /** Area 6, F1.3: non letto su Gmail (`false` se non si sa ancora). */
   unread: z.boolean().default(false),
+  /**
+   * Area 6, F3: un invio di chi guarda (solo suo), che entra subito nel thread:
+   * `sending` nei 10 s e mentre parte, `sent` finché il poller non ingerisce il
+   * messaggio vero, `failed` col codice. Null per i messaggi veri.
+   */
+  delivery: z
+    .object({
+      state: z.enum(["sending", "sent", "failed"]),
+      error: z.string().nullable().default(null),
+      /** L'id dell'invio, per Annulla, Riprova ed Elimina dalla conversazione. */
+      outgoingId: z.uuid(),
+    })
+    .nullable()
+    .default(null),
+  /** Area 6, F2: la classificazione nuova; un server di prima non la manda. */
+  classification: mailClassificationSchema.default({
+    state: "off",
+    projectIds: [],
+    importance: null,
+    dueDate: null,
+    uncertainProjectIds: [],
+  }),
 });
 export type MailThreadMessage = z.infer<typeof mailThreadMessageSchema>;
 

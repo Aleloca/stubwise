@@ -7,6 +7,14 @@ import {
   mailSummarySchema,
   mailThreadDetailSchema,
   mailThreadPageSchema,
+  mailProposalListSchema,
+  mailProposalSchema,
+  mailProposalDecisionSchema,
+  mailDraftListSchema,
+  mailDraftSchema,
+  mailRecipientSuggestionListSchema,
+  mailDraftRestoreSchema,
+  mailOutgoingSchema,
 } from "@stubwise/shared";
 import type {
   Reader,
@@ -20,6 +28,18 @@ import type {
   MailSummary,
   MailThreadDetail,
   MailThreadPage,
+  MailImportance,
+  MailProposal,
+  MailProposalList,
+  MailProposalStatus,
+  MailProposalDecision,
+  MailComposeMode,
+  MailDraftList,
+  MailDraft,
+  MailRecipientSuggestionList,
+  MailDraftSave,
+  MailDraftRestore,
+  MailOutgoing,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { seg, toQuery } from "../query.js";
@@ -74,6 +94,17 @@ export interface MailThreadQuery {
   cursor?: string | undefined;
   limit?: number | undefined;
   q?: string | undefined;
+  /** Area 6, F2: solo le conversazioni di questa importanza. */
+  importance?: MailImportance | undefined;
+  /** Area 6, F2: solo quelle di questo progetto (id). */
+  project?: string | undefined;
+  /** Area 6, F2: solo quelle classificate senza progetto («Senza progetto»). */
+  noProject?: boolean | undefined;
+  /**
+   * Area 6, F2: le «Importanti» (e il blocco Home «Posta importante»): almeno
+   * un messaggio di importanza alta NON letto, dalla più recente.
+   */
+  important?: boolean | undefined;
 }
 
 export function createMailEndpoints(request: ApiRequest) {
@@ -108,8 +139,160 @@ export function createMailEndpoints(request: ApiRequest) {
       // l'oggetto (area 6, F1.4), che porta anche `q`.
       const options: MailThreadQuery =
         typeof accountOrOptions === "object" ? accountOrOptions : { account: accountOrOptions, cursor, limit };
-      const query = toQuery({ account: options.account, cursor: options.cursor, limit: options.limit, q: options.q });
+      const query = toQuery({
+        account: options.account,
+        cursor: options.cursor,
+        limit: options.limit,
+        q: options.q,
+        importance: options.importance,
+        project: options.project,
+        noProject: options.noProject ? "true" : undefined,
+        important: options.important ? "true" : undefined,
+      });
       return request("GET", `/api/me/mail/threads${query}`, undefined, mailThreadPageSchema);
+    },
+
+    /**
+     * Le proposte CONDIVISE (area 6, F2, D4) che chi guarda può vedere:
+     * quelle di un messaggio della sua casella (`message`), per stato. I
+     * permessi (`canConfirm`, `blockedIndices`, …) li calcola il server.
+     */
+    /** `thread` + `account` insieme: le proposte di una conversazione di una mia casella. */
+    proposals(filter: { message?: string; thread?: string; account?: string; status?: MailProposalStatus } = {}): Promise<Reader<MailProposalList>> {
+      return request(
+        "GET",
+        `/api/me/mail/proposals${toQuery({ message: filter.message, thread: filter.thread, account: filter.account, status: filter.status })}`,
+        undefined,
+        mailProposalListSchema,
+      );
+    },
+
+    /** Una proposta condivisa; 404 `not_found` se chi guarda non la vede. */
+    proposal(id: string): Promise<Reader<MailProposal>> {
+      return request("GET", `/api/me/mail/proposals/${seg(id)}`, undefined, mailProposalSchema);
+    },
+
+    /**
+     * Decidere (area 6, F2). L'esito 200 è `MailProposalDecision`; gli errori
+     * sono `ApiError`: 409 `already_handled` (con `decidedBy` nei `details`),
+     * 403 `forbidden`, 400 `invalid_selection` / `invalid_edits` /
+     * `invalid_assignee` / `invalid_target`, 404 `not_found`.
+     */
+    confirmProposal(id: string, body: { indices?: number[]; edits?: Record<string, Record<string, unknown>> } = {}): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/confirm`, body, mailProposalDecisionSchema);
+    },
+    /** Conferma aggiungendo come Contributor gli incaricati fuori dal progetto: chiede la riconferma (`reauth_required`). */
+    confirmProposalWithMembers(
+      id: string,
+      body: { indices?: number[]; edits?: Record<string, Record<string, unknown>>; addOutsiders: string[] },
+    ): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/confirm-with-members`, body, mailProposalDecisionSchema);
+    },
+    ignoreProposal(id: string): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/ignore`, {}, mailProposalDecisionSchema);
+    },
+    /** «Passa al progetto» (solo chi non può confermarla). */
+    handProposal(id: string): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/hand`, {}, mailProposalDecisionSchema);
+    },
+    /** «Sposta su un altro progetto»: `{ status: "moved", projectId }`. */
+    reassignProposal(id: string, projectId: string): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/reassign`, { projectId }, mailProposalDecisionSchema);
+    },
+    /** «Quale progetto?»: l'email si riclassifica per quello scelto. */
+    chooseProposalProject(id: string, projectId: string): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/choose-project`, { projectId }, mailProposalDecisionSchema);
+    },
+
+    /** Area 6, F3: le MIE bozze (bozze di Gmail). */
+    drafts(): Promise<Reader<MailDraftList>> {
+      return request("GET", "/api/me/mail/drafts", undefined, mailDraftListSchema);
+    },
+    /**
+     * «La bozza di» una conversazione: quella salvata, o una nuova già
+     * indirizzata dal server (`id` null). Non salva e non chiama Google.
+     */
+    draft(input: { account: string; thread?: string | null; mode: MailComposeMode; replyTo?: string | null }): Promise<Reader<MailDraft>> {
+      const query = toQuery({ account: input.account, thread: input.thread ?? undefined, mode: input.mode, replyTo: input.replyTo ?? undefined });
+      return request("GET", `/api/me/mail/drafts/compose${query}`, undefined, mailDraftSchema);
+    },
+    /**
+     * Salva (crea o sostituisce) la bozza dello slot, su Gmail. Errori: 409
+     * `draft_changed` (modificata da Gmail nel frattempo), `google_scope_missing`
+     * (con `missing`), `account_disabled`, `token_expired`; 404; 502.
+     */
+    saveDraft(input: MailDraftSave): Promise<Reader<MailDraft>> {
+      return request("PUT", "/api/me/mail/drafts", input, mailDraftSchema);
+    },
+    /**
+     * Invia (D6): il server lo trattiene 10 s, fino a `undoUntil`. `messageId`
+     * è l'id dell'invio. Un doppio Invia restituisce lo stesso invio.
+     */
+    sendDraft(id: string): Promise<Reader<MailOutgoing>> {
+      return request("POST", `/api/me/mail/drafts/${seg(id)}/send`, {}, mailOutgoingSchema);
+    },
+    /** Lo stato di un invio (`queued`, `sending`, `sent`, `failed` con `error`, `cancelled`). */
+    outgoing(messageId: string): Promise<Reader<MailOutgoing>> {
+      return request("GET", `/api/me/mail/outgoing/${seg(messageId)}`, undefined, mailOutgoingSchema);
+    },
+    /** Annulla prima di `undoUntil`: l'invio si ferma SEMPRE e la bozza torna — con un'altra bozza nello slot torna NON salvata (`unsaved`, `draft.id` null). Dopo, 409 `too_late`. */
+    undoSend(messageId: string): Promise<Reader<MailDraftRestore>> {
+      return request("POST", `/api/me/mail/outgoing/${seg(messageId)}/undo`, {}, mailDraftRestoreSchema);
+    },
+    /** Riprova un invio fallito (un gesto: il server non ritenta mai da solo). */
+    retrySend(messageId: string): Promise<Reader<MailOutgoing>> {
+      return request("POST", `/api/me/mail/outgoing/${seg(messageId)}/retry`, {}, mailOutgoingSchema);
+    },
+    /** Elimina un invio fallito: la bozza torna, da correggere. */
+    deleteFailedSend(messageId: string): Promise<Reader<MailDraftRestore>> {
+      return request("POST", `/api/me/mail/outgoing/${seg(messageId)}/discard`, {}, mailDraftRestoreSchema);
+    },
+    /**
+     * Allega un file dal disco a una bozza GIÀ salvata (multipart, campo
+     * `file`, al più 10 file e 25 MB in tutto): la bozza su Gmail si riscrive
+     * col file e la risposta è la bozza. 400 `too_large` /
+     * `too_many_attachments` / `storage_not_configured`, 404 se la bozza non è
+     * di chi scrive.
+     */
+    uploadAttachment(draftId: string, file: Blob, filename: string): Promise<Reader<MailDraft>> {
+      const form = new FormData();
+      form.append("file", file, filename);
+      return request("POST", `/api/me/mail/drafts/${seg(draftId)}/attachments`, form, mailDraftSchema);
+    },
+    /**
+     * Allega un file del Drive del progetto, come copia letta a ogni
+     * salvataggio col permesso di chi scrive. 409 `attachment_unavailable`
+     * per un file che chi scrive non vede (o eliminato).
+     */
+    attachDriveFile(draftId: string, driveFileId: string): Promise<Reader<MailDraft>> {
+      return request("POST", `/api/me/mail/drafts/${seg(draftId)}/attachments/drive`, { driveFileId }, mailDraftSchema);
+    },
+    /** Toglie un allegato; la bozza su Gmail si riscrive senza. */
+    removeAttachment(draftId: string, attachmentId: string): Promise<Reader<MailDraft>> {
+      return request("DELETE", `/api/me/mail/drafts/${seg(draftId)}/attachments/${seg(attachmentId)}`, undefined, mailDraftSchema);
+    },
+    /**
+     * «Chiedi a Claude»: il path dello stream (POST, `text/event-stream`).
+     * Lo legge il chiamante (sul desktop dal main, sul web con il cookie): il
+     * corpo è `mailClaudeDraftRequestSchema`, ogni `data:` un
+     * `mailClaudeDraftEventSchema` (`delta`, poi `done`; o `error`). Rifiuti
+     * prima dello stream, in JSON: 404 `not_found`, 400 `invalid_hint`, 409
+     * `budget_exhausted`, 503 `claude_unavailable`.
+     */
+    claudeDraftPath(): string {
+      return "/api/me/mail/drafts/claude";
+    },
+    /**
+     * I destinatari suggeriti mentre si scrive un indirizzo: prima il team
+     * che chi scrive vede (`group: "team"`, con `personId`), poi gli indirizzi
+     * delle sue caselle (`"mail"`). Una q vuota dà una lista vuota.
+     */
+    recipients(q: string): Promise<Reader<MailRecipientSuggestionList>> {
+      return request("GET", `/api/me/mail/recipients?${new URLSearchParams({ q }).toString()}`, undefined, mailRecipientSuggestionListSchema);
+    },
+    /** Elimina la bozza, su Gmail e in Stubwise. «Annulla» = salvarla di nuovo. */
+    discardDraft(id: string): Promise<void> {
+      return request("DELETE", `/api/me/mail/drafts/${seg(id)}`);
     },
 
     /**

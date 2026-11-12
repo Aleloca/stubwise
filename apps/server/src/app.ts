@@ -41,6 +41,9 @@ import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
 import { meGoogleRoutes } from "./routes/me-google.js";
 import { meCalendarRoutes } from "./routes/me-calendar.js";
+import { meMailDraftsRoutes, meMailOutgoingRoutes, meMailRecipientsRoutes } from "./routes/me-mail-drafts.js";
+import { meMailProposalsRoutes } from "./routes/me-mail-proposals.js";
+import { realMailComposeClient, type MailComposeClient } from "./services/mail-drafts.js";
 import { meMailRoutes, type MailOriginalClient } from "./routes/me-mail.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
@@ -133,6 +136,8 @@ declare module "fastify" {
      * BuildAppOptions.storageFactory (fake in-memory).
      */
     storage(): Promise<ObjectStorage | null>;
+    /** Il client delle bozze di Gmail (area 6, F3): reale, o il doppio dei test (`mailComposeClient`). */
+    mailComposeClient: MailComposeClient;
     /**
      * Client di embedding (OpenAI-compatibile) per la ricerca semantica e la
      * chat RAG sui Docs. Iniettabile nei test via BuildAppOptions.embeddingClient
@@ -286,6 +291,10 @@ export interface BuildAppOptions {
    * mano.
    */
   mailGoogleClient?: MailOriginalClient;
+  /** Area 6, F3: il client Gmail delle bozze, iniettabile nei test. */
+  mailComposeClient?: MailComposeClient;
+  /** Area 6, F2: la classificazione nuova è accesa (`MAIL_CLASSIFY_V2`). Default false. */
+  mailClassifyV2?: boolean;
   /**
    * Fidarsi degli header X-Forwarded-* del reverse proxy (Caddy nel deploy
    * Docker). Va abilitato dietro un proxy affinché `secure: "auto"` sul cookie
@@ -539,6 +548,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     },
   };
   app.decorate("chatLlm", chatLlm);
+  app.decorate("mailComposeClient", opts.mailComposeClient ?? realMailComposeClient);
 
   // Retrieval dal knowledge graph nelle chat INTERNE (fase 2b). Il client MCP
   // nasce UNA volta per processo (la connessione dentro al client è pigra e
@@ -762,7 +772,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // propri token, con token in chiaro mostrato una sola volta alla creazione.
   void app.register(patRoutes, { prefix: "/api/pats" });
   // Impostazioni di automazione AI (regole per tipo): solo admin.
-  void app.register(settingsRoutes, { prefix: "/api/settings" });
+  void app.register(settingsRoutes, { prefix: "/api/settings", mailClassifyV2: opts.mailClassifyV2 ?? false });
   // Modello Anthropic per tipo di lavoro AI (solo admin): plugin a sé sotto /api/settings.
   void app.register(modelSettingsRoutes, { prefix: "/api/settings/models" });
   // Registro dei Google Workspace (fase 6): app OAuth interne con client secret
@@ -897,6 +907,13 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // per utente — sempre filtrati per `userId` via il JOIN su google_accounts
   // (vedi il docblock del modulo). Prefisso a sé come meGoogleRoutes, per
   // la stessa ragione di leggibilità (un file, un pezzo di superficie).
+  // Area 6, F2: le proposte condivise, PRIMA di `meMailRoutes` (la parte
+  // letterale `/proposals` sullo stesso prefisso di `/:source/:id`).
+  void app.register(meMailProposalsRoutes, { prefix: "/api/me/mail/proposals" });
+  // Area 6, F3: le bozze, anch'esse prima di `meMailRoutes`.
+  void app.register(meMailDraftsRoutes, { prefix: "/api/me/mail/drafts", ...(opts.mailComposeClient ? { client: opts.mailComposeClient } : {}) });
+  void app.register(meMailOutgoingRoutes, { prefix: "/api/me/mail/outgoing" });
+  void app.register(meMailRecipientsRoutes, { prefix: "/api/me/mail/recipients" });
   void app.register(meMailRoutes, {
     prefix: "/api/me/mail",
     ...(opts.mailGoogleClient ? { googleClient: opts.mailGoogleClient } : {}),
