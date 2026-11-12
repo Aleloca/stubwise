@@ -293,13 +293,24 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   decisione dell'orchestratrice: il prototipo è la specifica)*.
 - Azione di Claude «bozza del corpo dell'email».
 - F1.2 «Aggiorna ora», scelte accettate *(O)* (12 nov 2026, commit 31151503):
-  (a) 409 `proposals_disabled` per una casella con le proposte spente, che il
-  poller non sincronizza, e spegnerle toglie la richiesta in attesa; (b) il
+  (a) 409 `proposals_disabled` per una casella con le proposte spente — tolto
+  dalla decisione *(M)* sotto, insieme alla richiesta tolta dal PATCH; (b) il
   NOTIFY sveglia soltanto, è il claim di sempre a prendere la casella (le
   richieste prima delle altre dovute); (c) a fine giro si azzera la richiesta
   vista al claim, una scritta a giro in corso resta e la casella torna dovuta;
   (d) con `GMAIL_POLL_MINUTES=0` una richiesta non viene servita (il
   rollback): va nell'invariante `mail-calendar.md` alla F1.5.
+- Proposte spente, la casella si legge *(M)* (12 nov 2026): claim e indice
+  solo su `disabled_at`, classificazione e pubblicazione saltate; «Aggiorna
+  ora» funziona. Il taglio alla riaccensione *(O)*: `proposals_since`
+  (0150), scritto dal PATCH da spente ad accese; la posta con `created_at`
+  precedente non si classifica mai e resta `new`; il calendario non ha
+  taglio (propone solo appuntamenti futuri, come al primo collegamento).
+  Invariante in `mail-calendar.md`, voce del deploy-log dell'area 6 F1.
+- Ritorno OAuth al desktop *(O)* (area 6, F1): nessun deep link, il callback
+  resta quello del web e il renderer rilegge `accounts()` al ritorno in primo
+  piano. Rimandato `stubwise://google?outcome=…` (come `stubwise://auth`),
+  che riporterebbe l'esito direttamente all'app.
 - F1.3 letto / non letto, limite *(S)*: dopo un resync per query (primo
   giro, history scaduta) i messaggi GIÀ ingeriti non rileggono `UNREAD`
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono

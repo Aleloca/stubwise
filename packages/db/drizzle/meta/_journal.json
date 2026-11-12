@@ -1051,6 +1051,13 @@
       "when": 1797292800000,
       "tag": "0149_google_sync_request_unread",
       "breakpoints": true
+    },
+    {
+      "idx": 150,
+      "version": "7",
+      "when": 1797379200000,
+      "tag": "0150_google_read_without_proposals",
+      "breakpoints": true
     }
   ]
 }

@@ -397,9 +397,11 @@ function domainOf(address: string): string {
  * `next_sync_at` (vedi "Perché il claim pre-schedula" nel docblock del modulo).
  *
  * Il `WHERE` della subquery ricalca esattamente l'indice PARZIALE
- * `google_accounts_due_idx` (`disabled_at is null and proposals_enabled`,
- * ordinato per `next_sync_at`): una casella disabilitata o con le proposte
- * spente non viene mai pescata, e il claim resta un index scan.
+ * `google_accounts_due_idx` (`disabled_at is null`, ordinato per
+ * `next_sync_at`): una casella disabilitata non viene mai pescata, e il claim
+ * resta un index scan. Una con le proposte SPENTE sì (decisione del
+ * maintainer del 12 nov 2026, 0150): si legge, e solo le fasi che propongono
+ * la saltano (vedi {@link runAccountTick}).
  */
 export async function claimDueAccounts(
   db: Db,
@@ -420,7 +422,7 @@ export async function claimDueAccounts(
     .where(
       sql`${googleAccounts.id} IN (
         SELECT id FROM google_accounts
-        WHERE disabled_at IS NULL AND proposals_enabled AND next_sync_at <= now()
+        WHERE disabled_at IS NULL AND next_sync_at <= now()
         -- «Aggiorna ora» (area 6, F1.2): chi l'ha chiesto passa prima delle
         -- altre dovute, anche a batch pieno (la sua next_sync_at è adesso).
         ORDER BY sync_requested_at IS NULL, next_sync_at
@@ -2201,7 +2203,14 @@ async function runAccountTick(
 
   // Fase 2 — classificazione dei messaggi `new` (compresi quelli rimasti
   // indietro dai giri precedenti, non solo quelli appena ingeriti).
-  const classify = await runClassifyPhase(deps, account);
+  // Proposte spente (decisione del maintainer del 12 nov 2026): la casella si
+  // legge (fasi 1 e 3), ma niente classificazione né pubblicazione — nessun
+  // run del modello, nessuna riga `email_proposals`, nessuna card, nessuna
+  // azione automatica del calendario. Riaccese, il taglio `proposals_since`
+  // tiene fuori la posta ingerita nel frattempo (`classify.ts`).
+  const classify = account.proposalsEnabled
+    ? await runClassifyPhase(deps, account)
+    : { classified: 0, ignored: 0, failed: 0 };
 
   // Fase 3 — calendario `primary` → righe candidate a una proposta di
   // milestone. Se lancia, il chiamante mette la casella in backoff e il
@@ -2212,7 +2221,7 @@ async function runAccountTick(
   // Fase 4 — le righe pronte (di questo giro e di quelli prima) diventano
   // proposte in inbox. Dopo i cursori: non parla con Google, e un suo guasto
   // non deve poter costare una risincronizzazione.
-  const proposed = await runProposePhase(deps, account);
+  const proposed = account.proposalsEnabled ? await runProposePhase(deps, account) : 0;
 
   return { ingested: gmailResult.ingested, classify, calendar: calendar.stats, proposed };
 }
@@ -2580,7 +2589,7 @@ async function hasDueSyncRequest(db: Db): Promise<boolean> {
     .select({ id: googleAccounts.id })
     .from(googleAccounts)
     .where(
-      sql`${googleAccounts.syncRequestedAt} is not null and ${googleAccounts.disabledAt} is null and ${googleAccounts.proposalsEnabled} and ${googleAccounts.nextSyncAt} <= now()`,
+      sql`${googleAccounts.syncRequestedAt} is not null and ${googleAccounts.disabledAt} is null and ${googleAccounts.nextSyncAt} <= now()`,
     )
     .limit(1);
   return rows.length > 0;

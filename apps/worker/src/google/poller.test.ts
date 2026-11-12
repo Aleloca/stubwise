@@ -355,8 +355,8 @@ describe("claim delle caselle", () => {
     expect(next).toBeGreaterThan(Date.now() + 15 * 60_000);
   });
 
-  it("salta le caselle con le proposte spente e quelle disabilitate", async () => {
-    await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsEnabled: false });
+  it("salta le caselle disabilitate, NON quelle con le proposte spente (si leggono, decisione del 12 nov 2026)", async () => {
+    const quiet = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsEnabled: false });
     await seedAccount({
       email: `spenta-${randomUUID()}@acme.com`,
       nextSyncAt: new Date(Date.now() - 60_000),
@@ -364,7 +364,7 @@ describe("claim delle caselle", () => {
       disabledReason: "revoked",
     });
 
-    expect(await claimDueAccounts(db, 10, 5)).toEqual([]);
+    expect((await claimDueAccounts(db, 10, 5)).map((row) => row.id)).toEqual([quiet.id]);
   });
 });
 
@@ -373,19 +373,6 @@ describe("claim delle caselle", () => {
 // ---------------------------------------------------------------------------
 
 describe("sincronizzazione Gmail", () => {
-  it("non tocca una casella con proposals_enabled = false", async () => {
-    const account = await seedAccount({
-      nextSyncAt: new Date(Date.now() - 60_000),
-      proposalsEnabled: false,
-    });
-    const gmail = fakeGmail({});
-
-    const stats = await pollGoogleOnce(deps(account, gmail));
-
-    expect(stats.accounts).toBe(0);
-    expect(gmail.calls).toEqual([]);
-    expect((await reload(account.id)).lastSyncAt).toBeNull();
-  });
 
   it("al primo giro (nessun cursore) fa il resync con newer_than:7d -from:me", async () => {
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
@@ -3731,5 +3718,76 @@ describe("letto / non letto da Gmail", () => {
     const [theirs] = await db.select().from(emailMessages).where(eq(emailMessages.accountId, other.id));
     expect(mine!.unread).toBe(false);
     expect(theirs!.unread).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Proposte spente: la casella si legge (decisione del maintainer, 12 nov 2026)
+// ---------------------------------------------------------------------------
+
+describe("proposte spente: si legge, non si propone", () => {
+  async function routed(): Promise<string> {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    return projectId;
+  }
+
+  it("NEGATIVO: posta ed eventi ingeriti, ma zero classificazioni, zero email_proposals, zero notifiche", async () => {
+    await routed();
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000", proposalsEnabled: false });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["m1"], historyId: "1010" }, messages: { m1: message({ id: "m1" }) } });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    const calendar = fakeCalendarSequence([{ events: [calendarEvent({ id: "e1" })], nextSyncToken: "s1" }]);
+
+    const stats = await pollGoogleOnce({ ...deps(account, gmail), runner, calendar });
+
+    expect(stats.ingested).toBe(1);
+    expect(await db.select().from(emailMessages)).toHaveLength(1);
+    expect(await calendarRows()).toHaveLength(1);
+    expect(runner.calls).toEqual([]);
+    expect(await db.select().from(emailProposals)).toEqual([]);
+    expect(await db.select().from(notifications)).toEqual([]);
+    expect(stats.proposed).toBe(0);
+    expect((await reload(account.id)).lastSyncAt).not.toBeNull();
+  });
+
+  it("NEGATIVO: un figlio già classificato prima di spegnerle non viene pubblicato", async () => {
+    const projectId = await routed();
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsEnabled: false });
+    const [parent] = await db
+      .insert(emailMessages)
+      .values({ accountId: account.id, gmailMessageId: "m-x", threadId: "t-x", fromAddress: "a@cliente.com", receivedAt: new Date(), projectId, status: "classified" })
+      .returning({ id: emailMessages.id });
+    await db.insert(emailProposals).values({
+      emailMessageId: parent!.id,
+      projectId,
+      status: "classified",
+      classification: { signal: "request", recommendedIndex: 0, proposals: [{ type: "create_backlog_item", projectId, title: "X", consequence: "Y" }] },
+    });
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })));
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("riaccese: la posta ingerita PRIMA di `proposals_since` non si classifica mai, quella dopo sì", async () => {
+    await routed();
+    const since = new Date();
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000", proposalsSince: since });
+    // Ingerita a proposte spente (prima del taglio), ancora `new`.
+    await db.insert(emailMessages).values({
+      accountId: account.id,
+      gmailMessageId: "vecchia",
+      threadId: "t-vecchia",
+      fromAddress: "a@cliente.com",
+      receivedAt: new Date(Date.now() - 3_600_000),
+      createdAt: new Date(since.getTime() - 60_000),
+    });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["m1"], historyId: "1010" }, messages: { m1: message({ id: "m1" }) } });
+    const runner = fakeRunner(IGNORED_OUTPUT);
+
+    await pollGoogleOnce({ ...deps(account, gmail), runner });
+
+    expect(runner.calls).toHaveLength(1);
+    const rows = await db.select({ id: emailMessages.gmailMessageId, status: emailMessages.status }).from(emailMessages);
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.status]))).toEqual({ vecchia: "new", m1: "ignored" });
   });
 });

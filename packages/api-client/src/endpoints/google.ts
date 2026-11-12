@@ -39,7 +39,7 @@ export function createGoogleEndpoints(request: ApiRequest) {
      * «Aggiorna ora»: il giro di questa casella adesso. 202 `queued` o
      * `already_queued`; 429 `sync_too_soon` (meno di 60 s dall'ultima, con
      * `retryAfterSeconds` nei `details` dell'errore); 409 `account_disabled`
-     * («Ricollega») o `proposals_disabled` (la casella non si sincronizza);
+     * («Ricollega»; con le proposte spente la casella si legge comunque);
      * 404 una casella non tua. La fine si legge su `accounts()`:
      * `syncRequestedAt` torna null, e `lastSyncAt` avanza se il giro è riuscito.
      */
