@@ -43,6 +43,15 @@ const envSchema = z.object({
   // non vede l'HTTPS terminato dal proxy e non imposta il flag Secure.
   // Default false (sviluppo diretto, niente proxy davanti); il compose lo
   // imposta a true. Accetta booleani e le stringhe true/false/1/0 da .env.
+  // Area 6, F2: la classificazione nuova della posta (la stessa variabile del
+  // worker): il server la dice alle superfici dell'ammissione.
+  MAIL_CLASSIFY_V2: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z
+      .union([z.boolean(), z.enum(["true", "false"])])
+      .transform((value) => value === true || value === "true")
+      .default(false),
+  ),
   TRUST_PROXY: z.preprocess(
     (value) => (value === "" ? undefined : value),
     z
@@ -166,6 +175,8 @@ export interface Config {
   encryptionKey: string;
   port: number;
   publicUrl: string;
+  /** Area 6, F2: la classificazione nuova della posta (MAIL_CLASSIFY_V2, default false). */
+  mailClassifyV2: boolean;
   /** Fidarsi degli header X-Forwarded-* (dietro reverse proxy). */
   trustProxy: boolean;
   /** Base URL OpenAI-compatibile per gli embedding (ricerca/chat Docs). */
@@ -221,6 +232,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     encryptionKey: parsed.ENCRYPTION_KEY,
     port: parsed.PORT,
     publicUrl: parsed.PUBLIC_URL,
+    mailClassifyV2: parsed.MAIL_CLASSIFY_V2,
     trustProxy: parsed.TRUST_PROXY,
     embeddingBaseUrl: parsed.EMBEDDING_BASE_URL,
     embeddingModel: parsed.EMBEDDING_MODEL,

@@ -230,6 +230,7 @@ async function buildView(
     canConfirm,
     canHand: open && !choose && !canConfirm,
     canReassign: open && !choose && actions.length > 0 && actions.every((a) => PORTABLE_TYPES.has(a.type)),
+    editable: canConfirm,
     blockedIndices,
     outsiders,
     decidedBy: decidedBy ?? null,

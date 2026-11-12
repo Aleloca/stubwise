@@ -71,6 +71,13 @@ export const mailProposalSchema = z.object({
   canConfirm: z.boolean().default(false),
   canHand: z.boolean().default(false),
   canReassign: z.boolean().default(false),
+  /**
+   * Si possono modificare i campi delle azioni (`edits`)? Vero sulle proposte
+   * condivise ancora da decidere, falso su quelle di prima (il servizio di
+   * prima non conosce le modifiche: `invalid_edits`). Un server che non lo
+   * manda: falso.
+   */
+  editable: z.boolean().default(false),
   /** Gli indici delle azioni che chi guarda non può confermare. */
   blockedIndices: z.array(z.number().int()).default([]),
   /** Incaricati proposti che NON sono membri del progetto. */

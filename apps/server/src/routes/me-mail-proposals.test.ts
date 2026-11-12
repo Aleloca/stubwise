@@ -127,6 +127,7 @@ describe("GET /api/me/mail/proposals", () => {
       status: "open",
       excerpt: "Serve l'export.",
       canConfirm: true,
+      editable: true,
       canHand: false,
       blockedIndices: [],
       outsiders: [{ userId: outsider.id, name: "Dario" }],
@@ -463,8 +464,9 @@ describe("le proposte di PRIMA in /proposals (una fonte sola)", () => {
 
   it("il proprietario della casella la vede nella stessa forma, con le azioni del modello e le loro etichette", async () => {
     const { ada, old } = await legacy();
-    const item = (await get(ada.headers, `/api/me/mail/proposals/${old.id}`)).json() as { actions: { type: string; label: string; args: Record<string, unknown> }[]; sharedWith: unknown[]; canReassign: boolean; status: string };
+    const item = (await get(ada.headers, `/api/me/mail/proposals/${old.id}`)).json() as { actions: { type: string; label: string; args: Record<string, unknown> }[]; sharedWith: unknown[]; canReassign: boolean; status: string; editable: boolean };
     expect(item.status).toBe("open");
+    expect(item.editable).toBe(false);
     expect(item.actions).toEqual([{ type: "create_backlog_item", label: "Apri la richiesta «Export»", args: expect.objectContaining({ title: "Export", description: "corpo" }) }]);
     expect(item.sharedWith).toEqual([]);
     expect(item.canReassign).toBe(true);

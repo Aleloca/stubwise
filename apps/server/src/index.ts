@@ -34,6 +34,7 @@ const app = buildApp({
   sessionSecret: config.sessionSecret,
   encryptionKey: config.encryptionKey,
   publicUrl: config.publicUrl,
+  mailClassifyV2: config.mailClassifyV2,
   trustProxy: config.trustProxy,
   embeddingBaseUrl: config.embeddingBaseUrl,
   embeddingModel: config.embeddingModel,
