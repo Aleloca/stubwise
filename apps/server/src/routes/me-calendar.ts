@@ -5,6 +5,7 @@ import {
   googleAccounts,
   projects,
   type Db,
+  users,
 } from "@stubwise/db";
 import { htmlToText, sanitizeEmailHtml } from "@stubwise/google";
 import {
@@ -204,7 +205,19 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
     async (request, reply) => {
       const [item] = await queryCalendarEventRows(app.db, request.user!.id, [eq(calendarEvents.id, request.params.id)]);
       if (!item) return apiError(reply, 404, "not_found", "Calendar event not found");
-      return item;
+      // F4: gli invitati del dettaglio con la persona di Stubwise (una query
+      // per tutti, `lower()`) e chi organizza.
+      const emails = [...new Set(item.attendees.map((a) => a.email.toLowerCase()))];
+      const people = new Map<string, string>();
+      if (emails.length > 0) {
+        const list = sql`array[${sql.join(emails.map((e) => sql`${e}`), sql`, `)}]::text[]`;
+        for (const row of await app.db.select({ id: users.id, email: users.email }).from(users).where(and(eq(users.isAgent, false), sql`lower(${users.email}) = any(${list})`))) people.set(row.email.toLowerCase(), row.id);
+      }
+      const organizer = item.organizer?.toLowerCase() ?? null;
+      return {
+        ...item,
+        attendees: item.attendees.map((a) => ({ ...a, personId: people.get(a.email.toLowerCase()) ?? null, organizer: organizer !== null && a.email.toLowerCase() === organizer })),
+      };
     },
   );
 
@@ -446,6 +459,8 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
       projectBy: calendarEvents.projectBy,
       eventType: calendarEvents.eventType,
       transparency: calendarEvents.transparency,
+      etag: calendarEvents.etag,
+      organizerSelf: calendarEvents.organizerSelf,
     })
     .from(calendarEvents)
     .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
@@ -533,11 +548,25 @@ function toCalendarItem(row: CalendarItemRow, options: { light?: boolean } = {})
     // una risposta da Google = needsAction, come il dettaglio (richiesta di 94).
     myResponse: mine ? (mine.responseStatus ?? "needsAction") : null,
     attendeeCount: row.attendees.length,
+    ...writeAbilities(row, mine),
   };
+}
+
+/**
+ * Chi può fare cosa su un evento (area 6, F4): UN posto, letto dai client.
+ * Organizza la casella se Google lo dice (`organizer.self`) o se
+ * l'organizzatore è il suo indirizzo (un evento suo senza invitati);
+ * risponde chi è fra gli invitati e non organizza.
+ */
+function writeAbilities(row: CalendarItemRow, mine: CalendarAttendee | undefined) {
+  const canEdit = row.organizerSelf || (row.organizer !== null && row.organizer.toLowerCase() === row.accountEmail.toLowerCase());
+  return { canEdit, canRespond: Boolean(mine) && !canEdit, etag: row.etag, myNote: mine?.comment ?? null };
 }
 
 /** La riga che le due query proiettano — una sola forma, come il mapper. */
 interface CalendarItemRow {
+  etag: string | null;
+  organizerSelf: boolean;
   proposalCandidate: boolean;
   projectBy: "rules" | "model" | "manual" | null;
   eventType: string | null;
@@ -641,6 +670,8 @@ async function queryCalendarEventRows(db: Db, userId: string, extra: SQL[], opti
       projectBy: calendarEvents.projectBy,
       eventType: calendarEvents.eventType,
       transparency: calendarEvents.transparency,
+      etag: calendarEvents.etag,
+      organizerSelf: calendarEvents.organizerSelf,
     })
     .from(calendarEvents)
     .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))

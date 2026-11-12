@@ -988,6 +988,10 @@ export const calendarAttendeeSchema = z.object({
   comment: z.string().nullable().optional(),
   /** È la casella stessa (`self` di Google). */
   self: z.boolean().optional(),
+  /** F4, solo nel dettaglio: la persona di Stubwise riconosciuta dall'indirizzo (lato server). */
+  personId: z.uuid().nullable().optional(),
+  /** F4, solo nel dettaglio: è chi organizza. */
+  organizer: z.boolean().optional(),
 });
 export type CalendarAttendee = z.infer<typeof calendarAttendeeSchema>;
 
@@ -1126,6 +1130,16 @@ export const calendarEventItemSchema = z.object({
   myResponse: calendarAttendeeResponseStatusSchema.nullable().default(null),
   /** Quanti invitati («N guests»), anche nella lista leggera dove `attendees` è vuoto. */
   attendeeCount: z.number().int().min(0).nullable().default(null),
+
+  // --- Area 6, F4: le letture per scrivere, calcolate dal SERVER.
+  /** La casella organizza: modifico, sposto, elimino. */
+  canEdit: z.boolean().default(false),
+  /** La casella è invitata e non organizza: rispondo. */
+  canRespond: z.boolean().default(false),
+  /** La versione di Google (`changed_on_google`). */
+  etag: z.string().nullable().default(null),
+  /** La nota della MIA risposta. NON FIDATO. */
+  myNote: z.string().nullable().default(null),
 });
 export type CalendarEventItem = z.infer<typeof calendarEventItemSchema>;
 
