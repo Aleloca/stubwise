@@ -429,7 +429,7 @@
         "title": "Collega una casella",
         "reconnectTitle": "Ricollega {{email}}",
         "workspace": "Workspace",
-        "consent": "Collegando una casella, Stubwise leggerà oggetto e corpo di ogni email ammessa e li invierà al provider di analisi AI configurato su questa istanza, per proporre azioni.",
+        "consent": "Collegando una casella, Stubwise leggerà oggetto e testo delle email di questa casella e li invierà al provider di analisi AI configurato su questa istanza, per proporti task e richieste.",
         "continue": "Continua su Google",
         "continuing": "In attesa di Google…",
         "tryAgain": "Riprova",

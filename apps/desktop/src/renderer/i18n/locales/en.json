@@ -429,7 +429,7 @@
         "title": "Connect a mailbox",
         "reconnectTitle": "Reconnect {{email}}",
         "workspace": "Workspace",
-        "consent": "By connecting a mailbox, Stubwise will read the subject and body of every admitted email and send them to the AI analysis provider configured on this instance, to propose actions.",
+        "consent": "By connecting a mailbox, Stubwise will read the subject and body of the emails in this mailbox and send them to the AI analysis provider configured on this instance, to suggest tasks and requests.",
         "continue": "Continue on Google",
         "continuing": "Waiting for Google…",
         "tryAgain": "Try again",

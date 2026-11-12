@@ -171,6 +171,10 @@ describe("Account", () => {
 
     await user.click(screen.getByRole("button", { name: "Connect a mailbox" }));
     const dialog = await screen.findByRole("dialog", { name: "Connect a mailbox" });
+    // Il consenso vale con la classificazione vecchia e con la nuova: niente «ammessa».
+    expect(dialog).toHaveTextContent(
+      "Stubwise will read the subject and body of the emails in this mailbox and send them to the AI analysis provider configured on this instance, to suggest tasks and requests.",
+    );
     // Il consenso del web resta, in un paragrafo a sé.
     expect(within(dialog).getByText(/send them to the AI analysis provider/)).toBeVisible();
     await user.click(within(dialog).getByRole("radio", { name: "Wrong domain" }));
