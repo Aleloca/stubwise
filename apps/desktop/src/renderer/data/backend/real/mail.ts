@@ -4,6 +4,7 @@ import type * as Fake from "../../api";
 import type { MailAddress, MailboxView, MailMessageView, MailSearchHit, MailThreadRow } from "../../types";
 import { appClient, session } from "./client";
 import { myAccounts, requestSync, syncStateOf, whenSynced } from "./google";
+import { mailProposalFunctions } from "./mailProposals";
 import { partialNamespace } from "./notIntegrated";
 
 // La Posta nella build app (area 6, fetta 1): la lettura che il server sa già
@@ -245,6 +246,7 @@ const reproposeMessage: Mail["reproposeMessage"] = async (id) => {
 };
 
 export const mailFunctions: Partial<Mail> = {
+  ...mailProposalFunctions,
   listMailboxes,
   setProposalsEnabled,
   syncMailbox,
