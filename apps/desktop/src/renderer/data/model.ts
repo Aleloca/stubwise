@@ -2770,7 +2770,18 @@ export interface MeetingNote {
   summary: string | null;
   transcript: string | null;
   event: { id: string; title: string; startsAt: string; endsAt: string; people: number } | null;
+  /**
+   * Build app (F5a): la riunione sul server (`GET /api/me/meetings/:noteId`),
+   * il link al Google Doc («Open the transcript»: il testo non arriva mai al
+   * client) e perché il Doc non si legge o si legge solo in parte.
+   */
+  noteId?: string;
+  docUrl?: string | null;
+  docReason?: MeetingDocReason | null;
 }
+
+/** Perché il Doc di Gemini non si legge (o solo in parte, `too_long`). */
+export type MeetingDocReason = "scope_missing" | "not_shared" | "deleted" | "too_long";
 
 /** Una conversazione aperta: i messaggi che chi guarda vede, dal più vecchio. */
 export interface MailThreadDetail {

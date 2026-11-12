@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { meetingOfMessage } from "./meetings";
 import type { MailThreadQuery } from "@stubwise/api-client";
 import type { MailThreadDetail as ServerThread, MailThreadItem, MailThreadMessage } from "@stubwise/shared";
 import type * as Fake from "../../api";
@@ -284,7 +285,9 @@ async function messageView(
     html: body?.bodyHtml ?? null,
     // Il server non dice la dimensione né scarica l'allegato (che si apre su Gmail).
     attachments: (body?.attachments ?? []).map((a, i) => ({ id: `${m.id}:${i}`, name: a.filename, sizeBytes: 0 })),
-    kind: "email",
+    // L'email di Gemini (F5a): il server la deriva a lettura. Finché lo schema
+    // del client non ha i campi nuovi li scarta, e il messaggio resta un'email.
+    ...meetingOfMessage(m as Parameters<typeof meetingOfMessage>[0]),
     context: !m.admitted,
     read: !m.unread,
     // Un mio invio (F3): solo io lo vedo, finché il messaggio vero non arriva.

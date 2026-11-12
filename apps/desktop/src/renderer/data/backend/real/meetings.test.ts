@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { session, setAppClientForTests } from "./client";
 import { installFakeServer, ME_ID } from "./fakeServer";
-import { meetingFunctions } from "./meetings";
+import { meetingFunctions, meetingOfMessage } from "./meetings";
 
 // Le riunioni registrate nella build app (area 6, F5): le rotte della BOZZA
 // del piano (`docs/plans/2026-11-12-integrazione-area6-fetta5-plan.md`,
@@ -126,5 +126,92 @@ describe("F5: «Task da questa riunione»", () => {
     expect(await m.tasksBornFrom!(EV)).toBeNull();
     installFakeServer({});
     expect(await m.tasksBornFrom!(EV)).toBeNull();
+  });
+});
+
+// F5a (forme di 72): l'email di Gemini sul messaggio. Il server la DERIVA a
+// lettura; `visible` falso ⇒ titolo, riassunto e link null. Il testo intero
+// non arriva mai al client: «Open the transcript» apre il Doc su Google.
+describe("F5a: la riunione registrata sul messaggio", () => {
+  const EVENT = {
+    id: "ev-1",
+    title: "Review",
+    startsAt: "2026-11-12T09:00:00Z",
+    endsAt: "2026-11-12T10:00:00Z",
+    people: 4,
+  };
+
+  it("un'email qualunque (o un server di prima): `kind: email`, nessuna riunione", () => {
+    expect(meetingOfMessage({})).toEqual({ kind: "email" });
+    expect(meetingOfMessage({ kind: "email", meeting: null })).toEqual({ kind: "email" });
+  });
+
+  it("la trascrizione che vedo: riassunto, link al Doc, l'evento, il motivo; mai il testo", () => {
+    expect(
+      meetingOfMessage({
+        kind: "transcript",
+        meeting: {
+          noteId: "note-1",
+          docTitle: "Notes: Review",
+          doc: "ready",
+          docReason: "too_long",
+          visible: true,
+          summary: "Si parte lunedì.",
+          docUrl: "https://docs.google.com/document/d/abc",
+          event: EVENT,
+        },
+      }),
+    ).toEqual({
+      kind: "transcript",
+      meeting: {
+        noteId: "note-1",
+        docTitle: "Notes: Review",
+        doc: "ready",
+        docReason: "too_long",
+        visible: true,
+        summary: "Si parte lunedì.",
+        transcript: null,
+        docUrl: "https://docs.google.com/document/d/abc",
+        event: EVENT,
+      },
+    });
+  });
+
+  it("chi non c'era: niente titolo, riassunto né link, anche se il server li mandasse", () => {
+    const r = meetingOfMessage({
+      kind: "transcript",
+      meeting: {
+        noteId: "note-1",
+        docTitle: "x",
+        doc: "ready",
+        visible: false,
+        summary: "x",
+        docUrl: "https://docs.google.com/document/d/abc",
+        event: null,
+      },
+    });
+    expect(r.meeting).toMatchObject({
+      visible: false,
+      docTitle: null,
+      summary: null,
+      docUrl: null,
+      transcript: null,
+    });
+  });
+
+  it("un link che non è di Google Docs non si apre", () => {
+    const r = meetingOfMessage({
+      kind: "transcript",
+      meeting: {
+        noteId: "n",
+        docTitle: "t",
+        doc: "ready",
+        visible: true,
+        summary: "s",
+        docUrl: "https://evil.test/x",
+        event: null,
+      },
+    });
+    expect(r.meeting?.docUrl).toBeNull();
   });
 });

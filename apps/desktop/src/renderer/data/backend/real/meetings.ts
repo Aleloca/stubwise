@@ -1,6 +1,6 @@
 import { ApiError } from "@stubwise/api-client";
 import type * as Fake from "../../api";
-import type { MeetingSummary, MeetingTask } from "../../types";
+import type { MeetingDocReason, MeetingNote, MeetingSummary, MeetingTask } from "../../types";
 import { appClient } from "./client";
 
 // Le riunioni registrate nella build app (area 6, F5). Le rotte sono quelle
@@ -92,3 +92,53 @@ export const meetingFunctions: Partial<Mail> = {
   getMeetingSummary,
   tasksBornFrom,
 };
+
+type ServerMeetingNote = {
+  noteId?: string;
+  docTitle?: string | null;
+  doc?: "reading" | "ready" | "unreachable" | null;
+  docReason?: string | null;
+  visible?: boolean;
+  summary?: string | null;
+  docUrl?: string | null;
+  event?: MeetingNote["event"];
+};
+
+const DOC_REASONS: ReadonlySet<string> = new Set([
+  "scope_missing",
+  "not_shared",
+  "deleted",
+  "too_long",
+]);
+const GOOGLE_DOC = /^https:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]+(?:[/?#].*)?$/;
+
+/**
+ * L'email di Gemini sul messaggio (F5a, forme di 72): il server la deriva a
+ * lettura. Chi non c'era (`visible` falso) non ha titolo, riassunto né link,
+ * qualunque cosa arrivi; il testo intero non arriva mai (`transcript: null`):
+ * «Open the transcript» apre il Doc, e solo un link di Google Docs.
+ */
+export function meetingOfMessage(m: { kind?: string; meeting?: ServerMeetingNote | null }): {
+  kind: "email" | "transcript";
+  meeting?: MeetingNote;
+} {
+  const n = m.meeting;
+  if (m.kind !== "transcript" || !n) return { kind: "email" };
+  const visible = n.visible === true;
+  return {
+    kind: "transcript",
+    meeting: {
+      ...(n.noteId ? { noteId: n.noteId } : {}),
+      docTitle: visible ? (n.docTitle ?? null) : null,
+      doc: n.doc ?? null,
+      ...(n.docReason && DOC_REASONS.has(n.docReason)
+        ? { docReason: n.docReason as MeetingDocReason }
+        : {}),
+      visible,
+      summary: visible ? (n.summary ?? null) : null,
+      transcript: null,
+      docUrl: visible && n.docUrl && GOOGLE_DOC.test(n.docUrl) ? n.docUrl : null,
+      event: n.event ?? null,
+    },
+  };
+}
