@@ -205,6 +205,8 @@ describe("il Calendario nella build app", () => {
       ).toEqual({
         scope: "one",
         response: "tentative",
+        // Senza nota la si toglie, come nel prototipo (contratto respond di 72).
+        note: null,
       }),
     );
     expect(within(panel).queryByRole("button", { name: "Edit" })).toBeNull();
