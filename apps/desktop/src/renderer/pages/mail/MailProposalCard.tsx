@@ -176,6 +176,8 @@ export function MailProposalCard({
       setEditing(null);
       return;
     }
+    // Una proposta di cui il server non accetta i campi cambiati (le proposte di prima).
+    if (err.message === "invalid: edits") return setError(t("mail.proposal.errorEdits"));
     setError(t(err.message === "forbidden" ? "mail.proposal.errorForbidden" : "mail.proposal.error"));
   };
 

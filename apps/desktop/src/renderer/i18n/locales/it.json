@@ -6177,6 +6177,7 @@
       "outcomeTitle": "Proposta per {{code}}",
       "error": "Non è stato possibile farlo. Riprova.",
       "errorForbidden": "In questo progetto non puoi più farlo.",
+      "errorEdits": "Questa proposta non si può modificare: confermala così com'è.",
       "ability": {
         "createTasks": "creare task",
         "editTasks": "modificare task",

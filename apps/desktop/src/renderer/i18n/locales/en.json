@@ -6177,6 +6177,7 @@
       "outcomeTitle": "Proposal for {{code}}",
       "error": "Couldn't do that. Try again.",
       "errorForbidden": "You can't do this any more in this project.",
+      "errorEdits": "This proposal can't be edited. Confirm it as it is.",
       "ability": {
         "createTasks": "create tasks",
         "editTasks": "edit tasks",

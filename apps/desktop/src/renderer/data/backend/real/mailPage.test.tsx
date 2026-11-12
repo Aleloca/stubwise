@@ -89,12 +89,14 @@ const proposal = {
 let seen: SeenRequest[] = [];
 let threads: unknown[] = [];
 let proposals: unknown[] = [];
+let confirmAnswer: { status?: number; body: unknown } = { body: {} };
 /** Come risponde Gmail (via server) a «letto / non letto». */
 let readAnswer: { status?: number; body: unknown } = { body: detail };
 
 beforeEach(() => {
   threads = [thread];
   proposals = [proposal];
+  confirmAnswer = { body: { status: "confirmed", results: [{ kind: "request", id: "r", code: "AUD-R9" }] } };
   readAnswer = { body: detail };
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
@@ -106,7 +108,8 @@ beforeEach(() => {
     "GET /api/departments": { body: [] },
     "GET /api/inbox": { body: { items: [], nextCursor: null } },
     "GET /api/me/mail/proposals": () => ({ body: { items: proposals } }),
-    [`POST /api/me/mail/proposals/${P1}/confirm`]: { body: { status: "confirmed", results: [{ kind: "request", id: "r", code: "AUD-R9" }] } },
+    [`POST /api/me/mail/proposals/${P1}/choose-project`]: { body: { status: "moved", projectId: PROJECT_ID } },
+    [`POST /api/me/mail/proposals/${P1}/confirm`]: () => confirmAnswer,
     "GET /api/me/google/accounts": { body: [account] },
     "GET /api/me/mail/threads": () => ({ body: { items: threads, nextCursor: null } }),
     "GET /api/me/mail/threads/t-1": { body: detail },
@@ -239,5 +242,36 @@ describe("la Posta nella build app", () => {
     await router.navigate({ to: `/mail/${KEY2}` } as never);
     await waitFor(() => expect(seen.filter((r) => r.path === "/api/me/mail/threads/t-2/read")).toHaveLength(2), { timeout: 3000 });
     expect(screen.getAllByText("Reconnect your Google account to keep read and unread in step with Gmail.")).toHaveLength(1);
+  });
+
+  it("F2: «Quale progetto?» propone i progetti incerti; sceglierne uno lo dice al server", async () => {
+    proposals = [
+      {
+        ...proposal,
+        actions: [{ type: "choose_project", args: { projectIds: [PROJECT_ID] }, label: "Which project is this about?" }],
+        canConfirm: false,
+        canHand: false,
+        canReassign: false,
+      },
+    ];
+    renderRoute(`/mail/${KEY}`);
+    expect(await screen.findByText("Which project is this about?")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: /Audin AI/ }));
+    await waitFor(() =>
+      expect(seen.find((r) => r.method === "POST" && r.path === `/api/me/mail/proposals/${P1}/choose-project`)?.body).toEqual({
+        projectId: PROJECT_ID,
+      }),
+    );
+  });
+
+  it("una proposta che il server non lascia modificare (400 `invalid_edits`): lo dice in parole chiare", async () => {
+    confirmAnswer = { status: 400, body: { code: "invalid_edits", message: "x" } };
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText(/Create request in AUD: “Preventivo Rossi”/);
+    fireEvent.click(screen.getByRole("button", { name: "Edit line 1" }));
+    fireEvent.change(await screen.findByLabelText("Title"), { target: { value: "Altro" } });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm/ }));
+    expect(await screen.findByText("This proposal can't be edited. Confirm it as it is.")).toBeInTheDocument();
   });
 });
