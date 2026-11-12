@@ -4173,3 +4173,31 @@ describe("F3b: il calendario con TUTTI gli eventi", () => {
     expect(row).toMatchObject({ title: "Revisione (spostata)", proposalCandidate: true, projectId });
   });
 });
+
+describe("F3b, task 5: la potatura del calendario", () => {
+  const OLD = () => new Date(Date.now() - 40 * 24 * 3600_000);
+  async function card(userId: string) {
+    const [n] = await db.insert(notifications).values({ userId, kind: "google.proposal", status: "open", event: {} } as typeof notifications.$inferInsert).returning();
+    return n!;
+  }
+  it("via le righe vecchie senza proposta aperta; una proposta aperta su un evento vecchio si chiude (expired, card chiusa) e se ne va al giro dopo; le recenti restano", async () => {
+    const { pruneOldCalendarEvents } = await import("./poller.js");
+    const account = await seedAccount({});
+    const open = await card(account.userId);
+    await db.insert(calendarEvents).values([
+      { accountId: account.id, googleEventId: "vecchio", startsAt: OLD(), fingerprint: "a", proposalCandidate: false },
+      { accountId: account.id, googleEventId: "vecchio-deciso", startsAt: OLD(), fingerprint: "b", outcome: { type: "ignored" } },
+      { accountId: account.id, googleEventId: "vecchio-aperto", startsAt: OLD(), fingerprint: "c", proposalNotificationId: open.id },
+      { accountId: account.id, googleEventId: "recente", startsAt: new Date(Date.now() - 5 * 24 * 3600_000), fingerprint: "d", proposalCandidate: false },
+    ]);
+    await pruneOldCalendarEvents(db);
+    let ids = (await calendarRows()).map((r) => r.googleEventId);
+    expect(ids).toEqual(["recente", "vecchio-aperto"]);
+    expect((await calendarRows()).find((r) => r.googleEventId === "vecchio-aperto")!.outcome).toEqual({ type: "expired" });
+    const [n] = await db.select().from(notifications).where(eq(notifications.id, open.id));
+    expect(n!.status).toBe("handled");
+    await pruneOldCalendarEvents(db);
+    ids = (await calendarRows()).map((r) => r.googleEventId);
+    expect(ids).toEqual(["recente"]);
+  });
+});

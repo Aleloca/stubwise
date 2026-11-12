@@ -4,7 +4,7 @@ import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { GoogleApiError } from "@stubwise/google";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { recoverInterruptedSends, sendDueMail, type MailSenderClient } from "./mail-sender.js";
+import { recoverInterruptedSends, sendDueMail, startMailSender, type MailSenderClient } from "./mail-sender.js";
 
 /**
  * L'INVIO ALLO SCADERE DEI 10 SECONDI (area 6, F3, task 4, D6): manda solo
@@ -179,6 +179,31 @@ describe("review F3, punto 2: un intoppo del DB non fa uscire il worker, e un in
       },
     }) as Db;
     await expect(sendDueMail({ ...deps(c), db: broken })).resolves.toBeDefined();
+  });
+});
+
+describe("review F3, punto 2: il catch del giro", () => {
+  it("un errore che SFUGGE da dentro il giro non diventa un rifiuto non gestito (il worker non esce): si logga", async () => {
+    await queued(-1000);
+    const { c } = client(async () => {
+      throw new GoogleApiError({ api: "gmail.drafts.send", status: 400, code: "bad_request", reason: "invalid" });
+    });
+    const errors: string[] = [];
+    // Il log del fallimento lancia: è l'errore che esce da `sendDueMail`.
+    const logger = { info: () => {}, warn: () => { throw new Error("log rotto"); }, error: (m: string) => void errors.push(m) };
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => void unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    const controller = new AbortController();
+    try {
+      startMailSender({ ...deps(c), logger, signal: controller.signal, pollMs: 50 });
+      await new Promise((r) => setTimeout(r, 400));
+    } finally {
+      controller.abort();
+      process.off("unhandledRejection", onUnhandled);
+    }
+    expect(unhandled).toEqual([]);
+    expect(errors.some((m) => m.includes("giro degli invii fallito") && m.includes("log rotto"))).toBe(true);
   });
 });
 

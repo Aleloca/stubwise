@@ -5,7 +5,7 @@ import { calendarEvents, googleAccounts, googleWorkspaces, users } from "./schem
 import { startTestDb, type TestDb } from "./testing.js";
 
 /**
- * Migrazione 0157 (12 nov 2026, area 6, F3b): il calendario con TUTTI gli
+ * Migrazione 0161 (era la 0157 della F3b, rinumerata dopo il fix della F3) (12 nov 2026, area 6, F3b): il calendario con TUTTI gli
  * eventi. Evento visto ≠ candidato (`proposal_candidate`, default true: le
  * righe di prima erano tutte in perimetro), tipo e trasparenza, chi ha deciso
  * il progetto, e la linea di base per casella.
@@ -19,7 +19,7 @@ afterAll(async () => {
   await t?.stop();
 });
 
-describe("migrazione 0157", () => {
+describe("migrazione 0161", () => {
   it("le colonne nuove con i loro default; una casella NUOVA nasce con la linea di base già fatta", async () => {
     const [u] = await t.db.insert(users).values({ email: `u-${randomUUID()}@x.it`, passwordHash: "x", role: "member" }).returning();
     const [ws] = await t.db.insert(googleWorkspaces).values({ name: "A", domains: ["x.it"], clientId: "c", clientSecretEncrypted: "s" }).returning();
