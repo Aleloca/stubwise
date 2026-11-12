@@ -6427,6 +6427,9 @@
       "zone": "Gli orari sono nel tuo fuso orario"
     },
     "block": {
+      "outOfOffice": "Fuori ufficio",
+      "focusTime": "Concentrazione",
+      "free": "Libero",
       "continues": "continua",
       "from": "dalle {{day}} {{time}}",
       "more_one": "+{{count}} altro",
