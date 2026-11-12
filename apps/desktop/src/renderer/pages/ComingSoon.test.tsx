@@ -322,6 +322,7 @@ const INTEGRATED_CALLS = new Set([
   "mail.undoSend",
   "mail.retrySend",
   "mail.deleteFailedSend",
+  "mail.streamClaudeDraft",
   // Area 6, fetta 1: il Calendario in lettura e le serie (`data/backend/real/calendar.ts`).
   "calendar.calendarWindow",
   "calendar.spanOf",

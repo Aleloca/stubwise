@@ -7,7 +7,7 @@ import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, type SeenReque
 // Scrivere nella Posta della build app (area 6, fetta 3), davanti a un server
 // finto: Rispondi, la bozza indirizzata dal server, Invia coi 10 s del
 // server e «Annulla»; l'email nuova resta sull'elenco finché Gmail non le dà
-// una conversazione. La bozza di Claude è spenta finché non c'è il suo SSE.
+// una conversazione. La bozza di Claude arriva a pezzi e resta una proposta.
 //
 // (Dalla fetta 1:) la
 // posta TRATTATA per conversazione, la lettura col corpo originale, le
@@ -166,6 +166,10 @@ beforeEach(() => {
     [`POST /api/me/mail/outgoing/${OUT}/undo`]: { body: { draft: null, droppedAttachments: [] } },
     [`GET /api/me/mail/outgoing/${OUT}`]: { body: { messageId: OUT, threadId: "t-1", state: "queued", undoUntil: new Date(Date.now() + 10_000).toISOString(), error: null, sentAt: null } },
     "GET /api/me/mail/recipients": { body: { items: [] } },
+    "POST /api/me/mail/drafts/claude": {
+      contentType: "text/event-stream",
+      body: `data: ${JSON.stringify({ type: "delta", text: "Arriva " })}\n\ndata: ${JSON.stringify({ type: "done", text: "Arriva lunedì.", projectId: null, used: [] })}\n\n`,
+    },
     "GET /api/me/mail/threads/t-2": { body: { ...detail, threadId: "t-2", messages: [{ ...detail.messages[0], id: M2, unread: true }] } },
     [`GET /api/me/mail/email_triage/${M2}/original`]: { status: 404, body: { code: "not_found", message: "x" } },
     "POST /api/me/mail/threads/t-2/read": () => readAnswer,
@@ -193,12 +197,19 @@ describe("scrivere nella Posta della build app", () => {
     expect(await screen.findByRole("button", { name: "Undo" })).toBeInTheDocument();
   });
 
-  it("la bozza di Claude non c'è ancora", async () => {
+  it("«Ask Claude»: la bozza arriva nel campo e resta una proposta (nessun salvataggio da sola)", async () => {
     renderRoute(`/mail/${KEY}`);
     await screen.findByText("Ecco il preventivo per la consegna.");
     fireEvent.click(screen.getByRole("button", { name: "Reply" }));
     const form = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
-    expect(within(form).queryByRole("button", { name: /Claude/ })).toBeNull();
+    fireEvent.click(within(form).getByRole("button", { name: "Ask Claude" }));
+    const hint = within(form).getByRole("textbox", { name: "What should it say? (optional)" });
+    fireEvent.change(hint, { target: { value: "digli che arriva lunedì" } });
+    fireEvent.keyDown(hint, { key: "Enter" });
+    await waitFor(() => expect(within(form).getByRole("textbox", { name: "Message" })).toHaveValue("Arriva lunedì."));
+    const post = seen.find((r) => r.method === "POST" && r.path === "/api/me/mail/drafts/claude")!;
+    expect(post.body).toMatchObject({ accountId: ACC, threadId: "t-1", mode: "reply", hint: "digli che arriva lunedì" });
+    expect(saved).toHaveLength(0);
   });
 
   it("l'email nuova: dopo Invia si resta sull'elenco, con «Annulla» (la conversazione arriva quando Gmail la crea)", async () => {

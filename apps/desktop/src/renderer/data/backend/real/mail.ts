@@ -6,6 +6,7 @@ import type { MailAddress, MailboxView, MailMessageView, MailSearchHit, MailThre
 import { appClient, session } from "./client";
 import { myAccounts, requestSync, syncStateOf, whenSynced } from "./google";
 import { splitThreadKey, threadKey } from "./mailKeys";
+import { mailClaudeDraftFunctions } from "./mailClaudeDraft";
 import { mailDraftFunctions } from "./mailDrafts";
 import { mailSendFunctions } from "./mailSend";
 import { mailProposalFunctions } from "./mailProposals";
@@ -360,6 +361,7 @@ export const mailFunctions: Partial<Mail> = {
   ...mailProposalFunctions,
   ...mailDraftFunctions,
   ...mailSendFunctions,
+  ...mailClaudeDraftFunctions,
   listMailboxes,
   setProposalsEnabled,
   syncMailbox,

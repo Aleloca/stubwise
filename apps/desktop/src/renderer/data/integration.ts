@@ -121,9 +121,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // proposte della casella, letto/non letto con Gmail.
     "mail",
     // Area 6, fetta 3: scrivere (Rispondi, Rispondi a tutti, Inoltra, Nuova,
-    // le bozze di Gmail, gli allegati, Invia coi 10 s del server). Resta
-    // spenta `mail-claude-draft` (la bozza di Claude, finché non c'è il suo SSE).
+    // le bozze di Gmail, gli allegati, Invia coi 10 s del server).
     "mail-write",
+    // F3: la bozza di Claude nel compositore (lo stream dal main sul desktop).
+    "mail-claude-draft",
     // Area 6, fetta 2: la classificazione nuova, cioè importanza e scadenza delle
     // conversazioni, «Importanti» e il blocco Home «Posta importante».
     "mail-importance",

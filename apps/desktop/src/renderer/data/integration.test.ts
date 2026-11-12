@@ -147,6 +147,7 @@ describe("isIntegrated", () => {
         "feature:mail-proposal-edit",
         "feature:mail-contributors",
         "feature:mail-write",
+        "feature:mail-claude-draft",
       ].sort(),
     );
   });

@@ -57,7 +57,7 @@ export async function myMailboxes(): Promise<{ mine: Set<string>; firstConnected
 }
 
 /** La casella e il thread Gmail di una conversazione, o della nuova email. */
-function placeOf(threadId: string | null, firstConnected: string | null): { accountId: string; thread: string | null } {
+export function placeOf(threadId: string | null, firstConnected: string | null): { accountId: string; thread: string | null } {
   if (threadId === null) {
     if (!firstConnected) throw new Error("google_not_connected");
     return { accountId: firstConnected, thread: null };
