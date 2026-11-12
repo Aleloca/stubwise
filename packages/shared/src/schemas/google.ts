@@ -981,6 +981,17 @@ export type CalendarAttendeeResponseStatus = z.infer<typeof calendarAttendeeResp
 export const calendarAttendeeSchema = z.object({
   email: z.string(),
   responseStatus: calendarAttendeeResponseStatusSchema.nullable(),
+  // F4, task 0: opzionali (additivi; le righe di prima non li hanno).
+  /** Il nome che Google dà all'invitato. NON FIDATO. */
+  name: z.string().nullable().optional(),
+  /** La nota della sua risposta. NON FIDATO. */
+  comment: z.string().nullable().optional(),
+  /** È la casella stessa (`self` di Google). */
+  self: z.boolean().optional(),
+  /** F4, solo nel dettaglio: la persona di Stubwise riconosciuta dall'indirizzo (lato server). */
+  personId: z.uuid().nullable().optional(),
+  /** F4, solo nel dettaglio: è chi organizza. */
+  organizer: z.boolean().optional(),
 });
 export type CalendarAttendee = z.infer<typeof calendarAttendeeSchema>;
 
@@ -1119,6 +1130,16 @@ export const calendarEventItemSchema = z.object({
   myResponse: calendarAttendeeResponseStatusSchema.nullable().default(null),
   /** Quanti invitati («N guests»), anche nella lista leggera dove `attendees` è vuoto. */
   attendeeCount: z.number().int().min(0).nullable().default(null),
+
+  // --- Area 6, F4: le letture per scrivere, calcolate dal SERVER.
+  /** La casella organizza: modifico, sposto, elimino. */
+  canEdit: z.boolean().default(false),
+  /** La casella è invitata e non organizza: rispondo. */
+  canRespond: z.boolean().default(false),
+  /** La versione di Google (`changed_on_google`). */
+  etag: z.string().nullable().default(null),
+  /** La nota della MIA risposta. NON FIDATO. */
+  myNote: z.string().nullable().default(null),
 });
 export type CalendarEventItem = z.infer<typeof calendarEventItemSchema>;
 

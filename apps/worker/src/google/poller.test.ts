@@ -2891,6 +2891,10 @@ function calendarEvent(input: Partial<GoogleCalendarEvent> & { id: string }): Go
     htmlLink: null,
     eventType: "default",
     transparency: "opaque",
+    etag: null,
+    iCalUID: null,
+    visibility: "default",
+    organizerSelf: false,
     updatedAt: null,
     recurringEventId: null,
     originalStartTime: null,
@@ -4423,5 +4427,27 @@ describe("review F3b, minore: la potatura guarda la FINE dell'evento", () => {
     ]);
     await pruneOldCalendarEvents(db);
     expect((await calendarRows()).map((r) => r.googleEventId)).toEqual(["in-corso"]);
+  });
+});
+
+describe("F4, task 0: il worker scrive i dati per scrivere", () => {
+  it("etag, iCalUID, visibilità, organizzatore e gli invitati con nome, nota e self finiscono sulla riga", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const ev = calendarEvent({
+      id: "e1",
+      title: "Revisione",
+      etag: '"77"',
+      iCalUID: "uid-1@google.com",
+      visibility: "private",
+      organizerSelf: true,
+      attendees: [
+        { email: MAILBOX, responseStatus: "accepted", name: null, comment: null, self: true },
+        { email: "bob@x.it", responseStatus: "tentative", name: "Bob", comment: "arrivo tardi", self: false },
+      ],
+    });
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [ev], nextSyncToken: "t" }]) }));
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ etag: '"77"', icalUid: "uid-1@google.com", visibility: "private", organizerSelf: true });
+    expect(row!.attendees[1]).toMatchObject({ name: "Bob", comment: "arrivo tardi", self: false });
   });
 });

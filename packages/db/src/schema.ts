@@ -4865,6 +4865,14 @@ export const calendarEvents = pgTable(
     transparency: text("transparency"),
     /** Chi ha deciso il progetto: le regole, la dottrina nuova, una persona. */
     projectBy: text("project_by").$type<"rules" | "model" | "manual">(),
+    /** F4: la versione di Google (If-Match: una scrittura su un evento cambiato è `changed_on_google`). */
+    etag: text("etag"),
+    /** F4: lo stesso evento in tutti i calendari che lo vedono (il progetto a mano vale per tutti, Q1). */
+    icalUid: text("ical_uid"),
+    /** F4: `default` | `public` | `private` | `confidential`. Un `private` occupa, senza dettagli. */
+    visibility: text("visibility"),
+    /** F4: l'organizzatore è la casella (canEdit). */
+    organizerSelf: boolean("organizer_self").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -4881,6 +4889,8 @@ export const calendarEvents = pgTable(
     index("calendar_events_account_recurring_idx").on(table.accountId, table.recurringEventId),
     // F3b: `range` per casella e finestra, e la potatura (`starts_at` vecchio).
     index("calendar_events_account_starts_idx").on(table.accountId, table.startsAt),
+    // F4: tutte le righe dello stesso evento (il progetto a mano, Q1).
+    index("calendar_events_ical_uid_idx").on(table.icalUid),
     // La potatura: un DELETE su tutta la tabella per la fine dell'evento (review F3b).
     index("calendar_events_ends_idx").using("btree", sql`coalesce(${table.endsAt}, ${table.startsAt})`),
     check(

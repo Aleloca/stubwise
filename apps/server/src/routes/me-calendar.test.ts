@@ -6,6 +6,7 @@ import {
   googleAccounts,
   googleWorkspaces,
   projects,
+  users,
   type Db,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
@@ -562,7 +563,14 @@ describe("GET /api/me/calendar/events/:id (area 6, F1.4)", () => {
       url: `/api/me/calendar/range?from=${encodeURIComponent("2026-09-01T00:00:00.000Z")}&to=${encodeURIComponent("2026-09-30T00:00:00.000Z")}`,
       headers: { cookie: memberCookie },
     });
-    expect(res.json()).toEqual(range.json().items[0]);
+    // La stessa forma, tranne ciò che SOLO il dettaglio aggiunge agli invitati (F4).
+    const detail = res.json() as { attendees: Record<string, unknown>[] };
+    const stripped = {
+      ...detail,
+      attendees: detail.attendees.map((a) => Object.fromEntries(Object.entries(a).filter(([k]) => k !== "personId" && k !== "organizer"))),
+    };
+    expect(stripped).toEqual(range.json().items[0]);
+    expect(detail.attendees[0]).toMatchObject({ personId: null, organizer: false });
     expect(JSON.stringify(res.json())).not.toContain("<script>");
   });
 
@@ -632,5 +640,33 @@ describe("F3b, task 6: range leggero, i campi nuovi, le cancellate fuori", () =>
     const items = (await getSeries(memberCookie)).json().items as { recurringEventId: string; recognized: boolean }[];
     expect(items.find((i) => i.recurringEventId === "s-yoga")!.recognized).toBe(false);
     expect(items.find((i) => i.recurringEventId === "s-sal")!.recognized).toBe(true);
+  });
+});
+
+describe("F4, task 1: le letture per scrivere", () => {
+  const range = (cookie: string) =>
+    app.inject({ method: "GET", url: `/api/me/calendar/range?from=${encodeURIComponent("2026-09-01T00:00:00.000Z")}&to=${encodeURIComponent("2026-09-30T00:00:00.000Z")}&fields=summary`, headers: { cookie } });
+
+  it("organizzatore: canEdit e non canRespond; invitato: il contrario, con la mia nota; mio senza invitati: canEdit; una riga di prima: etag null", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, { title: "Organizzo io", startsAt: new Date("2026-09-15T09:00:00.000Z"), organizerSelf: true, organizer: email, etag: '"1"', attendees: [{ email, responseStatus: "accepted", self: true }, { email: "x@y.it", responseStatus: null }] });
+    await seedCalendarEvent(accountId, { title: "Mi invitano", startsAt: new Date("2026-09-15T10:00:00.000Z"), organizer: "capo@y.it", etag: '"2"', attendees: [{ email: "capo@y.it", responseStatus: "accepted" }, { email, responseStatus: "tentative", comment: "forse tardi", self: true }] });
+    await seedCalendarEvent(accountId, { title: "Mio da solo", startsAt: new Date("2026-09-15T11:00:00.000Z"), organizer: email, attendees: [] });
+    await seedCalendarEvent(accountId, { title: "Di prima", startsAt: new Date("2026-09-15T12:00:00.000Z"), organizer: "capo@y.it", attendees: [{ email, responseStatus: "accepted" }] });
+    const items = (await range(memberCookie)).json().items as Record<string, unknown>[];
+    const by = (t: string) => items.find((i) => i.title === t)!;
+    expect(by("Organizzo io")).toMatchObject({ canEdit: true, canRespond: false, etag: '"1"' });
+    expect(by("Mi invitano")).toMatchObject({ canEdit: false, canRespond: true, myNote: "forse tardi", etag: '"2"' });
+    expect(by("Mio da solo")).toMatchObject({ canEdit: true, canRespond: false });
+    expect(by("Di prima")).toMatchObject({ canEdit: false, canRespond: true, etag: null, myNote: null });
+  });
+
+  it("nel dettaglio gli invitati hanno nome, la persona di Stubwise e chi organizza", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    const [colleague] = await db.select().from(users).where(eq(users.id, memberId));
+    const id = await seedCalendarEvent(accountId, { title: "Con nomi", startsAt: new Date("2026-09-15T09:00:00.000Z"), organizer: "capo@y.it", attendees: [{ email: "capo@y.it", responseStatus: "accepted", name: "Il Capo" }, { email: colleague!.email.toUpperCase(), responseStatus: null }, { email, responseStatus: null, self: true }] });
+    const detail = (await app.inject({ method: "GET", url: `/api/me/calendar/events/${id}`, headers: { cookie: memberCookie } })).json() as { attendees: { email: string; name?: string | null; personId?: string | null; organizer?: boolean }[] };
+    expect(detail.attendees[0]).toMatchObject({ name: "Il Capo", organizer: true, personId: null });
+    expect(detail.attendees[1]).toMatchObject({ personId: memberId, organizer: false });
   });
 });
