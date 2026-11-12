@@ -21,32 +21,35 @@ const { FUTURE_NAMESPACES, calls, truncated, intake, refusal } = vi.hoisted(() =
     "admin",
     "me",
     "projectSettings",
-  "chat",
-  "docs",
-  "productDocs",
-  "drive",
-  "mail",
-  "calendar",
-  "automations",
-  "alerts",
-  "releases",
-  "support",
-  "servers",
-  "changelog",
-  "access",
-  "claude",
-  "instance",
+    "chat",
+    "docs",
+    "productDocs",
+    "drive",
+    "mail",
+    "calendar",
+    "automations",
+    "alerts",
+    "releases",
+    "support",
+    "servers",
+    "changelog",
+    "access",
+    "claude",
+    "instance",
   ] as const,
 }));
 
 vi.mock("@backend/api", async (importOriginal) => {
   const mod = await importOriginal<Record<string, unknown>>();
-  const record = (name: string, fn: (...a: unknown[]) => unknown) =>
+  const record =
+    (name: string, fn: (...a: unknown[]) => unknown) =>
     (...args: unknown[]) => {
       calls.push(name);
       if (refusal.fn === name) {
         refusal.fn = null;
-        return Promise.reject(Object.assign(new Error("Refused by the server"), { code: refusal.code }));
+        return Promise.reject(
+          Object.assign(new Error("Refused by the server"), { code: refusal.code }),
+        );
       }
       return fn(...args);
     };
@@ -334,6 +337,18 @@ const INTEGRATED_CALLS = new Set([
   "calendar.configureSeries",
   "calendar.syncCalendar",
   "calendar.whenCalendarIdle",
+  // Area 6, F4: la scrittura (review F4, minori).
+  "calendar.createEvent",
+  "calendar.updateEvent",
+  "calendar.moveEvent",
+  "calendar.deleteEvent",
+  "calendar.respond",
+  "calendar.setEventProject",
+  "calendar.retrySave",
+  "calendar.revertEvent",
+  "calendar.freeBusy",
+  "calendar.findFirstFreeSlot",
+  "calendar.onSaving",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -362,6 +377,19 @@ describe("aree non integrate nella build app", () => {
   it("aprire il Calendario legge solo ciò che è integrato", async () => {
     renderRoute("/calendar");
     await waitFor(() => expect(calls).toContain("calendar.listEvents"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 6, F4: la scrittura del Calendario è integrata (review F4): una nuova
+  // riunione passa solo da funzioni integrate.
+  it("scrivere nel Calendario (nuova riunione) chiama solo ciò che è integrato", async () => {
+    renderRoute("/calendar?newMeeting=1&date=2026-10-23");
+    const dialog = await screen.findByRole("dialog", { name: "New meeting" });
+    const user = userEvent.setup();
+    await user.type(within(dialog).getByLabelText("Title"), "Kickoff");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(calls).toContain("calendar.createEvent"));
     await settle();
     expect(outside()).toEqual([]);
   });
@@ -506,7 +534,10 @@ describe("le superfici della fetta 2 nella build app", () => {
     expect(await screen.findByRole("grid")).toBeInTheDocument();
     const head = await screen.findByRole("rowheader", { name: /Claude/ });
     expect(head).toHaveAttribute("data-readonly", "true");
-    expect(head).toHaveAttribute("title", "Only someone who can start Claude's work plans for Claude");
+    expect(head).toHaveAttribute(
+      "title",
+      "Only someone who can start Claude's work plans for Claude",
+    );
   });
 
   it("il menu «Plan» propone Claude dove si assegna", async () => {
@@ -518,7 +549,9 @@ describe("le superfici della fetta 2 nella build app", () => {
     chip.focus();
     await userEvent.keyboard("p");
     const menu = await screen.findByRole("menu", { name: /^Plan / });
-    const names = within(menu).getAllByRole("menuitemradio").map((i) => i.textContent ?? "");
+    const names = within(menu)
+      .getAllByRole("menuitemradio")
+      .map((i) => i.textContent ?? "");
     expect(names.length).toBeGreaterThan(0);
     // AUD (software): Claude ne è membro, quindi si assegna, ed è l'ultima voce.
     expect(names.at(-1)).toMatch(/Claude/);
@@ -634,7 +667,9 @@ describe("le superfici della fetta 3 nella build app", () => {
   it("«Da decidere» legge Claude (dalla 3b), le domande della Chat (area 4, fetta 2) e le proposte della Posta (area 6, fetta 1), non le automazioni, e non resta in caricamento", async () => {
     renderRoute("/home");
     const decide = await screen.findByRole("region", { name: /^Decide/ });
-    await waitFor(() => expect(decide.querySelector("[data-skeleton], [aria-busy='true']")).toBeNull());
+    await waitFor(() =>
+      expect(decide.querySelector("[data-skeleton], [aria-busy='true']")).toBeNull(),
+    );
     await settle();
     expect(outside()).toEqual([]);
     expect(calls).toContain("listClaudeDecisions");
@@ -643,11 +678,15 @@ describe("le superfici della fetta 3 nella build app", () => {
 
   it("i filtri salvati: tutti i filtri e la pagina di un filtro", async () => {
     renderRoute("/filters");
-    expect(await screen.findByRole("heading", { level: 1, name: "All filters" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "All filters" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).toBeNull();
     cleanup();
     renderRoute("/filters/flt-unassigned");
-    expect(await screen.findByRole("heading", { level: 1, name: /Unassigned/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: /Unassigned/ }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
@@ -692,7 +731,9 @@ describe("le superfici della fetta 4 nella build app", () => {
   it("Tutti i progetti è disponibile", async () => {
     signedInAs("p-laura");
     renderRoute("/projects");
-    expect(await screen.findByRole("heading", { level: 1, name: "All projects" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "All projects" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Coming soon")).toBeNull();
     await settle();
     expect(outside()).toEqual([]);
@@ -703,12 +744,19 @@ describe("le superfici della fetta 4 nella build app", () => {
     intake.mergeInto = "STW-R4";
     const router = renderRoute("/p/STW/requests?newRequest=STW");
     const dialog = await screen.findByRole("dialog", { name: "New request" });
-    await userEvent.type(within(dialog).getByLabelText("What do you need?"), "Mute notifications at night");
+    await userEvent.type(
+      within(dialog).getByLabelText("What do you need?"),
+      "Mute notifications at night",
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: "Send request" }));
     expect(
-      await screen.findByText("Merged into STW-R4: someone had already asked for this, and now you follow it."),
+      await screen.findByText(
+        "Merged into STW-R4: someone had already asked for this, and now you follow it.",
+      ),
     ).toBeInTheDocument();
-    await waitFor(() => expect(router.state.location.search).toMatchObject({ request: "req-stw-4" }));
+    await waitFor(() =>
+      expect(router.state.location.search).toMatchObject({ request: "req-stw-4" }),
+    );
   });
 
   it("una richiesta accodata senza esito: «la stiamo registrando», il dialogo si chiude e niente «Riprova»", async () => {
@@ -716,13 +764,20 @@ describe("le superfici della fetta 4 nella build app", () => {
     intake.pending = true;
     renderRoute("/p/STW/requests?newRequest=STW");
     const dialog = await screen.findByRole("dialog", { name: "New request" });
-    await userEvent.type(within(dialog).getByLabelText("What do you need?"), "Mute notifications at night");
+    await userEvent.type(
+      within(dialog).getByLabelText("What do you need?"),
+      "Mute notifications at night",
+    );
     await userEvent.click(within(dialog).getByRole("button", { name: "Send request" }));
     expect(
       await screen.findByText("Received: we're still registering it. You'll find it in Requests."),
     ).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "New request" })).not.toBeInTheDocument());
-    expect(screen.queryByText("Couldn't send the request. Nothing was sent; try again.")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "New request" })).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByText("Couldn't send the request. Nothing was sent; try again."),
+    ).not.toBeInTheDocument();
     expect(calls.filter((c) => c === "createRequest")).toHaveLength(1);
   });
 
@@ -733,17 +788,29 @@ describe("le superfici della fetta 4 nella build app", () => {
     await userEvent.click(await within(panel).findByRole("button", { name: "More actions" }));
     await userEvent.click(await screen.findByRole("menuitem", { name: "Merge into…" }));
     const dialog = await screen.findByRole("dialog", { name: "Merge into another request" });
-    await userEvent.click(await within(dialog).findByRole("radio", { name: /Quiet hours for notifications/ }));
+    await userEvent.click(
+      await within(dialog).findByRole("radio", { name: /Quiet hours for notifications/ }),
+    );
     failNext("mergeRequest");
     setLatency(300);
     await userEvent.click(within(dialog).getByRole("button", { name: "Merge" }));
     expect(
-      await within(dialog).findByText("Merging into STW-R4: Claude is rewriting it. This can take a moment."),
+      await within(dialog).findByText(
+        "Merging into STW-R4: Claude is rewriting it. This can take a moment.",
+      ),
     ).toBeInTheDocument();
-    expect(await within(dialog).findByText("Couldn't merge the requests. Nothing changed.", {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(
+      await within(dialog).findByText(
+        "Couldn't merge the requests. Nothing changed.",
+        {},
+        { timeout: 2000 },
+      ),
+    ).toBeInTheDocument();
     setLatency(0);
     await userEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Merge into another request" })).toBeNull());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Merge into another request" })).toBeNull(),
+    );
   });
 
   it("oltre i 200 filtri il salvataggio lo dice con la sua frase", async () => {
@@ -755,7 +822,9 @@ describe("le superfici della fetta 4 nella build app", () => {
     refusal.code = "too_many_filters";
     await userEvent.click(within(dialog).getByRole("button", { name: "Save filter" }));
     expect(
-      await within(dialog).findByText("You already have 200 saved filters. Delete one to save another."),
+      await within(dialog).findByText(
+        "You already have 200 saved filters. Delete one to save another.",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -768,7 +837,9 @@ describe("le superfici della fetta 4 nella build app", () => {
     refusal.code = "suggestions_kept";
     await userEvent.click(within(box).getByRole("button", { name: "Dismiss" }));
     expect(
-      await screen.findByText("Your changes were saved, but the suggestions are still open. Dismiss them again."),
+      await screen.findByText(
+        "Your changes were saved, but the suggestions are still open. Dismiss them again.",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -796,7 +867,9 @@ describe("le superfici della fetta 4 nella build app", () => {
     refusal.code = "request_not_found";
     await userEvent.click(within(dialog).getByRole("button", { name: /Create task/ }));
     expect(
-      await within(dialog).findByText("This request is no longer available: it may have been converted, archived or hidden."),
+      await within(dialog).findByText(
+        "This request is no longer available: it may have been converted, archived or hidden.",
+      ),
     ).toBeInTheDocument();
   });
 });
@@ -807,7 +880,9 @@ describe("le superfici della fetta 3a nella build app (area 3)", () => {
   it("/claude atterra su «New conversation», con «Mine» e le sessioni dal vivo nella colonna", async () => {
     signedInAs("p-laura");
     renderRoute("/claude");
-    expect(await screen.findByRole("heading", { level: 1, name: "New conversation" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "New conversation" }),
+    ).toBeInTheDocument();
     const column = screen.getByRole("navigation", { name: "Claude views" });
     expect(within(column).getByText("New conversation")).toBeInTheDocument();
     expect(within(column).getByText("Mine")).toBeInTheDocument();
@@ -841,4 +916,3 @@ describe("le superfici della fetta 3a nella build app (area 3)", () => {
     expect(calls).toContain("subscribe");
   });
 });
-
