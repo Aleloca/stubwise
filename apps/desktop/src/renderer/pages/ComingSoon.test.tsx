@@ -280,6 +280,39 @@ const INTEGRATED_CALLS = new Set([
   // Area 6, fetta 1: il cassetto Google (account e caselle).
   "drive.getGoogleAccount",
   "drive.listGoogleWorkspaces",
+  "drive.connectGoogle",
+  "drive.disconnectGoogle",
+  // Area 6, fetta 1: la Posta in lettura, le proposte della casella, «Aggiorna ora»,
+  // letto / non letto (`data/backend/real/{mail,mailProposals}.ts`).
+  "mail.listMailboxes",
+  "mail.setProposalsEnabled",
+  "mail.syncMailbox",
+  "mail.whenMailSynced",
+  "mail.whenMailIdle",
+  "mail.listMailThreads",
+  "mail.getMailThread",
+  "mail.searchMail",
+  "mail.reproposeMessage",
+  "mail.markRead",
+  "mail.markUnread",
+  "mail.listMailProposals",
+  "mail.getMailProposal",
+  "mail.listMailDecisions",
+  "mail.confirmMailProposal",
+  "mail.ignoreMailProposal",
+  "mail.handMailProposal",
+  "mail.reassignMailProposal",
+  // Area 6, fetta 1: il Calendario in lettura e le serie (`data/backend/real/calendar.ts`).
+  "calendar.calendarWindow",
+  "calendar.spanOf",
+  "calendar.listEvents",
+  "calendar.getEvent",
+  "calendar.listSeries",
+  "calendar.listCalendars",
+  "calendar.listUpcomingEvents",
+  "calendar.configureSeries",
+  "calendar.syncCalendar",
+  "calendar.whenCalendarIdle",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -296,6 +329,22 @@ const DELETE = "Delete task\u2026";
 const settle = () => new Promise((r) => setTimeout(r, 50));
 
 describe("aree non integrate nella build app", () => {
+  // Area 6, fetta 1: Posta e Calendario si leggono, ma solo con ciò che la build app ha
+  // (niente bozze, scrittura, note di riunione). Una lettura di troppo è un buco del cancello.
+  it("aprire la Posta legge solo ciò che è integrato", async () => {
+    renderRoute("/mail");
+    await waitFor(() => expect(calls).toContain("mail.listMailThreads"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("aprire il Calendario legge solo ciò che è integrato", async () => {
+    renderRoute("/calendar");
+    await waitFor(() => expect(calls).toContain("calendar.listEvents"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
   // Dall'area 4 (fetta 1) la Chat è integrata: si legge, e solo con la fetta 1.
   it("aprire la Chat la legge, senza le funzioni delle fette dopo", async () => {
     renderRoute("/chat");
@@ -496,7 +545,8 @@ describe("le superfici della fetta 2 nella build app", () => {
 });
 
 /** I blocchi delle aree non integrate (posta e calendario, automazioni, rilasci, assistenza). */
-const FUTURE_BLOCKS = /^(Upcoming(?! milestones)|Important email|Automations|Releases|Customers waiting)/;
+// «Upcoming» (gli appuntamenti) è acceso dall'area 6, fetta 1.
+const FUTURE_BLOCKS = /^(Important email|Automations|Releases|Customers waiting)/;
 
 describe("le superfici della fetta 3 nella build app", () => {
   it("dopo il login si atterra sulla Home a blocchi", async () => {
@@ -560,13 +610,14 @@ describe("le superfici della fetta 3 nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("«Da decidere» legge Claude (dalla 3b) e le domande della Chat (area 4, fetta 2), non posta né automazioni, e non resta in caricamento", async () => {
+  it("«Da decidere» legge Claude (dalla 3b), le domande della Chat (area 4, fetta 2) e le proposte della Posta (area 6, fetta 1), non le automazioni, e non resta in caricamento", async () => {
     renderRoute("/home");
     const decide = await screen.findByRole("region", { name: /^Decide/ });
     await waitFor(() => expect(decide.querySelector("[data-skeleton], [aria-busy='true']")).toBeNull());
     await settle();
     expect(outside()).toEqual([]);
     expect(calls).toContain("listClaudeDecisions");
+    expect(calls).toContain("mail.listMailDecisions");
   });
 
   it("i filtri salvati: tutti i filtri e la pagina di un filtro", async () => {
