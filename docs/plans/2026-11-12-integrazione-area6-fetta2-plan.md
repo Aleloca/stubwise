@@ -201,7 +201,15 @@ passano dallo stesso servizio (l'app mobile le usa).
 3. **Classificatore nuovo**: prompt e schema (importanza, scadenza,
    progetti fra i candidati, `create_task`), una classificazione per
    Message-ID, la regola dell'interruttore, budget e tetti di oggi. Golden
-   nuovo `mail-classify-v2` (manuale) su 10 email finte, prima del rilascio.
+   nuovo `mail-classify-v2` (manuale) su 10 email finte, prima di ACCENDERE
+   il flag (non prima del merge: col flag spento il prompt non gira); è nel
+   task 9.
+   Fatto (task 3) *(O)*: candidati dai membri ESPLICITI (`project_members`:
+   i full admin, membri impliciti di tutto, renderebbero candidato ogni
+   progetto), al più 10 per nome; con un progetto certo gli incerti si
+   scartano; «Quale progetto?» nasce senza azioni, che arrivano dopo la
+   scelta (si riclassifica per il progetto scelto); la stessa email in
+   un'altra casella copia la classificazione del gemello `done`.
 4. **Proposta condivisa e audience `mail_recipients`**: publish per
    destinatario membro, i test negativi della §2, la chiusura per tutti.
 5. **Letture**: righe e filtri di `/threads`, `classification` sui messaggi,

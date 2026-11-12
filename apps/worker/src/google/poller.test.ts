@@ -3986,3 +3986,14 @@ describe("ingestione della classificazione nuova (F2)", () => {
     expect(row!.rfcMessageId).toBe("<m1@cliente.com>");
   });
 });
+
+describe("il giro col flag della classificazione nuova (F2, task 3)", () => {
+  it("con MAIL_CLASSIFY_V2 la fase 2 usa la classificazione nuova (importanza e stato), col flag spento quella di prima", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({ history: { addedMessageIds: ["m1"], historyId: "1010" }, messages: { m1: message({ id: "m1" }) } });
+    const runner = fakeRunner(JSON.stringify({ importance: "low", summary: "", projects: [] }));
+    await pollGoogleOnce({ ...deps(account, gmail), runner, classifyV2: true });
+    const [row] = await db.select().from(emailMessages);
+    expect(row).toMatchObject({ classificationState: "done", importance: "low" });
+  });
+});

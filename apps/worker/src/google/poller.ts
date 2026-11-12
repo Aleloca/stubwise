@@ -77,6 +77,7 @@ import {
   type CalendarSeriesProposalContext,
 } from "./calendar.js";
 import { executeAutoCalendarAction } from "./calendar-auto.js";
+import { classifyNewMessagesV2 } from "./classify-v2.js";
 import {
   classifyNewMessages,
   needsReclassification,
@@ -1102,7 +1103,8 @@ async function runClassifyPhase(
   // Nessun runner = fase 2 spenta (vedi GooglePollerDeps.runner).
   if (!deps.runner) return empty;
   try {
-    return await classifyNewMessages(
+    // Area 6, F2: la classificazione nuova dietro MAIL_CLASSIFY_V2.
+    return await (deps.classifyV2 ? classifyNewMessagesV2 : classifyNewMessages)(
       {
         db: deps.db,
         runner: deps.runner,
