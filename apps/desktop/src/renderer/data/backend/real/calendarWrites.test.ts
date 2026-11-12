@@ -1,0 +1,224 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { calendarWriteFunctions } from "./calendarWrites";
+import { session, setAppClientForTests } from "./client";
+import { installFakeServer, ME_ID, PROJECT_ID, type SeenRequest } from "./fakeServer";
+
+// Scrivere sul Calendario nella build app (area 6, F4): le rotte della BOZZA
+// del piano (`docs/plans/2026-11-12-integrazione-area6-fetta4-plan.md`,
+// branch docs/area6-f4-plan), finché 72 non le fissa. Ogni scrittura parte
+// da un gesto, risponde dopo il sì di Google e restituisce la riga; gli
+// errori nelle parole del prototipo.
+
+const ACC = "aaaaaaaa-1111-4111-8111-111111111111";
+const EV = "eeeeeeee-1111-4111-8111-111111111111";
+const MARTA = "55555555-5555-4555-8555-555555555555";
+
+const w = calendarWriteFunctions;
+
+const row = (over: Record<string, unknown> = {}) => ({
+  id: EV,
+  accountId: ACC,
+  accountEmail: "ada@acme.test",
+  recurringEventId: null,
+  projectId: null,
+  projectName: null,
+  title: "Kick-off",
+  organizer: "ada@acme.test",
+  attendees: [],
+  startsAt: "2026-11-13T09:00:00.000Z",
+  endsAt: "2026-11-13T10:00:00.000Z",
+  allDay: false,
+  status: "new",
+  outcome: null,
+  error: null,
+  url: null,
+  eventUrl: null,
+  reproposable: false,
+  descriptionHtml: null,
+  descriptionText: null,
+  location: null,
+  hangoutLink: null,
+  conferenceEntryPoints: [],
+  reminders: [],
+  remindersUseDefault: true,
+  recurrence: [],
+  etag: '"e1"',
+  canEdit: true,
+  canRespond: false,
+  ...over,
+});
+
+const account = {
+  id: ACC,
+  email: "ada@acme.test",
+  workspaceId: "11111111-1111-4111-8111-111111111111",
+  workspaceName: "Acme",
+  scopes: [],
+  proposalsEnabled: true,
+  connectedAt: "2026-11-01T09:00:00.000Z",
+  lastSyncAt: "2026-11-12T09:58:00.000Z",
+  disabledAt: null,
+  disabledReason: null,
+  missingScopes: [],
+  syncRequestedAt: null,
+};
+const base = {
+  "GET /api/me/google/accounts": { body: [account] },
+  [`GET /api/me/calendar/events/${EV}`]: { body: row() },
+};
+const posts = (seen: SeenRequest[]) => seen.filter((r) => r.method !== "GET").map((r) => [r.method, r.path, r.body]);
+
+beforeEach(() => {
+  setAppClientForTests(null);
+  vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+  session.personId = ME_ID;
+});
+afterEach(() => {
+  session.personId = null;
+  vi.unstubAllEnvs();
+  setAppClientForTests(null);
+});
+
+describe("F4: creare", () => {
+  it("una nuova riunione dalla prima casella collegata, col corpo della bozza del piano; la riga restituita", async () => {
+    const { seen } = installFakeServer({ ...base, "POST /api/me/calendar/events": { status: 201, body: row({ hangoutLink: "https://meet.google.com/x" }) } });
+    const e = await w.createEvent!({
+      title: "Kick-off",
+      startsAt: "2026-11-13T09:00:00.000Z",
+      endsAt: "2026-11-13T10:00:00.000Z",
+      guests: [{ personId: MARTA }, { email: "bob@client.test", name: "Bob" }],
+      addMeet: true,
+      projectId: PROJECT_ID,
+      reminders: "default",
+    });
+    expect(posts(seen)).toEqual([
+      [
+        "POST",
+        "/api/me/calendar/events",
+        {
+          accountId: ACC,
+          title: "Kick-off",
+          startsAt: "2026-11-13T09:00:00.000Z",
+          endsAt: "2026-11-13T10:00:00.000Z",
+          allDay: false,
+          guests: [{ personId: MARTA }, { email: "bob@client.test", name: "Bob" }],
+          addMeet: true,
+          description: null,
+          location: null,
+          projectId: PROJECT_ID,
+          reminders: "default",
+        },
+      ],
+    ]);
+    expect(e).toMatchObject({ id: EV, meetUrl: "https://meet.google.com/x" });
+  });
+
+  it("senza una casella collegata: `google_not_connected`, senza chiamare", async () => {
+    const { seen } = installFakeServer({ "GET /api/me/google/accounts": { body: [] } });
+    await expect(w.createEvent!({ title: "x", startsAt: "2026-11-13T09:00:00.000Z", endsAt: "2026-11-13T10:00:00.000Z" })).rejects.toThrow(
+      "google_not_connected",
+    );
+    expect(posts(seen)).toEqual([]);
+  });
+});
+
+describe("F4: modificare, spostare, eliminare (con l'etag letto)", () => {
+  it("modificare «tutta la serie»: lo scope, l'etag della riga letta e la patch", async () => {
+    const { seen } = installFakeServer({ ...base, [`PATCH /api/me/calendar/events/${EV}`]: { body: row({ title: "Kick-off v2", etag: '"e2"' }) } });
+    const e = await w.updateEvent!(EV, { title: "Kick-off v2" }, "series");
+    expect(posts(seen)).toEqual([["PATCH", `/api/me/calendar/events/${EV}`, { scope: "series", etag: '"e1"', patch: { title: "Kick-off v2" } }]]);
+    expect(e.title).toBe("Kick-off v2");
+  });
+
+  it("spostare: gli orari e l'etag; la volta dopo l'etag è quello nuovo", async () => {
+    const { seen } = installFakeServer({
+      ...base,
+      [`POST /api/me/calendar/events/${EV}/move`]: (req: SeenRequest) => ({
+        body: row({ ...(req.body as Record<string, unknown>), etag: '"e9"' }),
+      }),
+    });
+    await w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one");
+    await w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T13:00:00.000Z", "one");
+    expect(posts(seen).map((p) => (p[2] as { etag: string }).etag)).toEqual(['"e1"', '"e9"']);
+    expect(posts(seen)[0]![2]).toMatchObject({ scope: "one", startsAt: "2026-11-13T11:00:00.000Z", endsAt: "2026-11-13T12:00:00.000Z" });
+  });
+
+  it("eliminare: lo scope e l'etag nella query", async () => {
+    const { seen } = installFakeServer({ ...base, [`DELETE /api/me/calendar/events/${EV}`]: { status: 204 } });
+    await w.deleteEvent!(EV, "series");
+    const del = seen.find((r) => r.method === "DELETE")!;
+    const q = new URLSearchParams(del.path.split("?")[1]);
+    expect([q.get("scope"), q.get("etag")]).toEqual(["series", '"e1"']);
+  });
+});
+
+describe("F4: rispondere e il progetto a mano", () => {
+  it("rispondere con la nota, anche a tutta la serie", async () => {
+    const { seen } = installFakeServer({ ...base, [`POST /api/me/calendar/events/${EV}/respond`]: { body: row({ canEdit: false, canRespond: true }) } });
+    await w.respond!(EV, "tentative", "Arrivo tardi", "series");
+    expect(posts(seen)).toEqual([["POST", `/api/me/calendar/events/${EV}/respond`, { scope: "series", response: "tentative", note: "Arrivo tardi" }]]);
+  });
+
+  it("il progetto a mano", async () => {
+    const { seen } = installFakeServer({ ...base, [`PUT /api/me/calendar/events/${EV}/project`]: { body: row({ projectId: PROJECT_ID, projectBy: "manual" }) } });
+    const e = await w.setEventProject!(EV, PROJECT_ID);
+    expect(posts(seen)).toEqual([["PUT", `/api/me/calendar/events/${EV}/project`, { projectId: PROJECT_ID }]]);
+    expect(e).toMatchObject({ projectId: PROJECT_ID, projectBy: "manual" });
+  });
+});
+
+describe("F4: gli errori nelle parole del prototipo", () => {
+  it("ogni rifiuto del server", async () => {
+    const cases: [number, Record<string, unknown>, string][] = [
+      [400, { code: "outside_window" }, "invalid: window"],
+      [400, { code: "all_day_series" }, "invalid: all_day_series"],
+      [403, { code: "not_organizer" }, "forbidden"],
+      [400, { code: "organizer" }, "invalid: organizer"],
+      [400, { code: "not_invited" }, "invalid: not_invited"],
+      [409, { code: "changed_on_google" }, "changed_on_google"],
+      [409, { code: "google_scope_missing", missing: ["https://www.googleapis.com/auth/calendar.events"] }, "google_scope_missing"],
+      [409, { code: "token_expired" }, "google_not_connected"],
+      [502, { code: "google_unavailable" }, "google_unavailable"],
+      [404, { code: "not_found" }, "not_found"],
+    ];
+    for (const [status, body, error] of cases) {
+      installFakeServer({ ...base, [`POST /api/me/calendar/events/${EV}/move`]: { status, body: { message: "x", ...body } } });
+      await expect(w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one")).rejects.toThrow(error);
+    }
+  });
+});
+
+describe("F4: libero/occupato e «Trova un orario» (D8 = b, dalle righe salvate)", () => {
+  it("il libero/occupato delle persone, solo intervalli", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/me/calendar/freebusy": {
+        body: [
+          { personId: MARTA, availability: "connected", busy: [{ startsAt: "2026-11-13T09:00:00.000Z", endsAt: "2026-11-13T10:00:00.000Z" }] },
+          { personId: ME_ID, availability: "not_connected", busy: [] },
+        ],
+      },
+    });
+    const out = await w.freeBusy!([MARTA, ME_ID], "2026-11-13T00:00:00.000Z", "2026-11-14T00:00:00.000Z");
+    expect(out).toEqual([
+      { personId: MARTA, availability: "connected", busy: [{ startsAt: "2026-11-13T09:00:00.000Z", endsAt: "2026-11-13T10:00:00.000Z" }] },
+      { personId: ME_ID, availability: "not_connected", busy: [] },
+    ]);
+    const q = new URLSearchParams(seen[0]!.path.split("?")[1]);
+    expect(q.get("personIds")).toBe(`${MARTA},${ME_ID}`);
+  });
+
+  it("«Trova un orario»: il primo spazio libero per tutti, calcolato qui dal libero/occupato", async () => {
+    const from = new Date(2026, 10, 13, 8, 0, 0);
+    const busy = (h: number) => ({ startsAt: new Date(2026, 10, 13, h, 0, 0).toISOString(), endsAt: new Date(2026, 10, 13, h + 1, 0, 0).toISOString() });
+    installFakeServer({
+      "GET /api/me/calendar/freebusy": {
+        body: [
+          { personId: MARTA, availability: "connected", busy: [busy(8), busy(9)] },
+          { personId: ME_ID, availability: "connected", busy: [busy(10)] },
+        ],
+      },
+    });
+    const slot = await w.findFirstFreeSlot!([MARTA, ME_ID], 60, from.toISOString());
+    expect(slot).toEqual({ startsAt: new Date(2026, 10, 13, 11, 0, 0).toISOString().replace(/\.\d{3}Z$/, "Z"), endsAt: new Date(2026, 10, 13, 12, 0, 0).toISOString().replace(/\.\d{3}Z$/, "Z") });
+  });
+});
