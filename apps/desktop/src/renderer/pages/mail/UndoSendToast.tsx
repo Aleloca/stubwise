@@ -189,7 +189,11 @@ export function useUndoSendToast() {
             },
             (error: unknown) => {
               const tooLate = error instanceof Error && error.message === "too_late";
+              // Build app: un'altra bozza nella stessa conversazione impedisce di
+              // rimettere questa; l'invio resta in coda e parte.
+              const slotTaken = error instanceof Error && error.message === "draft_slot_taken";
               if (tooLate) toast.show(t("mail.compose.tooLate"));
+              else if (slotTaken) toast.error(t("mail.compose.undoSlotTaken"));
               // Non sappiamo se è partita: lo diciamo, senza fingere che sia ferma.
               else toast.error(t("mail.compose.undoFailed"));
             },

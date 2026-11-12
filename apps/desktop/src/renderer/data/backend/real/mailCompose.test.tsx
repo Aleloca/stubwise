@@ -97,6 +97,10 @@ const OUT = "0f0f0f0f-1111-4111-8111-111111111111";
 let saved: unknown[] = [];
 let newEmail = false;
 let changedInGmail = false;
+let detailOverride: unknown = null;
+/** Come risponde il server a Invia (null = lo accoda) e ad «Annulla». */
+let sendAnswer: { status: number; body: unknown } | null = null;
+let undoAnswer: { status?: number; body: unknown } = { body: { draft: null, droppedAttachments: [] } };
 let threads: unknown[] = [];
 let proposals: unknown[] = [];
 let confirmAnswer: { status?: number; body: unknown } = { body: {} };
@@ -107,6 +111,9 @@ beforeEach(() => {
   saved = [];
   newEmail = false;
   changedInGmail = false;
+  detailOverride = null;
+  sendAnswer = null;
+  undoAnswer = { body: { draft: null, droppedAttachments: [] } };
   threads = [thread];
   proposals = [proposal];
   confirmAnswer = { body: { status: "confirmed", results: [{ kind: "request", id: "r", code: "AUD-R9" }] } };
@@ -125,7 +132,7 @@ beforeEach(() => {
     [`POST /api/me/mail/proposals/${P1}/confirm`]: () => confirmAnswer,
     "GET /api/me/google/accounts": { body: [account] },
     "GET /api/me/mail/threads": () => ({ body: { items: threads, nextCursor: null } }),
-    "GET /api/me/mail/threads/t-1": { body: detail },
+    "GET /api/me/mail/threads/t-1": () => ({ body: detailOverride ?? detail }),
     [`GET /api/me/mail/email_triage/${M1}/original`]: {
       body: { subject: "Preventivo Rossi", from: "Bob Rossi <bob@client.test>", to: [], cc: [], bodyText: null, bodyHtml: null, attachments: [{ filename: "preventivo.pdf", mimeType: "application/pdf" }] },
     },
@@ -159,11 +166,11 @@ beforeEach(() => {
       const b = req.body as Record<string, unknown>;
       return { body: { ...b, id: DRAFT, attachments: [], updatedAt: new Date().toISOString() } };
     },
-    [`POST /api/me/mail/drafts/${DRAFT}/send`]: () => ({
+    [`POST /api/me/mail/drafts/${DRAFT}/send`]: () => sendAnswer ?? ({
       status: 202,
       body: { messageId: OUT, threadId: newEmail ? null : "t-1", state: "queued", undoUntil: new Date(Date.now() + 10_000).toISOString(), error: null, sentAt: null },
     }),
-    [`POST /api/me/mail/outgoing/${OUT}/undo`]: { body: { draft: null, droppedAttachments: [] } },
+    [`POST /api/me/mail/outgoing/${OUT}/undo`]: () => undoAnswer,
     [`GET /api/me/mail/outgoing/${OUT}`]: { body: { messageId: OUT, threadId: "t-1", state: "queued", undoUntil: new Date(Date.now() + 10_000).toISOString(), error: null, sentAt: null } },
     "GET /api/me/mail/recipients": { body: { items: [] } },
     "POST /api/me/mail/drafts/claude": {
@@ -240,6 +247,132 @@ describe("scrivere nella Posta della build app", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Keep mine" }));
     await waitFor(() => expect(saved.at(-1)).toMatchObject({ body: "La mia versione.", overwrite: true }));
     await waitFor(() => expect(within(form).queryByText("This draft was changed in Gmail.")).toBeNull());
+  });
+});
+
+/** Apre «Rispondi» sulla conversazione e scrive il corpo. */
+async function reply(text = "Ricevuto, grazie.") {
+  renderRoute(`/mail/${KEY}`);
+  await screen.findByText("Ecco il preventivo per la consegna.");
+  fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+  const form = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+  fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), { target: { value: text } });
+  return form;
+}
+const sends = () => seen.filter((r) => r.method === "POST" && r.path === `/api/me/mail/drafts/${DRAFT}/send`);
+
+/** Un file del peso dato, senza allocarlo davvero. */
+function fileOf(name: string, size: number): File {
+  const f = new File(["x"], name);
+  Object.defineProperty(f, "size", { value: size });
+  return f;
+}
+
+describe("scrivere nella build app: i casi limite", () => {
+  it("un doppio clic su Invia manda una volta sola", async () => {
+    const form = await reply();
+    const send = within(form).getByRole("button", { name: "Send" });
+    fireEvent.click(send);
+    fireEvent.click(send);
+    await waitFor(() => expect(sends()).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(sends()).toHaveLength(1);
+  });
+
+  it("10 allegati sì, l'undicesimo no; 25 MB esatti sì, un byte in più no (e Invia si spegne)", async () => {
+    const form = await reply();
+    const input = form.querySelector<HTMLInputElement>("input[type=file]")!;
+    const MB25 = 25 * 1024 * 1024;
+    fireEvent.change(input, { target: { files: [fileOf("a.pdf", MB25 - 9), ...Array.from({ length: 9 }, (_, i) => fileOf(`f${i}.txt`, 1))] } });
+    expect(within(form).queryByText("Too large: Gmail accepts up to 25 MB per email")).toBeNull();
+    expect(within(form).getByRole("button", { name: "Send" })).toBeEnabled();
+    fireEvent.change(input, { target: { files: [fileOf("undicesimo.txt", 1)] } });
+    expect(within(form).getByText("You can attach up to 10 files")).toBeInTheDocument();
+    expect(within(form).queryByText("undicesimo.txt")).toBeNull();
+  });
+
+  it("oltre 25 MB: lo dice e Invia è spento", async () => {
+    const form = await reply();
+    const input = form.querySelector<HTMLInputElement>("input[type=file]")!;
+    fireEvent.change(input, { target: { files: [fileOf("grosso.pdf", 25 * 1024 * 1024 + 1)] } });
+    expect(await within(form).findAllByText("Too large: Gmail accepts up to 25 MB per email")).not.toHaveLength(0);
+    expect(within(form).getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("un destinatario malformato incollato: «Not a valid address» e Invia spento; uno che rifiuta il server lo dice", async () => {
+    newEmail = true;
+    renderRoute("/mail");
+    fireEvent.click(await screen.findByRole("button", { name: /New email/ }));
+    const form = await screen.findByRole("form", { name: /New email/ });
+    const to = within(form).getByRole("combobox", { name: "To" });
+    fireEvent.change(to, { target: { value: "bob@" } });
+    fireEvent.keyDown(to, { key: "Enter" });
+    fireEvent.change(within(form).getByRole("textbox", { name: "Subject" }), { target: { value: "Ciao" } });
+    expect(await within(form).findAllByText(/Not a valid address/)).not.toHaveLength(0);
+    expect(within(form).getByRole("button", { name: "Send" })).toBeDisabled();
+  });
+
+  it("l'indirizzo che il server rifiuta prima di accodare: «Couldn't send: one of the addresses isn't valid», la bozza resta", async () => {
+    sendAnswer = { status: 400, body: { code: "invalid_address", message: "x", address: "bob@client" } };
+    const form = await reply();
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    expect(await within(form).findByText("Couldn't send: one of the addresses isn't valid")).toBeInTheDocument();
+    expect(within(form).getByRole("textbox", { name: "Message" })).toHaveValue("Ricevuto, grazie.");
+  });
+
+  it("senza il permesso nuovo all'invio: «ricollega l'account»", async () => {
+    sendAnswer = { status: 409, body: { code: "google_scope_missing", message: "x", missing: ["https://www.googleapis.com/auth/gmail.modify"] } };
+    const form = await reply();
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    expect(await within(form).findByText("Couldn't send: your Google account needs to be reconnected")).toBeInTheDocument();
+  });
+
+  it("offline: l'invio non parte, lo dice, la bozza resta", async () => {
+    const form = await reply();
+    const realFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes(`/drafts/${DRAFT}/send`)) throw new TypeError("Failed to fetch");
+      return (realFetch as typeof fetch)(input, init);
+    });
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    expect(await within(form).findByText(/^Couldn't send: /)).toBeInTheDocument();
+    expect(within(form).getByRole("textbox", { name: "Message" })).toHaveValue("Ricevuto, grazie.");
+  });
+
+  it("«Annulla» a 9,9 s quando il server l'ha già mandata (409 too_late): «Too late to undo»", async () => {
+    undoAnswer = { status: 409, body: { code: "too_late", message: "x" } };
+    const form = await reply();
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(await screen.findByText("Too late to undo: the email was sent.")).toBeInTheDocument();
+  });
+
+  it("«Annulla» con un'altra bozza nella conversazione (409 draft_slot_taken): l'email parte, e lo dice", async () => {
+    undoAnswer = { status: 409, body: { code: "draft_slot_taken", message: "x" } };
+    const form = await reply();
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
+    expect(
+      await screen.findByText("Couldn't undo: there's another draft in this conversation. The email will be sent."),
+    ).toBeInTheDocument();
+  });
+
+  it("una risposta su una conversazione di 50 messaggi: i più vecchi raccolti, Rispondi funziona", async () => {
+    const many = Array.from({ length: 50 }, (_, i) => ({
+      ...detail.messages[0],
+      id: `dddddddd-0000-4000-8000-${String(i).padStart(12, "0")}`,
+      receivedAt: new Date(Date.parse("2026-10-01T09:00:00.000Z") + i * 3_600_000).toISOString(),
+      textExcerpt: `Messaggio ${i}`,
+      proposalIds: [],
+    }));
+    threads = [{ ...thread, messageCount: 50 }];
+    detailOverride = { ...detail, messages: many };
+    renderRoute(`/mail/${KEY}`);
+    expect(await screen.findByText("Messaggio 49")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /earlier messages/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    expect(await screen.findByRole("form", { name: /Reply to Bob Rossi/ })).toBeInTheDocument();
   });
 });
 

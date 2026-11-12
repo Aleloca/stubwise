@@ -108,7 +108,8 @@ export interface MailFieldBridge {
 /** La ragione di un invio rifiutato, in parole. */
 function reasonKey(error: unknown): string {
   const message = error instanceof Error ? error.message : "";
-  if (message === "google_not_connected") return "mail.compose.reason.notConnected";
+  // Scaduta, o senza il permesso nuovo del riconsenso: in entrambi i casi si ricollega.
+  if (message === "google_not_connected" || message === "google_scope_missing") return "mail.compose.reason.notConnected";
   if (message === "attachment_unavailable") return "mail.compose.reason.attachment";
   if (message === "invalid: too_large" || message === "invalid: attachments")
     return "mail.compose.reason.tooLarge";
