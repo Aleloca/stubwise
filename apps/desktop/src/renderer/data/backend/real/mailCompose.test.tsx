@@ -449,6 +449,62 @@ describe("la review della F3: l'«Annulla» dura quanto la finestra del server",
     await waitFor(() => expect(document.activeElement?.closest(`[data-message="${OUT}"]`)).not.toBeNull());
   });
 
+  it("ogni salvataggio dice da quale versione parte (`baseUpdatedAt`): quella letta, poi quella dell'ultimo salvataggio", async () => {
+    const READ_AT = "2026-11-12T09:00:00.000Z";
+    seen = installFakeServerAgain({
+      "GET /api/me/mail/drafts/compose": {
+        body: {
+          id: DRAFT,
+          accountId: ACC,
+          threadId: "t-1",
+          mode: "reply",
+          replyToMessageId: M1,
+          to: [{ email: "bob@client.test", name: "Bob Rossi" }],
+          cc: [],
+          subject: "Re: Preventivo Rossi",
+          body: "Bozza di prima.",
+          attachments: [],
+          quote: true,
+          updatedAt: READ_AT,
+        },
+      },
+    });
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText("Ecco il preventivo per la consegna.");
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const form = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    await waitFor(() => expect(within(form).getByRole("textbox", { name: "Message" })).toHaveValue("Bozza di prima."));
+    fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), { target: { value: "Uno." } });
+    await waitFor(() => expect(saved).toHaveLength(1), { timeout: 2_000 });
+    expect(saved[0]).toMatchObject({ body: "Uno.", baseUpdatedAt: READ_AT });
+    fireEvent.change(within(form).getByRole("textbox", { name: "Message" }), { target: { value: "Due." } });
+    await waitFor(() => expect(saved).toHaveLength(2), { timeout: 2_000 });
+    const second = saved[1] as { baseUpdatedAt?: string };
+    expect(second.baseUpdatedAt).toBeDefined();
+    expect(second.baseUpdatedAt).not.toBe(READ_AT);
+  });
+
+  it("una bozza mai salvata non ha una versione da cui partire: nessun `baseUpdatedAt`", async () => {
+    const form = await reply();
+    await waitFor(() => expect(saved).toHaveLength(1), { timeout: 2_000 });
+    expect(saved[0]).not.toHaveProperty("baseUpdatedAt");
+    void form;
+  });
+
+  it("la bozza di Claude oltre il tetto del giorno (429 `daily_limit`): lo dice, senza «Try again»", async () => {
+    seen = installFakeServerAgain({
+      "POST /api/me/mail/drafts/claude": { status: 429, body: { code: "daily_limit", message: "x" } },
+    });
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText("Ecco il preventivo per la consegna.");
+    fireEvent.click(screen.getByRole("button", { name: "Reply" }));
+    const form = await screen.findByRole("form", { name: /Reply to Bob Rossi/ });
+    fireEvent.click(within(form).getByRole("button", { name: "Ask Claude" }));
+    fireEvent.keyDown(within(form).getByRole("textbox", { name: "What should it say? (optional)" }), { key: "Enter" });
+    expect(await within(form).findByText(/Claude has written enough drafts for today/)).toBeInTheDocument();
+    expect(within(form).queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+
   it("«Retry» di un invio fallito che il server manda subito (`undoUntil` già passato): nessun «Undo» che non funzionerebbe", async () => {
     const OUT2 = "0f0f0f0f-2222-4222-8222-222222222222";
     detailOverride = {

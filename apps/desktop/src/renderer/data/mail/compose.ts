@@ -260,6 +260,12 @@ export type MailDraftInput = Pick<
   Pick<MailDraft, "quote" | "slot"> & {
     /** Build app: «Tieni la mia», sopra una bozza cambiata su Gmail (il prototipo non ha conflitti). */
     overwrite?: boolean;
+    /**
+     * Build app: la versione da cui parte il salvataggio (`updatedAt` del
+     * server letto o dell'ultimo salvataggio). Cambiata nel frattempo (un
+     * altro client, un `fillMailBody` confermato): `draft_changed`.
+     */
+    baseUpdatedAt?: string;
   };
 
 /** Un allegato del Drive com'è nel Drive (nome, peso, copia o link), se chi scrive vede il file. */

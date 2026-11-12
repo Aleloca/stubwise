@@ -99,7 +99,12 @@ export function useClaudeDraft({
     setStage("closed");
     mark.clear();
     setAnnounce(false);
-    claude.start({ threadId, hint: hint.trim(), ...(mode ? { mode } : {}), ...(newEmail ? { projectId: about } : {}) });
+    claude.start({
+      threadId,
+      hint: hint.trim(),
+      ...(mode ? { mode } : {}),
+      ...(newEmail ? { projectId: about } : {}),
+    });
   };
   const submit = () => {
     if (newEmail && !hint.trim()) return;
@@ -123,6 +128,11 @@ export function useClaudeDraft({
     streamingBody: writing ? placeDraft(before.current.body, state.text, before.current.how) : null,
     outcome: settled,
     failed: state.status === "failed",
+    /** Il tetto del giorno della bozza di Claude (429 `daily_limit`): riprovare non serve. */
+    dailyLimit:
+      state.status === "failed" &&
+      state.error instanceof Error &&
+      state.error.message === "daily_limit",
     /** Il segno «Claude's draft»: il corpo è ancora il testo di Claude. */
     marked: mark.shown,
     panelSources,
@@ -320,14 +330,16 @@ export function ClaudeDraftNote({ flow, id }: { flow: ClaudeDraftFlow; id: strin
         className="flex flex-wrap items-center gap-1.5 px-3 pb-2 text-xs text-critical"
       >
         <AlertGlyph size={12} />
-        {t("mail.compose.claudeFailed")}
-        <button
-          type="button"
-          onClick={flow.tryAgain}
-          className="rounded-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
-        >
-          {t("mail.compose.tryAgain")}
-        </button>
+        {flow.dailyLimit ? t("mail.compose.claudeDailyLimit") : t("mail.compose.claudeFailed")}
+        {!flow.dailyLimit && (
+          <button
+            type="button"
+            onClick={flow.tryAgain}
+            className="rounded-sm font-medium text-ink underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+          >
+            {t("mail.compose.tryAgain")}
+          </button>
+        )}
       </p>
     );
   }

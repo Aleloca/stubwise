@@ -121,7 +121,8 @@ const confirmMailProposal: Mail["confirmMailProposal"] = async (id, input = {}) 
   if (result.status === "confirmed") {
     return { status: "confirmed", resultCodes: result.results.flatMap((r) => (r.code ? [r.code] : [])) };
   }
-  if (result.status === "failed" && "error" in result) return { status: "failed", error: result.error };
+  // La decisione è un oggetto coi default (review F3 di 72): `error` può essere null.
+  if (result.status === "failed") return { status: "failed", error: result.error ?? "other" };
   // Un esito diverso a una conferma non c'è: è di un server che non conosco.
   return { status: "failed", error: result.status };
 };
