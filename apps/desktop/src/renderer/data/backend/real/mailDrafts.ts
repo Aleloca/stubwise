@@ -28,7 +28,7 @@ function addressesOf(list: ServerDraft["to"], mine: ReadonlySet<string>): MailAd
   }));
 }
 
-function draftOf(d: ServerDraft, mine: ReadonlySet<string>): MailDraft {
+export function draftOf(d: ServerDraft, mine: ReadonlySet<string>): MailDraft {
   return {
     id: d.id ?? placeId(d.accountId, d.threadId, d.mode),
     personId: session.personId ?? "",
@@ -47,7 +47,7 @@ function draftOf(d: ServerDraft, mine: ReadonlySet<string>): MailDraft {
 }
 
 /** Le mie caselle: gli indirizzi (per riconoscermi) e quella dell'email nuova (la prima collegata). */
-async function myMailboxes(): Promise<{ mine: Set<string>; firstConnected: string | null }> {
+export async function myMailboxes(): Promise<{ mine: Set<string>; firstConnected: string | null }> {
   const accounts = await myAccounts();
   return {
     mine: new Set(accounts.map((a) => a.email.toLowerCase())),

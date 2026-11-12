@@ -36,7 +36,8 @@ import { visibleMessages } from "./visibility";
 //   file del Drive che non vede è `not_found` (R-G5).
 
 /** La finestra dell'«Annulla» dopo «Invia». */
-export const MAIL_UNDO_MS = 5000;
+// Tipato `number`: la build app ha la sua finestra (i 10 s del server, D6 dell'area 6).
+export const MAIL_UNDO_MS: number = 5000;
 /** Il limite di Gmail: 10 allegati, 25 MB in tutto (i link Google non pesano). */
 export const MAIL_MAX_ATTACHMENTS = 10;
 export const MAIL_MAX_BYTES = 25 * 1024 * 1024;
