@@ -36,7 +36,7 @@ import {
   timeLabel,
 } from "./calendarFormat";
 import type { WindowDays } from "./calendarParams";
-import { sameSpan } from "./calendarWrites";
+import { applyEdits, EditFailed } from "./applyEdits";
 import { SeriesScopeDialog } from "./SeriesScopeDialog";
 
 // «New meeting» / «Edit meeting» (shape calendar.md §6, dialogo 560 px):
@@ -237,42 +237,31 @@ export function EventEditor({
     }
     // Fin dove è arrivato il salvataggio: un rifiuto dopo lo spostamento non
     // può dire «non è cambiato nulla», e uno dopo i dettagli dice cosa manca.
-    let saved: "nothing" | "time" | "details" = "nothing";
     try {
-      // Prima gli orari (e «tutto il giorno»): sono la parte che il livello
-      // dati può rifiutare, e un rifiuto non deve lasciare salvato a metà il
-      // resto (titolo, invitati).
-      if (
-        !sameSpan({ startsAt: iso(startMs), endsAt: iso(endMs) }, event) ||
-        allDay !== event.allDay
-      ) {
-        await move.mutateAsync({
-          id: event.id,
+      await applyEdits(
+        { move: move.mutateAsync, update: update.mutateAsync, setProject: setProject.mutateAsync },
+        event,
+        {
           startsAt: iso(startMs),
           endsAt: iso(endMs),
-          scope,
-          ...(allDay !== event.allDay ? { allDay } : {}),
-        });
-        saved = "time";
-      }
-      await update.mutateAsync({
-        id: event.id,
-        patch: {
-          title: title.trim(),
-          guests: guestInput,
-          addMeet: meet,
-          description: description.trim() || null,
-          reminders,
+          allDay,
+          patch: {
+            title: title.trim(),
+            guests: guestInput,
+            addMeet: meet,
+            description: description.trim() || null,
+            reminders,
+          },
+          projectId,
         },
         scope,
-      });
-      saved = "details";
-      if (projectId !== event.projectId) await setProject.mutateAsync({ id: event.id, projectId });
+      );
       onSaved(t("calendar.editor.updated", { title: title.trim() }));
-    } catch {
+    } catch (error) {
       // Un rifiuto del livello dati (non un salvataggio fallito verso Google,
       // che l'evento dice da sé con «Riprova»): si dice a vista, e senza
       // annuncio di salvataggio.
+      const saved = error instanceof EditFailed ? error.saved : "nothing";
       toast.error(
         saved === "details"
           ? t("calendar.editor.projectFailed", { title: title.trim() })
