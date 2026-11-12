@@ -16,6 +16,7 @@ import type {
   CalendarSeriesView,
   CalendarSyncView,
 } from "../../types";
+import { pendingSave, withPendingSaves } from "./calendarSave";
 import { appClient, session } from "./client";
 import { daysFromToday } from "./clock";
 import { myAccounts, requestSync, syncable, syncStateOf, whenSynced } from "./google";
@@ -203,7 +204,8 @@ const listEvents: Calendar["listEvents"] = async (range) => {
     to: isoOfMs(to),
     fields: "summary",
   });
-  return page.items.map((e) => eventView(e as CalendarEventItem)).sort(byStart);
+  // Gli eventi in salvataggio o non salvati (F4) si vedono al loro posto nuovo.
+  return withPendingSaves(page.items.map((e) => eventView(e as CalendarEventItem))).sort(byStart);
 };
 
 /**
@@ -246,7 +248,7 @@ const getEvent: Calendar["getEvent"] = async (id) => {
       throw new Error("not_found");
     throw error;
   }
-  const e = eventView(item);
+  const e = pendingSave(item.id) ?? eventView(item);
   const w = calendarWindow();
   if (!(Date.parse(e.startsAt) < Date.parse(w.to) && Date.parse(e.endsAt) > Date.parse(w.from))) {
     throw new Error("not_found");

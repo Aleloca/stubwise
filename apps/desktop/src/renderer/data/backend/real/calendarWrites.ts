@@ -6,6 +6,7 @@ import { addDays, startOfLocalDay } from "@stubwise/shared";
 import type { CalendarEventView, FreeBusy } from "../../types";
 import { eventView } from "./calendar";
 import { appClient } from "./client";
+import { dropPending, pendingSave, retryPending, saveWith, type SaveError } from "./calendarSave";
 import { myMailboxes } from "./mailDrafts";
 
 // Scrivere sul Calendario nella build app (area 6, F4). Le rotte sono quelle
@@ -103,22 +104,83 @@ const createEvent: Calendar["createEvent"] = async (input) => {
   );
 };
 
-const updateEvent: Calendar["updateEvent"] = async (id, patch, scope = "one") => {
-  const etag = await etagOf(id);
-  return write(() => appClient().request("PATCH", eventPath(id), { scope, etag, patch }));
-};
+/**
+ * Un errore di GOOGLE (non del gesto): il salvataggio resta «non riuscito»
+ * con «Retry» e «Undo». Gli altri (fuori finestra, non organizzatore,
+ * scope, …) si lanciano subito: il gesto non doveva partire.
+ */
+function saveErrorOf(error: unknown): SaveError | null {
+  if (error instanceof TypeError) return "unreachable";
+  if (!(error instanceof ApiError)) return null;
+  if (error.code === "changed_on_google") return "changed";
+  if (error.code === "google_rejected") return "rejected";
+  if (error.code === "google_unavailable" || error.status === 502) return "unreachable";
+  return null;
+}
 
-const moveEvent: Calendar["moveEvent"] = async (id, startsAt, endsAt, scope = "one", allDay) => {
+/** L'evento come lo vede la pagina adesso: quello in salvataggio, o la riga del server. */
+async function currentView(id: string): Promise<CalendarEventView> {
+  const pending = pendingSave(id);
+  if (pending) return pending;
+  try {
+    const raw = (await appClient().request("GET", eventPath(id))) as Raw;
+    if (!etagMap().has(id)) etagMap().set(id, raw.etag ?? null);
+    return eventView(calendarEventItemSchema.parse(raw));
+  } catch (error) {
+    throw writeError(error);
+  }
+}
+
+/** Una scrittura che cambia la riga: subito al posto nuovo, poi Google. */
+async function saving(
+  id: string,
+  patch: (e: CalendarEventView) => Partial<CalendarEventView>,
+  request: (etag: string | null) => Promise<unknown>,
+): Promise<CalendarEventView> {
+  const before = await currentView(id);
   const etag = await etagOf(id);
-  return write(() =>
-    appClient().request("POST", `${eventPath(id)}/move`, {
-      scope,
-      etag,
-      startsAt,
-      endsAt,
-      ...(allDay === undefined ? {} : { allDay }),
+  const run = async () => {
+    try {
+      return viewOfRow(await request(etagMap().get(id) ?? etag));
+    } catch (error) {
+      throw saveErrorOf(error) === null ? writeError(error) : error;
+    }
+  };
+  return saveWith({ ...before, ...patch(before) }, run, saveErrorOf);
+}
+
+const updateEvent: Calendar["updateEvent"] = async (id, patch, scope = "one") =>
+  saving(
+    id,
+    () => ({
+      ...(patch.title !== undefined ? { title: patch.title } : {}),
+      ...(patch.description !== undefined ? { description: patch.description } : {}),
+      ...(patch.location !== undefined ? { location: patch.location } : {}),
+      ...(patch.reminders !== undefined ? { reminders: patch.reminders } : {}),
     }),
+    (etag) => appClient().request("PATCH", eventPath(id), { scope, etag, patch }),
   );
+
+const moveEvent: Calendar["moveEvent"] = async (id, startsAt, endsAt, scope = "one", allDay) =>
+  saving(
+    id,
+    (e) => ({ startsAt, endsAt, allDay: allDay ?? e.allDay }),
+    (etag) =>
+      appClient().request("POST", `${eventPath(id)}/move`, {
+        scope,
+        etag,
+        startsAt,
+        endsAt,
+        ...(allDay === undefined ? {} : { allDay }),
+      }),
+  );
+
+/** «Retry» un salvataggio non riuscito: la stessa richiesta. */
+const retrySave: Calendar["retrySave"] = async (id) => retryPending(id, saveErrorOf);
+
+/** «Undo the change»: torna la riga del server (dove niente è cambiato). */
+const revertEvent: Calendar["revertEvent"] = async (id) => {
+  dropPending(id);
 };
 
 /** Eliminare (solo l'organizzatore): le proposte aperte nate da lui se ne vanno con lui (Q5 = a). */
@@ -134,17 +196,24 @@ const deleteEvent: Calendar["deleteEvent"] = async (id, scope = "one") => {
 };
 
 const respond: Calendar["respond"] = async (id, rsvp, note, scope = "one") =>
-  write(() =>
-    appClient().request("POST", `${eventPath(id)}/respond`, {
-      scope,
-      response: rsvp,
-      ...(note !== undefined ? { note } : {}),
-    }),
+  saving(
+    id,
+    () => ({ myResponse: rsvp }),
+    () =>
+      appClient().request("POST", `${eventPath(id)}/respond`, {
+        scope,
+        response: rsvp,
+        ...(note !== undefined ? { note } : {}),
+      }),
   );
 
 /** Il progetto a mano: vale per tutti quelli che vedono lo stesso evento (Q1 = a). */
 const setEventProject: Calendar["setEventProject"] = async (id, projectId) =>
-  write(() => appClient().request("PUT", `${eventPath(id)}/project`, { projectId }));
+  saving(
+    id,
+    () => ({ projectId, projectBy: projectId === null ? null : "manual" }),
+    () => appClient().request("PUT", `${eventPath(id)}/project`, { projectId }),
+  );
 
 /**
  * Libero/occupato (D8 = b, con la fonte di Q3 = a: le righe salvate dal
@@ -153,7 +222,10 @@ const setEventProject: Calendar["setEventProject"] = async (id, projectId) =>
 const freeBusy: Calendar["freeBusy"] = async (personIds, from, to) => {
   const query = new URLSearchParams({ personIds: personIds.join(","), from, to });
   try {
-    const rows = (await appClient().request("GET", `${PATH}/freebusy?${query.toString()}`)) as FreeBusy[];
+    const rows = (await appClient().request(
+      "GET",
+      `${PATH}/freebusy?${query.toString()}`,
+    )) as FreeBusy[];
     // Solo gli intervalli, qualunque cosa arrivi: nessun altro campo passa.
     return rows.map((r) => ({
       personId: r.personId,
@@ -171,7 +243,11 @@ const findFirstFreeSlot: Calendar["findFirstFreeSlot"] = async (personIds, durat
   const start = new Date(from);
   if (Number.isNaN(start.getTime())) throw new Error("invalid: range");
   const dayStart = startOfLocalDay(start);
-  const rows = await freeBusy(personIds, dayStart.toISOString(), addDays(dayStart, 1).toISOString());
+  const rows = await freeBusy(
+    personIds,
+    dayStart.toISOString(),
+    addDays(dayStart, 1).toISOString(),
+  );
   return firstFreeSlot(
     rows.flatMap((r) => r.busy),
     durationMin,
@@ -186,6 +262,8 @@ export const calendarWriteFunctions: Partial<Calendar> = {
   deleteEvent,
   respond,
   setEventProject,
+  retrySave,
+  revertEvent,
   freeBusy,
   findFirstFreeSlot,
 };
