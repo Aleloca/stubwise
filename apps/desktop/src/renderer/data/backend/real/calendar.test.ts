@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bySeries, calendar, eventView, seriesView } from "./calendar";
 import { session, setAppClientForTests } from "./client";
-import { installFakeServer, ME_ID, PROJECT_ID } from "./fakeServer";
+import { calendarRangeRoute, installFakeServer, ME_ID, PROJECT_ID } from "./fakeServer";
 
 // Il Calendario in lettura nella build app (area 6, fetta 1): gli
 // appuntamenti che il poller ha VISTO (`/api/me/calendar/range`) e le serie
@@ -76,7 +76,7 @@ const account = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
-const range = (items: unknown[]) => ({ body: { items, nextCursor: null } });
+const range = (items: unknown[]) => calendarRangeRoute(items);
 const query = (path: string) => new URLSearchParams(path.split("?")[1] ?? "");
 
 beforeEach(() => {
@@ -93,9 +93,9 @@ afterEach(() => {
 });
 
 describe("il Calendario in lettura: gli eventi", () => {
-  it("un evento visto: la mia risposta, l'organizzatore, il mio calendario, Meet, promemoria, niente scheda", async () => {
-    installFakeServer({ "GET /api/me/calendar/range": range([item()]) });
-    const [e] = await calendar.listEvents({ from: "2026-11-12T00:00:00Z", to: "2026-11-13T00:00:00Z" });
+  it("un evento visto: la mia risposta, l'organizzatore, il mio calendario, Meet, promemoria, niente scheda", () => {
+    // La lettura completa (la riga di `event(id)`): la lista è leggera dalla F3b.
+    const e = eventView(item() as never);
     expect(e).toMatchObject({
       id: EV,
       calendarPersonIds: [ME_ID],
@@ -117,27 +117,37 @@ describe("il Calendario in lettura: gli eventi", () => {
       googleUrl: "https://calendar.google.com/event?eid=1",
     });
     expect(e!.attendees).toEqual([
-      { email: "bob@acme.test", name: "bob@acme.test", personId: null, response: "accepted", organizer: true },
-      { email: "ada@acme.test", name: "ada@acme.test", personId: ME_ID, response: "tentative", organizer: false },
+      {
+        email: "bob@acme.test",
+        name: "bob@acme.test",
+        personId: null,
+        response: "accepted",
+        organizer: true,
+      },
+      {
+        email: "ada@acme.test",
+        name: "ada@acme.test",
+        personId: ME_ID,
+        response: "tentative",
+        organizer: false,
+      },
     ]);
   });
 
-  it("organizzatore io; promemoria predefiniti; una risposta che Google non dice è «da rispondere»; senza eventUrl il link della giornata", async () => {
-    installFakeServer({
-      "GET /api/me/calendar/range": range([
-        item({
-          organizer: "ada@acme.test",
-          attendees: [{ email: "carl@x.test", responseStatus: null }],
-          remindersUseDefault: true,
-          reminders: [],
-          eventUrl: null,
-          hangoutLink: null,
-          projectId: null,
-          projectName: null,
-        }),
-      ]),
-    });
-    const [e] = await calendar.listEvents({ from: "2026-11-12T00:00:00Z", to: "2026-11-13T00:00:00Z" });
+  it("organizzatore io; promemoria predefiniti; una risposta che Google non dice è «da rispondere»; senza eventUrl il link della giornata", () => {
+    // La lettura completa (`event(id)`): la lista è leggera dalla F3b.
+    const e = eventView(
+      item({
+        organizer: "ada@acme.test",
+        attendees: [{ email: "carl@x.test", responseStatus: null }],
+        remindersUseDefault: true,
+        reminders: [],
+        eventUrl: null,
+        hangoutLink: null,
+        projectId: null,
+        projectName: null,
+      }) as never,
+    );
     expect(e).toMatchObject({
       isOrganizer: true,
       myResponse: null,
@@ -151,8 +161,13 @@ describe("il Calendario in lettura: gli eventi", () => {
   });
 
   it("un'occorrenza di una serie porta l'id della SUA serie (casella + serie Google)", async () => {
-    installFakeServer({ "GET /api/me/calendar/range": range([item({ recurringEventId: "rec-1" })]) });
-    const [e] = await calendar.listEvents({ from: "2026-11-12T00:00:00Z", to: "2026-11-13T00:00:00Z" });
+    installFakeServer({
+      "GET /api/me/calendar/range": range([item({ recurringEventId: "rec-1" })]),
+    });
+    const [e] = await calendar.listEvents({
+      from: "2026-11-12T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+    });
     expect(e!.seriesId).toBe(`${ACC}_rec-1`);
     // L'id della serie passa per l'indirizzo (`?series=`: lettere, cifre, `-`, `_`).
     expect(e!.seriesId).toMatch(/^[\w-]+$/);
@@ -162,10 +177,16 @@ describe("il Calendario in lettura: gli eventi", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-12T10:00:00Z"));
     const { seen } = installFakeServer({
-      "GET /api/me/calendar/range": range([item({ id: EV2, startsAt: "2026-11-12T16:00:00.000Z", endsAt: "2026-11-12T17:00:00.000Z" }), item()]),
+      "GET /api/me/calendar/range": range([
+        item({ id: EV2, startsAt: "2026-11-12T16:00:00.000Z", endsAt: "2026-11-12T17:00:00.000Z" }),
+        item(),
+      ]),
     });
     const w = calendar.calendarWindow();
-    const list = await calendar.listEvents({ from: "2026-01-01T00:00:00Z", to: "2027-12-01T00:00:00Z" });
+    const list = await calendar.listEvents({
+      from: "2026-01-01T00:00:00Z",
+      to: "2027-12-01T00:00:00Z",
+    });
     expect(query(seen[0]!.path).get("from")).toBe(w.from);
     expect(query(seen[0]!.path).get("to")).toBe(w.to);
     expect(list.map((e) => e.id)).toEqual([EV, EV2]);
@@ -191,7 +212,10 @@ describe("il Calendario in lettura: gli eventi", () => {
         item({ id: EV2, allDay: true, startsAt: "2026-11-12T00:00:00.000Z", endsAt: null }),
       ]),
     });
-    const list = await calendar.listEvents({ from: "2026-11-12T00:00:00Z", to: "2026-11-13T00:00:00Z" });
+    const list = await calendar.listEvents({
+      from: "2026-11-12T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+    });
     expect(list.find((e) => e.id === EV2)!.endsAt).toBe("2026-11-13T00:00:00.000Z");
     expect(list.find((e) => e.id === EV)!.endsAt).toBe("2026-11-12T14:00:00.000Z");
   });
@@ -211,19 +235,26 @@ describe("il Calendario in lettura: un evento, le serie, i calendari", () => {
 
   it("un evento altrui o inesistente (404): `not_found`", async () => {
     installFakeServer({
-      [`GET /api/me/calendar/events/${EV2}`]: { status: 404, body: { code: "not_found", message: "x" } },
+      [`GET /api/me/calendar/events/${EV2}`]: {
+        status: 404,
+        body: { code: "not_found", message: "x" },
+      },
     });
     await expect(calendar.getEvent(EV2)).rejects.toThrow("not_found");
   });
 
   it("un id malformato (400 di validazione): `not_found`", async () => {
-    installFakeServer({ "GET /api/me/calendar/events/x": { status: 400, body: { code: "validation", message: "x" } } });
+    installFakeServer({
+      "GET /api/me/calendar/events/x": { status: 400, body: { code: "validation", message: "x" } },
+    });
     await expect(calendar.getEvent("x")).rejects.toThrow("not_found");
   });
 
   it("un evento fuori dalla finestra letta: `not_found`, come nel prototipo", async () => {
     installFakeServer({
-      [`GET /api/me/calendar/events/${EV}`]: { body: item({ startsAt: "2020-01-01T10:00:00.000Z", endsAt: "2020-01-01T11:00:00.000Z" }) },
+      [`GET /api/me/calendar/events/${EV}`]: {
+        body: item({ startsAt: "2020-01-01T10:00:00.000Z", endsAt: "2020-01-01T11:00:00.000Z" }),
+      },
     });
     await expect(calendar.getEvent(EV)).rejects.toThrow("not_found");
   });
@@ -234,8 +265,20 @@ describe("il Calendario in lettura: un evento, le serie, i calendari", () => {
         body: {
           items: [
             series(),
-            series({ recurringEventId: "rec-2", title: "Board", enabled: true, projectId: PROJECT_ID, action: "backlog_item", auto: true }),
-            series({ recurringEventId: "rec-3", title: null, action: "reminder", nextOccurrenceAt: null }),
+            series({
+              recurringEventId: "rec-2",
+              title: "Board",
+              enabled: true,
+              projectId: PROJECT_ID,
+              action: "backlog_item",
+              auto: true,
+            }),
+            series({
+              recurringEventId: "rec-3",
+              title: null,
+              action: "reminder",
+              nextOccurrenceAt: null,
+            }),
           ],
         },
       },
@@ -263,25 +306,44 @@ describe("il Calendario in lettura: un evento, le serie, i calendari", () => {
       "GET /api/me/calendar/series": { body: { items: [series()] } },
       "PUT /api/me/calendar/series/rec-1": { body: { ok: true } },
     });
-    await calendar.configureSeries(`${ACC}_rec-1`, { enabled: true, projectId: PROJECT_ID, action: "request" });
+    await calendar.configureSeries(`${ACC}_rec-1`, {
+      enabled: true,
+      projectId: PROJECT_ID,
+      action: "request",
+    });
     const put = seen.find((r) => r.method === "PUT")!;
-    expect(put.body).toEqual({ accountId: ACC, enabled: true, projectId: PROJECT_ID, action: "backlog_item", leadDays: 2, auto: false });
+    expect(put.body).toEqual({
+      accountId: ACC,
+      enabled: true,
+      projectId: PROJECT_ID,
+      action: "backlog_item",
+      leadDays: 2,
+      auto: false,
+    });
   });
 
   it("accesa senza progetto: `choose_project_first`, senza scrivere", async () => {
-    const { seen } = installFakeServer({ "GET /api/me/calendar/series": { body: { items: [series()] } } });
-    await expect(calendar.configureSeries(`${ACC}_rec-1`, { enabled: true })).rejects.toThrow("choose_project_first");
+    const { seen } = installFakeServer({
+      "GET /api/me/calendar/series": { body: { items: [series()] } },
+    });
+    await expect(calendar.configureSeries(`${ACC}_rec-1`, { enabled: true })).rejects.toThrow(
+      "choose_project_first",
+    );
     expect(seen.some((r) => r.method === "PUT")).toBe(false);
   });
 
   it("una serie che non è fra le mie: `not_found`", async () => {
     installFakeServer({ "GET /api/me/calendar/series": { body: { items: [series()] } } });
-    await expect(calendar.configureSeries(`${ACC}_rec-9`, { enabled: false })).rejects.toThrow("not_found");
+    await expect(calendar.configureSeries(`${ACC}_rec-9`, { enabled: false })).rejects.toThrow(
+      "not_found",
+    );
   });
 
   it("una casella senza gli scope nuovi legge ancora: non è scaduta (il cassetto chiede di ricollegarla)", async () => {
     installFakeServer({
-      "GET /api/me/google/accounts": { body: [account({ missingScopes: ["https://www.googleapis.com/auth/gmail.modify"] })] },
+      "GET /api/me/google/accounts": {
+        body: [account({ missingScopes: ["https://www.googleapis.com/auth/gmail.modify"] })],
+      },
     });
     expect((await calendar.listCalendars())[0]!.expired).toBe(false);
   });
@@ -291,12 +353,34 @@ describe("il Calendario in lettura: un evento, le serie, i calendari", () => {
     vi.setSystemTime(new Date("2026-11-12T10:00:00Z"));
     installFakeServer({
       "GET /api/me/google/accounts": {
-        body: [account(), account({ id: "aaaaaaaa-2222-4222-8222-222222222222", email: "ada@beta.test", lastSyncAt: "2026-11-12T09:00:00.000Z", disabledAt: "2026-11-11T00:00:00.000Z" })],
+        body: [
+          account(),
+          account({
+            id: "aaaaaaaa-2222-4222-8222-222222222222",
+            email: "ada@beta.test",
+            lastSyncAt: "2026-11-12T09:00:00.000Z",
+            disabledAt: "2026-11-11T00:00:00.000Z",
+          }),
+        ],
       },
     });
     expect(await calendar.listCalendars()).toEqual([
-      { personId: ME_ID, email: "ada@acme.test", syncedAt: "2026-11-12T09:58:00.000Z", sync: "ok", stale: false, expired: false },
-      { personId: ME_ID, email: "ada@beta.test", syncedAt: "2026-11-12T09:00:00.000Z", sync: "ok", stale: true, expired: true },
+      {
+        personId: ME_ID,
+        email: "ada@acme.test",
+        syncedAt: "2026-11-12T09:58:00.000Z",
+        sync: "ok",
+        stale: false,
+        expired: false,
+      },
+      {
+        personId: ME_ID,
+        email: "ada@beta.test",
+        syncedAt: "2026-11-12T09:00:00.000Z",
+        sync: "ok",
+        stale: true,
+        expired: true,
+      },
     ]);
   });
 });
@@ -327,7 +411,12 @@ describe("«Prossimi appuntamenti»: il taglio da adesso", () => {
     vi.setSystemTime(new Date("2026-11-12T10:00:00Z"));
     installFakeServer({
       "GET /api/me/calendar/range": range([
-        item({ id: EV2, title: "Colazione", startsAt: "2026-11-12T07:00:00.000Z", endsAt: "2026-11-12T08:00:00.000Z" }),
+        item({
+          id: EV2,
+          title: "Colazione",
+          startsAt: "2026-11-12T07:00:00.000Z",
+          endsAt: "2026-11-12T08:00:00.000Z",
+        }),
         item(),
       ]),
     });
@@ -346,14 +435,23 @@ describe("«Prossimi appuntamenti» in un fuso negativo", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     // 12 novembre, 20:00 a New York = 13 novembre, 01:00 UTC.
     vi.setSystemTime(new Date("2026-11-13T01:00:00Z"));
-    const allDay = item({ id: EV2, title: "Ferie", allDay: true, startsAt: "2026-11-12T00:00:00.000Z", endsAt: "2026-11-13T00:00:00.000Z", attendees: [] });
+    const allDay = item({
+      id: EV2,
+      title: "Ferie",
+      allDay: true,
+      startsAt: "2026-11-12T00:00:00.000Z",
+      endsAt: "2026-11-13T00:00:00.000Z",
+      attendees: [],
+    });
     installFakeServer({
       // Come il server: gli eventi che si sovrappongono a [from, to) per istanti.
       "GET /api/me/calendar/range": (req) => {
         const q = query(req.path);
         const from = Date.parse(q.get("from")!);
         const to = Date.parse(q.get("to")!);
-        const items = [allDay].filter((e) => Date.parse(e.startsAt as string) < to && Date.parse(e.endsAt as string) > from);
+        const items = [allDay].filter(
+          (e) => Date.parse(e.startsAt as string) < to && Date.parse(e.endsAt as string) > from,
+        );
         return { body: { items, nextCursor: null } };
       },
     });
@@ -369,7 +467,9 @@ describe("F3b: il calendario con TUTTI gli eventi", () => {
   const view = (over: Record<string, unknown> = {}) => eventView(item(over) as never);
 
   it("un evento non riconosciuto (`recognized: false`): «No project», nessun suggerimento", () => {
-    expect(view({ recognized: false, projectId: null, projectName: null, projectBy: null })).toMatchObject({
+    expect(
+      view({ recognized: false, projectId: null, projectName: null, projectBy: null }),
+    ).toMatchObject({
       recognized: false,
       projectId: null,
       projectBy: null,
@@ -377,35 +477,60 @@ describe("F3b: il calendario con TUTTI gli eventi", () => {
   });
 
   it("anche se il server mandasse un progetto automatico su un evento non riconosciuto: nessun suggerimento", () => {
-    expect(view({ recognized: false, projectBy: "rules" })).toMatchObject({ projectId: null, projectBy: null });
+    expect(view({ recognized: false, projectBy: "rules" })).toMatchObject({
+      projectId: null,
+      projectBy: null,
+    });
   });
 
   it("un progetto messo a mano resta, anche su un evento non riconosciuto", () => {
-    expect(view({ recognized: false, projectBy: "manual" })).toMatchObject({ projectId: PROJECT_ID, projectBy: "manual" });
+    expect(view({ recognized: false, projectBy: "manual" })).toMatchObject({
+      projectId: PROJECT_ID,
+      projectBy: "manual",
+    });
   });
 
   it("`projectBy`: le regole e il modello sono un suggerimento, «manual» è a mano", () => {
-    expect(["rules", "model", "manual"].map((b) => view({ recognized: true, projectBy: b }).projectBy)).toEqual([
-      "model",
-      "model",
-      "manual",
-    ]);
+    expect(
+      ["rules", "model", "manual"].map((b) => view({ recognized: true, projectBy: b }).projectBy),
+    ).toEqual(["model", "model", "manual"]);
   });
 
   it("`eventType` e `transparency` arrivano alla griglia; un tipo che non conosco resta com'è", () => {
-    expect(view({ eventType: "outOfOffice", transparency: "opaque" })).toMatchObject({ eventType: "outOfOffice", transparency: "opaque" });
-    expect(view({ eventType: "somethingNew", transparency: "transparent" })).toMatchObject({ eventType: "somethingNew", transparency: "transparent" });
+    expect(view({ eventType: "outOfOffice", transparency: "opaque" })).toMatchObject({
+      eventType: "outOfOffice",
+      transparency: "opaque",
+    });
+    expect(view({ eventType: "somethingNew", transparency: "transparent" })).toMatchObject({
+      eventType: "somethingNew",
+      transparency: "transparent",
+    });
   });
 
   it("un server di prima, senza i campi nuovi (anche dal server finto): riconosciuto, «default», occupato, il progetto come prima", async () => {
     // Fixture SENZA recognized / projectBy / eventType / transparency, apposta.
     installFakeServer({ "GET /api/me/calendar/range": range([item()]) });
-    const [e] = await calendar.listEvents({ from: "2026-11-12T00:00:00Z", to: "2026-11-13T00:00:00Z" });
-    expect(e).toMatchObject({ recognized: true, eventType: "default", transparency: "opaque", projectId: PROJECT_ID, projectBy: "model" });
+    const [e] = await calendar.listEvents({
+      from: "2026-11-12T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+    });
+    expect(e).toMatchObject({
+      recognized: true,
+      eventType: "default",
+      transparency: "opaque",
+      projectId: PROJECT_ID,
+      projectBy: "model",
+    });
   });
 
   it("`range` leggero: senza invitati, descrizione e promemoria non si rompe; la mia risposta dalla riga se c'è", () => {
-    const e = view({ attendees: undefined, descriptionHtml: undefined, descriptionText: undefined, reminders: undefined, myResponse: "needsAction" });
+    const e = view({
+      attendees: undefined,
+      descriptionHtml: undefined,
+      descriptionText: undefined,
+      reminders: undefined,
+      myResponse: "needsAction",
+    });
     expect(e).toMatchObject({ attendees: [], description: null, myResponse: "needsAction" });
   });
 
@@ -422,5 +547,68 @@ describe("F3b: il calendario con TUTTI gli eventi", () => {
       ["Standup", true],
       ["Allenamento", false],
     ]);
+  });
+});
+
+describe("F3b, dal server (task 6): la lista leggera e i campi nuovi", () => {
+  it("la griglia chiede la lista leggera (`fields=summary`); la mia risposta dalla riga, gli invitati dal dettaglio", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/me/calendar/range": range([item({ myResponse: "tentative" })]),
+    });
+    const [e] = await calendar.listEvents({
+      from: "2026-11-12T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+    });
+    expect(
+      query(seen.find((r) => r.path.startsWith("/api/me/calendar/range"))!.path).get("fields"),
+    ).toBe("summary");
+    expect(e).toMatchObject({
+      myResponse: "tentative",
+      attendees: [],
+      description: null,
+      location: "Sala 2",
+      meetUrl: "https://meet.google.com/abc",
+    });
+  });
+
+  it("i campi nuovi arrivano dal server: un evento personale senza suggerimento, il tipo e il libero", async () => {
+    installFakeServer({
+      "GET /api/me/calendar/range": range([
+        item({
+          recognized: false,
+          projectId: null,
+          projectName: null,
+          projectBy: null,
+          eventType: "focusTime",
+          transparency: "transparent",
+          myResponse: null,
+        }),
+      ]),
+    });
+    const [e] = await calendar.listEvents({
+      from: "2026-11-12T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+    });
+    expect(e).toMatchObject({
+      recognized: false,
+      projectId: null,
+      projectBy: null,
+      eventType: "focusTime",
+      transparency: "transparent",
+    });
+  });
+
+  it("le serie: `recognized` dal server, prima quelle di lavoro", async () => {
+    installFakeServer({
+      "GET /api/me/calendar/series": {
+        body: {
+          items: [
+            series({ recurringEventId: "rec-1", title: "Allenamento", recognized: false }),
+            series({ recurringEventId: "rec-2", title: "Standup", recognized: true }),
+          ],
+        },
+      },
+    });
+    expect((await calendar.listSeries()).map((x) => x.title)).toEqual(["Standup", "Allenamento"]);
   });
 });

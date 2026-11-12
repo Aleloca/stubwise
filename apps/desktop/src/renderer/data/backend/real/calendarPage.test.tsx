@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { now } from "../../dates";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
-import { installFakeServer, me, ME_ID, PROJECT_ID, serverProject, type SeenRequest } from "./fakeServer";
+import { calendarRangeRoute, installFakeServer, me, ME_ID, PROJECT_ID, serverProject, type SeenRequest } from "./fakeServer";
 
 // Il Calendario nella build app (area 6, fetta 1), davanti a un server finto:
 // in LETTURA. Nessun gesto che scrive su Google (nuova riunione, sposta,
@@ -93,7 +93,7 @@ beforeEach(() => {
     "GET /api/departments": { body: [] },
     "GET /api/inbox": { body: { items: [], nextCursor: null } },
     "GET /api/me/google/accounts": { body: [account] },
-    "GET /api/me/calendar/range": () => ({ body: { items: events, nextCursor: null } }),
+    "GET /api/me/calendar/range": (req: SeenRequest) => calendarRangeRoute(events)(req),
     // F1.4: un evento per id; uno che non è fra i miei è 404, come sul server.
     [`GET /api/me/calendar/events/${EV}`]: () => byId(EV),
     [`GET /api/me/calendar/events/${PAST}`]: () => byId(PAST),

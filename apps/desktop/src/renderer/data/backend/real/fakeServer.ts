@@ -16,7 +16,9 @@ type Answer = { status?: number; body?: unknown; contentType?: string } | undefi
 /** Una risposta subito o più tardi (una promessa: la richiesta resta in volo finché non si risolve). */
 type Handler = (req: SeenRequest) => Answer | Promise<Answer>;
 
-export function installFakeServer(routes: Record<string, Handler | { status?: number; body?: unknown; contentType?: string }>) {
+export function installFakeServer(
+  routes: Record<string, Handler | { status?: number; body?: unknown; contentType?: string }>,
+) {
   const seen: SeenRequest[] = [];
   const fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
@@ -33,12 +35,17 @@ export function installFakeServer(routes: Record<string, Handler | { status?: nu
     const bare = path.split("?")[0]!;
     const route = routes[`${method} ${path}`] ?? routes[`${method} ${bare}`];
     const out = typeof route === "function" ? await route(req) : route;
-    if (!out) return new Response(JSON.stringify({ code: "not_found", message: path }), { status: 404 });
+    if (!out)
+      return new Response(JSON.stringify({ code: "not_found", message: path }), { status: 404 });
     const status = out.status ?? 200;
     if (status === 204) return new Response(null, { status });
     // Un `contentType` non JSON (il resoconto del grafo, `text/markdown`): il corpo così com'è.
     const contentType = out.contentType;
-    if (contentType) return new Response(String(out.body ?? ""), { status, headers: { "content-type": contentType } });
+    if (contentType)
+      return new Response(String(out.body ?? ""), {
+        status,
+        headers: { "content-type": contentType },
+      });
     // Un `body: null` esplicito resta null (una risposta «nessuno»); assente, un oggetto vuoto.
     return new Response(JSON.stringify("body" in out ? out.body : {}), {
       status,
@@ -156,3 +163,30 @@ export const serverComment = (body: string) => ({
   body,
   createdAt: "2026-11-10T10:00:00.000Z",
 });
+
+/**
+ * `/range` come il server vero (F3b, task 6): con `fields=summary` la riga è
+ * LEGGERA — niente descrizione, invitati, conferenza e promemoria (li dà
+ * `event(id)`); senza, com'era.
+ */
+export const calendarRangeRoute = (items: readonly unknown[]) => (req: { path: string }) => {
+  const light = new URLSearchParams(req.path.split("?")[1] ?? "").get("fields") === "summary";
+  // La mia risposta la calcola il server dalla mia casella fra gli invitati (`toCalendarItem`).
+  const withResponse = (items as readonly Record<string, unknown>[]).map((i) => {
+    const mine = (
+      (i.attendees as { email: string; responseStatus: string | null }[] | undefined) ?? []
+    ).find((a) => a.email.toLowerCase() === String(i.accountEmail).toLowerCase());
+    return { myResponse: mine?.responseStatus ?? null, ...i };
+  });
+  const rows = light
+    ? withResponse.map((i) => ({
+        ...i,
+        attendees: [],
+        descriptionHtml: null,
+        descriptionText: null,
+        conferenceEntryPoints: [],
+        reminders: [],
+      }))
+    : withResponse;
+  return { body: { items: rows, nextCursor: null } };
+};

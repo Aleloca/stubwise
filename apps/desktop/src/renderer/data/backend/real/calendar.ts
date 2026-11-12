@@ -88,9 +88,9 @@ type F3bFields = {
 function projectByOf(e: CalendarEventItem & F3bFields): CalendarEventView["projectBy"] {
   if (e.projectBy === "manual") return "manual";
   if (e.projectBy === "rules" || e.projectBy === "model") return "model";
-  // Un server di prima non lo dice: un progetto c'era solo se lo aveva messo Stubwise.
-  if (e.projectBy === undefined) return e.projectId === null ? null : "model";
-  return null;
+  // Un server di prima non lo dice (e lo schema dà `null`; anche le righe prima della
+  // F3b): un progetto c'era solo se lo aveva messo Stubwise.
+  return e.projectId === null ? null : "model";
 }
 
 export function eventView(raw: CalendarEventItem): CalendarEventView {
@@ -168,9 +168,11 @@ const byStart = (a: CalendarEventView, b: CalendarEventView) =>
 
 /** Gli eventi che toccano `[from, to)` (ms), già tagliati alla finestra; dalla più vecchia. */
 async function eventsIn(from: number, to: number): Promise<CalendarEventView[]> {
+  // La lista LEGGERA (F3b): i campi pesanti li rilegge il dettaglio (`event(id)`).
   const page = await appClient().calendar.range({
     from: new Date(from).toISOString(),
     to: new Date(to).toISOString(),
+    fields: "summary",
   });
   return page.items.map((e) => eventView(e as CalendarEventItem)).sort(byStart);
 }
@@ -190,7 +192,7 @@ const listEvents: Calendar["listEvents"] = async (range) => {
   const { from, to } = rangeOf(range.from, range.to);
   if (to <= from) return [];
   // Gli estremi nel formato della finestra (`…T00:00:00Z`), come li chiede la griglia.
-  const page = await appClient().calendar.range({ from: isoOfMs(from), to: isoOfMs(to) });
+  const page = await appClient().calendar.range({ from: isoOfMs(from), to: isoOfMs(to), fields: "summary" });
   return page.items.map((e) => eventView(e as CalendarEventItem)).sort(byStart);
 };
 
