@@ -52,6 +52,8 @@ import {
   notExists,
   notInArray,
   sql,
+  type AnyColumn,
+  type SQL,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { AgentRunner } from "../agent/runner.js";
@@ -95,6 +97,7 @@ import {
   disabledReasonFor,
   errText,
   GMAIL_MAX_SYNC_ATTEMPTS,
+  GMAIL_HISTORY_MAX_PAGES,
   GMAIL_RESYNC_MAX_MESSAGES,
   GMAIL_RESYNC_QUERY,
   isFromMailbox,
@@ -425,6 +428,10 @@ export async function claimDueAccounts(
         WHERE disabled_at IS NULL AND next_sync_at <= now()
         -- «Aggiorna ora» (area 6, F1.2): chi l'ha chiesto passa prima delle
         -- altre dovute, anche a batch pieno (la sua next_sync_at è adesso).
+        -- Misurato (review F1, punto 7; EXPLAIN su Postgres di test, 5.000
+        -- caselle, metà dovute): quest'ordine non usa più l'indice parziale,
+        -- è seq scan + sort, 1,2 ms contro 0,02 ms. Accettato a questa scala;
+        -- se servisse, una UNION fra le richieste e le dovute riprende l'indice.
         ORDER BY sync_requested_at IS NULL, next_sync_at
         LIMIT ${limit}
         FOR UPDATE SKIP LOCKED
@@ -681,6 +688,8 @@ async function collectMessageIds(
       const unreadChanges: { messageId: string; unread: boolean }[] = [];
       let pageToken: string | null = null;
       let historyId: string | null = null;
+      let lastEntryId: string | null = null;
+      let pages = 0;
       do {
         const page = await gmail.listHistory({
           accessToken: ctx.accessToken,
@@ -690,10 +699,21 @@ async function collectMessageIds(
           historyTypes: GMAIL_HISTORY_TYPES,
         });
         ids.push(...page.addedMessageIds);
-        unreadChanges.push(...(page.unreadChanges ?? []));
+        unreadChanges.push(...page.unreadChanges);
         historyId = page.historyId ?? historyId;
+        lastEntryId = page.lastEntryId ?? lastEntryId;
         pageToken = page.nextPageToken;
-      } while (pageToken && ids.length < GMAIL_RESYNC_MAX_MESSAGES);
+        pages += 1;
+      } while (pageToken && ids.length < GMAIL_RESYNC_MAX_MESSAGES && pages < GMAIL_HISTORY_MAX_PAGES);
+      // Fermi al tetto di PAGINE (non di messaggi): ogni voce letta è stata
+      // raccolta per intero (i messaggi in `ids`, tutti processati; i cambi di
+      // etichetta in `unreadChanges`), quindi il cursore sicuro è l'ultima
+      // voce letta — non lo stato attuale della casella, e non `seenHistoryId`,
+      // che su una history di soli cambi di etichetta è null e lascerebbe il
+      // cursore fermo per sempre sulle stesse pagine.
+      if (pageToken !== null && ids.length <= GMAIL_RESYNC_MAX_MESSAGES && lastEntryId !== null) {
+        return { ids, historyId: lastEntryId, resynced: false, truncated: false, unreadChanges };
+      }
       // Troncato quando resta almeno una pagina di history NON letta (il loop
       // si è fermato per il tetto, non perché la history fosse finita — in tal
       // caso `pageToken` è ancora valorizzato) o quando l'ultima pagina letta
@@ -1628,6 +1648,25 @@ function suggestedProjectIdsOf(classification: unknown): string[] {
 }
 
 /**
+ * Review della F1 (punti 1 e 4): le condizioni delle proposte valgono alla
+ * SELEZIONE delle righe, non al claim. La casella ha le proposte ACCESE
+ * adesso (spente a giro in corso, la fase non pesca niente)…
+ */
+export function accountProposingSql(accountId: SQL | AnyColumn): SQL {
+  return sql`exists (select 1 from ${googleAccounts} where ${googleAccounts.id} = ${accountId} and ${googleAccounts.proposalsEnabled})`;
+}
+
+/** …e la posta è stata ingerita dopo il taglio `proposals_since` (null = nessun taglio). */
+export function afterProposalsCutSql(accountId: SQL | AnyColumn, createdAt: SQL | AnyColumn): SQL {
+  return sql`not exists (
+    select 1 from ${googleAccounts}
+    where ${googleAccounts.id} = ${accountId}
+      and ${googleAccounts.proposalsSince} is not null
+      and ${createdAt} < ${googleAccounts.proposalsSince}
+  )`;
+}
+
+/**
  * FASE 4 del giro: le righe già trattate diventano PROPOSTE in inbox.
  *
  * È la fase che rende visibile tutto il resto: senza di lei un messaggio
@@ -1703,6 +1742,8 @@ async function runProposePhase(
           eq(emailMessages.accountId, account.id),
           eq(emailProposals.status, "classified"),
           isNull(emailProposals.proposalNotificationId),
+          accountProposingSql(emailMessages.accountId),
+          afterProposalsCutSql(emailMessages.accountId, emailMessages.createdAt),
         ),
       )
       .orderBy(asc(emailMessages.receivedAt), asc(emailProposals.id))
@@ -1770,6 +1811,9 @@ async function runProposePhase(
       .where(
         and(
           eq(calendarEventsTable.accountId, account.id),
+          // Il calendario non ha taglio (regola dell'orchestratrice): solo le
+          // proposte accese ADESSO.
+          accountProposingSql(calendarEventsTable.accountId),
           sql`${calendarEventsTable.status} is distinct from 'cancelled'`,
           isNull(calendarEventsTable.proposalNotificationId),
           isNull(calendarEventsTable.outcome),
@@ -1857,6 +1901,8 @@ async function runProposePhase(
           eq(emailMessages.accountId, account.id),
           eq(emailMessages.status, "classified"),
           isNull(emailMessages.proposalNotificationId),
+          accountProposingSql(emailMessages.accountId),
+          afterProposalsCutSql(emailMessages.accountId, emailMessages.createdAt),
           sql`${emailMessages.classification} ->> 'triage' = 'true'`,
           notExists(
             deps.db
@@ -2490,8 +2536,14 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
     return stats;
   }
 
-  for (const account of accounts) {
-    if (deps.signal?.aborted) break;
+  for (const [index, account] of accounts.entries()) {
+    if (deps.signal?.aborted) {
+      // Review della F1 (punto 3): il claim ha spostato `next_sync_at` in
+      // avanti anche per le caselle che questo giro non servirà; quelle con
+      // una richiesta di «Aggiorna ora» tornano dovute subito.
+      await requeueSyncRequests(deps, accounts.slice(index).map((row) => row.id));
+      break;
+    }
     try {
       await serveAccount(deps, account, routes, admission, stats);
     } finally {
@@ -2501,6 +2553,32 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
   }
 
   return stats;
+}
+
+/** Le caselle indicate con una richiesta in attesa tornano dovute adesso. Non lancia. */
+async function requeueSyncRequests(deps: GooglePollerDeps, accountIds: string[]): Promise<void> {
+  if (accountIds.length === 0) return;
+  try {
+    await deps.db
+      .update(googleAccounts)
+      .set({ nextSyncAt: sql`now()` })
+      .where(and(inArray(googleAccounts.id, accountIds), isNotNull(googleAccounts.syncRequestedAt)));
+  } catch (err) {
+    (deps.logger ?? defaultLogger).error(`google: richieste di «Aggiorna ora» non riaccodate: ${errText(err)}`);
+  }
+}
+
+/**
+ * All'avvio del poller (review della F1, punto 3): un giro morto con il
+ * processo (crash) lascia le caselle reclamate con `next_sync_at` in avanti.
+ * Il worker è UN processo, quindi all'avvio nessun giro è in corso: ogni
+ * richiesta di «Aggiorna ora» ancora in attesa rende la sua casella dovuta.
+ */
+export async function recoverSyncRequests(db: Db): Promise<void> {
+  await db
+    .update(googleAccounts)
+    .set({ nextSyncAt: sql`now()` })
+    .where(and(isNotNull(googleAccounts.syncRequestedAt), isNull(googleAccounts.disabledAt)));
 }
 
 /**
@@ -2609,6 +2687,9 @@ export function startGooglePoller(opts: StartGooglePollerOptions): () => void {
   }
   const { signal, listen, requestPollMs, ...deps } = opts;
   let running = false;
+  void recoverSyncRequests(opts.db).catch((err: unknown) =>
+    logger.error(`google: recupero delle richieste di «Aggiorna ora» fallito: ${errText(err)}`),
+  );
   // Una sveglia arrivata a giro in corso: il giro dopo parte appena finisce
   // questo, perché il claim di questo è già passato e non l'ha vista.
   let again = false;

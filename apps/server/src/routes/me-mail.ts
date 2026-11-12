@@ -1271,6 +1271,7 @@ export async function meMailRoutes(
           404: errorSchema,
           409: errorSchema.extend({ missing: z.array(z.string()).optional() }),
           502: errorSchema,
+          503: errorSchema,
           ...authErrorResponses,
         },
       },
@@ -1321,12 +1322,18 @@ export async function meMailRoutes(
           if (error.code === "invalid_grant" || error.status === 401) {
             return apiError(reply, 409, "token_expired", "The Google account needs to be reconnected");
           }
-          if (error.status === 403) {
+          // Review della F1 (punto 2): solo uno scope MANCANTE è «Ricollega».
+          // Un 403 nudo è spesso quota o un divieto temporaneo (`fetch.ts`,
+          // CODE_ALIASES), e la quota ha il suo codice: «riprova».
+          if (error.code === "insufficient_scope") {
             return reply.code(409).send({
               code: "google_scope_missing",
               message: "Google refused the change: reconnect the mailbox",
               missing: [GMAIL_MODIFY_SCOPE],
             });
+          }
+          if (error.code === "rate_limited" || error.status === 429) {
+            return apiError(reply, 503, "google_rate_limited", "Gmail is busy: try again in a moment");
           }
         }
         request.log.warn({ err: error, accountId: mailbox.id }, "letto/non letto su Gmail fallito");

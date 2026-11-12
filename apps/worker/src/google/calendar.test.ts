@@ -233,7 +233,7 @@ function quietGmail(setup: { historyError?: unknown } = {}): GmailClient & { cal
     listHistory: async () => {
       calls.push("history");
       if (setup.historyError) throw setup.historyError;
-      return { addedMessageIds: [], historyId: "2000", nextPageToken: null };
+      return { addedMessageIds: [], unreadChanges: [], lastEntryId: null, historyId: "2000", nextPageToken: null };
     },
     listMessages: async () => {
       calls.push("list");

@@ -170,6 +170,13 @@ export interface GmailHistoryPage {
    * l'ultimo. Vuoto se `historyTypes` non chiede i cambi di etichetta.
    */
   unreadChanges: { messageId: string; unread: boolean }[];
+  /**
+   * L'id dell'ULTIMA voce della pagina (il più alto), null se la pagina è
+   * vuota: il punto da cui ripartire quando ci si ferma prima della fine
+   * (review della F1, punto 6). `historyId` qui sotto è invece lo stato
+   * attuale della casella, sicuro solo dopo l'ultima pagina.
+   */
+  lastEntryId: string | null;
   /** Nuovo punto di ripartenza da salvare a fine ciclo. */
   historyId: string | null;
   nextPageToken: string | null;
@@ -224,9 +231,14 @@ export async function listHistory(
       if (added.labelIds?.includes(GMAIL_UNREAD_LABEL)) unreadChanges.push({ messageId: added.message.id, unread: true });
     }
   }
+  let lastEntryId: string | null = null;
+  for (const entry of raw.history ?? []) {
+    if (entry.id && (lastEntryId === null || BigInt(entry.id) > BigInt(lastEntryId))) lastEntryId = entry.id;
+  }
   return {
     addedMessageIds,
     unreadChanges,
+    lastEntryId,
     historyId: raw.historyId ?? null,
     nextPageToken: raw.nextPageToken ?? null,
   };
