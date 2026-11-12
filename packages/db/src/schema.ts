@@ -4543,6 +4543,24 @@ export const emailMessages = pgTable(
      * `labels` qui sopra non si rilegge dalla history: non è questa la fonte.
      */
     unread: boolean("unread"),
+    /**
+     * Area 6, F2 (0151): il Message-ID RFC dell'header, la chiave dell'email
+     * fra le caselle (la stessa email in due caselle si classifica una volta
+     * e ha UNA proposta per progetto, D4). Null nelle righe di prima.
+     */
+    rfcMessageId: text("rfc_message_id"),
+    /**
+     * Lo stato della classificazione NUOVA (D3): `off` (nessuna casella che
+     * la contiene ha le proposte accese), `pending`, `failed`, `done`. Null =
+     * righe di prima (il percorso di `status`).
+     */
+    classificationState: text("classification_state").$type<"off" | "pending" | "failed" | "done">(),
+    /** Importanza (D3, tre livelli del prototipo), solo con `done`. */
+    importance: text("importance").$type<"high" | "normal" | "low">(),
+    /** Scadenza estratta dal modello: una DATA (`YYYY-MM-DD`), non un istante. */
+    dueDate: date("due_date", { mode: "string" }),
+    /** I progetti candidati fra cui il modello è incerto («Quale progetto?»). */
+    uncertainProjectIds: uuid("uncertain_project_ids").array().notNull().default([]),
     textExcerpt: text("text_excerpt"),
     /**
      * AMMESSO dal cancello dell'ammissione (fase 6c, `admit()`), oppure
@@ -4946,6 +4964,26 @@ export const emailProposals = pgTable(
     }),
     outcome: jsonb("outcome").$type<Record<string, unknown>>(),
     error: text("error"),
+    /**
+     * Area 6, F2 (0151, D4): la chiave della proposta CONDIVISA (unica con
+     * `project_id`); null nelle righe di prima, che restano per casella.
+     */
+    rfcMessageId: text("rfc_message_id"),
+    /**
+     * Chi la riceve: `mailbox_owner` (le righe di prima, una casella) o
+     * `mail_recipients` (i destinatari in Stubwise membri del progetto, in
+     * `email_proposal_recipients`; MAI gli admin non destinatari).
+     */
+    audience: text("audience").$type<"mailbox_owner" | "mail_recipients">().notNull().default("mailbox_owner"),
+    /** La decisione, una per tutti: chi e quando. */
+    decidedByUserId: uuid("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    /** La conferma PARZIALE: gli indici delle azioni eseguite (null = tutte o nessuna). */
+    confirmedIndices: integer("confirmed_indices").array(),
+    /** Cosa è nato: `[{ kind, id, code }]` (i codici, «AUD-12»). */
+    results: jsonb("results").$type<{ kind: string; id: string; code: string | null }[]>(),
+    handedAt: timestamp("handed_at", { withTimezone: true }),
+    handedByUserId: uuid("handed_by_user_id").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -4953,6 +4991,9 @@ export const emailProposals = pgTable(
       .$onUpdate(() => new Date()),
   },
   (table) => [
+    uniqueIndex("email_proposals_rfc_message_id_project_id_unique")
+      .on(table.rfcMessageId, table.projectId)
+      .where(sql`rfc_message_id is not null`),
     uniqueIndex("email_proposals_email_message_id_project_id_unique").on(
       table.emailMessageId,
       table.projectId,
@@ -4969,6 +5010,32 @@ export const emailProposals = pgTable(
       "email_proposals_status_chk",
       sql`status in ('classified', 'proposed', 'actioned', 'ignored', 'failed')`,
     ),
+    check("email_proposals_audience_chk", sql`audience in ('mailbox_owner', 'mail_recipients')`),
+  ],
+);
+
+/**
+ * I destinatari di una proposta CONDIVISA (area 6, F2, 0151, D4): i
+ * destinatari dell'email (mittente, to, cc) che sono utenti di Stubwise e
+ * membri del progetto, uno per persona, con la notifica della loro inbox.
+ * Una persona che non è qui non vede la proposta.
+ */
+export const emailProposalRecipients = pgTable(
+  "email_proposal_recipients",
+  {
+    proposalId: uuid("proposal_id")
+      .notNull()
+      .references(() => emailProposals.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    notificationId: uuid("notification_id").references(() => notifications.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ name: "email_proposal_recipients_pk", columns: [table.proposalId, table.userId] }),
+    index("email_proposal_recipients_user_id_idx").on(table.userId),
+    index("email_proposal_recipients_notification_id_idx").on(table.notificationId),
   ],
 );
 

@@ -1058,6 +1058,13 @@
       "when": 1797379200000,
       "tag": "0150_google_read_without_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 151,
+      "version": "7",
+      "when": 1797465600000,
+      "tag": "0151_mail_shared_proposals",
+      "breakpoints": true
     }
   ]
 }

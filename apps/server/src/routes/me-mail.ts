@@ -956,6 +956,12 @@ export async function meMailRoutes(
         textExcerpt: emailMessages.textExcerpt,
         admitted: emailMessages.admitted,
         unread: emailMessages.unread,
+        // Area 6, F2: la classificazione nuova (null = un messaggio di prima).
+        classificationState: emailMessages.classificationState,
+        importance: emailMessages.importance,
+        dueDate: emailMessages.dueDate,
+        uncertainProjectIds: emailMessages.uncertainProjectIds,
+        scopeProjectIds: emailMessages.scopeProjectIds,
         // Servono al solo ramo «smistamento» di `reproposals` più sotto.
         status: emailMessages.status,
         outcome: emailMessages.outcome,
@@ -1071,6 +1077,15 @@ export async function meMailRoutes(
         reproposals: reproposalsFor(row, reproposalsByMessage.get(row.id) ?? []),
         proposalOutcomes: outcomesByMessage.get(row.id) ?? [],
         unread: row.unread === true,
+        classification: {
+          state: row.classificationState ?? "off",
+          // Solo a classificazione finita: prima i progetti sono quelli del
+          // routing di prima, che non sono una classificazione.
+          projectIds: row.classificationState === "done" ? row.scopeProjectIds : [],
+          importance: row.classificationState === "done" ? row.importance : null,
+          dueDate: row.classificationState === "done" ? row.dueDate : null,
+          uncertainProjectIds: row.classificationState === "done" ? row.uncertainProjectIds : [],
+        },
       })),
     };
   }

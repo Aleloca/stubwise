@@ -212,7 +212,9 @@ passano dallo stesso servizio (l'app mobile le usa).
 7. **`create_task`** e la `patch` di `update_ticket`.
 8. **Via regole e ammissione dal web** (§3).
 9. **Chiusura**: le invarianti riscritte (`mailbox_owner`, ammissione, «una
-   proposta per richiesta»), il deploy-log (la misura, l'ordine server →
+   proposta per richiesta»; in «Nessuna scrittura verso Google senza un
+   gesto» che APRIRE una conversazione è il gesto che la segna letta, *(O)*
+   dalla review del renderer), il deploy-log (la misura, l'ordine server →
    worker → caddy, il rollback: un worker vecchio torna all'ammissione, un
    server vecchio non vede le proposte condivise), il registro.
 
