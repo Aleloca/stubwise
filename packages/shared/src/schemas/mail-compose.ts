@@ -84,3 +84,18 @@ export const mailDraftRestoreSchema = z.object({
   droppedAttachments: z.array(z.string()).default([]),
 });
 export type MailDraftRestore = z.infer<typeof mailDraftRestoreSchema>;
+
+/**
+ * Un destinatario suggerito mentre si scrive un indirizzo (area 6, F3): prima
+ * le persone del team che chi scrive vede (`team`, con `personId`), poi gli
+ * indirizzi visti nelle SUE caselle (`mail`).
+ */
+export const mailRecipientSuggestionSchema = z.object({
+  name: z.string().nullable().default(null),
+  email: z.string(),
+  personId: z.uuid().nullable().default(null),
+  group: z.enum(["team", "mail"]),
+});
+export type MailRecipientSuggestion = z.infer<typeof mailRecipientSuggestionSchema>;
+export const mailRecipientSuggestionListSchema = z.object({ items: z.array(mailRecipientSuggestionSchema).default([]) });
+export type MailRecipientSuggestionList = z.infer<typeof mailRecipientSuggestionListSchema>;

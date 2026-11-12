@@ -1,4 +1,4 @@
-import { mailComposeModeSchema, mailDraftListSchema, mailDraftRestoreSchema, mailDraftSaveSchema, mailDraftSchema, mailOutgoingSchema } from "@stubwise/shared";
+import { mailComposeModeSchema, mailDraftListSchema, mailDraftRestoreSchema, mailDraftSaveSchema, mailDraftSchema, mailOutgoingSchema, mailRecipientSuggestionListSchema } from "@stubwise/shared";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -17,6 +17,7 @@ import {
   type MailComposeClient,
 } from "../services/mail-drafts.js";
 import { isMultipartLimit } from "./multipart.js";
+import { suggestRecipients } from "../services/mail-recipients.js";
 import { discardFailedSend, getOutgoing, retrySend, sendDraftLater, undoSend, type SendError } from "../services/mail-send.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -234,3 +235,17 @@ export async function meMailOutgoingRoutes(instance: FastifyInstance): Promise<v
     },
   );
 }
+
+/** I destinatari suggeriti mentre si scrive un indirizzo (F3, task 5). */
+export async function meMailRecipientsRoutes(instance: FastifyInstance): Promise<void> {
+  const app = instance.withTypeProvider<ZodTypeProvider>();
+  app.get(
+    "/",
+    {
+      config: { access: { kind: "user" } },
+      schema: { querystring: z.object({ q: z.string().max(200).default("") }), response: { 200: mailRecipientSuggestionListSchema, ...authErrorResponses } },
+    },
+    async (request) => ({ items: await suggestRecipients(app.db, request.user!, request.query.q) }),
+  );
+}
+
