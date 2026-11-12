@@ -4881,6 +4881,8 @@ export const calendarEvents = pgTable(
     index("calendar_events_account_recurring_idx").on(table.accountId, table.recurringEventId),
     // F3b: `range` per casella e finestra, e la potatura (`starts_at` vecchio).
     index("calendar_events_account_starts_idx").on(table.accountId, table.startsAt),
+    // La potatura: un DELETE su tutta la tabella per la fine dell'evento (review F3b).
+    index("calendar_events_ends_idx").using("btree", sql`coalesce(${table.endsAt}, ${table.startsAt})`),
     check(
       "calendar_events_status_chk",
       sql`status is null or status in ('confirmed', 'tentative', 'cancelled')`,

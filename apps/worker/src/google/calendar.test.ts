@@ -766,17 +766,17 @@ describe("pre-filtro degli eventi", () => {
     expect(readyForProposal(futureRow)).toBe(true);
   });
 
-  it("un evento che nessuna regola riconosce non produce nessuna riga", async () => {
+  it("F3b: un evento che nessuna regola riconosce diventa una riga VISTA, non candidata, senza progetto né proposta", async () => {
     await seedProject("Acme");
     const account = await seedAccount();
     const calendar = fakeCalendar([
       { events: [event({ id: "e1", title: "Dentista", attendees: [], organizer: null })] },
     ]);
 
-    const stats = await pollGoogleOnce(deps(account, calendar));
+    await pollGoogleOnce(deps(account, calendar));
 
-    expect(stats.calendarEvents).toBe(0);
-    expect(await rows()).toEqual([]);
+    const [row] = await rows();
+    expect(row).toMatchObject({ googleEventId: "e1", proposalCandidate: false, projectId: null, proposalNotificationId: null });
   });
 
   it("in parità fra due progetti la riga esiste ma NON è candidata", async () => {

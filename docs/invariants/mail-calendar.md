@@ -84,6 +84,36 @@
   primo collegamento. Chi aggiunge una fase che propone la mette sotto lo
   stesso `if`, e chi aggiunge un percorso di classificazione mette lo stesso
   taglio.
+- **Il calendario con TUTTI gli eventi (area 6, F3b): un evento VISTO non è
+  un CANDIDATO.** Il worker salva ogni evento della finestra del calendario
+  principale (tranne `workingLocation` e `birthday`); solo una riga con
+  `proposal_candidate` può diventare una proposta, e la fase delle proposte
+  lo filtra in SQL, anche per le occorrenze delle serie accese.
+  - **A flag spento il candidato è ESATTAMENTE quello di prima**: un titolo
+    e in perimetro per le regole (`routeEvent(...).inScope`). Un candidato
+    non torna indietro, e il suo progetto si tocca solo come prima. Test
+    «flag spento: stessi candidati e stesse proposte su un insieme misto».
+  - **A flag acceso** (`MAIL_CLASSIFY_V2`): un invitato o l'organizzatore,
+    escluso il proprietario, membro esplicito di UN progetto
+    (`projectBy: model`), calcolato per lotto; con più progetti nessuna
+    proposta (la «Quale progetto?» del calendario è nel registro).
+  - **Le due linee di base**: il primo giro completo dopo il deploy
+    (`calendar_baseline_at`; il syncToken azzerato forza il resync) e il
+    primo giro col flag acceso (`calendar_v2_baseline_at`) chiudono
+    (`baseline`) ogni riga che vi DIVENTA candidata. Una casella collegata
+    dopo il deploy nasce con la prima già fatta. Chi aggiunge un percorso
+    che fa nascere candidati gli metta la stessa linea di base.
+  - **La potatura** (`pruneOldCalendarEvents`): via le righe prima di −31
+    giorni senza una proposta aperta; una proposta aperta su un evento
+    vecchio si chiude `expired` (riga e card insieme) e se ne va al giro
+    dopo. Con l'orologio del giro, come la finestra.
+  - **`range?fields=summary`** è la lista leggera e senza le cancellate;
+    senza il parametro `range` resta quello di prima, perché web e app
+    leggono ancora i campi pesanti da lì.
+  - Le proposte del calendario stanno anche in `/api/me/mail/proposals`
+    (col flag acceso, `kind: calendar`): sempre `mailbox_owner`, decise
+    dalla loro card.
+
 - **Scrivere la posta (area 6, F3): bozze di Gmail, invio trattenuto, e
   Claude che PROPONE ma non manda mai.**
   - **Le bozze sono bozze di Gmail** (D7): `mail_drafts` tiene ciò che Gmail

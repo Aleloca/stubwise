@@ -4058,3 +4058,56 @@ deploy o di un rollback che la tocca.
   e tabelle nuove, ignorate dal codice di prima; i due CHECK della 0154 sono
   più larghi).
 
+
+
+- **«Integrazione area 6, fetta 3b: il calendario con tutti gli eventi» (12
+  nov 2026)**: piano `docs/plans/2026-11-12-integrazione-area6-fetta3b-plan.md`,
+  branch `feat/area6-f3b` (sopra `feat/area6-f3-fix`). Migrazioni **0161**
+  (`calendar_events`: `proposal_candidate`, `event_type`, `transparency`,
+  `project_by`, l'indice per casella e inizio; `google_accounts.calendar_baseline_at`;
+  il **syncToken del calendario si azzera**) e **0162**
+  (`calendar_v2_baseline_at`), e dalla review della F3b **0163** (l'indice
+  della potatura su `coalesce(ends_at, starts_at)`). Ordine: server, poi
+  worker, poi caddy. La linea di base si chiude solo dopo un resync COMPLETO
+  della finestra (con un token, non interrotto): se il worker vecchio ha
+  già risincronizzato col token azzerato, il nuovo rifà comunque la finestra.
+  Nessuna env nuova.
+
+  **Cosa succede al primo giro**: ogni casella fa un resync della finestra
+  (−30/+60) e scrive CENTINAIA di righe (stima ~300–800 per casella, fino a
+  ~1.500; ~1–5 MB). È la linea di base: nessuna proposta, nessuna card,
+  nessuna azione automatica nasce da quel giro. Prima del deploy, sola
+  lettura: `select account_id, count(*) from calendar_events group by 1;` e
+  `select count(*) from calendar_series where auto;` (le serie automatiche
+  da guardare il primo giorno: ora ricevono tutte le loro occorrenze in
+  perimetro, come prima).
+
+  **Controlli dopo**: `select proposal_candidate, count(*) from
+  calendar_events group by 1;` (i candidati devono restare dell'ordine di
+  prima), `select count(*) from notifications where kind = 'google.proposal'
+  and created_at > now() - interval '1 hour';` (nessuna ondata), e
+  `pg_total_relation_size('calendar_events')` che si stabilizza dopo la
+  potatura.
+
+  **Accendere la dottrina nuova** (`MAIL_CLASSIFY_V2=true`, lo stesso flag
+  della posta) fa a sua volta una linea di base per casella al primo giro:
+  niente proposte sugli eventi già visti.
+
+  ⚠️ **Rollback d'immagine del worker: NON è sicuro così com'è** (review
+  F3b, punto 4). La query delle proposte del worker vecchio non filtra
+  `proposal_candidate`, e il suo ramo delle serie prende ogni occorrenza con
+  `calendar_series.project_id is not null`: le occorrenze PERSONALI ora sono
+  righe viste, e una serie vista si può configurare, quindi verrebbero
+  proposte (ed eseguite, se `auto`). **Prima di scendere sul worker**, a
+  worker fermo, si tolgono le righe solo viste:
+
+  ```sql
+  select count(*) from calendar_events where proposal_candidate = false;
+  delete from calendar_events where proposal_candidate = false;
+  ```
+
+  (il prossimo giro del worker nuovo, se si risale, le riscrive col resync
+  della linea di base: azzerare anche `calendar_baseline_at` e
+  `calendar_sync_token` delle caselle). Un server vecchio mostra in `range`
+  anche gli eventi personali senza i campi nuovi. Le migrazioni non si
+  annullano.
