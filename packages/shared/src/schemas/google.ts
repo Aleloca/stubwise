@@ -1263,6 +1263,15 @@ const calendarTextSchema = z.string().max(8192).nullable();
 
 export const calendarEventCreateSchema = z.object({
   accountId: z.uuid(),
+  /**
+   * L'id dell'evento su Google, GENERATO DAL CLIENT (base32hex: `a`–`v` e
+   * cifre, 5–1024 caratteri) e rimandato identico da Riprova: la creazione è
+   * idempotente — se il primo tentativo è arrivato a Google ma la risposta
+   * no, il secondo non crea una seconda riunione né rimanda gli inviti
+   * (review F4). Obbligatorio: la rotta nasce con la F4, nessun client
+   * vecchio la chiama.
+   */
+  eventId: z.string().regex(/^[a-v0-9]{5,1024}$/),
   title: calendarTitleSchema,
   startsAt: z.iso.datetime(),
   endsAt: z.iso.datetime(),

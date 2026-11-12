@@ -125,3 +125,13 @@ describe("le letture che servono a scrivere una serie", () => {
     expect(calls[1]!.url).toContain("pageToken=n2");
   });
 });
+
+describe("insertCalendarEvent idempotente (review F4: Riprova non crea una seconda riunione)", () => {
+  it("manda l'id scelto dal client; un 409 di Google su quell'id è `duplicate`", async () => {
+    const { impl, calls } = fakeFetch([jsonResponse(created), jsonResponse({ error: { code: 409, message: "The requested identifier already exists.", errors: [{ reason: "duplicate" }] } }, { status: 409 })]);
+    const event = { title: "R", startsAt: "2026-09-15T09:00:00.000Z", endsAt: "2026-09-15T10:00:00.000Z", allDay: false, guests: [], addMeet: false, reminders: "default" as const, id: "abc0123456v" };
+    await insertCalendarEvent({ accessToken: "at", event }, { fetchImpl: impl });
+    expect(JSON.parse(calls[0]!.body!)).toMatchObject({ id: "abc0123456v" });
+    await expect(insertCalendarEvent({ accessToken: "at", event }, { fetchImpl: impl })).rejects.toMatchObject({ status: 409, code: "duplicate" });
+  });
+});

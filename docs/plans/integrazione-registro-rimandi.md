@@ -438,6 +438,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono
   `unread = null`, lette come «letto». Un recupero (rileggere le etichette
   dei thread recenti al resync) costa una chiamata per messaggio: non ora.
+- F4, il progetto dell'evento per tutti (Q1 = a), limite *(O, 46)*: le
+  righe degli ALTRI invitati (stesso iCalUID) prendono il progetto, ma le
+  loro card aperte restano col progetto con cui sono nate — la card è nella
+  loro inbox, e in lettura il progetto della card vince su quello della riga
+  (`mail-proposals-calendar.ts`). Segue il progetto solo la card della MIA
+  riga, e solo per una scadenza (non per una data di serie). Togliere il
+  progetto (`null`) lascia la card com'è.
 
 - F3, «Riprova» di `fillMailBody` *(O, 12 nov 2026)*: quando Gmail non
   salva il corpo confermato (`effectFailure: "mail_not_saved"`) la scheda di

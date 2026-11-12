@@ -316,6 +316,24 @@ async function projectAllowed(db: Db, userId: string, projectId: string | null):
 
 // --- Le operazioni -------------------------------------------------------
 
+/**
+ * Crea la riunione UNA volta sola (review F4): l'id lo sceglie il client e
+ * Riprova lo rimanda. Un 409 `duplicate` di Google su quell'id vuol dire «già
+ * creato» (la prima volta Google ha detto sì, ma la risposta o il DB no): si
+ * rilegge l'evento e si prosegue come se fosse riuscito. Solo se lo organizza
+ * la casella: un id che ne indovina uno altrui non diventa una presa.
+ */
+async function insertOnce(deps: CalendarWriteDeps, accessToken: string, event: Parameters<CalendarWriteClient["insertCalendarEvent"]>[0]["event"]): Promise<GoogleCalendarEvent> {
+  try {
+    return await deps.client.insertCalendarEvent({ accessToken, event });
+  } catch (err) {
+    if (!(err instanceof GoogleApiError && err.code === "duplicate") || !event.id) throw err;
+    const existing = await deps.client.getCalendarEvent({ accessToken, eventId: event.id });
+    if (!existing.organizerSelf) throw new GoogleApiError({ api: "calendar.events.insert", status: 400, code: "duplicate", reason: "duplicate_id" });
+    return existing;
+  }
+}
+
 export async function createCalendarEvent(deps: CalendarWriteDeps, userId: string, input: CalendarEventCreate): Promise<CalendarWriteOutcome> {
   const account = await ownAccount(deps.db, userId, input.accountId);
   if (!account) return { error: "not_found" };
@@ -332,9 +350,8 @@ export async function createCalendarEvent(deps: CalendarWriteDeps, userId: strin
   let event: GoogleCalendarEvent;
   try {
     const accessToken = await accessTokenFor(deps, account.id);
-    event = await deps.client.insertCalendarEvent({
-      accessToken,
-      event: {
+    event = await insertOnce(deps, accessToken, {
+        id: input.eventId,
         title: input.title,
         startsAt: input.startsAt,
         endsAt: input.endsAt,
@@ -344,7 +361,6 @@ export async function createCalendarEvent(deps: CalendarWriteDeps, userId: strin
         location: input.location,
         addMeet: input.addMeet,
         reminders: input.reminders,
-      },
     });
   } catch (err) {
     return googleError(err);

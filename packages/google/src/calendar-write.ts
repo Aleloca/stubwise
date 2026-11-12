@@ -27,6 +27,12 @@ export interface CalendarGuest {
 export type CalendarReminders = { minutes: number; method: "popup" | "email" }[] | "default";
 
 export interface NewCalendarEvent {
+  /**
+   * L'id scelto dal client (base32hex, 5–1024 caratteri): Riprova rimanda lo
+   * stesso, e Google risponde 409 `duplicate` invece di creare una seconda
+   * riunione con gli inviti mandati due volte (review F4).
+   */
+  id?: string;
   title: string;
   /** ISO con orario; per un tutto il giorno la data `YYYY-MM-DD` (fine esclusiva). */
   startsAt: string;
@@ -83,7 +89,9 @@ export async function insertCalendarEvent(
       method: "POST",
       url: eventsUrl(input.calendarId ?? "primary", undefined, e.addMeet ? { conferenceDataVersion: "1" } : {}),
       accessToken: input.accessToken,
+      statusCodes: { 409: "duplicate" },
       json: {
+        ...(e.id ? { id: e.id } : {}),
         summary: e.title,
         ...(e.description ? { description: e.description } : {}),
         ...(e.location ? { location: e.location } : {}),

@@ -34,6 +34,11 @@ const calls: { fn: string; input: Record<string, unknown> }[] = [];
 let failWith: unknown = null;
 let parent: GoogleCalendarEvent | null = null;
 let instances: GoogleCalendarEvent[] = [];
+/** Quello che «Google» ha creato, per id: un id già visto risponde 409 duplicate. */
+const onGoogle = new Map<string, GoogleCalendarEvent>();
+/** La prossima riga non entra nel DB (un byte nullo nel testo): Google sì, DB no. */
+let poisonNext = false;
+const newId = () => randomUUID().replace(/-/g, "").replace(/[w-z]/g, "a");
 
 function gEvent(over: Partial<GoogleCalendarEvent> = {}): GoogleCalendarEvent {
   return {
@@ -74,7 +79,15 @@ const fake: CalendarWriteClient = {
   refreshAccessToken: async () => ({ accessToken: "at-casella", expiresInSeconds: 3600, refreshToken: null, scopes: [], tokenType: "Bearer", idToken: null }),
   insertCalendarEvent: async (input) => {
     record("insert", input);
-    return gEvent({ id: "g-new", title: input.event.title, startsAt: new Date(input.event.startsAt), endsAt: new Date(input.event.endsAt), hangoutLink: input.event.addMeet ? "https://meet.google.com/abc" : null, attendees: input.event.guests.map((g) => ({ email: g.email, responseStatus: "needsAction" })) });
+    const id = input.event.id ?? "g-new";
+    if (onGoogle.has(id)) throw new GoogleApiError({ api: "calendar.events.insert", status: 409, code: "duplicate", reason: "duplicate" });
+    const created = gEvent({ id, title: input.event.title, startsAt: new Date(input.event.startsAt), endsAt: new Date(input.event.endsAt), hangoutLink: input.event.addMeet ? "https://meet.google.com/abc" : null, attendees: input.event.guests.map((g) => ({ email: g.email, responseStatus: "needsAction" })) });
+    onGoogle.set(id, created);
+    if (poisonNext) {
+      poisonNext = false;
+      return { ...created, description: "rotto\u0000" };
+    }
+    return created;
   },
   patchCalendarEvent: async (input) => {
     record("patch", input);
@@ -89,7 +102,7 @@ const fake: CalendarWriteClient = {
   },
   getCalendarEvent: async (input) => {
     record("get", input);
-    return parent!;
+    return parent ?? onGoogle.get(input.eventId)!;
   },
   listEventInstances: async (input) => {
     record("instances", input);
@@ -108,6 +121,8 @@ beforeEach(() => {
   failWith = null;
   parent = null;
   instances = [];
+  onGoogle.clear();
+  poisonNext = false;
 });
 afterEach(async () => {
   await db.delete(calendarSeries);
@@ -153,6 +168,7 @@ describe("POST /events — nuova riunione", () => {
     await addMember(app, projectId, me.id);
     const res = await inject(me.headers, "POST", "/events", {
       accountId,
+      eventId: newId(),
       title: "Revisione",
       startsAt: at(3).toISOString(),
       endsAt: at(3, 10).toISOString(),
@@ -167,13 +183,13 @@ describe("POST /events — nuova riunione", () => {
     const item = res.json().items[0];
     expect(item).toMatchObject({ title: "Revisione", canEdit: true, etag: '"10"', projectId, projectBy: "manual", hangoutLink: "https://meet.google.com/abc" });
     const [row] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, item.id));
-    expect(row).toMatchObject({ googleEventId: "g-new", proposalCandidate: false, projectBy: "manual" });
+    expect(row).toMatchObject({ proposalCandidate: false, projectBy: "manual" });
   });
 
   it("i no PRIMA di Google: un progetto che non vedo (404), fuori dalla finestra (400), lo scope che manca (409), la casella di un altro (404) — nessuna chiamata", async () => {
     const { me, accountId } = await scenario();
     const notMine = await seedProject();
-    const base = { accountId, title: "R", startsAt: at(3).toISOString(), endsAt: at(3, 10).toISOString() };
+    const base = { accountId, eventId: newId(), title: "R", startsAt: at(3).toISOString(), endsAt: at(3, 10).toISOString() };
     expect((await inject(me.headers, "POST", "/events", { ...base, projectId: notMine })).statusCode).toBe(404);
     const far = await inject(me.headers, "POST", "/events", { ...base, startsAt: at(70).toISOString(), endsAt: at(70, 10).toISOString() });
     expect([far.statusCode, far.json().code]).toEqual([400, "outside_window"]);
@@ -185,10 +201,40 @@ describe("POST /events — nuova riunione", () => {
     expect(calls).toEqual([]);
   });
 
+  it("Riprova dopo un sì di Google e un DB che fallisce: UNA riunione sola su Google, e la riga c'è", async () => {
+    const { me, accountId } = await scenario();
+    const body = { accountId, eventId: newId(), title: "Revisione", startsAt: at(3).toISOString(), endsAt: at(3, 10).toISOString(), guests: [{ email: "esterno@altro.it" }] };
+    poisonNext = true;
+    const first = await inject(me.headers, "POST", "/events", body);
+    expect(first.statusCode).toBe(500);
+    const retry = await inject(me.headers, "POST", "/events", body);
+    expect(retry.statusCode).toBe(200);
+    expect(onGoogle.size).toBe(1);
+    expect(calls.map((c) => c.fn)).toEqual(["insert", "insert", "get"]);
+    const rows = await db.select().from(calendarEvents).where(eq(calendarEvents.accountId, accountId));
+    expect(rows.map((r) => r.googleEventId)).toEqual([body.eventId]);
+  });
+
+  it("un id già usato da un evento che NON organizzo: rifiutato, nessuna riga", async () => {
+    const { me, accountId } = await scenario();
+    const eventId = newId();
+    onGoogle.set(eventId, gEvent({ id: eventId, organizerSelf: false, organizer: "altro@x.it" }));
+    const res = await inject(me.headers, "POST", "/events", { accountId, eventId, title: "R", startsAt: at(3).toISOString(), endsAt: at(3, 10).toISOString() });
+    expect([res.statusCode, res.json().code]).toEqual([422, "google_rejected"]);
+    expect(await db.select().from(calendarEvents).where(eq(calendarEvents.accountId, accountId))).toEqual([]);
+  });
+
+  it("un eventId che non è base32hex: 400 prima di tutto", async () => {
+    const { me, accountId } = await scenario();
+    const res = await inject(me.headers, "POST", "/events", { accountId, eventId: "Non-Valido!", title: "R", startsAt: at(3).toISOString(), endsAt: at(3, 10).toISOString() });
+    expect(res.statusCode).toBe(400);
+    expect(calls).toEqual([]);
+  });
+
   it("nessuna notifica nuova", async () => {
     const { me, accountId } = await scenario();
     const before = (await db.select().from(notifications)).length;
-    await inject(me.headers, "POST", "/events", { accountId, title: "R", startsAt: at(3).toISOString(), endsAt: at(3, 10).toISOString() });
+    await inject(me.headers, "POST", "/events", { accountId, eventId: newId(), title: "R", startsAt: at(3).toISOString(), endsAt: at(3, 10).toISOString() });
     expect((await db.select().from(notifications)).length).toBe(before);
   });
 });
