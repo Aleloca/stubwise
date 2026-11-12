@@ -83,6 +83,7 @@ const proposal = {
   canConfirm: true,
   canHand: false,
   canReassign: false,
+  editable: true,
   origin: { threadId: "t-1", accountId: ACC, from: "Bob Rossi <bob@client.test>", subject: "Preventivo Rossi" },
 };
 
@@ -273,5 +274,13 @@ describe("la Posta nella build app", () => {
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     fireEvent.click(screen.getByRole("button", { name: /^Confirm/ }));
     expect(await screen.findByText("This proposal can't be edited. Confirm it as it is.")).toBeInTheDocument();
+  });
+
+  it("una proposta che il server dice non modificabile (`editable: false`): niente «Edit»", async () => {
+    proposals = [{ ...proposal, editable: false }];
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText(/Create request in AUD: “Preventivo Rossi”/);
+    expect(screen.queryByRole("button", { name: /^Edit line/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Confirm/ })).toBeInTheDocument();
   });
 });

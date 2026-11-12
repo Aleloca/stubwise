@@ -306,7 +306,7 @@ export function MailProposalCard({
       const row = target.closest<HTMLElement>("[data-action-row]");
       if (!row) return;
       const index = Number(row.dataset.actionRow);
-      if (mailProposalEdits() && EDITABLE.has(p.actions[index]!.fn)) {
+      if (mailProposalEdits() && view.editable !== false && EDITABLE.has(p.actions[index]!.fn)) {
         e.preventDefault();
         setEditing({ index });
       }
@@ -489,7 +489,7 @@ export function MailProposalCard({
                       <Phrase action={action} args={args} who={who} ctx={ctx} isOutside={(who) => isOutside(i, who)} edited={!!edits[i]} />
                     </span>
                   )}
-                  {decidable && mailProposalEdits() && EDITABLE.has(action.fn) && !rowEditing && (
+                  {decidable && mailProposalEdits() && view.editable !== false && EDITABLE.has(action.fn) && !rowEditing && (
                     <button
                       type="button"
                       className={`${quietButton} h-7`}

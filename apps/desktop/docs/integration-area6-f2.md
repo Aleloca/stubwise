@@ -33,9 +33,9 @@ Accese nella build app, oltre alla F1 (`docs/integration-area6-f1.md`):
 
 - **Le proposte di prima** (classificazione vecchia, una per casella) si
   leggono e si decidono dalla stessa rotta, conferma parziale compresa, ma
-  i campi non si modificano: la scheda lo dice («This proposal can't be
-  edited. Confirm it as it is.»). Con `editable` dal server, «Edit» si
-  nasconderà lì.
+  i campi non si modificano: il server lo dice (`editable` falso) e «Edit»
+  non c'è; un `invalid_edits` lo dice la scheda («This proposal can't be
+  edited. Confirm it as it is.»).
 - **Lo smistamento di prima** (`email_triage`) resta sull'inbox e nella Posta
   non compare.
 - **Una decisione da registrare** non porta il titolo: la scheda dice la

@@ -2575,6 +2575,11 @@ export interface MailProposalView {
    * letta per il solo estratto. La calcola `listMailDecisions`.
    */
   origin?: MailProposalOrigin | null;
+  /**
+   * Build app: i campi si possono cambiare prima di confermare. Lo dice il
+   * server (falso sulle proposte di prima); assente nel prototipo = sì.
+   */
+  editable?: boolean;
 }
 
 /** L'origine di una proposta della posta, come la vede chi guarda. */

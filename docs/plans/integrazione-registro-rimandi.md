@@ -278,9 +278,9 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   worker non la produce più).
 - Le proposte di PRIMA (classificazione vecchia, per casella) *(F2)*: si
   leggono e si decidono dalla stessa rotta, conferma parziale compresa, ma
-  i campi non si modificano (`invalid_edits`): la scheda lo dice in parole
-  chiare. Quando il server dà `editable` (chiesto a stubwise-72) «Edit» si
-  nasconde lì. Lo smistamento di prima (`email_triage`, «Quale progetto?»
+  i campi non si modificano: il server lo dice (`editable` falso) e «Edit»
+  non c'è; se un server di prima risponde `invalid_edits`, la scheda lo dice
+  in parole chiare. Lo smistamento di prima (`email_triage`, «Quale progetto?»
   della classificazione vecchia) resta sull'inbox e nella Posta non compare.
 - I progetti di una conversazione abbinati per NOME *(S, review della F1)*:
   le righe di `/threads` danno solo `projectNames`, e due progetti con lo

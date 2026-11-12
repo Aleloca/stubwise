@@ -134,4 +134,9 @@ describe("una proposta della F2 nella Posta", () => {
     );
     expect(v.proposal.actions).toEqual([{ fn: "chooseProject", args: { projectIds: [PROJECT_ID, other] }, summary: "Quale progetto?" }]);
   });
+
+  it("se i campi si possono modificare lo dice il server (`editable`); di default no", () => {
+    expect(proposalViewOf(proposal({ editable: true })).editable).toBe(true);
+    expect(proposalViewOf(proposal()).editable).toBe(false);
+  });
 });

@@ -60,6 +60,7 @@ export function proposalViewOf(p: ServerProposal): MailProposalView {
     outsiders: p.outsiders.map(person),
     decidedBy: p.decidedBy ? person(p.decidedBy) : null,
     sharedWith: p.sharedWith.map(person),
+    editable: p.editable,
     origin: p.origin
       ? { kind: "email", threadId: threadKey(p.origin.accountId, p.origin.threadId), from: p.origin.from, subject: p.origin.subject ?? "" }
       : null,
