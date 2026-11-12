@@ -32,13 +32,9 @@ export { spanOf };
 /** Oltre questa distanza dall'ultimo allineamento un calendario è «vecchio». */
 export const CALENDAR_STALE_MS = 5 * 60_000;
 
-/** «Trova un orario» cerca fra queste ore (locali) della giornata. */
-export const FREE_SLOT_HOURS = { from: 8, to: 20 } as const;
-
-const STEP_MS = 15 * 60_000;
-
-/** Un istante nel formato del seme (`…T09:15:00Z`, senza millisecondi). */
-export const isoAt = (ms: number): string => new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
+import { firstFreeSlot } from "../../domain/calendar/freeSlot";
+// «Trova un orario»: la regola sta in `domain/calendar/freeSlot.ts` (una sola per le due build).
+export { FREE_SLOT_HOURS, isoAt } from "../../domain/calendar/freeSlot";
 const notFound = () => new Error("not_found");
 const invalid = (what: string) => new Error(`invalid: ${what}`);
 
@@ -209,22 +205,10 @@ export async function findFirstFreeSlot(
   const start = new Date(from);
   if (Number.isNaN(start.getTime())) throw invalid("range");
   const dayStart = startOfLocalDay(start);
-  const open = new Date(dayStart);
-  open.setHours(FREE_SLOT_HOURS.from);
-  const close = new Date(dayStart);
-  close.setHours(FREE_SLOT_HOURS.to);
   const busy = personIds.flatMap(
     (id) => freeBusyOf(id, dayStart.getTime(), addDays(dayStart, 1).getTime()).busy,
   );
-  const duration = durationMin * 60_000;
-  let at = Math.ceil(Math.max(start.getTime(), open.getTime()) / STEP_MS) * STEP_MS;
-  for (; at + duration <= close.getTime(); at += STEP_MS) {
-    const end = at + duration;
-    if (busy.every((b) => Date.parse(b.endsAt) <= at || Date.parse(b.startsAt) >= end)) {
-      return { startsAt: isoAt(at), endsAt: isoAt(end) };
-    }
-  }
-  return null;
+  return firstFreeSlot(busy, durationMin, start);
 }
 
 /**
