@@ -10,7 +10,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { permissionForMailAction, projectPermissionsOfUser } from "@stubwise/notifications";
+import { permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
 import type { Language, MailProposal, MailProposalAction, MailProposalStatus, ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { coversAll } from "./mail-proposals-decide.js";
@@ -173,20 +173,8 @@ async function buildView(
   const decidable = open || status === "handed";
   const canConfirm = decidable && !choose && actions.length > 0 && blockedIndices.length === 0;
 
-  // Gli incaricati proposti che NON sono membri del progetto.
-  const assignees = rawActions
-    .map((a) => (a.type === "update_ticket" ? (a.args?.patch as Record<string, unknown> | undefined)?.assigneeId : a.args?.assigneeId))
-    .filter((id): id is string => typeof id === "string");
-  let outsiders: { userId: string; name: string }[] = [];
-  if (assignees.length > 0) {
-    const members = await db
-      .select({ userId: projectMembers.userId })
-      .from(projectMembers)
-      .where(and(eq(projectMembers.projectId, proposal.projectId), inArray(projectMembers.userId, assignees)));
-    const memberSet = new Set(members.map((m) => m.userId));
-    const outside = [...new Set(assignees.filter((id) => !memberSet.has(id)))];
-    outsiders = outside.length > 0 ? await peopleByIds(db, outside) : [];
-  }
+  const outside = await outsiderIdsOf(db, proposal.projectId, rawActions);
+  const outsiders: { userId: string; name: string }[] = outside.length > 0 ? await peopleByIds(db, outside) : [];
 
   const recipients = await db
     .select({ userId: emailProposalRecipients.userId })
@@ -257,3 +245,28 @@ async function peopleByIds(db: Db, ids: readonly string[]): Promise<{ userId: st
   const rows = await db.select({ userId: users.id, name: personName }).from(users).where(inArray(users.id, [...ids]));
   return rows.sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * Gli incaricati proposti che NON vedono il progetto: membri espliciti E full
+ * admin impliciti (`projectViewerIds`), la stessa regola che la decisione
+ * accetta — un full admin incaricato non è un esterno (review renderer F2).
+ * È anche l'unico elenco che «aggiungi come Contributor» può toccare.
+ */
+export async function outsiderIdsOf(db: Db, projectId: string, actions: readonly { type: string; args?: Record<string, unknown> }[]): Promise<string[]> {
+  const assignees = assigneeIdsOf(actions);
+  if (assignees.length === 0) return [];
+  const viewers = new Set(await projectViewerIds(db, projectId));
+  return [...new Set(assignees.filter((id) => !viewers.has(id)))];
+}
+
+/** Gli incaricati proposti dalle azioni (create_task, la patch di update_ticket). */
+export function assigneeIdsOf(actions: readonly { type: string; args?: Record<string, unknown> }[]): string[] {
+  return [
+    ...new Set(
+      actions
+        .map((a) => (a.type === "update_ticket" ? (a.args?.patch as Record<string, unknown> | undefined)?.assigneeId : a.args?.assigneeId))
+        .filter((id): id is string => typeof id === "string"),
+    ),
+  ];
+}
+

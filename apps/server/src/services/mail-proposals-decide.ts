@@ -24,6 +24,7 @@ import { enqueueBacklogIntake } from "./backlog-intake.js";
 import { addSystemComment } from "./comments.js";
 import { createMilestone } from "./milestones.js";
 import { patchTicket } from "./tickets.js";
+import { assigneeIdsOf } from "./mail-proposals.js";
 
 /**
  * DECIDERE UNA PROPOSTA CONDIVISA DELLA POSTA (area 6, fetta 2, D4).
@@ -512,10 +513,13 @@ export async function confirmMailProposalWithMembers(
   if (!loaded) return { ok: false, error: "not_found" };
   const { proposal, permissions } = loaded;
   if (!permissions.has("project.members.manage")) return { ok: false, error: "forbidden" };
+  // Solo gli incaricati della proposta: non un id qualunque (review F2, punto
+  // 6). Chi fra loro vede già il progetto si salta più sotto, come prima.
+  const assignees = new Set(assigneeIdsOf((proposal.classification as { actions?: { type: string; args?: Record<string, unknown> }[] }).actions ?? []));
+  if (input.addOutsiders.some((userId) => !assignees.has(userId))) return { ok: false, error: "invalid_selection" };
   const contributor = await presetRoleIdOf(db, "contributor");
-  const already = new Set(
-    (await db.select({ userId: projectMembers.userId }).from(projectMembers).where(eq(projectMembers.projectId, proposal.projectId))).map((r) => r.userId),
-  );
+  // Chi vede già il progetto (membri E full admin impliciti) non si aggiunge.
+  const already = new Set(await projectViewerIds(db, proposal.projectId));
   // Le righe CREATE da questa chiamata, con la loro creazione: la rimozione
   // tocca solo quelle, e solo se sono ancora le stesse (stesso ruolo, stessa
   // creazione). Chi era già membro non si aggiunge e non si toglie mai.
@@ -563,10 +567,17 @@ export async function confirmMailProposalWithMembers(
     if (err instanceof RoleRuleError) return { ok: false, error: "rule", rule: err };
     throw err;
   }
-  await afterMembersAdded?.();
-  const result = await confirmMailProposal(db, viewer, id, input, lang);
-  if (!result.ok || result.status !== "confirmed") await undo();
-  return result;
+  // In un finally: anche se la conferma LANCIA, i Contributor aggiunti qui
+  // non restano (review F2, punto 6).
+  let confirmed = false;
+  try {
+    await afterMembersAdded?.();
+    const result = await confirmMailProposal(db, viewer, id, input, lang);
+    confirmed = result.ok && result.status === "confirmed";
+    return result;
+  } finally {
+    if (!confirmed) await undo();
+  }
 }
 
 async function presetRoleIdOf(db: Db, key: string): Promise<string> {

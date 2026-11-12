@@ -620,3 +620,60 @@ describe("Contributor: la guardia «cambiato nel frattempo» (review della secon
     expect(rows[0]!.roleId).toBe(developer!.id);
   });
 });
+
+describe("review F2, punto 6 e review del renderer F2: outsiders e Contributor", () => {
+  const post = (headers: { cookie: string }, url: string, payload: unknown = {}) =>
+    app.inject({ method: "POST", url, headers, payload: payload as Record<string, unknown> });
+  async function taskFor(proposalId: string, assigneeId: string) {
+    const { eq } = await import("drizzle-orm");
+    await db
+      .update(emailProposals)
+      .set({ classification: { version: 2, summary: "s", actions: [{ type: "create_task", args: { title: "X", description: "", assigneeId, dueDate: null } }] } })
+      .where(eq(emailProposals.id, proposalId));
+  }
+
+  it("un full admin incaricato NON è un esterno (membro implicito): niente outsiders, si conferma senza aggiungere nessuno", async () => {
+    const { ada, proposal } = await seed();
+    await taskFor(proposal.id, adminId);
+    const view = (await get(ada.headers, `/api/me/mail/proposals/${proposal.id}`)).json() as { outsiders: unknown[] };
+    expect(view.outsiders).toEqual([]);
+    // E un client che lo manda lo stesso in addOutsiders non lo fa Contributor.
+    const lead = await person("project_lead", "Lea");
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal.id, userId: lead.id });
+    const res = await post(lead.headers, `/api/me/mail/proposals/${proposal.id}/confirm-with-members`, { addOutsiders: [adminId] });
+    expect(res.json()).toMatchObject({ status: "confirmed" });
+    const { and, eq } = await import("drizzle-orm");
+    const { projectMembers } = await import("@stubwise/db");
+    expect(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, adminId)))).toEqual([]);
+  });
+
+  it("addOutsiders accetta SOLO gli esterni veri della proposta: un altro id è invalid_selection, e nessuno entra", async () => {
+    const { outsider, proposal } = await seed();
+    await taskFor(proposal.id, outsider.id);
+    const lead = await person("project_lead", "Lea");
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal.id, userId: lead.id });
+    const stranger = await person(null, "Zeno");
+    const res = await post(lead.headers, `/api/me/mail/proposals/${proposal.id}/confirm-with-members`, { addOutsiders: [outsider.id, stranger.id] });
+    expect(res.json()).toMatchObject({ code: "invalid_selection" });
+    const { and, eq } = await import("drizzle-orm");
+    const { projectMembers } = await import("@stubwise/db");
+    expect(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, stranger.id)))).toEqual([]);
+    expect(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, outsider.id)))).toEqual([]);
+  });
+
+  it("se la conferma LANCIA, i Contributor appena aggiunti si tolgono (finally)", async () => {
+    const { outsider, proposal } = await seed();
+    await taskFor(proposal.id, outsider.id);
+    const lead = await person("project_lead", "Lea");
+    await db.insert(emailProposalRecipients).values({ proposalId: proposal.id, userId: lead.id });
+    const { and, eq } = await import("drizzle-orm");
+    const { projectMembers } = await import("@stubwise/db");
+    const { confirmMailProposalWithMembers } = await import("../services/mail-proposals-decide.js");
+    await expect(
+      confirmMailProposalWithMembers(db, { id: lead.id, instancePermissions: new Set() }, proposal.id, { addOutsiders: [outsider.id] }, "it", () => {}, async () => {
+        throw new Error("boom");
+      }),
+    ).rejects.toThrow("boom");
+    expect(await db.select().from(projectMembers).where(and(eq(projectMembers.projectId, projectId), eq(projectMembers.userId, outsider.id)))).toEqual([]);
+  });
+});
