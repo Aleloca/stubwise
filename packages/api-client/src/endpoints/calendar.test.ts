@@ -204,4 +204,12 @@ describe("endpoints calendar — le serie", () => {
     expect(url).toBe(`/api/me/calendar/series/${SERIES}?account=${ID}`);
     expect(init!.method).toBe("DELETE");
   });
+
+  it("event(id) (area 6, F1.4): la riga di range per id; un 404 è un ApiError not_found", async () => {
+    const ok = clientReturning(200, EVENT);
+    expect(await ok.c.calendar.event(ID)).toMatchObject({ id: ID, title: "Riunione settimanale" });
+    expect(ok.fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/calendar/events/${ID}`);
+    const missing = clientReturning(404, { code: "not_found", message: "x" });
+    await expect(missing.c.calendar.event(ID)).rejects.toMatchObject({ status: 404, code: "not_found" });
+  });
 });

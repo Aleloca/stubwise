@@ -540,3 +540,45 @@ describe("DELETE /api/me/calendar/series/:recurringEventId", () => {
     expect(rows).toHaveLength(1);
   });
 });
+
+describe("GET /api/me/calendar/events/:id (area 6, F1.4)", () => {
+  function getEvent(cookie: string, id: string) {
+    return app.inject({ method: "GET", url: `/api/me/calendar/events/${id}`, headers: { cookie } });
+  }
+
+  it("il proprio evento: la STESSA forma della riga di /range", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const id = await seedCalendarEvent(accountId, {
+      title: "Con dettagli",
+      startsAt: new Date("2026-09-15T09:00:00.000Z"),
+      endsAt: new Date("2026-09-15T10:00:00.000Z"),
+      attendees: [{ email: "cliente@acme.test", responseStatus: "accepted" }],
+      description: "<p>Ciao</p><script>x()</script>",
+    });
+    const res = await getEvent(memberCookie, id);
+    expect(res.statusCode).toBe(200);
+    const range = await app.inject({
+      method: "GET",
+      url: `/api/me/calendar/range?from=${encodeURIComponent("2026-09-01T00:00:00.000Z")}&to=${encodeURIComponent("2026-09-30T00:00:00.000Z")}`,
+      headers: { cookie: memberCookie },
+    });
+    expect(res.json()).toEqual(range.json().items[0]);
+    expect(JSON.stringify(res.json())).not.toContain("<script>");
+  });
+
+  it("l'evento di un altro (anche per un admin) e uno che non esiste: lo STESSO 404", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const id = await seedCalendarEvent(accountId);
+    const foreign = await getEvent(adminCookie, id);
+    const missing = await getEvent(adminCookie, randomUUID());
+    expect(foreign.statusCode).toBe(404);
+    expect(missing.statusCode).toBe(404);
+    expect(foreign.json()).toEqual(missing.json());
+    expect((foreign.json() as { code: string }).code).toBe("not_found");
+  });
+
+  it("un id non uuid: 400; senza sessione: 401", async () => {
+    expect((await getEvent(memberCookie, "boh")).statusCode).toBe(400);
+    expect((await getEvent("", randomUUID())).statusCode).toBe(401);
+  });
+});

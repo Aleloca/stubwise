@@ -8,6 +8,7 @@ import {
 } from "@stubwise/db";
 import { htmlToText, sanitizeEmailHtml } from "@stubwise/google";
 import {
+  calendarEventItemSchema,
   calendarEventPageSchema,
   calendarSeriesListSchema,
   calendarSeriesPatchSchema,
@@ -19,7 +20,7 @@ import {
   type CalendarReminder,
   type MailItemStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -175,6 +176,27 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
         ...(account ? { account } : {}),
       });
       return { items, nextCursor: null };
+    },
+  );
+
+  /**
+   * Un evento per id (area 6, F1.4): la stessa riga di `/range`, dalla stessa
+   * select. Un evento di un altro — anche per un admin — e uno che non esiste
+   * rispondono lo STESSO 404: non si conferma che l'id esiste.
+   */
+  app.get(
+    "/events/:id",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        response: { 200: calendarEventItemSchema, 404: errorSchema, ...authErrorResponses },
+      },
+    },
+    async (request, reply) => {
+      const [item] = await queryCalendarEventRows(app.db, request.user!.id, [eq(calendarEvents.id, request.params.id)]);
+      if (!item) return apiError(reply, 404, "not_found", "Calendar event not found");
+      return item;
     },
   );
 
@@ -540,11 +562,20 @@ interface RangeCalendarInput {
  */
 async function queryCalendarEventsInRange(db: Db, input: RangeCalendarInput): Promise<CalendarEventItem[]> {
   const conditions = [
-    eq(googleAccounts.userId, input.userId),
     sql`${calendarEvents.startsAt} < ${input.to.toISOString()}::timestamptz`,
     sql`coalesce(${calendarEvents.endsAt}, ${calendarEvents.startsAt}) >= ${input.from.toISOString()}::timestamptz`,
   ];
   if (input.account) conditions.push(eq(calendarEvents.accountId, input.account));
+  return queryCalendarEventRows(db, input.userId, conditions);
+}
+
+/**
+ * Le righe di `/range` e di `/events/:id` (area 6, F1.4): UNA select, quindi
+ * la stessa forma e lo stesso filtro di proprietà — `google_accounts.user_id`
+ * di chi guarda nella WHERE, sempre, prima delle condizioni del chiamante.
+ */
+async function queryCalendarEventRows(db: Db, userId: string, extra: SQL[]): Promise<CalendarEventItem[]> {
+  const conditions = [eq(googleAccounts.userId, userId), ...extra];
 
   const rows = await db
     .select({
