@@ -307,7 +307,16 @@ export function forgetPageStatuses(): void {
   taskCodesByPerson.clear();
 }
 
-const isPageProposal = (p: ProposalView) => p.actions.length > 0 && p.actions.every((a) => a.fn === "pageAction");
+/**
+ * Una proposta di sole azioni della pagina che il renderer può eseguire: solo
+ * `confirmed`. Senza letture non fidate il server la scrive già chiusa (A);
+ * dopo un contenuto non fidato nasce scheda B aperta (fetta 3 dell'area 5,
+ * decisione O) e diventa eseguibile solo quando la persona la conferma.
+ * Aperta, annullata, scaduta o fallita resta una scheda: MAI un'azione da
+ * eseguire.
+ */
+const isRunnablePageProposal = (p: ProposalView) =>
+  p.status === "confirmed" && p.actions.length > 0 && p.actions.every((a) => a.fn === "pageAction");
 
 /** Un'azione della pagina per ogni azione della proposta, col suo esito locale. */
 function pageEvents(p: ProposalView, at: string): ConversationEvent[] {
@@ -346,8 +355,8 @@ export function chatActionEvents(
       const p = actions.proposals.find((x) => x.id === data.proposalId);
       if (!p || seen.has(p.id)) continue;
       seen.add(p.id);
-      // Le azioni della pagina (D3) non sono una scheda: le esegue il renderer.
-      out.push(...(isPageProposal(p) ? pageEvents(p, e.at) : [proposalEvent(p, e.at, actions)]));
+      // Le azioni della pagina (D3) confermate non sono una scheda: le esegue il renderer.
+      out.push(...(isRunnablePageProposal(p) ? pageEvents(p, e.at) : [proposalEvent(p, e.at, actions)]));
     } else if (e.type === "actions_executed") {
       if (typeof data.undoOf === "string") continue;
       if (typeof data.proposalId === "string" && carded.has(data.proposalId)) continue;
@@ -426,7 +435,10 @@ function markStale(conversationId: string): void {
 
 export const confirmProposal: Fake["confirmProposal"] = async (conversationId, proposalId, options = {}) => {
   const result = await confirmOnServer(proposalId, options);
-  if ("status" in result && result.status === "failed") markStale(conversationId);
+  // Si rilegge anche su una conferma riuscita: un'azione della pagina confermata
+  // (dopo un contenuto non fidato) non scrive eventi sul server, e senza
+  // rileggere la scheda resterebbe aperta e l'azione non partirebbe mai.
+  if ("status" in result) markStale(conversationId);
   return result;
 };
 

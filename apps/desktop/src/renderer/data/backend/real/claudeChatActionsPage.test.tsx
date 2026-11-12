@@ -341,11 +341,53 @@ describe("le azioni di Claude nella pagina della conversazione", () => {
   const pageProposal = () =>
     cardB({
       actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
+      // Come il server: senza letture non fidate nasce chiusa (A, la esegue il renderer).
       cls: "A",
+      status: "confirmed",
       reasons: [],
       canConfirm: false,
       canCancel: false,
     });
+
+  it("dopo un contenuto non fidato l'azione della pagina è una scheda: la pagina non cambia finché non si conferma, poi una volta sola", async () => {
+    let status = "open";
+    const view = () =>
+      cardB({
+        actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
+        reasons: [],
+        status,
+        canConfirm: status === "open",
+        canCancel: status === "open",
+      });
+    const confirms: unknown[] = [];
+    install({
+      routes: {
+        [`GET /api/claude/conversations/${CONV}/proposals`]: () => ({ body: [view()] }),
+        // Il server la chiude e basta: nessun gruppo, nessun evento; l'azione la fa il renderer.
+        [`POST /api/claude/proposals/${PROPOSAL}/confirm`]: (body: unknown) => {
+          confirms.push(body);
+          status = "confirmed";
+          return { body: view() };
+        },
+      },
+    });
+    const writes = vi.spyOn(Storage.prototype, "setItem");
+    const themeWrites = () => writes.mock.calls.filter(([key]) => key === "stubwise.theme").length;
+    const ue = userEvent.setup();
+    renderRoute(`/claude/${CONV}`);
+    const proposal = await card();
+    // Aperta: la pagina non cambia da sola.
+    await new Promise((r) => setTimeout(r, 100));
+    expect(document.documentElement.dataset.theme).not.toBe("dark");
+    expect(themeWrites()).toBe(0);
+    await ue.click(within(proposal).getByRole("button", { name: /^Confirm/ }));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+    expect(confirms).toHaveLength(1);
+    // Altri render e riletture: non si riapplica.
+    await new Promise((r) => setTimeout(r, 300));
+    expect(themeWrites()).toBe(1);
+    writes.mockRestore();
+  });
 
   it("un'azione della pagina letta dalla storia (D3) NON riparte: la riga dice «non applicata» col gesto per rifarla", async () => {
     install({ proposals: [pageProposal()] });

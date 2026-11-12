@@ -352,8 +352,9 @@ describe("lo stream di una sessione", () => {
         sessionId: SESSION,
         actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
         summary: "",
+        // Come il server: un'azione della pagina senza letture non fidate nasce chiusa (A, la esegue il renderer).
         cls: "A",
-        status: "open",
+        status: "confirmed",
         canConfirm: false,
         canCancel: false,
         createdAt: "2026-11-10T09:00:02.000Z",
@@ -367,6 +368,69 @@ describe("lo stream di una sessione", () => {
     await vi.waitFor(() => expect(c.events[0]).toMatchObject({ type: "pageAction", status: "pending" }));
     await settlePageEvent(SESSION, `page:${PROPOSAL}:0`, "done");
     await vi.waitFor(() => expect(c.events[0]).toMatchObject({ type: "pageAction", status: "done" }));
+    stop();
+  });
+
+  it("dopo un contenuto non fidato un'azione della pagina è una scheda: si esegue solo dopo la conferma, e una volta", async () => {
+    forgetPageStatuses();
+    const PROPOSAL = "dddddddd-0000-4000-8000-0000000000b4";
+    const view = (status: string) => ({
+      id: PROPOSAL,
+      sessionId: SESSION,
+      actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
+      summary: "",
+      cls: "B",
+      status,
+      canConfirm: status === "open",
+      canCancel: status === "open",
+      createdAt: "2026-11-10T09:00:02.000Z",
+    });
+    chatProposals = [view("open")];
+    // Il server la chiude e basta (`confirmed`, nessun gruppo): l'azione la fa il renderer.
+    confirmAnswer = () => {
+      chatProposals = [view("confirmed")];
+      return new Response(JSON.stringify(view("confirmed")), { status: 200 });
+    };
+    const c = collect();
+    const stop = subscribe(SESSION, c.onEvent, {});
+    await vi.waitFor(() => expect(streams).toHaveLength(1));
+    streams[0]!.push(frame({ type: "session", detail: detail({ kind: "free", ticketId: null, ticketNumber: null, aiJobId: null }) }));
+    streams[0]!.push(frame({ type: "events", events: [ev("2", "proposal", { proposalId: PROPOSAL })] }));
+    // Aperta: una scheda da confermare, nessuna azione della pagina da eseguire.
+    await vi.waitFor(() => expect(c.events[0]).toMatchObject({ type: "proposal", status: "open" }));
+    expect(c.events.filter((e) => e.type === "pageAction")).toEqual([]);
+    expect(await confirmProposal(SESSION, PROPOSAL)).toMatchObject({ status: "confirmed" });
+    // Confermata: UNA azione della pagina, `pending`, per il runner.
+    await vi.waitFor(() => expect(c.events.filter((e) => e.type === "pageAction")).toHaveLength(1));
+    expect(c.events.find((e) => e.type === "pageAction")).toMatchObject({ status: "pending" });
+    stop();
+  });
+
+  it("un'azione della pagina annullata, scaduta o fallita prima della conferma non diventa mai da eseguire", async () => {
+    forgetPageStatuses();
+    const statuses = ["cancelled", "expired", "failed"] as const;
+    const idOf = (i: number) => `dddddddd-0000-4000-8000-0000000000c${i}`;
+    chatProposals = statuses.map((status, i) => ({
+      id: idOf(i),
+      sessionId: SESSION,
+      actions: [{ fn: "pageAction", args: { kind: "theme", to: "dark" } }],
+      summary: "",
+      cls: "B",
+      status,
+      canConfirm: false,
+      canCancel: false,
+      createdAt: `2026-11-10T09:00:0${i + 2}.000Z`,
+    }));
+    const c = collect();
+    const stop = subscribe(SESSION, c.onEvent, {});
+    await vi.waitFor(() => expect(streams).toHaveLength(1));
+    streams[0]!.push(frame({ type: "session", detail: detail({ kind: "free", ticketId: null, ticketNumber: null, aiJobId: null }) }));
+    streams[0]!.push(
+      frame({ type: "events", events: statuses.map((_, i) => ev(String(i + 2), "proposal", { proposalId: idOf(i) })) }),
+    );
+    await vi.waitFor(() => expect(c.events.filter((e) => e.type === "proposal")).toHaveLength(3));
+    expect(c.events.filter((e) => e.type === "proposal").map((e) => (e as { status: string }).status)).toEqual([...statuses]);
+    expect(c.events.filter((e) => e.type === "pageAction")).toEqual([]);
     stop();
   });
 
