@@ -240,6 +240,8 @@ export async function saveDraft(
     subject: string;
     body: string;
     quote: boolean;
+    /** «Tieni la mia»: scrive sopra una bozza cambiata da Gmail (un gesto, mai il default). */
+    overwrite?: boolean;
   },
 ): Promise<MailDraft | DraftError> {
   const writable = await writableAccount(db, userId, input.accountId);
@@ -298,7 +300,7 @@ export async function saveDraft(
       } catch (err) {
         if (!(err instanceof GoogleApiError && err.status === 404)) throw err;
       }
-      if (current && existing.gmailMessageId && current.messageId !== existing.gmailMessageId) return { error: "draft_changed" };
+      if (!input.overwrite && current && existing.gmailMessageId && current.messageId !== existing.gmailMessageId) return { error: "draft_changed" };
       ref = current
         ? await client.updateDraft({ accessToken, id: existing.gmailDraftId, raw, threadId: input.threadId })
         : await client.createDraft({ accessToken, raw, threadId: input.threadId });
