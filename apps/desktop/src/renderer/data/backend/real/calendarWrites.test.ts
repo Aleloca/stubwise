@@ -253,14 +253,24 @@ describe("F4: libero/occupato e «Trova un orario» (D8 = b, dalle righe salvate
   it("il libero/occupato delle persone, solo intervalli", async () => {
     const { seen } = installFakeServer({
       "GET /api/me/calendar/freebusy": {
-        body: [
-          {
-            personId: MARTA,
-            availability: "connected",
-            busy: [{ startsAt: "2026-11-13T09:00:00.000Z", endsAt: "2026-11-13T10:00:00.000Z" }],
-          },
-          { personId: ME_ID, availability: "not_connected", busy: [] },
-        ],
+        // La forma vera (188b8340 di 72): `{ items }`, con un evento PRIVATO del collega
+        // che occupa e un campo in più che non deve passare.
+        body: {
+          items: [
+            {
+              personId: MARTA,
+              availability: "connected",
+              busy: [
+                {
+                  startsAt: "2026-11-13T09:00:00.000Z",
+                  endsAt: "2026-11-13T10:00:00.000Z",
+                  title: "Visita privata",
+                },
+              ],
+            },
+            { personId: ME_ID, availability: "not_connected", busy: [] },
+          ],
+        },
       },
     });
     const out = await w.freeBusy!(
@@ -288,10 +298,12 @@ describe("F4: libero/occupato e «Trova un orario» (D8 = b, dalle righe salvate
     });
     installFakeServer({
       "GET /api/me/calendar/freebusy": {
-        body: [
-          { personId: MARTA, availability: "connected", busy: [busy(8), busy(9)] },
-          { personId: ME_ID, availability: "connected", busy: [busy(10)] },
-        ],
+        body: {
+          items: [
+            { personId: MARTA, availability: "connected", busy: [busy(8), busy(9)] },
+            { personId: ME_ID, availability: "connected", busy: [busy(10)] },
+          ],
+        },
       },
     });
     const slot = await w.findFirstFreeSlot!([MARTA, ME_ID], 60, from.toISOString());
@@ -486,5 +498,19 @@ describe("F4: l'id della riunione nuova (d1bd1fc2 di 72): uno per bozza, lo stes
     expect((seen.find((r) => r.method === "POST")!.body as { eventId: string }).eventId).toMatch(
       /^[a-v0-9]{5,1024}$/,
     );
+  });
+});
+
+describe("F4: il libero/occupato col metodo (188b8340 di 72)", () => {
+  it("oltre 50 persone o 31 giorni (400 `range_too_wide`): «invalid: range»", async () => {
+    installFakeServer({
+      "GET /api/me/calendar/freebusy": {
+        status: 400,
+        body: { code: "range_too_wide", message: "x" },
+      },
+    });
+    await expect(
+      w.freeBusy!([MARTA], "2026-11-01T00:00:00.000Z", "2026-12-31T00:00:00.000Z"),
+    ).rejects.toThrow("invalid: range");
   });
 });

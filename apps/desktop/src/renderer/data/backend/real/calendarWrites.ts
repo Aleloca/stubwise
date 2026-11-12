@@ -15,13 +15,11 @@ import { myMailboxes } from "./mailDrafts";
 // `{ items }`). Ogni scrittura parte da un gesto della persona, risponde DOPO
 // il sì di Google (Q2 = a) e restituisce le righe toccate; un evento cambiato
 // su Google nel frattempo è `changed_on_google` (l'etag), e non vince
-// l'ultimo (Q4 = a: «Reload»). Il libero/occupato (task 5 di 72) usa ancora
-// `request` finché il suo metodo non c'è.
+// l'ultimo (Q4 = a: «Reload»). Il libero/occupato è `client.calendar.freeBusy`
+// (task 5 di 72): intervalli già uniti e tagliati, al più 50 persone e 31 giorni.
 
 type Calendar = typeof Fake.calendar;
 type Raw = CalendarEventItem & { etag?: string | null };
-
-const PATH = "/api/me/calendar";
 
 /** Per client: l'etag dell'ultima riga letta o scritta di ogni evento. */
 const etags = new WeakMap<object, Map<string, string | null>>();
@@ -64,6 +62,8 @@ function viewOfResult(raw: unknown, id?: string): CalendarEventView {
 const ERRORS: Readonly<Record<string, string>> = {
   outside_window: "invalid: window",
   invalid_range: "invalid: time",
+  // Il libero/occupato: al più 50 persone e 31 giorni.
+  range_too_wide: "invalid: range",
   all_day_series: "invalid: all_day_series",
   organizer: "invalid: organizer",
   not_invited: "invalid: not_invited",
@@ -241,18 +241,16 @@ const setEventProject: Calendar["setEventProject"] = async (id, projectId) =>
  * server): solo gli intervalli, dei colleghi col calendario collegato.
  */
 const freeBusy: Calendar["freeBusy"] = async (personIds, from, to) => {
-  const query = new URLSearchParams({ personIds: personIds.join(","), from, to });
   try {
-    const rows = (await appClient().request(
-      "GET",
-      `${PATH}/freebusy?${query.toString()}`,
-    )) as FreeBusy[];
+    const { items } = await appClient().calendar.freeBusy({ personIds: [...personIds], from, to });
     // Solo gli intervalli, qualunque cosa arrivi: nessun altro campo passa.
-    return rows.map((r) => ({
-      personId: r.personId,
-      availability: r.availability,
-      busy: (r.busy ?? []).map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt })),
-    }));
+    return items.map(
+      (r): FreeBusy => ({
+        personId: r.personId,
+        availability: r.availability as FreeBusy["availability"],
+        busy: r.busy.map((b) => ({ startsAt: b.startsAt, endsAt: b.endsAt })),
+      }),
+    );
   } catch (error) {
     throw writeError(error);
   }
