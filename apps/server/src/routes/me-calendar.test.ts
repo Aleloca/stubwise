@@ -601,7 +601,7 @@ describe("F3b, task 6: range leggero, i campi nuovi, le cancellate fuori", () =>
     });
     await seedCalendarEvent(accountId, { title: "Ferie", startsAt: new Date("2026-09-16T00:00:00.000Z"), allDay: true, proposalCandidate: false, eventType: "outOfOffice", transparency: "transparent" });
     const items = (await range(memberCookie)).json().items as Record<string, unknown>[];
-    expect(items.find((i) => i.title === "Revisione")).toMatchObject({ recognized: true, projectBy: "rules", myResponse: "tentative", descriptionHtml: null, attendees: [] });
+    expect(items.find((i) => i.title === "Revisione")).toMatchObject({ recognized: true, projectBy: "rules", myResponse: "tentative", descriptionHtml: null, attendees: [], attendeeCount: 2 });
     expect(items.find((i) => i.title === "Ferie")).toMatchObject({ recognized: false, projectBy: null, eventType: "outOfOffice", transparency: "transparent", reproposable: false });
     const detail = (await app.inject({ method: "GET", url: `/api/me/calendar/events/${work}`, headers: { cookie: memberCookie } })).json() as Record<string, unknown>;
     expect(detail).toMatchObject({ myResponse: "tentative", recognized: true });

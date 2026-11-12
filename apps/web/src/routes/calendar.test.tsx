@@ -114,6 +114,7 @@ function event(overrides: Partial<CalendarEventItem> & Pick<CalendarEventItem, "
     eventType: null,
     transparency: null,
     myResponse: null,
+    attendeeCount: null,
     ...overrides,
   };
 }

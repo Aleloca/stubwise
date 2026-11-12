@@ -530,6 +530,7 @@ function toCalendarItem(row: CalendarItemRow, options: { light?: boolean } = {})
     eventType: row.eventType,
     transparency: row.transparency === "transparent" || row.transparency === "opaque" ? row.transparency : null,
     myResponse: mine?.responseStatus ?? null,
+    attendeeCount: row.attendees.length,
   };
 }
 
