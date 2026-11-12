@@ -146,6 +146,15 @@ async function toView(db: Db, row: DraftRow): Promise<MailDraft> {
   };
 }
 
+/**
+ * Il contenuto di una bozza come bozza NON salvata (`id` null, niente
+ * allegati): ciò che Annulla restituisce quando lo slot è già occupato.
+ */
+export async function unsavedViewOf(db: Db, row: DraftRow): Promise<{ draft: MailDraft; attachmentNames: string[] }> {
+  const view = await toView(db, row);
+  return { draft: { ...view, id: null, attachments: [], updatedAt: null }, attachmentNames: view.attachments.map((a) => a.name) };
+}
+
 /** Le MIE bozze attive. */
 export async function listDrafts(db: Db, userId: string): Promise<MailDraft[]> {
   const rows = await db

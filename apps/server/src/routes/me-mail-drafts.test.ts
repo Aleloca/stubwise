@@ -286,12 +286,31 @@ describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () =
     expect((late.json() as { code: string }).code).toBe("too_late");
   });
 
-  it("Annulla quando nel frattempo ho scritto un'altra bozza nella stessa conversazione: 409 draft_slot_taken *(O)*", async () => {
+  it("Annulla a 9 s con un'altra bozza nello stesso slot: l'invio si FERMA comunque, e il contenuto torna NON salvato (correzione di 46)", async () => {
     const { me, box, message, draftId } = await savedDraft();
     const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
     current = null;
-    await save(me.headers, { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, subject: "Re: Export", body: "Un'altra." });
-    expect((await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`)).json()).toMatchObject({ code: "draft_slot_taken" });
+    const other = (await save(me.headers, { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, subject: "Re: Export", body: "Un'altra." })).json() as { id: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq, sql } = await import("drizzle-orm");
+    // 9 s dopo Invia: manca un secondo.
+    await db.update(mailOutgoing).set({ sendAt: sql`now() + interval '1 second'` }).where(eq(mailOutgoing.id, sent.messageId));
+    calls.length = 0;
+    const undo = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`);
+    expect(undo.statusCode).toBe(200);
+    const out = undo.json() as { unsaved: boolean; draft: { id: string | null; body: string; to: { email: string }[]; subject: string; mode: string; threadId: string } };
+    expect(out.unsaved).toBe(true);
+    expect(out.draft).toMatchObject({ id: null, body: "Fatto.", subject: "Re: Export", mode: "reply", threadId: "t1" });
+    expect(out.draft.to.map((a) => a.email)).toEqual(["cliente@x.it"]);
+    // Nessuna email: l'invio è annullato, e il worker prende solo le righe `queued`.
+    const [row] = await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, sent.messageId));
+    expect(row!.state).toBe("cancelled");
+    // L'altra bozza resta nello slot, intatta; nessuna scrittura su Gmail.
+    const drafts = ((await app.inject({ method: "GET", url: "/api/me/mail/drafts", headers: me.headers })).json() as { items: { id: string; body: string }[] }).items;
+    expect(drafts).toEqual([expect.objectContaining({ id: other.id, body: "Un'altra." })]);
+    expect(calls).toEqual([]);
+    // La copia annullata non resta in Stubwise (su Gmail sì, fra le bozze).
+    expect(await db.select().from(mailDrafts).where(eq(mailDrafts.id, draftId))).toEqual([]);
   });
 
   it("Riprova ed Elimina valgono SOLO su un invio fallito; Elimina riporta la bozza", async () => {

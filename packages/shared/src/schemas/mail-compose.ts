@@ -96,6 +96,13 @@ export const mailDraftRestoreSchema = z.object({
   draft: mailDraftSchema.nullable().default(null),
   /** Gli allegati che non sono tornati (oltre i limiti dopo un'unione). */
   droppedAttachments: z.array(z.string()).default([]),
+  /**
+   * La bozza è tornata NON salvata (`draft.id` null): nello stesso slot c'era
+   * già un'altra bozza. L'invio è comunque FERMATO; il compositore la riapre
+   * e la persona la salva o la scarta. Gli allegati restano nella bozza su
+   * Gmail (`droppedAttachments` ne dà i nomi).
+   */
+  unsaved: z.boolean().default(false),
 });
 export type MailDraftRestore = z.infer<typeof mailDraftRestoreSchema>;
 
