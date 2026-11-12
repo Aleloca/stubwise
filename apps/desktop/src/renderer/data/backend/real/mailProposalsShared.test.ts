@@ -211,7 +211,7 @@ describe("passare, spostare, scegliere il progetto, aggiungere i Contributor", (
 
   it("le regole di Membri (escalation, sopra di me): rifiutata, niente cambia", async () => {
     installFakeServer({
-      [`POST /api/me/mail/proposals/${P1}/confirm-with-members`]: { status: 403, body: { code: "escalation", message: "x", missing: ["project.members.manage"] } },
+      [`POST /api/me/mail/proposals/${P1}/confirm-with-members`]: { status: 403, body: { code: "escalation", message: "x", permission: "project.members.manage" } },
     });
     expect(await mail.confirmMailProposal(P1, { addOutsiders: [OTHER] })).toEqual({ status: "refused", ok: false, error: "escalation", missing: ["project.members.manage"] });
   });

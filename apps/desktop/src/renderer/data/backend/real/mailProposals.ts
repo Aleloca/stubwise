@@ -102,8 +102,9 @@ const confirmMailProposal: Mail["confirmMailProposal"] = async (id, input = {}) 
     if (error instanceof ApiError && adding.length > 0) {
       if (error.code === "reauth_required") return { status: "refused", ok: false, error: "reauth_required" };
       if (error.code === "escalation") {
-        const missing = (error.details as { missing?: unknown } | undefined)?.missing;
-        return { status: "refused", ok: false, error: "escalation", missing: Array.isArray(missing) ? missing.map(String) : [] };
+        // Le regole di Membri dicono la chiave che manca a chi agisce (`permission`, una).
+        const permission = (error.details as { permission?: unknown } | undefined)?.permission;
+        return { status: "refused", ok: false, error: "escalation", missing: typeof permission === "string" ? [permission] : [] };
       }
       if (error.code === "target_above") return { status: "refused", ok: false, error: "forbidden" };
     }
