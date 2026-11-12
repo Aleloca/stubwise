@@ -416,11 +416,6 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `unread = null`, lette come «letto». Un recupero (rileggere le etichette
   dei thread recenti al resync) costa una chiamata per messaggio: non ora.
 
-- F3, «Riprova» di `fillMailBody` *(O, 12 nov 2026)*: quando Gmail non
-  salva il corpo confermato (`effectFailure: "mail_not_saved"`) la scheda di
-  Claude lo dice e offre «Copy the text»; rimettere il testo nella bozza con
-  un clic è rimandato.
-
 ## Area 7 — Automazioni
 
 - Blocco della Home delle automazioni.
