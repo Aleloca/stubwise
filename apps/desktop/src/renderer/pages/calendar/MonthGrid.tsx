@@ -11,6 +11,7 @@ import {
   PrepMark,
   answerOf,
   blockShape,
+  kindWordKey,
   useEventName,
   type ProjectRef,
 } from "./EventBlock";
@@ -165,6 +166,7 @@ function MonthRow({
   const answer = answerOf(e);
   const label = name(e, project, withMailbox);
   const failed = e.save?.state === "failed";
+  const kind = kindWordKey(e);
   const outlined = e.allDay || answer === "needsAction" || answer === "tentative" || failed;
   return (
     <button
@@ -198,11 +200,17 @@ function MonthRow({
       >
         {e.title}
       </span>
+      {/* Il tipo e il libero a PAROLA (F3b), non solo col contorno. */}
+      {kind && <span className="ml-auto shrink-0 text-ink-muted">{t(kind)}</span>}
       {failed ? (
-        <span className="ml-auto shrink-0 text-critical">{t("calendar.save.failed")}</span>
+        <span className={`${kind ? "" : "ml-auto"} shrink-0 text-critical`}>
+          {t("calendar.save.failed")}
+        </span>
       ) : (
         answer === "tentative" && (
-          <span className="ml-auto shrink-0 text-ink-muted">{t("calendar.answer.maybe")}</span>
+          <span className={`${kind ? "" : "ml-auto"} shrink-0 text-ink-muted`}>
+            {t("calendar.answer.maybe")}
+          </span>
         )
       )}
     </button>

@@ -17,6 +17,7 @@ import {
   MailboxRule,
   answerOf,
   answerWordKey,
+  kindWordKey,
   blockShape,
   useEventName,
   type ProjectRef,
@@ -272,6 +273,10 @@ function TimeGrid({
                   >
                     {ev.title}
                   </span>
+                  {/* Il tipo e il libero a PAROLA (F3b), non solo col contorno. */}
+                  {kindWordKey(ev) && (
+                    <span className="shrink-0 text-ink-muted">{t(kindWordKey(ev)!)}</span>
+                  )}
                   {word && <span className="shrink-0 text-ink-muted">{t(word)}</span>}
                   {ev.save?.state === "saving" && (
                     <span className="shrink-0 text-ink-muted">{t("calendar.save.saving")}</span>
