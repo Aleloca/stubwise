@@ -614,3 +614,90 @@ describe("F3b, dal server (task 6): la lista leggera e i campi nuovi", () => {
     expect((await calendar.listSeries()).map((x) => x.title)).toEqual(["Standup", "Allenamento"]);
   });
 });
+
+describe("F3b (review, 2): «Not answered» uguale nella lista e nel dettaglio", () => {
+  // Io fra gli invitati, senza la risposta detta da Google.
+  const unanswered = () =>
+    item({
+      organizer: "bob@acme.test",
+      attendees: [
+        { email: "bob@acme.test", responseStatus: "accepted" },
+        { email: "ada@acme.test", responseStatus: null },
+      ],
+    });
+
+  it("lista leggera: «needsAction» (dalla riga del server), non «accettato»", async () => {
+    installFakeServer({ "GET /api/me/calendar/range": range([unanswered()]) });
+    const [e] = await calendar.listEvents({
+      from: "2026-11-12T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+    });
+    expect(e!.myResponse).toBe("needsAction");
+  });
+
+  it("dettaglio: lo stesso «needsAction», con la stessa mappatura", async () => {
+    const row = calendarRangeRoute([unanswered()])({ path: "/api/me/calendar/range" }).body
+      .items[0] as never;
+    installFakeServer({
+      [`GET /api/me/calendar/events/${EV}`]: { body: row },
+      "GET /api/me/calendar/series": { body: { items: [] } },
+    });
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-12T10:00:00Z"));
+    expect((await calendar.getEvent(EV)).myResponse).toBe("needsAction");
+  });
+
+  it("un server che non manda la mia risposta: dagli invitati, con la stessa regola", () => {
+    expect(eventView({ ...unanswered(), myResponse: null } as never).myResponse).toBe(
+      "needsAction",
+    );
+  });
+
+  it("un evento mio senza invitati: nessuna risposta (è «accettato» per la griglia)", () => {
+    expect(
+      eventView(item({ organizer: "ada@acme.test", attendees: [], myResponse: null }) as never)
+        .myResponse,
+    ).toBeNull();
+  });
+});
+
+describe("F3b (review, 3): il server finto di prima e le cancellate", () => {
+  it("un server di PRIMA (ignora `fields`): invitati completi, la mia risposta dagli invitati, niente numero, tutto «riconosciuto»", async () => {
+    // Fixture SENZA i campi nuovi, e il server finto in modalità vecchia.
+    installFakeServer({
+      "GET /api/me/calendar/range": calendarRangeRoute([item()], { legacy: true }),
+    });
+    const [e] = await calendar.listEvents({
+      from: "2026-11-12T00:00:00Z",
+      to: "2026-11-13T00:00:00Z",
+    });
+    expect(e).toMatchObject({
+      recognized: true,
+      eventType: "default",
+      transparency: "opaque",
+      projectBy: "model",
+      myResponse: "tentative",
+      attendeeCount: null,
+    });
+    expect(e!.attendees).toHaveLength(2);
+  });
+
+  it("un evento cancellato su Google non è nella lista leggera", async () => {
+    installFakeServer({
+      "GET /api/me/calendar/range": range([
+        item(),
+        item({
+          id: EV2,
+          status: "cancelled",
+          startsAt: "2026-11-12T16:00:00.000Z",
+          endsAt: "2026-11-12T17:00:00.000Z",
+        }),
+      ]),
+    });
+    expect(
+      (await calendar.listEvents({ from: "2026-11-12T00:00:00Z", to: "2026-11-13T00:00:00Z" })).map(
+        (e) => e.id,
+      ),
+    ).toEqual([EV]);
+  });
+});
