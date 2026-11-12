@@ -12,6 +12,7 @@ import {
   mailProposalDecisionSchema,
   mailDraftListSchema,
   mailDraftSchema,
+  mailRecipientSuggestionListSchema,
   mailDraftRestoreSchema,
   mailOutgoingSchema,
 } from "@stubwise/shared";
@@ -35,6 +36,7 @@ import type {
   MailComposeMode,
   MailDraftList,
   MailDraft,
+  MailRecipientSuggestionList,
   MailDraftSave,
   MailDraftRestore,
   MailOutgoing,
@@ -262,6 +264,14 @@ export function createMailEndpoints(request: ApiRequest) {
     /** Toglie un allegato; la bozza su Gmail si riscrive senza. */
     removeAttachment(draftId: string, attachmentId: string): Promise<Reader<MailDraft>> {
       return request("DELETE", `/api/me/mail/drafts/${seg(draftId)}/attachments/${seg(attachmentId)}`, undefined, mailDraftSchema);
+    },
+    /**
+     * I destinatari suggeriti mentre si scrive un indirizzo: prima il team
+     * che chi scrive vede (`group: "team"`, con `personId`), poi gli indirizzi
+     * delle sue caselle (`"mail"`). Una q vuota dà una lista vuota.
+     */
+    recipients(q: string): Promise<Reader<MailRecipientSuggestionList>> {
+      return request("GET", `/api/me/mail/recipients?${new URLSearchParams({ q }).toString()}`, undefined, mailRecipientSuggestionListSchema);
     },
     /** Elimina la bozza, su Gmail e in Stubwise. «Annulla» = salvarla di nuovo. */
     discardDraft(id: string): Promise<void> {

@@ -328,4 +328,13 @@ describe("endpoints mail", () => {
     expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/drafts/${ID}/attachments/33333333-3333-4333-8333-333333333333`);
     expect(fetchImpl.mock.calls.at(-1)![1]!.method).toBe("DELETE");
   });
+
+  it("recipients(q): la q nella querystring, e un group sconosciuto non rompe la lista", async () => {
+    const { c, fetchImpl } = clientReturning(200, { items: [{ name: "Marta", email: "m@acme.com", personId: ID, group: "team" }, { email: "x@y.it", group: "rubrica" }] });
+    const out = await c.mail.recipients("mar ta&");
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/me/mail/recipients?q=mar+ta%26");
+    expect(out.items[0]).toMatchObject({ email: "m@acme.com", group: "team", personId: ID });
+    expect(out.items[1]).toMatchObject({ email: "x@y.it", group: UNKNOWN, name: null, personId: null });
+  });
 });
+
