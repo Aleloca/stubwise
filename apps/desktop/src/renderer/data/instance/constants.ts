@@ -1,4 +1,4 @@
-import { GOOGLE_OAUTH_CALLBACK_PATH } from "@stubwise/shared";
+import { GOOGLE_OAUTH_CALLBACK_PATH, googleOauthScopes } from "@stubwise/shared";
 import type { WebhookGroup } from "./webhook";
 
 // Costanti dell'istanza senza stato né seme (integrazione area 2, fetta 1:
@@ -45,15 +45,11 @@ export const INSTANCE_ORIGIN = "https://stubwise.example.test";
 /**
  * Cosa incollare nella Google Cloud Console (parità col web, shape «How to
  * set it up in Google Cloud»): l'URI di reindirizzamento dell'istanza e gli
- * scope che Stubwise chiede (`GOOGLE_SCOPES` di `packages/google`: solo
- * lettura di Gmail e Calendar).
+ * scope che Stubwise chiede: quelli del server (`googleOauthScopes` di
+ * `@stubwise/shared`, il riconsenso unico dell'area 6: Gmail con letto/non
+ * letto, Calendar, Drive in lettura).
  */
 export const GOOGLE_SETUP = {
   redirectUri: `${INSTANCE_ORIGIN}${GOOGLE_OAUTH_CALLBACK_PATH}`,
-  scopes: [
-    "openid",
-    "email",
-    "https://www.googleapis.com/auth/gmail.readonly",
-    "https://www.googleapis.com/auth/calendar.readonly",
-  ],
+  scopes: googleOauthScopes,
 } as const;

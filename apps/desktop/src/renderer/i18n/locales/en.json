@@ -404,7 +404,7 @@
     },
     "google": {
       "title": "Google mailboxes",
-      "intro": "Stubwise reads Gmail and Calendar from these mailboxes, read-only, and turns what needs doing into proposals.",
+      "intro": "Stubwise reads Gmail and Calendar from these mailboxes, keeps read and unread in step with Gmail, and turns what needs doing into proposals. It never sends or changes anything else without you.",
       "loadError": "Couldn't load your mailboxes.",
       "connected": "Connected · synced {{when}}",
       "syncing": "Connected · syncing…",

@@ -404,7 +404,7 @@
     },
     "google": {
       "title": "Caselle Google",
-      "intro": "Stubwise legge Gmail e Calendar da queste caselle, in sola lettura, e trasforma in proposte quello che c'è da fare.",
+      "intro": "Stubwise legge Gmail e Calendar da queste caselle, tiene letto e non letto allineati con Gmail e trasforma in proposte quello che c'è da fare. Non invia né cambia altro senza di te.",
       "loadError": "Non è stato possibile caricare le tue caselle.",
       "connected": "Collegata · sincronizzata {{when}}",
       "syncing": "Collegata · sincronizzazione in corso…",
