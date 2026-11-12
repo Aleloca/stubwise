@@ -11,7 +11,9 @@ import {
   instanceSettings,
   notifications,
   projectEmailRoutes,
+  projectMembers,
   projects,
+  users,
   type Db,
 } from "@stubwise/db";
 import {
@@ -49,6 +51,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  lt,
   ne,
   notExists,
   notInArray,
@@ -64,6 +67,7 @@ import { getContentLanguage } from "../settings.js";
 import {
   buildMilestoneProposal,
   CALENDAR_CANCELLED_OUTCOME,
+  CALENDAR_LOOKBACK_DAYS,
   CALENDAR_DECLINED_OUTCOME,
   CALENDAR_MAX_PAGES,
   CALENDAR_PAGE_SIZE,
@@ -1351,13 +1355,26 @@ async function syncCalendar(
 ): Promise<{ syncToken: string | null; stats: CalendarPhaseStats }> {
   const stats: CalendarPhaseStats = { events: 0, ready: 0, cancelled: 0 };
   const { events, syncToken } = await collectCalendarEvents(deps, ctx, account);
-  if (events.length === 0) return { syncToken, stats };
+  if (events.length === 0) {
+    await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
+    return { syncToken, stats };
+  }
 
-  stats.cancelled = await closeCancelledEvents(
-    deps.db,
-    account.id,
-    events.filter(isCancelled).map((event) => event.id),
-  );
+  const cancelledIds = events.filter(isCancelled).map((event) => event.id);
+  // F3b: un evento VISTO (non candidato) cancellato su Google se ne va, e
+  // sparisce dal calendario; un candidato si chiude come prima (la sua storia).
+  if (cancelledIds.length > 0) {
+    await deps.db
+      .delete(calendarEventsTable)
+      .where(
+        and(
+          eq(calendarEventsTable.accountId, account.id),
+          inArray(calendarEventsTable.googleEventId, cancelledIds),
+          eq(calendarEventsTable.proposalCandidate, false),
+        ),
+      );
+  }
+  stats.cancelled = await closeCancelledEvents(deps.db, account.id, cancelledIds);
 
   const lang = deps.lang ?? (await getContentLanguage(deps.db));
 
@@ -1378,17 +1395,47 @@ async function syncCalendar(
   // Un evento può comparire più volte in un resync paginato: vince l'ultima
   // versione letta, che è anche la più recente. `startsAt` viaggia a parte
   // perché qui è garantito non nullo e il tipo di Google non lo sa.
-  const live = new Map<string, { event: GoogleCalendarEvent; startsAt: Date; fingerprint: string }>();
+  // F3b: TUTTI gli eventi della finestra diventano righe (il calendario è
+  // della persona), tranne quelli che non sono appuntamenti. Il CANDIDATO a
+  // una proposta è esattamente ciò che entrava prima: con un titolo e in
+  // perimetro per le regole (`proposal_candidate`). Le proposte non cambiano.
+  // Col flag acceso (F3b, task 7) la DOTTRINA NUOVA: candidato = un invitato
+  // membro esplicito di UN progetto (escluso il proprietario), calcolato per
+  // LOTTO; le regole non contano più. Col flag spento: le regole, come prima.
+  const v2 = deps.classifyV2 === true;
+  const v2Projects = v2 ? await attendeeProjectsByEvent(deps.db, events, account) : null;
+  const live = new Map<
+    string,
+    { event: GoogleCalendarEvent; startsAt: Date; fingerprint: string; candidate: boolean; projectId: string | null; projectBy: "rules" | "model" | null }
+  >();
   for (const event of events) {
     if (isCancelled(event)) continue;
+    if (CALENDAR_EXCLUDED_EVENT_TYPES.has(event.eventType)) continue;
     const startsAt = event.startsAt;
     if (!startsAt) continue;
     if (startsAt < timeMin || startsAt > timeMax) continue;
-    if (!buildMilestoneProposal(lang, event)) continue;
-    if (!routeEvent(event, ctx.routes).inScope) continue;
-    live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt) });
+    const titled = buildMilestoneProposal(lang, event) !== null;
+    let candidate: boolean;
+    let projectId: string | null;
+    let projectBy: "rules" | "model" | null;
+    if (v2Projects) {
+      const projects = v2Projects.get(event.id) ?? [];
+      // Più progetti: la «Quale progetto?» del calendario è rimandata (registro): nessuna proposta.
+      candidate = titled && projects.length === 1;
+      projectId = candidate ? projects[0]! : null;
+      projectBy = candidate ? "model" : null;
+    } else {
+      const routed = routeEvent(event, ctx.routes);
+      candidate = titled && routed.inScope;
+      projectId = candidate ? routed.projectId : null;
+      projectBy = candidate && routed.projectId ? "rules" : null;
+    }
+    live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt), candidate, projectId, projectBy });
   }
-  if (live.size === 0) return { syncToken, stats };
+  if (live.size === 0) {
+    await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
+    return { syncToken, stats };
+  }
 
   // La regola di ricorrenza delle serie toccate da questo lotto: UNA
   // chiamata per SERIE, e solo per quelle che non conosciamo o che sono
@@ -1401,7 +1448,9 @@ async function syncCalendar(
   );
 
   const ids = [...live.keys()];
-  const fingerprints = [...live.values()].map((entry) => entry.fingerprint);
+  // L'impronta (il doppione «stesso giorno, stesso titolo») vale fra CANDIDATI,
+  // come prima: un evento solo visto non possiede né ruba un'impronta.
+  const fingerprints = [...live.values()].filter((entry) => entry.candidate).map((entry) => entry.fingerprint);
 
   // Due letture per tutto il lotto, non due per evento: quello che serve è
   // "questa riga esiste già?" e "questo appuntamento è già tracciato sotto un
@@ -1411,6 +1460,7 @@ async function syncCalendar(
       googleEventId: calendarEventsTable.googleEventId,
       proposalNotificationId: calendarEventsTable.proposalNotificationId,
       outcome: calendarEventsTable.outcome,
+      proposalCandidate: calendarEventsTable.proposalCandidate,
     })
     .from(calendarEventsTable)
     .where(
@@ -1421,7 +1471,7 @@ async function syncCalendar(
     );
   const byEventId = new Map(known.map((row) => [row.googleEventId, row]));
 
-  const sameFingerprint = await deps.db
+  const sameFingerprint = fingerprints.length === 0 ? [] : await deps.db
     .select({
       googleEventId: calendarEventsTable.googleEventId,
       fingerprint: calendarEventsTable.fingerprint,
@@ -1431,6 +1481,7 @@ async function syncCalendar(
       and(
         eq(calendarEventsTable.accountId, account.id),
         inArray(calendarEventsTable.fingerprint, fingerprints),
+        eq(calendarEventsTable.proposalCandidate, true),
       ),
     );
   const ownerOfFingerprint = new Map<string, string>();
@@ -1440,9 +1491,13 @@ async function syncCalendar(
     }
   }
 
-  for (const { event, startsAt, fingerprint } of live.values()) {
+  // La linea di base: il primo giro completo dopo «tutti gli eventi», o il
+  // primo col flag della dottrina nuova acceso.
+  const v2Baseline = v2 && account.calendarV2BaselineAt === null;
+  const baseline = account.calendarBaselineAt === null || v2Baseline;
+  for (const { event, startsAt, fingerprint, candidate, projectId: candidateProjectId, projectBy } of live.values()) {
     if (deps.signal?.aborted) break;
-    const resolved = routeEvent(event, ctx.routes);
+    const resolved = { projectId: candidateProjectId };
     const fresh = {
       title: event.title.trim(),
       startsAt,
@@ -1466,9 +1521,23 @@ async function syncCalendar(
       status: normalizeStatus(event.status),
       fingerprint,
       recurringEventId: event.recurringEventId,
+      eventType: event.eventType,
+      transparency: event.transparency,
     };
 
     const existing = byEventId.get(event.id);
+    if (existing && !candidate) {
+      // Un evento che ORA non è candidato: prima non sarebbe stato nemmeno
+      // aggiornato. Si rinfrescano i dati visti, mai il progetto né lo stato
+      // di candidato (un candidato non torna indietro: le sue proposte restano
+      // quelle di prima).
+      await deps.db
+        .update(calendarEventsTable)
+        .set(fresh)
+        .where(and(eq(calendarEventsTable.accountId, account.id), eq(calendarEventsTable.googleEventId, event.id)));
+      stats.events += 1;
+      continue;
+    }
     if (existing) {
       const stillOpen = existing.proposalNotificationId === null && existing.outcome === null;
       // Una proposta GIÀ PUBBLICATA e non ancora decisa: è l'unico caso in
@@ -1513,7 +1582,19 @@ async function syncCalendar(
 
       await deps.db
         .update(calendarEventsTable)
-        .set(stillOpen ? { ...fresh, projectId: resolved.projectId } : fresh)
+        .set(
+          stillOpen
+            ? {
+                ...fresh,
+                proposalCandidate: true,
+                projectId: resolved.projectId,
+                projectBy,
+                // Una riga che DIVENTA candidata nella linea di base della dottrina
+                // nuova nasce chiusa, come una nuova: accendere il flag non propone.
+                ...(v2Baseline && !existing.proposalCandidate ? { outcome: CALENDAR_BASELINE_OUTCOME } : {}),
+              }
+            : { ...fresh, proposalCandidate: true },
+        )
         .where(
           and(
             eq(calendarEventsTable.accountId, account.id),
@@ -1527,15 +1608,20 @@ async function syncCalendar(
     // Stesso giorno e stesso titolo sotto un altro id: è l'appuntamento che
     // stiamo già seguendo, ricreato. Si scrive la riga (tracciabilità) con un
     // esito che la esclude dalle candidate.
-    const owner = ownerOfFingerprint.get(fingerprint);
+    const owner = candidate ? ownerOfFingerprint.get(fingerprint) : undefined;
     const duplicate = owner !== undefined && owner !== event.id;
     const inserted = await deps.db
       .insert(calendarEventsTable)
       .values({
         accountId: account.id,
         googleEventId: event.id,
-        projectId: resolved.projectId,
-        outcome: duplicate ? duplicateOutcome(owner) : null,
+        // Un evento solo visto non ha progetto: nessuna regola l'ha riconosciuto.
+        projectId: candidate ? resolved.projectId : null,
+        projectBy: candidate ? projectBy : null,
+        proposalCandidate: candidate,
+        // La LINEA DI BASE: nel primo giro completo dopo «tutti gli eventi»
+        // un candidato nuovo nasce chiuso (niente proposta, card, auto).
+        outcome: duplicate ? duplicateOutcome(owner) : candidate && baseline ? CALENDAR_BASELINE_OUTCOME : null,
         ...fresh,
       })
       // L'unique `(account_id, google_event_id)` è l'idempotenza della fase 3.
@@ -1544,6 +1630,7 @@ async function syncCalendar(
     if (inserted.length === 0) continue;
 
     stats.events += 1;
+    if (!candidate) continue;
     // Fix di review (fase 9, Task 1): questo conteggio è ciò che il log e i
     // test leggono come «pronta a una proposta» — deve restare d'accordo con
     // `isReadyForProposal`, non solo con la query del propose phase. Per un
@@ -1564,7 +1651,56 @@ async function syncCalendar(
     if (!ownerOfFingerprint.has(fingerprint)) ownerOfFingerprint.set(fingerprint, event.id);
   }
 
+  await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
   return { syncToken, stats };
+}
+
+/** I tipi di Google che non sono appuntamenti (F3b, decisione di 46): non entrano. */
+export const CALENDAR_EXCLUDED_EVENT_TYPES: ReadonlySet<string> = new Set(["workingLocation", "birthday"]);
+
+/** L'esito della linea di base (F3b): un candidato già esistente al primo giro completo non propone. */
+export const CALENDAR_BASELINE_OUTCOME = { type: "baseline" } as const;
+
+/** Fine del primo giro completo: da qui in poi un evento nuovo propone come sempre. */
+async function settleCalendarBaseline(db: Db, account: ClaimedAccount, v2 = false): Promise<void> {
+  if (account.calendarBaselineAt === null) {
+    await db.update(googleAccounts).set({ calendarBaselineAt: new Date() }).where(and(eq(googleAccounts.id, account.id), isNull(googleAccounts.calendarBaselineAt)));
+  }
+  if (v2 && account.calendarV2BaselineAt === null) {
+    await db.update(googleAccounts).set({ calendarV2BaselineAt: new Date() }).where(and(eq(googleAccounts.id, account.id), isNull(googleAccounts.calendarV2BaselineAt)));
+  }
+}
+
+/**
+ * I progetti di ogni evento per la dottrina nuova (F3b, task 7): gli invitati
+ * (e l'organizzatore) che sono persone di Stubwise, escluso il proprietario
+ * della casella, e i progetti di cui sono membri ESPLICITI. Per LOTTO: una
+ * lettura delle persone, una delle appartenenze, poi in memoria.
+ */
+async function attendeeProjectsByEvent(db: Db, events: readonly GoogleCalendarEvent[], account: ClaimedAccount): Promise<Map<string, string[]>> {
+  const addressesOf = (e: GoogleCalendarEvent) => [...e.attendees.map((a) => a.email), ...(e.organizer ? [e.organizer] : [])].map((a) => normalizeAddress(a)).filter((a) => a.includes("@"));
+  const all = [...new Set(events.flatMap(addressesOf))];
+  const out = new Map<string, string[]>();
+  if (all.length === 0) return out;
+  const people = new Map<string, string>();
+  for (const row of await db.select({ id: users.id, email: users.email }).from(users).where(and(eq(users.isAgent, false), inArray(users.email, all)))) people.set(normalizeAddress(row.email), row.id);
+  for (const row of await db
+    .select({ id: googleAccounts.userId, email: googleAccounts.email })
+    .from(googleAccounts)
+    .innerJoin(users, eq(users.id, googleAccounts.userId))
+    .where(and(eq(users.isAgent, false), inArray(googleAccounts.email, all)))) people.set(normalizeAddress(row.email), row.id);
+  const ids = [...new Set([...people.values()].filter((id) => id !== account.userId))];
+  const projectsOf = new Map<string, string[]>();
+  if (ids.length > 0) {
+    for (const row of await db.select({ userId: projectMembers.userId, projectId: projectMembers.projectId }).from(projectMembers).where(inArray(projectMembers.userId, ids))) {
+      projectsOf.set(row.userId, [...(projectsOf.get(row.userId) ?? []), row.projectId]);
+    }
+  }
+  for (const e of events) {
+    const userIds = new Set(addressesOf(e).flatMap((a) => (people.has(a) ? [people.get(a)!] : [])).filter((id) => id !== account.userId));
+    out.set(e.id, [...new Set([...userIds].flatMap((id) => projectsOf.get(id) ?? []))]);
+  }
+  return out;
 }
 
 /**
@@ -1895,6 +2031,10 @@ async function runProposePhase(
           // Il calendario non ha taglio (regola dell'orchestratrice): solo le
           // proposte accese ADESSO.
           accountProposingSql(calendarEventsTable.accountId),
+          // F3b: un evento solo VISTO non diventa MAI una proposta, nemmeno
+          // un'occorrenza di una serie accesa (a flag spento le occorrenze
+          // proponibili restano quelle in perimetro, come prima).
+          eq(calendarEventsTable.proposalCandidate, true),
           sql`${calendarEventsTable.status} is distinct from 'cancelled'`,
           isNull(calendarEventsTable.proposalNotificationId),
           isNull(calendarEventsTable.outcome),
@@ -2009,6 +2149,10 @@ async function runProposePhase(
     const projectNames = await projectNamesOf(deps.db, [
       ...proposalRows.map((row) => row.proposalProjectId),
       ...events.map((event) => event.projectId),
+      // Il progetto SCELTO sulla serie (F3b): senza il suo nome
+      // `buildCalendarProposalEvent` scartava in silenzio l'occorrenza di una
+      // serie col progetto diverso da quello delle regole.
+      ...events.map((event) => event.seriesProjectId),
       ...triageRows.flatMap((row) => suggestedProjectIdsOf(row.classification)),
     ]);
 
@@ -2455,6 +2599,61 @@ async function runAccountTick(
  */
 const admittedAlias = alias(emailMessages, "admitted_sibling");
 
+/**
+ * Quanti giorni oltre l'inizio della finestra del calendario (−30) una riga
+ * resta, prima di potarla: uno, così il bordo non oscilla fra un giro e
+ * l'altro (F3b).
+ */
+export const CALENDAR_PRUNE_GRACE_DAYS = 1;
+
+/** L'esito di una proposta del calendario rimasta aperta su un evento uscito dalla finestra. */
+export const CALENDAR_EXPIRED_OUTCOME = { type: "expired" } as const;
+
+/**
+ * LA POTATURA DEL CALENDARIO (area 6, F3b). Con TUTTI gli eventi la tabella
+ * cresce di centinaia di righe per casella: a regime deve restare quella della
+ * finestra. Prima si tolgono le righe vecchie SENZA una proposta aperta;
+ * POI si chiudono come `expired` le proposte rimaste aperte su eventi vecchi
+ * (riga e card insieme), che se ne vanno al giro dopo — mai una card che
+ * punta a una riga sparita. Nessuna tabella punta a `calendar_events`, e il
+ * registro decisioni tiene i fatti per conto suo.
+ */
+export async function pruneOldCalendarEvents(db: Db, now: Date = new Date()): Promise<number> {
+  // L'orologio del GIRO (`deps.now`), non quello del database: la finestra
+  // del calendario si calcola con quello, e i due devono essere d'accordo.
+  const cutoff = new Date(now.getTime() - (CALENDAR_LOOKBACK_DAYS + CALENDAR_PRUNE_GRACE_DAYS) * 24 * 3600_000);
+  const removed = await db
+    .delete(calendarEventsTable)
+    .where(
+      and(
+        lt(calendarEventsTable.startsAt, cutoff),
+        sql`(${calendarEventsTable.proposalNotificationId} is null or ${calendarEventsTable.outcome} is not null)`,
+      ),
+    )
+    .returning({ id: calendarEventsTable.id });
+  await db.transaction(async (tx) => {
+    const expired = await tx
+      .update(calendarEventsTable)
+      .set({ outcome: CALENDAR_EXPIRED_OUTCOME })
+      .where(
+        and(
+          lt(calendarEventsTable.startsAt, cutoff),
+          isNotNull(calendarEventsTable.proposalNotificationId),
+          isNull(calendarEventsTable.outcome),
+        ),
+      )
+      .returning({ notificationId: calendarEventsTable.proposalNotificationId });
+    const cards = expired.flatMap((r) => (r.notificationId ? [r.notificationId] : []));
+    if (cards.length > 0) {
+      await tx
+        .update(notifications)
+        .set({ status: "handled", handledAt: new Date() })
+        .where(and(inArray(notifications.id, cards), eq(notifications.status, "open")));
+    }
+  });
+  return removed.length;
+}
+
 export async function pruneOldEmails(db: Db, retentionDays: number): Promise<number> {
   if (retentionDays <= 0) return 0;
 
@@ -2593,6 +2792,11 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
     stats.pruned = await pruneOldEmails(deps.db, deps.retentionDays);
   } catch (err) {
     logger.error(`google: potatura dei messaggi fallita: ${errText(err)}`);
+  }
+  try {
+    stats.pruned += await pruneOldCalendarEvents(deps.db, (deps.now ?? (() => new Date()))());
+  } catch (err) {
+    logger.error(`google: potatura del calendario fallita: ${errText(err)}`);
   }
   try {
     await pruneOldRejections(deps.db, REJECTIONS_RETENTION_DAYS);

@@ -148,12 +148,19 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
           from: z.iso.datetime(),
           to: z.iso.datetime(),
           account: z.uuid().optional(),
+          /**
+           * F3b: `summary` = la lista LEGGERA (senza descrizione, invitati,
+           * conferenza, promemoria: li rilegge `/events/:id`) e senza le
+           * cancellate. Assente = come prima: il web e l'app leggono ancora
+           * i campi pesanti da qui.
+           */
+          fields: z.enum(["summary"]).optional(),
         }),
         response: { 200: calendarEventPageSchema, 400: errorSchema, ...authErrorResponses },
       },
     },
     async (request, reply) => {
-      const { from, to, account } = request.query;
+      const { from, to, account, fields } = request.query;
       const fromDate = new Date(from);
       const toDate = new Date(to);
       if (toDate <= fromDate) {
@@ -174,6 +181,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
         from: fromDate,
         to: toDate,
         ...(account ? { account } : {}),
+        light: fields === "summary",
       });
       return { items, nextCursor: null };
     },
@@ -237,6 +245,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
           // un'espressione SQL grezza) — vedi la normalizzazione sotto.
           nextOccurrenceAt: sql<string | null>`min(${calendarEvents.startsAt}) filter (where ${calendarEvents.startsAt} >= now() and ${calendarEvents.status} is distinct from 'cancelled')`,
           enabled: sql<boolean>`coalesce(bool_or(${calendarSeries.enabled}), false)`,
+          recognized: sql<boolean>`coalesce(bool_or(${calendarEvents.proposalCandidate}), false)`,
           projectId: sql<string | null>`min(${calendarSeries.projectId}::text)`,
           action: sql<string>`coalesce(min(${calendarSeries.action}), 'milestone')`,
           leadDays: sql<number>`coalesce(min(${calendarSeries.leadDays}), 2)`,
@@ -286,6 +295,7 @@ export async function meCalendarRoutes(instance: FastifyInstance): Promise<void>
           action: row.action as "backlog_item" | "milestone" | "reminder",
           leadDays: row.leadDays,
           auto: row.auto,
+          recognized: row.recognized,
         })),
       };
     },
@@ -432,6 +442,10 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
       reminders: calendarEvents.reminders,
       remindersUseDefault: calendarEvents.remindersUseDefault,
       recurrence: calendarSeriesRecurrence.recurrence,
+      proposalCandidate: calendarEvents.proposalCandidate,
+      projectBy: calendarEvents.projectBy,
+      eventType: calendarEvents.eventType,
+      transparency: calendarEvents.transparency,
     })
     .from(calendarEvents)
     .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
@@ -451,7 +465,7 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
     .orderBy(desc(calendarEvents.startsAt), desc(calendarEvents.id))
     .limit(input.limit + 1);
 
-  return rows.map(toCalendarItem);
+  return rows.map((row) => toCalendarItem(row));
 }
 
 /**
@@ -477,8 +491,10 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
  * che non rende HTML e lo mostra con `LinkedText`. Non è una seconda fonte
  * di verità, è la stessa letta in un altro modo.
  */
-function toCalendarItem(row: CalendarItemRow): CalendarEventItem {
-  const description = row.description !== null && row.description.trim() !== "" ? row.description : null;
+function toCalendarItem(row: CalendarItemRow, options: { light?: boolean } = {}): CalendarEventItem {
+  const light = options.light === true;
+  const description = !light && row.description !== null && row.description.trim() !== "" ? row.description : null;
+  const mine = row.attendees.find((a) => a.email.toLowerCase() === row.accountEmail.toLowerCase());
   return {
     id: row.id,
     accountId: row.accountId,
@@ -488,7 +504,7 @@ function toCalendarItem(row: CalendarItemRow): CalendarEventItem {
     projectName: row.projectName,
     title: row.title,
     organizer: row.organizer,
-    attendees: row.attendees,
+    attendees: light ? [] : row.attendees,
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt ? row.endsAt.toISOString() : null,
     allDay: row.allDay,
@@ -497,22 +513,33 @@ function toCalendarItem(row: CalendarItemRow): CalendarEventItem {
     error: extractError(row.outcome),
     url: calendarDayUrl(row.accountEmail, row.startsAt),
     eventUrl: row.htmlLink,
-    reproposable: row.reproposable,
+    // Un evento solo VISTO non si ripropone: non è mai stato un candidato.
+    reproposable: row.proposalCandidate ? row.reproposable : false,
     descriptionHtml: description === null ? null : sanitizeEmailHtml(description),
     descriptionText: description === null ? null : htmlToText(description),
     location: row.location,
     hangoutLink: row.hangoutLink,
-    conferenceEntryPoints: row.conferenceEntryPoints,
-    reminders: row.reminders,
+    conferenceEntryPoints: light ? [] : row.conferenceEntryPoints,
+    reminders: light ? [] : row.reminders,
     remindersUseDefault: row.remindersUseDefault,
     // `null` dal LEFT JOIN quando l'evento non è di una serie, o quando del
     // suo padre non abbiamo ancora letto la regola.
     recurrence: row.recurrence ?? [],
+    recognized: row.proposalCandidate,
+    projectBy: row.projectBy,
+    eventType: row.eventType,
+    transparency: row.transparency === "transparent" || row.transparency === "opaque" ? row.transparency : null,
+    myResponse: mine?.responseStatus ?? null,
+    attendeeCount: row.attendees.length,
   };
 }
 
 /** La riga che le due query proiettano — una sola forma, come il mapper. */
 interface CalendarItemRow {
+  proposalCandidate: boolean;
+  projectBy: "rules" | "model" | "manual" | null;
+  eventType: string | null;
+  transparency: string | null;
   id: string;
   accountId: string;
   accountEmail: string;
@@ -550,6 +577,7 @@ interface RangeCalendarInput {
   from: Date;
   to: Date;
   account?: string;
+  light?: boolean;
 }
 
 /**
@@ -566,7 +594,10 @@ async function queryCalendarEventsInRange(db: Db, input: RangeCalendarInput): Pr
     sql`coalesce(${calendarEvents.endsAt}, ${calendarEvents.startsAt}) >= ${input.from.toISOString()}::timestamptz`,
   ];
   if (input.account) conditions.push(eq(calendarEvents.accountId, input.account));
-  return queryCalendarEventRows(db, input.userId, conditions);
+  // F3b, con `fields=summary`: un evento cancellato su Google sparisce, e la
+  // lista è LEGGERA (i campi pesanti li rilegge il dettaglio, `/events/:id`).
+  if (input.light) conditions.push(sql`${calendarEvents.status} is distinct from 'cancelled'`);
+  return queryCalendarEventRows(db, input.userId, conditions, { light: input.light === true });
 }
 
 /**
@@ -574,7 +605,7 @@ async function queryCalendarEventsInRange(db: Db, input: RangeCalendarInput): Pr
  * la stessa forma e lo stesso filtro di proprietà — `google_accounts.user_id`
  * di chi guarda nella WHERE, sempre, prima delle condizioni del chiamante.
  */
-async function queryCalendarEventRows(db: Db, userId: string, extra: SQL[]): Promise<CalendarEventItem[]> {
+async function queryCalendarEventRows(db: Db, userId: string, extra: SQL[], options: { light?: boolean } = {}): Promise<CalendarEventItem[]> {
   const conditions = [eq(googleAccounts.userId, userId), ...extra];
 
   const rows = await db
@@ -604,6 +635,10 @@ async function queryCalendarEventRows(db: Db, userId: string, extra: SQL[]): Pro
       reminders: calendarEvents.reminders,
       remindersUseDefault: calendarEvents.remindersUseDefault,
       recurrence: calendarSeriesRecurrence.recurrence,
+      proposalCandidate: calendarEvents.proposalCandidate,
+      projectBy: calendarEvents.projectBy,
+      eventType: calendarEvents.eventType,
+      transparency: calendarEvents.transparency,
     })
     .from(calendarEvents)
     .innerJoin(googleAccounts, eq(googleAccounts.id, calendarEvents.accountId))
@@ -622,5 +657,5 @@ async function queryCalendarEventRows(db: Db, userId: string, extra: SQL[]): Pro
     .where(and(...conditions))
     .orderBy(asc(calendarEvents.startsAt), asc(calendarEvents.id));
 
-  return rows.map(toCalendarItem);
+  return rows.map((row) => toCalendarItem(row, options));
 }

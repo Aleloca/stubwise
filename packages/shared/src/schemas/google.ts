@@ -1103,6 +1103,22 @@ export const calendarEventItemSchema = z.object({
    * in cui è stata scritta.
    */
   recurrence: z.array(z.string()).default([]),
+
+  // --- Area 6, F3b: il calendario con TUTTI gli eventi. Tutti con default:
+  // un server di prima non li manda (e lì ogni riga era lavoro riconosciuto).
+
+  /** È lavoro riconosciuto (candidato a una proposta). Un evento solo visto: false, e nessun «Suggested». */
+  recognized: z.boolean().default(true),
+  /** Chi ha deciso il progetto: le regole, la dottrina nuova, una persona. */
+  projectBy: z.enum(["rules", "model", "manual"]).nullable().default(null),
+  /** Il tipo di Google (`default`, `outOfOffice`, `focusTime`, `fromGmail`…), aperto. */
+  eventType: z.string().nullable().default(null),
+  /** `transparent` = «libero», non occupa (F4). */
+  transparency: z.enum(["opaque", "transparent"]).nullable().default(null),
+  /** La risposta della casella all'invito, senza leggere gli invitati (la lista di `range` è leggera). */
+  myResponse: calendarAttendeeResponseStatusSchema.nullable().default(null),
+  /** Quanti invitati («N guests»), anche nella lista leggera dove `attendees` è vuoto. */
+  attendeeCount: z.number().int().min(0).nullable().default(null),
 });
 export type CalendarEventItem = z.infer<typeof calendarEventItemSchema>;
 
@@ -1142,6 +1158,8 @@ export const calendarSeriesItemSchema = z.object({
   leadDays: z.number().int().min(0).max(30).default(2),
   /** `false` = propone e aspetta un tap; `true` = esegue e lo rende visibile. MAI un job AI. */
   auto: z.boolean().default(false),
+  /** F3b: almeno un'occorrenza è lavoro riconosciuto (per ordinarle, prima quelle di lavoro). */
+  recognized: z.boolean().default(true),
 });
 export type CalendarSeriesItem = z.infer<typeof calendarSeriesItemSchema>;
 
