@@ -122,3 +122,35 @@ describe("getSendAsSignature (la firma di Gmail, F3: basta gmail.modify)", () =>
     expect(await getSendAsSignature({ accessToken: "at", sendAsEmail: "ada@acme.com" }, { fetchImpl: impl })).toBeNull();
   });
 });
+
+describe("review F3, punti 6 e 7: Message-ID nostro, intestazioni lunghe, nomi file, References", () => {
+  const base = { from: { email: "ada@acme.com" }, to: [{ email: "x@y.it" }], cc: [], body: "ciao" };
+  const headerLines = (mime: string) => mime.split("\r\n\r\n")[0]!.split("\r\n");
+
+  it("il Message-ID che passiamo noi finisce nell'intestazione", () => {
+    expect(buildMimeMessage({ ...base, subject: "x", messageId: "<stubwise.d1.abc@acme.com>" })).toContain("Message-ID: <stubwise.d1.abc@acme.com>");
+  });
+
+  it("un oggetto non ASCII lungo: encoded word di al più 75 caratteri, ripiegate; uno ASCII lunghissimo: nessuna riga oltre 998", () => {
+    const long = buildMimeMessage({ ...base, subject: "Perché è così importante — ".repeat(12) });
+    const words = long.match(/=\?UTF-8\?B\?[^?]*\?=/g)!;
+    expect(words.length).toBeGreaterThan(1);
+    expect(words.every((w) => w.length <= 75)).toBe(true);
+    const decoded = words.map((w) => Buffer.from(w.slice(10, -2), "base64").toString("utf8")).join("");
+    expect(decoded).toBe("Perché è così importante — ".repeat(12).trim());
+    const ascii = buildMimeMessage({ ...base, subject: "parola ".repeat(300) });
+    expect(headerLines(ascii).every((l) => l.length <= 998)).toBe(true);
+  });
+
+  it("un nome file con le virgolette non rompe la quotatura: filename* (RFC 2231) e il ripiego con l'escape", () => {
+    const mime = buildMimeMessage({ ...base, subject: "x", attachments: [{ name: 'il "contratto".pdf', mimeType: "application/pdf", content: Buffer.from("x") }] });
+    expect(mime).toContain("filename*=UTF-8''il%20%22contratto%22.pdf");
+    expect(mime).toContain('filename="il \\"contratto\\".pdf"');
+  });
+
+  it("References porta tutta la catena, separata da spazi", () => {
+    const mime = buildMimeMessage({ ...base, subject: "Re: x", inReplyTo: "<c@x>", references: ["<a@x>", "<b@x>", "<c@x>"] });
+    expect(mime).toContain("References: <a@x> <b@x> <c@x>");
+  });
+});
+

@@ -2635,6 +2635,8 @@ export interface MailDraft {
    */
   signature?: string | null;
   signatureStatus?: "present" | "none" | "scope_missing";
+  /** Build app: l'`updatedAt` del server (`null` = mai salvata), la base del salvataggio dopo. */
+  serverUpdatedAt?: string | null;
 }
 
 export interface MailDraftAttachment {

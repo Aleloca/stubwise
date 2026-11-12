@@ -257,7 +257,7 @@ describe("endpoints mail", () => {
     });
     const c = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
     const out = await c.mail.confirmProposal(ID, { indices: [0], edits: { "0": { title: "X" } } });
-    expect(out).toEqual({ status: "confirmed", results: [{ kind: "task", id: "t1", code: "AUD-12" }] });
+    expect(out).toEqual({ status: "confirmed", results: [{ kind: "task", id: "t1", code: "AUD-12" }], error: null, projectId: null });
     await c.mail.confirmProposalWithMembers(ID, { addOutsiders: [ID] });
     await c.mail.ignoreProposal(ID);
     await c.mail.handProposal(ID);

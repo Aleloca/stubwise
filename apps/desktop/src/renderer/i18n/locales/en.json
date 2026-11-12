@@ -6326,6 +6326,7 @@
       "aboutNone": "No project",
       "late": "late",
       "claudeFailed": "Claude couldn't write a draft. Your text is unchanged.",
+      "claudeDailyLimit": "Claude has written enough drafts for today: try again tomorrow. Your text is unchanged.",
       "tryAgain": "Try again",
       "undo": "Undo",
       "ready": "Claude's draft is ready",

@@ -123,6 +123,16 @@ describe("le proposte condivise: confermare e ignorare", () => {
     expect(seen[0]!.body).toEqual({});
   });
 
+  it("la decisione è un oggetto (review F3 di 72): fallita senza motivo → «other»; col motivo, quello; i default di results e projectId", async () => {
+    installFakeServer(confirm({ status: "failed", results: [], error: null, projectId: null }));
+    expect(await mail.confirmMailProposal(P1, {})).toEqual({ status: "failed", error: "other" });
+    installFakeServer(confirm({ status: "failed", error: "already_handled" }));
+    expect(await mail.confirmMailProposal(P1, {})).toEqual({ status: "failed", error: "already_handled" });
+    // Un server che non manda `results`: il default è vuoto, nessun codice.
+    installFakeServer(confirm({ status: "confirmed" }));
+    expect(await mail.confirmMailProposal(P1, {})).toEqual({ status: "confirmed", resultCodes: [] });
+  });
+
   it("in parte e coi campi cambiati: gli indici e le modifiche per indice", async () => {
     const { seen } = installFakeServer(confirm());
     await mail.confirmMailProposal(P1, { actionIndexes: [0], edits: { 0: { title: "Export XLSX" } } });

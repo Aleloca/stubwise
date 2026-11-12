@@ -324,7 +324,7 @@ describe("passare, spostare, scegliere il progetto, aggiungere Contributor (F2, 
     // Carla (membro, non destinataria) prima non la vede.
     expect((await get(carla.headers, `/api/me/mail/proposals/${proposal.id}`)).statusCode).toBe(404);
     const res = await post(bruno.headers, `/api/me/mail/proposals/${proposal.id}/hand`);
-    expect(res.json()).toEqual({ status: "handed" });
+    expect(res.json()).toMatchObject({ status: "handed" });
     const seen = (await get(carla.headers, `/api/me/mail/proposals/${proposal.id}`)).json() as { status: string; canConfirm: boolean; handedBy: { name: string } };
     expect(seen).toMatchObject({ status: "handed", canConfirm: true, handedBy: { name: "Bruno" } });
     expect((await post(carla.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { indices: [1] })).json()).toMatchObject({ status: "confirmed" });
@@ -346,7 +346,7 @@ describe("passare, spostare, scegliere il progetto, aggiungere Contributor (F2, 
     expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/reassign`, { projectId: beta })).json()).toMatchObject({ code: "invalid_selection" });
     await onlyTask(proposal.id, null);
     const res = await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/reassign`, { projectId: beta });
-    expect(res.json()).toEqual({ status: "moved", projectId: beta });
+    expect(res.json()).toMatchObject({ status: "moved", projectId: beta });
     expect(await row(proposal.id)).toMatchObject({ status: "ignored", outcome: { type: "reassigned_to", projectId: beta } });
     const { and, eq } = await import("drizzle-orm");
     const [moved] = await db.select().from(emailProposals).where(and(eq(emailProposals.projectId, beta), eq(emailProposals.rfcMessageId, "<e@x>")));
@@ -371,7 +371,7 @@ describe("passare, spostare, scegliere il progetto, aggiungere Contributor (F2, 
     const gamma = await secondProject([ada.id]);
     expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/choose-project`, { projectId: gamma })).json()).toMatchObject({ code: "invalid_target" });
     const res = await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/choose-project`, { projectId: beta });
-    expect(res.json()).toEqual({ status: "moved", projectId: beta });
+    expect(res.json()).toMatchObject({ status: "moved", projectId: beta });
     expect(await row(proposal.id)).toBeUndefined();
     const [m] = await db.select().from(emailMessages).where(eq(emailMessages.id, message.id));
     expect(m).toMatchObject({ classificationState: null, status: "new", projectId: beta, scopeProjectIds: [beta] });
@@ -581,7 +581,7 @@ describe("le proposte di PRIMA in /proposals (una fonte sola)", () => {
     const { eq } = await import("drizzle-orm");
     expect((await app.inject({ method: "POST", url: `/api/me/mail/proposals/${old.id}/confirm`, headers: ada.headers, payload: { edits: { "0": { title: "Y" } } } })).json()).toMatchObject({ code: "invalid_edits" });
     const res = await app.inject({ method: "POST", url: `/api/me/mail/proposals/${old.id}/ignore`, headers: ada.headers, payload: {} });
-    expect(res.json()).toEqual({ status: "ignored" });
+    expect(res.json()).toMatchObject({ status: "ignored" });
     const [n] = await db.select().from(notifications).where(eq(notifications.id, card.id));
     expect(n!.status).toBe("handled");
   });
@@ -695,7 +695,7 @@ describe("review F2, punto 7, lato server: «Quale progetto?» per chi vede solo
     expect(view.projectId).toBe(beta!.id);
     expect(JSON.stringify(view)).not.toContain(projectId);
     const chosen = await app.inject({ method: "POST", url: `/api/me/mail/proposals/${proposal.id}/choose-project`, headers: zoe.headers, payload: { projectId: beta!.id } });
-    expect(chosen.json()).toEqual({ status: "moved", projectId: beta!.id });
+    expect(chosen.json()).toMatchObject({ status: "moved", projectId: beta!.id });
   });
 
   it("NEGATIVO: chi non vede NESSUNO dei progetti incerti non la vede", async () => {

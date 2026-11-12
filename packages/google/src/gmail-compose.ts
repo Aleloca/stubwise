@@ -31,7 +31,10 @@ export interface MimeInput {
   subject: string;
   body: string;
   inReplyTo?: string | null;
+  /** La catena del thread, dal più vecchio (review F3, punto 7). */
   references?: readonly string[];
+  /** Un Message-ID nostro (review F3, punto 6): il poller riconosce così l'email mandata da Stubwise. */
+  messageId?: string | null;
   attachments?: readonly MimeAttachment[];
 }
 
@@ -40,10 +43,63 @@ function oneLine(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim();
 }
 
-/** RFC 2047 per i valori non ASCII; ASCII resta com'è. */
+/** Byte UTF-8 per encoded word: 45 → 60 caratteri di base64, la parola resta ≤ 75 (RFC 2047). */
+const WORD_BYTES = 45;
+/** Lunghezza a cui si ripiega un'intestazione ASCII lunga (il tetto è 998, RFC 5322). */
+const FOLD_AT = 76;
+
+/** Ripiega un valore ASCII sugli spazi: nessuna riga oltre il tetto. */
+function foldAscii(value: string): string {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of value.split(" ")) {
+    if (line !== "" && line.length + 1 + word.length > FOLD_AT) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line === "" ? word : `${line} ${word}`;
+    }
+  }
+  lines.push(line);
+  // Una «parola» più lunga del tetto (senza spazi) si spezza comunque sotto i 998.
+  return lines.flatMap((l) => l.match(/.{1,900}/g) ?? [""]).join("\r\n ");
+}
+
+/**
+ * RFC 2047 per i valori non ASCII, a parole di al più 75 caratteri ripiegate
+ * (review F3, punto 7: senza spezzare un carattere fra due parole); ASCII
+ * resta com'è, ripiegato se lungo.
+ */
 function encodeWord(value: string): string {
   const clean = oneLine(value);
-  return /^[\x20-\x7e]*$/.test(clean) ? clean : `=?UTF-8?B?${Buffer.from(clean, "utf8").toString("base64")}?=`;
+  if (/^[\x20-\x7e]*$/.test(clean)) return foldAscii(clean);
+  const words: string[] = [];
+  let chunk = "";
+  for (const ch of clean) {
+    if (Buffer.byteLength(chunk + ch, "utf8") > WORD_BYTES) {
+      words.push(chunk);
+      chunk = ch;
+    } else {
+      chunk += ch;
+    }
+  }
+  if (chunk !== "") words.push(chunk);
+  return words.map((w) => `=?UTF-8?B?${Buffer.from(w, "utf8").toString("base64")}?=`).join("\r\n ");
+}
+
+/** Il `name` di `Content-Type`: ASCII con l'escape, altrimenti UNA encoded word (dentro le virgolette non si ripiega). */
+function contentTypeName(name: string): string {
+  const clean = oneLine(name);
+  if (/^[\x20-\x7e]*$/.test(clean)) return clean.replace(/(["\\])/g, "\\$1");
+  return `=?UTF-8?B?${Buffer.from(clean, "utf8").toString("base64")}?=`;
+}
+
+/** Il nome di un file per `Content-Disposition`: il ripiego ASCII quotato con l'escape, e `filename*` (RFC 2231). */
+function filenameParams(name: string): string {
+  const clean = oneLine(name);
+  const ascii = clean.replace(/[^\x20-\x7e]/g, "_").replace(/(["\\])/g, "\\$1");
+  const extended = encodeURIComponent(clean).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `filename="${ascii}"; filename*=UTF-8''${extended}`;
 }
 
 function formatAddress(address: MailAddressInput): string {
@@ -67,6 +123,7 @@ export function buildMimeMessage(input: MimeInput): string {
     `To: ${input.to.map(formatAddress).join(", ")}`,
     ...(input.cc.length > 0 ? [`Cc: ${input.cc.map(formatAddress).join(", ")}`] : []),
     `Subject: ${encodeWord(input.subject)}`,
+    ...(input.messageId ? [`Message-ID: ${oneLine(input.messageId)}`] : []),
     ...(input.inReplyTo ? [`In-Reply-To: ${oneLine(input.inReplyTo)}`] : []),
     ...(input.references && input.references.length > 0 ? [`References: ${input.references.map(oneLine).join(" ")}`] : []),
   ];
@@ -84,9 +141,9 @@ export function buildMimeMessage(input: MimeInput): string {
     textPart,
     ...attachments.map((a) =>
       [
-        `Content-Type: ${oneLine(a.mimeType)}; name="${encodeWord(a.name)}"`,
+        `Content-Type: ${oneLine(a.mimeType)}; name="${contentTypeName(a.name)}"`,
         "Content-Transfer-Encoding: base64",
-        `Content-Disposition: attachment; filename="${encodeWord(a.name)}"`,
+        `Content-Disposition: attachment; ${filenameParams(a.name)}`,
         "",
         base64Lines(a.content),
       ].join("\r\n"),

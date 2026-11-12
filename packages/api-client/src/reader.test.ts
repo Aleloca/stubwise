@@ -25,6 +25,7 @@ const NOW = "2026-09-02T10:00:00.000Z";
  */
 const ARGS_FOR: Record<string, unknown[]> = {
   "drive.upload": [ID, new Blob(["x"]), "x.pdf"],
+  "mail.uploadAttachment": [ID, new Blob(["x"]), "x.txt"],
 };
 
 function responseSchemas(): {
