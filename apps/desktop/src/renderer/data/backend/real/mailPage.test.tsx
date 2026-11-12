@@ -125,7 +125,7 @@ beforeEach(() => {
     "GET /api/me/google/accounts": { body: [account] },
     "GET /api/me/mail/threads": { body: { items: [thread], nextCursor: null } },
     "GET /api/me/mail/threads/t-1": { body: detail },
-    [`GET /api/me/mail/email/${M1}/original`]: {
+    [`GET /api/me/mail/email_triage/${M1}/original`]: {
       body: { subject: "Preventivo Rossi", from: "Bob Rossi <bob@client.test>", to: [], cc: [], bodyText: null, bodyHtml: null, attachments: [{ filename: "preventivo.pdf", mimeType: "application/pdf" }] },
     },
     "POST /api/me/mail/threads/t-1/read": { body: detail },

@@ -182,12 +182,16 @@ describe("la Posta in lettura: l'elenco per conversazione", () => {
 });
 
 describe("la Posta in lettura: una conversazione", () => {
+  // L'originale di un MESSAGGIO si chiede con la source `email_triage`: con
+  // `email` il server cerca una PROPOSTA (`email_proposals.id`) e risponde 404.
+  // Il server finto risponde 404 a ogni rotta che non conosce, come quello vero.
+
   it("i messaggi dal più vecchio: l'estratto, l'originale HTML isolato, gli allegati, il contesto", async () => {
     const { seen } = installFakeServer({
       ...common,
       "GET /api/me/mail/threads/t-1": { body: detail() },
-      [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
-      [`GET /api/me/mail/email/${M2}/original`]: { body: original({ bodyHtml: null, attachments: [], cc: [] }) },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
+      [`GET /api/me/mail/email_triage/${M2}/original`]: { body: original({ bodyHtml: null, attachments: [], cc: [] }) },
     });
     const t = await mail.getMailThread(`${ACC}_t-1`);
     expect(query(seen.find((r) => r.path.startsWith("/api/me/mail/threads/t-1"))!.path).get("account")).toBe(ACC);
@@ -221,7 +225,7 @@ describe("la Posta in lettura: una conversazione", () => {
     installFakeServer({
       ...common,
       "GET /api/me/mail/threads/t-1": { body: detail({ messages: [message()] }) },
-      [`GET /api/me/mail/email/${M1}/original`]: { status: 409, body: { code: "token_expired", message: "x" } },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { status: 409, body: { code: "token_expired", message: "x" } },
     });
     const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
     expect(m).toMatchObject({ text: "Ecco il preventivo.", html: null, attachments: [], cc: null });
@@ -238,7 +242,7 @@ describe("la Posta in lettura: una conversazione", () => {
           }),
         ],
       }) },
-      [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
       [`POST /api/me/mail/email/${P1}/repropose`]: { body: { ok: true } },
     });
     const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
@@ -253,7 +257,7 @@ describe("la Posta in lettura: una conversazione", () => {
       "GET /api/me/mail/threads/t-1": { body: detail({
         messages: [message({ proposalIds: [], reproposals: [{ source: "email_triage", id: M1, projectName: null }] })],
       }) },
-      [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
       [`POST /api/me/mail/email_triage/${M1}/repropose`]: { body: { ok: true } },
     });
     const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
@@ -268,7 +272,7 @@ describe("la Posta in lettura: una conversazione", () => {
       "GET /api/me/mail/threads/t-1": { body: detail({
         messages: [message({ reproposals: [{ source: "email", id: P1, projectName: "Audin AI" }], proposalOutcomes: [{ id: P1, projectName: "Audin AI", failed: false, label: "Ignored" }] })],
       }) },
-      [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
     });
     const [m] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
     expect(m!.classification).toEqual({ state: "off" });
@@ -293,7 +297,7 @@ describe("letto / non letto, sincronizzato con Gmail (F1.3)", () => {
       ...common,
       "GET /api/me/mail/threads": page([thread({ unread: true }), thread({ threadId: "t-2", unread: false })]),
       "GET /api/me/mail/threads/t-1": { body: detail({ messages: [message({ unread: true })] }) },
-      [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
     });
     expect((await mail.listMailThreads()).map((r) => [r.threadId, r.unread])).toEqual([
       [`${ACC}_t-1`, 1],

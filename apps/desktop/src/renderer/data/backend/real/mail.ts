@@ -192,8 +192,10 @@ async function messageView(
 ): Promise<MailMessageView> {
   // L'originale (riletto da Gmail o dalla cache del server, già sanificato):
   // l'HTML in un frame isolato, gli allegati, le copie. Se non si legge, resta l'estratto.
+  // `email_triage` è la source dello spazio di id dei MESSAGGI (`email_messages.id`,
+  // con la proprietà della casella nella WHERE); `email` vorrebbe l'id di una proposta.
   const body = await appClient()
-    .mail.original("email", m.id)
+    .mail.original("email_triage", m.id)
     .catch(() => null);
   return {
     id: m.id,
