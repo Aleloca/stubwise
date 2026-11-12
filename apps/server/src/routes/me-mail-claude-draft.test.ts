@@ -121,7 +121,7 @@ describe("POST /api/me/mail/drafts/claude", () => {
     const done = events.at(-1)!;
     expect(done).toMatchObject({ type: "done", text: reply.join(""), projectId: project.id });
     expect(done.used).toEqual([{ taskId: expect.any(String), code: expect.stringMatching(/-91$/), title: "Banner review", late: true }]);
-    expect(seen[0]!.usage).toEqual({ operation: "mail_draft", projectId: project.id, defaultModel: "claude-sonnet-5-5" });
+    expect(seen[0]!.usage).toEqual({ operation: "mail_draft", projectId: project.id, defaultModel: "claude-sonnet-5-5", userId: me.id });
     void tag;
   });
 
@@ -181,6 +181,26 @@ describe("POST /api/me/mail/drafts/claude", () => {
       await db.update(instanceSettings).set({ monthlyBudgetUsd: null }).where(eq(instanceSettings.id, 1));
     }
     expect(seen).toEqual([]);
+  });
+
+  it("review F3, punto 8: il tetto per persona al giorno — oltre, 429 daily_limit prima dello stream; un altro può ancora", async () => {
+    const { me, other, box, threadId } = await seed();
+    const { MAIL_DRAFT_DAILY_LIMIT } = await import("../services/mail-claude-draft.js");
+    await db.insert(agentRuns).values(
+      Array.from({ length: MAIL_DRAFT_DAILY_LIMIT }, () => ({ operation: "mail_draft", model: "claude-sonnet-5-5", requestedByUserId: me.id }) as typeof agentRuns.$inferInsert),
+    );
+    // Una di ieri non conta.
+    try {
+      const { res } = await ask(me.headers, { accountId: box.id, threadId, mode: "reply", hint: "" });
+      expect(res.statusCode).toBe(429);
+      expect((res.json() as { code: string }).code).toBe("daily_limit");
+      expect(seen).toEqual([]);
+      const { eq: eqU } = await import("drizzle-orm");
+      await db.update(agentRuns).set({ requestedByUserId: other.id }).where(eqU(agentRuns.requestedByUserId, me.id));
+      expect((await ask(me.headers, { accountId: box.id, threadId, mode: "reply", hint: "" })).res.statusCode).toBe(200);
+    } finally {
+      await db.delete(agentRuns).where(eq(agentRuns.operation, "mail_draft"));
+    }
   });
 
   it("un errore a metà: evento error claude_unavailable, nessun done; e in nessun caso bozze o invii", async () => {

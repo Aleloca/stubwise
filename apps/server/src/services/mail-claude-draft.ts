@@ -1,4 +1,4 @@
-import { emailBodies, emailMessages, emailProposals, googleAccounts, projectStatuses, projects, tickets, users, type Db } from "@stubwise/db";
+import { agentRuns, emailBodies, emailMessages, emailProposals, googleAccounts, projectStatuses, projects, tickets, users, type Db } from "@stubwise/db";
 import { projectPermissionsOfUser } from "@stubwise/notifications";
 import { resolveApiModelId, type MailComposeMode } from "@stubwise/shared";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
@@ -30,6 +30,18 @@ import type { ChatMessage } from "../routes/chat-llm.js";
 /** Operazione e modello: Sonnet di default, configurabile in Impostazioni → Modelli. */
 export const MAIL_DRAFT_OPERATION = "mail_draft" as const;
 export const MAIL_DRAFT_DEFAULT_MODEL = resolveApiModelId("sonnet");
+
+/** Quante bozze di Claude per persona in 24 ore (review F3, punto 8): oltre, 429. */
+export const MAIL_DRAFT_DAILY_LIMIT = 100;
+
+/** Il tetto per persona: le bozze delle ultime 24 ore, dalle righe dei consumi. */
+export async function mailDraftLimitReached(db: Db, userId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.requestedByUserId, userId), eq(agentRuns.operation, MAIL_DRAFT_OPERATION), sql`${agentRuns.createdAt} > now() - interval '24 hours'`));
+  return (row?.n ?? 0) >= MAIL_DRAFT_DAILY_LIMIT;
+}
 
 /** Gli ultimi messaggi della conversazione che entrano nel prompt, e quanto di ognuno. */
 const MAX_MESSAGES = 8;

@@ -116,6 +116,12 @@ export async function sendDraftLater(db: Db, userId: string, draftId: string): P
         draftId: draft.id,
         gmailDraftId: draft.gmailDraftId,
         threadId: draft.threadId,
+        // La copia per dopo (review F3, punti 6 e 10): la bozza se ne va all'invio.
+        rfcMessageId: draft.rfcMessageId,
+        toAddresses: draft.toAddresses,
+        ccAddresses: draft.ccAddresses,
+        subject: draft.subject,
+        body: draft.body,
         sendAt: sql`now() + make_interval(secs => ${MAIL_UNDO_SECONDS})`,
       })
       .returning();

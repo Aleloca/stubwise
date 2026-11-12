@@ -263,9 +263,10 @@ async function outgoingMessages(db: Db, userId: string, accountId: string, accou
     .map(({ outgoing, draft }) => ({
       id: outgoing.id,
       from: accountEmail,
-      to: (draft?.toAddresses ?? []).map((a) => a.email),
+      // La copia sull'invio (review F3, punto 10); la bozza solo per le righe di prima.
+      to: (outgoing.toAddresses.length > 0 ? outgoing.toAddresses : (draft?.toAddresses ?? [])).map((a) => a.email),
       receivedAt: outgoing.createdAt.toISOString(),
-      textExcerpt: draft?.body ?? null,
+      textExcerpt: outgoing.body !== "" ? outgoing.body : (draft?.body ?? null),
       admitted: true,
       proposalIds: [],
       reproposals: [],

@@ -17,7 +17,7 @@ import {
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import { normalizeAddress, projectPermissionsOfUser } from "@stubwise/notifications";
 import type { MailComposeAddress, MailComposeMode, MailDraft } from "@stubwise/shared";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, lte, sql } from "drizzle-orm";
 
 /**
  * LE BOZZE DELLA POSTA (area 6, fetta 3, D7 = b): bozze di GMAIL. Stubwise
@@ -50,6 +50,8 @@ export const realMailComposeClient: MailComposeClient = { refreshAccessToken, cr
 
 /** Quanto vale la copia della firma per il compositore, prima di rileggerla. */
 export const SIGNATURE_MAX_AGE_MS = 24 * 3600_000;
+/** Il tetto della firma, in caratteri. */
+export const SIGNATURE_MAX_CHARS = 2000;
 
 type SignatureView = Pick<MailDraft, "signature" | "signatureStatus">;
 
@@ -70,7 +72,9 @@ async function signatureOf(db: Db, accountId: string): Promise<SignatureView> {
  */
 async function refreshSignature(db: Db, client: MailComposeClient, accessToken: string, account: { id: string; email: string }): Promise<void> {
   try {
-    const text = await client.getSendAsSignature({ accessToken, sendAsEmail: account.email });
+    const raw = await client.getSendAsSignature({ accessToken, sendAsEmail: account.email });
+    // Un tetto: una firma è qualche riga, non un documento (review F3, punto 9).
+    const text = raw === null ? null : raw.slice(0, SIGNATURE_MAX_CHARS);
     await db.update(googleAccounts).set({ signatureText: text, signatureFetchedAt: new Date() }).where(eq(googleAccounts.id, account.id));
   } catch {
     // La copia resta quella che c'era.
@@ -263,6 +267,23 @@ export async function draftFor(
   return { ...blank, replyToMessageId: ref.id, to, cc, subject: withPrefix("Re:", ref.subject) };
 }
 
+/**
+ * `References`: la catena del thread fino al messaggio a cui si risponde,
+ * dal più vecchio (review F3, punto 7). Dai Message-ID che abbiamo dei
+ * messaggi della conversazione, nella casella di chi scrive.
+ */
+async function referenceChain(db: Db, accountId: string, threadId: string | null, replyTo: string | null): Promise<string[]> {
+  if (!threadId || !replyTo) return [];
+  const [ref] = await db.select({ receivedAt: emailMessages.receivedAt }).from(emailMessages).where(eq(emailMessages.id, replyTo));
+  if (!ref) return [];
+  const rows = await db
+    .select({ rfc: emailMessages.rfcMessageId })
+    .from(emailMessages)
+    .where(and(eq(emailMessages.accountId, accountId), eq(emailMessages.threadId, threadId), lte(emailMessages.receivedAt, ref.receivedAt)))
+    .orderBy(emailMessages.receivedAt, emailMessages.id);
+  return [...new Set(rows.flatMap((r) => (r.rfc ? [r.rfc] : [])))];
+}
+
 /** Il testo che va su Gmail: il corpo, più la citazione se chiesta. */
 async function composedBody(
   db: Db,
@@ -308,6 +329,8 @@ export async function saveDraft(
     quote: boolean;
     /** «Tieni la mia»: scrive sopra una bozza cambiata da Gmail (un gesto, mai il default). */
     overwrite?: boolean;
+    /** La versione letta dal client: una bozza cambiata da allora è `draft_changed` (review F3, punto 11). */
+    baseUpdatedAt?: string | null;
   },
 ): Promise<MailDraft | DraftError> {
   const writable = await writableAccount(db, userId, input.accountId);
@@ -333,6 +356,11 @@ export async function saveDraft(
       ),
     );
 
+  // Due client di Stubwise sulla stessa bozza: chi parte da una versione
+  // vecchia non sovrascrive in silenzio (al millisecondo: il client legge un ISO).
+  if (existing && input.baseUpdatedAt && !input.overwrite && existing.updatedAt.toISOString() !== new Date(input.baseUpdatedAt).toISOString()) {
+    return { error: "draft_changed" };
+  }
   let accessToken: string | null;
   try {
     accessToken = await accessTokenFor(db, encryptionKey, client, input.accountId);
@@ -343,9 +371,16 @@ export async function saveDraft(
 
   const files = existing ? await attachmentBytes(db, storage, userId, existing.id) : [];
   if (!Array.isArray(files)) return files;
-  await refreshSignature(db, client, accessToken, writable.account);
+  // La copia vale un giorno anche qui (review F3, punto 9): ogni salvataggio
+  // (anche l'autosalvataggio) non rilegge Google.
+  const [cached] = await db.select({ at: googleAccounts.signatureFetchedAt }).from(googleAccounts).where(eq(googleAccounts.id, input.accountId));
+  if (!cached?.at || Date.now() - cached.at.getTime() > SIGNATURE_MAX_AGE_MS) await refreshSignature(db, client, accessToken, writable.account);
   const { signature } = await signatureOf(db, input.accountId);
   const { text, inReplyTo } = await composedBody(db, input.body, input.quote, input.replyToMessageId, signature);
+  // Il Message-ID è NOSTRO e stabile per la bozza (review F3, punto 6): il
+  // poller riconosce così l'email mandata da Stubwise. Il dominio è quello
+  // del mittente, come vuole la RFC.
+  const rfcMessageId = existing?.rfcMessageId ?? `<stubwise.${randomUUID()}@${writable.account.email.split("@")[1] ?? "stubwise.invalid"}>`;
   const raw = encodeRaw(
     buildMimeMessage({
       from: { email: writable.account.email },
@@ -354,8 +389,9 @@ export async function saveDraft(
       subject: input.subject,
       body: text,
       inReplyTo,
-      references: inReplyTo ? [inReplyTo] : [],
+      references: inReplyTo ? await referenceChain(db, input.accountId, input.threadId, input.replyToMessageId) : [],
       attachments: files,
+      messageId: rfcMessageId,
     }),
   );
 
@@ -384,6 +420,7 @@ export async function saveDraft(
       subject: input.subject,
       body: input.body,
       quote: input.quote,
+      rfcMessageId,
     };
     const [row] = existing
       ? await db.update(mailDrafts).set(values).where(eq(mailDrafts.id, existing.id)).returning()
