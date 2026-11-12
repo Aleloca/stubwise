@@ -272,6 +272,17 @@ export function createMailEndpoints(request: ApiRequest) {
       return request("DELETE", `/api/me/mail/drafts/${seg(draftId)}/attachments/${seg(attachmentId)}`, undefined, mailDraftSchema);
     },
     /**
+     * «Chiedi a Claude»: il path dello stream (POST, `text/event-stream`).
+     * Lo legge il chiamante (sul desktop dal main, sul web con il cookie): il
+     * corpo è `mailClaudeDraftRequestSchema`, ogni `data:` un
+     * `mailClaudeDraftEventSchema` (`delta`, poi `done`; o `error`). Rifiuti
+     * prima dello stream, in JSON: 404 `not_found`, 400 `invalid_hint`, 409
+     * `budget_exhausted`, 503 `claude_unavailable`.
+     */
+    claudeDraftPath(): string {
+      return "/api/me/mail/drafts/claude";
+    },
+    /**
      * I destinatari suggeriti mentre si scrive un indirizzo: prima il team
      * che chi scrive vede (`group: "team"`, con `personId`), poi gli indirizzi
      * delle sue caselle (`"mail"`). Una q vuota dà una lista vuota.

@@ -338,5 +338,9 @@ describe("endpoints mail", () => {
     expect(out.items[0]).toMatchObject({ email: "m@acme.com", group: "team", personId: ID });
     expect(out.items[1]).toMatchObject({ email: "x@y.it", group: UNKNOWN, name: null, personId: null });
   });
-});
 
+  it("la bozza di Claude: il path dello stream (POST, SSE) in un posto solo", () => {
+    const { c } = clientReturning(200, {});
+    expect(c.mail.claudeDraftPath()).toBe("/api/me/mail/drafts/claude");
+  });
+});

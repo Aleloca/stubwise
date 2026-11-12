@@ -1,4 +1,4 @@
-import { tickets, type Db } from "@stubwise/db";
+import { tickets, VIA_CLAUDE_SETTING, type Db } from "@stubwise/db";
 import {
   CLAUDE_ACTION_ARGS,
   CLAUDE_DECLARED_CLASS,
@@ -7,7 +7,7 @@ import {
   type ProjectPermission,
   type TaskPatch,
 } from "@stubwise/shared";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { FastifyRequest } from "fastify";
 import type { RouteAccess } from "../auth/access.js";
 import { backlogItemAccess, fromBody, fromMilestone, fromTicket, ticketVisible } from "../auth/project-resolvers.js";
@@ -430,7 +430,10 @@ const ENTRIES: CatalogEntry[] = [
       const input = args as { accountId: string; threadId: string | null; mode: "new" | "reply" | "replyAll" | "forward"; text: string };
       const target = await mailBodyTarget(tx, user.id, input);
       if (target !== "ok") return refused(target, `mail_${target}`);
-      saveMailBody(user.id, input);
+      // L'id di QUESTA azione (l'esecutore lo mette nella transazione prima di `run`):
+      // il seguito ci scrive l'esito se Gmail non risponde.
+      const [current] = await tx.execute<{ id: string | null }>(sql`select nullif(current_setting(${VIA_CLAUDE_SETTING}, true), '') as id`);
+      saveMailBody(user.id, input, current?.id ?? null);
       return { ok: true, result: { inverse: null, objects: [], codes: [] } };
     },
   },

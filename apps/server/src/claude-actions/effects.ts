@@ -33,6 +33,8 @@ export interface ActionEffects {
    * area 6, F3). La dà la rotta: il catalogo non conosce il client di Gmail.
    * Lancia se il salvataggio non riesce.
    */
+  /** Registra sull'azione che il suo seguito non è riuscito (la scheda lo mostra). */
+  markEffectFailure?: (actionId: string, code: string) => Promise<void>;
   mailBody?: (userId: string, args: { accountId: string; threadId: string | null; mode: "new" | "reply" | "replyAll" | "forward"; text: string }) => Promise<void>;
 }
 
@@ -111,10 +113,17 @@ export function deleteStoredObjects(keys: readonly string[]): void {
 export function saveMailBody(
   userId: string,
   args: { accountId: string; threadId: string | null; mode: "new" | "reply" | "replyAll" | "forward"; text: string },
+  actionId: string | null,
 ): void {
   afterCommit(async (effects) => {
-    if (!effects.mailBody) throw new Error("fillMailBody senza il salvataggio delle bozze");
-    await effects.mailBody(userId, args);
+    try {
+      if (!effects.mailBody) throw new Error("fillMailBody senza il salvataggio delle bozze");
+      await effects.mailBody(userId, args);
+    } catch (error) {
+      // L'esito deve dire la verità: il testo NON è nella bozza di Gmail.
+      if (actionId && effects.markEffectFailure) await effects.markEffectFailure(actionId, "mail_not_saved");
+      throw error;
+    }
   });
 }
 

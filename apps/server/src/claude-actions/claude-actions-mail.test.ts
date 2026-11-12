@@ -16,9 +16,11 @@ const GMAIL_MODIFY = "https://www.googleapis.com/auth/gmail.modify";
 let t: TestDb;
 let app: ReturnType<typeof buildApp>;
 const gmail: { fn: string; raw?: string; threadId?: string | null }[] = [];
+let createError: unknown = null;
 const fake: MailComposeClient = {
   refreshAccessToken: async () => ({ accessToken: "at", expiresInSeconds: 3600, refreshToken: null, scopes: [], tokenType: "Bearer", idToken: null }),
   createDraft: async (input) => {
+    if (createError) throw createError;
     gmail.push({ fn: "create", raw: input.raw, threadId: input.threadId ?? null });
     return { id: "gd-1", messageId: "gm-1", threadId: input.threadId ?? null };
   },
@@ -38,6 +40,7 @@ beforeAll(async () => {
 }, 120_000);
 beforeEach(() => {
   gmail.length = 0;
+  createError = null;
 });
 afterAll(async () => {
   await app.close();
@@ -116,4 +119,30 @@ describe("fillMailBody", () => {
     expect((missing.json() as { status?: string }).status).not.toBe("awaiting_confirmation");
     expect(gmail).toEqual([]);
   });
+
+  it("Gmail fallisce DOPO la conferma: l'esito lo DICE (effectFailure sull'azione), col testo ancora negli argomenti da copiare", async () => {
+    const s = await scenario();
+    const res = await propose(s.sessionId, s.tok, [{ fn: "fillMailBody", args: { accountId: s.box.id, threadId: s.threadId, mode: "reply", text: "Ciao, arriva lunedì." } }]);
+    const proposalId = (res.json() as { proposalId: string }).proposalId;
+    createError = new Error("gmail giù");
+    const ok = await app.inject({ method: "POST", url: `/api/claude/proposals/${proposalId}/confirm`, headers: { cookie: s.me.headers.cookie }, payload: {} });
+    expect(ok.statusCode).toBe(200);
+    expect(await t.db.select().from(mailDrafts).where(eq(mailDrafts.userId, s.me.id))).toEqual([]);
+    const groups = (await app.inject({ method: "GET", url: `/api/claude/conversations/${s.sessionId}/groups`, headers: { cookie: s.me.headers.cookie } })).json() as {
+      actions: { fn: string; args: { text: string }; effectFailure: string | null }[];
+    }[];
+    const action = groups.flatMap((g) => g.actions).find((a) => a.fn === "fillMailBody")!;
+    expect(action.effectFailure).toBe("mail_not_saved");
+    expect(action.args.text).toBe("Ciao, arriva lunedì.");
+  });
+
+  it("riuscita: effectFailure null", async () => {
+    const s = await scenario();
+    const res = await propose(s.sessionId, s.tok, [{ fn: "fillMailBody", args: { accountId: s.box.id, threadId: s.threadId, mode: "reply", text: "ok" } }]);
+    const proposalId = (res.json() as { proposalId: string }).proposalId;
+    await app.inject({ method: "POST", url: `/api/claude/proposals/${proposalId}/confirm`, headers: { cookie: s.me.headers.cookie }, payload: {} });
+    const groups = (await app.inject({ method: "GET", url: `/api/claude/conversations/${s.sessionId}/groups`, headers: { cookie: s.me.headers.cookie } })).json() as { actions: { effectFailure: string | null }[] }[];
+    expect(groups.flatMap((g) => g.actions).map((a) => a.effectFailure)).toEqual([null]);
+  });
 });
+

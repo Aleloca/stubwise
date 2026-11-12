@@ -1,4 +1,4 @@
-import { mailComposeModeSchema, mailDraftListSchema, mailDraftRestoreSchema, mailDraftSaveSchema, mailDraftSchema, mailOutgoingSchema, mailRecipientSuggestionListSchema } from "@stubwise/shared";
+import { mailComposeModeSchema, mailDraftListSchema, mailDraftRestoreSchema, mailDraftSaveSchema, mailDraftSchema, mailOutgoingSchema, mailRecipientSuggestionListSchema, mailClaudeDraftRequestSchema } from "@stubwise/shared";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -113,13 +113,7 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
     {
       config: { access: { kind: "user" } },
       schema: {
-        body: z.object({
-          accountId: z.uuid(),
-          threadId: z.string().max(200).nullable().default(null),
-          mode: mailComposeModeSchema,
-          hint: z.string().max(2000).default(""),
-          projectId: z.uuid().nullable().default(null),
-        }),
+        body: mailClaudeDraftRequestSchema,
         response: { 400: errorSchema, 503: errorSchema, ...errors },
       },
     },
