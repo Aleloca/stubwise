@@ -521,7 +521,9 @@ describe("review F4 (critico): l'etag non resta vecchio", () => {
     const { seen } = installFakeServer({
       ...base,
       [`GET /api/me/calendar/events/${EV}`]: () => ({ body: row({ etag: serverEtag }) }),
-      "GET /api/me/calendar/range": () => ({ body: { items: [row({ etag: serverEtag })], nextCursor: null } }),
+      "GET /api/me/calendar/range": () => ({
+        body: { items: [row({ etag: serverEtag })], nextCursor: null },
+      }),
       [`POST /api/me/calendar/events/${EV}/move`]: (req: SeenRequest) =>
         (req.body as { etag: string }).etag === serverEtag
           ? { body: { items: [row({ ...(req.body as Record<string, unknown>), etag: '"e3"' })] } }
@@ -530,24 +532,46 @@ describe("review F4 (critico): l'etag non resta vecchio", () => {
     await w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one");
     // Google cambia l'etag (un invitato risponde) e il poller riscrive la riga.
     serverEtag = '"e7"';
-    const failed = await w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T13:00:00.000Z", "one");
+    const failed = await w.moveEvent!(
+      EV,
+      "2026-11-13T12:00:00.000Z",
+      "2026-11-13T13:00:00.000Z",
+      "one",
+    );
     expect(failed.save).toEqual({ state: "failed", error: "changed" });
     await w.revertEvent!(EV);
-    const ok = await w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T13:00:00.000Z", "one");
+    const ok = await w.moveEvent!(
+      EV,
+      "2026-11-13T12:00:00.000Z",
+      "2026-11-13T13:00:00.000Z",
+      "one",
+    );
     expect(ok.save).toEqual({ state: "saved" });
-    expect(seen.filter((r) => r.path.endsWith("/move")).map((r) => (r.body as { etag: string }).etag).at(-1)).toBe('"e7"');
+    expect(
+      seen
+        .filter((r) => r.path.endsWith("/move"))
+        .map((r) => (r.body as { etag: string }).etag)
+        .at(-1),
+    ).toBe('"e7"');
   });
 
   it("una lettura della griglia porta l'etag fresco: la scrittura dopo usa quello", async () => {
     const { seen } = installFakeServer({
       ...base,
       "GET /api/me/calendar/range": { body: { items: [row({ etag: '"e5"' })], nextCursor: null } },
-      [`POST /api/me/calendar/events/${EV}/move`]: (req: SeenRequest) => ({ body: { items: [row({ ...(req.body as Record<string, unknown>) })] } }),
+      [`POST /api/me/calendar/events/${EV}/move`]: (req: SeenRequest) => ({
+        body: { items: [row({ ...(req.body as Record<string, unknown>) })] },
+      }),
     });
     await w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one");
     await calendar.listEvents({ from: "2026-11-13T00:00:00Z", to: "2026-11-14T00:00:00Z" });
     await w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T13:00:00.000Z", "one");
-    expect(seen.filter((r) => r.path.endsWith("/move")).map((r) => (r.body as { etag: string }).etag).at(-1)).toBe('"e5"');
+    expect(
+      seen
+        .filter((r) => r.path.endsWith("/move"))
+        .map((r) => (r.body as { etag: string }).etag)
+        .at(-1),
+    ).toBe('"e5"');
   });
 });
 
@@ -558,13 +582,16 @@ describe("review F4 (5): «Saving…» si vede SUBITO, e le scritture dello stes
       ...base,
       [`POST /api/me/calendar/events/${EV}/move`]: (req: SeenRequest) =>
         new Promise((resolve) => {
-          release = () => resolve({ body: { items: [row({ ...(req.body as Record<string, unknown>) })] } });
+          release = () =>
+            resolve({ body: { items: [row({ ...(req.body as Record<string, unknown>) })] } });
         }),
     });
     const heard: { startsAt: string; save?: unknown }[] = [];
     const off = calendar.onSaving((e) => heard.push({ startsAt: e.startsAt, save: e.save }));
     const moving = w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one");
-    await vi.waitFor(() => expect(heard).toEqual([{ startsAt: "2026-11-13T11:00:00.000Z", save: { state: "saving" } }]));
+    await vi.waitFor(() =>
+      expect(heard).toEqual([{ startsAt: "2026-11-13T11:00:00.000Z", save: { state: "saving" } }]),
+    );
     release();
     await moving;
     off();
@@ -581,7 +608,9 @@ describe("review F4 (5): «Saving…» si vede SUBITO, e le scritture dello stes
         await new Promise((r) => setTimeout(r, 20));
         live -= 1;
         const n = seen.filter((x) => x.path.endsWith("/move")).length;
-        return { body: { items: [row({ ...(req.body as Record<string, unknown>), etag: `"e${n + 1}"` })] } };
+        return {
+          body: { items: [row({ ...(req.body as Record<string, unknown>), etag: `"e${n + 1}"` })] },
+        };
       },
     });
     await Promise.all([
@@ -589,7 +618,72 @@ describe("review F4 (5): «Saving…» si vede SUBITO, e le scritture dello stes
       w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T13:00:00.000Z", "one"),
     ]);
     expect(most).toBe(1);
-    const etags = seen.filter((r) => r.path.endsWith("/move")).map((r) => (r.body as { etag: string }).etag);
+    const etags = seen
+      .filter((r) => r.path.endsWith("/move"))
+      .map((r) => (r.body as { etag: string }).etag);
     expect(etags[1]).not.toBe(etags[0]);
+  });
+});
+
+describe("contratto di 72 (review F4, punto 12): «tutto il giorno» viaggia come DATE, con la fine esclusa", () => {
+  it("creare tutto il giorno: `YYYY-MM-DD`, mai la mezzanotte come istante", async () => {
+    const { seen } = installFakeServer({
+      ...base,
+      "POST /api/me/calendar/events": { status: 201, body: { items: [row()] } },
+    });
+    await w.createEvent!({
+      title: "Offsite",
+      startsAt: "2026-11-15T00:00:00.000Z",
+      endsAt: "2026-11-16T00:00:00.000Z",
+      allDay: true,
+    });
+    expect(posts(seen)[0]![2]).toMatchObject({
+      startsAt: "2026-11-15",
+      endsAt: "2026-11-16",
+      allDay: true,
+    });
+  });
+
+  it("creare con orario: restano istanti", async () => {
+    const { seen } = installFakeServer({
+      ...base,
+      "POST /api/me/calendar/events": { status: 201, body: { items: [row()] } },
+    });
+    await w.createEvent!({
+      title: "Kick-off",
+      startsAt: "2026-11-13T09:00:00.000Z",
+      endsAt: "2026-11-13T10:00:00.000Z",
+    });
+    expect(posts(seen)[0]![2]).toMatchObject({
+      startsAt: "2026-11-13T09:00:00.000Z",
+      endsAt: "2026-11-13T10:00:00.000Z",
+    });
+  });
+
+  it("spostare un evento tutto il giorno senza dirlo: decide la riga, e le date sono date", async () => {
+    const { seen } = installFakeServer({
+      ...base,
+      [`GET /api/me/calendar/events/${EV}`]: {
+        body: row({
+          allDay: true,
+          startsAt: "2026-11-13T00:00:00.000Z",
+          endsAt: "2026-11-14T00:00:00.000Z",
+        }),
+      },
+      [`POST /api/me/calendar/events/${EV}/move`]: { body: { items: [row({ allDay: true })] } },
+    });
+    await w.moveEvent!(EV, "2026-11-15T00:00:00.000Z", "2026-11-16T00:00:00.000Z", "one");
+    expect(posts(seen)[0]![2]).toMatchObject({ startsAt: "2026-11-15", endsAt: "2026-11-16" });
+  });
+
+  it("spostare dicendo «tutto il giorno»: date anche se la riga aveva l'orario", async () => {
+    const { seen } = installFakeServer({
+      ...base,
+      [`POST /api/me/calendar/events/${EV}/move`]: { body: { items: [row({ allDay: true })] } },
+    });
+    await w.moveEvent!(EV, "2026-11-15T00:00:00.000Z", "2026-11-16T00:00:00.000Z", "one", true);
+    expect(posts(seen)[0]![2]).toEqual(
+      expect.objectContaining({ startsAt: "2026-11-15", endsAt: "2026-11-16", allDay: true }),
+    );
   });
 });

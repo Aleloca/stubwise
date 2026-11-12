@@ -104,6 +104,15 @@ async function write(run: () => Promise<unknown>): Promise<CalendarEventView> {
   }
 }
 
+/**
+ * Gli orari come li vuole il server (contratto di 72, review F4 punto 12):
+ * «tutto il giorno» è una DATA `YYYY-MM-DD` con la fine esclusa, mai la
+ * mezzanotte come istante (a est di Greenwich prenoterebbe il giorno prima).
+ * Il renderer tiene un giorno intero a mezzanotte UTC, quindi è la data UTC.
+ */
+const wireTime = (at: string, allDay: boolean): string =>
+  allDay ? new Date(at).toISOString().slice(0, 10) : at;
+
 /** Nuova riunione: dalla prima casella collegata (il prototipo ha un account per persona). */
 /** Un id di Google per una riunione nuova: base32hex (`[a-v0-9]`), l'esadecimale di un uuid lo è. */
 export const newEventId = (): string => crypto.randomUUID().replace(/-/g, "");
@@ -117,8 +126,8 @@ const createEvent: Calendar["createEvent"] = async (input) => {
       eventId: input.draftId ?? newEventId(),
       accountId: firstConnected,
       title: input.title,
-      startsAt: input.startsAt,
-      endsAt: input.endsAt,
+      startsAt: wireTime(input.startsAt, input.allDay === true),
+      endsAt: wireTime(input.endsAt, input.allDay === true),
       allDay: input.allDay === true,
       guests: input.guests ?? [],
       addMeet: input.addMeet === true,
@@ -164,13 +173,13 @@ async function currentView(id: string): Promise<CalendarEventView> {
 async function saving(
   id: string,
   patch: (e: CalendarEventView) => Partial<CalendarEventView>,
-  request: (etag: string | null) => Promise<unknown>,
+  request: (etag: string | null, before: CalendarEventView) => Promise<unknown>,
 ): Promise<CalendarEventView> {
   const before = await currentView(id);
   const etag = await etagOf(id);
   const run = async () => {
     try {
-      return viewOfResult(await request(etagMap().get(id) ?? etag), id);
+      return viewOfResult(await request(etagMap().get(id) ?? etag, before), id);
     } catch (error) {
       throw saveErrorOf(error) === null ? writeError(error) : error;
     }
@@ -197,12 +206,13 @@ const moveEvent: Calendar["moveEvent"] = async (id, startsAt, endsAt, scope = "o
   saving(
     id,
     (e) => ({ startsAt, endsAt, allDay: allDay ?? e.allDay }),
-    (etag) =>
+    (etag, before) =>
       appClient().calendar.moveEvent(id, {
         scope,
         etag,
-        startsAt,
-        endsAt,
+        // Senza `allDay` decide la riga (il server fa lo stesso).
+        startsAt: wireTime(startsAt, allDay ?? before.allDay),
+        endsAt: wireTime(endsAt, allDay ?? before.allDay),
         ...(allDay === undefined ? {} : { allDay }),
       }),
   );
