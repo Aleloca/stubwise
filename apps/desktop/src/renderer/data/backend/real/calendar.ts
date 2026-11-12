@@ -209,8 +209,12 @@ const listCalendars: Calendar["listCalendars"] = async () => {
  */
 const listUpcomingEvents: Calendar["listUpcomingEvents"] = async () => {
   const from = Date.now();
-  const to = addDays(startOfLocalDay(new Date(from)), 2).getTime();
-  return (await eventsIn(from, to)).filter((e) => {
+  const today = startOfLocalDay(new Date(from));
+  const to = addDays(today, 2).getTime();
+  // Il server filtra per ISTANTI: un «tutto il giorno» di oggi finisce alla
+  // mezzanotte UTC, che in un fuso negativo è già passata la sera. Si chiede
+  // da ieri (giorno locale) e si taglia qui coi giorni di chi guarda.
+  return (await eventsIn(addDays(today, -1).getTime(), to)).filter((e) => {
     const s = spanOf(e);
     return s.from < to && s.to > from && e.myResponse !== "declined";
   });
