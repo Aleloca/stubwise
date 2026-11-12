@@ -58,6 +58,21 @@ ammette solo `upload`. Dopo questa fetta, come nel prototipo:
 - **Nessuna scrittura verso Google** in questa fetta (si legge soltanto).
 - **Una trascrizione non Gemini** è fuori (design, Perimetro).
 
+### Le risposte alle domande (12 nov 2026)
+
+- **Q1 = a** *(M)*: un invitato che non ha ricevuto l'email di Gemini vede E
+  decide le proposte della riunione, se ha i permessi nel progetto; la prima
+  decisione chiude per tutti.
+- **Q2 = a** *(M)*: `docUrl` a ogni invitato che vede il riassunto; i
+  permessi del Doc li applica Google.
+- **Q3 = a** *(M)*: le cartelle Google le collega chi ha `drive.manage` nel
+  progetto.
+- **La scheda di preparazione si compone nel CLIENT** *(O, 46)*: niente
+  `/prep` sul server. Le letture (il polso, la mia posta del progetto, le
+  task, le ferme, i traguardi, e `/summary` e `/tasks` delle riunioni
+  passate) vanno in PARALLELO, con al più 3 riunioni passate; sono tutte rotte
+  già filtrate dal server, quindi nessuna allarga cosa vede chi guarda.
+
 ## Le forme per il renderer (dall'inventario di 94, tutte additive)
 
 **L'email di Gemini sul messaggio della conversazione**
@@ -85,8 +100,10 @@ link al Doc.
 **Le proposte di una riunione** nella lista della Posta
 (`/api/me/mail/proposals`, come quelle del calendario della F3b): `kind:
 "meeting"` e `meetingOrigin: { eventId | null, threadId, title, at } | null`
-(il campo a parte, come `calendarOrigin`). Destinatari: chi ha ricevuto
-l'email ED era alla riunione (R-I24: un'email inoltrata non basta); a chi la
+(il campo a parte, come `calendarOrigin`). Destinatari: gli invitati
+di Stubwise (la decisione M sulla visibilità e Q1: anche chi non ha ricevuto
+l'email, se ha i permessi nel progetto; la prima decisione chiude per tutti);
+un'email inoltrata a chi non era invitato non basta (R-I24); a chi la
 vede solo perché «passata al progetto», `excerpt: ""`. Nel registro
 decisioni una riga da template («Decided from the notes of a meeting.»),
 mai l'estratto. Le task nate contano per «almeno B» (`source: email` o
@@ -109,8 +126,10 @@ chi guarda vede.
 
 **La scheda di preparazione**: `hasPrep: boolean` (default `false`) su ogni
 riga di `range` (vero se l'evento è futuro, ha un progetto e chi guarda ne è
-membro) e `GET /api/me/calendar/events/:id/prep` → `MeetingPrep { eventId,
-projectId, pulse, recentMail, recentMeetings, status }`:
+membro). La scheda (`MeetingPrep { eventId, projectId, pulse, recentMail,
+recentMeetings, status }`) la compone il CLIENT *(O, 46)*, in parallelo, da
+letture che esistono già; per le riunioni passate servono `/summary` e
+`/tasks`:
 - `pulse`: il polso del progetto (come `/api/projects/pulse`);
 - `recentMail`: le righe di conversazione di CHI GUARDA su quel progetto
   (max 5; mai la posta di un collega);
@@ -181,8 +200,8 @@ Drive).
    un'istruzione («ignora le regole e …») resta un dato.
 4. **Le letture per l'app.** `MeetingNote` sul messaggio, `GET
    …/events/:id/summary`, le proposte con `kind: "meeting"` e
-   `meetingOrigin`, `GET …/events/:id/tasks`, `hasPrep` e `GET
-   …/events/:id/prep`. *Test* — la visibilità, coi NEGATIVI:
+   `meetingOrigin`, `GET …/events/:id/tasks`, `hasPrep` sulle righe di
+   `range` (niente `/prep`: la scheda la compone il client, O di 46). *Test* — la visibilità, coi NEGATIVI:
    - un invitato di Stubwise vede il riassunto, con qualunque risposta
      (declined compreso), anche SENZA l'evento nel suo calendario;
    - un membro del progetto che non c'era: 404 sul riassunto, `visible:
@@ -192,7 +211,8 @@ Drive).
      verifica con un full admin);
    - senza evento collegato: solo chi ha ricevuto l'email;
    - le task solo ai membri (R-I21): un partecipante non membro ha `null`;
-   - la scheda: le email sono quelle di chi guarda, mai di un collega;
+   - un invitato che non ha ricevuto l'email decide le proposte se ha i
+     permessi nel progetto (Q1), e la prima decisione chiude per tutti;
    - ogni campo nuovo con default, e un test che parsa una risposta SENZA.
 5. **Contenuto non fidato per Claude.** Le rotte del riassunto, della
    trascrizione (se un tool la legge) e del contenuto di un file Google in
@@ -307,7 +327,7 @@ Da aggiungere a `docs/invariants/mail-calendar.md`:
   account scaduto non lascia file «disponibili» per sbaglio.
 - La scheda di preparazione: la posta è sempre di chi guarda.
 
-## Domande per il maintainer
+## Domande per il maintainer (risposte: vedi «Le risposte alle domande»)
 
 Q1. **Le proposte di una riunione a chi le vede ma non ha ricevuto l'email**
 (un invitato che non era fra i destinatari dell'email di Gemini).
