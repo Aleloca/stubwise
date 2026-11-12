@@ -25,11 +25,36 @@ const proposal = (over: Record<string, unknown> = {}) =>
     createdAt: "2026-11-12T08:05:00.000Z",
     excerpt: "Ecco il preventivo.",
     actions: [
-      { type: "create_task", args: { title: "Export CSV", description: "Per Rossi", assigneeId: BOB, dueDate: "2026-11-20" }, label: "Crea la task «Export CSV»" },
-      { type: "create_backlog_item", args: { title: "Preventivo", description: "" }, label: "Crea la richiesta «Preventivo»" },
-      { type: "update_ticket", args: { ticketId: T1, patch: { dueDate: "2026-11-21" } }, label: "Sposta la scadenza" },
-      { type: "comment_ticket", args: { ticketId: T1, body: "Il cliente conferma" }, label: "Commenta" },
-      { type: "create_milestone", args: { name: "Consegna", dueDate: "2026-11-30" }, label: "Traguardo" },
+      {
+        type: "create_task",
+        args: {
+          title: "Export CSV",
+          description: "Per Rossi",
+          assigneeId: BOB,
+          dueDate: "2026-11-20",
+        },
+        label: "Crea la task «Export CSV»",
+      },
+      {
+        type: "create_backlog_item",
+        args: { title: "Preventivo", description: "" },
+        label: "Crea la richiesta «Preventivo»",
+      },
+      {
+        type: "update_ticket",
+        args: { ticketId: T1, patch: { dueDate: "2026-11-21" } },
+        label: "Sposta la scadenza",
+      },
+      {
+        type: "comment_ticket",
+        args: { ticketId: T1, body: "Il cliente conferma" },
+        label: "Commenta",
+      },
+      {
+        type: "create_milestone",
+        args: { name: "Consegna", dueDate: "2026-11-30" },
+        label: "Traguardo",
+      },
       { type: "record_decision", args: { ticketId: T1 }, label: "Registra la decisione" },
     ],
     canConfirm: true,
@@ -37,7 +62,12 @@ const proposal = (over: Record<string, unknown> = {}) =>
     canReassign: true,
     outsiders: [{ userId: BOB, name: "Bob" }],
     sharedWith: [{ userId: CARLA, name: "Carla" }],
-    origin: { threadId: "t-1", accountId: ACC, from: "Bob Rossi <bob@client.test>", subject: "Preventivo" },
+    origin: {
+      threadId: "t-1",
+      accountId: ACC,
+      from: "Bob Rossi <bob@client.test>",
+      subject: "Preventivo",
+    },
     ...over,
   });
 
@@ -52,11 +82,32 @@ describe("una proposta della F2 nella Posta", () => {
   it("le azioni coi nomi e gli argomenti del prototipo, e la frase del server", () => {
     const v = proposalViewOf(proposal());
     expect(v.proposal.actions).toEqual([
-      { fn: "createTask", args: { title: "Export CSV", description: "Per Rossi", assigneeId: BOB, dueDate: "2026-11-20" }, summary: "Crea la task «Export CSV»" },
-      { fn: "createRequest", args: { title: "Preventivo", description: "" }, summary: "Crea la richiesta «Preventivo»" },
-      { fn: "updateTask", args: { id: T1, patch: { dueDate: "2026-11-21" } }, summary: "Sposta la scadenza" },
+      {
+        fn: "createTask",
+        args: {
+          title: "Export CSV",
+          description: "Per Rossi",
+          assigneeId: BOB,
+          dueDate: "2026-11-20",
+        },
+        summary: "Crea la task «Export CSV»",
+      },
+      {
+        fn: "createRequest",
+        args: { title: "Preventivo", description: "" },
+        summary: "Crea la richiesta «Preventivo»",
+      },
+      {
+        fn: "updateTask",
+        args: { id: T1, patch: { dueDate: "2026-11-21" } },
+        summary: "Sposta la scadenza",
+      },
       { fn: "addComment", args: { taskId: T1, body: "Il cliente conferma" }, summary: "Commenta" },
-      { fn: "createMilestone", args: { name: "Consegna", dueDate: "2026-11-30" }, summary: "Traguardo" },
+      {
+        fn: "createMilestone",
+        args: { name: "Consegna", dueDate: "2026-11-30" },
+        summary: "Traguardo",
+      },
       { fn: "recordDecision", args: { taskId: T1 }, summary: "Registra la decisione" },
     ]);
   });
@@ -91,7 +142,12 @@ describe("una proposta della F2 nella Posta", () => {
   });
 
   it("l'origine per «Da decidere»: la conversazione della mia casella; senza messaggio nella mia casella, nessuna", () => {
-    expect(proposalViewOf(proposal()).origin).toEqual({ kind: "email", threadId: `${ACC}_t-1`, from: "Bob Rossi <bob@client.test>", subject: "Preventivo" });
+    expect(proposalViewOf(proposal()).origin).toEqual({
+      kind: "email",
+      threadId: `${ACC}_t-1`,
+      from: "Bob Rossi <bob@client.test>",
+      subject: "Preventivo",
+    });
     expect(proposalViewOf(proposal({ origin: null })).origin).toBeNull();
   });
 
@@ -130,9 +186,25 @@ describe("una proposta della F2 nella Posta", () => {
   it("«Quale progetto?»: i progetti fra cui scegliere", () => {
     const other = "22222222-9999-4999-8999-999999999999";
     const v = proposalViewOf(
-      proposal({ actions: [{ type: "choose_project", args: { projectIds: [PROJECT_ID, other] }, label: "Quale progetto?" }], canConfirm: false, canReassign: false }),
+      proposal({
+        actions: [
+          {
+            type: "choose_project",
+            args: { projectIds: [PROJECT_ID, other] },
+            label: "Quale progetto?",
+          },
+        ],
+        canConfirm: false,
+        canReassign: false,
+      }),
     );
-    expect(v.proposal.actions).toEqual([{ fn: "chooseProject", args: { projectIds: [PROJECT_ID, other] }, summary: "Quale progetto?" }]);
+    expect(v.proposal.actions).toEqual([
+      {
+        fn: "chooseProject",
+        args: { projectIds: [PROJECT_ID, other] },
+        summary: "Quale progetto?",
+      },
+    ]);
   });
 
   it("se i campi si possono modificare lo dice il server (`editable`); di default no", () => {
@@ -141,7 +213,7 @@ describe("una proposta della F2 nella Posta", () => {
   });
 });
 
-describe("F3b: le proposte del calendario nella stessa lista (`kind: \"calendar\"`)", () => {
+describe('F3b: le proposte del calendario nella stessa lista (`kind: "calendar"`)', () => {
   const EVENT = "eeeeeeee-1111-4111-8111-111111111111";
   // La forma del task 7 di 72: `messageId` null, l'origine in `calendarOrigin`
   // (`origin` resta quella dell'email, qui null); hand e reassign non ci sono.
@@ -152,9 +224,18 @@ describe("F3b: le proposte del calendario nella stessa lista (`kind: \"calendar\
       origin: null,
       canHand: false,
       canReassign: false,
-      calendarOrigin: { eventId: EVENT, title: "Board trimestrale", startsAt: "2026-11-20T09:00:00.000Z", allDay: false },
+      calendarOrigin: {
+        eventId: EVENT,
+        title: "Board trimestrale",
+        startsAt: "2026-11-20T09:00:00.000Z",
+        allDay: false,
+      },
       actions: [
-        { type: "create_milestone", args: { projectId: PROJECT_ID, name: "Board trimestrale", dueDate: "2026-11-20" }, label: "Traguardo «Board trimestrale»" },
+        {
+          type: "create_milestone",
+          args: { projectId: PROJECT_ID, name: "Board trimestrale", dueDate: "2026-11-20" },
+          label: "Traguardo «Board trimestrale»",
+        },
         { type: "acknowledge_reminder", args: {}, label: "Visto" },
       ],
       ...over,
@@ -163,12 +244,21 @@ describe("F3b: le proposte del calendario nella stessa lista (`kind: \"calendar\
   it("viene dall'evento, non da un messaggio: la sorgente e l'origine del calendario", () => {
     const v = proposalViewOf(calendarProposal());
     expect(v.proposal).toMatchObject({ source: "calendar", sourceId: EVENT });
-    expect(v.origin).toEqual({ kind: "calendar", eventId: EVENT, title: "Board trimestrale", startsAt: "2026-11-20T09:00:00.000Z", allDay: false });
+    expect(v.origin).toEqual({
+      kind: "calendar",
+      eventId: EVENT,
+      title: "Board trimestrale",
+      startsAt: "2026-11-20T09:00:00.000Z",
+      allDay: false,
+    });
     expect([v.canHand, v.canReassign]).toEqual([false, false]);
   });
 
   it("le azioni del calendario coi nomi del prototipo: il traguardo e il promemoria «Visto»", () => {
-    expect(proposalViewOf(calendarProposal()).proposal.actions.map((a) => a.fn)).toEqual(["createMilestone", "acknowledgeReminder"]);
+    expect(proposalViewOf(calendarProposal()).proposal.actions.map((a) => a.fn)).toEqual([
+      "createMilestone",
+      "acknowledgeReminder",
+    ]);
   });
 
   it("senza l'origine (un evento che non vedo più): sorgente calendario, nessuna riga d'origine", () => {
@@ -181,5 +271,60 @@ describe("F3b: le proposte del calendario nella stessa lista (`kind: \"calendar\
     const v = proposalViewOf(proposal());
     expect(v.proposal).toMatchObject({ source: "email", sourceId: M1 });
     expect(v.origin).toMatchObject({ kind: "email" });
+  });
+});
+
+describe('F5: le proposte di una riunione registrata (`kind: "meeting"`)', () => {
+  const EVENT = "eeeeeeee-2222-4222-8222-222222222222";
+  // La forma della bozza del piano della F5: `meetingOrigin` a parte (come
+  // `calendarOrigin`), il messaggio è l'email di Gemini. Finché lo schema non
+  // le porta, sopra una proposta parsata.
+  const meetingProposal = (over: Record<string, unknown> = {}) =>
+    ({
+      ...proposal({ origin: null }),
+      kind: "meeting",
+      meetingOrigin: {
+        eventId: EVENT,
+        accountId: ACC,
+        threadId: "t-9",
+        title: "Weekly review",
+        at: "2026-11-11T16:30:00.000Z",
+      },
+      ...over,
+    }) as never;
+
+  it("vengono dalla trascrizione: la sorgente del prototipo e la riga d'origine della riunione", () => {
+    const v = proposalViewOf(meetingProposal());
+    expect(v.proposal).toMatchObject({ source: "transcript", sourceId: M1 });
+    expect(v.origin).toEqual({
+      kind: "meeting",
+      eventId: EVENT,
+      threadId: `${ACC}_t-9`,
+      title: "Weekly review",
+      at: "2026-11-11T16:30:00.000Z",
+    });
+  });
+
+  it("un invitato che non ha ricevuto l'email la decide se il server lo dice (`canConfirm`, decisione M)", () => {
+    expect(proposalViewOf(meetingProposal({ canConfirm: true })).canConfirm).toBe(true);
+  });
+
+  it("senza l'evento collegato: l'origine ha `eventId` null", () => {
+    expect(
+      proposalViewOf(
+        meetingProposal({
+          meetingOrigin: {
+            eventId: null,
+            accountId: ACC,
+            threadId: "t-9",
+            title: "Notes",
+            at: "2026-11-11T16:30:00.000Z",
+          },
+        }),
+      ).origin,
+    ).toMatchObject({
+      kind: "meeting",
+      eventId: null,
+    });
   });
 });

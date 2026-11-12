@@ -54,7 +54,37 @@ function calendarOriginOf(
   };
 }
 
-export function proposalViewOf(p: ServerProposal): MailProposalView {
+/**
+ * F5 (bozza del piano): una proposta di una riunione registrata, con
+ * `kind: "meeting"` e l'origine in `meetingOrigin` (a parte, come
+ * `calendarOrigin`). Finché lo schema non la porta si legge cruda: il tipo
+ * apre `kind` e il campo nuovo.
+ */
+type MeetingOrigin = {
+  eventId: string | null;
+  accountId?: string;
+  threadId: string;
+  title?: string | null;
+  at: string;
+};
+function meetingOriginOf(o: MeetingOrigin | null | undefined): MailProposalView["origin"] {
+  if (!o) return null;
+  return {
+    kind: "meeting",
+    eventId: o.eventId ?? null,
+    // La conversazione dell'email di Gemini, come chiave dell'app (casella + thread).
+    threadId: o.accountId ? threadKey(o.accountId, o.threadId) : o.threadId,
+    title: o.title ?? "",
+    at: o.at,
+  };
+}
+
+export function proposalViewOf(raw: ServerProposal): MailProposalView {
+  const p = raw as Omit<ServerProposal, "kind"> & {
+    kind?: string;
+    meetingOrigin?: MeetingOrigin | null;
+  };
+  const fromMeeting = p.kind === "meeting";
   const fromCalendar = p.kind === "calendar";
   const calendarOrigin = fromCalendar ? calendarOriginOf(p.calendarOrigin ?? null) : null;
   const actions = p.actions.flatMap<ProposedAction>((a) => {
@@ -65,7 +95,8 @@ export function proposalViewOf(p: ServerProposal): MailProposalView {
   });
   const proposal: MailProposal = {
     id: p.id,
-    source: fromCalendar ? "calendar" : "email",
+    // Una riunione: la sorgente è la trascrizione, e il messaggio è l'email di Gemini.
+    source: fromCalendar ? "calendar" : fromMeeting ? "transcript" : "email",
     // Il messaggio d'origine (`email_messages.id`): è il `messageId` dei messaggi della Posta;
     // per il calendario, l'evento.
     sourceId: fromCalendar ? (p.calendarOrigin?.eventId ?? "") : (p.messageId ?? ""),
@@ -93,13 +124,15 @@ export function proposalViewOf(p: ServerProposal): MailProposalView {
     editable: p.editable,
     origin: fromCalendar
       ? calendarOrigin
-      : p.origin
-        ? {
-            kind: "email",
-            threadId: threadKey(p.origin.accountId, p.origin.threadId),
-            from: p.origin.from,
-            subject: p.origin.subject ?? "",
-          }
-        : null,
+      : fromMeeting
+        ? meetingOriginOf(p.meetingOrigin)
+        : p.origin
+          ? {
+              kind: "email",
+              threadId: threadKey(p.origin.accountId, p.origin.threadId),
+              from: p.origin.from,
+              subject: p.origin.subject ?? "",
+            }
+          : null,
   };
 }
