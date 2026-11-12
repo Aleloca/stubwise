@@ -1,5 +1,5 @@
 import { googleAccounts, googleWorkspaces } from "@stubwise/db";
-import { revokeToken, type FetchImpl } from "@stubwise/google";
+import { missingGoogleScopes, revokeToken, type FetchImpl } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import {
   GOOGLE_ACCOUNT_SETTINGS_PATH,
@@ -111,6 +111,7 @@ function toPublicAccount(row: AccountRow): z.infer<typeof googleAccountSchema> {
     lastSyncAt: row.lastSyncAt?.toISOString() ?? null,
     disabledAt: row.disabledAt?.toISOString() ?? null,
     disabledReason: row.disabledReason,
+    missingScopes: missingGoogleScopes(row.scopes),
   };
 }
 

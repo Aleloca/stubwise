@@ -1,3 +1,4 @@
+import { googleOauthScopes } from "@stubwise/shared";
 /**
  * Flusso OAuth 2.0 di Google: autorizzazione, scambio del code, refresh,
  * revoca, `userinfo`.
@@ -26,17 +27,34 @@ export const GOOGLE_REVOKE_ENDPOINT = "https://oauth2.googleapis.com/revoke";
 export const GOOGLE_USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo";
 
 /**
- * Scope richiesti: identità + Gmail e Calendar in SOLA LETTURA. La fase 6 non
- * manda email e non scrive eventi (design §2, "Fuori (v1)"): chiedere di più
- * costerebbe una schermata di consenso più spaventosa per un potere che il
- * codice non esercita.
+ * Scope richiesti. Fino all'area 6 erano identità più Gmail e Calendar in sola
+ * lettura; dall'area 6, fetta 1 (decisione D1 = a del maintainer, 12 nov 2026)
+ * sono quelli dell'AREA INTERA, chiesti in UN riconsenso, anche se le funzioni
+ * arrivano fetta dopo fetta:
+ * - `gmail.modify`: leggere, letto/non letto (D5), bozze (D7) e invio (F3).
+ *   Sostituisce `gmail.readonly`; `gmail.compose` non serve (le Drafts API
+ *   accettano `gmail.modify`);
+ * - `calendar.readonly`: leggere i calendari e la freeBusy (D8);
+ * - `calendar.events`: creare, modificare e rispondere (F4);
+ * - `drive.readonly`: le trascrizioni di Gemini e i riferimenti a Google
+ *   Drive (D9, F5).
+ * `gmail.modify` e `drive.readonly` sono scope RISTRETTI: con un client OAuth
+ * External l'istanza deve passare la verifica di Google; Internal no.
  */
-export const GOOGLE_SCOPES = [
-  "openid",
-  "email",
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/calendar.readonly",
-] as const;
+export const GOOGLE_SCOPES = googleOauthScopes;
+
+/** Lo scope di una casella collegata PRIMA dell'area 6: legge come prima. */
+export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+
+/**
+ * Gli scope dell'area che una casella NON ha concesso (`missingScopes` di
+ * `/api/me/google/accounts`): identità esclusa. Una casella vecchia (con
+ * `gmail.readonly`) legge ancora, ma le mancano le funzioni nuove.
+ */
+export function missingGoogleScopes(granted: readonly string[]): string[] {
+  const has = new Set(granted);
+  return GOOGLE_SCOPES.filter((s) => s !== "openid" && s !== "email" && !has.has(s));
+}
 
 /** Token restituiti da Google, normalizzati. */
 export interface GoogleTokens {

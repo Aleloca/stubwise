@@ -135,12 +135,14 @@ describe("googleWorkspaceSchema", () => {
 });
 
 describe("googleOauthScopes", () => {
-  it("è la lista minima di sola lettura mostrata all'admin e usata dal consenso", () => {
+  it("area 6, F1 (D1 = a): gli scope dell'area intera, mostrati all'admin e chiesti dal consenso", () => {
     expect(googleOauthScopes).toEqual([
       "openid",
       "email",
-      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.modify",
       "https://www.googleapis.com/auth/calendar.readonly",
+      "https://www.googleapis.com/auth/calendar.events",
+      "https://www.googleapis.com/auth/drive.readonly",
     ]);
   });
 });

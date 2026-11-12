@@ -1396,8 +1396,8 @@
       "consoleTitle": "Paste into the Google Cloud Console",
       "redirectUri": "Authorized redirect URI",
       "scopes": "Scopes",
-      "internalHint": "Create the OAuth consent screen as an Internal app: it stays inside your organization and needs no Google verification.",
-      "apisHint": "Enable the Gmail API and the Google Calendar API on the same project, then paste the client ID and the client secret here.",
+      "internalHint": "Create the OAuth consent screen as an Internal app: it stays inside your organization and needs no Google verification. Some of these scopes (Gmail, Drive) are restricted: an External app must pass Google verification before mailboxes can be reconnected.",
+      "apisHint": "Enable the Gmail API, the Google Calendar API and the Google Drive API on the same project, then paste the client ID and the client secret here.",
       "guideHint": "// step-by-step guide: user docs, Integrations → Google Workspace.",
       "mailAdmission": {
         "title": "Admitted mail",

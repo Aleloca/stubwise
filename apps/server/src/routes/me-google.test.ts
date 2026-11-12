@@ -37,7 +37,13 @@ const REFRESH_TOKEN = "1//refresh-token-molto-segreto";
 
 const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly";
-const FULL_SCOPES = `openid email ${GMAIL_SCOPE} ${CALENDAR_SCOPE}`;
+// Area 6, F1 (D1 = a): il riconsenso unico con gli scope dell'area intera.
+const GMAIL_MODIFY = "https://www.googleapis.com/auth/gmail.modify";
+const CALENDAR_EVENTS = "https://www.googleapis.com/auth/calendar.events";
+const DRIVE_READONLY = "https://www.googleapis.com/auth/drive.readonly";
+const FULL_SCOPES = `openid email ${GMAIL_MODIFY} ${CALENDAR_SCOPE} ${CALENDAR_EVENTS} ${DRIVE_READONLY}`;
+/** Gli scope di una casella collegata prima dell'area 6. */
+const LEGACY_SCOPES = `openid email ${GMAIL_SCOPE} ${CALENDAR_SCOPE}`;
 
 let testDb: TestDb;
 let app: FastifyInstance;
@@ -542,7 +548,7 @@ describe("GET /api/me/google/callback — successo", () => {
     // L'email è normalizzata lowercase da `fetchUserinfo`: è la chiave unique.
     expect(row!.email).toBe("mario.rossi@acme.com");
     expect(row!.googleSub).toBe("115000000000000000001");
-    expect(row!.scopes).toEqual(["openid", "email", GMAIL_SCOPE, CALENDAR_SCOPE]);
+    expect(row!.scopes).toEqual(FULL_SCOPES.split(" "));
     expect(row!.connectedAt).toBeInstanceOf(Date);
     expect(row!.disabledAt).toBeNull();
     // Già dovuta al primo tick del poller.
@@ -691,6 +697,20 @@ describe("caselle dell'utente", () => {
     return row!.id;
   }
 
+  it("area 6, F1: una casella con gli scope VECCHI si collega e legge ancora, e dice cosa le manca", async () => {
+    tokenResponse = { ...tokenResponse, scope: LEGACY_SCOPES };
+    await connectedAccountId();
+    const [account] = (await app.inject({ method: "GET", url: "/api/me/google/accounts", headers: { cookie: memberCookie } })).json() as { missingScopes: string[] }[];
+    expect(account!.missingScopes).toEqual([GMAIL_MODIFY, CALENDAR_EVENTS, DRIVE_READONLY]);
+  });
+
+  it("area 6, F1: un consenso parziale (Google lascia togliere uno scope) basta per leggere, e il resto manca", async () => {
+    tokenResponse = { ...tokenResponse, scope: `openid email ${GMAIL_MODIFY} ${CALENDAR_SCOPE}` };
+    await connectedAccountId();
+    const [account] = (await app.inject({ method: "GET", url: "/api/me/google/accounts", headers: { cookie: memberCookie } })).json() as { missingScopes: string[] }[];
+    expect(account!.missingScopes).toEqual([CALENDAR_EVENTS, DRIVE_READONLY]);
+  });
+
   it("GET /accounts elenca le MIE caselle, senza nessun campo che somigli a un token", async () => {
     await connectedAccountId();
 
@@ -709,6 +729,8 @@ describe("caselle dell'utente", () => {
       lastSyncAt: null,
       disabledAt: null,
       disabledReason: null,
+      // Col consenso completo non manca niente.
+      missingScopes: [],
     });
     expect(JSON.stringify(list[0])).not.toContain(REFRESH_TOKEN);
     expect(Object.keys(list[0]!).join(" ")).not.toMatch(/token|secret/i);

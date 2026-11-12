@@ -99,9 +99,11 @@ describe("GoogleWorkspacesSection", () => {
     expect(
       await screen.findByText("https://stubwise.example.com/api/me/google/callback"),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/https:\/\/www\.googleapis\.com\/auth\/gmail\.readonly/),
-    ).toBeInTheDocument();
+    // Area 6, F1: gli scope dell'area intera, con Drive; `gmail.modify` al posto di `gmail.readonly`.
+    const scopes = screen.getByText(/https:\/\/www\.googleapis\.com\/auth\/gmail\.modify/);
+    expect(scopes.textContent).toContain("https://www.googleapis.com/auth/drive.readonly");
+    expect(scopes.textContent).not.toContain("gmail.readonly");
+    expect(screen.getByText(/External app must pass Google verification/)).toBeInTheDocument();
     expect(screen.getByText(/Internal app/)).toBeInTheDocument();
   });
 

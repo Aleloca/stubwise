@@ -1396,8 +1396,8 @@
       "consoleTitle": "Da incollare nella Google Cloud Console",
       "redirectUri": "URI di reindirizzamento autorizzato",
       "scopes": "Scope",
-      "internalHint": "Crea la schermata di consenso OAuth come app Interna: resta dentro l'organizzazione e non richiede la verifica di Google.",
-      "apisHint": "Abilita l'API Gmail e l'API Google Calendar sullo stesso progetto, poi incolla qui client ID e client secret.",
+      "internalHint": "Crea la schermata di consenso OAuth come app Interna: resta dentro l'organizzazione e non richiede la verifica di Google. Alcuni di questi scope (Gmail, Drive) sono ristretti: un'app Esterna deve passare la verifica di Google prima che le caselle si possano ricollegare.",
+      "apisHint": "Abilita l'API Gmail, l'API Google Calendar e l'API Google Drive sullo stesso progetto, poi incolla qui client ID e client secret.",
       "guideHint": "// guida passo-passo: documentazione utente, Integrazioni → Google Workspace.",
       "mailAdmission": {
         "title": "Posta ammessa",

@@ -56,12 +56,15 @@ export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 /**
  * Gli scope SENZA i quali la casella è inutile: leggere la posta e leggere il
  * calendario. `openid`/`email` non sono qui perché senza di essi non avremmo
- * nemmeno l'identità — la `userinfo` fallirebbe prima.
+ * nemmeno l'identità — la `userinfo` fallirebbe prima. La posta si legge con
+ * `gmail.modify` (chiesto dall'area 6) o con `gmail.readonly` (le caselle di
+ * prima): basta UNO dei due. Gli altri scope dell'area, se mancano, non
+ * impediscono di collegarsi: li dice `missingScopes`.
  */
-export const REQUIRED_GOOGLE_SCOPES = [
-  "https://www.googleapis.com/auth/gmail.readonly",
-  "https://www.googleapis.com/auth/calendar.readonly",
-] as const;
+export const REQUIRED_GOOGLE_SCOPES: readonly (readonly string[])[] = [
+  ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.readonly"],
+  ["https://www.googleapis.com/auth/calendar.readonly"],
+];
 
 /** Il contenuto firmato dello `state`. */
 export interface OauthStatePayload {
@@ -365,7 +368,7 @@ export async function completeCallback(
   }
 
   const granted = new Set(tokens.scopes);
-  if (!REQUIRED_GOOGLE_SCOPES.every((scope) => granted.has(scope))) {
+  if (!REQUIRED_GOOGLE_SCOPES.every((anyOf) => anyOf.some((scope) => granted.has(scope)))) {
     return { status: "insufficient_scope", detail: `concessi: ${tokens.scopes.join(" ")}` };
   }
 

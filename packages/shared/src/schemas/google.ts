@@ -68,8 +68,13 @@ export const googleDomainsSchema = z
 export const googleOauthScopes = [
   "openid",
   "email",
-  "https://www.googleapis.com/auth/gmail.readonly",
+  // Area 6, fetta 1 (D1 = a): gli scope dell'area intera in un riconsenso
+  // unico. `gmail.modify` sostituisce `gmail.readonly` (le caselle di prima
+  // leggono ancora); vedi `GOOGLE_SCOPES` di `@stubwise/google`, che è questa.
+  "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/calendar.readonly",
+  "https://www.googleapis.com/auth/calendar.events",
+  "https://www.googleapis.com/auth/drive.readonly",
 ] as const;
 
 /** Il path (relativo a `PUBLIC_URL`) su cui Google rimanda dopo il consenso. */
@@ -165,6 +170,12 @@ export const googleAccountSchema = z.object({
   lastSyncAt: z.string().nullable().default(null),
   disabledAt: z.string().nullable().default(null),
   disabledReason: z.string().nullable().default(null),
+  /**
+   * Area 6, fetta 1: gli scope dell'area che questa casella non ha concesso
+   * (una casella di prima, un consenso parziale). Si calcola a lettura; vuoto
+   * = niente da ricollegare. Un server di prima non lo manda.
+   */
+  missingScopes: z.array(z.string()).default([]),
 });
 export type GoogleAccount = z.infer<typeof googleAccountSchema>;
 
