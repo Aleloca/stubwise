@@ -4359,8 +4359,18 @@ export const googleAccounts = pgTable(
     googleSub: text("google_sub").notNull(),
     refreshTokenEncrypted: text("refresh_token_encrypted").notNull(),
     scopes: text("scopes").array().notNull().default([]),
-    /** Toggle dell'utente: spenta, la casella non viene più sincronizzata. */
+    /**
+     * Toggle dell'utente: spente, la casella si LEGGE comunque (posta e
+     * calendario si aggiornano) ma non produce proposte (area 6, decisione
+     * del maintainer del 12 nov 2026, 0150; prima la casella si fermava).
+     */
     proposalsEnabled: boolean("proposals_enabled").notNull().default(true),
+    /**
+     * Quando le proposte sono state RIACCESE (0150): la posta ingerita prima
+     * (`email_messages.created_at`) non si classifica mai, così riaccenderle
+     * non sforna proposte sulla posta già letta. Null = nessun taglio.
+     */
+    proposalsSince: timestamp("proposals_since", { withTimezone: true }),
     /** Cursore della History API di Gmail. Null = primo giro (o history scaduta). */
     gmailHistoryId: text("gmail_history_id"),
     /** Cursore incrementale del calendario `primary`. Null = primo giro. */
@@ -4387,10 +4397,10 @@ export const googleAccounts = pgTable(
     // Le caselle di un utente si leggono insieme (pagina Account, pagina Posta).
     index("google_accounts_user_id_idx").on(table.userId),
     // Claim del poller: la prossima casella dovuta. Indice PARZIALE sulle sole
-    // caselle vive e con le proposte accese — le altre non vengono mai pescate.
+    // caselle vive (dalla 0150 anche con le proposte spente: si leggono).
     index("google_accounts_due_idx")
       .on(table.nextSyncAt)
-      .where(sql`disabled_at is null and proposals_enabled`),
+      .where(sql`disabled_at is null`),
     check(
       "google_accounts_disabled_reason_chk",
       sql`disabled_reason is null or disabled_reason in ('revoked', 'invalid_grant', 'insufficient_scope', 'workspace_removed', 'sync_failed')`,

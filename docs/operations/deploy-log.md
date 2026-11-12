@@ -3871,3 +3871,35 @@ deploy o di un rollback che la tocca.
   - Un worker vecchio non svuota la coda: i job aspettano, innocui.
   - Il caddy scende insieme al server. Le migrazioni non si annullano; i dati
     restano (testo, riassunti, chunk) e tornano visibili al ritorno.
+
+- **«Integrazione area 6, fetta 1: la lettura che c'è, il cassetto Google, il
+  riconsenso» (12 nov 2026)**: piano
+  `docs/plans/2026-11-12-integrazione-area6-fetta1-plan.md`, branch
+  `feat/area6-f1`. Migrazioni **0149** (`google_accounts.sync_requested_at`/
+  `sync_last_requested_at`, `email_messages.unread`) e **0150**
+  (`google_accounts.proposals_since`, indice `google_accounts_due_idx`
+  senza `proposals_enabled`). Ordine: **server, poi worker** (il worker nomina
+  le colonne nuove), poi caddy. La voce si completa alla F1.5 (il riconsenso).
+
+  ⚠️ **Cambio di comportamento per le caselle ESISTENTI** (decisione del
+  maintainer, 12 nov 2026): una casella con le proposte SPENTE prima non si
+  sincronizzava affatto; da questo rilascio si LEGGE (posta e calendario si
+  aggiornano, «Aggiorna ora» funziona) e salta solo classificazione e
+  pubblicazione. Al primo giro dopo il deploy queste caselle riprendono a
+  ingerire (il resync per query, `newer_than:7d`, se il cursore è scaduto):
+  nessun run del modello e nessuna card, perché le proposte restano spente.
+  Riaccendendole, il server scrive `proposals_since = now()` e la posta
+  ingerita prima non si classifica mai. Quante sono:
+  `select count(*) from google_accounts where not proposals_enabled and
+  disabled_at is null;`.
+
+  **Rollback**: un worker vecchio torna a ignorare le caselle con le proposte
+  spente (la posta smette di aggiornarsi, nient'altro). Un server vecchio non
+  scrive `proposals_since`: una casella riaccesa con un server vecchio
+  classificherebbe la posta ingerita mentre erano spente, fino a 7 giorni
+  (`newer_than:7d`) — se si scende, prima `update email_messages set status =
+  'ignored' where status = 'new' and account_id in (select id from
+  google_accounts where not proposals_enabled);`. Il caddy scende insieme al
+  server. Le migrazioni non si annullano (colonne nullable, indice più largo:
+  innocui per un codice vecchio, che filtra `proposals_enabled` da sé).
+

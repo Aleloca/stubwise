@@ -7,6 +7,22 @@
 > in `CLAUDE.md` (sezione «Invarianti e trappole»), quelle per area in
 > `docs/invariants/*.md`.
 
+- **Con le proposte spente una casella si LEGGE; si spengono solo le
+  proposte (decisione del maintainer, 12 nov 2026, area 6).** Il claim del
+  poller e l'indice `google_accounts_due_idx` guardano solo `disabled_at`;
+  `runAccountTick` salta la classificazione e la pubblicazione (posta,
+  calendario, smistamento, azioni automatiche delle serie) quando
+  `proposals_enabled` è falso — test NEGATIVO in `poller.test.ts`
+  («proposte spente: si legge, non si propone»: messaggi ed eventi ingeriti,
+  zero `email_proposals`, zero notifiche, il runner mai chiamato).
+  Riaccese, `google_accounts.proposals_since` (scritto dal PATCH solo nel
+  passaggio da spente ad accese) è il TAGLIO: la posta con `created_at`
+  precedente resta `new` e non si classifica mai (`classify.ts`), così
+  riaccenderle non sforna proposte sulla posta già letta. Il calendario non
+  ha taglio: un appuntamento propone solo se futuro e nella finestra, come al
+  primo collegamento. Chi aggiunge una fase che propone la mette sotto lo
+  stesso `if`, e chi aggiunge un percorso di classificazione mette lo stesso
+  taglio.
 - **L'audience `mailbox_owner` non include MAI gli admin.** È un'audience a
   sé nell'enum di `routing.ts` (`packages/notifications/src/routing.ts`),
   non un caso speciale di `requester` (che invece gli admin li include

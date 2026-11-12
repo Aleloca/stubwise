@@ -2096,6 +2096,16 @@ export async function classifyNewMessages(
         eq(emailMessages.accountId, accountId),
         eq(emailMessages.status, "new"),
         eq(emailMessages.admitted, true),
+        // Il taglio delle proposte RIACCESE (0150, regola dell'orchestratrice):
+        // la posta ingerita mentre erano spente resta `new` e non si
+        // classifica mai — riaccenderle non sforna proposte sulla posta già
+        // letta. Null = nessun taglio.
+        sql`not exists (
+          select 1 from ${googleAccounts}
+          where ${googleAccounts.id} = ${emailMessages.accountId}
+            and ${googleAccounts.proposalsSince} is not null
+            and ${emailMessages.createdAt} < ${googleAccounts.proposalsSince}
+        )`,
       ),
     )
     .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id))

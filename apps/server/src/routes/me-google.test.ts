@@ -760,6 +760,24 @@ describe("caselle dell'utente", () => {
     expect(row!.proposalsEnabled).toBe(false);
   });
 
+  it("riaccendere le proposte scrive il taglio `proposals_since`; spegnerle o riscrivere «accese» non lo sposta", async () => {
+    const id = await connectedAccountId();
+    const patch = (proposalsEnabled: boolean) =>
+      app.inject({ method: "PATCH", url: `/api/me/google/accounts/${id}`, headers: { cookie: memberCookie }, payload: { proposalsEnabled } });
+    // Accese da sempre: nessun taglio, anche riscrivendole.
+    await patch(true);
+    expect((await accountRows())[0]!.proposalsSince).toBeNull();
+    await patch(false);
+    expect((await accountRows())[0]!.proposalsSince).toBeNull();
+    const before = Date.now();
+    await patch(true);
+    const since = (await accountRows())[0]!.proposalsSince;
+    expect(since).not.toBeNull();
+    expect(since!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    await patch(true);
+    expect((await accountRows())[0]!.proposalsSince!.getTime()).toBe(since!.getTime());
+  });
+
   it("PATCH di un altro utente: 404 e la riga resta invariata", async () => {
     const id = await connectedAccountId();
     const res = await app.inject({
@@ -931,20 +949,20 @@ describe("POST /api/me/google/accounts/:id/sync", () => {
     expect(row!.syncRequestedAt).toBeNull();
   });
 
-  it("una casella con le proposte spente (il poller non la guarda): 409 proposals_disabled", async () => {
+  it("una casella con le proposte spente si legge comunque: 202 queued (decisione del 12 nov 2026)", async () => {
     const id = await connectedAccountId();
     await testDb.db.update(googleAccounts).set({ proposalsEnabled: false }).where(eq(googleAccounts.id, id));
     const res = await sync(id);
-    expect(res.statusCode).toBe(409);
-    expect((res.json() as { code: string }).code).toBe("proposals_disabled");
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ status: "queued" });
   });
 
-  it("spegnere le proposte toglie una richiesta in attesa (il poller non la servirebbe mai)", async () => {
+  it("spegnere le proposte NON toglie una richiesta in attesa: il poller la serve comunque", async () => {
     const id = await connectedAccountId();
     await sync(id);
     await app.inject({ method: "PATCH", url: `/api/me/google/accounts/${id}`, headers: { cookie: memberCookie }, payload: { proposalsEnabled: false } });
     const [row] = await accountRows();
-    expect(row!.syncRequestedAt).toBeNull();
+    expect(row!.syncRequestedAt).not.toBeNull();
   });
 
   it("vuole una sessione", async () => {

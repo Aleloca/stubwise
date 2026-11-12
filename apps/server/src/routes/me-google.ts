@@ -300,12 +300,17 @@ export async function meGoogleRoutes(
     async (request, reply) => {
       const [updated] = await app.db
         .update(googleAccounts)
-        // Spente, il poller non guarda più la casella: una richiesta di
-        // «Aggiorna ora» in attesa non verrebbe mai servita, e si toglie.
+        // Spente, la casella si LEGGE comunque (decisione del maintainer del
+        // 12 nov 2026): niente da togliere. RIACCESE (da spente), si scrive il
+        // taglio `proposals_since`: la posta ingerita nel frattempo non
+        // diventa una proposta. Riscrivere «accese» su accese non lo sposta.
         .set(
           request.body.proposalsEnabled
-            ? { proposalsEnabled: true }
-            : { proposalsEnabled: false, syncRequestedAt: null },
+            ? {
+                proposalsEnabled: true,
+                proposalsSince: sql`case when ${googleAccounts.proposalsEnabled} then ${googleAccounts.proposalsSince} else now() end`,
+              }
+            : { proposalsEnabled: false },
         )
         // `userId` nel WHERE: senza, chiunque potrebbe spegnere le proposte di
         // una casella altrui conoscendone l'id.
@@ -339,8 +344,9 @@ export async function meGoogleRoutes(
    * il payload per decidere CHI sincronizzare: si sveglia e reclama le dovute.
    * La fine si legge sulla riga: `syncRequestedAt` torna null.
    *
-   * Un UPDATE solo, con tutte le condizioni nella WHERE: di chi è, viva, con le
-   * proposte accese, senza una richiesta in attesa, fuori dal tetto dei 60 s.
+   * Un UPDATE solo, con tutte le condizioni nella WHERE: di chi è, viva, senza
+   * una richiesta in attesa, fuori dal tetto dei 60 s. Le proposte spente non
+   * contano: la casella si legge comunque (decisione del 12 nov 2026).
    * Se non tocca niente, una SELECT dice perché.
    */
   app.post(
@@ -368,7 +374,6 @@ export async function meGoogleRoutes(
             and(
               mine,
               sql`${googleAccounts.disabledAt} is null`,
-              eq(googleAccounts.proposalsEnabled, true),
               sql`${googleAccounts.syncRequestedAt} is null`,
               sql`(${googleAccounts.syncLastRequestedAt} is null or ${googleAccounts.syncLastRequestedAt} <= now() - make_interval(secs => ${GOOGLE_SYNC_REQUEST_MIN_SECONDS}))`,
             ),
@@ -383,7 +388,6 @@ export async function meGoogleRoutes(
       const [row] = await app.db
         .select({
           disabledAt: googleAccounts.disabledAt,
-          proposalsEnabled: googleAccounts.proposalsEnabled,
           syncRequestedAt: googleAccounts.syncRequestedAt,
           retryAfterSeconds: sql<number>`greatest(1, ceil(extract(epoch from (${googleAccounts.syncLastRequestedAt} + make_interval(secs => ${GOOGLE_SYNC_REQUEST_MIN_SECONDS}) - now()))))::int`,
         })
@@ -391,9 +395,6 @@ export async function meGoogleRoutes(
         .where(mine);
       if (!row) return apiError(reply, 404, "google_account_not_found", "Google account not found");
       if (row.disabledAt) return apiError(reply, 409, "account_disabled", "Google account is disabled: reconnect it");
-      if (!row.proposalsEnabled) {
-        return apiError(reply, 409, "proposals_disabled", "Google account sync is off (proposals disabled)");
-      }
       if (row.syncRequestedAt) return reply.code(202).send({ status: "already_queued" });
       return reply.code(429).send({
         code: "sync_too_soon",
