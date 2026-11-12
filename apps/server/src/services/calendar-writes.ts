@@ -28,7 +28,7 @@ import {
   type CalendarGuestInput,
   type CalendarWriteScope,
 } from "@stubwise/shared";
-import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 
 /**
  * SCRIVERE SUL CALENDARIO (area 6, fetta 4). Le regole delle rotte
@@ -121,6 +121,20 @@ const DAY_MS = 24 * 3600_000;
 
 function windowOf(now: Date): { timeMin: Date; timeMax: Date } {
   return { timeMin: new Date(now.getTime() - CALENDAR_LOOKBACK_DAYS * DAY_MS), timeMax: new Date(now.getTime() + CALENDAR_WINDOW_DAYS * DAY_MS) };
+}
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * L'istante di un orario del corpo (review F4, punto 12): un tutto il giorno
+ * è una DATA `YYYY-MM-DD` (fine esclusiva), letta a mezzanotte UTC come la
+ * scrive il worker; un evento con orario è un istante ISO. Mescolarli è
+ * `invalid_range`: una mezzanotte locale tagliata a `slice(0, 10)`
+ * prenoterebbe il giorno prima a chi sta a est di Greenwich.
+ */
+function instantOf(value: string, allDay: boolean): Date | null {
+  if (allDay) return DATE_ONLY.test(value) ? new Date(`${value}T00:00:00.000Z`) : null;
+  return DATE_ONLY.test(value) ? null : new Date(value);
 }
 
 /** Le date nuove stanno nella finestra che il calendario legge (fuori, la riga non si vedrebbe mai). */
@@ -235,24 +249,28 @@ function freshValues(event: GoogleCalendarEvent) {
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
+/** Ciò che una riga porta con sé oltre ai dati di Google: il progetto e la storia della proposta. */
+interface RowKeep {
+  projectId: string | null;
+  projectBy: "rules" | "model" | "manual" | null;
+  proposalCandidate?: boolean;
+  proposalNotificationId?: string | null;
+  outcome?: Record<string, unknown> | null;
+}
+
 /**
  * Scrive (o aggiorna) la riga di un evento dopo il sì di Google. Una riga
  * nuova è solo VISTA (`proposal_candidate` false): una riunione che creo io
- * non è una proposta per me; il poller la rivaluta come ogni altra.
+ * non è una proposta per me; il poller la rivaluta come ogni altra. `keep`
+ * vale anche sul conflitto (review F4, punto 10: se il poller ha scritto la
+ * riga prima, il progetto scelto alla creazione non si perde).
  */
-async function upsertRow(tx: Tx, accountId: string, event: GoogleCalendarEvent, project?: { projectId: string | null }): Promise<string> {
+async function upsertRow(tx: Tx, accountId: string, event: GoogleCalendarEvent, keep?: RowKeep): Promise<string> {
   const fresh = freshValues(event);
   const [row] = await tx
     .insert(calendarEvents)
-    .values({
-      accountId,
-      googleEventId: event.id,
-      ...fresh,
-      proposalCandidate: false,
-      projectId: project?.projectId ?? null,
-      projectBy: project?.projectId ? "manual" : null,
-    })
-    .onConflictDoUpdate({ target: [calendarEvents.accountId, calendarEvents.googleEventId], set: fresh })
+    .values({ accountId, googleEventId: event.id, ...fresh, proposalCandidate: false, projectId: null, projectBy: null, ...(keep ?? {}) })
+    .onConflictDoUpdate({ target: [calendarEvents.accountId, calendarEvents.googleEventId], set: { ...fresh, ...(keep ?? {}) } })
     .returning({ id: calendarEvents.id });
   return row!.id;
 }
@@ -286,24 +304,68 @@ async function seriesInstances(deps: CalendarWriteDeps, accessToken: string, rec
   );
 }
 
-/** Riscrive le righe di una serie da quelle date: le nuove entrano, quelle che non ci sono più si chiudono. */
-async function rewriteSeries(db: Db, accountId: string, recurringEventId: string, instances: GoogleCalendarEvent[]): Promise<string[]> {
+/**
+ * La data ORIGINALE di una riga di serie: l'id di un'occorrenza è
+ * `<padre>_<inizio originale>` (`…_20261112T090000Z`, o `…_20261112` per un
+ * tutto il giorno), e resta quello anche se l'occorrenza è stata spostata.
+ */
+function originalOf(row: { googleEventId: string; startsAt: Date }): Date {
+  const m = /_(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})Z)?$/.exec(row.googleEventId);
+  if (!m) return row.startsAt;
+  return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] ?? 0), Number(m[5] ?? 0), Number(m[6] ?? 0)));
+}
+
+/** Come si riconosce, dopo la scrittura, la data nuova di una data vecchia. */
+interface SeriesRekey {
+  /** La chiave di una data originale nuova (come la rende Google). */
+  keyOf: (original: Date) => number;
+  /** La chiave che la data originale di una riga vecchia ha DOPO la scrittura. */
+  moved: (original: Date) => number;
+}
+
+const SAME_DATES: SeriesRekey = { keyOf: (d) => d.getTime(), moved: (d) => d.getTime() };
+
+/**
+ * Riscrive le righe di una serie dalle date che Google rende nella finestra.
+ * Una data che cambia id (lo spostamento di una serie cambia gli id) PORTA
+ * con sé progetto, candidatura e card dalla riga vecchia (review F4, punto
+ * 4), abbinata per data originale; solo una data che non c'è più si chiude, e
+ * solo dentro la finestra (punto 5: fuori dalla finestra Google non ha reso
+ * niente, quindi non si sa).
+ */
+async function rewriteSeries(db: Db, now: Date, accountId: string, recurringEventId: string, instances: GoogleCalendarEvent[], rekey: SeriesRekey): Promise<string[]> {
+  const { timeMin, timeMax } = windowOf(now);
   return db.transaction(async (tx) => {
-    const ids: string[] = [];
-    for (const instance of instances) ids.push(await upsertRow(tx, accountId, instance));
-    const liveIds = instances.map((e) => e.id);
-    const gone = await tx
-      .select({ googleEventId: calendarEvents.googleEventId })
+    const old = await tx
+      .select()
       .from(calendarEvents)
       .where(
         and(
           eq(calendarEvents.accountId, accountId),
           eq(calendarEvents.recurringEventId, recurringEventId),
           sql`${calendarEvents.status} is distinct from 'cancelled'`,
-          ...(liveIds.length > 0 ? [notInArray(calendarEvents.googleEventId, liveIds)] : []),
+          gte(calendarEvents.startsAt, timeMin),
+          lte(calendarEvents.startsAt, timeMax),
         ),
       );
-    await closeRows(tx, accountId, gone.map((r) => r.googleEventId));
+    const byMovedKey = new Map(old.map((r) => [rekey.moved(originalOf(r)), r]));
+    const consumed = new Set<string>();
+    const ids: string[] = [];
+    for (const instance of instances) {
+      const prev = byMovedKey.get(rekey.keyOf(instance.originalStartTime ?? instance.startsAt!));
+      let keep: RowKeep | undefined;
+      if (prev) {
+        consumed.add(prev.id);
+        if (prev.googleEventId !== instance.id) {
+          keep = { projectId: prev.projectId, projectBy: prev.projectBy, proposalCandidate: prev.proposalCandidate, proposalNotificationId: prev.proposalNotificationId, outcome: prev.outcome };
+          await tx.delete(calendarEvents).where(eq(calendarEvents.id, prev.id));
+        }
+      }
+      ids.push(await upsertRow(tx, accountId, instance, keep));
+    }
+    const liveIds = new Set(instances.map((e) => e.id));
+    const gone = old.filter((r) => !consumed.has(r.id) && !liveIds.has(r.googleEventId)).map((r) => r.googleEventId);
+    await closeRows(tx, accountId, gone);
     return ids;
   });
 }
@@ -329,6 +391,8 @@ async function insertOnce(deps: CalendarWriteDeps, accessToken: string, event: P
   } catch (err) {
     if (!(err instanceof GoogleApiError && err.code === "duplicate") || !event.id) throw err;
     const existing = await deps.client.getCalendarEvent({ accessToken, eventId: event.id });
+    // Creato e poi eliminato (review F4, punto 9): non è «riuscito», si rilegge.
+    if (existing.status === "cancelled") throw new GoogleApiError({ api: "calendar.events.insert", status: 409, code: "changed_on_google", reason: "duplicate_cancelled" });
     if (!existing.organizerSelf) throw new GoogleApiError({ api: "calendar.events.insert", status: 400, code: "duplicate", reason: "duplicate_id" });
     return existing;
   }
@@ -339,8 +403,9 @@ export async function createCalendarEvent(deps: CalendarWriteDeps, userId: strin
   if (!account) return { error: "not_found" };
   const problem = accountProblem(account);
   if (problem) return problem;
-  const startsAt = new Date(input.startsAt);
-  const endsAt = new Date(input.endsAt);
+  const startsAt = instantOf(input.startsAt, input.allDay);
+  const endsAt = instantOf(input.endsAt, input.allDay);
+  if (!startsAt || !endsAt) return { error: "invalid_range" };
   const timeProblem = checkTimes(deps.now?.() ?? new Date(), startsAt, endsAt);
   if (timeProblem) return timeProblem;
   if (!(await projectAllowed(deps.db, userId, input.projectId))) return { error: "not_found" };
@@ -366,7 +431,7 @@ export async function createCalendarEvent(deps: CalendarWriteDeps, userId: strin
     return googleError(err);
   }
   if (!event.startsAt) return { error: "google_unavailable" };
-  const id = await deps.db.transaction((tx) => upsertRow(tx, account.id, event, { projectId: input.projectId }));
+  const id = await deps.db.transaction((tx) => upsertRow(tx, account.id, event, { projectId: input.projectId, projectBy: input.projectId ? "manual" : null }));
   return { ok: true, rowIds: [id] };
 }
 
@@ -406,8 +471,18 @@ export async function editCalendarEvent(deps: CalendarWriteDeps, userId: string,
     ...(p.location !== undefined ? { location: p.location } : {}),
     ...(p.reminders !== undefined ? { reminders: p.reminders } : {}),
   };
-  return writeAndPersist(deps, row, input.scope, (accessToken, t) => deps.client.patchCalendarEvent({ accessToken, eventId: t.eventId, etag: t.etag, patch }));
+  return writeAndPersist(deps, row, input.scope, async (accessToken, t) => ({ event: await deps.client.patchCalendarEvent({ accessToken, eventId: t.eventId, etag: t.etag, patch }) }));
 }
+
+/** L'ora LOCALE di un istante in un fuso, come millisecondi «ingenui» (per contare in ore d'orologio). */
+function wallMs(at: Date, timeZone: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(at);
+  const n = (type: string) => Number(parts.find((p) => p.type === type)!.value);
+  return Date.UTC(n("year"), n("month") - 1, n("day"), n("hour"), n("minute"), n("second"));
+}
+
+/** `YYYY-MM-DDTHH:mm:ss`, l'ora locale da mandare a Google insieme al fuso. */
+const wallString = (ms: number) => new Date(ms).toISOString().slice(0, 19);
 
 export async function moveCalendarEvent(deps: CalendarWriteDeps, userId: string, rowId: string, input: CalendarEventMove): Promise<CalendarWriteOutcome> {
   const row = await editableRow(deps, userId, rowId, input.etag);
@@ -416,20 +491,30 @@ export async function moveCalendarEvent(deps: CalendarWriteDeps, userId: string,
   const allDay = input.allDay ?? row.allDay;
   // Una serie è tutta «tutto il giorno» o tutta con orario: non si mescolano.
   if (series && allDay !== row.allDay) return { error: "all_day_series" };
-  const startsAt = new Date(input.startsAt);
-  const endsAt = new Date(input.endsAt);
+  const startsAt = instantOf(input.startsAt, allDay);
+  const endsAt = instantOf(input.endsAt, allDay);
+  if (!startsAt || !endsAt) return { error: "invalid_range" };
   const timeProblem = checkTimes(deps.now?.() ?? new Date(), startsAt, endsAt);
   if (timeProblem) return timeProblem;
-  return writeAndPersist(deps, row, input.scope, (accessToken, t) => {
-    if (!t.series) return deps.client.patchCalendarEvent({ accessToken, eventId: t.eventId, etag: t.etag, patch: { startsAt: input.startsAt, endsAt: input.endsAt, allDay } });
-    // La serie si sposta con lo STESSO scarto su ogni data: il padre di quanto si sposta questa data.
+  return writeAndPersist(deps, row, input.scope, async (accessToken, t) => {
+    if (!t.series) return { event: await deps.client.patchCalendarEvent({ accessToken, eventId: t.eventId, etag: t.etag, patch: { startsAt: input.startsAt, endsAt: input.endsAt, allDay } }) };
+    // La serie si sposta con lo STESSO scarto su ogni data (review F4, punto
+    // 3): lo scarto si misura dall'inizio ORIGINALE di questa data (se era già
+    // stata spostata, da dove stava nella serie) e in ORE D'OROLOGIO nel fuso
+    // del padre, così attraversare l'ora legale non sposta l'ora di un'ora.
     const parentStart = t.parent.startsAt;
     if (!parentStart) throw new GoogleApiError({ api: "calendar.events.get", status: 0, code: "unavailable", reason: "parent_without_start" });
-    const shift = startsAt.getTime() - row.startsAt.getTime();
-    const duration = endsAt.getTime() - startsAt.getTime();
-    const newStart = new Date(parentStart.getTime() + shift);
-    const newEnd = new Date(newStart.getTime() + duration);
-    return deps.client.patchCalendarEvent({ accessToken, eventId: t.eventId, etag: t.etag, patch: { startsAt: newStart.toISOString(), endsAt: newEnd.toISOString(), allDay } });
+    const instance = await deps.client.getCalendarEvent({ accessToken, eventId: row.googleEventId });
+    const original = instance.originalStartTime ?? instance.startsAt ?? row.startsAt;
+    const timeZone = allDay ? "UTC" : (t.parent.timeZone ?? "UTC");
+    const shift = wallMs(startsAt, timeZone) - wallMs(original, timeZone);
+    const duration = wallMs(endsAt, timeZone) - wallMs(startsAt, timeZone);
+    const newStart = wallMs(parentStart, timeZone) + shift;
+    const patch = allDay
+      ? { startsAt: wallString(newStart).slice(0, 10), endsAt: wallString(newStart + duration).slice(0, 10), allDay }
+      : { startsAt: wallString(newStart), endsAt: wallString(newStart + duration), allDay, timeZone };
+    const event = await deps.client.patchCalendarEvent({ accessToken, eventId: t.eventId, etag: t.etag, patch });
+    return { event, rekey: { keyOf: (d: Date) => wallMs(d, timeZone), moved: (d: Date) => wallMs(d, timeZone) + shift } };
   });
 }
 
@@ -440,19 +525,18 @@ export async function respondCalendarEvent(deps: CalendarWriteDeps, userId: stri
   if (!myAttendee(row.attendees, row.account.email)) return { error: "not_invited" };
   const problem = accountProblem(row.account);
   if (problem) return problem;
-  return writeAndPersist(deps, row, input.scope, (accessToken, t) => {
-    // Tutti gli invitati, cambiando solo la casella: quelli del padre per la serie.
-    const attendees = (t.parent?.attendees ?? row.attendees).map((a) => ({ email: a.email, responseStatus: a.responseStatus }));
-    return deps.client.respondToCalendarEvent({
+  return writeAndPersist(deps, row, input.scope, async (accessToken, t) => ({
+    // Gli invitati li rilegge e li rimanda interi `respondToCalendarEvent`
+    // (review F4, punto 8); una nota assente lascia quella di prima.
+    event: await deps.client.respondToCalendarEvent({
       accessToken,
       eventId: t.eventId,
       etag: t.etag,
       selfEmail: myAttendee(t.parent?.attendees ?? row.attendees, row.account.email)?.email ?? row.account.email,
-      attendees,
       response: input.response,
-      note: input.note ?? null,
-    });
-  });
+      ...(input.note !== undefined ? { note: input.note } : {}),
+    }),
+  }));
 }
 
 export async function deleteCalendarEventRow(
@@ -501,9 +585,9 @@ async function writeAndPersist(
   deps: CalendarWriteDeps,
   row: OwnRow,
   scope: CalendarWriteScope,
-  write: (accessToken: string, t: Awaited<ReturnType<typeof target>>) => Promise<GoogleCalendarEvent>,
+  write: (accessToken: string, t: Awaited<ReturnType<typeof target>>) => Promise<{ event: GoogleCalendarEvent; rekey?: SeriesRekey }>,
 ): Promise<CalendarWriteOutcome> {
-  let written: GoogleCalendarEvent;
+  let written: { event: GoogleCalendarEvent; rekey?: SeriesRekey };
   let instances: GoogleCalendarEvent[] | null = null;
   try {
     const accessToken = await accessTokenFor(deps, row.account.id);
@@ -513,8 +597,8 @@ async function writeAndPersist(
   } catch (err) {
     return googleError(err);
   }
-  if (instances) return { ok: true, rowIds: await rewriteSeries(deps.db, row.account.id, row.recurringEventId!, instances) };
-  if (!written.startsAt) return { error: "google_unavailable" };
-  const id = await deps.db.transaction((tx) => upsertRow(tx, row.account.id, written));
+  if (instances) return { ok: true, rowIds: await rewriteSeries(deps.db, deps.now?.() ?? new Date(), row.account.id, row.recurringEventId!, instances, written.rekey ?? SAME_DATES) };
+  if (!written.event.startsAt) return { error: "google_unavailable" };
+  const id = await deps.db.transaction((tx) => upsertRow(tx, row.account.id, written.event));
   return { ok: true, rowIds: [id] };
 }

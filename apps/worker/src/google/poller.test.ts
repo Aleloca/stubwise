@@ -2898,6 +2898,7 @@ function calendarEvent(input: Partial<GoogleCalendarEvent> & { id: string }): Go
     updatedAt: null,
     recurringEventId: null,
     originalStartTime: null,
+    timeZone: null,
     location: null,
     hangoutLink: null,
     conferenceEntryPoints: [],

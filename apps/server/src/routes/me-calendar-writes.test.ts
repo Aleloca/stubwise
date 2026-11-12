@@ -38,6 +38,17 @@ let instances: GoogleCalendarEvent[] = [];
 const onGoogle = new Map<string, GoogleCalendarEvent>();
 /** La prossima riga non entra nel DB (un byte nullo nel testo): Google sì, DB no. */
 let poisonNext = false;
+/** L'id di una data di serie, come lo fa Google: `<padre>_<inizio originale>`. */
+const sid = (d: Date) => `p_${d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "")}`;
+/** L'istante dell'ora `h` di Roma nel giorno `ymd` (prova i due scarti, +1 e +2). */
+function rome(ymd: string, h: number): Date {
+  for (const off of [1, 2]) {
+    const cand = new Date(`${ymd}T${String(h - off).padStart(2, "0")}:00:00.000Z`);
+    const hour = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Rome", hour: "2-digit", hourCycle: "h23" }).format(cand);
+    if (Number(hour) === h) return cand;
+  }
+  throw new Error("nessuno scarto");
+}
 const newId = () => randomUUID().replace(/-/g, "").replace(/[w-z]/g, "a");
 
 function gEvent(over: Partial<GoogleCalendarEvent> = {}): GoogleCalendarEvent {
@@ -61,6 +72,7 @@ function gEvent(over: Partial<GoogleCalendarEvent> = {}): GoogleCalendarEvent {
     updatedAt: null,
     recurringEventId: null,
     originalStartTime: null,
+    timeZone: "UTC",
     location: null,
     hangoutLink: null,
     conferenceEntryPoints: [],
@@ -98,11 +110,12 @@ const fake: CalendarWriteClient = {
   },
   respondToCalendarEvent: async (input) => {
     record("respond", input);
-    return gEvent({ id: input.eventId, etag: '"12"', organizerSelf: false, organizer: "capo@x.it", attendees: input.attendees.map((a) => (a.email.toLowerCase() === input.selfEmail.toLowerCase() ? { email: a.email, responseStatus: input.response, comment: input.note ?? undefined, self: true } : { email: a.email, responseStatus: a.responseStatus as "accepted" })) });
+    return gEvent({ id: input.eventId, etag: '"12"', organizerSelf: false, organizer: "capo@x.it", attendees: [{ email: "capo@x.it", responseStatus: "accepted" }, { email: input.selfEmail, responseStatus: input.response, ...(input.note ? { comment: input.note } : {}), self: true }] });
   },
   getCalendarEvent: async (input) => {
     record("get", input);
-    return parent ?? onGoogle.get(input.eventId)!;
+    if (parent && input.eventId === parent.id) return parent;
+    return onGoogle.get(input.eventId) ?? gEvent({ id: input.eventId });
   },
   listEventInstances: async (input) => {
     record("instances", input);
@@ -224,6 +237,37 @@ describe("POST /events — nuova riunione", () => {
     expect(await db.select().from(calendarEvents).where(eq(calendarEvents.accountId, accountId))).toEqual([]);
   });
 
+  it("Riprova su un id già creato e poi ELIMINATO: non è riuscito, 409 changed_on_google (punto 9)", async () => {
+    const { me, accountId } = await scenario();
+    const eventId = newId();
+    onGoogle.set(eventId, gEvent({ id: eventId, status: "cancelled" }));
+    const res = await inject(me.headers, "POST", `/events`, { accountId, eventId, title: "R", startsAt: at(3).toISOString(), endsAt: at(3, 10).toISOString() });
+    expect([res.statusCode, res.json().code]).toEqual([409, "changed_on_google"]);
+    expect(await db.select().from(calendarEvents).where(eq(calendarEvents.accountId, accountId))).toEqual([]);
+  });
+
+  it("il poller ha già scritto la riga: il progetto scelto alla creazione resta (punto 10)", async () => {
+    const { me, accountId } = await scenario();
+    const projectId = await seedProject();
+    await addMember(app, projectId, me.id);
+    const eventId = newId();
+    await seedRow(accountId, { googleEventId: eventId });
+    const res = await inject(me.headers, "POST", `/events`, { accountId, eventId, title: "R", startsAt: at(3).toISOString(), endsAt: at(3, 10).toISOString(), projectId });
+    expect(res.json().items[0]).toMatchObject({ projectId, projectBy: "manual" });
+  });
+
+  it("tutto il giorno: date YYYY-MM-DD (fine esclusiva) a Google, la riga a mezzanotte UTC; un istante è 400 (punto 12)", async () => {
+    const { me, accountId } = await scenario();
+    const day = at(3).toISOString().slice(0, 10);
+    const next = at(4).toISOString().slice(0, 10);
+    const bad = await inject(me.headers, "POST", `/events`, { accountId, eventId: newId(), title: "Ferie", allDay: true, startsAt: `${day}T00:00:00.000Z`, endsAt: `${next}T00:00:00.000Z` });
+    expect(bad.statusCode).toBe(400);
+    expect(calls).toEqual([]);
+    const res = await inject(me.headers, "POST", `/events`, { accountId, eventId: newId(), title: "Ferie", allDay: true, startsAt: day, endsAt: next });
+    expect(res.statusCode).toBe(200);
+    expect((calls[0]!.input as { event: { startsAt: string; endsAt: string } }).event).toMatchObject({ startsAt: day, endsAt: next, allDay: true });
+  });
+
   it("un eventId che non è base32hex: 400 prima di tutto", async () => {
     const { me, accountId } = await scenario();
     const res = await inject(me.headers, "POST", "/events", { accountId, eventId: "Non-Valido!", title: "R", startsAt: at(3).toISOString(), endsAt: at(3, 10).toISOString() });
@@ -307,29 +351,70 @@ describe("PATCH /events/:id e /move — solo l'organizzatore, sull'etag letto", 
     expect(calls).toEqual([]);
   });
 
-  it("sposta «tutta la serie»: il PADRE con lo stesso scarto, poi le righe riscritte dalle date di Google; una data che non c'è più si chiude con la sua card", async () => {
+  it("sposta «tutta la serie»: il PADRE con lo stesso scarto, e le date nuove PORTANO progetto, candidatura e card delle vecchie (review F4, punto 4)", async () => {
     const { me, accountId } = await scenario();
-    const old = await seedRow(accountId, { recurringEventId: "p", googleEventId: "p_old", startsAt: at(3) });
-    const candidate = await seedRow(accountId, { recurringEventId: "p", googleEventId: "p_old2", startsAt: at(10), proposalCandidate: true });
+    const projectId = await seedProject();
+    const old = await seedRow(accountId, { recurringEventId: "p", googleEventId: sid(at(3)), startsAt: at(3), projectId, projectBy: "rules" });
+    const candidate = await seedRow(accountId, { recurringEventId: "p", googleEventId: sid(at(10)), startsAt: at(10), proposalCandidate: true, projectId, projectBy: "rules" });
     const [card] = await db.insert(notifications).values({ userId: me.id, kind: "google.proposal", status: "open", event: { kind: "google.proposal" } as never }).returning();
     await db.update(calendarEvents).set({ proposalNotificationId: card!.id }).where(eq(calendarEvents.id, candidate.id));
+    // Una data che sparisce dentro la finestra si chiude; una fuori dalla finestra non si tocca (punto 5).
+    await seedRow(accountId, { recurringEventId: "p", googleEventId: sid(at(20)), startsAt: at(20) });
+    const outside = await seedRow(accountId, { recurringEventId: "p", googleEventId: sid(at(-40)), startsAt: at(-40) });
     parent = gEvent({ id: "p", etag: '"p1"', startsAt: at(-20), endsAt: at(-20, 10) });
-    instances = [gEvent({ id: "p_new", recurringEventId: "p", startsAt: at(3, 11), endsAt: at(3, 12) })];
+    instances = [
+      gEvent({ id: sid(at(3, 11)), recurringEventId: "p", startsAt: at(3, 11), endsAt: at(3, 12), originalStartTime: at(3, 11) }),
+      gEvent({ id: sid(at(10, 11)), recurringEventId: "p", startsAt: at(10, 11), endsAt: at(10, 12), originalStartTime: at(10, 11) }),
+    ];
     const res = await inject(me.headers, "POST", `/events/${old.id}/move`, { scope: "series", etag: '"10"', startsAt: at(3, 11).toISOString(), endsAt: at(3, 12).toISOString() });
     expect(res.statusCode).toBe(200);
-    const patch = calls.find((c) => c.fn === "patch")!.input as { eventId: string; etag: string; patch: { startsAt: string; endsAt: string } };
-    expect(patch).toMatchObject({ eventId: "p", etag: '"p1"', patch: { startsAt: at(-20, 11).toISOString(), endsAt: at(-20, 12).toISOString() } });
-    expect(res.json().items.map((i: { startsAt: string }) => i.startsAt)).toEqual([at(3, 11).toISOString()]);
+    const patch = calls.find((c) => c.fn === "patch")!.input as { eventId: string; etag: string; patch: Record<string, unknown> };
+    expect(patch).toMatchObject({ eventId: "p", etag: '"p1"', patch: { startsAt: at(-20, 11).toISOString().slice(0, 19), endsAt: at(-20, 12).toISOString().slice(0, 19), timeZone: "UTC" } });
     const rows = await db.select().from(calendarEvents).where(eq(calendarEvents.accountId, accountId));
-    expect(rows.map((r) => [r.googleEventId, r.status]).sort()).toEqual([["p_new", "confirmed"], ["p_old2", "cancelled"]]);
-    const [closed] = await db.select().from(notifications).where(eq(notifications.id, card!.id));
-    expect(closed!.status).toBe("handled");
+    const by = new Map(rows.map((r) => [r.googleEventId, r]));
+    expect([...by.keys()].sort()).toEqual([sid(at(-40)), sid(at(10, 11)), sid(at(3, 11))].sort());
+    expect(by.get(sid(at(3, 11)))).toMatchObject({ projectId, projectBy: "rules" });
+    expect(by.get(sid(at(10, 11)))).toMatchObject({ projectId, proposalCandidate: true, proposalNotificationId: card!.id, outcome: null });
+    expect(by.get(sid(at(-40)))!.id).toBe(outside.id);
+    const [still] = await db.select().from(notifications).where(eq(notifications.id, card!.id));
+    expect(still!.status).toBe("open");
+  });
+
+  it("«tutta la serie» da una data GIÀ spostata: lo scarto parte dalla sua data originale (punto 3)", async () => {
+    const { me, accountId } = await scenario();
+    // Nella serie alle 10, spostata a mano alle 14; la trascino alle 15 per tutta la serie: la serie va alle 15, non alle 11.
+    const moved = await seedRow(accountId, { recurringEventId: "p", googleEventId: sid(at(3, 10)), startsAt: at(3, 14) });
+    onGoogle.set(moved.googleEventId, gEvent({ id: moved.googleEventId, recurringEventId: "p", startsAt: at(3, 14), endsAt: at(3, 15), originalStartTime: at(3, 10) }));
+    parent = gEvent({ id: "p", etag: '"p1"', startsAt: at(-20, 10), endsAt: at(-20, 11) });
+    await inject(me.headers, "POST", `/events/${moved.id}/move`, { scope: "series", etag: '"10"', startsAt: at(3, 15).toISOString(), endsAt: at(3, 16).toISOString() });
+    expect((calls.find((c) => c.fn === "patch")!.input as { patch: { startsAt: string } }).patch.startsAt).toBe(at(-20, 15).toISOString().slice(0, 19));
+  });
+
+  it("«tutta la serie» attraverso l'ora legale: lo scarto è in ore d'OROLOGIO nel fuso del padre (punto 3)", async () => {
+    const { me, accountId } = await scenario();
+    const instanceDay = at(3).toISOString().slice(0, 10);
+    const parentDay = new Date(at(3).getTime() - 182 * DAY).toISOString().slice(0, 10);
+    const row = await seedRow(accountId, { recurringEventId: "p", googleEventId: sid(rome(instanceDay, 9)), startsAt: rome(instanceDay, 9) });
+    onGoogle.set(row.googleEventId, gEvent({ id: row.googleEventId, recurringEventId: "p", startsAt: rome(instanceDay, 9), originalStartTime: rome(instanceDay, 9) }));
+    parent = gEvent({ id: "p", etag: '"p1"', startsAt: rome(parentDay, 9), endsAt: rome(parentDay, 10), timeZone: "Europe/Rome" });
+    await inject(me.headers, "POST", `/events/${row.id}/move`, { scope: "series", etag: '"10"', startsAt: rome(instanceDay, 10).toISOString(), endsAt: rome(instanceDay, 11).toISOString() });
+    expect((calls.find((c) => c.fn === "patch")!.input as { patch: unknown }).patch).toEqual({ startsAt: `${parentDay}T10:00:00`, endsAt: `${parentDay}T11:00:00`, allDay: false, timeZone: "Europe/Rome" });
+  });
+
+  it("una riga tutto il giorno senza `allDay` nel corpo: un istante è invalid_range, una data passa (punto 12)", async () => {
+    const { me, accountId } = await scenario();
+    const row = await seedRow(accountId, { allDay: true, startsAt: new Date(`${at(3).toISOString().slice(0, 10)}T00:00:00.000Z`) });
+    const bad = await inject(me.headers, "POST", `/events/${row.id}/move`, { etag: '"10"', startsAt: at(4, 0).toISOString(), endsAt: at(5, 0).toISOString() });
+    expect([bad.statusCode, bad.json().code]).toEqual([400, "invalid_range"]);
+    expect(calls).toEqual([]);
+    const ok = await inject(me.headers, "POST", `/events/${row.id}/move`, { etag: '"10"', startsAt: at(4).toISOString().slice(0, 10), endsAt: at(5).toISOString().slice(0, 10) });
+    expect(ok.statusCode).toBe(200);
   });
 
   it("una serie non passa fra «tutto il giorno» e con orario: 400 all_day_series", async () => {
     const { me, accountId } = await scenario();
     const row = await seedRow(accountId, { recurringEventId: "p" });
-    const res = await inject(me.headers, "POST", `/events/${row.id}/move`, { scope: "series", etag: '"10"', allDay: true, startsAt: at(3, 0).toISOString(), endsAt: at(4, 0).toISOString() });
+    const res = await inject(me.headers, "POST", `/events/${row.id}/move`, { scope: "series", etag: '"10"', allDay: true, startsAt: at(3).toISOString().slice(0, 10), endsAt: at(4).toISOString().slice(0, 10) });
     expect([res.statusCode, res.json().code]).toEqual([400, "all_day_series"]);
     expect(calls).toEqual([]);
   });
@@ -346,12 +431,24 @@ describe("POST /events/:id/respond", () => {
     expect(calls).toEqual([]);
   });
 
+  it("senza nota la nota non si manda (resta quella di prima); con un alias `self` conta come me, anche nelle letture (punti 7 e 8)", async () => {
+    const { me, accountId, email } = await scenario();
+    const row = await seedRow(accountId, { organizerSelf: false, organizer: "capo@x.it", attendees: [{ email: "capo@x.it", responseStatus: "accepted" }, { email: "alias@acme.com", responseStatus: "tentative", comment: "forse", self: true }] });
+    const range = await app.inject({ method: "GET", url: `/api/me/calendar/range?from=${encodeURIComponent(at(2).toISOString())}&to=${encodeURIComponent(at(5).toISOString())}`, headers: me.headers });
+    expect(range.json().items.find((i: { id: string }) => i.id === row.id)).toMatchObject({ canRespond: true, myResponse: "tentative", myNote: "forse" });
+    await inject(me.headers, "POST", `/events/${row.id}/respond`, { response: "accepted" });
+    expect(calls[0]!.input).not.toHaveProperty("note");
+    expect(calls[0]!.input).toMatchObject({ selfEmail: "alias@acme.com" });
+    void email;
+  });
+
   it("un invitato risponde con la nota: tutti gli invitati a Google, la riga con la mia risposta", async () => {
     const { me, accountId, email } = await scenario();
     const row = await seedRow(accountId, { organizerSelf: false, organizer: "capo@x.it", attendees: [{ email: "capo@x.it", responseStatus: "accepted" }, { email, responseStatus: "needsAction", self: true }] });
     const res = await inject(me.headers, "POST", `/events/${row.id}/respond`, { response: "tentative", note: "arrivo tardi" });
     expect(res.statusCode).toBe(200);
-    expect(calls[0]!.input).toMatchObject({ eventId: row.googleEventId, etag: '"10"', selfEmail: email, response: "tentative", note: "arrivo tardi", attendees: [{ email: "capo@x.it", responseStatus: "accepted" }, { email, responseStatus: "needsAction" }] });
+    // Gli invitati li rilegge e li rimanda interi il client di Google (review F4, punto 8): qui non passano.
+    expect(calls[0]!.input).toEqual({ accessToken: "at-casella", eventId: row.googleEventId, etag: '"10"', selfEmail: email, response: "tentative", note: "arrivo tardi" });
     expect(res.json().items[0]).toMatchObject({ myResponse: "tentative", myNote: "arrivo tardi", canRespond: true });
   });
 });

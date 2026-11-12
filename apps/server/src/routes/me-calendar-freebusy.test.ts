@@ -89,6 +89,8 @@ describe("GET /api/me/calendar/freebusy", () => {
     await busyRow(bob.accountId!, at(1, 0), at(2, 0), { allDay: true });
     await busyRow(bob.accountId!, at(1, 12), at(1, 13), { status: "cancelled" });
     await busyRow(bob.accountId!, at(1, 14), at(1, 18), { eventType: "outOfOffice" });
+    // Rifiutato da un alias della casella (`self`): non occupa (review F4, punto 7).
+    await busyRow(bob.accountId!, at(1, 19), at(1, 20), { attendees: [{ email: "alias@acme.com", responseStatus: "declined", self: true }] });
     const res = await get(me.user.headers, [bob.user.id]);
     expect(res.json().items[0].busy).toEqual([{ startsAt: at(1, 14).toISOString(), endsAt: at(1, 18).toISOString() }]);
   });

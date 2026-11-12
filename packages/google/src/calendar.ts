@@ -83,6 +83,13 @@ export interface GoogleCalendarEvent {
    */
   originalStartTime: Date | null;
   /**
+   * Il fuso dell'evento (`start.timeZone`), quando Google lo manda: per una
+   * serie c'è sempre. Serve a spostare una serie nell'ora LOCALE (review F4,
+   * punto 3: lo scarto in millisecondi attraverso l'ora legale sbaglia di
+   * un'ora). `null` se manca.
+   */
+  timeZone: string | null;
+  /**
    * Dove si tiene, come l'ha scritto chi ha creato l'invito (15 set 2026,
    * §2). Testo LIBERO e NON FIDATO: una stanza, un indirizzo, o un link
    * incollato lì. Chi lo rende su una superficie con markup lo escapa, come
@@ -120,7 +127,7 @@ export interface CalendarEventsPage {
   nextSyncToken: string | null;
 }
 
-const dateSchema = z.object({ date: z.string().optional(), dateTime: z.string().optional() });
+const dateSchema = z.object({ date: z.string().optional(), dateTime: z.string().optional(), timeZone: z.string().optional() });
 
 const eventSchema = z.object({
   id: z.string(),
@@ -247,6 +254,7 @@ function toEvent(raw: z.infer<typeof eventSchema>): GoogleCalendarEvent {
     updatedAt: toDate(raw.updated),
     recurringEventId: raw.recurringEventId ?? null,
     originalStartTime: toDateValue(raw.originalStartTime),
+    timeZone: nonEmpty(raw.start?.timeZone),
     // ⚠️ `null` e non `""` quando Google non manda il campo: la convenzione
     // del modulo (vedi `extractRawBody` in `gmail.ts`) distingue «non c'era»
     // da «c'era ed era vuoto», e una stringa vuota farebbe disegnare alla UI

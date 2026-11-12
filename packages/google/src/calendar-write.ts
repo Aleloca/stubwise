@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CALENDAR_API_BASE, parseCalendarEvent, type GoogleCalendarEvent } from "./calendar.js";
+import { GoogleApiError } from "./errors.js";
 import { buildUrl, parseGoogleJson, requestGoogle, type GoogleClientOptions } from "./fetch.js";
 import { z } from "zod";
 
@@ -46,6 +47,12 @@ export interface NewCalendarEvent {
 }
 
 export interface CalendarEventPatch {
+  /**
+   * Il fuso in cui leggere `startsAt`/`endsAt` (ora LOCALE senza offset,
+   * `YYYY-MM-DDTHH:mm:ss`): lo usa lo spostamento di una serie (review F4,
+   * punto 3). Senza, gli orari sono istanti ISO.
+   */
+  timeZone?: string;
   title?: string;
   startsAt?: string;
   endsAt?: string;
@@ -64,6 +71,18 @@ function eventsUrl(calendarId: string, eventId?: string, query: Record<string, s
 
 function when(value: string, allDay: boolean) {
   return allDay ? { date: value.slice(0, 10) } : { dateTime: value };
+}
+
+/**
+ * Gli orari di una PATCH: Google UNISCE gli oggetti annidati (la guida
+ * «performance» dell'API, «The modified data you send is merged into the
+ * data for the parent object»), quindi passare fra tutto il giorno e con
+ * orario vuole l'altro campo a `null` esplicito («To delete a field, specify
+ * the field and set it to null») — review F4, punto 6.
+ */
+function patchWhen(value: string, allDay: boolean, timeZone: string | undefined) {
+  if (allDay) return { date: value.slice(0, 10), dateTime: null, timeZone: null };
+  return timeZone ? { dateTime: value, timeZone, date: null } : { dateTime: value, date: null };
 }
 
 function remindersBody(reminders: CalendarReminders) {
@@ -127,8 +146,8 @@ export async function patchCalendarEvent(
         ...(p.title !== undefined ? { summary: p.title } : {}),
         ...(p.description !== undefined ? { description: p.description ?? "" } : {}),
         ...(p.location !== undefined ? { location: p.location ?? "" } : {}),
-        ...(p.startsAt !== undefined ? { start: when(p.startsAt, allDay) } : {}),
-        ...(p.endsAt !== undefined ? { end: when(p.endsAt, allDay) } : {}),
+        ...(p.startsAt !== undefined ? { start: patchWhen(p.startsAt, allDay, p.timeZone) } : {}),
+        ...(p.endsAt !== undefined ? { end: patchWhen(p.endsAt, allDay, p.timeZone) } : {}),
         ...(p.guests !== undefined ? { attendees: guestsBody(p.guests) } : {}),
         ...(p.reminders !== undefined ? { reminders: remindersBody(p.reminders) } : {}),
         ...(p.addMeet ? { conferenceData: meetRequest() } : {}),
@@ -158,10 +177,20 @@ export async function deleteCalendarEvent(
   );
 }
 
+const rawAttendeesSchema = z.object({
+  etag: z.string().optional(),
+  attendees: z.array(z.record(z.string(), z.unknown())).optional(),
+});
+
 /**
- * La risposta di un invitato. Si mandano TUTTI gli invitati, con la sola
- * risposta (e nota) della casella cambiata: non ci si affida a come Google
- * fonderebbe un elenco parziale.
+ * La risposta di un invitato. Gli invitati si RILEGGONO grezzi da Google e si
+ * rimandano tutti con OGNI loro campo (`displayName`, `optional`,
+ * `additionalGuests`, `organizer`, …): un elenco in una patch sostituisce
+ * quello che c'è, e ricostruirlo dalla nostra copia normalizzata perdeva i
+ * campi che non teniamo (review F4, punto 8). Cambia solo la casella: la
+ * risposta e, se `note` è dato, la nota (`null` o vuota la toglie; assente la
+ * lascia com'era). Se l'evento non ha più l'etag che il client ha letto:
+ * `changed_on_google`, senza scrivere.
  */
 export async function respondToCalendarEvent(
   input: {
@@ -170,13 +199,27 @@ export async function respondToCalendarEvent(
     eventId: string;
     etag: string | null;
     selfEmail: string;
-    attendees: { email: string; responseStatus: string | null }[];
     response: "accepted" | "tentative" | "declined";
     note?: string | null;
   },
   options: GoogleClientOptions = {},
 ): Promise<GoogleCalendarEvent> {
   const self = input.selfEmail.toLowerCase();
+  const read = "calendar.events.get";
+  const current = parseGoogleJson(
+    read,
+    rawAttendeesSchema,
+    await requestGoogle(
+      { api: read, url: `${CALENDAR_API_BASE}/${encodeURIComponent(input.calendarId ?? "primary")}/events/${encodeURIComponent(input.eventId)}`, accessToken: input.accessToken, statusCodes: { 404: "event_gone", 410: "event_gone" } },
+      options,
+    ),
+  );
+  if (input.etag && current.etag && current.etag !== input.etag) {
+    throw new GoogleApiError({ api: read, status: 412, code: "changed_on_google", reason: "etag_changed" });
+  }
+  const attendees = current.attendees ?? [];
+  const mineIndex = attendees.findIndex((a) => a.self === true);
+  const index = mineIndex !== -1 ? mineIndex : attendees.findIndex((a) => typeof a.email === "string" && a.email.toLowerCase() === self);
   const api = "calendar.events.patch";
   const payload = await requestGoogle(
     {
@@ -184,14 +227,18 @@ export async function respondToCalendarEvent(
       method: "PATCH",
       url: eventsUrl(input.calendarId ?? "primary", input.eventId),
       accessToken: input.accessToken,
-      ...(input.etag ? { ifMatch: input.etag } : {}),
+      ...((current.etag ?? input.etag) ? { ifMatch: (current.etag ?? input.etag)! } : {}),
       statusCodes: CHANGED,
       json: {
-        attendees: input.attendees.map((a) =>
-          a.email.toLowerCase() === self
-            ? { email: a.email, responseStatus: input.response, ...(input.note ? { comment: input.note } : {}) }
-            : { email: a.email, ...(a.responseStatus ? { responseStatus: a.responseStatus } : {}) },
-        ),
+        attendees: attendees.map((a, i) => {
+          if (i !== index) return a;
+          const next: Record<string, unknown> = { ...a, responseStatus: input.response };
+          if (input.note !== undefined) {
+            if (input.note) next.comment = input.note;
+            else delete next.comment;
+          }
+          return next;
+        }),
       },
     },
     options,

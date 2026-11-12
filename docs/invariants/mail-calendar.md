@@ -196,9 +196,19 @@
   casella. Senza, un DB che fallisce dopo il sì creerebbe una SECONDA
   riunione al Riprova, con gli inviti agli esterni mandati due volte (Q6).
   «Tutta la serie» scrive sul PADRE e riscrive le date da
-  `events.instances`; eliminare chiude le righe come il poller chiude un
-  evento cancellato (la card aperta si chiude, Q5) e toglie
-  `calendar_series`.
+  `events.instances`: lo spostamento parte dall'inizio ORIGINALE della data
+  trascinata ed è in ore d'orologio nel fuso del padre (l'ora legale non lo
+  sposta), e una data che cambia id porta con sé progetto, candidatura e card
+  della riga vecchia (abbinata per data originale); si chiude solo una data
+  sparita DENTRO la finestra. ⚠️ Limite dichiarato (review F4, punto 11): su
+  «tutta la serie» l'`If-Match` è l'etag del PADRE appena riletto, quindi
+  l'etag del client protegge solo la data trascinata, non le altre.
+  Eliminare chiude le righe come il poller chiude un evento cancellato (la
+  card aperta si chiude, Q5) e toglie `calendar_series`. Il progetto messo a
+  mano (Q1) passa alle righe degli altri invitati SOLO se senza progetto o
+  con uno che chi lo mette vede, mai su una messa a mano da un altro, e solo
+  se il proprietario vede il progetto; e a lettura un progetto che chi guarda
+  non vede esce come `null` (id, nome e `projectBy`), qualunque sia la fonte.
 - **⚠️ ECCEZIONE DICHIARATA a «Posta e Calendario personali»: il
   libero/occupato dei colleghi (area 6, F4, task 5; D8 = b, Q3 = a).** `GET
   /api/me/calendar/freebusy` lo legge CHIUNQUE nell'istanza *(O, 46)*, per

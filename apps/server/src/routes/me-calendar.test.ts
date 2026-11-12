@@ -15,7 +15,7 @@ import { startTestDb } from "@stubwise/db/testing";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { seedUsers } from "../test/fixtures.js";
+import { addMember, seedUsers } from "../test/fixtures.js";
 
 /**
  * SEZIONE CALENDARIO (fase 7b): `GET /api/me/calendar` (appuntamenti visti),
@@ -598,6 +598,8 @@ describe("F3b, task 6: range leggero, i campi nuovi, le cancellate fuori", () =>
   it("ogni riga dice se è lavoro, chi ha deciso il progetto, tipo, trasparenza e la MIA risposta; i campi pesanti solo nel dettaglio", async () => {
     const { accountId, email } = await seedAccount(memberId);
     const projectId = await seedProject("Audin");
+    // Membro: un progetto che chi guarda non vede esce null (review F4, punto 2).
+    await addMember(app, projectId, memberId);
     const work = await seedCalendarEvent(accountId, {
       title: "Revisione",
       startsAt: new Date("2026-09-15T09:00:00.000Z"),

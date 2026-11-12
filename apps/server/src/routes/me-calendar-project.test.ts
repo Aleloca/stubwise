@@ -72,6 +72,7 @@ describe("PUT /events/:id/project", () => {
     const bruno = await person();
     const p = await project();
     await addMember(app, p, ada.user.id);
+    await addMember(app, p, bruno.user.id);
     const mine = await row(ada.accountId);
     const his = await row(bruno.accountId);
     const elsewhere = await row(bruno.accountId, { icalUid: "altro@google.com" });
@@ -82,6 +83,44 @@ describe("PUT /events/:id/project", () => {
     expect(hisNow).toMatchObject({ projectId: p, projectBy: "manual" });
     const [untouched] = await db.select().from(calendarEvents).where(eq(calendarEvents.id, elsewhere.id));
     expect(untouched!.projectId).toBeNull();
+  });
+
+  it("NEGATIVI di Q1 (review F4, punti 1 e 2): la riga di un altro non cambia se il suo progetto non lo vedo, se l'ha messo a mano lui, se lui il progetto nuovo non lo vede, né quando tolgo il progetto", async () => {
+    const ada = await person();
+    const bruno = await person();
+    const carla = await person();
+    const dario = await person();
+    const p1 = await project();
+    const p2 = await project();
+    const p3 = await project();
+    for (const u of [ada, bruno, carla]) await addMember(app, p1, u.user.id);
+    await addMember(app, p2, bruno.user.id);
+    await addMember(app, p3, carla.user.id);
+    await addMember(app, p3, ada.user.id);
+    const mine = await row(ada.accountId);
+    const onHidden = await row(bruno.accountId, { projectId: p2, projectBy: "rules" });
+    // A mano da Carla, su un progetto che anche Ada vede: resta di Carla.
+    const manual = await row(carla.accountId, { projectId: p3, projectBy: "manual" });
+    const notMember = await row(dario.accountId);
+    expect((await put(ada.user.headers, mine.id, p1)).statusCode).toBe(200);
+    const now = async (id: string) => (await db.select().from(calendarEvents).where(eq(calendarEvents.id, id)))[0]!;
+    expect(await now(onHidden.id)).toMatchObject({ projectId: p2, projectBy: "rules" });
+    expect(await now(manual.id)).toMatchObject({ projectId: p3, projectBy: "manual" });
+    expect((await now(notMember.id)).projectId).toBeNull();
+    expect((await put(ada.user.headers, mine.id, null)).statusCode).toBe(200);
+    expect(await now(onHidden.id)).toMatchObject({ projectId: p2 });
+  });
+
+  it("a lettura: un progetto che chi guarda non vede non esce dal suo calendario, né nome né id (punto 2)", async () => {
+    const bruno = await person();
+    const hidden = await project();
+    const his = await row(bruno.accountId, { projectId: hidden, projectBy: "manual" });
+    const range = await app.inject({ method: "GET", url: `/api/me/calendar/range?from=${encodeURIComponent(new Date(Date.now()).toISOString())}&to=${encodeURIComponent(new Date(Date.now() + 10 * 86_400_000).toISOString())}`, headers: bruno.user.headers });
+    const item = range.json().items.find((i: { id: string }) => i.id === his.id);
+    expect(item).toMatchObject({ projectId: null, projectName: null, projectBy: null });
+    const detail = await app.inject({ method: "GET", url: `/api/me/calendar/events/${his.id}`, headers: bruno.user.headers });
+    expect(detail.json()).toMatchObject({ projectId: null, projectName: null });
+    expect(detail.body).not.toContain(hidden);
   });
 
   it("un progetto di cui non sono membro: 404, e niente cambia", async () => {

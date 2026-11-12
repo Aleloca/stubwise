@@ -1,5 +1,6 @@
 import { calendarEvents, googleAccounts, users, type Db } from "@stubwise/db";
-import { hasDeclinedInvitation, type CalendarFreeBusyPerson } from "@stubwise/shared";
+import type { CalendarFreeBusyPerson } from "@stubwise/shared";
+import { myAttendee } from "./calendar-writes.js";
 import { and, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 
 /**
@@ -52,7 +53,8 @@ export async function freeBusyOf(db: Db, personIds: string[], from: Date, to: Da
 
   const intervals = new Map<string, [number, number][]>();
   for (const row of rows) {
-    if (hasDeclinedInvitation(row.attendees, row.accountEmail)) continue;
+    // La risposta della casella come la leggono le scritture: `self` prima (review F4, punto 7).
+    if (myAttendee(row.attendees, row.accountEmail)?.responseStatus === "declined") continue;
     const start = Math.max(row.startsAt.getTime(), from.getTime());
     const end = Math.min(row.endsAt!.getTime(), to.getTime());
     if (end <= start) continue;

@@ -1259,6 +1259,23 @@ export const calendarRemindersInputSchema = z.union([
 ]);
 
 const calendarTitleSchema = z.string().trim().min(1).max(1024);
+
+/**
+ * Un orario di una scrittura (review F4, punto 12): per un evento con orario
+ * un ISTANTE ISO; per un tutto il giorno una DATA `YYYY-MM-DD`, con la fine
+ * ESCLUSIVA (un giorno solo: dal 15 al 16). Mai la mezzanotte locale di un
+ * client come istante: tagliata, a est di Greenwich, sarebbe il giorno prima.
+ */
+const calendarWhenSchema = z.union([z.iso.datetime(), z.iso.date()]);
+const isDateOnly = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+/** Tutto il giorno ⇔ date; con orario ⇔ istanti (quando `allDay` è dichiarato). */
+function checkWhen(value: { allDay?: boolean | undefined; startsAt: string; endsAt: string }, ctx: z.RefinementCtx) {
+  if (value.allDay === undefined) return;
+  for (const key of ["startsAt", "endsAt"] as const) {
+    if (isDateOnly(value[key]) !== value.allDay) ctx.addIssue({ code: "custom", path: [key], message: value.allDay ? "an all-day event takes a YYYY-MM-DD date" : "a timed event takes an ISO instant" });
+  }
+}
 const calendarTextSchema = z.string().max(8192).nullable();
 
 export const calendarEventCreateSchema = z.object({
@@ -1273,8 +1290,8 @@ export const calendarEventCreateSchema = z.object({
    */
   eventId: z.string().regex(/^[a-v0-9]{5,1024}$/),
   title: calendarTitleSchema,
-  startsAt: z.iso.datetime(),
-  endsAt: z.iso.datetime(),
+  startsAt: calendarWhenSchema,
+  endsAt: calendarWhenSchema,
   allDay: z.boolean().default(false),
   guests: z.array(calendarGuestInputSchema).max(200).default([]),
   addMeet: z.boolean().default(false),
@@ -1282,7 +1299,7 @@ export const calendarEventCreateSchema = z.object({
   location: z.string().max(1024).nullable().default(null),
   projectId: z.uuid().nullable().default(null),
   reminders: calendarRemindersInputSchema.default("default"),
-});
+}).superRefine(checkWhen);
 export type CalendarEventCreate = z.infer<typeof calendarEventCreateSchema>;
 /** Il corpo come lo scrive un client (i campi con default sono facoltativi). */
 export type CalendarEventCreateInput = z.input<typeof calendarEventCreateSchema>;
@@ -1306,10 +1323,11 @@ export type CalendarEventEditInput = z.input<typeof calendarEventEditSchema>;
 export const calendarEventMoveSchema = z.object({
   scope: calendarWriteScopeSchema.default("one"),
   etag: z.string().nullable(),
-  startsAt: z.iso.datetime(),
-  endsAt: z.iso.datetime(),
+  /** Come in {@link calendarEventCreateSchema}: date per un tutto il giorno, istanti altrimenti (senza `allDay`, quello della riga). */
+  startsAt: calendarWhenSchema,
+  endsAt: calendarWhenSchema,
   allDay: z.boolean().optional(),
-});
+}).superRefine(checkWhen);
 export type CalendarEventMove = z.infer<typeof calendarEventMoveSchema>;
 export type CalendarEventMoveInput = z.input<typeof calendarEventMoveSchema>;
 

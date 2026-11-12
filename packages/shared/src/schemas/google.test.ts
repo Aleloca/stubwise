@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { readerSchema, UNKNOWN } from "../reader.js";
 import {
+  calendarEventCreateSchema,
   calendarEventItemSchema,
+  calendarEventMoveSchema,
   calendarSeriesItemSchema,
   calendarSeriesPatchSchema,
   emailLabelsSchema,
@@ -541,5 +543,21 @@ describe("calendarEventItemSchema, F3b e F4: una risposta SENZA i campi nuovi re
   it("un server di prima: recognized vero, i permessi di scrittura spenti, niente etag né nota", () => {
     const old = { id: "11111111-1111-4111-8111-111111111111", accountId: "22222222-2222-4222-8222-222222222222", accountEmail: "a@x.it", projectId: null, startsAt: "2026-09-15T09:00:00.000Z", status: "new" };
     expect(calendarEventItemSchema.parse(old)).toMatchObject({ recognized: true, myResponse: null, attendeeCount: null, canEdit: false, canRespond: false, etag: null, myNote: null });
+  });
+});
+
+describe("F4, review punto 12: il contratto degli orari di una scrittura", () => {
+  const base = { accountId: "11111111-1111-4111-8111-111111111111", eventId: "abcde01234", title: "R" };
+  it("tutto il giorno: date YYYY-MM-DD (fine esclusiva); un istante è rifiutato", () => {
+    expect(calendarEventCreateSchema.safeParse({ ...base, allDay: true, startsAt: "2026-11-15", endsAt: "2026-11-16" }).success).toBe(true);
+    expect(calendarEventCreateSchema.safeParse({ ...base, allDay: true, startsAt: "2026-11-14T23:00:00.000Z", endsAt: "2026-11-15T23:00:00.000Z" }).success).toBe(false);
+  });
+  it("con orario: istanti ISO; una data è rifiutata", () => {
+    expect(calendarEventCreateSchema.safeParse({ ...base, startsAt: "2026-11-15T09:00:00.000Z", endsAt: "2026-11-15T10:00:00.000Z" }).success).toBe(true);
+    expect(calendarEventCreateSchema.safeParse({ ...base, startsAt: "2026-11-15", endsAt: "2026-11-16" }).success).toBe(false);
+  });
+  it("spostare: con `allDay` dichiarato vale la stessa regola; senza, decide il server sulla riga", () => {
+    expect(calendarEventMoveSchema.safeParse({ etag: null, allDay: true, startsAt: "2026-11-15T00:00:00.000Z", endsAt: "2026-11-16T00:00:00.000Z" }).success).toBe(false);
+    expect(calendarEventMoveSchema.safeParse({ etag: null, startsAt: "2026-11-15", endsAt: "2026-11-16" }).success).toBe(true);
   });
 });

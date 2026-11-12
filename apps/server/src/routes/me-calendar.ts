@@ -8,6 +8,7 @@ import {
   users,
 } from "@stubwise/db";
 import { htmlToText, sanitizeEmailHtml } from "@stubwise/google";
+import { projectPermissionsByProject } from "@stubwise/notifications";
 import {
   calendarEventItemSchema,
   calendarEventPageSchema,
@@ -41,6 +42,7 @@ import {
   deleteCalendarEventRow,
   editCalendarEvent,
   isOrganizerRow,
+  myAttendee,
   moveCalendarEvent,
   realCalendarWriteClient,
   respondCalendarEvent,
@@ -632,7 +634,7 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
     .orderBy(desc(calendarEvents.startsAt), desc(calendarEvents.id))
     .limit(input.limit + 1);
 
-  return rows.map((row) => toCalendarItem(row));
+  return hideUnseenProjects(db, input.userId, rows.map((row) => toCalendarItem(row)));
 }
 
 /**
@@ -658,10 +660,24 @@ async function queryCalendarEvents(db: Db, input: ListCalendarInput): Promise<Ca
  * che non rende HTML e lo mostra con `LinkedText`. Non è una seconda fonte
  * di verità, è la stessa letta in un altro modo.
  */
+/**
+ * Un progetto che chi guarda non vede non esce dal suo calendario (review F4,
+ * punto 2: «invisibile = 404»). Vale per ogni fonte del progetto di una
+ * riga — a mano (Q1 lo propaga agli altri invitati), regole, modello: si
+ * azzera a lettura, una query per pagina.
+ */
+async function hideUnseenProjects(db: Db, viewerId: string, items: CalendarEventItem[]): Promise<CalendarEventItem[]> {
+  const ids = [...new Set(items.map((i) => i.projectId).filter((id): id is string => id !== null))];
+  if (ids.length === 0) return items;
+  const seen = await projectPermissionsByProject(db, viewerId, ids);
+  return items.map((item) => (item.projectId !== null && !seen.get(item.projectId) ? { ...item, projectId: null, projectName: null, projectBy: null } : item));
+}
+
 function toCalendarItem(row: CalendarItemRow, options: { light?: boolean } = {}): CalendarEventItem {
   const light = options.light === true;
   const description = !light && row.description !== null && row.description.trim() !== "" ? row.description : null;
-  const mine = row.attendees.find((a) => a.email.toLowerCase() === row.accountEmail.toLowerCase());
+  // `self` prima dell'indirizzo, come le scritture (review F4, punto 7: con un alias, la stessa risposta).
+  const mine = myAttendee(row.attendees, row.accountEmail);
   return {
     id: row.id,
     accountId: row.accountId,
@@ -842,5 +858,5 @@ async function queryCalendarEventRows(db: Db, userId: string, extra: SQL[], opti
     .where(and(...conditions))
     .orderBy(asc(calendarEvents.startsAt), asc(calendarEvents.id));
 
-  return rows.map((row) => toCalendarItem(row, options));
+  return hideUnseenProjects(db, userId, rows.map((row) => toCalendarItem(row, options)));
 }
