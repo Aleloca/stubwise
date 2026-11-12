@@ -9,20 +9,19 @@ import { appClient } from "./client";
 import { dropPending, pendingSave, retryPending, saveWith, type SaveError } from "./calendarSave";
 import { myMailboxes } from "./mailDrafts";
 
-// Scrivere sul Calendario nella build app (area 6, F4). Le rotte sono quelle
-// della BOZZA del piano (`docs/plans/2026-11-12-integrazione-area6-fetta4-plan.md`,
-// branch docs/area6-f4-plan): finché 72 non le fissa e non mette i metodi in
-// `client.calendar`, si chiamano con `request` e la riga si legge cruda (lo
-// schema di oggi toglierebbe `etag`). Ogni scrittura parte da un gesto della
-// persona, risponde DOPO il sì di Google (Q2 = a) e restituisce la riga; un
-// evento cambiato su Google nel frattempo è `changed_on_google` (l'etag), e
-// non vince l'ultimo (Q4 = a: «Reload»).
+// Scrivere sul Calendario nella build app (area 6, F4), coi metodi di
+// `client.calendar` di 72 (createEvent, editEvent, moveEvent, respondEvent,
+// deleteEvent, setEventProject: tutte tranne deleteEvent rispondono
+// `{ items }`). Ogni scrittura parte da un gesto della persona, risponde DOPO
+// il sì di Google (Q2 = a) e restituisce le righe toccate; un evento cambiato
+// su Google nel frattempo è `changed_on_google` (l'etag), e non vince
+// l'ultimo (Q4 = a: «Reload»). Il libero/occupato (task 5 di 72) usa ancora
+// `request` finché il suo metodo non c'è.
 
 type Calendar = typeof Fake.calendar;
 type Raw = CalendarEventItem & { etag?: string | null };
 
 const PATH = "/api/me/calendar";
-const eventPath = (id: string) => `${PATH}/events/${encodeURIComponent(id)}`;
 
 /** Per client: l'etag dell'ultima riga letta o scritta di ogni evento. */
 const etags = new WeakMap<object, Map<string, string | null>>();
@@ -38,7 +37,7 @@ async function etagOf(id: string): Promise<string | null> {
   const known = etagMap().get(id);
   if (known !== undefined) return known;
   try {
-    const raw = (await appClient().request("GET", eventPath(id))) as Raw;
+    const raw = (await appClient().calendar.event(id)) as Raw;
     etagMap().set(id, raw.etag ?? null);
     return raw.etag ?? null;
   } catch (error) {
@@ -69,6 +68,8 @@ const ERRORS: Readonly<Record<string, string>> = {
   organizer: "invalid: organizer",
   not_invited: "invalid: not_invited",
   not_organizer: "forbidden",
+  // Il progetto attuale dell'evento è uno che non vedo: non lo cambio (F4, 72).
+  project_hidden: "forbidden",
   changed_on_google: "changed_on_google",
   google_scope_missing: "google_scope_missing",
   account_disabled: "google_not_connected",
@@ -97,7 +98,7 @@ const createEvent: Calendar["createEvent"] = async (input) => {
   const { firstConnected } = await myMailboxes();
   if (!firstConnected) throw new Error("google_not_connected");
   return write(() =>
-    appClient().request("POST", `${PATH}/events`, {
+    appClient().calendar.createEvent({
       accountId: firstConnected,
       title: input.title,
       startsAt: input.startsAt,
@@ -109,7 +110,7 @@ const createEvent: Calendar["createEvent"] = async (input) => {
       location: input.location ?? null,
       projectId: input.projectId ?? null,
       reminders: input.reminders ?? "default",
-    }),
+    } as Parameters<ReturnType<typeof appClient>["calendar"]["createEvent"]>[0]),
   );
 };
 
@@ -132,7 +133,7 @@ async function currentView(id: string): Promise<CalendarEventView> {
   const pending = pendingSave(id);
   if (pending) return pending;
   try {
-    const raw = (await appClient().request("GET", eventPath(id))) as Raw;
+    const raw = (await appClient().calendar.event(id)) as Raw;
     if (!etagMap().has(id)) etagMap().set(id, raw.etag ?? null);
     return eventView(calendarEventItemSchema.parse(raw));
   } catch (error) {
@@ -167,7 +168,10 @@ const updateEvent: Calendar["updateEvent"] = async (id, patch, scope = "one") =>
       ...(patch.location !== undefined ? { location: patch.location } : {}),
       ...(patch.reminders !== undefined ? { reminders: patch.reminders } : {}),
     }),
-    (etag) => appClient().request("PATCH", eventPath(id), { scope, etag, patch }),
+    (etag) =>
+      appClient().calendar.editEvent(id, { scope, etag, patch } as Parameters<
+        ReturnType<typeof appClient>["calendar"]["editEvent"]
+      >[1]),
   );
 
 const moveEvent: Calendar["moveEvent"] = async (id, startsAt, endsAt, scope = "one", allDay) =>
@@ -175,7 +179,7 @@ const moveEvent: Calendar["moveEvent"] = async (id, startsAt, endsAt, scope = "o
     id,
     (e) => ({ startsAt, endsAt, allDay: allDay ?? e.allDay }),
     (etag) =>
-      appClient().request("POST", `${eventPath(id)}/move`, {
+      appClient().calendar.moveEvent(id, {
         scope,
         etag,
         startsAt,
@@ -195,33 +199,36 @@ const revertEvent: Calendar["revertEvent"] = async (id) => {
 /** Eliminare (solo l'organizzatore): le proposte aperte nate da lui se ne vanno con lui (Q5 = a). */
 const deleteEvent: Calendar["deleteEvent"] = async (id, scope = "one") => {
   const etag = await etagOf(id);
-  const query = new URLSearchParams({ scope, ...(etag ? { etag } : {}) });
   try {
-    await appClient().request("DELETE", `${eventPath(id)}?${query.toString()}`);
+    await appClient().calendar.deleteEvent(id, { scope, ...(etag ? { etag } : {}) });
     etagMap().delete(id);
   } catch (error) {
     throw writeError(error);
   }
 };
 
-const respond: Calendar["respond"] = async (id, rsvp, note, scope = "one") =>
-  saving(
+const respond: Calendar["respond"] = async (id, rsvp, note, scope = "one") => {
+  // «Non risposto» non è una risposta che si manda (il prototipo la rifiuta allo stesso modo).
+  if (rsvp === "needsAction") throw new Error("invalid: response");
+  const response = rsvp;
+  return saving(
     id,
     () => ({ myResponse: rsvp }),
     () =>
-      appClient().request("POST", `${eventPath(id)}/respond`, {
+      appClient().calendar.respondEvent(id, {
         scope,
-        response: rsvp,
+        response,
         ...(note !== undefined ? { note } : {}),
       }),
   );
+};
 
 /** Il progetto a mano: vale per tutti quelli che vedono lo stesso evento (Q1 = a). */
 const setEventProject: Calendar["setEventProject"] = async (id, projectId) =>
   saving(
     id,
     () => ({ projectId, projectBy: projectId === null ? null : "manual" }),
-    () => appClient().request("PUT", `${eventPath(id)}/project`, { projectId }),
+    () => appClient().calendar.setEventProject(id, projectId),
   );
 
 /**
