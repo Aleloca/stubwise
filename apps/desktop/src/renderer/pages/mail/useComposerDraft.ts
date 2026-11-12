@@ -44,6 +44,8 @@ export interface ComposerFields {
   /** Build app: la firma di Gmail (sola lettura: la aggiunge il server all'invio, non si salva). */
   signature?: string | null;
   signatureStatus?: MailDraft["signatureStatus"];
+  /** Build app: la versione del server da cui parte il prossimo salvataggio (`null` = mai salvata). */
+  serverUpdatedAt?: string | null;
 }
 
 const fieldsOf = (d: MailDraft): ComposerFields => ({
@@ -57,6 +59,7 @@ const fieldsOf = (d: MailDraft): ComposerFields => ({
   quote: d.quote !== false,
   signature: d.signature ?? null,
   ...(d.signatureStatus ? { signatureStatus: d.signatureStatus } : {}),
+  serverUpdatedAt: d.serverUpdatedAt ?? null,
 });
 
 export function useComposerDraft({
@@ -114,7 +117,14 @@ export function useComposerDraft({
   const callbacks = useRef({ onClose, onLoaded, onEdit });
   callbacks.current = { onClose, onLoaded, onEdit };
 
+  /** La versione del server da cui parte il prossimo salvataggio (review F3 di 72). */
+  const base = useRef<string | null>(null);
+  /** Dopo un salvataggio: la base è la versione appena scritta. */
+  const rebase = (saved: MailDraft | undefined) => {
+    if (saved?.serverUpdatedAt) base.current = saved.serverUpdatedAt;
+  };
   const inputOf = (f: ComposerFields, m: Mode) => ({
+    ...(base.current ? { baseUpdatedAt: base.current } : {}),
     threadId,
     mode: m,
     replyToMessageId: f.replyToMessageId,
@@ -150,7 +160,7 @@ export function useComposerDraft({
       if (inFlight.current === 0 && !newestFailed.current) setStatus(dirty.current ? "idle" : "saved");
     };
     try {
-      await inLine(() => saveMutation.mutateAsync(inputOf(f, modeRef.current)));
+      rebase(await inLine(() => saveMutation.mutateAsync(inputOf(f, modeRef.current))));
       inFlight.current -= 1;
       settle();
     } catch (error) {
@@ -240,6 +250,7 @@ export function useComposerDraft({
   };
 
   const loaded = (f: ComposerFields) => {
+    if (f.serverUpdatedAt) base.current = f.serverUpdatedAt;
     fieldsRef.current = f;
     setFieldsState(f);
     callbacks.current.onLoaded(f);
@@ -346,6 +357,7 @@ export function useComposerDraft({
       // In fila dopo un salvataggio da sé in volo, coi campi di quel momento.
       try {
         const saved = await inLine(() => saveMutation.mutateAsync(inputOf(fieldsRef.current!, modeRef.current)));
+        rebase(saved);
         dirty.current = false;
         return saved;
       } catch (error) {
@@ -379,7 +391,7 @@ export function useComposerDraft({
       if (!f || gone.current || !unsavedRef.current) return;
       setStatus("saving");
       try {
-        await inLine(() => saveMutation.mutateAsync({ ...inputOf(f, modeRef.current), overwrite: true }));
+        rebase(await inLine(() => saveMutation.mutateAsync({ ...inputOf(f, modeRef.current), overwrite: true })));
         unsavedRef.current = null;
         setUnsaved(null);
         dirty.current = false;
@@ -403,7 +415,7 @@ export function useComposerDraft({
       clearTimer();
       setStatus("saving");
       try {
-        await inLine(() => saveMutation.mutateAsync({ ...inputOf(f, modeRef.current), overwrite: true }));
+        rebase(await inLine(() => saveMutation.mutateAsync({ ...inputOf(f, modeRef.current), overwrite: true })));
         dirty.current = false;
         newestFailed.current = false;
         setStatus("saved");

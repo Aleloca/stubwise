@@ -6326,6 +6326,7 @@
       "aboutNone": "Nessun progetto",
       "late": "in ritardo",
       "claudeFailed": "Claude non è riuscito a scrivere una bozza. Il tuo testo non è cambiato.",
+      "claudeDailyLimit": "Claude ha scritto abbastanza bozze per oggi: riprova domani. Il tuo testo non è cambiato.",
       "tryAgain": "Riprova",
       "undo": "Annulla",
       "ready": "La bozza di Claude è pronta",
