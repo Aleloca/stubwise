@@ -34,6 +34,8 @@ const BEFORE_SEND: Readonly<Record<string, string>> = {
   too_large: "invalid: too_large",
   attachment_unavailable: "attachment_unavailable",
   account_disabled: "google_not_connected",
+  // Le credenziali della casella non si usano più: si ricollega.
+  account_unavailable: "google_not_connected",
   google_scope_missing: "google_scope_missing",
 };
 

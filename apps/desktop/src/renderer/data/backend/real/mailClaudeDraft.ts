@@ -136,7 +136,8 @@ const streamClaudeDraft: Mail["streamClaudeDraft"] = (request, onText) => {
       const body = {
         accountId,
         threadId: thread,
-        mode: thread === null ? "new" : "reply",
+        // La modalità della casella: Inoltra e Rispondi a tutti chiedono un'altra bozza.
+        mode: thread === null ? "new" : request.mode && request.mode !== "new" ? request.mode : "reply",
         hint: request.hint ?? "",
         projectId: request.projectId ?? null,
       };

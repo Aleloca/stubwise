@@ -248,6 +248,24 @@ describe("gli allegati di una bozza (salvati con lei)", () => {
     expect(upload).toHaveBeenCalledTimes(1);
   });
 
+  it("un tipo di file che il main non carica (`unsupported_type`): l'errore degli allegati, non «failed»", async () => {
+    setAppClientForTests(createAppClient());
+    vi.stubGlobal("stubwise", {
+      files: { register: vi.fn(async () => ({ ok: true, grant: "g" })), onProgress: () => () => undefined, cancel: vi.fn() },
+      api: { upload: vi.fn(async () => ({ ok: false, reason: "unsupported_type" })) },
+    });
+    installFakeServer({ ...accounts, "PUT /api/me/mail/drafts": { body: draft() } });
+    const file = new File(["abc"], "strano.bin");
+    await expect(
+      mail.saveDraft(input([{ id: "up-9", name: "strano.bin", sizeBytes: 3, driveFileId: null, as: "copy", file }])),
+    ).rejects.toThrow("invalid: type");
+  });
+
+  it("una casella con le credenziali non più usabili (`account_unavailable`) salvando: da ricollegare", async () => {
+    installFakeServer({ ...accounts, "PUT /api/me/mail/drafts": { status: 409, body: { code: "account_unavailable", message: "x" } } });
+    await expect(mail.saveDraft(input([]))).rejects.toThrow("google_not_connected");
+  });
+
   it("«Annulla» di Elimina con un file dal disco: si ricarica sulla bozza NUOVA, niente si perde in silenzio", async () => {
     const D2 = "dfdfdfdf-2222-4222-8222-222222222222";
     const upload = bridge();

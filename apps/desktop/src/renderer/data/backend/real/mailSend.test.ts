@@ -107,6 +107,8 @@ describe("Invia", () => {
       [400, { code: "too_large" }, "invalid: too_large"],
       [409, { code: "attachment_unavailable" }, "attachment_unavailable"],
       [409, { code: "account_disabled" }, "google_not_connected"],
+      // Le credenziali della casella non si usano più: si ricollega, come una disattivata.
+      [409, { code: "account_unavailable" }, "google_not_connected"],
       [409, { code: "google_scope_missing", missing: ["https://www.googleapis.com/auth/gmail.modify"] }, "google_scope_missing"],
     ];
     for (const [status, body, error] of cases) {

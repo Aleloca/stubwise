@@ -210,6 +210,7 @@ export function Composer(props: ComposerProps) {
 
   const claude = useClaudeDraft({
     threadId,
+    mode,
     body: fields?.body ?? "",
     setBody: (text) => setFields({ body: text }, { byClaude: true }),
     hintRef,
@@ -325,7 +326,10 @@ export function Composer(props: ComposerProps) {
       draft.markSent();
       onSent(result, [...f.to, ...f.cc]);
     } catch (error) {
-      setSendError(t("mail.compose.couldntSend", { reason: t(reasonKey(error)) }));
+      // Il conflitto con Gmail lo dice già la riga «Keep mine» (review F3, 9).
+      if (!(error instanceof Error && error.message === "draft_changed")) {
+        setSendError(t("mail.compose.couldntSend", { reason: t(reasonKey(error)) }));
+      }
       setSending(false);
     }
   }

@@ -74,7 +74,9 @@ function draftError(error: unknown): unknown {
   if (!(error instanceof ApiError)) return error;
   if (error.code === "draft_changed") return new Error("draft_changed");
   if (error.code === "google_scope_missing") return new Error("google_scope_missing");
-  if (error.code === "account_disabled" || error.code === "token_expired") return new Error("google_not_connected");
+  if (error.code === "account_disabled" || error.code === "token_expired" || error.code === "account_unavailable") {
+    return new Error("google_not_connected");
+  }
   if (error.code === "google_unavailable" || error.status === 502) return new Error("google_unavailable");
   if (error.status === 404) return new Error("not_found");
   return error;
@@ -130,6 +132,8 @@ const ATTACHMENT_ERRORS: Readonly<Record<string, string>> = {
   too_many_attachments: "invalid: attachments",
   storage_not_configured: "invalid: storage_off",
   attachment_unavailable: "attachment_unavailable",
+  // Un tipo di file che il main non carica.
+  unsupported_type: "invalid: type",
 };
 function attachmentError(error: unknown): unknown {
   if (error instanceof ApiError && error.code && ATTACHMENT_ERRORS[error.code]) return new Error(ATTACHMENT_ERRORS[error.code]);

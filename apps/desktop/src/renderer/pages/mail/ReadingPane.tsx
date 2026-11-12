@@ -375,7 +375,9 @@ export function ReadingPane({
           onRetry: () =>
             void retry
               .mutateAsync(m.id)
-              .then((result) => showUndo(result, [...m.to, ...(m.cc ?? [])], false))
+              // Dopo un ricaricamento la casella dell'invio non si sa (`threadId` ""):
+              // è questa conversazione, e «Undo» deve chiuderne la casella.
+              .then((result) => showUndo({ ...result, threadId: result.threadId || threadId }, [...m.to, ...(m.cc ?? [])], false))
               .catch(() => toast.error(t("mail.compose.couldntSend", { reason: t("mail.compose.reason.other") }))),
           onEdit: () =>
             void closeComposer(threadId)

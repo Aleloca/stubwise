@@ -312,7 +312,8 @@ describe("la bozza di Claude per la Posta via IPC (main, area 6 F3)", () => {
       [MAIL, "testo"],
       [MAIL, { ...body, accountId: "non-uuid" }],
       [MAIL, { ...body, mode: "sendNow" }],
-      [MAIL, { ...body, hint: "x".repeat(4001) }],
+      // Il tetto del server (2000), non uno più largo.
+      [MAIL, { ...body, hint: "x".repeat(2001) }],
       [MAIL, { ...body, threadId: 42 }],
       [`${MAIL}?x=1`, body],
       [`${MAIL}/x`, body],

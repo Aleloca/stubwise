@@ -38,6 +38,9 @@ export function ClaudeMark() {
   );
 }
 
+/** L'indicazione a Claude, al più: il tetto del server (e del main, `apiStream.ts`). */
+const HINT_MAX = 2000;
+
 type Stage = "closed" | "hint" | "ask";
 
 /**
@@ -47,11 +50,14 @@ type Stage = "closed" | "hint" | "ask";
  */
 export function useClaudeDraft({
   threadId,
+  mode,
   body,
   setBody,
   hintRef,
 }: {
   threadId: string | null;
+  /** La modalità della casella (Rispondi, a tutti, Inoltra, nuova). */
+  mode?: "new" | "reply" | "replyAll" | "forward";
   body: string;
   /** Mette nel corpo il testo di Claude (o quello di prima, con «Undo»). */
   setBody: (text: string) => void;
@@ -93,7 +99,7 @@ export function useClaudeDraft({
     setStage("closed");
     mark.clear();
     setAnnounce(false);
-    claude.start({ threadId, hint: hint.trim(), ...(newEmail ? { projectId: about } : {}) });
+    claude.start({ threadId, hint: hint.trim(), ...(mode ? { mode } : {}), ...(newEmail ? { projectId: about } : {}) });
   };
   const submit = () => {
     if (newEmail && !hint.trim()) return;
@@ -236,6 +242,7 @@ export function ClaudeHintRow({
           <input
             ref={hintRef}
             aria-label={label}
+            maxLength={HINT_MAX}
             placeholder={t("mail.compose.hintPlaceholder")}
             value={flow.hint}
             onChange={(e) => flow.setHint(e.target.value)}

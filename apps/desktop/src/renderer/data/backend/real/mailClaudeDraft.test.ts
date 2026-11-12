@@ -95,6 +95,16 @@ describe("la bozza di Claude, sul desktop (dal main)", () => {
     expect(opened[0]!.body).toEqual({ accountId: ACC, threadId: null, mode: "new", hint: "presentati", projectId: PRJ });
   });
 
+  it("la modalità del compositore (Inoltra, Rispondi a tutti) arriva al server, non sempre «reply»", async () => {
+    installFakeServer(accounts);
+    setAppClientForTests(createAppClient());
+    const opened = bridge();
+    void mail.streamClaudeDraft({ threadId: `${ACC}_t-1`, hint: "", mode: "forward" }, () => undefined).result.catch(() => undefined);
+    void mail.streamClaudeDraft({ threadId: `${ACC}_t-1`, hint: "", mode: "replyAll" }, () => undefined).result.catch(() => undefined);
+    await vi.waitFor(() => expect(opened).toHaveLength(2));
+    expect(opened.map((o) => (o.body as { mode: string }).mode).sort()).toEqual(["forward", "replyAll"]);
+  });
+
   it("«Ferma»: chiude lo stream e tiene il testo fin lì", async () => {
     installFakeServer(accounts);
     setAppClientForTests(createAppClient());
