@@ -96,3 +96,34 @@ describe("announcesSaved: «creata»/«aggiornata» solo se non è rimasta «non
     expect(announcesSaved({ save: { state: "failed", error: "unreachable" } })).toBe(false);
   });
 });
+
+describe("guestsPatch: gli ospiti si mandano solo se sono cambiati, e senza nomi inventati (review F4, minore)", () => {
+  const attendees = [
+    { email: "marta@acme.test", personId: "p-marta" },
+    { email: "bob@client.test", personId: null },
+  ];
+  it("stesso insieme (anche in un altro ordine, con le maiuscole): non si mandano", async () => {
+    const { guestsPatch } = await import("./applyEdits");
+    expect(
+      guestsPatch(attendees, [
+        { email: "BOB@client.test", name: "bob@client.test", personId: null },
+        { email: "marta@acme.test", name: "Marta", personId: "p-marta" },
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("cambiati: le persone per id, gli esterni per email, il nome solo se non è l'email stessa", async () => {
+    const { guestsPatch } = await import("./applyEdits");
+    expect(
+      guestsPatch(attendees, [
+        { email: "marta@acme.test", name: "Marta", personId: "p-marta" },
+        { email: "bob@client.test", name: "bob@client.test", personId: null },
+        { email: "ann@client.test", name: "Ann Lee", personId: null },
+      ]),
+    ).toEqual([
+      { personId: "p-marta" },
+      { email: "bob@client.test" },
+      { email: "ann@client.test", name: "Ann Lee" },
+    ]);
+  });
+});

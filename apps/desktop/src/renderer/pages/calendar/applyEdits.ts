@@ -1,4 +1,4 @@
-import type { CalendarEventPatch, CalendarScope } from "../../data/model";
+import type { CalendarEventPatch, CalendarGuestInput, CalendarScope } from "../../data/model";
 import { sameSpan } from "./calendarWrites";
 
 /** Fin dove è arrivato un salvataggio in modifica. */
@@ -82,3 +82,28 @@ export async function applyEdits(
  */
 export const announcesSaved = (e: { save?: { state: string; error?: string } }): boolean =>
   e.save?.state !== "failed";
+
+const guestKey = (g: { email: string; personId?: string | null }): string =>
+  g.personId ? `p:${g.personId}` : `e:${g.email.toLowerCase()}`;
+
+/**
+ * Gli ospiti da mandare (review F4, minore): niente se l'insieme non è
+ * cambiato (una modifica del titolo non riscrive gli invitati su Google), e
+ * senza nomi inventati: la vista dà a un esterno il nome uguale all'email, e
+ * quello non è un nome da scrivere su Google.
+ */
+export function guestsPatch(
+  original: readonly { email: string; personId?: string | null }[],
+  current: readonly { email: string; name?: string | null; personId?: string | null }[],
+): CalendarGuestInput[] | undefined {
+  const before = new Set(original.map(guestKey));
+  const now = new Set(current.map(guestKey));
+  if (before.size === now.size && [...now].every((k) => before.has(k))) return undefined;
+  return current.map((g) =>
+    g.personId
+      ? { personId: g.personId }
+      : g.name && g.name.trim().toLowerCase() !== g.email.toLowerCase()
+        ? { email: g.email, name: g.name }
+        : { email: g.email },
+  );
+}

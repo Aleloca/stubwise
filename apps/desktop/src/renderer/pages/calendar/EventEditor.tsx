@@ -36,7 +36,7 @@ import {
   timeLabel,
 } from "./calendarFormat";
 import type { WindowDays } from "./calendarParams";
-import { announcesSaved, applyEdits, EditFailed } from "./applyEdits";
+import { announcesSaved, applyEdits, EditFailed, guestsPatch } from "./applyEdits";
 import { SeriesScopeDialog } from "./SeriesScopeDialog";
 
 // «New meeting» / «Edit meeting» (shape calendar.md §6, dialogo 560 px):
@@ -206,8 +206,10 @@ export function EventEditor({
     return Object.keys(next).length === 0;
   };
 
-  const guestInput = guests.map((g) =>
-    g.personId ? { personId: g.personId } : { email: g.email, name: g.name },
+  // Gli ospiti come si mandano: in modifica solo se l'insieme è cambiato.
+  const guestInput = guestsPatch(
+    (event?.attendees ?? []).filter((a) => a.personId !== me),
+    guests,
   );
   const reminders = reminder === "default" ? ("default" as const) : REMINDERS[reminder];
 
@@ -223,7 +225,7 @@ export function EventEditor({
           startsAt: iso(startMs),
           endsAt: iso(endMs),
           allDay,
-          guests: guestInput,
+          guests: guestInput ?? [],
           addMeet: meet,
           description: description.trim() || null,
           projectId,
@@ -249,7 +251,7 @@ export function EventEditor({
           allDay,
           patch: {
             title: title.trim(),
-            guests: guestInput,
+            ...(guestInput === undefined ? {} : { guests: guestInput }),
             addMeet: meet,
             description: description.trim() || null,
             reminders,
