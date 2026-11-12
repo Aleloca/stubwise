@@ -701,3 +701,25 @@ describe("F3b (review, 3): il server finto di prima e le cancellate", () => {
     ).toEqual([EV]);
   });
 });
+
+describe("F3b (review, 6): aprire un evento ricorrente non rilegge ogni volta le serie", () => {
+  it("due aperture di seguito: le serie lette una volta; dopo una configurazione, di nuovo", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-12T10:00:00Z"));
+    const { seen } = installFakeServer({
+      [`GET /api/me/calendar/events/${EV}`]: { body: item({ recurringEventId: "rec-1" }) },
+      "GET /api/me/calendar/series": { body: { items: [series()] } },
+      "GET /api/me/google/accounts": { body: [account()] },
+      [`PUT /api/me/calendar/series/rec-1`]: { body: { ok: true } },
+    });
+    const reads = () =>
+      seen.filter((r) => r.path.startsWith("/api/me/calendar/series") && r.method === "GET").length;
+    await calendar.getEvent(EV);
+    await calendar.getEvent(EV);
+    expect(reads()).toBe(1);
+    await calendar.configureSeries(`${ACC}_rec-1`, { enabled: true, projectId: PROJECT_ID });
+    const before = reads();
+    await calendar.getEvent(EV);
+    expect(reads()).toBe(before + 1);
+  });
+});
