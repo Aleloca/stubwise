@@ -4221,6 +4221,11 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
     await pollGoogleOnce({ ...deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events, nextSyncToken: "tok" }]) }), classifyV2: true });
   }
+  async function ownerSees(account: typeof googleAccounts.$inferSelect, projectId: string) {
+    const { projectMembers, roles } = await import("@stubwise/db");
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId, userId: account.userId, roleId: role!.id });
+  }
   async function member(projectId: string, email: string) {
     const { projectMembers, roles } = await import("@stubwise/db");
     const [u] = await db.insert(users).values({ email, passwordHash: "x", role: "member" }).returning();
@@ -4236,6 +4241,7 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     await member(projectId, `marta-${crypto.randomUUID()}@acme.com`);
     const mate = (await db.select().from(users).where(eq(users.role, "member")).orderBy(users.createdAt)).at(-1)!;
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: null });
+    await ownerSees(account, projectId);
     await tickV2(account, [
       calendarEvent({ id: "con-marta", title: "Revisione", attendees: [att(MAILBOX), att(mate.email)] }),
       // In perimetro per le REGOLE, ma nessun invitato membro: col flag acceso non è lavoro.
@@ -4257,6 +4263,7 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     const marta = `marta-${crypto.randomUUID()}@acme.com`;
     await member(projectId, marta);
     const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: null });
+    await ownerSees(account, projectId);
     const ev = calendarEvent({ id: "gia-visto", title: "Revisione", attendees: [att(MAILBOX), att(marta)] });
     // Flag spento: nessuna regola, quindi solo visto.
     await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
@@ -4266,6 +4273,28 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     await tickV2(fresh!, [ev]);
     expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: true, projectId, outcome: { type: "baseline" }, proposalNotificationId: null });
     expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("review F3b, punto 3 — NEGATIVO: il progetto di un invitato che il PROPRIETARIO non vede non arriva sulla sua card", async () => {
+    const hidden = await seedProject("Riservato");
+    const marta = `marta-${crypto.randomUUID()}@acme.com`;
+    await member(hidden, marta);
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: new Date() });
+    await tickV2(account, [calendarEvent({ id: "con-marta", title: "Revisione", attendees: [att(MAILBOX), att(marta)] })]);
+    expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: false, projectId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("l'indirizzo di un invitato con le MAIUSCOLE riconosce la persona (lower)", async () => {
+    const projectId = await seedProject("Audin");
+    const id = crypto.randomUUID().slice(0, 6);
+    await member(projectId, `Marta.${id}@Acme.com`);
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: new Date() });
+    const { projectMembers, roles } = await import("@stubwise/db");
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId, userId: account.userId, roleId: role!.id });
+    await tickV2(account, [calendarEvent({ id: "m", title: "Revisione", attendees: [att(MAILBOX), att(`marta.${id}@acme.com`)] })]);
+    expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: true, projectId });
   });
 
   it("invitati membri di DUE progetti: nessuna proposta (la «Quale progetto?» del calendario è rimandata), e il solo proprietario non conta", async () => {
@@ -4280,6 +4309,8 @@ describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
     const { projectMembers, roles } = await import("@stubwise/db");
     const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
     await db.insert(projectMembers).values({ projectId: a, userId: account.userId, roleId: role!.id });
+    // …e vede anche B: entrambi i progetti degli invitati sono suoi da vedere.
+    await db.insert(projectMembers).values({ projectId: b, userId: account.userId, roleId: role!.id });
     await tickV2(account, [
       calendarEvent({ id: "due", title: "Riunione", attendees: [att(MAILBOX), att(ada), att(bob.email)] }),
       calendarEvent({ id: "solo-io", title: "Promemoria mio", attendees: [att(MAILBOX)] }),

@@ -40,6 +40,7 @@ import {
   admit,
   matchRoutes,
   normalizeAddress,
+  projectPermissionsOfUser,
   type AdmissionConfig,
   type AdmissionResult,
   type EmailRoute,
@@ -1716,12 +1717,14 @@ async function attendeeProjectsByEvent(db: Db, events: readonly GoogleCalendarEv
   const out = new Map<string, string[]>();
   if (all.length === 0) return out;
   const people = new Map<string, string>();
-  for (const row of await db.select({ id: users.id, email: users.email }).from(users).where(and(eq(users.isAgent, false), inArray(users.email, all)))) people.set(normalizeAddress(row.email), row.id);
+  // `lower()`: un indirizzo salvato con le maiuscole è la stessa persona (review F3b).
+  const lowered = sql`array[${sql.join(all.map((a) => sql`${a}`), sql`, `)}]::text[]`;
+  for (const row of await db.select({ id: users.id, email: users.email }).from(users).where(and(eq(users.isAgent, false), sql`lower(${users.email}) = any(${lowered})`))) people.set(normalizeAddress(row.email), row.id);
   for (const row of await db
     .select({ id: googleAccounts.userId, email: googleAccounts.email })
     .from(googleAccounts)
     .innerJoin(users, eq(users.id, googleAccounts.userId))
-    .where(and(eq(users.isAgent, false), inArray(googleAccounts.email, all)))) people.set(normalizeAddress(row.email), row.id);
+    .where(and(eq(users.isAgent, false), sql`lower(${googleAccounts.email}) = any(${lowered})`))) people.set(normalizeAddress(row.email), row.id);
   const ids = [...new Set([...people.values()].filter((id) => id !== account.userId))];
   const projectsOf = new Map<string, string[]>();
   if (ids.length > 0) {
@@ -1729,9 +1732,14 @@ async function attendeeProjectsByEvent(db: Db, events: readonly GoogleCalendarEv
       projectsOf.set(row.userId, [...(projectsOf.get(row.userId) ?? []), row.projectId]);
     }
   }
+  // Solo i progetti che il PROPRIETARIO della casella vede (review F3b, punto
+  // 3): la card va a lui, e un progetto che per lui è 404 non ci finisce. Una
+  // verifica per progetto distinto del lotto, non per evento.
+  const ownerSees = new Map<string, boolean>();
+  for (const id of new Set([...projectsOf.values()].flat())) ownerSees.set(id, Boolean(await projectPermissionsOfUser(db, account.userId, id)));
   for (const e of events) {
     const userIds = new Set(addressesOf(e).flatMap((a) => (people.has(a) ? [people.get(a)!] : [])).filter((id) => id !== account.userId));
-    out.set(e.id, [...new Set([...userIds].flatMap((id) => projectsOf.get(id) ?? []))]);
+    out.set(e.id, [...new Set([...userIds].flatMap((id) => projectsOf.get(id) ?? []))].filter((id) => ownerSees.get(id) === true));
   }
   return out;
 }
