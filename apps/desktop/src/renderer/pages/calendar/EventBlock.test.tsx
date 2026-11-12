@@ -48,6 +48,10 @@ describe("il tipo dell'evento e il libero/occupato (F3b)", () => {
     expect(screen.getByText("Free")).toBeInTheDocument();
     expect(blockShape(event({ transparency: "transparent" }))).toContain("border-dashed");
     expect(blockShape(event())).not.toContain("border-dashed");
+    // Un salvataggio fallito vince: il bordo dice l'errore, non il libero (review F3b, 7).
+    const failed = blockShape(event({ transparency: "transparent", save: { state: "failed" } }));
+    expect(failed).toContain("!border-critical");
+    expect(failed).not.toContain("!border-rule-strong");
   });
 
   it("un evento normale (o di un server di prima, senza i campi): nessuna parola in più", () => {

@@ -328,7 +328,7 @@ export function GridBlockBody({
 export function blockShape(e: CalendarEventView): string {
   const failed = e.save?.state === "failed" ? "!border-critical" : "";
   // Libero per Google (F3b): il contorno tratteggiato, oltre alla parola.
-  const free = e.transparency === "transparent" ? "border-dashed !border-rule-strong" : "";
+  const free = e.transparency === "transparent" && !failed ? "border-dashed !border-rule-strong" : "";
   return `${SHAPE[answerOf(e)]} ${free} ${failed}`;
 }
 
