@@ -1273,6 +1273,20 @@ const DEFAULT_MAIL_ADMISSION = {
   denyAutomated: true,
 } satisfies MailAdmission;
 
+describe("area 6, F2: la classificazione nuova accesa si dice", () => {
+  it("con MAIL_CLASSIFY_V2 il server risponde classifyV2: true (e PATCH anche)", async () => {
+    const appV2 = buildApp({ db: testDb.db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", encryptionKey: Buffer.alloc(32, 9).toString("base64"), mailClassifyV2: true });
+    try {
+      const { fullSessionCookie } = await import("../test/fixtures.js");
+      const cookie = await fullSessionCookie(appV2, users.memberId);
+      const res = await appV2.inject({ method: "GET", url: "/api/settings/mail-admission", headers: { cookie } });
+      expect((res.json() as { classifyV2: boolean }).classifyV2).toBe(true);
+    } finally {
+      await appV2.close();
+    }
+  });
+});
+
 describe("GET /api/settings/mail-admission", () => {
   afterEach(async () => {
     // Ripristina il default per non sporcare gli altri test di questo file.
@@ -1286,13 +1300,13 @@ describe("GET /api/settings/mail-admission", () => {
   it("member: 200 — a differenza delle altre GET di questo file, la lettura non è admin-only", async () => {
     const res = await getMailAdmission(users.memberCookie);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual(DEFAULT_MAIL_ADMISSION);
+    expect(res.json()).toEqual({ ...DEFAULT_MAIL_ADMISSION, classifyV2: false });
   });
 
   it("admin: restituisce i default seedati (allargano il perimetro, non lo restringono)", async () => {
     const res = await getMailAdmission(users.adminCookie);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual(DEFAULT_MAIL_ADMISSION);
+    expect(res.json()).toEqual({ ...DEFAULT_MAIL_ADMISSION, classifyV2: false });
   });
 
   it("una risposta senza questi tre campi resta parsabile (invariante mobile, per uniformità)", () => {
@@ -1300,7 +1314,7 @@ describe("GET /api/settings/mail-admission", () => {
     // comunque costruito coi default di CLAUDE.md: un client che legge una
     // vecchia risposta senza questi campi li ricostruisce.
     const legacyResponse = {};
-    expect(mailAdmissionSchema.parse(legacyResponse)).toEqual(DEFAULT_MAIL_ADMISSION);
+    expect(mailAdmissionSchema.parse(legacyResponse)).toEqual({ ...DEFAULT_MAIL_ADMISSION, classifyV2: false });
   });
 });
 
@@ -1335,6 +1349,7 @@ describe("PATCH /api/settings/mail-admission", () => {
       admitWorkspaceDomains: false,
       denyLabels: ["SPAM"],
       denyAutomated: false,
+      classifyV2: false,
     });
 
     const getRes = await getMailAdmission(users.adminCookie);
@@ -1342,6 +1357,7 @@ describe("PATCH /api/settings/mail-admission", () => {
       admitWorkspaceDomains: false,
       denyLabels: ["SPAM"],
       denyAutomated: false,
+      classifyV2: false,
     });
   });
 
@@ -1353,6 +1369,7 @@ describe("PATCH /api/settings/mail-admission", () => {
       admitWorkspaceDomains: false,
       denyLabels: ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
       denyAutomated: true,
+      classifyV2: false,
     });
   });
 
@@ -1364,6 +1381,7 @@ describe("PATCH /api/settings/mail-admission", () => {
       admitWorkspaceDomains: false,
       denyLabels: ["SPAM", "CATEGORY_SOCIAL"],
       denyAutomated: false,
+      classifyV2: false,
     });
   });
 

@@ -287,6 +287,8 @@ export interface BuildAppOptions {
    * mano.
    */
   mailGoogleClient?: MailOriginalClient;
+  /** Area 6, F2: la classificazione nuova è accesa (`MAIL_CLASSIFY_V2`). Default false. */
+  mailClassifyV2?: boolean;
   /**
    * Fidarsi degli header X-Forwarded-* del reverse proxy (Caddy nel deploy
    * Docker). Va abilitato dietro un proxy affinché `secure: "auto"` sul cookie
@@ -763,7 +765,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // propri token, con token in chiaro mostrato una sola volta alla creazione.
   void app.register(patRoutes, { prefix: "/api/pats" });
   // Impostazioni di automazione AI (regole per tipo): solo admin.
-  void app.register(settingsRoutes, { prefix: "/api/settings" });
+  void app.register(settingsRoutes, { prefix: "/api/settings", mailClassifyV2: opts.mailClassifyV2 ?? false });
   // Modello Anthropic per tipo di lavoro AI (solo admin): plugin a sé sotto /api/settings.
   void app.register(modelSettingsRoutes, { prefix: "/api/settings/models" });
   // Registro dei Google Workspace (fase 6): app OAuth interne con client secret

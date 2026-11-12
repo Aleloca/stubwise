@@ -374,6 +374,14 @@ export const mailAdmissionSchema = z.object({
   // Scarta la posta automatica (List-Unsubscribe, List-Id, Precedence: bulk,
   // Auto-Submitted diverso da "no").
   denyAutomated: z.boolean().default(true),
+  /**
+   * Area 6, F2: la classificazione nuova è accesa (`MAIL_CLASSIFY_V2`) e ogni
+   * email va al modello: l'ammissione e le regole della posta non si
+   * applicano più, e le superfici che le gestiscono lo dicono invece di
+   * mostrare un modulo che non conta. Solo in lettura; un server di prima non
+   * lo manda.
+   */
+  classifyV2: z.boolean().default(false),
 });
 export type MailAdmission = z.infer<typeof mailAdmissionSchema>;
 

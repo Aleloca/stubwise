@@ -45,13 +45,16 @@ function mockApi(handlers: Record<string, Handler>) {
   });
 }
 
+// ⚠️ SENZA `classifyV2` apposta (area 6, F2): è la risposta di un server di
+// prima, e la prova che la sezione si difende col `?? false` (sul web c'è un
+// cast, non un parse).
 function makeAdmission(overrides: Partial<MailAdmission> = {}): MailAdmission {
   return {
     admitWorkspaceDomains: true,
     denyLabels: ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
     denyAutomated: true,
     ...overrides,
-  };
+  } as MailAdmission;
 }
 
 function makeWorkspace(overrides: Partial<GoogleWorkspace> = {}): GoogleWorkspace {
@@ -90,6 +93,16 @@ function renderSection(canManage = true) {
 }
 
 describe("MailAdmissionSection", () => {
+  it("area 6, F2: con la classificazione nuova accesa dice che l'ammissione non si applica, e non mostra il modulo", async () => {
+    mockApi({
+      [`GET ${ADMISSION_PATH}`]: () => jsonResponse(200, makeAdmission({ classifyV2: true })),
+      [`GET ${WORKSPACES_PATH}`]: () => jsonResponse(200, []),
+    });
+    renderSection();
+    expect(await screen.findByText(/mail admission no longer applies/i)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
   it("dichiara che di ogni email ammessa si leggono oggetto e corpo, inviati al provider di analisi", async () => {
     mockApi({
       [`GET ${ADMISSION_PATH}`]: () => jsonResponse(200, makeAdmission()),

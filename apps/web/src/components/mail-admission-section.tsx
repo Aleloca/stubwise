@@ -76,6 +76,15 @@ export function MailAdmissionSection({
         </p>
       </header>
 
+      {/* Area 6, F2: con la classificazione nuova l'ammissione non conta più
+          (ogni email va al modello). Un modulo che si salva ma non decide
+          niente mentirebbe: lo si dice e basta. `?? false`: un server di
+          prima non manda il campo (sul web non c'è parse, solo un cast). */}
+      {(admission.classifyV2 ?? false) ? (
+        <p className="px-4 py-4 font-mono text-[11px] leading-relaxed text-fg-muted">
+          {t("settings:google.mailAdmission.classifyV2Notice")}
+        </p>
+      ) : (
       <div className="flex flex-col gap-5 px-4 py-4">
         {/* Consenso informato, non una rifinitura estetica: prima di
             toccare l'interruttore dei domini di lavoro, chi legge deve
@@ -167,6 +176,7 @@ export function MailAdmissionSection({
           </p>
         )}
       </div>
+      )}
     </section>
   );
 }
