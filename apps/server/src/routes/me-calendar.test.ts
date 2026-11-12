@@ -565,7 +565,10 @@ describe("GET /api/me/calendar/events/:id (area 6, F1.4)", () => {
     });
     // La stessa forma, tranne ciò che SOLO il dettaglio aggiunge agli invitati (F4).
     const detail = res.json() as { attendees: Record<string, unknown>[] };
-    const stripped = { ...detail, attendees: detail.attendees.map(({ personId: _p, organizer: _o, ...rest }) => rest) };
+    const stripped = {
+      ...detail,
+      attendees: detail.attendees.map((a) => Object.fromEntries(Object.entries(a).filter(([k]) => k !== "personId" && k !== "organizer"))),
+    };
     expect(stripped).toEqual(range.json().items[0]);
     expect(detail.attendees[0]).toMatchObject({ personId: null, organizer: false });
     expect(JSON.stringify(res.json())).not.toContain("<script>");
