@@ -307,8 +307,12 @@ describe("F4: il salvataggio verso Google dalla pagina", () => {
           ? { status: 502, body: { code: "google_unavailable", message: "x" } }
           : {
               body: {
-                ...item({ organizer: "bob@acme.test" }),
-                myResponse: (req.body as { response: string }).response,
+                items: [
+                  {
+                    ...item({ organizer: "bob@acme.test" }),
+                    myResponse: (req.body as { response: string }).response,
+                  },
+                ],
               },
             },
     });

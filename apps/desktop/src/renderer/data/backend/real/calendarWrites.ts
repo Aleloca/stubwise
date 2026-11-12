@@ -46,16 +46,25 @@ async function etagOf(id: string): Promise<string | null> {
   }
 }
 
-/** La riga restituita da una scrittura: si ricorda l'etag nuovo, poi la vista. */
-function viewOfRow(raw: unknown): CalendarEventView {
-  const row = raw as Raw;
-  etagMap().set(row.id, row.etag ?? null);
-  return eventView(calendarEventItemSchema.parse(raw));
+/**
+ * La risposta di una scrittura (`{ items }`, `calendarWriteResultSchema` di
+ * 72): «solo questo» un elemento, «tutta la serie» le sue date nella
+ * finestra, rilette da Google. Si ricordano gli etag di tutte; la vista è
+ * quella dell'evento toccato o, se il suo id è cambiato (una serie
+ * spostata), la prima. Le altre date le porta la rilettura di `range`.
+ */
+function viewOfResult(raw: unknown, id?: string): CalendarEventView {
+  const items = ((raw as { items?: unknown[] } | null)?.items ?? []) as Raw[];
+  for (const row of items) etagMap().set(row.id, row.etag ?? null);
+  const row = items.find((r) => r.id === id) ?? items[0];
+  if (!row) throw new Error("not_found");
+  return eventView(calendarEventItemSchema.parse(row));
 }
 
 /** I rifiuti del server nelle parole del prototipo. */
 const ERRORS: Readonly<Record<string, string>> = {
   outside_window: "invalid: window",
+  invalid_range: "invalid: time",
   all_day_series: "invalid: all_day_series",
   organizer: "invalid: organizer",
   not_invited: "invalid: not_invited",
@@ -77,7 +86,7 @@ function writeError(error: unknown): unknown {
 
 async function write(run: () => Promise<unknown>): Promise<CalendarEventView> {
   try {
-    return viewOfRow(await run());
+    return viewOfResult(await run());
   } catch (error) {
     throw writeError(error);
   }
@@ -141,7 +150,7 @@ async function saving(
   const etag = await etagOf(id);
   const run = async () => {
     try {
-      return viewOfRow(await request(etagMap().get(id) ?? etag));
+      return viewOfResult(await request(etagMap().get(id) ?? etag), id);
     } catch (error) {
       throw saveErrorOf(error) === null ? writeError(error) : error;
     }

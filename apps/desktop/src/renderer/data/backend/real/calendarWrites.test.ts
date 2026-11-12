@@ -87,7 +87,7 @@ describe("F4: creare", () => {
       ...base,
       "POST /api/me/calendar/events": {
         status: 201,
-        body: row({ hangoutLink: "https://meet.google.com/x" }),
+        body: { items: [row({ hangoutLink: "https://meet.google.com/x" })] },
       },
     });
     const e = await w.createEvent!({
@@ -139,7 +139,7 @@ describe("F4: modificare, spostare, eliminare (con l'etag letto)", () => {
     const { seen } = installFakeServer({
       ...base,
       [`PATCH /api/me/calendar/events/${EV}`]: {
-        body: row({ title: "Kick-off v2", etag: '"e2"' }),
+        body: { items: [row({ title: "Kick-off v2", etag: '"e2"' })] },
       },
     });
     const e = await w.updateEvent!(EV, { title: "Kick-off v2" }, "series");
@@ -157,7 +157,7 @@ describe("F4: modificare, spostare, eliminare (con l'etag letto)", () => {
     const { seen } = installFakeServer({
       ...base,
       [`POST /api/me/calendar/events/${EV}/move`]: (req: SeenRequest) => ({
-        body: row({ ...(req.body as Record<string, unknown>), etag: '"e9"' }),
+        body: { items: [row({ ...(req.body as Record<string, unknown>), etag: '"e9"' })] },
       }),
     });
     await w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one");
@@ -187,7 +187,7 @@ describe("F4: rispondere e il progetto a mano", () => {
     const { seen } = installFakeServer({
       ...base,
       [`POST /api/me/calendar/events/${EV}/respond`]: {
-        body: row({ canEdit: false, canRespond: true }),
+        body: { items: [row({ canEdit: false, canRespond: true })] },
       },
     });
     await w.respond!(EV, "tentative", "Arrivo tardi", "series");
@@ -204,7 +204,7 @@ describe("F4: rispondere e il progetto a mano", () => {
     const { seen } = installFakeServer({
       ...base,
       [`PUT /api/me/calendar/events/${EV}/project`]: {
-        body: row({ projectId: PROJECT_ID, projectBy: "manual" }),
+        body: { items: [row({ projectId: PROJECT_ID, projectBy: "manual" })] },
       },
     });
     const e = await w.setEventProject!(EV, PROJECT_ID);
@@ -319,7 +319,9 @@ describe("F4: il salvataggio verso Google (Q2 = a: sincrono, il «non riuscito»
       [`POST /api/me/calendar/events/${EV}/move`]: (req: SeenRequest) =>
         new Promise((resolve) => {
           release = () =>
-            resolve({ body: row({ ...(req.body as Record<string, unknown>), etag: '"e2"' }) });
+            resolve({
+              body: { items: [row({ ...(req.body as Record<string, unknown>), etag: '"e2"' })] },
+            });
         }),
     });
     const moving = w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one");
@@ -345,7 +347,7 @@ describe("F4: il salvataggio verso Google (Q2 = a: sincrono, il «non riuscito»
       [`POST /api/me/calendar/events/${EV}/move`]: (req: SeenRequest) =>
         fail
           ? { status: 502, body: { code: "google_unavailable", message: "x" } }
-          : { body: row({ ...(req.body as Record<string, unknown>) }) },
+          : { body: { items: [row({ ...(req.body as Record<string, unknown>) })] } },
     });
     const e = await w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one");
     expect(e.save).toEqual({ state: "failed", error: "unreachable" });
@@ -406,5 +408,45 @@ describe("F4: il salvataggio verso Google (Q2 = a: sincrono, il «non riuscito»
       w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one"),
     ).rejects.toThrow("invalid: window");
     expect((await list())[0]!.save).toBeUndefined();
+  });
+});
+
+describe("F4: la risposta delle scritture è un elenco (`{ items }`, calendarWriteResultSchema di 72)", () => {
+  it("«tutta la serie»: l'elenco delle date; la vista è quella dell'evento toccato, o la prima se il suo id è cambiato", async () => {
+    const OTHER = "eeeeeeee-9999-4999-8999-999999999999";
+    installFakeServer({
+      ...base,
+      [`POST /api/me/calendar/events/${EV}/move`]: {
+        body: {
+          items: [
+            row({
+              id: OTHER,
+              startsAt: "2026-11-13T11:00:00.000Z",
+              endsAt: "2026-11-13T12:00:00.000Z",
+            }),
+          ],
+        },
+      },
+    });
+    const e = await w.moveEvent!(
+      EV,
+      "2026-11-13T11:00:00.000Z",
+      "2026-11-13T12:00:00.000Z",
+      "series",
+    );
+    expect(e).toMatchObject({ id: OTHER, startsAt: "2026-11-13T11:00:00.000Z" });
+  });
+
+  it("la fine prima dell'inizio (400 `invalid_range`): «invalid: time»", async () => {
+    installFakeServer({
+      ...base,
+      [`POST /api/me/calendar/events/${EV}/move`]: {
+        status: 400,
+        body: { code: "invalid_range", message: "x" },
+      },
+    });
+    await expect(
+      w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T11:00:00.000Z", "one"),
+    ).rejects.toThrow("invalid: time");
   });
 });
