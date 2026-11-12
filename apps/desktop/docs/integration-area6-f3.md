@@ -24,16 +24,8 @@ di Claude (`apiStream.ts`).
 | Invia, «Annulla» (5 s nel prototipo) | 10 s trattenuti dal server (D6); i controlli prima di accodare (destinatari, indirizzo, limiti, allegato, casella) dicono subito l'errore e la bozza resta | `real/mailSend.test.ts`, `real/mailCompose.test.tsx` |
 | «Invio…», «Non inviato», «Riprova», «Elimina» | `delivery` del messaggio, solo per chi scrive; un invio fallito non si ritenta da solo | `real/mailSend.test.ts`, `real/mailRead.test.ts` |
 | Le proposte di una conversazione | `proposals({ thread, account })`: solo quelle dei suoi messaggi (review della F2, punto 9) | `real/mailProposalsShared.test.ts`, `real/mailPage.test.tsx` |
+| La firma di Gmail *(M)* | `signature` e `signatureStatus` della bozza: sotto il campo, in sola lettura (la aggiunge il server all'invio, mai nel corpo); senza il permesso per leggerla lo dice. Si legge con `gmail.modify`, nessuno scope nuovo | `real/mailDrafts.test.ts`, `real/mailCompose.test.tsx` |
 | La bozza di Claude in streaming | `POST /api/me/mail/drafts/claude` (SSE): dal main sul desktop, col fetch e il cookie sul web; il testo a pezzi, le task citate, «Ferma»; resta una proposta, non salva né spedisce | `real/mailClaudeDraft.test.ts`, `src/main/apiStream.test.ts`, `real/mailCompose.test.tsx` |
-
-### In arrivo
-
-- **La firma di Gmail** *(M, decisione del maintainer)*: `signature` e
-  `signatureStatus` (present, none, scope_missing) sulla bozza, aggiunta dal
-  server nel messaggio. Il compositore la mostra sotto il campo, in sola
-  lettura, e con `scope_missing` dice che si manda senza firma. Si legge con
-  `gmail.modify` (`users.settings.sendAs.get`): niente scope nuovo, e senza
-  `gmail.modify` rientra nel «Ricollega» di quello scope.
 
 ### Differenze dichiarate
 

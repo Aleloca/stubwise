@@ -6361,7 +6361,9 @@
       },
       "changedInGmail": "Questa bozza è stata modificata su Gmail.",
       "keepMine": "Tieni la mia",
-      "openGmail": "Apri su Gmail"
+      "openGmail": "Apri su Gmail",
+      "signature": "La tua firma di Gmail",
+      "noSignature": "Questa email parte senza la tua firma di Gmail: ricollega l'account Google per aggiungerla."
     },
     "readState": {
       "reconnect": "Ricollega l'account Google per tenere letto e non letto allineati con Gmail.",

@@ -2621,6 +2621,13 @@ export interface MailDraft {
    */
   slot?: string;
   updatedAt: string;
+  /**
+   * Build app: la firma di Gmail della casella (testo), che il server aggiunge
+   * all'invio sotto il corpo — mai nel corpo; `scope_missing` = la casella
+   * non ha il permesso per leggerla e l'email parte senza.
+   */
+  signature?: string | null;
+  signatureStatus?: "present" | "none" | "scope_missing";
 }
 
 export interface MailDraftAttachment {

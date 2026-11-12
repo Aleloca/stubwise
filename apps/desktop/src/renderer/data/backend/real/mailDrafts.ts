@@ -44,6 +44,8 @@ export function draftOf(d: ServerDraft, mine: ReadonlySet<string>): MailDraft {
     // Rispondi cita il messaggio sotto salvo che chi scrive l'abbia tolto; Inoltra sempre.
     ...(d.quote ? {} : { quote: false }),
     updatedAt: d.updatedAt ?? new Date().toISOString(),
+    signature: d.signature,
+    signatureStatus: d.signatureStatus === "present" || d.signatureStatus === "scope_missing" ? d.signatureStatus : "none",
   };
 }
 

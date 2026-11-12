@@ -6361,7 +6361,9 @@
       },
       "changedInGmail": "This draft was changed in Gmail.",
       "keepMine": "Keep mine",
-      "openGmail": "Open in Gmail"
+      "openGmail": "Open in Gmail",
+      "signature": "Your Gmail signature",
+      "noSignature": "This email goes without your Gmail signature: reconnect your Google account to add it."
     },
     "readState": {
       "reconnect": "Reconnect your Google account to keep read and unread in step with Gmail.",

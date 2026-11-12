@@ -546,6 +546,18 @@ export function Composer(props: ComposerProps) {
           />
         )}
         <ClaudeDraftNote flow={claude} id={markId} />
+        {/* Build app: la firma di Gmail, che il server aggiunge all'invio sotto il corpo. */}
+        {fields.signatureStatus === "present" && fields.signature && (
+          <p
+            aria-label={t("mail.compose.signature")}
+            className="px-3 pb-2 text-sm whitespace-pre-line text-ink-muted"
+          >
+            {`-- \n${fields.signature}`}
+          </p>
+        )}
+        {fields.signatureStatus === "scope_missing" && (
+          <p className="px-3 pb-2 text-xs text-ink-muted">{t("mail.compose.noSignature")}</p>
+        )}
         {original && mode !== "new" && (
           <div className="flex flex-col gap-2 px-3 pb-2">
             <div className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">

@@ -30,6 +30,9 @@ export interface ComposerFields {
   body: string;
   attachments: MailDraftAttachment[];
   quote: boolean;
+  /** Build app: la firma di Gmail (sola lettura: la aggiunge il server all'invio, non si salva). */
+  signature?: string | null;
+  signatureStatus?: MailDraft["signatureStatus"];
 }
 
 const fieldsOf = (d: MailDraft): ComposerFields => ({
@@ -41,6 +44,8 @@ const fieldsOf = (d: MailDraft): ComposerFields => ({
   body: d.body,
   attachments: d.attachments,
   quote: d.quote !== false,
+  signature: d.signature ?? null,
+  ...(d.signatureStatus ? { signatureStatus: d.signatureStatus } : {}),
 });
 
 export function useComposerDraft({

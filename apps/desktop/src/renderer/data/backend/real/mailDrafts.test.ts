@@ -93,6 +93,13 @@ describe("le bozze: leggere", () => {
     expect(d.to).toEqual([{ name: "Bob Rossi", email: "bob@client.test", personId: null }]);
   });
 
+  it("la firma di Gmail della casella e il suo stato (la aggiunge il server all'invio, mai nel corpo)", async () => {
+    installFakeServer({ ...accounts, "GET /api/me/mail/drafts/compose": { body: draft({ id: null, signature: "Ada Lovelace\nAcme", signatureStatus: "present" }) } });
+    expect(await mail.getDraft(`${ACC}_t-1`, "reply")).toMatchObject({ signature: "Ada Lovelace\nAcme", signatureStatus: "present", body: "Grazie, ci sentiamo." });
+    installFakeServer({ ...accounts, "GET /api/me/mail/drafts/compose": { body: draft({ id: null }) } });
+    expect(await mail.getDraft(`${ACC}_t-1`, "reply")).toMatchObject({ signature: null, signatureStatus: "none" });
+  });
+
   it("una bozza non ancora salvata ha un id suo (la conversazione e la modalità), non null", async () => {
     installFakeServer({ ...accounts, "GET /api/me/mail/drafts/compose": { body: draft({ id: null }) } });
     const d = await mail.getDraft(`${ACC}_t-1`, "reply");

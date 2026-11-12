@@ -98,6 +98,8 @@ let saved: unknown[] = [];
 let newEmail = false;
 let changedInGmail = false;
 let detailOverride: unknown = null;
+/** La firma che `compose` restituisce (F3). */
+let signature: Record<string, unknown> = {};
 /** Come risponde il server a Invia (null = lo accoda) e ad «Annulla». */
 let sendAnswer: { status: number; body: unknown } | null = null;
 let undoAnswer: { status?: number; body: unknown } = { body: { draft: null, droppedAttachments: [] } };
@@ -112,6 +114,7 @@ beforeEach(() => {
   newEmail = false;
   changedInGmail = false;
   detailOverride = null;
+  signature = {};
   sendAnswer = null;
   undoAnswer = { body: { draft: null, droppedAttachments: [] } };
   threads = [thread];
@@ -155,6 +158,7 @@ beforeEach(() => {
           attachments: [],
           quote: true,
           updatedAt: null,
+          ...signature,
         },
       };
     },
@@ -373,6 +377,20 @@ describe("scrivere nella build app: i casi limite", () => {
     expect(screen.getByRole("button", { name: /earlier messages/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Reply" }));
     expect(await screen.findByRole("form", { name: /Reply to Bob Rossi/ })).toBeInTheDocument();
+  });
+
+  it("la firma di Gmail sotto il campo, in sola lettura, mai nel corpo", async () => {
+    signature = { signature: "Ada Lovelace\nAcme S.p.A.", signatureStatus: "present" };
+    const form = await reply();
+    const shown = within(form).getByLabelText("Your Gmail signature");
+    expect(shown).toHaveTextContent("Ada Lovelace");
+    expect(within(form).getByRole("textbox", { name: "Message" })).toHaveValue("Ricevuto, grazie.");
+  });
+
+  it("senza il permesso per leggerla: l'email parte senza firma, e lo dice", async () => {
+    signature = { signature: null, signatureStatus: "scope_missing" };
+    const form = await reply();
+    expect(within(form).getByText("This email goes without your Gmail signature: reconnect your Google account to add it.")).toBeInTheDocument();
   });
 });
 
