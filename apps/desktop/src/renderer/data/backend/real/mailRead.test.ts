@@ -286,3 +286,41 @@ describe("la Posta in lettura: una conversazione", () => {
     expect(row!.threadId).toMatch(/^[\w-]+$/);
   });
 });
+
+describe("letto / non letto, sincronizzato con Gmail (F1.3)", () => {
+  it("una conversazione con un messaggio non letto conta come non letta; i messaggi dicono il loro stato", async () => {
+    installFakeServer({
+      ...common,
+      "GET /api/me/mail/threads": page([thread({ unread: true }), thread({ threadId: "t-2", unread: false })]),
+      "GET /api/me/mail/threads/t-1": { body: detail({ messages: [message({ unread: true })] }) },
+      [`GET /api/me/mail/email/${M1}/original`]: { body: original() },
+    });
+    expect((await mail.listMailThreads()).map((r) => [r.threadId, r.unread])).toEqual([
+      [`${ACC}_t-1`, 1],
+      [`${ACC}_t-2`, 0],
+    ]);
+    expect((await mail.getMailThread(`${ACC}_t-1`)).messages[0]!.read).toBe(false);
+  });
+
+  it("«Segna come letta» e «come non letta» scrivono su Gmail, con la casella della conversazione", async () => {
+    const { seen } = installFakeServer({ "POST /api/me/mail/threads/t-1/read": { body: detail() } });
+    await mail.markRead(`${ACC}_t-1`);
+    await mail.markUnread(`${ACC}_t-1`);
+    expect(seen.map((r) => [r.path, r.body])).toEqual([
+      ["/api/me/mail/threads/t-1/read", { account: ACC, read: true }],
+      ["/api/me/mail/threads/t-1/read", { account: ACC, read: false }],
+    ]);
+  });
+
+  it("senza il permesso nuovo (409 `google_scope_missing`): «Ricollega»; scaduta: `google_not_connected`; non mia: `not_found`", async () => {
+    installFakeServer({
+      "POST /api/me/mail/threads/t-1/read": { status: 409, body: { code: "google_scope_missing", message: "x", missing: ["https://www.googleapis.com/auth/gmail.modify"] } },
+      "POST /api/me/mail/threads/t-2/read": { status: 409, body: { code: "token_expired", message: "x" } },
+      "POST /api/me/mail/threads/t-3/read": { status: 404, body: { code: "not_found", message: "x" } },
+    });
+    await expect(mail.markRead(`${ACC}_t-1`)).rejects.toThrow("google_scope_missing");
+    await expect(mail.markRead(`${ACC}_t-2`)).rejects.toThrow("google_not_connected");
+    await expect(mail.markUnread(`${ACC}_t-3`)).rejects.toThrow("not_found");
+    await expect(mail.markRead("senza-casella")).rejects.toThrow("not_found");
+  });
+});

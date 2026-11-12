@@ -114,7 +114,8 @@ function rowOf(t: MailThreadItem, projects: Map<string, string>, mine: ReadonlyS
     // Importanza e scadenza sono della F2.
     importance: null,
     dueDate: null,
-    unread: 0,
+    // Letto/non letto è quello di Gmail (F1.3): la riga dice solo se c'è un non letto.
+    unread: t.unread ? 1 : 0,
     openProposals: t.openProposals,
     analysing: false,
     failed: false,
@@ -210,8 +211,7 @@ async function messageView(
     attachments: (body?.attachments ?? []).map((a, i) => ({ id: `${m.id}:${i}`, name: a.filename, sizeBytes: 0 })),
     kind: "email",
     context: !m.admitted,
-    // Letto/non letto arriva con la F1.3.
-    read: true,
+    read: !m.unread,
     classification: failedAnalysis(m) ? { state: "failed" } : { state: "off" },
   };
 }
@@ -246,6 +246,28 @@ const reproposeMessage: Mail["reproposeMessage"] = async (id) => {
   await appClient().mail.repropose(pick.source, pick.id);
 };
 
+/**
+ * «Segna come letta / non letta» sulla conversazione intera: scrive su
+ * Gmail, e lo stato cambia solo dopo il sì di Google. Senza il permesso
+ * nuovo (`gmail.modify`) è `google_scope_missing` (il cassetto: «Ricollega»).
+ */
+async function setRead(key: string, read: boolean): Promise<void> {
+  const parts = splitThreadKey(key);
+  if (!parts) throw new Error("not_found");
+  try {
+    await appClient().mail.setRead(parts.threadId, parts.accountId, read);
+  } catch (error) {
+    if (error instanceof ApiError) {
+      if (error.code === "google_scope_missing") throw new Error("google_scope_missing");
+      if (error.code === "account_disabled" || error.code === "token_expired") throw new Error("google_not_connected");
+      if (error.status === 404) throw new Error("not_found");
+    }
+    throw error;
+  }
+}
+const markRead: Mail["markRead"] = (key) => setRead(key, true);
+const markUnread: Mail["markUnread"] = (key) => setRead(key, false);
+
 export const mailFunctions: Partial<Mail> = {
   ...mailProposalFunctions,
   listMailboxes,
@@ -255,6 +277,8 @@ export const mailFunctions: Partial<Mail> = {
   getMailThread,
   searchMail,
   reproposeMessage,
+  markRead,
+  markUnread,
   // La fine del giro; la classificazione non si segue da qui (la Posta si rilegge da sé).
   whenMailSynced: whenSynced,
   whenMailIdle: whenSynced,
