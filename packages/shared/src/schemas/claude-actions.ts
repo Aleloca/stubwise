@@ -173,7 +173,18 @@ export const claudeActionGroupViewSchema = z.object({
   id: z.uuid(),
   sessionId: z.uuid().nullable(),
   proposalId: z.uuid().nullable(),
-  actions: z.array(z.object({ fn: claudeActionFnSchema, args: z.record(z.string(), z.unknown()), codes: z.array(z.string()) })),
+  actions: z.array(
+    z.object({
+      fn: claudeActionFnSchema,
+      args: z.record(z.string(), z.unknown()),
+      codes: z.array(z.string()),
+      /**
+       * Il seguito dopo il commit non è riuscito: `mail_not_saved` (fillMailBody,
+       * il testo NON è nella bozza di Gmail; è in `args.text`, da copiare).
+       */
+      effectFailure: z.string().nullable().default(null),
+    }),
+  ),
   executedAt: z.iso.datetime(),
   undo: z.enum(["available", "changed_after", "not_undoable", "undone", "not_yours"]),
   /** Chi ha scritto dopo, se chi guarda lo vede (per «Changed after by …»). */

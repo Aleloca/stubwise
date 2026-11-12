@@ -3532,6 +3532,13 @@ export const claudeActions = pgTable(
     inverse: jsonb("inverse").$type<{ fn: string; args: Record<string, unknown> } | null>(),
     objects: jsonb("objects").$type<{ kind: string; id: string }[]>().notNull().default([]),
     executedAt: timestamp("executed_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Il seguito fuori dalla transazione NON è riuscito (area 6, F3): oggi
+     * solo `fillMailBody`, `mail_not_saved` = il testo non è nella bozza di
+     * Gmail. Lo scrive il seguito dopo il commit; la scheda lo dice, invece
+     * di un «fatto» che non è vero. `null` = riuscito, o nessun seguito.
+     */
+    effectFailure: text("effect_failure"),
   },
   (table) => [
     index("claude_actions_group_idx").on(table.groupId, table.seq),
