@@ -194,7 +194,7 @@ export const calendarRangeRoute =
     const out = light
       ? withResponse
           // Cancellato su Google (la riga ha `status: "cancelled"`): fuori dalla lista leggera.
-          .filter((i) => i.status !== "cancelled")
+          .filter((i) => (i as Record<string, unknown>).status !== "cancelled")
           .map((i) => ({
             ...i,
             attendees: [],
