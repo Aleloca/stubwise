@@ -1356,6 +1356,13 @@ export type ConversationEvent =
       /** Area 10a (Task 9): il rifiuto della conferma in forma di dato, per «Couldn't do it: … · Who?». */
       failure?: ExecutedFailure;
       /**
+       * Build app (area 6, F3): confermata, ma Gmail non ha salvato il corpo
+       * proposto da `fillMailBody` (`effectFailure: "mail_not_saved"` del
+       * server). La scheda non dice «Done»: dice che non è nella bozza e dà
+       * il testo da copiare.
+       */
+      mailNotSaved?: { text: string };
+      /**
        * Area 10a (I1 della revisione finale): la scheda di un «Annulla» il cui
        * inverso avviserebbe qualcuno o farebbe partire un'automazione. È il
        * gruppo che annulla; le azioni sono gli inversi, coi riassunti delle

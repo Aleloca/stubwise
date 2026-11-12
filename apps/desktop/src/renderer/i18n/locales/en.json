@@ -4054,6 +4054,9 @@
         "confirmSelected_other": "Confirm {{count}} selected",
         "done": "Done",
         "doneEdited": "Done (edited)",
+        "mailNotSaved": "Not saved to Gmail: the text isn't in your draft.",
+        "copyText": "Copy the text",
+        "copied": "Copied",
         "partial_one": "{{done}} of {{count}} change",
         "partial_other": "{{done}} of {{count}} changes",
         "cancelled": "Cancelled",
@@ -4813,6 +4816,7 @@
         "deleteMilestone": "Delete a milestone",
         "saveFilter": "Save the filter “{{name}}”",
         "deleteFilter": "Delete a saved filter",
+        "fillMailBody": "Write the email body in your Gmail draft",
         "pageAction": "Change this page ({{kind}})",
         "deleteTask": "Delete {{code}}",
         "deleteTaskNoCode": "Delete a task"

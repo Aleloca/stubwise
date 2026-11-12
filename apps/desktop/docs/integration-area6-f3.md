@@ -25,6 +25,7 @@ di Claude (`apiStream.ts`).
 | «Invio…», «Non inviato», «Riprova», «Elimina» | `delivery` del messaggio, solo per chi scrive; un invio fallito non si ritenta da solo | `real/mailSend.test.ts`, `real/mailRead.test.ts` |
 | Le proposte di una conversazione | `proposals({ thread, account })`: solo quelle dei suoi messaggi (review della F2, punto 9) | `real/mailProposalsShared.test.ts`, `real/mailPage.test.tsx` |
 | La firma di Gmail *(M)* | `signature` e `signatureStatus` della bozza: sotto il campo, in sola lettura (la aggiunge il server all'invio, mai nel corpo); senza il permesso per leggerla lo dice. Si legge con `gmail.modify`, nessuno scope nuovo | `real/mailDrafts.test.ts`, `real/mailCompose.test.tsx` |
+| La bozza di Claude dal riquadro (`fillMailBody`, sempre B) | la scheda la conferma sul server, che scrive SOLO il corpo nella bozza Gmail di chi conferma; se Gmail non la salva (`effectFailure: "mail_not_saved"`, `?? null` per un server di prima) la scheda non dice «Done» ma «Not saved to Gmail», con «Copy the text» (`args.text`); «Riprova» è nel registro | `real/claudeChatActionsPage.test.tsx` |
 | La bozza di Claude in streaming | `POST /api/me/mail/drafts/claude` (SSE): dal main sul desktop, col fetch e il cookie sul web; il testo a pezzi, le task citate, «Ferma»; resta una proposta, non salva né spedisce | `real/mailClaudeDraft.test.ts`, `src/main/apiStream.test.ts`, `real/mailCompose.test.tsx` |
 
 ### Differenze dichiarate

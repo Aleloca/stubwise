@@ -4054,6 +4054,9 @@
         "confirmSelected_other": "Conferma le {{count}} scelte",
         "done": "Fatto",
         "doneEdited": "Fatto (modificata)",
+        "mailNotSaved": "Non salvato su Gmail: il testo non è nella tua bozza.",
+        "copyText": "Copia il testo",
+        "copied": "Copiato",
         "partial_one": "{{done}} di {{count}} modifica",
         "partial_other": "{{done}} di {{count}} modifiche",
         "cancelled": "Annullata",
@@ -4813,6 +4816,7 @@
         "deleteMilestone": "Elimina un traguardo",
         "saveFilter": "Salva il filtro «{{name}}»",
         "deleteFilter": "Elimina un filtro salvato",
+        "fillMailBody": "Scrivere il corpo dell'email nella tua bozza di Gmail",
         "pageAction": "Cambia questa pagina ({{kind}})",
         "deleteTask": "Elimina {{code}}",
         "deleteTaskNoCode": "Elimina una task"
