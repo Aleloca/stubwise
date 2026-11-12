@@ -20,6 +20,7 @@ import {
   calendarEventRespondSchema,
   calendarWriteResultSchema,
   calendarWriteScopeSchema,
+  calendarEventProjectSchema,
   mailItemStatusSchema,
   type CalendarAttendee,
   type CalendarConferenceEntryPoint,
@@ -47,6 +48,7 @@ import {
   type CalendarWriteError,
   type CalendarWriteOutcome,
 } from "../services/calendar-writes.js";
+import { setCalendarEventProject } from "../services/calendar-project.js";
 
 /**
  * SEZIONE CALENDARIO (fase 7b), sotto `/api/me/calendar`: la superficie che
@@ -172,6 +174,21 @@ export async function meCalendarRoutes(instance: FastifyInstance, opts: { client
     "/events/:id/respond",
     { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), body: calendarEventRespondSchema, response: { 200: calendarWriteResultSchema, ...writeErrors } } },
     async (request, reply) => sendWritten(reply, request.user!.id, await respondCalendarEvent(writeDeps(), request.user!.id, request.params.id, request.body)),
+  );
+
+  /** Il progetto dell'evento, a mano (task 4): nessuna chiamata a Google. Regole in `services/calendar-project.ts`. */
+  app.put(
+    "/events/:id/project",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), body: calendarEventProjectSchema, response: { 200: calendarWriteResultSchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      const out = await setCalendarEventProject(app.db, request.user!.id, request.params.id, request.body.projectId);
+      if ("error" in out) {
+        return out.error === "project_hidden"
+          ? apiError(reply, 403, out.error, "The current project is not one you can see")
+          : apiError(reply, 404, "not_found", "Calendar event not found");
+      }
+      return { items: await queryCalendarEventRows(app.db, request.user!.id, [eq(calendarEvents.id, out.rowId)]) };
+    },
   );
 
   app.delete(
