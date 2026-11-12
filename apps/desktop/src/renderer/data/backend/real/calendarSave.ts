@@ -142,3 +142,9 @@ export function dropPending(id: string): void {
   if (!entry || entry.view.save?.state !== "failed") throw new Error("invalid: not failed");
   pendingMap().delete(id);
 }
+
+/** Al cambio di persona: i salvataggi in corso o non riusciti erano di quella di prima. */
+export function forgetPendingSaves(): void {
+  pendingMap().clear();
+  chainOf().clear();
+}

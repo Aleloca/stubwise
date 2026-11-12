@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { calendar } from "./calendar";
 import { calendarWriteFunctions } from "./calendarWrites";
 import { session, setAppClientForTests } from "./client";
-import { installFakeServer, ME_ID, PROJECT_ID, type SeenRequest } from "./fakeServer";
+import { installFakeServer, me, ME_ID, PROJECT_ID, type SeenRequest } from "./fakeServer";
+import { getSessionPerson } from "./session";
 
 // Scrivere sul Calendario nella build app (area 6, F4): le rotte della BOZZA
 // del piano (`docs/plans/2026-11-12-integrazione-area6-fetta4-plan.md`,
@@ -794,5 +795,57 @@ describe("review F4 (4): la riunione nuova si vede SUBITO, e un 502 si riprova c
     await w.revertEvent!(DRAFT);
     expect(await list()).toEqual([]);
     expect(seen.filter((r) => r.method === "POST")).toHaveLength(1);
+  });
+});
+
+describe("review F4 (minore): cambiata la persona, niente etag né «non salvato» di quella di prima", () => {
+  const OTHER = "22222222-2222-4222-8222-000000000002";
+  const range = (rows: unknown[]) => ({ body: { items: rows, nextCursor: null } });
+  const list = () =>
+    calendar.listEvents({ from: "2026-11-13T00:00:00Z", to: "2026-11-14T00:00:00Z" });
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-12T10:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  function server() {
+    const state = { who: me(), etag: '"e1"' };
+    const { seen } = installFakeServer({
+      ...base,
+      "GET /api/auth/me": () => ({ body: state.who }),
+      [`GET /api/me/calendar/events/${EV}`]: () => ({ body: row({ etag: state.etag }) }),
+      "GET /api/me/calendar/range": () => range([row({ etag: state.etag })]),
+      [`POST /api/me/calendar/events/${EV}/move`]: {
+        status: 502,
+        body: { code: "google_unavailable", message: "x" },
+      },
+    });
+    const switchPerson = async () => {
+      state.who = me({ user: { ...me().user, id: OTHER } });
+      state.etag = '"e7"';
+      await getSessionPerson();
+    };
+    return { seen, switchPerson };
+  }
+
+  it("lo spostamento non salvato della persona di prima non resta sopra", async () => {
+    const { switchPerson } = server();
+    await getSessionPerson();
+    await list();
+    await w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one");
+    expect((await list())[0]!.save?.state).toBe("failed");
+    await switchPerson();
+    expect((await list())[0]!.save).toBeUndefined();
+  });
+
+  it("l'etag visto dalla persona di prima non si usa: si rilegge", async () => {
+    const { seen, switchPerson } = server();
+    await getSessionPerson();
+    await list();
+    await switchPerson();
+    await w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T13:00:00.000Z", "one");
+    const moves = seen.filter((r) => r.path.endsWith("/move"));
+    expect((moves.at(-1)!.body as { etag: string }).etag).toBe('"e7"');
   });
 });

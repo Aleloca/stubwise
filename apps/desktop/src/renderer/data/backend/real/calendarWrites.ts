@@ -6,7 +6,14 @@ import { addDays, startOfLocalDay } from "@stubwise/shared";
 import type { CalendarEventView, FreeBusy } from "../../types";
 import { eventView } from "./calendarView";
 import { appClient } from "./client";
-import { dropPending, pendingSave, retryPending, saveWith, type SaveError } from "./calendarSave";
+import {
+  dropPending,
+  forgetPendingSaves,
+  pendingSave,
+  retryPending,
+  saveWith,
+  type SaveError,
+} from "./calendarSave";
 import { myAccounts } from "./google";
 
 // Scrivere sul Calendario nella build app (area 6, F4), coi metodi di
@@ -28,6 +35,15 @@ function etagMap(): Map<string, string | null> {
   let map = etags.get(client);
   if (!map) etags.set(client, (map = new Map()));
   return map;
+}
+
+/**
+ * Al cambio di persona (review F4): gli etag visti, e i salvataggi in corso o
+ * non riusciti, erano della persona di prima.
+ */
+export function forgetCalendarWrites(): void {
+  etagMap().clear();
+  forgetPendingSaves();
 }
 
 /**
