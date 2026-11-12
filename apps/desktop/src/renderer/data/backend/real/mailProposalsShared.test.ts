@@ -78,14 +78,30 @@ describe("le proposte condivise: lettura", () => {
     await expect(mail.getMailProposal(P2)).rejects.toThrow("not_found");
   });
 
-  it("«Da decidere»: le aperte che posso confermare o passare, con l'origine", async () => {
+  it("«Da decidere»: le aperte che posso confermare o passare, le PASSATE che posso confermare, «Quale progetto?»; con l'origine", async () => {
+    const P3 = "cccccccc-3333-4333-8333-333333333333";
+    const P4 = "cccccccc-4444-4444-8444-444444444444";
     const { seen } = installFakeServer({
-      "GET /api/me/mail/proposals": list([proposal(), proposal({ id: P2, canConfirm: false, canHand: false })]),
+      "GET /api/me/mail/proposals": (req: { path: string }) => {
+        const status = query(req.path).get("status");
+        if (status === "handed") return list([proposal({ id: P2, status: "handed", canConfirm: true, canHand: false, origin: null })]);
+        return list([
+          proposal(),
+          proposal({
+            id: P3,
+            actions: [{ type: "choose_project", args: { projectIds: [PROJECT_ID] }, label: "Which project?" }],
+            canConfirm: false,
+            canHand: false,
+            canReassign: false,
+          }),
+          proposal({ id: P4, canConfirm: false, canHand: false }),
+        ]);
+      },
     });
     const items = await mail.listMailDecisions();
-    expect(items.map((v) => v.proposal.id)).toEqual([P1]);
-    expect(items[0]!.origin).toMatchObject({ kind: "email", threadId: `${ACC}_t-1` });
-    expect(query(seen[0]!.path).get("status")).toBe("open");
+    expect(items.map((v) => v.proposal.id).sort()).toEqual([P1, P2, P3].sort());
+    expect(items.find((v) => v.proposal.id === P1)!.origin).toMatchObject({ kind: "email", threadId: `${ACC}_t-1` });
+    expect(seen.map((r) => query(r.path).get("status")).sort()).toEqual(["handed", "open"]);
   });
 });
 

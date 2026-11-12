@@ -1,6 +1,7 @@
 import { ApiError } from "@stubwise/api-client";
 import type { MailProposal as ServerProposal } from "@stubwise/shared";
 import type * as Fake from "../../api";
+import { isLiveProposal } from "../../../domain/mail/liveProposal";
 import { appClient } from "./client";
 import { proposalViewOf } from "./mailProposalView";
 
@@ -34,12 +35,17 @@ const getMailProposal: Mail["getMailProposal"] = async (id) => {
 };
 
 /**
- * «Da decidere» della Home: le proposte aperte che posso confermare o
- * passare, con l'origine (la conversazione della mia casella, se c'è).
+ * «Da decidere» della Home: le proposte che aspettano me (`isLiveProposal`):
+ * aperte da confermare o passare, passate da confermare, «Quale progetto?»;
+ * con l'origine (la conversazione della mia casella, se c'è).
  */
 const listMailDecisions: Mail["listMailDecisions"] = async () => {
-  const { items } = await appClient().mail.proposals({ status: "open" });
-  return viewsOf(items).filter((v) => v.canConfirm || v.canHand);
+  // Anche le PASSATE al progetto: chi può deciderle senza esserne destinatario non le vede altrove.
+  const [open, handed] = await Promise.all([
+    appClient().mail.proposals({ status: "open" }),
+    appClient().mail.proposals({ status: "handed" }),
+  ]);
+  return viewsOf([...open.items, ...handed.items]).filter(isLiveProposal);
 };
 
 /** I 400 del server con le parole del prototipo. */

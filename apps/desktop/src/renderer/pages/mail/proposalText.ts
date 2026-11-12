@@ -7,19 +7,7 @@ import { dayLabel } from "./format";
 // la scheda (`MailProposalCard`), la modifica sul posto (`EditRow`) e l'esito
 // (`Outcome`) condividono.
 
-/**
- * Una proposta che aspetta chi guarda: può confermarla (aperta o passata al
- * progetto), passarla, o sceglierne il progetto. È la scheda viva, col punto.
- */
-export function isLiveProposal(view: MailProposalView): boolean {
-  const p = view.proposal;
-  const choose = p.actions.find((a) => a.fn === "chooseProject");
-  if (choose) return p.status === "open" && ((choose.args.projectIds as string[] | undefined) ?? []).length > 0;
-  return (
-    ((p.status === "open" || p.status === "handed") && view.canConfirm) ||
-    (p.status === "open" && view.canHand)
-  );
-}
+export { isLiveProposal } from "../../domain/mail/liveProposal";
 
 export type Args = Record<string, unknown>;
 export type Edits = Record<number, Args>;
