@@ -75,6 +75,10 @@ const account = {
 const eventPanel = () => screen.findByRole("dialog", { name: "Event" });
 
 let events: unknown[] = [];
+const byId = (id: string) => {
+  const found = events.find((e) => (e as { id: string }).id === id);
+  return found ? { body: found } : { status: 404, body: { code: "not_found", message: "x" } };
+};
 let seen: SeenRequest[] = [];
 
 beforeEach(() => {
@@ -90,6 +94,9 @@ beforeEach(() => {
     "GET /api/inbox": { body: { items: [], nextCursor: null } },
     "GET /api/me/google/accounts": { body: [account] },
     "GET /api/me/calendar/range": () => ({ body: { items: events, nextCursor: null } }),
+    // F1.4: un evento per id; uno che non è fra i miei è 404, come sul server.
+    [`GET /api/me/calendar/events/${EV}`]: () => byId(EV),
+    [`GET /api/me/calendar/events/${PAST}`]: () => byId(PAST),
     "GET /api/me/calendar/series": { body: { items: [] } },
   }).seen;
 });

@@ -162,14 +162,23 @@ const listSeries: Calendar["listSeries"] = async () => {
 };
 
 /**
- * Un evento, con la sua serie. Finché il server non ha la lettura per id
- * (F1.4, `GET /api/me/calendar/events/:id`), si cerca fra quelli della
- * finestra letta: fuori finestra, o non mio, è `not_found`, come sul server.
+ * Un evento, con la sua serie (`GET /api/me/calendar/events/:id`, F1.4). Uno
+ * altrui o inesistente è `not_found` (404); anche uno fuori dalla finestra
+ * letta, come nel prototipo: qui Stubwise non lo legge.
  */
 const getEvent: Calendar["getEvent"] = async (id) => {
+  let item: CalendarEventItem;
+  try {
+    item = (await appClient().calendar.event(id)) as CalendarEventItem;
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) throw new Error("not_found");
+    throw error;
+  }
+  const e = eventView(item);
   const w = calendarWindow();
-  const e = (await listEvents(w)).find((x) => x.id === id);
-  if (!e) throw new Error("not_found");
+  if (!(Date.parse(e.startsAt) < Date.parse(w.to) && Date.parse(e.endsAt) > Date.parse(w.from))) {
+    throw new Error("not_found");
+  }
   const series = e.seriesId === null ? null : ((await listSeries()).find((s) => s.id === e.seriesId) ?? null);
   return { ...e, series };
 };

@@ -196,19 +196,29 @@ describe("il Calendario in lettura: gli eventi", () => {
 });
 
 describe("il Calendario in lettura: un evento, le serie, i calendari", () => {
-  it("un evento per id, con la sua serie", async () => {
-    installFakeServer({
-      "GET /api/me/calendar/range": range([item({ recurringEventId: "rec-1" })]),
+  it("un evento per id (la rotta della F1.4), con la sua serie", async () => {
+    const { seen } = installFakeServer({
+      [`GET /api/me/calendar/events/${EV}`]: { body: item({ recurringEventId: "rec-1" }) },
       "GET /api/me/calendar/series": { body: { items: [series()] } },
     });
     const e = await calendar.getEvent(EV);
     expect(e.id).toBe(EV);
     expect(e.series).toMatchObject({ id: `${ACC}:rec-1`, title: "Standup" });
+    expect(seen.some((r) => r.path.startsWith("/api/me/calendar/range"))).toBe(false);
   });
 
-  it("un evento che non c'è nella finestra letta: `not_found`", async () => {
-    installFakeServer({ "GET /api/me/calendar/range": range([item()]) });
+  it("un evento altrui o inesistente (404): `not_found`", async () => {
+    installFakeServer({
+      [`GET /api/me/calendar/events/${EV2}`]: { status: 404, body: { code: "not_found", message: "x" } },
+    });
     await expect(calendar.getEvent(EV2)).rejects.toThrow("not_found");
+  });
+
+  it("un evento fuori dalla finestra letta: `not_found`, come nel prototipo", async () => {
+    installFakeServer({
+      [`GET /api/me/calendar/events/${EV}`]: { body: item({ startsAt: "2020-01-01T10:00:00.000Z", endsAt: "2020-01-01T11:00:00.000Z" }) },
+    });
+    await expect(calendar.getEvent(EV)).rejects.toThrow("not_found");
   });
 
   it("le serie: spenta di default, il vocabolario delle azioni del prototipo, la prossima data", async () => {
