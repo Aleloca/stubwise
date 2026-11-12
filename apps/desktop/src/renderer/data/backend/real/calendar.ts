@@ -10,7 +10,7 @@ import {
 import type * as Fake from "../../api";
 import { spanOf } from "../../calendar/span";
 import type { CalendarEventView, CalendarSeriesView, CalendarSyncView } from "../../types";
-import { pendingSave, withPendingSaves } from "./calendarSave";
+import { onSaving, pendingSave, withPendingSaves } from "./calendarSave";
 import { ACTION_TO_SERVER, bySeries, eventView, seriesIdOf, seriesView } from "./calendarView";
 import { calendarWriteFunctions, rememberEtags } from "./calendarWrites";
 import { appClient, session } from "./client";
@@ -225,6 +225,7 @@ export const calendarFunctions: Partial<Calendar> = {
   // F4: le scritture (crea, modifica, sposta, elimina, rispondi, progetto a
   // mano, Riprova/Annulla, libero/occupato, «Trova un orario»).
   ...calendarWriteFunctions,
+  onSaving,
   calendarWindow,
   spanOf,
   listEvents,

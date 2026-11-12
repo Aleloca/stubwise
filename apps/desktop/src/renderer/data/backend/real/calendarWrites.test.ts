@@ -550,3 +550,46 @@ describe("review F4 (critico): l'etag non resta vecchio", () => {
     expect(seen.filter((r) => r.path.endsWith("/move")).map((r) => (r.body as { etag: string }).etag).at(-1)).toBe('"e5"');
   });
 });
+
+describe("review F4 (5): «Saving…» si vede SUBITO, e le scritture dello stesso evento vanno in fila", () => {
+  it("chi ascolta (la cache delle query) riceve l'evento in salvataggio PRIMA che Google risponda", async () => {
+    let release: () => void = () => undefined;
+    installFakeServer({
+      ...base,
+      [`POST /api/me/calendar/events/${EV}/move`]: (req: SeenRequest) =>
+        new Promise((resolve) => {
+          release = () => resolve({ body: { items: [row({ ...(req.body as Record<string, unknown>) })] } });
+        }),
+    });
+    const heard: { startsAt: string; save?: unknown }[] = [];
+    const off = calendar.onSaving((e) => heard.push({ startsAt: e.startsAt, save: e.save }));
+    const moving = w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one");
+    await vi.waitFor(() => expect(heard).toEqual([{ startsAt: "2026-11-13T11:00:00.000Z", save: { state: "saving" } }]));
+    release();
+    await moving;
+    off();
+  });
+
+  it("due spostamenti dello stesso evento: il secondo parte DOPO il primo, con l'etag nuovo", async () => {
+    let live = 0;
+    let most = 0;
+    const { seen } = installFakeServer({
+      ...base,
+      [`POST /api/me/calendar/events/${EV}/move`]: async (req: SeenRequest) => {
+        live += 1;
+        most = Math.max(most, live);
+        await new Promise((r) => setTimeout(r, 20));
+        live -= 1;
+        const n = seen.filter((x) => x.path.endsWith("/move")).length;
+        return { body: { items: [row({ ...(req.body as Record<string, unknown>), etag: `"e${n + 1}"` })] } };
+      },
+    });
+    await Promise.all([
+      w.moveEvent!(EV, "2026-11-13T11:00:00.000Z", "2026-11-13T12:00:00.000Z", "one"),
+      w.moveEvent!(EV, "2026-11-13T12:00:00.000Z", "2026-11-13T13:00:00.000Z", "one"),
+    ]);
+    expect(most).toBe(1);
+    const etags = seen.filter((r) => r.path.endsWith("/move")).map((r) => (r.body as { etag: string }).etag);
+    expect(etags[1]).not.toBe(etags[0]);
+  });
+});

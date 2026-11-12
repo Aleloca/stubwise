@@ -28,6 +28,28 @@ function pendingMap(): Map<string, Pending> {
   return map;
 }
 
+/**
+ * Chi vuole sapere SUBITO di un evento in salvataggio (la cache delle query:
+ * il blocco va al posto nuovo con «Saving…» prima che Google risponda, review
+ * F4, 5). Restituisce la funzione che smette di ascoltare.
+ */
+const listeners = new Set<(e: CalendarEventView) => void>();
+export function onSaving(fn: (e: CalendarEventView) => void): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
+
+/** Per client: l'ultima scrittura di ogni evento, perché la prossima la aspetti (in fila per id). */
+const chains = new WeakMap<object, Map<string, Promise<unknown>>>();
+function chainOf(): Map<string, Promise<unknown>> {
+  const client = appClient();
+  let map = chains.get(client);
+  if (!map) chains.set(client, (map = new Map()));
+  return map;
+}
+
 /** Le righe del server con sopra gli eventi in salvataggio o non salvati. */
 export function withPendingSaves(rows: CalendarEventView[]): CalendarEventView[] {
   const map = pendingMap();
@@ -53,8 +75,21 @@ export async function saveWith(
   const map = pendingMap();
   const entry: Pending = { view: { ...patched, save: { state: "saving" } }, run };
   map.set(patched.id, entry);
+  for (const fn of [...listeners]) fn(entry.view);
+  // In fila per evento: la seconda parte quando la prima è finita, e legge
+  // l'etag che la prima ha lasciato (`run` lo legge al momento).
+  const chain = chainOf();
+  const before = chain.get(patched.id) ?? Promise.resolve();
+  const turn = before.then(
+    () => run(),
+    () => run(),
+  );
+  chain.set(
+    patched.id,
+    turn.catch(() => undefined),
+  );
   try {
-    const saved = await run();
+    const saved = await turn;
     if (map.get(patched.id) === entry) map.delete(patched.id);
     return { ...saved, save: { state: "saved" } };
   } catch (error) {
