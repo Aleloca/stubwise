@@ -67,6 +67,13 @@ export interface ObjectStorage {
   getSignedDownloadUrl(key: string, filename: string, expiresInSeconds?: number, opts?: { inlineContentType?: string }): Promise<string>;
   /** Elimina l'oggetto `key` (no-op lato S3 se non esiste). */
   deleteObject(key: string): Promise<void>;
+  /**
+   * Legge `key` per intero, al più `maxBytes` (area 6, F3: gli allegati di una
+   * bozza vanno nel messaggio MIME). Oltre il tetto lancia: un oggetto più
+   * grande di quanto si aspetta chi legge non si carica in memoria.
+   * `StorageObjectNotFound` se `key` non c'è.
+   */
+  getObjectBytes(key: string, maxBytes: number): Promise<Buffer>;
   /** L'origine degli URL firmati (`https://host`): un'anteprima inline vuole un'origine diversa dall'istanza. */
   readonly origin?: string;
 }

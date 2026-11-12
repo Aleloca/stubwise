@@ -239,6 +239,30 @@ export function createMailEndpoints(request: ApiRequest) {
     deleteFailedSend(messageId: string): Promise<Reader<MailDraftRestore>> {
       return request("POST", `/api/me/mail/outgoing/${seg(messageId)}/discard`, {}, mailDraftRestoreSchema);
     },
+    /**
+     * Allega un file dal disco a una bozza GIÀ salvata (multipart, campo
+     * `file`, al più 10 file e 25 MB in tutto): la bozza su Gmail si riscrive
+     * col file e la risposta è la bozza. 400 `too_large` /
+     * `too_many_attachments` / `storage_not_configured`, 404 se la bozza non è
+     * di chi scrive.
+     */
+    uploadAttachment(draftId: string, file: Blob, filename: string): Promise<Reader<MailDraft>> {
+      const form = new FormData();
+      form.append("file", file, filename);
+      return request("POST", `/api/me/mail/drafts/${seg(draftId)}/attachments`, form, mailDraftSchema);
+    },
+    /**
+     * Allega un file del Drive del progetto, come copia letta a ogni
+     * salvataggio col permesso di chi scrive. 409 `attachment_unavailable`
+     * per un file che chi scrive non vede (o eliminato).
+     */
+    attachDriveFile(draftId: string, driveFileId: string): Promise<Reader<MailDraft>> {
+      return request("POST", `/api/me/mail/drafts/${seg(draftId)}/attachments/drive`, { driveFileId }, mailDraftSchema);
+    },
+    /** Toglie un allegato; la bozza su Gmail si riscrive senza. */
+    removeAttachment(draftId: string, attachmentId: string): Promise<Reader<MailDraft>> {
+      return request("DELETE", `/api/me/mail/drafts/${seg(draftId)}/attachments/${seg(attachmentId)}`, undefined, mailDraftSchema);
+    },
     /** Elimina la bozza, su Gmail e in Stubwise. «Annulla» = salvarla di nuovo. */
     discardDraft(id: string): Promise<void> {
       return request("DELETE", `/api/me/mail/drafts/${seg(id)}`);

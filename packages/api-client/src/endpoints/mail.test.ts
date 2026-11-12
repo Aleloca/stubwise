@@ -312,4 +312,20 @@ describe("endpoints mail", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).code).toBe("not_reproposable");
   });
+
+  it("gli allegati di una bozza: multipart col campo `file`, dal Drive con l'id, e la rimozione; rispondono con la bozza", async () => {
+    const draft = { id: ID, accountId: ID, mode: "new", attachments: [] };
+    const { c, fetchImpl } = clientReturning(200, draft);
+    expect(await c.mail.uploadAttachment(ID, new Blob(["x"]), "nota.txt")).toMatchObject({ id: ID });
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe(`/api/me/mail/drafts/${ID}/attachments`);
+    expect(init!.method).toBe("POST");
+    expect((init!.body as FormData).get("file")).toBeInstanceOf(Blob);
+    await c.mail.attachDriveFile(ID, "22222222-2222-4222-8222-222222222222");
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/drafts/${ID}/attachments/drive`);
+    expect(fetchImpl.mock.calls.at(-1)![1]!.body).toBe(JSON.stringify({ driveFileId: "22222222-2222-4222-8222-222222222222" }));
+    await c.mail.removeAttachment(ID, "33333333-3333-4333-8333-333333333333");
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/drafts/${ID}/attachments/33333333-3333-4333-8333-333333333333`);
+    expect(fetchImpl.mock.calls.at(-1)![1]!.method).toBe("DELETE");
+  });
 });

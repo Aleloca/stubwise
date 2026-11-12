@@ -41,6 +41,10 @@ const deleteObject = vi.fn<(key: string) => Promise<void>>(async () => {});
 const fakeStorage: ObjectStorage = {
   putObject: async () => {},
   getSignedDownloadUrl: async (key) => `https://fake-storage.test/${key}`,
+  // Area 6, F3: non serve a questi test; chiamarlo è un errore.
+  getObjectBytes: async () => {
+    throw new Error("getObjectBytes non previsto in questo test");
+  },
   deleteObject,
   putObjectStream: async () => {},
   copyObject: async () => {},

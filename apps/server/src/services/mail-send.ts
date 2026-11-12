@@ -1,7 +1,8 @@
-import { googleAccounts, mailDraftAttachments, mailDrafts, mailOutgoing, type Db } from "@stubwise/db";
+import { driveFiles, googleAccounts, mailDraftAttachments, mailDrafts, mailOutgoing, type Db } from "@stubwise/db";
 import { GMAIL_MODIFY_SCOPE, missingGoogleScopes } from "@stubwise/google";
 import { MAIL_OUTGOING_CHANNEL, type MailDraft, type MailOutgoing } from "@stubwise/shared";
-import { and, eq, sql } from "drizzle-orm";
+import { projectPermissionsOfUser } from "@stubwise/notifications";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { listDrafts } from "./mail-drafts.js";
 
 /**
@@ -58,6 +59,16 @@ async function preflight(tx: Parameters<Parameters<Db["transaction"]>[0]>[0], dr
   if (attachments.reduce((sum, a) => sum + a.sizeBytes, 0) > MAIL_MAX_ATTACHMENT_BYTES) return { error: "too_large" };
   // Un allegato senza più né il suo oggetto né il file del Drive (eliminato).
   if (attachments.some((a) => !a.storageKey && !a.driveFileId)) return { error: "attachment_unavailable" };
+  // Un file del Drive che chi scrive non vede più (o eliminato) non parte, anche
+  // se l'ultimo salvataggio l'aveva già messo nella bozza di Gmail.
+  const driveIds = attachments.flatMap((a) => (a.driveFileId ? [a.driveFileId] : []));
+  if (driveIds.length > 0) {
+    const files = await tx.select({ id: driveFiles.id, projectId: driveFiles.projectId }).from(driveFiles).where(and(inArray(driveFiles.id, driveIds), isNull(driveFiles.deletedAt)));
+    if (files.length < new Set(driveIds).size) return { error: "attachment_unavailable" };
+    for (const projectId of new Set(files.map((f) => f.projectId))) {
+      if (!(await projectPermissionsOfUser(tx as unknown as Db, draft.userId, projectId))) return { error: "attachment_unavailable" };
+    }
+  }
   return null;
 }
 

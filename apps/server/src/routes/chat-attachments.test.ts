@@ -18,6 +18,10 @@ function fakeStorage() {
     objects,
     putObject: vi.fn(async (key: string, body: Buffer) => void objects.set(key, body)),
     getSignedDownloadUrl: vi.fn(async (key: string, filename: string) => `https://fake-storage.test/${key}?filename=${encodeURIComponent(filename)}`),
+    // Area 6, F3: non serve a questi test; chiamarlo è un errore.
+    getObjectBytes: async () => {
+      throw new Error("getObjectBytes non previsto in questo test");
+    },
     deleteObject: vi.fn(async (key: string) => void objects.delete(key)),
     putObjectStream: vi.fn(async () => undefined),
     copyObject: vi.fn(async (from: string, to: string) => void objects.set(to, objects.get(from) ?? Buffer.alloc(0))),

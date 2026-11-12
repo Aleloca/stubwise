@@ -38,7 +38,11 @@ function createFakeStorage(): ObjectStorage & {
   // Area 5, fetta 2: lo storage ha anche lo stream e la copia (qui non servono).
   const putObjectStream = vi.fn(async () => undefined);
   const copyObject = vi.fn(async () => undefined);
-  return { objects, putObject, getSignedDownloadUrl, deleteObject, putObjectStream, copyObject };
+  // Area 6, F3: non serve a questi test; chiamarlo è un errore.
+  const getObjectBytes = async (): Promise<Buffer> => {
+    throw new Error("getObjectBytes non previsto in questo test");
+  };
+  return { objects, putObject, getSignedDownloadUrl, deleteObject, putObjectStream, copyObject, getObjectBytes };
 }
 
 let testDb: TestDb;

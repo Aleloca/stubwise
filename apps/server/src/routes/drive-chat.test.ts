@@ -28,6 +28,10 @@ function fakeStorage() {
       objects.set(to, Buffer.from(src));
     }),
     getSignedDownloadUrl: vi.fn(async (key: string) => `https://bucket.example/${key}`),
+    // Area 6, F3: non serve a questi test; chiamarlo è un errore.
+    getObjectBytes: async () => {
+      throw new Error("getObjectBytes non previsto in questo test");
+    },
     deleteObject: vi.fn(async (key: string) => void objects.delete(key)),
   };
 }
