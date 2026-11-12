@@ -203,11 +203,21 @@ export function useComposerDraft({
   // Chi rimette una bozza («Undo», «Edit») chiude prima questa casella.
   useEffect(() => registerComposer(threadId, () => closeRef.current(), slot), [threadId, slot]);
 
-  const setFields = (patch: Partial<ComposerFields>) => {
+  /**
+   * `byClaude`: il testo l'ha messo Claude (bozza dal pulsante o dal
+   * riquadro). Resta una PROPOSTA *(O, review F3)*: non rende la bozza da
+   * salvare finché la persona non lo tocca o non preme «Send».
+   */
+  const setFields = (patch: Partial<ComposerFields>, { byClaude = false }: { byClaude?: boolean } = {}) => {
     const next = { ...fieldsRef.current!, ...patch };
     fieldsRef.current = next;
     setFieldsState(next);
     callbacks.current.onEdit();
+    if (byClaude) {
+      clearTimer();
+      setStatus("idle");
+      return;
+    }
     dirty.current = true;
     if (unsavedRef.current) return;
     // Nessuna etichetta finché la modifica non è salvata (scelta del

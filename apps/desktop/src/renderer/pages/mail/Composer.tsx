@@ -211,7 +211,7 @@ export function Composer(props: ComposerProps) {
   const claude = useClaudeDraft({
     threadId,
     body: fields?.body ?? "",
-    setBody: (text) => setFields({ body: text }),
+    setBody: (text) => setFields({ body: text }, { byClaude: true }),
     hintRef,
   });
   const claudeRef = useRef(claude);
