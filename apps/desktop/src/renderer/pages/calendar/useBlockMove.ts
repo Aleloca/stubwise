@@ -131,7 +131,7 @@ export function useBlockMove({
       e.preventDefault();
       if (!pending) {
         if (!calendarWrites()) return;
-        if (!focused.isOrganizer) {
+        if (!canEditEvent(focused)) {
           const organizer = focused.attendees.find((a) => a.organizer)?.name ?? "";
           announce(t("calendar.move.cantMove", { name: organizer }));
           return;

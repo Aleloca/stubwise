@@ -4,7 +4,7 @@ import type * as Fake from "../../api";
 import { firstFreeSlot } from "../../../domain/calendar/freeSlot";
 import { addDays, startOfLocalDay } from "@stubwise/shared";
 import type { CalendarEventView, FreeBusy } from "../../types";
-import { eventView } from "./calendar";
+import { eventView } from "./calendarView";
 import { appClient } from "./client";
 import { dropPending, pendingSave, retryPending, saveWith, type SaveError } from "./calendarSave";
 import { myMailboxes } from "./mailDrafts";

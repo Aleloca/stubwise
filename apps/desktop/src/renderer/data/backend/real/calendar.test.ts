@@ -723,3 +723,14 @@ describe("F3b (review, 6): aprire un evento ricorrente non rilegge ogni volta le
     expect(reads()).toBe(before + 1);
   });
 });
+
+describe("F4: chi può modificare e rispondere lo dice il SERVER (`canEdit`, `canRespond`)", () => {
+  it("dai campi del server", () => {
+    expect(eventView(item({ canEdit: false, canRespond: true }) as never)).toMatchObject({ canEdit: false, canRespond: true });
+  });
+
+  it("un server di prima (senza i campi): l'organizzatore modifica, un invitato risponde", () => {
+    expect(eventView(item({ organizer: "ada@acme.test" }) as never)).toMatchObject({ canEdit: true, canRespond: false });
+    expect(eventView(item() as never)).toMatchObject({ canEdit: false, canRespond: true });
+  });
+});

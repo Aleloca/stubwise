@@ -2857,6 +2857,13 @@ export interface CalendarEvent {
   transparency?: "opaque" | "transparent";
   /** Build app, F3b: quanti invitati, anche sulla lista leggera senza `attendees`. */
   attendeeCount?: number | null;
+  /**
+   * Build app, F4: lo dice il SERVER — modifico, sposto, elimino
+   * (`canEdit`, l'organizzatore) e rispondo (`canRespond`, un invitato che
+   * non organizza). Assenti (prototipo): dall'organizzatore e dalla risposta.
+   */
+  canEdit?: boolean;
+  canRespond?: boolean;
 }
 
 /** Una serie ricorrente e la sua configurazione (spenta di default). */

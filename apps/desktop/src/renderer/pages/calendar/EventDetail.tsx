@@ -31,7 +31,7 @@ import { eventDayLabel, spanLabel } from "./calendarFormat";
 import { kindWordKey } from "./EventBlock";
 import { SeriesScopeDialog } from "./SeriesScopeDialog";
 import { RsvpBar } from "./RsvpBar";
-import { calendarWrites, canEditEvent, meetingNotes } from "./calendarWrites";
+import { calendarWrites, canEditEvent, canRespondTo, meetingNotes } from "./calendarWrites";
 import { useRecurrenceWords } from "./SeriesSidebar";
 import { MeetingPrep } from "./MeetingPrep";
 import { MeetingSummary } from "./MeetingSummary";
@@ -175,7 +175,8 @@ function Detail({
   const project = e.projectId ? projects?.find((p) => p.id === e.projectId) : undefined;
   const past = Date.parse(e.endsAt) <= Date.parse(now());
   const organizer = e.attendees.find((a) => a.organizer);
-  const invited = e.myResponse !== null && !e.isOrganizer;
+  // Chi risponde lo dice il server (F4, `canRespond`); il prototipo dall'invito.
+  const invited = canRespondTo(e);
   const dateLabel = new Intl.DateTimeFormat(i18n.language, {
     weekday: "long",
     month: "short",
@@ -306,7 +307,7 @@ function Detail({
         </div>
       )}
 
-      {invited && calendarWrites() && (
+      {invited && (
         <div className="border-t border-rule px-4 py-3">
           <RsvpBar event={e} barRef={rsvpRef} announce={announce} dateLabel={dateLabel} />
         </div>
