@@ -471,6 +471,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - «Aggiungi da Google Drive» del prototipo è un elenco piatto con la
     ricerca, senza navigare le cartelle (R-H3, `ossatura-follow-ups.md`).
 
+- F5, le risposte alle domande del piano
+  (`docs/plans/2026-11-12-integrazione-area6-fetta5-plan.md`, 12 nov 2026):
+  Q1 *(M)* un invitato che non ha ricevuto l'email di Gemini vede E decide le
+  proposte, se ha i permessi nel progetto, e la prima decisione chiude per
+  tutti; Q2 *(M)* `docUrl` a ogni invitato che vede il riassunto (i permessi
+  del Doc li applica Google); Q3 *(M)* le cartelle Google le collega chi ha
+  `drive.manage` nel progetto; la scheda di preparazione si compone nel
+  CLIENT *(O, 46)*, senza `/prep`, con le letture in parallelo e al più 3
+  riunioni passate.
+
 ## Area 7 — Automazioni
 
 - Blocco della Home delle automazioni.
