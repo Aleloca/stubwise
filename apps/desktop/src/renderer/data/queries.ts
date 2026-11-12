@@ -208,7 +208,8 @@ export const queryKeys = {
     ["as", personId, "commands", contextProjectId] as const,
   citations: (personId: string, refs: string) => ["as", personId, "citations", refs] as const,
   /** Area 10a: il chip del riquadro di Claude (il riferimento in JSON) e l'id dietro un codice. */
-  claudeContext: (personId: string, ref: string) => ["as", personId, "claudeContext", ref] as const,
+  claudeContext: (personId: string, ref: string) =>
+    ["as", personId, "claudeContext", ref] as const,
   claudeContextId: (personId: string, kind: string, code: string) =>
     ["as", personId, "claudeContext", "id", kind, code] as const,
   codeCitations: (personId: string, codes: string) =>
@@ -564,7 +565,12 @@ export function useHome() {
             person,
             departmentHomes: homes.data,
             personal: personal.data,
-            ...resolveHome(person, homes.data, personal.data, canRelease ? ["releases"] : []),
+            ...resolveHome(
+              person,
+              homes.data,
+              personal.data,
+              canRelease ? ["releases"] : [],
+            ),
           }
         : undefined,
     [person, homes.data, personal.data, canRelease],
@@ -626,11 +632,7 @@ export function useProjectPulse(projectId: string) {
 /** Il polso di ogni progetto visibile (il portafoglio). */
 export function useProjectPulses() {
   const me = useSessionPersonId();
-  return useQuery({
-    queryKey: queryKeys.pulses(me),
-    queryFn: api.listProjectPulses,
-    staleTime: OVERVIEW_STALE_MS,
-  });
+  return useQuery({ queryKey: queryKeys.pulses(me), queryFn: api.listProjectPulses, staleTime: OVERVIEW_STALE_MS });
 }
 
 /**
@@ -667,17 +669,13 @@ function usePagedTimeline<E>(
 /** L'attività di tutti i progetti visibili, dalla più recente, a pagine. */
 export function usePortfolioActivity() {
   const me = useSessionPersonId();
-  return usePagedTimeline(queryKeys.portfolioActivity(me), (before) =>
-    api.listPortfolioActivityPage(before),
-  );
+  return usePagedTimeline(queryKeys.portfolioActivity(me), (before) => api.listPortfolioActivityPage(before));
 }
 
 /** La cronologia di un progetto, dalla più recente (i traguardi futuri nella prima pagina), a pagine. */
 export function useTimeline(projectId: string) {
   const me = useSessionPersonId();
-  return usePagedTimeline(queryKeys.timeline(me, projectId), (before) =>
-    api.listTimelinePage(projectId, before),
-  );
+  return usePagedTimeline(queryKeys.timeline(me, projectId), (before) => api.listTimelinePage(projectId, before));
 }
 
 /** Il registro letto è arrivato al tetto (build app): si legge dopo la lettura, quando i dati ci sono. */
@@ -935,15 +933,8 @@ export function useGenerateDailyReport() {
 /** Collegato l'autore, i suoi commit passano sotto la persona. */
 export function useLinkCommitAuthor() {
   return useWrite(
-    ({
-      authorName,
-      personId,
-      authorEmail,
-    }: {
-      authorName: string;
-      personId: string;
-      authorEmail?: string | null;
-    }) => api.linkCommitAuthor(authorName, personId, authorEmail),
+    ({ authorName, personId, authorEmail }: { authorName: string; personId: string; authorEmail?: string | null }) =>
+      api.linkCommitAuthor(authorName, personId, authorEmail),
     ["peopleActivity"],
   );
 }
@@ -1155,11 +1146,7 @@ function runTaskWrite(id: string, w: TaskWrite): Promise<Task> {
     case "clearManualStall":
       return api.clearManualStall(id);
     case "addAttachment":
-      return api.addAttachment(id, {
-        name: w.name,
-        sizeBytes: w.sizeBytes,
-        ...(w.file ? { file: w.file } : {}),
-      });
+      return api.addAttachment(id, { name: w.name, sizeBytes: w.sizeBytes, ...(w.file ? { file: w.file } : {}) });
     case "removeAttachment":
       return api.removeAttachment(id, w.attachmentId);
     case "addLink":
@@ -1171,8 +1158,7 @@ function runTaskWrite(id: string, w: TaskWrite): Promise<Task> {
 
 export function useTaskWrite() {
   return useOptimistic(
-    ({ id, write }: { id: string; write: TaskWrite; preview: TaskPatch }) =>
-      runTaskWrite(id, write),
+    ({ id, write }: { id: string; write: TaskWrite; preview: TaskPatch }) => runTaskWrite(id, write),
     ["tasks", "task", "stalled"],
     (vars, area, old) => patchTasks([vars.id], vars.preview, area, old),
     TASK_AREAS,
@@ -1473,8 +1459,7 @@ export function useCreateProject() {
   const invalidate = useInvalidate(PROJECT_AREAS);
   return useMutation({
     mutationFn: api.createProject,
-    onSettled: () =>
-      Promise.all([invalidate(), client.invalidateQueries({ queryKey: ["viewer"] })]),
+    onSettled: () => Promise.all([invalidate(), client.invalidateQueries({ queryKey: ["viewer"] })]),
   });
 }
 
@@ -1982,8 +1967,7 @@ export function useConversationStream(
             onConnection: (connection) => {
               unsubscribe = null;
               publish(connection);
-              if (connection === "reconnecting")
-                retry = setTimeout(connect, api.reconnectDelay(id));
+              if (connection === "reconnecting") retry = setTimeout(connect, api.reconnectDelay(id));
             },
           },
         );
@@ -2040,9 +2024,7 @@ function listenToChatChanges(client: QueryClient): () => void {
       if (change?.messages) {
         void client.invalidateQueries({
           predicate: (query) =>
-            query.queryKey[0] === "as" &&
-            query.queryKey[2] === "chatMessages" &&
-            query.queryKey[3] === channelId,
+            query.queryKey[0] === "as" && query.queryKey[2] === "chatMessages" && query.queryKey[3] === channelId,
         });
       }
       if (timer !== undefined) return;
@@ -2139,15 +2121,10 @@ export function useChannelMessages(channelId: string) {
   const query = useInfiniteQuery({
     queryKey: queryKeys.chatMessages(me, channelId),
     queryFn: ({ pageParam }) =>
-      api.chat.listMessages(
-        channelId,
-        pageParam ? { before: pageParam.before, limit: pageParam.limit } : { limit: CHAT_PAGE },
-      ),
+      api.chat.listMessages(channelId, pageParam ? { before: pageParam.before, limit: pageParam.limit } : { limit: CHAT_PAGE }),
     initialPageParam: null as { before: string; limit: number } | null,
     getNextPageParam: (last) =>
-      last?.hasMore && last.messages[0]
-        ? { before: last.messages[0].id, limit: nextLimit.current }
-        : undefined,
+      last?.hasMore && last.messages[0] ? { before: last.messages[0].id, limit: nextLimit.current } : undefined,
   });
   const data = useMemo((): ChannelMessagesPage | null | undefined => {
     const pages = query.data?.pages;
@@ -2422,15 +2399,8 @@ export function useCreateTaskFromMessage() {
 
 export function useCreateRequestFromMessage() {
   return useWrite(
-    ({
-      messageId,
-      input,
-      signal,
-    }: {
-      messageId: string;
-      input: api.NewRequestInput;
-      signal?: AbortSignal;
-    }) => api.chat.createRequestFromMessage(messageId, input, signal ? { signal } : {}),
+    ({ messageId, input, signal }: { messageId: string; input: api.NewRequestInput; signal?: AbortSignal }) =>
+      api.chat.createRequestFromMessage(messageId, input, signal ? { signal } : {}),
     CHAT_CREATE_AREAS,
   );
 }
@@ -2518,9 +2488,7 @@ export function useEditChatProposal() {
 export function useDownloadAttachment(of: "chat" | "task") {
   return useMutation({
     mutationFn: (attachmentId: string) =>
-      of === "chat"
-        ? api.chat.downloadAttachment(attachmentId)
-        : api.downloadTaskAttachment(attachmentId),
+      of === "chat" ? api.chat.downloadAttachment(attachmentId) : api.downloadTaskAttachment(attachmentId),
   });
 }
 
@@ -2590,12 +2558,7 @@ function useChatStream(streamId: api.chat.ChatStreamId): ChatStream {
           // `limit`: troppi stream aperti in questa finestra (il main); i messaggi letti restano.
           onConnection: (connection) => {
             unsubscribe = null;
-            if (active)
-              setStream({
-                key,
-                messages: connection === "limit" ? messages : [],
-                error: connection,
-              });
+            if (active) setStream({ key, messages: connection === "limit" ? messages : [], error: connection });
           },
         },
       );
@@ -2805,11 +2768,7 @@ export function driveRefreshMs(elapsedMs = 0): number {
 const readingSince = new Map<string, number>();
 
 /** L'intervallo di una query del Drive: nessuno se non c'è niente in lettura. */
-export function drivePollInterval(
-  queryHash: string,
-  processing: boolean,
-  now = Date.now(),
-): number | false {
+export function drivePollInterval(queryHash: string, processing: boolean, now = Date.now()): number | false {
   if (!processing) {
     readingSince.delete(queryHash);
     return false;
@@ -2835,8 +2794,7 @@ export function useDriveFiles(filters: DriveFilters, { enabled = true, poll = fa
     queryKey: queryKeys.driveFiles(me, filters),
     queryFn: () => api.drive.listDriveFiles(filters),
     enabled,
-    refetchInterval: (query) =>
-      poll ? drivePollInterval(query.queryHash, reading(query.state.data)) : false,
+    refetchInterval: (query) => (poll ? drivePollInterval(query.queryHash, reading(query.state.data)) : false),
   });
 }
 
@@ -2847,8 +2805,7 @@ export function useDriveFile(id: string | null) {
     queryKey: queryKeys.driveFile(me, id ?? ""),
     queryFn: () => api.drive.getDriveFile(id!),
     enabled: id !== null,
-    refetchInterval: (query) =>
-      drivePollInterval(query.queryHash, query.state.data?.content === "processing"),
+    refetchInterval: (query) => drivePollInterval(query.queryHash, query.state.data?.content === "processing"),
   });
 }
 
@@ -2973,15 +2930,8 @@ export function useGoogleFiles(projectId: string, q: string, enabled = true) {
 
 export function useUploadFiles() {
   return useWrite(
-    ({
-      projectId,
-      files,
-      options,
-    }: {
-      projectId: string;
-      files: DriveUploadInput[];
-      options?: DriveUploadOptions;
-    }) => api.drive.uploadFiles(projectId, files, options),
+    ({ projectId, files, options }: { projectId: string; files: DriveUploadInput[]; options?: DriveUploadOptions }) =>
+      api.drive.uploadFiles(projectId, files, options),
     DRIVE_FILE_AREAS,
   );
 }
@@ -3068,10 +3018,7 @@ export const GOOGLE_AREAS = [...DRIVE_FILE_AREAS, "mail", "calendar", "meeting"]
 
 /** «Collega» (o «Ricollega»); nella build app, con più Workspace, quello scelto. */
 export function useConnectGoogle() {
-  return useWrite(
-    (options: ConnectGoogleOptions | void) => api.drive.connectGoogle(options ?? {}),
-    GOOGLE_AREAS,
-  );
+  return useWrite((options: ConnectGoogleOptions | void) => api.drive.connectGoogle(options ?? {}), GOOGLE_AREAS);
 }
 
 export function useDisconnectGoogle() {
@@ -3958,7 +3905,8 @@ export function useProjectAutomations(projectId: string | null) {
     queryKey: queryKeys.projectAutomations(me, projectId ?? ""),
     queryFn: () => api.automations.getProjectAutomations(projectId!),
     enabled: projectId !== null && featureIntegrated("automations"),
-    refetchInterval: (query) => (runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false),
+    refetchInterval: (query) =>
+      runningIn(query.state.data?.runs) ? AUTOMATION_REFRESH_MS : false,
   });
 }
 
@@ -3966,12 +3914,7 @@ export function useProjectAutomations(projectId: string | null) {
 export function useAutomationOrigin(ref: AutomationRef | null | undefined, createdCode: string) {
   const me = useSessionPersonId();
   return useQuery({
-    queryKey: queryKeys.automationOrigin(
-      me,
-      ref?.automationId ?? "",
-      ref?.runId ?? "",
-      createdCode,
-    ),
+    queryKey: queryKeys.automationOrigin(me, ref?.automationId ?? "", ref?.runId ?? "", createdCode),
     queryFn: () => api.automations.automationOrigin(ref!, createdCode),
     enabled: !!ref,
   });
@@ -3986,7 +3929,7 @@ export function useAutomationOrigin(ref: AutomationRef | null | undefined, creat
  */
 export function useDecideAutomationNow() {
   const invalidate = useInvalidate(AUTOMATION_AREAS);
-  const settle = async <T>(call: Promise<T>): Promise<T> => {
+  const settle = async <T,>(call: Promise<T>): Promise<T> => {
     try {
       return await call;
     } finally {
