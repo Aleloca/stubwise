@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deleteCalendarEvent, insertCalendarEvent, patchCalendarEvent, respondToCalendarEvent } from "./calendar-write.js";
+import { deleteCalendarEvent, getCalendarEvent, insertCalendarEvent, listEventInstances, patchCalendarEvent, respondToCalendarEvent } from "./calendar-write.js";
 import { fakeFetch, jsonResponse } from "./test-support.js";
 
 /**
@@ -100,5 +100,28 @@ describe("respondToCalendarEvent", () => {
         { email: "Ada@Acme.com", responseStatus: "tentative", comment: "arrivo tardi" },
       ],
     });
+  });
+});
+
+describe("le letture che servono a scrivere una serie", () => {
+  it("getCalendarEvent: l'evento intero col suo etag (il padre di una serie)", async () => {
+    const { impl, calls } = fakeFetch([jsonResponse({ ...created, id: "p 1", etag: '"9"', recurrence: ["RRULE:FREQ=WEEKLY"] })]);
+    const event = await getCalendarEvent({ accessToken: "at", eventId: "p 1" }, { fetchImpl: impl });
+    expect(event).toMatchObject({ id: "p 1", etag: '"9"' });
+    expect(calls[0]!.url).toBe(`${BASE}/p%201`);
+  });
+
+  it("listEventInstances: le date della serie nella finestra, pagina dopo pagina", async () => {
+    const { impl, calls } = fakeFetch([
+      jsonResponse({ items: [{ ...created, id: "p_1", recurringEventId: "p" }], nextPageToken: "n2" }),
+      jsonResponse({ items: [{ ...created, id: "p_2", recurringEventId: "p" }] }),
+    ]);
+    const events = await listEventInstances(
+      { accessToken: "at", eventId: "p", timeMin: new Date("2026-09-01T00:00:00.000Z"), timeMax: new Date("2026-10-01T00:00:00.000Z") },
+      { fetchImpl: impl },
+    );
+    expect(events.map((e) => e.id)).toEqual(["p_1", "p_2"]);
+    expect(calls[0]!.url).toBe(`${BASE}/p/instances?timeMin=2026-09-01T00%3A00%3A00.000Z&timeMax=2026-10-01T00%3A00%3A00.000Z&maxResults=250`);
+    expect(calls[1]!.url).toContain("pageToken=n2");
   });
 });

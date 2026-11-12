@@ -111,7 +111,9 @@ export {
 // Area 6, F4: scrivere sul calendario.
 export {
   deleteCalendarEvent,
+  getCalendarEvent,
   insertCalendarEvent,
+  listEventInstances,
   patchCalendarEvent,
   respondToCalendarEvent,
   type CalendarEventPatch,

@@ -44,6 +44,7 @@ import { meCalendarRoutes } from "./routes/me-calendar.js";
 import { meMailDraftsRoutes, meMailOutgoingRoutes, meMailRecipientsRoutes } from "./routes/me-mail-drafts.js";
 import { meMailProposalsRoutes } from "./routes/me-mail-proposals.js";
 import { realMailComposeClient, type MailComposeClient } from "./services/mail-drafts.js";
+import type { CalendarWriteClient } from "./services/calendar-writes.js";
 import { meMailRoutes, type MailOriginalClient } from "./routes/me-mail.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
@@ -293,6 +294,8 @@ export interface BuildAppOptions {
   mailGoogleClient?: MailOriginalClient;
   /** Area 6, F3: il client Gmail delle bozze, iniettabile nei test. */
   mailComposeClient?: MailComposeClient;
+  /** Area 6, F4: il client delle scritture di Calendar, iniettabile nei test. */
+  calendarWriteClient?: CalendarWriteClient;
   /** Area 6, F2: la classificazione nuova è accesa (`MAIL_CLASSIFY_V2`). Default false. */
   mailClassifyV2?: boolean;
   /**
@@ -918,7 +921,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     prefix: "/api/me/mail",
     ...(opts.mailGoogleClient ? { googleClient: opts.mailGoogleClient } : {}),
   });
-  void app.register(meCalendarRoutes, { prefix: "/api/me/calendar" });
+  void app.register(meCalendarRoutes, { prefix: "/api/me/calendar", ...(opts.calendarWriteClient ? { client: opts.calendarWriteClient } : {}) });
 
   app.get("/health", { config: { access: { kind: "public" } } }, async () => ({ status: "ok" }));
 

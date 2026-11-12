@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { CALENDAR_API_BASE, parseCalendarEvent, type GoogleCalendarEvent } from "./calendar.js";
-import { buildUrl, requestGoogle, type GoogleClientOptions } from "./fetch.js";
+import { buildUrl, parseGoogleJson, requestGoogle, type GoogleClientOptions } from "./fetch.js";
+import { z } from "zod";
 
 /**
  * SCRIVERE SUL CALENDARIO (area 6, fetta 4): le chiamate a Google, e nient'altro.
@@ -188,4 +189,46 @@ export async function respondToCalendarEvent(
     options,
   );
   return parseCalendarEvent(api, payload);
+}
+
+/** L'evento intero, col suo etag: per una serie, il PADRE (la sua data d'inizio e la sua versione). */
+export async function getCalendarEvent(
+  input: { accessToken: string; calendarId?: string; eventId: string },
+  options: GoogleClientOptions = {},
+): Promise<GoogleCalendarEvent> {
+  const api = "calendar.events.get";
+  const url = `${CALENDAR_API_BASE}/${encodeURIComponent(input.calendarId ?? "primary")}/events/${encodeURIComponent(input.eventId)}`;
+  const payload = await requestGoogle({ api, url, accessToken: input.accessToken, statusCodes: { 404: "event_gone", 410: "event_gone" } }, options);
+  return parseCalendarEvent(api, payload);
+}
+
+const instancesPageSchema = z.object({ items: z.array(z.unknown()).optional(), nextPageToken: z.string().optional() });
+
+/**
+ * Le date di una serie fra `timeMin` e `timeMax` (`events.instances`): dopo una
+ * scrittura su «tutta la serie» il server riscrive le righe da qui, perché
+ * spostare una serie cambia gli id delle sue date.
+ */
+export async function listEventInstances(
+  input: { accessToken: string; calendarId?: string; eventId: string; timeMin: Date; timeMax: Date },
+  options: GoogleClientOptions = {},
+): Promise<GoogleCalendarEvent[]> {
+  const api = "calendar.events.instances";
+  const path = `${CALENDAR_API_BASE}/${encodeURIComponent(input.calendarId ?? "primary")}/events/${encodeURIComponent(input.eventId)}/instances`;
+  const events: GoogleCalendarEvent[] = [];
+  let pageToken: string | undefined;
+  do {
+    const payload = await requestGoogle(
+      {
+        api,
+        url: buildUrl(path, { timeMin: input.timeMin.toISOString(), timeMax: input.timeMax.toISOString(), maxResults: 250, pageToken }),
+        accessToken: input.accessToken,
+      },
+      options,
+    );
+    const page = parseGoogleJson(api, instancesPageSchema, payload);
+    for (const item of page.items ?? []) events.push(parseCalendarEvent(api, item));
+    pageToken = page.nextPageToken;
+  } while (pageToken);
+  return events;
 }
