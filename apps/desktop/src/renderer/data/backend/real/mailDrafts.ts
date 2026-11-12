@@ -1,7 +1,8 @@
 import { ApiError } from "@stubwise/api-client";
 import type { MailDraft as ServerDraft } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import type { MailAddress, MailDraft } from "../../types";
+import type { MailAddress, MailDraft, MailDraftAttachment } from "../../types";
+import { sendFile } from "./drive";
 import { appClient, session } from "./client";
 import { myAccounts } from "./google";
 import { splitThreadKey, threadKey } from "./mailKeys";
@@ -95,6 +96,111 @@ const getDraft: Mail["getDraft"] = async (threadId, mode, slot) => {
   }
 };
 
+// --- Gli allegati, riconciliati al salvataggio --------------------------------
+//
+// Il compositore tiene gli allegati come un campo della bozza (il prototipo),
+// e non adotta quelli che il salvataggio restituisce; il server li vuole uno
+// per volta, su una bozza già salvata: dal disco (caricato), dal Drive, tolto.
+// Qui si riconciliano: un file dal disco si carica UNA volta (l'id locale si
+// ricorda, anche con due salvataggi in volo), uno del Drive si riconosce dal
+// suo file, e quello che non c'è più si toglie.
+
+/** Per client: l'id sul server dell'allegato caricato da un id locale (o il caricamento in corso). */
+const uploaded = new WeakMap<object, Map<string, Promise<string>>>();
+function uploadedOf(): Map<string, Promise<string>> {
+  const client = appClient();
+  let map = uploaded.get(client);
+  if (!map) {
+    map = new Map();
+    uploaded.set(client, map);
+  }
+  return map;
+}
+
+/** Gli errori degli allegati, nelle parole del prototipo. */
+const ATTACHMENT_ERRORS: Readonly<Record<string, string>> = {
+  too_large: "invalid: too_large",
+  too_many_attachments: "invalid: attachments",
+  storage_not_configured: "invalid: storage_off",
+  attachment_unavailable: "attachment_unavailable",
+};
+function attachmentError(error: unknown): unknown {
+  if (error instanceof ApiError && error.code && ATTACHMENT_ERRORS[error.code]) return new Error(ATTACHMENT_ERRORS[error.code]);
+  return draftError(error);
+}
+
+/**
+ * Carica un file dal disco sulla bozza, una volta per id locale: un secondo
+ * salvataggio (anche mentre il primo carica) ritrova l'id sul server. Il
+ * nuovo allegato è quello della risposta che prima non c'era.
+ */
+async function uploadOnce(
+  draftId: string,
+  a: MailDraftAttachment & { file: File },
+  before: ReadonlySet<string>,
+): Promise<{ id: string; draft: ServerDraft | null }> {
+  const map = uploadedOf();
+  const known = map.get(a.id);
+  if (known) return { id: await known, draft: null };
+  let draft: ServerDraft | null = null;
+  const work: Promise<string> = (async () => {
+    const sent = await sendFile(`/api/me/mail/drafts/${encodeURIComponent(draftId)}/attachments`, a.file);
+    if (!sent.ok) {
+      const code = sent.reason === "too_large" ? "too_large" : sent.reason === "storage_off" ? "storage_not_configured" : sent.code;
+      throw new Error(code && ATTACHMENT_ERRORS[code] ? ATTACHMENT_ERRORS[code] : "failed");
+    }
+    const body = sent.body as ServerDraft;
+    draft = body;
+    return body.attachments.find((x) => !before.has(x.id))?.id ?? "";
+  })();
+  map.set(a.id, work);
+  try {
+    return { id: await work, draft };
+  } catch (error) {
+    map.delete(a.id);
+    throw error;
+  }
+}
+
+/** Mette gli allegati del server com'erano nel compositore; restituisce la bozza dopo l'ultima operazione. */
+async function reconcileAttachments(saved: ServerDraft, wanted: readonly MailDraftAttachment[]): Promise<ServerDraft> {
+  const draftId = saved.id;
+  if (!draftId) return saved;
+  let current = saved;
+  const keep = new Set<string>();
+  for (const a of wanted) {
+    if (a.file) {
+      const out = await uploadOnce(draftId, a as MailDraftAttachment & { file: File }, new Set(current.attachments.map((x) => x.id)));
+      keep.add(out.id);
+      if (out.draft) current = out.draft;
+      continue;
+    }
+    const onServer = current.attachments.find((x) => x.id === a.id || (a.driveFileId !== null && x.driveFileId === a.driveFileId));
+    if (onServer) {
+      keep.add(onServer.id);
+      continue;
+    }
+    if (a.driveFileId !== null) {
+      try {
+        current = (await appClient().mail.attachDriveFile(draftId, a.driveFileId)) as ServerDraft;
+      } catch (error) {
+        throw attachmentError(error);
+      }
+      const added = current.attachments.find((x) => x.driveFileId === a.driveFileId);
+      if (added) keep.add(added.id);
+    }
+  }
+  for (const x of current.attachments) {
+    if (keep.has(x.id)) continue;
+    try {
+      current = (await appClient().mail.removeAttachment(draftId, x.id)) as ServerDraft;
+    } catch (error) {
+      throw attachmentError(error);
+    }
+  }
+  return current;
+}
+
 /**
  * Salva la bozza su Gmail (crea o sostituisce quella del suo posto). Una
  * bozza modificata da Gmail nel frattempo è `draft_changed`: non vince
@@ -117,7 +223,7 @@ const saveDraft: Mail["saveDraft"] = async (input) => {
       body: input.body,
       quote: input.quote !== false,
     });
-    return draftOf(saved as ServerDraft, mine);
+    return draftOf(await reconcileAttachments(saved as ServerDraft, input.attachments), mine);
   } catch (error) {
     throw draftError(error);
   }

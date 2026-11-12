@@ -240,9 +240,9 @@ const recordOpen: Drive["recordOpen"] = async (fileId, via) => {
 // --- caricare ---------------------------------------------------------------------
 
 /** L'esito di un caricamento, prima di leggerne la riga. */
-type Sent =
+export type Sent =
   | { ok: true; body: unknown }
-  | { ok: false; reason: "too_large" | "canceled" | "storage_off" | "failed" };
+  | { ok: false; reason: "too_large" | "canceled" | "storage_off" | "failed"; code?: string };
 
 /**
  * Sul desktop il main apre il file scelto (`files.register`: un token, mai il
@@ -267,7 +267,7 @@ async function sendFromMain(path: string, file: File, options: DriveUploadOption
     if (out.reason === "too_large") return { ok: false, reason: "too_large" };
     if (out.reason === "canceled") return { ok: false, reason: "canceled" };
     if (out.code === "storage_not_configured") return { ok: false, reason: "storage_off" };
-    return { ok: false, reason: "failed" };
+    return { ok: false, reason: "failed", ...(typeof out.code === "string" ? { code: out.code } : {}) };
   } finally {
     stop();
     options.signal?.removeEventListener("abort", abort);
@@ -301,7 +301,7 @@ function sendFromBrowser(path: string, file: File, options: DriveUploadOptions):
       if (xhr.status >= 200 && xhr.status < 300) return done({ ok: true, body });
       if (xhr.status === 413 || code === "file_too_large") return done({ ok: false, reason: "too_large" });
       if (code === "storage_not_configured") return done({ ok: false, reason: "storage_off" });
-      done({ ok: false, reason: "failed" });
+      done({ ok: false, reason: "failed", ...(typeof code === "string" ? { code } : {}) });
     };
     if (options.signal?.aborted) return done({ ok: false, reason: "canceled" });
     options.signal?.addEventListener("abort", abort, { once: true });
@@ -309,6 +309,14 @@ function sendFromBrowser(path: string, file: File, options: DriveUploadOptions):
     form.append("file", file, file.name);
     xhr.send(form);
   });
+}
+
+/**
+ * Manda un file a una rotta di caricamento: sul desktop dal main, sul web con
+ * un XHR. Lo usano il Drive e gli allegati delle bozze della Posta.
+ */
+export function sendFile(path: string, file: File, options: DriveUploadOptions = {}): Promise<Sent> {
+  return window.stubwise?.api?.upload ? sendFromMain(path, file, options) : sendFromBrowser(path, file, options);
 }
 
 /** Quanti caricamenti alla volta per finestra (orchestratrice, 11 nov 2026): gli altri in coda. */

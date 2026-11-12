@@ -2627,6 +2627,8 @@ export interface MailDraftAttachment {
   sizeBytes: number;
   driveFileId: string | null;
   as: "copy" | "link";
+  /** Build app: il file scelto dal disco, caricato sulla bozza al salvataggio. */
+  file?: File;
 }
 
 /**

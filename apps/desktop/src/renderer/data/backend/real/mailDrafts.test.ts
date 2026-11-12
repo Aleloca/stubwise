@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { session, setAppClientForTests } from "./client";
+import { createAppClient } from "./transport";
 import { installFakeServer, ME_ID } from "./fakeServer";
 import { mail } from "./mail";
 
@@ -191,3 +192,88 @@ describe("le bozze: salvare ed eliminare", () => {
   });
 });
 
+
+describe("gli allegati di una bozza (salvati con lei)", () => {
+  const ATT = "a7a7a7a7-1111-4111-8111-111111111111";
+  const DRV = "d1d1d1d1-1111-4111-8111-111111111111";
+  const input = (attachments: unknown[]) => ({
+    threadId: `${ACC}_t-1`,
+    mode: "reply" as const,
+    replyToMessageId: null,
+    to: [],
+    cc: [],
+    subject: "",
+    body: "x",
+    attachments: attachments as never[],
+  });
+  /**
+   * Il ponte del desktop: il main carica il file (token, streaming). Il client
+   * nasce prima, così le altre richieste vanno al server finto.
+   */
+  function bridge() {
+    setAppClientForTests(createAppClient());
+    const upload = vi.fn(async ({ path }: { path: string }) => ({ ok: true, body: draft({ attachments: [{ id: ATT, name: "listino.pdf", sizeBytes: 3, driveFileId: null, as: "copy" }] }), path }));
+    vi.stubGlobal("stubwise", {
+      files: { register: vi.fn(async () => ({ ok: true, grant: "g" })), onProgress: () => () => undefined, cancel: vi.fn() },
+      api: { upload },
+    });
+    return upload;
+  }
+
+  it("un file dal disco si carica sulla bozza salvata, una volta sola anche salvando di nuovo", async () => {
+    const upload = bridge();
+    installFakeServer({ ...accounts, "PUT /api/me/mail/drafts": { body: draft() } });
+    const file = new File(["abc"], "listino.pdf");
+    const local = { id: "up-1", name: "listino.pdf", sizeBytes: 3, driveFileId: null, as: "copy", file };
+    const saved = await mail.saveDraft(input([local]));
+    expect(upload).toHaveBeenCalledTimes(1);
+    expect(upload.mock.calls[0]![0]).toMatchObject({ path: `/api/me/mail/drafts/${D1}/attachments` });
+    expect(saved.attachments.map((a) => a.name)).toEqual(["listino.pdf"]);
+    await mail.saveDraft(input([local]));
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
+
+  it("un file del Drive si allega dal Drive; già sulla bozza non si riallega", async () => {
+    const { seen } = installFakeServer({
+      ...accounts,
+      "PUT /api/me/mail/drafts": () => ({ body: draft({ attachments: attached ? [{ id: ATT, name: "brief.pdf", sizeBytes: 9, driveFileId: DRV, as: "copy" }] : [] }) }),
+      [`POST /api/me/mail/drafts/${D1}/attachments/drive`]: () => {
+        attached = true;
+        return { body: draft({ attachments: [{ id: ATT, name: "brief.pdf", sizeBytes: 9, driveFileId: DRV, as: "copy" }] }) };
+      },
+    });
+    let attached = false;
+    const drive = { id: `att-${DRV}`, name: "brief.pdf", sizeBytes: 9, driveFileId: DRV, as: "copy" };
+    await mail.saveDraft(input([drive]));
+    await mail.saveDraft(input([drive]));
+    expect(seen.filter((r) => r.path.endsWith("/attachments/drive")).map((r) => r.body)).toEqual([{ driveFileId: DRV }]);
+  });
+
+  it("un allegato tolto dalla bozza si toglie sul server", async () => {
+    const { seen } = installFakeServer({
+      ...accounts,
+      "PUT /api/me/mail/drafts": { body: draft({ attachments: [{ id: ATT, name: "vecchio.pdf", sizeBytes: 1, driveFileId: null, as: "copy" }] }) },
+      [`DELETE /api/me/mail/drafts/${D1}/attachments/${ATT}`]: { body: draft({ attachments: [] }) },
+    });
+    const saved = await mail.saveDraft(input([]));
+    expect(seen.some((r) => r.method === "DELETE" && r.path.endsWith(`/attachments/${ATT}`))).toBe(true);
+    expect(saved.attachments).toEqual([]);
+  });
+
+  it("gli errori degli allegati nelle parole del prototipo", async () => {
+    const cases: [number, string, string][] = [
+      [400, "too_large", "invalid: too_large"],
+      [400, "too_many_attachments", "invalid: attachments"],
+      [400, "storage_not_configured", "invalid: storage_off"],
+      [409, "attachment_unavailable", "attachment_unavailable"],
+    ];
+    for (const [status, code, error] of cases) {
+      installFakeServer({
+        ...accounts,
+        "PUT /api/me/mail/drafts": { body: draft() },
+        [`POST /api/me/mail/drafts/${D1}/attachments/drive`]: { status, body: { code, message: "x" } },
+      });
+      await expect(mail.saveDraft(input([{ id: "att-x", name: "x.pdf", sizeBytes: 1, driveFileId: DRV, as: "copy" }]))).rejects.toThrow(error);
+    }
+  });
+});

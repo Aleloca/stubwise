@@ -351,6 +351,8 @@ export function Composer(props: ComposerProps) {
         sizeBytes: file.size,
         driveFileId: null,
         as: "copy" as const,
+        // Build app: il file vero, che il salvataggio carica sulla bozza.
+        file,
       })),
     );
   }
