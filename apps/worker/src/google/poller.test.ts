@@ -4215,3 +4215,78 @@ describe("F3b, task 5: la potatura del calendario", () => {
     expect(ids).toEqual(["recente"]);
   });
 });
+
+describe("F3b, task 7: la dottrina nuova sul calendario (flag acceso)", () => {
+  async function tickV2(account: typeof googleAccounts.$inferSelect, events: GoogleCalendarEvent[]) {
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce({ ...deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events, nextSyncToken: "tok" }]) }), classifyV2: true });
+  }
+  async function member(projectId: string, email: string) {
+    const { projectMembers, roles } = await import("@stubwise/db");
+    const [u] = await db.insert(users).values({ email, passwordHash: "x", role: "member" }).returning();
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId, userId: u!.id, roleId: role!.id });
+    return u!.id;
+  }
+
+  it("candidato = un invitato membro di UN progetto (le regole non contano più); projectBy model; la prima volta è la linea di base, poi propone", async () => {
+    const projectId = await seedProject("Audin");
+    const other = await seedProject("Altro");
+    await db.insert(projectEmailRoutes).values({ projectId: other, kind: "sender_domain", value: "cliente.com" });
+    await member(projectId, `marta-${crypto.randomUUID()}@acme.com`);
+    const mate = (await db.select().from(users).where(eq(users.role, "member")).orderBy(users.createdAt)).at(-1)!;
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: null });
+    await tickV2(account, [
+      calendarEvent({ id: "con-marta", title: "Revisione", attendees: [att(MAILBOX), att(mate.email)] }),
+      // In perimetro per le REGOLE, ma nessun invitato membro: col flag acceso non è lavoro.
+      calendarEvent({ id: "solo-regole", title: "Demo", attendees: [att(MAILBOX), att("cliente@cliente.com")] }),
+    ]);
+    let rows = await calendarRows();
+    expect(rows.find((r) => r.googleEventId === "con-marta")).toMatchObject({ proposalCandidate: true, projectId, projectBy: "model", outcome: { type: "baseline" } });
+    expect(rows.find((r) => r.googleEventId === "solo-regole")).toMatchObject({ proposalCandidate: false, projectId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+    const [after] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    expect(after!.calendarV2BaselineAt).toBeInstanceOf(Date);
+    await tickV2(after!, [calendarEvent({ id: "nuovo", title: "Kickoff", attendees: [att(MAILBOX), att(mate.email)] })]);
+    rows = await calendarRows();
+    expect(rows.find((r) => r.googleEventId === "nuovo")!.proposalNotificationId).not.toBeNull();
+  });
+
+  it("un evento visto col flag SPENTO che diventa candidato al primo giro col flag acceso: chiuso dalla linea di base, nessuna proposta", async () => {
+    const projectId = await seedProject("Audin");
+    const marta = `marta-${crypto.randomUUID()}@acme.com`;
+    await member(projectId, marta);
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: null });
+    const ev = calendarEvent({ id: "gia-visto", title: "Revisione", attendees: [att(MAILBOX), att(marta)] });
+    // Flag spento: nessuna regola, quindi solo visto.
+    await db.update(googleAccounts).set({ nextSyncAt: new Date(Date.now() - 60_000) }).where(eq(googleAccounts.id, account.id));
+    await pollGoogleOnce(deps(account, fakeGmail({ listed: [] }), { calendar: fakeCalendarSequence([{ events: [ev], nextSyncToken: "tok" }]) }));
+    expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: false });
+    const [fresh] = await db.select().from(googleAccounts).where(eq(googleAccounts.id, account.id));
+    await tickV2(fresh!, [ev]);
+    expect((await calendarRows())[0]).toMatchObject({ proposalCandidate: true, projectId, outcome: { type: "baseline" }, proposalNotificationId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("invitati membri di DUE progetti: nessuna proposta (la «Quale progetto?» del calendario è rimandata), e il solo proprietario non conta", async () => {
+    const a = await seedProject("A");
+    const b = await seedProject("B");
+    const ada = `ada-${crypto.randomUUID()}@acme.com`;
+    await member(a, ada);
+    await member(b, `bob-${crypto.randomUUID()}@acme.com`);
+    const bob = (await db.select().from(users).orderBy(users.createdAt)).at(-1)!;
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), calendarV2BaselineAt: new Date() });
+    // Il proprietario è membro di A: da solo non fa di un evento suo un lavoro.
+    const { projectMembers, roles } = await import("@stubwise/db");
+    const [role] = await db.select({ id: roles.id }).from(roles).where(eq(roles.scope, "project")).limit(1);
+    await db.insert(projectMembers).values({ projectId: a, userId: account.userId, roleId: role!.id });
+    await tickV2(account, [
+      calendarEvent({ id: "due", title: "Riunione", attendees: [att(MAILBOX), att(ada), att(bob.email)] }),
+      calendarEvent({ id: "solo-io", title: "Promemoria mio", attendees: [att(MAILBOX)] }),
+    ]);
+    const rows = await calendarRows();
+    expect(rows.find((r) => r.googleEventId === "due")).toMatchObject({ proposalCandidate: false });
+    expect(rows.find((r) => r.googleEventId === "solo-io")).toMatchObject({ proposalCandidate: false });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+});

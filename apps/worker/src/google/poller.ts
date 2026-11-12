@@ -11,7 +11,9 @@ import {
   instanceSettings,
   notifications,
   projectEmailRoutes,
+  projectMembers,
   projects,
+  users,
   type Db,
 } from "@stubwise/db";
 import {
@@ -1354,7 +1356,7 @@ async function syncCalendar(
   const stats: CalendarPhaseStats = { events: 0, ready: 0, cancelled: 0 };
   const { events, syncToken } = await collectCalendarEvents(deps, ctx, account);
   if (events.length === 0) {
-    await settleCalendarBaseline(deps.db, account);
+    await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
     return { syncToken, stats };
   }
 
@@ -1397,18 +1399,41 @@ async function syncCalendar(
   // della persona), tranne quelli che non sono appuntamenti. Il CANDIDATO a
   // una proposta è esattamente ciò che entrava prima: con un titolo e in
   // perimetro per le regole (`proposal_candidate`). Le proposte non cambiano.
-  const live = new Map<string, { event: GoogleCalendarEvent; startsAt: Date; fingerprint: string; candidate: boolean }>();
+  // Col flag acceso (F3b, task 7) la DOTTRINA NUOVA: candidato = un invitato
+  // membro esplicito di UN progetto (escluso il proprietario), calcolato per
+  // LOTTO; le regole non contano più. Col flag spento: le regole, come prima.
+  const v2 = deps.classifyV2 === true;
+  const v2Projects = v2 ? await attendeeProjectsByEvent(deps.db, events, account) : null;
+  const live = new Map<
+    string,
+    { event: GoogleCalendarEvent; startsAt: Date; fingerprint: string; candidate: boolean; projectId: string | null; projectBy: "rules" | "model" | null }
+  >();
   for (const event of events) {
     if (isCancelled(event)) continue;
     if (CALENDAR_EXCLUDED_EVENT_TYPES.has(event.eventType)) continue;
     const startsAt = event.startsAt;
     if (!startsAt) continue;
     if (startsAt < timeMin || startsAt > timeMax) continue;
-    const candidate = buildMilestoneProposal(lang, event) !== null && routeEvent(event, ctx.routes).inScope;
-    live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt), candidate });
+    const titled = buildMilestoneProposal(lang, event) !== null;
+    let candidate: boolean;
+    let projectId: string | null;
+    let projectBy: "rules" | "model" | null;
+    if (v2Projects) {
+      const projects = v2Projects.get(event.id) ?? [];
+      // Più progetti: la «Quale progetto?» del calendario è rimandata (registro): nessuna proposta.
+      candidate = titled && projects.length === 1;
+      projectId = candidate ? projects[0]! : null;
+      projectBy = candidate ? "model" : null;
+    } else {
+      const routed = routeEvent(event, ctx.routes);
+      candidate = titled && routed.inScope;
+      projectId = candidate ? routed.projectId : null;
+      projectBy = candidate && routed.projectId ? "rules" : null;
+    }
+    live.set(event.id, { event, startsAt, fingerprint: computeFingerprint(event.title, startsAt), candidate, projectId, projectBy });
   }
   if (live.size === 0) {
-    await settleCalendarBaseline(deps.db, account);
+    await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
     return { syncToken, stats };
   }
 
@@ -1435,6 +1460,7 @@ async function syncCalendar(
       googleEventId: calendarEventsTable.googleEventId,
       proposalNotificationId: calendarEventsTable.proposalNotificationId,
       outcome: calendarEventsTable.outcome,
+      proposalCandidate: calendarEventsTable.proposalCandidate,
     })
     .from(calendarEventsTable)
     .where(
@@ -1465,10 +1491,13 @@ async function syncCalendar(
     }
   }
 
-  const baseline = account.calendarBaselineAt === null;
-  for (const { event, startsAt, fingerprint, candidate } of live.values()) {
+  // La linea di base: il primo giro completo dopo «tutti gli eventi», o il
+  // primo col flag della dottrina nuova acceso.
+  const v2Baseline = v2 && account.calendarV2BaselineAt === null;
+  const baseline = account.calendarBaselineAt === null || v2Baseline;
+  for (const { event, startsAt, fingerprint, candidate, projectId: candidateProjectId, projectBy } of live.values()) {
     if (deps.signal?.aborted) break;
-    const resolved = routeEvent(event, ctx.routes);
+    const resolved = { projectId: candidateProjectId };
     const fresh = {
       title: event.title.trim(),
       startsAt,
@@ -1555,7 +1584,15 @@ async function syncCalendar(
         .update(calendarEventsTable)
         .set(
           stillOpen
-            ? { ...fresh, proposalCandidate: true, projectId: resolved.projectId, projectBy: resolved.projectId ? ("rules" as const) : null }
+            ? {
+                ...fresh,
+                proposalCandidate: true,
+                projectId: resolved.projectId,
+                projectBy,
+                // Una riga che DIVENTA candidata nella linea di base della dottrina
+                // nuova nasce chiusa, come una nuova: accendere il flag non propone.
+                ...(v2Baseline && !existing.proposalCandidate ? { outcome: CALENDAR_BASELINE_OUTCOME } : {}),
+              }
             : { ...fresh, proposalCandidate: true },
         )
         .where(
@@ -1580,7 +1617,7 @@ async function syncCalendar(
         googleEventId: event.id,
         // Un evento solo visto non ha progetto: nessuna regola l'ha riconosciuto.
         projectId: candidate ? resolved.projectId : null,
-        projectBy: candidate && resolved.projectId ? "rules" : null,
+        projectBy: candidate ? projectBy : null,
         proposalCandidate: candidate,
         // La LINEA DI BASE: nel primo giro completo dopo «tutti gli eventi»
         // un candidato nuovo nasce chiuso (niente proposta, card, auto).
@@ -1614,7 +1651,7 @@ async function syncCalendar(
     if (!ownerOfFingerprint.has(fingerprint)) ownerOfFingerprint.set(fingerprint, event.id);
   }
 
-  await settleCalendarBaseline(deps.db, account);
+  await settleCalendarBaseline(deps.db, account, deps.classifyV2 === true);
   return { syncToken, stats };
 }
 
@@ -1625,9 +1662,45 @@ export const CALENDAR_EXCLUDED_EVENT_TYPES: ReadonlySet<string> = new Set(["work
 export const CALENDAR_BASELINE_OUTCOME = { type: "baseline" } as const;
 
 /** Fine del primo giro completo: da qui in poi un evento nuovo propone come sempre. */
-async function settleCalendarBaseline(db: Db, account: ClaimedAccount): Promise<void> {
-  if (account.calendarBaselineAt !== null) return;
-  await db.update(googleAccounts).set({ calendarBaselineAt: new Date() }).where(and(eq(googleAccounts.id, account.id), isNull(googleAccounts.calendarBaselineAt)));
+async function settleCalendarBaseline(db: Db, account: ClaimedAccount, v2 = false): Promise<void> {
+  if (account.calendarBaselineAt === null) {
+    await db.update(googleAccounts).set({ calendarBaselineAt: new Date() }).where(and(eq(googleAccounts.id, account.id), isNull(googleAccounts.calendarBaselineAt)));
+  }
+  if (v2 && account.calendarV2BaselineAt === null) {
+    await db.update(googleAccounts).set({ calendarV2BaselineAt: new Date() }).where(and(eq(googleAccounts.id, account.id), isNull(googleAccounts.calendarV2BaselineAt)));
+  }
+}
+
+/**
+ * I progetti di ogni evento per la dottrina nuova (F3b, task 7): gli invitati
+ * (e l'organizzatore) che sono persone di Stubwise, escluso il proprietario
+ * della casella, e i progetti di cui sono membri ESPLICITI. Per LOTTO: una
+ * lettura delle persone, una delle appartenenze, poi in memoria.
+ */
+async function attendeeProjectsByEvent(db: Db, events: readonly GoogleCalendarEvent[], account: ClaimedAccount): Promise<Map<string, string[]>> {
+  const addressesOf = (e: GoogleCalendarEvent) => [...e.attendees.map((a) => a.email), ...(e.organizer ? [e.organizer] : [])].map((a) => normalizeAddress(a)).filter((a) => a.includes("@"));
+  const all = [...new Set(events.flatMap(addressesOf))];
+  const out = new Map<string, string[]>();
+  if (all.length === 0) return out;
+  const people = new Map<string, string>();
+  for (const row of await db.select({ id: users.id, email: users.email }).from(users).where(and(eq(users.isAgent, false), inArray(users.email, all)))) people.set(normalizeAddress(row.email), row.id);
+  for (const row of await db
+    .select({ id: googleAccounts.userId, email: googleAccounts.email })
+    .from(googleAccounts)
+    .innerJoin(users, eq(users.id, googleAccounts.userId))
+    .where(and(eq(users.isAgent, false), inArray(googleAccounts.email, all)))) people.set(normalizeAddress(row.email), row.id);
+  const ids = [...new Set([...people.values()].filter((id) => id !== account.userId))];
+  const projectsOf = new Map<string, string[]>();
+  if (ids.length > 0) {
+    for (const row of await db.select({ userId: projectMembers.userId, projectId: projectMembers.projectId }).from(projectMembers).where(inArray(projectMembers.userId, ids))) {
+      projectsOf.set(row.userId, [...(projectsOf.get(row.userId) ?? []), row.projectId]);
+    }
+  }
+  for (const e of events) {
+    const userIds = new Set(addressesOf(e).flatMap((a) => (people.has(a) ? [people.get(a)!] : [])).filter((id) => id !== account.userId));
+    out.set(e.id, [...new Set([...userIds].flatMap((id) => projectsOf.get(id) ?? []))]);
+  }
+  return out;
 }
 
 /**
