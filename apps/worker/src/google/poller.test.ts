@@ -4129,6 +4129,27 @@ describe("F3b: il calendario con TUTTI gli eventi", () => {
     expect((await calendarRows()).find((r) => r.googleEventId === "nuovo")!.proposalNotificationId).not.toBeNull();
   });
 
+  it("un'occorrenza PERSONALE di una serie accesa con un progetto non diventa una proposta (solo i candidati, anche per le serie)", async () => {
+    const projectId = await seedProject("Acme");
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const { calendarSeries } = await import("@stubwise/db");
+    await db.insert(calendarSeries).values({ accountId: account.id, recurringEventId: "serie-yoga", enabled: true, projectId, leadDays: 30 });
+    await tick(account, [calendarEvent({ id: "yoga-1", title: "Yoga", attendees: [att(MAILBOX)], recurringEventId: "serie-yoga" })]);
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ proposalCandidate: false, proposalNotificationId: null });
+    expect(await db.select().from(notifications)).toEqual([]);
+  });
+
+  it("un candidato SENZA proposta (proposte spente) uscito dalle regole tiene il suo progetto", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsEnabled: false });
+    await tick(account, [calendarEvent({ id: "lavoro" })]);
+    await tick(account, [calendarEvent({ id: "lavoro", title: "Revisione (spostata)", attendees: [att(MAILBOX)] })]);
+    const [row] = await calendarRows();
+    expect(row).toMatchObject({ title: "Revisione (spostata)", proposalCandidate: true, projectId, proposalNotificationId: null });
+  });
+
   it("un candidato non torna indietro: uscito dalle regole, la riga si aggiorna ma resta candidata col suo progetto", async () => {
     const projectId = await seedProject("Acme");
     await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
