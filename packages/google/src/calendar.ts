@@ -53,6 +53,14 @@ export interface GoogleCalendarEvent {
   attendees: CalendarAttendee[];
   organizer: string | null;
   htmlLink: string | null;
+  /** F4: la versione di Google dell'evento (`If-Match` sulle scritture). */
+  etag: string | null;
+  /** F4: lo stesso evento in tutti i calendari che lo vedono (Q1: il progetto a mano vale per tutti). */
+  iCalUID: string | null;
+  /** F4: `default` | `public` | `private` | `confidential`, aperto. Assente = `default`. */
+  visibility: string;
+  /** F4: l'organizzatore è la casella stessa. */
+  organizerSelf: boolean;
   /**
    * Il tipo di Google (area 6, F3b): `default`, `outOfOffice`, `focusTime`,
    * `workingLocation`, `birthday`, `fromGmail`… — aperto: un valore nuovo di
@@ -122,9 +130,20 @@ const eventSchema = z.object({
   start: dateSchema.optional(),
   end: dateSchema.optional(),
   attendees: z
-    .array(z.object({ email: z.string().optional(), responseStatus: z.string().optional() }))
+    .array(
+      z.object({
+        email: z.string().optional(),
+        responseStatus: z.string().optional(),
+        displayName: z.string().optional(),
+        comment: z.string().optional(),
+        self: z.boolean().optional(),
+      }),
+    )
     .optional(),
-  organizer: z.object({ email: z.string().optional() }).optional(),
+  organizer: z.object({ email: z.string().optional(), self: z.boolean().optional() }).optional(),
+  etag: z.string().optional(),
+  iCalUID: z.string().optional(),
+  visibility: z.string().optional(),
   htmlLink: z.string().optional(),
   eventType: z.string().optional(),
   transparency: z.string().optional(),
@@ -204,13 +223,20 @@ function toEvent(raw: z.infer<typeof eventSchema>): GoogleCalendarEvent {
     startsAt,
     endsAt,
     attendees: (raw.attendees ?? [])
-      .filter((attendee): attendee is { email: string; responseStatus?: string } => Boolean(attendee.email))
+      .filter((attendee): attendee is { email: string; responseStatus?: string; displayName?: string; comment?: string; self?: boolean } => Boolean(attendee.email))
       .map((attendee) => ({
         email: attendee.email.toLowerCase(),
         responseStatus: normalizeResponseStatus(attendee.responseStatus),
+        name: nonEmpty(attendee.displayName),
+        comment: nonEmpty(attendee.comment),
+        self: attendee.self === true,
       })),
     organizer: raw.organizer?.email?.toLowerCase() ?? null,
     htmlLink: raw.htmlLink ?? null,
+    etag: nonEmpty(raw.etag),
+    iCalUID: nonEmpty(raw.iCalUID),
+    visibility: nonEmpty(raw.visibility) ?? "default",
+    organizerSelf: raw.organizer?.self === true,
     eventType: raw.eventType && raw.eventType.trim() !== "" ? raw.eventType : "default",
     transparency: raw.transparency === "transparent" ? "transparent" : "opaque",
     updatedAt: toDate(raw.updated),

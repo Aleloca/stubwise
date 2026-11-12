@@ -981,6 +981,13 @@ export type CalendarAttendeeResponseStatus = z.infer<typeof calendarAttendeeResp
 export const calendarAttendeeSchema = z.object({
   email: z.string(),
   responseStatus: calendarAttendeeResponseStatusSchema.nullable(),
+  // F4, task 0: opzionali (additivi; le righe di prima non li hanno).
+  /** Il nome che Google dà all'invitato. NON FIDATO. */
+  name: z.string().nullable().optional(),
+  /** La nota della sua risposta. NON FIDATO. */
+  comment: z.string().nullable().optional(),
+  /** È la casella stessa (`self` di Google). */
+  self: z.boolean().optional(),
 });
 export type CalendarAttendee = z.infer<typeof calendarAttendeeSchema>;
 
