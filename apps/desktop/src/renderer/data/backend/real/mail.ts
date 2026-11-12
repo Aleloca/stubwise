@@ -80,6 +80,9 @@ async function projectIdsByName(): Promise<Map<string, string>> {
   return new Map(rows.map((p) => [p.name, p.id]));
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (id: string | undefined): id is string => id !== undefined && UUID.test(id);
+
 /** Quante pagine dell'elenco leggere al più (la posta trattata è corta per costruzione). */
 const MAX_THREAD_PAGES = 20;
 
@@ -133,7 +136,9 @@ async function threadRows(filters: MailThreadFilters, extra: { important?: boole
   }
   const q = filters.q?.trim() || undefined;
   const [items, projects] = await Promise.all([
-    threadItems({ account, q, importance: filters.importance, project: filters.projectId, ...extra }),
+    // Un progetto che l'indirizzo non riconosce (`unknown:<codice>`) non va al server (vuole un uuid):
+    // lo esclude il filtro qui sotto.
+    threadItems({ account, q, importance: filters.importance, project: isUuid(filters.projectId) ? filters.projectId : undefined, ...extra }),
     projectIdsByName(),
   ]);
   return items

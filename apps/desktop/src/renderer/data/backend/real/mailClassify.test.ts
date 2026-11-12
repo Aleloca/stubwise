@@ -118,6 +118,12 @@ describe("le conversazioni classificate", () => {
     expect(q.get("project")).toBe(PROJECT_ID);
   });
 
+  it("un progetto che non si riconosce (`unknown:<codice>` dall'indirizzo): niente al server, elenco vuoto, non un errore", async () => {
+    const { seen } = installFakeServer({ ...common, "GET /api/me/mail/threads": page([thread()]) });
+    expect(await mail.listMailThreads({ projectId: "unknown:XYZ" })).toEqual([]);
+    expect(query(seen.find((r) => r.path.startsWith("/api/me/mail/threads"))!.path).get("project")).toBeNull();
+  });
+
   it("«Importanti»: le conversazioni con un messaggio alto non letto, dal server", async () => {
     const { seen } = installFakeServer({ ...common, "GET /api/me/mail/threads": page([thread()]) });
     expect((await mail.listImportantMail()).map((r) => r.threadId)).toEqual([`${ACC}_t-1`]);
