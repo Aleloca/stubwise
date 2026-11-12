@@ -56,6 +56,8 @@ beforeEach(() => {
   getError = null;
 });
 afterEach(async () => {
+  const { mailOutgoing } = await import("@stubwise/db");
+  await db.delete(mailOutgoing);
   await db.delete(mailDrafts);
   await db.delete(emailMessages);
   await db.delete(googleAccounts);
@@ -179,5 +181,84 @@ describe("salvare ed eliminare una bozza (scritture verso Gmail)", () => {
     expect((await app.inject({ method: "DELETE", url: `/api/me/mail/drafts/${saved.id}`, headers: me.headers })).statusCode).toBe(204);
     expect(calls.map((c) => c.fn)).toEqual(["delete"]);
     expect(await db.select().from(mailDrafts)).toEqual([]);
+  });
+});
+
+describe("Invia, Annulla, Riprova, Elimina (D6: il server trattiene 10 s)", () => {
+  async function savedDraft() {
+    const s = await scenario();
+    const draft = (await save(s.me.headers, { accountId: s.box.id, threadId: "t1", mode: "reply", replyToMessageId: s.message.id, to: [{ email: "cliente@x.it" }], subject: "Re: Export", body: "Fatto." })).json() as { id: string };
+    return { ...s, draftId: draft.id };
+  }
+  const post = (headers: { cookie: string }, url: string) => app.inject({ method: "POST", url, headers, payload: {} });
+
+  it("Invia: 202 con undoUntil fra ~10 s, la bozza esce dall'elenco, nessuna chiamata a Google (la fa il worker allo scadere)", async () => {
+    const { me, draftId } = await savedDraft();
+    calls.length = 0;
+    const res = await post(me.headers, `/api/me/mail/drafts/${draftId}/send`);
+    expect(res.statusCode).toBe(202);
+    const out = res.json() as { messageId: string; state: string; undoUntil: string; threadId: string };
+    expect(out.state).toBe("queued");
+    const wait = new Date(out.undoUntil).getTime() - Date.now();
+    expect(wait).toBeGreaterThan(5_000);
+    expect(wait).toBeLessThan(70_000);
+    expect(((await app.inject({ method: "GET", url: "/api/me/mail/drafts", headers: me.headers })).json() as { items: unknown[] }).items).toEqual([]);
+    expect(calls).toEqual([]);
+  });
+
+  it("un doppio Invia dà LO STESSO invio, non due", async () => {
+    const { me, draftId } = await savedDraft();
+    const a = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    const b = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    expect(b.messageId).toBe(a.messageId);
+    const { mailOutgoing } = await import("@stubwise/db");
+    expect(await db.select().from(mailOutgoing)).toHaveLength(1);
+  });
+
+  it("Annulla nei 10 s: la bozza torna; dopo, 409 too_late", async () => {
+    const { me, draftId } = await savedDraft();
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    const undo = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`);
+    expect(undo.statusCode).toBe(200);
+    expect((undo.json() as { draft: { id: string; body: string } }).draft).toMatchObject({ id: draftId, body: "Fatto." });
+    // Di nuovo in coda, poi «scaduto»: Annulla non vale più.
+    const again = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq, sql } = await import("drizzle-orm");
+    await db.update(mailOutgoing).set({ sendAt: sql`now() - interval '1 second'` }).where(eq(mailOutgoing.id, again.messageId));
+    const late = await post(me.headers, `/api/me/mail/outgoing/${again.messageId}/undo`);
+    expect(late.statusCode).toBe(409);
+    expect((late.json() as { code: string }).code).toBe("too_late");
+  });
+
+  it("Annulla quando nel frattempo ho scritto un'altra bozza nella stessa conversazione: 409 draft_slot_taken *(O)*", async () => {
+    const { me, box, message, draftId } = await savedDraft();
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    current = null;
+    await save(me.headers, { accountId: box.id, threadId: "t1", mode: "reply", replyToMessageId: message.id, subject: "Re: Export", body: "Un'altra." });
+    expect((await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`)).json()).toMatchObject({ code: "draft_slot_taken" });
+  });
+
+  it("Riprova ed Elimina valgono SOLO su un invio fallito; Elimina riporta la bozza", async () => {
+    const { me, draftId } = await savedDraft();
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    expect((await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/retry`)).json()).toMatchObject({ code: "not_failed" });
+    const { mailOutgoing } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    await db.update(mailOutgoing).set({ state: "failed", error: "quota" }).where(eq(mailOutgoing.id, sent.messageId));
+    const retried = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/retry`);
+    expect(retried.statusCode).toBe(202);
+    expect((retried.json() as { state: string }).state).toBe("queued");
+    await db.update(mailOutgoing).set({ state: "failed", error: "quota" }).where(eq(mailOutgoing.id, sent.messageId));
+    const discarded = await post(me.headers, `/api/me/mail/outgoing/${sent.messageId}/discard`);
+    expect((discarded.json() as { draft: { id: string } }).draft.id).toBe(draftId);
+  });
+
+  it("NEGATIVO: l'invio e la bozza di un altro sono 404", async () => {
+    const { me, other, draftId } = await savedDraft();
+    expect((await post(other.headers, `/api/me/mail/drafts/${draftId}/send`)).statusCode).toBe(404);
+    const sent = (await post(me.headers, `/api/me/mail/drafts/${draftId}/send`)).json() as { messageId: string };
+    expect((await post(other.headers, `/api/me/mail/outgoing/${sent.messageId}/undo`)).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: `/api/me/mail/outgoing/${sent.messageId}`, headers: other.headers })).statusCode).toBe(404);
   });
 });

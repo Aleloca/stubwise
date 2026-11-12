@@ -41,7 +41,7 @@ import { gitIdentityRoutes } from "./routes/git-identity-routes.js";
 import { googleWorkspaceRoutes } from "./routes/google-workspaces.js";
 import { meGoogleRoutes } from "./routes/me-google.js";
 import { meCalendarRoutes } from "./routes/me-calendar.js";
-import { meMailDraftsRoutes } from "./routes/me-mail-drafts.js";
+import { meMailDraftsRoutes, meMailOutgoingRoutes } from "./routes/me-mail-drafts.js";
 import { meMailProposalsRoutes } from "./routes/me-mail-proposals.js";
 import type { MailComposeClient } from "./services/mail-drafts.js";
 import { meMailRoutes, type MailOriginalClient } from "./routes/me-mail.js";
@@ -909,6 +909,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(meMailProposalsRoutes, { prefix: "/api/me/mail/proposals" });
   // Area 6, F3: le bozze, anch'esse prima di `meMailRoutes`.
   void app.register(meMailDraftsRoutes, { prefix: "/api/me/mail/drafts", ...(opts.mailComposeClient ? { client: opts.mailComposeClient } : {}) });
+  void app.register(meMailOutgoingRoutes, { prefix: "/api/me/mail/outgoing" });
   void app.register(meMailRoutes, {
     prefix: "/api/me/mail",
     ...(opts.mailGoogleClient ? { googleClient: opts.mailGoogleClient } : {}),

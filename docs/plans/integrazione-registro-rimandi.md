@@ -373,6 +373,10 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `/proposals?status=handed`, senza una card in inbox.
 - F2, lo smistamento di prima (`email_triage`) resta solo sull'inbox, non in
   Posta *(O)*.
+- F3, Annulla l'invio con un'altra bozza nello stesso slot *(O)*: oggi 409
+  `draft_slot_taken` (l'invio resta in coda); il prototipo unisce le due bozze
+  (il testo tornato sotto, gli allegati oltre i limiti elencati). Rimandato:
+  l'unione chiede di riscrivere la bozza su Gmail.
 - F1.3 letto / non letto, limite *(S)*: dopo un resync per query (primo
   giro, history scaduta) i messaggi GIÀ ingeriti non rileggono `UNREAD`
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono

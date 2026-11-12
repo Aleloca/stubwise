@@ -60,3 +60,27 @@ export const mailDraftSaveSchema = z.object({
   quote: z.boolean().default(true),
 });
 export type MailDraftSave = z.input<typeof mailDraftSaveSchema>;
+
+/** Il canale con cui il server sveglia il worker per un invio (D6). */
+export const MAIL_OUTGOING_CHANNEL = "mail_outgoing";
+
+/** Un invio (D6: il server lo trattiene 10 s). `messageId` è l'id dell'invio. */
+export const mailOutgoingSchema = z.object({
+  messageId: z.uuid(),
+  threadId: z.string().nullable().default(null),
+  state: z.enum(["queued", "sending", "sent", "failed", "cancelled"]),
+  /** Fin quando si può annullare. */
+  undoUntil: z.string(),
+  /** Un fallimento, in un codice che si può dire: `address_not_found`, `quota`, `token_expired`, `other`. */
+  error: z.string().nullable().default(null),
+  sentAt: z.string().nullable().default(null),
+});
+export type MailOutgoing = z.infer<typeof mailOutgoingSchema>;
+
+/** L'esito di Annulla e di Elimina un invio fallito: la bozza che torna. */
+export const mailDraftRestoreSchema = z.object({
+  draft: mailDraftSchema.nullable().default(null),
+  /** Gli allegati che non sono tornati (oltre i limiti dopo un'unione). */
+  droppedAttachments: z.array(z.string()).default([]),
+});
+export type MailDraftRestore = z.infer<typeof mailDraftRestoreSchema>;

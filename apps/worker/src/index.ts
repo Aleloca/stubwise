@@ -44,6 +44,7 @@ import { startLimitResumePoller } from "./providers/limit-resume-poller.js";
 import type { SelectDeps } from "./providers/select.js";
 import { startBriefPoller } from "./briefs/poller.js";
 import { startGooglePoller } from "./google/poller.js";
+import { startMailSender } from "./google/mail-sender.js";
 import { startPulsePoller } from "./pulse/poller.js";
 import { startDailyReportPoller } from "./reports/daily-report-poller.js";
 import { startNightlyScheduler } from "./nightly/orchestrator.js";
@@ -893,6 +894,21 @@ startBriefPoller({
 // di classificazione non toccano un worktree. È BEST-EFFORT (non fa mai
 // crashare il worker) e NON tocca il lock/heartbeat dei job. Si ferma sullo
 // stesso AbortSignal. GMAIL_POLL_MINUTES=0 non avvia nulla: è il rollback.
+// Area 6, F3 (D6): l'invio della posta allo scadere dei 10 s che il server
+// trattiene. Svegliato dal NOTIFY dell'Invia, col controllo ogni 2 s; parte
+// dopo aver segnato falliti gli invii interrotti da un riavvio.
+startMailSender({
+  db,
+  encryptionKey: config.encryptionKey,
+  listen: (channel, cb) => client.listen(channel, cb),
+  logger: {
+    info: (m) => console.error(`[stubwise-worker] ${m}`),
+    warn: (m) => console.error(`[stubwise-worker] ${m}`),
+    error: (m) => console.error(`[stubwise-worker] ${m}`),
+  },
+  signal: controller.signal,
+});
+
 startGooglePoller({
   db,
   encryptionKey: config.encryptionKey,
