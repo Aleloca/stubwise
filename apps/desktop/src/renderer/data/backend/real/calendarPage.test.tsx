@@ -233,3 +233,21 @@ describe("F3b (review): il tipo e il libero a PAROLA anche nel mese e nella stri
     expect(blockText(OOO)).toContain("Out of office");
   });
 });
+
+describe("F3b (review, 5): il dettaglio dice il tipo dell'evento", () => {
+  it("un fuori ufficio: «Out of office» sotto l'orario", async () => {
+    events = [item({ eventType: "outOfOffice" })];
+    renderRoute(`/calendar?event=${EV}`);
+    const panel = await eventPanel();
+    expect(await within(panel).findByText("Out of office")).toBeInTheDocument();
+  });
+
+  it("un evento normale: nessuna parola del tipo", async () => {
+    events = [item()];
+    renderRoute(`/calendar?event=${EV}`);
+    const panel = await eventPanel();
+    await within(panel).findByText("Sprint review");
+    for (const w of ["Out of office", "Focus time", "Free"])
+      expect(within(panel).queryByText(w)).toBeNull();
+  });
+});
