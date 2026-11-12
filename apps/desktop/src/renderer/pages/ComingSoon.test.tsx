@@ -304,6 +304,8 @@ const INTEGRATED_CALLS = new Set([
   "mail.ignoreMailProposal",
   "mail.handMailProposal",
   "mail.reassignMailProposal",
+  // Area 6, fetta 2: «Quale progetto?».
+  "mail.chooseProjectFor",
   // Area 6, fetta 1: il Calendario in lettura e le serie (`data/backend/real/calendar.ts`).
   "calendar.calendarWindow",
   "calendar.spanOf",

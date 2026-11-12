@@ -16,6 +16,9 @@ export const mailImportance = (): boolean => featureIntegrated("mail-importance"
 /** Modificare i campi di una proposta prima di confermarla (F2). */
 export const mailProposalEdits = (): boolean => featureIntegrated("mail-proposal-edit");
 
+/** Aggiungere come Contributor gli incaricati fuori dal progetto, alla conferma (F2). */
+export const mailContributors = (): boolean => featureIntegrated("mail-contributors");
+
 /** Apre la conversazione su Gmail, fuori dall'app (build app). */
 export function openInGmail(url: string): void {
   window.open(url, "_blank", "noopener");

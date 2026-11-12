@@ -14,7 +14,6 @@ vi.mock("@backend/api", async () => await import("./index"));
 const ACC = "aaaaaaaa-1111-4111-8111-111111111111";
 const M1 = "dddddddd-1111-4111-8111-111111111111";
 const P1 = "cccccccc-1111-4111-8111-111111111111";
-const N1 = "9a9a9a9a-1111-4111-8111-111111111111";
 const KEY = `${ACC}_t-1`;
 const KEY2 = `${ACC}_t-2`;
 const M2 = "dddddddd-2222-4222-8222-222222222222";
@@ -69,52 +68,33 @@ const detail = {
   ],
 };
 
-const card = {
-  id: N1,
-  kind: "google.proposal",
-  status: "open",
-  text: "New proposal from Bob — Preventivo Rossi",
-  actions: ["open", "snooze", "handled"],
-  question: {
-    questionId: "7a7a7a7a-1111-4111-8111-111111111111",
-    question: "What should Stubwise do?",
-    options: [
-      { label: "Create the request «Preventivo Rossi»" },
-      { label: "Add a milestone «Consegna»" },
-      { label: "Do nothing" },
-    ],
-    allowFreeText: false,
-  },
-  google: {
-    source: "email",
-    from: "Bob Rossi <bob@client.test>",
-    subject: "Preventivo Rossi",
-    signal: "request",
-    actions: [{ type: "create_backlog_item" }, { type: "create_milestone" }, { type: "ignore" }],
-    proposalId: P1,
-    sourceProposalId: P1,
-    multiSelectIndices: [0, 1],
-    decision: null,
-    blockedIndices: [],
-    handed: false,
-  },
+/** La proposta condivisa del messaggio (`/api/me/mail/proposals`, area 6 F2). */
+const proposal = {
+  id: P1,
+  messageId: M1,
   projectId: PROJECT_ID,
-  ticketId: null,
-  jobId: null,
+  status: "open",
   createdAt: "2026-10-23T09:05:00.000Z",
-  readAt: null,
-  snoozedUntil: null,
-  handledAt: null,
-  handledBy: null,
+  excerpt: "Ecco il preventivo per la consegna.",
+  actions: [
+    { type: "create_backlog_item", args: { title: "Preventivo Rossi", description: "" }, label: "Create the request «Preventivo Rossi»" },
+    { type: "create_milestone", args: { name: "Consegna", dueDate: "2026-11-20" }, label: "Add a milestone «Consegna»" },
+  ],
+  canConfirm: true,
+  canHand: false,
+  canReassign: false,
+  origin: { threadId: "t-1", accountId: ACC, from: "Bob Rossi <bob@client.test>", subject: "Preventivo Rossi" },
 };
 
 let seen: SeenRequest[] = [];
 let threads: unknown[] = [];
+let proposals: unknown[] = [];
 /** Come risponde Gmail (via server) a «letto / non letto». */
 let readAnswer: { status?: number; body: unknown } = { body: detail };
 
 beforeEach(() => {
   threads = [thread];
+  proposals = [proposal];
   readAnswer = { body: detail };
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
@@ -124,11 +104,9 @@ beforeEach(() => {
     "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
     "GET /api/people": { body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [], email: "ada@example.com" }] },
     "GET /api/departments": { body: [] },
-    "GET /api/inbox": (req) =>
-      new URLSearchParams(req.path.split("?")[1] ?? "").get("status") === "open"
-        ? { body: { items: [card], nextCursor: null } }
-        : { body: { items: [], nextCursor: null } },
-    [`POST /api/inbox/${N1}/actions/answer`]: { body: { kind: "google.proposal", changedNotificationIds: [N1] } },
+    "GET /api/inbox": { body: { items: [], nextCursor: null } },
+    "GET /api/me/mail/proposals": () => ({ body: { items: proposals } }),
+    [`POST /api/me/mail/proposals/${P1}/confirm`]: { body: { status: "confirmed", results: [{ kind: "request", id: "r", code: "AUD-R9" }] } },
     "GET /api/me/google/accounts": { body: [account] },
     "GET /api/me/mail/threads": () => ({ body: { items: threads, nextCursor: null } }),
     "GET /api/me/mail/threads/t-1": { body: detail },
@@ -170,11 +148,10 @@ describe("la Posta nella build app", () => {
     window.open = open as never;
     renderRoute(`/mail/${KEY}`);
     expect(await screen.findByText("Ecco il preventivo per la consegna.")).toBeInTheDocument();
-    expect(await screen.findByText(/Create the request «Preventivo Rossi»/)).toBeInTheDocument();
-    expect(screen.getByText(/Add a milestone «Consegna»/)).toBeInTheDocument();
+    expect(await screen.findByText(/Create request in AUD: “Preventivo Rossi”/)).toBeInTheDocument();
+    expect(screen.getByText(/Create milestone in AUD: “Consegna”/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Reply/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Forward/ })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Edit/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "More actions" }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Open in Gmail" }));
     expect(open).toHaveBeenCalledWith("https://mail.google.com/mail/#all/t-1", "_blank", "noopener");
@@ -182,11 +159,34 @@ describe("la Posta nella build app", () => {
 
   it("«Conferma» decide la proposta sul server, con tutte le sue azioni", async () => {
     renderRoute(`/mail/${KEY}`);
-    await screen.findByText(/Create the request «Preventivo Rossi»/);
+    await screen.findByText(/Create request in AUD: “Preventivo Rossi”/);
     fireEvent.click(screen.getByRole("button", { name: /^Confirm/ }));
     await waitFor(() =>
-      expect(seen.find((r) => r.method === "POST" && r.path === `/api/inbox/${N1}/actions/answer`)?.body).toEqual({ optionIndices: [0, 1] }),
+      expect(seen.find((r) => r.method === "POST" && r.path === `/api/me/mail/proposals/${P1}/confirm`)?.body).toEqual({}),
     );
+  });
+
+  it("F2: un campo cambiato prima di confermare va al server con la conferma", async () => {
+    renderRoute(`/mail/${KEY}`);
+    await screen.findByText(/Create request in AUD: “Preventivo Rossi”/);
+    fireEvent.click(screen.getByRole("button", { name: "Edit line 1" }));
+    const title = await screen.findByLabelText("Title");
+    fireEvent.change(title, { target: { value: "Preventivo Rossi v2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm/ }));
+    await waitFor(() =>
+      // La riga modificata manda i suoi campi; quello cambiato col valore nuovo.
+      expect(seen.find((r) => r.method === "POST" && r.path === `/api/me/mail/proposals/${P1}/confirm`)?.body).toMatchObject({
+        edits: { 0: { title: "Preventivo Rossi v2" } },
+      }),
+    );
+  });
+
+  it("F2: una decisione da registrare senza titolo dice la frase del server", async () => {
+    proposals = [{ ...proposal, actions: [{ type: "record_decision", args: {}, label: "Record the decision on the quote" }] }];
+    renderRoute(`/mail/${KEY}`);
+    expect(await screen.findByText(/Record the decision on the quote/)).toBeInTheDocument();
+    expect(screen.queryByText(/undefined/)).toBeNull();
   });
 
   it("«Segna come non letta» scrive su Gmail", async () => {

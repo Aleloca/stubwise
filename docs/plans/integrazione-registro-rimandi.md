@@ -284,10 +284,8 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   dell'orchestratrice)*: aprire la conversazione È il gesto, come nel
   prototipo (D5 = b). Va scritto esplicito nell'invariante «Nessuna
   scrittura verso Google senza un gesto» (chiesto a stubwise-72).
-- `/api/inbox` senza filtro per tipo *(S, review della F1)*: la Posta legge le
-  proprie card `google.proposal` sfogliando l'inbox intera (le aperte fino a
-  20 pagine da 100, le decise le 4 più recenti). Un filtro `kind` lato server
-  lo toglierebbe; con la F2 le proposte hanno la loro rotta.
+- `/api/inbox` senza filtro per tipo *(S, review della F1)*: chiusa con la
+  F2, la Posta legge e decide le proposte da `/api/me/mail/proposals`.
 - Una casella con le proposte spente si legge e si allinea come le altre
   *(M, decisione del maintainer: come il prototipo; chiusa con la F1 del
   server, 02df56c8)*: il poller la legge comunque e «Aggiorna ora» funziona;

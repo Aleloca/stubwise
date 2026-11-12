@@ -94,6 +94,8 @@ export function phraseOf(action: ProposedAction, args: Args, ctx: Ctx): string {
     case "addComment":
       return t("mail.proposal.phrase.addComment", { task: task(args.taskId), body: args.body });
     case "recordDecision":
+      // Il server (build app) non dà il titolo: il registro lo scrive da template alla conferma.
+      if (typeof args.title !== "string" && action.summary) return action.summary;
       return t("mail.proposal.phrase.recordDecision", { code, title: args.title });
     case "createMilestone": {
       const base = t("mail.proposal.phrase.createMilestone", { code, name: args.name });

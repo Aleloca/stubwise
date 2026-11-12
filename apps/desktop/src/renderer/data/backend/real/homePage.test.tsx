@@ -69,6 +69,8 @@ beforeEach(() => {
     "GET /api/me/calendar/range": () => ({ body: { items: calendarItems, nextCursor: null } }),
     // Area 6, fetta 2: «Posta importante» (`important: true`).
     "GET /api/me/mail/threads": () => ({ body: { items: importantThreads, nextCursor: null } }),
+    // Area 6, fetta 2: le proposte della Posta in «Da decidere».
+    "GET /api/me/mail/proposals": { body: { items: [] } },
     // Area 4, fetta 2: le domande della Chat in «Da decidere».
     "GET /api/chat/questions": () =>
       chatQuestionsMissing ? { status: 404, body: { code: "not_found", message: "x" } } : { body: { items: chatQuestions } },

@@ -50,6 +50,7 @@ const ALL: IntegrationTarget[] = [
       "mail-write",
       "mail-importance",
       "mail-proposal-edit",
+      "mail-contributors",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -142,6 +143,8 @@ describe("isIntegrated", () => {
         "feature:mail",
         // Area 6, fetta 2: importanza, «Importanti» e «Posta importante».
         "feature:mail-importance",
+        "feature:mail-proposal-edit",
+        "feature:mail-contributors",
       ].sort(),
     );
   });

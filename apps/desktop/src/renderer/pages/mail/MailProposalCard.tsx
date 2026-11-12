@@ -44,7 +44,7 @@ import {
   type Ctx,
   type Edits,
 } from "./proposalText";
-import { mailProposalEdits } from "./mailFeatures";
+import { mailContributors, mailProposalEdits } from "./mailFeatures";
 
 // Una proposta nata da un'email (shape mail.md §4): la stessa scheda nella
 // Posta (sotto il messaggio d'origine) e in «Da decidere». Parla la lingua
@@ -570,7 +570,7 @@ export function MailProposalCard({
         <OutsiderPrompt
           outsiders={asking}
           code={code}
-          canAdd={can(viewer, "project.members.manage", p.projectId)}
+          canAdd={mailContributors() && can(viewer, "project.members.manage", p.projectId)}
           busy={busy}
           onAdd={() => run({ add: asking.map((o) => o.personId) })}
           onChoose={chooseSomeoneElse}
