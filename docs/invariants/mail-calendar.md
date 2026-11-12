@@ -35,6 +35,13 @@
   rilegge `UNREAD` dalla history. Chi aggiunge una scrittura (bozze, invio,
   calendario) la fa partire da una rotta chiamata da un gesto, con lo stesso
   ordine.
+  **Aprire una conversazione È il gesto che la segna letta** *(O)*,
+  decisione dell'orchestratrice dalla review del renderer della F1, come il
+  prototipo con D5 = b): il renderer chiama la rotta dopo 1 s di permanenza
+  sulla conversazione aperta, non al passaggio. «Segna come non letta» la
+  lascia non letta finché non la si RIAPRE: il renderer non la risegna letta
+  mentre resta aperta. Nessun altro percorso (anteprima, notifica, ricerca,
+  il worker) segna letta una conversazione.
 - **«Aggiorna ora» non ha un percorso a parte (area 6, F1.2).** La rotta porta
   `next_sync_at` a adesso e fa un `pg_notify` (`google_sync_request`) nella
   stessa transazione; il worker si sveglia e il claim di sempre (`SKIP

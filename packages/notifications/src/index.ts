@@ -317,3 +317,4 @@ export {
   type ReviewAccountResolution,
   type ReviewAccountSource,
 } from "./review-account.js";
+export { resolveRecipientUserIds } from "./mail-recipients.js";
