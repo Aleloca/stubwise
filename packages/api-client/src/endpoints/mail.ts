@@ -9,6 +9,7 @@ import {
   mailThreadPageSchema,
   mailProposalListSchema,
   mailProposalSchema,
+  mailProposalDecisionSchema,
 } from "@stubwise/shared";
 import type {
   Reader,
@@ -26,6 +27,7 @@ import type {
   MailProposal,
   MailProposalList,
   MailProposalStatus,
+  MailProposalDecision,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { seg, toQuery } from "../query.js";
@@ -150,6 +152,38 @@ export function createMailEndpoints(request: ApiRequest) {
     /** Una proposta condivisa; 404 `not_found` se chi guarda non la vede. */
     proposal(id: string): Promise<Reader<MailProposal>> {
       return request("GET", `/api/me/mail/proposals/${seg(id)}`, undefined, mailProposalSchema);
+    },
+
+    /**
+     * Decidere (area 6, F2). L'esito 200 è `MailProposalDecision`; gli errori
+     * sono `ApiError`: 409 `already_handled` (con `decidedBy` nei `details`),
+     * 403 `forbidden`, 400 `invalid_selection` / `invalid_edits` /
+     * `invalid_assignee` / `invalid_target`, 404 `not_found`.
+     */
+    confirmProposal(id: string, body: { indices?: number[]; edits?: Record<string, Record<string, unknown>> } = {}): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/confirm`, body, mailProposalDecisionSchema);
+    },
+    /** Conferma aggiungendo come Contributor gli incaricati fuori dal progetto: chiede la riconferma (`reauth_required`). */
+    confirmProposalWithMembers(
+      id: string,
+      body: { indices?: number[]; edits?: Record<string, Record<string, unknown>>; addOutsiders: string[] },
+    ): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/confirm-with-members`, body, mailProposalDecisionSchema);
+    },
+    ignoreProposal(id: string): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/ignore`, {}, mailProposalDecisionSchema);
+    },
+    /** «Passa al progetto» (solo chi non può confermarla). */
+    handProposal(id: string): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/hand`, {}, mailProposalDecisionSchema);
+    },
+    /** «Sposta su un altro progetto»: `{ status: "moved", projectId }`. */
+    reassignProposal(id: string, projectId: string): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/reassign`, { projectId }, mailProposalDecisionSchema);
+    },
+    /** «Quale progetto?»: l'email si riclassifica per quello scelto. */
+    chooseProposalProject(id: string, projectId: string): Promise<Reader<MailProposalDecision>> {
+      return request("POST", `/api/me/mail/proposals/${seg(id)}/choose-project`, { projectId }, mailProposalDecisionSchema);
     },
 
     /**

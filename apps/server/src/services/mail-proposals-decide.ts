@@ -4,7 +4,9 @@ import {
   emailProposals,
   googleAccounts,
   notifications,
+  projectMembers,
   projects,
+  roles,
   recordDecision,
   tickets,
   users,
@@ -13,7 +15,9 @@ import {
 import { t, type Language } from "@stubwise/i18n";
 import { permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
 import type { MailProposal, ProjectPermission } from "@stubwise/shared";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import type { SessionUser } from "../auth/session.js";
+import { putProjectMember, RoleRuleError } from "./roles.js";
 import { createTicket } from "../db/tickets.js";
 import { enqueueBacklogIntake } from "./backlog-intake.js";
 import { addSystemComment } from "./comments.js";
@@ -55,6 +59,8 @@ export type DecideResult =
   | { ok: true; status: "confirmed"; results: MailProposal["results"] }
   | { ok: true; status: "failed"; error: string }
   | { ok: true; status: "ignored" }
+  | { ok: true; status: "handed" }
+  | { ok: true; status: "moved"; projectId: string }
   | { ok: false; error: DecideError; decidedBy?: { userId: string; name: string } | null };
 
 /** Chi decide: basta l'id, i permessi si leggono dal DB (anche dall'inbox). */
@@ -79,16 +85,33 @@ const OPEN = new Set(["classified", "proposed"]);
 /** La proposta che chi guarda può decidere, o l'errore. */
 async function loadDecidable(db: Db, viewer: Viewer, id: string) {
   const [row] = await db
-    .select({ proposal: emailProposals, message: emailMessages, mailboxEmail: googleAccounts.email })
+    .select({
+      proposal: emailProposals,
+      message: emailMessages,
+      mailboxEmail: googleAccounts.email,
+      recipient: emailProposalRecipients.userId,
+    })
     .from(emailProposals)
-    .innerJoin(emailProposalRecipients, and(eq(emailProposalRecipients.proposalId, emailProposals.id), eq(emailProposalRecipients.userId, viewer.id)))
+    .leftJoin(emailProposalRecipients, and(eq(emailProposalRecipients.proposalId, emailProposals.id), eq(emailProposalRecipients.userId, viewer.id)))
     .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
     .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
     .where(and(eq(emailProposals.id, id), eq(emailProposals.audience, "mail_recipients")));
   if (!row) return null;
   const permissions = await projectPermissionsOfUser(db, viewer.id, row.proposal.projectId);
   if (!permissions) return null;
-  return { ...row, permissions };
+  // Non destinatario: solo una proposta PASSATA, e solo a chi ha il permesso
+  // di OGNI sua azione nel progetto (il prototipo).
+  if (!row.recipient && !(row.proposal.handedAt && coversAll(row.proposal, permissions))) return null;
+  return { proposal: row.proposal, message: row.message, mailboxEmail: row.mailboxEmail, permissions, isRecipient: row.recipient !== null };
+}
+
+/** Chi ha il permesso di ogni azione della proposta. */
+export function coversAll(proposal: { classification: unknown }, permissions: ReadonlySet<ProjectPermission>): boolean {
+  const actions = (proposal.classification as { actions?: StoredAction[] }).actions ?? [];
+  return actions.length > 0 && actions.every((a) => {
+    const needed = permissionForMailAction(a.type);
+    return !needed || permissions.has(needed as ProjectPermission);
+  });
 }
 
 async function decidedByOf(db: Db, userId: string | null) {
@@ -319,4 +342,155 @@ export async function sharedProposalOfNotification(db: Db, userId: string, notif
     .from(emailProposalRecipients)
     .where(and(eq(emailProposalRecipients.notificationId, notificationId), eq(emailProposalRecipients.userId, userId)));
   return row?.proposalId ?? null;
+}
+
+/** I tipi che si possono spostare su un altro progetto (il prototipo). */
+const PORTABLE = new Set(["create_task", "create_backlog_item", "record_decision", "create_milestone"]);
+
+/**
+ * «Passa al progetto»: chi NON può confermarla la passa a chi nel progetto ha
+ * il permesso di ogni sua azione, che da lì la vede (con l'estratto, non il
+ * messaggio) e la decide. Resta aperta; nessuna card nuova *(O)*: la si trova
+ * in `/proposals?status=handed`.
+ */
+export async function handMailProposal(db: Db, viewer: Viewer, id: string): Promise<DecideResult> {
+  const loaded = await loadDecidable(db, viewer, id);
+  if (!loaded || !loaded.isRecipient) return { ok: false, error: "not_found" };
+  const { proposal, permissions } = loaded;
+  if (!OPEN.has(proposal.status) || proposal.handedAt) {
+    return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, proposal.decidedByUserId ?? proposal.handedByUserId) };
+  }
+  const stored = proposal.classification as { choose?: unknown };
+  if (stored.choose || coversAll(proposal, permissions)) return { ok: false, error: "invalid_selection" };
+  const [updated] = await db
+    .update(emailProposals)
+    .set({ handedAt: new Date(), handedByUserId: viewer.id })
+    .where(and(eq(emailProposals.id, id), inArray(emailProposals.status, ["classified", "proposed"]), isNull(emailProposals.handedAt)))
+    .returning({ id: emailProposals.id });
+  if (!updated) return { ok: false, error: "already_handled", decidedBy: null };
+  return { ok: true, status: "handed" };
+}
+
+/**
+ * «Sposta su un altro progetto»: una proposta nuova sul progetto scelto, con
+ * le stesse azioni (le pubblica il worker al giro dopo, ai destinatari membri
+ * di QUEL progetto); questa si chiude per tutti. Chi sposta è un destinatario
+ * che vede il progetto di arrivo; le azioni sono tutte spostabili; sul
+ * progetto di arrivo non c'è già una proposta per questa email.
+ */
+export async function reassignMailProposal(db: Db, viewer: Viewer, id: string, targetProjectId: string): Promise<DecideResult> {
+  const loaded = await loadDecidable(db, viewer, id);
+  if (!loaded || !loaded.isRecipient) return { ok: false, error: "not_found" };
+  const { proposal } = loaded;
+  if (!OPEN.has(proposal.status)) return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, proposal.decidedByUserId) };
+  const stored = proposal.classification as { actions?: StoredAction[]; choose?: unknown; summary?: string };
+  const actions = stored.actions ?? [];
+  if (stored.choose || actions.length === 0 || !actions.every((a) => PORTABLE.has(a.type))) return { ok: false, error: "invalid_selection" };
+  if (targetProjectId === proposal.projectId || !(await projectPermissionsOfUser(db, viewer.id, targetProjectId))) {
+    return { ok: false, error: "invalid_target" };
+  }
+  return db.transaction(async (tx) => {
+    const [locked] = await tx.select({ status: emailProposals.status }).from(emailProposals).where(eq(emailProposals.id, id)).for("update");
+    if (!locked || !OPEN.has(locked.status)) return { ok: false as const, error: "already_handled" as const, decidedBy: null };
+    const [created] = await tx
+      .insert(emailProposals)
+      .values({
+        emailMessageId: proposal.emailMessageId,
+        projectId: targetProjectId,
+        rfcMessageId: proposal.rfcMessageId,
+        audience: "mail_recipients",
+        status: "classified",
+        classification: { version: 2, summary: stored.summary ?? "", actions, movedFrom: proposal.projectId, movedBy: viewer.id },
+      })
+      .onConflictDoNothing()
+      .returning({ id: emailProposals.id });
+    if (!created) return { ok: false as const, error: "invalid_target" as const };
+    await tx
+      .update(emailProposals)
+      .set({ status: "ignored", decidedByUserId: viewer.id, decidedAt: new Date(), outcome: { type: "reassigned_to", projectId: targetProjectId } })
+      .where(eq(emailProposals.id, id));
+    await closeCards(tx, id);
+    return { ok: true as const, status: "moved" as const, projectId: targetProjectId };
+  });
+}
+
+/**
+ * «Quale progetto?»: la persona sceglie fra i progetti incerti. La domanda se
+ * ne va (le card si chiudono) e l'email si riclassifica per QUEL progetto
+ * soltanto (`email_messages.project_id`, letto da `classify-v2.ts`), in ogni
+ * casella che la contiene; le proposte nuove le pubblica il worker.
+ */
+export async function chooseMailProposalProject(db: Db, viewer: Viewer, id: string, projectId: string): Promise<DecideResult> {
+  const loaded = await loadDecidable(db, viewer, id);
+  if (!loaded || !loaded.isRecipient) return { ok: false, error: "not_found" };
+  const { proposal } = loaded;
+  if (!OPEN.has(proposal.status)) return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, proposal.decidedByUserId) };
+  const choose = (proposal.classification as { choose?: { projectIds?: string[] } }).choose?.projectIds;
+  if (!choose) return { ok: false, error: "invalid_selection" };
+  if (!choose.includes(projectId) || !(await projectPermissionsOfUser(db, viewer.id, projectId))) return { ok: false, error: "invalid_target" };
+  return db.transaction(async (tx) => {
+    const [locked] = await tx.select({ status: emailProposals.status }).from(emailProposals).where(eq(emailProposals.id, id)).for("update");
+    if (!locked || !OPEN.has(locked.status)) return { ok: false as const, error: "already_handled" as const, decidedBy: null };
+    await closeCards(tx, id);
+    // La domanda non resta: la sua chiave (email, progetto) serve alla
+    // proposta vera che nascerà per il progetto scelto.
+    await tx.delete(emailProposals).where(eq(emailProposals.id, id));
+    await tx
+      .update(emailMessages)
+      .set({ classificationState: null, status: "new", projectId, scopeProjectIds: [projectId], uncertainProjectIds: [] })
+      .where(
+        sql`coalesce(${emailMessages.rfcMessageId}, 'gmail:' || ${emailMessages.accountId} || ':' || ${emailMessages.gmailMessageId}) = ${proposal.rfcMessageId}`,
+      );
+    return { ok: true as const, status: "moved" as const, projectId };
+  });
+}
+
+/**
+ * Conferma aggiungendo come Contributor gli incaricati che non sono membri
+ * (`addOutsiders`). Rotta con la riconferma; serve `project.members.manage`, e
+ * l'aggiunta passa dalle regole di Membri (`putProjectMember`: escalation,
+ * bersaglio sopra). Le persone restano nel progetto SOLO se la conferma
+ * riesce: altrimenti chi è stato appena aggiunto se ne va *(O)*.
+ */
+export async function confirmMailProposalWithMembers(
+  db: Db,
+  viewer: Pick<SessionUser, "id" | "instancePermissions">,
+  id: string,
+  input: { indices?: number[] | undefined; edits?: Record<string, Record<string, unknown>> | undefined; addOutsiders: string[] },
+  lang: Language,
+): Promise<DecideResult | { ok: false; error: "rule"; rule: RoleRuleError }> {
+  const loaded = await loadDecidable(db, viewer, id);
+  if (!loaded) return { ok: false, error: "not_found" };
+  const { proposal, permissions } = loaded;
+  if (!permissions.has("project.members.manage")) return { ok: false, error: "forbidden" };
+  const contributor = await presetRoleIdOf(db, "contributor");
+  const already = new Set(
+    (await db.select({ userId: projectMembers.userId }).from(projectMembers).where(eq(projectMembers.projectId, proposal.projectId))).map((r) => r.userId),
+  );
+  const added: string[] = [];
+  try {
+    for (const userId of [...new Set(input.addOutsiders)]) {
+      if (already.has(userId)) continue;
+      await putProjectMember(db, viewer, permissions, proposal.projectId, userId, contributor);
+      added.push(userId);
+    }
+  } catch (err) {
+    await removeMembers(db, proposal.projectId, added);
+    if (err instanceof RoleRuleError) return { ok: false, error: "rule", rule: err };
+    throw err;
+  }
+  const result = await confirmMailProposal(db, viewer, id, input, lang);
+  if (!result.ok || result.status !== "confirmed") await removeMembers(db, proposal.projectId, added);
+  return result;
+}
+
+async function removeMembers(db: Db, projectId: string, userIds: string[]): Promise<void> {
+  if (userIds.length === 0) return;
+  await db.delete(projectMembers).where(and(eq(projectMembers.projectId, projectId), inArray(projectMembers.userId, userIds)));
+}
+
+async function presetRoleIdOf(db: Db, key: string): Promise<string> {
+  const [row] = await db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, key));
+  if (!row) throw new Error(`ruolo preset ${key} assente`);
+  return row.id;
 }

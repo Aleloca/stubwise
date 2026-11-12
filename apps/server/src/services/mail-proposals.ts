@@ -13,6 +13,7 @@ import { t } from "@stubwise/i18n";
 import { permissionForMailAction, projectPermissionsOfUser } from "@stubwise/notifications";
 import type { Language, MailProposal, MailProposalAction, MailProposalStatus, ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
+import { coversAll } from "./mail-proposals-decide.js";
 
 /**
  * LE PROPOSTE CONDIVISE DELLA POSTA, IN LETTURA (area 6, fetta 2, D4).
@@ -79,7 +80,9 @@ export async function listMailProposals(
 ): Promise<MailProposal[]> {
   const conditions = [
     eq(emailProposals.audience, "mail_recipients"),
-    eq(emailProposalRecipients.userId, viewer.id),
+    // Destinatario, o una proposta PASSATA (chi ha i permessi di ogni azione
+    // nel progetto la vede: il controllo vero è riga per riga, sotto).
+    sql`(${emailProposalRecipients.userId} is not null or ${emailProposals.handedAt} is not null)`,
   ];
   if (filter.id) conditions.push(eq(emailProposals.id, filter.id));
   if (filter.messageId) {
@@ -93,18 +96,24 @@ export async function listMailProposals(
     );
   }
   const rows = await db
-    .select({ proposal: emailProposals, excerpt: emailMessages.textExcerpt })
+    .select({ proposal: emailProposals, excerpt: emailMessages.textExcerpt, recipient: emailProposalRecipients.userId })
     .from(emailProposals)
-    .innerJoin(emailProposalRecipients, eq(emailProposalRecipients.proposalId, emailProposals.id))
+    .leftJoin(
+      emailProposalRecipients,
+      and(eq(emailProposalRecipients.proposalId, emailProposals.id), eq(emailProposalRecipients.userId, viewer.id)),
+    )
     .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
     .where(and(...conditions))
     .orderBy(emailProposals.createdAt);
 
   const out: MailProposal[] = [];
-  for (const { proposal, excerpt } of rows) {
+  for (const { proposal, excerpt, recipient } of rows) {
     // Il progetto deve essere visibile ADESSO (la revoca vale a lettura).
     const permissions = await projectPermissionsOfUser(db, viewer.id, proposal.projectId);
     if (!permissions) continue;
+    // Un non destinatario vede solo una proposta passata di cui può decidere
+    // OGNI azione (la stessa regola di `mail-proposals-decide.ts`).
+    if (!recipient && !coversAll(proposal, permissions)) continue;
     const view = await buildView(db, viewer, proposal, excerpt, permissions, lang);
     if (filter.status && view.status !== filter.status) continue;
     out.push(view);
@@ -153,7 +162,9 @@ async function buildView(
         const needed = permissionForMailAction(a.type);
         return needed && !permissions.has(needed) ? [index] : [];
       });
-  const canConfirm = open && !choose && actions.length > 0 && blockedIndices.length === 0;
+  // Una proposta PASSATA resta da decidere: la conferma chi ha i permessi.
+  const decidable = open || status === "handed";
+  const canConfirm = decidable && !choose && actions.length > 0 && blockedIndices.length === 0;
 
   // Gli incaricati proposti che NON sono membri del progetto.
   const assignees = rawActions

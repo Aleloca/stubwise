@@ -282,6 +282,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   classificare la PROPRIA posta, e la notifica arriva a TUTTI i destinatari
   membri, anche a chi le ha spente (la frase dell'interruttore nella UI non
   promette più «niente notifiche»).
+- F2, decidere una proposta condivisa, scelte *(O)* (12 nov 2026):
+  «Passa al progetto» non crea una card nuova: la proposta passata la vede e
+  la decide chi nel progetto ha i permessi di OGNI sua azione, in
+  `/proposals?status=handed` (rimandato: una card per loro); «Quale
+  progetto?» scelto cancella la domanda e riclassifica l'email solo per quel
+  progetto; i Contributor si aggiungono con `putProjectMember` (le regole di
+  Membri) prima della conferma, e se ne vanno se la conferma non riesce
+  (non sono nella stessa transazione delle azioni).
 - F1.3 letto / non letto, limite *(S)*: dopo un resync per query (primo
   giro, history scaduta) i messaggi GIÀ ingeriti non rileggono `UNREAD`
   finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono

@@ -451,7 +451,10 @@ async function classifyOne(
     ...(message.ccAddresses ?? []),
     owner?.email,
   ]);
-  const candidates = await loadCandidateProjects(deps.db, recipientIds);
+  // «Quale progetto?» già risposta: la persona ha scelto il progetto
+  // (`project_id` scritto dalla scelta), e i candidati sono solo quello.
+  const all = await loadCandidateProjects(deps.db, recipientIds);
+  const candidates = message.projectId ? all.filter((c) => c.id === message.projectId) : all;
   const thread = await deps.db
     .select({ from: emailMessages.fromAddress, text: emailMessages.textExcerpt })
     .from(emailMessages)
