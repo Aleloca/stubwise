@@ -10,6 +10,8 @@ import {
   mailProposalListSchema,
   mailProposalSchema,
   mailProposalDecisionSchema,
+  mailDraftListSchema,
+  mailDraftSchema,
 } from "@stubwise/shared";
 import type {
   Reader,
@@ -28,6 +30,10 @@ import type {
   MailProposalList,
   MailProposalStatus,
   MailProposalDecision,
+  MailComposeMode,
+  MailDraftList,
+  MailDraft,
+  MailDraftSave,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { seg, toQuery } from "../query.js";
@@ -184,6 +190,31 @@ export function createMailEndpoints(request: ApiRequest) {
     /** «Quale progetto?»: l'email si riclassifica per quello scelto. */
     chooseProposalProject(id: string, projectId: string): Promise<Reader<MailProposalDecision>> {
       return request("POST", `/api/me/mail/proposals/${seg(id)}/choose-project`, { projectId }, mailProposalDecisionSchema);
+    },
+
+    /** Area 6, F3: le MIE bozze (bozze di Gmail). */
+    drafts(): Promise<Reader<MailDraftList>> {
+      return request("GET", "/api/me/mail/drafts", undefined, mailDraftListSchema);
+    },
+    /**
+     * «La bozza di» una conversazione: quella salvata, o una nuova già
+     * indirizzata dal server (`id` null). Non salva e non chiama Google.
+     */
+    draft(input: { account: string; thread?: string | null; mode: MailComposeMode; replyTo?: string | null }): Promise<Reader<MailDraft>> {
+      const query = toQuery({ account: input.account, thread: input.thread ?? undefined, mode: input.mode, replyTo: input.replyTo ?? undefined });
+      return request("GET", `/api/me/mail/drafts/compose${query}`, undefined, mailDraftSchema);
+    },
+    /**
+     * Salva (crea o sostituisce) la bozza dello slot, su Gmail. Errori: 409
+     * `draft_changed` (modificata da Gmail nel frattempo), `google_scope_missing`
+     * (con `missing`), `account_disabled`, `token_expired`; 404; 502.
+     */
+    saveDraft(input: MailDraftSave): Promise<Reader<MailDraft>> {
+      return request("PUT", "/api/me/mail/drafts", input, mailDraftSchema);
+    },
+    /** Elimina la bozza, su Gmail e in Stubwise. «Annulla» = salvarla di nuovo. */
+    discardDraft(id: string): Promise<void> {
+      return request("DELETE", `/api/me/mail/drafts/${seg(id)}`);
     },
 
     /**

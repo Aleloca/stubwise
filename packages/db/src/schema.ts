@@ -6116,6 +6116,16 @@ export const mailDrafts = pgTable(
     mode: text("mode").$type<"new" | "reply" | "replyAll" | "forward">().notNull(),
     replyToMessageId: uuid("reply_to_message_id").references(() => emailMessages.id, { onDelete: "set null" }),
     quote: boolean("quote").notNull().default(true),
+    /**
+     * La COPIA dell'ultimo salvataggio (destinatari, oggetto, testo): la fonte
+     * resta la bozza di Gmail, ma leggerla da lì costerebbe una chiamata per
+     * bozza *(O)*. Una modifica fatta da Gmail si scopre al salvataggio dopo
+     * (`gmail_message_id` diverso: `draft_changed`).
+     */
+    toAddresses: jsonb("to_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    ccAddresses: jsonb("cc_addresses").$type<{ email: string; name: string | null }[]>().notNull().default([]),
+    subject: text("subject").notNull().default(""),
+    body: text("body").notNull().default(""),
     state: text("state").$type<"active" | "sending">().notNull().default("active"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
