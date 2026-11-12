@@ -582,3 +582,46 @@ describe("GET /api/me/calendar/events/:id (area 6, F1.4)", () => {
     expect((await getEvent("", randomUUID())).statusCode).toBe(401);
   });
 });
+
+describe("F3b, task 6: range leggero, i campi nuovi, le cancellate fuori", () => {
+  const range = (cookie: string) =>
+    app.inject({ method: "GET", url: `/api/me/calendar/range?from=${encodeURIComponent("2026-09-01T00:00:00.000Z")}&to=${encodeURIComponent("2026-09-30T00:00:00.000Z")}&fields=summary`, headers: { cookie } });
+
+  it("ogni riga dice se è lavoro, chi ha deciso il progetto, tipo, trasparenza e la MIA risposta; i campi pesanti solo nel dettaglio", async () => {
+    const { accountId, email } = await seedAccount(memberId);
+    const projectId = await seedProject("Audin");
+    const work = await seedCalendarEvent(accountId, {
+      title: "Revisione",
+      startsAt: new Date("2026-09-15T09:00:00.000Z"),
+      projectId,
+      projectBy: "rules",
+      proposalCandidate: true,
+      description: "<p>Ordine del giorno lungo</p>",
+      attendees: [{ email, responseStatus: "tentative" }, { email: "cliente@x.it", responseStatus: "accepted" }],
+    });
+    await seedCalendarEvent(accountId, { title: "Ferie", startsAt: new Date("2026-09-16T00:00:00.000Z"), allDay: true, proposalCandidate: false, eventType: "outOfOffice", transparency: "transparent" });
+    const items = (await range(memberCookie)).json().items as Record<string, unknown>[];
+    expect(items.find((i) => i.title === "Revisione")).toMatchObject({ recognized: true, projectBy: "rules", myResponse: "tentative", descriptionHtml: null, attendees: [] });
+    expect(items.find((i) => i.title === "Ferie")).toMatchObject({ recognized: false, projectBy: null, eventType: "outOfOffice", transparency: "transparent", reproposable: false });
+    const detail = (await app.inject({ method: "GET", url: `/api/me/calendar/events/${work}`, headers: { cookie: memberCookie } })).json() as Record<string, unknown>;
+    expect(detail).toMatchObject({ myResponse: "tentative", recognized: true });
+    expect(detail.descriptionHtml).toContain("Ordine del giorno");
+    expect((detail.attendees as unknown[]).length).toBe(2);
+  });
+
+  it("un evento cancellato su Google non compare nel calendario", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, { title: "Annullato", startsAt: new Date("2026-09-15T09:00:00.000Z"), status: "cancelled" });
+    await seedCalendarEvent(accountId, { title: "Vivo", startsAt: new Date("2026-09-15T10:00:00.000Z") });
+    expect(((await range(memberCookie)).json().items as { title: string }[]).map((i) => i.title)).toEqual(["Vivo"]);
+  });
+
+  it("una serie dice se è lavoro (almeno un'occorrenza riconosciuta)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedCalendarEvent(accountId, { title: "Yoga", startsAt: new Date(Date.now() + 86_400_000), recurringEventId: "s-yoga", proposalCandidate: false });
+    await seedCalendarEvent(accountId, { title: "SAL", startsAt: new Date(Date.now() + 86_400_000), recurringEventId: "s-sal", proposalCandidate: true });
+    const items = (await getSeries(memberCookie)).json().items as { recurringEventId: string; recognized: boolean }[];
+    expect(items.find((i) => i.recurringEventId === "s-yoga")!.recognized).toBe(false);
+    expect(items.find((i) => i.recurringEventId === "s-sal")!.recognized).toBe(true);
+  });
+});
