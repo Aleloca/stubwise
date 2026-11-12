@@ -78,6 +78,9 @@ import { proceedWithProposal } from "./pulse.js";
 import { answerQuestion, type AnswerInput } from "./questions.js";
 import { excerpt } from "./task-notify.js";
 import { loadViaClaude, type ViaClaudeFields } from "./via-claude.js";
+import { getContentLanguage } from "../settings.js";
+import { confirmMailProposal, ignoreMailProposal, sharedProposalOfNotification } from "./mail-proposals-decide.js";
+import { listMailProposals } from "./mail-proposals.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
 // (condivisa col worker), ri-esportata qui per i consumatori del servizio.
@@ -362,6 +365,33 @@ export async function executeAction(
         ticketNumber: proceeded.ticketNumber,
         runStatus: proceeded.status,
       };
+    }
+    // Area 6, F2: la card di una proposta CONDIVISA si decide dal suo servizio
+    // (`mail-proposals-decide.ts`), mai dall'esecutore di prima. Le opzioni
+    // della card sono le azioni nell'ordine, più «Non fare nulla» per ultima.
+    const sharedProposalId = isMailProposal ? await sharedProposalOfNotification(db, actor.id, row.id) : null;
+    if (sharedProposalId) {
+      const proposal = await listMailProposals(db, { id: actor.id }, { id: sharedProposalId }, "it");
+      const actionCount = proposal[0]?.actions.length ?? 0;
+      const picked = input.payload?.answer?.optionIndices ?? (input.payload?.answer?.optionIndex === undefined ? [] : [input.payload.answer.optionIndex]);
+      if (picked.length === 0 || picked.some((i) => i > actionCount)) return { ok: false, error: "invalid_answer" };
+      const decided =
+        picked.length === 1 && picked[0] === actionCount
+          ? await ignoreMailProposal(db, { id: actor.id }, sharedProposalId)
+          : picked.includes(actionCount)
+            ? null
+            : await confirmMailProposal(db, { id: actor.id }, sharedProposalId, { indices: picked }, await getContentLanguage(db));
+      if (!decided) return { ok: false, error: "invalid_answer" };
+      if (!decided.ok) {
+        if (decided.error === "already_handled") {
+          const [by] = decided.decidedBy
+            ? await db.select({ id: users.id, email: users.email }).from(users).where(eq(users.id, decided.decidedBy.userId))
+            : [];
+          return { ok: false, error: "already_handled", ...(by ? { handledBy: by } : {}) };
+        }
+        return { ok: false, error: decided.error === "not_found" ? "not_found" : decided.error === "forbidden" ? "forbidden" : "invalid_answer" };
+      }
+      return { ok: true, action, kind: row.kind, notificationJobId: row.jobId, changedNotificationIds: [row.id] };
     }
     if (isMailProposal) {
       // Stessa forma del pulse qui sopra: nessun job dietro, `optionIndex` è

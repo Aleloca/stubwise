@@ -10,11 +10,9 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { permissionForMailAction } from "@stubwise/notifications";
+import { permissionForMailAction, projectPermissionsOfUser } from "@stubwise/notifications";
 import type { Language, MailProposal, MailProposalAction, MailProposalStatus, ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import { projectPermissionsFor } from "../auth/access.js";
-import type { SessionUser } from "../auth/session.js";
 
 /**
  * LE PROPOSTE CONDIVISE DELLA POSTA, IN LETTURA (area 6, fetta 2, D4).
@@ -46,7 +44,8 @@ interface StoredV2 {
   choose?: { projectIds?: string[] };
 }
 
-type Viewer = Pick<SessionUser, "id" | "instancePermissions">;
+/** Chi guarda: basta l'id, i permessi si leggono dal DB (anche dall'inbox). */
+type Viewer = { id: string };
 
 /** Il nome di una persona, mai la sua email intera. */
 const personName = sql<string>`coalesce(${users.displayName}, split_part(${users.email}, '@', 1))`;
@@ -104,7 +103,7 @@ export async function listMailProposals(
   const out: MailProposal[] = [];
   for (const { proposal, excerpt } of rows) {
     // Il progetto deve essere visibile ADESSO (la revoca vale a lettura).
-    const permissions = await projectPermissionsFor(db, viewer, proposal.projectId);
+    const permissions = await projectPermissionsOfUser(db, viewer.id, proposal.projectId);
     if (!permissions) continue;
     const view = await buildView(db, viewer, proposal, excerpt, permissions, lang);
     if (filter.status && view.status !== filter.status) continue;

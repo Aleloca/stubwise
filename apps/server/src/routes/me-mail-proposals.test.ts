@@ -4,6 +4,7 @@ import {
   emailProposalRecipients,
   emailProposals,
   googleAccounts,
+  notifications,
   googleWorkspaces,
   projects,
   tickets,
@@ -39,6 +40,7 @@ beforeAll(async () => {
   ({ adminCookie, adminId } = await seedUsers(app));
 }, 120_000);
 afterEach(async () => {
+  await db.delete(notifications);
   await db.delete(emailProposals);
   await db.delete(emailMessages);
   await db.delete(googleAccounts);
@@ -88,9 +90,22 @@ async function seed() {
       },
     })
     .returning();
+  const card = async (userId: string) =>
+    (
+      await db
+        .insert(notifications)
+        .values({
+          userId,
+          kind: "google.proposal",
+          projectId,
+          status: "open",
+          event: { kind: "google.proposal", proposalId: proposal!.id, source: "email", from: "Cliente", subject: "Export", question: "?", options: [{ label: "a" }, { label: "b" }, { label: "Non fare nulla" }], actions: [{ type: "create_task" }, { type: "comment_ticket" }, { type: "ignore" }], recommendedIndex: 0, allowFreeText: false, messageUrl: "https://mail.google.com/x", signal: "request" },
+        })
+        .returning()
+    )[0]!.id;
   await db.insert(emailProposalRecipients).values([
-    { proposalId: proposal!.id, userId: ada.id },
-    { proposalId: proposal!.id, userId: bruno.id },
+    { proposalId: proposal!.id, userId: ada.id, notificationId: await card(ada.id) },
+    { proposalId: proposal!.id, userId: bruno.id, notificationId: await card(bruno.id) },
   ]);
   return { ada, bruno, carla, outsider, message: message!, proposal: proposal!, ticket: ticket! };
 }
@@ -177,5 +192,106 @@ describe("GET /api/me/mail/proposals", () => {
 
   it("vuole una sessione", async () => {
     expect((await app.inject({ method: "GET", url: "/api/me/mail/proposals" })).statusCode).toBe(401);
+  });
+});
+
+describe("decidere una proposta condivisa (F2, task 6)", () => {
+  function post(headers: { cookie: string }, url: string, payload: unknown = {}) {
+    return app.inject({ method: "POST", url, headers, payload: payload as Record<string, unknown> });
+  }
+  async function openCards() {
+    const { eq } = await import("drizzle-orm");
+    return db.select({ userId: notifications.userId }).from(notifications).where(eq(notifications.status, "open"));
+  }
+
+  it("confermare: esegue le azioni (la task nasce con source email), chiude la proposta e le card di TUTTI i destinatari", async () => {
+    const { ada, outsider, proposal } = await seed();
+    const { eq } = await import("drizzle-orm");
+    // Incaricato non membro: senza aggiungerlo, 400 invalid_assignee.
+    expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/confirm`)).json()).toMatchObject({ code: "invalid_assignee" });
+    const res = await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { edits: { "0": { assigneeId: ada.id, title: "Export CSV ordini" } } });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { status: string; results: { kind: string; id: string; code: string | null }[] };
+    expect(body.status).toBe("confirmed");
+    expect(body.results.map((r) => r.kind)).toEqual(["task", "comment"]);
+    const [task] = await db.select().from(tickets).where(eq(tickets.id, body.results[0]!.id));
+    expect(task).toMatchObject({ title: "Export CSV ordini", assigneeId: ada.id, source: "email", type: "task" });
+    const [row] = await db.select().from(emailProposals).where(eq(emailProposals.id, proposal.id));
+    expect(row).toMatchObject({ status: "actioned", decidedByUserId: ada.id, confirmedIndices: null });
+    expect(await openCards()).toEqual([]);
+    expect(outsider.id).toBeTruthy();
+  });
+
+  it("conferma PARZIALE: solo l'azione scelta, e confirmedIndices lo dice", async () => {
+    const { ada, proposal } = await seed();
+    const { eq } = await import("drizzle-orm");
+    const res = await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { indices: [1] });
+    expect((res.json() as { results: { kind: string }[] }).results.map((r) => r.kind)).toEqual(["comment"]);
+    const [row] = await db.select().from(emailProposals).where(eq(emailProposals.id, proposal.id));
+    expect(row!.confirmedIndices).toEqual([1]);
+    expect((await get(ada.headers, `/api/me/mail/proposals/${proposal.id}`)).json()).toMatchObject({ status: "confirmed", confirmedIndices: [1], decidedBy: { name: "Ada" } });
+  });
+
+  it("il secondo che decide: 409 already_handled con chi ha deciso, e niente nasce due volte", async () => {
+    const { ada, bruno, proposal } = await seed();
+    await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { indices: [1] });
+    const second = await post(bruno.headers, `/api/me/mail/proposals/${proposal.id}/ignore`);
+    expect(second.statusCode).toBe(409);
+    expect(second.json()).toMatchObject({ code: "already_handled", decidedBy: { name: "Ada" } });
+  });
+
+  it("senza il permesso di un'azione scelta: 403, e niente cambia", async () => {
+    const { bruno, proposal } = await seed();
+    const res = await post(bruno.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { indices: [1] });
+    expect(res.statusCode).toBe(403);
+    expect(await openCards()).toHaveLength(2);
+  });
+
+  it("modifiche fuori dal consentito (il bersaglio, il progetto) e selezioni non valide: 400", async () => {
+    const { ada, proposal } = await seed();
+    expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { indices: [1], edits: { "1": { ticketId: randomUUID() } } })).json()).toMatchObject({ code: "invalid_edits" });
+    expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { indices: [5] })).json()).toMatchObject({ code: "invalid_selection" });
+    expect((await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { indices: [1, 1] })).json()).toMatchObject({ code: "invalid_selection" });
+  });
+
+  it("tutto o niente: se un'azione fallisce la task non nasce, la proposta è `failed` per tutti", async () => {
+    const { ada, proposal, ticket } = await seed();
+    const { eq } = await import("drizzle-orm");
+    await db.delete(tickets).where(eq(tickets.id, ticket.id));
+    const before = (await db.select().from(tickets)).length;
+    const res = await post(ada.headers, `/api/me/mail/proposals/${proposal.id}/confirm`, { edits: { "0": { assigneeId: ada.id } } });
+    expect(res.json()).toMatchObject({ status: "failed", error: "target_gone" });
+    expect((await db.select().from(tickets)).length).toBe(before);
+    const [row] = await db.select().from(emailProposals).where(eq(emailProposals.id, proposal.id));
+    expect(row!.status).toBe("failed");
+    expect(await openCards()).toEqual([]);
+  });
+
+  it("NEGATIVO: chi non è destinatario non decide (404), nemmeno un admin", async () => {
+    const { carla, proposal } = await seed();
+    expect((await post(carla.headers, `/api/me/mail/proposals/${proposal.id}/ignore`)).statusCode).toBe(404);
+    expect((await post({ cookie: adminCookie }, `/api/me/mail/proposals/${proposal.id}/confirm`, { indices: [1] })).statusCode).toBe(404);
+    expect(await openCards()).toHaveLength(2);
+  });
+
+  it("dall'inbox: la card condivisa si decide dal servizio nuovo (l'ultima opzione è «Non fare nulla»)", async () => {
+    const { ada, proposal } = await seed();
+    const { and, eq } = await import("drizzle-orm");
+    const [card] = await db.select({ id: notifications.id }).from(notifications).where(and(eq(notifications.userId, ada.id), eq(notifications.status, "open")));
+    const res = await app.inject({ method: "POST", url: `/api/inbox/${card!.id}/actions/answer`, headers: ada.headers, payload: { optionIndex: 2 } });
+    expect(res.statusCode).toBe(200);
+    const [row] = await db.select().from(emailProposals).where(eq(emailProposals.id, proposal.id));
+    expect(row!.status).toBe("ignored");
+    expect(await openCards()).toEqual([]);
+  });
+
+  it("A = (a): un destinatario SENZA casella vede l'estratto, ma il dettaglio e l'originale del messaggio gli sono 404", async () => {
+    const { bruno, proposal, message } = await seed();
+    const view = (await get(bruno.headers, `/api/me/mail/proposals/${proposal.id}`)).json() as { excerpt: string; origin: unknown };
+    expect(view.excerpt).toBe("Serve l'export.");
+    expect(view.origin).toBeNull();
+    expect((await get(bruno.headers, `/api/me/mail/email/${proposal.id}`)).statusCode).toBe(404);
+    expect((await get(bruno.headers, `/api/me/mail/email/${proposal.id}/original`)).statusCode).toBe(404);
+    expect((await get(bruno.headers, `/api/me/mail/threads/${message.threadId}`)).statusCode).toBe(404);
   });
 });

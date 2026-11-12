@@ -1965,7 +1965,8 @@
       "api": "API",
       "slack": "Slack",
       "webhook": "Webhook",
-      "widget": "Widget"
+      "widget": "Widget",
+      "email": "Email"
     },
     "effort": {
       "1": "Banale",
