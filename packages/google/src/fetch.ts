@@ -99,6 +99,8 @@ export interface GoogleRequestSpec {
   accessToken?: string;
   /** Corpo `application/x-www-form-urlencoded` (gli endpoint OAuth vogliono questo, non JSON). */
   form?: Record<string, string>;
+  /** Corpo JSON (le scritture di Gmail, area 6: `threads.modify`). */
+  json?: unknown;
   /**
    * Rimappa il `code` di certi status HTTP. È il modo in cui Gmail dichiara che
    * un 404 su `history.list` è `history_expired` e Calendar che un 410 su
@@ -118,6 +120,9 @@ export async function requestGoogle(spec: GoogleRequestSpec, options: GoogleClie
   if (spec.form) {
     headers["content-type"] = "application/x-www-form-urlencoded";
     init.body = new URLSearchParams(spec.form).toString();
+  } else if (spec.json !== undefined) {
+    headers["content-type"] = "application/json";
+    init.body = JSON.stringify(spec.json);
   }
 
   let response: Response;

@@ -9,6 +9,7 @@ import {
   listAttachments,
   listHistory,
   listMessages,
+  modifyThread,
   MAX_TEXT_LENGTH,
   sanitizeEmailHtml,
   TEXT_TRUNCATION_MARKER,
@@ -193,7 +194,30 @@ describe("listHistory", () => {
     expect(call?.params.get("startHistoryId")).toBe("100");
     expect(call?.params.get("pageToken")).toBe("p1");
     expect(call?.params.getAll("historyTypes")).toEqual(["messageAdded"]);
-    expect(page).toEqual({ addedMessageIds: ["m1", "m2"], historyId: "104", nextPageToken: "p2" });
+    expect(page).toEqual({ addedMessageIds: ["m1", "m2"], unreadChanges: [], historyId: "104", nextPageToken: "p2" });
+  });
+
+  it("area 6, F1.3: i cambi dell'etichetta UNREAD (aggiunta e tolta), in ordine; le altre etichette no", async () => {
+    const { impl } = fakeFetch([
+      jsonResponse({
+        history: [
+          { id: "201", labelsRemoved: [{ message: { id: "m1" }, labelIds: ["UNREAD"] }] },
+          { id: "202", labelsAdded: [{ message: { id: "m2" }, labelIds: ["STARRED"] }] },
+          { id: "203", labelsAdded: [{ message: { id: "m1" }, labelIds: ["IMPORTANT", "UNREAD"] }] },
+          { id: "204", messagesAdded: [{ message: { id: "m3", labelIds: ["UNREAD", "INBOX"] } }] },
+        ],
+        historyId: "205",
+      }),
+    ]);
+    const page = await listHistory(
+      { accessToken: "at", startHistoryId: "200", historyTypes: ["messageAdded", "labelAdded", "labelRemoved"] },
+      { fetchImpl: impl },
+    );
+    expect(page.addedMessageIds).toEqual(["m3"]);
+    expect(page.unreadChanges).toEqual([
+      { messageId: "m1", unread: false },
+      { messageId: "m1", unread: true },
+    ]);
   });
 
   it("404 significa history scaduta: code history_expired, NON fatale (si fa un resync)", async () => {
@@ -601,5 +625,25 @@ describe("listAttachments (fase 7b, Task 7)", () => {
       body: { attachmentId: "huge", size: 50_000_000 },
     });
     expect(attachment).toEqual({ filename: "grande.pdf", mimeType: "application/pdf" });
+  });
+});
+
+describe("modifyThread (area 6, F1.3)", () => {
+  it("POST su threads/:id/modify col token e le etichette in JSON", async () => {
+    const { impl, calls } = fakeFetch([jsonResponse({ id: "t/1", messages: [] })]);
+    await modifyThread({ accessToken: "at", id: "t/1", removeLabelIds: ["UNREAD"] }, { fetchImpl: impl });
+    const call = calls[0]!;
+    expect(call.method).toBe("POST");
+    expect(call.url).toBe("https://gmail.googleapis.com/gmail/v1/users/me/threads/t%2F1/modify");
+    expect(call.headers.authorization).toBe("Bearer at");
+    expect(call.headers["content-type"]).toBe("application/json");
+    expect(JSON.parse(call.body!)).toEqual({ addLabelIds: [], removeLabelIds: ["UNREAD"] });
+  });
+
+  it("un rifiuto di Google è un GoogleApiError (403 insufficient scope)", async () => {
+    const { impl } = fakeFetch([
+      jsonResponse({ error: { code: 403, message: "Insufficient Permission", errors: [{ reason: "insufficientPermissions" }] } }, { status: 403 }),
+    ]);
+    await expect(modifyThread({ accessToken: "at", id: "t1", addLabelIds: ["UNREAD"] }, { fetchImpl: impl })).rejects.toMatchObject({ status: 403 });
   });
 });

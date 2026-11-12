@@ -71,8 +71,15 @@ Ogni campo nuovo è additivo con default; gli stati nuovi passano da
   - all'ingestione `unread` viene dall'etichetta `UNREAD` del messaggio;
   - a ogni giro della casella, i cambi di `UNREAD` fatti su Gmail si
     rileggono dalla history (`labelsAdded`/`labelsRemoved` dal `historyId`
-    salvato) per i messaggi che Stubwise ha; il dettaglio di come il poller
-    oggi avanza (history o query) lo verifico in F1.2 e lo scrivo qui;
+    salvato) per i messaggi che Stubwise ha. Com'è fatto (F1.3): il poller
+    avanza con `history.list` dal `gmail_history_id`, e ora chiede anche
+    `labelAdded`/`labelRemoved`; i cambi di `UNREAD` (vince l'ultimo) si
+    applicano PRIMA dell'ingestione, con un UPDATE per stato e
+    `account_id` nella WHERE, e i messaggi sconosciuti si ignorano. Al primo
+    giro e quando la history è scaduta il poller ricade su `messages.list`
+    (`newer_than:7d -from:me`), che non dà cambi di etichetta: i messaggi
+    nuovi portano la loro `UNREAD`, quelli già ingeriti restano com'erano
+    fino al cambio dopo (limite accettato, nel registro);
   - la rotta chiama `users.threads.modify` (togli o aggiungi `UNREAD`) col
     token della casella, e scrive lo stato locale SOLO dopo il sì di Google;
     è un gesto della persona (la regola dell'area: nessuna scrittura verso

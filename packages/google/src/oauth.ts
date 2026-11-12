@@ -46,6 +46,9 @@ export const GOOGLE_SCOPES = googleOauthScopes;
 /** Lo scope di una casella collegata PRIMA dell'area 6: legge come prima. */
 export const GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
+/** Lo scope che serve per scrivere su Gmail (letto/non letto, bozze, invio). */
+export const GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
+
 /**
  * Gli scope dell'area che una casella NON ha concesso (`missingScopes` di
  * `/api/me/google/accounts`): identità esclusa. Una casella vecchia (con

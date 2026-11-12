@@ -567,6 +567,12 @@ export const mailThreadItemSchema = z.object({
   openProposals: z.number().int().min(0).default(0),
   /** I progetti che la conversazione tocca, per non doverli dedurre dall'oggetto. */
   projectNames: z.array(z.string()).default([]),
+  /**
+   * Area 6, F1.3: vero se ALMENO UN messaggio è non letto su Gmail. Un
+   * messaggio di cui non si sa ancora (righe di prima) conta come letto. Un
+   * server di prima non lo manda.
+   */
+  unread: z.boolean().default(false),
 });
 export type MailThreadItem = z.infer<typeof mailThreadItemSchema>;
 
@@ -688,6 +694,8 @@ export const mailThreadMessageSchema = z.object({
    * localizzato e per il degrado sugli esiti sconosciuti.
    */
   proposalOutcomes: z.array(mailThreadProposalOutcomeSchema).default([]),
+  /** Area 6, F1.3: non letto su Gmail (`false` se non si sa ancora). */
+  unread: z.boolean().default(false),
 });
 export type MailThreadMessage = z.infer<typeof mailThreadMessageSchema>;
 
@@ -702,6 +710,13 @@ export const mailThreadDetailSchema = z.object({
   messages: z.array(mailThreadMessageSchema),
 });
 export type MailThreadDetail = z.infer<typeof mailThreadDetailSchema>;
+
+/** Body di `POST /api/me/mail/threads/:threadId/read` (area 6, F1.3). */
+export const mailThreadReadBodySchema = z.object({
+  account: z.uuid(),
+  read: z.boolean(),
+});
+export type MailThreadReadBody = z.infer<typeof mailThreadReadBodySchema>;
 
 /**
  * Contatori per il badge di nav e l'intestazione della pagina. `openProposals`
