@@ -30,10 +30,28 @@ Il server finto risponde come quello vero (`calendarRangeRoute` in
 ### Differenze dichiarate
 
 - **Un evento cancellato su Google** lo toglie il server (`fields=summary`):
-  il campo `status` della riga è lo stato di Stubwise, non quello di Google,
-  quindi il client non lo vede da sé.
+  lo stato normalizzato `cancelled` della riga vale sia per un evento
+  cancellato su Google sia per una proposta annullata, quindi il client non
+  li distingue da sé.
 - **Passare o spostare una proposta del calendario** non si può (`canHand` e
   `canReassign` falsi, `invalid_selection`): come nel prototipo, che non le
   offre.
 - **Un evento con invitati di più progetti** (flag acceso) per ora non
   diventa una proposta *(O, 72)*.
+
+### Review del renderer (12 nov 2026)
+
+Nessun critico; 2 importanti e 5 minori, corretti sul ramo
+`feat/area6-f3b-renderer` con un test rosso prima:
+- «Free» e «Out of office» a parola anche nella riga del mese e nella
+  striscia del tutto il giorno (non solo il contorno);
+- «Not answered» uguale in lista e dettaglio: una mappatura sola (la riga
+  del server, poi gli invitati con `null` → needsAction); a 72 è chiesto
+  che `myResponse` sia `null` solo per «non sono fra gli invitati»;
+- il server finto ha la modalità di un server di PRIMA (`{ legacy: true }`)
+  e toglie le cancellate dalla lista leggera;
+- «Upcoming» dice giorno e ora di una fine in un altro giorno, e la parola
+  del tipo; il dettaglio dice il tipo; il contorno del libero non si somma a
+  quello di un salvataggio fallito;
+- aprire un evento ricorrente non rilegge ogni volta tutte le serie (30 s
+  per client, svuotate da una configurazione).
