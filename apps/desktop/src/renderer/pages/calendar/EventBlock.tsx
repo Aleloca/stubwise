@@ -31,12 +31,19 @@ export function answerWordKey(answer: Answer): string | null {
 /**
  * La parola del tipo di Google e del libero/occupato (build app, F3b): fuori
  * ufficio, tempo di concentrazione, libero. Il fuori ufficio vince sul libero.
- * Un tipo che non conosco, o un server di prima, non dice niente.
+ * Un tipo che non conosco, o un server di prima, non dice niente. Il libero
+ * si segna solo sugli eventi a ORARIO: un tutto il giorno è libero per
+ * default su Google, e segnarlo sarebbe rumore *(O di 46, 12 nov 2026)*.
  */
-export function kindWordKey(e: Pick<CalendarEventView, "eventType" | "transparency">): string | null {
+export const isMarkedFree = (e: Pick<CalendarEventView, "transparency" | "allDay">) =>
+  e.transparency === "transparent" && !e.allDay;
+
+export function kindWordKey(
+  e: Pick<CalendarEventView, "eventType" | "transparency" | "allDay">,
+): string | null {
   if (e.eventType === "outOfOffice") return "calendar.block.outOfOffice";
   if (e.eventType === "focusTime") return "calendar.block.focusTime";
-  if (e.transparency === "transparent") return "calendar.block.free";
+  if (isMarkedFree(e)) return "calendar.block.free";
   return null;
 }
 
@@ -61,7 +68,12 @@ export function PrepMark() {
     >
       <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none">
         <rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-        <path d="M5.75 5.5h4.5M5.75 8h4.5M5.75 10.5h2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+        <path
+          d="M5.75 5.5h4.5M5.75 8h4.5M5.75 10.5h2.5"
+          stroke="currentColor"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+        />
       </svg>
     </span>
   );
@@ -208,15 +220,13 @@ export function GridBlockBody({
   if (lines === 1) {
     return (
       <span className="flex min-w-0 items-center gap-1.5">
-        {compact ? (
-          word && (
-            <span className="shrink-0 text-xs leading-4 whitespace-nowrap text-ink-muted">
-              {t(word)}
-            </span>
-          )
-        ) : (
-          time
-        )}
+        {compact
+          ? word && (
+              <span className="shrink-0 text-xs leading-4 whitespace-nowrap text-ink-muted">
+                {t(word)}
+              </span>
+            )
+          : time}
         <span className={`${titleClass} truncate`}>{e.title}</span>
         {prep}
         {continues && (
@@ -328,7 +338,7 @@ export function GridBlockBody({
 export function blockShape(e: CalendarEventView): string {
   const failed = e.save?.state === "failed" ? "!border-critical" : "";
   // Libero per Google (F3b): il contorno tratteggiato, oltre alla parola.
-  const free = e.transparency === "transparent" ? "border-dashed !border-rule-strong" : "";
+  const free = isMarkedFree(e) && !failed ? "border-dashed !border-rule-strong" : "";
   return `${SHAPE[answerOf(e)]} ${free} ${failed}`;
 }
 
@@ -369,7 +379,9 @@ export function EventListRow({
       >
         {e.title}
       </span>
-      {kindWordKey(e) && <span className="shrink-0 text-xs text-ink-muted">{t(kindWordKey(e)!)}</span>}
+      {kindWordKey(e) && (
+        <span className="shrink-0 text-xs text-ink-muted">{t(kindWordKey(e)!)}</span>
+      )}
       {word && <span className="shrink-0 text-xs text-ink-muted">{t(word)}</span>}
     </button>
   );

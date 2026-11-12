@@ -28,6 +28,7 @@ import { UntrustedHtmlFrame } from "../mail/UntrustedHtmlFrame";
 import { CloseIcon, InlineConfirm, MoreIcon, ghostButton, smallSecondary } from "../task/parts";
 import { MenuButton, secondaryButton } from "../tasks/controls";
 import { eventDayLabel, spanLabel } from "./calendarFormat";
+import { kindWordKey } from "./EventBlock";
 import { SeriesScopeDialog } from "./SeriesScopeDialog";
 import { RsvpBar } from "./RsvpBar";
 import { calendarWrites, canEditEvent, meetingNotes } from "./calendarWrites";
@@ -219,6 +220,8 @@ function Detail({
           {e.title}
         </h2>
         <p className="num text-md text-ink">{when}</p>
+        {/* Il tipo di Google e il libero (F3b), a parola. */}
+        {kindWordKey(e) && <p className="text-sm text-ink-muted">{t(kindWordKey(e)!)}</p>}
         {e.series && (
           <p className="flex flex-wrap items-center gap-x-1.5 text-sm text-ink-muted">
             {words(e.series.rule) ?? t("calendar.detail.recurring")}

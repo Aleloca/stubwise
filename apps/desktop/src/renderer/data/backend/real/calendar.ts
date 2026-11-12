@@ -49,7 +49,8 @@ const calendarWindow: Calendar["calendarWindow"] = () => ({
  * `_` (passa per l'indirizzo, `?series=`). L'id di Google da solo non basta:
  * la stessa serie su due caselle mie ha lo stesso.
  */
-const seriesIdOf = (accountId: string, recurringEventId: string) => `${accountId}_${recurringEventId}`;
+const seriesIdOf = (accountId: string, recurringEventId: string) =>
+  `${accountId}_${recurringEventId}`;
 
 /** Le azioni di una serie: il vocabolario del prototipo e quello del server. */
 const ACTION_OF_SERVER = {
@@ -122,7 +123,10 @@ export function eventView(raw: CalendarEventItem): CalendarEventView {
     attendees,
     reminders: e.remindersUseDefault
       ? "default"
-      : (e.reminders ?? []).map((r) => ({ minutes: r.minutes, method: r.method === "email" ? "email" : "popup" })),
+      : (e.reminders ?? []).map((r) => ({
+          minutes: r.minutes,
+          method: r.method === "email" ? "email" : "popup",
+        })),
     seriesId: e.recurringEventId === null ? null : seriesIdOf(e.accountId, e.recurringEventId),
     // Un evento personale (non riconosciuto) non ha un suggerimento: «No project»,
     // salvo un progetto messo a mano.
@@ -134,7 +138,8 @@ export function eventView(raw: CalendarEventItem): CalendarEventView {
     attendeeCount: e.attendeeCount ?? null,
     googleUrl: e.eventUrl ?? e.url,
     // Sulla riga leggera la dice il server; altrimenti dagli invitati.
-    myResponse: e.myResponse ?? attendees.find((a) => a.personId === me && me !== "")?.response ?? null,
+    myResponse:
+      e.myResponse ?? attendees.find((a) => a.personId === me && me !== "")?.response ?? null,
     isOrganizer,
     calendarEmail: e.accountEmail,
     hasPrep: false,
@@ -193,14 +198,38 @@ const listEvents: Calendar["listEvents"] = async (range) => {
   const { from, to } = rangeOf(range.from, range.to);
   if (to <= from) return [];
   // Gli estremi nel formato della finestra (`…T00:00:00Z`), come li chiede la griglia.
-  const page = await appClient().calendar.range({ from: isoOfMs(from), to: isoOfMs(to), fields: "summary" });
+  const page = await appClient().calendar.range({
+    from: isoOfMs(from),
+    to: isoOfMs(to),
+    fields: "summary",
+  });
   return page.items.map((e) => eventView(e as CalendarEventItem)).sort(byStart);
 };
 
+/**
+ * Le serie lette da poco, per client (review F3b, 6): aprire un evento
+ * ricorrente non rilegge tutte le serie ogni volta (con la F3b ci sono
+ * anche quelle personali). `listSeries` le rilegge sempre e riempie la
+ * memoria; una configurazione la svuota.
+ */
+const SERIES_FRESH_MS = 30_000;
+const seriesMemo = new WeakMap<object, { at: number; list: Promise<CalendarSeriesView[]> }>();
+
 const listSeries: Calendar["listSeries"] = async () => {
-  const { items } = await appClient().calendar.series();
-  return items.map((s) => seriesView(s as CalendarSeriesItem)).sort(bySeries);
+  const client = appClient();
+  const list = client.calendar
+    .series()
+    .then(({ items }) => items.map((s) => seriesView(s as CalendarSeriesItem)).sort(bySeries));
+  seriesMemo.set(client, { at: Date.now(), list });
+  list.catch(() => seriesMemo.delete(client));
+  return list;
 };
+
+/** Le serie per il dettaglio di un evento: quelle lette da poco, se ci sono. */
+function recentSeries(): Promise<CalendarSeriesView[]> {
+  const hit = seriesMemo.get(appClient());
+  return hit && Date.now() - hit.at < SERIES_FRESH_MS ? hit.list : listSeries();
+}
 
 /**
  * Un evento, con la sua serie (`GET /api/me/calendar/events/:id`, F1.4). Uno
@@ -213,7 +242,8 @@ const getEvent: Calendar["getEvent"] = async (id) => {
     item = (await appClient().calendar.event(id)) as CalendarEventItem;
   } catch (error) {
     // Un id malformato (400 di validazione) è un evento che non c'è.
-    if (error instanceof ApiError && (error.status === 404 || error.status === 400)) throw new Error("not_found");
+    if (error instanceof ApiError && (error.status === 404 || error.status === 400))
+      throw new Error("not_found");
     throw error;
   }
   const e = eventView(item);
@@ -221,7 +251,8 @@ const getEvent: Calendar["getEvent"] = async (id) => {
   if (!(Date.parse(e.startsAt) < Date.parse(w.to) && Date.parse(e.endsAt) > Date.parse(w.from))) {
     throw new Error("not_found");
   }
-  const series = e.seriesId === null ? null : ((await listSeries()).find((s) => s.id === e.seriesId) ?? null);
+  const series =
+    e.seriesId === null ? null : ((await recentSeries()).find((s) => s.id === e.seriesId) ?? null);
   return { ...e, series };
 };
 
@@ -273,6 +304,7 @@ const configureSeries: Calendar["configureSeries"] = async (id, patch) => {
   if (!current) throw new Error("not_found");
   const next = { ...seriesView(current), ...patch };
   if (next.enabled && next.projectId === null) throw new Error("choose_project_first");
+  seriesMemo.delete(appClient());
   try {
     await appClient().calendar.putSeries(current.recurringEventId, {
       accountId: current.accountId,
@@ -283,7 +315,8 @@ const configureSeries: Calendar["configureSeries"] = async (id, patch) => {
       auto: next.auto,
     });
   } catch (error) {
-    if (error instanceof ApiError && error.code === "project_required") throw new Error("choose_project_first");
+    if (error instanceof ApiError && error.code === "project_required")
+      throw new Error("choose_project_first");
     throw error;
   }
   return { ...next, projectId: next.projectId };

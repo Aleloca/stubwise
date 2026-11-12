@@ -3,7 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { now } from "../../dates";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
-import { calendarRangeRoute, installFakeServer, me, ME_ID, PROJECT_ID, serverProject, type SeenRequest } from "./fakeServer";
+import {
+  calendarRangeRoute,
+  installFakeServer,
+  me,
+  ME_ID,
+  PROJECT_ID,
+  serverProject,
+  type SeenRequest,
+} from "./fakeServer";
 
 // Il Calendario nella build app (area 6, fetta 1), davanti a un server finto:
 // in LETTURA. Nessun gesto che scrive su Google (nuova riunione, sposta,
@@ -89,7 +97,11 @@ beforeEach(() => {
     "GET /api/auth/me": { body: me() },
     "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
     "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
-    "GET /api/people": { body: [{ id: ME_ID, name: "Ada", initials: "AD", departmentIds: [], email: "ada@example.com" }] },
+    "GET /api/people": {
+      body: [
+        { id: ME_ID, name: "Ada", initials: "AD", departmentIds: [], email: "ada@example.com" },
+      ],
+    },
     "GET /api/departments": { body: [] },
     "GET /api/inbox": { body: { items: [], nextCursor: null } },
     "GET /api/me/google/accounts": { body: [account] },
@@ -121,7 +133,9 @@ describe("il Calendario nella build app", () => {
     await screen.findAllByText("Sprint review");
     fireEvent.click(screen.getByRole("button", { name: "Refresh now" }));
     await waitFor(() =>
-      expect(seen.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([`/api/me/google/accounts/${ACC}/sync`]),
+      expect(seen.filter((r) => r.method === "POST").map((r) => r.path)).toEqual([
+        `/api/me/google/accounts/${ACC}/sync`,
+      ]),
     );
   });
 
@@ -136,7 +150,11 @@ describe("il Calendario nella build app", () => {
     expect(within(panel).queryByRole("group", { name: "Going?" })).toBeNull();
     expect(within(panel).queryByRole("button", { name: /^(Change|Choose)$/ })).toBeNull();
     fireEvent.click(within(panel).getByRole("button", { name: /Open in Google Calendar/ }));
-    expect(open).toHaveBeenCalledWith("https://calendar.google.com/event?eid=1", "_blank", "noopener");
+    expect(open).toHaveBeenCalledWith(
+      "https://calendar.google.com/event?eid=1",
+      "_blank",
+      "noopener",
+    );
   });
 
   it("un invitato: niente «Andrai?» né la frase «puoi cambiare solo la tua risposta»", async () => {
@@ -154,5 +172,82 @@ describe("il Calendario nella build app", () => {
     await within(panel).findByRole("heading", { name: "Retro" });
     expect(panel).not.toHaveTextContent(/summary|Tasks from this meeting/i);
     expect(seen.every((r) => !r.path.includes("transcript"))).toBe(true);
+  });
+});
+
+describe("F3b (review): il tipo e il libero a PAROLA anche nel mese e nella striscia del tutto il giorno", () => {
+  const ALL = "eeeeeeee-7777-4777-8777-777777777777";
+  const OOO = "eeeeeeee-8888-4888-8888-888888888888";
+  /** Domani, come giorno locale e come mezzanotte UTC (un «tutto il giorno» è una DATA). */
+  const tomorrow = () => {
+    const d = new Date(now());
+    d.setDate(d.getDate() + 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return {
+      key,
+      start: `${key}T00:00:00.000Z`,
+      end: new Date(Date.parse(`${key}T00:00:00.000Z`) + 86_400_000).toISOString(),
+    };
+  };
+  const blockText = (id: string) =>
+    [...document.querySelectorAll<HTMLElement>(`[data-event-block="${id}"]`)]
+      .map((b) => b.textContent ?? "")
+      .join(" | ");
+
+  beforeEach(() => {
+    const day = tomorrow();
+    events = [
+      item({
+        id: ALL,
+        title: "Ferie",
+        allDay: true,
+        startsAt: day.start,
+        endsAt: day.end,
+        transparency: "transparent",
+        projectId: null,
+        projectName: null,
+      }),
+      item({
+        id: OOO,
+        title: "Dal medico",
+        eventType: "outOfOffice",
+        startsAt: at(1, 9),
+        endsAt: at(1, 10),
+        projectId: null,
+        projectName: null,
+      }),
+    ];
+  });
+
+  it("settimana: un tutto il giorno libero NON dice «Free» (è il default di Google, O di 46)", async () => {
+    renderRoute(`/calendar?view=week&date=${tomorrow().key}`);
+    await waitFor(() => expect(blockText(ALL)).toContain("Ferie"));
+    expect(blockText(ALL)).not.toContain("Free");
+  });
+
+  it("mese: «Out of office» a parola nella riga; il tutto il giorno libero senza «Free»", async () => {
+    renderRoute(`/calendar?view=month&date=${tomorrow().key}`);
+    await waitFor(() => expect(blockText(OOO)).toContain("Dal medico"));
+    expect(blockText(OOO)).toContain("Out of office");
+    await waitFor(() => expect(blockText(ALL)).toContain("Ferie"));
+    expect(blockText(ALL)).not.toContain("Free");
+  });
+});
+
+describe("F3b (review, 5): il dettaglio dice il tipo dell'evento", () => {
+  it("un fuori ufficio: «Out of office» sotto l'orario", async () => {
+    events = [item({ eventType: "outOfOffice" })];
+    renderRoute(`/calendar?event=${EV}`);
+    const panel = await eventPanel();
+    expect(await within(panel).findByText("Out of office")).toBeInTheDocument();
+  });
+
+  it("un evento normale: nessuna parola del tipo", async () => {
+    events = [item()];
+    renderRoute(`/calendar?event=${EV}`);
+    const panel = await eventPanel();
+    await within(panel).findByText("Sprint review");
+    for (const w of ["Out of office", "Focus time", "Free"])
+      expect(within(panel).queryByText(w)).toBeNull();
   });
 });

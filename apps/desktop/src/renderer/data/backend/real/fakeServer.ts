@@ -167,27 +167,42 @@ export const serverComment = (body: string) => ({
 /**
  * `/range` come il server vero (F3b, task 6): con `fields=summary` la riga è
  * LEGGERA — niente descrizione, invitati, conferenza e promemoria (li dà
- * `event(id)`); senza, com'era.
+ * `event(id)`) e niente eventi cancellati su Google; senza, com'era. La mia
+ * risposta e il numero degli invitati li calcola il server (`toCalendarItem`).
+ * `{ legacy: true }`: un server di PRIMA della F3b, che ignora `fields`,
+ * manda gli invitati completi e non conosce `myResponse` né `attendeeCount`.
  */
-export const calendarRangeRoute = (items: readonly unknown[]) => (req: { path: string }) => {
-  const light = new URLSearchParams(req.path.split("?")[1] ?? "").get("fields") === "summary";
-  // La mia risposta la calcola il server dalla mia casella fra gli invitati (`toCalendarItem`).
-  const withResponse = (items as readonly Record<string, unknown>[]).map((i) => {
-    const mine = (
-      (i.attendees as { email: string; responseStatus: string | null }[] | undefined) ?? []
-    ).find((a) => a.email.toLowerCase() === String(i.accountEmail).toLowerCase());
-    const count = ((i.attendees as unknown[] | undefined) ?? []).length;
-    return { myResponse: mine?.responseStatus ?? null, attendeeCount: count, ...i };
-  });
-  const rows = light
-    ? withResponse.map((i) => ({
+export const calendarRangeRoute =
+  (items: readonly unknown[], { legacy = false }: { legacy?: boolean } = {}) =>
+  (req: { path: string }) => {
+    const rows = items as readonly Record<string, unknown>[];
+    if (legacy) return { body: { items: rows, nextCursor: null } };
+    const light = new URLSearchParams(req.path.split("?")[1] ?? "").get("fields") === "summary";
+    const withResponse = rows.map((i) => {
+      const mine = (
+        (i.attendees as { email: string; responseStatus: string | null }[] | undefined) ?? []
+      ).find((a) => a.email.toLowerCase() === String(i.accountEmail).toLowerCase());
+      const count = ((i.attendees as unknown[] | undefined) ?? []).length;
+      // `null` vuol dire SOLO «non sono fra gli invitati»; fra gli invitati senza
+      // risposta detta da Google è «needsAction» (chiesto a 72, review F3b, 2).
+      return {
+        myResponse: mine ? (mine.responseStatus ?? "needsAction") : null,
+        attendeeCount: count,
         ...i,
-        attendees: [],
-        descriptionHtml: null,
-        descriptionText: null,
-        conferenceEntryPoints: [],
-        reminders: [],
-      }))
-    : withResponse;
-  return { body: { items: rows, nextCursor: null } };
-};
+      };
+    });
+    const out = light
+      ? withResponse
+          // Cancellato su Google (la riga ha `status: "cancelled"`): fuori dalla lista leggera.
+          .filter((i) => (i as Record<string, unknown>).status !== "cancelled")
+          .map((i) => ({
+            ...i,
+            attendees: [],
+            descriptionHtml: null,
+            descriptionText: null,
+            conferenceEntryPoints: [],
+            reminders: [],
+          }))
+      : withResponse;
+    return { body: { items: out, nextCursor: null } };
+  };

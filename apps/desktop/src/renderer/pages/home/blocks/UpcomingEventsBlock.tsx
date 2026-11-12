@@ -11,10 +11,11 @@ import {
 } from "../../../data/queries";
 import type { CalendarEventView } from "../../../data/types";
 import { useToast } from "../../../tasks-ui/Toast";
-import { timeLabel } from "../../calendar/calendarFormat";
+import { timeLabel, weekdayShort } from "../../calendar/calendarFormat";
 import {
   PrepMark,
   answerOf,
+  kindWordKey,
   useEventName,
   type ProjectRef,
 } from "../../calendar/EventBlock";
@@ -170,11 +171,17 @@ function EventRow({
   const joinable =
     !!e.meetUrl && !e.allDay && (ongoing || Date.parse(e.startsAt) - at <= JOIN_BEFORE_MS);
   const notAnswered = answerOf(e) === "needsAction";
+  const kind = kindWordKey(e);
+  // Una fine in un altro giorno locale (un fuori ufficio di più giorni, F3b): giorno e ora.
+  const endsOtherDay = localDayKey(new Date(e.endsAt)) !== localDayKey(new Date(e.startsAt));
+  const endLabel = endsOtherDay
+    ? `${weekdayShort(new Date(e.endsAt), i18n.language)} ${timeLabel(e.endsAt, i18n.language)}`
+    : timeLabel(e.endsAt, i18n.language);
   const when = e.allDay
     ? t("calendar.allDay")
     : ongoing
-      ? t("home.upcoming.now", { time: timeLabel(e.endsAt, i18n.language) })
-      : `${timeLabel(e.startsAt, i18n.language)} – ${timeLabel(e.endsAt, i18n.language)}`;
+      ? t("home.upcoming.now", { time: endLabel })
+      : `${timeLabel(e.startsAt, i18n.language)} – ${endLabel}`;
   return (
     <li
       data-upcoming-event={e.id}
@@ -202,6 +209,7 @@ function EventRow({
         {e.title}
       </Link>
       {e.hasPrep && <PrepMark />}
+      {kind && <span className="shrink-0 text-xs text-ink-muted">{t(kind)}</span>}
       {notAnswered && (
         <span className="shrink-0 text-xs text-ink-muted">{t("calendar.answer.notAnswered")}</span>
       )}
