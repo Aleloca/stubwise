@@ -268,6 +268,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   alias);
   (e) un `fillMailBody` riuscito non si annulla (Gmail ha la bozza: si
   cambia dal compositore).
+- F3b, rimandati e limiti accettati *(O)* (12 nov 2026):
+  (a) la «Quale progetto?» del calendario: col flag acceso un evento con
+  invitati di più progetti oggi non propone niente (servono una colonna dei
+  progetti incerti, una variante di card e la scelta);
+  (b) una classificazione col MODELLO degli eventi (oggi la scelta è
+  deterministica dagli invitati: tanti eventi e poco testo);
+  (c) i calendari diversi dal principale (il prototipo ne ha uno per account);
+  (d) le proposte del calendario condivise fra gli invitati (oggi restano
+  della casella di chi le vede, `mailbox_owner`).
 - Calendario «Tutti, come il prototipo» *(M)* (12 nov 2026): fetta F3b,
   prima della F4. Decisioni *(O)* di 46: `workingLocation` e `birthday`
   esclusi dall'ingestione, `outOfOffice` resta; calendari come il
