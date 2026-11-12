@@ -278,6 +278,16 @@ async function messageView(
     kind: "email",
     context: !m.admitted,
     read: !m.unread,
+    // Un mio invio (F3): solo io lo vedo, finché il messaggio vero non arriva.
+    ...(m.delivery
+      ? {
+          delivery: {
+            state: m.delivery.state,
+            sentById: session.personId ?? "",
+            ...(m.delivery.error ? { error: m.delivery.error } : {}),
+          },
+        }
+      : {}),
     proposalIds: m.proposalIds,
     gmailUrl,
     classification: classificationOf(m),

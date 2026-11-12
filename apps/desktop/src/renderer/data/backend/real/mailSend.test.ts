@@ -93,7 +93,23 @@ describe("Invia", () => {
     expect((await mail.sendDraft(D1)).threadId).toBe("");
   });
 
-  it("una bozza che non c'è (o non è mia): `not_found`; il resto lo dice l'invio, dopo", async () => {
+  it("i controlli prima di accodare (la bozza resta lì), nelle parole del prototipo", async () => {
+    const cases: [number, Record<string, unknown>, string][] = [
+      [400, { code: "invalid_recipients" }, "invalid: recipients"],
+      [400, { code: "invalid_address", address: "bob@" }, "invalid: address"],
+      [400, { code: "too_many_attachments" }, "invalid: attachments"],
+      [400, { code: "too_large" }, "invalid: too_large"],
+      [409, { code: "attachment_unavailable" }, "attachment_unavailable"],
+      [409, { code: "account_disabled" }, "google_not_connected"],
+      [409, { code: "google_scope_missing", missing: ["https://www.googleapis.com/auth/gmail.modify"] }, "google_scope_missing"],
+    ];
+    for (const [status, body, error] of cases) {
+      installFakeServer({ ...base, [`POST /api/me/mail/drafts/${D1}/send`]: { status, body: { message: "x", ...body } } });
+      await expect(mail.sendDraft(D1)).rejects.toThrow(error);
+    }
+  });
+
+  it("una bozza che non c'è (o non è mia): `not_found`", async () => {
     installFakeServer({ ...base, [`POST /api/me/mail/drafts/${D1}/send`]: { status: 404, body: { code: "not_found", message: "x" } } });
     await expect(mail.sendDraft(D1)).rejects.toThrow("not_found");
   });

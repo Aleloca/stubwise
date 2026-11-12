@@ -390,3 +390,25 @@ describe("l'originale di un messaggio: una volta, e non tutti insieme", () => {
     expect(peak).toBeGreaterThan(1);
   });
 });
+
+describe("i miei invii nella conversazione (F3)", () => {
+  it("un messaggio in invio o non partito: lo stato dell'invio, solo per chi l'ha scritto", async () => {
+    const O1 = "0f0f0f0f-1111-4111-8111-111111111111";
+    installFakeServer({
+      ...common,
+      "GET /api/me/mail/threads/t-1": {
+        body: detail({
+          messages: [
+            message(),
+            message({ id: O1, from: "ada@acme.test", admitted: true, proposalIds: [], delivery: { state: "failed", error: "quota", outgoingId: O1 } }),
+          ],
+        }),
+      },
+      [`GET /api/me/mail/email_triage/${M1}/original`]: { body: original() },
+    });
+    const [real, mine] = (await mail.getMailThread(`${ACC}_t-1`)).messages;
+    expect(real!.delivery).toBeUndefined();
+    expect(mine).toMatchObject({ id: O1, delivery: { state: "failed", sentById: ME_ID, error: "quota" } });
+  });
+});
+

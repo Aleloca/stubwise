@@ -9,8 +9,9 @@ import { threadKey } from "./mailKeys";
 // L'invio della Posta nella build app (area 6, fetta 3): il SERVER trattiene
 // l'invio per 10 secondi (D6 del maintainer), così «Annulla» funziona anche
 // se l'app si chiude. Un invio fallito non si ritenta mai da solo: «Riprova»
-// o «Elimina» (la bozza torna). Gli errori dell'invio arrivano dopo, sul suo
-// stato (`error`): il server accoda senza controllare destinatari e limiti.
+// o «Elimina» (la bozza torna). Destinatari, limiti, allegati e casella li
+// controlla il server prima di accodare; ciò che fallisce dopo (Gmail) lo
+// dice lo stato dell'invio (`error`).
 
 type Mail = typeof Fake.mail;
 
@@ -25,9 +26,21 @@ const SETTLE_POLL_MS = 1_000;
 const SETTLE_WAIT_MS = 2 * 60_000;
 
 /** Gli errori del server su un invio, nelle parole del prototipo. */
+/** I controlli del server prima di accodare (la bozza resta lì), nelle parole del prototipo. */
+const BEFORE_SEND: Readonly<Record<string, string>> = {
+  invalid_recipients: "invalid: recipients",
+  invalid_address: "invalid: address",
+  too_many_attachments: "invalid: attachments",
+  too_large: "invalid: too_large",
+  attachment_unavailable: "attachment_unavailable",
+  account_disabled: "google_not_connected",
+  google_scope_missing: "google_scope_missing",
+};
+
 function sendError(error: unknown): unknown {
   if (!(error instanceof ApiError)) return error;
   if (error.status === 404) return new Error("not_found");
+  if (error.code && BEFORE_SEND[error.code]) return new Error(BEFORE_SEND[error.code]);
   if (error.code === "too_late" || error.code === "draft_slot_taken" || error.code === "not_failed") {
     return new Error(error.code);
   }
