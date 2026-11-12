@@ -1557,6 +1557,11 @@ async function syncCalendar(
       recurringEventId: event.recurringEventId,
       eventType: event.eventType,
       transparency: event.transparency,
+      // F4, task 0: i dati per scrivere.
+      etag: event.etag,
+      icalUid: event.iCalUID,
+      visibility: event.visibility,
+      organizerSelf: event.organizerSelf,
     };
 
     const existing = byEventId.get(event.id);
