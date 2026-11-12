@@ -61,10 +61,17 @@ describe("la rotta", () => {
       `/api/projects/${PROJECT}/drive/files/x`,
       `/api/chat/channels/${PROJECT}/attachments`,
       `https://evil.example${ROUTE}`,
+      // Area 6, fetta 3: solo l'allegato di una bozza, esatto.
+      `/api/me/mail/drafts/not-a-uuid/attachments`,
+      `/api/me/mail/drafts/${PROJECT}/attachments/drive`,
+      `/api/me/mail/drafts/${PROJECT}/attachments?x=1`,
+      `/api/me/mail/drafts/${PROJECT}`,
       42,
     ]) {
       expect(isAllowedUploadPath(path), String(path)).toBe(false);
     }
+    // Area 6, fetta 3: l'allegato dal disco di una bozza della Posta.
+    expect(isAllowedUploadPath(`/api/me/mail/drafts/${PROJECT}/attachments`)).toBe(true);
   });
 });
 
