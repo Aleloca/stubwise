@@ -105,12 +105,19 @@ export type MailProposalList = z.infer<typeof mailProposalListSchema>;
  * errori sono `ApiError` col codice: 409 `already_handled` (con `decidedBy`),
  * 403 `forbidden`, 400 `invalid_*`, 404 `not_found`.
  */
-export const mailProposalDecisionSchema = z.discriminatedUnion("status", [
-  z.object({ status: z.literal("confirmed"), results: z.array(mailProposalResultSchema).default([]) }),
-  z.object({ status: z.literal("failed"), error: z.string() }),
-  z.object({ status: z.literal("ignored") }),
-  z.object({ status: z.literal("handed") }),
-  /** «Sposta» e «Quale progetto?»: la proposta nuova, sul progetto scelto, è in analisi. */
-  z.object({ status: z.literal("moved"), projectId: z.uuid() }),
-]);
+/**
+ * L'esito di una decisione. UN oggetto con lo stato in un enum, e non una
+ * `discriminatedUnion`: `readerSchema` apre l'enum (un esito nuovo arriva al
+ * client vecchio come UNKNOWN) mentre una discriminatedUnion resterebbe
+ * chiusa (il guardiano di `reader.test.ts` lo vieta, review F3).
+ */
+export const mailProposalDecisionSchema = z.object({
+  status: z.enum(["confirmed", "failed", "ignored", "handed", "moved"]),
+  /** `confirmed`: cosa è nato. */
+  results: z.array(mailProposalResultSchema).default([]),
+  /** `failed`: il codice. */
+  error: z.string().nullable().default(null),
+  /** `moved` («Sposta», «Quale progetto?»): il progetto scelto, dove la proposta nuova è in analisi. */
+  projectId: z.uuid().nullable().default(null),
+});
 export type MailProposalDecision = z.infer<typeof mailProposalDecisionSchema>;

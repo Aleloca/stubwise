@@ -3990,7 +3990,11 @@ deploy o di un rollback che la tocca.
   Migrazioni **0153** (`mail_drafts`, `mail_draft_attachments`,
   `mail_outgoing`), **0154** (operazione AI `mail_draft` nei due CHECK),
   **0155** (`google_accounts.signature_text`/`signature_fetched_at`),
-  **0156** (`claude_actions.effect_failure`). Nessuna env nuova; nessuno
+  **0156** (`claude_actions.effect_failure`), e dalla review della F3
+  (branch `feat/area6-f3-fix`) **0158** (trigger: gli allegati che se ne
+  vanno finiscono in `storage_orphans`), **0159** (il Message-ID nostro e la
+  copia di destinatari, oggetto e corpo su `mail_outgoing`), **0160**
+  (`agent_runs.requested_by_user_id`). Nessuna env nuova; nessuno
   scope nuovo (la firma si legge con `gmail.modify`, già nel riconsenso della
   F1). Ordine: **server** (healthy, migrazioni applicate), poi **worker** (il
   mittente della posta legge `mail_outgoing`, l'ingestione la posta mandata),
@@ -4009,6 +4013,9 @@ deploy o di un rollback che la tocca.
 
   **Controlli dopo il deploy**: `select state, error, count(*) from
   mail_outgoing group by 1, 2;` — nessun `failed` che cresce;
+  `select count(*) from mail_outgoing where error = 'sent_unrecorded';` —
+  ognuna è un'email che Gmail HA mandato ma che Stubwise non è riuscito a
+  registrare (Riprova ed Elimina sono rifiutati: niente doppioni);
   `select count(*) from claude_actions where effect_failure is not null;` —
   un `mail_not_saved` è un `fillMailBody` confermato che Gmail non ha
   salvato (la scheda lo dice).
