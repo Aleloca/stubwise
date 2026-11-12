@@ -419,6 +419,7 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   giro completo dei golden e i testi del limite riverificati.
 - App mobile: riceve il fix del reader dei traguardi (e gli altri cambi delle
   risposte) solo con una nuova build.
+- Web vecchio, Posta e Calendario *(O, 12 nov 2026)*: i giorni e i mesi seguono la lingua del browser (`Intl.DateTimeFormat(undefined, …)`), le frasi quella dell'utente, quindi un utente in inglese con un browser in italiano legge «Every week on lunedì». Nel desktop i formatter usano `i18n.language`. Non si corregge: sparisce col ritiro del web vecchio.
 - Prova a mano complessiva: `apps/desktop/docs/integration-manual-tests.md`.
 - **Produzione 2.1.287 e tool nativi** *(M, 10 nov 2026)*: l'init espone gli
   stessi tool nativi del 2.1.322 (CronCreate, RemoteTrigger, SendMessage,
