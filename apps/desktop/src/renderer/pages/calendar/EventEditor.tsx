@@ -36,6 +36,7 @@ import {
   timeLabel,
 } from "./calendarFormat";
 import type { WindowDays } from "./calendarParams";
+import { sameSpan } from "./calendarWrites";
 import { SeriesScopeDialog } from "./SeriesScopeDialog";
 
 // «New meeting» / «Edit meeting» (shape calendar.md §6, dialogo 560 px):
@@ -242,8 +243,7 @@ export function EventEditor({
       // dati può rifiutare, e un rifiuto non deve lasciare salvato a metà il
       // resto (titolo, invitati).
       if (
-        iso(startMs) !== event.startsAt ||
-        iso(endMs) !== event.endsAt ||
+        !sameSpan({ startsAt: iso(startMs), endsAt: iso(endMs) }, event) ||
         allDay !== event.allDay
       ) {
         await move.mutateAsync({
@@ -519,8 +519,14 @@ export function EventEditor({
               value={reminder}
               options={[
                 { value: "default" as const, text: t("calendar.editor.reminderDefault") },
-                { value: "popup10" as const, text: t("calendar.detail.reminder.popup", { count: 10 }) },
-                { value: "email30" as const, text: t("calendar.detail.reminder.email", { count: 30 }) },
+                {
+                  value: "popup10" as const,
+                  text: t("calendar.detail.reminder.popup", { count: 10 }),
+                },
+                {
+                  value: "email30" as const,
+                  text: t("calendar.detail.reminder.email", { count: 30 }),
+                },
                 {
                   value: "email1440" as const,
                   text: t("calendar.detail.reminder.email", { count: 1440 }),
@@ -542,7 +548,9 @@ export function EventEditor({
         </DialogField>
 
         {fromCalendar && (
-          <p className="text-xs text-ink-muted">{t("calendar.editor.from", { email: fromCalendar })}</p>
+          <p className="text-xs text-ink-muted">
+            {t("calendar.editor.from", { email: fromCalendar })}
+          </p>
         )}
       </form>
     </Dialog>
@@ -578,8 +586,21 @@ function SelectMenu<T extends string | number | null>({
       label={
         <>
           <span className="min-w-0 truncate">{current}</span>
-          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none" className="shrink-0 text-ink-muted">
-            <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <svg
+            aria-hidden="true"
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="none"
+            className="shrink-0 text-ink-muted"
+          >
+            <path
+              d="M4 6l4 4 4-4"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </>
       }

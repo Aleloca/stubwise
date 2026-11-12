@@ -28,3 +28,15 @@ export const googleSync = (): boolean => featureIntegrated("google-sync");
 
 /** Il riassunto e le task di una riunione registrata (F5). */
 export const meetingNotes = (): boolean => featureIntegrated("meeting-notes");
+
+/**
+ * Due orari si confrontano come ISTANTI (review F4, 2): il server li scrive
+ * a modo suo (senza millisecondi, col fuso), e una stringa diversa per lo
+ * stesso istante faceva partire una move inutile.
+ */
+export const sameInstant = (a: string, b: string): boolean => Date.parse(a) === Date.parse(b);
+
+export const sameSpan = (
+  a: { startsAt: string; endsAt: string },
+  b: { startsAt: string; endsAt: string },
+): boolean => sameInstant(a.startsAt, b.startsAt) && sameInstant(a.endsAt, b.endsAt);
