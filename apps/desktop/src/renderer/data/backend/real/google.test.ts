@@ -56,7 +56,7 @@ describe("il cassetto Google: l'account", () => {
     expect(await drive.getGoogleAccount()).toBeNull();
   });
 
-  it("una casella collegata: l'account con la sua email, da quando", async () => {
+  it("una casella collegata: l'account con la sua email, da quando, il suo Workspace", async () => {
     installFakeServer({ "GET /api/me/google/accounts": { body: [account()] } });
     session.personId = ME_ID;
     expect(await drive.getGoogleAccount()).toEqual({
@@ -64,6 +64,7 @@ describe("il cassetto Google: l'account", () => {
       email: "ada@acme.test",
       status: "connected",
       since: "2026-11-01T09:00:00.000Z",
+      workspaceId: WS,
     });
   });
 

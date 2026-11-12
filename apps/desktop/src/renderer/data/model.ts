@@ -2047,6 +2047,8 @@ export interface GoogleAccount {
   reconnect?: "expired" | "scopes";
   /** Le funzioni che mancano finché non si ricollega (da `missingScopes`, mai dedotte). */
   missing?: GoogleFeature[];
+  /** Build app: il Workspace della casella («Ricollega» lo preseleziona). */
+  workspaceId?: string;
 }
 
 /** Una funzione di Google che Stubwise usa e che dipende da uno scope (oggi: letto/non letto). */

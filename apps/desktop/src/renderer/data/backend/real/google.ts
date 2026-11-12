@@ -40,7 +40,7 @@ const FEATURES_OF_SCOPE: Readonly<Record<string, readonly GoogleFeature[]>> = {
 };
 
 function accountOf(a: ServerGoogleAccount): GoogleAccount {
-  const base = { personId: session.personId ?? "", email: a.email };
+  const base = { personId: session.personId ?? "", email: a.email, workspaceId: a.workspaceId };
   if (a.disabledAt !== null) return { ...base, status: "expired", reconnect: "expired", since: a.disabledAt };
   if (a.missingScopes.length > 0) {
     const missing = [...new Set(a.missingScopes.flatMap((s) => FEATURES_OF_SCOPE[s] ?? []))];

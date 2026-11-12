@@ -110,6 +110,18 @@ describe("il cassetto Google nella build app", () => {
     expect(within(dialog).getByRole("button", { name: "Reconnect" })).toBeInTheDocument();
   });
 
+  it("«Ricollega» con più Workspace: quello della casella è già scelto", async () => {
+    q.workspaces = [
+      { id: "ws-1", name: "Acme", domains: ["acme.test"] },
+      { id: "ws-2", name: "Beta", domains: ["beta.test"] },
+    ];
+    q.account = { ...connected, status: "expired", reconnect: "expired", since: "2026-11-10T08:00:00Z", workspaceId: "ws-2" };
+    const dialog = await open();
+    expect(within(dialog).getByRole("radio", { name: /Beta/ })).toBeChecked();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Reconnect" }));
+    expect(q.connect).toHaveBeenCalledWith({ workspaceId: "ws-2" });
+  });
+
   it("senza funzioni elencate (uno scope di una fetta futura): solo il titolo", async () => {
     q.account = { ...connected, status: "expired", reconnect: "scopes", missing: [] };
     const dialog = await open();

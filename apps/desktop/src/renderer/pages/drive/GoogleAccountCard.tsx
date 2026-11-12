@@ -86,7 +86,10 @@ function ConnectButton({ label, primary = true }: { label: string; primary?: boo
   const { t } = useTranslation();
   const connect = useConnect();
   const workspaces = useGoogleWorkspaces().data ?? [];
-  const [chosen, setChosen] = useState<string | null>(null);
+  // «Ricollega»: il Workspace della casella è già scelto (build app).
+  const own = useGoogleAccount().data?.workspaceId;
+  const [picked, setChosen] = useState<string | null>(null);
+  const chosen = picked ?? (own && workspaces.some((w) => w.id === own) ? own : null);
   const workspaceId = workspaces.length === 1 ? workspaces[0]!.id : chosen;
   const choosing = workspaces.length > 1;
   if (connect.pending) {
