@@ -49,6 +49,14 @@ export const GMAIL_RESYNC_QUERY = "newer_than:7d -from:me";
 export const GMAIL_RESYNC_MAX_MESSAGES = 200;
 
 /**
+ * Tetto di pagine di `history.list` per giro (review della F1, punto 6): da
+ * quando la history chiede anche i cambi di etichetta, una casella può avere
+ * pagine fatte SOLO di quelli (le caselle tornate a leggere dopo la 0150).
+ * Al tetto il giro si ferma, e il cursore va all'ultima voce letta.
+ */
+export const GMAIL_HISTORY_MAX_PAGES = 20;
+
+/**
  * Stati TERMINALI di `email_messages`.
  *
  * `new`, `classified` e `proposed` sono lavoro in corso o una proposta ancora

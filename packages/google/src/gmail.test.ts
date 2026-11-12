@@ -194,7 +194,7 @@ describe("listHistory", () => {
     expect(call?.params.get("startHistoryId")).toBe("100");
     expect(call?.params.get("pageToken")).toBe("p1");
     expect(call?.params.getAll("historyTypes")).toEqual(["messageAdded"]);
-    expect(page).toEqual({ addedMessageIds: ["m1", "m2"], unreadChanges: [], historyId: "104", nextPageToken: "p2" });
+    expect(page).toEqual({ addedMessageIds: ["m1", "m2"], unreadChanges: [], lastEntryId: "103", historyId: "104", nextPageToken: "p2" });
   });
 
   it("area 6, F1.3: i cambi dell'etichetta UNREAD (aggiunta e tolta), in ordine; le altre etichette no", async () => {
@@ -214,6 +214,9 @@ describe("listHistory", () => {
       { fetchImpl: impl },
     );
     expect(page.addedMessageIds).toEqual(["m3"]);
+    // Review della F1 (punto 6): l'id dell'ULTIMA voce letta, il punto sicuro
+    // da cui ripartire quando ci si ferma prima della fine.
+    expect(page.lastEntryId).toBe("204");
     expect(page.unreadChanges).toEqual([
       { messageId: "m1", unread: false },
       { messageId: "m1", unread: true },

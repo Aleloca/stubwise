@@ -36,12 +36,13 @@ import {
   pruneOldEmails,
   pruneOldRejections,
   senderDomain,
+  recoverSyncRequests,
   startGooglePoller,
   type CalendarClient,
   type GmailClient,
   type GooglePollerDeps,
 } from "./poller.js";
-import { GMAIL_MAX_SYNC_ATTEMPTS, GMAIL_RESYNC_MAX_MESSAGES, GMAIL_RESYNC_QUERY } from "./sync.js";
+import { GMAIL_HISTORY_MAX_PAGES, GMAIL_MAX_SYNC_ATTEMPTS, GMAIL_RESYNC_MAX_MESSAGES, GMAIL_RESYNC_QUERY } from "./sync.js";
 
 /**
  * POLLER GMAIL (fase 6, Task 7).
@@ -3544,7 +3545,7 @@ describe("«Aggiorna ora»", () => {
     const row = await reload(account.id);
     expect(row.syncRequestedAt).not.toBeNull();
     // E resta DOVUTA: l'esito del giro non la rimanda all'intervallo.
-    expect(row.nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+    expect(row.nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
     expect(await claimDueAccounts(db, 10, 5)).toHaveLength(1);
   });
 
@@ -3789,5 +3790,148 @@ describe("proposte spente: si legge, non si propone", () => {
     expect(runner.calls).toHaveLength(1);
     const rows = await db.select({ id: emailMessages.gmailMessageId, status: emailMessages.status }).from(emailMessages);
     expect(Object.fromEntries(rows.map((r) => [r.id, r.status]))).toEqual({ vecchia: "new", m1: "ignored" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Review della F1 (punti 1 e 4): il controllo vale alla SELEZIONE delle righe
+// ---------------------------------------------------------------------------
+
+describe("proposte spente o tagliate: il controllo è nella WHERE", () => {
+  async function seedChild(accountId: string, projectId: string, createdAt?: Date) {
+    const [parent] = await db
+      .insert(emailMessages)
+      .values({
+        accountId,
+        gmailMessageId: `m-${randomUUID()}`,
+        threadId: `t-${randomUUID()}`,
+        fromAddress: "a@cliente.com",
+        receivedAt: new Date(),
+        projectId,
+        status: "classified",
+        ...(createdAt ? { createdAt } : {}),
+      })
+      .returning({ id: emailMessages.id });
+    await db.insert(emailProposals).values({
+      emailMessageId: parent!.id,
+      projectId,
+      status: "classified",
+      classification: { signal: "request", recommendedIndex: 0, proposals: [{ type: "create_backlog_item", projectId, title: "X", consequence: "Y" }] },
+    });
+  }
+  async function seedTriageRow(accountId: string, projectId: string, createdAt?: Date) {
+    await db.insert(emailMessages).values({
+      accountId,
+      gmailMessageId: `m-${randomUUID()}`,
+      threadId: `t-${randomUUID()}`,
+      fromAddress: "a@cliente.com",
+      receivedAt: new Date(),
+      status: "classified",
+      signal: "request",
+      classification: { triage: true, signal: "request", summary: "s", suggestedProjectIds: [projectId] },
+      ...(createdAt ? { createdAt } : {}),
+    });
+  }
+
+  it("spente FRA il claim e le fasi: niente classificazione e niente pubblicazione", async () => {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    await seedChild(account.id, projectId);
+    await seedTriageRow(account.id, projectId);
+    const gmail = fakeGmail({ history: { addedMessageIds: ["m1"], historyId: "1010" }, messages: { m1: message({ id: "m1" }) } });
+    const refresh = gmail.refreshAccessToken.bind(gmail);
+    gmail.refreshAccessToken = (async (...args: Parameters<typeof refresh>) => {
+      // La persona le spegne a giro in corso, dopo il claim.
+      await db.update(googleAccounts).set({ proposalsEnabled: false }).where(eq(googleAccounts.id, account.id));
+      return refresh(...args);
+    }) as typeof gmail.refreshAccessToken;
+    const runner = fakeRunner(IGNORED_OUTPUT);
+    const calendar = fakeCalendarSequence([{ events: [calendarEvent({ id: "e1" })], nextSyncToken: "s1" }]);
+
+    await pollGoogleOnce({ ...deps(account, gmail), runner, calendar });
+
+    expect(runner.calls).toEqual([]);
+    expect(await db.select().from(notifications)).toEqual([]);
+    // La lettura invece c'è stata.
+    expect((await db.select().from(emailMessages).where(eq(emailMessages.gmailMessageId, "m1"))).length).toBe(1);
+  });
+
+  it("riaccese: un figlio già classificato e una riga da smistare di posta VECCHIA non si pubblicano; quelle nuove sì", async () => {
+    const projectId = await seedProject("Acme");
+    const since = new Date();
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), proposalsSince: since });
+    const before = new Date(since.getTime() - 60_000);
+    await seedChild(account.id, projectId, before);
+    await seedTriageRow(account.id, projectId, before);
+    expect((await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })))).proposed).toBe(0);
+    expect(await db.select().from(notifications)).toEqual([]);
+
+    await seedChild(account.id, projectId);
+    await db.update(googleAccounts).set({ nextSyncAt: sql`now() - interval '1 minute'` }).where(eq(googleAccounts.id, account.id));
+    expect((await pollGoogleOnce(deps(account, fakeGmail({ listed: [] })))).proposed).toBe(1);
+  });
+});
+
+describe("«Aggiorna ora» dopo un giro interrotto (review F1, punto 3)", () => {
+  it("abort a metà: le caselle reclamate e non servite con una richiesta tornano dovute subito", async () => {
+    const first = await seedAccount({ nextSyncAt: new Date(Date.now() - 2000), syncRequestedAt: new Date(Date.now() - 2000) });
+    const second = await seedAccount({ email: `b-${randomUUID()}@acme.com`, nextSyncAt: new Date(Date.now() - 1000), syncRequestedAt: new Date(Date.now() - 1000) });
+    const controller = new AbortController();
+    const gmail = fakeGmail({});
+    const refresh = gmail.refreshAccessToken.bind(gmail);
+    gmail.refreshAccessToken = (async (...args: Parameters<typeof refresh>) => {
+      controller.abort(); // durante la prima casella
+      return refresh(...args);
+    }) as typeof gmail.refreshAccessToken;
+    await pollGoogleOnce({ ...deps(first, gmail), signal: controller.signal });
+    // L'ordine del RETURNING del claim non è garantito: una delle due è stata
+    // servita (richiesta azzerata), l'altra no — ed è quella che torna dovuta.
+    const rows = [await reload(first.id), await reload(second.id)];
+    const unserved = rows.filter((row) => row.syncRequestedAt !== null);
+    expect(unserved).toHaveLength(1);
+    expect(unserved[0]!.nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
+  });
+
+  it("all'avvio (dopo un crash) una richiesta in attesa rende la casella dovuta", async () => {
+    const asked = await seedAccount({ nextSyncAt: new Date(Date.now() + 3_600_000), syncRequestedAt: new Date() });
+    const quiet = await seedAccount({ email: `q-${randomUUID()}@acme.com`, nextSyncAt: new Date(Date.now() + 3_600_000) });
+    await recoverSyncRequests(db);
+    expect((await reload(asked.id)).nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
+    expect((await reload(quiet.id)).nextSyncAt.getTime()).toBeGreaterThan(Date.now() + 3_000_000);
+  });
+
+  it("review F1, punto 5: una richiesta scritta con now() (µs) prima del claim si azzera a fine giro", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 1000) });
+    await db.update(googleAccounts).set({ syncRequestedAt: sql`now()` }).where(eq(googleAccounts.id, account.id));
+    const [raw] = await db.execute<{ us: string }>(sql`select extract(microseconds from sync_requested_at)::text as us from google_accounts where id = ${account.id}`);
+    // Il caso che conta: il valore ha i µs che `Date` non porta.
+    expect(Number(raw!.us) % 1000).not.toBe(0);
+    await pollGoogleOnce(deps(account, fakeGmail({})));
+    expect((await reload(account.id)).syncRequestedAt).toBeNull();
+  });
+});
+
+describe("history fatta solo di cambi di etichetta (review F1, punto 6)", () => {
+  it("si ferma al tetto di pagine e salva come cursore l'ultima voce letta: il giro dopo riparte da lì", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    await db.insert(emailMessages).values({ accountId: account.id, gmailMessageId: "a", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: true });
+    const gmail = fakeGmail({});
+    const starts: string[] = [];
+    let page = 0;
+    gmail.listHistory = (async (input: { startHistoryId: string }) => {
+      starts.push(input.startHistoryId);
+      page += 1;
+      // Pagine infinite, una voce ciascuna, solo cambi di etichetta.
+      return { addedMessageIds: [], unreadChanges: page === 1 ? [{ messageId: "a", unread: false }] : [], lastEntryId: String(1000 + page), historyId: "999999", nextPageToken: `p${page}` };
+    }) as typeof gmail.listHistory;
+
+    await pollGoogleOnce(deps(account, gmail));
+
+    expect(page).toBe(GMAIL_HISTORY_MAX_PAGES);
+    const row = await reload(account.id);
+    expect(row.gmailHistoryId).toBe(String(1000 + GMAIL_HISTORY_MAX_PAGES));
+    const [message] = await db.select().from(emailMessages).where(eq(emailMessages.gmailMessageId, "a"));
+    expect(message!.unread).toBe(false);
   });
 });

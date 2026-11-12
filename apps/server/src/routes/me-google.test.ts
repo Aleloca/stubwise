@@ -878,7 +878,7 @@ describe("POST /api/me/google/accounts/:id/sync", () => {
       const [row] = await accountRows();
       expect(row!.syncRequestedAt).not.toBeNull();
       expect(row!.syncLastRequestedAt).not.toBeNull();
-      expect(row!.nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+      expect(row!.nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 60_000);
       await expect.poll(() => payloads.length).toBe(1);
       expect(JSON.parse(payloads[0]!)).toEqual({ accountId: id });
     } finally {

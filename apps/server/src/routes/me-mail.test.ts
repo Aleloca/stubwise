@@ -2173,6 +2173,23 @@ describe("POST /api/me/mail/threads/:threadId/read (area 6, F1.3)", () => {
     expect(modifyCalls).toEqual([]);
   });
 
+  it("review F1 (punto 2): un 403 di SCOPE (insufficientPermissions) è google_scope_missing; un 403 di QUOTA è 503 «riprova»; un 403 nudo 502 — stato sempre invariato", async () => {
+    const cases = [
+      { error: new GoogleApiError({ api: "gmail.threads.modify", status: 403, code: "insufficient_scope", reason: "insufficientPermissions" }), status: 409, code: "google_scope_missing" },
+      { error: new GoogleApiError({ api: "gmail.threads.modify", status: 403, code: "rate_limited", reason: "userRateLimitExceeded" }), status: 503, code: "google_rate_limited" },
+      { error: new GoogleApiError({ api: "gmail.threads.modify", status: 429, code: "rate_limited", reason: "rateLimitExceeded" }), status: 503, code: "google_rate_limited" },
+      { error: new GoogleApiError({ api: "gmail.threads.modify", status: 403, code: "forbidden", reason: "forbidden" }), status: 502, code: "google_unavailable" },
+    ];
+    for (const c of cases) {
+      const { accountId, threadId } = await seedThread();
+      modifyFailure = c.error;
+      const res = await markRead(cookie, threadId, { account: accountId, read: true });
+      expect(res.statusCode, c.code).toBe(c.status);
+      expect((res.json() as { code: string }).code).toBe(c.code);
+      expect(await unreadOf(threadId)).toEqual([true, null]);
+    }
+  });
+
   it("token scaduto su Google: 409 token_expired, stato invariato", async () => {
     const { accountId, threadId } = await seedThread();
     modifyFailure = new GoogleApiError({ api: "gmail.threads.modify", status: 401, code: "unauthorized", reason: "authError" });

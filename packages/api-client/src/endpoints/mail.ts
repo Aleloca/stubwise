@@ -117,7 +117,8 @@ export function createMailEndpoints(request: ApiRequest) {
      * il thread) e lo stato locale solo dopo il sì di Google; risponde col
      * dettaglio aggiornato. 409 `google_scope_missing` (con `missing` nei
      * `details`) per una casella da ricollegare, `account_disabled`,
-     * `token_expired`; 404 un thread non tuo; 502 `google_unavailable`.
+     * `token_expired`; 404 un thread non tuo; 503 `google_rate_limited` (quota di
+     * Gmail: riprova); 502 `google_unavailable`. Ogni errore lascia lo stato com'era.
      */
     setRead(threadId: string, account: string, read: boolean): Promise<Reader<MailThreadDetail>> {
       return request("POST", `/api/me/mail/threads/${seg(threadId)}/read`, { account, read }, mailThreadDetailSchema);

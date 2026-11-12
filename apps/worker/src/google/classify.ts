@@ -2106,6 +2106,11 @@ export async function classifyNewMessages(
             and ${googleAccounts.proposalsSince} is not null
             and ${emailMessages.createdAt} < ${googleAccounts.proposalsSince}
         )`,
+        // Review della F1 (punto 1): le proposte accese ADESSO, non al claim.
+        sql`exists (
+          select 1 from ${googleAccounts}
+          where ${googleAccounts.id} = ${emailMessages.accountId} and ${googleAccounts.proposalsEnabled}
+        )`,
       ),
     )
     .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id))
