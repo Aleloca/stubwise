@@ -2,6 +2,7 @@ import {
   calendarEvents,
   emailBodies,
   emailMessages,
+  emailProposalRecipients,
   emailProposals,
   emailRejections,
   googleAccounts,
@@ -49,7 +50,7 @@ import {
   type MailThreadProposalOutcome,
   type MailThreadReproposal,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -175,6 +176,46 @@ const mailDetailSourceSchema = z.enum(["email", "email_triage"]);
 const mailDetailParamsSchema = z.object({ source: mailDetailSourceSchema, id: z.uuid() });
 
 /** Quante righe per pagina se il chiamante non lo dice, e il tetto massimo — come `/api/inbox`. */
+/**
+ * Area 6, F2: l'importanza come numero, per prendere la più alta di un
+ * thread con un `max` (0 = nessun messaggio classificato).
+ */
+const IMPORTANCE_RANK_SQL = sql`case ${emailMessages.importance} when 'high' then 3 when 'normal' then 2 when 'low' then 1 else 0 end`;
+const IMPORTANCE_BY_RANK: Record<number, "high" | "normal" | "low"> = { 3: "high", 2: "normal", 1: "low" };
+const RANK_BY_IMPORTANCE = { high: 3, normal: 2, low: 1 } as const;
+
+/** La prima riga dell'ultimo messaggio, al più 160 caratteri. NON FIDATO. */
+function firstLine(text: string | null): string {
+  const line = (text ?? "").split(/\r?\n/).map((l) => l.trim()).find((l) => l !== "") ?? "";
+  return line.length > 160 ? `${line.slice(0, 159)}…` : line;
+}
+
+/**
+ * Area 6, F2: i filtri di `/threads` sulla classificazione nuova, nella
+ * HAVING (sul thread intero, non sul singolo messaggio). Il filtro di
+ * proprietà resta nella WHERE: questi lo restringono soltanto.
+ */
+function threadClassificationFilters(query: {
+  importance?: "high" | "normal" | "low" | undefined;
+  project?: string | undefined;
+  noProject?: "true" | "false" | undefined;
+  important?: "true" | "false" | undefined;
+}): SQL[] {
+  const done = sql`${emailMessages.classificationState} = 'done'`;
+  const out: SQL[] = [];
+  if (query.importance) {
+    out.push(sql`coalesce(max(${IMPORTANCE_RANK_SQL}) filter (where ${done}), 0) = ${RANK_BY_IMPORTANCE[query.importance]}`);
+  }
+  if (query.project) out.push(sql`coalesce(bool_or(${done} and ${query.project}::uuid = any(${emailMessages.scopeProjectIds})), false)`);
+  if (query.noProject === "true") {
+    out.push(sql`coalesce(bool_or(${done}), false) and not coalesce(bool_or(${done} and cardinality(${emailMessages.scopeProjectIds}) > 0), false)`);
+  }
+  if (query.important === "true") {
+    out.push(sql`coalesce(bool_or(${done} and ${emailMessages.importance} = 'high' and ${emailMessages.unread}), false)`);
+  }
+  return out;
+}
+
 /** I limiti di `q` su `GET /threads` (area 6, F1.4): sotto i 2, ogni riga combacia. */
 const THREAD_QUERY_MIN = 2;
 const THREAD_QUERY_MAX = 200;
@@ -1121,6 +1162,11 @@ export async function meMailRoutes(
           // Area 6, F1.4: la ricerca nella pagina. Validata a mano per dare
           // `invalid_query` (vedi THREAD_QUERY_MIN/MAX).
           q: z.string().max(2000).optional(),
+          // Area 6, F2: i filtri della classificazione nuova.
+          importance: z.enum(["high", "normal", "low"]).optional(),
+          project: z.uuid().optional(),
+          noProject: z.enum(["true", "false"]).optional(),
+          important: z.enum(["true", "false"]).optional(),
         }),
         response: { 200: mailThreadPageSchema, 400: errorSchema, ...authErrorResponses },
       },
@@ -1153,6 +1199,12 @@ export async function meMailRoutes(
           lastFrom: sql<string>`(array_agg(${emailMessages.fromAddress} order by ${emailMessages.receivedAt} desc))[1]`,
           // Area 6, F1.3: un messaggio non letto basta; null (non saputo) = letto.
           unread: sql<boolean>`coalesce(bool_or(${emailMessages.unread}), false)`,
+          // Area 6, F2: dai messaggi a classificazione nuova FINITA.
+          importanceRank: sql<number>`coalesce(max(${IMPORTANCE_RANK_SQL}) filter (where ${emailMessages.classificationState} = 'done'), 0)::int`,
+          dueDate: sql<string | null>`min(${emailMessages.dueDate}) filter (where ${emailMessages.classificationState} = 'done')`,
+          analysing: sql<boolean>`coalesce(bool_or(${emailMessages.classificationState} = 'pending'), false)`,
+          failed: sql<boolean>`coalesce(bool_or(${emailMessages.classificationState} = 'failed'), false)`,
+          snippet: sql<string | null>`(array_agg(${emailMessages.textExcerpt} order by ${emailMessages.receivedAt} desc))[1]`,
         })
         .from(emailMessages)
         .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
@@ -1164,6 +1216,7 @@ export async function meMailRoutes(
               ? sql`(max(${emailMessages.receivedAt}), ${emailMessages.threadId}) < (${cursor.date}::timestamptz, ${cursor.threadId})`
               : sql`true`,
             q === "" ? sql`true` : threadMatchesSql(q),
+            ...threadClassificationFilters(request.query),
           ),
         )
         .orderBy(desc(sql`max(${emailMessages.receivedAt})`), desc(emailMessages.threadId))
@@ -1176,11 +1229,63 @@ export async function meMailRoutes(
       // (non una per thread).
       const openByThread = new Map<string, number>();
       const projectsByThread = new Map<string, string[]>();
+      const projectIdsByThread = new Map<string, Set<string>>();
+      const addProject = (threadId: string, id: string | null, name: string | null) => {
+        if (id) projectIdsByThread.set(threadId, (projectIdsByThread.get(threadId) ?? new Set()).add(id));
+        if (name) {
+          const names = projectsByThread.get(threadId) ?? [];
+          if (!names.includes(name)) names.push(name);
+          projectsByThread.set(threadId, names);
+        }
+      };
       if (threadIds.length > 0) {
+        // Area 6, F2: i progetti della classificazione nuova (scope dei
+        // messaggi `done`) e le proposte CONDIVISE di cui chi guarda è
+        // destinatario, ritrovate per Message-ID dai SUOI messaggi.
+        const classified = await app.db
+          .select({ threadId: emailMessages.threadId, scope: emailMessages.scopeProjectIds })
+          .from(emailMessages)
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .where(
+            and(
+              eq(googleAccounts.userId, request.user!.id),
+              inArray(emailMessages.threadId, threadIds),
+              eq(emailMessages.classificationState, "done"),
+            ),
+          );
+        const classifiedIds = [...new Set(classified.flatMap((row) => row.scope))];
+        const names = new Map<string, string>();
+        if (classifiedIds.length > 0) {
+          for (const row of await app.db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, classifiedIds))) {
+            names.set(row.id, row.name);
+          }
+        }
+        for (const row of classified) for (const id of row.scope) addProject(row.threadId, id, names.get(id) ?? null);
+        const shared = await app.db
+          .select({ threadId: emailMessages.threadId, status: emailProposals.status, handedAt: emailProposals.handedAt })
+          .from(emailMessages)
+          .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
+          .innerJoin(
+            emailProposals,
+            sql`${emailProposals.rfcMessageId} = coalesce(${emailMessages.rfcMessageId}, 'gmail:' || ${emailMessages.accountId} || ':' || ${emailMessages.gmailMessageId})
+              and ${emailProposals.audience} = 'mail_recipients'`,
+          )
+          .innerJoin(
+            emailProposalRecipients,
+            and(eq(emailProposalRecipients.proposalId, emailProposals.id), eq(emailProposalRecipients.userId, request.user!.id)),
+          )
+          .where(and(eq(googleAccounts.userId, request.user!.id), inArray(emailMessages.threadId, threadIds)));
+        for (const row of shared) {
+          if ((row.status === "classified" || row.status === "proposed") && !row.handedAt) {
+            openByThread.set(row.threadId, (openByThread.get(row.threadId) ?? 0) + 1);
+          }
+        }
+
         const proposalRows = await app.db
           .select({
             threadId: emailMessages.threadId,
             status: emailProposals.status,
+            projectId: emailProposals.projectId,
             projectName: projects.name,
           })
           .from(emailProposals)
@@ -1191,17 +1296,15 @@ export async function meMailRoutes(
             and(
               eq(googleAccounts.userId, request.user!.id),
               inArray(emailMessages.threadId, threadIds),
+              // Le proposte condivise si contano sopra, per destinatario.
+              eq(emailProposals.audience, "mailbox_owner"),
             ),
           );
         for (const row of proposalRows) {
           if (row.status === "classified" || row.status === "proposed") {
             openByThread.set(row.threadId, (openByThread.get(row.threadId) ?? 0) + 1);
           }
-          if (row.projectName) {
-            const names = projectsByThread.get(row.threadId) ?? [];
-            if (!names.includes(row.projectName)) names.push(row.projectName);
-            projectsByThread.set(row.threadId, names);
-          }
+          addProject(row.threadId, row.projectId, row.projectName);
         }
       }
 
@@ -1226,6 +1329,12 @@ export async function meMailRoutes(
           openProposals: openByThread.get(row.threadId) ?? 0,
           projectNames: projectsByThread.get(row.threadId) ?? [],
           unread: row.unread,
+          importance: IMPORTANCE_BY_RANK[row.importanceRank] ?? null,
+          dueDate: row.dueDate,
+          analysing: row.analysing,
+          failed: row.failed,
+          projectIds: [...(projectIdsByThread.get(row.threadId) ?? [])],
+          snippet: firstLine(row.snippet),
         })),
         nextCursor,
       };

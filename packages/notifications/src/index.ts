@@ -121,6 +121,7 @@ export {
 } from "./project-pulse-summary.js";
 
 export {
+  permissionForMailAction,
   permissionForProposalAction,
   permissionsForProposalActions,
 } from "./proposal-permissions.js";
