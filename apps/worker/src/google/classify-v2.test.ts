@@ -210,6 +210,44 @@ describe("classifyNewMessagesV2", () => {
     expect(await db.select().from(emailProposals)).toHaveLength(1);
   });
 
+  it("review F2, punto 8: due copie in attesa nello stesso momento (dopo «Quale progetto?», o due caselle nello stesso giro): si classifica UNA volta", async () => {
+    const ada = await seedUser(`ada-${randomUUID()}@acme.com`);
+    const bruno = await seedUser(`bruno-${randomUUID()}@acme.com`);
+    const audin = await seedProject("Audin", [ada, bruno]);
+    const a = await seedAccount(ada, `a-${randomUUID()}@acme.com`);
+    const b = await seedAccount(bruno, `b-${randomUUID()}@acme.com`);
+    const first = await seedMessage(a.id, { rfcMessageId: "<due@cliente.com>" });
+    const second = await seedMessage(b.id, { rfcMessageId: "<due@cliente.com>" });
+    const [leader, follower] = first.id < second.id ? [a, b] : [b, a];
+    const runner = new FakeRunner([
+      JSON.stringify({ importance: "normal", projects: [{ projectId: audin, proposals: [{ type: "create_task", title: "Export" }] }] }),
+      JSON.stringify({ importance: "normal", projects: [{ projectId: audin, proposals: [{ type: "create_task", title: "Export" }] }] }),
+    ]);
+    // La casella che NON guida passa per prima: aspetta, non paga.
+    await classifyNewMessagesV2(deps(runner), follower.id);
+    expect(runner.calls).toHaveLength(0);
+    await classifyNewMessagesV2(deps(runner), leader.id);
+    await classifyNewMessagesV2(deps(runner), follower.id);
+    expect(runner.calls).toHaveLength(1);
+    const rows = await db.select().from(emailMessages);
+    expect(rows.every((r) => r.classificationState === "done")).toBe(true);
+  });
+
+  it("review F2, punto 8: se la copia che guida non si classifica (fallita), l'altra non resta ferma", async () => {
+    const ada = await seedUser(`ada-${randomUUID()}@acme.com`);
+    const bruno = await seedUser(`bruno-${randomUUID()}@acme.com`);
+    await seedProject("Audin", [ada, bruno]);
+    const a = await seedAccount(ada, `a-${randomUUID()}@acme.com`);
+    const b = await seedAccount(bruno, `b-${randomUUID()}@acme.com`);
+    const first = await seedMessage(a.id, { rfcMessageId: "<tre@cliente.com>" });
+    const second = await seedMessage(b.id, { rfcMessageId: "<tre@cliente.com>" });
+    const [leaderMsg, follower] = first.id < second.id ? [first, b] : [second, a];
+    await db.update(emailMessages).set({ classificationState: "failed", status: "failed" }).where(eq(emailMessages.id, leaderMsg.id));
+    const runner = new FakeRunner([JSON.stringify({ importance: "low", projects: [] })]);
+    await classifyNewMessagesV2(deps(runner), follower.id);
+    expect(runner.calls).toHaveLength(1);
+  });
+
   it("nessun progetto candidato: si classifica lo stesso (l'importanza serve), nessuna proposta", async () => {
     const ada = await seedUser(`ada-${randomUUID()}@acme.com`);
     const account = await seedAccount(ada, `a-${randomUUID()}@acme.com`);

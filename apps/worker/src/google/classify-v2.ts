@@ -374,6 +374,21 @@ export async function classifyNewMessagesV2(deps: ClassifyBatchDeps, accountId: 
         isNull(emailMessages.classificationState),
         sql`exists (select 1 from ${googleAccounts} where ${googleAccounts.id} = ${emailMessages.accountId} and ${googleAccounts.proposalsEnabled}
           and (${googleAccounts.proposalsSince} is null or ${emailMessages.createdAt} >= ${googleAccounts.proposalsSince}))`,
+        // UNA classificazione per Message-ID (review F2, punto 8): fra le copie
+        // della stessa email ancora in attesa (dopo «Quale progetto?» lo
+        // diventano tutte, o due caselle nello stesso giro) guida quella con
+        // l'id più basso; le altre aspettano e al giro dopo la copiano
+        // (`copyFromTwin`). Se quella che guida esce dall'attesa senza
+        // classificarsi (fallita, casella spenta), le altre ripartono.
+        sql`(${emailMessages.rfcMessageId} is null or not exists (
+          select 1 from email_messages o
+          join google_accounts oa on oa.id = o.account_id
+          where o.rfc_message_id = ${emailMessages.rfcMessageId}
+            and o.id < ${emailMessages.id}
+            and o.status = 'new' and o.admitted and o.classification_state is null
+            and oa.proposals_enabled and oa.disabled_at is null
+            and (oa.proposals_since is null or o.created_at >= oa.proposals_since)
+        ))`,
       ),
     )
     .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id))
