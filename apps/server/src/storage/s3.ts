@@ -126,6 +126,27 @@ export function createS3Storage(config: S3Config): ObjectStorage {
       }
     })(),
 
+    async getObjectBytes(key, maxBytes) {
+      let response;
+      try {
+        response = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }));
+      } catch (error) {
+        if ((error as { name?: string }).name === "NoSuchKey") throw new StorageObjectNotFound(key);
+        throw error;
+      }
+      if (typeof response.ContentLength === "number" && response.ContentLength > maxBytes) {
+        throw new Error(`l'oggetto ${key} supera ${maxBytes} byte`);
+      }
+      const chunks: Buffer[] = [];
+      let total = 0;
+      for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+        total += chunk.length;
+        if (total > maxBytes) throw new Error(`l'oggetto ${key} supera ${maxBytes} byte`);
+        chunks.push(Buffer.from(chunk));
+      }
+      return Buffer.concat(chunks);
+    },
+
     async deleteObject(key) {
       await client.send(new DeleteObjectCommand({ Bucket: config.bucket, Key: key }));
     },

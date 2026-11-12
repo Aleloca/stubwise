@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { emailMessages, encrypt, googleAccounts, googleWorkspaces, mailDrafts, type Db } from "@stubwise/db";
+import { driveFiles, emailMessages, encrypt, googleAccounts, googleWorkspaces, mailDraftAttachments, mailDrafts, projects, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { GoogleApiError } from "@stubwise/google";
@@ -7,7 +7,8 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import type { MailComposeClient } from "../services/mail-drafts.js";
-import { createUserWithSession } from "../test/fixtures.js";
+import type { ObjectStorage } from "../storage/index.js";
+import { addMember, createUserWithSession } from "../test/fixtures.js";
 
 /**
  * LE BOZZE (area 6, F3, task 3): bozze di Gmail. Le letture non chiamano
@@ -23,6 +24,25 @@ let app: FastifyInstance;
 const calls: { fn: string; input: Record<string, unknown> }[] = [];
 let current: { id: string; messageId: string | null; threadId: string | null } | null = null;
 let getError: unknown = null;
+const objects = new Map<string, Buffer>();
+let storage: ObjectStorage | null = null;
+const memoryStorage: ObjectStorage = {
+  putObject: async (key, body) => void objects.set(key, body),
+  putObjectStream: async () => {
+    throw new Error("non usato");
+  },
+  copyObject: async () => {
+    throw new Error("non usato");
+  },
+  getSignedDownloadUrl: async () => "https://x",
+  deleteObject: async (key) => void objects.delete(key),
+  getObjectBytes: async (key, max) => {
+    const b = objects.get(key);
+    if (!b) throw new Error("missing");
+    if (b.length > max) throw new Error("too big");
+    return b;
+  },
+};
 const fake: MailComposeClient = {
   refreshAccessToken: async () => ({ accessToken: "at-casella", expiresInSeconds: 3600, refreshToken: null, scopes: [], tokenType: "Bearer", idToken: null }),
   createDraft: async (input) => {
@@ -48,12 +68,20 @@ const fake: MailComposeClient = {
 beforeAll(async () => {
   testDb = await startTestDb();
   db = testDb.db;
-  app = buildApp({ db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", encryptionKey: KEY.toString("base64"), mailComposeClient: fake });
+  app = buildApp({
+    db,
+    sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!",
+    encryptionKey: KEY.toString("base64"),
+    mailComposeClient: fake,
+    storageFactory: async () => storage,
+  });
 }, 120_000);
 beforeEach(() => {
   calls.length = 0;
   current = null;
   getError = null;
+  objects.clear();
+  storage = memoryStorage;
 });
 afterEach(async () => {
   const { mailOutgoing } = await import("@stubwise/db");
@@ -330,3 +358,170 @@ describe("i controlli PRIMA di accodare: subito sul bottone Invia, la bozza rest
     expect(((await app.inject({ method: "GET", url: "/api/me/mail/drafts", headers: me.headers })).json() as { items: unknown[] }).items).toHaveLength(1);
   });
 });
+
+describe("gli allegati di una bozza: nel MIME a ogni salvataggio, dal disco o dal Drive", () => {
+  const BOUNDARY = "----stubwisemailboundary";
+  async function draftOf() {
+    const s = await scenario();
+    const d = (await save(s.me.headers, { accountId: s.box.id, threadId: null, mode: "new", subject: "x", body: "y", to: [{ email: "ok@x.it" }] })).json() as { id: string };
+    calls.length = 0;
+    return { ...s, draftId: d.id };
+  }
+  const upload = (headers: { cookie: string }, id: string, name: string, content: Buffer) =>
+    app.inject({
+      method: "POST",
+      url: `/api/me/mail/drafts/${id}/attachments`,
+      headers: { cookie: headers.cookie, "content-type": `multipart/form-data; boundary=${BOUNDARY}` },
+      payload: Buffer.concat([
+        Buffer.from(`--${BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: text/plain\r\n\r\n`),
+        content,
+        Buffer.from(`\r\n--${BOUNDARY}--\r\n`),
+      ]),
+    });
+  const lastMime = () => Buffer.from(String(calls.filter((c) => c.fn === "update").at(-1)!.input.raw), "base64url").toString("utf8");
+  async function driveFile(userId: string | null, opts: { deleted?: boolean } = {}) {
+    const [project] = await db.insert(projects).values({ name: "Audin", slug: `audin-${randomUUID().slice(0, 6)}`, ingestionKey: randomUUID() }).returning();
+    if (userId) await addMember(app, project!.id, userId, "viewer");
+    const key = `drive/${project!.id}/specifica.pdf`;
+    objects.set(key, Buffer.from("PDF-DEL-DRIVE"));
+    const [file] = await db
+      .insert(driveFiles)
+      .values({ projectId: project!.id, number: 1, name: "specifica.pdf", mime: "application/pdf", type: "pdf", sizeBytes: 13, storageKey: key, deletedAt: opts.deleted ? new Date() : null })
+      .returning();
+    return file!;
+  }
+  const attachDrive = (headers: { cookie: string }, id: string, driveFileId: string) =>
+    app.inject({ method: "POST", url: `/api/me/mail/drafts/${id}/attachments/drive`, headers, payload: { driveFileId } });
+
+  it("dal disco: va nello storage sotto mail/<bozza>/, la bozza su Gmail si riscrive COL file, e la risposta lo elenca", async () => {
+    const { me, draftId } = await draftOf();
+    const res = await upload(me.headers, draftId, "nota.txt", Buffer.from("CONTENUTO-ALLEGATO"));
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { attachments: { name: string }[] }).attachments.map((a) => a.name)).toEqual(["nota.txt"]);
+    expect([...objects.keys()].every((k) => k.startsWith(`mail/${draftId}/`))).toBe(true);
+    const mime = lastMime();
+    expect(mime).toContain('filename="nota.txt"');
+    expect(mime).toContain(Buffer.from("CONTENUTO-ALLEGATO").toString("base64"));
+    // Un salvataggio successivo del testo tiene l'allegato.
+    const { box } = { box: (await db.select().from(googleAccounts))[0]! };
+    await save(me.headers, { accountId: box.id, threadId: null, mode: "new", subject: "x", body: "z", to: [{ email: "ok@x.it" }] });
+    expect(lastMime()).toContain('filename="nota.txt"');
+  });
+
+  it("dal Drive: un file del progetto che vedo entra come copia, letto dal suo oggetto", async () => {
+    const { me, draftId } = await draftOf();
+    const file = await driveFile(me.id);
+    const res = await attachDrive(me.headers, draftId, file.id);
+    expect(res.statusCode).toBe(200);
+    expect(lastMime()).toContain(Buffer.from("PDF-DEL-DRIVE").toString("base64"));
+    const [row] = await db.select().from(mailDraftAttachments);
+    expect(row).toMatchObject({ driveFileId: file.id, storageKey: null });
+  });
+
+  it("NEGATIVO: un file del Drive di un progetto che NON vedo (o eliminato) è 409 attachment_unavailable, e Gmail non si tocca", async () => {
+    const { me, draftId } = await draftOf();
+    const foreign = await driveFile(null);
+    const res = await attachDrive(me.headers, draftId, foreign.id);
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("attachment_unavailable");
+    const gone = await driveFile(me.id, { deleted: true });
+    expect((await attachDrive(me.headers, draftId, gone.id)).statusCode).toBe(409);
+    expect(calls).toEqual([]);
+    expect(await db.select().from(mailDraftAttachments)).toEqual([]);
+  });
+
+  it("NEGATIVO: perso l'accesso al progetto DOPO aver allegato, il salvataggio dopo è 409 attachment_unavailable", async () => {
+    const { me, box, draftId } = await draftOf();
+    const file = await driveFile(me.id);
+    await attachDrive(me.headers, draftId, file.id);
+    const { projectMembers } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    await db.delete(projectMembers).where(eq(projectMembers.projectId, file.projectId));
+    calls.length = 0;
+    const res = await save(me.headers, { accountId: box.id, threadId: null, mode: "new", subject: "x", body: "z", to: [{ email: "ok@x.it" }] });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("attachment_unavailable");
+    expect(calls.filter((c) => c.fn === "update")).toEqual([]);
+  });
+
+  it("NEGATIVO: un file del Drive eliminato DOPO averlo allegato: il salvataggio dopo è 409 attachment_unavailable", async () => {
+    const { me, box, draftId } = await draftOf();
+    const file = await driveFile(me.id);
+    await attachDrive(me.headers, draftId, file.id);
+    const { eq } = await import("drizzle-orm");
+    await db.update(driveFiles).set({ deletedAt: new Date() }).where(eq(driveFiles.id, file.id));
+    calls.length = 0;
+    const res = await save(me.headers, { accountId: box.id, threadId: null, mode: "new", subject: "x", body: "z", to: [{ email: "ok@x.it" }] });
+    expect((res.json() as { code: string }).code).toBe("attachment_unavailable");
+    expect(calls.filter((c) => c.fn === "update")).toEqual([]);
+  });
+
+  it("Invia ricontrolla il Drive: perso l'accesso dopo l'ultimo salvataggio, 409 attachment_unavailable e niente in coda", async () => {
+    const { me, draftId } = await draftOf();
+    const file = await driveFile(me.id);
+    await attachDrive(me.headers, draftId, file.id);
+    const { projectMembers, mailOutgoing } = await import("@stubwise/db");
+    const { eq } = await import("drizzle-orm");
+    await db.delete(projectMembers).where(eq(projectMembers.projectId, file.projectId));
+    const res = await app.inject({ method: "POST", url: `/api/me/mail/drafts/${draftId}/send`, headers: me.headers, payload: {} });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("attachment_unavailable");
+    expect(await db.select().from(mailOutgoing)).toEqual([]);
+    // Il gemello positivo: con l'accesso, parte.
+    await addMember(app, file.projectId, me.id, "viewer");
+    expect((await app.inject({ method: "POST", url: `/api/me/mail/drafts/${draftId}/send`, headers: me.headers, payload: {} })).statusCode).toBe(202);
+  });
+
+  it("Invia ricontrolla il Drive: un file eliminato dopo l'ultimo salvataggio non parte", async () => {
+    const { me, draftId } = await draftOf();
+    const file = await driveFile(me.id);
+    await attachDrive(me.headers, draftId, file.id);
+    const { eq } = await import("drizzle-orm");
+    await db.update(driveFiles).set({ deletedAt: new Date() }).where(eq(driveFiles.id, file.id));
+    const res = await app.inject({ method: "POST", url: `/api/me/mail/drafts/${draftId}/send`, headers: me.headers, payload: {} });
+    expect((res.json() as { code: string }).code).toBe("attachment_unavailable");
+  });
+
+  it("NEGATIVO: la bozza di un altro è 404, e niente finisce nello storage", async () => {
+    const { draftId } = await draftOf();
+    const other = await createUserWithSession(app, `zeta-${randomUUID()}@acme.com`);
+    expect((await upload(other.headers, draftId, "a.txt", Buffer.from("x"))).statusCode).toBe(404);
+    expect(objects.size).toBe(0);
+  });
+
+  it("i limiti: oltre 25 MB in tutto 400 too_large, l'undicesimo 400 too_many_attachments, senza storage 400", async () => {
+    const { me, draftId } = await draftOf();
+    await db.insert(mailDraftAttachments).values({ draftId, name: "grande", sizeBytes: 25 * 1024 * 1024 - 4, mimeType: "application/pdf", storageKey: "mail/x" });
+    const big = await upload(me.headers, draftId, "b.txt", Buffer.from("12345"));
+    expect(big.statusCode).toBe(400);
+    expect((big.json() as { code: string }).code).toBe("too_large");
+    const { eq } = await import("drizzle-orm");
+    await db.delete(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draftId));
+    await db.insert(mailDraftAttachments).values(Array.from({ length: 10 }, (_, i) => ({ draftId, name: `f${i}`, sizeBytes: 1, mimeType: "text/plain", storageKey: `mail/${i}` })));
+    expect((await upload(me.headers, draftId, "c.txt", Buffer.from("1"))).json()).toMatchObject({ code: "too_many_attachments" });
+    await db.delete(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draftId));
+    storage = null;
+    expect((await upload(me.headers, draftId, "d.txt", Buffer.from("1"))).json()).toMatchObject({ code: "storage_not_configured" });
+    expect(objects.size).toBe(0);
+  });
+
+  it("togliere un allegato: via dallo storage, e la bozza su Gmail si riscrive SENZA", async () => {
+    const { me, draftId } = await draftOf();
+    const added = (await upload(me.headers, draftId, "nota.txt", Buffer.from("CONTENUTO-ALLEGATO"))).json() as { attachments: { id: string }[] };
+    const res = await app.inject({ method: "DELETE", url: `/api/me/mail/drafts/${draftId}/attachments/${added.attachments[0]!.id}`, headers: me.headers });
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { attachments: unknown[] }).attachments).toEqual([]);
+    expect(objects.size).toBe(0);
+    expect(lastMime()).not.toContain('filename="nota.txt"');
+  });
+
+  it("un salvataggio su Gmail fallito annulla l'allegato appena aggiunto (riga e oggetto)", async () => {
+    const { me, draftId } = await draftOf();
+    getError = new GoogleApiError({ api: "gmail.drafts.get", status: 500, code: "server_error", reason: "backendError" });
+    const res = await upload(me.headers, draftId, "nota.txt", Buffer.from("x"));
+    expect(res.statusCode).toBe(502);
+    expect(await db.select().from(mailDraftAttachments)).toEqual([]);
+    expect(objects.size).toBe(0);
+  });
+});
+

@@ -36,6 +36,10 @@ function fakeStorage(origin = "https://bucket.example") {
     getSignedDownloadUrl: vi.fn(async (key: string, filename: string, _ttl?: number, opts?: { inlineContentType?: string }) =>
       `https://bucket.example/${key}?filename=${encodeURIComponent(filename)}${opts?.inlineContentType ? `&inline=${encodeURIComponent(opts.inlineContentType)}` : ""}`,
     ),
+    // Area 6, F3: non serve a questi test; chiamarlo è un errore.
+    getObjectBytes: async () => {
+      throw new Error("getObjectBytes non previsto in questo test");
+    },
     deleteObject: vi.fn(async (key: string) => void objects.delete(key)),
   };
 }

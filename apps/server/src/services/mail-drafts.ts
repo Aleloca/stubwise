@@ -1,4 +1,6 @@
-import { emailMessages, googleAccounts, mailDraftAttachments, mailDrafts, type Db } from "@stubwise/db";
+import { driveFiles, emailMessages, googleAccounts, mailDraftAttachments, mailDrafts, type Db } from "@stubwise/db";
+import { randomUUID } from "node:crypto";
+import type { ObjectStorage } from "../storage/index.js";
 import {
   buildMimeMessage,
   createDraft,
@@ -12,9 +14,9 @@ import {
   updateDraft,
 } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
-import { normalizeAddress } from "@stubwise/notifications";
+import { normalizeAddress, projectPermissionsOfUser } from "@stubwise/notifications";
 import type { MailComposeAddress, MailComposeMode, MailDraft } from "@stubwise/shared";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
 /**
  * LE BOZZE DELLA POSTA (area 6, fetta 3, D7 = b): bozze di GMAIL. Stubwise
@@ -51,7 +53,15 @@ export type DraftError =
   | { error: "account_unavailable" }
   | { error: "token_expired" }
   | { error: "draft_changed" }
-  | { error: "google_unavailable" };
+  | { error: "google_unavailable" }
+  | { error: "attachment_unavailable" }
+  | { error: "storage_not_configured" }
+  | { error: "too_many_attachments" }
+  | { error: "too_large" };
+
+/** I limiti di Gmail sugli allegati (gli stessi controlli di Invia). */
+export const DRAFT_MAX_ATTACHMENTS = 10;
+export const DRAFT_MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 type DraftRow = typeof mailDrafts.$inferSelect;
 
@@ -218,6 +228,7 @@ export async function saveDraft(
   db: Db,
   encryptionKey: Buffer,
   client: MailComposeClient,
+  storage: ObjectStorage | null,
   userId: string,
   input: {
     accountId: string;
@@ -262,6 +273,8 @@ export async function saveDraft(
   }
   if (!accessToken) return { error: "account_unavailable" };
 
+  const files = existing ? await attachmentBytes(db, storage, userId, existing.id) : [];
+  if (!Array.isArray(files)) return files;
   const { text, inReplyTo } = await composedBody(db, input.body, input.quote, input.replyToMessageId);
   const raw = encodeRaw(
     buildMimeMessage({
@@ -272,6 +285,7 @@ export async function saveDraft(
       body: text,
       inReplyTo,
       references: inReplyTo ? [inReplyTo] : [],
+      attachments: files,
     }),
   );
 
@@ -331,3 +345,146 @@ export async function discardDraft(db: Db, encryptionKey: Buffer, client: MailCo
   await db.delete(mailDrafts).where(eq(mailDrafts.id, row.id));
   return { ok: true };
 }
+
+/**
+ * I byte degli allegati di una bozza, per il MIME (ogni salvataggio riscrive
+ * la bozza intera su Gmail). Un file del Drive si legge SOLO se chi scrive
+ * vede ancora il suo progetto e il file non è stato eliminato: altrimenti
+ * `attachment_unavailable`.
+ */
+async function attachmentBytes(
+  db: Db,
+  storage: ObjectStorage | null,
+  userId: string,
+  draftId: string,
+): Promise<{ name: string; mimeType: string; content: Buffer }[] | DraftError> {
+  const rows = await db.select().from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draftId));
+  if (rows.length === 0) return [];
+  if (!storage) return { error: "storage_not_configured" };
+  const out: { name: string; mimeType: string; content: Buffer }[] = [];
+  for (const row of rows) {
+    let key = row.storageKey;
+    if (!key && row.driveFileId) {
+      const [file] = await db
+        .select({ storageKey: driveFiles.storageKey, projectId: driveFiles.projectId })
+        .from(driveFiles)
+        .where(and(eq(driveFiles.id, row.driveFileId), isNull(driveFiles.deletedAt)));
+      if (file && (await projectPermissionsOfUser(db, userId, file.projectId))) key = file.storageKey;
+    }
+    if (!key) return { error: "attachment_unavailable" };
+    try {
+      out.push({ name: row.name, mimeType: row.mimeType, content: await storage.getObjectBytes(key, DRAFT_MAX_ATTACHMENT_BYTES) });
+    } catch {
+      return { error: "attachment_unavailable" };
+    }
+  }
+  return out;
+}
+
+/** La bozza di chi scrive, salvata (gli allegati si attaccano a una bozza che c'è). */
+async function ownDraft(db: Db, userId: string, draftId: string) {
+  const [row] = await db.select().from(mailDrafts).where(and(eq(mailDrafts.id, draftId), eq(mailDrafts.userId, userId), eq(mailDrafts.state, "active")));
+  return row ?? null;
+}
+
+/** Riscrive la bozza su Gmail dalla sua copia (dopo un allegato in più o in meno). */
+async function rewrite(db: Db, encryptionKey: Buffer, client: MailComposeClient, storage: ObjectStorage | null, userId: string, row: DraftRow) {
+  return saveDraft(db, encryptionKey, client, storage, userId, {
+    accountId: row.accountId,
+    threadId: row.threadId,
+    mode: row.mode,
+    replyToMessageId: row.replyToMessageId,
+    to: row.toAddresses,
+    cc: row.ccAddresses,
+    subject: row.subject,
+    body: row.body,
+    quote: row.quote,
+  });
+}
+
+async function withinLimits(db: Db, draftId: string, addBytes: number): Promise<DraftError | null> {
+  const rows = await db.select({ size: mailDraftAttachments.sizeBytes }).from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draftId));
+  if (rows.length + 1 > DRAFT_MAX_ATTACHMENTS) return { error: "too_many_attachments" };
+  if (rows.reduce((sum, r) => sum + r.size, 0) + addBytes > DRAFT_MAX_ATTACHMENT_BYTES) return { error: "too_large" };
+  return null;
+}
+
+/** Un allegato dal disco: nello storage, poi la bozza riscritta su Gmail. */
+export async function attachUploadedFile(
+  db: Db,
+  encryptionKey: Buffer,
+  client: MailComposeClient,
+  storage: ObjectStorage | null,
+  userId: string,
+  draftId: string,
+  file: { name: string; mimeType: string; content: Buffer },
+): Promise<MailDraft | DraftError> {
+  const row = await ownDraft(db, userId, draftId);
+  if (!row) return { error: "not_found" };
+  if (!storage) return { error: "storage_not_configured" };
+  const over = await withinLimits(db, draftId, file.content.length);
+  if (over) return over;
+  const key = `mail/${draftId}/${randomUUID()}`;
+  await storage.putObject(key, file.content, file.mimeType);
+  const [attachment] = await db
+    .insert(mailDraftAttachments)
+    .values({ draftId, name: file.name.slice(0, 255), sizeBytes: file.content.length, mimeType: file.mimeType, storageKey: key })
+    .returning();
+  const saved = await rewrite(db, encryptionKey, client, storage, userId, row);
+  if ("error" in saved) {
+    await db.delete(mailDraftAttachments).where(eq(mailDraftAttachments.id, attachment!.id));
+    await storage.deleteObject(key);
+  }
+  return saved;
+}
+
+/** Un file del Drive del progetto, come copia (letto a ogni salvataggio, col permesso di chi scrive). */
+export async function attachDriveFile(
+  db: Db,
+  encryptionKey: Buffer,
+  client: MailComposeClient,
+  storage: ObjectStorage | null,
+  userId: string,
+  draftId: string,
+  driveFileId: string,
+): Promise<MailDraft | DraftError> {
+  const row = await ownDraft(db, userId, draftId);
+  if (!row) return { error: "not_found" };
+  const [file] = await db
+    .select({ id: driveFiles.id, name: driveFiles.name, mime: driveFiles.mime, sizeBytes: driveFiles.sizeBytes, projectId: driveFiles.projectId })
+    .from(driveFiles)
+    .where(and(eq(driveFiles.id, driveFileId), isNull(driveFiles.deletedAt)));
+  // Un file che chi scrive non vede è come uno che non c'è.
+  if (!file || !(await projectPermissionsOfUser(db, userId, file.projectId))) return { error: "attachment_unavailable" };
+  const over = await withinLimits(db, draftId, file.sizeBytes);
+  if (over) return over;
+  const [attachment] = await db
+    .insert(mailDraftAttachments)
+    .values({ draftId, name: file.name, sizeBytes: file.sizeBytes, mimeType: file.mime, driveFileId: file.id })
+    .returning();
+  const saved = await rewrite(db, encryptionKey, client, storage, userId, row);
+  if ("error" in saved) await db.delete(mailDraftAttachments).where(eq(mailDraftAttachments.id, attachment!.id));
+  return saved;
+}
+
+/** Toglie un allegato e riscrive la bozza. */
+export async function removeAttachment(
+  db: Db,
+  encryptionKey: Buffer,
+  client: MailComposeClient,
+  storage: ObjectStorage | null,
+  userId: string,
+  draftId: string,
+  attachmentId: string,
+): Promise<MailDraft | DraftError> {
+  const row = await ownDraft(db, userId, draftId);
+  if (!row) return { error: "not_found" };
+  const [removed] = await db
+    .delete(mailDraftAttachments)
+    .where(and(eq(mailDraftAttachments.id, attachmentId), eq(mailDraftAttachments.draftId, draftId)))
+    .returning();
+  if (!removed) return { error: "not_found" };
+  if (removed.storageKey && storage) await storage.deleteObject(removed.storageKey);
+  return rewrite(db, encryptionKey, client, storage, userId, row);
+}
+

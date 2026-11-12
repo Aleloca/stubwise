@@ -3,7 +3,20 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
-import { discardDraft, draftFor, listDrafts, realMailComposeClient, saveDraft, type DraftError, type MailComposeClient } from "../services/mail-drafts.js";
+import {
+  attachDriveFile,
+  attachUploadedFile,
+  discardDraft,
+  draftFor,
+  listDrafts,
+  realMailComposeClient,
+  removeAttachment,
+  saveDraft,
+  DRAFT_MAX_ATTACHMENT_BYTES,
+  type DraftError,
+  type MailComposeClient,
+} from "../services/mail-drafts.js";
+import { isMultipartLimit } from "./multipart.js";
 import { discardFailedSend, getOutgoing, retrySend, sendDraftLater, undoSend, type SendError } from "../services/mail-send.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -25,6 +38,10 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
         return reply.code(409).send({ code: err.error, message: "Reconnect the mailbox to write from Stubwise", missing: err.missing });
       case "google_unavailable":
         return apiError(reply, 502, err.error, "Could not reach Google");
+      case "too_many_attachments":
+      case "too_large":
+      case "storage_not_configured":
+        return apiError(reply, 400, err.error, "Cannot attach this file");
       default:
         return apiError(reply, 409, err.error, "Cannot save the draft");
     }
@@ -63,7 +80,7 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
     "/",
     { config: { access: { kind: "user" } }, schema: { body: mailDraftSaveSchema, response: { 200: mailDraftSchema, ...errors } } },
     async (request, reply) => {
-      const out = await saveDraft(app.db, app.encryptionKey, client, request.user!.id, request.body);
+      const out = await saveDraft(app.db, app.encryptionKey, client, await app.storage(), request.user!.id, request.body);
       if ("error" in out) return sendError(reply, out);
       return out;
     },
@@ -76,6 +93,63 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
       const out = await discardDraft(app.db, app.encryptionKey, client, request.user!.id, request.params.id);
       if ("error" in out) return sendError(reply, out);
       return reply.code(204).send(null);
+    },
+  );
+
+  const attachErrors = { 400: errorSchema, ...errors };
+
+  /** Un allegato dal disco (multipart, un file, al più 25 MB in tutto). */
+  app.post(
+    "/:id/attachments",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), response: { 200: mailDraftSchema, ...attachErrors } } },
+    async (request, reply) => {
+      let part;
+      try {
+        part = await request.file({ limits: { fileSize: DRAFT_MAX_ATTACHMENT_BYTES, files: 1, fields: 0, parts: 1 } });
+      } catch (error) {
+        if ((error as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") return apiError(reply, 400, "too_large", "Attachments exceed 25 MB");
+        if (isMultipartLimit(error)) return apiError(reply, 400, "invalid_multipart", "Send one file and nothing else");
+        throw error;
+      }
+      if (!part) return apiError(reply, 400, "file_required", "A file is required");
+      let content: Buffer;
+      try {
+        content = await part.toBuffer();
+      } catch (error) {
+        if ((error as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") return apiError(reply, 400, "too_large", "Attachments exceed 25 MB");
+        throw error;
+      }
+      const out = await attachUploadedFile(app.db, app.encryptionKey, client, await app.storage(), request.user!.id, request.params.id, {
+        name: part.filename,
+        mimeType: part.mimetype,
+        content,
+      });
+      return "error" in out ? sendError(reply, out) : out;
+    },
+  );
+
+  /** Un file del Drive del progetto (copia, letta col permesso di chi scrive). */
+  app.post(
+    "/:id/attachments/drive",
+    {
+      config: { access: { kind: "user" } },
+      schema: { params: z.object({ id: z.uuid() }), body: z.object({ driveFileId: z.uuid() }), response: { 200: mailDraftSchema, ...attachErrors } },
+    },
+    async (request, reply) => {
+      const out = await attachDriveFile(app.db, app.encryptionKey, client, await app.storage(), request.user!.id, request.params.id, request.body.driveFileId);
+      return "error" in out ? sendError(reply, out) : out;
+    },
+  );
+
+  app.delete(
+    "/:id/attachments/:attachmentId",
+    {
+      config: { access: { kind: "user" } },
+      schema: { params: z.object({ id: z.uuid(), attachmentId: z.uuid() }), response: { 200: mailDraftSchema, ...attachErrors } },
+    },
+    async (request, reply) => {
+      const out = await removeAttachment(app.db, app.encryptionKey, client, await app.storage(), request.user!.id, request.params.id, request.params.attachmentId);
+      return "error" in out ? sendError(reply, out) : out;
     },
   );
 

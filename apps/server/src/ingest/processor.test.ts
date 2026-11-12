@@ -18,6 +18,10 @@ function fakeStorage(): ObjectStorage & { puts: Array<{ key: string; size: numbe
       puts.push({ key, size: body.length, type: contentType });
     },
     getSignedDownloadUrl: async () => "https://example.com/signed",
+    // Area 6, F3: non serve a questi test; chiamarlo è un errore.
+    getObjectBytes: async () => {
+      throw new Error("getObjectBytes non previsto in questo test");
+    },
     deleteObject: async () => undefined,
     putObjectStream: async () => undefined,
     copyObject: async () => undefined,
@@ -372,6 +376,10 @@ describe("processEvents — screenshot del feedback come allegato", () => {
       putObjectStream: async () => undefined,
       copyObject: async () => undefined,
       getSignedDownloadUrl: async () => "",
+      // Area 6, F3: non serve a questi test; chiamarlo è un errore.
+      getObjectBytes: async () => {
+        throw new Error("getObjectBytes non previsto in questo test");
+      },
       deleteObject: async () => undefined,
     };
     const result = await processEvents(
