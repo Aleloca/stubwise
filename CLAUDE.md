@@ -53,7 +53,10 @@ repo, ricerca vettoriale e chat RAG.
   da `apps/web` — dependency, non devDependency: vedi il commento in
   `Dockerfile.caddy` — e da `apps/mobile`; dalla App M3 copre anche posta e
   calendario: i gruppi `mail` e `calendar`, verso `/api/me/mail` e
-  `/api/me/calendar`), `db` (Drizzle + Postgres/pgvector),
+  `/api/me/calendar`; dalla F3 dell'area 6 il gruppo `mail` copre anche
+  bozze, invio (outgoing), allegati, destinatari suggeriti, filtro per
+  conversazione delle proposte e il path dello stream della bozza di Claude,
+  `claudeDraftPath`), `db` (Drizzle + Postgres/pgvector),
   `docs-engine`, `embeddings`, `git`, `google` (client HTTP puro OAuth/Gmail/
   Calendar (dall'area 6 anche la scrittura `threads.modify`, solo da un gesto
   della persona), `fetch` iniettabile, condiviso da server e worker — fase 6, nessuna
@@ -282,7 +285,9 @@ percorso sul volume.
   (approvare/mergiare: nessuna proposta, a mano e dove) e, dalla fetta 5,
   `chat-continue` (la continuazione di una pubblica: risponde dal contesto
   dell'originale, un codice che chi continua non vede lo prova a leggere come
-  lui e lo dice non visibile, senza dati), 3 volte ciascuno
+  lui e lo dice non visibile, senza dati), e dall'area 6, fetta 2,
+  `mail-classify-v2` (la classificazione nuova della posta, `--model haiku`,
+  da lanciare prima di accendere `MAIL_CLASSIFY_V2`), 3 volte ciascuno
   (`chat-no-act` è ritirato: `createTask` è nel catalogo); opt-in, solo se nominato: `refine-read-bash`
   (un `cat` via Bash fuori dalla cartella è bloccato dal CLI: è la prova
   dell'invariante, va rilanciato quando si aggiorna il CLI). Lo scenario
@@ -337,6 +342,10 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   `.claude/skills/graphify/.graphify_version`: è il marcatore di versione della
   skill, riscritto da `graphify claude install`.
 - **Versioni apt dell'estrazione del Drive — FISSATE** (11 nov 2026): `ARG POPPLER_VERSION`, `TESSERACT_VERSION`, `TESSERACT_LANG_VERSION`, `LIBHEIF_VERSION` in `apps/worker/Dockerfile`. Aggiornarle è una modifica esplicita; poi `docker run --rm --entrypoint node <img> dist/drive/extract/selfcheck.js` deve uscire 0, e i tempi vanno nel deploy-log.
+- **La firma delle email si legge con `gmail.modify`** (`users.settings.sendAs`):
+  non aggiungere `gmail.settings.basic` (ristretto, serve solo a scrivere le
+  impostazioni). Il ragionamento e le pagine Google sono nel piano della F3
+  dell'area 6.
 - **Versione del CLI `claude` nel worker — FISSATA** (2 ott 2026):
   `ARG CLAUDE_CODE_VERSION` in `apps/worker/Dockerfile` (oggi `2.1.322`, dal 10 nov 2026,
   quella con cui sono passati tutti gli scenari golden; prima `2.1.287`). Va
@@ -432,6 +441,8 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 5, fetta 2: il Drive dei file caricati» (11 nov 2026)
   - «Integrazione area 5, fetta 3: il contenuto dei file del Drive» (11 nov 2026)
   - «Integrazione area 6, fetta 1: la lettura che c'è, il cassetto Google, il riconsenso» (12 nov 2026)
+  - «Integrazione area 6, fetta 2: la classificazione nuova» (12 nov 2026)
+  - «Integrazione area 6, fetta 3: scrivere» (12 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -451,6 +462,8 @@ una voce ti riguarda.
   - Chat con Claude: una conversazione PUBBLICA si legge come la decide il server, e gli eventi dei tool restano visibili ai lettori (10 nov 2026, fetta 5, decisione del maintainer).
 - **Posta e calendario (Google) → `docs/invariants/mail-calendar.md`**:
   - Con le proposte spente una casella si LEGGE; si spengono solo le proposte (12 nov 2026).
+  - La proposta CONDIVISA (D4): chi la riceve, chi la vede, chi la decide (12 nov 2026).
+  - Scrivere la posta (area 6, F3): bozze di Gmail, invio trattenuto 10 s senza ritentativi, Annulla che ferma SEMPRE, Claude che propone (`fillMailBody`, sempre B) ma non manda mai.
   - Nessuna scrittura verso Google senza un gesto della persona, e lo stato locale solo dopo il sì di Google (area 6).
   - «Aggiorna ora» non ha un percorso a parte (area 6).
   - L'audience `mailbox_owner` non include MAI gli admin.
