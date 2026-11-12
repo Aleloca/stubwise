@@ -120,3 +120,29 @@ export const mailRecipientSuggestionSchema = z.object({
 export type MailRecipientSuggestion = z.infer<typeof mailRecipientSuggestionSchema>;
 export const mailRecipientSuggestionListSchema = z.object({ items: z.array(mailRecipientSuggestionSchema).default([]) });
 export type MailRecipientSuggestionList = z.infer<typeof mailRecipientSuggestionListSchema>;
+
+/** «Chiedi a Claude» (F3): il corpo di `POST /api/me/mail/drafts/claude`. */
+export const mailClaudeDraftRequestSchema = z.object({
+  accountId: z.uuid(),
+  /** `null` = un'email nuova: serve `hint`. */
+  threadId: z.string().max(200).nullable().default(null),
+  mode: mailComposeModeSchema,
+  hint: z.string().max(2000).default(""),
+  /** Il progetto scelto per un'email nuova («Riguarda»). */
+  projectId: z.uuid().nullable().default(null),
+});
+export type MailClaudeDraftRequest = z.input<typeof mailClaudeDraftRequestSchema>;
+
+/** Gli eventi dello stream (`data: {json}`): i pezzi, poi `done`; o `error` a metà, senza `done`. */
+export const mailClaudeDraftEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("delta"), text: z.string() }),
+  z.object({
+    type: z.literal("done"),
+    text: z.string(),
+    projectId: z.uuid().nullable().default(null),
+    /** Le task che il testo cita (per titolo o codice). */
+    used: z.array(z.object({ taskId: z.uuid(), code: z.string(), title: z.string(), late: z.boolean() })).default([]),
+  }),
+  z.object({ type: z.literal("error"), code: z.string() }),
+]);
+export type MailClaudeDraftEvent = z.infer<typeof mailClaudeDraftEventSchema>;
