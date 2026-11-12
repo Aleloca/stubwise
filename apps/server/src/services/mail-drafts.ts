@@ -549,3 +549,32 @@ export async function removeAttachment(
   return rewrite(db, encryptionKey, client, storage, userId, row);
 }
 
+/**
+ * Il corpo di Claude nella bozza (azione `fillMailBody`, confermata da chi la
+ * esegue): la bozza dello slot se c'è, altrimenti una nuova già indirizzata
+ * dal server; si sostituisce SOLO il corpo (destinatari, oggetto, allegati e
+ * citazione restano). Mai un invio.
+ */
+export async function fillDraftBody(
+  db: Db,
+  encryptionKey: Buffer,
+  client: MailComposeClient,
+  storage: ObjectStorage | null,
+  userId: string,
+  input: { accountId: string; threadId: string | null; mode: MailComposeMode; text: string },
+): Promise<MailDraft | DraftError> {
+  const base = await draftFor(db, userId, { accountId: input.accountId, threadId: input.threadId, mode: input.mode, replyToMessageId: null });
+  if ("error" in base) return base;
+  return saveDraft(db, encryptionKey, client, storage, userId, {
+    accountId: input.accountId,
+    threadId: base.threadId,
+    mode: base.mode,
+    replyToMessageId: base.replyToMessageId,
+    to: base.to,
+    cc: base.cc,
+    subject: base.subject,
+    body: input.text,
+    quote: base.quote,
+  });
+}
+

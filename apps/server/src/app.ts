@@ -43,7 +43,7 @@ import { meGoogleRoutes } from "./routes/me-google.js";
 import { meCalendarRoutes } from "./routes/me-calendar.js";
 import { meMailDraftsRoutes, meMailOutgoingRoutes, meMailRecipientsRoutes } from "./routes/me-mail-drafts.js";
 import { meMailProposalsRoutes } from "./routes/me-mail-proposals.js";
-import type { MailComposeClient } from "./services/mail-drafts.js";
+import { realMailComposeClient, type MailComposeClient } from "./services/mail-drafts.js";
 import { meMailRoutes, type MailOriginalClient } from "./routes/me-mail.js";
 import { activityRoutes } from "./routes/activity-routes.js";
 import { backlogRoutes } from "./routes/backlog.js";
@@ -136,6 +136,8 @@ declare module "fastify" {
      * BuildAppOptions.storageFactory (fake in-memory).
      */
     storage(): Promise<ObjectStorage | null>;
+    /** Il client delle bozze di Gmail (area 6, F3): reale, o il doppio dei test (`mailComposeClient`). */
+    mailComposeClient: MailComposeClient;
     /**
      * Client di embedding (OpenAI-compatibile) per la ricerca semantica e la
      * chat RAG sui Docs. Iniettabile nei test via BuildAppOptions.embeddingClient
@@ -546,6 +548,7 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
     },
   };
   app.decorate("chatLlm", chatLlm);
+  app.decorate("mailComposeClient", opts.mailComposeClient ?? realMailComposeClient);
 
   // Retrieval dal knowledge graph nelle chat INTERNE (fase 2b). Il client MCP
   // nasce UNA volta per processo (la connessione dentro al client è pigra e

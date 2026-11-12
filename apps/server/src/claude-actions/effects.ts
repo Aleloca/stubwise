@@ -28,6 +28,12 @@ export interface ActionEffects {
   /** L'URL pubblico dell'istanza: il link delle notifiche che un'azione pubblica (il piano da approvare). */
   publicUrl?: string;
   log?: (message: string, error?: unknown) => void;
+  /**
+   * Il corpo di un'email nella bozza Gmail di chi ha confermato (`fillMailBody`,
+   * area 6, F3). La dà la rotta: il catalogo non conosce il client di Gmail.
+   * Lancia se il salvataggio non riesce.
+   */
+  mailBody?: (userId: string, args: { accountId: string; threadId: string | null; mode: "new" | "reply" | "replyAll" | "forward"; text: string }) => Promise<void>;
 }
 
 type FollowUp = (effects: ActionEffects) => Promise<void>;
@@ -100,3 +106,15 @@ export function deleteStoredObjects(keys: readonly string[]): void {
     }
   });
 }
+
+/** Il seguito di `fillMailBody`: la bozza su Gmail, DOPO il commit e solo dal vero. */
+export function saveMailBody(
+  userId: string,
+  args: { accountId: string; threadId: string | null; mode: "new" | "reply" | "replyAll" | "forward"; text: string },
+): void {
+  afterCommit(async (effects) => {
+    if (!effects.mailBody) throw new Error("fillMailBody senza il salvataggio delle bozze");
+    await effects.mailBody(userId, args);
+  });
+}
+
