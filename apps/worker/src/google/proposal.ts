@@ -405,6 +405,101 @@ export function buildEmailProposalEvent(args: BuildEmailProposalArgs): GooglePro
   });
 }
 
+/** Un'azione della classificazione nuova (area 6, F2), come la conserva la proposta. */
+export interface SharedAction {
+  type: string;
+  args: Record<string, unknown>;
+}
+
+/**
+ * La card di una proposta CONDIVISA (area 6, F2, D4): una per destinatario,
+ * tutte uguali. Le opzioni vengono dalle azioni rivalidate della
+ * classificazione nuova (`classify-v2.ts`), le etichette da template
+ * (`mailProposal.action.*`), più «Non fare nulla»; «Quale progetto?» ha
+ * un'opzione per progetto incerto. Nessuno «Sposta»: si sposta dalla Posta.
+ * `null` se non resta nessuna azione pubblicabile.
+ */
+export function buildSharedProposalEvent(args: {
+  lang: Language;
+  proposalId: string;
+  projectId: string;
+  projectNames: ReadonlyMap<string, string>;
+  mailboxEmail: string;
+  message: { fromAddress: string; fromName: string | null; subject: string | null; threadId: string; receivedAt: Date };
+  actions: readonly SharedAction[];
+  choose?: readonly string[];
+}): GoogleProposalEvent | null {
+  const { lang } = args;
+  const projectName = args.projectNames.get(args.projectId);
+  if (!projectName) return null;
+  const str = (value: unknown) => (typeof value === "string" && value.trim() !== "" ? value : undefined);
+  const options: OptionWithAction[] = [];
+  if (args.choose) {
+    for (const id of args.choose) {
+      const name = args.projectNames.get(id);
+      if (name) options.push({ label: name, action: { type: "choose_project", projectId: id } });
+    }
+  } else {
+    for (const raw of args.actions) {
+      const a = raw.args;
+      const label = t(lang, `mailProposal.action.${raw.type}`, { title: String(a.title ?? ""), name: String(a.name ?? ""), ticket: "" });
+      let action: GoogleProposalAction | null = null;
+      if (raw.type === "create_task" && str(a.title)) {
+        action = {
+          type: "create_task",
+          projectId: args.projectId,
+          title: String(a.title),
+          ...(str(a.description) ? { body: String(a.description) } : {}),
+          ...(str(a.assigneeId) ? { assigneeId: String(a.assigneeId) } : {}),
+          ...(str(a.dueDate) ? { dueDate: String(a.dueDate) } : {}),
+        };
+      } else if (raw.type === "create_backlog_item" && str(a.title)) {
+        action = { type: "create_backlog_item", projectId: args.projectId, title: String(a.title), ...(str(a.description) ? { body: String(a.description) } : {}) };
+      } else if (raw.type === "create_milestone" && str(a.name)) {
+        action = { type: "create_milestone", projectId: args.projectId, name: String(a.name), ...(str(a.dueDate) ? { dueDate: String(a.dueDate) } : {}) };
+      } else if (raw.type === "comment_ticket" && str(a.ticketId) && str(a.body)) {
+        action = { type: "comment_ticket", ticketId: String(a.ticketId), body: String(a.body) };
+      } else if (raw.type === "update_ticket" && str(a.ticketId)) {
+        const patch = (a.patch ?? {}) as Record<string, unknown>;
+        action = {
+          type: "update_ticket",
+          ticketId: String(a.ticketId),
+          ...(str(patch.status) ? { status: patch.status as "open" } : {}),
+          ...(str(patch.priority) ? { priority: patch.priority as "low" } : {}),
+        };
+      } else if (raw.type === "record_decision" && str(a.title) && str(a.decision)) {
+        action = {
+          type: "record_decision",
+          projectId: args.projectId,
+          title: String(a.title),
+          decision: String(a.decision),
+          ...(str(a.ticketId) ? { ticketId: String(a.ticketId) } : {}),
+        };
+      }
+      if (action) options.push({ label, action });
+    }
+  }
+  if (options.length === 0) return null;
+  const from = args.message.fromName ? `${args.message.fromName} <${args.message.fromAddress}>` : args.message.fromAddress;
+  const subject = args.message.subject?.trim() || t(lang, "email.input.none");
+  return assembleEvent({
+    proposalId: args.proposalId,
+    source: "email",
+    messageUrl: gmailThreadUrl(args.mailboxEmail, args.message.threadId),
+    projectId: args.projectId,
+    projectName,
+    signal: "request",
+    from,
+    subject,
+    receivedAt: args.message.receivedAt,
+    question: args.choose
+      ? t(lang, "mailProposal.action.choose_project", {})
+      : t(lang, "google.proposal.question.withProject", { project: projectName, from, subject }),
+    options: [...options, ignoreOption(lang)],
+    recommendedIndex: 0,
+  });
+}
+
 /**
  * Lettura TOLLERANTE della classificazione «da smistare» del padre (fase 6c,
  * `classify.ts`, {@link EmailTriageClassification}) — stessa ragione di

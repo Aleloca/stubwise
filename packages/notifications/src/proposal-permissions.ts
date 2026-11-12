@@ -37,6 +37,8 @@ import type { ProjectPermission } from "@stubwise/shared";
 import type { GoogleProposalActionType } from "./format.js";
 
 const PERMISSION_FOR_ACTION: Record<GoogleProposalActionType, ProjectPermission | null> = {
+  // Area 6, F2: la task delle proposte condivise.
+  create_task: "tickets.create",
   create_backlog_item: "backlog.edit",
   create_milestone: "tickets.edit",
   update_ticket: "tickets.edit",

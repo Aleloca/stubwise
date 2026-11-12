@@ -78,6 +78,7 @@ import {
 } from "./calendar.js";
 import { executeAutoCalendarAction } from "./calendar-auto.js";
 import { classifyNewMessagesV2 } from "./classify-v2.js";
+import { publishSharedProposals } from "./publish-shared.js";
 import {
   classifyNewMessages,
   needsReclassification,
@@ -2283,7 +2284,20 @@ async function runAccountTick(
   // Fase 4 — le righe pronte (di questo giro e di quelli prima) diventano
   // proposte in inbox. Dopo i cursori: non parla con Google, e un suo guasto
   // non deve poter costare una risincronizzazione.
-  const proposed = account.proposalsEnabled ? await runProposePhase(deps, account) : 0;
+  let proposed = account.proposalsEnabled ? await runProposePhase(deps, account) : 0;
+  // Area 6, F2: le proposte CONDIVISE nate dalla posta di questa casella, una
+  // card per destinatario membro (D4). Le crea solo la classificazione nuova,
+  // che ha già rispettato l'interruttore di questa casella.
+  if (account.proposalsEnabled) {
+    try {
+      proposed += await publishSharedProposals(
+        { db: deps.db, ...(deps.lang ? { lang: deps.lang } : {}), ...(deps.publish ? { publish: deps.publish } : {}) },
+        account.id,
+      );
+    } catch (err) {
+      (deps.logger ?? defaultLogger).error(`google: pubblicazione delle proposte condivise di ${account.email} fallita: ${errText(err)}`);
+    }
+  }
 
   return { ingested: gmailResult.ingested, classify, calendar: calendar.stats, proposed };
 }

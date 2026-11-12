@@ -25,6 +25,7 @@ import {
   calendarEvents,
   deletedTickets,
   emailMessages,
+  emailProposalRecipients,
   emailProposals,
   googleAccounts,
   comments,
@@ -1565,6 +1566,15 @@ async function sourceProposalIdsByNotification(
       ),
     );
   for (const row of rows) {
+    if (row.notificationId !== null) byNotification.set(row.notificationId, row.proposalId);
+  }
+  // Area 6, F2: le proposte CONDIVISE hanno una card per destinatario, scritta
+  // in `email_proposal_recipients` (non in `proposal_notification_id`).
+  const shared = await db
+    .select({ notificationId: emailProposalRecipients.notificationId, proposalId: emailProposalRecipients.proposalId })
+    .from(emailProposalRecipients)
+    .where(and(inArray(emailProposalRecipients.notificationId, notificationIds), eq(emailProposalRecipients.userId, userId)));
+  for (const row of shared) {
     if (row.notificationId !== null) byNotification.set(row.notificationId, row.proposalId);
   }
   return byNotification;
