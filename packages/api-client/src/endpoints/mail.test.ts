@@ -223,6 +223,22 @@ describe("endpoints mail", () => {
     expect(detail.subject).toBeNull();
   });
 
+  it("setRead (area 6, F1.3): POST col body { account, read }; `unread` assente (server di prima) si legge false", async () => {
+    const { c, fetchImpl } = clientReturning(200, {
+      threadId: "t1",
+      accountId: ID,
+      accountEmail: "ops@example.com",
+      url: "https://mail.google.com/x",
+      messages: [{ id: ID, from: "cliente@example.com", receivedAt: "2026-09-11T09:00:00.000Z" }],
+    });
+    const detail = await c.mail.setRead("thread/1", ID, true);
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(url).toBe("/api/me/mail/threads/thread%2F1/read");
+    expect(init!.method).toBe("POST");
+    expect(JSON.parse(String(init!.body))).toEqual({ account: ID, read: true });
+    expect(detail.messages[0]!.unread).toBe(false);
+  });
+
   it("thread: 404 su un thread che non è dell'utente (mai 403)", async () => {
     const { c } = clientReturning(404, { code: "not_found", message: "…" });
     const error = await c.mail.thread("t1").catch((e: unknown) => e);

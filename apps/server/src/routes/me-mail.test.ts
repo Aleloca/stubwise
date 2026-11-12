@@ -981,6 +981,9 @@ describe("GET /api/me/mail/:source/:id/original (fase 7b, Task 7)", () => {
   const fakeGoogleClient: MailOriginalClient = {
     refreshAccessToken: async () => FAKE_TOKENS,
     getMessageFull: async () => fakeGmailMessage(),
+    modifyThread: async () => {
+      throw new Error("modifyThread non previsto in questi test");
+    },
   };
   let appOriginal: FastifyInstance;
   let memberCookieOriginal: string;
@@ -1150,6 +1153,9 @@ describe("GET /api/me/mail/:source/:id/original — la cache (Task 2)", () => {
   const fakeGoogleClient: MailOriginalClient = {
     refreshAccessToken: async () => FAKE_TOKENS,
     getMessageFull: async () => fakeGmailMessage(),
+    modifyThread: async () => {
+      throw new Error("modifyThread non previsto in questi test");
+    },
   };
   let appCache: FastifyInstance;
   let cookie: string;
@@ -2048,5 +2054,131 @@ describe("GET /api/me/mail/threads?q (area 6, F1.4)", () => {
     expect(page1.items.map((t) => t.subject)).toEqual(["Lemure 2", "Lemure 1"]);
     const second = await getThreads(memberCookie, `?q=lemure&limit=2&cursor=${encodeURIComponent(page1.nextCursor)}`);
     expect((second.json() as { items: { subject: string }[] }).items.map((t) => t.subject)).toEqual(["Lemure 0"]);
+  });
+});
+
+describe("POST /api/me/mail/threads/:threadId/read (area 6, F1.3)", () => {
+  const FULL = [
+    "openid",
+    "email",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/calendar.readonly",
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/drive.readonly",
+  ];
+  const modifyCalls: { accessToken: string; id: string; addLabelIds?: string[]; removeLabelIds?: string[] }[] = [];
+  let modifyFailure: unknown = null;
+  const fake: MailOriginalClient = {
+    refreshAccessToken: async () => ({ ...FAKE_TOKENS, accessToken: "at-della-casella" }),
+    getMessageFull: async () => fakeGmailMessage(),
+    modifyThread: async (input) => {
+      modifyCalls.push(input);
+      if (modifyFailure) throw modifyFailure;
+    },
+  };
+  let appRead: FastifyInstance;
+  let cookie: string;
+  let otherCookie: string;
+
+  beforeAll(async () => {
+    appRead = buildApp({ db, sessionSecret: SESSION_SECRET, encryptionKey: ENCRYPTION_KEY.toString("base64"), mailGoogleClient: fake });
+    cookie = await fullSessionCookie(appRead, memberId);
+    otherCookie = await fullSessionCookie(appRead, adminId);
+  }, 60_000);
+  afterAll(async () => {
+    await appRead.close();
+  });
+  beforeEach(() => {
+    modifyCalls.length = 0;
+    modifyFailure = null;
+  });
+
+  async function seedThread(scopes = FULL) {
+    const { accountId } = await seedAccount(memberId);
+    await db.update(googleAccounts).set({ scopes }).where(eq(googleAccounts.id, accountId));
+    const threadId = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId, unread: true, receivedAt: new Date("2026-09-01T08:00:00.000Z") });
+    await seedEmail(accountId, { threadId, unread: null, receivedAt: new Date("2026-09-02T08:00:00.000Z") });
+    return { accountId, threadId };
+  }
+  function markRead(c: string, threadId: string, body: Record<string, unknown>) {
+    return appRead.inject({ method: "POST", url: `/api/me/mail/threads/${encodeURIComponent(threadId)}/read`, headers: { cookie: c }, payload: body });
+  }
+  async function unreadOf(threadId: string) {
+    const rows = await db.select({ unread: emailMessages.unread }).from(emailMessages).where(eq(emailMessages.threadId, threadId)).orderBy(emailMessages.receivedAt);
+    return rows.map((r) => r.unread);
+  }
+
+  it("letto: toglie UNREAD su Google col token della casella, POI scrive lo stato locale, e risponde col thread", async () => {
+    const { accountId, threadId } = await seedThread();
+    const res = await markRead(cookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(200);
+    expect(modifyCalls).toEqual([{ accessToken: "at-della-casella", id: threadId, removeLabelIds: ["UNREAD"] }]);
+    expect(await unreadOf(threadId)).toEqual([false, false]);
+    const body = res.json() as { threadId: string; messages: { unread: boolean }[] };
+    expect(body.threadId).toBe(threadId);
+    expect(body.messages.map((m) => m.unread)).toEqual([false, false]);
+  });
+
+  it("non letto: aggiunge UNREAD, e /threads lo dice", async () => {
+    const { accountId, threadId } = await seedThread();
+    await db.update(emailMessages).set({ unread: false }).where(eq(emailMessages.threadId, threadId));
+    const res = await markRead(cookie, threadId, { account: accountId, read: false });
+    expect(res.statusCode).toBe(200);
+    expect(modifyCalls[0]).toMatchObject({ addLabelIds: ["UNREAD"] });
+    expect(await unreadOf(threadId)).toEqual([true, true]);
+    const list = await appRead.inject({ method: "GET", url: "/api/me/mail/threads", headers: { cookie } });
+    expect((list.json() as { items: { threadId: string; unread: boolean }[] }).items.find((t) => t.threadId === threadId)!.unread).toBe(true);
+  });
+
+  it("un rifiuto di Google NON cambia lo stato locale", async () => {
+    const { accountId, threadId } = await seedThread();
+    modifyFailure = new GoogleApiError({ api: "gmail.threads.modify", status: 500, code: "backendError", reason: "backendError" });
+    const res = await markRead(cookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(502);
+    expect(await unreadOf(threadId)).toEqual([true, null]);
+  });
+
+  it("senza gmail.modify (una casella di prima): 409 google_scope_missing con `missing`, e nessuna chiamata a Google", async () => {
+    const legacy = ["openid", "email", "https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/calendar.readonly"];
+    const { accountId, threadId } = await seedThread(legacy);
+    const res = await markRead(cookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(409);
+    const body = res.json() as { code: string; missing: string[] };
+    expect(body.code).toBe("google_scope_missing");
+    expect(body.missing).toContain("https://www.googleapis.com/auth/gmail.modify");
+    expect(modifyCalls).toEqual([]);
+    expect(await unreadOf(threadId)).toEqual([true, null]);
+  });
+
+  it("il thread di un altro (anche per un admin): 404, nessuna chiamata a Google", async () => {
+    const { accountId, threadId } = await seedThread();
+    const res = await markRead(otherCookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(404);
+    expect(modifyCalls).toEqual([]);
+    expect(await unreadOf(threadId)).toEqual([true, null]);
+  });
+
+  it("un thread che non c'è in quella casella: 404", async () => {
+    const { accountId } = await seedThread();
+    expect((await markRead(cookie, "nessuno", { account: accountId, read: true })).statusCode).toBe(404);
+  });
+
+  it("una casella disabilitata: 409 account_disabled, nessuna chiamata", async () => {
+    const { accountId, threadId } = await seedThread();
+    await db.update(googleAccounts).set({ disabledAt: new Date(), disabledReason: "revoked" }).where(eq(googleAccounts.id, accountId));
+    const res = await markRead(cookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("account_disabled");
+    expect(modifyCalls).toEqual([]);
+  });
+
+  it("token scaduto su Google: 409 token_expired, stato invariato", async () => {
+    const { accountId, threadId } = await seedThread();
+    modifyFailure = new GoogleApiError({ api: "gmail.threads.modify", status: 401, code: "unauthorized", reason: "authError" });
+    const res = await markRead(cookie, threadId, { account: accountId, read: true });
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("token_expired");
+    expect(await unreadOf(threadId)).toEqual([true, null]);
   });
 });

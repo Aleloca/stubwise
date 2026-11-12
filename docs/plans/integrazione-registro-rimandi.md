@@ -264,6 +264,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   vista al claim, una scritta a giro in corso resta e la casella torna dovuta;
   (d) con `GMAIL_POLL_MINUTES=0` una richiesta non viene servita (il
   rollback): va nell'invariante `mail-calendar.md` alla F1.5.
+- F1.3 letto / non letto, limite *(S)*: dopo un resync per query (primo
+  giro, history scaduta) i messaggi GIÀ ingeriti non rileggono `UNREAD`
+  finché non cambia di nuovo su Gmail; le righe di prima della 0149 sono
+  `unread = null`, lette come «letto». Un recupero (rileggere le etichette
+  dei thread recenti al resync) costa una chiamata per messaggio: non ora.
 
 ## Area 7 — Automazioni
 

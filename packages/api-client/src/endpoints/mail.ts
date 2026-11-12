@@ -113,6 +113,17 @@ export function createMailEndpoints(request: ApiRequest) {
     },
 
     /**
+     * Letto / non letto su GMAIL (area 6, F1.3): scrive sulla casella (tutto
+     * il thread) e lo stato locale solo dopo il sì di Google; risponde col
+     * dettaglio aggiornato. 409 `google_scope_missing` (con `missing` nei
+     * `details`) per una casella da ricollegare, `account_disabled`,
+     * `token_expired`; 404 un thread non tuo; 502 `google_unavailable`.
+     */
+    setRead(threadId: string, account: string, read: boolean): Promise<Reader<MailThreadDetail>> {
+      return request("POST", `/api/me/mail/threads/${seg(threadId)}/read`, { account, read }, mailThreadDetailSchema);
+    },
+
+    /**
      * Il dettaglio di una conversazione: i messaggi in ordine, ciascuno con
      * la sua provenienza — `admitted: false` è un messaggio tirato dentro
      * come CONTESTO del thread, che si legge ma non produce proposte.

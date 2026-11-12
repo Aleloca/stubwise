@@ -35,6 +35,7 @@ function detail(overrides: Partial<Reader<MailThreadDetail>> = {}): Reader<MailT
         // Un messaggio di CONTESTO non ha proposte, quindi non ha niente da
         // riproporre: non è «non ancora», è «mai».
         reproposals: [],
+        unread: false,
         proposalOutcomes: [],
       },
       {
@@ -46,6 +47,7 @@ function detail(overrides: Partial<Reader<MailThreadDetail>> = {}): Reader<MailT
         admitted: true,
         proposalIds: [PROPOSTA],
         reproposals: [{ source: "email", id: PROPOSTA, projectName: "Apollo" }],
+        unread: false,
         proposalOutcomes: [],
       },
     ],
@@ -157,6 +159,7 @@ describe("ThreadDetailScreen", () => {
             admitted: true,
             proposalIds: [],
             reproposals: [],
+            unread: false,
             proposalOutcomes: [],
           },
         ],
@@ -184,6 +187,7 @@ describe("ThreadDetailScreen", () => {
             admitted: true,
             proposalIds: ["p1", "p2"],
             reproposals: [],
+            unread: false,
             proposalOutcomes: [
               // Il testo arriva GIÀ localizzato dal server: qui si verifica
               // che venga mostrato, non che venga tradotto.
@@ -222,6 +226,7 @@ describe("ThreadDetailScreen", () => {
             admitted: true,
             proposalIds: ["p9"],
             reproposals: [],
+            unread: false,
             proposalOutcomes: [{ id: "p9", projectName: "Wilco", failed: false, label: null }],
           },
         ],

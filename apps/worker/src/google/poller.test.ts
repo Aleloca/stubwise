@@ -205,7 +205,9 @@ function message(input: {
 
 /** Client Google finto: registra ogni chiamata e risponde da una mappa. */
 function fakeGmail(setup: {
-  history?: { addedMessageIds: string[]; historyId: string | null } | (() => never);
+  history?:
+    | { addedMessageIds: string[]; historyId: string | null; unreadChanges?: { messageId: string; unread: boolean }[] }
+    | (() => never);
   historyError?: unknown;
   listed?: string[];
   messages?: Record<string, ReturnType<typeof message>>;
@@ -219,12 +221,14 @@ function fakeGmail(setup: {
    */
   threads?: Record<string, ReturnType<typeof message>[]>;
   threadError?: unknown;
-}): GmailClient & { calls: string[]; listQueries: string[] } {
+}): GmailClient & { calls: string[]; listQueries: string[]; historyTypes: (string[] | undefined)[] } {
   const calls: string[] = [];
   const listQueries: string[] = [];
+  const historyTypes: (string[] | undefined)[] = [];
   const client = {
     calls,
     listQueries,
+    historyTypes,
     refreshAccessToken: async () => {
       calls.push("refresh");
       if (setup.refreshError) throw setup.refreshError;
@@ -237,12 +241,13 @@ function fakeGmail(setup: {
         idToken: null,
       };
     },
-    listHistory: async () => {
+    listHistory: async (input: { historyTypes?: string[] }) => {
       calls.push("history");
+      historyTypes.push(input.historyTypes);
       if (setup.historyError) throw setup.historyError;
       const page = setup.history ?? { addedMessageIds: [], historyId: null };
       if (typeof page === "function") return page();
-      return { ...page, nextPageToken: null };
+      return { unreadChanges: [], ...page, nextPageToken: null };
     },
     listMessages: async (input: { q?: string }) => {
       calls.push("list");
@@ -277,7 +282,7 @@ function fakeGmail(setup: {
       return { id: input.id, messages: only };
     },
   };
-  return client as unknown as GmailClient & { calls: string[]; listQueries: string[] };
+  return client as unknown as GmailClient & { calls: string[]; listQueries: string[]; historyTypes: (string[] | undefined)[] };
 }
 
 /**
@@ -3655,5 +3660,76 @@ describe("«Aggiorna ora»", () => {
       stop();
       controller.abort();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Letto / non letto (area 6, F1.3)
+// ---------------------------------------------------------------------------
+
+describe("letto / non letto da Gmail", () => {
+  async function admittedSetup() {
+    const projectId = await seedProject("Acme");
+    await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_address", value: "cliente@cliente.com" });
+  }
+
+  it("all'ingestione `unread` viene dall'etichetta UNREAD (anche per il contesto del thread)", async () => {
+    await admittedSetup();
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const gmail = fakeGmail({
+      history: { addedMessageIds: ["m1", "m2"], historyId: "1010" },
+      messages: {
+        m1: message({ id: "m1", labels: ["INBOX", "UNREAD"] }),
+        m2: message({ id: "m2", labels: ["INBOX"] }),
+      },
+      threads: {
+        "thread-m1": [message({ id: "m1", labels: ["INBOX", "UNREAD"] }), message({ id: "c1", threadId: "thread-m1", labels: ["UNREAD"] })],
+      },
+    });
+    await pollGoogleOnce(deps(account, gmail));
+    const rows = await db.select({ id: emailMessages.gmailMessageId, unread: emailMessages.unread }).from(emailMessages);
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.unread]))).toEqual({ m1: true, m2: false, c1: true });
+  });
+
+  it("la history chiede anche i cambi di etichetta, e li applica ai messaggi che Stubwise ha", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    await db.insert(emailMessages).values([
+      { accountId: account.id, gmailMessageId: "a", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: true },
+      { accountId: account.id, gmailMessageId: "b", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: null },
+      { accountId: account.id, gmailMessageId: "c", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: false },
+    ]);
+    const gmail = fakeGmail({
+      history: {
+        addedMessageIds: [],
+        historyId: "1010",
+        unreadChanges: [
+          { messageId: "a", unread: false },
+          { messageId: "b", unread: true },
+          { messageId: "c", unread: true },
+          { messageId: "c", unread: false },
+          { messageId: "sconosciuto", unread: true },
+        ],
+      },
+    });
+    await pollGoogleOnce(deps(account, gmail));
+    expect(gmail.historyTypes[0]).toEqual(["messageAdded", "labelAdded", "labelRemoved"]);
+    const rows = await db.select({ id: emailMessages.gmailMessageId, unread: emailMessages.unread }).from(emailMessages);
+    expect(Object.fromEntries(rows.map((r) => [r.id, r.unread]))).toEqual({ a: false, b: true, c: false });
+    expect(rows).toHaveLength(3);
+  });
+
+  it("i cambi di una casella non toccano la stessa id di messaggio in un'altra casella", async () => {
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000), gmailHistoryId: "1000" });
+    const other = await seedAccount({ email: `altra-${randomUUID()}@acme.com`, nextSyncAt: new Date(Date.now() + 3_600_000) });
+    await db.insert(emailMessages).values([
+      { accountId: account.id, gmailMessageId: "a", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: true },
+      { accountId: other.id, gmailMessageId: "a", threadId: "t", fromAddress: "x@cliente.com", receivedAt: new Date(), unread: true },
+    ]);
+    const gmail = fakeGmail({ history: { addedMessageIds: [], historyId: "1010", unreadChanges: [{ messageId: "a", unread: false }] } });
+    await pollGoogleOnce(deps(account, gmail));
+    const [mine] = await db.select().from(emailMessages).where(eq(emailMessages.accountId, account.id));
+    const [theirs] = await db.select().from(emailMessages).where(eq(emailMessages.accountId, other.id));
+    expect(mine!.unread).toBe(false);
+    expect(theirs!.unread).toBe(true);
   });
 });

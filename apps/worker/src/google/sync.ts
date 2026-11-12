@@ -11,7 +11,7 @@
  * @see poller.ts per l'orchestrazione del tick.
  */
 import type { GmailMessage } from "@stubwise/google";
-import { GoogleApiError, isFatalGoogleError } from "@stubwise/google";
+import { GMAIL_UNREAD_LABEL, GoogleApiError, isFatalGoogleError } from "@stubwise/google";
 import { normalizeAddress, parseAddressList, type EmailForRouting } from "@stubwise/notifications";
 
 /**
@@ -232,6 +232,8 @@ export interface EmailMessageInsert {
   fromAddress: string;
   fromName: string | null;
   toAddresses: string[];
+  /** Area 6, F1.3: non letto su Gmail all'ingestione (etichetta `UNREAD`). */
+  unread: boolean;
   /**
    * Chi è in COPIA (16 set 2026). Mai `null` da qui: un messaggio senza
    * header `Cc` dà `[]`, cioè «guardato, nessuno in copia» — il `null` in
@@ -295,6 +297,8 @@ export function buildEmailMessageInsert(input: {
     subject: subject ? subject : null,
     receivedAt: message.internalDate ?? input.now,
     labels: message.labelIds,
+    // Area 6, F1.3: letto / non letto come lo dice Gmail adesso.
+    unread: message.labelIds.includes(GMAIL_UNREAD_LABEL),
     textExcerpt: input.text.trim() === "" ? null : input.text,
     projectId: input.projectId,
     candidateProjectIds: input.candidateProjectIds,

@@ -638,6 +638,12 @@ interface MessageBatch {
   /** Il giro è passato dal resync per query (primo giro o history scaduta). */
   resynced: boolean;
   /**
+   * Area 6, F1.3: i cambi di `UNREAD` letti dalla history, in ordine (vince
+   * l'ultimo). Vuoto dopo un resync per query: lì i messaggi nuovi portano la
+   * loro etichetta, quelli già ingeriti restano com'erano fino al cambio dopo.
+   */
+  unreadChanges: { messageId: string; unread: boolean }[];
+  /**
    * Il lotto NON copre tutta la history disponibile: `ids` è stato tagliato a
    * {@link GMAIL_RESYNC_MAX_MESSAGES}, o resta almeno una pagina non letta.
    * `historyId` (lo stato "adesso" della casella) non è quindi un cursore
@@ -670,6 +676,7 @@ async function collectMessageIds(
   if (account.gmailHistoryId) {
     try {
       const ids: string[] = [];
+      const unreadChanges: { messageId: string; unread: boolean }[] = [];
       let pageToken: string | null = null;
       let historyId: string | null = null;
       do {
@@ -677,8 +684,11 @@ async function collectMessageIds(
           accessToken: ctx.accessToken,
           startHistoryId: account.gmailHistoryId,
           pageToken,
+          // Area 6, F1.3: anche i cambi di etichetta, per il letto/non letto.
+          historyTypes: GMAIL_HISTORY_TYPES,
         });
         ids.push(...page.addedMessageIds);
+        unreadChanges.push(...(page.unreadChanges ?? []));
         historyId = page.historyId ?? historyId;
         pageToken = page.nextPageToken;
       } while (pageToken && ids.length < GMAIL_RESYNC_MAX_MESSAGES);
@@ -688,7 +698,7 @@ async function collectMessageIds(
       // ha da sola superato il tetto: in entrambi i casi `ids.slice(...)` sotto
       // lascia fuori messaggi che questo giro non vedrà.
       const truncated = pageToken !== null || ids.length > GMAIL_RESYNC_MAX_MESSAGES;
-      return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId, resynced: false, truncated };
+      return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId, resynced: false, truncated, unreadChanges };
     } catch (err) {
       if (!isHistoryExpired(err)) throw err;
       logger.info(
@@ -715,7 +725,34 @@ async function collectMessageIds(
   // non lasciare un campo silenziosamente falso quando in futuro qualcosa ne
   // dipendesse.
   const truncated = pageToken !== null || ids.length > GMAIL_RESYNC_MAX_MESSAGES;
-  return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId: null, resynced: true, truncated };
+  return { ids: ids.slice(0, GMAIL_RESYNC_MAX_MESSAGES), historyId: null, resynced: true, truncated, unreadChanges: [] };
+}
+
+/** I tipi di history che il giro chiede: i messaggi nuovi e i cambi di etichetta. */
+const GMAIL_HISTORY_TYPES = ["messageAdded", "labelAdded", "labelRemoved"];
+
+/**
+ * Area 6, F1.3: applica i cambi di `UNREAD` della history ai messaggi di
+ * QUESTA casella che Stubwise ha (gli altri si ignorano: non si scarica
+ * niente per un cambio di etichetta). Vince l'ultimo cambio di ogni
+ * messaggio; un UPDATE per stato, non uno per messaggio.
+ */
+async function applyUnreadChanges(
+  db: Db,
+  accountId: string,
+  changes: { messageId: string; unread: boolean }[],
+): Promise<void> {
+  if (changes.length === 0) return;
+  const last = new Map<string, boolean>();
+  for (const change of changes) last.set(change.messageId, change.unread);
+  for (const unread of [true, false]) {
+    const ids = [...last].filter(([, value]) => value === unread).map(([id]) => id);
+    if (ids.length === 0) continue;
+    await db
+      .update(emailMessages)
+      .set({ unread })
+      .where(and(eq(emailMessages.accountId, accountId), inArray(emailMessages.gmailMessageId, ids)));
+  }
 }
 
 /** Gli id che questa casella ha già in `email_messages`: non si riscaricano. */
@@ -907,6 +944,9 @@ async function syncGmail(
   const now = deps.now ?? (() => new Date());
 
   const batch = await collectMessageIds(deps, ctx, account);
+  // Prima dell'ingestione: un messaggio nuovo prende poi la sua etichetta di
+  // adesso dal `full`, che è comunque lo stato più recente.
+  await applyUnreadChanges(deps.db, account.id, batch.unreadChanges);
   const ids = await filterAlreadyIngested(deps.db, account.id, batch.ids);
 
   let ingested = 0;
