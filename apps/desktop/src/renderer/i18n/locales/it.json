@@ -5935,7 +5935,8 @@
       "scopes": "Ricollega per dare a Stubwise i nuovi permessi",
       "scopesMissing": "Finché non ricolleghi, Stubwise non può {{what}}.",
       "feature": {
-        "markRead": "segnare la posta come letta o non letta"
+        "markRead": "segnare la posta come letta o non letta",
+        "drive": "usare i file del tuo Google Drive e gli appunti delle riunioni"
       }
     },
     "expired": {
