@@ -32,10 +32,15 @@ interface LegacyRow {
 }
 
 /** Le proposte di prima delle caselle di chi guarda, filtrate. */
-export async function legacyRows(db: Db, viewerId: string, filter: { id?: string | undefined; messageId?: string | undefined }): Promise<LegacyRow[]> {
+export async function legacyRows(
+  db: Db,
+  viewerId: string,
+  filter: { id?: string | undefined; messageId?: string | undefined; thread?: { threadId: string; accountId: string } | undefined },
+): Promise<LegacyRow[]> {
   const conditions = [eq(emailProposals.audience, "mailbox_owner"), eq(googleAccounts.userId, viewerId)];
   if (filter.id) conditions.push(eq(emailProposals.id, filter.id));
   if (filter.messageId) conditions.push(eq(emailProposals.emailMessageId, filter.messageId));
+  if (filter.thread) conditions.push(eq(emailMessages.threadId, filter.thread.threadId), eq(emailMessages.accountId, filter.thread.accountId));
   const rows = await db
     .select({ proposal: emailProposals, message: emailMessages, card: notifications.event, notificationId: notifications.id })
     .from(emailProposals)

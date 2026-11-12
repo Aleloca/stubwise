@@ -154,3 +154,29 @@ describe("publishSharedProposals", () => {
     expect(await notifiedUsers()).toEqual([]);
   });
 });
+
+describe("review F2, punto 7: «Quale progetto?» va a chi vede ALMENO UNO dei progetti incerti, ognuno coi SUOI", () => {
+  it("Bruno, membro solo del secondo progetto incerto, riceve la card con quel progetto soltanto; Ada col primo soltanto", async () => {
+    const s = await scenario();
+    const [beta] = await db.insert(projects).values({ name: "Beta", slug: `beta-${s.tag}`, ingestionKey: randomUUID() }).returning();
+    // Bruno esce da Audin ed entra in Beta; Ada resta in Audin; Carla (non destinataria) in Beta.
+    await db.delete(projectMembers).where(eq(projectMembers.userId, s.bruno));
+    await db.insert(projectMembers).values([
+      { projectId: beta!.id, userId: s.bruno, roleId },
+      { projectId: beta!.id, userId: s.carla, roleId },
+    ]);
+    await db
+      .update(emailProposals)
+      .set({ projectId: s.project.id, classification: { version: 2, summary: "", actions: [], choose: { projectIds: [s.project.id, beta!.id] } } })
+      .where(eq(emailProposals.id, s.proposal.id));
+
+    await publishSharedProposals({ db, lang: "it" }, s.box.id);
+
+    const cards = await db.select().from(notifications);
+    const optionsOf = (userId: string) =>
+      ((cards.find((c) => c.userId === userId)?.event as { actions?: { type: string; projectId?: string }[] } | undefined)?.actions ?? []).map((a) => a.projectId ?? a.type);
+    expect(optionsOf(s.bruno)).toEqual([beta!.id, "ignore"]);
+    expect(optionsOf(s.ada)).toEqual([s.project.id, "ignore"]);
+    expect(cards.map((c) => c.userId)).not.toContain(s.carla);
+  });
+});

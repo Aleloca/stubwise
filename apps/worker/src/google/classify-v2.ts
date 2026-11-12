@@ -274,6 +274,11 @@ export async function loadCandidateProjects(db: Db, recipientUserIds: readonly s
   return out;
 }
 
+/** Un testo non fidato non può aprire né chiudere il blocco dell'email. */
+function untrusted(text: string): string {
+  return text.replace(/<<</g, "‹‹‹").replace(/>>>/g, "›››");
+}
+
 /** Il prompt. Le istruzioni sono fisse; l'email sta fra i delimitatori. */
 export function buildClassifyV2Prompt(
   lang: Language,
@@ -315,18 +320,24 @@ export function buildClassifyV2Prompt(
     "  create_milestone {name, dueDate?}; record_decision {title, decision, ticketNumber?}.",
     "  ticketNumber only from the open tasks listed. No proposal when nothing needs doing.",
     `- Write titles, descriptions and the summary in ${language}.`,
+    // Il riassunto lo leggono i destinatari di OGNI proposta nata da questa
+    // email, che possono non vedere gli altri progetti candidati (punto 10).
+    "- The summary is shared with people who may not see the other candidate projects: it must never mention tasks or people of the candidate projects; describe only what the email says.",
     "",
     "Candidate projects:",
     projectsText,
     "",
-    input.thread.length > 0
-      ? `Earlier messages in the conversation (oldest first):\n${input.thread.map((m) => `- ${m.from}: ${m.text}`).join("\n")}\n`
-      : "",
+    // Tutto il testo dei messaggi — anche i PRECEDENTI del thread — sta fra i
+    // delimitatori, e un delimitatore scritto nel testo non chiude il blocco
+    // (review F2, punto 9).
     EMAIL_DELIMITER_START,
-    `From: ${input.from}`,
-    `Subject: ${input.subject ?? ""}`,
+    ...(input.thread.length > 0
+      ? [`Earlier messages in the conversation (oldest first):`, ...input.thread.map((m) => `- ${untrusted(m.from)}: ${untrusted(m.text)}`), "", "The email to classify:"]
+      : []),
+    `From: ${untrusted(input.from)}`,
+    `Subject: ${untrusted(input.subject ?? "")}`,
     "",
-    input.text.slice(0, CLASSIFY_TEXT_MAX_CHARS),
+    untrusted(input.text.slice(0, CLASSIFY_TEXT_MAX_CHARS)),
     EMAIL_DELIMITER_END,
   ].join("\n");
 }
@@ -374,6 +385,21 @@ export async function classifyNewMessagesV2(deps: ClassifyBatchDeps, accountId: 
         isNull(emailMessages.classificationState),
         sql`exists (select 1 from ${googleAccounts} where ${googleAccounts.id} = ${emailMessages.accountId} and ${googleAccounts.proposalsEnabled}
           and (${googleAccounts.proposalsSince} is null or ${emailMessages.createdAt} >= ${googleAccounts.proposalsSince}))`,
+        // UNA classificazione per Message-ID (review F2, punto 8): fra le copie
+        // della stessa email ancora in attesa (dopo «Quale progetto?» lo
+        // diventano tutte, o due caselle nello stesso giro) guida quella con
+        // l'id più basso; le altre aspettano e al giro dopo la copiano
+        // (`copyFromTwin`). Se quella che guida esce dall'attesa senza
+        // classificarsi (fallita, casella spenta), le altre ripartono.
+        sql`(${emailMessages.rfcMessageId} is null or not exists (
+          select 1 from email_messages o
+          join google_accounts oa on oa.id = o.account_id
+          where o.rfc_message_id = ${emailMessages.rfcMessageId}
+            and o.id < ${emailMessages.id}
+            and o.status = 'new' and o.admitted and o.classification_state is null
+            and oa.proposals_enabled and oa.disabled_at is null
+            and (oa.proposals_since is null or o.created_at >= oa.proposals_since)
+        ))`,
       ),
     )
     .orderBy(asc(emailMessages.receivedAt), asc(emailMessages.id))

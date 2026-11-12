@@ -25,6 +25,8 @@ export const AI_OPERATIONS = [
   "daily_report",
   "weekly_brief",
   "mail_classify",
+  // La bozza di Claude nella Posta (area 6, F3): un gesto della persona, Sonnet di default.
+  "mail_draft",
   "chat",
   // La conversazione libera con Claude (chat, fetta 1): i turni del runner a turni del worker.
   "claude_chat",
@@ -58,7 +60,7 @@ export const AI_OPERATION_GROUPS: {
   { group: "nightly", operations: ["commit_summary", "release_notes", "docs_nightly"] },
   { group: "docs", operations: ["docs_generation", "drive_summary"] },
   { group: "reports", operations: ["daily_report", "weekly_brief"] },
-  { group: "mail", operations: ["mail_classify"] },
+  { group: "mail", operations: ["mail_classify", "mail_draft"] },
   { group: "chat", operations: ["chat", "claude_chat", "backlog_merge"] },
   { group: "technical", operations: ["plugin_smoke", "credential_test", "usage_probe"] },
 ];

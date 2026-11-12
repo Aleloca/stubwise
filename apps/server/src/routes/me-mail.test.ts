@@ -19,7 +19,7 @@ import { eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
-import { fullSessionCookie, seedUsers } from "../test/fixtures.js";
+import { addMember, fullSessionCookie, seedUsers } from "../test/fixtures.js";
 import type { MailOriginalClient } from "./me-mail.js";
 
 /**
@@ -2210,6 +2210,7 @@ describe("GET /api/me/mail/threads — la classificazione nuova (area 6, F2, tas
   it("importanza più alta, scadenza più vicina, in analisi, fallita, progetti per id, l'inizio dell'ultimo messaggio", async () => {
     const { accountId } = await seedAccount(memberId);
     const projectId = await seedProject("Audin");
+    await addMember(app, projectId, memberId, "viewer");
     const t = `t-${randomUUID()}`;
     await seedEmail(accountId, { threadId: t, classificationState: "done", importance: "low", dueDate: "2026-12-01", scopeProjectIds: [projectId], receivedAt: new Date("2026-11-01T08:00:00.000Z") });
     await seedEmail(accountId, { threadId: t, classificationState: "done", importance: "high", dueDate: "2026-11-20", receivedAt: new Date("2026-11-02T08:00:00.000Z") });
@@ -2232,6 +2233,7 @@ describe("GET /api/me/mail/threads — la classificazione nuova (area 6, F2, tas
   it("i filtri: importanza, progetto, senza progetto, importanti (alta E non letta)", async () => {
     const { accountId } = await seedAccount(memberId);
     const projectId = await seedProject("Audin");
+    await addMember(app, projectId, memberId, "viewer");
     const high = `t-${randomUUID()}`;
     const highRead = `t-${randomUUID()}`;
     const none = `t-${randomUUID()}`;
@@ -2251,5 +2253,29 @@ describe("GET /api/me/mail/threads — la classificazione nuova (area 6, F2, tas
     const { accountId } = await seedAccount(memberId);
     await seedEmail(accountId, { classificationState: "done", importance: "high", unread: true });
     expect(rows(await getThreads(adminCookie, "?important=true"))).toEqual([]);
+  });
+  it("NEGATIVO (review F2, punto 4): un progetto che chi guarda NON vede non arriva — né in elenco, né nel filtro, né nel dettaglio", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const mine = await seedProject("Audin");
+    const hidden = await seedProject("Progetto riservato");
+    await addMember(app, mine, memberId, "viewer");
+    const t = `t-${randomUUID()}`;
+    // Un esterno ha messo in Cc un membro di un altro progetto: lo scope lo contiene.
+    await seedEmail(accountId, { threadId: t, classificationState: "done", importance: "normal", scopeProjectIds: [mine, hidden], uncertainProjectIds: [hidden] });
+    const solo = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: solo, classificationState: "done", importance: "normal", scopeProjectIds: [hidden] });
+
+    const items = rows(await getThreads(memberCookie));
+    const row = items.find((r) => r.threadId === t)!;
+    expect(row.projectIds).toEqual([mine]);
+    expect(row.projectNames).toEqual(["Audin"]);
+    expect(items.find((r) => r.threadId === solo)!.projectIds).toEqual([]);
+    // Il filtro non ne conferma l'esistenza; «senza progetto» lo tratta come assente.
+    expect(rows(await getThreads(memberCookie, `?project=${hidden}`))).toEqual([]);
+    expect(rows(await getThreads(memberCookie, "?noProject=true")).map((r) => r.threadId)).toEqual([solo]);
+    const detail = (await app.inject({ method: "GET", url: `/api/me/mail/threads/${t}`, headers: { cookie: memberCookie } })).json() as {
+      messages: { classification: { projectIds: string[]; uncertainProjectIds: string[] } }[];
+    };
+    expect(detail.messages[0]!.classification).toMatchObject({ projectIds: [mine], uncertainProjectIds: [] });
   });
 });

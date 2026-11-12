@@ -26,6 +26,8 @@ import {
   GoogleApiError,
 } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
+import { projectPermissionsOfUser } from "@stubwise/notifications";
+import { visibleProjectIds } from "../auth/access.js";
 import { t } from "@stubwise/i18n";
 import {
   closedReason,
@@ -197,20 +199,36 @@ function firstLine(text: string | null): string {
  * HAVING (sul thread intero, non sul singolo messaggio). Il filtro di
  * proprietà resta nella WHERE: questi lo restringono soltanto.
  */
-function threadClassificationFilters(query: {
-  importance?: "high" | "normal" | "low" | undefined;
-  project?: string | undefined;
-  noProject?: "true" | "false" | undefined;
-  important?: "true" | "false" | undefined;
-}): SQL[] {
+/**
+ * Lo scope di un messaggio RISTRETTO ai progetti che chi guarda vede (review
+ * F2, punto 4): lo scope nasce dai candidati di TUTTI i destinatari, quindi
+ * può contenere progetti altrui — e un progetto invisibile è come uno che
+ * non esiste, anche nei filtri.
+ */
+function visibleScopeSql(visible: "all" | string[]): SQL {
+  if (visible === "all") return sql`${emailMessages.scopeProjectIds}`;
+  const list = visible.length === 0 ? sql`'{}'::uuid[]` : sql`array[${sql.join(visible.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+  return sql`array(select x from unnest(${emailMessages.scopeProjectIds}) as x where x = any(${list}))`;
+}
+
+function threadClassificationFilters(
+  query: {
+    importance?: "high" | "normal" | "low" | undefined;
+    project?: string | undefined;
+    noProject?: "true" | "false" | undefined;
+    important?: "true" | "false" | undefined;
+  },
+  visible: "all" | string[],
+): SQL[] {
+  const scope = visibleScopeSql(visible);
   const done = sql`${emailMessages.classificationState} = 'done'`;
   const out: SQL[] = [];
   if (query.importance) {
     out.push(sql`coalesce(max(${IMPORTANCE_RANK_SQL}) filter (where ${done}), 0) = ${RANK_BY_IMPORTANCE[query.importance]}`);
   }
-  if (query.project) out.push(sql`coalesce(bool_or(${done} and ${query.project}::uuid = any(${emailMessages.scopeProjectIds})), false)`);
+  if (query.project) out.push(sql`coalesce(bool_or(${done} and ${query.project}::uuid = any(${scope})), false)`);
   if (query.noProject === "true") {
-    out.push(sql`coalesce(bool_or(${done}), false) and not coalesce(bool_or(${done} and cardinality(${emailMessages.scopeProjectIds}) > 0), false)`);
+    out.push(sql`coalesce(bool_or(${done}), false) and not coalesce(bool_or(${done} and cardinality(${scope}) > 0), false)`);
   }
   if (query.important === "true") {
     out.push(sql`coalesce(bool_or(${done} and ${emailMessages.importance} = 'high' and ${emailMessages.unread}), false)`);
@@ -1061,6 +1079,11 @@ export async function meMailRoutes(
 
     const first = rows[0];
     if (!first) return null;
+    // Solo i progetti che chi guarda vede (review F2, punto 4).
+    const mentioned = [...new Set(rows.flatMap((r) => [...r.scopeProjectIds, ...r.uncertainProjectIds]))];
+    const seenProjects = new Set<string>();
+    for (const id of mentioned) if (await projectPermissionsOfUser(app.db, input.userId, id)) seenProjects.add(id);
+    const onlySeen = (ids: string[]) => ids.filter((id) => seenProjects.has(id));
 
     const proposalRows = await app.db
       .select({
@@ -1173,10 +1196,10 @@ export async function meMailRoutes(
           state: row.classificationState ?? "off",
           // Solo a classificazione finita: prima i progetti sono quelli del
           // routing di prima, che non sono una classificazione.
-          projectIds: row.classificationState === "done" ? row.scopeProjectIds : [],
+          projectIds: row.classificationState === "done" ? onlySeen(row.scopeProjectIds) : [],
           importance: row.classificationState === "done" ? row.importance : null,
           dueDate: row.classificationState === "done" ? row.dueDate : null,
-          uncertainProjectIds: row.classificationState === "done" ? row.uncertainProjectIds : [],
+          uncertainProjectIds: row.classificationState === "done" ? onlySeen(row.uncertainProjectIds) : [],
         },
       })), ...outgoing],
     };
@@ -1235,6 +1258,8 @@ export async function meMailRoutes(
 
       const conditions = [eq(googleAccounts.userId, request.user!.id)];
       if (account) conditions.push(eq(emailMessages.accountId, account));
+      const visible = await visibleProjectIds(app.db, request.user!);
+      const sees = (id: string) => visible === "all" || visible.includes(id);
 
       // Una riga per `(account_id, thread_id)`: il thread è l'unità, e due
       // caselle con lo stesso thread Gmail restano due conversazioni.
@@ -1267,7 +1292,7 @@ export async function meMailRoutes(
               ? sql`(max(${emailMessages.receivedAt}), ${emailMessages.threadId}) < (${cursor.date}::timestamptz, ${cursor.threadId})`
               : sql`true`,
             q === "" ? sql`true` : threadMatchesSql(q),
-            ...threadClassificationFilters(request.query),
+            ...threadClassificationFilters(request.query, visible),
           ),
         )
         .orderBy(desc(sql`max(${emailMessages.receivedAt})`), desc(emailMessages.threadId))
@@ -1304,14 +1329,14 @@ export async function meMailRoutes(
               eq(emailMessages.classificationState, "done"),
             ),
           );
-        const classifiedIds = [...new Set(classified.flatMap((row) => row.scope))];
+        const classifiedIds = [...new Set(classified.flatMap((row) => row.scope))].filter(sees);
         const names = new Map<string, string>();
         if (classifiedIds.length > 0) {
           for (const row of await app.db.select({ id: projects.id, name: projects.name }).from(projects).where(inArray(projects.id, classifiedIds))) {
             names.set(row.id, row.name);
           }
         }
-        for (const row of classified) for (const id of row.scope) addProject(row.threadId, id, names.get(id) ?? null);
+        for (const row of classified) for (const id of row.scope.filter(sees)) addProject(row.threadId, id, names.get(id) ?? null);
         const shared = await app.db
           .select({ threadId: emailMessages.threadId, status: emailProposals.status, handedAt: emailProposals.handedAt })
           .from(emailMessages)

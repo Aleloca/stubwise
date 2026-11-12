@@ -1883,6 +1883,7 @@
         "daily_report": "Daily report",
         "weekly_brief": "Weekly brief",
         "mail_classify": "Mail classification",
+        "mail_draft": "Email drafts by Claude",
         "chat": "Docs chat",
         "claude_chat": "Private conversations with Claude",
         "backlog_merge": "Backlog document merge"

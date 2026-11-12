@@ -3,14 +3,13 @@ import {
   emailProposalRecipients,
   emailProposals,
   googleAccounts,
-  projectMembers,
   projects,
   tickets,
   users,
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { permissionForMailAction, projectPermissionsOfUser } from "@stubwise/notifications";
+import { permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
 import type { Language, MailProposal, MailProposalAction, MailProposalStatus, ProjectPermission } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { coversAll } from "./mail-proposals-decide.js";
@@ -57,6 +56,8 @@ export interface MailProposalFilter {
   messageId?: string | undefined;
   /** Una proposta sola. */
   id?: string | undefined;
+  /** Una conversazione di una casella di chi guarda (thread Gmail + casella). */
+  thread?: { threadId: string; accountId: string } | undefined;
   status?: MailProposalStatus | undefined;
 }
 
@@ -96,6 +97,16 @@ export async function listMailProposals(
       )`,
     );
   }
+  if (filter.thread) {
+    // I messaggi di quella conversazione, nella casella di chi guarda; da lì le chiavi.
+    conditions.push(
+      sql`${emailProposals.rfcMessageId} in (
+        select coalesce(m.rfc_message_id, 'gmail:' || m.account_id || ':' || m.gmail_message_id)
+        from ${emailMessages} m join ${googleAccounts} a on a.id = m.account_id
+        where m.thread_id = ${filter.thread.threadId} and m.account_id = ${filter.thread.accountId} and a.user_id = ${viewer.id}
+      )`,
+    );
+  }
   const rows = await db
     .select({ proposal: emailProposals, excerpt: emailMessages.textExcerpt, recipient: emailProposalRecipients.userId })
     .from(emailProposals)
@@ -110,7 +121,7 @@ export async function listMailProposals(
   const out: MailProposal[] = [];
   for (const { proposal, excerpt, recipient } of rows) {
     // Il progetto deve essere visibile ADESSO (la revoca vale a lettura).
-    const permissions = await projectPermissionsOfUser(db, viewer.id, proposal.projectId);
+    const permissions = await proposalPermissionsOf(db, viewer.id, proposal);
     if (!permissions) continue;
     // Un non destinatario vede solo una proposta passata di cui può decidere
     // OGNI azione (la stessa regola di `mail-proposals-decide.ts`).
@@ -120,7 +131,7 @@ export async function listMailProposals(
     out.push(view);
   }
   // Le proposte di PRIMA (per casella), nella stessa forma: UNA fonte sola.
-  for (const row of await legacyRows(db, viewer.id, { id: filter.id, messageId: filter.messageId })) {
+  for (const row of await legacyRows(db, viewer.id, { id: filter.id, messageId: filter.messageId, thread: filter.thread })) {
     const view = await legacyView(db, viewer.id, row);
     if (!view || (filter.status && view.status !== filter.status)) continue;
     out.push(view);
@@ -138,7 +149,8 @@ async function buildView(
 ): Promise<MailProposal> {
   const stored = proposal.classification as StoredV2;
   const status = publicStatus(proposal);
-  const choose = stored.choose?.projectIds;
+  // «Quale progetto?»: solo i progetti incerti che chi guarda vede (review F2, punto 7).
+  const choose = stored.choose?.projectIds ? await seenOf(db, viewer.id, stored.choose.projectIds) : undefined;
   const rawActions = choose ? [{ type: "choose_project", args: { projectIds: choose } }] : (stored.actions ?? []);
 
   // I codici delle task nominate, in una query.
@@ -173,20 +185,8 @@ async function buildView(
   const decidable = open || status === "handed";
   const canConfirm = decidable && !choose && actions.length > 0 && blockedIndices.length === 0;
 
-  // Gli incaricati proposti che NON sono membri del progetto.
-  const assignees = rawActions
-    .map((a) => (a.type === "update_ticket" ? (a.args?.patch as Record<string, unknown> | undefined)?.assigneeId : a.args?.assigneeId))
-    .filter((id): id is string => typeof id === "string");
-  let outsiders: { userId: string; name: string }[] = [];
-  if (assignees.length > 0) {
-    const members = await db
-      .select({ userId: projectMembers.userId })
-      .from(projectMembers)
-      .where(and(eq(projectMembers.projectId, proposal.projectId), inArray(projectMembers.userId, assignees)));
-    const memberSet = new Set(members.map((m) => m.userId));
-    const outside = [...new Set(assignees.filter((id) => !memberSet.has(id)))];
-    outsiders = outside.length > 0 ? await peopleByIds(db, outside) : [];
-  }
+  const outside = await outsiderIdsOf(db, proposal.projectId, rawActions);
+  const outsiders: { userId: string; name: string }[] = outside.length > 0 ? await peopleByIds(db, outside) : [];
 
   const recipients = await db
     .select({ userId: emailProposalRecipients.userId })
@@ -222,7 +222,8 @@ async function buildView(
   return {
     id: proposal.id,
     messageId: own?.id ?? proposal.emailMessageId,
-    projectId: proposal.projectId,
+    // Un «Quale progetto?» sta sotto un progetto che chi guarda vede.
+    projectId: choose?.[0] ?? proposal.projectId,
     status,
     createdAt: proposal.createdAt.toISOString(),
     excerpt: (excerpt ?? "").slice(0, 500),
@@ -257,3 +258,54 @@ async function peopleByIds(db: Db, ids: readonly string[]): Promise<{ userId: st
   const rows = await db.select({ userId: users.id, name: personName }).from(users).where(inArray(users.id, [...ids]));
   return rows.sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * Gli incaricati proposti che NON vedono il progetto: membri espliciti E full
+ * admin impliciti (`projectViewerIds`), la stessa regola che la decisione
+ * accetta — un full admin incaricato non è un esterno (review renderer F2).
+ * È anche l'unico elenco che «aggiungi come Contributor» può toccare.
+ */
+export async function outsiderIdsOf(db: Db, projectId: string, actions: readonly { type: string; args?: Record<string, unknown> }[]): Promise<string[]> {
+  const assignees = assigneeIdsOf(actions);
+  if (assignees.length === 0) return [];
+  const viewers = new Set(await projectViewerIds(db, projectId));
+  return [...new Set(assignees.filter((id) => !viewers.has(id)))];
+}
+
+/** Gli incaricati proposti dalle azioni (create_task, la patch di update_ticket). */
+export function assigneeIdsOf(actions: readonly { type: string; args?: Record<string, unknown> }[]): string[] {
+  return [
+    ...new Set(
+      actions
+        .map((a) => (a.type === "update_ticket" ? (a.args?.patch as Record<string, unknown> | undefined)?.assigneeId : a.args?.assigneeId))
+        .filter((id): id is string => typeof id === "string"),
+    ),
+  ];
+}
+
+async function seenOf(db: Db, userId: string, projectIds: readonly string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const id of projectIds) if (await projectPermissionsOfUser(db, userId, id)) out.push(id);
+  return out;
+}
+
+/**
+ * I permessi con cui chi guarda vede una proposta condivisa: quelli del suo
+ * progetto — o, per un «Quale progetto?», del primo progetto incerto che vede
+ * (la domanda arriva a chi ne vede ALMENO UNO, review F2, punto 7). `null` =
+ * non la vede.
+ */
+export async function proposalPermissionsOf(
+  db: Db,
+  userId: string,
+  proposal: { projectId: string; classification: unknown },
+): Promise<ReadonlySet<ProjectPermission> | null> {
+  const choose = (proposal.classification as { choose?: { projectIds?: string[] } } | null)?.choose?.projectIds;
+  if (!choose) return projectPermissionsOfUser(db, userId, proposal.projectId);
+  for (const id of choose) {
+    const permissions = await projectPermissionsOfUser(db, userId, id);
+    if (permissions) return permissions;
+  }
+  return null;
+}
+

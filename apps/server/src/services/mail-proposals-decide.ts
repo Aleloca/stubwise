@@ -14,7 +14,7 @@ import {
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
-import type { MailProposal, ProjectPermission } from "@stubwise/shared";
+import { ticketPrioritySchema, ticketStatusSchema, type MailProposal, type ProjectPermission, type TicketPriority, type TicketStatus } from "@stubwise/shared";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
 import { decideLegacy } from "./mail-proposals-legacy.js";
@@ -24,6 +24,7 @@ import { enqueueBacklogIntake } from "./backlog-intake.js";
 import { addSystemComment } from "./comments.js";
 import { createMilestone } from "./milestones.js";
 import { patchTicket } from "./tickets.js";
+import { assigneeIdsOf, proposalPermissionsOf } from "./mail-proposals.js";
 
 /**
  * DECIDERE UNA PROPOSTA CONDIVISA DELLA POSTA (area 6, fetta 2, D4).
@@ -98,7 +99,7 @@ async function loadDecidable(db: Db, viewer: Viewer, id: string) {
     .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
     .where(and(eq(emailProposals.id, id), eq(emailProposals.audience, "mail_recipients")));
   if (!row) return null;
-  const permissions = await projectPermissionsOfUser(db, viewer.id, row.proposal.projectId);
+  const permissions = await proposalPermissionsOf(db, viewer.id, row.proposal);
   if (!permissions) return null;
   // Non destinatario: solo una proposta PASSATA, e solo a chi ha il permesso
   // di OGNI sua azione nel progetto (il prototipo).
@@ -139,6 +140,34 @@ function validDate(value: unknown): boolean {
   return value === null || (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)));
 }
 
+/**
+ * La patch di una task, ristretta e validata (review F2, punto 5): solo
+ * `status`, `priority` e `assigneeId`, con gli enum delle task. La scrive il
+ * MODELLO (o chi modifica la proposta): un campo in più o un valore inventato
+ * non arrivano mai a `patchTicket`. `null` = patch non valida o vuota.
+ */
+export function validTicketPatch(raw: unknown): { status?: TicketStatus; priority?: TicketPriority; assigneeId?: string | null } | null {
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out: { status?: TicketStatus; priority?: TicketPriority; assigneeId?: string | null } = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (key === "status") {
+      const parsed = ticketStatusSchema.safeParse(value);
+      if (!parsed.success) return null;
+      out.status = parsed.data;
+    } else if (key === "priority") {
+      const parsed = ticketPrioritySchema.safeParse(value);
+      if (!parsed.success) return null;
+      out.priority = parsed.data;
+    } else if (key === "assigneeId") {
+      if (value !== null && typeof value !== "string") return null;
+      out.assigneeId = value;
+    } else {
+      return null;
+    }
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 /** Applica le modifiche consentite; `null` = modifiche non valide. */
 function applyEdits(action: StoredAction, edit: Record<string, unknown>): StoredAction | null {
   const allowed = EDITABLE[action.type] ?? [];
@@ -149,7 +178,7 @@ function applyEdits(action: StoredAction, edit: Record<string, unknown>): Stored
     if (key === "description" && typeof value !== "string") return null;
     if (key === "dueDate" && !validDate(value)) return null;
     if (key === "assigneeId" && value !== null && typeof value !== "string") return null;
-    if (key === "patch" && (value === null || typeof value !== "object")) return null;
+    if (key === "patch" && !validTicketPatch(value)) return null;
     args[key] = typeof value === "string" ? value.trim() : value;
   }
   return { type: action.type, args };
@@ -259,7 +288,11 @@ export async function confirmMailProposal(
             const [ticket] = await tx.select({ id: tickets.id, number: tickets.number }).from(tickets).where(and(eq(tickets.id, ticketId), eq(tickets.projectId, proposal.projectId)));
             if (!ticket) throw new ActionFailed("target_gone");
             if (action.type === "update_ticket") {
-              const r = await patchTicket(tx, { ticketId, actorId: viewer.id, patch: (a.patch ?? {}) as Parameters<typeof patchTicket>[1]["patch"] });
+              // La patch del modello si rivalida qui: un enum inventato
+              // fallisce pulito, invece di far lanciare `patchTicket` (500).
+              const patch = validTicketPatch(a.patch);
+              if (!patch) throw new ActionFailed("invalid_action");
+              const r = await patchTicket(tx, { ticketId, actorId: viewer.id, patch });
               if (!r.ok) throw new ActionFailed("target_gone");
             } else {
               await addSystemComment(tx, {
@@ -308,12 +341,22 @@ export async function confirmMailProposal(
     });
   } catch (err) {
     if (!(err instanceof ActionFailed)) throw err;
-    // Tutto annullato; la proposta resta fallita, per tutti, con l'errore.
-    await db
-      .update(emailProposals)
-      .set({ status: "failed", error: err.message, decidedByUserId: viewer.id, decidedAt: new Date() })
-      .where(eq(emailProposals.id, id));
-    await db.transaction((tx) => closeCards(tx, id));
+    // Tutto annullato; la proposta resta fallita, per tutti, con l'errore —
+    // ma SOLO se è ancora aperta: fra il rollback e qui un altro destinatario
+    // può averla decisa, e il suo esito non si sovrascrive (review F2, punto 3).
+    const failed = await db.transaction(async (tx) => {
+      const [updated] = await tx
+        .update(emailProposals)
+        .set({ status: "failed", error: err.message, decidedByUserId: viewer.id, decidedAt: new Date() })
+        .where(and(eq(emailProposals.id, id), inArray(emailProposals.status, ["classified", "proposed"])))
+        .returning({ id: emailProposals.id });
+      if (updated) await closeCards(tx, id);
+      return Boolean(updated);
+    });
+    if (!failed) {
+      const [now] = await db.select({ decidedByUserId: emailProposals.decidedByUserId }).from(emailProposals).where(eq(emailProposals.id, id));
+      return { ok: false, error: "already_handled", decidedBy: await decidedByOf(db, now?.decidedByUserId ?? null) };
+    }
     return { ok: true, status: "failed", error: err.message };
   }
 }
@@ -470,10 +513,13 @@ export async function confirmMailProposalWithMembers(
   if (!loaded) return { ok: false, error: "not_found" };
   const { proposal, permissions } = loaded;
   if (!permissions.has("project.members.manage")) return { ok: false, error: "forbidden" };
+  // Solo gli incaricati della proposta: non un id qualunque (review F2, punto
+  // 6). Chi fra loro vede già il progetto si salta più sotto, come prima.
+  const assignees = new Set(assigneeIdsOf((proposal.classification as { actions?: { type: string; args?: Record<string, unknown> }[] }).actions ?? []));
+  if (input.addOutsiders.some((userId) => !assignees.has(userId))) return { ok: false, error: "invalid_selection" };
   const contributor = await presetRoleIdOf(db, "contributor");
-  const already = new Set(
-    (await db.select({ userId: projectMembers.userId }).from(projectMembers).where(eq(projectMembers.projectId, proposal.projectId))).map((r) => r.userId),
-  );
+  // Chi vede già il progetto (membri E full admin impliciti) non si aggiunge.
+  const already = new Set(await projectViewerIds(db, proposal.projectId));
   // Le righe CREATE da questa chiamata, con la loro creazione: la rimozione
   // tocca solo quelle, e solo se sono ancora le stesse (stesso ruolo, stessa
   // creazione). Chi era già membro non si aggiunge e non si toglie mai.
@@ -521,10 +567,17 @@ export async function confirmMailProposalWithMembers(
     if (err instanceof RoleRuleError) return { ok: false, error: "rule", rule: err };
     throw err;
   }
-  await afterMembersAdded?.();
-  const result = await confirmMailProposal(db, viewer, id, input, lang);
-  if (!result.ok || result.status !== "confirmed") await undo();
-  return result;
+  // In un finally: anche se la conferma LANCIA, i Contributor aggiunti qui
+  // non restano (review F2, punto 6).
+  let confirmed = false;
+  try {
+    await afterMembersAdded?.();
+    const result = await confirmMailProposal(db, viewer, id, input, lang);
+    confirmed = result.ok && result.status === "confirmed";
+    return result;
+  } finally {
+    if (!confirmed) await undo();
+  }
 }
 
 async function presetRoleIdOf(db: Db, key: string): Promise<string> {

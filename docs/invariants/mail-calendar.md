@@ -41,6 +41,33 @@
     contenuto da fuori per la regola «almeno B».
   - Le proposte di PRIMA (`mailbox_owner`, per casella) restano com'erano e
     si vedono anche in `/api/me/mail/proposals`, solo dal proprietario.
+  - **«Quale progetto?»** (review F2, 12 nov 2026): la ricevono i
+    destinatari che vedono ALMENO UNO dei progetti incerti, e ognuno ha la
+    SUA card con i soli progetti incerti che vede (`publish-shared.ts`). Lato
+    server vederla e deciderla segue la stessa regola
+    (`proposalPermissionsOf` in `mail-proposals.ts`), e la vista non porta
+    l'id dei progetti che chi guarda non vede. Dall'inbox l'indice
+    dell'opzione si legge sulla mappa che la card MOSTRA (`event.actions`),
+    non ricalcolato dalla classificazione.
+  - **Invisibile = inesistente anche nei thread**: lo scope di un messaggio
+    nasce dai candidati di TUTTI i destinatari, quindi può contenere
+    progetti altrui. Elenco, filtri `project`/`noProject` e dettaglio
+    intersecano coi progetti di chi guarda (`visibleScopeSql` in
+    `me-mail.ts`).
+  - ⚠️ **Limite accettato: il PROMPT vede i candidati di tutti i
+    destinatari.** `loadCandidateProjects` mette nel prompt titoli delle
+    task aperte e nomi dei membri dei progetti di cui è membro un
+    QUALUNQUE destinatario: servono alla scelta (il progetto, l'incaricato,
+    il ticket). Il rischio è che un testo GENERATO li riporti a chi non vede
+    quel progetto: le azioni sono per progetto (una proposta = un progetto,
+    ricevuta solo da chi lo vede), mentre il `summary` è condiviso, quindi
+    il prompt gli vieta di citare task e persone dei candidati (test in
+    `classify-v2.test.ts`). È un divieto al modello, non una garanzia: chi
+    aggiunge al riassunto un uso nuovo (una superficie che lo mostra fuori
+    dalla proposta) riapra questa voce.
+  - **Una classificazione per Message-ID anche fra copie in attesa**: fra le
+    copie della stessa email ancora da classificare guida quella con l'id
+    più basso, le altre la copiano al giro dopo (`classifyNewMessagesV2`).
 - **Con le proposte spente una casella si LEGGE; si spengono solo le
   proposte (decisione del maintainer, 12 nov 2026, area 6).** Il claim del
   poller e l'indice `google_accounts_due_idx` guardano solo `disabled_at`;
