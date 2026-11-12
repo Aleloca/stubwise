@@ -329,7 +329,9 @@ ipcMain.on("api:stream-open", (event, raw: unknown) => {
   }
   const { port1, port2 } = new MessageChannelMain();
   sender.postMessage("api:stream-port", { id }, [port2]);
-  streams.open(sender.id, (raw as { path?: unknown }).path, port1);
+  // Il corpo serve solo alla bozza di Claude (area 6, F3): lo valida il registro.
+  const req = raw as { path?: unknown; body?: unknown };
+  streams.open(sender.id, req.path, port1, { body: req.body });
 });
 
 ipcMain.handle("instance:get", (event) => (fromApp(event) ? readInstanceUrl() : null));

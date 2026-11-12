@@ -249,3 +249,89 @@ describe("stream della Chat via IPC (main, area 4 fetta 1)", () => {
     expect(d.fetch).not.toHaveBeenCalled();
   });
 });
+
+describe("la bozza di Claude per la Posta via IPC (main, area 6 F3)", () => {
+  const MAIL = "/api/me/mail/drafts/claude";
+  const ACC = "aaaaaaaa-1111-4111-8111-111111111111";
+  const PRJ = "22222222-2222-4222-8222-222222222222";
+  const body = { accountId: ACC, threadId: "t-1", mode: "reply", hint: "digli che slitta", projectId: null };
+
+  it("è un POST col Bearer e il corpo JSON validato nel main; i pezzi arrivano come mailDraft", async () => {
+    const sse = sseBody();
+    const d = deps({ fetch: vi.fn(async () => new Response(sse.stream, { status: 200, headers: { "content-type": "text/event-stream" } })) });
+    const registry = createStreamRegistry(d);
+    const port = fakePort();
+    registry.open(1, MAIL, port, { body: { ...body, extra: "via" } });
+    await flush();
+    const [url, init] = d.fetch.mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe(`https://example.com${MAIL}`);
+    expect(init.method).toBe("POST");
+    const headers = init.headers as Record<string, string>;
+    expect(headers.authorization).toBe("Bearer stw_pat_x");
+    expect(headers["content-type"]).toBe("application/json");
+    expect(JSON.parse(init.body as string)).toEqual(body);
+    sse.push(frame({ type: "delta", text: "Ciao" }));
+    sse.push(frame({ type: "done", text: "Ciao Bob", projectId: PRJ, used: [] }));
+    sse.push("data: non json\n\n");
+    sse.end();
+    await flush();
+    await flush();
+    expect(port.sent.filter((m) => m.type === "mailDraft")).toEqual([
+      { type: "mailDraft", event: { type: "delta", text: "Ciao" } },
+      { type: "mailDraft", event: { type: "done", text: "Ciao Bob", projectId: PRJ, used: [] } },
+    ]);
+  });
+
+  it("un errore a metà arriva come mailDraft", async () => {
+    const sse = sseBody();
+    const d = deps({ fetch: vi.fn(async () => new Response(sse.stream, { status: 200 })) });
+    const port = fakePort();
+    createStreamRegistry(d).open(1, MAIL, port, { body });
+    await flush();
+    sse.push(frame({ type: "error", code: "claude_unavailable" }));
+    sse.end();
+    await flush();
+    await flush();
+    expect(port.sent).toContainEqual({ type: "mailDraft", event: { type: "error", code: "claude_unavailable" } });
+  });
+
+  it("un rifiuto prima dello stream (409 budget_exhausted): end col codice", async () => {
+    const d = deps({ fetch: vi.fn(async () => new Response(JSON.stringify({ code: "budget_exhausted", message: "x" }), { status: 409 })) });
+    const port = fakePort();
+    createStreamRegistry(d).open(1, MAIL, port, { body });
+    await flush();
+    await flush();
+    expect(port.sent.at(-1)).toMatchObject({ type: "end", reason: "http", status: 409, code: "budget_exhausted" });
+  });
+
+  it("solo il percorso esatto, solo con un corpo valido: il resto è rifiutato senza chiamare", async () => {
+    const d = deps();
+    const registry = createStreamRegistry(d);
+    const cases: [string, unknown][] = [
+      [MAIL, undefined],
+      [MAIL, "testo"],
+      [MAIL, { ...body, accountId: "non-uuid" }],
+      [MAIL, { ...body, mode: "sendNow" }],
+      [MAIL, { ...body, hint: "x".repeat(4001) }],
+      [MAIL, { ...body, threadId: 42 }],
+      [`${MAIL}?x=1`, body],
+      [`${MAIL}/x`, body],
+      ["/api/me/mail/drafts", body],
+    ];
+    for (const [path, b] of cases) {
+      const port = fakePort();
+      registry.open(1, path, port, { body: b });
+      expect(port.sent.at(-1), `${path} ${JSON.stringify(b)}`).toMatchObject({ type: "end", reason: "rejected", fatal: true });
+    }
+    expect(d.fetch).not.toHaveBeenCalled();
+  });
+
+  it("uno stream di una sessione con un corpo resta un GET (il corpo non passa)", async () => {
+    const d = deps({ fetch: vi.fn(async () => new Response(sseBody().stream, { status: 200 })) });
+    createStreamRegistry(d).open(1, PATH, fakePort(), { body });
+    await flush();
+    const [, init] = d.fetch.mock.calls[0]! as [string, RequestInit];
+    expect(init.method).toBe("GET");
+    expect(init.body).toBeUndefined();
+  });
+});

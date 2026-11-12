@@ -80,7 +80,12 @@ contextBridge.exposeInMainWorld("stubwise", {
    * pagina, e consegnargliela con un messaggio della finestra la renderebbe
    * raggiungibile da ogni script della pagina. Restituisce la funzione che chiude lo stream.
    */
-  openStream: (path: string, onMessage: (message: StreamPortMessage) => void): (() => void) => {
+  openStream: (
+    path: string,
+    onMessage: (message: StreamPortMessage) => void,
+    /** Area 6, F3: il corpo del POST della bozza di Claude (lo valida il main). */
+    options: { body?: unknown } = {},
+  ): (() => void) => {
     const id = crypto.randomUUID();
     let port: MessagePort | null = null;
     let closed = false;
@@ -100,7 +105,7 @@ contextBridge.exposeInMainWorld("stubwise", {
       port.start();
     };
     ipcRenderer.on("api:stream-port", onPort);
-    ipcRenderer.send("api:stream-open", { id, path });
+    ipcRenderer.send("api:stream-open", { id, path, ...(options.body !== undefined ? { body: options.body } : {}) });
     return () => {
       closed = true;
       ipcRenderer.removeListener("api:stream-port", onPort);
