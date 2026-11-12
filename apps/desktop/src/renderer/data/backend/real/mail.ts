@@ -135,12 +135,13 @@ async function threadRows(filters: MailThreadFilters, extra: { important?: boole
     if (!account) return [];
   }
   const q = filters.q?.trim() || undefined;
-  const [items, projects] = await Promise.all([
-    // Un progetto che l'indirizzo non riconosce (`unknown:<codice>`) non va al server (vuole un uuid):
-    // lo esclude il filtro qui sotto.
-    threadItems({ account, q, importance: filters.importance, project: isUuid(filters.projectId) ? filters.projectId : undefined, ...extra }),
-    projectIdsByName(),
-  ]);
+  // Un progetto che l'indirizzo non riconosce (`unknown:<codice>`) non va al server (vuole un uuid):
+  // lo esclude il filtro qui sotto.
+  const project = isUuid(filters.projectId) ? filters.projectId : undefined;
+  const items = await threadItems({ account, q, importance: filters.importance, project, ...extra });
+  // Per nome solo con un server di prima (le righe senza `projectIds`): i progetti si leggono allora.
+  const byName = items.some((t) => t.projectIds.length === 0 && t.projectNames.length > 0);
+  const projects = byName ? await projectIdsByName() : new Map<string, string>();
   return items
     .map((t) => rowOf(t, projects, mine))
     .filter(

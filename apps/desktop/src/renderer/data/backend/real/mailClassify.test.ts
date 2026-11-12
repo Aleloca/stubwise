@@ -105,6 +105,12 @@ describe("le conversazioni classificate", () => {
     expect((await mail.listMailThreads()).map((r) => r.projectIds)).toEqual([[OTHER], [PROJECT_ID]]);
   });
 
+  it("coi progetti per id dal server, i progetti non si rileggono a ogni elenco", async () => {
+    const { seen } = installFakeServer({ ...common, "GET /api/me/mail/threads": page([thread()]) });
+    await mail.listMailThreads();
+    expect(seen.some((r) => r.path === "/api/projects")).toBe(false);
+  });
+
   it("in analisi e fallita", async () => {
     installFakeServer({ ...common, "GET /api/me/mail/threads": page([thread({ analysing: true, failed: true })]) });
     expect((await mail.listMailThreads())[0]).toMatchObject({ analysing: true, failed: true });
