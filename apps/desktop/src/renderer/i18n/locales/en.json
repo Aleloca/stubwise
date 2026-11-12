@@ -411,7 +411,7 @@
       "syncFailed": "Connected · the last sync failed",
       "needsReconnect": "Needs reconnecting: access was revoked on Google",
       "proposals": "Proposals",
-      "proposalsHint": "Turns emails and events from this mailbox into proposals.",
+      "proposalsHint": "Turns emails and events from this mailbox into proposals. Proposals that others share with you still reach you.",
       "proposalsFailed": "Couldn't change Proposals. Try again.",
       "reconnect": "Reconnect",
       "more": "More for {{email}}",

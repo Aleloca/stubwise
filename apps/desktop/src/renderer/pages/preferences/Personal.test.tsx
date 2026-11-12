@@ -148,6 +148,8 @@ describe("Account", () => {
     renderRoute("/preferences/account", GIULIA);
     const proposals = await screen.findByRole("switch", { name: "Proposals" });
     expect(proposals).toHaveAttribute("aria-checked", "true");
+    // Spegne solo la classificazione della propria posta (decisione B della F2).
+    expect(screen.getByText(/Proposals that others share with you still reach you\./)).toBeVisible();
     await user.click(proposals);
     await waitFor(() =>
       expect(state.mailboxes.find((b) => b.personId === GIULIA)!.proposalsEnabled).toBe(false),

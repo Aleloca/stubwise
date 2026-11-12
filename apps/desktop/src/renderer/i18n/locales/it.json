@@ -411,7 +411,7 @@
       "syncFailed": "Collegata · l'ultima sincronizzazione non è riuscita",
       "needsReconnect": "Da ricollegare: l'accesso è stato revocato su Google",
       "proposals": "Proposte",
-      "proposalsHint": "Trasforma in proposte le email e gli eventi di questa casella.",
+      "proposalsHint": "Trasforma in proposte le email e gli eventi di questa casella. Le proposte che altri condividono con te ti arrivano comunque.",
       "proposalsFailed": "Non è stato possibile cambiare le Proposte. Riprova.",
       "reconnect": "Ricollega",
       "more": "Altro per {{email}}",
