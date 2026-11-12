@@ -124,6 +124,18 @@ describe("le conversazioni classificate", () => {
     expect(query(seen.find((r) => r.path.startsWith("/api/me/mail/threads"))!.path).get("project")).toBeNull();
   });
 
+  it("«Importanti» contro un server di prima (che ignora `important`): si riguarda qui, alta e non letta", async () => {
+    installFakeServer({
+      ...common,
+      "GET /api/me/mail/threads": page([
+        thread({ importance: null }),
+        thread({ threadId: "t-2", importance: "high", unread: false }),
+        thread({ threadId: "t-3", importance: "high", unread: true }),
+      ]),
+    });
+    expect((await mail.listImportantMail()).map((r) => r.threadId)).toEqual([`${ACC}_t-3`]);
+  });
+
   it("«Importanti»: le conversazioni con un messaggio alto non letto, dal server", async () => {
     const { seen } = installFakeServer({ ...common, "GET /api/me/mail/threads": page([thread()]) });
     expect((await mail.listImportantMail()).map((r) => r.threadId)).toEqual([`${ACC}_t-1`]);

@@ -154,7 +154,9 @@ async function threadRows(filters: MailThreadFilters, extra: { important?: boole
 const listMailThreads: Mail["listMailThreads"] = (filters = {}) => threadRows(filters);
 
 /** «Importanti» e il blocco Home: le conversazioni con un messaggio di importanza alta non letto (F2). */
-const listImportantMail: Mail["listImportantMail"] = () => threadRows({}, { important: true });
+const listImportantMail: Mail["listImportantMail"] = async () =>
+  // Riguardato qui: un server di prima ignora `important` e manderebbe tutto.
+  (await threadRows({}, { important: true })).filter((r) => r.importance === "high" && r.unread > 0);
 
 /** La ricerca nella posta (⌘K): da 2 caratteri, una riga per conversazione trovata. */
 const searchMail: Mail["searchMail"] = async (q) => {
