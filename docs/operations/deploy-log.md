@@ -3941,7 +3941,36 @@ deploy o di un rollback che la tocca.
   (`ticket_source` + `email`). Ordine: server, poi worker, poi caddy. Env
   nuova sul worker: `MAIL_CLASSIFY_V2` (default `false`): spenta, tutto come
   prima; si accende SOLO dopo la misura del costo scritta qui (la sezione 1
-  del piano) e il golden `mail-classify-v2`. La voce si completa al task 9.
+  del piano) e il golden `mail-classify-v2`.
+
+  **Il costo** (D3): da sostituire con la misura su produzione (le tre query di
+  sola lettura di `cost.sql`, da lanciare dal maintainer: classificazioni dei
+  30 giorni coi token e `cost_usd`, email al giorno per casella, posta tenuta
+  fuori dall'ammissione). Stima dichiarata intanto: ≈ 0,008 $ per email con
+  Haiku a listino, ≈ 190 $ al mese con l'ipotesi di 800 email al giorno; una
+  classificazione per Message-ID, il cooldown, il tetto giornaliero
+  (`GMAIL_MAX_PER_DAY`) e il budget mensile la frenano.
+
+  **Accendere la classificazione nuova** (dopo questo rilascio, non con lui):
+  1. la misura del costo scritta qui sopra, e il budget mensile d'istanza
+     impostato di conseguenza;
+  2. il golden `mail-classify-v2` (`--model haiku`, 3 volte) verde col CLI
+     pinnato (12 nov 2026, CLI 2.1.322: 3/3);
+  3. `MAIL_CLASSIFY_V2=true` nell'`.env`, poi `docker compose up -d server`
+     e `worker` (la leggono entrambi: il worker per classificare, il server
+     per dire alle superfici dell'ammissione che non contano più);
+  4. controllo: `select classification_state, count(*) from email_messages
+     where created_at > now() - interval '1 day' group by 1;` cresce in
+     `done` senza `failed` che crescono; `select status, count(*) from
+     email_proposals where audience = 'mail_recipients' group by 1;`.
+  Lo spegnimento è lo stesso passo con `false`: tornano l'ammissione e le
+  regole; le proposte condivise già nate restano decidibili.
+
+  **Rollback d'immagine**: un worker vecchio non conosce la classificazione
+  nuova (col flag acceso l'ammissione torna da sola); un server vecchio non ha
+  `/api/me/mail/proposals` né le card condivise decidibili dall'inbox
+  (risponderebbero `proposal_stale`): spegnere prima il flag, poi scendere. Il
+  caddy scende insieme al server. Le migrazioni non si annullano.
 
   ⚠️ **Rollback e 0152**: una task nata da una proposta della posta ha
   `tickets.source = 'email'`, che un server di PRIMA non conosce (lo schema

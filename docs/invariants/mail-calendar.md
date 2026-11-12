@@ -7,6 +7,40 @@
 > in `CLAUDE.md` (sezione «Invarianti e trappole»), quelle per area in
 > `docs/invariants/*.md`.
 
+- **La proposta CONDIVISA (area 6, F2, D4): chi la riceve, chi la vede, chi
+  la decide.** La classificazione nuova (`MAIL_CLASSIFY_V2`, `classify-v2.ts`)
+  manda OGNI email ricevuta al modello (niente `admit` né regole della posta;
+  `admitted` resta il confine fra «classificabile» e «contesto del thread»),
+  UNA volta per Message-ID, e produce una proposta per email e progetto
+  (`email_proposals.rfc_message_id` unico col progetto, `audience =
+  mail_recipients`).
+  - **Chi la riceve** (`publish-shared.ts`): i destinatari di ogni copia
+    dell'email (mittente, to, cc, mai bcc; i proprietari delle caselle) che
+    sono persone di Stubwise (`resolveRecipientUserIds`) E vedono il
+    progetto. Un admin la riceve SOLO se è anche destinatario: l'intersezione
+    lo esclude per costruzione, non c'è un ramo `if (admin)`. Test NEGATIVI in
+    `publish-shared.test.ts`. Decisioni del maintainer: A = (a) un
+    destinatario senza casella collegata la riceve e vede l'estratto, mai il
+    messaggio (il dettaglio, `/original` e il thread gli sono 404, test in
+    `me-mail-proposals.test.ts`); B = (b) l'interruttore della casella decide
+    solo se classificare la propria posta, non chi riceve.
+  - ⚠️ **La card si consegna con l'audience `mailbox_owner`, UN destinatario
+    alla volta**: il nome resta quello del catalogo per kind
+    (`google.proposal`), ma qui vuol dire «solo questa persona, mai gli
+    admin», non «proprietario della casella». Chi legge una card condivisa
+    non deduce la proprietà della casella: `sourceProposalId` viene da
+    `email_proposal_recipients`, il vecchio esecutore non la trova (cerca per
+    `proposal_notification_id`), dettaglio e originale filtrano sul
+    proprietario.
+  - **Chi la vede e la decide**: un destinatario registrato in
+    `email_proposal_recipients`, col progetto visibile ADESSO; una proposta
+    PASSATA anche chi nel progetto ha il permesso di OGNI sua azione. Il primo
+    che decide la chiude per tutti (riga `FOR UPDATE`, stato ricontrollato,
+    tutte le card chiuse); conferma parziale e modifiche dei soli campi
+    consentiti; tutto o niente. Una task nata da qui ha `source = email`:
+    contenuto da fuori per la regola «almeno B».
+  - Le proposte di PRIMA (`mailbox_owner`, per casella) restano com'erano e
+    si vedono anche in `/api/me/mail/proposals`, solo dal proprietario.
 - **Con le proposte spente una casella si LEGGE; si spengono solo le
   proposte (decisione del maintainer, 12 nov 2026, area 6).** Il claim del
   poller e l'indice `google_accounts_due_idx` guardano solo `disabled_at`;
@@ -51,7 +85,7 @@
   richiesta VISTA al claim; una scritta a giro in corso resta e torna dovuta.
   Limite accettato: con `GMAIL_POLL_MINUTES=0` (poller spento, il rollback)
   una richiesta resta in attesa per sempre.
-- **L'audience `mailbox_owner` non include MAI gli admin.** È un'audience a
+- **L'audience `mailbox_owner` non include MAI gli admin.** (Per le proposte CONDIVISE della classificazione nuova vedi la voce in testa: la card usa la stessa audience, un destinatario alla volta.) È un'audience a
   sé nell'enum di `routing.ts` (`packages/notifications/src/routing.ts`),
   non un caso speciale di `requester` (che invece gli admin li include
   sempre): `recipientsFor` per `mailbox_owner` restituisce **un solo**

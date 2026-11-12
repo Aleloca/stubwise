@@ -231,6 +231,22 @@ passano dallo stesso servizio (l'app mobile le usa).
    worker → caddy, il rollback: un worker vecchio torna all'ammissione, un
    server vecchio non vede le proposte condivise), il registro.
 
+## Stato (12 nov 2026, fine della fetta)
+
+Fatti tutti i task, dietro `MAIL_CLASSIFY_V2` spenta. Differenze dal piano,
+ciascuna nel registro o qui:
+- task 2: tutto dietro il flag *(O)*: senza, togliere l'ammissione avrebbe
+  mandato tutta la posta al classificatore di prima, prima della misura;
+- task 6 e 7 insieme (la task serve a confermare); le proposte di PRIMA
+  anche in `/proposals` (una fonte sola per il renderer) *(O)*; `editable`
+  in più, per il renderer;
+- task 8: le sezioni web NON si tolgono finché il flag è spento (valgono
+  ancora): con il flag acceso dicono che non contano più; rotte e colonne
+  col rilascio dopo *(O)*;
+- migrazione 0152 (`ticket_source` + `email`) per la regola «almeno B»;
+- il golden `mail-classify-v2` c'è e passa (3/3, Haiku, CLI 2.1.322); la
+  misura del costo su produzione resta da fare (la lancia il maintainer).
+
 ## Global Constraints
 
 - Posta personale: l'id di chi guarda nella WHERE; una proposta si vede solo
