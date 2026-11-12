@@ -2855,6 +2855,8 @@ export interface CalendarEvent {
   eventType?: string;
   /** Build app, F3b: occupato (`opaque`) o libero (`transparent`) per Google. */
   transparency?: "opaque" | "transparent";
+  /** Build app, F3b: quanti invitati, anche sulla lista leggera senza `attendees`. */
+  attendeeCount?: number | null;
 }
 
 /** Una serie ricorrente e la sua configurazione (spenta di default). */

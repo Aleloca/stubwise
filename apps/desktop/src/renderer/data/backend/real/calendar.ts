@@ -131,6 +131,7 @@ export function eventView(raw: CalendarEventItem): CalendarEventView {
     recognized,
     eventType: e.eventType ?? "default",
     transparency: e.transparency === "transparent" ? "transparent" : "opaque",
+    attendeeCount: e.attendeeCount ?? null,
     googleUrl: e.eventUrl ?? e.url,
     // Sulla riga leggera la dice il server; altrimenti dagli invitati.
     myResponse: e.myResponse ?? attendees.find((a) => a.personId === me && me !== "")?.response ?? null,

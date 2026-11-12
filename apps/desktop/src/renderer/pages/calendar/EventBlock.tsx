@@ -253,10 +253,12 @@ export function GridBlockBody({
       </span>,
     );
   }
-  if (roomy && e.attendees.length > 0) {
+  // Sulla lista leggera (F3b) gli invitati non ci sono, il loro numero sì.
+  const guests = e.attendees.length > 0 ? e.attendees.length : (e.attendeeCount ?? 0);
+  if (roomy && guests > 0) {
     extra.push(
       <span key="guests" className="num truncate text-xs leading-4 text-ink-muted">
-        {t("calendar.block.guests", { count: e.attendees.length })}
+        {t("calendar.block.guests", { count: guests })}
       </span>,
     );
   }

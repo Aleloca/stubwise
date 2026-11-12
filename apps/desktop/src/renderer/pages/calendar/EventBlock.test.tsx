@@ -63,3 +63,20 @@ describe("il tipo dell'evento e il libero/occupato (F3b)", () => {
     expect(result.current(event({ transparency: "transparent" }), undefined, false)).toContain("Free");
   });
 });
+
+describe("gli invitati nella vista Giorno, dalla lista leggera (F3b)", () => {
+  it("senza gli invitati sulla riga, il loro numero (`attendeeCount`): «3 guests»", () => {
+    render(
+      <GridBlockBody e={event({ attendees: [], attendeeCount: 3 })} heightPx={120} project={undefined} past={false} roomy continues={false} fromPrevious={false} hideCode={false} />,
+    );
+    expect(screen.getByText("3 guests")).toBeInTheDocument();
+  });
+
+  it("nessuno (o un server che non lo dice): niente riga", () => {
+    render(
+      <GridBlockBody e={event({ attendees: [], attendeeCount: null })} heightPx={120} project={undefined} past={false} roomy continues={false} fromPrevious={false} hideCode={false} />,
+    );
+    expect(screen.queryByText(/guests?$/)).toBeNull();
+  });
+});
+

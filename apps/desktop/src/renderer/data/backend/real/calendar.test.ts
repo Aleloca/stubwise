@@ -569,6 +569,8 @@ describe("F3b, dal server (task 6): la lista leggera e i campi nuovi", () => {
       location: "Sala 2",
       meetUrl: "https://meet.google.com/abc",
     });
+    // Il numero degli invitati resta sulla riga leggera (0bc3eea9 di 72).
+    expect(e!.attendeeCount).toBe(2);
   });
 
   it("i campi nuovi arrivano dal server: un evento personale senza suggerimento, il tipo e il libero", async () => {

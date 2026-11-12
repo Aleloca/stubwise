@@ -12,32 +12,39 @@ import { threadKey } from "./mailKeys";
 type Args = Record<string, unknown>;
 
 /** Il tipo del server, la funzione del prototipo e i suoi argomenti. */
-const ACTION_OF: Record<MailProposalActionType, (args: Args) => { fn: ProposedAction["fn"]; args: Args }> = {
+const ACTION_OF: Record<
+  MailProposalActionType,
+  (args: Args) => { fn: ProposedAction["fn"]; args: Args }
+> = {
   create_task: (a) => ({ fn: "createTask", args: a }),
   create_backlog_item: (a) => ({ fn: "createRequest", args: a }),
   update_ticket: ({ ticketId, ...rest }) => ({ fn: "updateTask", args: { id: ticketId, ...rest } }),
-  comment_ticket: ({ ticketId, ...rest }) => ({ fn: "addComment", args: { taskId: ticketId, ...rest } }),
+  comment_ticket: ({ ticketId, ...rest }) => ({
+    fn: "addComment",
+    args: { taskId: ticketId, ...rest },
+  }),
   create_milestone: (a) => ({ fn: "createMilestone", args: a }),
   record_decision: ({ ticketId, ...rest }) => ({
     fn: "recordDecision",
     args: ticketId === undefined ? rest : { taskId: ticketId, ...rest },
   }),
   choose_project: (a) => ({ fn: "chooseProject", args: a }),
+  // F3b: il promemoria di una serie del calendario, «Visto» (non crea nulla).
+  acknowledge_reminder: (a) => ({ fn: "acknowledgeReminder", args: a }),
 };
 
 const person = (p: { userId: string; name: string }) => ({ personId: p.userId, name: p.name });
 
 /**
- * F3b (task 7 di 72, additivo): le proposte del calendario nella stessa
- * lista, con `kind` e l'origine dell'evento al posto del messaggio. Un server
- * di prima non manda `kind`: è della posta. La build web non parsa (`as`),
- * quindi la difesa sta qui.
+ * F3b (task 7 di 72): le proposte del calendario nella stessa lista, con
+ * `kind: "calendar"`, `messageId` null e l'origine dell'evento in
+ * `calendarOrigin`. Un server di prima non manda `kind` (default «email»);
+ * la build web non parsa (`as`), quindi `?? null` qui.
  */
-type CalendarOrigin = { eventId?: string; title?: string | null; startsAt?: string; allDay?: boolean };
-type F3bProposal = ServerProposal & { kind?: "email" | "calendar"; eventId?: string | null };
-
-function calendarOriginOf(origin: CalendarOrigin | null | undefined): MailProposalView["origin"] {
-  if (!origin?.eventId || !origin.startsAt) return null;
+function calendarOriginOf(
+  origin: ServerProposal["calendarOrigin"] | undefined,
+): MailProposalView["origin"] {
+  if (!origin) return null;
   return {
     kind: "calendar",
     eventId: origin.eventId,
@@ -47,10 +54,9 @@ function calendarOriginOf(origin: CalendarOrigin | null | undefined): MailPropos
   };
 }
 
-export function proposalViewOf(raw: ServerProposal): MailProposalView {
-  const p = raw as F3bProposal;
+export function proposalViewOf(p: ServerProposal): MailProposalView {
   const fromCalendar = p.kind === "calendar";
-  const calendarOrigin = fromCalendar ? calendarOriginOf(p.origin as CalendarOrigin | null) : null;
+  const calendarOrigin = fromCalendar ? calendarOriginOf(p.calendarOrigin ?? null) : null;
   const actions = p.actions.flatMap<ProposedAction>((a) => {
     const map = ACTION_OF[a.type];
     // Un tipo che questo client non conosce (`readerSchema`): non lo propone.
@@ -62,9 +68,7 @@ export function proposalViewOf(raw: ServerProposal): MailProposalView {
     source: fromCalendar ? "calendar" : "email",
     // Il messaggio d'origine (`email_messages.id`): è il `messageId` dei messaggi della Posta;
     // per il calendario, l'evento.
-    sourceId: fromCalendar
-      ? ((calendarOrigin?.kind === "calendar" ? calendarOrigin.eventId : null) ?? p.eventId ?? "")
-      : p.messageId,
+    sourceId: fromCalendar ? (p.calendarOrigin?.eventId ?? "") : (p.messageId ?? ""),
     projectId: p.projectId,
     actions,
     excerpt: p.excerpt,
@@ -90,7 +94,12 @@ export function proposalViewOf(raw: ServerProposal): MailProposalView {
     origin: fromCalendar
       ? calendarOrigin
       : p.origin
-        ? { kind: "email", threadId: threadKey(p.origin.accountId, p.origin.threadId), from: p.origin.from, subject: p.origin.subject ?? "" }
+        ? {
+            kind: "email",
+            threadId: threadKey(p.origin.accountId, p.origin.threadId),
+            from: p.origin.from,
+            subject: p.origin.subject ?? "",
+          }
         : null,
   };
 }

@@ -112,6 +112,36 @@ describe("le proposte condivise: lettura", () => {
   });
 });
 
+describe("F3b: le proposte del calendario nella stessa lista (dal server, task 7)", () => {
+  it("una proposta del calendario arriva in «Da decidere» con l'evento come origine, accanto a quelle della posta", async () => {
+    const EVENT = "eeeeeeee-1111-4111-8111-111111111111";
+    installFakeServer({
+      "GET /api/me/mail/proposals": (req) =>
+        query(req.path).get("status") === "open"
+          ? list([
+              proposal(),
+              proposal({
+                id: P2,
+                kind: "calendar",
+                messageId: null,
+                origin: null,
+                canHand: false,
+                canReassign: false,
+                calendarOrigin: { eventId: EVENT, title: "Board", startsAt: "2026-11-20T09:00:00.000Z", allDay: false },
+                actions: [{ type: "acknowledge_reminder", args: {}, label: "Visto" }],
+              }),
+            ])
+          : list([]),
+    });
+    const items = await mail.listMailDecisions();
+    const cal = items.find((v) => v.proposal.id === P2)!;
+    expect(cal.proposal).toMatchObject({ source: "calendar", sourceId: EVENT });
+    expect(cal.origin).toMatchObject({ kind: "calendar", eventId: EVENT, title: "Board" });
+    expect(cal.proposal.actions.map((a) => a.fn)).toEqual(["acknowledgeReminder"]);
+    expect(items.find((v) => v.proposal.id === P1)!.proposal.source).toBe("email");
+  });
+});
+
 describe("le proposte condivise: confermare e ignorare", () => {
   const confirm = (body: unknown = { status: "confirmed", results: [{ kind: "task", id: "x", code: "AUD-12" }] }) => ({
     [`POST /api/me/mail/proposals/${P1}/confirm`]: { body },

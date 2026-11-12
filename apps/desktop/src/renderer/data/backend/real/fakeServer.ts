@@ -176,7 +176,8 @@ export const calendarRangeRoute = (items: readonly unknown[]) => (req: { path: s
     const mine = (
       (i.attendees as { email: string; responseStatus: string | null }[] | undefined) ?? []
     ).find((a) => a.email.toLowerCase() === String(i.accountEmail).toLowerCase());
-    return { myResponse: mine?.responseStatus ?? null, ...i };
+    const count = ((i.attendees as unknown[] | undefined) ?? []).length;
+    return { myResponse: mine?.responseStatus ?? null, attendeeCount: count, ...i };
   });
   const rows = light
     ? withResponse.map((i) => ({
