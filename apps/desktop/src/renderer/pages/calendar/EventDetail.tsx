@@ -248,16 +248,33 @@ function Detail({
               <AlertGlyph size={14} />
             </span>
             {t(
-              e.save.error === "rejected" ? "calendar.save.rejected" : "calendar.save.unreachable",
+              e.save.error === "rejected"
+                ? "calendar.save.rejected"
+                : e.save.error === "changed"
+                  ? "calendar.save.changed"
+                  : "calendar.save.unreachable",
             )}
           </p>
           <div className="flex gap-2">
-            <button type="button" className={smallSecondary} onClick={() => retry.mutate(e.id)}>
-              {t("calendar.save.retry")}
-            </button>
-            <button type="button" className={smallSecondary} onClick={() => revert.mutate(e.id)}>
-              {t("calendar.save.undo")}
-            </button>
+            {/* Cambiato su Google nel frattempo (F4, Q4 = a): solo «Reload», niente da rimandare. */}
+            {e.save.error === "changed" ? (
+              <button type="button" className={smallSecondary} onClick={() => revert.mutate(e.id)}>
+                {t("calendar.save.reload")}
+              </button>
+            ) : (
+              <>
+                <button type="button" className={smallSecondary} onClick={() => retry.mutate(e.id)}>
+                  {t("calendar.save.retry")}
+                </button>
+                <button
+                  type="button"
+                  className={smallSecondary}
+                  onClick={() => revert.mutate(e.id)}
+                >
+                  {t("calendar.save.undo")}
+                </button>
+              </>
+            )}
           </div>
         </div>
       )}
