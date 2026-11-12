@@ -53,6 +53,14 @@ export interface GoogleCalendarEvent {
   attendees: CalendarAttendee[];
   organizer: string | null;
   htmlLink: string | null;
+  /**
+   * Il tipo di Google (area 6, F3b): `default`, `outOfOffice`, `focusTime`,
+   * `workingLocation`, `birthday`, `fromGmail`… — aperto: un valore nuovo di
+   * Google passa com'è. Assente = `default`.
+   */
+  eventType: string;
+  /** `opaque` (occupa) | `transparent` (libero). Assente = `opaque`, come per Google. */
+  transparency: "opaque" | "transparent";
   updatedAt: Date | null;
   /**
    * L'id dell'evento PADRE della serie, se questa occorrenza appartiene a una
@@ -118,6 +126,8 @@ const eventSchema = z.object({
     .optional(),
   organizer: z.object({ email: z.string().optional() }).optional(),
   htmlLink: z.string().optional(),
+  eventType: z.string().optional(),
+  transparency: z.string().optional(),
   updated: z.string().optional(),
   recurringEventId: z.string().optional(),
   originalStartTime: dateSchema.optional(),
@@ -201,6 +211,8 @@ function toEvent(raw: z.infer<typeof eventSchema>): GoogleCalendarEvent {
       })),
     organizer: raw.organizer?.email?.toLowerCase() ?? null,
     htmlLink: raw.htmlLink ?? null,
+    eventType: raw.eventType && raw.eventType.trim() !== "" ? raw.eventType : "default",
+    transparency: raw.transparency === "transparent" ? "transparent" : "opaque",
     updatedAt: toDate(raw.updated),
     recurringEventId: raw.recurringEventId ?? null,
     originalStartTime: toDateValue(raw.originalStartTime),
