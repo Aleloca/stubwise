@@ -98,16 +98,6 @@ describe("il cassetto Google: l'account", () => {
     expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "scopes", missing: ["markRead"] });
   });
 
-  it("senza `gmail.settings.basic` manca la firma di Gmail (decisione del maintainer, F3)", async () => {
-    installFakeServer({
-      "GET /api/me/google/accounts": {
-        body: [account({ missingScopes: ["https://www.googleapis.com/auth/gmail.settings.basic"] })],
-      },
-    });
-    session.personId = ME_ID;
-    expect(await drive.getGoogleAccount()).toMatchObject({ reconnect: "scopes", missing: ["signature"] });
-  });
-
   it("uno scope mancante di una funzione che non c'è ancora (Drive, F5): da ricollegare, senza funzioni elencate", async () => {
     installFakeServer({
       "GET /api/me/google/accounts": {

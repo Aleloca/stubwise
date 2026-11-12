@@ -5931,8 +5931,7 @@
       "scopes": "Ricollega per dare a Stubwise i nuovi permessi",
       "scopesMissing": "Finché non ricolleghi, Stubwise non può {{what}}.",
       "feature": {
-        "markRead": "segnare la posta come letta o non letta",
-        "signature": "aggiungere la tua firma di Gmail"
+        "markRead": "segnare la posta come letta o non letta"
       }
     },
     "expired": {

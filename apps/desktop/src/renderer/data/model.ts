@@ -2052,7 +2052,7 @@ export interface GoogleAccount {
 }
 
 /** Una funzione di Google che Stubwise usa e che dipende da uno scope (oggi: letto/non letto). */
-export type GoogleFeature = "markRead" | "signature";
+export type GoogleFeature = "markRead";
 
 /**
  * Una cartella Google collegata a un progetto: Stubwise la legge con
