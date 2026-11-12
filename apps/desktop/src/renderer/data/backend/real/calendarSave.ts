@@ -18,6 +18,11 @@ interface Pending {
   view: CalendarEventView;
   /** La richiesta da rimandare con «Retry». */
   run: () => Promise<CalendarEventView>;
+  /**
+   * Una riunione NUOVA (review F4, 4): sul server non c'è ancora una riga su
+   * cui sovrapporla, quindi le letture la AGGIUNGONO, nel loro intervallo.
+   */
+  created?: boolean;
 }
 
 const store = new WeakMap<object, Map<string, Pending>>();
@@ -51,10 +56,22 @@ function chainOf(): Map<string, Promise<unknown>> {
 }
 
 /** Le righe del server con sopra gli eventi in salvataggio o non salvati. */
-export function withPendingSaves(rows: CalendarEventView[]): CalendarEventView[] {
+export function withPendingSaves(
+  rows: CalendarEventView[],
+  range?: { from: number; to: number },
+): CalendarEventView[] {
   const map = pendingMap();
   if (map.size === 0) return rows;
-  return rows.map((r) => map.get(r.id)?.view ?? r);
+  const out = rows.map((r) => map.get(r.id)?.view ?? r);
+  if (range)
+    for (const p of map.values())
+      if (
+        p.created &&
+        Date.parse(p.view.startsAt) < range.to &&
+        Date.parse(p.view.endsAt) > range.from
+      )
+        out.push(p.view);
+  return out;
 }
 
 /** L'evento in salvataggio o non salvato, se c'è. */
@@ -71,9 +88,10 @@ export async function saveWith(
   patched: CalendarEventView,
   run: () => Promise<CalendarEventView>,
   saveErrorOf: (error: unknown) => SaveError | null,
+  created = false,
 ): Promise<CalendarEventView> {
   const map = pendingMap();
-  const entry: Pending = { view: { ...patched, save: { state: "saving" } }, run };
+  const entry: Pending = { view: { ...patched, save: { state: "saving" } }, run, created };
   map.set(patched.id, entry);
   for (const fn of [...listeners]) fn(entry.view);
   // In fila per evento: la seconda parte quando la prima è finita, e legge
@@ -98,7 +116,11 @@ export async function saveWith(
       if (map.get(patched.id) === entry) map.delete(patched.id);
       throw error;
     }
-    const failed: Pending = { view: { ...patched, save: { state: "failed", error: reason } }, run };
+    const failed: Pending = {
+      view: { ...patched, save: { state: "failed", error: reason } },
+      run,
+      created,
+    };
     if (map.get(patched.id) === entry) map.set(patched.id, failed);
     return failed.view;
   }
@@ -111,7 +133,7 @@ export async function retryPending(
 ): Promise<CalendarEventView> {
   const entry = pendingMap().get(id);
   if (!entry || entry.view.save?.state !== "failed") throw new Error("invalid: not failed");
-  return saveWith(entry.view, entry.run, saveErrorOf);
+  return saveWith(entry.view, entry.run, saveErrorOf, entry.created === true);
 }
 
 /** «Undo the change»: la sovrapposizione se ne va, resta la riga del server. */

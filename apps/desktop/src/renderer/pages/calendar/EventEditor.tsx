@@ -36,7 +36,7 @@ import {
   timeLabel,
 } from "./calendarFormat";
 import type { WindowDays } from "./calendarParams";
-import { applyEdits, EditFailed } from "./applyEdits";
+import { announcesSaved, applyEdits, EditFailed } from "./applyEdits";
 import { SeriesScopeDialog } from "./SeriesScopeDialog";
 
 // «New meeting» / «Edit meeting» (shape calendar.md §6, dialogo 560 px):
@@ -230,7 +230,9 @@ export function EventEditor({
           reminders,
         })
         .then(
-          (e) => onSaved(t("calendar.editor.created", { title: e.title })),
+          (e) => {
+            if (announcesSaved(e)) onSaved(t("calendar.editor.created", { title: e.title }));
+          },
           () => toast.error(t("calendar.editor.failed")),
         );
       return;

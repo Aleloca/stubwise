@@ -7,7 +7,7 @@ import type { CalendarEventView, FreeBusy } from "../../types";
 import { eventView } from "./calendarView";
 import { appClient } from "./client";
 import { dropPending, pendingSave, retryPending, saveWith, type SaveError } from "./calendarSave";
-import { myMailboxes } from "./mailDrafts";
+import { myAccounts } from "./google";
 
 // Scrivere sul Calendario nella build app (area 6, F4), coi metodi di
 // `client.calendar` di 72 (createEvent, editEvent, moveEvent, respondEvent,
@@ -103,14 +103,6 @@ function writeError(error: unknown): unknown {
   return error;
 }
 
-async function write(run: () => Promise<unknown>): Promise<CalendarEventView> {
-  try {
-    return viewOfResult(await run());
-  } catch (error) {
-    throw writeError(error);
-  }
-}
-
 /**
  * Gli orari come li vuole il server (contratto di 72, review F4 punto 12):
  * «tutto il giorno» è una DATA `YYYY-MM-DD` con la fine esclusa, mai la
@@ -120,30 +112,69 @@ async function write(run: () => Promise<unknown>): Promise<CalendarEventView> {
 const wireTime = (at: string, allDay: boolean): string =>
   allDay ? new Date(at).toISOString().slice(0, 10) : at;
 
-/** Nuova riunione: dalla prima casella collegata (il prototipo ha un account per persona). */
 /** Un id di Google per una riunione nuova: base32hex (`[a-v0-9]`), l'esadecimale di un uuid lo è. */
 export const newEventId = (): string => crypto.randomUUID().replace(/-/g, "");
 
+/**
+ * Nuova riunione, dalla prima casella collegata (il prototipo ha un account
+ * per persona). Come le altre scritture (review F4, 4) passa dal salvataggio:
+ * la griglia la vede SUBITO con «Saving…» e l'editor si chiude; un 502 la
+ * lascia «non salvata» con «Retry», che rimanda la STESSA richiesta, quindi
+ * lo stesso `eventId` (se Google l'aveva creata, il server non ne fa due).
+ * Finché non è salvata il suo id è quello della bozza.
+ */
 const createEvent: Calendar["createEvent"] = async (input) => {
-  const { firstConnected } = await myMailboxes();
-  if (!firstConnected) throw new Error("google_not_connected");
-  return write(() =>
-    appClient().calendar.createEvent({
-      // Uno per bozza (l'editor), lo stesso a ogni tentativo; un esadecimale è già base32hex.
-      eventId: input.draftId ?? newEventId(),
-      accountId: firstConnected,
-      title: input.title,
-      startsAt: wireTime(input.startsAt, input.allDay === true),
-      endsAt: wireTime(input.endsAt, input.allDay === true),
-      allDay: input.allDay === true,
-      guests: input.guests ?? [],
-      addMeet: input.addMeet === true,
-      description: input.description ?? null,
-      location: input.location ?? null,
+  const account = (await myAccounts()).find((a) => a.disabledAt === null);
+  if (!account) throw new Error("google_not_connected");
+  const eventId = input.draftId ?? newEventId();
+  const allDay = input.allDay === true;
+  const body = {
+    // Uno per bozza (l'editor), lo stesso a ogni tentativo; un esadecimale è già base32hex.
+    eventId,
+    accountId: account.id,
+    title: input.title,
+    startsAt: wireTime(input.startsAt, allDay),
+    endsAt: wireTime(input.endsAt, allDay),
+    allDay,
+    guests: input.guests ?? [],
+    addMeet: input.addMeet === true,
+    description: input.description ?? null,
+    location: input.location ?? null,
+    projectId: input.projectId ?? null,
+    reminders: input.reminders ?? "default",
+  } as Parameters<ReturnType<typeof appClient>["calendar"]["createEvent"]>[0];
+  const draft: CalendarEventView = {
+    ...eventView({
+      id: eventId,
+      accountId: account.id,
+      accountEmail: account.email,
+      recurringEventId: null,
       projectId: input.projectId ?? null,
-      reminders: input.reminders ?? "default",
-    } as Parameters<ReturnType<typeof appClient>["calendar"]["createEvent"]>[0]),
-  );
+      projectName: null,
+      title: input.title,
+      organizer: account.email,
+      attendees: [],
+      startsAt: input.startsAt,
+      endsAt: input.endsAt,
+      allDay,
+      descriptionText: input.description ?? null,
+      location: input.location ?? null,
+      hangoutLink: null,
+      remindersUseDefault: true,
+      canEdit: true,
+      canRespond: false,
+    } as unknown as CalendarEventItem),
+    projectBy: input.projectId ? "manual" : null,
+    attendeeCount: (input.guests?.length ?? 0) + 1,
+  };
+  const run = async () => {
+    try {
+      return viewOfResult(await appClient().calendar.createEvent(body));
+    } catch (error) {
+      throw saveErrorOf(error) === null ? writeError(error) : error;
+    }
+  };
+  return saveWith(draft, run, saveErrorOf, true);
 };
 
 /**

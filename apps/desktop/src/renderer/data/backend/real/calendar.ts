@@ -88,9 +88,10 @@ const listEvents: Calendar["listEvents"] = async (range) => {
     fields: "summary",
   });
   // Gli eventi in salvataggio o non salvati (F4) si vedono al loro posto nuovo.
-  return withPendingSaves(fresh(page.items).map((e) => eventView(e as CalendarEventItem))).sort(
-    byStart,
-  );
+  return withPendingSaves(
+    fresh(page.items).map((e) => eventView(e as CalendarEventItem)),
+    { from, to },
+  ).sort(byStart);
 };
 
 /**

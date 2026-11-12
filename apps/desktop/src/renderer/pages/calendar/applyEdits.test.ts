@@ -87,3 +87,12 @@ describe("applyEdits: orari, poi dettagli, poi progetto", () => {
     expect((err as EditFailed).saved).toBe("time");
   });
 });
+
+describe("announcesSaved: «creata»/«aggiornata» solo se non è rimasta «non salvata» (review F4, 4)", () => {
+  it("salvata o in salvataggio: sì; non salvata (502, «Retry» sul blocco): no", async () => {
+    const { announcesSaved } = await import("./applyEdits");
+    expect(announcesSaved({ save: { state: "saved" } })).toBe(true);
+    expect(announcesSaved({})).toBe(true);
+    expect(announcesSaved({ save: { state: "failed", error: "unreachable" } })).toBe(false);
+  });
+});

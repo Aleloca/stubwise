@@ -695,8 +695,16 @@ describe("review F4 (minore): spostata la serie, torna la data spostata, non la 
       [`POST /api/me/calendar/events/${EV}/move`]: {
         body: {
           items: [
-            row({ id: "aaaaaaaa-1111-4111-8111-111111111111", startsAt: "2026-11-06T11:00:00Z", endsAt: "2026-11-06T12:00:00Z" }),
-            row({ id: "bbbbbbbb-2222-4222-8222-222222222222", startsAt: "2026-11-13T11:00:00Z", endsAt: "2026-11-13T12:00:00Z" }),
+            row({
+              id: "aaaaaaaa-1111-4111-8111-111111111111",
+              startsAt: "2026-11-06T11:00:00Z",
+              endsAt: "2026-11-06T12:00:00Z",
+            }),
+            row({
+              id: "bbbbbbbb-2222-4222-8222-222222222222",
+              startsAt: "2026-11-13T11:00:00Z",
+              endsAt: "2026-11-13T12:00:00Z",
+            }),
           ],
         },
       },
@@ -708,5 +716,83 @@ describe("review F4 (minore): spostata la serie, torna la data spostata, non la 
       "series",
     );
     expect(e.id).toBe("bbbbbbbb-2222-4222-8222-222222222222");
+  });
+});
+
+describe("review F4 (4): la riunione nuova si vede SUBITO, e un 502 si riprova con lo STESSO id", () => {
+  const DRAFT = "0123456789abcdef0123456789abcdef";
+  const range = (rows: unknown[]) => ({ body: { items: rows, nextCursor: null } });
+  const list = () =>
+    calendar.listEvents({ from: "2026-11-13T00:00:00Z", to: "2026-11-14T00:00:00Z" });
+  const input = {
+    draftId: DRAFT,
+    title: "Kick-off",
+    startsAt: "2026-11-13T09:00:00.000Z",
+    endsAt: "2026-11-13T10:00:00.000Z",
+  };
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-12T10:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("prima che Google risponda, chi ascolta riceve la riunione con «Saving…» (l'id è quello della bozza)", async () => {
+    installFakeServer({
+      ...base,
+      "POST /api/me/calendar/events": { status: 201, body: { items: [row()] } },
+    });
+    const heard: unknown[] = [];
+    const off = calendar.onSaving((e) => heard.push({ id: e.id, title: e.title, save: e.save }));
+    try {
+      await w.createEvent!(input);
+    } finally {
+      off();
+    }
+    expect(heard).toEqual([{ id: DRAFT, title: "Kick-off", save: { state: "saving" } }]);
+  });
+
+  it("502: resta nella griglia «non salvata»; «Retry» rimanda lo STESSO eventId; salvata, resta solo la riga del server", async () => {
+    let fail = true;
+    let created = false;
+    const { seen } = installFakeServer({
+      ...base,
+      "GET /api/me/calendar/range": () => range(created ? [row()] : []),
+      "POST /api/me/calendar/events": () => {
+        if (fail) return { status: 502, body: { code: "google_unavailable", message: "x" } };
+        created = true;
+        return { status: 201, body: { items: [row()] } };
+      },
+    });
+    const e = await w.createEvent!(input);
+    expect(e).toMatchObject({ id: DRAFT, save: { state: "failed", error: "unreachable" } });
+    expect(await list()).toEqual([
+      expect.objectContaining({
+        id: DRAFT,
+        title: "Kick-off",
+        save: { state: "failed", error: "unreachable" },
+      }),
+    ]);
+    fail = false;
+    expect(await w.retrySave!(DRAFT)).toMatchObject({ id: EV, save: { state: "saved" } });
+    const ids = seen
+      .filter((r) => r.method === "POST")
+      .map((r) => (r.body as { eventId: string }).eventId);
+    expect(ids).toEqual([DRAFT, DRAFT]);
+    expect((await list()).map((x) => x.id)).toEqual([EV]);
+  });
+
+  it("«Undo» su una riunione mai creata: sparisce, nessuna richiesta in più", async () => {
+    const { seen } = installFakeServer({
+      ...base,
+      "GET /api/me/calendar/range": range([]),
+      "POST /api/me/calendar/events": {
+        status: 502,
+        body: { code: "google_unavailable", message: "x" },
+      },
+    });
+    await w.createEvent!(input);
+    await w.revertEvent!(DRAFT);
+    expect(await list()).toEqual([]);
+    expect(seen.filter((r) => r.method === "POST")).toHaveLength(1);
   });
 });

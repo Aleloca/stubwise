@@ -75,3 +75,10 @@ export async function applyEdits(
     throw new EditFailed(saved, error);
   }
 }
+
+/**
+ * Si annuncia «creata» (o «aggiornata») solo se la scrittura non è rimasta
+ * «non salvata» (review F4, 4): in quel caso lo dice il blocco, con «Retry».
+ */
+export const announcesSaved = (e: { save?: { state: string; error?: string } }): boolean =>
+  e.save?.state !== "failed";

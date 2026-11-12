@@ -7,6 +7,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { placeEvent, settleSaved } from "./calendarCache";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "@backend/api";
 import { isAppBuild } from "./build";
@@ -3629,7 +3630,11 @@ function useCalendarSave<TVars, TData>(
     mutationFn: async (vars: TVars) => {
       // L'evento in salvataggio entra negli elenchi PRIMA che Google risponda
       // (la build app aspetta la risposta: review F4, 5).
-      const off = api.calendar.onSaving((e) => placeEvent(client, me, e as CalendarEventView));
+      const heard: string[] = [];
+      const off = api.calendar.onSaving((e) => {
+        heard.push(e.id);
+        placeEvent(client, me, e as CalendarEventView);
+      });
       let result: TData;
       try {
         result = await mutationFn(vars);
@@ -3639,7 +3644,7 @@ function useCalendarSave<TVars, TData>(
       // L'evento scritto (in «Salvataggio…») entra SUBITO negli elenchi già
       // letti: la rilettura che segue può arrivare a salvataggio finito, e
       // il blocco deve comparire nel posto nuovo con la sua parola di stato.
-      if (isEventView(result)) placeEvent(client, me, result);
+      if (isEventView(result)) settleSaved(client, me, heard, result);
       void invalidate();
       await api.calendar.whenCalendarIdle();
       return result;
@@ -3659,29 +3664,6 @@ function isEventView(x: unknown): x is CalendarEventView {
     typeof e.isOrganizer === "boolean" &&
     Array.isArray(e.attendees)
   );
-}
-
-/**
- * Mette (o sostituisce) l'evento negli elenchi letti degli intervalli che
- * tocca, con la stessa regola di `listEvents` (`spanOf`: un «tutto il
- * giorno» copre i giorni LOCALI della sua data).
- */
-function placeEvent(client: ReturnType<typeof useQueryClient>, me: string, e: CalendarEventView) {
-  const { from, to } = api.calendar.spanOf(e);
-  for (const [key, list] of client.getQueriesData<CalendarEventView[]>({
-    queryKey: ["as", me, "calendar", "events"],
-  })) {
-    if (!list) continue;
-    const range = key[4] as { from: string; to: string } | undefined;
-    const touches = !!range && from < Date.parse(range.to) && to > Date.parse(range.from);
-    const rest = list.filter((x) => x.id !== e.id);
-    const next = touches
-      ? [...rest, e].sort(
-          (a, b) => a.startsAt.localeCompare(b.startsAt) || a.id.localeCompare(b.id),
-        )
-      : rest;
-    client.setQueryData(key, next);
-  }
 }
 
 export function useCreateEvent() {
