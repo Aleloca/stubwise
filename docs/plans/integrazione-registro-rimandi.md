@@ -348,6 +348,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   all'invariante delle serie, con tetto di costo *(M)*; il resto con la
   consigliata *(O)*.
 - Azioni di Claude: crea automazione in bozza, salva/elimina bozza, prova.
+- Le risposte alle domande del design dell'area 7 *(12 nov 2026)*, in
+  `docs/plans/2026-11-12-integrazione-area7-design.md`: D1 *(M)* nessun
+  tetto di costo per esecuzione, solo il budget mensile controllato prima di
+  ogni passo di Claude; D2 *(M)* nessun limite in più per le email «da
+  sole», come il prototipo; D3 *(M)* URL segreto per automazione,
+  rigenerabile, con un limite di frequenza; D4 *(M)* la prova con Claude
+  vero la lancia chi gestisce, col costo stimato detto prima; D5 *(O)* il
+  proprietario che perde il permesso mette l'automazione in pausa, con un
+  avviso. La difesa contro un'automazione impazzita: l'idempotenza e la
+  profondità della catena (3, del prototipo), non un limite di quantità.
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 

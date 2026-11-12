@@ -98,6 +98,30 @@ arrivo per automazione, che Audin e HubSpot possono già chiamare.
   (la tabella resta com'è).
 - **Q13 = a** *(O)*: la ricorrenza mensile si porta e scatta.
 
+### Le risposte alle domande del design (12 nov 2026)
+
+- **D1** *(M, NON la consigliata)*: **nessun tetto di costo per
+  esecuzione**; vale solo il budget mensile dell'istanza, controllato
+  **prima di ogni passo di Claude** (non solo all'avvio dell'esecuzione).
+- **D2** *(M, NON la consigliata)*: **nessun limite in più** per le email che
+  partono da sole, come il prototipo (resta il suo tetto di 20 email per
+  esecuzione, sulla catena; niente tetto giornaliero).
+- **D3 = a** *(M)*: il webhook in arrivo ha un URL segreto per automazione,
+  rigenerabile, più un limite di frequenza.
+- **D4 = a** *(M)*: la prova con Claude vero la lancia chi gestisce
+  l'automazione, col costo stimato detto prima di partire.
+- **D5 = a** *(O, 46)*: se il proprietario perde il permesso, l'automazione
+  si mette in pausa da sola, con un avviso a chi ha `automations.manage`.
+
+Siccome D1 e D2 tolgono due freni, **la difesa contro un'automazione
+impazzita** è: l'idempotenza (Q3: un effetto non si scrive due volte) e il
+**limite anti-loop sulla PROFONDITÀ della catena degli eventi** (una catena
+di avvii si ferma a 3, e un evento prodotto da un'esecuzione non riavvia
+un'automazione già nella sua catena: è del prototipo, `CHAIN_MAX`), che NON
+è un limite di quantità. Restano anche i limiti del prototipo dentro
+un'esecuzione (200 effetti, 50 giri, 20 email, 100 esecuzioni non finite per
+automazione).
+
 ## Fette
 
 Ogni fetta si usa da sola, ha il suo piano, la sua review, la sua parità.
@@ -256,11 +280,14 @@ test.
 - **Il budget mensile dell'istanza** vale anche qui; il blocco d'istanza
   tiene l'esecuzione al confine del passo (il prototipo: `holdForAi`) e la
   riprende quando si sblocca.
-- **Un tetto per esecuzione** (Q8, Q9): una spesa massima per esecuzione,
-  configurabile sull'automazione (default proposto: 1 USD); oltre, il passo
-  fallisce con `budget_exhausted` e il proprietario lo sa.
-- **La prova chiama Claude vero** (Q9): costa, lo dice il pulsante («la prova
-  usa Claude: costa come un'esecuzione») e conta sul budget e sul tetto.
+- **Nessun tetto per esecuzione** *(D1, M)*: vale il budget mensile
+  dell'istanza, controllato PRIMA di ogni passo di Claude (non solo
+  all'avvio): esaurito, l'esecuzione resta al confine del passo (`holdForAi`
+  del prototipo) e riprende da sola quando il budget torna, come gli altri
+  lavori AI; il proprietario lo vede nel registro.
+- **La prova chiama Claude vero** (Q9, D4): la lancia chi gestisce
+  l'automazione, col costo STIMATO detto prima di partire, e conta sul
+  budget mensile.
 - Il passo di Claude non ha strumenti, non esegue azioni, legge i suoi input
   fra delimitatori come contenuto NON fidato (un'email, una risposta del
   cliente, un documento).
@@ -311,16 +338,19 @@ lavoro»), e da richiamare in un file nuovo `docs/invariants/automations.md`:
 > 1. il passo di Claude **non esegue azioni**: restituisce un'uscita fra
 >    quelle disegnate e/o i campi dichiarati col loro tipo, e le azioni sono
 >    solo i passi del flusso, coi permessi del proprietario (regola 2);
-> 2. **un tetto di costo per esecuzione**, oltre il quale il passo fallisce
->    (`budget_exhausted`), più il budget mensile dell'istanza;
+> 2. **il budget mensile dell'istanza, controllato prima di OGNI passo di
+>    Claude** (non solo all'avvio): esaurito, l'esecuzione si ferma al
+>    confine del passo e non chiama il modello (D1 del maintainer: nessun
+>    tetto per esecuzione);
 > 3. ogni passo di Claude passa dal `TrackingAgentRunner` con l'operazione
 >    `automation_step`, e Usage lo mostra;
 > 4. l'input è contenuto NON fidato (delimitato, senza strumenti);
 > 5. nessun altro percorso automatico (serie del calendario, pulse, brief,
 >    giro notturno) prende questa eccezione: chi ne vuole una nuova la
 >    dichiara qui.
-> Verificato con un test negativo: un'automazione con un passo di Claude e il
-> tetto a 0 non chiama il modello, e un'esecuzione oltre il tetto si ferma;
+> Verificato con un test negativo: con il budget mensile esaurito un passo
+> di Claude non chiama il modello, anche a metà di un'esecuzione partita
+> quando il budget c'era;
 > `decisions-never-ai.test.ts` resta verde (il registro decisioni non è mai
 > scritto dall'AI, neanche da un passo di Claude).
 
@@ -349,13 +379,20 @@ lavoro»), e da richiamare in un file nuovo `docs/invariants/automations.md`:
   (il merge di una PR, l'SDK, il widget, il catalogo di Claude); un evento
   prodotto da un'esecuzione non riavvia la sua catena; R-G5 dentro
   un'esecuzione.
-- **F2**: un'email di un passo «parte da sola» rispetta i tetti e la casella
-  del proprietario; un'email «da approvare» non parte prima dell'Approva
+- **F2**: un'email di un passo «parte da sola» rispetta il tetto per
+  esecuzione e la casella del proprietario; **un'automazione impazzita**
+  (D2: nessun limite in più) — un evento che si autoalimenta (una task
+  creata che fa ripartire la stessa automazione, due automazioni che si
+  avviano a vicenda) si ferma alla profondità della catena, e migliaia di
+  eventi in ingresso non producono MAI due volte la stessa email (la
+  chiave d'idempotenza) né superano 20 email per esecuzione; un'email «da approvare» non parte prima dell'Approva
   (nemmeno dopo un riavvio); l'attesa della risposta si sveglia solo nella
   stessa conversazione; un'automazione non legge mai la posta di un altro;
   la mensile scatta una volta, nel fuso giusto, anche a fine mese.
 - **F3**: un'uscita fuori elenco o un campo del tipo sbagliato è un errore
-  del passo, mai un ramo; il tetto per esecuzione ferma davvero; una ripresa
+  del passo, mai un ramo; **il budget si controlla prima di OGNI passo di
+  Claude** (D1: nessun tetto per esecuzione), anche dentro un «per ogni» di
+  50 giri e in un loop di eventi fermato solo dalla catena; una ripresa
   non richiama il modello; l'input non fidato non diventa un'istruzione;
   la prova con Claude vero conta sul budget.
 - **F4**: una generale ricava il progetto solo dalla tabella (o lo chiede);
@@ -363,7 +400,7 @@ lavoro»), e da richiamare in un file nuovo `docs/invariants/automations.md`:
   dei tipi sbagliati non avvia niente; la catena di «avvia un'altra» si
   ferma a 3 e non fa cicli.
 
-## Domande che restano del maintainer
+## Domande del maintainer (risposte: vedi «Le risposte alle domande del design»)
 
 D1. **Il tetto di costo per esecuzione** (Q8, Q9).
 - (a) *(consigliata)* Un default d'istanza (proposta: 1 USD), modificabile
