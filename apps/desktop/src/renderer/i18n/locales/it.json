@@ -5904,7 +5904,8 @@
       "button": "Collega l'account Google",
       "connecting": "Collegamento a Google…",
       "error": "Non è stato possibile collegarsi a Google",
-      "tryAgain": "Riprova"
+      "tryAgain": "Riprova",
+      "workspace": "Google Workspace"
     },
     "account": {
       "menu": "Account Google",
@@ -5924,7 +5925,14 @@
       "disconnectMailCalendar": "Anche Posta e Calendario smetteranno di mostrare {{email}}. La posta già arrivata e le proposte già fatte restano.",
       "disconnectConfirm": "Scollega l'account",
       "cancel": "Annulla",
-      "close": "Chiudi"
+      "close": "Chiudi",
+      "introMail": "Collega il tuo account Google: Stubwise mostra qui Gmail e Calendar e trasforma in proposte quello che c'è da fare.",
+      "expiredBodyMail": "Posta e Calendario non si aggiornano finché non ricolleghi.",
+      "scopes": "Ricollega per dare a Stubwise i nuovi permessi",
+      "scopesMissing": "Finché non ricolleghi, Stubwise non può {{what}}.",
+      "feature": {
+        "markRead": "segnare la posta come letta o non letta"
+      }
     },
     "expired": {
       "region": "Collegamento della cartella scaduto",

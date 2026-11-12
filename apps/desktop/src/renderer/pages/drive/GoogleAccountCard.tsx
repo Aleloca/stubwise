@@ -4,9 +4,11 @@ import {
   useConnectGoogle,
   useDisconnectGoogle,
   useGoogleAccount,
+  useGoogleWorkspaces,
   useMyFolderLinks,
   useSessionPersonId,
 } from "../../data/queries";
+import { featureIntegrated } from "../../data/integration";
 import { onBeforePersonaChange } from "../../data/session";
 import { Dialog } from "../../tasks-ui/Dialog";
 import { formatDate } from "../../notifications/time";
@@ -63,16 +65,25 @@ export function GoogleAccountHost() {
 function useConnect() {
   const connect = useConnectGoogle();
   return {
-    run: () => connect.mutate(),
+    run: (workspaceId?: string) => connect.mutate(workspaceId ? { workspaceId } : {}),
     pending: connect.isPending,
     failed: connect.isError,
   };
 }
 
-/** Il bottone che collega l'account: «Connecting to Google…» mentre lavora, l'errore con «Try again». */
+/**
+ * Il bottone che collega l'account: «Connecting to Google…» mentre lavora,
+ * l'errore con «Try again». Build app (area 6, fetta 1): con più Workspace
+ * utilizzabili, prima si sceglie quale (decisione A(a) dell'orchestratrice);
+ * con uno solo nessuna domanda, come nel prototipo.
+ */
 function ConnectButton({ label, primary = true }: { label: string; primary?: boolean }) {
   const { t } = useTranslation();
   const connect = useConnect();
+  const workspaces = useGoogleWorkspaces().data ?? [];
+  const [chosen, setChosen] = useState<string | null>(null);
+  const workspaceId = workspaces.length === 1 ? workspaces[0]!.id : chosen;
+  const choosing = workspaces.length > 1;
   if (connect.pending) {
     return (
       <p role="status" className="flex items-center gap-2 text-sm text-ink-muted">
@@ -83,11 +94,28 @@ function ConnectButton({ label, primary = true }: { label: string; primary?: boo
   }
   return (
     <div className="flex flex-wrap items-center gap-3">
+      {choosing && (
+        <div role="radiogroup" aria-label={t("drive.connect.workspace")} className="flex w-full flex-col gap-1.5">
+          {workspaces.map((w) => (
+            <label key={w.id} className="flex items-center gap-2 text-sm text-ink">
+              <input
+                type="radio"
+                name="google-workspace"
+                checked={chosen === w.id}
+                onChange={() => setChosen(w.id)}
+              />
+              <span>{w.name}</span>
+              {w.domains.length > 0 && <span className="text-ink-faint">{w.domains.join(", ")}</span>}
+            </label>
+          ))}
+        </div>
+      )}
       <button
         type="button"
         data-autofocus
         className={primary ? primaryButton : secondaryButton}
-        onClick={connect.run}
+        disabled={choosing && !workspaceId}
+        onClick={() => connect.run(workspaceId ?? undefined)}
       >
         {connect.failed ? t("drive.connect.tryAgain") : label}
       </button>
@@ -124,7 +152,11 @@ function GoogleAccountDialog({ onClose }: { onClose: () => void }) {
   const { t, i18n } = useTranslation();
   const account = useGoogleAccount();
   const [confirming, setConfirming] = useState(false);
-  const mine = useMyFolderLinks(confirming).data;
+  // Il Drive Google (cartelle, file) è della F5: nella build app senza di lui
+  // i testi parlano di Posta e Calendario, e le cartelle non si leggono.
+  const driveGoogle = featureIntegrated("google");
+  const folders = useMyFolderLinks(confirming && driveGoogle).data;
+  const mine = driveGoogle ? folders : [];
   const disconnect = useDisconnectGoogle();
   const data = account.data;
 
@@ -145,9 +177,11 @@ function GoogleAccountDialog({ onClose }: { onClose: () => void }) {
   } else if (!data) {
     body = (
       <div className="flex flex-col items-start gap-3">
-        <p className="max-w-[56ch] text-md text-ink">{t("drive.account.intro")}</p>
+        <p className="max-w-[56ch] text-md text-ink">
+          {t(driveGoogle ? "drive.account.intro" : "drive.account.introMail")}
+        </p>
         <ConnectButton label={t("drive.connect.button")} />
-        <p className="text-xs text-ink-faint">{t("drive.account.note")}</p>
+        {driveGoogle && <p className="text-xs text-ink-faint">{t("drive.account.note")}</p>}
       </div>
     );
   } else if (data.status === "expired") {
@@ -159,10 +193,24 @@ function GoogleAccountDialog({ onClose }: { onClose: () => void }) {
           </span>
           <div className="flex flex-col gap-0.5">
             <p className="text-md font-semibold text-ink">
-              {t("drive.account.expired", { date: formatDate(data.since, i18n.language) })}
+              {data.reconnect === "scopes"
+                ? t("drive.account.scopes")
+                : t("drive.account.expired", { date: formatDate(data.since, i18n.language) })}
             </p>
             <p className="text-sm text-ink-muted">{data.email}</p>
-            <p className="text-sm text-ink-muted">{t("drive.account.expiredBody")}</p>
+            {data.reconnect === "scopes" ? (
+              (data.missing ?? []).length > 0 && (
+                <p className="text-sm text-ink-muted">
+                  {t("drive.account.scopesMissing", {
+                    what: (data.missing ?? []).map((f) => t(`drive.account.feature.${f}`)).join(", "),
+                  })}
+                </p>
+              )
+            ) : (
+              <p className="text-sm text-ink-muted">
+                {t(driveGoogle ? "drive.account.expiredBody" : "drive.account.expiredBodyMail")}
+              </p>
+            )}
           </div>
         </div>
         <ConnectButton label={t("drive.account.reconnect")} />
@@ -196,11 +244,13 @@ function GoogleAccountDialog({ onClose }: { onClose: () => void }) {
               <p className="text-sm text-ink-muted">{t("taskUi.states.loading")}</p>
             ) : (
               <>
-                <p className="text-md text-ink">
-                  {mine.length > 0
-                    ? t("drive.account.disconnectFolders", { count: mine.length, names })
-                    : t("drive.account.disconnectNone")}
-                </p>
+                {driveGoogle && (
+                  <p className="text-md text-ink">
+                    {mine.length > 0
+                      ? t("drive.account.disconnectFolders", { count: mine.length, names })
+                      : t("drive.account.disconnectNone")}
+                  </p>
+                )}
                 {mine.length > 0 && (
                   <p className="text-sm text-ink-muted">{t("drive.account.disconnectWho")}</p>
                 )}
@@ -218,7 +268,7 @@ function GoogleAccountDialog({ onClose }: { onClose: () => void }) {
           </div>
         )}
         {/* Durante la conferma lo dice già la conseguenza (`disconnectMailCalendar`): niente doppione. */}
-        {!confirming && <p className="text-xs text-ink-faint">{t("drive.account.note")}</p>}
+        {!confirming && driveGoogle && <p className="text-xs text-ink-faint">{t("drive.account.note")}</p>}
       </div>
     );
   }

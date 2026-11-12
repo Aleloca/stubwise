@@ -41,6 +41,7 @@ const ALL: IntegrationTarget[] = [
       "docs",
       "drive",
       "google",
+      "google-account",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -122,6 +123,8 @@ describe("isIntegrated", () => {
         // Area 4, fetta 4: gli eventi dei progetti e gli allegati.
         "feature:chat-events",
         "feature:chat-attachments",
+        // Area 6, fetta 1: il cassetto Google (account e caselle), separato dal Drive Google (`google`, F5).
+        "feature:google-account",
       ].sort(),
     );
   });

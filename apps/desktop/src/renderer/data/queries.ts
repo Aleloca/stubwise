@@ -16,6 +16,7 @@ import type { MailDraftRequest } from "../domain/claude/intents/mailDraft";
 import { resolveHome } from "../domain/home";
 import { MIN_QUERY } from "../pages/chat/search";
 import type {
+  ConnectGoogleOptions,
   Attachment,
   ChannelMessagesPage,
   ContextRef,
@@ -2836,6 +2837,16 @@ export function useMyFolderLinks(enabled = true) {
   });
 }
 
+/** I Workspace da cui collegare la casella (vuoto nel prototipo; più d'uno = si sceglie). */
+export function useGoogleWorkspaces(enabled = true) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: [...queryKeys.googleAccount(me), "workspaces"] as const,
+    queryFn: () => api.drive.listGoogleWorkspaces(),
+    enabled,
+  });
+}
+
 /** L'account Google personale di chi guarda (collegato, scaduto o `null`). */
 export function useGoogleAccount() {
   const me = useSessionPersonId();
@@ -3004,8 +3015,9 @@ export function useRetryExtraction() {
  */
 export const GOOGLE_AREAS = [...DRIVE_FILE_AREAS, "mail", "calendar", "meeting"] as const;
 
+/** «Collega» (o «Ricollega»); nella build app, con più Workspace, quello scelto. */
 export function useConnectGoogle() {
-  return useWrite(() => api.drive.connectGoogle(), GOOGLE_AREAS);
+  return useWrite((options: ConnectGoogleOptions | void) => api.drive.connectGoogle(options ?? {}), GOOGLE_AREAS);
 }
 
 export function useDisconnectGoogle() {

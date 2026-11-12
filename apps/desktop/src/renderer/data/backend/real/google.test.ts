@@ -80,6 +80,33 @@ describe("il cassetto Google: l'account", () => {
     expect(await drive.getGoogleAccount()).toMatchObject({ email: "ada@other.test", status: "expired" });
   });
 
+  it("senza gli scope nuovi: da ricollegare per i permessi, con le funzioni che mancano, prese da missingScopes", async () => {
+    installFakeServer({
+      "GET /api/me/google/accounts": {
+        body: [
+          account({
+            missingScopes: [
+              "https://www.googleapis.com/auth/gmail.modify",
+              "https://www.googleapis.com/auth/drive.readonly",
+            ],
+          }),
+        ],
+      },
+    });
+    session.personId = ME_ID;
+    expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "scopes", missing: ["markRead"] });
+  });
+
+  it("uno scope mancante di una funzione che non c'è ancora (Drive, F5): da ricollegare, senza funzioni elencate", async () => {
+    installFakeServer({
+      "GET /api/me/google/accounts": {
+        body: [account({ missingScopes: ["https://www.googleapis.com/auth/drive.readonly"] })],
+      },
+    });
+    session.personId = ME_ID;
+    expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "scopes", missing: [] });
+  });
+
   it("una casella disattivata è scaduta da quando è stata disattivata", async () => {
     installFakeServer({
       "GET /api/me/google/accounts": {
@@ -87,7 +114,7 @@ describe("il cassetto Google: l'account", () => {
       },
     });
     session.personId = ME_ID;
-    expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", since: "2026-11-10T08:00:00.000Z" });
+    expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "expired", since: "2026-11-10T08:00:00.000Z" });
   });
 
   it("scollegare toglie la casella del cassetto", async () => {

@@ -105,6 +105,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Fetta 4: gli eventi dei progetti nei canali e gli allegati.
     "chat-events",
     "chat-attachments",
+    // Area 6, fetta 1: il cassetto Google (account e caselle, comune a Posta e
+    // Calendario). Il Drive Google (`google`: cartelle, riferimenti, file fuori
+    // dai progetti) resta spento fino alla F5.
+    "google-account",
     // Area 5, fetta 1: i Docs «come oggi» (spazi, albero, pagine, manuali,
     // generazione, ricerca, chat senza streaming, grafo).
     "docs",

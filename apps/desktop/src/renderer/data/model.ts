@@ -2034,7 +2034,18 @@ export interface GoogleAccount {
   status: "connected" | "expired";
   /** Da quando vale lo stato: collegato dal…, scaduto il… */
   since: string;
+  /**
+   * Build app (area 6, fetta 1): perché è da ricollegare — scaduta (`expired`,
+   * il prototipo) o senza i permessi nuovi del riconsenso unico (`scopes`,
+   * nessuna data). Il prototipo non lo dice: è sempre `expired`.
+   */
+  reconnect?: "expired" | "scopes";
+  /** Le funzioni che mancano finché non si ricollega (da `missingScopes`, mai dedotte). */
+  missing?: GoogleFeature[];
 }
+
+/** Una funzione di Google che Stubwise usa e che dipende da uno scope (oggi: letto/non letto). */
+export type GoogleFeature = "markRead";
 
 /**
  * Una cartella Google collegata a un progetto: Stubwise la legge con

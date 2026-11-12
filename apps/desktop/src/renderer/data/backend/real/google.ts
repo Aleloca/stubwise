@@ -1,7 +1,7 @@
 import { ApiError } from "@stubwise/api-client";
 import type { GoogleAccount as ServerGoogleAccount } from "@stubwise/shared";
 import type * as Fake from "../../api";
-import type { GoogleAccount, GoogleWorkspaceChoice } from "../../types";
+import type { GoogleAccount, GoogleFeature, GoogleWorkspaceChoice } from "../../types";
 import { appClient, session } from "./client";
 
 // Il cassetto Google nella build app (area 6, fetta 1): le caselle di
@@ -29,14 +29,24 @@ export async function myAccounts(): Promise<ServerGoogleAccount[]> {
 /** La casella del cassetto: quella da ricollegare, se c'è, altrimenti la prima. */
 const drawerAccount = (accounts: readonly ServerGoogleAccount[]) => accounts.find(needsReconnect) ?? accounts[0] ?? null;
 
+/**
+ * Le funzioni di OGGI che ogni scope apre, per dire cosa manca a una casella
+ * da ricollegare. Solo quelle che esistono già: `calendar.events` (F4) e
+ * `drive.readonly` (F5) entrano con le loro fette; l'invio (F3) è anch'esso
+ * di `gmail.modify`.
+ */
+const FEATURES_OF_SCOPE: Readonly<Record<string, readonly GoogleFeature[]>> = {
+  "https://www.googleapis.com/auth/gmail.modify": ["markRead"],
+};
+
 function accountOf(a: ServerGoogleAccount): GoogleAccount {
-  const expired = needsReconnect(a);
-  return {
-    personId: session.personId ?? "",
-    email: a.email,
-    status: expired ? "expired" : "connected",
-    since: a.disabledAt ?? a.connectedAt,
-  };
+  const base = { personId: session.personId ?? "", email: a.email };
+  if (a.disabledAt !== null) return { ...base, status: "expired", reconnect: "expired", since: a.disabledAt };
+  if (a.missingScopes.length > 0) {
+    const missing = [...new Set(a.missingScopes.flatMap((s) => FEATURES_OF_SCOPE[s] ?? []))];
+    return { ...base, status: "expired", reconnect: "scopes", missing, since: a.connectedAt };
+  }
+  return { ...base, status: "connected", since: a.connectedAt };
 }
 
 const getGoogleAccount: Drive["getGoogleAccount"] = async () => {

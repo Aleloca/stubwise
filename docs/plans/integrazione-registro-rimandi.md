@@ -247,6 +247,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 6 — Posta e Calendario
 
+- Più account Google nel cassetto *(S, F1, decisione B(a) dell'orchestratrice)*:
+  il server tiene una casella per Workspace; il cassetto del desktop ne mostra
+  una (quella da ricollegare, se c'è, altrimenti la prima). La Posta e il
+  Calendario le mostrano tutte. Da riprendere con la F5 (Drive Google).
+- Ritorno OAuth della casella all'app con `stubwise://` *(S, F1, decisione
+  dell'orchestratrice)*: oggi il callback resta quello del web («puoi tornare
+  all'app») e il desktop rilegge le caselle mentre «Collega» aspetta e al
+  ritorno in primo piano.
+- I testi del cassetto Google col Drive *(S, F1 → F5)*: senza il Drive Google
+  il cassetto parla di Posta e Calendario (intro, scaduto, scollegare senza
+  cartelle); con la F5 tornano i testi del prototipo.
+
 - I riferimenti a Google Drive nel Drive dei progetti (area 5, D1 = a): le
   cartelle collegate, «Aggiungi da Google Drive», «Quale progetto?», i file
   non disponibili. Servono lo scope `drive.readonly` (ristretto: riconsenso e

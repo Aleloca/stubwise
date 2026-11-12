@@ -200,8 +200,8 @@ export function ProfileMenu() {
               {t("nav.preferences")}
             </Link>
             {/* L'account Google personale (Drive, A1): un dialogo, finché non c'è Impostazioni → Account.
-                Nella build app Drive e Google (aree 5–6) non sono integrati. */}
-            {featureIntegrated("google") && (
+                Nella build app dalla fetta 1 dell'area 6 (`google-account`), anche senza il Drive Google. */}
+            {(featureIntegrated("google") || featureIntegrated("google-account")) && (
               <button
                 type="button"
                 className={`${linkClass} text-left`}

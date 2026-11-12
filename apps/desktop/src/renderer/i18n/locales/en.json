@@ -5904,7 +5904,8 @@
       "button": "Connect Google account",
       "connecting": "Connecting to Google…",
       "error": "Couldn't connect to Google",
-      "tryAgain": "Try again"
+      "tryAgain": "Try again",
+      "workspace": "Google Workspace"
     },
     "account": {
       "menu": "Google account",
@@ -5924,7 +5925,14 @@
       "disconnectMailCalendar": "Mail and Calendar will stop showing {{email}} too. Mail already received and proposals already made stay.",
       "disconnectConfirm": "Disconnect account",
       "cancel": "Cancel",
-      "close": "Close"
+      "close": "Close",
+      "introMail": "Connect your Google account so Stubwise can show your Gmail and Calendar here and turn what needs doing into proposals.",
+      "expiredBodyMail": "Mail and Calendar don't update until you reconnect.",
+      "scopes": "Reconnect to give Stubwise the new permissions",
+      "scopesMissing": "Until you reconnect, Stubwise can't {{what}}.",
+      "feature": {
+        "markRead": "mark mail as read or unread"
+      }
     },
     "expired": {
       "region": "Folder link expired",

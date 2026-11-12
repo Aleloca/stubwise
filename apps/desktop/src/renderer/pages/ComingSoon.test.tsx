@@ -1,7 +1,8 @@
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../test/renderRoute";
+import { closeGoogleAccount } from "./drive/GoogleAccountCard";
 
 // Le aree non integrate nella build app (integrazione area 2, fetta 1): restano
 // nella navigazione con «Coming soon» e non leggono niente. Nei test il livello
@@ -276,6 +277,9 @@ const INTEGRATED_CALLS = new Set([
   "drive.deleteDriveFile",
   "drive.recordOpen",
   "drive.saveAttachmentToDrive",
+  // Area 6, fetta 1: il cassetto Google (account e caselle).
+  "drive.getGoogleAccount",
+  "drive.listGoogleWorkspaces",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -343,6 +347,20 @@ describe("aree non integrate nella build app", () => {
     expect(screen.queryByRole("button", { name: "More Drive actions" })).toBeNull();
     expect(screen.queryByRole("button", { name: /^Source/ })).toBeNull();
     expect(outside()).toEqual([]);
+  });
+
+  it("il cassetto Google (area 6, fetta 1): dal menu del profilo, coi testi di Posta e Calendario", async () => {
+    renderRoute("/projects");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Profile and settings" }));
+    const menu = await screen.findByRole("dialog", { name: "Profile and settings" });
+    await user.click(within(menu).getByRole("button", { name: "Google account" }));
+    const dialog = await screen.findByRole("dialog", { name: "Google account" });
+    await waitFor(() => expect(calls).toContain("drive.getGoogleAccount"));
+    await settle();
+    expect(dialog).not.toHaveTextContent(/Google Drive files|link folders/);
+    expect(outside()).toEqual([]);
+    act(() => closeGoogleAccount());
   });
 
   it("la destinazione Drive: tutti i progetti, senza Google", async () => {
