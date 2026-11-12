@@ -63,7 +63,7 @@ function onKeyDown(e: KeyboardEvent) {
   run();
 }
 
-function armUndoKey(run: () => void, toastId: number) {
+function armUndoKey(run: () => void, toastId: number, windowMs: number) {
   if (!listening) {
     window.addEventListener("keydown", onKeyDown);
     onBeforePersonaChange(clearUndoKey);
@@ -73,7 +73,7 @@ function armUndoKey(run: () => void, toastId: number) {
     listening = true;
   }
   clearUndoKey();
-  active = { run, toastId, timer: window.setTimeout(clearUndoKey, MAIL_LIMITS.undoMs) };
+  active = { run, toastId, timer: window.setTimeout(clearUndoKey, windowMs) };
 }
 
 /** Il nome dei file rimasti fuori, per l'avviso. */
@@ -204,11 +204,16 @@ export function useUndoSendToast() {
             },
           );
       };
+      // La finestra la dice il SERVER (`undoUntil`), non il clic: l'avviso e
+      // ⌘Z durano quanto resta. Già passata (un «Retry» che parte subito): un
+      // «Undo» non funzionerebbe, e non si mostra.
+      const windowMs = result.undoWindowMs ?? MAIL_LIMITS.undoMs;
+      if (!(windowMs > 0)) return;
       const id = toast.show(
         t("mail.compose.sendingTo", { names: recipientNames(recipients, t, i18n.language) }),
-        { action: { label: t("mail.compose.undo"), run } },
+        { action: { label: t("mail.compose.undo"), run }, durationMs: windowMs },
       );
-      armUndoKey(run, id);
+      armUndoKey(run, id, windowMs);
     },
     [t, i18n.language, toast, undoAsync, reopen, dropped],
   );

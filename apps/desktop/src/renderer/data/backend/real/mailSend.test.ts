@@ -79,8 +79,14 @@ describe("le costanti della scrittura", () => {
 
 describe("Invia", () => {
   it("l'invio della bozza: l'id dell'invio, la sua conversazione, fin quando si annulla", async () => {
+    // La finestra di «Annulla» è quanto resta di `undoUntil` del server all'arrivo della risposta.
+    vi.useFakeTimers({ now: Date.parse("2026-11-12T10:00:01.000Z"), shouldAdvanceTime: true });
     const { seen } = installFakeServer({ ...base, [`POST /api/me/mail/drafts/${D1}/send`]: { body: outgoing() } });
-    expect(await mail.sendDraft(D1)).toEqual({ messageId: O1, threadId: `${ACC}_t-1`, undoUntil: "2026-11-12T10:00:10.000Z" });
+    const r = await mail.sendDraft(D1);
+    vi.useRealTimers();
+    expect(r).toMatchObject({ messageId: O1, threadId: `${ACC}_t-1`, undoUntil: "2026-11-12T10:00:10.000Z" });
+    expect(r.undoWindowMs).toBeGreaterThan(8_500);
+    expect(r.undoWindowMs).toBeLessThanOrEqual(9_000);
     expect(seen.some((r) => r.method === "POST" && r.path === `/api/me/mail/drafts/${D1}/send`)).toBe(true);
   });
 

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
 import { setAppClientForTests } from "./client";
@@ -123,7 +123,12 @@ beforeEach(() => {
   readAnswer = { body: detail };
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
-  seen = installFakeServer({
+  seen = installFakeServerAgain();
+});
+
+/** Il server finto di ogni test, con le rotte in più (o diverse) di un test. */
+function installFakeServerAgain(extra: Record<string, unknown> = {}): SeenRequest[] {
+  return installFakeServer({
     "GET /api/auth/me": { body: me() },
     "GET /api/projects": { body: [serverProject({ memberIds: [ME_ID] })] },
     "GET /api/me/follows": { body: { projectIds: [PROJECT_ID] } },
@@ -185,8 +190,9 @@ beforeEach(() => {
     [`GET /api/me/mail/email_triage/${M2}/original`]: { status: 404, body: { code: "not_found", message: "x" } },
     "POST /api/me/mail/threads/t-2/read": () => readAnswer,
     "GET /api/me/google/workspaces": { body: [] },
-  }).seen;
-});
+    ...extra,
+  } as Parameters<typeof installFakeServer>[0]).seen;
+}
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -251,6 +257,53 @@ describe("scrivere nella Posta della build app", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Keep mine" }));
     await waitFor(() => expect(saved.at(-1)).toMatchObject({ body: "La mia versione.", overwrite: true }));
     await waitFor(() => expect(within(form).queryByText("This draft was changed in Gmail.")).toBeNull());
+  });
+});
+
+describe("la review della F3: l'«Annulla» dura quanto la finestra del server", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("l'avviso con «Undo» e ⌘Z restano per i 10 s di `undoUntil`, non per i 5 s di un avviso qualunque", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const form = await reply();
+    fireEvent.click(within(form).getByRole("button", { name: "Send" }));
+    await screen.findByRole("button", { name: "Undo" });
+    await act(() => vi.advanceTimersByTimeAsync(7_000));
+    expect(screen.getByRole("button", { name: "Undo" })).toBeInTheDocument();
+    await act(() => vi.advanceTimersByTimeAsync(3_500));
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
+  });
+
+  it("«Retry» di un invio fallito che il server manda subito (`undoUntil` già passato): nessun «Undo» che non funzionerebbe", async () => {
+    const OUT2 = "0f0f0f0f-2222-4222-8222-222222222222";
+    detailOverride = {
+      ...detail,
+      messages: [
+        ...detail.messages,
+        {
+          ...detail.messages[0],
+          id: OUT2,
+          from: "Ada <ada@acme.test>",
+          to: ["bob@client.test"],
+          receivedAt: "2026-10-23T10:00:00.000Z",
+          textExcerpt: "La mia risposta.",
+          proposalIds: [],
+          delivery: { state: "failed", error: "quota", outgoingId: OUT2 },
+        },
+      ],
+    };
+    seen = installFakeServerAgain({
+      [`POST /api/me/mail/outgoing/${OUT2}/retry`]: {
+        body: { messageId: OUT2, threadId: "t-1", state: "queued", undoUntil: new Date(Date.now() - 1).toISOString(), error: null, sentAt: null },
+      },
+    });
+    renderRoute(`/mail/${KEY}`);
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(seen.some((r) => r.path === `/api/me/mail/outgoing/${OUT2}/retry`)).toBe(true));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(screen.queryByRole("button", { name: "Undo" })).toBeNull();
   });
 });
 

@@ -3257,7 +3257,7 @@ export function useReassignMailProposal() {
 }
 
 // Scrivere dalla Posta: bozze, invio con «Annulla», invio fallito, la bozza
-// di Claude. Allo scadere dei 5 s un invio cambia la Posta di chi l'ha
+// di Claude. Allo scadere della sua finestra di «Annulla» un invio cambia la Posta di chi l'ha
 // scritto E dei destinatari: la rilettura di allora vale per ogni persona
 // (anche se nel frattempo si guarda come un'altra), non solo per chi ha
 // premuto «Invia».
@@ -3354,7 +3354,7 @@ export function useAttachDriveFileToDraft() {
   );
 }
 
-/** Rilegge la Posta di tutti quando un invio esce dai suoi 5 s. */
+/** Rilegge la Posta di tutti quando un invio esce dalla sua finestra di «Annulla». */
 function useAfterSendWindow() {
   const client = useQueryClient();
   return (messageId: string) =>
@@ -3367,7 +3367,7 @@ function useAfterSendWindow() {
 
 /**
  * «Invia» (e «Riprova»): risolve subito con `undoUntil`, per l'avviso
- * «Annulla»; la Posta si rilegge ora («Invio…») e allo scadere dei 5 s.
+ * «Annulla»; la Posta si rilegge ora («Invio…») e allo scadere della finestra.
  */
 export function useSendMailDraft() {
   const invalidate = useInvalidate(MAIL_AREAS);
@@ -3395,7 +3395,7 @@ export function useRetryMailSend() {
   });
 }
 
-/** «Annulla» entro i 5 s: la bozza torna (unita a una più recente, con gli allegati rimasti fuori); oltre: `too_late`. */
+/** «Annulla» entro la finestra (5 s nel prototipo, 10 s dal server): la bozza torna (unita a una più recente, con gli allegati rimasti fuori); oltre: `too_late`. */
 export function useUndoMailSend() {
   return useWrite((messageId: string) => api.mail.undoSend(messageId), MAIL_AREAS);
 }

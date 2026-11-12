@@ -53,6 +53,7 @@ function resultOf(o: MailOutgoing, accountId: string | null): MailSendResult {
     messageId: o.messageId,
     threadId: o.threadId !== null && accountId ? threadKey(accountId, o.threadId) : "",
     undoUntil: o.undoUntil,
+    undoWindowMs: Math.max(0, Date.parse(o.undoUntil) - Date.now()),
   };
 }
 
@@ -132,7 +133,11 @@ const undoSend: Mail["undoSend"] = async (messageId) => {
   }
 };
 
-/** «Riprova» un invio fallito: un invio nuovo, coi suoi 10 s. */
+/**
+ * «Riprova» un invio fallito: un invio nuovo. Oggi il server lo manda
+ * subito (`undoUntil` già passato, quindi nessun «Annulla»); se lo
+ * trattiene, la finestra è la sua.
+ */
 const retrySend: Mail["retrySend"] = async (messageId) => {
   try {
     const o = (await appClient().mail.retrySend(messageId)) as MailOutgoing;
