@@ -377,6 +377,45 @@ describe("passare, spostare, scegliere il progetto, aggiungere Contributor (F2, 
     expect(m).toMatchObject({ classificationState: null, status: "new", projectId: beta, scopeProjectIds: [beta] });
   });
 
+  it("review F2, punto 2: «Quale progetto?» dall'inbox — l'opzione i è il progetto i della card, l'ultima è «Non fare nulla»", async () => {
+    const { ada, proposal } = await seed();
+    const beta = await secondProject([ada.id]);
+    const { and, eq } = await import("drizzle-orm");
+    await db.update(emailProposals).set({ classification: { version: 2, summary: "", actions: [], choose: { projectIds: [projectId, beta] } } }).where(eq(emailProposals.id, proposal.id));
+    const chooseEvent = (n: string) => ({
+      kind: "google.proposal", proposalId: proposal.id, source: "email", from: "Cliente", subject: "Export", question: "Quale progetto?",
+      options: [{ label: "Audin" }, { label: "Beta" }, { label: "Non fare nulla" }],
+      actions: [{ type: "choose_project", projectId }, { type: "choose_project", projectId: beta }, { type: "ignore" }],
+      recommendedIndex: 0, allowFreeText: false, messageUrl: `https://mail.google.com/${n}`, signal: "request",
+    });
+    const [card] = await db.select({ id: notifications.id }).from(notifications).where(and(eq(notifications.userId, ada.id), eq(notifications.status, "open")));
+    await db.update(notifications).set({ event: chooseEvent("a") }).where(eq(notifications.id, card!.id));
+    const answer = (optionIndex: number) => app.inject({ method: "POST", url: `/api/inbox/${card!.id}/actions/answer`, headers: ada.headers, payload: { optionIndex } });
+    // Un indice oltre l'ultima opzione.
+    expect((await answer(3)).statusCode).toBe(400);
+    // L'opzione 1 è Beta: la domanda se ne va, l'email torna da classificare per Beta.
+    const res = await answer(1);
+    expect(res.statusCode).toBe(200);
+    expect(await row(proposal.id)).toBeUndefined();
+    const [m] = await db.select().from(emailMessages).where(eq(emailMessages.id, proposal.emailMessageId));
+    expect(m).toMatchObject({ projectId: beta });
+  });
+
+  it("review F2, punto 2: «Non fare nulla» su una «Quale progetto?» dall'inbox la ignora", async () => {
+    const { ada, proposal } = await seed();
+    const beta = await secondProject([ada.id]);
+    const { and, eq } = await import("drizzle-orm");
+    await db.update(emailProposals).set({ classification: { version: 2, summary: "", actions: [], choose: { projectIds: [projectId, beta] } } }).where(eq(emailProposals.id, proposal.id));
+    const [card] = await db.select({ id: notifications.id }).from(notifications).where(and(eq(notifications.userId, ada.id), eq(notifications.status, "open")));
+    await db
+      .update(notifications)
+      .set({ event: { kind: "google.proposal", proposalId: proposal.id, source: "email", from: "C", subject: "E", question: "?", options: [{ label: "Audin" }, { label: "Beta" }, { label: "Non fare nulla" }], actions: [{ type: "choose_project", projectId }, { type: "choose_project", projectId: beta }, { type: "ignore" }], recommendedIndex: 0, allowFreeText: false, messageUrl: "https://mail.google.com/x", signal: "request" } })
+      .where(eq(notifications.id, card!.id));
+    const res = await app.inject({ method: "POST", url: `/api/inbox/${card!.id}/actions/answer`, headers: ada.headers, payload: { optionIndex: 2 } });
+    expect(res.statusCode).toBe(200);
+    expect((await row(proposal.id))!.status).toBe("ignored");
+  });
+
   it("aggiungere Contributor: senza project.members.manage 403; con, l'incaricato entra e la task nasce assegnata a lui", async () => {
     const { ada, outsider, proposal } = await seed();
     await onlyTask(proposal.id, outsider.id);

@@ -79,7 +79,7 @@ import { answerQuestion, type AnswerInput } from "./questions.js";
 import { excerpt } from "./task-notify.js";
 import { loadViaClaude, type ViaClaudeFields } from "./via-claude.js";
 import { getContentLanguage } from "../settings.js";
-import { confirmMailProposal, ignoreMailProposal, sharedProposalOfNotification } from "./mail-proposals-decide.js";
+import { chooseMailProposalProject, confirmMailProposal, ignoreMailProposal, sharedProposalOfNotification } from "./mail-proposals-decide.js";
 import { listMailProposals } from "./mail-proposals.js";
 
 // Catalogo delle azioni: implementazione in `@stubwise/notifications/actions`
@@ -371,9 +371,33 @@ export async function executeAction(
     // della card sono le azioni nell'ordine, più «Non fare nulla» per ultima.
     const sharedProposalId = isMailProposal ? await sharedProposalOfNotification(db, actor.id, row.id) : null;
     if (sharedProposalId) {
+      const picked = input.payload?.answer?.optionIndices ?? (input.payload?.answer?.optionIndex === undefined ? [] : [input.payload.answer.optionIndex]);
+      // «Quale progetto?»: la card ha un'opzione per progetto incerto e poi
+      // «Non fare nulla». La mappa opzione → progetto è quella che la card
+      // MOSTRA (`event.actions`, allineata a `options` alla pubblicazione):
+      // un progetto senza nome alla pubblicazione non c'è, e ricalcolarla
+      // dalla classificazione sposterebbe gli indici (review F2, punto 2).
+      const [card] = await db.select({ event: notifications.event }).from(notifications).where(eq(notifications.id, row.id));
+      const cardActions = ((card?.event as { actions?: { type?: string; projectId?: string }[] } | null)?.actions ?? []).filter(Boolean);
+      if (cardActions.some((a) => a.type === "choose_project")) {
+        if (picked.length !== 1) return { ok: false, error: "invalid_answer" };
+        const chosen = cardActions[picked[0]!];
+        if (!chosen) return { ok: false, error: "invalid_answer" };
+        const decided =
+          chosen.type === "ignore"
+            ? await ignoreMailProposal(db, { id: actor.id }, sharedProposalId)
+            : chosen.type === "choose_project" && chosen.projectId
+              ? await chooseMailProposalProject(db, { id: actor.id }, sharedProposalId, chosen.projectId)
+              : null;
+        if (!decided) return { ok: false, error: "invalid_answer" };
+        if (!decided.ok) {
+          if (decided.error === "already_handled") return { ok: false, error: "already_handled" };
+          return { ok: false, error: decided.error === "not_found" ? "not_found" : decided.error === "forbidden" ? "forbidden" : "invalid_answer" };
+        }
+        return { ok: true, action, kind: row.kind, notificationJobId: row.jobId, changedNotificationIds: [row.id] };
+      }
       const proposal = await listMailProposals(db, { id: actor.id }, { id: sharedProposalId }, "it");
       const actionCount = proposal[0]?.actions.length ?? 0;
-      const picked = input.payload?.answer?.optionIndices ?? (input.payload?.answer?.optionIndex === undefined ? [] : [input.payload.answer.optionIndex]);
       if (picked.length === 0 || picked.some((i) => i > actionCount)) return { ok: false, error: "invalid_answer" };
       const decided =
         picked.length === 1 && picked[0] === actionCount
