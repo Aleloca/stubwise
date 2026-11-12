@@ -4153,6 +4153,20 @@ describe("F3b: il calendario con TUTTI gli eventi", () => {
     expect(await db.select().from(notifications)).toEqual([]);
   });
 
+  it("un'occorrenza di serie col progetto scelto sulla serie (DIVERSO da quello delle regole) propone su quello — prima spariva in silenzio", async () => {
+    const routed = await seedProject("Acme");
+    const chosen = await seedProject("Scelto");
+    await db.insert(projectEmailRoutes).values({ projectId: routed, kind: "sender_domain", value: "cliente.com" });
+    const account = await seedAccount({ nextSyncAt: new Date(Date.now() - 60_000) });
+    const { calendarSeries } = await import("@stubwise/db");
+    await db.insert(calendarSeries).values({ accountId: account.id, recurringEventId: "serie-sal", enabled: true, projectId: chosen, leadDays: 30 });
+    await tick(account, [calendarEvent({ id: "sal-1", title: "SAL mensile", recurringEventId: "serie-sal" })]);
+    const [row] = await calendarRows();
+    expect(row!.proposalNotificationId).not.toBeNull();
+    const [card] = await db.select().from(notifications).where(eq(notifications.id, row!.proposalNotificationId!));
+    expect(card!.projectId).toBe(chosen);
+  });
+
   it("un candidato SENZA proposta (proposte spente) uscito dalle regole tiene il suo progetto", async () => {
     const projectId = await seedProject("Acme");
     await db.insert(projectEmailRoutes).values({ projectId, kind: "sender_domain", value: "cliente.com" });

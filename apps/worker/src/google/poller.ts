@@ -2076,6 +2076,10 @@ async function runProposePhase(
     const projectNames = await projectNamesOf(deps.db, [
       ...proposalRows.map((row) => row.proposalProjectId),
       ...events.map((event) => event.projectId),
+      // Il progetto SCELTO sulla serie (F3b): senza il suo nome
+      // `buildCalendarProposalEvent` scartava in silenzio l'occorrenza di una
+      // serie col progetto diverso da quello delle regole.
+      ...events.map((event) => event.seriesProjectId),
       ...triageRows.flatMap((row) => suggestedProjectIdsOf(row.classification)),
     ]);
 
