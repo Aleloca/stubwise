@@ -6,6 +6,7 @@ import { ONE_LINE, columnItemClass } from "../../layout/ProjectColumn";
 import { openGoogleAccount } from "../drive/GoogleAccountCard";
 import { NO_PROJECT, mailProjectsOf, type MailSearch } from "./mailFilters";
 import { SyncLine } from "./SyncStatus";
+import { mailImportance } from "./mailFeatures";
 
 // La colonna della destinazione «Mail» (shape mail.md §3, A3): nessun
 // titolo (il nome è l'h1). VIEWS — All mail, Important, No project; MAILBOXES
@@ -94,16 +95,18 @@ export function MailboxBar() {
                 {t("mail.column.all")}
               </ScopeLink>
             </li>
-            <li>
-              <ScopeLink
-                search={{ importance: "high" }}
-                current={only("importance") && search.importance === "high"}
-                count={importantUnread}
-                countLabel={unreadLabel(importantUnread)}
-              >
-                {t("mail.column.important")}
-              </ScopeLink>
-            </li>
+            {mailImportance() && (
+              <li>
+                <ScopeLink
+                  search={{ importance: "high" }}
+                  current={only("importance") && search.importance === "high"}
+                  count={importantUnread}
+                  countLabel={unreadLabel(importantUnread)}
+                >
+                  {t("mail.column.important")}
+                </ScopeLink>
+              </li>
+            )}
             <li>
               <ScopeLink
                 search={{ project: NO_PROJECT }}

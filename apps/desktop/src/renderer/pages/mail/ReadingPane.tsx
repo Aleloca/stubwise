@@ -33,6 +33,7 @@ import { MailProposalCard } from "./MailProposalCard";
 import { isLiveProposal } from "./proposalText";
 import { MessageView } from "./MessageView";
 import { DueLabel } from "./ThreadRow";
+import { mailWrites, openInGmail } from "./mailFeatures";
 
 // Il pannello di lettura (shape mail.md §3, §5): la testata della
 // conversazione (oggetto per intero, A7), poi i messaggi — espansi i non
@@ -100,7 +101,8 @@ export function ReadingPane({
   const markRead = useMarkMailRead();
   const markUnread = useMarkMailUnread();
   const repropose = useReproposeMessage();
-  const drafts = useMailDrafts();
+  // Le bozze sono della scrittura (F3): dove la build non scrive non si leggono.
+  const drafts = useMailDrafts({ enabled: mailWrites() });
   const retry = useRetryMailSend();
   const removeFailed = useDeleteFailedMailSend();
   const showUndo = useUndoSendToast();
@@ -122,6 +124,7 @@ export function ReadingPane({
       paneRef.current?.querySelector<HTMLElement>("[data-composer] textarea")?.focus(),
     );
   const openCompose = (mode: ReplyMode, focus: ComposeRequest["focus"] | "none") => {
+    if (!mailWrites()) return;
     opener.current = mode;
     if (compose) {
       setCompose({ mode, focus: compose.focus });
@@ -200,17 +203,22 @@ export function ReadingPane({
     return () => window.clearTimeout(timer);
   }, [hasUnread, threadId, markReadMutate]);
 
+  // Le proposte per messaggio d'origine: il Message-ID nel prototipo; nella
+  // build app le proposte del server che il messaggio elenca (`proposalIds`).
   const bySource = useMemo(() => {
     const map = new Map<string, MailProposalView[]>();
+    const ownerOf = new Map<string, string>();
+    for (const m of thread.data?.messages ?? []) for (const id of m.proposalIds ?? []) ownerOf.set(id, m.messageId);
     for (const v of proposals.data ?? []) {
       if (v.proposal.source === "calendar") continue;
-      const list = map.get(v.proposal.sourceId) ?? [];
+      const key = ownerOf.get(v.proposal.sourceId) ?? v.proposal.sourceId;
+      const list = map.get(key) ?? [];
       list.push(v);
-      map.set(v.proposal.sourceId, list);
+      map.set(key, list);
     }
     for (const list of map.values()) list.sort((a, b) => a.proposal.createdAt.localeCompare(b.proposal.createdAt));
     return map;
-  }, [proposals.data]);
+  }, [proposals.data, thread.data]);
 
   // Dopo l'invio il fuoco va sul messaggio inviato, appena c'è.
   useEffect(() => {
@@ -444,7 +452,7 @@ export function ReadingPane({
             {data.subject || t("mail.row.noSubject")}
           </h2>
           <div className="flex shrink-0 items-center gap-1">
-            {REPLY_MODES.map(({ mode, key }) => (
+            {mailWrites() && REPLY_MODES.map(({ mode, key }) => (
               <button
                 key={mode}
                 ref={(el) => {
@@ -472,7 +480,7 @@ export function ReadingPane({
           >
             {(close) => (
               <>
-                <button type="button" role="menuitem" tabIndex={-1} className={itemClass} onClick={() => (close(), toast.show(t("mail.gmailNotice")))}>
+                <button type="button" role="menuitem" tabIndex={-1} className={itemClass} onClick={() => (close(), data.gmailUrl ? openInGmail(data.gmailUrl) : toast.show(t("mail.gmailNotice")))}>
                   {t("mail.reading.openInGmail")}
                 </button>
                 <button type="button" role="menuitem" tabIndex={-1} className={itemClass} onClick={() => (close(), unread())}>

@@ -11,6 +11,7 @@ import { itemClass } from "../../tasks-ui/Menu";
 import { relativeDay, whenLabel, whenWithTime } from "./format";
 import { AlertGlyph, MoreGlyph, VideoGlyph } from "./glyphs";
 import { UntrustedHtmlFrame } from "./UntrustedHtmlFrame";
+import { openInGmail } from "./mailFeatures";
 
 // Un messaggio della conversazione (shape mail.md §3, §5): espanso — chi,
 // a chi, il testo pulito (l'originale HTML a richiesta, A9), il testo
@@ -474,7 +475,9 @@ export function MessageView({
               <li key={a.id} className="group flex h-8 max-w-64 items-center gap-1 rounded-md border border-rule-strong pr-1 pl-2">
                 <button
                   type="button"
-                  onClick={() => toast.show(t("mail.message.attachmentNotice"))}
+                  onClick={() =>
+                    message.gmailUrl ? openInGmail(message.gmailUrl) : toast.show(t("mail.message.attachmentNotice"))
+                  }
                   aria-label={t("mail.message.attachment", { name: a.name, size: formatSize(a.sizeBytes, i18n.language) })}
                   className="flex min-w-0 items-center gap-1.5 text-sm text-ink"
                 >

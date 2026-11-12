@@ -46,6 +46,10 @@ const ALL: IntegrationTarget[] = [
       "calendar-write",
       "google-sync",
       "meeting-notes",
+      "mail",
+      "mail-write",
+      "mail-importance",
+      "mail-proposal-edit",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -133,6 +137,9 @@ describe("isIntegrated", () => {
         "destination:calendar",
         "feature:calendar",
         "feature:google-sync",
+        // Area 6, fetta 1: la Posta in lettura (scrivere, importanza e campi delle proposte restano spenti).
+        "destination:mail",
+        "feature:mail",
       ].sort(),
     );
   });

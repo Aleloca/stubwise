@@ -186,6 +186,7 @@ function failedAnalysis(m: MailThreadMessage): boolean {
 async function messageView(
   key: string,
   subject: string,
+  gmailUrl: string,
   m: MailThreadMessage,
   mine: ReadonlySet<string>,
 ): Promise<MailMessageView> {
@@ -212,6 +213,8 @@ async function messageView(
     kind: "email",
     context: !m.admitted,
     read: !m.unread,
+    proposalIds: m.proposalIds,
+    gmailUrl,
     classification: failedAnalysis(m) ? { state: "failed" } : { state: "off" },
   };
 }
@@ -231,8 +234,8 @@ const getMailThread: Mail["getMailThread"] = async (key) => {
   const subject = t.subject ?? "";
   const seen = reproposalsOf();
   for (const m of t.messages) seen.set(m.id, m.reproposals);
-  const messages = await Promise.all(t.messages.map((m) => messageView(key, subject, m, mine)));
-  return { threadId: key, subject, messages };
+  const messages = await Promise.all(t.messages.map((m) => messageView(key, subject, t.url, m, mine)));
+  return { threadId: key, subject, gmailUrl: t.url, messages };
 };
 
 /**

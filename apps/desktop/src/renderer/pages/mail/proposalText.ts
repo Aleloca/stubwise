@@ -78,6 +78,8 @@ export function phraseOf(action: ProposedAction, args: Args, ctx: Ctx): string {
     return found ? `${found.code} ${found.title}` : String(id ?? "");
   };
   const date = (d: unknown) => dayLabel(String(d), ctx.language);
+  // Build app: un'azione senza argomenti ha la frase già scritta dal server.
+  if (Object.keys(args).length === 0 && action.summary) return action.summary;
   switch (action.fn) {
     // La scadenza della task la aggiunge la riga, dopo l'incaricato.
     case "createTask":

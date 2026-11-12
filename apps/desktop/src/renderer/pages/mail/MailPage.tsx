@@ -24,6 +24,7 @@ import { filtersOf, mailProjectsOf, withoutProject, type MailSearch } from "./ma
 import { ReadingPane } from "./ReadingPane";
 import { ThreadList } from "./ThreadList";
 import type { ProjectRef } from "./ThreadRow";
+import { mailWrites } from "./mailFeatures";
 
 // La destinazione «Mail» (shape mail.md): elenco per conversazione e
 // pannello di lettura, coi filtri e la conversazione aperta nell'indirizzo
@@ -62,7 +63,8 @@ export function MailPage({
   const threads = useMailThreads(filters, { enabled: connected && projects !== undefined });
   const allRows = useMailThreads({}, { enabled: connected }).data;
   const boxes = useMailboxes().data ?? [];
-  const drafts = useMailDrafts().data;
+  // Le bozze sono della scrittura (F3): dove la build non scrive non si leggono.
+  const drafts = useMailDrafts({ enabled: mailWrites() }).data;
   const opened = useMailThread(connected ? threadId : null);
   const listRef = useRef<HTMLDivElement>(null);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -71,7 +73,7 @@ export function MailPage({
   // `compose=new` è la nuova email; `compose=support-…` la bozza di
   // «Scrivigli anche per email» di una conversazione di Support, nel suo
   // slot (R-K14): stessa casella, un posto suo.
-  const composeNew = !!search.compose;
+  const composeNew = mailWrites() && !!search.compose;
   const composeSlot = search.compose && search.compose !== "new" ? search.compose : undefined;
   const showUndo = useUndoSendToast();
   const discardedNotice = useDiscardedNotice();
@@ -152,6 +154,7 @@ export function MailPage({
         return;
       }
       if (typing(e.target) || document.querySelector('[role="menu"]')) return;
+      if (!mailWrites()) return;
       e.preventDefault();
       openNewEmail.current();
     }
@@ -216,15 +219,17 @@ export function MailPage({
     <div className={`flex min-h-0 flex-col ${twoUp ? "w-[380px] shrink-0 border-r border-rule" : "min-w-0 flex-1"}`}>
       <header className="flex shrink-0 items-center gap-3 px-4 pt-6 pb-3">
         <h1 className="min-w-0 flex-1 text-2xl font-semibold text-ink">{t("nav.mail")}</h1>
-        <button
-          ref={newEmailRef}
-          type="button"
-          className={primaryButton}
-          title={`${t("mail.compose.newEmail")} (${shortcutLabel(["mod", "N"])})`}
-          onClick={newEmail}
-        >
-          {t("mail.compose.newEmail")}
-        </button>
+        {mailWrites() && (
+          <button
+            ref={newEmailRef}
+            type="button"
+            className={primaryButton}
+            title={`${t("mail.compose.newEmail")} (${shortcutLabel(["mod", "N"])})`}
+            onClick={newEmail}
+          >
+            {t("mail.compose.newEmail")}
+          </button>
+        )}
       </header>
       <ThreadList
         search={search}
@@ -240,9 +245,13 @@ export function MailPage({
         drafts={draftThreads}
         onOpen={open}
         onEnter={() => paneRef.current?.focus()}
-        onCompose={(mode) => {
-          if (threadId) requestCompose({ threadId, mode, focus: "start" });
-        }}
+        onCompose={
+          mailWrites()
+            ? (mode) => {
+                if (threadId) requestCompose({ threadId, mode, focus: "start" });
+              }
+            : undefined
+        }
         newDrafts={newDrafts.map((d) => ({
           id: d.id,
           subject: d.subject,

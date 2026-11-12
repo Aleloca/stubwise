@@ -44,6 +44,7 @@ import {
   type Ctx,
   type Edits,
 } from "./proposalText";
+import { mailProposalEdits } from "./mailFeatures";
 
 // Una proposta nata da un'email (shape mail.md §4): la stessa scheda nella
 // Posta (sotto il messaggio d'origine) e in «Da decidere». Parla la lingua
@@ -303,7 +304,7 @@ export function MailProposalCard({
       const row = target.closest<HTMLElement>("[data-action-row]");
       if (!row) return;
       const index = Number(row.dataset.actionRow);
-      if (EDITABLE.has(p.actions[index]!.fn)) {
+      if (mailProposalEdits() && EDITABLE.has(p.actions[index]!.fn)) {
         e.preventDefault();
         setEditing({ index });
       }
@@ -486,7 +487,7 @@ export function MailProposalCard({
                       <Phrase action={action} args={args} who={who} ctx={ctx} isOutside={(who) => isOutside(i, who)} edited={!!edits[i]} />
                     </span>
                   )}
-                  {decidable && EDITABLE.has(action.fn) && !rowEditing && (
+                  {decidable && mailProposalEdits() && EDITABLE.has(action.fn) && !rowEditing && (
                     <button
                       type="button"
                       className={`${quietButton} h-7`}

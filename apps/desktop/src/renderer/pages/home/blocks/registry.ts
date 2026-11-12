@@ -86,7 +86,8 @@ export const BLOCKS: Record<HomeBlockKind, BlockDef> = {
   importantMail: {
     titleKey: "home.blocks.importantMail",
     component: ImportantMailBlock,
-    ...ofArea("mail", always),
+    // L'importanza è della F2 dell'area 6: la Posta in lettura (F1) non la dà.
+    ...ofArea("mail-importance", always),
   },
   myTasks: { titleKey: "home.blocks.myTasks", component: MyTasksBlock, available: always },
   claudeForMe: {

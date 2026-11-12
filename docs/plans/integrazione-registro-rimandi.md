@@ -265,6 +265,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   degli invitati (solo l'indirizzo e la risposta): il dettaglio mostra
   l'indirizzo. La serie non porta la sua regola (`RRULE` sta sulle
   occorrenze): la colonna non la dice a parole.
+- La Posta in lettura *(F1)*: la posta TRATTATA per conversazione, le
+  proposte della casella accanto al messaggio d'origine, letto/non letto
+  con Gmail. Nascosti nella build app: scrivere (nuova email, rispondi,
+  inoltra, bozze, la bozza di Claude: F3), l'importanza, la scadenza e la
+  vista «Importanti» (F2), i campi modificabili di una proposta e gli
+  incaricati fuori dal progetto (F2). Differenze dichiarate: l'elenco non ha
+  l'estratto dell'ultimo messaggio (il server non lo dà); un allegato non ha
+  la dimensione e si apre da Gmail; la proposta mostra la frase che il
+  server scrive per ogni azione (non i campi) e non l'estratto letto; la
+  scelta del progetto di un'email incerta (`choose_project`) non c'è (il
+  worker non la produce più).
 - Una casella con le proposte spente si legge e si allinea come le altre
   *(M, decisione del maintainer: come il prototipo; chiusa con la F1 del
   server)*: il poller la legge comunque e «Aggiorna ora» funziona. Finché il

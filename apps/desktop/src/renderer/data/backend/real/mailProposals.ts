@@ -113,6 +113,17 @@ const listMailProposals: Mail["listMailProposals"] = async (filters = {}) =>
 
 const getMailProposal: Mail["getMailProposal"] = async (id) => viewOf(await cardOf(id));
 
+/**
+ * «Da decidere» della Home: le proposte aperte della mia casella, che posso
+ * confermare o passare. L'origine (la riga «da un'email a…») non c'è: il
+ * server non la dice, e l'email è nella Posta.
+ */
+const listMailDecisions: Mail["listMailDecisions"] = async () =>
+  (await cards())
+    .map(viewOf)
+    .filter((v) => v.canConfirm || v.canHand)
+    .map((v) => ({ ...v, origin: null }));
+
 /** Già decisa da altri, o non più valida: non riuscita, col motivo del server. */
 const STALE = new Set(["already_handled", "proposal_stale", "question_not_pending"]);
 
@@ -156,6 +167,7 @@ const reassignMailProposal: Mail["reassignMailProposal"] = async (id, projectId)
 export const mailProposalFunctions: Partial<Mail> = {
   listMailProposals,
   getMailProposal,
+  listMailDecisions,
   confirmMailProposal,
   ignoreMailProposal,
   handMailProposal,

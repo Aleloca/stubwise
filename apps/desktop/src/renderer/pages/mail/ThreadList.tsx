@@ -12,6 +12,7 @@ import { PencilGlyph, SearchGlyph } from "./glyphs";
 import { IMPORTANCES, NO_PROJECT, hasFilters, type MailSearch } from "./mailFilters";
 import { ExpiredBanner, SyncStatus, worstMailbox } from "./SyncStatus";
 import { ThreadRow, useRowLabel, type ProjectRef } from "./ThreadRow";
+import { mailImportance } from "./mailFeatures";
 
 // L'elenco della Posta (shape mail.md §3, A4): in testa la barra con «Search
 // mail» e i due menu a gettone (Importance, Project), poi la riga di stato
@@ -214,33 +215,35 @@ export function ThreadList({
           </kbd>
         </label>
         <div className="flex flex-wrap items-center gap-1.5">
-          <MenuButton
-            menuLabel={t("mail.filters.importance")}
-            className={`${chip} ${search.importance ? chipOn : ""}`}
-            label={
-              <>
-                {importanceLabel}
-                <Chevron />
-              </>
-            }
-          >
-            {(close) => (
-              <MenuGroup label={t("mail.filters.importance")}>
-                <RadioItem checked={!search.importance} onSelect={() => (setSearch({ importance: undefined }), close())}>
-                  {t("mail.filters.any")}
-                </RadioItem>
-                {IMPORTANCES.map((value) => (
-                  <RadioItem
-                    key={value}
-                    checked={search.importance === value}
-                    onSelect={() => (setSearch({ importance: value }), close())}
-                  >
-                    {t(`mail.filters.${value}`)}
+          {mailImportance() && (
+            <MenuButton
+              menuLabel={t("mail.filters.importance")}
+              className={`${chip} ${search.importance ? chipOn : ""}`}
+              label={
+                <>
+                  {importanceLabel}
+                  <Chevron />
+                </>
+              }
+            >
+              {(close) => (
+                <MenuGroup label={t("mail.filters.importance")}>
+                  <RadioItem checked={!search.importance} onSelect={() => (setSearch({ importance: undefined }), close())}>
+                    {t("mail.filters.any")}
                   </RadioItem>
-                ))}
-              </MenuGroup>
-            )}
-          </MenuButton>
+                  {IMPORTANCES.map((value) => (
+                    <RadioItem
+                      key={value}
+                      checked={search.importance === value}
+                      onSelect={() => (setSearch({ importance: value }), close())}
+                    >
+                      {t(`mail.filters.${value}`)}
+                    </RadioItem>
+                  ))}
+                </MenuGroup>
+              )}
+            </MenuButton>
+          )}
           <MenuButton
             menuLabel={t("mail.filters.project")}
             className={`${chip} ${search.project ? chipOn : ""}`}

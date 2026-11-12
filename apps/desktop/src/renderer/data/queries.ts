@@ -3306,11 +3306,12 @@ export function useLoadMailDraft() {
 }
 
 /** Le mie bozze, dalla più recente (la riga «Bozza» in elenco). */
-export function useMailDrafts() {
+export function useMailDrafts({ enabled = true }: { enabled?: boolean } = {}) {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.mailDrafts(me),
     queryFn: () => api.mail.listDrafts(),
+    enabled,
   });
 }
 

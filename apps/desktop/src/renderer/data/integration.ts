@@ -38,8 +38,8 @@ export type IntegrationTarget =
 const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 4, fetta 1: la Chat fra persone (`chat`, destinazione e sezione di progetto).
   // Area 5, fetta 2: il Drive (`drive`, destinazione, sezione e feature).
-  // Area 6, fetta 1: il Calendario in lettura (`calendar`).
-  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat", "drive", "calendar"]),
+  // Area 6, fetta 1: il Calendario in lettura (`calendar`) e la Posta (`mail`).
+  destination: new Set(["home", "projects", "planning", "filters", "claude", "chat", "drive", "calendar", "mail"]),
   // Area 5, fetta 1: i Docs del progetto (`docs`, sezione e feature).
   projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive"]),
   // Stati e soglie del progetto.
@@ -117,6 +117,11 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "calendar",
     // F1.2: «Aggiorna ora» di una casella (Posta e Calendario).
     "google-sync",
+    // Area 6, fetta 1: la Posta TRATTATA per conversazione, la lettura, le
+    // proposte della casella, letto/non letto con Gmail. Restano spenti
+    // `mail-write` (scrivere, F3), `mail-importance` (importanza e scadenza,
+    // F2) e `mail-proposal-edit` (i campi di una proposta, F2).
+    "mail",
     // Area 5, fetta 1: i Docs «come oggi» (spazi, albero, pagine, manuali,
     // generazione, ricerca, chat senza streaming, grafo).
     "docs",

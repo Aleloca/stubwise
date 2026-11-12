@@ -143,6 +143,20 @@ describe("le proposte della Posta: lettura", () => {
   });
 });
 
+describe("le proposte della Posta in «Da decidere» della Home", () => {
+  it("le aperte che posso confermare o passare; non le decise", async () => {
+    installFakeServer(
+      inbox(
+        [card(), card({ id: "9a9a9a9a-2222-4222-8222-222222222222", actions: ["open", "hand_to_project"] }, { blockedIndices: [0] })],
+        [card({ id: "9a9a9a9a-3333-4333-8333-333333333333", status: "handled" }, { decision: { status: "ignored", chosen: [], error: null } })],
+      ),
+    );
+    const list = await mail.listMailDecisions();
+    expect(list.map((v) => v.proposal.id)).toEqual([N1, "9a9a9a9a-2222-4222-8222-222222222222"]);
+    expect(list.every((v) => v.origin === null)).toBe(true);
+  });
+});
+
 describe("le proposte della Posta: decidere", () => {
   it("confermare tutte le azioni: le loro opzioni insieme", async () => {
     const { seen } = installFakeServer({ ...inbox([card()]), [`POST /api/inbox/${N1}/actions/answer`]: answered() });

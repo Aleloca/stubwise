@@ -2696,6 +2696,13 @@ export interface MailThreadRow {
  */
 export interface MailMessageView extends Omit<MailMessage, "readByPersonIds" | "mailboxPersonIds"> {
   read: boolean;
+  /**
+   * Build app: le proposte del server nate da questo messaggio (le ritrova
+   * la loro `sourceId`) e la conversazione su Gmail, dove si aprono gli
+   * allegati. Il prototipo non ne ha.
+   */
+  proposalIds?: string[];
+  gmailUrl?: string;
   /** Solo un'email di Gemini (`kind: "transcript"`): le note della riunione. */
   meeting?: MeetingNote;
 }
@@ -2721,6 +2728,8 @@ export interface MeetingNote {
 export interface MailThreadDetail {
   threadId: string;
   subject: string;
+  /** Build app: la conversazione su Gmail («Apri in Gmail»). */
+  gmailUrl?: string;
   messages: MailMessageView[];
 }
 
