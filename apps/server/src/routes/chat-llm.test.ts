@@ -197,6 +197,17 @@ describe("createAnthropicChatLlm", () => {
     await waitForRuns(1);
   });
 
+  it("mail_draft: senza riga vale il defaultModel della chiamata (Sonnet), con la riga vale la riga", async () => {
+    const { calls, createClient } = fakeClient([MESSAGE_START, MESSAGE_DELTA]);
+    const llm = createAnthropicChatLlm({ db, encryptionKey, createClient });
+    await drain(llm.stream(input({ operation: "mail_draft", defaultModel: "claude-sonnet-5-5" })));
+    expect(calls[0]!.model).toBe("claude-sonnet-5-5");
+    await db.insert(aiModelSettings).values({ operation: "mail_draft", model: "haiku" });
+    await drain(llm.stream(input({ operation: "mail_draft", defaultModel: "claude-sonnet-5-5" })));
+    expect(calls[1]!.model).toBe("claude-haiku-5-5");
+    await waitForRuns(2);
+  });
+
   it("stream interrotto dal consumatore dopo message_start → riga con output_tokens=0", async () => {
     const { createClient } = fakeClient([MESSAGE_START, TEXT_DELTA, TEXT_DELTA, MESSAGE_DELTA]);
     const llm = createAnthropicChatLlm({ db, encryptionKey, createClient });

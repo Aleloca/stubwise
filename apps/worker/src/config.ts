@@ -1335,6 +1335,8 @@ export function effectiveModelDefaults(
     daily_report: config.dailyReportModel,
     weekly_brief: config.summaryModel,
     mail_classify: config.gmailModel,
+    // La bozza di Claude nella Posta (area 6, F3): la scrive il server, Sonnet.
+    mail_draft: "sonnet",
     chat: SERVER_CHAT_DEFAULT_MODEL,
     // La chat con Claude (fetta 1): lo stesso modello dei turni di refinement.
     claude_chat: config.backlogModel,

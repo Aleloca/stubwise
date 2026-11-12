@@ -18,6 +18,9 @@ import {
 } from "../services/mail-drafts.js";
 import { isMultipartLimit } from "./multipart.js";
 import { suggestRecipients } from "../services/mail-recipients.js";
+import { MAIL_DRAFT_DEFAULT_MODEL, MAIL_DRAFT_OPERATION, prepareClaudeDraft, usedTasks } from "../services/mail-claude-draft.js";
+import { monthlyBudgetExhausted } from "../services/agent-sessions.js";
+import { writeSseEvent } from "./docs-chat-core.js";
 import { discardFailedSend, getOutgoing, retrySend, sendDraftLater, undoSend, type SendError } from "../services/mail-send.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
@@ -94,6 +97,83 @@ export async function meMailDraftsRoutes(instance: FastifyInstance, opts: { clie
       const out = await discardDraft(app.db, app.encryptionKey, client, request.user!.id, request.params.id);
       if ("error" in out) return sendError(reply, out);
       return reply.code(204).send(null);
+    },
+  );
+
+  /**
+   * «Chiedi a Claude» (F3, task 6): il corpo dell'email in SSE — `delta` coi
+   * pezzi, poi `done` con `{ text, projectId, used }`, o `error` con
+   * `claude_unavailable` a metà. Solo un testo: niente bozza salvata, niente
+   * invio. I rifiuti arrivano PRIMA dello stream, in JSON: 404 (casella,
+   * conversazione o progetto che non vedo), 400 `invalid_hint`, 409
+   * `budget_exhausted`, 503 `claude_unavailable`.
+   */
+  app.post(
+    "/claude",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        body: z.object({
+          accountId: z.uuid(),
+          threadId: z.string().max(200).nullable().default(null),
+          mode: mailComposeModeSchema,
+          hint: z.string().max(2000).default(""),
+          projectId: z.uuid().nullable().default(null),
+        }),
+        response: { 400: errorSchema, 503: errorSchema, ...errors },
+      },
+    },
+    async (request, reply) => {
+      const prepared = await prepareClaudeDraft(app.db, request.user!.id, request.body);
+      if ("error" in prepared) {
+        return prepared.error === "not_found"
+          ? apiError(reply, 404, "not_found", "Not found")
+          : apiError(reply, 400, "invalid_hint", "A new email needs an instruction");
+      }
+      if (await monthlyBudgetExhausted(app.db)) return apiError(reply, 409, "budget_exhausted", "The monthly AI budget is used up");
+      const availability = (await app.chatLlm.isAvailable?.()) ?? { available: true };
+      if (!availability.available) return apiError(reply, 503, "claude_unavailable", "Claude is not available");
+
+      reply.hijack();
+      reply.raw.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      // Chi chiude il compositore ferma anche la generazione (e il consumo).
+      const controller = new AbortController();
+      let gone = false;
+      request.raw.on("close", () => {
+        gone = true;
+        controller.abort();
+      });
+      let text = "";
+      try {
+        for await (const delta of app.chatLlm.stream({
+          system: prepared.system,
+          messages: prepared.messages,
+          signal: controller.signal,
+          usage: { operation: MAIL_DRAFT_OPERATION, projectId: prepared.projectId, defaultModel: MAIL_DRAFT_DEFAULT_MODEL },
+        })) {
+          if (gone) break;
+          text += delta;
+          writeSseEvent(reply, { type: "delta", text: delta });
+        }
+        if (!gone) {
+          writeSseEvent(reply, {
+            type: "done",
+            text,
+            projectId: prepared.projectId,
+            used: usedTasks(text, prepared.tasks),
+          });
+        }
+      } catch (err) {
+        request.log.error({ err }, "mail draft: generazione fallita");
+        if (!gone) writeSseEvent(reply, { type: "error", code: "claude_unavailable" });
+      } finally {
+        if (!gone) reply.raw.end();
+      }
     },
   );
 
