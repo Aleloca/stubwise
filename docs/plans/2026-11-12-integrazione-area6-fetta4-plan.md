@@ -44,6 +44,25 @@ persona, come nel prototipo (`data/calendar/writes.ts`, `save.ts`):
 - **Il libero non si segna sui tutto il giorno** *(O, 46)*, e un tutto il
   giorno non occupa il libero/occupato (prototipo).
 
+### Le risposte alle domande (12 nov 2026)
+
+- **Q1 = a** *(M)*: il progetto messo a mano vale per TUTTI quelli che vedono
+  lo stesso evento (l'iCalUID), se chi lo mette è membro del progetto.
+- **Q3 = a** *(M)*, **cambio esplicito di D8**: il libero/occupato si calcola
+  dalle righe di `calendar_events` già salvate, NIENTE freeBusy di Google.
+  Questo sostituisce la parte «ognuno col suo token» di D8 = b; il resto di
+  D8 resta: solo i colleghi COLLEGATI e solo gli intervalli. ⚠️ Un evento
+  `private` di un collega conta come occupato, ma senza alcun dettaglio
+  (come ogni altro: solo `startsAt`/`endsAt`).
+- **Q6 = a** *(M)*: si possono invitare anche gli esterni, e Google manda
+  l'invito (`sendUpdates: "all"`).
+- **Q2 = a** *(O, 46)*: salvataggio sincrono, la risposta dopo il sì di
+  Google; il «non riuscito» lo tiene il client.
+- **Q4 = a** *(O, 46)*: su `changed_on_google` solo «Reload» (si rilegge e
+  si rifà il gesto), niente «Keep mine».
+- **Q5 = a** *(O, 46)*: eliminando un evento, le proposte aperte nate da lui
+  se ne vanno con lui.
+
 ## Le forme per il renderer (dall'inventario di 94, tutte additive)
 
 **Letture che servono alle scritture**, su ogni riga di `range` (anche
@@ -110,18 +129,21 @@ progetto di cui non sono membro), 409 `changed_on_google`, 409
    la regola del prototipo — lo fa chi vede l'evento, se è membro del
    progetto scelto; un progetto attuale che non vede non lo cambia (403); la
    proposta aperta della scadenza segue il progetto, quella di una data di
-   serie no. Lo scopo (la mia riga o tutte le righe dello stesso evento) è
-   la domanda Q1. *Test*: i quattro casi della regola, negativi compresi.
-5. **Libero/occupato (D8 = b).** `GET /freebusy`. Proposta: dalle righe di
-   `calendar_events` dei colleghi (con la F3b ci sono TUTTI gli eventi
-   della finestra), senza chiamare Google; occupa un evento `opaque`, non
-   rifiutato, non tutto il giorno (un `outOfOffice` occupa); solo dentro la
-   finestra; `not_connected` senza casella, `expired` con la casella
-   scaduta. La fonte è la domanda Q3. *Test*: SOLO intervalli (il test
-   controlla le chiavi esatte della risposta: nessun titolo, luogo,
-   invitato, id); chiunque nell'istanza lo legge *(O)*; un rifiutato, un
+   serie no. Vale per TUTTE le righe dello stesso evento (iCalUID, Q1 = a),
+   cioè per ogni persona che lo vede. *Test*: i quattro casi della regola,
+   negativi compresi; la riga di un altro invitato prende lo stesso
+   progetto.
+5. **Libero/occupato (D8 = b, con la fonte di Q3 = a).** `GET /freebusy`:
+   dalle righe di `calendar_events` dei colleghi (con la F3b ci sono TUTTI
+   gli eventi della finestra), senza chiamare Google; occupa un evento
+   `opaque`, non rifiutato, non tutto il giorno (un `outOfOffice` occupa;
+   un `private` occupa, senza dettagli); solo dentro la finestra;
+   `not_connected` senza casella, `expired` con la casella scaduta. *Test*:
+   SOLO intervalli (il test controlla le chiavi esatte della risposta:
+   nessun titolo, luogo, invitato, id); un evento `private` occupa e non
+   aggiunge nulla; chiunque nell'istanza lo legge *(O)*; un rifiutato, un
    libero e un tutto il giorno non occupano; un collega senza casella
-   `not_connected`.
+   `not_connected`. Nessuna chiamata a Google in questa rotta.
 6. **Chiusura**: invarianti (`docs/invariants/mail-calendar.md`: «nessuna
    scrittura verso Google senza un gesto», il libero/occupato solo
    intervalli), deploy-log (nessuna migrazione d'enum nuova se non serve;
@@ -201,7 +223,7 @@ server finto che risponde come quello vero.
 - Eliminare un evento con una proposta aperta: la proposta se ne va (o la
   regola di Q5), mai una card che punta a un evento che non c'è.
 
-## Domande aperte per il maintainer
+## Domande per il maintainer (risposte: vedi «Le risposte alle domande»)
 
 Q1. **Il progetto messo a mano vale per chi?**
 - (a) *(consigliata)* Per tutti quelli che vedono quell'evento (lo stesso

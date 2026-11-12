@@ -452,6 +452,20 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - «Aggiungi da Google Drive» del prototipo è un elenco piatto con la
     ricerca, senza navigare le cartelle (R-H3, `ossatura-follow-ups.md`).
 
+- F4, scrivere sul Calendario: le risposte alle domande del piano
+  (`docs/plans/2026-11-12-integrazione-area6-fetta4-plan.md`, 12 nov 2026):
+  - Q1 *(M)*: il progetto messo a mano vale per tutti quelli che vedono lo
+    stesso evento (iCalUID), se chi lo mette è membro del progetto;
+  - Q3 *(M)*, **cambio di D8**: il libero/occupato dalle righe salvate in
+    `calendar_events`, niente freeBusy di Google; cade il «ognuno col suo
+    token» di D8 = b, restano «solo i colleghi collegati» e «solo gli
+    intervalli»; un evento `private` conta come occupato, senza dettagli;
+  - Q6 *(M)*: anche gli invitati esterni, con l'invito di Google
+    (`sendUpdates: all`);
+  - Q2, Q4, Q5 *(O, 46)*: salvataggio sincrono; «Reload» su
+    `changed_on_google`; le proposte aperte se ne vanno con l'evento
+    eliminato.
+
 ## Area 7 — Automazioni
 
 - Blocco della Home delle automazioni.
