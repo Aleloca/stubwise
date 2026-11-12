@@ -180,6 +180,21 @@ describe("salvare ed eliminare una bozza (scritture verso Gmail)", () => {
     expect(calls.map((c) => c.fn)).toEqual(["create", "get"]);
   });
 
+  it("«Tieni la mia» (overwrite: true) dopo un draft_changed: la si scrive sopra quella di Gmail, e il salvataggio dopo torna normale", async () => {
+    const { me, box } = await scenario();
+    const body = { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "a" };
+    await save(me.headers, body);
+    current = { id: "g-draft-1", messageId: "cambiata-da-gmail", threadId: null };
+    expect((await save(me.headers, { ...body, body: "b" })).statusCode).toBe(409);
+    calls.length = 0;
+    const kept = await save(me.headers, { ...body, body: "b", overwrite: true });
+    expect(kept.statusCode).toBe(200);
+    expect(calls.map((c) => c.fn)).toEqual(["get", "update"]);
+    expect((kept.json() as { body: string }).body).toBe("b");
+    // La versione vista ora è la nostra: il prossimo salvataggio non è in conflitto.
+    expect((await save(me.headers, { ...body, body: "c" })).statusCode).toBe(200);
+  });
+
   it("una bozza sparita da Gmail (eliminata da lì) si ricrea", async () => {
     const { me, box } = await scenario();
     const body = { accountId: box.id, threadId: null, mode: "new", to: [{ email: "x@y.it" }], subject: "Ciao", body: "a" };

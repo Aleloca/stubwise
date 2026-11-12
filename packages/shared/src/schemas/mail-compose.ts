@@ -58,6 +58,12 @@ export const mailDraftSaveSchema = z.object({
   subject: z.string().max(1000).default(""),
   body: z.string().max(200_000).default(""),
   quote: z.boolean().default(true),
+  /**
+   * «Tieni la mia» dopo un `draft_changed`: scrive sopra la versione cambiata
+   * da Gmail. Un gesto esplicito, mai il default (la bozza di Gmail non si
+   * sovrascrive in silenzio).
+   */
+  overwrite: z.boolean().default(false),
 });
 export type MailDraftSave = z.input<typeof mailDraftSaveSchema>;
 
