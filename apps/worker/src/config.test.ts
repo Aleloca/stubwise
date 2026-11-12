@@ -931,6 +931,7 @@ describe("effectiveModelDefaults", () => {
       mail_classify: "sonnet",
       // La bozza di Claude nella Posta (area 6, F3): Sonnet, nessuna env.
       mail_draft: "sonnet",
+      meeting_summary: "sonnet",
       chat: "claude-opus-4-8",
       claude_chat: config.backlogModel,
       backlog_merge: "claude-opus-4-8",
