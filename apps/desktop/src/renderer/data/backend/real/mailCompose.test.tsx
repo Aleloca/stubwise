@@ -386,6 +386,30 @@ describe("la review della F3: l'«Annulla» dura quanto la finestra del server",
     expect(put).toBeLessThan(undo);
   });
 
+  it("Gmail l'ha mandata ma lo stato non è registrato (`sent_unrecorded`): «Sent, status to verify», senza Retry, Edit né Delete", async () => {
+    const OUT2 = "0f0f0f0f-2222-4222-8222-222222222222";
+    detailOverride = {
+      ...detail,
+      messages: [
+        ...detail.messages,
+        {
+          ...detail.messages[0],
+          id: OUT2,
+          from: "Ada <ada@acme.test>",
+          to: ["bob@client.test"],
+          receivedAt: "2026-10-23T10:00:00.000Z",
+          textExcerpt: "La mia risposta.",
+          proposalIds: [],
+          delivery: { state: "failed", error: "sent_unrecorded", outgoingId: OUT2 },
+        },
+      ],
+    };
+    renderRoute(`/mail/${KEY}`);
+    expect(await screen.findByText(/Sent, status to verify/)).toBeInTheDocument();
+    expect(screen.queryByText(/^Not sent/)).toBeNull();
+    for (const name of ["Retry", "Edit", "Delete"]) expect(screen.queryByRole("button", { name })).toBeNull();
+  });
+
   it("«Retry» di un invio fallito che il server manda subito (`undoUntil` già passato): nessun «Undo» che non funzionerebbe", async () => {
     const OUT2 = "0f0f0f0f-2222-4222-8222-222222222222";
     detailOverride = {

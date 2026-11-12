@@ -6349,6 +6349,7 @@
       "sendingTo": "Sending to {{names}}",
       "sent": "Sent",
       "notSent": "Not sent: {{reason}}",
+      "sentUnrecorded": "Sent, status to verify: Gmail sent it, but Stubwise couldn't record it.",
       "edit": "Edit",
       "delete": "Delete",
       "tooLate": "Too late to undo: the email was sent.",
