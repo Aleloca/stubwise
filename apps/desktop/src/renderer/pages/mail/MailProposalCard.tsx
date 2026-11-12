@@ -39,6 +39,7 @@ import {
   assigneeOf,
   effectiveArgs,
   isLiveProposal,
+  isOutsideAssignee,
   phraseOf,
   type Args,
   type Ctx,
@@ -154,8 +155,7 @@ export function MailProposalCard({
    */
   const isOutside = (index: number, personId: string) => {
     const action = p.actions[index]!;
-    const original = assigneeOf(action.fn, action.args);
-    return personId === original ? outsiderIds.has(personId) : !members.has(personId);
+    return isOutsideAssignee(personId, assigneeOf(action.fn, action.args), outsiderIds, members);
   };
 
   // Chi la sta decidendo altrove non deve trovarla aperta qui: un esito nuovo

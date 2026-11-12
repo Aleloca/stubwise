@@ -9,6 +9,22 @@ import { dayLabel } from "./format";
 
 export { isLiveProposal } from "../../domain/mail/liveProposal";
 
+/**
+ * L'incaricato è fuori dal progetto? Quello del modello lo dice il server
+ * (`outsiders`); uno scelto nella modifica sul posto si confronta coi membri
+ * del progetto, ma solo se si conoscono: un elenco vuoto (non letto) non
+ * permette di dedurlo, e alla conferma decide il server (`invalid: assignee`).
+ */
+export function isOutsideAssignee(
+  personId: string,
+  original: string | null | undefined,
+  outsiderIds: ReadonlySet<string>,
+  members: ReadonlySet<string>,
+): boolean {
+  if (personId === original) return outsiderIds.has(personId);
+  return members.size > 0 && !members.has(personId);
+}
+
 export type Args = Record<string, unknown>;
 export type Edits = Record<number, Args>;
 
