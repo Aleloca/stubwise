@@ -32,7 +32,7 @@ import {
   type GoogleAccountCredentials,
 } from "@stubwise/google/credentials";
 import type { Language } from "@stubwise/i18n";
-import { hasDeclinedInvitation } from "@stubwise/shared";
+import { GOOGLE_SYNC_REQUEST_CHANNEL, hasDeclinedInvitation } from "@stubwise/shared";
 import {
   admit,
   matchRoutes,
@@ -46,6 +46,7 @@ import {
   asc,
   eq,
   inArray,
+  isNotNull,
   isNull,
   ne,
   notExists,
@@ -420,7 +421,9 @@ export async function claimDueAccounts(
       sql`${googleAccounts.id} IN (
         SELECT id FROM google_accounts
         WHERE disabled_at IS NULL AND proposals_enabled AND next_sync_at <= now()
-        ORDER BY next_sync_at
+        -- «Aggiorna ora» (area 6, F1.2): chi l'ha chiesto passa prima delle
+        -- altre dovute, anche a batch pieno (la sua next_sync_at è adesso).
+        ORDER BY sync_requested_at IS NULL, next_sync_at
         LIMIT ${limit}
         FOR UPDATE SKIP LOCKED
       )`,
@@ -2441,37 +2444,106 @@ export async function pollGoogleOnce(deps: GooglePollerDeps): Promise<GoogleTick
   for (const account of accounts) {
     if (deps.signal?.aborted) break;
     try {
-      const result = await runAccountTick(deps, account, routes, admission);
-      if (!result) continue;
-      stats.ingested += result.ingested;
-      stats.classified += result.classify.classified;
-      stats.ignoredMessages += result.classify.ignored;
-      stats.failedMessages += result.classify.failed;
-      stats.calendarEvents += result.calendar.events;
-      stats.calendarReady += result.calendar.ready;
-      stats.calendarCancelled += result.calendar.cancelled;
-      stats.proposed += result.proposed;
-      await applySuccess(deps, account);
-    } catch (err) {
-      try {
-        if (await applyFailure(deps, account, err)) stats.disabled += 1;
-      } catch (inner) {
-        // Difesa finale: se nemmeno registrare il fallimento riesce, il claim
-        // ha comunque già spostato `next_sync_at` e il tick prosegue.
-        logger.error(
-          `google: esito non registrato per ${account.email}: ${errText(inner)} (errore originale: ${errText(err)})`,
-        );
-      }
+      await serveAccount(deps, account, routes, admission, stats);
+    } finally {
+      // «Aggiorna ora»: il giro di questa casella è finito, riuscito o no.
+      await settleSyncRequest(deps, account);
     }
   }
 
   return stats;
 }
 
+/**
+ * A fine giro di una casella, la richiesta di «Aggiorna ora» (area 6, F1.2).
+ *
+ * - Quella VISTA al claim si azzera: il giro l'ha servita, riuscito o no.
+ * - Una scritta a giro IN CORSO (dopo il claim: un altro istante) resta, e la
+ *   casella torna dovuta adesso: l'esito del giro ha appena riportato
+ *   `next_sync_at` all'intervallo (o al backoff), e senza questo la richiesta
+ *   aspetterebbe il giro normale.
+ * - Una casella che il giro ha disabilitato non tiene richieste: il claim non
+ *   la vedrebbe più, e la riga resterebbe «in attesa» per sempre.
+ *
+ * Il confronto è al millisecondo perché `Date` non porta i µs di Postgres. Non
+ * lancia: un errore qui lascia la richiesta al giro dopo.
+ */
+async function settleSyncRequest(deps: GooglePollerDeps, account: ClaimedAccount): Promise<void> {
+  const seen = account.syncRequestedAt?.toISOString() ?? null;
+  const servedNow = sql`(${googleAccounts.disabledAt} is not null or date_trunc('milliseconds', ${googleAccounts.syncRequestedAt}) = ${seen}::timestamptz)`;
+  try {
+    await deps.db
+      .update(googleAccounts)
+      .set({
+        syncRequestedAt: sql`case when ${servedNow} then null else ${googleAccounts.syncRequestedAt} end`,
+        nextSyncAt: sql`case when ${servedNow} then ${googleAccounts.nextSyncAt} else now() end`,
+      })
+      .where(and(eq(googleAccounts.id, account.id), isNotNull(googleAccounts.syncRequestedAt)));
+  } catch (err) {
+    (deps.logger ?? defaultLogger).error(`google: richiesta di «Aggiorna ora» non sistemata per ${account.email}: ${errText(err)}`);
+  }
+}
+
+/** Il giro di UNA casella dentro il tick, col suo esito registrato. Non lancia. */
+async function serveAccount(
+  deps: GooglePollerDeps,
+  account: ClaimedAccount,
+  routes: EmailRoute[],
+  admission: AdmissionConfig,
+  stats: GoogleTickStats,
+): Promise<void> {
+  const logger = deps.logger ?? defaultLogger;
+  try {
+    const result = await runAccountTick(deps, account, routes, admission);
+    if (!result) return;
+    stats.ingested += result.ingested;
+    stats.classified += result.classify.classified;
+    stats.ignoredMessages += result.classify.ignored;
+    stats.failedMessages += result.classify.failed;
+    stats.calendarEvents += result.calendar.events;
+    stats.calendarReady += result.calendar.ready;
+    stats.calendarCancelled += result.calendar.cancelled;
+    stats.proposed += result.proposed;
+    await applySuccess(deps, account);
+  } catch (err) {
+    try {
+      if (await applyFailure(deps, account, err)) stats.disabled += 1;
+    } catch (inner) {
+      // Difesa finale: se nemmeno registrare il fallimento riesce, il claim
+      // ha comunque già spostato `next_sync_at` e il tick prosegue.
+      logger.error(
+        `google: esito non registrato per ${account.email}: ${errText(inner)} (errore originale: ${errText(err)})`,
+      );
+    }
+  }
+}
+
 export interface StartGooglePollerOptions extends Omit<GooglePollerDeps, "signal"> {
   /** Intervallo di poll in minuti. ≤ 0 = disabilitato (non avvia nulla). */
   intervalMinutes: number;
   signal: AbortSignal;
+  /**
+   * «Aggiorna ora» (area 6, F1.2): LISTEN sul canale della richiesta. Assente
+   * o fallito, resta il ripiego periodico.
+   */
+  listen?: (channel: string, cb: (payload: string) => void) => Promise<unknown>;
+  /** Ogni quanto il ripiego guarda se c'è una richiesta dovuta. Default 15 s. */
+  requestPollMs?: number;
+}
+
+/** Il ripiego di «Aggiorna ora» quando il NOTIFY non arriva. */
+export const DEFAULT_SYNC_REQUEST_POLL_MS = 15_000;
+
+/** C'è una richiesta di «Aggiorna ora» che il claim prenderebbe adesso? */
+async function hasDueSyncRequest(db: Db): Promise<boolean> {
+  const rows = await db
+    .select({ id: googleAccounts.id })
+    .from(googleAccounts)
+    .where(
+      sql`${googleAccounts.syncRequestedAt} is not null and ${googleAccounts.disabledAt} is null and ${googleAccounts.proposalsEnabled} and ${googleAccounts.nextSyncAt} <= now()`,
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 /**
@@ -2486,12 +2558,19 @@ export function startGooglePoller(opts: StartGooglePollerOptions): () => void {
   if (opts.intervalMinutes <= 0) {
     return () => {};
   }
-  const { signal, ...deps } = opts;
+  const { signal, listen, requestPollMs, ...deps } = opts;
   let running = false;
+  // Una sveglia arrivata a giro in corso: il giro dopo parte appena finisce
+  // questo, perché il claim di questo è già passato e non l'ha vista.
+  let again = false;
 
   const tick = async (): Promise<void> => {
-    if (running) return;
+    if (running) {
+      again = true;
+      return;
+    }
     running = true;
+    again = false;
     try {
       const stats = await pollGoogleOnce({ ...deps, signal });
       if (stats.accounts > 0 || stats.ingested > 0 || stats.pruned > 0) {
@@ -2509,6 +2588,7 @@ export function startGooglePoller(opts: StartGooglePollerOptions): () => void {
       logger.error(`google: tick fallito: ${errText(err)}`);
     } finally {
       running = false;
+      if (again && !signal.aborted) void tick();
     }
   };
 
@@ -2518,7 +2598,30 @@ export function startGooglePoller(opts: StartGooglePollerOptions): () => void {
   // Non tenere vivo il processo solo per il poller.
   if (typeof timer.unref === "function") timer.unref();
 
-  const stop = (): void => clearInterval(timer);
+  // «Aggiorna ora»: la sveglia dal server. Il payload non decide niente — il
+  // giro reclama le caselle DOVUTE come sempre, e la rotta ha reso dovuta
+  // quella chiesta — quindi un NOTIFY spurio costa al più un claim vuoto.
+  if (listen) {
+    listen(GOOGLE_SYNC_REQUEST_CHANNEL, () => {
+      if (!signal.aborted) void tick();
+    }).catch((err: unknown) => {
+      logger.warn(`google: LISTEN di «Aggiorna ora» fallito, resta il ripiego periodico: ${errText(err)}`);
+    });
+  }
+  const requestTimer = setInterval(() => {
+    if (running || signal.aborted) return;
+    void hasDueSyncRequest(opts.db)
+      .then((due) => {
+        if (due) void tick();
+      })
+      .catch((err: unknown) => logger.error(`google: controllo di «Aggiorna ora» fallito: ${errText(err)}`));
+  }, requestPollMs ?? DEFAULT_SYNC_REQUEST_POLL_MS);
+  if (typeof requestTimer.unref === "function") requestTimer.unref();
+
+  const stop = (): void => {
+    clearInterval(timer);
+    clearInterval(requestTimer);
+  };
   signal.addEventListener("abort", stop, { once: true });
   return stop;
 }

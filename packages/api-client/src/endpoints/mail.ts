@@ -62,6 +62,20 @@ export type MailReproposeSource = "email" | "calendar" | "email_triage";
  * messaggi su quattro caselle in produzione al momento in cui questo client
  * è stato scritto — non è una lista da client di posta.
  */
+/**
+ * I filtri di `threads` in forma d'oggetto (area 6, F1.4). `q`: la ricerca
+ * nella pagina, da 2 a 200 caratteri dopo il trim (sotto, 400
+ * `invalid_query`; vuoto = nessun filtro), in oggetto, mittente (nome e
+ * indirizzo) ed estratto, mai in `to`/`cc`. Un thread passa se un suo
+ * messaggio combacia.
+ */
+export interface MailThreadQuery {
+  account?: string | undefined;
+  cursor?: string | undefined;
+  limit?: number | undefined;
+  q?: string | undefined;
+}
+
 export function createMailEndpoints(request: ApiRequest) {
   return {
     list(filters: MailFilters = {}, cursor?: string, limit?: number): Promise<Reader<MailPage>> {
@@ -85,8 +99,16 @@ export function createMailEndpoints(request: ApiRequest) {
      * ha. Chi disegna una lista di posta usa questa; chi mostra anche gli
      * appuntamenti resta su `list`.
      */
-    threads(account?: string, cursor?: string, limit?: number): Promise<Reader<MailThreadPage>> {
-      const query = toQuery({ account, cursor, limit });
+    threads(
+      accountOrOptions?: string | MailThreadQuery,
+      cursor?: string,
+      limit?: number,
+    ): Promise<Reader<MailThreadPage>> {
+      // Due firme: quella posizionale di prima (web e app la usano) e
+      // l'oggetto (area 6, F1.4), che porta anche `q`.
+      const options: MailThreadQuery =
+        typeof accountOrOptions === "object" ? accountOrOptions : { account: accountOrOptions, cursor, limit };
+      const query = toQuery({ account: options.account, cursor: options.cursor, limit: options.limit, q: options.q });
       return request("GET", `/api/me/mail/threads${query}`, undefined, mailThreadPageSchema);
     },
 

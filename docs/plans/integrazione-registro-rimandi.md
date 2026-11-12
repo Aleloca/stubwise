@@ -276,6 +276,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   salvataggio). «Prossimi appuntamenti» è acceso dalla F1, con la finestra
   del prototipo (da adesso a fine di domani).
 - Azione di Claude «bozza del corpo dell'email».
+- F1.2 «Aggiorna ora», scelte accettate *(O)* (12 nov 2026, commit 31151503):
+  (a) 409 `proposals_disabled` per una casella con le proposte spente, che il
+  poller non sincronizza, e spegnerle toglie la richiesta in attesa; (b) il
+  NOTIFY sveglia soltanto, è il claim di sempre a prendere la casella (le
+  richieste prima delle altre dovute); (c) a fine giro si azzera la richiesta
+  vista al claim, una scritta a giro in corso resta e la casella torna dovuta;
+  (d) con `GMAIL_POLL_MINUTES=0` una richiesta non viene servita (il
+  rollback): va nell'invariante `mail-calendar.md` alla F1.5.
 
 ## Area 7 — Automazioni
 

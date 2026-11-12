@@ -31,11 +31,11 @@ Google Drive (F5).
 |---|---|
 | Gruppo `google` nell'api-client | `client.google.workspaces()`, `connect(workspaceId)` → `{ authorizeUrl }`, `accounts()`, `setProposals(id, enabled)`, `disconnect(id)`, `sync(id)`. Ricollegare = `connect` con lo stesso Workspace: la casella esistente prende gli scope nuovi (nessuna riga doppia). |
 | Ritorno OAuth al desktop | Nessun deep link (decisione di 94/46): il callback resta quello del web, che dice l'esito; il renderer rilegge `accounts()` al ritorno in primo piano e mentre il dialogo «Collega» è aperto. Il rimando `stubwise://google` va nel registro. |
-| «Aggiorna ora» | `POST /api/me/google/accounts/:id/sync` → 202 `{ status: "queued" }`, o `{ status: "already_queued" }` se ce n'è già una in attesa; 429 `sync_too_soon` con `retryAfterSeconds` se l'ultima richiesta è di meno di 60 s fa; 404 una casella non tua; 409 `account_disabled` per una casella scaduta («Ricollega»). La fine si vede sulla riga della casella: `syncRequestedAt` torna null e `lastSyncAt` avanza. |
+| «Aggiorna ora» | `POST /api/me/google/accounts/:id/sync` → 202 `{ status: "queued" }`, o `{ status: "already_queued" }` se ce n'è già una in attesa; 429 `sync_too_soon` con `retryAfterSeconds` se l'ultima richiesta è di meno di 60 s fa; 404 una casella non tua; 409 `account_disabled` per una casella scaduta («Ricollega»). La fine si vede sulla riga della casella: `syncRequestedAt` torna null e `lastSyncAt` avanza (un giro FALLITO: `syncRequestedAt` torna null e `lastSyncAt` resta). In più (F1.2): 409 `proposals_disabled` per una casella con le proposte spente, che il poller non sincronizza; spegnerle toglie la richiesta in attesa. |
 | Letto / non letto | `unread: boolean` (default `false`) su ogni thread di `/threads` (vero se un messaggio è non letto) e su ogni messaggio di `/threads/:threadId`. `POST /api/me/mail/threads/:threadId/read` con `{ account, read: boolean }` → 200 col thread. Una casella senza `gmail.modify` → 409 `google_scope_missing` con `missing: [...]` («Ricollega»). |
-| Evento per id | `GET /api/me/calendar/events/:id` (nuova), la stessa forma di una riga di `/range`; 404 se non è tuo. «Eventi in arrivo»: `range` da adesso a +7 giorni va bene. |
+| Evento per id | `GET /api/me/calendar/events/:id` (nuova), `client.calendar.event(id)`: la stessa select di `/range`, quindi la stessa forma e lo stesso filtro di proprietà; 404 `not_found` identico per un evento non tuo e uno che non esiste. «Eventi in arrivo»: `range` da adesso a +7 giorni va bene. |
 | Riconsenso | `missingScopes: string[]` (default `[]`) su ogni casella di `accounts()`: gli scope dell'area che la casella non ha concesso. Una casella vecchia continua a LEGGERE come oggi. |
-| Ricerca della posta | Nella pagina: `client.mail.threads({ q })`, parametro nuovo (oggetto, mittente, estratto). Quella globale resta `/api/search` con la tipologia posta. |
+| Ricerca della posta | Nella pagina: `client.mail.threads({ account, cursor, limit, q })` (la firma posizionale resta). `q` dopo il trim da 2 a 200 caratteri (fuori, 400 `invalid_query`; vuoto = nessun filtro), ILIKE su oggetto, mittente (nome e indirizzo) ed estratto, mai su `to`/`cc`; un thread passa se un suo messaggio combacia, e resta intero. Quella globale resta `/api/search` con la tipologia posta. |
 | Scheda di preparazione | Nessuna rotta la compone oggi: tutta alla F5. |
 
 Ogni campo nuovo è additivo con default; gli stati nuovi passano da
@@ -57,6 +57,16 @@ Ogni campo nuovo è additivo con default; gli stati nuovi passano da
   canale (con un ripiego ogni 15 s) e fa SUBITO il giro di quella casella,
   poi azzera la richiesta. Il tetto dei 60 s è sulla richiesta, per persona e
   casella.
+  Come è fatto (F1.2): la rotta porta anche `next_sync_at` a adesso, quindi è
+  il claim di sempre a prendere la casella (prima delle altre dovute: `ORDER
+  BY sync_requested_at IS NULL, next_sync_at`), con `SKIP LOCKED` e nessun
+  percorso a parte; il NOTIFY sveglia soltanto, e il worker non legge il
+  payload per decidere chi sincronizzare. A fine giro si azzera la richiesta
+  VISTA al claim; una scritta a giro in corso resta e la casella torna dovuta;
+  una casella disabilitata non tiene richieste. Una sveglia a giro in corso fa
+  ripartire il giro appena finisce. L'ultima richiesta resta in
+  `sync_last_requested_at`, per il tetto. Con `GMAIL_POLL_MINUTES=0` (poller
+  spento) una richiesta non viene servita: è il rollback della funzione.
 - **Letto / non letto**:
   - all'ingestione `unread` viene dall'etichetta `UNREAD` del messaggio;
   - a ogni giro della casella, i cambi di `UNREAD` fatti su Gmail si

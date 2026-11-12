@@ -1,9 +1,11 @@
 import {
+  calendarEventItemSchema,
   calendarEventPageSchema,
   calendarSeriesListSchema,
   calendarSeriesWriteResultSchema,
 } from "@stubwise/shared";
 import type {
+  CalendarEventItem,
   CalendarEventPage,
   CalendarSeriesList,
   CalendarSeriesPatch,
@@ -83,6 +85,15 @@ export function createCalendarEndpoints(request: ApiRequest) {
     range(input: CalendarRange): Promise<Reader<CalendarEventPage>> {
       const query = toQuery({ from: input.from, to: input.to, account: input.account });
       return request("GET", `/api/me/calendar/range${query}`, undefined, calendarEventPageSchema);
+    },
+
+    /**
+     * Un evento per id (area 6, F1.4): la stessa forma di una riga di
+     * {@link range}. 404 `not_found` per un evento non tuo come per uno che non
+     * esiste.
+     */
+    event(id: string): Promise<Reader<CalendarEventItem>> {
+      return request("GET", `/api/me/calendar/events/${seg(id)}`, undefined, calendarEventItemSchema);
     },
 
     /**

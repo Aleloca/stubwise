@@ -1970,3 +1970,83 @@ describe("GET /api/me/mail/rejections", () => {
     expect(body.accounts.map((a) => a.accountId)).toEqual([conScarti.accountId]);
   });
 });
+
+describe("GET /api/me/mail/threads?q (area 6, F1.4)", () => {
+  function getThreads(cookie: string, query: string) {
+    return app.inject({ method: "GET", url: `/api/me/mail/threads${query}`, headers: { cookie } });
+  }
+  const threadsOf = (res: { json(): unknown }) => (res.json() as { items: { threadId: string; messageCount: number }[] }).items;
+
+  it("trova per oggetto, per mittente (nome e pezzo d'indirizzo) e per estratto, senza maiuscole", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const bySubject = `t-${randomUUID()}`;
+    const byName = `t-${randomUUID()}`;
+    const byAddress = `t-${randomUUID()}`;
+    const byExcerpt = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId: bySubject, subject: "Preventivo Zanzibar" });
+    await seedEmail(accountId, { threadId: byName, subject: "x", fromName: "Ottavio Brancaleone" });
+    await seedEmail(accountId, { threadId: byAddress, subject: "x", fromAddress: "quintiliano@cliente.test" });
+    await seedEmail(accountId, { threadId: byExcerpt, subject: "x", textExcerpt: "ci vediamo a Kathmandu giovedì" });
+    await seedEmail(accountId, { subject: "Nient'altro" });
+
+    expect(threadsOf(await getThreads(memberCookie, "?q=zanzibar")).map((t) => t.threadId)).toEqual([bySubject]);
+    expect(threadsOf(await getThreads(memberCookie, "?q=BRANCALEONE")).map((t) => t.threadId)).toEqual([byName]);
+    expect(threadsOf(await getThreads(memberCookie, "?q=quintil")).map((t) => t.threadId)).toEqual([byAddress]);
+    expect(threadsOf(await getThreads(memberCookie, "?q=kathmandu")).map((t) => t.threadId)).toEqual([byExcerpt]);
+  });
+
+  it("un thread compare se UN suo messaggio combacia, e resta intero (conteggio di tutti i messaggi)", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const threadId = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId, subject: "Prima", receivedAt: new Date("2026-09-01T08:00:00.000Z") });
+    await seedEmail(accountId, { threadId, subject: "Re: Prima", textExcerpt: "parola Ornitorinco", receivedAt: new Date("2026-09-02T08:00:00.000Z") });
+    const [thread] = threadsOf(await getThreads(memberCookie, "?q=ornitorinco"));
+    expect(thread).toMatchObject({ threadId, messageCount: 2 });
+  });
+
+  it("NEGATIVO: un admin con un `q` che combacia SOLO nella casella del member non la vede; il member sì", async () => {
+    const { accountId } = await seedAccount(memberId);
+    const threadId = `t-${randomUUID()}`;
+    await seedEmail(accountId, { threadId, subject: "Segreto Pterodattilo" });
+    const mine = await seedAccount(adminId);
+    await seedEmail(mine.accountId, { subject: "Altro" });
+    expect(threadsOf(await getThreads(adminCookie, "?q=pterodattilo"))).toEqual([]);
+    expect(threadsOf(await getThreads(memberCookie, "?q=pterodattilo")).map((t) => t.threadId)).toEqual([threadId]);
+  });
+
+  it("to e cc si MOSTRANO, non si cercano", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, { subject: "x", toAddresses: ["destinatario-unico@acme.test"], ccAddresses: ["copia-unica@acme.test"] });
+    expect(threadsOf(await getThreads(memberCookie, "?q=destinatario-unico"))).toEqual([]);
+    expect(threadsOf(await getThreads(memberCookie, "?q=copia-unica"))).toEqual([]);
+  });
+
+  it("i metacaratteri LIKE sono letterali: `%%` non trova tutto", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, { subject: "qualunque" });
+    expect(threadsOf(await getThreads(memberCookie, `?q=${encodeURIComponent("%%")}`))).toEqual([]);
+  });
+
+  it("q di 1 carattere o oltre 200: 400 invalid_query; vuoto (solo spazi): nessun filtro", async () => {
+    const { accountId } = await seedAccount(memberId);
+    await seedEmail(accountId, { subject: "uno" });
+    const short = await getThreads(memberCookie, "?q=a");
+    expect(short.statusCode).toBe(400);
+    expect((short.json() as { code: string }).code).toBe("invalid_query");
+    expect((await getThreads(memberCookie, `?q=${"x".repeat(201)}`)).statusCode).toBe(400);
+    expect(threadsOf(await getThreads(memberCookie, "?q=%20%20"))).toHaveLength(1);
+  });
+
+  it("la paginazione col cursore funziona anche filtrando", async () => {
+    const { accountId } = await seedAccount(memberId);
+    for (let i = 0; i < 3; i += 1) {
+      await seedEmail(accountId, { subject: `Lemure ${i}`, receivedAt: new Date(`2026-09-0${i + 1}T08:00:00.000Z`) });
+    }
+    await seedEmail(accountId, { subject: "estraneo", receivedAt: new Date("2026-09-09T08:00:00.000Z") });
+    const first = await getThreads(memberCookie, "?q=lemure&limit=2");
+    const page1 = first.json() as { items: { subject: string }[]; nextCursor: string };
+    expect(page1.items.map((t) => t.subject)).toEqual(["Lemure 2", "Lemure 1"]);
+    const second = await getThreads(memberCookie, `?q=lemure&limit=2&cursor=${encodeURIComponent(page1.nextCursor)}`);
+    expect((second.json() as { items: { subject: string }[] }).items.map((t) => t.subject)).toEqual(["Lemure 0"]);
+  });
+});

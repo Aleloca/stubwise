@@ -3,7 +3,8 @@ import { decrypt, googleAccounts, googleWorkspaces, oauthStates } from "@stubwis
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
-import { eq } from "drizzle-orm";
+import { GOOGLE_SYNC_REQUEST_CHANNEL } from "@stubwise/shared";
+import { eq, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -829,5 +830,126 @@ describe("caselle dell'utente", () => {
       const res = await app.inject({ method, url, payload: { proposalsEnabled: false } });
       expect(res.statusCode, `${method} ${url}`).toBe(401);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// «Aggiorna ora» (area 6, F1.2)
+// ---------------------------------------------------------------------------
+
+describe("POST /api/me/google/accounts/:id/sync", () => {
+  async function connectedAccountId(): Promise<string> {
+    const workspaceId = await createWorkspace();
+    await callback(await stateFor(workspaceId));
+    const [row] = await accountRows();
+    return row!.id;
+  }
+  function sync(id: string, cookie = memberCookie) {
+    return app.inject({ method: "POST", url: `/api/me/google/accounts/${id}/sync`, headers: { cookie } });
+  }
+
+  it("202 queued: scrive la richiesta, rende la casella dovuta e la annuncia sul canale", async () => {
+    const id = await connectedAccountId();
+    await testDb.db.update(googleAccounts).set({ nextSyncAt: sql`now() + interval '5 minutes'` }).where(eq(googleAccounts.id, id));
+    const payloads: string[] = [];
+    const listener = await testDb.client.listen(GOOGLE_SYNC_REQUEST_CHANNEL, (p) => payloads.push(p));
+    try {
+      const res = await sync(id);
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toEqual({ status: "queued" });
+      const [row] = await accountRows();
+      expect(row!.syncRequestedAt).not.toBeNull();
+      expect(row!.syncLastRequestedAt).not.toBeNull();
+      expect(row!.nextSyncAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+      await expect.poll(() => payloads.length).toBe(1);
+      expect(JSON.parse(payloads[0]!)).toEqual({ accountId: id });
+    } finally {
+      await listener.unlisten();
+    }
+    // La riga pubblica lo dice.
+    const [account] = (await app.inject({ method: "GET", url: "/api/me/google/accounts", headers: { cookie: memberCookie } })).json() as { syncRequestedAt: string | null }[];
+    expect(account!.syncRequestedAt).not.toBeNull();
+  });
+
+  it("una richiesta già in attesa: 202 already_queued, senza toccare la riga", async () => {
+    const id = await connectedAccountId();
+    expect((await sync(id)).json()).toEqual({ status: "queued" });
+    const [before] = await accountRows();
+    const res = await sync(id);
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ status: "already_queued" });
+    const [after] = await accountRows();
+    expect(after!.syncLastRequestedAt?.getTime()).toBe(before!.syncLastRequestedAt?.getTime());
+  });
+
+  it("entro 60 s dall'ultima richiesta (già servita): 429 sync_too_soon col tempo che manca", async () => {
+    const id = await connectedAccountId();
+    await testDb.db.update(googleAccounts).set({ syncRequestedAt: null, syncLastRequestedAt: sql`now() - interval '20 seconds'` }).where(eq(googleAccounts.id, id));
+    const res = await sync(id);
+    expect(res.statusCode).toBe(429);
+    const body = res.json() as { code: string; retryAfterSeconds: number };
+    expect(body.code).toBe("sync_too_soon");
+    expect(body.retryAfterSeconds).toBeGreaterThanOrEqual(39);
+    expect(body.retryAfterSeconds).toBeLessThanOrEqual(41);
+    const [row] = await accountRows();
+    expect(row!.syncRequestedAt).toBeNull();
+  });
+
+  it("oltre i 60 s si può richiedere di nuovo", async () => {
+    const id = await connectedAccountId();
+    await testDb.db.update(googleAccounts).set({ syncRequestedAt: null, syncLastRequestedAt: sql`now() - interval '61 seconds'` }).where(eq(googleAccounts.id, id));
+    expect((await sync(id)).json()).toEqual({ status: "queued" });
+  });
+
+  it("la casella di un altro: 404, e nessuna richiesta né notifica", async () => {
+    const id = await connectedAccountId();
+    const payloads: string[] = [];
+    const listener = await testDb.client.listen(GOOGLE_SYNC_REQUEST_CHANNEL, (p) => payloads.push(p));
+    try {
+      const res = await sync(id, adminCookie);
+      expect(res.statusCode).toBe(404);
+      expect((res.json() as { code: string }).code).toBe("google_account_not_found");
+      // Un NOTIFY di controllo dopo: se arriva lui solo, quello della rotta non c'è stato.
+      await testDb.client`select pg_notify(${GOOGLE_SYNC_REQUEST_CHANNEL}, 'sentinella')`;
+      await expect.poll(() => payloads.length).toBe(1);
+      expect(payloads).toEqual(["sentinella"]);
+    } finally {
+      await listener.unlisten();
+    }
+    const [row] = await accountRows();
+    expect(row!.syncRequestedAt).toBeNull();
+    expect(row!.syncLastRequestedAt).toBeNull();
+  });
+
+  it("una casella disabilitata: 409 account_disabled («Ricollega»)", async () => {
+    const id = await connectedAccountId();
+    await testDb.db.update(googleAccounts).set({ disabledAt: sql`now()`, disabledReason: "invalid_grant" }).where(eq(googleAccounts.id, id));
+    const res = await sync(id);
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("account_disabled");
+    const [row] = await accountRows();
+    expect(row!.syncRequestedAt).toBeNull();
+  });
+
+  it("una casella con le proposte spente (il poller non la guarda): 409 proposals_disabled", async () => {
+    const id = await connectedAccountId();
+    await testDb.db.update(googleAccounts).set({ proposalsEnabled: false }).where(eq(googleAccounts.id, id));
+    const res = await sync(id);
+    expect(res.statusCode).toBe(409);
+    expect((res.json() as { code: string }).code).toBe("proposals_disabled");
+  });
+
+  it("spegnere le proposte toglie una richiesta in attesa (il poller non la servirebbe mai)", async () => {
+    const id = await connectedAccountId();
+    await sync(id);
+    await app.inject({ method: "PATCH", url: `/api/me/google/accounts/${id}`, headers: { cookie: memberCookie }, payload: { proposalsEnabled: false } });
+    const [row] = await accountRows();
+    expect(row!.syncRequestedAt).toBeNull();
+  });
+
+  it("vuole una sessione", async () => {
+    const id = await connectedAccountId();
+    const res = await app.inject({ method: "POST", url: `/api/me/google/accounts/${id}/sync` });
+    expect(res.statusCode).toBe(401);
   });
 });

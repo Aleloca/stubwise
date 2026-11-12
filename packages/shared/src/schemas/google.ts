@@ -176,8 +176,29 @@ export const googleAccountSchema = z.object({
    * = niente da ricollegare. Un server di prima non lo manda.
    */
   missingScopes: z.array(z.string()).default([]),
+  /**
+   * Area 6, F1.2: «Aggiorna ora» in attesa (quando è stata chiesta), null
+   * altrimenti. Il giro finito lo azzera: riuscito se `lastSyncAt` è avanzato,
+   * fallito se no. Un server di prima non lo manda.
+   */
+  syncRequestedAt: z.string().nullable().default(null),
 });
 export type GoogleAccount = z.infer<typeof googleAccountSchema>;
+
+/**
+ * «Aggiorna ora» (area 6, F1.2): il canale su cui il server annuncia una
+ * richiesta al worker (payload `{ accountId }`). Il worker non si fida del
+ * payload: si sveglia e reclama le caselle DOVUTE, come a ogni giro.
+ */
+export const GOOGLE_SYNC_REQUEST_CHANNEL = "google_sync_request";
+/** Il tetto fra due richieste di «Aggiorna ora» della stessa casella. */
+export const GOOGLE_SYNC_REQUEST_MIN_SECONDS = 60;
+
+/** Esito di `POST /api/me/google/accounts/:id/sync` (202). */
+export const googleSyncResponseSchema = z.object({
+  status: z.enum(["queued", "already_queued"]),
+});
+export type GoogleSyncResponse = z.infer<typeof googleSyncResponseSchema>;
 
 /**
  * Un Workspace come lo vede un OPERATORE, per scegliere da quale collegarsi.

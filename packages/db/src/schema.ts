@@ -4373,6 +4373,14 @@ export const googleAccounts = pgTable(
     disabledReason: text("disabled_reason").$type<
       "revoked" | "invalid_grant" | "insufficient_scope" | "workspace_removed" | "sync_failed"
     >(),
+    /**
+     * «Aggiorna ora» (area 6, F1, 0149): la richiesta IN ATTESA. La scrive la
+     * rotta (con `next_sync_at = now()` e un `pg_notify`), la azzera il worker
+     * a fine giro di questa casella, riuscito o no. Null = nessuna richiesta.
+     */
+    syncRequestedAt: timestamp("sync_requested_at", { withTimezone: true }),
+    /** L'ultima richiesta fatta, che resta dopo il giro: il tetto dei 60 s. */
+    syncLastRequestedAt: timestamp("sync_last_requested_at", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("google_accounts_email_unique").on(table.email),
@@ -4517,6 +4525,14 @@ export const emailMessages = pgTable(
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
     /** Etichette Gmail del messaggio: le usa il routing (`gmail_label`). */
     labels: text("labels").array().notNull().default([]),
+    /**
+     * Letto / non letto, sincronizzato con Gmail (area 6, F1, D5 = b; 0149):
+     * dall'etichetta `UNREAD` all'ingestione, poi dai cambi della history a
+     * ogni giro e dalla rotta «segna come letto» (scritto SOLO dopo il sì di
+     * Google). Null = non ancora saputo (righe di prima), letto come `false`.
+     * `labels` qui sopra non si rilegge dalla history: non è questa la fonte.
+     */
+    unread: boolean("unread"),
     textExcerpt: text("text_excerpt"),
     /**
      * AMMESSO dal cancello dell'ammissione (fase 6c, `admit()`), oppure

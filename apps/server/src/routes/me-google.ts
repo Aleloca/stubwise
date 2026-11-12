@@ -4,14 +4,17 @@ import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import {
   GOOGLE_ACCOUNT_SETTINGS_PATH,
   GOOGLE_OAUTH_CALLBACK_PATH,
+  GOOGLE_SYNC_REQUEST_CHANNEL,
+  GOOGLE_SYNC_REQUEST_MIN_SECONDS,
   googleAccountPatchSchema,
   googleAccountSchema,
   googleConnectBodySchema,
   googleConnectResponseSchema,
+  googleSyncResponseSchema,
   googleWorkspaceOptionSchema,
   type GoogleCallbackOutcome,
 } from "@stubwise/shared";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, sql } from "drizzle-orm";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -77,6 +80,7 @@ const accountColumns = {
   lastSyncAt: googleAccounts.lastSyncAt,
   disabledAt: googleAccounts.disabledAt,
   disabledReason: googleAccounts.disabledReason,
+  syncRequestedAt: googleAccounts.syncRequestedAt,
 };
 
 /** La riga che la select qui sopra produce (nullability delle colonne inclusa). */
@@ -91,6 +95,7 @@ interface AccountRow {
   lastSyncAt: Date | null;
   disabledAt: Date | null;
   disabledReason: string | null;
+  syncRequestedAt: Date | null;
 }
 
 /**
@@ -112,6 +117,7 @@ function toPublicAccount(row: AccountRow): z.infer<typeof googleAccountSchema> {
     disabledAt: row.disabledAt?.toISOString() ?? null,
     disabledReason: row.disabledReason,
     missingScopes: missingGoogleScopes(row.scopes),
+    syncRequestedAt: row.syncRequestedAt?.toISOString() ?? null,
   };
 }
 
@@ -294,7 +300,13 @@ export async function meGoogleRoutes(
     async (request, reply) => {
       const [updated] = await app.db
         .update(googleAccounts)
-        .set({ proposalsEnabled: request.body.proposalsEnabled })
+        // Spente, il poller non guarda più la casella: una richiesta di
+        // «Aggiorna ora» in attesa non verrebbe mai servita, e si toglie.
+        .set(
+          request.body.proposalsEnabled
+            ? { proposalsEnabled: true }
+            : { proposalsEnabled: false, syncRequestedAt: null },
+        )
         // `userId` nel WHERE: senza, chiunque potrebbe spegnere le proposte di
         // una casella altrui conoscendone l'id.
         .where(
@@ -313,6 +325,81 @@ export async function meGoogleRoutes(
         return apiError(reply, 404, "google_account_not_found", "Google account not found");
       }
       return toPublicAccount(row);
+    },
+  );
+
+  /**
+   * «Aggiorna ora» (area 6, F1.2): chiede al worker il giro di QUESTA casella
+   * adesso, invece che al prossimo `GMAIL_POLL_MINUTES`.
+   *
+   * Non chiama Google e non fa il giro: scrive la richiesta, porta
+   * `next_sync_at` a adesso (la casella diventa DOVUTA, e il claim del poller
+   * la prende come ogni altra: nessun percorso a parte, nessun giro doppio,
+   * `SKIP LOCKED` come sempre) e la annuncia sul canale. Il worker non legge
+   * il payload per decidere CHI sincronizzare: si sveglia e reclama le dovute.
+   * La fine si legge sulla riga: `syncRequestedAt` torna null.
+   *
+   * Un UPDATE solo, con tutte le condizioni nella WHERE: di chi è, viva, con le
+   * proposte accese, senza una richiesta in attesa, fuori dal tetto dei 60 s.
+   * Se non tocca niente, una SELECT dice perché.
+   */
+  app.post(
+    "/accounts/:id/sync",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: idParamsSchema,
+        response: {
+          202: googleSyncResponseSchema,
+          404: errorSchema,
+          409: errorSchema,
+          429: errorSchema.extend({ retryAfterSeconds: z.number().int() }),
+          ...authErrorResponses,
+        },
+      },
+    },
+    async (request, reply) => {
+      const mine = and(eq(googleAccounts.id, request.params.id), eq(googleAccounts.userId, request.user!.id));
+      const queued = await app.db.transaction(async (tx) => {
+        const [row] = await tx
+          .update(googleAccounts)
+          .set({ syncRequestedAt: sql`now()`, syncLastRequestedAt: sql`now()`, nextSyncAt: sql`now()` })
+          .where(
+            and(
+              mine,
+              sql`${googleAccounts.disabledAt} is null`,
+              eq(googleAccounts.proposalsEnabled, true),
+              sql`${googleAccounts.syncRequestedAt} is null`,
+              sql`(${googleAccounts.syncLastRequestedAt} is null or ${googleAccounts.syncLastRequestedAt} <= now() - make_interval(secs => ${GOOGLE_SYNC_REQUEST_MIN_SECONDS}))`,
+            ),
+          )
+          .returning({ id: googleAccounts.id });
+        // Nella transazione: il NOTIFY parte solo se la richiesta è scritta.
+        if (row) await tx.execute(sql`select pg_notify(${GOOGLE_SYNC_REQUEST_CHANNEL}, ${JSON.stringify({ accountId: row.id })})`);
+        return Boolean(row);
+      });
+      if (queued) return reply.code(202).send({ status: "queued" });
+
+      const [row] = await app.db
+        .select({
+          disabledAt: googleAccounts.disabledAt,
+          proposalsEnabled: googleAccounts.proposalsEnabled,
+          syncRequestedAt: googleAccounts.syncRequestedAt,
+          retryAfterSeconds: sql<number>`greatest(1, ceil(extract(epoch from (${googleAccounts.syncLastRequestedAt} + make_interval(secs => ${GOOGLE_SYNC_REQUEST_MIN_SECONDS}) - now()))))::int`,
+        })
+        .from(googleAccounts)
+        .where(mine);
+      if (!row) return apiError(reply, 404, "google_account_not_found", "Google account not found");
+      if (row.disabledAt) return apiError(reply, 409, "account_disabled", "Google account is disabled: reconnect it");
+      if (!row.proposalsEnabled) {
+        return apiError(reply, 409, "proposals_disabled", "Google account sync is off (proposals disabled)");
+      }
+      if (row.syncRequestedAt) return reply.code(202).send({ status: "already_queued" });
+      return reply.code(429).send({
+        code: "sync_too_soon",
+        message: "A sync was requested less than a minute ago",
+        retryAfterSeconds: row.retryAfterSeconds,
+      });
     },
   );
 

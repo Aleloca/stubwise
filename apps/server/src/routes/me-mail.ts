@@ -167,6 +167,10 @@ const mailDetailSourceSchema = z.enum(["email", "email_triage"]);
 const mailDetailParamsSchema = z.object({ source: mailDetailSourceSchema, id: z.uuid() });
 
 /** Quante righe per pagina se il chiamante non lo dice, e il tetto massimo — come `/api/inbox`. */
+/** I limiti di `q` su `GET /threads` (area 6, F1.4): sotto i 2, ogni riga combacia. */
+const THREAD_QUERY_MIN = 2;
+const THREAD_QUERY_MAX = 200;
+
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
@@ -917,6 +921,25 @@ export async function meMailRoutes(
    * `google_accounts`. Un thread di un altro utente non esiste — pagina
    * vuota o 404, mai 403.
    */
+  /**
+   * La ricerca nella pagina Posta (area 6, F1.4): un thread passa se ALMENO UN
+   * suo messaggio combacia, e resta intero (conteggi e ultimo messaggio di
+   * tutti), perché il filtro sta nella HAVING e non nella WHERE. Cerca in
+   * oggetto, mittente (nome e indirizzo: ILIKE, perché un pezzo d'indirizzo è
+   * come si cerca la posta) ed estratto; MAI in `to`/`cc` («si mostrano, non si
+   * cercano», `docs/invariants/mail-calendar.md`). Il filtro di proprietà resta
+   * quello della WHERE: `q` non lo tocca. I metacaratteri LIKE sono letterali.
+   */
+  function threadMatchesSql(q: string) {
+    const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    return sql`bool_or(
+      ${emailMessages.subject} ilike ${pattern}
+      or ${emailMessages.fromName} ilike ${pattern}
+      or ${emailMessages.fromAddress} ilike ${pattern}
+      or ${emailMessages.textExcerpt} ilike ${pattern}
+    )`;
+  }
+
   app.get(
     "/threads",
     {
@@ -926,6 +949,9 @@ export async function meMailRoutes(
           account: z.uuid().optional(),
           cursor: z.string().optional(),
           limit: z.coerce.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
+          // Area 6, F1.4: la ricerca nella pagina. Validata a mano per dare
+          // `invalid_query` (vedi THREAD_QUERY_MIN/MAX).
+          q: z.string().max(2000).optional(),
         }),
         response: { 200: mailThreadPageSchema, 400: errorSchema, ...authErrorResponses },
       },
@@ -935,6 +961,10 @@ export async function meMailRoutes(
       const cursor = rawCursor === undefined ? undefined : (decodeThreadCursor(rawCursor) ?? undefined);
       if (rawCursor !== undefined && cursor === undefined) {
         return apiError(reply, 400, "invalid_cursor", "Invalid pagination cursor");
+      }
+      const q = request.query.q?.trim() ?? "";
+      if (q !== "" && (q.length < THREAD_QUERY_MIN || q.length > THREAD_QUERY_MAX)) {
+        return apiError(reply, 400, "invalid_query", `'q' must be ${THREAD_QUERY_MIN} to ${THREAD_QUERY_MAX} characters`);
       }
 
       const conditions = [eq(googleAccounts.userId, request.user!.id)];
@@ -958,9 +988,12 @@ export async function meMailRoutes(
         .where(and(...conditions))
         .groupBy(emailMessages.threadId, emailMessages.accountId, googleAccounts.email)
         .having(
-          cursor
-            ? sql`(max(${emailMessages.receivedAt}), ${emailMessages.threadId}) < (${cursor.date}::timestamptz, ${cursor.threadId})`
-            : sql`true`,
+          and(
+            cursor
+              ? sql`(max(${emailMessages.receivedAt}), ${emailMessages.threadId}) < (${cursor.date}::timestamptz, ${cursor.threadId})`
+              : sql`true`,
+            q === "" ? sql`true` : threadMatchesSql(q),
+          ),
         )
         .orderBy(desc(sql`max(${emailMessages.receivedAt})`), desc(emailMessages.threadId))
         .limit(limit + 1);

@@ -171,6 +171,14 @@ describe("endpoints mail", () => {
     expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/threads?account=${ID}&cursor=cur&limit=10`);
   });
 
+  it("threads con un oggetto (area 6, F1.4): anche `q`, nella stessa querystring", async () => {
+    const { c, fetchImpl } = clientReturning(200, { items: [], nextCursor: null });
+    await c.mail.threads({ account: ID, q: "preventivo luglio", limit: 5 });
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe(`/api/me/mail/threads?account=${ID}&limit=5&q=preventivo+luglio`);
+    await c.mail.threads({});
+    expect(fetchImpl.mock.calls.at(-1)![0]).toBe("/api/me/mail/threads");
+  });
+
   it("threads: una riga coi soli campi obbligatori si parsa (tutto il resto ha un default)", async () => {
     const { c } = clientReturning(200, {
       items: [
