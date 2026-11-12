@@ -260,11 +260,12 @@ describe("emailRoutesSchema / emailLabelsSchema", () => {
 });
 
 describe("mailAdmissionSchema (fase 6c)", () => {
-  it("una risposta senza nessuno dei tre campi resta parsabile con i default", () => {
+  it("una risposta senza nessuno dei campi resta parsabile con i default (anche `classifyV2`, F2: spento)", () => {
     expect(mailAdmissionSchema.parse({})).toEqual({
       admitWorkspaceDomains: true,
       denyLabels: ["CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL", "SPAM"],
       denyAutomated: true,
+      classifyV2: false,
     });
   });
 
@@ -273,6 +274,7 @@ describe("mailAdmissionSchema (fase 6c)", () => {
       admitWorkspaceDomains: false,
       denyLabels: ["SPAM"],
       denyAutomated: false,
+      classifyV2: true,
     };
     expect(mailAdmissionSchema.parse(body)).toEqual(body);
   });
