@@ -25,6 +25,7 @@ export * from "./design-tokens.js";
 export * from "./next-step.js";
 export * from "./calendar-grid.js";
 export * from "./calendar-attendance.js";
+export * from "./calendar-fingerprint.js";
 export * from "./calendar-recurrence.js";
 export * from "./safe-url.js";
 export * from "./search-snippet.js";

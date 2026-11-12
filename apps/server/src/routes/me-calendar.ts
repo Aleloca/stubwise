@@ -14,6 +14,13 @@ import {
   calendarSeriesListSchema,
   calendarSeriesPatchSchema,
   calendarSeriesWriteResultSchema,
+  calendarEventCreateSchema,
+  calendarEventEditSchema,
+  calendarEventMoveSchema,
+  calendarEventRespondSchema,
+  calendarWriteResultSchema,
+  calendarWriteScopeSchema,
+  calendarEventProjectSchema,
   mailItemStatusSchema,
   type CalendarAttendee,
   type CalendarConferenceEntryPoint,
@@ -21,13 +28,27 @@ import {
   type CalendarReminder,
   type MailItemStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, isNotNull, sql, type SQL } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import { and, asc, desc, eq, inArray, isNotNull, sql, type SQL } from "drizzle-orm";
+import type { FastifyInstance, FastifyReply } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
 import { apiError } from "../errors.js";
 import { calendarDayUrl, calendarReproposableSql, calendarStatusCaseSql } from "./calendar-status.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
+import {
+  createCalendarEvent,
+  deleteCalendarEventRow,
+  editCalendarEvent,
+  isOrganizerRow,
+  moveCalendarEvent,
+  realCalendarWriteClient,
+  respondCalendarEvent,
+  type CalendarWriteClient,
+  type CalendarWriteDeps,
+  type CalendarWriteError,
+  type CalendarWriteOutcome,
+} from "../services/calendar-writes.js";
+import { setCalendarEventProject } from "../services/calendar-project.js";
 
 /**
  * SEZIONE CALENDARIO (fase 7b), sotto `/api/me/calendar`: la superficie che
@@ -86,8 +107,107 @@ function decodeCursor(raw: string): CalendarCursor | null {
   return { date, id };
 }
 
-export async function meCalendarRoutes(instance: FastifyInstance): Promise<void> {
+export async function meCalendarRoutes(instance: FastifyInstance, opts: { client?: CalendarWriteClient } = {}): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+  const writeDeps = (): CalendarWriteDeps => ({ db: app.db, encryptionKey: app.encryptionKey, client: opts.client ?? realCalendarWriteClient });
+  const writeErrors = {
+    400: errorSchema,
+    404: errorSchema,
+    409: errorSchema.extend({ missing: z.array(z.string()).optional() }),
+    422: errorSchema.extend({ reason: z.string().optional() }),
+    502: errorSchema,
+    ...authErrorResponses,
+  };
+
+  /** Gli errori delle scritture, nelle parole che il renderer mappa (piano F4, «Errori»). */
+  function sendWriteError(reply: FastifyReply, err: CalendarWriteError) {
+    switch (err.error) {
+      case "not_found":
+        return apiError(reply, 404, "not_found", "Calendar event not found");
+      case "invalid_range":
+      case "outside_window":
+      case "all_day_series":
+      case "organizer":
+      case "not_invited":
+        return apiError(reply, 400, err.error, "Cannot write this event");
+      case "not_organizer":
+        return apiError(reply, 403, err.error, "Only the organizer can change this event");
+      case "google_scope_missing":
+        return reply.code(409).send({ code: err.error, message: "Reconnect the mailbox to write the calendar from Stubwise", missing: err.missing });
+      case "google_rejected":
+        return reply.code(422).send({ code: err.error, message: "Google refused the change", reason: err.reason });
+      case "google_unavailable":
+        return apiError(reply, 502, err.error, "Could not reach Google");
+      default:
+        return apiError(reply, 409, err.error, "Cannot write this event");
+    }
+  }
+
+  async function sendWritten(reply: FastifyReply, userId: string, out: CalendarWriteOutcome) {
+    if (!("ok" in out)) return sendWriteError(reply, out);
+    const items = out.rowIds.length === 0 ? [] : await queryCalendarEventRows(app.db, userId, [inArray(calendarEvents.id, out.rowIds)]);
+    return { items };
+  }
+
+  // --- Area 6, F4: scrivere sul calendario (sempre un gesto della persona) ---
+  // Le regole stanno in `services/calendar-writes.ts`.
+
+  app.post(
+    "/events",
+    { config: { access: { kind: "user" } }, schema: { body: calendarEventCreateSchema, response: { 200: calendarWriteResultSchema, ...writeErrors } } },
+    async (request, reply) => sendWritten(reply, request.user!.id, await createCalendarEvent(writeDeps(), request.user!.id, request.body)),
+  );
+
+  app.patch(
+    "/events/:id",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), body: calendarEventEditSchema, response: { 200: calendarWriteResultSchema, ...writeErrors } } },
+    async (request, reply) => sendWritten(reply, request.user!.id, await editCalendarEvent(writeDeps(), request.user!.id, request.params.id, request.body)),
+  );
+
+  app.post(
+    "/events/:id/move",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), body: calendarEventMoveSchema, response: { 200: calendarWriteResultSchema, ...writeErrors } } },
+    async (request, reply) => sendWritten(reply, request.user!.id, await moveCalendarEvent(writeDeps(), request.user!.id, request.params.id, request.body)),
+  );
+
+  app.post(
+    "/events/:id/respond",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), body: calendarEventRespondSchema, response: { 200: calendarWriteResultSchema, ...writeErrors } } },
+    async (request, reply) => sendWritten(reply, request.user!.id, await respondCalendarEvent(writeDeps(), request.user!.id, request.params.id, request.body)),
+  );
+
+  /** Il progetto dell'evento, a mano (task 4): nessuna chiamata a Google. Regole in `services/calendar-project.ts`. */
+  app.put(
+    "/events/:id/project",
+    { config: { access: { kind: "user" } }, schema: { params: z.object({ id: z.uuid() }), body: calendarEventProjectSchema, response: { 200: calendarWriteResultSchema, 404: errorSchema, ...authErrorResponses } } },
+    async (request, reply) => {
+      const out = await setCalendarEventProject(app.db, request.user!.id, request.params.id, request.body.projectId);
+      if ("error" in out) {
+        return out.error === "project_hidden"
+          ? apiError(reply, 403, out.error, "The current project is not one you can see")
+          : apiError(reply, 404, "not_found", "Calendar event not found");
+      }
+      return { items: await queryCalendarEventRows(app.db, request.user!.id, [eq(calendarEvents.id, out.rowId)]) };
+    },
+  );
+
+  app.delete(
+    "/events/:id",
+    {
+      config: { access: { kind: "user" } },
+      schema: {
+        params: z.object({ id: z.uuid() }),
+        // `etag` assente = la riga non ne aveva (una riga di prima della F4).
+        querystring: z.object({ scope: calendarWriteScopeSchema.default("one"), etag: z.string().optional() }),
+        response: { 204: z.null(), ...writeErrors },
+      },
+    },
+    async (request, reply) => {
+      const out = await deleteCalendarEventRow(writeDeps(), request.user!.id, request.params.id, { scope: request.query.scope, etag: request.query.etag ?? null });
+      if (!("ok" in out)) return sendWriteError(reply, out);
+      return reply.code(204).send(null);
+    },
+  );
 
   /**
    * "Gli appuntamenti visti" (design §4): una riga per occorrenza, stesso
@@ -559,7 +679,7 @@ function toCalendarItem(row: CalendarItemRow, options: { light?: boolean } = {})
  * risponde chi è fra gli invitati e non organizza.
  */
 function writeAbilities(row: CalendarItemRow, mine: CalendarAttendee | undefined) {
-  const canEdit = row.organizerSelf || (row.organizer !== null && row.organizer.toLowerCase() === row.accountEmail.toLowerCase());
+  const canEdit = isOrganizerRow(row);
   return { canEdit, canRespond: Boolean(mine) && !canEdit, etag: row.etag, myNote: mine?.comment ?? null };
 }
 

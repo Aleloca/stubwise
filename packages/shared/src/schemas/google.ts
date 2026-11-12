@@ -1234,3 +1234,92 @@ export type CalendarSeriesPatch = z.input<typeof calendarSeriesPatchSchema>;
  */
 export const calendarSeriesWriteResultSchema = z.object({ ok: z.literal(true) });
 export type CalendarSeriesWriteResult = z.infer<typeof calendarSeriesWriteResultSchema>;
+
+// --- Area 6, F4: scrivere sul calendario --------------------------------
+//
+// I CORPI delle scritture (`/api/me/calendar/events…`, tutte di un gesto
+// della persona) e la loro risposta. Le regole stanno in
+// `apps/server/src/services/calendar-writes.ts`.
+
+/** «Solo questo» o «tutta la serie». */
+export const calendarWriteScopeSchema = z.enum(["one", "series"]);
+export type CalendarWriteScope = z.infer<typeof calendarWriteScopeSchema>;
+
+/** Un invitato: una persona di Stubwise (l'indirizzo lo risolve il server) o un indirizzo, anche esterno (Q6). */
+export const calendarGuestInputSchema = z.union([
+  z.object({ personId: z.uuid() }),
+  z.object({ email: z.email().max(320), name: z.string().max(200).nullable().optional() }),
+]);
+export type CalendarGuestInput = z.infer<typeof calendarGuestInputSchema>;
+
+/** I promemoria: quelli predefiniti del calendario, o una lista (Google ne tiene al più 5). */
+export const calendarRemindersInputSchema = z.union([
+  z.literal("default"),
+  z.array(z.object({ minutes: z.number().int().min(0).max(40_320), method: z.enum(["popup", "email"]) })).max(5),
+]);
+
+const calendarTitleSchema = z.string().trim().min(1).max(1024);
+const calendarTextSchema = z.string().max(8192).nullable();
+
+export const calendarEventCreateSchema = z.object({
+  accountId: z.uuid(),
+  title: calendarTitleSchema,
+  startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime(),
+  allDay: z.boolean().default(false),
+  guests: z.array(calendarGuestInputSchema).max(200).default([]),
+  addMeet: z.boolean().default(false),
+  description: calendarTextSchema.default(null),
+  location: z.string().max(1024).nullable().default(null),
+  projectId: z.uuid().nullable().default(null),
+  reminders: calendarRemindersInputSchema.default("default"),
+});
+export type CalendarEventCreate = z.infer<typeof calendarEventCreateSchema>;
+/** Il corpo come lo scrive un client (i campi con default sono facoltativi). */
+export type CalendarEventCreateInput = z.input<typeof calendarEventCreateSchema>;
+
+export const calendarEventEditSchema = z.object({
+  scope: calendarWriteScopeSchema.default("one"),
+  /** La versione letta (`etag` della riga): diversa da quella vera → `changed_on_google`. */
+  etag: z.string().nullable(),
+  patch: z.object({
+    title: calendarTitleSchema.optional(),
+    guests: z.array(calendarGuestInputSchema).max(200).optional(),
+    addMeet: z.boolean().optional(),
+    description: calendarTextSchema.optional(),
+    location: z.string().max(1024).nullable().optional(),
+    reminders: calendarRemindersInputSchema.optional(),
+  }),
+});
+export type CalendarEventEdit = z.infer<typeof calendarEventEditSchema>;
+export type CalendarEventEditInput = z.input<typeof calendarEventEditSchema>;
+
+export const calendarEventMoveSchema = z.object({
+  scope: calendarWriteScopeSchema.default("one"),
+  etag: z.string().nullable(),
+  startsAt: z.iso.datetime(),
+  endsAt: z.iso.datetime(),
+  allDay: z.boolean().optional(),
+});
+export type CalendarEventMove = z.infer<typeof calendarEventMoveSchema>;
+export type CalendarEventMoveInput = z.input<typeof calendarEventMoveSchema>;
+
+export const calendarEventRespondSchema = z.object({
+  scope: calendarWriteScopeSchema.default("one"),
+  response: z.enum(["accepted", "tentative", "declined"]),
+  note: z.string().max(1000).nullable().optional(),
+});
+export type CalendarEventRespond = z.infer<typeof calendarEventRespondSchema>;
+export type CalendarEventRespondInput = z.input<typeof calendarEventRespondSchema>;
+
+/** Il progetto dell'evento, a mano (task 4): `null` lo toglie. */
+export const calendarEventProjectSchema = z.object({ projectId: z.uuid().nullable() });
+export type CalendarEventProject = z.infer<typeof calendarEventProjectSchema>;
+
+/**
+ * La risposta di una scrittura: le righe toccate, come le legge `range`
+ * (una per «solo questo», le date della serie nella finestra per «tutta la
+ * serie» — spostarla cambia gli id delle date).
+ */
+export const calendarWriteResultSchema = z.object({ items: z.array(calendarEventItemSchema).default([]) });
+export type CalendarWriteResult = z.infer<typeof calendarWriteResultSchema>;

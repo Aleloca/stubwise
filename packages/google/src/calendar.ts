@@ -210,6 +210,11 @@ function toDateValue(value: z.infer<typeof dateSchema> | undefined): Date | null
   return allDay ? toDate(`${value.date}T00:00:00.000Z`) : toDate(value.dateTime);
 }
 
+/** Un evento di Calendar come lo rende Google (le scritture della F4 lo rileggono così). */
+export function parseCalendarEvent(api: string, payload: unknown): GoogleCalendarEvent {
+  return toEvent(parseGoogleJson(api, eventSchema, payload));
+}
+
 function toEvent(raw: z.infer<typeof eventSchema>): GoogleCalendarEvent {
   const allDay = Boolean(raw.start?.date && !raw.start.dateTime);
   const startsAt = allDay ? toDate(`${raw.start?.date}T00:00:00.000Z`) : toDate(raw.start?.dateTime);
