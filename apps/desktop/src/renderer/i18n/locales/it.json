@@ -7282,6 +7282,15 @@
       "project_unavailable": "il progetto non è più disponibile"
     },
     "reasons": {
+      "notAvailable": "Questo passo non è ancora disponibile: non è stato eseguito.",
+      "notAvailable_would": "Questo passo non è ancora disponibile: non verrebbe eseguito.",
+      "generalLost": "Permesso perso: il proprietario non gestisce più le automazioni generali.",
+      "generalLost_would": "Il proprietario non gestisce le automazioni generali: il passo fallirebbe.",
+      "cancelledBy": "Esecuzione annullata.",
+      "suspended": "Sospesa: l'automazione è in pausa. Riprende da qui quando si riaccende.",
+      "emailAlreadySent": "L'email era già partita: non si può più annullare.",
+      "emailGone": "L'invio dell'email non si trova più.",
+      "emailCancelled": "L'invio dell'email è stato annullato prima che partisse.",
       "other": "Qualcosa è andato storto.",
       "permissionLost": "Permesso perso: il proprietario ({{owner}}) non vede più il progetto del passo.",
       "permissionLost_would": "Il proprietario ({{owner}}) non vede il progetto del passo: il passo fallirebbe.",

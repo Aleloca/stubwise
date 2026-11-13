@@ -15,6 +15,15 @@ const SOURCES = ["data/automations", "domain/automations", "data/seed/automation
 const SHARED_FILES = ["plans.ts", "runRules.ts"].map((f) =>
   join(ROOT, "../../../../packages/shared/src/automations", f),
 );
+/**
+ * L'esecutore vero (area 7, build app): le motivazioni che scrive il worker
+ * le mostra lo stesso renderer. `claude-step.ts` dà codici del PROVIDER
+ * (`providerCodes`, un'altra famiglia di parole), non motivazioni.
+ */
+const WORKER_DIR = join(ROOT, "../../../worker/src/automations");
+const WORKER_FILES = readdirSync(WORKER_DIR)
+  .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts") && f !== "claude-step.ts")
+  .map((f) => join(WORKER_DIR, f));
 
 /** I codici delle motivazioni scritti dal livello dati e dal motore. */
 function emittedCodes(): Set<string> {
@@ -26,6 +35,7 @@ function emittedCodes(): Set<string> {
         .map((f) => join(ROOT, dir, f)),
     ),
     ...SHARED_FILES,
+    ...WORKER_FILES,
   ];
   for (const file of files) {
     const src = readFileSync(file, "utf8");

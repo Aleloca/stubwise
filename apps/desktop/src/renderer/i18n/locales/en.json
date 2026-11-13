@@ -7282,6 +7282,15 @@
       "project_unavailable": "the project isn't available anymore"
     },
     "reasons": {
+      "notAvailable": "This step isn't available yet: it wasn't run.",
+      "notAvailable_would": "This step isn't available yet: it wouldn't run.",
+      "generalLost": "Permission lost: the owner no longer manages general automations.",
+      "generalLost_would": "The owner doesn't manage general automations: the step would fail.",
+      "cancelledBy": "Run cancelled.",
+      "suspended": "Suspended: the automation is paused. It goes on from here when it's turned back on.",
+      "emailAlreadySent": "The email had already left: it can't be cancelled any more.",
+      "emailGone": "The email being sent can't be found any more.",
+      "emailCancelled": "The email was cancelled before it left.",
       "other": "Something went wrong.",
       "permissionLost": "Permission lost: the owner ({{owner}}) no longer sees the step's project.",
       "permissionLost_would": "The owner ({{owner}}) doesn't see the step's project: the step would fail.",
