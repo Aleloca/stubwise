@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { googleOutsideHits } from "./driveGoogle";
 import {
   DRIVE_CODE_RE,
   DRIVE_FILE_TYPES,
@@ -159,7 +160,7 @@ async function write<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-type ListFilters = Omit<DriveFilters, "sort" | "hidden"> & {
+type ListFilters = Omit<DriveFilters, "sort"> & {
   sort?: DriveFilters["sort"];
   q?: string;
 };
@@ -171,6 +172,9 @@ async function listFilesWithSnippets(filters: ListFilters) {
     addedById: filters.addedById,
     q: filters.q,
     sort: filters.sort,
+    // F5b (review 2): l'origine e i nascosti li filtra il server (i nascosti solo con `drive.manage`).
+    source: filters.source,
+    hidden: filters.hidden === true ? true : undefined,
   };
   const page = await orNone(
     () =>
@@ -187,11 +191,8 @@ async function listFiles(filters: ListFilters) {
   return (await listFilesWithSnippets(filters)).rows;
 }
 
-/** L'elenco: di un progetto o di tutti quelli di cui si è membri. Nascosti e Google non esistono qui. */
-const listDriveFiles: Drive["listDriveFiles"] = async (filters) => {
-  if (filters.hidden === true || filters.source === "google") return [];
-  return listFiles(filters);
-};
+/** L'elenco: di un progetto o di tutti quelli di cui si è membri, coi filtri del server. */
+const listDriveFiles: Drive["listDriveFiles"] = async (filters) => listFiles(filters);
 
 /**
  * Dove sta il file di ogni codice già risolto: un codice non cambia file, e
@@ -244,12 +245,20 @@ const getDriveFile: Drive["getDriveFile"] = async (ref) => {
   return detail;
 };
 
-/** La ricerca: per nome, codice e contenuto (F3, col passaggio del server); nessun file fuori dai progetti. */
+/**
+ * La ricerca: per nome, codice e contenuto (F3, col passaggio del server); e,
+ * quando l'origine non è «caricato» e non si cercano i file di una persona,
+ * i file del MIO Google Drive che non sono in nessun progetto (F5b, review 3).
+ */
 const searchDrive: Drive["searchDrive"] = async (q, scope: DriveSearchScope = {}) => {
   const query = q.trim();
-  if (query.length < MIN_QUERY || scope.source === "google") return { files: [], outside: [] };
-  const { rows, snippets } = await listFilesWithSnippets({ ...scope, q: query });
-  return { files: rows.map((file, i) => ({ file, passage: snippets[i] ?? null })), outside: [] };
+  if (query.length < MIN_QUERY) return { files: [], outside: [] };
+  const withOutside = scope.source !== "upload" && !scope.addedById;
+  const [{ rows, snippets }, outside] = await Promise.all([
+    listFilesWithSnippets({ ...scope, q: query }),
+    withOutside ? googleOutsideHits(query) : Promise.resolve([]),
+  ]);
+  return { files: rows.map((file, i) => ({ file, passage: snippets[i] ?? null })), outside };
 };
 
 const deleteDriveFile: Drive["deleteDriveFile"] = async (id) => {

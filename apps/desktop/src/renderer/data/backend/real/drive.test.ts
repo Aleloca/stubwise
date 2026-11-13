@@ -77,16 +77,61 @@ describe("il Drive nella build app: le letture", () => {
     ]);
   });
 
-  it("senza progetto l'elenco globale; i nascosti e i Google (area 6) non ci sono, senza chiamate", async () => {
-    const { seen } = installFakeServer({
+  it("senza progetto l'elenco globale", async () => {
+    installFakeServer({
       "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
       "GET /api/drive/files": { body: { items: [serverRow({ projectCode: null })] } },
     });
     const rows = await drive.listDriveFiles({ sort: "most_used" });
     expect(rows.map((r) => r.projectCode)).toEqual(["AUD"]);
-    expect(await drive.listDriveFiles({ sort: "most_used", hidden: true })).toEqual([]);
-    expect(await drive.listDriveFiles({ sort: "most_used", source: "google" })).toEqual([]);
-    expect(seen.filter((r) => r.path.includes("/drive/")).length).toBe(1);
+  });
+
+  // Review F5b (2): «Nascosti» e «Origine» li filtra il server (F5b, 72).
+  it("i nascosti e l'origine vanno al server come filtri", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      "GET /api/drive/files": { body: { items: [serverRow({ projectCode: null })] } },
+    });
+    await drive.listDriveFiles({ sort: "most_used", hidden: true });
+    await drive.listDriveFiles({ sort: "most_used", source: "google" });
+    await drive.listDriveFiles({ sort: "most_used", source: "upload" });
+    const lists = seen.filter((r) => r.path.startsWith("/api/drive/files"));
+    expect(lists.map((r) => [query(r.path).get("hidden"), query(r.path).get("source")])).toEqual([
+      ["true", null],
+      [null, "google"],
+      [null, "upload"],
+    ]);
+  });
+
+  // Review F5b (2, 3): la ricerca coi Google, e i file del mio Drive fuori dai progetti.
+  it("la ricerca: i Google al server; i file del mio Drive fuori dai progetti quando l'origine non è «caricato»", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      "GET /api/drive/files": { body: { items: [] } },
+      "GET /api/drive/google/outside": {
+        body: {
+          items: [
+            {
+              googleFileId: "g-9",
+              name: "Piano 2027",
+              type: "document",
+              mime: "application/vnd.google-apps.document",
+              owner: null,
+              modifiedAt: null,
+              alreadyInProject: false,
+            },
+          ],
+        },
+      },
+    });
+    const google = await drive.searchDrive("piano", { source: "google" });
+    expect(google.outside.map((o) => o.googleFileId)).toEqual(["g-9"]);
+    expect(query(seen.find((r) => r.path.startsWith("/api/drive/files"))!.path).get("source")).toBe("google");
+    // Solo caricati, o i file di una persona: niente Drive fuori dai progetti.
+    const before = seen.filter((r) => r.path.startsWith("/api/drive/google/outside")).length;
+    expect((await drive.searchDrive("piano", { source: "upload" })).outside).toEqual([]);
+    expect((await drive.searchDrive("piano", { addedById: ME_ID })).outside).toEqual([]);
+    expect(seen.filter((r) => r.path.startsWith("/api/drive/google/outside")).length).toBe(before);
   });
 
   it("un progetto di cui non si è membri: elenco vuoto (404)", async () => {

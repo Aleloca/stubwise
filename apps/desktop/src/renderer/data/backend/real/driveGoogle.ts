@@ -8,6 +8,7 @@ import type {
   GoogleFileChoice,
   GoogleFolderChoice,
   GoogleOutsideFile,
+  GoogleOutsideHit,
 } from "../../types";
 import { appClient, session } from "./client";
 import { googleRowOf } from "./drive";
@@ -115,6 +116,23 @@ const listGoogleOutside: Drive["listGoogleOutside"] = async (q) =>
       summary: "",
     }),
   );
+
+/**
+ * I risultati della ricerca del Drive fuori dai progetti (F5b, review 3): i
+ * file del MIO Google Drive in nessun progetto che vedo. Il testo non c'è (non
+ * sono in un progetto): nessun passaggio, nessun riassunto.
+ */
+export async function googleOutsideHits(q: string): Promise<GoogleOutsideHit[]> {
+  return (await itemsOrEmpty(() => appClient().drive.googleOutside(query(q)))).map((f) => ({
+    googleFileId: f.googleFileId,
+    name: f.name,
+    type: typeOf(f.type),
+    owner: f.owner ?? "",
+    modifiedAt: f.modifiedAt ?? "",
+    summary: "",
+    passage: null,
+  }));
+}
 
 /** Le cartelle del mio Drive che si possono collegare al progetto. */
 const listGoogleFolders: Drive["listGoogleFolders"] = async (projectId) =>
