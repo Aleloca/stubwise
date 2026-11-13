@@ -330,5 +330,17 @@ describe("il livello dati delle Automations sulle rotte vere", () => {
     );
     await expect(r.publish("a-1")).rejects.toThrow(/^not_found$/);
   });
+
+  it("«scegli il progetto» con «Remember for <client>» (F4): remember solo se chiesto", async () => {
+    const { api, calls } = fakeApi();
+    const r = createRealAutomations(api);
+    await r.listRuns();
+    await r.chooseProject("run-2", "prj-9", { remember: true, expectedPath: "0" });
+    await r.chooseProject("run-2", "prj-9", { expectedPath: "0" });
+    expect(calls.slice(-2)).toEqual([
+      `POST AUD-A1/runs/2/project {"projectId":"prj-9","expectedPath":"0","expectedRound":0,"remember":true}`,
+      `POST AUD-A1/runs/2/project {"projectId":"prj-9","expectedPath":"0","expectedRound":0}`,
+    ]);
+  });
 });
 

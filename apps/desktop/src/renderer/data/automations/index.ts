@@ -53,6 +53,7 @@ export { listSimulationExamples } from "./examples";
 export {
   createWebhookSource,
   listClientSuggestions,
+  listSourceEvents,
   previewWebhookExample,
   regenerateWebhookAddress,
   renameSource,

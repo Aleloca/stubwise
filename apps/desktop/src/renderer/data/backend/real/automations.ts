@@ -72,7 +72,7 @@ export interface AutomationsApi extends DecisionApi {
   chooseProject(
     code: string,
     n: number,
-    body: { projectId: string; expectedPath: string; expectedRound: number },
+    body: { projectId: string; expectedPath: string; expectedRound: number; remember?: boolean },
   ): Promise<void>;
   projectAutomations(projectId: string): Promise<ProjectAutomationsView>;
   origin(q: { task: string } | { milestone: string }): Promise<AutomationOrigin>;
@@ -236,10 +236,15 @@ export function createRealAutomations(
       projectId: string,
       opts: { remember?: boolean; expectedPath: string },
     ): Promise<void> {
-      // `remember` (la tabella cliente → progetto) è della F4.
+      // «Remember for <client>» (F4): scrive la tabella; senza `integrations.manage` 403.
       const expectedRound = refs.roundFor(runId, opts.expectedPath);
       await onRun(runId, (c, n) =>
-        api.chooseProject(c, n, { projectId, expectedPath: opts.expectedPath, expectedRound }),
+        api.chooseProject(c, n, {
+          projectId,
+          expectedPath: opts.expectedPath,
+          expectedRound,
+          ...(opts.remember ? { remember: true } : {}),
+        }),
       );
     },
 

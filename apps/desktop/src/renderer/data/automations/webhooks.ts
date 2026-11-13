@@ -1,4 +1,5 @@
 import { copy, gate, now, state } from "../store";
+import type { AutomationSourceEvent } from "@stubwise/shared";
 import type { AutomationSource, DataField, FieldType, WebhookExamplePreview } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { clientKeyOf, deriveFields, fieldKeys, mergeFields, visitSteps } from "@stubwise/shared";
@@ -201,6 +202,34 @@ export async function updateWebhookField(
   if (patch.type !== undefined && !FIELD_TYPES.includes(patch.type)) throw invalid("type");
   if (patch.label !== undefined) field.label = patch.label.trim();
   if (patch.type !== undefined) field.type = patch.type;
+}
+
+// --- gli eventi recenti di una sorgente ---------------------------------------------------
+
+/**
+ * Gli eventi recenti di una sorgente (F4-5, F4-6: solo a chi gestisce le
+ * integrazioni): nel prototipo gli eventi che hanno fatto partire le
+ * esecuzioni delle automazioni che la usano, tutti accettati (il prototipo
+ * non rifiuta niente: i rifiutati, col motivo, li dà il server).
+ */
+export async function listSourceEvents(id: string): Promise<AutomationSourceEvent[]> {
+  const me = await gate("automations.listSourceEvents");
+  if (!canManageIntegrations(me)) return [];
+  return state.automationRuns
+    .filter((r) => r.origin === "source" && canSeeRun(me, r))
+    .filter((r) => {
+      const a = state.automations.find((x) => x.id === r.automationId);
+      const flow = a?.versions.find((v) => v.n === r.version)?.flow;
+      return flow?.trigger.kind === "source" && flow.trigger.sourceId === id;
+    })
+    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+    .map((r) => ({
+      id: r.id,
+      receivedAt: r.startedAt,
+      status: "accepted" as const,
+      reason: null,
+      payload: viewRun(me, r).event,
+    }));
 }
 
 // --- «From recent events» ----------------------------------------------------------------
