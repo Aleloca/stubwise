@@ -44,7 +44,7 @@ export { drive } from "./drive";
 export { mail } from "./mail";
 // Il Calendario (area 6, fetta 1): in lettura, e le serie (`calendar.ts`).
 export { calendar } from "./calendar";
-/** Le Automations di progetto (area 7, F1): `automationsLive.ts`; la destinazione resta spenta finché c'è il flag. */
+/** Le Automations di progetto (area 7, F1): `automationsLive.ts`; la destinazione è accesa nella build app (R8). */
 export const automations: typeof Fake.automations = partialNamespace<typeof Fake.automations>(
   "automations",
   liveAutomations,

@@ -22,8 +22,9 @@ vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();
   return {
     ...actual,
+    // La build app ha la destinazione accesa (R8): qui si prova anche spenta.
     isIntegrated: (t: Parameters<typeof actual.isIntegrated>[0]) =>
-      (flag.on && t.kind === "destination" && t.name === "automations") || actual.isIntegrated(t),
+      t.kind === "destination" && t.name === "automations" ? flag.on : actual.isIntegrated(t),
   };
 });
 

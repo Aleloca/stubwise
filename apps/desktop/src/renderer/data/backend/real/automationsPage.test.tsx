@@ -15,8 +15,8 @@ import {
 } from "./fakeServer";
 
 // Le pagine delle Automations nella build app (area 7, F1, R4), fino alla
-// richiesta esatta. La destinazione è accesa solo qui: nella build app il
-// flag resta spento finché il maintainer non dice di accenderlo.
+// richiesta esatta. La destinazione è accesa anche nella build app (R8):
+// il mock la tiene accesa qui a prescindere.
 vi.mock("@backend/api", async () => await import("./index"));
 vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();
@@ -141,6 +141,13 @@ describe("le Automations nella build app", () => {
     expect(seen.some((r) => r.method === "GET" && r.path.startsWith("/api/automations"))).toBe(
       true,
     );
+  });
+
+  it("il costruttore si apre senza chiedere le sorgenti (fuori dalla F1)", async () => {
+    install();
+    renderRoute("/automations/AUD-A1/edit");
+    expect(await screen.findByRole("tree", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(seen.some((r) => r.path.includes("source"))).toBe(false);
   });
 
   it("pubblicare la bozza dal dettaglio: POST …/publish col rev letto", async () => {

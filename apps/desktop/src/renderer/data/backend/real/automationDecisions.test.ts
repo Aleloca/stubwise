@@ -78,6 +78,24 @@ describe("«Da decidere» e il blocco «Automations» sulle rotte vere", () => {
     expect((await d.listMyApprovals()).map((x) => x.runId)).toEqual(["run-1"]);
   });
 
+  it("un server senza le rotte dell'area 7 (404): niente da decidere, e la Home resta in piedi", async () => {
+    const missing = async (): Promise<never> => {
+      throw new ApiError(404, "not_found", "not_found");
+    };
+    const d = createRealDecisions(fakeApi({ myRuns: missing, myApprovals: missing }).api);
+    expect(await d.listMyRuns()).toEqual([]);
+    expect(await d.listMyApprovals()).toEqual([]);
+    // Un altro errore non si nasconde.
+    const down = createRealDecisions(
+      fakeApi({
+        myApprovals: async () => {
+          throw new ApiError(500, "internal", "internal");
+        },
+      }).api,
+    );
+    await expect(down.listMyApprovals()).rejects.toThrow();
+  });
+
   it("Approva va alla rotta dell'esecuzione col passo e il giro che chi decide ha visto", async () => {
     const { api, calls } = fakeApi();
     const d = createRealDecisions(api);

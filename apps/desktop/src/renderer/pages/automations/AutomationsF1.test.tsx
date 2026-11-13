@@ -11,8 +11,8 @@ import { setMatchMedia } from "../../test/setup";
 // R4 del piano della F1 (area 7): nella build app le pagine stanno nel
 // perimetro della fetta 1 — niente automazioni generali né Sources (F4),
 // la creazione solo «da zero» (P2 = a), niente «Pass time» (solo
-// prototipo). La disponibilità della build app è finta (la destinazione
-// resta spenta finché il server dell'area 7 non c'è).
+// prototipo). La disponibilità della build app è finta: qui gira il
+// prototipo, con le regole della F1.
 vi.mock("../../data/integration", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../data/integration")>()),
   automationAvailability: () => AUTOMATION_F1_AVAILABILITY,

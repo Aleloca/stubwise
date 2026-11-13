@@ -11,7 +11,7 @@ import { placeEvent, settleSaved } from "./calendarCache";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as api from "@backend/api";
 import { isAppBuild } from "./build";
-import { featureIntegrated } from "./integration";
+import { automationAvailability, featureIntegrated } from "./integration";
 import type { ChangeFilter } from "./changelog/types";
 import type { MailDraftRequest } from "../domain/claude/intents/mailDraft";
 import { resolveHome } from "../domain/home";
@@ -3886,11 +3886,19 @@ export function useFetchAutomationRuns() {
   );
 }
 
+function sourcesAvailable(): boolean {
+  const available = automationAvailability();
+  return available === undefined || available.triggers.includes("source");
+}
+
 export function useAutomationSources() {
   const me = useSessionPersonId();
   return useQuery({
     queryKey: queryKeys.automationSources(me),
-    queryFn: () => api.automations.listSources(),
+    // Le sorgenti ci sono solo dove c'è il loro inizio (nella build app dalla
+    // F4): altrove nessuna, senza chiederle (costruttore e prova le aspettano).
+    queryFn: () =>
+      sourcesAvailable() ? api.automations.listSources() : Promise.resolve([]),
     enabled: featureIntegrated("automations"),
   });
 }

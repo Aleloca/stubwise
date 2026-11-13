@@ -11,7 +11,7 @@ import { now } from "./runtime";
 // Le Automations della build app sul client vero (area 7, F1): gli
 // adattatori di `automations.ts`, `automationDecisions.ts` e
 // `automationSimulate.ts` sopra `client.automations`, con un registro dei
-// riferimenti per sessione. La destinazione resta spenta finché c'è il flag.
+// riferimenti per sessione. La destinazione è accesa nella build app (R8).
 
 // Il client copre l'interfaccia: se una firma diverge, qui non compila.
 const fromClient: (c: StubwiseClient["automations"]) => AutomationsApi = (c) => c;

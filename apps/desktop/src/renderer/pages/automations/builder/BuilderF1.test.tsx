@@ -10,8 +10,8 @@ import { setMatchMedia } from "../../../test/setup";
 // R5 del piano della F1 (area 7): nella build app il costruttore offre solo
 // i passi e gli inizi della fetta 1; gli altri ci sono, «Coming soon», e non
 // si scelgono. Un flusso che li contiene ha il problema `not_available`. Qui
-// la disponibilità della build app è finta (la destinazione nella build app
-// resta spenta finché il server dell'area 7 non c'è).
+// la disponibilità della build app è finta: qui gira il prototipo, con le
+// regole della F1.
 vi.mock("../../../data/integration", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../data/integration")>()),
   automationAvailability: () => AUTOMATION_F1_AVAILABILITY,
