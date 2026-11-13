@@ -15,6 +15,7 @@ import {
   type Viewer,
 } from "../automations/model.js";
 import { approveRun, chooseRunProject, controlRun, getRun, listRuns, rejectRun, runRowOf } from "../automations/runs.js";
+import { listMyApprovals, listMyRuns } from "../automations/me.js";
 import {
   activateAutomation,
   checkFlow,
@@ -161,6 +162,17 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
         await markTested(app.db, me(request), request.params.code, request.body);
         return reply.code(204).send();
       }),
+  );
+
+  // --- le letture personali ---------------------------------------------------------
+
+  // «Da decidere»: ciò che aspetta chi guarda ADESSO.
+  app.get("/me/automation-approvals", { config: { access: ACCESS } }, async (request, reply) =>
+    handle(reply, async () => ({ items: await listMyApprovals(app.db, me(request)) })),
+  );
+  // Il blocco Home: aspetta me, fallite che gestisco, mie non finite.
+  app.get("/me/automation-runs", { config: { access: ACCESS } }, async (request, reply) =>
+    handle(reply, async () => ({ items: await listMyRuns(app.db, me(request)) })),
   );
 
   // --- le esecuzioni ----------------------------------------------------------------

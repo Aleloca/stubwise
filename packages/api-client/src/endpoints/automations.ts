@@ -6,7 +6,9 @@ import type {
   AutomationRow,
   AutomationRunDetail,
   AutomationRunRow,
+  AutomationDecision,
   FlowIssue,
+  MyAutomationRun,
   RunStatus,
 } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
@@ -114,6 +116,14 @@ export function createAutomationEndpoints(request: ApiRequest) {
     },
     skipStep(code: string, n: number): Promise<void> {
       return request("POST", `${run(code, n)}/skip`);
+    },
+    /** «Da decidere»: le esecuzioni ferme che aspettano chi chiama, adesso. */
+    myApprovals(): Promise<{ items: AutomationDecision[] }> {
+      return request("GET", "/api/me/automation-approvals");
+    },
+    /** Il blocco Home: aspetta me, fallite che gestisco, mie non finite. */
+    myRuns(): Promise<{ items: MyAutomationRun[] }> {
+      return request("GET", "/api/me/automation-runs");
     },
   };
 }

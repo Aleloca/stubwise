@@ -73,6 +73,7 @@ function item(overrides: Partial<InboxItem> & Pick<InboxItem, "id">): InboxItem 
   return {
     objectGone: false,
     chat: null,
+    automation: null,
     kind: "job.plan_review",
     status: "open",
     text: "Plan awaiting approval",

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { automationRunInputs, automationRuns, automations, automationVersions, projects, type Db } from "@stubwise/db";
+import { automationRunInputs, automationRuns, automations, automationVersions, projectMembers as projectMembersTable, projects, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { AutomationFlow, Step } from "@stubwise/shared";
@@ -260,3 +260,57 @@ describe("le esecuzioni e le decisioni", () => {
     expect((await call(lead.headers, "POST", `/automations/${a.code}/tested`, { version: 1, rev: 0 })).json()).toMatchObject({ code: "stale", rev: 1 });
   });
 });
+
+describe("le letture personali e la card d'inbox", () => {
+  async function waiting() {
+    const s = await setup();
+    const a = await created(s.lead, s.p.id, flowOf([createTask({ approval: { mode: "ask", who: { projectRole: "project_lead" } } })]));
+    await call(s.lead.headers, "POST", `/automations/${a.code}/publish`, {});
+    const [run] = await db
+      .insert(automationRuns)
+      .values({ automationId: a.id, n: 1, version: 1, title: "Contratto", origin: "manual", status: "waiting_approval", cursor: { path: "0" }, pending: { approverIds: [], preview: { titolo: "X" }, path: "0", round: 0 } })
+      .returning();
+    return { ...s, a, run: run! };
+  }
+
+  it("«Da decidere» elenca solo ciò che aspetta chi chiama ADESSO; il blocco Home dice perché", async () => {
+    const { a, lead, dev } = await waiting();
+    const mine = (await call(lead.headers, "GET", "/me/automation-approvals")).json() as { items: { code: string; kind: string; cursor: string; round: number; stepKind: string }[] };
+    expect(mine.items).toEqual([expect.objectContaining({ code: `${a.code} #1`, kind: "approval", cursor: "0", round: 0, stepKind: "createTask" })]);
+    expect((await call(dev.headers, "GET", "/me/automation-approvals")).json()).toEqual({ items: [] });
+    const home = (await call(lead.headers, "GET", "/me/automation-runs")).json() as { items: { code: string; concern: string }[] };
+    expect(home.items).toEqual([expect.objectContaining({ code: `${a.code} #1`, concern: "waiting_me" })]);
+    expect((await call(dev.headers, "GET", "/me/automation-runs")).json()).toEqual({ items: [] });
+  });
+
+  it("la card automation.approval: derivata a lettura — aspetta me finché il passo aspetta; deciso, lo dice; chi non la vede: objectGone", async () => {
+    const { a, run, lead, p } = await waiting();
+    const second = await person();
+    await addMember(app, p.id, second.id, "project_lead");
+    const { publishNotification } = await import("@stubwise/notifications");
+    for (const who of [lead.id, second.id]) {
+      await publishNotification(
+        db,
+        { kind: "automation.approval", projectId: p.id, automationId: a.id, automationCode: a.code, automationName: "Onboarding", runId: run.id, runNumber: 1, path: "0" },
+        { projectId: p.id, accountUserId: who },
+      );
+    }
+    const cardOf = async (h: { cookie: string }) =>
+      ((await call(h, "GET", "/inbox")).json() as { items: { kind: string; automation: unknown; objectGone: boolean }[] }).items.find((i) => i.kind === "automation.approval");
+    expect(await cardOf(second.headers)).toMatchObject({ objectGone: false, automation: { automationCode: a.code, runCode: `${a.code} #1`, waitingOnYou: true, decided: false } });
+    // Un ex approvatore (non ha più il ruolo, resta membro): la card non aspetta più lui.
+    await addMember(app, p.id, second.id, "developer");
+    expect(await cardOf(second.headers)).toMatchObject({ automation: { waitingOnYou: false, decided: false } });
+    await addMember(app, p.id, second.id, "project_lead");
+    // Uno decide (il worker ha mosso l'esecuzione): la card dell'altro lo dice.
+    await db.update(automationRuns).set({ status: "done", cursor: { path: null } }).where(eq(automationRuns.id, run.id));
+    expect(await cardOf(second.headers)).toMatchObject({ automation: { waitingOnYou: false, decided: true, runStatus: "done" } });
+    // L'automazione eliminata: la card resta, ma senza oggetto (né link).
+    await db.delete(automations).where(eq(automations.id, a.id));
+    expect(await cardOf(lead.headers)).toMatchObject({ objectGone: true, automation: null });
+    // Uscito dal progetto: la card non gli arriva più affatto (il filtro di visibilità dell'inbox).
+    await db.delete(projectMembersTable).where(and(eq(projectMembersTable.projectId, p.id), eq(projectMembersTable.userId, second.id)));
+    expect(await cardOf(second.headers)).toBeUndefined();
+  });
+});
+

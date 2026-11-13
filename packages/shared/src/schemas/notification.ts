@@ -760,6 +760,24 @@ export const inboxItemSchema = z.object({
     })
     .nullable()
     .default(null),
+  /**
+   * Area 7 (fetta 1): solo sulle card `automation.*`, lo stato dell'esecuzione
+   * DERIVATO a lettura: se aspetta ancora chi legge (`waitingOnYou`) e, per
+   * un'approvazione, se nel frattempo qualcuno ha deciso (`decided`: la card
+   * degli altri lo dice). `null` per gli altri kind, o se l'automazione non
+   * c'è più o chi legge non la vede (allora `objectGone`). Additivo.
+   */
+  automation: z
+    .object({
+      automationCode: z.string(),
+      automationName: z.string(),
+      runCode: z.string().nullable(),
+      runStatus: z.string().nullable(),
+      waitingOnYou: z.boolean(),
+      decided: z.boolean(),
+    })
+    .nullable()
+    .default(null),
   jobId: z.uuid().nullable(),
   createdAt: z.iso.datetime(),
   readAt: z.iso.datetime().nullable(),
