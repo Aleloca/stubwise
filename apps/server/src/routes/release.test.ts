@@ -1225,3 +1225,35 @@ describe("GET /api/release-queue — deployedOn", () => {
     });
   }
 });
+
+describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {
+  it("un Developer vede la PR (con head, controlli, analisi, tetto) e i suoi permessi; non c'è canMerge; chi non vede il progetto: 404", async () => {
+    const { projectId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    const dev = await createUserWithPat(app, `dev-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, dev.id, "developer");
+    const res = await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: dev.headers });
+    expect(res.statusCode).toBe(200);
+    const [pull] = (res.json() as { items: Record<string, unknown>[] }).items;
+    expect(pull).toMatchObject({
+      origin: "stubwise",
+      headSha: "headsha123",
+      corrections: { count: 0, lastStatus: null },
+      cap: 3,
+      analysisOnly: null,
+      permissions: { analysisOnly: false, requestCorrection: true, editReleaseNotes: true },
+    });
+    expect(pull).not.toHaveProperty("canMerge");
+    const outsider = await createUserWithPat(app, `out-${randomUUID().slice(0, 6)}@acme.com`);
+    expect((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: outsider.headers })).statusCode).toBe(404);
+  });
+
+  it("un Viewer vede la PR ma nessun permesso", async () => {
+    const { projectId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    const viewer = await createUserWithPat(app, `v-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, viewer.id, "viewer");
+    const [pull] = ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: viewer.headers })).json() as { items: Record<string, unknown>[] }).items;
+    expect(pull).toMatchObject({ permissions: { analysisOnly: false, requestCorrection: false, editReleaseNotes: false } });
+  });
+});

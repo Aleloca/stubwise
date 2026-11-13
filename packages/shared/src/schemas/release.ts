@@ -102,6 +102,11 @@ export const releaseQueueItemSchema = z.object({
    * (cast, non parse) lo legge con `?? false`.
    */
   reviewStale: z.boolean().default(false),
+  /**
+   * Area 8, F1: la head della PR dalla STESSA lettura dei check (null se
+   * illeggibile). `.default(null)`: campo nuovo, un server più vecchio non lo manda.
+   */
+  headSha: z.string().nullable().default(null),
 });
 export type ReleaseQueueItem = z.infer<typeof releaseQueueItemSchema>;
 

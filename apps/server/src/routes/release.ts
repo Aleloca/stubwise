@@ -7,6 +7,7 @@ import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { listReleaseQueue, releasePullRequest } from "../services/release.js";
 import { fixRelease, getRelease, listProjectReleases, ReleaseError } from "../services/releases.js";
+import { listOpenPulls } from "../services/pulls.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const releaseParamsSchema = z.object({ id: z.uuid(), repositoryId: z.uuid() });
@@ -34,6 +35,10 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
   };
   app.get("/projects/:projectId/releases", { config: { access: { kind: "user" } }, schema: { params: z.object({ projectId: z.uuid() }) } }, async (request, reply) =>
     handle(reply, async () => ({ items: await listProjectReleases(app.db, request.user!, request.params.projectId) })),
+  );
+  // S5b: le PR aperte del progetto, a chi lo vede (la coda resta di `release.merge`).
+  app.get("/projects/:projectId/pulls", { config: { access: { kind: "user" } }, schema: { params: z.object({ projectId: z.uuid() }) } }, async (request, reply) =>
+    handle(reply, async () => ({ items: await listOpenPulls(app.db, app.encryptionKey, request.user!, request.params.projectId) })),
   );
   const codeParams = z.object({ code: z.string().min(1).max(40) });
   app.get("/releases/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
