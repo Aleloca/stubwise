@@ -29,7 +29,10 @@ motore condiviso (`packages/shared/src/automations/`).
 - **L'ordine nella stessa transazione** (Q5: prima la conversione, poi la task
   che ne nasce) lo dà il CONSUMATORE: gli eventi hanno `txid`
   (`txid_current()`), e quelli di una stessa transazione si leggono con
-  `request_converted` prima di `task_created`.
+  `request_converted` prima di `task_created`. Il consumatore è UNO alla
+  volta (`pg_try_advisory_xact_lock(CONSUMER_LOCK_KEY)`, chi non lo prende
+  salta il giro): due consumatori con SKIP LOCKED si dividevano gli eventi
+  di una stessa transazione, e l'ordine diventava un caso.
 - **Il payload è una fotografia della riga** al momento della scrittura
   (numero, titolo, stato, incaricato; per una richiesta l'urgenza; per un
   traguardo nome e data). I campi completi dell'inizio (`triggerFields.ts`:
@@ -54,6 +57,10 @@ motore condiviso (`packages/shared/src/automations/`).
   automazioni accese partirebbero a migliaia. Nelle migrazioni:
   `SELECT set_config('stubwise.automation_events', 'off', true);` come primo
   statement (il batch è UNA transazione, quindi vale fino alla fine).
+  Gli scrittori di massa noti (oggi il trasloco e il cambio di famiglia
+  degli stati, `routes/project-statuses.ts`) stanno nell'elenco
+  `MASS_WRITERS` di `packages/db/src/automation-triggers-bypass.test.ts`,
+  che controlla che aprano con la GUC: chi ne aggiunge uno lo mette lì.
   Le migrazioni di PRIMA della 0169 girano prima che i trigger esistano: una
   base appena migrata non ha eventi (`migration-0169.test.ts`, «nessuna
   valanga»).
@@ -80,8 +87,12 @@ motore condiviso (`packages/shared/src/automations/`).
   `automation_run_inputs`; le consuma l'esecutore, in ordine, uno alla volta.
 - Lo stato vero è la riga `automation_runs` più il suo registro: a ogni giro
   il motore lo riprende con `restoreState`, come il prototipo. Un LEASE per
-  esecuzione (`claimed_at`, 60′, `SKIP LOCKED`); un worker morto la libera
-  alla scadenza, un riavvio non perde niente.
+  esecuzione (`claimed_at`, 5′ rinnovati a ogni input, `SKIP LOCKED`, la
+  presa con un gettone che solo chi l'ha presa rilascia); un worker morto la
+  libera alla scadenza, un riavvio non perde niente. Gli input consumati si
+  tolgono dopo 7 giorni (`pruneConsumedInputs`); il registro resta con la
+  sua esecuzione. Coi passi di Claude
+  (F3) la lease va ripensata: un passo lungo deve rinnovarla.
 - **Gli effetti** (`effects.ts`) sono l'UNICO punto che scrive per
   un'automazione, con le scritture di oggi (`createTicket`, `createMilestone`,
   `createRequestItem` di `@stubwise/db`, le stesse delle persone; e

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { projectStatuses, projects, ticketEvents, tickets } from "@stubwise/db";
+import { automationEvents, projectStatuses, projects, ticketEvents, tickets } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { seedRepository, seedTicket, startTestDb } from "@stubwise/db/testing";
 import { projectStatusViewSchema } from "@stubwise/shared";
@@ -134,6 +134,30 @@ describe("stati del progetto", () => {
     expect(t).toEqual({ s: before[2]!.id, e: "in_progress" });
     expect((await rows(projectId)).map((s) => s.name)).toEqual(["To do", "In review", "Done", "Discarded"]);
     expect(toDo.id).toBe((await rows(projectId))[0]!.id);
+  });
+
+  it("area 7, review F1 I1: il trasloco e il cambio di famiglia sono operazioni di massa, senza eventi `task_closed`", async () => {
+    const projectId = await leadProject();
+    const a = await seedTicket(testDb.db, { projectId, repositoryId: repoOf.get(projectId)! });
+    const before = await rows(projectId);
+    const inProgress = before[1]!;
+    const done = before.find((s) => s.family === "closed")!;
+    await testDb.db.update(tickets).set({ statusId: inProgress.id }).where(eq(tickets.id, a.ticketId));
+    // Il trasloco di una task in uno stato chiuso.
+    const without = before.filter((s) => s.id !== inProgress.id).map((s) => ({ id: s.id, name: s.name, family: s.family }));
+    expect((await put(projectId, { statuses: without, reassign: { [inProgress.id]: done.id } })).statusCode).toBe(200);
+    // Uno stato aperto che diventa chiuso, con la task dentro (in un altro progetto, con la sua famiglia ancora coperta).
+    const p2 = await leadProject();
+    const b = await seedTicket(testDb.db, { projectId: p2, repositoryId: repoOf.get(p2)! });
+    const now = await rows(p2);
+    const review = now[2]!;
+    await testDb.db.update(tickets).set({ statusId: review.id }).where(eq(tickets.id, b.ticketId));
+    const res = await put(p2, { statuses: now.map((s) => ({ id: s.id, name: s.name, family: s.id === review.id ? "closed" : s.family })), reassign: {} });
+    expect(res.statusCode).toBe(200);
+    const [tb] = await testDb.db.select({ e: tickets.status }).from(tickets).where(eq(tickets.id, b.ticketId));
+    expect(["done", "closed"]).toContain(tb!.e);
+    const events = await testDb.db.select().from(automationEvents);
+    expect(events.filter((e) => e.kind === "task_closed" && [a.ticketId, b.ticketId].includes(e.objectId))).toEqual([]);
   });
 
   it("rinominare uno stato non tocca l'enum né updated_at delle task", async () => {

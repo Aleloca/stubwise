@@ -12,7 +12,7 @@ import {
   type SimulationExamplesView,
   type SimulationPerson,
 } from "@stubwise/shared";
-import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { AutomationError, automationOf, configErrorsOf, managedAutomation, seen, sees, versionsOf, type Viewer } from "./model.js";
 
 /**
@@ -131,7 +131,9 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
   if (!v) throw new AutomationError(400, version === "draft" ? "no_draft" : "version", "Unknown version");
   const flow = v.flow as AutomationFlow;
   const draft = v.publishedAt === null;
-  const ownerId = draft && a.status === "draft" ? viewer.id : (a.ownerId ?? viewer.id);
+  // Review F1, I3: una versione non pubblicata la pubblicherebbe chi prova, che
+  // pubblicando ne diventa il proprietario: è lui il proprietario che avrebbe.
+  const ownerId = draft ? viewer.id : (a.ownerId ?? viewer.id);
   const visible = await seen(db, viewer);
   const scope = namedBy(flow, a.projectId);
   const world = await loadPlanWorld(db, { ownerId, ...scope, personIds: [ownerId, viewer.id, ...scope.personIds] });
@@ -155,11 +157,16 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
 
   const projectRows = scope.projectIds.length ? await db.select({ id: projects.id, code: projects.code, name: projects.name }).from(projects).where(inArray(projects.id, scope.projectIds)) : [];
   const ownerPerms = await projectPermissionsByProject(db, ownerId, scope.projectIds);
+  // I nomi dei traguardi già usati (review del renderer): solo nei progetti che chi prova vede.
+  const usedNames = visibleProjects.length
+    ? await db.select({ projectId: milestones.projectId, name: milestones.name }).from(milestones).where(inArray(milestones.projectId, visibleProjects)).orderBy(asc(milestones.name))
+    : [];
   const contextProjects: SimulationContextProject[] = scope.projectIds.map((pid) => {
     const row = projectRows.find((r) => r.id === pid);
     const viewerSees = sees(visible, pid);
-    // Un progetto che chi prova non vede: lui non c'è, e nemmeno gli altri; resta solo se lo vede il proprietario (`ownerCan`).
-    const seenBy = viewerSees ? [...personIds].filter((id) => world.canSeeProject(id, pid)) : world.canSeeProject(ownerId, pid) && ownerId !== viewer.id ? [ownerId] : [];
+    // Un progetto che chi prova non vede non dice niente, nemmeno del
+    // proprietario (chi lo vede, cosa ci può creare, se esiste ancora).
+    const seenBy = viewerSees ? [...personIds].filter((id) => world.canSeeProject(id, pid)) : [];
     const ownerSees = seenBy.includes(ownerId);
     const perms = ownerPerms.get(pid);
     const roleHolders: Record<string, string[]> = {};
@@ -173,7 +180,7 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
       id: pid,
       code: viewerSees ? (row?.code ?? "") : "",
       name: viewerSees ? (row?.name ?? "") : "",
-      gone: !row,
+      gone: viewerSees && !row,
       seenBy,
       ownerCan: {
         createTask: ownerSees && perms?.has("tickets.create") === true,
@@ -182,6 +189,7 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
       },
       roleHolders,
       departmentMembers,
+      milestoneNames: viewerSees ? usedNames.filter((m) => m.projectId === pid).map((m) => m.name) : [],
     };
   });
 

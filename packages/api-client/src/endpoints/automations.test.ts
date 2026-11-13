@@ -58,12 +58,15 @@ describe("client.automations", () => {
     const { c, fetchImpl } = client({ items: [] });
     await c.automations.myApprovals();
     await c.automations.myRuns();
-    expect([0, 1].map((i) => call(fetchImpl, i).url)).toEqual(["https://x.test/api/me/automation-approvals", "https://x.test/api/me/automation-runs"]);
+    await c.automations.myRuns({ log: "none" });
+    expect([0, 1, 2].map((i) => call(fetchImpl, i).url)).toEqual(["https://x.test/api/me/automation-approvals", "https://x.test/api/me/automation-runs", "https://x.test/api/me/automation-runs?log=none"]);
   });
 
   it("l'elenco delle esecuzioni", async () => {
     const { c, fetchImpl } = client({ items: [], nextCursor: null });
     await c.automations.runs({ automation: "AUD-A1", status: "failed", cursor: "c1" });
     expect(call(fetchImpl).url).toBe("https://x.test/api/automation-runs?automation=AUD-A1&status=failed&cursor=c1");
+    await c.automations.runs({ project: "p1", log: "none" });
+    expect(call(fetchImpl, 1).url).toBe("https://x.test/api/automation-runs?project=p1&log=none");
   });
 });

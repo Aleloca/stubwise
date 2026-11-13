@@ -578,6 +578,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   (`docs/invariants/automations.md`). Nessun controllo automatico lo impone:
   la review di una migrazione deve guardarlo.
 
+- F1, la ritenzione delle esecuzioni *(S, 72, review F1 M6, 13 nov 2026)*:
+  gli input consumati si tolgono dopo 7 giorni (`INPUT_RETENTION_DAYS`,
+  l'esecutore a ogni giro), come gli eventi consumati; il registro
+  (`automation_run_log`) vive con la sua esecuzione (FK in cascata). Le
+  esecuzioni FINITE oggi non scadono mai: con al più 100 aperte per
+  automazione crescono piano, ma un'automazione accesa da anni ne accumula.
+  Da decidere quando servirà (es. finite da più di un anno, tenendo il
+  registro delle task e delle richieste create, che già lo nominano).
 - F2, «email in arrivo» *(M, 13 nov 2026)*: TUTTE le email ricevute
   (F2-1), tranne le risposte in una conversazione in cui la stessa
   automazione ha mandato un'email: svegliano solo le sue attese (C-F2-5 del

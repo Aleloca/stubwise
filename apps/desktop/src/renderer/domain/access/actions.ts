@@ -96,7 +96,6 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
   {
     key: "prototype",
     permissions: [
-      "automations.manage",
       "support.reply",
       "servers.operate",
     ],
@@ -107,6 +106,8 @@ export const PROJECT_GROUPS: readonly PermissionGroup[] = [
   { key: "chat", permissions: ["chat.channels.create", "chat.channels.manage"] },
   // Area 5, il Drive dei progetti (registro condiviso dalla fetta 2, come il web).
   { key: "drive", permissions: ["drive.upload", "drive.manage", "drive.history"] },
+  // Area 7, le automazioni del progetto (registro condiviso dalla fetta 1, come il web).
+  { key: "automations", permissions: ["automations.manage"] },
 ];
 
 export const groupsFor = (scope: AccessScope): readonly PermissionGroup[] =>

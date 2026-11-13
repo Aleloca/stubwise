@@ -7,7 +7,7 @@ import {
   projects,
   type Db,
 } from "@stubwise/db";
-import { initialState, projectOf, render, visitSteps, type Automation, type AutomationFlow, type AutomationMeta } from "@stubwise/shared";
+import { initialState, projectOf, render, triggerFields, visitSteps, type Automation, type AutomationFlow, type AutomationMeta } from "@stubwise/shared";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { projectPermissionsFor } from "../auth/access.js";
 import {
@@ -175,20 +175,24 @@ const checkRev = (rev: number | null, expectedRev: number | null | undefined) =>
 
 /** «Pubblica»: la bozza diventa la versione con cui partono le esecuzioni nuove; chi pubblica è il proprietario. */
 export async function publishAutomation(db: Db, viewer: Viewer, code: string, opts: { expectedRev?: number | null }): Promise<Automation> {
-  const a = await managedAutomation(db, viewer, code);
-  const draft = await latestVersion(db, a.id);
-  if (!draft || draft.publishedAt !== null) throw invalid("no_draft", "There is no draft to publish");
-  checkRev(draft.rev, opts.expectedRev);
-  await failOnConfig(db, viewer, a, draft.flow as AutomationFlow);
-  await ownerChecks(db, viewer, a, draft.flow as AutomationFlow);
+  const a0 = await managedAutomation(db, viewer, code);
+  // Review F1, M5: la bozza si rilegge e si valida SOTTO il lock
+  // dell'automazione (lo stesso di `saveDraft`), e si pubblica quella: un
+  // salvataggio concorrente o è prima (e si valida il suo flusso) o aspetta.
   await db.transaction(async (tx) => {
+    const [a] = await tx.select().from(automations).where(eq(automations.id, a0.id)).for("update");
+    const draft = await latestVersion(tx, a!.id);
+    if (!draft || draft.publishedAt !== null) throw invalid("no_draft", "There is no draft to publish");
+    checkRev(draft.rev, opts.expectedRev);
+    await failOnConfig(tx, viewer, a!, draft.flow as AutomationFlow);
+    await ownerChecks(tx, viewer, a!, draft.flow as AutomationFlow);
     await tx.update(automationVersions).set({ publishedAt: sql`now()`, publishedBy: viewer.id }).where(eq(automationVersions.id, draft.id));
     await tx
       .update(automations)
-      .set({ ownerId: viewer.id, ...(a.status === "draft" ? { status: "active" as const, activeSince: sql`now()` } : {}) })
-      .where(eq(automations.id, a.id));
+      .set({ ownerId: viewer.id, ...(a!.status === "draft" ? { status: "active" as const, activeSince: sql`now()` } : {}) })
+      .where(eq(automations.id, a!.id));
   });
-  const [after] = await db.select().from(automations).where(eq(automations.id, a.id));
+  const [after] = await db.select().from(automations).where(eq(automations.id, a0.id));
   return shapeOf(db, viewer, after!);
 }
 
@@ -243,13 +247,45 @@ export async function deleteDraft(db: Db, viewer: Viewer, code: string, opts: { 
   else await db.delete(automationVersions).where(eq(automationVersions.id, last.id));
 }
 
-/** Gli errori di un flusso a schermo non ancora salvato, visti dal proprietario che avrebbe (sola lettura). */
+/**
+ * Gli errori di un flusso a schermo non ancora salvato, visti dal proprietario
+ * che avrebbe: chi chiama, perché pubblicandolo lo diventa (review F1, I3).
+ */
 export async function checkFlow(db: Db, viewer: Viewer, code: string, flow: AutomationFlow) {
   const a = await managedAutomation(db, viewer, code);
-  return { issues: await configErrorsOf(db, a, flow, a.ownerId ?? viewer.id) };
+  return { issues: await configErrorsOf(db, a, flow, viewer.id) };
 }
 
-/** «Avvia ora»: un'esecuzione col dato dell'inizio a mano, che l'esecutore muove al prossimo giro. */
+/** Il tetto di un evento dato a mano: un testo per campo, e l'evento intero. */
+const MANUAL_EVENT_TEXT_MAX = 4_000;
+const MANUAL_EVENT_JSON_MAX = 16_384;
+
+/**
+ * Un evento dato a mano a «Avvia ora» (review F1, I4): solo i campi
+ * dell'inizio (`triggerFields`, `<gruppo>.<campo>`), con valori semplici e un
+ * tetto. Altro non entra in un'esecuzione che agisce a nome del proprietario.
+ */
+function checkManualEvent(flow: AutomationFlow, event: Record<string, unknown>): void {
+  const allowed = new Set(triggerFields(flow, []).map((f) => f.key));
+  const bad = () => badInput("event", "The start data doesn't match the start's fields");
+  if (JSON.stringify(event).length > MANUAL_EVENT_JSON_MAX) throw bad();
+  for (const [group, fields] of Object.entries(event)) {
+    if (!fields || typeof fields !== "object" || Array.isArray(fields)) throw bad();
+    for (const [name, value] of Object.entries(fields as Record<string, unknown>)) {
+      if (!allowed.has(`${group}.${name}`)) throw bad();
+      if (value !== null && !["string", "number", "boolean"].includes(typeof value)) throw bad();
+      if (typeof value === "string" && value.length > MANUAL_EVENT_TEXT_MAX) throw bad();
+    }
+  }
+}
+
+/**
+ * «Avvia ora»: un'esecuzione col dato dell'inizio a mano, che l'esecutore muove
+ * al prossimo giro. L'esecuzione agisce coi permessi del PROPRIETARIO: con un
+ * evento a mano su un inizio che non è manuale, chi avvia passa gli stessi
+ * controlli di chi pubblica (review F1, I4), o potrebbe far creare a nome
+ * del proprietario dove lui non può.
+ */
 export async function startManualRun(db: Db, viewer: Viewer, code: string, input: { event?: Record<string, unknown> }): Promise<{ id: string; n: number }> {
   const a = await managedAutomation(db, viewer, code);
   if (a.status !== "active") throw invalid("not_active", "The automation is not active");
@@ -258,6 +294,10 @@ export async function startManualRun(db: Db, viewer: Viewer, code: string, input
   const flow = live.flow as AutomationFlow;
   const event = input.event ?? (flow.trigger.kind === "manual" ? { avvio: { data: new Date().toISOString().slice(0, 10) } } : null);
   if (!event || typeof event !== "object") throw badInput("event", "The start data is required");
+  if (input.event) {
+    checkManualEvent(flow, input.event);
+    if (flow.trigger.kind !== "manual" && a.ownerId !== viewer.id) await ownerChecks(db, viewer, a, flow);
+  }
   return db.transaction(async (tx) => {
     await tx.select({ id: automations.id }).from(automations).where(eq(automations.id, a.id)).for("update");
     const [c] = await tx
