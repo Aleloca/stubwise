@@ -183,6 +183,34 @@ describe("la prova nella build app", () => {
     expect(calls).toEqual(["GET examples a-1 draft"]);
   });
 
+  it("un titolo o un nome vuoto fa fallire la prova come il worker (review I4), e non segna provato", async () => {
+    const blankTask = { ...task(), title: "{{task.titolo}}" } as Step;
+    const blankMilestone = {
+      id: "m1",
+      kind: "createMilestone",
+      name: "  ",
+      dueInDays: null,
+      project: { mode: "own" },
+      approval: { mode: "auto" },
+    } as unknown as Step;
+    const blankRequest = {
+      id: "r1",
+      kind: "createRequest",
+      title: "",
+      description: "",
+      project: { mode: "own" },
+      approval: { mode: "auto" },
+    } as unknown as Step;
+    for (const step of [blankTask, blankMilestone, blankRequest]) {
+      const { api, calls } = fakeApi(context([step]));
+      const s = createRealSimulation(api);
+      const id = await s.startSimulation("a-1", "draft", { task: { titolo: "   " } });
+      const v = await s.simulationStep(id, { kind: "run" });
+      expect(v.status).toBe("failed");
+      expect(calls).toEqual(["GET examples a-1 draft"]);
+    }
+  });
+
   it("gli errori di configurazione del server: la prova non parte", async () => {
     const { api } = fakeApi(
       context([task()], { configErrors: [{ path: "0", code: "not_available", message: "x" }] }),
