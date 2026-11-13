@@ -77,4 +77,15 @@ describe("fireSchedules", () => {
     const fires = await t.db.select().from(automationScheduleFires).where(eq(automationScheduleFires.automationId, a.id));
     expect(fires.map((f) => f.localDate)).toEqual(["2026-11-15"]);
   });
+
+  it("review F2, M2: un'automazione che fa lanciare non blocca gli orari delle altre (si logga e si va avanti)", async () => {
+    const broken = await scheduled("FREQ=DAILY;BYHOUR=9");
+    await t.db.update(automationVersions).set({ flow: { trigger: { kind: "schedule", rule: 5 }, steps: [], titleTemplate: "x" } as never }).where(eq(automationVersions.automationId, broken.id));
+    const fine = await scheduled("FREQ=DAILY;BYHOUR=9");
+    const lines: string[] = [];
+    await fireSchedules(t.db, new Date("2026-11-20T10:00:00Z"), (m) => lines.push(m));
+    expect(await runsOf(fine.id)).toHaveLength(1);
+    expect(lines.some((l) => l.includes(broken.code))).toBe(true);
+  });
 });
+
