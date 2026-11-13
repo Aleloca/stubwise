@@ -1,4 +1,6 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { isAppBuild } from "../../data/build";
+import { openOnGoogle } from "../mail/mailFeatures";
 import {
   useCallback,
   useEffect,
@@ -85,6 +87,10 @@ import {
   useFilePicker,
   useUploads,
 } from "./UploadZone";
+
+/** Una cartella su Google Drive, con l'id codificato (review F5b, 8). */
+const folderUrl = (googleFolderId: string) =>
+  `https://drive.google.com/drive/folders/${encodeURIComponent(googleFolderId)}`;
 
 // Il Drive (shape drive.md): la sezione di un progetto (`#/p/AUD/drive`) o la
 // destinazione con i file di tutti i progetti che vedo (`#/drive`). Testata
@@ -326,7 +332,12 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
         const manage = project ? can(viewer, "drive.manage", project.id) : false;
         return (
           <>
-            {item(t("drive.google.open"), () => toast.show(t("drive.google.folderOpened", { name: link.name })))}
+            {item(t("drive.google.open"), () =>
+              // Build app: la cartella su Google (review F5b, 5); nel prototipo nessun browser si apre.
+              isAppBuild()
+                ? openOnGoogle(folderUrl(link.googleFolderId))
+                : toast.show(t("drive.google.folderOpened", { name: link.name })),
+            )}
             {manage &&
               link.status === "ok" &&
               item(t("drive.google.syncNow"), () =>
@@ -345,7 +356,7 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
               )}
             {item(t("drive.google.copyFolderLink"), () => {
               void navigator.clipboard
-                ?.writeText(`https://drive.google.com/drive/folders/${link.googleFolderId}`)
+                ?.writeText(folderUrl(link.googleFolderId))
                 .catch(() => {});
               toast.show(t("drive.google.folderLinkCopied"));
             })}
