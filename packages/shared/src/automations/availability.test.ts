@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AUTOMATION_F1_AVAILABILITY,
   AUTOMATION_F2_AVAILABILITY,
+  AUTOMATION_F3_AVAILABILITY,
   CHAIN_MAX,
   chainAllows,
 } from "./availability.js";
@@ -107,6 +108,22 @@ describe("la disponibilità della F2: email e attese", () => {
     expect(f2(flow({ steps: [withFile, sendEmail("s2")] }))).toEqual(["0"]);
     // Nel prototipo gli allegati restano.
     expect(notAvailable(flow({ steps: [withFile] }), ctx())).toEqual([]);
+  });
+});
+
+describe("la disponibilità della F3: i passi di Claude", () => {
+  const f3 = (f: AutomationFlow) => notAvailable(f, ctx({ available: AUTOMATION_F3_AVAILABILITY }));
+  const claude = { id: "c", kind: "claude", instruction: "x", inputs: [], outcomes: [], fields: [], branches: {} } as unknown as Step;
+
+  it("Claude si sceglie, con l'email e le attese della F2", () => {
+    expect(f3(flow({ steps: [claude, sendEmail("s2")] }))).toEqual([]);
+  });
+
+  it("«avvia un'automazione» e le sorgenti (F4) restano fuori; anche gli allegati delle email", () => {
+    const start = { id: "a", kind: "startAutomation", automationId: "x", approval: { mode: "auto" } } as Step;
+    expect(f3(flow({ steps: [start] }))).toEqual(["0"]);
+    expect(f3(flow({ trigger: { kind: "source", sourceId: "s", event: "webhook" } }))).toEqual(["trigger"]);
+    expect(f3(flow({ steps: [{ ...sendEmail("s1"), attachRefs: ["f"] } as Step] }))).toEqual(["0"]);
   });
 });
 

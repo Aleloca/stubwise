@@ -62,6 +62,7 @@ const ALL: IntegrationTarget[] = [
       "mail-claude-draft",
       "automations",
       "automations-f2",
+      "automations-f3",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -186,6 +187,7 @@ describe("isIntegrated", () => {
     expect(automationAvailability()).toBeUndefined();
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     expect(isIntegrated({ kind: "feature", name: "automations-f2" })).toBe(false);
+    expect(isIntegrated({ kind: "feature", name: "automations-f3" })).toBe(false);
     expect(automationAvailability()).toBe(AUTOMATION_F1_AVAILABILITY);
   });
 });
