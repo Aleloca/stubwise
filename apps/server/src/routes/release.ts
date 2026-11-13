@@ -44,8 +44,15 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
   app.get("/releases/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
     handle(reply, () => getRelease(app.db, request.user!, request.params.code)),
   );
-  app.post("/releases/:code/fix", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
-    handle(reply, async () => reply.code(201).send(await fixRelease(app.db, request.user!, request.params.code))),
+  // 201 per una task nuova, 200 per quella già aperta (`existing`); `start` fa partire Claude se si può.
+  app.post(
+    "/releases/:code/fix",
+    { config: { access: { kind: "user" } }, schema: { params: codeParams, body: z.object({ note: z.string().max(4000).optional(), start: z.boolean().optional() }).default({}) } },
+    async (request, reply) =>
+      handle(reply, async () => {
+        const out = await fixRelease(app.db, request.user!, request.params.code, request.body ?? {});
+        return reply.code(out.existing ? 200 : 201).send(out);
+      }),
   );
 
   app.get(

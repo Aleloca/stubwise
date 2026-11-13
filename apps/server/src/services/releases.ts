@@ -1,9 +1,19 @@
-import { createTicket, prReleaseNotes, projects, releaseCiRuns, releaseCodeSeqs, releases, repositories, tickets, type Db } from "@stubwise/db";
-import { productionForStatus, releaseProductionOf } from "@stubwise/notifications";
-import { releaseStatusOf, sameCommit, type ReleaseDetail, type ReleasePipeline, type ReleaseRow, type ReleaseStatus } from "@stubwise/shared";
+import { comments, createTicket, prReleaseNotes, prReviews, projects, releaseCiRuns, releaseCodeSeqs, releases, repositories, servers, ticketRepositories, tickets, type Db } from "@stubwise/db";
+import { aiBudgetState, productionForStatus, releaseProductionOf } from "@stubwise/notifications";
+import {
+  releaseStatusOf,
+  sameCommit,
+  type ProjectPermission,
+  type ReleaseDetail,
+  type ReleaseFixResult,
+  type ReleasePipeline,
+  type ReleaseRow,
+  type ReleaseStatus,
+} from "@stubwise/shared";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { projectPermissionsFor } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
+import { startRun } from "./jobs.js";
 
 /**
  * IL RILASCIO NASCE DAL MERGE (area 8, F1, S3). Un rilascio = un merge di una
@@ -167,15 +177,34 @@ async function statusOf(db: Db, release: ReleaseRecord, repo: { ciProvider: stri
   });
 }
 
-async function rowOf(db: Db, viewer: Viewer, release: ReleaseRecord, now: Date): Promise<{ row: ReleaseRow; runs: (typeof releaseCiRuns.$inferSelect)[] }> {
-  const [repo] = await db.select({ name: repositories.name, ciProvider: repositories.ciProvider, releasePipeline: repositories.releasePipeline }).from(repositories).where(eq(repositories.id, release.repositoryId));
+/** I fatti di chi guarda in un progetto, letti una volta: permessi e budget. */
+interface ViewerScope {
+  perms: ReadonlySet<string> | null;
+  budgetExhausted: boolean;
+}
+async function scopeOf(db: Db, viewer: Viewer, projectId: string): Promise<ViewerScope> {
+  return { perms: await projectPermissionsFor(db, viewer, projectId), budgetExhausted: (await aiBudgetState(db)).exhausted };
+}
+
+/** `owner/repo` da un indirizzo https del provider. */
+const fullNameOf = (url: string) => url.replace(/\.git$/, "").replace(/\/+$/, "").split("/").slice(-2).join("/");
+
+async function rowOf(db: Db, viewer: Viewer, release: ReleaseRecord, now: Date, scope: ViewerScope): Promise<{ row: ReleaseRow; runs: (typeof releaseCiRuns.$inferSelect)[] }> {
+  const [repo] = await db.select({ name: repositories.name, repoUrl: repositories.repoUrl, ciProvider: repositories.ciProvider, releasePipeline: repositories.releasePipeline }).from(repositories).where(eq(repositories.id, release.repositoryId));
   const runs = await db.select().from(releaseCiRuns).where(eq(releaseCiRuns.releaseId, release.id)).orderBy(releaseCiRuns.name);
   const status = await statusOf(db, release, repo ?? { ciProvider: null, releasePipeline: null }, runs, now);
   let fixTask: ReleaseRow["fixTask"] = null;
+  let fixOpen = false;
   if (release.fixTicketId) {
-    const [tk] = await db.select({ id: tickets.id, number: tickets.number, projectId: tickets.projectId, code: projects.code }).from(tickets).innerJoin(projects, eq(projects.id, tickets.projectId)).where(eq(tickets.id, release.fixTicketId));
-    if (tk && (await sees(db, viewer, tk.projectId))) fixTask = { id: tk.id, code: `${tk.code}-${tk.number}` };
+    const [tk] = await db
+      .select({ id: tickets.id, number: tickets.number, title: tickets.title, closedAt: tickets.closedAt, projectId: tickets.projectId, code: projects.code })
+      .from(tickets)
+      .innerJoin(projects, eq(projects.id, tickets.projectId))
+      .where(eq(tickets.id, release.fixTicketId));
+    fixOpen = !!tk && tk.closedAt === null;
+    if (tk && (await sees(db, viewer, tk.projectId))) fixTask = { id: tk.id, code: `${tk.code}-${tk.number}`, title: tk.title, open: fixOpen };
   }
+  const fix = status.kind === "failed" && !fixOpen && scope.perms?.has("tickets.create") === true;
   return {
     runs,
     row: {
@@ -184,6 +213,7 @@ async function rowOf(db: Db, viewer: Viewer, release: ReleaseRecord, now: Date):
       projectId: release.projectId,
       repositoryId: release.repositoryId,
       repositoryName: repo?.name ?? "",
+      ...(repo ? { repositoryFullName: fullNameOf(repo.repoUrl) } : {}),
       prNumber: release.prNumber,
       prUrl: release.prUrl,
       title: release.title,
@@ -194,16 +224,19 @@ async function rowOf(db: Db, viewer: Viewer, release: ReleaseRecord, now: Date):
       viaStubwise: release.viaStubwise,
       status,
       fixTask,
+      permissions: { fix, startFix: fix && scope.perms?.has("runs.start") === true && !scope.budgetExhausted },
+      waitsOnViewer: status.kind === "failed" && !fixOpen && release.mergedBy === viewer.id,
     },
   };
 }
 
 /** I rilasci di un progetto, dal più recente; 404 se chi guarda non lo vede. */
 export async function listProjectReleases(db: Db, viewer: Viewer, projectId: string, now = new Date()): Promise<ReleaseRow[]> {
-  if (!(await sees(db, viewer, projectId))) throw notFound();
+  const scope = await scopeOf(db, viewer, projectId);
+  if (!scope.perms) throw notFound();
   const records = await db.select().from(releases).where(eq(releases.projectId, projectId)).orderBy(desc(releases.mergedAt)).limit(100);
   const out: ReleaseRow[] = [];
-  for (const r of records) out.push((await rowOf(db, viewer, r, now)).row);
+  for (const r of records) out.push((await rowOf(db, viewer, r, now, scope)).row);
   return out;
 }
 
@@ -216,39 +249,87 @@ async function visibleRelease(db: Db, viewer: Viewer, code: string): Promise<Rel
 /** Un rilascio intero, per codice; 404 se non c'è o chi guarda non ne vede il progetto. */
 export async function getRelease(db: Db, viewer: Viewer, code: string, now = new Date()): Promise<ReleaseDetail> {
   const r = await visibleRelease(db, viewer, code);
-  const { row, runs } = await rowOf(db, viewer, r, now);
-  const perms = await projectPermissionsFor(db, viewer, r.projectId);
+  const scope = await scopeOf(db, viewer, r.projectId);
+  const { row, runs } = await rowOf(db, viewer, r, now, scope);
+  const production = await releaseProductionOf(db, r.projectId, r.repositoryId);
+  const [server] = production.serverId ? await db.select({ name: servers.name }).from(servers).where(eq(servers.id, production.serverId)) : [];
   return {
     ...row,
     runs: runs.map((x) => ({ id: x.id, name: x.name, status: x.status, url: x.url, failedStep: x.failedStep, startedAt: x.startedAt?.toISOString() ?? null, endedAt: x.endedAt?.toISOString() ?? null })),
     releaseNotes: r.releaseNotes,
     seenInProductionAt: r.seenInProductionAt?.toISOString() ?? null,
-    permissions: { fix: row.status.kind === "failed" && r.fixTicketId === null && perms?.has("tickets.create") === true },
+    permissions: row.permissions ?? { fix: false, startFix: false },
+    relatedTaskCode: await relatedTaskCodeOf(db, viewer, r),
+    fixBlock: scope.budgetExhausted ? { reason: "monthly_budget" } : null,
+    productionServer: production.serverId && server ? { serverId: production.serverId, serverName: server.name, reportedSha: production.reportedSha } : null,
   };
+}
+
+/** La task della PR del rilascio (quella di Stubwise o il ticket della review), se chi guarda la vede. */
+async function relatedTaskCodeOf(db: Db, viewer: Viewer, r: ReleaseRecord): Promise<string | null> {
+  if (r.prNumber === null) return null;
+  const [internal] = await db
+    .select({ projectId: tickets.projectId, number: tickets.number, code: projects.code })
+    .from(ticketRepositories)
+    .innerJoin(tickets, eq(tickets.id, ticketRepositories.ticketId))
+    .innerJoin(projects, eq(projects.id, tickets.projectId))
+    .where(and(eq(ticketRepositories.repositoryId, r.repositoryId), eq(ticketRepositories.prNumber, r.prNumber)))
+    .limit(1);
+  const [external] = internal
+    ? []
+    : await db
+        .select({ projectId: tickets.projectId, number: tickets.number, code: projects.code })
+        .from(prReviews)
+        .innerJoin(tickets, eq(tickets.id, prReviews.ticketId))
+        .innerJoin(projects, eq(projects.id, tickets.projectId))
+        .where(and(eq(prReviews.repositoryId, r.repositoryId), eq(prReviews.prNumber, r.prNumber)))
+        .orderBy(desc(prReviews.createdAt))
+        .limit(1);
+  const t = internal ?? external;
+  if (!t || !(await sees(db, viewer, t.projectId))) return null;
+  return `${t.code}-${t.number}`;
 }
 
 /**
  * «Fai sistemare a Claude» ([R 16]): una task `bug` NORMALE col rilascio
- * collegato e il passo fallito nella descrizione — da lì parte il lavoro di
- * sempre (piano, approvazione). Solo per un rilascio fallito, con
- * `tickets.create` nel progetto, e una sola per rilascio (sotto il lock del
- * rilascio: due click non fanno due task). Nessuna pipeline rilanciata.
+ * collegato e il passo fallito nella descrizione (più la nota di chi chiede) —
+ * da lì il lavoro di sempre (piano, approvazione). Solo per un rilascio
+ * fallito, con `tickets.create` nel progetto. Su una task di riparazione già
+ * APERTA (un altro clic, un'altra persona) non è un errore: la task esistente
+ * (`existing`), e la nota diventa un commento solo con `tickets.comment`
+ * (`noteAdded`). Con `start`, Claude parte sulla task (`startRun`, la stessa
+ * strada di sempre: `runs.start`, il gate del piano) se il budget del mese non
+ * è esaurito. Sotto il lock del rilascio: due clic non fanno due task.
+ * Nessuna pipeline rilanciata.
  */
-export async function fixRelease(db: Db, viewer: Viewer, code: string, now = new Date()): Promise<{ taskId: string; taskCode: string }> {
+export async function fixRelease(db: Db, viewer: Viewer, code: string, opts: { note?: string; start?: boolean } = {}, now = new Date()): Promise<ReleaseFixResult> {
   const r0 = await visibleRelease(db, viewer, code);
-  const perms = await projectPermissionsFor(db, viewer, r0.projectId);
-  if (!perms?.has("tickets.create")) throw new ReleaseError(403, "forbidden", "You need tickets.create in this project");
-  const { row, runs } = await rowOf(db, viewer, r0, now);
+  const scope = await scopeOf(db, viewer, r0.projectId);
+  if (!scope.perms?.has("tickets.create")) throw new ReleaseError(403, "forbidden", "You need tickets.create in this project");
+  const { row, runs } = await rowOf(db, viewer, r0, now, scope);
   if (row.status.kind !== "failed") throw new ReleaseError(409, "not_failed", "Only a failed release can be fixed");
-  return db.transaction(async (tx) => {
+  const note = opts.note?.trim() ? opts.note.trim().slice(0, 4000) : null;
+  const out = await db.transaction(async (tx) => {
     const [r] = await tx.select().from(releases).where(eq(releases.id, r0.id)).for("update");
-    if (r!.fixTicketId) throw new ReleaseError(409, "already_fixing", "A fix task already exists for this release");
+    const [p] = await tx.select({ code: projects.code }).from(projects).where(eq(projects.id, r!.projectId));
+    if (r!.fixTicketId) {
+      const [open] = await tx.select({ id: tickets.id, number: tickets.number, closedAt: tickets.closedAt }).from(tickets).where(eq(tickets.id, r!.fixTicketId));
+      if (open && open.closedAt === null) {
+        let noteAdded = false;
+        if (note && scope.perms?.has("tickets.comment")) {
+          await tx.insert(comments).values({ ticketId: open.id, authorType: "user", authorId: viewer.id, body: note });
+          noteAdded = true;
+        }
+        return { taskId: open.id, taskCode: `${p?.code ?? ""}-${open.number}`, existing: true, noteAdded };
+      }
+    }
     const failed = runs.filter((x) => x.status === "failed");
     const lines = [
       `${r!.code}: ${r!.title}`,
       `PR: ${r!.prUrl}`,
       `Merge: ${r!.mergeSha}`,
       ...failed.map((x) => `- ${x.name}${x.failedStep ? `: ${x.failedStep}` : ""}${x.url ? ` (${x.url})` : ""}`),
+      ...(note ? ["", note] : []),
     ];
     const ticket = await createTicket(tx, {
       projectId: r!.projectId,
@@ -260,7 +341,12 @@ export async function fixRelease(db: Db, viewer: Viewer, code: string, now = new
       requestedByUserId: viewer.id,
     });
     await tx.update(releases).set({ fixTicketId: ticket.id }).where(eq(releases.id, r!.id));
-    const [p] = await tx.select({ code: projects.code }).from(projects).where(eq(projects.id, r!.projectId));
-    return { taskId: ticket.id, taskCode: `${p?.code ?? ""}-${ticket.number}` };
+    return { taskId: ticket.id, taskCode: `${p?.code ?? ""}-${ticket.number}`, existing: false, noteAdded: note !== null };
   });
+  let started = false;
+  if (opts.start && scope.perms?.has("runs.start") && !scope.budgetExhausted) {
+    const res = await startRun(db, { ticketId: out.taskId, actor: { id: viewer.id, permissions: scope.perms as ReadonlySet<ProjectPermission> } });
+    started = res.ok;
+  }
+  return { ...out, started };
 }
