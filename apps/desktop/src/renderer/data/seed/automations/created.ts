@@ -21,7 +21,10 @@ export const AUTOMATION_MILESTONES: Milestone[] = [
   {
     id: NEW_CONTRACT_MILESTONE_ID,
     projectId: CBV.id,
-    name: "Attivazione CRM – Cantina Bellavista Srl",
+    // Rinominato a mano dopo l'esecuzione (il registro tiene il nome di allora):
+    // il nome è unico per progetto, e la stessa trattativa rigiocata nella demo
+    // e nei test ricrea «… Srl» senza scontrarsi (review I4 della F1).
+    name: "Attivazione CRM – Cantina Bellavista",
     description: "",
     // `dueInDays: 30` dal giorno dell'esecuzione.
     dueDate: daysFromToday(18),

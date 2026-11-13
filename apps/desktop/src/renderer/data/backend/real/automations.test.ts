@@ -236,7 +236,7 @@ describe("il livello dati delle Automations sulle rotte vere", () => {
     await r.chooseProject("run-2", "prj-9", { expectedPath: "0" });
     expect(calls.slice(1)).toEqual([
       `POST AUD-A1/runs {"event":{"avvio":{"data":"2026-11-13"}}}`,
-      `GET runs {"automation":"AUD-A1","status":"failed"}`,
+      `GET runs {"automation":"AUD-A1","status":"failed","log":"none"}`,
       "POST AUD-A1/runs/3/cancel",
       "POST AUD-A1/runs/2/retry",
       "POST AUD-A1/runs/2/skip",
@@ -294,6 +294,6 @@ describe("il livello dati delle Automations sulle rotte vere", () => {
     await r.getProjectAutomations("prj-1");
     await r.listRuns({ automationId: "a-1" });
     await r.cancelRun("run-9");
-    expect(calls).toEqual([`GET runs {"automation":"AUD-A1"}`, "POST AUD-A1/runs/9/cancel"]);
+    expect(calls).toEqual([`GET runs {"automation":"AUD-A1","log":"none"}`, "POST AUD-A1/runs/9/cancel"]);
   });
 });

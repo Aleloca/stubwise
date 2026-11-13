@@ -82,9 +82,7 @@ export function contextWorld(ctx: SimulationContext, now: () => string): SimWorl
     defaultDepartmentOf: (id) => people.get(id)?.defaultDepartmentId ?? null,
     // I nomi che il progetto ha già (`milestoneNames`, assente da un server più vecchio).
     milestoneNameTaken: (projectId, name) =>
-      (
-        projects.get(projectId) as { milestoneNames?: string[] } | undefined
-      )?.milestoneNames?.includes(name) ?? false,
+      projects.get(projectId)?.milestoneNames?.includes(name) ?? false,
     now,
     project: (id) => {
       const p = projects.get(id);

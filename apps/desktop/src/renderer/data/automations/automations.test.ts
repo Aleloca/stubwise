@@ -1387,6 +1387,36 @@ describe("Automations: revisione del Task 3", () => {
     ]);
   });
 
+  // Review I4 della F1 (O, 46): il worker rifiuta un traguardo col nome di uno
+  // che il progetto ha già; il prototipo, che è la specifica, allo stesso modo.
+  it("«Crea traguardo» col nome di uno che il progetto ha già: fallisce con `milestoneExists` (confronto esatto)", async () => {
+    as("p-laura");
+    await createMilestone(AUD, { name: "Doppio" });
+    const step = (name: string) => ({
+      id: "m",
+      kind: "createMilestone" as const,
+      name,
+      dueInDays: null,
+      project: { mode: "own" as const },
+      approval: { mode: "auto" as const },
+    });
+    const taken = await make(AUD, { trigger: { kind: "manual" }, titleTemplate: "x", steps: [step("Doppio")] });
+    await automations.startManual(taken);
+    await idle();
+    const r = lastRunOf(taken);
+    expect(r).toMatchObject({ status: "failed", error: "invalid_input" });
+    expect(r.log.find((e) => e.outcome === "failed")!.why).toEqual({
+      code: "milestoneExists",
+      params: { name: "Doppio" },
+    });
+    expect(state.milestones.filter((m) => m.projectId === AUD && m.name === "Doppio")).toHaveLength(1);
+    // Come `milestoneNameTaken` dell'esecutore: le maiuscole contano.
+    const other = await make(AUD, { trigger: { kind: "manual" }, titleTemplate: "x", steps: [step("doppio")] });
+    await automations.startManual(other);
+    await idle();
+    expect(lastRunOf(other).status).toBe("done");
+  });
+
   // Q5 = a *(M, 12 nov 2026)* e R6 del piano della F1: convertire una richiesta
   // fa partire «richiesta convertita» E «task creata» (la task convertita vale
   // come creata). Prima il prototipo non segnalava né l'una né l'altra.

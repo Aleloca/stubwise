@@ -57,6 +57,7 @@ export interface AutomationsApi extends DecisionApi {
     automation?: string;
     project?: string;
     status?: RunStatus;
+    log?: "none";
   }): Promise<{ items: AutomationRunRow[]; nextCursor?: string | null }>;
   startRun(code: string, body: { event?: Record<string, unknown> }): Promise<AutomationRunRow>;
   cancelRun(code: string, n: number): Promise<void>;
@@ -170,6 +171,8 @@ export function createRealAutomations(
           automation: filter.automationId ? code(filter.automationId) : undefined,
           project: filter.projectId,
           status: filter.status,
+          // Le righe senza registro (lo legge il dettaglio): 50 esecuzioni rilette spesso.
+          log: "none",
         }),
       );
       for (const r of items) refs.rememberRun(r);

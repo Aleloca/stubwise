@@ -141,7 +141,7 @@ describe("le Automations della build app sul client vero", () => {
     expect((await automations.listMyApprovals()).map((d) => d.runId)).toEqual([RUN_ID]);
     await automations.approve(RUN_ID, undefined, { expectedPath: "1" });
     expect(seen.map((r) => r.path)).toEqual([
-      "/api/me/automation-runs",
+      "/api/me/automation-runs?log=none",
       "/api/me/automation-approvals",
       "/api/automations/AUD-A1/runs/3/approve",
     ]);

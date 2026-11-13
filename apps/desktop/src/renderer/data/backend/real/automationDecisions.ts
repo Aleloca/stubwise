@@ -20,7 +20,7 @@ import { createSettle, type RunState } from "./automationSettle";
 
 /** Le rotte che servono (sul client vero: `client.automations`). */
 export interface DecisionApi {
-  myRuns(): Promise<{ items: MyAutomationRun[] }>;
+  myRuns(opts?: { log?: "none" }): Promise<{ items: MyAutomationRun[] }>;
   myApprovals(): Promise<{ items: AutomationDecision[] }>;
   run(code: string, n: number): Promise<AutomationRunDetail>;
   approve(
@@ -107,7 +107,8 @@ export function createRealDecisions(
 
     async listMyRuns(): Promise<MyAutomationRun[]> {
       // Un server senza le rotte dell'area 7 (404) non ha niente da far decidere.
-      const { items: runs } = (await orNull(() => api.myRuns())) ?? { items: [] };
+      // Gli elenchi non mostrano il registro: le righe arrivano senza (`log: []`).
+      const { items: runs } = (await orNull(() => api.myRuns({ log: "none" }))) ?? { items: [] };
       for (const r of runs) refs.rememberRun(r);
       return runs;
     },
