@@ -592,7 +592,26 @@ R8. **Parità** (`apps/desktop/docs/integration-area7-f1.md`) e registro.
 - **«Crea richiesta» non avvia l'intake** (nessun job AI da un'automazione
   della F1).
 
-## Domande per il maintainer
+## Domande per il maintainer (risposte: vedi «Le risposte alle domande»)
+
+### Le risposte alle domande (13 nov 2026)
+
+Tutte *(O, 46)*, con la consigliata:
+
+- **P1 = a**: nella F1 la prova gira nel CLIENT, sul motore condiviso, con le
+  letture vere (esempi e approvatori dal server); dalla F3 la prova dei passi
+  di Claude passa dal server.
+- **P2 = a**: nella build app la creazione offre solo «da zero»; i due
+  modelli tornano quando sono usabili (F3/F4).
+- **P3 = a**: «Crea richiesta» di un'automazione crea la voce diretta, senza
+  intake né fusione: nessun lavoro AI parte da un'automazione della F1.
+- **P4 = a**: gli eventi consumati si potano dopo 30 giorni (il giro
+  notturno); la prova legge gli esempi degli ultimi 30 giorni.
+- **P5 = a**: nel web vecchio e nel mobile una task creata da
+  un'automazione è una task normale con l'origine «Automation» (il valore
+  nuovo di `source`, `UNKNOWN` per i client vecchi), senza link.
+
+### Le opzioni poste
 
 P1. **Dove gira la prova nella F1** (nessun passo costa e nessuno scrive)?
 - (a) *(consigliata)* Nel client, sul motore condiviso, con le letture vere

@@ -358,6 +358,14 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   proprietario che perde il permesso mette l'automazione in pausa, con un
   avviso. La difesa contro un'automazione impazzita: l'idempotenza e la
   profondità della catena (3, del prototipo), non un limite di quantità.
+- Il piano della F1 (`docs/plans/2026-11-12-integrazione-area7-fetta1-plan.md`,
+  13 nov 2026), le risposte P1–P5 *(O, 46)*, tutte con la consigliata: la
+  prova della F1 nel client sul motore condiviso (dalla F3 i passi di Claude
+  la fanno sul server); nella build app solo «da zero» finché i due modelli
+  non sono usabili (F3/F4); «Crea richiesta» di un'automazione senza intake
+  né fusione; gli eventi consumati potati dopo 30 giorni; nel web vecchio e
+  nel mobile la task di un'automazione è una task normale con l'origine
+  «Automation», senza link.
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 
