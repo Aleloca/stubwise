@@ -1,6 +1,7 @@
 # Area 7, fetta 3 — i passi di Claude
 
-> BOZZA di stubwise-94 (13 nov 2026), su richiesta di stubwise-46, nella
+> Piano di stubwise-94 (13 nov 2026), su richiesta di stubwise-46, con le
+> risposte F3-1…F3-5 (vedi «Le risposte alle domande»), nella
 > forma dei piani della F1 e della F2
 > (`2026-11-12-integrazione-area7-fetta1-plan.md`,
 > `2026-11-13-integrazione-area7-fetta2-plan.md` su `feat/area7-f2`). I task
@@ -59,6 +60,13 @@ Dal design e dalle fette prima. Qui solo quelle che toccano la F3:
   esposto dei passi di Claude: vedi «Il contenuto non fidato».
 - **Il registro decisioni non è mai scritto dall'AI** (CLAUDE.md,
   `decisions-never-ai.test.ts`): nessun passo di Claude lo tocca.
+- **F3-1 = a** *(M)*: un campo di Claude tinto (nato da un input non fidato)
+  usato come destinazione rende il passo SEMPRE con approvazione.
+- **F3-2 = a** *(M)*: Sonnet è il modello di default di `automation_step`.
+- **F3-3 = a, F3-4 = a, F3-5 = a** *(O, 46)*, con la consigliata: la
+  conferma del costo una volta all'inizio della prova; un risultato fuori
+  forma fallisce e si riprova a mano; un input oltre 20 000 caratteri si
+  taglia e il registro lo dice.
 
 ## Perimetro della F3
 
@@ -86,7 +94,7 @@ Dal design e dalle fette prima. Qui solo quelle che toccano la F3:
    dell'automazione>, automationRunId }` (un owner nuovo del tag, con la
    colonna e il CHECK «al più uno» di `agent_runs`). Nessuno strumento
    (`--tools` vuoto), nessun MCP, `--setting-sources ""`; il modello di
-   `ai_model_settings` (default: domanda F3-2).
+   `ai_model_settings` (default Sonnet, F3-2 = a).
 3. **Il prompt**: l'istruzione del passo (scritta da chi gestisce: fidata),
    l'elenco chiuso delle uscite e dei campi col loro tipo, e gli input fra
    delimitatori come contenuto NON fidato (la tecnica di `meetings.ts`:
@@ -95,8 +103,10 @@ Dal design e dalle fette prima. Qui solo quelle che toccano la F3:
 4. **La verifica**: `checkClaudeResult` del motore condiviso
    (`claudeStep.ts`). Un'uscita fuori elenco, un campo in più, mancante o del
    tipo sbagliato, un elenco oltre 50 elementi → il passo FALLISCE
-   (`claude_invalid`, riprovabile a mano), **mai** un ramo. Una risposta non
-   JSON è lo stesso errore.
+   (`claude_invalid`, riprovabile a mano, nessun ritentativo automatico:
+   F3-4 = a), **mai** un ramo. Una risposta non JSON è lo stesso errore.
+   Un input oltre 20 000 caratteri si taglia prima della chiamata, e il
+   registro lo dice (F3-5 = a).
 5. **Il salvataggio**: uscita, campi e motivazione nella riga del registro,
    nella transazione che avanza il cursore e sceglie il ramo. Una ripresa che
    trova la riga non richiama il modello.
@@ -117,7 +127,10 @@ testo scritto da chi ha aperto la richiesta. La difesa sta in tre punti:
   un'email, l'incaricato di una task, la persona di un avviso) è **almeno di
   classe B**: chiede l'approvazione di una persona prima di agire (la
   regola delle classi dell'area 10a, `data/claude/classes.ts`: un'azione che
-  avvisa altri non è mai A). Come si applica è la domanda **F3-1**.
+  avvisa altri non è mai A). **F3-1 = a** *(M)*: il costruttore forza quel
+  passo su «chiede a» e lo dice; il server lo rifà (un flusso salvato senza
+  approvazione su un passo così ha il problema `untrusted_target`, e non si
+  pubblica finché non la chiede).
 - **Il testo di un'email non fidata che Claude cita** (nella motivazione o in
   un campo `text`) lo vede solo chi vede quell'email: il proprietario della
   casella, lungo la catena (R-J13, R-J16). Per gli altri la riga del
@@ -133,7 +146,7 @@ testo scritto da chi ha aperto la richiesta. La difesa sta in tre punti:
   server dice la stima (`estimateUsd`: i passi di Claude raggiungibili ×
   i token stimati dell'istruzione e degli input dell'esempio scelto, col
   prezzo del modello di `automation_step`). La pagina la mostra e chiede di
-  confermare (domanda **F3-3**: una volta o a ogni passo).
+  confermare una volta, all'inizio (F3-3 = a).
 - **La chiamata**: il client, arrivato a un passo di Claude, chiede al server
   `POST /api/automations/:code/test/claude` con la versione, il percorso del
   passo e le variabili della prova. Il server rifà il controllo del budget
@@ -314,7 +327,23 @@ R7. **Parità** (`apps/desktop/docs/integration-area7-f3.md`) e registro.
 - **La prova costa e lo dice**: la stima prima, il consumo in Usage, chi non
   gestisce non spende.
 
-## Domande per il maintainer
+## Domande per il maintainer (risposte: vedi «Le risposte alle domande»)
+
+### Le risposte alle domande (13 nov 2026)
+
+- **F3-1 = a** *(M)*: un campo tinto usato come destinazione rende il passo
+  sempre con approvazione (forzato dal costruttore, ricontrollato dal
+  server: `untrusted_target`).
+- **F3-2 = a** *(M)*: Sonnet di default, modificabile in Impostazioni → AI.
+- **F3-3 = a** *(O, 46)*: la conferma del costo una volta, all'inizio della
+  prova.
+- **F3-4 = a** *(O, 46)*: un risultato fuori forma fallisce, si riprova a
+  mano.
+- **F3-5 = a** *(O, 46)*: un input oltre 20 000 caratteri si taglia, e il
+  registro lo dice.
+- **C-F3-1 e C-F3-2** le valuta 72 quando prende il piano, dopo la F2.
+
+### Le opzioni poste
 
 Ognuna con la consigliata per prima.
 

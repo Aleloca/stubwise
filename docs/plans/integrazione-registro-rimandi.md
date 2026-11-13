@@ -586,6 +586,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   automazione crescono piano, ma un'automazione accesa da anni ne accumula.
   Da decidere quando servirà (es. finite da più di un anno, tenendo il
   registro delle task e delle richieste create, che già lo nominano).
+- Il piano della F3 (`docs/plans/2026-11-13-integrazione-area7-fetta3-plan.md`,
+  13 nov 2026, i passi di Claude). F3-1 = a *(M)*: un campo di Claude nato
+  da un input non fidato e usato come destinazione rende il passo sempre
+  con approvazione. F3-2 = a *(M)*: Sonnet di default per
+  `automation_step`. F3-3, F3-4, F3-5 = a *(O, 46)*: la conferma del costo
+  della prova una volta all'inizio; un risultato fuori forma fallisce e si
+  riprova a mano; un input oltre 20 000 caratteri si taglia e il registro lo
+  dice. Rimandati: i campi `file` come uscita di Claude (F4) e le azioni di
+  Claude sulle automazioni (area 10).
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 
