@@ -43,6 +43,8 @@ export interface AutomationRunRow extends AutomationRun {
   automationName: string;
   /** Il progetto dell'automazione (null = generale). */
   automationProjectId: string | null;
+  /** Il giro del passo in attesa (`cursor`), per `expectedRound`. Assente = 0. */
+  round?: number;
 }
 
 export interface AutomationDetail {
@@ -103,6 +105,11 @@ export interface AutomationDecision {
   since: string;
   /** Il passo che aspetta (R-J5): la decisione vale solo per lui. */
   cursor: string;
+  /**
+   * Il giro del passo che aspetta (dentro «ripeti finché», dalla F2): con
+   * `cursor` è il passo su cui si decide (`expectedRound`). Assente = 0.
+   */
+  round?: number;
   /** Il codice dell'automazione e il numero dell'esecuzione («AUD-A1», 12). */
   automationCode: string;
   n: number;
