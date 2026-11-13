@@ -38,7 +38,7 @@ function fakeApi(over: Partial<DecisionApi> = {}) {
     },
     myApprovals: async () => {
       calls.push("GET my approvals");
-      return [decision({ round: 2 })];
+      return { items: [decision({ round: 2 })] };
     },
     run: async (code, n) => {
       calls.push(`GET run ${code} ${n}`);

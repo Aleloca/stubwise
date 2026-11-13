@@ -15,7 +15,7 @@ import type { AutomationDecision, AutomationRunDetail, MyAutomationRun } from "@
 /** Le rotte che servono (sul client vero: `client.automations`). */
 export interface DecisionApi {
   myRuns(): Promise<MyAutomationRun[]>;
-  myApprovals(): Promise<AutomationDecision[]>;
+  myApprovals(): Promise<{ items: AutomationDecision[] }>;
   run(code: string, n: number): Promise<AutomationRunDetail>;
   approve(
     code: string,
@@ -69,7 +69,7 @@ export function createRealDecisions(api: DecisionApi) {
     },
 
     async listMyApprovals(): Promise<AutomationDecision[]> {
-      const items = await api.myApprovals();
+      const { items } = await api.myApprovals();
       for (const d of items) remember(d.runId, d.automationCode, d.n, d.cursor, d.round);
       return items;
     },
