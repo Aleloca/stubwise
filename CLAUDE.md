@@ -461,6 +461,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 7, fetta 2: email e attese» (13 nov 2026)
   - «Integrazione area 7, fetta 3: i passi di Claude» (13 nov 2026; prima di accendere, il golden `automation-step`)
   - «Integrazione area 7, fetta 4: le generali e il webhook in arrivo» (13 nov 2026)
+  - «Integrazione area 8, fetta 1: i rilasci» (13 nov 2026; migrazioni 0175 e 0176, prima il server)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
