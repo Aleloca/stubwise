@@ -356,6 +356,20 @@ describe("area 7, F2, S2: accendere e pubblicare con la casella", () => {
   });
 });
 
+describe("area 7, F3, S4: la tinta e le classi (F3-1)", () => {
+  it("«email in arrivo → Claude → email a un destinatario scelto da Claude» senza approvazione ha `untrusted_target`; con «chiede a» no; rispondere al mittente (dato grezzo) sì senza approvazione", async () => {
+    const { p, lead } = await setup();
+    const a = await created(lead, p.id, flowOf([createTask()]));
+    const claude: Step = { id: "c", kind: "claude", instruction: "Chi deve saperlo?", inputs: ["email.testo"], outcomes: [], fields: [{ key: "destinatario", label: "Destinatario", type: "email" }], branches: {} };
+    const mail = (to: string, approval: Step extends never ? never : { mode: "auto" } | { mode: "ask"; who: { owner: true } }): Step => ({ id: "m", kind: "sendEmail", to, subject: "s", body: "b", attachRefs: [], approval });
+    const flow = (steps: Step[]): AutomationFlow => ({ trigger: { kind: "stubwise", event: "mail_received" }, steps, titleTemplate: "t" });
+    const issues = async (f: AutomationFlow) => ((await call(lead.headers, "POST", `/automations/${a.code}/check`, { flow: f })).json() as { issues: { code: string }[] }).issues.map((i) => i.code);
+    expect(await issues(flow([claude, mail("{{destinatario}}", { mode: "auto" })]))).toContain("untrusted_target");
+    expect(await issues(flow([claude, mail("{{destinatario}}", { mode: "ask", who: { owner: true } })]))).not.toContain("untrusted_target");
+    expect(await issues(flow([mail("{{email.mittente}}", { mode: "auto" })]))).not.toContain("untrusted_target");
+  });
+});
+
 describe("le esecuzioni e le decisioni", () => {
   async function waitingRun(who: Step["kind"] extends never ? never : { owner: true } | { personId: string } | { projectRole: string }) {
     const s = await setup();
