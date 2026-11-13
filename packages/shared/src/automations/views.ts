@@ -79,6 +79,12 @@ export interface AutomationRunDetail extends AutomationRunRow {
    * una o se chi guarda non può leggerla (R-J13/R-J16).
    */
   pendingEffect: SimulationEffectPreview | null;
+  /**
+   * Un input di chi guarda (decisione, annulla, riprova, salta) è in coda e il
+   * worker non l'ha ancora applicato: la pagina dice «in corso» e non offre
+   * di decidere di nuovo. Assente = no (oggi lo sa solo il client).
+   */
+  inputQueued?: boolean;
 }
 
 export interface AutomationSourceView extends AutomationSource {

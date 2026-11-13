@@ -63,27 +63,26 @@ async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {
   );
 }
 
-/** Dopo una scrittura, la rilettura che vede ciò che il worker ha applicato nel frattempo. */
-const SETTLE_MS = 1000;
+const real = createRealAutomations(liveApi, refs);
 
 export const liveAutomations = {
   searchAutomations,
   // Le esecuzioni le muove il worker, e il client non riceve eventi: nessun
   // avviso da qui (le pagine rileggono quando si rimontano o dopo una
-  // scrittura). Dopo una scrittura, «idle» è una rilettura dopo un attimo.
+  // scrittura). Dopo una scrittura, «idle» aspetta che il worker abbia
+  // applicato gli input in coda (`automationSettle.ts`), al più 10 s.
   onAutomationsSettled: (fn: () => void): (() => void) => {
     void fn;
     return () => {};
   },
-  whenAutomationsIdle: (): Promise<void> =>
-    new Promise((resolve) => setTimeout(resolve, SETTLE_MS)),
   SimulationConfigError,
-  ...createRealAutomations(liveApi, refs),
+  ...real,
   ...simulationFunctions,
 };
 
 /** Al cambio di sessione: codici, revisioni e prove erano della persona di prima. */
 export function forgetAutomationRefs(): void {
   refs.clear();
+  real.forgetQueuedInputs();
   resetSimulations();
 }

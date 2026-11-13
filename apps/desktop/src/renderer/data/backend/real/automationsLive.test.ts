@@ -211,6 +211,92 @@ describe("le Automations della build app sul client vero", () => {
   });
 });
 
+describe("gli input che il worker applica dopo (review I2)", () => {
+  const detail = (over: Record<string, unknown> = {}) => ({
+    ...serverRun({ status: "waiting_approval", cursor: "0", round: 2 }),
+    version: 1,
+    title: "Avvio",
+    event: {},
+    vars: {},
+    waitingUntil: null,
+    pending: { approverIds: [ME_ID], preview: {} },
+    log: [],
+    startedAt: "2026-11-13T09:00:00.000Z",
+    endedAt: null,
+    error: null,
+    projectIds: [PROJECT_ID],
+    flow: FLOW,
+    deciders: [ME_ID],
+    ownerId: ME_ID,
+    permissions: { manage: true, approve: true, chooseProject: false },
+    parent: null,
+    children: [],
+    pendingEffect: null,
+    ...over,
+  });
+
+  it("dopo Approva, finché il worker non l'applica: fuori da «Da decidere», «in coda» nel dettaglio; poi si rilegge", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      let applied = false;
+      installFakeServer({
+        "GET /api/me/automation-approvals": {
+          body: { items: [{ runId: RUN_ID, automationCode: "AUD-A1", n: 3, cursor: "0", round: 2 }] },
+        },
+        "GET /api/automations/AUD-A1/runs/3": () => ({
+          body: applied ? detail({ status: "running", cursor: "1", pending: null }) : detail(),
+        }),
+        "POST /api/automations/AUD-A1/runs/3/approve": { status: 204 },
+      });
+      expect(await automations.listMyApprovals()).toHaveLength(1);
+      expect((await automations.getRun(RUN_ID))?.permissions.approve).toBe(true);
+      await automations.approve(RUN_ID, undefined, { expectedPath: "0" });
+      // Il server non l'ha ancora applicato: la voce non torna, e non si decide due volte.
+      expect(await automations.listMyApprovals()).toEqual([]);
+      const queued = await automations.getRun(RUN_ID);
+      expect(queued?.inputQueued).toBe(true);
+      expect(queued?.permissions.approve).toBe(false);
+      let idle = false;
+      void automations.whenAutomationsIdle().then(() => (idle = true));
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(idle).toBe(false);
+      applied = true;
+      await vi.advanceTimersByTimeAsync(1500);
+      expect(idle).toBe(true);
+      expect((await automations.getRun(RUN_ID))?.inputQueued).toBeFalsy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("annulla, riprova e salta aspettano anche loro; un worker fermo non blocca oltre i 10 s", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    try {
+      installFakeServer({
+        "GET /api/automation-runs": {
+          body: { items: [serverRun({ status: "failed", cursor: "1" })], nextCursor: null },
+        },
+        "GET /api/automations/AUD-A1/runs/3": {
+          body: detail({ status: "failed", cursor: "1", pending: null }),
+        },
+        "POST /api/automations/AUD-A1/runs/3/retry": { status: 204 },
+      });
+      await automations.listRuns();
+      await automations.retryStep(RUN_ID);
+      expect((await automations.getRun(RUN_ID))?.inputQueued).toBe(true);
+      let idle = false;
+      void automations.whenAutomationsIdle().then(() => (idle = true));
+      await vi.advanceTimersByTimeAsync(9000);
+      expect(idle).toBe(false);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(idle).toBe(true);
+      expect((await automations.getRun(RUN_ID))?.inputQueued).toBeFalsy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("al cambio di persona", () => {
   it("codici e revisioni letti dalla persona di prima non valgono per la nuova", async () => {
     let who = me();

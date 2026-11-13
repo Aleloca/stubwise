@@ -5,6 +5,7 @@ import {
   orNull,
   type AutomationRefs,
 } from "./automationRefs";
+import { createSettle, type RunState } from "./automationSettle";
 
 // Il blocco «Automations» della Home e le approvazioni in «Da decidere»
 // sulle rotte vere (area 7, F1, R7). Le pagine sono quelle del prototipo:
@@ -45,11 +46,50 @@ async function decide(call: () => Promise<void>): Promise<void> {
   }
 }
 
+/** Il tempo degli input in coda (i test lo fingono). */
+export interface SettleClock {
+  now(): number;
+  sleep(ms: number): Promise<void>;
+}
+
+const realClock: SettleClock = {
+  now: () => Date.now(),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+};
+
+const stateOf = (r: { status?: string; cursor?: string | null; round?: number }): RunState => ({
+  status: r.status,
+  cursor: r.cursor ?? null,
+  round: r.round ?? 0,
+});
+
 export function createRealDecisions(
   api: DecisionApi,
   refs: AutomationRefs = createAutomationRefs(),
+  clock: SettleClock = realClock,
 ) {
+  // Decisioni, annulla, riprova e salta li applica il worker dopo: vedi `automationSettle.ts`.
+  const settle = createSettle({
+    ...clock,
+    async read(runId) {
+      const s = refs.run(runId);
+      const run = await orNull(() => api.run(s.code, s.n));
+      if (run) refs.rememberRun(run);
+      return run ? stateOf(run) : null;
+    },
+  });
+  /** Dopo una scrittura riuscita su un'esecuzione: lo stato che aveva. */
+  const markRun = (runId: string) => {
+    const s = refs.run(runId);
+    settle.mark(runId, { status: s.status, cursor: s.path, round: s.round });
+  };
+
   return {
+    markRun,
+    /** Dopo una scrittura: quando il worker ha applicato gli input in coda (al più 10 s). */
+    whenAutomationsIdle: (): Promise<void> => settle.idle(),
+    forgetQueuedInputs: (): void => settle.clear(),
+
     async listMyRuns(): Promise<MyAutomationRun[]> {
       // Un server senza le rotte dell'area 7 (404) non ha niente da far decidere.
       const { items: runs } = (await orNull(() => api.myRuns())) ?? { items: [] };
@@ -58,7 +98,9 @@ export function createRealDecisions(
     },
 
     async listMyApprovals(): Promise<AutomationDecision[]> {
-      const { items } = (await orNull(() => api.myApprovals())) ?? { items: [] };
+      const { items: all } = (await orNull(() => api.myApprovals())) ?? { items: [] };
+      // Una decisione già mandata, che il worker non ha ancora applicato, non si ripropone.
+      const items = all.filter((d) => !settle.queued(d.runId, stateOf(d)));
       for (const d of items)
         refs.rememberRun({
           id: d.runId,
@@ -83,8 +125,15 @@ export function createRealDecisions(
       if (!refs.knowsRun(runId)) return null;
       const s = refs.run(runId);
       const run = await orNull(() => api.run(s.code, s.n));
-      if (run) refs.rememberRun(run);
-      return run;
+      if (!run) return null;
+      refs.rememberRun(run);
+      if (!settle.queued(runId, stateOf(run))) return run;
+      // L'input è in coda: niente seconda decisione, la pagina dice «in corso».
+      return {
+        ...run,
+        inputQueued: true,
+        permissions: { ...run.permissions, approve: false, chooseProject: false },
+      };
     },
 
     async approve(
@@ -101,6 +150,7 @@ export function createRealDecisions(
           ...(edited ? { edited } : {}),
         }),
       );
+      markRun(runId);
     },
 
     async reject(runId: string, opts: { expectedPath: string }): Promise<void> {
@@ -109,6 +159,7 @@ export function createRealDecisions(
       await decide(() =>
         api.reject(s.code, s.n, { expectedPath: opts.expectedPath, expectedRound }),
       );
+      markRun(runId);
     },
   };
 }

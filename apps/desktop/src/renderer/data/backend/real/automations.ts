@@ -11,7 +11,7 @@ import type {
   RunStatus,
 } from "@stubwise/shared";
 import type { AutomationRef } from "../../model";
-import { createRealDecisions, type DecisionApi } from "./automationDecisions";
+import { createRealDecisions, type SettleClock, type DecisionApi } from "./automationDecisions";
 import {
   createAutomationRefs,
   inPrototypeWords,
@@ -74,8 +74,9 @@ export interface AutomationsApi extends DecisionApi {
 export function createRealAutomations(
   api: AutomationsApi,
   refs: AutomationRefs = createAutomationRefs(),
+  clock?: SettleClock,
 ) {
-  const decisions = createRealDecisions(api, refs);
+  const decisions = createRealDecisions(api, refs, clock);
   const code = (id: string) => refs.automation(id).code;
   /** Una scrittura che risponde con l'automazione: se ne ricorda la revisione nuova. */
   const written = async (call: () => Promise<Automation>): Promise<Automation> => {
@@ -86,6 +87,7 @@ export function createRealAutomations(
   const onRun = async (runId: string, call: (code: string, n: number) => Promise<void>) => {
     const r = refs.run(runId);
     await inPrototypeWords(() => call(r.code, r.n));
+    decisions.markRun(runId);
   };
 
   return {

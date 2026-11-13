@@ -8486,6 +8486,7 @@
       "whichProjectNoClient": "Which project should this run work in?",
       "alreadyDecided": "Already decided by {{name}}",
       "alreadyDecidedSomeone": "Someone already decided this step",
+      "applying": "Your decision is being applied…",
       "answering": "Your answer goes out in a few seconds. You can undo it from the message below.",
       "attachmentsReadOnly": "Attachments stay as they are: {{names}}",
       "suspended": "{{code}} is paused: nothing was decided. It can be decided once it's turned on again."

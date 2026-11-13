@@ -3884,8 +3884,11 @@ export function useAutomationRun(id: string | null) {
     queryKey: queryKeys.automationRun(me, id ?? ""),
     queryFn: () => api.automations.getRun(id!),
     enabled: id !== null,
+    // Anche mentre un input è in coda sul worker (build app): la pagina vede quando lo applica.
     refetchInterval: (query) =>
-      query.state.data?.status === "running" ? AUTOMATION_REFRESH_MS : false,
+      query.state.data?.status === "running" || query.state.data?.inputQueued
+        ? AUTOMATION_REFRESH_MS
+        : false,
   });
 }
 

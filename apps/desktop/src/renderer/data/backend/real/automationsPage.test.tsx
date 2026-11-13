@@ -31,6 +31,7 @@ vi.mock("../../integration", async (importOriginal) => {
 });
 
 const A_ID = "77777777-7777-4777-8777-777777777771";
+const OLD_RUN_ID = "77777777-7777-4777-8777-777777777779";
 let seen: SeenRequest[] = [];
 
 const FLOW = {
@@ -151,11 +152,10 @@ describe("le Automations nella build app", () => {
   });
 
   it("un'esecuzione vecchia (fuori dalla prima pagina) si apre per codice e numero", async () => {
-    const RUN_ID = "77777777-7777-4777-8777-777777777779";
     install({
       "GET /api/automations/AUD-A1/runs/3": {
         body: {
-          id: RUN_ID,
+          id: OLD_RUN_ID,
           automationId: A_ID,
           n: 3,
           version: 1,
@@ -189,6 +189,55 @@ describe("le Automations nella build app", () => {
     expect(await screen.findByText("Avvio vecchio", {}, { timeout: 3000 })).toBeInTheDocument();
     expect(screen.queryByText(/can't see|not visible/i)).toBeNull();
   });
+
+  it("Approva dal dettaglio: finché il worker non l'applica, «in corso» e niente seconda decisione", async () => {
+    const waiting = {
+      id: OLD_RUN_ID,
+      automationId: A_ID,
+      n: 4,
+      version: 1,
+      title: "Da approvare",
+      status: "waiting_approval",
+      event: {},
+      vars: {},
+      cursor: "0",
+      round: 1,
+      waitingUntil: null,
+      pending: { approverIds: [ME_ID], preview: { text: "Fatto" } },
+      log: [],
+      startedAt: "2026-11-13T09:00:00.000Z",
+      endedAt: null,
+      error: null,
+      projectIds: [PROJECT_ID],
+      code: "AUD-A1 #4",
+      automationCode: "AUD-A1",
+      automationName: "Avvio progetto",
+      automationProjectId: PROJECT_ID,
+      flow: {
+        ...FLOW,
+        steps: [{ ...FLOW.steps[0], approval: { mode: "ask", who: { personId: ME_ID } } }],
+      },
+      deciders: [ME_ID],
+      ownerId: ME_ID,
+      permissions: { manage: true, approve: true, chooseProject: false },
+      parent: null,
+      children: [],
+      pendingEffect: null,
+    };
+    install({
+      "GET /api/automations/AUD-A1/runs/4": { body: waiting },
+      "POST /api/automations/AUD-A1/runs/4/approve": { status: 204 },
+    });
+    renderRoute("/automations/AUD-A1/runs/4");
+    const approve = await screen.findByRole("button", { name: /^Approve/ }, { timeout: 3000 });
+    await userEvent.click(approve);
+    // La decisione parte allo scadere dell'«Undo» (5 s), poi il worker la applica dopo.
+    expect(
+      await screen.findByText("Your decision is being applied…", {}, { timeout: 9000 }),
+    ).toBeInTheDocument();
+    expect(seen.filter((r) => r.path.endsWith("/approve"))).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: /^Approve/ })).toBeNull();
+  }, 15_000);
 
   it("pubblicare la bozza dal dettaglio: POST …/publish col rev letto", async () => {
     install({

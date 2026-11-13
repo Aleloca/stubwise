@@ -8486,6 +8486,7 @@
       "whichProjectNoClient": "In quale progetto deve lavorare questa esecuzione?",
       "alreadyDecided": "Ha già deciso {{name}}",
       "alreadyDecidedSomeone": "Qualcuno ha già deciso questo passo",
+      "applying": "La decisione è in corso…",
       "answering": "La tua risposta parte fra pochi secondi. Puoi annullarla dal messaggio qui sotto.",
       "attachmentsReadOnly": "Gli allegati restano così: {{names}}",
       "suspended": "{{code}} è in pausa: non è stato deciso niente. Si potrà decidere quando verrà riaccesa."
