@@ -1,32 +1,21 @@
-import type { StubwiseClient } from "@stubwise/api-client";
-import { createAutomationRefs } from "./automationRefs";
+import { ApiError, type StubwiseClient } from "@stubwise/api-client";
+import { createAutomationRefs, inPrototypeWords } from "./automationRefs";
 import { createRealAutomations, type AutomationsApi } from "./automations";
-import { appClient } from "./client";
-import { notIntegrated } from "./notIntegrated";
+import { createRealSimulation } from "./automationSimulate";
+import { appClient, session } from "./client";
+import { now } from "./runtime";
 
 // Le Automations della build app sul client vero (area 7, F1): gli
-// adattatori di `automations.ts` e `automationDecisions.ts` sopra
-// `client.automations`, un registro dei riferimenti per sessione.
-//
-// Le rotte che il server non ha ancora (la sezione del progetto, la riga
-// d'origine) rifiutano come «non integrate»; la prova aspetta
-// `GET …/examples` e resta fuori.
+// adattatori di `automations.ts`, `automationDecisions.ts` e
+// `automationSimulate.ts` sopra `client.automations`, con un registro dei
+// riferimenti per sessione. La destinazione resta spenta finché c'è il flag.
 
-/** Le rotte che `client.automations` non ha ancora. */
-type Pending = "projectAutomations" | "origin";
-
-// Il client copre il resto dell'interfaccia: se una firma diverge, qui non compila.
-const fromClient: (c: StubwiseClient["automations"]) => Omit<AutomationsApi, Pending> = (c) => c;
-
-const pending: Pick<AutomationsApi, Pending> = {
-  projectAutomations: notIntegrated("automations.getProjectAutomations"),
-  origin: notIntegrated("automations.automationOrigin"),
-};
+// Il client copre l'interfaccia: se una firma diverge, qui non compila.
+const fromClient: (c: StubwiseClient["automations"]) => AutomationsApi = (c) => c;
 
 /** Il client si prende a ogni chiamata (`appClient()` è pigro e i test lo cambiano). */
 const liveApi = new Proxy({} as AutomationsApi, {
   get(_target, key: string) {
-    if (key in pending) return pending[key as Pending];
     const c = fromClient(appClient().automations) as unknown as Record<string, unknown>;
     const fn = c[key];
     return typeof fn === "function" ? (fn as (...a: unknown[]) => unknown).bind(c) : fn;
@@ -35,9 +24,33 @@ const liveApi = new Proxy({} as AutomationsApi, {
 
 const refs = createAutomationRefs();
 
-export const liveAutomations = createRealAutomations(liveApi, refs);
+const simulation = createRealSimulation({
+  me: () => session.personId ?? "",
+  now: () => now(),
+  examples: (automationId, version) =>
+    inPrototypeWords(() =>
+      appClient().automations.examples(refs.automation(automationId).code, version),
+    ),
+  async markTested(automationId, body) {
+    try {
+      await appClient().automations.markTested(refs.automation(automationId).code, body);
+    } catch (error) {
+      // La bozza è cambiata mentre si provava: la prova resta valida a schermo, ma non segna quella rev.
+      if (error instanceof ApiError && error.status === 409 && error.code === "stale") return;
+      throw error;
+    }
+  },
+});
 
-/** Al cambio di sessione: codici e revisioni letti erano della persona di prima. */
+const { reset: resetSimulations, ...simulationFunctions } = simulation;
+
+export const liveAutomations = {
+  ...createRealAutomations(liveApi, refs),
+  ...simulationFunctions,
+};
+
+/** Al cambio di sessione: codici, revisioni e prove erano della persona di prima. */
 export function forgetAutomationRefs(): void {
   refs.clear();
+  resetSimulations();
 }

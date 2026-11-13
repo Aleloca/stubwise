@@ -148,12 +148,66 @@ describe("le Automations della build app sul client vero", () => {
     expect(seen[2]!.body).toEqual({ expectedPath: "1", expectedRound: 5 });
   });
 
-  it("ciò che il server non ha ancora (sezione del progetto, prova) resta «non integrato»", async () => {
-    installFakeServer({});
-    await expect(automations.getProjectAutomations(PROJECT_ID)).rejects.toThrow(
-      "is not integrated",
-    );
-    await expect(automations.listSimulationExamples(A_ID, 1)).rejects.toThrow("is not integrated");
+  it("la sezione del progetto e la riga d'origine; un'origine che non si vede è `visible: false`", async () => {
+    const view = { projectId: PROJECT_ID, own: [], general: [] };
+    const { seen } = installFakeServer({
+      [`GET /api/projects/${PROJECT_ID}/automations`]: { body: view },
+      "GET /api/automation-origin": (req) =>
+        req.path.includes("task=AUD-7")
+          ? { body: { visible: true, code: "AUD-A1", name: "Avvio", n: 3, entry: "0" } }
+          : undefined,
+    });
+    expect(await automations.getProjectAutomations(PROJECT_ID)).toEqual(view);
+    const ref = { automationId: A_ID, runId: RUN_ID };
+    expect(await automations.automationOrigin(ref, "AUD-7", "task")).toMatchObject({
+      visible: true,
+      n: 3,
+    });
+    // 404: la task non si vede più o non l'ha creata un'automazione.
+    expect(await automations.automationOrigin(ref, "m-1", "milestone")).toEqual({ visible: false });
+    expect(seen.map((r) => r.path)).toEqual([
+      `/api/projects/${PROJECT_ID}/automations`,
+      "/api/automation-origin?task=AUD-7",
+      "/api/automation-origin?milestone=m-1",
+    ]);
+  });
+
+  it("la prova: gli esempi per codice, e a prova finita bene `/tested` con la rev (uno stale non la rompe)", async () => {
+    const empty = { trigger: { kind: "manual" }, steps: [], titleTemplate: "Prova" };
+    const context = {
+      automation: {
+        ...serverAutomation(7),
+        versions: [{ ...serverAutomation(7).versions[0], flow: empty }],
+      },
+      version: 1,
+      draft: true,
+      rev: 7,
+      ownerId: ME_ID,
+      configErrors: [],
+      people: [{ id: ME_ID, name: "Ada", departmentIds: [], deactivated: false }],
+      projects: [],
+    };
+    const { seen } = installFakeServer({
+      "GET /api/auth/me": { body: me() },
+      "GET /api/automations": { body: { items: [serverRow(7)] } },
+      "GET /api/automations/AUD-A1/examples": { body: { items: [], context } },
+      "POST /api/automations/AUD-A1/tested": {
+        status: 409,
+        body: { code: "stale", message: "stale", rev: 8 },
+      },
+    });
+    await getSessionPerson();
+    await automations.listAutomations();
+    expect(await automations.listSimulationExamples(A_ID, "draft")).toEqual([]);
+    const id = await automations.startSimulation(A_ID, "draft", {});
+    expect((await automations.getSimulation(id))?.status).toBe("done");
+    expect(
+      seen.filter((r) => r.path.includes("AUD-A1/")).map((r) => `${r.method} ${r.path}`),
+    ).toEqual([
+      "GET /api/automations/AUD-A1/examples?version=draft",
+      "POST /api/automations/AUD-A1/tested",
+    ]);
+    expect(seen.at(-1)!.body).toEqual({ version: 1, rev: 7 });
   });
 });
 
