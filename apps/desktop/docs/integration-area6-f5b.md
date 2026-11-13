@@ -23,12 +23,14 @@ Il livello dati è `data/backend/real/driveGoogle.ts` (e la riga in
 | Voce del prototipo | Build app | Test |
 |---|---|---|
 | «Add from Google Drive» (il mio Drive, con la ricerca, chi è già nel progetto) | `client.drive.googleFiles` col mio account (B7); aggiungere = `addGoogleFile`, un codice per progetto; `already_in_project` | `real/driveGoogle.test.ts`, `ComingSoon.test.tsx` |
-| «Link a Google folder» (`drive.manage`) | `googleFolders` e `linkFolder`; la cartella si legge con l'account di chi l'ha collegata (B3). Percorso e conteggio non arrivano (Google non li dà senza una chiamata per cartella): il dialogo non li scrive | `real/driveGoogle.test.ts` |
-| Le cartelle collegate, «Sync now», scollegare | `folderLinks`, `syncFolder`, `unlinkFolder`; «scaduta» e «accesso perso» li deriva il server (B4, `folderLinkOf` coi default: mai «scaduta» per sbaglio); la riga dice «synced …» (QB1 = b, anche la sincronizzazione di ogni giorno) e il dialogo «Stubwise checks the folder every day» | `real/driveGoogle.test.ts`, `pages/drive/DriveGoogle.test.tsx` |
+| «Link a Google folder» (`drive.manage`) | `googleFolders` e `linkFolder`; la cartella si legge con l'account di chi l'ha collegata (B3). Percorso e conteggio non arrivano (Google non li dà senza una chiamata per cartella): le cartelle stanno tutte nella radice, il conteggio non si scrive | `real/driveGoogle.test.ts`, `pages/drive/DriveGoogle.test.tsx` |
+| Le cartelle collegate, «Sync now», scollegare | `folderLinks`, `syncFolder`, `unlinkFolder`; «scaduta» e «accesso perso» li deriva il server (B4, `folderLinkOf` coi default: mai «scaduta» per sbaglio); la riga dice «synced …» (QB1 = b, anche la sincronizzazione di ogni giorno) e il dialogo «Stubwise checks the folder every day». Collegare e «Sync now» li fa il worker, dopo: la cartella è «syncing…» (visibile anche senza file) finché `lastSyncedAt` non supera l'ora della richiesta, cartelle e file si rileggono ogni 3 s, al più 2 minuti, e i toast dicono «chiesta» | `real/driveGoogle.test.ts`, `pages/drive/DriveGoogle.test.tsx`, `pages/drive/DriveSyncing.test.tsx` |
+| «Nascosti» e il filtro «Origine» | `hidden` e `source` al server, che li filtra (i nascosti solo con `drive.manage`) | `real/drive.test.ts` |
+| Il menu della cartella | «Open in Google Drive» apre la cartella su Google (solo host Google, `openOnGoogle`); «Copy link» con l'id codificato | `pages/drive/DriveSyncing.test.tsx` |
 | «Togli» e «Nascondi» | `remove` (409 `use_hide` su un file di cartella), `setHidden` col chi e quando | `real/driveGoogle.test.ts` |
 | Un file non disponibile | `unavailable: "deleted" \| "access_lost"`; un motivo che il client non conosce resta non disponibile (fail-closed) | `real/driveGoogle.test.ts` |
 | «Open in Google Drive» (un avviso nel prototipo) | sul web la rotta `open` (302 a Google, conta l'apertura `via: "google"`); sul desktop il file su Google (`googleOpenUrl`), perché la sessione sta nel main e la rotta non si apre da fuori | `real/drive.test.ts` |
-| La ricerca fuori dai progetti | `googleOutside`, col mio account | `real/driveGoogle.test.ts` |
+| La ricerca fuori dai progetti | `searchDrive` chiama anche `googleOutside` (col mio account) quando l'origine non è «caricato» e non si cercano i file di una persona; proprietario e data che mancano non si scrivono | `real/drive.test.ts`, `pages/drive/DriveGoogle.test.tsx` |
 | Il contenuto (testo, riassunto, ricerca, Claude) | come un caricato (B2): lo estrae il worker, non fidato | (server) |
 | Il cassetto Google | i testi del prototipo col Drive (il rimando della F1): intro, «Folders you linked don't update», scollegare con le cartelle che smettono di aggiornarsi; senza `drive.readonly` la funzione «drive» fra quelle che mancano | `pages/drive/GoogleAccountCard.app.test.tsx`, `real/google.test.ts` |
 | Gli allegati della Posta come link | un file Google nella bozza è `as: "link"` (lo decide il server), fuori dai limiti | `real/mailDrafts.test.ts` |
@@ -39,6 +41,8 @@ Il livello dati è `data/backend/real/driveGoogle.ts` (e la riga in
   vuole la sessione, che sta nel main). Da chiedere a 72 una rotta che la
   conti senza rimandare, se serve.
 - «Link a Google folder»: niente briciole né conteggio dei file prima di
-  collegare (Google, 72).
+  collegare (Google, 72): un elenco piatto nella radice.
+- Sul web «Open in Google Drive» di un file che non c'è più (404) apre una
+  scheda col JSON dell'errore: accettato (review F5b, 7).
 - Il cassetto, scaduto, dice delle cartelle e non più di Posta e Calendario:
   è il testo del prototipo col Drive acceso.

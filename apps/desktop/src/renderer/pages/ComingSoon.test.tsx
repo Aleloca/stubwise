@@ -512,16 +512,22 @@ describe("aree non integrate nella build app", () => {
     const dialog = await screen.findByRole("dialog", { name: "Google account" });
     await waitFor(() => expect(calls).toContain("drive.getGoogleAccount"));
     await settle();
-    expect(dialog).toBeInTheDocument();
+    // Le cartelle che ho collegato si leggono solo scollegando (review F5b, 9).
+    expect(calls).not.toContain("drive.listMyFolderLinks");
+    await user.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => expect(calls).toContain("drive.listMyFolderLinks"));
+    expect(await within(dialog).findByText(/folder you linked will stop updating/)).toBeInTheDocument();
     expect(outside()).toEqual([]);
     act(() => closeGoogleAccount());
   });
 
-  it("la destinazione Drive: tutti i progetti, con Google (F5b)", async () => {
+  it("la destinazione Drive: tutti i progetti, coi riferimenti Google (F5b)", async () => {
     renderRoute("/drive");
     await waitFor(() => expect(calls).toContain("drive.listDriveFiles"));
     await settle();
     expect(screen.queryByText("Coming soon")).toBeNull();
+    // Le righe dei riferimenti Google ci sono, col loro segno (review F5b, 9).
+    expect((await screen.findAllByTitle("Google file, opens in Google Drive")).length).toBeGreaterThan(0);
     expect(outside()).toEqual([]);
   });
 
