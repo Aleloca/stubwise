@@ -140,9 +140,9 @@ describe("i codici e la bozza", () => {
 });
 
 describe("pubblicare e accendere", () => {
-  it("con un errore di configurazione (un passo fuori dalla fetta, i passi di Claude) → 409 config con gli issues, e niente cambia", async () => {
+  it("con un errore di configurazione (un passo fuori dalla fetta, «avvia un'altra automazione») → 409 config con gli issues, e niente cambia", async () => {
     const { p, lead } = await setup();
-    const email: Step = { id: "c1", kind: "claude", instruction: "x", inputs: [], outcomes: ["ok"], fields: [], branches: {} };
+    const email: Step = { id: "s1", kind: "startAutomation", automationId: randomUUID(), approval: auto } as Step;
     const a = await created(lead, p.id, flowOf([email]));
     const res = await call(lead.headers, "POST", `/automations/${a.code}/publish`, {});
     expect(res.statusCode).toBe(409);
@@ -157,7 +157,7 @@ describe("pubblicare e accendere", () => {
   it("review F1, M5: un salvataggio concorrente non fa pubblicare un flusso non validato (la pubblicazione rilegge la bozza sotto il lock)", async () => {
     const { p, lead } = await setup();
     const a = await created(lead, p.id, flowOf([createTask()]));
-    const email: Step = { id: "c1", kind: "claude", instruction: "x", inputs: [], outcomes: ["ok"], fields: [], branches: {} };
+    const email: Step = { id: "s1", kind: "startAutomation", automationId: randomUUID(), approval: auto } as Step;
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     let locked!: () => void;
@@ -544,6 +544,29 @@ describe("le letture personali e la card d'inbox", () => {
     expect(theirs.log[0]).toMatchObject({ output: { "risposta.testo": "" }, replyHidden: true });
     expect(theirs.log[1]).toMatchObject({ input: { titolo: "" }, replyHidden: true });
     expect(JSON.stringify((await call(other.headers, "GET", `/automation-runs?automation=${a.code}`)).json())).not.toContain("Firmo domani");
+  });
+
+  it("area 7, F3, C-F3-7: la motivazione di Claude su un input tinto (la risposta di un cliente) la legge solo il proprietario; per gli altri `reasonHidden`, e i campi di testo tolti", async () => {
+    const { p, lead } = await setup();
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    const flow: AutomationFlow = {
+      trigger: { kind: "manual" },
+      steps: [{ id: "c", kind: "claude", instruction: "Riassumi la risposta.", inputs: ["risposta.testo"], outcomes: ["si", "no"], fields: [{ key: "sintesi", label: "Sintesi", type: "text" }], branches: {} }],
+      titleTemplate: "t",
+    };
+    const a = await created(lead, p.id, flow);
+    // La lettura, non la validazione: la versione si pubblica direttamente.
+    await db.update(automationVersions).set({ publishedAt: new Date(), publishedBy: lead.id }).where(eq(automationVersions.automationId, a.id));
+    await db.update(automations).set({ ownerId: lead.id, status: "active" }).where(eq(automations.id, a.id));
+    const [run] = await db.insert(automationRuns).values({ automationId: a.id, n: 1, version: 1, title: "R", origin: "manual", status: "done" }).returning();
+    await db.insert(automationRunLog).values({ runId: run!.id, seq: 1, stepId: "c", path: "0", kind: "claude", outcome: "ok", input: {}, output: { uscita: "si", sintesi: "Il cliente parafrasato firma" }, reason: "Il cliente dice in sostanza che firma" });
+    type Detail = { log: { reason: string | null; output: Record<string, unknown>; reasonHidden?: boolean }[] };
+    const mine = (await call(lead.headers, "GET", `/automations/${a.code}/runs/1`)).json() as Detail;
+    expect(mine.log[0]).toMatchObject({ reason: "Il cliente dice in sostanza che firma", output: { sintesi: "Il cliente parafrasato firma" } });
+    expect(mine.log[0]!.reasonHidden).toBeUndefined();
+    const theirs = (await call(other.headers, "GET", `/automations/${a.code}/runs/1`)).json() as Detail;
+    expect(theirs.log[0]).toMatchObject({ reason: null, reasonHidden: true, output: { uscita: "si", sintesi: "" } });
   });
 
   it("la card automation.approval: derivata a lettura — aspetta me finché il passo aspetta; deciso, lo dice; chi non la vede: objectGone", async () => {
