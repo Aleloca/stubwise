@@ -1,4 +1,4 @@
-import { backlogItems, backlogItemTickets, milestones, projectMembers, projects, roles, tickets, type Db } from "@stubwise/db";
+import { backlogItems, backlogItemTickets, emailMessages, milestones, projectMembers, projects, roles, tickets, type Db } from "@stubwise/db";
 import { automationEventFields, automationMailboxOf, loadPlanWorld, projectPermissionsByProject, type AutomationEventRef } from "@stubwise/notifications";
 import {
   evaluate,
@@ -88,11 +88,31 @@ async function candidateEvents(db: Db, projectId: string, flow: AutomationFlow):
   }
 }
 
-async function examplesOf(db: Db, projectId: string, flow: AutomationFlow): Promise<SimulationExample[]> {
+/**
+ * Gli esempi di «email in arrivo» (area 7, F2, S8): gli ultimi messaggi della
+ * casella, SOLO se chi prova è il proprietario che la versione avrebbe (R-J13,
+ * `mailbox_owner`): altrimenti nessun esempio, e l'evento si scrive a mano.
+ */
+async function mailExamples(db: Db, accountId: string | null): Promise<SimulationExample[]> {
+  if (!accountId) return [];
+  const rows = await db
+    .select({ from: emailMessages.fromAddress, subject: emailMessages.subject, text: emailMessages.textExcerpt, at: emailMessages.receivedAt })
+    .from(emailMessages)
+    .where(eq(emailMessages.accountId, accountId))
+    .orderBy(desc(emailMessages.receivedAt))
+    .limit(MAX_EXAMPLES);
+  return rows.map((r) => ({ label: r.subject ?? "", code: null, at: r.at.toISOString(), event: { email: { mittente: r.from, oggetto: r.subject ?? "", testo: r.text ?? "" } } }));
+}
+
+async function examplesOf(db: Db, projectId: string, flow: AutomationFlow, mailAccountId: string | null): Promise<SimulationExample[]> {
   const t = flow.trigger;
   if (t.kind === "manual" || t.kind === "schedule") {
     const today = new Date().toISOString();
     return [{ label: today.slice(0, 10), code: null, at: today, event: { avvio: { data: today.slice(0, 10) } } }];
+  }
+  if (t.kind === "stubwise" && t.event === "mail_received") {
+    const all = await mailExamples(db, mailAccountId);
+    return t.filter ? all.filter((e) => evaluate(t.filter!, (key) => lookup(e.event, key))) : all;
   }
   const out: SimulationExample[] = [];
   for (const c of await candidateEvents(db, projectId, flow)) {
@@ -208,5 +228,6 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
     projects: contextProjects,
     ownerMailbox,
   };
-  return { items: await examplesOf(db, a.projectId, flow), context };
+  // La posta solo del proprietario che avrebbe, e solo se è chi prova (R-J13).
+  return { items: await examplesOf(db, a.projectId, flow, ownerId === viewer.id && box.ok ? box.accountId : null), context };
 }

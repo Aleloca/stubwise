@@ -17,6 +17,7 @@ import {
   users,
   type Db,
 } from "@stubwise/db";
+import { automationMailIn } from "../automations/mail-in.js";
 import { recognizeGeminiNotes } from "./gemini.js";
 import { processMeetingNotes, type DriveReadClient } from "./meetings.js";
 import {
@@ -1084,6 +1085,23 @@ async function syncGmail(
         if (rows.length > 0) ingested += 1;
       }
       continue;
+    }
+
+    // Area 7, F2 (S8, C-F2-0): OGNI messaggio ricevuto entra nelle automazioni
+    // della casella (F2-1 = tutte *(M)*), prima e a prescindere dall'ammissione.
+    // Senza automazioni né attese su questa casella non legge niente in più.
+    try {
+      await automationMailIn(
+        deps.db,
+        { accountId: account.id, gmailMessageId: id, threadId: metadata.threadId, from: normalizeAddress(metadata.headers["from"]), subject: metadata.headers["subject"] ?? "" },
+        async () => {
+          const full = await gmail.getMessageFull({ accessToken: ctx.accessToken, id });
+          return full.payload ? extractText(full.payload) : "";
+        },
+      );
+    } catch (err) {
+      // Fail-open: un guasto delle automazioni non ferma la posta.
+      logger.warn(`google: automazioni per il messaggio ${id} non riuscite: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     if (!deps.classifyV2) {
