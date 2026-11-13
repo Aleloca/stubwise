@@ -21,6 +21,7 @@ let db: Db;
 let app: FastifyInstance;
 const calls: ChatLlmInput[] = [];
 let answer = '{"outcome":"urgente","reason":"È giù"}';
+let gate: Promise<void> | null = null;
 
 beforeAll(async () => {
   testDb = await startTestDb();
@@ -32,6 +33,7 @@ beforeAll(async () => {
     chatLlm: {
       async *stream(input) {
         calls.push(input);
+        if (gate) await gate;
         yield answer;
       },
     },
@@ -140,7 +142,7 @@ describe("review renderer F3", () => {
     const body = (await call(lead.headers, `/automations/${a.code}/test/estimate`, { version: "draft", event: { avvio: { testo: "x" } } })).json() as { claudeSteps: number; upperBound: boolean };
     expect(body).toMatchObject({ claudeSteps: 51, upperBound: true });
     const known = await created(lead, p.id, [claude]);
-    expect((await call(lead.headers, `/automations/${known.code}/test/estimate`, { version: "draft", event: {} })).json()).toMatchObject({ claudeSteps: 1, upperBound: false });
+    expect((await call(lead.headers, `/automations/${known.code}/test/estimate`, { version: "draft", event: { avvio: { testo: "c'è" } } })).json()).toMatchObject({ claudeSteps: 1, upperBound: false });
   });
 
   it("`rev` della bozza: se è cambiata → 409 `stale` col rev attuale, e nessuna chiamata", async () => {
@@ -151,6 +153,41 @@ describe("review renderer F3", () => {
     expect(stale.json()).toMatchObject({ code: "stale", rev: 1 });
     expect(calls).toEqual([]);
     expect((await call(lead.headers, `/automations/${a.code}/test/claude`, { version: "draft", rev: 1, path: "0", vars: {} })).statusCode).toBe(200);
+  });
+});
+
+describe("review F3, M8: la stima non conta come vuoto un input che l'esempio non ha", () => {
+  it("un passo di Claude che legge un campo ricavato prima costa come un input pieno, e la stima è un tetto", async () => {
+    const { p, lead } = await setup();
+    const first: Step = { ...claude, id: "uno", outcomes: [], fields: [{ key: "sintesi", label: "Sintesi", type: "text" }] };
+    const second: Step = { ...claude, id: "due", inputs: ["sintesi"] };
+    const a = await created(lead, p.id, [first, second]);
+    const onlyFirst = await created(lead, p.id, [first]);
+    const both = (await call(lead.headers, `/automations/${a.code}/test/estimate`, { version: "draft", event: { avvio: { testo: "breve" } } })).json() as { estimateUsd: number; upperBound: boolean };
+    const one = (await call(lead.headers, `/automations/${onlyFirst.code}/test/estimate`, { version: "draft", event: { avvio: { testo: "breve" } } })).json() as { estimateUsd: number };
+    expect(both.upperBound).toBe(true);
+    // Il secondo passo, con l'input ricavato contato pieno, costa più del primo da solo.
+    expect(both.estimateUsd - one.estimateUsd).toBeGreaterThan(one.estimateUsd);
+  });
+});
+
+describe("review F3, M9: una prova alla volta per automazione", () => {
+  it("due passi di Claude della prova insieme: uno parte, l'altro 409 `test_busy` senza chiamare il modello", async () => {
+    const { p, lead } = await setup();
+    const a = await created(lead, p.id, [claude]);
+    let open!: () => void;
+    gate = new Promise((r) => (open = r));
+    const first = call(lead.headers, `/automations/${a.code}/test/claude`, { version: "draft", path: "0", vars: {} });
+    await new Promise((r) => setTimeout(r, 100));
+    const second = await call(lead.headers, `/automations/${a.code}/test/claude`, { version: "draft", path: "0", vars: {} });
+    expect(second.statusCode).toBe(409);
+    expect(second.json()).toMatchObject({ code: "test_busy" });
+    open();
+    gate = null;
+    expect((await first).statusCode).toBe(200);
+    expect(calls).toHaveLength(1);
+    // Finita la prima, la prossima passa.
+    expect((await call(lead.headers, `/automations/${a.code}/test/claude`, { version: "draft", path: "0", vars: {} })).statusCode).toBe(200);
   });
 });
 

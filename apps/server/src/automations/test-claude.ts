@@ -2,6 +2,7 @@ import type { Db } from "@stubwise/db";
 import { aiBudgetState } from "@stubwise/notifications";
 import {
   buildClaudePrompt,
+  CLAUDE_INPUT_MAX,
   checkClaudeResult,
   estimateCostUsd,
   lookup,
@@ -48,6 +49,26 @@ async function versionFlow(db: Db, viewer: Viewer, code: string, version: number
 const inputsOf = (step: ClaudeStep, vars: Record<string, unknown>) => Object.fromEntries(step.inputs.map((k) => [k, lookup(vars, k) ?? ""]));
 
 /**
+ * Gli input per la STIMA (review F3, M8): un input che l'esempio non ha (lo
+ * ricava un passo prima, es. un campo di Claude) non conta come vuoto, ma
+ * pieno fino al taglio: la stima è un tetto, e lo dice.
+ */
+function estimateInputs(step: ClaudeStep, event: Record<string, unknown>): { inputs: Record<string, unknown>; guessed: boolean } {
+  let guessed = false;
+  const inputs = Object.fromEntries(
+    step.inputs.map((k) => {
+      const v = lookup(event, k);
+      if (v === undefined || v === null || v === "") {
+        guessed = true;
+        return [k, "x".repeat(CLAUDE_INPUT_MAX)];
+      }
+      return [k, v];
+    }),
+  );
+  return { inputs, guessed };
+}
+
+/**
  * La stima (C-F3-2, gratuita): `estimateCostUsd` sui token stimati (4
  * caratteri l'uno) del prompt vero di ogni passo di Claude raggiungibile, coi
  * giri di un «per ogni» contati dall'esempio (al più 50). Un modello senza
@@ -65,7 +86,9 @@ export async function estimateTest(db: Db, viewer: Viewer, code: string, input: 
     for (const s of steps) {
       if (s.kind === "claude") {
         claudeSteps += rounds;
-        const { prompt } = buildClaudePrompt(s, inputsOf(s, input.event));
+        const est = estimateInputs(s, input.event);
+        if (est.guessed) upperBound = true;
+        const { prompt } = buildClaudePrompt(s, est.inputs);
         const cost = estimateCostUsd(model, {
           inputTokens: Math.ceil(prompt.length / 4) + OVERHEAD_TOKENS,
           outputTokens: OUTPUT_TOKENS_BASE + OUTPUT_TOKENS_PER_FIELD * s.fields.length,
@@ -92,13 +115,30 @@ export async function estimateTest(db: Db, viewer: Viewer, code: string, input: 
   return { claudeSteps, estimateUsd: claudeSteps === 0 ? 0 : priced ? Math.round(total * 10_000) / 10_000 : null, model, upperBound };
 }
 
+/**
+ * Una prova alla volta per automazione (review F3, M9): richieste parallele
+ * passerebbero tutte il controllo del budget prima che la prima abbia speso.
+ * Il server è un processo solo: basta un insieme in memoria.
+ */
+const testsRunning = new Set<string>();
+
 /** Un passo di Claude della prova: il budget, la chiamata, la verifica. */
 export async function runTestClaude(db: Db, llm: ChatLlm, viewer: Viewer, code: string, input: { version: number | "draft"; rev?: number | null; path: string; vars: Record<string, unknown> }) {
   const { a, flow } = await versionFlow(db, viewer, code, input.version, input.rev);
   const step = stepAt(flow.steps, input.path);
   if (!step || step.kind !== "claude") throw new AutomationError(400, "path", "That step is not a Claude step");
+  if (testsRunning.has(a.id)) throw new AutomationError(409, "test_busy", "Another test step of this automation is running");
+  testsRunning.add(a.id);
+  try {
+    return await testStep(db, llm, viewer, a, step, input.vars);
+  } finally {
+    testsRunning.delete(a.id);
+  }
+}
+
+async function testStep(db: Db, llm: ChatLlm, viewer: Viewer, a: { id: string; projectId: string }, step: ClaudeStep, vars: Record<string, unknown>) {
   if ((await aiBudgetState(db)).exhausted) throw new AutomationError(409, "budget", "The monthly AI budget is used up");
-  const { prompt, truncated } = buildClaudePrompt(step, inputsOf(step, input.vars));
+  const { prompt, truncated } = buildClaudePrompt(step, inputsOf(step, vars));
   let text = "";
   for await (const delta of llm.stream({
     system: "",
