@@ -706,7 +706,8 @@ export type MailThreadProposalOutcome = z.infer<typeof mailThreadProposalOutcome
 // falso e titolo, riassunto e link sono null. La trascrizione intera non esce.
 
 export const meetingDocStatusSchema = z.enum(["reading", "ready", "unreachable"]);
-export const meetingDocReasonSchema = z.enum(["scope_missing", "not_shared", "deleted", "too_long"]);
+/** `not_verified` (review F5a, punto 2): nessun link dell'email porta a un Doc che si possa dire delle note di questa riunione. */
+export const meetingDocReasonSchema = z.enum(["scope_missing", "not_shared", "deleted", "too_long", "not_verified"]);
 
 /** La riunione sull'email di Gemini (`kind: "transcript"` del messaggio). */
 export const meetingNoteSchema = z.object({
@@ -737,7 +738,16 @@ export const meetingSummarySchema = z.object({
   summary: z.string().nullable().default(null),
   docUrl: z.string().nullable().default(null),
   /** La mia copia dell'email di Gemini, se l'ho ricevuta. */
-  email: z.object({ threadId: z.string(), messageId: z.uuid(), at: z.iso.datetime() }).nullable().default(null),
+  email: z
+    .object({
+      threadId: z.string(),
+      /** La casella di chi guarda (la chiave del thread nell'app è `accountId_threadId`); un server di prima non lo manda. */
+      accountId: z.uuid().nullable().default(null),
+      messageId: z.uuid(),
+      at: z.iso.datetime(),
+    })
+    .nullable()
+    .default(null),
 });
 export type MeetingSummary = z.infer<typeof meetingSummarySchema>;
 

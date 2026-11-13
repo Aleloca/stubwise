@@ -89,7 +89,9 @@ export async function listMailProposals(
     inArray(emailProposals.audience, ["mail_recipients", "meeting_invitees"]),
     // Destinatario, o una proposta PASSATA (chi ha i permessi di ogni azione
     // nel progetto la vede: il controllo vero è riga per riga, sotto).
-    sql`(${emailProposalRecipients.userId} is not null or ${emailProposals.handedAt} is not null)`,
+    // F5a (review, punto 9): una proposta di riunione la vede chi vede la
+    // riunione, derivato a lettura qui sotto (`canSeeMeeting`).
+    sql`(${emailProposalRecipients.userId} is not null or ${emailProposals.handedAt} is not null or ${emailProposals.audience} = 'meeting_invitees')`,
   ];
   if (filter.id) conditions.push(eq(emailProposals.id, filter.id));
   if (filter.messageId) {
@@ -131,16 +133,19 @@ export async function listMailProposals(
     .orderBy(emailProposals.createdAt);
 
   const out: MailProposal[] = [];
-  for (const { proposal, excerpt, recipient } of rows) {
+  for (const { proposal, excerpt, recipient: recipientRow } of rows) {
     // Il progetto deve essere visibile ADESSO (la revoca vale a lettura).
     const permissions = await proposalPermissionsOf(db, viewer.id, proposal);
     if (!permissions) continue;
+    // F5a: per una proposta di riunione «destinatario» è chi vede la riunione
+    // ADESSO (derivato: un invitato aggiunto dopo c'è, uno tolto no).
+    const meeting = proposal.audience === "meeting_invitees";
+    const recipient = meeting ? Boolean(proposal.meetingNoteId && (await canSeeMeeting(db, proposal.meetingNoteId, viewer.id))) : recipientRow !== null;
     // Un non destinatario vede solo una proposta passata di cui può decidere
     // OGNI azione (la stessa regola di `mail-proposals-decide.ts`).
-    if (!recipient && !coversAll(proposal, permissions)) continue;
-    // F5a: una proposta di riunione la vede solo chi vede la riunione ADESSO
-    // (un invitato tolto da Google non è più fra loro), salvo una passata.
-    if (proposal.audience === "meeting_invitees" && recipient && !proposal.handedAt && !(proposal.meetingNoteId && (await canSeeMeeting(db, proposal.meetingNoteId, viewer.id)))) continue;
+    if (!recipient && !(proposal.handedAt && coversAll(proposal, permissions))) continue;
+    // Review F5a, punto 6: l'estratto è dell'email di Gemini di UNA casella;
+    // per una riunione lo vede solo chi ne ha la sua copia (`buildView`).
     const view = await buildView(db, viewer, proposal, recipient ? excerpt : "", permissions, lang);
     if (filter.status && view.status !== filter.status) continue;
     out.push(view);
@@ -255,7 +260,7 @@ async function buildView(
     projectId: choose?.[0] ?? proposal.projectId,
     status,
     createdAt: proposal.createdAt.toISOString(),
-    excerpt: (excerpt ?? "").slice(0, 500),
+    excerpt: meeting && !meeting.ownMessageId ? "" : (excerpt ?? "").slice(0, 500),
     actions,
     canConfirm,
     canHand: open && !choose && !canConfirm,

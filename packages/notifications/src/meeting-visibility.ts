@@ -8,9 +8,10 @@ import { resolveRecipientUserIds } from "./mail-recipients.js";
  * qui, e nessun altro: è l'ECCEZIONE DICHIARATA a «Posta e Calendario
  * personali» (decisione del maintainer, `docs/invariants/mail-calendar.md`).
  *
- * - Con un evento collegato: gli invitati ATTUALI dell'evento, con
- *   qualunque risposta (anche declined), più l'organizzatore — dalla riga
- *   PIÙ RECENTE e non cancellata di `calendar_events` con quell'iCalUID, in
+ * - Con un evento collegato: gli invitati ATTUALI di QUELLA occorrenza
+ *   (stesso iCalUID e stessa data: una serie li condivide), con qualunque
+ *   risposta (anche declined), più l'organizzatore — dalla riga
+ *   dell'organizzatore, o la più recente, non cancellata, in
  *   QUALUNQUE casella (un invitato senza casella collegata vede lo stesso:
  *   l'elenco viene dalla riga di un altro); lo snapshot `attendee_emails`
  *   solo se non resta nessuna riga. Un invitato tolto da Google smette di
@@ -27,11 +28,25 @@ export async function meetingAudienceEmails(db: Db, noteId: string): Promise<str
   const [note] = await db.select().from(meetingNotes).where(eq(meetingNotes.id, noteId));
   if (!note) return null;
   if (note.icalUid) {
+    // ⚠️ Review F5a, punto 1 (CRITICO): le occorrenze di una serie hanno lo
+    // STESSO iCalUID (`singleEvents=true`). Senza la DATA, chi è invitato a
+    // un'altra occorrenza vedrebbe tutte le riunioni registrate della serie.
+    // Senza la data della riunione si resta allo snapshot.
+    if (!note.eventStartsAt) return [...note.attendeeEmails];
     const [latest] = await db
       .select({ attendees: calendarEvents.attendees, organizer: calendarEvents.organizer })
       .from(calendarEvents)
-      .where(and(eq(calendarEvents.icalUid, note.icalUid), sql`${calendarEvents.status} is distinct from 'cancelled'`))
-      .orderBy(desc(calendarEvents.updatedAt))
+      .where(
+        and(
+          eq(calendarEvents.icalUid, note.icalUid),
+          eq(calendarEvents.startsAt, note.eventStartsAt),
+          sql`${calendarEvents.status} is distinct from 'cancelled'`,
+        ),
+      )
+      // Punto 8: la riga dell'ORGANIZZATORE prima (è la sua copia dell'evento
+      // a dire chi è invitato); poi la più recente. Limite: senza la riga
+      // dell'organizzatore, «più recente» è l'ora della NOSTRA riga.
+      .orderBy(desc(calendarEvents.organizerSelf), desc(calendarEvents.updatedAt))
       .limit(1);
     if (latest) return [...latest.attendees.map((a) => a.email), ...(latest.organizer ? [latest.organizer] : [])];
     return [...note.attendeeEmails];

@@ -5040,7 +5040,14 @@ export const meetingNotes = pgTable(
     eventTitle: text("event_title"),
     docTitle: text("doc_title"),
     docStatus: text("doc_status").$type<"reading" | "ready" | "unreachable">().notNull().default("reading"),
-    docReason: text("doc_reason").$type<"scope_missing" | "not_shared" | "deleted" | "too_long">(),
+    docReason: text("doc_reason").$type<"scope_missing" | "not_shared" | "deleted" | "too_long" | "not_verified">(),
+    /**
+     * Review F5a, punto 2 (0166): TUTTI i link a un Google Doc dell'email, in
+     * ordine. Il primo può venire dal titolo della riunione (lo sceglie
+     * l'organizzatore): il worker legge solo il candidato che VERIFICA su Drive
+     * (`doc_file_id` diventa quello), altrimenti `not_verified`.
+     */
+    docCandidates: text("doc_candidates").array().notNull().default([]),
     summary: text("summary"),
     attendeeEmails: text("attendee_emails").array().notNull().default([]),
     projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
@@ -5057,7 +5064,7 @@ export const meetingNotes = pgTable(
     index("meeting_notes_ical_uid_idx").on(table.icalUid),
     index("meeting_notes_reading_idx").on(table.nextAttemptAt).where(sql`doc_status = 'reading'`),
     check("meeting_notes_doc_status_chk", sql`doc_status in ('reading', 'ready', 'unreachable')`),
-    check("meeting_notes_doc_reason_chk", sql`doc_reason is null or doc_reason in ('scope_missing', 'not_shared', 'deleted', 'too_long')`),
+    check("meeting_notes_doc_reason_chk", sql`doc_reason is null or doc_reason in ('scope_missing', 'not_shared', 'deleted', 'too_long', 'not_verified')`),
   ],
 );
 
