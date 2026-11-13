@@ -152,6 +152,31 @@ describe("pubblicare e accendere", () => {
     expect((check.json() as { issues: { code: string }[] }).issues.map((i) => i.code)).toContain("not_available");
   });
 
+  it("review F1, M5: un salvataggio concorrente non fa pubblicare un flusso non validato (la pubblicazione rilegge la bozza sotto il lock)", async () => {
+    const { p, lead } = await setup();
+    const a = await created(lead, p.id, flowOf([createTask()]));
+    const email: Step = { id: "e1", kind: "sendEmail", to: "a@b.it", subject: "x", body: "y", attachRefs: [], approval: auto };
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const holding = new Promise<void>((r) => (locked = r));
+    // Un salvataggio che tiene il lock dell'automazione e scrive un flusso non valido.
+    const saver = db.transaction(async (tx) => {
+      await tx.select({ id: automations.id }).from(automations).where(eq(automations.id, a.id)).for("update");
+      locked();
+      await gate;
+      await tx.update(automationVersions).set({ flow: flowOf([email]), rev: 2 }).where(eq(automationVersions.automationId, a.id));
+    });
+    await holding;
+    const publishing = call(lead.headers, "POST", `/automations/${a.code}/publish`, {});
+    await new Promise((r) => setTimeout(r, 300));
+    release();
+    await saver;
+    const res = await publishing;
+    expect(res.statusCode).toBe(409);
+    expect((await db.select().from(automationVersions).where(eq(automationVersions.automationId, a.id)))[0]!.publishedAt).toBeNull();
+  });
+
   it("chi pubblica diventa il proprietario, e da lì ascolta (active_since); senza il permesso di creare dove il flusso crea → 409 permission", async () => {
     const { p, lead } = await setup();
     const q = await project();

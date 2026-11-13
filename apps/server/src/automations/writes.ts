@@ -175,20 +175,24 @@ const checkRev = (rev: number | null, expectedRev: number | null | undefined) =>
 
 /** «Pubblica»: la bozza diventa la versione con cui partono le esecuzioni nuove; chi pubblica è il proprietario. */
 export async function publishAutomation(db: Db, viewer: Viewer, code: string, opts: { expectedRev?: number | null }): Promise<Automation> {
-  const a = await managedAutomation(db, viewer, code);
-  const draft = await latestVersion(db, a.id);
-  if (!draft || draft.publishedAt !== null) throw invalid("no_draft", "There is no draft to publish");
-  checkRev(draft.rev, opts.expectedRev);
-  await failOnConfig(db, viewer, a, draft.flow as AutomationFlow);
-  await ownerChecks(db, viewer, a, draft.flow as AutomationFlow);
+  const a0 = await managedAutomation(db, viewer, code);
+  // Review F1, M5: la bozza si rilegge e si valida SOTTO il lock
+  // dell'automazione (lo stesso di `saveDraft`), e si pubblica quella: un
+  // salvataggio concorrente o è prima (e si valida il suo flusso) o aspetta.
   await db.transaction(async (tx) => {
+    const [a] = await tx.select().from(automations).where(eq(automations.id, a0.id)).for("update");
+    const draft = await latestVersion(tx, a!.id);
+    if (!draft || draft.publishedAt !== null) throw invalid("no_draft", "There is no draft to publish");
+    checkRev(draft.rev, opts.expectedRev);
+    await failOnConfig(tx, viewer, a!, draft.flow as AutomationFlow);
+    await ownerChecks(tx, viewer, a!, draft.flow as AutomationFlow);
     await tx.update(automationVersions).set({ publishedAt: sql`now()`, publishedBy: viewer.id }).where(eq(automationVersions.id, draft.id));
     await tx
       .update(automations)
-      .set({ ownerId: viewer.id, ...(a.status === "draft" ? { status: "active" as const, activeSince: sql`now()` } : {}) })
-      .where(eq(automations.id, a.id));
+      .set({ ownerId: viewer.id, ...(a!.status === "draft" ? { status: "active" as const, activeSince: sql`now()` } : {}) })
+      .where(eq(automations.id, a!.id));
   });
-  const [after] = await db.select().from(automations).where(eq(automations.id, a.id));
+  const [after] = await db.select().from(automations).where(eq(automations.id, a0.id));
   return shapeOf(db, viewer, after!);
 }
 
