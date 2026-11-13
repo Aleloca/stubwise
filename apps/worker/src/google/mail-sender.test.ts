@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { googleAccounts, googleWorkspaces, mailDrafts, mailOutgoing, users, type Db } from "@stubwise/db";
+import { automationRuns, automations, googleAccounts, googleWorkspaces, mailDrafts, mailOutgoing, projects, users, type Db } from "@stubwise/db";
 import { startTestDb, type TestDb } from "@stubwise/db/testing";
 import { GoogleApiError } from "@stubwise/google";
 import { eq, sql } from "drizzle-orm";
@@ -29,14 +29,19 @@ afterAll(async () => {
 
 function client(sendImpl?: () => Promise<{ messageId: string; threadId: string }>) {
   const sent: string[] = [];
+  const raws: { raw: string; threadId: string | null }[] = [];
   const c: MailSenderClient = {
     refreshAccessToken: async () => ({ accessToken: "at", expiresInSeconds: 3600, refreshToken: null, scopes: [], tokenType: "Bearer", idToken: null }),
     sendDraft: async (input) => {
       sent.push(input.id);
       return sendImpl ? sendImpl() : { messageId: `m-${input.id}`, threadId: "t1" };
     },
+    sendMessage: async (input) => {
+      raws.push({ raw: input.raw, threadId: input.threadId ?? null });
+      return sendImpl ? sendImpl() : { messageId: `m-auto-${raws.length}`, threadId: input.threadId ?? `t-auto-${raws.length}` };
+    },
   };
-  return { c, sent };
+  return { c, sent, raws };
 }
 
 async function queued(sendAtOffsetMs: number) {
@@ -58,7 +63,47 @@ const deps = (c: MailSenderClient) => ({
 });
 const reload = async (id: string) => (await db.select().from(mailOutgoing).where(eq(mailOutgoing.id, id)))[0]!;
 
+/** Un'email di un'automazione (area 7, F2, C-F2-1): nessuna bozza, l'esecuzione che l'ha chiesta. */
+async function automationRow() {
+  const { account, row: human } = await queued(60_000);
+  await db.delete(mailOutgoing).where(eq(mailOutgoing.id, human.id));
+  const [project] = await db.insert(projects).values({ name: "P", slug: `p-${randomUUID()}`, ingestionKey: randomUUID() }).returning();
+  const [a] = await db.insert(automations).values({ code: `M${randomUUID().slice(0, 5)}-A1`, seq: 1, name: "A", projectId: project!.id }).returning();
+  const [run] = await db.insert(automationRuns).values({ automationId: a!.id, n: 1, version: 1, title: "R", origin: "manual" }).returning();
+  const insert = (rfc: string, threadId: string | null, state: "queued" | "sent", offsetMs = -1000) =>
+    db
+      .insert(mailOutgoing)
+      .values({ userId: account.userId, accountId: account.id, automationRunId: run!.id, gmailThreadId: threadId, rfcMessageId: rfc, toAddresses: [{ email: "cliente@b.it", name: null }], subject: "Benvenuto", body: "Ciao Rossi", state, sendAt: sql`now() + make_interval(secs => ${offsetMs / 1000})` })
+      .returning();
+  return { account, run: run!, insert };
+}
+
 describe("sendDueMail", () => {
+  it("area 7, F2: un'email d'automazione parte SENZA bozza, dalla casella, col suo Message-ID; nella stessa conversazione risponde alla precedente", async () => {
+    const { account, insert } = await automationRow();
+    const [first] = await insert("<a1@stubwise>", null, "queued");
+    const { c, sent, raws } = client();
+    expect(await sendDueMail(deps(c))).toEqual({ sent: 1, failed: 0 });
+    expect(sent).toEqual([]);
+    const mime = Buffer.from(raws[0]!.raw, "base64url").toString("utf8");
+    expect(mime).toContain(`From: ${account.email}`);
+    expect(mime).toContain("To: cliente@b.it");
+    expect(mime).toContain("Message-ID: <a1@stubwise>");
+    expect(mime).not.toContain("In-Reply-To");
+    expect(raws[0]!.threadId).toBeNull();
+    const firstSent = await reload(first!.id);
+    expect(firstSent).toMatchObject({ state: "sent", gmailMessageId: "m-auto-1", gmailThreadId: "t-auto-1" });
+    // La seconda allo stesso indirizzo: nel thread della prima, in risposta alla prima.
+    const [second] = await insert("<a2@stubwise>", firstSent.gmailThreadId, "queued");
+    await sendDueMail(deps(c));
+    const reply = Buffer.from(raws[1]!.raw, "base64url").toString("utf8");
+    expect(raws[1]!.threadId).toBe("t-auto-1");
+    expect(reply).toContain("In-Reply-To: <a1@stubwise>");
+    expect(reply).toContain("References: <a1@stubwise>");
+    expect(await reload(second!.id)).toMatchObject({ state: "sent", gmailThreadId: "t-auto-1" });
+  });
+
+
   it("manda le righe DOVUTE: la bozza di Gmail parte, la riga è sent, la bozza se ne va", async () => {
     const { row, draft } = await queued(-1000);
     const { c, sent } = client();

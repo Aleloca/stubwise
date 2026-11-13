@@ -103,6 +103,7 @@ export {
   getDraft,
   getSendAsSignature,
   sendDraft,
+  sendMessage,
   updateDraft,
   type GmailDraftRef,
   type MailAddressInput,
