@@ -7,7 +7,7 @@ import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { listReleaseQueue, releasePullRequest } from "../services/release.js";
 import { fixRelease, getRelease, listProjectReleases, ReleaseError } from "../services/releases.js";
-import { listOpenPulls } from "../services/pulls.js";
+import { listOpenPulls, setPrAnalysisOnly } from "../services/pulls.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const releaseParamsSchema = z.object({ id: z.uuid(), repositoryId: z.uuid() });
@@ -40,6 +40,13 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
   app.get("/projects/:projectId/pulls", { config: { access: { kind: "user" } }, schema: { params: z.object({ projectId: z.uuid() }) } }, async (request, reply) =>
     handle(reply, async () => ({ items: await listOpenPulls(app.db, app.encryptionKey, request.user!, request.params.projectId) })),
   );
+  // Area 8, F1, S8: «Solo analisi» su una PR di un collega (`prs.adopt`, nel servizio).
+  const pullParams = z.object({ repositoryId: z.uuid(), prNumber: z.coerce.number().int().positive() });
+  for (const [method, on] of [["post", true], ["delete", false]] as const) {
+    app[method]("/repositories/:repositoryId/pulls/:prNumber/analysis-only", { config: { access: { kind: "user" } }, schema: { params: pullParams } }, async (request, reply) =>
+      handle(reply, () => setPrAnalysisOnly(app.db, request.user!, { ...request.params, on })),
+    );
+  }
   const codeParams = z.object({ code: z.string().min(1).max(40) });
   app.get("/releases/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
     handle(reply, () => getRelease(app.db, request.user!, request.params.code)),

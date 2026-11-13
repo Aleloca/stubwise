@@ -49,6 +49,7 @@ import {
   setReviewCommitStatus,
   type ReviewCycleDeps,
 } from "./cycle.js";
+import { linkColleaguePr } from "./colleague-link.js";
 import { buildReviewPrompt, parseReviewOutput } from "./prompts.js";
 import { NATIVE_TOOLS, nativeToolsWith } from "../agent/native-tools.js";
 
@@ -169,7 +170,10 @@ export interface RunPrReviewDeps {
   /** Provider git iniettabile nei test (default: getProvider). */
   getProviderFn?: (
     kind: GitProviderKind,
-  ) => Pick<GitProvider, "getPullRequestState" | "createPrComment" | "submitPrReview" | "setCommitStatus">;
+  ) => Pick<GitProvider, "getPullRequestState" | "createPrComment" | "submitPrReview" | "setCommitStatus"> &
+    // Area 8, F1, S8: la PR del collega letta dal provider. Assente (i doppi
+    // dei test di prima) = non verificabile: fail-closed, nessuna riga.
+    Partial<Pick<GitProvider, "getPullRequestInfo">>;
   /** Scelta dell'account (providers/select.ts), la stessa di tutto il worker. */
   select: SelectDeps;
   /** Costo mensile dell'istanza (iniettabile). Default: monthlyCostUsd. */
@@ -994,6 +998,30 @@ export async function runPrReview(
         })
         .where(eq(prReviews.id, reviewId));
     });
+
+    // 12b. Le PR dei colleghi senza adozione (area 8, F1, S8): la PR di un
+    // collega diventa correggibile se il suo ramo lo permette (dal provider,
+    // fail-closed) — PRIMA del ciclo, che così vede la riga. Se la correzione
+    // parte lo decide l'impostazione in `enqueueCorrection`. Best-effort: la
+    // review è già completed.
+    try {
+      const linked = await linkColleaguePr(
+        {
+          db: deps.db,
+          getPullRequestInfo: async () => {
+            const provider = getProviderFn(ctx.mirrorProject.provider);
+            if (!provider.getPullRequestInfo) throw new Error("provider senza getPullRequestInfo");
+            return provider.getPullRequestInfo(ctx.mirrorProject, job.prNumber);
+          },
+        },
+        { ticketId: ticket.id, repositoryId: job.repositoryId, prNumber: job.prNumber, prUrl: job.prUrl },
+      );
+      if (linked !== "linked" && linked !== "already" && linked !== "not_review_ticket") {
+        console.error(`[stubwise-worker] pr-review: PR #${job.prNumber} del collega non correggibile (${linked})`);
+      }
+    } catch (err) {
+      console.error(`[stubwise-worker] pr-review: PR #${job.prNumber} del collega non collegata (${errText(err)})`);
+    }
 
     // 13-14. Pubblicazione sulla PR (account revisore o principale), status di
     // commit, ciclo di correzione e notifica: vedi cycle.ts. Tutto best-effort:

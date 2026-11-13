@@ -525,7 +525,7 @@ una voce ti riguarda.
   - Il rilancio generico non tocca una correzione ferma (1 ott 2026).
   - La review «in attesa» esiste dal claim, e si riaccoda all'avvio perché il worker è UN processo.
   - Una sola regola di correggibilità
-  - Adottare una PR aperta da altri (6 ott 2026) — chi, quale, dove.
+  - Le PR dei colleghi (area 8, 13 nov 2026): niente adozione esplicita, ogni PR si analizza secondo `colleague_prs`; le regole di sicurezza (fork, protetti, push in avanti) restano.
   - Il webhook «Request changes» non legge i commenti della PR, e scarta le riconsegne.
   - Staleness: la correzione non sposta `WORKER_STALE_MINUTES`, ma ha DUE heartbeat.
 - **Sessioni di refinement del backlog → `docs/invariants/backlog-refine.md`**:

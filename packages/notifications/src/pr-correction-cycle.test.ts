@@ -1909,6 +1909,67 @@ describe("adozione di una PR aperta da altri (6 ott 2026) — la regola unica ne
   });
 });
 
+describe("area 8, F1, S8: le PR dei colleghi senza adozione — il cancello dell'impostazione", () => {
+  const colleague = async (mode: "analyze_and_fix" | "analyze_only" | "off", opts: { analysisOnly?: boolean; explicit?: boolean } = {}) => {
+    const pr = await seedPr({ branch: "feature/login", adopted: true });
+    await db.update(repositories).set({ colleaguePrs: mode }).where(eq(repositories.id, pr.repositoryId));
+    if (opts.explicit) {
+      const by = await seedUser();
+      await db.update(ticketRepositories).set({ adoptedByUserId: by }).where(eq(ticketRepositories.ticketId, pr.ticketId));
+    }
+    if (opts.analysisOnly) {
+      await db.insert(prReviews).values({ repositoryId: pr.repositoryId, prNumber: pr.prNumber, prUrl: "u", prTitle: "t", headSha: "a".repeat(40), sourceBranch: "feature/login", status: "completed", analysisOnly: true } as never);
+    }
+    return pr;
+  };
+  const refused = async (pr: SeededPr, trigger: "stubwise" | "provider" | "review") => {
+    expect(await enqueueCorrection(db, { ...pr, trigger, actorPermissions: LEAD })).toEqual({ ok: false, error: "colleague_analysis_only" });
+    expect(await correctionsOf(pr)).toEqual([]);
+    expect(await jobsOf(pr)).toEqual([]);
+  };
+
+  it("«solo analisi» sul repository: il giro automatico NON parte", async () => {
+    await refused(await colleague("analyze_only"), "review");
+  });
+
+  it("«solo analisi» sul repository: il «Request changes» della piattaforma NON fa partire nulla ((O) di 46)", async () => {
+    await refused(await colleague("analyze_only"), "provider");
+  });
+
+  it("«solo analisi» sul repository: «Chiedi modifiche» in Stubwise parte", async () => {
+    const pr = await colleague("analyze_only");
+    expect(await enqueueCorrection(db, { ...pr, trigger: "stubwise", actorPermissions: LEAD })).toMatchObject({ ok: true, status: "queued" });
+  });
+
+  it("«analisi e correzioni»: il giro automatico e la piattaforma partono", async () => {
+    for (const trigger of ["review", "provider"] as const) {
+      const pr = await colleague("analyze_and_fix");
+      expect(await enqueueCorrection(db, { ...pr, trigger, actorPermissions: LEAD })).toMatchObject({ ok: true });
+    }
+  });
+
+  it("«Solo analisi» sulla PR ferma tutto, anche «Chiedi modifiche» e l'adozione esplicita", async () => {
+    for (const trigger of ["stubwise", "provider", "review"] as const) {
+      await refused(await colleague("analyze_and_fix", { analysisOnly: true, explicit: true }), trigger);
+    }
+  });
+
+  it("«spento»: niente, nemmeno chiesta", async () => {
+    await refused(await colleague("off"), "stubwise");
+  });
+
+  it("l'adozione esplicita (client vecchi) vale «analisi e correzioni»: il giro automatico parte anche con «solo analisi» sul repository", async () => {
+    const pr = await colleague("analyze_only", { explicit: true });
+    expect(await enqueueCorrection(db, { ...pr, trigger: "review" })).toMatchObject({ ok: true });
+  });
+
+  it("le PR di Stubwise non guardano l'impostazione dei colleghi", async () => {
+    const pr = await seedPr();
+    await db.update(repositories).set({ colleaguePrs: "off" }).where(eq(repositories.id, pr.repositoryId));
+    expect(await enqueueCorrection(db, { ...pr, trigger: "review" })).toMatchObject({ ok: true });
+  });
+});
+
 describe("adozione e chiusura della PR (6 ott 2026, fix di review)", () => {
   it("releaseAdoptionsOnPrClose rilascia la riga adottata della PR, e solo quella", async () => {
     const pr = await seedPr({ branch: "feature/login", adopted: true });
@@ -1964,7 +2025,10 @@ describe("PR ADOTTATA: «Chiedi modifiche» e la ripresa sono di un admin (7 ott
     });
     expect(await correctionsOf(pr)).toEqual([]);
     expect(await jobsOf(pr)).toEqual([]);
-    // Il ciclo automatico e la piattaforma non hanno un ruolo: invariati.
+    // Il ciclo automatico e la piattaforma non hanno un ruolo: invariati (con
+    // «analisi e correzioni» sul repository: dall'area 8 il default è «solo
+    // analisi», che il giro automatico non lo fa partire — test S8 sopra).
+    await db.update(repositories).set({ colleaguePrs: "analyze_and_fix" }).where(eq(repositories.id, pr.repositoryId));
     expect(await enqueueCorrection(db, { ...pr, trigger: "review" })).toMatchObject({ ok: true });
   });
 });

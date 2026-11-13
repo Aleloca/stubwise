@@ -675,6 +675,7 @@ async function runDecision(
     // La correzione ferma di una PR adottata col branch protetto: non è
     // un'azione possibile, per nessuno, finché il branch resta protetto.
     if (result.error === "adopted_branch_protected") return { ok: false, error: "forbidden" };
+    if (result.error === "colleague_analysis_only") return { ok: false, error: "forbidden" };
     return result.error === "ticket_not_found"
       ? { ok: false, error: "not_found" }
       : {

@@ -88,6 +88,8 @@ export async function correctionRoutes(instance: FastifyInstance): Promise<void>
           return apiError(reply, 409, "correction_in_flight", "A correction is already running on this PR");
         case "job_in_flight":
           return apiError(reply, 409, "job_in_flight", "A job for this ticket is already running");
+        case "colleague_analysis_only":
+          return apiError(reply, 409, "colleague_analysis_only", "This colleague's PR is set to analysis only: Stubwise does not correct it");
       }
     },
   );

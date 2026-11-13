@@ -1,11 +1,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import {
   encrypt,
+  environmentServers,
   gitAccounts,
+  prCorrections,
   prReviews,
   projectEnvironments,
   releases,
@@ -16,7 +18,7 @@ import {
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, seedTicket, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, seedRepositoryInProject, seedTicket, startTestDb } from "@stubwise/db/testing";
 import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 /**
@@ -1157,7 +1159,10 @@ describe("GET /api/release-queue — deployedOn", () => {
       .values({ name: `vps-${randomBytes(3).toString("hex")}`, keyHash: `hash-${crypto.randomUUID()}` })
       .returning();
     const name = `staging-${randomBytes(3).toString("hex")}`;
-    await testDb.db.insert(projectEnvironments).values({ projectId, name, kind: "staging", serverId: server!.id });
+    const [env] = await testDb.db.insert(projectEnvironments).values({ projectId, name, kind: "staging", serverId: server!.id }).returning();
+    // Area 8, F1 (R-L2): il server è per repository; come la rotta, lo si scrive per tutte quelle del progetto.
+    const repos = await testDb.db.select({ id: repositories.id }).from(repositories).where(eq(repositories.projectId, projectId));
+    if (repos.length > 0) await testDb.db.insert(environmentServers).values(repos.map((r) => ({ environmentId: env!.id, repositoryId: r.id, serverId: server!.id })));
     await testDb.db.insert(serverMetrics).values({
       serverId: server!.id,
       ts: new Date(),
@@ -1224,6 +1229,21 @@ describe("GET /api/release-queue — deployedOn", () => {
       expect(await deployedOnOf(ticketId, repositoryId)).toEqual([]);
     });
   }
+
+  it("R-L2: il commit giusto sul server di UN'ALTRA repository dell'ambiente non conta", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    const staging = await seedStaging(projectId, FULL_SHA);
+    const other = await seedRepositoryInProject(testDb.db, projectId);
+    // Il server dell'ambiente passa all'altra repository; quella della PR resta senza.
+    const [row] = await testDb.db.select().from(environmentServers).where(eq(environmentServers.repositoryId, repositoryId));
+    await testDb.db.delete(environmentServers).where(eq(environmentServers.repositoryId, repositoryId));
+    await testDb.db.insert(environmentServers).values({ environmentId: row!.environmentId, repositoryId: other, serverId: row!.serverId });
+    vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([]);
+    // Rimesso sulla repository della PR, combacia di nuovo (il negativo qui sopra non è un falso-per-tutto).
+    await testDb.db.insert(environmentServers).values({ environmentId: row!.environmentId, repositoryId, serverId: row!.serverId });
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([staging]);
+  });
 });
 
 describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {
@@ -1244,8 +1264,86 @@ describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {
       permissions: { analysisOnly: false, requestCorrection: true, editReleaseNotes: true },
     });
     expect(pull).not.toHaveProperty("canMerge");
+    // Area 8, F1, S8: il ramo `stubwise/ticket-<N>` è della PR stessa: mai «non correggibile».
+    expect((pull as { prState: Record<string, unknown> }).prState).not.toHaveProperty("notFixable");
     const outsider = await createUserWithPat(app, `out-${randomUUID().slice(0, 6)}@acme.com`);
     expect((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: outsider.headers })).statusCode).toBe(404);
+  });
+
+  describe("area 8, F1, S8: lo stato della PR del collega e «Solo analisi»", () => {
+    async function colleaguePr(opts: { verdict?: "approve" | "request_changes"; fromFork?: boolean | null; mode?: "analyze_and_fix" | "analyze_only" | "off" } = {}) {
+      const pr = await seedExternalPr({ verdict: opts.verdict ?? "request_changes" });
+      await testDb.db
+        .update(prReviews)
+        .set({ headSha: "extheadsha", sourceBranch: "feature/x", targetBranch: "main", fromFork: opts.fromFork === undefined ? false : opts.fromFork })
+        .where(eq(prReviews.repositoryId, pr.repositoryId));
+      await testDb.db.update(repositories).set({ colleaguePrs: opts.mode ?? "analyze_and_fix" }).where(eq(repositories.id, pr.repositoryId));
+      const [{ projectId }] = await testDb.db.select({ projectId: repositories.projectId }).from(repositories).where(eq(repositories.id, pr.repositoryId)) as [{ projectId: string }];
+      vi.stubGlobal("fetch", externalFetch(pr.prNumber));
+      const lead = await createUserWithPat(app, `lead-${randomUUID().slice(0, 6)}@acme.com`);
+      await addMember(app, projectId, lead.id, "project_lead");
+      const pulls = async (headers = lead.headers) =>
+        ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers })).json() as { items: Record<string, unknown>[] }).items[0]!;
+      const flag = (method: "POST" | "DELETE", headers = lead.headers) =>
+        app.inject({ method, url: `/api/repositories/${pr.repositoryId}/pulls/${pr.prNumber}/analysis-only`, headers });
+      return { ...pr, projectId, lead, pulls, flag };
+    }
+
+    it("chiede modifiche, ramo correggibile, «analisi e correzioni»: «issues», non pronta, Claude la può correggere", async () => {
+      const c = await colleaguePr();
+      expect(await c.pulls()).toMatchObject({
+        prState: { state: "issues", canAutoCorrect: true },
+        ready: false,
+        fromFork: false,
+        mergeable: null,
+        colleaguePrs: "analyze_and_fix",
+        issues: [{ file: null }],
+        permissions: { analysisOnly: true, requestCorrection: true },
+      });
+    });
+
+    it("approvata sulla head, senza controlli: «clean» e pronta", async () => {
+      const c = await colleaguePr({ verdict: "approve" });
+      expect(await c.pulls()).toMatchObject({ prState: { state: "clean" }, ready: true, issues: [] });
+    });
+
+    it("fork non verificabile: «not_fixable» (fork), e «Chiedi modifiche» non c'è", async () => {
+      const c = await colleaguePr({ fromFork: null });
+      expect(await c.pulls()).toMatchObject({ prState: { state: "not_fixable", notFixable: "fork" }, fromFork: null, permissions: { requestCorrection: false } });
+    });
+
+    it("«Solo analisi»: chi ha prs.adopt lo mette (su tutte le righe, annulla le correzioni aperte) e lo toglie", async () => {
+      const c = await colleaguePr();
+      const [{ ticketId }] = (await testDb.db.select({ ticketId: prReviews.ticketId }).from(prReviews).where(eq(prReviews.repositoryId, c.repositoryId))) as [{ ticketId: string }];
+      // Il ticket della review di una PR di un collega, con la riga che le scrive il worker (S8).
+      await testDb.db.update(tickets).set({ type: "review" }).where(eq(tickets.id, ticketId));
+      await testDb.db.insert(ticketRepositories).values({ ticketId, repositoryId: c.repositoryId, branch: "feature/x", prUrl: c.prUrl, prNumber: c.prNumber, prState: "open", adoptedAt: new Date() });
+      const [corr] = await testDb.db.insert(prCorrections).values({ ticketId, repositoryId: c.repositoryId, prNumber: c.prNumber, trigger: "review", status: "pending" }).returning();
+      const on = await c.flag("POST");
+      expect(on.statusCode).toBe(200);
+      expect(on.json()).toMatchObject({ analysisOnly: { byId: c.lead.id } });
+      expect((await testDb.db.select().from(prCorrections).where(eq(prCorrections.id, corr!.id)))[0]!.status).toBe("cancelled");
+      // Una review nuova nasce senza: il flag resta (vale su qualunque riga della PR).
+      await testDb.db.insert(prReviews).values({ repositoryId: c.repositoryId, prNumber: c.prNumber, prUrl: c.prUrl, prTitle: "t", headSha: "extheadsha", status: "running", createdAt: new Date(Date.now() + 60_000) });
+      expect(await c.pulls()).toMatchObject({ analysisOnly: { byId: c.lead.id }, prState: { state: "analyzing" }, permissions: { requestCorrection: false } });
+      const off = await c.flag("DELETE");
+      expect(off.statusCode).toBe(200);
+      expect(off.json()).toEqual({ analysisOnly: null });
+      expect(await c.pulls()).toMatchObject({ analysisOnly: null, permissions: { requestCorrection: true } });
+    });
+
+    it("«Solo analisi»: un Legacy Member (senza prs.adopt) 403, chi non vede il progetto 404, una PR di Stubwise 409, una PR mai analizzata 404", async () => {
+      const c = await colleaguePr();
+      const dev = await createUserWithPat(app, `lm-${randomUUID().slice(0, 6)}@acme.com`);
+      await addMember(app, c.projectId, dev.id, "legacy_member");
+      expect((await c.flag("POST", dev.headers)).statusCode).toBe(403);
+      const outsider = await createUserWithPat(app, `out-${randomUUID().slice(0, 6)}@acme.com`);
+      expect((await c.flag("POST", outsider.headers)).statusCode).toBe(404);
+      expect(await testDb.db.select().from(prReviews).where(and(eq(prReviews.repositoryId, c.repositoryId), eq(prReviews.analysisOnly, true)))).toEqual([]);
+      await testDb.db.insert(prReviews).values({ repositoryId: c.repositoryId, prNumber: 5, prUrl: "u5", prTitle: "t", headSha: "s", sourceBranch: "stubwise/ticket-3", status: "completed" });
+      expect((await app.inject({ method: "POST", url: `/api/repositories/${c.repositoryId}/pulls/5/analysis-only`, headers: c.lead.headers })).json()).toMatchObject({ code: "not_colleague_pr" });
+      expect((await app.inject({ method: "POST", url: `/api/repositories/${c.repositoryId}/pulls/999/analysis-only`, headers: c.lead.headers })).statusCode).toBe(404);
+    });
   });
 
   it("un Viewer vede la PR ma nessun permesso", async () => {

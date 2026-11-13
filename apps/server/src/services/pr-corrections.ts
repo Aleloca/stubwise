@@ -11,7 +11,8 @@ export type RequestCorrectionError =
   | "adopted_branch_protected"
   | "pr_not_open"
   | "correction_in_flight"
-  | "job_in_flight";
+  | "job_in_flight"
+  | "colleague_analysis_only";
 
 export type RequestCorrectionResult =
   | { ok: true; correctionId: string }

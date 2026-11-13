@@ -4432,3 +4432,16 @@ deploy o di un rollback che la tocca.
     'automations.general.manage');`.
   - Un worker vecchio consuma gli eventi `source_event` senza avviare niente
     (non hanno progetto), e legge l'effetto `run` come un id: nessun errore.
+- **«Il socket Docker dell'agente non è "sola lettura"» (13 nov 2026)**:
+  decisione del maintainer (area 8, Q4 = a). Solo testo: il comando
+  d'installazione dell'agente monta `/var/run/docker.sock:ro`, ma `:ro` su un
+  socket Unix non limita le richieste (impedisce di modificare il file, non di
+  connettersi), quindi l'agente può raggiungere tutta l'API di Docker; oggi la
+  usa solo per leggere (elenco e statistiche dei container). Il testo della
+  pagina del server nel web (`monitor:servers.keyStepRunBody`, it ed en) e la
+  guida (`/guide`, «Install the agent») non dicono più che «tutti i mount sono
+  in sola lettura — l'agente si limita a osservare». Né il comando né l'agente
+  cambiano. **Nota per chi ha già installato l'agente**: nessuna azione
+  richiesta; l'agente si comporta come prima, cambia solo ciò che la pagina
+  promette. **ORDINE**: solo **`caddy`** (web e guida). Nessuna migrazione, nessuna
+  env. **Rollback**: il caddy di prima rimette il testo vecchio; nient'altro.

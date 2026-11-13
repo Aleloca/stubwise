@@ -22,6 +22,7 @@ import {
   prHasOpenCorrection,
   promotePendingForTicket,
   providerFeedbackCutoff,
+  colleagueCorrectionPermitted,
   resolveProviderUserId,
   resolveReviewAccountWithCredentials,
   selectProviderFeedback,
@@ -32,6 +33,7 @@ import {
   type FetchPlatformIdentity,
 } from "@stubwise/notifications";
 import {
+  colleaguePrBlock,
   isCorrectablePr,
   isProtectedBranch,
   prCommentSchema,
@@ -218,6 +220,18 @@ class AdoptedBranchMismatchError extends Error {
  * falso. Un messaggio suo, con le due strade per uscirne. Gestito come il
  * mismatch (niente push, pending della stessa PR annullata).
  */
+/**
+ * La PR di un collega che l'impostazione non lascia più correggere (area 8,
+ * F1, S8): «Solo analisi» sulla PR, il repository «spento» o «solo analisi»
+ * per un giro automatico — magari scelto a correzione in corso. Niente push.
+ */
+class ColleagueAnalysisOnlyError extends Error {
+  constructor() {
+    super("la PR del collega è in «solo analisi» (o il repository è spento): niente push");
+    this.name = "ColleagueAnalysisOnlyError";
+  }
+}
+
 class AdoptedBranchProtectedError extends Error {
   constructor(branch: string) {
     super(
@@ -1026,7 +1040,42 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (info.state === "open" && info.sourceBranch !== branch) {
       throw new AdoptedBranchMismatchError(branch, `ora è su ${info.sourceBranch}`);
     }
+    if (info.state === "open") {
+      // Le regole del ramo delle PR dei colleghi (area 8, F1, S8), anche
+      // quelle che possono cambiare dopo l'adozione: il target della PR, il
+      // ramo di rilascio del repository, il default. I protetti li dice
+      // `assertNotProtected` (dal DB), il fork è sopra.
+      const [repo] = await db
+        .select({ defaultBranch: repositories.defaultBranch, releaseBranch: repositories.releaseBranch })
+        .from(repositories)
+        .where(eq(repositories.id, correction.repositoryId));
+      const defaultBranch = repo?.defaultBranch ?? mirrorProject.defaultBranch;
+      const block = colleaguePrBlock({
+        branch,
+        baseBranch: info.targetBranch,
+        defaultBranch,
+        releaseBranch: repo?.releaseBranch ?? defaultBranch,
+        fromFork: false,
+        branchProtected: false,
+        ownTaskCode: null,
+      });
+      if (block) throw new AdoptedBranchMismatchError(branch, `ramo vietato: ${block}`);
+    }
     return info.state;
+  };
+  // L'impostazione delle PR dei colleghi (area 8, F1, S8), riletta prima del
+  // worktree e prima del push: «Solo analisi» acceso a correzione in corso la
+  // ferma qui. Dal DATABASE, fail-closed (un errore di lettura risale).
+  const assertColleagueAllowed = async (): Promise<void> => {
+    const permitted = await colleagueCorrectionPermitted(db, {
+      repositoryId: correction.repositoryId,
+      prNumber: correction.prNumber,
+      ticketNumber: ticket.number,
+      branch,
+      adoptedByUserId: link.adoptedByUserId,
+      trigger: correction.trigger,
+    });
+    if (!permitted) throw new ColleagueAnalysisOnlyError();
   };
   // BRANCH PROTETTO (7 ott 2026): un branch che un admin ha protetto sulla
   // repository (`develop`, `release/*`…) non riceve MAI un push di Stubwise,
@@ -1046,6 +1095,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   try {
     if (adopted) {
       await assertNotProtected();
+      await assertColleagueAllowed();
       let state: "open" | "closed" | "unknown" = "unknown";
       try {
         state = await checkAdoptedPr();
@@ -1172,7 +1222,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           // si prosegue (fail-open, come il gate della review): il push è in
           // avanti, sul NOSTRO branch, e un commit su una PR appena chiusa non
           // fa danni; un errore transitorio che buttasse via il lavoro sì.
-          if (adopted) await assertNotProtected();
+          if (adopted) {
+            await assertNotProtected();
+            await assertColleagueAllowed();
+          }
           let prState: "open" | "closed" | "unknown" = "unknown";
           try {
             prState = adopted
@@ -1360,7 +1413,11 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (err instanceof AgentCommittedError) {
       return fail(`[correction] ${err.message}`, err.message);
     }
-    if (err instanceof AdoptedBranchMismatchError || err instanceof AdoptedBranchProtectedError) {
+    if (
+      err instanceof AdoptedBranchMismatchError ||
+      err instanceof AdoptedBranchProtectedError ||
+      err instanceof ColleagueAnalysisOnlyError
+    ) {
       // Nessuna review della head attuale: il branch non è più quello giusto.
       // E come per un branch sparito, la pending della STESSA PR si annulla:
       // il tick la ripromuoverebbe a ogni giro, e ogni giro finirebbe qui.

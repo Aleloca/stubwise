@@ -2169,6 +2169,66 @@ describe("runCorrection su una PR ADOTTATA (6 ott 2026)", () => {
     expect(await testDb.db.select().from(prReviewJobs)).toHaveLength(0);
   });
 
+  describe("area 8, F1, S8: l'impostazione delle PR dei colleghi e il ramo di rilascio, ricontrollati", () => {
+    const openInfo = (f: Fixture) => ({ state: "open" as const, sourceBranch: ADOPTED, targetBranch: "main", headSha: f.prSha, fromFork: false });
+    const expectNoPush = async (f: Fixture, job: AiJob, text: string) => {
+      expect(await upstreamHead(f)).toBe(f.prSha);
+      const [jobAfter] = await testDb.db.select().from(aiJobs).where(eq(aiJobs.id, job.id));
+      expect(jobAfter!.status).toBe("failed");
+      expect(jobAfter!.error).toContain(text);
+    };
+
+    it("«Solo analisi» sulla PR: niente agente, niente push", async () => {
+      const f = await makeFixture({ branch: ADOPTED, adopted: true });
+      const reviewId = await seedReview(f);
+      await testDb.db.update(prReviews).set({ analysisOnly: true }).where(eq(prReviews.id, reviewId));
+      const { job } = await seedCorrection(f, { reviewId, trigger: "stubwise" });
+      const runner = applyingRunner(f);
+      const provider = makeProvider();
+      provider.getPullRequestInfo.mockResolvedValue(openInfo(f));
+      expect(await runCorrection(makeDeps(f, runner, provider), job)).toBe("failed");
+      expect(runner.calls).toHaveLength(0);
+      await expectNoPush(f, job, "solo analisi");
+    });
+
+    it("«Solo analisi» acceso a correzione IN CORSO: si ferma prima del push", async () => {
+      const f = await makeFixture({ branch: ADOPTED, adopted: true });
+      const reviewId = await seedReview(f);
+      const { job } = await seedCorrection(f, { reviewId, trigger: "stubwise" });
+      const inner = applyingRunner(f);
+      const runner = new FakeAgentRunner({
+        script: async (opts: AgentRunOptions) => {
+          await testDb.db.update(prReviews).set({ analysisOnly: true }).where(eq(prReviews.id, reviewId));
+          return inner.run(opts);
+        },
+      });
+      const provider = makeProvider();
+      provider.getPullRequestInfo.mockResolvedValue(openInfo(f));
+      expect(await runCorrection(makeDeps(f, runner, provider), job)).toBe("failed");
+      expect(runner.calls).toHaveLength(1);
+      await expectNoPush(f, job, "solo analisi");
+    });
+
+    it("un giro AUTOMATICO con «solo analisi» sul repository (il default): niente push", async () => {
+      const f = await makeFixture({ branch: ADOPTED, adopted: true });
+      const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "review" });
+      const provider = makeProvider();
+      provider.getPullRequestInfo.mockResolvedValue(openInfo(f));
+      expect(await runCorrection(makeDeps(f, applyingRunner(f), provider), job)).toBe("failed");
+      await expectNoPush(f, job, "solo analisi");
+    });
+
+    it("il branch è diventato il ramo di rilascio del repository: niente push", async () => {
+      const f = await makeFixture({ branch: ADOPTED, adopted: true });
+      await testDb.db.update(repositories).set({ releaseBranch: ADOPTED }).where(eq(repositories.id, f.repositoryId));
+      const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+      const provider = makeProvider();
+      provider.getPullRequestInfo.mockResolvedValue(openInfo(f));
+      expect(await runCorrection(makeDeps(f, applyingRunner(f), provider), job)).toBe("failed");
+      await expectNoPush(f, job, "release_branch");
+    });
+  });
+
   it("adozione RILASCIATA: la correzione fallisce prima dell'agente, niente push", async () => {
     const f = await makeFixture({ branch: ADOPTED, adopted: true, released: true });
     const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });

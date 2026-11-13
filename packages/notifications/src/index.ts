@@ -258,6 +258,7 @@ export {
 // e `hasJobInFlight` sono l'UNICA definizione di «job che blocca»: si
 // riusano, non si ricopiano.
 export {
+  colleagueCorrectionPermitted,
   autoRoundsInCurrentSeries,
   cancelOpenCorrections,
   cancelPendingCorrection,

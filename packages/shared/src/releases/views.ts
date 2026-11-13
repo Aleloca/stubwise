@@ -1,3 +1,4 @@
+import type { ColleaguePrMode, OpenPrState } from "./pr-state.js";
 import type { ReleaseStatus } from "./status.js";
 
 /**
@@ -111,6 +112,25 @@ export interface OpenPull {
   cap: number;
   /** «Solo analisi» su questa PR: chi e quando; null = no. */
   analysisOnly: { byId: string | null; at: string } | null;
+  /**
+   * Area 8, F1, S8: lo stato della PR (`prStateOf` di shared, calcolato dal
+   * server) e se è pronta per il rilascio (`isReadyForRelease`; `mergeable`
+   * non letto non blocca). Facoltativi: un server di prima non li manda.
+   */
+  prState?: OpenPrState;
+  ready?: boolean;
+  /** La PR viene da un fork (null = il provider non lo dice). */
+  fromFork?: boolean | null;
+  /** Non letto nella F1: sempre null. */
+  mergeable?: boolean | null;
+  /** L'impostazione delle PR dei colleghi del repository. */
+  colleaguePrs?: ColleaguePrMode;
+  /**
+   * I problemi aperti dell'ultima analisi sulla head. Senza problemi
+   * strutturati: con «chiede modifiche», un elemento col riassunto (per non
+   * dire «senza problemi»); vuoto se approva.
+   */
+  issues?: { title: string; file: string | null }[];
   permissions: {
     /** Mettere o togliere «Solo analisi» (una PR di un collega, `prs.adopt`). */
     analysisOnly: boolean;

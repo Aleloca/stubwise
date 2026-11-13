@@ -330,6 +330,52 @@ describe("runPrReview", () => {
     expect(fakes.dispatched[0]!.opts).toEqual({ projectId, ticketId: ticket.id });
   });
 
+  describe("area 8, F1, S8: la PR di un collega senza adozione", () => {
+    const withInfo = (fakes: ReturnType<typeof makeFakes>) => ({
+      ...fakes.deps,
+      getProviderFn: () => ({
+        createPrComment: fakes.createPrComment,
+        getPullRequestState: fakes.getPullRequestState,
+        submitPrReview: fakes.submitPrReview,
+        setCommitStatus: fakes.setCommitStatus,
+        getPullRequestInfo: async () => ({ state: "open" as const, sourceBranch: "feature/login", targetBranch: "main", headSha: "a".repeat(40), fromFork: false }),
+      }),
+    });
+    const linkOf = async (repositoryId: string) =>
+      testDb.db.select().from(ticketRepositories).where(eq(ticketRepositories.repositoryId, repositoryId));
+
+    it("«analisi e correzioni»: la review scrive la riga (adottata dal sistema) e la prima correzione parte da sola", async () => {
+      const { repositoryId } = await createRepository(testDb.db);
+      await testDb.db.update(repositories).set({ colleaguePrs: "analyze_and_fix" }).where(eq(repositories.id, repositoryId));
+      await enableReview(testDb.db);
+      const fakes = makeFakes();
+      await runClaimed(withInfo(fakes), makeJob(repositoryId));
+      expect(await linkOf(repositoryId)).toEqual([expect.objectContaining({ branch: "feature/login", prNumber: 7, adoptedByUserId: null })]);
+      const corrections = await testDb.db.select().from(prCorrections).where(eq(prCorrections.repositoryId, repositoryId));
+      expect(corrections).toEqual([expect.objectContaining({ trigger: "review", status: "queued" })]);
+    });
+
+    it("«solo analisi» (il default): la riga c'è, nessuna correzione, la review si notifica", async () => {
+      const { repositoryId } = await createRepository(testDb.db);
+      await enableReview(testDb.db);
+      const fakes = makeFakes();
+      await runClaimed(withInfo(fakes), makeJob(repositoryId));
+      expect(await linkOf(repositoryId)).toHaveLength(1);
+      expect(await testDb.db.select().from(prCorrections).where(eq(prCorrections.repositoryId, repositoryId))).toEqual([]);
+      expect(fakes.dispatched.map((d) => d.event.kind)).toEqual(["review.completed"]);
+    });
+
+    it("il provider non dice dove sta il branch: nessuna riga, nessuna correzione (fail-closed)", async () => {
+      const { repositoryId } = await createRepository(testDb.db);
+      await testDb.db.update(repositories).set({ colleaguePrs: "analyze_and_fix" }).where(eq(repositories.id, repositoryId));
+      await enableReview(testDb.db);
+      const fakes = makeFakes();
+      await runClaimed(fakes.deps, makeJob(repositoryId)); // doppio senza getPullRequestInfo
+      expect(await linkOf(repositoryId)).toEqual([]);
+      expect(await testDb.db.select().from(prCorrections).where(eq(prCorrections.repositoryId, repositoryId))).toEqual([]);
+    });
+  });
+
   it("PR stubwise: commenta il ticket esistente senza crearne uno nuovo", async () => {
     const { projectId, repositoryId } = await createRepository(testDb.db);
     await enableReview(testDb.db);

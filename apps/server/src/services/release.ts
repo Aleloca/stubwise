@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import {
   decrypt,
+  environmentServers,
   gitAccounts,
   prReviews,
   projectEnvironments,
@@ -482,15 +483,22 @@ export async function listReleaseQueue(
         .where(and(inArray(projectEnvironments.projectId, allProjectIds), eq(projectEnvironments.kind, "production")))
     : [];
   const deployTargets = [...stagingEnvironments, ...productionEnvironments];
-  const serverIds = [...new Set(deployTargets.flatMap((e) => (e.serverId ? [e.serverId] : [])))];
+  // Area 8, F1 (R-L2): il server di un ambiente è PER REPOSITORY (`environment_servers`).
+  const envServerRows = deployTargets.length > 0
+    ? await db.select().from(environmentServers).where(inArray(environmentServers.environmentId, deployTargets.map((e) => e.id)))
+    : [];
+  const serverOf = new Map(envServerRows.map((r) => [`${r.environmentId}:${r.repositoryId}`, r.serverId]));
+  const serverIds = [...new Set(envServerRows.map((r) => r.serverId))];
   const servicesByServer = await loadLatestServicesByServer(db, serverIds);
 
-  function deployedOnFor(projectId: string, headSha: string | undefined): string[] {
+  function deployedOnFor(projectId: string, repositoryId: string, headSha: string | undefined): string[] {
     if (!headSha) return [];
     const names: string[] = [];
     for (const env of deployTargets) {
-      if (env.projectId !== projectId || !env.serverId) continue;
-      const services = servicesByServer.get(env.serverId) ?? [];
+      if (env.projectId !== projectId) continue;
+      const serverId = serverOf.get(`${env.id}:${repositoryId}`);
+      if (!serverId) continue;
+      const services = servicesByServer.get(serverId) ?? [];
       // Stessa regola di `reviewStale` (`sameCommit`): per prefisso, in
       // entrambi i versi, senza maiuscole, con una lunghezza minima.
       const match = services.some((s) => sameCommit(s.commitSha, headSha));
@@ -542,7 +550,7 @@ export async function listReleaseQueue(
         // esiste solo se la review è girata su QUESTA PR): senza review una
         // PR nata da Stubwise vedrebbe sempre "deployedOn" vuoto anche se lo
         // era davvero.
-        deployedOn: deployedOnFor(project.id, checks.headSha),
+        deployedOn: deployedOnFor(project.id, repository.id, checks.headSha),
         // Il verdetto è su una head diversa da quella della PR di ADESSO
         // (letta dal vivo, la stessa lettura dei check): un'informazione, il
         // merge non cambia.
@@ -607,7 +615,7 @@ export async function listReleaseQueue(
           testStatus: null,
           risk: null,
           riskReason: null,
-          deployedOn: deployedOnFor(project.id, checks.headSha),
+          deployedOn: deployedOnFor(project.id, repository.id, checks.headSha),
           reviewStale: isReviewStale(candidate.verdict, candidate.headSha, checks.headSha),
           headSha: checks.headSha ?? null,
         };

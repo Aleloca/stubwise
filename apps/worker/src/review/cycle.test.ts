@@ -537,6 +537,8 @@ describe("afterReviewCompleted — PR ADOTTATA (6 ott 2026)", () => {
 
   it("adottata: request_changes sotto il tetto accoda il giro automatico", async () => {
     const s = await setup({ branch: "feature/login", adoption: "adopted" });
+    // Area 8, F1, S8: il giro automatico sulla PR di un collega vuole «analisi e correzioni».
+    await testDb.db.update(repositories).set({ colleaguePrs: "analyze_and_fix" }).where(eq(repositories.id, s.repositoryId));
     const f = fakes();
 
     await afterReviewCompleted(f.deps, input(s, { job: adoptedJob(s) }));
@@ -545,6 +547,18 @@ describe("afterReviewCompleted — PR ADOTTATA (6 ott 2026)", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ trigger: "review", status: "queued" });
     expect(f.events).toHaveLength(0);
+  });
+
+  it("area 8, F1, S8: «solo analisi» sul repository: nessun giro automatico, e la review si notifica (SENZA cycle)", async () => {
+    const s = await setup({ branch: "feature/login", adoption: "adopted" });
+    await testDb.db.update(repositories).set({ colleaguePrs: "analyze_only" }).where(eq(repositories.id, s.repositoryId));
+    const f = fakes();
+
+    await afterReviewCompleted(f.deps, input(s, { job: adoptedJob(s) }));
+
+    expect(await testDb.db.select().from(prCorrections).where(eq(prCorrections.repositoryId, s.repositoryId))).toEqual([]);
+    expect(f.events).toHaveLength(1);
+    expect(f.events[0]).not.toHaveProperty("cycle");
   });
 
   it("rilasciata: nessun giro automatico, notifica come una PR esterna (SENZA cycle)", async () => {
