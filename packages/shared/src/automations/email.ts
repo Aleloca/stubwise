@@ -37,8 +37,14 @@ export interface EmailPlan {
   attachments: unknown[];
 }
 
-/** Un indirizzo email (la stessa regola della Posta). */
-export const EMAIL_ADDRESS = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * UN indirizzo email (review F2, M4): niente spazi, virgole, punti e virgola,
+ * parentesi angolari, virgolette o parentesi — un «To» preso dal testo di
+ * un'email (`a,evil@x.y`) non deve diventare due destinatari né
+ * un'intestazione. Più stretta della Posta, dove l'indirizzo lo scrive una
+ * persona: qui può venire da un dato non fidato.
+ */
+export const EMAIL_ADDRESS = /^[A-Za-z0-9._%+'-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
 
 const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
 
