@@ -408,6 +408,11 @@ const INTEGRATED_CALLS = new Set([
   "releases.requestPrCorrection",
   "releases.setPrAnalysisOnly",
   "releases.setPrReleaseNotes",
+  // Area 8, F1 (`releases`): i rilasci, «Fai sistemare a Claude», la Home «Rilasci».
+  "releases.listReleases",
+  "releases.getRelease",
+  "releases.fixRelease",
+  "releases.listMyReleases",
   // Area 7, F4 (accesa): sorgenti webhook, tabella cliente → progetto, tetto del
   // webhook (`data/backend/real/automationSources.ts`, `automations.ts`).
   "automations.listSources",
@@ -581,14 +586,14 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  // Area 8, F1 (`releases-prs`): le PR e la coda dal server; rilasci e ambienti «in arrivo».
+  // Area 8, F1 (`releases-prs` e `releases`): PR, coda e rilasci dal server; ambienti «in arrivo».
   it("aprire Releases legge solo chiamate integrate", async () => {
     renderRoute("/p/AUD/releases");
     expect(await screen.findByRole("region", { name: "Pull requests" })).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain("releases.listOpenPrs"));
     await waitFor(() => expect(calls).toContain("releases.listReleaseQueue"));
     await settle();
-    expect(within(screen.getByRole("region", { name: "Releases" })).getByText("Coming soon")).toBeInTheDocument();
+    await waitFor(() => expect(calls).toContain("releases.listReleases"));
     expect(
       within(screen.getByRole("region", { name: "Environments" })).getByText("Coming soon"),
     ).toBeInTheDocument();
@@ -771,7 +776,8 @@ describe("le superfici della fetta 2 nella build app", () => {
 /** I blocchi delle aree non integrate (rilasci, assistenza). */
 // «Upcoming» (gli appuntamenti) è acceso dall'area 6, fetta 1; «Important email» dalla fetta 2;
 // «Automations» dall'area 7, fetta 1.
-const FUTURE_BLOCKS = /^(Releases|Customers waiting)/;
+// Dall'area 8 (fetta 1) «Releases» è integrato: resta futuro «Customers waiting».
+const FUTURE_BLOCKS = /^Customers waiting/;
 
 describe("le superfici della fetta 3 nella build app", () => {
   it("dopo il login si atterra sulla Home a blocchi", async () => {
@@ -791,8 +797,8 @@ describe("le superfici della fetta 3 nella build app", () => {
     expect(router.state.location.search).not.toHaveProperty("view");
   });
 
-  it("i blocchi delle aree non integrate non si mostrano e non leggono nulla, nemmeno l'extra «Releases»", async () => {
-    // Laura può rilasciare e non ha personalizzato la Home: nel prototipo vede «Releases».
+  it("i blocchi delle aree non integrate non si mostrano e non leggono nulla («Releases» sì, dall'area 8)", async () => {
+    // Laura può rilasciare e non ha personalizzato la Home: vede «Releases» (integrato), legge solo chiamate integrate.
     signedInAs("p-laura");
     renderRoute("/home");
     expect(await screen.findByRole("region", { name: /^My week/ })).toBeInTheDocument();

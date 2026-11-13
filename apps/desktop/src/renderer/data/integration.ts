@@ -73,6 +73,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // (`releases`), gli ambienti (`environments`) e le impostazioni del
     // repository (`releases-repo-settings`) restano «in arrivo».
     "releases-prs",
+    // I rilasci: elenco e dettaglio (stato derivato, run col link al
+    // provider), «Fai sistemare a Claude», la Home «Rilasci». «Spiega»
+    // (`releases-explain`) resta spento finché Claude non sa leggere un rilascio.
+    "releases",
     "notifications",
     "search",
     "task-detail",

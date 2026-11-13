@@ -1,3 +1,4 @@
+import { environmentsIntegrated, explainIntegrated } from "../../data/queries/releases";
 import { Link } from "@tanstack/react-router";
 import { isAppBuild } from "../../data/build";
 import { useState } from "react";
@@ -89,14 +90,17 @@ function NowBox({ release }: { release: ReleaseView }) {
               {t("releases.fix.button")}
             </button>
           )}
-          <button
-            type="button"
-            className={smallSecondary}
-            disabled={explain.pending}
-            onClick={() => void explain.run(release)}
-          >
-            {t("releases.explain.button")}
-          </button>
+          {/* «Spiega»: solo dove Claude sa leggere il rilascio (`releases-explain`). */}
+          {explainIntegrated() && (
+            <button
+              type="button"
+              className={smallSecondary}
+              disabled={explain.pending}
+              onClick={() => void explain.run(release)}
+            >
+              {t("releases.explain.button")}
+            </button>
+          )}
           {run && (
             <a href={run.url} target="_blank" rel="noreferrer" className={`${linkClass} ml-1`}>
               {t("releases.now.openRun", { platform: platformOf(run.url) })}
@@ -107,14 +111,17 @@ function NowBox({ release }: { release: ReleaseView }) {
       )}
       {s.kind === "failed" && fixTask && (
         <div>
-          <button
-            type="button"
-            className={smallSecondary}
-            disabled={explain.pending}
-            onClick={() => void explain.run(release)}
-          >
-            {t("releases.explain.button")}
-          </button>
+          {/* «Spiega»: solo dove Claude sa leggere il rilascio (`releases-explain`). */}
+          {explainIntegrated() && (
+            <button
+              type="button"
+              className={smallSecondary}
+              disabled={explain.pending}
+              onClick={() => void explain.run(release)}
+            >
+              {t("releases.explain.button")}
+            </button>
+          )}
         </div>
       )}
       {s.kind === "failed" && !release.canFix && !fixTask && (
@@ -125,6 +132,7 @@ function NowBox({ release }: { release: ReleaseView }) {
       )}
       {s.kind === "failed" && <p className="text-xs text-ink-muted">{t("releases.boundary")}</p>}
       {s.kind === "unavailable" &&
+        environmentsIntegrated() &&
         (environments?.canManage ? (
           <Link
             to="/p/$code/$section"

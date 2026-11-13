@@ -66,6 +66,7 @@ const ALL: IntegrationTarget[] = [
       "automations-f3",
       "automations-f4",
       "releases-prs",
+      "releases",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -94,6 +95,7 @@ describe("isIntegrated", () => {
         // Area 8, fetta 1: le PR aperte (la sezione Releases, senza rilasci né ambienti).
         "projectSection:releases",
         "feature:releases-prs",
+        "feature:releases",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",

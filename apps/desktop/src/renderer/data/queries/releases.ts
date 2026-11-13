@@ -56,6 +56,8 @@ export const prsIntegrated = () =>
 export const releasesIntegrated = () => featureIntegrated("releases");
 export const environmentsIntegrated = () => featureIntegrated("environments");
 export const repoSettingsIntegrated = () => featureIntegrated("releases-repo-settings");
+/** «Spiega»: solo quando Claude sa leggere un rilascio (il tool `read_release` di 72). */
+export const explainIntegrated = () => featureIntegrated("releases-explain");
 
 /** Le PR aperte del progetto, di Stubwise e dei colleghi. */
 export function useOpenPrs(projectId: string | undefined) {

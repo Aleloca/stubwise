@@ -20,13 +20,16 @@ vi.mock("@backend/api", async () => await import("./index"));
 vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();
   const on = (name: string) => name === "releases-prs";
+  // Lo stato «solo PR»: i rilasci spenti anche se la build li accende (i cancelli per parte).
+  const off = (name: string) => name === "releases";
   return {
     ...actual,
     isIntegrated: (t: Parameters<typeof actual.isIntegrated>[0]) =>
       (t.kind === "projectSection" && t.name === "releases") ||
       (t.kind === "feature" && on(t.name)) ||
-      actual.isIntegrated(t),
-    featureIntegrated: (name: string) => on(name) || actual.featureIntegrated(name),
+      (!(t.kind === "feature" && off(t.name)) && actual.isIntegrated(t)),
+    featureIntegrated: (name: string) =>
+      on(name) || (!off(name) && actual.featureIntegrated(name)),
   };
 });
 
