@@ -98,6 +98,9 @@ class ClaudePending extends Error {
   }
 }
 
+/** Il cliente più lungo che `…/test/client-project` accetta. */
+const CLIENT_MAX = 200;
+
 /** Un cliente di cui la prova non ha ancora la risoluzione del server (F4). */
 class ClientPending extends Error {
   constructor(
@@ -360,6 +363,12 @@ export function createRealSimulation(api: SimulationApi) {
    */
   async function resolveClient(t: Trial, pending: ClientPending): Promise<boolean> {
     if (!api.clientProject) return false;
+    // La rotta accetta al più 200 caratteri: troncare cambierebbe il cliente,
+    // e «non trovato» potrebbe essere falso. La prova lo dice (review F4, m8).
+    if (pending.client.length > CLIENT_MAX) {
+      t.interrupted = "client_too_long";
+      return false;
+    }
     try {
       t.clients.set(
         pending.key,

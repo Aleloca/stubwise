@@ -8472,7 +8472,8 @@
           "not_available": "I passi di Claude non sono ancora disponibili su questo server.",
           "not_found": "Questa automazione non c'è più, o non la vedi.",
           "stale": "La bozza è cambiata mentre provavi: ricomincia la prova.",
-          "test_busy": "È in corso un altro passo di una prova di questa automazione: riprova fra poco."
+          "test_busy": "È in corso un altro passo di una prova di questa automazione: riprova fra poco.",
+          "client_too_long": "Il nome del cliente di questo esempio è troppo lungo (oltre 200 caratteri): la prova non può dire in che progetto andrebbe."
         },
         "noProjects": "Non vedi nessun progetto che il proprietario potrebbe scegliere, quindi la prova non può andare avanti da qui. Un'esecuzione vera aspetterebbe che il proprietario ne scelga uno.",
         "connectMailbox": "Collega una casella prima di accenderla",

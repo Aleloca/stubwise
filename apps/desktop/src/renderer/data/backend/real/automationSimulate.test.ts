@@ -633,6 +633,22 @@ describe("la prova con una sorgente (F4, R5)", () => {
     expect(calls.filter((c) => !c.startsWith("GET ") && !c.startsWith("POST tested"))).toEqual([]);
   });
 
+  it("un cliente oltre i 200 caratteri non si chiede al server: la prova si ferma con una frase sua (review F4, m8)", async () => {
+    const long = "R".repeat(201);
+    const ask = { ...notify, approval: { mode: "ask", who: { owner: true } } } as Step;
+    const { api, calls } = withClient(context([ask, fromClient()], {}, HOOK), {
+      project: ROSSI,
+      people: [CARLA],
+    });
+    const s = createRealSimulation(api);
+    await s.listSimulationExamples("a-1", "draft");
+    const id = await s.startSimulation("a-1", "draft", { cliente: { nome: long } });
+    const approved = await s.simulationStep(id, { kind: "approved", path: "0", byId: ME });
+    const v = approved.interrupted ? approved : await s.simulationStep(id, { kind: "run" });
+    expect(v.interrupted).toBe("client_too_long");
+    expect(calls.some((c) => c.startsWith("GET client-project"))).toBe(false);
+  });
+
   it("senza la rotta (un server di prima) il progetto dal cliente non è disponibile", async () => {
     const { api } = fakeApi(context([fromClient()], {}, HOOK));
     const s = createRealSimulation(api);

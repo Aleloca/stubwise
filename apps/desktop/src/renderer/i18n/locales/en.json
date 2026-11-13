@@ -8472,7 +8472,8 @@
           "not_available": "Claude steps aren't available on this server yet.",
           "not_found": "This automation isn't there any more, or you can't see it.",
           "stale": "The draft changed while testing: start the test again.",
-          "test_busy": "Another step of a test of this automation is running: try again in a moment."
+          "test_busy": "Another step of a test of this automation is running: try again in a moment.",
+          "client_too_long": "This example's client name is too long (over 200 characters): the test can't tell which project it would go to."
         },
         "noProjects": "You can't see any project the owner could choose, so the test can't go on from here. A real run would wait for the owner to choose one.",
         "connectMailbox": "Connect a mailbox before you turn it on",
