@@ -11,10 +11,10 @@ const BASE = "https://www.googleapis.com/drive/v3/files";
 
 describe("getDriveFile", () => {
   it("chiede i soli campi che servono, anche sui Drive condivisi", async () => {
-    const { impl, calls } = fakeFetch([jsonResponse({ id: "d 1", name: "Notes – Revisione", mimeType: "application/vnd.google-apps.document", trashed: false })]);
+    const { impl, calls } = fakeFetch([jsonResponse({ id: "d 1", name: "Notes – Revisione", mimeType: "application/vnd.google-apps.document", trashed: false, createdTime: "2026-11-13T09:30:00.000Z", owners: [{ emailAddress: "Ada@Acme.com", displayName: "Ada" }] })]);
     const file = await getDriveFile({ accessToken: "at", fileId: "d 1" }, { fetchImpl: impl });
-    expect(file).toEqual({ id: "d 1", name: "Notes – Revisione", mimeType: "application/vnd.google-apps.document", trashed: false });
-    expect(calls[0]!.url).toBe(`${BASE}/d%201?fields=id%2Cname%2CmimeType%2Ctrashed&supportsAllDrives=true`);
+    expect(file).toEqual({ id: "d 1", name: "Notes – Revisione", mimeType: "application/vnd.google-apps.document", trashed: false, createdTime: new Date("2026-11-13T09:30:00.000Z"), owners: ["ada@acme.com"] });
+    expect(calls[0]!.url).toBe(`${BASE}/d%201?fields=id%2Cname%2CmimeType%2Ctrashed%2CcreatedTime%2Cowners%28emailAddress%29&supportsAllDrives=true`);
     expect(calls[0]!.headers.authorization).toBe("Bearer at");
   });
 

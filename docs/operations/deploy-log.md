@@ -4176,3 +4176,15 @@ deploy o di un rollback che la tocca.
   'off' where kind = 'transcript' and status = 'new';`). La 0165 non si
   annulla.
 
+- **«Integrazione area 6, fetta 5a, review del server» (13 nov 2026)**:
+  branch `feat/area6-f5-fix` (sopra `feat/area6-f5`). Migrazione **0166**
+  (`meeting_notes.doc_candidates`, il motivo `not_verified`); la F5b prende
+  quindi la 0167. Si deploya INSIEME alla F5a (stesso ordine: server, worker,
+  caddy). Cosa cambia per chi la gestisce: due run `meeting_summary` per
+  riunione (riassunto e proposte), al più 20 run al giorno per casella
+  (`MEETING_MAX_RUNS_PER_DAY`), al più 2 tentativi; le riunioni di una
+  copia ingerita prima di `proposals_since` non si trattano. Controllo, sola
+  lettura: `select doc_reason, count(*) from meeting_notes where doc_status
+  = 'unreachable' group by 1;` (`not_verified` alto = l'email di Gemini ha
+  una forma che la verifica non riconosce: da guardare prima di allentarla).
+

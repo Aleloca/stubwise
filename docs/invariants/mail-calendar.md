@@ -238,11 +238,16 @@
   **mai** un admin non invitato (nessun ruolo nel calcolo), **mai** un
   invitato tolto da Google (dal giro dopo del poller). Il calcolo sta in UN
   posto, `meetingViewerIds` (`packages/notifications/src/meeting-visibility.ts`,
-  condiviso da server e worker): gli invitati ATTUALI dalla riga più recente
-  e non cancellata di `calendar_events` con quell'iCalUID, in qualunque
-  casella (così un invitato senza casella collegata c'è), più
-  l'organizzatore; lo snapshot `meeting_notes.attendee_emails` solo come
-  ripiego. Il resto resta personale: la trascrizione intera non esce (né in
+  condiviso da server e worker): gli invitati ATTUALI di QUELLA occorrenza —
+  stesso iCalUID **e stessa data** (`meeting_notes.event_starts_at`):
+  ⚠️ le occorrenze di una serie condividono l'iCalUID, e senza la data chi è
+  invitato a un'altra settimana vedrebbe tutte le riunioni registrate della
+  serie (review F5a, punto 1, CRITICO) — dalla riga dell'organizzatore, o la
+  più recente, non cancellata, in qualunque casella (così un invitato senza
+  casella collegata c'è), più l'organizzatore; lo snapshot
+  `meeting_notes.attendee_emails` solo come ripiego. Chi decide una proposta
+  di riunione è chi la vede ADESSO, derivato a lettura (punto 9), non chi ha
+  una riga fra i destinatari. Il resto resta personale: la trascrizione intera non esce (né in
   colonna né al client), l'email di Gemini resta di chi l'ha ricevuta (a
   chi l'ha inoltrata e non c'era, `meeting.visible` è falso e il resto
   null), `meetingOrigin.threadId`/`eventId` sono solo della PROPRIA copia e
@@ -257,7 +262,20 @@
   invitato che ha accesso). L'email si riconosce SOLO con mittente
   `gemini-notes@google.com`, la PRIMA `Authentication-Results` di
   `mx.google.com` con DMARC o DKIM di google.com, e il link a un Google Doc
-  (`gemini.ts`): fail-closed. Il collegamento all'evento è CONSERVATIVO
+  (`gemini.ts`), con `header.from=google.com` esatto: fail-closed. **I link
+  ai Doc dell'email sono CANDIDATI** (review F5a, punto 2): il titolo della
+  riunione, che sceglie l'organizzatore, è ripetuto nel corpo e può
+  contenere il link a un altro Doc che chi riceve può leggere. Il worker
+  legge solo un candidato VERIFICATO su Drive — un Google Doc nato fra un
+  giorno prima e poco dopo l'email, di proprietà di chi era alla riunione, e
+  fra gli allegati dell'evento se l'evento ne ha —, altrimenti
+  `not_verified`; `doc_file_id` è un segnaposto finché non ne verifica uno.
+  **Il riassunto nasce da un run SENZA alcun contesto di progetto** (punto
+  3): lo leggono tutti gli invitati, quindi un'istruzione nascosta nel Doc
+  non deve avere task o membri da far trapelare; le proposte vengono da un
+  secondo run. Da una riunione il registro decisioni scrive SOLO il template
+  `decision.meeting.*` (punto 4), e un commento nato da lì non porta il link
+  alla casella sorgente (punto 6). Il collegamento all'evento è CONSERVATIVO
   *(O, 46)*: un evento col Doc fra gli allegati, altrimenti UN solo evento
   della casella con Meet, finito nelle 12 ore prima e col titolo
   dell'oggetto; nessuno o più di uno = nessun legame, e la riunione resta
