@@ -1,4 +1,4 @@
-import { lookup, evaluate } from "@stubwise/shared";
+import { chainAllows as chainRule, lookup, evaluate } from "@stubwise/shared";
 import {
   copy,
   onAutomationSignal,
@@ -7,7 +7,7 @@ import {
   type AutomationSignal,
 } from "../store";
 import type { Automation, AutomationTrigger, Condition, FilterCheck, Task } from "../types";
-import { ancestorsOf, CHAIN_MAX, currentOrigin } from "./effects";
+import { ancestorsOf, currentOrigin } from "./effects";
 import { enqueue, publishedVersion, startRun } from "./runner";
 import { runById, stepOfRun } from "./visibility";
 
@@ -175,8 +175,8 @@ export function automationsStartingOn(h: Happening): string[] {
 function chainAllows(a: Automation, originRunId: string | null): boolean {
   const origin = originRunId ? runById(originRunId) : undefined;
   if (!origin) return true;
-  const chain = ancestorsOf(origin);
-  return !chain.some((r) => r.automationId === a.id) && chain.length < CHAIN_MAX;
+  // La regola è del motore condiviso (area 7, F1): la stessa del server.
+  return chainRule(ancestorsOf(origin), a.id);
 }
 
 /** Le attese che l'evento sblocca: la risposta a un'email, una task chiusa. */

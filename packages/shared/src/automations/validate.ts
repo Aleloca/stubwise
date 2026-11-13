@@ -1,3 +1,4 @@
+import { triggerKey, type AutomationAvailability } from "./availability.js";
 import type {
   Approval,
   AutomationFlow,
@@ -30,7 +31,9 @@ export type FlowIssueCode =
   | "approver_cant_see"
   | "department_cant_see"
   | "source_disconnected"
-  | "limit";
+  | "limit"
+  /** Un passo o un inizio che questa build non offre ancora (area 7, per fette). */
+  | "not_available";
 
 export interface FlowIssue {
   path: string;
@@ -54,6 +57,11 @@ export interface ValidateContext {
    * Facoltativa: assente = non si segnala (il chiamante dei dati la passa).
    */
   departmentSees?(departmentId: string, projectId: string | null): boolean;
+  /**
+   * I passi e gli inizi che la build offre (la fetta 1: `AUTOMATION_F1_AVAILABILITY`):
+   * fuori elenco è `not_available`. Assente = tutti (il prototipo).
+   */
+  available?: AutomationAvailability;
 }
 
 const REF = /\{\{\s*([^{}]+?)\s*\}\}/g;
@@ -72,6 +80,17 @@ export function validateFlow(flow: AutomationFlow, ctx: ValidateContext): FlowIs
   const issues: FlowIssue[] = [];
   const add = (path: string, code: FlowIssueCode, message: string) =>
     issues.push({ path, code, message });
+
+  // --- ciò che la build offre (area 7, per fette) ----------------------------
+  if (ctx.available) {
+    const { steps, triggers } = ctx.available;
+    if (!triggers.includes(triggerKey(flow.trigger)))
+      add("trigger", "not_available", "Questo inizio non è ancora disponibile.");
+    visitSteps(flow.steps, (step, path) => {
+      if (!steps.includes(step.kind))
+        add(path, "not_available", "Questo passo non è ancora disponibile.");
+    });
+  }
 
   // --- l'inizio e il titolo ---------------------------------------------------
   const t = flow.trigger;

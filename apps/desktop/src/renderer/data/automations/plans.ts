@@ -1,3 +1,4 @@
+import { CHAIN_MAX } from "@stubwise/shared";
 import {
   PROJECT_NOT_FOUND,
   type EffectRequest,
@@ -75,8 +76,8 @@ function projectOfEffect(eff: Extract<EffectRequest, { args: unknown }>, a: Auto
   return t.mode === "own" ? a.projectId : t.projectId;
 }
 
-/** La profondità massima di una catena di avvii. */
-export const CHAIN_MAX = 3;
+/** La profondità massima di una catena di avvii: del motore condiviso (area 7, F1). */
+export { CHAIN_MAX };
 
 // --- i piani: cosa farebbe un'azione, senza scrivere ----------------------------------
 //
