@@ -35,6 +35,9 @@ export const CHAT_TOOL_READ_ROUTES: ReadonlySet<string> = new Set([
   // un'apertura.
   "/api/projects/:projectId/drive/files",
   "/api/drive/files/by-code/:code/content",
+  // Area 8, F1: un rilascio per codice (tool `read_release`, «Spiega»), coi
+  // progetti che l'autore vede (404 agli altri, come la rotta).
+  "/api/releases/:code",
 ]);
 
 /**
@@ -58,6 +61,10 @@ export const CHAT_TOOL_UNTRUSTED_ROUTES: ReadonlySet<string> = new Set([
   // lettura segna già la conversazione.
   "/api/me/meetings/:noteId",
   "/api/me/calendar/events/:id/summary",
+  // Area 8, F1 (M): un rilascio porta testo scritto FUORI dal team — il titolo
+  // della PR (anche di un esterno), i nomi e i passi delle run del provider di
+  // CI, le note di rilascio. NON fidato: la lettura segna la conversazione.
+  "/api/releases/:code",
 ]);
 
 /**

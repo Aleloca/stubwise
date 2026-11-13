@@ -201,6 +201,8 @@ export const CHAT_READ_TOOLS = [
   // Area 5, fetta 3: il Drive. Il testo dei file è contenuto NON fidato.
   "search_drive",
   "read_drive_file",
+  // Area 8, F1 («Spiega»): un rilascio per codice. Titolo, note e run sono contenuto NON fidato.
+  "read_release",
 ] as const;
 export type ChatReadToolName = (typeof CHAT_READ_TOOLS)[number];
 /** Il solo tool che non legge: scrive una proposta, mai un'esecuzione diretta. */

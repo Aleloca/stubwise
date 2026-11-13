@@ -1,6 +1,6 @@
 import type { RouteOptions } from "fastify";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { claudeChatToolTokens, claudeConversations, docPages, issueChatToolToken, revokeChatToolToken, tickets, projects } from "@stubwise/db";
 import { buildApp } from "../app.js";
@@ -76,6 +76,24 @@ describe("il token del turno della chat", () => {
     expect((await get(`/api/repositories/${seenRepo}/docs/pages/runbook`, token)).statusCode).toBe(200);
     expect((await get(`/api/repositories/${hiddenRepo}/docs/pages/segreto`, token)).statusCode).toBe(404);
     expect((await get(`/api/repositories/${seenRepo}/docs/tree`, token)).statusCode).toBe(403);
+  });
+
+  it("area 8, F1: legge un rilascio per codice (`read_release`) di un progetto che l'autore vede, 404 a uno nascosto; la lettura segna la conversazione come non fidata", async () => {
+    const { releases, claudeConversations } = await import("@stubwise/db");
+    const mk = async (projectId: string, repositoryId: string, code: string) =>
+      t.db.insert(releases).values({ code, seq: 1, projectId, repositoryId, prNumber: 9, prUrl: "u", title: "Checkout", mergeSha: "f".repeat(40), mergedAt: new Date(), viaStubwise: true });
+    const seenP = await t.db.execute<{ project_id: string }>(sql`select project_id from repositories where id = ${seenRepo}`);
+    const hiddenP = await t.db.execute<{ project_id: string }>(sql`select project_id from repositories where id = ${hiddenRepo}`);
+    await mk(seenP[0]!.project_id, seenRepo, "SEEN-V1");
+    await mk(hiddenP[0]!.project_id, hiddenRepo, "HIDE-V1");
+    const sessionId = await conversationOf(author.headers.cookie);
+    const token = await issueChatToolToken(t.db, { sessionId, userId: author.id, ttlMs: 60_000 });
+    expect((await get("/api/releases/HIDE-V1", token)).statusCode).toBe(404);
+    const [before] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
+    expect(before!.at).toBeNull();
+    expect((await get("/api/releases/SEEN-V1", token)).statusCode).toBe(200);
+    const [after] = await t.db.select({ at: claudeConversations.untrustedReadAt }).from(claudeConversations).where(eq(claudeConversations.sessionId, sessionId));
+    expect(after!.at).not.toBeNull();
   });
 
   it("solo GET e solo l'allowlist: altre GET, scritture e rotte di credenziale sono rifiutate", async () => {
