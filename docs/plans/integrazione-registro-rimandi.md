@@ -593,8 +593,13 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `automation_step`. F3-3, F3-4, F3-5 = a *(O, 46)*: la conferma del costo
   della prova una volta all'inizio; un risultato fuori forma fallisce e si
   riprova a mano; un input oltre 20 000 caratteri si taglia e il registro lo
-  dice. Rimandati: i campi `file` come uscita di Claude (F4) e le azioni di
-  Claude sulle automazioni (area 10).
+  dice. Il confine di F3-1 *(O, 46)*: vale per i campi decisi da Claude e
+  tinti; un campo grezzo dell'evento come destinazione (rispondere al
+  mittente) resta permesso senza approvazione, come nella F2 e nel
+  prototipo, perché è un dato che chi gestisce ha scelto disegnando il
+  flusso, non una scelta del modello (`taint.ts`, `untrustedTargets`, la
+  stessa regola per app e server). Rimandati: i campi `file` come uscita di
+  Claude (F4) e le azioni di Claude sulle automazioni (area 10).
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 

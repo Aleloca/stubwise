@@ -62,6 +62,16 @@ Dal design e dalle fette prima. Qui solo quelle che toccano la F3:
   `decisions-never-ai.test.ts`): nessun passo di Claude lo tocca.
 - **F3-1 = a** *(M)*: un campo di Claude tinto (nato da un input non fidato)
   usato come destinazione rende il passo SEMPRE con approvazione.
+- **Il confine di F3-1** *(O, 46)*: vale per i campi DECISI DA CLAUDE e
+  tinti (i campi dei passi di Claude che leggono un input da fuori, e gli
+  elementi di un «per ogni» su un loro elenco). Un campo GREZZO dell'evento
+  usato come destinazione (rispondere a `email.mittente`, scrivere a
+  `cliente.email` di una sorgente) resta permesso senza approvazione, come
+  nella F2 e nel prototipo: è un dato dell'evento che chi gestisce ha scelto
+  di usare disegnando il flusso, non una scelta del modello. La tinta passa
+  comunque attraverso i dati grezzi: è ciò che rende tinto un campo di
+  Claude. Regola in `packages/shared/src/automations/taint.ts`
+  (`untrustedTargets`, usata da `validateFlow`): il server la applica uguale.
 - **F3-2 = a** *(M)*: Sonnet è il modello di default di `automation_step`.
 - **F3-3 = a, F3-4 = a, F3-5 = a** *(O, 46)*, con la consigliata: la
   conferma del costo una volta all'inizio della prova; un risultato fuori
