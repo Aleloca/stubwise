@@ -1,131 +1,45 @@
-import type { MandatoryReason } from "../../data/model";
+import {
+  ALERT_TYPES as SHARED_ALERT_TYPES,
+  defaultApplies as sharedDefaultApplies,
+  type AlertType as SharedAlertType,
+} from "@stubwise/shared";
 import type { Permission } from "../../data/viewing";
 
 // Il catalogo dei tipi di avviso (area 8a, spec «Notifiche: iscrizioni per
-// progetto»). Ogni tipo dice chi può iscriversi (non ci si iscrive a ciò che
-// non si può vedere), il valore di partenza per chi non ha toccato niente e
-// chi lo riceve senza iscrizione. Le aree successive aggiungono righe con
-// `registerAlertTypes` (8b: server in difficoltà, diagnosi pronta), non
-// meccanismi nuovi. Fuori dal catalogo, e quindi coi destinatari fissi:
-// `security.alert` (ignora le preferenze, va solo all'interessato), le
-// decisioni (`DECISION_NOTIFICATION_KINDS`), Chat e Automazioni.
+// progetto»). Dalla F2 dell'integrazione (R1) le righe stanno in
+// `@stubwise/shared` (`alerts/catalog.ts`), lo stesso catalogo che legge il
+// server: qui ne resta una copia MUTABILE, perché `registerAlertTypes` è
+// ancora il punto d'estensione dei test. Il default di partenza è un dato
+// (`defaultOn`, letto con `ruleApplies`); il prototipo non legge
+// `appDefaultOn`, che vale solo per la build app (M-1 = a): qui i
+// `monitor.*` restano accesi per ogni membro. Fuori dal catalogo, e quindi
+// coi destinatari fissi: `security.alert`, le decisioni
+// (`DECISION_NOTIFICATION_KINDS`), Chat e Automazioni.
 
-export type AlertGroup = "prs" | "releases" | "docs" | "tasks" | "support" | "monitor" | "claude";
+export { ALERT_GROUPS, type AlertGroup } from "@stubwise/shared";
 
-/** Le famiglie nell'ordine in cui si mostrano. */
-export const ALERT_GROUPS: readonly AlertGroup[] = [
-  "prs",
-  "releases",
-  "docs",
-  "tasks",
-  "support",
-  "monitor",
-  "claude",
-];
+// Il catalogo condiviso nomina i permessi come stringhe: ci sono quelli del
+// registro (di progetto, e `monitor.manage` d'istanza) e quelli che per ora
+// vivono solo nel prototipo (`support.reply`, `servers.operate`). Qui si
+// restringono a `Permission` in UN posto; un test verifica che ogni permesso
+// del catalogo sia uno che il prototipo conosce.
+export type DefaultRule = "off" | "members" | { perm: Permission };
 
-export interface AlertType {
-  /** Il `kind` della notifica, e il `type` delle iscrizioni. */
-  type: string;
-  group: AlertGroup;
-  labelKey: string;
-  /** Chi può iscriversi: un permesso nel progetto, o l'esserne membro. */
+export interface AlertType extends Omit<
+  SharedAlertType,
+  "subscribe" | "defaultOn" | "appDefaultOn"
+> {
   subscribe: { perm: Permission | "member" };
-  /** Il valore di partenza (App) per un membro senza righe, dai permessi di adesso. */
-  defaultOn: (perms: (p: Permission) => boolean) => boolean;
-  /** Il Telefono di partenza, quando App parte acceso (e degli obbligatori). */
-  defaultPhone: boolean;
-  /** Chi lo riceve senza iscrizione: i motivi che un avviso di questo tipo può portare. */
-  mandatory: MandatoryReason[];
-  /**
-   * Solo obbligatorio: nessuna iscrizione, lo ricevono solo i destinatari
-   * obbligatori («Claude ha corretto la tua PR»). Il permesso dice comunque
-   * chi può vederlo.
-   */
-  mandatoryOnly?: boolean;
-  /**
-   * Un kind di prima con lo stesso significato di uno nuovo (shape [A 10]):
-   * nelle Preferenze è una riga sola, quella del tipo indicato, e
-   * l'interruttore scrive entrambe le iscrizioni. Ognuno tiene il suo
-   * default, così il passaggio non cambia ciò che ognuno riceve.
-   */
-  sameRowAs?: string;
-  /**
-   * Il default vale anche per i full admin che non sono membri del progetto
-   * (R-L10, area 8b: gli avvisi dei server). Senza, un non membro parte
-   * spento; con, il full admin parte come un membro coi suoi permessi.
-   */
-  defaultForFullAdmins?: boolean;
+  defaultOn: DefaultRule;
+  appDefaultOn?: DefaultRule;
 }
 
-const members = () => true;
-const off = () => false;
-const holds = (perm: Permission) => (perms: (p: Permission) => boolean) => perms(perm);
+/** Se il default di partenza vale per chi ha questi permessi nel progetto. */
+export const ruleApplies = (rule: DefaultRule, perms: (p: Permission) => boolean): boolean =>
+  sharedDefaultApplies(rule, (p) => perms(p as Permission));
 
-const label = (type: string) => `alerts.types.${type.replace(/\./g, "_")}`;
-
-function row(
-  type: string,
-  group: AlertGroup,
-  perm: Permission | "member",
-  defaultOn: AlertType["defaultOn"],
-  defaultPhone: boolean,
-  mandatory: MandatoryReason[] = [],
-  extra: Partial<AlertType> = {},
-): AlertType {
-  return {
-    type,
-    group,
-    labelKey: label(type),
-    subscribe: { perm },
-    defaultOn,
-    defaultPhone,
-    mandatory,
-    ...extra,
-  };
-}
-
-/**
- * I tipi del catalogo, nell'ordine in cui si mostrano dentro la famiglia.
- * `release.failed` porta anche `task_author`: un merge fatto fuori da
- * Stubwise da un'identità non collegata va all'autore della task della PR
- * (`mergeMandatory`).
- */
-export const ALERT_TYPES: AlertType[] = [
-  // Dallo spec (8a).
-  row("pr.opened", "prs", "member", off, false),
-  row("pr.analysis_issues", "prs", "repos.view", holds("release.merge"), false, ["pr_author"]),
-  row("pr.corrected", "prs", "repos.view", off, true, ["pr_author"], { mandatoryOnly: true }),
-  row("release.merged", "releases", "member", off, false),
-  row("release.succeeded", "releases", "member", off, false),
-  row("release.failed", "releases", "member", holds("release.merge"), true, [
-    "merged",
-    "task_author",
-  ]),
-  row("docs.release_note", "docs", "docs.view", off, false),
-  row("task.created", "tasks", "tickets.view_all", off, false),
-  // Decisione del 29 ott 2026: le task create da un'automazione hanno un
-  // tipo loro (non partono come «Nuova task»), e l'assegnatario lo riceve
-  // sempre — è chi dovrà farla.
-  row("task.created_by_automation", "tasks", "tickets.view_all", off, false, ["assignee"]),
-  row("support.request", "support", "backlog.view_all", holds("backlog.edit"), false),
-  // R-K12: segue una conversazione chi la vede (ogni membro), quindi l'avviso
-  // lo può ricevere ogni membro; acceso di default solo per chi risponde.
-  row("support.customer_replied", "support", "member", holds("support.reply"), true, [
-    "follows_conversation",
-  ]),
-  // I kind di prima: la regola di oggi (tutti i membri) come default.
-  row("job.pr_opened", "prs", "member", members, false),
-  row("review.completed", "prs", "member", members, false),
-  row("ticket.created", "tasks", "member", members, false, [], { sameRowAs: "task.created" }),
-  row("request.created", "support", "member", members, false, [], {
-    sameRowAs: "support.request",
-  }),
-  row("docs.nightly_attention", "docs", "member", members, false),
-  row("monitor.alert", "monitor", "member", members, true),
-  row("monitor.recovered", "monitor", "member", members, false),
-  row("job.failed", "claude", "member", members, false),
-  row("project.brief", "claude", "member", members, false),
-];
+/** I tipi del catalogo, nell'ordine in cui si mostrano dentro la famiglia. */
+export const ALERT_TYPES: AlertType[] = [...(SHARED_ALERT_TYPES as readonly AlertType[])];
 
 /**
  * Il catalogo «di partenza»: i tipi qui sopra più quelli registrati al

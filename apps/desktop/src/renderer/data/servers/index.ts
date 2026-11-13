@@ -10,12 +10,10 @@
 // (`startServerFix`); il resto del suo percorso (decidere il piano, Stop)
 // passa dalle scritture delle conversazioni.
 //
-// `alertTypes.ts` si importa qui, STATICAMENTE e per il suo effetto:
-// registra gli avvisi dei server nel catalogo prima del primo `resetApi`.
+// Gli avvisi dei server stanno nel catalogo condiviso (`@stubwise/shared`,
+// F2 dell'integrazione: prima li registrava qui `alertTypes.ts`).
 // `analysis.ts` (episodi e analisi automatica) non è una funzione dell'API:
 // ci arrivano i «Simula …» di `simulate.ts`.
-import "./alertTypes";
-
 export {
   getInstallCommand,
   getRemovalCommand,

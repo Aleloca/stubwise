@@ -23,7 +23,12 @@ export const ALERT_GROUPS: readonly AlertGroup[] = [
 ];
 
 /** Chi riceve un avviso senza iscrizione (lo dice il produttore). */
-export type MandatoryReason = "merged" | "pr_author" | "follows_conversation" | "task_author" | "assignee";
+export type MandatoryReason =
+  | "merged"
+  | "pr_author"
+  | "follows_conversation"
+  | "task_author"
+  | "assignee";
 
 /**
  * Il valore di partenza («App») per un membro che non ha toccato niente, dai
@@ -75,7 +80,16 @@ function row(
   mandatory: MandatoryReason[] = [],
   extra: Partial<AlertType> = {},
 ): AlertType {
-  return { type, group, labelKey: label(type), subscribe: { perm }, defaultOn, defaultPhone, mandatory, ...extra };
+  return {
+    type,
+    group,
+    labelKey: label(type),
+    subscribe: { perm },
+    defaultOn,
+    defaultPhone,
+    mandatory,
+    ...extra,
+  };
 }
 
 /** Gli avvisi dei server (area 8b): li riceve ogni membro, di partenza chi opera sui server e ogni full admin. */
@@ -97,7 +111,10 @@ export const ALERT_TYPES: readonly AlertType[] = [
   row("pr.corrected", "prs", "repos.view", "off", true, ["pr_author"], { mandatoryOnly: true }),
   row("release.merged", "releases", "member", "off", false),
   row("release.succeeded", "releases", "member", "off", false),
-  row("release.failed", "releases", "member", { perm: "release.merge" }, true, ["merged", "task_author"]),
+  row("release.failed", "releases", "member", { perm: "release.merge" }, true, [
+    "merged",
+    "task_author",
+  ]),
   row("docs.release_note", "docs", "docs.view", "off", false),
   row("task.created", "tasks", "tickets.view_all", "off", false),
   row("task.created_by_automation", "tasks", "tickets.view_all", "off", false, ["assignee"]),
@@ -108,7 +125,9 @@ export const ALERT_TYPES: readonly AlertType[] = [
   row("job.pr_opened", "prs", "member", "members", false),
   row("review.completed", "prs", "member", "members", false),
   row("ticket.created", "tasks", "member", "members", false, [], { sameRowAs: "task.created" }),
-  row("request.created", "support", "member", "members", false, [], { sameRowAs: "support.request" }),
+  row("request.created", "support", "member", "members", false, [], {
+    sameRowAs: "support.request",
+  }),
   row("docs.nightly_attention", "docs", "member", "members", false),
   // I kind di prima dei server confluiscono nella riga di `server.trouble`.
   row("monitor.alert", "monitor", "member", "members", true, [], {
@@ -133,9 +152,14 @@ export const ALERT_TYPES: readonly AlertType[] = [
  * Preferenze dell'app. Il prototipo li mostra tutti. Un tipo entra qui con
  * il suo `notification_kind` (il test di parità lo pretende).
  */
-export const LIVE_ALERT_TYPES: readonly string[] = ["release.failed", "monitor.alert", "monitor.recovered"];
+export const LIVE_ALERT_TYPES: readonly string[] = [
+  "release.failed",
+  "monitor.alert",
+  "monitor.recovered",
+];
 
-export const alertTypeOf = (kind: string): AlertType | undefined => ALERT_TYPES.find((t) => t.type === kind);
+export const alertTypeOf = (kind: string): AlertType | undefined =>
+  ALERT_TYPES.find((t) => t.type === kind);
 
 export const isCatalogKind = (kind: string): boolean => alertTypeOf(kind) !== undefined;
 

@@ -4,7 +4,7 @@ import { SRV2_DISK_EPISODE, SRV3_SILENT_EPISODE } from "./episodes";
 
 // Gli avvisi dei server (area 8b), kind locali: come quelli dell'8a non
 // portano destinatari fissi (`recipientIds: []`), li calcola la lettura
-// dal catalogo, dove li registra `data/servers/alertTypes.ts` (Task 5).
+// dal catalogo (le righe dei server, in `@stubwise/shared` dalla F2).
 // L'allarme e il rientro di memoria di SRV-1 restano le righe
 // `monitor.alert` / `monitor.recovered` di `notifications.ts`.
 //

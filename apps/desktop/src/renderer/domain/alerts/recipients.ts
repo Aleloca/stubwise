@@ -1,6 +1,6 @@
 import type { AlertSubscription, AppNotification, MandatoryReason } from "../../data/model";
 import type { Permission } from "../../data/viewing";
-import { alertTypeOf, type AlertType } from "./catalog";
+import { alertTypeOf, ruleApplies, type AlertType } from "./catalog";
 
 // Chi riceve un avviso del catalogo, calcolato a lettura (spec, scelta F):
 // - gli obbligatori sempre, anche con l'iscrizione spenta;
@@ -65,7 +65,7 @@ export function subscriptionAt(
     if (precedes(entry, at)) found = { app: entry.app, phone: entry.phone };
   }
   if (found) return found;
-  const on = member && def.defaultOn(perms);
+  const on = member && ruleApplies(def.defaultOn, perms);
   return { app: on, phone: on && def.defaultPhone };
 }
 

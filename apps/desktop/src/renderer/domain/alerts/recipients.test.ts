@@ -2,8 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { AlertSubscription, AppNotification } from "../../data/model";
 import type { Permission } from "../../data/viewer";
 import {
+  ALERT_TYPES as SHARED_ALERT_TYPES,
+  INSTANCE_PERMISSIONS,
+  PROJECT_PERMISSIONS,
+} from "@stubwise/shared";
+import type { LocalProjectPermission } from "../../data/types";
+import {
   alertTypeOf,
   ALERT_TYPES,
+  ruleApplies,
   isCatalogKind,
   registerAlertTypes,
   rowPartners,
@@ -77,26 +84,45 @@ describe("catalogo degli avvisi", () => {
       expect(isCatalogKind(kind), kind).toBe(false);
   });
 
+  it("il catalogo del prototipo è quello condiviso (F2, R1): stesse righe, default come dato", () => {
+    for (const shared of SHARED_ALERT_TYPES) expect(alertTypeOf(shared.type), shared.type).toEqual(shared);
+  });
+
+  it("ogni permesso del catalogo condiviso è uno che il prototipo conosce", () => {
+    const local: LocalProjectPermission[] = ["support.reply", "servers.operate"];
+    const known = new Set<string>([...PROJECT_PERMISSIONS, ...INSTANCE_PERMISSIONS, ...local]);
+    for (const t of SHARED_ALERT_TYPES) {
+      const rules = [t.defaultOn, t.appDefaultOn].filter((r) => typeof r === "object");
+      const perms = [t.subscribe.perm, ...rules.map((r) => (r as { perm: string }).perm)];
+      for (const p of perms) if (p !== "member") expect(known.has(p), `${t.type}: ${p}`).toBe(true);
+    }
+  });
+
+  it("il prototipo tiene il suo default dei monitor.*: tutti i membri, non appDefaultOn (M-1 = a)", () => {
+    const def = alertTypeOf("monitor.alert")!;
+    expect(subscriptionAt(undefined, def, perms(), { at: "2026-10-20T00:00:00Z" }).app).toBe(true);
+  });
+
   it("i default dello spec: permesso, valore di partenza, obbligatori", () => {
     const merge = perms("release.merge");
     const none = perms();
-    expect(alertTypeOf("pr.opened")!.defaultOn(merge)).toBe(false);
+    expect(ruleApplies(alertTypeOf("pr.opened")!.defaultOn, merge)).toBe(false);
     expect(alertTypeOf("pr.analysis_issues")!.subscribe.perm).toBe("repos.view");
-    expect(alertTypeOf("pr.analysis_issues")!.defaultOn(merge)).toBe(true);
-    expect(alertTypeOf("pr.analysis_issues")!.defaultOn(none)).toBe(false);
+    expect(ruleApplies(alertTypeOf("pr.analysis_issues")!.defaultOn, merge)).toBe(true);
+    expect(ruleApplies(alertTypeOf("pr.analysis_issues")!.defaultOn, none)).toBe(false);
     expect(alertTypeOf("pr.analysis_issues")!.mandatory).toEqual(["pr_author"]);
     expect(alertTypeOf("pr.corrected")!.mandatoryOnly).toBe(true);
     expect(alertTypeOf("release.failed")!.mandatory).toEqual(["merged", "task_author"]);
-    expect(alertTypeOf("release.failed")!.defaultOn(merge)).toBe(true);
-    expect(alertTypeOf("support.request")!.defaultOn(perms("backlog.edit"))).toBe(true);
+    expect(ruleApplies(alertTypeOf("release.failed")!.defaultOn, merge)).toBe(true);
+    expect(ruleApplies(alertTypeOf("support.request")!.defaultOn, perms("backlog.edit"))).toBe(true);
     expect(alertTypeOf("support.customer_replied")!.mandatory).toEqual(["follows_conversation"]);
     // R-K12: segue (e riceve) chi vede la conversazione; acceso di default per chi risponde.
     expect(alertTypeOf("support.customer_replied")!.subscribe.perm).toBe("member");
-    expect(alertTypeOf("support.customer_replied")!.defaultOn(perms("support.reply"))).toBe(true);
-    expect(alertTypeOf("support.customer_replied")!.defaultOn(none)).toBe(false);
+    expect(ruleApplies(alertTypeOf("support.customer_replied")!.defaultOn, perms("support.reply"))).toBe(true);
+    expect(ruleApplies(alertTypeOf("support.customer_replied")!.defaultOn, none)).toBe(false);
     // I kind di prima: la regola di oggi, tutti i membri.
     expect(alertTypeOf("job.pr_opened")!.subscribe.perm).toBe("member");
-    expect(alertTypeOf("job.pr_opened")!.defaultOn(none)).toBe(true);
+    expect(ruleApplies(alertTypeOf("job.pr_opened")!.defaultOn, none)).toBe(true);
   });
 
   it("i kind con lo stesso significato sono una riga sola (shape [A 10])", () => {
@@ -114,7 +140,7 @@ describe("catalogo degli avvisi", () => {
       group: "monitor",
       labelKey: "alerts.types.test_server_down",
       subscribe: { perm: "member" },
-      defaultOn: () => true,
+      defaultOn: "members",
       defaultPhone: true,
       mandatory: [],
     };

@@ -544,7 +544,7 @@ describe("iscrizioni: righe e scritture", () => {
         group: "monitor",
         labelKey: "alerts.types.test_server_struggling",
         subscribe: { perm: "member" },
-        defaultOn: () => true,
+        defaultOn: "members",
         defaultPhone: true,
         mandatory: [],
       },
