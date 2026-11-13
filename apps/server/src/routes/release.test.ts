@@ -5,6 +5,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { buildApp } from "../app.js";
 import {
   aiJobs,
+  projectMembers,
+  roles,
   instanceSettings,
   releaseCiRuns,
   encrypt,
@@ -1324,6 +1326,13 @@ describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {
   });
 
   describe("area 8, F1, S8: lo stato della PR del collega e «Solo analisi»", () => {
+    /** La riga che il worker scrive alla fine della review (S8): da lì la PR si può correggere. */
+    async function link(c: { repositoryId: string; prNumber: number; prUrl: string }) {
+      const [{ ticketId }] = (await testDb.db.select({ ticketId: prReviews.ticketId }).from(prReviews).where(eq(prReviews.repositoryId, c.repositoryId))) as [{ ticketId: string }];
+      await testDb.db.update(tickets).set({ type: "review" }).where(eq(tickets.id, ticketId));
+      await testDb.db.insert(ticketRepositories).values({ ticketId, repositoryId: c.repositoryId, branch: "feature/x", prUrl: c.prUrl, prNumber: c.prNumber, prState: "open", adoptedAt: new Date() });
+    }
+
     async function colleaguePr(opts: { verdict?: "approve" | "request_changes"; fromFork?: boolean | null; mode?: "analyze_and_fix" | "analyze_only" | "off" } = {}) {
       const pr = await seedExternalPr({ verdict: opts.verdict ?? "request_changes" });
       await testDb.db
@@ -1351,8 +1360,20 @@ describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {
         mergeable: null,
         colleaguePrs: "analyze_and_fix",
         issues: [{ file: null }],
-        permissions: { analysisOnly: true, requestCorrection: true },
+        // Review del renderer: senza la riga della PR (ancora da collegare) la rotta risponderebbe 404.
+        permissions: { analysisOnly: true, requestCorrection: false },
       });
+      await link(c);
+      expect(await c.pulls()).toMatchObject({ permissions: { requestCorrection: true } });
+    });
+
+    it("review del renderer: «Chiedi modifiche» su una PR di un collega vuole prs.adopt E corrections.request, come la rotta", async () => {
+      const c = await colleaguePr();
+      await link(c);
+      const [role] = await testDb.db.insert(roles).values({ name: `solo-adopt-${randomUUID().slice(0, 4)}`, scope: "project", permissions: ["prs.adopt", "tickets.view"] }).returning();
+      const u = await createUserWithPat(app, `ad-${randomUUID().slice(0, 6)}@acme.com`);
+      await testDb.db.insert(projectMembers).values({ projectId: c.projectId, userId: u.id, roleId: role!.id });
+      expect(await c.pulls(u.headers)).toMatchObject({ permissions: { requestCorrection: false } });
     });
 
     it("approvata sulla head, senza controlli: «clean» e pronta", async () => {

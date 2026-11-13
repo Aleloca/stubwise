@@ -1,4 +1,4 @@
-import { aiJobs, instanceSettings, prCorrections, prReleaseNotes, prReviews, projectEnvironments, projects, repositories, type Db } from "@stubwise/db";
+import { aiJobs, instanceSettings, prCorrections, prReleaseNotes, prReviews, ticketRepositories, projectEnvironments, projects, repositories, type Db } from "@stubwise/db";
 import { cancelOpenCorrections } from "@stubwise/notifications";
 import { isReadyForRelease, prStateOf, stubwiseTicketNumber, type OpenPull, type PrCorrectionInput } from "@stubwise/shared";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
@@ -92,6 +92,16 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
     .from(prReleaseNotes)
     .where(inArray(prReleaseNotes.repositoryId, repoIds));
   const key = (r: string, n: number | null) => `${r}:${n}`;
+  // Le PR con la loro riga `ticket_repositories` aperta: senza (un collega
+  // ancora da collegare), «Chiedi modifiche» risponderebbe 404 (review del renderer).
+  const linked = new Set(
+    (
+      await db
+        .select({ repositoryId: ticketRepositories.repositoryId, prNumber: ticketRepositories.prNumber })
+        .from(ticketRepositories)
+        .where(and(inArray(ticketRepositories.repositoryId, repoIds), eq(ticketRepositories.prState, "open")))
+    ).map((r) => key(r.repositoryId, r.prNumber)),
+  );
   const notesOf = new Map(notesRows.map((r) => [key(r.repositoryId, r.prNumber), r.body]));
   const rowsOf = (r: string, n: number | null) => reviewRows.filter((x) => key(x.repositoryId, x.prNumber) === key(r, n));
   const editReleaseNotes = perms.has("release.merge") || perms.has("tickets.edit");
@@ -204,8 +214,16 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
         // Su una PR di un collega: `prs.adopt`, un ramo su cui Stubwise può
         // pushare, e un'impostazione che non la ferma (`colleagueCorrectionAllowed`
         // con una richiesta in Stubwise: «spento» o «Solo analisi» sulla PR).
+        // Esattamente ciò che la rotta controlla (review del renderer):
+        // `corrections.request`, su un collega anche `prs.adopt`, la riga della
+        // PR, un ramo correggibile e un'impostazione che non la ferma.
         requestCorrection: colleague
-          ? perms.has("prs.adopt") && !prState.notFixable && repo?.colleaguePrs !== "off" && flagged === undefined
+          ? perms.has("corrections.request") &&
+            perms.has("prs.adopt") &&
+            linked.has(key(i.repositoryId, i.prNumber)) &&
+            !prState.notFixable &&
+            repo?.colleaguePrs !== "off" &&
+            flagged === undefined
           : perms.has("corrections.request"),
         editReleaseNotes,
       },
