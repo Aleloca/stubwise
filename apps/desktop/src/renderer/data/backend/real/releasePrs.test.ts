@@ -318,4 +318,18 @@ describe("le PR aperte della build app (area 8, F1)", () => {
       [246, "p1", true, "AUD-12"],
     ]);
   });
+
+  it("analysis_off: dell'istanza per una PR di Stubwise o di un repository acceso, del repository se è spento", async () => {
+    const off = { state: "analysis_off" as const, autoRound: 0, canAutoCorrect: false };
+    const { api } = fakeApi({
+      pulls: async () => ({
+        items: [
+          pull({ prState: off, colleaguePrs: "analyze_only" }),
+          pull({ prNumber: 300, origin: "external", prState: off, colleaguePrs: "off" }),
+        ],
+      }),
+    });
+    const prs = await createRealPrs(api, codeOf, release).listOpenPrs("p1");
+    expect(prs.map((p) => p.analysisOff)).toEqual(["instance", "repository"]);
+  });
 });

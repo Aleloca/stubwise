@@ -8847,6 +8847,7 @@
       "correctedNoSha": "Claude pushed a fix · analysing again",
       "discarded": "{{name}} pushed new commits first · analysing the new head",
       "capped": "Claude stopped after {{cap}} corrections",
+      "notAnalyzed": "Not analyzed: automatic review is off",
       "analysisOff": "Analysis is off for {{repo}}",
       "onStaging": "on staging"
     },

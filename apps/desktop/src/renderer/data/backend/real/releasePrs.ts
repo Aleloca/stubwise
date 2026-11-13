@@ -171,6 +171,14 @@ export function createRealPrs(
       },
       canEditReleaseNotes: p.permissions.editReleaseNotes,
       onStaging: p.onStaging ?? false,
+      ...(p.prState?.state === "analysis_off"
+        ? {
+            analysisOff:
+              !stubwise && p.colleaguePrs === "off"
+                ? ("repository" as const)
+                : ("instance" as const),
+          }
+        : {}),
       // Le note scritte da una persona (una bozza di Claude non arriva mai qui da sola).
       releaseNotes: p.releaseNotes ?? null,
     };
@@ -202,7 +210,7 @@ export function createRealPrs(
       const ready: QueueItem[] = [];
       for (const p of mine.ready as (OpenPull & { projectId?: string })[]) {
         if (!p.projectId) continue;
-        const view = viewOf(p.projectId, await projectCodeOf(p.projectId), p);
+        const view = viewOf(p.projectId, p.projectCode ?? (await projectCodeOf(p.projectId)), p);
         ready.push({ ...view, canMerge: true });
       }
       return { failed, ready };

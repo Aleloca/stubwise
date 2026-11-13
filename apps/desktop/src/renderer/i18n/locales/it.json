@@ -8847,6 +8847,7 @@
       "correctedNoSha": "Claude ha spinto una correzione · di nuovo in analisi",
       "discarded": "{{name}} ha spinto prima nuovi commit · in analisi la nuova testa",
       "capped": "Claude si è fermato dopo {{cap}} correzioni",
+      "notAnalyzed": "Non analizzata: la review automatica è spenta",
       "analysisOff": "L'analisi è spenta per {{repo}}",
       "onStaging": "su staging"
     },

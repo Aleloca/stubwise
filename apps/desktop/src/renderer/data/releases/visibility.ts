@@ -196,6 +196,13 @@ export type OpenPrView = OpenPullRequest & {
    * staging del progetto riporta il suo commit di testa.
    */
   onStaging: boolean;
+  /**
+   * Build app: con lo stato `analysis_off`, di chi è lo spegnimento — il
+   * repository (le PR dei colleghi `off`) o l'istanza (la review automatica
+   * spenta: la PR è «non analizzata», mai «senza problemi», 46). Assente nel
+   * prototipo: il repository.
+   */
+  analysisOff?: "repository" | "instance";
 };
 
 export function prView(me: string, pr: OpenPullRequest): OpenPrView {

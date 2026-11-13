@@ -118,7 +118,9 @@ export function prProse(pr: OpenPrView, t: TFunction): string | null {
     case "analysis_only":
       return t("releases.prLine.analysisOnly");
     case "analysis_off":
-      return t("releases.prLine.analysisOff", { repo: shortRepo(pr.repo) });
+      return pr.analysisOff === "instance"
+        ? t("releases.prLine.notAnalyzed")
+        : t("releases.prLine.analysisOff", { repo: shortRepo(pr.repo) });
     case "not_fixable":
       return t(`releases.notFixable.${s.notFixable ?? "fork"}`);
     case "clean":

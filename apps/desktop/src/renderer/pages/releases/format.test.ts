@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import i18n from "../../i18n";
 import type { OpenPrView, ReleaseView } from "../../data/releases";
-import { notReadyReason, nowSentence, releaseWord, riskWord } from "./format";
+import { notReadyReason, nowSentence, prProse, releaseWord, riskWord } from "./format";
 
 // Area 8, F1: le run illeggibili (`unknown` di `releaseStatusOf`) si dicono
 // come tali, mai come «riuscito» né «non disponibile».
@@ -50,5 +50,15 @@ describe("le PR della build app: i fatti che il server non legge (area 8, F1)", 
   it("`mergeable` non letto (null) non è un conflitto; `false` sì", () => {
     expect(notReadyReason(pr({ mergeable: null }), t)).toBeNull();
     expect(notReadyReason(pr({ mergeable: false }), t)).toMatch(/main/);
+  });
+
+  it("la review dell'istanza spenta: «non analizzata», mai «senza problemi»; il repository spento resta suo", () => {
+    const off = { state: "analysis_off", autoRound: 0, canAutoCorrect: false };
+    expect(prProse(pr({ prState: off, analysisOff: "instance", repo: "audin/audin-app" }), t)).toBe(
+      "Not analyzed: automatic review is off",
+    );
+    expect(prProse(pr({ prState: off, repo: "audin/audin-app" }), t)).toBe(
+      "Analysis is off for audin-app",
+    );
   });
 });
