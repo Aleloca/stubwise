@@ -84,7 +84,7 @@ export async function meetingSummaryFor(db: Db, viewerId: string, noteId: string
     docReason: note.docReason,
     summary: note.docStatus === "ready" ? note.summary : null,
     docUrl: docUrlOf(note.docFileId),
-    email: copy ? { threadId: copy.threadId, messageId: copy.id, at: copy.receivedAt.toISOString() } : null,
+    email: copy ? { threadId: copy.threadId, accountId: copy.accountId, messageId: copy.id, at: copy.receivedAt.toISOString() } : null,
   };
 }
 
