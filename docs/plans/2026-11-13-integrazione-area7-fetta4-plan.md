@@ -1,6 +1,7 @@
 # Area 7, fetta 4 — le automazioni generali e il webhook in arrivo
 
-> BOZZA di stubwise-94 (13 nov 2026), su richiesta di stubwise-46, nella
+> Piano di stubwise-94 (13 nov 2026), su richiesta di stubwise-46, con le
+> risposte F4-1…F4-6 (vedi «Le risposte alle domande»), nella
 > forma dei piani della F1, della F2 e della F3. I task del SERVER sono
 > scritti come interfacce e test: l'implementazione e le scelte interne
 > restano a 72, che le corregge prima di cominciare («Correzioni di 72»). I
@@ -59,6 +60,19 @@ Nella F3 l'inizio `source` e il passo `startAutomation` sono «Coming soon» e
 - **R-J13** *(design)*: l'evento di un'email lo vede solo il proprietario
   della casella, LUNGO LA CATENA: anche nelle esecuzioni avviate da
   «avvia un'altra».
+- **F4-1 = a** *(M)*: un webhook per automazione (un indirizzo, una sola
+  automazione che lo usa).
+- **F4-2 = c** *(M)*, NON la consigliata: il tetto di frequenza lo sceglie
+  chi gestisce l'automazione, con un default di 60 richieste al minuto e
+  5 000 al giorno.
+- **Il massimo d'istanza** *(O, 46)*: sopra il tetto scelto c'è un massimo
+  d'istanza NON superabile (il maintainer non ne ha parlato; scelta
+  dell'orchestratrice), così un indirizzo pubblico non resta mai senza
+  freno.
+- **F4-3 = a, F4-4 = a, F4-5 = a, F4-6 = a** *(O, 46)*, con la consigliata:
+  corpo al più 256 KB; i due modelli Audin restano fuori finché non c'è il
+  connettore; un evento coi tipi sbagliati è rifiutato (422) e la sorgente lo
+  mostra; gli eventi recenti li vede solo chi ha `integrations.manage`.
 
 ## Perimetro della F4
 
@@ -76,14 +90,16 @@ Nella F3 l'inizio `source` e il passo `startAutomation` sono «Coming soon» e
   i webhook di oggi), un segreto lungo e casuale per ogni sorgente webhook,
   salvato come hash (si mostra una volta sola, alla creazione e alla
   rigenerazione, come i token). Rigenerare invalida il vecchio subito.
-- **Il tetto di frequenza** (D3): per indirizzo, con lo stesso meccanismo di
-  `POST /api/inbound/:slug/ticket` (`rateLimit` di Fastify). Oltre: 429, e
-  l'evento non entra (domanda F4-2 per i numeri).
-- **Il corpo**: JSON, un oggetto, al più una dimensione massima (domanda
-  F4-3). Un corpo che non è un oggetto JSON, o con i tipi sbagliati
+- **Il tetto di frequenza** (D3, F4-2 = c): per indirizzo, con lo stesso
+  meccanismo di `POST /api/inbound/:slug/ticket` (`rateLimit` di Fastify).
+  Lo sceglie chi gestisce l'automazione (al minuto e al giorno), con un
+  default di 60 al minuto e 5 000 al giorno, e non supera MAI il massimo
+  d'istanza *(O, 46)*. Oltre: 429, e l'evento non entra.
+- **Il corpo**: JSON, un oggetto, al più 256 KB (F4-3 = a). Un corpo che non è un oggetto JSON, o con i tipi sbagliati
   rispetto ai campi della sorgente, NON avvia niente: 422, e l'evento
   compare fra gli «eventi recenti» della sorgente come rifiutato, col motivo
-  (domanda F4-5; chi vede gli eventi recenti: F4-6).
+  (F4-5 = a); gli eventi recenti li vede solo chi ha `integrations.manage`
+  (F4-6 = a).
 - **Il contenuto è NON fidato**: chiunque abbia l'indirizzo scrive i campi.
   Sono tinti (`taint.ts`: i campi di un inizio `source`), entrano nei passi
   come DATI, e un passo di Claude che li legge li riceve delimitati
@@ -256,7 +272,25 @@ R7. **Parità** (`apps/desktop/docs/integration-area7-f4.md`) e registro.
 - **R-J13 lungo la catena**: il testo di un'email non arriva al proprietario
   di una figlia che non possiede la casella.
 
-## Domande per il maintainer
+## Domande per il maintainer (risposte: vedi «Le risposte alle domande»)
+
+### Le risposte alle domande (13 nov 2026)
+
+- **F4-1 = a** *(M)*: un webhook per automazione.
+- **F4-2 = c** *(M)*, NON la consigliata: il tetto lo sceglie chi gestisce
+  l'automazione, default 60 al minuto e 5 000 al giorno; sopra c'è un
+  massimo d'istanza non superabile *(O, 46)*.
+- **F4-3 = a** *(O, 46)*: corpo al più 256 KB.
+- **F4-4 = a** *(O, 46)*: i due modelli Audin fuori finché non c'è il
+  connettore.
+- **F4-5 = a** *(O, 46)*: un evento coi tipi sbagliati è rifiutato (422) e
+  la sorgente lo mostra col motivo.
+- **F4-6 = a** *(O, 46)*: gli eventi recenti li vede solo chi ha
+  `integrations.manage`.
+- **R2** resta una verifica: la tinta degli elementi di un «per ogni» su un
+  elenco grezzo è nel fix della F3 di 72 (minore 6).
+
+### Le opzioni poste
 
 Ognuna con la consigliata per prima.
 

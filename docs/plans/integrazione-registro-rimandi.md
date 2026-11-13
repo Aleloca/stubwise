@@ -613,9 +613,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   passo di Claude si ferma solo per il budget mensile; `queue_paused`
   (`aiHoldOf` del prototipo) arriva con l'area 9b, quando il backend avrà la
   pausa della coda.
-- La bozza del piano della F4 (`docs/plans/2026-11-13-integrazione-area7-fetta4-plan.md`,
-  13 nov 2026, le automazioni generali e il webhook in arrivo), con le
-  domande F4-1…F4-6 aperte. Rimandati da lì: i connettori Audin e HubSpot
+- Il piano della F4 (`docs/plans/2026-11-13-integrazione-area7-fetta4-plan.md`,
+  13 nov 2026, le automazioni generali e il webhook in arrivo). F4-1 = a
+  *(M)*: un webhook per automazione. F4-2 = c *(M)*, NON la consigliata: il
+  tetto di frequenza lo sceglie chi gestisce l'automazione, default 60 al
+  minuto e 5 000 al giorno; sopra c'è un massimo d'istanza non superabile
+  *(O, 46: il maintainer non ne ha parlato)*. F4-3…F4-6 = a *(O, 46)*: corpo
+  al più 256 KB; i due modelli Audin fuori finché non c'è il connettore;
+  tipi sbagliati rifiutati (422) e mostrati; eventi recenti solo a chi ha
+  `integrations.manage`. Rimandati da lì: i connettori Audin e HubSpot
   (Q2 *(M)*: eventi nativi, OAuth o chiave, dopo questa area; fino ad
   allora si collegano col webhook in arrivo), i webhook in uscita (area 9),
   le azioni di Claude sulle automazioni (area 10).
