@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
   protectedBranchesInputSchema,
+  releasePipelineSchema,
   repositorySaveResponseSchema,
   repositorySchema,
   type RepositoryWarning,
@@ -91,6 +92,11 @@ const updateRepositorySchema = z.object({
   // omesso lo lascia invariato (patch: un client che non lo conosce non lo
   // azzera). `[]` = nessuno.
   protectedBranches: protectedBranchesInputSchema.optional(),
+  // Area 8, F1 (i rilasci), patch: omessi restano invariati.
+  releaseBranch: z.string().trim().min(1).max(250).nullable().optional(),
+  releasePipeline: releasePipelineSchema.optional(),
+  ciProvider: z.enum(["github_actions", "bitbucket_pipelines"]).nullable().optional(),
+  colleaguePrs: z.enum(["analyze_and_fix", "analyze_only", "off"]).optional(),
 });
 
 const slugParamsSchema = z.object({ slug: z.string().min(1) });
@@ -181,6 +187,10 @@ function toPublicRepository(
       effectiveReviewAccount: null,
       skippedDefaultReviewAccount: null,
       protectedBranches: [],
+      releaseBranch: null,
+      releasePipeline: { mode: "auto" as const },
+      ciProvider: null,
+      colleaguePrs: "analyze_only" as const,
       config: false,
     };
   }
@@ -202,6 +212,10 @@ function toPublicRepository(
     webhookConfiguredAt: row.webhookConfiguredAt?.toISOString() ?? null,
     graphEnabled: row.graphEnabled,
     protectedBranches: row.protectedBranches,
+    releaseBranch: row.releaseBranch,
+    releasePipeline: row.releasePipeline,
+    ciProvider: row.ciProvider,
+    colleaguePrs: row.colleaguePrs,
   };
 }
 
@@ -612,6 +626,10 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
         graphEnabled,
         reviewGitAccountId,
         protectedBranches,
+        releaseBranch,
+        releasePipeline,
+        ciProvider,
+        colleaguePrs,
       } = request.body;
       // Cambiare l'account git (principale o revisore) vuole anche
       // `git_accounts.manage` d'istanza. Rimandare gli stessi valori — il form
@@ -649,6 +667,11 @@ export async function repositoryRoutes(instance: FastifyInstance): Promise<void>
       if (graphEnabled !== undefined) updates.graphEnabled = graphEnabled;
       // Branch protetti: l'elenco intero, omesso lo lascia invariato.
       if (protectedBranches !== undefined) updates.protectedBranches = protectedBranches;
+      // Area 8, F1: le impostazioni dei rilasci (`repos.manage`, la rotta).
+      if (releaseBranch !== undefined) updates.releaseBranch = releaseBranch;
+      if (releasePipeline !== undefined) updates.releasePipeline = releasePipeline;
+      if (ciProvider !== undefined) updates.ciProvider = ciProvider;
+      if (colleaguePrs !== undefined) updates.colleaguePrs = colleaguePrs;
       // Account principale e revisore si validano INSIEME: cambiare uno dei due
       // può invalidare l'altro (promuovere il revisore a principale, passare a
       // un provider diverso). Cambio di principale: valida l'esistenza e

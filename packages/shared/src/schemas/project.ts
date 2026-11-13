@@ -65,6 +65,12 @@ export type SkippedDefaultReviewAccount = z.infer<typeof skippedDefaultReviewAcc
  * numerazione ticket) NON ne fanno più parte: sono salite al progetto (Fase 3,
  * vedi projectSchema). Il webhook git delle PR resta invece per-repo.
  */
+/** Area 8, F1: quali run di CI fanno lo stato di un rilascio. */
+export const releasePipelineSchema = z.union([
+  z.object({ mode: z.literal("auto") }),
+  z.object({ mode: z.literal("named"), names: z.array(z.string().trim().min(1).max(200)).min(1).max(20) }),
+]);
+
 export const repositorySchema = z.object({
   // CONFIGURAZIONE (22 ott 2026, permessi di progetto): account git, revisore,
   // comandi, webhook, grafo e branch protetti arrivano SOLO a chi ha
@@ -114,6 +120,14 @@ export const repositorySchema = z.object({
   // Stubwise non pusha mai, nemmeno dopo un'adozione (`isProtectedBranch`).
   // `.default([])`: un server più vecchio non lo manda; sul web `?? []`.
   protectedBranches: z.array(z.string()).default([]),
+  // Area 8, F1 (i rilasci): il ramo di rilascio (null = il default), quali run
+  // di CI fanno lo stato del rilascio, il provider di CI (null = nessuna
+  // pipeline: lo stato lo dice la produzione), le PR dei colleghi. Facoltativi
+  // coi default di un server più vecchio (e assenti senza `repos.view`).
+  releaseBranch: z.string().nullable().default(null),
+  releasePipeline: releasePipelineSchema.default({ mode: "auto" }),
+  ciProvider: z.enum(["github_actions", "bitbucket_pipelines"]).nullable().default(null),
+  colleaguePrs: z.enum(["analyze_and_fix", "analyze_only", "off"]).default("analyze_only"),
   // Il segreto HMAC del webhook git NON fa parte della proiezione pubblica:
   // è un segreto che permetterebbe di forgiare webhook di merge e forzare i
   // ticket a "done". Si legge solo via l'endpoint admin GET /:slug/webhook.

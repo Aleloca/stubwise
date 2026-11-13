@@ -426,6 +426,15 @@ describe("repositorySchema.reviewGitAccountId verso un server più vecchio (30 s
     createdAt: "2026-09-01T10:00:00.000Z",
   };
 
+  it("area 8, F1: senza le impostazioni dei rilasci si legge coi default (ramo null, tutte le run, nessuna CI, solo analisi)", () => {
+    expect(readerSchema(repositorySchema).parse(repositorySenzaRevisore)).toMatchObject({
+      releaseBranch: null,
+      releasePipeline: { mode: "auto" },
+      ciProvider: null,
+      colleaguePrs: "analyze_only",
+    });
+  });
+
   it("un repository senza account revisore si legge con null", () => {
     expect(readerSchema(repositorySchema).parse(repositorySenzaRevisore).reviewGitAccountId).toBeNull();
   });

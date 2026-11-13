@@ -1914,3 +1914,33 @@ describe("branch protetti della repository (7 ott 2026)", () => {
     expect((get.json() as { protectedBranches: string[] }).protectedBranches).toEqual(["develop"]);
   });
 });
+
+describe("area 8, F1: le impostazioni dei rilasci della repository", () => {
+  async function created(name: string) {
+    const res = await createProject({ ...basePayload(), name });
+    expect(res.statusCode).toBe(201);
+    return res.json() as { slug: string; releaseBranch: string | null; releasePipeline: unknown; ciProvider: string | null; colleaguePrs: string };
+  }
+  const patch = (slug: string, payload: Record<string, unknown>) =>
+    app.inject({ method: "PATCH", url: `/api/repositories/${slug}`, headers: { cookie: adminCookie }, payload });
+
+  it("i default (ramo null, tutte le run, nessuna CI, PR dei colleghi in solo analisi) e il PATCH che li cambia; senza i campi restano", async () => {
+    const repo = await created("Rilasci Impostazioni");
+    expect(repo).toMatchObject({ releaseBranch: null, releasePipeline: { mode: "auto" }, ciProvider: null, colleaguePrs: "analyze_only" });
+    const res = await patch(repo.slug, { releaseBranch: "release", releasePipeline: { mode: "named", names: ["build", "test"] }, ciProvider: "github_actions", colleaguePrs: "analyze_and_fix" });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ releaseBranch: "release", releasePipeline: { mode: "named", names: ["build", "test"] }, ciProvider: "github_actions", colleaguePrs: "analyze_and_fix" });
+    const again = await patch(repo.slug, { name: "Rilasci Impostazioni 2" });
+    expect(again.json()).toMatchObject({ releaseBranch: "release", ciProvider: "github_actions", colleaguePrs: "analyze_and_fix" });
+    expect((await patch(repo.slug, { releaseBranch: null })).json()).toMatchObject({ releaseBranch: null });
+  });
+
+  it("valori non ammessi: 400 e niente scritto", async () => {
+    const repo = await created("Rilasci Invalidi");
+    expect((await patch(repo.slug, { colleaguePrs: "sempre" })).statusCode).toBe(400);
+    expect((await patch(repo.slug, { releasePipeline: { mode: "named", names: [] } })).statusCode).toBe(400);
+    expect((await patch(repo.slug, { ciProvider: "jenkins" })).statusCode).toBe(400);
+    const get = await app.inject({ method: "GET", url: `/api/repositories/${repo.slug}`, headers: { cookie: adminCookie } });
+    expect(get.json()).toMatchObject({ colleaguePrs: "analyze_only", releasePipeline: { mode: "auto" }, ciProvider: null });
+  });
+});
