@@ -216,7 +216,7 @@ export async function simulationExamples(db: Db, viewer: Viewer, code: string, v
 
   // La casella che il proprietario che avrebbe userebbe (F2): quella scelta se è lui, altrimenti la sua prima utilizzabile.
   const box = await automationMailboxOf(db, ownerId, ownerId === a.ownerId ? a.mailboxAccountId : null);
-  const ownerMailbox: OwnerMailbox = box.ok ? { ok: true, address: box.address } : { ok: false, reason: box.reason };
+  const ownerMailbox: OwnerMailbox = box.ok ? { ok: true, address: box.address } : { ok: false, reason: box.reason === "no_read_scope" ? "no_scope" : box.reason };
   const context: SimulationContext = {
     automation: automationOf(a, versions, visible, await mailboxAddresses(db, [a])),
     version: v.n,

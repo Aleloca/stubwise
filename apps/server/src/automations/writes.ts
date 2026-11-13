@@ -86,13 +86,19 @@ async function mailboxForPublish(db: Db | Tx, viewer: Viewer, a: AutomationRecor
   if (!sendsEmail(flow)) return null;
   const id = requested ?? (a.ownerId === viewer.id ? a.mailboxAccountId : null);
   if (!id) throw invalid("mailbox_required", "Choose the mailbox the automation sends from or listens to");
-  const box = await automationMailboxOf(db, viewer.id, id);
+  // Solo lo scope che serve: l'invio se il flusso manda, la lettura se ascolta soltanto.
+  let sends = false;
+  visitSteps(flow.steps, (st) => {
+    if (st.kind === "sendEmail") sends = true;
+  });
+  const box = await automationMailboxOf(db, viewer.id, id, { send: sends });
   if (box.ok) return box.accountId;
   if (box.reason === "chosen_gone") {
     if (requested) throw notFound();
     throw invalid("mailbox_required", "Choose the mailbox the emails are sent from");
   }
   if (box.reason === "no_scope") throw invalid("mailbox_scope", "The mailbox can't send email", { missingScopes: box.missingScopes ?? [] });
+  if (box.reason === "no_read_scope") throw invalid("mailbox_read_scope", "The mailbox can't be read", { missingScopes: box.missingScopes ?? [] });
   throw invalid("mailbox_expired", "The mailbox is disconnected or expired");
 }
 

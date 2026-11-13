@@ -11,6 +11,9 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
  */
 export const MAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.modify";
 
+/** Gli scope con cui una casella si legge: `gmail.modify` o, per una casella di prima, `gmail.readonly`. */
+export const MAIL_READ_SCOPES: readonly string[] = [MAIL_SEND_SCOPE, "https://www.googleapis.com/auth/gmail.readonly"];
+
 /** Gli scope dell'area che la casella non ha concesso (come `missingGoogleScopes`). */
 const missingScopes = (granted: readonly string[]) => googleOauthScopes.filter((s) => s !== "openid" && s !== "email" && !granted.includes(s));
 
@@ -29,9 +32,14 @@ const missingScopes = (granted: readonly string[]) => googleOauthScopes.filter((
  */
 export type AutomationMailbox =
   | { ok: true; accountId: string; address: string }
-  | { ok: false; reason: "chosen_gone" | "none" | "expired" | "no_scope"; missingScopes?: string[] };
+  | { ok: false; reason: "chosen_gone" | "none" | "expired" | "no_scope" | "no_read_scope"; missingScopes?: string[] };
 
-export async function automationMailboxOf(db: Db | Tx, ownerId: string, chosen: string | null): Promise<AutomationMailbox> {
+/**
+ * `need`: cosa ci fa l'automazione (review del renderer, F2). Mandare vuole
+ * `gmail.modify` (`no_scope`); ascoltare soltanto basta la lettura
+ * (`no_read_scope` se manca anche quella). Di default: mandare.
+ */
+export async function automationMailboxOf(db: Db | Tx, ownerId: string, chosen: string | null, need: { send: boolean } = { send: true }): Promise<AutomationMailbox> {
   const t = db as Db;
   const rows = await t
     .select({ id: googleAccounts.id, userId: googleAccounts.userId, email: googleAccounts.email, scopes: googleAccounts.scopes, disabledAt: googleAccounts.disabledAt })
@@ -40,7 +48,8 @@ export async function automationMailboxOf(db: Db | Tx, ownerId: string, chosen: 
     .orderBy(asc(googleAccounts.connectedAt));
   const judge = (r: (typeof rows)[number]): AutomationMailbox => {
     if (r.disabledAt) return { ok: false, reason: "expired" };
-    if (!r.scopes.includes(MAIL_SEND_SCOPE)) return { ok: false, reason: "no_scope", missingScopes: missingScopes(r.scopes) };
+    if (need.send && !r.scopes.includes(MAIL_SEND_SCOPE)) return { ok: false, reason: "no_scope", missingScopes: missingScopes(r.scopes) };
+    if (!need.send && !MAIL_READ_SCOPES.some((x) => r.scopes.includes(x))) return { ok: false, reason: "no_read_scope", missingScopes: missingScopes(r.scopes) };
     return { ok: true, accountId: r.id, address: r.email };
   };
   if (chosen) {

@@ -259,7 +259,7 @@ async function executeEmail(eff: ActionEffect, env: EffectEnv): Promise<EffectOu
     const box = await automationMailboxOf(tx, owner, chosen);
     const world = {
       ...(await loadPlanWorld(tx, { ownerId: owner, projectIds: env.automation.projectId ? [env.automation.projectId] : [], personIds: [], departmentIds: [] })),
-      ownerMailbox: () => (box.ok ? { ok: true as const, address: box.address } : { ok: false as const, reason: box.reason }),
+      ownerMailbox: () => (box.ok ? { ok: true as const, address: box.address } : { ok: false as const, reason: box.reason === "no_read_scope" ? ("no_scope" as const) : box.reason }),
     };
     const p = planEmail(world, eff, owner, sentRow?.n ?? 0, env.mailbox?.address ?? null);
     if (!p.ok) return p.outcome;
