@@ -34,12 +34,14 @@ const OUTPUT_TOKENS_BASE = 300;
 const OUTPUT_TOKENS_PER_FIELD = 150;
 const MAX_ROUNDS = 50;
 
-async function versionFlow(db: Db, viewer: Viewer, code: string, version: number | "draft") {
+async function versionFlow(db: Db, viewer: Viewer, code: string, version: number | "draft", rev?: number | null) {
   const a = await managedAutomation(db, viewer, code);
   const versions = await versionsOf(db, a.id);
   const last = versions.at(-1)!;
   const v = version === "draft" ? (last.publishedAt === null ? last : undefined) : versions.find((x) => x.n === version);
   if (!v) throw new AutomationError(400, version === "draft" ? "no_draft" : "version", "Unknown version");
+  // Review renderer F3: la prova gira sul passo che il client controlla, non su una bozza cambiata nel frattempo.
+  if (rev !== undefined && v.rev !== rev) throw new AutomationError(409, "stale", "The version changed", { rev: v.rev });
   return { a, flow: v.flow as AutomationFlow };
 }
 
@@ -57,6 +59,8 @@ export async function estimateTest(db: Db, viewer: Viewer, code: string, input: 
   let claudeSteps = 0;
   let total = 0;
   let priced = true;
+  // Review renderer F3: un «per ogni» su un elenco che l'esempio non ha (lo decide Claude) conta il MASSIMO dei giri.
+  let upperBound = false;
   const walk = (steps: Step[], rounds: number) => {
     for (const s of steps) {
       if (s.kind === "claude") {
@@ -73,7 +77,8 @@ export async function estimateTest(db: Db, viewer: Viewer, code: string, input: 
         for (const branch of Object.values(s.branches)) walk(branch, rounds);
       } else if (s.kind === "forEach") {
         const items = lookup(input.event, s.list);
-        walk(s.steps, rounds * Math.max(1, Math.min(Array.isArray(items) ? items.length : 1, MAX_ROUNDS)));
+        if (!Array.isArray(items)) upperBound = true;
+        walk(s.steps, rounds * (Array.isArray(items) ? Math.max(1, Math.min(items.length, MAX_ROUNDS)) : MAX_ROUNDS));
       } else if (s.kind === "repeatUntil") {
         walk(s.steps, rounds * Math.min(s.max, 10));
         walk(s.onLimit, rounds);
@@ -84,12 +89,12 @@ export async function estimateTest(db: Db, viewer: Viewer, code: string, input: 
     }
   };
   walk(flow.steps, 1);
-  return { claudeSteps, estimateUsd: claudeSteps === 0 ? 0 : priced ? Math.round(total * 10_000) / 10_000 : null, model };
+  return { claudeSteps, estimateUsd: claudeSteps === 0 ? 0 : priced ? Math.round(total * 10_000) / 10_000 : null, model, upperBound };
 }
 
 /** Un passo di Claude della prova: il budget, la chiamata, la verifica. */
-export async function runTestClaude(db: Db, llm: ChatLlm, viewer: Viewer, code: string, input: { version: number | "draft"; path: string; vars: Record<string, unknown> }) {
-  const { a, flow } = await versionFlow(db, viewer, code, input.version);
+export async function runTestClaude(db: Db, llm: ChatLlm, viewer: Viewer, code: string, input: { version: number | "draft"; rev?: number | null; path: string; vars: Record<string, unknown> }) {
+  const { a, flow } = await versionFlow(db, viewer, code, input.version, input.rev);
   const step = stepAt(flow.steps, input.path);
   if (!step || step.kind !== "claude") throw new AutomationError(400, "path", "That step is not a Claude step");
   if ((await aiBudgetState(db)).exhausted) throw new AutomationError(409, "budget", "The monthly AI budget is used up");

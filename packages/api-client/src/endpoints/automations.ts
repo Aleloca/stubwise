@@ -148,7 +148,7 @@ export function createAutomationEndpoints(request: ApiRequest) {
       return request("POST", `${base(code)}/test/estimate`, input);
     },
     /** Area 7, F3: un passo di Claude della prova, sul server (409 `budget`, 422 `claude_invalid`). */
-    testClaude(code: string, input: { version: number | "draft"; path: string; vars: Record<string, unknown> }): Promise<AutomationTestClaudeResult> {
+    testClaude(code: string, input: { version: number | "draft"; rev?: number | null; path: string; vars: Record<string, unknown> }): Promise<AutomationTestClaudeResult> {
       return request("POST", `${base(code)}/test/claude`, input);
     },
     myRuns(opts: { log?: "none" } = {}): Promise<{ items: MyAutomationRun[] }> {

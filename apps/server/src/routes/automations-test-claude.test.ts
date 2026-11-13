@@ -130,3 +130,27 @@ describe("POST …/test/estimate (gratuita)", () => {
     expect((await call(dev.headers, `/automations/${a.code}/test/estimate`, { version: "draft", event: {} })).statusCode).toBe(403);
   });
 });
+
+describe("review renderer F3", () => {
+  it("un «per ogni» su un elenco che l'esempio non ha (deciso da Claude) conta il MASSIMO dei giri, e la stima lo dice (`upperBound`)", async () => {
+    const { p, lead } = await setup();
+    const picker: Step = { ...claude, id: "pick", outcomes: [], fields: [{ key: "voci", label: "Voci", type: "list" }] };
+    const loop: Step = { id: "f", kind: "forEach", list: "voci", as: "voce", steps: [{ ...claude, id: "c2", inputs: ["voce"] }] };
+    const a = await created(lead, p.id, [picker, loop]);
+    const body = (await call(lead.headers, `/automations/${a.code}/test/estimate`, { version: "draft", event: { avvio: { testo: "x" } } })).json() as { claudeSteps: number; upperBound: boolean };
+    expect(body).toMatchObject({ claudeSteps: 51, upperBound: true });
+    const known = await created(lead, p.id, [claude]);
+    expect((await call(lead.headers, `/automations/${known.code}/test/estimate`, { version: "draft", event: {} })).json()).toMatchObject({ claudeSteps: 1, upperBound: false });
+  });
+
+  it("`rev` della bozza: se è cambiata → 409 `stale` col rev attuale, e nessuna chiamata", async () => {
+    const { p, lead } = await setup();
+    const a = await created(lead, p.id, [claude]);
+    const stale = await call(lead.headers, `/automations/${a.code}/test/claude`, { version: "draft", rev: 99, path: "0", vars: {} });
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json()).toMatchObject({ code: "stale", rev: 1 });
+    expect(calls).toEqual([]);
+    expect((await call(lead.headers, `/automations/${a.code}/test/claude`, { version: "draft", rev: 1, path: "0", vars: {} })).statusCode).toBe(200);
+  });
+});
+
