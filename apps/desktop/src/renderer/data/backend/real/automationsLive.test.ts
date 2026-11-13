@@ -385,9 +385,20 @@ describe("la prova con Claude vero (F3, le rotte di 72)", () => {
     });
     expect(seen.find((r) => r.path.endsWith("/test/claude"))!.body).toEqual({
       version: 1,
+      // La rev provata: se la bozza è cambiata, il server risponde 409 `stale`.
+      rev: 7,
       path: "0",
       vars: expect.objectContaining({ "avvio.data": "2026-11-13" }),
     });
+  });
+
+  it("la bozza cambiata (409 stale) e un altro passo della prova in corso (409 test_busy) fermano la prova con il loro codice", async () => {
+    for (const code of ["stale", "test_busy"]) {
+      installFakeServer(base({ status: 409, body: { code, message: code, rev: 8 } }));
+      forgetAutomationRefs();
+      const id = await start();
+      expect((await automations.simulationStep(id, { kind: "run" })).interrupted).toBe(code);
+    }
   });
 
   it("un 404 della stima: automazione sparita (not_found) o server senza la F3 (not_available)", async () => {

@@ -368,7 +368,13 @@ export interface SimulationView {
    * prova. `estimateUsd: null` = un modello senza tariffa nota («costo non
  * stimabile»). Facoltativo: assente o `null` = niente da confermare.
    */
-  costToConfirm?: { claudeSteps: number; estimateUsd: number | null; model: string } | null;
+  costToConfirm?: {
+    claudeSteps: number;
+    estimateUsd: number | null;
+    model: string;
+    /** La stima è un tetto (elenchi o input che l'esempio non ha): «fino a …». */
+    upperBound?: boolean;
+  } | null;
   /**
    * F3: la prova si è fermata per un errore di una rotta di Claude (es.
    * `budget`), tenendo i passi già fatti; la pagina lo dice. Facoltativo:

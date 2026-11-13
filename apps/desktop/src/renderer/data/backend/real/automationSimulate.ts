@@ -44,11 +44,12 @@ export interface SimulationApi {
       automationId: string,
       version: number | "draft",
       event: Record<string, unknown>,
-    ): Promise<{ claudeSteps: number; estimateUsd: number | null; model: string }>;
+    ): Promise<{ claudeSteps: number; estimateUsd: number | null; model: string; upperBound?: boolean }>;
     /** La risposta di Claude per il passo; `truncated`: gli input tagliati a 20 000 caratteri. */
     run(
       automationId: string,
-      body: { version: number; path: string; vars: Record<string, unknown> },
+      /** `rev`: la revisione provata; cambiata, il server risponde 409 `stale`. */
+      body: { version: number; rev: number | null; path: string; vars: Record<string, unknown> },
     ): Promise<ClaudeResult & { truncated?: string[] }>;
   };
 }
@@ -204,7 +205,7 @@ interface Trial {
   /** F3: le risposte di Claude, il costo stimato e se chi prova l'ha confermato (una volta). */
   answers: Map<string, ClaudeResult>;
   event: Record<string, unknown>;
-  cost: { claudeSteps: number; estimateUsd: number | null; model: string } | null;
+  cost: { claudeSteps: number; estimateUsd: number | null; model: string; upperBound?: boolean } | null;
   confirmed: boolean;
   waitingCost: boolean;
   /** L'ultima interruzione per un errore di una rotta di Claude (vedi `SimulationView.interrupted`). */
@@ -309,7 +310,12 @@ export function createRealSimulation(api: SimulationApi) {
           const vars = t.sim.pending?.kind === "claude" ? t.sim.pending.vars : {};
           let reply: Awaited<ReturnType<NonNullable<SimulationApi["claude"]>["run"]>>;
           try {
-            reply = await api.claude.run(t.ctx.automation.id, { version: t.ctx.version, path, vars });
+            reply = await api.claude.run(t.ctx.automation.id, {
+              version: t.ctx.version,
+              rev: t.ctx.rev,
+              path,
+              vars,
+            });
           } catch (failure) {
             if (failure instanceof ClaudeAnswerUnreadable) {
               t.run.failPending(t.sim, "claude_invalid", "La risposta di Claude non era leggibile.", {

@@ -380,8 +380,8 @@ describe("la prova nella build app", () => {
     expect(v.preview.notifications).toHaveLength(1);
     // Una conferma vale per tutta la prova: due passi, una stima.
     expect(runs).toEqual([
-      { automationId: "a-1", version: 1, path: "0", vars: expect.any(Object) },
-      { automationId: "a-1", version: 1, path: "1", vars: expect.any(Object) },
+      { automationId: "a-1", version: 1, rev: 7, path: "0", vars: expect.any(Object) },
+      { automationId: "a-1", version: 1, rev: 7, path: "1", vars: expect.any(Object) },
     ]);
     // La stima porta l'evento dell'esempio; una sola per la prova.
     expect(calls.filter((c) => c.startsWith("GET estimate"))).toEqual([
