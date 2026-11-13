@@ -592,6 +592,24 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
+  // Review area 8 F1, m5: le ricerche della palette delle aree non integrate non partono.
+  it("cercare nella palette legge solo chiamate integrate (rilasci, Support, Servers spenti)", async () => {
+    const user = userEvent.setup();
+    renderRoute("/home");
+    await screen.findByRole("region", { name: /^My tasks/ });
+    await user.keyboard("{Control>}k{/Control}");
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByRole("combobox"), "AUD");
+    await new Promise((r) => setTimeout(r, 400));
+    await settle();
+    expect(calls).not.toContain("releases.searchReleases");
+    expect(calls).not.toContain("support.searchSupport");
+    expect(calls).not.toContain("servers.searchServers");
+    // Le chiamate dell'area 8 fuori dalle integrate: nessuna. (La ricerca della
+    // doc di prodotto, area 11, è un rimando a sé: segnalata a 46.)
+    expect(outside().filter((c) => /^(releases|support|servers)\./.test(c))).toEqual([]);
+  });
+
   // Area 8, F1 (46): «Repositories» ridotta, senza «nuovo repository» né l'editor dell'area 9.
   it("aprire Repositories legge solo chiamate integrate, senza «Add repository»", async () => {
     // Laura vede il codice di AUD (`repos.view`): la sezione è sua.

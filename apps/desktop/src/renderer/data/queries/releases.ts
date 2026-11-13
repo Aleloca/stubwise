@@ -115,7 +115,8 @@ export function useReleaseSearch(q: string, enabled = true) {
   return useQuery({
     queryKey: queryKeys.releaseSearch(me, q),
     queryFn: () => api.releases.searchReleases(q),
-    enabled: enabled && q.trim().length >= MIN_QUERY,
+    // La ricerca dei rilasci nella build app ha il suo cancello (review F1, m5).
+    enabled: enabled && q.trim().length >= MIN_QUERY && featureIntegrated("releases-search"),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
