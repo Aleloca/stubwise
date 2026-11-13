@@ -45,6 +45,9 @@ CREATE TABLE "automations" (
 	"created_by" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"created_via" text,
+	-- Da quando è accesa (pubblicata o riaccesa): il consumatore ignora gli
+	-- eventi nati prima, niente recupero retroattivo. Null se non è attiva.
+	"active_since" timestamp with time zone,
 	CONSTRAINT "automations_created_via_chk" CHECK ("created_via" IS NULL OR "created_via" = 'claude')
 );
 --> statement-breakpoint
@@ -129,11 +132,31 @@ CREATE INDEX "automation_runs_due_idx" ON "automation_runs" USING btree ("due_at
 --> statement-breakpoint
 CREATE INDEX "automation_runs_parent_idx" ON "automation_runs" USING btree ("parent_run_id") WHERE "parent_run_id" IS NOT NULL;
 --> statement-breakpoint
+-- La coda degli INPUT di un'esecuzione (approvazione, rifiuto, progetto
+-- scelto, «Riprova», «Salta», riaccensione): li scrive il server, li consuma
+-- l'esecutore del worker in ordine, uno alla volta, sotto il lease della
+-- riga dell'esecuzione. Il server non fa mai avanzare il motore.
+CREATE TABLE "automation_run_inputs" (
+	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+	"run_id" uuid NOT NULL,
+	"input" jsonb NOT NULL,
+	"by_id" uuid,
+	"created_at" timestamp with time zone DEFAULT clock_timestamp() NOT NULL,
+	"consumed_at" timestamp with time zone
+);
+--> statement-breakpoint
+ALTER TABLE "automation_run_inputs" ADD CONSTRAINT "automation_run_inputs_run_id_automation_runs_id_fk" FOREIGN KEY ("run_id") REFERENCES "public"."automation_runs"("id") ON DELETE cascade ON UPDATE no action;
+--> statement-breakpoint
+ALTER TABLE "automation_run_inputs" ADD CONSTRAINT "automation_run_inputs_by_id_users_id_fk" FOREIGN KEY ("by_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;
+--> statement-breakpoint
+CREATE INDEX "automation_run_inputs_pending_idx" ON "automation_run_inputs" USING btree ("run_id", "created_at") WHERE "consumed_at" IS NULL;
+--> statement-breakpoint
 -- Il registro: mai riscritto (append-only).
 CREATE TABLE "automation_run_log" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"run_id" uuid NOT NULL,
 	"seq" integer NOT NULL,
+	"step_id" text NOT NULL,
 	"path" text NOT NULL,
 	"round" integer DEFAULT 0 NOT NULL,
 	"kind" text NOT NULL,

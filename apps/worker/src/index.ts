@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createDb } from "@stubwise/db";
 import { createEmbeddingClient } from "@stubwise/embeddings";
 import { createPushRelayClient } from "@stubwise/notifications";
+import { startAutomationsPoller } from "./automations/poller.js";
 import { ClaudeCliRunner } from "./agent/claude-cli.js";
 import type { AgentRunner } from "./agent/runner.js";
 import { AGENT_PAUSE_BUDGET_MS } from "./agent/pause-budget.js";
@@ -779,6 +780,16 @@ startDriveContentPoller({
   embeddings: embeddingClient,
   log: (m) => console.error(`[stubwise-worker] ${m}`),
   intervalSeconds: config.driveContentPollSeconds,
+  signal: controller.signal,
+});
+
+// Poller delle AUTOMATIONS (area 7): il consumatore degli eventi scritti dai
+// trigger della 0169 e (Task 3) l'esecutore delle esecuzioni dovute. FUORI dal
+// serializer per-progetto; un riavvio non perde niente (vedi `poller.ts`).
+startAutomationsPoller({
+  db,
+  log: (m) => console.error(`[stubwise-worker] ${m}`),
+  intervalSeconds: config.automationsPollSeconds,
   signal: controller.signal,
 });
 

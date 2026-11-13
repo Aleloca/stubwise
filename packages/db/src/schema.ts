@@ -6397,6 +6397,8 @@ export const automations = pgTable(
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     createdVia: text("created_via").$type<"claude">(),
+    /** Da quando è accesa: il consumatore ignora gli eventi nati prima (niente recupero retroattivo). */
+    activeSince: timestamp("active_since", { withTimezone: true }),
   },
   (table) => [
     uniqueIndex("automations_code_idx").on(table.code),
@@ -6472,6 +6474,26 @@ export const automationRuns = pgTable(
   ],
 );
 
+/**
+ * La coda degli input di un'esecuzione: li scrive il server (approvazioni,
+ * progetto scelto, «Riprova», «Salta», riaccensione), li consuma l'esecutore
+ * del worker in ordine, sotto il lease dell'esecuzione.
+ */
+export const automationRunInputs = pgTable(
+  "automation_run_inputs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => automationRuns.id, { onDelete: "cascade" }),
+    input: jsonb("input").notNull(),
+    byId: uuid("by_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  },
+  (table) => [index("automation_run_inputs_pending_idx").on(table.runId, table.createdAt).where(sql`${table.consumedAt} IS NULL`)],
+);
+
 /** Il registro di un'esecuzione: append-only (un trigger rifiuta l'UPDATE). */
 export const automationRunLog = pgTable(
   "automation_run_log",
@@ -6481,6 +6503,8 @@ export const automationRunLog = pgTable(
       .notNull()
       .references(() => automationRuns.id, { onDelete: "cascade" }),
     seq: integer("seq").notNull(),
+    /** L'id del passo (`RunLogEntry.stepId`); "trigger" per l'inizio. */
+    stepId: text("step_id").notNull(),
     path: text("path").notNull(),
     round: integer("round").notNull().default(0),
     kind: text("kind").notNull(),

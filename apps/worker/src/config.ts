@@ -819,6 +819,20 @@ const envSchema = z.object({
       .min(0, "deve essere un intero ≥ 0 in secondi (es. 10; 0 = disabilitato)")
       .default(10),
   ),
+  // Intervallo di poll (secondi) delle AUTOMATIONS (area 7): il consumatore
+  // degli eventi (`automation_events`, scritti dai trigger) e l'esecutore delle
+  // esecuzioni dovute. Breve perché un'approvazione data deve ripartire
+  // subito; il tick è quasi sempre a vuoto (due query sugli indici parziali).
+  // 0 = disabilitato (gli eventi restano in coda, le esecuzioni ferme).
+  // Default 5".
+  AUTOMATIONS_POLL_SECONDS: z.preprocess(
+    emptyAsUndefined,
+    z.coerce
+      .number({ error: "deve essere un intero ≥ 0 in secondi (es. 5; 0 = disabilitato)" })
+      .int("deve essere un intero ≥ 0 in secondi (es. 5; 0 = disabilitato)")
+      .min(0, "deve essere un intero ≥ 0 in secondi (es. 5; 0 = disabilitato)")
+      .default(5),
+  ),
   // Radice del VOLUME dei plugin Claude Code del registro d'istanza: il worker
   // ci materializza `<PLUGINS_DIR>/<slug>/<sha>/` ed è l'UNICO a montarlo (il
   // server non lo vede: legge l'inventario dal DB).
@@ -1224,6 +1238,8 @@ export interface WorkerConfig {
   graphPollSeconds: number;
   /** Intervallo in secondi della coda del contenuto del Drive (default 10; 0 = disabilitato). */
   driveContentPollSeconds: number;
+  /** Area 7: il poller delle Automations (consumatore ed esecutore). 0 = spento. */
+  automationsPollSeconds: number;
   /** Radice del volume dei plugin del registro d'istanza (default "/plugins"). */
   pluginsDir: string;
   /** Intervallo in secondi del poller della coda `plugin_jobs` (default 20;
@@ -1457,6 +1473,7 @@ export function loadWorkerConfig(env: Record<string, string | undefined> = proce
     graphBuildTimeoutMs: parsed.GRAPH_BUILD_TIMEOUT_MINUTES * 60_000,
     graphPollSeconds: parsed.GRAPH_POLL_SECONDS,
     driveContentPollSeconds: parsed.DRIVE_CONTENT_POLL_SECONDS,
+    automationsPollSeconds: parsed.AUTOMATIONS_POLL_SECONDS,
     pluginsDir: parsed.PLUGINS_DIR,
     pluginPollSeconds: parsed.PLUGIN_POLL_SECONDS,
     notifyPollSeconds: parsed.NOTIFY_POLL_SECONDS,

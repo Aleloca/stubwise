@@ -549,6 +549,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - Effetti che il prototipo ha e la build app spegne: segnali alle automazioni
   alla chiusura di un traguardo e alla conversione di una richiesta.
 - Azioni di Claude: crea automazione in bozza, salva/elimina bozza, prova.
+- F4, `automations.manage` d'ISTANZA *(S, verifica di Q7, 13 nov 2026)*:
+  serve solo alle automazioni generali. Come il prototipo
+  (`apps/desktop/src/renderer/data/access/seed.ts`), al solo preset Admin
+  (che da noi è `instance.full_admin`, quindi già implicito), con la regola
+  dei preset; in F1 c'è solo il permesso di progetto (Project Lead).
+- F1, le operazioni di massa e la GUC *(S)*: ogni migrazione o job di
+  manutenzione futuro che crea o chiude task, richieste o traguardi apre con
+  `set_config('stubwise.automation_events', 'off', true)`
+  (`docs/invariants/automations.md`). Nessun controllo automatico lo impone:
+  la review di una migrazione deve guardarlo.
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 

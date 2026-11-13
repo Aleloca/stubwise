@@ -160,7 +160,7 @@ describe("migrazione 0169: i trigger degli eventi", () => {
 describe("migrazione 0169: le tabelle", () => {
   it("il registro è append-only; un effetto per chiave; al più una bozza per automazione", async () => {
     const { automation, run } = await automationWithRun();
-    const [entry] = await t.db.insert(automationRunLog).values({ runId: run.id, seq: 1, path: "0", kind: "createTask", outcome: "done" }).returning();
+    const [entry] = await t.db.insert(automationRunLog).values({ runId: run.id, seq: 1, stepId: "s1", path: "0", kind: "createTask", outcome: "done" }).returning();
     await expectSqlState(t.db.update(automationRunLog).set({ outcome: "failed" }).where(eq(automationRunLog.id, entry!.id)), "23001");
     await t.db.insert(automationEffects).values({ runId: run.id, path: "0", idempotencyKey: `${run.id}:0:0`, kind: "task" });
     await expectSqlState(t.db.insert(automationEffects).values({ runId: run.id, path: "0", idempotencyKey: `${run.id}:0:0`, kind: "task" }), "23505");
