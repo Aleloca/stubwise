@@ -77,3 +77,15 @@ describe("endpoints repositories", () => {
     expect(repository).not.toHaveProperty("webhookSecret");
   });
 });
+
+describe("area 8, F1: le impostazioni di rilascio", () => {
+  it("PATCH per slug coi soli campi di rilascio; una risposta senza i campi nuovi (server di prima) si legge coi default", async () => {
+    const { client, fetchImpl } = clientConRepository();
+    const read = await client.repositories.updateReleaseSettings("portale-b2b", { releaseBranch: "production", colleaguePrs: "analyze_and_fix" });
+    const [url, init] = fetchImpl.mock.calls.at(-1)!;
+    expect(String(url)).toBe("/api/repositories/portale-b2b");
+    expect(init?.method).toBe("PATCH");
+    expect(JSON.parse(String(init?.body))).toEqual({ releaseBranch: "production", colleaguePrs: "analyze_and_fix" });
+    expect(read).toMatchObject({ slug: "portale-b2b", releaseBranch: null, colleaguePrs: "analyze_only" });
+  });
+});

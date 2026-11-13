@@ -71,6 +71,17 @@ export const releasePipelineSchema = z.union([
   z.object({ mode: z.literal("named"), names: z.array(z.string().trim().min(1).max(200)).min(1).max(20) }),
 ]);
 
+/**
+ * La stessa pipeline com'è nella RISPOSTA: una forma piatta (`mode` enum,
+ * `names` facoltativo), senza union né limiti. Una union di literal non si
+ * apre in `readerSchema` (chiuderebbe gli enum dell'app) e i limiti sono
+ * regole di scrittura, che vivono in {@link releasePipelineSchema}.
+ */
+export const releasePipelineViewSchema = z.object({
+  mode: z.enum(["auto", "named"]),
+  names: z.array(z.string()).optional(),
+});
+
 export const repositorySchema = z.object({
   // CONFIGURAZIONE (22 ott 2026, permessi di progetto): account git, revisore,
   // comandi, webhook, grafo e branch protetti arrivano SOLO a chi ha
@@ -125,7 +136,7 @@ export const repositorySchema = z.object({
   // pipeline: lo stato lo dice la produzione), le PR dei colleghi. Facoltativi
   // coi default di un server più vecchio (e assenti senza `repos.view`).
   releaseBranch: z.string().nullable().default(null),
-  releasePipeline: releasePipelineSchema.default({ mode: "auto" }),
+  releasePipeline: releasePipelineViewSchema.default({ mode: "auto" }),
   ciProvider: z.enum(["github_actions", "bitbucket_pipelines"]).nullable().default(null),
   colleaguePrs: z.enum(["analyze_and_fix", "analyze_only", "off"]).default("analyze_only"),
   // Il segreto HMAC del webhook git NON fa parte della proiezione pubblica:

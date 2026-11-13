@@ -131,6 +131,11 @@ describe("POST /api/projects", () => {
       graphEnabled: false,
       // Nessun branch protetto se non indicato (7 ott 2026).
       protectedBranches: [],
+      // Area 8, F1: le impostazioni di rilascio ai valori di partenza (P-2 = a: i colleghi in «solo analisi»).
+      releaseBranch: null,
+      releasePipeline: { mode: "auto" },
+      ciProvider: null,
+      colleaguePrs: "analyze_only",
       createdAt: expect.any(String),
       // L'admin ha `repos.view`: la configurazione c'è.
       config: true,
