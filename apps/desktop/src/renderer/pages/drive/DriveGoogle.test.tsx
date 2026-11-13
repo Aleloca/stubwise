@@ -62,6 +62,20 @@ afterEach(() => {
 });
 
 describe("Collegare una cartella", () => {
+  // Review F5b (1): il server non dà il percorso (Google non lo dà senza una
+  // chiamata per cartella): le cartelle senza percorso stanno nella radice.
+  it("cartelle senza percorso (il server vero): si vedono nella radice, senza cercare", async () => {
+    for (const f of state.googleFolders) f.path = [];
+    await openDrive("/p/MKX/drive", "p-giulia");
+    await screen.findByRole("grid");
+    const menu = await moreDriveActions();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Link a Google folder" }));
+    const dialog = await screen.findByRole("dialog", { name: "Link a Google folder to MKX" });
+    const list = within(dialog).getByRole("listbox", { name: "Folders" });
+    expect(await within(list).findByRole("option", { name: /Cantina Bellavista – materiali/ })).toBeInTheDocument();
+    act(() => closeLinkFolder());
+  });
+
   it("dice chi leggerà cosa e con quale account, poi porta i file della cartella nel progetto", async () => {
     await openDrive("/p/MKX/drive", "p-giulia");
     await screen.findByRole("grid");

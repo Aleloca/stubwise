@@ -97,7 +97,8 @@ describe("F5: i selettori (il mio Drive, con il mio account)", () => {
           {
             googleFolderId: "gf-1",
             name: "Clienti",
-            path: ["My Drive"],
+            // Il server vero non lo dà (72, F5b): sempre vuoto.
+            path: [],
             fileCount: 12,
             alreadyLinked: false,
           },

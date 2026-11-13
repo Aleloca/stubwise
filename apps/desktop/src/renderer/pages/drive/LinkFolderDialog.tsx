@@ -159,7 +159,9 @@ function FolderPicker({
 
   const needle = q.trim().toLowerCase();
   const entries: Entry[] = useMemo(() => {
-    const all = folders.data ?? [];
+    // Build app (F5b, review 1): Google non dà il percorso senza una chiamata per
+    // cartella, e il server manda `path: []`: quelle cartelle stanno nella radice.
+    const all = (folders.data ?? []).map((f) => (f.path.length > 0 ? f : { ...f, path: ROOT }));
     if (!needle) return entriesAt(all, path);
     return all
       .filter((f) => f.name.toLowerCase().includes(needle))
