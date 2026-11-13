@@ -7523,6 +7523,7 @@
       "replyFrom": "Reply from {{sender}} received on {{date}}",
       "replyReceivedOn": "Reply received on {{date}}",
       "replyInMailbox": "The reply is in {{owner}}'s mailbox",
+      "reasonHidden": "Claude's reasoning quotes an email you can't see: it stays with the mailbox owner.",
       "hiddenRun": "Started an automation you can't see"
     },
     "notVisible": {

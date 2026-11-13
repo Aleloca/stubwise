@@ -209,3 +209,100 @@ describe("la prova con Claude vero (F3)", () => {
     expect(await screen.findByText(/monthly AI budget is used up/)).toBeInTheDocument();
   }, 20_000);
 });
+
+describe("le esecuzioni con Claude (F3, R4)", () => {
+  const run = (over: Record<string, unknown>) => ({
+    id: "77777777-7777-4777-8777-777777777778",
+    automationId: A_ID,
+    n: 8,
+    version: 2,
+    title: "Avvio",
+    event: {},
+    vars: {},
+    waitingUntil: null,
+    pending: null,
+    startedAt: "2026-11-13T09:00:00.000Z",
+    endedAt: null,
+    error: null,
+    projectIds: [PROJECT_ID],
+    code: "AUD-A1 #8",
+    automationCode: "AUD-A1",
+    automationName: "Avvio progetto",
+    automationProjectId: PROJECT_ID,
+    flow: FLOW,
+    deciders: [],
+    ownerId: "22222222-2222-4222-8222-000000000099",
+    permissions: { manage: true, approve: false, chooseProject: false },
+    parent: null,
+    children: [],
+    pendingEffect: null,
+    ...over,
+  });
+
+  it("ferma per il budget mensile: lo dice, e non offre «Retry»", async () => {
+    install({
+      "GET /api/automations/AUD-A1/runs/8": {
+        body: run({
+          status: "running",
+          cursor: "0",
+          aiWaiting: { reason: "monthly_budget" },
+          log: [
+            {
+              at: "2026-11-13T09:00:00.000Z",
+              stepId: "c1",
+              path: "0",
+              kind: "claude",
+              outcome: "waiting",
+              input: {},
+              output: {},
+              reason: null,
+              why: { code: "monthlyBudget" },
+              byId: null,
+              effects: [],
+            },
+          ],
+        }),
+      },
+    });
+    renderRoute("/automations/AUD-A1/runs/8");
+    expect(await screen.findAllByText(/monthly AI budget/, {}, { timeout: 3000 })).not.toHaveLength(
+      0,
+    );
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("la motivazione di Claude che cita un'email che non vedo: la riga lo dice", async () => {
+    install({
+      "GET /api/automations/AUD-A1/runs/8": {
+        body: run({
+          status: "done",
+          cursor: null,
+          endedAt: "2026-11-13T09:01:00.000Z",
+          log: [
+            {
+              at: "2026-11-13T09:00:00.000Z",
+              stepId: "c1",
+              path: "0",
+              kind: "claude",
+              outcome: "ok",
+              input: {},
+              output: { outcome: "si" },
+              reason: null,
+              reasonHidden: true,
+              byId: null,
+              effects: [],
+            },
+          ],
+        }),
+      },
+    });
+    renderRoute("/automations/AUD-A1/runs/8");
+    expect(
+      await screen.findByText(
+        /Claude's reasoning quotes an email you can't see/,
+        {},
+        { timeout: 3000 },
+      ),
+    ).toBeInTheDocument();
+  });
+});

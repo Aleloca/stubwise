@@ -7523,6 +7523,7 @@
       "replyFrom": "Risposta da {{sender}} ricevuta il {{date}}",
       "replyReceivedOn": "Risposta ricevuta il {{date}}",
       "replyInMailbox": "La risposta è nella casella di {{owner}}",
+      "reasonHidden": "La motivazione di Claude cita un'email che non vedi: resta al proprietario della casella.",
       "hiddenRun": "Ha avviato un'automazione che non vedi"
     },
     "notVisible": {
