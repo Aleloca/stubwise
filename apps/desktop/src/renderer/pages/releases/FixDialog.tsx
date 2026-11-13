@@ -39,7 +39,9 @@ export function FixDialog({ release, onClose }: { release: ReleaseView; onClose:
           // Una task già aperta (un altro clic, un'altra persona): lo si dice, e
           // si dice che fine ha fatto la nota.
           const key = !task.existing
-            ? "releases.fix.created"
+            ? task.started
+              ? "releases.fix.createdStarted"
+              : "releases.fix.created"
             : !note.trim()
               ? "releases.fix.existing"
               : task.noteAdded

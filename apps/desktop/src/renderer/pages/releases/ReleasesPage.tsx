@@ -10,6 +10,7 @@ import {
   useRepositorySettings,
   useSessionPersonId,
 } from "../../data/queries";
+import { environmentsIntegrated, releasesIntegrated } from "../../data/queries/releases";
 import { PageEmpty, PageSkeleton } from "../../tasks-ui/PageStates";
 import { smallSecondary } from "../task/parts";
 import { Environments } from "./Environments";
@@ -63,6 +64,17 @@ function PartError({ message, retry }: { message: string; retry: () => void }) {
       <button type="button" className={smallSecondary} onClick={retry}>
         {t("taskUi.states.retry")}
       </button>
+    </div>
+  );
+}
+
+/** Una parte che la build app non ha ancora sul server vero (area 8, R-1): nessuna lettura. */
+function PartComingSoon() {
+  const { t } = useTranslation();
+  return (
+    <div data-coming-soon className="flex flex-col gap-1 border-t border-rule py-3 pl-3">
+      <p className="text-md font-medium text-ink">{t("placeholder.comingSoon.title")}</p>
+      <p className="text-sm text-ink-muted">{t("placeholder.comingSoon.body")}</p>
     </div>
   );
 }
@@ -142,7 +154,9 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
 
   const releasesPart = (
     <Part id="releases-part" title={t("releases.parts.releases")} count={releases.data?.length}>
-      {releases.isError ? (
+      {!releasesIntegrated() ? (
+        <PartComingSoon />
+      ) : releases.isError ? (
         <PartError message={t("releases.errors.releases")} retry={() => void releases.refetch()} />
       ) : !releases.data ? (
         loading(3)
@@ -166,7 +180,9 @@ export function ReleasesPage({ projectCode }: { projectCode: string }) {
       title={t("releases.parts.environments")}
       count={envs.data?.environments.length}
     >
-      {envs.isError ? (
+      {!environmentsIntegrated() ? (
+        <PartComingSoon />
+      ) : envs.isError ? (
         <PartError message={t("releases.errors.environments")} retry={() => void envs.refetch()} />
       ) : !envs.data || !project ? (
         loading(2)

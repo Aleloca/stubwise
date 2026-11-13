@@ -1,3 +1,4 @@
+import { releasesIntegrated } from "./data/queries/releases";
 import {
   createRootRoute,
   createRoute,
@@ -10,7 +11,7 @@ import {
   type RouterHistory,
 } from "@tanstack/react-router";
 import { AppLayout } from "./layout/AppLayout";
-import { Placeholder } from "./pages/Placeholder";
+import { ComingSoon, Placeholder } from "./pages/Placeholder";
 import { isIntegrated, landingSearch } from "./data/integration";
 import { NotFound } from "./pages/NotFound";
 import { ProjectNotFound } from "./pages/ProjectNotFound";
@@ -707,6 +708,8 @@ const projectChatChannelRoute = createRoute({
 function ReleaseRoutePage() {
   const { code, release } = releaseRoute.useParams();
   const { viewer } = useViewer();
+  // Area 8, F1: con le sole PR accese (`releases-prs`) il rilascio è «in arrivo».
+  if (!releasesIntegrated()) return <ComingSoon titleKey="releases.title" />;
   return (
     <ReleaseDetail key={`${release}:${viewer.personId}`} projectCode={code} code={release} />
   );

@@ -89,7 +89,9 @@ export type MergeError =
   | "checks_failed"
   | "checks_unreadable"
   | "not_mergeable"
-  | "merge_forbidden";
+  | "merge_forbidden"
+  /** Build app: il provider ha rifiutato il merge per un guasto (502). */
+  | "merge_failed";
 
 /**
  * `release`: il rilascio nato dal merge; `null` se la PR non era sul ramo
@@ -328,7 +330,15 @@ export type CorrectionRequestResult =
         | "not_fixable"
         | "analysis_only"
         /** Area 9b: il budget AI del mese è esaurito, Claude non parte. */
-        | "monthly_budget";
+        | "monthly_budget"
+        /** Build app (review F1, I2): la PR di un collega è ancora in analisi. */
+        | "pr_not_found"
+        /** Build app: una PR adottata la corregge solo un admin. */
+        | "adopted_pr_admin_only"
+        /** Build app: non è una PR che Stubwise può correggere. */
+        | "not_stubwise_pr"
+        /** Build app: il ramo della PR adottata è protetto. */
+        | "adopted_branch_protected";
     };
 
 /**
@@ -417,7 +427,8 @@ function fixDescription(r: Release, logLines: boolean, note?: string): string {
  * percorso normale di «Avvia» (gate del piano per chi non ha `plans.approve`);
  * senza, la task aspetta qualcuno che la avvii.
  */
-export type FixResult = Task & { existing: boolean; noteAdded: boolean };
+/** `started`: Claude è partito sulla task nuova (`runs.start` e il budget del mese). */
+export type FixResult = Task & { existing: boolean; noteAdded: boolean; started?: boolean };
 
 export async function fixRelease(code: string, note?: string): Promise<FixResult> {
   const gen = storeGeneration();
@@ -448,9 +459,10 @@ export async function fixRelease(code: string, note?: string): Promise<FixResult
   );
   r.fixTaskId = task.id;
   // Col budget del mese esaurito (area 9b) la task nasce ma non parte: aspetta chi la avvii.
-  if (holds(me, "runs.start", r.projectId) && aiBlockFor(r.projectId)?.reason !== "monthly_budget")
-    await startRunAs(me, task, gen);
-  return { ...copy(task), existing: false, noteAdded: false };
+  const start =
+    holds(me, "runs.start", r.projectId) && aiBlockFor(r.projectId)?.reason !== "monthly_budget";
+  if (start) await startRunAs(me, task, gen);
+  return { ...copy(task), existing: false, noteAdded: false, started: start };
 }
 
 /**

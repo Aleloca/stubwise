@@ -8847,6 +8847,7 @@
       "correctedNoSha": "Claude ha spinto una correzione · di nuovo in analisi",
       "discarded": "{{name}} ha spinto prima nuovi commit · in analisi la nuova testa",
       "capped": "Claude si è fermato dopo {{cap}} correzioni",
+      "notAnalyzed": "Non analizzata: la review automatica è spenta",
       "analysisOff": "L'analisi è spenta per {{repo}}",
       "onStaging": "su staging"
     },
@@ -8878,6 +8879,7 @@
         "merge_forbidden": "L'account git salvato per {{code}} non può mergiare questa PR.",
         "not_found": "Questa PR non è stata trovata.",
         "forbidden": "Non puoi più rilasciare in {{code}}.",
+        "merge_failed": "Il merge non è riuscito sul provider: non è stato unito niente. Riprova tra poco.",
         "generic": "Non è stato possibile mergiare. Riprova fra poco."
       }
     },
@@ -8950,6 +8952,7 @@
       "waits": "La task aspetterà qualcuno che può avviare Claude in {{code}}.",
       "planGate": "Claude scriverà prima un piano; lo approva chi può approvare i piani in {{code}}.",
       "created": "{{task}} creata",
+      "createdStarted": "{{task}} creata: Claude ci sta lavorando",
       "error": "Non è stato possibile creare la task per {{code}}.",
       "noPermission": "Chi può creare task in {{code}} può chiedere a Claude di sistemarlo.",
       "discard": "Buttare la nota?",
@@ -8998,6 +9001,7 @@
       "copied": "Log copiato",
       "copyError": "Non è stato possibile copiare il log.",
       "hidden": "Il log lo vede chi può vedere il codice di {{code}}.",
+      "onProvider": "Il log intero è su {{platform}}: apri la run lì.",
       "none": "Questa run non ha un log."
     },
     "environments": {
@@ -9085,7 +9089,11 @@
         "in_flight": "Claude sta già lavorando a una correzione.",
         "not_fixable": "Claude non può spingere su questo ramo.",
         "analysis_only": "Questa PR è su solo analisi.",
-        "monthly_budget": "Claude non è partito: il budget AI del mese è esaurito."
+        "monthly_budget": "Claude non è partito: il budget AI del mese è esaurito.",
+        "pr_not_found": "Stubwise sta ancora analizzando questa pull request: riprova tra poco.",
+        "adopted_pr_admin_only": "Solo un admin può chiedere modifiche su questa pull request.",
+        "not_stubwise_pr": "Stubwise non può correggere questa pull request.",
+        "adopted_branch_protected": "Il ramo di questa pull request è protetto: Claude non può spingerci."
       },
       "stubwiseCorrections": "Claude fa la modifica in una nuova sessione di {{task}}.",
       "openSession": "Apri",

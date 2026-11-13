@@ -1,6 +1,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 import * as api from "@backend/api";
+import { featureIntegrated } from "../integration";
 import { PROJECT_AREAS, useInvalidate, useSessionPersonId, useWrite } from "../queries";
 import { useInstanceChanges } from "./instance";
 import type { FirstVersionSource, ProductBlockOp } from "../types";
@@ -47,7 +48,8 @@ export function useProductSearch(q: string, projectId: string | null, enabled = 
   return useQuery({
     queryKey: ["as", me, "productDocs", "search", q, projectId] as const,
     queryFn: () => api.productDocs.searchProductPages(q, projectId ? { projectId } : {}),
-    enabled: enabled && q.trim().length > 0,
+    // Solo dove la doc di prodotto è integrata (area 11; review area 8 F1, m5).
+    enabled: enabled && q.trim().length > 0 && featureIntegrated("product-docs"),
     placeholderData: (previous, previousQuery) =>
       previousQuery?.queryKey[1] === me ? keepPreviousData(previous) : undefined,
   });
