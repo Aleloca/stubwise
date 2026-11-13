@@ -373,6 +373,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   cartelle scadute si saltano, la richiesta resta. Un file di un riferimento
   aggiunto A MANO non si rilegge da solo quando cambia su Google (lo fa solo
   la cartella): «Riprova» o rimuoverlo e riaggiungerlo.
+- F5b, `sizeBytes` da numero a nullable nella riga del Drive *(S, review
+  del server, minore)*: NON è un cambio additivo (un client che lo legge
+  come numero riceve `null` per un riferimento Google). Accettato perché
+  l'app mobile ha un solo utente e il web/desktop si aggiornano col deploy;
+  da ricordare se l'app torna sugli store.
 - F5b, un riferimento aggiunto a mano dopo che la casella di chi l'ha
   aggiunto è scaduta *(S)*: resta disponibile (si apre su Google) col
   contenuto di prima, ma non si rilegge; il prototipo rende «accesso perso»

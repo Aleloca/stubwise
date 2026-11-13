@@ -62,6 +62,12 @@ describe("F5b: le liste del Drive e il contenuto", () => {
     const children = fakeFetch([jsonResponse({ files: [file("a")], nextPageToken: "p2" }), jsonResponse({ files: [file("b")] })]);
     expect((await listFolderFiles({ accessToken: "at", folderId: "d 1", max: 10 }, { fetchImpl: children.impl })).map((f) => f.id)).toEqual(["a", "b"]);
     expect(children.calls[0]!.params.get("q")).toBe("trashed = false and mimeType != 'application/vnd.google-apps.folder' and 'd 1' in parents");
+    // Review della F5b: una cartella dentro un Drive CONDIVISO (non sappiamo il driveId) si legge solo con corpora=allDrives.
+    for (const c of children.calls) {
+      expect(c.params.get("corpora")).toBe("allDrives");
+      expect(c.params.get("supportsAllDrives")).toBe("true");
+      expect(c.params.get("includeItemsFromAllDrives")).toBe("true");
+    }
   });
 
   it("openDriveFileStream: un Doc nativo si esporta (text/plain, un Foglio text/csv), un altro file si scarica", async () => {

@@ -1,10 +1,11 @@
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
-import { googleAccounts, type Db } from "@stubwise/db";
+import { driveFolderLinks, googleAccounts, type Db } from "@stubwise/db";
 import { GoogleApiError, openDriveFileStream, refreshAccessToken, type FetchImpl } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import { DRIVE_FILE_MAX_BYTES } from "@stubwise/shared";
+import { DRIVE_READONLY_SCOPE, folderLinkExpiredSql } from "@stubwise/notifications";
 import { eq } from "drizzle-orm";
 import { DriveObjectTooLarge } from "./storage-read.js";
 
@@ -15,18 +16,24 @@ import { DriveObjectTooLarge } from "./storage-read.js";
  * ha collegato la sua cartella) — mai con un'altra. Una casella che non c'è
  * più, disattivata o senza `drive.readonly` non legge: `access_lost`. Il file
  * non visibile (404 di Drive) vale lo stesso, fail-closed: «cancellato» lo
- * dice solo la sincronizzazione della cartella.
+ * dice solo la sincronizzazione della cartella. Un file di CARTELLA si legge
+ * solo se la cartella non è scaduta (`folderLinkExpiredSql`: anche chi l'ha
+ * collegata senza più `drive.manage` nel progetto, review della F5b, punto 4).
  */
 
-export const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+export { DRIVE_READONLY_SCOPE };
 
 export type GoogleDriveOpen = { stream: Readable; mime: string } | { gone: "access_lost" };
-export type GoogleDriveSource = (file: { googleFileId: string; mime: string; googleAccountId: string | null }) => Promise<GoogleDriveOpen>;
+export type GoogleDriveSource = (file: { googleFileId: string; mime: string; googleAccountId: string | null; folderLinkId?: string | null }) => Promise<GoogleDriveOpen>;
 
 export function createGoogleDriveSource(deps: { db: Db; encryptionKey: Buffer; fetchImpl?: FetchImpl; refresh?: typeof refreshAccessToken }): GoogleDriveSource {
   const options = deps.fetchImpl ? { fetchImpl: deps.fetchImpl } : {};
   return async (file) => {
     if (!file.googleAccountId) return { gone: "access_lost" };
+    if (file.folderLinkId) {
+      const [link] = await deps.db.select({ expired: folderLinkExpiredSql(driveFolderLinks) }).from(driveFolderLinks).where(eq(driveFolderLinks.id, file.folderLinkId));
+      if (!link || link.expired) return { gone: "access_lost" };
+    }
     const [account] = await deps.db
       .select({ disabledAt: googleAccounts.disabledAt, scopes: googleAccounts.scopes })
       .from(googleAccounts)

@@ -87,6 +87,7 @@ export {
   userIsFullAdmin,
   type CardAnchor,
 } from "./project-access.js";
+export { DRIVE_READONLY_SCOPE, folderLinkExpiredSql } from "./drive-folder-link.js";
 
 // --- segnali di progetto condivisi (Fase 4) ---
 //

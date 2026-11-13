@@ -201,6 +201,12 @@ export const driveFileContentSchema = z.object({
   text: z.string().default(""),
   /** Il testo è più lungo di quanto restituito (o era già troncato all'estrazione). */
   truncated: z.boolean().default(false),
+  /**
+   * Area 6, F5b (review del server, punto 3): il file non si legge — sparito
+   * da Google o di una cartella scaduta. Allora testo e riassunto sono vuoti.
+   * Additivo: un server di prima non lo manda.
+   */
+  unavailable: z.enum(["deleted", "access_lost"]).nullable().default(null),
 });
 export type DriveFileContent = z.infer<typeof driveFileContentSchema>;
 

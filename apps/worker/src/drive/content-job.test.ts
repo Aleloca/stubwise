@@ -257,7 +257,7 @@ describe("F5b: il contenuto di un riferimento Google", () => {
     const asked: unknown[] = [];
     const d = deps({ google: async (input) => (asked.push(input), { stream: Readable.from([Buffer.from("La roadmap del trimestre.")]), mime: "text/plain" }) });
     expect(await pollDriveContentOnce(d)).toBe(1);
-    expect(asked).toEqual([{ googleFileId: f.googleFileId, mime: "application/vnd.google-apps.document", googleAccountId: null }]);
+    expect(asked).toEqual([{ googleFileId: f.googleFileId, mime: "application/vnd.google-apps.document", googleAccountId: null, folderLinkId: null }]);
     expect(await rowOf(f.id)).toMatchObject({ contentStatus: "ready", contentText: "La roadmap del trimestre." });
   });
 
@@ -279,5 +279,27 @@ describe("F5b: il contenuto di un riferimento Google", () => {
     const d = deps({ google: async () => { throw new Error("non doveva chiedere"); } });
     await pollDriveContentOnce(d);
     expect((await rowOf(f.id)).contentStatus).toBe("unsupported");
+  });
+
+  it("review 2: un riferimento già non disponibile non resta pending: il job lo chiude (senza testo è in errore)", async () => {
+    const gone = await googleRef("Sparito", "application/vnd.google-apps.document", { unavailable: "deleted", contentStatus: "pending" });
+    const d = deps({ google: async () => { throw new Error("non doveva chiedere"); } });
+    await pollDriveContentOnce(d);
+    const [after] = await t.db.select().from(driveFiles).where(eq(driveFiles.id, gone.id));
+    expect(after).toMatchObject({ contentStatus: "error", contentText: null });
+  });
+
+  it("review 2: sparito da Google DURANTE l'estrazione (la sincronizzazione lo segna deleted): né testo né riassunto né frammenti", async () => {
+    const f = await googleRef("Corsa", "application/vnd.google-apps.document");
+    const d = deps({
+      google: async () => {
+        await t.db.update(driveFiles).set({ unavailable: "deleted", contentText: null, summary: null }).where(eq(driveFiles.id, f.id));
+        return { stream: Readable.from([Buffer.from("Il testo che non deve restare.")]), mime: "text/plain" };
+      },
+    });
+    await pollDriveContentOnce(d);
+    const [after] = await t.db.select().from(driveFiles).where(eq(driveFiles.id, f.id));
+    expect(after).toMatchObject({ unavailable: "deleted", contentText: null, summary: null });
+    expect(await t.db.select().from(driveFileChunks).where(eq(driveFileChunks.fileId, f.id))).toEqual([]);
   });
 });

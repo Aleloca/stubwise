@@ -125,7 +125,7 @@ function quoted(value: string): string {
 }
 
 async function listPage(
-  input: { accessToken: string; q: string; pageToken?: string; pageSize?: number },
+  input: { accessToken: string; q: string; pageToken?: string; pageSize?: number; corpora?: "allDrives" },
   options: GoogleClientOptions,
 ): Promise<{ files: DriveListedFile[]; nextPageToken: string | null }> {
   const api = "drive.files.list";
@@ -140,6 +140,7 @@ async function listPage(
         orderBy: "modifiedTime desc",
         supportsAllDrives: "true",
         includeItemsFromAllDrives: "true",
+        corpora: input.corpora,
       }),
       accessToken: input.accessToken,
     },
@@ -184,7 +185,12 @@ export async function listDriveFolders(
   return listPage({ accessToken: input.accessToken, q, ...(input.pageToken ? { pageToken: input.pageToken } : {}) }, options);
 }
 
-/** I file (non le sottocartelle) di UNA cartella, tutte le pagine fino a `max`. */
+/**
+ * I file (non le sottocartelle) di UNA cartella, tutte le pagine fino a `max`.
+ * `corpora=allDrives` (review della F5b): il corpus di default (`user`) non
+ * vede i figli di una cartella che sta in un Drive CONDIVISO, e il `driveId`
+ * non lo conosciamo; il filtro `in parents` tiene comunque stretta la query.
+ */
 export async function listFolderFiles(
   input: { accessToken: string; folderId: string; max: number },
   options: GoogleClientOptions = {},
@@ -193,7 +199,7 @@ export async function listFolderFiles(
   const out: DriveListedFile[] = [];
   let pageToken: string | undefined;
   do {
-    const page = await listPage({ accessToken: input.accessToken, q, ...(pageToken ? { pageToken } : {}) }, options);
+    const page = await listPage({ accessToken: input.accessToken, q, corpora: "allDrives", ...(pageToken ? { pageToken } : {}) }, options);
     out.push(...page.files);
     pageToken = page.nextPageToken ?? undefined;
   } while (pageToken && out.length < input.max);

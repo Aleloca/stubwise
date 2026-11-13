@@ -5,7 +5,7 @@ import { driveContentKindOf, driveFileTypeOf, googleOpenUrl, type DriveFileRow, 
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { projectPermissionsFor, visibleProjectIds } from "../auth/access.js";
 import type { SessionUser } from "../auth/session.js";
-import { DRIVE_READONLY_SCOPE, DriveError, driveRowOf, drivePermsLookup, openDriveFile, visibleDriveFile } from "./service.js";
+import { DRIVE_READONLY_SCOPE, DriveError, driveRowOf, drivePermsLookup, linkExpiredSql, openDriveFile, visibleDriveFile } from "./service.js";
 
 /**
  * GOOGLE DRIVE NEL DRIVE DEI PROGETTI (area 6, F5b; la specifica è il
@@ -23,7 +23,11 @@ import { DRIVE_READONLY_SCOPE, DriveError, driveRowOf, drivePermsLookup, openDri
  * - «Togli» un riferimento: chi l'ha aggiunto, o `drive.manage`; un file di
  *   cartella disponibile non si toglie, si nasconde (`use_hide`).
  * - «Scaduta»/«accesso perso» si DERIVANO (B4): la casella di chi ha
- *   collegato la cartella non c'è più, è disattivata o senza `drive.readonly`.
+ *   collegato la cartella non c'è più, è disattivata o senza `drive.readonly`,
+ *   o lui non ha più `drive.manage` nel progetto (review del server, punto 4).
+ *   Chi gestisce il Drive del progetto la ricollega o la scollega; chi l'ha
+ *   collegata vede SEMPRE le sue cartelle (anche fuori dai progetti che vede)
+ *   e può scollegarle, nient'altro.
  * - La sincronizzazione la fa il WORKER (`apps/worker/src/drive/folder-sync.ts`):
  *   qui la si chiede soltanto (`sync_requested_at`).
  */
@@ -200,9 +204,8 @@ async function folderViews(db: Db, where: ReturnType<typeof and>): Promise<Drive
   const rows = await db
     .select({
       link: driveFolderLinks,
-      accountId: googleAccounts.id,
       disabledAt: googleAccounts.disabledAt,
-      scopes: googleAccounts.scopes,
+      expired: linkExpiredSql,
       fileCount: sql<number>`(select count(*)::int from ${driveFiles} f where f.folder_link_id = ${driveFolderLinks.id} and f.deleted_at is null and not f.hidden)`,
     })
     .from(driveFolderLinks)
@@ -210,7 +213,7 @@ async function folderViews(db: Db, where: ReturnType<typeof and>): Promise<Drive
     .where(where)
     .orderBy(asc(driveFolderLinks.name));
   return rows.map((r) => {
-    const expired = r.accountId === null || r.disabledAt !== null || !(r.scopes ?? []).includes(DRIVE_READONLY_SCOPE);
+    const expired = r.expired;
     return {
       id: r.link.id,
       projectId: r.link.projectId,
@@ -233,11 +236,13 @@ export async function listProjectFolderLinks(db: Db, viewer: Viewer, projectId: 
   return folderViews(db, and(eq(driveFolderLinks.projectId, projectId)));
 }
 
-/** Le cartelle collegate da CHI GUARDA, nei progetti che vede: quelle che smettono di aggiornarsi se scollega Google. */
+/**
+ * Le cartelle collegate da CHI GUARDA: quelle che smettono di aggiornarsi se
+ * scollega Google. TUTTE, anche nei progetti che non vede più (review del
+ * server, punto 4): lì sono scadute, e le vede solo per scollegarle.
+ */
 export async function listMyFolderLinks(db: Db, viewer: Viewer): Promise<DriveFolderLink[]> {
-  const visible = await visibleProjectIds(db, viewer);
-  if (visible !== "all" && visible.length === 0) return [];
-  return folderViews(db, and(eq(driveFolderLinks.linkedBy, viewer.id), ...(visible === "all" ? [] : [inArray(driveFolderLinks.projectId, visible)])));
+  return folderViews(db, and(eq(driveFolderLinks.linkedBy, viewer.id)));
 }
 
 async function linkFor(db: Db, viewer: Viewer, linkId: string) {
@@ -265,14 +270,29 @@ export async function linkGoogleFolder(deps: DriveGoogleDeps, viewer: Viewer, pr
   return (await folderViews(deps.db, and(eq(driveFolderLinks.id, id))))[0]!;
 }
 
-/** «Scollega» (`drive.manage`): i suoi file se ne vanno dal progetto (su Google non cambia nulla). */
+/**
+ * «Scollega»: chi ha `drive.manage` nel progetto, o chi l'ha collegata (anche
+ * se nel frattempo è uscito dal progetto: review del server, punto 4). I suoi
+ * file se ne vanno dal progetto (su Google non cambia nulla). La riga della
+ * cartella si prende IN ESCLUSIVA prima di leggere i file: un riferimento che
+ * la sincronizzazione sta inserendo (lock condiviso, `insertDriveReference`)
+ * o entra prima e se ne va con lei, o non entra.
+ */
 export async function unlinkGoogleFolder(db: Db, viewer: Viewer, linkId: string): Promise<void> {
-  const link = await linkFor(db, viewer, linkId);
-  const perms = await projectPermissionsFor(db, viewer, link.projectId);
-  if (!perms?.has("drive.manage")) throw new DriveError(403, "forbidden", "You need drive.manage in this project");
-  const files = await db.select({ id: driveFiles.id }).from(driveFiles).where(and(eq(driveFiles.folderLinkId, link.id), isNull(driveFiles.deletedAt)));
-  await tombstoneDriveFiles(db, files.map((f) => f.id), viewer.id);
-  await db.delete(driveFolderLinks).where(eq(driveFolderLinks.id, link.id));
+  const [found] = await db.select().from(driveFolderLinks).where(eq(driveFolderLinks.id, linkId));
+  if (!found) throw notFound();
+  if (found.linkedBy !== viewer.id) {
+    if (!(await sees(db, viewer, found.projectId))) throw notFound();
+    const perms = await projectPermissionsFor(db, viewer, found.projectId);
+    if (!perms?.has("drive.manage")) throw new DriveError(403, "forbidden", "You need drive.manage in this project");
+  }
+  await db.transaction(async (tx) => {
+    const [link] = await tx.select({ id: driveFolderLinks.id }).from(driveFolderLinks).where(eq(driveFolderLinks.id, linkId)).for("update");
+    if (!link) return;
+    const files = await tx.select({ id: driveFiles.id }).from(driveFiles).where(and(eq(driveFiles.folderLinkId, link.id), isNull(driveFiles.deletedAt)));
+    await tombstoneDriveFiles(tx, files.map((f) => f.id), viewer.id);
+    await tx.delete(driveFolderLinks).where(eq(driveFolderLinks.id, link.id));
+  });
 }
 
 /** «Sincronizza ora» (`drive.manage`): una richiesta al worker; una cartella scaduta non si sincronizza. */
@@ -283,7 +303,7 @@ export async function requestFolderSync(db: Db, viewer: Viewer, linkId: string):
   const [view] = await folderViews(db, and(eq(driveFolderLinks.id, link.id)));
   if (view!.status === "expired") throw new DriveError(409, "link_expired", "The account that linked this folder can't read it anymore");
   await db.update(driveFolderLinks).set({ syncRequestedAt: new Date() }).where(eq(driveFolderLinks.id, link.id));
-  return view!;
+  return (await folderViews(db, and(eq(driveFolderLinks.id, link.id))))[0]!;
 }
 
 /** «Togli» un riferimento (chi l'ha aggiunto o `drive.manage`); un file di cartella disponibile si nasconde (`use_hide`). */

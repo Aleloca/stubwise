@@ -158,22 +158,50 @@ test `apps/server/src/routes/drive.test.ts`.
   - **Il testo SÌ, come un caricato** (B2): lo stesso estrattore del worker,
     con la sorgente che legge da Google (export per Doc/Fogli/Presentazioni);
     contenuto NON fidato. Togliere un riferimento o un file sparito da Google
-    ne cancella testo, riassunto e frammenti.
+    ne cancella testo, riassunto e frammenti. Un file `access_lost` (di una
+    cartella scaduta) li TIENE nel DB ma non li dà a nessuno: lo filtra la
+    lettura (`driveFileUnreadableSql`, `apps/server/src/drive/service.ts`,
+    review del server, punto 3, decisione «O»), cioè la ricerca per testo e
+    semantica, gli snippet, il riassunto, il contenuto per Claude
+    (`unavailable` nella risposta) e gli allegati; ricollegata la cartella,
+    tornano. Il job del contenuto non riscrive un file che la
+    sincronizzazione ha segnato `deleted` mentre lo leggeva.
   - **Si legge SOLO con la casella del riferimento** (B3,
     `drive_files.google_account_id`): quella di chi l'ha aggiunto, o di chi
     ha collegato la sua cartella. Mai con un'altra. Il picker e la ricerca
     fuori dai progetti leggono il Drive di CHI GUARDA.
   - **«Scaduta» e «accesso perso» si DERIVANO** (B4): una cartella è scaduta
     se la casella di chi l'ha collegata non c'è più, è disattivata o non ha
-    `drive.readonly`, e i suoi file sono `access_lost` (non si aprono);
-    ricollegata la casella, tornano senza riscrivere niente. Solo `deleted`
-    (sparito da Google) si scrive, alla sincronizzazione.
+    `drive.readonly`, **oppure se lui non ha più `drive.manage` nel progetto**
+    (uscito, ruolo cambiato: review del server, punto 4, decisione «O»), e i
+    suoi file sono `access_lost` (non si aprono, non si leggono); ricollegata
+    la casella o rimesso il permesso, tornano senza riscrivere niente. La
+    regola sta in UN posto, `folderLinkExpiredSql`
+    (`packages/notifications/src/drive-folder-link.ts`): la usano le viste e
+    le letture del server, il claim della sincronizzazione e la sorgente del
+    contenuto nel worker. Chi ha collegato vede SEMPRE le sue cartelle
+    (`GET /api/drive/google/links`, anche fuori dai progetti che vede) e le può
+    scollegare; chi ha `drive.manage` nel progetto le ricollega o le
+    scollega. Solo `deleted` (sparito da Google) si scrive, alla
+    sincronizzazione.
+  - **Scollegare Google non le perde** (review del server, punto 5, 0168):
+    scollegare cancella la riga della casella e la FK mette a NULL gli id, ma
+    l'indirizzo resta (`account_email`/`google_account_email`, scritti da un
+    trigger); quando la STESSA persona ricollega lo STESSO indirizzo,
+    `reattachDriveReferences` riaggancia le sue cartelle (`linked_by`) e i
+    suoi riferimenti (`added_by`) alla riga nuova e chiede la
+    sincronizzazione.
   - **La sincronizzazione** (B5, QB1 = b, decisione del maintainer): al
     collegamento, a «Sincronizza ora» e UNA VOLTA AL GIORNO da sola, nel
     worker (`apps/worker/src/drive/folder-sync.ts`), con la casella di chi ha
     collegato; un LEASE per cartella (`lease_until`, `SKIP LOCKED`) perché
-    due giri non si sovrappongano; le cartelle scadute si saltano (la
-    richiesta resta); al più 5 cartelle per giro e 500 file per cartella, e
+    due giri non si sovrappongano; le cartelle scadute restano FUORI dal
+    claim (la richiesta resta: cinque scadute non fermano più le altre,
+    review punto 1), e una cartella in errore aspetta un'ora prima del
+    tentativo dopo (il lease fa da backoff); scollegare prende la riga della
+    cartella in esclusiva, e un riferimento della sincronizzazione o entra
+    prima e se ne va con lei o non entra; un file spostato fra due cartelle
+    collegate dello stesso progetto passa alla seconda; al più 5 cartelle per giro e 500 file per cartella, e
     una lista tagliata dal tetto non fa sparire niente. Sono letture: nessuna
     scrittura verso Google.
   - **Permessi** (il prototipo): aggiungere un file `drive.upload`, una volta

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { encrypt, googleAccounts, googleWorkspaces, users } from "@stubwise/db";
-import { startTestDb, type TestDb } from "@stubwise/db/testing";
+import { driveFolderLinks, encrypt, googleAccounts, googleWorkspaces, projectMembers, roles, users } from "@stubwise/db";
+import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createGoogleDriveSource, DRIVE_READONLY_SCOPE } from "./google-source.js";
 
@@ -13,8 +14,10 @@ import { createGoogleDriveSource, DRIVE_READONLY_SCOPE } from "./google-source.j
 const KEY = Buffer.alloc(32, 8);
 let t: TestDb;
 let ws: string;
+let projectId: string;
 beforeAll(async () => {
   t = await startTestDb();
+  ({ projectId } = await seedRepository(t.db));
   ws = (await t.db.insert(googleWorkspaces).values({ name: "A", domains: ["acme.com"], clientId: "c", clientSecretEncrypted: encrypt("s", KEY) }).returning())[0]!.id;
 }, 120_000);
 afterAll(async () => {
@@ -56,5 +59,22 @@ describe("createGoogleDriveSource", () => {
       expect(Buffer.concat(chunks).toString()).toBe("testo del doc");
     }
     expect(calls.some((u) => u.includes("/drive/v3/files/g1/export"))).toBe(true);
+  });
+
+  it("review 4: un file di cartella si legge solo se chi l'ha collegata ha ancora drive.manage nel progetto; senza, access_lost e Google non viene chiamato", async () => {
+    calls.length = 0;
+    const accountId = await box();
+    const [account] = await t.db.select({ userId: googleAccounts.userId }).from(googleAccounts).where(eq(googleAccounts.id, accountId));
+    const [link] = await t.db.insert(driveFolderLinks).values({ projectId, googleFolderId: `f-${randomUUID()}`, name: "Cliente", linkedBy: account!.userId, accountId }).returning();
+    const source = createGoogleDriveSource({ db: t.db, encryptionKey: KEY, fetchImpl });
+    const file = { googleFileId: "g1", mime: "application/vnd.google-apps.document", googleAccountId: accountId, folderLinkId: link!.id };
+    expect(await source(file)).toEqual({ gone: "access_lost" });
+    const [dev] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "developer"));
+    await t.db.insert(projectMembers).values({ projectId, userId: account!.userId, roleId: dev!.id });
+    expect(await source(file)).toEqual({ gone: "access_lost" });
+    expect(calls).toEqual([]);
+    const [lead] = await t.db.select({ id: roles.id }).from(roles).where(eq(roles.presetKey, "project_lead"));
+    await t.db.update(projectMembers).set({ roleId: lead!.id }).where(eq(projectMembers.userId, account!.userId));
+    expect("stream" in (await source(file))).toBe(true);
   });
 });

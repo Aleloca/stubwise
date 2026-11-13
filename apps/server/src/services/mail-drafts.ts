@@ -1,5 +1,6 @@
 import { driveFiles, emailMessages, googleAccounts, mailDraftAttachments, mailDrafts, type Db } from "@stubwise/db";
 import { randomUUID } from "node:crypto";
+import { driveFileUnreadableSql } from "../drive/service.js";
 import type { ObjectStorage } from "../storage/index.js";
 import {
   buildMimeMessage,
@@ -473,11 +474,11 @@ async function attachmentBytes(
   for (const row of all.filter((r) => r.as === "link")) {
     const [file] = row.driveFileId
       ? await db
-          .select({ projectId: driveFiles.projectId, mime: driveFiles.mime, googleFileId: driveFiles.googleFileId })
+          .select({ projectId: driveFiles.projectId, mime: driveFiles.mime, googleFileId: driveFiles.googleFileId, hidden: driveFiles.hidden, unreadable: driveFileUnreadableSql })
           .from(driveFiles)
           .where(and(eq(driveFiles.id, row.driveFileId), isNull(driveFiles.deletedAt)))
       : [];
-    if (!file?.googleFileId || !(await projectPermissionsOfUser(db, userId, file.projectId))) return { error: "attachment_unavailable" };
+    if (!file?.googleFileId || !usableBy(file, await projectPermissionsOfUser(db, userId, file.projectId))) return { error: "attachment_unavailable" };
     links.push({ name: row.name, url: googleOpenUrl(file.mime, file.googleFileId) });
   }
   const rows = all.filter((r) => r.as !== "link");
@@ -561,6 +562,16 @@ export async function attachUploadedFile(
   return saved;
 }
 
+/**
+ * Un file del Drive si allega solo se chi scrive lo VEDE (review della F5b,
+ * minore): il progetto, un nascosto solo con `drive.manage`, e mai un
+ * riferimento che non si legge (sparito da Google o di una cartella scaduta).
+ */
+function usableBy(file: { hidden: boolean; unreadable: boolean }, perms: ReadonlySet<string> | null): boolean {
+  if (!perms || file.unreadable) return false;
+  return !file.hidden || perms.has("drive.manage");
+}
+
 /** Un file del Drive del progetto, come copia (letto a ogni salvataggio, col permesso di chi scrive). */
 export async function attachDriveFile(
   db: Db,
@@ -574,11 +585,11 @@ export async function attachDriveFile(
   const row = await ownDraft(db, userId, draftId);
   if (!row) return { error: "not_found" };
   const [file] = await db
-    .select({ id: driveFiles.id, name: driveFiles.name, mime: driveFiles.mime, sizeBytes: driveFiles.sizeBytes, projectId: driveFiles.projectId, source: driveFiles.source })
+    .select({ id: driveFiles.id, name: driveFiles.name, mime: driveFiles.mime, sizeBytes: driveFiles.sizeBytes, projectId: driveFiles.projectId, source: driveFiles.source, hidden: driveFiles.hidden, unreadable: driveFileUnreadableSql })
     .from(driveFiles)
     .where(and(eq(driveFiles.id, driveFileId), isNull(driveFiles.deletedAt)));
   // Un file che chi scrive non vede è come uno che non c'è.
-  if (!file || !(await projectPermissionsOfUser(db, userId, file.projectId))) return { error: "attachment_unavailable" };
+  if (!file || !usableBy(file, await projectPermissionsOfUser(db, userId, file.projectId))) return { error: "attachment_unavailable" };
   // Area 6, F5b (B6): un file di Google entra come LINK — fuori dai 10 file e
   // dai 25 MB, una riga nel corpo, nessun allegato MIME; chi lo riceve lo apre
   // coi permessi che Google gli dà.

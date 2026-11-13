@@ -6136,6 +6136,13 @@ export const driveFolderLinks = pgTable(
     name: text("name").notNull(),
     linkedBy: uuid("linked_by").references(() => users.id, { onDelete: "set null" }),
     accountId: uuid("account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /**
+     * L'indirizzo di quella casella (0168): lo scrive un trigger a ogni
+     * scrittura di `account_id`, e resta quando la FK lo mette a NULL. Serve a
+     * riagganciare la cartella quando la stessa persona ricollega lo stesso
+     * indirizzo (`reattachDriveReferences`).
+     */
+    accountEmail: text("account_email"),
     linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
     /** L'ultima sincronizzazione RIUSCITA (al collegamento, «Sincronizza ora» o quella del giorno: QB1 = b). */
     syncedAt: timestamp("synced_at", { withTimezone: true }),
@@ -6187,6 +6194,8 @@ export const driveFiles = pgTable(
      * chi l'ha aggiunto, o di chi ha collegato la sua cartella. Mai un'altra.
      */
     googleAccountId: uuid("google_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    /** L'indirizzo di quella casella (0168, trigger): come `drive_folder_links.account_email`. */
+    googleAccountEmail: text("google_account_email"),
     folderLinkId: uuid("folder_link_id").references(() => driveFolderLinks.id, { onDelete: "set null" }),
     /** Un file di cartella nascosto (`drive.manage`): la sincronizzazione non lo rimette. */
     hidden: boolean("hidden").notNull().default(false),

@@ -4210,7 +4210,18 @@ deploy o di un rollback che la tocca.
   where source = 'google' and deleted_at is null;` — restano come lapidi, il
   download di una lapide è già 404) e la pulizia oraria ignora le chiavi
   nulle solo da questa versione: scendendo, `purgeDeletedDriveObjects` vecchio
-  inciamperebbe su una `storage_key` nulla, quindi va anche `update
-  drive_files set storage_purged = true where source = 'google';`. Il worker
-  vecchio ignora `drive_folder_links`. La 0167 non si annulla.
+  inciamperebbe su una `storage_key` nulla: le lapidi dei riferimenti nascono
+  già `storage_purged` (review del server), quindi basta UNO statement, a
+  server e worker fermi: `update drive_files set deleted_at = coalesce(deleted_at,
+  now()), storage_purged = true where source = 'google';`. Il worker vecchio
+  ignora `drive_folder_links`. La 0167 non si annulla.
+
+  **Fix della review del server (stesso rilascio, branch
+  `feat/area6-f5b-fix`)**: migrazione **0168** (`account_email` su
+  `drive_folder_links`, `google_account_email` su `drive_files`, riempite
+  dalle caselle esistenti, e due trigger `BEFORE INSERT OR UPDATE` che le
+  scrivono): riaggancia cartelle e riferimenti quando la stessa persona
+  ricollega lo stesso indirizzo. Ordine invariato (server, poi worker, poi
+  caddy). Rollback: le colonne e i trigger non danno fastidio a un server
+  vecchio (non li nomina); la 0168 non si annulla.
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { pipeline, Transform, type Readable } from "node:stream";
-import { chatChannels, driveContentJobs, driveFileChunks, driveFiles, driveFolderLinks, driveOpens, googleAccounts, projects, type Db } from "@stubwise/db";
-import { alias } from "drizzle-orm/pg-core";
+import { chatChannels, driveContentJobs, driveFileChunks, driveFiles, driveFolderLinks, driveOpens, projects, type Db } from "@stubwise/db";
+import { DRIVE_READONLY_SCOPE, folderLinkExpiredSql } from "@stubwise/notifications";
 import type { EmbeddingClient } from "@stubwise/embeddings";
 import {
   chatAttachmentAllowed,
@@ -78,18 +78,31 @@ export async function assertCanUploadDrive(db: Db, viewer: Viewer, projectId: st
   if (!perms?.has("drive.upload")) throw new DriveError(403, "forbidden", "You can't upload to this project's Drive");
 }
 
-export const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
-
-/** La casella di chi ha collegato una cartella (B4: «scaduta» si deriva da lei). */
-const linkAccount = alias(googleAccounts, "link_account");
+export { DRIVE_READONLY_SCOPE };
 
 /**
- * Una cartella è SCADUTA (area 6, F5b, B4) se la casella di chi l'ha
- * collegata non c'è più, è disattivata o non ha `drive.readonly`: si DERIVA
- * a lettura, e ricollegata torna da sola. Vale anche per i suoi file
- * (`access_lost`).
+ * Una cartella è SCADUTA (area 6, F5b, B4, e review del server, punto 4):
+ * la casella di chi l'ha collegata non c'è più, è disattivata o non ha
+ * `drive.readonly`, oppure lui non ha più `drive.manage` nel progetto. Si
+ * DERIVA a lettura (la regola sta in `@stubwise/notifications`, la stessa del
+ * worker), e ricollegata torna da sola. Vale anche per i suoi file
+ * (`access_lost`). Sulla riga di `drive_folder_links` unita alla query.
  */
-export const linkExpiredSql = sql<boolean>`(${linkAccount.id} is null or ${linkAccount.disabledAt} is not null or not (${DRIVE_READONLY_SCOPE} = any(${linkAccount.scopes})))`;
+export const linkExpiredSql = folderLinkExpiredSql(driveFolderLinks);
+
+/**
+ * Il file NON si legge (review del server, punto 3, decisione «O»): sparito da
+ * Google (`deleted`, scritto) o di una cartella scaduta (`access_lost`,
+ * derivato). Il suo testo, il riassunto e i frammenti restano nel DB per
+ * quando la cartella torna, ma nessuna lettura li dà: né la ricerca (testo e
+ * semantica), né gli snippet, né il riassunto, né Claude, né un allegato.
+ * Funziona su ogni query con `drive_files` nel FROM, anche senza join.
+ */
+export const driveFileUnreadableSql = sql<boolean>`(${driveFiles.unavailable} is not null or exists (
+  select 1 from ${driveFolderLinks} fu_l
+  where fu_l.id = ${driveFiles.folderLinkId}
+    and ${folderLinkExpiredSql({ accountId: sql`fu_l.account_id`, linkedBy: sql`fu_l.linked_by`, projectId: sql`fu_l.project_id` })}
+))`;
 
 /** Le righe con le aperture (90 giorni, l'ultima) in UNA query, sui file vivi. */
 function selectRows(db: Db) {
@@ -106,8 +119,7 @@ function selectRows(db: Db) {
     })
     .from(driveFiles)
     .innerJoin(projects, eq(projects.id, driveFiles.projectId))
-    .leftJoin(driveFolderLinks, eq(driveFolderLinks.id, driveFiles.folderLinkId))
-    .leftJoin(linkAccount, eq(linkAccount.id, driveFolderLinks.accountId));
+    .leftJoin(driveFolderLinks, eq(driveFolderLinks.id, driveFiles.folderLinkId));
 }
 type Selected = { file: Row; projectCode: string; opens90d: number; lastOpenedAt: string | null; folderId: string | null; folderName: string | null; folderExpired: boolean | null };
 
@@ -136,7 +148,8 @@ function toRow(r: Selected, viewer: Viewer, permsOf: (projectId: string) => read
     addedAt: f.addedAt.toISOString(),
     opens90d: r.opens90d,
     lastOpenedAt: r.lastOpenedAt,
-    summaryLine: firstSentence(f.summary),
+    // Un file che non si legge non dà nemmeno il riassunto (review, punto 3).
+    summaryLine: unavailable ? null : firstSentence(f.summary),
     contentStatus: f.contentStatus,
     contentReason: f.contentReason,
     contentOcr: f.contentOcr,
@@ -253,7 +266,7 @@ export async function listDriveFiles(
           .selectDistinctOn([driveFileChunks.fileId], { fileId: driveFileChunks.fileId, content: driveFileChunks.content, distance })
           .from(driveFileChunks)
           .innerJoin(driveFiles, eq(driveFiles.id, driveFileChunks.fileId))
-          .where(and(...scopeConditions, sql`${driveFileChunks.embedding} is not null`, sql`${distance} < ${SEMANTIC_MAX_DISTANCE}`))
+          .where(and(...scopeConditions, sql`not ${driveFileUnreadableSql}`, sql`${driveFileChunks.embedding} is not null`, sql`${distance} < ${SEMANTIC_MAX_DISTANCE}`))
           .orderBy(driveFileChunks.fileId, distance);
         for (const h of hits.sort((a, b) => a.distance - b.distance).slice(0, SEMANTIC_MAX_FILES)) semantic.set(h.fileId, h.content);
       }
@@ -262,7 +275,7 @@ export async function listDriveFiles(
     }
   }
   const qCondition = q
-    ? or(nameHit, sql`${driveFiles.contentTsv} @@ ${tsq}`, semantic.size > 0 ? inArray(driveFiles.id, [...semantic.keys()]) : undefined)
+    ? or(nameHit, sql`(${driveFiles.contentTsv} @@ ${tsq} and not ${driveFileUnreadableSql})`, semantic.size > 0 ? inArray(driveFiles.id, [...semantic.keys()]) : undefined)
     : undefined;
 
   const rows = await selectRows(db)
@@ -288,7 +301,7 @@ export async function listDriveFiles(
     .select({
       id: driveFiles.id,
       byName: sql<boolean>`coalesce(${nameHit}, false)`,
-      text: sql<string | null>`case when ${driveFiles.contentTsv} @@ ${tsq} and ${driveFiles.contentText} is not null
+      text: sql<string | null>`case when ${driveFiles.contentTsv} @@ ${tsq} and ${driveFiles.contentText} is not null and not ${driveFileUnreadableSql}
         then ts_headline('simple', left(${driveFiles.contentText}, ${SNIPPET_SOURCE_CHARS}), ${tsq}, 'StartSel="", StopSel="", MaxWords=40, MinWords=15, MaxFragments=1')
         else null end`,
     })
@@ -338,7 +351,8 @@ export async function getDriveFile(db: Db, viewer: Viewer, id: string): Promise<
           .limit(200)
       ).map((h) => ({ personId: h.personId, at: h.at.toISOString(), via: h.via }))
     : null;
-  return { ...toRow(r, viewer, permsOf), opensTotal: total?.n ?? 0, summary: r.file.summary, history };
+  const row = toRow(r, viewer, permsOf);
+  return { ...row, opensTotal: total?.n ?? 0, summary: row.unavailable ? null : r.file.summary, history };
 }
 
 /**
@@ -350,12 +364,28 @@ export async function getDriveFileContent(db: Db, viewer: Viewer, code: string):
   const condition = codeCondition(code);
   if (!condition) return null;
   const [r] = await db
-    .select({ id: driveFiles.id, projectId: driveFiles.projectId, number: driveFiles.number, projectCode: projects.code, name: driveFiles.name, type: driveFiles.type, contentStatus: driveFiles.contentStatus, contentReason: driveFiles.contentReason, summary: driveFiles.summary, truncated: driveFiles.contentTruncated, hidden: driveFiles.hidden, text: sql<string | null>`left(${driveFiles.contentText}, ${DRIVE_CLAUDE_TEXT_MAX + 1})` })
+    .select({ id: driveFiles.id, projectId: driveFiles.projectId, number: driveFiles.number, projectCode: projects.code, name: driveFiles.name, type: driveFiles.type, contentStatus: driveFiles.contentStatus, contentReason: driveFiles.contentReason, summary: driveFiles.summary, truncated: driveFiles.contentTruncated, hidden: driveFiles.hidden, unavailable: driveFiles.unavailable, unreadable: driveFileUnreadableSql, text: sql<string | null>`left(${driveFiles.contentText}, ${DRIVE_CLAUDE_TEXT_MAX + 1})` })
     .from(driveFiles)
     .innerJoin(projects, eq(projects.id, driveFiles.projectId))
     .where(and(condition, isNull(driveFiles.deletedAt)));
   if (!r || !(await sees(db, viewer, r.projectId))) return null;
   if (r.hidden && !(await projectPermissionsFor(db, viewer, r.projectId))?.has("drive.manage")) return null;
+  // Non si legge (review, punto 3): il file c'è, ma senza testo né riassunto, e lo dice.
+  if (r.unreadable) {
+    return {
+      id: r.id,
+      code: driveCode(r.projectCode, r.number),
+      projectId: r.projectId,
+      name: r.name,
+      type: r.type,
+      contentStatus: r.contentStatus,
+      contentReason: r.contentReason,
+      summary: null,
+      text: "",
+      truncated: false,
+      unavailable: r.unavailable === "deleted" ? "deleted" : "access_lost",
+    };
+  }
   const text = r.text ?? "";
   return {
     id: r.id,
@@ -368,6 +398,7 @@ export async function getDriveFileContent(db: Db, viewer: Viewer, code: string):
     summary: r.summary,
     text: text.slice(0, DRIVE_CLAUDE_TEXT_MAX),
     truncated: r.truncated || text.length > DRIVE_CLAUDE_TEXT_MAX,
+    unavailable: null,
   };
 }
 

@@ -1,6 +1,6 @@
 import { and, inArray, isNull, sql, eq } from "drizzle-orm";
 import type { Db } from "./client.js";
-import { driveContentJobs, driveFileChunks, driveFiles } from "./schema.js";
+import { driveContentJobs, driveFileChunks, driveFiles, driveFolderLinks } from "./schema.js";
 
 /**
  * I RIFERIMENTI A GOOGLE DRIVE (area 6, F5b): l'inserimento e la lapide, in UN
@@ -24,9 +24,27 @@ export interface DriveReferenceInput {
   extractable: boolean;
 }
 
-/** Un riferimento nuovo, dentro una transazione aperta dal chiamante (o una sua). */
+/** La cartella del riferimento è stata scollegata mentre lo si inseriva: niente riferimento. */
+export class DriveFolderLinkGone extends Error {
+  constructor(readonly folderLinkId: string) {
+    super(`cartella collegata ${folderLinkId} scollegata`);
+  }
+}
+
+/**
+ * Un riferimento nuovo, dentro una transazione aperta dal chiamante (o una
+ * sua). Un file di CARTELLA prende un lock condiviso sulla riga della cartella
+ * (review della F5b, minore): lo scollegamento la prende in esclusiva prima di
+ * togliere i file, quindi un riferimento o entra prima e se ne va con lei, o
+ * trova la cartella sparita ({@link DriveFolderLinkGone}) — mai un «manuale»
+ * orfano letto con la casella di chi aveva collegato.
+ */
 export async function insertDriveReference(db: Db | Tx, input: DriveReferenceInput): Promise<string> {
   const run = async (tx: Tx) => {
+    if (input.folderLinkId) {
+      const [link] = await tx.select({ id: driveFolderLinks.id }).from(driveFolderLinks).where(eq(driveFolderLinks.id, input.folderLinkId)).for("share");
+      if (!link) throw new DriveFolderLinkGone(input.folderLinkId);
+    }
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`stubwise-drive:${input.projectId}`}))`);
     const [max] = await tx.select({ n: sql<number>`coalesce(max(${driveFiles.number}), 0)::int` }).from(driveFiles).where(eq(driveFiles.projectId, input.projectId));
     const [row] = await tx
@@ -55,14 +73,44 @@ export async function insertDriveReference(db: Db | Tx, input: DriveReferenceInp
   return (db as Db).transaction((tx) => run(tx));
 }
 
-/** La lapide di riferimenti: il codice resta, il CONTENUTO (testo, riassunto, frammenti) se ne va. */
-export async function tombstoneDriveFiles(db: Db, ids: readonly string[], deletedBy: string | null): Promise<void> {
+/**
+ * La lapide di riferimenti: il codice resta, il CONTENUTO (testo, riassunto,
+ * frammenti) se ne va. Un riferimento non ha byte in archiviazione: nasce già
+ * `storage_purged` (review della F5b, minore), così il timer della pulizia
+ * non lo guarda mai.
+ */
+export async function tombstoneDriveFiles(db: Db | Tx, ids: readonly string[], deletedBy: string | null): Promise<void> {
   if (ids.length === 0) return;
-  await db.transaction(async (tx) => {
+  await (db as Db).transaction(async (tx) => {
     await tx
       .update(driveFiles)
-      .set({ deletedAt: sql`now()`, deletedBy, contentText: null, summary: null })
+      .set({ deletedAt: sql`now()`, deletedBy, contentText: null, summary: null, storagePurged: sql`${driveFiles.storageKey} is null or ${driveFiles.storagePurged}` })
       .where(and(inArray(driveFiles.id, [...ids]), isNull(driveFiles.deletedAt)));
     await tx.delete(driveFileChunks).where(inArray(driveFileChunks.fileId, [...ids]));
+  });
+}
+
+/**
+ * La RICOLLEGAZIONE (review della F5b, punto 5): scollegare Google cancella la
+ * riga della casella e la FK mette a NULL gli id; quando la STESSA persona
+ * ricollega lo STESSO indirizzo, le sue cartelle e i suoi riferimenti tornano
+ * alla riga nuova (l'indirizzo lo ricorda la 0168). Solo i suoi: `linked_by`
+ * per le cartelle, `added_by` per i file (un file di cartella è aggiunto da
+ * chi l'ha collegata). Le cartelle riagganciate chiedono una sincronizzazione.
+ * Ritorna quante cartelle e quanti file.
+ */
+export async function reattachDriveReferences(db: Db | Tx, account: { id: string; userId: string; email: string }): Promise<{ links: number; files: number }> {
+  return (db as Db).transaction(async (tx) => {
+    const links = await tx
+      .update(driveFolderLinks)
+      .set({ accountId: account.id, syncRequestedAt: sql`now()` })
+      .where(and(isNull(driveFolderLinks.accountId), eq(driveFolderLinks.linkedBy, account.userId), sql`lower(${driveFolderLinks.accountEmail}) = lower(${account.email})`))
+      .returning({ id: driveFolderLinks.id });
+    const files = await tx
+      .update(driveFiles)
+      .set({ googleAccountId: account.id })
+      .where(and(eq(driveFiles.source, "google"), isNull(driveFiles.googleAccountId), isNull(driveFiles.deletedAt), eq(driveFiles.addedBy, account.userId), sql`lower(${driveFiles.googleAccountEmail}) = lower(${account.email})`))
+      .returning({ id: driveFiles.id });
+    return { links: links.length, files: files.length };
   });
 }

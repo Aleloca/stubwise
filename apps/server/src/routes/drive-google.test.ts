@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { driveContentJobs, driveFiles, driveFolderLinks, driveOpens, encrypt, googleAccounts, googleWorkspaces, projects, type Db } from "@stubwise/db";
+import { driveContentJobs, driveFileChunks, driveFiles, driveFolderLinks, driveOpens, encrypt, googleAccounts, googleWorkspaces, projectMembers, projects, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
+import { createFakeEmbeddingClient } from "@stubwise/embeddings";
 import { GoogleApiError, type DriveFileMeta, type DriveListedFile } from "@stubwise/google";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
@@ -43,7 +44,7 @@ const fake: DriveGoogleClient = {
 beforeAll(async () => {
   testDb = await startTestDb();
   db = testDb.db;
-  app = buildApp({ db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", encryptionKey: KEY.toString("base64"), driveGoogleClient: fake });
+  app = buildApp({ db, sessionSecret: "segreto-di-test-lungo-almeno-32-caratteri!!", encryptionKey: KEY.toString("base64"), driveGoogleClient: fake, embeddingClient: createFakeEmbeddingClient() });
   ({ adminCookie } = await seedUsers(app));
 }, 120_000);
 beforeEach(() => {
@@ -174,6 +175,74 @@ describe("le cartelle collegate", () => {
     expect((await call(lead.headers, "DELETE", `/drive/google/folders/${link.id}`)).statusCode).toBe(204);
     const [row] = await db.select().from(driveFiles).where(eq(driveFiles.id, ref.id));
     expect(row!.deletedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe("review del server: i file che non si leggono, e chi ha collegato", () => {
+  async function linkedWithText() {
+    const p = await project();
+    const lead = await person();
+    const dev = await person();
+    await addMember(app, p.id, lead.id, "project_lead");
+    await addMember(app, p.id, dev.id, "legacy_member");
+    metas = { "folder-1": { name: "Cliente", mimeType: "application/vnd.google-apps.folder" } };
+    const link = (await call(lead.headers, "POST", `/projects/${p.id}/drive/google/folders`, { googleFolderId: "folder-1" })).json() as { id: string };
+    const [ref] = await db
+      .insert(driveFiles)
+      .values({ projectId: p.id, number: 1, source: "google", name: "Verbale", mime: "application/vnd.google-apps.document", type: "document", googleFileId: "gv", googleAccountId: lead.accountId, folderLinkId: link.id, addedBy: lead.id, contentStatus: "ready", contentText: "Il preventivo zafferano vale tremila euro.", summary: "Il preventivo vale tremila euro. Altro." })
+      .returning();
+    // Un frammento con l'embedding di «spezia rossa»: lo trova SOLO la corsia semantica.
+    const [vector] = await createFakeEmbeddingClient().embed(["spezia rossa"]);
+    await db.insert(driveFileChunks).values({ fileId: ref!.id, position: 0, content: "Il preventivo zafferano.", embedding: vector! });
+    return { p, lead, dev, link, ref: ref! };
+  }
+  const ids = (res: { json: () => unknown }) => ((res.json() as { items: { id: string }[] }).items).map((f) => f.id);
+
+  it("punto 3: un file access_lost non si trova per contenuto, non ha snippet né riassunto, e a Claude arriva senza testo; ricollegata la casella, torna", async () => {
+    const { p, lead, dev, ref } = await linkedWithText();
+    const found = await call(dev.headers, "GET", `/projects/${p.id}/drive/files?q=zafferano`);
+    expect(ids(found)).toEqual([ref.id]);
+    expect(ids(await call(dev.headers, "GET", `/projects/${p.id}/drive/files?q=spezia%20rossa`))).toEqual([ref.id]);
+    expect((found.json() as { items: { snippet: string | null; summaryLine: string | null }[] }).items[0]).toMatchObject({ summaryLine: "Il preventivo vale tremila euro." });
+    await db.update(googleAccounts).set({ disabledAt: new Date(), disabledReason: "invalid_grant" }).where(eq(googleAccounts.id, lead.accountId!));
+    expect(ids(await call(dev.headers, "GET", `/projects/${p.id}/drive/files?q=zafferano`))).toEqual([]);
+    expect(ids(await call(dev.headers, "GET", `/projects/${p.id}/drive/files?q=spezia%20rossa`))).toEqual([]);
+    // Per nome si trova ancora (il file c'è), ma senza riassunto.
+    const byName = await call(dev.headers, "GET", `/projects/${p.id}/drive/files?q=Verbale`);
+    expect((byName.json() as { items: { id: string; summaryLine: string | null; unavailable: string | null }[] }).items[0]).toMatchObject({ id: ref.id, summaryLine: null, unavailable: "access_lost" });
+    expect((await call(dev.headers, "GET", `/drive/files/${ref.id}`)).json()).toMatchObject({ summary: null, unavailable: "access_lost" });
+    const content = await call(dev.headers, "GET", `/drive/files/by-code/${p.code}-F1/content`);
+    expect(content.json()).toMatchObject({ text: "", summary: null, unavailable: "access_lost" });
+    await db.update(googleAccounts).set({ disabledAt: null, disabledReason: null }).where(eq(googleAccounts.id, lead.accountId!));
+    expect(ids(await call(dev.headers, "GET", `/projects/${p.id}/drive/files?q=zafferano`))).toEqual([ref.id]);
+    expect((await call(dev.headers, "GET", `/drive/files/by-code/${p.code}-F1/content`)).json()).toMatchObject({ text: "Il preventivo zafferano vale tremila euro.", unavailable: null });
+  });
+
+  it("punto 3: un file sparito da Google (deleted) non dà testo a Claude", async () => {
+    const { p, dev, ref } = await linkedWithText();
+    await db.update(driveFiles).set({ unavailable: "deleted" }).where(eq(driveFiles.id, ref.id));
+    expect((await call(dev.headers, "GET", `/drive/files/by-code/${p.code}-F1/content`)).json()).toMatchObject({ text: "", unavailable: "deleted" });
+    expect(ids(await call(dev.headers, "GET", `/projects/${p.id}/drive/files?q=zafferano`))).toEqual([]);
+  });
+
+  it("punto 4: chi ha collegato ed è uscito dal progetto (o ha perso drive.manage): cartella scaduta per tutti; lui la vede ancora fra le sue e la scollega", async () => {
+    const { p, lead, dev, link, ref } = await linkedWithText();
+    const other = await person();
+    await addMember(app, p.id, other.id, "project_lead");
+    await addMember(app, p.id, lead.id, "developer");
+    expect((await call(other.headers, "GET", `/projects/${p.id}/drive/google/links`)).json().items[0]).toMatchObject({ status: "expired", accessLost: true });
+    expect((await call(dev.headers, "GET", `/drive/files/${ref.id}`)).json()).toMatchObject({ unavailable: "access_lost" });
+    await db.delete(projectMembers).where(and(eq(projectMembers.projectId, p.id), eq(projectMembers.userId, lead.id)));
+    const mine = (await call(lead.headers, "GET", `/drive/google/links`)).json().items as { id: string; status: string }[];
+    expect(mine).toEqual([expect.objectContaining({ id: link.id, status: "expired" })]);
+    expect((await call(lead.headers, "DELETE", `/drive/google/folders/${link.id}`)).statusCode).toBe(204);
+    expect((await db.select().from(driveFiles).where(eq(driveFiles.id, ref.id)))[0]!.deletedAt).toBeInstanceOf(Date);
+  });
+
+  it("punto 4: chi non ha collegato e non vede il progetto non scollega (404)", async () => {
+    const { link } = await linkedWithText();
+    const stranger = await person();
+    expect((await call(stranger.headers, "DELETE", `/drive/google/folders/${link.id}`)).statusCode).toBe(404);
   });
 });
 

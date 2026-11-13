@@ -1,9 +1,9 @@
-import { driveContentJobs, driveFileChunks, driveFiles, driveFolderLinks, googleAccounts, insertDriveReference, type Db } from "@stubwise/db";
+import { DriveFolderLinkGone, driveContentJobs, driveFileChunks, driveFiles, driveFolderLinks, insertDriveReference, type Db } from "@stubwise/db";
 import { GOOGLE_EXPORT_MIME, listFolderFiles, refreshAccessToken, type DriveListedFile } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import { driveContentKindOf, driveFileTypeOf } from "@stubwise/shared";
+import { folderLinkExpiredSql } from "@stubwise/notifications";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { DRIVE_READONLY_SCOPE } from "./google-source.js";
 
 /**
  * LA SINCRONIZZAZIONE DELLE CARTELLE GOOGLE COLLEGATE (area 6, F5b, B5; QB1 =
@@ -14,9 +14,15 @@ import { DRIVE_READONLY_SCOPE } from "./google-source.js";
  *
  * - Un LEASE per cartella (`lease_until`, preso con `FOR UPDATE SKIP LOCKED`):
  *   due giri non sincronizzano la stessa cartella insieme.
- * - Una cartella SCADUTA (la casella non c'è, è disattivata o senza
- *   `drive.readonly`) non si legge: si salta, e la richiesta resta per quando
- *   la casella torna.
+ * - Una cartella SCADUTA (`folderLinkExpiredSql`: la casella non c'è, è
+ *   disattivata o senza `drive.readonly`, o chi l'ha collegata non ha più
+ *   `drive.manage` nel progetto) resta FUORI dal claim: non occupa un posto
+ *   del giro (review della F5b, punto 1: cinque scadute fermavano tutte le
+ *   altre), e la richiesta resta per quando torna.
+ * - Una cartella in ERRORE (Google 5xx/429, `invalid_grant`, credenziali
+ *   illeggibili) non si riprova al giro dopo: il lease si allunga di
+ *   {@link FOLDER_SYNC_ERROR_BACKOFF_MS} (niente refresh del token ogni 10 s),
+ *   e l'errore resta in `sync_error`.
  * - I tetti: al più {@link FOLDER_SYNC_MAX_LINKS} cartelle per giro e
  *   {@link FOLDER_SYNC_MAX_FILES} file per cartella; le estrazioni le fa il
  *   job del contenuto al suo passo (un file nuovo nasce col suo job).
@@ -31,6 +37,8 @@ export const FOLDER_SYNC_MAX_LINKS = 5;
 export const FOLDER_SYNC_MAX_FILES = 500;
 export const FOLDER_SYNC_EVERY_MS = 24 * 3600_000;
 export const FOLDER_SYNC_LEASE_MS = 10 * 60_000;
+/** Dopo un errore la cartella aspetta un'ora prima del prossimo tentativo. */
+export const FOLDER_SYNC_ERROR_BACKOFF_MS = 3600_000;
 
 export interface FolderSyncClient {
   refreshAccessToken: typeof refreshAccessToken;
@@ -60,7 +68,8 @@ async function claimLinks(deps: FolderSyncDeps, now: Date): Promise<Link[]> {
       .from(driveFolderLinks)
       .where(
         sql`(${driveFolderLinks.syncRequestedAt} is not null or ${driveFolderLinks.syncedAt} is null or ${driveFolderLinks.syncedAt} < ${dueBefore.toISOString()}::timestamptz)
-          and (${driveFolderLinks.leaseUntil} is null or ${driveFolderLinks.leaseUntil} < ${now.toISOString()}::timestamptz)`,
+          and (${driveFolderLinks.leaseUntil} is null or ${driveFolderLinks.leaseUntil} < ${now.toISOString()}::timestamptz)
+          and not ${folderLinkExpiredSql(driveFolderLinks)}`,
       )
       .orderBy(sql`${driveFolderLinks.syncRequestedAt} asc nulls last`, sql`${driveFolderLinks.syncedAt} asc nulls first`)
       .limit(deps.maxLinks ?? FOLDER_SYNC_MAX_LINKS)
@@ -74,8 +83,9 @@ async function claimLinks(deps: FolderSyncDeps, now: Date): Promise<Link[]> {
 async function syncOne(deps: FolderSyncDeps, link: Link, now: Date): Promise<{ added: number; changed: number; deleted: number } | "expired"> {
   const client = deps.client ?? realFolderSyncClient;
   if (!link.accountId) return "expired";
-  const [account] = await deps.db.select({ disabledAt: googleAccounts.disabledAt, scopes: googleAccounts.scopes }).from(googleAccounts).where(eq(googleAccounts.id, link.accountId));
-  if (!account || account.disabledAt || !account.scopes.includes(DRIVE_READONLY_SCOPE)) return "expired";
+  // Di nuovo qui: fra il claim e la lettura la casella o il permesso possono essere cambiati.
+  const [state] = await deps.db.select({ expired: folderLinkExpiredSql(driveFolderLinks) }).from(driveFolderLinks).where(eq(driveFolderLinks.id, link.id));
+  if (!state || state.expired) return "expired";
   const credentials = await loadGoogleAccountCredentials(deps.db, deps.encryptionKey, link.accountId);
   if (!credentials) return "expired";
   const tokens = await client.refreshAccessToken({ clientId: credentials.clientId, clientSecret: credentials.clientSecret, refreshToken: credentials.refreshToken });
@@ -105,6 +115,19 @@ async function syncOne(deps: FolderSyncDeps, link: Link, now: Date): Promise<{ a
         extractable: extractable(file),
       });
       added += 1;
+      continue;
+    }
+    // Spostato qui da un'altra cartella collegata, che l'ha già dato per
+    // sparito: passa a questa, letto con la casella di chi l'ha collegata.
+    if (ref.folderLinkId !== null && ref.folderLinkId !== link.id && ref.unavailable === "deleted") {
+      await deps.db.transaction(async (tx) => {
+        await tx
+          .update(driveFiles)
+          .set({ folderLinkId: link.id, googleAccountId: link.accountId, name: file.name, modifiedAt: file.modifiedAt, unavailable: null, contentStatus: extractable(file) ? "pending" : "unsupported", contentReason: null })
+          .where(eq(driveFiles.id, ref.id));
+        if (extractable(file)) await tx.insert(driveContentJobs).values({ fileId: ref.id }).onConflictDoNothing();
+      });
+      changed += 1;
       continue;
     }
     // Aggiunto a mano, o da un'altra cartella: resta com'è.
@@ -150,10 +173,19 @@ export async function syncDueFolderLinks(deps: FolderSyncDeps): Promise<number> 
   let synced = 0;
   for (const link of links) {
     try {
-      const out = await syncOne(deps, link, now);
+      const out = await syncOne(deps, link, now).catch((err: unknown) => {
+        if (err instanceof DriveFolderLinkGone) return "gone" as const;
+        throw err;
+      });
+      if (out === "gone") {
+        // Scollegata a metà giro: lo scollegamento ha già tolto i suoi file.
+        log(`[drive] cartella ${link.id} scollegata durante la sincronizzazione`);
+        continue;
+      }
       if (out === "expired") {
-        // Scaduta: non si legge; la richiesta resta per quando la casella torna.
-        await deps.db.update(driveFolderLinks).set({ leaseUntil: null, syncError: "expired" }).where(eq(driveFolderLinks.id, link.id));
+        // Scaduta fra il claim e la lettura (o credenziali illeggibili): non si
+        // legge; la richiesta resta, e il lease fa da backoff.
+        await deps.db.update(driveFolderLinks).set({ leaseUntil: new Date(now.getTime() + FOLDER_SYNC_ERROR_BACKOFF_MS), syncError: "expired" }).where(eq(driveFolderLinks.id, link.id));
         continue;
       }
       synced += 1;
@@ -161,7 +193,7 @@ export async function syncDueFolderLinks(deps: FolderSyncDeps): Promise<number> 
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log(`[drive] cartella ${link.id} non sincronizzata: ${message}`);
-      await deps.db.update(driveFolderLinks).set({ leaseUntil: null, syncError: message.slice(0, 500) }).where(eq(driveFolderLinks.id, link.id));
+      await deps.db.update(driveFolderLinks).set({ leaseUntil: new Date(now.getTime() + FOLDER_SYNC_ERROR_BACKOFF_MS), syncError: message.slice(0, 500) }).where(eq(driveFolderLinks.id, link.id));
     }
   }
   return synced;
