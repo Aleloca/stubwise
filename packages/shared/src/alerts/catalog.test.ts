@@ -24,11 +24,17 @@ describe("la parità col server", () => {
 
   it("ogni tipo vivo è nel catalogo, e ogni sameRowAs punta a un tipo del catalogo", () => {
     for (const t of LIVE_ALERT_TYPES) expect(alertTypeOf(t), t).toBeDefined();
-    for (const t of ALERT_TYPES) if (t.sameRowAs) expect(alertTypeOf(t.sameRowAs), t.type).toBeDefined();
+    for (const t of ALERT_TYPES)
+      if (t.sameRowAs) expect(alertTypeOf(t.sameRowAs), t.type).toBeDefined();
   });
 
   it("nessun tipo vivo è fra quelli a destinatari fissi (S-4)", () => {
-    for (const fixed of ["security.alert", "decision.requested", "chat.mention", "automation.approval"])
+    for (const fixed of [
+      "security.alert",
+      "decision.requested",
+      "chat.mention",
+      "automation.approval",
+    ])
       expect(isLiveAlertType(fixed)).toBe(false);
   });
 });
@@ -56,7 +62,10 @@ describe("il default come dato", () => {
   });
 
   it("pr.corrected si riceve solo da obbligatorio", () => {
-    expect(alertTypeOf("pr.corrected")).toMatchObject({ mandatoryOnly: true, mandatory: ["pr_author"] });
+    expect(alertTypeOf("pr.corrected")).toMatchObject({
+      mandatoryOnly: true,
+      mandatory: ["pr_author"],
+    });
   });
 });
 
@@ -64,7 +73,12 @@ describe("le righe delle Preferenze", () => {
   it("i kind di prima confluiti stanno nella riga del tipo nuovo, che li scrive insieme", () => {
     expect(rowTypeOf("monitor.alert")).toBe("server.trouble");
     expect(rowPartners("server.trouble").map((t) => t.type)).toEqual(
-      expect.arrayContaining(["server.trouble", "server.down", "monitor.alert", "monitor.recovered"]),
+      expect.arrayContaining([
+        "server.trouble",
+        "server.down",
+        "monitor.alert",
+        "monitor.recovered",
+      ]),
     );
   });
 

@@ -11,6 +11,7 @@ const ctx = (over: Partial<CatalogRecipientsContext> = {}): CatalogRecipientsCon
   holds: (u, p) => u === "a" || (PERMS[u] ?? []).includes(p),
   subscriptions: new Map(),
   mandatory: [],
+  pushPreference: () => true,
   ...over,
 });
 
@@ -57,5 +58,14 @@ describe("catalogRecipients (area 8, F2, S2)", () => {
   it("il Telefono di partenza è `defaultPhone` (release.merged: spento anche se ci si iscrive con App)", () => {
     const subscriptions = new Map([["c", { app: true, phone: false }]]);
     expect(catalogRecipients(t("release.merged"), ctx({ subscriptions }))).toEqual({ app: ["c"], phone: new Set(), mandatory: new Map() });
+  });
+
+  it("46: senza una riga, il Telefono di partenza vuole ANCHE l'interruttore push di oggi; con una riga vale la riga", () => {
+    const pushOff = (u: string) => u !== "b";
+    expect(catalogRecipients(t("release.failed"), ctx({ pushPreference: pushOff })).phone).toEqual(new Set(["a"]));
+    const subscriptions = new Map([["b", { app: true, phone: true }]]);
+    expect(catalogRecipients(t("release.failed"), ctx({ pushPreference: pushOff, subscriptions })).phone.has("b")).toBe(true);
+    // Anche da obbligatorio senza riga.
+    expect(catalogRecipients(t("release.failed"), ctx({ pushPreference: () => false, mandatory: [{ userId: "d", reason: "merged" }] })).phone.has("d")).toBe(false);
   });
 });

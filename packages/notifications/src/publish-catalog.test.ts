@@ -123,6 +123,19 @@ describe("avvisi del catalogo alla pubblicazione (area 8, F2)", () => {
     expect(owners).toEqual([off]);
   });
 
+  it("46: il giorno del deploy chi ha `push` spento e nessuna riga NON riceve un telefono nuovo per release.failed", async () => {
+    const { projectId } = await seedRepository(db);
+    const quiet = await person({ notifyPush: false, device: true });
+    const loud = await person({ notifyPush: true, device: true });
+    await join(quiet, projectId, "project_lead");
+    await join(loud, projectId, "project_lead");
+    await publishNotification(db, failed(projectId), { projectId });
+    const pushed = await deliveriesOf("push");
+    const owners = (await db.select({ userId: notifications.userId }).from(notifications).where(inArray(notifications.id, pushed.map((d) => d.notificationId!)))).map((r) => r.userId);
+    expect(owners).toEqual([loud]);
+    expect(await cardsOf("release.failed")).toEqual([quiet, loud].sort());
+  });
+
   it("spegnere vale per il futuro; un obbligatorio arriva anche spento", async () => {
     const s = await scenario();
     await publishNotification(db, failed(s.projectId), { projectId: s.projectId });

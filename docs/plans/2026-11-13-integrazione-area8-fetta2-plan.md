@@ -144,8 +144,11 @@ S2. **I destinatari** (`packages/notifications`). Solo gli eventi con un
    - alla pubblicazione la card nasce per quei destinatari: la storia
      dell'iscrizione al momento dell'avviso È l'istante della
      pubblicazione. Il push solo a chi ha «Telefono» acceso per quel tipo
-     (M-2 = b: `push` delle preferenze non conta per i tipi del catalogo) e un
-     device attivo; Slack mai (M3);
+     (M-2 = b: con una riga d'iscrizione `push` delle preferenze non conta) e
+     un device attivo; SENZA riga il Telefono di partenza è `defaultPhone` E
+     l'interruttore `push` di oggi, così il giorno del deploy chi ha `push`
+     spento non riceve un telefono nuovo (46, 14 nov 2026; test con
+     `notify_push = false` e nessuna riga); Slack mai (M3);
    - a lettura (inbox, push già nato non si richiama) restano i filtri di
      oggi: chi non vede più il progetto o ha perso `subscribe.perm` non vede
      la card (la revoca a lettura), e la rivede se lo riacquista.

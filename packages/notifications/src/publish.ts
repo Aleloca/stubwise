@@ -287,6 +287,12 @@ async function resolveCatalog(
   for (const perm of new Set(perms)) {
     holders.set(perm, new Set(await userIdsWithPermission(db, perm as Parameters<typeof userIdsWithPermission>[1], projectId)));
   }
+  // L'interruttore `push` di oggi: decide il Telefono di partenza di chi non ha una riga (46).
+  const pushOn = new Set(
+    members.length > 0
+      ? (await db.select({ id: users.id }).from(users).where(and(inArray(users.id, members), eq(users.notifyPush, true)))).map((r) => r.id)
+      : [],
+  );
   const rows = await db
     .select({ userId: alertSubscriptions.userId, app: alertSubscriptions.app, phone: alertSubscriptions.phone })
     .from(alertSubscriptions)
@@ -297,6 +303,7 @@ async function resolveCatalog(
     holds: (userId, perm) => fullAdmins.has(userId) || (holders.get(perm)?.has(userId) ?? false),
     subscriptions: new Map(rows.map((r) => [r.userId, { app: r.app, phone: r.phone }])),
     mandatory: opts.mandatory ?? [],
+    pushPreference: (userId) => pushOn.has(userId),
   });
 }
 
