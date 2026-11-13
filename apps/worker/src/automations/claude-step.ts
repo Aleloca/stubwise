@@ -5,7 +5,7 @@ import type { Db } from "@stubwise/db";
 import { aiBudgetState } from "@stubwise/notifications";
 import { buildClaudePrompt, parseClaudeAnswer, untrustedText, type Step } from "@stubwise/shared";
 import { NATIVE_TOOLS } from "../agent/native-tools.js";
-import type { AgentRunner } from "../agent/runner.js";
+import type { AgentRunner, UsageTag } from "../agent/runner.js";
 import { textFromRun } from "../agent/text.js";
 
 type ClaudeStep = Extract<Step, { kind: "claude" }>;
@@ -53,39 +53,55 @@ export interface ClaudeStepDeps {
   monthlyCostUsdFn?: (db: Db) => Promise<number>;
 }
 
-export async function runClaudeStep(
-  deps: ClaudeStepDeps,
-  input: { step: ClaudeStep; inputs: Record<string, unknown>; projectId: string | null; automationId: string; automationRunId: string | null },
-): Promise<ClaudeStepOutcome> {
-  if ((await aiBudgetState(deps.db, deps.monthlyCostUsdFn)).exhausted) return { kind: "budget" };
+/**
+ * La chiamata al modello di un passo di Claude, con le opzioni dell'esecuzione
+ * vera (nessuno strumento, un turno, una cartella vuota tolta alla fine): la
+ * usano l'esecutore (dopo il budget) e lo scenario golden `automation-step`.
+ */
+export async function callClaudeModel(
+  runner: AgentRunner,
+  input: { step: ClaudeStep; inputs: Record<string, unknown>; usage: UsageTag; model?: string },
+): Promise<ClaudeStepOutcome & { raw?: string }> {
   const { prompt, truncated } = buildClaudePrompt(input.step, input.inputs);
   const cwd = await mkdtemp(join(tmpdir(), "stubwise-automation-step-"));
   try {
     let text: string | null;
+    let raw = "";
     try {
-      const result = await deps.runner.run({
+      const result = await runner.run({
         cwd,
         prompt,
-        usage: {
-          operation: "automation_step",
-          projectId: input.projectId,
-          automationId: input.automationId,
-          ...(input.automationRunId ? { automationRunId: input.automationRunId } : {}),
-        },
+        usage: input.usage,
+        ...(input.model ? { model: input.model } : {}),
         builtinTools: NATIVE_TOOLS.text,
         permissionMode: "default",
         maxTurns: 1,
         timeoutMs: 120_000,
       });
+      raw = result.output;
       text = textFromRun(result);
     } catch (err) {
       return { kind: "provider_error", reason: err instanceof Error ? err.message : String(err) };
     }
-    if (text === null) return { kind: "provider_error", reason: "Nessuna risposta dal modello." };
+    if (text === null) return { kind: "provider_error", reason: "Nessuna risposta dal modello.", raw };
     const answer = parseClaudeAnswer(text);
-    if (!answer) return { kind: "invalid", reason: "La risposta di Claude non è un oggetto JSON." };
-    return { kind: "result", ...(answer.outcome !== undefined ? { outcome: answer.outcome } : {}), ...(answer.fields !== undefined ? { fields: answer.fields } : {}), reason: answer.reason, truncated };
+    if (!answer) return { kind: "invalid", reason: "La risposta di Claude non è un oggetto JSON.", raw };
+    return { kind: "result", ...(answer.outcome !== undefined ? { outcome: answer.outcome } : {}), ...(answer.fields !== undefined ? { fields: answer.fields } : {}), reason: answer.reason, truncated, raw };
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+}
+
+export async function runClaudeStep(
+  deps: ClaudeStepDeps,
+  input: { step: ClaudeStep; inputs: Record<string, unknown>; projectId: string | null; automationId: string; automationRunId: string | null },
+): Promise<ClaudeStepOutcome> {
+  if ((await aiBudgetState(deps.db, deps.monthlyCostUsdFn)).exhausted) return { kind: "budget" };
+  const { raw: _raw, ...out } = await callClaudeModel(deps.runner, {
+    step: input.step,
+    inputs: input.inputs,
+    usage: { operation: "automation_step", projectId: input.projectId, automationId: input.automationId, ...(input.automationRunId ? { automationRunId: input.automationRunId } : {}) },
+  });
+  void _raw;
+  return out;
 }
