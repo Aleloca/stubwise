@@ -3,12 +3,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useAutomationRuns,
+  useSourceEvents,
   useAutomations,
   useAutomationSources,
   usePeople,
   useSessionPersonId,
 } from "../../data/queries";
-import type { AutomationSourceView, DataField } from "../../data/types";
+import type { TFunction } from "i18next";
+import type { AutomationSourceEvent } from "@stubwise/shared";
+import type { AutomationRunRow, AutomationSourceView, DataField } from "../../data/types";
 import {
   DetailPanel,
   DOCKED_PANEL_QUERY,
@@ -95,6 +98,26 @@ export function PanelSection({ title, children }: { title: string; children: Rea
   );
 }
 
+type RecentItem =
+  | { at: string; run: AutomationRunRow }
+  | { at: string; event: AutomationSourceEvent };
+
+/** Un evento che non ha fatto partire niente, in parole: il motivo del rifiuto col nome del campo. */
+function eventWords(e: AutomationSourceEvent, source: AutomationSourceView, t: TFunction): string {
+  if (e.status === "duplicate") return t("automations.sources.eventDuplicate");
+  if (e.reason === "json") return t("automations.sources.eventRejectedJson");
+  // `<campo>: <tipo atteso>`: il campo con l'etichetta della sorgente, il tipo in parole.
+  const m = e.reason ? /^(.+): ([a-z]+)$/.exec(e.reason) : null;
+  if (m) {
+    const [, key, type] = m;
+    return t("automations.sources.eventRejectedType", {
+      field: source.fields.find((f) => f.key === key)?.label ?? key,
+      type: t(`automations.fieldType.${type}`, { defaultValue: type }),
+    });
+  }
+  return t("automations.sources.eventRejectedOther", { reason: e.reason ?? "—" });
+}
+
 export function SourcePanel({ source }: { source: AutomationSourceView }) {
   const { t, i18n } = useTranslation();
   const people = usePeople().data;
@@ -107,10 +130,18 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
   const connector = people?.find((p) => p.id === source.connectedById);
   const reconnector = people?.find((p) => p.id === source.reconnectedById);
   const manage = source.permissions.manage;
-  const recent = runs
-    .filter((r) => r.origin === "source" && users.some((a) => a.id === r.automationId))
-    .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
-    .slice(0, 5);
+  // Le esecuzioni partite dalla sorgente, più gli eventi che non ne hanno fatta
+  // partire nessuna: i rifiutati col motivo e i doppioni (F4-5, dal server; il
+  // prototipo non rifiuta niente). Gli accettati ci sono già come esecuzioni.
+  const unstarted = (useSourceEvents(source.id).data ?? []).filter((e) => e.status !== "accepted");
+  const recent: RecentItem[] = [
+    ...runs
+      .filter((r) => r.origin === "source" && users.some((a) => a.id === r.automationId))
+      .map((run) => ({ at: run.startedAt, run })),
+    ...unstarted.map((event) => ({ at: event.receivedAt, event })),
+  ]
+    .sort((a, b) => b.at.localeCompare(a.at))
+    .slice(0, 8);
   const expiredUsers = users.filter((a) => a.status === "active");
   return (
     <div data-source-panel={source.id} className="flex flex-col">
@@ -268,20 +299,35 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
         {recent.length === 0 ? (
           <p className="text-sm text-ink-muted">—</p>
         ) : (
-          <ul>
-            {recent.map((r) => (
-              <li key={r.id} className="flex min-h-8 items-center gap-2 text-sm">
-                <span className="num text-ink-muted">{shortDate(r.startedAt, i18n.language)}</span>
-                <span className="min-w-0 truncate text-ink">{clientOf(r.event) ?? runTitle(r, t)}</span>
-                <Link
-                  to="/automations/$code/runs/$n"
-                  params={{ code: r.automationCode, n: String(r.n) }}
-                  className={`${textLink} num ml-auto shrink-0 font-semibold`}
+          <ul aria-label={t("automations.sources.recent")}>
+            {recent.map((item) =>
+              "run" in item ? (
+                <li key={item.run.id} className="flex min-h-8 items-center gap-2 text-sm">
+                  <span className="num text-ink-muted">{shortDate(item.at, i18n.language)}</span>
+                  <span className="min-w-0 truncate text-ink">
+                    {clientOf(item.run.event) ?? runTitle(item.run, t)}
+                  </span>
+                  <Link
+                    to="/automations/$code/runs/$n"
+                    params={{ code: item.run.automationCode, n: String(item.run.n) }}
+                    className={`${textLink} num ml-auto shrink-0 font-semibold`}
+                  >
+                    {item.run.code}
+                  </Link>
+                </li>
+              ) : (
+                <li
+                  key={item.event.id}
+                  data-source-event={item.event.status}
+                  className="flex min-h-8 items-center gap-2 text-sm"
                 >
-                  {r.code}
-                </Link>
-              </li>
-            ))}
+                  <span className="num text-ink-muted">{shortDate(item.at, i18n.language)}</span>
+                  <span className="min-w-0 truncate text-ink-muted">
+                    {eventWords(item.event, source, t)}
+                  </span>
+                </li>
+              ),
+            )}
           </ul>
         )}
       </PanelSection>

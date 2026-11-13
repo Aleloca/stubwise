@@ -235,4 +235,52 @@ describe("le sorgenti nella build app (F4, R4)", () => {
     await waitFor(() => expect(screen.getAllByText(/address is hidden/).length).toBeGreaterThan(0));
     expect(document.body.textContent).not.toContain("SEGRETO123");
   });
+
+  it("gli eventi recenti dicono i rifiutati col motivo e i doppioni (F4-5)", async () => {
+    instance.permissions = ["integrations.manage"];
+    const withFields = {
+      ...source,
+      fields: [{ key: "importo", label: "Amount", type: "number" }],
+    };
+    install({
+      "GET /api/automation-sources": { body: { items: [withFields] } },
+      "GET /api/client-links": { body: { items: [] } },
+      [`GET /api/automation-sources/${SOURCE_ID}/events`]: {
+        body: {
+          items: [
+            {
+              id: "e3",
+              receivedAt: "2026-11-13T10:00:00.000Z",
+              status: "rejected",
+              reason: "importo: number",
+              payload: { importo: "tanti" },
+            },
+            {
+              id: "e2",
+              receivedAt: "2026-11-13T09:30:00.000Z",
+              status: "rejected",
+              reason: "json",
+              payload: null,
+            },
+            {
+              id: "e1",
+              receivedAt: "2026-11-13T09:00:00.000Z",
+              status: "duplicate",
+              reason: null,
+              payload: { importo: 3 },
+            },
+          ],
+        },
+      },
+    });
+    renderRoute(`/automations/sources?source=${SOURCE_ID}`);
+    const list = await screen.findByRole("list", { name: "Recent events" }, { timeout: 3000 });
+    await waitFor(() => expect(within(list).getAllByRole("listitem")).toHaveLength(3));
+    const rows = within(list)
+      .getAllByRole("listitem")
+      .map((li) => li.textContent);
+    expect(rows[0]).toContain("Rejected: Amount — expected number");
+    expect(rows[1]).toContain("Rejected: the body isn't a JSON object");
+    expect(rows[2]).toContain("Duplicate: already received, nothing started");
+  });
 });

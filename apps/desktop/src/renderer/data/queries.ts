@@ -331,6 +331,8 @@ export const queryKeys = {
   automationRunByCode: (personId: string, code: string, n: number) =>
     ["as", personId, "automations", "runByCode", code, n] as const,
   automationSources: (personId: string) => ["as", personId, "automations", "sources"] as const,
+  sourceEvents: (personId: string, id: string) =>
+    ["as", personId, "automations", "sourceEvents", id] as const,
   clientLinks: (personId: string) => ["as", personId, "automations", "clientLinks"] as const,
   clientSuggestions: (personId: string) =>
     ["as", personId, "automations", "clientSuggestions"] as const,
@@ -3941,6 +3943,15 @@ export function useAutomationSources() {
     queryFn: () =>
       sourcesAvailable() ? api.automations.listSources() : Promise.resolve([]),
     enabled: featureIntegrated("automations"),
+  });
+}
+
+/** Gli eventi recenti di una sorgente, coi rifiutati e il motivo (F4-5; solo con `integrations.manage`). */
+export function useSourceEvents(id: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.sourceEvents(me, id),
+    queryFn: () => api.automations.listSourceEvents(id),
   });
 }
 
