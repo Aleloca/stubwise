@@ -226,7 +226,7 @@ function reasonFromBody(body: unknown, status: number): string {
 }
 
 /** Costruisce l'errore da una risposta HTTP non ok, leggendo `Retry-After` se c'è. */
-async function errorFromResponse(response: Response, spec: GoogleRequestSpec): Promise<GoogleApiError> {
+export async function errorFromResponse(response: Response, spec: GoogleRequestSpec): Promise<GoogleApiError> {
   let body: unknown = null;
   try {
     const text = await response.text();

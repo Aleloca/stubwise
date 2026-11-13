@@ -289,6 +289,53 @@ messaggio o dalla proposta. 404 a chi non è nel calcolo di C4.
 (`/api/me/meetings/:noteId`, `/api/me/calendar/events/:id/summary`); quella
 del contenuto di un file Google è della F5b.
 
+## F5b — le scelte di 72 (13 nov 2026)
+
+La specifica è il prototipo (`apps/desktop/src/renderer/data/drive/`:
+`writes.ts`, `reads.ts`, `drive.test.ts`); le rotte sono quelle che il
+livello dati di 94 già chiama (`feat/area6-f5-renderer`), più le due letture
+che 94 ha aggiunto (`GET …/drive/google/folders`, `…/drive/google/links`).
+
+- **B1. Il riferimento non è una copia del file.** Su `drive_files`
+  (migrazione **0166**): `source` `google`, `google_file_id`,
+  `google_owner`, `folder_link_id`, `hidden`, `hidden_by`/`hidden_at`,
+  `modified_at`, `storage_key` e `size_bytes` nullable, i CHECK (`upload` ⇒
+  `storage_key`; `google` ⇒ `google_file_id`), unico vivo
+  `(project_id, google_file_id)` (`already_in_project`). Un codice nuovo per
+  progetto, come un caricato (`insertDriveFile`). «Apri» va su Google
+  (`via: "google"` in `drive_opens`, CHECK allargato): i permessi del file li
+  applica Google a chi apre.
+- **B2. Il testo SÌ, come un caricato** *(O)*: il contenuto (testo, riassunto,
+  ricerca, Claude) passa dallo STESSO estrattore del worker
+  (`drive/content-job.ts`), con la sorgente che legge da Google (export per
+  Docs/Fogli/Presentazioni, download per gli altri, coi tetti di oggi). È ciò
+  che il prototipo promette («tutti nel progetto potranno leggere ogni file
+  della cartella»). Contenuto NON fidato, come i caricati. Togliere un
+  riferimento, o un file che diventa non disponibile, ne cancella testo,
+  riassunto e frammenti.
+- **B3. Con QUALE account si legge**: un file aggiunto a mano, con l'account
+  di chi l'ha aggiunto; un file di cartella, con l'account di chi ha
+  collegato la cartella. Mai con un altro.
+- **B4. «Scaduta» e «accesso perso» si DERIVANO a lettura** *(O)*: una
+  cartella è `expired` se l'account di chi l'ha collegata non c'è più, è
+  disattivato o non ha `drive.readonly`; i suoi file sono allora
+  `unavailable: "access_lost"`. Ricollegato l'account, tornano senza
+  riscrivere niente (il prototipo: «ricollegarsi li riporta»). `deleted` (il
+  file sparito da Google) invece si SCRIVE alla sincronizzazione.
+- **B5. La sincronizzazione** (`POST …/folders/:id/sync`, `drive.manage`):
+  un job del worker con l'account di chi ha collegato; un file nuovo entra,
+  uno cambiato torna in elaborazione, uno sparito diventa `deleted`, i
+  nascosti restano nascosti. **Domanda a 46 (QB1)**: solo a mano e al
+  collegamento, come il prototipo (consigliata: nessuna chiamata a Google
+  che una persona non abbia chiesto), o anche una volta al giorno da sola?
+- **B6. Gli allegati come link**: un file del Drive con `source: "google"`
+  entra in una bozza come `as: "link"`, fuori dai 10 file e dai 25 MB; nel
+  MIME diventa una riga col nome e il link nel corpo, nessun allegato.
+  Vale anche per chi riceve l'email: Google applica i permessi del file.
+- **B7. Il picker e la ricerca fuori dai progetti** leggono col token di CHI
+  GUARDA (il suo Drive), mai d'altri; `alreadyInProject` e `alreadyLinked`
+  li calcola il server.
+
 ## Task del SERVER (interfacce e test; l'implementazione è di 72)
 
 1. **`@stubwise/google`, Drive e Docs.** `files.get` e `export` (testo di un

@@ -149,4 +149,41 @@ test `apps/server/src/routes/drive.test.ts`.
 - «Riprova» (`POST /api/drive/files/:id/retry`): solo `drive.manage`, solo su
   `no_text` o `error` (409 `not_retryable` altrimenti); `permissions.retry` lo
   calcola il server con la stessa regola.
+- **I riferimenti a Google Drive (area 6, F5b; la specifica è il prototipo,
+  `apps/desktop/src/renderer/data/drive/`).** Un riferimento NON è una copia:
+  il file resta su Google, «Apri» va su Google (`GET
+  /api/drive/files/:id/open`, conta un'apertura `via: google`) e i permessi
+  del file li applica Google a chi apre; un riferimento non si scarica né si
+  vede in anteprima dallo storage, e un caricato non si apre «su Google».
+  - **Il testo SÌ, come un caricato** (B2): lo stesso estrattore del worker,
+    con la sorgente che legge da Google (export per Doc/Fogli/Presentazioni);
+    contenuto NON fidato. Togliere un riferimento o un file sparito da Google
+    ne cancella testo, riassunto e frammenti.
+  - **Si legge SOLO con la casella del riferimento** (B3,
+    `drive_files.google_account_id`): quella di chi l'ha aggiunto, o di chi
+    ha collegato la sua cartella. Mai con un'altra. Il picker e la ricerca
+    fuori dai progetti leggono il Drive di CHI GUARDA.
+  - **«Scaduta» e «accesso perso» si DERIVANO** (B4): una cartella è scaduta
+    se la casella di chi l'ha collegata non c'è più, è disattivata o non ha
+    `drive.readonly`, e i suoi file sono `access_lost` (non si aprono);
+    ricollegata la casella, tornano senza riscrivere niente. Solo `deleted`
+    (sparito da Google) si scrive, alla sincronizzazione.
+  - **La sincronizzazione** (B5, QB1 = b, decisione del maintainer): al
+    collegamento, a «Sincronizza ora» e UNA VOLTA AL GIORNO da sola, nel
+    worker (`apps/worker/src/drive/folder-sync.ts`), con la casella di chi ha
+    collegato; un LEASE per cartella (`lease_until`, `SKIP LOCKED`) perché
+    due giri non si sovrappongano; le cartelle scadute si saltano (la
+    richiesta resta); al più 5 cartelle per giro e 500 file per cartella, e
+    una lista tagliata dal tetto non fa sparire niente. Sono letture: nessuna
+    scrittura verso Google.
+  - **Permessi** (il prototipo): aggiungere un file `drive.upload`, una volta
+    per progetto (`already_in_project`; in un altro progetto è un riferimento
+    nuovo, col suo codice); collegare, scollegare, sincronizzare, nascondere
+    `drive.manage`; «Togli» chi l'ha aggiunto o `drive.manage`, e un file di
+    cartella disponibile non si toglie, si nasconde (`use_hide`). Un nascosto
+    sta fuori da elenco, ricerca, dettaglio e contenuto per chi non ha
+    `drive.manage`. Il numero di un riferimento si prende sotto lo STESSO
+    lock dei caricati (`insertDriveReference`, `packages/db`): i codici non si
+    ripetono.
+  - **«Save to Drive» resta una COPIA**: un riferimento Google è un'altra cosa.
 

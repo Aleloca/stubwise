@@ -123,4 +123,16 @@ export {
   type NewCalendarEvent,
 } from "./calendar-write.js";
 // Area 6, F5: Google Drive in sola lettura.
-export { DRIVE_API_BASE, exportGoogleDocText, getDriveFile, type DriveFileMeta } from "./drive.js";
+export {
+  DRIVE_API_BASE,
+  DRIVE_FOLDER_MIME,
+  exportGoogleDocText,
+  getDriveFile,
+  GOOGLE_EXPORT_MIME,
+  listDriveFiles,
+  listDriveFolders,
+  listFolderFiles,
+  openDriveFileStream,
+  type DriveFileMeta,
+  type DriveListedFile,
+} from "./drive.js";

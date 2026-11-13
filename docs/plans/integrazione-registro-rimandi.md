@@ -441,6 +441,19 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - F4, «tutta la serie» e l'etag *(S, review F4 punto 11)*: l'`If-Match` è
   l'etag del padre appena riletto; l'etag del client protegge solo la data
   trascinata.
+- F5b, il picker delle cartelle senza `path` né `fileCount` *(S)*: Google
+  non li dà senza una chiamata per cartella; `path` è `[]` e `fileCount`
+  `null`. «Aggiungi da Google Drive» resta un elenco piatto con la ricerca
+  (R-H3 del prototipo).
+- F5b, la sincronizzazione giornaliera delle cartelle *(M, QB1 = b)*: una
+  volta al giorno, col lease, sull'intervallo del job del contenuto; le
+  cartelle scadute si saltano, la richiesta resta. Un file di un riferimento
+  aggiunto A MANO non si rilegge da solo quando cambia su Google (lo fa solo
+  la cartella): «Riprova» o rimuoverlo e riaggiungerlo.
+- F5b, un riferimento aggiunto a mano dopo che la casella di chi l'ha
+  aggiunto è scaduta *(S)*: resta disponibile (si apre su Google) col
+  contenuto di prima, ma non si rilegge; il prototipo rende «accesso perso»
+  solo i file di cartella.
 - F5a, l'elenco degli invitati e l'ora di Google *(S, review F5a punto 8)*:
   vince la riga dell'organizzatore (`organizer_self`); senza, «la più
   recente» è l'ora della NOSTRA riga, non l'`updated` di Google (non lo
