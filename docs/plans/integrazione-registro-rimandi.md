@@ -584,6 +584,16 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   piano della F2, `docs/invariants/automations.md`). Nessun filtro sui
   messaggi automatici (`Auto-Submitted`): se un caso di giro fra due
   automazioni diverse si presentasse, è da lì che si riparte.
+- F2, le altre risposte (13 nov 2026, piano della F2): F2-2 = a *(M)*,
+  l'email di un'automazione parte subito, senza i 10 secondi; F2-6 = a
+  *(M)*, una risposta arrivata in pausa si tiene; F2-3, F2-4, F2-5 = a
+  *(O, 46)*. Il contenuto delle email che la Posta tiene fuori entra come
+  non fidato, e il filtro dell'inizio è l'unica difesa contro il volume.
+  L'eccezione «il worker manda un'email senza un gesto» *(O, 46)*,
+  dichiarata perché discende da Q4 = b, con l'elenco chiuso degli scrittori
+  di `mail_outgoing` verificato da un test. Rimandati: i rimbalzi (il
+  registro dell'esecuzione non sa di un indirizzo inesistente) e gli
+  allegati delle email (F3/F4).
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 
