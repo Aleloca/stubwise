@@ -1125,12 +1125,21 @@ async function syncGmail(
       .returning({ id: emailMessages.id, rfcMessageId: emailMessages.rfcMessageId });
     if (inserted.length > 0) ingested += 1;
     if (gemini && inserted[0]) {
-      // Una riunione per Doc: la stessa email in un'altra casella non ne crea
-      // una seconda, e il Doc lo legge la casella della PRIMA copia.
-      await deps.db
-        .insert(meetingNotes)
-        .values({ docFileId: gemini.docFileId, sourceMessageId: inserted[0].id, rfcMessageId: inserted[0].rfcMessageId })
-        .onConflictDoNothing();
+      // Una riunione per email (la chiave è il Message-ID): la stessa email in
+      // un'altra casella non ne crea una seconda. ⚠️ Review F5a, punto 2: i
+      // link sono CANDIDATI, e `doc_file_id` resta un segnaposto finché il
+      // worker non ne VERIFICA uno su Drive (`meetings.ts`): un link ostile
+      // non può occupare l'id di un Doc vero.
+      const key = inserted[0].rfcMessageId ?? `gmail:${account.id}:${id}`;
+      const [already] = inserted[0].rfcMessageId
+        ? await deps.db.select({ id: meetingNotes.id }).from(meetingNotes).where(eq(meetingNotes.rfcMessageId, inserted[0].rfcMessageId)).limit(1)
+        : [];
+      if (!already) {
+        await deps.db
+          .insert(meetingNotes)
+          .values({ docFileId: `unverified:${key}`, docCandidates: gemini.docCandidates, sourceMessageId: inserted[0].id, rfcMessageId: inserted[0].rfcMessageId })
+          .onConflictDoNothing();
+      }
     }
     await forgetRejections(deps, account, [id]);
 
@@ -2582,7 +2591,7 @@ async function runAccountTick(
         db: deps.db,
         runner: deps.runner,
         select: deps.select,
-        account: { id: account.id, email: account.email, scopes: account.scopes },
+        account: { id: account.id, email: account.email, scopes: account.scopes, proposalsSince: account.proposalsSince },
         accessToken: ctx.accessToken,
         ...(deps.drive ? { drive: deps.drive } : {}),
         ...(deps.lang ? { lang: deps.lang } : {}),

@@ -364,6 +364,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 - F4, «tutta la serie» e l'etag *(S, review F4 punto 11)*: l'`If-Match` è
   l'etag del padre appena riletto; l'etag del client protegge solo la data
   trascinata.
+- F5a, l'elenco degli invitati e l'ora di Google *(S, review F5a punto 8)*:
+  vince la riga dell'organizzatore (`organizer_self`); senza, «la più
+  recente» è l'ora della NOSTRA riga, non l'`updated` di Google (non lo
+  salviamo): un evento di un organizzatore esterno può restare indietro di
+  un giro.
+- F5a, la verifica del Doc delle note *(S, review F5a punto 2)*: non c'è
+  un'ancora «sicura» nell'email di Gemini su cui contare; la verifica è su
+  Drive (tipo, data di creazione, proprietario fra i partecipanti, allegati
+  dell'evento). Un Doc creato da un partecipante nelle stesse ore e linkato
+  nel titolo passerebbe: il rischio residuo è un Doc che quel partecipante
+  poteva già condividere.
 - F5a, «Task da questa riunione» senza le RICHIESTE *(S)*: una proposta
   confermata come richiesta lascia un job dell'intake (`results.kind =
   request`, id del job), non la voce di backlog; risolverla (e mostrare le

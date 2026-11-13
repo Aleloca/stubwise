@@ -6,8 +6,7 @@ import { extractRawBody, type GmailMessage } from "@stubwise/google";
  * `From: gemini-notes@google.com` si scrive da chiunque: la si riconosce
  * SOLO se (a) il mittente è quello, (b) la PRIMA intestazione
  * `Authentication-Results` — quella che Gmail mette in cima ricevendo,
- * `mx.google.com` — dice DMARC passato per `google.com` o DKIM passato con
- * `google.com` (un mittente falso può aggiungere la sua intestazione, ma
+ * `mx.google.com` — dice DMARC passato per `google.com` esattamente (un mittente falso può aggiungere la sua intestazione, ma
  * sotto quella di Gmail), (c) il corpo ha un link a un Google Doc. In
  * dubbio è un'email normale: si perde una riunione registrata, mai si
  * scambia un'email qualunque per gli appunti di una riunione.
@@ -15,7 +14,9 @@ import { extractRawBody, type GmailMessage } from "@stubwise/google";
 
 export const GEMINI_SENDER = "gemini-notes@google.com";
 
-const DOC_LINK = /https:\/\/docs\.google\.com\/document\/d\/([A-Za-z0-9_-]{20,})/;
+const DOC_LINK = /https:\/\/docs\.google\.com\/document\/d\/([A-Za-z0-9_-]{20,})/g;
+/** Quanti link a un Doc si tengono come candidati. */
+export const GEMINI_MAX_DOC_CANDIDATES = 5;
 
 function senderOf(message: GmailMessage): string {
   const from = message.headers.from ?? "";
@@ -28,9 +29,9 @@ function gmailVerdictPasses(message: GmailMessage): boolean {
   if (!first) return false;
   const value = first.value;
   if (!/^\s*mx\.google\.com\s*;/i.test(value)) return false;
-  const dmarc = /\bdmarc=pass\b[^;]*\bheader\.from=google\.com\b/i.test(value);
-  const dkim = /\bdkim=pass\b[^;]*\bheader\.(?:d=google\.com|i=@google\.com)\b/i.test(value);
-  return dmarc || dkim;
+  // Review F5a, punto 7: DMARC passato per google.com, ESATTAMENTE (non
+  // `google.com.evil.tld`): un DKIM da solo non lega la firma al mittente.
+  return /\bdmarc=pass\b[^;]*\bheader\.from=google\.com(?![\w.-])/i.test(value);
 }
 
 /** Il titolo della riunione dall'oggetto («Notes: “Titolo”»), per l'aggancio di ripiego all'evento. */
@@ -41,11 +42,18 @@ export function meetingTitleOf(subject: string | undefined): string | null {
   return title === "" ? null : title;
 }
 
-export function recognizeGeminiNotes(message: GmailMessage): { docFileId: string; meetingTitle: string | null } | null {
+/**
+ * ⚠️ Review F5a, punto 2: i link ai Doc sono CANDIDATI. Il titolo della
+ * riunione (che sceglie l'organizzatore) è ripetuto nel corpo, e può
+ * contenere il link a un ALTRO Doc che chi riceve può leggere: il worker
+ * legge solo un candidato che verifica su Drive (`meetings.ts`), mai il primo
+ * per fiducia.
+ */
+export function recognizeGeminiNotes(message: GmailMessage): { docCandidates: string[]; meetingTitle: string | null } | null {
   if (senderOf(message) !== GEMINI_SENDER) return null;
   if (!gmailVerdictPasses(message)) return null;
   const body = message.payload ? extractRawBody(message.payload) : { text: null, html: null };
-  const match = DOC_LINK.exec(`${body.html ?? ""}\n${body.text ?? ""}`);
-  if (!match) return null;
-  return { docFileId: match[1]!, meetingTitle: meetingTitleOf(message.headers.subject) };
+  const ids = [...new Set([...`${body.html ?? ""}\n${body.text ?? ""}`.matchAll(DOC_LINK)].map((m) => m[1]!))].slice(0, GEMINI_MAX_DOC_CANDIDATES);
+  if (ids.length === 0) return null;
+  return { docCandidates: ids, meetingTitle: meetingTitleOf(message.headers.subject) };
 }

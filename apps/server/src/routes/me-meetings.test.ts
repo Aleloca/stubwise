@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { calendarEvents, emailMessages, emailProposalRecipients, emailProposals, googleAccounts, googleWorkspaces, meetingNotes, projects, tickets, type Db } from "@stubwise/db";
+import { calendarEvents, emailMessages, emailProposalRecipients, emailProposals, googleAccounts, googleWorkspaces, meetingNotes, comments, projectDecisions, projects, tickets, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import { eq } from "drizzle-orm";
@@ -136,6 +136,40 @@ describe("le proposte di una riunione", () => {
     await db.update(calendarEvents).set({ attendees: [], updatedAt: new Date() }).where(eq(calendarEvents.id, s.adaRow.id));
     expect(((await get(s.bruno.headers, "/api/me/mail/proposals")).json().items as { id: string }[]).map((p) => p.id)).not.toContain(s.proposal.id);
     expect((await app.inject({ method: "POST", url: `/api/me/mail/proposals/${s.proposal.id}/ignore`, headers: s.bruno.headers })).statusCode).toBe(404);
+  });
+});
+
+describe("review F5a, punti 4, 6 e 9", () => {
+  it("punto 9: un invitato aggiunto DOPO la pubblicazione (senza riga fra i destinatari) la vede e la decide", async () => {
+    const s = await scenario();
+    const erin = await person();
+    await addMember(app, s.projectId, erin.id);
+    await db.update(calendarEvents).set({ attendees: [{ email: s.bruno.email, responseStatus: "declined" }, { email: erin.email, responseStatus: "accepted" }], updatedAt: new Date() }).where(eq(calendarEvents.id, s.adaRow.id));
+    expect(((await get(erin.headers, "/api/me/mail/proposals")).json().items as { id: string }[]).map((p) => p.id)).toContain(s.proposal.id);
+    expect((await app.inject({ method: "POST", url: `/api/me/mail/proposals/${s.proposal.id}/ignore`, headers: erin.headers })).statusCode).toBe(200);
+  });
+
+  it("punto 6: chi non ha la sua copia dell'email non vede l'estratto (l'email di un altro); chi ce l'ha sì", async () => {
+    const s = await scenario();
+    const of = async (who: { headers: { cookie: string } }) => ((await get(who.headers, "/api/me/mail/proposals")).json().items as { id: string; excerpt: string }[]).find((p) => p.id === s.proposal.id)!;
+    expect((await of(s.bruno)).excerpt).toBe("");
+    expect((await of(s.ada)).excerpt).toBe("Le note sono pronte");
+  });
+
+  it("punti 4 e 6: confermata, la decisione è il TEMPLATE (né titolo della riunione né testo del modello) e il commento non porta il link alla casella", async () => {
+    const s = await scenario();
+    const [ticket] = await db.insert(tickets).values({ projectId: s.projectId, number: 3, title: "Rilascio", type: "task", priority: "medium", source: "manual" } as typeof tickets.$inferInsert).returning();
+    await db
+      .update(emailProposals)
+      .set({ classification: { version: 2, summary: "s", actions: [{ type: "record_decision", args: { title: "Titolo del modello", decision: "Testo del modello", ticketId: null } }, { type: "comment_ticket", args: { ticketId: ticket!.id, body: "Da fare venerdì" } }] } })
+      .where(eq(emailProposals.id, s.proposal.id));
+    const res = await app.inject({ method: "POST", url: `/api/me/mail/proposals/${s.proposal.id}/confirm`, headers: s.ada.headers, payload: {} });
+    expect(res.statusCode).toBe(200);
+    const [decision] = await db.select().from(projectDecisions).where(eq(projectDecisions.projectId, s.projectId));
+    expect(`${decision!.title} ${decision!.decision}`).not.toMatch(/Revisione|modello/);
+    const rows = await db.select().from(comments).where(eq(comments.ticketId, ticket!.id));
+    expect(rows.map((c) => c.body).join("\n")).toContain("Da fare venerdì");
+    expect(rows.map((c) => c.body).join("\n")).not.toContain("mail.google.com");
   });
 });
 
