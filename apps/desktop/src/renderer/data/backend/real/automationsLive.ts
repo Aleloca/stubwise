@@ -8,19 +8,17 @@ import { notIntegrated } from "./notIntegrated";
 // adattatori di `automations.ts` e `automationDecisions.ts` sopra
 // `client.automations`, un registro dei riferimenti per sessione.
 //
-// Le rotte che il server non ha ancora (il blocco della Home, «Da decidere»,
-// la sezione del progetto, la riga d'origine) rifiutano come «non
-// integrate»; la prova aspetta `GET …/examples` e resta fuori.
+// Le rotte che il server non ha ancora (la sezione del progetto, la riga
+// d'origine) rifiutano come «non integrate»; la prova aspetta
+// `GET …/examples` e resta fuori.
 
 /** Le rotte che `client.automations` non ha ancora. */
-type Pending = "myRuns" | "myApprovals" | "projectAutomations" | "origin";
+type Pending = "projectAutomations" | "origin";
 
 // Il client copre il resto dell'interfaccia: se una firma diverge, qui non compila.
 const fromClient: (c: StubwiseClient["automations"]) => Omit<AutomationsApi, Pending> = (c) => c;
 
 const pending: Pick<AutomationsApi, Pending> = {
-  myRuns: notIntegrated("automations.listMyRuns"),
-  myApprovals: notIntegrated("automations.listMyApprovals"),
   projectAutomations: notIntegrated("automations.getProjectAutomations"),
   origin: notIntegrated("automations.automationOrigin"),
 };

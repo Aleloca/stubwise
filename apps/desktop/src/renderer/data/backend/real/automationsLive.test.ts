@@ -127,9 +127,29 @@ describe("le Automations della build app sul client vero", () => {
     });
   });
 
-  it("ciò che il server non ha ancora (Home, sezione del progetto, prova) resta «non integrato»", async () => {
+  it("la Home e «Da decidere» leggono le mie esecuzioni e le mie approvazioni, e se ne ricorda il giro", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/me/automation-runs": { body: { items: [serverRun()] } },
+      "GET /api/me/automation-approvals": {
+        body: {
+          items: [{ runId: RUN_ID, automationCode: "AUD-A1", n: 3, cursor: "1", round: 5 }],
+        },
+      },
+      "POST /api/automations/AUD-A1/runs/3/approve": { status: 204 },
+    });
+    expect((await automations.listMyRuns()).map((r) => r.id)).toEqual([RUN_ID]);
+    expect((await automations.listMyApprovals()).map((d) => d.runId)).toEqual([RUN_ID]);
+    await automations.approve(RUN_ID, undefined, { expectedPath: "1" });
+    expect(seen.map((r) => r.path)).toEqual([
+      "/api/me/automation-runs",
+      "/api/me/automation-approvals",
+      "/api/automations/AUD-A1/runs/3/approve",
+    ]);
+    expect(seen[2]!.body).toEqual({ expectedPath: "1", expectedRound: 5 });
+  });
+
+  it("ciò che il server non ha ancora (sezione del progetto, prova) resta «non integrato»", async () => {
     installFakeServer({});
-    await expect(automations.listMyRuns()).rejects.toThrow("is not integrated");
     await expect(automations.getProjectAutomations(PROJECT_ID)).rejects.toThrow(
       "is not integrated",
     );
