@@ -15,6 +15,8 @@ const ev = (id: string, startsAt: string, over: Record<string, unknown> = {}) =>
     startsAt,
     endsAt: new Date(Date.parse(startsAt) + 3_600_000).toISOString(),
     projectId: PRJ,
+    // Il server la dà a un evento futuro di un progetto che chi guarda vede (F5a).
+    hasPrep: Date.parse(startsAt) > Date.parse(NOW),
     ...over,
   }) as never;
 const task = (code: string, statusId: string, dueDate: string | null) =>
@@ -126,7 +128,7 @@ describe("la scheda di preparazione composta nel client", () => {
     expect(most).toBeGreaterThanOrEqual(5);
   });
 
-  it("nessuna scheda: una riunione passata, senza progetto, o di un progetto di cui non sono membro", async () => {
+  it("nessuna scheda: una riunione passata o senza progetto (il server non dà `hasPrep`)", async () => {
     expect(
       await composeMeetingPrep(
         "x",
@@ -144,9 +146,22 @@ describe("la scheda di preparazione composta nel client", () => {
     expect(
       await composeMeetingPrep(
         "x",
-        reads({ listProjects: vi.fn(async () => [{ id: PRJ, memberIds: ["altri"] }] as never) }),
+        reads({
+          getEvent: vi.fn(async () => ev("x", "2026-11-13T09:00:00.000Z", { hasPrep: false })),
+        }),
       ),
     ).toBeNull();
+  });
+
+  // Review F5a (3): chi ha la scheda lo decide `hasPrep` del server, non
+  // l'appartenenza esplicita nel client (un full admin è membro implicito).
+  it("un full admin non membro esplicito, con `hasPrep` dal server: la scheda c'è", async () => {
+    expect(
+      await composeMeetingPrep(
+        "x",
+        reads({ listProjects: vi.fn(async () => [{ id: PRJ, memberIds: ["altri"] }] as never) }),
+      ),
+    ).not.toBeNull();
   });
 
   it("un evento che non vedo: not_found, come nel prototipo", async () => {

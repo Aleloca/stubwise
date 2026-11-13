@@ -55,17 +55,21 @@ export interface PrepReads {
   ) => Promise<{ tasks: MeetingTask[]; proposedTasks: number } | null>;
 }
 
-/** La scheda per chi guarda; `null` se l'evento è passato, senza progetto o se non è membro. */
+/** La scheda per chi guarda; `null` se il server non la dà (`hasPrep`) o il progetto non c'è. */
 export async function composeMeetingPrep(
   eventId: string,
   r: PrepReads,
 ): Promise<MeetingPrep | null> {
   const e = await r.getEvent(eventId);
   const at = Date.parse(r.now);
-  if (Date.parse(e.endsAt) <= at || e.projectId === null) return null;
+  // Chi ha la scheda lo decide il SERVER (`hasPrep`: futuro, con un progetto
+  // che chi guarda vede, full admin compresi; review F5a, 3): qui non si
+  // ridecide l'appartenenza né l'orario, o un admin vedrebbe il segno e una
+  // scheda vuota.
+  if (!e.hasPrep || e.projectId === null) return null;
   const projectId = e.projectId;
   const project = (await r.listProjects()).find((p) => p.id === projectId);
-  if (!project || !project.memberIds.includes(r.me)) return null;
+  if (!project) return null;
 
   const [pulse, mail, tasks, stalled, milestones, statuses, events] = await Promise.all([
     r.projectPulse(projectId),

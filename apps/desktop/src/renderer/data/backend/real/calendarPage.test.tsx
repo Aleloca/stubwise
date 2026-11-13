@@ -359,3 +359,24 @@ describe("F4: il salvataggio verso Google dalla pagina", () => {
     expect(within(panel).queryByRole("button", { name: "Retry" })).toBeNull();
   });
 });
+
+// Review F5a (1, 3): la scheda di preparazione la decide `hasPrep` del SERVER
+// (futuro, con un progetto che chi guarda vede): dalla riga del server alla
+// scheda, senza controlli di appartenenza nel client.
+describe("F5a: la scheda di preparazione nella build app", () => {
+  it("un evento futuro con `hasPrep` dal server: il segno sul blocco e la scheda «Prepare» nel dettaglio", async () => {
+    events = [item({ hasPrep: true })];
+    renderRoute(`/calendar?event=${EV}`);
+    const panel = await eventPanel();
+    await within(panel).findByRole("heading", { name: "Sprint review" });
+    expect(await within(panel).findByRole("region", { name: "Prepare" })).toBeInTheDocument();
+  });
+
+  it("senza `hasPrep` nessuna scheda", async () => {
+    events = [item({ hasPrep: false })];
+    renderRoute(`/calendar?event=${EV}`);
+    const panel = await eventPanel();
+    await within(panel).findByRole("heading", { name: "Sprint review" });
+    expect(within(panel).queryByRole("region", { name: "Prepare" })).toBeNull();
+  });
+});
