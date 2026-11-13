@@ -4243,8 +4243,10 @@ deploy o di un rollback che la tocca.
   **Env nuova (worker)**: `AUTOMATIONS_POLL_SECONDS` (default 5; 0 = spento:
   gli eventi restano in coda e le esecuzioni ferme, nessuna perdita). Il
   poller gira fuori dal serializer per-progetto; un riavvio del worker NON
-  perde lavoro delle automazioni (lease di 60′ sulle esecuzioni, effetti
-  idempotenti), quindi non serve aspettare che siano ferme.
+  perde lavoro delle automazioni (lease di 5′ sulle esecuzioni, rinnovata a
+  ogni input, dalla review della F1; effetti idempotenti), quindi non serve
+  aspettare che siano ferme: dopo un riavvio un'esecuzione presa riparte al
+  più dopo 5′.
 
   **Da sapere subito**: dai trigger in poi ogni task, richiesta, conversione
   e traguardo chiuso lascia una riga in `automation_events`, anche senza
@@ -4278,3 +4280,44 @@ deploy o di un rollback che la tocca.
      vecchio allo stesso modo: `update tickets set source = 'manual' where
      source = 'automation';` prima di scendere.
   Il worker vecchio ignora le tabelle nuove. La 0169 non si annulla.
+
+- **«Integrazione area 7, fetta 2: email e attese» (13 nov 2026)**: branch
+  `feat/area7-f2` (sopra la F1 e il suo fix), piano
+  `docs/plans/2026-11-13-integrazione-area7-fetta2-plan.md` (con le
+  «Correzioni di 72»), regole in `docs/invariants/automations.md` («L'email
+  di un passo», «L'inizio "email in arrivo"»). Migrazione **0170**: i valori
+  d'enum `waiting_event`, l'effetto `email`, la pausa `mailbox_lost`,
+  l'evento `mail_received`; `automations.mailbox_account_id`;
+  `mail_outgoing.automation_run_id` e `gmail_draft_id` nullable (CHECK: bozza
+  o esecuzione); `automation_runs.waiting_thread`/`waiting_ticket_id`;
+  `automation_schedule_fires`; `automation_events` con `account_id` e
+  `dedupe_key`. Nessuna env nuova, nessun `notification_kind` nuovo. Ordine:
+  **server** (healthy, 0170 applicata), poi **worker**, poi **caddy**.
+
+  **Da sapere subito**: un'automazione accesa con «Manda email» manda posta
+  DA SOLA dalla casella del proprietario (Q4 = b, l'eccezione dichiarata al
+  mittente): senza i 10 secondi per annullare (F2-2). «Email in arrivo»
+  legge TUTTE le email ricevute dalla casella dell'automazione, anche quelle
+  che l'ammissione rifiuta (F2-1 *(M)*), ma solo se un'automazione accesa
+  ascolta quella casella. Controlli, sola lettura: `select state,
+  count(*) from mail_outgoing where automation_run_id is not null group by
+  1;` e `select count(*) from automations where status = 'paused' and
+  paused_reason = 'mailbox_lost';` (caselle da ricollegare).
+
+  **Rollback**: il server scende **insieme** al caddy. ⚠️ Prima di
+  scendere:
+  1. **Fermare le email delle automazioni**, perché un mittente vecchio non
+     sa mandare una riga senza bozza (la segnerebbe fallita):
+     `update automations set status = 'paused', paused_reason = 'manual',
+     active_since = null where status = 'active' and mailbox_account_id is
+     not null;` e `update mail_outgoing set state = 'cancelled' where
+     automation_run_id is not null and state = 'queued';`.
+  2. Un worker vecchio non prende le esecuzioni in `waiting_event` né quelle
+     con un'email in volo: restano ferme (nessuna perdita) e ripartono
+     risalendo. Gli eventi `mail_received` non consumati restano in coda;
+     se non si vogliono far partire risalendo, `delete from
+     automation_events where kind = 'mail_received' and consumed_at is
+     null;`.
+  3. I valori d'enum restano (un server della F1 non li scrive e legge
+     `waiting_event` dalla forma condivisa, che lo ha già). La 0170 non si
+     annulla.

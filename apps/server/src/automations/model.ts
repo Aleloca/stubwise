@@ -127,6 +127,7 @@ export function automationOf(a: AutomationRecord, versions: VersionRecord[], vis
     createdById: a.createdBy,
     pausedById: a.pausedBy,
     pausedAt: iso(a.pausedAt),
+    pausedReason: a.pausedReason,
     ...(a.createdVia === "claude" ? { createdVia: "claude" as const } : {}),
     // Area 7, F2: la casella scelta all'accensione (l'indirizzo, come nel prototipo, e il suo id).
     mailbox,
