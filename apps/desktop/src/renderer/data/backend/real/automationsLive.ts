@@ -45,20 +45,15 @@ const simulation = createRealSimulation({
       throw error;
     }
   },
-  // F3: i passi di Claude della prova sul server (le rotte di 72, non ancora nel client).
+  // F3: i passi di Claude della prova sul server (`testEstimate`, `testClaude`).
   claude: {
     estimate: (automationId, version, event) =>
       claudeRoute(() =>
-        appClient().request<{ claudeSteps: number; estimateUsd: number | null; model: string }>(
-          "POST",
-          `/api/automations/${encodeURIComponent(refs.automation(automationId).code)}/test/estimate`,
-          { version, event },
-        ),
+        appClient().automations.testEstimate(refs.automation(automationId).code, { version, event }),
       ),
     async run(automationId, body) {
-      const path = `/api/automations/${encodeURIComponent(refs.automation(automationId).code)}/test/claude`;
       try {
-        return await appClient().request<ClaudeResult & { truncated?: string[] }>("POST", path, body);
+        return await appClient().automations.testClaude(refs.automation(automationId).code, body);
       } catch (error) {
         // Una risposta fuori forma: la si passa al motore, che fallisce il passo coi suoi
         // codici (come l'esecuzione vera); una non JSON è `claude_invalid`.
