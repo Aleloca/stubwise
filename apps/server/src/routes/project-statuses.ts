@@ -120,6 +120,11 @@ export async function projectStatusRoutes(instance: FastifyInstance): Promise<vo
       // la stessa fotografia, e due salvataggi concorrenti si mettono in fila
       // invece di finire in un 500.
       const outcome = await app.db.transaction(async (tx) => {
+        // Area 7: un'operazione di MASSA (il trasloco, il cambio di famiglia),
+        // non il gesto su una task. Senza, ogni task chiusa così sarebbe un
+        // `task_closed` e le automazioni partirebbero a decine
+        // (`docs/invariants/automations.md`, le due GUC).
+        await tx.execute(sql`select set_config('stubwise.automation_events', 'off', true)`);
         const current = (await tx.execute(sql`
           select "id", "family", "legacy_status" from "project_statuses"
           where "project_id" = ${projectId} order by "position" for update

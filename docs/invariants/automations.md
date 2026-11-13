@@ -54,6 +54,10 @@ motore condiviso (`packages/shared/src/automations/`).
   automazioni accese partirebbero a migliaia. Nelle migrazioni:
   `SELECT set_config('stubwise.automation_events', 'off', true);` come primo
   statement (il batch è UNA transazione, quindi vale fino alla fine).
+  Gli scrittori di massa noti (oggi il trasloco e il cambio di famiglia
+  degli stati, `routes/project-statuses.ts`) stanno nell'elenco
+  `MASS_WRITERS` di `packages/db/src/automation-triggers-bypass.test.ts`,
+  che controlla che aprano con la GUC: chi ne aggiunge uno lo mette lì.
   Le migrazioni di PRIMA della 0169 girano prima che i trigger esistano: una
   base appena migrata non ha eventi (`migration-0169.test.ts`, «nessuna
   valanga»).
