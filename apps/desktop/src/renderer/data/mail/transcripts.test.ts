@@ -220,11 +220,11 @@ describe("Riunioni registrate: l'invitato senza l'email di Gemini", () => {
     if (m.from.personId === "p-laura") throw new Error("seed: Laura è il mittente");
   }
 
-  it("vede la proposta, con l'estratto, e l'origine è la riunione senza conversazione", async () => {
+  it("vede la proposta SENZA l'estratto (non ha la sua copia dell'email, come il server di 72), e l'origine è la riunione senza conversazione", async () => {
     lauraWithoutEmail();
     as("p-laura");
     const v = (await mail.listMailDecisions()).find((x) => x.proposal.id === REVIEW)!;
-    expect(v.proposal.excerpt).not.toBe("");
+    expect(v.proposal.excerpt).toBe("");
     expect(v.origin).toMatchObject({
       kind: "meeting",
       noteId: MAIL_CASES.transcript,
@@ -236,6 +236,7 @@ describe("Riunioni registrate: l'invitato senza l'email di Gemini", () => {
   it("chi ha l'email ha la sua conversazione e la stessa riunione", async () => {
     as("p-giulia");
     const v = (await mail.listMailDecisions()).find((x) => x.proposal.id === REVIEW)!;
+    expect(v.proposal.excerpt).not.toBe("");
     expect(v.origin).toMatchObject({
       kind: "meeting",
       noteId: MAIL_CASES.transcript,
