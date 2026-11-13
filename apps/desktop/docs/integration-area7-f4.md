@@ -8,9 +8,9 @@ e le decisioni di 46 del 13 nov 2026. Server, worker e
 `feat/area7-f4-fix`); qui il renderer e i pezzi del motore condiviso che il
 piano gli assegna (`feat/area7-f4-renderer`).
 
-Nella build app la disponibilità della F4 è SPENTA (funzione
-`automations-f4`) finché 46 non la accende, dopo la review del renderer.
-I test di pagina la accendono col mock di `integration`.
+Nella build app la disponibilità della F4 è ACCESA (funzione
+`automations-f4`, via di 46 del 13 nov 2026 dopo la review del renderer
+della F4: nessun critico; i 4 importanti e i 4 minori corretti, vedi sotto).
 
 ## Renderer e motore condiviso (stubwise-94)
 
@@ -41,3 +41,22 @@ I test di pagina la accendono col mock di `integration`.
 - La prova risolve il cliente già all'inizio (non è un passo, come nel
   prototipo): un server senza la rotta fa fallire l'inizio della prova con
   `not_available`, come gli altri agganci mancanti.
+
+### Le correzioni della review del renderer (13 nov 2026)
+
+- I1: nella build app un webhook non offre «Disconnect» (il server non ha
+  la rotta) né «Simulate» (del prototipo), nel pannello e sulla riga.
+- I2: il segreto non passa dal risultato delle mutazioni (la cache di React
+  Query lo teneva per il gcTime), e la sua mappa si svuota al cambio di
+  persona e all'uscita (`forgetClientCaches`).
+- I3: le chiamate della F4 sono fra quelle integrate di `ComingSoon.test.tsx`,
+  con «aprire Sources legge solo chiamate integrate»; «avvia un'altra» non è
+  più «Coming soon».
+- I4: anche il prototipo applica la tinta lungo la catena (`eventUntrusted`
+  ereditato dalla madre, il flusso di `forceApprovalForUntrusted`).
+- m5: `WEBHOOK_LIMIT_CEILING` in shared; il modulo del tetto non manda oltre.
+- m6: il motivo di un rifiuto nomina anche un campo dentro un elenco.
+- m7: «Remember» del prototipo normalizza con `clientKeyOf`.
+- m8: un cliente oltre i 200 caratteri ferma la prova con una frase sua
+  (`client_too_long`).
+

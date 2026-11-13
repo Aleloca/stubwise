@@ -63,6 +63,10 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // Area 7, fetta 3: i passi di Claude (la prova con Claude vero dal server,
     // col costo da confermare; il budget mensile prima di ogni passo).
     "automations-f3",
+    // Area 7, fetta 4: le generali, le sorgenti webhook con la tabella cliente
+    // → progetto e il tetto del webhook, «avvia un'altra» (via di 46 dopo la
+    // review del renderer della F4, 13 nov 2026).
+    "automations-f4",
     "notifications",
     "search",
     "task-detail",
@@ -274,14 +278,6 @@ export function integrationTargetOf(
 }
 
 /**
- * I passi e gli inizi delle Automations che questa build offre (area 7, per
- * fette): nella build app quelli della fetta 3 (funzione `automations-f3`;
- * senza, la 2 con `automations-f2`, o la 1; la 4 con `automations-f4`,
- * spenta finché il suo server non c'è), nel prototipo
- * tutti (`undefined`). La leggono il costruttore («Coming soon») e la validazione
- * (`not_available`), così non possono dire due cose diverse.
- */
-/**
  * Le generali, le sorgenti e la tabella cliente → progetto (area 7, F4): nel
  * prototipo sempre, nella build app con `automations-f4`.
  */
@@ -289,6 +285,13 @@ export function generalsAvailable(): boolean {
   return !isAppBuild() || featureIntegrated("automations-f4");
 }
 
+/**
+ * I passi e gli inizi delle Automations che questa build offre (area 7, per
+ * fette): nella build app quelli della fetta 4 (funzione `automations-f4`;
+ * senza, la 3 con `automations-f3`, la 2 con `automations-f2`, o la 1), nel
+ * prototipo tutti (`undefined`). La leggono il costruttore («Coming soon») e
+ * la validazione (`not_available`), così non possono dire due cose diverse.
+ */
 export function automationAvailability(): AutomationAvailability | undefined {
   if (!isAppBuild()) return undefined;
   if (featureIntegrated("automations-f4")) return AUTOMATION_F4_AVAILABILITY;
