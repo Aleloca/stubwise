@@ -1,5 +1,6 @@
 import { hideProject } from "../../domain/automations/runRules";
 export { hideProject };
+import { hideReplies } from "@stubwise/shared";
 import { visitSteps } from "@stubwise/shared";
 import { copy, state, visibleProjectIds } from "../store";
 import type { AutomationRun, ReasonCode, RunLogEntry } from "../types";
@@ -209,42 +210,3 @@ export function viewRun(me: string, run: AutomationRun): AutomationRun {
   return v;
 }
 
-/**
- * R-J16 (shape [A 21]): la risposta del cliente sta nella casella del
- * proprietario, e il suo testo lo vede solo lui — su OGNI esecuzione, non
- * solo su quelle partite da un'email. Per gli altri ogni testo che la
- * contiene diventa `""`: l'uscita dell'attesa, gli ingressi di chi la legge
- * (Claude, condizioni, ripetizioni), le variabili, i campi di Claude che la
- * ripetono; la riga lo dice con `replyHidden`. L'anteprima di chi deve
- * approvare resta intera (R-J14).
- */
-function hideReplies(v: AutomationRun, preview: boolean): void {
-  const replies = new Set<string>();
-  const add = (t: unknown) => {
-    if (typeof t === "string" && t.trim()) replies.add(t);
-  };
-  for (const e of v.log) if (e.kind === "wait") add(e.output["risposta.testo"]);
-  add(v.vars["risposta.testo"]);
-  if (replies.size === 0) return;
-  const echoes = (s: string) => [...replies].some((r) => s.includes(r));
-  const hide = (o: unknown): boolean => {
-    if (!o || typeof o !== "object") return false;
-    let hit = false;
-    const rec = o as Record<string, unknown>;
-    for (const [k, val] of Object.entries(rec)) {
-      if (typeof val === "string" && echoes(val)) {
-        rec[k] = "";
-        hit = true;
-      } else if (val && typeof val === "object" && hide(val)) hit = true;
-    }
-    return hit;
-  };
-  for (const e of v.log) {
-    const a = hide(e.input);
-    const b = hide(e.output);
-    if (a || b) e.replyHidden = true;
-  }
-  hide(v.vars);
-  if (v.loops) hide(v.loops);
-  if (preview && v.pending) hide(v.pending.preview);
-}

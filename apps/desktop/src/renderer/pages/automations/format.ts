@@ -494,6 +494,8 @@ export function reasonWords(
   const params: Record<string, unknown> = { ...why.params };
   if (typeof params.role === "string")
     params.role = t(`automations.roles.${params.role}`, { defaultValue: params.role });
+  // Il codice del mittente della Posta (`emailFailed`, F2) si dice in parole.
+  if (typeof params.error === "string") params.error = errorWords(params.error, t);
   return t(`automations.reasons.${why.code}`, {
     ...params,
     ...(opts.would ? { context: "would" } : {}),

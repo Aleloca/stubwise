@@ -281,3 +281,112 @@ describe("le esecuzioni con email (F2, R4)", () => {
     );
   }, 15_000);
 });
+
+describe("il registro di un'esecuzione con email e attese (F2, R4, le forme del motore)", () => {
+  const runBody = (over: Record<string, unknown>) => ({
+    automationId: A_ID,
+    version: 2,
+    event: {},
+    vars: {},
+    waitingUntil: null,
+    pending: null,
+    startedAt: "2026-11-13T09:00:00.000Z",
+    projectIds: [PROJECT_ID],
+    automationCode: "AUD-A1",
+    automationName: "Avvio progetto",
+    automationProjectId: PROJECT_ID,
+    flow: {
+      ...FLOW,
+      steps: [FLOW.steps[0], { id: "w1", kind: "wait", for: { replyTo: "e1", maxDays: 3 } }],
+    },
+    deciders: [],
+    ownerId: "22222222-2222-4222-8222-000000000099",
+    permissions: { manage: true, approve: false, chooseProject: false },
+    parent: null,
+    children: [],
+    pendingEffect: null,
+    ...over,
+  });
+  const line = (over: Record<string, unknown>) => ({
+    at: "2026-11-13T09:00:00.000Z",
+    reason: null,
+    byId: null,
+    effects: [],
+    input: {},
+    output: {},
+    ...over,
+  });
+
+  it("l'email partita e la risposta che chi non è il proprietario non legge", async () => {
+    install({
+      "GET /api/automations/AUD-A1/runs/6": {
+        body: runBody({
+          id: "77777777-7777-4777-8777-777777777776",
+          n: 6,
+          code: "AUD-A1 #6",
+          title: "Benvenuto",
+          status: "done",
+          cursor: null,
+          endedAt: "2026-11-14T09:00:00.000Z",
+          error: null,
+          log: [
+            line({
+              stepId: "e1",
+              path: "0",
+              kind: "sendEmail",
+              outcome: "ok",
+              input: { to: "cliente@example.com", subject: "Benvenuto", body: "Ciao" },
+              output: { inviata: true },
+              effects: [{ kind: "email", code: "gmail-msg-1" }],
+            }),
+            line({
+              stepId: "w1",
+              path: "1",
+              kind: "wait",
+              outcome: "ok",
+              input: { replyTo: "e1", maxDays: 3 },
+              output: { "risposta.arrivata": true, "risposta.testo": "" },
+              replyHidden: true,
+            }),
+          ],
+        }),
+      },
+    });
+    renderRoute("/automations/AUD-A1/runs/6");
+    expect(
+      await screen.findAllByText(/cliente@example\.com/, {}, { timeout: 3000 }),
+    ).not.toHaveLength(0);
+    expect(document.querySelector("[data-reply-hidden]")).not.toBeNull();
+  });
+
+  it("un'email che il mittente non ha potuto mandare: il motivo in parole", async () => {
+    install({
+      "GET /api/automations/AUD-A1/runs/7": {
+        body: runBody({
+          id: "77777777-7777-4777-8777-777777777777",
+          n: 7,
+          code: "AUD-A1 #7",
+          title: "Benvenuto",
+          status: "failed",
+          cursor: "0",
+          endedAt: null,
+          error: "token_expired",
+          log: [
+            line({
+              stepId: "e1",
+              path: "0",
+              kind: "sendEmail",
+              outcome: "failed",
+              input: { to: "cliente@example.com", subject: "Benvenuto", body: "Ciao" },
+              why: { code: "emailFailed", params: { error: "token_expired" } },
+            }),
+          ],
+        }),
+      },
+    });
+    renderRoute("/automations/AUD-A1/runs/7");
+    expect(
+      await screen.findAllByText(/the mailbox connection expired/i, {}, { timeout: 3000 }),
+    ).not.toHaveLength(0);
+  });
+});
