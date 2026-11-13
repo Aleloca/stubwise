@@ -1,3 +1,4 @@
+import { revealAddress } from "./revealedAddress";
 import {
   keepPreviousData,
   QueryClient,
@@ -330,6 +331,8 @@ export const queryKeys = {
   automationRunByCode: (personId: string, code: string, n: number) =>
     ["as", personId, "automations", "runByCode", code, n] as const,
   automationSources: (personId: string) => ["as", personId, "automations", "sources"] as const,
+  sourceEvents: (personId: string, id: string) =>
+    ["as", personId, "automations", "sourceEvents", id] as const,
   clientLinks: (personId: string) => ["as", personId, "automations", "clientLinks"] as const,
   clientSuggestions: (personId: string) =>
     ["as", personId, "automations", "clientSuggestions"] as const,
@@ -3943,6 +3946,15 @@ export function useAutomationSources() {
   });
 }
 
+/** Gli eventi recenti di una sorgente, coi rifiutati e il motivo (F4-5; solo con `integrations.manage`). */
+export function useSourceEvents(id: string) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.sourceEvents(me, id),
+    queryFn: () => api.automations.listSourceEvents(id),
+  });
+}
+
 export function useClientLinks() {
   const me = useSessionPersonId();
   return useQuery({
@@ -4072,6 +4084,13 @@ export type {
 export function useRenameAutomation() {
   return useAutomationWrite(({ id, meta }: { id: string; meta: AutomationMeta }) =>
     api.automations.renameAutomation(id, meta),
+  );
+}
+
+export function useSetWebhookLimits() {
+  return useAutomationWrite(
+    ({ id, perMinute, perDay }: { id: string; perMinute: number | null; perDay: number | null }) =>
+      api.automations.setWebhookLimits(id, { perMinute, perDay }),
   );
 }
 
@@ -4205,7 +4224,13 @@ export function useAdvanceAutomationTime() {
 // --- sorgenti curate (webhook in arrivo) ----------------------------------------------------
 
 export function useCreateWebhookSource() {
-  return useAutomationWrite((name: string) => api.automations.createWebhookSource(name));
+  return useAutomationWrite(async (name: string) => {
+    const { address, ...source } = await api.automations.createWebhookSource(name);
+    // Il segreto si vede ora, nel pannello che si apre, poi non più (F4-1):
+    // fuori dal risultato, che la cache delle mutazioni terrebbe (review F4, I2).
+    if (address) revealAddress(source.id, address);
+    return source;
+  });
 }
 
 export function useRenameSource() {
@@ -4215,7 +4240,9 @@ export function useRenameSource() {
 }
 
 export function useRegenerateWebhookAddress() {
-  return useAutomationWrite((id: string) => api.automations.regenerateWebhookAddress(id));
+  return useAutomationWrite(async (id: string) => {
+    revealAddress(id, await api.automations.regenerateWebhookAddress(id));
+  });
 }
 
 /** «Replace example», prima di confermare: una lettura, non scrive niente. */

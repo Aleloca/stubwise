@@ -146,23 +146,64 @@ describe("le destinazioni tinte", () => {
 });
 
 describe("review F3 (72): le richieste dal supporto e i «per ogni» su un elenco grezzo", () => {
-  const claudeOn = (input: string): Step => ({ id: "c", kind: "claude", instruction: "x", inputs: [input], outcomes: [], fields: [{ key: "chi", label: "Chi", type: "email" }], branches: {} });
+  const claudeOn = (input: string): Step => ({
+    id: "c",
+    kind: "claude",
+    instruction: "x",
+    inputs: [input],
+    outcomes: [],
+    fields: [{ key: "chi", label: "Chi", type: "email" }],
+    branches: {},
+  });
   it("I4 *(O, 46)*: titolo e descrizione di una richiesta sono tinti (possono venire dal widget di supporto), salvo un filtro che escluda le richieste dal supporto", () => {
     for (const event of ["request_created", "request_converted"] as const) {
-      const flow: AutomationFlow = { trigger: { kind: "stubwise", event }, steps: [claudeOn("richiesta.descrizione")], titleTemplate: "t" };
+      const flow: AutomationFlow = {
+        trigger: { kind: "stubwise", event },
+        steps: [claudeOn("richiesta.descrizione")],
+        titleTemplate: "t",
+      };
       expect(taintedKeys(flow, []).has("richiesta.descrizione"), event).toBe(true);
       expect(taintedKeys(flow, []).has("chi"), event).toBe(true);
-      const internal: AutomationFlow = { ...flow, trigger: { kind: "stubwise", event, filter: { left: { ref: "richiesta.dal_supporto" }, op: "is", right: { value: false } } } };
+      const internal: AutomationFlow = {
+        ...flow,
+        trigger: {
+          kind: "stubwise",
+          event,
+          filter: { left: { ref: "richiesta.dal_supporto" }, op: "is", right: { value: false } },
+        },
+      };
       expect(taintedKeys(internal, []).has("richiesta.descrizione"), event).toBe(false);
     }
-    const task: AutomationFlow = { trigger: { kind: "stubwise", event: "task_created" }, steps: [claudeOn("task.titolo")], titleTemplate: "t" };
+    const task: AutomationFlow = {
+      trigger: { kind: "stubwise", event: "task_created" },
+      steps: [claudeOn("task.titolo")],
+      titleTemplate: "t",
+    };
     expect(taintedKeys(task, []).has("chi")).toBe(false);
   });
 
   it("M6: l'elemento di un «per ogni» su un elenco GREZZO non fidato è tinto (per chi legge), ma non è deciso da Claude (non forza l'approvazione)", () => {
     const flow: AutomationFlow = {
       trigger: { kind: "stubwise", event: "mail_received" },
-      steps: [{ id: "f", kind: "forEach", list: "email.testo", as: "riga", steps: [{ id: "m", kind: "sendEmail", to: "{{riga}}", subject: "s", body: "b", attachRefs: [], approval: { mode: "auto" } }] }],
+      steps: [
+        {
+          id: "f",
+          kind: "forEach",
+          list: "email.testo",
+          as: "riga",
+          steps: [
+            {
+              id: "m",
+              kind: "sendEmail",
+              to: "{{riga}}",
+              subject: "s",
+              body: "b",
+              attachRefs: [],
+              approval: { mode: "auto" },
+            },
+          ],
+        },
+      ],
       titleTemplate: "t",
     };
     expect(taintedKeys(flow, []).has("riga")).toBe(true);
@@ -170,6 +211,43 @@ describe("review F3 (72): le richieste dal supporto e i «per ogni» su un elenc
   });
 });
 
+describe("la tinta con una sorgente webhook (F4, R2)", () => {
+  const source = {
+    id: "wh",
+    kind: "webhook",
+    fields: [
+      {
+        key: "ordine.righe",
+        label: "Righe",
+        type: "list",
+        of: [
+          { key: "nome", label: "Nome", type: "text" },
+          { key: "persona", label: "Persona", type: "person" },
+        ],
+      },
+    ],
+  } as unknown as AutomationSource;
+  const loop = (steps: Step[]) =>
+    ({ id: "fe", kind: "forEach", list: "ordine.righe", as: "r", steps }) as unknown as Step;
+  const fromWebhook = (steps: Step[]) =>
+    flow({ kind: "source", sourceId: "wh", event: "webhook" }, steps);
+
+  it("un passo di Claude che legge l'elemento di un elenco del payload ha i campi tinti", () => {
+    const f = fromWebhook([loop([claude("c1", ["r.nome"], ["claude.persona"])])]);
+    expect(taintedKeys(f, [source]).has("claude.persona")).toBe(true);
+  });
+
+  it("una destinazione presa dall'elemento grezzo resta permessa; una presa da Claude chiede l'approvazione", () => {
+    const f = fromWebhook([
+      loop([
+        notify("n-raw", "r.persona"),
+        claude("c1", ["r.nome"], ["claude.persona"]),
+        notify("n-claude", "claude.persona"),
+      ]),
+    ]);
+    expect(untrustedTargets(f, [source]).map((t) => t.stepId)).toEqual(["n-claude"]);
+  });
+});
 
 describe("review F4: la tinta lungo «avvia un'altra» (l'evento della figlia non fidato per intero)", () => {
   // La figlia parte a mano (o da Stubwise) ma riceve l'evento della madre, che veniva da fuori.

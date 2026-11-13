@@ -23,7 +23,7 @@ export const runById = (id: string): AutomationRun | undefined =>
 
 export function canSeeAutomation(me: string, a: Automation): boolean {
   if (a.projectId !== null) return visibleProjectIds(me).has(a.projectId);
-  return can(viewerFor(me), "automations.manage");
+  return can(viewerFor(me), "automations.general.manage");
 }
 
 export function canManageAutomation(me: string, a: Automation): boolean {
@@ -33,7 +33,7 @@ export function canManageAutomation(me: string, a: Automation): boolean {
       can(viewerFor(me), "automations.manage", a.projectId)
     );
   }
-  return can(viewerFor(me), "automations.manage");
+  return can(viewerFor(me), "automations.general.manage");
 }
 
 /** Il codice di un'esecuzione: «AUD-A1 #2». */
@@ -149,7 +149,7 @@ export function canSeeSources(me: string): boolean {
   const viewer = viewerFor(me);
   return (
     canManageIntegrations(me) ||
-    can(viewer, "automations.manage") ||
+    can(viewer, "automations.general.manage") ||
     state.projects.some(
       (p) => visibleProjectIds(me).has(p.id) && can(viewer, "automations.manage", p.id),
     )

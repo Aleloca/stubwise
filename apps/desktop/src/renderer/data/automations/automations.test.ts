@@ -13,6 +13,7 @@ import {
   updateTask,
 } from "../api";
 import { AUTOMATION_CASES } from "../seed/automations";
+import { resolveProject } from "./plans";
 import { automationsStartingOn, happenings } from "./sources";
 import { AUTOMATION_MAIL_IDS } from "../seed/automations/mail";
 import { MAIL_MESSAGES } from "../seed/mail";
@@ -192,7 +193,7 @@ describe("Automations: chi vede e chi gestisce", () => {
   it("sorgenti e tabella cliente → progetto: un progetto che non vedo resta senza id", async () => {
     as("p-sara");
     expect(await automations.listSources()).toEqual([]);
-    grantInstancePermission("p-sara", "automations.manage");
+    grantInstancePermission("p-sara", "automations.general.manage");
     const links = await automations.listClientLinks();
     const mix = links.find((l) => l.clientKey === "mixcucine.example")!;
     expect(mix).toMatchObject({ projectVisible: false, projectId: "" });
@@ -444,7 +445,7 @@ describe("Automations: proprietario e permessi (Review Focus 3)", () => {
   });
 
   it("cliente → progetto che il proprietario non vede: «scegli il progetto» per lui", async () => {
-    grantInstancePermission("p-sara", "automations.manage");
+    grantInstancePermission("p-sara", "automations.general.manage");
     as("p-roberta");
     await automations.pause(A.newContract);
     as("p-sara");
@@ -916,7 +917,7 @@ describe("Automations: inizi e catene", () => {
   it("R-J21: «Avvia un'altra automazione» vuole che il proprietario possa gestire quella da avviare, non solo vederla", async () => {
     as("p-laura");
     const target = await make(AUD, manual([task("t")]), "Bersaglio");
-    grantInstancePermission("p-laura", "automations.manage");
+    grantInstancePermission("p-laura", "automations.general.manage");
     const parent = await make(
       null,
       manual([{ id: "s", kind: "startAutomation", automationId: target, approval: AUTO }]),
@@ -1108,7 +1109,7 @@ describe("Automations: revisione del Task 3", () => {
   });
 
   it("R-J12: dentro un'esecuzione i progetti che non vedo non hanno né id né codice; filtrare per uno di essi è come per uno inesistente", async () => {
-    grantInstancePermission("p-laura", "automations.manage");
+    grantInstancePermission("p-laura", "automations.general.manage");
     as("p-laura");
     expect(visibleProjectIds("p-laura").has("prj-cbv")).toBe(false);
     const r = (await automations.getRun(R.done))!;
@@ -1143,7 +1144,7 @@ describe("Automations: revisione del Task 3", () => {
     );
     const r = await automations.startManual(id);
     await idle();
-    grantInstancePermission("p-laura", "automations.manage");
+    grantInstancePermission("p-laura", "automations.general.manage");
     as("p-laura");
     expect(visibleProjectIds("p-laura").has("prj-cbv")).toBe(false);
     const detail = (await automations.getAutomation(id))!;
@@ -1290,6 +1291,46 @@ describe("Automations: revisione del Task 3", () => {
     for (const text of leaks) expect(JSON.stringify(seen)).not.toContain(text);
     const listed = await automations.listRuns({ automationId: child });
     for (const text of leaks) expect(JSON.stringify(listed)).not.toContain(text);
+  });
+
+  it("la tinta lungo la catena (review F4, I4): la figlia di una madre da email chiede l'approvazione per una destinazione decisa da Claude", async () => {
+    as("p-laura");
+    const child = await make(
+      AUD,
+      {
+        trigger: { kind: "stubwise", event: "task_created" },
+        steps: [
+          {
+            id: "c",
+            kind: "claude",
+            instruction: "Chi la segue?",
+            inputs: ["task.titolo"],
+            outcomes: [],
+            fields: [{ key: "claude.chi", label: "Chi", type: "person" }],
+            branches: {},
+          } as unknown as Step,
+          { id: "n", kind: "notify", who: { personRef: "claude.chi" }, text: "Seguila", approval: AUTO } as Step,
+        ],
+        titleTemplate: "Figlia",
+      },
+      "Figlia",
+    );
+    await make(AUD, {
+      trigger: { kind: "stubwise", event: "mail_received" },
+      steps: [{ id: "s", kind: "startAutomation", automationId: child, approval: AUTO }],
+      titleTemplate: "Email: {{email.oggetto}}",
+    });
+    const mine = state.mailMessages.find(
+      (m) => m.mailboxPersonIds.includes("p-laura") && m.subject.length > 8,
+    )!;
+    signalAutomations({ kind: "mail_received", messageIds: [mine.id] });
+    await idle();
+    const kid = lastRunOf(child);
+    expect(kid.parentRunId).toBeTruthy();
+    // Il flusso salvato dice «auto», ma l'evento viene da fuori: come il worker, si chiede.
+    // (Qui chi approva poi non c'è, e il passo fallisce `no_approver`: conta che abbia chiesto.)
+    expect(kid.eventUntrusted).toBe(true);
+    expect(kid.log.find((e) => e.path === "1")).toMatchObject({ kind: "notify", outcome: "waiting" });
   });
 
   it("un errore inatteso nel runner: l'esecuzione fallisce `internal_error`, non resta in corso", async () => {
@@ -1641,3 +1682,30 @@ describe("Automations: urgenza, supporto e reparti (area 10b)", () => {
     expect(made.map((n) => n.recipientIds)).toEqual([["p-marco"]]);
   });
 });
+
+// F4 (C-F4-2 di 72): la chiave del cliente è `clientKeyOf` (trim + minuscole)
+// in scrittura, in ricerca e nei suggerimenti. Prima la scrittura metteva in
+// minuscolo, ma la ricerca confrontava esatto e i suggerimenti non
+// normalizzavano: un cliente «Rossi.IT» nella tabella non si trovava mai.
+describe("la chiave del cliente (F4)", () => {
+  it("scritta, cercata e suggerita con la stessa normalizzazione", async () => {
+    as("p-roberta");
+    await automations.setClientLink({ clientKey: "Rossi.IT ", clientName: "Rossi Srl", projectId: AUD });
+    expect(state.clientProjectLinks.find((l) => l.clientName === "Rossi Srl")?.clientKey).toBe("rossi.it");
+    const found = resolveProject(
+      { kind: "resolve_project", stepId: "m", path: "0", clientKey: "  ROSSI.it" } as never,
+      "p-roberta",
+    );
+    expect(found.input).toMatchObject({ kind: "project_chosen", projectId: AUD });
+    // Un evento col dominio scritto diverso non torna fra i suggerimenti.
+    state.automationSources[0]!.sampleEvents.push({ cliente: { nome: "Rossi Srl", dominio: "ROSSI.IT" } });
+    const suggestions = await automations.listClientSuggestions();
+    expect(suggestions.some((x) => x.clientKey.toLowerCase() === "rossi.it")).toBe(false);
+    // E un suggerimento nuovo arriva già normalizzato.
+    state.automationSources[0]!.sampleEvents.push({ cliente: { nome: "Verdi", dominio: " Verdi.COM" } });
+    expect((await automations.listClientSuggestions()).find((x) => x.clientName === "Verdi")?.clientKey).toBe(
+      "verdi.com",
+    );
+  });
+});
+

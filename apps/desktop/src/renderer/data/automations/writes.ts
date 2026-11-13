@@ -57,7 +57,7 @@ export function checkNewAutomation(me: string, projectId: string | null): Projec
   if (projectId !== null && (!project || !visibleProjectIds(me).has(project.id))) throw notFound();
   const allowed = project
     ? can(viewerFor(me), "automations.manage", project.id)
-    : can(viewerFor(me), "automations.manage");
+    : can(viewerFor(me), "automations.general.manage");
   if (!allowed) throw forbidden();
   return project ?? null;
 }
@@ -241,6 +241,18 @@ export async function renameAutomation(id: string, meta: AutomationMeta): Promis
   wrote(a.id, me);
   return copy(a);
 }
+
+/**
+ * Il tetto del webhook in arrivo (F4-2 = c): solo del server, che lo applica
+ * all'indirizzo pubblico. Il prototipo non ha un tetto (la riga non compare:
+ * non c'è `webhookLimits`).
+ */
+export const setWebhookLimits: (
+  id: string,
+  limits: { perMinute: number | null; perDay: number | null },
+) => Promise<Automation> = async () => {
+  throw invalid("not_available");
+};
 
 /** Pubblica la bozza (e accende una mai accesa): chi pubblica diventa il proprietario. */
 /** Il permesso che serve per creare quello che un passo crea. */

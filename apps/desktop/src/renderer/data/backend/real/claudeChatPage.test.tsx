@@ -60,6 +60,8 @@ const ALLOWED = [
   /^GET \/api\/me\/claude-decisions$/,
   // Area 7, F1: le approvazioni delle automazioni in «Da decidere».
   /^GET \/api\/me\/automation-(approvals|runs)$/,
+  // Area 7, F4 accesa: i nomi delle sorgenti (`useNames`), che ogni utente legge.
+  /^GET \/api\/automation-sources$/,
   /^GET \/api\/inbox/,
   // Area 6, fetta 2: le proposte della Posta in «Da decidere» (prima dalle card dell'inbox).
   /^GET \/api\/me\/mail\/proposals(\?|$)/,

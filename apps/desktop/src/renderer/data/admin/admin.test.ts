@@ -480,9 +480,9 @@ describe("RF 1: si dà solo ciò che si ha", () => {
           ...marketing().projectPermissions,
           "plans.approve",
         ]),
-      "automations.manage nel ruolo d'istanza User (Laura ce l'ha solo di progetto)": () =>
+      "automations.general.manage nel ruolo d'istanza User (Laura ha solo automations.manage di progetto)": () =>
         admin.updateRole(roleIdOf("user"), {
-          permissions: [...user().permissions, "automations.manage"],
+          permissions: [...user().permissions, "automations.general.manage"],
         }),
       "Alessia in STW, con servers.operate dal reparto": () =>
         admin.addMember(STW, "p-alessia", roleIdOf("viewer")),
@@ -490,8 +490,8 @@ describe("RF 1: si dà solo ciò che si ha", () => {
     const missingOf: Record<keyof typeof scenarios, string> = {
       "release.merge nel preset Developer (Federico ce l'avrebbe su CBV)": "release.merge",
       "plans.approve nel reparto Marketing (Giulia ce l'avrebbe su CBV)": "plans.approve",
-      "automations.manage nel ruolo d'istanza User (Laura ce l'ha solo di progetto)":
-        "automations.manage",
+      "automations.general.manage nel ruolo d'istanza User (Laura ha solo automations.manage di progetto)":
+        "automations.general.manage",
       "Alessia in STW, con servers.operate dal reparto": "servers.operate",
     };
 
@@ -509,7 +509,7 @@ describe("RF 1: si dà solo ciò che si ha", () => {
       expect(state.projectsById.get(CBV)!.memberIds).not.toContain("p-laura");
       expect(can(viewerFor("p-laura"), "release.merge", ACQ)).toBe(true);
       expect(can(viewerFor("p-laura"), "automations.manage", ACQ)).toBe(true);
-      expect(can(viewerFor("p-laura"), "automations.manage")).toBe(false);
+      expect(can(viewerFor("p-laura"), "automations.general.manage")).toBe(false);
       expect(can(viewerFor("p-laura"), "servers.operate", STW)).toBe(false);
       expect(can(viewerFor("p-laura"), "project.members.manage", STW)).toBe(true);
     });

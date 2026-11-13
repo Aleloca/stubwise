@@ -1,4 +1,5 @@
 import { checkEdited } from "../../domain/automations/runRules";
+import { clientKeyOf } from "@stubwise/shared";
 export { checkEdited };
 import type { EngineState } from "@stubwise/shared";
 import { now, state, visibleProjectIds } from "../store";
@@ -113,9 +114,8 @@ export async function chooseProject(
   if (opts.remember) {
     if (!canManageIntegrations(me)) throw forbidden();
     const preview = run.pending?.preview ?? {};
-    const clientKey = String(preview.clientKey ?? "")
-      .trim()
-      .toLowerCase();
+    // La stessa chiave della tabella e del server (`clientKeyOf` di shared).
+    const clientKey = clientKeyOf(String(preview.clientKey ?? ""));
     const clientName = String(preview.clientName ?? "").trim();
     if (!clientKey || !clientName) throw invalid("client");
     putClientLink(me, { clientKey, clientName, projectId });

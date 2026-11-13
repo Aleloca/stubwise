@@ -42,12 +42,15 @@ export interface AutomationsApi extends DecisionApi {
   /** Gli errori di configurazione di un flusso non ancora salvato (non scrive). */
   check(code: string, flow: AutomationFlow): Promise<{ issues: FlowIssue[] }>;
   /** Solo di progetto nella fetta 1: le generali sono della F4. */
-  create(body: { name: string; projectId: string }): Promise<Automation>;
+  create(body: { name: string; projectId: string | null }): Promise<Automation>;
   saveDraft(
     code: string,
     body: { flow: AutomationFlow; expectedRev: number | null } & AutomationMeta,
   ): Promise<Automation>;
-  patch(code: string, body: AutomationMeta): Promise<Automation>;
+  patch(
+    code: string,
+    body: AutomationMeta & { webhookPerMinute?: number | null; webhookPerDay?: number | null },
+  ): Promise<Automation>;
   publish(
     code: string,
     body: { expectedRev: number | null; mailboxAccountId?: string },
@@ -72,7 +75,7 @@ export interface AutomationsApi extends DecisionApi {
   chooseProject(
     code: string,
     n: number,
-    body: { projectId: string; expectedPath: string; expectedRound: number },
+    body: { projectId: string; expectedPath: string; expectedRound: number; remember?: boolean },
   ): Promise<void>;
   projectAutomations(projectId: string): Promise<ProjectAutomationsView>;
   origin(q: { task: string } | { milestone: string }): Promise<AutomationOrigin>;
@@ -163,11 +166,10 @@ export function createRealAutomations(
       template?: string;
       language?: string;
     }): Promise<Automation> {
-      // P2 = a: nella fetta 1 solo da zero.
-      // Le automazioni generali sono della F4.
-      if (input.template || input.projectId === null) throw new Error("invalid: not_available");
-      const projectId = input.projectId;
-      return written(() => api.create({ name: input.name, projectId }));
+      // P2 = a e F4-4 = a: solo da zero (i modelli tornano col connettore di Audin).
+      if (input.template) throw new Error("invalid: not_available");
+      // `projectId: null` è una generale (F4): il permesso lo controlla il server (403).
+      return written(() => api.create({ name: input.name, projectId: input.projectId }));
     },
 
     async saveDraft(
@@ -182,6 +184,11 @@ export function createRealAutomations(
 
     renameAutomation: (id: string, meta: AutomationMeta) =>
       written(() => api.patch(code(id), meta)),
+    /** Il tetto del webhook (F4-2 = c): null = il default; oltre il massimo d'istanza si salva, ma vale il massimo. */
+    setWebhookLimits: (id: string, limits: { perMinute: number | null; perDay: number | null }) =>
+      written(() =>
+        api.patch(code(id), { webhookPerMinute: limits.perMinute, webhookPerDay: limits.perDay }),
+      ),
     publish: async (id: string, opts: { mailbox?: string } = {}) => {
       const mailboxAccountId = await accountOf(opts.mailbox);
       return turnedOn(
@@ -237,10 +244,15 @@ export function createRealAutomations(
       projectId: string,
       opts: { remember?: boolean; expectedPath: string },
     ): Promise<void> {
-      // `remember` (la tabella cliente → progetto) è della F4.
+      // «Remember for <client>» (F4): scrive la tabella; senza `integrations.manage` 403.
       const expectedRound = refs.roundFor(runId, opts.expectedPath);
       await onRun(runId, (c, n) =>
-        api.chooseProject(c, n, { projectId, expectedPath: opts.expectedPath, expectedRound }),
+        api.chooseProject(c, n, {
+          projectId,
+          expectedPath: opts.expectedPath,
+          expectedRound,
+          ...(opts.remember ? { remember: true } : {}),
+        }),
       );
     },
 

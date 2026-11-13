@@ -63,6 +63,8 @@ const ON_ERRORS: Record<string, string> = {
   // Un flusso che ascolta soltanto: la casella non dà nemmeno la lettura (72, F2-fix).
   "invalid: mailbox_read_scope": "automations.toast.onMailboxReadScope",
   "invalid: config": "automations.toast.onConfig",
+  // F4-1 = a: un webhook per automazione; quale altra la usa non si dice (R-G5).
+  "invalid: source_in_use": "automations.toast.onSourceInUse",
 };
 
 export function TurnOnDialog({

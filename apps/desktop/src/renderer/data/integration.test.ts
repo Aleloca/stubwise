@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_SECTIONS, APP_ROUTES, PROJECT_SECTIONS, PROJECT_SETTINGS_SECTIONS } from "./routes";
-import { AUTOMATION_F3_AVAILABILITY } from "@stubwise/shared";
+import { AUTOMATION_F4_AVAILABILITY } from "@stubwise/shared";
 import {
   CHAT_LATER_FEATURES,
   automationAvailability,
+  generalsAvailable,
   integrationTargetOf,
   isIntegrated,
   landingSearch,
@@ -63,6 +64,7 @@ const ALL: IntegrationTarget[] = [
       "automations",
       "automations-f2",
       "automations-f3",
+      "automations-f4",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -86,6 +88,8 @@ describe("isIntegrated", () => {
         "feature:automations-f2",
         // Area 7, fetta 3: i passi di Claude.
         "feature:automations-f3",
+        // Area 7, fetta 4: generali, sorgenti webhook, «avvia un'altra».
+        "feature:automations-f4",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",
@@ -187,11 +191,19 @@ describe("isIntegrated", () => {
     expect(landingSearch()).toEqual({});
   });
 
-  it("le Automations della build app hanno il perimetro della F3 (`automations-f3` accesa)", () => {
+  it("le Automations della build app hanno il perimetro della F4 (`automations-f4` accesa)", () => {
     expect(automationAvailability()).toBeUndefined();
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     expect(isIntegrated({ kind: "feature", name: "automations-f2" })).toBe(true);
     expect(isIntegrated({ kind: "feature", name: "automations-f3" })).toBe(true);
-    expect(automationAvailability()).toBe(AUTOMATION_F3_AVAILABILITY);
+    expect(isIntegrated({ kind: "feature", name: "automations-f4" })).toBe(true);
+    expect(automationAvailability()).toBe(AUTOMATION_F4_AVAILABILITY);
+  });
+
+  it("le generali e le sorgenti: nel prototipo e nella build app (`automations-f4` accesa)", () => {
+    expect(generalsAvailable()).toBe(true);
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    expect(generalsAvailable()).toBe(true);
   });
 });
+

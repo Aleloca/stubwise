@@ -27,7 +27,7 @@ const HUMANS = PEOPLE.filter((p) => !p.isClaude).map((p) => p.id);
 /**
  * Nel seme Sara vede tutti (è in 26 progetti): per avere qualcuno che non
  * vede, Matteo esce da ogni progetto di Sara e resta in uno che lei non vede.
- * Matteo ha `automations.manage` d'istanza: un'azione d'istanza lo
+ * Matteo ha `automations.general.manage`: un'azione d'istanza lo
  * troverebbe, se la visibilità non lo togliesse.
  */
 function hideMatteoFromSara(): string {
@@ -249,7 +249,7 @@ describe("whatCan", () => {
 
   it("nell'istanza (null): i permessi d'istanza", () => {
     const perms = flat(whatCan("p-roberta", "p-matteo", null));
-    expect(perms).toContain("automations.manage");
+    expect(perms).toContain("automations.general.manage");
     expect(perms).not.toContain("roles.manage");
   });
 

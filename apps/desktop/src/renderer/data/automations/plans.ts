@@ -1,5 +1,5 @@
 import { CHAIN_MAX } from "@stubwise/shared";
-import { PROJECT_NOT_FOUND, type EffectRequest } from "@stubwise/shared";
+import { clientKeyOf, PROJECT_NOT_FOUND, type EffectRequest } from "@stubwise/shared";
 import { planEmail as sharedPlanEmail, type EmailWorld, type OwnerMailbox } from "@stubwise/shared";
 import { show } from "@stubwise/shared";
 import * as core from "../../domain/automations/planCore";
@@ -244,7 +244,9 @@ export function resolveProject(
   eff: Extract<EffectRequest, { kind: "resolve_project" }>,
   owner: string,
 ): EffectOutcome {
-  const link = state.clientProjectLinks.find((l) => l.clientKey === eff.clientKey);
+  // La chiave normalizzata (`clientKeyOf` di shared): come la scrive la tabella.
+  const key = clientKeyOf(eff.clientKey);
+  const link = state.clientProjectLinks.find((l) => l.clientKey === key);
   // Un progetto che il proprietario non vede vale come uno che non c'è (R-G5).
   if (
     !link ||

@@ -645,6 +645,19 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   filtro dell'inizio che escluda `richiesta.dal_supporto`. Le sorgenti
   esterne (F4) entreranno nella stessa regola (`taintedKeys(flow, sources)`:
   oggi il server passa `[]` perché le sorgenti non esistono ancora).
+- F4, il tetto del webhook nel prototipo *(S, 94, 13 nov 2026)*: il tetto
+  per automazione (F4-2 = c) è solo del server, che lo applica a
+  `/hooks/in`. Il prototipo non ne ha uno: la riga di «About» compare solo
+  quando il server manda `webhookLimits`, e `setWebhookLimits` del prototipo
+  risponde `not_available`. Da portare nel prototipo solo se servisse a una
+  shape.
+- F4, la prova e le esecuzioni aperte dell'automazione da avviare *(S, 94 e
+  72, 13 nov 2026)*: «avvia un'altra» nella prova segue `planStartAutomation`
+  (vista, gestibile, accesa, niente cicli, catena = questa) ma non conta le
+  esecuzioni aperte dell'altra (`MAX_ACTIVE_RUNS` del consumatore): è un
+  freno di sicurezza dell'esecuzione vera, non una regola che la prova debba
+  mostrare, e il contesto non le porta. Un `openRuns` in
+  `SimulationStartTarget` costerebbe una query per prova (72).
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 

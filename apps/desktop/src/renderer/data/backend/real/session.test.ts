@@ -5,6 +5,7 @@ import { installFakeServer, me, ME_ID, PROJECT_ID } from "./fakeServer";
 import { presentInboxItem } from "./notifications";
 import { listPeople } from "./people";
 import { getSessionPerson, getViewer, auth } from "./session";
+import { peekRevealedAddress, revealAddress } from "../../revealedAddress";
 
 const DEPT = "66666666-6666-4666-8666-666666666666";
 
@@ -34,6 +35,19 @@ describe("sessione e permessi dal server", () => {
     installFakeServer({ "GET /api/auth/me": { status: 401, body: { code: "unauthenticated" } } });
     expect(await getSessionPerson()).toBeNull();
     expect(auth.readEntry()).toEqual({ stage: "out", empty: false });
+  });
+
+  it("cambiando persona il segreto di un webhook appena visto si dimentica (review F4, I2)", async () => {
+    installFakeServer({ "GET /api/auth/me": { body: me() } });
+    await getSessionPerson();
+    revealAddress("src-1", "https://x.test/hooks/in/SEGRETO");
+    installFakeServer({
+      "GET /api/auth/me": {
+        body: me({ user: { ...me().user, id: "99999999-9999-4999-8999-000000000001" } }),
+      },
+    });
+    await getSessionPerson();
+    expect(peekRevealedAddress("src-1")).toBeUndefined();
   });
 
   it("dentro, il cancello dice «in»", async () => {

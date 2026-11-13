@@ -314,8 +314,11 @@ export function createSimulator(w: SimWorld) {
     sim.pending = r.effects[0] ?? (stillAwaited ? sim.pending : null);
     if (sim.pending?.kind === "resolve_project") {
       const eff = sim.pending;
+      // Prima la risposta, poi via dal sospeso: un aggancio che aspetta il
+      // server (la build app, F4) lascia l'effetto dov'era, e «next» lo riprende.
+      const input = outsideOf("resolveProject", "resolve_project")(eff, sim.ownerId).input;
       sim.pending = null;
-      return apply(sim, a, advance(sim.engine, outsideOf("resolveProject", "resolve_project")(eff, sim.ownerId).input));
+      return apply(sim, a, advance(sim.engine, input));
     }
     failIfNoApprover(sim, a);
   }
@@ -426,6 +429,8 @@ export function createSimulator(w: SimWorld) {
     v: AutomationVersion,
     event: Record<string, unknown>,
     ownerId: string,
+    /** La prova esiste già prima del primo passo: un aggancio che aspetta il server la ritrova. */
+    hold?: (sim: Sim) => void,
   ): Sim {
     if (event === null || typeof event !== "object" || Array.isArray(event)) throw invalid("event");
     const issues = w.configErrors(found, v.flow, ownerId);
@@ -459,6 +464,7 @@ export function createSimulator(w: SimWorld) {
     // D3 (area 10b): il filtro dell'inizio vale anche nella prova. Un esempio che
     // non lo soddisfa non farebbe partire la vera: la prova finisce qui, senza
     // anteprime e senza contare come provata.
+    hold?.(sim);
     const t = flow.trigger;
     if (!passesStartFilter(t, event)) {
       sim.engine = { ...sim.engine, status: "done" };

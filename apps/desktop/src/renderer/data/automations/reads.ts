@@ -388,6 +388,8 @@ export async function getRun(id: string): Promise<AutomationRunDetail | null> {
       manage: canManageRun(me, run),
       approve: run.status === "waiting_approval" && deciders.includes(me),
       chooseProject: run.status === "waiting_project" && deciders.includes(me),
+      // «Remember for <client>» scrive la tabella: chi gestisce le integrazioni (come il server).
+      rememberClient: canManageIntegrations(me),
     },
     parent: parent && canSeeRun(me, parent) ? { id: parent.id, code: runCode(parent) } : null,
     children: state.automationRuns
@@ -430,6 +432,7 @@ export async function listMyApprovals(): Promise<AutomationDecision[]> {
         automationVisible: canSeeAutomation(me, a),
         clientName:
           typeof client === "string" ? client : typeof cliente === "string" ? cliente : "",
+        rememberClient: canManageIntegrations(me),
         effect: pendingEffectOf(me, source, run),
       };
     });

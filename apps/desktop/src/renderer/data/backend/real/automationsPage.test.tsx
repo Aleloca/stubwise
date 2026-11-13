@@ -144,11 +144,14 @@ describe("le Automations nella build app", () => {
     );
   });
 
-  it("il costruttore si apre senza chiedere le sorgenti (fuori dalla F1)", async () => {
+  it("il costruttore legge le sorgenti (F4 accesa), e soltanto le legge", async () => {
     install();
     renderRoute("/automations/AUD-A1/edit");
     expect(await screen.findByRole("tree", {}, { timeout: 3000 })).toBeInTheDocument();
-    expect(seen.some((r) => r.path.includes("source"))).toBe(false);
+    await waitFor(() =>
+      expect(seen.some((r) => r.method === "GET" && r.path === "/api/automation-sources")).toBe(true),
+    );
+    expect(seen.some((r) => r.method !== "GET" && r.path.includes("source"))).toBe(false);
   });
 
   it("un'esecuzione vecchia (fuori dalla prima pagina) si apre per codice e numero", async () => {

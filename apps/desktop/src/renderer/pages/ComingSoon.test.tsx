@@ -365,7 +365,6 @@ const INTEGRATED_CALLS = new Set([
   "mail.tasksOfNote",
   "calendar.getMeetingPrep",
   // Area 7, F1: le Automations sul client vero (`data/backend/real/automationsLive.ts`).
-  // Sources, tabella cliente → progetto e automazioni generali restano fuori (F4).
   "automations.activate",
   "automations.approve",
   "automations.automationOrigin",
@@ -401,6 +400,21 @@ const INTEGRATED_CALLS = new Set([
   "automations.startManual",
   "automations.startSimulation",
   "automations.whenAutomationsIdle",
+  // Area 7, F4 (accesa): sorgenti webhook, tabella cliente → progetto, tetto del
+  // webhook (`data/backend/real/automationSources.ts`, `automations.ts`).
+  "automations.listSources",
+  "automations.listSourceEvents",
+  "automations.createWebhookSource",
+  "automations.renameSource",
+  "automations.regenerateWebhookAddress",
+  "automations.previewWebhookExample",
+  "automations.setWebhookExample",
+  "automations.updateWebhookField",
+  "automations.listClientLinks",
+  "automations.listClientSuggestions",
+  "automations.setClientLink",
+  "automations.removeClientLink",
+  "automations.setWebhookLimits",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -437,9 +451,8 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  // Area 7, F3: i passi di Claude accesi (`automations-f3`); «avvia un'altra»
-  // e le sorgenti restano della F4.
-  it("il costruttore offre il passo di Claude; «avvia un'altra» resta «Coming soon»", async () => {
+  // Area 7, F3 e F4 accese: il passo di Claude e «avvia un'altra» si scelgono.
+  it("il costruttore offre il passo di Claude e «avvia un'altra»", async () => {
     signedInAs("p-laura");
     renderRoute("/automations/STW-A1/edit");
     const tree = await screen.findByRole("tree");
@@ -450,11 +463,21 @@ describe("aree non integrate nella build app", () => {
     expect(within(menu).getByRole("option", { name: /Claude reads and decides/ })).not.toHaveAttribute(
       "aria-disabled",
     );
-    expect(within(menu).getByRole("option", { name: /Start another automation/ })).toHaveAttribute(
-      "aria-disabled",
-      "true",
-    );
+    expect(
+      within(menu).getByRole("option", { name: /Start another automation/ }),
+    ).not.toHaveAttribute("aria-disabled");
     await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 7, F4: Sources e la tabella cliente → progetto leggono solo dal client vero.
+  it("aprire Sources legge solo chiamate integrate", async () => {
+    signedInAs("p-roberta");
+    renderRoute("/automations/sources");
+    await waitFor(() => expect(calls).toContain("automations.listSources"));
+    await waitFor(() => expect(calls).toContain("automations.listClientLinks"));
+    await settle();
+    expect(screen.queryByText("Coming soon")).toBeNull();
     expect(outside()).toEqual([]);
   });
 

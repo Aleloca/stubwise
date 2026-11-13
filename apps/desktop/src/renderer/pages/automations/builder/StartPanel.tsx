@@ -68,8 +68,12 @@ export function StartPanel({ dataRef }: { dataRef: React.RefObject<HTMLElement |
     extra?: string,
   ) => {
     const on = same(tr, trigger) && !(tr.kind === "source" && tr.sourceId === "");
-    // Nella build app gli inizi delle fette dopo: «Coming soon», non si scelgono (area 7, F1).
-    const soon = !!available && !available.triggers.includes(triggerKey(trigger));
+    // Nella build app gli inizi delle fette dopo: «Coming soon», non si scelgono (area 7, F1);
+    // delle sorgenti solo il webhook in arrivo (F4, Q2: Audin e HubSpot dopo).
+    const notWebhook =
+      trigger.kind === "source" && b.sources.find((x) => x.id === trigger.sourceId)?.kind !== "webhook";
+    const soon =
+      !!available && (!available.triggers.includes(triggerKey(trigger)) || notWebhook);
     return (
       <button
         key={key}

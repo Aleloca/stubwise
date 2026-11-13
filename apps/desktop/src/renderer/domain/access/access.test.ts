@@ -88,9 +88,9 @@ describe("checkEscalation", () => {
   });
 
   it("al livello d'istanza: un admin non full non dà instance.full_admin", () => {
-    // Matteo ha automations.manage d'istanza da una concessione, non roles.manage.
+    // Matteo ha automations.general.manage da una concessione, non roles.manage.
     const matteo = effectivePermissions("p-matteo");
-    expect(checkEscalation(matteo, ["automations.manage"])).toEqual({ ok: true });
+    expect(checkEscalation(matteo, ["automations.general.manage"])).toEqual({ ok: true });
     expect(checkEscalation(matteo, ["instance.full_admin"])).toEqual({
       ok: false,
       error: "escalation",
@@ -319,7 +319,7 @@ describe("ACTIONS e gruppi", () => {
       "runs.start",
     ])
       expect(perms("project")).toContain(p);
-    for (const p of ["servers.ssh.manage", "automations.manage"])
+    for (const p of ["servers.ssh.manage", "automations.general.manage"])
       expect(perms("instance")).toContain(p);
   });
 
@@ -346,7 +346,7 @@ describe("ACTIONS e gruppi", () => {
       [...instanceLocals].sort(),
     );
     expect(projectLocals.filter((p) => (PROJECT_PERMISSIONS as readonly string[]).includes(p))).toEqual([]);
-    // `automations.manage` esiste a due livelli (BOTH_LEVELS), ma nessuno dei due è ancora condiviso.
+    // Le generali hanno la loro chiave condivisa (`automations.general.manage`, F4).
     expect(instanceLocals.filter((p) => (INSTANCE_PERMISSIONS as readonly string[]).includes(p))).toEqual([]);
   });
 

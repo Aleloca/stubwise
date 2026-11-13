@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { defaultViewerContext, PrototypeViewerProvider } from "@backend/viewer";
-import { BOTH_LEVELS, INSTANCE_SET } from "./access/catalog";
+import { INSTANCE_SET } from "./access/catalog";
 import { isAppBuild } from "./build";
 import { CLAUDE_ID } from "./ids";
 import { NO_SESSION_PERSON_ID } from "./session";
@@ -123,15 +123,13 @@ const isFullAdmin = (viewer: Viewer) => viewer.instancePermissions.includes("ins
 
 /**
  * Stessa semantica di `hasPermission` in `apps/web/src/lib/permissions.ts`.
- * Per un permesso a due livelli (`BOTH_LEVELS`) il progetto sceglie quale:
- * con `projectId` quello di progetto, senza quello d'istanza.
  */
 export function can(viewer: Viewer, perm: Permission, projectId?: string): boolean {
   // R-L9: Claude PRIMA di tutto, e senza leggere il suo `Viewer`: nessuna
   // concessione, ruolo di progetto o full admin gli dà ciò che è vietato.
   if (viewer.personId === CLAUDE_ID) return claudeCan(perm);
   if (isFullAdmin(viewer)) return true;
-  if (INSTANCE_SET.has(perm) && !(BOTH_LEVELS.has(perm) && projectId !== undefined))
+  if (INSTANCE_SET.has(perm))
     return viewer.instancePermissions.includes(
       perm as InstancePermission | LocalInstancePermission,
     );

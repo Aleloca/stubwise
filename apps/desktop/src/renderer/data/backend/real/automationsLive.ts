@@ -7,6 +7,7 @@ import { SimulationConfigError } from "../../../domain/automations/simCore";
 import { ClaudeAnswerUnreadable, createRealSimulation } from "./automationSimulate";
 import { appClient, session } from "./client";
 import { citableSearch } from "./globalSearch";
+import { createRealSources, type SourcesApi } from "./automationSources";
 import { myAccounts } from "./google";
 import { now } from "./runtime";
 
@@ -35,6 +36,14 @@ const simulation = createRealSimulation({
   examples: (automationId, version) =>
     inPrototypeWords(() =>
       appClient().automations.examples(refs.automation(automationId).code, version),
+    ),
+  // F4 (R5 = a): la risoluzione del cliente dell'esempio, per chiave (mai la tabella).
+  clientProject: (automationId, version, client) =>
+    inPrototypeWords(() =>
+      appClient().automations.testClientProject(refs.automation(automationId).code, {
+        version,
+        client,
+      }),
     ),
   async markTested(automationId, body) {
     try {
@@ -109,6 +118,26 @@ async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {
 }
 
 const real = createRealAutomations(liveApi, refs, undefined, () => myAccounts());
+
+// Il client copre le interfacce delle sorgenti e della tabella: se una firma diverge, qui non compila.
+const fromSourcesClient: (c: StubwiseClient["automationSources"]) => SourcesApi["sources"] = (c) => c;
+const fromLinksClient: (c: StubwiseClient["clientLinks"]) => SourcesApi["clientLinks"] = (c) => c;
+
+/** Le sorgenti e la tabella cliente → progetto (F4), sul client preso a ogni chiamata. */
+const sources = createRealSources({
+  sources: new Proxy({} as SourcesApi["sources"], {
+    get: (_t, key: string) => {
+      const c = fromSourcesClient(appClient().automationSources) as unknown as Record<string, unknown>;
+      return (c[key] as (...a: unknown[]) => unknown).bind(c);
+    },
+  }),
+  clientLinks: new Proxy({} as SourcesApi["clientLinks"], {
+    get: (_t, key: string) => {
+      const c = fromLinksClient(appClient().clientLinks) as unknown as Record<string, unknown>;
+      return (c[key] as (...a: unknown[]) => unknown).bind(c);
+    },
+  }),
+});
 const { saveDraft: saveDraftOnly, ...realFunctions } = real;
 
 /** Salvare la bozza cambia il flusso: la prova dopo rilegge il contesto. */
@@ -130,6 +159,7 @@ export const liveAutomations = {
   },
   SimulationConfigError,
   ...realFunctions,
+  ...sources,
   saveDraft,
   ...simulationFunctions,
 };

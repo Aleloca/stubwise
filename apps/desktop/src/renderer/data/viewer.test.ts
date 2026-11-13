@@ -42,9 +42,9 @@ describe("viewer", () => {
     ]);
   });
 
-  it("Matteo, proprietario di AUT-1: Project Lead dove è membro, `automations.manage` d'istanza", () => {
+  it("Matteo, proprietario di AUT-1: Project Lead dove è membro, `automations.general.manage` (le generali)", () => {
     const matteo = VIEW_AS_PERSONAS.find((p) => p.personId === "p-matteo")!.viewer;
-    expect(matteo.instancePermissions).toContain("automations.manage");
+    expect(matteo.instancePermissions).toContain("automations.general.manage");
     expect(matteo.instancePermissions).not.toContain("instance.full_admin");
     for (const project of PROJECTS) {
       expect(can(matteo, "plans.approve", project.id), project.code).toBe(
@@ -308,18 +308,18 @@ describe("permessi delle Automations (area 7)", () => {
     expect(can(byPerson("p-laura"), "automations.manage", MKX)).toBe(false);
   });
 
-  it("automations.manage d'istanza (le generali): del preset admin, più la concessione personale del seme a Matteo (R-J10)", () => {
-    expect(can(byPerson("p-roberta"), "automations.manage")).toBe(true);
-    expect(byPerson("p-roberta").instancePermissions).toContain("automations.manage");
+  it("automations.general.manage (le generali): del preset admin, più la concessione personale del seme a Matteo (R-J10)", () => {
+    expect(can(byPerson("p-roberta"), "automations.general.manage")).toBe(true);
+    expect(byPerson("p-roberta").instancePermissions).toContain("automations.general.manage");
     for (const id of ["p-giulia", "p-marco", "p-laura", "p-sara"]) {
-      expect(can(byPerson(id), "automations.manage")).toBe(false);
+      expect(can(byPerson(id), "automations.general.manage")).toBe(false);
     }
     // Una concessione personale, non del preset: si toglie e il reset la ridà.
-    expect(can(viewerFor("p-matteo"), "automations.manage")).toBe(true);
-    revokeInstancePermission("p-matteo", "automations.manage");
-    expect(can(viewerFor("p-matteo"), "automations.manage")).toBe(false);
+    expect(can(viewerFor("p-matteo"), "automations.general.manage")).toBe(true);
+    revokeInstancePermission("p-matteo", "automations.general.manage");
+    expect(can(viewerFor("p-matteo"), "automations.general.manage")).toBe(false);
     resetViewerGrants();
-    expect(can(viewerFor("p-matteo"), "automations.manage")).toBe(true);
+    expect(can(viewerFor("p-matteo"), "automations.general.manage")).toBe(true);
   });
 
   it("integrations.manage (sorgenti e tabella cliente → progetto): solo all'admin", () => {
@@ -333,17 +333,17 @@ describe("permessi delle Automations (area 7)", () => {
     grantProjectPermission("p-marco", AUD, "automations.manage");
     expect(can(byPerson("p-marco"), "automations.manage", AUD)).toBe(true);
     // Il permesso di progetto non dà quello d'istanza…
-    expect(can(byPerson("p-marco"), "automations.manage")).toBe(false);
+    expect(can(byPerson("p-marco"), "automations.general.manage")).toBe(false);
     revokeProjectPermission("p-laura", AUD, "automations.manage");
     expect(can(byPerson("p-laura"), "automations.manage", AUD)).toBe(false);
-    grantInstancePermission("p-laura", "automations.manage");
-    expect(can(byPerson("p-laura"), "automations.manage")).toBe(true);
+    grantInstancePermission("p-laura", "automations.general.manage");
+    expect(can(byPerson("p-laura"), "automations.general.manage")).toBe(true);
     // …e quello d'istanza non dà quello di progetto.
     expect(can(byPerson("p-laura"), "automations.manage", AUD)).toBe(false);
     resetViewerGrants();
     expect(can(byPerson("p-marco"), "automations.manage", AUD)).toBe(false);
     expect(can(byPerson("p-laura"), "automations.manage", AUD)).toBe(true);
-    expect(can(byPerson("p-laura"), "automations.manage")).toBe(false);
+    expect(can(byPerson("p-laura"), "automations.general.manage")).toBe(false);
   });
 });
 
@@ -467,11 +467,11 @@ describe("R-L9: Claude, membro implicito di ogni progetto coi soli permessi di l
   });
 
   it("I3: nessuna strada ridà il vietato — concessione d'istanza, ruolo, riga del seme, full admin", () => {
-    // Concessioni d'istanza (anche `automations.manage`, che vale a due livelli).
+    // Concessioni d'istanza (anche quella delle generali).
     grantInstancePermission("p-claude", "servers.ssh.manage");
-    grantInstancePermission("p-claude", "automations.manage");
+    grantInstancePermission("p-claude", "automations.general.manage");
     expect(can(claude(), "servers.ssh.manage")).toBe(false);
-    expect(can(claude(), "automations.manage")).toBe(false);
+    expect(can(claude(), "automations.general.manage")).toBe(false);
     expect(can(claude(), "automations.manage", ACQ)).toBe(false);
     // Un ruolo di progetto che dà tutto.
     grantProjectRole("p-claude", ACQ, "project_lead");

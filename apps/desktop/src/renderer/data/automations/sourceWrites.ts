@@ -1,3 +1,4 @@
+import { clientKeyOf } from "@stubwise/shared";
 import { now, state, visibleProjectIds } from "../store";
 import type { AutomationRun, ClientProjectLink, DataField } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
@@ -134,7 +135,7 @@ export async function disconnectSource(id: string): Promise<void> {
 export async function setClientLink(link: ClientProjectLink): Promise<void> {
   const me = await writer("automations.setClientLink");
   if (!canManageIntegrations(me)) throw forbidden();
-  const clientKey = link.clientKey.trim().toLowerCase();
+  const clientKey = clientKeyOf(link.clientKey);
   if (!clientKey || !link.clientName.trim()) throw invalid("client");
   if (!state.projectsById.has(link.projectId) || !visibleProjectIds(me).has(link.projectId))
     throw notFound();
@@ -154,6 +155,7 @@ export async function removeClientLink(clientKey: string): Promise<void> {
   const me = await writer("automations.removeClientLink");
   if (!canManageIntegrations(me)) throw forbidden();
   const before = state.clientProjectLinks.length;
-  state.clientProjectLinks = state.clientProjectLinks.filter((l) => l.clientKey !== clientKey);
+  const key = clientKeyOf(clientKey);
+  state.clientProjectLinks = state.clientProjectLinks.filter((l) => l.clientKey !== key);
   if (state.clientProjectLinks.length === before) throw notFound();
 }

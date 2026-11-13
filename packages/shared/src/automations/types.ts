@@ -293,6 +293,13 @@ export interface Automation {
  * `perMinute`/`perDay` sono la scelta (null = il default); `effective` è
  * ciò che vale davvero, mai oltre il massimo d'istanza.
  */
+/**
+ * Il valore più alto che `PATCH /api/automations/:code` accetta per il tetto
+ * del webhook (oltre: 400). Il massimo d'istanza, più basso, vale comunque;
+ * questo è il limite di ciò che si può SCRIVERE, uguale per server e client.
+ */
+export const WEBHOOK_LIMIT_CEILING = { perMinute: 1_000_000, perDay: 100_000_000 } as const;
+
 export interface AutomationWebhookLimits {
   perMinute: number | null;
   perDay: number | null;
@@ -411,6 +418,14 @@ export interface AutomationRun {
   projects?: Record<string, string>;
   /** L'esecuzione che l'ha avviata con «Avvia un'altra automazione» (catena di al massimo 3). */
   parentRunId?: string | null;
+  /**
+   * Review F4: l'evento viene da fuori per intero (figlia di una madre da
+   * sorgente, email o supporto, o a sua volta figlia di una così): le
+   * destinazioni che Claude ricava dai campi dell'inizio chiedono
+   * l'approvazione (`forceApprovalForUntrusted` con `eventUntrusted`), come
+   * nel worker (`event_untrusted`). Assente = no.
+   */
+  eventUntrusted?: boolean;
   /** Solo nelle letture (R-J13): l'evento è un'email che chi guarda non vede; la pagina lo dice. */
   mailHidden?: boolean;
   /** Da dove è partita (le ricorrenze contano solo le proprie, `dueSchedules`). */
