@@ -288,6 +288,24 @@ export interface MonitorAlertEvent {
   url: string;
 }
 
+/**
+ * Area 8, F1: un rilascio è fallito (una run di CI del commit di merge).
+ * Evento SENZA ticket: il link porta alla pagina del rilascio.
+ */
+export interface ReleaseFailedEvent {
+  kind: "release.failed";
+  projectId: string;
+  releaseId: string;
+  /** `<PRJ>-V<n>`. */
+  releaseCode: string;
+  /** Il titolo della PR: lo scrive chi ha aperto la PR (anche fuori da Stubwise). */
+  title: string;
+  /** Il nome della run fallita (della CI del cliente), se si sa. */
+  failedRun: string | null;
+  /** Link alla pagina del rilascio nell'app. */
+  url: string;
+}
+
 /** Il server (o il suo check) è rientrato entro le soglie: alert risolto. */
 export interface MonitorRecoveredEvent {
   kind: "monitor.recovered";
@@ -888,6 +906,7 @@ export type NotificationEvent =
   | DocsNightlyAttentionEvent
   | RequestCreatedEvent
   | MonitorAlertEvent
+  | ReleaseFailedEvent
   | MonitorRecoveredEvent
   | JobAwaitingInputEvent
   | ProjectPulseEvent
@@ -915,6 +934,7 @@ type NonTicketedEvent =
   | DocsNightlyAttentionEvent
   | RequestCreatedEvent
   | MonitorAlertEvent
+  | ReleaseFailedEvent
   | MonitorRecoveredEvent
   | ProjectPulseEvent
   | ProjectBriefEvent
@@ -945,6 +965,7 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "request.created" &&
     event.kind !== "monitor.alert" &&
     event.kind !== "monitor.recovered" &&
+    event.kind !== "release.failed" &&
     event.kind !== "project.pulse" &&
     event.kind !== "project.brief" &&
     event.kind !== "google.proposal" &&
@@ -1012,6 +1033,7 @@ const EMOJI: Record<NotificationKind, string> = {
   "docs.nightly_attention": "🌙",
   "request.created": "🙋",
   "monitor.alert": "🔴",
+  "release.failed": "🚨",
   "monitor.recovered": "🟢",
   "job.awaiting_input": "❓",
   "project.pulse": "📣",
@@ -1133,6 +1155,9 @@ function linkParam(
     case "monitor.recovered":
       // Nessun ticket: il link porta alla pagina del server nella SPA.
       return renderLink(format, event.url, t(lang, "notify.linkServer"));
+    case "release.failed":
+      // Nessun ticket: il link porta alla pagina del rilascio.
+      return renderLink(format, event.url, t(lang, "notify.linkOpen"));
     case "project.pulse":
       // Nessun ticket: il link porta al backlog del progetto, che è dove si
       // guardano le proposte per intero (la notifica ne porta solo le prime).
@@ -1184,6 +1209,7 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   // Il template vero lo sceglie `templateKey` (bug / richiesta / unita).
   "request.created": "notify.requestCreated",
   "monitor.alert": "notify.monitorAlert",
+  "release.failed": "notify.releaseFailed",
   "monitor.recovered": "notify.monitorRecovered",
   "job.awaiting_input": "notify.awaitingInput",
   "project.pulse": "notify.pulse",
@@ -1463,6 +1489,9 @@ function textParams(
     if (isAutomationEvent(event)) {
       return { automation: event.automationName, code: event.automationCode, message: event.message ?? "" };
     }
+    if (event.kind === "release.failed") {
+      return { code: event.releaseCode, title: event.title };
+    }
     if (event.kind === "ticket.activity") {
       return {
         ref: taskRef(event),
@@ -1553,6 +1582,8 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   "automation.failed": ["automation"],
   "automation.notify": ["automation", "message"],
   "automation.paused": ["automation"],
+  // Il titolo della PR lo scrive chi l'ha aperta (anche fuori da Stubwise).
+  "release.failed": ["title"],
   // Email e titolo li scrive il collaboratore (e il titolo, via widget, chiunque).
   "request.created": ["email", "title"],
   // L'email di chi ha agito la scrive un utente al proprio account.
@@ -1790,6 +1821,17 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         message: formatNotificationText(event, lang),
       };
     }
+    if (event.kind === "release.failed") {
+      return {
+        event: event.kind,
+        projectId: event.projectId,
+        releaseCode: event.releaseCode,
+        title: event.title,
+        failedRun: event.failedRun,
+        message: formatNotificationText(event, lang),
+        releaseUrl: event.url,
+      };
+    }
     // monitor.alert | monitor.recovered: la `condition` resta l'enum grezzo
     // (machine-readable), il `detail` la descrizione, `serverUrl` la pagina
     // server (uniforme a ticketUrl/docsUrl degli altri eventi).
@@ -1994,6 +2036,15 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       condition: "disk",
       detail: "disco rientrato al 72%",
       url: `${base}/monitor/servers/9c2f7d3a-2222-4333-8444-555566667777`,
+    },
+    {
+      kind: "release.failed",
+      projectId: "3d2a9c1b-7777-4888-8999-aaaabbbbcccc",
+      releaseId: "5e3b1a2c-3333-4444-8555-666677778888",
+      releaseCode: "NEG-V12",
+      title: "Pagamenti: nuovo checkout",
+      failedRun: "build",
+      url: `${base}/app/#/p/NEG/releases/NEG-V12`,
     },
     {
       kind: "job.awaiting_input",

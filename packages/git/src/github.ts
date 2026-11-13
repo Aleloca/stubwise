@@ -32,6 +32,8 @@ import {
   type PrComment,
   type PrReviewVerdict,
   type ProjectGitConfig,
+  type CommitRun,
+  type CommitRuns,
   type PullRequestChecks,
   type PullRequestFinalState,
   type PullRequestInfo,
@@ -317,6 +319,52 @@ export class GitHubProvider implements GitProvider {
         ...(headSha !== undefined ? { headSha } : {}),
         ...(headRef !== undefined ? { headRef } : {}),
       };
+    }
+  }
+
+  /**
+   * Area 8, F1: le run di CI di un commit (i check-run, dove GitHub Actions
+   * scrive i job). Mai lancia: rete, 401, corpo malformato → `unknown`.
+   */
+  async getCommitRuns(p: ProjectGitConfig, sha: string, opts: { fetchImpl?: FetchLike } = {}): Promise<CommitRuns> {
+    const fetchImpl = opts.fetchImpl ?? this.fetchImpl;
+    try {
+      const { owner, repo } = parseRepoUrl(p.repoUrl);
+      const response = await fetchImpl(`${API_BASE}/repos/${owner}/${repo}/commits/${sha}/check-runs?per_page=100`, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${p.credentials.token}`, Accept: "application/vnd.github+json" },
+      });
+      await ensureOkResponse(response, "GitHub");
+      const data = (await readJsonResponse(response, "GitHub")) as {
+        check_runs?: {
+          id?: unknown;
+          name?: unknown;
+          status?: unknown;
+          conclusion?: unknown;
+          html_url?: unknown;
+          started_at?: unknown;
+          completed_at?: unknown;
+          output?: { title?: unknown } | null;
+        }[];
+      };
+      if (!Array.isArray(data.check_runs)) return { status: "unknown" };
+      const str = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : null);
+      const runs: CommitRun[] = data.check_runs.map((run, i) => {
+        const outcome = githubCheckStatus(run.status, run.conclusion);
+        const status = outcome === "pending" ? "running" : outcome === "success" ? "success" : "failed";
+        return {
+          id: typeof run.id === "number" || typeof run.id === "string" ? String(run.id) : `run-${i}`,
+          name: str(run.name) ?? "check",
+          status,
+          url: str(run.html_url),
+          failedStep: status === "failed" ? str(run.output?.title) : null,
+          startedAt: str(run.started_at),
+          endedAt: str(run.completed_at),
+        };
+      });
+      return { status: "ok", runs };
+    } catch {
+      return { status: "unknown" };
     }
   }
 
@@ -802,7 +850,12 @@ export class GitHubProvider implements GitProvider {
       number?: unknown;
       merged?: unknown;
       head?: { ref?: unknown };
+      base?: { ref?: unknown };
       html_url?: unknown;
+      merge_commit_sha?: unknown;
+      title?: unknown;
+      merged_by?: { login?: unknown } | null;
+      merged_at?: unknown;
     };
     const branch = pr.head?.ref;
     const prUrl = pr.html_url;
@@ -811,7 +864,19 @@ export class GitHubProvider implements GitProvider {
     // Numero mancante o malformato: l'evento di chiusura resta valido (serve
     // alla chiusura del ticket via branch), solo il cleanup review lo salta.
     const prNumber = typeof pr.number === "number" ? pr.number : null;
-    return { kind, provider: "github", branch, prUrl, prNumber };
+    // Area 8, F1: i campi del rilascio, solo per un merge e solo se ci sono.
+    const str = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : undefined);
+    const release =
+      kind === "merged"
+        ? {
+            ...(str(pr.base?.ref) ? { targetBranch: str(pr.base?.ref)! } : {}),
+            ...(str(pr.merge_commit_sha) ? { mergeSha: str(pr.merge_commit_sha)! } : {}),
+            ...(str(pr.title) ? { title: str(pr.title)! } : {}),
+            ...(str(pr.merged_by?.login) ? { mergedByLogin: str(pr.merged_by?.login)! } : {}),
+            ...(str(pr.merged_at) ? { mergedAt: str(pr.merged_at)! } : {}),
+          }
+        : {};
+    return { kind, provider: "github", branch, prUrl, prNumber, ...release };
   }
 
   /**

@@ -50,6 +50,7 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
   "docs.nightly_attention": "push.title.docs.nightly_attention",
   "request.created": "push.title.request.created",
   "monitor.alert": "push.title.monitor.alert",
+  "release.failed": "push.title.release.failed",
   "monitor.recovered": "push.title.monitor.recovered",
   "job.awaiting_input": "push.title.job.awaiting_input",
   "project.pulse": "push.title.project.pulse",

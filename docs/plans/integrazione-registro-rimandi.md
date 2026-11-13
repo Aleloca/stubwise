@@ -661,6 +661,15 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
 
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 
+- F1 (piano `docs/plans/2026-11-13-integrazione-area8-fetta1-plan.md`), le
+  decisioni dell'orchestratrice *(O, 13 nov 2026)*: **P-1 = a**, il log di una
+  run di CI dentro l'app NON entra nella F1 (solo il link alla run sul
+  provider; leggere i log delle Actions, archivio zip per job, e di Bitbucket,
+  per passo, è lavoro a sé, rimandato); **P-2 = a**, i repository già collegati
+  partono con le PR dei colleghi in «solo analisi» (`colleague_prs =
+  analyze_only`): nessun push nuovo sui rami dei colleghi il giorno del
+  deploy, finché chi ha `repos.manage` non sceglie «analisi e correzioni».
+
 - L'inventario dell'area 8 (`docs/plans/2026-11-13-integrazione-area8-inventario.md`,
   13 nov 2026, lato server di 72 e renderer di 94), con le **Decisioni**:
   confermate *(M)* le due riscritture d'invariante del design del prototipo

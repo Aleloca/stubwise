@@ -20,6 +20,7 @@ import {
 import type { ReleaseQueueItem } from "@stubwise/shared";
 import type { ProjectActor } from "./jobs.js";
 import { loadLatestServicesByServer } from "./server-samples.js";
+import { recordRelease } from "./releases.js";
 
 /**
  * Rilascia (mergia) una PR — fase 8, Task 9. **Il cancello che rende vero il
@@ -193,7 +194,13 @@ export async function releasePullRequest(
     const credentials = decryptCredentials(account.encryptedCredentials, encryptionKey);
     if (!credentials) return { ok: false, error: "merge_failed" };
     const gitConfig = { repoUrl: repository.repoUrl, defaultBranch: repository.defaultBranch, credentials };
-    return releaseAt(getProvider(repository.provider), gitConfig, prNumber);
+    const result = await releaseAt(getProvider(repository.provider), gitConfig, prNumber);
+    if (result.ok) {
+      const [ticket] = await db.select({ title: tickets.title }).from(tickets).where(eq(tickets.id, ticketId));
+      // Le PR di Stubwise puntano al ramo di default del repository.
+      await recordAfterMerge(db, { repositoryId, targetBranch: repository.defaultBranch, prNumber, prUrl: tr.prUrl, title: ticket?.title ?? "", mergeSha: result.sha, actorId: actor.id });
+    }
+    return result;
   }
 
   // Nessuna riga ticket_repositories: prova la sorgente ESTERNA (review fix
@@ -229,7 +236,47 @@ export async function releasePullRequest(
   }
   if (state !== "open") return { ok: false, error: "already_closed" };
 
-  return releaseAt(provider, gitConfig, review.prNumber);
+  const result = await releaseAt(provider, gitConfig, review.prNumber);
+  if (result.ok) {
+    await recordAfterMerge(db, {
+      repositoryId,
+      targetBranch: review.targetBranch ?? repository.defaultBranch,
+      prNumber: review.prNumber,
+      prUrl: review.prUrl,
+      title: review.prTitle,
+      mergeSha: result.sha,
+      actorId: actor.id,
+    });
+  }
+  return result;
+}
+
+/**
+ * Area 8, F1: il rilascio del merge appena fatto da Stubwise (`recordRelease`,
+ * idempotente col webhook che lo stesso merge fa scattare). Best-effort: un
+ * errore qui non cambia la risposta del merge (che è avvenuto), e il webhook
+ * registra comunque il rilascio.
+ */
+async function recordAfterMerge(
+  db: Db,
+  input: { repositoryId: string; targetBranch: string; prNumber: number; prUrl: string; title: string; mergeSha: string; actorId: string },
+): Promise<void> {
+  try {
+    await recordRelease(db, {
+      repositoryId: input.repositoryId,
+      targetBranch: input.targetBranch,
+      prNumber: input.prNumber,
+      prUrl: input.prUrl,
+      title: input.title,
+      mergeSha: input.mergeSha,
+      mergedAt: new Date(),
+      mergedBy: input.actorId,
+      mergedGitName: null,
+      viaStubwise: true,
+    });
+  } catch {
+    // il webhook del provider lo registra lo stesso
+  }
 }
 
 /**

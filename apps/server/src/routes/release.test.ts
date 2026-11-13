@@ -8,6 +8,7 @@ import {
   gitAccounts,
   prReviews,
   projectEnvironments,
+  releases,
   repositories,
   serverMetrics,
   servers,
@@ -299,6 +300,15 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     // altrimenti questo test passerebbe anche con un check-runs rotto.
     expect(fetchMock.mock.calls.some((c) => c[0] === CHECK_RUNS_URL)).toBe(true);
     expect(fetchMock.mock.calls.some((c) => c[0] === MERGE_URL)).toBe(true);
+  });
+
+  it("area 8, F1: il merge da Stubwise crea il rilascio, via Stubwise, col commit di merge (il webhook dopo non ne crea un secondo)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    expect((await release(ticketId, repositoryId, adminCookie)).statusCode).toBe(200);
+    const rows = await testDb.db.select().from(releases).where(eq(releases.repositoryId, repositoryId));
+    expect(rows).toEqual([expect.objectContaining({ viaStubwise: true, mergeSha: "deadbeef" })]);
+    expect(rows[0]!.mergedBy).not.toBeNull();
   });
 
   it("check rossi: 409 checks_failed, NESSUNA chiamata di merge", async () => {

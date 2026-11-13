@@ -146,6 +146,7 @@ const CATALOG_FOR_KIND: Record<
   // e nasconderebbero «Apri» proprio a chi lo riceve.
   "request.created": { decisions: [], permission: null, archivable: true },
   "monitor.alert": { decisions: [], permission: null, archivable: true },
+  "release.failed": { decisions: [], permission: null, archivable: true },
   "monitor.recovered": { decisions: [], permission: null, archivable: true },
   // NON archiviabile di proposito: la domanda dell'agente si chiude solo
   // rispondendo. Archiviarla lascerebbe il job parcheggiato in `awaiting_input`
@@ -449,6 +450,7 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "request.created":
     case "monitor.alert":
     case "monitor.recovered":
+    case "release.failed":
       return event.url;
     // Il pulse è ancorato al progetto, non a un ticket: "Apri" porta dove si
     // vedono TUTTE le proposte, cioè il backlog del progetto.

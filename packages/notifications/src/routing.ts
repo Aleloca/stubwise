@@ -113,6 +113,8 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   "request.created": "deciders",
   "monitor.alert": "deciders",
   "monitor.recovered": "deciders",
+  // Area 8, F1: chi può mergiare nel progetto deve sapere che un rilascio è fallito (la F2 lo porta nel catalogo).
+  "release.failed": "deciders",
   // La domanda dell'AI è rivolta a chi ha chiesto quel lavoro: chi segue il
   // progetto, l'assegnatario e il reporter non c'entrano — rispondere è una
   // decisione sul come procedere, non un aggiornamento da leggere.
@@ -204,6 +206,7 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   // Fatti d'istanza: chi gestisce il monitor, chi gestisce le impostazioni.
   "monitor.alert": "monitor.manage",
   "monitor.recovered": "monitor.manage",
+  "release.failed": "release.merge",
   "docs.limit_paused": "settings.manage",
   "docs.nightly_attention": "settings.manage",
   // Alla domanda dell'agente risponde, oltre al richiedente, chi può decidere

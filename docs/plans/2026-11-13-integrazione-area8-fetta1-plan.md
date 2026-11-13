@@ -131,6 +131,21 @@ S5. **Le rotte dei rilasci**: `GET /api/projects/:projectId/releases`
    (nessuna rotta nuova: le conversazioni dell'area 3). Nascosto =
    inesistente (404). *Test* negativi sui permessi.
 
+S5b. **L'elenco delle PR aperte** (richiesta di 94, `releases-prs`): `GET
+   /api/projects/:projectId/pulls`, le PR aperte dei repository del progetto
+   (interne ed esterne, la stessa deduplica della coda), a CHIUNQUE veda il
+   progetto (404 se no; la coda resta filtrata su `release.merge`, ed è lei a
+   dire `canMerge`), coi campi di `listOpenPrs` del prototipo: autore
+   (persona collegata o nome git), origine `stubwise` | `colleague`, task,
+   branch e base, `headSha`, `checks` (passing | failing | pending |
+   unreadable), `mergeable`, «Già su staging?», l'analisi (verdetto e
+   riassunto), le correzioni fatte, lo stato derivato, il tetto, «Solo
+   analisi» (chi e quando), e i permessi calcolati per chi guarda
+   (`actions.analysisOnly`, `actions.requestCorrection`,
+   `canEditReleaseNotes`). Con S8 entrano le PR dei colleghi, con S9
+   `canEditReleaseNotes`. *Test* negativi (chi non vede il progetto: 404; un
+   Developer vede le PR ma non `canMerge`).
+
 S6. **Le impostazioni del repository**: `PATCH /api/repositories/:id` con
    `releaseBranch`, `releasePipeline`, `ciProvider`, `colleaguePrs`
    (`repos.manage`), campi additivi nella risposta. *Test*.
@@ -209,7 +224,8 @@ S13. **Il deploy-log**: la voce della F1 (ordine server → worker → caddy, la
   analisi» ferma davvero.
 - Le note: chi non può scrivere non scrive; la bozza non inventa task.
 
-## Domande (per 46, non del maintainer)
+## Domande (per 46, non del maintainer) — risposte *(O, 46, 13 nov 2026)*:
+P-1 = a, P-2 = a
 
 P-1. **Il log di una run di CI dentro l'app** (il prototipo lo mostra a chi
    ha `repos.view`). (a) Nella F1 solo il link alla run sul provider; il log

@@ -66,6 +66,9 @@ export const notificationKindSchema = z.enum([
   "automation.failed",
   "automation.notify",
   "automation.paused",
+  // Area 8, fetta 1 (0175): un rilascio fallito (le run di CI del commit di
+  // merge), a chi ha `release.merge` nel progetto. Il link porta al rilascio.
+  "release.failed",
 ]);
 
 /**
