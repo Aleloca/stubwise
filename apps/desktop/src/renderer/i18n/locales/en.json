@@ -7056,7 +7056,8 @@
       "approver_cant_see": "Whoever must approve can't see a project this step acts in",
       "source_disconnected": "The source it starts from isn't connected",
       "limit": "It goes over one of the safety limits",
-      "department_cant_see": "Nobody in the department it notifies can see the project"
+      "department_cant_see": "Nobody in the department it notifies can see the project",
+      "not_available": "This isn't available in this app yet"
     },
     "detail": {
       "more": "More",
@@ -7893,7 +7894,8 @@
         "limit": "Over a limit",
         "selfStart": "Would start itself again",
         "department_cant_see": "Nobody in the department sees the project",
-        "departmentCantSee": "Nobody in {{name}} sees {{code}}"
+        "departmentCantSee": "Nobody in {{name}} sees {{code}}",
+        "not_available": "Coming soon"
       },
       "problem": {
         "unavailable": "{{label}} isn't available here",

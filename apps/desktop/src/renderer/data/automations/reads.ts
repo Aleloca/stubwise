@@ -1,3 +1,4 @@
+import { automationAvailability } from "../integration";
 import { visitSteps } from "@stubwise/shared";
 import { projectOf } from "@stubwise/shared";
 import { validateFlow, type FlowIssue } from "@stubwise/shared";
@@ -87,6 +88,8 @@ export function configErrorsOf(a: Automation, flow: AutomationFlow, ownerId: str
     // «Avvisa» un reparto (area 10b): almeno un membro vede il progetto del passo.
     departmentSees: (departmentId, projectId) =>
       departmentRecipients(departmentId, projectId).length > 0,
+    // Nella build app solo la fetta 1 (area 7): il resto è `not_available`.
+    available: automationAvailability(),
   });
   for (const { path, automationId } of startsOf(flow)) {
     if (!automationId) continue;

@@ -7056,7 +7056,8 @@
       "approver_cant_see": "Chi deve approvare non vede un progetto in cui il passo agisce",
       "source_disconnected": "La sorgente da cui parte non è collegata",
       "limit": "Supera uno dei limiti di sicurezza",
-      "department_cant_see": "Nessuno del reparto che avvisa vede il progetto"
+      "department_cant_see": "Nessuno del reparto che avvisa vede il progetto",
+      "not_available": "Non è ancora disponibile in questa app"
     },
     "detail": {
       "more": "Altro",
@@ -7893,7 +7894,8 @@
         "limit": "Oltre un limite",
         "selfStart": "Avvierebbe di nuovo sé stessa",
         "department_cant_see": "Nessuno del reparto vede il progetto",
-        "departmentCantSee": "Nessuno di {{name}} vede {{code}}"
+        "departmentCantSee": "Nessuno di {{name}} vede {{code}}",
+        "not_available": "In arrivo"
       },
       "problem": {
         "unavailable": "{{label}} non è disponibile qui",

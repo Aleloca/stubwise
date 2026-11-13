@@ -1,3 +1,4 @@
+import { AUTOMATION_F1_AVAILABILITY, type AutomationAvailability } from "@stubwise/shared";
 import { isAppBuild } from "./build";
 
 /**
@@ -252,4 +253,14 @@ export function integrationTargetOf(
     return { target: { kind: "feature", name: "my-week" }, titleKey: "column.subviews.home.week" };
   }
   return { target: { kind: "destination", name: first }, titleKey: `nav.${first}` };
+}
+
+/**
+ * I passi e gli inizi delle Automations che questa build offre (area 7, per
+ * fette): nella build app quelli della fetta 1, nel prototipo tutti
+ * (`undefined`). La leggono il costruttore («Coming soon») e la validazione
+ * (`not_available`), così non possono dire due cose diverse.
+ */
+export function automationAvailability(): AutomationAvailability | undefined {
+  return isAppBuild() ? AUTOMATION_F1_AVAILABILITY : undefined;
 }

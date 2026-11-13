@@ -1,4 +1,6 @@
 import { Link } from "@tanstack/react-router";
+import { triggerKey } from "@stubwise/shared";
+import { automationAvailability } from "../../../data/integration";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { triggerFields } from "@stubwise/shared";
@@ -57,6 +59,7 @@ export function StartPanel({ dataRef }: { dataRef: React.RefObject<HTMLElement |
     else b.update((f) => ({ ...f, trigger: next }));
   };
 
+  const available = automationAvailability();
   const option = (
     key: string,
     label: string,
@@ -65,18 +68,21 @@ export function StartPanel({ dataRef }: { dataRef: React.RefObject<HTMLElement |
     extra?: string,
   ) => {
     const on = same(tr, trigger) && !(tr.kind === "source" && tr.sourceId === "");
+    // Nella build app gli inizi delle fette dopo: «Coming soon», non si scelgono (area 7, F1).
+    const soon = !!available && !available.triggers.includes(triggerKey(trigger));
     return (
       <button
         key={key}
         type="button"
         role="radio"
         aria-checked={on}
-        disabled={b.readOnly}
+        disabled={b.readOnly || soon}
         onClick={() => choose(trigger)}
         className={`flex min-h-8 items-center gap-2.5 rounded-md px-2 text-left text-md ${on ? "bg-ink/10 font-medium text-ink" : "text-ink hover:bg-ink/6"}`}
       >
         {glyph}
         <span className="min-w-0 flex-1">{label}</span>
+        {soon && <span className="text-xs text-ink-muted">{t("placeholder.comingSoon.title")}</span>}
         {extra && <span className="text-xs text-critical">{extra}</span>}
       </button>
     );
