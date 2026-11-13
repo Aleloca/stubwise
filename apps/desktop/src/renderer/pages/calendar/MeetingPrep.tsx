@@ -344,7 +344,9 @@ export function TranscriptUnreachable({
           ? "mail.meeting.scopeMissing"
           : reason === "deleted"
             ? "mail.meeting.deleted"
-            : "calendar.summary.unreachable",
+            : reason === "not_verified"
+              ? "mail.meeting.notVerified"
+              : "calendar.summary.unreachable",
       )}
       {canOpen && (
         <>

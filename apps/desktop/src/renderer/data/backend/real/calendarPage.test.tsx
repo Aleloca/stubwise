@@ -414,6 +414,12 @@ describe("F5a: il riassunto nel dettaglio di un evento passato", () => {
     expect(within(s).queryByRole("button", { name: "Open the transcript" })).toBeNull();
   });
 
+  it("non verificato come il Doc della riunione: lo dice (not_verified)", async () => {
+    withSummary({ doc: "unreachable", docReason: "not_verified", summary: null });
+    const s = await summary();
+    await waitFor(() => expect(s).toHaveTextContent("Stubwise couldn't verify this is the document of this meeting, so it didn't read it."));
+  });
+
   it("senza il permesso di Drive: lo dice", async () => {
     withSummary({ doc: "unreachable", docReason: "scope_missing", summary: null });
     const s = await summary();

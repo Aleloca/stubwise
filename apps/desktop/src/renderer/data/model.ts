@@ -2796,7 +2796,13 @@ export interface MeetingNote {
 }
 
 /** Perché il Doc di Gemini non si legge (o solo in parte, `too_long`). */
-export type MeetingDocReason = "scope_missing" | "not_shared" | "deleted" | "too_long";
+export type MeetingDocReason =
+  | "scope_missing"
+  | "not_shared"
+  | "deleted"
+  | "too_long"
+  /** Nessun link dell'email porta a un Doc che si possa dire di questa riunione (review F5a). */
+  | "not_verified";
 
 /** Una conversazione aperta: i messaggi che chi guarda vede, dal più vecchio. */
 export interface MailThreadDetail {

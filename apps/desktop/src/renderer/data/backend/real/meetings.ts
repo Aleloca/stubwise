@@ -129,6 +129,7 @@ const DOC_REASONS: ReadonlySet<string> = new Set([
   "not_shared",
   "deleted",
   "too_long",
+  "not_verified",
 ]);
 
 /**

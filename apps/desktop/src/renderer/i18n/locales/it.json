@@ -6153,6 +6153,7 @@
       "notVisible": "Riassunto e trascrizione li vede solo chi ha partecipato alla riunione.",
       "scopeMissing": "Stubwise non ha ancora il permesso di leggere Google Drive: ricollega il tuo account Google per aprire la trascrizione.",
       "deleted": "La trascrizione è stata eliminata da Google Drive.",
+      "notVerified": "Stubwise non ha potuto verificare che sia il documento di questa riunione, quindi non l'ha letto.",
       "tooLong": "La trascrizione è lunga: il riassunto ne copre solo la prima parte."
     },
     "proposal": {
