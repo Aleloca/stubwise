@@ -670,6 +670,24 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   analyze_only`): nessun push nuovo sui rami dei colleghi il giorno del
   deploy, finché chi ha `repos.manage` non sceglie «analisi e correzioni».
 
+- F1, lato renderer (94, 13 nov 2026), ciò che resta fuori dalla build app:
+  - **gli ambienti per repository** (`environments`) si accendono con la F4a
+    *(O, 46)*: il form sceglie i server da un elenco (il prototipo li scrive
+    come `SRV-n`, che il server vero non ha); 72 aggiunge intanto per
+    repository nome del server, commit riportato e `releaseCode`,
+    `canManage` e `onlyHere` per ambiente. Il tipo di un ambiente resta non
+    modificabile nel PATCH (salvo decisione di 46): il form non lo offre;
+  - **«Spiega»** (`releases-explain`): si accende quando il tool `read_release`
+    della chat c'è e il golden della chat è verde *(scelta del maintainer)*;
+  - **la sezione «Repositories» intera**: nella build app è ridotta al
+    blocco «Releases» *(O, 46)*; dettagli, account git, file d'ambiente,
+    webhook e «nuovo repository» arrivano con l'area 9;
+  - fatti che il server non legge nella F1 e la pagina non inventa:
+    `mergeable` (mai «conflitti» se non letto), il rischio di una PR esterna,
+    l'autore di una PR esterna, le correzioni `discarded` (non derivate);
+    i problemi di una PR esterna sono un elemento sintetico dal riassunto
+    della review («request_changes»).
+
 - L'inventario dell'area 8 (`docs/plans/2026-11-13-integrazione-area8-inventario.md`,
   13 nov 2026, lato server di 72 e renderer di 94), con le **Decisioni**:
   confermate *(M)* le due riscritture d'invariante del design del prototipo
