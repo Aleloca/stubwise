@@ -370,6 +370,17 @@ describe("le letture personali e la card d'inbox", () => {
     expect(await list()).toEqual([]);
   });
 
+  it("review del renderer, I3: `log=none` dà gli elenchi senza registro; il dettaglio lo ha sempre", async () => {
+    const { a, run, lead } = await waiting();
+    await db.insert(automationRunLog).values({ runId: run.id, seq: 1, stepId: "s1", path: "0", kind: "createTask", outcome: "waiting", reason: "In attesa" });
+    const logs = (body: unknown) => ((body as { items: { log: unknown[] }[] }).items).map((r) => r.log.length);
+    expect(logs((await call(lead.headers, "GET", `/automation-runs?automation=${a.code}`)).json())).toEqual([1]);
+    expect(logs((await call(lead.headers, "GET", `/automation-runs?automation=${a.code}&log=none`)).json())).toEqual([0]);
+    expect(logs((await call(lead.headers, "GET", "/me/automation-runs")).json())).toEqual([1]);
+    expect(logs((await call(lead.headers, "GET", "/me/automation-runs?log=none")).json())).toEqual([0]);
+    expect(((await call(lead.headers, "GET", `/automations/${a.code}/runs/1`)).json() as { log: unknown[] }).log).toHaveLength(1);
+  });
+
   it("la card automation.approval: derivata a lettura — aspetta me finché il passo aspetta; deciso, lo dice; chi non la vede: objectGone", async () => {
     const { a, run, lead, p } = await waiting();
     const second = await person();

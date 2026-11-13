@@ -106,7 +106,12 @@ async function logFor(db: Db, runId: string, visible: "all" | ReadonlySet<string
 }
 
 /** Un'esecuzione nella forma condivisa, come la legge chi guarda. */
-export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: AutomationRecord, visible?: "all" | ReadonlySet<string>): Promise<AutomationRunRow> {
+/**
+ * `withLog: false` per gli elenchi letti spesso (review del renderer, I3): il
+ * registro di ogni riga pesa, e lo legge il dettaglio. `log` resta (vuoto) per
+ * non togliere un campo a un client che lo legge.
+ */
+export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: AutomationRecord, visible?: "all" | ReadonlySet<string>, opts: { withLog?: boolean } = {}): Promise<AutomationRunRow> {
   const v = visible ?? (await seen(db, viewer));
   const c = cursorOf(r);
   const pending = pendingOf(r);
@@ -122,7 +127,7 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
     cursor: c.path,
     waitingUntil: c.waitingUntil ?? null,
     pending: pending ? { approverIds: pending.approverIds, preview: pending.preview } : null,
-    log: await logFor(db, r.id, v),
+    log: opts.withLog === false ? [] : await logFor(db, r.id, v),
     startedAt: r.startedAt.toISOString(),
     endedAt: r.endedAt?.toISOString() ?? null,
     error: r.error,
@@ -189,7 +194,7 @@ export async function getRun(db: Db, viewer: Viewer, code: string, n: number): P
 export async function listRuns(
   db: Db,
   viewer: Viewer,
-  q: { automation?: string; project?: string; status?: RunStatus; cursor?: string; limit?: number },
+  q: { automation?: string; project?: string; status?: RunStatus; cursor?: string; limit?: number; log?: "none" },
 ): Promise<{ items: AutomationRunRow[]; nextCursor: string | null }> {
   const visible = await seen(db, viewer);
   if (visible !== "all" && visible.size === 0) return { items: [], nextCursor: null };
@@ -212,7 +217,7 @@ export async function listRuns(
     .limit(limit + 1);
   const page = rows.slice(0, limit);
   const items = [];
-  for (const r of page) items.push(await runRowOf(db, viewer, r.run, r.automation, visible));
+  for (const r of page) items.push(await runRowOf(db, viewer, r.run, r.automation, visible, { withLog: q.log !== "none" }));
   const last = page.at(-1);
   return { items, nextCursor: rows.length > limit && last ? `${last.run.startedAt.toISOString()}|${last.run.id}` : null };
 }

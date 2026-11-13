@@ -107,7 +107,7 @@ export async function listMyApprovals(db: Db, viewer: Viewer): Promise<Automatio
 }
 
 /** Il blocco Home: aspetta me, fallite di automazioni che gestisco, mie non finite; in quest'ordine. */
-export async function listMyRuns(db: Db, viewer: Viewer): Promise<MyAutomationRun[]> {
+export async function listMyRuns(db: Db, viewer: Viewer, opts: { withLog?: boolean } = {}): Promise<MyAutomationRun[]> {
   const own = await candidates(db, viewer, [...OPEN, "failed"]);
   const waiting = await waitingCandidates(db, viewer);
   const visible = own.visible;
@@ -127,7 +127,7 @@ export async function listMyRuns(db: Db, viewer: Viewer): Promise<MyAutomationRu
         : run.status !== "failed" && a.ownerId === viewer.id
           ? ("owner" as const)
           : null;
-    if (concern) out.push({ ...(await runRowOf(db, viewer, run, a, visible)), concern });
+    if (concern) out.push({ ...(await runRowOf(db, viewer, run, a, visible, opts)), concern });
   }
   return out.sort((x, y) => rank[x.concern] - rank[y.concern] || y.startedAt.localeCompare(x.startedAt) || x.code.localeCompare(y.code)).slice(0, MAX_ITEMS);
 }
