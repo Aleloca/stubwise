@@ -56,6 +56,8 @@ import { loadPlanWorld } from "./world.js";
  * - Gli avvisi: a chi approva quando l'esecuzione si ferma su di lui
  *   (`automation.approval`), al proprietario quando fallisce
  *   (`automation.failed`). Contenuto e link si DERIVANO a lettura.
+ * - D5: un fallimento `permission_lost` mette in pausa l'automazione
+ *   (`owner_lost_permission`, `automation.paused` al proprietario).
  */
 
 export const RUN_LEASE_MS = 60 * 60_000;
@@ -157,14 +159,15 @@ async function processRun(deps: ExecutorDeps, runId: string): Promise<void> {
     .from(automationRunInputs)
     .where(and(eq(automationRunInputs.runId, run.id), isNull(automationRunInputs.consumedAt)))
     .orderBy(asc(automationRunInputs.createdAt));
-  const queue: { input: EngineInput; rowId: string | null }[] = [];
+  const queue: { input: EngineInput | ControlInput; rowId: string | null }[] = [];
   if (turn.log.length === 0 && run.status === "running") queue.push({ input: { kind: "start", event: (run.event ?? {}) as Record<string, unknown> }, rowId: null });
-  for (const row of inputs) queue.push({ input: row.input as EngineInput, rowId: row.id });
+  for (const row of inputs) queue.push({ input: row.input as EngineInput | ControlInput, rowId: row.id });
   if (queue.length === 0 && run.status === "running") queue.push({ input: { kind: "time", now: turn.now }, rowId: null });
 
   for (const item of queue) {
     try {
-      await drive(turn, item.input);
+      if ("control" in item.input) await control(turn, item.input);
+      else await drive(turn, item.input);
     } catch (err) {
       if (!TERMINAL.has(turn.run.status)) {
         const message = err instanceof Error ? err.message : String(err);
@@ -214,10 +217,71 @@ function stateOf(turn: Turn): EngineState {
   );
 }
 
-async function drive(turn: Turn, input: EngineInput): Promise<void> {
+/**
+ * Gli input di CONTROLLO che il server mette in coda (le scritture del livello
+ * dati del prototipo, `runWrites.ts`): annulla, riprova, salta, sospendi per la
+ * pausa, riprendi per la riaccensione. Li applica l'esecutore, sotto il lease,
+ * così nessuno tocca un'esecuzione mentre avanza.
+ */
+export interface ControlInput {
+  control: "cancel" | "retry" | "skip" | "suspend" | "resume";
+  byId: string | null;
+}
+
+const OPEN_WAITING: ReadonlySet<RunStatus> = new Set(["waiting_approval", "waiting_project", "waiting_event"]);
+
+async function setRun(turn: Turn, values: Partial<typeof automationRuns.$inferInsert>): Promise<void> {
+  const [updated] = await turn.deps.db.update(automationRuns).set(values).where(eq(automationRuns.id, turn.run.id)).returning();
+  turn.run = updated!;
+}
+
+async function control(turn: Turn, input: ControlInput): Promise<void> {
+  const status = turn.run.status;
+  switch (input.control) {
+    case "cancel": {
+      if (TERMINAL.has(status)) return;
+      await note(turn, { outcome: "cancelled", byId: input.byId, reason: "Esecuzione annullata.", why: { code: "cancelledBy" } });
+      await setRun(turn, { status: "cancelled", error: "cancelled", pending: null, endedAt: new Date() });
+      return;
+    }
+    case "retry":
+    case "skip": {
+      if (status !== "failed" || cursorOf(turn.run).path === null) return;
+      const skip = input.control === "skip";
+      await note(turn, { outcome: skip ? "skipped" : "retried", byId: input.byId, reason: skip ? "Passo saltato." : "Riprova chiesta." });
+      await setRun(turn, { status: "running", error: null, endedAt: null });
+      await drive(turn, { kind: "time", now: turn.now }, skip ? skipTop : undefined);
+      return;
+    }
+    case "suspend": {
+      // Ferma su un'attesa: si sospende adesso; in corsa lo fa da sé al confine del passo.
+      if (OPEN_WAITING.has(status)) await suspend(turn);
+      return;
+    }
+    case "resume": {
+      if (status !== "suspended") return;
+      const from = cursorOf(turn.run).suspendedFrom ?? "running";
+      await setRun(turn, { status: from as RunRow["status"], cursor: { ...cursorOf(turn.run), suspendedFrom: null } });
+      if (turn.log.length === 0) return drive(turn, { kind: "start", event: (turn.run.event ?? {}) as Record<string, unknown> });
+      await note(turn, { outcome: "resumed", byId: input.byId, reason: "Ripresa: l'automazione è stata riaccesa." });
+      if (from === "running") await drive(turn, { kind: "time", now: turn.now });
+      return;
+    }
+  }
+}
+
+/** «Salta»: il passo al cursore è saltato, si riparte da quello dopo. */
+function skipTop(st: EngineState): void {
+  const top = st.stack.at(-1);
+  if (top?.t === "list") top.i += 1;
+}
+
+async function drive(turn: Turn, input: EngineInput, prepare?: (st: EngineState) => void): Promise<void> {
   if (TERMINAL.has(turn.run.status) || turn.run.status === "suspended") return;
   const decided = input.kind === "approved" || input.kind === "project_chosen" ? cursorOf(turn.run).path : null;
-  let r = advance(stateOf(turn), input);
+  const st = stateOf(turn);
+  prepare?.(st);
+  let r = advance(st, input);
   await commit(turn, r);
   for (;;) {
     const eff = r.effects[0];
@@ -270,7 +334,21 @@ async function commit(turn: Turn, r: EngineStep): Promise<void> {
     if (pending.approverIds.length === 0) return failWith(turn, "no_approver", NO_APPROVER_REASON, NO_APPROVER_WHY);
     if (before !== "waiting_approval" || turn.log.at(-1)?.outcome !== "waiting") await notifyApprovers(turn, pending.approverIds);
   }
-  if (st.status === "failed" && before !== "failed") await notifyOwner(turn, "automation.failed");
+  if (st.status === "failed" && before !== "failed") {
+    await notifyOwner(turn, "automation.failed");
+    // D5: il proprietario non può più farlo → l'automazione va in pausa da
+    // sola, e lui lo sa. Le altre esecuzioni si sospendono al loro confine.
+    if (st.error === "permission_lost") await pauseForLostPermission(turn);
+  }
+}
+
+async function pauseForLostPermission(turn: Turn): Promise<void> {
+  const paused = await turn.deps.db
+    .update(automations)
+    .set({ status: "paused", pausedReason: "owner_lost_permission", pausedBy: null, pausedAt: sql`now()`, activeSince: null })
+    .where(and(eq(automations.id, turn.automation.id), eq(automations.status, "active")))
+    .returning({ id: automations.id });
+  if (paused.length > 0) await notifyOwner(turn, "automation.paused");
 }
 
 async function appendLog(turn: Turn, e: RunLogEntry): Promise<void> {
@@ -360,7 +438,7 @@ async function failWith(turn: Turn, error: string, reason: string, why: ReasonCo
   await notifyOwner(turn, "automation.failed");
 }
 
-const eventOf = (turn: Turn, kind: "automation.approval" | "automation.failed") => ({
+const eventOf = (turn: Turn, kind: "automation.approval" | "automation.failed" | "automation.paused") => ({
   kind,
   projectId: turn.automation.projectId,
   automationId: turn.automation.id,
@@ -370,7 +448,7 @@ const eventOf = (turn: Turn, kind: "automation.approval" | "automation.failed") 
   runNumber: turn.run.n,
 });
 
-async function notifyOwner(turn: Turn, kind: "automation.failed"): Promise<void> {
+async function notifyOwner(turn: Turn, kind: "automation.failed" | "automation.paused"): Promise<void> {
   const owner = turn.automation.ownerId;
   if (!owner) return;
   await publishNotification(turn.deps.db, eventOf(turn, kind), { projectId: turn.automation.projectId, accountUserId: owner });

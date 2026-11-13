@@ -44,7 +44,7 @@ const task = (over: Partial<typeof tickets.$inferInsert> = {}) => ({ projectId, 
 
 async function automationWithRun() {
   const [a] = await t.db.insert(automations).values({ code: `T${randomUUID().slice(0, 6)}-A1`, seq: n++, name: "A", projectId }).returning();
-  const [run] = await t.db.insert(automationRuns).values({ automationId: a!.id, n: 1, version: 1, title: "Run", origin: "event" }).returning();
+  const [run] = await t.db.insert(automationRuns).values({ automationId: a!.id, n: 1, version: 1, title: "Run", origin: "stubwise" }).returning();
   return { automation: a!, run: run! };
 }
 

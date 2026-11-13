@@ -24,7 +24,7 @@ CREATE TYPE "automation_paused_reason" AS ENUM ('manual', 'owner_lost_permission
 --> statement-breakpoint
 CREATE TYPE "automation_run_status" AS ENUM ('running', 'waiting_approval', 'waiting_project', 'suspended', 'done', 'failed', 'cancelled');
 --> statement-breakpoint
-CREATE TYPE "automation_run_origin" AS ENUM ('event', 'manual');
+CREATE TYPE "automation_run_origin" AS ENUM ('manual', 'source', 'stubwise', 'schedule', 'automation');
 --> statement-breakpoint
 CREATE TYPE "automation_event_kind" AS ENUM ('task_created', 'task_closed', 'request_created', 'request_converted', 'milestone_reached');
 --> statement-breakpoint

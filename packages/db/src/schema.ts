@@ -6372,7 +6372,8 @@ export const mailOutgoing = pgTable(
 export const automationStatus = pgEnum("automation_status", ["draft", "active", "paused"]);
 export const automationPausedReason = pgEnum("automation_paused_reason", ["manual", "owner_lost_permission"]);
 export const automationRunStatus = pgEnum("automation_run_status", ["running", "waiting_approval", "waiting_project", "suspended", "done", "failed", "cancelled"]);
-export const automationRunOrigin = pgEnum("automation_run_origin", ["event", "manual"]);
+/** Da dove è partita (`AutomationRun.origin` di `@stubwise/shared`): un evento di Stubwise, a mano, o un'altra esecuzione. */
+export const automationRunOrigin = pgEnum("automation_run_origin", ["manual", "source", "stubwise", "schedule", "automation"]);
 export const automationEventKind = pgEnum("automation_event_kind", ["task_created", "task_closed", "request_created", "request_converted", "milestone_reached"]);
 export const automationEffectKind = pgEnum("automation_effect_kind", ["task", "milestone", "request", "notification"]);
 

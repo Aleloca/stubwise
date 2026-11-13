@@ -178,6 +178,17 @@ describe("executeDueRuns", () => {
     expect(await cardsOf(ownerId, "automation.failed")).toHaveLength(1);
   });
 
+  it("D5: con il permesso perso l'automazione va in pausa da sola (owner_lost_permission), col suo avviso; le altre esecuzioni non partono più", async () => {
+    const { automation, run } = await runOf([task()]);
+    await member(ownerId, "viewer");
+    await exec();
+    const [a] = await t.db.select().from(automations).where(eq(automations.id, automation.id));
+    expect(a).toMatchObject({ status: "paused", pausedReason: "owner_lost_permission", pausedBy: null, activeSince: null });
+    expect(a!.pausedAt).toBeInstanceOf(Date);
+    expect(await cardsOf(ownerId, "automation.paused")).toHaveLength(1);
+    expect((await reload(run.id)).status).toBe("failed");
+  });
+
   it("in pausa: l'esecuzione si sospende PRIMA dell'effetto, che resta da fare", async () => {
     const { run } = await runOf([task()], { status: "paused" });
     await exec();
@@ -225,5 +236,58 @@ describe("executeDueRuns", () => {
     expect(await ticketsOfRun(run.id)).toEqual([]);
     await executeDueRuns({ db: t.db, now: () => new Date(now.getTime() + RUN_LEASE_MS + 1000) });
     expect(await ticketsOfRun(run.id)).toHaveLength(1);
+  });
+
+  describe("gli input di controllo dalla coda (il server non muove il motore)", () => {
+    const control = (runId: string, op: string) => t.db.insert(automationRunInputs).values({ runId, input: { control: op, byId: ownerId }, byId: ownerId });
+
+    it("Annulla: l'esecuzione si chiude come annullata, con la riga di chi; ciò che c'è resta", async () => {
+      const { run } = await runOf([task({ approval: { mode: "ask", who: { owner: true } } })]);
+      await exec();
+      await control(run.id, "cancel");
+      await exec();
+      expect(await reload(run.id)).toMatchObject({ status: "cancelled", error: "cancelled", pending: null });
+      expect((await logOf(run.id)).at(-1)).toMatchObject({ outcome: "cancelled", byId: ownerId });
+    });
+
+    it("Riprova: il passo fallito si rifà (rimesso il permesso, crea la task); Salta: si va al passo dopo", async () => {
+      const { automation, run } = await runOf([task({ title: "Prima" }), task({ title: "Dopo" })]);
+      await member(ownerId, "viewer");
+      await exec();
+      expect((await reload(run.id)).status).toBe("failed");
+      await member(ownerId, "project_lead");
+      await t.db.update(automations).set({ status: "active", pausedReason: null, pausedAt: null, activeSince: new Date() }).where(eq(automations.id, automation.id));
+      await control(run.id, "retry");
+      await exec();
+      expect((await ticketsOfRun(run.id)).map((x) => x.title).sort()).toEqual(["Dopo", "Prima"]);
+      expect((await logOf(run.id)).some((e) => e.outcome === "retried" && e.byId === ownerId)).toBe(true);
+
+      const second = await runOf([task({ title: "Uno" }), task({ title: "Due" })]);
+      await member(ownerId, "viewer");
+      await exec();
+      await member(ownerId, "project_lead");
+      await t.db.update(automations).set({ status: "active", activeSince: new Date() }).where(eq(automations.id, second.automation.id));
+      await control(second.run.id, "skip");
+      await exec();
+      expect((await ticketsOfRun(second.run.id)).map((x) => x.title)).toEqual(["Due"]);
+      expect((await reload(second.run.id)).status).toBe("done");
+    });
+
+    it("la pausa sospende un'esecuzione ferma su un'approvazione; la riaccensione la riprende dov'era", async () => {
+      const { automation, run } = await runOf([task({ approval: { mode: "ask", who: { owner: true } } })]);
+      await exec();
+      await t.db.update(automations).set({ status: "paused" }).where(eq(automations.id, automation.id));
+      await control(run.id, "suspend");
+      await exec();
+      expect((await reload(run.id)).status).toBe("suspended");
+      await t.db.update(automations).set({ status: "active" }).where(eq(automations.id, automation.id));
+      await control(run.id, "resume");
+      await exec();
+      const back = await reload(run.id);
+      expect(back.status).toBe("waiting_approval");
+      expect((await logOf(run.id)).map((e) => e.outcome)).toContain("resumed");
+      // Torna ALL'attesa di prima, senza rifare il passo: chi approva non riceve una seconda card.
+      expect(await cardsOf(ownerId, "automation.approval")).toHaveLength(1);
+    });
   });
 });

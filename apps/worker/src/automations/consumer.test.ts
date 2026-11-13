@@ -80,7 +80,7 @@ describe("consumeAutomationEvents", () => {
     const task = await newTask("Contratto Rossi");
     expect(await consumeAutomationEvents({ db: t.db })).toBe(1);
     const [run] = await runsOf(a.id);
-    expect(run).toMatchObject({ n: 1, version: 1, status: "running", origin: "event", parentRunId: null, title: "Per Contratto Rossi", projectIds: [projectId] });
+    expect(run).toMatchObject({ n: 1, version: 1, status: "running", origin: "stubwise", parentRunId: null, title: "Per Contratto Rossi", projectIds: [projectId] });
     expect(run!.event).toMatchObject({ task: { codice: `${projectCode}-${task.number}`, titolo: "Contratto Rossi", progetto: projectCode, incaricato: ownerId } });
     expect((run!.event as { task: { stato: string } }).task.stato).not.toBe("");
     expect(await pendingEvents()).toEqual([]);
@@ -168,7 +168,7 @@ describe("consumeAutomationEvents", () => {
   it("la catena: un evento scritto da un'esecuzione non riavvia la sua automazione, ne avvia un'altra come figlia, e si ferma a 3", async () => {
     const self = await automation(flowOn("task_created"));
     const other = await automation(flowOn("task_created"));
-    const [root] = await t.db.insert(automationRuns).values({ automationId: self.id, n: 99, version: 1, title: "radice", origin: "event", status: "done" }).returning();
+    const [root] = await t.db.insert(automationRuns).values({ automationId: self.id, n: 99, version: 1, title: "radice", origin: "stubwise", status: "done" }).returning();
     await t.db.transaction(async (tx) => {
       await tx.execute(sql`select set_config('stubwise.automation_run_id', ${root!.id}, true)`);
       await tx.insert(tickets).values({ projectId, number: ticketNumber++, title: "figlia", type: "task", priority: "medium", source: "automation", automationRunId: root!.id });
@@ -176,10 +176,10 @@ describe("consumeAutomationEvents", () => {
     await consumeAutomationEvents({ db: t.db });
     expect((await runsOf(self.id)).map((r) => r.n)).toEqual([99]);
     const [child] = await runsOf(other.id);
-    expect(child).toMatchObject({ parentRunId: root!.id });
+    expect(child).toMatchObject({ parentRunId: root!.id, origin: "automation" });
     // Una catena già di 3 (root → child → nipote) non cresce più.
     const third = await automation(flowOn("task_created"));
-    const [grandchild] = await t.db.insert(automationRuns).values({ automationId: third.id, n: 50, version: 1, title: "nipote", origin: "event", status: "done", parentRunId: child!.id }).returning();
+    const [grandchild] = await t.db.insert(automationRuns).values({ automationId: third.id, n: 50, version: 1, title: "nipote", origin: "stubwise", status: "done", parentRunId: child!.id }).returning();
     const fourth = await automation(flowOn("task_created"));
     await t.db.transaction(async (tx) => {
       await tx.execute(sql`select set_config('stubwise.automation_run_id', ${grandchild!.id}, true)`);
@@ -191,7 +191,7 @@ describe("consumeAutomationEvents", () => {
 
   it(`al più ${MAX_ACTIVE_RUNS} esecuzioni aperte per automazione: oltre, l'evento non avvia`, async () => {
     const a = await automation(flowOn("task_created"));
-    await t.db.insert(automationRuns).values(Array.from({ length: MAX_ACTIVE_RUNS }, (_, i) => ({ automationId: a.id, n: i + 1, version: 1, title: "aperta", origin: "event" as const, status: "waiting_approval" as const })));
+    await t.db.insert(automationRuns).values(Array.from({ length: MAX_ACTIVE_RUNS }, (_, i) => ({ automationId: a.id, n: i + 1, version: 1, title: "aperta", origin: "stubwise" as const, status: "waiting_approval" as const })));
     await newTask();
     await consumeAutomationEvents({ db: t.db });
     expect(await t.db.select({ c: sql<number>`count(*)::int` }).from(automationRuns).where(and(eq(automationRuns.automationId, a.id)))).toEqual([{ c: MAX_ACTIVE_RUNS }]);

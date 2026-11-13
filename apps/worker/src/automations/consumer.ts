@@ -175,7 +175,8 @@ async function createRun(
     title,
     status: "running",
     event: fields,
-    origin: "event",
+    // Un evento scritto da un'esecuzione fa nascere una figlia (la catena).
+    origin: event.originRunId ? "automation" : "stubwise",
     parentRunId: event.originRunId,
     projectIds: [a.projectId],
     startedAt: sql`clock_timestamp()`,
