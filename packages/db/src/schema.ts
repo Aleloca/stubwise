@@ -6175,6 +6175,11 @@ export const driveFiles = pgTable(
      */
     googleFileId: text("google_file_id"),
     googleOwner: text("google_owner"),
+    /**
+     * La casella Google con cui Stubwise LEGGE il riferimento (B3): quella di
+     * chi l'ha aggiunto, o di chi ha collegato la sua cartella. Mai un'altra.
+     */
+    googleAccountId: uuid("google_account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
     folderLinkId: uuid("folder_link_id").references(() => driveFolderLinks.id, { onDelete: "set null" }),
     /** Un file di cartella nascosto (`drive.manage`): la sincronizzazione non lo rimette. */
     hidden: boolean("hidden").notNull().default(false),

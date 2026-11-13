@@ -48,7 +48,8 @@ async function file(name: string, mime: string, sizeBytes: number, opts: { job?:
     .values({ projectId, number: n, name, mime, type: "document", sizeBytes, storageKey: `drive/${projectId}/${crypto.randomUUID()}/${name}`, addedBy: userId })
     .returning();
   if (opts.job !== false) await t.db.insert(driveContentJobs).values({ fileId: row!.id });
-  return row!;
+  // Un caricato ha sempre oggetto e peso (il CHECK della 0167).
+  return { ...row!, storageKey: row!.storageKey!, sizeBytes: row!.sizeBytes! };
 }
 const rowOf = async (id: string) => (await t.db.select().from(driveFiles).where(eq(driveFiles.id, id)))[0]!;
 const jobOf = async (id: string) => (await t.db.select().from(driveContentJobs).where(eq(driveContentJobs.fileId, id)))[0];
@@ -242,3 +243,41 @@ describe("il job del contenuto", () => {
   });
 });
 
+
+describe("F5b: il contenuto di un riferimento Google", () => {
+  async function googleRef(name: string, mime: string, over: Partial<typeof driveFiles.$inferInsert> = {}) {
+    n += 1;
+    const [row] = await t.db.insert(driveFiles).values({ projectId, number: n, source: "google", name, mime, type: "document", googleFileId: `g-${n}`, addedBy: userId, ...over }).returning();
+    await t.db.insert(driveContentJobs).values({ fileId: row!.id });
+    return row!;
+  }
+
+  it("un Google Doc si legge ESPORTATO (testo) dalla sorgente Google, con la casella del riferimento; diventa ready col riassunto", async () => {
+    const f = await googleRef("Roadmap", "application/vnd.google-apps.document", { googleAccountId: null });
+    const asked: unknown[] = [];
+    const d = deps({ google: async (input) => (asked.push(input), { stream: Readable.from([Buffer.from("La roadmap del trimestre.")]), mime: "text/plain" }) });
+    expect(await pollDriveContentOnce(d)).toBe(1);
+    expect(asked).toEqual([{ googleFileId: f.googleFileId, mime: "application/vnd.google-apps.document", googleAccountId: null }]);
+    expect(await rowOf(f.id)).toMatchObject({ contentStatus: "ready", contentText: "La roadmap del trimestre." });
+  });
+
+  it("una casella che non legge più: mai letto è in errore, già letto tiene il contenuto; un riferimento cancellato non si legge", async () => {
+    const never = await googleRef("Mai letto", "application/vnd.google-apps.document");
+    const read = await googleRef("Già letto", "application/vnd.google-apps.document", { contentText: "testo di prima", contentStatus: "ready" });
+    const gone = await googleRef("Sparito", "application/vnd.google-apps.document", { unavailable: "deleted" });
+    const d = deps({ google: async () => ({ gone: "access_lost" }) });
+    await pollDriveContentOnce(d);
+    await pollDriveContentOnce(d);
+    await pollDriveContentOnce(d);
+    expect((await rowOf(never.id)).contentStatus).toBe("error");
+    expect(await rowOf(read.id)).toMatchObject({ contentStatus: "ready", contentText: "testo di prima" });
+    expect((await rowOf(gone.id)).contentText).toBeNull();
+  });
+
+  it("un tipo di Google che non si esporta (una cartella, un modulo) è unsupported, senza chiedere a Google", async () => {
+    const f = await googleRef("Modulo", "application/vnd.google-apps.form");
+    const d = deps({ google: async () => { throw new Error("non doveva chiedere"); } });
+    await pollDriveContentOnce(d);
+    expect((await rowOf(f.id)).contentStatus).toBe("unsupported");
+  });
+});
