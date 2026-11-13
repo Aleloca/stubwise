@@ -111,12 +111,15 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // dai progetti) resta spento fino alla F5.
     "google-account",
     // Area 6, fetta 1: il Calendario in LETTURA (la destinazione e il blocco
-    // «Prossimi appuntamenti» della Home), con le serie. Resta spento
-    // `meeting-notes` (riassunto e task di una riunione, F5).
+    // «Prossimi appuntamenti» della Home), con le serie.
     "calendar",
     // Area 6, fetta 4: scrivere sul Calendario (nuova riunione, rispondi,
     // modifica, sposta, elimina, il progetto a mano, la disponibilità).
     "calendar-write",
+    // Area 6, F5a: le riunioni registrate (l'email di Gemini sul messaggio, il
+    // riassunto e le task di una riunione, la scheda di preparazione, «Open
+    // the meeting» per nota). Il Drive Google (`google`) resta della F5b.
+    "meeting-notes",
     // F1.2: «Aggiorna ora» di una casella (Posta e Calendario).
     "google-sync",
     // Area 6, fetta 1: la Posta TRATTATA per conversazione, la lettura, le

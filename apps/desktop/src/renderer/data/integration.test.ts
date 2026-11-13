@@ -89,6 +89,8 @@ describe("isIntegrated", () => {
         "projectSection:overview",
         "projectSection:requests",
         "feature:calendar-write",
+        // Area 6, F5a: le riunioni registrate.
+        "feature:meeting-notes",
         "feature:portfolio",
         // Area 3, fetta 3a: la chat libera, le azioni e «Da decidere» restano fuori.
         "destination:claude",
