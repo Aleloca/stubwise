@@ -650,6 +650,30 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   `graph/poller.test.ts` («non sovrappone i tick») e `pipeline/fix.test.ts`
   (l'heartbeat durante un run lento) cadono nel giro completo con la macchina
   carica, verdi da soli.
+- **Test lenti del desktop sotto carico — STABILIZZATI** *(O, 46, 13 nov
+  2026, `fix/desktop-flaky`)*. Le cause, nessun timeout alzato e nessuna
+  asserzione tolta:
+  - **`resetApi` costava ~170 ms, a ogni test del desktop**:
+    `pluginChoicesOf` (`data/projectSettings/seed.ts`) rifaceva l'intero
+    stato d'istanza, compresi i consumi di 90 giorni, per OGNI progetto, solo
+    per leggere l'inventario di `superpowers`. Ora si legge una volta per
+    seme e il reset scende a ~12 ms. È questo che pesava sul test di volume
+    del Drive (500 file, 21 s nel giro): da solo 1,2 s.
+  - `data/seed.test.ts` «metriche: 90 giorni»: un `expect` per campione,
+    su ~28 000 campioni per server. Gli stessi controlli ora raccolgono le
+    violazioni e le confrontano con `[]` una volta per proprietà: da 7 s a
+    0,5 s (mutazioni sul passo e sui limiti prese).
+  - `FirstVersion.test.tsx` «l'annuncio dice ogni pagina scritta»:
+    aspettava con l'orologio vero uno stato intermedio (la prima pagina
+    scritta), che sotto carico era già passato. Ora lo stream lo muove il
+    test con i timer finti; una mutazione sull'annuncio viene presa.
+  - Verifica: i tre test 5 volte di fila insieme a una suite parallela del
+    desktop, tutti verdi.
+  - Web, `apps/web/src/routes/projects/projects.test.tsx` «admin: salvataggio
+    del provider invia il PATCH al gruppo» (`Value "p-claude" not found in
+    options`, rosso 2 volte su 3 anche da solo e su main): selezionava prima
+    che `/api/ai-providers` riempisse le opzioni. Ora aspetta l'opzione: 6
+    giri su 6 verdi.
 - **Ritiro del web vecchio** e passaggio di `/app` alla radice (decisione aperta
   del design della fetta 1); con il ritiro: togliere `tickets.status` enum,
   `saved_views`, `/api/projects/pulse` se nessuno lo legge più.
