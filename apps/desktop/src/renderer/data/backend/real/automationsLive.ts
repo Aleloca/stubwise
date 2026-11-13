@@ -3,6 +3,7 @@ import type { AutomationSearchResult } from "@stubwise/shared";
 import { isIntegrated } from "../../integration";
 import { createAutomationRefs, inPrototypeWords } from "./automationRefs";
 import { createRealAutomations, type AutomationsApi } from "./automations";
+import { SimulationConfigError } from "../../../domain/automations/simCore";
 import { createRealSimulation } from "./automationSimulate";
 import { appClient, session } from "./client";
 import { now } from "./runtime";
@@ -62,8 +63,21 @@ async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {
   );
 }
 
+/** Dopo una scrittura, la rilettura che vede ciò che il worker ha applicato nel frattempo. */
+const SETTLE_MS = 1000;
+
 export const liveAutomations = {
   searchAutomations,
+  // Le esecuzioni le muove il worker, e il client non riceve eventi: nessun
+  // avviso da qui (le pagine rileggono quando si rimontano o dopo una
+  // scrittura). Dopo una scrittura, «idle» è una rilettura dopo un attimo.
+  onAutomationsSettled: (fn: () => void): (() => void) => {
+    void fn;
+    return () => {};
+  },
+  whenAutomationsIdle: (): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, SETTLE_MS)),
+  SimulationConfigError,
   ...createRealAutomations(liveApi, refs),
   ...simulationFunctions,
 };

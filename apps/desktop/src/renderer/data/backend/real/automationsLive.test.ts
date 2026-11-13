@@ -229,3 +229,45 @@ describe("al cambio di persona", () => {
     expect(await automations.getAutomation(A_ID)).toBeNull();
   });
 });
+
+describe("gli agganci delle pagine", () => {
+  it("le esecuzioni le muove il worker: nessun evento dal client, e «idle» è una rilettura dopo un attimo", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const off = automations.onAutomationsSettled(() => {});
+      expect(typeof off).toBe("function");
+      off();
+      let idle = false;
+      void automations.whenAutomationsIdle().then(() => (idle = true));
+      await vi.advanceTimersByTimeAsync(500);
+      expect(idle).toBe(false);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(idle).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("una prova con errori di configurazione lancia la classe che le pagine riconoscono", async () => {
+    const context = {
+      automation: serverAutomation(7),
+      version: 1,
+      draft: true,
+      rev: 7,
+      ownerId: ME_ID,
+      configErrors: [{ path: "0", code: "incomplete", message: "x" }],
+      people: [{ id: ME_ID, name: "Ada", departmentIds: [], deactivated: false }],
+      projects: [],
+    };
+    installFakeServer({
+      "GET /api/auth/me": { body: me() },
+      "GET /api/automations": { body: { items: [serverRow(7)] } },
+      "GET /api/automations/AUD-A1/examples": { body: { items: [], context } },
+    });
+    await getSessionPerson();
+    await automations.listAutomations();
+    await expect(automations.startSimulation(A_ID, "draft", {})).rejects.toBeInstanceOf(
+      automations.SimulationConfigError,
+    );
+  });
+});
