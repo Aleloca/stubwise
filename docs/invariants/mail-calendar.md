@@ -547,6 +547,11 @@
   percorso automatico per tutte e tre le azioni: deve restare zero. Chi
   aggiunge una quarta azione a una serie (`calendar_series.action`) faccia
   passare anche lei da `calendar-auto.ts`, non da un servizio del server.
+  ⚠️ **L'unica eccezione è dell'area 7 (Q8, fetta 3)**: un passo di Claude di
+  un'automazione può partire senza un umano, col budget mensile prima di
+  OGNI passo e senza azioni (`docs/invariants/automations.md`, «I passi di
+  Claude»). Una serie del calendario NON la prende: `calendar-auto.ts` non
+  nomina esecutori di agenti (`apps/worker/src/automations/q8-exception.test.ts`).
 - **Un appuntamento passato non diventa MAI una proposta (fase 9, fix di
   review).** `isReadyForProposal` (`apps/worker/src/google/calendar.ts`)
   richiede `startsAt >= now` per un evento SINGOLO esattamente come per

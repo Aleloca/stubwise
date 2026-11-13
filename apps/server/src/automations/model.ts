@@ -7,7 +7,7 @@ import {
 } from "@stubwise/db";
 import { loadPlanWorld } from "@stubwise/notifications";
 import {
-  AUTOMATION_F2_AVAILABILITY,
+  AUTOMATION_F3_AVAILABILITY,
   projectOf,
   validateFlow,
   visitSteps,
@@ -198,7 +198,8 @@ function approversIn(world: PlanWorld, ownerId: string, who: ApprovalWho, projec
 /**
  * Gli errori di configurazione di un flusso, visti da `ownerId` (per una
  * bozza mai accesa, chi la accenderebbe): `validateFlow` con la disponibilità
- * della fetta 2 (email e attese; Claude e le generali ancora fuori), più R-J11 per un approvatore per persona.
+ * della fetta 3 (email, attese e i passi di Claude; le generali e «avvia
+ * un'altra» ancora fuori), più R-J11 per un approvatore per persona.
  */
 export async function configErrorsOf(db: Db | Tx, a: Pick<AutomationRecord, "projectId">, flow: AutomationFlow, ownerId: string): Promise<FlowIssue[]> {
   const scope = namedBy(flow, a.projectId);
@@ -208,7 +209,7 @@ export async function configErrorsOf(db: Db | Tx, a: Pick<AutomationRecord, "pro
     projectId: a.projectId,
     canApprove: (who, projectId) => approversIn(world, ownerId, who, projectId ?? a.projectId).length > 0,
     departmentSees: (departmentId, projectId) => world.departmentRecipients(departmentId, projectId).length > 0,
-    available: AUTOMATION_F2_AVAILABILITY,
+    available: AUTOMATION_F3_AVAILABILITY,
   });
   visitSteps(flow.steps, (step, path) => {
     if (!("approval" in step) || step.approval.mode !== "ask") return;
