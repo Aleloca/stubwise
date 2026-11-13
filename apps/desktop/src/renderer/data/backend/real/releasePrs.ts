@@ -1,5 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
-import type { OpenPrState, OpenPull, ReleaseQueueItem } from "@stubwise/shared";
+import type { OpenPrState, OpenPull, PrReleaseNotes, ReleaseQueueItem } from "@stubwise/shared";
 import type { PrAutoCorrection } from "../../model";
 import type {
   CorrectionRequestResult,
@@ -32,6 +32,8 @@ export interface PrsApi {
     repositoryId: string,
     body: { note?: string },
   ): Promise<{ correctionId: string }>;
+  releaseNotes(repositoryId: string, prNumber: number): Promise<PrReleaseNotes>;
+  putReleaseNotes(repositoryId: string, prNumber: number, body: string): Promise<PrReleaseNotes>;
   analysisOnly(
     repositoryId: string,
     prNumber: number,
@@ -86,7 +88,11 @@ export function createRealPrs(
   // Le pagine vanno per id della PR; le rotte per ticket, repository e numero.
   const refs = new Map<string, PrRef>();
 
-  function viewOf(projectId: string, projectCode: string, p: OpenPull): OpenPrView {
+  function viewOf(
+    projectId: string,
+    projectCode: string,
+    p: OpenPull & { releaseNotes?: string | null },
+  ): OpenPrView {
     const prNumber = p.prNumber ?? 0;
     const id = `${p.repositoryId}#${prNumber}`;
     refs.set(id, { projectId, ticketId: p.ticketId, repositoryId: p.repositoryId, prNumber });
@@ -151,6 +157,8 @@ export function createRealPrs(
       },
       canEditReleaseNotes: p.permissions.editReleaseNotes,
       onStaging: p.onStaging ?? false,
+      // Le note scritte da una persona (una bozza di Claude non arriva mai qui da sola).
+      releaseNotes: p.releaseNotes ?? null,
     };
   }
 
@@ -220,6 +228,27 @@ export function createRealPrs(
         if (mapped) return { ok: false, error: mapped };
         throw asPrototypeError(error);
       }
+    },
+
+    /** Le note della PR (vuote = nessuna nota): `release.merge` o `tickets.edit`, lo controlla il server. */
+    async setPrReleaseNotes(prId: string, text: string): Promise<OpenPrView> {
+      const r = ref(prId);
+      try {
+        await api.putReleaseNotes(r.repositoryId, r.prNumber, text);
+      } catch (error) {
+        throw asPrototypeError(error);
+      }
+      const fresh = (await list(r.projectId)).find((p) => p.view.id === prId);
+      if (!fresh) throw new Error("not_found");
+      return fresh.view;
+    },
+
+    /** La bozza calcolata dal server (`releaseNotesDraft` di shared); `null` per chi non può scriverle. */
+    async releaseNotesDraft(prId: string): Promise<{ text: string; sources: string[] } | null> {
+      const r = refs.get(prId);
+      if (!r) return null;
+      const notes = await orNull(() => api.releaseNotes(r.repositoryId, r.prNumber));
+      return notes?.canEdit ? notes.draft : null;
     },
 
     async setPrAnalysisOnly(prId: string, on: boolean): Promise<OpenPrView> {

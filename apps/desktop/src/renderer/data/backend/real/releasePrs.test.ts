@@ -54,6 +54,32 @@ function fakeApi(over: Partial<PrsApi> = {}) {
       calls.push(`POST ${ticketId}/${repositoryId}/corrections ${body.note}`),
       { correctionId: "33333333-3333-4333-8333-333333333333" }
     ),
+    releaseNotes: async (repositoryId, prNumber) => (
+      calls.push(`GET ${repositoryId}/${prNumber}/release-notes`),
+      {
+        repositoryId,
+        prNumber,
+        body: null,
+        updatedById: null,
+        updatedAt: null,
+        draft: { text: "- AUD-12: Checkout", sources: ["AUD-12"] },
+        commitsRead: true,
+        canEdit: true,
+      }
+    ),
+    putReleaseNotes: async (repositoryId, prNumber, body) => (
+      calls.push(`PUT ${repositoryId}/${prNumber}/release-notes ${body}`),
+      {
+        repositoryId,
+        prNumber,
+        body,
+        updatedById: "ada",
+        updatedAt: "2026-11-13T10:00:00.000Z",
+        draft: { text: "", sources: [] },
+        commitsRead: true,
+        canEdit: true,
+      }
+    ),
     analysisOnly: async (repositoryId, prNumber, on) => (
       calls.push(`${on ? "POST" : "DELETE"} ${repositoryId}/${prNumber}/analysis-only`),
       { analysisOnly: on ? { byId: "ada", at: "2026-11-13T10:00:00.000Z" } : null }
@@ -240,5 +266,38 @@ describe("le PR aperte della build app (area 8, F1)", () => {
     await prs.setPrAnalysisOnly(pr!.id, false);
     expect(calls).toContain(`POST ${REPO}/246/analysis-only`);
     expect(calls).toContain(`DELETE ${REPO}/246/analysis-only`);
+  });
+
+  it("le note della PR: lette dall'elenco, salvate con la PUT, la bozza dalla GET solo per chi le può scrivere", async () => {
+    const { api, calls } = fakeApi({
+      pulls: async () => ({ items: [pull({ releaseNotes: "- AUD-12: Checkout" } as never)] }),
+    });
+    const prs = createRealPrs(api, codeOf, release);
+    const [pr] = await prs.listOpenPrs("p1");
+    expect(pr!.releaseNotes).toBe("- AUD-12: Checkout");
+    await prs.setPrReleaseNotes(pr!.id, "- AUD-12: Checkout nuovo");
+    expect(calls).toContain(`PUT ${REPO}/246/release-notes - AUD-12: Checkout nuovo`);
+    expect(await prs.releaseNotesDraft(pr!.id)).toEqual({
+      text: "- AUD-12: Checkout",
+      sources: ["AUD-12"],
+    });
+    const readOnly = createRealPrs(
+      fakeApi({
+        releaseNotes: async (repositoryId, prNumber) => ({
+          repositoryId,
+          prNumber,
+          body: null,
+          updatedById: null,
+          updatedAt: null,
+          draft: { text: "x", sources: [] },
+          commitsRead: true,
+          canEdit: false,
+        }),
+      }).api,
+      codeOf,
+      release,
+    );
+    const [p] = await readOnly.listOpenPrs("p1");
+    expect(await readOnly.releaseNotesDraft(p!.id)).toBeNull();
   });
 });
