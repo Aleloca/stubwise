@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as api from "../../../data/api";
 import { CALENDAR_CASES } from "../../../data/seed/calendar/events";
-import { MAIL_CASES } from "../../../data/seed/mail";
+import { EV_AUD_REVIEW_YESTERDAY, MAIL_CASES } from "../../../data/seed/mail";
 import { setSessionPersonId } from "../../../data/session";
 import { now, state } from "../../../data/store";
 import { VIEW_AS_PERSONAS, grantProjectRole, viewerFor } from "../../../data/viewer";
@@ -546,5 +546,72 @@ describe("⌘K: gruppo «Mail» e azioni", () => {
     expect(await screen.findByRole("dialog", { name: "New meeting" })).toBeInTheDocument();
     // Il parametro si toglie: tornare indietro non riapre il dialogo.
     await waitFor(() => expect(searchOf(router).newMeeting).toBeUndefined());
+  });
+});
+
+// Q-A = a (13 nov 2026): un invitato SENZA l'email di Gemini decide le
+// proposte della riunione (decisione M, Q1), ma la conversazione non ce l'ha:
+// il link diventa «Open the meeting» — l'evento se ce l'ha, altrimenti il
+// riassunto della riunione per nota, in un pannello.
+describe("Decide: la proposta di una riunione per chi non ha l'email", () => {
+  /** Laura resta invitata e membro di AUD, ma non riceve l'email di Gemini. */
+  function lauraWithoutEmail() {
+    const m = state.mailMessages.find((x) => x.id === MAIL_CASES.transcript)!;
+    m.to = m.to.filter((a) => a.personId !== "p-laura");
+    m.cc = (m.cc ?? []).filter((a) => a.personId !== "p-laura");
+    m.mailboxPersonIds = m.mailboxPersonIds.filter((id) => id !== "p-laura");
+  }
+
+  it("con l'evento: «Open the meeting» porta all'evento, niente «Open email»", async () => {
+    lauraWithoutEmail();
+    const router = renderRoute("/home", "p-laura");
+    const item = await mailItem(MEETING_PROPOSAL);
+    expect(within(item).queryByRole("link", { name: "Open email" })).toBeNull();
+    await userEvent.click(within(item).getByRole("link", { name: "Open the meeting" }));
+    await waitFor(() => expect(pathname(router)).toBe("/calendar"));
+    expect(searchOf(router).event).toBe(EV_AUD_REVIEW_YESTERDAY);
+  });
+
+  it("senza l'evento: «Open the meeting» apre il riassunto della riunione e le task, mai la Posta", async () => {
+    lauraWithoutEmail();
+    // Fuori dalla finestra del calendario: Laura non legge l'evento, ma c'era.
+    const e = state.calendarEvents.find((x) => x.id === EV_AUD_REVIEW_YESTERDAY)!;
+    const shift = 90 * 86_400_000;
+    e.startsAt = new Date(Date.parse(e.startsAt) - shift).toISOString();
+    e.endsAt = new Date(Date.parse(e.endsAt) - shift).toISOString();
+    const notes = state.meetingTranscripts.find((t) => t.eventId === EV_AUD_REVIEW_YESTERDAY)!;
+    const router = renderRoute("/home", "p-laura");
+    const item = await mailItem(MEETING_PROPOSAL);
+    await userEvent.click(within(item).getByRole("button", { name: "Open the meeting" }));
+    // Il titolo è quello della riga d'origine: senza l'evento, l'oggetto dell'email di Gemini.
+    const subject = state.mailMessages.find((x) => x.id === MAIL_CASES.transcript)!.subject;
+    const panel = await screen.findByRole("dialog", { name: subject });
+    expect(await within(panel).findByText(notes.summary!)).toBeInTheDocument();
+    expect(within(panel).getByRole("heading", { name: "Tasks from this meeting" })).toBeInTheDocument();
+    expect(pathname(router)).toBe("/home");
+  });
+
+  it("aprire una task nata dal pannello chiude il pannello prima di andare alla task (review F5a, 10)", async () => {
+    setSessionPersonId("p-giulia");
+    const out = await api.mail.confirmMailProposal(MEETING_PROPOSAL, { actionIndexes: [0] });
+    if (out.status !== "confirmed") throw new Error("not confirmed");
+    const code = out.resultCodes[0]!;
+    lauraWithoutEmail();
+    const e = state.calendarEvents.find((x) => x.id === EV_AUD_REVIEW_YESTERDAY)!;
+    const shift = 90 * 86_400_000;
+    e.startsAt = new Date(Date.parse(e.startsAt) - shift).toISOString();
+    e.endsAt = new Date(Date.parse(e.endsAt) - shift).toISOString();
+    // La proposta è confermata: un'altra aperta della stessa riunione porta la card in «Decide».
+    const p = state.mailProposals.find((x) => x.id === MEETING_PROPOSAL)!;
+    state.mailProposals.push({ ...p, id: "mp-aud-weekly-review-2", status: "open" });
+    const router = renderRoute("/home", "p-laura");
+    const item = await mailItem("mp-aud-weekly-review-2");
+    await userEvent.click(within(item).getByRole("button", { name: "Open the meeting" }));
+    const subject = state.mailMessages.find((x) => x.id === MAIL_CASES.transcript)!.subject;
+    const panel = await screen.findByRole("dialog", { name: subject });
+    await userEvent.click(await within(panel).findByRole("button", { name: new RegExp(code) }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: subject })).toBeNull());
+    // La task si apre nel pannello di dettaglio della pagina (`?task=`), col dialogo già chiuso.
+    await waitFor(() => expect(searchOf(router).task).toBe(code));
   });
 });

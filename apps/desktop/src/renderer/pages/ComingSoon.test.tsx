@@ -1,4 +1,4 @@
-import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../test/renderRoute";
@@ -346,6 +346,12 @@ const INTEGRATED_CALLS = new Set([
   "calendar.freeBusy",
   "calendar.findFirstFreeSlot",
   "calendar.onSaving",
+  // Area 6, F5a: le riunioni registrate (meeting-notes).
+  "mail.getMeetingSummary",
+  "mail.tasksBornFrom",
+  "mail.getMeetingByNote",
+  "mail.tasksOfNote",
+  "calendar.getMeetingPrep",
 ]);
 
 const outside = () => [...new Set(calls)].filter((c) => !INTEGRATED_CALLS.has(c));
@@ -388,6 +394,39 @@ describe("aree non integrate nella build app", () => {
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
     await waitFor(() => expect(calls).toContain("calendar.createEvent"));
     await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 6, F5a (Q-A = a, 46): l'invitato senza l'email di Gemini apre la
+  // riunione per nota, e la conversazione non si legge MAI.
+  it("la riunione per nota: si apre il pannello, la conversazione non si chiama mai", async () => {
+    const { state } = await import("../data/store");
+    const { EV_AUD_REVIEW_YESTERDAY, MAIL_CASES } = await import("../data/seed/mail");
+    const m = state.mailMessages.find((x) => x.id === MAIL_CASES.transcript)!;
+    m.to = m.to.filter((a) => a.personId !== "p-giulia");
+    m.cc = (m.cc ?? []).filter((a) => a.personId !== "p-giulia");
+    m.mailboxPersonIds = m.mailboxPersonIds.filter((id) => id !== "p-giulia");
+    const e = state.calendarEvents.find((x) => x.id === EV_AUD_REVIEW_YESTERDAY)!;
+    const shift = 90 * 86_400_000;
+    e.startsAt = new Date(Date.parse(e.startsAt) - shift).toISOString();
+    e.endsAt = new Date(Date.parse(e.endsAt) - shift).toISOString();
+    // Nella build app chi guarda è la persona della sessione (Giulia).
+    renderRoute("/home");
+    const user = userEvent.setup();
+    const decide = await screen.findByRole("region", { name: "Decide" });
+    const item = await waitFor(() => {
+      // Oltre le prime 5 voci, «Show N more» espande sul posto.
+      const more = within(decide).queryByRole("button", { name: /^Show \d+ more$/ });
+      if (more) fireEvent.click(more);
+      const el = decide.querySelector<HTMLElement>('[data-mail-decision="mp-aud-weekly-review"]');
+      if (!el) throw new Error("not yet");
+      return el;
+    });
+    await user.click(within(item).getByRole("button", { name: "Open the meeting" }));
+    await screen.findByRole("dialog", { name: m.subject });
+    await waitFor(() => expect(calls).toContain("mail.getMeetingByNote"));
+    await settle();
+    expect(calls).not.toContain("mail.getMailThread");
     expect(outside()).toEqual([]);
   });
 

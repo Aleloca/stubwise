@@ -2,6 +2,7 @@ import { ApiError } from "@stubwise/api-client";
 import type { GoogleAccount as ServerGoogleAccount } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { GoogleAccount, GoogleFeature, GoogleWorkspaceChoice } from "../../types";
+import { featureIntegrated } from "../../integration";
 import { appClient, session } from "./client";
 
 // Il cassetto Google nella build app (area 6, fetta 1): le caselle di
@@ -14,7 +15,8 @@ import { appClient, session } from "./client";
 type Drive = typeof Fake.drive;
 
 /** Una casella da ricollegare: disattivata (token revocato) o senza gli scope del riconsenso unico. */
-export const needsReconnect = (a: ServerGoogleAccount) => a.disabledAt !== null || a.missingScopes.length > 0;
+export const needsReconnect = (a: ServerGoogleAccount) =>
+  a.disabledAt !== null || a.missingScopes.length > 0;
 
 /** Le mie caselle; 404/403 (Google non configurato sull'istanza) è nessuna. */
 export async function myAccounts(): Promise<ServerGoogleAccount[]> {
@@ -27,7 +29,8 @@ export async function myAccounts(): Promise<ServerGoogleAccount[]> {
 }
 
 /** La casella del cassetto: quella da ricollegare, se c'è, altrimenti la prima. */
-const drawerAccount = (accounts: readonly ServerGoogleAccount[]) => accounts.find(needsReconnect) ?? accounts[0] ?? null;
+const drawerAccount = (accounts: readonly ServerGoogleAccount[]) =>
+  accounts.find(needsReconnect) ?? accounts[0] ?? null;
 
 /**
  * Le funzioni di OGGI che ogni scope apre, per dire cosa manca a una casella
@@ -40,11 +43,25 @@ const FEATURES_OF_SCOPE: Readonly<Record<string, readonly GoogleFeature[]>> = {
   "https://www.googleapis.com/auth/calendar.events": ["calendarWrite"],
 };
 
+/**
+ * F5 (D9): `drive.readonly` apre i file di Google Drive nei progetti e gli
+ * appunti delle riunioni di Gemini. Si dice fra le funzioni che mancano solo
+ * quando quelle funzioni ci sono (`google` acceso): prima sarebbe una funzione
+ * promessa che l'app non ha.
+ */
+const featuresOf = (scope: string): readonly GoogleFeature[] =>
+  scope === "https://www.googleapis.com/auth/drive.readonly"
+    ? featureIntegrated("google")
+      ? ["drive"]
+      : []
+    : (FEATURES_OF_SCOPE[scope] ?? []);
+
 function accountOf(a: ServerGoogleAccount): GoogleAccount {
   const base = { personId: session.personId ?? "", email: a.email, workspaceId: a.workspaceId };
-  if (a.disabledAt !== null) return { ...base, status: "expired", reconnect: "expired", since: a.disabledAt };
+  if (a.disabledAt !== null)
+    return { ...base, status: "expired", reconnect: "expired", since: a.disabledAt };
   if (a.missingScopes.length > 0) {
-    const missing = [...new Set(a.missingScopes.flatMap((s) => FEATURES_OF_SCOPE[s] ?? []))];
+    const missing = [...new Set(a.missingScopes.flatMap(featuresOf))];
     return { ...base, status: "expired", reconnect: "scopes", missing, since: a.connectedAt };
   }
   return { ...base, status: "connected", since: a.connectedAt };
@@ -87,7 +104,8 @@ const connectGoogle: Drive["connectGoogle"] = async (options = {}) => {
     const usable = await listGoogleWorkspaces();
     if (usable.length === 0) throw new Error("invalid: google_not_configured");
     const workspaceId = options.workspaceId ?? (usable.length === 1 ? usable[0]!.id : null);
-    if (!workspaceId || !usable.some((w) => w.id === workspaceId)) throw new Error("invalid: workspace");
+    if (!workspaceId || !usable.some((w) => w.id === workspaceId))
+      throw new Error("invalid: workspace");
     before = new Map((await myAccounts()).map((a) => [a.id, a]));
     ({ authorizeUrl } = await appClient().google.connect(workspaceId));
   } catch (error) {
@@ -138,7 +156,10 @@ const SYNC_WAIT_MS = 2 * 60_000;
  * quel momento (un giro finito senza che avanzi non è riuscito), e le attese
  * in corso (`whenSynced`).
  */
-const syncs = new WeakMap<object, { asked: Map<string, string | null>; waits: Set<Promise<void>> }>();
+const syncs = new WeakMap<
+  object,
+  { asked: Map<string, string | null>; waits: Set<Promise<void>> }
+>();
 function syncsOf() {
   const client = appClient();
   let entry = syncs.get(client);

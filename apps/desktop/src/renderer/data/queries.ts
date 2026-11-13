@@ -312,6 +312,11 @@ export const queryKeys = {
     ["as", personId, "meeting", "summary", eventId] as const,
   tasksBornFrom: (personId: string, eventId: string) =>
     ["as", personId, "meeting", "born", eventId] as const,
+  // La riunione per nota (F5a, Q-A = a): l'invitato che ci arriva senza l'evento.
+  meetingByNote: (personId: string, noteId: string) =>
+    ["as", personId, "meeting", "note", noteId] as const,
+  tasksOfNote: (personId: string, noteId: string) =>
+    ["as", personId, "meeting", "noteBorn", noteId] as const,
   // Automations (area 7): tutto nell'area «automations».
   automations: (personId: string, filter: AutomationListFilter) =>
     ["as", personId, "automations", "list", filter] as const,
@@ -3534,6 +3539,26 @@ export function useMeetingSummary(eventId: string | null) {
     queryKey: queryKeys.meetingSummary(me, eventId ?? ""),
     queryFn: () => api.mail.getMeetingSummary(eventId!),
     enabled: eventId !== null,
+  });
+}
+
+/** La riunione per nota (F5a, Q-A = a): il riassunto per l'invitato senza l'evento. */
+export function useMeetingByNote(noteId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.meetingByNote(me, noteId ?? ""),
+    queryFn: () => api.mail.getMeetingByNote(noteId!),
+    enabled: noteId !== null,
+  });
+}
+
+/** «Tasks from this meeting» per nota (R-I21, come `useTasksBornFrom`). */
+export function useTasksOfNote(noteId: string | null) {
+  const me = useSessionPersonId();
+  return useQuery({
+    queryKey: queryKeys.tasksOfNote(me, noteId ?? ""),
+    queryFn: () => api.mail.tasksOfNote(noteId!),
+    enabled: noteId !== null,
   });
 }
 

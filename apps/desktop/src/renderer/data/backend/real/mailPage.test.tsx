@@ -68,6 +68,9 @@ const detail = {
   ],
 };
 
+/** La conversazione che il server finto risponde (un test può cambiarla). */
+let threadDetail: unknown = detail;
+
 /** La proposta condivisa del messaggio (`/api/me/mail/proposals`, area 6 F2). */
 const proposal = {
   id: P1,
@@ -99,6 +102,7 @@ beforeEach(() => {
   proposals = [proposal];
   confirmAnswer = { body: { status: "confirmed", results: [{ kind: "request", id: "r", code: "AUD-R9" }] } };
   readAnswer = { body: detail };
+  threadDetail = detail;
   setAppClientForTests(null);
   vi.stubEnv("VITE_STUBWISE_BUILD", "app");
   seen = installFakeServer({
@@ -113,7 +117,7 @@ beforeEach(() => {
     [`POST /api/me/mail/proposals/${P1}/confirm`]: () => confirmAnswer,
     "GET /api/me/google/accounts": { body: [account] },
     "GET /api/me/mail/threads": () => ({ body: { items: threads, nextCursor: null } }),
-    "GET /api/me/mail/threads/t-1": { body: detail },
+    "GET /api/me/mail/threads/t-1": () => ({ body: threadDetail }),
     [`GET /api/me/mail/email_triage/${M1}/original`]: {
       body: { subject: "Preventivo Rossi", from: "Bob Rossi <bob@client.test>", to: [], cc: [], bodyText: null, bodyHtml: null, attachments: [{ filename: "preventivo.pdf", mimeType: "application/pdf" }] },
     },
@@ -300,3 +304,35 @@ describe("la Posta nella build app", () => {
   });
 });
 
+
+// Review F5a (8): nella build app, il riassunto pronto senza il link del Doc
+// non offre «Open the transcript» (l'avviso è del prototipo); col link lo apre.
+describe("F5a: la riunione registrata nella conversazione", () => {
+  const NOTE = "99999999-8888-4888-8888-888888888888";
+  const transcript = (docUrl: string | null) => ({
+    ...detail,
+    messages: [
+      {
+        ...detail.messages[0],
+        kind: "transcript",
+        meeting: { noteId: NOTE, docTitle: "Notes: Review", doc: "ready", docReason: null, visible: true, summary: "Si parte lunedì.", docUrl, event: null },
+      },
+    ],
+  });
+
+  it("senza il link: niente «Open the transcript»", async () => {
+    threadDetail = transcript(null);
+    renderRoute(`/mail/${KEY}`);
+    expect(await screen.findByText("Si parte lunedì.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open the transcript" })).toBeNull();
+  });
+
+  it("col link: apre il Google Doc", async () => {
+    const open = vi.fn();
+    window.open = open as never;
+    threadDetail = transcript("https://docs.google.com/document/d/abc");
+    renderRoute(`/mail/${KEY}`);
+    fireEvent.click(await screen.findByRole("button", { name: "Open the transcript" }));
+    expect(open).toHaveBeenCalledWith("https://docs.google.com/document/d/abc", "_blank", "noopener");
+  });
+});

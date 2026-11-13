@@ -1,3 +1,4 @@
+import { featureIntegrated } from "../../integration";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { session, setAppClientForTests } from "./client";
 import { drive } from "./drive";
@@ -49,6 +50,14 @@ afterEach(() => {
   setAppClientForTests(null);
 });
 
+/** Il Drive Google è acceso nella build APP? (la condizione si calcola con la build dell'app.) */
+const googleInApp = (() => {
+  vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+  const on = featureIntegrated("google");
+  vi.unstubAllEnvs();
+  return on;
+})();
+
 describe("il cassetto Google: l'account", () => {
   it("nessuna casella: nessun account", async () => {
     installFakeServer({ "GET /api/me/google/accounts": { body: [] } });
@@ -73,12 +82,19 @@ describe("il cassetto Google: l'account", () => {
       "GET /api/me/google/accounts": {
         body: [
           account(),
-          account({ id: ACC2, email: "ada@other.test", missingScopes: ["https://www.googleapis.com/auth/gmail.modify"] }),
+          account({
+            id: ACC2,
+            email: "ada@other.test",
+            missingScopes: ["https://www.googleapis.com/auth/gmail.modify"],
+          }),
         ],
       },
     });
     session.personId = ME_ID;
-    expect(await drive.getGoogleAccount()).toMatchObject({ email: "ada@other.test", status: "expired" });
+    expect(await drive.getGoogleAccount()).toMatchObject({
+      email: "ada@other.test",
+      status: "expired",
+    });
   });
 
   it("senza gli scope nuovi: da ricollegare per i permessi, con le funzioni che mancano, prese da missingScopes", async () => {
@@ -95,7 +111,11 @@ describe("il cassetto Google: l'account", () => {
       },
     });
     session.personId = ME_ID;
-    expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "scopes", missing: ["markRead"] });
+    expect(await drive.getGoogleAccount()).toMatchObject({
+      status: "expired",
+      reconnect: "scopes",
+      missing: ["markRead"],
+    });
   });
 
   it("F4: senza `calendar.events` il cassetto dice che non può creare né cambiare le riunioni", async () => {
@@ -107,6 +127,23 @@ describe("il cassetto Google: l'account", () => {
     session.personId = ME_ID;
     expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "scopes", missing: ["calendarWrite"] });
   });
+  // Si accende col Drive Google (`google`, F5): prima la funzione non c'è e non si promette.
+  it.skipIf(!googleInApp)(
+    "F5: senza `drive.readonly` il cassetto dice che non può usare il Drive Google (i file e gli appunti delle riunioni)",
+    async () => {
+      installFakeServer({
+        "GET /api/me/google/accounts": {
+          body: [account({ missingScopes: ["https://www.googleapis.com/auth/drive.readonly"] })],
+        },
+      });
+      session.personId = ME_ID;
+      expect(await drive.getGoogleAccount()).toMatchObject({
+        status: "expired",
+        reconnect: "scopes",
+        missing: ["drive"],
+      });
+    },
+  );
 
   it("uno scope mancante di una funzione che non c'è ancora (Drive, F5): da ricollegare, senza funzioni elencate", async () => {
     installFakeServer({
@@ -115,17 +152,27 @@ describe("il cassetto Google: l'account", () => {
       },
     });
     session.personId = ME_ID;
-    expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "scopes", missing: [] });
+    expect(await drive.getGoogleAccount()).toMatchObject({
+      status: "expired",
+      reconnect: "scopes",
+      missing: [],
+    });
   });
 
   it("una casella disattivata è scaduta da quando è stata disattivata", async () => {
     installFakeServer({
       "GET /api/me/google/accounts": {
-        body: [account({ disabledAt: "2026-11-10T08:00:00.000Z", disabledReason: "invalid_grant" })],
+        body: [
+          account({ disabledAt: "2026-11-10T08:00:00.000Z", disabledReason: "invalid_grant" }),
+        ],
       },
     });
     session.personId = ME_ID;
-    expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "expired", since: "2026-11-10T08:00:00.000Z" });
+    expect(await drive.getGoogleAccount()).toMatchObject({
+      status: "expired",
+      reconnect: "expired",
+      since: "2026-11-10T08:00:00.000Z",
+    });
   });
 
   it("scollegare toglie la casella del cassetto", async () => {
@@ -135,7 +182,9 @@ describe("il cassetto Google: l'account", () => {
     });
     session.personId = ME_ID;
     await drive.disconnectGoogle();
-    expect(seen.some((r) => r.method === "DELETE" && r.path === `/api/me/google/accounts/${ACC}`)).toBe(true);
+    expect(
+      seen.some((r) => r.method === "DELETE" && r.path === `/api/me/google/accounts/${ACC}`),
+    ).toBe(true);
   });
 });
 
@@ -143,8 +192,12 @@ describe("il cassetto Google: «Collega»", () => {
   it("un solo Workspace utilizzabile: nessuna domanda; l'URL di Google fuori dall'app; collegata quando la casella c'è", async () => {
     let accounts: unknown[] = [];
     const { seen } = installFakeServer({
-      "GET /api/me/google/workspaces": { body: [workspace(), workspace({ id: WS2, name: "Old", clientSecretSet: false })] },
-      "POST /api/me/google/connect": { body: { authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?x=1" } },
+      "GET /api/me/google/workspaces": {
+        body: [workspace(), workspace({ id: WS2, name: "Old", clientSecretSet: false })],
+      },
+      "POST /api/me/google/connect": {
+        body: { authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?x=1" },
+      },
       "GET /api/me/google/accounts": () => ({ body: accounts }),
     });
     const opened = vi.fn(() => null);
@@ -153,8 +206,14 @@ describe("il cassetto Google: «Collega»", () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     const pending = drive.connectGoogle();
     await vi.waitFor(() => expect(opened).toHaveBeenCalled());
-    expect(opened).toHaveBeenCalledWith("https://accounts.google.com/o/oauth2/v2/auth?x=1", "_blank", "noopener");
-    expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toEqual({ workspaceId: WS });
+    expect(opened).toHaveBeenCalledWith(
+      "https://accounts.google.com/o/oauth2/v2/auth?x=1",
+      "_blank",
+      "noopener",
+    );
+    expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toEqual({
+      workspaceId: WS,
+    });
     // Il consenso nel browser: la casella arriva dopo qualche rilettura.
     await vi.advanceTimersByTimeAsync(3_000);
     accounts = [account()];
@@ -170,7 +229,12 @@ describe("il cassetto Google: «Collega»", () => {
     });
     const opened = vi.fn(() => null);
     vi.stubGlobal("open", opened);
-    const tab = { location: { href: "about:blank" }, opener: {} as unknown, closed: false, close: vi.fn() };
+    const tab = {
+      location: { href: "about:blank" },
+      opener: {} as unknown,
+      closed: false,
+      close: vi.fn(),
+    };
     session.personId = ME_ID;
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     void drive.connectGoogle({ tab: tab as unknown as Window }).catch(() => undefined);
@@ -183,18 +247,25 @@ describe("il cassetto Google: «Collega»", () => {
     installFakeServer({ "GET /api/me/google/workspaces": { body: [] } });
     const tab = { location: { href: "about:blank" }, opener: null, closed: false, close: vi.fn() };
     session.personId = ME_ID;
-    await expect(drive.connectGoogle({ tab: tab as unknown as Window })).rejects.toThrow("invalid: google_not_configured");
+    await expect(drive.connectGoogle({ tab: tab as unknown as Window })).rejects.toThrow(
+      "invalid: google_not_configured",
+    );
     expect(tab.close).toHaveBeenCalled();
   });
 
   it("ricollegare: la stessa casella che non ha più scope mancanti è collegata", async () => {
-    let accounts: unknown[] = [account({ missingScopes: ["https://www.googleapis.com/auth/gmail.modify"] })];
+    let accounts: unknown[] = [
+      account({ missingScopes: ["https://www.googleapis.com/auth/gmail.modify"] }),
+    ];
     installFakeServer({
       "GET /api/me/google/workspaces": { body: [workspace()] },
       "POST /api/me/google/connect": { body: { authorizeUrl: "https://accounts.google.com/x" } },
       "GET /api/me/google/accounts": () => ({ body: accounts }),
     });
-    vi.stubGlobal("open", vi.fn(() => null));
+    vi.stubGlobal(
+      "open",
+      vi.fn(() => null),
+    );
     session.personId = ME_ID;
     vi.useFakeTimers({ toFake: ["setTimeout"] });
     const pending = drive.connectGoogle();
@@ -207,14 +278,19 @@ describe("il cassetto Google: «Collega»", () => {
   it("più Workspace utilizzabili: senza una scelta non parte; con la scelta usa quello", async () => {
     let accounts: unknown[] = [];
     const { seen } = installFakeServer({
-      "GET /api/me/google/workspaces": { body: [workspace(), workspace({ id: WS2, name: "Beta" })] },
+      "GET /api/me/google/workspaces": {
+        body: [workspace(), workspace({ id: WS2, name: "Beta" })],
+      },
       "POST /api/me/google/connect": () => {
         accounts = [account({ workspaceId: WS2 })];
         return { body: { authorizeUrl: "https://accounts.google.com/x" } };
       },
       "GET /api/me/google/accounts": () => ({ body: accounts }),
     });
-    vi.stubGlobal("open", vi.fn(() => null));
+    vi.stubGlobal(
+      "open",
+      vi.fn(() => null),
+    );
     session.personId = ME_ID;
     expect(await drive.listGoogleWorkspaces()).toEqual([
       { id: WS, name: "Acme", domains: ["acme.test"] },
@@ -226,11 +302,15 @@ describe("il cassetto Google: «Collega»", () => {
     const pending = drive.connectGoogle({ workspaceId: WS2 });
     await vi.advanceTimersByTimeAsync(3_000);
     await expect(pending).resolves.toMatchObject({ status: "connected" });
-    expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toEqual({ workspaceId: WS2 });
+    expect(seen.find((r) => r.path === "/api/me/google/connect")!.body).toEqual({
+      workspaceId: WS2,
+    });
   });
 
   it("nessun Workspace utilizzabile: l'errore, senza aprire niente", async () => {
-    installFakeServer({ "GET /api/me/google/workspaces": { body: [workspace({ clientSecretSet: false })] } });
+    installFakeServer({
+      "GET /api/me/google/workspaces": { body: [workspace({ clientSecretSet: false })] },
+    });
     const opened = vi.fn(() => null);
     vi.stubGlobal("open", opened);
     session.personId = ME_ID;
@@ -244,7 +324,10 @@ describe("il cassetto Google: «Collega»", () => {
       "POST /api/me/google/connect": { body: { authorizeUrl: "https://accounts.google.com/x" } },
       "GET /api/me/google/accounts": { body: [] },
     });
-    vi.stubGlobal("open", vi.fn(() => null));
+    vi.stubGlobal(
+      "open",
+      vi.fn(() => null),
+    );
     session.personId = ME_ID;
     vi.useFakeTimers({ toFake: ["setTimeout", "Date"] });
     const pending = drive.connectGoogle();
@@ -274,14 +357,32 @@ describe("le caselle nella Posta", () => {
     });
     session.personId = ME_ID;
     expect(await mail.listMailboxes()).toEqual([
-      { personId: ME_ID, email: "ada@acme.test", proposalsEnabled: true, syncedAt: "2026-11-12T09:58:00.000Z", sync: "ok", stale: false, expired: false },
-      { personId: ME_ID, email: "ada@other.test", proposalsEnabled: false, syncedAt: "2026-11-12T09:00:00.000Z", sync: "ok", stale: true, expired: true },
+      {
+        personId: ME_ID,
+        email: "ada@acme.test",
+        proposalsEnabled: true,
+        syncedAt: "2026-11-12T09:58:00.000Z",
+        sync: "ok",
+        stale: false,
+        expired: false,
+      },
+      {
+        personId: ME_ID,
+        email: "ada@other.test",
+        proposalsEnabled: false,
+        syncedAt: "2026-11-12T09:00:00.000Z",
+        sync: "ok",
+        stale: true,
+        expired: true,
+      },
     ]);
   });
 
   it("una casella a cui mancano solo gli scope nuovi legge ancora: non è scaduta", async () => {
     installFakeServer({
-      "GET /api/me/google/accounts": { body: [account({ missingScopes: ["https://www.googleapis.com/auth/gmail.modify"] })] },
+      "GET /api/me/google/accounts": {
+        body: [account({ missingScopes: ["https://www.googleapis.com/auth/gmail.modify"] })],
+      },
     });
     session.personId = ME_ID;
     expect((await mail.listMailboxes())[0]!.expired).toBe(false);

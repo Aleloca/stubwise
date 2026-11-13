@@ -853,12 +853,23 @@ export interface ChatMessageInput {
  * `doc` lo dice. `email` è l'email di Gemini, solo se chi guarda la vede.
  */
 export interface MeetingSummary {
-  eventId: string;
+  /**
+   * L'evento di CHI GUARDA; `null` per un invitato che non ce l'ha nel suo
+   * calendario e arriva alla riunione per nota (Q-A = a).
+   */
+  eventId: string | null;
+  /** La riunione (F5a): `getMeetingByNote`, «Open the meeting». */
+  noteId?: string;
   docTitle: string;
   doc: MeetingTranscript["doc"];
   summary: string | null;
   transcript: string | null;
-  email: { threadId: string; sourceId: string; at: string } | null;
+  /** `threadId` null: la conversazione non si apre (build app, senza la casella). */
+  email: { threadId: string | null; sourceId: string; at: string } | null;
+  /** Build app (F5): il link al Doc di Gemini («Open the transcript» apre Google Docs). */
+  docUrl?: string | null;
+  /** Build app (F5a): perché il Doc non si legge, o si legge solo in parte (`too_long`). */
+  docReason?: import("./model").MeetingDocReason | null;
 }
 
 /**

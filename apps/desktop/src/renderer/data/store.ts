@@ -519,6 +519,8 @@ export type ApiFnName =
   | "mail.draftReply"
   | "mail.getMeetingSummary"
   | "mail.tasksBornFrom"
+  | "mail.getMeetingByNote"
+  | "mail.tasksOfNote"
   /** Un passo dell'allineamento simulato di una casella (arriva la posta nuova). */
   | "mail.advanceSync"
   /** Un passo della classificazione simulata (in analisi → classificata o fallita). */

@@ -1583,6 +1583,7 @@
         "fromCalendar": "Dal tuo calendario · {{title}}",
         "openEmail": "Apri l'email",
         "openEvent": "Apri l'evento",
+        "openMeeting": "Apri la riunione",
         "confirmed": "Confermata per {{code}}",
         "ignored": "Proposta per {{code}} ignorata",
         "handed": "Passata a {{code}}",
@@ -5936,7 +5937,8 @@
       "scopesMissing": "Finché non ricolleghi, Stubwise non può {{what}}.",
       "feature": {
         "markRead": "segnare la posta come letta o non letta",
-        "calendarWrite": "creare o cambiare le tue riunioni"
+        "calendarWrite": "creare o cambiare le tue riunioni",
+        "drive": "usare i file del tuo Google Drive e gli appunti delle riunioni"
       }
     },
     "expired": {
@@ -6148,7 +6150,10 @@
       "transcriptNotice": "Nell'app si apre la trascrizione in Google Documenti.",
       "reading": "Lettura della trascrizione…",
       "unreachable": "Stubwise non è riuscito ad aprire la trascrizione. Potrebbe essere stata spostata o non condivisa con te.",
-      "notVisible": "Riassunto e trascrizione li vede solo chi ha partecipato alla riunione."
+      "notVisible": "Riassunto e trascrizione li vede solo chi ha partecipato alla riunione.",
+      "scopeMissing": "Stubwise non ha ancora il permesso di leggere Google Drive: ricollega il tuo account Google per aprire la trascrizione.",
+      "deleted": "La trascrizione è stata eliminata da Google Drive.",
+      "tooLong": "La trascrizione è lunga: il riassunto ne copre solo la prima parte."
     },
     "proposal": {
       "proposes_one": "Stubwise propone · {{count}} modifica",

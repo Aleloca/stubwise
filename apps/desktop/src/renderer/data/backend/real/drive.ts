@@ -37,7 +37,11 @@ const MIN_QUERY = 2;
 
 /** I codici dei progetti di chi guarda, per una riga senza `projectCode` (un server più vecchio). */
 async function projectCodes(): Promise<Map<string, string>> {
-  const rows = (await appClient().projects.list()) as unknown as { id: string; slug: string; code?: string }[];
+  const rows = (await appClient().projects.list()) as unknown as {
+    id: string;
+    slug: string;
+    code?: string;
+  }[];
   return new Map(rows.map((p) => [p.id, p.code ?? p.slug.toUpperCase()]));
 }
 
@@ -65,13 +69,24 @@ function contentOf(status: ServerDriveFileRow["contentStatus"] | string | null):
 }
 
 /** Una riga del server nella forma del prototipo: un caricato, col suo contenuto (F3). */
-function rowOf(r: ServerDriveFileRow, codes: Map<string, string> | null): DriveFileRow {
+/** I campi di un riferimento a Google Drive (F5, bozza del piano), con i default per un server di prima. */
+type GoogleFields = {
+  googleFileId?: string | null;
+  googleOwner?: string | null;
+  folderLinkId?: string | null;
+  hidden?: boolean;
+  unavailable?: DriveFileRow["unavailable"];
+};
+
+function rowOf(raw: ServerDriveFileRow, codes: Map<string, string> | null): DriveFileRow {
+  const r = raw as ServerDriveFileRow & GoogleFields;
+  const google = r.source === "google";
   return {
     id: r.id,
     code: r.code,
     projectId: r.projectId,
     projectCode: r.projectCode ?? codes?.get(r.projectId) ?? "",
-    source: "upload",
+    source: google ? "google" : "upload",
     name: r.name,
     // Un tipo che questa app non conosce (lettore: `UNKNOWN`) si mostra come «altro».
     type: (DRIVE_FILE_TYPES as readonly string[]).includes(r.type) ? r.type : "other",
@@ -80,11 +95,11 @@ function rowOf(r: ServerDriveFileRow, codes: Map<string, string> | null): DriveF
     addedById: r.addedById ?? "",
     addedAt: r.addedAt,
     modifiedAt: r.addedAt,
-    folderLinkId: null,
-    googleFileId: null,
-    googleOwner: null,
-    hidden: false,
-    unavailable: null,
+    folderLinkId: r.folderLinkId ?? null,
+    googleFileId: r.googleFileId ?? null,
+    googleOwner: r.googleOwner ?? null,
+    hidden: r.hidden === true,
+    unavailable: r.unavailable ?? null,
     content: contentOf(r.contentStatus),
     // Nell'elenco il server dà solo la prima frase; il riassunto intero sta nel dettaglio.
     summary: r.summaryLine,
@@ -101,6 +116,11 @@ function rowOf(r: ServerDriveFileRow, codes: Map<string, string> | null): DriveF
   };
 }
 
+/** Una riga restituita da una scrittura su Google Drive (F5), letta cruda (lo schema di oggi toglierebbe i campi nuovi). */
+export function googleRowOf(raw: unknown): DriveFileRow {
+  return rowOf(raw as ServerDriveFileRow, null);
+}
+
 async function rowsOf(items: ServerDriveFileRow[]): Promise<DriveFileRow[]> {
   const codes = items.some((r) => r.projectCode === null) ? await projectCodes() : null;
   return items.map((r) => rowOf(r, codes));
@@ -111,7 +131,8 @@ async function orNone<T>(run: () => Promise<T>, fallback: T): Promise<T> {
   try {
     return await run();
   } catch (error) {
-    if (error instanceof ApiError && (error.status === 404 || error.status === 403)) return fallback;
+    if (error instanceof ApiError && (error.status === 404 || error.status === 403))
+      return fallback;
     throw error;
   }
 }
@@ -130,13 +151,24 @@ async function write<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-type ListFilters = Omit<DriveFilters, "sort" | "hidden"> & { sort?: DriveFilters["sort"]; q?: string };
+type ListFilters = Omit<DriveFilters, "sort" | "hidden"> & {
+  sort?: DriveFilters["sort"];
+  q?: string;
+};
 
 /** Le righe, e per ognuna il passaggio trovato per contenuto (testo puro, al più 300 caratteri; `null` per nome o codice). */
 async function listFilesWithSnippets(filters: ListFilters) {
-  const opts = { type: filters.type, addedById: filters.addedById, q: filters.q, sort: filters.sort };
+  const opts = {
+    type: filters.type,
+    addedById: filters.addedById,
+    q: filters.q,
+    sort: filters.sort,
+  };
   const page = await orNone(
-    () => (filters.projectId ? appClient().drive.list(filters.projectId, opts) : appClient().drive.listAll(opts)),
+    () =>
+      filters.projectId
+        ? appClient().drive.list(filters.projectId, opts)
+        : appClient().drive.listAll(opts),
     { items: [] },
   );
   const items = page.items as ServerDriveFileRow[];
@@ -252,7 +284,8 @@ export type Sent =
 async function sendFromMain(path: string, file: File, options: DriveUploadOptions): Promise<Sent> {
   const bridge = window.stubwise!;
   const registered = await bridge.files!.register(file);
-  if (!registered.ok) return { ok: false, reason: registered.reason === "too_large" ? "too_large" : "failed" };
+  if (!registered.ok)
+    return { ok: false, reason: registered.reason === "too_large" ? "too_large" : "failed" };
   // Annullato mentre il main apriva il file: non si parte (il token scade da solo).
   if (options.signal?.aborted) return { ok: false, reason: "canceled" };
   const uploadId = crypto.randomUUID();
@@ -267,8 +300,13 @@ async function sendFromMain(path: string, file: File, options: DriveUploadOption
     if (out.reason === "too_large") return { ok: false, reason: "too_large" };
     if (out.reason === "canceled") return { ok: false, reason: "canceled" };
     if (out.code === "storage_not_configured") return { ok: false, reason: "storage_off" };
-    if (out.reason === "unsupported_type") return { ok: false, reason: "failed", code: "unsupported_type" };
-    return { ok: false, reason: "failed", ...(typeof out.code === "string" ? { code: out.code } : {}) };
+    if (out.reason === "unsupported_type")
+      return { ok: false, reason: "failed", code: "unsupported_type" };
+    return {
+      ok: false,
+      reason: "failed",
+      ...(typeof out.code === "string" ? { code: out.code } : {}),
+    };
   } finally {
     stop();
     options.signal?.removeEventListener("abort", abort);
@@ -300,7 +338,8 @@ function sendFromBrowser(path: string, file: File, options: DriveUploadOptions):
       }
       const code = (body as { code?: unknown } | null)?.code;
       if (xhr.status >= 200 && xhr.status < 300) return done({ ok: true, body });
-      if (xhr.status === 413 || code === "file_too_large") return done({ ok: false, reason: "too_large" });
+      if (xhr.status === 413 || code === "file_too_large")
+        return done({ ok: false, reason: "too_large" });
       if (code === "storage_not_configured") return done({ ok: false, reason: "storage_off" });
       done({ ok: false, reason: "failed", ...(typeof code === "string" ? { code } : {}) });
     };
@@ -316,8 +355,14 @@ function sendFromBrowser(path: string, file: File, options: DriveUploadOptions):
  * Manda un file a una rotta di caricamento: sul desktop dal main, sul web con
  * un XHR. Lo usano il Drive e gli allegati delle bozze della Posta.
  */
-export function sendFile(path: string, file: File, options: DriveUploadOptions = {}): Promise<Sent> {
-  return window.stubwise?.api?.upload ? sendFromMain(path, file, options) : sendFromBrowser(path, file, options);
+export function sendFile(
+  path: string,
+  file: File,
+  options: DriveUploadOptions = {},
+): Promise<Sent> {
+  return window.stubwise?.api?.upload
+    ? sendFromMain(path, file, options)
+    : sendFromBrowser(path, file, options);
 }
 
 /** Quanti caricamenti alla volta per finestra (orchestratrice, 11 nov 2026): gli altri in coda. */
@@ -362,7 +407,11 @@ function takeSlot(signal: AbortSignal | undefined): Promise<(() => void) | null>
  * rinomina il server («(2)»). Gli errori come nel prototipo: archiviazione
  * spenta `invalid: storage_off`, annullato `canceled`, il resto `failed`.
  */
-const uploadFiles: Drive["uploadFiles"] = async (projectId, files, options: DriveUploadOptions = {}) => {
+const uploadFiles: Drive["uploadFiles"] = async (
+  projectId,
+  files,
+  options: DriveUploadOptions = {},
+) => {
   const path = `/api/projects/${encodeURIComponent(projectId)}/drive/files`; // la rotta di `client.drive.upload`
   const results: DriveUploadResult[] = [];
   for (const input of files as DriveUploadInput[]) {
@@ -377,7 +426,9 @@ const uploadFiles: Drive["uploadFiles"] = async (projectId, files, options: Driv
     if (!release) throw new Error("canceled");
     let sent: Sent;
     try {
-      sent = fromMain ? await sendFromMain(path, input.file, options) : await sendFromBrowser(path, input.file, options);
+      sent = fromMain
+        ? await sendFromMain(path, input.file, options)
+        : await sendFromBrowser(path, input.file, options);
     } finally {
       release();
     }
@@ -401,10 +452,17 @@ const uploadFiles: Drive["uploadFiles"] = async (projectId, files, options: Driv
  * copia la fa il server. In un canale di progetto il progetto non si manda
  * (è il suo: un altro sarebbe `project_mismatch`); in un DM o in un generale sì.
  */
-const saveAttachmentToDrive: Drive["saveAttachmentToDrive"] = async (attachmentId, input, target) => {
+const saveAttachmentToDrive: Drive["saveAttachmentToDrive"] = async (
+  attachmentId,
+  input,
+  target,
+) => {
   try {
     const out = await write(() =>
-      appClient().drive.saveFromChat(attachmentId, target.channelProject ? {} : { projectId: target.projectId }),
+      appClient().drive.saveFromChat(
+        attachmentId,
+        target.channelProject ? {} : { projectId: target.projectId },
+      ),
     );
     const [row] = await rowsOf([out.file as ServerDriveFileRow]);
     return { name: input.name, file: row!, error: null };
@@ -426,7 +484,8 @@ const retryExtraction: Drive["retryExtraction"] = async (id) => {
     try {
       return await appClient().drive.retry(id);
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409) throw new Error("invalid: content not in error");
+      if (error instanceof ApiError && error.status === 409)
+        throw new Error("invalid: content not in error");
       throw error;
     }
   });

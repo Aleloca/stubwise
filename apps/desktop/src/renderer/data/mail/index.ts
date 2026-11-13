@@ -57,4 +57,4 @@ export {
   undoSend,
   whenSendSettled,
 } from "./send";
-export { getMeetingSummary, tasksBornFrom } from "./transcripts";
+export { getMeetingByNote, getMeetingSummary, tasksBornFrom, tasksOfNote } from "./transcripts";

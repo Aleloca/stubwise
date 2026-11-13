@@ -3,6 +3,7 @@ import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { TODAY } from "../../data/dates";
 import { useMeetingPrep, usePeople, useProjectStatuses, useTasks } from "../../data/queries";
+import type { MeetingDocReason } from "../../data/model";
 import type {
   FilterCriteria,
   MailThreadRow,
@@ -18,6 +19,8 @@ import { DueDate } from "../../tasks-ui/TaskRow";
 import { useToast } from "../../tasks-ui/Toast";
 import { queryState } from "../home/blocks/BlockSection";
 import { AlertGlyph, ImportantGlyph } from "../mail/glyphs";
+import { openOnGoogle } from "../mail/mailFeatures";
+import { isAppBuild } from "../../data/build";
 import { participantsLabel, DueLabel } from "../mail/ThreadRow";
 import { whenLabel } from "../mail/format";
 import { GeneratedTag } from "../overview/BriefCard";
@@ -318,25 +321,47 @@ function SummaryExcerpt({ text }: { text: string }) {
 }
 
 /** Il documento della trascrizione non si apre: lo dice, e «Open in Google Docs» (avviso del prototipo). */
-export function TranscriptUnreachable() {
+export function TranscriptUnreachable({
+  reason = null,
+  docUrl = null,
+}: {
+  /** Build app (F5a): perché il Doc non si legge. */
+  reason?: MeetingDocReason | null;
+  docUrl?: string | null;
+} = {}) {
   const { t } = useTranslation();
   const toast = useToast();
+  // Nella build app «Open in Google Docs» c'è solo col link, e mai se manca il
+  // permesso (non si aprirebbe); nel prototipo è l'avviso (review F5a, 8).
+  const canOpen = isAppBuild() ? !!docUrl && reason !== "scope_missing" : true;
   return (
     <p className="flex flex-wrap items-center gap-x-1.5 px-4 text-sm text-ink">
       <span className="text-warning">
         <AlertGlyph size={12} />
       </span>
-      {t("calendar.summary.unreachable")}
-      <span aria-hidden="true" className="text-ink-faint">
-        ·
-      </span>
-      <button
-        type="button"
-        onClick={() => toast.show(t("calendar.summary.docsNotice"))}
-        className="rounded-sm font-medium underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
-      >
-        {t("calendar.summary.openInDocs")}
-      </button>
+      {t(
+        reason === "scope_missing"
+          ? "mail.meeting.scopeMissing"
+          : reason === "deleted"
+            ? "mail.meeting.deleted"
+            : "calendar.summary.unreachable",
+      )}
+      {canOpen && (
+        <>
+          <span aria-hidden="true" className="text-ink-faint">
+            ·
+          </span>
+          <button
+            type="button"
+            onClick={() =>
+              docUrl ? openOnGoogle(docUrl) : toast.show(t("calendar.summary.docsNotice"))
+            }
+            className="rounded-sm font-medium underline decoration-ink/30 underline-offset-2 hover:decoration-ink"
+          >
+            {t("calendar.summary.openInDocs")}
+          </button>
+        </>
+      )}
     </p>
   );
 }

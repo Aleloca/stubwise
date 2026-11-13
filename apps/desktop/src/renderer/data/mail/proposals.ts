@@ -6,6 +6,7 @@ import { copy, gate, now, state } from "../store";
 import { forbidden, invalid, notFound, writer } from "../writer";
 import { canReadEvent } from "../calendar/visibility";
 import type {
+  MailMessage,
   MailProposal,
   MailProposalFilters,
   MailProposalOrigin,
@@ -22,6 +23,7 @@ import {
   canDoActions,
   canSeeMessage,
   canSeeMailProposal,
+  canSeeTranscript,
   isProjectMember,
   isProposalRecipient,
 } from "./visibility";
@@ -256,21 +258,35 @@ function originFor(me: string, p: MailProposal): MailProposalOrigin | null {
   const m = state.mailMessages
     .filter((x) => x.messageId === p.sourceId && canSeeMessage(me, x))
     .sort((a, b) => a.at.localeCompare(b.at))[0];
+  if (p.source === "transcript") return meetingOriginFor(me, p, m);
   if (!m) return null;
-  if (p.source === "email") {
-    return { kind: "email", threadId: m.threadId, from: m.from.name || m.from.email, subject: m.subject };
-  }
-  const transcript = state.meetingTranscripts.find((t) => t.messageId === m.id);
+  return { kind: "email", threadId: m.threadId, from: m.from.name || m.from.email, subject: m.subject };
+}
+
+/**
+ * L'origine di una proposta di riunione: la riunione (`noteId`) per ogni
+ * invitato che la vede; la conversazione solo se ha l'email (Q-A = a).
+ */
+function meetingOriginFor(
+  me: string,
+  p: MailProposal,
+  mine: MailMessage | undefined,
+): MailProposalOrigin | null {
+  const copies = state.mailMessages.filter((x) => x.messageId === p.sourceId);
+  const transcript = state.meetingTranscripts.find((t) => copies.some((x) => x.id === t.messageId));
+  if (!mine && !(transcript && canSeeTranscript(me, transcript))) return null;
   const e = transcript?.eventId
     ? state.calendarEvents.find((x) => x.id === transcript.eventId)
     : undefined;
   const event = e && canReadEvent(me, e) ? e : undefined;
+  const first = copies.sort((a, b) => a.at.localeCompare(b.at))[0];
   return {
     kind: "meeting",
     eventId: event?.id ?? null,
-    threadId: m.threadId,
-    title: event?.title ?? m.subject,
-    at: event?.startsAt ?? m.at,
+    threadId: mine?.threadId ?? null,
+    ...(transcript ? { noteId: transcript.messageId } : {}),
+    title: event?.title ?? mine?.subject ?? first?.subject ?? "",
+    at: event?.startsAt ?? mine?.at ?? first?.at ?? "",
   };
 }
 

@@ -293,6 +293,20 @@ describe("gli allegati di una bozza (salvati con lei)", () => {
     expect(r.droppedAttachments.map((a) => a.name)).toEqual(["vecchio.pdf"]);
   });
 
+  it("F5: un file Google del Drive va nella bozza come LINK (lo decide il server dalla sorgente), e resta un link", async () => {
+    const GDRV = "d2d2d2d2-2222-4222-8222-222222222222";
+    const { seen } = installFakeServer({
+      ...accounts,
+      "PUT /api/me/mail/drafts": { body: draft() },
+      [`POST /api/me/mail/drafts/${D1}/attachments/drive`]: {
+        body: draft({ attachments: [{ id: ATT, name: "Brief cliente", sizeBytes: 0, driveFileId: GDRV, as: "link" }] }),
+      },
+    });
+    const saved = await mail.saveDraft(input([{ id: `att-${GDRV}`, name: "Brief cliente", sizeBytes: 0, driveFileId: GDRV, as: "link" }]));
+    expect(seen.filter((r) => r.path.endsWith("/attachments/drive")).map((r) => r.body)).toEqual([{ driveFileId: GDRV }]);
+    expect(saved.attachments).toEqual([{ id: ATT, name: "Brief cliente", sizeBytes: 0, driveFileId: GDRV, as: "link" }]);
+  });
+
   it("un file del Drive si allega dal Drive; già sulla bozza non si riallega", async () => {
     const { seen } = installFakeServer({
       ...accounts,

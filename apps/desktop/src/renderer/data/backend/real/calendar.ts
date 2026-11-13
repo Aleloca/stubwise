@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import * as prep from "./meetingPrep";
 import {
   addDays,
   CALENDAR_LOOKBACK_DAYS,
@@ -226,6 +227,10 @@ export const calendarFunctions: Partial<Calendar> = {
   // F4: le scritture (crea, modifica, sposta, elimina, rispondi, progetto a
   // mano, Riprova/Annulla, libero/occupato, «Trova un orario»).
   ...calendarWriteFunctions,
+  // F5a: la scheda di preparazione, composta nel client (O, 46). Con un rinvio:
+  // `meetingPrep.ts` legge da questo namespace (e dalla Posta), e un import
+  // diretto qui sarebbe un ciclo letto prima dell'inizializzazione.
+  getMeetingPrep: (eventId) => prep.getMeetingPrep(eventId),
   onSaving,
   calendarWindow,
   spanOf,

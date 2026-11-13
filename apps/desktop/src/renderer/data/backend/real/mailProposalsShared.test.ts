@@ -263,3 +263,34 @@ describe("passare, spostare, scegliere il progetto, aggiungere i Contributor", (
     expect(await mail.confirmMailProposal(P1, { addOutsiders: [OTHER] })).toEqual({ status: "refused", ok: false, error: "escalation", missing: ["project.members.manage"] });
   });
 });
+
+// Review F5a (4): una risposta VERA di `proposals()` con una proposta di
+// riunione passa dal parse dell'api-client (kind meeting, meetingOrigin).
+describe("F5a: la proposta di una riunione dalla risposta vera", () => {
+  it("all'invitato senza copia: l'origine è la riunione, senza conversazione", async () => {
+    const NOTE = "99999999-6666-4666-8666-666666666666";
+    installFakeServer({
+      "GET /api/me/mail/proposals": (req) =>
+        query(req.path).get("status") === "open"
+          ? list([
+              proposal({
+                kind: "meeting",
+                messageId: null,
+                origin: null,
+                meetingOrigin: { noteId: NOTE, eventId: null, threadId: null, accountId: null, title: "Weekly review", at: "2026-11-11T16:00:00.000Z" },
+              }),
+            ])
+          : list([]),
+    });
+    const [v] = await mail.listMailDecisions();
+    expect(v!.proposal.source).toBe("transcript");
+    expect(v!.origin).toEqual({
+      kind: "meeting",
+      noteId: NOTE,
+      eventId: null,
+      threadId: null,
+      title: "Weekly review",
+      at: "2026-11-11T16:00:00.000Z",
+    });
+  });
+});

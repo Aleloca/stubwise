@@ -138,6 +138,14 @@ export function canSeeTranscript(me: string, t: MeetingTranscript): boolean {
  */
 export function isProposalRecipient(me: string, p: MailProposal): boolean {
   if (p.source === "calendar") return false;
+  if (p.source === "transcript") {
+    // Decisione M (12 nov 2026): della riunione decidono gli INVITATI, anche
+    // senza l'email di Gemini; senza un evento collegato, chi l'ha ricevuta
+    // (`canSeeTranscript` fa le due cose).
+    const copies = state.mailMessages.filter((m) => m.messageId === p.sourceId);
+    const notes = state.meetingTranscripts.filter((t) => copies.some((m) => m.id === t.messageId));
+    if (notes.length > 0) return notes.some((t) => canSeeTranscript(me, t));
+  }
   return state.mailMessages.some((m) => {
     if (m.messageId !== p.sourceId || !canSeeMessage(me, m)) return false;
     if (p.source !== "transcript") return true;

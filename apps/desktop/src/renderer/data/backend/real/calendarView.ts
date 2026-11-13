@@ -120,7 +120,9 @@ export function eventView(raw: CalendarEventItem): CalendarEventView {
     myResponse,
     isOrganizer,
     calendarEmail: e.accountEmail,
-    hasPrep: false,
+    // La scheda di preparazione la decide il SERVER (F5a: futuro, con un
+    // progetto che chi guarda vede); un server di prima non la manda.
+    hasPrep: e.hasPrep ?? false,
   };
 }
 

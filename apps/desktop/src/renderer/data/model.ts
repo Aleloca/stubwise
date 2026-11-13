@@ -2059,7 +2059,7 @@ export interface GoogleAccount {
 }
 
 /** Una funzione di Google che Stubwise usa e che dipende da uno scope (oggi: letto/non letto). */
-export type GoogleFeature = "markRead" | "calendarWrite";
+export type GoogleFeature = "markRead" | "calendarWrite" | "drive";
 
 /**
  * Una cartella Google collegata a un progetto: Stubwise la legge con
@@ -2512,6 +2512,9 @@ export interface MeetingTranscript {
   doc: "reading" | "ready" | "unreachable";
   transcript: string;
   summary: string | null;
+  /** Build app (F5a): il link al Google Doc e perché non si legge (o solo in parte). */
+  docUrl?: string | null;
+  docReason?: MeetingDocReason | null;
 }
 
 export type MailProposalSource = "email" | "transcript" | "calendar";
@@ -2594,7 +2597,19 @@ export interface MailProposalView {
 /** L'origine di una proposta della posta, come la vede chi guarda. */
 export type MailProposalOrigin =
   | { kind: "email"; threadId: string; from: string; subject: string }
-  | { kind: "meeting"; eventId: string | null; threadId: string; title: string; at: string }
+  | {
+      kind: "meeting";
+      eventId: string | null;
+      /**
+       * La conversazione della MIA copia dell'email di Gemini; `null` per un
+       * invitato che non l'ha ricevuta (decisione M, Q1): per lui c'è la
+       * riunione (`noteId`, Q-A = a).
+       */
+      threadId: string | null;
+      noteId?: string;
+      title: string;
+      at: string;
+    }
   | { kind: "calendar"; eventId: string; title: string; startsAt: string; allDay: boolean };
 
 /** Una bozza, per persona e conversazione (`threadId: null` = email nuova). */
@@ -2770,7 +2785,18 @@ export interface MeetingNote {
   summary: string | null;
   transcript: string | null;
   event: { id: string; title: string; startsAt: string; endsAt: string; people: number } | null;
+  /**
+   * Build app (F5a): la riunione sul server (`GET /api/me/meetings/:noteId`),
+   * il link al Google Doc («Open the transcript»: il testo non arriva mai al
+   * client) e perché il Doc non si legge o si legge solo in parte.
+   */
+  noteId?: string;
+  docUrl?: string | null;
+  docReason?: MeetingDocReason | null;
 }
+
+/** Perché il Doc di Gemini non si legge (o solo in parte, `too_long`). */
+export type MeetingDocReason = "scope_missing" | "not_shared" | "deleted" | "too_long";
 
 /** Una conversazione aperta: i messaggi che chi guarda vede, dal più vecchio. */
 export interface MailThreadDetail {

@@ -409,8 +409,12 @@ describe("modelli per operazione", () => {
     expect(rows.map((r) => r.operation)).not.toContain("plugin_smoke");
     // 17 con `claude_chat` (la conversazione libera con Claude, chat fetta 1); 18 con
     // `drive_summary` (i riassunti dei file del Drive, F3 dell'area 5, gruppo docs);
-    // 19 con `mail_draft` (la bozza di Claude per la Posta, F3 dell'area 6, gruppo mail).
-    expect(rows).toHaveLength(19);
+    // 19 con `mail_draft` (la bozza di Claude per la Posta, F3 dell'area 6, gruppo mail);
+    // 20 con `meeting_summary` (riassunto e proposte di una riunione registrata, F5a, gruppo mail).
+    expect(rows).toHaveLength(20);
+    expect(rows.find((r) => r.operation === "meeting_summary")).toMatchObject({ group: "mail" });
+    expect(en.usage.operations.meeting_summary).toBe("Recorded meeting summaries");
+    expect(it_.usage.operations.meeting_summary).toBe("Riassunti delle riunioni registrate");
     expect(rows.find((r) => r.operation === "mail_draft")).toMatchObject({ group: "mail" });
     // La sua etichetta c'è, in tutte e due le lingue (Usage e Impostazioni → AI la mostrano).
     expect(en.usage.operations.mail_draft).toBe("Email drafts by Claude");

@@ -1583,6 +1583,7 @@
         "fromCalendar": "From your calendar · {{title}}",
         "openEmail": "Open email",
         "openEvent": "Open event",
+        "openMeeting": "Open the meeting",
         "confirmed": "Confirmed for {{code}}",
         "ignored": "Proposal for {{code}} ignored",
         "handed": "Passed to {{code}}",
@@ -5936,7 +5937,8 @@
       "scopesMissing": "Until you reconnect, Stubwise can't {{what}}.",
       "feature": {
         "markRead": "mark mail as read or unread",
-        "calendarWrite": "create or change your meetings"
+        "calendarWrite": "create or change your meetings",
+        "drive": "use your Google Drive files and meeting notes"
       }
     },
     "expired": {
@@ -6148,7 +6150,10 @@
       "transcriptNotice": "In the app this opens the transcript in Google Docs.",
       "reading": "Reading the transcript…",
       "unreachable": "Stubwise couldn't open the transcript. It may have been moved or not shared with you.",
-      "notVisible": "The summary and the transcript are visible only to the people who were in the meeting."
+      "notVisible": "The summary and the transcript are visible only to the people who were in the meeting.",
+      "scopeMissing": "Stubwise isn't allowed to read Google Drive yet: reconnect your Google account to open the transcript.",
+      "deleted": "The transcript was deleted from Google Drive.",
+      "tooLong": "The transcript is long: the summary covers only its first part."
     },
     "proposal": {
       "proposes_one": "Stubwise proposes · {{count}} change",
