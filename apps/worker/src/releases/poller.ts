@@ -1,17 +1,8 @@
-import {
-  environmentServers,
-  gitAccounts,
-  projectEnvironments,
-  releaseCiRuns,
-  releases,
-  repositories,
-  serverMetrics,
-  type Db,
-} from "@stubwise/db";
+import { gitAccounts, releaseCiRuns, releases, repositories, type Db } from "@stubwise/db";
 import { getProvider, type CommitRuns, type ProjectGitConfig } from "@stubwise/git";
-import { decryptGitCredentials, publishNotification } from "@stubwise/notifications";
-import { releaseStatusOf, sameCommit, type DiscoveredService, type ReleaseStatus } from "@stubwise/shared";
-import { and, desc, eq, gte, inArray, isNull, lt, sql } from "drizzle-orm";
+import { decryptGitCredentials, productionForStatus, publishNotification, releaseProductionOf } from "@stubwise/notifications";
+import { releaseStatusOf, sameCommit, type ReleaseStatus } from "@stubwise/shared";
+import { and, eq, gte, isNull, lt, sql } from "drizzle-orm";
 
 /**
  * LO STATO DI UN RILASCIO DOPO IL MERGE (area 8, F1, S4). Un giro rilegge i
@@ -120,9 +111,9 @@ async function pollOne(deps: ReleasePollerDeps, row: Row, now: Date): Promise<vo
   }
 
   // 2) Il commit in produzione: il server di produzione di QUESTA repository (R-L2).
-  const production = await productionOf(deps.db, release.projectId, release.repositoryId);
+  const production = await releaseProductionOf(deps.db, release.projectId, release.repositoryId);
   let seenInProductionAt = release.seenInProductionAt;
-  if (!seenInProductionAt && production.server && production.services.some((s) => sameCommit(s.commitSha, release.mergeSha))) {
+  if (!seenInProductionAt && production.serverId && production.services.some((s) => sameCommit(s.commitSha, release.mergeSha))) {
     seenInProductionAt = now;
     await deps.db.update(releases).set({ seenInProductionAt: now }).where(and(eq(releases.id, release.id), isNull(releases.seenInProductionAt)));
   }
@@ -141,9 +132,7 @@ async function pollOne(deps: ReleasePollerDeps, row: Row, now: Date): Promise<vo
     seenInProductionAt: seenInProductionAt?.toISOString() ?? null,
     now: now.toISOString(),
     pipeline: repository.ciProvider === null ? null : repository.releasePipeline,
-    production: production.environment
-      ? { hasServers: production.server !== null, server: production.server ? { reportedSha: production.reportedSha, reportedAt: production.reportedAt } : null }
-      : null,
+    production: productionForStatus(production),
   });
 
   // 4) L'avviso al primo fallimento, una volta sola.
@@ -177,27 +166,6 @@ async function pollOne(deps: ReleasePollerDeps, row: Row, now: Date): Promise<vo
   if (status.kind === "succeeded" || status.kind === "failed" || status.kind === "in_production") {
     await deps.db.update(releases).set({ runsSettledAt: now }).where(eq(releases.id, release.id));
   }
-}
-
-/** L'ambiente di produzione del progetto e il server della repository, con l'ultimo campione dell'agente. */
-async function productionOf(
-  db: Db,
-  projectId: string,
-  repositoryId: string,
-): Promise<{ environment: boolean; server: string | null; services: DiscoveredService[]; reportedSha: string | null; reportedAt: string | null }> {
-  const [env] = await db.select({ id: projectEnvironments.id }).from(projectEnvironments).where(and(eq(projectEnvironments.projectId, projectId), eq(projectEnvironments.kind, "production")));
-  if (!env) return { environment: false, server: null, services: [], reportedSha: null, reportedAt: null };
-  const [link] = await db.select({ serverId: environmentServers.serverId }).from(environmentServers).where(and(eq(environmentServers.environmentId, env.id), eq(environmentServers.repositoryId, repositoryId)));
-  if (!link) return { environment: true, server: null, services: [], reportedSha: null, reportedAt: null };
-  const [sample] = await db
-    .select({ services: serverMetrics.services, ts: serverMetrics.ts })
-    .from(serverMetrics)
-    .where(inArray(serverMetrics.serverId, [link.serverId]))
-    .orderBy(desc(serverMetrics.ts))
-    .limit(1);
-  const services = (sample?.services ?? []) as DiscoveredService[];
-  const reported = services.find((s) => s.commitSha)?.commitSha ?? null;
-  return { environment: true, server: link.serverId, services, reportedSha: reported, reportedAt: sample?.ts.toISOString() ?? null };
 }
 
 export interface StartReleasePollerOptions extends ReleasePollerDeps {

@@ -6,6 +6,7 @@ import { projectIdsWithPermission } from "../auth/access.js";
 import { fromTicket, ticketVisible } from "../auth/project-resolvers.js";
 import { apiError } from "../errors.js";
 import { listReleaseQueue, releasePullRequest } from "../services/release.js";
+import { fixRelease, getRelease, listProjectReleases, ReleaseError } from "../services/releases.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const releaseParamsSchema = z.object({ id: z.uuid(), repositoryId: z.uuid() });
@@ -20,6 +21,27 @@ const releaseParamsSchema = z.object({ id: z.uuid(), repositoryId: z.uuid() });
  */
 export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
   const app = instance.withTypeProvider<ZodTypeProvider>();
+
+  // Area 8, F1 (S5): i rilasci. Leggere: chi vede il progetto (404 altrimenti,
+  // nel servizio). «Fai sistemare a Claude»: `tickets.create`, nel servizio.
+  const handle = async <T>(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, fn: () => Promise<T>) => {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error instanceof ReleaseError) return reply.code(error.status).send({ code: error.code, message: error.message });
+      throw error;
+    }
+  };
+  app.get("/projects/:projectId/releases", { config: { access: { kind: "user" } }, schema: { params: z.object({ projectId: z.uuid() }) } }, async (request, reply) =>
+    handle(reply, async () => ({ items: await listProjectReleases(app.db, request.user!, request.params.projectId) })),
+  );
+  const codeParams = z.object({ code: z.string().min(1).max(40) });
+  app.get("/releases/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
+    handle(reply, () => getRelease(app.db, request.user!, request.params.code)),
+  );
+  app.post("/releases/:code/fix", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
+    handle(reply, async () => reply.code(201).send(await fixRelease(app.db, request.user!, request.params.code))),
+  );
 
   app.get(
     "/release-queue",
