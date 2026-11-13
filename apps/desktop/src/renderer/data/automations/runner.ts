@@ -1,3 +1,5 @@
+import { NO_APPROVER_REASON, NO_APPROVER_WHY } from "../../domain/automations/runRules";
+export { NO_APPROVER_REASON, NO_APPROVER_WHY };
 import {
   advance,
   initialState,
@@ -251,10 +253,6 @@ export function failIfNoApprover(run: AutomationRun): boolean {
   return true;
 }
 
-/** La motivazione di `no_approver` (R-J11), anche nella prova. */
-export const NO_APPROVER_WHY: ReasonCode = { code: "noApprover" };
-export const NO_APPROVER_REASON =
-  "Nessuno può approvare questo passo: chi è indicato non c'è, o non vede il progetto. Va cambiato chi approva, poi si può riprovare.";
 
 /** R-J11 su tutte le esecuzioni ferme su un'approvazione. */
 export function sweepApprovals(): void {

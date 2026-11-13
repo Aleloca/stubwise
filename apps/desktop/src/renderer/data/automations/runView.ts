@@ -1,3 +1,5 @@
+import { hideProject } from "../../domain/automations/runRules";
+export { hideProject };
 import { visitSteps } from "@stubwise/shared";
 import { copy, state, visibleProjectIds } from "../store";
 import type { AutomationRun, ReasonCode, RunLogEntry } from "../types";
@@ -51,11 +53,6 @@ function hiddenTarget(me: string, run: AutomationRun, e: RunLogEntry): string | 
   return id && (!target || !canSeeAutomation(me, target)) ? id : undefined;
 }
 
-/** R-J12: un `progetto` (dati di una riga, anteprima) che chi guarda non vede diventa `""`. */
-export function hideProject(o: Record<string, unknown>, visible: ReadonlySet<string>): void {
-  if (typeof o.progetto === "string" && o.progetto !== "" && !visible.has(o.progetto))
-    o.progetto = "";
-}
 
 /** Una task creata da un passo e poi eliminata (area 10a): il suo progetto. */
 const deletedTaskProject = (code: string): string | null =>

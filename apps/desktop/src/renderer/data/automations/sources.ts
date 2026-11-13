@@ -1,6 +1,7 @@
-import { chainAllows as chainRule, lookup, evaluate } from "@stubwise/shared";
+import { leavesOf, passesStartFilter, startFilterChecks } from "../../domain/automations/runRules";
+export { leavesOf, passesStartFilter, startFilterChecks };
+import { chainAllows as chainRule } from "@stubwise/shared";
 import {
-  copy,
   onAutomationSignal,
   state,
   visibleProjectIds,
@@ -9,8 +10,6 @@ import {
 import type {
   Automation,
   AutomationTrigger,
-  Condition,
-  FilterCheck,
   ProjectRequest,
   Task,
 } from "../types";
@@ -139,34 +138,8 @@ export function happenings(signal: AutomationSignal): Happening[] {
   }
 }
 
-/**
- * Il filtro dell'inizio vale per l'evento? Una regola sola: la usano l'avvio
- * vero (`startsOn`) e la prova (D3, area 10b), così non possono divergere.
- */
-export function passesStartFilter(t: AutomationTrigger, payload: Record<string, unknown>): boolean {
-  return t.kind !== "stubwise" || !t.filter || evaluate(t.filter, (key) => lookup(payload, key));
-}
 
-/** I confronti di una condizione, anche dentro i gruppi. */
-export const leavesOf = (c: Condition): Condition[] =>
-  c.all || c.any ? [...(c.all ?? []), ...(c.any ?? [])].flatMap(leavesOf) : [c];
 
-/**
- * L'esito di ogni confronto del filtro dell'inizio sull'evento, col valore
- * letto (D3): la prova lo mostra, la pagina non lo ricalcola.
- */
-export function startFilterChecks(
-  t: AutomationTrigger,
-  payload: Record<string, unknown>,
-): FilterCheck[] {
-  if (t.kind !== "stubwise" || !t.filter) return [];
-  const read = (key: string) => lookup(payload, key);
-  return leavesOf(t.filter).map((condition) => ({
-    condition: copy(condition),
-    value: condition.left && "ref" in condition.left ? (read(condition.left.ref) ?? null) : null,
-    matches: evaluate(condition, read),
-  }));
-}
 
 /** L'automazione parte per questo evento? Proprietario, progetto, caselle, filtro. */
 function startsOn(a: Automation, h: Happening): boolean {
