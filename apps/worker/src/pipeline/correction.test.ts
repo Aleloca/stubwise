@@ -2218,6 +2218,36 @@ describe("runCorrection su una PR ADOTTATA (6 ott 2026)", () => {
       await expectNoPush(f, job, "solo analisi");
     });
 
+    it("review F1: il provider non risponde PRIMA del worktree → fail-closed, nessun agente, niente push", async () => {
+      const f = await makeFixture({ branch: ADOPTED, adopted: true });
+      const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+      const runner = applyingRunner(f);
+      const provider = makeProvider();
+      provider.getPullRequestInfo.mockRejectedValue(new Error("503 dal provider"));
+      expect(await runCorrection(makeDeps(f, runner, provider), job)).toBe("failed");
+      expect(runner.calls).toHaveLength(0);
+      await expectNoPush(f, job, "non è verificabile");
+    });
+
+    it("review F1: verificata prima del worktree, il provider non risponde PRIMA DEL PUSH → niente push", async () => {
+      const f = await makeFixture({ branch: ADOPTED, adopted: true });
+      const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+      const provider = makeProvider();
+      provider.getPullRequestInfo.mockResolvedValueOnce(openInfo(f)).mockRejectedValue(new Error("timeout"));
+      expect(await runCorrection(makeDeps(f, applyingRunner(f), provider), job)).toBe("failed");
+      await expectNoPush(f, job, "prima del push");
+    });
+
+    it("review F1: il ramo di rilascio (dal DB) si controlla anche col provider giù", async () => {
+      const f = await makeFixture({ branch: ADOPTED, adopted: true });
+      await testDb.db.update(repositories).set({ releaseBranch: ADOPTED }).where(eq(repositories.id, f.repositoryId));
+      const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
+      const provider = makeProvider();
+      provider.getPullRequestInfo.mockRejectedValue(new Error("503"));
+      expect(await runCorrection(makeDeps(f, applyingRunner(f), provider), job)).toBe("failed");
+      await expectNoPush(f, job, "release_branch");
+    });
+
     it("il branch è diventato il ramo di rilascio del repository: niente push", async () => {
       const f = await makeFixture({ branch: ADOPTED, adopted: true });
       await testDb.db.update(repositories).set({ releaseBranch: ADOPTED }).where(eq(repositories.id, f.repositoryId));
@@ -2306,16 +2336,19 @@ describe("runCorrection su una PR ADOTTATA (6 ott 2026)", () => {
     expect(pendingAfter!.status).toBe("cancelled");
   });
 
-  it("controllo PRIMA del worktree con il provider che non risponde: si prosegue (fail-open), il push resta guardato", async () => {
+  it("controllo PRIMA del worktree con il provider che non risponde: fail-closed (review area 8 F1, era fail-open), niente agente né push", async () => {
     const f = await makeFixture({ branch: ADOPTED, adopted: true });
     const { job } = await seedCorrection(f, { reviewId: await seedReview(f), trigger: "stubwise" });
     const provider = makeProvider();
     provider.getPullRequestInfo
       .mockRejectedValueOnce(new Error("ECONNRESET"))
       .mockResolvedValue({ state: "open", sourceBranch: ADOPTED, targetBranch: "main", headSha: f.prSha, fromFork: false });
+    const runner = applyingRunner(f);
 
-    expect(await runCorrection(makeDeps(f, applyingRunner(f), provider), job)).toBe("pushed");
-    expect(provider.getPullRequestInfo).toHaveBeenCalledTimes(2);
+    expect(await runCorrection(makeDeps(f, runner, provider), job)).toBe("failed");
+    expect(runner.calls).toHaveLength(0);
+    expect(await upstreamHead(f)).toBe(f.prSha);
+    expect(provider.getPullRequestInfo).toHaveBeenCalledTimes(1);
   });
 
   it("branch PROTETTO sulla repository prima di partire: niente agente, niente push, fallita col motivo", async () => {

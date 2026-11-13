@@ -221,6 +221,20 @@ class AdoptedBranchMismatchError extends Error {
  * mismatch (niente push, pending della stessa PR annullata).
  */
 /**
+ * La PR adottata o di un collega che il provider NON ha potuto verificare
+ * (review della F1): fail-closed, come vuole l'invariante «Le PR dei
+ * colleghi» — senza la prova di DOVE sta il branch non si lavora né si
+ * pusha. Gestita come un branch che non combacia (niente push, la pending
+ * della stessa PR si annulla).
+ */
+class AdoptedPrUnverifiableError extends Error {
+  constructor(when: "prima del worktree" | "prima del push", detail: string) {
+    super(`la PR non è verificabile dal provider ${when} (${detail}): niente push`);
+    this.name = "AdoptedPrUnverifiableError";
+  }
+}
+
+/**
  * La PR di un collega che l'impostazione non lascia più correggere (area 8,
  * F1, S8): «Solo analisi» sulla PR, il repository «spento» o «solo analisi»
  * per un giro automatico — magari scelto a correzione in corso. Niente push.
@@ -1040,28 +1054,33 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (info.state === "open" && info.sourceBranch !== branch) {
       throw new AdoptedBranchMismatchError(branch, `ora è su ${info.sourceBranch}`);
     }
-    if (info.state === "open") {
-      // Le regole del ramo delle PR dei colleghi (area 8, F1, S8), anche
-      // quelle che possono cambiare dopo l'adozione: il target della PR, il
-      // ramo di rilascio del repository, il default. I protetti li dice
-      // `assertNotProtected` (dal DB), il fork è sopra.
-      const [repo] = await db
-        .select({ defaultBranch: repositories.defaultBranch, releaseBranch: repositories.releaseBranch })
-        .from(repositories)
-        .where(eq(repositories.id, correction.repositoryId));
-      const defaultBranch = repo?.defaultBranch ?? mirrorProject.defaultBranch;
-      const block = colleaguePrBlock({
-        branch,
-        baseBranch: info.targetBranch,
-        defaultBranch,
-        releaseBranch: repo?.releaseBranch ?? defaultBranch,
-        fromFork: false,
-        branchProtected: false,
-        ownTaskCode: null,
-      });
-      if (block) throw new AdoptedBranchMismatchError(branch, `ramo vietato: ${block}`);
+    // Il target della PR lo sa solo il provider (area 8, F1, S8).
+    if (info.state === "open" && info.targetBranch === branch) {
+      throw new AdoptedBranchMismatchError(branch, "ramo vietato: target_branch");
     }
     return info.state;
+  };
+  // Le regole del ramo che vivono nel DB (area 8, F1, review): il default e il
+  // ramo di rilascio del repository, e mai un `stubwise/…`. Girano SEMPRE,
+  // qualunque cosa dica (o non dica) il provider, prima del worktree e prima
+  // del push. I protetti li dice `assertNotProtected`.
+  const assertBranchAllowedByRepo = async (): Promise<void> => {
+    const [repo] = await db
+      .select({ defaultBranch: repositories.defaultBranch, releaseBranch: repositories.releaseBranch })
+      .from(repositories)
+      .where(eq(repositories.id, correction.repositoryId));
+    const defaultBranch = repo?.defaultBranch ?? mirrorProject.defaultBranch;
+    const block = colleaguePrBlock({
+      branch,
+      // Il target lo controlla `checkAdoptedPr`: qui nessun ramo base.
+      baseBranch: "",
+      defaultBranch,
+      releaseBranch: repo?.releaseBranch ?? defaultBranch,
+      fromFork: false,
+      branchProtected: false,
+      ownTaskCode: null,
+    });
+    if (block) throw new AdoptedBranchMismatchError(branch, `ramo vietato: ${block}`);
   };
   // L'impostazione delle PR dei colleghi (area 8, F1, S8), riletta prima del
   // worktree e prima del push: «Solo analisi» acceso a correzione in corso la
@@ -1095,15 +1114,15 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
   try {
     if (adopted) {
       await assertNotProtected();
+      await assertBranchAllowedByRepo();
       await assertColleagueAllowed();
-      let state: "open" | "closed" | "unknown" = "unknown";
+      let state: "open" | "closed";
       try {
         state = await checkAdoptedPr();
       } catch (err) {
         if (err instanceof AdoptedBranchMismatchError || err instanceof AdoptedBranchProtectedError) throw err;
-        await logLine(
-          `PR adottata non verificabile prima del worktree (${err instanceof Error ? err.message : String(err)}): proseguo, il push la ricontrolla`,
-        );
+        // Fail-closed (review F1): senza la prova del provider non si lavora.
+        throw new AdoptedPrUnverifiableError("prima del worktree", err instanceof Error ? err.message : String(err));
       }
       if (state === "closed") throw new PrNoLongerOpenError();
     }
@@ -1224,6 +1243,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
           // fa danni; un errore transitorio che buttasse via il lavoro sì.
           if (adopted) {
             await assertNotProtected();
+            await assertBranchAllowedByRepo();
             await assertColleagueAllowed();
           }
           let prState: "open" | "closed" | "unknown" = "unknown";
@@ -1233,6 +1253,10 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
               : await provider.getPullRequestState(mirrorProject, correction.prNumber);
           } catch (err) {
             if (err instanceof AdoptedBranchMismatchError || err instanceof AdoptedBranchProtectedError) throw err;
+            // Sul branch di una PERSONA (adottata o di un collega) è fail-closed
+            // (review F1): niente push senza la prova del provider. Sul NOSTRO
+            // branch resta fail-open: il push è in avanti e non fa danni.
+            if (adopted) throw new AdoptedPrUnverifiableError("prima del push", err instanceof Error ? err.message : String(err));
             await logLine(
               `stato della PR non verificabile (${err instanceof Error ? err.message : String(err)}): pusho comunque`,
             );
@@ -1416,6 +1440,7 @@ export async function runCorrection(deps: CorrectionDeps, job: AiJob): Promise<C
     if (
       err instanceof AdoptedBranchMismatchError ||
       err instanceof AdoptedBranchProtectedError ||
+      err instanceof AdoptedPrUnverifiableError ||
       err instanceof ColleagueAnalysisOnlyError
     ) {
       // Nessuna review della head attuale: il branch non è più quello giusto.
