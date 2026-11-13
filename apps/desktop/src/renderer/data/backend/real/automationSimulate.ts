@@ -1,4 +1,5 @@
 import { ApiError } from "@stubwise/api-client";
+import { planEmail, sameConversation } from "@stubwise/shared";
 import type {
   Automation,
   SimulationContext,
@@ -59,7 +60,7 @@ export function contextWorld(ctx: SimulationContext, now: () => string): SimWorl
   const notBlank = (what: string, value: string) => {
     if (value.trim() === "") throw new Error(`${what} vuoto`);
   };
-  return {
+  const world: SimWorld = {
     person: (id) => people.get(id),
     isDeactivated: (id) => people.get(id)?.deactivated ?? false,
     holdersOfRole: (projectId, role) => projects.get(projectId)?.roleHolders[role] ?? [],
@@ -94,7 +95,36 @@ export function contextWorld(ctx: SimulationContext, now: () => string): SimWorl
     canSeeAutomation: (_personId, automationId) => automationId === ctx.automation.id,
     // Gli errori li calcola il server per questa versione e questo proprietario.
     configErrors: () => ctx.configErrors,
+    // F2 (R5): l'email, coi controlli del motore condiviso e la casella che
+    // il server ha risolto per il proprietario (`ownerMailbox`; assente = nessuna).
+    outside: {
+      previewEmail(sim, _a, eff, where) {
+        const p = planEmail(
+          { ...world, ownerMailbox: () => ctx.ownerMailbox ?? { ok: false, reason: "none" } },
+          eff,
+          sim.ownerId,
+          sim.preview.emails.length,
+          null,
+        );
+        if (!p.ok) return p;
+        const first = sameConversation(sim.preview.emails, p.plan.to);
+        return {
+          ok: true,
+          preview: {
+            kind: "email",
+            ...where,
+            from: p.plan.from,
+            to: p.plan.to,
+            subject: p.plan.subject,
+            body: p.plan.body,
+            attachments: [],
+            sameConversationAs: first ? { stepId: first.stepId, path: first.path } : null,
+          },
+        };
+      },
+    },
   };
+  return world;
 }
 
 interface Trial {
