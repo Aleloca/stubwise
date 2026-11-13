@@ -39,13 +39,6 @@ export interface PrsApi {
   ): Promise<{ analysisOnly: { byId: string | null; at: string } | null }>;
 }
 
-/** I campi che il server aggiunge dopo (facoltativi): l'elenco delle correzioni, «on staging», `owner/repo`. */
-type PullExtras = {
-  corrections: OpenPull["corrections"] | PrAutoCorrection[];
-  onStaging?: boolean;
-  repositoryFullName?: string;
-};
-
 const CHECKS: Record<string, OpenPrView["checks"]> = {
   success: "passing",
   // Nessun controllo configurato: niente che fallisca (la regola della coda).
@@ -93,7 +86,7 @@ export function createRealPrs(
   // Le pagine vanno per id della PR; le rotte per ticket, repository e numero.
   const refs = new Map<string, PrRef>();
 
-  function viewOf(projectId: string, projectCode: string, p: OpenPull & PullExtras): OpenPrView {
+  function viewOf(projectId: string, projectCode: string, p: OpenPull): OpenPrView {
     const prNumber = p.prNumber ?? 0;
     const id = `${p.repositoryId}#${prNumber}`;
     refs.set(id, { projectId, ticketId: p.ticketId, repositoryId: p.repositoryId, prNumber });
@@ -131,7 +124,20 @@ export function createRealPrs(
               issues: p.issues ?? [],
               at: p.createdAt,
             },
-      corrections: Array.isArray(p.corrections) ? p.corrections : [],
+      // La storia dal server, dalla più vecchia (senza le annullate); assente
+      // da un server di prima: nessuna riga, mai righe ricostruite da un conteggio.
+      corrections: (p.correctionHistory ?? []).map(
+        (c): PrAutoCorrection => ({
+          id: c.id,
+          trigger: c.trigger,
+          byId: c.byId,
+          fromSha: "",
+          state: c.state,
+          commitSha: c.commitSha,
+          why: c.why ?? "",
+          at: c.at,
+        }),
+      ),
       checks: CHECKS[p.checks.status] ?? "unreadable",
       mergeable: p.mergeable ?? null,
       state: "open",

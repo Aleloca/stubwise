@@ -91,6 +91,45 @@ describe("le PR aperte della build app (area 8, F1)", () => {
     });
   });
 
+  it("la storia delle correzioni dal server (dalla più vecchia), «on staging» e owner/repo", async () => {
+    const { api } = fakeApi({
+      pulls: async () => ({
+        items: [
+          pull({
+            repositoryFullName: "audin/audin-app",
+            onStaging: true,
+            correctionHistory: [
+              {
+                id: "c1",
+                trigger: "auto",
+                byId: null,
+                state: "pushed",
+                commitSha: null,
+                why: "Fix test",
+                at: "2026-11-13T09:10:00.000Z",
+              },
+              {
+                id: "c2",
+                trigger: "person",
+                byId: "ada",
+                state: "running",
+                commitSha: null,
+                why: "Rinomina",
+                at: "2026-11-13T09:20:00.000Z",
+              },
+            ],
+          }),
+        ],
+      }),
+    });
+    const [pr] = await createRealPrs(api, codeOf, release).listOpenPrs("p1");
+    expect(pr).toMatchObject({ repo: "audin/audin-app", onStaging: true });
+    expect(pr!.corrections.map((c) => [c.id, c.trigger, c.byId, c.state, c.why])).toEqual([
+      ["c1", "auto", null, "pushed", "Fix test"],
+      ["c2", "person", "ada", "running", "Rinomina"],
+    ]);
+  });
+
   it("una PR esterna è di un collega, senza task né autore inventato; i controlli illeggibili lo dicono", async () => {
     const { api } = fakeApi({
       pulls: async () => ({
