@@ -11,7 +11,7 @@ import {
   projects,
   type Db,
 } from "@stubwise/db";
-import { automationMailboxOf, loadPlanWorld, milestoneNameTaken, publishNotification } from "@stubwise/notifications";
+import { automationMailboxOf, automationOwnerInScope, loadPlanWorld, milestoneNameTaken, publishNotification } from "@stubwise/notifications";
 import {
   failed,
   MAIL_OUTGOING_CHANNEL,
@@ -90,6 +90,10 @@ const notAvailable = (): EffectOutcome =>
 const noOwner = (): EffectOutcome =>
   failed("permission_lost", { code: "noOwner" }, "Permesso perso: l'automazione non ha un proprietario.");
 
+/** F4: il proprietario di una generale non ha più `automations.general.manage` (ricontrollato a ogni effetto). */
+const generalLost = (): EffectOutcome =>
+  failed("permission_lost", { code: "generalLost" }, "Permesso perso: il proprietario non gestisce più le automazioni generali.");
+
 /** Le persone e i reparti che un'azione nomina (il mondo li carica). */
 function namedIn(eff: ActionEffect): { personIds: string[]; departmentIds: string[] } {
   const personIds: string[] = [];
@@ -111,6 +115,8 @@ async function projectCode(tx: Tx, projectId: string): Promise<string> {
 export async function executeEffect(eff: EffectRequest, env: EffectEnv): Promise<EffectOutcome | EffectPending> {
   if (eff.kind === "claude" || eff.kind === "resolve_project") return notAvailable();
   if (eff.kind === "startAutomation") return notAvailable();
+  // F4: una generale agisce solo finché il proprietario ha il permesso d'istanza (prima di ogni effetto, email compresa).
+  if (env.automation.projectId === null && env.automation.ownerId && !(await automationOwnerInScope(env.db, env.automation.ownerId, null))) return generalLost();
   if (eff.kind === "sendEmail") return executeEmail(eff, env);
   const owner = env.automation.ownerId;
   if (!owner) return noOwner();

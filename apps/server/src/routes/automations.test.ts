@@ -140,9 +140,10 @@ describe("i codici e la bozza", () => {
 });
 
 describe("pubblicare e accendere", () => {
-  it("con un errore di configurazione (un passo fuori dalla fetta, «avvia un'altra automazione») → 409 config con gli issues, e niente cambia", async () => {
+  it("con un errore di configurazione (un pezzo fuori dalla fetta: un'email con allegati, F2-5 = a) → 409 config con gli issues, e niente cambia", async () => {
     const { p, lead } = await setup();
-    const email: Step = { id: "s1", kind: "startAutomation", automationId: randomUUID(), approval: auto } as Step;
+    // Fino alla F3 era «avvia un'altra automazione», che la F4 rende disponibile.
+    const email: Step = { id: "s1", kind: "sendEmail", to: "cliente@b.it", subject: "Ciao", body: "Testo", attachRefs: ["contratto"], approval: auto } as Step;
     const a = await created(lead, p.id, flowOf([email]));
     const res = await call(lead.headers, "POST", `/automations/${a.code}/publish`, {});
     expect(res.statusCode).toBe(409);
@@ -157,7 +158,7 @@ describe("pubblicare e accendere", () => {
   it("review F1, M5: un salvataggio concorrente non fa pubblicare un flusso non validato (la pubblicazione rilegge la bozza sotto il lock)", async () => {
     const { p, lead } = await setup();
     const a = await created(lead, p.id, flowOf([createTask()]));
-    const email: Step = { id: "s1", kind: "startAutomation", automationId: randomUUID(), approval: auto } as Step;
+    const email: Step = { id: "s1", kind: "sendEmail", to: "cliente@b.it", subject: "Ciao", body: "Testo", attachRefs: ["contratto"], approval: auto } as Step;
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     let locked!: () => void;

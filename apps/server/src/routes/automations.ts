@@ -99,14 +99,16 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
     "/automations",
     {
       config: { access: ACCESS },
-      schema: { querystring: z.object({ project: z.uuid().optional(), status: statusSchema.optional(), owner: z.uuid().optional(), mine: z.coerce.boolean().optional() }) },
+      // `general=true` (F4): solo le generali, a chi ha il permesso d'istanza.
+      schema: { querystring: z.object({ project: z.uuid().optional(), general: z.coerce.boolean().optional(), status: statusSchema.optional(), owner: z.uuid().optional(), mine: z.coerce.boolean().optional() }) },
     },
     async (request, reply) => handle(reply, async () => ({ items: await listAutomations(app.db, me(request), request.query) })),
   );
 
   app.post(
     "/automations",
-    { config: { access: ACCESS }, schema: { body: z.object({ name: z.string().max(200), projectId: z.uuid(), description: z.string().max(2000).optional(), flow: flowSchema.optional() }) } },
+    // `projectId: null` (F4): una generale, con `automations.general.manage` d'istanza.
+    { config: { access: ACCESS }, schema: { body: z.object({ name: z.string().max(200), projectId: z.uuid().nullable(), description: z.string().max(2000).optional(), flow: flowSchema.optional() }) } },
     async (request, reply) => handle(reply, async () => reply.code(201).send(await createAutomation(app.db, me(request), request.body))),
   );
 
@@ -116,7 +118,19 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
 
   app.patch(
     "/automations/:code",
-    { config: { access: ACCESS }, schema: { params: codeParams, body: z.object({ name: z.string().max(200).optional(), description: z.string().max(2000).optional() }) } },
+    {
+      config: { access: ACCESS },
+      schema: {
+        params: codeParams,
+        body: z.object({
+          name: z.string().max(200).optional(),
+          description: z.string().max(2000).optional(),
+          // F4-2 = c: il tetto del webhook (null = il default; oltre il massimo d'istanza vale il massimo).
+          webhookPerMinute: z.number().int().positive().max(1_000_000).nullable().optional(),
+          webhookPerDay: z.number().int().positive().max(100_000_000).nullable().optional(),
+        }),
+      },
+    },
     async (request, reply) => handle(reply, () => patchAutomation(app.db, me(request), request.params.code, request.body)),
   );
 

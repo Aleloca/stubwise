@@ -4,6 +4,7 @@ import {
   AUTOMATION_F1_AVAILABILITY,
   AUTOMATION_F2_AVAILABILITY,
   AUTOMATION_F3_AVAILABILITY,
+  AUTOMATION_F4_AVAILABILITY,
   CHAIN_MAX,
   chainAllows,
 } from "./availability.js";
@@ -130,6 +131,19 @@ describe("la disponibilità della F3: i passi di Claude", () => {
     expect(f3(flow({ steps: [start] }))).toEqual(["0"]);
     expect(f3(flow({ trigger: { kind: "source", sourceId: "s", event: "webhook" } }))).toEqual(["trigger"]);
     expect(f3(flow({ steps: [{ ...sendEmail("s1"), attachRefs: ["f"] } as Step] }))).toEqual(["0"]);
+  });
+});
+
+describe("la disponibilità della F4: sorgenti e «avvia un'altra»", () => {
+  const f4 = (f: AutomationFlow) => notAvailable(f, ctx({ available: AUTOMATION_F4_AVAILABILITY }));
+  const start = { id: "a", kind: "startAutomation", automationId: "x", approval: { mode: "auto" } } as Step;
+
+  it("l'inizio da una sorgente e «avvia un'altra» si scelgono", () => {
+    expect(f4(flow({ trigger: { kind: "source", sourceId: "s", event: "webhook" }, steps: [start] }))).toEqual([]);
+  });
+
+  it("gli allegati delle email restano fuori", () => {
+    expect(f4(flow({ steps: [{ ...sendEmail("s1"), attachRefs: ["f"] } as Step] }))).toEqual(["0"]);
   });
 });
 

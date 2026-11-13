@@ -483,7 +483,7 @@ async function waitForAi(turn: Turn, out: { kind: "budget" } | { kind: "provider
     await note(turn, { outcome: "waiting", reason: "Budget mensile dell'istanza esaurito: il passo di Claude riparte da solo quando torna.", why: { code: "monthlyBudget" } });
     const owner = turn.automation.ownerId;
     if (owner) {
-      await publishNotification(turn.deps.db, { ...eventOf(turn, "automation.notify"), message: "Budget mensile esaurito: l'esecuzione è ferma al passo di Claude e riparte da sola." }, { projectId: turn.automation.projectId, accountUserId: owner });
+      await publishNotification(turn.deps.db, { ...eventOf(turn, "automation.notify"), message: "Budget mensile esaurito: l'esecuzione è ferma al passo di Claude e riparte da sola." }, { projectId: turn.automation.projectId ?? undefined, accountUserId: owner });
     }
     return;
   }
@@ -725,12 +725,12 @@ const eventOf = (turn: Turn, kind: "automation.approval" | "automation.failed" |
 async function notifyOwner(turn: Turn, kind: "automation.failed" | "automation.paused"): Promise<void> {
   const owner = turn.automation.ownerId;
   if (!owner) return;
-  await publishNotification(turn.deps.db, eventOf(turn, kind), { projectId: turn.automation.projectId, accountUserId: owner });
+  await publishNotification(turn.deps.db, eventOf(turn, kind), { projectId: turn.automation.projectId ?? undefined, accountUserId: owner });
 }
 
 async function notifyApprovers(turn: Turn, approverIds: readonly string[]): Promise<void> {
   const path = cursorOf(turn.run).path;
   for (const personId of approverIds) {
-    await publishNotification(turn.deps.db, { ...eventOf(turn, "automation.approval"), ...(path ? { path } : {}) }, { projectId: turn.automation.projectId, accountUserId: personId });
+    await publishNotification(turn.deps.db, { ...eventOf(turn, "automation.approval"), ...(path ? { path } : {}) }, { projectId: turn.automation.projectId ?? undefined, accountUserId: personId });
   }
 }

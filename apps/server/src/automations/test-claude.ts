@@ -136,7 +136,7 @@ export async function runTestClaude(db: Db, llm: ChatLlm, viewer: Viewer, code: 
   }
 }
 
-async function testStep(db: Db, llm: ChatLlm, viewer: Viewer, a: { id: string; projectId: string }, step: ClaudeStep, vars: Record<string, unknown>) {
+async function testStep(db: Db, llm: ChatLlm, viewer: Viewer, a: { id: string; projectId: string | null }, step: ClaudeStep, vars: Record<string, unknown>) {
   if ((await aiBudgetState(db)).exhausted) throw new AutomationError(409, "budget", "The monthly AI budget is used up");
   const { prompt, truncated } = buildClaudePrompt(step, inputsOf(step, vars));
   let text = "";

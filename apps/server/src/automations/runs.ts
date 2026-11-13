@@ -28,8 +28,8 @@ import {
   type RunLogEntry,
   type RunStatus,
 } from "@stubwise/shared";
-import { and, asc, desc, eq, inArray, lt, or, sql } from "drizzle-orm";
-import { AutomationError, canManage, flowFor, forbidden, notFound, seen, sees, visibleAutomation, type AutomationRecord, type Viewer } from "./model.js";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { AutomationError, canManage, flowFor, forbidden, GENERAL_PERMISSION, managesGeneral, notFound, seen, sees, seesAutomation, visibleAutomation, type AutomationRecord, type Viewer } from "./model.js";
 
 /**
  * LE ESECUZIONI nel server (area 7, fetta 1; la specifica è
@@ -242,7 +242,7 @@ export async function visibleRun(db: Db, viewer: Viewer, code: string, n: number
   const [r] = await db.select().from(automationRuns).where(and(eq(automationRuns.automationId, a.id), eq(automationRuns.n, n)));
   if (!r) throw notFound();
   const deciders = await decidersOf(db, r, a);
-  if (!sees(await seen(db, viewer), a.projectId) && !deciders.includes(viewer.id)) throw notFound();
+  if (!seesAutomation(await seen(db, viewer), viewer, a) && !deciders.includes(viewer.id)) throw notFound();
   return { run: r, automation: a, deciders };
 }
 
@@ -251,9 +251,9 @@ export async function getRun(db: Db, viewer: Viewer, code: string, n: number): P
   const visible = await seen(db, viewer);
   const row = await runRowOf(db, viewer, run, automation, visible, { decider: deciders.includes(viewer.id) });
   const flow = (await flowOfRun(db, run)) ?? { trigger: { kind: "manual" as const }, steps: [], titleTemplate: "" };
-  const seesAutomation = sees(visible, automation.projectId);
-  const manage = seesAutomation && (await canManage(db, viewer, automation.projectId));
-  const [parent] = run.parentRunId && seesAutomation ? await db.select().from(automationRuns).where(eq(automationRuns.id, run.parentRunId)) : [];
+  const seesIt = seesAutomation(visible, viewer, automation);
+  const manage = seesIt && (await canManage(db, viewer, automation.projectId));
+  const [parent] = run.parentRunId && seesIt ? await db.select().from(automationRuns).where(eq(automationRuns.id, run.parentRunId)) : [];
   const parentAutomation = parent ? (await db.select().from(automations).where(eq(automations.id, parent.automationId)))[0] : undefined;
   const children = await db
     .select({ id: automationRuns.id, n: automationRuns.n, status: automationRuns.status, code: automations.code, projectId: automations.projectId })
@@ -270,8 +270,8 @@ export async function getRun(db: Db, viewer: Viewer, code: string, n: number): P
       approve: run.status === "waiting_approval" && deciders.includes(viewer.id),
       chooseProject: run.status === "waiting_project" && deciders.includes(viewer.id),
     },
-    parent: parent && parentAutomation && sees(visible, parentAutomation.projectId) ? { id: parent.id, code: runCode(parentAutomation, parent.n) } : null,
-    children: children.filter((c) => sees(visible, c.projectId)).map((c) => ({ id: c.id, code: `${c.code} #${c.n}`, status: c.status })),
+    parent: parent && parentAutomation && seesAutomation(visible, viewer, parentAutomation) ? { id: parent.id, code: runCode(parentAutomation, parent.n) } : null,
+    children: children.filter((c) => seesAutomation(visible, viewer, c)).map((c) => ({ id: c.id, code: `${c.code} #${c.n}`, status: c.status })),
     pendingEffect: await pendingEffectOf(db, visible, run, automation, row, flow),
     // Un input di chi guarda in coda, non ancora applicato dal worker (review del renderer, I2).
     inputQueued:
@@ -292,8 +292,12 @@ export async function listRuns(
   q: { automation?: string; project?: string; status?: RunStatus; cursor?: string; limit?: number; log?: "none" },
 ): Promise<{ items: AutomationRunRow[]; nextCursor: string | null }> {
   const visible = await seen(db, viewer);
-  if (visible !== "all" && visible.size === 0) return { items: [], nextCursor: null };
+  const generals = managesGeneral(viewer);
+  if (visible !== "all" && visible.size === 0 && !generals) return { items: [], nextCursor: null };
   const limit = Math.min(q.limit ?? 50, 200);
+  // Le esecuzioni delle generali solo a chi le vede (R-G5), filtrate nella WHERE.
+  const projectScope = visible === "all" ? isNotNull(automations.projectId) : visible.size > 0 ? inArray(automations.projectId, [...visible]) : sql`false`;
+  const scope = generals ? or(projectScope, isNull(automations.projectId)) : projectScope;
   const [cAt, cId] = q.cursor ? q.cursor.split("|") : [];
   const rows = await db
     .select({ run: automationRuns, automation: automations })
@@ -301,7 +305,7 @@ export async function listRuns(
     .innerJoin(automations, eq(automations.id, automationRuns.automationId))
     .where(
       and(
-        visible === "all" ? undefined : inArray(automations.projectId, [...visible]),
+        scope,
         q.automation ? eq(automations.code, q.automation.toUpperCase()) : undefined,
         q.project ? eq(automations.projectId, q.project) : undefined,
         q.status ? eq(automationRuns.status, q.status as never) : undefined,
@@ -389,7 +393,7 @@ export async function chooseRunProject(db: Db, viewer: Viewer, code: string, n: 
 /** Annulla, Riprova, Salta: chi gestisce l'automazione; l'esecutore li applica. */
 export async function controlRun(db: Db, viewer: Viewer, code: string, n: number, op: "cancel" | "retry" | "skip"): Promise<void> {
   const a = await visibleAutomation(db, viewer, code);
-  if (!(await canManage(db, viewer, a.projectId))) throw forbidden();
+  if (!(await canManage(db, viewer, a.projectId))) throw forbidden(a.projectId === null ? GENERAL_PERMISSION : undefined);
   const [run] = await db.select().from(automationRuns).where(and(eq(automationRuns.automationId, a.id), eq(automationRuns.n, n)));
   if (!run) throw notFound();
   if (op === "cancel" && TERMINAL.has(run.status)) throw new AutomationError(409, "finished", "The run has already finished");
@@ -449,7 +453,7 @@ export async function pendingEffectOf(
     case "createTask": {
       const eff = effectOf();
       if (!eff) return null;
-      const world = await loadPlanWorld(db, { ownerId: owner, projectIds: [a.projectId, ...(projectId ? [projectId] : [])] });
+      const world = await loadPlanWorld(db, { ownerId: owner, projectIds: [a.projectId, projectId].filter((p): p is string => !!p) });
       const plan = planTask(world, eff, automation, owner, now);
       if (!plan.ok) return null;
       const { assignee } = plan.plan;
@@ -472,7 +476,7 @@ export async function pendingEffectOf(
     case "createMilestone": {
       const eff = effectOf();
       if (!eff) return null;
-      const world = await loadPlanWorld(db, { ownerId: owner, projectIds: [a.projectId, ...(projectId ? [projectId] : [])] });
+      const world = await loadPlanWorld(db, { ownerId: owner, projectIds: [a.projectId, projectId].filter((p): p is string => !!p) });
       const plan = planMilestone(world, eff, automation, owner, now);
       if (!plan.ok) return null;
       return { kind: "milestone", ...where, project: await projectFor(db, visible, projectId), name: str(preview.nome), dueDate: plan.plan.dueDate, dueInDays: step.dueInDays };

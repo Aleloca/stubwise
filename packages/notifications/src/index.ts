@@ -77,8 +77,10 @@ export {
 export { unreadCount } from "./unread.js";
 export { notificationVisibleToRecipient } from "./inbox-visibility.js";
 export {
+  automationOwnerInScope,
   cardPermissions,
   cardPermissionsOf,
+  instancePermissionsOfUser,
   projectPermissionsByProject,
   projectPermissionsOfUser,
   projectViewerIds,

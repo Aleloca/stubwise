@@ -60,6 +60,7 @@ import {
   type NotificationKind,
   type SnoozeUntil,
   userIsFullAdmin,
+  instancePermissionsOfUser,
 } from "@stubwise/notifications";
 import {
   inboxGoogleSchema,
@@ -1899,6 +1900,10 @@ async function automationCardsFor(db: Db, userId: string, rows: { id: string; ki
   const [admin] = await db.select({ yes: sql<boolean>`${userIsFullAdmin(sql`${userId}::uuid`)}` }).from(sql`(select 1) as one`);
   const memberOf = new Set((await db.select({ projectId: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.userId, userId))).map((m) => m.projectId));
   const sees = (projectId: string) => admin?.yes === true || memberOf.has(projectId);
+  // Area 7, F4: una generale la vede solo chi ha il permesso d'istanza delle generali (R-G5).
+  const seesGeneral = autoRows.some((a) => a.projectId === null)
+    ? (await instancePermissionsOfUser(db, userId)).has("automations.general.manage")
+    : false;
   for (const { id, kind, e } of events) {
     const a = autoRows.find((x) => x.id === e.automationId);
     const run = runRows.find((x) => x.id === e.runId) ?? null;
@@ -1907,7 +1912,7 @@ async function automationCardsFor(db: Db, userId: string, rows: { id: string; ki
       continue;
     }
     const deciders = run ? await automationDecidersOf(db, run, a) : [];
-    if (!sees(a.projectId) && !deciders.includes(userId)) {
+    if (!(a.projectId === null ? seesGeneral : sees(a.projectId)) && !deciders.includes(userId)) {
       out.set(id, null);
       continue;
     }

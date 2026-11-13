@@ -58,6 +58,31 @@ export async function projectPermissionsOfUser(
 }
 
 /**
+ * I permessi d'istanza effettivi di `userId` (un full admin li ha tutti);
+ * vuoti per un utente inesistente. Area 7, F4: servono a chi agisce per conto
+ * di un id senza sessione (le generali: `automations.general.manage`).
+ */
+export async function instancePermissionsOfUser(db: DbOrTx, userId: string): Promise<ReadonlySet<InstancePermission>> {
+  const [row] = await db
+    .select({ permissions: roles.permissions })
+    .from(users)
+    .innerJoin(roles, eq(roles.id, users.instanceRoleId))
+    .where(eq(users.id, userId));
+  return effectiveInstancePermissions(row?.permissions ?? []);
+}
+
+/**
+ * Il proprietario può far agire l'automazione nel suo perimetro? Una di
+ * progetto: vede il progetto. Una GENERALE (F4, `projectId` null): ha ancora
+ * `automations.general.manage` d'istanza. La stessa domanda per il
+ * consumatore e per l'esecutore.
+ */
+export async function automationOwnerInScope(db: DbOrTx, ownerId: string, projectId: string | null): Promise<boolean> {
+  if (projectId === null) return (await instancePermissionsOfUser(db, ownerId)).has("automations.general.manage");
+  return (await projectPermissionsOfUser(db, ownerId, projectId)) !== null;
+}
+
+/**
  * Come {@link projectPermissionsOfUser}, per più progetti in UNA query (una
  * pagina d'inbox non ne fa una per card). Ogni progetto chiesto è nella mappa;
  * quelli che l'utente non vede valgono `null`. Un progetto inesistente per un
