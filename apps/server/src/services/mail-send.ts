@@ -57,8 +57,10 @@ async function preflight(tx: Parameters<Parameters<Db["transaction"]>[0]>[0], dr
   const bad = recipients.find((a) => !ADDRESS.test(a.email.trim()));
   if (bad) return { error: "invalid_address", address: bad.email };
   const attachments = await tx.select().from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draft.id));
-  if (attachments.length > MAIL_MAX_ATTACHMENTS) return { error: "too_many_attachments" };
-  if (attachments.reduce((sum, a) => sum + a.sizeBytes, 0) > MAIL_MAX_ATTACHMENT_BYTES) return { error: "too_large" };
+  // F5b (B6): i link a Google non contano nei limiti (non sono allegati).
+  const copies = attachments.filter((a) => a.as !== "link");
+  if (copies.length > MAIL_MAX_ATTACHMENTS) return { error: "too_many_attachments" };
+  if (copies.reduce((sum, a) => sum + a.sizeBytes, 0) > MAIL_MAX_ATTACHMENT_BYTES) return { error: "too_large" };
   // Un allegato senza più né il suo oggetto né il file del Drive (eliminato).
   if (attachments.some((a) => !a.storageKey && !a.driveFileId)) return { error: "attachment_unavailable" };
   // Un file del Drive che chi scrive non vede più (o eliminato) non parte, anche

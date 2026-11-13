@@ -1,5 +1,6 @@
 import { driveFiles, emailMessages, googleAccounts, mailDraftAttachments, mailDrafts, type Db } from "@stubwise/db";
 import { randomUUID } from "node:crypto";
+import { driveFileUnreadableSql } from "../drive/service.js";
 import type { ObjectStorage } from "../storage/index.js";
 import {
   buildMimeMessage,
@@ -16,7 +17,7 @@ import {
 } from "@stubwise/google";
 import { loadGoogleAccountCredentials } from "@stubwise/google/credentials";
 import { normalizeAddress, projectPermissionsOfUser } from "@stubwise/notifications";
-import type { MailComposeAddress, MailComposeMode, MailDraft } from "@stubwise/shared";
+import { googleOpenUrl, type MailComposeAddress, type MailComposeMode, type MailDraft } from "@stubwise/shared";
 import { and, desc, eq, isNull, lte, sql } from "drizzle-orm";
 
 /**
@@ -369,8 +370,9 @@ export async function saveDraft(
   }
   if (!accessToken) return { error: "account_unavailable" };
 
-  const files = existing ? await attachmentBytes(db, storage, userId, existing.id) : [];
-  if (!Array.isArray(files)) return files;
+  const parts = existing ? await attachmentBytes(db, storage, userId, existing.id) : { files: [], links: [] };
+  if ("error" in parts) return parts;
+  const files = parts.files;
   // La copia vale un giorno anche qui (review F3, punto 9): ogni salvataggio
   // (anche l'autosalvataggio) non rilegge Google.
   const [cached] = await db.select({ at: googleAccounts.signatureFetchedAt }).from(googleAccounts).where(eq(googleAccounts.id, input.accountId));
@@ -387,7 +389,8 @@ export async function saveDraft(
       to: input.to,
       cc: input.cc,
       subject: input.subject,
-      body: text,
+      // F5b (B6): i file di Google come righe in fondo al testo, mai come allegati.
+      body: parts.links.length > 0 ? `${text}\n\n${parts.links.map((l) => `${l.name}: ${l.url}`).join("\n")}` : text,
       inReplyTo,
       references: inReplyTo ? await referenceChain(db, input.accountId, input.threadId, input.replyToMessageId) : [],
       attachments: files,
@@ -464,9 +467,22 @@ async function attachmentBytes(
   storage: ObjectStorage | null,
   userId: string,
   draftId: string,
-): Promise<{ name: string; mimeType: string; content: Buffer }[] | DraftError> {
-  const rows = await db.select().from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draftId));
-  if (rows.length === 0) return [];
+): Promise<{ files: { name: string; mimeType: string; content: Buffer }[]; links: { name: string; url: string }[] } | DraftError> {
+  const all = await db.select().from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draftId));
+  // F5b (B6): i link (file di Google) non hanno byte: una riga nel corpo, col permesso di chi scrive a ogni salvataggio.
+  const links: { name: string; url: string }[] = [];
+  for (const row of all.filter((r) => r.as === "link")) {
+    const [file] = row.driveFileId
+      ? await db
+          .select({ projectId: driveFiles.projectId, mime: driveFiles.mime, googleFileId: driveFiles.googleFileId, hidden: driveFiles.hidden, unreadable: driveFileUnreadableSql })
+          .from(driveFiles)
+          .where(and(eq(driveFiles.id, row.driveFileId), isNull(driveFiles.deletedAt)))
+      : [];
+    if (!file?.googleFileId || !usableBy(file, await projectPermissionsOfUser(db, userId, file.projectId))) return { error: "attachment_unavailable" };
+    links.push({ name: row.name, url: googleOpenUrl(file.mime, file.googleFileId) });
+  }
+  const rows = all.filter((r) => r.as !== "link");
+  if (rows.length === 0) return { files: [], links };
   if (!storage) return { error: "storage_not_configured" };
   const out: { name: string; mimeType: string; content: Buffer }[] = [];
   for (const row of rows) {
@@ -485,7 +501,7 @@ async function attachmentBytes(
       return { error: "attachment_unavailable" };
     }
   }
-  return out;
+  return { files: out, links };
 }
 
 /** La bozza di chi scrive, salvata (gli allegati si attaccano a una bozza che c'è). */
@@ -510,7 +526,8 @@ async function rewrite(db: Db, encryptionKey: Buffer, client: MailComposeClient,
 }
 
 async function withinLimits(db: Db, draftId: string, addBytes: number): Promise<DraftError | null> {
-  const rows = await db.select({ size: mailDraftAttachments.sizeBytes }).from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draftId));
+  // F5b (B6): i link a Google non contano.
+  const rows = (await db.select({ size: mailDraftAttachments.sizeBytes, as: mailDraftAttachments.as }).from(mailDraftAttachments).where(eq(mailDraftAttachments.draftId, draftId))).filter((r) => r.as !== "link");
   if (rows.length + 1 > DRAFT_MAX_ATTACHMENTS) return { error: "too_many_attachments" };
   if (rows.reduce((sum, r) => sum + r.size, 0) + addBytes > DRAFT_MAX_ATTACHMENT_BYTES) return { error: "too_large" };
   return null;
@@ -545,6 +562,16 @@ export async function attachUploadedFile(
   return saved;
 }
 
+/**
+ * Un file del Drive si allega solo se chi scrive lo VEDE (review della F5b,
+ * minore): il progetto, un nascosto solo con `drive.manage`, e mai un
+ * riferimento che non si legge (sparito da Google o di una cartella scaduta).
+ */
+function usableBy(file: { hidden: boolean; unreadable: boolean }, perms: ReadonlySet<string> | null): boolean {
+  if (!perms || file.unreadable) return false;
+  return !file.hidden || perms.has("drive.manage");
+}
+
 /** Un file del Drive del progetto, come copia (letto a ogni salvataggio, col permesso di chi scrive). */
 export async function attachDriveFile(
   db: Db,
@@ -558,16 +585,22 @@ export async function attachDriveFile(
   const row = await ownDraft(db, userId, draftId);
   if (!row) return { error: "not_found" };
   const [file] = await db
-    .select({ id: driveFiles.id, name: driveFiles.name, mime: driveFiles.mime, sizeBytes: driveFiles.sizeBytes, projectId: driveFiles.projectId })
+    .select({ id: driveFiles.id, name: driveFiles.name, mime: driveFiles.mime, sizeBytes: driveFiles.sizeBytes, projectId: driveFiles.projectId, source: driveFiles.source, hidden: driveFiles.hidden, unreadable: driveFileUnreadableSql })
     .from(driveFiles)
     .where(and(eq(driveFiles.id, driveFileId), isNull(driveFiles.deletedAt)));
   // Un file che chi scrive non vede è come uno che non c'è.
-  if (!file || !(await projectPermissionsOfUser(db, userId, file.projectId))) return { error: "attachment_unavailable" };
-  const over = await withinLimits(db, draftId, file.sizeBytes);
-  if (over) return over;
+  if (!file || !usableBy(file, await projectPermissionsOfUser(db, userId, file.projectId))) return { error: "attachment_unavailable" };
+  // Area 6, F5b (B6): un file di Google entra come LINK — fuori dai 10 file e
+  // dai 25 MB, una riga nel corpo, nessun allegato MIME; chi lo riceve lo apre
+  // coi permessi che Google gli dà.
+  const link = file.source === "google";
+  if (!link) {
+    const over = await withinLimits(db, draftId, file.sizeBytes ?? 0);
+    if (over) return over;
+  }
   const [attachment] = await db
     .insert(mailDraftAttachments)
-    .values({ draftId, name: file.name, sizeBytes: file.sizeBytes, mimeType: file.mime, driveFileId: file.id })
+    .values({ draftId, name: file.name, sizeBytes: link ? 0 : (file.sizeBytes ?? 0), mimeType: file.mime, driveFileId: file.id, as: link ? "link" : "copy" })
     .returning();
   const saved = await rewrite(db, encryptionKey, client, storage, userId, row);
   if ("error" in saved) await db.delete(mailDraftAttachments).where(eq(mailDraftAttachments.id, attachment!.id));

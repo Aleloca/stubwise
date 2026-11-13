@@ -4,6 +4,10 @@ import {
   driveFileRowSchema,
   driveFileListSchema,
   driveUploadResultSchema,
+  driveFolderLinkListSchema,
+  driveFolderLinkSchema,
+  googleFileChoiceListSchema,
+  googleFolderChoiceListSchema,
 } from "@stubwise/shared";
 import type { DriveFileType, SaveToDriveInput } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
@@ -17,6 +21,10 @@ export interface DriveListOptions {
   q?: string;
   sort?: "most_used" | "recent" | "name";
   limit?: number;
+  /** F5b: `upload` o `google`. */
+  source?: "upload" | "google";
+  /** F5b: solo i nascosti (con `drive.manage`). */
+  hidden?: boolean;
 }
 
 /**
@@ -28,7 +36,7 @@ export interface DriveListOptions {
  */
 export function createDriveEndpoints(request: ApiRequest) {
   const listQuery = (o: DriveListOptions & { projectId?: string }) =>
-    toQuery({ projectId: o.projectId, type: o.type, addedById: o.addedById, q: o.q, sort: o.sort, limit: o.limit });
+    toQuery({ projectId: o.projectId, type: o.type, addedById: o.addedById, q: o.q, sort: o.sort, limit: o.limit, source: o.source, hidden: o.hidden === undefined ? undefined : String(o.hidden) });
   return {
     /** L'elenco del Drive di un progetto; 404 a chi non è membro. */
     list(projectId: string, opts: DriveListOptions = {}) {
@@ -84,6 +92,57 @@ export function createDriveEndpoints(request: ApiRequest) {
      */
     retry(id: string) {
       return request("POST", `/api/drive/files/${seg(id)}/retry`, {}, driveFileRowSchema);
+    },
+
+    // --- Area 6, F5b: Google Drive nel Drive dei progetti -----------------
+    // Errori: 409 `google_not_connected` / `google_scope_missing` (+`missing`)
+    // / `token_expired` / `already_in_project` / `already_linked` /
+    // `link_expired` / `use_hide` / `unavailable`, 502 `google_unavailable`,
+    // 403 `forbidden` (il permesso del Drive), 404 `not_found`.
+
+    /** Il picker «Aggiungi da Google Drive»: il MIO Drive (`drive.upload`). */
+    googleFiles(projectId: string, q?: string) {
+      return request("GET", `/api/projects/${seg(projectId)}/drive/google/files${toQuery({ q })}`, undefined, googleFileChoiceListSchema);
+    },
+    /** Aggiunge un file del mio Drive come riferimento (una volta per progetto). */
+    addGoogleFile(projectId: string, googleFileId: string) {
+      return request("POST", `/api/projects/${seg(projectId)}/drive/google/files`, { googleFileId }, driveFileRowSchema);
+    },
+    /** La ricerca fuori dai progetti: i file del mio Drive in nessun progetto che vedo. */
+    googleOutside(q?: string) {
+      return request("GET", `/api/drive/google/outside${toQuery({ q })}`, undefined, googleFileChoiceListSchema);
+    },
+    /** Le cartelle del mio Drive («Collega una cartella», `drive.manage`). */
+    googleFolders(projectId: string, q?: string) {
+      return request("GET", `/api/projects/${seg(projectId)}/drive/google/folders${toQuery({ q })}`, undefined, googleFolderChoiceListSchema);
+    },
+    /** Collega una cartella (`drive.manage`): la sincronizzazione la fa il worker. */
+    linkFolder(projectId: string, googleFolderId: string) {
+      return request("POST", `/api/projects/${seg(projectId)}/drive/google/folders`, { googleFolderId }, driveFolderLinkSchema);
+    },
+    /** Le cartelle collegate a un progetto. */
+    folderLinks(projectId: string) {
+      return request("GET", `/api/projects/${seg(projectId)}/drive/google/links`, undefined, driveFolderLinkListSchema);
+    },
+    /** Le cartelle collegate da me (quelle che smettono di aggiornarsi se scollego Google). */
+    myFolderLinks() {
+      return request("GET", "/api/drive/google/links", undefined, driveFolderLinkListSchema);
+    },
+    /** «Sincronizza ora» (`drive.manage`). */
+    syncFolder(linkId: string) {
+      return request("POST", `/api/drive/google/folders/${seg(linkId)}/sync`, undefined, driveFolderLinkSchema);
+    },
+    /** Scollega (`drive.manage`): i suoi file se ne vanno dal progetto. */
+    unlinkFolder(linkId: string): Promise<void> {
+      return request("DELETE", `/api/drive/google/folders/${seg(linkId)}`);
+    },
+    /** Nasconde o rimostra un file di cartella (`drive.manage`). */
+    setHidden(id: string, hidden: boolean) {
+      return request("PUT", `/api/drive/files/${seg(id)}/hidden`, { hidden }, driveFileRowSchema);
+    },
+    /** «Apri in Google Drive»: 302 su Google (conta l'apertura). Il percorso, lo segue chi apre. */
+    openGooglePath(id: string): string {
+      return `/api/drive/files/${seg(id)}/open`;
     },
   };
 }

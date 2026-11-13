@@ -125,13 +125,13 @@ describe("caricare", () => {
     expect(body).toMatchObject({ keptBoth: false, requestedName: "Contratto.pdf", file: { name: "Contratto.pdf", type: "pdf" } });
     expect(body.file.code).toMatch(new RegExp(`^${projectCode}-F\\d+$`));
     const [row] = await t.db.select().from(driveFiles).where(eq(driveFiles.id, body.file.id));
-    expect(row!.storageKey.startsWith(`drive/${projectId}/`)).toBe(true);
+    expect(row!.storageKey!.startsWith(`drive/${projectId}/`)).toBe(true);
     expect(row!.sizeBytes).toBe(content.length);
     // Lo storage ha ricevuto uno stream a pezzi, non un buffer intero.
     expect(storage.putObjectStream).toHaveBeenCalledTimes(1);
     expect(storage.putObject).not.toHaveBeenCalled();
     expect(storage.chunks.length).toBeGreaterThan(1);
-    expect(storage.objects.get(row!.storageKey)!.length).toBe(content.length);
+    expect(storage.objects.get(row!.storageKey!)!.length).toBe(content.length);
   });
 
   it("un file di 100 MB non sta mai tutto in memoria: la memoria dei buffer cresce di poco, non del file", async () => {
@@ -293,7 +293,7 @@ describe("eliminare", () => {
     expect((await list(dev)).map((r) => r.id)).not.toContain(mine.file.id);
     const [row] = await t.db.select().from(driveFiles).where(eq(driveFiles.id, mine.file.id));
     expect(row).toMatchObject({ storagePurged: true });
-    expect(storage.objects.has(row!.storageKey)).toBe(false);
+    expect(storage.objects.has(row!.storageKey!)).toBe(false);
     const again = (await upload(dev, projectId, { filename: "mio.pdf", contentType: "application/pdf" })).json() as Upload;
     expect(Number(again.file.code.split("-F")[1])).toBeGreaterThan(Number(mine.file.code.split("-F")[1]));
   });
@@ -310,7 +310,7 @@ describe("eliminare", () => {
     expect(await purged()).toBe(false);
     await purgeDeletedDriveObjects(t.db, storage, () => undefined);
     expect(await purged()).toBe(true);
-    expect(storage.objects.has(row!.storageKey)).toBe(false);
+    expect(storage.objects.has(row!.storageKey!)).toBe(false);
   });
 });
 

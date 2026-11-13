@@ -4188,3 +4188,40 @@ deploy o di un rollback che la tocca.
   = 'unreachable' group by 1;` (`not_verified` alto = l'email di Gemini ha
   una forma che la verifica non riconosce: da guardare prima di allentarla).
 
+- **«Integrazione area 6, fetta 5b: Google Drive nel Drive dei progetti» (13
+  nov 2026)**: branch `feat/area6-f5b` (sopra `feat/area6-f5-fix`), le
+  scelte nel piano della F5 («F5b — le scelte di 72»). Migrazione **0167**:
+  `drive_folder_links` (col lease e la richiesta di sincronizzazione); su
+  `drive_files` `source` `google`, `google_file_id`, `google_owner`,
+  `google_account_id`, `folder_link_id`, `hidden`, `modified_at`,
+  `unavailable`, `storage_key`/`size_bytes` nullable coi CHECK, il nome unico
+  solo per i caricati; `drive_opens.via` `google`. Nessuna env nuova: la
+  sincronizzazione delle cartelle gira sull'intervallo del job del contenuto
+  (`DRIVE_CONTENT_POLL_SECONDS`). Ordine: **server** (healthy, 0167
+  applicata), poi **worker**, poi **caddy**.
+
+  **Lo scope**: `drive.readonly` è già nel riconsenso unico (D1/D9); senza,
+  il picker risponde `google_scope_missing` col `missing`.
+
+  **Rollback**: il server scende **insieme** al caddy. ⚠️ Un server vecchio
+  legge `storage_key` come obbligatorio: prima di scendere si tolgono i
+  riferimenti (`select count(*) from drive_files where source = 'google';`
+  poi, a server e worker fermi, `update drive_files set deleted_at = now()
+  where source = 'google' and deleted_at is null;` — restano come lapidi, il
+  download di una lapide è già 404) e la pulizia oraria ignora le chiavi
+  nulle solo da questa versione: scendendo, `purgeDeletedDriveObjects` vecchio
+  inciamperebbe su una `storage_key` nulla: le lapidi dei riferimenti nascono
+  già `storage_purged` (review del server), quindi basta UNO statement, a
+  server e worker fermi: `update drive_files set deleted_at = coalesce(deleted_at,
+  now()), storage_purged = true where source = 'google';`. Il worker vecchio
+  ignora `drive_folder_links`. La 0167 non si annulla.
+
+  **Fix della review del server (stesso rilascio, branch
+  `feat/area6-f5b-fix`)**: migrazione **0168** (`account_email` su
+  `drive_folder_links`, `google_account_email` su `drive_files`, riempite
+  dalle caselle esistenti, e due trigger `BEFORE INSERT OR UPDATE` che le
+  scrivono): riaggancia cartelle e riferimenti quando la stessa persona
+  ricollega lo stesso indirizzo. Ordine invariato (server, poi worker, poi
+  caddy). Rollback: le colonne e i trigger non danno fastidio a un server
+  vecchio (non li nomina); la 0168 non si annulla.
+

@@ -5,6 +5,7 @@ import {
   googleAccounts,
   googleWorkspaces,
   oauthStates,
+  reattachDriveReferences,
   type Db,
 } from "@stubwise/db";
 import {
@@ -433,5 +434,9 @@ export async function completeCallback(
     })
     .returning({ id: googleAccounts.id });
   if (!account) throw new Error("upsert della casella Google non ha restituito la riga");
+  // Area 6, F5b (review del server, punto 5): se la stessa persona aveva
+  // scollegato questo indirizzo, le sue cartelle e i suoi riferimenti Drive
+  // tornano alla riga nuova. Idempotente: un collegamento rifatto lo rifà.
+  await reattachDriveReferences(deps.db, { id: account.id, userId: payload.userId, email: userinfo.email });
   return { status: "ok", accountId: account.id };
 }
