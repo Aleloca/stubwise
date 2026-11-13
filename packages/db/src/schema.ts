@@ -6113,6 +6113,29 @@ export const chatMessageLinks = pgTable(
 );
 
 /**
+ * UNA CARTELLA GOOGLE COLLEGATA A UN PROGETTO (area 6, F5b, 0166): i suoi
+ * file entrano come riferimenti (`drive_files.folder_link_id`), letti SOLO
+ * con l'account di chi l'ha collegata (`account_id`). «Scaduta» si DERIVA:
+ * quell'account non c'è più, è disattivato o non ha `drive.readonly`.
+ */
+export const driveFolderLinks = pgTable(
+  "drive_folder_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    googleFolderId: text("google_folder_id").notNull(),
+    name: text("name").notNull(),
+    linkedBy: uuid("linked_by").references(() => users.id, { onDelete: "set null" }),
+    accountId: uuid("account_id").references(() => googleAccounts.id, { onDelete: "set null" }),
+    linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
+    syncedAt: timestamp("synced_at", { withTimezone: true }),
+  },
+  (table) => [uniqueIndex("drive_folder_links_project_folder_idx").on(table.projectId, table.googleFolderId)],
+);
+
+/**
  * Un file del Drive di un progetto (0143, area 5 fetta 2): oggi solo CARICATO
  * (`source` upload; i riferimenti Google arrivano con l'area 6). Il codice è
  * `<PRJ>-F<number>`, mai riusato: eliminare lascia una lapide (`deletedAt`) e
@@ -6128,13 +6151,36 @@ export const driveFiles = pgTable(
       .notNull()
       .references(() => projects.id, { onDelete: "cascade" }),
     number: integer("number").notNull(),
-    source: text("source").$type<"upload">().notNull().default("upload"),
+    source: text("source").$type<"upload" | "google">().notNull().default("upload"),
     name: text("name").notNull(),
     mime: text("mime").notNull(),
     type: text("type").$type<"document" | "sheet" | "slides" | "pdf" | "image" | "other">().notNull(),
-    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
-    storageKey: text("storage_key").notNull(),
+    /** Null per un riferimento Google nativo (un Doc non ha byte) — area 6, F5b. */
+    sizeBytes: bigint("size_bytes", { mode: "number" }),
+    /** Solo per un caricato: un riferimento Google NON ha una copia in archiviazione (F5b, 0166). */
+    storageKey: text("storage_key"),
     addedBy: uuid("added_by").references(() => users.id, { onDelete: "set null" }),
+    /**
+     * Area 6, F5b (0166): il RIFERIMENTO a un file di Google Drive. Il file
+     * resta su Google (i permessi li applica Google a chi apre); Stubwise ne
+     * tiene il testo come per un caricato, letto con l'account di chi l'ha
+     * aggiunto o di chi ha collegato la sua cartella — mai con un altro.
+     */
+    googleFileId: text("google_file_id"),
+    googleOwner: text("google_owner"),
+    folderLinkId: uuid("folder_link_id").references(() => driveFolderLinks.id, { onDelete: "set null" }),
+    /** Un file di cartella nascosto (`drive.manage`): la sincronizzazione non lo rimette. */
+    hidden: boolean("hidden").notNull().default(false),
+    hiddenBy: uuid("hidden_by").references(() => users.id, { onDelete: "set null" }),
+    hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+    /** L'ultima modifica su Google (un riferimento) o il caricamento. */
+    modifiedAt: timestamp("modified_at", { withTimezone: true }),
+    /**
+     * `deleted`: sparito da Google, lo scrive la sincronizzazione. ⚠️ «Accesso
+     * perso» NON si scrive: si deriva a lettura dall'account di chi ha
+     * collegato la cartella (ricollegato, torna da solo).
+     */
+    unavailable: text("unavailable").$type<"deleted">(),
     addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
@@ -6155,9 +6201,16 @@ export const driveFiles = pgTable(
   (table) => [
     uniqueIndex("drive_files_project_number_idx").on(table.projectId, table.number),
     uniqueIndex("drive_files_storage_key_idx").on(table.storageKey),
-    uniqueIndex("drive_files_live_name_idx").on(table.projectId, sql`lower(${table.name})`).where(sql`${table.deletedAt} IS NULL`),
+    // Il nome unico vale per i CARICATI (lo sceglie Stubwise, `uniqueName`): un riferimento porta il nome che ha su Google.
+    uniqueIndex("drive_files_live_name_idx").on(table.projectId, sql`lower(${table.name})`).where(sql`${table.deletedAt} IS NULL AND ${table.source} = 'upload'`),
+    // F5b: lo stesso file Google una volta per progetto (vivo): `already_in_project`.
+    uniqueIndex("drive_files_live_google_idx").on(table.projectId, table.googleFileId).where(sql`${table.deletedAt} IS NULL AND ${table.source} = 'google'`),
+    index("drive_files_folder_link_idx").on(table.folderLinkId),
+    check("drive_files_upload_storage_chk", sql`${table.source} <> 'upload' OR (${table.storageKey} IS NOT NULL AND ${table.sizeBytes} IS NOT NULL)`),
+    check("drive_files_google_id_chk", sql`${table.source} <> 'google' OR ${table.googleFileId} IS NOT NULL`),
+    check("drive_files_unavailable_chk", sql`${table.unavailable} IS NULL OR ${table.unavailable} = 'deleted'`),
     index("drive_files_unpurged_idx").on(table.deletedAt).where(sql`${table.deletedAt} IS NOT NULL AND NOT ${table.storagePurged}`),
-    check("drive_files_source_chk", sql`${table.source} in ('upload')`),
+    check("drive_files_source_chk", sql`${table.source} in ('upload', 'google')`),
     check("drive_files_type_chk", sql`${table.type} in ('document', 'sheet', 'slides', 'pdf', 'image', 'other')`),
     index("drive_files_content_tsv_idx").using("gin", table.contentTsv),
     index("drive_files_content_pending_idx").on(table.addedAt).where(sql`${table.contentStatus} = 'pending' AND ${table.deletedAt} IS NULL`),
@@ -6231,9 +6284,9 @@ export const driveOpens = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
-    via: text("via").$type<"preview" | "download">().notNull(),
+    via: text("via").$type<"preview" | "download" | "google">().notNull(),
   },
-  (table) => [index("drive_opens_file_at_idx").on(table.fileId, table.at), check("drive_opens_via_chk", sql`${table.via} in ('preview', 'download')`)],
+  (table) => [index("drive_opens_file_at_idx").on(table.fileId, table.at), check("drive_opens_via_chk", sql`${table.via} in ('preview', 'download', 'google')`)],
 );
 
 /**
