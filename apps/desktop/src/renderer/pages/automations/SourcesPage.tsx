@@ -1,4 +1,5 @@
 import { useSearch } from "@tanstack/react-router";
+import { isAppBuild } from "../../data/build";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -128,7 +129,8 @@ function SourceRow({ source, open }: { source: AutomationSourceView; open: boole
                 : t("automations.sources.connect")}
             </button>
           </>
-        ) : (
+        ) : isAppBuild() ? null : (
+          // «Simulate» e «Disconnect» (il solo voce del «⋯»): solo nel prototipo (F4).
           <span className="flex items-center gap-1 opacity-0 transition-opacity duration-[var(--duration-fast)] ease-out group-focus-within:opacity-100 group-hover:opacity-100">
             <MenuButton
               menuLabel={t("automations.sources.simulate")}

@@ -574,3 +574,46 @@ describe("«avvia un'altra» nel costruttore della build app (F4, R6)", () => {
     );
   });
 });
+
+describe("le azioni che la build app non ha (review F4, I1)", () => {
+  it("né «Disconnect» né «Simulate» per un webhook, nel pannello e sulla riga", async () => {
+    instance.permissions = ["integrations.manage"];
+    const SOURCE_ID = "99999999-9999-4999-8999-999999999991";
+    const source = {
+      id: SOURCE_ID,
+      kind: "webhook",
+      name: "Ordini",
+      status: "connected",
+      connectedById: ME_ID,
+      connectedAt: "2026-11-13T09:00:00.000Z",
+      sampleEvents: [{ importo: 3 }],
+      fields: [{ key: "importo", label: "Amount", type: "number" }],
+      permissions: { manage: true },
+      usedBy: null,
+    };
+    install({
+      "GET /api/automation-sources": { body: { items: [source] } },
+      "GET /api/client-links": { body: { items: [] } },
+      [`GET /api/automation-sources/${SOURCE_ID}/events`]: { body: { items: [] } },
+    });
+    renderRoute(`/automations/sources?source=${SOURCE_ID}`);
+    const panel = await waitFor(
+      () => {
+        const el = document.querySelector<HTMLElement>(`[data-source-panel="${SOURCE_ID}"]`);
+        expect(el).not.toBeNull();
+        return el!;
+      },
+      { timeout: 3000 },
+    );
+    await waitFor(() => expect(panel.textContent).toMatch(/address is hidden/));
+    expect(within(panel).queryByRole("button", { name: /Disconnect/ })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: /Simulate/ })).toBeNull();
+    expect(panel.textContent).not.toMatch(/Prototype only/i);
+    const row = document
+      .querySelector<HTMLElement>(`[data-source-row="${SOURCE_ID}"]`)!
+      .closest("li")!;
+    expect(within(row).queryByRole("button", { name: /Simulate/ })).toBeNull();
+    // Il menu «⋯» della riga aveva solo «Disconnect»: non c'è.
+    expect(within(row).queryByRole("button", { name: "More actions for Ordini" })).toBeNull();
+  });
+});

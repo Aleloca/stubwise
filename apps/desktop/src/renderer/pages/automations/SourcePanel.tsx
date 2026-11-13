@@ -1,4 +1,5 @@
 import { Link, useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
+import { isAppBuild } from "../../data/build";
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -125,6 +126,10 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
   const runs = useAutomationRuns().data ?? [];
   const simulate = useSimulate(source);
   const [dialog, setDialog] = useState<"connect" | "disconnect" | null>(null);
+  // Nella build app (F4) un webhook non si scollega (il server non ha la
+  // rotta) e «Simulate» è del prototipo: nessuna delle due si offre.
+  const appBuild = isAppBuild();
+  const canDisconnect = !appBuild && source.status !== "disconnected";
   const [renaming, setRenaming] = useState(false);
   const users = usersOf(source, automations);
   const connector = people?.find((p) => p.id === source.connectedById);
@@ -176,7 +181,7 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
                     >
                       {t("automations.sources.rename")}
                     </button>
-                    {source.status !== "disconnected" && (
+                    {canDisconnect && (
                       <button
                         type="button"
                         role="menuitem"
@@ -331,37 +336,39 @@ export function SourcePanel({ source }: { source: AutomationSourceView }) {
           </ul>
         )}
       </PanelSection>
-      <div className="px-4 py-3">
-        {source.kind === "webhook" ? (
-          <SimulateWebhook source={source} />
-        ) : (
-          <PrototypeBox label={t("automations.sources.simulate")}>
-            {source.status !== "connected" ? (
-              <p className="text-sm text-ink-muted">
-                {t("automations.sources.simulateOff", { name: source.name })}
-              </p>
-            ) : (
-              <ul className="flex flex-col">
-                {source.sampleEvents.map((e, i) => (
-                  <li key={i} className="flex min-h-8 items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-sm text-ink">
-                      {sampleWords(source, e, t)}
-                    </span>
-                    <button
-                      type="button"
-                      className={`${secondaryButton} h-7`}
-                      onClick={() => simulate(i)}
-                    >
-                      {t("automations.sources.send")}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </PrototypeBox>
-        )}
-      </div>
-      {source.status !== "disconnected" && (
+      {!appBuild && (
+        <div className="px-4 py-3">
+          {source.kind === "webhook" ? (
+            <SimulateWebhook source={source} />
+          ) : (
+            <PrototypeBox label={t("automations.sources.simulate")}>
+              {source.status !== "connected" ? (
+                <p className="text-sm text-ink-muted">
+                  {t("automations.sources.simulateOff", { name: source.name })}
+                </p>
+              ) : (
+                <ul className="flex flex-col">
+                  {source.sampleEvents.map((e, i) => (
+                    <li key={i} className="flex min-h-8 items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate text-sm text-ink">
+                        {sampleWords(source, e, t)}
+                      </span>
+                      <button
+                        type="button"
+                        className={`${secondaryButton} h-7`}
+                        onClick={() => simulate(i)}
+                      >
+                        {t("automations.sources.send")}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </PrototypeBox>
+          )}
+        </div>
+      )}
+      {canDisconnect && (
         <div className="px-4 pb-4">
           <button
             type="button"
