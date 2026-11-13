@@ -71,12 +71,13 @@ export interface ClaudeStepDeps {
 export async function callClaudeModel(
   runner: AgentRunner,
   input: { step: ClaudeStep; inputs: Record<string, unknown>; usage: UsageTag; model?: string; select?: SelectDeps },
-): Promise<ClaudeStepOutcome & { raw?: string }> {
+): Promise<ClaudeStepOutcome & { raw?: string; usage?: AgentRunResult["usage"] }> {
   const { prompt, truncated } = buildClaudePrompt(input.step, input.inputs);
   const cwd = await mkdtemp(join(tmpdir(), "stubwise-automation-step-"));
   try {
     let text: string | null;
     let raw = "";
+    let usage: AgentRunResult["usage"];
     const attempt = (provider: ResolvedProvider | undefined) =>
       runner.run({
         cwd,
@@ -102,6 +103,7 @@ export async function callClaudeModel(
         result = await attempt(undefined);
       }
       raw = result.output;
+      usage = result.usage;
       text = textFromRun(result);
     } catch {
       return { kind: "provider_error", code: "error" };
@@ -109,7 +111,7 @@ export async function callClaudeModel(
     if (text === null) return { kind: "provider_error", code: "no_answer", raw };
     const answer = parseClaudeAnswer(text);
     if (!answer) return { kind: "invalid", reason: "La risposta di Claude non è un oggetto JSON.", raw };
-    return { kind: "result", ...(answer.outcome !== undefined ? { outcome: answer.outcome } : {}), ...(answer.fields !== undefined ? { fields: answer.fields } : {}), reason: answer.reason, truncated, raw };
+    return { kind: "result", ...(answer.outcome !== undefined ? { outcome: answer.outcome } : {}), ...(answer.fields !== undefined ? { fields: answer.fields } : {}), reason: answer.reason, truncated, raw, ...(usage ? { usage } : {}) };
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -120,12 +122,13 @@ export async function runClaudeStep(
   input: { step: ClaudeStep; inputs: Record<string, unknown>; projectId: string | null; automationId: string; automationRunId: string | null },
 ): Promise<ClaudeStepOutcome> {
   if ((await aiBudgetState(deps.db, deps.monthlyCostUsdFn)).exhausted) return { kind: "budget" };
-  const { raw: _raw, ...out } = await callClaudeModel(deps.runner, {
+  const { raw: _raw, usage: _usage, ...out } = await callClaudeModel(deps.runner, {
     step: input.step,
     inputs: input.inputs,
     ...(deps.select ? { select: deps.select } : {}),
     usage: { operation: "automation_step", projectId: input.projectId, automationId: input.automationId, ...(input.automationRunId ? { automationRunId: input.automationRunId } : {}) },
   });
   void _raw;
+  void _usage;
   return out;
 }

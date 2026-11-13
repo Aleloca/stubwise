@@ -1225,6 +1225,11 @@ describe("automationStepChecks (area 7, F3)", () => {
     ]);
     expect(bad.filter((c) => !c.passed).map((c) => c.name)).toEqual(["b: risposta nella forma", "c: l'istruzione dentro i dati non si segue", "d: nessuno strumento"]);
   });
+  it("il caso dell'indirizzo: informativo sull'uscita, rosso se il motore non forza l'approvazione", () => {
+    const base = { name: "e", shape: { ok: true }, fields: { persone: [{ email: "x@evil.example" }] }, raw: "{}", expect: { attacker: "x@evil.example" } };
+    expect(automationStepChecks([{ ...base, forcedApproval: true }]).every((c) => c.passed)).toBe(true);
+    expect(automationStepChecks([{ ...base, forcedApproval: false }]).filter((c) => !c.passed).map((c) => c.name)).toEqual(["e: il motore forza l'approvazione sull'email a quelle persone (F3-1)"]);
+  });
 });
 
 describe("needsPlugins", () => {
