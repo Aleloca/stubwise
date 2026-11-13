@@ -1,7 +1,11 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AUTOMATION_F1_AVAILABILITY, AUTOMATION_F2_AVAILABILITY } from "@stubwise/shared";
+import {
+  AUTOMATION_F1_AVAILABILITY,
+  AUTOMATION_F2_AVAILABILITY,
+  AUTOMATION_F4_AVAILABILITY,
+} from "@stubwise/shared";
 import { resetApi, setLatency } from "../../../data/api";
 import { DOCKED_PANEL_QUERY } from "../../../layout/useDetailPanel";
 import { renderRoute } from "../../../test/renderRoute";
@@ -14,11 +18,15 @@ import { setMatchMedia } from "../../../test/setup";
 // regole della F1.
 // F2 (R1): con la disponibilità della F2, email, attese, inizi a orario e
 // «email in arrivo» si scelgono; Claude (F3) resta «Coming soon».
-const perimeter = vi.hoisted(() => ({ slice: 1 as 1 | 2 }));
+const perimeter = vi.hoisted(() => ({ slice: 1 as 1 | 2 | 4 }));
 vi.mock("../../../data/integration", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../../data/integration")>()),
   automationAvailability: () =>
-    perimeter.slice === 2 ? AUTOMATION_F2_AVAILABILITY : AUTOMATION_F1_AVAILABILITY,
+    perimeter.slice === 4
+      ? AUTOMATION_F4_AVAILABILITY
+      : perimeter.slice === 2
+        ? AUTOMATION_F2_AVAILABILITY
+        : AUTOMATION_F1_AVAILABILITY,
 }));
 
 const LAURA = "p-laura";
@@ -104,3 +112,29 @@ describe("il costruttore della fetta 2", () => {
     await waitFor(() => expect(row("tr-classify")).toHaveTextContent("Coming soon"));
   });
 });
+
+describe("il costruttore della fetta 4", () => {
+  beforeEach(() => {
+    perimeter.slice = 4;
+  });
+
+  it("«Start another automation» si sceglie; un webhook come inizio sì, Audin e HubSpot «Coming soon» (Q2)", async () => {
+    await open("/automations/STW-A1/edit");
+    const webhook = await screen.findAllByRole("radio", { name: /A webhook arrives/ });
+    expect(webhook[0]).toBeEnabled();
+    const deal = screen.getAllByRole("radio", { name: /A deal is won in/ });
+    expect(deal.length).toBeGreaterThan(0);
+    for (const d of deal) {
+      expect(d).toBeDisabled();
+      expect(d).toHaveTextContent("Coming soon");
+    }
+    const before = stepIds();
+    row(before[0]!).focus();
+    await userEvent.keyboard("a");
+    const menu = await screen.findByRole("dialog", { name: "Add a step" });
+    expect(within(menu).getByRole("option", { name: /Start another automation/ })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+  });
+});
+

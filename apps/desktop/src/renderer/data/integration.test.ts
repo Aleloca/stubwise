@@ -63,6 +63,7 @@ const ALL: IntegrationTarget[] = [
       "automations",
       "automations-f2",
       "automations-f3",
+      "automations-f4",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -192,6 +193,8 @@ describe("isIntegrated", () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     expect(isIntegrated({ kind: "feature", name: "automations-f2" })).toBe(true);
     expect(isIntegrated({ kind: "feature", name: "automations-f3" })).toBe(true);
+    // La F4 (generali, webhook, «avvia un'altra») resta spenta finché il suo server non c'è.
+    expect(isIntegrated({ kind: "feature", name: "automations-f4" })).toBe(false);
     expect(automationAvailability()).toBe(AUTOMATION_F3_AVAILABILITY);
   });
 });
