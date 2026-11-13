@@ -1870,6 +1870,7 @@
         "docs": "Docs",
         "reports": "Reports",
         "mail": "Mail",
+        "automations": "Automations",
         "chat": "Chat"
       },
       "ops": {
@@ -1890,6 +1891,7 @@
         "mail_classify": "Mail classification",
         "mail_draft": "Email drafts by Claude",
         "meeting_summary": "Recorded meeting summaries",
+        "automation_step": "Automation steps",
         "chat": "Docs chat",
         "claude_chat": "Private conversations with Claude",
         "backlog_merge": "Backlog document merge"

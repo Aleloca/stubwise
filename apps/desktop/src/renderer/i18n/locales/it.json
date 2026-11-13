@@ -7064,7 +7064,8 @@
       "source_disconnected": "La sorgente da cui parte non è collegata",
       "limit": "Supera uno dei limiti di sicurezza",
       "department_cant_see": "Nessuno del reparto che avvisa vede il progetto",
-      "not_available": "Non è ancora disponibile in questa app"
+      "not_available": "Non è ancora disponibile in questa app",
+      "untrusted_target": "Claude sceglie a chi va con un dato arrivato da fuori: deve chiedere l'approvazione"
     },
     "detail": {
       "more": "Altro",
@@ -7921,7 +7922,8 @@
         "selfStart": "Avvierebbe di nuovo sé stessa",
         "department_cant_see": "Nessuno del reparto vede il progetto",
         "departmentCantSee": "Nessuno di {{name}} vede {{code}}",
-        "not_available": "In arrivo"
+        "not_available": "In arrivo",
+        "untrusted_target": "Chiede prima: sceglie Claude a chi"
       },
       "problem": {
         "unavailable": "{{label}} non è disponibile qui",
@@ -8034,7 +8036,8 @@
         "person": "Una persona",
         "role": "Un ruolo nel progetto",
         "owner": "Il proprietario (chi l'ha accesa)",
-        "clientCheck": "Per il progetto del cliente, se lo vede si controlla quando l'esecuzione arriva qui."
+        "clientCheck": "Per il progetto del cliente, se lo vede si controlla quando l'esecuzione arriva qui.",
+        "untrusted": "Claude sceglie a chi va con un dato arrivato da fuori: per questo qualcuno lo approva prima."
       },
       "claude": {
         "rule": "Claude sceglie solo una di queste uscite e compila questi campi. Non agisce mai da solo: le azioni sono i passi che aggiungi tu.",
@@ -8170,6 +8173,12 @@
       }
     },
     "test": {
+      "cost": {
+        "title": "Claude in questa prova",
+        "body_one": "Questa prova chiede a Claude una volta: circa {{usd}} dal budget AI mensile dell'istanza.",
+        "body_other": "Questa prova chiede a Claude {{count}} volte: circa {{usd}} dal budget AI mensile dell'istanza.",
+        "confirm": "Prova con Claude"
+      },
       "title": "Prova: {{name}}",
       "back": "Torna a modificare",
       "band": {
@@ -10815,6 +10824,7 @@
           "docs": "Docs",
           "reports": "Report",
           "mail": "Posta",
+          "automations": "Automazioni",
           "chat": "Chat"
         },
         "source": {
@@ -12291,6 +12301,7 @@
       "mail_classify": "Classificazione della posta",
       "mail_draft": "Bozze delle email di Claude",
       "meeting_summary": "Riassunti delle riunioni registrate",
+      "automation_step": "Passi delle automazioni",
       "chat": "Conversazioni con Claude",
       "claude_chat": "Conversazioni private con Claude",
       "backlog_merge": "Unione dei documenti del backlog",

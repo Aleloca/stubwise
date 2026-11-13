@@ -15,12 +15,12 @@ describe("catalogo operazioni AI", () => {
     expect(new Set(all).size).toBe(all.length);
   });
 
-  it("le configurabili escludono le tre tecniche e contengono le altre 20", () => {
+  it("le configurabili escludono le tre tecniche e contengono le altre 21 (con `automation_step`, area 7 F3)", () => {
     for (const op of ["plugin_smoke", "credential_test", "usage_probe"] as const) {
       expect(CONFIGURABLE_AI_OPERATIONS).not.toContain(op);
       expect(isConfigurableAiOperation(op)).toBe(false);
     }
-    expect(CONFIGURABLE_AI_OPERATIONS).toHaveLength(20);
+    expect(CONFIGURABLE_AI_OPERATIONS).toHaveLength(21);
     expect(isConfigurableAiOperation("triage")).toBe(true);
   });
 
@@ -44,6 +44,7 @@ describe("catalogo operazioni AI", () => {
       { group: "docs", operations: ["docs_generation", "drive_summary"] },
       { group: "reports", operations: ["daily_report", "weekly_brief"] },
       { group: "mail", operations: ["mail_classify", "mail_draft", "meeting_summary"] },
+      { group: "automations", operations: ["automation_step"] },
       { group: "chat", operations: ["chat", "claude_chat", "backlog_merge"] },
       { group: "technical", operations: ["plugin_smoke", "credential_test", "usage_probe"] },
     ]);

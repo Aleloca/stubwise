@@ -70,4 +70,13 @@ describe("client.automations", () => {
     await c.automations.runs({ project: "p1", log: "none" });
     expect(call(fetchImpl, 1).url).toBe("https://x.test/api/automation-runs?project=p1&log=none");
   });
+
+  it("area 7, F3: la stima e il passo di Claude della prova", async () => {
+    const { c, fetchImpl } = client({ claudeSteps: 2, estimateUsd: 0.01, model: "claude-sonnet" });
+    await c.automations.testEstimate("AUD-A1", { version: "draft", event: { avvio: { data: "x" } } });
+    expect(call(fetchImpl)).toMatchObject({ url: "https://x.test/api/automations/AUD-A1/test/estimate", method: "POST", body: { version: "draft", event: { avvio: { data: "x" } } } });
+    await c.automations.testClaude("AUD-A1", { version: 2, path: "1", vars: {} });
+    expect(call(fetchImpl, 1)).toMatchObject({ url: "https://x.test/api/automations/AUD-A1/test/claude", method: "POST", body: { version: 2, path: "1", vars: {} } });
+  });
 });
+

@@ -88,6 +88,7 @@ export {
   type CardAnchor,
 } from "./project-access.js";
 export { approversFor, loadPlanWorld, milestoneNameTaken, type WorldScope } from "./automation-world.js";
+export { aiBudgetState, monthlyBudgetLimitUsd, type AiBudgetState } from "./ai-budget.js";
 export { automationMailboxOf, MAIL_SEND_SCOPE, type AutomationMailbox } from "./automation-mailbox.js";
 export { automationEventFields, type AutomationEventRef } from "./automation-event-fields.js";
 export { DRIVE_READONLY_SCOPE, folderLinkExpiredSql } from "./drive-folder-link.js";

@@ -19,6 +19,7 @@ import {
   NO_APPROVER_WHY,
   restoreState,
   stepAt,
+  truncationNote,
   type ApprovalWho,
   type Automation,
   type AutomationFlow,
@@ -32,6 +33,8 @@ import {
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { executeEffect, releaseFailedEmail, type EffectEnv } from "./effects.js";
 import { waitingTargets } from "./waits.js";
+import { runClaudeStep } from "./claude-step.js";
+import type { AgentRunner } from "../agent/runner.js";
 
 /**
  * L'ESECUTORE delle esecuzioni (area 7, fetta 1; la specifica è
@@ -90,7 +93,17 @@ interface SavedCursor {
    * nuovo un'approvazione già data): legge l'esito e lo rimette nel motore.
    */
   inFlight?: { path: string; preview: Record<string, unknown> } | null;
+  /**
+   * Un passo di Claude fermo per un blocco d'istanza (area 7, F3, C-F3-4): il
+   * budget del mese. L'esecuzione resta `running` e si riprova da sola.
+   * `providerError`: il provider non ha risposto (si riprova uguale).
+   */
+  aiWaiting?: { reason: "monthly_budget" } | null;
+  providerError?: string | null;
 }
+
+/** Ogni quanto si riprova un passo di Claude fermo per il budget o per il provider. */
+export const AI_RETRY_MS = 15 * 60_000;
 
 /** Ogni quanto si ripassa su un'email in volo (il mittente gira ogni 2 s). */
 export const EMAIL_POLL_MS = 5_000;
@@ -110,6 +123,10 @@ export interface ExecutorDeps {
   now?: () => Date;
   workerId?: string;
   log?: (msg: string) => void;
+  /** Il runner dei passi di Claude (F3): il `TrackingAgentRunner` del worker. Assente = un passo di Claude non si esegue. */
+  runner?: AgentRunner;
+  /** Solo nei test: la spesa del mese per il controllo del budget. */
+  monthlyCostUsdFn?: (db: Db) => Promise<number>;
 }
 
 /** Un giro: le esecuzioni dovute, una alla volta. Ritorna quante ne ha mosse. */
@@ -404,6 +421,60 @@ async function settleInFlight(turn: Turn, inFlight: NonNullable<SavedCursor["inF
   });
 }
 
+/**
+ * Un passo di Claude (F3, `claude-step.ts`): il risultato da rimettere nel
+ * motore, o `null` se l'esecuzione aspetta (budget, provider) o è fallita qui
+ * (`claude_invalid`, nessun runner).
+ */
+async function claudeStep(turn: Turn, eff: Extract<EngineStep["effects"][number], { kind: "claude" }>): Promise<EngineInput | null> {
+  if (!turn.deps.runner) {
+    await failWith(turn, "not_available", "I passi di Claude non sono disponibili su questo worker.", { code: "notAvailable" });
+    return null;
+  }
+  const out = await runClaudeStep(
+    { db: turn.deps.db, runner: turn.deps.runner, ...(turn.deps.monthlyCostUsdFn ? { monthlyCostUsdFn: turn.deps.monthlyCostUsdFn } : {}) },
+    { step: eff.step, inputs: eff.vars, projectId: turn.automation.projectId, automationId: turn.automation.id, automationRunId: turn.run.id },
+  );
+  if (out.kind === "budget" || out.kind === "provider_error") {
+    await waitForAi(turn, out);
+    return null;
+  }
+  if (out.kind === "invalid") {
+    await failWith(turn, "claude_invalid", out.reason, { code: "claudeInvalid" });
+    return null;
+  }
+  const cut = truncationNote(out.truncated);
+  return { kind: "claude_result", ...(out.outcome !== undefined ? { outcome: out.outcome } : {}), ...(out.fields !== undefined ? { fields: out.fields } : {}), reason: `${cut}${out.reason}` };
+}
+
+/**
+ * Il passo di Claude aspetta (C-F3-4): l'esecuzione resta `running` sul passo,
+ * si riprova fra 15′ (il passo si riesegue da capo, budget compreso). La prima
+ * volta, una riga nel registro e — per il budget — l'avviso al proprietario.
+ */
+async function waitForAi(turn: Turn, out: { kind: "budget" } | { kind: "provider_error"; reason: string }): Promise<void> {
+  const c = cursorOf(turn.run);
+  // «La prima volta» dal registro: il cursore si riscrive a ogni giro (il passo
+  // riparte da capo), l'ultima riga di attesa sullo stesso passo no.
+  const code = out.kind === "budget" ? "monthlyBudget" : "providerError";
+  const last = turn.log.at(-1);
+  const first = !(last && last.outcome === "waiting" && last.path === c.path && last.why?.code === code);
+  await setRun(turn, {
+    cursor: { ...c, aiWaiting: out.kind === "budget" ? { reason: "monthly_budget" } : null, providerError: out.kind === "provider_error" ? out.reason : null },
+    dueAt: new Date(Date.parse(turn.now) + AI_RETRY_MS),
+  });
+  if (!first) return;
+  if (out.kind === "budget") {
+    await note(turn, { outcome: "waiting", reason: "Budget mensile dell'istanza esaurito: il passo di Claude riparte da solo quando torna.", why: { code: "monthlyBudget" } });
+    const owner = turn.automation.ownerId;
+    if (owner) {
+      await publishNotification(turn.deps.db, { ...eventOf(turn, "automation.notify"), message: "Budget mensile esaurito: l'esecuzione è ferma al passo di Claude e riparte da sola." }, { projectId: turn.automation.projectId, accountUserId: owner });
+    }
+  } else {
+    await note(turn, { outcome: "waiting", reason: `Claude non ha risposto (${out.reason}): si riprova fra 15 minuti.`, why: { code: "providerError" } });
+  }
+}
+
 function skipTop(st: EngineState): void {
   const top = st.stack.at(-1);
   if (top?.t === "list") top.i += 1;
@@ -422,6 +493,15 @@ async function drive(turn: Turn, input: EngineInput, prepare?: (st: EngineState)
     const finishing = decided !== null && eff.path === decided;
     const [fresh] = await turn.deps.db.select({ status: automations.status }).from(automations).where(eq(automations.id, turn.automation.id));
     if (fresh?.status !== "active" && !finishing) return suspend(turn);
+    if (eff.kind === "claude") {
+      // F3: il passo di Claude non è un effetto. Il suo risultato rientra nel motore
+      // e si scrive col cursore (`commit`); una ripresa dopo il commit non lo richiama.
+      const claude = await claudeStep(turn, eff);
+      if (!claude) return;
+      r = advance(r.state, claude);
+      await commit(turn, r);
+      continue;
+    }
     const out = await executeEffect(eff, await effectEnv(turn));
     if ("pending" in out) {
       // L'email è scritta e aspetta il mittente: il passo resta in volo, si ripassa fra poco.
@@ -598,7 +678,7 @@ async function failWith(turn: Turn, error: string, reason: string, why: ReasonCo
   await notifyOwner(turn, "automation.failed");
 }
 
-const eventOf = (turn: Turn, kind: "automation.approval" | "automation.failed" | "automation.paused") => ({
+const eventOf = (turn: Turn, kind: "automation.approval" | "automation.failed" | "automation.paused" | "automation.notify") => ({
   kind,
   projectId: turn.automation.projectId,
   automationId: turn.automation.id,

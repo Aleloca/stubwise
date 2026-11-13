@@ -177,6 +177,16 @@ export async function getSimulation(id: string): Promise<SimulationView | null> 
   }
 }
 
+/**
+ * F3 (D4): la conferma del costo dei passi di Claude. Nel prototipo Claude è
+ * finto e non costa: niente da confermare, la prova com'è.
+ */
+export async function confirmSimulationCost(id: string): Promise<SimulationView> {
+  const me = await gate("automations.confirmSimulationCost");
+  const { sim, a } = mine(me, id);
+  return simulator.view(me, sim, a);
+}
+
 /** Butta la prova: non lascia traccia. */
 export async function endSimulation(id: string): Promise<void> {
   const me = await writer("automations.endSimulation");

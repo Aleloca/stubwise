@@ -47,6 +47,16 @@ export const AUTOMATION_F2_AVAILABILITY: AutomationAvailability = {
   emailAttachments: false,
 };
 
+/**
+ * La fetta 3: in più il passo di Claude (istruzione, input, uscite e campi
+ * dichiarati). Le email restano senza allegati; «avvia un'automazione» e le
+ * sorgenti sono della F4.
+ */
+export const AUTOMATION_F3_AVAILABILITY: AutomationAvailability = {
+  ...AUTOMATION_F2_AVAILABILITY,
+  steps: [...AUTOMATION_F2_AVAILABILITY.steps, "claude"],
+};
+
 /** La chiave di disponibilità di un inizio. */
 export const triggerKey = (t: AutomationTrigger): TriggerKey =>
   t.kind === "stubwise" ? `stubwise:${t.event}` : t.kind;

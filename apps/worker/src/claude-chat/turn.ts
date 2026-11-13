@@ -1,3 +1,4 @@
+import { aiBudgetState } from "@stubwise/notifications";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { and, eq, sql } from "drizzle-orm";
@@ -24,7 +25,6 @@ import {
   noticeInTranscript,
   recentTranscript,
 } from "../backlog/refine/turn.js";
-import { loadMonthlyBudgetUsd } from "../pipeline/job-outcomes.js";
 import type { ResolvedProvider } from "../providers/chain.js";
 import { isLimitError } from "../providers/limit.js";
 import { limitTextOfRun, type SelectDeps } from "../providers/select.js";
@@ -118,9 +118,7 @@ export type ChatTurnOutcome = "completed" | "cancelled" | "failed" | "skipped";
 const describeError = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 async function overBudget(deps: ChatTurnDeps): Promise<boolean> {
-  const limit = await loadMonthlyBudgetUsd(deps.db);
-  if (limit === null) return false;
-  return (await (deps.monthlyCostUsdFn ?? monthlyCostUsd)(deps.db)) >= limit;
+  return (await aiBudgetState(deps.db, deps.monthlyCostUsdFn ?? monthlyCostUsd)).exhausted;
 }
 
 export async function runChatTurn(

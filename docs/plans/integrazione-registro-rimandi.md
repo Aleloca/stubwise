@@ -609,6 +609,11 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   registro dell'esecuzione non sa di un indirizzo inesistente) e gli
   allegati delle email (F3/F4).
 
+- F3, la pausa d'istanza della coda AI *(S, 72, C-F3-3, 13 nov 2026)*: il
+  passo di Claude si ferma solo per il budget mensile; `queue_paused`
+  (`aiHoldOf` del prototipo) arriva con l'area 9b, quando il backend avrà la
+  pausa della coda.
+
 ## Area 8 — Rilasci, ambienti, avvisi, Support, Servers
 
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per

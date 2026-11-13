@@ -7,6 +7,7 @@ import type {
   SimulationExamplesView,
   SimulationView,
 } from "@stubwise/shared";
+import type { ClaudeResult } from "@stubwise/shared";
 import {
   createSimulator,
   type Sim,
@@ -33,12 +34,41 @@ export interface SimulationApi {
   now(): string;
   examples(automationId: string, version: number | "draft"): Promise<SimulationExamplesView>;
   markTested(automationId: string, body: { version: number; rev: number | null }): Promise<void>;
+  /**
+   * F3: i passi di Claude della prova passano dal server (il client non chiama
+   * mai il modello). Assente (un server della F2): Claude non è disponibile.
+   */
+  claude?: {
+    estimate(
+      automationId: string,
+      version: number | "draft",
+    ): Promise<{ claudeSteps: number; estimateUsd: number; model: string }>;
+    run(
+      automationId: string,
+      body: { version: number; path: string; vars: Record<string, unknown> },
+    ): Promise<ClaudeResult>;
+  };
 }
+
+/** Un passo di Claude di cui la prova non ha ancora la risposta del server. */
+class ClaudePending extends Error {
+  constructor(readonly key: string) {
+    super("claude_pending");
+  }
+}
+
+const answerKey = (stepId: string, vars: Record<string, unknown>) =>
+  `${stepId}:${JSON.stringify(vars)}`;
 
 const notFound = () => new ApiError(404, "not_found", "not_found");
 
 /** Il mondo della prova dai fatti del server. Ogni lettura è sul contesto, sincrona. */
-export function contextWorld(ctx: SimulationContext, now: () => string): SimWorld {
+export function contextWorld(
+  ctx: SimulationContext,
+  now: () => string,
+  /** F3: le risposte di Claude già avute dal server; senza, Claude non c'è. */
+  answers?: Map<string, ClaudeResult>,
+): SimWorld {
   const people = new Map(ctx.people.map((p) => [p.id, p]));
   const projects = new Map(ctx.projects.map((p) => [p.id, p]));
   const sees = (personId: string, projectId: string) => {
@@ -98,6 +128,19 @@ export function contextWorld(ctx: SimulationContext, now: () => string): SimWorl
     // F2 (R5): l'email, coi controlli del motore condiviso e la casella che
     // il server ha risolto per il proprietario (`ownerMailbox`; assente = nessuna).
     outside: {
+      // F3: la risposta del server per questo passo e queste variabili, o «in attesa».
+      ...(answers
+        ? {
+            claude(step: { id: string; inputs: string[] }, vars: Record<string, unknown>) {
+              const key = answerKey(step.id, vars);
+              const r = answers.get(key);
+              if (!r) throw new ClaudePending(key);
+              // L'input del motore: la risposta (già verificata dal server, e di
+              // nuovo dal motore) e i dati che il passo ha letto.
+              return { kind: "claude_result" as const, ...r, read: [...step.inputs] };
+            },
+          }
+        : {}),
       previewEmail(sim, _a, eff, where) {
         const p = planEmail(
           { ...world, ownerMailbox: () => ctx.ownerMailbox ?? { ok: false, reason: "none" } },
@@ -134,6 +177,12 @@ interface Trial {
   ctx: SimulationContext;
   run: ReturnType<typeof createSimulator>;
   a: Automation;
+  version: number | "draft";
+  /** F3: le risposte di Claude, il costo stimato e se chi prova l'ha confermato (una volta). */
+  answers: Map<string, ClaudeResult>;
+  cost: { claudeSteps: number; estimateUsd: number; model: string } | null;
+  confirmed: boolean;
+  waitingCost: boolean;
 }
 
 /** La prova sopra le rotte del server: la stessa API del prototipo (`data/automations/simulate.ts`). */
@@ -155,6 +204,11 @@ export function createRealSimulation(api: SimulationApi) {
     if (!t || t.sim.personId !== api.me()) throw notFound();
     return t;
   }
+
+  const view = (t: Trial): SimulationView => ({
+    ...t.run.view(api.me(), t.sim, t.a),
+    costToConfirm: t.waitingCost ? t.cost : null,
+  });
 
   async function markIfDone(t: Trial, wasDone: boolean) {
     if (wasDone || !t.run.finishedWell(t.sim)) return;
@@ -179,9 +233,22 @@ export function createRealSimulation(api: SimulationApi) {
         contexts.get(key(automationId, version)) ?? (await load(automationId, version)).context;
       const v = ctx.automation.versions.find((x) => x.n === ctx.version);
       if (!v) throw notFound();
-      const run = createSimulator(contextWorld(ctx, () => api.now()));
+      const answers = new Map<string, ClaudeResult>();
+      const run = createSimulator(
+        contextWorld(ctx, () => api.now(), api.claude ? answers : undefined),
+      );
       const sim = run.start(me, `sim-${++seq}`, ctx.automation, v, event, ctx.ownerId);
-      const t: Trial = { sim, ctx, run, a: { ...ctx.automation, ownerId: ctx.ownerId } };
+      const t: Trial = {
+        sim,
+        ctx,
+        run,
+        a: { ...ctx.automation, ownerId: ctx.ownerId },
+        version,
+        answers,
+        cost: null,
+        confirmed: false,
+        waitingCost: false,
+      };
       trials.set(sim.id, t);
       // Un flusso che con questo esempio non fa niente finisce già qui: è finito bene.
       await markIfDone(t, false);
@@ -191,15 +258,42 @@ export function createRealSimulation(api: SimulationApi) {
     async simulationStep(id: string, input: SimulationInput): Promise<SimulationView> {
       const t = mine(id);
       const wasDone = t.sim.engine.status === "done";
-      t.run.handle(api.me(), t.sim, t.a, input);
+      for (;;) {
+        try {
+          t.run.handle(api.me(), t.sim, t.a, input);
+          break;
+        } catch (error) {
+          if (!(error instanceof ClaudePending) || !api.claude) throw error;
+          // Il primo passo di Claude: il costo stimato, da confermare una volta (D4, F3-3 = a).
+          if (!t.confirmed) {
+            t.cost ??= await api.claude.estimate(t.ctx.automation.id, t.version);
+            t.waitingCost = true;
+            break;
+          }
+          const path = t.sim.pending?.path ?? "";
+          const vars = t.sim.pending?.kind === "claude" ? t.sim.pending.vars : {};
+          t.answers.set(
+            error.key,
+            await api.claude.run(t.ctx.automation.id, { version: t.ctx.version, path, vars }),
+          );
+        }
+      }
       await markIfDone(t, wasDone);
-      return t.run.view(api.me(), t.sim, t.a);
+      return view(t);
+    },
+
+    /** Chi prova conferma il costo stimato: vale per tutta la prova. */
+    async confirmSimulationCost(id: string): Promise<SimulationView> {
+      const t = mine(id);
+      t.confirmed = true;
+      t.waitingCost = false;
+      return view(t);
     },
 
     async getSimulation(id: string): Promise<SimulationView | null> {
       const t = trials.get(id);
       if (!t || t.sim.personId !== api.me()) return null;
-      return t.run.view(api.me(), t.sim, t.a);
+      return view(t);
     },
 
     async endSimulation(id: string): Promise<void> {

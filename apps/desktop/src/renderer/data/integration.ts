@@ -1,6 +1,7 @@
 import {
   AUTOMATION_F1_AVAILABILITY,
   AUTOMATION_F2_AVAILABILITY,
+  AUTOMATION_F3_AVAILABILITY,
   type AutomationAvailability,
 } from "@stubwise/shared";
 import { isAppBuild } from "./build";
@@ -271,11 +272,13 @@ export function integrationTargetOf(
 /**
  * I passi e gli inizi delle Automations che questa build offre (area 7, per
  * fette): nella build app quelli della fetta 2 (funzione `automations-f2`;
- * senza, la fetta 1), nel prototipo
+ * senza, la fetta 1; della 3 con `automations-f3`, spenta finché il suo
+ * server non c'è), nel prototipo
  * tutti (`undefined`). La leggono il costruttore («Coming soon») e la validazione
  * (`not_available`), così non possono dire due cose diverse.
  */
 export function automationAvailability(): AutomationAvailability | undefined {
   if (!isAppBuild()) return undefined;
+  if (featureIntegrated("automations-f3")) return AUTOMATION_F3_AVAILABILITY;
   return featureIntegrated("automations-f2") ? AUTOMATION_F2_AVAILABILITY : AUTOMATION_F1_AVAILABILITY;
 }

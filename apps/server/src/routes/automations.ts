@@ -18,6 +18,7 @@ import { approveRun, chooseRunProject, controlRun, getRun, listRuns, rejectRun, 
 import { listMyApprovals, listMyRuns } from "../automations/me.js";
 import { automationOrigin, projectAutomations } from "../automations/entry.js";
 import { simulationExamples } from "../automations/examples.js";
+import { estimateTest, runTestClaude } from "../automations/test-claude.js";
 import {
   activateAutomation,
   checkFlow,
@@ -162,6 +163,18 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
     "/automations/:code/examples",
     { config: { access: ACCESS }, schema: { params: codeParams, querystring: z.object({ version: z.union([z.literal("draft"), z.coerce.number().int().positive()]) }) } },
     async (request, reply) => handle(reply, () => simulationExamples(app.db, me(request), request.params.code, request.query.version)),
+  );
+  // F3: la stima della prova (gratuita) e un passo di Claude della prova (D4: chi gestisce, budget, lo stesso prompt).
+  const testVersion = z.union([z.literal("draft"), z.number().int().positive()]);
+  app.post(
+    "/automations/:code/test/estimate",
+    { config: { access: ACCESS }, schema: { params: codeParams, body: z.object({ version: testVersion, event: z.record(z.string(), z.unknown()).default({}) }) } },
+    async (request, reply) => handle(reply, () => estimateTest(app.db, me(request), request.params.code, request.body)),
+  );
+  app.post(
+    "/automations/:code/test/claude",
+    { config: { access: ACCESS }, schema: { params: codeParams, body: z.object({ version: testVersion, path: z.string().min(1).max(200), vars: z.record(z.string(), z.unknown()).default({}) }) } },
+    async (request, reply) => handle(reply, () => runTestClaude(app.db, app.chatLlm, me(request), request.params.code, request.body)),
   );
   app.post(
     "/automations/:code/tested",

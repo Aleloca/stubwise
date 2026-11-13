@@ -97,6 +97,10 @@ export interface UsageTag {
   jobId?: string;
   prReviewId?: string;
   emailMessageId?: string;
+  /** Area 7, F3: l'automazione di un passo di Claude (o di una sua prova). */
+  automationId?: string;
+  /** …e la sua esecuzione: solo con `automationId`; assente = una prova. */
+  automationRunId?: string;
   /**
    * Solo con jobId: fase per i lettori per-ticket (il CHECK
    * `agent_runs_job_phase_check` la pretende quando c'è un job).

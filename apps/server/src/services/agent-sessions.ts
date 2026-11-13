@@ -14,8 +14,6 @@ import {
   claudeConversations,
   docGenerations,
   emailMessages,
-  instanceSettings,
-  monthlyCostUsd,
   prReviews,
   projects,
   repositories,
@@ -24,7 +22,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t } from "@stubwise/i18n";
-import { actorAllows, stateAllows } from "@stubwise/notifications";
+import { actorAllows, aiBudgetState, stateAllows } from "@stubwise/notifications";
 import {
   AGENT_SESSION_INPUT_CHANNEL,
   agentQuestionAnswerSchema,
@@ -1228,8 +1226,7 @@ async function insertInput(
  * (chat, fetta 1). Lo stesso conto dei run (`monthlyCostUsd`).
  */
 export async function monthlyBudgetExhausted(db: Db | Tx): Promise<boolean> {
-  const [settings] = await db.select({ budget: instanceSettings.monthlyBudgetUsd }).from(instanceSettings);
-  if (!settings?.budget) return false;
-  return (await monthlyCostUsd(db as Db)) >= Number(settings.budget);
+  // Area 7, F3 (C-F3-1): la lettura sta in UN posto, `@stubwise/notifications`.
+  return (await aiBudgetState(db)).exhausted;
 }
 

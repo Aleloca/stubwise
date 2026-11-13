@@ -60,6 +60,7 @@ export {
   updateWebhookField,
 } from "./webhooks";
 export {
+  confirmSimulationCost,
   endSimulation,
   getSimulation,
   SimulationConfigError,

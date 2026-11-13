@@ -1,0 +1,40 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import { CostConfirm } from "./CostConfirm";
+
+// Area 7, F3 (D4, F3-3 = a): la prova arriva al primo passo di Claude e si
+// ferma; chi prova conferma il costo stimato UNA volta, poi la prova va.
+
+describe("la conferma del costo della prova", () => {
+  it("dice quante volte chiede a Claude e quanto costa, e conferma una volta", async () => {
+    const onConfirm = vi.fn();
+    render(
+      <CostConfirm
+        cost={{ claudeSteps: 2, estimateUsd: 0.04, model: "sonnet" }}
+        busy={false}
+        onConfirm={onConfirm}
+      />,
+    );
+    const region = screen.getByRole("region", { name: "Claude in this test" });
+    expect(region).toHaveTextContent("asks Claude 2 times");
+    expect(region).toHaveTextContent("$0.04");
+    expect(region).toHaveTextContent("monthly AI budget");
+    await userEvent.click(screen.getByRole("button", { name: "Test with Claude" }));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("mentre conferma il bottone non si preme di nuovo", () => {
+    render(
+      <CostConfirm
+        cost={{ claudeSteps: 1, estimateUsd: 0.01, model: "sonnet" }}
+        busy
+        onConfirm={() => {}}
+      />,
+    );
+    expect(screen.getByRole("region", { name: "Claude in this test" })).toHaveTextContent(
+      "asks Claude once",
+    );
+    expect(screen.getByRole("button", { name: "Test with Claude" })).toBeDisabled();
+  });
+});

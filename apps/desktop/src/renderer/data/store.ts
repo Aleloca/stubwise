@@ -559,6 +559,7 @@ export type ApiFnName =
   | "automations.validateAutomationFlow"
   | "automations.listRuns"
   | "automations.getRun"
+  | "automations.confirmSimulationCost"
   | "automations.findRun"
   | "automations.listSources"
   | "automations.listClientLinks"

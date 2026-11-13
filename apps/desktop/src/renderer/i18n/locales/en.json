@@ -7064,7 +7064,8 @@
       "source_disconnected": "The source it starts from isn't connected",
       "limit": "It goes over one of the safety limits",
       "department_cant_see": "Nobody in the department it notifies can see the project",
-      "not_available": "This isn't available in this app yet"
+      "not_available": "This isn't available in this app yet",
+      "untrusted_target": "Claude picks who this goes to from something that came from outside: it must ask for approval"
     },
     "detail": {
       "more": "More",
@@ -7921,7 +7922,8 @@
         "selfStart": "Would start itself again",
         "department_cant_see": "Nobody in the department sees the project",
         "departmentCantSee": "Nobody in {{name}} sees {{code}}",
-        "not_available": "Coming soon"
+        "not_available": "Coming soon",
+        "untrusted_target": "Asks first: Claude picks who"
       },
       "problem": {
         "unavailable": "{{label}} isn't available here",
@@ -8034,7 +8036,8 @@
         "person": "A person",
         "role": "A role in the project",
         "owner": "The owner (whoever turned it on)",
-        "clientCheck": "For the client's project, whether they can see it is checked when the run gets here."
+        "clientCheck": "For the client's project, whether they can see it is checked when the run gets here.",
+        "untrusted": "Claude picks who this goes to from something that came from outside, so someone approves it first."
       },
       "claude": {
         "rule": "Claude only picks one of these outcomes and fills these fields. It never acts on its own: actions are the steps you add.",
@@ -8170,6 +8173,12 @@
       }
     },
     "test": {
+      "cost": {
+        "title": "Claude in this test",
+        "body_one": "This test asks Claude once: about {{usd}} from the instance's monthly AI budget.",
+        "body_other": "This test asks Claude {{count}} times: about {{usd}} from the instance's monthly AI budget.",
+        "confirm": "Test with Claude"
+      },
       "title": "Test: {{name}}",
       "back": "Back to editing",
       "band": {
@@ -10815,6 +10824,7 @@
           "docs": "Docs",
           "reports": "Reports",
           "mail": "Mail",
+          "automations": "Automations",
           "chat": "Chat"
         },
         "source": {
@@ -12291,6 +12301,7 @@
       "mail_classify": "Mail classification",
       "mail_draft": "Email drafts by Claude",
       "meeting_summary": "Recorded meeting summaries",
+      "automation_step": "Automation steps",
       "chat": "Chats with Claude",
       "claude_chat": "Private conversations with Claude",
       "backlog_merge": "Backlog document merge",

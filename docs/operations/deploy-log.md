@@ -4330,3 +4330,38 @@ deploy o di un rollback che la tocca.
   cambia (le colonne non danno fastidio a un server vecchio). ⚠️ La 0172 ha
   un numero più alto di quello che la fetta 3 aveva preso sul suo branch:
   la migrazione della F3 si rinumera DOPO di questa (la trappola del `when`).
+
+- **«Integrazione area 7, fetta 3: i passi di Claude» (13 nov 2026)**: branch
+  `feat/area7-f3` (sopra la F2 e il suo fix), piano
+  `docs/plans/2026-11-13-integrazione-area7-fetta3-plan.md` (con le
+  «Correzioni di 72»), regole in `docs/invariants/automations.md` («I passi
+  di Claude e l'eccezione Q8»). Migrazione **0173** (DOPO la 0172 del fix
+  della F2): l'operazione AI `automation_step` nei CHECK di `agent_runs` e
+  `ai_model_settings`, e l'owner `agent_runs.automation_id` (+
+  `automation_run_id`, NULL per una prova). Nessuna env nuova. Ordine:
+  **server** (healthy, 0173 applicata), poi **worker**, poi **caddy**.
+
+  **Prima di accendere**: lo scenario golden `automation-step` col CLI
+  pinnato (`--model sonnet`, 3 volte, `apps/worker/scripts/golden/README.md`).
+  Rosso = non si accende.
+
+  **Da sapere subito**: un'automazione accesa con un passo di Claude fa
+  lavorare Claude senza un umano davanti (Q8, l'unica eccezione
+  all'invariante delle serie), col budget mensile dell'istanza controllato
+  prima di OGNI passo (D1; nessun tetto per esecuzione). Il modello è quello
+  di `automation_step` in Impostazioni → AI (Sonnet di default). Controlli,
+  sola lettura: `select count(*), sum(cost_usd) from agent_runs where
+  operation = 'automation_step' and created_at > now() - interval '1 day';`
+  e le esecuzioni ferme per il budget, `select count(*) from automation_runs
+  where status = 'running' and cursor->'aiWaiting' is not null;`.
+
+  **Rollback**: il server scende **insieme** al caddy. Prima di scendere,
+  le automazioni con un passo di Claude vanno in pausa (un worker della F2
+  non sa eseguirli e li farebbe fallire `not_available`): `update automations
+  a set status = 'paused', paused_reason = 'manual', active_since = null
+  where status = 'active' and exists (select 1 from automation_versions v
+  where v.automation_id = a.id and v.published_at is not null and
+  (v.flow::text like '%"kind": "claude"%' or v.flow::text like
+  '%"kind":"claude"%'));`. Le righe `agent_runs` con `automation_step`
+  restano (un server vecchio non le legge per operazione). La 0173 non si
+  annulla.

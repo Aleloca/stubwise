@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { untrustedTargets } from "@stubwise/shared";
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { availableFields } from "@stubwise/shared";
@@ -176,6 +177,8 @@ export function ApprovalSection({ step, set, problems }: Omit<FormProps, "path">
   const ask = approval.mode === "ask" ? approval.who : null;
   const whoMode = !ask ? "owner" : "owner" in ask ? "owner" : "personId" in ask ? "person" : "role";
   const fromClient = "project" in step && step.project.mode === "from_client";
+  // F3-1 = a: Claude sceglie a chi va con un dato di fuori → si chiede sempre.
+  const mustAsk = untrustedTargets(b.flow, b.sources).some((x) => x.stepId === step.id);
   const whoWords = !ask
     ? ""
     : "owner" in ask
@@ -187,6 +190,7 @@ export function ApprovalSection({ step, set, problems }: Omit<FormProps, "path">
         : t(`automations.roles.${ask.projectRole}`, { defaultValue: ask.projectRole });
   return (
     <Section title={t("automations.builder.approval.title")}>
+      {mustAsk && <Note>{t("automations.builder.approval.untrusted")}</Note>}
       <div
         role="radiogroup"
         aria-label={t("automations.builder.approval.title")}
@@ -197,7 +201,7 @@ export function ApprovalSection({ step, set, problems }: Omit<FormProps, "path">
           label={t("automations.builder.approval.auto")}
           body={t("automations.builder.approval.autoBody")}
           onSelect={() => set({ approval: { mode: "auto" } } as Partial<Step>)}
-          disabled={b.readOnly}
+          disabled={b.readOnly || mustAsk}
         />
         <RadioRow
           checked={approval.mode === "ask"}

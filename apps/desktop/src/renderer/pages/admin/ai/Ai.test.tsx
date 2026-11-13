@@ -436,6 +436,7 @@ describe("Models", () => {
       "Docs",
       "Reports",
       "Mail",
+      "Automations",
       "Chat",
     ]);
 

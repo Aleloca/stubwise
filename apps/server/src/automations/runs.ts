@@ -16,6 +16,9 @@ import {
   hideProject,
   hideReplies,
   stepAt,
+  taintedKeys,
+  visitSteps,
+  type Step,
   type Automation,
   type AutomationFlow,
   type AutomationRun,
@@ -136,6 +139,8 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
     parentRunId: r.parentRunId,
     origin: r.origin,
     ...(r.status === "suspended" && c.suspendedFrom ? { suspendedFrom: c.suspendedFrom as AutomationRun["suspendedFrom"] } : {}),
+    // F3 (C-F3-4): ferma al passo di Claude per il budget del mese; riparte da sola.
+    aiWaiting: (c as { aiWaiting?: { reason: "monthly_budget" } | null }).aiWaiting ?? null,
   };
   if (pending && typeof pending.preview.progetto === "string" && v !== "all") hideProject(run.pending!.preview, v);
   // R-J16 (area 7, F2): il testo della risposta del cliente lo vede solo il proprietario; chi decide ne vede l'anteprima intera (R-J14).
@@ -150,6 +155,27 @@ export async function runRowOf(db: Db, viewer: Viewer, r: RunRecord, a: Automati
   // Gli altri leggono l'evento vuoto con `mailHidden`, il titolo col solo nome
   // e le righe senza dati (nessuna eco dell'email); chi decide vede
   // l'anteprima del passo. (La catena, con «avvia un'altra», arriva in F4.)
+  // F3, C-F3-7: una riga di Claude che leggeva un dato tinto (di fuori: la
+  // risposta di un cliente, un'email) perde motivazione e campi di testo per chi
+  // non è il proprietario della posta, admin compresi.
+  if (viewer.id !== mailOwner && run.log.some((e) => e.kind === "claude")) {
+    const flow = await flowOfRun(db, r);
+    if (flow) {
+      const tainted = taintedKeys(flow, []);
+      const isTainted = (k: string) => tainted.has(k) || [...tainted].some((t) => k.startsWith(`${t}.`));
+      const claudeSteps = new Map<string, Extract<Step, { kind: "claude" }>>();
+      visitSteps(flow.steps, (st) => {
+        if (st.kind === "claude") claudeSteps.set(st.id, st);
+      });
+      for (const e of run.log) {
+        const st = e.kind === "claude" ? claudeSteps.get(e.stepId) : undefined;
+        if (!st || !st.inputs.some(isTainted)) continue;
+        e.reason = null;
+        for (const f of st.fields) if (f.type === "text" && typeof e.output[f.key] === "string") e.output[f.key] = "";
+        e.reasonHidden = true;
+      }
+    }
+  }
   if (viewer.id !== mailOwner && run.event && typeof run.event === "object" && "email" in run.event) {
     const hidden = { email: { mittente: "", oggetto: "", testo: "" } };
     run.event = hidden;

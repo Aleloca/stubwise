@@ -29,6 +29,8 @@ export const AI_OPERATIONS = [
   "mail_draft",
   // Il riassunto e le proposte di una riunione registrata (area 6, F5a): Sonnet, senza tool.
   "meeting_summary",
+  // Un passo di Claude di un'automazione (area 7, F3): Sonnet di default (F3-2), senza strumenti.
+  "automation_step",
   "chat",
   // La conversazione libera con Claude (chat, fetta 1): i turni del runner a turni del worker.
   "claude_chat",
@@ -49,6 +51,7 @@ export type AiOperationGroupKey =
   | "docs"
   | "reports"
   | "mail"
+  | "automations"
   | "chat"
   | "technical";
 
@@ -63,6 +66,7 @@ export const AI_OPERATION_GROUPS: {
   { group: "docs", operations: ["docs_generation", "drive_summary"] },
   { group: "reports", operations: ["daily_report", "weekly_brief"] },
   { group: "mail", operations: ["mail_classify", "mail_draft", "meeting_summary"] },
+  { group: "automations", operations: ["automation_step"] },
   { group: "chat", operations: ["chat", "claude_chat", "backlog_merge"] },
   { group: "technical", operations: ["plugin_smoke", "credential_test", "usage_probe"] },
 ];

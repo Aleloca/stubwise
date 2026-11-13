@@ -342,6 +342,12 @@ export interface RunLogEntry {
    */
   replyHidden?: boolean;
   /**
+   * Area 7, F3 (C-F3-7): solo nelle letture, per chi non è il proprietario — la
+   * motivazione di Claude e i suoi campi di testo sono stati tolti da questa
+   * riga, perché il passo leggeva un dato di fuori (tinto) che solo lui vede.
+   */
+  reasonHidden?: boolean;
+  /**
    * Le cose create dal passo (task, traguardo…) col loro codice. Nelle
    * letture (R-J12) una cosa in un progetto che chi guarda non vede ha
    * `code: ""`: né id né codice. Una task eliminata (area 10a) che chi
