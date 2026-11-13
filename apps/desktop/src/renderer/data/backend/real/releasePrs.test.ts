@@ -105,6 +105,8 @@ describe("le PR aperte della build app (area 8, F1)", () => {
     expect(pr).toMatchObject({
       number: 246,
       repo: "audin-app",
+      // L'indirizzo vero del server (review F1, I1): i link non lo costruiscono.
+      url: "https://github.com/audin/audin-app/pull/246",
       title: "Checkout",
       origin: "stubwise",
       authorName: "Claude",

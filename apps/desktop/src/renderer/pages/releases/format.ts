@@ -21,9 +21,40 @@ export function platformOf(url: string | null | undefined): string {
   return url && /bitbucket/i.test(url) ? "Bitbucket" : "GitHub";
 }
 
-/** L'indirizzo di una PR sulla piattaforma. */
-export const prUrl = (pr: { repo: string; number: number }): string =>
-  `https://github.com/${pr.repo}/pull/${pr.number}`;
+/**
+ * L'indirizzo di una PR sulla piattaforma: quello del server quando c'è (la
+ * build app, GitHub o Bitbucket); il prototipo, che non lo porta, costruisce
+ * quello di GitHub. `null` se il server non l'ha (niente link inventato).
+ */
+export function prUrl(pr: { repo: string; number: number; url?: string }): string | null {
+  if (pr.url !== undefined) return pr.url || null;
+  return `https://github.com/${pr.repo}/pull/${pr.number}`;
+}
+
+/**
+ * Un link a un commit o a un file della PR: solo su github.com (Bitbucket ha
+ * un'altra forma, e un `owner/repo` di GitHub inventato potrebbe essere il
+ * repository di un altro), e mai con lo sha vuoto.
+ */
+export function githubLink(
+  pr: { repo: string; number: number; url?: string },
+  kind: "commit" | "blob",
+  sha: string,
+  file?: string,
+): string | null {
+  const url = prUrl(pr);
+  if (!sha || !url) return null;
+  let host: string;
+  try {
+    host = new URL(url).host;
+  } catch {
+    return null;
+  }
+  if (host !== "github.com") return null;
+  return kind === "commit"
+    ? `https://github.com/${pr.repo}/commit/${sha}`
+    : `https://github.com/${pr.repo}/blob/${sha}/${file ?? ""}`;
+}
 
 /** Lo sha corto, come lo scrive git. */
 export const shortSha = (sha: string): string => sha.slice(0, 7);

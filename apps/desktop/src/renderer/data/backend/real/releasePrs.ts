@@ -117,6 +117,8 @@ export function createRealPrs(
       projectId,
       repositoryId: p.repositoryId,
       repo: p.repositoryFullName ?? p.repositoryName,
+      // L'indirizzo vero (GitHub o Bitbucket): i link non lo costruiscono.
+      url: p.prUrl,
       number: prNumber,
       title: p.ticketTitle,
       // Le PR di Stubwise le scrive Claude; per un'esterna il server non ha l'autore.

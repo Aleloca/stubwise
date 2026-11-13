@@ -3206,6 +3206,11 @@ export interface PrAutoCorrection {
 /** Una PR aperta, di Stubwise o di un collega (stessa forma per tutte). */
 export interface OpenPullRequest extends PrRef {
   id: string;
+  /**
+   * Build app: l'indirizzo della PR sulla piattaforma come lo dà il server
+   * (GitHub o Bitbucket). Assente nel prototipo, che costruisce GitHub.
+   */
+  url?: string;
   projectId: string;
   repositoryId: string;
   title: string;

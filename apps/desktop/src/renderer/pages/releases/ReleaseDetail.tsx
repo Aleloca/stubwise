@@ -101,7 +101,7 @@ function NowBox({ release }: { release: ReleaseView }) {
               {t("releases.explain.button")}
             </button>
           )}
-          {run && (
+          {run?.url && (
             <a href={run.url} target="_blank" rel="noreferrer" className={`${linkClass} ml-1`}>
               {t("releases.now.openRun", { platform: platformOf(run.url) })}
               <ExternalGlyph />
@@ -246,10 +246,12 @@ function RunItem({ run, projectCode }: { run: RunView; projectCode: string }) {
           <span className="text-sm text-ink-muted">{t(`releases.run.status.${run.status}`)}</span>
           <span className="num ml-auto text-sm text-ink-muted">{duration(run, t)}</span>
         </button>
-        <a href={run.url} target="_blank" rel="noreferrer" className={`${linkClass} shrink-0 pr-2`}>
-          {t("releases.openOn", { platform: platformOf(run.url) })}
-          <ExternalGlyph />
-        </a>
+        {run.url && (
+          <a href={run.url} target="_blank" rel="noreferrer" className={`${linkClass} shrink-0 pr-2`}>
+            {t("releases.openOn", { platform: platformOf(run.url) })}
+            <ExternalGlyph />
+          </a>
+        )}
       </div>
       {open && (
         <div className="run-open flex flex-col gap-3 pb-4 pl-9">
