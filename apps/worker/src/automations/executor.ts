@@ -215,7 +215,19 @@ interface Turn {
   flow: AutomationFlow;
   log: RunLogEntry[];
   now: string;
+  /** Il gettone della presa: la lease si rinnova durante un giro lungo (review F3, M7). */
+  token?: string;
+  /** Le chiamate a Claude fatte in questo giro (tetto `CLAUDE_CALLS_PER_TURN`). */
+  claudeCalls?: number;
 }
+
+/**
+ * Al più tante chiamate a Claude per esecuzione e giro (review F3, M7): una
+ * chiamata può durare fino a 120 s, e un «per ogni» di passi di Claude
+ * terrebbe l'esecutore per tutte le automazioni. Raggiunto il tetto
+ * l'esecuzione resta dovuta e riprende al giro dopo, dalle altre in poi.
+ */
+export const CLAUDE_CALLS_PER_TURN = 3;
 
 async function processRun(deps: ExecutorDeps, runId: string, token: string): Promise<void> {
   const db = deps.db;
@@ -234,6 +246,8 @@ async function processRun(deps: ExecutorDeps, runId: string, token: string): Pro
     flow: version.flow as AutomationFlow,
     log: await loadLog(db, run.id),
     now: (deps.now?.() ?? new Date()).toISOString(),
+    token,
+    claudeCalls: 0,
   };
 
   const inputs = await db
@@ -506,10 +520,17 @@ async function drive(turn: Turn, input: EngineInput, prepare?: (st: EngineState)
     const finishing = decided !== null && eff.path === decided;
     const [fresh] = await turn.deps.db.select({ status: automations.status }).from(automations).where(eq(automations.id, turn.automation.id));
     if (fresh?.status !== "active" && !finishing) return suspend(turn);
+    if (turn.token) await renewClaim(turn.deps.db, turn.run.id, turn.token);
     if (eff.kind === "claude") {
+      if ((turn.claudeCalls ?? 0) >= CLAUDE_CALLS_PER_TURN) {
+        // Il tetto del giro: l'esecuzione resta dovuta e riparte da qui al giro dopo.
+        await setRun(turn, { dueAt: new Date(Date.parse(turn.now)) });
+        return;
+      }
       // F3: il passo di Claude non è un effetto. Il suo risultato rientra nel motore
       // e si scrive col cursore (`commit`); una ripresa dopo il commit non lo richiama.
       const claude = await claudeStep(turn, eff);
+      turn.claudeCalls = (turn.claudeCalls ?? 0) + 1;
       if (!claude) return;
       r = advance(r.state, claude);
       await commit(turn, r);

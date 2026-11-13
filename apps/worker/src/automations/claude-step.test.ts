@@ -213,3 +213,24 @@ describe("review F3: gli account e gli errori del provider", () => {
   });
 });
 
+describe("review F3, M7: un'esecuzione non tiene l'esecutore", () => {
+  it("al più 3 passi di Claude per giro: un «per ogni» di 5 ne fa 3, lascia l'esecuzione dovuta e finisce al giro dopo; la lease si rinnova a ogni passo", async () => {
+    const loop: Step = { id: "f", kind: "forEach", list: "avvio.voci", as: "voce", steps: [claude({ id: "c", inputs: ["voce"], branches: {} })] };
+    const { run } = await runOf([loop], { avvio: { voci: ["a", "b", "c", "d", "e"] } });
+    const renewals: Date[] = [];
+    const { runner, calls } = fakeRunner(['{"outcome":"normale","reason":"ok"}'], async () => {
+      const [r] = await t.db.select({ claimedAt: automationRuns.claimedAt }).from(automationRuns).where(eq(automationRuns.id, run.id));
+      if (r?.claimedAt) renewals.push(r.claimedAt);
+    });
+    await executeDueRuns({ db: t.db, runner });
+    expect(calls).toHaveLength(3);
+    const mid = await reload(run.id);
+    expect(mid.status).toBe("running");
+    expect(mid.dueAt!.getTime()).toBeLessThanOrEqual(Date.now());
+    expect(new Set(renewals.map((d) => d.getTime())).size).toBeGreaterThan(1);
+    await executeDueRuns({ db: t.db, runner });
+    expect(calls).toHaveLength(5);
+    expect((await reload(run.id)).status).toBe("done");
+  });
+});
+
