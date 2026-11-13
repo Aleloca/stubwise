@@ -18,13 +18,17 @@ import {
 // spento (`releases-explain`) finché la chat non ha il contesto del rilascio;
 // gli ambienti restano «in arrivo».
 vi.mock("@backend/api", async () => await import("./index"));
+// Chi vede il progetto per le impostazioni: i fatti del server, come nella build app.
+vi.mock("@backend/access", async () => await import("./accessFacts"));
 vi.mock("../../integration", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../integration")>();
-  const on = (name: string) => name === "releases-prs" || name === "releases";
+  const on = (name: string) =>
+    name === "releases-prs" || name === "releases" || name === "releases-repo-settings";
   return {
     ...actual,
     isIntegrated: (t: Parameters<typeof actual.isIntegrated>[0]) =>
       (t.kind === "projectSection" && t.name === "releases") ||
+      (t.kind === "projectSettings" && t.name === "repositories") ||
       (t.kind === "feature" && on(t.name)) ||
       actual.isIntegrated(t),
     featureIntegrated: (name: string) => on(name) || actual.featureIntegrated(name),
@@ -238,5 +242,78 @@ describe("i rilasci nella build app (area 8, F1, releases)", () => {
     const block = await screen.findByRole("region", { name: /^Releases/ }, { timeout: 3000 });
     await waitFor(() => expect(block.textContent).toContain("AUD-V3"));
     expect(block.textContent).toContain("audin-app#246");
+  });
+
+  it("Repositories ridotta (46): l'elenco in sola lettura e nell'editor SOLO «Releases»; la modalità si salva per slug", async () => {
+    install({
+      routes: {
+        "GET /api/auth/me": {
+          body: me({
+            instancePermissions: ["users.view_all"],
+            projectPermissions: {
+              [PROJECT_ID]: ["tickets.view_all", "release.merge", "repos.manage", "repos.view"],
+            },
+          }),
+        },
+        "GET /api/repositories": {
+          body: [
+            {
+              id: REPO,
+              projectId: PROJECT_ID,
+              name: "audin-app",
+              slug: "audin-app",
+              provider: "github",
+              repoUrl: "https://github.com/audin/audin-app",
+              defaultBranch: "main",
+              releaseBranch: null,
+              releasePipeline: { mode: "auto" },
+              ciProvider: "github_actions",
+              colleaguePrs: "analyze_only",
+              createdAt: "2026-11-01T09:00:00.000Z",
+            },
+          ],
+        },
+        "PATCH /api/repositories/audin-app": (req: SeenRequest) => ({
+          body: {
+            id: REPO,
+            projectId: PROJECT_ID,
+            name: "audin-app",
+            slug: "audin-app",
+            provider: "github",
+            repoUrl: "https://github.com/audin/audin-app",
+            defaultBranch: "main",
+            createdAt: "2026-11-01T09:00:00.000Z",
+            ...(req.body as object),
+          },
+        }),
+      },
+    });
+    renderRoute("/p/AUD/settings/repositories");
+    const list = await screen.findByRole(
+      "list",
+      { name: "Repositories of AUD" },
+      { timeout: 3000 },
+    );
+    expect(list.textContent).toContain("audin/audin-app");
+    // Nella build app niente «nuovo repository» finché non arriva l'area 9.
+    expect(screen.queryByRole("button", { name: /Add repository/ })).toBeNull();
+    await userEvent.click(within(list).getByRole("button", { name: /Open/ }));
+    expect(await screen.findByRole("heading", { name: "Releases" })).toBeTruthy();
+    // Il resto dell'editor (dettagli, account git, file d'ambiente, webhook) non c'è.
+    expect(screen.queryByRole("heading", { name: "Details" })).toBeNull();
+    expect(screen.queryByText(/git account/i)).toBeNull();
+    expect(screen.getByRole("radio", { name: /^Analysis only/ })).toBeChecked();
+    await userEvent.click(screen.getByRole("radio", { name: /^Off/ }));
+    await waitFor(() =>
+      expect(
+        seen.find((r) => r.method === "PATCH" && r.path === "/api/repositories/audin-app")?.body,
+      ).toEqual({
+        colleaguePrs: "off",
+      }),
+    );
+    expect(await screen.findByText("Saved")).toBeTruthy();
+    expect(seen.filter((r) => r.method !== "GET").map((r) => `${r.method} ${r.path}`)).toEqual([
+      "PATCH /api/repositories/audin-app",
+    ]);
   });
 });

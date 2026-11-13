@@ -413,6 +413,10 @@ const INTEGRATED_CALLS = new Set([
   "releases.getRelease",
   "releases.fixRelease",
   "releases.listMyReleases",
+  // Area 8, F1 (`releases-repo-settings`): la sezione «Repositories» ridotta.
+  "releases.getRepositorySettings",
+  "releases.setRepoPrMode",
+  "releases.setReleasePipeline",
   // Area 7, F4 (accesa): sorgenti webhook, tabella cliente → progetto, tetto del
   // webhook (`data/backend/real/automationSources.ts`, `automations.ts`).
   "automations.listSources",
@@ -583,6 +587,17 @@ describe("aree non integrate nella build app", () => {
     renderRoute("/p/AUD/support");
     expect(await screen.findByText("Coming soon")).toBeInTheDocument();
     await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  // Area 8, F1 (46): «Repositories» ridotta, senza «nuovo repository» né l'editor dell'area 9.
+  it("aprire Repositories legge solo chiamate integrate, senza «Add repository»", async () => {
+    // Laura vede il codice di AUD (`repos.view`): la sezione è sua.
+    signedInAs("p-laura");
+    renderRoute("/p/AUD/settings/repositories");
+    await waitFor(() => expect(calls).toContain("releases.getRepositorySettings"));
+    await settle();
+    expect(screen.queryByRole("button", { name: /Add repository/ })).toBeNull();
     expect(outside()).toEqual([]);
   });
 

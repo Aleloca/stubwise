@@ -67,6 +67,7 @@ const ALL: IntegrationTarget[] = [
       "automations-f4",
       "releases-prs",
       "releases",
+      "releases-repo-settings",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -96,9 +97,12 @@ describe("isIntegrated", () => {
         "projectSection:releases",
         "feature:releases-prs",
         "feature:releases",
+        "feature:releases-repo-settings",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",
+        // Area 8, fetta 1: «Repositories» ridotta al blocco «Releases».
+        "projectSettings:repositories",
         "admin:departments",
         "taskView:list",
         "taskView:board",

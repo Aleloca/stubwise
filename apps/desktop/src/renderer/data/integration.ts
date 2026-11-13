@@ -52,7 +52,8 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
   // Area 8, fetta 1: la sezione Releases con le sole PR aperte (`releases-prs`).
   projectSection: new Set(["overview", "tasks", "requests", "planning", "chat", "docs", "drive", "automations", "releases"]),
   // Stati e soglie del progetto.
-  projectSettings: new Set(["statuses"]),
+  // Area 8, fetta 1 (46): «Repositories» ridotta al solo blocco «Releases» (`releases-repo-settings`).
+  projectSettings: new Set(["statuses", "repositories"]),
   admin: new Set(["departments"]),
   taskView: new Set(["list", "board", "timeline"]),
   feature: new Set([
@@ -77,6 +78,9 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     // provider), «Fai sistemare a Claude», la Home «Rilasci». «Spiega»
     // (`releases-explain`) resta spento finché Claude non sa leggere un rilascio.
     "releases",
+    // Le impostazioni di rilascio del repository (PR dei colleghi, pipeline,
+    // ramo), nella sezione «Repositories» ridotta (decisione di 46).
+    "releases-repo-settings",
     "notifications",
     "search",
     "task-detail",
