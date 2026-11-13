@@ -13,6 +13,15 @@ export const CLAUDE_INPUT_MAX = 20_000;
 const OPEN = "<<<DATI_NON_FIDATI";
 const CLOSE = "DATI_NON_FIDATI>>>";
 
+/**
+ * Il prefisso della motivazione quando degli input sono stati tagliati
+ * (F3-5 = a): lo scrive l'esecuzione nel registro e lo ricostruisce la prova,
+ * con questa funzione sola. Vuoto se non è stato tagliato niente.
+ */
+export function truncationNote(keys: readonly string[]): string {
+  return keys.length > 0 ? `[Input tagliati a 20 000 caratteri: ${keys.join(", ")}] ` : "";
+}
+
 /** Toglie i delimitatori da un testo non fidato: non può chiudere il blocco. */
 export function untrustedText(text: string): string {
   return text.split(OPEN).join("").split(CLOSE).join("");

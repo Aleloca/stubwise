@@ -1,4 +1,4 @@
-import { aiJobs, automationRules, comments, instanceSettings, projects, tickets as ticketsTable, users, type Db, type tickets } from "@stubwise/db";
+import { aiJobs, automationRules, comments, projects, tickets as ticketsTable, users, type Db, type tickets } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
 import { eq } from "drizzle-orm";
 import { monthlyBudgetLimitUsd, publishNotification } from "@stubwise/notifications";

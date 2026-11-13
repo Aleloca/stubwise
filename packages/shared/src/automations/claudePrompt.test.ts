@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildClaudePrompt, parseClaudeAnswer, untrustedText } from "./claudePrompt.js";
+import { buildClaudePrompt, parseClaudeAnswer, truncationNote, untrustedText } from "./claudePrompt.js";
 import type { Step } from "./types.js";
 
 /** Il prompt e la risposta di un passo di Claude, uguali per l'esecuzione e la prova (area 7, F3). */
@@ -28,3 +28,11 @@ describe("buildClaudePrompt", () => {
     expect(prompt).toContain("- nome: text");
   });
 });
+
+describe("truncationNote", () => {
+  it("lo stesso prefisso per l'esecuzione e la prova", () => {
+    expect(truncationNote([])).toBe("");
+    expect(truncationNote(["email.testo", "risposta.testo"])).toBe("[Input tagliati a 20 000 caratteri: email.testo, risposta.testo] ");
+  });
+});
+

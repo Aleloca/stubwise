@@ -19,6 +19,7 @@ import {
   NO_APPROVER_WHY,
   restoreState,
   stepAt,
+  truncationNote,
   type ApprovalWho,
   type Automation,
   type AutomationFlow,
@@ -442,7 +443,7 @@ async function claudeStep(turn: Turn, eff: Extract<EngineStep["effects"][number]
     await failWith(turn, "claude_invalid", out.reason, { code: "claudeInvalid" });
     return null;
   }
-  const cut = out.truncated.length > 0 ? `[Input tagliati a 20 000 caratteri: ${out.truncated.join(", ")}] ` : "";
+  const cut = truncationNote(out.truncated);
   return { kind: "claude_result", ...(out.outcome !== undefined ? { outcome: out.outcome } : {}), ...(out.fields !== undefined ? { fields: out.fields } : {}), reason: `${cut}${out.reason}` };
 }
 

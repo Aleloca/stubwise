@@ -8,7 +8,6 @@ import {
   emailMessages,
   emailProposals,
   googleAccounts,
-  instanceSettings,
   monthlyCostUsd,
   notifications,
   projects,
