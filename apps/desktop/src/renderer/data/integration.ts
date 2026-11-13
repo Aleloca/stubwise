@@ -107,9 +107,12 @@ const INTEGRATED: Record<IntegrationTarget["kind"], ReadonlySet<string>> = {
     "chat-events",
     "chat-attachments",
     // Area 6, fetta 1: il cassetto Google (account e caselle, comune a Posta e
-    // Calendario). Il Drive Google (`google`: cartelle, riferimenti, file fuori
-    // dai progetti) resta spento fino alla F5.
+    // Calendario).
     "google-account",
+    // Area 6, F5b: Google Drive nel Drive dei progetti (riferimenti, cartelle
+    // collegate, Togli e Nascondi, i file non disponibili), la ricerca fuori
+    // dai progetti, la voce «drive» del cassetto e gli allegati come link.
+    "google",
     // Area 6, fetta 1: il Calendario in LETTURA (la destinazione e il blocco
     // «Prossimi appuntamenti» della Home), con le serie.
     "calendar",
