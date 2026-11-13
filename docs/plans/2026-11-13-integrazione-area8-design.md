@@ -528,19 +528,39 @@ preset). Nessuna chiave a due livelli (il test del catalogo).
   regola I2 qui sopra.
 - **La visibilità**: dagli ambienti per repository quando ci sono (F1, R-4).
   Fino ad allora quella di `server_projects`, detta nella parità.
-- **F4b**: la correzione da task (`pages/task/ServerSection.tsx`:
-  `getServerTaskInfo`, `startServerFix`), l'analisi all'avviso e gli accessi
-  (`SshAccessPanel` e compagni) seguono la F4b riscritta da 72 (il
-  maintainer: la correzione passa dall'agente di monitoraggio, non
-  dall'SSH). Questa parte del lato renderer si completa dopo quella
-  riscrittura: se gli accessi SSH escono dal perimetro, i loro componenti
-  restano nel prototipo e la build app non li mostra (I1).
-- **Flag**: `servers-monitor` (F4a), poi quelli della F4b.
+- **F4b, le operazioni attraverso l'agente** (vedi «Le operazioni sui server
+  attraverso l'agente»):
+  - L'interruttore «operazioni» (spento di default) e il comando
+    d'installazione che lo accende (`STUBWISE_OPERATIONS`,
+    `STUBWISE_COMMAND_PUBLIC_KEY`) stanno in Impostazioni → Servers
+    (`ServerSettings`, `InstallCommand`).
+  - La sezione Servers dice versione dell'agente e opzione accesa, come le
+    dichiara l'ingest.
+  - Nessun testo della UI promette «sola lettura» per il socket di Docker:
+    un socket montato `:ro` dà comunque l'API completa (Q4). Il prototipo
+    non lo promette; la frase di oggi è del web. La frase del prototipo
+    sull'analisi («Claude is looking into it with read-only access») resta
+    vera solo se l'analisi legge ciò che l'agente riporta e le letture
+    dell'insieme chiuso: si ricontrolla con la risposta a Q2.
+  - La correzione da task (`pages/task/ServerSection.tsx`:
+    `getServerTaskInfo`, `startServerFix`) mostra il piano col suo insieme
+    chiuso di azioni, l'approvazione di chi ha `plans.approve` prima di ogni
+    comando, l'esito di ogni azione (uscita troncata, contenuto non fidato) e
+    lo Stop.
+  - Gli accessi SSH del prototipo (`SshAccessPanel`, `SshAccessRows`,
+    `SshAccessDialogs`, `SshSteps`, `VerifyResult`) restano fuori dalla
+    build app se Q3 = a (I1: non si mostrano), e restano nel prototipo
+    finché la shape non cambia.
+  - La parità della F4b dice che la specifica (il prototipo, «tre passi»
+    SSH) e l'app divergono per decisione del maintainer.
+- **Flag**: `servers-monitor` (F4a), `servers-operations` (F4b).
 - **Test**:
   - un server di un progetto invisibile risponde come inesistente;
   - la chiave dell'agente non è nella cache delle mutazioni e si dimentica
     al cambio di persona;
-  - nessun «Simulate» nella build app.
+  - nessun «Simulate» nella build app;
+  - senza `servers-operations` nessun bottone di correzione;
+  - nessun comando senza un'approvazione registrata, e lo Stop ferma.
 
 ### Azioni di Claude e palette
 
