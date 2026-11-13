@@ -2,6 +2,7 @@ import { ApiError, taskListQuery, type TaskListFilters } from "@stubwise/api-cli
 import type { Stall, StallReason, TaskViewData } from "@stubwise/shared";
 import type * as Fake from "../../api";
 import type { FilterCriteria, Task, TaskPatch } from "../../types";
+import { isIntegrated } from "../../integration";
 import { appClient } from "./client";
 import { NotIntegratedError } from "./notIntegrated";
 
@@ -80,6 +81,12 @@ export function toTask(view: TaskViewData): Task {
     lastActivityAt: view.lastActivityAt,
     occurrences: view.occurrences,
     ...(view.source ? { source: view.source } : {}),
+    // Area 7, F1: la riga «Created by automation …» la risolve il server
+    // (`/api/automation-origin`), qui serve solo il segno; solo se la task
+    // l'ha creata un'automazione e la destinazione è accesa.
+    ...(view.source === "automation" && isIntegrated({ kind: "destination", name: "automations" })
+      ? { automationRef: { automationId: "", runId: "" } }
+      : {}),
     ...(view.technical !== undefined ? { technical: view.technical } : {}),
     ...(view.assigneeStatus !== undefined ? { assigneeStatus: view.assigneeStatus } : {}),
     ...(view.canPlan !== undefined ? { canPlan: view.canPlan } : {}),

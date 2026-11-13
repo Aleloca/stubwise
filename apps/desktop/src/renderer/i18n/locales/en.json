@@ -7263,6 +7263,8 @@
       "noMailbox_would": "The owner ({{owner}}) has no connected mailbox: the email wouldn't be sent.",
       "mailboxExpired": "The owner's mailbox ({{owner}}) has expired: reconnect it before retrying.",
       "mailboxExpired_would": "The owner's mailbox ({{owner}}) has expired: the email wouldn't be sent until it's reconnected.",
+      "mailboxScope": "The owner's mailbox ({{owner}}) can't send email: reconnect it before retrying.",
+      "mailboxScope_would": "The owner's mailbox ({{owner}}) can't send email: the email wouldn't be sent until it's reconnected.",
       "invalidAddress": "“{{to}}” isn't an email address.",
       "addressNotFound": "The address “{{to}}” doesn't exist: the email bounced.",
       "addressNotFound_would": "The address “{{to}}” doesn't exist: the email would bounce.",

@@ -1,34 +1,24 @@
-import type { StubwiseClient } from "@stubwise/api-client";
-import { createAutomationRefs } from "./automationRefs";
+import { ApiError, type StubwiseClient } from "@stubwise/api-client";
+import type { AutomationSearchResult } from "@stubwise/shared";
+import { isIntegrated } from "../../integration";
+import { createAutomationRefs, inPrototypeWords } from "./automationRefs";
 import { createRealAutomations, type AutomationsApi } from "./automations";
-import { appClient } from "./client";
-import { notIntegrated } from "./notIntegrated";
+import { SimulationConfigError } from "../../../domain/automations/simCore";
+import { createRealSimulation } from "./automationSimulate";
+import { appClient, session } from "./client";
+import { now } from "./runtime";
 
 // Le Automations della build app sul client vero (area 7, F1): gli
-// adattatori di `automations.ts` e `automationDecisions.ts` sopra
-// `client.automations`, un registro dei riferimenti per sessione.
-//
-// Le rotte che il server non ha ancora (il blocco della Home, «Da decidere»,
-// la sezione del progetto, la riga d'origine) rifiutano come «non
-// integrate»; la prova aspetta `GET …/examples` e resta fuori.
+// adattatori di `automations.ts`, `automationDecisions.ts` e
+// `automationSimulate.ts` sopra `client.automations`, con un registro dei
+// riferimenti per sessione. La destinazione è accesa nella build app (R8).
 
-/** Le rotte che `client.automations` non ha ancora. */
-type Pending = "myRuns" | "myApprovals" | "projectAutomations" | "origin";
-
-// Il client copre il resto dell'interfaccia: se una firma diverge, qui non compila.
-const fromClient: (c: StubwiseClient["automations"]) => Omit<AutomationsApi, Pending> = (c) => c;
-
-const pending: Pick<AutomationsApi, Pending> = {
-  myRuns: notIntegrated("automations.listMyRuns"),
-  myApprovals: notIntegrated("automations.listMyApprovals"),
-  projectAutomations: notIntegrated("automations.getProjectAutomations"),
-  origin: notIntegrated("automations.automationOrigin"),
-};
+// Il client copre l'interfaccia: se una firma diverge, qui non compila.
+const fromClient: (c: StubwiseClient["automations"]) => AutomationsApi = (c) => c;
 
 /** Il client si prende a ogni chiamata (`appClient()` è pigro e i test lo cambiano). */
 const liveApi = new Proxy({} as AutomationsApi, {
   get(_target, key: string) {
-    if (key in pending) return pending[key as Pending];
     const c = fromClient(appClient().automations) as unknown as Record<string, unknown>;
     const fn = c[key];
     return typeof fn === "function" ? (fn as (...a: unknown[]) => unknown).bind(c) : fn;
@@ -37,9 +27,63 @@ const liveApi = new Proxy({} as AutomationsApi, {
 
 const refs = createAutomationRefs();
 
-export const liveAutomations = createRealAutomations(liveApi, refs);
+const simulation = createRealSimulation({
+  me: () => session.personId ?? "",
+  now: () => now(),
+  examples: (automationId, version) =>
+    inPrototypeWords(() =>
+      appClient().automations.examples(refs.automation(automationId).code, version),
+    ),
+  async markTested(automationId, body) {
+    try {
+      await appClient().automations.markTested(refs.automation(automationId).code, body);
+    } catch (error) {
+      // La bozza è cambiata mentre si provava: la prova resta valida a schermo, ma non segna quella rev.
+      if (error instanceof ApiError && error.status === 409 && error.code === "stale") return;
+      throw error;
+    }
+  },
+});
 
-/** Al cambio di sessione: codici e revisioni letti erano della persona di prima. */
+const { reset: resetSimulations, ...simulationFunctions } = simulation;
+
+/**
+ * ⌘K: il gruppo `automations` di `GET /api/search` (filtrato dal server). A
+ * destinazione spenta non si cerca: un risultato porterebbe a «in arrivo».
+ */
+async function searchAutomations(q: string): Promise<AutomationSearchResult[]> {
+  const needle = q.trim();
+  if (!needle || !isIntegrated({ kind: "destination", name: "automations" })) return [];
+  const results = await inPrototypeWords(() =>
+    appClient().search.global(needle, undefined, { citable: true }),
+  );
+  // `readerSchema` apre gli enum: un tipo che questo client non conosce non si mostra.
+  return (results.automations?.items ?? []).filter(
+    (h): h is AutomationSearchResult => h.kind === "automation" || h.kind === "run",
+  );
+}
+
+/** Dopo una scrittura, la rilettura che vede ciò che il worker ha applicato nel frattempo. */
+const SETTLE_MS = 1000;
+
+export const liveAutomations = {
+  searchAutomations,
+  // Le esecuzioni le muove il worker, e il client non riceve eventi: nessun
+  // avviso da qui (le pagine rileggono quando si rimontano o dopo una
+  // scrittura). Dopo una scrittura, «idle» è una rilettura dopo un attimo.
+  onAutomationsSettled: (fn: () => void): (() => void) => {
+    void fn;
+    return () => {};
+  },
+  whenAutomationsIdle: (): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, SETTLE_MS)),
+  SimulationConfigError,
+  ...createRealAutomations(liveApi, refs),
+  ...simulationFunctions,
+};
+
+/** Al cambio di sessione: codici, revisioni e prove erano della persona di prima. */
 export function forgetAutomationRefs(): void {
   refs.clear();
+  resetSimulations();
 }

@@ -846,6 +846,26 @@ describe("Automations: inizi e catene", () => {
     expect(runsOf(id)).toHaveLength(1);
   });
 
+  it("la mensile scatta nel suo giorno, anche se il mese non ce l'ha (F2, R6)", async () => {
+    as("p-laura");
+    // Oggi è il 23 ottobre 2026, a mezzogiorno (UTC, l'orologio del prototipo).
+    const on23 = await make(AUD, {
+      trigger: { kind: "schedule", rule: "FREQ=MONTHLY;BYMONTHDAY=23;BYHOUR=9" },
+      steps: [task("t")],
+      titleTemplate: "Il 23",
+    });
+    const on24 = await make(AUD, {
+      trigger: { kind: "schedule", rule: "FREQ=MONTHLY;BYMONTHDAY=24;BYHOUR=9" },
+      steps: [task("t")],
+      titleTemplate: "Il 24",
+    });
+    expect(await automations.runDueSchedules()).toHaveLength(1);
+    expect(await automations.runDueSchedules()).toHaveLength(0);
+    await idle();
+    expect(runsOf(on23)).toHaveLength(1);
+    expect(runsOf(on24)).toHaveLength(0);
+  });
+
   it("una ricorrenza parte una volta sola al giorno, se cade adesso", async () => {
     as("p-laura");
     // Oggi (23 ottobre 2026) è venerdì, a mezzogiorno.

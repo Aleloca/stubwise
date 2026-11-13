@@ -199,9 +199,11 @@ export function createRealAutomations(
       kind: "task" | "milestone" = "task",
     ): Promise<AutomationOrigin> {
       // Derivata a lettura dal server (P5): l'automazione e l'esecuzione le sa lui.
-      return inPrototypeWords(() =>
+      // 404 (l'oggetto non si vede più, o non l'ha creato un'automazione): la riga non dice niente.
+      const origin = await orNull(() =>
         api.origin(kind === "task" ? { task: createdCode } : { milestone: createdCode }),
       );
+      return origin ?? { visible: false };
     },
 
     /** Al cambio di sessione i riferimenti si buttano. */

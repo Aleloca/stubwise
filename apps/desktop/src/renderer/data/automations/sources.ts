@@ -1,6 +1,6 @@
 import { leavesOf, passesStartFilter, startFilterChecks } from "../../domain/automations/runRules";
 export { leavesOf, passesStartFilter, startFilterChecks };
-import { chainAllows as chainRule } from "@stubwise/shared";
+import { chainAllows as chainRule, scheduleDue as sharedScheduleDue } from "@stubwise/shared";
 import {
   onAutomationSignal,
   state,
@@ -232,24 +232,12 @@ onAutomationSignal((signal) => {
 
 // --- date e ricorrenze --------------------------------------------------------------
 
-const DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
-
 /**
- * Una RRULE semplice (`FREQ=DAILY|WEEKLY;BYDAY=MO,TH;BYHOUR=9`) cade
- * nell'«adesso» dato? Il giorno deve essere fra quelli della regola (ogni
- * giorno per `DAILY`), l'ora raggiunta.
+ * La regola del motore condiviso (`@stubwise/shared`, giornaliera,
+ * settimanale e mensile), letta in UTC: l'orologio del prototipo. Il worker
+ * la legge nel fuso Europe/Rome.
  */
-export function scheduleDue(rule: string, at: string): boolean {
-  const parts = Object.fromEntries(
-    rule.split(";").map((p) => p.split("=") as [string, string | undefined]),
-  );
-  const d = new Date(at);
-  const hour = Number(parts.BYHOUR ?? 0);
-  if (!Number.isFinite(hour) || d.getUTCHours() < hour) return false;
-  if (parts.FREQ === "DAILY") return true;
-  if (parts.FREQ !== "WEEKLY") return false;
-  return (parts.BYDAY ?? "").split(",").includes(DAYS[d.getUTCDay()]!);
-}
+export const scheduleDue = (rule: string, at: string): boolean => sharedScheduleDue(rule, at, "UTC");
 
 /** Le automazioni con una data o una ricorrenza che cade adesso e non sono ancora partite oggi. */
 export function dueSchedules(at: string): Automation[] {

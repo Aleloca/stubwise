@@ -1,6 +1,6 @@
 import { CHAIN_MAX } from "@stubwise/shared";
 import { PROJECT_NOT_FOUND, type EffectRequest } from "@stubwise/shared";
-import { AUTOMATION_LIMITS } from "@stubwise/shared";
+import { planEmail as sharedPlanEmail, type EmailWorld, type OwnerMailbox } from "@stubwise/shared";
 import { show } from "@stubwise/shared";
 import * as core from "../../domain/automations/planCore";
 import type { PlanWorld } from "../../domain/automations/planCore";
@@ -10,7 +10,7 @@ import {
   checkNewTask,
   defaultDepartmentOf,
 } from "../api-mutations";
-import { EMAIL, type MailDraftInput } from "../mail/compose";
+import type { MailDraftInput } from "../mail/compose";
 import { checkSendNow } from "../mail/send";
 import { PEOPLE } from "../seed/people";
 import { state, visibleProjectIds } from "../store";
@@ -92,6 +92,24 @@ export const planNotify = (eff: ActionEffect, a: Automation, owner: string) =>
 /** La profondità massima di una catena di avvii: del motore condiviso (area 7, F1). */
 export { CHAIN_MAX };
 
+/** La casella del proprietario nello store: la scelta, o la sua; collegata e non scaduta. */
+function ownerMailbox(owner: string, chosen: string | null): OwnerMailbox {
+  if (
+    chosen !== null &&
+    !state.mailboxes.some(
+      (b) => b.personId === owner && b.email.toLowerCase() === chosen.toLowerCase(),
+    )
+  )
+    return { ok: false, reason: "chosen_gone" };
+  const own = state.mailboxes.find((b) => b.personId === owner);
+  if (!own) return { ok: false, reason: "none" };
+  if (state.googleAccounts.find((g) => g.personId === owner)?.status !== "connected")
+    return { ok: false, reason: "expired" };
+  return { ok: true, address: chosen ?? own.email };
+}
+
+const emailWorld: EmailWorld = { ...storeWorld, ownerMailbox };
+
 export interface EmailPlan {
   /** L'indirizzo della casella del proprietario da cui partirebbe. */
   from: string;
@@ -123,57 +141,11 @@ export function planEmail(
   attachmentId: (i: number) => string,
   mailbox: string | null = null,
 ): Planned<EmailPlan> {
+  // I controlli (tetto, casella, indirizzo) sono del motore condiviso (F2, R2).
+  const checked = sharedPlanEmail(emailWorld, eff, owner, sentSoFar, mailbox);
+  if (!checked.ok) return checked;
   const args = eff.args as { to: string; subject: string; body: string; attachments: unknown[] };
-  if (sentSoFar >= AUTOMATION_LIMITS.emailsPerRun) {
-    return refuse(
-      failed(
-        "email_limit",
-        { code: "emailLimitChain", params: { max: AUTOMATION_LIMITS.emailsPerRun } },
-        `Limite raggiunto: al massimo ${AUTOMATION_LIMITS.emailsPerRun} email per esecuzione, contando le automazioni avviate da questa.`,
-      ),
-    );
-  }
-  if (
-    mailbox !== null &&
-    !state.mailboxes.some(
-      (b) => b.personId === owner && b.email.toLowerCase() === mailbox.toLowerCase(),
-    )
-  ) {
-    return refuse(
-      failed(
-        "mailbox_missing",
-        { code: "mailboxGone", params: { mailbox, owner: personName(owner) } },
-        `La casella scelta per l'automazione (${mailbox}) non è più collegata a ${personName(owner)}: l'email non è partita.`,
-      ),
-    );
-  }
-  if (!state.mailboxes.some((b) => b.personId === owner)) {
-    return refuse(
-      failed(
-        "mailbox_missing",
-        { code: "noMailbox", params: { owner: personName(owner) } },
-        `Il proprietario (${personName(owner)}) non ha una casella collegata: l'email non è partita.`,
-      ),
-    );
-  }
-  if (state.googleAccounts.find((g) => g.personId === owner)?.status !== "connected") {
-    return refuse(
-      failed(
-        "mailbox_expired",
-        { code: "mailboxExpired", params: { owner: personName(owner) } },
-        `La casella del proprietario (${personName(owner)}) è scaduta: va ricollegata prima di riprovare.`,
-      ),
-    );
-  }
-  const to = args.to.trim();
-  if (!EMAIL.test(to))
-    return refuse(
-      failed(
-        "invalid_address",
-        { code: "invalidAddress", params: { to } },
-        `«${to}» non è un indirizzo email.`,
-      ),
-    );
+  const to = checked.plan.to;
   const input: MailDraftInput = {
     ...thread(to),
     to: [{ name: "", email: to, personId: null }],

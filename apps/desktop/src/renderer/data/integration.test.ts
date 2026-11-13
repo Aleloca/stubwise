@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ADMIN_SECTIONS, APP_ROUTES, PROJECT_SECTIONS, PROJECT_SETTINGS_SECTIONS } from "./routes";
-import { CHAT_LATER_FEATURES, integrationTargetOf, isIntegrated, landingSearch, type IntegrationTarget } from "./integration";
+import { AUTOMATION_F1_AVAILABILITY } from "@stubwise/shared";
+import {
+  CHAT_LATER_FEATURES,
+  automationAvailability,
+  integrationTargetOf,
+  isIntegrated,
+  landingSearch,
+  type IntegrationTarget,
+} from "./integration";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -52,6 +60,8 @@ const ALL: IntegrationTarget[] = [
       "mail-proposal-edit",
       "mail-contributors",
       "mail-claude-draft",
+      "automations",
+      "automations-f2",
     ] as const
   ).map((name) => ({ kind: "feature", name }) as const),
 ];
@@ -67,6 +77,10 @@ describe("isIntegrated", () => {
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     expect(ALL.filter(isIntegrated).map(key).sort()).toEqual(
       [
+        // Area 7, fetta 1: le Automations.
+        "destination:automations",
+        "projectSection:automations",
+        "feature:automations",
         "destination:projects",
         "projectSection:tasks",
         "projectSettings:statuses",
@@ -166,5 +180,12 @@ describe("isIntegrated", () => {
     expect(landingSearch()).toEqual({});
     vi.stubEnv("VITE_STUBWISE_BUILD", "app");
     expect(landingSearch()).toEqual({});
+  });
+
+  it("le Automations della build app restano nel perimetro della F1 finché `automations-f2` è spenta", () => {
+    expect(automationAvailability()).toBeUndefined();
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    expect(isIntegrated({ kind: "feature", name: "automations-f2" })).toBe(false);
+    expect(automationAvailability()).toBe(AUTOMATION_F1_AVAILABILITY);
   });
 });
