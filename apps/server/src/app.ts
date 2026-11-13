@@ -110,6 +110,7 @@ import type { SlackClientFactory } from "./slack/creds.js";
 import { ticketRoutes } from "./routes/tickets.js";
 import { userRoutes } from "./routes/users.js";
 import { webhookRoutes } from "./routes/webhooks.js";
+import { automationHookRoutes, automationSourceRoutes } from "./routes/automation-sources.js";
 import { widgetAdminRoutes } from "./routes/widget-admin.js";
 import { NOOP_BUS, type AgentSessionBus } from "./agent-session-bus.js";
 import { getActiveStorage, type ObjectStorage, type StorageFactory } from "./storage/index.js";
@@ -709,6 +710,8 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   void app.register(driveRoutes, { prefix: "/api" });
   // Area 7: le Automations di progetto.
   void app.register(automationRoutes, { prefix: "/api" });
+  // Area 7, F4: le sorgenti (il webhook in arrivo) e la tabella cliente → progetto.
+  void app.register(automationSourceRoutes, { prefix: "/api" });
   // Chat con Claude, fetta 1: le conversazioni libere (private dell'autore).
   void app.register(claudeConversationRoutes, { prefix: "/api/claude/conversations" });
   void app.register(claudeActionRoutes, { prefix: "/api/claude" });
@@ -841,6 +844,9 @@ export function buildApp(opts: BuildAppOptions = {}): FastifyInstance {
   // dentro lo scope del plugin, quindi non tocca il parsing JSON di /api né di
   // /ingest.
   void app.register(webhookRoutes, { prefix: "/webhooks" });
+  // Area 7, F4: il webhook in arrivo delle automazioni (POST /webhooks/in/:secret), pubblico,
+  // col suo parser (il corpo com'è) in uno scope a sé.
+  void app.register(automationHookRoutes, { prefix: "/webhooks" });
 
   // Integrazione Slack: slash command + interactivity (modal Block Kit). Sotto
   // /api/slack ma autenticata SOLO dalla firma Slack (niente sessione). Il
