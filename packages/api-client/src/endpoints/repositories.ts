@@ -1,5 +1,5 @@
 import { releasePipelineSchema, repositorySchema } from "@stubwise/shared";
-import type { z } from "zod";
+import { z } from "zod";
 import type { Reader, Repository } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { seg } from "../query.js";
@@ -30,6 +30,20 @@ export function createRepositoriesEndpoints(request: ApiRequest) {
      * indirizza (`GET /api/repositories/:slug`), e lo slug è quello che la
      * proiezione sintetica di `projects.get` porta con sé.
      */
+    /**
+     * Area 8, F1: i repository (di un progetto, con `projectId`), con le
+     * impostazioni di rilascio. Le regole di visibilità sono quelle della
+     * rotta: chi ha il solo `docs.view` riceve la configurazione ai valori
+     * neutri.
+     */
+    list(projectId?: string): Promise<Reader<Repository[]>> {
+      return request(
+        "GET",
+        `/api/repositories${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`,
+        undefined,
+        z.array(repositorySchema),
+      );
+    },
     get(slug: string): Promise<Reader<Repository>> {
       return request("GET", `/api/repositories/${seg(slug)}`, undefined, repositorySchema);
     },

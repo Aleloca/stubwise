@@ -89,3 +89,15 @@ describe("area 8, F1: le impostazioni di rilascio", () => {
     expect(read).toMatchObject({ slug: "portale-b2b", releaseBranch: null, colleaguePrs: "analyze_only" });
   });
 });
+
+describe("area 8, F1: l'elenco dei repository di un progetto", () => {
+  it("GET /api/repositories?projectId=…; una risposta di un server di prima si legge coi default dei rilasci", async () => {
+    const fetchImpl = vi.fn<typeof globalThis.fetch>(async () => new Response(JSON.stringify([REPOSITORY]), { status: 200, headers: { "content-type": "application/json" } }));
+    const client = createStubwiseClient({ baseUrl: "", getAuthHeader: () => null, fetch: fetchImpl });
+    const [read] = await client.repositories.list("p-1");
+    expect(String(fetchImpl.mock.calls.at(-1)![0])).toBe("/api/repositories?projectId=p-1");
+    expect(read).toMatchObject({ slug: "portale-b2b", releasePipeline: { mode: "auto" }, colleaguePrs: "analyze_only" });
+    await client.repositories.list();
+    expect(String(fetchImpl.mock.calls.at(-1)![0])).toBe("/api/repositories");
+  });
+});
