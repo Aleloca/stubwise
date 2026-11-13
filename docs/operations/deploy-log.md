@@ -4321,3 +4321,12 @@ deploy o di un rollback che la tocca.
   3. I valori d'enum restano (un server della F1 non li scrive e legge
      `waiting_event` dalla forma condivisa, che lo ha già). La 0170 non si
      annulla.
+
+  **Fix della review (stesso rilascio, migrazione 0172)**:
+  `automation_runs.mailbox_account_id` (la casella di ogni esecuzione; le
+  esecuzioni di prima prendono quella dell'automazione) e
+  `automations.listens_mail` (calcolato dalla pubblicazione e, per le
+  esistenti, dall'ultima versione pubblicata). Stesso ordine; il rollback non
+  cambia (le colonne non danno fastidio a un server vecchio). ⚠️ La 0172 ha
+  un numero più alto di quello che la fetta 3 aveva preso sul suo branch:
+  la migrazione della F3 si rinumera DOPO di questa (la trappola del `when`).
