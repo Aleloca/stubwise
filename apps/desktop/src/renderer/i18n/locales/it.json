@@ -11717,6 +11717,12 @@
       "manage": {
         "label": "gestire le automazioni",
         "hint": "Creare, modificare e mettere in pausa le automazioni a questo livello."
+      },
+      "general": {
+        "manage": {
+          "label": "Gestire le automazioni generali",
+          "hint": "Creare, modificare, accendere e mettere in pausa le automazioni fra i progetti, e le loro esecuzioni."
+        }
       }
     },
     "servers": {

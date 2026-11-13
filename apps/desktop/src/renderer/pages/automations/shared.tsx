@@ -60,7 +60,7 @@ const CREATE_PERMISSION = {
  */
 export function useAutomationPerms() {
   const { viewer } = useViewer();
-  const instance = can(viewer, "automations.manage");
+  const instance = can(viewer, "automations.general.manage");
   const f1 = automationAvailability() !== undefined;
   return {
     /** Le automazioni generali (fra i progetti): il permesso d'istanza, fuori dalla fetta 1. */

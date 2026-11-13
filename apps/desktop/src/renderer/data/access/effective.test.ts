@@ -104,7 +104,12 @@ describe("parità con la can() delle aree 2–8 (fixture generato prima del camb
       for (const perm of PARITY_PERMISSIONS) {
         const before = hexToBits(rows[perm]!, projects.length);
         projects.forEach((projectId, i) => {
-          const now = can(viewer, perm as Permission, projectId);
+          // Area 7, F4: `automations.manage` d'istanza (il bit «nessun progetto»)
+          // è diventato `automations.general.manage`; quello di progetto resta.
+          const now =
+            perm === "automations.manage" && projectId === undefined
+              ? can(viewer, "automations.general.manage")
+              : can(viewer, perm as Permission, projectId);
           if (ALLOWED_LOSSES[personId]) {
             // Nessun permesso, ovunque: ogni differenza è una perdita.
             expect(now, `${personId} ${perm} ${projectId ?? "-"}`).toBe(false);
@@ -206,8 +211,8 @@ describe("le fonti dei permessi", () => {
     expect(can(viewerFor("p-marco"), "people.activity.view")).toBe(false);
   });
 
-  it("`automations.manage` a due livelli: la concessione d'istanza di Matteo resta", () => {
-    expect(effectivePermissions("p-matteo").get("automations.manage")).toEqual([
+  it("le generali e il progetto: la concessione d'istanza di Matteo resta (automations.general.manage)", () => {
+    expect(effectivePermissions("p-matteo").get("automations.general.manage")).toEqual([
       expect.objectContaining({ kind: "grant" }),
     ]);
     expect(effectivePermissions("p-matteo", "prj-aud").get("automations.manage")).toEqual([

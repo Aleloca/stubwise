@@ -57,7 +57,7 @@ export function checkNewAutomation(me: string, projectId: string | null): Projec
   if (projectId !== null && (!project || !visibleProjectIds(me).has(project.id))) throw notFound();
   const allowed = project
     ? can(viewerFor(me), "automations.manage", project.id)
-    : can(viewerFor(me), "automations.manage");
+    : can(viewerFor(me), "automations.general.manage");
   if (!allowed) throw forbidden();
   return project ?? null;
 }

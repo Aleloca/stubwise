@@ -73,7 +73,7 @@ export interface AccessState {
   revocations: PersonalRevocation[];
 }
 
-export { BOTH_LEVELS, INSTANCE_SET, LOCAL_INSTANCE_PERMISSIONS } from "./catalog";
+export { INSTANCE_SET, LOCAL_INSTANCE_PERMISSIONS } from "./catalog";
 
 // --- lo stato e la sua versione ----------------------------------------------
 

@@ -250,7 +250,7 @@ describe("automazione generale verso un progetto non più disponibile ([PX 5], P
     expect(await stepOf()).toEqual({ mode: "fixed", projectId: ACQ });
     // Paolo (il proprietario, adesso) non vede ACQ: lo legge come non disponibile, senza id.
     state.automations.find((a) => a.id === id)!.ownerId = PAOLO;
-    grantInstancePermission(PAOLO, "automations.manage");
+    grantInstancePermission(PAOLO, "automations.general.manage");
     as(PAOLO);
     expect(await stepOf()).toEqual({ mode: "fixed", projectId: "", unavailable: true });
   });

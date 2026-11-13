@@ -8,7 +8,6 @@ import type { LocalInstancePermission, LocalProjectPermission } from "../types";
 
 /** I permessi d'istanza del prototipo, nell'ordine in cui si mostrano. */
 export const LOCAL_INSTANCE_PERMISSIONS: readonly LocalInstancePermission[] = [
-  "automations.manage",
   "servers.ssh.manage",
   "instance.status.view",
   "changelog.view",
@@ -19,13 +18,6 @@ export const INSTANCE_SET: ReadonlySet<string> = new Set<string>([
   ...INSTANCE_PERMISSIONS,
   ...LOCAL_INSTANCE_PERMISSIONS,
 ]);
-
-/**
- * Permessi che esistono con lo stesso nome a due livelli (area 7: le
- * automazioni di progetto e quelle generali). Con un progetto vale quello di
- * progetto, senza quello d'istanza.
- */
-export const BOTH_LEVELS: ReadonlySet<string> = new Set<string>(["automations.manage"]);
 
 /**
  * Permessi di progetto che vivono solo nel prototipo, per preset: entrano nel

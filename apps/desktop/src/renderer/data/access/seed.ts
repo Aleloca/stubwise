@@ -39,7 +39,7 @@ const LOCAL_INSTANCE_BY_PRESET: Readonly<
     "claude.public.view",
     "chat.general.create",
     "chat.general.manage",
-    "automations.manage",
+    "automations.general.manage",
     "servers.ssh.manage",
     "departments.manage",
     "instance.status.view",
@@ -141,10 +141,13 @@ function seedMemberships(): Membership[] {
 // suo ruolo (che resta com'è).
 //
 // R-J10 (area 7): Matteo possiede «Nuovo contratto» (AUT-1), un'automazione
-// generale, quindi ha `automations.manage` d'istanza; la sua casella è
+// generale, quindi ha `automations.general.manage`; la sua casella è
 // collegata, così le email dell'automazione partono davvero.
-export const SEED_INSTANCE_GRANTS: Record<string, readonly LocalInstancePermission[]> = {
-  "p-matteo": ["automations.manage"],
+export const SEED_INSTANCE_GRANTS: Record<
+  string,
+  readonly (InstancePermission | LocalInstancePermission)[]
+> = {
+  "p-matteo": ["automations.general.manage"],
 };
 
 // Per progetto (codice), sulle righe dei progetti di cui la persona è membro.

@@ -122,12 +122,12 @@ describe("comandi dei server (area 8b)", () => {
 });
 
 describe("comandi delle Automations (area 7)", () => {
-  it("«New automation» solo con automations.manage, in un progetto o d'istanza", () => {
+  it("«New automation» solo con automations.manage in un progetto o automations.general.manage", () => {
     expect(ids(viewerWith(["tickets.create"]))).not.toContain("automation.new");
     expect(ids(viewerWith(["automations.manage"]))).toContain("automation.new");
     const instance: Viewer = {
       ...viewerWith([]),
-      instancePermissions: ["automations.manage" as never],
+      instancePermissions: ["automations.general.manage"],
     };
     expect(ids(instance)).toContain("automation.new");
   });

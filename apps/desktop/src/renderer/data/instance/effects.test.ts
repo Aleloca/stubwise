@@ -342,7 +342,7 @@ describe("revisione finale: un'automazione generale ferma", () => {
       aiWaitingCode: "AUD",
     });
     // Sara gestisce le automazioni d'istanza ma non vede AUD (R-G5).
-    grantInstancePermission(SARA, "automations.manage" as LocalInstancePermission);
+    grantInstancePermission(SARA, "automations.general.manage");
     as(SARA);
     const run = (await automations.getRun(id))!;
     expect(run.aiWaiting ?? null).toBeNull();
@@ -516,7 +516,7 @@ describe("residuo m1: il registro dell'esecuzione e la pausa di un progetto che 
       true,
     );
     // Sara gestisce le automazioni d'istanza ma non vede AUD.
-    grantInstancePermission(SARA, "automations.manage" as LocalInstancePermission);
+    grantInstancePermission(SARA, "automations.general.manage");
     as(SARA);
     const run = (await automations.getRun(id))!;
     expect(run.log.some((e) => e.why?.code === "aiQueuePaused")).toBe(false);

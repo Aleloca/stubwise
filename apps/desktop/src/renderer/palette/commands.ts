@@ -128,9 +128,9 @@ export const COMMANDS: readonly Command[] = [
     id: "automation.new",
     labelKey: "palette.commands.newAutomation",
     run: (ctx) => ctx.openNewAutomation(ctx.projectCode),
-    // Con `automations.manage` in almeno un posto: d'istanza o in un progetto.
+    // Con le automazioni in almeno un posto: le generali (`automations.general.manage`) o un progetto.
     when: (viewer) =>
-      can(viewer, "automations.manage") ||
+      can(viewer, "automations.general.manage") ||
       Object.values(viewer.projectPermissions).some((p) =>
         (p as readonly string[]).includes("automations.manage"),
       ),

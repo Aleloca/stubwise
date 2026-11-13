@@ -112,7 +112,7 @@ describe("costruttore: il progetto del passo non è più disponibile", () => {
 
   it("invisibile a chi legge (STW per Paolo)", async () => {
     const { code } = await generalInto("prj-stw");
-    grantInstancePermission(PAOLO, "automations.manage");
+    grantInstancePermission(PAOLO, "automations.general.manage");
     await expectUnavailable(await builder(code, PAOLO), /STW/);
   });
 

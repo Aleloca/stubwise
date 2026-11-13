@@ -193,7 +193,7 @@ describe("Automations: chi vede e chi gestisce", () => {
   it("sorgenti e tabella cliente → progetto: un progetto che non vedo resta senza id", async () => {
     as("p-sara");
     expect(await automations.listSources()).toEqual([]);
-    grantInstancePermission("p-sara", "automations.manage");
+    grantInstancePermission("p-sara", "automations.general.manage");
     const links = await automations.listClientLinks();
     const mix = links.find((l) => l.clientKey === "mixcucine.example")!;
     expect(mix).toMatchObject({ projectVisible: false, projectId: "" });
@@ -445,7 +445,7 @@ describe("Automations: proprietario e permessi (Review Focus 3)", () => {
   });
 
   it("cliente → progetto che il proprietario non vede: «scegli il progetto» per lui", async () => {
-    grantInstancePermission("p-sara", "automations.manage");
+    grantInstancePermission("p-sara", "automations.general.manage");
     as("p-roberta");
     await automations.pause(A.newContract);
     as("p-sara");
@@ -917,7 +917,7 @@ describe("Automations: inizi e catene", () => {
   it("R-J21: «Avvia un'altra automazione» vuole che il proprietario possa gestire quella da avviare, non solo vederla", async () => {
     as("p-laura");
     const target = await make(AUD, manual([task("t")]), "Bersaglio");
-    grantInstancePermission("p-laura", "automations.manage");
+    grantInstancePermission("p-laura", "automations.general.manage");
     const parent = await make(
       null,
       manual([{ id: "s", kind: "startAutomation", automationId: target, approval: AUTO }]),
@@ -1109,7 +1109,7 @@ describe("Automations: revisione del Task 3", () => {
   });
 
   it("R-J12: dentro un'esecuzione i progetti che non vedo non hanno né id né codice; filtrare per uno di essi è come per uno inesistente", async () => {
-    grantInstancePermission("p-laura", "automations.manage");
+    grantInstancePermission("p-laura", "automations.general.manage");
     as("p-laura");
     expect(visibleProjectIds("p-laura").has("prj-cbv")).toBe(false);
     const r = (await automations.getRun(R.done))!;
@@ -1144,7 +1144,7 @@ describe("Automations: revisione del Task 3", () => {
     );
     const r = await automations.startManual(id);
     await idle();
-    grantInstancePermission("p-laura", "automations.manage");
+    grantInstancePermission("p-laura", "automations.general.manage");
     as("p-laura");
     expect(visibleProjectIds("p-laura").has("prj-cbv")).toBe(false);
     const detail = (await automations.getAutomation(id))!;

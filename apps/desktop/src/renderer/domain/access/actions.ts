@@ -33,8 +33,8 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
       "chat.general.manage",
     ],
   },
-  // Area 7, F4: la chiave VERA delle generali (come il web). Il prototipo usa
-  // ancora `automations.manage` d'istanza (in «prototype»): la sposta 94 con R3.
+  // Area 7, F4: la chiave delle generali (come il web); `automations.manage`
+  // resta solo di progetto.
   { key: "projects", permissions: ["projects.create", "automations.general.manage"] },
   {
     key: "integrations",
@@ -51,7 +51,6 @@ export const INSTANCE_GROUPS: readonly PermissionGroup[] = [
   {
     key: "prototype",
     permissions: [
-      "automations.manage",
       "servers.ssh.manage",
       "instance.status.view",
       "changelog.view",
@@ -162,9 +161,9 @@ const instance = (id: string, permission: string): AccessAction => ({
 });
 
 /**
- * Le azioni in parole. Le automazioni sono due azioni distinte, perché
- * `automations.manage` vale a due livelli (area 7): quelle del progetto e
- * quelle generali.
+ * Le azioni in parole. Le automazioni sono due azioni distinte (area 7):
+ * quelle del progetto (`automations.manage`) e quelle generali
+ * (`automations.general.manage`, d'istanza).
  */
 export const ACTIONS: readonly AccessAction[] = [
   // progetto
@@ -212,7 +211,7 @@ export const ACTIONS: readonly AccessAction[] = [
   instance("manageMonitor", "monitor.manage"),
   instance("manageIntegrations", "integrations.manage"),
   instance("seeUsage", "usage.view"),
-  instance("manageGeneralAutomations", "automations.manage"),
+  instance("manageGeneralAutomations", "automations.general.manage"),
   instance("manageSshAccess", "servers.ssh.manage"),
   instance("manageDepartments", "departments.manage"),
   instance("readChangeLog", "changelog.view"),

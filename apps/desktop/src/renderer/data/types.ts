@@ -58,7 +58,6 @@ export type LocalProjectPermission =
  * quando si costruisce il backend.
  */
 export type LocalInstancePermission =
-  | "automations.manage"
   | "servers.ssh.manage"
   | "instance.status.view"
   | "changelog.view";
