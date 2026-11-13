@@ -47,7 +47,10 @@ export interface AutomationsApi extends DecisionApi {
     code: string,
     body: { flow: AutomationFlow; expectedRev: number | null } & AutomationMeta,
   ): Promise<Automation>;
-  patch(code: string, body: AutomationMeta): Promise<Automation>;
+  patch(
+    code: string,
+    body: AutomationMeta & { webhookPerMinute?: number | null; webhookPerDay?: number | null },
+  ): Promise<Automation>;
   publish(
     code: string,
     body: { expectedRev: number | null; mailboxAccountId?: string },
@@ -181,6 +184,11 @@ export function createRealAutomations(
 
     renameAutomation: (id: string, meta: AutomationMeta) =>
       written(() => api.patch(code(id), meta)),
+    /** Il tetto del webhook (F4-2 = c): null = il default; oltre il massimo d'istanza si salva, ma vale il massimo. */
+    setWebhookLimits: (id: string, limits: { perMinute: number | null; perDay: number | null }) =>
+      written(() =>
+        api.patch(code(id), { webhookPerMinute: limits.perMinute, webhookPerDay: limits.perDay }),
+      ),
     publish: async (id: string, opts: { mailbox?: string } = {}) => {
       const mailboxAccountId = await accountOf(opts.mailbox);
       return turnedOn(

@@ -4087,6 +4087,13 @@ export function useRenameAutomation() {
   );
 }
 
+export function useSetWebhookLimits() {
+  return useAutomationWrite(
+    ({ id, perMinute, perDay }: { id: string; perMinute: number | null; perDay: number | null }) =>
+      api.automations.setWebhookLimits(id, { perMinute, perDay }),
+  );
+}
+
 /** La pausa nello scrivere dopo cui si chiedono gli errori della bozza. */
 const DRAFT_CHECK_DELAY_MS = 500;
 

@@ -334,3 +334,94 @@ describe("«Remember for <client>» lo decide il server (F4, R4)", () => {
     expect(screen.queryByRole("checkbox", { name: "Remember for Rossi Srl" }) !== null).toBe(shown);
   });
 });
+
+describe("il tetto del webhook nelle impostazioni dell'automazione (F4-2 = c, R4)", () => {
+  const HOOK_FLOW = {
+    ...FLOW,
+    trigger: { kind: "source", sourceId: "99999999-9999-4999-8999-999999999991", event: "webhook" },
+  };
+  const limits = (perMinute: number | null, effectivePerMinute: number) => ({
+    perMinute,
+    perDay: null,
+    defaultPerMinute: 60,
+    defaultPerDay: 5000,
+    maxPerMinute: 600,
+    maxPerDay: 50000,
+    effective: { perMinute: effectivePerMinute, perDay: 5000 },
+  });
+  const hooked = (l: ReturnType<typeof limits>, manage = true) => ({
+    ...row(),
+    versions: [{ ...version(1, 3, true), flow: HOOK_FLOW }],
+    hasDraft: false,
+    permissions: { manage },
+    webhookLimits: l,
+  });
+
+  it("dice il tetto che vale; chi la gestisce lo cambia (PATCH), e oltre il massimo vale il massimo", async () => {
+    let current = hooked(limits(null, 60));
+    install({
+      "GET /api/automations": () => ({ body: { items: [current] } }),
+      "GET /api/automations/AUD-A1": () => ({
+        body: { automation: current, configErrors: [], liveErrors: [], runs: [] },
+      }),
+      "PATCH /api/automations/AUD-A1": () => {
+        current = hooked(limits(900, 600));
+        return { body: current };
+      },
+    });
+    renderRoute("/automations/AUD-A1");
+    const about = await screen.findByRole("region", { name: "About" }, { timeout: 3000 });
+    await waitFor(() => expect(about.textContent).toContain("60 a minute · 5,000 a day (default)"));
+    await userEvent.click(within(about).getByRole("button", { name: "Change the webhook limit" }));
+    const perMinute = within(about).getByRole("spinbutton", { name: "A minute" });
+    expect(
+      within(about).getByText(/instance maximum is 600 a minute and 50,000 a day/),
+    ).toBeTruthy();
+    await userEvent.type(perMinute, "900");
+    await userEvent.click(within(about).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(
+        seen.find((r) => r.method === "PATCH" && r.path === "/api/automations/AUD-A1")?.body,
+      ).toEqual({ webhookPerMinute: 900, webhookPerDay: null }),
+    );
+    await waitFor(() =>
+      expect(about.textContent).toContain(
+        "900 a minute is above the instance maximum: 600 a minute applies",
+      ),
+    );
+  });
+
+  it("chi non la gestisce lo legge e basta; un'automazione senza webhook non ne parla", async () => {
+    install({
+      "GET /api/automations/AUD-A1": {
+        body: {
+          automation: hooked(limits(null, 60), false),
+          configErrors: [],
+          liveErrors: [],
+          runs: [],
+        },
+      },
+    });
+    renderRoute("/automations/AUD-A1");
+    const about = await screen.findByRole("region", { name: "About" }, { timeout: 3000 });
+    await waitFor(() => expect(about.textContent).toContain("60 a minute"));
+    expect(within(about).queryByRole("button", { name: "Change the webhook limit" })).toBeNull();
+  });
+
+  it("senza webhook all'inizio la riga non c'è", async () => {
+    install({
+      "GET /api/automations/AUD-A1": {
+        body: {
+          automation: { ...row(), webhookLimits: limits(null, 60) },
+          configErrors: [],
+          liveErrors: [],
+          runs: [],
+        },
+      },
+    });
+    renderRoute("/automations/AUD-A1");
+    const about = await screen.findByRole("region", { name: "About" }, { timeout: 3000 });
+    await waitFor(() => expect(about.textContent).toContain("Owner"));
+    expect(about.textContent).not.toContain("Webhook limit");
+  });
+});

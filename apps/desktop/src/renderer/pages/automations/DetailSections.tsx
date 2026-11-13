@@ -1,16 +1,18 @@
 import { Link } from "@tanstack/react-router";
-import { useMemo } from "react";
+import { useId, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   useAutomationRuns,
   useAutomations,
   useAutomationSources,
   useMailboxes,
+  useSetWebhookLimits,
 } from "../../data/queries";
 import type { AutomationDetail as Detail, AutomationFlow } from "../../data/types";
 import { AUTOMATION_LIMITS, stepAt } from "@stubwise/shared";
 import { BlockSection, queryState } from "../home/blocks/BlockSection";
-import { quietButton } from "../tasks/controls";
+import { inputClass } from "../../tasks-ui/Dialog";
+import { primaryButton, quietButton, secondaryButton } from "../tasks/controls";
 import { FlowSummary } from "./FlowSummary";
 import { fieldLabels, isFinished, positionWords, shortDate } from "./format";
 import { CriticalGlyph } from "./glyphs";
@@ -310,6 +312,155 @@ export function VersionsSection({
   );
 }
 
+/**
+ * Il tetto del webhook in arrivo (F4-2 = c): solo per un'automazione che
+ * parte da un webhook, e solo se il server lo manda. Lo cambia chi la
+ * gestisce; vuoto = il default; oltre il massimo d'istanza il server salva
+ * la scelta ma vale il massimo, e la riga lo dice.
+ */
+function WebhookLimitRow({ detail }: { detail: Detail }) {
+  const { t, i18n } = useTranslation();
+  const a = detail.automation;
+  const save = useSetWebhookLimits();
+  const [editing, setEditing] = useState(false);
+  const [perMinute, setPerMinute] = useState("");
+  const [perDay, setPerDay] = useState("");
+  const minuteId = useId();
+  const dayId = useId();
+  const l = a.webhookLimits;
+  const trigger = a.versions.at(-1)?.flow.trigger;
+  if (!l || trigger?.kind !== "source" || trigger.event !== "webhook") return null;
+  const n = (v: number) => v.toLocaleString(i18n.language);
+  const chosen = (v: string) => (v.trim() === "" ? null : Math.max(1, Math.floor(Number(v))));
+  const valid = [perMinute, perDay].every((v) => v.trim() === "" || Number(v) >= 1);
+  const capped =
+    (l.perMinute !== null && l.perMinute > l.effective.perMinute) ||
+    (l.perDay !== null && l.perDay > l.effective.perDay);
+  return (
+    <>
+      <dt className="text-ink-muted">{t("automations.about.webhookLimit")}</dt>
+      <dd className="flex flex-col gap-1 text-ink">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="num">
+            {t("automations.about.webhookLimitValue", {
+              perMinute: n(l.effective.perMinute),
+              perDay: n(l.effective.perDay),
+            })}
+            {l.perMinute === null &&
+              l.perDay === null &&
+              ` ${t("automations.about.webhookLimitDefault")}`}
+          </span>
+          {a.permissions.manage && !editing && (
+            <button
+              type="button"
+              className={`${quietButton} h-7`}
+              aria-label={t("automations.about.webhookLimitChange")}
+              onClick={() => {
+                setPerMinute(l.perMinute === null ? "" : String(l.perMinute));
+                setPerDay(l.perDay === null ? "" : String(l.perDay));
+                setEditing(true);
+              }}
+            >
+              {t("automations.about.change")}
+            </button>
+          )}
+        </span>
+        {capped && (
+          <span className="text-sm text-ink-muted">
+            {t("automations.about.webhookLimitCapped", {
+              chosen: [
+                l.perMinute !== null && l.perMinute > l.effective.perMinute
+                  ? t("automations.about.perMinuteValue", { n: n(l.perMinute) })
+                  : null,
+                l.perDay !== null && l.perDay > l.effective.perDay
+                  ? t("automations.about.perDayValue", { n: n(l.perDay) })
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(", "),
+              applies: [
+                l.perMinute !== null && l.perMinute > l.effective.perMinute
+                  ? t("automations.about.perMinuteValue", { n: n(l.effective.perMinute) })
+                  : null,
+                l.perDay !== null && l.perDay > l.effective.perDay
+                  ? t("automations.about.perDayValue", { n: n(l.effective.perDay) })
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(", "),
+            })}
+          </span>
+        )}
+        {editing && (
+          <form
+            className="flex flex-col gap-2 pt-1"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!valid) return;
+              save.mutate(
+                { id: a.id, perMinute: chosen(perMinute), perDay: chosen(perDay) },
+                { onSuccess: () => setEditing(false) },
+              );
+            }}
+          >
+            <span className="flex flex-wrap items-end gap-3">
+              <label htmlFor={minuteId} className="flex flex-col gap-1 text-sm text-ink-muted">
+                {t("automations.about.perMinute")}
+                <input
+                  id={minuteId}
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  placeholder={String(l.defaultPerMinute)}
+                  className={`${inputClass} h-8 w-32`}
+                  value={perMinute}
+                  onChange={(e) => setPerMinute(e.target.value)}
+                />
+              </label>
+              <label htmlFor={dayId} className="flex flex-col gap-1 text-sm text-ink-muted">
+                {t("automations.about.perDay")}
+                <input
+                  id={dayId}
+                  type="number"
+                  min={1}
+                  inputMode="numeric"
+                  placeholder={String(l.defaultPerDay)}
+                  className={`${inputClass} h-8 w-32`}
+                  value={perDay}
+                  onChange={(e) => setPerDay(e.target.value)}
+                />
+              </label>
+              <button
+                type="submit"
+                className={`${primaryButton} disabled:opacity-40`}
+                disabled={!valid || save.isPending}
+              >
+                {t("automations.about.save")}
+              </button>
+              <button type="button" className={secondaryButton} onClick={() => setEditing(false)}>
+                {t("automations.actions.cancel")}
+              </button>
+            </span>
+            <span className="text-xs text-ink-muted">
+              {t("automations.about.webhookLimitHint", {
+                defaultPerMinute: n(l.defaultPerMinute),
+                defaultPerDay: n(l.defaultPerDay),
+                maxPerMinute: n(l.maxPerMinute),
+                maxPerDay: n(l.maxPerDay),
+              })}
+            </span>
+            {save.isError && (
+              <span role="alert" className="text-sm text-critical">
+                {t("automations.about.webhookLimitError")}
+              </span>
+            )}
+          </form>
+        )}
+      </dd>
+    </>
+  );
+}
+
 export function AboutSection({ detail }: { detail: Detail }) {
   const { t, i18n } = useTranslation();
   const names = useNames();
@@ -338,6 +489,7 @@ export function AboutSection({ detail }: { detail: Detail }) {
         </dd>
         <dt className="text-ink-muted">{t("automations.about.created")}</dt>
         <dd className="num text-ink">{shortDate(a.createdAt, i18n.language)}</dd>
+        <WebhookLimitRow detail={detail} />
       </dl>
       <p className="pt-3 text-xs text-ink-muted">
         {t("automations.about.limits", {

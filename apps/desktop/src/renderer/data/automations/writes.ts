@@ -242,6 +242,18 @@ export async function renameAutomation(id: string, meta: AutomationMeta): Promis
   return copy(a);
 }
 
+/**
+ * Il tetto del webhook in arrivo (F4-2 = c): solo del server, che lo applica
+ * all'indirizzo pubblico. Il prototipo non ha un tetto (la riga non compare:
+ * non c'è `webhookLimits`).
+ */
+export const setWebhookLimits: (
+  id: string,
+  limits: { perMinute: number | null; perDay: number | null },
+) => Promise<Automation> = async () => {
+  throw invalid("not_available");
+};
+
 /** Pubblica la bozza (e accende una mai accesa): chi pubblica diventa il proprietario. */
 /** Il permesso che serve per creare quello che un passo crea. */
 const CREATE_PERMISSION = {
