@@ -8952,6 +8952,7 @@
       "waits": "The task will wait for someone who can start Claude in {{code}}.",
       "planGate": "Claude will write a plan first; someone who can approve plans in {{code}} approves it.",
       "created": "{{task}} created",
+      "createdStarted": "{{task}} created: Claude started on it",
       "error": "Couldn't create the task for {{code}}.",
       "noPermission": "Someone who can create tasks in {{code}} can ask Claude to fix it.",
       "discard": "Discard your note?",

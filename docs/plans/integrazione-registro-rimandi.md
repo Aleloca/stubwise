@@ -682,6 +682,17 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   - **la sezione «Repositories» intera**: nella build app è ridotta al
     blocco «Releases» *(O, 46)*; dettagli, account git, file d'ambiente,
     webhook e «nuovo repository» arrivano con l'area 9;
+  - dalla review del renderer (46, 14 nov 2026): la bozza delle note della
+    PR per il riquadro di Claude (`releaseNotesDraftFromServer`, dalla GET
+    `…/release-notes`) è pronta ma non collegata al riquadro: entra con le
+    bozze di Claude nella build app; `canManage` delle impostazioni del
+    repository viene dai permessi di `/api/auth/me` (calcolati dal server):
+    più pulito un `canManage` nella risposta del repository, cambio server
+    per dopo; la ricerca dei rilasci nella palette (`releases-search`)
+    resta spenta finché il server non ha una ricerca dei rilasci;
+  - trovato con la review (m5), di un'altra area: la palette chiama anche
+    `productDocs.searchProductPages` (area 11, non integrata) senza
+    cancello, e `docs.searchDocs` (integrata) manca da `INTEGRATED_CALLS`;
   - fatti che il server non legge nella F1 e la pagina non inventa:
     `mergeable` (mai «conflitti» se non letto), il rischio di una PR esterna,
     l'autore di una PR esterna, le correzioni `discarded` (non derivate);

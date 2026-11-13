@@ -8952,6 +8952,7 @@
       "waits": "La task aspetterà qualcuno che può avviare Claude in {{code}}.",
       "planGate": "Claude scriverà prima un piano; lo approva chi può approvare i piani in {{code}}.",
       "created": "{{task}} creata",
+      "createdStarted": "{{task}} creata: Claude ci sta lavorando",
       "error": "Non è stato possibile creare la task per {{code}}.",
       "noPermission": "Chi può creare task in {{code}} può chiedere a Claude di sistemarlo.",
       "discard": "Buttare la nota?",

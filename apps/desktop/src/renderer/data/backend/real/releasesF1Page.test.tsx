@@ -354,4 +354,28 @@ describe("i rilasci nella build app (area 8, F1, releases)", () => {
       expect(seen.some((r) => r.method === "POST" && r.path.includes(CONV))).toBe(true),
     );
   });
+
+  it("«Fai sistemare a Claude» dice se Claude è partito (review F1, m6)", async () => {
+    install({
+      routes: {
+        "GET /api/releases/AUD-V3": { body: failedDetail() },
+        "POST /api/releases/AUD-V3/fix": {
+          status: 201,
+          body: {
+            taskId: "t1",
+            taskCode: "AUD-77",
+            existing: false,
+            noteAdded: false,
+            started: true,
+          },
+        },
+      },
+    });
+    renderRoute("/p/AUD/releases/AUD-V3");
+    const now = await screen.findByRole("region", { name: "Now" }, { timeout: 3000 });
+    await userEvent.click(await within(now).findByRole("button", { name: "Fix it with Claude" }));
+    const dialog = await screen.findByRole("dialog", { name: "Fix AUD-V3 with Claude" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Create task" }));
+    expect(await screen.findByText("AUD-77 created: Claude started on it")).toBeTruthy();
+  });
 });

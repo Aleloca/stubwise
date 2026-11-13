@@ -135,6 +135,7 @@ export function createRealReleases(
         code: res.taskCode,
         existing: res.existing ?? false,
         noteAdded: res.noteAdded ?? false,
+        started: res.started ?? false,
       } as FixResult;
     },
   };

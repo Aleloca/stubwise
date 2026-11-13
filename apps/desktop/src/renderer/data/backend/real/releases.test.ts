@@ -134,7 +134,13 @@ describe("i rilasci della build app (area 8, F1)", () => {
     const res = await createRealReleases(api, codeOf).fixRelease("AUD-V3", "Guarda la 0042");
     // `start`: Claude parte se il server lo permette (`runs.start`, budget); lo dice `started`.
     expect(calls).toContain('POST releases/AUD-V3/fix {"note":"Guarda la 0042","start":true}');
-    expect(res).toMatchObject({ id: "t9", code: "AUD-77", existing: false, noteAdded: false });
+    expect(res).toMatchObject({
+      id: "t9",
+      code: "AUD-77",
+      existing: false,
+      noteAdded: false,
+      started: false,
+    });
   });
 
   it("gli errori del fix nelle parole del prototipo (403 forbidden, 409 col codice)", async () => {

@@ -427,7 +427,8 @@ function fixDescription(r: Release, logLines: boolean, note?: string): string {
  * percorso normale di «Avvia» (gate del piano per chi non ha `plans.approve`);
  * senza, la task aspetta qualcuno che la avvii.
  */
-export type FixResult = Task & { existing: boolean; noteAdded: boolean };
+/** `started`: Claude è partito sulla task nuova (`runs.start` e il budget del mese). */
+export type FixResult = Task & { existing: boolean; noteAdded: boolean; started?: boolean };
 
 export async function fixRelease(code: string, note?: string): Promise<FixResult> {
   const gen = storeGeneration();
@@ -458,9 +459,10 @@ export async function fixRelease(code: string, note?: string): Promise<FixResult
   );
   r.fixTaskId = task.id;
   // Col budget del mese esaurito (area 9b) la task nasce ma non parte: aspetta chi la avvii.
-  if (holds(me, "runs.start", r.projectId) && aiBlockFor(r.projectId)?.reason !== "monthly_budget")
-    await startRunAs(me, task, gen);
-  return { ...copy(task), existing: false, noteAdded: false };
+  const start =
+    holds(me, "runs.start", r.projectId) && aiBlockFor(r.projectId)?.reason !== "monthly_budget";
+  if (start) await startRunAs(me, task, gen);
+  return { ...copy(task), existing: false, noteAdded: false, started: start };
 }
 
 /**
