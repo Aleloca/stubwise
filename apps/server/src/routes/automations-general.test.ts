@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { automationRuns, automations, automationSources, roles, users, type Db } from "@stubwise/db";
+import { automationRuns, automations, automationSources, automationVersions, googleAccounts, googleWorkspaces, roles, users, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { startTestDb } from "@stubwise/db/testing";
 import type { AutomationFlow, Step } from "@stubwise/shared";
@@ -105,6 +105,11 @@ describe("chi crea e chi vede una generale", () => {
     expect((await call(lead.headers, "GET", "/automations?general=true")).json()).toEqual({ items: [] });
     expect(((await call(lead.headers, "GET", "/automations")).json() as { items: { code: string }[] }).items.map((i) => i.code)).not.toContain(a.code);
 
+    // La ricerca (⌘K): chi le gestisce le trova, il Project Lead no.
+    const found = (who: { cookie: string }) => call(who, "GET", `/search?q=${a.code}`).then((r) => (r.json() as { automations: { items: { code: string }[] } }).automations.items.map((i) => i.code));
+    expect(await found(manager.headers)).toContain(a.code);
+    expect(await found(lead.headers)).not.toContain(a.code);
+
     // Il full admin le ha implicite.
     expect((await call({ cookie: adminCookie }, "GET", `/automations/${a.code}`)).statusCode).toBe(200);
   });
@@ -202,5 +207,38 @@ describe("un webhook per automazione (F4-1 = a)", () => {
     const res = await call(lead.headers, "POST", `/automations/${a.code}/publish`, {});
     expect(res.statusCode).toBe(409);
     expect(res.json()).toMatchObject({ code: "config" });
+  });
+});
+
+describe("R-J13 lungo la catena (S6)", () => {
+  it("la figlia di un'esecuzione partita da un'email: il suo proprietario, che non possiede la casella d'origine, non legge mittente, oggetto né testo; il proprietario della casella sì", async () => {
+    const p = await project();
+    const mailOwner = await person();
+    const childOwner = await person();
+    await addMember(app, p.id, mailOwner.id, "project_lead");
+    await addMember(app, p.id, childOwner.id, "project_lead");
+    const [ws] = await db.insert(googleWorkspaces).values({ name: "W", domains: ["acme.com"], clientId: "c", clientSecretEncrypted: "s" }).returning();
+    const [box] = await db.insert(googleAccounts).values({ userId: mailOwner.id, workspaceId: ws!.id, email: `m-${randomUUID().slice(0, 5)}@acme.com`, googleSub: randomUUID(), refreshTokenEncrypted: "r", scopes: [] }).returning();
+    const seq = Math.floor(Math.random() * 1e6);
+    const [child] = await db.insert(automations).values({ code: `${p.code}-A${seq}`, seq, name: "Figlia", projectId: p.id, ownerId: childOwner.id, status: "active", activeSince: new Date() }).returning();
+    await db.insert(automationVersions).values({ automationId: child!.id, n: 1, flow: { trigger: { kind: "manual" }, steps: [], titleTemplate: "R" }, publishedAt: new Date() });
+    await db.insert(automationRuns).values({
+      automationId: child!.id,
+      n: 1,
+      version: 1,
+      title: "Ordine da cliente@x.it",
+      origin: "automation",
+      status: "done",
+      event: { email: { mittente: "cliente@x.it", oggetto: "Ordine riservato", testo: "segreto" } },
+      mailOriginAccountId: box!.id,
+      projectIds: [p.id],
+    });
+    const seen = await call(childOwner.headers, "GET", `/automations/${child!.code}/runs/1`);
+    expect(seen.statusCode).toBe(200);
+    expect(JSON.stringify(seen.json())).not.toContain("segreto");
+    expect(JSON.stringify(seen.json())).not.toContain("cliente@x.it");
+    expect(seen.json()).toMatchObject({ mailHidden: true });
+    const owner = await call(mailOwner.headers, "GET", `/automations/${child!.code}/runs/1`);
+    expect(owner.json()).toMatchObject({ event: { email: { testo: "segreto" } } });
   });
 });

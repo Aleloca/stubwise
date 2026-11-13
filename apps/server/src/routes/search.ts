@@ -434,7 +434,14 @@ export async function searchRoutes(instance: FastifyInstance): Promise<void> {
       const docItems = await withDocCodes(app.db, docHits);
 
       // --- Area 7: le automazioni (codice o nome) e le esecuzioni (codice o titolo) dei progetti visibili.
-      const automationScope = inProjects(automations.projectId, visible);
+      // F4: le generali (senza progetto) solo a chi ha `automations.general.manage` (R-G5).
+      const projectAutomationScope = inProjects(automations.projectId, visible);
+      const automationScope =
+        visible === "all"
+          ? undefined
+          : request.user!.instancePermissions.has("automations.general.manage")
+            ? or(projectAutomationScope, isNull(automations.projectId))
+            : projectAutomationScope;
       const [automationRows, runRows] = await Promise.all([
         app.db
           .select({ id: automations.id, code: automations.code, name: automations.name, status: automations.status })

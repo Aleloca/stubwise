@@ -276,8 +276,8 @@ async function publishedVersion(tx: Tx, automationId: string) {
   return v ?? null;
 }
 
-/** L'esecuzione d'origine e le sue antenate (`parent_run_id`), dalla più vicina. */
-async function ancestorsOf(tx: Tx, runId: string): Promise<{ automationId: string }[]> {
+/** L'esecuzione d'origine e le sue antenate (`parent_run_id`), dalla più vicina (la usa anche «avvia un'altra»). */
+export async function ancestorsOf(tx: Tx, runId: string): Promise<{ automationId: string }[]> {
   const rows = await tx.execute<{ automation_id: string }>(sql`
     with recursive chain(id, automation_id, parent_run_id, depth) as (
       select id, automation_id, parent_run_id, 0 from ${automationRuns} where id = ${runId}
