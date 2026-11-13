@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, asc, eq } from "drizzle-orm";
-import { chatChannels, chatMessages, milestones, projectStatuses, ticketRepositories, tickets } from "@stubwise/db";
+import { chatChannels, chatMessages, milestones, projectStatuses, releaseCiRuns, releases, repositories, ticketRepositories, tickets } from "@stubwise/db";
 import { eventViews } from "../chat/events.js";
 import { seedBacklogItem, seedRepository, seedTicket, startTestDb, type TestDb } from "@stubwise/db/testing";
 import { buildApp } from "../app.js";
@@ -48,6 +48,7 @@ type Ev = {
   ref: { kind: string; id: string };
   object: { label: string; title: string | null; visible: boolean; projectId: string | null } | null;
   pr: { number: number | null; url: string | null; repository: string } | null;
+  releaseStatus?: string | null;
 };
 type Msg = { id: string; kind: string; text: string; event: Ev | null };
 
@@ -151,6 +152,25 @@ describe("gli eventi dei progetti nei canali", () => {
     const outsider = await createUserWithSession(app, "outsider-f4@example.com");
     const views = await eventViews(t.db, { id: outsider.id, instancePermissions: new Set<never>() }, rows);
     expect([...views.values()][0]!.object).toMatchObject({ label: "", visible: false });
+  });
+});
+
+describe("area 8, F1, S11: la scheda del rilascio (`release_page`)", () => {
+  it("un rilascio → UN evento nei canali che l'hanno acceso: codice, titolo e stato a chi vede il progetto; a chi non lo vede niente", async () => {
+    const channel = await channelWithAll("rilasci-s11");
+    const [rel] = await t.db
+      .insert(releases)
+      .values({ code: "S11X-V1", seq: 1, projectId, repositoryId, prNumber: 3, prUrl: "u", title: "Checkout", mergeSha: "e".repeat(40), mergedAt: new Date(), viaStubwise: true })
+      .returning();
+    await t.db.insert(releaseCiRuns).values({ releaseId: rel!.id, providerRunId: "1", name: "test", status: "failed", startedAt: new Date(), endedAt: new Date() });
+    await t.db.update(repositories).set({ ciProvider: "github_actions" }).where(eq(repositories.id, repositoryId));
+    const mine = (await events(contributor, channel)).filter((e) => e.event?.ref.id === rel!.id);
+    expect(mine).toHaveLength(1);
+    expect(mine[0]!.event).toMatchObject({ kind: "release_page", ref: { kind: "release" }, object: { label: "S11X-V1", title: "Checkout", visible: true }, releaseStatus: "failed" });
+    const rows = await t.db.select().from(chatMessages).where(eq(chatMessages.eventRefId, rel!.id));
+    const outsider = await createUserWithSession(app, "outsider-s11@example.com");
+    const views = await eventViews(t.db, { id: outsider.id, instancePermissions: new Set<never>() }, rows);
+    expect([...views.values()][0]).toMatchObject({ object: { label: "", title: null, visible: false }, releaseStatus: null });
   });
 });
 

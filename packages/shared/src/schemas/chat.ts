@@ -251,6 +251,15 @@ export const chatEventSchema = z.object({
     })
     .nullable()
     .default(null),
+  /**
+   * `release_page` (area 8, F1, S11): lo stato del rilascio, derivato a
+   * lettura come nelle pagine dei rilasci, solo a chi vede il progetto.
+   * Facoltativo: un server di prima non lo manda.
+   */
+  releaseStatus: z
+    .enum(["running", "succeeded", "failed", "not_in_production", "in_production", "unavailable", "unknown"])
+    .nullable()
+    .default(null),
   /** `pr_opened`/`pr_merged`: la PR, solo a chi vede la task. */
   pr: z
     .object({

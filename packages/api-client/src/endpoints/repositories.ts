@@ -1,4 +1,5 @@
-import { repositorySchema } from "@stubwise/shared";
+import { releasePipelineSchema, repositorySchema } from "@stubwise/shared";
+import type { z } from "zod";
 import type { Reader, Repository } from "@stubwise/shared";
 import type { ApiRequest } from "../client.js";
 import { seg } from "../query.js";
@@ -31,6 +32,23 @@ export function createRepositoriesEndpoints(request: ApiRequest) {
      */
     get(slug: string): Promise<Reader<Repository>> {
       return request("GET", `/api/repositories/${seg(slug)}`, undefined, repositorySchema);
+    },
+    /**
+     * Area 8, F1: le impostazioni di rilascio del repository (`repos.manage`):
+     * il ramo di rilascio (null = il default), la pipeline che conta, il
+     * provider della CI e le PR dei colleghi. Solo questi campi: il resto del
+     * repository (credenziali, webhook) non passa da qui.
+     */
+    updateReleaseSettings(
+      slug: string,
+      patch: {
+        releaseBranch?: string | null;
+        releasePipeline?: z.input<typeof releasePipelineSchema>;
+        ciProvider?: "github_actions" | "bitbucket_pipelines" | null;
+        colleaguePrs?: "analyze_and_fix" | "analyze_only" | "off";
+      },
+    ): Promise<Reader<Repository>> {
+      return request("PATCH", `/api/repositories/${seg(slug)}`, patch, repositorySchema);
     },
   };
 }
