@@ -171,7 +171,7 @@ describe("«email in arrivo»", () => {
     expect((await runsOf(a.id)).map((r) => r.n)).toEqual([50]);
     expect(await runsOf(b.id)).toHaveLength(1);
     const woken = await t.db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run!.id));
-    expect(woken.map((i) => i.input)).toEqual([{ kind: "event", payload: { kind: "reply", to: "m", text: "Sono in ferie" } }]);
+    expect(woken.map((i) => i.input)).toEqual([{ kind: "event", payload: { kind: "reply", to: "m", text: "Sono in ferie" }, messageId: expect.any(String) }]);
     // Un'email in un'altra conversazione: A riparte.
     await automationMailIn(t.db, message({ threadId: "th-nuova" }), async () => "Nuova richiesta");
     await consumeAutomationEvents({ db: t.db });
@@ -189,6 +189,19 @@ describe("«email in arrivo»", () => {
     await t.db.update(automations).set({ ownerId: b, mailboxAccountId: await boxOf(b) }).where(eq(automations.id, a.id));
     await automationMailIn(t.db, message({ threadId: "th-c1" }), async () => "Risposta per A");
     expect(await t.db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run!.id))).toEqual([]);
+  });
+
+  it("review F2, M1: la stessa risposta riletta (un resync, un lotto rifatto) sveglia UNA volta sola", async () => {
+    const a = await listening();
+    const [run] = await t.db
+      .insert(automationRuns)
+      .values({ automationId: a.id, n: 80, version: 1, title: "R", origin: "stubwise", status: "waiting_event", mailboxAccountId: mailbox, waitingThread: `${mailbox}:th-m1`, cursor: { path: "1", waitingUntil: new Date(Date.now() + 86_400_000).toISOString() } })
+      .returning();
+    await t.db.update(automationVersions).set({ flow: { trigger: { kind: "stubwise", event: "mail_received" }, steps: [{ id: "m", kind: "sendEmail", to: "x@b.it", subject: "s", body: "b", attachRefs: [], approval: { mode: "auto" } }, { id: "w", kind: "wait", for: { replyTo: "m", maxDays: 3 } }], titleTemplate: "t" } }).where(eq(automationVersions.automationId, a.id));
+    const m = message({ threadId: "th-m1" });
+    await automationMailIn(t.db, m, async () => "Una volta");
+    await automationMailIn(t.db, m, async () => "Una volta");
+    expect(await t.db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run!.id))).toHaveLength(1);
   });
 });
 

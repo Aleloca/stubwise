@@ -43,7 +43,7 @@ export async function automationMailIn(db: Db, mail: IncomingMail, loadText: () 
     .limit(1);
   if (!listener && !waiter) return;
   const text = (await loadText()).slice(0, MAIL_TEXT_MAX);
-  if (waiter) await wakeReplyWaits(db, { accountId: mail.accountId, threadId: mail.threadId, text });
+  if (waiter) await wakeReplyWaits(db, { accountId: mail.accountId, threadId: mail.threadId, text, gmailMessageId: mail.gmailMessageId });
   if (!listener) return;
   await db
     .insert(automationEvents)

@@ -75,7 +75,7 @@ const WAITING = sql`(${automationRuns.status} = 'waiting_event' or (${automation
  * messaggio ricevuto e non mandato dalla casella): sveglia le attese della
  * risposta su `<accountId>:<threadId>`. Ritorna quante.
  */
-export async function wakeReplyWaits(db: Db | Tx, mail: { accountId: string; threadId: string; text: string }): Promise<number> {
+export async function wakeReplyWaits(db: Db | Tx, mail: { accountId: string; threadId: string; text: string; gmailMessageId?: string }): Promise<number> {
   // C1 (review F2): solo le esecuzioni di QUESTA casella, e solo se l'automazione
   // è ancora del proprietario della casella (passata a un altro, la posta di
   // prima non la sveglia più: non deve arrivare a lui).
@@ -91,7 +91,21 @@ export async function wakeReplyWaits(db: Db | Tx, mail: { accountId: string; thr
   for (const run of runs) {
     const step = await waitStepOf(db, run);
     if (!step || !("replyTo" in step.for)) continue;
-    await (db as Db).insert(automationRunInputs).values({ runId: run.id, input: { kind: "event", payload: { kind: "reply", to: step.for.replyTo, text: mail.text } }, byId: null });
+    // Review F2, M1: una risposta sveglia UNA volta (un resync o un lotto rifatto la
+    // rileggono), e una vecchia non sveglia l'attesa di un giro dopo.
+    if (mail.gmailMessageId) {
+      const [seen] = await (db as Db)
+        .select({ id: automationRunInputs.id })
+        .from(automationRunInputs)
+        .where(and(eq(automationRunInputs.runId, run.id), sql`${automationRunInputs.input}->>'messageId' = ${mail.gmailMessageId}`))
+        .limit(1);
+      if (seen) continue;
+    }
+    await (db as Db).insert(automationRunInputs).values({
+      runId: run.id,
+      input: { kind: "event", payload: { kind: "reply", to: step.for.replyTo, text: mail.text }, ...(mail.gmailMessageId ? { messageId: mail.gmailMessageId } : {}) },
+      byId: null,
+    });
     woken += 1;
   }
   return woken;
