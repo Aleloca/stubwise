@@ -28,8 +28,7 @@ vi.mock("../../integration", async (importOriginal) => {
       (t.kind === "projectSection" && t.name === "releases") ||
       (t.kind === "feature" && on(t.name)) ||
       (!(t.kind === "feature" && off(t.name)) && actual.isIntegrated(t)),
-    featureIntegrated: (name: string) =>
-      on(name) || (!off(name) && actual.featureIntegrated(name)),
+    featureIntegrated: (name: string) => on(name) || (!off(name) && actual.featureIntegrated(name)),
   };
 });
 
@@ -180,5 +179,23 @@ describe("le PR aperte nella build app (area 8, F1, releases-prs)", () => {
     renderRoute("/p/AUD/releases/AUD-V1");
     expect(await screen.findByText("Coming soon", {}, { timeout: 3000 })).toBeTruthy();
     expect(seen.some((r) => r.path.startsWith("/api/releases"))).toBe(false);
+  });
+
+  it("canMerge su una PR qualunque della coda, non solo sulla prima (review F1, m4)", async () => {
+    install({
+      routes: {
+        [`GET /api/projects/${PROJECT_ID}/pulls`]: {
+          body: { items: [pull({ prNumber: 245, ticketTitle: "Prima" }), pull()] },
+        },
+        "GET /api/release-queue": {
+          body: { items: [{ repositoryId: REPO, prNumber: 246, projectId: PROJECT_ID }] },
+        },
+      },
+    });
+    renderRoute("/p/AUD/releases");
+    expect(
+      await screen.findByRole("button", { name: "Release audin-app#246" }, { timeout: 3000 }),
+    ).toBeTruthy();
+    expect(screen.queryByText(/Someone who can release in AUD can merge it/)).toBeNull();
   });
 });
