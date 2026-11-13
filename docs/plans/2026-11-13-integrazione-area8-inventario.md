@@ -596,6 +596,12 @@ Dal maintainer *(M)*, via stubwise-46, e dall'orchestratrice *(O)*:
   solo dal worker.
 - **S-9 = a** *(O)*: «View conversation» anche sulle task del widget.
 - **R-1…R-5 = a** *(O)*.
+- **Sul design** *(M)*: M2 = a (le sessioni dell'analisi e della correzione le
+  leggono chi vede la task e ha `servers.operate` più chi ha `monitor.manage`,
+  per 90 giorni); M3 = a (niente Slack per i tipi nuovi, i `monitor.*`
+  smettono quando passano al catalogo); **M1 rivisto**: le operazioni di
+  correzione passano dall'AGENTE di monitoraggio, non dall'SSH — S-8 (chiave
+  SSH) è superata, e le domande che ne vengono (Q1–Q4) sono nel design.
 
 ### Le righe delle due invarianti (da applicare all'unione della fetta che le tocca)
 
@@ -609,23 +615,27 @@ sostituire il paragrafo con:
 >   rilascio si LEGGE (le run di CI, il commit che l'agente riporta, `sameCommit`)
 >   e «non ancora in produzione» resta un'osservazione. Esiste **una sola**
 >   azione sull'ambiente: la **correzione di un problema di un server**, partita
->   da una task legata a quel server, con l'accesso SSH di correzione, avviata da
->   chi ha `servers.operate` (mai Claude) e con il piano approvato da chi ha
->   `plans.approve` PRIMA di ogni comando (mai Claude, mai in anticipo). Il
->   confine nuovo: l'accesso di correzione **non rilascia** — non aggiorna
->   immagini, non fa pull di commit, non riavvia servizi come passo di un
->   rilascio; riporta il server a funzionare come prima secondo la diagnosi della
->   task. Una correzione che «rilascia» è un piano da rifiutare: il prompt lo
->   dice, il gate lo controlla. Chi collega l'accesso di correzione a un
->   rilascio, o aggiunge un'altra azione sull'ambiente, rompe questa frase, non
->   solo il codice: è un cambio di prodotto.
+>   da una task legata a quel server, eseguita dall'**agente di monitoraggio**
+>   (mai via SSH) con un comando FIRMATO dal server per ogni passo approvato,
+>   avviata da chi ha `servers.operate` (mai Claude) e con il piano approvato
+>   da chi ha `plans.approve` PRIMA di ogni comando (mai Claude, mai in
+>   anticipo). L'agente esegue solo azioni dell'insieme chiuso e solo comandi
+>   firmati con la chiave pubblica fissata alla sua installazione, una volta
+>   sola; le operazioni sono un'opzione dell'installazione, spenta di default.
+>   Il confine nuovo: la correzione **non rilascia** — non aggiorna immagini,
+>   non fa pull, non ricrea container, non riavvia servizi come passo di un
+>   rilascio; riporta il server a funzionare come prima secondo la diagnosi
+>   della task. Una correzione che «rilascia» è un piano da rifiutare: il
+>   prompt lo dice, il gate lo controlla. Chi collega la correzione a un
+>   rilascio, o aggiunge un'altra azione sull'ambiente, rompe questa frase,
+>   non solo il codice: è un cambio di prodotto.
 
 e, in «I due divieti dell'operatore», punto 2, la frase «mai un deploy, mai
 un'esecuzione di ambiente (vedi l'invariante dedicata più sotto)» diventa «mai
 un deploy; l'unica azione sull'ambiente è la correzione di un server, che non
 rilascia (vedi l'invariante dedicata più sotto)». `project_environments` non è
-più «pura anagrafica» solo in questo senso: un server collegato può avere un
-accesso di correzione.
+più «pura anagrafica» solo in questo senso: l'agente di un server collegato
+può avere le operazioni accese.
 
 **(2) `docs/invariants/pr-corrections.md`** → la voce «Adottare una PR aperta
 da altri (6 ott 2026)» diventa:
