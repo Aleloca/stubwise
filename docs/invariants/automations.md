@@ -84,8 +84,10 @@ motore condiviso (`packages/shared/src/automations/`).
   `automation_run_inputs`; le consuma l'esecutore, in ordine, uno alla volta.
 - Lo stato vero è la riga `automation_runs` più il suo registro: a ogni giro
   il motore lo riprende con `restoreState`, come il prototipo. Un LEASE per
-  esecuzione (`claimed_at`, 60′, `SKIP LOCKED`); un worker morto la libera
-  alla scadenza, un riavvio non perde niente.
+  esecuzione (`claimed_at`, 5′ rinnovati a ogni input, `SKIP LOCKED`, la
+  presa con un gettone che solo chi l'ha presa rilascia); un worker morto la
+  libera alla scadenza, un riavvio non perde niente. Coi passi di Claude
+  (F3) la lease va ripensata: un passo lungo deve rinnovarla.
 - **Gli effetti** (`effects.ts`) sono l'UNICO punto che scrive per
   un'automazione, con le scritture di oggi (`createTicket`, `createMilestone`,
   `createRequestItem` di `@stubwise/db`, le stesse delle persone; e

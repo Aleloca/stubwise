@@ -23,7 +23,7 @@ import type { AutomationFlow, Step } from "@stubwise/shared";
 import { asc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { effectKey, executeEffect } from "./effects.js";
-import { executeDueRuns, RUN_LEASE_MS } from "./executor.js";
+import { executeDueRuns, releaseClaim, RUN_LEASE_MS } from "./executor.js";
 
 /**
  * L'ESECUTORE (area 7, F1): le esecuzioni dovute avanzano col motore puro, gli
@@ -257,6 +257,20 @@ describe("executeDueRuns", () => {
     expect(await ticketsOfRun(run.id)).toEqual([]);
     await executeDueRuns({ db: t.db, now: () => new Date(now.getTime() + RUN_LEASE_MS + 1000) });
     expect(await ticketsOfRun(run.id)).toHaveLength(1);
+  });
+
+  it("review F1, M2: la lease è breve (al più 5′), e un worker rilascia solo la presa che è sua", async () => {
+    expect(RUN_LEASE_MS).toBeLessThanOrEqual(5 * 60_000);
+    const { run } = await runOf([task()]);
+    // Un altro worker l'ha ripresa (la mia lease era scaduta): il mio rilascio non la tocca.
+    await t.db.update(automationRuns).set({ claimedAt: new Date(), claimedBy: "altro:1" }).where(eq(automationRuns.id, run.id));
+    await releaseClaim(t.db, run.id, "mio:1");
+    expect(await reload(run.id)).toMatchObject({ claimedBy: "altro:1" });
+    await releaseClaim(t.db, run.id, "altro:1");
+    expect(await reload(run.id)).toMatchObject({ claimedBy: null, claimedAt: null });
+    // Due giri di fila senza `workerId`: prese con gettoni diversi, mai lo stesso nome per tutti.
+    await executeDueRuns({ db: t.db });
+    expect((await reload(run.id)).claimedBy).toBeNull();
   });
 
   describe("gli input di controllo dalla coda (il server non muove il motore)", () => {
