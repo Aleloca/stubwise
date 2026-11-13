@@ -177,3 +177,15 @@ export interface PrReleaseNotes {
   commitsRead: boolean;
   canEdit: boolean;
 }
+
+/**
+ * Il blocco «Rilasci» della Home (area 8, F1, S10), di chi ha `release.merge`
+ * in qualche progetto: i rilasci FALLITI dei suoi progetti finché la loro
+ * task di riparazione non si chiude (uno in riparazione resta), dal più
+ * recente; poi le PR PRONTE per il rilascio (`ready`). Nella F2 «falliti che
+ * mi riguardano» si allarga agli iscritti all'avviso (catalogo).
+ */
+export interface MyReleases {
+  failed: ReleaseRow[];
+  ready: OpenPull[];
+}

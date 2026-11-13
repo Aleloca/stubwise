@@ -20,6 +20,7 @@ import {
 import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import type { SessionUser } from "../auth/session.js";
+import { seesReleasesBlock } from "./my-releases.js";
 
 /**
  * La Home a blocchi lato server (integrazione area 2, fetta 3). Le regole —
@@ -76,7 +77,10 @@ export async function meHome(db: Db, viewer: Viewer): Promise<MeHomeView> {
         seenDepartmentUpdates: Object.fromEntries(seenRows.map((s) => [s.departmentId, s.seenAt.toISOString()])),
       }
     : null;
-  const { blocks, departmentChanged } = resolveHome({ departmentIds }, homes, personal);
+  // Area 8, F1, S10: il blocco «Rilasci» per chi ha `release.merge` in
+  // qualche progetto, solo nelle Home NUOVE (senza personale: [R 22]).
+  const extras = (await seesReleasesBlock(db, viewer)) ? (["releases"] as const) : [];
+  const { blocks, departmentChanged } = resolveHome({ departmentIds }, homes, personal, extras);
   return {
     blocks,
     departmentChanged,
