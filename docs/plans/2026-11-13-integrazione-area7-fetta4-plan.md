@@ -347,6 +347,63 @@ F4-6. **Chi vede gli eventi recenti di una sorgente** (il payload, che può
   (`lower`) in shared, come `planEmail`, così prova, server e prototipo non
   divergono.
 
+## Correzioni di 72 (13 nov 2026, prima dei task del server)
+
+- **C-F4-1 → `POST /webhooks/in/:secret`**, né `/hooks/in` né
+  `/api/inbound`. Il matcher `@backend` di caddy copre già `/webhooks/*`
+  (accanto a `/webhooks/git/:slug`): nessuna riga nuova nel Caddyfile, e
+  nessun rischio che un `/hooks/*` finisca sul fallback della SPA se caddy
+  non è ribuildato. `rateLimit` di Fastify è una config per rotta, non è
+  legato a `/api/inbound`: resta come freno grezzo per IP. Il tetto vero
+  (al minuto e al giorno, scelto per sorgente, sotto il massimo d'istanza)
+  non si esprime con quel plugin (una sola finestra, in memoria per
+  processo), quindi sta in Postgres: contatori per finestra
+  (`automation_source_hits`, `INSERT … ON CONFLICT DO UPDATE … RETURNING`),
+  atomici anche con più processi. L'indirizzo lo compone il server da
+  `PUBLIC_URL` e il renderer lo mostra così com'è (niente percorso scritto
+  nel client). Il massimo d'istanza è una env del server
+  (`AUTOMATION_WEBHOOK_MAX_PER_MINUTE`, default 600;
+  `AUTOMATION_WEBHOOK_MAX_PER_DAY`, default 50 000) e torna nella risposta
+  della sorgente, così il renderer lo dice accanto al tetto.
+- **C-F4-2 → sì, e serve più di quanto dica**. In shared (`automations/
+  sourceFields.ts`): `deriveFields`, `labelFromKey`, `mergeFields`,
+  `fieldKeys`, più `clientKeyOf` (trim + `lower`) e `checkEventFields`
+  (il controllo dei tipi del 422, F4-5) — così prova, server e prototipo
+  rifiutano gli stessi eventi. Il prototipo oggi ha una divergenza VERA:
+  scrive la tabella in minuscolo (`setClientLink`) ma la cerca con
+  l'uguaglianza esatta (`resolveProject`) e i suggerimenti non
+  normalizzano, quindi un evento con `Acme.it` non trova la riga
+  `acme.it`. `clientKeyOf` va applicata sia alla scrittura sia alla
+  ricerca. `deriveFields` riceve un tetto di profondità (8) e di campi
+  (200): l'esempio lo incolla una persona, ma il controllo dei tipi gira
+  su ogni corpo pubblico (Review Focus: JSON annidato profondo).
+
+### Scelte interne di 72 (nessuna domanda)
+
+- **La chiave di deduplica** viene dall'intestazione `Idempotency-Key`
+  (al più 200 caratteri): `dedupe_key = src:<sourceId>:<chiave>`. Senza,
+  nessuna deduplica. Un duplicato risponde 202 come il primo, senza una
+  seconda esecuzione.
+- **L'evento dell'esecuzione è la proiezione sui campi dichiarati**: le
+  chiavi in più del corpo non entrano nei dati dei passi (meno superficie
+  non fidata); il corpo intero resta solo negli eventi recenti, che vede
+  `integrations.manage`. Un campo assente o `null` non è un tipo
+  sbagliato: il 422 è solo per un valore presente del tipo sbagliato.
+- **Gli eventi recenti** (`automation_source_events`): accettati,
+  duplicati e rifiutati col motivo; si tengono gli ultimi 100 per
+  sorgente, potati all'inserimento. Un 404, un 413 (oltre 256 KB, il
+  `bodyLimit` della rotta) e un 429 non si registrano: un'inondazione non
+  deve riempire l'elenco né scrivere righe.
+- **F4-1 = a alla pubblicazione**: una sorgente usata da un'altra
+  automazione (attiva o in pausa) non si pubblica (`source_in_use`).
+- **Le generali**: `automations.project_id` diventa nullable, codici
+  `AUT-<n>` da un contatore d'istanza; `automations.manage` entra fra i
+  permessi d'istanza (nessun preset lo riceve: il full admin lo ha già).
+- **I suggerimenti «From recent events»** vengono dalle esecuzioni ferme su
+  «scegli il progetto» (la `clientKey` del loro `pending`), non da una
+  forma `cliente.{nome,dominio}` fissa come nel prototipo: nel vero il
+  cliente è il campo che il passo indica (`clientRef`).
+
 ## Rimandi (dal registro, area 7)
 
 - I connettori Audin e HubSpot (Q2): eventi nativi, OAuth o chiave, dopo
