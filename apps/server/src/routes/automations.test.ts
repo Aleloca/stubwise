@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { automationRunInputs, automationRuns, automations, automationVersions, projectMembers as projectMembersTable, projects, type Db } from "@stubwise/db";
+import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, projectMembers as projectMembersTable, projects, tickets, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { startTestDb } from "@stubwise/db/testing";
+import { addDepartmentMember, seedDepartment, startTestDb } from "@stubwise/db/testing";
 import type { AutomationFlow, Step } from "@stubwise/shared";
 import { and, eq } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
@@ -311,6 +311,151 @@ describe("le letture personali e la card d'inbox", () => {
     // Uscito dal progetto: la card non gli arriva più affatto (il filtro di visibilità dell'inbox).
     await db.delete(projectMembersTable).where(and(eq(projectMembersTable.projectId, p.id), eq(projectMembersTable.userId, second.id)));
     expect(await cardOf(second.headers)).toBeUndefined();
+  });
+});
+
+describe("la sezione del progetto e la riga d'origine", () => {
+  it("la sezione: le automazioni e le esecuzioni aperte del progetto, canCreate con automations.manage; 404 a chi non lo vede", async () => {
+    const { p, lead, dev, outsider } = await setup();
+    const a = await created(lead, p.id, flowOf([createTask()]));
+    await db.insert(automationRuns).values({ automationId: a.id, n: 1, version: 1, title: "Aperta", origin: "manual", status: "waiting_approval" });
+    await db.insert(automationRuns).values({ automationId: a.id, n: 2, version: 1, title: "Finita", origin: "manual", status: "done" });
+    const view = (await call(lead.headers, "GET", `/projects/${p.id}/automations`)).json();
+    expect(view).toMatchObject({ show: true, canCreate: true, general: [] });
+    expect((view as { runs: { title: string }[] }).runs.map((r) => r.title)).toEqual(["Aperta"]);
+    expect((view as { automations: { code: string }[] }).automations.map((x) => x.code)).toEqual([a.code]);
+    expect((await call(dev.headers, "GET", `/projects/${p.id}/automations`)).json()).toMatchObject({ canCreate: false, show: true });
+    expect((await call(outsider.headers, "GET", `/projects/${p.id}/automations`)).statusCode).toBe(404);
+  });
+
+  it("l'origine di una task creata da un'esecuzione: codice, nome, numero e la riga del registro; chi non vede il progetto: 404; una task non creata da un'automazione: 404", async () => {
+    const { p, lead, outsider } = await setup();
+    const a = await created(lead, p.id, flowOf([createTask()]));
+    const [run] = await db.insert(automationRuns).values({ automationId: a.id, n: 3, version: 1, title: "R", origin: "manual", status: "done" }).returning();
+    const [t] = await db.insert(tickets).values({ projectId: p.id, number: 41, title: "Creata", type: "task", priority: "medium", source: "automation", automationRunId: run!.id }).returning();
+    await db.insert(automationRunLog).values({ runId: run!.id, seq: 1, stepId: "s", path: "0", kind: "createTask", outcome: "ok", effects: [{ kind: "task", code: `${p.code}-41` }] });
+    expect((await call(lead.headers, "GET", `/automation-origin?task=${p.code}-41`)).json()).toEqual({ visible: true, code: a.code, name: "Onboarding", n: 3, entry: "0" });
+    expect((await call(outsider.headers, "GET", `/automation-origin?task=${p.code}-41`)).statusCode).toBe(404);
+    await db.insert(tickets).values({ projectId: p.id, number: 42, title: "A mano", type: "task", priority: "medium", source: "manual" });
+    expect((await call(lead.headers, "GET", `/automation-origin?task=${p.code}-42`)).statusCode).toBe(404);
+    void t;
+    // Una task in un progetto che vedo, creata da un'automazione di un progetto che NON vedo: solo «da un'automazione».
+    const q = await project();
+    const qMember = await person();
+    await addMember(app, q.id, qMember.id, "developer");
+    await db.insert(tickets).values({ projectId: q.id, number: 1, title: "Altrove", type: "task", priority: "medium", source: "automation", automationRunId: run!.id });
+    expect((await call(qMember.headers, "GET", `/automation-origin?task=${q.code}-1`)).json()).toEqual({ visible: false });
+  });
+});
+
+describe("la prova: gli esempi e il contesto", () => {
+  it("un inizio di Stubwise: gli oggetti veri più recenti che passano il filtro, coi campi dell'esecuzione; un avvio a mano: la data di oggi", async () => {
+    const { p, lead, dev } = await setup();
+    const flow: AutomationFlow = {
+      trigger: { kind: "stubwise", event: "task_created", filter: { left: { ref: "task.titolo" }, op: "contains", right: { value: "Contratto" } } },
+      steps: [createTask()],
+      titleTemplate: "R",
+    };
+    const a = await created(lead, p.id, flow);
+    await db.insert(tickets).values([
+      { projectId: p.id, number: 7, title: "Contratto Rossi", type: "task", priority: "medium", source: "manual" },
+      { projectId: p.id, number: 8, title: "Altro", type: "task", priority: "medium", source: "manual" },
+    ]);
+    const view = (await call(lead.headers, "GET", `/automations/${a.code}/examples?version=draft`)).json() as { items: { label: string; code: string; event: { task: { codice: string; progetto: string } } }[] };
+    expect(view.items.map((i) => i.label)).toEqual(["Contratto Rossi"]);
+    expect(view.items[0]).toMatchObject({ code: `${p.code}-7`, event: { task: { codice: `${p.code}-7`, progetto: p.code } } });
+    expect((await call(dev.headers, "GET", `/automations/${a.code}/examples?version=draft`)).statusCode).toBe(403);
+    const manual = await created(lead, p.id, flowOf([createTask()]));
+    const today = new Date().toISOString().slice(0, 10);
+    expect((await call(lead.headers, "GET", `/automations/${manual.code}/examples?version=1`)).json()).toMatchObject({ items: [{ label: today, event: { avvio: { data: today } } }] });
+  });
+
+  it("il contesto: il proprietario che avrebbe (chi prova, per una bozza mai accesa), chi vede, cosa può creare, chi ha i ruoli; un progetto fisso che chi prova non vede resta muto (R-G5)", async () => {
+    const { p, lead, dev } = await setup();
+    const hidden = await project();
+    // Un reparto con una persona che vede SOLO il progetto nascosto: nessuno deve nominarla.
+    const dept = await seedDepartment(db);
+    const stranger = await person();
+    await addMember(app, hidden.id, stranger.id, "developer");
+    await addDepartmentMember(db, dept.id, stranger.id);
+    const tell: Step = { id: "n1", kind: "notify", who: { departmentId: dept.id }, text: "x", approval: auto };
+    const a = await created(lead, p.id, flowOf([createTask({ approval: { mode: "ask", who: { projectRole: "developer" } } }), createTask({ project: { mode: "fixed", projectId: hidden.id } }), tell]));
+    const ctx = ((await call(lead.headers, "GET", `/automations/${a.code}/examples?version=draft`)).json() as { context: Record<string, unknown> }).context as {
+      ownerId: string;
+      draft: boolean;
+      rev: number;
+      projects: { id: string; code: string; name: string; seenBy: string[]; ownerCan: Record<string, boolean>; roleHolders: Record<string, string[]> }[];
+      people: { id: string }[];
+    };
+    expect(ctx).toMatchObject({ ownerId: lead.id, draft: true, rev: 1 });
+    const own = ctx.projects.find((x) => x.id === p.id)!;
+    expect(own).toMatchObject({ code: p.code, ownerCan: { createTask: true, createMilestone: true, createRequest: true } });
+    expect(own.seenBy).toEqual(expect.arrayContaining([lead.id, dev.id]));
+    expect(own.roleHolders.developer).toEqual([dev.id]);
+    const other = ctx.projects.find((x) => x.id === hidden.id)!;
+    expect(other).toMatchObject({ code: "", name: "", seenBy: [], roleHolders: {}, departmentMembers: {}, ownerCan: { createTask: false } });
+    expect(ctx.people.map((x) => x.id)).not.toContain(stranger.id);
+    expect(other.roleHolders).toEqual({});
+    expect((other as unknown as { departmentMembers: unknown }).departmentMembers).toEqual({});
+    expect(ctx.people.map((x) => x.id)).toEqual(expect.arrayContaining([lead.id, dev.id]));
+  });
+});
+
+describe("l'anteprima condivisa del passo in attesa (pendingEffect)", () => {
+  it("una task da approvare: titolo dall'anteprima, incaricato risolto coi piani dell'esecutore; anche in «Da decidere»", async () => {
+    const { p, lead, dev } = await setup();
+    const a = await created(lead, p.id, flowOf([createTask({ title: "Contratto", assignee: { projectRole: "developer" }, dueInDays: 3, approval: { mode: "ask", who: { owner: true } } })]));
+    await call(lead.headers, "POST", `/automations/${a.code}/publish`, {});
+    await db.insert(automationRuns).values({
+      automationId: a.id,
+      n: 1,
+      version: 1,
+      title: "R",
+      origin: "manual",
+      status: "waiting_approval",
+      cursor: { path: "0" },
+      pending: { approverIds: [lead.id], preview: { titolo: "Contratto", descrizione: "" }, path: "0", round: 0 },
+    });
+    await db.insert(automationRunLog).values({ runId: (await db.select().from(automationRuns).where(eq(automationRuns.automationId, a.id)))[0]!.id, seq: 1, stepId: "trigger", path: "trigger", kind: "trigger", outcome: "ok" });
+    const detail = (await call(lead.headers, "GET", `/automations/${a.code}/runs/1`)).json() as { pendingEffect: Record<string, unknown> | null };
+    expect(detail.pendingEffect).toMatchObject({ kind: "task", path: "0", title: "Contratto", assigneeId: dev.id, assignedBy: "role", role: "developer", project: { id: p.id, code: p.code }, dueInDays: 3 });
+    const decisions = (await call(lead.headers, "GET", "/me/automation-approvals")).json() as { items: { effect: Record<string, unknown> | null }[] };
+    expect(decisions.items[0]!.effect).toMatchObject({ kind: "task", assigneeId: dev.id });
+  });
+});
+
+describe("la ricerca ⌘K", () => {
+  it("trova le automazioni per nome o codice e le esecuzioni per codice o titolo, solo nei progetti che chi cerca vede", async () => {
+    const { p, lead, outsider } = await setup();
+    const a = await created(lead, p.id);
+    await db.update(automations).set({ name: "Benvenuto cliente zibaldone" }).where(eq(automations.id, a.id));
+    await db.insert(automationRuns).values({ automationId: a.id, n: 4, version: 1, title: "Onboarding zibaldone Rossi", origin: "manual", status: "done" });
+    const hits = ((await call(lead.headers, "GET", "/search?q=zibaldone")).json() as { automations: { items: { kind: string; code: string; route: string }[] } }).automations.items;
+    expect(hits).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "automation", code: a.code, route: `#/automations/${a.code}` }),
+        expect.objectContaining({ kind: "run", code: `${a.code} #4`, route: `#/automations/${a.code}/runs/4` }),
+      ]),
+    );
+    const byCode = ((await call(lead.headers, "GET", `/search?q=${encodeURIComponent(`${a.code} #4`)}`)).json() as { automations: { items: { code: string }[] } }).automations.items;
+    expect(byCode.map((h) => h.code)).toContain(`${a.code} #4`);
+    expect(((await call(outsider.headers, "GET", "/search?q=zibaldone")).json() as { automations: { items: unknown[] } }).automations.items).toEqual([]);
+  });
+});
+
+describe("R-J12: il registro come lo legge chi guarda", () => {
+  it("un progetto che chi guarda non vede, dentro un'esecuzione, è senza id; ciò che vi è stato creato non ha codice", async () => {
+    const { p, lead, dev } = await setup();
+    const hidden = await project();
+    await addMember(app, hidden.id, lead.id, "project_lead");
+    const a = await created(lead, p.id);
+    const [run] = await db.insert(automationRuns).values({ automationId: a.id, n: 1, version: 1, title: "R", origin: "manual", status: "done", projectIds: [p.id, hidden.id] }).returning();
+    await db.insert(automationRunLog).values({ runId: run!.id, seq: 1, stepId: "t1", path: "0", kind: "createTask", outcome: "ok", input: { progetto: hidden.id, titolo: "Altrove" }, effects: [{ kind: "task", code: `${hidden.code}-1` }] });
+    const seenByLead = (await call(lead.headers, "GET", `/automations/${a.code}/runs/1`)).json() as { log: { input: { progetto: string }; effects: { code: string }[] }[]; projectIds: string[] };
+    expect(seenByLead.log[0]).toMatchObject({ input: { progetto: hidden.id }, effects: [{ code: `${hidden.code}-1` }] });
+    const seenByDev = (await call(dev.headers, "GET", `/automations/${a.code}/runs/1`)).json() as typeof seenByLead;
+    expect(seenByDev.log[0]).toMatchObject({ input: { progetto: "", titolo: "Altrove" }, effects: [{ code: "" }] });
+    expect(seenByDev.projectIds).toEqual([p.id]);
   });
 });
 

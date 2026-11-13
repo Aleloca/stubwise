@@ -1,8 +1,18 @@
-import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, type Db } from "@stubwise/db";
-import { approversFor } from "@stubwise/notifications";
+import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, projects, type Db } from "@stubwise/db";
+import { approversFor, loadPlanWorld } from "@stubwise/notifications";
 import {
   approvalProjectOf,
   checkEdited,
+  describe,
+  planMilestone,
+  planTask,
+  projectOf,
+  restoreState,
+  type ActionEffect,
+  type ActionStep,
+  type ResolvedTarget,
+  type SimulationEffectPreview,
+  type SimulationProject,
   hideProject,
   stepAt,
   type Automation,
@@ -162,8 +172,7 @@ export async function getRun(db: Db, viewer: Viewer, code: string, n: number): P
     },
     parent: parent && parentAutomation && sees(visible, parentAutomation.projectId) ? { id: parent.id, code: runCode(parentAutomation, parent.n) } : null,
     children: children.filter((c) => sees(visible, c.projectId)).map((c) => ({ id: c.id, code: `${c.code} #${c.n}`, status: c.status })),
-    // L'anteprima condivisa del passo (la stessa della prova) arriva con le letture della prova.
-    pendingEffect: null,
+    pendingEffect: await pendingEffectOf(db, visible, run, automation, row, flow),
   };
 }
 
@@ -255,3 +264,88 @@ export async function controlRun(db: Db, viewer: Viewer, code: string, n: number
 }
 
 export const OPEN_RUN_STATUSES = OPEN_STATUSES;
+
+const str = (v: unknown) => (typeof v === "string" ? v : "");
+
+async function projectFor(db: Db, visible: "all" | ReadonlySet<string>, id: string | null): Promise<SimulationProject> {
+  if (!id || !sees(visible, id)) return { id: "", code: "", name: "" };
+  const [p] = await db.select({ id: projects.id, code: projects.code, name: projects.name }).from(projects).where(eq(projects.id, id));
+  return p ?? { id: "", code: "", name: "" };
+}
+
+/**
+ * L'anteprima condivisa del passo che un'esecuzione aspetta di far approvare
+ * (la stessa forma della prova, `SimulationEffectPreview`; la specifica è
+ * `pendingEffect.ts` del prototipo). I testi vengono dall'anteprima COME LA
+ * VEDE chi guarda (`viewed`, già passata da R-J12); dal passo si risolvono
+ * solo incaricato, reparto e scadenza, coi piani dell'esecutore. `null` se
+ * non aspetta un'approvazione o per i passi senza anteprima condivisa.
+ */
+export async function pendingEffectOf(
+  db: Db,
+  visible: "all" | ReadonlySet<string>,
+  source: RunRecord,
+  a: AutomationRecord,
+  viewed: AutomationRunRow,
+  flow: AutomationFlow,
+): Promise<SimulationEffectPreview | null> {
+  const path = cursorOf(source).path;
+  if (source.status !== "waiting_approval" || !path) return null;
+  const preview = viewed.pending?.preview ?? {};
+  if (Object.keys(preview).length === 0) return null;
+  const step = stepAt(flow.steps, path) as ActionStep | null;
+  if (!step) return null;
+  const where = { stepId: step.id, path };
+  const owner = a.ownerId ?? "";
+  const automation = a as unknown as Automation;
+  const projectId = approvalProjectOf(pendingOf(source)?.preview ?? {}, automation);
+  const now = new Date().toISOString();
+  const effectOf = (): ActionEffect | null => {
+    const progetto = pendingOf(source)?.preview.progetto;
+    const target: ResolvedTarget | null = typeof progetto === "string" ? { mode: "fixed", projectId: progetto } : projectOf(step) ? { mode: "own" } : null;
+    try {
+      const st = restoreState(flow, { ...viewed, cursor: path, status: source.status }, now);
+      const { args } = describe(st, step, target);
+      return { kind: step.kind, stepId: step.id, path, args, ...(target ? { projectTarget: target } : {}) } as ActionEffect;
+    } catch {
+      return null;
+    }
+  };
+  switch (step.kind) {
+    case "createTask": {
+      const eff = effectOf();
+      if (!eff) return null;
+      const world = await loadPlanWorld(db, { ownerId: owner, projectIds: [a.projectId, ...(projectId ? [projectId] : [])] });
+      const plan = planTask(world, eff, automation, owner, now);
+      if (!plan.ok) return null;
+      const { assignee } = plan.plan;
+      return {
+        kind: "task",
+        ...where,
+        project: await projectFor(db, visible, projectId),
+        title: str(preview.titolo),
+        description: str(preview.descrizione),
+        assigneeId: assignee.assigneeId,
+        departmentId: plan.plan.departmentId,
+        assignedBy: assignee.by,
+        role: assignee.role,
+        warning: assignee.why ?? null,
+        dueDate: plan.plan.dueDate,
+        dueInDays: step.dueInDays,
+        milestone: null,
+      };
+    }
+    case "createMilestone": {
+      const eff = effectOf();
+      if (!eff) return null;
+      const world = await loadPlanWorld(db, { ownerId: owner, projectIds: [a.projectId, ...(projectId ? [projectId] : [])] });
+      const plan = planMilestone(world, eff, automation, owner, now);
+      if (!plan.ok) return null;
+      return { kind: "milestone", ...where, project: await projectFor(db, visible, projectId), name: str(preview.nome), dueDate: plan.plan.dueDate, dueInDays: step.dueInDays };
+    }
+    case "createRequest":
+      return { kind: "request", ...where, project: await projectFor(db, visible, projectId), title: str(preview.titolo), description: str(preview.descrizione) };
+    default:
+      return null;
+  }
+}

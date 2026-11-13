@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { inboxItemSchema, notificationKindSchema } from "./notification.js";
+import { searchResultsSchema } from "./search.js";
 
 // Area 7, fetta 1: i quattro kind delle Automations, e il campo `automation`
 // di una card, derivato a lettura: additivo (una card di un server di prima,
@@ -34,5 +35,13 @@ describe("le card delle Automations", () => {
       automation: { automationCode: "AUD-A1", automationName: "Onboarding", runCode: "AUD-A1 #2", runStatus: "waiting_approval", waitingOnYou: true, decided: false },
     });
     expect(card.automation).toMatchObject({ waitingOnYou: true, decided: false });
+  });
+});
+
+
+describe("la ricerca: il gruppo delle Automations", () => {
+  it("una risposta di un server di prima, SENZA `automations`, si legge con il gruppo vuoto", () => {
+    const empty = { items: [], hasMore: false };
+    expect(searchResultsSchema.parse({ tickets: empty, projects: empty, repositories: empty, docs: empty }).automations).toEqual(empty);
   });
 });

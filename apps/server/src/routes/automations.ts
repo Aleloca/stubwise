@@ -16,6 +16,8 @@ import {
 } from "../automations/model.js";
 import { approveRun, chooseRunProject, controlRun, getRun, listRuns, rejectRun, runRowOf } from "../automations/runs.js";
 import { listMyApprovals, listMyRuns } from "../automations/me.js";
+import { automationOrigin, projectAutomations } from "../automations/entry.js";
+import { simulationExamples } from "../automations/examples.js";
 import {
   activateAutomation,
   checkFlow,
@@ -154,6 +156,12 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
   app.post("/automations/:code/check", { config: { access: ACCESS }, schema: { params: codeParams, body: z.object({ flow: flowSchema }) } }, async (request, reply) =>
     handle(reply, () => checkFlow(app.db, me(request), request.params.code, request.body.flow)),
   );
+  // La prova: gli esempi veri e il contesto che i piani della prova leggono (sola lettura).
+  app.get(
+    "/automations/:code/examples",
+    { config: { access: ACCESS }, schema: { params: codeParams, querystring: z.object({ version: z.union([z.literal("draft"), z.coerce.number().int().positive()]) }) } },
+    async (request, reply) => handle(reply, () => simulationExamples(app.db, me(request), request.params.code, request.query.version)),
+  );
   app.post(
     "/automations/:code/tested",
     { config: { access: ACCESS }, schema: { params: codeParams, body: z.object({ version: z.number().int().positive(), rev: z.number().int().nullable() }) } },
@@ -173,6 +181,16 @@ export async function automationRoutes(instance: FastifyInstance): Promise<void>
   // Il blocco Home: aspetta me, fallite che gestisco, mie non finite.
   app.get("/me/automation-runs", { config: { access: ACCESS } }, async (request, reply) =>
     handle(reply, async () => ({ items: await listMyRuns(app.db, me(request)) })),
+  );
+
+  // La sezione del progetto e la riga d'origine (R-G5: nascosto = inesistente).
+  app.get("/projects/:projectId/automations", { config: { access: ACCESS }, schema: { params: z.object({ projectId: z.uuid() }) } }, async (request, reply) =>
+    handle(reply, () => projectAutomations(app.db, me(request), request.params.projectId)),
+  );
+  app.get(
+    "/automation-origin",
+    { config: { access: ACCESS }, schema: { querystring: z.object({ task: z.string().max(40).optional(), milestone: z.uuid().optional() }).refine((q) => !!q.task !== !!q.milestone, "Pass task or milestone") } },
+    async (request, reply) => handle(reply, () => automationOrigin(app.db, me(request), request.query)),
   );
 
   // --- le esecuzioni ----------------------------------------------------------------
