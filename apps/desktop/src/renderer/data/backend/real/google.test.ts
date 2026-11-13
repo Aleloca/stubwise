@@ -114,7 +114,8 @@ describe("il cassetto Google: l'account", () => {
     expect(await drive.getGoogleAccount()).toMatchObject({
       status: "expired",
       reconnect: "scopes",
-      missing: ["markRead"],
+      // Dalla F5b anche il Drive Google (drive.readonly).
+      missing: ["markRead", "drive"],
     });
   });
 
@@ -127,7 +128,7 @@ describe("il cassetto Google: l'account", () => {
     session.personId = ME_ID;
     expect(await drive.getGoogleAccount()).toMatchObject({ status: "expired", reconnect: "scopes", missing: ["calendarWrite"] });
   });
-  // Si accende col Drive Google (`google`, F5): prima la funzione non c'è e non si promette.
+  // Dalla F5b il Drive Google è acceso nella build app (`google`).
   it.skipIf(!googleInApp)(
     "F5: senza `drive.readonly` il cassetto dice che non può usare il Drive Google (i file e gli appunti delle riunioni)",
     async () => {
@@ -144,20 +145,6 @@ describe("il cassetto Google: l'account", () => {
       });
     },
   );
-
-  it("uno scope mancante di una funzione che non c'è ancora (Drive, F5): da ricollegare, senza funzioni elencate", async () => {
-    installFakeServer({
-      "GET /api/me/google/accounts": {
-        body: [account({ missingScopes: ["https://www.googleapis.com/auth/drive.readonly"] })],
-      },
-    });
-    session.personId = ME_ID;
-    expect(await drive.getGoogleAccount()).toMatchObject({
-      status: "expired",
-      reconnect: "scopes",
-      missing: [],
-    });
-  });
 
   it("una casella disattivata è scaduta da quando è stata disattivata", async () => {
     installFakeServer({

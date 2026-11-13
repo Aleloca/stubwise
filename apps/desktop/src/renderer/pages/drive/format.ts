@@ -20,6 +20,8 @@ export function formatSize(bytes: number, language: string): string {
 
 /** La modifica: «2 h ago» oggi, altrimenti la data («Oct 21»). */
 export function modifiedLabel(iso: string, t: TFunction, language: string): string {
+  // Una data che il server non dà (F5b, un file di Google): niente, non un errore.
+  if (!iso || Number.isNaN(Date.parse(iso))) return "";
   const reference = now();
   if (iso.slice(0, 10) === reference.slice(0, 10) && iso <= reference) {
     const minutes = Math.floor((Date.parse(reference) - Date.parse(iso)) / 60_000);

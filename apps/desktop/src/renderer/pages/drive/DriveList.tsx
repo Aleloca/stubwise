@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { whenSynced } from "../preferences/parts";
 import { useTranslation } from "react-i18next";
 import type { DriveFileRow, DriveSort, FolderLinkView } from "../../data/types";
 import { formatDate } from "../../notifications/time";
@@ -207,7 +208,11 @@ export function DriveList({
       }
       g.rows.push(row);
     }
-    return { groups: [...byFolder.values()].filter((g) => g.rows.length > 0), loose: looseRows };
+    // Una cartella che si sincronizza resta visibile anche senza file (review F5b, 4).
+    return {
+      groups: [...byFolder.values()].filter((g) => g.rows.length > 0 || g.link?.syncing),
+      loose: looseRows,
+    };
   }, [global, rows, folders]);
 
   /** Le righe che si vedono, nell'ordine dello schermo: J/K e l'anteprima scorrono queste. */
@@ -403,6 +408,19 @@ export function DriveList({
                 {g.link && (
                   <span className="ml-1 min-w-0 truncate text-xs text-ink-muted">
                     {t("drive.folder.meta", { count: g.link.fileCount, name: linkedBy })}
+                  </span>
+                )}
+                {/* Aggiornata: quando (QB1 = b, anche la sincronizzazione di ogni giorno). */}
+                {g.link?.syncing && (
+                  <span role="status" className="num ml-2 shrink-0 text-xs text-ink-faint">
+                    · {t("drive.google.syncing")}
+                  </span>
+                )}
+                {g.link?.status === "ok" && !g.link.syncing && g.link.lastSyncedAt && (
+                  <span className="num ml-2 shrink-0 text-xs text-ink-faint">
+                    · {t("drive.google.lastSynced", {
+                      when: whenSynced(g.link.lastSyncedAt, i18n.language),
+                    })}
                   </span>
                 )}
                 {/* Scaduta: lo dice a tutti, in parole quiete; la fascia è solo di chi gestisce. */}

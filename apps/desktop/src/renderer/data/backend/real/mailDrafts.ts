@@ -280,7 +280,7 @@ const restoreDiscardedDraft: Mail["restoreDiscardedDraft"] = async (snapshot) =>
   return { draft, droppedAttachments: missing };
 };
 
-/** Allega un file del Drive a una bozza già salvata (come copia; i link Google sono della F5). */
+/** Allega un file del Drive a una bozza già salvata: un caricato come copia, un riferimento Google come link (lo decide il server, F5b). */
 const attachDriveFile: Mail["attachDriveFile"] = async (draftId, driveFileId) => {
   const { mine } = await myMailboxes();
   try {
