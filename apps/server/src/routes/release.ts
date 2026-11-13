@@ -8,6 +8,7 @@ import { apiError } from "../errors.js";
 import { listReleaseQueue, releasePullRequest } from "../services/release.js";
 import { fixRelease, getRelease, listProjectReleases, ReleaseError } from "../services/releases.js";
 import { listOpenPulls, setPrAnalysisOnly } from "../services/pulls.js";
+import { getPrReleaseNotes, putPrReleaseNotes } from "../services/pr-release-notes.js";
 import { authErrorResponses, errorSchema } from "./shared.js";
 
 const releaseParamsSchema = z.object({ id: z.uuid(), repositoryId: z.uuid() });
@@ -47,6 +48,15 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
       handle(reply, () => setPrAnalysisOnly(app.db, request.user!, { ...request.params, on })),
     );
   }
+  // Area 8, F1, S9: le note di rilascio di una PR (leggere: chi vede; scrivere: `release.merge` o `tickets.edit`).
+  app.get("/repositories/:repositoryId/pulls/:prNumber/release-notes", { config: { access: { kind: "user" } }, schema: { params: pullParams } }, async (request, reply) =>
+    handle(reply, () => getPrReleaseNotes(app.db, app.encryptionKey, request.user!, request.params)),
+  );
+  app.put(
+    "/repositories/:repositoryId/pulls/:prNumber/release-notes",
+    { config: { access: { kind: "user" } }, schema: { params: pullParams, body: z.object({ body: z.string().max(20_000) }) } },
+    async (request, reply) => handle(reply, () => putPrReleaseNotes(app.db, app.encryptionKey, request.user!, { ...request.params, body: request.body.body })),
+  );
   const codeParams = z.object({ code: z.string().min(1).max(40) });
   app.get("/releases/:code", { config: { access: { kind: "user" } }, schema: { params: codeParams } }, async (request, reply) =>
     handle(reply, () => getRelease(app.db, request.user!, request.params.code)),
@@ -107,7 +117,7 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
         repositoryId: request.params.repositoryId,
         actor: { id: request.user!.id, permissions: request.access!.permissions },
       });
-      if (result.ok) return { merged: true as const, sha: result.sha };
+      if (result.ok) return { merged: true as const, sha: result.sha, releaseCode: result.releaseCode ?? null };
 
       switch (result.error) {
         case "forbidden":

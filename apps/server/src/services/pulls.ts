@@ -1,4 +1,4 @@
-import { aiJobs, prCorrections, prReviews, projects, repositories, type Db } from "@stubwise/db";
+import { aiJobs, prCorrections, prReviews, projectEnvironments, projects, repositories, type Db } from "@stubwise/db";
 import { cancelOpenCorrections } from "@stubwise/notifications";
 import { isReadyForRelease, prStateOf, stubwiseTicketNumber, type OpenPull, type PrCorrectionInput } from "@stubwise/shared";
 import { and, desc, eq, inArray, ne } from "drizzle-orm";
@@ -52,6 +52,7 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
       releaseBranch: repositories.releaseBranch,
       protectedBranches: repositories.protectedBranches,
       colleaguePrs: repositories.colleaguePrs,
+      repoUrl: repositories.repoUrl,
     })
     .from(repositories)
     .where(inArray(repositories.id, repoIds));
@@ -59,17 +60,28 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
   // Le correzioni con l'esito del loro job: `pr_opened` = ha pushato.
   const corrections = await db
     .select({
+      id: prCorrections.id,
       repositoryId: prCorrections.repositoryId,
       prNumber: prCorrections.prNumber,
       status: prCorrections.status,
       trigger: prCorrections.trigger,
+      requestedByUserId: prCorrections.requestedByUserId,
       createdAt: prCorrections.createdAt,
       jobStatus: aiJobs.status,
+      jobError: aiJobs.error,
     })
     .from(prCorrections)
     .leftJoin(aiJobs, eq(aiJobs.correctionId, prCorrections.id))
     .where(and(inArray(prCorrections.repositoryId, repoIds), ne(prCorrections.status, "cancelled")))
     .orderBy(desc(prCorrections.createdAt));
+  const stagingNames = new Set(
+    (
+      await db
+        .select({ name: projectEnvironments.name })
+        .from(projectEnvironments)
+        .where(and(eq(projectEnvironments.projectId, projectId), eq(projectEnvironments.kind, "staging")))
+    ).map((e) => e.name),
+  );
   const key = (r: string, n: number | null) => `${r}:${n}`;
   const rowsOf = (r: string, n: number | null) => reviewRows.filter((x) => key(x.repositoryId, x.prNumber) === key(r, n));
   const editReleaseNotes = perms.has("release.merge") || perms.has("tickets.edit");
@@ -150,6 +162,20 @@ export async function listOpenPulls(db: Db, encryptionKey: Buffer, viewer: Pick<
       mergeable: null,
       colleaguePrs: repo?.colleaguePrs ?? "analyze_only",
       issues,
+      correctionHistory: [...mine].reverse().map((c) => {
+        const state = c.status === "pending" || c.status === "queued" ? "running" : c.jobStatus === "pr_opened" ? "pushed" : "stopped";
+        return {
+          id: c.id,
+          trigger: c.trigger === "review" ? ("auto" as const) : ("person" as const),
+          byId: c.requestedByUserId,
+          state,
+          commitSha: null,
+          why: state === "stopped" ? (c.jobError ?? null) : null,
+          at: c.createdAt.toISOString(),
+        };
+      }),
+      onStaging: i.deployedOn.some((name) => stagingNames.has(name)),
+      ...(repo ? { repositoryFullName: repo.repoUrl.replace(/\.git$/, "").replace(/\/+$/, "").split("/").slice(-2).join("/") } : {}),
       permissions: {
         analysisOnly: colleague && perms.has("prs.adopt"),
         // Su una PR di un collega: `prs.adopt`, un ramo su cui Stubwise può

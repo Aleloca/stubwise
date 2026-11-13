@@ -117,6 +117,9 @@ export interface CommitRun {
  */
 export type CommitRuns = { status: "ok"; runs: CommitRun[] } | { status: "unknown" };
 
+/** I messaggi dei commit di una PR, dal più vecchio (area 8, F1, S9); `unknown` su un errore di lettura. */
+export type PullRequestCommits = { status: "ok"; messages: string[] } | { status: "unknown" };
+
 /**
  * Evento di apertura/aggiornamento di una PR (automazione PR Review).
  * `opened` copre anche la riapertura; `updated` è un push sulla source branch
@@ -504,6 +507,8 @@ export interface GitProvider {
    * rilascio). Mai lancia: un errore di lettura è `{ status: "unknown" }`.
    */
   getCommitRuns(p: ProjectGitConfig, sha: string, opts?: { fetchImpl?: FetchLike }): Promise<CommitRuns>;
+  /** Area 8, F1, S9: i messaggi dei commit della PR (la bozza delle note di rilascio). Mai lancia. */
+  getPullRequestCommits(p: ProjectGitConfig, prNumber: number, opts?: { fetchImpl?: FetchLike }): Promise<PullRequestCommits>;
   mergePullRequest(
     p: ProjectGitConfig,
     prNumber: number,

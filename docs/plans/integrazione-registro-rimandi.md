@@ -680,6 +680,18 @@ Design: `docs/plans/2026-11-11-integrazione-area5-docs-design.md`. Fetta 1
   a *(M)*; S-1, S-2, S-4, S-6…S-9 e R-1…R-5 = a *(O)*. Quattro fette: rilasci,
   avvisi, Support, Servers (SSH per ultimo).
 
+- F1, S8 (le PR dei colleghi senza adozione), due rimandi *(O, 46, 13 nov
+  2026)*:
+  - (a) `derivePrCycle.canRequestCorrection` (la riga del ciclo del web
+    vecchio e dell'app) non guarda ancora l'impostazione delle PR dei
+    colleghi: con «Solo analisi» sulla PR o il repository «spento» il bottone
+    «Chiedi modifiche» resta, e la rotta risponde 409
+    `colleague_analysis_only`. `/pulls` (`permissions.requestCorrection`) lo
+    dice già giusto.
+  - (b) Lo stato «scartata» di una correzione (push rifiutato perché l'autore
+    ha spinto in parallelo) non si deriva: in `/pulls` compare come «fermata»
+    (`prStateOf` lo leggerebbe, manca un esito distinto del job).
+
 - Blocchi della Home «Rilasci» (anche l'extra di `resolveHome` per
   `release.merge`) e «Clienti in attesa».
 - Origine di una richiesta da Support; «View conversation» delle task del widget.

@@ -131,6 +131,25 @@ export interface OpenPull {
    * dire «senza problemi»); vuoto se approva.
    */
   issues?: { title: string; file: string | null }[];
+  /**
+   * La storia delle correzioni della PR, dalla più vecchia (le annullate no):
+   * `pushed` = il suo job ha pushato, `running` = in coda o in corso,
+   * `stopped` = finita senza push (`why`: l'errore del job). `commitSha` non
+   * si legge nella F1 (null); `discarded` non si deriva ancora (registro).
+   */
+  correctionHistory?: {
+    id: string;
+    trigger: "auto" | "person";
+    byId: string | null;
+    state: "running" | "pushed" | "discarded" | "stopped";
+    commitSha: string | null;
+    why: string | null;
+    at: string;
+  }[];
+  /** Un ambiente `staging` del progetto riporta la head della PR. */
+  onStaging?: boolean;
+  /** `owner/repo` del repository, come nelle righe dei rilasci. */
+  repositoryFullName?: string;
   permissions: {
     /** Mettere o togliere «Solo analisi» (una PR di un collega, `prs.adopt`). */
     analysisOnly: boolean;
@@ -139,4 +158,22 @@ export interface OpenPull {
     /** Scrivere le note della PR: `release.merge` o `tickets.edit` nel progetto. */
     editReleaseNotes: boolean;
   };
+}
+
+/**
+ * Le note di rilascio di una PR (area 8, F1, S9): il testo salvato (null se
+ * nessuno l'ha scritto), la bozza CALCOLATA (una riga per task, dalla task
+ * della PR e dai commit che citano un codice; nessun modello) e se chi guarda
+ * le può scrivere. `commitsRead: false` = i commit non si sono potuti leggere
+ * dal provider: la bozza viene dalla sola task della PR.
+ */
+export interface PrReleaseNotes {
+  repositoryId: string;
+  prNumber: number;
+  body: string | null;
+  updatedById: string | null;
+  updatedAt: string | null;
+  draft: { text: string; sources: string[] };
+  commitsRead: boolean;
+  canEdit: boolean;
 }

@@ -4,11 +4,13 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import {
+  aiJobs,
   encrypt,
   environmentServers,
   gitAccounts,
   prCorrections,
   prReviews,
+  projects,
   projectEnvironments,
   releases,
   repositories,
@@ -289,6 +291,16 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("area 8, F1: un merge che non è sul ramo di rilascio non fa un rilascio, e la risposta lo dice (releaseCode null)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.update(repositories).set({ releaseBranch: "production" }).where(eq(repositories.id, repositoryId));
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await release(ticketId, repositoryId, adminCookie);
+
+    expect(res.json()).toEqual({ merged: true, sha: "deadbeef", releaseCode: null });
+  });
+
   it("l'admin rilascia: check verdi → 200 { merged: true, sha }", async () => {
     const { ticketId, repositoryId } = await seedOpenPr();
     const fetchMock = greenFetch();
@@ -297,7 +309,8 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     const res = await release(ticketId, repositoryId, adminCookie);
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ merged: true, sha: "deadbeef" });
+    // Area 8, F1: il merge sul ramo di rilascio (il default) fa nascere il rilascio, e la risposta lo dice.
+    expect(res.json()).toEqual({ merged: true, sha: "deadbeef", releaseCode: expect.stringMatching(/-V\d+$/) });
     // I check sono stati DAVVERO letti verdi (non degradati a no_checks):
     // altrimenti questo test passerebbe anche con un check-runs rotto.
     expect(fetchMock.mock.calls.some((c) => c[0] === CHECK_RUNS_URL)).toBe(true);
@@ -485,7 +498,7 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     const res = await release(ticketId, repositoryId, adminCookie);
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ merged: true, sha: "extdeadbeef" });
+    expect(res.json()).toEqual({ merged: true, sha: "extdeadbeef", releaseCode: expect.stringMatching(/-V\d+$/) });
   });
 
   it("PR esterna già chiusa sul provider: 409 already_closed, nessuna chiamata di merge", async () => {
@@ -1207,6 +1220,12 @@ describe("GET /api/release-queue — deployedOn", () => {
     vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
 
     expect(await deployedOnOf(ticketId, repositoryId)).toEqual([staging]);
+    // Area 8, F1: un ambiente STAGING lo riporta → «già su staging» in `/pulls`.
+    const pullsOf = async () =>
+      ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: { cookie: adminCookie } })).json() as { items: { onStaging: boolean }[] }).items[0]!;
+    expect((await pullsOf()).onStaging).toBe(true);
+    await testDb.db.update(projectEnvironments).set({ kind: "production" }).where(and(eq(projectEnvironments.projectId, projectId), eq(projectEnvironments.name, staging)));
+    expect((await pullsOf()).onStaging).toBe(false);
   });
 
   it("commit diverso: deployedOn vuoto (il caso positivo qui sopra non è un vero-per-tutto)", async () => {
@@ -1346,6 +1365,31 @@ describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {
     });
   });
 
+  it("area 8, F1: la storia delle correzioni (dalla più vecchia, con l'esito del job) e owner/repo", async () => {
+    const { projectId, ticketId, repositoryId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    const t0 = Date.now() - 3_600_000;
+    const add = async (trigger: "review" | "stubwise", status: "done" | "queued" | "cancelled", job: { status: "pr_opened" | "failed"; error?: string } | null, offset: number) => {
+      const [c] = await testDb.db.insert(prCorrections).values({ ticketId, repositoryId, prNumber: 42, trigger, status, createdAt: new Date(t0 + offset) }).returning();
+      if (job) await testDb.db.insert(aiJobs).values({ ticketId, correctionId: c!.id, status: job.status, error: job.error ?? null });
+      return c!.id;
+    };
+    const pushed = await add("review", "done", { status: "pr_opened" }, 0);
+    const stopped = await add("stubwise", "done", { status: "failed", error: "push rifiutato" }, 1000);
+    await add("review", "cancelled", null, 1500);
+    const running = await add("review", "queued", null, 2000);
+    const [pull] = ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: { cookie: adminCookie } })).json() as { items: Record<string, unknown>[] }).items;
+    expect(pull).toMatchObject({
+      repositoryFullName: "acme/demo-shop",
+      correctionHistory: [
+        { id: pushed, trigger: "auto", state: "pushed", why: null, commitSha: null },
+        { id: stopped, trigger: "person", state: "stopped", why: "push rifiutato" },
+        { id: running, trigger: "auto", state: "running" },
+      ],
+    });
+    expect((pull as { correctionHistory: unknown[] }).correctionHistory).toHaveLength(3);
+  });
+
   it("un Viewer vede la PR ma nessun permesso", async () => {
     const { projectId } = await seedOpenPr();
     vi.stubGlobal("fetch", greenFetch());
@@ -1353,5 +1397,72 @@ describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {
     await addMember(app, projectId, viewer.id, "viewer");
     const [pull] = ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: viewer.headers })).json() as { items: Record<string, unknown>[] }).items;
     expect(pull).toMatchObject({ permissions: { analysisOnly: false, requestCorrection: false, editReleaseNotes: false } });
+  });
+});
+
+describe("area 8, F1, S9: le note di rilascio di una PR", () => {
+  let n = 0;
+  async function setup() {
+    const pr = await seedOpenPr();
+    const code = `Q${String.fromCharCode(65 + (n % 26))}${String.fromCharCode(65 + Math.floor(n / 26) % 26)}`;
+    n++;
+    await testDb.db.update(projects).set({ code }).where(eq(projects.id, pr.projectId));
+    await testDb.db.update(ticketRepositories).set({ prNumber: 42 }).where(eq(ticketRepositories.id, pr.trId));
+    const [own] = await testDb.db.select({ number: tickets.number }).from(tickets).where(eq(tickets.id, pr.ticketId));
+    const { ticketId: otherId } = await seedTicket(testDb.db, { projectId: pr.projectId, repositoryId: pr.repositoryId, number: 2 });
+    const [other] = await testDb.db.update(tickets).set({ title: "Pagamenti" }).where(eq(tickets.id, otherId)).returning({ number: tickets.number });
+    await testDb.db.update(tickets).set({ title: "Checkout" }).where(eq(tickets.id, pr.ticketId));
+    const commits = [`${code}-${other!.number}: pagamenti`, "fix ZZZ-1 di un altro progetto", `${code}-9999 inesistente`];
+    const fetchCommits = (ok = true) =>
+      vi.fn((input: string | URL) =>
+        Promise.resolve(
+          String(input) === "https://api.github.com/repos/acme/demo-shop/pulls/42/commits?per_page=100" && ok
+            ? new Response(JSON.stringify(commits.map((message) => ({ commit: { message } }))), { status: 200 })
+            : new Response("", { status: 500 }),
+        ),
+      );
+    const url = `/api/repositories/${pr.repositoryId}/pulls/42/release-notes`;
+    return { ...pr, code, own: own!.number, other: other!.number, fetchCommits, url };
+  }
+  const user = async (projectId: string, preset: string) => {
+    const u = await createUserWithPat(app, `${preset}-${randomUUID().slice(0, 6)}@acme.com`);
+    await addMember(app, projectId, u.id, preset);
+    return u;
+  };
+
+  it("la bozza: la task della PR e quelle citate dai commit, SOLO del progetto e solo se esistono; nessun testo salvato", async () => {
+    const s = await setup();
+    vi.stubGlobal("fetch", s.fetchCommits());
+    const viewer = await user(s.projectId, "viewer");
+    const res = await app.inject({ method: "GET", url: s.url, headers: viewer.headers });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      body: null,
+      commitsRead: true,
+      canEdit: false,
+      draft: { text: `- ${s.code}-${s.own}: Checkout\n- ${s.code}-${s.other}: Pagamenti`, sources: [`${s.code}-${s.own}`, `${s.code}-${s.other}`] },
+    });
+  });
+
+  it("i commit illeggibili: la bozza dalla sola task della PR, e lo dice", async () => {
+    const s = await setup();
+    vi.stubGlobal("fetch", s.fetchCommits(false));
+    const viewer = await user(s.projectId, "viewer");
+    expect((await app.inject({ method: "GET", url: s.url, headers: viewer.headers })).json()).toMatchObject({ commitsRead: false, draft: { sources: [`${s.code}-${s.own}`] } });
+  });
+
+  it("scrivere: chi ha tickets.edit sì (e il testo si rilegge); un Viewer 403 e niente scritto; chi non vede il progetto 404; una PR ignota 404", async () => {
+    const s = await setup();
+    vi.stubGlobal("fetch", s.fetchCommits());
+    const dev = await user(s.projectId, "developer");
+    const put = await app.inject({ method: "PUT", url: s.url, headers: dev.headers, payload: { body: "Nuovo checkout." } });
+    expect(put.statusCode).toBe(200);
+    expect(put.json()).toMatchObject({ body: "Nuovo checkout.", updatedById: dev.id, canEdit: true });
+    const viewer = await user(s.projectId, "viewer");
+    expect((await app.inject({ method: "PUT", url: s.url, headers: viewer.headers, payload: { body: "x" } })).statusCode).toBe(403);
+    expect((await app.inject({ method: "GET", url: s.url, headers: viewer.headers })).json()).toMatchObject({ body: "Nuovo checkout." });
+    const outsider = await createUserWithPat(app, `out-${randomUUID().slice(0, 6)}@acme.com`);
+    expect((await app.inject({ method: "GET", url: s.url, headers: outsider.headers })).statusCode).toBe(404);
+    expect((await app.inject({ method: "GET", url: `/api/repositories/${s.repositoryId}/pulls/999/release-notes`, headers: dev.headers })).json()).toMatchObject({ code: "pr_not_found" });
   });
 });
