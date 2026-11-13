@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { buildApp } from "../app.js";
 import {
   encrypt,
+  environmentServers,
   gitAccounts,
   prReviews,
   projectEnvironments,
@@ -16,7 +17,7 @@ import {
   tickets,
 } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedRepository, seedTicket, startTestDb } from "@stubwise/db/testing";
+import { seedRepository, seedRepositoryInProject, seedTicket, startTestDb } from "@stubwise/db/testing";
 import { addMember, createUserWithPat, seedUsers } from "../test/fixtures.js";
 
 /**
@@ -1157,7 +1158,10 @@ describe("GET /api/release-queue — deployedOn", () => {
       .values({ name: `vps-${randomBytes(3).toString("hex")}`, keyHash: `hash-${crypto.randomUUID()}` })
       .returning();
     const name = `staging-${randomBytes(3).toString("hex")}`;
-    await testDb.db.insert(projectEnvironments).values({ projectId, name, kind: "staging", serverId: server!.id });
+    const [env] = await testDb.db.insert(projectEnvironments).values({ projectId, name, kind: "staging", serverId: server!.id }).returning();
+    // Area 8, F1 (R-L2): il server è per repository; come la rotta, lo si scrive per tutte quelle del progetto.
+    const repos = await testDb.db.select({ id: repositories.id }).from(repositories).where(eq(repositories.projectId, projectId));
+    if (repos.length > 0) await testDb.db.insert(environmentServers).values(repos.map((r) => ({ environmentId: env!.id, repositoryId: r.id, serverId: server!.id })));
     await testDb.db.insert(serverMetrics).values({
       serverId: server!.id,
       ts: new Date(),
@@ -1224,6 +1228,21 @@ describe("GET /api/release-queue — deployedOn", () => {
       expect(await deployedOnOf(ticketId, repositoryId)).toEqual([]);
     });
   }
+
+  it("R-L2: il commit giusto sul server di UN'ALTRA repository dell'ambiente non conta", async () => {
+    const { ticketId, repositoryId, projectId } = await seedOpenPr();
+    const staging = await seedStaging(projectId, FULL_SHA);
+    const other = await seedRepositoryInProject(testDb.db, projectId);
+    // Il server dell'ambiente passa all'altra repository; quella della PR resta senza.
+    const [row] = await testDb.db.select().from(environmentServers).where(eq(environmentServers.repositoryId, repositoryId));
+    await testDb.db.delete(environmentServers).where(eq(environmentServers.repositoryId, repositoryId));
+    await testDb.db.insert(environmentServers).values({ environmentId: row!.environmentId, repositoryId: other, serverId: row!.serverId });
+    vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([]);
+    // Rimesso sulla repository della PR, combacia di nuovo (il negativo qui sopra non è un falso-per-tutto).
+    await testDb.db.insert(environmentServers).values({ environmentId: row!.environmentId, repositoryId, serverId: row!.serverId });
+    expect(await deployedOnOf(ticketId, repositoryId)).toEqual([staging]);
+  });
 });
 
 describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {

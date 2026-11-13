@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../app.js";
 import { projectEnvironments, serverMetrics, servers } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
-import { seedEnvironment, seedRepository as seedRepositoryRaw, startTestDb } from "@stubwise/db/testing";
+import { seedEnvironment, seedRepository as seedRepositoryRaw, seedRepositoryInProject, startTestDb } from "@stubwise/db/testing";
 import { seedUsers, addMember } from "../test/fixtures.js";
 
 const SESSION_SECRET = "segreto-di-test-lungo-almeno-32-caratteri!!";
@@ -221,9 +221,10 @@ describe("POST /api/projects/:projectId/environments", () => {
   });
 
   it("url/serverId assenti → null", async () => {
-    const res = await createEnvironment({ name: "prod", kind: "production" });
+    // Uno staging: il progetto di questi test ha già la sua (unica, [R 12]) produzione.
+    const res = await createEnvironment({ name: "stg-null", kind: "staging" });
     expect(res.statusCode).toBe(201);
-    expect(res.json()).toMatchObject({ url: null, serverId: null });
+    expect(res.json()).toMatchObject({ url: null, serverId: null, servers: [] });
   });
 
   it("serverId di un server esistente: collegato", async () => {
@@ -417,5 +418,49 @@ describe("DELETE /api/projects/:projectId/environments/:environmentId", () => {
       .from(projectEnvironments)
       .where(eq(projectEnvironments.id, environmentId));
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe("ambienti per repository (area 8, F1, R-L2)", () => {
+  async function newServer(name: string) {
+    const [srv] = await testDb.db.insert(servers).values({ name: `${name}-${crypto.randomUUID().slice(0, 6)}`, keyHash: `hash-${crypto.randomUUID()}` }).returning();
+    return srv!.id;
+  }
+  const post = (pid: string, payload: object) => app.inject({ method: "POST", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie }, payload });
+  const patch = (pid: string, id: string, payload: object) => app.inject({ method: "PATCH", url: `/api/projects/${pid}/environments/${id}`, headers: { cookie: adminCookie }, payload });
+  const sorted = (xs: { repositoryId: string; serverId: string }[]) => [...xs].sort((a, b) => a.repositoryId.localeCompare(b.repositoryId));
+
+  it("serverId (forma di prima) vale per tutte le repository; servers lo sovrascrive per quella che nomina", async () => {
+    const { projectId: pid, repositoryId: r1 } = await seedRepository(testDb.db);
+    const r2 = await seedRepositoryInProject(testDb.db, pid);
+    const a = await newServer("a");
+    const b = await newServer("b");
+    const res = await post(pid, { name: "production", kind: "production", serverId: a, servers: [{ repositoryId: r2, serverId: b }] });
+    expect(res.statusCode).toBe(201);
+    expect(sorted(res.json().servers)).toEqual(sorted([{ repositoryId: r1, serverId: a }, { repositoryId: r2, serverId: b }]));
+    // PATCH: null toglie il server della sola r1.
+    const upd = await patch(pid, res.json().id, { servers: [{ repositoryId: r1, serverId: null }] });
+    expect(upd.statusCode).toBe(200);
+    expect(upd.json().servers).toEqual([{ repositoryId: r2, serverId: b }]);
+    // E la GET dice lo stesso.
+    const list = await app.inject({ method: "GET", url: `/api/projects/${pid}/environments`, headers: { cookie: adminCookie } });
+    expect(list.json().find((e: { id: string }) => e.id === res.json().id).servers).toEqual([{ repositoryId: r2, serverId: b }]);
+  });
+
+  it("una repository di un altro progetto: 400 bad_servers, e niente scritto", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    const { repositoryId: foreign } = await seedRepository(testDb.db);
+    const res = await post(pid, { name: "staging", kind: "staging", servers: [{ repositoryId: foreign, serverId: await newServer("c") }] });
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ code: "bad_servers" });
+    expect(await testDb.db.select().from(projectEnvironments).where(eq(projectEnvironments.projectId, pid))).toEqual([]);
+  });
+
+  it("una seconda produzione nello stesso progetto: 409 production_environment_exists", async () => {
+    const { projectId: pid } = await seedRepository(testDb.db);
+    expect((await post(pid, { name: "prod", kind: "production" })).statusCode).toBe(201);
+    const again = await post(pid, { name: "prod-2", kind: "production" });
+    expect(again.statusCode).toBe(409);
+    expect(again.json()).toMatchObject({ code: "production_environment_exists" });
   });
 });

@@ -32,6 +32,12 @@ export const projectEnvironmentSchema = z.object({
   runningImage: z.string().optional(),
   /** `org.opencontainers.image.revision` del servizio, se il servizio la porta. */
   runningCommitSha: z.string().optional(),
+  /**
+   * Area 8, F1 (R-L2): su quale server gira ogni repository del progetto in
+   * questo ambiente (repository diverse su server diversi). `.default([])`:
+   * un server più vecchio non lo manda (e lì vale `serverId` per tutte).
+   */
+  servers: z.array(z.object({ repositoryId: z.uuid(), serverId: z.uuid() })).default([]),
 });
 export type ProjectEnvironment = z.infer<typeof projectEnvironmentSchema>;
 
@@ -45,6 +51,8 @@ export const createEnvironmentSchema = z.object({
   kind: environmentKindSchema,
   url: z.url().nullable().optional(),
   serverId: z.uuid().nullable().optional(),
+  /** Area 8, F1 (R-L2): il server per repository; vince su `serverId` per le repository che nomina. */
+  servers: z.array(z.object({ repositoryId: z.uuid(), serverId: z.uuid() })).max(200).optional(),
 });
 export type CreateEnvironmentInput = z.infer<typeof createEnvironmentSchema>;
 
@@ -58,5 +66,10 @@ export const patchEnvironmentSchema = z.object({
   name: z.string().min(1).max(200).optional(),
   url: z.url().nullable().optional(),
   serverId: z.uuid().nullable().optional(),
+  /**
+   * Area 8, F1 (R-L2): il server delle repository nominate (`serverId: null`
+   * lo toglie a quella repository); le altre restano come sono.
+   */
+  servers: z.array(z.object({ repositoryId: z.uuid(), serverId: z.uuid().nullable() })).max(200).optional(),
 });
 export type PatchEnvironmentInput = z.infer<typeof patchEnvironmentSchema>;

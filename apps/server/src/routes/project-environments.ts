@@ -1,4 +1,4 @@
-import { projectEnvironments, servers } from "@stubwise/db";
+import { environmentServers, projectEnvironments, repositories, servers } from "@stubwise/db";
 import {
   createEnvironmentSchema,
   patchEnvironmentSchema,
@@ -6,7 +6,7 @@ import {
   type DiscoveredService,
   type ProjectEnvironment,
 } from "@stubwise/shared";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import type { ZodTypeProvider } from "fastify-type-provider-zod";
 import { z } from "zod";
@@ -32,6 +32,7 @@ type EnvironmentRow = typeof projectEnvironments.$inferSelect;
 function toPublic(
   row: EnvironmentRow,
   servicesByServer: Map<string, DiscoveredService[]> = new Map(),
+  servers: { repositoryId: string; serverId: string }[] = [],
 ): ProjectEnvironment {
   const running = row.serverId
     ? servicesByServer.get(row.serverId)?.find((s) => s.name === row.name)
@@ -47,6 +48,7 @@ function toPublic(
     updatedAt: row.updatedAt.toISOString(),
     ...(running?.image !== undefined ? { runningImage: running.image } : {}),
     ...(running?.commitSha !== undefined ? { runningCommitSha: running.commitSha } : {}),
+    servers,
   };
 }
 
@@ -75,6 +77,48 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
   async function serverExists(serverId: string): Promise<boolean> {
     const [row] = await app.db.select({ id: servers.id }).from(servers).where(eq(servers.id, serverId));
     return row !== undefined;
+  }
+
+  /** I server per repository (R-L2) di un insieme di ambienti. */
+  async function serversOf(environmentIds: string[]): Promise<Map<string, { repositoryId: string; serverId: string }[]>> {
+    const out = new Map<string, { repositoryId: string; serverId: string }[]>();
+    if (environmentIds.length === 0) return out;
+    const rows = await app.db.select().from(environmentServers).where(inArray(environmentServers.environmentId, environmentIds));
+    for (const r of rows) out.set(r.environmentId, [...(out.get(r.environmentId) ?? []), { repositoryId: r.repositoryId, serverId: r.serverId }]);
+    return out;
+  }
+
+  /**
+   * Scrive i server per repository di un ambiente (R-L2). `serverId` (la forma
+   * di prima) vale per TUTTE le repository del progetto; `servers` vince per
+   * le repository che nomina (`null` toglie). Le repository devono essere del
+   * progetto e i server esistere: altrimenti 400, e niente scritto.
+   */
+  async function writeServers(
+    tx: Parameters<Parameters<typeof app.db.transaction>[0]>[0],
+    env: { id: string; projectId: string },
+    input: { serverId?: string | null; servers?: { repositoryId: string; serverId: string | null }[] },
+  ): Promise<"ok" | "bad_repository" | "server_not_found"> {
+    const repos = await tx.select({ id: repositories.id }).from(repositories).where(eq(repositories.projectId, env.projectId));
+    const repoIds = new Set(repos.map((r) => r.id));
+    for (const sv of input.servers ?? []) if (!repoIds.has(sv.repositoryId)) return "bad_repository";
+    const wanted = [...new Set([...(input.servers ?? []).flatMap((x) => (x.serverId ? [x.serverId] : [])), ...(input.serverId ? [input.serverId] : [])])];
+    if (wanted.length > 0) {
+      const found = await tx.select({ id: servers.id }).from(servers).where(inArray(servers.id, wanted));
+      if (found.length !== wanted.length) return "server_not_found";
+    }
+    if (input.serverId !== undefined) {
+      await tx.delete(environmentServers).where(eq(environmentServers.environmentId, env.id));
+      if (input.serverId) {
+        const sid = input.serverId;
+        if (repoIds.size > 0) await tx.insert(environmentServers).values([...repoIds].map((repositoryId) => ({ environmentId: env.id, repositoryId, serverId: sid })));
+      }
+    }
+    for (const sv of input.servers ?? []) {
+      await tx.delete(environmentServers).where(and(eq(environmentServers.environmentId, env.id), eq(environmentServers.repositoryId, sv.repositoryId)));
+      if (sv.serverId) await tx.insert(environmentServers).values({ environmentId: env.id, repositoryId: sv.repositoryId, serverId: sv.serverId });
+    }
+    return "ok";
   }
 
   async function findEnvironment(projectId: string, environmentId: string): Promise<EnvironmentRow | undefined> {
@@ -107,7 +151,8 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
 
       const serverIds = [...new Set(rows.flatMap((r) => (r.serverId ? [r.serverId] : [])))];
       const servicesByServer = await loadLatestServicesByServer(app.db, serverIds);
-      return rows.map((row) => toPublic(row, servicesByServer));
+      const byEnv = await serversOf(rows.map((r) => r.id));
+      return rows.map((row) => toPublic(row, servicesByServer, byEnv.get(row.id) ?? []));
     },
   );
 
@@ -129,18 +174,33 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
     },
     async (request, reply) => {
       const { projectId } = request.params;
-      const { name, kind, url, serverId } = request.body;
+      const { name, kind, url, serverId, servers: perRepo } = request.body;
       if (serverId && !(await serverExists(serverId))) {
         return apiError(reply, 400, "server_not_found", "Server not found");
       }
       try {
-        const [created] = await app.db
-          .insert(projectEnvironments)
-          .values({ projectId, name, kind, url: url ?? null, serverId: serverId ?? null })
-          .returning();
-        if (!created) throw new Error("insert dell'ambiente non ha restituito la riga");
-        return await reply.code(201).send(toPublic(created));
+        const result = await app.db.transaction(async (tx) => {
+          const [created] = await tx
+            .insert(projectEnvironments)
+            .values({ projectId, name, kind, url: url ?? null, serverId: serverId ?? null })
+            .returning();
+          if (!created) throw new Error("insert dell'ambiente non ha restituito la riga");
+          const written = await writeServers(tx, created, { ...(serverId !== undefined ? { serverId } : {}), ...(perRepo ? { servers: perRepo } : {}) });
+          if (written !== "ok") {
+            tx.rollback();
+          }
+          return { created, written };
+        }).catch((e: unknown) => {
+          if (e instanceof Error && e.message === "Rollback") return null;
+          throw e;
+        });
+        if (!result) return apiError(reply, 400, "bad_servers", "A repository is not in this project, or a server doesn't exist");
+        const byEnv = await serversOf([result.created.id]);
+        return await reply.code(201).send(toPublic(result.created, new Map(), byEnv.get(result.created.id) ?? []));
       } catch (error) {
+        if (uniqueViolationConstraint(error) === "project_environments_one_production_idx") {
+          return apiError(reply, 409, "production_environment_exists", "This project already has a production environment — only one is allowed");
+        }
         // Due vincoli unique distinti su questa tabella (fase 8, review fix
         // Task 3): il nome per progetto, e — solo per kind='test' — al più
         // UN ambiente di quel kind per progetto. Un client che manda un
@@ -191,7 +251,7 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       const existing = await findEnvironment(projectId, environmentId);
       if (!existing) return apiError(reply, 404, "environment_not_found", "Environment not found");
 
-      const { name, url, serverId } = request.body;
+      const { name, url, serverId, servers: perRepo } = request.body;
       if (serverId && !(await serverExists(serverId))) {
         return apiError(reply, 400, "server_not_found", "Server not found");
       }
@@ -203,13 +263,25 @@ export async function projectEnvironmentRoutes(instance: FastifyInstance): Promi
       if (serverId !== undefined) patch.serverId = serverId;
 
       try {
-        const [updated] = await app.db
-          .update(projectEnvironments)
-          .set(patch)
-          .where(eq(projectEnvironments.id, environmentId))
-          .returning();
-        if (!updated) throw new Error("update dell'ambiente non ha restituito la riga");
-        return toPublic(updated);
+        const result = await app.db
+          .transaction(async (tx) => {
+            const [updated] = Object.keys(patch).length > 0
+              ? await tx.update(projectEnvironments).set(patch).where(eq(projectEnvironments.id, environmentId)).returning()
+              : [existing];
+            if (!updated) throw new Error("update dell'ambiente non ha restituito la riga");
+            if (serverId !== undefined || perRepo) {
+              const written = await writeServers(tx, updated, { ...(serverId !== undefined ? { serverId } : {}), ...(perRepo ? { servers: perRepo } : {}) });
+              if (written !== "ok") tx.rollback();
+            }
+            return updated;
+          })
+          .catch((e: unknown) => {
+            if (e instanceof Error && e.message === "Rollback") return null;
+            throw e;
+          });
+        if (!result) return apiError(reply, 400, "bad_servers", "A repository is not in this project, or a server doesn't exist");
+        const byEnv = await serversOf([result.id]);
+        return toPublic(result, new Map(), byEnv.get(result.id) ?? []);
       } catch (error) {
         if (isUniqueViolation(error)) {
           return apiError(
