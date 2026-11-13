@@ -465,3 +465,112 @@ describe("un webhook per automazione (F4-1 = a, R6)", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("«avvia un'altra» nel dettaglio dell'esecuzione (F4, R6)", () => {
+  it("la figlia dice da quale esecuzione è partita, la madre quali ha avviato (i codici dal server)", async () => {
+    const detail = (over: Record<string, unknown>) => ({
+      id: "77777777-7777-4777-8777-77777777777b",
+      automationId: A_ID,
+      n: 4,
+      version: 1,
+      title: "Avvio",
+      status: "done",
+      cursor: null,
+      event: {},
+      vars: {},
+      waitingUntil: null,
+      pending: null,
+      startedAt: "2026-11-13T09:00:00.000Z",
+      endedAt: "2026-11-13T09:01:00.000Z",
+      error: null,
+      projectIds: [PROJECT_ID],
+      code: "AUD-A1 #4",
+      automationCode: "AUD-A1",
+      automationName: "Avvio progetto",
+      automationProjectId: PROJECT_ID,
+      flow: FLOW,
+      deciders: [],
+      ownerId: ME_ID,
+      permissions: { manage: true, approve: false, chooseProject: false },
+      parent: null,
+      children: [],
+      pendingEffect: null,
+      log: [],
+      ...over,
+    });
+    install({
+      "GET /api/automations/AUD-A1/runs/4": {
+        body: detail({
+          origin: "automation",
+          parentRunId: "77777777-7777-4777-8777-77777777777c",
+          parent: { id: "77777777-7777-4777-8777-77777777777c", code: "AUD-A0 #3" },
+          children: [
+            { id: "77777777-7777-4777-8777-77777777777d", code: "AUD-A2 #1", status: "running" },
+          ],
+        }),
+      },
+    });
+    renderRoute("/automations/AUD-A1/runs/4");
+    const parent = await screen.findByRole("link", { name: "AUD-A0 #3" }, { timeout: 3000 });
+    expect(parent.closest("p")?.textContent).toMatch(/by AUD-A0 #3/i);
+    const child = screen.getByRole("link", { name: "AUD-A2 #1" });
+    expect(child.closest("p")?.textContent).toMatch(/It started: AUD-A2 #1/);
+    expect(child.getAttribute("href")).toContain("/automations/AUD-A2/runs/1");
+  });
+});
+
+describe("«avvia un'altra» nel costruttore della build app (F4, R6)", () => {
+  const B_ID = "77777777-7777-4777-8777-77777777777e";
+  const other = () => ({
+    ...row(),
+    id: B_ID,
+    code: "AUD-A2",
+    name: "Fatturazione",
+    status: "active",
+  });
+  const withSteps = (steps: unknown[]) => {
+    const flow = { trigger: { kind: "manual" }, steps, titleTemplate: "Avvio" };
+    return {
+      ...row(),
+      status: "draft",
+      versions: [{ ...version(1, 6, false), flow }],
+    };
+  };
+  const open = async (a: ReturnType<typeof withSteps>, issues: unknown[] = []) => {
+    install({
+      "GET /api/automations": { body: { items: [a, other()] } },
+      "GET /api/automations/AUD-A1": {
+        body: { automation: a, configErrors: issues, liveErrors: [], runs: [] },
+      },
+      "POST /api/automations/AUD-A1/check": { body: { issues } },
+    });
+    renderRoute("/automations/AUD-A1/edit");
+  };
+  const treeRow = async (id: string) => {
+    await waitFor(() => expect(document.querySelector(`[data-tree-row="${id}"]`)).not.toBeNull(), {
+      timeout: 3000,
+    });
+    return document.querySelector<HTMLElement>(`[data-tree-row="${id}"]`)!;
+  };
+
+  it("il passo nomina l'altra automazione (il codice dall'elenco vero)", async () => {
+    await open(
+      withSteps([
+        { id: "go", kind: "startAutomation", automationId: B_ID, approval: { mode: "auto" } },
+      ]),
+    );
+    await waitFor(async () => expect((await treeRow("go")).textContent).toContain("Start AUD-A2"));
+  });
+
+  it("avviare sé stessa: il problema che dice il server (`limit` sul passo) in parole, come nel prototipo", async () => {
+    await open(
+      withSteps([
+        { id: "self", kind: "startAutomation", automationId: A_ID, approval: { mode: "auto" } },
+      ]),
+      [{ path: "0", code: "limit", message: "x" }],
+    );
+    await waitFor(async () =>
+      expect((await treeRow("self")).textContent).toContain("Would start itself again"),
+    );
+  });
+});
