@@ -355,24 +355,203 @@ preset). Nessuna chiave a due livelli (il test del catalogo).
     ogni comando (e lo dice nell'ingest); un'analisi per episodio, nel tetto e
     nel budget; la visibilità dei server passa dagli ambienti (R-L2, R-G5).
 
-## Il lato renderer (dalle R-n di 94, che lo rivede)
+## Il lato renderer (stubwise-94)
 
-- **R-1 = a**: dentro ogni fetta si accendono prima le pagine che stanno
-  sulle rotte di oggi (monitor dei server, widget di Support, PR aperte e
-  merge), poi si allargano col loro pezzo di server; un flag per pezzo sotto
-  `releases`/`support`/`servers` (es. `servers-monitor`, `servers-operations`).
-- **R-2 = a**: i pannelli «solo prototipo» (`SimulatePanel`, «Simulate run
-  outcome», «Simulate a customer message», gli esiti simulati dei comandi) non ci sono
-  nella build app, e un test per pagina lo fissa.
-- **R-3 = a**: prima del rilascio come oggetto si accendono le PR aperte con
-  il merge in due passi e «Request changes»; elenco e dettaglio dei rilasci
-  restano «in arrivo», la Home «Rilasci» mostra solo le PR pronte; l'adozione
-  esplicita del server non entra nel renderer.
-- **R-4 = a**: gli ambienti e la visibilità dei server si integrano coi
-  server per repository (F1); fino ad allora la visibilità resta quella di
-  `server_projects`, detta nella parità.
-- **R-5 = a**: il catalogo dei tipi di avviso in `@stubwise/shared`, letto
-  da renderer e server.
+> Di stubwise-94, sulle sue R-1…R-5 (tutte = a, *(O)* di 46) e
+> sull'inventario («Lato renderer»). Percorsi da `apps/desktop/src/renderer/`.
+> La specifica è il prototipo: web e mobile non sono un riferimento.
+
+### Le regole che valgono per ogni fetta
+
+- **Un flag per pezzo** (R-1): sotto i nomi di oggi (`releases`, `support`,
+  `servers`, `alerts` in `data/integration.ts`) un pezzo si accende quando
+  il suo server c'è, non quando c'è tutta la sezione. I nomi proposti stanno
+  sotto, per fetta. I cancelli esistono già:
+  - le funzioni in `data/queries/{releases,support,servers,alerts}.ts`;
+  - le sezioni di progetto `releases`, `support`, `servers`, che restano
+    «in arrivo»;
+  - i blocchi Home dalla loro area (`ofArea`).
+- **Un adattatore per namespace**, in `data/backend/real/`, con le firme del
+  prototipo (`data/api.ts`: `releases`, `support`, `servers`, `alerts`, oggi
+  stub generati). Gli errori sono nelle parole del prototipo, come
+  `inPrototypeWords` delle automazioni; una lettura che un server più vecchio
+  non ha (404) è «niente».
+- **Le lezioni della review della F4 dell'area 7**, da tenere fin dal piano:
+  - (I1) un'azione che il server non ha non si offre nella build app: niente
+    bottoni che finiscono in `NotIntegratedError`, con un test di pagina che
+    ne verifica l'assenza;
+  - (I2) un segreto mostrato una volta (la chiave dell'agente di
+    monitoraggio, e ciò che la F4b riscritta mostrerà) non passa dal
+    risultato di una mutazione, perché React Query lo terrebbe per il gcTime.
+    Sta in una mappa in memoria che si svuota in `forgetClientCaches` (al
+    cambio di persona e all'uscita), come `data/revealedAddress.ts`;
+  - (I3) `INTEGRATED_CALLS` di `pages/ComingSoon.test.tsx` cresce nello
+    STESSO commit dell'accensione, con un test «aprire <pagina> legge solo
+    chiamate integrate» per ogni pagina nuova.
+- **«Solo prototipo» fuori dalla build app** (R-2): i pannelli e i bottoni
+  di simulazione (`SimulatePanel`, `simulateRunOutcome`,
+  `simulateSeenOnServer`, `simulateAuthorPush`, `advancePrWork`,
+  `simulateCustomerMessage`, `simulateCustomerLeaves`,
+  `simulateTriageDone`, `simulateServer*`, `simulateSsh*`,
+  `simulateFixCheck`) si nascondono con `isAppBuild()`, con un test per
+  pagina. `check-no-seed` guarda solo i dati del seme, non i pannelli.
+- **Le card dell'inbox dei tipi nuovi**: `data/backend/real/notifications.ts`
+  già non lancia su un kind ignoto (card con «Open in web»). Ogni fetta che
+  porta un `notification_kind` nuovo ne aggiunge il link nell'app (il
+  rilascio, la conversazione, il server) e un test che parsa la card SENZA i
+  campi nuovi (regola additiva).
+- **I moduli di progetto**: senza `modules` dal server la build app li dà
+  tutti (`EXISTING_MODULES` in `data/backend/real/projects.ts`). Le sezioni
+  si accendono quindi per tutti i progetti insieme; se il server comincia a
+  mandare i moduli, valgono quelli.
+
+### F1, i rilasci
+
+- **Pagine**: `pages/releases/` con:
+  - `ReleasesPage` (le PR aperte: `PrList`, `PrRow`, `PrPanel`,
+    `PrActions`, `NeedsAttention`, `MergeConfirm`; i rilasci: `ReleaseList`);
+  - `ReleaseDetail` (`/p/$code/releases/$release`), con `RunLog` solo per
+    `repos.view`, `FixDialog` («Spiega», «Fai sistemare a Claude») e
+    `ReleaseNotesField`;
+  - `Environments` (anche in `ReleaseDetail` e in `NewServerDialog`);
+  - le impostazioni di progetto «Repositories»
+    (`pages/settings/RepositorySettings.tsx`: ramo di rilascio, pipeline,
+    PR dei colleghi), oggi «in arrivo», che contiene solo pezzi di questa
+    fetta.
+- **Agganci**:
+  - il blocco Home `ReleasesBlock` (`listMyReleases`), con l'extra
+    `["releases"]` che il server passa a `resolveHome` per chi ha
+    `release.merge`;
+  - il contatore e il punto «aspetta» nella colonna del progetto
+    (`layout/ProjectColumn.tsx`);
+  - la scheda `release_page` della Chat (`pages/chat/SystemCard.tsx`), con
+    il link al rilascio (S-6);
+  - la scheda «Release notes» dei Docs (`DocReleases`, già integrata, con le
+    note notturne) resta com'è, e le note per PR vivono nella PR e nel
+    rilascio.
+- **Flag**, in quest'ordine (R-3):
+  1. `releases-prs`, sulle rotte di oggi: `GET /api/release-queue` per
+     `listReleaseQueue` e `listOpenPrs`, `POST …/release` per `mergePr`
+     (gli errori sono già quelli di `MergeError`, più `merge_failed` da dire
+     in parole), «Request changes» sulla correzione post-PR esistente;
+  2. `releases`: il rilascio, il suo stato, «Spiega», «Fai sistemare a
+     Claude», le note per PR, la Home intera, `release_page`;
+  3. `releases-repo-settings`, quando le colonne del repository ci sono;
+  4. `environments`, con i server per repository (R-4).
+  - «Solo analisi» e la modalità delle PR dei colleghi arrivano con
+    l'invariante 2 riscritta.
+  - L'adozione esplicita di oggi (`…/adoption`) non entra mai nel renderer:
+    il prototipo l'ha tolta.
+- **Test**:
+  - il merge negativo (403, nessuna richiesta di merge partita) per chi non
+    ha `release.merge`;
+  - nessun bottone di Deploy o Re-run in nessuna pagina;
+  - `RunLog` assente senza `repos.view`;
+  - «Fai sistemare a Claude» apre una task normale, e il merge resta fuori
+    dalle azioni di Claude e dalla palette (NEVER).
+
+### F2, gli avvisi
+
+- **Pagine**:
+  - Preferenze → Notifiche (`pages/preferences/NotificationsSection.tsx`,
+    `GroupMenu.tsx`, `useAlertActions.ts`): il registro delle iscrizioni,
+    coi canali «app» e «telefono», on|off|suspended|mandatory, «copia da»;
+  - la scorciatoia «Mute» dalla colonna del progetto
+    (`layout/ProjectAlerts.tsx`);
+  - `muteFromNotification`, che oggi non ha un consumatore in pagina: si
+    decide nel piano se l'inbox lo offre.
+- **Il catalogo in shared** (R-5): `domain/alerts/catalog.ts` e
+  `data/servers/alertTypes.ts` diventano un modulo di `@stubwise/shared`
+  (tipi, gruppi, permessi, obbligatori), con un test di parità sui
+  `notification_kind`. Il prototipo lo importa da lì, come `calendar-grid.ts`.
+  `domain/alerts/recipients.ts` (i destinatari calcolati) resta del
+  prototipo: la build app li legge dal server.
+- **Flag**: `alerts`, intero, perché senza le iscrizioni del server non c'è
+  una pagina parziale utile. Le preferenze per canale di oggi
+  (`notification-prefs`) non hanno una pagina nel desktop, e restano al web
+  finché il catalogo non le assorbe (S-4).
+- **Test**:
+  - un tipo obbligatorio non si spegne dalla pagina;
+  - un permesso perso mostra «sospesa» senza togliere la riga;
+  - «copia da» scrive solo le righe che chi copia può avere.
+
+### F3, Support
+
+- **Pagine**:
+  - `pages/support/`: `SupportPage` (`ConversationList`,
+    `ConversationDetail`, `Messages`, `CustomerPreview`), `ReplyComposer`
+    con `replyStore.ts`, `RequestBlock`, i widget (`Widgets`, `WidgetPanel`,
+    `widgetSnippet.ts`), la route `/p/$code/support/$conversation`;
+  - l'origine di una richiesta (`RequestOrigin` in
+    `pages/requests/RequestDetail.tsx`).
+- **«Annulla» è della UI**: nel prototipo la finestra di 5 s la tiene
+  `replyStore.ts`, e `replyToCustomer` parte solo allo scadere, quindi
+  «Annulla» non lascia traccia sul server. Non serve una rotta di
+  annullamento (a differenza della Posta, dove l'invio è differito sul
+  server). Il Review Focus della F3 «l'Undo funziona davvero» si verifica
+  nel renderer: nessuna richiesta prima dello scadere, nessuna dopo un
+  «Annulla». Cambiare persona nella finestra NON annulla, come nella Posta
+  e come dice `replyStore.ts`.
+- **«View conversation» su una task del widget** (S-9): lo stesso blocco
+  di `RequestOrigin`, in sola lettura, nel dettaglio della task di un ticket
+  `source: "widget"`, sopra `?ticketId=`. Il prototipo non lo ha sulle task:
+  è un'aggiunta della build app, da mettere anche nel prototipo perché
+  resti la specifica.
+- **«Scrivigli anche per email»** (`emailDraftFor`): apre la composizione
+  della Posta (area 6, integrata) dalla casella di chi risponde (S-5), con
+  le regole d'invio della Posta.
+- **Flag**:
+  1. `support-widgets`, sulle rotte di oggi (`/api/projects/:projectId/widgets`,
+     `widget.manage`; lo snippet con l'origine vera dell'istanza);
+  2. `support-read`: le conversazioni in sola lettura, `RequestOrigin` e
+     «View conversation», sulle rotte di oggi;
+  3. `support`: la risposta, gli stati, «segui», la richiesta da una
+     conversazione, la Home «Clienti in attesa», la bozza di Claude, il
+     canale `mcp`.
+- **Test**:
+  - nessuna risposta senza «Send to customer»;
+  - l'Undo non manda niente;
+  - una conversazione di un progetto invisibile risponde come inesistente;
+  - la bozza di Claude non parte da sola.
+
+### F4, Servers
+
+- **Pagine (F4a, sulle rotte di oggi)**:
+  - `pages/servers/`: `ServersPage`, `ServerList`, `ServerDetail` con
+    `NowBox`, `MetricsCharts`/`Chart`, `ServicesTable`, `DisksPanel`,
+    `ChecksPanel`, `ThresholdsPanel`, `ServerSettings`, `AgentKeyPanel`,
+    `InstallCommand` e `NewServerDialog`;
+  - l'Amministrazione (`pages/admin/instance/ServersAdminPage.tsx`,
+    `/admin/servers/$server`);
+  - il punto rosso o giallo nella colonna del progetto.
+- **La chiave dell'agente** (`regenerateAgentKey`, in chiaro una volta):
+  regola I2 qui sopra.
+- **La visibilità**: dagli ambienti per repository quando ci sono (F1, R-4).
+  Fino ad allora quella di `server_projects`, detta nella parità.
+- **F4b**: la correzione da task (`pages/task/ServerSection.tsx`:
+  `getServerTaskInfo`, `startServerFix`), l'analisi all'avviso e gli accessi
+  (`SshAccessPanel` e compagni) seguono la F4b riscritta da 72 (il
+  maintainer: la correzione passa dall'agente di monitoraggio, non
+  dall'SSH). Questa parte del lato renderer si completa dopo quella
+  riscrittura: se gli accessi SSH escono dal perimetro, i loro componenti
+  restano nel prototipo e la build app non li mostra (I1).
+- **Flag**: `servers-monitor` (F4a), poi quelli della F4b.
+- **Test**:
+  - un server di un progetto invisibile risponde come inesistente;
+  - la chiave dell'agente non è nella cache delle mutazioni e si dimentica
+    al cambio di persona;
+  - nessun «Simulate» nella build app.
+
+### Azioni di Claude e palette
+
+Ogni azione arriva con la sua fetta e col suo adattatore nel catalogo
+condiviso: le note della PR (`releaseNotesDraft`) con la F1,
+`setSubscription` con la F2, la bozza di risposta (`supportReplyDraft`,
+`useSupportClaudeDraft`) con la F3. Il merge e la correzione di un server
+restano fuori dal catalogo e dalla palette (`palette/commands.ts`) anche
+come suggerimento. I gruppi di ricerca dell'area (`searchReleases`,
+`searchSupport`, `searchServers`) non hanno oggi un consumatore in pagina:
+non si integrano finché una pagina non li usa.
 
 ## Domande del maintainer
 
