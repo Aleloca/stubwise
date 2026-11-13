@@ -9,8 +9,11 @@ stubwise-72 (`feat/area7-f1`); qui il renderer (`feat/area7-f1-engine`).
 
 ⚠️ **Bozza.** La destinazione `automations` resta SPENTA nella build app
 finché il server dell'area 7 non c'è. Gli adattatori (livello dati, prova,
-«Da decidere») prendono le rotte iniettate: manca il cablaggio sui metodi di
-`client.automations`. Le righe «da cablare» sotto lo dicono.
+«Da decidere») sono cablati su `client.automations`
+(`data/backend/real/automationsLive.ts`) per le rotte che il server ha già;
+quelle che mancano (sezione del progetto, riga d'origine, gli esempi della
+prova) rifiutano «non integrate». Le righe «in parte» e «aspetta» sotto lo
+dicono.
 
 ## Renderer (stubwise-94)
 
