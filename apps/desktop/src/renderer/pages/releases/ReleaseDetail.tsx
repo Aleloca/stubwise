@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { isAppBuild } from "../../data/build";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -149,7 +150,13 @@ function NowBox({ release }: { release: ReleaseView }) {
   );
 }
 
+/** I «Simula» del rilascio: solo nel prototipo (area 8, R-2); nella build app niente. */
 function Simulate({ release }: { release: ReleaseView }) {
+  if (isAppBuild()) return null;
+  return <SimulateBox release={release} />;
+}
+
+function SimulateBox({ release }: { release: ReleaseView }) {
   const { t } = useTranslation();
   const outcome = useSimulateRunOutcome();
   const seen = useSimulateSeenOnServer();
