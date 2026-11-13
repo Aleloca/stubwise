@@ -18,7 +18,7 @@ import { firstStatusOf, seedRepository, startTestDb, type TestDb } from "@stubwi
 import type { AutomationFlow } from "@stubwise/shared";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { consumeAutomationEvents, MAX_ACTIVE_RUNS } from "./consumer.js";
+import { consumeAutomationEvents, CONSUMER_LOCK_KEY, MAX_ACTIVE_RUNS } from "./consumer.js";
 
 /**
  * Il CONSUMATORE degli eventi (area 7, F1): dall'outbox che scrivono i
@@ -230,5 +230,28 @@ describe("consumeAutomationEvents", () => {
     await newTask();
     await Promise.all([consumeAutomationEvents({ db: t.db }), consumeAutomationEvents({ db: t.db })]);
     expect(await runsOf(a.id)).toHaveLength(1);
+  });
+
+  it("review F1, M3: un consumatore alla volta, quindi gli eventi di una stessa transazione non si dividono fra due giri concorrenti", async () => {
+    await automation(flowOn("task_created"));
+    // Tre task nella STESSA transazione: tre eventi con la stessa txid.
+    await t.db.transaction(async (tx) => {
+      for (const title of ["A", "B", "C"]) await tx.insert(tickets).values({ projectId, number: ticketNumber++, title, type: "task", priority: "medium", source: "manual" });
+    });
+    // Il primo consumatore tiene il suo turno aperto: il secondo non prende niente, nemmeno gli eventi oltre il lotto.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let held!: () => void;
+    const holding = new Promise<void>((r) => (held = r));
+    const first = t.db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(${CONSUMER_LOCK_KEY})`);
+      held();
+      await gate;
+    });
+    await holding;
+    expect(await consumeAutomationEvents({ db: t.db })).toBe(0);
+    release();
+    await first;
+    expect(await consumeAutomationEvents({ db: t.db })).toBe(3);
   });
 });

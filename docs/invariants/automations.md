@@ -29,7 +29,10 @@ motore condiviso (`packages/shared/src/automations/`).
 - **L'ordine nella stessa transazione** (Q5: prima la conversione, poi la task
   che ne nasce) lo dà il CONSUMATORE: gli eventi hanno `txid`
   (`txid_current()`), e quelli di una stessa transazione si leggono con
-  `request_converted` prima di `task_created`.
+  `request_converted` prima di `task_created`. Il consumatore è UNO alla
+  volta (`pg_try_advisory_xact_lock(CONSUMER_LOCK_KEY)`, chi non lo prende
+  salta il giro): due consumatori con SKIP LOCKED si dividevano gli eventi
+  di una stessa transazione, e l'ordine diventava un caso.
 - **Il payload è una fotografia della riga** al momento della scrittura
   (numero, titolo, stato, incaricato; per una richiesta l'urgenza; per un
   traguardo nome e data). I campi completi dell'inizio (`triggerFields.ts`:

@@ -54,10 +54,21 @@ export interface ConsumerDeps {
   log?: (msg: string) => void;
 }
 
+/**
+ * La chiave dell'advisory lock del consumatore (review F1, M3): un consumatore
+ * alla volta. Con due consumatori e SKIP LOCKED gli eventi di una stessa
+ * transazione (la stessa txid) potevano dividersi fra due giri concorrenti, e
+ * l'ordine di Q5 (la conversione prima della task) dipendeva dal caso. Un
+ * lotto ogni pochi secondi basta: chi non prende il lock salta il giro.
+ */
+export const CONSUMER_LOCK_KEY = 7_207_001;
+
 /** Un giro: consuma un batch di eventi e ritorna quanti. Lancia solo su un guasto del DB. */
 export async function consumeAutomationEvents(deps: ConsumerDeps): Promise<number> {
   const log = deps.log ?? (() => {});
   const consumed = await deps.db.transaction(async (tx) => {
+    const [lock] = await tx.execute<{ ok: boolean }>(sql`select pg_try_advisory_xact_lock(${CONSUMER_LOCK_KEY}) as ok`);
+    if (!lock?.ok) return 0;
     const batch = await tx
       .select()
       .from(automationEvents)
