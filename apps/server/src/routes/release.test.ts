@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../app.js";
 import {
+  aiJobs,
   encrypt,
   environmentServers,
   gitAccounts,
@@ -290,6 +291,16 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("area 8, F1: un merge che non è sul ramo di rilascio non fa un rilascio, e la risposta lo dice (releaseCode null)", async () => {
+    const { ticketId, repositoryId } = await seedOpenPr();
+    await testDb.db.update(repositories).set({ releaseBranch: "production" }).where(eq(repositories.id, repositoryId));
+    vi.stubGlobal("fetch", greenFetch());
+
+    const res = await release(ticketId, repositoryId, adminCookie);
+
+    expect(res.json()).toEqual({ merged: true, sha: "deadbeef", releaseCode: null });
+  });
+
   it("l'admin rilascia: check verdi → 200 { merged: true, sha }", async () => {
     const { ticketId, repositoryId } = await seedOpenPr();
     const fetchMock = greenFetch();
@@ -298,7 +309,8 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     const res = await release(ticketId, repositoryId, adminCookie);
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ merged: true, sha: "deadbeef" });
+    // Area 8, F1: il merge sul ramo di rilascio (il default) fa nascere il rilascio, e la risposta lo dice.
+    expect(res.json()).toEqual({ merged: true, sha: "deadbeef", releaseCode: expect.stringMatching(/-V\d+$/) });
     // I check sono stati DAVVERO letti verdi (non degradati a no_checks):
     // altrimenti questo test passerebbe anche con un check-runs rotto.
     expect(fetchMock.mock.calls.some((c) => c[0] === CHECK_RUNS_URL)).toBe(true);
@@ -486,7 +498,7 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     const res = await release(ticketId, repositoryId, adminCookie);
 
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ merged: true, sha: "extdeadbeef" });
+    expect(res.json()).toEqual({ merged: true, sha: "extdeadbeef", releaseCode: expect.stringMatching(/-V\d+$/) });
   });
 
   it("PR esterna già chiusa sul provider: 409 already_closed, nessuna chiamata di merge", async () => {
@@ -1208,6 +1220,12 @@ describe("GET /api/release-queue — deployedOn", () => {
     vi.stubGlobal("fetch", fetchWithHead(FULL_SHA.slice(0, 12)));
 
     expect(await deployedOnOf(ticketId, repositoryId)).toEqual([staging]);
+    // Area 8, F1: un ambiente STAGING lo riporta → «già su staging» in `/pulls`.
+    const pullsOf = async () =>
+      ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: { cookie: adminCookie } })).json() as { items: { onStaging: boolean }[] }).items[0]!;
+    expect((await pullsOf()).onStaging).toBe(true);
+    await testDb.db.update(projectEnvironments).set({ kind: "production" }).where(and(eq(projectEnvironments.projectId, projectId), eq(projectEnvironments.name, staging)));
+    expect((await pullsOf()).onStaging).toBe(false);
   });
 
   it("commit diverso: deployedOn vuoto (il caso positivo qui sopra non è un vero-per-tutto)", async () => {
@@ -1345,6 +1363,31 @@ describe("area 8, F1, S5b: le PR aperte del progetto, a chi lo vede", () => {
       expect((await app.inject({ method: "POST", url: `/api/repositories/${c.repositoryId}/pulls/5/analysis-only`, headers: c.lead.headers })).json()).toMatchObject({ code: "not_colleague_pr" });
       expect((await app.inject({ method: "POST", url: `/api/repositories/${c.repositoryId}/pulls/999/analysis-only`, headers: c.lead.headers })).statusCode).toBe(404);
     });
+  });
+
+  it("area 8, F1: la storia delle correzioni (dalla più vecchia, con l'esito del job) e owner/repo", async () => {
+    const { projectId, ticketId, repositoryId } = await seedOpenPr();
+    vi.stubGlobal("fetch", greenFetch());
+    const t0 = Date.now() - 3_600_000;
+    const add = async (trigger: "review" | "stubwise", status: "done" | "queued" | "cancelled", job: { status: "pr_opened" | "failed"; error?: string } | null, offset: number) => {
+      const [c] = await testDb.db.insert(prCorrections).values({ ticketId, repositoryId, prNumber: 42, trigger, status, createdAt: new Date(t0 + offset) }).returning();
+      if (job) await testDb.db.insert(aiJobs).values({ ticketId, correctionId: c!.id, status: job.status, error: job.error ?? null });
+      return c!.id;
+    };
+    const pushed = await add("review", "done", { status: "pr_opened" }, 0);
+    const stopped = await add("stubwise", "done", { status: "failed", error: "push rifiutato" }, 1000);
+    await add("review", "cancelled", null, 1500);
+    const running = await add("review", "queued", null, 2000);
+    const [pull] = ((await app.inject({ method: "GET", url: `/api/projects/${projectId}/pulls`, headers: { cookie: adminCookie } })).json() as { items: Record<string, unknown>[] }).items;
+    expect(pull).toMatchObject({
+      repositoryFullName: "acme/demo-shop",
+      correctionHistory: [
+        { id: pushed, trigger: "auto", state: "pushed", why: null, commitSha: null },
+        { id: stopped, trigger: "person", state: "stopped", why: "push rifiutato" },
+        { id: running, trigger: "auto", state: "running" },
+      ],
+    });
+    expect((pull as { correctionHistory: unknown[] }).correctionHistory).toHaveLength(3);
   });
 
   it("un Viewer vede la PR ma nessun permesso", async () => {

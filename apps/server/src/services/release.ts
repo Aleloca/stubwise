@@ -52,7 +52,7 @@ export type ReleasePullRequestError =
   | "merge_failed";
 
 export type ReleasePullRequestResult =
-  | { ok: true; sha: string }
+  | { ok: true; sha: string; /** Area 8, F1: il rilascio nato dal merge; null = non era il ramo di rilascio. */ releaseCode?: string | null }
   | { ok: false; error: ReleasePullRequestError };
 
 interface GitCredentials {
@@ -199,7 +199,8 @@ export async function releasePullRequest(
     if (result.ok) {
       const [ticket] = await db.select({ title: tickets.title }).from(tickets).where(eq(tickets.id, ticketId));
       // Le PR di Stubwise puntano al ramo di default del repository.
-      await recordAfterMerge(db, { repositoryId, targetBranch: repository.defaultBranch, prNumber, prUrl: tr.prUrl, title: ticket?.title ?? "", mergeSha: result.sha, actorId: actor.id });
+      const releaseCode = await recordAfterMerge(db, { repositoryId, targetBranch: repository.defaultBranch, prNumber, prUrl: tr.prUrl, title: ticket?.title ?? "", mergeSha: result.sha, actorId: actor.id });
+      return { ...result, releaseCode };
     }
     return result;
   }
@@ -239,7 +240,7 @@ export async function releasePullRequest(
 
   const result = await releaseAt(provider, gitConfig, review.prNumber);
   if (result.ok) {
-    await recordAfterMerge(db, {
+    const releaseCode = await recordAfterMerge(db, {
       repositoryId,
       targetBranch: review.targetBranch ?? repository.defaultBranch,
       prNumber: review.prNumber,
@@ -248,6 +249,7 @@ export async function releasePullRequest(
       mergeSha: result.sha,
       actorId: actor.id,
     });
+    return { ...result, releaseCode };
   }
   return result;
 }
@@ -261,9 +263,9 @@ export async function releasePullRequest(
 async function recordAfterMerge(
   db: Db,
   input: { repositoryId: string; targetBranch: string; prNumber: number; prUrl: string; title: string; mergeSha: string; actorId: string },
-): Promise<void> {
+): Promise<string | null> {
   try {
-    await recordRelease(db, {
+    const out = await recordRelease(db, {
       repositoryId: input.repositoryId,
       targetBranch: input.targetBranch,
       prNumber: input.prNumber,
@@ -275,8 +277,10 @@ async function recordAfterMerge(
       mergedGitName: null,
       viaStubwise: true,
     });
+    return out.recorded ? out.code : null;
   } catch {
     // il webhook del provider lo registra lo stesso
+    return null;
   }
 }
 

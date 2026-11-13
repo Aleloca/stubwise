@@ -117,7 +117,7 @@ export async function releaseRoutes(instance: FastifyInstance): Promise<void> {
         repositoryId: request.params.repositoryId,
         actor: { id: request.user!.id, permissions: request.access!.permissions },
       });
-      if (result.ok) return { merged: true as const, sha: result.sha };
+      if (result.ok) return { merged: true as const, sha: result.sha, releaseCode: result.releaseCode ?? null };
 
       switch (result.error) {
         case "forbidden":

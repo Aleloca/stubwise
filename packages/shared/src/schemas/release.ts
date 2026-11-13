@@ -114,5 +114,10 @@ export const releaseQueueSchema = z.object({ items: z.array(releaseQueueItemSche
 export type ReleaseQueue = z.infer<typeof releaseQueueSchema>;
 
 /** Esito del rilascio: lo sha del merge commit. */
-export const releaseResultSchema = z.object({ merged: z.literal(true), sha: z.string() });
+export const releaseResultSchema = z.object({
+  merged: z.literal(true),
+  sha: z.string(),
+  /** Area 8, F1: il codice del rilascio nato dal merge (`AUD-V7`); null = la PR non era sul ramo di rilascio. Facoltativo: un server di prima non lo manda. */
+  releaseCode: z.string().nullable().optional(),
+});
 export type ReleaseResult = z.infer<typeof releaseResultSchema>;
