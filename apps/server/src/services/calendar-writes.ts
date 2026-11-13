@@ -244,6 +244,7 @@ function freshValues(event: GoogleCalendarEvent) {
     icalUid: event.iCalUID,
     visibility: event.visibility,
     organizerSelf: event.organizerSelf,
+    attachments: event.attachments,
   };
 }
 

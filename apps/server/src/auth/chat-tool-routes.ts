@@ -52,6 +52,12 @@ export const CHAT_TOOL_UNTRUSTED_ROUTES: ReadonlySet<string> = new Set([
   "/api/repositories/:repositoryId/docs/pages/:slug",
   // Gli snippet della ricerca nei Docs: righe delle stesse pagine (decisione (a), 11 nov 2026).
   "/api/projects/:projectId/docs/search",
+  // Area 6, F5a: il riassunto di una riunione registrata nasce da un Doc che
+  // scrive chi ha accesso alla riunione: NON fidato. Oggi nessun tool di Claude
+  // lo legge (non sono in `CHAT_TOOL_READ_ROUTES`); se un tool lo leggerà, la
+  // lettura segna già la conversazione.
+  "/api/me/meetings/:noteId",
+  "/api/me/calendar/events/:id/summary",
 ]);
 
 /**

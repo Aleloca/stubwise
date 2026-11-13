@@ -13,7 +13,7 @@ import {
   type Db,
 } from "@stubwise/db";
 import { t, type Language } from "@stubwise/i18n";
-import { permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
+import { canSeeMeeting, permissionForMailAction, projectPermissionsOfUser, projectViewerIds } from "@stubwise/notifications";
 import { ticketPrioritySchema, ticketStatusSchema, type MailProposal, type ProjectPermission, type TicketPriority, type TicketStatus } from "@stubwise/shared";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { SessionUser } from "../auth/session.js";
@@ -97,14 +97,23 @@ async function loadDecidable(db: Db, viewer: Viewer, id: string) {
     .leftJoin(emailProposalRecipients, and(eq(emailProposalRecipients.proposalId, emailProposals.id), eq(emailProposalRecipients.userId, viewer.id)))
     .innerJoin(emailMessages, eq(emailMessages.id, emailProposals.emailMessageId))
     .innerJoin(googleAccounts, eq(googleAccounts.id, emailMessages.accountId))
-    .where(and(eq(emailProposals.id, id), eq(emailProposals.audience, "mail_recipients")));
+    .where(and(eq(emailProposals.id, id), inArray(emailProposals.audience, ["mail_recipients", "meeting_invitees"])));
   if (!row) return null;
   const permissions = await proposalPermissionsOf(db, viewer.id, row.proposal);
   if (!permissions) return null;
+  // F5a (Q1, e review F5a punto 9): una proposta di riunione la decide chi
+  // vede la riunione ADESSO, DERIVATO a lettura — anche chi è stato invitato
+  // dopo la pubblicazione e non ha una riga fra i destinatari, anche senza
+  // aver ricevuto l'email —; la prima decisione chiude per tutti. Un
+  // invitato tolto da Google non è più fra loro (salvo una passata a lui).
+  const isRecipient =
+    row.proposal.audience === "meeting_invitees"
+      ? Boolean(row.proposal.meetingNoteId && (await canSeeMeeting(db, row.proposal.meetingNoteId, viewer.id)))
+      : row.recipient !== null;
   // Non destinatario: solo una proposta PASSATA, e solo a chi ha il permesso
   // di OGNI sua azione nel progetto (il prototipo).
-  if (!row.recipient && !(row.proposal.handedAt && coversAll(row.proposal, permissions))) return null;
-  return { proposal: row.proposal, message: row.message, mailboxEmail: row.mailboxEmail, permissions, isRecipient: row.recipient !== null };
+  if (!isRecipient && !(row.proposal.handedAt && coversAll(row.proposal, permissions))) return null;
+  return { proposal: row.proposal, message: row.message, mailboxEmail: row.mailboxEmail, permissions, isRecipient };
 }
 
 /** Chi ha il permesso di ogni azione della proposta. */
@@ -237,6 +246,7 @@ export async function confirmMailProposal(
   const [project] = await db.select({ code: projects.code }).from(projects).where(eq(projects.id, proposal.projectId));
   const from = message.fromName ? `${message.fromName} <${message.fromAddress}>` : message.fromAddress;
   const subject = message.subject ?? t(lang, "email.input.none");
+  const isMeeting = proposal.audience === "meeting_invitees";
 
   try {
     return await db.transaction(async (tx) => {
@@ -297,10 +307,15 @@ export async function confirmMailProposal(
             } else {
               await addSystemComment(tx, {
                 ticketId,
-                body: t(lang, "email.execution.commentBody", {
-                  body: String(a.body),
-                  link: `https://mail.google.com/mail/u/${encodeURIComponent(mailboxEmail)}/#all/${message.threadId}`,
-                }),
+                // Review F5a, punto 6: un commento nato da una RIUNIONE non porta il
+                // link alla casella sorgente (indirizzo e thread di un altro), che
+                // il commento farebbe vedere a tutto il progetto.
+                body: isMeeting
+                  ? t(lang, "meeting.execution.commentBody", { body: String(a.body) })
+                  : t(lang, "email.execution.commentBody", {
+                      body: String(a.body),
+                      link: `https://mail.google.com/mail/u/${encodeURIComponent(mailboxEmail)}/#all/${message.threadId}`,
+                    }),
               });
             }
             results.push({ kind: action.type === "update_ticket" ? "ticket_update" : "comment", id: ticket.id, code: project?.code ? `${project.code}-${ticket.number}` : null });
@@ -315,8 +330,12 @@ export async function confirmMailProposal(
               sourceKey: `email:${proposal.rfcMessageId}#${indices[position]}`,
               sourceRef: { proposalId: proposal.id },
               ...(typeof a.ticketId === "string" ? { ticketId: a.ticketId } : {}),
-              title: t(lang, "decision.email.title", { subject }),
-              decision: t(lang, "decision.email.decision", { from, subject, option: t(lang, "mailProposal.action.record_decision", { title: String(a.title ?? "") }) }),
+              // Review F5a, punto 4: da una riunione, SOLO il template — né il
+              // titolo della riunione né il testo del modello.
+              title: isMeeting ? t(lang, "decision.meeting.title") : t(lang, "decision.email.title", { subject }),
+              decision: isMeeting
+                ? t(lang, "decision.meeting.decision")
+                : t(lang, "decision.email.decision", { from, subject, option: t(lang, "mailProposal.action.record_decision", { title: String(a.title ?? "") }) }),
               decidedByUserId: viewer.id,
             });
             results.push({ kind: "decision", id: proposal.id, code: null });
@@ -444,7 +463,9 @@ export async function reassignMailProposal(db: Db, viewer: Viewer, id: string, t
         emailMessageId: proposal.emailMessageId,
         projectId: targetProjectId,
         rfcMessageId: proposal.rfcMessageId,
-        audience: "mail_recipients",
+        // F5a: una proposta di riunione spostata resta della sua riunione.
+        audience: proposal.audience,
+        meetingNoteId: proposal.meetingNoteId,
         status: "classified",
         classification: { version: 2, summary: stored.summary ?? "", actions, movedFrom: proposal.projectId, movedBy: viewer.id },
       })

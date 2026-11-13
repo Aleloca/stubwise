@@ -427,6 +427,12 @@ export async function runMailAgent(
   messageId: string,
   projectId: string | null,
   run: (provider: ResolvedProvider | undefined, usage: UsageTag) => Promise<AgentRunResult>,
+  /**
+   * Area 6, F5a: il riassunto di una riunione registrata passa da qui con la
+   * SUA operazione (`meeting_summary`) e senza la phase `email_classify`, che
+   * è ciò che conta il tetto giornaliero della classificazione.
+   */
+  kind: "classify" | "meeting_summary" = "classify",
 ): Promise<MailRun> {
   // Writer storico (design 2026-10-21-modelli-e-consumi): la riga la scrive
   // QUI, non il TrackingAgentRunner (`record: false`), perché l'owner
@@ -436,13 +442,10 @@ export async function runMailAgent(
   // `projectId`: quello già attribuito al messaggio (`email_messages.project_id`,
   // null se non risolto: può toccarne più d'uno, e l'attribuzione la decide
   // proprio questo run); quello scelto dalla persona per una riattribuzione.
-  const usage: UsageTag = {
-    operation: "mail_classify",
-    projectId,
-    emailMessageId: messageId,
-    phase: "email_classify",
-    record: false,
-  };
+  const usage: UsageTag =
+    kind === "meeting_summary"
+      ? { operation: "meeting_summary", projectId, emailMessageId: messageId, record: false }
+      : { operation: "mail_classify", projectId, emailMessageId: messageId, phase: "email_classify", record: false };
   const outcome = await runWithProviders(
     deps.select,
     { projectId: null, workClass: "interactive" },
@@ -2096,6 +2099,9 @@ export async function classifyNewMessages(
         eq(emailMessages.accountId, accountId),
         eq(emailMessages.status, "new"),
         eq(emailMessages.admitted, true),
+        // F5a: l'email degli appunti di Gemini non è posta da classificare:
+        // le sue proposte sono quelle della riunione (`meetings.ts`).
+        eq(emailMessages.kind, "email"),
         // Il taglio delle proposte RIACCESE (0150, regola dell'orchestratrice):
         // la posta ingerita mentre erano spente resta `new` e non si
         // classifica mai — riaccenderle non sforna proposte sulla posta già

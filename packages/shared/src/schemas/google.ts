@@ -699,6 +699,73 @@ export const mailThreadProposalOutcomeSchema = z.object({
 });
 export type MailThreadProposalOutcome = z.infer<typeof mailThreadProposalOutcomeSchema>;
 
+// --- Area 6, F5a: le riunioni registrate --------------------------------
+//
+// Chi vede cosa lo decide il SERVER (`meeting-visibility.ts`, l'eccezione
+// dichiarata a «Posta e Calendario personali»): a chi non c'era `visible` è
+// falso e titolo, riassunto e link sono null. La trascrizione intera non esce.
+
+export const meetingDocStatusSchema = z.enum(["reading", "ready", "unreachable"]);
+/** `not_verified` (review F5a, punto 2): nessun link dell'email porta a un Doc che si possa dire delle note di questa riunione. */
+export const meetingDocReasonSchema = z.enum(["scope_missing", "not_shared", "deleted", "too_long", "not_verified"]);
+
+/** La riunione sull'email di Gemini (`kind: "transcript"` del messaggio). */
+export const meetingNoteSchema = z.object({
+  noteId: z.uuid(),
+  docTitle: z.string().nullable().default(null),
+  doc: meetingDocStatusSchema.nullable().default(null),
+  docReason: meetingDocReasonSchema.nullable().default(null),
+  visible: z.boolean().default(false),
+  /** NARRATIVA generata dal Doc (NON FIDATO a monte): si cita come tale. */
+  summary: z.string().nullable().default(null),
+  /** «Open the transcript»: il Doc su Google, coi permessi che Google applica (Q2). */
+  docUrl: z.string().nullable().default(null),
+  /** L'evento collegato, solo se chi guarda lo ha nel SUO calendario. */
+  event: z
+    .object({ id: z.uuid(), title: z.string().nullable().default(null), startsAt: z.iso.datetime(), endsAt: z.iso.datetime().nullable().default(null), people: z.number().int().default(0) })
+    .nullable()
+    .default(null),
+});
+export type MeetingNote = z.infer<typeof meetingNoteSchema>;
+
+/** Il riassunto di una riunione (`/api/me/meetings/:noteId`, `/calendar/events/:id/summary`). 404 a chi non c'era. */
+export const meetingSummarySchema = z.object({
+  noteId: z.uuid(),
+  eventId: z.uuid().nullable().default(null),
+  docTitle: z.string().nullable().default(null),
+  doc: meetingDocStatusSchema,
+  docReason: meetingDocReasonSchema.nullable().default(null),
+  summary: z.string().nullable().default(null),
+  docUrl: z.string().nullable().default(null),
+  /** La mia copia dell'email di Gemini, se l'ho ricevuta. */
+  email: z
+    .object({
+      threadId: z.string(),
+      /** La casella di chi guarda (la chiave del thread nell'app è `accountId_threadId`); un server di prima non lo manda. */
+      accountId: z.uuid().nullable().default(null),
+      messageId: z.uuid(),
+      at: z.iso.datetime(),
+    })
+    .nullable()
+    .default(null),
+});
+export type MeetingSummary = z.infer<typeof meetingSummarySchema>;
+
+/** «Task da questa riunione»: solo ai MEMBRI del progetto dell'evento (R-I21). */
+export const meetingTaskSchema = z.object({
+  kind: z.enum(["task", "request"]),
+  id: z.uuid(),
+  code: z.string().nullable().default(null),
+  title: z.string(),
+  status: z.enum(["open", "done", "late"]),
+  inProgress: z.boolean().default(false),
+  dueDate: z.string().nullable().default(null),
+  departmentId: z.uuid().nullable().default(null),
+});
+export type MeetingTask = z.infer<typeof meetingTaskSchema>;
+export const meetingTasksSchema = z.object({ tasks: z.array(meetingTaskSchema).default([]), proposedTasks: z.number().int().default(0) }).nullable();
+export type MeetingTasks = z.infer<typeof meetingTasksSchema>;
+
 export const mailThreadMessageSchema = z.object({
   id: z.uuid(),
   from: z.string(),
@@ -750,6 +817,10 @@ export const mailThreadMessageSchema = z.object({
     })
     .nullable()
     .default(null),
+  /** Area 6, F5a: `transcript` per l'email degli appunti di Gemini. */
+  kind: z.enum(["email", "transcript"]).default("email"),
+  /** Area 6, F5a: la riunione di quell'email (solo `transcript`). */
+  meeting: meetingNoteSchema.nullable().default(null),
   /** Area 6, F2: la classificazione nuova; un server di prima non la manda. */
   classification: mailClassificationSchema.default({
     state: "off",
@@ -1140,6 +1211,8 @@ export const calendarEventItemSchema = z.object({
   etag: z.string().nullable().default(null),
   /** La nota della MIA risposta. NON FIDATO. */
   myNote: z.string().nullable().default(null),
+  /** Area 6, F5a: la scheda di preparazione c'è (futuro, con un progetto che chi guarda vede). */
+  hasPrep: z.boolean().default(false),
 });
 export type CalendarEventItem = z.infer<typeof calendarEventItemSchema>;
 

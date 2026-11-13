@@ -90,6 +90,7 @@ export async function legacyView(db: Db, viewerId: string, row: LegacyRow): Prom
     id: row.proposal.id,
     kind: "email",
     calendarOrigin: null,
+    meetingOrigin: null,
     messageId: row.message.id,
     projectId: row.proposal.projectId,
     status,

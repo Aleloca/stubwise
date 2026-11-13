@@ -542,7 +542,7 @@ describe("mailRejectionsSchema («le mail tenute fuori»)", () => {
 describe("calendarEventItemSchema, F3b e F4: una risposta SENZA i campi nuovi resta parsabile coi default", () => {
   it("un server di prima: recognized vero, i permessi di scrittura spenti, niente etag né nota", () => {
     const old = { id: "11111111-1111-4111-8111-111111111111", accountId: "22222222-2222-4222-8222-222222222222", accountEmail: "a@x.it", projectId: null, startsAt: "2026-09-15T09:00:00.000Z", status: "new" };
-    expect(calendarEventItemSchema.parse(old)).toMatchObject({ recognized: true, myResponse: null, attendeeCount: null, canEdit: false, canRespond: false, etag: null, myNote: null });
+    expect(calendarEventItemSchema.parse(old)).toMatchObject({ recognized: true, myResponse: null, attendeeCount: null, canEdit: false, canRespond: false, etag: null, myNote: null, hasPrep: false });
   });
 });
 

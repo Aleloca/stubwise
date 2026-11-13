@@ -73,6 +73,7 @@ function gEvent(over: Partial<GoogleCalendarEvent> = {}): GoogleCalendarEvent {
     recurringEventId: null,
     originalStartTime: null,
     timeZone: "UTC",
+    attachments: [],
     location: null,
     hangoutLink: null,
     conferenceEntryPoints: [],

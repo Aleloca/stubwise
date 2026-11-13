@@ -4143,3 +4143,48 @@ deploy o di un rollback che la tocca.
   `changed_on_google` al primo gesto dopo una risalita, che rilegge — nessun
   danno). Gli eventi creati o cambiati da Stubwise restano su Google: il
   rollback non li tocca. La 0164 non si annulla.
+
+- **«Integrazione area 6, fetta 5a: le riunioni registrate» (13 nov 2026)**:
+  piano `docs/plans/2026-11-12-integrazione-area6-fetta5-plan.md` (con le
+  «Correzioni di 72»), branch `feat/area6-f5` (sopra `feat/area6-f4-fix`).
+  Migrazione **0165**: `email_messages.kind`, `calendar_events.attachments`,
+  la tabella `meeting_notes`, `email_proposals.meeting_note_id` e l'audience
+  `meeting_invitees`, l'operazione AI `meeting_summary` nei due CHECK.
+  Nessun `notification_kind` nuovo (le card sono le `google.proposal` delle
+  proposte condivise), nessuna env nuova. Ordine: **server** (healthy, 0165
+  applicata), poi **worker**, poi **caddy**.
+
+  **Cosa succede**: solo con `MAIL_CLASSIFY_V2=true` e le proposte accese
+  sulla casella il worker legge i Doc (al più 3 riunioni per casella e per
+  giro), con un run Sonnet per riunione. Le email di Gemini GIÀ ingerite
+  prima del deploy non diventano riunioni (il riconoscimento è
+  all'ingestione). Una casella senza `drive.readonly` mette la riunione in
+  `unreachable`/`scope_missing`; riconsentito, riparte da sola. Controlli,
+  sola lettura: `select doc_status, doc_reason, count(*) from meeting_notes
+  group by 1, 2;` e `select count(*) from agent_runs where operation =
+  'meeting_summary' and created_at > now() - interval '1 day';`.
+
+  **Rollback**: il server scende **insieme** al caddy. ⚠️ Un server vecchio
+  NON elenca le proposte `meeting_invitees` (la sua query vuole
+  `mail_recipients`): restano le card in inbox, ma «Da decidere» non le
+  mostra; scendendo, si chiudono a mano le aperte se serve: `select id
+  from email_proposals where audience = 'meeting_invitees' and status in
+  ('classified', 'proposed');`. Il worker vecchio non legge `kind` e
+  classificherebbe le email di Gemini come email normali (con l'una e con
+  l'altra classificazione): prima di scendere sul worker si chiudono
+  (`update email_messages set status = 'ignored', classification_state =
+  'off' where kind = 'transcript' and status = 'new';`). La 0165 non si
+  annulla.
+
+- **«Integrazione area 6, fetta 5a, review del server» (13 nov 2026)**:
+  branch `feat/area6-f5-fix` (sopra `feat/area6-f5`). Migrazione **0166**
+  (`meeting_notes.doc_candidates`, il motivo `not_verified`); la F5b prende
+  quindi la 0167. Si deploya INSIEME alla F5a (stesso ordine: server, worker,
+  caddy). Cosa cambia per chi la gestisce: due run `meeting_summary` per
+  riunione (riassunto e proposte), al più 20 run al giorno per casella
+  (`MEETING_MAX_RUNS_PER_DAY`), al più 2 tentativi; le riunioni di una
+  copia ingerita prima di `proposals_since` non si trattano. Controllo, sola
+  lettura: `select doc_reason, count(*) from meeting_notes where doc_status
+  = 'unreachable' group by 1;` (`not_verified` alto = l'email di Gemini ha
+  una forma che la verifica non riconosce: da guardare prima di allentarla).
+

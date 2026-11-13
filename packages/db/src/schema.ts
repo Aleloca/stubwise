@@ -4598,6 +4598,13 @@ export const emailMessages = pgTable(
      * righe di prima (il percorso di `status`).
      */
     classificationState: text("classification_state").$type<"off" | "pending" | "failed" | "done">(),
+    /**
+     * Area 6, F5a (0165): `transcript` per l'email degli appunti di Gemini,
+     * riconosciuta dal worker SOLO con mittente, DKIM di google.com e link al
+     * Doc (fail-closed: in dubbio è un'email). La classificazione nuova la
+     * salta: le sue proposte sono quelle della riunione (`meeting_notes`).
+     */
+    kind: text("kind").$type<"email" | "transcript">().notNull().default("email"),
     /** Importanza (D3, tre livelli del prototipo), solo con `done`. */
     importance: text("importance").$type<"high" | "normal" | "low">(),
     /** Scadenza estratta dal modello: una DATA (`YYYY-MM-DD`), non un istante. */
@@ -4673,6 +4680,7 @@ export const emailMessages = pgTable(
       "email_messages_signal_chk",
       sql`signal is null or signal in ('decision', 'request', 'deadline', 'blocker', 'none')`,
     ),
+    check("email_messages_kind_chk", sql`kind in ('email', 'transcript')`),
   ],
 );
 
@@ -4873,6 +4881,12 @@ export const calendarEvents = pgTable(
     visibility: text("visibility"),
     /** F4: l'organizzatore è la casella (canEdit). */
     organizerSelf: boolean("organizer_self").notNull().default(false),
+    /**
+     * F5a (0165): gli allegati dell'evento (`fileId`, titolo, tipo, link):
+     * Gemini ci attacca il Doc degli appunti, ed è il collegamento più sicuro
+     * fra la sua email e la riunione. Testo NON fidato.
+     */
+    attachments: jsonb("attachments").$type<{ fileId: string | null; title: string | null; mimeType: string | null; fileUrl: string | null }[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
@@ -4997,6 +5011,64 @@ export const calendarSeries = pgTable(
 );
 
 /**
+ * UNA RIUNIONE REGISTRATA (area 6, F5a, 0165): gli appunti di Gemini, uno per
+ * Doc (`doc_file_id` unico: la stessa email arriva a più caselle). Il Doc si
+ * legge SOLO con la casella che ha ricevuto la prima copia
+ * (`source_message_id`), con `drive.readonly`; il testo NON si salva — resta
+ * su Google, e serve solo al run. `summary` è NARRATIVA generata (mai nel
+ * registro decisioni).
+ *
+ * ⚠️ Chi la vede NON è scritto qui: si deriva a lettura
+ * (`meeting-visibility.ts` in `@stubwise/notifications`) dagli invitati
+ * ATTUALI dell'evento collegato (`ical_uid`, le righe di `calendar_events`)
+ * — `attendee_emails` è solo il ripiego quando non ne resta nessuna — o,
+ * senza evento, dai destinatari dell'email. È l'eccezione dichiarata a
+ * «Posta e Calendario personali» (`docs/invariants/mail-calendar.md`).
+ */
+export const meetingNotes = pgTable(
+  "meeting_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    docFileId: text("doc_file_id").notNull(),
+    rfcMessageId: text("rfc_message_id"),
+    sourceMessageId: uuid("source_message_id")
+      .notNull()
+      .references(() => emailMessages.id, { onDelete: "cascade" }),
+    /** L'evento collegato (C3 del piano), se c'è. */
+    icalUid: text("ical_uid"),
+    eventStartsAt: timestamp("event_starts_at", { withTimezone: true }),
+    eventTitle: text("event_title"),
+    docTitle: text("doc_title"),
+    docStatus: text("doc_status").$type<"reading" | "ready" | "unreachable">().notNull().default("reading"),
+    docReason: text("doc_reason").$type<"scope_missing" | "not_shared" | "deleted" | "too_long" | "not_verified">(),
+    /**
+     * Review F5a, punto 2 (0166): TUTTI i link a un Google Doc dell'email, in
+     * ordine. Il primo può venire dal titolo della riunione (lo sceglie
+     * l'organizzatore): il worker legge solo il candidato che VERIFICA su Drive
+     * (`doc_file_id` diventa quello), altrimenti `not_verified`.
+     */
+    docCandidates: text("doc_candidates").array().notNull().default([]),
+    summary: text("summary"),
+    attendeeEmails: text("attendee_emails").array().notNull().default([]),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex("meeting_notes_doc_file_id_unique").on(table.docFileId),
+    index("meeting_notes_ical_uid_idx").on(table.icalUid),
+    index("meeting_notes_reading_idx").on(table.nextAttemptAt).where(sql`doc_status = 'reading'`),
+    check("meeting_notes_doc_status_chk", sql`doc_status in ('reading', 'ready', 'unreachable')`),
+    check("meeting_notes_doc_reason_chk", sql`doc_reason is null or doc_reason in ('scope_missing', 'not_shared', 'deleted', 'too_long', 'not_verified')`),
+  ],
+);
+
+/**
  * PROPOSTA per-progetto di un messaggio email (fase 6b — multi-progetto).
  * `email_messages` resta il messaggio grezzo con un solo esito legacy; questa
  * tabella è la riga FIGLIA, una per ogni progetto nello `scopeProjectIds` del
@@ -5045,7 +5117,12 @@ export const emailProposals = pgTable(
      * `mail_recipients` (i destinatari in Stubwise membri del progetto, in
      * `email_proposal_recipients`; MAI gli admin non destinatari).
      */
-    audience: text("audience").$type<"mailbox_owner" | "mail_recipients">().notNull().default("mailbox_owner"),
+    audience: text("audience").$type<"mailbox_owner" | "mail_recipients" | "meeting_invitees">().notNull().default("mailbox_owner"),
+    /**
+     * F5a (0165): la riunione da cui nasce una proposta con `audience =
+     * meeting_invitees` (gli invitati di Stubwise, vedi `meeting_notes`).
+     */
+    meetingNoteId: uuid("meeting_note_id").references(() => meetingNotes.id, { onDelete: "cascade" }),
     /** La decisione, una per tutti: chi e quando. */
     decidedByUserId: uuid("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
@@ -5081,7 +5158,7 @@ export const emailProposals = pgTable(
       "email_proposals_status_chk",
       sql`status in ('classified', 'proposed', 'actioned', 'ignored', 'failed')`,
     ),
-    check("email_proposals_audience_chk", sql`audience in ('mailbox_owner', 'mail_recipients')`),
+    check("email_proposals_audience_chk", sql`audience in ('mailbox_owner', 'mail_recipients', 'meeting_invitees')`),
   ],
 );
 

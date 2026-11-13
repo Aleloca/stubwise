@@ -87,6 +87,7 @@ export {
   getEvent,
   listEvents,
   parseCalendarEvent,
+  type CalendarEventAttachment,
   type CalendarEventsPage,
   type GetEventInput,
   type GoogleCalendarEvent,
@@ -121,3 +122,5 @@ export {
   type CalendarReminders,
   type NewCalendarEvent,
 } from "./calendar-write.js";
+// Area 6, F5: Google Drive in sola lettura.
+export { DRIVE_API_BASE, exportGoogleDocText, getDriveFile, type DriveFileMeta } from "./drive.js";

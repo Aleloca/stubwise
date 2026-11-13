@@ -89,6 +89,7 @@ export async function listCalendarProposals(db: Db, viewerId: string, filter: { 
       sharedWith: [],
       origin: null,
       calendarOrigin: { eventId: row.event.id, title: row.event.title, startsAt: row.event.startsAt.toISOString(), allDay: row.event.allDay },
+      meetingOrigin: null,
     });
   }
   return out;
