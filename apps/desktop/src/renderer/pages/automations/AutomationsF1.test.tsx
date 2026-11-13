@@ -16,6 +16,8 @@ import { setMatchMedia } from "../../test/setup";
 vi.mock("../../data/integration", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../data/integration")>()),
   automationAvailability: () => AUTOMATION_F1_AVAILABILITY,
+  // Le generali e le sorgenti arrivano con la F4.
+  generalsAvailable: () => false,
 }));
 
 const ROBERTA = "p-roberta";

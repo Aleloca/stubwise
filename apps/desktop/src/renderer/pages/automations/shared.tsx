@@ -1,4 +1,4 @@
-import { automationAvailability } from "../../data/integration";
+import { automationAvailability, generalsAvailable } from "../../data/integration";
 import { Link } from "@tanstack/react-router";
 import { useMemo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -62,9 +62,11 @@ export function useAutomationPerms() {
   const { viewer } = useViewer();
   const instance = can(viewer, "automations.general.manage");
   const f1 = automationAvailability() !== undefined;
+  // Le generali e le sorgenti: nel prototipo, e nella build app dalla F4.
+  const generals = generalsAvailable();
   return {
     /** Le automazioni generali (fra i progetti): il permesso d'istanza, fuori dalla fetta 1. */
-    instance: instance && !f1,
+    instance: instance && generals,
     /** I modelli di «New automation»: fuori dalla fetta 1. */
     templates: !f1,
     anywhere:
@@ -73,7 +75,7 @@ export function useAutomationPerms() {
         (p as readonly string[]).includes("automations.manage"),
       ),
     inProject: (projectId: string) => can(viewer, "automations.manage", projectId),
-    integrations: can(viewer, "integrations.manage") && !f1,
+    integrations: can(viewer, "integrations.manage") && generals,
     createTasks: (projectId: string) => can(viewer, "tickets.create", projectId),
     /** Il permesso che serve per creare ciò che crea un passo (come `activate`/`publish`). */
     canCreate: (kind: "createTask" | "createMilestone" | "createRequest", projectId: string) =>

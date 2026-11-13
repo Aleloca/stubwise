@@ -281,6 +281,14 @@ export function integrationTargetOf(
  * tutti (`undefined`). La leggono il costruttore («Coming soon») e la validazione
  * (`not_available`), così non possono dire due cose diverse.
  */
+/**
+ * Le generali, le sorgenti e la tabella cliente → progetto (area 7, F4): nel
+ * prototipo sempre, nella build app con `automations-f4`.
+ */
+export function generalsAvailable(): boolean {
+  return !isAppBuild() || featureIntegrated("automations-f4");
+}
+
 export function automationAvailability(): AutomationAvailability | undefined {
   if (!isAppBuild()) return undefined;
   if (featureIntegrated("automations-f4")) return AUTOMATION_F4_AVAILABILITY;

@@ -4,6 +4,7 @@ import { AUTOMATION_F3_AVAILABILITY } from "@stubwise/shared";
 import {
   CHAT_LATER_FEATURES,
   automationAvailability,
+  generalsAvailable,
   integrationTargetOf,
   isIntegrated,
   landingSearch,
@@ -197,4 +198,11 @@ describe("isIntegrated", () => {
     expect(isIntegrated({ kind: "feature", name: "automations-f4" })).toBe(false);
     expect(automationAvailability()).toBe(AUTOMATION_F3_AVAILABILITY);
   });
+
+  it("le generali e le sorgenti: nel prototipo sì, nella build app solo con `automations-f4` (spenta)", () => {
+    expect(generalsAvailable()).toBe(true);
+    vi.stubEnv("VITE_STUBWISE_BUILD", "app");
+    expect(generalsAvailable()).toBe(false);
+  });
 });
+

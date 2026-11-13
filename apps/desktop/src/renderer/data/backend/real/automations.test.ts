@@ -200,11 +200,10 @@ describe("il livello dati delle Automations sulle rotte vere", () => {
     await expect(
       r.createAutomation({ name: "Da modello", projectId: "prj-1", template: "newContract" }),
     ).rejects.toThrow(/^invalid: not_available$/);
-    // Le automazioni generali sono della F4: niente richiesta.
-    await expect(r.createAutomation({ name: "Generale", projectId: null })).rejects.toThrow(
-      /^invalid: not_available$/,
-    );
     expect(calls).toHaveLength(2);
+    // Una generale (F4): al server, con projectId null.
+    await r.createAutomation({ name: "Generale", projectId: null });
+    expect(calls.at(-1)).toBe(`POST create {"name":"Generale","projectId":null}`);
   });
 
   it("rinomina, pausa, duplica, elimina la bozza col rev", async () => {

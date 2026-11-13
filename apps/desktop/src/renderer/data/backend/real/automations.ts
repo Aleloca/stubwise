@@ -42,7 +42,7 @@ export interface AutomationsApi extends DecisionApi {
   /** Gli errori di configurazione di un flusso non ancora salvato (non scrive). */
   check(code: string, flow: AutomationFlow): Promise<{ issues: FlowIssue[] }>;
   /** Solo di progetto nella fetta 1: le generali sono della F4. */
-  create(body: { name: string; projectId: string }): Promise<Automation>;
+  create(body: { name: string; projectId: string | null }): Promise<Automation>;
   saveDraft(
     code: string,
     body: { flow: AutomationFlow; expectedRev: number | null } & AutomationMeta,
@@ -163,11 +163,10 @@ export function createRealAutomations(
       template?: string;
       language?: string;
     }): Promise<Automation> {
-      // P2 = a: nella fetta 1 solo da zero.
-      // Le automazioni generali sono della F4.
-      if (input.template || input.projectId === null) throw new Error("invalid: not_available");
-      const projectId = input.projectId;
-      return written(() => api.create({ name: input.name, projectId }));
+      // P2 = a e F4-4 = a: solo da zero (i modelli tornano col connettore di Audin).
+      if (input.template) throw new Error("invalid: not_available");
+      // `projectId: null` è una generale (F4): il permesso lo controlla il server (403).
+      return written(() => api.create({ name: input.name, projectId: input.projectId }));
     },
 
     async saveDraft(
