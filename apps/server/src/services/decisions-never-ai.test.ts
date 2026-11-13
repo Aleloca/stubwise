@@ -358,6 +358,9 @@ describe("il registro decisioni non è mai scritto dall'AI — sul sorgente", ()
     // NARRATIVA (lo genera il worker, `apps/worker/src/google/meetings.ts`,
     // che a sua volta non tocca il registro: lo verifica `meetings.test.ts`).
     "./meetings.ts",
+    // Review F5a, punto 4: chi conferma una proposta (anche di una riunione)
+    // scrive nel registro da TEMPLATE (`decision.meeting.*`), mai un run.
+    "./mail-proposals-decide.ts",
   ];
 
   it.each(MODULES)("%s non nomina nessun esecutore di agenti", async (relative) => {

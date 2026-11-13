@@ -678,6 +678,12 @@ export const en: Catalog = {
   "decision.email.title": "Email decision: {subject}",
   "decision.email.decision": "Confirmed via email from {from}: {option}",
   "decision.email.reassigned": "Email from {from} moved from project {fromProject} to {toProject}",
+  // Area 6, review F5a (punto 4): una decisione nata dalle note di una
+  // riunione registrata. NESSUN titolo della riunione (lo sceglie
+  // l'organizzatore), nessun mittente, nessun testo del modello.
+  "decision.meeting.title": "Meeting decision",
+  "decision.meeting.decision": "Decided from the notes of a meeting.",
+  "meeting.execution.commentBody": "{body}\n\n— from the notes of a meeting",
 
   // --- closedReason.* — PERCHÉ una card chiusa è finita lì (21 set 2026).
   // Si affiancano all'etichetta di STATO, mai la sostituiscono: «Ignorata ·
@@ -1218,6 +1224,9 @@ export const it: Catalog = {
   "decision.email.title": "Decisione dalla posta: {subject}",
   "decision.email.decision": "Confermata dall'email di {from}: {option}",
   "decision.email.reassigned": "Email di {from} spostata dal progetto {fromProject} al progetto {toProject}",
+  "decision.meeting.title": "Decisione da una riunione",
+  "decision.meeting.decision": "Decisa dalle note di una riunione.",
+  "meeting.execution.commentBody": "{body}\n\n— dalle note di una riunione",
 
   // --- closedReason.* — vedi il blocco gemello in `en` per il ragionamento.
   "closedReason.reassignedTo": "spostata su {project}",

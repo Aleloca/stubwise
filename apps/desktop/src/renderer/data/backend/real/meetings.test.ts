@@ -351,3 +351,21 @@ describe("F5a: l'email di Gemini del riassunto", () => {
     });
   });
 });
+
+describe("F5a: not_verified (review del server, 7724d447)", () => {
+  it("passa sul messaggio e nel riassunto", async () => {
+    const NOTE = "99999999-9999-4999-8999-999999999999";
+    expect(
+      meetingOfMessage({
+        kind: "transcript",
+        meeting: { noteId: NOTE, docTitle: null, doc: "unreachable", docReason: "not_verified", visible: true, summary: null, docUrl: null, event: null },
+      }).meeting?.docReason,
+    ).toBe("not_verified");
+    installFakeServer({
+      [`GET /api/me/meetings/${NOTE}`]: {
+        body: { noteId: NOTE, eventId: null, docTitle: null, doc: "unreachable", docReason: "not_verified", summary: null, docUrl: null, email: null },
+      },
+    });
+    expect((await m.getMeetingByNote!(NOTE))?.docReason).toBe("not_verified");
+  });
+});

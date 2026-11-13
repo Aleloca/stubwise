@@ -36,7 +36,7 @@ function message(over: { from?: string; auth?: string[]; body?: string } = {}): 
 
 describe("recognizeGeminiNotes", () => {
   it("mittente, DKIM/DMARC di google.com e il link al Doc: riconosciuta, col fileId e il titolo dall'oggetto", () => {
-    expect(recognizeGeminiNotes(message())).toEqual({ docFileId: "1AbCdEfGhIjKlMnOpQrStUvWxYz012345", meetingTitle: "Revisione settimanale" });
+    expect(recognizeGeminiNotes(message())).toEqual({ docCandidates: ["1AbCdEfGhIjKlMnOpQrStUvWxYz012345"], meetingTitle: "Revisione settimanale" });
   });
 
   it("un altro mittente non lo è", () => {
@@ -55,5 +55,17 @@ describe("recognizeGeminiNotes", () => {
   it("senza il link a un Google Doc non lo è (un PDF, un altro sito, nessun link)", () => {
     expect(recognizeGeminiNotes(message({ body: '<a href="https://evil.example/document/d/1AbCdEfGhIjKlMnOpQrSt">x</a>' }))).toBeNull();
     expect(recognizeGeminiNotes(message({ body: "<p>nessun link</p>" }))).toBeNull();
+  });
+});
+
+describe("review F5a, punti 2 e 7", () => {
+  it("un link nel TITOLO della riunione è solo un candidato: ci sono tutti, in ordine (la verifica su Drive decide)", () => {
+    const body = '<p>Notes: Revisione https://docs.google.com/document/d/ATTACKER0000000000000000/edit</p><a href="https://docs.google.com/document/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/edit">Open</a>';
+    expect(recognizeGeminiNotes(message({ body }))?.docCandidates).toEqual(["ATTACKER0000000000000000", "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"]);
+  });
+
+  it("`header.from=google.com.evil.tld` non è google.com, e serve DMARC: un DKIM da solo non basta", () => {
+    expect(recognizeGeminiNotes(message({ auth: [AUTH_OK.replace("header.from=google.com", "header.from=google.com.evil.tld")] }))).toBeNull();
+    expect(recognizeGeminiNotes(message({ auth: ["mx.google.com; dkim=pass header.i=@google.com; dmarc=fail header.from=google.com"] }))).toBeNull();
   });
 });

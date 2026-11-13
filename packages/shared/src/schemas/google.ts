@@ -706,7 +706,8 @@ export type MailThreadProposalOutcome = z.infer<typeof mailThreadProposalOutcome
 // falso e titolo, riassunto e link sono null. La trascrizione intera non esce.
 
 export const meetingDocStatusSchema = z.enum(["reading", "ready", "unreachable"]);
-export const meetingDocReasonSchema = z.enum(["scope_missing", "not_shared", "deleted", "too_long"]);
+/** `not_verified` (review F5a, punto 2): nessun link dell'email porta a un Doc che si possa dire delle note di questa riunione. */
+export const meetingDocReasonSchema = z.enum(["scope_missing", "not_shared", "deleted", "too_long", "not_verified"]);
 
 /** La riunione sull'email di Gemini (`kind: "transcript"` del messaggio). */
 export const meetingNoteSchema = z.object({

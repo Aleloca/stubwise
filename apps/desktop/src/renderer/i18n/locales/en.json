@@ -6155,6 +6155,7 @@
       "notVisible": "The summary and the transcript are visible only to the people who were in the meeting.",
       "scopeMissing": "Stubwise isn't allowed to read Google Drive yet: reconnect your Google account to open the transcript.",
       "deleted": "The transcript was deleted from Google Drive.",
+      "notVerified": "Stubwise couldn't verify this is the document of this meeting, so it didn't read it.",
       "tooLong": "The transcript is long: the summary covers only its first part."
     },
     "proposal": {
