@@ -7,7 +7,7 @@ import { disconnectGoogle, whenDriveIdle } from "../../data/drive/writes";
 import { PEOPLE } from "../../data/seed/people";
 import { PROJECTS } from "../../data/seed/projects";
 import { setSessionPersonId } from "../../data/session";
-import { state, visibleProjectIds } from "../../data/store";
+import { now, state, visibleProjectIds } from "../../data/store";
 import { ViewerProvider, resetViewerGrants, revokeProjectPermission } from "../../data/viewer";
 import { DOCKED_PANEL_QUERY } from "../../layout/useDetailPanel";
 import { setMatchMedia } from "../../test/setup";
@@ -62,6 +62,20 @@ afterEach(() => {
 });
 
 describe("Collegare una cartella", () => {
+  // Review F5b (1): il server non dà il percorso (Google non lo dà senza una
+  // chiamata per cartella): le cartelle senza percorso stanno nella radice.
+  it("cartelle senza percorso (il server vero): si vedono nella radice, senza cercare", async () => {
+    for (const f of state.googleFolders) f.path = [];
+    await openDrive("/p/MKX/drive", "p-giulia");
+    await screen.findByRole("grid");
+    const menu = await moreDriveActions();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Link a Google folder" }));
+    const dialog = await screen.findByRole("dialog", { name: "Link a Google folder to MKX" });
+    const list = within(dialog).getByRole("listbox", { name: "Folders" });
+    expect(await within(list).findByRole("option", { name: /Cantina Bellavista – materiali/ })).toBeInTheDocument();
+    act(() => closeLinkFolder());
+  });
+
   it("dice chi leggerà cosa e con quale account, poi porta i file della cartella nel progetto", async () => {
     await openDrive("/p/MKX/drive", "p-giulia");
     await screen.findByRole("grid");
@@ -229,6 +243,20 @@ describe("Non disponibile e collegamento scaduto", () => {
 });
 
 describe("Add from Google Drive", () => {
+  // Review F5b (6): il server può non dare il proprietario (una Drive condivisa)
+  // né la data: si salta la parte che manca, e il dialogo non cade.
+  it("un file senza proprietario né data: la riga c'è, senza «·» e senza data vuota", async () => {
+    for (const f of state.googleFiles) Object.assign(f, { owner: "", modifiedAt: "" });
+    await openDrive("/p/MKX/drive", "p-giulia");
+    await screen.findByRole("grid");
+    await userEvent.click(screen.getByRole("button", { name: "Add from Google Drive" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add from Google Drive to MKX" });
+    const list = within(dialog).getByRole("listbox", { name: "Your Google Drive files" });
+    const options = await within(list).findAllByRole("option");
+    const free = options.find((o) => o.getAttribute("aria-disabled") !== "true")!;
+    expect(free.textContent).not.toMatch(/·|Modified/);
+  });
+
   it("selezione multipla, già nel progetto disattivati, «Add 2 files»", async () => {
     await openDrive("/p/MKX/drive", "p-giulia");
     await screen.findByRole("grid");
@@ -496,5 +524,40 @@ describe("Fix round 1", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Add from Google Drive to MKX" })).toBeNull(),
     );
+  });
+});
+
+// QB1 = b *(M, 13 nov 2026)*: una sincronizzazione al giorno da sola, oltre a
+// «Sync now»; la cartella dice quando si è aggiornata, e la scaduta lo dice
+// al posto dell'ora (con «Reconnect» nella fascia di chi gestisce).
+describe("La cartella dice quando si è aggiornata", () => {
+  const folderRow = (id: string) => document.querySelector<HTMLElement>(`[data-drive-folder="${id}"]`);
+
+  it("una cartella aggiornata: «synced …»; dopo «Sync now», adesso", async () => {
+    const link = state.folderLinks.find((l) => l.id === "fl-aud-cliente")!;
+    link.lastSyncedAt = new Date(Date.parse(now()) - 3 * 3_600_000).toISOString();
+    await openDrive("/p/AUD/drive");
+    await waitFor(() => expect(folderRow("fl-aud-cliente")).toHaveTextContent(/synced 3 hr\. ago/));
+    await userEvent.click(screen.getByRole("button", { name: "Actions for AUD – Cliente" }));
+    await userEvent.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Sync now" }));
+    await act(whenDriveIdle);
+    await waitFor(() => expect(folderRow("fl-aud-cliente")).toHaveTextContent(/synced this minute/));
+  });
+
+  it("una scaduta non dice «synced»: dice da quando non si aggiorna", async () => {
+    await openDrive("/p/STW/drive", "p-giulia");
+    await waitFor(() => expect(folderRow("fl-stw-brand")).toHaveTextContent(/Not updating since/));
+    expect(folderRow("fl-stw-brand")).not.toHaveTextContent(/synced/);
+  });
+});
+
+describe("Il dialogo di collegamento dice la sincronizzazione di ogni giorno (QB1 = b, O di 46)", () => {
+  it("la riga sotto la scelta", async () => {
+    await openDrive("/p/MKX/drive", "p-giulia");
+    await screen.findByRole("grid");
+    await userEvent.click(within(await moreDriveActions()).getByRole("menuitem", { name: "Link a Google folder" }));
+    const dialog = await screen.findByRole("dialog", { name: "Link a Google folder to MKX" });
+    expect(dialog).toHaveTextContent("Stubwise checks the folder every day; Sync now updates it right away.");
+    act(() => closeLinkFolder());
   });
 });

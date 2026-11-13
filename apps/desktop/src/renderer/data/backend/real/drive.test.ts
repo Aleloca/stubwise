@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setAppClientForTests } from "./client";
+import { appClient, setAppClientForTests } from "./client";
 import { drive } from "./drive";
 import { installFakeServer, ME_ID, PROJECT_ID, serverProject } from "./fakeServer";
 
@@ -77,16 +77,61 @@ describe("il Drive nella build app: le letture", () => {
     ]);
   });
 
-  it("senza progetto l'elenco globale; i nascosti e i Google (area 6) non ci sono, senza chiamate", async () => {
-    const { seen } = installFakeServer({
+  it("senza progetto l'elenco globale", async () => {
+    installFakeServer({
       "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
       "GET /api/drive/files": { body: { items: [serverRow({ projectCode: null })] } },
     });
     const rows = await drive.listDriveFiles({ sort: "most_used" });
     expect(rows.map((r) => r.projectCode)).toEqual(["AUD"]);
-    expect(await drive.listDriveFiles({ sort: "most_used", hidden: true })).toEqual([]);
-    expect(await drive.listDriveFiles({ sort: "most_used", source: "google" })).toEqual([]);
-    expect(seen.filter((r) => r.path.includes("/drive/")).length).toBe(1);
+  });
+
+  // Review F5b (2): «Nascosti» e «Origine» li filtra il server (F5b, 72).
+  it("i nascosti e l'origine vanno al server come filtri", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      "GET /api/drive/files": { body: { items: [serverRow({ projectCode: null })] } },
+    });
+    await drive.listDriveFiles({ sort: "most_used", hidden: true });
+    await drive.listDriveFiles({ sort: "most_used", source: "google" });
+    await drive.listDriveFiles({ sort: "most_used", source: "upload" });
+    const lists = seen.filter((r) => r.path.startsWith("/api/drive/files"));
+    expect(lists.map((r) => [query(r.path).get("hidden"), query(r.path).get("source")])).toEqual([
+      ["true", null],
+      [null, "google"],
+      [null, "upload"],
+    ]);
+  });
+
+  // Review F5b (2, 3): la ricerca coi Google, e i file del mio Drive fuori dai progetti.
+  it("la ricerca: i Google al server; i file del mio Drive fuori dai progetti quando l'origine non è «caricato»", async () => {
+    const { seen } = installFakeServer({
+      "GET /api/projects": { body: [serverProject({ memberIds: [] })] },
+      "GET /api/drive/files": { body: { items: [] } },
+      "GET /api/drive/google/outside": {
+        body: {
+          items: [
+            {
+              googleFileId: "g-9",
+              name: "Piano 2027",
+              type: "document",
+              mime: "application/vnd.google-apps.document",
+              owner: null,
+              modifiedAt: null,
+              alreadyInProject: false,
+            },
+          ],
+        },
+      },
+    });
+    const google = await drive.searchDrive("piano", { source: "google" });
+    expect(google.outside.map((o) => o.googleFileId)).toEqual(["g-9"]);
+    expect(query(seen.find((r) => r.path.startsWith("/api/drive/files"))!.path).get("source")).toBe("google");
+    // Solo caricati, o i file di una persona: niente Drive fuori dai progetti.
+    const before = seen.filter((r) => r.path.startsWith("/api/drive/google/outside")).length;
+    expect((await drive.searchDrive("piano", { source: "upload" })).outside).toEqual([]);
+    expect((await drive.searchDrive("piano", { addedById: ME_ID })).outside).toEqual([]);
+    expect(seen.filter((r) => r.path.startsWith("/api/drive/google/outside")).length).toBe(before);
   });
 
   it("un progetto di cui non si è membri: elenco vuoto (404)", async () => {
@@ -303,8 +348,34 @@ describe("il Drive nella build app: eliminare e aprire", () => {
     expect(open).toHaveBeenCalledWith(`/api/drive/files/${FILE_ID}/preview`, "_blank", "noopener");
   });
 
-  it("«Apri in Google Drive» non c'è (area 6)", async () => {
-    await expect(drive.recordOpen(FILE_ID, "google")).rejects.toThrow();
+  // F5b (72): `GET /api/drive/files/:id/open` conta l'apertura e rimanda a Google.
+  it("«Apri in Google Drive» sul web: la rotta `open` in una scheda nuova (conta l'apertura)", async () => {
+    const open = vi.fn(() => ({}) as Window);
+    vi.stubGlobal("open", open);
+    expect(await drive.recordOpen(FILE_ID, "google")).toEqual({ counted: true });
+    expect(open).toHaveBeenCalledWith(`/api/drive/files/${FILE_ID}/open`, "_blank", "noopener");
+  });
+
+  // Sul desktop la sessione sta nel main: la rotta non si apre da fuori. Si apre
+  // il file su Google (i permessi li applica Google), e l'apertura non si conta.
+  it("«Apri in Google Drive» sul desktop: il file su Google, senza contare", async () => {
+    const open = vi.fn(() => ({}) as Window);
+    vi.stubGlobal("open", open);
+    installFakeServer({
+      [`GET /api/drive/files/${FILE_ID}`]: {
+        body: serverRow({
+          source: "google",
+          mime: "application/vnd.google-apps.document",
+          sizeBytes: null,
+          googleFileId: "g-1",
+        }),
+      },
+    });
+    // Il client nasce prima del ponte del main: le richieste vanno al server finto.
+    appClient();
+    (window as { stubwise?: unknown }).stubwise = { api: { download: vi.fn() } };
+    expect(await drive.recordOpen(FILE_ID, "google")).toEqual({ counted: false });
+    expect(open).toHaveBeenCalledWith("https://docs.google.com/document/d/g-1/edit", "_blank", "noopener");
   });
 });
 

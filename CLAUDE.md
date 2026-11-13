@@ -446,6 +446,7 @@ Host: SSH `stubwise-vps`, checkout in `/opt/stubwise`. Deploy = `git pull` +
   - «Integrazione area 6, fetta 3b: il calendario con tutti gli eventi» (12 nov 2026)
   - «Integrazione area 6, fetta 4: scrivere sul calendario» (12 nov 2026)
   - «Integrazione area 6, fetta 5a: le riunioni registrate» (13 nov 2026), con la sua «review del server» (da rilasciare INSIEME)
+  - «Integrazione area 6, fetta 5b: Google Drive nel Drive dei progetti» (13 nov 2026)
 - Verifica il bundle servito cercando una stringa nuova:
   `docker exec stubwise-caddy-1 sh -c 'grep -rl "<stringa>" /srv/web'`.
 - Backup del DB prima di operazioni rischiose.
@@ -469,6 +470,7 @@ una voce ti riguarda.
   - Il calendario salva TUTTI gli eventi, ma solo un candidato (`proposal_candidate`) diventa una proposta; a flag spento i candidati sono quelli di prima; le linee di base chiudono ciò che diventa candidato al primo giro (F3b).
   - ⚠️ ECCEZIONE DICHIARATA: il riassunto e le proposte di una riunione registrata li vedono tutti gli invitati DI QUELLA OCCORRENZA, mai chi non c'era (area 6, F5a).
   - Il Doc di Gemini si legge solo con la casella che ha ricevuto l'email, e solo un candidato VERIFICATO (Doc di un partecipante, creato vicino all'email); il riassunto nasce dalla sola trascrizione; il collegamento all'evento è conservativo (area 6, F5a).
+  - Un file di Google in un'email è un link, mai un allegato (area 6, F5b).
   - Scrivere sul calendario: un gesto, i no prima di Google, la riga dopo il sì, la creazione idempotente (area 6, F4).
   - ⚠️ ECCEZIONE DICHIARATA: il libero/occupato dei colleghi, solo intervalli (area 6, F4).
   - Scrivere la posta (area 6, F3): bozze di Gmail, invio trattenuto 10 s senza ritentativi, Annulla che ferma SEMPRE, Claude che propone (`fillMailBody`, sempre B) ma non manda mai.
@@ -587,6 +589,7 @@ una voce ti riguarda.
   - Il worker LEGGE lo storage, solo gli oggetti `drive/` e solo in lettura (`drive/storage-read.ts`, una funzione, test sul sorgente); scrivere e potare restano del server.
   - Il contenuto è input NON fidato: `execFile` senza shell, argomenti fissi, `prlimit`, una tmp per job tolta sempre; un file che non si legge è `no_text` col motivo, mai `error`.
   - Dopo un file del Drive o una pagina Docs letti da Claude, ogni proposta della conversazione è almeno B (`CHAT_TOOL_UNTRUSTED_ROUTES`, lo calcola il server).
+  - I riferimenti a Google Drive (area 6, F5b): un riferimento non è una copia; si legge solo con la casella di chi l'ha aggiunto o collegato; «scaduto» e «accesso perso» si DERIVANO a lettura (anche chi ha collegato senza più `drive.manage`) e tolgono il file da ricerca e Claude; la sincronizzazione giornaliera ha un lease e salta le cartelle scadute.
 - **Docs → `docs/invariants/docs.md`** (11 nov 2026, area 5):
   - Il riferimento stabile a una pagina è il CODICE (`doc_page_codes`, per repository e slug), mai `doc_pages.id`, che le rigenerazioni cambiano.
   - Le citazioni `doc` della Chat puntano al codice; un codice D scritto a mano diventa citazione per chi legge la pagina.

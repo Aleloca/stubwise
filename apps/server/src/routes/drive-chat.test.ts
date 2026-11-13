@@ -133,11 +133,11 @@ describe("«Save to Drive» dalla Chat", () => {
     expect(saved.file).toMatchObject({ name: "preventivo.pdf", projectId });
     const [att] = await t.db.select().from(chatMessageAttachments).where(eq(chatMessageAttachments.id, attachmentId));
     const [row] = await t.db.select().from(driveFiles).where(eq(driveFiles.id, saved.file.id));
-    expect(row!.storageKey).not.toBe(att!.storageKey);
-    expect(row!.storageKey.startsWith(`drive/${projectId}/`)).toBe(true);
-    expect(storage.copyObject).toHaveBeenCalledWith(att!.storageKey, row!.storageKey);
+    expect(row!.storageKey!).not.toBe(att!.storageKey);
+    expect(row!.storageKey!.startsWith(`drive/${projectId}/`)).toBe(true);
+    expect(storage.copyObject).toHaveBeenCalledWith(att!.storageKey, row!.storageKey!);
     expect(row!.sizeBytes).toBe(att!.sizeBytes);
-    expect(storage.objects.get(row!.storageKey)!.toString()).toBe("il file preventivo.pdf");
+    expect(storage.objects.get(row!.storageKey!)!.toString()).toBe("il file preventivo.pdf");
   });
 
   it("eliminare il messaggio lascia il file del Drive; eliminare il file del Drive lascia il messaggio", async () => {
@@ -146,7 +146,7 @@ describe("«Save to Drive» dalla Chat", () => {
     const saved = (await as(dev, "POST", `/api/chat/attachments/${one.attachmentId}/save-to-drive`, {})).json() as Upload;
     const [row] = await t.db.select().from(driveFiles).where(eq(driveFiles.id, saved.file.id));
     expect((await as(dev, "DELETE", `/api/chat/messages/${one.messageId}`)).statusCode).toBe(204);
-    expect(storage.objects.has(row!.storageKey)).toBe(true);
+    expect(storage.objects.has(row!.storageKey!)).toBe(true);
     expect((await as(dev, "GET", `/api/drive/files/${saved.file.id}/download`)).statusCode).toBe(302);
 
     const two = await sent(dev, g, "due.pdf");

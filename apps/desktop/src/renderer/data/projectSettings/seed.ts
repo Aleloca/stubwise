@@ -42,9 +42,15 @@ function switchesOf(code: string, software: boolean): Record<ProjectSwitch, bool
   };
 }
 
-/** Le scelte dei plugin del seme, dal registro (P3). */
-function pluginChoicesOf(projectId: string): ProjectSettings["plugins"] {
-  const superpowers = seedInstanceState().plugins.find((p) => p.name === "superpowers")!;
+type SeedPlugin = ReturnType<typeof seedInstanceState>["plugins"][number];
+
+/**
+ * Le scelte dei plugin del seme, dal registro (P3). `superpowers` si legge
+ * UNA volta per seme (`seedProjectSettings`): rifare lo stato d'istanza per
+ * ogni progetto rigenerava anche i consumi di 90 giorni, ~170 ms a ogni
+ * `resetApi`, cioè a ogni test.
+ */
+function pluginChoicesOf(projectId: string, superpowers: SeedPlugin): ProjectSettings["plugins"] {
   const inventory = superpowers.inventory!;
   const chosen = (PROJECT_PLUGINS[projectId] ?? []).find((e) => e.pluginId === superpowers.id);
   if (!chosen)
@@ -92,6 +98,7 @@ export function defaultProjectSettings(p: { id: string; template: string }): Pro
 
 /** Le impostazioni di ogni progetto del seme, nuove a ogni chiamata. */
 export function seedProjectSettings(): Map<string, ProjectSettings> {
+  const superpowers = seedInstanceState().plugins.find((p) => p.name === "superpowers")!;
   return new Map(
     PROJECTS.map((p): [string, ProjectSettings] => {
       const aud = p.code === "AUD";
@@ -109,7 +116,7 @@ export function seedProjectSettings(): Map<string, ProjectSettings> {
             createdAt: at(-90, "10:00"),
             createdById: null,
           },
-          plugins: pluginChoicesOf(p.id),
+          plugins: pluginChoicesOf(p.id, superpowers),
         },
       ];
     }),

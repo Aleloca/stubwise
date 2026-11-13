@@ -10,6 +10,7 @@ import { approversFor as resolveApprovers, publishNotification } from "@stubwise
 import {
   advance,
   approvalProjectOf,
+  checkEdited,
   initialState,
   NO_APPROVER_REASON,
   NO_APPROVER_WHY,
@@ -165,7 +166,8 @@ async function processRun(deps: ExecutorDeps, runId: string): Promise<void> {
 
   for (const item of queue) {
     try {
-      if ("control" in item.input) await control(turn, item.input);
+      if (!acceptableEdit(turn, item.input)) deps.log?.(`[automations] esecuzione ${run.id}: correzioni non ammesse (edited) scartate`);
+      else if ("control" in item.input) await control(turn, item.input);
       else await drive(turn, item.input);
     } catch (err) {
       if (!TERMINAL.has(turn.run.status)) {
@@ -174,6 +176,22 @@ async function processRun(deps: ExecutorDeps, runId: string): Promise<void> {
       }
     }
     if (item.rowId) await db.update(automationRunInputs).set({ consumedAt: sql`now()` }).where(eq(automationRunInputs.id, item.rowId));
+  }
+}
+
+/**
+ * Difesa in profondità: le correzioni di un'approvazione si ricontrollano qui
+ * con la STESSA `checkEdited` del server prima di arrivare al motore. Un input
+ * che non passa si scarta (consumato, l'esecuzione resta in attesa).
+ */
+function acceptableEdit(turn: Turn, input: EngineInput | ControlInput): boolean {
+  if ("control" in input || input.kind !== "approved" || input.edited === undefined) return true;
+  try {
+    if (!input.edited || typeof input.edited !== "object" || Array.isArray(input.edited)) return false;
+    checkEdited(stepAt(turn.flow.steps, input.path)?.kind, input.edited);
+    return true;
+  } catch {
+    return false;
   }
 }
 

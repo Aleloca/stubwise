@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DRIVE_FILE_MAX_BYTES, driveContentKindOf, driveFileDetailSchema, driveFileRowSchema, driveFileTypeOf, driveListQuerySchema } from "./drive.js";
+import { DRIVE_FILE_MAX_BYTES, driveContentKindOf, driveFileContentSchema, driveFileDetailSchema, driveFileRowSchema, driveFileTypeOf, driveListQuerySchema } from "./drive.js";
 import { readerSchema, UNKNOWN } from "../reader.js";
 import { CHAT_CITATION_KINDS, chatCitationSchema } from "./chat.js";
 
@@ -87,3 +87,21 @@ describe("il contenuto dei file (area 5, fetta 3)", () => {
   });
 });
 
+
+describe("F5b: i tipi dei file nativi di Google", () => {
+  it("Doc, Foglio e Presentazione di Google hanno il loro tipo", async () => {
+    const { driveFileTypeOf } = await import("./drive.js");
+    expect(["application/vnd.google-apps.document", "application/vnd.google-apps.spreadsheet", "application/vnd.google-apps.presentation"].map(driveFileTypeOf)).toEqual(["document", "sheet", "slides"]);
+  });
+});
+
+describe("F5b, review del server: il contenuto di un file che non si legge", () => {
+  const base = { id: "00000000-0000-4000-8000-000000000001", code: "ACME-F1", projectId: "00000000-0000-4000-8000-000000000002", name: "Doc", type: "document", contentStatus: "ready" };
+  it("una risposta di un server di prima, SENZA `unavailable`, vale null (additivo)", () => {
+    expect(driveFileContentSchema.parse(base).unavailable).toBeNull();
+  });
+  it("access_lost e deleted si leggono", () => {
+    expect(driveFileContentSchema.parse({ ...base, unavailable: "access_lost" }).unavailable).toBe("access_lost");
+    expect(driveFileContentSchema.parse({ ...base, unavailable: "deleted" }).unavailable).toBe("deleted");
+  });
+});

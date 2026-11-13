@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectDetail, ProjectListItem } from "../../lib/api";
@@ -365,7 +365,11 @@ describe("dettaglio progetto (gruppo)", () => {
     renderApp(`/projects/${PROJECT_ID}`);
 
     await screen.findByLabelText("Name");
-    await user.selectOptions(screen.getByLabelText("Preferred account"), "p-claude");
+    // Le opzioni arrivano da `/api/ai-providers`, che parte dopo il form:
+    // si aspetta l'opzione, non solo il campo (era rosso 2 volte su 3).
+    const account = screen.getByLabelText("Preferred account");
+    await within(account).findByRole("option", { name: /Claude API/ });
+    await user.selectOptions(account, "p-claude");
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(await screen.findByText("Changes saved.")).toBeInTheDocument();

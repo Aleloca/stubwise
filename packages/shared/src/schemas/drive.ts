@@ -22,6 +22,8 @@ export function driveFileTypeOf(mime: string): DriveFileType {
   if (m.startsWith("image/")) return "image";
   if (m === "text/csv" || m.includes("spreadsheet") || m === "application/vnd.ms-excel") return "sheet";
   if (m.includes("presentation") || m === "application/vnd.ms-powerpoint") return "slides";
+  // F5b: un Google Doc (i Fogli e le Presentazioni li prendono le righe sopra).
+  if (m === "application/vnd.google-apps.document") return "document";
   if (m.startsWith("text/") || m.includes("wordprocessing") || m === "application/msword" || m === "application/rtf" || m.includes("opendocument.text")) {
     return "document";
   }
@@ -91,7 +93,8 @@ export const driveFileRowSchema = z.object({
   name: z.string(),
   mime: z.string(),
   type: driveFileTypeSchema,
-  sizeBytes: z.number().int(),
+  /** Null per un riferimento Google nativo (un Doc non ha byte) — area 6, F5b. */
+  sizeBytes: z.number().int().nullable(),
   addedById: z.uuid().nullable(),
   addedAt: z.iso.datetime(),
   /** Le aperture degli ultimi 90 giorni («Più usati»), di tutti. */
@@ -112,6 +115,22 @@ export const driveFileRowSchema = z.object({
   /** Il passaggio trovato, solo nelle righe di una ricerca per contenuto (al più 300 caratteri). */
   snippet: z.string().nullable().default(null),
   permissions: driveFilePermissionsSchema.default({ delete: false, remove: false, hide: false, retry: false }),
+  // --- Area 6, F5b: i riferimenti a Google Drive (tutti con default) -------
+  googleFileId: z.string().nullable().default(null),
+  /** Il proprietario su Google (un indirizzo). */
+  googleOwner: z.string().nullable().default(null),
+  /** L'ultima modifica su Google (un riferimento) o il caricamento. */
+  modifiedAt: z.iso.datetime().nullable().default(null),
+  /** La cartella collegata da cui viene, se viene da una cartella. */
+  folder: z.object({ id: z.uuid(), name: z.string(), status: z.enum(["ok", "expired"]) }).nullable().default(null),
+  hidden: z.boolean().default(false),
+  hiddenBy: z.object({ personId: z.uuid().nullable(), at: z.iso.datetime() }).nullable().default(null),
+  /**
+   * `deleted`: sparito da Google (lo dice la sincronizzazione). `access_lost`:
+   * la casella di chi ha collegato la cartella non legge più (si DERIVA).
+   * Un file non disponibile non si apre.
+   */
+  unavailable: z.enum(["deleted", "access_lost"]).nullable().default(null),
 });
 export type DriveFileRow = z.infer<typeof driveFileRowSchema>;
 
@@ -121,7 +140,7 @@ export const driveFileDetailSchema = driveFileRowSchema.extend({
   /** Il riassunto AI intero (F3), solo nel dettaglio; l'elenco ha `summaryLine`. Narrativa generata. */
   summary: z.string().nullable().default(null),
   history: z
-    .array(z.object({ personId: z.uuid(), at: z.iso.datetime(), via: z.enum(["preview", "download"]) }))
+    .array(z.object({ personId: z.uuid(), at: z.iso.datetime(), via: z.enum(["preview", "download", "google"]) }))
     .nullable()
     .default(null),
 });
@@ -149,6 +168,10 @@ export const driveListQuerySchema = z.object({
   q: z.string().trim().max(200).optional(),
   sort: z.enum(["most_used", "recent", "name"]).default("most_used"),
   limit: z.coerce.number().int().min(1).max(500).optional(),
+  /** F5b: `upload` o `google`. */
+  source: z.enum(["upload", "google"]).optional(),
+  /** F5b: solo i NASCOSTI (e solo dei progetti in cui chi guarda ha `drive.manage`). */
+  hidden: z.enum(["true", "false"]).transform((v) => v === "true").optional(),
 });
 export type DriveListQuery = z.input<typeof driveListQuerySchema>;
 
@@ -178,6 +201,12 @@ export const driveFileContentSchema = z.object({
   text: z.string().default(""),
   /** Il testo è più lungo di quanto restituito (o era già troncato all'estrazione). */
   truncated: z.boolean().default(false),
+  /**
+   * Area 6, F5b (review del server, punto 3): il file non si legge — sparito
+   * da Google o di una cartella scaduta. Allora testo e riassunto sono vuoti.
+   * Additivo: un server di prima non lo manda.
+   */
+  unavailable: z.enum(["deleted", "access_lost"]).nullable().default(null),
 });
 export type DriveFileContent = z.infer<typeof driveFileContentSchema>;
 
@@ -188,3 +217,71 @@ export type SaveToDriveInput = z.input<typeof saveToDriveBodySchema>;
 /** Il codice di un file, `<PRJ>-F<n>`. */
 export const DRIVE_CODE_RE = /^([A-Z][A-Z0-9]{1,5})-F(\d{1,9})$/;
 export const driveCode = (projectCode: string, number: number): string => `${projectCode}-F${number}`;
+
+// --- Area 6, F5b: Google Drive nel Drive dei progetti ----------------------
+
+/** Una cartella Google collegata a un progetto (`status`/`accessLost` derivati dal server). */
+export const driveFolderLinkSchema = z.object({
+  id: z.uuid(),
+  projectId: z.uuid(),
+  name: z.string(),
+  googleFolderId: z.string(),
+  linkedById: z.uuid().nullable().default(null),
+  linkedAt: z.iso.datetime(),
+  status: z.enum(["ok", "expired"]).default("ok"),
+  expiredAt: z.iso.datetime().nullable().default(null),
+  /** L'ultima sincronizzazione riuscita; null se non ce n'è ancora stata una. */
+  lastSyncedAt: z.iso.datetime().nullable().default(null),
+  /** I file (non nascosti) che porta. */
+  fileCount: z.number().int().default(0),
+  accessLost: z.boolean().default(false),
+});
+export type DriveFolderLink = z.infer<typeof driveFolderLinkSchema>;
+export const driveFolderLinkListSchema = z.object({ items: z.array(driveFolderLinkSchema).default([]) });
+
+/** Un file del MIO Drive nel picker («Aggiungi da Google Drive»). */
+export const googleFileChoiceSchema = z.object({
+  googleFileId: z.string(),
+  name: z.string(),
+  type: driveFileTypeSchema,
+  mime: z.string(),
+  owner: z.string().nullable().default(null),
+  modifiedAt: z.iso.datetime().nullable().default(null),
+  alreadyInProject: z.boolean().default(false),
+});
+export type GoogleFileChoice = z.infer<typeof googleFileChoiceSchema>;
+export const googleFileChoiceListSchema = z.object({ items: z.array(googleFileChoiceSchema).default([]) });
+
+/** Una cartella del MIO Drive («Collega una cartella»). `path` e `fileCount` non si leggono da Google senza una chiamata per cartella: vuoti/null. */
+export const googleFolderChoiceSchema = z.object({
+  googleFolderId: z.string(),
+  name: z.string(),
+  path: z.array(z.string()).default([]),
+  fileCount: z.number().int().nullable().default(null),
+  alreadyLinked: z.boolean().default(false),
+});
+export type GoogleFolderChoice = z.infer<typeof googleFolderChoiceSchema>;
+export const googleFolderChoiceListSchema = z.object({ items: z.array(googleFolderChoiceSchema).default([]) });
+
+export const addGoogleFileBodySchema = z.object({ googleFileId: z.string().min(1).max(200) });
+export const linkGoogleFolderBodySchema = z.object({ googleFolderId: z.string().min(1).max(200) });
+export const setDriveHiddenBodySchema = z.object({ hidden: z.boolean() });
+
+/**
+ * Dove si apre un file di Google (F5b: «Apri in Google Drive», e il link in
+ * un'email): i permessi li applica Google a chi apre. UN posto, letto da
+ * server e client.
+ */
+export function googleOpenUrl(mime: string, googleFileId: string): string {
+  const id = encodeURIComponent(googleFileId);
+  switch (mime) {
+    case "application/vnd.google-apps.document":
+      return `https://docs.google.com/document/d/${id}/edit`;
+    case "application/vnd.google-apps.spreadsheet":
+      return `https://docs.google.com/spreadsheets/d/${id}/edit`;
+    case "application/vnd.google-apps.presentation":
+      return `https://docs.google.com/presentation/d/${id}/edit`;
+    default:
+      return `https://drive.google.com/file/d/${id}/view`;
+  }
+}

@@ -1,4 +1,6 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { isAppBuild } from "../../data/build";
+import { openOnGoogle } from "../mail/mailFeatures";
 import {
   useCallback,
   useEffect,
@@ -86,6 +88,10 @@ import {
   useUploads,
 } from "./UploadZone";
 
+/** Una cartella su Google Drive, con l'id codificato (review F5b, 8). */
+const folderUrl = (googleFolderId: string) =>
+  `https://drive.google.com/drive/folders/${encodeURIComponent(googleFolderId)}`;
+
 // Il Drive (shape drive.md): la sezione di un progetto (`#/p/AUD/drive`) o la
 // destinazione con i file di tutti i progetti che vedo (`#/drive`). Testata
 // (h1 col conteggio, «Upload»), barra (ordinamento e filtri, tutti
@@ -151,12 +157,13 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
   const base: DriveFilters = project ? { projectId: project.id, sort: filters.sort } : { sort: filters.sort };
   const enabled = global ? !!projects : !!project;
   // Si rilegge l'elenco che si guarda, non le query di contorno; col dettaglio aperto si rilegge il dettaglio.
-  const filesQuery = useDriveFiles(filters, { enabled, poll: !search.file });
+  const folders = useFolderLinks(project?.id ?? "").data ?? [];
+  const syncing = folders.some((l) => l.syncing);
+  const filesQuery = useDriveFiles(filters, { enabled, poll: !search.file, syncing });
   const allQuery = useDriveFiles(base, { enabled });
-  // Google (area 6): cartelle, riferimenti, nascosti. Nella build app non c'è ancora.
+  // Google (area 6, F5b): cartelle, riferimenti, nascosti.
   const google = featureIntegrated("google");
   const hiddenQuery = useDriveFiles({ ...base, hidden: true }, { enabled: enabled && canManage && google });
-  const folders = useFolderLinks(project?.id ?? "").data ?? [];
   const rows = enabled ? filesQuery.data : undefined;
   const { projectId: fProject, type: fType, source: fSource, addedById: fAdded } = filters;
   const scope = useMemo<DriveSearchScope>(
@@ -325,7 +332,12 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
         const manage = project ? can(viewer, "drive.manage", project.id) : false;
         return (
           <>
-            {item(t("drive.google.open"), () => toast.show(t("drive.google.folderOpened", { name: link.name })))}
+            {item(t("drive.google.open"), () =>
+              // Build app: la cartella su Google (review F5b, 5); nel prototipo nessun browser si apre.
+              isAppBuild()
+                ? openOnGoogle(folderUrl(link.googleFolderId))
+                : toast.show(t("drive.google.folderOpened", { name: link.name })),
+            )}
             {manage &&
               link.status === "ok" &&
               item(t("drive.google.syncNow"), () =>
@@ -334,14 +346,17 @@ export function DrivePage({ projectCode }: { projectCode?: string }) {
                     toast.show(
                       view.status === "expired"
                         ? t("drive.google.syncExpired", { name: view.name })
-                        : t("drive.google.synced", { name: view.name }),
+                        : // Build app: la sincronizzazione la fa il worker, dopo (review F5b, 4).
+                          view.syncing
+                          ? t("drive.google.syncRequested", { name: view.name })
+                          : t("drive.google.synced", { name: view.name }),
                     ),
                   onError: () => toast.error(t("drive.google.failed")),
                 }),
               )}
             {item(t("drive.google.copyFolderLink"), () => {
               void navigator.clipboard
-                ?.writeText(`https://drive.google.com/drive/folders/${link.googleFolderId}`)
+                ?.writeText(folderUrl(link.googleFolderId))
                 .catch(() => {});
               toast.show(t("drive.google.folderLinkCopied"));
             })}

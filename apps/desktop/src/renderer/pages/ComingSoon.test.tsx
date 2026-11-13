@@ -279,6 +279,18 @@ const INTEGRATED_CALLS = new Set([
   "drive.saveAttachmentToDrive",
   // Area 6, fetta 1: il cassetto Google (account e caselle).
   "drive.getGoogleAccount",
+  // Area 6, F5b: Google Drive nel Drive dei progetti.
+  "drive.listGoogleFiles",
+  "drive.listGoogleOutside",
+  "drive.listGoogleFolders",
+  "drive.listFolderLinks",
+  "drive.listMyFolderLinks",
+  "drive.addGoogleFile",
+  "drive.linkFolder",
+  "drive.syncFolder",
+  "drive.unlinkFolder",
+  "drive.removeGoogleFile",
+  "drive.setHidden",
   "drive.listGoogleWorkspaces",
   "drive.connectGoogle",
   "drive.disconnectGoogle",
@@ -515,21 +527,29 @@ describe("aree non integrate nella build app", () => {
     expect(outside()).toEqual([]);
   });
 
-  it("il Drive del progetto (area 5, fetta 2): i caricati, senza Google", async () => {
+  // Area 6, F5b: Google Drive nel Drive dei progetti è integrato.
+  it("il Drive del progetto (area 5 e area 6, F5b): i caricati e Google", async () => {
     renderRoute("/p/AUD/drive");
     expect(await screen.findByRole("heading", { level: 1, name: /Drive/ })).toBeInTheDocument();
     await waitFor(() => expect(calls).toContain("drive.listDriveFiles"));
+    await waitFor(() => expect(calls).toContain("drive.listFolderLinks"));
     await settle();
     expect(screen.queryByText("Coming soon")).toBeNull();
-    // Né «Add from Google Drive» né «Link a Google folder» (nel menu «More») né il filtro della fonte.
-    // (I file Google del seed finto qui ci sono: nel server vero no.)
-    expect(screen.queryByRole("button", { name: "Add from Google Drive" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "More Drive actions" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Source/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Add from Google Drive" })).toBeInTheDocument();
     expect(outside()).toEqual([]);
   });
 
-  it("il cassetto Google (area 6, fetta 1): dal menu del profilo, coi testi di Posta e Calendario", async () => {
+  it("F5b: «Add from Google Drive» legge il mio Drive, e solo da funzioni integrate", async () => {
+    renderRoute("/p/AUD/drive");
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Add from Google Drive" }));
+    await screen.findByRole("dialog", { name: /Google Drive/ });
+    await waitFor(() => expect(calls).toContain("drive.listGoogleFiles"));
+    await settle();
+    expect(outside()).toEqual([]);
+  });
+
+  it("il cassetto Google (area 6): dal menu del profilo", async () => {
     renderRoute("/projects");
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: "Profile and settings" }));
@@ -538,17 +558,22 @@ describe("aree non integrate nella build app", () => {
     const dialog = await screen.findByRole("dialog", { name: "Google account" });
     await waitFor(() => expect(calls).toContain("drive.getGoogleAccount"));
     await settle();
-    expect(dialog).not.toHaveTextContent(/Google Drive files|link folders/);
+    // Le cartelle che ho collegato si leggono solo scollegando (review F5b, 9).
+    expect(calls).not.toContain("drive.listMyFolderLinks");
+    await user.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => expect(calls).toContain("drive.listMyFolderLinks"));
+    expect(await within(dialog).findByText(/folder you linked will stop updating/)).toBeInTheDocument();
     expect(outside()).toEqual([]);
     act(() => closeGoogleAccount());
   });
 
-  it("la destinazione Drive: tutti i progetti, senza Google", async () => {
+  it("la destinazione Drive: tutti i progetti, coi riferimenti Google (F5b)", async () => {
     renderRoute("/drive");
     await waitFor(() => expect(calls).toContain("drive.listDriveFiles"));
     await settle();
     expect(screen.queryByText("Coming soon")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Add from Google Drive" })).toBeNull();
+    // Le righe dei riferimenti Google ci sono, col loro segno (review F5b, 9).
+    expect((await screen.findAllByTitle("Google file, opens in Google Drive")).length).toBeGreaterThan(0);
     expect(outside()).toEqual([]);
   });
 

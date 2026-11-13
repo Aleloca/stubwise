@@ -159,7 +159,9 @@ function FolderPicker({
 
   const needle = q.trim().toLowerCase();
   const entries: Entry[] = useMemo(() => {
-    const all = folders.data ?? [];
+    // Build app (F5b, review 1): Google non dà il percorso senza una chiamata per
+    // cartella, e il server manda `path: []`: quelle cartelle stanno nella radice.
+    const all = (folders.data ?? []).map((f) => (f.path.length > 0 ? f : { ...f, path: ROOT }));
     if (!needle) return entriesAt(all, path);
     return all
       .filter((f) => f.name.toLowerCase().includes(needle))
@@ -181,7 +183,12 @@ function FolderPicker({
       {
         onSuccess: (view) => {
           onClose();
-          toast.show(t("drive.link.linked", { name: view.name, count: view.fileCount }));
+          toast.show(
+            // Build app: i file li legge il worker, dopo (review F5b, 4).
+            view.syncing
+              ? t("drive.link.requested", { name: view.name })
+              : t("drive.link.linked", { name: view.name, count: view.fileCount }),
+          );
         },
       },
     );
@@ -242,14 +249,20 @@ function FolderPicker({
         {entries.map((entry, i) => {
           const disabled = entry.kind === "folder" && entry.folder.alreadyLinked;
           const selected = entry.kind === "folder" && entry.folder.googleFolderId === chosen?.googleFolderId;
+          // Build app (F5b): Google non dà né il percorso né il conteggio senza una
+          // chiamata per cartella; quello che manca non si scrive.
+          const files =
+            entry.kind === "folder" && entry.folder.fileCount !== null
+              ? t("drive.link.files", { count: entry.folder.fileCount })
+              : "";
           const meta =
             entry.kind === "dir"
               ? t("drive.link.folders", { count: entry.folders })
               : entry.folder.alreadyLinked
                 ? t("drive.link.already")
                 : needle
-                  ? `${entry.folder.path.join(" › ")} · ${t("drive.link.files", { count: entry.folder.fileCount })}`
-                  : t("drive.link.files", { count: entry.folder.fileCount });
+                  ? [entry.folder.path.join(" › "), files].filter((x) => x !== "").join(" · ")
+                  : files;
           return (
             <div
               key={entry.kind === "dir" ? `dir:${entry.name}` : entry.folder.googleFolderId}
@@ -333,6 +346,8 @@ function FolderPicker({
             })
           : t("drive.link.pick")}
       </p>
+      {/* QB1 = b *(M)*: la cartella si ricontrolla da sola ogni giorno (riga di 46, O). */}
+      <p className="text-sm text-ink-muted">{t("drive.link.daily")}</p>
       {link.isError && (
         <p role="alert" className="text-sm text-critical">
           {t("drive.google.failed")}

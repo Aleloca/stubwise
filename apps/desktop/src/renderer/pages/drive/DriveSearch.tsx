@@ -546,7 +546,12 @@ function OutsideRow({
               <ExternalGlyph size={10} />
             </span>
             <span className="num min-w-0 flex-1 basis-0 truncate text-sm text-ink-faint">
-              {t("drive.search.owner", { owner: hit.owner })} · {modifiedLabel(hit.modifiedAt, t, i18n.language)}
+              {[
+                hit.owner ? t("drive.search.owner", { owner: hit.owner }) : "",
+                modifiedLabel(hit.modifiedAt, t, i18n.language),
+              ]
+                .filter((x) => x !== "")
+                .join(" · ")}
             </span>
           </span>
           <span className="line-clamp-2 max-w-[80ch] text-sm text-ink-muted">{hit.summary}</span>

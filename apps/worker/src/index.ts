@@ -33,6 +33,8 @@ import { MirrorManager } from "./git/mirrors.js";
 import { createGraphifyRunner } from "./graph/graphify-cli.js";
 import { startGraphPoller } from "./graph/poller.js";
 import { startDriveContentPoller } from "./drive/content-job.js";
+import { startFolderSyncPoller } from "./drive/folder-sync.js";
+import { createGoogleDriveSource } from "./drive/google-source.js";
 import { createExec } from "./drive/extract/exec.js";
 import { sweepStaleJobTmps } from "./drive/extract/tmp.js";
 import { createDriveReaderCache, loadDriveS3Config } from "./drive/storage-read.js";
@@ -779,6 +781,18 @@ startDriveContentPoller({
   select,
   model: effectiveModelDefaults(config).drive_summary,
   embeddings: embeddingClient,
+  log: (m) => console.error(`[stubwise-worker] ${m}`),
+  intervalSeconds: config.driveContentPollSeconds,
+  signal: controller.signal,
+  // Area 6, F5b: i riferimenti Google si leggono con la LORO casella (B3).
+  google: createGoogleDriveSource({ db, encryptionKey: config.encryptionKey }),
+});
+// Area 6, F5b (B5, QB1 = b): le cartelle Google collegate, al collegamento, a
+// «Sincronizza ora» e una volta al giorno, con la casella di chi le ha
+// collegate; un lease per cartella; solo letture.
+startFolderSyncPoller({
+  db,
+  encryptionKey: config.encryptionKey,
   log: (m) => console.error(`[stubwise-worker] ${m}`),
   intervalSeconds: config.driveContentPollSeconds,
   signal: controller.signal,

@@ -57,6 +57,12 @@ motore condiviso (`packages/shared/src/automations/`).
   Le migrazioni di PRIMA della 0169 girano prima che i trigger esistano: una
   base appena migrata non ha eventi (`migration-0169.test.ts`, «nessuna
   valanga»).
+- **Nessuno aggira i trigger.** La GUC qui sopra è l'unico interruttore:
+  nessun codice di app, worker, package o migrazione imposta
+  `session_replication_role` né fa `DISABLE TRIGGER` (un evento perso non
+  lo ritrova nessuno). L'unica eccezione è il passo di rollback scritto
+  nella voce del deploy-log, lanciato a mano. Lo verifica un test sul
+  sorgente, `packages/db/src/automation-triggers-bypass.test.ts`.
 
 ## Il consumatore
 

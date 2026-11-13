@@ -2075,6 +2075,11 @@ export interface FolderLink {
   status: "ok" | "expired";
   /** Quando ha smesso di aggiornarsi (`expired`), altrimenti `null`. */
   expiredAt: string | null;
+  /**
+   * L'ultima sincronizzazione riuscita con Google (al collegamento, «Sync
+   * now» o quella di ogni giorno, QB1 = b *(M)*); `null` se non ce n'è stata.
+   */
+  lastSyncedAt: string | null;
 }
 
 /**
@@ -2207,6 +2212,11 @@ export interface DriveSearchResult {
 
 /** Una cartella collegata con quanti file porta nel progetto (non nascosti). */
 export interface FolderLinkView extends FolderLink {
+  /**
+   * Build app (F5b, review 4): una sincronizzazione chiesta da qui (collegando o
+   * con «Sync now») che il server non ha ancora fatto (la fa il worker).
+   */
+  syncing?: boolean;
   fileCount: number;
   /**
    * I suoi file sono non disponibili per accesso perso: l'account di chi
@@ -2220,7 +2230,8 @@ export interface GoogleFolderChoice {
   googleFolderId: string;
   name: string;
   path: string[];
-  fileCount: number;
+  /** Build app (F5b): Google non lo dà senza una chiamata per cartella, `null`. */
+  fileCount: number | null;
   alreadyLinked: boolean;
 }
 
@@ -2796,7 +2807,13 @@ export interface MeetingNote {
 }
 
 /** Perché il Doc di Gemini non si legge (o solo in parte, `too_long`). */
-export type MeetingDocReason = "scope_missing" | "not_shared" | "deleted" | "too_long";
+export type MeetingDocReason =
+  | "scope_missing"
+  | "not_shared"
+  | "deleted"
+  | "too_long"
+  /** Nessun link dell'email porta a un Doc che si possa dire di questa riunione (review F5a). */
+  | "not_verified";
 
 /** Una conversazione aperta: i messaggi che chi guarda vede, dal più vecchio. */
 export interface MailThreadDetail {

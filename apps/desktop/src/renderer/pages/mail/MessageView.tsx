@@ -173,7 +173,9 @@ function MeetingBlock({ message }: { message: MailMessageView }) {
               ? "mail.meeting.scopeMissing"
               : note.docReason === "deleted"
                 ? "mail.meeting.deleted"
-                : "mail.meeting.unreachable",
+                : note.docReason === "not_verified"
+                  ? "mail.meeting.notVerified"
+                  : "mail.meeting.unreachable",
           )}
         </p>
       ) : (
