@@ -1,5 +1,6 @@
 import type { Db } from "@stubwise/db";
 import { consumeAutomationEvents } from "./consumer.js";
+import { pauseDeafListeners } from "./deaf-listeners.js";
 import { fireSchedules } from "./schedules.js";
 
 /**
@@ -29,6 +30,12 @@ export async function pollAutomationsOnce(deps: Omit<AutomationsPollerDeps, "int
     }
   } catch (err) {
     log(`[automations] consumo degli eventi non riuscito: ${String(err)}`);
+  }
+  try {
+    // Review F2, M5: «email in arrivo» senza più la casella → in pausa, col suo avviso.
+    await pauseDeafListeners(deps.db, log);
+  } catch (err) {
+    log(`[automations] controllo delle caselle non riuscito: ${String(err)}`);
   }
   try {
     // Gli inizi a orario (F2, S7): una volta per automazione e giorno, per vincolo.

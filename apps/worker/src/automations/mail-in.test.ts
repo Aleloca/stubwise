@@ -8,6 +8,7 @@ import {
   googleAccounts,
   googleWorkspaces,
   mailOutgoing,
+  notifications,
   projectMembers,
   roles,
   tickets,
@@ -19,6 +20,7 @@ import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { consumeAutomationEvents } from "./consumer.js";
 import { executeDueRuns } from "./executor.js";
+import { pauseDeafListeners } from "./deaf-listeners.js";
 import { automationMailIn } from "./mail-in.js";
 
 /**
@@ -202,6 +204,16 @@ describe("«email in arrivo»", () => {
     await automationMailIn(t.db, m, async () => "Una volta");
     await automationMailIn(t.db, m, async () => "Una volta");
     expect(await t.db.select().from(automationRunInputs).where(eq(automationRunInputs.runId, run!.id))).toHaveLength(1);
+  });
+
+  it("review F2, M5: la casella scollegata mette in pausa (mailbox_lost) l'automazione che la ascoltava, con UN avviso al proprietario", async () => {
+    const a = await listening();
+    await t.db.delete(googleAccounts).where(eq(googleAccounts.id, mailbox));
+    await pauseDeafListeners(t.db);
+    await pauseDeafListeners(t.db);
+    expect((await t.db.select().from(automations).where(eq(automations.id, a.id)))[0]).toMatchObject({ status: "paused", pausedReason: "mailbox_lost", mailboxAccountId: null });
+    const cards = (await t.db.select().from(notifications).where(eq(notifications.userId, ownerId))).filter((n) => n.kind === "automation.paused");
+    expect(cards).toHaveLength(1);
   });
 });
 
