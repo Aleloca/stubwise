@@ -1,30 +1,18 @@
 import { ApiError } from "@stubwise/api-client";
 import type * as Fake from "../../api";
 import type { MeetingDocReason, MeetingNote, MeetingSummary, MeetingTask } from "../../types";
+import { googleDocUrl } from "../../googleDoc";
 import { appClient } from "./client";
 
-// Le riunioni registrate nella build app (area 6, F5). Le rotte sono quelle
-// della BOZZA del piano (`docs/plans/2026-11-12-integrazione-area6-fetta5-plan.md`,
-// branch docs/area6-f5-plan): finché 72 non le fissa e non mette i metodi in
-// `client.calendar`, si chiamano con `request`. Chi vede cosa lo decide il
-// SERVER — tutti gli invitati di Stubwise, mai un membro che non c'era né un
-// admin (decisione M) —: qui un 404 vuol dire «non lo sai», e la pagina non
-// dice nemmeno che un riassunto esista. La trascrizione intera non arriva mai
-// al client (il prototipo mostra il riassunto e un link al Doc).
+// Le riunioni registrate nella build app (area 6, F5a), sopra i metodi di
+// `client.calendar` di 72 (`eventSummary`, `eventTasks`, `meeting`,
+// `meetingTasks`). Chi vede cosa lo decide il SERVER — tutti gli invitati di
+// Stubwise, mai un membro che non c'era né un admin (decisione M) —: qui un
+// 404 vuol dire «non lo sai», e la pagina non dice nemmeno che un riassunto
+// esista. La trascrizione intera non arriva mai al client.
 
 type Mail = typeof Fake.mail;
-type ServerSummary = {
-  /** `/api/me/meetings/:noteId` (F5a): la riunione; l'evento è quello di chi guarda, o null. */
-  noteId?: string;
-  eventId: string | null;
-  docTitle: string | null;
-  doc: MeetingSummary["doc"] | null;
-  summary: string | null;
-  docUrl?: string | null;
-  email: { threadId: string; messageId: string; at: string } | null;
-};
-
-const eventPath = (id: string) => `/api/me/calendar/events/${encodeURIComponent(id)}`;
+type ServerSummary = Awaited<ReturnType<ReturnType<typeof appClient>["calendar"]["eventSummary"]>>;
 
 /** Una lettura che il server può non avere (un server di prima) o non mostrare (404): `null`. */
 async function orNull<T>(read: () => Promise<T>): Promise<T | null> {
@@ -37,12 +25,7 @@ async function orNull<T>(read: () => Promise<T>): Promise<T | null> {
 }
 
 export const getMeetingSummary: Mail["getMeetingSummary"] = async (eventId) =>
-  summaryView(
-    await orNull(
-      () =>
-        appClient().request("GET", `${eventPath(eventId)}/summary`) as Promise<ServerSummary | null>,
-    ),
-  );
+  summaryView(await orNull(() => appClient().calendar.eventSummary(eventId)));
 
 /**
  * La riunione per nota (F5a, Q-A = a): lo stesso riassunto, per l'invitato
@@ -50,15 +33,7 @@ export const getMeetingSummary: Mail["getMeetingSummary"] = async (eventId) =>
  * di chi guarda, o null). 404 a chi non c'era.
  */
 const getMeetingByNote: Mail["getMeetingByNote"] = async (noteId) =>
-  summaryView(
-    await orNull(
-      () =>
-        appClient().request(
-          "GET",
-          `/api/me/meetings/${encodeURIComponent(noteId)}`,
-        ) as Promise<ServerSummary | null>,
-    ),
-  );
+  summaryView(await orNull(() => appClient().calendar.meeting(noteId)));
 
 function summaryView(s: ServerSummary | null): MeetingSummary | null {
   if (!s) return null;
@@ -66,10 +41,13 @@ function summaryView(s: ServerSummary | null): MeetingSummary | null {
     ...(s.noteId ? { noteId: s.noteId } : {}),
     eventId: s.eventId ?? null,
     docTitle: s.docTitle ?? "",
-    doc: s.doc ?? "unreachable",
+    // Un valore che il client non conosce (un server più nuovo) si legge come «non si legge».
+    doc: s.doc === "reading" || s.doc === "ready" ? s.doc : "unreachable",
     summary: s.summary ?? null,
     transcript: null,
-    docUrl: s.docUrl ?? null,
+    docReason: s.docReason && DOC_REASONS.has(s.docReason) ? (s.docReason as MeetingDocReason) : null,
+    // Solo un link di Google Docs (review F5a, 5), come sul messaggio.
+    docUrl: googleDocUrl(s.docUrl),
     // L'email di Gemini, se chi guarda la vede: `sourceId` è il messaggio, come per le proposte.
     email: s.email
       ? { threadId: s.email.threadId, sourceId: s.email.messageId, at: s.email.at }
@@ -84,27 +62,21 @@ function summaryView(s: ServerSummary | null): MeetingSummary | null {
 export async function meetingTasksOf(
   eventId: string,
 ): Promise<{ tasks: MeetingTask[]; proposedTasks: number } | null> {
-  return tasksAt(`${eventPath(eventId)}/tasks`);
+  return tasksView(await orNull(() => appClient().calendar.eventTasks(eventId)));
 }
 
-async function tasksAt(
-  path: string,
-): Promise<{ tasks: MeetingTask[]; proposedTasks: number } | null> {
-  const out = await orNull(
-    () =>
-      appClient().request("GET", path) as Promise<{
-        tasks?: MeetingTask[];
-        proposedTasks?: number;
-      } | null>,
-  );
+type ServerTasks = Awaited<ReturnType<ReturnType<typeof appClient>["calendar"]["eventTasks"]>>;
+
+function tasksView(out: ServerTasks | null): { tasks: MeetingTask[]; proposedTasks: number } | null {
   if (!out) return null;
   return {
     tasks: (out.tasks ?? []).map((t) => ({
       kind: t.kind === "request" ? "request" : "task",
       id: t.id,
-      code: t.code,
+      // Una richiesta nata da poco può non avere ancora il codice.
+      code: t.code ?? "",
       title: t.title,
-      status: t.status,
+      status: t.status === "done" || t.status === "late" ? t.status : "open",
       inProgress: t.inProgress === true,
       dueDate: t.dueDate ?? null,
       departmentId: t.departmentId ?? null,
@@ -119,7 +91,7 @@ const tasksBornFrom: Mail["tasksBornFrom"] = async (eventId) =>
 
 /** Le task per nota (F5a): le stesse regole (R-I21), per l'invitato senza l'evento. */
 const tasksOfNote: Mail["tasksOfNote"] = async (noteId) =>
-  (await tasksAt(`/api/me/meetings/${encodeURIComponent(noteId)}/tasks`))?.tasks ?? null;
+  tasksView(await orNull(() => appClient().calendar.meetingTasks(noteId)))?.tasks ?? null;
 
 export const meetingFunctions: Partial<Mail> = {
   getMeetingSummary,
@@ -145,7 +117,6 @@ const DOC_REASONS: ReadonlySet<string> = new Set([
   "deleted",
   "too_long",
 ]);
-const GOOGLE_DOC = /^https:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]+(?:[/?#].*)?$/;
 
 /**
  * L'email di Gemini sul messaggio (F5a, forme di 72): il server la deriva a
@@ -172,7 +143,7 @@ export function meetingOfMessage(m: { kind?: string; meeting?: ServerMeetingNote
       visible,
       summary: visible ? (n.summary ?? null) : null,
       transcript: null,
-      docUrl: visible && n.docUrl && GOOGLE_DOC.test(n.docUrl) ? n.docUrl : null,
+      docUrl: visible ? googleDocUrl(n.docUrl) : null,
       event: n.event ?? null,
     },
   };

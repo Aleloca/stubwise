@@ -1,4 +1,5 @@
 import { featureIntegrated } from "../../data/integration";
+import { isOpenableOnGoogle } from "../../data/googleDoc";
 
 // Cosa la Posta fa oltre a leggere, in questa build. Nel prototipo tutto;
 // nella build app (area 6, fetta 1) leggere, le proposte della casella e
@@ -27,7 +28,11 @@ export function openInGmail(url: string): void {
   openOnGoogle(url);
 }
 
-/** Un link di Google (Gmail, un Google Doc) fuori dall'app. */
+/**
+ * Un link di Google (Gmail, un Google Doc) fuori dall'app; un altro host non
+ * si apre, qualunque cosa abbia mandato il server (review F5a, 5).
+ */
 export function openOnGoogle(url: string): void {
+  if (!isOpenableOnGoogle(url)) return;
   window.open(url, "_blank", "noopener");
 }

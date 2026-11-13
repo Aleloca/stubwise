@@ -867,6 +867,8 @@ export interface MeetingSummary {
   email: { threadId: string; sourceId: string; at: string } | null;
   /** Build app (F5): il link al Doc di Gemini («Open the transcript» apre Google Docs). */
   docUrl?: string | null;
+  /** Build app (F5a): perché il Doc non si legge, o si legge solo in parte (`too_long`). */
+  docReason?: import("./model").MeetingDocReason | null;
 }
 
 /**

@@ -12,6 +12,7 @@ const EV = "eeeeeeee-1111-4111-8111-111111111111";
 const M1 = "dddddddd-1111-4111-8111-111111111111";
 const ACC = "aaaaaaaa-1111-4111-8111-111111111111";
 const T1 = "77777777-1111-4111-8111-111111111111";
+const NOTE_1 = "99999999-2222-4222-8222-222222222222";
 const m = meetingFunctions;
 
 beforeEach(() => {
@@ -30,6 +31,7 @@ describe("F5: il riassunto di una riunione", () => {
     installFakeServer({
       [`GET /api/me/calendar/events/${EV}/summary`]: {
         body: {
+          noteId: NOTE_1,
           eventId: EV,
           docTitle: "Weekly review – Notes by Gemini",
           doc: "ready",
@@ -40,7 +42,9 @@ describe("F5: il riassunto di una riunione", () => {
       },
     });
     expect(await m.getMeetingSummary!(EV)).toEqual({
+      noteId: NOTE_1,
       eventId: EV,
+      docReason: null,
       docTitle: "Weekly review – Notes by Gemini",
       doc: "ready",
       summary: "Si è deciso di anticipare il rilascio.",
@@ -69,6 +73,7 @@ describe("F5: il riassunto di una riunione", () => {
     installFakeServer({
       [`GET /api/me/calendar/events/${EV}/summary`]: {
         body: {
+          noteId: NOTE_1,
           eventId: EV,
           docTitle: "Notes by Gemini",
           doc: "unreachable",
@@ -238,6 +243,7 @@ describe("F5a: la riunione per nota", () => {
     expect(await m.getMeetingByNote!(NOTE)).toEqual({
       noteId: NOTE,
       eventId: null,
+      docReason: null,
       docTitle: "Weekly review – Notes by Gemini",
       doc: "ready",
       summary: "Si parte lunedì.",
@@ -265,7 +271,7 @@ describe("F5a: la riunione per nota", () => {
       status: "open",
       inProgress: true,
       dueDate: null,
-      departmentId: "dep-1",
+      departmentId: "dddddddd-9999-4999-8999-999999999999",
     };
     installFakeServer({
       [`GET /api/me/meetings/${NOTE}/tasks`]: { body: { tasks: [task], proposedTasks: 1 } },
@@ -291,5 +297,27 @@ describe("F5a: le riunioni nei namespace della build app", () => {
     installFakeServer({});
     const out = await calendar.getMeetingPrep(EV).catch((e: unknown) => e);
     expect(out).not.toBeInstanceOf(NotIntegratedError);
+  });
+});
+
+// Review F5a (5, 6): il motivo del Doc arriva al riassunto, e il link è solo di Google Docs.
+describe("F5a: il riassunto dice il motivo del Doc, e apre solo Google Docs", () => {
+  const NOTE = "99999999-3333-4333-8333-333333333333";
+  const summary = (over: Record<string, unknown>) => ({
+    [`GET /api/me/meetings/${NOTE}`]: {
+      body: { noteId: NOTE, eventId: null, docTitle: "Notes", doc: "ready", summary: "S", docUrl: null, email: null, ...over },
+    },
+  });
+
+  it("too_long e scope_missing passano", async () => {
+    installFakeServer(summary({ docReason: "too_long" }));
+    expect((await m.getMeetingByNote!(NOTE))?.docReason).toBe("too_long");
+    installFakeServer(summary({ doc: "unreachable", docReason: "scope_missing" }));
+    expect((await m.getMeetingByNote!(NOTE))?.docReason).toBe("scope_missing");
+  });
+
+  it("un link che non è di Google Docs non si apre", async () => {
+    installFakeServer(summary({ docUrl: "https://evil.test/document/d/x" }));
+    expect((await m.getMeetingByNote!(NOTE))?.docUrl).toBeNull();
   });
 });
