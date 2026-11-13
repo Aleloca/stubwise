@@ -51,4 +51,17 @@ describe("la conferma del costo della prova", () => {
     expect(region).toHaveTextContent("the cost can't be estimated");
     expect(region).not.toHaveTextContent("$");
   });
+
+  it("una stima che è solo un tetto (elenchi o input che l'esempio non ha) dice «up to»", () => {
+    render(
+      <CostConfirm
+        cost={{ claudeSteps: 50, estimateUsd: 0.5, model: "sonnet", upperBound: true }}
+        busy={false}
+        onConfirm={() => {}}
+      />,
+    );
+    expect(screen.getByRole("region", { name: "Claude in this test" })).toHaveTextContent(
+      "up to 50 times: at most $0.50",
+    );
+  });
 });

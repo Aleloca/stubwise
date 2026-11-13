@@ -152,6 +152,11 @@ function Row({
           {entry.kind === "claude" && entry.outcome === "failed" && entry.why && (
             <p className="pb-2 text-sm text-ink">{reasonWords(entry.why, t)}</p>
           )}
+          {entry.kind === "claude" && entry.outcome === "failed" && entry.reasonHidden && (
+            <p data-reason-hidden className="pb-2 text-xs text-ink-muted">
+              {t("automations.log.reasonHidden")}
+            </p>
+          )}
           {asked && <ApprovalChanges before={asked.input} after={entry.input} />}
           {view.showData && <EntryData entry={entry} ctx={ctx} />}
         </div>

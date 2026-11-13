@@ -16,6 +16,7 @@ import {
 import type {
   Automation,
   AutomationVersion,
+  ReasonCode,
   RunLogEntry,
   SimulationEffectPreview,
   SimulationEmailPreview,
@@ -126,7 +127,8 @@ export interface SimWorld extends PlanWorld {
   /** Solo il prototipo: i passi fuori dalla fetta 1. */
   /** Ognuno c'è dove la build offre il suo passo (nella build app, dalla F2, l'email). */
   outside?: {
-    claude?(step: Extract<EffectRequest, { kind: "claude" }>["step"], vars: Record<string, unknown>, ownerId: string): ClaudeResult;
+    /** `path`: il passo nella prova (un giro di un «ripeti» o di un «per ogni» ha il suo). */
+    claude?(step: Extract<EffectRequest, { kind: "claude" }>["step"], vars: Record<string, unknown>, ownerId: string, path: string): ClaudeResult;
     resolveProject?(eff: Extract<EffectRequest, { kind: "resolve_project" }>, ownerId: string): EffectOutcome;
     previewEmail?(sim: Sim, a: Automation, eff: ActionEffect, where: { stepId: string; path: string }): Previewed;
     previewStart?(sim: Sim, a: Automation, eff: ActionEffect, where: { stepId: string; path: string }): Previewed;
@@ -254,7 +256,7 @@ export function createSimulator(w: SimWorld) {
   /** Esegue un effetto per finta: un'anteprima al posto della scrittura, e l'input per il motore. */
   function execute(sim: Sim, a: Automation, eff: EffectRequest): EngineInput {
     if (eff.kind === "claude") {
-      const r = outsideOf("claude", "claude")(eff.step, eff.vars, sim.ownerId);
+      const r = outsideOf("claude", "claude")(eff.step, eff.vars, sim.ownerId, eff.path);
       sim.preview.claude.push({
         stepId: eff.stepId,
         path: eff.path,
@@ -638,10 +640,37 @@ export function createSimulator(w: SimWorld) {
     };
   }
 
+  /**
+   * Il passo in sospeso fallisce da fuori, come fa l'esecutore vero quando il
+   * motore non può nemmeno leggere la risposta (Claude: `claude_invalid`).
+   */
+  function failPending(sim: Sim, error: string, reason: string, why: ReasonCode): void {
+    const eff = sim.pending;
+    if (!eff) throw invalid("stopped");
+    const st = sim.engine;
+    const step = stepAt(st.flow.steps, eff.path);
+    sim.log.push({
+      at: st.now,
+      stepId: step?.id ?? eff.stepId,
+      path: eff.path,
+      kind: step?.kind ?? "claude",
+      input: {},
+      output: {},
+      reason,
+      why,
+      byId: null,
+      effects: [],
+      outcome: "failed",
+    });
+    sim.pending = null;
+    sim.engine = { ...st, status: "failed", error, awaiting: null, waitingUntil: null };
+  }
+
   return {
     start,
     handle,
     stepOnce,
+    failPending,
     view,
     approversFor,
     previewOf,

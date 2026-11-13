@@ -4,7 +4,7 @@ import { isIntegrated } from "../../integration";
 import { asPrototypeError, createAutomationRefs, inPrototypeWords } from "./automationRefs";
 import { createRealAutomations, type AutomationsApi } from "./automations";
 import { SimulationConfigError } from "../../../domain/automations/simCore";
-import { createRealSimulation } from "./automationSimulate";
+import { ClaudeAnswerUnreadable, createRealSimulation } from "./automationSimulate";
 import { appClient, session } from "./client";
 import { citableSearch } from "./globalSearch";
 import { myAccounts } from "./google";
@@ -48,7 +48,7 @@ const simulation = createRealSimulation({
   // F3: i passi di Claude della prova sul server (`testEstimate`, `testClaude`).
   claude: {
     estimate: (automationId, version, event) =>
-      claudeRoute(() =>
+      claudeRoute(automationId, () =>
         appClient().automations.testEstimate(refs.automation(automationId).code, { version, event }),
       ),
     async run(automationId, body) {
@@ -61,22 +61,32 @@ const simulation = createRealSimulation({
           const result = (error.details as { result?: Record<string, unknown> } | undefined)?.result;
           if (result && !("raw" in result))
             return { reason: "", ...result } as ClaudeResult & { truncated?: string[] };
-          throw new Error("invalid: claude_invalid");
+          throw new ClaudeAnswerUnreadable();
         }
-        return claudeRoute(() => Promise.reject(error));
+        return claudeRoute(automationId, () => Promise.reject(error));
       }
     },
   },
 });
 
-/** Le parole della prova per le rotte di Claude: budget finito, un server senza la F3, il resto. */
-async function claudeRoute<T>(call: () => Promise<T>): Promise<T> {
+/**
+ * Le parole della prova per le rotte di Claude: budget finito, il resto. Un
+ * 404 lo dà un server senza la F3 ma anche un'automazione eliminata o non più
+ * visibile: si rilegge l'automazione per dirli diversi (review F3, m6).
+ */
+async function claudeRoute<T>(automationId: string, call: () => Promise<T>): Promise<T> {
   try {
     return await call();
   } catch (error) {
     if (error instanceof ApiError && error.status === 409 && error.code === "budget")
       throw new Error("invalid: budget");
-    if (error instanceof ApiError && error.status === 404) throw new Error("invalid: not_available");
+    if (error instanceof ApiError && error.status === 404) {
+      const still = await appClient()
+        .automations.get(refs.automation(automationId).code)
+        .then(() => true)
+        .catch((e: unknown) => !(e instanceof ApiError && e.status === 404));
+      throw new Error(still ? "invalid: not_available" : "not_found");
+    }
     throw asPrototypeError(error);
   }
 }

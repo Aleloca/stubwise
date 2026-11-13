@@ -7,7 +7,11 @@ import type {
   Step,
 } from "@stubwise/shared";
 import { SimulationConfigError } from "../../../domain/automations/simCore";
-import { createRealSimulation, type SimulationApi } from "./automationSimulate";
+import {
+  ClaudeAnswerUnreadable,
+  createRealSimulation,
+  type SimulationApi,
+} from "./automationSimulate";
 
 // R3 della F1 (area 7): la prova nella build app gira nel client, sul nucleo
 // puro, coi fatti che il server risolve (`GET …/examples`). Non scrive
@@ -211,6 +215,14 @@ describe("la prova nella build app", () => {
     }
   });
 
+  it("dopo un salvataggio della bozza le prove aperte di quell'automazione si buttano (review F3, m5)", async () => {
+    const { api } = fakeApi(context([task()]));
+    const s = createRealSimulation(api);
+    const id = await s.startSimulation("a-1", "draft", {});
+    s.forgetContext("a-1");
+    expect(await s.getSimulation(id)).toBeNull();
+  });
+
   it("dopo un salvataggio della bozza la prova rilegge il contesto (review, minore)", async () => {
     const { api, calls } = fakeApi(context([task()]));
     const s = createRealSimulation(api);
@@ -368,8 +380,8 @@ describe("la prova nella build app", () => {
     expect(v.preview.notifications).toHaveLength(1);
     // Una conferma vale per tutta la prova: due passi, una stima.
     expect(runs).toEqual([
-      { automationId: "a-1", version: 1, path: "0", vars: expect.any(Object) },
-      { automationId: "a-1", version: 1, path: "1", vars: expect.any(Object) },
+      { automationId: "a-1", version: 1, rev: 7, path: "0", vars: expect.any(Object) },
+      { automationId: "a-1", version: 1, rev: 7, path: "1", vars: expect.any(Object) },
     ]);
     // La stima porta l'evento dell'esempio; una sola per la prova.
     expect(calls.filter((c) => c.startsWith("GET estimate"))).toEqual([
@@ -378,6 +390,73 @@ describe("la prova nella build app", () => {
     // Un input tagliato si dice in testa alla motivazione, come nell'esecuzione vera.
     expect(v.preview.claude[0]!.reason).toMatch(/^\[Input tagliati a 20 000 caratteri: task\.titolo\] /);
     expect(v.preview.claude[1]!.reason).toBe("C'è la firma");
+  });
+
+  const claudeTrial = (steps: Step[], run: (body: { path: string }) => Promise<{ outcome?: string; reason: string }>) => {
+    const ctx = context(steps);
+    const { api } = fakeApi(ctx);
+    const calls: string[] = [];
+    const s = createRealSimulation({
+      ...api,
+      claude: {
+        estimate: async () => ({ claudeSteps: steps.length, estimateUsd: 0.01, model: "sonnet" }),
+        run: async (_id, body) => {
+          calls.push(body.path);
+          return run(body);
+        },
+      },
+    });
+    return { s, calls };
+  };
+  const ask = (id: string) =>
+    ({ id, kind: "claude", instruction: "x", inputs: [], outcomes: ["si", "no"], fields: [], branches: {} }) as unknown as Step;
+  const confirmed = async (s: ReturnType<typeof createRealSimulation>) => {
+    const id = await s.startSimulation("a-1", "draft", {});
+    await s.simulationStep(id, { kind: "run" });
+    await s.confirmSimulationCost(id);
+    return id;
+  };
+
+  it("una risposta non JSON fa fallire il passo con claude_invalid, come l'esecuzione vera (e non si richiama)", async () => {
+    const { s, calls } = claudeTrial([ask("c1")], async () => {
+      throw new ClaudeAnswerUnreadable();
+    });
+    const id = await confirmed(s);
+    const v = await s.simulationStep(id, { kind: "run" });
+    expect(v.status).toBe("failed");
+    expect(v.error).toBe("claude_invalid");
+    expect(v.log.at(-1)).toMatchObject({ kind: "claude", outcome: "failed", why: { code: "claudeInvalid" } });
+    expect(calls).toEqual(["0"]);
+  });
+
+  it("un errore a metà di «run» tiene il progresso già pagato e lo dice (interrupted)", async () => {
+    const { s, calls } = claudeTrial([ask("c1"), ask("c2")], async ({ path }) => {
+      if (path === "1") throw new Error("invalid: budget");
+      return { outcome: "si", reason: "ok" };
+    });
+    const id = await confirmed(s);
+    const v = await s.simulationStep(id, { kind: "run" });
+    expect(v.interrupted).toBe("budget");
+    expect(v.preview.claude.map((c) => c.stepId)).toEqual(["c1"]);
+    expect((await s.getSimulation(id))!.preview.claude).toHaveLength(1);
+    expect(calls).toEqual(["0", "1"]);
+  });
+
+  it("in un «ripeti finché» ogni giro chiede la sua risposta, anche con gli stessi dati", async () => {
+    const loop = {
+      id: "r",
+      kind: "repeatUntil",
+      // Mai vero: si ripete fino al massimo.
+      until: { left: { value: 1 }, op: "is", right: { value: 2 } },
+      max: 3,
+      steps: [ask("c1")],
+      onLimit: [],
+    } as unknown as Step;
+    const { s, calls } = claudeTrial([loop], async () => ({ outcome: "si", reason: "ok" }));
+    const id = await confirmed(s);
+    await s.simulationStep(id, { kind: "run" });
+    expect(new Set(calls).size).toBe(calls.length);
+    expect(calls.length).toBeGreaterThan(1);
   });
 
   it("senza la rotta di Claude (un server della F2) un passo di Claude non è disponibile", async () => {

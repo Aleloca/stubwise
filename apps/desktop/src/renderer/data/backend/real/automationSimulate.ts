@@ -44,14 +44,29 @@ export interface SimulationApi {
       automationId: string,
       version: number | "draft",
       event: Record<string, unknown>,
-    ): Promise<{ claudeSteps: number; estimateUsd: number | null; model: string }>;
+    ): Promise<{ claudeSteps: number; estimateUsd: number | null; model: string; upperBound?: boolean }>;
     /** La risposta di Claude per il passo; `truncated`: gli input tagliati a 20 000 caratteri. */
     run(
       automationId: string,
-      body: { version: number; path: string; vars: Record<string, unknown> },
+      /** `rev`: la revisione provata; cambiata, il server risponde 409 `stale`. */
+      body: { version: number; rev: number | null; path: string; vars: Record<string, unknown> },
     ): Promise<ClaudeResult & { truncated?: string[] }>;
   };
 }
+
+/**
+ * La risposta di Claude non si è potuta leggere (non JSON, 422 con `raw`): il
+ * passo fallisce `claude_invalid`, come nell'esecuzione vera, e non si richiama.
+ */
+export class ClaudeAnswerUnreadable extends Error {
+  constructor() {
+    super("claude_invalid");
+  }
+}
+
+/** Il codice di un errore delle rotte di Claude, per le parole della pagina. */
+const codeOf = (failure: unknown) =>
+  failure instanceof Error ? failure.message.replace(/^invalid: /, "") : "other";
 
 /** Un passo di Claude di cui la prova non ha ancora la risposta del server. */
 class ClaudePending extends Error {
@@ -60,8 +75,9 @@ class ClaudePending extends Error {
   }
 }
 
-const answerKey = (stepId: string, vars: Record<string, unknown>) =>
-  `${stepId}:${JSON.stringify(vars)}`;
+/** Il passo nella prova (col suo giro) e i suoi dati: ogni giro chiede la sua risposta. */
+const answerKey = (path: string, vars: Record<string, unknown>) =>
+  `${path}:${JSON.stringify(vars)}`;
 
 const notFound = () => new ApiError(404, "not_found", "not_found");
 
@@ -134,8 +150,13 @@ export function contextWorld(
       // F3: la risposta del server per questo passo e queste variabili, o «in attesa».
       ...(answers
         ? {
-            claude(step: { id: string; inputs: string[] }, vars: Record<string, unknown>) {
-              const key = answerKey(step.id, vars);
+            claude(
+              step: { id: string; inputs: string[] },
+              vars: Record<string, unknown>,
+              _ownerId: string,
+              path: string,
+            ) {
+              const key = answerKey(path, vars);
               const r = answers.get(key);
               if (!r) throw new ClaudePending(key);
               // L'input del motore: la risposta (già verificata dal server, e di
@@ -184,9 +205,11 @@ interface Trial {
   /** F3: le risposte di Claude, il costo stimato e se chi prova l'ha confermato (una volta). */
   answers: Map<string, ClaudeResult>;
   event: Record<string, unknown>;
-  cost: { claudeSteps: number; estimateUsd: number | null; model: string } | null;
+  cost: { claudeSteps: number; estimateUsd: number | null; model: string; upperBound?: boolean } | null;
   confirmed: boolean;
   waitingCost: boolean;
+  /** L'ultima interruzione per un errore di una rotta di Claude (vedi `SimulationView.interrupted`). */
+  interrupted: string | null;
 }
 
 /** La prova sopra le rotte del server: la stessa API del prototipo (`data/automations/simulate.ts`). */
@@ -212,6 +235,7 @@ export function createRealSimulation(api: SimulationApi) {
   const view = (t: Trial): SimulationView => ({
     ...t.run.view(api.me(), t.sim, t.a),
     costToConfirm: t.waitingCost ? t.cost : null,
+    interrupted: t.interrupted,
   });
 
   async function markIfDone(t: Trial, wasDone: boolean) {
@@ -253,6 +277,7 @@ export function createRealSimulation(api: SimulationApi) {
         cost: null,
         confirmed: false,
         waitingCost: false,
+        interrupted: null,
       };
       trials.set(sim.id, t);
       // Un flusso che con questo esempio non fa niente finisce già qui: è finito bene.
@@ -262,6 +287,7 @@ export function createRealSimulation(api: SimulationApi) {
 
     async simulationStep(id: string, input: SimulationInput): Promise<SimulationView> {
       const t = mine(id);
+      t.interrupted = null;
       const wasDone = t.sim.engine.status === "done";
       for (;;) {
         try {
@@ -271,17 +297,38 @@ export function createRealSimulation(api: SimulationApi) {
           if (!(error instanceof ClaudePending) || !api.claude) throw error;
           // Il primo passo di Claude: il costo stimato, da confermare una volta (D4, F3-3 = a).
           if (!t.confirmed) {
-            t.cost ??= await api.claude.estimate(t.ctx.automation.id, t.version, t.event);
+            try {
+              t.cost ??= await api.claude.estimate(t.ctx.automation.id, t.version, t.event);
+            } catch (failure) {
+              t.interrupted = codeOf(failure);
+              break;
+            }
             t.waitingCost = true;
             break;
           }
           const path = t.sim.pending?.path ?? "";
           const vars = t.sim.pending?.kind === "claude" ? t.sim.pending.vars : {};
-          const { truncated = [], ...answer } = await api.claude.run(t.ctx.automation.id, {
-            version: t.ctx.version,
-            path,
-            vars,
-          });
+          let reply: Awaited<ReturnType<NonNullable<SimulationApi["claude"]>["run"]>>;
+          try {
+            reply = await api.claude.run(t.ctx.automation.id, {
+              version: t.ctx.version,
+              rev: t.ctx.rev,
+              path,
+              vars,
+            });
+          } catch (failure) {
+            if (failure instanceof ClaudeAnswerUnreadable) {
+              t.run.failPending(t.sim, "claude_invalid", "La risposta di Claude non era leggibile.", {
+                code: "claudeInvalid",
+              });
+              break;
+            }
+            // Il budget finito o un altro guasto della rotta: i passi già fatti (e
+            // pagati) restano, la prova si ferma qui e la pagina lo dice.
+            t.interrupted = codeOf(failure);
+            break;
+          }
+          const { truncated = [], ...answer } = reply;
           // Come l'esecuzione vera, con la stessa funzione: gli input tagliati in testa alla motivazione.
           answer.reason = `${truncationNote(truncated)}${answer.reason}`;
           t.answers.set(error.key, answer);
@@ -311,9 +358,14 @@ export function createRealSimulation(api: SimulationApi) {
     },
 
     /** Al cambio di sessione le prove si buttano. */
-    /** Dopo un salvataggio: il contesto letto era del flusso di prima. */
+    /**
+     * Dopo un salvataggio: il contesto letto era del flusso di prima, e una
+     * prova aperta chiederebbe al server il passo NUOVO controllandolo col
+     * vecchio (review F3, m5): si buttano tutte e due.
+     */
     forgetContext(automationId: string): void {
       for (const k of [...contexts.keys()]) if (k.startsWith(`${automationId}:`)) contexts.delete(k);
+      for (const [id, t] of trials) if (t.ctx.automation.id === automationId) trials.delete(id);
     },
 
     reset(): void {

@@ -198,6 +198,13 @@ export function useTestRun({
     try {
       const after = await step.mutateAsync({ id: simRef.current, input });
       announce(before, after);
+      // F3: fermata da una rotta di Claude (il budget…), coi passi già fatti tenuti.
+      if (after.interrupted)
+        toast.error(
+          t(`automations.test.stop.errors.${after.interrupted}`, {
+            defaultValue: t("automations.test.stop.error"),
+          }),
+        );
       const claudeBefore = before?.preview.claude.length ?? 0;
       const fresh = after.preview.claude.slice(claudeBefore);
       for (const c of fresh) await streamClaude(c.path, c.reason);

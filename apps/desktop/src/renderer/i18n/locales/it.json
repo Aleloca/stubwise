@@ -7056,6 +7056,13 @@
       "nextDraft_one": "Nella bozza della v{{n}}: {{count}} problema — non si pubblica finché non è risolto",
       "nextDraft_other": "Nella bozza della v{{n}}: {{count}} problemi — non si pubblica finché non sono risolti"
     },
+    "providerCodes": {
+      "limited": "il servizio AI sta limitando le richieste",
+      "quota_wait": "la quota dell'account AI per ora è finita",
+      "unavailable": "il servizio AI non è disponibile",
+      "no_answer": "il servizio AI non ha dato risposta",
+      "error": "il servizio AI ha avuto un errore"
+    },
     "issue": {
       "incomplete": "Manca qualcosa che serve a questo passo",
       "unknown_ref": "Usa un dato o un'automazione che non c'è più",
@@ -7229,6 +7236,8 @@
       "other": "qualcosa è andato storto",
       "permission_lost": "permesso perso",
       "mailbox_expired": "il collegamento della casella è scaduto",
+      "provider_error": "Claude non ha risposto",
+      "claude_invalid": "la risposta di Claude non si è potuta leggere",
       "mailbox_scope": "la casella non ha il permesso d'invio",
       "token_expired": "il collegamento della casella è scaduto",
       "google_scope_missing": "la casella va ricollegata",
@@ -7282,6 +7291,11 @@
       "mailboxExpired_would": "La casella del proprietario ({{owner}}) è scaduta: l'email non partirebbe finché non si ricollega.",
       "mailboxScope": "La casella del proprietario ({{owner}}) non ha il permesso d'invio: va ricollegata prima di riprovare.",
       "mailboxScope_would": "La casella del proprietario ({{owner}}) non ha il permesso d'invio: l'email non partirebbe finché non viene ricollegata.",
+      "providerError": "Claude non ha risposto ({{code}}), tentativo {{attempt}}: riprova da solo.",
+      "providerFailed": "Claude non ha risposto dopo {{attempts}} tentativi: {{code}}. Il passo è fallito; riprovalo quando il servizio torna.",
+      "monthlyBudget": "In attesa: il budget AI mensile è finito. Riparte da solo quando il budget torna disponibile.",
+      "claudeInvalid": "La risposta di Claude non si è potuta leggere: il passo è fallito. Riprovalo per chiedere di nuovo.",
+      "claudeInvalid_would": "La risposta di Claude non si è potuta leggere: il passo fallirebbe.",
       "emailFailed": "L'email non è partita: {{error}}.",
       "invalidAddress": "«{{to}}» non è un indirizzo email.",
       "addressNotFound": "L'indirizzo «{{to}}» non esiste: l'email è tornata indietro.",
@@ -8178,6 +8192,8 @@
         "title": "Claude in questa prova",
         "body_one": "Questa prova chiede a Claude una volta: circa {{usd}} dal budget AI mensile dell'istanza.",
         "body_other": "Questa prova chiede a Claude {{count}} volte: circa {{usd}} dal budget AI mensile dell'istanza.",
+        "bodyUpTo_one": "Questa prova chiede a Claude al più una volta: al massimo {{usd}} dal budget AI mensile dell'istanza.",
+        "bodyUpTo_other": "Questa prova chiede a Claude fino a {{count}} volte: al massimo {{usd}} dal budget AI mensile dell'istanza.",
         "bodyUnknown_one": "Questa prova chiede a Claude una volta, dal budget AI mensile dell'istanza: per questo modello il costo non si può stimare.",
         "bodyUnknown_other": "Questa prova chiede a Claude {{count}} volte, dal budget AI mensile dell'istanza: per questo modello il costo non si può stimare.",
         "confirm": "Prova con Claude"
@@ -8424,7 +8440,10 @@
         "errors": {
           "budget": "Il budget AI mensile è finito: Claude non può rispondere in questa prova finché non viene alzato o finisce il mese.",
           "claude_invalid": "La risposta di Claude non si è potuta leggere: riprova la prova.",
-          "not_available": "I passi di Claude non sono ancora disponibili su questo server."
+          "not_available": "I passi di Claude non sono ancora disponibili su questo server.",
+          "not_found": "Questa automazione non c'è più, o non la vedi.",
+          "stale": "La bozza è cambiata mentre provavi: ricomincia la prova.",
+          "test_busy": "È in corso un altro passo di una prova di questa automazione: riprova fra poco."
         },
         "noProjects": "Non vedi nessun progetto che il proprietario potrebbe scegliere, quindi la prova non può andare avanti da qui. Un'esecuzione vera aspetterebbe che il proprietario ne scelga uno.",
         "connectMailbox": "Collega una casella prima di accenderla",

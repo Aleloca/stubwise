@@ -305,4 +305,83 @@ describe("le esecuzioni con Claude (F3, R4)", () => {
       ),
     ).toBeInTheDocument();
   });
+
+  it("anche su una riga di Claude fallita la motivazione nascosta lo dice (review F3, m8)", async () => {
+    install({
+      "GET /api/automations/AUD-A1/runs/8": {
+        body: run({
+          status: "failed",
+          cursor: "0",
+          error: "unknown_outcome",
+          log: [
+            {
+              at: "2026-11-13T09:00:00.000Z",
+              stepId: "c1",
+              path: "0",
+              kind: "claude",
+              outcome: "failed",
+              input: {},
+              output: {},
+              reason: null,
+              reasonHidden: true,
+              why: { code: "unknownOutcome", params: { outcome: "forse" } },
+              byId: null,
+              effects: [],
+            },
+          ],
+        }),
+      },
+    });
+    renderRoute("/automations/AUD-A1/runs/8");
+    expect(
+      await screen.findByText(
+        /Claude's reasoning quotes an email you can't see/,
+        {},
+        { timeout: 3000 },
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("i tentativi falliti del provider e il fallimento finale, in parole (fix F3 di 72)", async () => {
+    const line = (over: Record<string, unknown>) => ({
+      at: "2026-11-13T09:00:00.000Z",
+      stepId: "c1",
+      path: "0",
+      kind: "claude",
+      input: {},
+      output: {},
+      reason: null,
+      byId: null,
+      effects: [],
+      ...over,
+    });
+    install({
+      "GET /api/automations/AUD-A1/runs/8": {
+        body: run({
+          status: "failed",
+          cursor: "0",
+          error: "provider_error",
+          log: [
+            line({ outcome: "waiting", why: { code: "monthlyBudget" } }),
+            line({
+              outcome: "waiting",
+              why: { code: "providerError", params: { code: "limited", attempt: 1 } },
+            }),
+            line({
+              outcome: "failed",
+              why: { code: "providerFailed", params: { code: "unavailable", attempts: 8 } },
+            }),
+          ],
+        }),
+      },
+    });
+    renderRoute("/automations/AUD-A1/runs/8");
+    expect(
+      await screen.findAllByText(
+        /after 8 attempts: the AI service is unavailable/,
+        {},
+        { timeout: 3000 },
+      ),
+    ).not.toHaveLength(0);
+  });
 });

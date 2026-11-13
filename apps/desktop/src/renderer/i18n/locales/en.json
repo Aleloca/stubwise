@@ -7056,6 +7056,13 @@
       "nextDraft_one": "In the draft of v{{n}}: {{count}} problem — it can't be published until it's fixed",
       "nextDraft_other": "In the draft of v{{n}}: {{count}} problems — it can't be published until they're fixed"
     },
+    "providerCodes": {
+      "limited": "the AI service is limiting requests",
+      "quota_wait": "the AI account's quota is used up for now",
+      "unavailable": "the AI service is unavailable",
+      "no_answer": "the AI service gave no answer",
+      "error": "the AI service had an error"
+    },
     "issue": {
       "incomplete": "Something this step needs is missing",
       "unknown_ref": "It uses a field or an automation that isn't available any more",
@@ -7229,6 +7236,8 @@
       "other": "something went wrong",
       "permission_lost": "permission lost",
       "mailbox_expired": "the mailbox connection expired",
+      "provider_error": "Claude didn't answer",
+      "claude_invalid": "Claude's answer couldn't be read",
       "mailbox_scope": "the mailbox can't send email",
       "token_expired": "the mailbox connection expired",
       "google_scope_missing": "the mailbox needs to be reconnected",
@@ -7282,6 +7291,11 @@
       "mailboxExpired_would": "The owner's mailbox ({{owner}}) has expired: the email wouldn't be sent until it's reconnected.",
       "mailboxScope": "The owner's mailbox ({{owner}}) can't send email: reconnect it before retrying.",
       "mailboxScope_would": "The owner's mailbox ({{owner}}) can't send email: the email wouldn't be sent until it's reconnected.",
+      "providerError": "Claude didn't answer ({{code}}), attempt {{attempt}}: it tries again on its own.",
+      "providerFailed": "Claude didn't answer after {{attempts}} attempts: {{code}}. The step failed; retry it when the service is back.",
+      "monthlyBudget": "Waiting: the monthly AI budget is used up. It starts again on its own when the budget is available.",
+      "claudeInvalid": "Claude's answer couldn't be read: the step failed. Retry it to ask again.",
+      "claudeInvalid_would": "Claude's answer couldn't be read: the step would fail.",
       "emailFailed": "The email wasn't sent: {{error}}.",
       "invalidAddress": "“{{to}}” isn't an email address.",
       "addressNotFound": "The address “{{to}}” doesn't exist: the email bounced.",
@@ -8178,6 +8192,8 @@
         "title": "Claude in this test",
         "body_one": "This test asks Claude once: about {{usd}} from the instance's monthly AI budget.",
         "body_other": "This test asks Claude {{count}} times: about {{usd}} from the instance's monthly AI budget.",
+        "bodyUpTo_one": "This test asks Claude up to once: at most {{usd}} from the instance's monthly AI budget.",
+        "bodyUpTo_other": "This test asks Claude up to {{count}} times: at most {{usd}} from the instance's monthly AI budget.",
         "bodyUnknown_one": "This test asks Claude once, from the instance's monthly AI budget: the cost can't be estimated for this model.",
         "bodyUnknown_other": "This test asks Claude {{count}} times, from the instance's monthly AI budget: the cost can't be estimated for this model.",
         "confirm": "Test with Claude"
@@ -8424,7 +8440,10 @@
         "errors": {
           "budget": "The monthly AI budget is used up: Claude can't answer in this test until it's raised or the month ends.",
           "claude_invalid": "Claude's answer couldn't be read: try the test again.",
-          "not_available": "Claude steps aren't available on this server yet."
+          "not_available": "Claude steps aren't available on this server yet.",
+          "not_found": "This automation isn't there any more, or you can't see it.",
+          "stale": "The draft changed while testing: start the test again.",
+          "test_busy": "Another step of a test of this automation is running: try again in a moment."
         },
         "noProjects": "You can't see any project the owner could choose, so the test can't go on from here. A real run would wait for the owner to choose one.",
         "connectMailbox": "Connect a mailbox before you turn it on",

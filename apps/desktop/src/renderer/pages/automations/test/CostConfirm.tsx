@@ -13,7 +13,8 @@ export function CostConfirm({
   onConfirm,
 }: {
   /** `estimateUsd: null`: un modello senza tariffa nota, il costo non si stima. */
-  cost: { claudeSteps: number; estimateUsd: number | null; model: string };
+  /** `upperBound`: la stima è un tetto, non un valore («fino a …»). */
+  cost: { claudeSteps: number; estimateUsd: number | null; model: string; upperBound?: boolean };
   busy: boolean;
   onConfirm: () => void;
 }) {
@@ -40,7 +41,9 @@ export function CostConfirm({
       <p className="text-sm text-ink-muted">
         {usd === null
           ? t("automations.test.cost.bodyUnknown", { count: cost.claudeSteps })
-          : t("automations.test.cost.body", { count: cost.claudeSteps, usd })}
+          : cost.upperBound
+            ? t("automations.test.cost.bodyUpTo", { count: cost.claudeSteps, usd })
+            : t("automations.test.cost.body", { count: cost.claudeSteps, usd })}
       </p>
       <button
         type="button"

@@ -496,6 +496,11 @@ export function reasonWords(
     params.role = t(`automations.roles.${params.role}`, { defaultValue: params.role });
   // Il codice del mittente della Posta (`emailFailed`, F2) si dice in parole.
   if (typeof params.error === "string") params.error = errorWords(params.error, t);
+  // Il guasto del provider di Claude (F3): il codice in parole, mai il testo grezzo.
+  if ((why.code === "providerError" || why.code === "providerFailed") && typeof params.code === "string")
+    params.code = t(`automations.providerCodes.${params.code}`, {
+      defaultValue: t("automations.providerCodes.error"),
+    });
   return t(`automations.reasons.${why.code}`, {
     ...params,
     ...(opts.would ? { context: "would" } : {}),
