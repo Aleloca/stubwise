@@ -359,6 +359,15 @@ export async function listRuns(
     .map((r) => runRow(me, r));
 }
 
+/** L'id di un'esecuzione per codice e numero (`#/automations/<CODE>/runs/<n>`); `null` se non la vedo. */
+export async function findRun(automationCode: string, n: number): Promise<string | null> {
+  const me = await gate("automations.findRun");
+  const run = state.automationRuns.find(
+    (r) => r.n === n && automationById(r.automationId)?.code === automationCode,
+  );
+  return run && canSeeRun(me, run) ? run.id : null;
+}
+
 /** Un'esecuzione col suo registro e i permessi; `null` se non la vedo (R-G5). */
 export async function getRun(id: string): Promise<AutomationRunDetail | null> {
   const me = await gate("automations.getRun");

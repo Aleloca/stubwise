@@ -19,6 +19,8 @@ export interface RunRefEntry {
   /** Il passo in attesa e il suo giro, visti nell'ultima lettura. */
   path: string | null;
   round: number;
+  /** Lo stato visto (le voci di «Da decidere» non lo dicono: resta quello di prima). */
+  status?: string;
 }
 
 export function createAutomationRefs() {
@@ -40,12 +42,14 @@ export function createAutomationRefs() {
       n: number;
       cursor?: string | null;
       round?: number;
+      status?: string;
     }) {
       runs.set(r.id, {
         code: r.automationCode,
         n: r.n,
         path: r.cursor ?? null,
         round: r.round ?? 0,
+        status: r.status ?? runs.get(r.id)?.status,
       });
     },
     run(id: string): RunRefEntry {

@@ -3,6 +3,7 @@ import { automations } from ".";
 import { setAppClientForTests } from "./client";
 import { installFakeServer, PROJECT_ID, serverProject, serverTask } from "./fakeServer";
 import { listNotifications } from "./notifications";
+import { search } from "./search";
 import { toMilestone } from "./statuses";
 import { getTaskByCode } from "./tasks";
 
@@ -62,6 +63,16 @@ describe("⌘K: automazioni ed esecuzioni dal server", () => {
     const { seen } = installFakeServer({ "GET /api/search": { body: results } });
     expect(await automations.searchAutomations("avv")).toEqual([hit]);
     expect(seen.map((r) => r.path)).toEqual(["/api/search?q=avv&citable=true"]);
+  });
+
+  it("le task e le automazioni di ⌘K vengono da una sola ricerca (review, minore)", async () => {
+    flag.on = true;
+    const { seen } = installFakeServer({
+      "GET /api/search": { body: results },
+      "GET /api/projects": { body: [] },
+    });
+    await Promise.all([search("avv"), automations.searchAutomations("avv")]);
+    expect(seen.filter((r) => r.path.startsWith("/api/search"))).toHaveLength(1);
   });
 
   it("a destinazione spenta non si chiede niente", async () => {
