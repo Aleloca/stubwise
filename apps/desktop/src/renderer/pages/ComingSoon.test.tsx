@@ -400,6 +400,8 @@ const INTEGRATED_CALLS = new Set([
   "automations.startManual",
   "automations.startSimulation",
   "automations.whenAutomationsIdle",
+  // Area 5: la ricerca nei Docs del progetto (`data/backend/real/docs.ts`), che la palette usa.
+  "docs.searchDocs",
   // Area 8, F1 (`releases-prs`): le PR aperte, la coda e le loro scritture
   // (`data/backend/real/releasesLive.ts`).
   "releases.listOpenPrs",
@@ -605,9 +607,9 @@ describe("aree non integrate nella build app", () => {
     expect(calls).not.toContain("releases.searchReleases");
     expect(calls).not.toContain("support.searchSupport");
     expect(calls).not.toContain("servers.searchServers");
-    // Le chiamate dell'area 8 fuori dalle integrate: nessuna. (La ricerca della
-    // doc di prodotto, area 11, è un rimando a sé: segnalata a 46.)
-    expect(outside().filter((c) => /^(releases|support|servers)\./.test(c))).toEqual([]);
+    // Nemmeno la doc di prodotto (area 11, spenta) parte.
+    expect(calls).not.toContain("productDocs.searchProductPages");
+    expect(outside()).toEqual([]);
   });
 
   // Area 8, F1 (46): «Repositories» ridotta, senza «nuovo repository» né l'editor dell'area 9.
