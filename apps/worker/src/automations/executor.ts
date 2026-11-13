@@ -446,7 +446,8 @@ async function notifyOwner(turn: Turn, kind: "automation.failed" | "automation.p
 }
 
 async function notifyApprovers(turn: Turn, approverIds: readonly string[]): Promise<void> {
+  const path = cursorOf(turn.run).path;
   for (const personId of approverIds) {
-    await publishNotification(turn.deps.db, eventOf(turn, "automation.approval"), { projectId: turn.automation.projectId, accountUserId: personId });
+    await publishNotification(turn.deps.db, { ...eventOf(turn, "automation.approval"), ...(path ? { path } : {}) }, { projectId: turn.automation.projectId, accountUserId: personId });
   }
 }

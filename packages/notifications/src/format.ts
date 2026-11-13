@@ -869,6 +869,8 @@ export interface AutomationNotificationEvent {
   runId: string | null;
   runNumber: number | null;
   message?: string;
+  /** Solo `automation.approval`: il passo che aspettava alla pubblicazione (si decide su quello). */
+  path?: string;
 }
 
 /** Unione tipata di tutti gli eventi che generano una notifica. */

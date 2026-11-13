@@ -30,6 +30,7 @@ function item(overrides: Partial<Reader<InboxItem>> & Pick<InboxItem, "id" | "ki
     reviewOutcome: null,
     objectGone: false,
     chat: null,
+    automation: null,
     ...overrides,
   } as Reader<InboxItem>;
 }

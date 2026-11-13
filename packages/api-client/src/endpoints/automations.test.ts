@@ -54,6 +54,13 @@ describe("client.automations", () => {
     expect(call(fetchImpl, 5)).toMatchObject({ url: "https://x.test/api/automations/AUD-A1/draft?expectedRev=4", method: "DELETE" });
   });
 
+  it("le letture personali", async () => {
+    const { c, fetchImpl } = client({ items: [] });
+    await c.automations.myApprovals();
+    await c.automations.myRuns();
+    expect([0, 1].map((i) => call(fetchImpl, i).url)).toEqual(["https://x.test/api/me/automation-approvals", "https://x.test/api/me/automation-runs"]);
+  });
+
   it("l'elenco delle esecuzioni", async () => {
     const { c, fetchImpl } = client({ items: [], nextCursor: null });
     await c.automations.runs({ automation: "AUD-A1", status: "failed", cursor: "c1" });

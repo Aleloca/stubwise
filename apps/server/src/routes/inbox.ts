@@ -107,6 +107,8 @@ function toInboxItemView(item: ServiceInboxItem): InboxItem {
     objectGone: item.objectGone,
     // Area 4, Chat: il messaggio di una card `chat.mention`, derivato dal servizio.
     chat: item.chat ?? null,
+    // Area 7: lo stato dell'esecuzione di una card `automation.*`, derivato dal servizio.
+    automation: item.automation ?? null,
     jobId: item.jobId,
     createdAt: item.createdAt.toISOString(),
     readAt: item.readAt?.toISOString() ?? null,

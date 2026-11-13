@@ -22,6 +22,8 @@
 import { chatMentionsFor } from "../chat/service.js";
 import {
   aiJobs,
+  automationRuns,
+  automations,
   calendarEvents,
   deletedTickets,
   emailMessages,
@@ -31,6 +33,7 @@ import {
   comments,
   notifications,
   prReviews,
+  projectMembers,
   projects,
   tickets,
   users,
@@ -56,6 +59,7 @@ import {
   type NotificationEvent,
   type NotificationKind,
   type SnoozeUntil,
+  userIsFullAdmin,
 } from "@stubwise/notifications";
 import {
   inboxGoogleSchema,
@@ -79,6 +83,7 @@ import { answerQuestion, type AnswerInput } from "./questions.js";
 import { excerpt } from "./task-notify.js";
 import { loadViaClaude, type ViaClaudeFields } from "./via-claude.js";
 import { getContentLanguage } from "../settings.js";
+import { decidersOf as automationDecidersOf } from "../automations/runs.js";
 import { chooseMailProposalProject, confirmMailProposal, ignoreMailProposal, sharedProposalOfNotification } from "./mail-proposals-decide.js";
 import { listMailProposals } from "./mail-proposals.js";
 
@@ -799,6 +804,8 @@ export interface InboxItem extends ViaClaudeFields {
     authorName: string;
     excerpt: string;
   } | null;
+  /** Area 7: solo `automation.*`, lo stato dell'esecuzione per chi legge (`automationCardsFor`). */
+  automation?: InboxAutomation | null;
   jobId: string | null;
   createdAt: Date;
   readAt: Date | null;
@@ -1014,6 +1021,9 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     page.filter((r) => r.kind === "chat.mention" || r.kind === "chat.question"),
   );
 
+  // Area 7: le card `automation.*` derivate a lettura (l'esecuzione com'è adesso, per chi legge).
+  const automationCards = await automationCardsFor(db, userId, page.filter((r) => isAutomationKind(r.kind)));
+
   const items = page.map((r): InboxItem => {
     // La resa dal jsonb è l'unica parte che può esplodere: sta dentro il suo
     // recinto (vedi `renderItem`).
@@ -1056,9 +1066,11 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
     const eventTicketId = (r.event as { ticketId?: unknown }).ticketId;
     const isChat = r.kind === "chat.mention" || r.kind === "chat.question";
     const chat = isChat ? (chatCards.get(r.id) ?? null) : null;
+    const automation = isAutomationKind(r.kind) ? (automationCards.get(r.id) ?? null) : null;
     const objectGone =
       (r.ticketId === null && typeof eventTicketId === "string" && goneTickets.has(eventTicketId)) ||
-      (isChat && chat === null);
+      (isChat && chat === null) ||
+      (isAutomationKind(r.kind) && automation === null);
     // Una task eliminata non si apre: niente link alla sua pagina.
     const { url: _url, ...withoutUrl } = rendered;
     void _url;
@@ -1069,6 +1081,7 @@ export async function listInbox(db: Db, input: ListInboxInput): Promise<ListInbo
       ...(objectGone ? withoutUrl : rendered),
       objectGone,
       chat,
+      ...(isAutomationKind(r.kind) ? { automation } : {}),
       // Il riassunto NON passa dal jsonb dell'evento: viene dalle colonne
       // (`ai_jobs.plan_summary`, `pr_reviews.pr_summary`) caricate in batch
       // sopra. Così una card mostra il riassunto anche quando è arrivato DOPO
@@ -1852,4 +1865,62 @@ function withCommentExcerpt(
   const comment = commentsById.get(event.commentId);
   if (!comment || comment.deleted) return { ...event, commentDeleted: true };
   return { ...event, commentText: comment.text };
+}
+
+// --- area 7: le card delle Automations, derivate a lettura ---------------------------
+
+export interface InboxAutomation {
+  automationCode: string;
+  automationName: string;
+  runCode: string | null;
+  runStatus: string | null;
+  waitingOnYou: boolean;
+  decided: boolean;
+}
+
+const isAutomationKind = (kind: string): boolean => kind.startsWith("automation.");
+
+/**
+ * Lo stato di ogni card `automation.*` della pagina, com'è ADESSO per chi
+ * legge (la regola delle card d'inbox: niente dal jsonb oltre agli id e al
+ * passo). `null` = l'automazione non c'è più, o chi legge non la vede e non
+ * deve decidere niente. Per un'approvazione: `waitingOnYou` se l'esecuzione
+ * aspetta ancora quel passo e chi legge è fra chi decide ADESSO; `decided` se
+ * non lo aspetta più (qualcuno ha deciso, o è finita).
+ */
+async function automationCardsFor(db: Db, userId: string, rows: { id: string; kind: string; event: unknown }[]): Promise<Map<string, InboxAutomation | null>> {
+  const out = new Map<string, InboxAutomation | null>();
+  if (rows.length === 0) return out;
+  const events = rows.map((r) => ({ id: r.id, kind: r.kind, e: (r.event ?? {}) as { automationId?: string; runId?: string | null; path?: string } }));
+  const automationIds = [...new Set(events.map((x) => x.e.automationId).filter((v): v is string => typeof v === "string"))];
+  const runIds = [...new Set(events.map((x) => x.e.runId).filter((v): v is string => typeof v === "string"))];
+  const autoRows = automationIds.length ? await db.select().from(automations).where(inArray(automations.id, automationIds)) : [];
+  const runRows = runIds.length ? await db.select().from(automationRuns).where(inArray(automationRuns.id, runIds)) : [];
+  const [admin] = await db.select({ yes: sql<boolean>`${userIsFullAdmin(sql`${userId}::uuid`)}` }).from(sql`(select 1) as one`);
+  const memberOf = new Set((await db.select({ projectId: projectMembers.projectId }).from(projectMembers).where(eq(projectMembers.userId, userId))).map((m) => m.projectId));
+  const sees = (projectId: string) => admin?.yes === true || memberOf.has(projectId);
+  for (const { id, kind, e } of events) {
+    const a = autoRows.find((x) => x.id === e.automationId);
+    const run = runRows.find((x) => x.id === e.runId) ?? null;
+    if (!a) {
+      out.set(id, null);
+      continue;
+    }
+    const deciders = run ? await automationDecidersOf(db, run, a) : [];
+    if (!sees(a.projectId) && !deciders.includes(userId)) {
+      out.set(id, null);
+      continue;
+    }
+    const path = (run?.cursor as { path?: string | null } | null)?.path ?? null;
+    const waitingHere = kind === "automation.approval" && run?.status === "waiting_approval" && (e.path === undefined || e.path === path);
+    out.set(id, {
+      automationCode: a.code,
+      automationName: a.name,
+      runCode: run ? `${a.code} #${run.n}` : null,
+      runStatus: run?.status ?? null,
+      waitingOnYou: waitingHere && deciders.includes(userId),
+      decided: kind === "automation.approval" && !waitingHere,
+    });
+  }
+  return out;
 }
