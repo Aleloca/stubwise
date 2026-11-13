@@ -1,7 +1,7 @@
 import { copy, gate, now, state } from "../store";
 import type { AutomationSource, DataField, FieldType, WebhookExamplePreview } from "../types";
 import { forbidden, invalid, notFound, writer } from "../writer";
-import { visitSteps } from "@stubwise/shared";
+import { clientKeyOf, deriveFields, fieldKeys, mergeFields, visitSteps } from "@stubwise/shared";
 import { viewRun } from "./runView";
 import { publishedVersion } from "./runner";
 import { canManageIntegrations, canSeeAutomation, canSeeRun } from "./visibility";
@@ -72,72 +72,9 @@ export async function regenerateWebhookAddress(id: string): Promise<string> {
 
 // --- l'esempio e i campi --------------------------------------------------------------
 
-/** `customer.email` → «Customer email»; `importoTotale` → «Importo totale». */
-export function labelFromKey(key: string): string {
-  const words = key
-    .split(/[._-]+/)
-    .flatMap((w) => w.replace(/([a-z])([A-Z])/g, "$1 $2").split(" "))
-    .filter(Boolean)
-    .map((w) => w.toLowerCase());
-  const text = words.join(" ");
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const DATE = /^\d{4}-\d{2}-\d{2}(T[\d:.]+Z?)?$/;
-
-function typeOf(v: unknown): FieldType {
-  if (typeof v === "number") return "number";
-  if (typeof v === "boolean") return "boolean";
-  if (Array.isArray(v)) return "list";
-  if (typeof v === "string" && EMAIL.test(v)) return "email";
-  if (typeof v === "string" && DATE.test(v)) return "date";
-  return "text";
-}
-
-/** I campi di un esempio: gli oggetti si appiattiscono (`cliente.nome`), gli elenchi di oggetti portano i loro. */
-export function deriveFields(obj: Record<string, unknown>, prefix = ""): DataField[] {
-  const out: DataField[] = [];
-  for (const [k, v] of Object.entries(obj)) {
-    const key = prefix ? `${prefix}.${k}` : k;
-    if (v && typeof v === "object" && !Array.isArray(v)) {
-      out.push(...deriveFields(v as Record<string, unknown>, key));
-    } else if (Array.isArray(v)) {
-      const first = v[0];
-      out.push({
-        key,
-        label: labelFromKey(key),
-        type: "list",
-        ...(first && typeof first === "object" && !Array.isArray(first)
-          ? { of: deriveFields(first as Record<string, unknown>) }
-          : {}),
-      });
-    } else out.push({ key, label: labelFromKey(key), type: typeOf(v) });
-  }
-  return out;
-}
-
-/** Le chiavi (anche quelle dentro gli elenchi, `prodotti.nome`) di un insieme di campi. */
-function keysOf(fields: DataField[], prefix = ""): string[] {
-  return fields.flatMap((f) => [
-    prefix + f.key,
-    ...(f.of ? keysOf(f.of, `${prefix}${f.key}.`) : []),
-  ]);
-}
-
-/** Tiene etichetta e tipo scelti a mano per le chiavi che restano. */
-function mergeFields(next: DataField[], old: DataField[]): DataField[] {
-  return next.map((f) => {
-    const was = old.find((o) => o.key === f.key);
-    if (!was) return f;
-    return {
-      ...f,
-      label: was.label,
-      type: was.type,
-      ...(f.of ? { of: mergeFields(f.of, was.of ?? []) } : {}),
-    };
-  });
-}
+// L'esempio e i campi: le regole di `@stubwise/shared` (`sourceFields.ts`,
+// C-F4-2), le stesse del server e della prova.
+export { deriveFields, labelFromKey } from "@stubwise/shared";
 
 /** Un campo è usato da un'automazione se il flusso lo cita (testi, condizioni, ingressi). */
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -202,8 +139,8 @@ function preview(me: string, source: AutomationSource, json: string): WebhookExa
     };
   }
   const fields = mergeFields(deriveFields(parsed), source.fields);
-  const kept = new Set(keysOf(fields));
-  const missing = keysOf(source.fields)
+  const kept = new Set(fieldKeys(fields));
+  const missing = fieldKeys(source.fields)
     .filter((k) => !kept.has(k))
     .map((k) => ({
       key: k,
@@ -287,12 +224,13 @@ export async function listClientSuggestions(): Promise<
   for (const e of events) {
     const c = e.cliente as { nome?: unknown; dominio?: unknown; email?: unknown } | undefined;
     if (typeof c?.nome !== "string") continue;
-    const key =
+    const key = clientKeyOf(
       typeof c.dominio === "string"
         ? c.dominio
         : typeof c.email === "string"
           ? (c.email.split("@")[1] ?? "")
-          : "";
+          : "",
+    );
     if (!key || known.has(key) || out.has(key)) continue;
     out.set(key, c.nome);
   }

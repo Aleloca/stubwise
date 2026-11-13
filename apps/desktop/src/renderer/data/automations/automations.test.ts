@@ -13,6 +13,7 @@ import {
   updateTask,
 } from "../api";
 import { AUTOMATION_CASES } from "../seed/automations";
+import { resolveProject } from "./plans";
 import { automationsStartingOn, happenings } from "./sources";
 import { AUTOMATION_MAIL_IDS } from "../seed/automations/mail";
 import { MAIL_MESSAGES } from "../seed/mail";
@@ -1641,3 +1642,30 @@ describe("Automations: urgenza, supporto e reparti (area 10b)", () => {
     expect(made.map((n) => n.recipientIds)).toEqual([["p-marco"]]);
   });
 });
+
+// F4 (C-F4-2 di 72): la chiave del cliente è `clientKeyOf` (trim + minuscole)
+// in scrittura, in ricerca e nei suggerimenti. Prima la scrittura metteva in
+// minuscolo, ma la ricerca confrontava esatto e i suggerimenti non
+// normalizzavano: un cliente «Rossi.IT» nella tabella non si trovava mai.
+describe("la chiave del cliente (F4)", () => {
+  it("scritta, cercata e suggerita con la stessa normalizzazione", async () => {
+    as("p-roberta");
+    await automations.setClientLink({ clientKey: "Rossi.IT ", clientName: "Rossi Srl", projectId: AUD });
+    expect(state.clientProjectLinks.find((l) => l.clientName === "Rossi Srl")?.clientKey).toBe("rossi.it");
+    const found = resolveProject(
+      { kind: "resolve_project", stepId: "m", path: "0", clientKey: "  ROSSI.it" } as never,
+      "p-roberta",
+    );
+    expect(found.input).toMatchObject({ kind: "project_chosen", projectId: AUD });
+    // Un evento col dominio scritto diverso non torna fra i suggerimenti.
+    state.automationSources[0]!.sampleEvents.push({ cliente: { nome: "Rossi Srl", dominio: "ROSSI.IT" } });
+    const suggestions = await automations.listClientSuggestions();
+    expect(suggestions.some((x) => x.clientKey.toLowerCase() === "rossi.it")).toBe(false);
+    // E un suggerimento nuovo arriva già normalizzato.
+    state.automationSources[0]!.sampleEvents.push({ cliente: { nome: "Verdi", dominio: " Verdi.COM" } });
+    expect((await automations.listClientSuggestions()).find((x) => x.clientName === "Verdi")?.clientKey).toBe(
+      "verdi.com",
+    );
+  });
+});
+
