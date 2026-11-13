@@ -128,12 +128,12 @@
 
 import { execa } from "execa";
 import { randomUUID } from "node:crypto";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // Dai package workspace e dai sorgenti del worker si importano SOLO I TIPI:
@@ -141,6 +141,7 @@ import { fileURLToPath } from "node:url";
 // I VALORI arrivano da `loadRuntime()`, dopo il check dei prerequisiti — il
 // perché sta nel suo docblock.
 import type { Language } from "@stubwise/i18n";
+import { CHAT_MENTION_TOOL_NAMES, CHAT_TOOL_READ_ROUTES, chatRoutePattern } from "@stubwise/shared";
 import type { AgentRunner, AgentRunResult, UsageTag } from "../../src/agent/runner.js";
 import type { LiveProcessHandle } from "../../src/agent/streaming-cli.js";
 import type { RefineBridge } from "../../src/backlog/refine/bridge.js";
@@ -166,6 +167,7 @@ import {
   SCENARIO_NAMES,
   selectScenarios,
   needsPlugins,
+  chatToolsMissingFromDist,
   type ScenarioName,
   skillCallsFrom,
   chatChecks,
@@ -2130,19 +2132,9 @@ const CHAT_PROJECT_ID = "6f1c2a52-1d7b-4c3e-9a51-0b6a7f2e1a01";
  * come regex perché il worker non importa il server). Se divergono, il check
  * «solo GET dell'allowlist» lo dice.
  */
-const CHAT_ALLOWED_PATHS: readonly RegExp[] = [
-  /^\/api\/projects$/,
-  /^\/api\/people$/,
-  /^\/api\/tasks$/,
-  /^\/api\/tasks\/by-code\/[^/]+$/,
-  /^\/api\/requests\/by-code\/[^/]+$/,
-  /^\/api\/projects\/[^/]+\/docs\/search$/,
-  /^\/api\/projects\/[^/]+\/briefs\/latest$/,
-  /^\/api\/projects\/[^/]+\/decisions$/,
-  // Il Drive (area 5, fetta 3).
-  /^\/api\/projects\/[^/]+\/drive\/files$/,
-  /^\/api\/drive\/files\/by-code\/[^/]+\/content$/,
-];
+// L'allowlist VERA del token del turno (`@stubwise/shared`, la stessa del
+// server): niente copia, che restava indietro (`read_doc_page`, `read_release`).
+const CHAT_ALLOWED_PATHS: readonly RegExp[] = [...CHAT_TOOL_READ_ROUTES].map(chatRoutePattern);
 /** Il dato del progetto NASCOSTO: esiste nel server finto, ma l'autore non lo vede. */
 const CHAT_HIDDEN_MARKERS = ["Acquario", "Laguna Blu", "Tobia Ferri"] as const;
 
@@ -2999,6 +2991,19 @@ async function main(): Promise<void> {
   }
 
   const chatEntry = resolveChatServerPath(rt);
+  // Il `dist` del server MCP della chat deve registrare OGNI tool che il turno
+  // permette: altrimenti è più vecchio dei sorgenti e il modello non vedrebbe
+  // un tool nuovo (corse pagate a vuoto). Si controlla prima di chiamare Claude.
+  if (args.scenarios.some((name) => name.startsWith("chat-")) && existsSync(chatEntry)) {
+    const serverJs = join(dirname(chatEntry), "server.js");
+    const missing = chatToolsMissingFromDist(existsSync(serverJs) ? readFileSync(serverJs, "utf8") : "", CHAT_MENTION_TOOL_NAMES);
+    if (missing.length > 0) {
+      fail(
+        `Il server MCP della chat buildato (${serverJs}) non registra: ${missing.join(", ")}. ` +
+          "Il dist è più vecchio dei sorgenti: lancia prima `pnpm --filter @stubwise/worker... build`.",
+      );
+    }
+  }
   if (args.scenarios.some((name) => name.startsWith("chat-")) && !existsSync(chatEntry)) {
     fail(
       `Il server MCP della chat non è buildato (${chatEntry}): lancia prima ` +

@@ -49,6 +49,21 @@ il modello vero.
   (autorizzate «qualche chiamata»; perimetro (a) scelto dall'orchestratrice):
   il tool aggiunge una lettura e non tocca prompt, contratto né catalogo, e
   la serie completa della chat si rilancia al prossimo aggiornamento del CLI.
+  In quel giro gli scenari `chat-*` sono entrati in `PLUGINLESS_SCENARIOS`:
+  il turno della chat è cablato senza plugin (`--setting-sources ""`, nessun
+  `pluginDirs`), quindi `--plugin` non serve più per lanciarli. ⚠️ Gli scenari
+  della chat avviano il server MCP dal `dist` del worker: dopo una modifica a
+  `src/chat-mcp/` va ribuildato (`pnpm --filter @stubwise/worker... build`),
+  altrimenti il modello non vede il tool nuovo (successo al primo giro). Da
+  allora lo script lo CONTROLLA prima di chiamare Claude
+  (`chatToolsMissingFromDist`): se il `dist/chat-mcp/server.js` non registra
+  ogni tool che il turno permette, si ferma con un errore che dice quali e
+  come ribuildare, senza spendere corse.
+  L'allowlist delle rotte del token del turno che i check della chat
+  confrontano (`CHAT_ALLOWED_PATHS`) non è più una copia: viene da
+  `CHAT_TOOL_READ_ROUTES` di `@stubwise/shared`, la stessa del server.
+  **Esito del 13 nov 2026** (CLI 2.1.322): `chat-release-read` 5/5,
+  `chat-release-hostile` 5/5, `chat-read` 3/3, verdi.
 
 ## Prerequisiti
 

@@ -68,7 +68,28 @@ export function selectScenarios(named: readonly ScenarioName[]): ScenarioName[] 
  * passo di Claude delle automazioni, la classificazione della posta). Lanciati
  * da soli non vogliono `--plugin`.
  */
-export const PLUGINLESS_SCENARIOS: readonly ScenarioName[] = ["automation-step", "mail-classify-v2"];
+export const PLUGINLESS_SCENARIOS: readonly ScenarioName[] = [
+  "automation-step",
+  "mail-classify-v2",
+  // La chat con Claude (13 nov 2026, area 8, F1): il turno è cablato come
+  // `runChatTurn`, `--setting-sources ""` e NESSUN plugin (`runChat` non passa
+  // `pluginDirs`), quindi `--plugin` non gli serve.
+  ...SCENARIO_NAMES.filter((name) => name.startsWith("chat-")),
+];
+
+/**
+ * I tool che il turno della chat PERMETTE (`CHAT_MENTION_TOOL_NAMES`, coi
+ * prefissi `mcp__stubwise_chat__`) e che il server MCP BUILDATO non registra:
+ * il sorgente del suo `dist/chat-mcp/server.js` deve nominare ciascuno come
+ * stringa (`register("read_release", …)`). Non vuoto = il `dist` è più vecchio
+ * dei sorgenti, e il modello non vedrebbe quei tool: il golden si ferma PRIMA
+ * di chiamare Claude (13 nov 2026: un giro pagato a vuoto per questo).
+ */
+export function chatToolsMissingFromDist(serverSource: string, allowedTools: readonly string[]): string[] {
+  return allowedTools
+    .map((name) => name.slice(name.lastIndexOf("__") + 2))
+    .filter((bare) => !serverSource.includes(`"${bare}"`));
+}
 
 /** `--plugin` serve se almeno uno degli scenari scelti carica plugin. */
 export function needsPlugins(scenarios: readonly ScenarioName[]): boolean {
