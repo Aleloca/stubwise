@@ -79,3 +79,5 @@ export * from "./automations/index.js";
 // Area 8, F1: lo stato derivato di un rilascio e la bozza delle note di una PR.
 export * from "./releases/index.js";
 export * from "./chat-tool-routes.js";
+// Area 8, F2: il catalogo dei tipi di avviso (R-5).
+export * from "./alerts/index.js";
