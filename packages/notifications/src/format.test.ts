@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isAutomationEvent,
   formatNotification,
   formatNotificationText,
   isReviewFailedEvent,
@@ -1357,6 +1358,10 @@ describe("sampleEvents", () => {
       "task.assigned",
       "chat.mention",
       "chat.question",
+      "automation.approval",
+      "automation.failed",
+      "automation.notify",
+      "automation.paused",
     ]);
     for (const event of events) {
       // Eventi senza ticket: il link non è un ticketUrl ma la superficie propria.
@@ -1384,7 +1389,8 @@ describe("sampleEvents", () => {
         event.kind === "planning.changed" ||
         event.kind === "task.assigned" ||
         event.kind === "chat.mention" ||
-        event.kind === "chat.question"
+        event.kind === "chat.question" ||
+        isAutomationEvent(event)
       ) {
         // Nessun link nell'evento: si legge in inbox (o «Apri» lo deriva).
         expect(Object.values(event).some((v) => typeof v === "string" && v.startsWith("http"))).toBe(false);

@@ -851,6 +851,26 @@ export interface ChatQuestionEvent extends Omit<ChatMentionEvent, "kind"> {
   kind: "chat.question";
 }
 
+/**
+ * Area 7, fetta 1 (0169): le card delle Automations, una persona per
+ * pubblicazione (`account_owner`): chi decide un'approvazione, il
+ * proprietario di un'esecuzione fallita o di un'automazione messa in pausa
+ * da sola (D5), i destinatari di un passo `notify`. Stato, approvatori,
+ * anteprima e link si DERIVANO dall'esecuzione a lettura; nell'evento restano
+ * gli id e i nomi del momento. `message` (solo `automation.notify`) è il testo
+ * del passo: lo scrive chi ha costruito il flusso, quindi NON fidato.
+ */
+export interface AutomationNotificationEvent {
+  kind: "automation.approval" | "automation.failed" | "automation.notify" | "automation.paused";
+  projectId: string;
+  automationId: string;
+  automationCode: string;
+  automationName: string;
+  runId: string | null;
+  runNumber: number | null;
+  message?: string;
+}
+
 /** Unione tipata di tutti gli eventi che generano una notifica. */
 export type NotificationEvent =
   | TicketCreatedEvent
@@ -878,7 +898,8 @@ export type NotificationEvent =
   | PlanningChangedEvent
   | TaskAssignedEvent
   | ChatMentionEvent
-  | ChatQuestionEvent;
+  | ChatQuestionEvent
+  | AutomationNotificationEvent;
 
 /**
  * Eventi SENZA ticket (`docs.limit_paused`, `monitor.*`, `project.pulse`,
@@ -903,7 +924,8 @@ type NonTicketedEvent =
   | PlanningChangedEvent
   | TaskAssignedEvent
   | ChatMentionEvent
-  | ChatQuestionEvent;
+  | ChatQuestionEvent
+  | AutomationNotificationEvent;
 
 /**
  * Eventi ANCORATI A UN TICKET: hanno `ticketNumber`/`ticketTitle`/`ticketUrl`.
@@ -931,7 +953,11 @@ function hasTicket(event: NotificationEvent): event is TicketedEvent {
     event.kind !== "planning.changed" &&
     event.kind !== "task.assigned" &&
     event.kind !== "chat.mention" &&
-    event.kind !== "chat.question"
+    event.kind !== "chat.question" &&
+    event.kind !== "automation.approval" &&
+    event.kind !== "automation.failed" &&
+    event.kind !== "automation.notify" &&
+    event.kind !== "automation.paused"
   );
 }
 
@@ -997,6 +1023,10 @@ const EMOJI: Record<NotificationKind, string> = {
   "task.assigned": "📌",
   "chat.mention": "💬",
   "chat.question": "❓",
+  "automation.approval": "✋",
+  "automation.failed": "⚠️",
+  "automation.notify": "🔔",
+  "automation.paused": "⏸️",
 };
 
 /**
@@ -1126,6 +1156,10 @@ function linkParam(
     case "task.assigned":
     case "chat.mention":
     case "chat.question":
+    case "automation.approval":
+    case "automation.failed":
+    case "automation.notify":
+    case "automation.paused":
       // Il link si DERIVA a lettura (`openUrl`), e le frasi non hanno `{link}`.
       return "";
   }
@@ -1164,6 +1198,10 @@ const KEY_FOR_KIND: Record<NotificationKind, string> = {
   "task.assigned": "notify.taskAssigned",
   "chat.mention": "notify.chatMention",
   "chat.question": "notify.chatQuestion",
+  "automation.approval": "notify.automationApproval",
+  "automation.failed": "notify.automationFailed",
+  "automation.notify": "notify.automationNotify",
+  "automation.paused": "notify.automationPaused",
 };
 
 const TICKET_ACTIVITY_KEY: Record<TicketActivityChange, string> = {
@@ -1419,6 +1457,9 @@ function textParams(
     if (event.kind === "chat.mention" || event.kind === "chat.question") {
       return { author: event.authorName, channel: event.channelName };
     }
+    if (isAutomationEvent(event)) {
+      return { automation: event.automationName, code: event.automationCode, message: event.message ?? "" };
+    }
     if (event.kind === "ticket.activity") {
       return {
         ref: taskRef(event),
@@ -1504,6 +1545,11 @@ const UNTRUSTED_SLACK_PARAMS: Partial<Record<NotificationKind, readonly string[]
   // Il nome di chi scrive e quello del canale li scelgono le persone.
   "chat.mention": ["author", "channel"],
   "chat.question": ["author", "channel"],
+  // Il nome dell'automazione e il testo di `notify` li scrivono le persone.
+  "automation.approval": ["automation"],
+  "automation.failed": ["automation"],
+  "automation.notify": ["automation", "message"],
+  "automation.paused": ["automation"],
   // Email e titolo li scrive il collaboratore (e il titolo, via widget, chiunque).
   "request.created": ["email", "title"],
   // L'email di chi ha agito la scrive un utente al proprio account.
@@ -1703,6 +1749,15 @@ function formatGeneric(event: NotificationEvent, lang: Language): Record<string,
         event: event.kind,
         subject: event.subject,
         actorEmail: event.actorEmail,
+        message: formatNotificationText(event, lang),
+      };
+    }
+    if (isAutomationEvent(event)) {
+      // Mai consegnato al webhook (`account_owner`): il ramo c'è per l'esaustività.
+      return {
+        event: event.kind,
+        automationCode: event.automationCode,
+        runId: event.runId,
         message: formatNotificationText(event, lang),
       };
     }
@@ -2148,5 +2203,20 @@ export function sampleEvents(baseUrl: string): NotificationEvent[] {
       authorUserId: "5e6f7a8b-dddd-4eee-8fff-000011112222",
       authorName: "Marta Rinaldi",
     },
+    ...(["automation.approval", "automation.failed", "automation.notify", "automation.paused"] as const).map((kind) => ({
+      kind,
+      projectId: "2e5a8c4b-9999-4aaa-8bbb-ccccddddeeee",
+      automationId: "af3f4051-cccc-4ddd-8eee-ffff00002222",
+      automationCode: "NEG-A1",
+      automationName: "Onboarding cliente",
+      runId: "bf3f4051-cccc-4ddd-8eee-ffff00003333",
+      runNumber: 4,
+      ...(kind === "automation.notify" ? { message: "Il cliente è pronto" } : {}),
+    })),
   ];
+}
+
+/** Una card delle Automations (area 7): i quattro kind hanno la stessa forma. */
+export function isAutomationEvent(event: NotificationEvent): event is AutomationNotificationEvent {
+  return event.kind === "automation.approval" || event.kind === "automation.failed" || event.kind === "automation.notify" || event.kind === "automation.paused";
 }

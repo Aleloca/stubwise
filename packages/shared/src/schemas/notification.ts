@@ -58,6 +58,14 @@ export const notificationKindSchema = z.enum([
   // Area 4, Chat (fetta 2): un messaggio chiede una risposta a un membro del
   // canale (`asks_reply_of`). Come `chat.mention`, derivata a lettura.
   "chat.question",
+  // Area 7, fetta 1 (0169): un passo che chiede un'approvazione (a chi decide),
+  // un'esecuzione fallita (al proprietario), il passo `notify`, un'automazione
+  // messa in pausa da sola (D5). Stato, testo e link si DERIVANO
+  // dall'esecuzione a lettura, mai dal jsonb dell'evento.
+  "automation.approval",
+  "automation.failed",
+  "automation.notify",
+  "automation.paused",
 ]);
 
 /**

@@ -1575,7 +1575,8 @@
         "credentials": "Credenziali",
         "chat": "Chat",
         "departmentHome": "Home del reparto",
-        "drive": "Drive"
+        "drive": "Drive",
+        "automations": "Automazioni"
       },
       "fullAdminHint": "L'amministrazione completa comprende ogni permesso, su ogni progetto.",
       "save": "Salva il ruolo",
@@ -1716,7 +1717,11 @@
       "planningChanged": "Il tuo piano è cambiato",
       "taskAssigned": "Assegnata a te",
       "chatMention": "Nominato nella chat",
-      "chatQuestion": "Una domanda per te nella chat"
+      "chatQuestion": "Una domanda per te nella chat",
+      "automationApproval": "Approvazione",
+      "automationFailed": "Esecuzione fallita",
+      "automationNotify": "Automazione",
+      "automationPaused": "Automazione in pausa"
     },
     "actions": {
       "approvePlan": "Approva piano",
@@ -1969,7 +1974,8 @@
       "slack": "Slack",
       "webhook": "Webhook",
       "widget": "Widget",
-      "email": "Email"
+      "email": "Email",
+      "automation": "Automazione"
     },
     "effort": {
       "1": "Banale",
@@ -3520,6 +3526,9 @@
         "upload": "Caricare file nel Drive del progetto",
         "manage": "Gestire il Drive del progetto (togliere i file altrui)",
         "history": "Vedere chi ha aperto i file del Drive"
+      },
+      "automations": {
+        "manage": "Gestire le automazioni del progetto e decidere le loro esecuzioni"
       }
     }
   },

@@ -161,6 +161,12 @@ const AUDIENCE_FOR_KIND: Record<NotificationKind, Audience> = {
   // del messaggio ha già controllato che legga il canale; mai un webhook.
   "chat.mention": "account_owner",
   "chat.question": "account_owner",
+  // Area 7: UNA persona per pubblicazione, scelta dal motore (chi decide, il
+  // proprietario, i destinatari di `notify` che vedono il progetto).
+  "automation.approval": "account_owner",
+  "automation.failed": "account_owner",
+  "automation.notify": "account_owner",
+  "automation.paused": "account_owner",
 };
 
 /** Pubblico del kind. Unico punto in cui si legge {@link AUDIENCE_FOR_KIND}. */
@@ -229,6 +235,10 @@ export const PERMISSION_FOR_KIND: Record<NotificationKind, KindPermission> = {
   "task.assigned": null,
   "chat.mention": null,
   "chat.question": null,
+  "automation.approval": null,
+  "automation.failed": null,
+  "automation.notify": null,
+  "automation.paused": null,
 };
 
 /** Permesso pertinente del kind. Unico punto in cui si legge {@link PERMISSION_FOR_KIND}. */

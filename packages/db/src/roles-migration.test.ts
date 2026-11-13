@@ -258,6 +258,8 @@ describe("migrazione 0097: ruoli, membri di progetto e conversione", () => {
     await applyRoleUpdates(db, "0135_chat_channels.sql");
     // E i permessi del Drive (area 5) a Lead, Developer, Contributor e Legacy Member, con la 0143.
     await applyRoleUpdates(db, "0143_drive_files.sql");
+    // E `automations.manage` al solo Project Lead, con la 0169 (area 7).
+    await applyRoleUpdates(db, "0169_automations.sql");
     const rows = await db.execute<{
       preset_key: string;
       name: string;

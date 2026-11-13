@@ -129,6 +129,11 @@ const TOGGLE_FOR_KIND: Record<NotificationKind, keyof NotificationSettingsRow> =
   // Mai consultato: una menzione è personale (audience `account_owner`).
   "chat.mention": "notifyGoogleProposal",
   "chat.question": "notifyGoogleProposal",
+  // Mai consultati: le card delle Automations sono personali (area 7).
+  "automation.approval": "notifyGoogleProposal",
+  "automation.failed": "notifyGoogleProposal",
+  "automation.notify": "notifyGoogleProposal",
+  "automation.paused": "notifyGoogleProposal",
 };
 
 /** Una transazione drizzle aperta su `Db` (il `tx` di `db.transaction`). */

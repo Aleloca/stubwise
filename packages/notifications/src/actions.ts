@@ -221,6 +221,12 @@ const CATALOG_FOR_KIND: Record<
   // Area 4, Chat: si legge e si apre il messaggio; si risponde nella Chat.
   "chat.mention": { decisions: [], permission: null, archivable: true },
   "chat.question": { decisions: [], permission: null, archivable: true },
+  // Area 7: le decisioni di un'approvazione si prendono dalla pagina
+  // dell'esecuzione (o dalla card, che le DERIVA a lettura), non dal catalogo.
+  "automation.approval": { decisions: [], permission: null, archivable: true },
+  "automation.failed": { decisions: [], permission: null, archivable: true },
+  "automation.notify": { decisions: [], permission: null, archivable: true },
+  "automation.paused": { decisions: [], permission: null, archivable: true },
 };
 
 /**
@@ -479,6 +485,12 @@ export function openUrl(event: NotificationEvent, publicUrl?: string): string {
     case "chat.mention":
     case "chat.question":
       return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/chat/${event.channelId}?message=${event.chatMessageId}` : "";
+    // Area 7: l'automazione (o l'esecuzione) nell'app nuova.
+    case "automation.approval":
+    case "automation.failed":
+    case "automation.notify":
+    case "automation.paused":
+      return publicUrl ? `${publicUrl.replace(/\/+$/, "")}/app/#/automations/${event.automationCode}${event.runNumber !== null ? `/runs/${event.runNumber}` : ""}` : "";
     case "ticket.created":
     case "job.pr_closed":
     case "job.held":

@@ -4188,3 +4188,50 @@ deploy o di un rollback che la tocca.
   = 'unreachable' group by 1;` (`not_verified` alto = l'email di Gemini ha
   una forma che la verifica non riconosce: da guardare prima di allentarla).
 
+
+- **«Integrazione area 7, fetta 1: le Automations di progetto» (13 nov
+  2026)**: branch `feat/area7-f1` (sopra `feat/area7-f1-engine`), piano
+  `docs/plans/2026-11-12-integrazione-area7-fetta1-plan.md`, regole in
+  `docs/invariants/automations.md`. Migrazione **0169** (dopo la 0167 della
+  F5b e la 0168 del suo fix: si deploya DOPO di loro): le tabelle
+  `automations`, `automation_code_seqs`, `automation_versions`,
+  `automation_runs`, `automation_run_log`, `automation_effects`,
+  `automation_events`; `automation_run_id` su `tickets`, `milestones`,
+  `backlog_items`; `ticket_source` `automation`; i `notification_kind`
+  `automation.approval`, `automation.failed`, `automation.notify`,
+  `automation.paused`; il permesso `automations.manage` al preset Project
+  Lead; i TRIGGER che scrivono gli eventi. Ordine: **server** (healthy, 0169
+  applicata), poi **worker**, poi **caddy**.
+
+  **Da sapere subito**: dai trigger in poi ogni task, richiesta, conversione
+  e traguardo chiuso lascia una riga in `automation_events`, anche senza
+  automazioni accese (il consumatore del worker le consuma). Un'operazione
+  di massa fatta a mano (un backfill, un import, un `update` di molte task)
+  va preceduta, nella stessa transazione, da `select
+  set_config('stubwise.automation_events', 'off', true);`. Controllo, sola
+  lettura: `select kind, count(*) from automation_events where consumed_at
+  is null group by 1;` (deve restare piccolo col worker acceso).
+
+  **Rollback**: il server scende **insieme** al caddy. ⚠️ Prima di
+  scendere:
+  1. **Spegnere i trigger**, perché un server e un worker vecchi
+     continuerebbero a scrivere eventi che nessuno consuma: `alter table
+     tickets disable trigger tickets_automation_task_created; alter table
+     tickets disable trigger tickets_automation_task_closed; alter table
+     backlog_items disable trigger backlog_items_automation_request_created;
+     alter table backlog_item_tickets disable trigger
+     backlog_item_tickets_automation_converted; alter table milestones
+     disable trigger milestones_automation_reached;` (risalendo, `enable
+     trigger` sugli stessi cinque, e `delete from automation_events where
+     consumed_at is null and created_at < now();` se non si vogliono far
+     partire le automazioni sugli eventi del periodo spento: il consumatore
+     ignora già quelli nati prima della pubblicazione, non quelli del buco).
+  2. **I `notification_kind` nuovi** rendono NON sicuro scendere sul server
+     finché ne esistono righe (500 su `/api/inbox`): `select kind, count(*)
+     from notifications where kind like 'automation.%' group by 1;`, e se ce
+     ne sono `delete from notifications where kind like 'automation.%';`
+     (le righe che le nominano se ne vanno in cascata o restano con l'id a NULL: le FK lo fanno da sole).
+  3. Una task con `source = 'automation'` rompe la lettura di un server
+     vecchio allo stesso modo: `update tickets set source = 'manual' where
+     source = 'automation';` prima di scendere.
+  Il worker vecchio ignora le tabelle nuove. La 0169 non si annulla.

@@ -124,6 +124,13 @@ export const PROJECT_PERMISSIONS = [
   "drive.upload",
   "drive.manage",
   "drive.history",
+  /**
+   * Automations, area 7 (fetta 1, 0169): creare, modificare, pubblicare,
+   * mettere in pausa le automazioni del progetto e decidere le loro
+   * esecuzioni. Solo il Project Lead fra i preset (e i full admin); i ruoli
+   * personalizzati nascono senza.
+   */
+  "automations.manage",
 ] as const;
 
 /**
@@ -204,6 +211,7 @@ const LEGACY_MEMBER_EXCLUDED: readonly ProjectPermission[] = [
   "credentials.edit",
   "credentials.share",
   "planning.others",
+  "automations.manage",
   // Chat (D3): il Legacy Member scrive nei canali ma non li crea né li gestisce.
   "chat.channels.create",
   "chat.channels.manage",
@@ -271,7 +279,8 @@ export const PRESET_ROLES: readonly PresetRole[] = [
         p !== "planning.others" &&
         p !== "chat.channels.manage" &&
         p !== "drive.manage" &&
-        p !== "drive.history",
+        p !== "drive.history" &&
+        p !== "automations.manage",
     ),
   },
   {

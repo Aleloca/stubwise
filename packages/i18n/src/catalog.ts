@@ -287,6 +287,10 @@ export const en: Catalog = {
   "notify.chatQuestion": "{author} asked you in #{channel}",
   "notify.chatMention.dm": "{author} mentioned you in a direct message",
   "notify.chatQuestion.dm": "{author} asked you in a direct message",
+  "notify.automationApproval": "{automation} needs your approval on a step",
+  "notify.automationFailed": "A run of {automation} failed",
+  "notify.automationNotify": "{automation}: {message}",
+  "notify.automationPaused": "{automation} was paused: its owner can no longer run it",
   "notify.securityAlert.second_factor_reset":
     "Your second factor was reset: you will set it up again at your next sign-in.",
   "notify.securityAlert.second_factor_reset.actor":
@@ -488,6 +492,10 @@ export const en: Catalog = {
   "push.title.task.assigned": "A task was assigned to you",
   "push.title.chat.mention": "You were mentioned in the chat",
   "push.title.chat.question": "A question for you in the chat",
+  "push.title.automation.approval": "An automation needs your approval",
+  "push.title.automation.failed": "An automation run failed",
+  "push.title.automation.notify": "Message from an automation",
+  "push.title.automation.paused": "An automation was paused",
   "push.title.chat.mention.dm": "You were mentioned in a direct message",
   "push.title.chat.question.dm": "A question for you in a direct message",
   "push.title.security.alert": "Security alert on your account",
@@ -945,6 +953,10 @@ export const it: Catalog = {
   "notify.chatQuestion": "{author} ti ha chiesto in #{channel}",
   "notify.chatMention.dm": "{author} ti ha nominato in un messaggio diretto",
   "notify.chatQuestion.dm": "{author} ti ha chiesto in un messaggio diretto",
+  "notify.automationApproval": "{automation} ti chiede di approvare un passo",
+  "notify.automationFailed": "Un'esecuzione di {automation} non è riuscita",
+  "notify.automationNotify": "{automation}: {message}",
+  "notify.automationPaused": "{automation} è in pausa: il proprietario non può più eseguirla",
   "notify.securityAlert.second_factor_reset":
     "Il tuo secondo fattore è stato azzerato: al prossimo accesso lo configuri di nuovo.",
   "notify.securityAlert.second_factor_reset.actor":
@@ -1089,6 +1101,10 @@ export const it: Catalog = {
   "push.title.task.assigned": "Ti hanno assegnato una task",
   "push.title.chat.mention": "Ti hanno nominato nella chat",
   "push.title.chat.question": "Una domanda per te nella chat",
+  "push.title.automation.approval": "Un'automazione aspetta la tua approvazione",
+  "push.title.automation.failed": "Un'esecuzione di un'automazione non è riuscita",
+  "push.title.automation.notify": "Un messaggio da un'automazione",
+  "push.title.automation.paused": "Un'automazione è in pausa",
   "push.title.chat.mention.dm": "Ti hanno nominato in un messaggio diretto",
   "push.title.chat.question.dm": "Una domanda per te in un messaggio diretto",
   "push.title.security.alert": "Avviso di sicurezza sul tuo account",

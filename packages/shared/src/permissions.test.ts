@@ -94,8 +94,9 @@ describe("catalogo dei permessi", () => {
     ])
       expect(perms).not.toContain(p);
     // Le sette di prima, planning.others (fetta 2), chat.channels.manage (area 4)
-    // e drive.manage, drive.history (area 5).
-    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 11);
+    // drive.manage, drive.history (area 5) e automations.manage (area 7).
+    expect(perms).toHaveLength(PROJECT_PERMISSIONS.length - 12);
+    expect(perms).not.toContain("automations.manage");
     expect(perms).toContain("docs.generate");
     expect(perms).toContain("prs.adopt");
   });
@@ -152,6 +153,8 @@ describe("catalogo dei permessi", () => {
         // Drive, area 5 (D3): carica, ma non gestisce né vede la storia delle aperture.
         "drive.manage",
         "drive.history",
+        // Automations, area 7: solo il Project Lead fra i preset.
+        "automations.manage",
       ].sort(),
     );
   });

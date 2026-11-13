@@ -64,6 +64,10 @@ export const PUSH_TITLE_KEY: Record<NotificationKind, string> = {
   "task.assigned": "push.title.task.assigned",
   "chat.mention": "push.title.chat.mention",
   "chat.question": "push.title.chat.question",
+  "automation.approval": "push.title.automation.approval",
+  "automation.failed": "push.title.automation.failed",
+  "automation.notify": "push.title.automation.notify",
+  "automation.paused": "push.title.automation.paused",
 };
 
 /**

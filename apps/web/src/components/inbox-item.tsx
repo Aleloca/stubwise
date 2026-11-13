@@ -64,6 +64,11 @@ export const INBOX_KIND_LABEL_KEYS: Record<InboxItem["kind"], string> = {
   "task.assigned": "inbox:kinds.taskAssigned",
   "chat.mention": "inbox:kinds.chatMention",
   "chat.question": "inbox:kinds.chatQuestion",
+  // Area 7: le card delle Automations (si aprono nell'app nuova).
+  "automation.approval": "inbox:kinds.automationApproval",
+  "automation.failed": "inbox:kinds.automationFailed",
+  "automation.notify": "inbox:kinds.automationNotify",
+  "automation.paused": "inbox:kinds.automationPaused",
 };
 
 /**

@@ -202,6 +202,7 @@ const SOURCE: Record<TicketSource, NonNullable<TaskViewData["source"]>> = {
   webhook: "webhook",
   widget: "widget",
   email: "email",
+  automation: "automation",
 };
 
 /** Lo stato del lavoro di Claude dall'ultimo job della task. */

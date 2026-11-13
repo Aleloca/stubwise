@@ -28,6 +28,8 @@ export const ticketSourceSchema = z.enum([
   "widget",
   /** Area 6, F2: una task nata da una proposta della posta (contenuto esterno). */
   "email",
+  /** Area 7, F1 (0169): una task creata da un passo `createTask` di un'automazione. */
+  "automation",
 ]);
 export type TicketSource = z.infer<typeof ticketSourceSchema>;
 

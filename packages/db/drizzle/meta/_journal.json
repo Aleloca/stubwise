@@ -1163,6 +1163,13 @@
       "when": 1798761600000,
       "tag": "0166_meeting_doc_candidates",
       "breakpoints": true
+    },
+    {
+      "idx": 169,
+      "version": "7",
+      "when": 1799020800000,
+      "tag": "0169_automations",
+      "breakpoints": true
     }
   ]
 }

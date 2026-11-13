@@ -885,6 +885,8 @@ export const milestones = pgTable(
     // progetto non saprebbe dove collocare l'evento.
     closedAt: timestamp("closed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Area 7 (0169): l'esecuzione che l'ha creato. */
+    automationRunId: uuid("automation_run_id").references((): AnyPgColumn => automationRuns.id, { onDelete: "set null" }),
   },
   (table) => [
     // Le milestone si elencano sempre per progetto.
@@ -971,6 +973,8 @@ export const tickets = pgTable(
     occurrences: integer("occurrences").notNull().default(1),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Area 7 (0169): l'esecuzione che l'ha creata; l'origine si DERIVA a lettura. */
+    automationRunId: uuid("automation_run_id").references((): AnyPgColumn => automationRuns.id, { onDelete: "set null" }),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -1768,6 +1772,13 @@ export const notificationKind = pgEnum("notification_kind", [
   // Area 4, Chat, fetta 1 (0136, DA SOLO): una menzione diretta in un canale.
   "chat.mention",
   "chat.question",
+  // Area 7, fetta 1 (0169, DA SOLI): un passo che chiede un'approvazione,
+  // un'esecuzione fallita (al proprietario), il passo `notify`, un'automazione
+  // messa in pausa da sola (D5). Titolo e testo si DERIVANO dall'esecuzione.
+  "automation.approval",
+  "automation.failed",
+  "automation.notify",
+  "automation.paused",
 ]);
 
 // Stato di una notifica nell'inbox del destinatario: `open` (da smaltire),
@@ -3241,6 +3252,8 @@ export const backlogItems = pgTable(
     // Nata da FUORI (0148): un'email in entrata. Leggerla nella chat con Claude è contenuto non fidato.
     externalOrigin: text("external_origin").$type<"email">(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Area 7 (0169): l'esecuzione che l'ha creata. */
+    automationRunId: uuid("automation_run_id").references((): AnyPgColumn => automationRuns.id, { onDelete: "set null" }),
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow()
@@ -6350,3 +6363,176 @@ export const mailOutgoing = pgTable(
   ],
 );
 
+// ---------------------------------------------------------------------------
+// Area 7, fetta 1 (0169): le Automations di progetto. Il piano è
+// `docs/plans/2026-11-12-integrazione-area7-fetta1-plan.md`; le regole in
+// `docs/invariants/automations.md`.
+// ---------------------------------------------------------------------------
+
+export const automationStatus = pgEnum("automation_status", ["draft", "active", "paused"]);
+export const automationPausedReason = pgEnum("automation_paused_reason", ["manual", "owner_lost_permission"]);
+export const automationRunStatus = pgEnum("automation_run_status", ["running", "waiting_approval", "waiting_project", "suspended", "done", "failed", "cancelled"]);
+export const automationRunOrigin = pgEnum("automation_run_origin", ["event", "manual"]);
+export const automationEventKind = pgEnum("automation_event_kind", ["task_created", "task_closed", "request_created", "request_converted", "milestone_reached"]);
+export const automationEffectKind = pgEnum("automation_effect_kind", ["task", "milestone", "request", "notification"]);
+
+/** Un'automazione di progetto: codice unico `<PRJ>-A<seq>`, la versione pubblicata e (al più) una bozza. */
+export const automations = pgTable(
+  "automations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull(),
+    seq: integer("seq").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** Chi ne risponde: i suoi permessi valgono a ogni effetto. Null finché una bozza non si accende. */
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    status: automationStatus("status").notNull().default("draft"),
+    pausedBy: uuid("paused_by").references(() => users.id, { onDelete: "set null" }),
+    pausedAt: timestamp("paused_at", { withTimezone: true }),
+    pausedReason: automationPausedReason("paused_reason"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdVia: text("created_via").$type<"claude">(),
+  },
+  (table) => [
+    uniqueIndex("automations_code_idx").on(table.code),
+    uniqueIndex("automations_project_seq_idx").on(table.projectId, table.seq),
+    check("automations_created_via_chk", sql`${table.createdVia} IS NULL OR ${table.createdVia} = 'claude'`),
+  ],
+);
+
+/** La sequenza dei codici per progetto: un codice non torna mai. */
+export const automationCodeSeqs = pgTable("automation_code_seqs", {
+  projectId: uuid("project_id")
+    .primaryKey()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  next: integer("next").notNull().default(1),
+});
+
+/** Le versioni: pubblicate (`publishedAt`) e al più una bozza. */
+export const automationVersions = pgTable(
+  "automation_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => automations.id, { onDelete: "cascade" }),
+    n: integer("n").notNull(),
+    /** Il documento del flusso (`AutomationFlow` di `@stubwise/shared/automations`). */
+    flow: jsonb("flow").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    publishedBy: uuid("published_by").references(() => users.id, { onDelete: "set null" }),
+    savedAt: timestamp("saved_at", { withTimezone: true }).notNull().defaultNow(),
+    savedBy: uuid("saved_by").references(() => users.id, { onDelete: "set null" }),
+    rev: integer("rev").notNull().default(1),
+    /** La revisione provata per ultima (R-J19: «non l'hai ancora provata»). */
+    testedRev: integer("tested_rev"),
+  },
+  (table) => [
+    uniqueIndex("automation_versions_n_idx").on(table.automationId, table.n),
+    uniqueIndex("automation_versions_one_draft_idx").on(table.automationId).where(sql`${table.publishedAt} IS NULL`),
+  ],
+);
+
+/** Un'esecuzione: lo stato del motore (`cursor`), l'approvazione pendente, la coda (lease). */
+export const automationRuns = pgTable(
+  "automation_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    automationId: uuid("automation_id")
+      .notNull()
+      .references(() => automations.id, { onDelete: "cascade" }),
+    n: integer("n").notNull(),
+    version: integer("version").notNull(),
+    title: text("title").notNull(),
+    status: automationRunStatus("status").notNull().default("running"),
+    event: jsonb("event"),
+    vars: jsonb("vars").notNull().default({}),
+    cursor: jsonb("cursor"),
+    pending: jsonb("pending"),
+    projectIds: uuid("project_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    parentRunId: uuid("parent_run_id").references((): AnyPgColumn => automationRuns.id, { onDelete: "set null" }),
+    origin: automationRunOrigin("origin").notNull(),
+    startedBy: uuid("started_by").references(() => users.id, { onDelete: "set null" }),
+    error: text("error"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    dueAt: timestamp("due_at", { withTimezone: true }).defaultNow(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    claimedBy: text("claimed_by"),
+  },
+  (table) => [
+    uniqueIndex("automation_runs_n_idx").on(table.automationId, table.n),
+    index("automation_runs_due_idx").on(table.dueAt).where(sql`${table.status} = 'running'`),
+    index("automation_runs_parent_idx").on(table.parentRunId).where(sql`${table.parentRunId} IS NOT NULL`),
+  ],
+);
+
+/** Il registro di un'esecuzione: append-only (un trigger rifiuta l'UPDATE). */
+export const automationRunLog = pgTable(
+  "automation_run_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => automationRuns.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    path: text("path").notNull(),
+    round: integer("round").notNull().default(0),
+    kind: text("kind").notNull(),
+    outcome: text("outcome").notNull(),
+    input: jsonb("input"),
+    output: jsonb("output"),
+    reason: text("reason"),
+    why: jsonb("why"),
+    byId: uuid("by_id").references(() => users.id, { onDelete: "set null" }),
+    effects: jsonb("effects"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("automation_run_log_seq_idx").on(table.runId, table.seq)],
+);
+
+/** Gli effetti: uno per passo e giro (`<run>:<path>:<round>`), così un passo rifatto non duplica. */
+export const automationEffects = pgTable(
+  "automation_effects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => automationRuns.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    round: integer("round").notNull().default(0),
+    idempotencyKey: text("idempotency_key").notNull(),
+    kind: automationEffectKind("kind").notNull(),
+    objectId: uuid("object_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("automation_effects_key_idx").on(table.idempotencyKey)],
+);
+
+/**
+ * L'outbox degli eventi (Q6, C1): la scrivono SOLO i trigger della 0169,
+ * nella transazione della scrittura. `txid` ordina gli eventi di una stessa
+ * transazione; `originRunId` è l'esecuzione che stava scrivendo (la catena).
+ */
+export const automationEvents = pgTable(
+  "automation_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: automationEventKind("kind").notNull(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    objectId: uuid("object_id").notNull(),
+    payload: jsonb("payload").notNull().default({}),
+    originRunId: uuid("origin_run_id"),
+    txid: bigint("txid", { mode: "number" }).notNull().default(sql`txid_current()`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  },
+  (table) => [index("automation_events_pending_idx").on(table.createdAt).where(sql`${table.consumedAt} IS NULL`)],
+);
