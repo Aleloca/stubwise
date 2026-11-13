@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderRoute } from "../../../test/renderRoute";
@@ -238,6 +238,32 @@ describe("le Automations nella build app", () => {
     expect(seen.filter((r) => r.path.endsWith("/approve"))).toHaveLength(1);
     expect(screen.queryByRole("button", { name: /^Approve/ })).toBeNull();
   }, 15_000);
+
+  it("scrivere nel costruttore: un solo /check dopo la pausa, e il salvataggio rilegge solo l'automazione", async () => {
+    install({
+      "POST /api/automations/AUD-A1/check": { body: { issues: [] } },
+      "PUT /api/automations/AUD-A1/draft": {
+        body: { ...row(), versions: [version(1, 3, true), version(2, 7, false)] },
+      },
+    });
+    renderRoute("/automations/AUD-A1/edit?step=trigger");
+    const title = await screen.findByRole("textbox", { name: "Run title" }, { timeout: 3000 });
+    await waitFor(() => expect(seen.some((r) => r.path.endsWith("/check"))).toBe(true));
+    const before = seen.length;
+    // Cinque tasti di fila.
+    for (const text of ["Avvio 1", "Avvio 12", "Avvio 123", "Avvio 1234", "Avvio 12345"]) {
+      title.textContent = text;
+      fireEvent.input(title);
+    }
+    await waitFor(() => expect(seen.slice(before).some((r) => r.method === "PUT")).toBe(true));
+    await new Promise((r) => setTimeout(r, 1500));
+    const after = seen.slice(before);
+    expect(after.filter((r) => r.path.endsWith("/check"))).toHaveLength(1);
+    expect(after.filter((r) => r.method === "PUT")).toHaveLength(1);
+    // Né le altre aree (task, posta, notifiche) né una seconda rilettura dopo un attimo.
+    expect(after.filter((r) => r.method === "GET" && !r.path.startsWith("/api/automations/AUD-A1"))).toEqual([]);
+    expect(after.filter((r) => r.method === "GET" && r.path === "/api/automations/AUD-A1")).toHaveLength(1);
+  });
 
   it("pubblicare la bozza dal dettaglio: POST …/publish col rev letto", async () => {
     install({
