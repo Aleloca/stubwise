@@ -12,6 +12,7 @@ import { inPrototypeWords, orNull } from "./automationRefs";
 
 /** I campi che le pagine leggono e che il server aggiunge in S5/S7 (facoltativi). */
 interface RowExtras {
+  repositoryFullName?: string;
   fixTask: { id: string; code: string; title?: string; open?: boolean } | null;
   permissions?: { fix?: boolean; startFix?: boolean };
   waitsOnViewer?: boolean;
@@ -19,7 +20,7 @@ interface RowExtras {
 interface DetailExtras extends RowExtras {
   relatedTaskCode?: string | null;
   fixBlock?: { reason: "monthly_budget" } | null;
-  productionServer?: { serverCode: string; reportedSha: string | null } | null;
+  productionServer?: { serverId: string; serverName: string; reportedSha: string | null } | null;
 }
 
 /** Le rotte (sul client vero: `client.releases`, S12). */
@@ -28,8 +29,14 @@ export interface ReleasesApi {
   get(code: string): Promise<ReleaseDetail>;
   fix(
     code: string,
-    body: { note?: string },
-  ): Promise<{ taskId: string; taskCode: string; existing?: boolean; noteAdded?: boolean }>;
+    body: { note?: string; start?: boolean },
+  ): Promise<{
+    taskId: string;
+    taskCode: string;
+    existing?: boolean;
+    noteAdded?: boolean;
+    started?: boolean;
+  }>;
 }
 
 function viewOf(
@@ -54,7 +61,8 @@ function viewOf(
     code: r.code,
     projectId: r.projectId,
     repositoryId: r.repositoryId,
-    pr: { repo: r.repositoryName, number: r.prNumber ?? 0 },
+    // `owner/repo` (il nome da solo da un server di prima).
+    pr: { repo: r.repositoryFullName ?? r.repositoryName, number: r.prNumber ?? 0 },
     title: r.title,
     mergeSha: r.mergeSha,
     mergedAt: r.mergedAt,
@@ -84,7 +92,10 @@ function viewOf(
     canStartFix: r.permissions?.startFix ?? false,
     fixBlock: d?.fixBlock ?? null,
     waitsOnViewer: r.waitsOnViewer ?? false,
-    productionServer: d?.productionServer ?? null,
+    // Il server vero non ha un codice `SRV-n`: la pagina mostra il nome.
+    productionServer: d?.productionServer
+      ? { serverCode: d.productionServer.serverName, reportedSha: d.productionServer.reportedSha }
+      : null,
   };
 }
 
@@ -110,7 +121,8 @@ export function createRealReleases(
     /** «Fai sistemare a Claude»: le pagine leggono codice ed esito (`existing`, `noteAdded`). */
     async fixRelease(code: string, note?: string): Promise<FixResult> {
       const res = await inPrototypeWords(() =>
-        api.fix(code, note?.trim() ? { note: note.trim() } : {}),
+        // `start`: Claude parte se il server lo permette (`runs.start`, budget).
+        api.fix(code, { ...(note?.trim() ? { note: note.trim() } : {}), start: true }),
       );
       return {
         id: res.taskId,

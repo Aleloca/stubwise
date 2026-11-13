@@ -87,6 +87,25 @@ describe("i rilasci della build app (area 8, F1)", () => {
     });
   });
 
+  it("il nome intero del repository, il server di produzione col suo nome, «startFix» dal server", async () => {
+    const { api } = fakeApi({
+      get: async () =>
+        ({
+          ...detail(),
+          repositoryName: "audin-app",
+          repositoryFullName: "audin/audin-app",
+          permissions: { fix: true, startFix: true },
+          productionServer: { serverId: "s1", serverName: "web-01", reportedSha: "abc1234" },
+        }) as never,
+    });
+    const r = await createRealReleases(api, codeOf).getRelease("AUD-V3");
+    expect(r).toMatchObject({
+      pr: { repo: "audin/audin-app", number: 246 },
+      canStartFix: true,
+      productionServer: { serverCode: "web-01", reportedSha: "abc1234" },
+    });
+  });
+
   it("il dettaglio: run senza log (P-1), il passo fallito nell'anteprima, i permessi del server", async () => {
     const { api } = fakeApi();
     const r = await createRealReleases(api, codeOf).getRelease("AUD-V3");
@@ -113,7 +132,8 @@ describe("i rilasci della build app (area 8, F1)", () => {
   it("«Fai sistemare a Claude»: la nota va al server, l'esito nelle parole della pagina", async () => {
     const { api, calls } = fakeApi();
     const res = await createRealReleases(api, codeOf).fixRelease("AUD-V3", "Guarda la 0042");
-    expect(calls).toContain('POST releases/AUD-V3/fix {"note":"Guarda la 0042"}');
+    // `start`: Claude parte se il server lo permette (`runs.start`, budget); lo dice `started`.
+    expect(calls).toContain('POST releases/AUD-V3/fix {"note":"Guarda la 0042","start":true}');
     expect(res).toMatchObject({ id: "t9", code: "AUD-77", existing: false, noteAdded: false });
   });
 
