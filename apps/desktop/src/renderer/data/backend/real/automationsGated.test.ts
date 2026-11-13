@@ -1,12 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { automations } from ".";
 import { setAppClientForTests } from "./client";
-import { installFakeServer } from "./fakeServer";
+import { installFakeServer, serverTask } from "./fakeServer";
+import { getTaskByCode } from "./tasks";
 
-// ⌘K delle Automations nella build app (area 7, F1): il gruppo
-// `automations` di `GET /api/search`, che filtra già per visibilità. A
-// destinazione spenta (il flag) non si cerca: un risultato porterebbe a una
-// pagina «in arrivo».
+// Ciò che delle Automations compare FUORI dalla loro destinazione nella build
+// app (area 7, F1), solo a destinazione accesa (il flag): un link
+// porterebbe altrimenti a una pagina «in arrivo».
+// - ⌘K: il gruppo `automations` di `GET /api/search`, già filtrato per
+//   visibilità.
+// - La riga d'origine di una task: solo se il server dice che l'ha creata
+//   un'automazione (`source`), così un 404 di `/api/automation-origin` vuol
+//   dire «non la vedi», mai «task manuale».
 
 const flag = vi.hoisted(() => ({ on: false }));
 vi.mock("../../integration", async (importOriginal) => {
@@ -66,5 +71,24 @@ describe("⌘K: automazioni ed esecuzioni dal server", () => {
     void _omit;
     installFakeServer({ "GET /api/search": { body: old } });
     expect(await automations.searchAutomations("avv")).toEqual([]);
+  });
+});
+
+describe("la riga d'origine di una task creata da un'automazione", () => {
+  const routes = {
+    "GET /api/tasks/by-code/AUD-12": { body: serverTask({ source: "automation" }) },
+    "GET /api/tasks/by-code/AUD-13": { body: serverTask({ source: "manual" }) },
+  };
+
+  it("a destinazione accesa: solo la task con `source: automation` porta il riferimento (risolto dal server)", async () => {
+    flag.on = true;
+    installFakeServer(routes);
+    expect((await getTaskByCode("AUD-12"))?.automationRef).toBeDefined();
+    expect((await getTaskByCode("AUD-13"))?.automationRef).toBeUndefined();
+  });
+
+  it("a destinazione spenta nessuna riga", async () => {
+    installFakeServer(routes);
+    expect((await getTaskByCode("AUD-12"))?.automationRef).toBeUndefined();
   });
 });
