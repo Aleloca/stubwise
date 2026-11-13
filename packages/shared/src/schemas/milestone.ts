@@ -31,6 +31,14 @@ export const milestoneSchema = z.object({
    */
   closedAt: z.iso.datetime().nullable(),
   createdAt: z.iso.datetime(),
+  /**
+   * Area 7 (fetta 1): l'ha creato un'esecuzione di un'automazione
+   * (`milestones.automation_run_id`). Dice solo SE chiedere la riga d'origine
+   * (`GET /api/automation-origin?milestone=`), che decide cosa mostrare.
+   * Additivo e FACOLTATIVO: un server di prima non lo manda, e assente vale
+   * «no» (`automationCreated === true` per chiedere la riga).
+   */
+  automationCreated: z.boolean().optional(),
 });
 export type Milestone = z.infer<typeof milestoneSchema>;
 

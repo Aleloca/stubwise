@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, projectMembers as projectMembersTable, projects, tickets, type Db } from "@stubwise/db";
+import { automationRunInputs, automationRunLog, automationRuns, automations, automationVersions, milestones, projectMembers as projectMembersTable, projects, tickets, type Db } from "@stubwise/db";
 import type { TestDb } from "@stubwise/db/testing";
 import { addDepartmentMember, seedDepartment, startTestDb } from "@stubwise/db/testing";
 import type { AutomationFlow, Step } from "@stubwise/shared";
@@ -456,6 +456,21 @@ describe("R-J12: il registro come lo legge chi guarda", () => {
     const seenByDev = (await call(dev.headers, "GET", `/automations/${a.code}/runs/1`)).json() as typeof seenByLead;
     expect(seenByDev.log[0]).toMatchObject({ input: { progetto: "", titolo: "Altrove" }, effects: [{ code: "" }] });
     expect(seenByDev.projectIds).toEqual([p.id]);
+  });
+});
+
+describe("i traguardi creati da un'automazione", () => {
+  it("automationCreated dice SE chiedere la riga d'origine: vero per un traguardo creato da un'esecuzione, falso per uno a mano", async () => {
+    const { p, lead } = await setup();
+    const a = await created(lead, p.id);
+    const [run] = await db.insert(automationRuns).values({ automationId: a.id, n: 1, version: 1, title: "R", origin: "manual", status: "done" }).returning();
+    await db.insert(milestones).values([
+      { projectId: p.id, name: "Dall'automazione", automationRunId: run!.id },
+      { projectId: p.id, name: "A mano" },
+    ]);
+    const list = (await call(lead.headers, "GET", `/milestones?projectId=${p.id}`)).json() as { items?: { name: string; automationCreated: boolean }[] } | { name: string; automationCreated: boolean }[];
+    const items = Array.isArray(list) ? list : (list.items ?? []);
+    expect(Object.fromEntries(items.map((m) => [m.name, m.automationCreated]))).toEqual({ "Dall'automazione": true, "A mano": false });
   });
 });
 

@@ -133,6 +133,8 @@ describe("POST /api/milestones", () => {
       status: "open",
       closedAt: null,
       createdAt: expect.any(String),
+      // Area 7: creato a mano, quindi nessuna riga d'origine da chiedere.
+      automationCreated: false,
     });
   });
 
