@@ -293,6 +293,26 @@ describe("POST /api/tickets/:id/repositories/:repositoryId/release", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("review F1: la PR di un COLLEGA (riga del ticket review) si registra col SUO target e titolo; verso develop niente rilascio, verso main sì", async () => {
+    for (const [target, expected] of [["develop", null], ["main", /-V\d+$/]] as const) {
+      const { ticketId, repositoryId, trId } = await seedOpenPr();
+      await testDb.db.update(tickets).set({ type: "review", title: "PR Review: Feature X (#42)" }).where(eq(tickets.id, ticketId));
+      await testDb.db.update(ticketRepositories).set({ branch: "feature-x", adoptedAt: new Date() }).where(eq(ticketRepositories.id, trId));
+      await testDb.db.insert(prReviews).values({ repositoryId, ticketId, prNumber: 42, prUrl: PR_URL, prTitle: "Feature X", headSha: "headsha123", status: "completed", sourceBranch: "feature-x", targetBranch: target });
+      vi.stubGlobal("fetch", greenFetch());
+      const res = await release(ticketId, repositoryId, adminCookie);
+      expect(res.statusCode).toBe(200);
+      const rows = await testDb.db.select().from(releases).where(eq(releases.repositoryId, repositoryId));
+      if (expected === null) {
+        expect(res.json()).toMatchObject({ releaseCode: null });
+        expect(rows).toEqual([]);
+      } else {
+        expect((res.json() as { releaseCode: string }).releaseCode).toMatch(expected);
+        expect(rows).toEqual([expect.objectContaining({ title: "Feature X" })]);
+      }
+    }
+  });
+
   it("area 8, F1: un merge che non è sul ramo di rilascio non fa un rilascio, e la risposta lo dice (releaseCode null)", async () => {
     const { ticketId, repositoryId } = await seedOpenPr();
     await testDb.db.update(repositories).set({ releaseBranch: "production" }).where(eq(repositories.id, repositoryId));

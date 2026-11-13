@@ -1219,6 +1219,13 @@
       "when": 1799539200000,
       "tag": "0175_releases",
       "breakpoints": true
+    },
+    {
+      "idx": 176,
+      "version": "7",
+      "when": 1799625600000,
+      "tag": "0176_release_poll_state",
+      "breakpoints": true
     }
   ]
 }

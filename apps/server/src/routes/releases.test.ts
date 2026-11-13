@@ -62,6 +62,19 @@ describe("i rilasci", () => {
     expect((await call(s.outsider.headers, "GET", `/releases/${s.release.code}`)).statusCode).toBe(404);
   });
 
+  it("review F1: una CI mai letta perché illeggibile (permessi del token) è «unknown», mai «in corso» o «non in produzione»; letta, torna allo stato delle run", async () => {
+    const s = await setup("running");
+    await db.delete(releaseCiRuns).where(eq(releaseCiRuns.releaseId, s.release.id));
+    const statusNow = async () => ((await call(s.lead.headers, "GET", `/releases/${s.release.code}`)).json() as { status: { kind: string } }).status.kind;
+    // Mai provata: entro la soglia dal merge le run possono ancora partire.
+    expect(await statusNow()).toBe("running");
+    await db.update(releases).set({ ciUnreadableAt: new Date() }).where(eq(releases.id, s.release.id));
+    expect(await statusNow()).toBe("unknown");
+    // Con una run letta prima, la lettura fallita dopo non la cancella.
+    await db.insert(releaseCiRuns).values({ releaseId: s.release.id, providerRunId: "2", name: "test", status: "success", startedAt: new Date(), endedAt: new Date() });
+    expect(await statusNow()).toBe("succeeded");
+  });
+
   it("«Fai sistemare a Claude»: una task bug col passo fallito e la nota; un altro clic restituisce la stessa (existing) e la nota diventa un commento; il dettaglio la mostra aperta", async () => {
     const s = await setup("failed");
     const res = await call(s.lead.headers, "POST", `/releases/${s.release.code}/fix`, { note: "Guarda il test del carrello" });

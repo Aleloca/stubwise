@@ -197,9 +197,24 @@ export async function releasePullRequest(
     const gitConfig = { repoUrl: repository.repoUrl, defaultBranch: repository.defaultBranch, credentials };
     const result = await releaseAt(getProvider(repository.provider), gitConfig, prNumber);
     if (result.ok) {
-      const [ticket] = await db.select({ title: tickets.title }).from(tickets).where(eq(tickets.id, ticketId));
-      // Le PR di Stubwise puntano al ramo di default del repository.
-      const releaseCode = await recordAfterMerge(db, { repositoryId, targetBranch: repository.defaultBranch, prNumber, prUrl: tr.prUrl, title: ticket?.title ?? "", mergeSha: result.sha, actorId: actor.id });
+      const [ticket] = await db.select({ title: tickets.title, type: tickets.type }).from(tickets).where(eq(tickets.id, ticketId));
+      // Le PR di Stubwise puntano al ramo di default del repository. Una PR di
+      // un collega (la riga del ticket `review`, anche un'adozione vecchia)
+      // punta dove dice la sua review, col SUO titolo: un target ignoto non
+      // registra niente qui (lo fa il webhook, che lo sa) — review area 8 F1.
+      let target: string | null = repository.defaultBranch;
+      let title = ticket?.title ?? "";
+      if (ticket?.type === "review") {
+        const [rev] = await db
+          .select({ targetBranch: prReviews.targetBranch, prTitle: prReviews.prTitle })
+          .from(prReviews)
+          .where(and(eq(prReviews.repositoryId, repositoryId), eq(prReviews.prNumber, prNumber)))
+          .orderBy(desc(prReviews.createdAt))
+          .limit(1);
+        target = rev?.targetBranch ?? null;
+        title = rev?.prTitle ?? title;
+      }
+      const releaseCode = target === null ? null : await recordAfterMerge(db, { repositoryId, targetBranch: target, prNumber, prUrl: tr.prUrl, title, mergeSha: result.sha, actorId: actor.id });
       return { ...result, releaseCode };
     }
     return result;
@@ -240,9 +255,10 @@ export async function releasePullRequest(
 
   const result = await releaseAt(provider, gitConfig, review.prNumber);
   if (result.ok) {
-    const releaseCode = await recordAfterMerge(db, {
+    // Un target ignoto non registra niente qui: lo fa il webhook, che lo sa.
+    const releaseCode = review.targetBranch === null ? null : await recordAfterMerge(db, {
       repositoryId,
-      targetBranch: review.targetBranch ?? repository.defaultBranch,
+      targetBranch: review.targetBranch,
       prNumber: review.prNumber,
       prUrl: review.prUrl,
       title: review.prTitle,

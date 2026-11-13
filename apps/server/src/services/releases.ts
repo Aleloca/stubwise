@@ -167,7 +167,15 @@ async function statusOf(db: Db, release: ReleaseRecord, repo: { ciProvider: stri
   const production = await releaseProductionOf(db, release.projectId, release.repositoryId);
   const seen = release.seenInProductionAt ?? (production.services.some((s) => sameCommit(s.commitSha, release.mergeSha)) ? now : null);
   return releaseStatusOf({
-    runs: repo.ciProvider === null ? [] : runs.map((r) => ({ name: r.name, status: r.status, startedAt: (r.startedAt ?? r.updatedAt).toISOString(), endedAt: r.endedAt?.toISOString() ?? null })),
+    // Una CI che il poller non è riuscito a leggere (e di cui non c'è nessuna
+    // run letta prima) è «non leggibile»: mai indovinare «in corso» o «non in
+    // produzione» (review F1; la stessa regola del worker).
+    runs:
+      repo.ciProvider === null
+        ? []
+        : runs.length === 0 && release.ciUnreadableAt !== null
+          ? "unknown"
+          : runs.map((r) => ({ name: r.name, status: r.status, startedAt: (r.startedAt ?? r.updatedAt).toISOString(), endedAt: r.endedAt?.toISOString() ?? null })),
     mergedAt: release.mergedAt.toISOString(),
     mergeSha: release.mergeSha,
     seenInProductionAt: seen?.toISOString() ?? null,

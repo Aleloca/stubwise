@@ -16,7 +16,7 @@ import {
 } from "@stubwise/db";
 import { seedRepository, startTestDb, type TestDb } from "@stubwise/db/testing";
 import type { CommitRuns } from "@stubwise/git";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { pollReleasesOnce, RELEASE_WATCH_HOURS } from "./poller.js";
 
@@ -96,6 +96,51 @@ describe("pollReleasesOnce", () => {
     const after = await reload(s.release.id);
     expect(after.seenInProductionAt).not.toBeNull();
     expect(after.runsSettledAt).not.toBeNull();
+  });
+
+  it("review F1: l'esito dell'ultima lettura si salva (illeggibile → ci_unreadable_at; letta → null)", async () => {
+    const s = await setup();
+    await poll(fake({ status: "unknown" }));
+    expect((await reload(s.release.id)).ciUnreadableAt).not.toBeNull();
+    await poll(fake({ status: "ok", runs: [{ id: "1", name: "build", status: "running", url: "h", failedStep: null, startedAt: new Date().toISOString(), endedAt: null }] }));
+    expect((await reload(s.release.id)).ciUnreadableAt).toBeNull();
+  });
+
+  it("review F1: a turno — con più di 50 rilasci aperti, il giro dopo guarda quelli rimasti fuori", async () => {
+    const s = await setup();
+    const extra = [];
+    for (let i = 0; i < 55; i++) {
+      const [r] = await t.db
+        .insert(releases)
+        .values({ code: `RR${i}-${randomUUID().slice(0, 4)}`, seq: 100 + i, projectId: s.projectId, repositoryId: s.repositoryId, prNumber: 100 + i, prUrl: "u", title: "x", mergeSha: String(i).padStart(40, "a"), mergedAt: new Date(Date.now() - 3_600_000 + i * 1000), viaStubwise: true })
+        .returning();
+      extra.push(r!.id);
+    }
+    const running = fake({ status: "ok", runs: [{ id: "1", name: "build", status: "running", url: "h", failedStep: null, startedAt: new Date().toISOString(), endedAt: null }] });
+    await poll(running);
+    await poll(running);
+    const polled = await t.db.select({ id: releases.id, at: releases.lastPolledAt }).from(releases).where(eq(releases.projectId, s.projectId));
+    // Tutti i 56 (55 + quello del setup) sono stati guardati in due giri da 50.
+    expect(polled.filter((r) => r.at === null)).toEqual([]);
+  });
+
+  it("review F1: un avviso la cui pubblicazione fallisce si riprova al giro dopo, e arriva una volta sola", async () => {
+    const s = await setup();
+    const failed: CommitRuns = { status: "ok", runs: [{ id: "9", name: "test", status: "failed", url: "h", failedStep: "x", startedAt: new Date().toISOString(), endedAt: new Date().toISOString() }] };
+    // Il primo giro: la scrittura delle notifiche fallisce (un trigger che lancia).
+    await t.db.execute(sql`create or replace function stubwise_test_fail_notify() returns trigger language plpgsql as $$ begin raise exception 'giù'; end $$`);
+    await t.db.execute(sql`create trigger stubwise_test_fail_notify before insert on notifications for each row execute function stubwise_test_fail_notify()`);
+    try {
+      await poll(fake(failed));
+    } finally {
+      await t.db.execute(sql`drop trigger stubwise_test_fail_notify on notifications`);
+      await t.db.execute(sql`drop function stubwise_test_fail_notify()`);
+    }
+    expect(await reload(s.release.id)).toMatchObject({ failedNotifiedAt: null, runsSettledAt: null });
+    expect(await cardsOf(s.leadId)).toEqual([]);
+    await poll(fake(failed));
+    await poll(fake(failed));
+    expect(await cardsOf(s.leadId)).toHaveLength(1);
   });
 
   it("fuori dalla finestra si sistema così com'è", async () => {

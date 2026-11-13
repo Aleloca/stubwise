@@ -53,9 +53,12 @@ export async function pollReleasesOnce(deps: ReleasePollerDeps): Promise<number>
     .innerJoin(repositories, eq(repositories.id, releases.repositoryId))
     .innerJoin(gitAccounts, eq(gitAccounts.id, repositories.gitAccountId))
     .where(and(isNull(releases.runsSettledAt), gte(releases.mergedAt, new Date(now.getTime() - RELEASE_WATCH_HOURS * 3_600_000))))
-    .orderBy(releases.mergedAt)
+    // A turno (review F1): prima i mai guardati, poi i guardati da più tempo.
+    // Con più di BATCH rilasci aperti nessuno resta indietro per sempre.
+    .orderBy(sql`${releases.lastPolledAt} asc nulls first`, releases.mergedAt)
     .limit(BATCH);
   for (const row of rows) {
+    await deps.db.update(releases).set({ lastPolledAt: now }).where(eq(releases.id, row.release.id));
     try {
       await pollOne(deps, row, now);
     } catch (err) {
@@ -85,6 +88,8 @@ async function pollOne(deps: ReleasePollerDeps, row: Row, now: Date): Promise<vo
     if (credentials) {
       const provider = deps.providerFor?.(repository.provider) ?? getProvider(repository.provider);
       runsRead = await provider.getCommitRuns({ repoUrl: repository.repoUrl, defaultBranch: repository.defaultBranch, credentials }, release.mergeSha);
+      // L'esito dell'ULTIMA lettura, per il server: illeggibile → «non leggibile».
+      await deps.db.update(releases).set({ ciUnreadableAt: runsRead.status === "ok" ? null : now }).where(eq(releases.id, release.id));
       if (runsRead.status === "ok") {
         for (const r of runsRead.runs) {
           await deps.db
@@ -107,6 +112,7 @@ async function pollOne(deps: ReleasePollerDeps, row: Row, now: Date): Promise<vo
       }
     } else {
       runsRead = { status: "unknown" };
+      await deps.db.update(releases).set({ ciUnreadableAt: now }).where(eq(releases.id, release.id));
     }
   }
 
@@ -146,7 +152,13 @@ async function pollOne(deps: ReleasePollerDeps, row: Row, now: Date): Promise<vo
       const failedRun = saved.find((r) => r.status === "failed")?.name ?? null;
       const [proj] = await deps.db.execute<{ code: string }>(sql`select code from projects where id = ${release.projectId}`);
       const base = (deps.publicUrl ?? "").replace(/\/+$/, "");
-      await publishNotification(
+      // Il segno `failed_notified_at` lo prende chi avvisa (niente doppioni fra
+      // due giri). `publishNotification` non lancia: su un errore risponde
+      // `published: 0`, come senza destinatari. Allora il segno si toglie e il
+      // rilascio NON si sistema: il giro dopo riprova (review F1). Senza
+      // destinatari si riprova fino alla fine della finestra; in pratica non
+      // succede, perché un full admin ha sempre `release.merge`.
+      const out = await publishNotification(
         deps.db,
         {
           kind: "release.failed",
@@ -159,6 +171,10 @@ async function pollOne(deps: ReleasePollerDeps, row: Row, now: Date): Promise<vo
         },
         { projectId: release.projectId },
       );
+      if (out.published === 0) {
+        await deps.db.update(releases).set({ failedNotifiedAt: null }).where(eq(releases.id, release.id));
+        throw new Error("avviso release.failed non pubblicato: si riprova al giro dopo");
+      }
     }
   }
 
