@@ -4,14 +4,14 @@
 // orologio). Un giorno del mese che il mese non ha cade all'ultimo (Q13 = a).
 // «Una volta al giorno» lo garantisce chi scatta, con `localDate` come chiave.
 
-const DAYS = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
+type Weekday = "SU" | "MO" | "TU" | "WE" | "TH" | "FR" | "SA";
 
 interface LocalParts {
   year: number;
   month: number;
   day: number;
   hour: number;
-  weekday: (typeof DAYS)[number];
+  weekday: Weekday;
 }
 
 const formatters = new Map<string, Intl.DateTimeFormat>();
